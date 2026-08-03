@@ -44,6 +44,8 @@ describe('built-in slash command registry', () => {
     expect(findBuiltInSlashCommand('connect')?.name).toBe('login');
     expect(findBuiltInSlashCommand('allowed-tools')?.name).toBe('permissions');
     expect(findBuiltInSlashCommand('plugin')?.name).toBe('plugins');
+    expect(findBuiltInSlashCommand('update')?.name).toBe('update');
+    expect(findBuiltInSlashCommand('upgrade')?.name).toBe('update');
     expect(findBuiltInSlashCommand('reload-plugins')?.name).toBe('reload-plugins');
     expect(findBuiltInSlashCommand('release-notes')?.name).toBe('release-notes');
     expect(findBuiltInSlashCommand('review')?.name).toBe('review');

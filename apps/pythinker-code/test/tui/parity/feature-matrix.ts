@@ -203,6 +203,7 @@ const COMMANDS = [
   'tag',
   'terminal-setup',
   'undo',
+  'update',
   'editor',
   'theme',
   'vim',

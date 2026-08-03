@@ -10,7 +10,7 @@ import {
   readUpdateInstallState,
   writeUpdateInstallState,
 } from '#/cli/update/install-state';
-import { runUpdatePreflight, spawnForSource } from '#/cli/update/preflight';
+import { runUpdatePreflight, spawnForSource, startManualUpdate } from '#/cli/update/preflight';
 import { promptForInstallChoice } from '#/cli/update/prompt';
 import type * as PromptModule from '#/cli/update/prompt';
 import { refreshUpdateCache } from '#/cli/update/refresh';
@@ -1434,4 +1434,110 @@ describe('spawnForSource native', () => {
       expect(result.status).toBeGreaterThan(0);
     },
   );
+});
+
+describe('startManualUpdate', () => {
+  beforeEach(() => {
+    mocks.readUpdateInstallState.mockResolvedValue(emptyUpdateInstallState());
+    mocks.writeUpdateInstallState.mockResolvedValue(undefined);
+    mocks.loadTuiConfig.mockResolvedValue(tuiConfig());
+    mocks.resolveUpdateDeviceId.mockReturnValue('test-device');
+    mocks.appendRolloutDecisionLog.mockResolvedValue(undefined);
+    mocks.tryAcquireUpdateInstallLock.mockResolvedValue({
+      filePath: '/tmp/pythinker-update-install.lock',
+      release: vi.fn().mockResolvedValue(undefined),
+    });
+  });
+
+  afterEach(() => { vi.clearAllMocks(); vi.unstubAllEnvs(); });
+
+  it('reports up-to-date when the registry has nothing newer', async () => {
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.4.0'));
+
+    await expect(startManualUpdate('0.4.0')).resolves.toEqual({ status: 'up-to-date' });
+    expect(mocks.spawn).not.toHaveBeenCalled();
+  });
+
+  it('starts a background install for an auto-installable source', async () => {
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.detectInstallSource.mockResolvedValue('npm-global');
+    mockSpawnExit(0);
+
+    await expect(startManualUpdate('0.4.0')).resolves.toEqual({
+      status: 'started',
+      version: '0.5.0',
+    });
+    await flushBackgroundInstall();
+    expect(mocks.spawn).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores the rollout hold — an explicit request installs immediately', async () => {
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWithManifest(heldForEveryone('0.5.0')));
+    mocks.detectInstallSource.mockResolvedValue('npm-global');
+    mockSpawnExit(0);
+
+    await expect(startManualUpdate('0.4.0')).resolves.toEqual({
+      status: 'started',
+      version: '0.5.0',
+    });
+  });
+
+  it('ignores auto_install=false — the user explicitly asked to update', async () => {
+    disableAutoInstall();
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.detectInstallSource.mockResolvedValue('npm-global');
+    mockSpawnExit(0);
+
+    await expect(startManualUpdate('0.4.0')).resolves.toEqual({
+      status: 'started',
+      version: '0.5.0',
+    });
+  });
+
+  it('returns the manual command when the source cannot auto-install', async () => {
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.detectInstallSource.mockResolvedValue('homebrew');
+
+    await expect(startManualUpdate('0.4.0')).resolves.toEqual({
+      status: 'manual',
+      version: '0.5.0',
+      command: 'brew upgrade pythinker-code',
+    });
+    expect(mocks.spawn).not.toHaveBeenCalled();
+  });
+
+  it('reports an install already in progress instead of double-starting', async () => {
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.detectInstallSource.mockResolvedValue('npm-global');
+    mocks.readUpdateInstallState.mockResolvedValue(installState({
+      active: { version: '0.5.0', source: 'npm-global', startedAt: new Date().toISOString() },
+    }));
+
+    await expect(startManualUpdate('0.4.0')).resolves.toEqual({
+      status: 'in-progress',
+      version: '0.5.0',
+    });
+    expect(mocks.spawn).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the manual command after repeated background failures', async () => {
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.detectInstallSource.mockResolvedValue('npm-global');
+    mocks.readUpdateInstallState.mockResolvedValue(installState({
+      lastFailure: { version: '0.5.0', failedAt: new Date().toISOString(), attempts: 2 },
+    }));
+
+    const result = await startManualUpdate('0.4.0');
+    expect(result.status).toBe('manual');
+    expect(mocks.spawn).not.toHaveBeenCalled();
+  });
+
+  it('reports check-failed when the registry refresh fails', async () => {
+    mocks.refreshUpdateCache.mockRejectedValue(new Error('offline'));
+
+    await expect(startManualUpdate('0.4.0')).resolves.toEqual({
+      status: 'check-failed',
+      message: 'offline',
+    });
+  });
 });

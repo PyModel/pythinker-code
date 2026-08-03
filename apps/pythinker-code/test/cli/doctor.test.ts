@@ -47,6 +47,7 @@ function makeDeps(): {
         update: {
           latest: '1.3.0',
           checkedAt: '2026-07-29T12:00:00.000Z',
+          autoUpdate: 'on' as const,
         },
       }),
       exit: (code) => {
@@ -126,6 +127,7 @@ describe('pythinker doctor', () => {
         '  Package root: /opt/pythinker',
         '  Executable: /usr/local/bin/node',
         '  Update channel: CDN staged rollout',
+        '  Auto-update: on (tui.toml [upgrade].auto_install)',
         '  Latest cached version: 1.3.0 (checked 2026-07-29T12:00:00.000Z)',
       ].join('\n'),
     );

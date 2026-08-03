@@ -15,6 +15,7 @@ import { z } from 'zod';
 
 import { getTuiConfigPath, parseTuiConfig } from '#/tui/config';
 import { readUpdateCache } from '#/cli/update/cache';
+import { isAutoUpdateDisabledByEnv, shouldAutoInstallUpdates } from '#/cli/update/preflight';
 import { detectInstallSource } from '#/cli/update/source';
 import { getHostPackageRoot, getVersion } from '#/cli/version';
 
@@ -48,6 +49,7 @@ export interface DoctorRuntimeInfo {
   readonly update?: {
     readonly latest: string | null;
     readonly checkedAt: string | null;
+    readonly autoUpdate?: 'on' | 'off' | 'env-disabled';
   };
 }
 
@@ -164,11 +166,12 @@ function resolveDeps(deps: Partial<DoctorDeps> | DoctorDeps | undefined): Resolv
     runtimeInfo:
       deps?.runtimeInfo ??
       (async () => {
-        const [installSource, installations, ripgrep, update] = await Promise.all([
+        const [installSource, installations, ripgrep, update, autoInstall] = await Promise.all([
           detectInstallSource(),
           findPythinkerExecutables(),
           findExistingRg(resolvePythinkerHome()),
           readUpdateCache(),
+          shouldAutoInstallUpdates(),
         ]);
         return {
           version: getVersion(),
@@ -177,7 +180,11 @@ function resolveDeps(deps: Partial<DoctorDeps> | DoctorDeps | undefined): Resolv
           executable: process.execPath,
           installations,
           ripgrep,
-          update,
+          update: {
+            latest: update.latest,
+            checkedAt: update.checkedAt,
+            autoUpdate: isAutoUpdateDisabledByEnv() ? 'env-disabled' : autoInstall ? 'on' : 'off',
+          },
         };
       }),
   };
@@ -361,6 +368,13 @@ function formatRuntimeInfo(info: DoctorRuntimeInfo | undefined): string[] {
       ? []
       : [
           '  Update channel: CDN staged rollout',
+          ...(info.update.autoUpdate === undefined
+            ? []
+            : [
+                info.update.autoUpdate === 'env-disabled'
+                  ? '  Auto-update: disabled by PYTHINKER_CODE_NO_AUTO_UPDATE'
+                  : `  Auto-update: ${info.update.autoUpdate} (tui.toml [upgrade].auto_install)`,
+              ]),
           ...(info.update.latest === null
             ? ['  Latest cached version: unavailable']
             : [

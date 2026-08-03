@@ -9,6 +9,7 @@ import type {
 } from '@pythoughts/pythinker-code-sdk';
 
 import { handleDoctor } from '#/cli/sub/doctor';
+import { startManualUpdate } from '#/cli/update/preflight';
 import { PYTHINKER_CODE_CHANGELOG_URL } from '#/constant/app';
 import { openUrl } from '#/utils/open-url';
 import { buildMcpStatusReportLines } from '../components/messages/mcp-status-panel';
@@ -292,6 +293,42 @@ export async function handleHooksCommand(
       )
       .join('\n'),
   );
+}
+
+export async function handleUpdateCommand(
+  host: SlashCommandHost,
+  args: string,
+): Promise<void> {
+  if (args.trim().length > 0) {
+    host.showError('Usage: /update');
+    return;
+  }
+  host.showStatus('Checking for updates…');
+  const currentVersion = host.state.appState.version;
+  const result = await startManualUpdate(currentVersion);
+  switch (result.status) {
+    case 'up-to-date':
+      host.showNotice('Pythinker Code is up to date', `v${currentVersion}`);
+      return;
+    case 'started':
+      host.showNotice(
+        `Updating to v${result.version}`,
+        'Installing in the background — restart the CLI when it completes.',
+      );
+      return;
+    case 'in-progress':
+      host.showNotice(
+        `Update to v${result.version} already in progress`,
+        'Restart the CLI once it completes.',
+      );
+      return;
+    case 'manual':
+      host.showNotice(`Update available — v${result.version}`, `Run: ${result.command}`);
+      return;
+    case 'check-failed':
+      host.showError(`Update check failed: ${result.message}`);
+      return;
+  }
 }
 
 export async function handleDoctorCommand(

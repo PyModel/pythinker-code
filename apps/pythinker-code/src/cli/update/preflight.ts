@@ -19,6 +19,7 @@ import {
   type InstallPromptOptions,
 } from './prompt';
 import { refreshUpdateCache } from './refresh';
+import { selectUpdateTarget } from './select';
 import {
   appendRolloutDecisionLog,
   decidePassiveUpdateTarget,
@@ -34,6 +35,7 @@ import {
   type InstallSource,
   type UpdateDecision,
   type UpdateInstallState,
+  type UpdateCache,
   type UpdateManifest,
   type UpdatePreflightResult,
   type UpdateTarget,
@@ -432,13 +434,13 @@ async function showPendingBackgroundInstallNotice(
  * prompt. Migrated from pythinker-cli, where the variable gated all auto-update
  * behavior. Accepts the usual truthy values (`1`/`true`/`yes`/`on`).
  */
-function isAutoUpdateDisabledByEnv(env: NodeJS.ProcessEnv = process.env): boolean {
+export function isAutoUpdateDisabledByEnv(env: NodeJS.ProcessEnv = process.env): boolean {
   const truthy = (value?: string): boolean =>
     ['1', 'true', 'yes', 'on'].includes((value ?? '').trim().toLowerCase());
   return truthy(env['PYTHINKER_CODE_NO_AUTO_UPDATE']) || truthy(env['PYTHINKER_CLI_NO_AUTO_UPDATE']);
 }
 
-async function shouldAutoInstallUpdates(): Promise<boolean> {
+export async function shouldAutoInstallUpdates(): Promise<boolean> {
   try {
     const config = await loadTuiConfig();
     return config.upgrade.autoInstall;
@@ -707,6 +709,77 @@ async function tryStartAutomaticBackgroundInstall(
       error: formatErrorMessage(error),
     });
     return false;
+  }
+}
+
+export type ManualUpdateResult =
+  | { readonly status: 'up-to-date' }
+  | { readonly status: 'check-failed'; readonly message: string }
+  | { readonly status: 'started'; readonly version: string }
+  | { readonly status: 'in-progress'; readonly version: string }
+  | { readonly status: 'manual'; readonly version: string; readonly command: string };
+
+/**
+ * Explicit user-requested update (TUI `/update`). Unlike the passive
+ * preflight it ignores the rollout delay and the `auto_install` preference —
+ * the user asked, so we install — but still reuses the background installer,
+ * its lock, and its failure bookkeeping. The env kill-switch is also ignored:
+ * it gates automatic behavior, not explicit requests (matching `pythinker upgrade`).
+ */
+export async function startManualUpdate(
+  currentVersion: string,
+  logger: UpdateLogger = log,
+): Promise<ManualUpdateResult> {
+  let cache: UpdateCache;
+  try {
+    cache = await refreshUpdateCache();
+  } catch (error) {
+    return { status: 'check-failed', message: formatErrorMessage(error) };
+  }
+  const target = selectUpdateTarget(currentVersion, cache.latest);
+  if (target === null) return { status: 'up-to-date' };
+
+  const platform = process.platform;
+  const source = await detectInstallSource().catch(() => 'unsupported' as const);
+  if (!canAutoInstall(source, platform)) {
+    return {
+      status: 'manual',
+      version: target.version,
+      command: installCommandFor(source, target.version, platform),
+    };
+  }
+
+  const installState = await readUpdateInstallState().catch(() => emptyUpdateInstallState());
+  if (hasFreshActiveInstall(installState)) {
+    return {
+      status: 'in-progress',
+      version: installState.active?.version ?? target.version,
+    };
+  }
+  // Repeated background failures fall back to the copyable command instead of
+  // claiming "started" for an install startBackgroundInstall would refuse.
+  if (failureAttemptsFor(installState, target) >= AUTO_INSTALL_FAILURE_PROMPT_THRESHOLD) {
+    return {
+      status: 'manual',
+      version: target.version,
+      command: installCommandFor(source, target.version, platform),
+    };
+  }
+
+  try {
+    await startBackgroundInstall(
+      installState,
+      currentVersion,
+      target,
+      source,
+      platform,
+      undefined,
+      logger,
+      rolloutTelemetryFor(resolveUpdateDeviceId(), target.version, cache.manifest, true),
+    );
+    return { status: 'started', version: target.version };
+  } catch (error) {
+    return { status: 'check-failed', message: formatErrorMessage(error) };
   }
 }
 

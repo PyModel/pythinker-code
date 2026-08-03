@@ -50,6 +50,7 @@ import { handleMemoryCommand } from './memory';
 import {
   handleDoctorCommand,
   handleFeedbackCommand,
+  handleUpdateCommand,
   handleHooksCommand,
   showMcpServers,
   showContextReport,
@@ -114,6 +115,7 @@ export { handleFastCommand } from './fast';
 export {
   handleDoctorCommand,
   handleFeedbackCommand,
+  handleUpdateCommand,
   handleHooksCommand,
   showMcpServers,
   showContextReport,
@@ -305,6 +307,9 @@ async function handleBuiltInSlashCommand(
       return;
     case 'doctor':
       await handleDoctorCommand(host, args);
+      return;
+    case 'update':
+      await handleUpdateCommand(host, args);
       return;
     case 'debug':
       await handleDebugCommand(host, args);

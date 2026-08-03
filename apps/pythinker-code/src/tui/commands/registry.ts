@@ -250,6 +250,13 @@ export const BUILTIN_SLASH_COMMANDS = [
     availability: 'always',
   },
   {
+    name: 'update',
+    aliases: ['upgrade'],
+    description: 'Update Pythinker Code to the latest version',
+    priority: 60,
+    availability: 'always',
+  },
+  {
     name: 'debug',
     aliases: [],
     description: 'Analyze the current session diagnostic log',

@@ -110,6 +110,7 @@ export function createProgram(
   registerMigrateCommand(program, onMigrate);
   program
     .command('upgrade')
+    .alias('update')
     .description('Upgrade Pythinker Code to the latest version.')
     .action(async () => {
       await onUpgrade();
