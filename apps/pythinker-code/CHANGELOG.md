@@ -1,5 +1,11 @@
 # @pythoughts/pythinker-code
 
+## 0.3.0
+
+### Minor Changes
+
+- [`fc6a226`](https://github.com/Pythoughts-labs/pythinker-code/commit/fc6a22694298d884070130d5918ce7b14c585fdb) - Add the `/update` slash command (alias `/upgrade`) the welcome banner has been advertising: it checks the CDN for a newer version and installs it in the background, falling back to a copyable command for installs that cannot self-update (e.g. Homebrew). `pythinker doctor` now reports whether auto-update is on, off via `tui.toml [upgrade].auto_install`, or disabled by `PYTHINKER_CODE_NO_AUTO_UPDATE`.
+
 ## 0.2.0
 
 ### Minor Changes
