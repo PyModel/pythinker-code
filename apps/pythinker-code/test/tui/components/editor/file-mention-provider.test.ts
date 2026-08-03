@@ -1,0 +1,407 @@
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
+import { FileMentionProvider } from '#/tui/components/editor/file-mention-provider';
+
+function ctrl(): AbortSignal {
+  return new AbortController().signal;
+}
+
+const NO_FD = null;
+const GOAL_COMMAND = {
+  name: 'goal',
+  description: 'Start or manage a goal',
+  getArgumentCompletions: (prefix: string) =>
+    prefix.length === 0 || 'status'.startsWith(prefix)
+      ? [
+          {
+            value: 'status',
+            label: 'status',
+          },
+        ]
+      : null,
+};
+
+const NEW_COMMAND = {
+  name: 'new',
+  aliases: ['clear'],
+  description: 'Start a fresh session in the current workspace',
+};
+
+const LARK_CALENDAR_COMMAND = {
+  name: 'skill:lark-calendar',
+  aliases: [],
+  description: 'Manage Lark calendars',
+};
+
+const HELP_COMMAND = {
+  name: 'help',
+  aliases: ['h'],
+  description: 'Show help',
+};
+
+const HELP_FULL_COMMAND = {
+  name: 'help',
+  aliases: ['h', '?'],
+  description: 'Show help',
+};
+
+describe('FileMentionProvider', () => {
+  let workDir: string;
+
+  beforeEach(() => {
+    workDir = mkdtempSync(join(tmpdir(), 'pythinker-file-mention-'));
+  });
+
+  afterEach(() => {
+    rmSync(workDir, { recursive: true, force: true });
+  });
+
+  it('returns null when there is no completable prefix', async () => {
+    const provider = new FileMentionProvider([], workDir, NO_FD);
+    const result = await provider.getSuggestions(['hello world'], 0, 11, { signal: ctrl() });
+    expect(result).toBeNull();
+  });
+
+  it('does not complete slash arguments before existing free text', async () => {
+    const provider = new FileMentionProvider([GOAL_COMMAND], workDir, NO_FD);
+    const line = '/goal Fix the checkout docs';
+    const result = await provider.getSuggestions([line], 0, '/goal '.length, { signal: ctrl() });
+    expect(result).toBeNull();
+  });
+
+  it('still completes slash arguments at the end of an empty argument', async () => {
+    const provider = new FileMentionProvider([GOAL_COMMAND], workDir, NO_FD);
+    const line = '/goal ';
+    const result = await provider.getSuggestions([line], 0, line.length, { signal: ctrl() });
+    expect(result).not.toBeNull();
+    expect(result!.prefix).toBe('');
+    expect(result!.items.map((item) => item.value)).toEqual(['status']);
+  });
+
+  it('searches slash command aliases and displays aliases in the command label', async () => {
+    const provider = new FileMentionProvider([NEW_COMMAND], workDir, NO_FD);
+    const line = '/clear';
+
+    const result = await provider.getSuggestions([line], 0, line.length, { signal: ctrl() });
+
+    expect(result).not.toBeNull();
+    expect(result!.prefix).toBe('/clear');
+    expect(result!.items[0]).toMatchObject({
+      value: 'new',
+      label: 'new (clear)',
+    });
+  });
+
+  it('completes slash command names in the middle of prompt text', async () => {
+    const provider = new FileMentionProvider([HELP_COMMAND], workDir, NO_FD);
+    const line = 'please run /he next';
+    const cursorCol = 'please run /he'.length;
+
+    const result = await provider.getSuggestions([line], 0, cursorCol, { signal: ctrl() });
+
+    expect(result).not.toBeNull();
+    expect(result!.prefix).toBe('/he');
+    expect(result!.items[0]).toMatchObject({ value: 'help', label: 'help' });
+  });
+
+  it('completes slash arguments in the middle of prompt text', async () => {
+    const provider = new FileMentionProvider([GOAL_COMMAND], workDir, NO_FD);
+    const line = 'please run /goal st next';
+    const cursorCol = 'please run /goal st'.length;
+
+    const result = await provider.getSuggestions([line], 0, cursorCol, { signal: ctrl() });
+
+    expect(result).not.toBeNull();
+    expect(result!.prefix).toBe('st');
+    expect(result!.items.map((item) => item.value)).toEqual(['status']);
+  });
+
+  it('prefers exact alias matches over fuzzy skill matches', async () => {
+    const provider = new FileMentionProvider(
+      [NEW_COMMAND, LARK_CALENDAR_COMMAND],
+      workDir,
+      NO_FD,
+    );
+    const line = '/clear';
+
+    const result = await provider.getSuggestions([line], 0, line.length, { signal: ctrl() });
+
+    expect(result).not.toBeNull();
+    expect(result!.items[0]).toMatchObject({
+      value: 'new',
+      label: 'new (clear)',
+    });
+    expect(result!.items[0]?.value).not.toBe('skill:lark-calendar');
+  });
+
+  it('does not show aliases when the primary name already matches', async () => {
+    const provider = new FileMentionProvider([HELP_COMMAND], workDir, NO_FD);
+    const line = '/h';
+
+    const result = await provider.getSuggestions([line], 0, line.length, { signal: ctrl() });
+
+    expect(result).not.toBeNull();
+    expect(result!.items[0]).toMatchObject({
+      value: 'help',
+      label: 'help',
+    });
+  });
+
+  it('does not show aliases in labels when query is empty', async () => {
+    const provider = new FileMentionProvider([NEW_COMMAND], workDir, NO_FD);
+    const line = '/';
+
+    const result = await provider.getSuggestions([line], 0, line.length, { signal: ctrl() });
+
+    expect(result).not.toBeNull();
+    expect(result!.items[0]).toMatchObject({
+      value: 'new',
+      label: 'new',
+    });
+  });
+
+  it('includes the argument hint in the description like the inner provider does', async () => {
+    const provider = new FileMentionProvider(
+      [{ name: 'goal', description: 'Start or manage a goal', argumentHint: '<objective>' }],
+      workDir,
+      NO_FD,
+    );
+
+    const result = await provider.getSuggestions(['/go'], 0, 3, { signal: ctrl() });
+
+    expect(result).not.toBeNull();
+    expect(result!.items[0]).toMatchObject({
+      value: 'goal',
+      description: '<objective> — Start or manage a goal',
+    });
+  });
+
+  it('joins multiple aliases with an ASCII comma in the label', async () => {
+    const provider = new FileMentionProvider([HELP_FULL_COMMAND], workDir, NO_FD);
+    // '?' only matches the alias, not the primary name, so the label must
+    // list the aliases.
+    const result = await provider.getSuggestions(['/?'], 0, 2, { signal: ctrl() });
+
+    expect(result).not.toBeNull();
+    expect(result!.items[0]).toMatchObject({
+      value: 'help',
+      label: 'help (h, ?)',
+    });
+  });
+
+  it('returns null for a bare slash when no commands are registered', async () => {
+    const provider = new FileMentionProvider([], workDir, NO_FD);
+
+    const result = await provider.getSuggestions(['/'], 0, 1, { signal: ctrl() });
+
+    expect(result).toBeNull();
+  });
+
+  it('ranks primary-name matches above alias matches with equal scores', async () => {
+    const provider = new FileMentionProvider(
+      [
+        { name: 'bar', aliases: ['foo'], description: 'Bar command' },
+        { name: 'foo', aliases: [], description: 'Foo command' },
+      ],
+      workDir,
+      NO_FD,
+    );
+
+    const result = await provider.getSuggestions(['/foo'], 0, 4, { signal: ctrl() });
+
+    expect(result).not.toBeNull();
+    expect(result!.items[0]?.value).toBe('foo');
+    expect(result!.items[1]).toMatchObject({
+      value: 'bar',
+      label: 'bar (foo)',
+    });
+  });
+
+  it('does not turn leading-whitespace slash into root path completion', async () => {
+    const provider = new FileMentionProvider([], workDir, NO_FD);
+    const result = await provider.getSuggestions([' /'], 0, 2, { signal: ctrl() });
+    expect(result).toBeNull();
+  });
+
+  it('still allows forced root path completion after leading whitespace', async () => {
+    const provider = new FileMentionProvider([], workDir, NO_FD);
+    const result = await provider.getSuggestions([' /'], 0, 2, { signal: ctrl(), force: true });
+    expect(result).not.toBeNull();
+    expect(result!.prefix).toBe('/');
+  });
+
+  it('falls through to forced absolute-path completion when a slash token has no command matches', async () => {
+    const provider = new FileMentionProvider([], workDir, NO_FD);
+    const rootSegment = workDir.split('/').filter((segment) => segment.length > 0)[0]!;
+    const prefix =
+      process.platform === 'darwin' ? '/Us' : `/${rootSegment.slice(0, Math.min(2, rootSegment.length))}`;
+    const expectedValue = process.platform === 'darwin' ? '/Users/' : `/${rootSegment}/`;
+
+    const result = await provider.getSuggestions([prefix], 0, prefix.length, {
+      signal: ctrl(),
+      force: true,
+    });
+
+    expect(result).not.toBeNull();
+    expect(result!.prefix).toBe(prefix);
+    expect(result!.items.map((item) => item.value)).toContain(expectedValue);
+  });
+
+  it('does not trigger the @ branch when @ is preceded by a non-delimiter', async () => {
+    const provider = new FileMentionProvider([], workDir, NO_FD);
+    const result = await provider.getSuggestions(['email@example'], 0, 13, { signal: ctrl() });
+    expect(result).toBeNull();
+  });
+
+  it('uses a filesystem fallback for @ mentions when fd is not available', async () => {
+    mkdirSync(join(workDir, 'src', 'components'), { recursive: true });
+    writeFileSync(join(workDir, 'src', 'components', 'Button.tsx'), 'export {};');
+    writeFileSync(join(workDir, 'README.md'), 'readme');
+    const provider = new FileMentionProvider([], workDir, NO_FD);
+
+    const result = await provider.getSuggestions(['@but'], 0, 4, { signal: ctrl() });
+
+    expect(result).not.toBeNull();
+    expect(result!.prefix).toBe('@but');
+    expect(result!.items.map((item) => item.value)).toContain('@src/components/Button.tsx');
+  });
+
+  it('does not bypass fd filtering with filesystem suggestions when fd returns no matches', async () => {
+    writeFileSync(join(workDir, 'README.md'), 'readme');
+    const provider = new FileMentionProvider([], workDir, join(workDir, 'missing-fd'));
+
+    const result = await provider.getSuggestions(['@read'], 0, 5, { signal: ctrl() });
+
+    expect(result).toBeNull();
+  });
+
+  it('filesystem fallback returns folders and excludes .git', async () => {
+    mkdirSync(join(workDir, 'src'));
+    mkdirSync(join(workDir, '.git'));
+    writeFileSync(join(workDir, '.git', 'config'), 'secret');
+    const provider = new FileMentionProvider([], workDir, NO_FD);
+
+    const result = await provider.getSuggestions(['@'], 0, 1, { signal: ctrl() });
+
+    expect(result).not.toBeNull();
+    const values = result!.items.map((item) => item.value);
+    expect(values).toContain('@src/');
+    expect(values.some((value) => value.startsWith('@.git'))).toBe(false);
+  });
+
+  it('filesystem fallback quotes paths with spaces', async () => {
+    mkdirSync(join(workDir, 'my folder'));
+    const provider = new FileMentionProvider([], workDir, NO_FD);
+
+    const result = await provider.getSuggestions(['@my'], 0, 3, { signal: ctrl() });
+
+    expect(result).not.toBeNull();
+    expect(result!.items.map((item) => item.value)).toContain('@"my folder/"');
+  });
+
+  it('filesystem fallback does not recurse into symlinked directories', async () => {
+    writeFileSync(join(workDir, 'target.txt'), 'target');
+    symlinkSync('.', join(workDir, 'current'), 'dir');
+    const provider = new FileMentionProvider([], workDir, NO_FD);
+
+    const result = await provider.getSuggestions(['@target'], 0, 7, { signal: ctrl() });
+
+    expect(result).not.toBeNull();
+    const values = result!.items.map((item) => item.value);
+    expect(values).toContain('@target.txt');
+    expect(values.some((value) => value.startsWith('@current/'))).toBe(false);
+  });
+
+  it('delegates path suggestions to pi-tui for regular path completion', async () => {
+    mkdirSync(join(workDir, 'src'));
+    writeFileSync(join(workDir, 'README.md'), 'readme');
+    const provider = new FileMentionProvider([], workDir, NO_FD);
+
+    const result = await provider.getSuggestions([''], 0, 0, { signal: ctrl(), force: true });
+
+    expect(result).not.toBeNull();
+    expect(result!.items.map((item) => item.value)).toEqual(['src/', 'README.md']);
+  });
+
+  it('applyCompletion delegates file and directory insertion to pi-tui', () => {
+    const provider = new FileMentionProvider([], workDir, NO_FD);
+
+    const file = provider.applyCompletion(
+      ['hey @read'],
+      0,
+      9,
+      { value: '@README.md', label: 'README.md' },
+      '@read',
+    );
+    expect(file.lines[0]).toBe('hey @README.md ');
+
+    const dir = provider.applyCompletion(
+      ['hey @sr'],
+      0,
+      7,
+      { value: '@src/', label: 'src/' },
+      '@sr',
+    );
+    expect(dir.lines[0]).toBe('hey @src/');
+  });
+
+  it('applyCompletion replaces an embedded slash command token', () => {
+    const provider = new FileMentionProvider([HELP_COMMAND], workDir, NO_FD);
+
+    const result = provider.applyCompletion(
+      ['please run /he next'],
+      0,
+      'please run /he'.length,
+      { value: 'help', label: 'help' },
+      '/he',
+    );
+
+    expect(result.lines[0]).toBe('please run /help next');
+  });
+
+  it('applyCompletion replaces an embedded slash argument token', () => {
+    const provider = new FileMentionProvider([GOAL_COMMAND], workDir, NO_FD);
+
+    const result = provider.applyCompletion(
+      ['please run /goal st next'],
+      0,
+      'please run /goal st'.length,
+      { value: 'status', label: 'status' },
+      'st',
+    );
+
+    expect(result.lines[0]).toBe('please run /goal status next');
+  });
+
+  it('applyCompletion preserves punctuation after an embedded slash command token', () => {
+    const provider = new FileMentionProvider([HELP_COMMAND], workDir, NO_FD);
+
+    const result = provider.applyCompletion(
+      ['please run /he, next'],
+      0,
+      'please run /he'.length,
+      { value: 'help', label: 'help' },
+      '/he',
+    );
+
+    expect(result.lines[0]).toBe('please run /help, next');
+  });
+
+  it('applyCompletion preserves punctuation after an embedded slash argument token', () => {
+    const provider = new FileMentionProvider([GOAL_COMMAND], workDir, NO_FD);
+
+    const result = provider.applyCompletion(
+      ['please run /goal st, next'],
+      0,
+      'please run /goal st'.length,
+      { value: 'status', label: 'status' },
+      'st',
+    );
+
+    expect(result.lines[0]).toBe('please run /goal status, next');
+  });
+});
