@@ -16,6 +16,7 @@
 	header /robots.txt Content-Type "text/plain; charset=utf-8"
 	header /sitemap.xml Content-Type "application/xml; charset=utf-8"
 	rewrite @markdown /index.md
+	try_files {path} /index.html
 
 	file_server
 	header /pythinker-code/* Cache-Control "no-cache"
