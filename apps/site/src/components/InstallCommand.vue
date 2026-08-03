@@ -1,20 +1,13 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
-
-const CHANNELS = [
-  { id: 'unix', label: 'Mac / Linux', command: 'curl -fsSL https://code.pythinker.com/pythinker-code/install.sh | bash', icon: '/brand/apple.svg' },
-  { id: 'windows', label: 'Windows', command: 'irm https://code.pythinker.com/pythinker-code/install.ps1 | iex', icon: '/brand/windows11.svg' },
-  { id: 'brew', label: 'Homebrew', command: 'brew install pythoughts-labs/tap/pythinker-code' },
-  { id: 'nix', label: 'Nix', command: 'nix run github:Pythoughts-labs/pythinker-code' },
-  { id: 'npm', label: 'npm', command: 'npm install -g @pythoughts/pythinker-code', icon: '/brand/npm.svg' },
-];
+import { INSTALL_CHANNELS } from '../install-channels';
 
 const root = ref(null);
 const trigger = ref(null);
 const selectedId = ref(/Win/i.test(navigator.platform || navigator.userAgent) ? 'windows' : 'unix');
 const open = ref(false);
 const copied = ref(false);
-const activeChannel = computed(() => CHANNELS.find((channel) => channel.id === selectedId.value));
+const activeChannel = computed(() => INSTALL_CHANNELS.find((channel) => channel.id === selectedId.value));
 let resetTimer;
 
 function fallbackCopy(text) {
@@ -133,7 +126,7 @@ onUnmounted(() => {
     <Transition name="install-menu">
       <div v-show="open" id="install-menu" class="install-menu" role="listbox" @keydown="onMenuKeydown">
         <button
-          v-for="channel in CHANNELS"
+          v-for="channel in INSTALL_CHANNELS"
           :key="channel.id"
           class="install-option"
           type="button"
