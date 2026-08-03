@@ -1,0 +1,187 @@
+import type { PythinkerHarness, Session } from '@pythoughts/pythinker-code-sdk';
+import type { SkillListSession } from '../commands';
+
+import { OAUTH_LOGIN_REQUIRED_STARTUP_NOTICE } from '../constant/pythinker-tui';
+import {
+  refreshAllProviderModels,
+  type RefreshProviderScope,
+  type RefreshResult,
+} from '../utils/refresh-providers';
+import { coerceEffortForModel } from '../utils/thinking-levels';
+import type { SessionEventHandler } from './session-event-handler';
+import type { AppState, PythinkerTUIOptions } from '../types';
+import type { TUIState } from '../tui-state';
+
+export interface AuthFlowHost {
+  state: TUIState;
+  session: Session | undefined;
+  readonly harness: PythinkerHarness;
+  readonly options: PythinkerTUIOptions;
+
+  setAppState(patch: Partial<AppState>): void;
+  setStartupReady(): void;
+  resetSessionRuntime(): void;
+  setSession(session: Session): Promise<void>;
+  syncRuntimeState(session?: Session): Promise<void>;
+  closeSession(reason: string): Promise<void>;
+  appendStartupNotice(extra: string): void;
+  readonly sessionEventHandler: SessionEventHandler;
+  fetchSessions(): Promise<void>;
+  updateTerminalTitle(): void;
+  refreshSkillCommands(session?: SkillListSession): Promise<void>;
+}
+
+export class AuthFlowController {
+  constructor(private readonly host: AuthFlowHost) {}
+
+  async refreshAvailableModels(): Promise<void> {
+    const config = await this.host.harness.getConfig({ reload: true });
+    this.host.setAppState({
+      availableModels: config.models ?? {},
+      availableProviders: config.providers ?? {},
+    });
+  }
+
+  enterLoginRequiredStartupState(): void {
+    this.host.resetSessionRuntime();
+    this.host.setAppState({
+      sessionId: '',
+      model: '',
+      thinkingLevel: 'off',
+      contextTokens: 0,
+      maxContextTokens: 0,
+      contextUsage: 0,
+      sessionTitle: null,
+    });
+    this.host.appendStartupNotice(OAUTH_LOGIN_REQUIRED_STARTUP_NOTICE);
+    this.host.setStartupReady();
+  }
+
+  async activateModelAfterLogin(model: string, effort?: string): Promise<void> {
+    const { host } = this;
+    if (host.session !== undefined) {
+      await host.session.setModel(model);
+      if (effort !== undefined) {
+        await host.session.setThinking(effort);
+      }
+      return;
+    }
+
+    const session = await host.harness.createSession({
+      workDir: host.state.appState.workDir,
+      model,
+      thinking: effort,
+      permission: host.options.startup.auto
+        ? 'auto'
+        : host.options.startup.yolo
+          ? 'yolo'
+          : undefined,
+      setupTrigger: host.options.startup.init
+        ? 'init'
+        : host.options.startup.maintenance
+          ? 'maintenance'
+          : undefined,
+      planMode: host.state.appState.planMode ? true : undefined,
+    });
+    await host.setSession(session);
+    host.setAppState({
+      sessionId: session.id,
+      sessionTitle: session.summary?.title ?? null,
+    });
+    await host.syncRuntimeState(session);
+    host.sessionEventHandler.startSubscription();
+    void host.fetchSessions();
+    host.updateTerminalTitle();
+    void host.refreshSkillCommands(host.session);
+  }
+
+  async clearActiveSessionAfterLogout(): Promise<void> {
+    await this.host.closeSession('logged out');
+    this.host.resetSessionRuntime();
+    this.host.setAppState({
+      sessionId: '',
+      model: '',
+      sessionTitle: null,
+    });
+    await this.host.refreshSkillCommands();
+  }
+
+  async refreshConfigAfterLogin(): Promise<void> {
+    const { host } = this;
+    const config = await host.harness.getConfig({ reload: true });
+    const availableModels = config.models ?? {};
+    const availableProviders = config.providers ?? {};
+    const defaultModel = host.options.startup.model ?? config.defaultModel;
+    const selected = defaultModel !== undefined ? availableModels[defaultModel] : undefined;
+
+    if (defaultModel === undefined || selected === undefined) {
+      host.setAppState({ availableModels, availableProviders });
+      return;
+    }
+
+    // The configured effort wins; the legacy boolean falls back to high/off.
+    const requested =
+      config.thinking?.effort ??
+      (config.defaultThinking === true ? 'high' : config.defaultThinking === false ? 'off' : undefined);
+    const effort = requested === undefined ? undefined : coerceEffortForModel(selected, requested);
+    await this.activateModelAfterLogin(defaultModel, effort);
+    const appStatePatch: Partial<AppState> = {
+      availableModels,
+      availableProviders,
+      model: defaultModel,
+      maxContextTokens: selected.maxContextSize,
+    };
+    if (effort !== undefined) {
+      appStatePatch.thinkingLevel = effort;
+    }
+    host.setAppState(appStatePatch);
+  }
+
+  async refreshConfigAfterLogout(): Promise<void> {
+    const config = await this.host.harness.getConfig({ reload: true });
+    this.host.setAppState({
+      availableModels: config.models ?? {},
+      availableProviders: config.providers ?? {},
+      model: '',
+      thinkingLevel: 'off',
+      maxContextTokens: 0,
+      contextUsage: 0,
+      contextTokens: 0,
+    });
+  }
+
+  /**
+   * Re-fetch model lists from every provider whose upstream supports it
+   * (managed OAuth, open platforms, custom registries) and update local
+   * config.  Runs best-effort: individual provider failures are collected
+   * and returned instead of thrown.
+   */
+  async refreshProviderModels(): Promise<RefreshResult> {
+    return this.refreshProviderModelsWithScope('all');
+  }
+
+  async refreshOAuthProviderModels(): Promise<RefreshResult> {
+    return this.refreshProviderModelsWithScope('oauth');
+  }
+
+  private async refreshProviderModelsWithScope(scope: RefreshProviderScope): Promise<RefreshResult> {
+    const { host } = this;
+    const result = await refreshAllProviderModels(
+      {
+        getConfig: () => host.harness.getConfig({ reload: true }),
+        removeProvider: (id) => host.harness.removeProvider(id),
+        setConfig: (patch) => host.harness.setConfig(patch),
+        replaceConfig: (config) => host.harness.replaceConfig(config),
+        resolveOAuthToken: async (providerName, oauthRef) => {
+          const tokenProvider = host.harness.auth.resolveOAuthTokenProvider(providerName, oauthRef);
+          return tokenProvider.getAccessToken();
+        },
+      },
+      { scope },
+    );
+    if (result.changed.length > 0) {
+      await this.refreshAvailableModels();
+    }
+    return result;
+  }
+}

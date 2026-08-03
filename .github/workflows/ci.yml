@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
+      - name: Smoke test CLI bundle
+        run: pnpm -C apps/pythinker-code run smoke
+
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run test
+
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run lint
+      - run: pnpm run sherif
+
+  typecheck:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - name: Typecheck
+        run: |
+          pnpm dlx --package @typescript/native-preview@beta tsgo --version
+          for config in packages/*/tsconfig.json apps/pythinker-code/tsconfig.json; do
+            echo "Typechecking ${config}"
+            pnpm dlx --package @typescript/native-preview@beta tsgo -p "${config}" --noEmit
+          done
+      - name: Typecheck pythinker-web (vue-tsc)
+        run: pnpm --filter @pythoughts/pythinker-web run typecheck
+      - name: Typecheck dashboard-server
+        run: pnpm --filter @pythoughts/dashboard-server run typecheck
+      - name: Typecheck dashboard-web
+        run: pnpm --filter @pythoughts/dashboard-web run typecheck

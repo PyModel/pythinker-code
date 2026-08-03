@@ -1,0 +1,12 @@
+/**
+ * Re-export the envelope helpers from `@pythoughts/protocol`.
+ *
+ * The wire-shape source of truth lives in `@pythoughts/protocol`. Re-exporting
+ * the protocol helpers preserves field order and JSON output for server
+ * responses.
+ *
+ * Keep this file as a re-export shim (not a direct re-export from the package
+ * barrel) so downstream `from './envelope'` imports inside the server stay
+ * stable and don't all need to be touched.
+ */
+export { okEnvelope, errEnvelope, type Envelope } from '@pythoughts/protocol';

@@ -1,0 +1,46 @@
+{
+  "name": "@pythoughts/server-e2e",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Wire-level E2E test client for the pythinker-code server (HTTP + WS). Powers scenario scripts and self-tests against a real server process.",
+  "license": "MIT",
+  "author": "Pythoughts",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Pythoughts-labs/pythinker-code.git",
+    "directory": "packages/server-e2e"
+  },
+  "bugs": {
+    "url": "https://github.com/Pythoughts-labs/pythinker-code/issues"
+  },
+  "type": "module",
+  "imports": {
+    "#/*": [
+      "./src/*.ts",
+      "./src/*/index.ts"
+    ]
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:scenarios": "tsx scripts/run-scenarios.ts",
+    "docker:e2e": "bash scripts/run-docker-e2e.sh",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@pythoughts/protocol": "workspace:^",
+    "ulid": "^3.0.1",
+    "ws": "^8.21.0",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.0"
+  }
+}
