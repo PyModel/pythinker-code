@@ -1,0 +1,17 @@
+export default {
+  openSwitcher: 'Switch session / workspace',
+  openSettings: 'Session settings',
+  settingsTitle: 'Session settings',
+  sheetLabel: 'Sheet',
+  closeSheet: 'Close',
+  tapToCycle: 'tap to cycle',
+  running: 'running',
+  idle: 'idle',
+  sessionCount: '{n} sessions',
+  newSession: 'New session',
+  permManualSub: 'confirm every tool',
+  permAutoSub: 'fully autonomous, never asks',
+  permYoloSub: 'auto-approve tools, may still ask',
+  planModeSub: 'Plan mode',
+  dynamicWorkflowModeSub: 'Dynamic Workflow mode',
+} as const;

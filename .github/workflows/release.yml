@@ -1,0 +1,183 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    if: github.repository_owner == 'Pythoughts-labs'
+    outputs:
+      packages_published: ${{ steps.changesets.outputs.published }}
+      pythinker_native_release: ${{ steps.pythinker-release.outputs.should_publish }}
+      pythinker_release_tag: ${{ steps.pythinker-release.outputs.tag }}
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write # Required for NPM Trusted Publishing (OIDC)
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: "pnpm"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Upgrade npm for Trusted Publishing
+        run: npm install -g npm@latest
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Pythinker Code built-in catalog
+        shell: bash
+        run: |
+          CATALOG_FILE="$RUNNER_TEMP/pythinker-code-built-in-catalog.json"
+          node apps/pythinker-code/scripts/update-catalog.mjs --out "$CATALOG_FILE"
+          echo "PYTHINKER_CODE_BUILT_IN_CATALOG_FILE=$CATALOG_FILE" >> "$GITHUB_ENV"
+
+      - name: Build packages
+        run: pnpm build
+
+      - name: Create Release Pull Request or Publish to npm
+        id: changesets
+        uses: changesets/action@v1
+        with:
+          publish: pnpm changeset publish
+          version: pnpm run version:release
+          commit: "ci: release packages"
+          title: "ci: release packages"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # NPM_TOKEN is not needed with Trusted Publishing (OIDC)
+
+      - name: Resolve Pythinker Code native release
+        if: steps.changesets.outputs.published == 'true'
+        id: pythinker-release
+        run: node apps/pythinker-code/scripts/native/resolve-release.mjs
+        env:
+          CHANGESETS_PUBLISHED_PACKAGES: ${{ steps.changesets.outputs.publishedPackages }}
+
+  deploy-cdn:
+    name: Redeploy code.pythinker.com
+    needs: release
+    if: needs.release.outputs.packages_published == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+
+      - name: Verify release consistency
+        run: node scripts/release/verify-release-consistency.mjs
+
+      - name: Trigger Dokploy deploy webhook
+        env:
+          WEBHOOK: ${{ secrets.DOKPLOY_CDN_DEPLOY_WEBHOOK }}
+        run: |
+          if [ -z "$WEBHOOK" ]; then
+            echo "DOKPLOY_CDN_DEPLOY_WEBHOOK secret not set — skipping CDN redeploy" >&2
+            exit 0
+          fi
+          curl -fsS -X POST "$WEBHOOK"
+
+  update-brew-tap:
+    name: Update Homebrew tap
+    needs: release
+    if: needs.release.outputs.packages_published == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+
+      - name: Bump formula
+        env:
+          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+        run: |
+          if [ -z "$TAP_GITHUB_TOKEN" ]; then
+            echo "TAP_GITHUB_TOKEN secret not set — skipping tap update" >&2
+            exit 0
+          fi
+          node scripts/release/update-brew-formula.mjs
+
+  deploy-docs:
+    name: Deploy docs
+    needs: release
+    if: needs.release.outputs.packages_published == 'true'
+    uses: ./.github/workflows/docs-deploy.yml
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+
+  native-artifacts:
+    name: Native release artifact
+    needs: release
+    if: needs.release.outputs.pythinker_native_release == 'true'
+    uses: ./.github/workflows/_native-build.yml
+    with:
+      upload-artifact-prefix: pythinker-code-native
+      retention-days: 7
+      sign-macos: true
+    secrets:
+      APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_NOTARIZATION_KEY_P8: ${{ secrets.APPLE_NOTARIZATION_KEY_P8 }}
+      APPLE_NOTARIZATION_KEY_ID: ${{ secrets.APPLE_NOTARIZATION_KEY_ID }}
+      APPLE_NOTARIZATION_ISSUER_ID: ${{ secrets.APPLE_NOTARIZATION_ISSUER_ID }}
+
+  publish-native-assets:
+    name: Publish native release assets
+    needs:
+      - release
+      - native-artifacts
+    if: needs.release.outputs.pythinker_native_release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download native artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: pythinker-code-native-*
+          path: dist-native-release
+          merge-multiple: true
+
+      - name: Produce manifest.json
+        env:
+          RELEASE_TAG: ${{ needs.release.outputs.pythinker_release_tag }}
+        run: node apps/pythinker-code/scripts/native/produce-manifest.mjs dist-native-release "$RELEASE_TAG"
+
+      - name: Upload assets to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.release.outputs.pythinker_release_tag }}
+        run: gh release upload "$RELEASE_TAG" dist-native-release/* --clobber

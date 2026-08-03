@@ -1,0 +1,130 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# CodeRabbit configuration — pnpm/TypeScript monorepo (packages/* libs, apps/* CLIs + Vue site).
+# Reference: https://docs.coderabbit.ai/reference/configuration
+
+language: "en-US"
+
+reviews:
+  profile: "chill"
+  request_changes_workflow: false
+  high_level_summary: true
+  changed_files_summary: true
+  sequence_diagrams: true
+  estimate_code_review_effort: true
+  assess_linked_issues: true
+  related_issues: true
+  related_prs: true
+  suggested_labels: true
+  auto_apply_labels: false
+  suggested_reviewers: false
+  poem: false
+  review_status: true
+  collapse_walkthrough: true
+  abort_on_close: true
+
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - "main"
+    ignore_title_keywords:
+      - "WIP"
+      - "DO NOT REVIEW"
+
+  path_filters:
+    - "!**/node_modules/**"
+    - "!**/dist/**"
+    - "!**/build/**"
+    - "!**/*.min.js"
+    - "!**/pnpm-lock.yaml"
+    - "!**/flake.lock"
+    - "!**/*.snap"
+    - "!reports/**"
+    - "!**/*.webp"
+    - "!**/*.png"
+    - "!**/*.gif"
+
+  path_instructions:
+    - path: "packages/**/*.ts"
+      instructions: |
+        Published library code. Watch for breaking changes to public APIs and
+        exports maps. Flag any `any`, `@ts-ignore`, or type assertions added to
+        silence errors. New behavior should come with vitest coverage.
+    - path: "apps/pythinker-code/**"
+      instructions: |
+        Terminal UI (pi-tui/Solid). Be careful with reactivity: signals must not
+        be destructured, and rendering must stay allocation-light. Flag blocking
+        I/O on the render path.
+    - path: "apps/site/**"
+      instructions: |
+        Vue 3 marketing site. Check accessibility basics (alt text, contrast,
+        focus states), responsive layout, and that no heavy dependencies are
+        added for things CSS or native elements can do.
+    - path: "**/*.test.ts"
+      instructions: |
+        Tests must be able to fail: flag assertions that pass vacuously (empty-set
+        matches, missing awaits on async expectations, mocked units asserting on
+        the mock itself).
+    - path: ".github/workflows/**"
+      instructions: |
+        Check for unpinned third-party actions, script injection via
+        `${{ }}` interpolation in run blocks, and overly broad `permissions`.
+
+  finishing_touches:
+    docstrings:
+      enabled: false
+    unit_tests:
+      enabled: false
+
+  pre_merge_checks:
+    title:
+      mode: "warning"
+      requirements: "Imperative mood, <= 72 chars, conventional-commit style prefix (feat/fix/docs/chore/refactor/test/ci)."
+    description:
+      mode: "warning"
+    issue_assessment:
+      mode: "warning"
+
+  tools:
+    # oxlint is the repo linter; keep overlapping JS linters off to avoid duplicate noise.
+    oxc:
+      enabled: true
+    eslint:
+      enabled: false
+    biome:
+      enabled: false
+    gitleaks:
+      enabled: true
+    trufflehog:
+      enabled: true
+    actionlint:
+      enabled: true
+    zizmor:
+      enabled: true
+    shellcheck:
+      enabled: true
+    yamllint:
+      enabled: true
+    markdownlint:
+      enabled: true
+    hadolint:
+      enabled: true
+    osvScanner:
+      enabled: true
+    semgrep:
+      enabled: true
+    github-checks:
+      enabled: true
+      timeout_ms: 300000
+
+chat:
+  auto_reply: true
+
+knowledge_base:
+  learnings:
+    scope: "auto"
+  code_guidelines:
+    enabled: true
+    filePatterns:
+      - "AGENTS.md"
+      - "CONTRIBUTING.md"

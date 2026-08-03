@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "allowJs": true,
+    "experimentalDecorators": true,
+    "jsx": "preserve",
+    "jsxImportSource": "@opentui/solid",
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["src", "test", "../../packages/agent-core/src/prompt-modules.d.ts"]
+}

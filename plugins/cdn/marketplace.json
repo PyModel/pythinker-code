@@ -1,0 +1,33 @@
+{
+  "version": "1",
+  "plugins": [
+    {
+      "id": "pythinker-datasource",
+      "tier": "official",
+      "displayName": "Pythinker Datasource",
+      "version": "3.2.0",
+      "description": "Official datasource workflows.",
+      "keywords": [
+        "data",
+        "mcp"
+      ],
+      "source": "./official/pythinker-datasource.zip"
+    },
+    {
+      "id": "superpowers",
+      "tier": "curated",
+      "displayName": "Superpowers",
+      "version": "6.2.0",
+      "description": "Planning, TDD, debugging, and delivery workflows for coding agents.",
+      "homepage": "https://github.com/obra/superpowers",
+      "keywords": [
+        "skills",
+        "planning",
+        "tdd",
+        "debugging",
+        "code-review"
+      ],
+      "source": "./curated/superpowers.zip"
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "name": "pythinker-datasource",
+  "version": "3.2.0",
+  "description": "Finance, macro, enterprise, academic, and legal data tools for Pythinker Code.",
+  "keywords": ["finance", "data-source", "mcp", "legal"],
+  "mcpServers": {
+    "data": {
+      "command": "node",
+      "args": ["./bin/pythinker-datasource.mjs"],
+      "cwd": "./"
+    }
+  },
+  "interface": {
+    "displayName": "Pythinker Datasource",
+    "shortDescription": "Finance, macro, enterprise, academic, and legal data tools",
+    "developerName": "Pythoughts"
+  }
+}
