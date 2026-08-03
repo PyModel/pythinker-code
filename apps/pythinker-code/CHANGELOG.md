@@ -1,5 +1,273 @@
 # @pythoughts/pythinker-code
 
+## 0.2.0
+
+### Minor Changes
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Add provider-native Fast mode controls for supported OpenAI and Anthropic models.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Add validated session and persistent workspace directories with SDK, CLI, and TUI management.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Expose the precedence-resolved agent profile catalog through the SDK and a searchable TUI command.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Add persistent named agent teams with background teammate spawning, shared task scopes, direct and broadcast messaging, assignment delivery, shutdown coordination, and native terminal identities.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Add project, user, and namespaced plugin subagent profiles with per-profile turn limits and persistent memory, context-fork workers, per-agent model and working-directory overrides, and Git worktree isolation with native terminal status.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Add Anthropic Claude Code marketplace browsing and installation with searchable source selection and install-definition support.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Preserve full truncated Bash output on disk, interpret informational exit codes, and expand destructive-command warnings in the terminal approval flow.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Add clearer TUI startup status, effort heat, Dynamic Workflow progress colors, and a brighter dark-theme primary.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Add catalog-backed provider connections with interactive or environment-referenced credentials, live model discovery, provider-aware model selection, and model-specific thinking controls.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Add an agent-callable Config tool for approved, validated reads and writes of supported Pythinker settings.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Add configurable Global and Chat TUI keybindings with unbinding, two-key chords, reserved shortcuts, dynamic help labels, template creation, and editor-backed reload.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Expose files loaded by Read through the SDK and a `/files` TUI command.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Expose the model-visible context breakdown through the SDK and a `/context` TUI report.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Show Dynamic Workflow in a coral-framed mission-control panel with live per-agent progress, and let workflow agents run without an automatic timeout.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Add persisted file checkpoints with preview and recovery-backed code or conversation rewind through the SDK, CLI, and TUI.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Add fail-closed Read/Edit/Write state tracking, quote-preserving edits, automatic parent creation, and cell-aware Jupyter notebook editing with terminal summaries.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Add unchanged-range deduplication and structured Jupyter notebook reads with cell, text-output, and image-output support.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Rework the TUI into a fixed full-height layout: the input box and status bar stay pinned to the bottom, the mouse wheel scrolls the conversation, drag-selecting text copies it to the clipboard, and `layout = "inline"` in tui.toml restores the legacy inline behavior.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Add configurable context-aware keybindings across dialogs, plugins, rewind,
+  message actions, footer controls, and both terminal renderers.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Add experimental plugin-configured language-server support with lazy stdio servers and agent-callable navigation, symbol, hover, reference, implementation, and call-hierarchy operations.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Add MCP resource discovery and reading with terminal-native summaries.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Add live instruction refresh and a `/memory` command for user and project memory files.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Add discoverable built-in, user, project, and plugin output styles with config-backed prompt injection and TUI selection.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Add experimental native PowerShell execution on Windows with non-interactive invocation, streamed foreground and background output, timeout handling, exact-command approval, and terminal language metadata.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Add responsive option previews, per-question notes, answer annotations, automatic Other choices, and source telemetry tags to structured questions.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Complete Glob and Grep parity with absolute glob patterns, sensitive-name filtering, context aliases, and multiple glob filters.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Add `/cost` to show accumulated session spend and current model token rates, with pricing data available through SDK session status.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Expose session metadata through the SDK and add searchable session tags with `/tag`.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Add explicitly requested session worktree entry and exit with named resume, cwd and hook rebinding, safe keep behavior, and fail-closed removal confirmation.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Add JSON Schema validated structured output to prompt mode.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Add persistent project-task creation, lookup, dependency-aware listing, and updates while retaining explicit background-task listing.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Add per-model thinking effort levels: pick the level in the model selector or with the new `/effort` command, cycle it with Ctrl-T, and see the current level in the footer and on the input box border.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Show estimated token throughput while output streams in the TUI footer, then replace it with the provider-reported completed rate.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Add a TUI copy command for recent assistant responses and fenced code blocks with clipboard and file fallbacks.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Build the OpenTUI dialog slice with native searchable-dialog interactions.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Expose configuration and keybinding diagnostics through the TUI doctor command.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Add `/colors` and polish terminal progress, context, question, and Markdown activity displays while preserving reasoning-summary boundaries.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Add native TUI management for persisted allow, ask, and deny permission rules.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Add TUI commands for listing discovered skills and configured hooks.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Expand the TUI colour palette from 18 to 50 semantic tokens — shimmer variants, eight per-subagent identity colours, dimmed diff shades, a rainbow set, mode-identity badges, background surfaces, and progress-bar fill — and add a curried theme-aware `colorize` helper that accepts either a palette token or a raw hex.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Wire the vim core into the composer behind an opt-in `vimMode` option. A narrow, version-pinned bridge is the only seam to pi-tui's private editor state; terminal escape sequences and bracketed pastes are classified before vim sees them, so paste, arrows, and Kitty-protocol keys keep working in every mode.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Add the `vim_mode` experimental flag, off by default, so modal editing in the composer can be toggled through `/vim` or `/experiments`, `PYTHINKER_CODE_EXPERIMENTAL_VIM_MODE`, or config. The editor picks the flag up when the snapshot lands and follows runtime configuration changes.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Add the vim-mode state machine for the composer: NORMAL/INSERT transitions, counts, and the full movement set (character, line, word, line-anchored, document, and line-local find with repeat). Pure and renderer-agnostic — editing operators, text objects, and visual mode follow, as does the editor wiring.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Add vim editing operators to the composer state machine: `d`/`c`/`y` over any motion, doubled linewise forms, the single-key shortcuts (`x`, `X`, `s`, `S`, `D`, `C`, `Y`), text objects (`iw`/`aw`, quotes, nested brackets), and an unnamed register with charwise and linewise paste.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Complete the vim core for the composer: charwise and linewise visual mode with selection operators, and dot-repeat (`.`) driven by a structured repeat spec rather than replayed keystrokes.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Add a read-only verification agent and request independent checks when multi-step task lists close without verification.
+  Accept TodoWrite-compatible checklist items and show their active labels while tasks are in progress.
+  Cache successful local URL fetches for 15 minutes with a 50 MiB bound.
+  Preserve binary URL responses and save them through Kaos with MIME-derived filenames.
+  Propagate WebSearch cancellation, report live search progress, and remind responses to cite relevant results.
+  Retry transient LSP content-modified responses with bounded exponential backoff.
+  Filter gitignored files from location-based LSP results.
+  Restart configured language servers when a session enters or exits a worktree.
+  Surface bounded, deduplicated passive language-server diagnostics before the next model step.
+  Lighten the dark-theme periwinkle, clip structural tool rows instead of wrapping them, and copy mouse selections through both terminal and system clipboards.
+  Add policy-controlled HTTP hooks with secret-safe headers, cancellation, SSRF protection, and structured allow or block responses.
+  Support one-shot command and HTTP hooks through `once = true`.
+  Run command and HTTP hooks in the background through `async = true`.
+  Support `async_rewake` command hooks that run in the background and steer exit-code-2 blocking errors back into the main agent.
+
+  Add prompt and agent hook executors with argument substitution, structured allow/block results, model overrides, bounded timeouts, current-conversation context for prompt checks, and the existing read-only verification profile for agent checks.
+
+  Support permission-rule `if` filters for pre-tool, post-tool, post-tool-failure, and permission-request hooks using each tool's existing rule matcher.
+  Emit `PermissionDenied` hooks with the rejected tool call and reason for policy and user approval denials.
+  Honor structured `PermissionDenied` retry guidance for policy denials without weakening explicit user rejections.
+  Run source-compatible `Setup(init)` hooks before `/init` generates project instructions and through the hidden `--init` startup flag.
+  Run `Setup(init)` and `SessionStart(startup)` through hidden `--init-only`, then close before mounting the TUI.
+  Run source-compatible `Setup(maintenance)` hooks through the hidden `--maintenance` startup flag before fresh or resumed session lifecycle hooks.
+
+  Allow command hooks to select deterministic non-interactive PowerShell execution while preserving Bash as the default.
+  Prefer PowerShell 7 for native PowerShell tool calls and fall back to Windows PowerShell when it is unavailable.
+  Show configured hook status messages in a transient TUI spinner while command, HTTP, prompt, or agent hooks run.
+  Run blocking `TaskCreated` and `TaskCompleted` hooks around project task mutations, rolling back rejected creation and preventing rejected completion.
+  Report user and project AGENTS files loaded into the main context through source-compatible `InstructionsLoaded` hooks.
+  Report worktree entry and exit through source-compatible `CwdChanged` hooks.
+  Watch configured workspace files and emit source-compatible `FileChanged` hooks for add, change, and unlink events.
+  Accept absolute dynamic watch paths from structured hook output and replace the live `FileChanged` watcher set.
+  Reroot relative `FileChanged` hook paths when a worktree changes the session working directory.
+  Run matching `ConfigChange(user_settings)` hooks before in-app configuration writes and leave the file unchanged when a hook blocks.
+  Run `SessionStart` hooks with the `compact` source after successful compaction and before `PostCompact`.
+  Show command and HTTP hook targets plus `once` and `async` modes in `/hooks` without exposing headers.
+  Render compaction progress as elapsed seconds with a matching 40-cell percentage bar.
+  Add an experimental coordinator main-agent profile backed by the existing worker catalog and durable session profiles.
+  Continue explicit experimental token-target prompts until they approach the target or hit diminishing returns.
+  Carry the authorized-security and destructive-abuse boundary in the default agent prompt.
+  Keep default responses, progress updates, reasoning, and generated AGENTS instructions in English unless the user explicitly requests another response language.
+  Honor output styles that disable the bundled coding instructions.
+  Load bounded project memory into the main agent when experimental agent memory is enabled.
+  Classify persistent memories by user, feedback, project, or reference type and verify recalled source claims against live project state.
+  Warn when agent-memory topic files are older than one day and require live verification of recalled code claims.
+  Reload TUI keybindings automatically when `keybindings.json` changes.
+  Support `command:<name>` keybindings and warn about duplicate entries, inactive contexts, and shortcuts that may be intercepted by the terminal or macOS while leaving soft-reserved bindings available.
+  Detect normalized shortcut conflicts across separate keybinding blocks and aliases.
+  Support source-compatible redraw, history search/navigation, model picker, cancel, and submit keybinding actions through native editor behavior.
+  Search the current project's persisted prompt history with Ctrl+R and restore the selected input.
+  Include a bounded Git repository snapshot with sanitized remote metadata, branches, configured user, dirty files, and recent commits in the main agent's startup context.
+  Honor skill `user-invocable` and `argument-hint` frontmatter in TUI command discovery, keep model access independent, and expand source-compatible skill directory and session placeholders.
+  Activate skills with `paths` frontmatter after successful matching Read, Write, or Edit calls.
+  Discover Git-ignore-safe nested project skill directories after successful file-tool access.
+  Run `context: fork` skills through foreground subagents for model and user invocations, honoring profile, model, effort, and scoped allowed-tool metadata.
+  Scope inline skill model, effort, and allowed-tool overrides to the active turn and restore the prior runtime afterward.
+  Validate and register session-scoped hooks from invoked skill frontmatter.
+  Preload profile-declared skills into a subagent's first prompt.
+  Validate profile frontmatter hooks, scope them to the child agent, and remove them after completion.
+  Run blocking `TeammateIdle` hooks before teammates go idle and continue the child when a hook requests more work.
+  Reload AGENTS instructions after successful compaction and emit `InstructionsLoaded(compact)` before post-compaction hooks.
+  Load descendant AGENTS instructions after successful file access, deduplicate them until compaction, and emit `InstructionsLoaded(nested_traversal)` with the triggering file.
+  Use configured `WorktreeCreate` and `WorktreeRemove` hooks as a VCS-neutral isolation backend for session and subagent worktrees.
+  Resume legacy task-tool calls through canonical TaskOutput and TaskStop aliases, including KillShell shell_id inputs.
+  Activate pending plugin changes through the source-compatible `/reload-plugins` command.
+  Resolve the source `/reset`, `/continue`, `/bashes`, and `/bug` aliases to their native TUI commands.
+  Capture private JavaScript heap snapshots and memory diagnostics through the hidden `/heapdump` command.
+  Expose the canonical Pythinker changelog through `/release-notes`.
+  Resolve the source `/plugin` command to Pythinker's native plugin manager.
+  Expand `/review` into a focused pull request review workflow that uses the existing agent and permission system.
+  Expand `/commit` and `/commit-push-pr` into guarded Git publishing workflows without bypassing hooks or attribution rules.
+  Manage persisted telemetry privacy through `/privacy-settings`, with immediate runtime opt-out.
+  Report native Shift-Enter and universal Ctrl-J multiline input support through `/terminal-setup`.
+  Report the running version, install source, package root, executable path, duplicate PATH installations, and resolved ripgrep source through `/doctor`.
+  Report Pythinker's validated cached CDN rollout version through `/doctor`.
+  Include config warnings, agent-profile parse failures, and plugin diagnostics in the TUI doctor report.
+  Warn through `/doctor` when custom-agent descriptions or MCP tool schemas consume excessive context.
+  Enable debug-level diagnostics and analyze a bounded current-session log tail through `/debug`.
+  Create Pythinker-native functional verifier skills through `/init-verifiers` and let the read-only verification agent invoke them without gaining mutation tools.
+  Expand `/security-review` and `/pr-comments` into focused GitHub review workflows through the existing agent and permission system.
+  Schedule recurring prompts through the built-in `/loop` workflow and execute the requested prompt immediately once.
+  Expose active built-in tools over stdio through `pythinker mcp serve`, preserving schema validation, permissions, and multimodal results.
+  Handle MCP form elicitation through the existing question UI with typed JSON Schema validation and paged fields.
+  Run source-compatible `Elicitation` and `ElicitationResult` hooks around MCP forms, including validated hook-supplied responses.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Add cancellable URL fetching with per-host approval and safe redirect handoff, plus allowed and blocked domain filters for web search.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Expose bounded working-tree diffs through the SDK and a native `/diff` browser.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Add a configurable `[status_line]` TUI section to toggle footer status items, and show the YOLO indicator on a dedicated row beneath the model.
+
+### Patch Changes
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Align Anthropic-compatible thinking profiles, output limits, and incomplete stream handling with model capabilities.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Pulse the Bash activity marker while a command is running and keep the completed marker green.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Accept `/branch` and `/rewind` as compatibility aliases for `/fork` and `/undo`.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Allow provider catalog refresh for providers that register an API key directly instead of an environment variable.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Update OpenAI Codex OAuth for the new model catalog: bump the models client_version gate to 0.145.0 so the gpt-5.6 family appears, carry each model's supported reasoning efforts into config, send real max effort on the wire (ultra maps in as max), clamp requests to what each model supports, and default Codex sign-in to the top supported effort.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Align context usage displays with 1024-based units and ceiled percentages.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Prevent repeated session debug exports from overwriting earlier archives by including a timestamp in the default filename.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Default agent reasoning and responses to English unless the user explicitly requests another language.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Increase the default per-step LLM retry budget from 3 to 10 attempts.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Allow DynamicWorkflow items to be complete prompts when no template is supplied.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Show DynamicWorkflow request failures once instead of repeating the reason for every member.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Pin @agentclientprotocol/sdk to ^0.23.0 to restore the unstable session-model API the ACP adapter implements, and fix the adapter's typecheck.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Rename the stale afk reference to auto in the built-in MCP configuration guidance.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Prevent agent idle cleanup failures from surfacing as unhandled rejections.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Translate binary download failures through the standard fetch error path.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Fix Unicode-safe Vim editing, application shortcuts, selector state, key chords, mouse-selection auto-scrolling, and active-tab contrast.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Preserve graceful shutdown and exit codes under repeated signals or closed output streams, persist provider removals and cleared defaults, reject unsafe marketplace refs, and recover safely from stalled marketplace loads and interrupted update installs.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Fix ctrl+b / ctrl+f paging in the approval preview and task output viewer under the Kitty keyboard protocol. Both shortcuts compared raw C0 bytes, so they did nothing in terminals that send CSI-u — including VSCode's integrated terminal — while the page-up/page-down checks beside them worked.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Keep Dynamic Workflow results bounded and correctly decoded while preventing undone workflows from receiving late events.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Preserve MCP prompt client binding during skill activation.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Honor an explicit thinking off setting on OpenAI-compatible providers.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Correct the YOLO and Auto permission mode descriptions in CLI help output and ACP session mode selectors.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Correct the YOLO and Auto permission mode descriptions in the web slash command list and mobile permission sheet.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Clarify that YOLO auto-approves tool actions while Auto runs fully autonomously without asking questions.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Fix TypeScript errors in the TUI welcome/logo components and their tests (index-signature env access, possibly-undefined logo rows).
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Prevent silent exits from clipboard image failures and report unhandled promise rejections in crash telemetry.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Preserve extended Unicode characters when normalizing replacement quotes.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Fix sessions getting stuck after a provider records an assistant message with no sendable content.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Fix duplicate workspace groups on Windows when the same folder is opened with different path spellings, keeping all of the folder's sessions in one merged group.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Correct the YOLO mode notice shown when replaying a session.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Include the underlying network cause in OAuth connection error messages instead of only reporting a generic fetch failure.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Resolve every bare `solid-js` import to OpenTUI's client runtime so Solid signal updates reach the terminal buffer.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Stop showing a status message after successful automatic keybinding reloads.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Record and close tool calls that never ran after an interrupted model response.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Replay empty thinking content verbatim on preserved-thinking endpoints.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Scope inferred Anthropic thinking profiles to non-managed Anthropic-compatible providers.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Fix the built-in URL fetch tool's network safeguards so crafted domains and redirect chains cannot reach loopback or internal network services.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Render the slash command menu below the composer and give the selected command a themed pointer and muted description lines.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Make MCP startup status lines transient in the TUI: connected/disabled rows show a success mark and disappear after 3 seconds instead of permanently cluttering the transcript, while failed and needs-auth rows stay visible. The welcome-header aggregate remains the durable indicator.
+
+- [`5247303`](https://github.com/Pythoughts-labs/pythinker-code/commit/524730375e4390edc767a4d213ddcaabfd53e036) - Fix display-width measurement on the OpenTUI render path: strip ANSI escapes before measuring, segment by grapheme cluster so ZWJ emoji and skin-tone modifiers count once, and expand tabs to match the legacy renderer. Footer, composer, and dialog-list text no longer mis-truncate when coloured or containing emoji.
+
 ## 0.17.1
 
 ### Patch Changes
