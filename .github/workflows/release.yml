@@ -62,7 +62,8 @@ jobs:
           title: "ci: release packages"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # NPM_TOKEN is not needed with Trusted Publishing (OIDC)
+          # Falls back to Trusted Publishing (OIDC) when the secret is unset.
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Resolve Pythinker Code native release
         if: steps.changesets.outputs.published == 'true'
