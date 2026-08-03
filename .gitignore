@@ -1,0 +1,36 @@
+node_modules/
+dist/
+dist-web/
+dist-single/
+dist-native/
+.tmp-api-extractor/
+coverage/
+*.tsbuildinfo
+.vitest-results/
+.DS_Store
+.playwright-mcp/
+.claude
+.conductor
+.pythinker-stash-dir
+superpowers
+.worktrees/
+
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+docs/superpowers/
+reports/
+.superpowers/
+blackbox/
+# pythinker — local agent state (do not commit)
+.codebase-memory/
+.pythinker/
+.pythinker-review/
+.pythinker-review-flow/
+.pi-subagents/
+*.scratchpad.lock
+
+# internal working notes (not for the public repo)
+tasks/
+plan/

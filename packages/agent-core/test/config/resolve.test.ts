@@ -1,0 +1,38 @@
+import { describe, expect, it } from 'vitest';
+
+import { parseFloatEnv } from '../../src/config/resolve';
+import { PythinkerError } from '../../src/errors';
+
+function expectConfigInvalid(fn: () => unknown): void {
+  let thrown: unknown;
+  try {
+    fn();
+  } catch (error) {
+    thrown = error;
+  }
+  expect(thrown).toBeInstanceOf(PythinkerError);
+  expect((thrown as PythinkerError).code).toBe('config.invalid');
+}
+
+describe('parseFloatEnv', () => {
+  it('returns undefined when unset, empty, or blank', () => {
+    expect(parseFloatEnv(undefined, 'PYTHINKER_MODEL_TEMPERATURE')).toBeUndefined();
+    expect(parseFloatEnv('', 'PYTHINKER_MODEL_TEMPERATURE')).toBeUndefined();
+    expect(parseFloatEnv('   ', 'PYTHINKER_MODEL_TEMPERATURE')).toBeUndefined();
+  });
+
+  it('parses valid floats and integers', () => {
+    expect(parseFloatEnv('0.3', 'PYTHINKER_MODEL_TEMPERATURE')).toBe(0.3);
+    expect(parseFloatEnv('1', 'PYTHINKER_MODEL_TEMPERATURE')).toBe(1);
+    expect(parseFloatEnv(' 0.95 ', 'PYTHINKER_MODEL_TOP_P')).toBe(0.95);
+    expect(parseFloatEnv('0', 'PYTHINKER_MODEL_TEMPERATURE')).toBe(0);
+  });
+
+  it.each(['abc', '1.2.3', 'NaN', '1,5'])(
+    'throws config.invalid for non-numeric value %s',
+    (value) => {
+      expect.hasAssertions();
+      expectConfigInvalid(() => parseFloatEnv(value, 'PYTHINKER_MODEL_TEMPERATURE'));
+    },
+  );
+});
