@@ -8,7 +8,7 @@ const copy = {
   titleTail: ' CLI',
   tagline: 'The Starting Point for Next-Gen Agents',
   primaryText: 'Get started',
-  primaryHref: '/en/guides/getting-started',
+  primaryHref: '/guides/getting-started',
   secondaryText: 'View on GitHub',
   secondaryHref: 'https://github.com/Pythoughts-labs/pythinker-code',
 }

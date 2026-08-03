@@ -19,11 +19,11 @@
 [![ACP ready](https://img.shields.io/badge/ACP-ready-7c3aed.svg?style=flat-square)](https://agentclientprotocol.com/)
 [![MCP tools](https://img.shields.io/badge/MCP-tools-0891b2.svg?style=flat-square)](https://modelcontextprotocol.io/)
 [![Docs](https://img.shields.io/badge/docs-online-0284c7.svg?style=flat-square)](https://pythoughts-labs.github.io/pythinker-code/)
-[![Homepage](https://img.shields.io/badge/home-pythinker.com-ec4899.svg?style=flat-square)](https://pythinker.com)
+[![Homepage](https://img.shields.io/badge/home-code.pythinker.com-ec4899.svg?style=flat-square)](https://code.pythinker.com)
 
 <br />
 
-<a href="https://pythinker.com">Website</a> &nbsp;·&nbsp;
+<a href="https://code.pythinker.com">Website</a> &nbsp;·&nbsp;
 <a href="#quick-start">Quick Start</a> &nbsp;·&nbsp;
 <a href="#features">Features</a> &nbsp;·&nbsp;
 <a href="#ide-integration-via-acp">IDE Integration</a> &nbsp;·&nbsp;
@@ -379,7 +379,7 @@ Our TUI is built on [`pi-tui`](https://github.com/earendil-works/pi-mono/tree/ma
 
 **Built with  for engineers who live in the terminal.**
 
-[ pythinker.com](https://pythinker.com) &nbsp;·&nbsp;
+[ code.pythinker.com](https://code.pythinker.com) &nbsp;·&nbsp;
 [ npm](https://www.npmjs.com/package/@pythoughts/pythinker-code) &nbsp;·&nbsp;
 [ GitHub](https://github.com/Pythoughts-labs/pythinker-code) &nbsp;·&nbsp;
 [ Docs](https://pythoughts-labs.github.io/pythinker-code/) &nbsp;·&nbsp;

@@ -37,25 +37,25 @@ const features: Feature[] = [
     icon: '🧩',
     title: 'Agent Skills',
     desc: "Package your team's workflows into skills Pythinker can invoke on demand.",
-    href: '/en/customization/skills',
+    href: '/customization/skills',
   },
   {
     icon: '🪝',
     title: 'Hooks',
     desc: 'Inject scripts at lifecycle checkpoints — formatting, approvals, notifications, anything.',
-    href: '/en/customization/hooks',
+    href: '/customization/hooks',
   },
   {
     icon: '🤖',
     title: 'Sub-agents',
     desc: 'Dispatch isolated tasks in parallel, each with its own context — main thread stays clean.',
-    href: '/en/customization/agents',
+    href: '/customization/agents',
   },
   {
     icon: '🔌',
     title: 'MCP',
     desc: 'Plug in any tool, data source, or enterprise system via the Model Context Protocol.',
-    href: '/en/customization/mcp',
+    href: '/customization/mcp',
   },
 ]
 

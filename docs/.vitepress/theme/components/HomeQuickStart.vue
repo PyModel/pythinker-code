@@ -2,8 +2,8 @@
 import { withBase } from 'vitepress'
 import { ref } from 'vue'
 
-const installMacCommand = 'curl -fsSL https://pythinker.com/install.sh | bash'
-const installWinCommand = 'irm https://pythinker.com/install.ps1 | iex'
+const installMacCommand = 'curl -fsSL https://code.pythinker.com/pythinker-code/install.sh | bash'
+const installWinCommand = 'irm https://code.pythinker.com/pythinker-code/install.ps1 | iex'
 const runCommand = 'pythinker'
 
 const copy = {
@@ -15,7 +15,7 @@ const copy = {
   copyHint: 'Copy',
   copiedHint: 'Copied',
   ctaText: 'Read the full install guide',
-  ctaHref: '/en/guides/getting-started',
+  ctaHref: '/guides/getting-started',
 }
 
 const copiedKey = ref<string | null>(null)

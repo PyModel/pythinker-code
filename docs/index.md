@@ -6,7 +6,7 @@ hero:
   actions:
     - theme: brand
       text: Get started
-      link: guides/getting-started
+      link: /guides/getting-started
     - theme: alt
       text: GitHub
       link: https://github.com/Pythoughts-labs/pythinker-code
