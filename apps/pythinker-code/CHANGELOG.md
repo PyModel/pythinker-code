@@ -1,5 +1,17 @@
 # @pythoughts/pythinker-code
 
+## 0.7.0
+
+### Minor Changes
+
+- [#12](https://github.com/Pythoughts-labs/pythinker-code/pull/12) [`02f7f8d`](https://github.com/Pythoughts-labs/pythinker-code/commit/02f7f8d93ff138611298f8d46c5c54e928c7ae59) - Prepare verified Homebrew updates in the background and install them automatically on the next interactive launch.
+
+### Patch Changes
+
+- [#12](https://github.com/Pythoughts-labs/pythinker-code/pull/12) [`02f7f8d`](https://github.com/Pythoughts-labs/pythinker-code/commit/02f7f8d93ff138611298f8d46c5c54e928c7ae59) - Fix context compaction failing with provider "Invalid max_tokens" errors by capping requested completion tokens to the remaining context window and a safe output ceiling instead of the full context window size.
+
+- [#12](https://github.com/Pythoughts-labs/pythinker-code/pull/12) [`02f7f8d`](https://github.com/Pythoughts-labs/pythinker-code/commit/02f7f8d93ff138611298f8d46c5c54e928c7ae59) - Fix Dynamic Workflow progress sticking at 90% during long streaming, show a Finalizing state once all delegated agents finish, and fix member row alignment at narrow widths.
+
 ## 0.6.2
 
 ### Patch Changes
