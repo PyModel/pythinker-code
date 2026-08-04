@@ -9,7 +9,12 @@ import { shimmerText } from '#/tui/utils/shimmer';
 
 const RESUMED_ITEM_LABEL = '(resumed)';
 const ORCHESTRATING_LABEL = 'Orchestrating';
-const ORCHESTRATING_LABEL_WIDTH = visibleWidth(ORCHESTRATING_LABEL);
+const FINALIZING_LABEL = 'Finalizing';
+// Pad to the wider live label so the suffix column never shifts between them.
+const LIVE_LABEL_WIDTH = Math.max(
+  visibleWidth(ORCHESTRATING_LABEL),
+  visibleWidth(FINALIZING_LABEL),
+);
 const MAX_DYNAMIC_WORKFLOW_MEMBERS = 128;
 
 /** Lifecycle state of one delegated agent row, driven only by observed events. */
@@ -41,7 +46,9 @@ export interface DynamicWorkflowMember {
   endedAtMs?: number;
   /**
    * Observed-stage progress heuristic (0-100): the protocol emits no per-task
-   * percentage, so stages step through fixed values and never predict time.
+   * percentage, so stage floors map to observed events and streamed deltas
+   * creep asymptotically toward a ceiling. May hold fractional values
+   * internally; display floors it. Only a terminal event reaches 100.
    */
   progressPercent: number;
 }
@@ -249,12 +256,27 @@ export class DynamicWorkflowMissionControlComponent implements Component {
     if (member === undefined || isTerminalPhase(member.phase) || input.delta.length === 0) return;
     this.markStarted(input.agentId);
     const recordActivity = input.delta.includes('\n') || member.latest.length === 0;
-    // Text after a tool call counts as finalizing; earlier text is mid-work output.
+    // Text after a tool call counts as finalizing; earlier text is mid-work
+    // output. Each delta creeps toward the stage ceiling — with a minimum
+    // step so long streams keep visibly moving — without claiming completion.
+    const percent = member.progressPercent;
+    const {
+      toolActivityProgress,
+      finalizingCreepCeiling,
+      modelActivityProgress,
+      midworkCreepCeiling,
+      progressCreepRate,
+      progressCreepMinStep,
+    } = DYNAMIC_WORKFLOW_RENDERING;
+    const creepToward = (ceiling: number): number => Math.min(
+      ceiling,
+      percent + Math.max(progressCreepMinStep, (ceiling - percent) * progressCreepRate),
+    );
     this.advanceMemberProgress(
       member,
-      member.progressPercent >= DYNAMIC_WORKFLOW_RENDERING.toolActivityProgress
-        ? DYNAMIC_WORKFLOW_RENDERING.finalizingProgress
-        : DYNAMIC_WORKFLOW_RENDERING.modelActivityProgress,
+      percent >= toolActivityProgress
+        ? creepToward(finalizingCreepCeiling)
+        : Math.max(modelActivityProgress, creepToward(midworkCreepCeiling)),
     );
     const latest = latestNonEmptyLine(`${member.latest}${input.delta}`);
     this.setLatest(member, latest, recordActivity);
@@ -465,11 +487,21 @@ export class DynamicWorkflowMissionControlComponent implements Component {
     const loader = terminal
       ? currentTheme.fg(requestPhaseColor(this.model.requestPhase), requestPhaseSymbol(this.model.requestPhase))
       : this.activitySpinnerText?.() ?? currentTheme.fg('primary', '●');
+    const aggregateMembers = this.aggregateMembers();
+    // All spawned agents are done but the tool result has not arrived yet:
+    // the label says so instead of pretending orchestration is still active.
+    // Every member counts — including out-of-band rows beyond knownTotal —
+    // so the label never claims "done" above a row still marked running.
+    const finalizing = !terminal &&
+      this.model.knownTotal !== undefined &&
+      this.model.knownTotal > 0 &&
+      aggregateMembers.length === this.model.knownTotal &&
+      this.model.members.every((member) => isTerminalPhase(member.phase));
     // The live label shimmers from elapsed time; no timer is created because
     // the host owns animation and only re-renders this block.
     const label = terminal
       ? currentTheme.fg('text', requestPhaseLabel(this.model.requestPhase))
-      : shimmerText(ORCHESTRATING_LABEL, {
+      : shimmerText(finalizing ? FINALIZING_LABEL : ORCHESTRATING_LABEL, {
           baseToken: 'text',
           shimmerToken: 'primaryShimmer',
           frame: Math.floor(
@@ -477,9 +509,8 @@ export class DynamicWorkflowMissionControlComponent implements Component {
           ),
           windowSize: 4,
         });
-    const paddedLabel = padToWidth(label, ORCHESTRATING_LABEL_WIDTH);
+    const paddedLabel = padToWidth(label, LIVE_LABEL_WIDTH);
     const prefix = `${loader} ${paddedLabel}`;
-    const aggregateMembers = this.aggregateMembers();
     const completed = aggregateMembers.filter((member) => member.phase === 'completed').length;
     const failed = aggregateMembers.filter((member) => member.phase === 'failed').length;
     const cancelled = aggregateMembers.filter((member) => member.phase === 'cancelled').length;
@@ -516,7 +547,7 @@ export class DynamicWorkflowMissionControlComponent implements Component {
         padToWidth('STATE', 6),
         'TASK',
       ].join('  ')
-      : 'ID   STATE    TASK';
+      : `${padToWidth('ID', 3)} ${padToWidth('STATE', 6)} TASK`;
     return truncateToWidth(currentTheme.fg('textDim', header), width);
   }
 
@@ -527,7 +558,7 @@ export class DynamicWorkflowMissionControlComponent implements Component {
     const showProgress = width >= DYNAMIC_WORKFLOW_RENDERING.memberProgressMinWidth;
     const progress = `${renderProgressCube(progressPercent)} ${currentTheme.fg(
       'textMuted',
-      `${String(progressPercent).padStart(3, ' ')}%`,
+      `${String(Math.floor(progressPercent)).padStart(3, ' ')}%`,
     )}`;
     const progressColumn = padToWidth(
       progress,
@@ -536,7 +567,7 @@ export class DynamicWorkflowMissionControlComponent implements Component {
     const stateColumn = padToWidth(state, 6);
     const prefix = showProgress
       ? `${id}  ${progressColumn}  ${stateColumn}  `
-      : `${id} ${state} `;
+      : `${id} ${padToWidth(state, 6)} `;
     const task = member.item || 'Delegated agent';
     const latest = member.latest.length > 0 && member.latest !== task ? member.latest : undefined;
     const detail = member.phase === 'suspended' || isTerminalPhase(member.phase)
@@ -650,7 +681,10 @@ export class DynamicWorkflowMissionControlComponent implements Component {
     this.recordActivity(member.index, normalizedDetail.length > 0 ? `${label}: ${normalizedDetail}` : label);
   }
 
-  /** Progress only ever advances; stages map to observed events, never to time. */
+  /**
+   * Progress only ever advances; stages map to observed events, never to time.
+   * Creep is per observed event too (each streamed delta), so no timers exist.
+   */
   private advanceMemberProgress(member: DynamicWorkflowMember, targetPercent: number): void {
     member.progressPercent = Math.max(member.progressPercent, targetPercent);
   }
@@ -1026,7 +1060,7 @@ function parsePartialJsonString(
     if (escaped === 'u') {
       const hex = text.slice(index + 2, index + 6);
       if (/^[0-9a-fA-F]{4}$/.test(hex)) {
-        value += String.fromCharCode(Number.parseInt(hex, 16));
+        value += String.fromCodePoint(Number.parseInt(hex, 16));
         index += 5;
         continue;
       }
