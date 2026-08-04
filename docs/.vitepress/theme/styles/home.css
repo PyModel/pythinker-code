@@ -1,0 +1,85 @@
+/**
+ * Home-only styles. Scoped CSS in components handles most rules;
+ * shared utilities and layout container live here.
+ */
+
+.PythinkerHome {
+  --section-px: clamp(20px, 5vw, 64px);
+  --section-py: clamp(28px, 4vw, 56px);
+  position: relative;
+  padding: 0 var(--section-px);
+}
+
+.PythinkerHome__section {
+  max-width: 1152px;
+  margin: 0 auto;
+  padding: var(--section-py) 0;
+  position: relative;
+}
+
+.PythinkerHome__sectionTitle {
+  font-size: clamp(28px, 4vw, 40px);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  margin: 0 0 12px;
+  color: var(--vp-c-text-1);
+}
+
+.PythinkerHome__sectionLede {
+  font-size: 17px;
+  color: var(--vp-c-text-2);
+  margin: 0 0 40px;
+  max-width: 640px;
+  line-height: 1.6;
+}
+
+.PythinkerBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 48px;
+  padding: 0 22px;
+  border-radius: var(--pythinker-radius-button);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  text-decoration: none;
+  transition: transform var(--pythinker-transition), box-shadow var(--pythinker-transition),
+              border-color var(--pythinker-transition), background var(--pythinker-transition);
+  white-space: nowrap;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+.PythinkerBtn--primary {
+  color: #ffffff;
+  background: var(--pythinker-brand-gradient);
+  box-shadow: var(--vp-shadow-3);
+  border: 0;
+}
+.PythinkerBtn--primary:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--vp-shadow-4);
+  color: #ffffff;
+}
+.PythinkerBtn--ghost {
+  color: var(--vp-c-text-1);
+  background: transparent;
+  border-color: var(--vp-c-divider);
+}
+.PythinkerBtn--ghost:hover {
+  border-color: var(--vp-c-brand-1);
+  transform: translateY(-2px);
+  color: var(--vp-c-text-1);
+}
+.PythinkerBtn--link {
+  color: var(--vp-c-brand-1);
+  height: auto;
+  padding: 0;
+  background: transparent;
+  border: none;
+}
+.PythinkerBtn--link:hover {
+  color: var(--vp-c-brand-2);
+  transform: translateX(2px);
+}

@@ -1,0 +1,33 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    # Scheduled version-update PRs are disabled on purpose: this workspace's
+    # engines.node (>=26.4.0) exceeds the Node.js version Dependabot's own
+    # updater sandbox ships, so ANY `pnpm install`/update it attempts hard-fails
+    # with ERR_PNPM_UNSUPPORTED_ENGINE (root .npmrc sets engine-strict=true).
+    # See dependabot/dependabot-core#7426, #4072, #12976 — there is no
+    # dependabot.yml-level fix; the real fix is lowering engines.node or
+    # disabling engine-strict in .npmrc, both out of scope here. This entry
+    # exists only so the `ignore` rules below apply to security-update PRs,
+    # which open-pull-requests-limit: 0 does not suppress.
+    open-pull-requests-limit: 0
+    ignore:
+      # Both advisories are on vite/esbuild resolved transitively through
+      # docs/package.json's vitepress@1.6.4 (vite@5.4.21 in pnpm-lock.yaml),
+      # a dev-only docs-site dependency. vitepress@1.6.4 pins `vite: 5.4.21`
+      # as a hard (non-peer) dependency, so pnpm cannot resolve a fix without
+      # vitepress 2 (alpha only as of 2026-08) — every attempt reopens the
+      # same failing PR. Unscoped by version on purpose: Dependabot's actual
+      # target version for this resolution is unverifiable (no open
+      # Dependabot PRs exist in this repo to read a target off of, and the
+      # target is not necessarily the advisory's first-patched version), so a
+      # version-scoped rule can silently fail to match and let the PR back
+      # in. Cost: this also suppresses vite/esbuild security-update PRs for
+      # apps/*, which today sit at patched vite@6.4.3+ directly — revisit if
+      # that changes. Drop both rules once docs/package.json moves to
+      # vitepress 2 stable.
+      - dependency-name: "vite"
+      - dependency-name: "esbuild"

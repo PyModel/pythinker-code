@@ -1,0 +1,27 @@
+# Config for crate-ci/typos (CI: .github/workflows/typos.yml).
+# Tests and fixtures are excluded wholesale: they contain deliberate
+# misspellings (fuzzy-match inputs like `comand`, `buton`) and base64/id
+# blobs that false-positive on short tokens.
+
+[files]
+extend-exclude = [
+  "blackbox/",
+  "**/test/**",
+  "**/tests/**",
+  "**/*.test.ts",
+  "**/__snapshots__/**",
+  "**/CHANGELOG.md",
+  "pnpm-lock.yaml",
+]
+
+[default.extend-words]
+# Real names / accepted spellings, not typos.
+sherif = "sherif"             # https://github.com/QuiiBz/sherif — monorepo linter
+unparseable = "unparseable"   # valid variant spelling used across the codebase
+uncatalogued = "uncatalogued" # valid British spelling
+mis = "mis"                   # hyphenated prefix in comments: mis-parses, mis-set
+flase = "flase"               # deliberate typo example in a config-error comment
+nd = "nd"                     # ndJsonStream, `Nd` cron interval token
+dows = "dows"                 # formatDows — days-of-week (cron)
+fo = "fo"                     # `/FO` flag of Windows schtasks
+pn = "pn"                     # "PNGs" tokenized as PN by the checker

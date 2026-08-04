@@ -1,0 +1,39 @@
+{
+  "name": "@pythoughts/protocol",
+  "version": "0.3.0",
+  "private": true,
+  "description": "Shared REST + WS protocol schemas (envelope, error codes, pagination, ws-control) for the pythinker-code daemon.",
+  "license": "MIT",
+  "author": "Pythoughts",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Pythoughts-labs/pythinker-code.git",
+    "directory": "packages/protocol"
+  },
+  "bugs": {
+    "url": "https://github.com/Pythoughts-labs/pythinker-code/issues"
+  },
+  "type": "module",
+  "imports": {
+    "#/*": [
+      "./src/*.ts",
+      "./src/*/index.ts"
+    ]
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "ulid": "^3.0.2",
+    "zod": "^4.4.3"
+  }
+}

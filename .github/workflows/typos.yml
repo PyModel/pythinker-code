@@ -1,0 +1,22 @@
+name: Typo checker
+
+# Config: _typos.toml (excludes tests/fixtures with deliberate misspellings,
+# allow-lists real names like `sherif` and variant spellings).
+
+on: [pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    name: Spell Check with Typos
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pinned from v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Check spelling of the entire repository
+        uses: crate-ci/typos@80c8a4945eec0f6d464eaf9e65ed98ef085283d1 # pinned from v1.38.1

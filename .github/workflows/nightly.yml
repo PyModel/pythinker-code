@@ -1,0 +1,61 @@
+name: Nightly
+
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    name: Publish dev snapshot
+    if: github.repository_owner == 'Pythoughts-labs'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: "pnpm"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Upgrade npm for Trusted Publishing
+        run: npm install -g npm@latest
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Pythinker Code built-in catalog
+        shell: bash
+        run: |
+          CATALOG_FILE="$RUNNER_TEMP/pythinker-code-built-in-catalog.json"
+          node apps/pythinker-code/scripts/update-catalog.mjs --out "$CATALOG_FILE"
+          echo "PYTHINKER_CODE_BUILT_IN_CATALOG_FILE=$CATALOG_FILE" >> "$GITHUB_ENV"
+
+      - name: Build packages
+        run: pnpm build
+
+      - name: Publish dev snapshot
+        run: |
+          pnpm changeset version --snapshot dev
+          VERSION=$(node -p "require('./apps/pythinker-code/package.json').version")
+          if npm view "@pythoughts/pythinker-code@$VERSION" version >/dev/null 2>&1; then
+            echo "already published — no new commits"
+            exit 0
+          fi
+          pnpm changeset publish --tag dev --no-git-tag

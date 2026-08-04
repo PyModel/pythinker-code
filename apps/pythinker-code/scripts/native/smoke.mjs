@@ -1,0 +1,92 @@
+import { execFile } from 'node:child_process';
+import { readFile, stat } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { promisify } from 'node:util';
+
+import { appRoot, nativeBinPath, nativeSmokeHome, targetTriple } from './paths.mjs';
+
+const execFileAsync = promisify(execFile);
+const target = targetTriple();
+const executablePath = nativeBinPath(target);
+const smokeHome = nativeSmokeHome();
+const packageJson = JSON.parse(await readFile(resolve(appRoot, 'package.json'), 'utf-8'));
+const expectedVersion = packageJson.version;
+
+function fail(message) {
+  console.error(message);
+  process.exit(1);
+}
+
+async function ensureExecutableExists() {
+  try {
+    await stat(executablePath);
+  } catch {
+    fail(`Native executable not found at ${executablePath}. Run build:native:sea first.`);
+  }
+}
+
+async function runPythinker(args) {
+  try {
+    const { stdout, stderr } = await execFileAsync(executablePath, args, {
+      cwd: appRoot,
+      maxBuffer: 1024 * 1024 * 16,
+    });
+    return `${stdout}${stderr}`;
+  } catch (error) {
+    const detail = [error.stdout?.trim(), error.stderr?.trim(), error.message]
+      .filter(Boolean)
+      .join('\n');
+    fail(`Native smoke failed: ${executablePath} ${args.join(' ')}\n${detail}`);
+  }
+}
+
+async function runPythinkerWithEnv(args, env) {
+  try {
+    const { stdout, stderr } = await execFileAsync(executablePath, args, {
+      cwd: appRoot,
+      env: { ...process.env, ...env },
+      maxBuffer: 1024 * 1024 * 16,
+    });
+    return `${stdout}${stderr}`;
+  } catch (error) {
+    const detail = [error.stdout?.trim(), error.stderr?.trim(), error.message]
+      .filter(Boolean)
+      .join('\n');
+    fail(`Native smoke failed: ${executablePath} ${args.join(' ')}\n${detail}`);
+  }
+}
+
+function assertIncludes(output, expected, command) {
+  if (!output.includes(expected)) {
+    fail(`Native smoke output for "${command}" did not include "${expected}".\n${output}`);
+  }
+}
+
+await ensureExecutableExists();
+
+const versionOutput = await runPythinker(['--version']);
+assertIncludes(versionOutput, expectedVersion, '--version');
+
+const helpOutput = await runPythinker(['--help']);
+assertIncludes(helpOutput, 'Usage: pythinker', '--help');
+
+const exportHelpOutput = await runPythinker(['export', '--help']);
+assertIncludes(exportHelpOutput, 'Usage: pythinker export', 'export --help');
+
+const nativeAssetOutput = await runPythinkerWithEnv(['--version'], {
+  PYTHINKER_CODE_HOME: smokeHome,
+  PYTHINKER_CODE_NATIVE_ASSET_SMOKE: '1',
+});
+assertIncludes(nativeAssetOutput, `Native asset smoke passed: ${target}`, 'native asset smoke');
+
+const openTuiOutput = await runPythinkerWithEnv([], {
+  PYTHINKER_CODE_HOME: smokeHome,
+  PYTHINKER_CODE_OPENTUI_SMOKE: '1',
+});
+assertIncludes(
+  openTuiOutput,
+  'OpenTUI reactive smoke passed: BEFORE -> AFTER',
+  'OpenTUI reactive smoke',
+);
+
+console.log(`Native smoke passed: ${executablePath}`);

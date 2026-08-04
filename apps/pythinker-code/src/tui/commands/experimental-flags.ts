@@ -1,0 +1,41 @@
+import type { ExperimentalFeatureState, ExperimentalFlagMap } from '@pythoughts/pythinker-code-sdk';
+
+import { experimentalFeatureMap } from '#/utils/experimental-features';
+
+// Resolved experimental features, fetched once from the core over RPC at startup and then read
+// synchronously by the command palette and dispatch. App-local cache, not a source of truth.
+let snapshot: ExperimentalFlagMap = {};
+const listeners: Array<() => void> = [];
+
+/** Replace the cached flag snapshot. Call after fetching via `harness.getExperimentalFeatures()`. */
+export function setExperimentalFeatures(
+  features: readonly Pick<ExperimentalFeatureState, 'id' | 'enabled'>[],
+): void {
+  snapshot = experimentalFeatureMap(features);
+  notifyListeners();
+}
+
+/**
+ * Override one feature for the current run only. Unlike
+ * `setExperimentalFeatures`, this never persists: the override lives in the
+ * in-memory snapshot until the next startup or snapshot replacement.
+ */
+export function setExperimentalFeatureForRun(flag: string, enabled: boolean): void {
+  snapshot = { ...snapshot, [flag]: enabled };
+  notifyListeners();
+}
+
+function notifyListeners(): void {
+  for (const listener of listeners) {
+    listener();
+  }
+}
+
+export function onExperimentalFeaturesChanged(listener: () => void): void {
+  listeners.push(listener);
+}
+
+/** An `undefined` flag means "not gated" → always enabled, so callers can pass an optional flag id. */
+export function isExperimentalFlagEnabled(flag: string | undefined): boolean {
+  return flag === undefined || snapshot[flag] === true;
+}

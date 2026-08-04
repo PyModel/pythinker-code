@@ -1,0 +1,13 @@
+packages:
+  - packages/*
+  - apps/*
+  - apps/dashboard/server
+  - apps/dashboard/web
+  - docs
+
+catalog:
+  zod: 4.4.3
+
+overrides:
+  "ssh2@1.17.0>cpu-features": "-"
+  "ssh2@1.17.0>nan": "-"
