@@ -1908,9 +1908,17 @@ describe('FullCompaction', () => {
 
     expect(callCount).toBe(3);
     expect(compactionMaxCompletionTokens).toHaveLength(1);
-    const cap = compactionMaxCompletionTokens[0] as number;
-    expect(cap).toBeGreaterThanOrEqual(1);
-    expect(cap).toBeLessThan(maxContextTokens);
+    const cap = compactionMaxCompletionTokens[0];
+    if (typeof cap !== 'number') {
+      throw new TypeError(`expected a numeric max_completion_tokens, got ${String(cap)}`);
+    }
+    // The 8000 ASCII history chars estimate to >= 2000 tokens (~4 chars per
+    // token), so the remaining-window cap must land at or below
+    // maxContextTokens - 2000 — well under the flat min(maxCtx, 128k) the
+    // budget used before the fix. The exact value tracks the estimator and
+    // message-projection internals, so bound it instead of pinning it.
+    expect(cap).toBeGreaterThan(1);
+    expect(cap).toBeLessThanOrEqual(maxContextTokens - 2000);
   });
 
   it('ignores filtered assistant placeholders when checking the retained overflow suffix', async () => {
