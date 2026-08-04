@@ -15,6 +15,9 @@ const InstallSourceSchema: z.ZodType<InstallSource> = z.enum([
   'unsupported',
 ]);
 
+const UpdateInstallOperationSchema = z.enum(['install', 'prepare', 'activate']);
+const Sha256Schema = z.string().regex(/^[a-f0-9]{64}$/u);
+
 const UpdateInstallStateSchema: z.ZodType<UpdateInstallState> = z
   .object({
     active: z
@@ -23,14 +26,34 @@ const UpdateInstallStateSchema: z.ZodType<UpdateInstallState> = z
         source: InstallSourceSchema,
         startedAt: z.string().min(1),
         pid: z.number().int().positive().optional(),
+        operation: UpdateInstallOperationSchema.optional(),
+        jobId: z.uuid().optional(),
       })
       .strict()
       .nullable(),
+    pending: z
+      .object({
+        jobId: z.uuid(),
+        source: z.literal('homebrew'),
+        version: z.string().min(1),
+        preparedAt: z.string().min(1),
+        requestedBy: z.enum(['automatic', 'manual']),
+        formulaUrl: z.url(),
+        artifactKind: z.literal('source'),
+        artifactSha256: Sha256Schema,
+        formulaFileSha256: Sha256Schema,
+        artifactPath: z.string().min(1),
+      })
+      .strict()
+      .nullable()
+      .default(null),
     lastFailure: z
       .object({
         version: z.string().min(1),
         failedAt: z.string().min(1),
         attempts: z.number().int().min(1),
+        operation: UpdateInstallOperationSchema.optional(),
+        message: z.string().min(1).optional(),
       })
       .strict()
       .nullable(),
@@ -61,5 +84,5 @@ export async function writeUpdateInstallState(
   value: UpdateInstallState,
   filePath: string = getUpdateInstallStateFile(),
 ): Promise<void> {
-  await writeJsonFile(filePath, UpdateInstallStateSchema, value);
+  await writeJsonFile(filePath, UpdateInstallStateSchema, value, { durable: true });
 }

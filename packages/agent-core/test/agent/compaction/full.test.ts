@@ -1841,6 +1841,86 @@ describe('FullCompaction', () => {
     expect(compactionMaxCompletionTokens).toEqual([undefined]);
   });
 
+  it('uses default 128k hardCap when maxOutputSize is not configured', async () => {
+    let callCount = 0;
+    const compactionMaxCompletionTokens: unknown[] = [];
+    const generate: GenerateFn = async (provider, _system, _tools, _history, callbacks) => {
+      callCount += 1;
+      if (callCount === 1) {
+        throw new APIContextOverflowError(400, 'Context length exceeded', 'req-default-cap');
+      }
+      if (callCount === 2) {
+        compactionMaxCompletionTokens.push(providerMaxCompletionTokens(provider));
+        return textResult('Default cap compacted summary.');
+      }
+      await callbacks?.onMessagePart?.({
+        type: 'text',
+        text: 'Recovered with default cap.',
+      });
+      return textResult('Recovered with default cap.');
+    };
+    const ctx = testAgent({ generate });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+    ctx.newEvents();
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Retry with default cap' }] });
+    await ctx.untilTurnEnd();
+
+    expect(callCount).toBe(3);
+    expect(compactionMaxCompletionTokens).toEqual([128 * 1024]);
+  });
+
+  it('shrinks the compaction max_tokens to the remaining context window', async () => {
+    let callCount = 0;
+    const compactionMaxCompletionTokens: unknown[] = [];
+    const generate: GenerateFn = async (provider, _system, _tools, _history, callbacks) => {
+      callCount += 1;
+      if (callCount === 1) {
+        throw new APIContextOverflowError(400, 'Context length exceeded', 'req-remaining-window');
+      }
+      if (callCount === 2) {
+        compactionMaxCompletionTokens.push(providerMaxCompletionTokens(provider));
+        return textResult('Remaining-window compacted summary.');
+      }
+      await callbacks?.onMessagePart?.({
+        type: 'text',
+        text: 'Recovered within remaining window.',
+      });
+      return textResult('Recovered within remaining window.');
+    };
+    const maxContextTokens = 4_000;
+    const ctx = testAgent({ generate });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: { ...CATALOGUED_MODEL_CAPABILITIES, max_context_tokens: maxContextTokens },
+    });
+    // ~2000 estimated tokens of history so the remaining window is well
+    // below the flat min(maxCtx, 128k) cap the budget would otherwise use.
+    ctx.appendExchange(1, 'x'.repeat(4_000), 'y'.repeat(4_000), 20);
+    ctx.newEvents();
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Retry near the window top' }] });
+    await ctx.untilTurnEnd();
+
+    expect(callCount).toBe(3);
+    expect(compactionMaxCompletionTokens).toHaveLength(1);
+    const cap = compactionMaxCompletionTokens[0];
+    if (typeof cap !== 'number') {
+      throw new TypeError(`expected a numeric max_completion_tokens, got ${String(cap)}`);
+    }
+    // The 8000 ASCII history chars estimate to >= 2000 tokens (~4 chars per
+    // token), so the remaining-window cap must land at or below
+    // maxContextTokens - 2000 — well under the flat min(maxCtx, 128k) the
+    // budget used before the fix. The exact value tracks the estimator and
+    // message-projection internals, so bound it instead of pinning it.
+    expect(cap).toBeGreaterThan(1);
+    expect(cap).toBeLessThanOrEqual(maxContextTokens - 2000);
+  });
+
   it('ignores filtered assistant placeholders when checking the retained overflow suffix', async () => {
     let callCount = 0;
     const generate: GenerateFn = async (_provider, _system, _tools, _history, callbacks) => {

@@ -152,7 +152,7 @@ Switches that control the behavior of subsystems such as telemetry, background t
 | `PYTHINKER_MODEL_TEMPERATURE` | Sampling temperature for every request; applies to the `pythinker` provider only (global — independent of `PYTHINKER_MODEL_NAME`) | Number, e.g. `0.3` |
 | `PYTHINKER_MODEL_TOP_P` | Nucleus-sampling `top_p` for every request; applies to the `pythinker` provider only (global) | Number, e.g. `0.95` |
 | `PYTHINKER_MODEL_THINKING_KEEP` | Pythoughts preserved-thinking passthrough (`thinking.keep`); applies to the `pythinker` provider only, and only while Thinking is on | A value the API accepts, e.g. `all` |
-| `PYTHINKER_CODE_NO_AUTO_UPDATE` | Fully disable the update preflight — no check, background install, or prompt. Legacy alias `PYTHINKER_CLI_NO_AUTO_UPDATE` is also honored | Truthy: `1`/`true`/`yes`/`on` |
+| `PYTHINKER_CODE_NO_AUTO_UPDATE` | Disable automatic update checks, background preparation or installation, restart activation, and prompts. An explicit `/update` request is still completed; the legacy alias `PYTHINKER_CLI_NO_AUTO_UPDATE` is also honored | Truthy: `1`/`true`/`yes`/`on` |
 | `PYTHINKER_DISABLE_CRON` | Disable the scheduled-task tool (`CronCreate` rejects new schedules; existing tasks do not fire) | `1` to disable |
 
 ## Diagnostic logs

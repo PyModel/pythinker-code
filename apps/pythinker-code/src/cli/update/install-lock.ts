@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, open, readFile, unlink } from 'node:fs/promises';
+import { link, mkdir, open, readFile, unlink } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
 import { getUpdateInstallLockFile } from '#/utils/paths';
@@ -124,16 +124,26 @@ async function createLockFile(
 ): Promise<UpdateInstallLockHandle> {
   const now = request.now ?? new Date();
   const ownerId = randomUUID();
-  const file = await open(filePath, 'wx', 0o600);
+  const stagedPath = `${filePath}.${ownerId}.tmp`;
+  const file = await open(stagedPath, 'wx', 0o600);
   try {
-    await file.writeFile(`${JSON.stringify({
-      version: request.version,
-      ownerId,
-      pid: process.pid,
-      startedAt: now.toISOString(),
-    }, null, 2)}\n`, 'utf-8');
+    try {
+      await file.writeFile(`${JSON.stringify({
+        version: request.version,
+        ownerId,
+        pid: process.pid,
+        startedAt: now.toISOString(),
+      }, null, 2)}\n`, 'utf-8');
+      await file.sync();
+    } finally {
+      await file.close();
+    }
+    // Publish a fully-written record atomically. Creating the destination with
+    // open('wx') and filling it afterward lets a concurrent reader mistake the
+    // transient empty file for a stale lock and unlink a live owner's lease.
+    await link(stagedPath, filePath);
   } finally {
-    await file.close();
+    await unlink(stagedPath).catch(() => {});
   }
 
   let released = false;

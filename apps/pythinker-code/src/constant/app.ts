@@ -27,6 +27,7 @@ export const PYTHINKER_CODE_BIN_DIR_NAME = 'bin';
 export const PYTHINKER_CODE_UPDATE_STATE_FILE_NAME = 'latest.json';
 export const PYTHINKER_CODE_UPDATE_INSTALL_STATE_FILE_NAME = 'install.json';
 export const PYTHINKER_CODE_UPDATE_INSTALL_LOCK_FILE_NAME = 'install.lock';
+export const PYTHINKER_CODE_UPDATE_INSTALL_LOG_FILE_NAME = 'install.log';
 export const PYTHINKER_CODE_UPDATE_ROLLOUT_LOG_FILE_NAME = 'rollout.log';
 export const PYTHINKER_CODE_INPUT_HISTORY_DIR_NAME = 'user-history';
 export const PYTHINKER_CODE_BANNER_DIR_NAME = 'banner';

@@ -159,7 +159,9 @@ export interface ChatProvider {
   /**
    * Return a shallow copy of this provider with the per-request completion
    * budget clamped to `maxCompletionTokens`. Optional because not every
-   * backend benefits from a client-computed cap.
+   * backend benefits from a client-computed cap. The caller is responsible
+   * for sizing the cap to the remaining context window; implementations may
+   * further tighten it to their own transport ceilings.
    *
    * Implementations MUST NOT mutate or replace internal HTTP clients on the
    * returned clone — the clone is expected to share transport state with the

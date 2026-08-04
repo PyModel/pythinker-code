@@ -82,6 +82,42 @@ describe('computeCompletionBudgetCap', () => {
     });
     expect(cap).toBe(1024);
   });
+
+  it('shrinks the cap to the remaining context window when usage is known', () => {
+    const cap = computeCompletionBudgetCap({
+      budget: { hardCap: 128 * 1024 },
+      capability: makeCapability(131072),
+      usedContextTokens: 120000,
+    });
+    expect(cap).toBe(131072 - 120000);
+  });
+
+  it('shrinks the context-window default to the remaining window', () => {
+    const cap = computeCompletionBudgetCap({
+      budget: { fallback: 32000 },
+      capability: makeCapability(100000),
+      usedContextTokens: 30000,
+    });
+    expect(cap).toBe(70000);
+  });
+
+  it('floors at 1 when the context window is already exhausted', () => {
+    const cap = computeCompletionBudgetCap({
+      budget: { hardCap: 8192 },
+      capability: makeCapability(100000),
+      usedContextTokens: 100001,
+    });
+    expect(cap).toBe(1);
+  });
+
+  it('ignores usedContextTokens when the context window is unknown', () => {
+    const cap = computeCompletionBudgetCap({
+      budget: { fallback: 8192 },
+      capability: undefined,
+      usedContextTokens: 999999,
+    });
+    expect(cap).toBe(8192);
+  });
 });
 
 describe('applyCompletionBudget', () => {
@@ -149,6 +185,16 @@ describe('applyCompletionBudget', () => {
     expect(withMaxCompletionTokens).toHaveBeenCalledOnce();
     expect(withMaxCompletionTokens.mock.calls[0]?.[0]).toBe(8192);
     expect(result).not.toBe(original);
+  });
+
+  it('shrinks the cap to the remaining context window', () => {
+    applyCompletionBudget({
+      provider: original,
+      budget: { hardCap: 8192 },
+      capability: makeCapability(10000),
+      usedContextTokens: 9000,
+    });
+    expect(withMaxCompletionTokens).toHaveBeenCalledExactlyOnceWith(1000);
   });
 });
 

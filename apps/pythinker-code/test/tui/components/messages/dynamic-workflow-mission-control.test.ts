@@ -7,7 +7,7 @@ import {
   type DynamicWorkflowMissionControlOptions,
   dynamicWorkflowResultSummaryFromOutput,
 } from '#/tui/components/messages/dynamic-workflow-mission-control';
-import { BRAILLE_SPINNER_INTERVAL_MS } from '#/tui/constant/rendering';
+import { BRAILLE_SPINNER_INTERVAL_MS, DYNAMIC_WORKFLOW_RENDERING } from '#/tui/constant/rendering';
 import { currentTheme, darkColors } from '#/tui/theme';
 
 const DESCRIPTION = 'Review the interface';
@@ -29,9 +29,15 @@ function memberLine(output: string, index: number): string {
   return line;
 }
 
+function displayedPercent(output: string, index: number): number {
+  const match = /(\d+)%/u.exec(memberLine(output, index));
+  if (match === null) throw new Error(`Missing percent for member ${String(index)}`);
+  return Number(match[1]);
+}
+
 function aggregateLine(output: string): string {
   const line = output.split('\n').find((candidate) =>
-    /\b(?:Orchestrating|Completed|Failed|Cancelled)\b/u.test(strip(candidate))
+    /\b(?:Orchestrating|Finalizing|Completed|Failed|Cancelled)\b/u.test(strip(candidate))
   );
   if (line === undefined) throw new Error('Missing Dynamic Workflow aggregate');
   return line;
@@ -508,7 +514,7 @@ describe('DynamicWorkflowMissionControlComponent', () => {
     component.recordToolCall({ agentId: 'agent-1', name: 'Read' });
     expectProgress(75, '⣶');
     component.appendModelDelta({ agentId: 'agent-1', delta: 'Summarizing' });
-    const activeOutput = expectProgress(90, '⣷');
+    const activeOutput = expectProgress(75, '⣶');
     expect(aggregateLine(activeOutput)).toContain('0/1 complete');
     expect(aggregateLine(activeOutput)).not.toMatch(/\b\d+%/u);
     expect(aggregateLine(activeOutput)).not.toContain('━');
@@ -591,4 +597,116 @@ describe('DynamicWorkflowMissionControlComponent', () => {
       expect(output.includes('PROGRESS')).toBe(showsProgress);
     },
   );
+
+  it('creeps past 90 across streamed deltas and completes only on the terminal event', () => {
+    const component = createComponent();
+    component.updateArgs({ items: ['Long streaming work'] });
+    component.markInputComplete();
+    register(component, 'agent-1');
+    component.markStarted('agent-1');
+    component.recordToolCall({ agentId: 'agent-1', name: 'Read' });
+
+    for (let index = 0; index < 10; index += 1) {
+      component.appendModelDelta({ agentId: 'agent-1', delta: `chunk ${String(index)} ` });
+    }
+    const early = displayedPercent(renderText(component, 100), 1);
+    // No snap to 90: the finalizing phase climbs from 75 instead of jumping.
+    expect(early).toBeGreaterThan(75);
+    expect(early).toBeLessThan(90);
+
+    for (let index = 0; index < 200; index += 1) {
+      component.appendModelDelta({ agentId: 'agent-1', delta: 'more ' });
+    }
+    const late = displayedPercent(renderText(component, 100), 1);
+    expect(late).toBeGreaterThan(90);
+    expect(late).toBeLessThan(100);
+
+    component.markCompleted('agent-1', 'Done');
+    expect(displayedPercent(renderText(component, 100), 1)).toBe(100);
+  });
+
+  it('keeps mid-work delta creep under the tool-activity stage until a tool call lifts it', () => {
+    const component = createComponent();
+    component.updateArgs({ items: ['Chatty work'] });
+    component.markInputComplete();
+    register(component, 'agent-1');
+    component.markStarted('agent-1');
+
+    for (let index = 0; index < 300; index += 1) {
+      component.appendModelDelta({ agentId: 'agent-1', delta: 'more ' });
+    }
+    const midwork = displayedPercent(renderText(component, 100), 1);
+    expect(midwork).toBeGreaterThan(50);
+    expect(midwork).toBeLessThan(DYNAMIC_WORKFLOW_RENDERING.toolActivityProgress);
+
+    component.recordToolCall({ agentId: 'agent-1', name: 'Read' });
+    expect(displayedPercent(renderText(component, 100), 1))
+      .toBeGreaterThanOrEqual(DYNAMIC_WORKFLOW_RENDERING.toolActivityProgress);
+  });
+
+  it('shimmers Finalizing once every member is terminal but the result has not arrived', () => {
+    const component = createComponent();
+    component.updateArgs({ items: ['One', 'Two'] });
+    component.markInputComplete();
+    component.registerSubagent({ agentId: 'agent-1', dynamicWorkflowIndex: 1 });
+    component.registerSubagent({ agentId: 'agent-2', dynamicWorkflowIndex: 2 });
+    component.markStarted('agent-1');
+    component.markStarted('agent-2');
+    component.markCompleted('agent-1', 'Done');
+
+    const running = renderText(component, 100);
+    expect(running).toContain('Orchestrating');
+    expect(running).not.toContain('Finalizing');
+
+    component.markCompleted('agent-2', 'Done');
+    const finalizing = renderText(component, 100);
+    expect(finalizing).toContain('Finalizing');
+    expect(finalizing).not.toContain('Orchestrating');
+
+    component.applyResult([
+      '<dynamic_workflow_result>',
+      '<subagent index="1" outcome="completed">Done</subagent>',
+      '<subagent index="2" outcome="completed">Done</subagent>',
+      '</dynamic_workflow_result>',
+    ].join('\n'));
+    const done = renderText(component, 100);
+    expect(done).toContain('✓ Completed');
+    expect(done).not.toContain('Finalizing');
+  });
+
+  it('keeps Orchestrating while an out-of-band member beyond knownTotal still runs', () => {
+    const component = createComponent();
+    component.updateArgs({ items: ['One', 'Two'] });
+    component.markInputComplete();
+    component.registerSubagent({ agentId: 'agent-1', dynamicWorkflowIndex: 1 });
+    component.registerSubagent({ agentId: 'agent-2', dynamicWorkflowIndex: 2 });
+    component.registerSubagent({ agentId: 'agent-3', dynamicWorkflowIndex: 3 });
+    component.markStarted('agent-3');
+    component.markCompleted('agent-1', 'Done');
+    component.markCompleted('agent-2', 'Done');
+
+    const output = renderText(component, 100);
+    expect(output).toContain('● RUN');
+    expect(output).toContain('Orchestrating');
+    expect(output).not.toContain('Finalizing');
+
+    component.markCompleted('agent-3', 'Done');
+    expect(renderText(component, 100)).toContain('Finalizing');
+  });
+
+  it('aligns narrow member rows and the header on the same task column', () => {
+    const component = prepareObservedWorkflow();
+    const output = renderText(component, 50);
+    const unframe = (line: string) => line.replace(/^│ /u, '');
+    const running = unframe(memberLine(output, 1));
+    const completed = unframe(memberLine(output, 2));
+    const headerLine = output.split('\n').find((line) => line.includes('STATE'));
+    if (headerLine === undefined) throw new Error('Missing Dynamic Workflow table header');
+    const header = unframe(headerLine);
+
+    const taskColumn = running.indexOf('Layout hierarchy');
+    expect(taskColumn).toBeGreaterThan(0);
+    expect(completed.indexOf('Interaction audit')).toBe(taskColumn);
+    expect(header.indexOf('TASK')).toBe(taskColumn);
+  });
 });

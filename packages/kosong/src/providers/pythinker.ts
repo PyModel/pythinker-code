@@ -552,7 +552,7 @@ export class PythinkerChatProvider implements ChatProvider {
   }
 
   withMaxCompletionTokens(maxCompletionTokens: number): PythinkerChatProvider {
-    return this._withGenerationKwargs({ max_completion_tokens: maxCompletionTokens });
+    return this._withGenerationKwargs({ max_completion_tokens: Math.max(1, maxCompletionTokens) });
   }
 
   withExtraBody(extraBody: ExtraBody): PythinkerChatProvider {

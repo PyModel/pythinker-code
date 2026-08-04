@@ -22,6 +22,7 @@ import {
   type UpdateCache,
   type UpdateInstallState,
   type UpdateManifest,
+  type UpdatePreparedHomebrew,
 } from '#/cli/update/types';
 import {
   DEFAULT_STATUS_LINE_CONFIG,
@@ -53,6 +54,7 @@ vi.mock('../../../src/cli/update/install-lock', () => ({
 vi.mock('../../../src/cli/update/install-state', () => ({
   emptyUpdateInstallState: () => ({
     active: null,
+    pending: null,
     lastFailure: null,
     lastSuccess: null,
   }),
@@ -161,9 +163,25 @@ function releasedForEveryone(version: string): UpdateManifest {
 function installState(overrides: Partial<UpdateInstallState> = {}): UpdateInstallState {
   return {
     active: null,
+    pending: null,
     lastFailure: null,
     lastSuccess: null,
     ...overrides,
+  };
+}
+
+function preparedHomebrewUpdate(): UpdatePreparedHomebrew {
+  return {
+    jobId: '7e717f78-70c6-4f7c-9745-ceb45822d24b',
+    source: 'homebrew',
+    version: '0.5.0',
+    preparedAt: '2026-08-04T08:00:00.000Z',
+    requestedBy: 'automatic',
+    formulaUrl: 'https://registry.example.com/pythinker-code-0.5.0.tgz',
+    artifactKind: 'source',
+    artifactSha256: 'a'.repeat(64),
+    formulaFileSha256: 'b'.repeat(64),
+    artifactPath: '/tmp/cache/pythinker-code-0.5.0.tgz',
   };
 }
 
@@ -463,15 +481,48 @@ describe('runUpdatePreflight', () => {
     );
   });
 
-  it('homebrew: prints manual brew upgrade command, does not spawn', async () => {
+  it('homebrew: prepares the update in a detached helper for activation on restart', async () => {
     mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
     mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
     mocks.detectInstallSource.mockResolvedValue('homebrew');
+    const release = vi.fn().mockResolvedValue(undefined);
+    mocks.tryAcquireUpdateInstallLock.mockResolvedValue({
+      filePath: '/tmp/pythinker-update-install.lock',
+      release,
+    });
+    const child = Object.assign(new EventEmitter(), { pid: 42_424, unref: vi.fn() });
+    mocks.spawn.mockImplementation(() => {
+      queueMicrotask(() => { child.emit('spawn'); });
+      return child;
+    });
     const { stdout, options } = captureOutput();
+
     await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
-    expect(stdout.join('')).toContain('brew upgrade pythinker-code');
+
+    expect(stdout).toEqual([]);
     expect(promptForInstallChoice).not.toHaveBeenCalled();
-    expect(mocks.spawn).not.toHaveBeenCalled();
+    expect(mocks.spawn).toHaveBeenCalledWith(
+      process.execPath,
+      [
+        process.argv[1],
+        '__update_helper',
+        'prepare-homebrew',
+        expect.any(String),
+        '0.5.0',
+        'automatic',
+      ],
+      expect.objectContaining({ detached: true, stdio: 'ignore' }),
+    );
+    expect(writeUpdateInstallState).toHaveBeenCalledWith(expect.objectContaining({
+      active: expect.objectContaining({
+        version: '0.5.0',
+        source: 'homebrew',
+        operation: 'prepare',
+        jobId: expect.any(String),
+      }),
+    }));
+    expect(child.unref).toHaveBeenCalledOnce();
+    expect(release).toHaveBeenCalledOnce();
   });
 
   it('native on darwin: spawns bash -c with pipefail-guarded curl|bash', async () => {
@@ -1466,6 +1517,7 @@ describe('startManualUpdate', () => {
     await expect(startManualUpdate('0.4.0')).resolves.toEqual({
       status: 'started',
       version: '0.5.0',
+      installOnRestart: false,
     });
     await flushBackgroundInstall();
     expect(mocks.spawn).toHaveBeenCalledTimes(1);
@@ -1479,6 +1531,7 @@ describe('startManualUpdate', () => {
     await expect(startManualUpdate('0.4.0')).resolves.toEqual({
       status: 'started',
       version: '0.5.0',
+      installOnRestart: false,
     });
   });
 
@@ -1491,19 +1544,73 @@ describe('startManualUpdate', () => {
     await expect(startManualUpdate('0.4.0')).resolves.toEqual({
       status: 'started',
       version: '0.5.0',
+      installOnRestart: false,
     });
   });
 
-  it('returns the manual command when the source cannot auto-install', async () => {
+  it('prepares a Homebrew update for installation on the next launch', async () => {
     mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
     mocks.detectInstallSource.mockResolvedValue('homebrew');
+    const child = Object.assign(new EventEmitter(), { pid: 42_424, unref: vi.fn() });
+    mocks.spawn.mockImplementation(() => {
+      queueMicrotask(() => { child.emit('spawn'); });
+      return child;
+    });
 
     await expect(startManualUpdate('0.4.0')).resolves.toEqual({
-      status: 'manual',
+      status: 'started',
       version: '0.5.0',
-      command: 'brew upgrade pythinker-code',
-      source: 'homebrew',
+      installOnRestart: true,
     });
+    expect(mocks.spawn).toHaveBeenCalledWith(
+      process.execPath,
+      [
+        process.argv[1],
+        '__update_helper',
+        'prepare-homebrew',
+        expect.any(String),
+        '0.5.0',
+        'manual',
+      ],
+      expect.objectContaining({ detached: true, stdio: 'ignore' }),
+    );
+    expect(mocks.spawn).toHaveBeenCalledOnce();
+  });
+
+  it('clears the preparation lease when the detached helper cannot start', async () => {
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.detectInstallSource.mockResolvedValue('homebrew');
+    mocks.spawn.mockImplementation(() => { throw new Error('spawn failed'); });
+
+    await expect(startManualUpdate('0.4.0')).resolves.toEqual({
+      status: 'check-failed',
+      message: 'spawn failed',
+    });
+    expect(writeUpdateInstallState).toHaveBeenLastCalledWith(expect.objectContaining({
+      active: null,
+      lastFailure: expect.objectContaining({
+        version: '0.5.0',
+        operation: 'prepare',
+        message: 'spawn failed',
+      }),
+    }));
+  });
+
+  it('promotes a prepared automatic update when the user explicitly requests it', async () => {
+    const pending = preparedHomebrewUpdate();
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.detectInstallSource.mockResolvedValue('homebrew');
+    mocks.readUpdateInstallState.mockResolvedValue(installState({ pending }));
+
+    await expect(startManualUpdate('0.4.0')).resolves.toEqual({
+      status: 'in-progress',
+      version: '0.5.0',
+      installOnRestart: true,
+      readyToInstall: true,
+    });
+    expect(writeUpdateInstallState).toHaveBeenCalledWith(expect.objectContaining({
+      pending: { ...pending, requestedBy: 'manual' },
+    }));
     expect(mocks.spawn).not.toHaveBeenCalled();
   });
 
@@ -1517,6 +1624,8 @@ describe('startManualUpdate', () => {
     await expect(startManualUpdate('0.4.0')).resolves.toEqual({
       status: 'in-progress',
       version: '0.5.0',
+      installOnRestart: false,
+      readyToInstall: false,
     });
     expect(mocks.spawn).not.toHaveBeenCalled();
   });

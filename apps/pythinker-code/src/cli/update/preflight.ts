@@ -1,4 +1,8 @@
 import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import { homedir } from 'node:os';
+
+import { gte, valid } from 'semver';
 
 import { log, type Logger } from '@pythoughts/pythinker-code-sdk';
 import type { TelemetryProperties } from '@pythoughts/pythinker-telemetry';
@@ -10,6 +14,7 @@ import {
 import { loadTuiConfig } from '#/tui/config';
 
 import { readUpdateCache } from './cache';
+import { formatErrorMessage } from './format-error';
 import { tryAcquireUpdateInstallLock } from './install-lock';
 import { emptyUpdateInstallState, readUpdateInstallState, writeUpdateInstallState } from './install-state';
 import {
@@ -34,10 +39,12 @@ import {
   NPM_PACKAGE_NAME,
   type InstallSource,
   type UpdateDecision,
+  type UpdateInstallOperation,
   type UpdateInstallState,
   type UpdateCache,
   type UpdateManifest,
   type UpdatePreflightResult,
+  type UpdateRequestOrigin,
   type UpdateTarget,
 } from './types';
 
@@ -55,6 +62,7 @@ const AUTO_INSTALL_FAILURE_PROMPT_THRESHOLD = 2;
 const AUTO_INSTALL_ACTIVE_TTL_MS = 6 * 60 * 60 * 1000;
 const AUTO_INSTALL_ACTIVE_CLOCK_SKEW_MS = 5 * 60 * 1000;
 const USER_VISIBLE_UPDATE_REFRESH_TIMEOUT_MS = 1_000;
+const UPDATE_HELPER_ENV = 'PYTHINKER_CODE_UPDATE_HELPER';
 
 type UpdateLogger = Pick<Logger, 'info' | 'warn'>;
 
@@ -89,6 +97,8 @@ export function installCommandFor(
   }
 }
 
+export type AutomaticUpdateMode = 'background-install' | 'restart-install' | 'manual';
+
 export function canAutoInstall(source: InstallSource, platform: NodeJS.Platform): boolean {
   switch (source) {
     case 'npm-global':
@@ -97,14 +107,22 @@ export function canAutoInstall(source: InstallSource, platform: NodeJS.Platform)
     case 'bun-global':
       return true;
     case 'homebrew':
-      // Homebrew upgrade may mutate other dependents and the formula can lag
-      // behind the CDN release — prompt the user to run `brew upgrade` manually.
+      // Foreground installUpdate() never owns Homebrew. Passive and explicit
+      // TUI updates use the separate prepare-on-restart lifecycle instead.
       return false;
     case 'native':
       return platform !== 'win32';
     case 'unsupported':
       return false;
   }
+}
+
+export function automaticUpdateModeFor(
+  source: InstallSource,
+  platform: NodeJS.Platform,
+): AutomaticUpdateMode {
+  if (source === 'homebrew') return 'restart-install';
+  return canAutoInstall(source, platform) ? 'background-install' : 'manual';
 }
 
 interface SpawnCommand {
@@ -140,10 +158,6 @@ export function spawnForSource(
   }
 }
 
-function formatErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 export function renderManualUpdateMessage(
   currentVersion: string,
   target: UpdateTarget,
@@ -170,8 +184,7 @@ export function renderManualUpdateMessage(
   }
   const homebrewHint =
     source === 'homebrew'
-      ? `Homebrew installs do not auto-update. For automatic background updates, ` +
-        `switch to the native installer: ${NATIVE_INSTALL_COMMAND_UNIX}\n`
+      ? 'Automatic Homebrew preparation is disabled or could not complete.\n'
       : '';
   return (
     `A newer version of ${NPM_PACKAGE_NAME} is available ` +
@@ -336,8 +349,25 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
-function failureAttemptsFor(state: UpdateInstallState, target: UpdateTarget): number {
-  return state.lastFailure?.version === target.version ? state.lastFailure.attempts : 0;
+function failureAttemptsFor(
+  state: UpdateInstallState,
+  target: UpdateTarget,
+  operation?: UpdateInstallOperation,
+): number {
+  const failure = state.lastFailure;
+  if (failure?.version !== target.version) return 0;
+  // Threshold gates omit `operation`: any failure kind at the limit parks the
+  // version. Increment sites pass their operation so a counter never resumes
+  // from another operation's attempts. Legacy records without `operation`
+  // count toward any operation.
+  if (
+    operation !== undefined &&
+    failure.operation !== undefined &&
+    failure.operation !== operation
+  ) {
+    return 0;
+  }
+  return failure.attempts;
 }
 
 function isProcessRunning(pid: number): boolean {
@@ -537,6 +567,126 @@ export async function installUpdate(
   });
 }
 
+async function waitForChildSpawn(child: ReturnType<typeof spawn>): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const onSpawn = (): void => {
+      child.off('error', onError);
+      child.on('error', () => {});
+      resolve();
+    };
+    const onError = (error: Error): void => {
+      child.off('spawn', onSpawn);
+      reject(error);
+    };
+    child.once('spawn', onSpawn);
+    child.once('error', onError);
+  });
+}
+
+function updateHelperCommand(
+  operation: 'prepare-homebrew',
+  jobId: string,
+  version: string,
+  requestedBy: UpdateRequestOrigin,
+): SpawnCommand {
+  const launcherPath = process.argv[1];
+  if (launcherPath === undefined) throw new Error('cannot locate the Pythinker Code launcher');
+  return {
+    cmd: process.execPath,
+    args: [launcherPath, '__update_helper', operation, jobId, version, requestedBy],
+  };
+}
+
+function preparedVersionCoversTarget(preparedVersion: string, targetVersion: string): boolean {
+  return valid(preparedVersion) !== null && valid(targetVersion) !== null && gte(preparedVersion, targetVersion);
+}
+
+async function startBackgroundHomebrewPreparation(
+  state: UpdateInstallState,
+  currentVersion: string,
+  target: UpdateTarget,
+  requestedBy: UpdateRequestOrigin,
+  track: RunUpdatePreflightOptions['track'],
+  logger: UpdateLogger,
+  rolloutTelemetry: RolloutTelemetry,
+): Promise<boolean> {
+  const lock = await tryAcquireUpdateInstallLock({ version: target.version });
+  if (lock === null) return false;
+
+  try {
+    const freshState = await readUpdateInstallState().catch(() => state);
+    if (
+      hasFreshActiveInstall(freshState) ||
+      (freshState.pending !== null && preparedVersionCoversTarget(freshState.pending.version, target.version)) ||
+      failureAttemptsFor(freshState, target) >= AUTO_INSTALL_FAILURE_PROMPT_THRESHOLD
+    ) {
+      return false;
+    }
+
+    const jobId = randomUUID();
+    // A retained older verified `pending` stays installable if this newer
+    // preparation fails; the helper's success path replaces it.
+    const startedState: UpdateInstallState = {
+      ...freshState,
+      active: {
+        version: target.version,
+        source: 'homebrew',
+        operation: 'prepare',
+        jobId,
+        startedAt: nowIso(),
+      },
+    };
+    await writeUpdateInstallState(startedState);
+
+    try {
+      const { cmd, args } = updateHelperCommand(
+        'prepare-homebrew',
+        jobId,
+        target.version,
+        requestedBy,
+      );
+      const child = spawn(cmd, [...args], {
+        cwd: homedir(),
+        detached: true,
+        env: { ...process.env, [UPDATE_HELPER_ENV]: '1' },
+        stdio: 'ignore',
+      });
+      await waitForChildSpawn(child);
+      child.unref();
+    } catch (error) {
+      const attempts = failureAttemptsFor(startedState, target, 'prepare') + 1;
+      await writeUpdateInstallState({
+        ...startedState,
+        active: null,
+        lastFailure: {
+          version: target.version,
+          failedAt: nowIso(),
+          attempts,
+          operation: 'prepare',
+          message: formatErrorMessage(error),
+        },
+      }).catch(() => {});
+      throw error;
+    }
+
+    trackUpdateEvent(track, 'update_background_prepare_started', {
+      current_version: currentVersion,
+      target_version: target.version,
+      source: 'homebrew',
+      ...rolloutTelemetry,
+    });
+    logUpdateInfo(logger, 'background update preparation started', {
+      currentVersion,
+      targetVersion: target.version,
+      source: 'homebrew',
+      jobId,
+    });
+    return true;
+  } finally {
+    await lock.release().catch(() => {});
+  }
+}
+
 async function startBackgroundInstall(
   state: UpdateInstallState,
   currentVersion: string,
@@ -546,9 +696,9 @@ async function startBackgroundInstall(
   track: RunUpdatePreflightOptions['track'],
   logger: UpdateLogger,
   rolloutTelemetry: RolloutTelemetry,
-): Promise<void> {
+): Promise<boolean> {
   const lock = await tryAcquireUpdateInstallLock({ version: target.version });
-  if (lock === null) return;
+  if (lock === null) return false;
 
   let finalizerOwnsLock = false;
   try {
@@ -557,7 +707,7 @@ async function startBackgroundInstall(
       hasFreshActiveInstall(freshState) ||
       failureAttemptsFor(freshState, target) >= AUTO_INSTALL_FAILURE_PROMPT_THRESHOLD
     ) {
-      return;
+      return false;
     }
 
     let startedState: UpdateInstallState = {
@@ -595,7 +745,7 @@ async function startBackgroundInstall(
       }
       if (settled) return;
       settled = true;
-      const attempts = failureAttemptsFor(startedState, target) + 1;
+      const attempts = failureAttemptsFor(startedState, target, 'install') + 1;
 
       const nextState: UpdateInstallState = succeeded
         ? {
@@ -615,6 +765,7 @@ async function startBackgroundInstall(
             version: target.version,
             failedAt: nowIso(),
             attempts,
+            operation: 'install',
           },
         };
       try {
@@ -670,6 +821,7 @@ async function startBackgroundInstall(
     finalizerOwnsLock = true;
     ready = true;
     if (pendingOutcome !== undefined) void finish(pendingOutcome);
+    return true;
   // When startup failed before handoff, release the lock here; the
   // finalizer releases it once the terminal state write completes.
   } finally {
@@ -689,13 +841,40 @@ async function tryStartAutomaticBackgroundInstall(
   logger: UpdateLogger,
   rolloutTelemetry: RolloutTelemetry,
 ): Promise<boolean> {
-  const sourceCanAutoInstall = canAutoInstall(source, platform);
-  const autoInstallUpdates = sourceCanAutoInstall ? await shouldAutoInstallUpdates() : false;
-  if (!autoInstallUpdates || !sourceCanAutoInstall) return false;
+  const autoInstallUpdates = await shouldAutoInstallUpdates();
+  if (!autoInstallUpdates) return false;
   if (failureAttemptsFor(installState, target) >= AUTO_INSTALL_FAILURE_PROMPT_THRESHOLD) {
     return false;
   }
   if (hasFreshActiveInstall(installState)) return true;
+
+  if (source === 'homebrew') {
+    if (
+      installState.pending !== null &&
+      preparedVersionCoversTarget(installState.pending.version, target.version)
+    ) return true;
+    try {
+      await startBackgroundHomebrewPreparation(
+        installState,
+        currentVersion,
+        target,
+        'automatic',
+        track,
+        logger,
+        rolloutTelemetry,
+      );
+      return true;
+    } catch (error) {
+      logUpdateWarn(logger, 'background update preparation could not start', {
+        targetVersion: target.version,
+        source,
+        error: formatErrorMessage(error),
+      });
+      return false;
+    }
+  }
+
+  if (!canAutoInstall(source, platform)) return false;
   try {
     await startBackgroundInstall(
       installState,
@@ -721,8 +900,13 @@ async function tryStartAutomaticBackgroundInstall(
 export type ManualUpdateResult =
   | { readonly status: 'up-to-date' }
   | { readonly status: 'check-failed'; readonly message: string }
-  | { readonly status: 'started'; readonly version: string }
-  | { readonly status: 'in-progress'; readonly version: string }
+  | { readonly status: 'started'; readonly version: string; readonly installOnRestart: boolean }
+  | {
+    readonly status: 'in-progress';
+    readonly version: string;
+    readonly installOnRestart: boolean;
+    readonly readyToInstall: boolean;
+  }
   | {
     readonly status: 'manual';
     readonly version: string;
@@ -733,8 +917,8 @@ export type ManualUpdateResult =
 /**
  * Explicit user-requested update (TUI `/update`). Unlike the passive
  * preflight it ignores the rollout delay and the `auto_install` preference —
- * the user asked, so we install — but still reuses the background installer,
- * its lock, and its failure bookkeeping. The env kill-switch is also ignored:
+ * the user asked, so we install or prepare the Homebrew update — while reusing
+ * the background lifecycle, lock, and failure bookkeeping. The env kill-switch is also ignored:
  * it gates automatic behavior, not explicit requests (matching `pythinker upgrade`).
  */
 export async function startManualUpdate(
@@ -752,24 +936,40 @@ export async function startManualUpdate(
 
   const platform = process.platform;
   const source = await detectInstallSource().catch(() => 'unsupported' as const);
-  if (!canAutoInstall(source, platform)) {
-    return {
-      status: 'manual',
-      version: target.version,
-      command: installCommandFor(source, target.version, platform),
-      source,
-    };
-  }
-
   const installState = await readUpdateInstallState().catch(() => emptyUpdateInstallState());
   if (hasFreshActiveInstall(installState)) {
     return {
       status: 'in-progress',
       version: installState.active?.version ?? target.version,
+      installOnRestart: installState.active?.source === 'homebrew',
+      readyToInstall: false,
+    };
+  }
+  if (
+    source === 'homebrew' &&
+    installState.pending !== null &&
+    preparedVersionCoversTarget(installState.pending.version, target.version)
+  ) {
+    const pending = installState.pending;
+    if (pending.requestedBy === 'automatic') {
+      try {
+        await writeUpdateInstallState({
+          ...installState,
+          pending: { ...pending, requestedBy: 'manual' },
+        });
+      } catch (error) {
+        return { status: 'check-failed', message: formatErrorMessage(error) };
+      }
+    }
+    return {
+      status: 'in-progress',
+      version: pending.version,
+      installOnRestart: true,
+      readyToInstall: true,
     };
   }
   // Repeated background failures fall back to the copyable command instead of
-  // claiming "started" for an install startBackgroundInstall would refuse.
+  // claiming "started" for work the background lifecycle would refuse.
   if (failureAttemptsFor(installState, target) >= AUTO_INSTALL_FAILURE_PROMPT_THRESHOLD) {
     return {
       status: 'manual',
@@ -780,7 +980,43 @@ export async function startManualUpdate(
   }
 
   try {
-    await startBackgroundInstall(
+    const rolloutTelemetry = rolloutTelemetryFor(
+      resolveUpdateDeviceId(),
+      target.version,
+      cache.manifest,
+      true,
+    );
+    if (source === 'homebrew') {
+      const started = await startBackgroundHomebrewPreparation(
+        installState,
+        currentVersion,
+        target,
+        'manual',
+        undefined,
+        logger,
+        rolloutTelemetry,
+      );
+      // Another process holds the lock or the under-lock re-check refused:
+      // nothing new was started, so don't claim it was.
+      if (!started) {
+        return {
+          status: 'in-progress',
+          version: target.version,
+          installOnRestart: true,
+          readyToInstall: false,
+        };
+      }
+      return { status: 'started', version: target.version, installOnRestart: true };
+    }
+    if (!canAutoInstall(source, platform)) {
+      return {
+        status: 'manual',
+        version: target.version,
+        command: installCommandFor(source, target.version, platform),
+        source,
+      };
+    }
+    const started = await startBackgroundInstall(
       installState,
       currentVersion,
       target,
@@ -788,9 +1024,17 @@ export async function startManualUpdate(
       platform,
       undefined,
       logger,
-      rolloutTelemetryFor(resolveUpdateDeviceId(), target.version, cache.manifest, true),
+      rolloutTelemetry,
     );
-    return { status: 'started', version: target.version };
+    if (!started) {
+      return {
+        status: 'in-progress',
+        version: target.version,
+        installOnRestart: false,
+        readyToInstall: false,
+      };
+    }
+    return { status: 'started', version: target.version, installOnRestart: false };
   } catch (error) {
     return { status: 'check-failed', message: formatErrorMessage(error) };
   }
