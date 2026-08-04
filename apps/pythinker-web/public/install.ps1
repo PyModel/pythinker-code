@@ -505,17 +505,48 @@ try {
   }
   Phase-Ok "Verifying"
 
-  # The release zip contains a single pythinker.exe at its root.
-  $extractDir = Join-Path $tempDir "extracted"
+  $installDir = Join-Path $env:LOCALAPPDATA "Programs\Pythinker"
+  New-Item -ItemType Directory -Path $installDir -Force | Out-Null
+
+  # The release zip contains a single pythinker.exe at its root. Extract
+  # into $installDir (not $env:TEMP) so the final Move-Item below is always
+  # a same-volume rename, never a cross-volume copy.
+  $extractDir = Join-Path $installDir ("update-" + [System.Guid]::NewGuid().ToString('N'))
   Expand-Archive -LiteralPath $installerPath -DestinationPath $extractDir -Force
   $binary = Join-Path $extractDir "pythinker.exe"
   if (-not (Test-Path $binary)) {
     Fail "archive did not contain pythinker.exe"
   }
 
-  $installDir = Join-Path $env:LOCALAPPDATA "Programs\Pythinker"
-  New-Item -ItemType Directory -Path $installDir -Force | Out-Null
-  Copy-Item -LiteralPath $binary -Destination (Join-Path $installDir "pythinker.exe") -Force
+  # A running pythinker.exe can be renamed but not overwritten or deleted on
+  # Windows. Rename it aside, move the new binary into place, then retry
+  # deleting the stale copy for a few seconds in case it's still locked by
+  # the running parent process or an AV scan.
+  $target = Join-Path $installDir "pythinker.exe"
+  $stale = "$target.old"
+  # Opportunistic cleanup of a previous update's leftover (may be locked; ignore).
+  if (Test-Path $stale) { Remove-Item -LiteralPath $stale -Force -ErrorAction SilentlyContinue }
+  if (Test-Path $target) {
+    try {
+      Rename-Item -LiteralPath $target -NewName "pythinker.exe.old" -Force -ErrorAction Stop
+    } catch {
+      Fail "could not rename existing pythinker.exe aside, a concurrent update may be in progress: $($_.Exception.Message)"
+    }
+  }
+  try {
+    Move-Item -LiteralPath $binary -Destination $target -Force -ErrorAction Stop
+  } catch {
+    # Roll the old exe back so the user is never left with no binary at all.
+    if ((Test-Path $stale) -and -not (Test-Path $target)) {
+      Rename-Item -LiteralPath $stale -NewName "pythinker.exe" -Force -ErrorAction SilentlyContinue
+    }
+    Fail "could not install the new pythinker.exe: $($_.Exception.Message)"
+  }
+  Remove-Item -Recurse -Force $extractDir -ErrorAction SilentlyContinue
+  for ($i = 0; $i -lt 5 -and (Test-Path $stale); $i++) {
+    Start-Sleep -Seconds 2
+    Remove-Item -LiteralPath $stale -Force -ErrorAction SilentlyContinue
+  }
   Phase-Ok "Installing"
 
   # Persist the install dir on the user PATH, and make it available in
@@ -533,4 +564,7 @@ try {
 } finally {
   Write-Host -NoNewline $SHOW
   Remove-Item -Recurse -Force $tempDir -ErrorAction SilentlyContinue
+  if ($extractDir) {
+    Remove-Item -Recurse -Force $extractDir -ErrorAction SilentlyContinue
+  }
 }

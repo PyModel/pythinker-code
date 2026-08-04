@@ -41,7 +41,7 @@ import {
 import { dispatchUpdateHelperIfRequested } from './cli/update/update-helper';
 import { createPythinkerCodeHostIdentity, getVersion } from './cli/version';
 import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_UI_MODE, PROCESS_NAME } from './constant/app';
-import { cleanupStaleNativeCacheForCurrent } from './native/native-assets';
+import { cleanupStaleNativeCacheForCurrent, cleanupStaleUpdateBackup } from './native/native-assets';
 import { installNativeModuleHook } from './native/module-hook';
 import { runNativeAssetSmokeIfRequested } from './native/smoke';
 
@@ -181,6 +181,8 @@ export function main(): void {
     } catch {
       // ignore: cache GC must never affect process startup
     }
+    // Sweep a leftover `pythinker.exe.old` from a prior Windows native update.
+    cleanupStaleUpdateBackup();
   });
 
   const version = getVersion();

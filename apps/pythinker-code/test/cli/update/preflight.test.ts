@@ -10,7 +10,7 @@ import {
   readUpdateInstallState,
   writeUpdateInstallState,
 } from '#/cli/update/install-state';
-import { runUpdatePreflight, spawnForSource, startManualUpdate } from '#/cli/update/preflight';
+import { canAutoInstall, runUpdatePreflight, spawnForSource, startManualUpdate } from '#/cli/update/preflight';
 import { promptForInstallChoice } from '#/cli/update/prompt';
 import type * as PromptModule from '#/cli/update/prompt';
 import { refreshUpdateCache } from '#/cli/update/refresh';
@@ -552,18 +552,30 @@ describe('runUpdatePreflight', () => {
     }
   });
 
-  it('native on win32: prints manual powershell command, does not spawn', async () => {
+  it('native on win32: starts a background powershell install, no manual prompt', async () => {
     mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
     mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
     mocks.detectInstallSource.mockResolvedValue('native');
+    mockSpawnExit(0);
     const originalPlatform = process.platform;
     Object.defineProperty(process, 'platform', { value: 'win32' });
     try {
       const { stdout, options } = captureOutput();
       await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
-      expect(stdout.join('')).toContain('irm https://code.pythinker.com/pythinker-code/install.ps1 | iex');
+      await flushBackgroundInstall();
+      expect(stdout.join('')).toBe('');
       expect(promptForInstallChoice).not.toHaveBeenCalled();
-      expect(mocks.spawn).not.toHaveBeenCalled();
+      expect(mocks.spawn).toHaveBeenCalledWith(
+        'powershell.exe',
+        [
+          '-NoProfile',
+          '-ExecutionPolicy',
+          'Bypass',
+          '-Command',
+          'irm https://code.pythinker.com/pythinker-code/install.ps1 | iex',
+        ],
+        { detached: true, stdio: 'ignore' },
+      );
     } finally {
       Object.defineProperty(process, 'platform', { value: originalPlatform });
     }
@@ -1473,8 +1485,8 @@ describe('spawnForSource native', () => {
   // so a curl that never connects (exit 7, empty stdin → bash exits 0) is
   // masked and the update is wrongly reported as successful. `set -o pipefail`
   // makes the pipeline surface curl's failure. Shadowing `curl` with a shell
-  // function keeps this offline and deterministic; skipped on Windows (no bash,
-  // and native auto-install is unsupported there anyway).
+  // function keeps this offline and deterministic; skipped on Windows (no bash
+  // to run this script with).
   it.skipIf(process.platform === 'win32')(
     'surfaces a failed curl download as a non-zero exit',
     () => {
@@ -1485,6 +1497,36 @@ describe('spawnForSource native', () => {
       expect(result.status).toBeGreaterThan(0);
     },
   );
+
+  it('darwin/linux: unchanged bash -c pipeline', () => {
+    const { cmd, args } = spawnForSource('native', '0.5.0', 'darwin');
+    expect(cmd).toBe('bash');
+    expect(args[0]).toBe('-c');
+    expect(args[1]).toContain('curl -fsSL https://code.pythinker.com/pythinker-code/install.sh');
+  });
+
+  it('win32: powershell.exe with -ExecutionPolicy Bypass and the irm|iex install command', () => {
+    const { cmd, args } = spawnForSource('native', '0.5.0', 'win32');
+    expect(cmd).toBe('powershell.exe');
+    expect(args).toEqual([
+      '-NoProfile',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-Command',
+      'irm https://code.pythinker.com/pythinker-code/install.ps1 | iex',
+    ]);
+  });
+});
+
+describe('canAutoInstall native', () => {
+  it('is true on win32 (rename-aside replace no longer needs the platform gate)', () => {
+    expect(canAutoInstall('native', 'win32')).toBe(true);
+  });
+
+  it('is true on darwin/linux', () => {
+    expect(canAutoInstall('native', 'darwin')).toBe(true);
+    expect(canAutoInstall('native', 'linux')).toBe(true);
+  });
 });
 
 describe('startManualUpdate', () => {

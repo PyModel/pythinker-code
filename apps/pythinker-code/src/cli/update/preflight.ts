@@ -99,7 +99,7 @@ export function installCommandFor(
 
 export type AutomaticUpdateMode = 'background-install' | 'restart-install' | 'manual';
 
-export function canAutoInstall(source: InstallSource, platform: NodeJS.Platform): boolean {
+export function canAutoInstall(source: InstallSource, _platform: NodeJS.Platform): boolean {
   switch (source) {
     case 'npm-global':
     case 'pnpm-global':
@@ -111,7 +111,7 @@ export function canAutoInstall(source: InstallSource, platform: NodeJS.Platform)
       // TUI updates use the separate prepare-on-restart lifecycle instead.
       return false;
     case 'native':
-      return platform !== 'win32';
+      return true;
     case 'unsupported':
       return false;
   }
@@ -147,6 +147,12 @@ export function spawnForSource(
     case 'homebrew':
       return { cmd: 'brew', args: ['upgrade', 'pythinker-code'] };
     case 'native':
+      if (platform === 'win32') {
+        return {
+          cmd: 'powershell.exe',
+          args: ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', NATIVE_INSTALL_COMMAND_WIN],
+        };
+      }
       // `curl … | bash` reports only the trailing bash's exit status, so a
       // failed download (curl can't connect → empty stdin → bash exits 0)
       // would look like a successful update. `pipefail` makes the pipeline
@@ -176,7 +182,7 @@ export function renderManualUpdateMessage(
       sourceDesc = 'homebrew';
       break;
     case 'native':
-      sourceDesc = 'native (windows). Auto-update is not supported on this platform.';
+      sourceDesc = 'native install.';
       break;
     case 'unsupported':
       sourceDesc = 'unsupported package manager or layout.';

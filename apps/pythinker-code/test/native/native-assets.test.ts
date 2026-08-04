@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
+  cleanupStaleUpdateBackup,
   getNativeAssetFilePath,
   getNativeCacheBase,
   getNativePackageRoot,
@@ -153,6 +154,59 @@ describe('native assets', () => {
           'libopentui.so',
         ),
       );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('cleanupStaleUpdateBackup', () => {
+  it('removes a leftover .old exe on win32 SEA installs', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pythinker-update-backup-'));
+    const execPath = join(dir, 'pythinker.exe');
+    const stalePath = `${execPath}.old`;
+    writeFileSync(stalePath, 'stale');
+    try {
+      cleanupStaleUpdateBackup({ execPath, platform: 'win32', isSea: true });
+      expect(existsSync(stalePath)).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('is a no-op when there is nothing to clean up (missing file)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pythinker-update-backup-'));
+    const execPath = join(dir, 'pythinker.exe');
+    try {
+      expect(() => {
+        cleanupStaleUpdateBackup({ execPath, platform: 'win32', isSea: true });
+      }).not.toThrow();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('skips non-win32 platforms', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pythinker-update-backup-'));
+    const execPath = join(dir, 'pythinker');
+    const stalePath = `${execPath}.old`;
+    writeFileSync(stalePath, 'stale');
+    try {
+      cleanupStaleUpdateBackup({ execPath, platform: 'darwin', isSea: true });
+      expect(existsSync(stalePath)).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('skips non-SEA (npm/dev) processes', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pythinker-update-backup-'));
+    const execPath = join(dir, 'pythinker.exe');
+    const stalePath = `${execPath}.old`;
+    writeFileSync(stalePath, 'stale');
+    try {
+      cleanupStaleUpdateBackup({ execPath, platform: 'win32', isSea: false });
+      expect(existsSync(stalePath)).toBe(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
