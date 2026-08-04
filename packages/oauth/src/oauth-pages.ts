@@ -39,46 +39,69 @@ const PYTHINKER_LOGO_SVG =
   '</svg>';
 
 const SUCCESS_BADGE_SVG =
-  '<svg class="badge-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="28" height="28" aria-hidden="true" focusable="false">' +
-  '<circle cx="12" cy="12" r="11" fill="#1a3d2f" stroke="#3ecf8e" stroke-width="1.5"/>' +
-  '<path d="M7.5 12.2l3 3 6-6.5" fill="none" stroke="#3ecf8e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>' +
+  '<svg class="badge-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="44" height="44" aria-hidden="true" focusable="false">' +
+  '<circle cx="12" cy="12" r="11" fill="#f0fdf4" stroke="#15803d" stroke-width="1.5"/>' +
+  '<path class="badge-draw" d="M7.5 12.2l3 3 6-6.5" fill="none" stroke="#15803d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>' +
   '</svg>';
 
 const ERROR_BADGE_SVG =
-  '<svg class="badge-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="28" height="28" aria-hidden="true" focusable="false">' +
-  '<circle cx="12" cy="12" r="11" fill="#3d1a1a" stroke="#f87171" stroke-width="1.5"/>' +
-  '<path d="M8.5 8.5l7 7M15.5 8.5l-7 7" fill="none" stroke="#f87171" stroke-width="2" stroke-linecap="round"/>' +
+  '<svg class="badge-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="44" height="44" aria-hidden="true" focusable="false">' +
+  '<circle cx="12" cy="12" r="11" fill="#fef2f2" stroke="#dc2626" stroke-width="1.5"/>' +
+  '<path class="badge-draw" d="M8.5 8.5l7 7M15.5 8.5l-7 7" fill="none" stroke="#dc2626" stroke-width="2" stroke-linecap="round"/>' +
   '</svg>';
 
+// Palette and card treatment mirror apps/site/src/style.css (light canvas,
+// grid background, hairline card, blue accent). Inline-only: the Inter/mono
+// families fall back to system fonts because this page must work offline.
+const GRID_BG =
+  'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'48\' height=\'48\'%3E%3Cpath d=\'M48 0H0v48\' fill=\'none\' stroke=\'%23111113\' stroke-opacity=\'0.045\' stroke-width=\'1\'/%3E%3C/svg%3E")';
+
 const PAGE_STYLES =
+  ':root{color-scheme:light}' +
   '*,*::before,*::after{box-sizing:border-box}' +
   'html,body{height:100%;margin:0}' +
   'body{' +
-  'font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;' +
-  'background:#0b0f19;' +
-  'background-image:radial-gradient(ellipse 80% 60% at 50% -10%,rgba(62,207,142,.12),transparent),' +
-  'radial-gradient(ellipse 60% 50% at 100% 100%,rgba(238,154,135,.08),transparent);' +
-  'color:#e8eaed;' +
+  "font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',helvetica,arial,sans-serif;" +
+  `background-color:#ffffff;background-image:${GRID_BG};color:#111113;` +
   'display:flex;align-items:center;justify-content:center;padding:24px;' +
   '}' +
   '.card{' +
-  'width:min(100%,480px);padding:48px 40px 44px;border-radius:20px;' +
-  'background:linear-gradient(180deg,#1a2030 0%,#161b22 100%);' +
-  'border:1px solid #2d333b;' +
-  'box-shadow:0 24px 48px rgba(0,0,0,.35),0 0 0 1px rgba(255,255,255,.04) inset;' +
+  'width:min(100%,440px);padding:40px 36px 32px;border-radius:18px;' +
+  'background:#ffffff;' +
+  'border:1px solid #e5e7eb;' +
+  'box-shadow:0 24px 70px -42px rgba(17,17,19,.35);' +
   'display:flex;flex-direction:column;align-items:center;text-align:center;' +
+  'animation:card-in .35s ease-out both;' +
   '}' +
-  '.logo{margin-bottom:8px}' +
+  '.logo{margin-bottom:10px}' +
+  '.logo svg{width:64px;height:80px}' +
   '.brand{' +
-  'margin:0 0 28px;font-size:13px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:#6b7280;' +
+  "margin:0 0 24px;font-family:'JetBrains Mono',ui-monospace,'SF Mono',monospace;" +
+  'font-size:12px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:#8b8d94;' +
   '}' +
-  '.badge{margin-bottom:16px}' +
+  '.badge{margin-bottom:14px}' +
   '.badge-icon{display:block}' +
+  '.badge-draw{stroke-dasharray:24;stroke-dashoffset:24;animation:badge-draw .4s ease-out .25s forwards}' +
   'h1{' +
-  'margin:0 0 12px;font-size:26px;line-height:1.25;font-weight:650;letter-spacing:-.02em;color:#f5f7fa;' +
+  'margin:0 0 10px;font-size:24px;line-height:1.19;font-weight:600;letter-spacing:-.025em;color:#111113;' +
   '}' +
-  'p{' +
-  'margin:0;font-size:15px;line-height:1.6;color:#9aa0a8;max-width:34ch;' +
+  'p.message{' +
+  'margin:0 0 24px;font-size:16px;line-height:1.55;color:#55565c;max-width:34ch;' +
+  '}' +
+  '.status{' +
+  'width:100%;display:flex;align-items:center;justify-content:center;gap:8px;' +
+  'padding:10px 14px;border-radius:12px;' +
+  'background:#f7f7f8;border:1px solid #e5e7eb;' +
+  "font-family:'JetBrains Mono',ui-monospace,'SF Mono',monospace;" +
+  'font-size:13px;color:#55565c;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;' +
+  '}' +
+  '.status .ok{color:#15803d}' +
+  '.status .err{color:#dc2626}' +
+  '@keyframes card-in{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}' +
+  '@keyframes badge-draw{to{stroke-dashoffset:0}}' +
+  '@media (prefers-reduced-motion:reduce){' +
+  '.card{animation:none}' +
+  '.badge-draw{animation:none;stroke-dashoffset:0}' +
   '}';
 
 function renderOAuthPage(options: {
@@ -86,6 +109,7 @@ function renderOAuthPage(options: {
   readonly heading: string;
   readonly message: string;
   readonly badge: string;
+  readonly statusLine: string;
 }): string {
   return (
     '<!doctype html><html lang="en"><head>' +
@@ -99,7 +123,8 @@ function renderOAuthPage(options: {
     '<p class="brand">Pythinker Code</p>' +
     `<div class="badge">${options.badge}</div>` +
     `<h1>${options.heading}</h1>` +
-    `<p>${options.message}</p>` +
+    `<p class="message">${options.message}</p>` +
+    `<div class="status" role="status">${options.statusLine}</div>` +
     '</main></body></html>'
   );
 }
@@ -110,6 +135,7 @@ export function renderOAuthSuccessPage(): string {
     heading: "You're logged in to Pythinker",
     message: 'You can close this tab and return to Pythinker.',
     badge: SUCCESS_BADGE_SVG,
+    statusLine: 'status: <span class="ok">authenticated</span>',
   });
 }
 
@@ -119,6 +145,7 @@ export function renderOpenAICodexOAuthSuccessPage(): string {
     heading: 'OpenAI Codex sign-in complete',
     message: 'You can close this tab and return to Pythinker Code.',
     badge: SUCCESS_BADGE_SVG,
+    statusLine: 'provider: openai-codex &middot; status: <span class="ok">authenticated</span>',
   });
 }
 
@@ -128,5 +155,6 @@ export function renderOAuthErrorPage(): string {
     heading: 'Sign-in failed',
     message: 'The authorization server reported an error. Return to Pythinker for details.',
     badge: ERROR_BADGE_SVG,
+    statusLine: 'status: <span class="err">failed</span>',
   });
 }
