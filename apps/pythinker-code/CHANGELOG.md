@@ -1,5 +1,11 @@
 # @pythoughts/pythinker-code
 
+## 0.6.0
+
+### Minor Changes
+
+- [`d7a2554`](https://github.com/Pythoughts-labs/pythinker-code/commit/d7a25545a6f6fb0c2024a11dcde8012a087c9e44) - Maintenance release with internal improvements and dependency updates.
+
 ## 0.5.1
 
 ### Patch Changes
