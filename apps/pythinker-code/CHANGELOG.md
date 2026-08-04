@@ -1,5 +1,11 @@
 # @pythoughts/pythinker-code
 
+## 0.7.1
+
+### Patch Changes
+
+- [#14](https://github.com/Pythoughts-labs/pythinker-code/pull/14) [`0631ca4`](https://github.com/Pythoughts-labs/pythinker-code/commit/0631ca47d358d85de0139107b2244837a9a25b80) - Fix Kimi and Moonshot models rejecting every request with an invalid tool schema error when a tool declares `anyOf` alongside its own type or properties.
+
 ## 0.7.0
 
 ### Minor Changes
