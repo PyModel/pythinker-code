@@ -122,8 +122,8 @@ For per-row on/off lists (e.g. installed plugins in `/plugins`, MCP server lists
  ↑↓ navigate · Space toggle · Enter details · Esc cancel
                                             ← blank line
  Installed plugins (2)                      ← section title (textStrong / bold)
-  ❯ Pythinker Datasource  enabled                ← selected row (❯ + primary+bold name) + status label (success)
-    id pythinker-datasource · 1 skill · MCP 1/1 · via code.pythinker.com · official   ← secondary line (textMuted, ` · ` separated)
+  ❯ Example Plugin  enabled                ← selected row (❯ + primary+bold name) + status label (success)
+    id example-plugin · 1 skill · MCP 1/1 · via code.pythinker.com · official   ← secondary line (textMuted, ` · ` separated)
     Superpowers  disabled                   ← unselected row (text name) + off label (textDim)
     id superpowers · 14 skills · via code.pythinker.com · curated
 ```

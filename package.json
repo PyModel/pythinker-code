@@ -53,12 +53,6 @@
     "pre-commit": "pnpm exec lint-staged",
     "pre-push": "bash scripts/pre-push.sh"
   },
-  "lint-staged": {
-    "*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}": [
-      "oxlint --fix --quiet",
-      "oxlint --type-aware --quiet"
-    ]
-  },
   "engines": {
     "node": ">=26.4.0"
   },

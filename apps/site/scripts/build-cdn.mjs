@@ -35,11 +35,19 @@ async function copyPlugins(repoRoot, cdnRoot) {
   await mkdir(destination, { recursive: true });
   await cp(join(source, 'marketplace.json'), join(destination, 'marketplace.json'));
   for (const channel of ['official', 'curated']) {
+    const channelSource = join(source, channel);
+    let entries;
+    try {
+      entries = await readdir(channelSource, { withFileTypes: true });
+    } catch (error) {
+      if (error.code === 'ENOENT') continue;
+      throw error;
+    }
     const channelDestination = join(destination, channel);
     await mkdir(channelDestination, { recursive: true });
-    for (const entry of await readdir(join(source, channel), { withFileTypes: true })) {
+    for (const entry of entries) {
       if (!entry.isFile()) continue;
-      await cp(join(source, channel, entry.name), join(channelDestination, entry.name));
+      await cp(join(channelSource, entry.name), join(channelDestination, entry.name));
     }
   }
 }
