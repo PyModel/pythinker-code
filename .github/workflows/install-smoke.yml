@@ -36,4 +36,4 @@ jobs:
 
       - name: Check PowerShell syntax
         run: |
-          pwsh -NoProfile -Command '[void][System.Management.Automation.Language.Parser]::ParseFile("apps/pythinker-web/public/install.ps1", [ref]$null, [ref]$errs); if ($errs.Count) { $errs; exit 1 }'
+          pwsh -NoProfile -Command '$errs = $null; [void][System.Management.Automation.Language.Parser]::ParseFile("apps/pythinker-web/public/install.ps1", [ref]$null, [ref]$errs); if ($errs.Count) { $errs; exit 1 }'
