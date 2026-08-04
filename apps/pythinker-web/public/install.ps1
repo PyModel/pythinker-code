@@ -6,10 +6,10 @@
 # (added to the user PATH).
 #
 # Usage:
-#   irm https://pythinker.com/install.ps1 | iex
+#   irm https://code.pythinker.com/pythinker-code/install.ps1 | iex
 #
 # To pin a version when running the hosted script, set:
-#   $env:PYTHINKER_VERSION = "0.6.0"; irm https://pythinker.com/install.ps1 | iex
+#   $env:PYTHINKER_VERSION = "0.6.0"; irm https://code.pythinker.com/pythinker-code/install.ps1 | iex
 #
 # Or run the script directly:
 #   .\install.ps1 -Version 0.6.0
@@ -26,8 +26,8 @@ $Repo = "Pythoughts-labs/pythinker-code"
 # CDN source of truth for the latest published version — same endpoint the
 # in-app updater reads, so a fresh install and an auto-update always agree.
 $CdnLatestUrl = "https://code.pythinker.com/pythinker-code/latest"
-$InstallShUrl = "https://pythinker.com/install.sh"
-$InstallPs1Url = "https://pythinker.com/install.ps1"
+$InstallShUrl = "https://code.pythinker.com/pythinker-code/install.sh"
+$InstallPs1Url = "https://code.pythinker.com/pythinker-code/install.ps1"
 $NoColor = $env:NO_COLOR
 
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
@@ -148,6 +148,10 @@ function Stop-AntennaSpin {
 }
 
 function Write-LogoAnimated {
+  # The intro absolute-positions to screen rows (grid at 5-9, progress at
+  # 17), which assumes a clean screen. Clear it first — otherwise earlier
+  # shell output interleaves with the animation.
+  Write-Host -NoNewline "${ESC}[2J${ESC}[H"
   $rows = 5; $cols = 13
   $frameMs = 60; $staggerMs = 40
   if ($env:PYTHINKER_LOGO_FRAME_DELAY)   { try { $frameMs   = [int]([double]$env:PYTHINKER_LOGO_FRAME_DELAY   * 1000) } catch {} }

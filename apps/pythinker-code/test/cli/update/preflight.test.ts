@@ -494,7 +494,7 @@ describe('runUpdatePreflight', () => {
       // pipefail must come before the pipeline so a failed `curl` is not masked
       // by the trailing `bash` exiting 0 (see "surfaces a failed curl" below).
       expect(script).toContain('set -o pipefail');
-      expect(script).toContain('curl -fsSL https://pythinker.com/install.sh');
+      expect(script).toContain('curl -fsSL https://code.pythinker.com/pythinker-code/install.sh');
       expect(script).toContain('| bash');
     } finally {
       Object.defineProperty(process, 'platform', { value: originalPlatform });
@@ -510,7 +510,7 @@ describe('runUpdatePreflight', () => {
     try {
       const { stdout, options } = captureOutput();
       await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
-      expect(stdout.join('')).toContain('irm https://pythinker.com/install.ps1 | iex');
+      expect(stdout.join('')).toContain('irm https://code.pythinker.com/pythinker-code/install.ps1 | iex');
       expect(promptForInstallChoice).not.toHaveBeenCalled();
       expect(mocks.spawn).not.toHaveBeenCalled();
     } finally {

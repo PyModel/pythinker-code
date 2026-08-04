@@ -7,13 +7,13 @@
 #   ~/.local/bin/pythinker
 #
 # Usage:
-#   curl -fsSL https://pythinker.com/install.sh | bash
+#   curl -fsSL https://code.pythinker.com/pythinker-code/install.sh | bash
 #
 #   # Pin a specific version:
-#   curl -fsSL https://pythinker.com/install.sh | bash -s -- --version 0.6.0
+#   curl -fsSL https://code.pythinker.com/pythinker-code/install.sh | bash -s -- --version 0.6.0
 #
 #   # Custom install prefix (default $HOME/.local):
-#   curl -fsSL https://pythinker.com/install.sh | bash -s -- --prefix /opt/pythinker
+#   curl -fsSL https://code.pythinker.com/pythinker-code/install.sh | bash -s -- --prefix /opt/pythinker
 #
 # Supported targets (matches release artifact names pythinker-code-<target>.zip):
 #   linux-x64        (Linux x86_64)
@@ -21,7 +21,7 @@
 #   darwin-arm64     (macOS Apple Silicon)
 #   darwin-x64       (macOS Intel)
 #
-# Windows users: irm https://pythinker.com/install.ps1 | iex
+# Windows users: irm https://code.pythinker.com/pythinker-code/install.ps1 | iex
 set -euo pipefail
 
 VERSION=""
@@ -38,13 +38,13 @@ installs it at
   ~/.local/bin/pythinker
 
 Usage:
-  curl -fsSL https://pythinker.com/install.sh | bash
+  curl -fsSL https://code.pythinker.com/pythinker-code/install.sh | bash
 
   # Pin a specific version:
-  curl -fsSL https://pythinker.com/install.sh | bash -s -- --version 0.6.0
+  curl -fsSL https://code.pythinker.com/pythinker-code/install.sh | bash -s -- --version 0.6.0
 
   # Custom install prefix (default $HOME/.local):
-  curl -fsSL https://pythinker.com/install.sh | bash -s -- --prefix /opt/pythinker
+  curl -fsSL https://code.pythinker.com/pythinker-code/install.sh | bash -s -- --prefix /opt/pythinker
 
 Supported targets (matches release artifact names pythinker-code-<target>.zip):
   linux-x64        (Linux x86_64)
@@ -52,7 +52,7 @@ Supported targets (matches release artifact names pythinker-code-<target>.zip):
   darwin-arm64     (macOS Apple Silicon)
   darwin-x64       (macOS Intel)
 
-Windows users: irm https://pythinker.com/install.ps1 | iex
+Windows users: irm https://code.pythinker.com/pythinker-code/install.ps1 | iex
 EOF
 }
 
@@ -327,6 +327,11 @@ print_logo_animated() {
   local FRAME_DELAY="${PYTHINKER_LOGO_FRAME_DELAY:-0.06}"
   local STAGGER_DELAY="${PYTHINKER_LOGO_STAGGER_DELAY:-0.04}"
 
+  # The whole intro absolute-positions to screen rows (grid at 5-9,
+  # progress at 17), which assumes a clean screen. Clear it first —
+  # otherwise earlier shell output interleaves with the animation.
+  printf '\033[2J\033[H'
+
   # Hide the text cursor while we redraw in place — otherwise the block
   # cursor on terminals like Terminal.app renders as a stray white block
   # at the cursor's current cell. Show it again before returning so the
@@ -589,7 +594,7 @@ case "$os/$arch" in
     platform_display="macOS x64" ;;
   MINGW*/*|MSYS*/*|CYGWIN*/*)
     fail "On Windows, use the PowerShell installer:
-powershell -c \"irm https://pythinker.com/install.ps1 | iex\"" ;;
+powershell -c \"irm https://code.pythinker.com/pythinker-code/install.ps1 | iex\"" ;;
   *)
     fail "unsupported target: $os/$arch" ;;
 esac
