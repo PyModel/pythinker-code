@@ -322,7 +322,9 @@ export async function handleUpdateCommand(
       host.showNotice(
         `Update to v${result.version} already in progress`,
         result.installOnRestart
-          ? 'Once preparation finishes, restart the CLI to install it.'
+          ? result.readyToInstall
+            ? 'Restart the CLI to install it.'
+            : 'Restart after the current update operation finishes.'
           : 'Restart the CLI once it completes.',
       );
       return;

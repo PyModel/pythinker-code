@@ -440,7 +440,10 @@ function formatAutomaticUpdate(info: DoctorRuntimeInfo): string[] {
   const update = info.update;
   if (update?.autoUpdate === undefined) return [];
   if (update.autoUpdate === 'env-disabled') {
-    return ['  Auto-update: disabled by PYTHINKER_CODE_NO_AUTO_UPDATE'];
+    return [
+      '  Auto-update: disabled by PYTHINKER_CODE_NO_AUTO_UPDATE or ' +
+        'PYTHINKER_CLI_NO_AUTO_UPDATE',
+    ];
   }
   if (update.autoUpdate === 'off') {
     return ['  Auto-update: off (tui.toml [upgrade].auto_install)'];
