@@ -494,6 +494,15 @@ New-Item -ItemType Directory -Path $tempDir | Out-Null
 $installerPath = Join-Path $tempDir $asset
 $shaPath = "$installerPath.sha256"
 
+# This script runs via `irm ... | iex`, which dot-sources it into the
+# caller's scope rather than a fresh function scope. If $extractDir were
+# only ever assigned inside the try block, a failure before that
+# assignment (e.g. a SHA mismatch) could leave the `finally` block
+# resolving a same-named variable left over in the caller's session and
+# recursively deleting it. Initialize it here so `finally` always sees
+# this script's own value.
+$extractDir = $null
+
 try {
   Download-WithProgress $installerUrl $installerPath
   Invoke-WebRequest -UseBasicParsing -Uri $shaUrl -OutFile $shaPath
@@ -524,9 +533,14 @@ try {
   # the running parent process or an AV scan.
   $target = Join-Path $installDir "pythinker.exe"
   $stale = "$target.old"
-  # Opportunistic cleanup of a previous update's leftover (may be locked; ignore).
-  if (Test-Path $stale) { Remove-Item -LiteralPath $stale -Force -ErrorAction SilentlyContinue }
   if (Test-Path $target) {
+    # A prior backup is obsolete only while the current target remains
+    # available. If $target is missing (a previous update was interrupted
+    # after the rename but before Move-Item), $stale is the only runnable
+    # executable — keep it until a replacement actually succeeds below.
+    if (Test-Path $stale) {
+      Remove-Item -LiteralPath $stale -Force -ErrorAction SilentlyContinue
+    }
     try {
       Rename-Item -LiteralPath $target -NewName "pythinker.exe.old" -Force -ErrorAction Stop
     } catch {
@@ -564,7 +578,7 @@ try {
 } finally {
   Write-Host -NoNewline $SHOW
   Remove-Item -Recurse -Force $tempDir -ErrorAction SilentlyContinue
-  if ($extractDir) {
-    Remove-Item -Recurse -Force $extractDir -ErrorAction SilentlyContinue
+  if ($null -ne $extractDir) {
+    Remove-Item -LiteralPath $extractDir -Recurse -Force -ErrorAction SilentlyContinue
   }
 }

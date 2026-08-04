@@ -574,7 +574,11 @@ describe('runUpdatePreflight', () => {
           '-Command',
           'irm https://code.pythinker.com/pythinker-code/install.ps1 | iex',
         ],
-        { detached: true, stdio: 'ignore' },
+        {
+          detached: true,
+          stdio: 'ignore',
+          env: expect.objectContaining({ PYTHINKER_VERSION: '0.5.0' }),
+        },
       );
     } finally {
       Object.defineProperty(process, 'platform', { value: originalPlatform });
@@ -1506,7 +1510,7 @@ describe('spawnForSource native', () => {
   });
 
   it('win32: powershell.exe with -ExecutionPolicy Bypass and the irm|iex install command', () => {
-    const { cmd, args } = spawnForSource('native', '0.5.0', 'win32');
+    const { cmd, args, env } = spawnForSource('native', '0.5.0', 'win32');
     expect(cmd).toBe('powershell.exe');
     expect(args).toEqual([
       '-NoProfile',
@@ -1515,6 +1519,14 @@ describe('spawnForSource native', () => {
       '-Command',
       'irm https://code.pythinker.com/pythinker-code/install.ps1 | iex',
     ]);
+    // install.ps1 reads $env:PYTHINKER_VERSION instead of fetching the CDN's
+    // current latest, so the selected update version is the one installed.
+    expect(env).toEqual({ PYTHINKER_VERSION: '0.5.0' });
+  });
+
+  it('darwin/linux: no version env override (install.sh has no such hook)', () => {
+    const { env } = spawnForSource('native', '0.5.0', 'darwin');
+    expect(env).toBeUndefined();
   });
 });
 

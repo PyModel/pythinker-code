@@ -128,6 +128,7 @@ export function automaticUpdateModeFor(
 interface SpawnCommand {
   readonly cmd: string;
   readonly args: readonly string[];
+  readonly env?: Readonly<Record<string, string>>;
 }
 
 export function spawnForSource(
@@ -148,9 +149,13 @@ export function spawnForSource(
       return { cmd: 'brew', args: ['upgrade', 'pythinker-code'] };
     case 'native':
       if (platform === 'win32') {
+        // install.ps1 reads $env:PYTHINKER_VERSION when set instead of
+        // fetching the CDN's current latest, so the version this preflight
+        // decided on is the one actually installed.
         return {
           cmd: 'powershell.exe',
           args: ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', NATIVE_INSTALL_COMMAND_WIN],
+          env: { PYTHINKER_VERSION: version },
         };
       }
       // `curl … | bash` reports only the trailing bash's exit status, so a
@@ -558,9 +563,12 @@ export async function installUpdate(
   version: string,
   platform: NodeJS.Platform,
 ): Promise<void> {
-  const { cmd, args } = spawnForSource(source, version, platform);
+  const { cmd, args, env } = spawnForSource(source, version, platform);
   await new Promise<void>((resolve, reject) => {
-    const child = spawn(cmd, [...args], { stdio: 'inherit' });
+    const child = spawn(cmd, [...args], {
+      stdio: 'inherit',
+      env: env === undefined ? undefined : { ...process.env, ...env },
+    });
     child.once('error', reject);
     child.once('exit', (code, signal) => {
       if (code === 0) {
@@ -737,7 +745,7 @@ async function startBackgroundInstall(
       source,
     });
 
-    const { cmd, args } = spawnForSource(source, target.version, platform);
+    const { cmd, args, env } = spawnForSource(source, target.version, platform);
     // The child can exit before the pid-persist below finishes, so buffer
     // the terminal outcome until the handler is "ready".
     let ready = false;
@@ -802,7 +810,11 @@ async function startBackgroundInstall(
       }
     };
 
-    const child = spawn(cmd, [...args], { detached: true, stdio: 'ignore' });
+    const child = spawn(cmd, [...args], {
+      detached: true,
+      stdio: 'ignore',
+      env: env === undefined ? undefined : { ...process.env, ...env },
+    });
     child.once('error', () => { void finish(false); });
     child.once('exit', (code) => { void finish(code === 0); });
     if (child.pid !== undefined && child.pid > 0) {

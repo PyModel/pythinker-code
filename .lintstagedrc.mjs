@@ -16,14 +16,19 @@ const OXLINT_IGNORE_PATTERNS = [
 const ignoreRegexes = OXLINT_IGNORE_PATTERNS.map((pattern) => {
   const isDir = pattern.endsWith('/');
   const body = isDir ? pattern.slice(0, -1) : pattern;
-  const escaped = body.replaceAll(/[.+^${}()|[\]\\]/g, '\\$&').replaceAll(/\*/g, '[^/]*');
-  return isDir ? new RegExp(`(^|/)${escaped}(/|$)`) : new RegExp(`(^|/)${escaped}$`);
+  const escaped = body.replaceAll(/[.+^${}()|[\]\\]/gu, '\\$&').replaceAll('*', '[^/]*');
+  return isDir
+    ? new RegExp(`(^|/)${escaped}(/|$)`, 'u')
+    : new RegExp(`(^|/)${escaped}$`, 'u');
 });
 
+// files are absolute, native-separator paths; match on the POSIX-style
+// relative path but keep the native path for the command line below.
 function lintableFiles(files) {
-  return files
-    .map((file) => relative(process.cwd(), file))
-    .filter((file) => !ignoreRegexes.some((re) => re.test(file)));
+  return files.filter((file) => {
+    const posixRelative = relative(process.cwd(), file).replaceAll('\\', '/');
+    return !ignoreRegexes.some((re) => re.test(posixRelative));
+  });
 }
 
 export default {
@@ -31,6 +36,9 @@ export default {
     const targets = lintableFiles(files);
     if (targets.length === 0) return [];
     const quoted = targets.map((f) => JSON.stringify(f)).join(' ');
-    return [`oxlint --fix --quiet ${quoted}`, `oxlint --type-aware --quiet ${quoted}`];
+    return [
+      `oxlint --fix --quiet -- ${quoted}`,
+      `oxlint --type-aware --quiet -- ${quoted}`,
+    ];
   },
 };
