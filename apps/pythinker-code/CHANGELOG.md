@@ -1,5 +1,19 @@
 # @pythoughts/pythinker-code
 
+## 0.6.1
+
+### Patch Changes
+
+- [#7](https://github.com/Pythoughts-labs/pythinker-code/pull/7) [`d396320`](https://github.com/Pythoughts-labs/pythinker-code/commit/d396320235e31ce09f04f0da244ec5a694e2bcfe) - Prompt for an API key when connecting a catalog provider whose environment variable is not set, instead of failing with "Environment variable is not set or is empty". Applies to `/login`, `/provider`, and `pythinker provider catalog add`, which now also accepts `--api-key <key>`.
+
+- [#7](https://github.com/Pythoughts-labs/pythinker-code/pull/7) [`d396320`](https://github.com/Pythoughts-labs/pythinker-code/commit/d396320235e31ce09f04f0da244ec5a694e2bcfe) - Explain in `/update` and the startup update notice that Homebrew installs do not auto-update, and point to the native installer for automatic background updates.
+
+- [#7](https://github.com/Pythoughts-labs/pythinker-code/pull/7) [`d396320`](https://github.com/Pythoughts-labs/pythinker-code/commit/d396320235e31ce09f04f0da244ec5a694e2bcfe) - Point the native install scripts at the published release assets.
+
+- [#7](https://github.com/Pythoughts-labs/pythinker-code/pull/7) [`d396320`](https://github.com/Pythoughts-labs/pythinker-code/commit/d396320235e31ce09f04f0da244ec5a694e2bcfe) - Show a clear requirement message with the native-installer alternative when the CLI is launched on Node.js older than 26.4, instead of failing with a cryptic flag error.
+
+- [#8](https://github.com/Pythoughts-labs/pythinker-code/pull/8) [`9b1b195`](https://github.com/Pythoughts-labs/pythinker-code/commit/9b1b19577a5826f33a2bd70116c48bfeb46362ad) - Fix the CLI failing to start on Windows with "process.execve is unavailable" by using the spawn fallback instead of calling execve there.
+
 ## 0.6.0
 
 ### Minor Changes
