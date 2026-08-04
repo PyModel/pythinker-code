@@ -1,5 +1,13 @@
 # @pythoughts/pythinker-code
 
+## 0.6.2
+
+### Patch Changes
+
+- [#10](https://github.com/Pythoughts-labs/pythinker-code/pull/10) [`ad2391b`](https://github.com/Pythoughts-labs/pythinker-code/commit/ad2391b5601f173d7eecdaab55f1110f506c1ad1) - Clear the terminal before the install script's animated intro so earlier shell output no longer interleaves with the logo animation.
+
+- [#10](https://github.com/Pythoughts-labs/pythinker-code/pull/10) [`ad2391b`](https://github.com/Pythoughts-labs/pythinker-code/commit/ad2391b5601f173d7eecdaab55f1110f506c1ad1) - Restyle the browser OAuth sign-in confirmation pages for all providers to match the website's light design.
+
 ## 0.6.1
 
 ### Patch Changes
