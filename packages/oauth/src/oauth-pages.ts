@@ -93,7 +93,7 @@ const PAGE_STYLES =
   'padding:10px 14px;border-radius:12px;' +
   'background:#f7f7f8;border:1px solid #e5e7eb;' +
   "font-family:'JetBrains Mono',ui-monospace,'SF Mono',monospace;" +
-  'font-size:13px;color:#55565c;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;' +
+  'font-size:13px;color:#55565c;' +
   '}' +
   '.status .ok{color:#15803d}' +
   '.status .err{color:#dc2626}' +
