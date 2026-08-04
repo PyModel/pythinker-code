@@ -7,7 +7,7 @@ description: Update Pythinker Code CLI user documentation after meaningful code 
 
 ## Overview
 
-This repository maintains English user documentation under `docs/`.
+This repository (`github.com/Pythoughts-labs/pythinker-code`) maintains English user documentation under `docs/`, published at **https://code.pythinker.com**.
 
 Use this skill to update the corresponding documentation whenever the codebase has changes that affect product behavior or user experience.
 
@@ -17,7 +17,7 @@ For a **full pre-release audit** of all pages (detecting hallucinations and cove
 
 This skill depends on the following being in place. If any are missing, stop and report to the user before continuing:
 
-- `docs/` directory with documentation pages and `docs/.vitepress/config.ts` set up (VitePress site).
+- `docs/` directory with documentation pages and `docs/.vitepress/config.ts` set up (VitePress site, deployed to code.pythinker.com).
 - `docs/AGENTS.md` style guide — defines terminology, typography, and writing style.
 
 ## Workflow
