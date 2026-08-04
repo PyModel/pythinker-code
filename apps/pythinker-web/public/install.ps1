@@ -1,16 +1,18 @@
-# Pythinker Code — native Windows installer bootstrap.
+# Pythinker Code — native Windows installer.
 #
-# Downloads the latest PythinkerSetup-x.y.z.exe from GitHub Releases, verifies
-# its SHA-256 file, and runs the per-user Inno Setup installer silently.
+# Downloads the native single-file binary (pythinker-code-win32-<arch>.zip)
+# from the GitHub Release matching the CDN's latest version, verifies its
+# SHA-256, and installs pythinker.exe to %LOCALAPPDATA%\Programs\Pythinker
+# (added to the user PATH).
 #
 # Usage:
 #   irm https://pythinker.com/install.ps1 | iex
 #
 # To pin a version when running the hosted script, set:
-#   $env:PYTHINKER_VERSION = "0.27.0"; irm https://pythinker.com/install.ps1 | iex
+#   $env:PYTHINKER_VERSION = "0.6.0"; irm https://pythinker.com/install.ps1 | iex
 #
 # Or run the script directly:
-#   .\install.ps1 -Version 0.27.0
+#   .\install.ps1 -Version 0.6.0
 
 [CmdletBinding()]
 param(
@@ -21,6 +23,9 @@ param(
 $ErrorActionPreference = "Stop"
 
 $Repo = "Pythoughts-labs/pythinker-code"
+# CDN source of truth for the latest published version — same endpoint the
+# in-app updater reads, so a fresh install and an auto-update always agree.
+$CdnLatestUrl = "https://code.pythinker.com/pythinker-code/latest"
 $InstallShUrl = "https://pythinker.com/install.sh"
 $InstallPs1Url = "https://pythinker.com/install.ps1"
 $NoColor = $env:NO_COLOR
@@ -60,19 +65,21 @@ $script:AntennaSpinActive = $false
 
 function Show-Usage {
   @"
-Pythinker Code — native Windows installer bootstrap.
+Pythinker Code — native Windows installer.
 
-Downloads the latest PythinkerSetup-x.y.z.exe from GitHub Releases, verifies
-its SHA-256 file, and runs the per-user Inno Setup installer silently.
+Downloads the native single-file binary (pythinker-code-win32-<arch>.zip)
+from the GitHub Release matching the CDN's latest version, verifies its
+SHA-256, and installs pythinker.exe to %LOCALAPPDATA%\Programs\Pythinker
+(added to the user PATH).
 
 Usage:
   irm $InstallPs1Url | iex
 
   # Pin a version:
-  `$env:PYTHINKER_VERSION = "0.27.0"; irm $InstallPs1Url | iex
+  `$env:PYTHINKER_VERSION = "0.6.0"; irm $InstallPs1Url | iex
 
   # Or run directly:
-  .\install.ps1 -Version 0.27.0
+  .\install.ps1 -Version 0.6.0
 
 Unix / macOS / Linux users:
   curl -fsSL $InstallShUrl | bash
@@ -257,10 +264,10 @@ function Write-Logo {
   if ($useAnim) { Write-LogoAnimated } else { Write-LogoStatic }
 }
 
-function Print-Intro($version, $asset) {
+function Print-Intro($version, $platformDisplay, $asset) {
   Write-Logo
   Write-Host ("  {0,-11} {1}" -f "Version", $version)
-  Write-Host ("  {0,-11} {1}" -f "Platform", "Windows x64")
+  Write-Host ("  {0,-11} {1}" -f "Platform", $platformDisplay)
   Write-Host ("  {0,-11} {1}" -f "Package", $asset)
   Write-Host ""
 }
@@ -367,15 +374,15 @@ function Print-Done {
   }
 }
 
-function Test-ReleaseHasInstaller($release) {
-  if ($release.draft -or $release.prerelease) { return $null }
-  $tag = [string]$release.tag_name
-  if (-not $tag) { return $null }
-  $candidate = $tag.TrimStart('v')
-  $exe = "PythinkerSetup-$candidate.exe"
+# Releases are tagged "@pythoughts/pythinker-code@X.Y.Z"; the "@" and "/"
+# must be percent-encoded in download and API URLs.
+function Get-ReleaseTag($version) { return "@pythoughts/pythinker-code@$version" }
+function Get-EncodedReleaseTag($version) { return [uri]::EscapeDataString((Get-ReleaseTag $version)) }
+
+function Test-ReleaseHasAsset($release, $asset) {
+  if ($release.draft -or $release.prerelease) { return $false }
   $names = @($release.assets | ForEach-Object { [string]$_.name })
-  if (($names -contains $exe) -and ($names -contains "$exe.sha256")) { return $candidate }
-  return $null
+  return (($names -contains $asset) -and ($names -contains "$asset.sha256"))
 }
 
 function Format-ReleaseApiError($Uri, $ErrorRecord) {
@@ -387,57 +394,36 @@ function Format-ReleaseApiError($Uri, $ErrorRecord) {
 }
 
 function Get-LatestVersion {
+  # The CDN is the source of truth (same endpoint the in-app updater reads).
+  # Fall back to the GitHub API if the CDN is unreachable.
+  try {
+    $raw = (Invoke-RestMethod -UseBasicParsing -Uri $CdnLatestUrl)
+    $candidate = ([string]$raw).Trim()
+    if ($candidate -match '^\d+\.\d+\.\d+$') { return $candidate }
+  } catch {}
   $latestApi = "https://api.github.com/repos/$Repo/releases/latest"
-  $listApi   = "https://api.github.com/repos/$Repo/releases?per_page=100"
-  $delay = 4
-  $elapsed = 0
-  $maxElapsed = 360
-  $lastApiError = $null
-  while ($true) {
-    try {
-      $latest = Invoke-RestMethod -UseBasicParsing -Uri $latestApi
-      $found = Test-ReleaseHasInstaller $latest
-      if ($found) { return $found }
-    } catch {
-      $lastApiError = Format-ReleaseApiError $latestApi $_
-    }
-    try {
-      $releases = Invoke-RestMethod -UseBasicParsing -Uri $listApi
-      foreach ($release in @($releases)) {
-        $found = Test-ReleaseHasInstaller $release
-        if ($found) { return $found }
-      }
-    } catch {
-      $lastApiError = Format-ReleaseApiError $listApi $_
-    }
-    if ($elapsed -ge $maxElapsed) {
-      $detail = if ($lastApiError) { " Last API error: $lastApiError" } else { "" }
-      Fail "no published release has a ready Windows installer asset after ~${maxElapsed}s; try again shortly or pin `$env:PYTHINKER_VERSION.$detail"
-    }
-    if ($useAnim) {
-      Write-Host -NoNewline ("${ESC}[$($script:ProgressRow);1H${ESC}[K  ${DIM}Waiting${RESET} release assets, retrying in ${BAR}${delay}s${RESET}")
-    } else {
-      Write-Host "  Waiting for release assets, retrying in ${delay}s"
-    }
-    Start-Sleep -Seconds $delay
-    $elapsed += $delay
-    $delay = [Math]::Min($delay * 2, 120)
+  try {
+    $latest = Invoke-RestMethod -UseBasicParsing -Uri $latestApi
+    $tag = [string]$latest.tag_name
+    if ($tag -match '^@pythoughts/pythinker-code@(\d+\.\d+\.\d+)$') { return $Matches[1] }
+    Fail "could not parse latest release tag '$tag' from $latestApi"
+  } catch {
+    Fail "could not resolve the latest version: $(Format-ReleaseApiError $latestApi $_)"
   }
 }
 
 function Wait-ReleaseAssets($version, $asset) {
-  $api = "https://api.github.com/repos/$Repo/releases/tags/v$version"
+  $api = "https://api.github.com/repos/$Repo/releases/tags/$(Get-EncodedReleaseTag $version)"
   $delay = 4
   $elapsed = 0
   $maxElapsed = 360
   while ($true) {
     try {
       $release = Invoke-RestMethod -UseBasicParsing -Uri $api
-      $names = @($release.assets | ForEach-Object { [string]$_.name })
-      if (($names -contains $asset) -and ($names -contains "$asset.sha256")) { return }
+      if (Test-ReleaseHasAsset $release $asset) { return }
     } catch {}
     if ($elapsed -ge $maxElapsed) {
-      Fail "release assets for v$version are not available after ~${maxElapsed}s: https://github.com/$Repo/releases/download/v$version/$asset`nThe latest release may still be publishing. Try again shortly, or pin a known-good version with -Version X.Y.Z"
+      Fail "release assets for $version are not available after ~${maxElapsed}s: https://github.com/$Repo/releases/download/$(Get-EncodedReleaseTag $version)/$asset`nThe latest release may still be publishing. Try again shortly, or pin a known-good version with -Version X.Y.Z"
     }
     if ($useAnim) {
       Write-Host -NoNewline ("${ESC}[$($script:ProgressRow);1H${ESC}[K  ${DIM}Waiting${RESET} release assets, retrying in ${BAR}${delay}s${RESET}")
@@ -469,12 +455,32 @@ if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
 if (-not $Version) { $Version = Get-LatestVersion }
 $Version = $Version.TrimStart('v')
 
-$asset = "PythinkerSetup-$Version.exe"
-$baseUrl = "https://github.com/$Repo/releases/download/v$Version"
+# The machine's native architecture, independent of process emulation: an
+# x64-emulated PowerShell on Windows ARM64 reports OSArchitecture=X64, but the
+# registry value below always holds the real hardware architecture.
+function Get-NativeArchitecture {
+  try {
+    $reg = Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment' -ErrorAction Stop
+    if ($reg.PROCESSOR_ARCHITECTURE) { return [string]$reg.PROCESSOR_ARCHITECTURE }
+  } catch {}
+  if ($env:PROCESSOR_ARCHITEW6432) { return $env:PROCESSOR_ARCHITEW6432 }
+  return [string]$env:PROCESSOR_ARCHITECTURE
+}
+
+$nativeArchitecture = Get-NativeArchitecture
+$archLabel = switch ($nativeArchitecture) {
+  'ARM64' { 'arm64' }
+  'AMD64' { 'x64' }
+  default { Fail "unsupported Windows architecture: $nativeArchitecture (need x64 or arm64)" }
+}
+$target = "win32-$archLabel"
+
+$asset = "pythinker-code-$target.zip"
+$baseUrl = "https://github.com/$Repo/releases/download/$(Get-EncodedReleaseTag $Version)"
 $installerUrl = "$baseUrl/$asset"
 $shaUrl = "$installerUrl.sha256"
 
-Print-Intro $Version $asset
+Print-Intro $Version "Windows $archLabel" $asset
 Wait-ReleaseAssets $Version $asset
 if ($useAnim) { Write-Host -NoNewline ("${ESC}[$($script:ProgressRow);1H${ESC}[K") }
 
@@ -495,24 +501,28 @@ try {
   }
   Phase-Ok "Verifying"
 
-  $installerArgs = @(
-    '/SILENT',
-    '/NORESTART',
-    '/CURRENTUSER',
-    '/CLOSEAPPLICATIONS',
-    '/NORESTARTAPPLICATIONS'
-  )
-  $process = Start-Process -FilePath $installerPath -ArgumentList $installerArgs -Wait -PassThru
-  if ($process.ExitCode -ne 0) {
-    Fail "installer exited with code $($process.ExitCode)"
+  # The release zip contains a single pythinker.exe at its root.
+  $extractDir = Join-Path $tempDir "extracted"
+  Expand-Archive -LiteralPath $installerPath -DestinationPath $extractDir -Force
+  $binary = Join-Path $extractDir "pythinker.exe"
+  if (-not (Test-Path $binary)) {
+    Fail "archive did not contain pythinker.exe"
   }
-  Phase-Ok "Installing"
 
   $installDir = Join-Path $env:LOCALAPPDATA "Programs\Pythinker"
-  if (Test-Path (Join-Path $installDir "pythinker.exe")) {
-    if (($env:PATH -split ';') -notcontains $installDir) {
-      $env:PATH = "$installDir;$env:PATH"
-    }
+  New-Item -ItemType Directory -Path $installDir -Force | Out-Null
+  Copy-Item -LiteralPath $binary -Destination (Join-Path $installDir "pythinker.exe") -Force
+  Phase-Ok "Installing"
+
+  # Persist the install dir on the user PATH, and make it available in
+  # this session so `pythinker` works without reopening the shell.
+  $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+  if (($userPath -split ';') -notcontains $installDir) {
+    $newPath = if ($userPath) { "$installDir;$userPath" } else { $installDir }
+    [Environment]::SetEnvironmentVariable('Path', $newPath, 'User')
+  }
+  if (($env:PATH -split ';') -notcontains $installDir) {
+    $env:PATH = "$installDir;$env:PATH"
   }
 
   Print-Done

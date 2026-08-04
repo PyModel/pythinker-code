@@ -4,6 +4,24 @@ const FFI_FLAG = '--experimental-ffi';
 const FFI_WARNING_FLAG = '--disable-warning=ExperimentalWarning';
 const FFI_CHILD_ENV = 'PYTHINKER_CODE_FFI_CHILD';
 const REQUIRED_RUNTIME = 'Node.js 26.4.0 or newer with experimental FFI support';
+const MINIMUM_NODE = [26, 4, 0] as const;
+const NATIVE_INSTALL_HINT =
+  'Alternatively, use the native installer (no Node.js required): https://code.pythinker.com';
+
+/**
+ * Older Node (e.g. 24 LTS) has no `--experimental-ffi`, so the re-exec below
+ * would die with a cryptic `bad option` error. npm installs the package on any
+ * Node version (engines is only a warning for consumers), so guard here with
+ * an actionable message instead.
+ */
+function isRuntimeTooOld(): boolean {
+  const parts = process.versions.node.split('.').map(Number);
+  const [major = 0, minor = 0, patch = 0] = parts;
+  const [reqMajor, reqMinor, reqPatch] = MINIMUM_NODE;
+  if (major !== reqMajor) return major < reqMajor;
+  if (minor !== reqMinor) return minor < reqMinor;
+  return patch < reqPatch;
+}
 
 function isFfiProcess(): boolean {
   // Only execArgv decides: a stale env marker must never bypass the FFI re-exec.
@@ -66,6 +84,15 @@ function launchWindowsFallback(
 }
 
 async function launch(): Promise<void> {
+  if (isRuntimeTooOld()) {
+    process.stderr.write(
+      `Pythinker Code requires ${REQUIRED_RUNTIME}; you are running Node.js ${process.versions.node}.\n` +
+        `${NATIVE_INSTALL_HINT}\n`,
+    );
+    process.exitCode = 1;
+    return;
+  }
+
   if (isFfiProcess()) {
     await import(new URL('./main.mjs', import.meta.url).href);
     return;

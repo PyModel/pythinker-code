@@ -1502,6 +1502,7 @@ describe('startManualUpdate', () => {
       status: 'manual',
       version: '0.5.0',
       command: 'brew upgrade pythinker-code',
+      source: 'homebrew',
     });
     expect(mocks.spawn).not.toHaveBeenCalled();
   });

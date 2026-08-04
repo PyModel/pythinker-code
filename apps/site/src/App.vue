@@ -2,6 +2,7 @@
 import { onMounted, onUnmounted, ref } from 'vue';
 import AgentLoop from './components/AgentLoop.vue';
 import InstallCommand from './components/InstallCommand.vue';
+import LegacyDownloadsPopup from './components/LegacyDownloadsPopup.vue';
 import PythinkerMascot from './components/PythinkerMascot.vue';
 
 const version = __PYTHINKER_VERSION__;
@@ -228,6 +229,9 @@ onUnmounted(() => {
         <p class="hero-lead">An open-source AI engineering agent for your terminal. It reads your repo, edits files, runs commands, and iterates until the job is done.</p>
         <div class="hero-install">
           <InstallCommand />
+        </div>
+        <div class="hero-download-milestone">
+          <LegacyDownloadsPopup />
         </div>
         <p class="hero-caption">Free and open source. MIT licensed. macOS, Linux, and Windows.</p>
       </div>
@@ -627,6 +631,12 @@ onUnmounted(() => {
 .hero-install {
   max-width: 720px;
   margin: 36px auto 0;
+}
+
+.hero-download-milestone {
+  display: flex;
+  margin-top: 14px;
+  justify-content: center;
 }
 
 .hero-caption {

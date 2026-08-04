@@ -112,7 +112,7 @@ onUnmounted(() => {
         @keydown="onTriggerKeydown"
       >
         <img src="/brand/pythinker_animated.svg" alt="" width="16" height="20">
-        Pick your OS
+        Get started
         <svg aria-hidden="true" viewBox="0 0 12 8"><path d="m1 1 5 5 5-5" /></svg>
       </button>
       <code>{{ activeChannel.command }}</code>

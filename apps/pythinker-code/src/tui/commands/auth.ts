@@ -250,18 +250,24 @@ export async function connectCatalogProvider(
     return;
   }
 
-  const apiKeyEnvVar = catalogEntry.env?.[0]?.trim();
-  if (apiKeyEnvVar === undefined || apiKeyEnvVar.length === 0) {
-    host.showError(`Catalog provider "${providerId}" does not declare an API key environment variable.`);
-    return;
-  }
-  if (process.env[apiKeyEnvVar]?.trim().length === 0 || process.env[apiKeyEnvVar] === undefined) {
-    host.showError(`Environment variable "${apiKeyEnvVar}" is not set or is empty.`);
-    return;
-  }
-
   const baseUrl = catalogBaseUrl(catalogEntry, wire);
   const platformName = displayName ?? catalogEntry.name ?? providerId;
+
+  const apiKeyEnvVar = catalogEntry.env?.[0]?.trim();
+  const envVarHasValue =
+    apiKeyEnvVar !== undefined &&
+    apiKeyEnvVar.length > 0 &&
+    (process.env[apiKeyEnvVar]?.trim().length ?? 0) > 0;
+  let apiKey: string | undefined;
+  if (!envVarHasValue) {
+    const subtitleLines = [
+      ...(baseUrl === undefined ? [] : [`${'base_url'.padEnd(12)}${baseUrl}`]),
+      `${'saved to'.padEnd(12)}~/.pythinker-code/config.toml`,
+    ];
+    apiKey = await promptApiKey(host, platformName, subtitleLines);
+    if (apiKey === undefined) return;
+  }
+
   const models = catalogProviderModels(catalogEntry);
   if (models.length === 0) {
     host.showError('No models available for this platform.');
@@ -282,7 +288,8 @@ export async function connectCatalogProvider(
     catalogUrl: DEFAULT_CATALOG_URL,
     wire,
     baseUrl,
-    apiKeyEnvVar,
+    apiKey,
+    apiKeyEnvVar: envVarHasValue ? apiKeyEnvVar : undefined,
     models,
     selectedModelId: selection.model.id,
     thinking: selection.effort !== 'off',
@@ -296,7 +303,7 @@ export async function connectCatalogProvider(
   });
 
   await host.authFlow.refreshConfigAfterLogin();
-  host.track('login', { provider: providerId, method: 'api_key_env' });
+  host.track('login', { provider: providerId, method: envVarHasValue ? 'api_key_env' : 'api_key' });
   host.showStatus(`Setup complete: ${platformName} · ${selection.model.id}`);
 }
 

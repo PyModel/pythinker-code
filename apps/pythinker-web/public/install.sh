@@ -1,26 +1,27 @@
 #!/usr/bin/env bash
 # Pythinker Code — native curl-bash installer.
 #
-# Downloads the PyInstaller-built single-file binary for your OS + arch from
-# the latest GitHub Release, verifies its SHA-256, and installs it at
+# Downloads the native single-file binary (Node SEA) for your OS + arch from
+# the GitHub Release matching the CDN's latest version, verifies its SHA-256,
+# and installs it at
 #   ~/.local/bin/pythinker
 #
 # Usage:
 #   curl -fsSL https://pythinker.com/install.sh | bash
 #
 #   # Pin a specific version:
-#   curl -fsSL https://pythinker.com/install.sh | bash -s -- --version 0.27.0
+#   curl -fsSL https://pythinker.com/install.sh | bash -s -- --version 0.6.0
 #
 #   # Custom install prefix (default $HOME/.local):
 #   curl -fsSL https://pythinker.com/install.sh | bash -s -- --prefix /opt/pythinker
 #
-# Supported targets (target triples — matches existing release artifacts):
-#   x86_64-unknown-linux-gnu       (Linux x86_64)
-#   aarch64-unknown-linux-gnu      (Linux ARM64)
-#   aarch64-apple-darwin           (macOS Apple Silicon)
-#   x86_64-apple-darwin            (macOS Intel)
+# Supported targets (matches release artifact names pythinker-code-<target>.zip):
+#   linux-x64        (Linux x86_64)
+#   linux-arm64      (Linux ARM64)
+#   darwin-arm64     (macOS Apple Silicon)
+#   darwin-x64       (macOS Intel)
 #
-# Windows users: download PythinkerSetup-x.y.z.exe from the Releases page.
+# Windows users: irm https://pythinker.com/install.ps1 | iex
 set -euo pipefail
 
 VERSION=""
@@ -31,26 +32,27 @@ usage() {
   cat <<'EOF'
 Pythinker Code — native curl-bash installer.
 
-Downloads the PyInstaller-built single-file binary for your OS + arch from
-the latest GitHub Release, verifies its SHA-256, and installs it at
+Downloads the native single-file binary for your OS + arch from the GitHub
+Release matching the CDN's latest version, verifies its SHA-256, and
+installs it at
   ~/.local/bin/pythinker
 
 Usage:
   curl -fsSL https://pythinker.com/install.sh | bash
 
   # Pin a specific version:
-  curl -fsSL https://pythinker.com/install.sh | bash -s -- --version 0.27.0
+  curl -fsSL https://pythinker.com/install.sh | bash -s -- --version 0.6.0
 
   # Custom install prefix (default $HOME/.local):
   curl -fsSL https://pythinker.com/install.sh | bash -s -- --prefix /opt/pythinker
 
-Supported targets (target triples — matches existing release artifacts):
-  x86_64-unknown-linux-gnu       (Linux x86_64)
-  aarch64-unknown-linux-gnu      (Linux ARM64)
-  aarch64-apple-darwin           (macOS Apple Silicon)
-  x86_64-apple-darwin            (macOS Intel)
+Supported targets (matches release artifact names pythinker-code-<target>.zip):
+  linux-x64        (Linux x86_64)
+  linux-arm64      (Linux ARM64)
+  darwin-arm64     (macOS Apple Silicon)
+  darwin-x64       (macOS Intel)
 
-Windows users: download PythinkerSetup-x.y.z.exe from the Releases page.
+Windows users: irm https://pythinker.com/install.ps1 | iex
 EOF
 }
 
@@ -70,17 +72,20 @@ while [[ $# -gt 0 ]]; do
 done
 
 REPO="Pythoughts-labs/pythinker-code"
+# CDN source of truth for the latest published version — same endpoint the
+# in-app updater reads, so a fresh install and an auto-update always agree.
+CDN_LATEST_URL="https://code.pythinker.com/pythinker-code/latest"
 
 if [ -t 1 ] && [ -z "$NO_COLOR" ] && [ "${TERM:-}" != "dumb" ]; then
   NAVY=$'\033[38;5;24m'; FACE=$'\033[38;5;255m'
   ACCENT=$'\033[38;5;147m'; TIP=$'\033[38;5;216m'
   EYE=$'\033[38;5;189m'; BAR=$'\033[38;5;250m'; DIM=$'\033[2m'
   BOLD=$'\033[1m'; RESET=$'\033[0m'
-  # Shimmer / pulse tones for the "piece landed" + "leading edge" beats.
-  SHINE=$'\033[38;5;231m'; SOFT=$'\033[38;5;111m'
+  # Shimmer tone for the "piece landed" + "leading edge" beats.
+  SHINE=$'\033[38;5;231m'
 else
   NAVY=""; FACE=""; ACCENT=""; TIP=""; EYE=""; BAR=""; DIM=""; BOLD=""; RESET=""
-  SHINE=""; SOFT=""
+  SHINE=""
 fi
 
 _anim=""
@@ -269,7 +274,7 @@ print_intro() {
   fi
   printf '  %-11s %s\n' "Version" "$VERSION"
   printf '  %-11s %s\n' "Platform" "$platform_display"
-  printf '  %-11s %s\n' "Package" "$tarball"
+  printf '  %-11s %s\n' "Package" "$archive"
   # Reserve the progress row one line below the metadata. The cursor
   # is now on that row; save it so the "Waiting" retry and the
   # download progress bar can absolute-position to it without
@@ -432,14 +437,14 @@ print_logo_animated() {
     _render "$target_r" "$target_c" "0,0,─,$EYE"
     sleep 0.05
     # Commit the closed eye and hold one beat so the blink registers.
-    _set_cell $target_r $target_c "─" "$EYE"
+    _set_cell "$target_r" "$target_c" "─" "$EYE"
     _render "" ""
     sleep 0.04
     # Frame 3: open with a shine flash, then settle to the final color.
-    _set_cell $target_r $target_c "$eye_ch" "$SHINE"
+    _set_cell "$target_r" "$target_c" "$eye_ch" "$SHINE"
     _render "" ""
     sleep 0.06
-    _set_cell $target_r $target_c "$eye_ch" "$EYE"
+    _set_cell "$target_r" "$target_c" "$eye_ch" "$EYE"
     _render "" ""
   }
 
@@ -453,13 +458,13 @@ print_logo_animated() {
       _render "$r" "$target_c" "${cells[@]}"
       sleep "$FRAME_DELAY"
     done
-    _set_cell $target_r $target_c "●" "$TIP"
+    _set_cell "$target_r" "$target_c" "●" "$TIP"
     _render "$target_r" "$target_c" "0,0,●,$SHINE"
     sleep 0.07
-    _set_cell $target_r $target_c "●" "$SHINE"
+    _set_cell "$target_r" "$target_c" "●" "$SHINE"
     _render "" ""
     sleep 0.05
-    _set_cell $target_r $target_c "●" "$TIP"
+    _set_cell "$target_r" "$target_c" "●" "$TIP"
     _render "" ""
   }
 
@@ -571,44 +576,55 @@ os="$(uname -s)"
 arch="$(uname -m)"
 case "$os/$arch" in
   Linux/x86_64|Linux/amd64)
-    target="x86_64-unknown-linux-gnu"
+    target="linux-x64"
     platform_display="Linux x64" ;;
   Linux/aarch64|Linux/arm64)
-    target="aarch64-unknown-linux-gnu"
+    target="linux-arm64"
     platform_display="Linux arm64" ;;
   Darwin/arm64)
-    target="aarch64-apple-darwin"
+    target="darwin-arm64"
     platform_display="macOS arm64" ;;
   Darwin/x86_64)
-    target="x86_64-apple-darwin"
+    target="darwin-x64"
     platform_display="macOS x64" ;;
   MINGW*/*|MSYS*/*|CYGWIN*/*)
-    fail "On Windows, download PythinkerSetup-x.y.z.exe from:
-https://github.com/${REPO}/releases/latest
-
-PowerShell installer:
+    fail "On Windows, use the PowerShell installer:
 powershell -c \"irm https://pythinker.com/install.ps1 | iex\"" ;;
   *)
     fail "unsupported target: $os/$arch" ;;
 esac
 
 # --- resolve version -----------------------------------------------------
-if [ -z "$VERSION" ]; then
-  api="https://api.github.com/repos/${REPO}/releases/latest"
+_fetch() {
   if command -v curl >/dev/null 2>&1; then
-    payload="$(curl -fsSL "$api")"
+    curl -fsSL "$1"
   elif command -v wget >/dev/null 2>&1; then
-    payload="$(wget -qO- "$api")"
+    wget -qO- "$1"
   else
-    fail "need curl or wget to fetch the release index"
+    return 127
   fi
-  VERSION="$(printf '%s' "$payload" | sed -nE 's/.*"tag_name": *"v([0-9]+\.[0-9]+\.[0-9]+)".*/\1/p' | head -n 1)"
-  [ -z "$VERSION" ] && fail "could not parse latest release tag from $api"
+}
+
+if [ -z "$VERSION" ]; then
+  command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1 \
+    || fail "need curl or wget to fetch the release index"
+  # The CDN is the source of truth (same endpoint the in-app updater reads).
+  # Fall back to the GitHub API if the CDN is unreachable.
+  VERSION="$(_fetch "$CDN_LATEST_URL" 2>/dev/null | tr -d '[:space:]' || true)"
+  if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+    api="https://api.github.com/repos/${REPO}/releases/latest"
+    payload="$(_fetch "$api")" || fail "could not reach $CDN_LATEST_URL or $api"
+    VERSION="$(printf '%s' "$payload" | sed -nE 's/.*"tag_name": *"@pythoughts\/pythinker-code@([0-9]+\.[0-9]+\.[0-9]+)".*/\1/p' | head -n 1)"
+    [ -z "$VERSION" ] && fail "could not parse latest release tag from $api"
+  fi
 fi
 
-tarball="pythinker-${VERSION}-${target}.tar.gz"
-tarball_url="https://github.com/${REPO}/releases/download/v${VERSION}/${tarball}"
-sha_url="${tarball_url}.sha256"
+# Releases are tagged "@pythoughts/pythinker-code@X.Y.Z"; the "@" and "/"
+# must be percent-encoded in download and API URLs.
+tag_encoded="%40pythoughts%2Fpythinker-code%40${VERSION}"
+archive="pythinker-code-${target}.zip"
+archive_url="https://github.com/${REPO}/releases/download/${tag_encoded}/${archive}"
+sha_url="${archive_url}.sha256"
 
 print_intro
 
@@ -619,14 +635,10 @@ print_intro
 # checksum are attached (via the GitHub API, like the in-app updater) before
 # downloading, so a release caught mid-publish does not 404.
 release_has_assets() {
-  _api="https://api.github.com/repos/${REPO}/releases/tags/v${VERSION}"
-  if command -v curl >/dev/null 2>&1; then
-    _body="$(curl -fsSL "$_api" 2>/dev/null)" || return 1
-  else
-    _body="$(wget -qO- "$_api" 2>/dev/null)" || return 1
-  fi
-  printf '%s' "$_body" | grep -Fq "\"${tarball}\"" \
-    && printf '%s' "$_body" | grep -Fq "\"${tarball}.sha256\""
+  _api="https://api.github.com/repos/${REPO}/releases/tags/${tag_encoded}"
+  _body="$(_fetch "$_api" 2>/dev/null)" || return 1
+  printf '%s' "$_body" | grep -Fq "\"${archive}\"" \
+    && printf '%s' "$_body" | grep -Fq "\"${archive}.sha256\""
 }
 # Exponential backoff: the GitHub Release can briefly advertise a version
 # whose assets are still uploading. Wait 4,8,16,...,120s (capped), ~6m total,
@@ -638,7 +650,7 @@ max_elapsed=360
 until release_has_assets; do
   attempt=$((attempt + 1))
   if [ "$elapsed" -ge "$max_elapsed" ]; then
-    fail "release assets for v${VERSION} are not available after ~${max_elapsed}s: ${tarball_url}
+    fail "release assets for ${VERSION} are not available after ~${max_elapsed}s: ${archive_url}
 The latest release may still be publishing. Try again shortly, or pin a known-good version with --version X.Y.Z"
   fi
   if [ -n "$_anim" ]; then
@@ -657,14 +669,14 @@ done
 tmpdir="$(mktemp -d -t pythinker-install.XXXXXX)"
 # Layer: keep the cursor-show on every exit path, then clean up tmpdir.
 trap 'printf "\033[?25h" 2>/dev/null || true; rm -rf "$tmpdir"' EXIT
-_download_with_progress "$tarball_url" "$tmpdir/$tarball" || fail "download failed: $tarball_url"
-_download_quiet "$sha_url" "$tmpdir/$tarball.sha256" || fail "sha256 missing: $sha_url"
+_download_with_progress "$archive_url" "$tmpdir/$archive" || fail "download failed: $archive_url"
+_download_quiet "$sha_url" "$tmpdir/$archive.sha256" || fail "sha256 missing: $sha_url"
 
-expected="$(awk '{print $1}' "$tmpdir/$tarball.sha256")"
+expected="$(awk '{print $1}' "$tmpdir/$archive.sha256")"
 if command -v sha256sum >/dev/null 2>&1; then
-  actual="$(sha256sum "$tmpdir/$tarball" | awk '{print $1}')"
+  actual="$(sha256sum "$tmpdir/$archive" | awk '{print $1}')"
 elif command -v shasum >/dev/null 2>&1; then
-  actual="$(shasum -a 256 "$tmpdir/$tarball" | awk '{print $1}')"
+  actual="$(shasum -a 256 "$tmpdir/$archive" | awk '{print $1}')"
 else
   fail "need sha256sum or shasum to verify the download"
 fi
@@ -674,12 +686,17 @@ phase_ok "Verifying"
 # --- install -----------------------------------------------------------
 bin_dir="$INSTALL_PREFIX/bin"
 mkdir -p "$bin_dir"
-# The existing release tarball contains a single `pythinker` file at the
-# tarball root (PyInstaller --onefile output).
-tar -C "$tmpdir" -xzf "$tmpdir/$tarball"
-[ -x "$tmpdir/pythinker" ] || fail "tarball did not contain an executable named 'pythinker'"
+# The release zip contains a single `pythinker` executable at its root.
+if command -v unzip >/dev/null 2>&1; then
+  unzip -oq "$tmpdir/$archive" -d "$tmpdir"
+elif tar -tf "$tmpdir/$archive" >/dev/null 2>&1; then
+  # bsdtar (macOS default) reads zip archives; GNU tar does not.
+  tar -C "$tmpdir" -xf "$tmpdir/$archive"
+else
+  fail "need unzip (or bsdtar) to extract $archive"
+fi
+[ -e "$tmpdir/pythinker" ] || fail "archive did not contain an executable named 'pythinker'"
 install -m 0755 "$tmpdir/pythinker" "$bin_dir/pythinker"
-printf 'pythinker-native-build\n' > "$bin_dir/.pythinker-native"
 phase_ok "Installing"
 
 # --- PATH guidance --------------------------------------------------------

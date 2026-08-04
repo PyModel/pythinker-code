@@ -19,10 +19,12 @@
 <style scoped>
 .agent-loop {
   width: 100%;
+  padding-inline: 12px;
 }
 
 svg {
   display: block;
+  overflow: visible;
 }
 
 rect {
