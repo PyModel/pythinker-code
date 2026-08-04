@@ -11,7 +11,11 @@ import {
 } from '#/cli/update/install-state';
 import { readUpdateCache, writeUpdateCache } from '#/cli/update/cache';
 import { emptyUpdateCache, type UpdateInstallState } from '#/cli/update/types';
-import { getUpdateInstallStateFile, getUpdateStateFile } from '#/utils/paths';
+import {
+  getUpdateInstallLogFile,
+  getUpdateInstallStateFile,
+  getUpdateStateFile,
+} from '#/utils/paths';
 
 const originalEnv = { ...process.env };
 
@@ -147,6 +151,7 @@ describe('update install state', () => {
         source: 'npm-global',
         startedAt: '2026-04-23T08:00:00.000Z',
       },
+      pending: null,
       lastFailure: null,
       lastSuccess: null,
     };
@@ -164,6 +169,18 @@ describe('update install state', () => {
         startedAt: '2026-04-23T08:00:00.000Z',
         pid: 42_424,
       },
+      pending: {
+        jobId: '7e717f78-70c6-4f7c-9745-ceb45822d24b',
+        source: 'homebrew',
+        version: '0.5.0',
+        preparedAt: '2026-04-23T08:05:00.000Z',
+        requestedBy: 'automatic',
+        formulaUrl: 'https://registry.example.com/pythinker-code-0.5.0.tgz',
+        artifactKind: 'source',
+        artifactSha256: 'a'.repeat(64),
+        formulaFileSha256: 'b'.repeat(64),
+        artifactPath: '/tmp/cache/pythinker-code-0.5.0.tgz',
+      },
       lastFailure: {
         version: '0.4.0',
         failedAt: '2026-04-22T08:00:00.000Z',
@@ -179,6 +196,7 @@ describe('update install state', () => {
     await writeUpdateInstallState(state);
 
     expect(getUpdateInstallStateFile()).toBe(join(dir, 'updates', 'install.json'));
+    expect(getUpdateInstallLogFile()).toBe(join(dir, 'updates', 'install.log'));
     const persisted = JSON.parse(readFileSync(getUpdateInstallStateFile(), 'utf-8')) as {
       readonly active: { readonly pid?: number } | null;
     };

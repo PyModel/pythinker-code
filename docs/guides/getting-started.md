@@ -61,7 +61,7 @@ After installation, verify that the executable is ready:
 pythinker --version
 ```
 
-**Upgrade**: run `pythinker upgrade` — the CLI checks for the latest version and presents update options. Choose `Install update now` to upgrade based on your current install source. You can also upgrade directly via the package manager:
+**Upgrade**: automatic updates are enabled by default. npm, pnpm, yarn, bun, and supported native installations update in the background. Homebrew installations download and verify the formula source in the background, then install it on the next interactive launch and restart into the new version. Run `pythinker upgrade` to check immediately and present the update command for your installation method. You can also upgrade directly via the package manager:
 
 ```sh
 npm install -g @pythoughts/pythinker-code@latest

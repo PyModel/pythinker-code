@@ -51,6 +51,7 @@ $PYTHINKER_CODE_HOME  (default: ~/.pythinker-code)
 │   ├── latest.json
 │   ├── install.json
 │   ├── install.lock
+│   ├── install.log
 │   └── rollout.log
 └── user-history/
     └── <md5(workDir)>.jsonl
@@ -94,7 +95,7 @@ The first time the `Grep` tool needs ripgrep, the CLI can automatically download
 
 When reporting a bug, prefer exporting the relevant session with `pythinker export` (see [pythinker command](../reference/pythinker-command.md)); the session log is included in the export by default. Add `--no-include-global-log` if you do not want to share the global log.
 
-The files under `updates/` (`latest.json`, `install.json`, `install.lock`, `rollout.log`) are maintained automatically by the auto-update mechanism and normally do not need manual editing. `rollout.log` records which staged-rollout case each update check hit, which helps explain when a device will receive a new release.
+The files under `updates/` are maintained automatically and normally do not need manual editing. `install.json` records active, prepared, failed, and completed update state; `install.lock` serializes concurrent launches; and `install.log` preserves package-manager output. `rollout.log` records which release-rollout case each update check hit, which helps explain when a device will receive a new release.
 
 ## Input history
 
@@ -111,7 +112,7 @@ Deleting the data root directory (`~/.pythinker-code/` or the path set by `PYTHI
 | Clear all sessions | Delete `~/.pythinker-code/sessions/` and `session_index.jsonl` |
 | Clear diagnostic logs | Delete `~/.pythinker-code/logs/` |
 | Clear input history | Delete `~/.pythinker-code/user-history/` |
-| Reset update state | Delete `~/.pythinker-code/updates/latest.json` |
+| Reset update state | Delete `~/.pythinker-code/updates/latest.json`, `install.json`, and `install.lock` when no update process is running |
 | Force re-download of managed `rg` and `fd` | Delete `~/.pythinker-code/bin/` |
 | Clear provider OAuth login state | Run `/logout`, or delete the corresponding `credentials/<name>.json` |
 | Clear MCP server OAuth login state | Delete `credentials/mcp/` (`/logout` does not clear MCP credentials) |

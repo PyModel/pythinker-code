@@ -1,4 +1,8 @@
 import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import { homedir } from 'node:os';
+
+import { gte, valid } from 'semver';
 
 import { log, type Logger } from '@pythoughts/pythinker-code-sdk';
 import type { TelemetryProperties } from '@pythoughts/pythinker-telemetry';
@@ -38,6 +42,7 @@ import {
   type UpdateCache,
   type UpdateManifest,
   type UpdatePreflightResult,
+  type UpdateRequestOrigin,
   type UpdateTarget,
 } from './types';
 
@@ -55,6 +60,7 @@ const AUTO_INSTALL_FAILURE_PROMPT_THRESHOLD = 2;
 const AUTO_INSTALL_ACTIVE_TTL_MS = 6 * 60 * 60 * 1000;
 const AUTO_INSTALL_ACTIVE_CLOCK_SKEW_MS = 5 * 60 * 1000;
 const USER_VISIBLE_UPDATE_REFRESH_TIMEOUT_MS = 1_000;
+const UPDATE_HELPER_ENV = 'PYTHINKER_CODE_UPDATE_HELPER';
 
 type UpdateLogger = Pick<Logger, 'info' | 'warn'>;
 
@@ -89,6 +95,8 @@ export function installCommandFor(
   }
 }
 
+export type AutomaticUpdateMode = 'background-install' | 'restart-install' | 'manual';
+
 export function canAutoInstall(source: InstallSource, platform: NodeJS.Platform): boolean {
   switch (source) {
     case 'npm-global':
@@ -97,14 +105,22 @@ export function canAutoInstall(source: InstallSource, platform: NodeJS.Platform)
     case 'bun-global':
       return true;
     case 'homebrew':
-      // Homebrew upgrade may mutate other dependents and the formula can lag
-      // behind the CDN release — prompt the user to run `brew upgrade` manually.
+      // Foreground installUpdate() never owns Homebrew. Passive and explicit
+      // TUI updates use the separate prepare-on-restart lifecycle instead.
       return false;
     case 'native':
       return platform !== 'win32';
     case 'unsupported':
       return false;
   }
+}
+
+export function automaticUpdateModeFor(
+  source: InstallSource,
+  platform: NodeJS.Platform,
+): AutomaticUpdateMode {
+  if (source === 'homebrew') return 'restart-install';
+  return canAutoInstall(source, platform) ? 'background-install' : 'manual';
 }
 
 interface SpawnCommand {
@@ -170,8 +186,7 @@ export function renderManualUpdateMessage(
   }
   const homebrewHint =
     source === 'homebrew'
-      ? `Homebrew installs do not auto-update. For automatic background updates, ` +
-        `switch to the native installer: ${NATIVE_INSTALL_COMMAND_UNIX}\n`
+      ? 'Automatic Homebrew preparation is disabled or could not complete.\n'
       : '';
   return (
     `A newer version of ${NPM_PACKAGE_NAME} is available ` +
@@ -537,6 +552,124 @@ export async function installUpdate(
   });
 }
 
+async function waitForChildSpawn(child: ReturnType<typeof spawn>): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const onSpawn = (): void => {
+      child.off('error', onError);
+      child.on('error', () => {});
+      resolve();
+    };
+    const onError = (error: Error): void => {
+      child.off('spawn', onSpawn);
+      reject(error);
+    };
+    child.once('spawn', onSpawn);
+    child.once('error', onError);
+  });
+}
+
+function updateHelperCommand(
+  operation: string,
+  jobId: string,
+  version: string,
+  requestedBy: UpdateRequestOrigin,
+): SpawnCommand {
+  const launcherPath = process.argv[1];
+  if (launcherPath === undefined) throw new Error('cannot locate the Pythinker Code launcher');
+  return {
+    cmd: process.execPath,
+    args: [launcherPath, '__update_helper', operation, jobId, version, requestedBy],
+  };
+}
+
+function preparedVersionCoversTarget(preparedVersion: string, targetVersion: string): boolean {
+  return valid(preparedVersion) !== null && valid(targetVersion) !== null && gte(preparedVersion, targetVersion);
+}
+
+async function startBackgroundHomebrewPreparation(
+  state: UpdateInstallState,
+  currentVersion: string,
+  target: UpdateTarget,
+  requestedBy: UpdateRequestOrigin,
+  track: RunUpdatePreflightOptions['track'],
+  logger: UpdateLogger,
+  rolloutTelemetry: RolloutTelemetry,
+): Promise<void> {
+  const lock = await tryAcquireUpdateInstallLock({ version: target.version });
+  if (lock === null) return;
+
+  try {
+    const freshState = await readUpdateInstallState().catch(() => state);
+    if (
+      hasFreshActiveInstall(freshState) ||
+      (freshState.pending !== null && preparedVersionCoversTarget(freshState.pending.version, target.version)) ||
+      failureAttemptsFor(freshState, target) >= AUTO_INSTALL_FAILURE_PROMPT_THRESHOLD
+    ) {
+      return;
+    }
+
+    const jobId = randomUUID();
+    const startedState: UpdateInstallState = {
+      ...freshState,
+      active: {
+        version: target.version,
+        source: 'homebrew',
+        operation: 'prepare',
+        jobId,
+        startedAt: nowIso(),
+      },
+      pending: null,
+    };
+    await writeUpdateInstallState(startedState);
+
+    const { cmd, args } = updateHelperCommand(
+      'prepare-homebrew',
+      jobId,
+      target.version,
+      requestedBy,
+    );
+    const child = spawn(cmd, [...args], {
+      cwd: homedir(),
+      detached: true,
+      env: { ...process.env, [UPDATE_HELPER_ENV]: '1' },
+      stdio: 'ignore',
+    });
+    try {
+      await waitForChildSpawn(child);
+    } catch (error) {
+      const attempts = failureAttemptsFor(startedState, target) + 1;
+      await writeUpdateInstallState({
+        ...startedState,
+        active: null,
+        lastFailure: {
+          version: target.version,
+          failedAt: nowIso(),
+          attempts,
+          operation: 'prepare',
+          message: formatErrorMessage(error),
+        },
+      }).catch(() => {});
+      throw error;
+    }
+    child.unref();
+
+    trackUpdateEvent(track, 'update_background_prepare_started', {
+      current_version: currentVersion,
+      target_version: target.version,
+      source: 'homebrew',
+      ...rolloutTelemetry,
+    });
+    logUpdateInfo(logger, 'background update preparation started', {
+      currentVersion,
+      targetVersion: target.version,
+      source: 'homebrew',
+      jobId,
+    });
+  } finally {
+    await lock.release().catch(() => {});
+  }
+}
+
 async function startBackgroundInstall(
   state: UpdateInstallState,
   currentVersion: string,
@@ -689,13 +822,40 @@ async function tryStartAutomaticBackgroundInstall(
   logger: UpdateLogger,
   rolloutTelemetry: RolloutTelemetry,
 ): Promise<boolean> {
-  const sourceCanAutoInstall = canAutoInstall(source, platform);
-  const autoInstallUpdates = sourceCanAutoInstall ? await shouldAutoInstallUpdates() : false;
-  if (!autoInstallUpdates || !sourceCanAutoInstall) return false;
+  const autoInstallUpdates = await shouldAutoInstallUpdates();
+  if (!autoInstallUpdates) return false;
   if (failureAttemptsFor(installState, target) >= AUTO_INSTALL_FAILURE_PROMPT_THRESHOLD) {
     return false;
   }
   if (hasFreshActiveInstall(installState)) return true;
+
+  if (source === 'homebrew') {
+    if (
+      installState.pending !== null &&
+      preparedVersionCoversTarget(installState.pending.version, target.version)
+    ) return true;
+    try {
+      await startBackgroundHomebrewPreparation(
+        installState,
+        currentVersion,
+        target,
+        'automatic',
+        track,
+        logger,
+        rolloutTelemetry,
+      );
+      return true;
+    } catch (error) {
+      logUpdateWarn(logger, 'background update preparation could not start', {
+        targetVersion: target.version,
+        source,
+        error: formatErrorMessage(error),
+      });
+      return false;
+    }
+  }
+
+  if (!canAutoInstall(source, platform)) return false;
   try {
     await startBackgroundInstall(
       installState,
@@ -721,8 +881,8 @@ async function tryStartAutomaticBackgroundInstall(
 export type ManualUpdateResult =
   | { readonly status: 'up-to-date' }
   | { readonly status: 'check-failed'; readonly message: string }
-  | { readonly status: 'started'; readonly version: string }
-  | { readonly status: 'in-progress'; readonly version: string }
+  | { readonly status: 'started'; readonly version: string; readonly installOnRestart: boolean }
+  | { readonly status: 'in-progress'; readonly version: string; readonly installOnRestart: boolean }
   | {
     readonly status: 'manual';
     readonly version: string;
@@ -733,8 +893,8 @@ export type ManualUpdateResult =
 /**
  * Explicit user-requested update (TUI `/update`). Unlike the passive
  * preflight it ignores the rollout delay and the `auto_install` preference —
- * the user asked, so we install — but still reuses the background installer,
- * its lock, and its failure bookkeeping. The env kill-switch is also ignored:
+ * the user asked, so we install or prepare the Homebrew update — while reusing
+ * the background lifecycle, lock, and failure bookkeeping. The env kill-switch is also ignored:
  * it gates automatic behavior, not explicit requests (matching `pythinker upgrade`).
  */
 export async function startManualUpdate(
@@ -752,24 +912,27 @@ export async function startManualUpdate(
 
   const platform = process.platform;
   const source = await detectInstallSource().catch(() => 'unsupported' as const);
-  if (!canAutoInstall(source, platform)) {
-    return {
-      status: 'manual',
-      version: target.version,
-      command: installCommandFor(source, target.version, platform),
-      source,
-    };
-  }
-
   const installState = await readUpdateInstallState().catch(() => emptyUpdateInstallState());
   if (hasFreshActiveInstall(installState)) {
     return {
       status: 'in-progress',
       version: installState.active?.version ?? target.version,
+      installOnRestart: installState.active?.source === 'homebrew',
+    };
+  }
+  if (
+    source === 'homebrew' &&
+    installState.pending !== null &&
+    preparedVersionCoversTarget(installState.pending.version, target.version)
+  ) {
+    return {
+      status: 'in-progress',
+      version: installState.pending.version,
+      installOnRestart: true,
     };
   }
   // Repeated background failures fall back to the copyable command instead of
-  // claiming "started" for an install startBackgroundInstall would refuse.
+  // claiming "started" for work the background lifecycle would refuse.
   if (failureAttemptsFor(installState, target) >= AUTO_INSTALL_FAILURE_PROMPT_THRESHOLD) {
     return {
       status: 'manual',
@@ -780,6 +943,32 @@ export async function startManualUpdate(
   }
 
   try {
+    const rolloutTelemetry = rolloutTelemetryFor(
+      resolveUpdateDeviceId(),
+      target.version,
+      cache.manifest,
+      true,
+    );
+    if (source === 'homebrew') {
+      await startBackgroundHomebrewPreparation(
+        installState,
+        currentVersion,
+        target,
+        'manual',
+        undefined,
+        logger,
+        rolloutTelemetry,
+      );
+      return { status: 'started', version: target.version, installOnRestart: true };
+    }
+    if (!canAutoInstall(source, platform)) {
+      return {
+        status: 'manual',
+        version: target.version,
+        command: installCommandFor(source, target.version, platform),
+        source,
+      };
+    }
     await startBackgroundInstall(
       installState,
       currentVersion,
@@ -788,9 +977,9 @@ export async function startManualUpdate(
       platform,
       undefined,
       logger,
-      rolloutTelemetryFor(resolveUpdateDeviceId(), target.version, cache.manifest, true),
+      rolloutTelemetry,
     );
-    return { status: 'started', version: target.version };
+    return { status: 'started', version: target.version, installOnRestart: false };
   } catch (error) {
     return { status: 'check-failed', message: formatErrorMessage(error) };
   }

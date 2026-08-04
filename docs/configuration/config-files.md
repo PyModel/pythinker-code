@@ -259,7 +259,7 @@ Alongside `config.toml`, the CLI keeps terminal-UI and client preferences, inclu
 | `[editor].command` | `string` | `""` | External editor command for composing long input; empty falls back to `$VISUAL` / `$EDITOR` |
 | `[notifications].enabled` | `boolean` | `true` | Whether desktop notifications are sent |
 | `[notifications].notification_condition` | `string` | `unfocused` | When to notify: `unfocused` (only when the terminal is not focused) or `always` |
-| `[upgrade].auto_install` | `boolean` | `true` | Whether new versions are installed automatically |
+| `[upgrade].auto_install` | `boolean` | `true` | Whether new versions update automatically. Homebrew downloads and verifies in the background, then installs on the next interactive launch. An explicit `/update` request still completes when this is `false` |
 | `[status_line].show_model` | `boolean` | `true` | Show the model name and session spend |
 | `[status_line].show_effort` | `boolean` | `true` | Show Thinking effort when `show_model` is also `true` |
 | `[status_line].show_token_speed` | `boolean` | `true` | Show live token speed when `show_model` is also `true` |

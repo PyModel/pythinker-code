@@ -10,7 +10,7 @@ import type {
 
 import { handleDoctor } from '#/cli/sub/doctor';
 import { startManualUpdate } from '#/cli/update/preflight';
-import { NATIVE_INSTALL_COMMAND_UNIX, PYTHINKER_CODE_CHANGELOG_URL } from '#/constant/app';
+import { PYTHINKER_CODE_CHANGELOG_URL } from '#/constant/app';
 import { openUrl } from '#/utils/open-url';
 import { buildMcpStatusReportLines } from '../components/messages/mcp-status-panel';
 import { buildStatusReportLines } from '../components/messages/status-panel';
@@ -313,22 +313,23 @@ export async function handleUpdateCommand(
     case 'started':
       host.showNotice(
         `Updating to v${result.version}`,
-        'Installing in the background — restart the CLI when it completes.',
+        result.installOnRestart
+          ? 'Preparing with Homebrew in the background. Once ready, restart the CLI to install it.'
+          : 'Installing in the background — restart the CLI when it completes.',
       );
       return;
     case 'in-progress':
       host.showNotice(
         `Update to v${result.version} already in progress`,
-        'Restart the CLI once it completes.',
+        result.installOnRestart
+          ? 'Once preparation finishes, restart the CLI to install it.'
+          : 'Restart the CLI once it completes.',
       );
       return;
     case 'manual':
       host.showNotice(
         `Update available — v${result.version}`,
-        result.source === 'homebrew'
-          ? `Homebrew installs do not auto-update. Run: ${result.command}\n` +
-            `For automatic background updates, switch to the native installer: ${NATIVE_INSTALL_COMMAND_UNIX}`
-          : `Run: ${result.command}`,
+        `Run: ${result.command}`,
       );
       return;
     case 'check-failed':

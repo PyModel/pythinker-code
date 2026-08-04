@@ -32,7 +32,13 @@ import { formatStartupError } from './cli/startup-error';
 import { runPluginNodeEntry } from './cli/sub/plugin-run-node';
 import { handleUpgrade } from './cli/sub/upgrade';
 import { createCliTelemetryBootstrap, initializeCliTelemetry } from './cli/telemetry';
-import { runUpdatePreflight } from './cli/update/preflight';
+import { activatePendingUpdate } from './cli/update/activation';
+import {
+  isAutoUpdateDisabledByEnv,
+  runUpdatePreflight,
+  shouldAutoInstallUpdates,
+} from './cli/update/preflight';
+import { dispatchUpdateHelperIfRequested } from './cli/update/update-helper';
 import { createPythinkerCodeHostIdentity, getVersion } from './cli/version';
 import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_UI_MODE, PROCESS_NAME } from './constant/app';
 import { cleanupStaleNativeCacheForCurrent } from './native/native-assets';
@@ -49,6 +55,36 @@ export async function handleMainCommand(opts: CLIOptions, version: string): Prom
       process.exit(1);
     }
     throw error;
+  }
+
+  const interactiveShell =
+    validated.uiMode === 'shell' &&
+    validated.options.initOnly !== true &&
+    process.stdin.isTTY &&
+    process.stdout.isTTY;
+  const activation = await activatePendingUpdate(version, {
+    enabled: interactiveShell,
+    automaticEnabled:
+      interactiveShell &&
+      !isAutoUpdateDisabledByEnv() &&
+      await shouldAutoInstallUpdates(),
+  }).catch(async (error: unknown) => {
+    await writeAndDrain(
+      process.stderr,
+      `warning: unable to process a pending Pythinker Code update: ${
+        error instanceof Error ? error.message : String(error)
+      }\n`,
+    ).catch(() => {});
+    return { status: 'none' as const };
+  });
+  if (activation.status === 'failed') {
+    await writeAndDrain(
+      process.stderr,
+      `warning: failed to activate Pythinker Code ${activation.version}: ${activation.message}\n`,
+    );
+  } else if (activation.status === 'activated') {
+    await Promise.all([drainWritable(process.stdout), drainWritable(process.stderr)]);
+    relaunchUpdatedCli(activation.executable);
   }
 
   const preflightResult = await runUpdatePreflight(
@@ -135,6 +171,7 @@ export function main(): void {
   // invalid proxy URL is reported and ignored rather than aborting startup.
   installGlobalProxyDispatcher();
   installNativeModuleHook();
+  if (dispatchUpdateHelperIfRequested()) return;
   if (runNativeAssetSmokeIfRequested()) return;
 
   // Start the background cleanup of stale native cache. Fire-and-forget; must not block startup or throw.
@@ -217,6 +254,18 @@ if (process.env['PYTHINKER_CODE_OPENTUI_SMOKE'] === '1') {
     });
 } else {
   main();
+}
+
+function relaunchUpdatedCli(executable: string): never {
+  if (process.execve === undefined) {
+    throw new Error('process.execve is unavailable for update relaunch');
+  }
+  process.execve(
+    executable,
+    [executable, ...process.argv.slice(2)],
+    process.env,
+  );
+  throw new Error('update relaunch returned unexpectedly');
 }
 
 async function logStartupFailure(operation: string, error: unknown): Promise<void> {

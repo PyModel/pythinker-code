@@ -7,7 +7,9 @@ import type * as OptionsModule from '#/cli/options';
 import { runPrompt } from '#/cli/run-prompt';
 import { runShell } from '#/cli/run-shell';
 import { formatStartupError } from '#/cli/startup-error';
+import { activatePendingUpdate } from '#/cli/update/activation';
 import { runUpdatePreflight } from '#/cli/update/preflight';
+import { dispatchUpdateHelperIfRequested } from '#/cli/update/update-helper';
 import { handleMainCommand, handleUpgradeCommand, main } from '#/main';
 
 const mocks = vi.hoisted(() => {
@@ -18,6 +20,10 @@ const mocks = vi.hoisted(() => {
     getVersion: vi.fn(() => '0.0.1-alpha.2'),
     validateOptions: vi.fn(),
     runUpdatePreflight: vi.fn(),
+    activatePendingUpdate: vi.fn(),
+    isAutoUpdateDisabledByEnv: vi.fn(),
+    shouldAutoInstallUpdates: vi.fn(),
+    dispatchUpdateHelperIfRequested: vi.fn(),
     runShell: vi.fn(),
     runPrompt: vi.fn(),
     installCrashHandlers: vi.fn(),
@@ -117,6 +123,16 @@ vi.mock('../../src/cli/options', async () => {
 
 vi.mock('../../src/cli/update/preflight', () => ({
   runUpdatePreflight: mocks.runUpdatePreflight,
+  isAutoUpdateDisabledByEnv: mocks.isAutoUpdateDisabledByEnv,
+  shouldAutoInstallUpdates: mocks.shouldAutoInstallUpdates,
+}));
+
+vi.mock('../../src/cli/update/activation', () => ({
+  activatePendingUpdate: mocks.activatePendingUpdate,
+}));
+
+vi.mock('../../src/cli/update/update-helper', () => ({
+  dispatchUpdateHelperIfRequested: mocks.dispatchUpdateHelperIfRequested,
 }));
 
 vi.mock('../../src/cli/run-shell', () => ({
@@ -197,6 +213,10 @@ describe('main entry command handling', () => {
     mocks.harness.close.mockResolvedValue(undefined);
     mocks.shutdownTelemetry.mockResolvedValue(undefined);
     mocks.handleUpgrade.mockResolvedValue(0);
+    mocks.activatePendingUpdate.mockResolvedValue({ status: 'none' });
+    mocks.isAutoUpdateDisabledByEnv.mockReturnValue(false);
+    mocks.shouldAutoInstallUpdates.mockResolvedValue(true);
+    mocks.dispatchUpdateHelperIfRequested.mockReturnValue(false);
   });
 
   it('flushes a parsed option conflict before exiting', async () => {
@@ -251,6 +271,79 @@ describe('main entry command handling', () => {
       mocks.runShell.mock.invocationCallOrder[0]!,
     );
     expect(runShell).toHaveBeenCalledWith(opts, '0.0.1-alpha.2');
+  });
+
+  it('activates a prepared update and re-execs the new Homebrew launcher before preflight', async () => {
+    const opts = defaultOpts();
+    mocks.validateOptions.mockReturnValue({ options: opts, uiMode: 'shell' });
+    mocks.activatePendingUpdate.mockResolvedValue({
+      status: 'activated',
+      version: '0.5.0',
+      executable: '/opt/homebrew/opt/pythinker-code/bin/pythinker',
+    });
+    const stdinDescriptor = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+    const stdoutDescriptor = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
+    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: true });
+    Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: true });
+    const execve = vi.spyOn(process, 'execve').mockImplementation(() => {
+      throw new Error('re-exec');
+    });
+
+    try {
+      await expect(handleMainCommand(opts, '0.4.0')).rejects.toThrow('re-exec');
+      expect(activatePendingUpdate).toHaveBeenCalledWith('0.4.0', {
+        enabled: true,
+        automaticEnabled: true,
+      });
+      expect(execve).toHaveBeenCalledWith(
+        '/opt/homebrew/opt/pythinker-code/bin/pythinker',
+        ['/opt/homebrew/opt/pythinker-code/bin/pythinker', ...process.argv.slice(2)],
+        process.env,
+      );
+      expect(runUpdatePreflight).not.toHaveBeenCalled();
+      expect(runShell).not.toHaveBeenCalled();
+    } finally {
+      execve.mockRestore();
+      if (stdinDescriptor === undefined) {
+        delete (process.stdin as { isTTY?: boolean }).isTTY;
+      } else {
+        Object.defineProperty(process.stdin, 'isTTY', stdinDescriptor);
+      }
+      if (stdoutDescriptor === undefined) {
+        delete (process.stdout as { isTTY?: boolean }).isTTY;
+      } else {
+        Object.defineProperty(process.stdout, 'isTTY', stdoutDescriptor);
+      }
+    }
+  });
+
+  it('does not block normal startup when pending-update state processing fails', async () => {
+    const opts = defaultOpts();
+    mocks.validateOptions.mockReturnValue({ options: opts, uiMode: 'shell' });
+    mocks.activatePendingUpdate.mockRejectedValue(new Error('install state is read-only'));
+    mocks.runUpdatePreflight.mockResolvedValue('continue');
+    mocks.runShell.mockResolvedValue(undefined);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(((
+      _chunk: string | Uint8Array,
+      encodingOrCallback?: BufferEncoding | ((error?: Error | null) => void),
+      callback?: (error?: Error | null) => void,
+    ) => {
+      const complete = typeof encodingOrCallback === 'function' ? encodingOrCallback : callback;
+      complete?.();
+      return true;
+    }) as never);
+
+    try {
+      await expect(runHandleMainCommand(opts)).resolves.toBeNull();
+      expect(runUpdatePreflight).toHaveBeenCalledOnce();
+      expect(runShell).toHaveBeenCalledOnce();
+      expect(stderrSpy).toHaveBeenCalledWith(
+        'warning: unable to process a pending Pythinker Code update: install state is read-only\n',
+        expect.any(Function),
+      );
+    } finally {
+      stderrSpy.mockRestore();
+    }
   });
 
   it('runs prompt mode without interactive update preflight', async () => {
@@ -316,6 +409,15 @@ describe('main entry command handling', () => {
       mocks.createProgram.mock.invocationCallOrder[0]!,
     );
     expect(mocks.parse).toHaveBeenCalledWith(process.argv);
+  });
+
+  it('routes the internal update helper without parsing normal commands', () => {
+    mocks.dispatchUpdateHelperIfRequested.mockReturnValue(true);
+
+    main();
+
+    expect(dispatchUpdateHelperIfRequested).toHaveBeenCalledOnce();
+    expect(mocks.parse).not.toHaveBeenCalled();
   });
 
   it('sets the process title during startup', () => {

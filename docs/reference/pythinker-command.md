@@ -217,7 +217,7 @@ pythinker doctor
 | `pythinker doctor config [path]` | Validate only `config.toml`, using `path` instead of the default file when provided |
 | `pythinker doctor tui [path]` | Validate only `tui.toml`, using `path` instead of the default file when provided |
 
-When an explicit path is passed, the file must exist. The command exits with `0` when all checked files are valid or skipped, and `1` when any requested file is missing or invalid.
+When an explicit path is passed, the file must exist. The default report also shows the effective automatic-update mode, a prepared Homebrew version or active operation, the last failure, and the installer log path. The command exits with `0` when all checked files are valid or skipped, and `1` when any requested file is missing or invalid.
 
 ```sh
 # Check the default config files
@@ -276,7 +276,7 @@ Immediately check for the latest version and display an update prompt; exits aft
 pythinker upgrade
 ```
 
-For global npm, pnpm, yarn, bun, and macOS / Linux native installations, `pythinker upgrade` shows update options; selecting `Install update now` runs the corresponding foreground install command. When the current installation method cannot be upgraded automatically (e.g., Windows native installation), the manual update command is printed instead.
+For global npm, pnpm, yarn, bun, and macOS / Linux native installations, `pythinker upgrade` shows update options; selecting `Install update now` runs the corresponding foreground install command. Homebrew and Windows native installations print their package-manager or installer command instead. During normal interactive launches, automatic Homebrew updates use a separate restart-safe flow: the source archive is prepared and verified in the background, then installed on the next launch.
 
 ### `pythinker dashboard`
 

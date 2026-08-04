@@ -153,7 +153,9 @@ describe('ChoicePickerComponent', () => {
     });
     const upgradePreferenceOutput = upgradePreference.render(120).map(strip);
     expect(upgradePreferenceOutput).toContain('  ❯ On ← current');
-    expect(upgradePreferenceOutput).toContain('    Install new versions in the background.');
+    expect(upgradePreferenceOutput).toContain(
+      '    Update automatically; Homebrew installs on the next launch.',
+    );
   });
 
   it('routes Space into the query for searchable lists instead of selecting', () => {

@@ -15,9 +15,17 @@ import { z } from 'zod';
 
 import { getTuiConfigPath, parseTuiConfig } from '#/tui/config';
 import { readUpdateCache } from '#/cli/update/cache';
-import { isAutoUpdateDisabledByEnv, shouldAutoInstallUpdates } from '#/cli/update/preflight';
+import { readUpdateInstallState } from '#/cli/update/install-state';
+import {
+  automaticUpdateModeFor,
+  isAutoUpdateDisabledByEnv,
+  shouldAutoInstallUpdates,
+  type AutomaticUpdateMode,
+} from '#/cli/update/preflight';
 import { detectInstallSource } from '#/cli/update/source';
+import type { UpdateInstallFailure } from '#/cli/update/types';
 import { getHostPackageRoot, getVersion } from '#/cli/version';
+import { getUpdateInstallLogFile } from '#/utils/paths';
 
 interface WritableLike {
   write(chunk: string): boolean;
@@ -50,6 +58,12 @@ export interface DoctorRuntimeInfo {
     readonly latest: string | null;
     readonly checkedAt: string | null;
     readonly autoUpdate?: 'on' | 'off' | 'env-disabled';
+    readonly mode?: AutomaticUpdateMode;
+    readonly pendingVersion?: string;
+    readonly pendingRequestedBy?: 'automatic' | 'manual';
+    readonly activeOperation?: string;
+    readonly lastFailure?: string;
+    readonly logPath?: string;
   };
 }
 
@@ -166,11 +180,12 @@ function resolveDeps(deps: Partial<DoctorDeps> | DoctorDeps | undefined): Resolv
     runtimeInfo:
       deps?.runtimeInfo ??
       (async () => {
-        const [installSource, installations, ripgrep, update, autoInstall] = await Promise.all([
+        const [installSource, installations, ripgrep, update, installState, autoInstall] = await Promise.all([
           detectInstallSource(),
           findPythinkerExecutables(),
           findExistingRg(resolvePythinkerHome()),
           readUpdateCache(),
+          readUpdateInstallState(),
           shouldAutoInstallUpdates(),
         ]);
         return {
@@ -184,10 +199,29 @@ function resolveDeps(deps: Partial<DoctorDeps> | DoctorDeps | undefined): Resolv
             latest: update.latest,
             checkedAt: update.checkedAt,
             autoUpdate: isAutoUpdateDisabledByEnv() ? 'env-disabled' : autoInstall ? 'on' : 'off',
+            mode: automaticUpdateModeFor(installSource, process.platform),
+            pendingVersion: installState.pending?.version,
+            pendingRequestedBy: installState.pending?.requestedBy,
+            activeOperation:
+              installState.active === null
+                ? undefined
+                : `${installState.active.operation ?? 'install'} ${installState.active.version}`,
+            lastFailure:
+              installState.lastFailure === null
+                ? undefined
+                : formatUpdateFailure(installState.lastFailure),
+            logPath: getUpdateInstallLogFile(),
           },
         };
       }),
   };
+}
+
+function formatUpdateFailure(failure: UpdateInstallFailure): string {
+  const summary = `${failure.operation ?? 'install'} ${failure.version} ` +
+    `(attempt ${String(failure.attempts)})`;
+  const message = failure.message?.replaceAll(/\s+/gu, ' ').trim();
+  return message === undefined || message === '' ? summary : `${summary}: ${message}`;
 }
 
 export async function findPythinkerExecutables(
@@ -368,13 +402,7 @@ function formatRuntimeInfo(info: DoctorRuntimeInfo | undefined): string[] {
       ? []
       : [
           '  Update channel: CDN staged rollout',
-          ...(info.update.autoUpdate === undefined
-            ? []
-            : [
-                info.update.autoUpdate === 'env-disabled'
-                  ? '  Auto-update: disabled by PYTHINKER_CODE_NO_AUTO_UPDATE'
-                  : `  Auto-update: ${info.update.autoUpdate} (tui.toml [upgrade].auto_install)`,
-              ]),
+          ...formatAutomaticUpdate(info),
           ...(info.update.latest === null
             ? ['  Latest cached version: unavailable']
             : [
@@ -382,9 +410,51 @@ function formatRuntimeInfo(info: DoctorRuntimeInfo | undefined): string[] {
                   info.update.checkedAt === null ? '' : ` (checked ${info.update.checkedAt})`
                 }`,
               ]),
+          ...formatPreparedUpdate(info.update),
+          ...(info.update.activeOperation === undefined
+            ? []
+            : [`  Update operation: ${info.update.activeOperation}`]),
+          ...(info.update.lastFailure === undefined
+            ? []
+            : [`  Last update failure: ${info.update.lastFailure}`]),
+          ...(info.update.logPath === undefined ? [] : [`  Update log: ${info.update.logPath}`]),
         ]),
     '',
   ];
+}
+
+function formatPreparedUpdate(
+  update: NonNullable<DoctorRuntimeInfo['update']>,
+): string[] {
+  if (update.pendingVersion === undefined) return [];
+  if (update.pendingRequestedBy === 'automatic' && update.autoUpdate !== 'on') {
+    return [
+      `  Prepared update: ${update.pendingVersion} ` +
+        '(automatic activation paused until auto-update is enabled)',
+    ];
+  }
+  return [`  Prepared update: ${update.pendingVersion} (installs on next launch)`];
+}
+
+function formatAutomaticUpdate(info: DoctorRuntimeInfo): string[] {
+  const update = info.update;
+  if (update?.autoUpdate === undefined) return [];
+  if (update.autoUpdate === 'env-disabled') {
+    return ['  Auto-update: disabled by PYTHINKER_CODE_NO_AUTO_UPDATE'];
+  }
+  if (update.autoUpdate === 'off') {
+    return ['  Auto-update: off (tui.toml [upgrade].auto_install)'];
+  }
+  switch (update.mode) {
+    case 'restart-install':
+      return ['  Auto-update: on (prepare in background; install on next launch)'];
+    case 'background-install':
+      return ['  Auto-update: on (installs in background)'];
+    case 'manual':
+      return [`  Auto-update: unavailable for ${info.installSource}`];
+    case undefined:
+      return ['  Auto-update: on (tui.toml [upgrade].auto_install)'];
+  }
 }
 
 function formatResults(results: readonly CheckResult[]): string[] {

@@ -1,0 +1,136 @@
+import { appendFile, mkdir, stat, writeFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
+
+import { valid } from 'semver';
+import { z } from 'zod';
+
+import { getUpdateInstallLogFile } from '#/utils/paths';
+
+import { prepareHomebrewUpdate } from './homebrew';
+import { readUpdateInstallState, writeUpdateInstallState } from './install-state';
+import type { UpdateInstallState } from './types';
+
+const UPDATE_INSTALL_LOG_MAX_BYTES = 1024 * 1024;
+
+const PrepareHomebrewArgsSchema = z.tuple([
+  z.literal('prepare-homebrew'),
+  z.string().uuid(),
+  z.string().refine((value) => valid(value) !== null, { error: 'invalid semver' }),
+  z.enum(['automatic', 'manual']),
+]);
+
+async function rotateHelperLogIfNeeded(): Promise<void> {
+  const filePath = getUpdateInstallLogFile();
+  try {
+    await mkdir(dirname(filePath), { recursive: true });
+    const size = await stat(filePath).then((entry) => entry.size, () => 0);
+    if (size >= UPDATE_INSTALL_LOG_MAX_BYTES) {
+      await writeFile(filePath, '', { encoding: 'utf-8', mode: 0o600 });
+    }
+  } catch {
+    // Diagnostics must not change the update outcome.
+  }
+}
+
+async function appendHelperLog(message: string): Promise<void> {
+  const filePath = getUpdateInstallLogFile();
+  try {
+    await mkdir(dirname(filePath), { recursive: true });
+    const line = `[${new Date().toISOString()}] ${message}\n`;
+    await appendFile(filePath, line, { encoding: 'utf-8', mode: 0o600 });
+  } catch {
+    // Diagnostics must not change the update outcome.
+  }
+}
+
+function prepareFailureAttempts(state: UpdateInstallState, version: string): number {
+  const failure = state.lastFailure;
+  return failure?.version === version && failure.operation === 'prepare' ? failure.attempts : 0;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+export function dispatchUpdateHelperIfRequested(): boolean {
+  if (process.env['PYTHINKER_CODE_UPDATE_HELPER'] !== '1') return false;
+  const commandIndex = process.argv[2] === '__update_helper'
+    ? 2
+    : process.argv[1] === '__update_helper'
+      ? 1
+      : -1;
+  if (commandIndex < 0) return false;
+  void runUpdateHelper(process.argv.slice(commandIndex + 1))
+    .then((code) => {
+      process.exitCode = code;
+    })
+    .catch((error: unknown) => {
+      process.stderr.write(
+        `Update helper failed: ${error instanceof Error ? error.message : String(error)}\n`,
+      );
+      process.exitCode = 1;
+    });
+  return true;
+}
+
+export async function runUpdateHelper(args: readonly string[]): Promise<number> {
+  const parsed = PrepareHomebrewArgsSchema.safeParse(args);
+  if (!parsed.success) {
+    await appendHelperLog('update helper rejected invalid arguments');
+    return 2;
+  }
+  const [, jobId, requestedVersion, requestedBy] = parsed.data;
+  await rotateHelperLogIfNeeded();
+  let state = await readUpdateInstallState();
+  if (state.active?.jobId !== jobId || state.active.operation !== 'prepare') {
+    await appendHelperLog(`prepare job ${jobId} is no longer active`);
+    return 0;
+  }
+
+  state = {
+    ...state,
+    active: {
+      ...state.active,
+      pid: process.pid,
+    },
+  };
+  await writeUpdateInstallState(state);
+  await appendHelperLog(`prepare job ${jobId} started for ${requestedVersion}`);
+
+  try {
+    const prepared = await prepareHomebrewUpdate(
+      { jobId, requestedVersion, requestedBy },
+      { logFile: getUpdateInstallLogFile() },
+    );
+    const latest = await readUpdateInstallState();
+    if (latest.active?.jobId !== jobId || latest.active.operation !== 'prepare') {
+      await appendHelperLog(`prepare job ${jobId} lost ownership before completion`);
+      return 0;
+    }
+    await writeUpdateInstallState({
+      ...latest,
+      active: null,
+      pending: prepared,
+      lastFailure: null,
+    });
+    await appendHelperLog(`prepare job ${jobId} verified ${prepared.version}`);
+    return 0;
+  } catch (error) {
+    const latest = await readUpdateInstallState();
+    if (latest.active?.jobId !== jobId) return 1;
+    const message = errorMessage(error);
+    await writeUpdateInstallState({
+      ...latest,
+      active: null,
+      lastFailure: {
+        version: requestedVersion,
+        failedAt: new Date().toISOString(),
+        attempts: prepareFailureAttempts(latest, requestedVersion) + 1,
+        operation: 'prepare',
+        message,
+      },
+    }).catch(() => {});
+    await appendHelperLog(`prepare job ${jobId} failed: ${message}`);
+    return 1;
+  }
+}

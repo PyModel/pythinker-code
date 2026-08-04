@@ -6,7 +6,7 @@
  * these helpers.
  */
 
-import { appendFile, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, open, readFile, rename, unlink } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 
 import type { z } from 'zod';
@@ -58,8 +58,25 @@ export async function writeJsonFile<T>(
   await mkdir(dirname(filePath), { recursive: true });
   const tmpPath = tempPathFor(filePath);
   try {
-    await writeFile(tmpPath, `${JSON.stringify(parsed, null, 2)}\n`, 'utf-8');
+    const file = await open(tmpPath, 'wx', 0o600);
+    try {
+      await file.writeFile(`${JSON.stringify(parsed, null, 2)}\n`, 'utf-8');
+      await file.sync();
+    } finally {
+      await file.close();
+    }
     await rename(tmpPath, filePath);
+    // A synced file plus rename is not crash-durable until the directory entry
+    // is flushed. Some platforms do not allow opening directories, so retain
+    // the atomic write even when that final durability step is unavailable.
+    const directory = await open(dirname(filePath), 'r').catch(() => null);
+    if (directory !== null) {
+      try {
+        await directory.sync().catch(() => {});
+      } finally {
+        await directory.close();
+      }
+    }
   } catch (error) {
     await unlink(tmpPath).catch(() => {});
     throw error;

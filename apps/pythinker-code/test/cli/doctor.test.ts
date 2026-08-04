@@ -48,6 +48,7 @@ function makeDeps(): {
           latest: '1.3.0',
           checkedAt: '2026-07-29T12:00:00.000Z',
           autoUpdate: 'on' as const,
+          mode: 'background-install' as const,
         },
       }),
       exit: (code) => {
@@ -127,9 +128,69 @@ describe('pythinker doctor', () => {
         '  Package root: /opt/pythinker',
         '  Executable: /usr/local/bin/node',
         '  Update channel: CDN staged rollout',
-        '  Auto-update: on (tui.toml [upgrade].auto_install)',
+        '  Auto-update: on (installs in background)',
         '  Latest cached version: 1.3.0 (checked 2026-07-29T12:00:00.000Z)',
       ].join('\n'),
+    );
+  });
+
+  it('reports Homebrew preparation and restart activation accurately', async () => {
+    const { deps, stdout } = makeDeps();
+
+    const code = await handleDoctor({
+      ...deps,
+      runtimeInfo: async () => ({
+        version: '1.2.3',
+        installSource: 'homebrew',
+        packageRoot: '/opt/homebrew/Cellar/pythinker-code/1.2.3',
+        executable: '/opt/homebrew/bin/node',
+        update: {
+          latest: '1.3.0',
+          checkedAt: '2026-07-29T12:00:00.000Z',
+          autoUpdate: 'on',
+          mode: 'restart-install',
+          pendingVersion: '1.3.0',
+          pendingRequestedBy: 'automatic',
+          logPath: '/tmp/updates/install.log',
+        },
+      }),
+    }, {});
+
+    expect(code).toBe(0);
+    expect(stdout.join('')).toContain(
+      [
+        '  Auto-update: on (prepare in background; install on next launch)',
+        '  Latest cached version: 1.3.0 (checked 2026-07-29T12:00:00.000Z)',
+        '  Prepared update: 1.3.0 (installs on next launch)',
+        '  Update log: /tmp/updates/install.log',
+      ].join('\n'),
+    );
+  });
+
+  it('reports when automatic activation of a prepared update is paused', async () => {
+    const { deps, stdout } = makeDeps();
+
+    const code = await handleDoctor({
+      ...deps,
+      runtimeInfo: async () => ({
+        version: '1.2.3',
+        installSource: 'homebrew',
+        packageRoot: '/opt/homebrew/Cellar/pythinker-code/1.2.3',
+        executable: '/opt/homebrew/bin/node',
+        update: {
+          latest: '1.3.0',
+          checkedAt: '2026-07-29T12:00:00.000Z',
+          autoUpdate: 'off',
+          mode: 'restart-install',
+          pendingVersion: '1.3.0',
+          pendingRequestedBy: 'automatic',
+        },
+      }),
+    }, {});
+
+    expect(code).toBe(0);
+    expect(stdout.join('')).toContain(
+      'Prepared update: 1.3.0 (automatic activation paused until auto-update is enabled)',
     );
   });
 
