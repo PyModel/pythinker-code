@@ -227,30 +227,9 @@ See the [configuration docs](https://pythoughts-labs.github.io/pythinker-code/co
 
 Pythinker Code is a **pnpm monorepo**. The CLI consumes capabilities through the SDK and never depends directly on internal engine packages.
 
-```mermaid
-flowchart LR
-  subgraph Apps
-    CLI["pythinker-code<br/>(CLI / TUI)"]
-    WEB["pythinker-web<br/>(Browser UI)"]
-    DASH["dashboard<br/>(Session replay)"]
-  end
-
-  subgraph Packages
-    SDK["node-sdk"]
-    CORE["agent-core"]
-    ANYLLM["Any LLM<br/>(provider abstraction)"]
-    KAOS["kaos<br/>(Execution env)"]
-    SERVER["server<br/>(REST + WebSocket)"]
-  end
-
-  CLI --> SDK
-  WEB --> SERVER
-  DASH --> SERVER
-  SDK --> CORE
-  SERVER --> CORE
-  CORE --> ANYLLM
-  CORE --> KAOS
-```
+<p align="center">
+  <img src="docs/media/Architecture.webp" alt="Pythinker Code architecture" width="836" />
+</p>
 
 | Package | Role |
 |---------|------|
