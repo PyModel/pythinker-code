@@ -23,7 +23,7 @@ Any OpenAI-compatible endpoint (DeepSeek, Qwen, GLM, Grok, Together AI, Firework
 
 ### Model Selection
 
-Flows through the **catalog** ([catalog.ts](file:///Users/panda/Projects/active/pythinker-code-tsc/packages/kosong/src/catalog.ts)):
+Flows through the **catalog** ([catalog.ts](packages/kosong/src/catalog.ts)):
 
 1. JSON catalog maps `providerId → models[]` with context window, capabilities, cost, and modality metadata.
 2. `inferWireType()` resolves provider → wire type (explicit `type` field, then heuristic on `npm`/`id`).

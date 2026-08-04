@@ -312,7 +312,7 @@ describe('runUpdatePreflight', () => {
     expect(mocks.spawn).toHaveBeenCalledWith(
       expect.stringMatching(/^npm(\.cmd)?$/),
       ['install', '-g', '@pythoughts/pythinker-code@0.5.0'],
-      { detached: true, stdio: 'ignore' },
+      { detached: true, windowsHide: false, stdio: 'ignore' },
     );
   });
 
@@ -576,6 +576,7 @@ describe('runUpdatePreflight', () => {
         ],
         {
           detached: true,
+          windowsHide: true,
           stdio: 'ignore',
           env: expect.objectContaining({ PYTHINKER_VERSION: '0.5.0' }),
         },
@@ -633,7 +634,7 @@ describe('runUpdatePreflight', () => {
     expect(mocks.spawn).toHaveBeenCalledWith(
       expect.stringMatching(/^npm(\.cmd)?$/),
       ['install', '-g', '@pythoughts/pythinker-code@0.5.0'],
-      { detached: true, stdio: 'ignore' },
+      { detached: true, windowsHide: false, stdio: 'ignore' },
     );
     expect(writeUpdateInstallState).toHaveBeenCalledWith(expect.objectContaining({
       active: expect.objectContaining({
@@ -816,7 +817,7 @@ describe('runUpdatePreflight', () => {
     expect(mocks.spawn).toHaveBeenCalledWith(
       expect.stringMatching(/^npm(\.cmd)?$/),
       ['install', '-g', '@pythoughts/pythinker-code@0.6.0'],
-      { detached: true, stdio: 'ignore' },
+      { detached: true, windowsHide: false, stdio: 'ignore' },
     );
   });
 
@@ -840,7 +841,7 @@ describe('runUpdatePreflight', () => {
     expect(mocks.spawn).toHaveBeenCalledWith(
       expect.stringMatching(/^npm(\.cmd)?$/),
       ['install', '-g', '@pythoughts/pythinker-code@0.6.0'],
-      { detached: true, stdio: 'ignore' },
+      { detached: true, windowsHide: false, stdio: 'ignore' },
     );
   });
 
@@ -864,7 +865,7 @@ describe('runUpdatePreflight', () => {
     expect(mocks.spawn).toHaveBeenCalledWith(
       expect.stringMatching(/^npm(\.cmd)?$/),
       ['install', '-g', '@pythoughts/pythinker-code@0.6.0'],
-      { detached: true, stdio: 'ignore' },
+      { detached: true, windowsHide: false, stdio: 'ignore' },
     );
   });
 
@@ -1017,7 +1018,7 @@ describe('runUpdatePreflight', () => {
     expect(mocks.spawn).toHaveBeenCalledWith(
       expect.stringMatching(/^npm(\.cmd)?$/),
       ['install', '-g', '@pythoughts/pythinker-code@0.5.0'],
-      { detached: true, stdio: 'ignore' },
+      { detached: true, windowsHide: false, stdio: 'ignore' },
     );
   });
 
@@ -1307,7 +1308,7 @@ describe('runUpdatePreflight', () => {
       expect(mocks.spawn).toHaveBeenCalledWith(
         expect.stringMatching(/^npm(\.cmd)?$/),
         ['install', '-g', '@pythoughts/pythinker-code@0.5.0'],
-        { detached: true, stdio: 'ignore' },
+        { detached: true, windowsHide: false, stdio: 'ignore' },
       );
       expect(track).toHaveBeenCalledWith('update_background_install_started', expect.objectContaining({
         target_version: '0.5.0',
@@ -1433,7 +1434,7 @@ describe('runUpdatePreflight', () => {
       expect(mocks.spawn).toHaveBeenCalledWith(
         expect.stringMatching(/^npm(\.cmd)?$/),
         ['install', '-g', '@pythoughts/pythinker-code@0.5.0'],
-        { detached: true, stdio: 'ignore' },
+        { detached: true, windowsHide: false, stdio: 'ignore' },
       );
       expect(track).toHaveBeenCalledWith('update_background_install_started', expect.objectContaining({
         target_version: '0.5.0',

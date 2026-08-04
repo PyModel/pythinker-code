@@ -812,6 +812,9 @@ async function startBackgroundInstall(
 
     const child = spawn(cmd, [...args], {
       detached: true,
+      // A detached child gets its own console window on Windows regardless
+      // of stdio; stdio: 'ignore' alone does not suppress it.
+      windowsHide: platform === 'win32',
       stdio: 'ignore',
       env: env === undefined ? undefined : { ...process.env, ...env },
     });
