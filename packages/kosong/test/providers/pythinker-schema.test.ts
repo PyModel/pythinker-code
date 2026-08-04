@@ -612,6 +612,40 @@ describe('normalizePythinkerToolSchema', () => {
     });
   });
 
+  it('folds a root anyOf property declared differently across branches into an alternative', () => {
+    const result = normalizePythinkerToolSchema({
+      anyOf: [
+        { type: 'object', properties: { value: { type: 'string' } } },
+        { type: 'object', properties: { value: { type: 'integer' } } },
+      ],
+    });
+
+    expect(result).toEqual({
+      type: 'object',
+      properties: {
+        value: { anyOf: [{ type: 'string' }, { type: 'integer' }] },
+      },
+    });
+  });
+
+  it('collapses a root anyOf property that is identical across every branch', () => {
+    const result = normalizePythinkerToolSchema({
+      anyOf: [
+        { type: 'object', properties: { mode: { type: 'string' }, task_id: { type: 'string' } } },
+        { type: 'object', properties: { mode: { type: 'string' }, shell_id: { type: 'string' } } },
+      ],
+    });
+
+    expect(result).toEqual({
+      type: 'object',
+      properties: {
+        mode: { type: 'string' },
+        task_id: { type: 'string' },
+        shell_id: { type: 'string' },
+      },
+    });
+  });
+
   it('distributes into nested anyOf nodes and keeps narrower branch keywords', () => {
     const result = normalizePythinkerToolSchema({
       type: 'object',
@@ -637,6 +671,31 @@ describe('normalizePythinkerToolSchema', () => {
     });
   });
 
+  it('unions a parent required list with a branch that already declares its own', () => {
+    const result = normalizePythinkerToolSchema({
+      type: 'object',
+      properties: {
+        variant: {
+          type: 'object',
+          required: ['common'],
+          anyOf: [{ required: ['variant'] }, { required: ['common'] }],
+        },
+      },
+    });
+
+    expect(result).toEqual({
+      type: 'object',
+      properties: {
+        variant: {
+          anyOf: [
+            { type: 'object', required: ['variant', 'common'] },
+            { type: 'object', required: ['common'] },
+          ],
+        },
+      },
+    });
+  });
+
   it('leaves anyOf nodes alone when the parent only carries metadata', () => {
     const schema = {
       type: 'object',
@@ -651,23 +710,28 @@ describe('normalizePythinkerToolSchema', () => {
     expect(normalizePythinkerToolSchema(schema)).toEqual(schema);
   });
 
-  it('keeps cyclic $ref and definition buckets on the parent of an anyOf', () => {
+  it('keeps $ref and $defs on the anyOf parent instead of distributing them into branches', () => {
+    // $ref must be genuinely cyclic (self-referential) to survive derefJsonSchema
+    // and still be present by the time distributeAnyOfParentKeywords runs.
     const result = normalizePythinkerToolSchema({
       type: 'object',
       properties: {
         node: {
-          anyOf: [{ $ref: '#/$defs/Node' }, { type: 'null' }],
-        },
-      },
-      $defs: {
-        Node: {
-          type: 'object',
-          properties: { next: { $ref: '#/$defs/Node' } },
+          $ref: '#/properties/node',
+          $defs: { Extra: { type: 'string' } },
+          anyOf: [{ type: 'null' }],
         },
       },
     });
 
-    expect(result['$defs']).toBeDefined();
+    const node = (result['properties'] as Record<string, unknown>)['node'] as Record<string, unknown>;
+    expect(node['$ref']).toBe('#/properties/node');
+    expect(node['$defs']).toEqual({ Extra: { type: 'string' } });
+    const branches = node['anyOf'] as Record<string, unknown>[];
+    for (const branch of branches) {
+      expect(branch).not.toHaveProperty('$ref');
+      expect(branch).not.toHaveProperty('$defs');
+    }
   });
 
   it('dereferences and normalizes local definition buckets', () => {
