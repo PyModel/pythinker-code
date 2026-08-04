@@ -160,6 +160,37 @@ describe('FFI launcher', () => {
     expect(details.pid === originalPid).toBe(process.platform !== 'win32');
   });
 
+  it('uses the spawn fallback on win32 even when process.execve exists but throws', async () => {
+    // Regression: Windows Node ships process.execve as a defined function that
+    // throws ERR_FEATURE_UNAVAILABLE_ON_PLATFORM when called. The launcher must
+    // route win32 to the spawn fallback without ever calling execve.
+    const patchPath = join(fixtureDir, 'patch-win32.mjs');
+    await writeFile(
+      patchPath,
+      `
+      Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+      process.execve = () => {
+        throw new Error('The feature process.execve is unavailable on the current platform');
+      };
+      `,
+    );
+    await writeMain(`
+      process.stdout.write(JSON.stringify({ imported: true, marker: process.env.PYTHINKER_CODE_FFI_CHILD }));
+    `);
+
+    const child = spawn(
+      process.execPath,
+      ['--import', tsxLoader, '--import', patchPath, launcherPath],
+      { cwd: fixtureDir, env: { ...process.env }, stdio: 'pipe' },
+    );
+    const result = await collect(child);
+
+    expect(result.stderr).not.toContain('process.execve is unavailable');
+    expect(result.code).toBe(0);
+    const details = JSON.parse(result.stdout) as { imported: boolean; marker: string };
+    expect(details).toMatchObject({ imported: true, marker: '1' });
+  });
+
   it.skipIf(process.platform === 'win32')(
     'preserves the parent process group and session across execve',
     async () => {

@@ -116,17 +116,21 @@ async function launch(): Promise<void> {
     ...process.env,
     [FFI_CHILD_ENV]: '1',
   };
+  // On Windows, process.execve either does not exist or exists but throws
+  // ERR_FEATURE_UNAVAILABLE_ON_PLATFORM when called — checking for undefined
+  // is not enough, so always take the spawn fallback there.
+  if (process.platform === 'win32') {
+    launchWindowsFallback(nodeArguments, environment);
+    return;
+  }
+
   // execve keeps the same pid, process group, session, and controlling
   // terminal, so Ctrl+C and job-control signals keep flowing to the app and
   // the child's process group stays the terminal's foreground group.
-  if (process.execve !== undefined) {
-    process.execve(process.execPath, [process.execPath, ...nodeArguments], environment);
-  }
-
-  if (process.platform !== 'win32') {
+  if (process.execve === undefined) {
     throw new Error('process.execve is unavailable on this platform');
   }
-  launchWindowsFallback(nodeArguments, environment);
+  process.execve(process.execPath, [process.execPath, ...nodeArguments], environment);
 }
 
 void launch().catch((error: unknown) => {
