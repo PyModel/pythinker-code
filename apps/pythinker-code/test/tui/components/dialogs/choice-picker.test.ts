@@ -154,7 +154,7 @@ describe('ChoicePickerComponent', () => {
     const upgradePreferenceOutput = upgradePreference.render(120).map(strip);
     expect(upgradePreferenceOutput).toContain('  ❯ On ← current');
     expect(upgradePreferenceOutput).toContain(
-      '    Update automatically; Homebrew installs on the next launch.',
+      '    Update automatically in the background.',
     );
   });
 

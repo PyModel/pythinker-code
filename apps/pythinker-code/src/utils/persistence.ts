@@ -52,6 +52,14 @@ export async function writeJsonFile<T>(
   filePath: string,
   schema: z.ZodType<T>,
   value: T,
+  options?: {
+    /**
+     * Also fsync the file and its parent directory so the write survives a
+     * crash. Costs two blocking disk flushes — reserve it for state whose
+     * loss corrupts a workflow (e.g. install.json), not routine caches.
+     */
+    readonly durable?: boolean;
+  },
 ): Promise<void> {
   assertNonConfigWrite(filePath);
   const parsed = schema.parse(value);
@@ -61,20 +69,22 @@ export async function writeJsonFile<T>(
     const file = await open(tmpPath, 'wx', 0o600);
     try {
       await file.writeFile(`${JSON.stringify(parsed, null, 2)}\n`, 'utf-8');
-      await file.sync();
+      if (options?.durable === true) await file.sync();
     } finally {
       await file.close();
     }
     await rename(tmpPath, filePath);
-    // A synced file plus rename is not crash-durable until the directory entry
-    // is flushed. Some platforms do not allow opening directories, so retain
-    // the atomic write even when that final durability step is unavailable.
-    const directory = await open(dirname(filePath), 'r').catch(() => null);
-    if (directory !== null) {
-      try {
-        await directory.sync().catch(() => {});
-      } finally {
-        await directory.close();
+    if (options?.durable === true) {
+      // A synced file plus rename is not crash-durable until the directory
+      // entry is flushed. Some platforms do not allow opening directories, so
+      // retain the atomic write even when that final step is unavailable.
+      const directory = await open(dirname(filePath), 'r').catch(() => null);
+      if (directory !== null) {
+        try {
+          await directory.sync().catch(() => {});
+        } finally {
+          await directory.close();
+        }
       }
     }
   } catch (error) {

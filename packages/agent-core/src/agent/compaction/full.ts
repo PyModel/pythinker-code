@@ -327,6 +327,10 @@ export class FullCompaction {
           reservedContextSize: this.agent.pythinkerConfig?.loopControl?.reservedContextSize,
         }),
         capability,
+        // The compaction request replays (a projection of) the existing
+        // history, so it is by definition near the top of the window —
+        // size max_tokens to what actually remains.
+        usedContextTokens: tokensBefore,
       });
 
       const delays = retryBackoffDelays(MAX_COMPACTION_RETRY_ATTEMPTS);

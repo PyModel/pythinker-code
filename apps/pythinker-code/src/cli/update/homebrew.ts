@@ -107,10 +107,12 @@ export async function runHomebrewCommand(
   let logWrites = Promise.resolve();
   const appendLog = (chunk: string | Uint8Array): void => {
     if (logFile === undefined) return;
+    // Normalize to bytes: FileHandle.write has separate string/buffer
+    // overloads that reject the union type.
+    const data = typeof chunk === 'string' ? Buffer.from(chunk) : chunk;
     logWrites = logWrites
       .then(async () => {
-        if (typeof chunk === 'string') await logFile.write(chunk);
-        else await logFile.write(chunk);
+        await logFile.write(data);
       })
       .catch(() => {});
   };

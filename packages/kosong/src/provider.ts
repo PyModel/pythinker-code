@@ -14,22 +14,6 @@ import type { TokenUsage } from './usage';
 export type ThinkingEffort = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 /**
- * Optional context passed to {@link ChatProvider.withMaxCompletionTokens} so a
- * provider can tighten the caller-supplied cap to its own transport
- * constraints.
- */
-export interface MaxCompletionTokensOptions {
-  /**
-   * Tokens already consumed by the current context (API-reported input +
-   * output of the latest completed step). Chat-completions providers use it
-   * to size the cap to the remaining context window.
-   */
-  readonly usedContextTokens?: number;
-  /** Model context-window size in tokens (`max_context_size`). */
-  readonly maxContextTokens?: number;
-}
-
-/**
  * Normalized finish-reason signal indicating why a generation stopped.
  *
  * Each provider's native stop value is mapped to one of these, and the
@@ -175,21 +159,15 @@ export interface ChatProvider {
   /**
    * Return a shallow copy of this provider with the per-request completion
    * budget clamped to `maxCompletionTokens`. Optional because not every
-   * backend benefits from a client-computed cap.
-   *
-   * When `options` are provided, implementations may further tighten the cap
-   * based on their own transport constraints — e.g. chat-completions
-   * endpoints size the cap to the remaining context window
-   * (`maxContextTokens - usedContextTokens`) and/or clamp to a fixed ceiling.
+   * backend benefits from a client-computed cap. The caller is responsible
+   * for sizing the cap to the remaining context window; implementations may
+   * further tighten it to their own transport ceilings.
    *
    * Implementations MUST NOT mutate or replace internal HTTP clients on the
    * returned clone — the clone is expected to share transport state with the
    * original. See `PythinkerChatProvider._clone()` for the rationale.
    */
-  withMaxCompletionTokens?(
-    maxCompletionTokens: number,
-    options?: MaxCompletionTokensOptions,
-  ): ChatProvider;
+  withMaxCompletionTokens?(maxCompletionTokens: number): ChatProvider;
   /** Upload a video and return a content part that can be sent to this provider. */
   uploadVideo?(input: string | VideoUploadInput, options?: GenerateOptions): Promise<VideoURLPart>;
 }

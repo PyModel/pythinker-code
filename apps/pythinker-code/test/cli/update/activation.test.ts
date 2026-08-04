@@ -68,7 +68,7 @@ describe('pending update activation', () => {
     });
 
     expect(activateHomebrew).toHaveBeenCalledWith(pending);
-    expect(writeState).toHaveBeenLastCalledWith(expect.objectContaining({
+    expect(writeState).toHaveBeenNthCalledWith(1, expect.objectContaining({
       pending,
       active: expect.objectContaining({
         version: '0.5.0',
@@ -77,9 +77,53 @@ describe('pending update activation', () => {
         jobId: pending.jobId,
         pid: 42_424,
       }),
+    }));
+    expect(writeState).toHaveBeenLastCalledWith(expect.objectContaining({
+      active: null,
+      pending,
+      lastFailure: null,
       lastSuccess: null,
     }));
     expect(release).toHaveBeenCalledOnce();
+  });
+
+  it('clears the pending record once the activation failure limit is reached', async () => {
+    const pending = preparedHomebrewUpdate();
+    const state: UpdateInstallState = {
+      ...installState(pending),
+      lastFailure: {
+        version: pending.version,
+        failedAt: '2026-08-04T07:00:00.000Z',
+        attempts: 2,
+        operation: 'activate',
+        message: 'brew upgrade failed',
+      },
+    };
+    const writeState = vi.fn().mockResolvedValue(undefined);
+    const acquireLock = vi.fn();
+
+    await expect(activatePendingUpdate('0.4.0', {
+      enabled: true,
+      automaticEnabled: true,
+      deps: {
+        readState: vi.fn().mockResolvedValue(state),
+        writeState,
+        acquireLock,
+        detectSource: vi.fn().mockResolvedValue('homebrew'),
+      },
+    })).resolves.toEqual({
+      status: 'failed',
+      version: pending.version,
+      message: 'Automatic activation failed 2 times',
+    });
+
+    // Terminal: pending is dropped (lastFailure retained) so later launches
+    // stop retrying and stop reporting an in-progress update.
+    expect(writeState).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      pending: null,
+      lastFailure: expect.objectContaining({ operation: 'activate', attempts: 2 }),
+    }));
+    expect(acquireLock).not.toHaveBeenCalled();
   });
 
   it('finalizes a prepared update only after the target version starts', async () => {
@@ -103,6 +147,7 @@ describe('pending update activation', () => {
       deps: {
         readState,
         writeState,
+        detectSource: vi.fn().mockResolvedValue('homebrew'),
         now: () => new Date('2026-08-04T08:05:00.000Z'),
       },
     })).resolves.toEqual({ status: 'finalized', version: '0.5.0' });
@@ -124,7 +169,7 @@ describe('pending update activation', () => {
     const writeState = vi.fn().mockResolvedValue(undefined);
     const activateHomebrew = vi.fn();
 
-    await expect(activatePendingUpdate('0.4.0', {
+    await expect(activatePendingUpdate('0.5.0', {
       enabled: true,
       automaticEnabled: true,
       deps: {
@@ -360,6 +405,25 @@ describe('Homebrew update adapter', () => {
     }));
     expect(deps.ensureExecutable).toHaveBeenCalledWith(
       '/opt/homebrew/opt/pythinker-code/bin/pythinker',
+    );
+  });
+
+  it('refuses activation when the prepared artifact checksum changes', async () => {
+    const { run } = homebrewRunner();
+    const deps = homebrewDeps(run);
+    const prepared = await prepareHomebrewUpdate({
+      jobId: '7e717f78-70c6-4f7c-9745-ceb45822d24b',
+      requestedVersion: '0.5.0',
+      requestedBy: 'automatic',
+    }, { deps });
+    deps.hashFile.mockResolvedValue('c'.repeat(64));
+
+    await expect(activateHomebrewUpdate(prepared, { deps })).rejects.toThrow(
+      'Prepared Homebrew artifact failed SHA-256 verification',
+    );
+    expect(run).not.toHaveBeenCalledWith(
+      expect.arrayContaining(['upgrade']),
+      expect.anything(),
     );
   });
 

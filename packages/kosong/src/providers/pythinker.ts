@@ -4,7 +4,6 @@ import type {
   ChatProvider,
   FinishReason,
   GenerateOptions,
-  MaxCompletionTokensOptions,
   ProviderRequestAuth,
   StreamedMessage,
   ThinkingEffort,
@@ -552,19 +551,8 @@ export class PythinkerChatProvider implements ChatProvider {
     return this._withGenerationKwargs(kwargs);
   }
 
-  withMaxCompletionTokens(
-    maxCompletionTokens: number,
-    options?: MaxCompletionTokensOptions,
-  ): PythinkerChatProvider {
-    let cap = maxCompletionTokens;
-    if (
-      options?.usedContextTokens !== undefined &&
-      options?.maxContextTokens !== undefined &&
-      options.maxContextTokens > 0
-    ) {
-      cap = Math.min(cap, options.maxContextTokens - options.usedContextTokens);
-    }
-    return this._withGenerationKwargs({ max_completion_tokens: Math.max(1, cap) });
+  withMaxCompletionTokens(maxCompletionTokens: number): PythinkerChatProvider {
+    return this._withGenerationKwargs({ max_completion_tokens: Math.max(1, maxCompletionTokens) });
   }
 
   withExtraBody(extraBody: ExtraBody): PythinkerChatProvider {

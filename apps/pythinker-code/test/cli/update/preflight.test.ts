@@ -22,6 +22,7 @@ import {
   type UpdateCache,
   type UpdateInstallState,
   type UpdateManifest,
+  type UpdatePreparedHomebrew,
 } from '#/cli/update/types';
 import {
   DEFAULT_STATUS_LINE_CONFIG,
@@ -166,6 +167,21 @@ function installState(overrides: Partial<UpdateInstallState> = {}): UpdateInstal
     lastFailure: null,
     lastSuccess: null,
     ...overrides,
+  };
+}
+
+function preparedHomebrewUpdate(): UpdatePreparedHomebrew {
+  return {
+    jobId: '7e717f78-70c6-4f7c-9745-ceb45822d24b',
+    source: 'homebrew',
+    version: '0.5.0',
+    preparedAt: '2026-08-04T08:00:00.000Z',
+    requestedBy: 'automatic',
+    formulaUrl: 'https://registry.example.com/pythinker-code-0.5.0.tgz',
+    artifactKind: 'source',
+    artifactSha256: 'a'.repeat(64),
+    formulaFileSha256: 'b'.repeat(64),
+    artifactPath: '/tmp/cache/pythinker-code-0.5.0.tgz',
   };
 }
 
@@ -487,12 +503,14 @@ describe('runUpdatePreflight', () => {
     expect(promptForInstallChoice).not.toHaveBeenCalled();
     expect(mocks.spawn).toHaveBeenCalledWith(
       process.execPath,
-      expect.arrayContaining([
+      [
+        process.argv[1],
         '__update_helper',
         'prepare-homebrew',
+        expect.any(String),
         '0.5.0',
         'automatic',
-      ]),
+      ],
       expect.objectContaining({ detached: true, stdio: 'ignore' }),
     );
     expect(writeUpdateInstallState).toHaveBeenCalledWith(expect.objectContaining({
@@ -1546,10 +1564,54 @@ describe('startManualUpdate', () => {
     });
     expect(mocks.spawn).toHaveBeenCalledWith(
       process.execPath,
-      expect.arrayContaining(['prepare-homebrew', '0.5.0', 'manual']),
+      [
+        process.argv[1],
+        '__update_helper',
+        'prepare-homebrew',
+        expect.any(String),
+        '0.5.0',
+        'manual',
+      ],
       expect.objectContaining({ detached: true, stdio: 'ignore' }),
     );
     expect(mocks.spawn).toHaveBeenCalledOnce();
+  });
+
+  it('clears the preparation lease when the detached helper cannot start', async () => {
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.detectInstallSource.mockResolvedValue('homebrew');
+    mocks.spawn.mockImplementation(() => { throw new Error('spawn failed'); });
+
+    await expect(startManualUpdate('0.4.0')).resolves.toEqual({
+      status: 'check-failed',
+      message: 'spawn failed',
+    });
+    expect(writeUpdateInstallState).toHaveBeenLastCalledWith(expect.objectContaining({
+      active: null,
+      lastFailure: expect.objectContaining({
+        version: '0.5.0',
+        operation: 'prepare',
+        message: 'spawn failed',
+      }),
+    }));
+  });
+
+  it('promotes a prepared automatic update when the user explicitly requests it', async () => {
+    const pending = preparedHomebrewUpdate();
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.detectInstallSource.mockResolvedValue('homebrew');
+    mocks.readUpdateInstallState.mockResolvedValue(installState({ pending }));
+
+    await expect(startManualUpdate('0.4.0')).resolves.toEqual({
+      status: 'in-progress',
+      version: '0.5.0',
+      installOnRestart: true,
+      readyToInstall: true,
+    });
+    expect(writeUpdateInstallState).toHaveBeenCalledWith(expect.objectContaining({
+      pending: { ...pending, requestedBy: 'manual' },
+    }));
+    expect(mocks.spawn).not.toHaveBeenCalled();
   });
 
   it('reports an install already in progress instead of double-starting', async () => {
@@ -1563,6 +1625,7 @@ describe('startManualUpdate', () => {
       status: 'in-progress',
       version: '0.5.0',
       installOnRestart: false,
+      readyToInstall: false,
     });
     expect(mocks.spawn).not.toHaveBeenCalled();
   });

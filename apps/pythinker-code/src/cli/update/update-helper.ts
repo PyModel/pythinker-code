@@ -6,15 +6,16 @@ import { z } from 'zod';
 
 import { getUpdateInstallLogFile } from '#/utils/paths';
 
+import { formatErrorMessage } from './format-error';
 import { prepareHomebrewUpdate } from './homebrew';
 import { readUpdateInstallState, writeUpdateInstallState } from './install-state';
-import type { UpdateInstallState } from './types';
+import type { UpdateInstallActive, UpdateInstallState } from './types';
 
 const UPDATE_INSTALL_LOG_MAX_BYTES = 1024 * 1024;
 
 const PrepareHomebrewArgsSchema = z.tuple([
   z.literal('prepare-homebrew'),
-  z.string().uuid(),
+  z.uuid(),
   z.string().refine((value) => valid(value) !== null, { error: 'invalid semver' }),
   z.enum(['automatic', 'manual']),
 ]);
@@ -48,8 +49,18 @@ function prepareFailureAttempts(state: UpdateInstallState, version: string): num
   return failure?.version === version && failure.operation === 'prepare' ? failure.attempts : 0;
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+function ownsPrepareJob(
+  state: UpdateInstallState,
+  jobId: string,
+  requestedVersion: string,
+): state is UpdateInstallState & { readonly active: UpdateInstallActive } {
+  const active = state.active;
+  return (
+    active?.jobId === jobId &&
+    active.operation === 'prepare' &&
+    active.source === 'homebrew' &&
+    active.version === requestedVersion
+  );
 }
 
 export function dispatchUpdateHelperIfRequested(): boolean {
@@ -65,9 +76,7 @@ export function dispatchUpdateHelperIfRequested(): boolean {
       process.exitCode = code;
     })
     .catch((error: unknown) => {
-      process.stderr.write(
-        `Update helper failed: ${error instanceof Error ? error.message : String(error)}\n`,
-      );
+      process.stderr.write(`Update helper failed: ${formatErrorMessage(error)}\n`);
       process.exitCode = 1;
     });
   return true;
@@ -82,43 +91,45 @@ export async function runUpdateHelper(args: readonly string[]): Promise<number> 
   const [, jobId, requestedVersion, requestedBy] = parsed.data;
   await rotateHelperLogIfNeeded();
   let state = await readUpdateInstallState();
-  if (state.active?.jobId !== jobId || state.active.operation !== 'prepare') {
+  if (!ownsPrepareJob(state, jobId, requestedVersion)) {
     await appendHelperLog(`prepare job ${jobId} is no longer active`);
     return 0;
   }
 
-  state = {
-    ...state,
-    active: {
-      ...state.active,
-      pid: process.pid,
-    },
-  };
-  await writeUpdateInstallState(state);
-  await appendHelperLog(`prepare job ${jobId} started for ${requestedVersion}`);
-
   try {
+    state = {
+      ...state,
+      active: {
+        ...state.active,
+        pid: process.pid,
+      },
+    };
+    await writeUpdateInstallState(state);
+    await appendHelperLog(`prepare job ${jobId} started for ${requestedVersion}`);
+
     const prepared = await prepareHomebrewUpdate(
       { jobId, requestedVersion, requestedBy },
       { logFile: getUpdateInstallLogFile() },
     );
     const latest = await readUpdateInstallState();
-    if (latest.active?.jobId !== jobId || latest.active.operation !== 'prepare') {
+    if (!ownsPrepareJob(latest, jobId, requestedVersion)) {
       await appendHelperLog(`prepare job ${jobId} lost ownership before completion`);
       return 0;
     }
+    // Keep `lastFailure` so prepare attempts accumulate when a "successful"
+    // preparation later turns out invalid at activation; a fully activated
+    // update clears it in `activatePendingUpdate`.
     await writeUpdateInstallState({
       ...latest,
       active: null,
       pending: prepared,
-      lastFailure: null,
     });
     await appendHelperLog(`prepare job ${jobId} verified ${prepared.version}`);
     return 0;
   } catch (error) {
     const latest = await readUpdateInstallState();
-    if (latest.active?.jobId !== jobId) return 1;
-    const message = errorMessage(error);
+    if (!ownsPrepareJob(latest, jobId, requestedVersion)) return 1;
+    const message = formatErrorMessage(error);
     await writeUpdateInstallState({
       ...latest,
       active: null,

@@ -6,6 +6,7 @@ import {
   activateHomebrewUpdate,
   PreparedHomebrewUpdateInvalidError,
 } from './homebrew';
+import { formatErrorMessage } from './format-error';
 import { tryAcquireUpdateInstallLock, type UpdateInstallLockHandle } from './install-lock';
 import { readUpdateInstallState, writeUpdateInstallState } from './install-state';
 import { detectInstallSource } from './source';
@@ -52,10 +53,6 @@ function activationAttempts(state: UpdateInstallState, version: string): number 
   return failure?.version === version && failure.operation === 'activate' ? failure.attempts : 0;
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 function isRunningPreparedVersion(currentVersion: string, preparedVersion: string): boolean {
   return (
     valid(currentVersion) !== null &&
@@ -77,6 +74,11 @@ export async function activatePendingUpdate(
     return { status: 'none' as const };
   }
 
+  if (await deps.detectSource() !== pending.source) {
+    await deps.writeState({ ...state, active: null, pending: null });
+    return { status: 'invalidated' as const, version: pending.version };
+  }
+
   if (isRunningPreparedVersion(currentVersion, pending.version)) {
     const installedAt = deps.now().toISOString();
     await deps.writeState({
@@ -92,12 +94,10 @@ export async function activatePendingUpdate(
     return { status: 'finalized' as const, version: currentVersion };
   }
 
-  if (await deps.detectSource() !== pending.source) {
-    await deps.writeState({ ...state, active: null, pending: null });
-    return { status: 'invalidated' as const, version: pending.version };
-  }
-
   if (activationAttempts(state, pending.version) >= ACTIVATION_FAILURE_LIMIT) {
+    // Terminal: drop the pending record (keeping lastFailure for preflight)
+    // so later launches stop retrying and reporting an in-progress update.
+    await deps.writeState({ ...state, pending: null });
     return {
       status: 'failed' as const,
       version: pending.version,
@@ -116,7 +116,7 @@ export async function activatePendingUpdate(
       ...state,
       active: {
         version: pending.version,
-        source: 'homebrew',
+        source: pending.source,
         operation: 'activate',
         jobId: pending.jobId,
         startedAt,
@@ -127,14 +127,26 @@ export async function activatePendingUpdate(
 
     try {
       const activated = await deps.activateHomebrew(pending);
+      await deps.writeState({
+        ...activatingState,
+        active: null,
+        lastFailure: null,
+      });
       return {
         status: 'activated' as const,
         version: activated.version,
         executable: activated.executable,
       };
     } catch (error) {
-      const message = errorMessage(error);
+      const message = formatErrorMessage(error);
       if (error instanceof PreparedHomebrewUpdateInvalidError) {
+        // Carry the cumulative prepare-failure count so repeated invalid
+        // artifacts can reach the auto-install failure threshold.
+        const priorFailure = activatingState.lastFailure;
+        const prepareAttempts =
+          priorFailure?.version === pending.version && priorFailure.operation === 'prepare'
+            ? priorFailure.attempts + 1
+            : 1;
         await deps.writeState({
           ...activatingState,
           active: null,
@@ -142,7 +154,7 @@ export async function activatePendingUpdate(
           lastFailure: {
             version: pending.version,
             failedAt: deps.now().toISOString(),
-            attempts: 1,
+            attempts: prepareAttempts,
             operation: 'prepare',
             message,
           },

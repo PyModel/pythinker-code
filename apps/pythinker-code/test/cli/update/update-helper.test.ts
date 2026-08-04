@@ -15,7 +15,7 @@ const mocks = vi.hoisted(() => ({
   prepareHomebrewUpdate: vi.fn(),
 }));
 
-vi.mock('../../../src/cli/update/homebrew', async () => {
+vi.mock('#/cli/update/homebrew', async () => {
   const actual = await vi.importActual<typeof import('#/cli/update/homebrew')>(
     '#/cli/update/homebrew',
   );
@@ -122,7 +122,34 @@ describe('update helper', () => {
     expect(mocks.prepareHomebrewUpdate).not.toHaveBeenCalled();
   });
 
-  it('finishes preparation in a detached process after its parent exits', async () => {
+  it('requires the active source and version to match the helper request', async () => {
+    const mismatched = await readUpdateInstallState();
+    await writeUpdateInstallState({
+      ...mismatched,
+      active: {
+        version: '0.6.0',
+        source: 'npm-global',
+        operation: 'prepare',
+        jobId: JOB_ID,
+        startedAt: '2026-08-04T07:59:00.000Z',
+      },
+    });
+
+    await expect(
+      runUpdateHelper(['prepare-homebrew', JOB_ID, '0.5.0', 'automatic']),
+    ).resolves.toBe(0);
+
+    expect(mocks.prepareHomebrewUpdate).not.toHaveBeenCalled();
+    await expect(readUpdateInstallState()).resolves.toEqual(expect.objectContaining({
+      active: expect.objectContaining({ source: 'npm-global', version: '0.6.0' }),
+      pending: null,
+    }));
+  });
+
+  // The fake `brew` uses a POSIX shebang, chmod, and `:` PATH separators.
+  it.skipIf(process.platform === 'win32')(
+    'finishes preparation in a detached process after its parent exits',
+    async () => {
     const fakeBin = join(dir, 'bin');
     const fixtureDir = join(dir, 'fixtures');
     const formulaPath = join(fixtureDir, 'pythinker-code.rb');
@@ -235,6 +262,7 @@ child.once('spawn', () => { child.unref(); closeSync(output); });
     await expect(activatePendingUpdate('0.5.0', {
       enabled: true,
       automaticEnabled: true,
+      deps: { detectSource: async () => 'homebrew' },
     })).resolves.toEqual({ status: 'finalized', version: '0.5.0' });
     await expect(readUpdateInstallState()).resolves.toEqual(expect.objectContaining({
       active: null,

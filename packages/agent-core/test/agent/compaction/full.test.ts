@@ -1874,6 +1874,45 @@ describe('FullCompaction', () => {
     expect(compactionMaxCompletionTokens).toEqual([128 * 1024]);
   });
 
+  it('shrinks the compaction max_tokens to the remaining context window', async () => {
+    let callCount = 0;
+    const compactionMaxCompletionTokens: unknown[] = [];
+    const generate: GenerateFn = async (provider, _system, _tools, _history, callbacks) => {
+      callCount += 1;
+      if (callCount === 1) {
+        throw new APIContextOverflowError(400, 'Context length exceeded', 'req-remaining-window');
+      }
+      if (callCount === 2) {
+        compactionMaxCompletionTokens.push(providerMaxCompletionTokens(provider));
+        return textResult('Remaining-window compacted summary.');
+      }
+      await callbacks?.onMessagePart?.({
+        type: 'text',
+        text: 'Recovered within remaining window.',
+      });
+      return textResult('Recovered within remaining window.');
+    };
+    const maxContextTokens = 4_000;
+    const ctx = testAgent({ generate });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: { ...CATALOGUED_MODEL_CAPABILITIES, max_context_tokens: maxContextTokens },
+    });
+    // ~2000 estimated tokens of history so the remaining window is well
+    // below the flat min(maxCtx, 128k) cap the budget would otherwise use.
+    ctx.appendExchange(1, 'x'.repeat(4_000), 'y'.repeat(4_000), 20);
+    ctx.newEvents();
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Retry near the window top' }] });
+    await ctx.untilTurnEnd();
+
+    expect(callCount).toBe(3);
+    expect(compactionMaxCompletionTokens).toHaveLength(1);
+    const cap = compactionMaxCompletionTokens[0] as number;
+    expect(cap).toBeGreaterThanOrEqual(1);
+    expect(cap).toBeLessThan(maxContextTokens);
+  });
+
   it('ignores filtered assistant placeholders when checking the retained overflow suffix', async () => {
     let callCount = 0;
     const generate: GenerateFn = async (_provider, _system, _tools, _history, callbacks) => {

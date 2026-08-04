@@ -27,13 +27,13 @@ const UpdateInstallStateSchema: z.ZodType<UpdateInstallState> = z
         startedAt: z.string().min(1),
         pid: z.number().int().positive().optional(),
         operation: UpdateInstallOperationSchema.optional(),
-        jobId: z.string().uuid().optional(),
+        jobId: z.uuid().optional(),
       })
       .strict()
       .nullable(),
     pending: z
       .object({
-        jobId: z.string().uuid(),
+        jobId: z.uuid(),
         source: z.literal('homebrew'),
         version: z.string().min(1),
         preparedAt: z.string().min(1),
@@ -84,5 +84,5 @@ export async function writeUpdateInstallState(
   value: UpdateInstallState,
   filePath: string = getUpdateInstallStateFile(),
 ): Promise<void> {
-  await writeJsonFile(filePath, UpdateInstallStateSchema, value);
+  await writeJsonFile(filePath, UpdateInstallStateSchema, value, { durable: true });
 }

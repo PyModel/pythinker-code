@@ -645,16 +645,12 @@ describe('OpenAILegacyChatProvider', () => {
     });
 
     it('withMaxCompletionTokens clamps to the 128k ceiling', async () => {
-      const provider = createProvider().withMaxCompletionTokens(1000000, {
-        usedContextTokens: 30000,
-        maxContextTokens: 1000000,
-      });
+      const provider = createProvider().withMaxCompletionTokens(1000000);
       const history: Message[] = [
         { role: 'user', content: [{ type: 'text', text: 'Hi' }], toolCalls: [] },
       ];
       const body = await captureRequestBody(provider, '', [], history);
 
-      // 1000000 - 30000 = 970000, clamped to 131072
       expect(body['max_tokens']).toBe(131072);
     });
   });

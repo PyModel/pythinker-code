@@ -3,7 +3,6 @@ import type {
   ChatProvider,
   FinishReason,
   GenerateOptions,
-  MaxCompletionTokensOptions,
   ProviderRequestAuth,
   StreamedMessage,
   ThinkingEffort,
@@ -653,19 +652,8 @@ export class OpenAILegacyChatProvider implements ChatProvider {
     return clone;
   }
 
-  withMaxCompletionTokens(
-    maxCompletionTokens: number,
-    options?: MaxCompletionTokensOptions,
-  ): OpenAILegacyChatProvider {
-    let cap = maxCompletionTokens;
-    if (
-      options?.usedContextTokens !== undefined &&
-      options?.maxContextTokens !== undefined &&
-      options.maxContextTokens > 0
-    ) {
-      cap = Math.min(cap, options.maxContextTokens - options.usedContextTokens);
-    }
-    cap = Math.min(cap, CHAT_COMPLETIONS_MAX_OUTPUT_TOKENS_CEILING);
+  withMaxCompletionTokens(maxCompletionTokens: number): OpenAILegacyChatProvider {
+    const cap = Math.min(maxCompletionTokens, CHAT_COMPLETIONS_MAX_OUTPUT_TOKENS_CEILING);
     return this.withGenerationKwargs(completionTokenKwargs(this._model, Math.max(1, cap)));
   }
 

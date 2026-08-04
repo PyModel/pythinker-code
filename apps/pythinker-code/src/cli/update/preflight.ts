@@ -14,6 +14,7 @@ import {
 import { loadTuiConfig } from '#/tui/config';
 
 import { readUpdateCache } from './cache';
+import { formatErrorMessage } from './format-error';
 import { tryAcquireUpdateInstallLock } from './install-lock';
 import { emptyUpdateInstallState, readUpdateInstallState, writeUpdateInstallState } from './install-state';
 import {
@@ -38,6 +39,7 @@ import {
   NPM_PACKAGE_NAME,
   type InstallSource,
   type UpdateDecision,
+  type UpdateInstallOperation,
   type UpdateInstallState,
   type UpdateCache,
   type UpdateManifest,
@@ -154,10 +156,6 @@ export function spawnForSource(
     case 'unsupported':
       throw new Error('unsupported install source cannot be auto-installed');
   }
-}
-
-function formatErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 export function renderManualUpdateMessage(
@@ -351,8 +349,25 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
-function failureAttemptsFor(state: UpdateInstallState, target: UpdateTarget): number {
-  return state.lastFailure?.version === target.version ? state.lastFailure.attempts : 0;
+function failureAttemptsFor(
+  state: UpdateInstallState,
+  target: UpdateTarget,
+  operation?: UpdateInstallOperation,
+): number {
+  const failure = state.lastFailure;
+  if (failure?.version !== target.version) return 0;
+  // Threshold gates omit `operation`: any failure kind at the limit parks the
+  // version. Increment sites pass their operation so a counter never resumes
+  // from another operation's attempts. Legacy records without `operation`
+  // count toward any operation.
+  if (
+    operation !== undefined &&
+    failure.operation !== undefined &&
+    failure.operation !== operation
+  ) {
+    return 0;
+  }
+  return failure.attempts;
 }
 
 function isProcessRunning(pid: number): boolean {
@@ -569,7 +584,7 @@ async function waitForChildSpawn(child: ReturnType<typeof spawn>): Promise<void>
 }
 
 function updateHelperCommand(
-  operation: string,
+  operation: 'prepare-homebrew',
   jobId: string,
   version: string,
   requestedBy: UpdateRequestOrigin,
@@ -594,9 +609,9 @@ async function startBackgroundHomebrewPreparation(
   track: RunUpdatePreflightOptions['track'],
   logger: UpdateLogger,
   rolloutTelemetry: RolloutTelemetry,
-): Promise<void> {
+): Promise<boolean> {
   const lock = await tryAcquireUpdateInstallLock({ version: target.version });
-  if (lock === null) return;
+  if (lock === null) return false;
 
   try {
     const freshState = await readUpdateInstallState().catch(() => state);
@@ -605,10 +620,12 @@ async function startBackgroundHomebrewPreparation(
       (freshState.pending !== null && preparedVersionCoversTarget(freshState.pending.version, target.version)) ||
       failureAttemptsFor(freshState, target) >= AUTO_INSTALL_FAILURE_PROMPT_THRESHOLD
     ) {
-      return;
+      return false;
     }
 
     const jobId = randomUUID();
+    // A retained older verified `pending` stays installable if this newer
+    // preparation fails; the helper's success path replaces it.
     const startedState: UpdateInstallState = {
       ...freshState,
       active: {
@@ -618,26 +635,26 @@ async function startBackgroundHomebrewPreparation(
         jobId,
         startedAt: nowIso(),
       },
-      pending: null,
     };
     await writeUpdateInstallState(startedState);
 
-    const { cmd, args } = updateHelperCommand(
-      'prepare-homebrew',
-      jobId,
-      target.version,
-      requestedBy,
-    );
-    const child = spawn(cmd, [...args], {
-      cwd: homedir(),
-      detached: true,
-      env: { ...process.env, [UPDATE_HELPER_ENV]: '1' },
-      stdio: 'ignore',
-    });
     try {
+      const { cmd, args } = updateHelperCommand(
+        'prepare-homebrew',
+        jobId,
+        target.version,
+        requestedBy,
+      );
+      const child = spawn(cmd, [...args], {
+        cwd: homedir(),
+        detached: true,
+        env: { ...process.env, [UPDATE_HELPER_ENV]: '1' },
+        stdio: 'ignore',
+      });
       await waitForChildSpawn(child);
+      child.unref();
     } catch (error) {
-      const attempts = failureAttemptsFor(startedState, target) + 1;
+      const attempts = failureAttemptsFor(startedState, target, 'prepare') + 1;
       await writeUpdateInstallState({
         ...startedState,
         active: null,
@@ -651,7 +668,6 @@ async function startBackgroundHomebrewPreparation(
       }).catch(() => {});
       throw error;
     }
-    child.unref();
 
     trackUpdateEvent(track, 'update_background_prepare_started', {
       current_version: currentVersion,
@@ -665,6 +681,7 @@ async function startBackgroundHomebrewPreparation(
       source: 'homebrew',
       jobId,
     });
+    return true;
   } finally {
     await lock.release().catch(() => {});
   }
@@ -679,9 +696,9 @@ async function startBackgroundInstall(
   track: RunUpdatePreflightOptions['track'],
   logger: UpdateLogger,
   rolloutTelemetry: RolloutTelemetry,
-): Promise<void> {
+): Promise<boolean> {
   const lock = await tryAcquireUpdateInstallLock({ version: target.version });
-  if (lock === null) return;
+  if (lock === null) return false;
 
   let finalizerOwnsLock = false;
   try {
@@ -690,7 +707,7 @@ async function startBackgroundInstall(
       hasFreshActiveInstall(freshState) ||
       failureAttemptsFor(freshState, target) >= AUTO_INSTALL_FAILURE_PROMPT_THRESHOLD
     ) {
-      return;
+      return false;
     }
 
     let startedState: UpdateInstallState = {
@@ -728,7 +745,7 @@ async function startBackgroundInstall(
       }
       if (settled) return;
       settled = true;
-      const attempts = failureAttemptsFor(startedState, target) + 1;
+      const attempts = failureAttemptsFor(startedState, target, 'install') + 1;
 
       const nextState: UpdateInstallState = succeeded
         ? {
@@ -748,6 +765,7 @@ async function startBackgroundInstall(
             version: target.version,
             failedAt: nowIso(),
             attempts,
+            operation: 'install',
           },
         };
       try {
@@ -803,6 +821,7 @@ async function startBackgroundInstall(
     finalizerOwnsLock = true;
     ready = true;
     if (pendingOutcome !== undefined) void finish(pendingOutcome);
+    return true;
   // When startup failed before handoff, release the lock here; the
   // finalizer releases it once the terminal state write completes.
   } finally {
@@ -882,7 +901,12 @@ export type ManualUpdateResult =
   | { readonly status: 'up-to-date' }
   | { readonly status: 'check-failed'; readonly message: string }
   | { readonly status: 'started'; readonly version: string; readonly installOnRestart: boolean }
-  | { readonly status: 'in-progress'; readonly version: string; readonly installOnRestart: boolean }
+  | {
+    readonly status: 'in-progress';
+    readonly version: string;
+    readonly installOnRestart: boolean;
+    readonly readyToInstall: boolean;
+  }
   | {
     readonly status: 'manual';
     readonly version: string;
@@ -918,6 +942,7 @@ export async function startManualUpdate(
       status: 'in-progress',
       version: installState.active?.version ?? target.version,
       installOnRestart: installState.active?.source === 'homebrew',
+      readyToInstall: false,
     };
   }
   if (
@@ -925,10 +950,22 @@ export async function startManualUpdate(
     installState.pending !== null &&
     preparedVersionCoversTarget(installState.pending.version, target.version)
   ) {
+    const pending = installState.pending;
+    if (pending.requestedBy === 'automatic') {
+      try {
+        await writeUpdateInstallState({
+          ...installState,
+          pending: { ...pending, requestedBy: 'manual' },
+        });
+      } catch (error) {
+        return { status: 'check-failed', message: formatErrorMessage(error) };
+      }
+    }
     return {
       status: 'in-progress',
-      version: installState.pending.version,
+      version: pending.version,
       installOnRestart: true,
+      readyToInstall: true,
     };
   }
   // Repeated background failures fall back to the copyable command instead of
@@ -950,7 +987,7 @@ export async function startManualUpdate(
       true,
     );
     if (source === 'homebrew') {
-      await startBackgroundHomebrewPreparation(
+      const started = await startBackgroundHomebrewPreparation(
         installState,
         currentVersion,
         target,
@@ -959,6 +996,16 @@ export async function startManualUpdate(
         logger,
         rolloutTelemetry,
       );
+      // Another process holds the lock or the under-lock re-check refused:
+      // nothing new was started, so don't claim it was.
+      if (!started) {
+        return {
+          status: 'in-progress',
+          version: target.version,
+          installOnRestart: true,
+          readyToInstall: false,
+        };
+      }
       return { status: 'started', version: target.version, installOnRestart: true };
     }
     if (!canAutoInstall(source, platform)) {
@@ -969,7 +1016,7 @@ export async function startManualUpdate(
         source,
       };
     }
-    await startBackgroundInstall(
+    const started = await startBackgroundInstall(
       installState,
       currentVersion,
       target,
@@ -979,6 +1026,14 @@ export async function startManualUpdate(
       logger,
       rolloutTelemetry,
     );
+    if (!started) {
+      return {
+        status: 'in-progress',
+        version: target.version,
+        installOnRestart: false,
+        readyToInstall: false,
+      };
+    }
     return { status: 'started', version: target.version, installOnRestart: false };
   } catch (error) {
     return { status: 'check-failed', message: formatErrorMessage(error) };
