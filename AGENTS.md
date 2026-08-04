@@ -1,111 +1,102 @@
 # Repository-level Agent Guide
 
-Reply in English unless the user explicitly asks you to respond in another language.
+Reply in English unless the user explicitly asks otherwise.
 
-This is a TypeScript monorepo for **pythinker-code**, a multi-provider AI coding agent. Keep the root `AGENTS.md` limited to hot-path rules: product identity, project map, hard constraints, and workflow requirements.
+TypeScript monorepo for **pythinker-code**, a provider-agnostic AI coding agent. This file covers product identity, project map, hard constraints, and workflow rules.
 
 ## Product Identity
 
-**pythinker-code** is an agentic coding assistant that plans, writes, tests, and iterates on code autonomously. Its defining trait is **provider-agnostic model selection**: the same agent runtime talks to any supported LLM through the `packages/kosong` abstraction layer.
+**pythinker-code** plans, writes, tests, and iterates on code autonomously. The same runtime talks to any LLM through the `packages/kosong` abstraction layer.
 
-### Supported Wire Types
+### Wire Types
 
-| Wire type          | SDK / transport         | Native providers                                                               |
-| ------------------ | ----------------------- | ------------------------------------------------------------------------------ |
-| `anthropic`        | `@anthropic-ai/sdk`     | Anthropic (Claude 3 / 3.5 / 3.7 / Opus 4–5 / Sonnet 4–5 / Haiku 4.5 / Fable 5) |
-| `openai`           | OpenAI Chat Completions | OpenAI (GPT-4o, GPT-4.1, GPT-4.5, GPT-5.4–5.6 Sol/Terra/Luna, GPT-3.5-turbo)   |
-| `openai_responses` | OpenAI Responses API    | OpenAI (GPT-4.1, GPT-5.6 Sol/Terra/Luna, o1, o3, o3-pro, o4-mini)              |
-| `google-genai`     | `@google/genai`         | Google (Gemini 2.0 / 2.5 Pro & Flash; 3.x via catalog)                         |
-| `vertexai`         | Google Vertex AI        | Google Cloud–hosted Gemini models                                              |
-| `pythinker`        | Pythinker managed API   | Any model proxied through Pythinker's own endpoint                             |
+| Wire type          | SDK / transport         | Providers                                       |
+| ------------------ | ----------------------- | ------------------------------------------------ |
+| `anthropic`        | `@anthropic-ai/sdk`     | Anthropic (Claude family)                        |
+| `openai`           | OpenAI Chat Completions | OpenAI (GPT-4o/4.1/4.5/5.x, GPT-3.5-turbo)     |
+| `openai_responses` | OpenAI Responses API    | OpenAI (GPT-4.1/5.x, o-series)                  |
+| `google-genai`     | `@google/genai`         | Google (Gemini 2.0–3.x)                          |
+| `vertexai`         | Google Vertex AI        | Google Cloud–hosted Gemini                       |
+| `pythinker`        | Pythinker managed API   | Any model proxied through Pythinker              |
 
-### OpenAI-Compatible Providers
-
-Any provider exposing an OpenAI-compatible `/chat/completions` or `/v1` endpoint can be used through the `openai` or `openai_responses` wire type with a custom `baseURL`. This includes — but is not limited to:
-
-- **DeepSeek** (DeepSeek-V4-Pro, DeepSeek-V4-Flash, DeepSeek-R1)
-- **Alibaba Qwen** (Qwen3.8-Max, Qwen3.7, Qwen3-Coder)
-- **Zhipu GLM** (GLM-5.2, GLM-5.1)
-- **MiniMax** (MiniMax M3)
-- **Moonshot / Kimi** (Kimi K3)
-- **xAI Grok** (Grok 4.5, Grok 4.3), **Together AI**, **Fireworks**, **Perplexity**, and other OpenAI-compatible hosts
+Any OpenAI-compatible endpoint (DeepSeek, Qwen, GLM, Grok, Together AI, Fireworks, etc.) works via the `openai`/`openai_responses` wire with a custom `baseURL`.
 
 ### Model Selection
 
-Model selection flows through the **catalog system** (`packages/kosong/src/catalog.ts`):
+Flows through the **catalog** ([catalog.ts](file:///Users/panda/Projects/active/pythinker-code-tsc/packages/kosong/src/catalog.ts)):
 
-1. An external `models.dev`-style JSON catalog maps `providerId → models[]`, each with context window, capabilities, cost rates, and modality metadata.
-2. `inferWireType()` resolves a catalog provider to its wire type — explicit `type` field first, then heuristic matching on `npm`/`id`.
-3. `createProvider()` instantiates the correct `ChatProvider` implementation for the resolved wire.
-4. Capability lookups (`getModelCapability()`) return vision, tool-use, thinking, and fast-mode flags per model, enabling the agent runtime to adapt prompting strategy to each model's strengths.
+1. JSON catalog maps `providerId → models[]` with context window, capabilities, cost, and modality metadata.
+2. `inferWireType()` resolves provider → wire type (explicit `type` field, then heuristic on `npm`/`id`).
+3. `createProvider()` instantiates the correct `ChatProvider`.
+4. `getModelCapability()` returns per-model flags (vision, tool-use, thinking, fast-mode).
 
-Adding a new provider requires **zero code changes** when it is OpenAI-compatible — just add the entry to the catalog JSON.
+Adding an OpenAI-compatible provider requires **zero code changes** — just add a catalog entry.
 
 ## Working Principles
 
-- Think from first principles; start from requirements, code facts, and verification — discuss unclear goals with the user first.
-- Treat code as the source of truth. Do not read Markdown to understand implementation unless the user says otherwise.
-- Validate outdated or ambiguous version claims against authoritative docs using Context7 MCP and Tavily.
-- Before changing code, read the relevant source and follow the nearest `AGENTS.md` in the directory tree.
+- Start from requirements and code facts; discuss unclear goals first.
+- Code is the source of truth — don't read Markdown to understand implementation.
+- Validate version claims against authoritative docs (Context7 MCP, Tavily).
+- Read relevant source and follow the nearest `AGENTS.md` before changing code.
 - Keep changes focused — no drive-by refactors.
-- Do not preserve backward compatibility; implement current requirements directly without legacy shims.
-- Choose the simplest implementation: standard library and platform features first, then established libraries, then custom code. Use the `ponytail` skill when a change looks over-engineered (skip it on trivial edits).
-- Do not add co-author attribution or reveal agent identity in commits, PRs, or explanatory text.
-- Git identity: `elkaix <melkholy@techmatrix.com>` — apply per command; never modify git config or reuse the address elsewhere.
+- Implement current requirements directly; no backward-compatibility shims.
+- Simplest implementation first: stdlib → established libraries → custom code. Use the `ponytail` skill when a change looks over-engineered.
+- No co-author attribution or agent identity in commits/PRs.
+- Git identity: `elkaix <melkholy@techmatrix.com>` — apply per command; never modify git config.
 
 ## Project Map
 
-- `apps/pythinker-code` — CLI / TUI app. Consumes `@pythoughts/pythinker-code-sdk`; must not depend on `@pythoughts/agent-core`. Use the `write-tui` skill for TUI changes.
-- `apps/pythinker-web` — Browser UI (Vue 3 + Vite + vue-i18n). REST + WebSocket under `/api/v1`; must not depend on `@pythoughts/agent-core`. See `apps/pythinker-web/AGENTS.md`.
-- `apps/dashboard` (`server/`, `web/`) — Session dashboard and replay tools.
-- `packages/agent-core` — Unified agent engine: Agent, Session, profile, skills, tools, plan, permission, background, records, DI services.
-- `packages/node-sdk` — Public TypeScript SDK and harness.
-- `packages/kosong` — LLM provider abstraction layer (wire types, catalog, capability registry).
-- `packages/kaos` — Execution environment, file/process abstractions.
-- `packages/oauth` — Pythinker OAuth and managed auth utilities.
-- `packages/telemetry` — Shared client-side telemetry.
-- `packages/server` — Pythinker Code server; hosts `agent-core` sessions over REST + WebSocket (`/api/v1`). See `packages/server/AGENTS.md`.
-- `packages/server-e2e` — Live e2e tests against a running server (`PYTHINKER_SERVER_URL`, default `http://127.0.0.1:58627`). See `packages/server-e2e/AGENTS.md`.
+| Package | Description | Notes |
+| ------- | ----------- | ----- |
+| `apps/pythinker-code` | CLI / TUI app | Consumes `@pythoughts/pythinker-code-sdk`; no `agent-core` dep. Use `write-tui` skill. |
+| `apps/pythinker-web` | Browser UI (Vue 3 + Vite + vue-i18n) | REST + WS `/api/v1`; no `agent-core` dep. See its `AGENTS.md`. |
+| `apps/dashboard` | Session dashboard & replay | `server/` + `web/` subdirs. |
+| `packages/agent-core` | Agent engine | Agent, Session, profile, skills, tools, plan, permission, DI. |
+| `packages/node-sdk` | Public TS SDK & harness | |
+| `packages/kosong` | LLM provider abstraction | Wire types, catalog, capability registry. |
+| `packages/kaos` | Execution environment | File/process abstractions. |
+| `packages/oauth` | Auth utilities | |
+| `packages/telemetry` | Client-side telemetry | |
+| `packages/server` | Server | Hosts `agent-core` over REST + WS `/api/v1`. See its `AGENTS.md`. |
+| `packages/server-e2e` | E2E tests | `PYTHINKER_SERVER_URL` (default `http://127.0.0.1:58627`). See its `AGENTS.md`. |
 
 ## Environment
 
-- **Node.js** `>=26.4.0` (`.nvmrc` is `26.4.0`). **pnpm** `10.33.0` (root `packageManager`).
-- `pnpm install` enforces the Node version (`engine-strict=true` in `.npmrc`).
+- **Node.js** ≥ 26.4.0 (`.nvmrc`). **pnpm** 10.33.0 (root `packageManager`). `engine-strict=true`.
 
-## Monorepo Workspace Maintenance
+## Monorepo Maintenance
 
-- `pnpm-workspace.yaml` is the source of truth, but `flake.nix` has **hardcoded** `workspacePaths` and `workspaceNames`.
-- **When adding or removing any workspace package, update both `pnpm-workspace.yaml` and `flake.nix`** — even leaf/test/e2e packages. Missing a path silently drops files from the Nix build; missing a name breaks `pnpmConfigHook`.
-- The CI check (`scripts/check-nix-workspace.mjs`) only validates the transitive closure of `@pythoughts/pythinker-code` — leaf packages outside that closure can slip through. Keep `flake.nix` updated by hand.
+- `pnpm-workspace.yaml` is source of truth, but `flake.nix` **hardcodes** `workspacePaths`/`workspaceNames`.
+- **Update both** when adding/removing any workspace package. Missing a path silently drops files from Nix; missing a name breaks `pnpmConfigHook`.
+- CI (`scripts/check-nix-workspace.mjs`) only validates the `@pythoughts/pythinker-code` closure — keep `flake.nix` updated by hand.
 
 ## Coding Rules
 
-- English-only codebase: no non-English text in source, tests, comments, or docs. Use ASCII/Latin fixtures (e.g. `café`) for unicode tests.
-- `packages/acp-adapter` must stay on `@agentclientprotocol/sdk` `^0.23.0` — 0.24+ removed the unstable session-model API it implements.
-- `tsgo` (`@typescript/native-preview`) is available via `npx tsgo -p <tsconfig> --noEmit` for fast typechecks; committed `typecheck` scripts still run `tsc` — run both when verifying type fixes.
-- For optional object properties, pass `undefined` directly — not conditional spread (`{ ...(x ? { x } : undefined) }`).
-- Optional properties do not need `| undefined` in the type (`user?: User`, not `user?: User | undefined`).
-- Single-parameter internal methods stay as single parameters — do not wrap in an options object.
-- Non-root `index.ts` files should prefer `export * from './module'`.
-- The `Agent` class (`packages/agent-core/src/agent`) must be standalone: no mandatory `Session`, `agentId`, or `session`. It may accept an optional `sessionId` as a provider hint but must not hold it or depend on Session lifecycle.
-- Prefer adding tests to existing test files over creating new ones.
-- When a test fails after a user modification, fix the test first unless the implementation has a real bug.
-- Do not sacrifice code quality for compatibility. Breaking changes go through changesets with a `major` bump (user confirmation required).
+- English-only codebase. Use ASCII/Latin fixtures (e.g. `café`) for unicode tests.
+- `packages/acp-adapter`: pin `@agentclientprotocol/sdk` `^0.23.0` (0.24+ broke session-model API).
+- `tsgo` (`@typescript/native-preview`) available via `npx tsgo -p <tsconfig> --noEmit`; committed scripts use `tsc` — run both for type fixes.
+- Pass `undefined` directly for optional props — no conditional spread.
+- `user?: User`, not `user?: User | undefined`.
+- Single-param internal methods stay single-param — no options-object wrapping.
+- Non-root `index.ts`: prefer `export * from './module'`.
+- `Agent` class must be standalone — no mandatory `Session`/`agentId`. Optional `sessionId` as provider hint only.
+- Prefer adding tests to existing files. Fix failing tests first (unless there's a real impl bug).
+- Breaking changes require changesets with `major` bump (user confirmation required).
 
 ## Experimental Features
 
-Gate unreleased features behind flags in `packages/agent-core/src/flags/registry.ts`. Check with `flags.enabled('my-feature')`. Env-driven: `PYTHINKER_CODE_EXPERIMENTAL_<NAME>` toggles one; `PYTHINKER_CODE_EXPERIMENTAL_FLAG` enables all. Release by flipping `default` to `true`.
-
-## Where to Update Instructions
-
-- Hot-path rules affecting all tasks → root `AGENTS.md`. Directory-specific rules → nearest sub-directory `AGENTS.md`. Keep updates focused and code-backed.
+Gate behind flags in `packages/agent-core/src/flags/registry.ts`. Check: `flags.enabled('my-feature')`. Env: `PYTHINKER_CODE_EXPERIMENTAL_<NAME>` toggles one; `PYTHINKER_CODE_EXPERIMENTAL_FLAG` enables all. Release: flip `default` to `true`.
 
 ## Workflow
 
 - Prefer `rg` / `rg --files` for code reading.
-- Follow existing boundaries and local patterns when designing changes.
-- Replace internal identifiers with neutral placeholders (`example.com`, `example.test`, `YOUR_API_KEY`) in public text and test data. Before opening a PR, audit the diff for leaked identifiers.
-- PR titles follow Conventional Commit style (e.g. `chore: remove legacy format commands`).
-- When an AI agent opens/updates a PR, fill in `.github/pull_request_template.md` — link the issue, describe what changed. No placeholder text or vague AI-generated summaries.
-- Before submitting a PR, run the `gen-changesets` skill and generate a changeset under `.changeset/`. **Never decide a `major` bump on your own** — explain the breaking change to the user and get explicit confirmation first; default to `minor` (or `patch` if unclear).
+- Follow existing boundaries and local patterns.
+- Replace internal identifiers with neutral placeholders in public text/test data. Audit diffs before PRs.
+- PR titles: Conventional Commit style (e.g. `chore: remove legacy format commands`).
+- Fill in `.github/pull_request_template.md` — link the issue, describe changes. No placeholder text.
+- Run `gen-changesets` skill before submitting PRs. Never decide `major` on your own — default to `minor`/`patch`.
 - Prefer `import ... from '#/...'` (equivalent to `@/...`).
+
+## Where to Update Instructions
+
+Hot-path rules → root `AGENTS.md`. Directory-specific rules → nearest sub-directory `AGENTS.md`.
