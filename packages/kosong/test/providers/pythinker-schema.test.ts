@@ -570,6 +570,106 @@ describe('normalizePythinkerToolSchema', () => {
     expect(normalizePythinkerToolSchema({})).toEqual({});
   });
 
+  it('drops a root anyOf that refines the root itself', () => {
+    // The TaskStop shape: `anyOf` says "one of these two fields is required".
+    // A tool's parameters must stay an object, so the branch form is unusable
+    // here and the requirement falls back to the tool's own runtime check.
+    const properties = {
+      task_id: { type: 'string' },
+      shell_id: { type: 'string' },
+    };
+
+    const result = normalizePythinkerToolSchema({
+      type: 'object',
+      description: 'Root doc.',
+      properties,
+      additionalProperties: false,
+      anyOf: [{ required: ['task_id'] }, { required: ['shell_id'] }],
+    });
+
+    expect(result).toEqual({
+      type: 'object',
+      description: 'Root doc.',
+      properties,
+      additionalProperties: false,
+    });
+  });
+
+  it('keeps the arguments of a root anyOf whose branches hold the properties', () => {
+    const result = normalizePythinkerToolSchema({
+      anyOf: [
+        { type: 'object', properties: { task_id: { type: 'string' } }, required: ['task_id'] },
+        { type: 'object', properties: { shell_id: { type: 'string' } }, required: ['shell_id'] },
+      ],
+    });
+
+    expect(result).toEqual({
+      type: 'object',
+      properties: {
+        task_id: { type: 'string' },
+        shell_id: { type: 'string' },
+      },
+    });
+  });
+
+  it('distributes into nested anyOf nodes and keeps narrower branch keywords', () => {
+    const result = normalizePythinkerToolSchema({
+      type: 'object',
+      properties: {
+        target: {
+          type: 'array',
+          items: { type: 'string' },
+          anyOf: [{ minItems: 1 }, { items: { type: 'integer' } }],
+        },
+      },
+    });
+
+    expect(result).toEqual({
+      type: 'object',
+      properties: {
+        target: {
+          anyOf: [
+            { type: 'array', items: { type: 'string' }, minItems: 1 },
+            { type: 'array', items: { type: 'integer' } },
+          ],
+        },
+      },
+    });
+  });
+
+  it('leaves anyOf nodes alone when the parent only carries metadata', () => {
+    const schema = {
+      type: 'object',
+      properties: {
+        qs: {
+          description: 'A query, or a list of them.',
+          anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }],
+        },
+      },
+    };
+
+    expect(normalizePythinkerToolSchema(schema)).toEqual(schema);
+  });
+
+  it('keeps cyclic $ref and definition buckets on the parent of an anyOf', () => {
+    const result = normalizePythinkerToolSchema({
+      type: 'object',
+      properties: {
+        node: {
+          anyOf: [{ $ref: '#/$defs/Node' }, { type: 'null' }],
+        },
+      },
+      $defs: {
+        Node: {
+          type: 'object',
+          properties: { next: { $ref: '#/$defs/Node' } },
+        },
+      },
+    });
+
+    expect(result['$defs']).toBeDefined();
+  });
+
   it('dereferences and normalizes local definition buckets', () => {
     const schema = {
       type: 'object',
@@ -755,42 +855,48 @@ describe('normalizePythinkerToolSchema', () => {
 
   it('preserves combinators while normalizing their schema branches', () => {
     const schema = {
-      anyOf: [{ enum: ['auto', 'manual'] }, { const: false }],
-      oneOf: [
-        {
-          properties: {
-            strategy: { enum: ['replace', 'insert'] },
-          },
+      properties: {
+        combined: {
+          anyOf: [{ enum: ['auto', 'manual'] }, { const: false }],
+          oneOf: [
+            {
+              properties: {
+                strategy: { enum: ['replace', 'insert'] },
+              },
+            },
+          ],
+          allOf: [
+            {
+              items: { const: 1 },
+            },
+          ],
         },
-      ],
-      allOf: [
-        {
-          items: { const: 1 },
-        },
-      ],
+      },
     };
 
     const result = normalizePythinkerToolSchema(schema);
 
-    expect(result).toEqual({
-      anyOf: [
-        { enum: ['auto', 'manual'], type: 'string' },
-        { const: false, type: 'boolean' },
-      ],
-      oneOf: [
-        {
-          type: 'object',
-          properties: {
-            strategy: { enum: ['replace', 'insert'], type: 'string' },
+    expect(result['properties']).toEqual({
+      combined: {
+        anyOf: [
+          { enum: ['auto', 'manual'], type: 'string' },
+          { const: false, type: 'boolean' },
+        ],
+        oneOf: [
+          {
+            type: 'object',
+            properties: {
+              strategy: { enum: ['replace', 'insert'], type: 'string' },
+            },
           },
-        },
-      ],
-      allOf: [
-        {
-          type: 'array',
-          items: { const: 1, type: 'integer' },
-        },
-      ],
+        ],
+        allOf: [
+          {
+            type: 'array',
+            items: { const: 1, type: 'integer' },
+          },
+        ],
+      },
     });
     expect(result).not.toHaveProperty('type');
   });
