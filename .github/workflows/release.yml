@@ -91,6 +91,13 @@ jobs:
       - name: Build packages
         run: pnpm build
 
+      - name: Mint release-bot token
+        id: release-bot
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.RELEASE_BOT_APP_ID }}
+          private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
+
       - name: Create Release Pull Request or Publish to npm
         id: changesets
         uses: changesets/action@v1
@@ -100,9 +107,21 @@ jobs:
           commit: "ci: release packages"
           title: "ci: release packages"
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # App token (not GITHUB_TOKEN) so the version PR triggers pull_request
+          # workflows and required status checks / CodeRabbit run on it.
+          GITHUB_TOKEN: ${{ steps.release-bot.outputs.token }}
           # No NPM_TOKEN on purpose: changesets prefers it over OIDC when set, so
           # defining it would silently downgrade publishing to a long-lived token.
+
+      - name: Request CodeRabbit review on version PR
+        if: steps.changesets.outputs.published != 'true'
+        env:
+          GH_TOKEN: ${{ steps.release-bot.outputs.token }}
+        run: |
+          pr=$(gh pr list --head changeset-release/main --state open --json number --jq '.[0].number' || true)
+          if [ -n "$pr" ] && [ "$pr" != "null" ]; then
+            gh pr comment "$pr" --body '@coderabbitai review'
+          fi
 
       - name: Resolve Pythinker Code native release
         if: steps.changesets.outputs.published == 'true'
