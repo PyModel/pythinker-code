@@ -121,6 +121,7 @@ describe('connectCatalogProvider credential acquisition', () => {
     await connectCatalogProvider(host, 'anthropic', CATALOG_ENTRY);
 
     expect(current().providers['anthropic']).toBeUndefined();
+    expect(host.harness.setConfig).not.toHaveBeenCalled();
     expect(promptModelSelectionForCatalog).not.toHaveBeenCalled();
   });
 });

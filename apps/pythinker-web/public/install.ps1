@@ -455,7 +455,12 @@ if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
 if (-not $Version) { $Version = Get-LatestVersion }
 $Version = $Version.TrimStart('v')
 
-$archLabel = if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq [System.Runtime.InteropServices.Architecture]::Arm64) { 'arm64' } else { 'x64' }
+$architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
+$archLabel = switch ($architecture) {
+  ([System.Runtime.InteropServices.Architecture]::Arm64) { 'arm64' }
+  ([System.Runtime.InteropServices.Architecture]::X64) { 'x64' }
+  default { Fail "unsupported Windows architecture: $architecture (need x64 or arm64)" }
+}
 $target = "win32-$archLabel"
 
 $asset = "pythinker-code-$target.zip"
