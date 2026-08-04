@@ -455,11 +455,23 @@ if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
 if (-not $Version) { $Version = Get-LatestVersion }
 $Version = $Version.TrimStart('v')
 
-$architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
-$archLabel = switch ($architecture) {
-  ([System.Runtime.InteropServices.Architecture]::Arm64) { 'arm64' }
-  ([System.Runtime.InteropServices.Architecture]::X64) { 'x64' }
-  default { Fail "unsupported Windows architecture: $architecture (need x64 or arm64)" }
+# The machine's native architecture, independent of process emulation: an
+# x64-emulated PowerShell on Windows ARM64 reports OSArchitecture=X64, but the
+# registry value below always holds the real hardware architecture.
+function Get-NativeArchitecture {
+  try {
+    $reg = Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment' -ErrorAction Stop
+    if ($reg.PROCESSOR_ARCHITECTURE) { return [string]$reg.PROCESSOR_ARCHITECTURE }
+  } catch {}
+  if ($env:PROCESSOR_ARCHITEW6432) { return $env:PROCESSOR_ARCHITEW6432 }
+  return [string]$env:PROCESSOR_ARCHITECTURE
+}
+
+$nativeArchitecture = Get-NativeArchitecture
+$archLabel = switch ($nativeArchitecture) {
+  'ARM64' { 'arm64' }
+  'AMD64' { 'x64' }
+  default { Fail "unsupported Windows architecture: $nativeArchitecture (need x64 or arm64)" }
 }
 $target = "win32-$archLabel"
 
