@@ -168,11 +168,17 @@ export function renderManualUpdateMessage(
       sourceDesc = 'unsupported package manager or layout.';
       break;
   }
+  const homebrewHint =
+    source === 'homebrew'
+      ? `Homebrew installs do not auto-update. For automatic background updates, ` +
+        `switch to the native installer: ${NATIVE_INSTALL_COMMAND_UNIX}\n`
+      : '';
   return (
     `A newer version of ${NPM_PACKAGE_NAME} is available ` +
     `(${currentVersion} -> ${target.version}).\n` +
     `Detected install source: ${sourceDesc}\n` +
-    `To update manually, run: ${installCommand}\n`
+    `To update manually, run: ${installCommand}\n` +
+    homebrewHint
   );
 }
 
@@ -717,7 +723,12 @@ export type ManualUpdateResult =
   | { readonly status: 'check-failed'; readonly message: string }
   | { readonly status: 'started'; readonly version: string }
   | { readonly status: 'in-progress'; readonly version: string }
-  | { readonly status: 'manual'; readonly version: string; readonly command: string };
+  | {
+    readonly status: 'manual';
+    readonly version: string;
+    readonly command: string;
+    readonly source: InstallSource;
+  };
 
 /**
  * Explicit user-requested update (TUI `/update`). Unlike the passive
@@ -746,6 +757,7 @@ export async function startManualUpdate(
       status: 'manual',
       version: target.version,
       command: installCommandFor(source, target.version, platform),
+      source,
     };
   }
 
@@ -763,6 +775,7 @@ export async function startManualUpdate(
       status: 'manual',
       version: target.version,
       command: installCommandFor(source, target.version, platform),
+      source,
     };
   }
 
