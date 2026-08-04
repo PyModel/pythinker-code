@@ -67,8 +67,8 @@ export const ANTHROPIC_PLUGIN_MARKETPLACE_REPOSITORY = 'anthropics/claude-plugin
 export const CLAUDE_PLUGIN_MARKETPLACE_PATH = '.claude-plugin/marketplace.json';
 export const ANTHROPIC_PLUGIN_MARKETPLACE_URL =
   `https://raw.githubusercontent.com/${ANTHROPIC_PLUGIN_MARKETPLACE_REPOSITORY}/HEAD/${CLAUDE_PLUGIN_MARKETPLACE_PATH}`;
-export const PYTHINKER_CODE_INSTALL_SH_URL = 'https://pythinker.com/install.sh';
-export const PYTHINKER_CODE_INSTALL_PS1_URL = 'https://pythinker.com/install.ps1';
+export const PYTHINKER_CODE_INSTALL_SH_URL = 'https://code.pythinker.com/pythinker-code/install.sh';
+export const PYTHINKER_CODE_INSTALL_PS1_URL = 'https://code.pythinker.com/pythinker-code/install.ps1';
 
 // Native install commands, split by platform. Use these for prompt copy and spawn calls only; do not assemble the strings elsewhere.
 export const NATIVE_INSTALL_COMMAND_UNIX = `curl -fsSL ${PYTHINKER_CODE_INSTALL_SH_URL} | bash`;
