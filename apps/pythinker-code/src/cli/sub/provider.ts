@@ -65,6 +65,7 @@ interface CatalogListOptions {
 }
 
 interface CatalogAddOptions {
+  readonly apiKey?: string;
   readonly apiKeyEnv?: string;
   readonly defaultModel?: string;
   readonly url?: string;
@@ -331,19 +332,24 @@ export async function handleCatalogAdd(
     deps.exit(1);
   }
 
+  const literalApiKey = opts.apiKey?.trim();
   const apiKeyEnvVar = (opts.apiKeyEnv ?? entry.env?.[0])?.trim();
-  if (apiKeyEnvVar === undefined || apiKeyEnvVar.length === 0) {
-    deps.stderr.write(
-      `Provider "${providerId}" does not declare an API key environment variable.\n`,
-    );
-    deps.exit(1);
-  }
-  const apiKey = deps.env[apiKeyEnvVar]?.trim();
-  if (apiKey === undefined || apiKey.length === 0) {
-    deps.stderr.write(
-      `Environment variable "${apiKeyEnvVar}" is not set or is empty.\n`,
-    );
-    deps.exit(1);
+  let useEnvVar = false;
+  if (literalApiKey === undefined || literalApiKey.length === 0) {
+    if (apiKeyEnvVar === undefined || apiKeyEnvVar.length === 0) {
+      deps.stderr.write(
+        `Provider "${providerId}" does not declare an API key environment variable. Pass --api-key <key>.\n`,
+      );
+      deps.exit(1);
+    }
+    const envValue = deps.env[apiKeyEnvVar]?.trim();
+    if (envValue === undefined || envValue.length === 0) {
+      deps.stderr.write(
+        `Environment variable "${apiKeyEnvVar}" is not set or is empty. Set it or pass --api-key <key>.\n`,
+      );
+      deps.exit(1);
+    }
+    useEnvVar = true;
   }
 
   const models = catalogProviderModels(entry);
@@ -386,7 +392,8 @@ export async function handleCatalogAdd(
     catalogUrl: url,
     wire,
     baseUrl,
-    apiKeyEnvVar,
+    apiKey: useEnvVar ? undefined : literalApiKey,
+    apiKeyEnvVar: useEnvVar ? apiKeyEnvVar : undefined,
     models,
     selectedModelId: opts.defaultModel ?? '',
     thinking: false,
@@ -519,17 +526,19 @@ export function registerProviderCommand(parent: Command, deps?: Partial<Provider
   catalog
     .command('add <providerId>')
     .description('Import a known provider from the catalog by id.')
+    .option('--api-key <key>', 'Provider API key to store in config.toml (takes precedence over --api-key-env).')
     .option('--api-key-env <name>', 'Environment variable containing the provider API key.')
     .option('--default-model <modelId>', 'Mark the imported model as default_model after import.')
     .option('--url <url>', `Override catalog URL. Defaults to ${DEFAULT_CATALOG_URL}.`)
     .action(
       async (
         providerId: string,
-        options: { apiKeyEnv?: string; defaultModel?: string; url?: string },
+        options: { apiKey?: string; apiKeyEnv?: string; defaultModel?: string; url?: string },
       ) => {
         const resolved = resolveDeps(deps);
         await runAction(resolved, () =>
           handleCatalogAdd(resolved, providerId, {
+            apiKey: options.apiKey,
             apiKeyEnv: options.apiKeyEnv,
             defaultModel: options.defaultModel,
             url: options.url,

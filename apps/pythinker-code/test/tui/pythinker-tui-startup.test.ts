@@ -1785,7 +1785,7 @@ describe('PythinkerTUI startup', () => {
     }
   });
 
-  it('requires a non-empty environment API key for catalog providers', async () => {
+  it('prompts for an API key when the catalog provider environment variable is unset', async () => {
     const setConfig = vi.fn(async (patch: unknown) => patch);
     const harness = makeHarness(makeSession(), {
       getConfig: vi.fn(async () => ({ providers: {}, models: {} })),
@@ -1793,6 +1793,7 @@ describe('PythinkerTUI startup', () => {
       setConfig,
     });
     const driver = makeDriver(harness, makeStartupInput());
+    vi.spyOn((driver as any).authFlow, 'refreshConfigAfterLogin').mockResolvedValue(undefined);
     const showError = vi.spyOn(driver as any, 'showError').mockImplementation(() => {});
     vi.mocked(promptPlatformSelection).mockResolvedValue({
       platformId: `${CATALOG_PLATFORM_VALUE_PREFIX}deepseek`,
@@ -1810,20 +1811,63 @@ describe('PythinkerTUI startup', () => {
       },
     });
     vi.mocked(promptApiKey).mockClear();
-    vi.mocked(promptModelSelectionForCatalog).mockClear();
+    vi.mocked(promptApiKey).mockResolvedValue('typed-in-secret');
+    vi.mocked(promptModelSelectionForCatalog).mockImplementation(
+      async (_host, _providerId, models) => ({ model: models[0]!, effort: 'off' }),
+    );
 
     try {
       vi.stubEnv('DEEPSEEK_API_KEY', '');
       await handleLoginCommand(driver as any);
 
+      expect(showError).not.toHaveBeenCalled();
+      expect(promptApiKey).toHaveBeenCalledTimes(1);
+      const configPatch = setConfig.mock.calls[0]?.[0] as {
+        providers: Record<string, { apiKey?: string; apiKeyEnvVar?: string }>;
+      };
+      expect(configPatch.providers['deepseek']?.apiKey).toBe('typed-in-secret');
+      expect(configPatch.providers['deepseek']?.apiKeyEnvVar).toBeUndefined();
+      expect(harness.track).toHaveBeenCalledWith('login', {
+        provider: 'deepseek',
+        method: 'api_key',
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('aborts catalog provider login when the API key prompt is cancelled', async () => {
+    const setConfig = vi.fn(async (patch: unknown) => patch);
+    const harness = makeHarness(makeSession(), {
+      getConfig: vi.fn(async () => ({ providers: {}, models: {} })),
+      removeProvider: vi.fn(),
+      setConfig,
+    });
+    const driver = makeDriver(harness, makeStartupInput());
+    vi.mocked(promptPlatformSelection).mockResolvedValue({
+      platformId: `${CATALOG_PLATFORM_VALUE_PREFIX}deepseek`,
+      catalog: {
+        deepseek: {
+          id: 'deepseek',
+          name: 'Example provider',
+          npm: '@ai-sdk/openai-compatible',
+          api: 'https://api.example.test',
+          env: ['DEEPSEEK_API_KEY'],
+          models: {
+            chat: { id: 'example-chat', limit: { context: 128_000 } },
+          },
+        },
+      },
+    });
+    vi.mocked(promptApiKey).mockClear();
+    vi.mocked(promptApiKey).mockResolvedValue(undefined);
+    vi.mocked(promptModelSelectionForCatalog).mockClear();
+
+    try {
       vi.stubEnv('DEEPSEEK_API_KEY', undefined);
       await handleLoginCommand(driver as any);
 
-      expect(showError).toHaveBeenCalledTimes(2);
-      expect(showError).toHaveBeenCalledWith(
-        'Environment variable "DEEPSEEK_API_KEY" is not set or is empty.',
-      );
-      expect(promptApiKey).not.toHaveBeenCalled();
+      expect(promptApiKey).toHaveBeenCalledTimes(1);
       expect(promptModelSelectionForCatalog).not.toHaveBeenCalled();
       expect(setConfig).not.toHaveBeenCalled();
     } finally {

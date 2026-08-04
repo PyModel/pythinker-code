@@ -1009,4 +1009,63 @@ describe('pythinker provider catalog add', () => {
       'CUSTOM_ANTHROPIC_API_KEY',
     );
   });
+
+  it('stores a literal --api-key when the environment variable is unset', async () => {
+    mockRegistryFetch(CATALOG_BODY);
+    const { harness, current } = makeHarness({ providers: {} } as PythinkerConfig);
+    const { deps, exitCodes } = makeDeps(harness, { env: {} });
+
+    await tryRun(() => handleCatalogAdd(deps, 'anthropic', { apiKey: 'sk-literal' }));
+
+    expect(exitCodes).toEqual([]);
+    expect(current().providers['anthropic']?.apiKey).toBe('sk-literal');
+    expect(current().providers['anthropic']?.apiKeyEnvVar).toBeUndefined();
+  });
+
+  it('prefers a literal --api-key over a set environment variable', async () => {
+    mockRegistryFetch(CATALOG_BODY);
+    const { harness, current } = makeHarness({ providers: {} } as PythinkerConfig);
+    const { deps, exitCodes } = makeDeps(harness, {
+      env: { ANTHROPIC_API_KEY: 'from-env' },
+    });
+
+    await tryRun(() => handleCatalogAdd(deps, 'anthropic', { apiKey: 'sk-literal' }));
+
+    expect(exitCodes).toEqual([]);
+    expect(current().providers['anthropic']?.apiKey).toBe('sk-literal');
+    expect(current().providers['anthropic']?.apiKeyEnvVar).toBeUndefined();
+  });
+
+  it('stores a literal --api-key even when the catalog declares no credential name', async () => {
+    mockRegistryFetch({
+      anthropic: { ...CATALOG_BODY.anthropic, env: undefined },
+    });
+    const { harness, current } = makeHarness({ providers: {} } as PythinkerConfig);
+    const { deps, exitCodes } = makeDeps(harness, { env: {} });
+
+    await tryRun(() => handleCatalogAdd(deps, 'anthropic', { apiKey: 'sk-literal' }));
+
+    expect(exitCodes).toEqual([]);
+    expect(current().providers['anthropic']?.apiKey).toBe('sk-literal');
+    expect(current().providers['anthropic']?.apiKeyEnvVar).toBeUndefined();
+  });
+
+  it('routes --api-key through Commander', async () => {
+    mockRegistryFetch(CATALOG_BODY);
+    const { harness, current } = makeHarness({ providers: {} } as PythinkerConfig);
+    const { deps, exitCodes } = makeDeps(harness, { env: {} });
+    const program = new Command('pythinker');
+    registerProviderCommand(program, deps);
+
+    await tryRun(() =>
+      program.parseAsync(
+        ['node', 'pythinker', 'provider', 'catalog', 'add', 'anthropic', '--api-key', 'sk-flag'],
+        { from: 'node' },
+      ),
+    );
+
+    expect(exitCodes).toEqual([]);
+    expect(current().providers['anthropic']?.apiKey).toBe('sk-flag');
+    expect(current().providers['anthropic']?.apiKeyEnvVar).toBeUndefined();
+  });
 });
