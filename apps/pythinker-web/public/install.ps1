@@ -148,6 +148,10 @@ function Stop-AntennaSpin {
 }
 
 function Write-LogoAnimated {
+  # The intro absolute-positions to screen rows (grid at 5-9, progress at
+  # 17), which assumes a clean screen. Clear it first — otherwise earlier
+  # shell output interleaves with the animation.
+  Write-Host -NoNewline "${ESC}[2J${ESC}[H"
   $rows = 5; $cols = 13
   $frameMs = 60; $staggerMs = 40
   if ($env:PYTHINKER_LOGO_FRAME_DELAY)   { try { $frameMs   = [int]([double]$env:PYTHINKER_LOGO_FRAME_DELAY   * 1000) } catch {} }

@@ -327,6 +327,11 @@ print_logo_animated() {
   local FRAME_DELAY="${PYTHINKER_LOGO_FRAME_DELAY:-0.06}"
   local STAGGER_DELAY="${PYTHINKER_LOGO_STAGGER_DELAY:-0.04}"
 
+  # The whole intro absolute-positions to screen rows (grid at 5-9,
+  # progress at 17), which assumes a clean screen. Clear it first —
+  # otherwise earlier shell output interleaves with the animation.
+  printf '\033[2J\033[H'
+
   # Hide the text cursor while we redraw in place — otherwise the block
   # cursor on terminals like Terminal.app renders as a stray white block
   # at the cursor's current cell. Show it again before returning so the
