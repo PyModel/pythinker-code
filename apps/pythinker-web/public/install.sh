@@ -897,6 +897,10 @@ main() {
   print_done
 }
 
-if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+# `curl … | bash` feeds the script over stdin, where BASH_SOURCE is empty and
+# $0 is "bash". Defaulting to $0 keeps the piped install (the documented entry
+# point) running main, still runs main when the file is executed directly, and
+# still skips it when the script is sourced.
+if [[ "${BASH_SOURCE[0]:-$0}" == "$0" ]]; then
   main "$@"
 fi
