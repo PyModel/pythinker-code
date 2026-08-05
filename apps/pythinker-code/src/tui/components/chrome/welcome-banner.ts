@@ -225,7 +225,7 @@ function renderTipsBlock(
 
   if (withRule) {
     const ruleChar = asciiMode ? '-' : '─';
-    lines.push(muted(ruleChar.repeat(Math.max(4, width))));
+    lines.push(muted(ruleChar.repeat(tipWidth)));
   }
 
   for (const item of tips) {

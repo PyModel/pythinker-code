@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { TaskOutputViewer } from '@/tui/components/dialogs/task-output-viewer';
 import { darkColors } from '@/tui/theme/colors';
 
-const ANSI_SGR = /\[[0-9;]*m/g;
+const ANSI_SGR = /\u001B\[[0-9;]*m/g;
 function strip(text: string): string {
   return text.replaceAll(ANSI_SGR, '');
 }

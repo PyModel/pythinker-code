@@ -42,6 +42,10 @@ import {
 } from '#/tui/utils/terminal-theme';
 import { LEGACY_TEST_PATHS, PARITY_CASES } from './parity/feature-matrix';
 
+/** The picker colours labels and values separately, so raw frames interleave SGR escapes. */
+const ANSI_SGR = /\u001B\[[0-9;]*m/g;
+const stripAnsi = (frame: string): string => frame.replaceAll(ANSI_SGR, '');
+
 vi.mock('#/tui/commands/prompts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('#/tui/commands/prompts')>();
   return {
@@ -1178,7 +1182,7 @@ describe('PythinkerTUI startup', () => {
     firstPicker.handleInput('c');
     firstPicker.handleInput('w');
     firstPicker.handleInput('d');
-    expect(firstPicker.render(160).join('\n')).toContain('Search: cwd');
+    expect(stripAnsi(firstPicker.render(160).join('\n'))).toContain('Search: cwd');
 
     firstPicker.handleInput('\u0001');
     await new Promise((resolve) => setImmediate(resolve));
@@ -1187,7 +1191,7 @@ describe('PythinkerTUI startup', () => {
       handleInput(data: string): void;
       render(width: number): string[];
     };
-    const output = allPicker.render(160).join('\n');
+    const output = stripAnsi(allPicker.render(160).join('\n'));
 
     expect(driver.state.sessionsScope).toBe('all');
     expect(output).toContain('All sessions');

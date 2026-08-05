@@ -5,7 +5,7 @@ import { DynamicWorkflowModeMarkerComponent } from '#/tui/components/messages/dy
 import { buildGoalMarker, GoalMarkerComponent } from '#/tui/components/messages/goal-markers';
 import type { GoalChange } from '@pythoughts/pythinker-code-sdk';
 
-const ANSI_SGR = /\[[0-9;]*m/g;
+const ANSI_SGR = /\u001B\[[0-9;]*m/g;
 function strip(lines: string[]): string {
   return lines.join('\n').replaceAll(ANSI_SGR, '');
 }

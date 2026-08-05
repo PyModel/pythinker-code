@@ -75,7 +75,7 @@ describe('TabbedModelSelectorComponent', () => {
     expect(component.activeTabId()).toBe('managed:kimi-code');
     expect(out).toContain('Kimi K2');
     expect(out).not.toContain('GPT-5');
-    expect(out).toMatch(/❯ Kimi K2\s+Pythinker ← current/u);
+    expect(out).toMatch(/❯ Kimi K2\s+Kimi ← current/u);
   });
 
   it('opens the matching provider when the current canonical alias is stale', () => {

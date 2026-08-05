@@ -101,7 +101,7 @@ describe('ProviderManagerComponent', () => {
     const plain = component
       .render(120)
       .join('\n')
-      .replaceAll(/\[[0-9;]*m/g, '');
+      .replaceAll(/\u001B\[[0-9;]*m/g, '');
     expect(plain).toContain('← current');
     expect(plain).not.toContain('●');
   });

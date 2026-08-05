@@ -5223,8 +5223,8 @@ command = "vim"
     });
     const picker = driver.state.editorContainer.children[0];
     const pickerOutput = stripSgr((picker as TabbedModelSelectorComponent).render(120).join('\n'));
-    expect(pickerOutput).toMatch(/Kimi K2\s+Pythinker ← current/);
-    expect(pickerOutput).toMatch(/❯ Kimi Turbo\s+Pythinker/);
+    expect(pickerOutput).toMatch(/Kimi K2\s+Kimi ← current/);
+    expect(pickerOutput).toMatch(/❯ Kimi Turbo\s+Kimi/);
     (picker as TabbedModelSelectorComponent).handleInput('t');
     (picker as TabbedModelSelectorComponent).handleInput('u');
     const filteredOutput = stripSgr((picker as TabbedModelSelectorComponent).render(120).join('\n'));
