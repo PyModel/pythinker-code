@@ -31,14 +31,6 @@ export const DYNAMIC_WORKFLOW_RENDERING = {
   startedProgress: 20,
   modelActivityProgress: 50,
   toolActivityProgress: 75,
-  // Each streamed model delta creeps progress toward a ceiling instead of
-  // pinning it: p += max(minStep, (ceiling - p) * rate), clamped to the
-  // ceiling. The minimum step keeps the tail visibly moving instead of
-  // asymptoting into a stall. Still event-driven, never a timer.
-  progressCreepRate: 0.03,
-  progressCreepMinStep: 0.15,
-  midworkCreepCeiling: 74,
-  finalizingCreepCeiling: 99,
   // Two 2×4 Braille cells form a compact 4×4 dotted cube that fills bottom-up.
   cubeFillLevels: [' ', '⡀', '⣀', '⣄', '⣤', '⣦', '⣶', '⣷', '⣿'],
 } as const;

@@ -41,6 +41,8 @@ export interface DynamicWorkflowMember {
   item: string;
   phase: DynamicWorkflowPhase;
   latest: string;
+  /** `latest` holds a tool-activity label, not streamed model text. */
+  latestFromTool?: boolean;
   statusDetail?: string;
   startedAtMs?: number;
   endedAtMs?: number;
@@ -201,6 +203,13 @@ export class DynamicWorkflowMissionControlComponent implements Component {
     this.model.knownTotal = this.completeItems.length;
     this.ensureMemberCount(this.completeItems.length);
     this.updateItemTexts(this.completeItems);
+    // Streaming may have over-counted items; drop the unclaimed surplus rows.
+    if (this.completeItems.length > 0) {
+      this.model.members = this.model.members.filter(
+        (member) => member.index <= this.completeItems.length || member.agentId !== undefined,
+      );
+      this.model.itemsStarted = this.model.members.length;
+    }
     for (const member of this.model.members) {
       if (member.phase === 'pending') member.phase = 'queued';
     }
@@ -249,6 +258,8 @@ export class DynamicWorkflowMissionControlComponent implements Component {
     this.advanceMemberProgress(member, DYNAMIC_WORKFLOW_RENDERING.toolActivityProgress);
     const latest = input.name === undefined ? 'Using a tool' : `Using ${input.name}`;
     this.setLatest(member, latest, true);
+    // Streamed text that follows starts a new line, never continues this label.
+    member.latestFromTool = true;
   }
 
   appendModelDelta(input: { readonly agentId: string; readonly delta: string }): void {
@@ -256,29 +267,13 @@ export class DynamicWorkflowMissionControlComponent implements Component {
     if (member === undefined || isTerminalPhase(member.phase) || input.delta.length === 0) return;
     this.markStarted(input.agentId);
     const recordActivity = input.delta.includes('\n') || member.latest.length === 0;
-    // Text after a tool call counts as finalizing; earlier text is mid-work
-    // output. Each delta creeps toward the stage ceiling — with a minimum
-    // step so long streams keep visibly moving — without claiming completion.
-    const percent = member.progressPercent;
-    const {
-      toolActivityProgress,
-      finalizingCreepCeiling,
-      modelActivityProgress,
-      midworkCreepCeiling,
-      progressCreepRate,
-      progressCreepMinStep,
-    } = DYNAMIC_WORKFLOW_RENDERING;
-    const creepToward = (ceiling: number): number => Math.min(
-      ceiling,
-      percent + Math.max(progressCreepMinStep, (ceiling - percent) * progressCreepRate),
-    );
-    this.advanceMemberProgress(
-      member,
-      percent >= toolActivityProgress
-        ? creepToward(finalizingCreepCeiling)
-        : Math.max(modelActivityProgress, creepToward(midworkCreepCeiling)),
-    );
-    const latest = latestNonEmptyLine(`${member.latest}${input.delta}`);
+    // Progress reflects the observed stage only. The protocol emits no per-task
+    // completion signal, so streamed text never advances past its stage floor —
+    // elapsed time and the latest line carry liveness instead.
+    this.advanceMemberProgress(member, DYNAMIC_WORKFLOW_RENDERING.modelActivityProgress);
+    const carried = member.latestFromTool === true ? '' : member.latest;
+    const latest = latestNonEmptyLine(`${carried}${input.delta}`);
+    member.latestFromTool = false;
     this.setLatest(member, latest, recordActivity);
   }
 
@@ -711,20 +706,51 @@ export class DynamicWorkflowMissionControlComponent implements Component {
 /** Item list from the completed tool-call `items` argument. */
 export function dynamicWorkflowItemsFromArgs(args: Record<string, unknown>): string[] {
   const items = args['items'];
-  return Array.isArray(items) ? items.map(String) : [];
+  return Array.isArray(items) ? items.map(itemLabel) : [];
 }
 
-/** Best-effort `items` read from a partially streamed JSON arguments string. */
+/**
+ * The schema requires plain strings, but a model may still emit objects. Render
+ * a readable field instead of `[object Object]`; the tool call fails validation
+ * either way.
+ */
+function itemLabel(item: unknown): string {
+  if (typeof item === 'string') return item;
+  if (typeof item !== 'object' || item === null) return String(item);
+  const record = item as Record<string, unknown>;
+  for (const key of ['prompt', 'description', 'title', 'task']) {
+    const value = record[key];
+    if (typeof value === 'string' && value.length > 0) return value;
+  }
+  return '';
+}
+
+/**
+ * Best-effort `items` read from a partially streamed JSON arguments string.
+ * Only top-level array members count: strings nested inside an object or array
+ * member (and object keys) are skipped, not counted as items.
+ */
 export function dynamicWorkflowPartialItemsFromArguments(argumentsText: string): string[] {
-  const match = /"items"\s*:\s*\[/.exec(argumentsText);
+  const match = /"items"\s*:\s*\[/u.exec(argumentsText);
   if (match === null) return [];
   const items: string[] = [];
+  let depth = 0;
   for (let index = match.index + match[0].length; index < argumentsText.length; index += 1) {
     const character = argumentsText[index];
-    if (character === ']') return items;
+    if (character === '{' || character === '[') {
+      // A nested member still occupies one item slot.
+      if (depth === 0) items.push('');
+      depth += 1;
+      continue;
+    }
+    if (character === '}' || character === ']') {
+      if (depth === 0) return items;
+      depth -= 1;
+      continue;
+    }
     if (character !== '"') continue;
     const parsed = parsePartialJsonString(argumentsText, index + 1);
-    items.push(parsed.value);
+    if (depth === 0) items.push(parsed.value);
     if (!parsed.closed) return items;
     index = parsed.nextIndex;
   }
