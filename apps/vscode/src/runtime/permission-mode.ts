@@ -7,7 +7,7 @@ import type { JsonObject, PermissionMode, Session } from "@pythoughts/pythinker-
  */
 export const SESSION_PERMISSION_MODE_KEY = "vscode_permission_mode";
 
-const PERMISSION_MODES: readonly PermissionMode[] = new Set(["manual", "auto", "yolo"]);
+const PERMISSION_MODES: ReadonlySet<PermissionMode> = new Set(["manual", "auto", "yolo"]);
 
 export function isPermissionMode(value: unknown): value is PermissionMode {
   return typeof value === "string" && PERMISSION_MODES.has(value as PermissionMode);
