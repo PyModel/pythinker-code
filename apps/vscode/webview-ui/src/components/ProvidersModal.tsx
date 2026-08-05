@@ -36,6 +36,7 @@ import type {
 const KEY_SOURCE_LABEL: Record<ConfiguredProvider["keySource"], string> = {
   config: "Key in config.toml",
   env: "Key from environment",
+  oauth: "Signed in",
   none: "No key configured",
 };
 
@@ -179,7 +180,9 @@ function ProviderRow({
         >
           <IconChevronDown className={cn("size-3 text-muted-foreground transition-transform", !expanded && "-rotate-90")} />
           <span className="text-xs font-medium truncate">{provider.id}</span>
-          <span className="text-[10px] text-muted-foreground shrink-0">{provider.type}</span>
+          <span className="text-[10px] text-muted-foreground shrink-0 truncate">
+            {provider.host ?? provider.type}
+          </span>
           <span className="text-[10px] text-muted-foreground tabular-nums shrink-0">
             {provider.models.length} model{provider.models.length === 1 ? "" : "s"}
           </span>

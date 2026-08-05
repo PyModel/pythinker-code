@@ -47,14 +47,18 @@ function toConfiguredProvider(id: string, provider: any, config: any): Configure
     id,
     type: provider.type ?? "unknown",
     baseUrl: provider.baseUrl,
+    host: hostOf(provider.baseUrl),
     // Never send the key itself to the Webview; only whether one is configured
-    // and where it comes from.
+    // and where it comes from. A managed provider authenticates over OAuth and
+    // is required by the schema to carry no key at all, so it is not missing one.
     keySource:
-      typeof provider.apiKey === "string" && provider.apiKey.length > 0
-        ? "config"
-        : typeof provider.apiKeyEnvVar === "string" && provider.apiKeyEnvVar.length > 0
-          ? "env"
-          : "none",
+      provider.oauth !== undefined
+        ? "oauth"
+        : typeof provider.apiKey === "string" && provider.apiKey.length > 0
+          ? "config"
+          : typeof provider.apiKeyEnvVar === "string" && provider.apiKeyEnvVar.length > 0
+            ? "env"
+            : "none",
     apiKeyEnvVar: provider.apiKeyEnvVar,
     catalogUrl: provider.source?.kind === "modelsDev" ? provider.source.url : undefined,
     models: models.toSorted((left, right) => left.localeCompare(right)),
@@ -112,6 +116,15 @@ export const providerHandlers: Record<string, Handler<any, any>> = {
     return view;
   },
 };
+
+function hostOf(baseUrl: unknown): string | undefined {
+  if (typeof baseUrl !== "string" || baseUrl.length === 0) return undefined;
+  try {
+    return new URL(baseUrl).host;
+  } catch {
+    return undefined;
+  }
+}
 
 function toCatalogSummary(id: string, entry: any): CatalogProviderSummary {
   const wire = catalogConnectionWire(entry);
