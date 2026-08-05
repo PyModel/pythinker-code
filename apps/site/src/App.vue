@@ -57,6 +57,8 @@ const terminalDemos = [
   },
 ];
 
+const vscodeInstallCommand = 'code --install-extension pythoughts.pythinker-code';
+
 const copiedCommand = ref('');
 const mobileMenu = ref(null);
 const menuButton = ref(null);
@@ -278,6 +280,47 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
+
+    <section id="vscode" class="section container" aria-labelledby="vscode-title">
+      <div class="reveal">
+        <p class="eyebrow">VS Code extension</p>
+        <h2 id="vscode-title" class="display-md">The same agent, inside your editor.</h2>
+      </div>
+      <div class="vscode-grid">
+        <figure class="vscode-shot reveal">
+          <img
+            src="/vscode_img.jpeg"
+            alt="Pythinker Code running in the VS Code sidebar next to an open editor"
+            width="1280"
+            height="844"
+            loading="lazy"
+            decoding="async"
+          />
+        </figure>
+        <div class="vscode-copy reveal">
+          <p class="vscode-lead">Install from the Marketplace and Pythinker Code lives in the Activity Bar. It reads your repo, proposes edits in the native diff viewer, and runs commands with your approval.</p>
+          <ul class="vscode-points">
+            <li><strong>Native diffs.</strong> Review every proposed change in VS Code's own diff viewer before it lands.</li>
+            <li><strong>Shared config.</strong> Same <code>config.toml</code>, MCP servers, login, and sessions as the terminal app.</li>
+            <li><strong>Thinking controls.</strong> Toggle reasoning or pick a model-supported thinking effort per task.</li>
+          </ul>
+          <div class="vscode-actions">
+            <a class="button button-primary" href="https://marketplace.visualstudio.com/items?itemName=pythoughts.pythinker-code" target="_blank" rel="noopener">
+              <img src="/brand/visualstudiocode.svg" alt="" width="16" height="16" />
+              Get the extension
+            </a>
+            <div class="vscode-command">
+              <code>code --install-extension pythoughts.pythinker-code</code>
+              <button class="row-copy" type="button" aria-label="Copy VS Code install command" @click="copyText(vscodeInstallCommand)">
+                <svg v-if="copiedCommand === vscodeInstallCommand" aria-hidden="true" viewBox="0 0 20 20"><path d="m4 10 4 4 8-9" /></svg>
+                <svg v-else aria-hidden="true" viewBox="0 0 20 20"><rect x="7" y="3" width="10" height="11" rx="2" /><rect x="3" y="7" width="10" height="10" rx="2" /></svg>
+              </button>
+            </div>
+          </div>
+          <p class="section-note">Requires VS Code 1.100.0 or later. Cursor, Windsurf, and other VS Code forks install the same VSIX.</p>
+        </div>
+      </div>
+    </section>
 
     <section id="install" class="section container" aria-labelledby="install-title">
       <div class="reveal">
@@ -1330,6 +1373,104 @@ onUnmounted(() => {
   opacity: 0.6;
 }
 
+.vscode-grid {
+  display: grid;
+  grid-template-columns: 3fr 2fr;
+  align-items: stretch;
+  gap: 48px;
+  margin-top: 32px;
+}
+
+/* ponytail: the shot fills the card so both columns end on the same line; cover
+   crops the screenshot's right-hand marketplace rail, which carries no message */
+.vscode-shot {
+  overflow: hidden;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-lg);
+  background: var(--terminal-bg);
+  box-shadow: var(--shadow-terminal);
+}
+
+.vscode-shot img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: left center;
+}
+
+.vscode-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.vscode-lead {
+  color: var(--ink-muted);
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+.vscode-points {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0;
+  list-style: none;
+  color: var(--ink-muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.vscode-points strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.vscode-points code {
+  padding: 1px 5px;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.vscode-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.vscode-actions .button-primary {
+  gap: 8px;
+}
+
+.vscode-actions .button-primary img {
+  filter: brightness(0) invert(1);
+}
+
+.vscode-command {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 4px 4px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+}
+
+.vscode-command code {
+  min-width: 0;
+  flex: 1;
+  overflow-x: auto;
+  color: var(--ink);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
 .plugin-row {
   display: flex;
   min-height: 72px;
@@ -1514,7 +1655,8 @@ onUnmounted(() => {
 
 @media (max-width: 899px) {
   .quickstart-grid,
-  .docs-grid {
+  .docs-grid,
+  .vscode-grid {
     grid-template-columns: 1fr;
   }
 
