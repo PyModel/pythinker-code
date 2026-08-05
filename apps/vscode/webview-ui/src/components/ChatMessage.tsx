@@ -12,7 +12,6 @@ import { MediaPreviewModal } from "./MediaPreviewModal";
 import { InlineError } from "./InlineError";
 import { PlanCard } from "./PlanCard";
 import { PythinkerLogo } from "./PythinkerLogo";
-import { SilverSpinner } from "./SilverSpinner";
 import { useTokenSpeed } from "./ChatStatus";
 import { StreamingConfirmDialog } from "./StreamingConfirmDialog";
 import { Button } from "@/components/ui/button";
@@ -35,7 +34,7 @@ function ThinkingIndicator() {
   return (
     <div className="flex items-center gap-2.5 mt-1 py-1">
       <div className="flex items-center gap-2">
-        <SilverSpinner className="size-3.5 text-zinc-400 dark:text-zinc-300" />
+        <PythinkerLogo className="size-4 shrink-0" />
         <span className="text-[11px] font-medium tracking-wide text-zinc-400 dark:text-zinc-300 flex items-center">
           <span className="animate-shimmer-text">Pythinking</span>
           <span className="inline-flex ml-[1px]">
@@ -290,11 +289,6 @@ function AssistantMessage({ message, turnIndex, isStreaming }: { message: ChatMe
   return (
     <div className="@container px-3 py-3 group/message">
       <div className="flex gap-3 flex-col">
-        <div className="flex flex-row items-center justify-start gap-2">
-          <PythinkerLogo className="size-5 shrink-0" />
-          <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Pythinker</div>
-        </div>
-
         <div className="flex-1 min-w-0">
           <div className="flex flex-col">
             <div className="[&>*:not(:last-child)]:mb-3">
