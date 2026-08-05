@@ -231,15 +231,22 @@ describe("Webview DynamicWorkflow per-agent lanes", () => {
       type: "SubagentStatus",
       payload: { parent_tool_call_id: "wf-1", agent_id: "agentA", status: "running" },
     });
+    useChatStore.getState().processEvent({
+      type: "SubagentStatus",
+      payload: { parent_tool_call_id: "wf-1", agent_id: "agentB", status: "spawned" },
+    });
 
     useChatStore.getState().processEvent({
       type: "ToolResult",
       payload: { tool_call_id: "wf-1", return_value: { is_error: false, output: "ok", message: "", display: [] } },
     });
 
+    expect(workflowToolItem().result).toMatchObject({ is_error: false });
     const status = workflowToolItem().subagent_status!;
     expect(status["agentA"]!.status).toBe("running");
     expect(status["agentA"]!.endedAt).toBeUndefined();
+    expect(status["agentB"]!.status).toBe("spawned");
+    expect(status["agentB"]!.endedAt).toBeUndefined();
   });
 });
 
