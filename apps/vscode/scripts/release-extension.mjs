@@ -127,7 +127,20 @@ async function main() {
   run('git', ['add', 'apps/vscode/package.json']);
   run('git', ['commit', '-m', `chore(vscode): release ${version}`]);
 
-  run('pnpm', ['--filter', 'pythinker-code', 'run', 'publish:vsix'], { env: { ...process.env, VSCE_PAT: vscePat } });
+  try {
+    run('pnpm', ['--filter', 'pythinker-code', 'run', 'publish:vsix'], { env: { ...process.env, VSCE_PAT: vscePat } });
+  } catch (error) {
+    // The version bump is already committed and some targets may already be
+    // live, so say exactly how to finish rather than leaving it to be worked out.
+    throw new Error(
+      `${error instanceof Error ? error.message : String(error)}\n\n` +
+        `${version} is partly published and NOT tagged. The publish summary above lists which\n` +
+        `targets are live; published ones are skipped on a re-run. Finish with:\n` +
+        `  pnpm --filter pythinker-code run publish:vsix\n` +
+        `  git tag -a ${tag} -m "Pythinker Code VS Code extension ${version}"\n` +
+        `Do not bump the version again — ${version} is already consumed.`,
+    );
+  }
 
   const ovsxPat = process.env.OVSX_PAT || keychainSecret(OVSX_KEYCHAIN_SERVICE);
   if (ovsxPat) {

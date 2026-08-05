@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 
 import { runLocalCli } from './local-cli.mjs';
 import { parsePublishArguments, publishUsage } from './publish-args.mjs';
+import { publishEachTarget } from './publish-retry.mjs';
 import { extensionRoot, isMainModule } from './vsix-targets.mjs';
 import { verifyVsix } from './vsix-verify.mjs';
 
@@ -20,15 +21,22 @@ async function main() {
   }
 
   await verifyInputs(options);
-  for (const file of options.files) {
-    console.log(`Publishing verified package ${file}...`);
-    runLocalCli(
-      '@vscode/vsce',
-      'vsce',
-      ['publish', '--packagePath', file, '--skip-duplicate', ...(azureCredential ? ['--azure-credential'] : [])],
-      { cwd: extensionRoot },
-    );
-  }
+  await publishEachTarget({
+    targets: options.targets,
+    files: options.files,
+    registry: 'Marketplace',
+    publishOne: (file) => {
+      const result = runLocalCli(
+        '@vscode/vsce',
+        'vsce',
+        ['publish', '--packagePath', file, '--skip-duplicate', ...(azureCredential ? ['--azure-credential'] : [])],
+        { cwd: extensionRoot, encoding: 'utf8', stdio: 'pipe' },
+      );
+      const output = `${result.stdout ?? ''}${result.stderr ?? ''}`;
+      process.stdout.write(output);
+      return /already published/i.test(output) ? 'skipped' : 'published';
+    },
+  });
 }
 
 async function verifyInputs(options) {

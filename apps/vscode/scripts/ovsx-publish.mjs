@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 
 import { runLocalCli } from './local-cli.mjs';
 import { parsePublishArguments, publishUsage } from './publish-args.mjs';
+import { messageOf, publishEachTarget } from './publish-retry.mjs';
 import { extensionRoot, isMainModule } from './vsix-targets.mjs';
 import { verifyVsix } from './vsix-verify.mjs';
 
@@ -15,22 +16,24 @@ async function main() {
   if (!process.env.OVSX_PAT) throw new Error('OVSX_PAT is required to publish.');
 
   await verifyInputs(options);
-  for (const file of options.files) {
-    console.log(`Publishing verified package ${file}...`);
-    try {
-      runLocalCli('ovsx', 'ovsx', ['publish', file], {
-        cwd: extensionRoot,
-        encoding: 'utf8',
-        stdio: 'pipe',
-      });
-    } catch (error) {
-      if (/already exists/i.test(error instanceof Error ? error.message : String(error))) {
-        console.log(`Package already exists: ${file}`);
-        continue;
+  await publishEachTarget({
+    targets: options.targets,
+    files: options.files,
+    registry: 'Open VSX',
+    publishOne: (file) => {
+      try {
+        runLocalCli('ovsx', 'ovsx', ['publish', file], {
+          cwd: extensionRoot,
+          encoding: 'utf8',
+          stdio: 'pipe',
+        });
+        return 'published';
+      } catch (error) {
+        if (/already exists/i.test(messageOf(error))) return 'skipped';
+        throw error;
       }
-      throw error;
-    }
-  }
+    },
+  });
 }
 
 async function verifyInputs(options) {

@@ -1,0 +1,92 @@
+import { describe, expect, it, vi } from 'vitest';
+
+// @ts-expect-error -- plain .mjs build script, no type declarations
+import { classifyError, publishEachTarget, withRetry } from '../scripts/publish-retry.mjs';
+
+const TARGETS = ['darwin-x64', 'darwin-arm64', 'linux-x64'];
+const FILES = TARGETS.map((target) => `/tmp/${target}.vsix`);
+
+// Backoff is real time; every retry test overrides it so the suite stays fast.
+const FAST = { backoffMs: [0, 0] };
+
+describe('classifyError', () => {
+  it('separates the three failure kinds that need different handling', () => {
+    // The exact string the Marketplace returned mid-publish on 2026-08-05.
+    expect(classifyError(new Error('Request timeout: /_apis/gallery/publishers/pythoughts'))).toBe('transient');
+    expect(classifyError(new Error('connect ECONNRESET 13.107.42.16:443'))).toBe('transient');
+    expect(classifyError(new Error('Response code 503 (Service Unavailable)'))).toBe('transient');
+
+    // The exact string the Entra credential path returned.
+    expect(classifyError(new Error('{"message":"The requested operation is not allowed."}'))).toBe('auth');
+    expect(classifyError(new Error('Response code 401 (Unauthorized)'))).toBe('auth');
+
+    expect(classifyError(new Error('Extension entrypoint(s) missing'))).toBe('fatal');
+  });
+});
+
+describe('withRetry', () => {
+  it('retries a transient failure and returns the eventual success', async () => {
+    const action = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('Request timeout'))
+      .mockResolvedValueOnce('published');
+
+    await expect(withRetry(action, { label: 'test', ...FAST })).resolves.toBe('published');
+    expect(action).toHaveBeenCalledTimes(2);
+  });
+
+  it('gives up after the attempt budget and rethrows the last error', async () => {
+    const action = vi.fn().mockRejectedValue(new Error('Request timeout'));
+
+    await expect(withRetry(action, { label: 'test', attempts: 3, ...FAST })).rejects.toThrow('Request timeout');
+    expect(action).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not retry a non-transient failure', async () => {
+    const action = vi.fn().mockRejectedValue(new Error('Response code 401 (Unauthorized)'));
+
+    await expect(withRetry(action, { label: 'test', ...FAST })).rejects.toThrow('401');
+    expect(action).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('publishEachTarget', () => {
+  it('keeps publishing after one target fails, so a flake cannot strand the rest', async () => {
+    const publishOne = vi.fn(async (_file: string, target: string) => {
+      if (target === 'darwin-arm64') throw new Error('Extension rejected');
+      return 'published';
+    });
+
+    await expect(
+      publishEachTarget({ targets: TARGETS, files: FILES, registry: 'Marketplace', publishOne }),
+    ).rejects.toThrow('1 of 3 target(s) failed');
+
+    // The point of the change: linux-x64 is attempted even though darwin-arm64 died.
+    expect(publishOne.mock.calls.map((call) => call[1])).toEqual(TARGETS);
+  });
+
+  it('stops immediately on an auth failure instead of hammering every target', async () => {
+    const publishOne = vi.fn().mockRejectedValue(new Error('Response code 401 (Unauthorized)'));
+
+    await expect(
+      publishEachTarget({ targets: TARGETS, files: FILES, registry: 'Marketplace', publishOne }),
+    ).rejects.toThrow('3 of 3 target(s) failed');
+
+    expect(publishOne).toHaveBeenCalledTimes(1);
+  });
+
+  it('treats an already-published target as success, so a re-run completes', async () => {
+    const publishOne = vi.fn(async (_file: string, target: string) =>
+      target === 'darwin-x64' ? 'skipped' : 'published',
+    );
+
+    const result = await publishEachTarget({
+      targets: TARGETS,
+      files: FILES,
+      registry: 'Marketplace',
+      publishOne,
+    });
+
+    expect(result).toEqual({ published: ['darwin-arm64', 'linux-x64'], skipped: ['darwin-x64'] });
+  });
+});
