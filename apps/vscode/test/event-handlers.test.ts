@@ -6,6 +6,9 @@
  * Run: pnpm exec vitest run --config apps/vscode/vitest.config.ts test/event-handlers.test.ts
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { useChatStore } from "../webview-ui/src/stores/chat.store";
+import { deriveWorkflowLanes, maxLaneStepCount } from "../webview-ui/src/lib/workflow-lanes";
+import type { UIStepItem } from "../webview-ui/src/stores/chat.store";
 
 const boundary = vi.hoisted(() => ({
   saveConfig: vi.fn(),
@@ -27,10 +30,6 @@ vi.mock("@/services", () => ({
 vi.mock("@/components/ui/sonner", () => ({
   toast: { error: boundary.toastError, warning: boundary.toastWarning },
 }));
-
-import { useChatStore } from "../webview-ui/src/stores/chat.store";
-import { deriveWorkflowLanes, maxLaneStepCount } from "../webview-ui/src/lib/workflow-lanes";
-import type { UIStepItem } from "../webview-ui/src/stores/chat.store";
 
 beforeEach(() => {
   boundary.streamChat.mockReset();
@@ -219,6 +218,28 @@ describe("Webview DynamicWorkflow per-agent lanes", () => {
     expect(typeof status["agentB"]!.endedAt).toBe("number");
     // Already-terminal lanes are left alone.
     expect(status["agentC"]!.status).toBe("done");
+  });
+
+  it("leaves spawned/running lanes alone when the parent ToolResult succeeds", () => {
+    startWorkflowTurn();
+
+    useChatStore.getState().processEvent({
+      type: "SubagentStatus",
+      payload: { parent_tool_call_id: "wf-1", agent_id: "agentA", agent_label: "explore", agent_index: 1, status: "spawned" },
+    });
+    useChatStore.getState().processEvent({
+      type: "SubagentStatus",
+      payload: { parent_tool_call_id: "wf-1", agent_id: "agentA", status: "running" },
+    });
+
+    useChatStore.getState().processEvent({
+      type: "ToolResult",
+      payload: { tool_call_id: "wf-1", return_value: { is_error: false, output: "ok", message: "", display: [] } },
+    });
+
+    const status = workflowToolItem().subagent_status!;
+    expect(status["agentA"]!.status).toBe("running");
+    expect(status["agentA"]!.endedAt).toBeUndefined();
   });
 });
 

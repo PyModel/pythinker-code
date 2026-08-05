@@ -285,7 +285,7 @@ function applyEventToSteps(
 
       // Batch aborted: lanes still spawned/running when the parent result lands
       // have no further lifecycle events coming, so freeze them as failed.
-      if (toolItem?.subagent_status) {
+      if (result.return_value.is_error && toolItem?.subagent_status) {
         for (const status of Object.values(toolItem.subagent_status)) {
           if (status.status === "spawned" || status.status === "running") {
             status.status = "failed";

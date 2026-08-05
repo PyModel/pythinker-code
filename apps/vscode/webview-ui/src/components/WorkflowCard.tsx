@@ -63,12 +63,12 @@ function LaneRow({ lane, maxSteps, renderStepItem }: { lane: WorkflowLane; maxSt
 
   return (
     <div className="text-xs">
-      <button onClick={() => setExpanded(!expanded)} className="w-full flex items-center gap-2 py-1 hover:bg-muted/50 transition-colors text-left" disabled={lane.stepCount === 0}>
+      <button onClick={() => setExpanded(!expanded)} aria-expanded={expanded} className="w-full flex items-center gap-2 py-1 hover:bg-muted/50 transition-colors text-left" disabled={lane.stepCount === 0}>
         <StatusDot status={lane.status} />
         <span className="font-mono text-[11px] shrink-0">{laneLabel(lane)}</span>
         <LaneBar fraction={fraction} done={done} />
         <span className="text-muted-foreground tabular-nums shrink-0">
-          {queued ? "queued" : `${lane.status === "done" ? "done · " : ""}${lane.stepCount} steps`}
+          {queued ? "queued" : `${lane.status === "done" ? "done · " : ""}${lane.stepCount} step${lane.stepCount === 1 ? "" : "s"}`}
           {duration && ` · ${duration}`}
         </span>
         {lane.stepCount > 0 && (expanded ? <IconChevronDown className="size-3 text-muted-foreground" /> : <IconChevronRight className="size-3 text-muted-foreground" />)}
