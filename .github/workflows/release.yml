@@ -130,6 +130,79 @@ jobs:
         env:
           CHANGESETS_PUBLISHED_PACKAGES: ${{ steps.changesets.outputs.publishedPackages }}
 
+  # The VS Code extension is a private workspace package: changesets bumps its
+  # version but never publishes it to npm, so it ships from here instead. Both
+  # publish scripts skip packages that already exist in the registry, so this
+  # job is a no-op on releases that did not touch the extension.
+  publish-vscode-extension:
+    timeout-minutes: 45
+    name: Publish VS Code extension
+    needs: release
+    if: needs.release.outputs.packages_published == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Pythinker Code built-in catalog
+        shell: bash
+        run: |
+          CATALOG_FILE="$RUNNER_TEMP/pythinker-code-built-in-catalog.json"
+          node apps/pythinker-code/scripts/update-catalog.mjs --out "$CATALOG_FILE"
+          echo "PYTHINKER_CODE_BUILT_IN_CATALOG_FILE=$CATALOG_FILE" >> "$GITHUB_ENV"
+
+      - name: Build workspace packages
+        run: pnpm build
+
+      # Packages all six platform targets and runs the VSIX audit on each one.
+      # A failure here must stop the job before anything reaches a registry.
+      - name: Package and verify VSIX targets
+        run: pnpm --filter pythinker-code run package:platform
+
+      - name: Publish to the Visual Studio Marketplace
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          if [ -z "$VSCE_PAT" ]; then
+            echo "::error::VSCE_PAT secret not set — cannot publish the extension."
+            exit 1
+          fi
+          pnpm --filter pythinker-code run publish:vsix
+
+      # Open VSX serves Cursor / VSCodium / Windsurf. A failure here must not
+      # undo an already-successful Marketplace publish, so it only warns.
+      - name: Publish to Open VSX
+        continue-on-error: true
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: |
+          if [ -z "$OVSX_PAT" ]; then
+            echo "::warning::OVSX_PAT secret not set — skipping Open VSX publish."
+            exit 0
+          fi
+          pnpm --filter pythinker-code run publish:ovsx
+
+      - name: Upload VSIX artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: pythinker-code-vsix
+          path: apps/vscode/artifacts/vsix/*.vsix
+          retention-days: 7
+          if-no-files-found: error
+
   # code.pythinker.com redeploys via Dokploy autodeploy on push to main
   # (app Pythinker/code builds apps/site/Dockerfile from the repo, no npm
   # registry dependency), so no deploy webhook is fired here — this job only
