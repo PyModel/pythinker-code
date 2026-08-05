@@ -89,6 +89,13 @@ Gate behind flags in `packages/agent-core/src/flags/registry.ts`. Check: `flags.
 
 ## Workflow
 
+- **Never commit to `main` directly.** Every change lands through a pull request: branch, push the
+  branch, open a PR, get the checks green, then merge. `main` enforces this for everyone including
+  admins, so a direct push is rejected outright (`GH006`) — do not try to work around it with
+  `--admin`, `--no-verify`, or a force push.
+- A PR is mergeable only when all six required checks pass (`build`, `test`, `lint`, `typecheck`,
+  `nix build .#pythinker-code`, `Check flake.nix workspace sync`), every review conversation is
+  resolved, and the branch is up to date with `main`.
 - Prefer `rg` / `rg --files` for code reading.
 - Follow existing boundaries and local patterns.
 - Replace internal identifiers with neutral placeholders in public text/test data. Audit diffs before PRs.
