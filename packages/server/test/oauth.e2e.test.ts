@@ -91,7 +91,7 @@ function makeStub(scripted: {
   };
   const defaultStart: OAuthFlowStart = {
     flow_id: 'oauth_01ABCDEFGH',
-    provider: 'managed:pythinker-code',
+    provider: 'managed:kimi-code',
     verification_uri: 'https://example.com/device',
     verification_uri_complete: 'https://example.com/device?user_code=PYTH-1234',
     user_code: 'PYTH-1234',
@@ -116,7 +116,7 @@ function makeStub(scripted: {
     },
     logout: async (provider) => {
       calls.logout.push({ provider });
-      return scripted.logout ?? { logged_out: true, provider: 'managed:pythinker-code' };
+      return scripted.logout ?? { logged_out: true, provider: 'managed:kimi-code' };
     },
   };
 }
@@ -221,7 +221,7 @@ describe('GET /api/v1/oauth/login (P2.7)', () => {
   it('returns the snapshot when present', async () => {
     const snap: OAuthFlowSnapshot = {
       flow_id: 'oauth_01ABCDEFGH',
-      provider: 'managed:pythinker-code',
+      provider: 'managed:kimi-code',
       status: 'pending',
       verification_uri: 'https://example.com/device',
       verification_uri_complete: 'https://example.com/device?user_code=PYTH-1234',
@@ -247,7 +247,7 @@ describe('GET /api/v1/oauth/login (P2.7)', () => {
   it('reflects terminal-state snapshots', async () => {
     const snap: OAuthFlowSnapshot = {
       flow_id: 'oauth_01ABCDEFGH',
-      provider: 'managed:pythinker-code',
+      provider: 'managed:kimi-code',
       status: 'authenticated',
       verification_uri: 'https://example.com/device',
       verification_uri_complete: 'https://example.com/device?user_code=PYTH-1234',
@@ -312,7 +312,7 @@ describe('POST /api/v1/oauth/logout (P2.7)', () => {
     expect(env.code).toBe(0);
     expect(env.data).toEqual({
       logged_out: true,
-      provider: 'managed:pythinker-code',
+      provider: 'managed:kimi-code',
     });
     expect(stub.calls.logout).toHaveLength(1);
   });

@@ -1,12 +1,12 @@
 import { readApiErrorMessage } from './api-error';
 import { isRecord } from './utils';
-import { parseSupportsThinkingType } from './managed-pythinker-code';
+import { parseSupportsThinkingType } from './managed-kimi-code';
 import type {
-  ManagedPythinkerCodeModelInfo,
-  ManagedPythinkerConfigShape,
-} from './managed-pythinker-code';
+  ManagedKimiCodeModelInfo,
+  ManagedKimiConfigShape,
+} from './managed-kimi-code';
 
-export type { ManagedPythinkerConfigShape };
+export type { ManagedKimiConfigShape };
 
 export type LoginPlatformProviderType = 'pythinker' | 'openai' | 'anthropic' | 'openai_responses';
 
@@ -104,7 +104,7 @@ export function isOpenPlatformId(id: string): boolean {
 function toModelInfo(
   item: unknown,
   platform: OpenPlatformDefinition,
-): ManagedPythinkerCodeModelInfo | undefined {
+): ManagedKimiCodeModelInfo | undefined {
   if (!isRecord(item) || typeof item['id'] !== 'string' || item['id'].length === 0) {
     return undefined;
   }
@@ -139,7 +139,7 @@ function toModelInfo(
  * Derives kosong capability strings from a model info entry; undefined when
  * the model declares no capabilities.
  */
-export function capabilitiesForModel(model: ManagedPythinkerCodeModelInfo): string[] | undefined {
+export function capabilitiesForModel(model: ManagedKimiCodeModelInfo): string[] | undefined {
   const caps = new Set<string>();
   // supports_thinking_type is the full three-state declaration and wins over
   // the legacy supports_reasoning boolean; absent (older servers) falls back.
@@ -185,7 +185,7 @@ export async function fetchOpenPlatformModels(
   apiKey: string,
   fetchImpl: typeof fetch = fetch,
   signal?: AbortSignal,
-): Promise<ManagedPythinkerCodeModelInfo[]> {
+): Promise<ManagedKimiCodeModelInfo[]> {
   const baseUrl = platform.baseUrl;
   if (baseUrl === undefined || baseUrl.length === 0) {
     throw new Error(`Platform "${platform.id}" has no baseUrl for remote model listing.`);
@@ -209,7 +209,7 @@ export async function fetchOpenPlatformModels(
   }
   return payload['data']
     .map((item) => toModelInfo(item, platform))
-    .filter((item): item is ManagedPythinkerCodeModelInfo => item !== undefined);
+    .filter((item): item is ManagedKimiCodeModelInfo => item !== undefined);
 }
 
 /**
@@ -217,9 +217,9 @@ export async function fetchOpenPlatformModels(
  * prefixes; returns the full list when no prefixes are configured.
  */
 export function filterModelsByPrefix(
-  models: ManagedPythinkerCodeModelInfo[],
+  models: ManagedKimiCodeModelInfo[],
   platform: OpenPlatformDefinition,
-): ManagedPythinkerCodeModelInfo[] {
+): ManagedKimiCodeModelInfo[] {
   if (!platform.allowedPrefixes || platform.allowedPrefixes.length === 0) {
     return models;
   }
@@ -238,11 +238,11 @@ export interface ApplyOpenPlatformResult {
  * default model to the selected one.
  */
 export function applyOpenPlatformConfig(
-  config: ManagedPythinkerConfigShape,
+  config: ManagedKimiConfigShape,
   options: {
     readonly platform: OpenPlatformDefinition;
-    readonly models: readonly ManagedPythinkerCodeModelInfo[];
-    readonly selectedModel: ManagedPythinkerCodeModelInfo;
+    readonly models: readonly ManagedKimiCodeModelInfo[];
+    readonly selectedModel: ManagedKimiCodeModelInfo;
     readonly thinking: boolean;
     readonly apiKey: string;
   },
@@ -286,7 +286,7 @@ export function applyOpenPlatformConfig(
  * that pointed at them.
  */
 export function removeOpenPlatformConfig(
-  config: ManagedPythinkerConfigShape,
+  config: ManagedKimiConfigShape,
   platformId: string,
 ): void {
   delete config.providers[platformId];

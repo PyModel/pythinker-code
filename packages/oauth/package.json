@@ -2,7 +2,7 @@
   "name": "@pythoughts/pythinker-code-oauth",
   "version": "0.2.2",
   "private": true,
-  "description": "Pythinker OAuth toolkit for managed Pythinker Code authentication",
+  "description": "OAuth toolkit for managed Kimi Code authentication",
   "license": "MIT",
   "author": "Pythoughts",
   "homepage": "https://github.com/Pythoughts-labs/pythinker-code/tree/main/packages/oauth#readme",

@@ -34,17 +34,17 @@ base_url = "https://internal.example.com/v1"
 api_key = "EMPTY"
 
 [models."pythinker-code/pythinker-for-coding"]
-provider = "managed:pythinker-code"
+provider = "managed:kimi-code"
 model = "pythinker-for-coding"
 max_context_size = 262144
 
-[providers."managed:pythinker-code"]
+[providers."managed:kimi-code"]
 type = "pythinker"
 base_url = "https://api.pythinker.com/coding/v1"
 
-[providers."managed:pythinker-code".oauth]
+[providers."managed:kimi-code".oauth]
 storage = "file"
-key = "oauth/pythinker-code"
+key = "oauth/kimi-code"
 `;
 
 describe('migrateConfigStep', () => {
@@ -84,20 +84,20 @@ describe('migrateConfigStep', () => {
   it('reports a provider conflict and keeps the target provider', async () => {
     await writeFile(
       join(src, 'config.toml'),
-      `[providers."managed:pythinker-code"]
+      `[providers."managed:kimi-code"]
 type = "pythinker"
 base_url = "https://source.example/v1"
 `,
     );
     await writeFile(
       join(tgt, 'config.toml'),
-      `[providers."managed:pythinker-code"]
+      `[providers."managed:kimi-code"]
 type = "pythinker"
 base_url = "https://target.example/v1"
 `,
     );
     const r = await migrateConfigStep({ sourceHome: src, targetHome: tgt });
-    expect(r.configConflicts).toContain('providers.managed:pythinker-code');
+    expect(r.configConflicts).toContain('providers.managed:kimi-code');
     const cfg = await readFile(join(tgt, 'config.toml'), 'utf-8');
     expect(cfg).toContain('https://target.example/v1');
     expect(cfg).not.toContain('https://source.example/v1');
@@ -154,20 +154,20 @@ base_url = "https://target.example/v1"
   });
 
   it('drops a kept-provider model missing required schema fields', async () => {
-    // `bad-model` references the kept `managed:pythinker-code` provider but omits
+    // `bad-model` references the kept `managed:kimi-code` provider but omits
     // `max_context_size`, which pythinker-code's ModelAliasSchema requires. Written
     // verbatim it would make getConfig() reject the whole config post-migration.
-    const cfg = `[providers."managed:pythinker-code"]
+    const cfg = `[providers."managed:kimi-code"]
 type = "pythinker"
 base_url = "https://api.pythinker.com/coding/v1"
 
 [models."good-model"]
-provider = "managed:pythinker-code"
+provider = "managed:kimi-code"
 model = "pythinker-for-coding"
 max_context_size = 262144
 
 [models."bad-model"]
-provider = "managed:pythinker-code"
+provider = "managed:kimi-code"
 model = "pythinker-for-coding"
 `;
     await writeFile(join(src, 'config.toml'), cfg);
@@ -207,13 +207,13 @@ model = "pythinker-for-coding"
   });
 
   it('drops a model whose provider has no entry anywhere', async () => {
-    const cfg = `[providers."managed:pythinker-code"]
+    const cfg = `[providers."managed:kimi-code"]
 type = "pythinker"
 api_key = "k"
 base_url = "https://api.example/v1"
 
 [models."good"]
-provider = "managed:pythinker-code"
+provider = "managed:kimi-code"
 model = "m"
 max_context_size = 1000
 
@@ -254,7 +254,7 @@ max_context_size = 1000
     await writeFile(
       join(tgt, 'config.toml'),
       `[models."target-only"]
-provider = "managed:pythinker-code"
+provider = "managed:kimi-code"
 model = "m"
 max_context_size = 1000
 `,
@@ -270,12 +270,12 @@ max_context_size = 1000
   it('drops a migrated model whose provider conflicts with a differing target provider', async () => {
     await writeFile(
       join(src, 'config.toml'),
-      `[providers."managed:pythinker-code"]
+      `[providers."managed:kimi-code"]
 type = "pythinker"
 base_url = "https://legacy.example/v1"
 
 [models."conflicted"]
-provider = "managed:pythinker-code"
+provider = "managed:kimi-code"
 model = "m"
 max_context_size = 1000
 `,
@@ -285,13 +285,13 @@ max_context_size = 1000
     // to the wrong backend.
     await writeFile(
       join(tgt, 'config.toml'),
-      `[providers."managed:pythinker-code"]
+      `[providers."managed:kimi-code"]
 type = "pythinker"
 base_url = "https://target.example/v1"
 `,
     );
     const r = await migrateConfigStep({ sourceHome: src, targetHome: tgt });
-    expect(r.configConflicts).toContain('providers.managed:pythinker-code');
+    expect(r.configConflicts).toContain('providers.managed:kimi-code');
     expect(r.droppedModels).toContain('conflicted');
     const cfg = await readFile(join(tgt, 'config.toml'), 'utf-8');
     expect(cfg).not.toContain('conflicted');

@@ -12,12 +12,12 @@ import type {
   SetDefaultModelResponse,
 } from '@pythoughts/protocol';
 import {
-  PYTHINKER_CODE_PLATFORM_ID,
-  PYTHINKER_CODE_PROVIDER_NAME,
-  applyManagedPythinkerCodeConfig,
-  fetchManagedPythinkerCodeModels,
-  resolvePythinkerCodeRuntimeAuth,
-  type ManagedPythinkerConfigShape,
+  KIMI_CODE_PLATFORM_ID,
+  KIMI_CODE_PROVIDER_NAME,
+  applyManagedKimiCodeConfig,
+  fetchManagedKimiCodeModels,
+  resolveKimiCodeRuntimeAuth,
+  type ManagedKimiConfigShape,
 } from '@pythoughts/pythinker-code-oauth';
 
 import { createManagedAuthFacade, type ServicesAuthFacade } from '../auth/managedAuth';
@@ -101,32 +101,32 @@ export class ModelCatalogService
     const changed: RefreshOAuthProviderModelsResponse['changed'] = [];
     const unchanged: string[] = [];
     const failed: RefreshOAuthProviderModelsResponse['failed'] = [];
-    const provider = config.providers?.[PYTHINKER_CODE_PROVIDER_NAME];
+    const provider = config.providers?.[KIMI_CODE_PROVIDER_NAME];
     if (provider?.type !== 'pythinker' || provider.oauth === undefined) {
       return { changed, unchanged, failed };
     }
 
     try {
-      const auth = resolvePythinkerCodeRuntimeAuth({
+      const auth = resolveKimiCodeRuntimeAuth({
         configuredBaseUrl: provider.baseUrl,
         configuredOAuthRef: provider.oauth,
       });
       const tokenProvider = this._authFacade.resolveOAuthTokenProvider(
-        PYTHINKER_CODE_PROVIDER_NAME,
+        KIMI_CODE_PROVIDER_NAME,
         auth.oauthRef,
       );
       if (tokenProvider === undefined) {
         throw new Error('OAuth token provider is not configured.');
       }
       const token = await tokenProvider.getAccessToken();
-      const models = await fetchManagedPythinkerCodeModels({
+      const models = await fetchManagedKimiCodeModels({
         accessToken: token,
         baseUrl: auth.baseUrl,
       });
       if (models.length === 0) return { changed, unchanged, failed };
 
       const next = structuredClone(config);
-      applyManagedPythinkerCodeConfig(next as unknown as ManagedPythinkerConfigShape, {
+      applyManagedKimiCodeConfig(next as unknown as ManagedKimiConfigShape, {
         models,
         baseUrl: auth.baseUrl,
         oauthKey: auth.oauthRef.key,
@@ -136,24 +136,24 @@ export class ModelCatalogService
       const refreshedAliasKeys = providerRefreshAliasKeys(
         config,
         next,
-        PYTHINKER_CODE_PROVIDER_NAME,
-        `${PYTHINKER_CODE_PLATFORM_ID}/`,
+        KIMI_CODE_PROVIDER_NAME,
+        `${KIMI_CODE_PLATFORM_ID}/`,
       );
       restoreProviderAliases(
         next,
-        preserveUserProviderAliases(config, PYTHINKER_CODE_PROVIDER_NAME, refreshedAliasKeys),
+        preserveUserProviderAliases(config, KIMI_CODE_PROVIDER_NAME, refreshedAliasKeys),
       );
       restoreDefaultSelection(next, config.defaultModel, config.defaultThinking);
       clampDanglingDefault(next);
 
-      if (providerModelsEqual(config, next, PYTHINKER_CODE_PROVIDER_NAME, refreshedAliasKeys)) {
-        unchanged.push(PYTHINKER_CODE_PROVIDER_NAME);
+      if (providerModelsEqual(config, next, KIMI_CODE_PROVIDER_NAME, refreshedAliasKeys)) {
+        unchanged.push(KIMI_CODE_PROVIDER_NAME);
       } else {
         const { added, removed } = computeChanges(
           collectModelIdsForAliases(config, refreshedAliasKeys),
           collectModelIdsForAliases(next, refreshedAliasKeys),
         );
-        await this.core.rpc.removePythinkerProvider({ providerId: PYTHINKER_CODE_PROVIDER_NAME });
+        await this.core.rpc.removePythinkerProvider({ providerId: KIMI_CODE_PROVIDER_NAME });
         await this.core.rpc.setPythinkerConfig({
           providers: next.providers,
           models: next.models,
@@ -161,7 +161,7 @@ export class ModelCatalogService
           defaultThinking: next.defaultThinking,
         });
         changed.push({
-          provider_id: PYTHINKER_CODE_PROVIDER_NAME,
+          provider_id: KIMI_CODE_PROVIDER_NAME,
           provider_name: 'Pythinker Code',
           added,
           removed,
@@ -169,7 +169,7 @@ export class ModelCatalogService
       }
     } catch (error) {
       failed.push({
-        provider: PYTHINKER_CODE_PROVIDER_NAME,
+        provider: KIMI_CODE_PROVIDER_NAME,
         reason: error instanceof Error ? error.message : String(error),
       });
     }

@@ -59,17 +59,17 @@ additional_dirs = ["~/shared-project", "/tmp/reference"]
 telemetry = false
 theme = "dark"
 
-[providers."managed:pythinker-code"]
+[providers."managed:kimi-code"]
 type = "pythinker"
 base_url = "https://api.pythinker.com/coding/v1"
 api_key = "sk-file"
 custom_headers = { "X-Test" = "1" }
 
-[providers."managed:pythinker-code".env]
+[providers."managed:kimi-code".env]
 GOOGLE_CLOUD_PROJECT = "project-1"
 
 [models."pythinker-code/pythinker-for-coding"]
-provider = "managed:pythinker-code"
+provider = "managed:kimi-code"
 model = "pythinker-for-coding"
 max_context_size = 262144
 capabilities = ["image_in", "thinking", "video_in"]
@@ -140,7 +140,7 @@ describe('harness config TOML loader', () => {
     expect(config.extraSkillDirs).toEqual(['~/team-skills', '.agents/team-skills']);
     expect(config.additionalDirs).toEqual(['~/shared-project', '/tmp/reference']);
     expect(config.telemetry).toBe(false);
-    expect(config.providers['managed:pythinker-code']).toMatchObject({
+    expect(config.providers['managed:kimi-code']).toMatchObject({
       type: 'pythinker',
       baseUrl: 'https://api.pythinker.com/coding/v1',
       apiKey: 'sk-file',
@@ -148,7 +148,7 @@ describe('harness config TOML loader', () => {
       customHeaders: { 'X-Test': '1' },
     });
     expect(config.models?.['pythinker-code/pythinker-for-coding']).toMatchObject({
-      provider: 'managed:pythinker-code',
+      provider: 'managed:kimi-code',
       model: 'pythinker-for-coding',
       maxContextSize: 262144,
       capabilities: ['image_in', 'thinking', 'video_in'],
@@ -255,21 +255,21 @@ api_key_env_var = "DEEPSEEK_API_KEY"
     const dir = makeTempDir();
     const configPath = join(dir, 'oauth-ref.toml');
     const toml = `
-[providers."managed:pythinker-code"]
+[providers."managed:kimi-code"]
 type = "pythinker"
 base_url = "https://api.dev.example.test/coding/v1"
 api_key = ""
-oauth = { storage = "file", key = "oauth/pythinker-code-env-1234", oauth_host = "https://auth.dev.example.test" }
+oauth = { storage = "file", key = "oauth/kimi-code-env-1234", oauth_host = "https://auth.dev.example.test" }
 
 [services.pythoughts_search]
 base_url = "https://api.dev.example.test/coding/v1/search"
 api_key = ""
-oauth = { storage = "file", key = "oauth/pythinker-code-env-1234", oauth_host = "https://auth.dev.example.test" }
+oauth = { storage = "file", key = "oauth/kimi-code-env-1234", oauth_host = "https://auth.dev.example.test" }
 `;
     const config = parseConfigString(toml, configPath);
-    expect(config.providers['managed:pythinker-code']?.oauth).toEqual({
+    expect(config.providers['managed:kimi-code']?.oauth).toEqual({
       storage: 'file',
-      key: 'oauth/pythinker-code-env-1234',
+      key: 'oauth/kimi-code-env-1234',
       oauthHost: 'https://auth.dev.example.test',
     });
     expect(config.services?.pythoughtsSearch?.oauth?.oauthHost).toBe('https://auth.dev.example.test');
@@ -278,7 +278,7 @@ oauth = { storage = "file", key = "oauth/pythinker-code-env-1234", oauth_host = 
     const text = await readFile(configPath, 'utf-8');
     expect(text).toContain('oauth_host = "https://auth.dev.example.test"');
     const roundTripped = parseConfigString(text, configPath);
-    expect(roundTripped.providers['managed:pythinker-code']?.oauth?.oauthHost).toBe(
+    expect(roundTripped.providers['managed:kimi-code']?.oauth?.oauthHost).toBe(
       'https://auth.dev.example.test',
     );
   });
@@ -576,7 +576,7 @@ describe('harness config schema and patch merge', () => {
     const base = parseConfigString(COMPLETE_TOML);
     const merged = mergeConfigPatch(base, {
       providers: {
-        'managed:pythinker-code': {
+        'managed:kimi-code': {
           apiKey: 'sk-patched',
           baseUrl: undefined,
         },
@@ -591,14 +591,14 @@ describe('harness config schema and patch merge', () => {
       },
     });
 
-    expect(merged.providers['managed:pythinker-code']).toMatchObject({
+    expect(merged.providers['managed:kimi-code']).toMatchObject({
       type: 'pythinker',
       baseUrl: 'https://api.pythinker.com/coding/v1',
       apiKey: 'sk-patched',
       env: { GOOGLE_CLOUD_PROJECT: 'project-1' },
     });
     expect(merged.models?.['pythinker-code/pythinker-for-coding']).toMatchObject({
-      provider: 'managed:pythinker-code',
+      provider: 'managed:kimi-code',
       model: 'pythinker-for-coding',
       maxContextSize: 262144,
       capabilities: ['tool_use'],

@@ -6,7 +6,7 @@ import { Disposable, DisposableMap, InstantiationType, registerSingleton } from 
 import type { IDisposable } from '../../di';
 import {
   DeviceCodeTimeoutError,
-  PYTHINKER_CODE_PROVIDER_NAME,
+  KIMI_CODE_PROVIDER_NAME,
   OAuthError,
   type DeviceAuthorization,
 } from '@pythoughts/pythinker-code-oauth';
@@ -94,7 +94,7 @@ export class OAuthService extends Disposable implements IOAuthService {
   }
 
   async startLogin(providerName?: string): Promise<OAuthFlowStart> {
-    const name = providerName ?? PYTHINKER_CODE_PROVIDER_NAME;
+    const name = providerName ?? KIMI_CODE_PROVIDER_NAME;
 
     // Supersede any existing pending flow.
     const existing = this._flows.get(name);
@@ -181,14 +181,14 @@ export class OAuthService extends Disposable implements IOAuthService {
   }
 
   getFlow(providerName?: string): OAuthFlowSnapshot | undefined {
-    const name = providerName ?? PYTHINKER_CODE_PROVIDER_NAME;
+    const name = providerName ?? KIMI_CODE_PROVIDER_NAME;
     const state = this._flows.get(name);
     if (state === undefined) return undefined;
     return this._toSnapshot(state);
   }
 
   async cancelLogin(providerName?: string): Promise<OAuthLoginCancelResponse> {
-    const name = providerName ?? PYTHINKER_CODE_PROVIDER_NAME;
+    const name = providerName ?? KIMI_CODE_PROVIDER_NAME;
     const state = this._flows.get(name);
     if (state === undefined) {
       // No flow at all → treat as "already cancelled" (idempotent).
@@ -203,7 +203,7 @@ export class OAuthService extends Disposable implements IOAuthService {
   }
 
   async logout(providerName?: string): Promise<OAuthLogoutResponse> {
-    const name = providerName ?? PYTHINKER_CODE_PROVIDER_NAME;
+    const name = providerName ?? KIMI_CODE_PROVIDER_NAME;
     // Also cancel any in-flight flow so the next `GET /v1/auth` sees a clean
     // slate.
     const pending = this._flows.get(name);

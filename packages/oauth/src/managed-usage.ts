@@ -1,7 +1,7 @@
 /**
  * Managed-platform usage fetch / parse.
  *
- * Only `managed:pythinker-code` is supported today. The platform exposes a
+ * Only `managed:kimi-code` is supported today. The platform exposes a
  * `/usages` endpoint that returns a payload of the shape:
  *
  *   {
@@ -21,21 +21,21 @@ import { readApiErrorMessage } from './api-error';
 import { isRecord } from './utils';
 
 const MANAGED_PREFIX = 'managed:';
-const PYTHINKER_CODE_PLATFORM_ID = 'pythinker-code';
-export const DEFAULT_PYTHINKER_CODE_BASE_URL = 'https://api.kimi.com/coding/v1';
+const KIMI_CODE_PLATFORM_ID = 'kimi-code';
+export const DEFAULT_KIMI_CODE_BASE_URL = 'https://api.kimi.com/coding/v1';
 
-export function isManagedPythinkerCode(providerKey?: string | null): boolean {
+export function isManagedKimiCode(providerKey?: string | null): boolean {
   if (!providerKey) return false;
   if (!providerKey.startsWith(MANAGED_PREFIX)) return false;
-  return providerKey.slice(MANAGED_PREFIX.length) === PYTHINKER_CODE_PLATFORM_ID;
+  return providerKey.slice(MANAGED_PREFIX.length) === KIMI_CODE_PLATFORM_ID;
 }
 
-export function pythinkerCodeBaseUrl(): string {
-  return process.env['PYTHINKER_CODE_BASE_URL'] ?? DEFAULT_PYTHINKER_CODE_BASE_URL;
+export function kimiCodeBaseUrl(): string {
+  return process.env['PYTHINKER_CODE_BASE_URL'] ?? DEFAULT_KIMI_CODE_BASE_URL;
 }
 
-export function pythinkerCodeUsageUrl(): string {
-  return `${pythinkerCodeBaseUrl().replace(/\/+$/, '')}/usages`;
+export function kimiCodeUsageUrl(): string {
+  return `${kimiCodeBaseUrl().replace(/\/+$/, '')}/usages`;
 }
 
 export interface UsageRow {
@@ -219,7 +219,7 @@ export async function fetchManagedUsage(
         status === 401
           ? 'Authorization failed. Please check your API key (try /login).'
           : status === 404
-            ? 'Usage endpoint not available. Try Pythinker For Coding.'
+            ? 'Usage endpoint not available. Try Kimi For Coding.'
             : `Failed to fetch usage: HTTP ${String(status)}`;
       return { kind: 'error', status, message: await readApiErrorMessage(res, hint) };
     }

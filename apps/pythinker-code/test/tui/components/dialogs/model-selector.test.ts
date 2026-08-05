@@ -20,7 +20,7 @@ function model(
   supportEfforts?: string[],
 ): ModelAlias {
   return {
-    provider: 'managed:pythinker-code',
+    provider: 'managed:kimi-code',
     model: displayName.toLowerCase().replaceAll(' ', '-'),
     maxContextSize: 200_000,
     displayName,

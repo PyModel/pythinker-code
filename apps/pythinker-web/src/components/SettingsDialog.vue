@@ -264,7 +264,7 @@ function setTab(tab: SettingsTab): void {
             <section class="sec">
               <h3 class="sec-title">{{ t('settings.account') }}</h3>
               <div class="row">
-                <span class="rlabel">{{ authReady ? 'managed:pythinker-code' : t('sidebar.notSignedIn') }}</span>
+                <span class="rlabel">{{ authReady ? 'managed:kimi-code' : t('sidebar.notSignedIn') }}</span>
                 <span v-if="authReady && accountModel" class="rvalue" :title="accountModel">{{ accountModel }}</span>
               </div>
               <div class="actions">

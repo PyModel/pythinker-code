@@ -242,7 +242,7 @@ describe('model/provider catalog routes', () => {
       refreshOAuthProviderModels: async () => ({
         changed: [
           {
-            provider_id: 'managed:pythinker-code',
+            provider_id: 'managed:kimi-code',
             provider_name: 'Pythinker Code',
             added: 1,
             removed: 0,
@@ -266,7 +266,7 @@ describe('model/provider catalog routes', () => {
     expect(env.data).toEqual({
       changed: [
         {
-          provider_id: 'managed:pythinker-code',
+          provider_id: 'managed:kimi-code',
           provider_name: 'Pythinker Code',
           added: 1,
           removed: 0,

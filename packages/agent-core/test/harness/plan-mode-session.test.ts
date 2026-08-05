@@ -9,13 +9,13 @@ import { createRPC, PythinkerCore, type CoreAPI, type SDKAPI } from '../../src';
 const BASE_CONFIG = `
 default_model = "pythinker-code/pythinker-for-coding"
 
-[providers."managed:pythinker-code"]
+[providers."managed:kimi-code"]
 type = "pythinker"
 api_key = "test-key"
 base_url = "https://api.example/v1"
 
 [models."pythinker-code/pythinker-for-coding"]
-provider = "managed:pythinker-code"
+provider = "managed:kimi-code"
 model = "pythinker-for-coding"
 max_context_size = 1000000
 `;

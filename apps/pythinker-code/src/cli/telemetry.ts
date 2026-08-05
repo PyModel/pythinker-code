@@ -1,4 +1,4 @@
-import { createPythinkerDeviceId, PYTHINKER_CODE_PROVIDER_NAME } from '@pythoughts/pythinker-code-oauth';
+import { createPythinkerDeviceId, KIMI_CODE_PROVIDER_NAME } from '@pythoughts/pythinker-code-oauth';
 import {
   PythinkerAuthFacade,
   loadRuntimeConfigSafe,
@@ -55,7 +55,7 @@ export function initializeCliTelemetry(options: InitializeCliTelemetryOptions): 
     uiMode: options.uiMode,
     model: options.model ?? options.config.defaultModel,
     getAccessToken: async () =>
-      (await options.harness.auth.getCachedAccessToken(PYTHINKER_CODE_PROVIDER_NAME)) ?? null,
+      (await options.harness.auth.getCachedAccessToken(KIMI_CODE_PROVIDER_NAME)) ?? null,
   });
   if (options.bootstrap.firstLaunch) {
     options.harness.track('first_launch');
@@ -102,7 +102,7 @@ export function initializeServerTelemetry(
     version: options.version,
     uiMode: WEB_UI_MODE,
     model: config.defaultModel,
-    getAccessToken: async () => (await auth.getCachedAccessToken(PYTHINKER_CODE_PROVIDER_NAME)) ?? null,
+    getAccessToken: async () => (await auth.getCachedAccessToken(KIMI_CODE_PROVIDER_NAME)) ?? null,
   });
 
   return {

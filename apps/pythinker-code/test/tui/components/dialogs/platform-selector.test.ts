@@ -59,7 +59,7 @@ describe('PlatformSelectorComponent', () => {
 
     const output = rendered(component);
     expect(output.indexOf('OpenAI Codex (OAuth)')).toBeLessThan(
-      output.indexOf('Pythinker (OAuth)'),
+      output.indexOf('Kimi (OAuth)'),
     );
     expect(output).toContain('DeepSeek API');
     expect(output).toContain('GLM Coding Plan');

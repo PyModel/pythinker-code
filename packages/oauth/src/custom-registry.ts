@@ -1,8 +1,8 @@
 import { readApiErrorMessage } from './api-error';
 import { isRecord } from './utils';
-import type { ManagedPythinkerConfigShape } from './managed-pythinker-code';
+import type { ManagedKimiConfigShape } from './managed-kimi-code';
 
-export type { ManagedPythinkerConfigShape };
+export type { ManagedKimiConfigShape };
 
 /**
  * Identifies where a custom-registry-managed provider came from. The same
@@ -288,11 +288,11 @@ function resolveCapabilities(model: CustomRegistryModelEntry): string[] {
  * Mirrors `applyOpenPlatformConfig`'s shape: provider goes to `config.providers`
  * keyed by `entry.id`, each model in `entry.models` becomes an alias under
  * `config.models[\`${entry.id}/${modelId}\`]`. The `source` blob is parked on the
- * provider object via `ManagedPythinkerProviderConfig`'s index signature so the
+ * provider object via `ManagedKimiProviderConfig`'s index signature so the
  * refresh dispatcher can rediscover it later.
  */
 export function applyCustomRegistryProvider(
-  config: ManagedPythinkerConfigShape,
+  config: ManagedKimiConfigShape,
   entry: CustomRegistryProviderEntry,
   source: CustomRegistrySource,
 ): void {
@@ -339,7 +339,7 @@ export function applyCustomRegistryProvider(
  * `removeOpenPlatformConfig`.
  */
 export function removeCustomRegistryProvider(
-  config: ManagedPythinkerConfigShape,
+  config: ManagedKimiConfigShape,
   providerId: string,
 ): void {
   delete config.providers[providerId];
@@ -383,7 +383,7 @@ export function removeCustomRegistryProvider(
  * registry".
  */
 export function applyCustomRegistryEntries(
-  config: ManagedPythinkerConfigShape,
+  config: ManagedKimiConfigShape,
   entries: Record<string, CustomRegistryProviderEntry>,
   source: CustomRegistrySource,
 ): void {

@@ -686,7 +686,7 @@ custom_headers = { "X-Test" = "1" }
     const created = await rpc.createSession({ id: 'ses_runtime_service_oauth', workDir });
     const session = core.sessions.get(created.id);
 
-    expect(resolveOAuthTokenProvider).toHaveBeenCalledWith('managed:pythinker-code', {
+    expect(resolveOAuthTokenProvider).toHaveBeenCalledWith('managed:kimi-code', {
       storage: 'file',
       key: 'oauth/custom-pythinker-code',
     });

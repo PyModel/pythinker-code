@@ -43,48 +43,48 @@ export {
 } from './identity';
 export type { PythinkerHostIdentity, PythinkerIdentityOptions } from './identity';
 
-export { PYTHINKER_CODE_FLOW_CONFIG } from './constants';
+export { KIMI_CODE_FLOW_CONFIG } from './constants';
 
 export {
-  applyManagedPythinkerCodeLogoutConfig,
-  applyManagedPythinkerCodeConfig,
-  clearManagedPythinkerCodeConfig,
-  fetchManagedPythinkerCodeModels,
-  pythinkerCodeEnvBaseUrl,
-  pythinkerCodeEnvOAuthHost,
-  PYTHINKER_CODE_OAUTH_KEY,
-  PYTHINKER_CODE_PLATFORM_ID,
-  PYTHINKER_CODE_PROVIDER_NAME,
-  ManagedPythinkerCodeModelsAuthError,
-  provisionManagedPythinkerCodeConfig,
-  resolvePythinkerCodeLoginAuth,
-  resolvePythinkerCodeOAuthKey,
-  resolvePythinkerCodeOAuthRef,
-  resolvePythinkerCodeRuntimeAuth,
-} from './managed-pythinker-code';
+  applyManagedKimiCodeLogoutConfig,
+  applyManagedKimiCodeConfig,
+  clearManagedKimiCodeConfig,
+  fetchManagedKimiCodeModels,
+  kimiCodeEnvBaseUrl,
+  kimiCodeEnvOAuthHost,
+  KIMI_CODE_OAUTH_KEY,
+  KIMI_CODE_PLATFORM_ID,
+  KIMI_CODE_PROVIDER_NAME,
+  ManagedKimiCodeModelsAuthError,
+  provisionManagedKimiCodeConfig,
+  resolveKimiCodeLoginAuth,
+  resolveKimiCodeOAuthKey,
+  resolveKimiCodeOAuthRef,
+  resolveKimiCodeRuntimeAuth,
+} from './managed-kimi-code';
 export type {
-  FetchManagedPythinkerCodeModelsOptions,
-  ManagedPythinkerCodeApplyResult,
-  ManagedPythinkerCodeCleanupResult,
-  ManagedPythinkerEnv,
-  ManagedPythinkerLoginAuth,
-  ManagedPythinkerCodeModelInfo,
-  ManagedPythinkerCodeProvisionResult,
-  ManagedPythinkerConfigAdapter,
-  ManagedPythinkerConfigShape,
-  ManagedPythinkerOAuthRef,
-  ManagedPythinkerOAuthRefInput,
-  ManagedPythinkerRuntimeAuth,
-  ProvisionManagedPythinkerCodeConfigOptions,
-} from './managed-pythinker-code';
+  FetchManagedKimiCodeModelsOptions,
+  ManagedKimiCodeApplyResult,
+  ManagedKimiCodeCleanupResult,
+  ManagedKimiEnv,
+  ManagedKimiLoginAuth,
+  ManagedKimiCodeModelInfo,
+  ManagedKimiCodeProvisionResult,
+  ManagedKimiConfigAdapter,
+  ManagedKimiConfigShape,
+  ManagedKimiOAuthRef,
+  ManagedKimiOAuthRefInput,
+  ManagedKimiRuntimeAuth,
+  ProvisionManagedKimiCodeConfigOptions,
+} from './managed-kimi-code';
 
 export {
   fetchManagedUsage,
   formatDuration,
   formatResetTime,
-  isManagedPythinkerCode,
-  pythinkerCodeBaseUrl,
-  pythinkerCodeUsageUrl,
+  isManagedKimiCode,
+  kimiCodeBaseUrl,
+  kimiCodeUsageUrl,
   parseManagedUsagePayload,
 } from './managed-usage';
 export type {
@@ -94,7 +94,7 @@ export type {
   UsageRow,
 } from './managed-usage';
 
-export { fetchSubmitFeedback, pythinkerCodeFeedbackUrl } from './managed-feedback';
+export { fetchSubmitFeedback, kimiCodeFeedbackUrl } from './managed-feedback';
 export type {
   FetchSubmitFeedbackError,
   FetchSubmitFeedbackOk,

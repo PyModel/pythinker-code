@@ -1,26 +1,26 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-import { PYTHINKER_CODE_FLOW_CONFIG } from './constants';
+import { KIMI_CODE_FLOW_CONFIG } from './constants';
 import { OAuthUnauthorizedError } from './errors';
 import { assertPythinkerHostIdentity, createPythinkerDeviceHeaders, type PythinkerHostIdentity } from './identity';
 import {
   fetchSubmitFeedback,
-  pythinkerCodeFeedbackUrl,
+  kimiCodeFeedbackUrl,
   type FetchSubmitFeedbackResult,
   type SubmitFeedbackBody,
 } from './managed-feedback';
 import {
-  PYTHINKER_CODE_OAUTH_KEY,
-  PYTHINKER_CODE_PROVIDER_NAME,
-  provisionManagedPythinkerCodeConfig,
-  resolvePythinkerCodeOAuthKey,
-  type ManagedPythinkerCodeProvisionResult,
-  type ManagedPythinkerConfigAdapter,
-} from './managed-pythinker-code';
+  KIMI_CODE_OAUTH_KEY,
+  KIMI_CODE_PROVIDER_NAME,
+  provisionManagedKimiCodeConfig,
+  resolveKimiCodeOAuthKey,
+  type ManagedKimiCodeProvisionResult,
+  type ManagedKimiConfigAdapter,
+} from './managed-kimi-code';
 import {
   fetchManagedUsage,
-  pythinkerCodeUsageUrl,
+  kimiCodeUsageUrl,
   type FetchManagedUsageError,
   type ParsedManagedUsage,
 } from './managed-usage';
@@ -47,7 +47,7 @@ export interface PythinkerOAuthToolkitOptions<TConfig = unknown> {
   readonly credentialsDir?: string | undefined;
   readonly storage?: TokenStorage | undefined;
   readonly flowConfig?: OAuthFlowConfig | undefined;
-  readonly configAdapter?: ManagedPythinkerConfigAdapter<TConfig> | undefined;
+  readonly configAdapter?: ManagedKimiConfigAdapter<TConfig> | undefined;
   readonly fetchImpl?: typeof fetch | undefined;
   readonly now?: OAuthManagerOptions['now'];
   readonly sleep?: OAuthManagerOptions['sleep'];
@@ -71,7 +71,7 @@ export interface PythinkerOAuthTokenRef {
 export interface PythinkerOAuthLoginResult {
   readonly providerName: string;
   readonly ok: true;
-  readonly provision?: ManagedPythinkerCodeProvisionResult | undefined;
+  readonly provision?: ManagedKimiCodeProvisionResult | undefined;
 }
 
 export interface PythinkerOAuthLogoutResult {
@@ -92,7 +92,7 @@ export class PythinkerOAuthToolkit<TConfig = unknown> {
   private readonly identity: PythinkerHostIdentity | undefined;
   private readonly storage: TokenStorage;
   private readonly flowConfig: OAuthFlowConfig;
-  private readonly configAdapter: ManagedPythinkerConfigAdapter<TConfig> | undefined;
+  private readonly configAdapter: ManagedKimiConfigAdapter<TConfig> | undefined;
   private readonly fetchImpl: typeof fetch | undefined;
   private readonly managerOptions: Pick<
     OAuthManagerOptions,
@@ -106,7 +106,7 @@ export class PythinkerOAuthToolkit<TConfig = unknown> {
     this.homeDir = options.homeDir ?? defaultPythinkerHome();
     const credentialsDir = options.credentialsDir ?? join(this.homeDir, 'credentials');
     this.storage = options.storage ?? new FileTokenStorage(credentialsDir);
-    this.flowConfig = options.flowConfig ?? PYTHINKER_CODE_FLOW_CONFIG;
+    this.flowConfig = options.flowConfig ?? KIMI_CODE_FLOW_CONFIG;
     this.configAdapter = options.configAdapter;
     this.fetchImpl = options.fetchImpl;
     this.managerOptions = {
@@ -122,7 +122,7 @@ export class PythinkerOAuthToolkit<TConfig = unknown> {
     providerName?: string | undefined,
     oauthRef?: PythinkerOAuthTokenRef | undefined,
   ): Promise<AuthStatus> {
-    const name = providerName ?? PYTHINKER_CODE_PROVIDER_NAME;
+    const name = providerName ?? KIMI_CODE_PROVIDER_NAME;
     const oauthHost = this.oauthHostFor(oauthRef);
     const oauthKey = oauthRef?.key ?? this.defaultOAuthKey(undefined, oauthHost);
     return {
@@ -139,7 +139,7 @@ export class PythinkerOAuthToolkit<TConfig = unknown> {
     providerName?: string | undefined,
     options: PythinkerOAuthLoginOptions = {},
   ): Promise<PythinkerOAuthLoginResult> {
-    const name = providerName ?? PYTHINKER_CODE_PROVIDER_NAME;
+    const name = providerName ?? KIMI_CODE_PROVIDER_NAME;
     const oauthHost = this.oauthHostFor(options.oauthRef, options.oauthHost);
     const oauthKey = options.oauthRef?.key ?? this.defaultOAuthKey(options.baseUrl, oauthHost);
     const manager = this.managerFor(name, oauthKey, oauthHost);
@@ -168,10 +168,10 @@ export class PythinkerOAuthToolkit<TConfig = unknown> {
 
     const shouldProvision = options.provisionConfig ?? this.configAdapter !== undefined;
     const configAdapter = this.configAdapter;
-    let provision: ManagedPythinkerCodeProvisionResult | undefined;
+    let provision: ManagedKimiCodeProvisionResult | undefined;
     if (shouldProvision && configAdapter !== undefined) {
-      const provisionWithToken = (token: string): Promise<ManagedPythinkerCodeProvisionResult> =>
-        provisionManagedPythinkerCodeConfig({
+      const provisionWithToken = (token: string): Promise<ManagedKimiCodeProvisionResult> =>
+        provisionManagedKimiCodeConfig({
           accessToken: token,
           adapter: configAdapter,
           baseUrl: options.baseUrl,
@@ -211,11 +211,11 @@ export class PythinkerOAuthToolkit<TConfig = unknown> {
     providerName?: string | undefined,
     oauthRef?: PythinkerOAuthTokenRef | undefined,
   ): Promise<PythinkerOAuthLogoutResult> {
-    const name = providerName ?? PYTHINKER_CODE_PROVIDER_NAME;
+    const name = providerName ?? KIMI_CODE_PROVIDER_NAME;
     const oauthHost = this.oauthHostFor(oauthRef);
     const oauthKey = oauthRef?.key ?? this.defaultOAuthKey(undefined, oauthHost);
     await this.managerFor(name, oauthKey, oauthHost).logout();
-    if (this.configAdapter?.remove !== undefined && name === PYTHINKER_CODE_PROVIDER_NAME) {
+    if (this.configAdapter?.remove !== undefined && name === KIMI_CODE_PROVIDER_NAME) {
       const config = await this.configAdapter.read();
       this.configAdapter.remove(config);
       await this.configAdapter.write(config);
@@ -230,7 +230,7 @@ export class PythinkerOAuthToolkit<TConfig = unknown> {
       readonly oauthRef?: PythinkerOAuthTokenRef | undefined;
     } = {},
   ): Promise<string> {
-    const name = providerName ?? PYTHINKER_CODE_PROVIDER_NAME;
+    const name = providerName ?? KIMI_CODE_PROVIDER_NAME;
     const oauthHost = this.oauthHostFor(options.oauthRef);
     const oauthKey = options.oauthRef?.key ?? this.defaultOAuthKey(undefined, oauthHost);
     return this.managerFor(name, oauthKey, oauthHost).ensureFresh(options);
@@ -240,7 +240,7 @@ export class PythinkerOAuthToolkit<TConfig = unknown> {
     providerName?: string,
     oauthRef?: PythinkerOAuthTokenRef,
   ): Promise<string | undefined> {
-    const name = providerName ?? PYTHINKER_CODE_PROVIDER_NAME;
+    const name = providerName ?? KIMI_CODE_PROVIDER_NAME;
     const oauthHost = this.oauthHostFor(oauthRef);
     const oauthKey = oauthRef?.key ?? this.defaultOAuthKey(undefined, oauthHost);
     return this.managerFor(name, oauthKey, oauthHost).getCachedAccessToken();
@@ -250,7 +250,7 @@ export class PythinkerOAuthToolkit<TConfig = unknown> {
     providerName?: string | undefined,
     oauthRef?: PythinkerOAuthTokenRef | undefined,
   ): BearerTokenProvider {
-    const name = providerName ?? PYTHINKER_CODE_PROVIDER_NAME;
+    const name = providerName ?? KIMI_CODE_PROVIDER_NAME;
     const oauthHost = this.oauthHostFor(oauthRef);
     const oauthKey = oauthRef?.key ?? this.defaultOAuthKey(undefined, oauthHost);
     return {
@@ -265,7 +265,7 @@ export class PythinkerOAuthToolkit<TConfig = unknown> {
       readonly baseUrl?: string | undefined;
     } = {},
   ): Promise<AuthManagedUsageResult> {
-    const name = providerName ?? PYTHINKER_CODE_PROVIDER_NAME;
+    const name = providerName ?? KIMI_CODE_PROVIDER_NAME;
     try {
       const accessToken = await this.ensureFresh(name, {
         oauthRef: options.oauthRef ?? this.defaultOAuthRef(options.baseUrl),
@@ -293,7 +293,7 @@ export class PythinkerOAuthToolkit<TConfig = unknown> {
       readonly baseUrl?: string | undefined;
     } = {},
   ): Promise<FetchSubmitFeedbackResult> {
-    const name = providerName ?? PYTHINKER_CODE_PROVIDER_NAME;
+    const name = providerName ?? KIMI_CODE_PROVIDER_NAME;
     try {
       const accessToken = await this.ensureFresh(name, {
         oauthRef: options.oauthRef ?? this.defaultOAuthRef(options.baseUrl),
@@ -309,7 +309,7 @@ export class PythinkerOAuthToolkit<TConfig = unknown> {
 
   managerFor(
     providerName: string,
-    oauthKey = PYTHINKER_CODE_OAUTH_KEY,
+    oauthKey = KIMI_CODE_OAUTH_KEY,
     oauthHost?: string | undefined,
   ): OAuthManager {
     const storageName = resolvePythinkerTokenStorageName({ providerName, oauthKey });
@@ -345,7 +345,7 @@ export class PythinkerOAuthToolkit<TConfig = unknown> {
     baseUrl?: string | undefined,
     oauthHost?: string | undefined,
   ): string {
-    return resolvePythinkerCodeOAuthKey({
+    return resolveKimiCodeOAuthKey({
       oauthHost: oauthHost ?? this.flowConfig.oauthHost,
       baseUrl,
     });
@@ -370,13 +370,13 @@ export function resolvePythinkerTokenStorageName(input: {
   readonly providerName?: string | undefined;
   readonly oauthKey?: string | undefined;
 }): string {
-  const providerName = input.providerName ?? PYTHINKER_CODE_PROVIDER_NAME;
-  if (providerName !== PYTHINKER_CODE_PROVIDER_NAME) {
+  const providerName = input.providerName ?? KIMI_CODE_PROVIDER_NAME;
+  if (providerName !== KIMI_CODE_PROVIDER_NAME) {
     throw new Error(`No OAuth manager configured for provider "${providerName}".`);
   }
 
-  const key = input.oauthKey ?? PYTHINKER_CODE_OAUTH_KEY;
-  if (key === 'pythinker-code' || key === PYTHINKER_CODE_OAUTH_KEY) return 'pythinker-code';
+  const key = input.oauthKey ?? KIMI_CODE_OAUTH_KEY;
+  if (key === 'kimi-code' || key === KIMI_CODE_OAUTH_KEY) return 'kimi-code';
 
   const prefix = 'oauth/';
   if (key.startsWith(prefix) && key.slice(prefix.length).length > 0) {
@@ -394,12 +394,12 @@ function defaultPythinkerHome(): string {
 }
 
 function managedUsageUrl(baseUrl: string | undefined): string {
-  if (baseUrl === undefined) return pythinkerCodeUsageUrl();
+  if (baseUrl === undefined) return kimiCodeUsageUrl();
   return `${baseUrl.replace(/\/+$/, '')}/usages`;
 }
 
 function managedFeedbackUrl(baseUrl: string | undefined): string {
-  if (baseUrl === undefined) return pythinkerCodeFeedbackUrl();
+  if (baseUrl === undefined) return kimiCodeFeedbackUrl();
   return `${baseUrl.replace(/\/+$/, '')}/feedback`;
 }
 

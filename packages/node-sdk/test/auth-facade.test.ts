@@ -4,12 +4,12 @@ import { join } from 'node:path';
 
 import {
   FileTokenStorage,
-  PYTHINKER_CODE_PROVIDER_NAME,
+  KIMI_CODE_PROVIDER_NAME,
   PythinkerOAuthToolkit,
   OAuthConnectionError,
   OAuthError,
   RetryableRefreshError,
-  resolvePythinkerCodeOAuthKey,
+  resolveKimiCodeOAuthKey,
   resolvePythinkerTokenStorageName,
   type TokenInfo,
 } from '@pythoughts/pythinker-code-oauth';
@@ -60,7 +60,7 @@ describe('PythinkerHarness.auth', () => {
   });
 
   it('exposes a cached access token without refreshing auth state', async () => {
-    await new FileTokenStorage(join(homeDir, 'credentials')).save('pythinker-code', freshToken());
+    await new FileTokenStorage(join(homeDir, 'credentials')).save('kimi-code', freshToken());
     const harness = createPythinkerHarness({ homeDir, identity: TEST_IDENTITY });
 
     await expect(harness.auth.getCachedAccessToken()).resolves.toBe('oauth-access-token');
@@ -70,7 +70,7 @@ describe('PythinkerHarness.auth', () => {
     const harness = createPythinkerHarness({ homeDir, identity: TEST_IDENTITY });
 
     await expect(
-      harness.auth.resolveOAuthTokenProvider(PYTHINKER_CODE_PROVIDER_NAME).getAccessToken(),
+      harness.auth.resolveOAuthTokenProvider(KIMI_CODE_PROVIDER_NAME).getAccessToken(),
     ).rejects.toMatchObject({
       code: ErrorCodes.AUTH_LOGIN_REQUIRED,
     });
@@ -94,7 +94,7 @@ describe('PythinkerHarness.auth', () => {
         const harness = createPythinkerHarness({ homeDir, identity: TEST_IDENTITY });
 
         const error = await harness.auth
-          .resolveOAuthTokenProvider(PYTHINKER_CODE_PROVIDER_NAME)
+          .resolveOAuthTokenProvider(KIMI_CODE_PROVIDER_NAME)
           .getAccessToken()
           .catch((error: unknown) => error);
 
@@ -123,7 +123,7 @@ describe('PythinkerHarness.auth', () => {
       const harness = createPythinkerHarness({ homeDir, identity: TEST_IDENTITY });
 
       await expect(
-        harness.auth.resolveOAuthTokenProvider(PYTHINKER_CODE_PROVIDER_NAME).getAccessToken(),
+        harness.auth.resolveOAuthTokenProvider(KIMI_CODE_PROVIDER_NAME).getAccessToken(),
       ).rejects.toBe(oauthError);
     } finally {
       tokenProviderSpy.mockRestore();
@@ -131,11 +131,11 @@ describe('PythinkerHarness.auth', () => {
   });
 
   it('resolves managed auth from a partially invalid config without throwing', async () => {
-    await new FileTokenStorage(join(homeDir, 'credentials')).save('pythinker-code', freshToken());
+    await new FileTokenStorage(join(homeDir, 'credentials')).save('kimi-code', freshToken());
     await writeFile(
       join(homeDir, 'config.toml'),
       `
-[providers."managed:pythinker-code"]
+[providers."managed:kimi-code"]
 type = "pythinker"
 api_key = ""
 
@@ -149,23 +149,23 @@ max_steps_per_turn = "abc"
     // config.toml must degrade, not break OAuth-backed sessions.
     await expect(harness.auth.getCachedAccessToken()).resolves.toBe('oauth-access-token');
     await expect(harness.auth.status()).resolves.toMatchObject({
-      providers: [{ providerName: PYTHINKER_CODE_PROVIDER_NAME, hasToken: true }],
+      providers: [{ providerName: KIMI_CODE_PROVIDER_NAME, hasToken: true }],
     });
   });
 
   it('resolves cached access tokens from the configured scoped OAuth ref', async () => {
-    const oauthKey = resolvePythinkerCodeOAuthKey({
+    const oauthKey = resolveKimiCodeOAuthKey({
       oauthHost: 'https://auth.dev.example.test',
       baseUrl: 'https://api.dev.example.test/coding/v1',
     });
     const storageName = resolvePythinkerTokenStorageName({ oauthKey });
     const storage = new FileTokenStorage(join(homeDir, 'credentials'));
-    await storage.save('pythinker-code', freshToken());
+    await storage.save('kimi-code', freshToken());
     await storage.save(storageName, { ...freshToken(), accessToken: 'dev-access-token' });
     await writeFile(
       join(homeDir, 'config.toml'),
       `
-[providers."managed:pythinker-code"]
+[providers."managed:kimi-code"]
 type = "pythinker"
 base_url = "https://api.dev.example.test/coding/v1"
 api_key = ""
@@ -178,7 +178,7 @@ oauth = { storage = "file", key = "${oauthKey}", oauth_host = "https://auth.dev.
   });
 
   it('reports auth status from the configured scoped OAuth ref', async () => {
-    const oauthKey = resolvePythinkerCodeOAuthKey({
+    const oauthKey = resolveKimiCodeOAuthKey({
       oauthHost: 'https://auth.dev.example.test',
       baseUrl: 'https://api.dev.example.test/coding/v1',
     });
@@ -189,7 +189,7 @@ oauth = { storage = "file", key = "${oauthKey}", oauth_host = "https://auth.dev.
     await writeFile(
       join(homeDir, 'config.toml'),
       `
-[providers."managed:pythinker-code"]
+[providers."managed:kimi-code"]
 type = "pythinker"
 base_url = "https://api.dev.example.test/coding/v1"
 api_key = ""
@@ -199,12 +199,12 @@ oauth = { storage = "file", key = "${oauthKey}", oauth_host = "https://auth.dev.
     const harness = createPythinkerHarness({ homeDir, identity: TEST_IDENTITY });
 
     await expect(harness.auth.status()).resolves.toEqual({
-      providers: [{ providerName: PYTHINKER_CODE_PROVIDER_NAME, hasToken: true }],
+      providers: [{ providerName: KIMI_CODE_PROVIDER_NAME, hasToken: true }],
     });
   });
 
   it('provisions SDK config using an existing Pythinker OAuth token', async () => {
-    await new FileTokenStorage(join(homeDir, 'credentials')).save('pythinker-code', freshToken());
+    await new FileTokenStorage(join(homeDir, 'credentials')).save('kimi-code', freshToken());
     const fetchMock = vi.fn<FetchMock>(
       async (_input, _init) =>
         new Response(
@@ -230,9 +230,9 @@ oauth = { storage = "file", key = "${oauthKey}", oauth_host = "https://auth.dev.
     const config = await harness.getConfig({ reload: true });
 
     expect(result).toMatchObject({
-      providerName: PYTHINKER_CODE_PROVIDER_NAME,
+      providerName: KIMI_CODE_PROVIDER_NAME,
       ok: true,
-      defaultModel: 'pythinker-code/pythinker-for-coding',
+      defaultModel: 'kimi-code/pythinker-for-coding',
       defaultThinking: true,
     });
     expect(fetchMock).toHaveBeenCalledWith(
@@ -243,8 +243,8 @@ oauth = { storage = "file", key = "${oauthKey}", oauth_host = "https://auth.dev.
         }),
       }),
     );
-    expect(config.defaultModel).toBe('pythinker-code/pythinker-for-coding');
-    expect(config.models?.['pythinker-code/pythinker-for-coding']).toMatchObject({
+    expect(config.defaultModel).toBe('kimi-code/pythinker-for-coding');
+    expect(config.models?.['kimi-code/pythinker-for-coding']).toMatchObject({
       capabilities: ['thinking', 'image_in', 'video_in', 'tool_use'],
       displayName: 'Pythinker for Coding',
     });
@@ -253,21 +253,21 @@ oauth = { storage = "file", key = "${oauthKey}", oauth_host = "https://auth.dev.
         tool_use: true,
       },
     });
-    expect(config.providers[PYTHINKER_CODE_PROVIDER_NAME]).toMatchObject({
+    expect(config.providers[KIMI_CODE_PROVIDER_NAME]).toMatchObject({
       type: 'pythinker',
       apiKey: '',
-      oauth: { storage: 'file', key: 'oauth/pythinker-code' },
+      oauth: { storage: 'file', key: 'oauth/kimi-code' },
     });
     expect(config.services?.pythoughtsSearch?.oauth).toEqual({
       storage: 'file',
-      key: 'oauth/pythinker-code',
+      key: 'oauth/kimi-code',
     });
   });
 
   it('logs in against the configured scoped OAuth host and base URL when env is absent', async () => {
     const baseUrl = 'https://api.dev.example.test/coding/v1';
     const oauthHost = 'https://auth.dev.example.test';
-    const oauthKey = resolvePythinkerCodeOAuthKey({ oauthHost, baseUrl });
+    const oauthKey = resolveKimiCodeOAuthKey({ oauthHost, baseUrl });
     const storageName = resolvePythinkerTokenStorageName({ oauthKey });
     const storage = new FileTokenStorage(join(homeDir, 'credentials'));
     await storage.save(storageName, {
@@ -279,7 +279,7 @@ oauth = { storage = "file", key = "${oauthKey}", oauth_host = "https://auth.dev.
     await writeFile(
       join(homeDir, 'config.toml'),
       `
-[providers."managed:pythinker-code"]
+[providers."managed:kimi-code"]
 type = "pythinker"
 base_url = "${baseUrl}"
 api_key = ""
@@ -325,9 +325,9 @@ oauth = { storage = "file", key = "${oauthKey}", oauth_host = "${oauthHost}" }
     const harness = createPythinkerHarness({ homeDir, identity: TEST_IDENTITY });
 
     await expect(harness.auth.login()).resolves.toMatchObject({
-      providerName: PYTHINKER_CODE_PROVIDER_NAME,
+      providerName: KIMI_CODE_PROVIDER_NAME,
       ok: true,
-      defaultModel: 'pythinker-code/pythinker-for-coding',
+      defaultModel: 'kimi-code/pythinker-for-coding',
     });
     expect(refreshBody?.get('grant_type')).toBe('refresh_token');
     expect(refreshBody?.get('refresh_token')).toBe('dev-refresh-token');
@@ -336,7 +336,7 @@ oauth = { storage = "file", key = "${oauthKey}", oauth_host = "${oauthHost}" }
       accessToken: 'rotated-dev-access-token',
     });
     const config = await harness.getConfig({ reload: true });
-    expect(config.providers[PYTHINKER_CODE_PROVIDER_NAME]).toMatchObject({
+    expect(config.providers[KIMI_CODE_PROVIDER_NAME]).toMatchObject({
       baseUrl,
       oauth: { storage: 'file', key: oauthKey, oauthHost },
     });
@@ -348,10 +348,10 @@ oauth = { storage = "file", key = "${oauthKey}", oauth_host = "${oauthHost}" }
 
   it('recomputes legacy managed OAuth refs during login for non-default base URLs', async () => {
     const baseUrl = 'https://api.example.test/coding/v1';
-    const oauthKey = resolvePythinkerCodeOAuthKey({ baseUrl });
+    const oauthKey = resolveKimiCodeOAuthKey({ baseUrl });
     const scopedStorageName = resolvePythinkerTokenStorageName({ oauthKey });
     const storage = new FileTokenStorage(join(homeDir, 'credentials'));
-    await storage.save('pythinker-code', { ...freshToken(), accessToken: 'legacy-access-token' });
+    await storage.save('kimi-code', { ...freshToken(), accessToken: 'legacy-access-token' });
     await storage.save(scopedStorageName, {
       ...freshToken(),
       accessToken: 'scoped-access-token',
@@ -359,11 +359,11 @@ oauth = { storage = "file", key = "${oauthKey}", oauth_host = "${oauthHost}" }
     await writeFile(
       join(homeDir, 'config.toml'),
       `
-[providers."managed:pythinker-code"]
+[providers."managed:kimi-code"]
 type = "pythinker"
 base_url = "${baseUrl}"
 api_key = ""
-oauth = { storage = "file", key = "oauth/pythinker-code" }
+oauth = { storage = "file", key = "oauth/kimi-code" }
 `,
     );
     const fetchMock = vi.fn<FetchMock>(async (input, init) => {
@@ -386,14 +386,14 @@ oauth = { storage = "file", key = "oauth/pythinker-code" }
     const harness = createPythinkerHarness({ homeDir, identity: TEST_IDENTITY });
 
     await expect(harness.auth.login()).resolves.toMatchObject({
-      providerName: PYTHINKER_CODE_PROVIDER_NAME,
+      providerName: KIMI_CODE_PROVIDER_NAME,
       ok: true,
-      defaultModel: 'pythinker-code/pythinker-for-coding',
+      defaultModel: 'kimi-code/pythinker-for-coding',
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const config = await harness.getConfig({ reload: true });
-    expect(config.providers[PYTHINKER_CODE_PROVIDER_NAME]).toMatchObject({
+    expect(config.providers[KIMI_CODE_PROVIDER_NAME]).toMatchObject({
       baseUrl,
       oauth: { storage: 'file', key: oauthKey, oauthHost: 'https://auth.kimi.com' },
     });
@@ -403,8 +403,8 @@ oauth = { storage = "file", key = "oauth/pythinker-code" }
     const configuredBaseUrl = 'https://api.configured.example.test/coding/v1';
     const envBaseUrl = 'https://api.env.example.test/coding/v1';
     const envOauthHost = 'https://auth.env.example.test';
-    const configuredOauthKey = resolvePythinkerCodeOAuthKey({ baseUrl: configuredBaseUrl });
-    const envOauthKey = resolvePythinkerCodeOAuthKey({ oauthHost: envOauthHost, baseUrl: envBaseUrl });
+    const configuredOauthKey = resolveKimiCodeOAuthKey({ baseUrl: configuredBaseUrl });
+    const envOauthKey = resolveKimiCodeOAuthKey({ oauthHost: envOauthHost, baseUrl: envBaseUrl });
     const storage = new FileTokenStorage(join(homeDir, 'credentials'));
     await storage.save(resolvePythinkerTokenStorageName({ oauthKey: configuredOauthKey }), {
       ...freshToken(),
@@ -417,7 +417,7 @@ oauth = { storage = "file", key = "oauth/pythinker-code" }
     await writeFile(
       join(homeDir, 'config.toml'),
       `
-[providers."managed:pythinker-code"]
+[providers."managed:kimi-code"]
 type = "pythinker"
 base_url = "${configuredBaseUrl}"
 api_key = ""
@@ -446,32 +446,32 @@ oauth = { storage = "file", key = "${configuredOauthKey}", oauth_host = "https:/
     const harness = createPythinkerHarness({ homeDir, identity: TEST_IDENTITY });
 
     await expect(harness.auth.login()).resolves.toMatchObject({
-      providerName: PYTHINKER_CODE_PROVIDER_NAME,
+      providerName: KIMI_CODE_PROVIDER_NAME,
       ok: true,
-      defaultModel: 'pythinker-code/pythinker-for-coding',
+      defaultModel: 'kimi-code/pythinker-for-coding',
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const config = await harness.getConfig({ reload: true });
-    expect(config.providers[PYTHINKER_CODE_PROVIDER_NAME]).toMatchObject({
+    expect(config.providers[KIMI_CODE_PROVIDER_NAME]).toMatchObject({
       baseUrl: envBaseUrl,
       oauth: { storage: 'file', key: envOauthKey, oauthHost: envOauthHost },
     });
   });
 
   it('starts degraded when a configured model alias does not have max_context_size', async () => {
-    await new FileTokenStorage(join(homeDir, 'credentials')).save('pythinker-code', freshToken());
+    await new FileTokenStorage(join(homeDir, 'credentials')).save('kimi-code', freshToken());
     await writeFile(
       join(homeDir, 'config.toml'),
       `
 default_model = "pythinker-code/pythinker-for-coding"
 
-[providers."managed:pythinker-code"]
+[providers."managed:kimi-code"]
 type = "pythinker"
 api_key = ""
 
 [models."pythinker-code/pythinker-for-coding"]
-provider = "managed:pythinker-code"
+provider = "managed:kimi-code"
 model = "pythinker-for-coding"
 `,
     );
@@ -500,30 +500,30 @@ model = "pythinker-for-coding"
     // dropped, the rest of the config survives, and a warning is reported.
     const harness = createPythinkerHarness({ homeDir, identity: TEST_IDENTITY });
     const config = await harness.getConfig();
-    expect(config.models?.['pythinker-code/pythinker-for-coding']).toBeUndefined();
-    expect(config.providers[PYTHINKER_CODE_PROVIDER_NAME]).toBeDefined();
+    expect(config.models?.['kimi-code/pythinker-for-coding']).toBeUndefined();
+    expect(config.providers[KIMI_CODE_PROVIDER_NAME]).toBeDefined();
     const { warnings } = await harness.getConfigDiagnostics();
     expect(warnings.some((w) => w.includes('models.pythinker-code/pythinker-for-coding'))).toBe(true);
   });
 
   it('removes managed Pythinker config on logout', async () => {
-    await new FileTokenStorage(join(homeDir, 'credentials')).save('pythinker-code', freshToken());
+    await new FileTokenStorage(join(homeDir, 'credentials')).save('kimi-code', freshToken());
     await writeFile(
       join(homeDir, 'config.toml'),
       `
 default_model = "pythinker-code/pythinker-for-coding"
 
-[providers."managed:pythinker-code"]
+[providers."managed:kimi-code"]
 type = "pythinker"
 api_key = ""
-oauth = { storage = "file", key = "oauth/pythinker-code" }
+oauth = { storage = "file", key = "oauth/kimi-code" }
 
 [providers.custom]
 type = "pythinker"
 api_key = "sk-existing"
 
 [models."pythinker-code/pythinker-for-coding"]
-provider = "managed:pythinker-code"
+provider = "managed:kimi-code"
 model = "pythinker-for-coding"
 max_context_size = 262144
 
@@ -535,62 +535,62 @@ max_context_size = 1000
 [services.pythoughts_search]
 base_url = "https://api.pythinker.com/coding/v1/search"
 api_key = ""
-oauth = { storage = "file", key = "oauth/pythinker-code" }
+oauth = { storage = "file", key = "oauth/kimi-code" }
 
 [services.pythoughts_fetch]
 base_url = "https://api.pythinker.com/coding/v1/fetch"
 api_key = ""
-oauth = { storage = "file", key = "oauth/pythinker-code" }
+oauth = { storage = "file", key = "oauth/kimi-code" }
 `,
     );
 
     const harness = createPythinkerHarness({ homeDir, identity: TEST_IDENTITY });
 
     await expect(harness.auth.logout()).resolves.toMatchObject({
-      providerName: PYTHINKER_CODE_PROVIDER_NAME,
+      providerName: KIMI_CODE_PROVIDER_NAME,
       ok: true,
     });
 
     const config = await harness.getConfig({ reload: true });
     expect(config.defaultModel).toBeUndefined();
-    expect(config.providers[PYTHINKER_CODE_PROVIDER_NAME]).toBeUndefined();
+    expect(config.providers[KIMI_CODE_PROVIDER_NAME]).toBeUndefined();
     expect(config.providers['custom']).toMatchObject({ apiKey: 'sk-existing' });
-    expect(config.models?.['pythinker-code/pythinker-for-coding']).toBeUndefined();
+    expect(config.models?.['kimi-code/pythinker-for-coding']).toBeUndefined();
     expect(config.models?.['custom-default']).toMatchObject({ provider: 'custom' });
     expect(config.services?.pythoughtsSearch).toBeUndefined();
     expect(config.services?.pythoughtsFetch).toBeUndefined();
     await expect(
-      new FileTokenStorage(join(homeDir, 'credentials')).load('pythinker-code'),
+      new FileTokenStorage(join(homeDir, 'credentials')).load('kimi-code'),
     ).resolves.toBeUndefined();
 
     const text = await readFile(join(homeDir, 'config.toml'), 'utf-8');
-    expect(text).not.toContain('managed:pythinker-code');
-    expect(text).not.toContain('pythinker-code/pythinker-for-coding');
+    expect(text).not.toContain('managed:kimi-code');
+    expect(text).not.toContain('kimi-code/pythinker-for-coding');
     expect(text).not.toContain('pythoughts_search');
   });
 
   it('removes the configured scoped OAuth token on logout without touching the production token', async () => {
-    const oauthKey = resolvePythinkerCodeOAuthKey({
+    const oauthKey = resolveKimiCodeOAuthKey({
       oauthHost: 'https://auth.dev.example.test',
       baseUrl: 'https://api.dev.example.test/coding/v1',
     });
     const storageName = resolvePythinkerTokenStorageName({ oauthKey });
     const storage = new FileTokenStorage(join(homeDir, 'credentials'));
-    await storage.save('pythinker-code', freshToken());
+    await storage.save('kimi-code', freshToken());
     await storage.save(storageName, { ...freshToken(), accessToken: 'dev-access-token' });
     await writeFile(
       join(homeDir, 'config.toml'),
       `
 default_model = "pythinker-code/pythinker-for-coding"
 
-[providers."managed:pythinker-code"]
+[providers."managed:kimi-code"]
 type = "pythinker"
 base_url = "https://api.dev.example.test/coding/v1"
 api_key = ""
 oauth = { storage = "file", key = "${oauthKey}", oauth_host = "https://auth.dev.example.test" }
 
 [models."pythinker-code/pythinker-for-coding"]
-provider = "managed:pythinker-code"
+provider = "managed:kimi-code"
 model = "pythinker-for-coding"
 max_context_size = 262144
 `,
@@ -598,22 +598,22 @@ max_context_size = 262144
     const harness = createPythinkerHarness({ homeDir, identity: TEST_IDENTITY });
 
     await expect(harness.auth.logout()).resolves.toMatchObject({
-      providerName: PYTHINKER_CODE_PROVIDER_NAME,
+      providerName: KIMI_CODE_PROVIDER_NAME,
       ok: true,
     });
 
     await expect(storage.load(storageName)).resolves.toBeUndefined();
-    await expect(storage.load('pythinker-code')).resolves.toMatchObject({
+    await expect(storage.load('kimi-code')).resolves.toMatchObject({
       accessToken: 'oauth-access-token',
     });
   });
 
   it('recomputes legacy managed OAuth refs during logout for non-default base URLs', async () => {
     const baseUrl = 'https://api.example.test/coding/v1';
-    const oauthKey = resolvePythinkerCodeOAuthKey({ baseUrl });
+    const oauthKey = resolveKimiCodeOAuthKey({ baseUrl });
     const scopedStorageName = resolvePythinkerTokenStorageName({ oauthKey });
     const storage = new FileTokenStorage(join(homeDir, 'credentials'));
-    await storage.save('pythinker-code', freshToken());
+    await storage.save('kimi-code', freshToken());
     await storage.save(scopedStorageName, {
       ...freshToken(),
       accessToken: 'scoped-access-token',
@@ -623,14 +623,14 @@ max_context_size = 262144
       `
 default_model = "pythinker-code/pythinker-for-coding"
 
-[providers."managed:pythinker-code"]
+[providers."managed:kimi-code"]
 type = "pythinker"
 base_url = "${baseUrl}"
 api_key = ""
-oauth = { storage = "file", key = "oauth/pythinker-code" }
+oauth = { storage = "file", key = "oauth/kimi-code" }
 
 [models."pythinker-code/pythinker-for-coding"]
-provider = "managed:pythinker-code"
+provider = "managed:kimi-code"
 model = "pythinker-for-coding"
 max_context_size = 262144
 `,
@@ -638,18 +638,18 @@ max_context_size = 262144
     const harness = createPythinkerHarness({ homeDir, identity: TEST_IDENTITY });
 
     await expect(harness.auth.logout()).resolves.toMatchObject({
-      providerName: PYTHINKER_CODE_PROVIDER_NAME,
+      providerName: KIMI_CODE_PROVIDER_NAME,
       ok: true,
     });
 
     await expect(storage.load(scopedStorageName)).resolves.toBeUndefined();
-    await expect(storage.load('pythinker-code')).resolves.toMatchObject({
+    await expect(storage.load('kimi-code')).resolves.toMatchObject({
       accessToken: 'oauth-access-token',
     });
   });
 
   it('gets managed usage without host identity and sends only auth headers', async () => {
-    await new FileTokenStorage(join(homeDir, 'credentials')).save('pythinker-code', freshToken());
+    await new FileTokenStorage(join(homeDir, 'credentials')).save('kimi-code', freshToken());
     const fetchMock = vi.fn<FetchMock>(
       async (_input, _init) =>
         new Response(
@@ -678,7 +678,7 @@ max_context_size = 262144
 
   it('uses configured scoped OAuth refs and base URLs for managed usage and feedback', async () => {
     const baseUrl = 'https://api.dev.example.test/coding/v1';
-    const oauthKey = resolvePythinkerCodeOAuthKey({
+    const oauthKey = resolveKimiCodeOAuthKey({
       oauthHost: 'https://auth.dev.example.test',
       baseUrl,
     });
@@ -690,7 +690,7 @@ max_context_size = 262144
     await writeFile(
       join(homeDir, 'config.toml'),
       `
-[providers."managed:pythinker-code"]
+[providers."managed:kimi-code"]
 type = "pythinker"
 base_url = "${baseUrl}"
 api_key = ""
@@ -720,7 +720,7 @@ oauth = { storage = "file", key = "${oauthKey}", oauth_host = "https://auth.dev.
         sessionId: 'sess-dev',
         version: 'pythinker-code-0.1.1',
         os: 'Darwin 25.3.0',
-        model: 'pythinker-code/pythinker-for-coding',
+        model: 'kimi-code/pythinker-for-coding',
       }),
     ).resolves.toEqual({ kind: 'ok' });
 
@@ -736,8 +736,8 @@ oauth = { storage = "file", key = "${oauthKey}", oauth_host = "https://auth.dev.
     const configuredBaseUrl = 'https://api.configured.example.test/coding/v1';
     const envBaseUrl = 'https://api.env.example.test/coding/v1';
     const envOauthHost = 'https://auth.env.example.test';
-    const configuredOauthKey = resolvePythinkerCodeOAuthKey({ baseUrl: configuredBaseUrl });
-    const envOauthKey = resolvePythinkerCodeOAuthKey({
+    const configuredOauthKey = resolveKimiCodeOAuthKey({ baseUrl: configuredBaseUrl });
+    const envOauthKey = resolveKimiCodeOAuthKey({
       oauthHost: envOauthHost,
       baseUrl: envBaseUrl,
     });
@@ -753,7 +753,7 @@ oauth = { storage = "file", key = "${oauthKey}", oauth_host = "https://auth.dev.
     await writeFile(
       join(homeDir, 'config.toml'),
       `
-[providers."managed:pythinker-code"]
+[providers."managed:kimi-code"]
 type = "pythinker"
 base_url = "${configuredBaseUrl}"
 api_key = ""
@@ -776,15 +776,15 @@ oauth = { storage = "file", key = "${configuredOauthKey}", oauth_host = "https:/
     const harness = createPythinkerHarness({ homeDir });
 
     await expect(harness.auth.status()).resolves.toEqual({
-      providers: [{ providerName: PYTHINKER_CODE_PROVIDER_NAME, hasToken: true }],
+      providers: [{ providerName: KIMI_CODE_PROVIDER_NAME, hasToken: true }],
     });
     await expect(harness.auth.getCachedAccessToken()).resolves.toBe('env-access-token');
     await expect(
-      harness.auth.resolveOAuthTokenProvider(PYTHINKER_CODE_PROVIDER_NAME).getAccessToken(),
+      harness.auth.resolveOAuthTokenProvider(KIMI_CODE_PROVIDER_NAME).getAccessToken(),
     ).resolves.toBe('env-access-token');
     await expect(
       harness.auth
-        .resolveOAuthTokenProvider(PYTHINKER_CODE_PROVIDER_NAME, {
+        .resolveOAuthTokenProvider(KIMI_CODE_PROVIDER_NAME, {
           storage: 'file',
           key: configuredOauthKey,
           oauthHost: 'https://auth.pythinker.com',
@@ -801,7 +801,7 @@ oauth = { storage = "file", key = "${configuredOauthKey}", oauth_host = "https:/
         sessionId: 'sess-env',
         version: 'pythinker-code-0.1.1',
         os: 'Darwin 25.3.0',
-        model: 'pythinker-code/pythinker-for-coding',
+        model: 'kimi-code/pythinker-for-coding',
       }),
     ).resolves.toEqual({ kind: 'ok' });
 
@@ -813,7 +813,7 @@ oauth = { storage = "file", key = "${configuredOauthKey}", oauth_host = "https:/
   });
 
   it('submitFeedback maps camelCase input to snake_case body and posts with bearer auth', async () => {
-    await new FileTokenStorage(join(homeDir, 'credentials')).save('pythinker-code', freshToken());
+    await new FileTokenStorage(join(homeDir, 'credentials')).save('kimi-code', freshToken());
     const fetchMock = vi.fn<FetchMock>(async () => new Response('', { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
 
@@ -823,7 +823,7 @@ oauth = { storage = "file", key = "${configuredOauthKey}", oauth_host = "https:/
       sessionId: 'sess-42',
       version: 'pythinker-code-0.1.1',
       os: 'Darwin 25.3.0',
-      model: 'pythinker-code/pythinker-for-coding',
+      model: 'kimi-code/pythinker-for-coding',
     });
 
     expect(result).toEqual({ kind: 'ok' });
@@ -842,12 +842,12 @@ oauth = { storage = "file", key = "${configuredOauthKey}", oauth_host = "https:/
       content: 'great tool',
       version: 'pythinker-code-0.1.1',
       os: 'Darwin 25.3.0',
-      model: 'pythinker-code/pythinker-for-coding',
+      model: 'kimi-code/pythinker-for-coding',
     });
   });
 
   it('submitFeedback surfaces HTTP errors without throwing', async () => {
-    await new FileTokenStorage(join(homeDir, 'credentials')).save('pythinker-code', freshToken());
+    await new FileTokenStorage(join(homeDir, 'credentials')).save('kimi-code', freshToken());
     vi.stubGlobal(
       'fetch',
       vi.fn<FetchMock>(

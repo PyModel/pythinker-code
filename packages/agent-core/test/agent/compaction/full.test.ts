@@ -2126,15 +2126,15 @@ function oauthTestAgentOptions(
     initialConfig: {
       defaultModel: 'pythinker-code',
       providers: {
-        'managed:pythinker-code': {
+        'managed:kimi-code': {
           type: 'vertexai',
           baseUrl: 'https://api.example/v1',
-          oauth: { storage: 'file', key: 'oauth/pythinker-code' },
+          oauth: { storage: 'file', key: 'oauth/kimi-code' },
         },
       },
       models: {
         'pythinker-code': {
-          provider: 'managed:pythinker-code',
+          provider: 'managed:kimi-code',
           model: 'pythinker-for-coding',
           maxContextSize: 1_000_000,
         },

@@ -7,7 +7,7 @@ import type {
   PythinkerConfigPatch,
   SetPythinkerConfigPayload,
 } from '../../src';
-import { PYTHINKER_CODE_PROVIDER_NAME } from '@pythoughts/pythinker-code-oauth';
+import { KIMI_CODE_PROVIDER_NAME } from '@pythoughts/pythinker-code-oauth';
 
 import {
   type ICoreProcessService,
@@ -248,18 +248,18 @@ describe('ModelCatalogService', () => {
     const configRef: { current: PythinkerConfig } = {
       current: {
         providers: {
-          [PYTHINKER_CODE_PROVIDER_NAME]: {
+          [KIMI_CODE_PROVIDER_NAME]: {
             type: 'pythinker',
             apiKey: '',
             baseUrl: 'https://api.example.test/coding/v1',
-            oauth: { storage: 'file', key: 'oauth/pythinker-code' },
+            oauth: { storage: 'file', key: 'oauth/kimi-code' },
           },
         },
-        defaultModel: 'pythinker-code/pythinker-for-coding',
+        defaultModel: 'kimi-code/pythinker-for-coding',
         defaultThinking: false,
         models: {
-          'pythinker-code/pythinker-for-coding': {
-            provider: PYTHINKER_CODE_PROVIDER_NAME,
+          'kimi-code/pythinker-for-coding': {
+            provider: KIMI_CODE_PROVIDER_NAME,
             model: 'pythinker-for-coding',
             maxContextSize: 131_072,
             capabilities: ['thinking'],
@@ -284,16 +284,16 @@ describe('ModelCatalogService', () => {
     const svc = ModelCatalogService._createForTest(makeEnv(), core, authFacade());
 
     await expect(svc.refreshOAuthProviderModels()).resolves.toMatchObject({
-      changed: [{ provider_id: PYTHINKER_CODE_PROVIDER_NAME, added: 0, removed: 0 }],
+      changed: [{ provider_id: KIMI_CODE_PROVIDER_NAME, added: 0, removed: 0 }],
       failed: [],
     });
 
-    expect(removeCalls).toEqual([PYTHINKER_CODE_PROVIDER_NAME]);
+    expect(removeCalls).toEqual([KIMI_CODE_PROVIDER_NAME]);
     expect(setCalls.at(-1)).toMatchObject({
-      defaultModel: 'pythinker-code/pythinker-for-coding',
+      defaultModel: 'kimi-code/pythinker-for-coding',
       defaultThinking: true,
       models: {
-        'pythinker-code/pythinker-for-coding': {
+        'kimi-code/pythinker-for-coding': {
           capabilities: ['thinking', 'always_thinking', 'tool_use'],
           maxContextSize: 262_144,
         },

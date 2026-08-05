@@ -1221,7 +1221,7 @@ command = "vim"
             k2: {
               model: 'pythoughts-v1',
               maxContextSize: 100,
-              provider: 'managed:pythinker-code',
+              provider: 'managed:kimi-code',
             },
           },
         })),
@@ -1254,7 +1254,7 @@ command = "vim"
             k2: {
               model: 'pythoughts-v1',
               maxContextSize: 100,
-              provider: 'managed:pythinker-code',
+              provider: 'managed:kimi-code',
             },
           },
         })),
@@ -1285,7 +1285,7 @@ command = "vim"
             k2: {
               model: 'pythoughts-v1',
               maxContextSize: 100,
-              provider: 'managed:pythinker-code',
+              provider: 'managed:kimi-code',
             },
           },
         })),
@@ -5196,14 +5196,14 @@ command = "vim"
       getConfig: vi.fn(async () => ({
         models: {
           k2: {
-            provider: 'managed:pythinker-code',
+            provider: 'managed:kimi-code',
             model: 'pythinker-k2',
             maxContextSize: 100,
             displayName: 'Kimi K2',
             capabilities: ['thinking'],
           },
           turbo: {
-            provider: 'managed:pythinker-code',
+            provider: 'managed:kimi-code',
             model: 'pythinker-turbo',
             maxContextSize: 100,
             displayName: 'Kimi Turbo',
@@ -5255,7 +5255,7 @@ command = "vim"
       getConfig: vi.fn(async () => ({
         models: {
           k2: {
-            provider: 'managed:pythinker-code',
+            provider: 'managed:kimi-code',
             model: 'pythinker-k2',
             maxContextSize: 100,
             displayName: 'Kimi K2',
@@ -5294,7 +5294,7 @@ command = "vim"
       getConfig: vi.fn(async () => ({
         models: {
           k2: {
-            provider: 'managed:pythinker-code',
+            provider: 'managed:kimi-code',
             model: 'pythinker-k2',
             maxContextSize: 100,
             displayName: 'Kimi K2',
@@ -5326,7 +5326,7 @@ command = "vim"
       getConfig: vi.fn(async () => ({
         models: {
           k2: {
-            provider: 'managed:pythinker-code',
+            provider: 'managed:kimi-code',
             model: 'pythinker-k2',
             maxContextSize: 100,
             displayName: 'Kimi K2',
@@ -5354,7 +5354,7 @@ command = "vim"
       getConfig: vi.fn(async () => ({
         models: {
           k2: {
-            provider: 'managed:pythinker-code',
+            provider: 'managed:kimi-code',
             model: 'pythinker-k2',
             maxContextSize: 100,
             displayName: 'Kimi K2',
@@ -5390,7 +5390,7 @@ command = "vim"
       getConfig: vi.fn(async () => ({
         models: {
           k2: {
-            provider: 'managed:pythinker-code',
+            provider: 'managed:kimi-code',
             model: 'pythinker-k2',
             maxContextSize: 100,
             displayName: 'Kimi K2',
@@ -5422,7 +5422,7 @@ command = "vim"
       getConfig: vi.fn(async () => ({
         models: {
           k2: {
-            provider: 'managed:pythinker-code',
+            provider: 'managed:kimi-code',
             model: 'pythinker-k2',
             maxContextSize: 100,
             displayName: 'Kimi K2',
@@ -5455,7 +5455,7 @@ command = "vim"
       getConfig: vi.fn(async () => ({
         models: {
           k2: {
-            provider: 'managed:pythinker-code',
+            provider: 'managed:kimi-code',
             model: 'pythinker-k2',
             maxContextSize: 100,
             displayName: 'Kimi K2',
@@ -5504,7 +5504,7 @@ command = "vim"
       getConfig: vi.fn(async () => ({
         models: {
           plain: {
-            provider: 'managed:pythinker-code',
+            provider: 'managed:kimi-code',
             model: 'pythinker-plain',
             maxContextSize: 100,
             displayName: 'Plain Model',
@@ -5532,7 +5532,7 @@ command = "vim"
       getConfig: vi.fn(async () => ({
         models: {
           k2: {
-            provider: 'managed:pythinker-code',
+            provider: 'managed:kimi-code',
             model: 'pythinker-k2',
             maxContextSize: 100,
             displayName: 'Old Kimi K2',
@@ -5552,7 +5552,7 @@ command = "vim"
           tui.setAppState({
             availableModels: {
               k2: {
-                provider: 'managed:pythinker-code',
+                provider: 'managed:kimi-code',
                 model: 'pythinker-k2',
                 maxContextSize: 100,
                 displayName: 'Fresh Kimi K2',
@@ -5563,7 +5563,7 @@ command = "vim"
           resolve();
         };
       });
-      return { changed: ['managed:pythinker-code'], unchanged: [], failed: [] };
+      return { changed: ['managed:kimi-code'], unchanged: [], failed: [] };
     });
     (
       tui.authFlow as unknown as {
@@ -5599,7 +5599,7 @@ command = "vim"
       getConfig: vi.fn(async () => ({
         models: {
           k2: {
-            provider: 'managed:pythinker-code',
+            provider: 'managed:kimi-code',
             model: 'pythinker-k2',
             maxContextSize: 100,
             displayName: 'Kimi K2',
@@ -5722,14 +5722,14 @@ command = "vim"
     const { driver } = await makeDriver();
     const selection = runModelSelector(driver as any, {
       alpha: {
-        provider: 'managed:pythinker-code',
+        provider: 'managed:kimi-code',
         model: 'pythinker-alpha',
         maxContextSize: 100,
         displayName: 'Pythinker Alpha',
         capabilities: ['thinking'],
       },
       turbo: {
-        provider: 'managed:pythinker-code',
+        provider: 'managed:kimi-code',
         model: 'pythinker-turbo',
         maxContextSize: 100,
         displayName: 'Kimi Turbo',

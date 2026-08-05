@@ -2,7 +2,7 @@ import {
   applyCustomRegistryEntries,
   fetchCustomRegistry,
   type CustomRegistrySource,
-  type ManagedPythinkerConfigShape,
+  type ManagedKimiConfigShape,
 } from '@pythoughts/pythinker-code-oauth';
 import {
   CatalogFetchError,
@@ -212,7 +212,7 @@ async function handleCustomRegistryAddViaDialog(host: SlashCommandHost): Promise
   try {
     const config = await host.harness.getConfig();
     applyCustomRegistryEntries(
-      config as unknown as ManagedPythinkerConfigShape,
+      config as unknown as ManagedKimiConfigShape,
       entries,
       source,
     );

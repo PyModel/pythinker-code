@@ -7,19 +7,19 @@ import {
   type OAuthRef,
 } from '@pythoughts/agent-core';
 import {
-  applyManagedPythinkerCodeConfig,
-  applyManagedPythinkerCodeLogoutConfig,
-  PYTHINKER_CODE_PROVIDER_NAME,
+  applyManagedKimiCodeConfig,
+  applyManagedKimiCodeLogoutConfig,
+  KIMI_CODE_PROVIDER_NAME,
   PythinkerOAuthToolkit,
-  resolvePythinkerCodeLoginAuth,
-  resolvePythinkerCodeRuntimeAuth,
+  resolveKimiCodeLoginAuth,
+  resolveKimiCodeRuntimeAuth,
   type AuthManagedUsageResult,
   type AuthStatus,
   type BearerTokenProvider,
   type FetchSubmitFeedbackResult,
   type PythinkerHostIdentity,
   type PythinkerOAuthLoginOptions,
-  type ManagedPythinkerConfigShape,
+  type ManagedKimiConfigShape,
   type OAuthRefreshOutcome,
 } from '@pythoughts/pythinker-code-oauth';
 
@@ -56,7 +56,7 @@ export interface PythinkerAuthFacadeOptions {
   readonly onRefresh?: ((outcome: OAuthRefreshOutcome) => void) | undefined;
 }
 
-type SDKManagedConfig = PythinkerConfig & ManagedPythinkerConfigShape;
+type SDKManagedConfig = PythinkerConfig & ManagedKimiConfigShape;
 
 export class PythinkerAuthFacade {
   private readonly toolkit: PythinkerOAuthToolkit<SDKManagedConfig>;
@@ -74,8 +74,8 @@ export class PythinkerAuthFacade {
         write: async (config) => {
           await writeConfigFile(options.configPath, config);
         },
-        apply: applyManagedPythinkerCodeConfig,
-        remove: applyManagedPythinkerCodeLogoutConfig,
+        apply: applyManagedKimiCodeConfig,
+        remove: applyManagedKimiCodeLogoutConfig,
       },
     });
   }
@@ -85,11 +85,11 @@ export class PythinkerAuthFacade {
   }
 
   async login(
-    providerName: string | undefined = PYTHINKER_CODE_PROVIDER_NAME,
+    providerName: string | undefined = KIMI_CODE_PROVIDER_NAME,
     options: PythinkerAuthLoginOptions = {},
   ): Promise<PythinkerAuthLoginResult> {
     const auth = this.resolveManagedAuth(providerName);
-    const loginAuth = resolvePythinkerCodeLoginAuth({
+    const loginAuth = resolveKimiCodeLoginAuth({
       configuredBaseUrl: auth.baseUrl,
       configuredOAuthRef: auth.oauthRef,
       requestedBaseUrl: options.baseUrl,
@@ -193,7 +193,7 @@ export class PythinkerAuthFacade {
     readonly oauthRef?: OAuthRef | undefined;
     readonly baseUrl?: string | undefined;
   } {
-    const name = providerName ?? PYTHINKER_CODE_PROVIDER_NAME;
+    const name = providerName ?? KIMI_CODE_PROVIDER_NAME;
     // Read path: token/status resolution must work off a degraded config
     // instead of failing the session when an unrelated section is broken.
     // Write paths (the toolkit's configAdapter.read) stay strict.
@@ -210,7 +210,7 @@ export class PythinkerAuthFacade {
     readonly baseUrl?: string | undefined;
   } {
     const auth = this.resolveManagedAuth(providerName);
-    return resolvePythinkerCodeRuntimeAuth({
+    return resolveKimiCodeRuntimeAuth({
       configuredBaseUrl: auth.baseUrl,
       configuredOAuthRef: auth.oauthRef,
     });
@@ -220,9 +220,9 @@ export class PythinkerAuthFacade {
     providerName: string | undefined,
     oauthRef?: OAuthRef | undefined,
   ): OAuthRef | undefined {
-    if ((providerName ?? PYTHINKER_CODE_PROVIDER_NAME) !== PYTHINKER_CODE_PROVIDER_NAME) return oauthRef;
+    if ((providerName ?? KIMI_CODE_PROVIDER_NAME) !== KIMI_CODE_PROVIDER_NAME) return oauthRef;
     const auth = this.resolveManagedAuth(providerName);
-    return resolvePythinkerCodeRuntimeAuth({
+    return resolveKimiCodeRuntimeAuth({
       configuredBaseUrl: auth.baseUrl,
       configuredOAuthRef: oauthRef ?? auth.oauthRef,
     }).oauthRef;

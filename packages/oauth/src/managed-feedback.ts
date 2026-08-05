@@ -1,13 +1,13 @@
 /**
  * Submit user feedback to the managed Pythinker Code platform.
  *
- * POSTs a JSON body to `{pythinkerCodeBaseUrl}/feedback` with a Bearer access
+ * POSTs a JSON body to `{kimiCodeBaseUrl}/feedback` with a Bearer access
  * token. The client tags `version` with a `pythinker-code-` prefix so the
  * backend can identify this client.
  */
 
 import { readApiErrorMessage } from './api-error';
-import { pythinkerCodeBaseUrl } from './managed-usage';
+import { kimiCodeBaseUrl } from './managed-usage';
 
 export interface SubmitFeedbackBody {
   readonly session_id: string;
@@ -29,8 +29,8 @@ export interface FetchSubmitFeedbackError {
 
 export type FetchSubmitFeedbackResult = FetchSubmitFeedbackOk | FetchSubmitFeedbackError;
 
-export function pythinkerCodeFeedbackUrl(): string {
-  return `${pythinkerCodeBaseUrl().replace(/\/+$/, '')}/feedback`;
+export function kimiCodeFeedbackUrl(): string {
+  return `${kimiCodeBaseUrl().replace(/\/+$/, '')}/feedback`;
 }
 
 export async function fetchSubmitFeedback(

@@ -245,7 +245,7 @@ describe('CoreProcessService direct construction', () => {
   it('default-wires a resolveOAuthTokenProvider when caller omits one', () => {
     const resolver = CoreProcessService._defaultOAuthTokenResolver(tmpHome, join(tmpHome, 'config.toml'));
     expect(typeof resolver).toBe('function');
-    const tokenProvider = resolver('managed:pythinker-code');
+    const tokenProvider = resolver('managed:kimi-code');
     expect(tokenProvider).toBeDefined();
     expect(typeof tokenProvider?.getAccessToken).toBe('function');
   });

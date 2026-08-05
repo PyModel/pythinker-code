@@ -3,9 +3,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
-  PYTHINKER_CODE_PROVIDER_NAME,
-  resolvePythinkerCodeOAuthKey,
-  resolvePythinkerCodeOAuthRef,
+  KIMI_CODE_PROVIDER_NAME,
+  resolveKimiCodeOAuthKey,
+  resolveKimiCodeOAuthRef,
 } from '@pythoughts/pythinker-code-oauth';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -73,14 +73,14 @@ describe('refreshAllProviderModels', () => {
     const configuredBaseUrl = 'https://api.configured.example.test/coding/v1';
     const envBaseUrl = 'https://api.env.example.test/coding/v1';
     const envOauthHost = 'https://auth.env.example.test';
-    const configuredOauthKey = resolvePythinkerCodeOAuthKey({ baseUrl: configuredBaseUrl });
-    const envOauthRef = resolvePythinkerCodeOAuthRef({
+    const configuredOauthKey = resolveKimiCodeOAuthKey({ baseUrl: configuredBaseUrl });
+    const envOauthRef = resolveKimiCodeOAuthRef({
       oauthHost: envOauthHost,
       baseUrl: envBaseUrl,
     });
     const config: PythinkerConfig = {
       providers: {
-        [PYTHINKER_CODE_PROVIDER_NAME]: {
+        [KIMI_CODE_PROVIDER_NAME]: {
           type: 'pythinker',
           baseUrl: configuredBaseUrl,
           apiKey: '',
@@ -92,14 +92,14 @@ describe('refreshAllProviderModels', () => {
         },
       },
       models: {
-        'pythinker-code/pythinker-for-coding': {
-          provider: PYTHINKER_CODE_PROVIDER_NAME,
+        'kimi-code/pythinker-for-coding': {
+          provider: KIMI_CODE_PROVIDER_NAME,
           model: 'pythinker-for-coding',
           maxContextSize: 262144,
           capabilities: ['thinking', 'tool_use'],
         },
       },
-      defaultModel: 'pythinker-code/pythinker-for-coding',
+      defaultModel: 'kimi-code/pythinker-for-coding',
       telemetry: true,
     };
     vi.stubEnv('PYTHINKER_CODE_BASE_URL', envBaseUrl);
@@ -135,9 +135,9 @@ describe('refreshAllProviderModels', () => {
     });
 
     expect(result.failed).toEqual([]);
-    expect(result.unchanged).toEqual([PYTHINKER_CODE_PROVIDER_NAME]);
+    expect(result.unchanged).toEqual([KIMI_CODE_PROVIDER_NAME]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(resolveOAuthToken).toHaveBeenCalledWith(PYTHINKER_CODE_PROVIDER_NAME, envOauthRef);
+    expect(resolveOAuthToken).toHaveBeenCalledWith(KIMI_CODE_PROVIDER_NAME, envOauthRef);
   });
 
   it('can refresh only the managed OAuth provider without fetching third-party registries', async () => {
@@ -145,13 +145,13 @@ describe('refreshAllProviderModels', () => {
     const registryUrl = 'https://registry.example.test/v1/models/api.json';
     const config: PythinkerConfig = {
       providers: {
-        [PYTHINKER_CODE_PROVIDER_NAME]: {
+        [KIMI_CODE_PROVIDER_NAME]: {
           type: 'pythinker',
           baseUrl,
           apiKey: '',
           oauth: {
             storage: 'file',
-            key: resolvePythinkerCodeOAuthKey({ baseUrl }),
+            key: resolveKimiCodeOAuthKey({ baseUrl }),
           },
         },
         custom: {
@@ -162,8 +162,8 @@ describe('refreshAllProviderModels', () => {
         },
       },
       models: {
-        'pythinker-code/pythinker-for-coding': {
-          provider: PYTHINKER_CODE_PROVIDER_NAME,
+        'kimi-code/pythinker-for-coding': {
+          provider: KIMI_CODE_PROVIDER_NAME,
           model: 'pythinker-for-coding',
           maxContextSize: 262144,
           capabilities: ['thinking', 'tool_use'],
@@ -177,7 +177,7 @@ describe('refreshAllProviderModels', () => {
           displayName: 'Custom M1',
         },
       },
-      defaultModel: 'pythinker-code/pythinker-for-coding',
+      defaultModel: 'kimi-code/pythinker-for-coding',
       telemetry: true,
     };
     const host = makeRefreshHost(config);
@@ -215,7 +215,7 @@ describe('refreshAllProviderModels', () => {
     expect(result.failed).toEqual([]);
     expect(result.changed).toEqual([
       {
-        providerId: PYTHINKER_CODE_PROVIDER_NAME,
+        providerId: KIMI_CODE_PROVIDER_NAME,
         providerName: 'Pythinker',
         added: 0,
         removed: 0,
@@ -223,7 +223,7 @@ describe('refreshAllProviderModels', () => {
     ]);
     expect(result.unchanged).toEqual([]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(host.current().models?.['pythinker-code/pythinker-for-coding']?.displayName).toBe('Fresh Pythinker');
+    expect(host.current().models?.['kimi-code/pythinker-for-coding']?.displayName).toBe('Fresh Pythinker');
     expect(host.current().models?.['custom/m1']?.displayName).toBe('Custom M1');
   });
 
@@ -1111,21 +1111,21 @@ max_context_size = 64000
   it('forces default thinking on when the refreshed default model cannot disable thinking', async () => {
     const host = makeRefreshHost({
       providers: {
-        [PYTHINKER_CODE_PROVIDER_NAME]: {
+        [KIMI_CODE_PROVIDER_NAME]: {
           type: 'pythinker',
           apiKey: '',
-          oauth: { storage: 'file', key: 'oauth/pythinker-code' },
+          oauth: { storage: 'file', key: 'oauth/kimi-code' },
         },
       },
       models: {
-        'pythinker-code/pythinker-deep-coder': {
-          provider: PYTHINKER_CODE_PROVIDER_NAME,
+        'kimi-code/pythinker-deep-coder': {
+          provider: KIMI_CODE_PROVIDER_NAME,
           model: 'pythinker-deep-coder',
           maxContextSize: 262144,
           capabilities: ['thinking', 'tool_use'],
         },
       },
-      defaultModel: 'pythinker-code/pythinker-deep-coder',
+      defaultModel: 'kimi-code/pythinker-deep-coder',
       defaultThinking: false,
       telemetry: true,
     } as unknown as PythinkerConfig);
@@ -1157,12 +1157,12 @@ max_context_size = 64000
     });
 
     expect(result.failed).toEqual([]);
-    expect(host.current().models?.['pythinker-code/pythinker-deep-coder']?.capabilities).toEqual([
+    expect(host.current().models?.['kimi-code/pythinker-deep-coder']?.capabilities).toEqual([
       'thinking',
       'always_thinking',
       'tool_use',
     ]);
-    expect(host.current().defaultModel).toBe('pythinker-code/pythinker-deep-coder');
+    expect(host.current().defaultModel).toBe('kimi-code/pythinker-deep-coder');
     expect(host.current().defaultThinking).toBe(true);
   });
 });

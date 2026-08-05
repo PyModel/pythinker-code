@@ -17,7 +17,7 @@ import {
   CustomRegistryApiError,
   fetchCustomRegistry,
   type CustomRegistrySource,
-  type ManagedPythinkerConfigShape,
+  type ManagedKimiConfigShape,
 } from '@pythoughts/pythinker-code-oauth';
 import {
   catalogConnectionWire,
@@ -517,8 +517,8 @@ function resolveApiKey(flag: string | undefined, env: NodeJS.ProcessEnv): string
   return undefined;
 }
 
-function asManaged(config: PythinkerConfig): ManagedPythinkerConfigShape {
-  return config as unknown as ManagedPythinkerConfigShape;
+function asManaged(config: PythinkerConfig): ManagedKimiConfigShape {
+  return config as unknown as ManagedKimiConfigShape;
 }
 
 function providerSourceLabel(provider: PythinkerConfig['providers'][string]): string {

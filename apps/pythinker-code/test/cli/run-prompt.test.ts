@@ -118,7 +118,7 @@ vi.mock('@pythoughts/pythinker-code-oauth', async () => {
   return {
     ...actual,
     createPythinkerDeviceId: mocks.createPythinkerDeviceId,
-    PYTHINKER_CODE_PROVIDER_NAME: 'pythinker-code',
+    KIMI_CODE_PROVIDER_NAME: 'pythinker-code',
   };
 });
 

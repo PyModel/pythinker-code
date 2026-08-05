@@ -89,7 +89,7 @@ describe('chatWithRetry: terminated stream drops', () => {
           tokenCalls += 1;
           throw new PythinkerError(
             ErrorCodes.PROVIDER_CONNECTION_ERROR,
-            'OAuth provider "managed:pythinker-code" failed to fetch an access token: fetch failed',
+            'OAuth provider "managed:kimi-code" failed to fetch an access token: fetch failed',
           );
         },
       }),
@@ -147,16 +147,16 @@ function oauthConfig(): PythinkerConfig {
   return {
     defaultModel: 'pythinker-code/pythinker-for-coding',
     providers: {
-      'managed:pythinker-code': {
+      'managed:kimi-code': {
         type: 'pythinker',
         apiKey: '',
         baseUrl: 'https://api.example/v1',
-        oauth: { storage: 'file', key: 'oauth/pythinker-code' },
+        oauth: { storage: 'file', key: 'oauth/kimi-code' },
       },
     },
     models: {
       'pythinker-code/pythinker-for-coding': {
-        provider: 'managed:pythinker-code',
+        provider: 'managed:kimi-code',
         model: 'pythinker-for-coding',
         maxContextSize: 1_000_000,
       },

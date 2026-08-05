@@ -1,20 +1,20 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
-  applyManagedPythinkerCodeLogoutConfig,
-  applyManagedPythinkerCodeConfig,
-  clearManagedPythinkerCodeConfig,
-  fetchManagedPythinkerCodeModels,
-  PYTHINKER_CODE_OAUTH_KEY,
-  PYTHINKER_CODE_PROVIDER_NAME,
-  ManagedPythinkerCodeModelsAuthError,
-  provisionManagedPythinkerCodeConfig,
-  resolvePythinkerCodeLoginAuth,
-  resolvePythinkerCodeOAuthKey,
-  resolvePythinkerCodeOAuthRef,
-  resolvePythinkerCodeRuntimeAuth,
-  type ManagedPythinkerConfigShape,
-} from '../src/managed-pythinker-code';
+  applyManagedKimiCodeLogoutConfig,
+  applyManagedKimiCodeConfig,
+  clearManagedKimiCodeConfig,
+  fetchManagedKimiCodeModels,
+  KIMI_CODE_OAUTH_KEY,
+  KIMI_CODE_PROVIDER_NAME,
+  ManagedKimiCodeModelsAuthError,
+  provisionManagedKimiCodeConfig,
+  resolveKimiCodeLoginAuth,
+  resolveKimiCodeOAuthKey,
+  resolveKimiCodeOAuthRef,
+  resolveKimiCodeRuntimeAuth,
+  type ManagedKimiConfigShape,
+} from '../src/managed-kimi-code';
 import { OAuthUnauthorizedError } from '../src/errors';
 
 function makeModelsResponse(): Response {
@@ -43,26 +43,26 @@ function makeModelsResponse(): Response {
   );
 }
 
-describe('provisionManagedPythinkerCodeConfig', () => {
+describe('provisionManagedKimiCodeConfig', () => {
   it('keeps the legacy credential key for the default production environment', () => {
     expect(
-      resolvePythinkerCodeOAuthKey({
+      resolveKimiCodeOAuthKey({
         oauthHost: 'https://auth.kimi.com/',
         baseUrl: 'https://api.kimi.com/coding/v1/',
       }),
-    ).toBe(PYTHINKER_CODE_OAUTH_KEY);
+    ).toBe(KIMI_CODE_OAUTH_KEY);
   });
 
   it('scopes credential keys for non-default OAuth hosts and API base URLs', () => {
-    const devKey = resolvePythinkerCodeOAuthKey({
+    const devKey = resolveKimiCodeOAuthKey({
       oauthHost: 'https://auth.dev.example.test',
       baseUrl: 'https://api.dev.example.test/coding/v1',
     });
 
-    expect(devKey).not.toBe(PYTHINKER_CODE_OAUTH_KEY);
-    expect(devKey).toMatch(/^oauth\/pythinker-code-env-[a-f0-9]{16}$/);
+    expect(devKey).not.toBe(KIMI_CODE_OAUTH_KEY);
+    expect(devKey).toMatch(/^oauth\/kimi-code-env-[a-f0-9]{16}$/);
     expect(
-      resolvePythinkerCodeOAuthKey({
+      resolveKimiCodeOAuthKey({
         oauthHost: 'https://auth.dev.example.test/',
         baseUrl: 'https://api.dev.example.test/coding/v1/',
       }),
@@ -71,20 +71,20 @@ describe('provisionManagedPythinkerCodeConfig', () => {
 
   it('derives a full OAuth ref whose key and persisted host stay in sync', () => {
     // Default environment collapses to the legacy ref (no persisted host), so
-    // existing production credentials keep resolving to `pythinker-code.json`.
+    // existing production credentials keep resolving to `kimi-code.json`.
     expect(
-      resolvePythinkerCodeOAuthRef({
+      resolveKimiCodeOAuthRef({
         oauthHost: 'https://auth.kimi.com/',
         baseUrl: 'https://api.kimi.com/coding/v1/',
       }),
-    ).toEqual({ storage: 'file', key: PYTHINKER_CODE_OAUTH_KEY, oauthHost: undefined });
+    ).toEqual({ storage: 'file', key: KIMI_CODE_OAUTH_KEY, oauthHost: undefined });
 
-    const defaultAuthCustomApiRef = resolvePythinkerCodeOAuthRef({
+    const defaultAuthCustomApiRef = resolveKimiCodeOAuthRef({
       baseUrl: 'https://api.example.test/coding/v1',
     });
     expect(defaultAuthCustomApiRef).toEqual({
       storage: 'file',
-      key: resolvePythinkerCodeOAuthKey({
+      key: resolveKimiCodeOAuthKey({
         oauthHost: 'https://auth.kimi.com',
         baseUrl: 'https://api.example.test/coding/v1',
       }),
@@ -93,13 +93,13 @@ describe('provisionManagedPythinkerCodeConfig', () => {
 
     // A non-default environment yields a scoped key AND the normalized host,
     // both derived from the same input — login and runtime cannot drift apart.
-    const devRef = resolvePythinkerCodeOAuthRef({
+    const devRef = resolveKimiCodeOAuthRef({
       oauthHost: 'https://auth.dev.example.test/',
       baseUrl: 'https://api.dev.example.test/coding/v1',
     });
     expect(devRef).toEqual({
       storage: 'file',
-      key: resolvePythinkerCodeOAuthKey({
+      key: resolveKimiCodeOAuthKey({
         oauthHost: 'https://auth.dev.example.test',
         baseUrl: 'https://api.dev.example.test/coding/v1',
       }),
@@ -111,11 +111,11 @@ describe('provisionManagedPythinkerCodeConfig', () => {
     const configuredBaseUrl = 'https://api.configured.example.test/coding/v1';
     const envBaseUrl = 'https://api.env.example.test/coding/v1/';
     const envOauthHost = 'https://auth.env.example.test/';
-    const configuredOAuthRef = resolvePythinkerCodeOAuthRef({
+    const configuredOAuthRef = resolveKimiCodeOAuthRef({
       baseUrl: configuredBaseUrl,
     });
 
-    const auth = resolvePythinkerCodeRuntimeAuth({
+    const auth = resolveKimiCodeRuntimeAuth({
       configuredBaseUrl,
       configuredOAuthRef,
       env: {
@@ -127,7 +127,7 @@ describe('provisionManagedPythinkerCodeConfig', () => {
     expect(auth.baseUrl).toBe('https://api.env.example.test/coding/v1');
     expect(auth.oauthRef).toEqual({
       storage: 'file',
-      key: resolvePythinkerCodeOAuthKey({
+      key: resolveKimiCodeOAuthKey({
         oauthHost: 'https://auth.env.example.test',
         baseUrl: 'https://api.env.example.test/coding/v1',
       }),
@@ -139,7 +139,7 @@ describe('provisionManagedPythinkerCodeConfig', () => {
     const baseUrl = 'https://api.dev.example.test/coding/v1';
     const configuredOAuthRef = {
       storage: 'keyring' as const,
-      key: resolvePythinkerCodeOAuthKey({
+      key: resolveKimiCodeOAuthKey({
         oauthHost: 'https://auth.dev.example.test',
         baseUrl,
       }),
@@ -147,7 +147,7 @@ describe('provisionManagedPythinkerCodeConfig', () => {
     };
 
     expect(
-      resolvePythinkerCodeRuntimeAuth({
+      resolveKimiCodeRuntimeAuth({
         configuredBaseUrl: baseUrl,
         configuredOAuthRef,
         env: {},
@@ -160,10 +160,10 @@ describe('provisionManagedPythinkerCodeConfig', () => {
 
   it('resolves login auth without reusing persisted refs under explicit or env overrides', () => {
     const configuredBaseUrl = 'https://api.configured.example.test/coding/v1';
-    const configuredOAuthRef = resolvePythinkerCodeOAuthRef({ baseUrl: configuredBaseUrl });
+    const configuredOAuthRef = resolveKimiCodeOAuthRef({ baseUrl: configuredBaseUrl });
 
     expect(
-      resolvePythinkerCodeLoginAuth({
+      resolveKimiCodeLoginAuth({
         configuredBaseUrl,
         configuredOAuthRef,
         requestedBaseUrl: 'https://api.requested.example.test/coding/v1/',
@@ -175,7 +175,7 @@ describe('provisionManagedPythinkerCodeConfig', () => {
     });
 
     expect(
-      resolvePythinkerCodeLoginAuth({
+      resolveKimiCodeLoginAuth({
         configuredBaseUrl,
         configuredOAuthRef,
         env: {},
@@ -188,7 +188,7 @@ describe('provisionManagedPythinkerCodeConfig', () => {
   });
 
   it('writes the managed provider, models, services, and default model through an adapter', async () => {
-    const config: ManagedPythinkerConfigShape = {
+    const config: ManagedKimiConfigShape = {
       providers: {
         custom: {
           type: 'pythinker',
@@ -197,8 +197,8 @@ describe('provisionManagedPythinkerCodeConfig', () => {
         },
       },
       models: {
-        'pythinker-code/stale': {
-          provider: PYTHINKER_CODE_PROVIDER_NAME,
+        'kimi-code/stale': {
+          provider: KIMI_CODE_PROVIDER_NAME,
           model: 'stale',
         },
         'custom-default': {
@@ -210,20 +210,20 @@ describe('provisionManagedPythinkerCodeConfig', () => {
     const write = vi.fn();
     const fetchMock = vi.fn(async () => makeModelsResponse());
 
-    const result = await provisionManagedPythinkerCodeConfig({
+    const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
       fetchImpl: fetchMock as unknown as typeof fetch,
       adapter: {
         configPath: '/tmp/config.toml',
         read: () => config,
         write,
-        apply: applyManagedPythinkerCodeConfig,
+        apply: applyManagedKimiCodeConfig,
       },
     });
 
     expect(result).toMatchObject({
-      providerName: PYTHINKER_CODE_PROVIDER_NAME,
-      defaultModel: 'pythinker-code/pythinker-for-coding',
+      providerName: KIMI_CODE_PROVIDER_NAME,
+      defaultModel: 'kimi-code/pythinker-for-coding',
       defaultThinking: true,
       configPath: '/tmp/config.toml',
     });
@@ -249,39 +249,39 @@ describe('provisionManagedPythinkerCodeConfig', () => {
       apiKey: 'sk-existing',
     });
     expect(config.models?.['custom-default']?.provider).toBe('custom');
-    expect(config.models?.['pythinker-code/stale']).toBeUndefined();
-    expect(config.providers[PYTHINKER_CODE_PROVIDER_NAME]).toMatchObject({
+    expect(config.models?.['kimi-code/stale']).toBeUndefined();
+    expect(config.providers[KIMI_CODE_PROVIDER_NAME]).toMatchObject({
       type: 'pythinker',
       baseUrl: 'https://api.kimi.com/coding/v1',
       apiKey: '',
-      oauth: { storage: 'file', key: 'oauth/pythinker-code' },
+      oauth: { storage: 'file', key: 'oauth/kimi-code' },
     });
-    expect(config.models?.['pythinker-code/pythinker-for-coding']).toMatchObject({
-      provider: PYTHINKER_CODE_PROVIDER_NAME,
+    expect(config.models?.['kimi-code/pythinker-for-coding']).toMatchObject({
+      provider: KIMI_CODE_PROVIDER_NAME,
       model: 'pythinker-for-coding',
       maxContextSize: 262144,
       capabilities: ['thinking', 'image_in', 'video_in', 'tool_use'],
       displayName: 'Pythinker for Coding',
     });
-    expect(config.models?.['pythinker-code/pythinker-k2.5']?.capabilities).toBeUndefined();
+    expect(config.models?.['kimi-code/pythinker-k2.5']?.capabilities).toBeUndefined();
     expect(config.services?.pythoughtsSearch).toMatchObject({
       baseUrl: 'https://api.kimi.com/coding/v1/search',
       apiKey: '',
-      oauth: { storage: 'file', key: 'oauth/pythinker-code' },
+      oauth: { storage: 'file', key: 'oauth/kimi-code' },
     });
     expect(Object.keys(config.services ?? {})).toEqual(['pythoughtsSearch', 'pythoughtsFetch']);
   });
 
   it('writes scoped OAuth refs when provisioning against a non-default environment', async () => {
-    const config: ManagedPythinkerConfigShape = {
+    const config: ManagedKimiConfigShape = {
       providers: {},
     };
-    const oauthKey = resolvePythinkerCodeOAuthKey({
+    const oauthKey = resolveKimiCodeOAuthKey({
       oauthHost: 'https://auth.dev.example.test',
       baseUrl: 'https://api.dev.example.test/coding/v1',
     });
 
-    await provisionManagedPythinkerCodeConfig({
+    await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
       baseUrl: 'https://api.dev.example.test/coding/v1',
       oauthKey,
@@ -290,11 +290,11 @@ describe('provisionManagedPythinkerCodeConfig', () => {
       adapter: {
         read: () => config,
         write: vi.fn(),
-        apply: applyManagedPythinkerCodeConfig,
+        apply: applyManagedKimiCodeConfig,
       },
     });
 
-    expect(config.providers[PYTHINKER_CODE_PROVIDER_NAME]).toMatchObject({
+    expect(config.providers[KIMI_CODE_PROVIDER_NAME]).toMatchObject({
       baseUrl: 'https://api.dev.example.test/coding/v1',
       oauth: {
         storage: 'file',
@@ -315,24 +315,24 @@ describe('provisionManagedPythinkerCodeConfig', () => {
   });
 
   it('persists the default OAuth host when only the API base URL is scoped', async () => {
-    const config: ManagedPythinkerConfigShape = {
+    const config: ManagedKimiConfigShape = {
       providers: {},
     };
     const baseUrl = 'https://api.example.test/coding/v1';
-    const oauthKey = resolvePythinkerCodeOAuthKey({ baseUrl });
+    const oauthKey = resolveKimiCodeOAuthKey({ baseUrl });
 
-    await provisionManagedPythinkerCodeConfig({
+    await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
       baseUrl,
       fetchImpl: vi.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
       adapter: {
         read: () => config,
         write: vi.fn(),
-        apply: applyManagedPythinkerCodeConfig,
+        apply: applyManagedKimiCodeConfig,
       },
     });
 
-    expect(config.providers[PYTHINKER_CODE_PROVIDER_NAME]).toMatchObject({
+    expect(config.providers[KIMI_CODE_PROVIDER_NAME]).toMatchObject({
       baseUrl,
       oauth: {
         storage: 'file',
@@ -343,14 +343,14 @@ describe('provisionManagedPythinkerCodeConfig', () => {
   });
 
   it('preserves an existing valid default model during refresh', async () => {
-    const config: ManagedPythinkerConfigShape = {
+    const config: ManagedKimiConfigShape = {
       providers: {
         custom: {
           type: 'pythinker',
           apiKey: 'sk-existing',
           baseUrl: 'https://example.test/v1',
         },
-        [PYTHINKER_CODE_PROVIDER_NAME]: {
+        [KIMI_CODE_PROVIDER_NAME]: {
           type: 'pythinker',
           apiKey: '',
         },
@@ -363,22 +363,22 @@ describe('provisionManagedPythinkerCodeConfig', () => {
           model: 'custom-model',
           maxContextSize: 1000,
         },
-        'pythinker-code/stale': {
-          provider: PYTHINKER_CODE_PROVIDER_NAME,
+        'kimi-code/stale': {
+          provider: KIMI_CODE_PROVIDER_NAME,
           model: 'stale',
           maxContextSize: 1000,
         },
       },
     };
 
-    const result = await provisionManagedPythinkerCodeConfig({
+    const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
       fetchImpl: vi.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
       preserveDefaultModel: true,
       adapter: {
         read: () => config,
         write: vi.fn(),
-        apply: applyManagedPythinkerCodeConfig,
+        apply: applyManagedKimiCodeConfig,
       },
     });
 
@@ -386,22 +386,22 @@ describe('provisionManagedPythinkerCodeConfig', () => {
     expect(result.defaultThinking).toBe(false);
     expect(config.defaultModel).toBe('custom-default');
     expect(config.defaultThinking).toBe(false);
-    expect(config.models?.['pythinker-code/stale']).toBeUndefined();
-    expect(config.models?.['pythinker-code/pythinker-for-coding']?.displayName).toBe('Pythinker for Coding');
+    expect(config.models?.['kimi-code/stale']).toBeUndefined();
+    expect(config.models?.['kimi-code/pythinker-for-coding']?.displayName).toBe('Pythinker for Coding');
   });
 
   it('infers default_thinking from fresh managed model capabilities', async () => {
-    const config: ManagedPythinkerConfigShape = {
+    const config: ManagedKimiConfigShape = {
       providers: {
-        [PYTHINKER_CODE_PROVIDER_NAME]: {
+        [KIMI_CODE_PROVIDER_NAME]: {
           type: 'pythinker',
           apiKey: '',
         },
       },
-      defaultModel: 'pythinker-code/pythinker-for-coding',
+      defaultModel: 'kimi-code/pythinker-for-coding',
       models: {
-        'pythinker-code/pythinker-for-coding': {
-          provider: PYTHINKER_CODE_PROVIDER_NAME,
+        'kimi-code/pythinker-for-coding': {
+          provider: KIMI_CODE_PROVIDER_NAME,
           model: 'pythinker-for-coding',
           maxContextSize: 1000,
           capabilities: [],
@@ -409,24 +409,24 @@ describe('provisionManagedPythinkerCodeConfig', () => {
       },
     };
 
-    const result = await provisionManagedPythinkerCodeConfig({
+    const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
       fetchImpl: vi.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
       preserveDefaultModel: true,
       adapter: {
         read: () => config,
         write: vi.fn(),
-        apply: applyManagedPythinkerCodeConfig,
+        apply: applyManagedKimiCodeConfig,
       },
     });
 
-    expect(result.defaultModel).toBe('pythinker-code/pythinker-for-coding');
+    expect(result.defaultModel).toBe('kimi-code/pythinker-for-coding');
     expect(result.defaultThinking).toBe(true);
     expect(config.defaultThinking).toBe(true);
   });
 
   it('preserves explicit default_thinking when preserving a custom default without capabilities', async () => {
-    const config: ManagedPythinkerConfigShape = {
+    const config: ManagedKimiConfigShape = {
       providers: {
         custom: {
           type: 'pythinker',
@@ -444,14 +444,14 @@ describe('provisionManagedPythinkerCodeConfig', () => {
       },
     };
 
-    const result = await provisionManagedPythinkerCodeConfig({
+    const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
       fetchImpl: vi.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
       preserveDefaultModel: true,
       adapter: {
         read: () => config,
         write: vi.fn(),
-        apply: applyManagedPythinkerCodeConfig,
+        apply: applyManagedKimiCodeConfig,
       },
     });
 
@@ -461,7 +461,7 @@ describe('provisionManagedPythinkerCodeConfig', () => {
   });
 
   it('defaults default_thinking to false when a preserved custom default has no signal', async () => {
-    const config: ManagedPythinkerConfigShape = {
+    const config: ManagedKimiConfigShape = {
       providers: {
         custom: {
           type: 'pythinker',
@@ -478,14 +478,14 @@ describe('provisionManagedPythinkerCodeConfig', () => {
       },
     };
 
-    const result = await provisionManagedPythinkerCodeConfig({
+    const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
       fetchImpl: vi.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
       preserveDefaultModel: true,
       adapter: {
         read: () => config,
         write: vi.fn(),
-        apply: applyManagedPythinkerCodeConfig,
+        apply: applyManagedKimiCodeConfig,
       },
     });
 
@@ -495,7 +495,7 @@ describe('provisionManagedPythinkerCodeConfig', () => {
   });
 
   it('does not infer default_thinking from preserved custom default capabilities', async () => {
-    const config: ManagedPythinkerConfigShape = {
+    const config: ManagedKimiConfigShape = {
       providers: {
         custom: {
           type: 'pythinker',
@@ -513,14 +513,14 @@ describe('provisionManagedPythinkerCodeConfig', () => {
       },
     };
 
-    const result = await provisionManagedPythinkerCodeConfig({
+    const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
       fetchImpl: vi.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
       preserveDefaultModel: true,
       adapter: {
         read: () => config,
         write: vi.fn(),
-        apply: applyManagedPythinkerCodeConfig,
+        apply: applyManagedKimiCodeConfig,
       },
     });
 
@@ -530,7 +530,7 @@ describe('provisionManagedPythinkerCodeConfig', () => {
   });
 
   it('keeps default_thinking off even when preserved custom default has thinking capability', async () => {
-    const config: ManagedPythinkerConfigShape = {
+    const config: ManagedKimiConfigShape = {
       providers: {
         custom: {
           type: 'pythinker',
@@ -548,14 +548,14 @@ describe('provisionManagedPythinkerCodeConfig', () => {
       },
     };
 
-    const result = await provisionManagedPythinkerCodeConfig({
+    const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
       fetchImpl: vi.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
       preserveDefaultModel: true,
       adapter: {
         read: () => config,
         write: vi.fn(),
-        apply: applyManagedPythinkerCodeConfig,
+        apply: applyManagedKimiCodeConfig,
       },
     });
 
@@ -565,45 +565,45 @@ describe('provisionManagedPythinkerCodeConfig', () => {
   });
 
   it('falls back to the first fetched model when the preserved default was removed', async () => {
-    const config: ManagedPythinkerConfigShape = {
+    const config: ManagedKimiConfigShape = {
       providers: {
-        [PYTHINKER_CODE_PROVIDER_NAME]: {
+        [KIMI_CODE_PROVIDER_NAME]: {
           type: 'pythinker',
           apiKey: '',
         },
       },
-      defaultModel: 'pythinker-code/stale',
+      defaultModel: 'kimi-code/stale',
       defaultThinking: false,
       models: {
-        'pythinker-code/stale': {
-          provider: PYTHINKER_CODE_PROVIDER_NAME,
+        'kimi-code/stale': {
+          provider: KIMI_CODE_PROVIDER_NAME,
           model: 'stale',
           maxContextSize: 1000,
         },
       },
     };
 
-    const result = await provisionManagedPythinkerCodeConfig({
+    const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
       fetchImpl: vi.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
       preserveDefaultModel: true,
       adapter: {
         read: () => config,
         write: vi.fn(),
-        apply: applyManagedPythinkerCodeConfig,
+        apply: applyManagedKimiCodeConfig,
       },
     });
 
-    expect(result.defaultModel).toBe('pythinker-code/pythinker-for-coding');
+    expect(result.defaultModel).toBe('kimi-code/pythinker-for-coding');
     expect(result.defaultThinking).toBe(false);
-    expect(config.defaultModel).toBe('pythinker-code/pythinker-for-coding');
+    expect(config.defaultModel).toBe('kimi-code/pythinker-for-coding');
     expect(config.defaultThinking).toBe(false);
   });
 
   it('removes managed provider, models, services, and default model on logout', () => {
-    const config: ManagedPythinkerConfigShape = {
+    const config: ManagedKimiConfigShape = {
       providers: {
-        [PYTHINKER_CODE_PROVIDER_NAME]: {
+        [KIMI_CODE_PROVIDER_NAME]: {
           type: 'pythinker',
           apiKey: '',
         },
@@ -612,11 +612,11 @@ describe('provisionManagedPythinkerCodeConfig', () => {
           apiKey: 'sk-existing',
         },
       },
-      defaultModel: 'pythinker-code/pythinker-for-coding',
+      defaultModel: 'kimi-code/pythinker-for-coding',
       defaultThinking: true,
       models: {
-        'pythinker-code/pythinker-for-coding': {
-          provider: PYTHINKER_CODE_PROVIDER_NAME,
+        'kimi-code/pythinker-for-coding': {
+          provider: KIMI_CODE_PROVIDER_NAME,
           model: 'pythinker-for-coding',
           maxContextSize: 262144,
         },
@@ -632,14 +632,14 @@ describe('provisionManagedPythinkerCodeConfig', () => {
         customService: { baseUrl: 'https://service.example.test' },
       },
       raw: {
-        default_model: 'pythinker-code/pythinker-for-coding',
+        default_model: 'kimi-code/pythinker-for-coding',
         providers: {
-          [PYTHINKER_CODE_PROVIDER_NAME]: { type: 'pythinker' },
+          [KIMI_CODE_PROVIDER_NAME]: { type: 'pythinker' },
           custom: { type: 'pythinker' },
         },
         models: {
-          'pythinker-code/pythinker-for-coding': {
-            provider: PYTHINKER_CODE_PROVIDER_NAME,
+          'kimi-code/pythinker-for-coding': {
+            provider: KIMI_CODE_PROVIDER_NAME,
             model: 'pythinker-for-coding',
           },
           'custom-default': {
@@ -654,12 +654,12 @@ describe('provisionManagedPythinkerCodeConfig', () => {
       },
     };
 
-    applyManagedPythinkerCodeLogoutConfig(config);
+    applyManagedKimiCodeLogoutConfig(config);
 
     expect(config.defaultModel).toBeUndefined();
-    expect(config.providers[PYTHINKER_CODE_PROVIDER_NAME]).toBeUndefined();
+    expect(config.providers[KIMI_CODE_PROVIDER_NAME]).toBeUndefined();
     expect(config.providers['custom']).toBeDefined();
-    expect(config.models?.['pythinker-code/pythinker-for-coding']).toBeUndefined();
+    expect(config.models?.['kimi-code/pythinker-for-coding']).toBeUndefined();
     expect(config.models?.['custom-default']).toBeDefined();
     expect(config.services?.pythoughtsSearch).toBeUndefined();
     expect(config.services?.pythoughtsFetch).toBeUndefined();
@@ -680,7 +680,7 @@ describe('provisionManagedPythinkerCodeConfig', () => {
     ) as unknown as typeof fetch;
 
     await expect(
-      fetchManagedPythinkerCodeModels({
+      fetchManagedKimiCodeModels({
         accessToken: 'oauth-access-token',
         fetchImpl,
       }),
@@ -697,7 +697,7 @@ describe('provisionManagedPythinkerCodeConfig', () => {
     ) as unknown as typeof fetch;
 
     await expect(
-      fetchManagedPythinkerCodeModels({
+      fetchManagedKimiCodeModels({
         accessToken: 'oauth-access-token',
         fetchImpl,
       }),
@@ -719,7 +719,7 @@ describe('provisionManagedPythinkerCodeConfig', () => {
     ) as unknown as typeof fetch;
 
     await expect(
-      fetchManagedPythinkerCodeModels({
+      fetchManagedKimiCodeModels({
         accessToken: 'oauth-access-token',
         fetchImpl,
       }),
@@ -743,17 +743,17 @@ describe('provisionManagedPythinkerCodeConfig', () => {
         ),
     ) as unknown as typeof fetch;
 
-    const promise = fetchManagedPythinkerCodeModels({
+    const promise = fetchManagedKimiCodeModels({
       accessToken: 'oauth-access-token',
       baseUrl: 'https://api.dev.example.test/coding/v1',
       fetchImpl,
     });
 
     await expect(promise).rejects.toThrow(
-      "Pythinker Code models endpoint https://api.dev.example.test/coding/v1 rejected OAuth credentials: We're unable to verify your membership benefits at this time. Please ensure your membership is active.",
+      "Kimi Code models endpoint https://api.dev.example.test/coding/v1 rejected OAuth credentials: We're unable to verify your membership benefits at this time. Please ensure your membership is active.",
     );
     await expect(
-      fetchManagedPythinkerCodeModels({
+      fetchManagedKimiCodeModels({
         accessToken: 'oauth-access-token',
         baseUrl: 'https://api.dev.example.test/coding/v1',
         fetchImpl,
@@ -763,36 +763,36 @@ describe('provisionManagedPythinkerCodeConfig', () => {
       baseUrl: 'https://api.dev.example.test/coding/v1',
     });
     await expect(
-      fetchManagedPythinkerCodeModels({
+      fetchManagedKimiCodeModels({
         accessToken: 'oauth-access-token',
         fetchImpl,
       }),
     ).rejects.toBeInstanceOf(OAuthUnauthorizedError);
     await expect(
-      fetchManagedPythinkerCodeModels({
+      fetchManagedKimiCodeModels({
         accessToken: 'oauth-access-token',
         fetchImpl,
       }),
-    ).rejects.toBeInstanceOf(ManagedPythinkerCodeModelsAuthError);
+    ).rejects.toBeInstanceOf(ManagedKimiCodeModelsAuthError);
   });
 
   it('clears managed provider, models, default model, and services on logout', () => {
-    const config: ManagedPythinkerConfigShape = {
+    const config: ManagedKimiConfigShape = {
       providers: {
-        [PYTHINKER_CODE_PROVIDER_NAME]: {
+        [KIMI_CODE_PROVIDER_NAME]: {
           type: 'pythinker',
           apiKey: '',
-          oauth: { storage: 'file', key: 'oauth/pythinker-code' },
+          oauth: { storage: 'file', key: 'oauth/kimi-code' },
         },
         custom: {
           type: 'pythinker',
           apiKey: 'sk-existing',
         },
       },
-      defaultModel: 'pythinker-code/pythinker-for-coding',
+      defaultModel: 'kimi-code/pythinker-for-coding',
       models: {
-        'pythinker-code/pythinker-for-coding': {
-          provider: PYTHINKER_CODE_PROVIDER_NAME,
+        'kimi-code/pythinker-for-coding': {
+          provider: KIMI_CODE_PROVIDER_NAME,
           model: 'pythinker-for-coding',
           maxContextSize: 262144,
         },
@@ -806,30 +806,30 @@ describe('provisionManagedPythinkerCodeConfig', () => {
         pythoughtsSearch: {
           baseUrl: 'https://api.kimi.com/coding/v1/search',
           apiKey: '',
-          oauth: { storage: 'file', key: 'oauth/pythinker-code' },
+          oauth: { storage: 'file', key: 'oauth/kimi-code' },
         },
         pythoughtsFetch: {
           baseUrl: 'https://api.kimi.com/coding/v1/fetch',
           apiKey: '',
-          oauth: { storage: 'file', key: 'oauth/pythinker-code' },
+          oauth: { storage: 'file', key: 'oauth/kimi-code' },
         },
         otherService: { baseUrl: 'https://service.example.test' },
       },
     };
 
-    const result = clearManagedPythinkerCodeConfig(config);
+    const result = clearManagedKimiCodeConfig(config);
 
     expect(result).toMatchObject({
-      providerName: PYTHINKER_CODE_PROVIDER_NAME,
+      providerName: KIMI_CODE_PROVIDER_NAME,
       removedProvider: true,
-      removedModels: ['pythinker-code/pythinker-for-coding'],
+      removedModels: ['kimi-code/pythinker-for-coding'],
       defaultModelCleared: true,
       removedServices: ['pythoughtsSearch', 'pythoughtsFetch'],
     });
-    expect(config.providers[PYTHINKER_CODE_PROVIDER_NAME]).toBeUndefined();
+    expect(config.providers[KIMI_CODE_PROVIDER_NAME]).toBeUndefined();
     expect(config.providers['custom']).toMatchObject({ apiKey: 'sk-existing' });
     expect(config.defaultModel).toBeUndefined();
-    expect(config.models?.['pythinker-code/pythinker-for-coding']).toBeUndefined();
+    expect(config.models?.['kimi-code/pythinker-for-coding']).toBeUndefined();
     expect(config.models?.['custom-default']).toMatchObject({ provider: 'custom' });
     expect(config.services?.pythoughtsSearch).toBeUndefined();
     expect(config.services?.pythoughtsFetch).toBeUndefined();
@@ -874,7 +874,7 @@ describe('supports_thinking_type', () => {
   }
 
   it('parses supports_thinking_type from the models endpoint', async () => {
-    const models = await fetchManagedPythinkerCodeModels({
+    const models = await fetchManagedKimiCodeModels({
       accessToken: 'oauth-access-token',
       fetchImpl: vi.fn(async () => makeThinkingTypeModelsResponse()) as unknown as typeof fetch,
     });
@@ -885,13 +885,13 @@ describe('supports_thinking_type', () => {
   });
 
   it('leaves supportsThinkingType undefined when the field is absent or invalid', async () => {
-    const absent = await fetchManagedPythinkerCodeModels({
+    const absent = await fetchManagedKimiCodeModels({
       accessToken: 'oauth-access-token',
       fetchImpl: vi.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
     });
     expect(absent[0]?.supportsThinkingType).toBeUndefined();
 
-    const invalid = await fetchManagedPythinkerCodeModels({
+    const invalid = await fetchManagedKimiCodeModels({
       accessToken: 'oauth-access-token',
       fetchImpl: vi.fn(
         async () =>
@@ -914,20 +914,20 @@ describe('supports_thinking_type', () => {
   });
 
   it('maps the three states onto capabilities, overriding supports_reasoning', async () => {
-    const config: ManagedPythinkerConfigShape = { providers: {} };
+    const config: ManagedKimiConfigShape = { providers: {} };
 
-    await provisionManagedPythinkerCodeConfig({
+    await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
       fetchImpl: vi.fn(async () => makeThinkingTypeModelsResponse()) as unknown as typeof fetch,
       adapter: {
         read: () => config,
         write: vi.fn(),
-        apply: applyManagedPythinkerCodeConfig,
+        apply: applyManagedKimiCodeConfig,
       },
     });
 
     // 'only' → thinking locked on.
-    expect(config.models?.['pythinker-code/pythinker-for-coding']?.capabilities).toEqual([
+    expect(config.models?.['kimi-code/pythinker-for-coding']?.capabilities).toEqual([
       'thinking',
       'always_thinking',
       'image_in',
@@ -935,18 +935,18 @@ describe('supports_thinking_type', () => {
       'tool_use',
     ]);
     // 'no' → no thinking capability despite supports_reasoning=true.
-    expect(config.models?.['pythinker-code/pythinker-plain']?.capabilities).toEqual(['tool_use']);
+    expect(config.models?.['kimi-code/pythinker-plain']?.capabilities).toEqual(['tool_use']);
     // 'both' → plain toggleable thinking.
-    expect(config.models?.['pythinker-code/pythinker-toggle']?.capabilities).toEqual([
+    expect(config.models?.['kimi-code/pythinker-toggle']?.capabilities).toEqual([
       'thinking',
       'tool_use',
     ]);
   });
 
   it('parses supported_reasoning_efforts and writes supportEfforts onto model aliases', async () => {
-    const config: ManagedPythinkerConfigShape = { providers: {} };
+    const config: ManagedKimiConfigShape = { providers: {} };
 
-    const result = await provisionManagedPythinkerCodeConfig({
+    const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
       fetchImpl: vi.fn(
         async () =>
@@ -976,54 +976,54 @@ describe('supports_thinking_type', () => {
       adapter: {
         read: () => config,
         write: vi.fn(),
-        apply: applyManagedPythinkerCodeConfig,
+        apply: applyManagedKimiCodeConfig,
       },
     });
 
     expect(result.models[0]?.supportedReasoningEfforts).toEqual(['low', 'medium', 'high', 'max']);
     expect(result.models[1]?.supportedReasoningEfforts).toBeUndefined();
     expect(result.models[2]?.supportedReasoningEfforts).toBeUndefined();
-    expect(config.models?.['pythinker-code/pythinker-for-coding']?.supportEfforts).toEqual([
+    expect(config.models?.['kimi-code/pythinker-for-coding']?.supportEfforts).toEqual([
       'low',
       'medium',
       'high',
       'max',
     ]);
-    expect(config.models?.['pythinker-code/pythinker-plain']?.supportEfforts).toBeUndefined();
-    expect(config.models?.['pythinker-code/pythinker-invalid']?.supportEfforts).toBeUndefined();
+    expect(config.models?.['kimi-code/pythinker-plain']?.supportEfforts).toBeUndefined();
+    expect(config.models?.['kimi-code/pythinker-invalid']?.supportEfforts).toBeUndefined();
   });
 
   it('forces default thinking on when the selected default model is thinking-only', async () => {
-    const config: ManagedPythinkerConfigShape = { providers: {}, defaultThinking: false };
+    const config: ManagedKimiConfigShape = { providers: {}, defaultThinking: false };
 
-    const result = await provisionManagedPythinkerCodeConfig({
+    const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
       fetchImpl: vi.fn(async () => makeThinkingTypeModelsResponse()) as unknown as typeof fetch,
       adapter: {
         read: () => config,
         write: vi.fn(),
-        apply: applyManagedPythinkerCodeConfig,
+        apply: applyManagedKimiCodeConfig,
       },
     });
 
-    expect(result.defaultModel).toBe('pythinker-code/pythinker-for-coding');
+    expect(result.defaultModel).toBe('kimi-code/pythinker-for-coding');
     expect(result.defaultThinking).toBe(true);
     expect(config.defaultThinking).toBe(true);
   });
 
   it('forces default thinking on when preserving a thinking-only managed default', async () => {
-    const config: ManagedPythinkerConfigShape = {
+    const config: ManagedKimiConfigShape = {
       providers: {
-        [PYTHINKER_CODE_PROVIDER_NAME]: {
+        [KIMI_CODE_PROVIDER_NAME]: {
           type: 'pythinker',
           apiKey: '',
         },
       },
-      defaultModel: 'pythinker-code/pythinker-for-coding',
+      defaultModel: 'kimi-code/pythinker-for-coding',
       defaultThinking: false,
       models: {
-        'pythinker-code/pythinker-for-coding': {
-          provider: PYTHINKER_CODE_PROVIDER_NAME,
+        'kimi-code/pythinker-for-coding': {
+          provider: KIMI_CODE_PROVIDER_NAME,
           model: 'pythinker-for-coding',
           maxContextSize: 262144,
           capabilities: ['thinking'],
@@ -1031,35 +1031,35 @@ describe('supports_thinking_type', () => {
       },
     };
 
-    const result = await provisionManagedPythinkerCodeConfig({
+    const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
       fetchImpl: vi.fn(async () => makeThinkingTypeModelsResponse()) as unknown as typeof fetch,
       preserveDefaultModel: true,
       adapter: {
         read: () => config,
         write: vi.fn(),
-        apply: applyManagedPythinkerCodeConfig,
+        apply: applyManagedKimiCodeConfig,
       },
     });
 
-    expect(result.defaultModel).toBe('pythinker-code/pythinker-for-coding');
+    expect(result.defaultModel).toBe('kimi-code/pythinker-for-coding');
     expect(result.defaultThinking).toBe(true);
     expect(config.defaultThinking).toBe(true);
   });
 
   it('forces default thinking off when preserving a no-thinking managed default', async () => {
-    const config: ManagedPythinkerConfigShape = {
+    const config: ManagedKimiConfigShape = {
       providers: {
-        [PYTHINKER_CODE_PROVIDER_NAME]: {
+        [KIMI_CODE_PROVIDER_NAME]: {
           type: 'pythinker',
           apiKey: '',
         },
       },
-      defaultModel: 'pythinker-code/pythinker-plain',
+      defaultModel: 'kimi-code/pythinker-plain',
       defaultThinking: true,
       models: {
-        'pythinker-code/pythinker-plain': {
-          provider: PYTHINKER_CODE_PROVIDER_NAME,
+        'kimi-code/pythinker-plain': {
+          provider: KIMI_CODE_PROVIDER_NAME,
           model: 'pythinker-plain',
           maxContextSize: 128000,
           capabilities: ['thinking'],
@@ -1067,24 +1067,24 @@ describe('supports_thinking_type', () => {
       },
     };
 
-    const result = await provisionManagedPythinkerCodeConfig({
+    const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
       fetchImpl: vi.fn(async () => makeThinkingTypeModelsResponse()) as unknown as typeof fetch,
       preserveDefaultModel: true,
       adapter: {
         read: () => config,
         write: vi.fn(),
-        apply: applyManagedPythinkerCodeConfig,
+        apply: applyManagedKimiCodeConfig,
       },
     });
 
-    expect(result.defaultModel).toBe('pythinker-code/pythinker-plain');
+    expect(result.defaultModel).toBe('kimi-code/pythinker-plain');
     expect(result.defaultThinking).toBe(false);
     expect(config.defaultThinking).toBe(false);
   });
 
   it('keeps a preserved non-managed default thinking selection untouched', async () => {
-    const config: ManagedPythinkerConfigShape = {
+    const config: ManagedKimiConfigShape = {
       providers: {
         custom: {
           type: 'pythinker',
@@ -1102,14 +1102,14 @@ describe('supports_thinking_type', () => {
       },
     };
 
-    const result = await provisionManagedPythinkerCodeConfig({
+    const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
       fetchImpl: vi.fn(async () => makeThinkingTypeModelsResponse()) as unknown as typeof fetch,
       preserveDefaultModel: true,
       adapter: {
         read: () => config,
         write: vi.fn(),
-        apply: applyManagedPythinkerCodeConfig,
+        apply: applyManagedKimiCodeConfig,
       },
     });
 

@@ -8,13 +8,13 @@ import {
 } from '@pythoughts/agent-core';
 import {
   createPythinkerDefaultHeaders,
-  PYTHINKER_CODE_FLOW_CONFIG,
-  PYTHINKER_CODE_PROVIDER_NAME,
+  KIMI_CODE_FLOW_CONFIG,
+  KIMI_CODE_PROVIDER_NAME,
   PythinkerOAuthToolkit,
-  pythinkerCodeBaseUrl,
-  resolvePythinkerCodeOAuthRef,
+  kimiCodeBaseUrl,
+  resolveKimiCodeOAuthRef,
   type PythinkerHostIdentity,
-  type ManagedPythinkerOAuthRef,
+  type ManagedKimiOAuthRef,
 } from '@pythoughts/pythinker-code-oauth';
 import type {
   ProviderConfig as KosongProviderConfig,
@@ -40,11 +40,11 @@ export class PythinkerForCodingProvider implements ModelProvider {
   private readonly toolkit: PythinkerOAuthToolkit;
   private readonly homeDir: string;
   private readonly identity: PythinkerHostIdentity;
-  private readonly oauthRef: ManagedPythinkerOAuthRef;
+  private readonly oauthRef: ManagedKimiOAuthRef;
 
   constructor(options: PythinkerForCodingProviderOptions) {
     this.model = options.model ?? 'pythinker-for-coding';
-    this.baseUrl = options.baseUrl ?? pythinkerCodeBaseUrl();
+    this.baseUrl = options.baseUrl ?? kimiCodeBaseUrl();
     this.promptCacheKey = options.promptCacheKey;
     this.defaultHeaders = options.defaultHeaders;
     this.homeDir = resolvePythinkerHome(options.homeDir);
@@ -53,8 +53,8 @@ export class PythinkerForCodingProvider implements ModelProvider {
       version: options.version,
       userAgentSuffix: options.userAgentSuffix,
     };
-    this.oauthRef = resolvePythinkerCodeOAuthRef({
-      oauthHost: PYTHINKER_CODE_FLOW_CONFIG.oauthHost,
+    this.oauthRef = resolveKimiCodeOAuthRef({
+      oauthHost: KIMI_CODE_FLOW_CONFIG.oauthHost,
       baseUrl: this.baseUrl,
     });
     this.toolkit = new PythinkerOAuthToolkit({
@@ -122,7 +122,7 @@ export class PythinkerForCodingProvider implements ModelProvider {
 
   private async buildAuth(force: boolean): Promise<ProviderRequestAuth> {
     try {
-      const apiKey = await this.toolkit.ensureFresh(PYTHINKER_CODE_PROVIDER_NAME, {
+      const apiKey = await this.toolkit.ensureFresh(KIMI_CODE_PROVIDER_NAME, {
         force,
         oauthRef: this.oauthRef,
       });
@@ -132,7 +132,7 @@ export class PythinkerForCodingProvider implements ModelProvider {
       // turn surfaces `auth.login_required` / `provider.connection_error`
       // instead of collapsing everything to `internal`. Unrecognized errors are
       // rethrown raw (see mapOAuthTokenError).
-      throw mapOAuthTokenError(error, PYTHINKER_CODE_PROVIDER_NAME) ?? error;
+      throw mapOAuthTokenError(error, KIMI_CODE_PROVIDER_NAME) ?? error;
     }
   }
 }

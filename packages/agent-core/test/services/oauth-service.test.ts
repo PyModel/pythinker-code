@@ -79,7 +79,7 @@ function makeMockFacade(): MockFacade {
     }),
     logout: vi.fn(async (providerName: string | undefined) => {
       logoutCalls.push({ providerName });
-      return { providerName: providerName ?? 'managed:pythinker-code', ok: true as const };
+      return { providerName: providerName ?? 'managed:kimi-code', ok: true as const };
     }),
   } as unknown as ServicesAuthFacade;
 
@@ -136,7 +136,7 @@ describe('OAuthService.startLogin', () => {
     expect(start.user_code).toBe(auth.userCode);
     expect(start.expires_in).toBe(900);
     expect(start.interval).toBe(5);
-    expect(start.provider).toBe('managed:pythinker-code');
+    expect(start.provider).toBe('managed:kimi-code');
   });
 
   it('falls back to 15-min expires_in when the OAuth host omits the field', async () => {
@@ -191,7 +191,7 @@ describe('OAuthService — terminal transitions', () => {
     await mock.loginCalls[0]!.onDeviceCode?.(fakeDeviceAuth());
     await startPromise;
 
-    mock.loginCalls[0]!.resolve({ providerName: 'managed:pythinker-code', ok: true });
+    mock.loginCalls[0]!.resolve({ providerName: 'managed:kimi-code', ok: true });
     await flushMicrotasks();
 
     expect(impl.getFlow()!.status).toBe('authenticated');
@@ -278,7 +278,7 @@ describe('OAuthService.cancelLogin', () => {
     await flushMicrotasks();
     await mock.loginCalls[0]!.onDeviceCode?.(fakeDeviceAuth());
     await startPromise;
-    mock.loginCalls[0]!.resolve({ providerName: 'managed:pythinker-code', ok: true });
+    mock.loginCalls[0]!.resolve({ providerName: 'managed:kimi-code', ok: true });
     await flushMicrotasks();
 
     const result = await impl.cancelLogin();
@@ -319,7 +319,7 @@ describe('OAuthService.logout', () => {
   it('delegates to facade.logout and returns logged_out=true', async () => {
     const { impl, mock } = makeImpl();
     const result = await impl.logout();
-    expect(result).toEqual({ logged_out: true, provider: 'managed:pythinker-code' });
+    expect(result).toEqual({ logged_out: true, provider: 'managed:kimi-code' });
     expect(mock.logoutCalls).toHaveLength(1);
   });
 

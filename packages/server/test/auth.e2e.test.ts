@@ -186,16 +186,16 @@ describe('GET /api/v1/auth — readiness probe (P2.1 D2)', () => {
     });
   });
 
-  it('surfaces managed_provider.unauthenticated when config has managed:pythinker-code but no cached token', async () => {
+  it('surfaces managed_provider.unauthenticated when config has managed:kimi-code but no cached token', async () => {
     seedConfig(
       [
-        '[providers."managed:pythinker-code"]',
+        '[providers."managed:kimi-code"]',
         'type = "pythinker"',
         'base_url = "https://example/v1"',
         '',
-        '[providers."managed:pythinker-code".oauth]',
+        '[providers."managed:kimi-code".oauth]',
         'storage = "file"',
-        'key = "oauth/pythinker-code"',
+        'key = "oauth/kimi-code"',
         '',
       ].join('\n'),
     );
@@ -204,7 +204,7 @@ describe('GET /api/v1/auth — readiness probe (P2.1 D2)', () => {
     const env = envelopeOf<AuthSummary>(res.json());
     const summary = authSummarySchema.parse(env.data);
     expect(summary.managed_provider).toEqual({
-      name: 'managed:pythinker-code',
+      name: 'managed:kimi-code',
       status: 'unauthenticated',
     });
     // ready is still false — no default_model, even though provider exists
