@@ -731,7 +731,7 @@ function itemLabel(item: unknown): string {
  * member (and object keys) are skipped, not counted as items.
  */
 export function dynamicWorkflowPartialItemsFromArguments(argumentsText: string): string[] {
-  const match = /"items"\s*:\s*\[/.exec(argumentsText);
+  const match = /"items"\s*:\s*\[/u.exec(argumentsText);
   if (match === null) return [];
   const items: string[] = [];
   let depth = 0;
