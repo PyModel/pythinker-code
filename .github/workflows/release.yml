@@ -176,8 +176,8 @@ jobs:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
         run: |
           if [ -z "$VSCE_PAT" ]; then
-            echo "::error::VSCE_PAT secret not set — cannot publish the extension."
-            exit 1
+            echo "::warning::VSCE_PAT secret not set — skipping Marketplace publish."
+            exit 0
           fi
           pnpm --filter pythinker-code run publish:vsix
 
