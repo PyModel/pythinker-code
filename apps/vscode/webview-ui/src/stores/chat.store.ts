@@ -22,6 +22,19 @@ export interface UIStep {
   n: number;
   items: UIStepItem[];
   planMode?: boolean;
+  agentId?: string;
+  agentLabel?: string;
+  agentIndex?: number;
+}
+
+export interface UISubagentStatus {
+  status: "spawned" | "running" | "done" | "failed" | "suspended";
+  label?: string;
+  index?: number;
+  startedAt?: number;
+  endedAt?: number;
+  error?: string;
+  resultSummary?: string;
 }
 
 export interface InlineError {
@@ -41,6 +54,7 @@ export type UIStepItem =
       call: UIToolCall;
       result?: ToolResult["return_value"];
       subagent_steps?: UIStep[];
+      subagent_status?: Record<string, UISubagentStatus>;
     };
 
 export interface ChatMessage {

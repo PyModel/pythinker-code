@@ -496,6 +496,9 @@ function wrapSubagentEvent(
           invocation.parentAgentId,
           invocation.parentToolCallId,
         ),
+        // Replay history carries no persisted label or dynamicWorkflowIndex; the UI
+        // falls back to the id's short form.
+        agent_id: invocation.childAgentId,
         event: routed,
       },
     };
