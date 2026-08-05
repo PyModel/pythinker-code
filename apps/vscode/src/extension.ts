@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 import { Events } from "../shared/bridge";
 import { PythinkerWebviewProvider } from "./PythinkerWebviewProvider";
 import { onSettingsChange, VSCodeSettings } from "./config/vscode-settings";
+import { defaultPermissionMode } from "./runtime/permission-mode";
 import { updateLoginContext } from "./utils/context";
 
 let outputChannel: vscode.OutputChannel | undefined;
@@ -48,7 +49,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       });
       if (changedKeys.includes("yoloMode")) {
         void provider
-          ?.setYoloModeForActiveSessions(VSCodeSettings.yoloMode)
+          ?.setPermissionModeForActiveSessions(defaultPermissionMode(VSCodeSettings.yoloMode))
           .catch((error) => logError("Unable to update session permission", error));
       }
     }), vscode.window.registerWebviewViewProvider("pythinker.webview", provider, {

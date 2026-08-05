@@ -1,5 +1,6 @@
 import {
   createPythinkerHarness,
+  type PermissionMode,
   type PythinkerHarness,
   type Session,
   type SessionSummary,
@@ -7,12 +8,11 @@ import {
 
 import type { RuntimeBroadcast } from "./session-runtime";
 import {
-  corePermissionForLegacyApproval,
-  legacyApprovalMetadata,
-  readLegacyApprovalFlags,
-  withGlobalYoloMode,
-  type LegacyApprovalFlags,
-} from "./legacy-approval";
+  defaultPermissionMode,
+  permissionModeMetadata,
+  persistPermissionMode,
+  readPermissionMode,
+} from "./permission-mode";
 import { SessionRuntime } from "./session-runtime";
 import { areSameFsPath } from "../utils/fs-path";
 
@@ -84,7 +84,7 @@ export class PythinkerRuntime {
       requestedId === current.id &&
       areSameFsPath(current.session.workDir, options.workDir)
     ) {
-      await applySessionSettings(current.session, options, current.legacyApprovalFlags);
+      await applySessionPermission(current.session, current.permissionMode);
       await current.announceStatus(options.webviewId);
       return current;
     }
@@ -92,31 +92,25 @@ export class PythinkerRuntime {
     let runtime = requestedId === undefined ? undefined : this.sessions.get(requestedId);
     if (runtime !== undefined) {
       assertSessionWorkDir(runtime.session, options.workDir);
-      await applySessionSettings(runtime.session, options, runtime.legacyApprovalFlags);
+      await applySessionPermission(runtime.session, runtime.permissionMode);
       await this.detachView(options.webviewId);
     } else {
-      const defaultApproval: LegacyApprovalFlags = { yolo: options.yoloMode, afk: false };
+      const seedMode = defaultPermissionMode(options.yoloMode);
       const session =
         requestedId === undefined
           ? await this.harness.createSession({
               workDir: options.workDir,
               model: options.model || undefined,
               thinking: normalizeEffort(options.effort),
-              permission: corePermissionForLegacyApproval(defaultApproval),
-              metadata: legacyApprovalMetadata(defaultApproval),
+              permission: seedMode,
+              metadata: permissionModeMetadata(seedMode),
             })
           : await this.harness.resumeSession({ id: requestedId });
       try {
         assertSessionWorkDir(session, options.workDir);
-        const storedApproval = readLegacyApprovalFlags(session.summary?.metadata);
-        const restoredApproval = storedApproval ?? defaultApproval;
-        const approval = withGlobalYoloMode(restoredApproval, options.yoloMode);
-        if (storedApproval === undefined || flagsDiffer(storedApproval, approval)) {
-          await (session as any).updateMetadata?.(legacyApprovalMetadata(approval));
-        }
-        await applySessionSettings(session, options, approval);
+        const mode = await restorePermissionMode(session, seedMode);
         await this.detachView(options.webviewId);
-        runtime = this.wrapSession(session, approval);
+        runtime = this.wrapSession(session, mode);
       } catch (error) {
         await session.close().catch((closeError: unknown) => {
           this.log("Failed to close a rejected session", closeError);
@@ -134,7 +128,7 @@ export class PythinkerRuntime {
   async attachResumedSession(
     webviewId: string,
     session: Session,
-    defaultYoloMode = false,
+    yoloModeSetting = false,
   ): Promise<SessionRuntime> {
     const existing = this.sessions.get(session.id);
     if (existing !== undefined && this.sessionByView.get(webviewId) === session.id) {
@@ -146,16 +140,8 @@ export class PythinkerRuntime {
     let runtime = existing ?? this.sessions.get(session.id);
     if (runtime === undefined) {
       try {
-        const storedApproval = readLegacyApprovalFlags(session.summary?.metadata);
-        const restoredApproval = storedApproval ?? { yolo: defaultYoloMode, afk: false };
-        const approval = withGlobalYoloMode(restoredApproval, defaultYoloMode);
-        if (storedApproval === undefined || flagsDiffer(storedApproval, approval)) {
-          await (session as any).updateMetadata?.(legacyApprovalMetadata(approval));
-        }
-        const status = await session.getStatus();
-        const permission = corePermissionForLegacyApproval(approval);
-        if (status.permission !== permission) await session.setPermission(permission);
-        runtime = this.wrapSession(session, approval);
+        const mode = await restorePermissionMode(session, defaultPermissionMode(yoloModeSetting));
+        runtime = this.wrapSession(session, mode);
       } catch (error) {
         await session.close().catch((closeError: unknown) => {
           this.log("Failed to close a rejected session", closeError);
@@ -200,9 +186,13 @@ export class PythinkerRuntime {
     await ((this.harness as any).deleteSession?.(id) ?? Promise.resolve());
   }
 
-  async setYoloModeForActiveSessions(enabled: boolean): Promise<void> {
+  /**
+   * Applies an explicit settings change to the live sessions. Attach and resume
+   * never do this — they restore whatever mode the session was left in.
+   */
+  async setPermissionModeForActiveSessions(mode: PermissionMode): Promise<void> {
     await Promise.all(
-      [...this.sessions.values()].map((session) => session.setLegacyYoloMode(enabled)),
+      [...this.sessions.values()].map((session) => session.setPermissionMode(mode)),
     );
   }
 
@@ -215,10 +205,10 @@ export class PythinkerRuntime {
     await this.harness.close();
   }
 
-  private wrapSession(session: Session, legacyApproval: LegacyApprovalFlags): SessionRuntime {
+  private wrapSession(session: Session, permissionMode: PermissionMode): SessionRuntime {
     const runtime = new SessionRuntime({
       session,
-      legacyApproval,
+      permissionMode,
       broadcast: this.broadcast,
       captureBaseline: this.captureBaseline,
       log: this.log,
@@ -232,24 +222,31 @@ export class PythinkerRuntime {
   }
 }
 
-async function applySessionSettings(
+/**
+ * The engine forgets the permission mode when a session is resumed, so the
+ * stored mode is authoritative and the seed only covers sessions that have
+ * never recorded one.
+ */
+async function restorePermissionMode(
   session: Session,
-  options: OpenSessionOptions,
-  legacyApproval: LegacyApprovalFlags,
-): Promise<void> {
-  const status = await session.getStatus();
-  const permission = corePermissionForLegacyApproval(legacyApproval);
-  if (status.permission !== permission) {
-    await session.setPermission(permission);
+  seedMode: PermissionMode,
+): Promise<PermissionMode> {
+  const storedMode = readPermissionMode(session.summary?.metadata);
+  const mode = storedMode ?? seedMode;
+  if (storedMode === undefined) {
+    await persistPermissionMode(session, mode);
   }
+  await applySessionPermission(session, mode);
+  return mode;
+}
+
+async function applySessionPermission(session: Session, mode: PermissionMode): Promise<void> {
+  const status = await session.getStatus();
+  if (status.permission !== mode) await session.setPermission(mode);
 }
 
 export function normalizeEffort(effort: string): string {
   return effort.trim() || "off";
-}
-
-function flagsDiffer(a: LegacyApprovalFlags, b: LegacyApprovalFlags): boolean {
-  return a.yolo !== b.yolo || a.afk !== b.afk;
 }
 
 function assertSessionWorkDir(session: Pick<Session, "workDir">, expectedWorkDir: string): void {

@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import type { PythinkerHarness } from "@pythoughts/pythinker-code-sdk";
+import type { PermissionMode, PythinkerHarness } from "@pythoughts/pythinker-code-sdk";
 import { Events } from "../shared/bridge";
 import { BridgeHandler } from "./bridge-handler";
 
@@ -145,8 +145,8 @@ export class PythinkerWebviewProvider implements vscode.WebviewViewProvider {
     return this.bridgeHandler.getBaselineContent(sessionId, filePath);
   }
 
-  async setYoloModeForActiveSessions(enabled: boolean): Promise<void> {
-    await this.bridgeHandler.runtime.setYoloModeForActiveSessions(enabled);
+  async setPermissionModeForActiveSessions(mode: PermissionMode): Promise<void> {
+    await this.bridgeHandler.runtime.setPermissionModeForActiveSessions(mode);
   }
 
   private getHtml(webviewId: string, webview: vscode.Webview): string {

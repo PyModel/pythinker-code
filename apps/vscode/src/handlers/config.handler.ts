@@ -16,11 +16,15 @@ const SLASH_COMMANDS: SlashCommandInfo[] = [
   { name: "init", aliases: [], description: "Analyze the codebase and generate AGENTS.md" },
   { name: "compact", aliases: [], description: "Compact the conversation context" },
   { name: "clear", aliases: ["reset"], description: "Clear the context" },
-  { name: "yolo", aliases: [], description: "Toggle YOLO mode (auto-approve tool actions; may still ask questions)" },
+  {
+    name: "yolo",
+    aliases: [],
+    description: "Toggle YOLO mode (auto-approve tool actions; may still ask questions). Usage: /yolo [on|off]",
+  },
   {
     name: "auto",
     aliases: ["afk"],
-    description: "Toggle Auto mode (fully autonomous; the agent will not ask questions)",
+    description: "Toggle Auto mode (fully autonomous; the agent will not ask questions). Usage: /auto [on|off]",
   },
   { name: "plan", aliases: [], description: "Toggle plan mode. Usage: /plan [on|off|view|clear]" },
   {

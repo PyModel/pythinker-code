@@ -521,7 +521,7 @@ function createResumedSession(id: string, workDir: string) {
     sessionDir: join("/private/pythinker/sessions", id),
     createdAt: 1,
     updatedAt: 2,
-    metadata: { vscode_legacy_approval: { yolo: false, afk: false } },
+    metadata: { vscode_permission_mode: "manual" },
   };
   return {
     id,
@@ -559,7 +559,8 @@ function createResumedSession(id: string, workDir: string) {
     }),
     getStatus: async () => ({ permission: "manual" }),
     setPermission: async () => undefined,
-    updateMetadata: async () => undefined,
+    getSessionMetadata: async () => ({ custom: {} }),
+    updateSessionMetadata: async () => undefined,
     setApprovalHandler: () => undefined,
     setQuestionHandler: () => undefined,
     onEvent: () => () => undefined,

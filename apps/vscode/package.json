@@ -53,7 +53,7 @@
         "pythinker.yoloMode": {
           "type": "boolean",
           "default": false,
-          "description": "Auto-approve regular tool calls; the agent may still ask questions"
+          "description": "Start new sessions in YOLO mode (auto-approve regular tool calls; the agent may still ask questions). Sessions keep the mode they were last left in; changing this applies to the open sessions too."
         },
         "pythinker.autosave": {
           "type": "boolean",

@@ -1155,37 +1155,55 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
     });
   });
 
-  it("keeps /yolo and /afk independent when they are combined", async () => {
+  it("moves between the permission modes as /yolo and /auto are used", async () => {
     const rig = await createRuntimeRig();
     const runtime = await openRuntimeSession(rig);
 
     await runSlash(runtime, "/yolo");
-    expect(runtime.legacyApprovalFlags).toEqual({ yolo: true, afk: false });
+    expect(runtime.permissionMode).toBe("yolo");
     await expect(runtime.session.getStatus()).resolves.toMatchObject({ permission: "yolo" });
 
     await runSlash(runtime, "/afk");
-    expect(runtime.legacyApprovalFlags).toEqual({ yolo: true, afk: true });
+    expect(runtime.permissionMode).toBe("auto");
     await expect(runtime.session.getStatus()).resolves.toMatchObject({ permission: "auto" });
 
     await runSlash(runtime, "/afk");
-    expect(runtime.legacyApprovalFlags).toEqual({ yolo: true, afk: false });
-    await expect(runtime.session.getStatus()).resolves.toMatchObject({ permission: "yolo" });
+    expect(runtime.permissionMode).toBe("manual");
+    await expect(runtime.session.getStatus()).resolves.toMatchObject({ permission: "manual" });
   });
 
-  it("applies the global yolo setting when a closed VS Code session reopens", async () => {
+  it("accepts on and off arguments for the permission commands", async () => {
+    const rig = await createRuntimeRig();
+    const runtime = await openRuntimeSession(rig);
+
+    await runSlash(runtime, "/yolo on");
+    expect(runtime.permissionMode).toBe("yolo");
+
+    await runSlash(runtime, "/yolo on");
+    expect(runtime.permissionMode).toBe("yolo");
+
+    await runSlash(runtime, "/yolo off");
+    expect(runtime.permissionMode).toBe("manual");
+  });
+
+  it("keeps a /yolo session in yolo when it reopens with the setting off", async () => {
     const rig = await createRuntimeRig();
     const first = await openRuntimeSession(rig);
     await runSlash(first, "/yolo");
     await rig.runtime.detachView("view-1");
 
     const reopened = await openRuntimeSession(rig, first.id);
-    expect(reopened.legacyApprovalFlags).toEqual({ yolo: false, afk: false });
-    await expect(reopened.session.getStatus()).resolves.toMatchObject({ permission: "manual" });
-    await rig.runtime.detachView("view-1");
 
-    const yoloReopened = await openRuntimeSession(rig, first.id, true);
-    expect(yoloReopened.legacyApprovalFlags).toEqual({ yolo: true, afk: false });
-    await expect(yoloReopened.session.getStatus()).resolves.toMatchObject({ permission: "yolo" });
+    expect(reopened.permissionMode).toBe("yolo");
+    await expect(reopened.session.getStatus()).resolves.toMatchObject({ permission: "yolo" });
+  });
+
+  it("seeds a session that never chose a mode from the global yolo setting", async () => {
+    const rig = await createRuntimeRig();
+    const first = await openRuntimeSession(rig, undefined, true);
+
+    expect(first.permissionMode).toBe("yolo");
+    await expect(first.session.getStatus()).resolves.toMatchObject({ permission: "yolo" });
   });
 
   it("exports current context as Markdown under the workspace", async () => {
