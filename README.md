@@ -33,7 +33,7 @@
 
 <br /><br />
 
-<img src="https://raw.githubusercontent.com/Pythoughts-labs/pythinker-code/main/docs/media/init.webp" alt="Pythinker Code terminal demo" width="860">
+<img src="https://raw.githubusercontent.com/Pythoughts-labs/pythinker-code/main/docs/media/terminal-ui.webp" alt="Pythinker Code terminal demo" width="860">
 
 </div>
 
