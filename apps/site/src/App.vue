@@ -227,6 +227,20 @@ onUnmounted(() => {
         <h1>Pythinker Code</h1>
         <p class="hero-accent">Think first, then code.</p>
         <p class="hero-lead">An open-source AI engineering agent for your terminal. It reads your repo, edits files, runs commands, and iterates until the job is done.</p>
+        <a
+          class="hero-npm-badge"
+          href="https://www.npmjs.com/package/@pythoughts/pythinker-code"
+          target="_blank"
+          rel="noopener"
+        >
+          <img
+            src="https://img.shields.io/npm/dm/%40pythoughts%2Fpythinker-code?style=flat&logo=npm&logoColor=white&color=2b89ff&label=downloads"
+            alt="npm downloads per month for @pythoughts/pythinker-code"
+            width="161"
+            height="20"
+            loading="lazy"
+          />
+        </a>
         <div class="hero-install">
           <InstallCommand />
         </div>
@@ -630,13 +644,32 @@ onUnmounted(() => {
 
 .hero-install {
   max-width: 720px;
-  margin: 36px auto 0;
+  margin: 10px auto 0;
 }
 
 .hero-download-milestone {
   display: flex;
   margin-top: 14px;
   justify-content: center;
+}
+
+.hero-npm-badge {
+  display: inline-flex;
+  margin-top: 14px;
+  border-radius: var(--radius);
+  opacity: 0.85;
+  transition: opacity 0.2s ease;
+}
+
+.hero-npm-badge:hover {
+  opacity: 1;
+}
+
+/* ponytail: width:auto lets the badge grow as the download count does; the width attr only reserves space */
+.hero-npm-badge img {
+  display: block;
+  width: auto;
+  height: 20px;
 }
 
 .hero-caption {
