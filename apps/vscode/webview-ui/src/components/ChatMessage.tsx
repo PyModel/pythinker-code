@@ -1,4 +1,4 @@
-import { useState, Fragment, memo } from "react";
+import { useState, Fragment, memo, type ReactNode } from "react";
 import { IconGitFork, IconBolt } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { Content } from "@/lib/content";
@@ -82,7 +82,19 @@ function StepItemRenderer({ item }: { item: UIStepItem }) {
   }
 }
 
-function StepContent({ step, showConnector, showLogo }: { step: UIStep; showConnector?: boolean; showLogo?: boolean }) {
+/** A reply row whose gutter carries the assistant logo, lined up with the step markers. */
+function LogoRow({ children, className }: { children: ReactNode; className?: string }) {
+  return (
+    <div className={cn("flex gap-2", className)}>
+      <div className="hidden @[420px]:flex shrink-0 w-5 justify-center">
+        <PythinkerLogo className="size-4 mt-0.5" />
+      </div>
+      <div className="flex-1 min-w-0">{children}</div>
+    </div>
+  );
+}
+
+function StepContent({ step, showConnector, showLogo }:{ step: UIStep; showConnector?: boolean; showLogo?: boolean }) {
   const hasItems = step.items.length > 0;
   const hasToolOrThinking = step.items.some((item) => item.type === "tool_use" || item.type === "thinking" || item.type === "compaction");
   const showIndicator = hasToolOrThinking;
@@ -123,12 +135,9 @@ function StepContent({ step, showConnector, showLogo }: { step: UIStep; showConn
           // thinking block happens to open the step, so it claims the outer gutter
           // from this row: `-ml-7` is the `w-5` marker column plus the `gap-2`.
           return (
-            <div key={`${step.n}-${idx}`} className="flex gap-2 @[420px]:-ml-7">
-              <div className="hidden @[420px]:flex shrink-0 w-5 justify-center">
-                <PythinkerLogo className="size-4 mt-0.5" />
-              </div>
-              <div className="flex-1 min-w-0">{renderer}</div>
-            </div>
+            <LogoRow key={`${step.n}-${idx}`} className="@[420px]:-ml-7">
+              {renderer}
+            </LogoRow>
           );
         })}
       </div>
@@ -327,7 +336,11 @@ function AssistantMessage({ message, turnIndex, isStreaming }: { message: ChatMe
                   }
                   return <Fragment key={`normal-${gi}`}>{stepsContent}</Fragment>;
                 })}
-              {!hasSteps && displayContent && <Markdown content={displayContent} className="text-xs leading-relaxed @[420px]:pl-5" enableEnrichment={!isStreaming} />}
+              {!hasSteps && displayContent && (
+                <LogoRow>
+                  <Markdown content={displayContent} className="text-xs leading-relaxed" enableEnrichment={!isStreaming} />
+                </LogoRow>
+              )}
               {(images.length > 0 || videos.length > 0) && (
                 <div className="@[420px]:pl-5">
                   <MessageMedia images={images} videos={videos} onPreview={setPreviewMedia} />
