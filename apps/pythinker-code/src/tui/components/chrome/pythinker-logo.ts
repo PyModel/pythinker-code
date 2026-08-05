@@ -43,6 +43,13 @@ export const LOGO_EYE_ROW = 3;
 export const LOGO_LEFT_EYE_COL = 4;
 export const LOGO_RIGHT_EYE_COL = 8;
 
+/** Antenna bulb cell on row 0. */
+export const LOGO_ANTENNA_ROW = 0;
+export const LOGO_ANTENNA_COL = 6;
+
+/** Antenna spin frames — half-shaded circles read as a clockwise rotation. */
+export const ANTENNA_SPINNER_FRAMES = ['◐', '◓', '◑', '◒'] as const;
+
 /** Eye phases from the installer `_blink_eyes` / `Blink-Eye` sequence. */
 export type EyeBlinkPhase = 'open' | 'glance' | 'closed' | 'open-shine';
 
@@ -157,10 +164,29 @@ export function renderPythinkerLogoEyeRow(state: LogoEyeBlinkState): string {
   return segment(line, ranges);
 }
 
-export function renderPythinkerLogoWithEyes(state: LogoEyeBlinkState = LOGO_EYES_OPEN): string[] {
-  return PYTHINKER_LOGO_LINES.map((_, index) =>
-    index === LOGO_EYE_ROW ? renderPythinkerLogoEyeRow(state) : renderPythinkerLogoLine(index),
-  );
+/** Paint the antenna row with a spinner frame in place of the static bulb. */
+export function renderPythinkerLogoAntennaRow(frameIndex: number): string {
+  const frame =
+    ANTENNA_SPINNER_FRAMES[frameIndex % ANTENNA_SPINNER_FRAMES.length] ?? '●';
+  const chars = Array.from(PYTHINKER_LOGO_LINES[LOGO_ANTENNA_ROW]);
+  chars[LOGO_ANTENNA_COL] = frame;
+  const line = chars.join('');
+  return segment(line, [
+    [LOGO_ANTENNA_COL, LOGO_ANTENNA_COL + frame.length, antenna],
+  ]);
+}
+
+export function renderPythinkerLogoWithEyes(
+  state: LogoEyeBlinkState = LOGO_EYES_OPEN,
+  antennaFrame?: number,
+): string[] {
+  return PYTHINKER_LOGO_LINES.map((_, index) => {
+    if (index === LOGO_EYE_ROW) return renderPythinkerLogoEyeRow(state);
+    if (index === LOGO_ANTENNA_ROW && antennaFrame !== undefined) {
+      return renderPythinkerLogoAntennaRow(antennaFrame);
+    }
+    return renderPythinkerLogoLine(index);
+  });
 }
 
 /** Paint one logo row with SVG-accurate brand colors. */
