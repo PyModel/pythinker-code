@@ -17,6 +17,20 @@ function highlightMatch(text: string, query: string): React.ReactNode {
 
   const lowerText = text.toLowerCase();
   const lowerQuery = query.toLowerCase();
+
+  // The common case is a contiguous match; highlighting it as one run reads far
+  // better than scattering bold letters across the whole name.
+  const at = lowerText.indexOf(lowerQuery);
+  if (at !== -1) {
+    return (
+      <>
+        {text.slice(0, at)}
+        <span className="text-foreground font-semibold">{text.slice(at, at + query.length)}</span>
+        {text.slice(at + query.length)}
+      </>
+    );
+  }
+
   const parts: React.ReactNode[] = [];
   let lastIdx = 0;
   let qi = 0;
