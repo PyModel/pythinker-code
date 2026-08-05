@@ -319,8 +319,11 @@ function AssistantMessage({ message, turnIndex, isStreaming }: { message: ChatMe
               {hasSteps &&
                 groupStepsByPlanMode(steps).map((group, gi) => {
                   const totalSteps = steps.length;
-                  // The logo identifies the assistant once per message, on its first reply.
-                  const firstTextStepIndex = steps.findIndex((s) => s.items.some((item) => item.type === "text"));
+                  // The logo identifies the assistant on its first reply, but only when the
+                  // message draws no timeline: sitting in the gutter, it would cut the
+                  // connector running between the step markers.
+                  const hasTimeline = stepHasIndicator.filter(Boolean).length > 1;
+                  const firstTextStepIndex = hasTimeline ? -1 : steps.findIndex((s) => s.items.some((item) => item.type === "text"));
                   const stepsContent = group.steps.map((step, i) => {
                     const globalIndex = group.startIndex + i;
                     const isLastInGroup = i === group.steps.length - 1;
