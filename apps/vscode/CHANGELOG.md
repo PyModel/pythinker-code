@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.4
+
+### Patch Changes
+
+- [#22](https://github.com/Pythoughts-labs/pythinker-code/pull/22) [`45be822`](https://github.com/Pythoughts-labs/pythinker-code/commit/45be8227077847f760fa7b6b09333cf5a8127f32) - Show the assistant logo beside replies without breaking the step timeline, complete a picked slash command in the input instead of sending it on its own, ship a decodable Marketplace icon, and retry transient registry failures when publishing.
+
+- Updated dependencies [[`45be822`](https://github.com/Pythoughts-labs/pythinker-code/commit/45be8227077847f760fa7b6b09333cf5a8127f32), [`45be822`](https://github.com/Pythoughts-labs/pythinker-code/commit/45be8227077847f760fa7b6b09333cf5a8127f32)]:
+  - @pythoughts/pythinker-code-sdk@0.11.0
+
 ## 0.6.7
 
 ### Patch Changes
