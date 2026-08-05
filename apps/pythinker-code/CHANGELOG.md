@@ -1,5 +1,13 @@
 # @pythoughts/pythinker-code
 
+## 0.8.1
+
+### Patch Changes
+
+- [`b5b7b97`](https://github.com/Pythoughts-labs/pythinker-code/commit/b5b7b976df2a5fddd28a15ad034a2bd7cc8babb7) - Fix the native install script exiting immediately without installing anything when run the documented way, `curl -fsSL … | bash`, which also broke automatic background updates for native installs.
+
+- [`d7a5db0`](https://github.com/Pythoughts-labs/pythinker-code/commit/d7a5db02c668ec88f94cb3ccbdb7f314d8a28791) - Report why an automatic update failed instead of failing silently: the installer's error output is now recorded and shown on the next update prompt, native installs on macOS and Linux pin the version the rollout picked, and update messages tell you to open a new terminal to apply the update.
+
 ## 0.8.0
 
 ### Minor Changes
