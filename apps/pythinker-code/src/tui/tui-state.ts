@@ -71,6 +71,11 @@ export function createTUIState(options: PythinkerTUIOptions): TUIState {
 
   const terminal = new ProcessTerminal();
   const ui = new TUI(terminal);
+  // Gate rendering until the event loop starts: pi-tui paints on requestRender
+  // even before ui.start() (stopped defaults to false), so construction-time
+  // renders would anchor frames to the shell cursor. The field is private in
+  // pi-tui's types; ui.start() flips it back to false.
+  (ui as unknown as { stopped: boolean }).stopped = true;
 
   const transcriptContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
   const activityContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
