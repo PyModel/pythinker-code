@@ -49,7 +49,7 @@ function isLegacyModifiedInput(data: string): boolean {
   // Legacy terminals send Ctrl/Alt combos as C0 control bytes or ESC+char
   // sequences, which never reach the Kitty CSI-u decoder.
   if (data.length === 1) {
-    const code = data.codePointAt(0);
+    const code = data.codePointAt(0) ?? 0;
     return code < 0x20
       && data !== '\t'
       && data !== '\n'

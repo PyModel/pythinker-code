@@ -113,7 +113,7 @@ try {
 // remaps the accent tokens to grayscale for 'mono'. Orthogonal to the theme.
 export type Accent = 'blue' | 'mono';
 const ACCENT_STORAGE_KEY = 'pythinker-web.accent';
-const ACCENT_VALUES: readonly string[] = new Set(['blue', 'mono']);
+const ACCENT_VALUES: ReadonlySet<string> = new Set(['blue', 'mono']);
 function loadAccentFromStorage(): Accent {
   try {
     const v = localStorage.getItem(ACCENT_STORAGE_KEY);
@@ -129,7 +129,7 @@ function applyAccentToDocument(a: Accent): void {
 }
 
 const COLOR_SCHEME_STORAGE_KEY = 'pythinker-web.color-scheme';
-const COLOR_SCHEME_VALUES: readonly string[] = new Set(['light', 'dark', 'system']);
+const COLOR_SCHEME_VALUES: ReadonlySet<string> = new Set(['light', 'dark', 'system']);
 
 function loadColorSchemeFromStorage(): ColorScheme {
   try {
@@ -400,7 +400,7 @@ function saveActiveWorkspaceToStorage(id: string): void {
 /** basename of an absolute path (last non-empty segment), defaulting to the path. */
 function basename(path: string): string {
   const parts = path.split('/').filter(Boolean);
-  return parts.length > 0 ? parts[parts.length - 1]! : path;
+  return parts.length > 0 ? parts.at(-1)! : path;
 }
 
 /** Shorten a $HOME-prefixed absolute path to `~/…` for dim display. */
@@ -661,10 +661,10 @@ function persistSessionProfile(patch: {
   // Promise.resolve wrap: tolerate a sync/undefined return (e.g. test mocks).
   void Promise.resolve(getPythinkerWebApi().updateSession(sid, patch))
     .then(() => refreshSessionStatus(sid))
-    .catch((err) => {
+    .catch((error) => {
       // Local state already reflects the change; tell the user (and the log)
       // that the daemon did not persist it.
-      pushOperationFailure('persistSessionProfile', err, { sessionId: sid });
+      pushOperationFailure('persistSessionProfile', error, { sessionId: sid });
     });
 }
 
