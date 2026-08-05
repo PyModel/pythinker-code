@@ -1,32 +1,4 @@
-# Search and user-directed AI access are allowed; release artifacts are not crawl targets.
-User-agent: OAI-SearchBot
-User-agent: ChatGPT-User
-User-agent: Claude-SearchBot
-User-agent: Claude-User
-User-agent: Amazonbot
-User-agent: PerplexityBot
-User-agent: Perplexity-User
-User-agent: Applebot
-Allow: /
-Disallow: /pythinker-code/
-Content-Signal: ai-train=no, search=yes, ai-input=yes
-
-# Crawlers associated with model training are not allowed.
-User-agent: GPTBot
-User-agent: ClaudeBot
-User-agent: Claude-Web
-User-agent: anthropic-ai
-User-agent: Google-Extended
-User-agent: Bytespider
-User-agent: CCBot
-User-agent: Applebot-Extended
-Disallow: /
-Content-Signal: ai-train=no, search=yes, ai-input=yes
-
-# All other crawlers may index the public site but not release artifacts.
 User-agent: *
 Allow: /
-Disallow: /pythinker-code/
-Content-Signal: ai-train=no, search=yes, ai-input=yes
 
-Sitemap: https://code.pythinker.com/sitemap.xml
+Sitemap: https://pythinker.com/sitemap.xml
