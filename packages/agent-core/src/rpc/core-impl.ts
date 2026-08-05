@@ -626,7 +626,9 @@ export class PythinkerCore implements PromisableMethods<CoreAPI> {
     this.assertPluginsLoaded();
     return listWorkspaceSkills({
       workDir: requiredWorkDir('listWorkspaceSkills', workDir),
-      ...this.resolveSessionSkillConfig(this.readConfigForWrite()),
+      // The lenient runtime read, matching session creation: a warning in an
+      // unrelated config section must not make listing skills throw.
+      ...this.resolveSessionSkillConfig(this.reloadRuntimeConfig()),
     });
   }
 

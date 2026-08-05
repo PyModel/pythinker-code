@@ -111,16 +111,24 @@ async function main() {
   }
 
   console.log(`\n== ${manifest.version} -> ${version}${dryRun ? ' (dry run)' : ''} ==\n`);
-  writeFileSync(MANIFEST, readFileSync(MANIFEST, 'utf8').replace(`"version": "${manifest.version}"`, `"version": "${version}"`));
+  const originalManifest = readFileSync(MANIFEST, 'utf8');
+  writeFileSync(MANIFEST, originalManifest.replace(`"version": "${manifest.version}"`, `"version": "${version}"`));
+
+  if (dryRun) {
+    // A dry run must leave the tree exactly as it found it, including after a
+    // failed build — otherwise the next real run trips its own clean-tree check.
+    try {
+      run('pnpm', ['build']);
+      run('pnpm', ['--filter', 'pythinker-code', 'run', 'package:platform']);
+      console.log(`\nDry run: built and verified ${version}. Nothing published, nothing tagged.`);
+    } finally {
+      writeFileSync(MANIFEST, originalManifest);
+    }
+    return;
+  }
 
   run('pnpm', ['build']);
   run('pnpm', ['--filter', 'pythinker-code', 'run', 'package:platform']);
-
-  if (dryRun) {
-    console.log(`\nDry run: built and verified ${version}. Nothing published, nothing tagged.`);
-    console.log('Restore the manifest with: git checkout apps/vscode/package.json');
-    return;
-  }
 
   // Commit before publishing so the shipped bits always correspond to a commit,
   // and tag only once the Marketplace has actually accepted them.

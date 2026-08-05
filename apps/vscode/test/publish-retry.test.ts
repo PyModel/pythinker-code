@@ -12,7 +12,7 @@ const FAST = { backoffMs: [0, 0] };
 describe('classifyError', () => {
   it('separates the three failure kinds that need different handling', () => {
     // The exact string the Marketplace returned mid-publish on 2026-08-05.
-    expect(classifyError(new Error('Request timeout: /_apis/gallery/publishers/pythoughts'))).toBe('transient');
+    expect(classifyError(new Error('Request timeout: /_apis/gallery/publishers/example'))).toBe('transient');
     expect(classifyError(new Error('connect ECONNRESET 13.107.42.16:443'))).toBe('transient');
     expect(classifyError(new Error('Response code 503 (Service Unavailable)'))).toBe('transient');
 
