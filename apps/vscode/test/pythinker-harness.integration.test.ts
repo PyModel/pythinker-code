@@ -386,6 +386,26 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
     await expect(parseHostSlashCommand([{ type: "text", text: "/clear" }])).resolves.toBeUndefined();
   });
 
+  it("degrades to the skill prefix when the skill catalog fails", async () => {
+    // The parser runs on every message starting with "/", and its caller in
+    // chat.handler awaits it outside any try block — a rejection here silently
+    // drops the user's message instead of sending it.
+    const listSkills = () => Promise.reject(new Error("engine unavailable"));
+
+    await expect(parseHostSlashCommand("/skill:review carefully", listSkills)).resolves.toEqual({
+      name: "skill:review",
+      args: "carefully",
+      raw: "/skill:review carefully",
+      skillName: "review",
+    });
+    await expect(parseHostSlashCommand("/plan on", listSkills)).resolves.toEqual({
+      name: "plan",
+      args: "on",
+      raw: "/plan on",
+    });
+    await expect(parseHostSlashCommand("/unknown-thing", listSkills)).resolves.toBeUndefined();
+  });
+
   it("resolves a built-in skill invoked under its bare name", async () => {
     const listSkills = async () => [
       { name: "gen-changesets", description: "", path: "/s", source: "builtin", type: "prompt" },

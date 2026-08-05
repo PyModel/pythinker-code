@@ -59,10 +59,14 @@ export async function parseHostSlashCommand(
   const args = match[2]?.trim() ?? "";
   if (HOST_COMMANDS.has(name)) return { name, args, raw };
 
-  if (listSkills === undefined) {
+  const skills = listSkills === undefined ? undefined : await listSkills().catch(() => undefined);
+  if (skills === undefined) {
+    // The parser runs on every message that starts with "/", so a catalog
+    // failure must degrade to the prefix check rather than reject and take the
+    // whole send down with it.
     return name.startsWith("skill:") ? { name, args, raw, skillName: name.slice(6) } : undefined;
   }
-  const { commandMap } = buildSkillSlashCommands(await listSkills());
+  const { commandMap } = buildSkillSlashCommands(skills);
   const skillName = commandMap.get(name) ?? commandMap.get(match[1]!);
   if (skillName !== undefined) return { name, args, raw, skillName };
   // A skill the catalog no longer lists still reaches the engine, which reports

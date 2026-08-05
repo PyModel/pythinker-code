@@ -318,6 +318,9 @@ function AddProviderPanel({
                         setSelected(entry);
                         setUseEnvVar(false);
                         setDefaultModel(undefined);
+                        // A key typed for one provider must not be submittable
+                        // under another provider's id.
+                        setApiKey("");
                       }}
                       className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded hover:bg-muted/60 text-left"
                     >
@@ -408,7 +411,15 @@ function AddProviderPanel({
 
       {selected !== undefined && (
         <div className="flex items-center justify-between gap-2 px-3 py-2 border-t">
-          <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => setSelected(undefined)}>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 text-xs"
+            onClick={() => {
+              setSelected(undefined);
+              setApiKey("");
+            }}
+          >
             Back
           </Button>
           <Button size="sm" className="h-6 text-xs" disabled={!canSubmit || saving} onClick={() => void submit()}>
