@@ -1,5 +1,11 @@
 # @pythoughts/pythinker-code
 
+## 0.9.2
+
+### Patch Changes
+
+- [#25](https://github.com/Pythoughts-labs/pythinker-code/pull/25) [`649ec69`](https://github.com/Pythoughts-labs/pythinker-code/commit/649ec69f8e039c031248ce939faadf253bee7259) - Let `/yolo` and `/auto` take effect in the VS Code extension while the agent is running, and auto-approve the requests already waiting on screen.
+
 ## 0.9.1
 
 ### Patch Changes
