@@ -182,9 +182,23 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
     clearInput();
   });
 
+  const applyText = useMemoizedFn((newText: string, newCursorPos: number) => {
+    setText(newText);
+    setCursorPos(newCursorPos);
+    setTimeout(() => {
+      textareaRef.current?.setSelectionRange(newCursorPos, newCursorPos);
+      textareaRef.current?.focus();
+      adjustHeight();
+    }, 0);
+  });
+
   const handleSlashCommand = useMemoizedFn((name: string) => {
-    sendMessage(`/${name}`);
-    clearInput();
+    // Picking a command completes the token being typed. Sending it here would
+    // discard the rest of the message the command was being written into.
+    const before = activeToken ? text.slice(0, activeToken.start) : text;
+    const after = activeToken ? text.slice(cursorPos) : "";
+    const insertion = `/${name} `;
+    applyText(`${before}${insertion}${after}`, before.length + insertion.length);
   });
 
   const applyMention = useMemoizedFn((filePath: string) => {
@@ -196,13 +210,7 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
       isAppend: false,
     });
 
-    setText(newText);
-    setCursorPos(newCursorPos);
-    setTimeout(() => {
-      textareaRef.current?.setSelectionRange(newCursorPos, newCursorPos);
-      textareaRef.current?.focus();
-      adjustHeight();
-    }, 0);
+    applyText(newText, newCursorPos);
   });
 
   const {
