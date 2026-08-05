@@ -611,6 +611,29 @@ describe("session runtime (adapts one SDK session for subscribed Webviews)", () 
     expect(runtime.permissionMode).toBe("manual");
   });
 
+  it("still applies the mode to the engine when the cached mode already matches", async () => {
+    // The runtime is seeded as yolo while the engine session is still manual —
+    // trusting the cache here would leave the engine asking for approvals.
+    const { runtime, sdk } = createRuntime("yolo");
+
+    await runtime.setPermissionMode("yolo");
+
+    expect(sdk.setPermissions).toEqual(["yolo"]);
+    expect(runtime.permissionMode).toBe("yolo");
+  });
+
+  it("applies a permission change while a turn is running", async () => {
+    const { runtime, sdk } = createRuntime();
+    const completion = runtime.prompt("run something long");
+    sdk.emit(turnStarted());
+
+    await runtime.setPermissionMode("yolo");
+    expect(sdk.setPermissions).toEqual(["yolo"]);
+
+    sdk.emit(turnEnded("completed"));
+    await completion;
+  });
+
   it("persists each mode change into the session metadata", async () => {
     const { runtime, sdk } = createRuntime();
 

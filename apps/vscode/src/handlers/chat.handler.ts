@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { isPythinkerError } from "@pythoughts/pythinker-code-sdk";
+import { isPythinkerError, type PermissionMode } from "@pythoughts/pythinker-code-sdk";
 
 import { Events, Methods } from "../../shared/bridge";
 import type { ApprovalResponse, ContentPart } from "../../shared/legacy-sdk";
@@ -9,7 +9,12 @@ import { VSCodeSettings } from "../config/vscode-settings";
 import { normalizeEffort } from "../runtime/pythinker-runtime";
 import type { SessionRuntime } from "../runtime/session-runtime";
 import { isWorkspacePathContained, relativeWorkspacePath } from "../utils/workspace-path";
-import { parseHostSlashCommand, runHostSlashCommand } from "./slash-command";
+import {
+  applyPermissionCommand,
+  parseHostSlashCommand,
+  runHostSlashCommand,
+  type PermissionCommandRequest,
+} from "./slash-command";
 import type { Handler } from "./types";
 
 interface StreamChatParams {
@@ -169,6 +174,21 @@ const setPlanMode: Handler<{ enabled: boolean }, { ok: boolean; planMode: boolea
   return { ok: true, planMode: params.enabled };
 };
 
+/**
+ * `/yolo` and `/auto` are control commands, not turns: the webview sends them
+ * here instead of through the chat queue so they still take effect while the
+ * agent is running — which is exactly when a pending approval blocks it.
+ */
+const setPermissionMode: Handler<
+  { mode: "yolo" | "auto"; request: PermissionCommandRequest },
+  { ok: boolean; mode?: PermissionMode; message?: string }
+> = async (params, ctx) => {
+  const runtime = ctx.getSession();
+  if (runtime === undefined) return { ok: false };
+  const result = await applyPermissionCommand(runtime, params.mode, params.request);
+  return { ok: true, mode: result.mode, message: result.message };
+};
+
 const steerChat: Handler<{ content: string | ContentPart[] }, { ok: boolean }> = async (params, ctx) => {
   const runtime = ctx.getSession();
   if (runtime === undefined || !runtime.isBusy) return { ok: false };
@@ -190,6 +210,7 @@ export const chatHandlers: Record<string, Handler<any, any>> = {
   [Methods.RespondApproval]: respondApproval,
   [Methods.RespondQuestion]: respondQuestion,
   [Methods.SetPlanMode]: setPlanMode,
+  [Methods.SetPermissionMode]: setPermissionMode,
   [Methods.SteerChat]: steerChat,
   [Methods.ResetSession]: resetSession,
 };
