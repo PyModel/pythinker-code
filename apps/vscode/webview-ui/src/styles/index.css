@@ -14,20 +14,18 @@
   --card-foreground: oklch(0.141 0.005 285.823);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.141 0.005 285.823);
-  /* Brand periwinkle, matching the CLI (lightColors.primary). Was
-     oklch(0.21) — a near-black that made every accent surface read as an
-     unstyled dark chip. */
-  --primary: #4a5bc4;
+  --primary: oklch(0.21 0.006 285.885);
   --primary-foreground: oklch(1 0 0);
   --secondary: oklch(0.967 0.001 286.375);
   --secondary-foreground: oklch(0.21 0.006 285.885);
   --muted: oklch(0.967 0.001 286.375);
-  /* Periwinkle, matching the CLI palette (lightColors.primary). Plain grey at
-     this size read as disabled rather than secondary. */
-  --muted-foreground: #4a5bc4;
+  --muted-foreground: oklch(0.552 0.016 285.938);
   --accent: oklch(0.967 0.001 286.375);
   --accent-foreground: oklch(0.21 0.006 285.885);
   --destructive: oklch(0.577 0.245 27.325);
+  /* Muted periwinkle accent (CLI primary). Used for inline code and progress
+     fills — --primary is a near-black neutral and disappears against --muted. */
+  --brand: #4a5bc4;
   /* CLI lightColors.success — the "on" colour for toggles. */
   --success: #0e7a38;
   --success-foreground: oklch(1 0 0);
@@ -43,20 +41,17 @@
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.18 0.005 285.823);
   --popover-foreground: oklch(0.985 0 0);
-  /* Brand periwinkle, matching the CLI (darkColors.primary). The old
-     oklch(0.21) was DARKER than --input (oklch 0.274) and barely above the
-     background, so accent surfaces and "on" states disappeared in dark mode. */
-  --primary: #bbc6ff;
-  --primary-foreground: oklch(0.141 0.005 285.823);
+  --primary: oklch(0.21 0.006 285.885);
+  --primary-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.274 0.006 286.033);
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.274 0.006 286.033);
-  /* Periwinkle, matching the CLI palette (darkColors.primary). The previous
-     near-neutral grey sat too close to the background to read at 11px. */
-  --muted-foreground: #bbc6ff;
+  --muted-foreground: oklch(0.705 0.015 286.067);
   --accent: oklch(0.274 0.006 286.033);
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.704 0.191 22.216);
+  /* Muted periwinkle accent (CLI primary), dark variant. */
+  --brand: #aab3e8;
   /* CLI darkColors.success — the "on" colour for toggles. */
   --success: #4ec87e;
   --success-foreground: oklch(0.141 0.005 285.823);
@@ -110,6 +105,7 @@ body {
   --color-destructive: var(--destructive);
   --color-success: var(--success);
   --color-success-foreground: var(--success-foreground);
+  --color-brand: var(--brand);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);

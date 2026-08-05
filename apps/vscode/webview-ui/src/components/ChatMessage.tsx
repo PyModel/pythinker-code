@@ -33,7 +33,7 @@ function ThinkingIndicator() {
 
   return (
     <div className="flex items-center gap-2.5 mt-1 py-1">
-      <div className="flex items-center gap-2">
+      <div className="flex min-w-0 items-center gap-2">
         <PythinkerLogo className="size-4 shrink-0" />
         <span className="text-[11px] font-medium tracking-wide text-zinc-400 dark:text-zinc-300 flex items-center">
           <span className="animate-shimmer-text">Pythinking</span>
@@ -45,9 +45,9 @@ function ThinkingIndicator() {
         </span>
       </div>
       {speed > 0 && (
-        <span className="inline-flex items-center gap-1 text-[10px] font-mono text-zinc-400 dark:text-zinc-400 bg-zinc-800/20 dark:bg-zinc-800/40 px-1.5 py-0.5 rounded-full border border-zinc-700/30">
-          <IconBolt className="size-3 text-amber-400 animate-pulse" />
-          <span>{speed.toFixed(1)} t/s</span>
+        <span className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-[10px] font-mono text-zinc-400 dark:text-zinc-400 bg-zinc-800/20 dark:bg-zinc-800/40 px-1.5 py-0.5 rounded-full border border-zinc-700/30">
+          <IconBolt className="size-3 shrink-0 text-amber-400 animate-pulse" />
+          <span className="tabular-nums">{speed.toFixed(1)} t/s</span>
         </span>
       )}
     </div>

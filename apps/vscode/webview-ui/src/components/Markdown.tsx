@@ -253,7 +253,8 @@ export const Markdown = memo(function Markdown({ content, className, enableEnric
         if (isInline) {
           const showColor = enableEnrichment && hasColors(code);
           return (
-            <code className="bg-muted px-1 py-0.5 rounded text-[11px]" {...props}>
+            // --brand reads as a distinct token without competing with body text.
+            <code className="bg-muted text-brand px-1 py-0.5 rounded text-[11px]" {...props}>
               {showColor ? <ColorEnrichedText text={code} /> : children}
             </code>
           );

@@ -41,22 +41,25 @@ function laneMostRecentToolLabel(lane: WorkflowLane): string | null {
 
 function StatusDot({ status }: { status: WorkflowLane["status"] }) {
   const color =
-    status === "running" ? "bg-primary" : status === "done" ? "bg-success" : status === "failed" ? "bg-destructive" : "bg-muted-foreground";
+    status === "running" ? "bg-brand" : status === "done" ? "bg-success" : status === "failed" ? "bg-destructive" : "bg-muted-foreground";
   return <span className={cn("inline-block size-2 rounded-full shrink-0", color)} />;
 }
 
 function LaneBar({ fraction, done }: { fraction: number; done: boolean }) {
   return (
     <div className="h-[3px] w-24 rounded-full bg-muted overflow-hidden shrink-0">
-      <div className={cn("h-full rounded-full", done ? "bg-success" : "bg-primary")} style={{ width: `${Math.round(fraction * 100)}%` }} />
+      <div className={cn("h-full rounded-full", done ? "bg-success" : "bg-brand")} style={{ width: `${Math.round(fraction * 100)}%` }} />
     </div>
   );
 }
 
 function LaneRow({ lane, maxSteps, renderStepItem }: { lane: WorkflowLane; maxSteps: number; renderStepItem: (item: UIStepItem) => ReactNode }) {
   const [expanded, setExpanded] = useState(false);
-  const fraction = maxSteps > 0 ? lane.stepCount / maxSteps : 0;
   const done = lane.status === "done";
+  // A finished lane always reads full: the bar is relative to the busiest agent,
+  // so a lane that did fewer steps than the busiest one would otherwise show a
+  // gap after it completed.
+  const fraction = done ? 1 : maxSteps > 0 ? lane.stepCount / maxSteps : 0;
   const queued = lane.status === "spawned" && lane.stepCount === 0;
   const runningToolLabel = lane.status === "running" ? laneMostRecentToolLabel(lane) : null;
   const duration = lane.startedAt !== undefined && lane.endedAt !== undefined ? formatDuration(lane.endedAt - lane.startedAt) : null;
