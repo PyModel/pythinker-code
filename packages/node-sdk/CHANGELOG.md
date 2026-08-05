@@ -1,5 +1,15 @@
 # @pythoughts/pythinker-code-sdk
 
+## 0.11.0
+
+### Minor Changes
+
+- [#22](https://github.com/Pythoughts-labs/pythinker-code/pull/22) [`45be822`](https://github.com/Pythoughts-labs/pythinker-code/commit/45be8227077847f760fa7b6b09333cf5a8127f32) - Name the managed OAuth provider after the platform that serves it. It is reached over `auth.kimi.com` and `api.kimi.com`, but it was registered as `managed:pythinker-code`, which read as a first-party service in a client that talks to several providers. The provider id is now `managed:kimi-code`, its models are aliased `kimi-code/*`, and its credentials are stored under `oauth/kimi-code`.
+
+  This is a breaking change for an existing config: the previous entries are not rewritten, so run `pythinker login` once to provision the managed provider under its current name, then remove the stale `managed:pythinker-code` entry.
+
+- [#22](https://github.com/Pythoughts-labs/pythinker-code/pull/22) [`45be822`](https://github.com/Pythoughts-labs/pythinker-code/commit/45be8227077847f760fa7b6b09333cf5a8127f32) - Add an SDK routine that imports a catalog provider and its models into the persisted config, and use it for the CLI provider import so both entry points preserve existing defaults the same way.
+
 ## 0.10.0
 
 ### Minor Changes
