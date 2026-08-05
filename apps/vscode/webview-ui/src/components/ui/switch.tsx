@@ -33,9 +33,15 @@ function Switch({
       )}
       {...props}
     >
+      {/* Travel is the track's content box minus the thumb: 32 - 2(border) - 4(padding)
+          - 14(thumb) = 12px, and 24 - 2 - 4 - 10 = 8px for the small size. Larger
+          offsets push the thumb off its inset and leave the two ends uneven.
+          The checked thumb uses --success-foreground rather than white: on the dark
+          theme's lighter green, white sits near 2:1, under the 3:1 that WCAG 1.4.11
+          asks of a control that signals state by colour. */}
       <SwitchPrimitive.Thumb
         data-slot="switch-thumb"
-        className="bg-background dark:data-unchecked:bg-foreground data-checked:bg-white rounded-full group-data-[size=default]/switch:size-3.5 group-data-[size=sm]/switch:size-2.5 group-data-[size=default]/switch:data-checked:translate-x-[14px] group-data-[size=sm]/switch:data-checked:translate-x-[10px] group-data-[size=default]/switch:data-unchecked:translate-x-0 group-data-[size=sm]/switch:data-unchecked:translate-x-0 pointer-events-none block ring-0 transition-transform"
+        className="bg-background dark:data-unchecked:bg-foreground data-checked:bg-success-foreground rounded-full group-data-[size=default]/switch:size-3.5 group-data-[size=sm]/switch:size-2.5 group-data-[size=default]/switch:data-checked:translate-x-[12px] group-data-[size=sm]/switch:data-checked:translate-x-[8px] group-data-[size=default]/switch:data-unchecked:translate-x-0 group-data-[size=sm]/switch:data-unchecked:translate-x-0 pointer-events-none block ring-0 transition-transform"
       />
     </SwitchPrimitive.Root>
   );
