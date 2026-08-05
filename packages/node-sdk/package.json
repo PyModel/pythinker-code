@@ -1,6 +1,6 @@
 {
   "name": "@pythoughts/pythinker-code-sdk",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "private": true,
   "description": "TypeScript SDK for the Pythinker Code Agent",
   "license": "MIT",
