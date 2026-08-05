@@ -7,6 +7,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useChatStore } from "../webview-ui/src/stores/chat.store";
+import { useApprovalStore } from "../webview-ui/src/stores/approval.store";
 import { deriveWorkflowLanes, maxLaneStepCount } from "../webview-ui/src/lib/workflow-lanes";
 import type { UIStepItem } from "../webview-ui/src/stores/chat.store";
 
@@ -17,6 +18,9 @@ const boundary = vi.hoisted(() => ({
   trackFiles: vi.fn(),
   toastError: vi.fn(),
   toastWarning: vi.fn(),
+  toastSuccess: vi.fn(),
+  setPermissionMode: vi.fn(),
+  respondApproval: vi.fn(),
 }));
 
 vi.mock("@/services", () => ({
@@ -25,10 +29,16 @@ vi.mock("@/services", () => ({
     streamChat: boundary.streamChat,
     abortChat: boundary.abortChat,
     trackFiles: boundary.trackFiles,
+    setPermissionMode: boundary.setPermissionMode,
+    respondApproval: boundary.respondApproval,
   },
 }));
 vi.mock("@/components/ui/sonner", () => ({
-  toast: { error: boundary.toastError, warning: boundary.toastWarning },
+  toast: {
+    error: boundary.toastError,
+    warning: boundary.toastWarning,
+    success: boundary.toastSuccess,
+  },
 }));
 
 beforeEach(() => {
@@ -268,5 +278,63 @@ describe("workflow lane derivation", () => {
     expect(lanes.map((l) => l.agentId)).toEqual(["a", "b", "c"]);
     expect(lanes.map((l) => l.stepCount)).toEqual([2, 1, 0]);
     expect(maxLaneStepCount(lanes)).toBe(2);
+  });
+});
+
+describe("permission slash commands (control path, not a queued turn)", () => {
+  beforeEach(() => {
+    boundary.setPermissionMode.mockReset();
+    boundary.respondApproval.mockReset();
+    boundary.toastSuccess.mockReset();
+    boundary.respondApproval.mockResolvedValue({ ok: true });
+    useApprovalStore.setState({ pending: [] });
+  });
+
+  it("sends /yolo straight through while a turn is streaming instead of queueing it", async () => {
+    boundary.setPermissionMode.mockResolvedValue({
+      ok: true,
+      mode: "yolo",
+      message: "You only live once!",
+    });
+    useChatStore.setState({ isStreaming: true, queue: [] });
+
+    useChatStore.getState().sendMessage("/yolo");
+    await vi.waitFor(() => expect(boundary.setPermissionMode).toHaveBeenCalled());
+
+    expect(boundary.setPermissionMode).toHaveBeenCalledWith("yolo", "toggle");
+    expect(useChatStore.getState().queue).toHaveLength(0);
+    expect(boundary.streamChat).not.toHaveBeenCalled();
+  });
+
+  it("answers the approvals already on screen when a turn is unblocked by /yolo", async () => {
+    boundary.setPermissionMode.mockResolvedValue({ ok: true, mode: "yolo", message: "on" });
+    useApprovalStore.setState({
+      pending: [
+        {
+          id: "approval-1",
+          tool_call_id: "call-1",
+          sender: "Bash",
+          action: "run",
+          description: "grep",
+          display: [],
+        },
+      ],
+    });
+    useChatStore.setState({ isStreaming: true, queue: [] });
+
+    useChatStore.getState().sendMessage("/yolo on");
+    await vi.waitFor(() => expect(boundary.respondApproval).toHaveBeenCalled());
+
+    expect(boundary.respondApproval).toHaveBeenCalledWith("approval-1", "approve_for_session");
+    expect(useApprovalStore.getState().pending).toHaveLength(0);
+  });
+
+  it("still queues an ordinary message while streaming", () => {
+    useChatStore.setState({ isStreaming: true, queue: [] });
+
+    useChatStore.getState().sendMessage("/compact");
+
+    expect(boundary.setPermissionMode).not.toHaveBeenCalled();
+    expect(useChatStore.getState().queue).toHaveLength(1);
   });
 });

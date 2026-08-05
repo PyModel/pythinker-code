@@ -131,13 +131,19 @@ export class SessionRuntime {
     return next;
   }
 
+  /**
+   * Always reconciles against the engine rather than trusting the cached mode:
+   * a cache that drifted would otherwise report the mode as already set and
+   * never call through.
+   */
   async setPermissionMode(mode: PermissionMode): Promise<void> {
-    if (this.currentPermissionMode === mode) return;
     this.ensureOpen();
     const status = await this.session.getStatus();
     if (status.permission !== mode) await this.session.setPermission(mode);
-    await persistPermissionMode(this.session, mode);
-    this.currentPermissionMode = mode;
+    if (this.currentPermissionMode !== mode) {
+      await persistPermissionMode(this.session, mode);
+      this.currentPermissionMode = mode;
+    }
   }
 
   subscribe(webviewId: string): void {
