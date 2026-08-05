@@ -169,6 +169,11 @@ export class ConfigState {
       : createProvider(providerConfig).supportsFastMode === true;
   }
 
+  /** Whether this agent's provider can resolve `modelAlias` at all. */
+  canResolveModel(modelAlias: string | undefined): boolean {
+    return this.tryResolveProviderFor(modelAlias) !== undefined;
+  }
+
   get profileName(): string | undefined {
     return this._profileName;
   }
@@ -195,8 +200,13 @@ export class ConfigState {
   }
 
   private tryResolvedProviderConfig(): ResolvedRuntimeProvider | undefined {
+    return this.tryResolveProviderFor(this._modelAlias);
+  }
+
+  private tryResolveProviderFor(modelAlias: string | undefined): ResolvedRuntimeProvider | undefined {
+    if (modelAlias === undefined) return undefined;
     try {
-      return this.resolvedProviderConfig;
+      return this.agent.modelProvider?.resolveProviderConfig(modelAlias);
     } catch {
       return undefined;
     }
