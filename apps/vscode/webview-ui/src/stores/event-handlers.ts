@@ -2,8 +2,8 @@ import { bridge } from "@/services";
 import { useApprovalStore } from "./approval.store";
 import { useSettingsStore } from "./settings.store";
 import { isPreflightError, isUserInterrupt } from "shared/errors";
-import type { ChatMessage, UIStep, UIStepItem, ChatState, TokenUsage } from "./chat.store";
-import type { ContentPart, ToolCall, ToolResult, TurnBegin, SubagentEvent, ApprovalRequestPayload, DiffBlock, RunResult, QuestionRequest } from "shared/legacy-sdk";
+import type { ChatMessage, UIStep, UIStepItem, UISubagentStatus, ChatState, TokenUsage } from "./chat.store";
+import type { ContentPart, ToolCall, ToolResult, TurnBegin, SubagentEvent, SubagentStatusPayload, ApprovalRequestPayload, DiffBlock, RunResult, QuestionRequest } from "shared/legacy-sdk";
 import type { UIStreamEvent, StreamError } from "shared/types";
 
 type EventHandler = (draft: ChatState, payload: any) => void;
@@ -63,11 +63,17 @@ function findToolUseItem(steps: UIStep[], toolId: string): (UIStepItem & { type:
   return null;
 }
 
-function resolveSubagentTarget(
-  steps: UIStep[],
-  payload: SubagentEvent,
-): { steps: UIStep[]; event: { type: string; payload: any }; toolItem: UIStepItem & { type: "tool_use" } } | null {
-  const { parent_tool_call_id, event } = payload;
+interface SubagentTarget {
+  steps: UIStep[];
+  event: { type: string; payload: any };
+  toolItem: UIStepItem & { type: "tool_use" };
+  agentId: string;
+  agentLabel?: string;
+  agentIndex?: number;
+}
+
+function resolveSubagentTarget(steps: UIStep[], payload: SubagentEvent): SubagentTarget | null {
+  const { parent_tool_call_id, event, agent_id, agent_label, agent_index } = payload;
 
   // Nested SubagentEvent
   if (event.type === "SubagentEvent") {
@@ -83,7 +89,40 @@ function resolveSubagentTarget(
     toolItem.subagent_steps = [];
   }
 
-  return { steps: toolItem.subagent_steps, event, toolItem };
+  return {
+    steps: toolItem.subagent_steps,
+    event,
+    toolItem,
+    agentId: agent_id,
+    agentLabel: agent_label,
+    agentIndex: agent_index,
+  };
+}
+
+function applySubagentStatus(
+  toolItem: UIStepItem & { type: "tool_use" },
+  payload: SubagentStatusPayload,
+): void {
+  if (!toolItem.subagent_status) {
+    toolItem.subagent_status = {};
+  }
+  const existing = toolItem.subagent_status[payload.agent_id];
+
+  const status: UISubagentStatus = {
+    status: payload.status,
+    label: payload.agent_label ?? existing?.label,
+    index: payload.agent_index ?? existing?.index,
+    // First transition to "running" stamps the start; the engine sends no timestamps
+    // of its own, so wall-clock lane duration is only as precise as Date.now() here.
+    startedAt: payload.status === "running" ? (existing?.startedAt ?? Date.now()) : existing?.startedAt,
+    endedAt:
+      payload.status === "done" || payload.status === "failed" || payload.status === "suspended"
+        ? (existing?.endedAt ?? Date.now())
+        : existing?.endedAt,
+    error: payload.error ?? existing?.error,
+    resultSummary: payload.result_summary ?? existing?.resultSummary,
+  };
+  toolItem.subagent_status[payload.agent_id] = status;
 }
 
 function finishAllTextItems(steps: UIStep[]): void {
@@ -99,8 +138,29 @@ function finishAllTextItems(steps: UIStep[]): void {
   }
 }
 
-function applyEventToSteps(steps: UIStep[], event: { type: string; payload: any }, onText?: (text: string) => void): void {
-  const currentStep = steps.at(-1);
+interface StepAgent {
+  id: string;
+  label?: string;
+  index?: number;
+}
+
+function findLastStepForAgent(steps: UIStep[], agentId: string): UIStep | undefined {
+  for (let i = steps.length - 1; i >= 0; i--) {
+    const step = steps[i];
+    if (step?.agentId === agentId) return step;
+  }
+  return undefined;
+}
+
+function applyEventToSteps(
+  steps: UIStep[],
+  event: { type: string; payload: any },
+  onText?: (text: string) => void,
+  agent?: StepAgent,
+): void {
+  // When an agent is known, target its own latest step rather than the array's
+  // tail — two agents can otherwise land text/tool calls in each other's step.
+  const currentStep = agent ? findLastStepForAgent(steps, agent.id) : steps.at(-1);
 
   const appendOrCreate = (type: "text" | "thinking", content: string): void => {
     if (!currentStep) {
@@ -117,6 +177,9 @@ function applyEventToSteps(steps: UIStep[], event: { type: string; payload: any 
 
   const findLastToolUse = (): (UIStepItem & { type: "tool_use" }) | null => {
     for (let i = steps.length - 1; i >= 0; i--) {
+      if (agent && steps[i].agentId !== agent.id) {
+        continue;
+      }
       const items = steps[i].items;
 
       for (let j = items.length - 1; j >= 0; j--) {
@@ -129,48 +192,42 @@ function applyEventToSteps(steps: UIStep[], event: { type: string; payload: any 
     return null;
   };
 
-  const updateToolResult = (toolCallId: string, returnValue: ToolResult["return_value"]): boolean => {
-    for (const step of steps) {
-      for (const item of step.items) {
-        if (item.type === "tool_use") {
-          if (item.id === toolCallId) {
-            item.result = returnValue;
-            return true;
-          }
-
-          if (item.subagent_steps && applyToolResult(item.subagent_steps, toolCallId, returnValue)) {
-            return true;
-          }
-        }
-      }
-    }
-
-    return false;
-  };
-
-  const applyToolResult = (subSteps: UIStep[], toolCallId: string, returnValue: ToolResult["return_value"]): boolean => {
+  // Sets the result and returns the tool item, so the ToolResult handler below
+  // can reuse it (e.g. for the batch-abort freeze) without a second tree walk.
+  const setToolResult = (
+    subSteps: UIStep[],
+    toolCallId: string,
+    returnValue: ToolResult["return_value"],
+  ): (UIStepItem & { type: "tool_use" }) | null => {
     for (const step of subSteps) {
       for (const item of step.items) {
         if (item.type === "tool_use") {
           if (item.id === toolCallId) {
             item.result = returnValue;
-            return true;
+            return item;
           }
 
-          if (item.subagent_steps && applyToolResult(item.subagent_steps, toolCallId, returnValue)) {
-            return true;
+          if (item.subagent_steps) {
+            const found = setToolResult(item.subagent_steps, toolCallId, returnValue);
+            if (found) return found;
           }
         }
       }
     }
 
-    return false;
+    return null;
   };
 
   switch (event.type) {
     case "StepBegin":
       finishAllTextItems(steps);
-      steps.push({ n: event.payload.n, items: [] });
+      steps.push({
+        n: event.payload.n,
+        items: [],
+        agentId: agent?.id,
+        agentLabel: agent?.label,
+        agentIndex: agent?.index,
+      });
       break;
 
     case "ContentPart": {
@@ -224,7 +281,18 @@ function applyEventToSteps(steps: UIStep[], event: { type: string; payload: any 
 
     case "ToolResult": {
       const result = event.payload as ToolResult;
-      updateToolResult(result.tool_call_id, result.return_value);
+      const toolItem = setToolResult(steps, result.tool_call_id, result.return_value);
+
+      // Batch aborted: lanes still spawned/running when the parent result lands
+      // have no further lifecycle events coming, so freeze them as failed.
+      if (result.return_value.is_error && toolItem?.subagent_status) {
+        for (const status of Object.values(toolItem.subagent_status)) {
+          if (status.status === "spawned" || status.status === "running") {
+            status.status = "failed";
+            status.endedAt = status.endedAt ?? Date.now();
+          }
+        }
+      }
 
       const paths = extractDiffPaths(result.return_value.display);
       if (paths.length > 0) {
@@ -486,8 +554,22 @@ const eventHandlers: Record<string, EventHandler> = {
       return;
     }
 
-    if (target.steps.length === 0) {
-      target.steps.push({ n: 1, items: [] });
+    if (target.event.type === "SubagentStatus") {
+      applySubagentStatus(target.toolItem, target.event.payload as SubagentStatusPayload);
+      return;
+    }
+
+    // Seeds a step only for an agent whose first event arrives before its own
+    // StepBegin. Seeding on StepBegin too would leave every lane with a leading
+    // empty step and inflate its step count by one.
+    if (target.event.type !== "StepBegin" && !target.steps.some((s) => s.agentId === target.agentId)) {
+      target.steps.push({
+        n: 1,
+        items: [],
+        agentId: target.agentId,
+        agentLabel: target.agentLabel,
+        agentIndex: target.agentIndex,
+      });
     }
 
     // Nested Subagent Task End: accumulate token usage
@@ -499,7 +581,26 @@ const eventHandlers: Record<string, EventHandler> = {
       }
     }
 
-    applyEventToSteps(target.steps, target.event);
+    applyEventToSteps(
+      target.steps,
+      target.event,
+      undefined,
+      { id: target.agentId, label: target.agentLabel, index: target.agentIndex },
+    );
+  },
+
+  SubagentStatus: (draft, payload: SubagentStatusPayload) => {
+    const last = getLastAssistant(draft);
+    if (!last?.steps) {
+      return;
+    }
+
+    const toolItem = findToolUseItem(last.steps, payload.parent_tool_call_id);
+    if (!toolItem) {
+      return;
+    }
+
+    applySubagentStatus(toolItem, payload);
   },
 
   ApprovalRequest: (_, payload: ApprovalRequestPayload) => {

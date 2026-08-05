@@ -25,7 +25,7 @@ const visible = ref(true);
           aria-label="View pythinker-code download statistics on Pepy"
         >
           <img
-            src="https://static.pepy.tech/personalized-badge/pythinker-code?period=total&amp;units=INTERNATIONAL_SYSTEM&amp;left_color=BLACK&amp;right_color=GREEN&amp;left_text=downloads"
+            src="https://static.pepy.tech/personalized-badge/pythinker-code?period=total&amp;units=INTERNATIONAL_SYSTEM&amp;left_color=BLACK&amp;right_color=BLUE&amp;left_text=downloads"
             alt="PyPI download count for pythinker-code"
             height="20"
           />

@@ -33,8 +33,8 @@ export function ThinkingButton({ mode, effort, efforts = [], alwaysOn = false, d
       disabled={disabled || mode === "always"}
       className={cn(
         "flex items-center gap-0.5 justify-center h-6 min-w-6 px-1 rounded-md transition-all",
-        active ? "bg-primary/15 text-primary" : "bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground",
-        !disabled && mode !== "always" && "cursor-pointer hover:bg-primary/25",
+        active ? "bg-blue-500/15 text-blue-500" : "bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground",
+        !disabled && mode !== "always" && "cursor-pointer hover:bg-blue-500/25",
         (disabled || mode === "always") && "cursor-default",
       )}
     >

@@ -1,3 +1,4 @@
+import { KIMI_CODE_PROVIDER_NAME } from '@pythoughts/pythinker-code-oauth';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
@@ -34,6 +35,7 @@ import {
 import { FLAG_DEFINITIONS, FlagResolver, type ExperimentalFeatureState } from '../flags';
 import type { Logger } from '../logging/types';
 import { resolveSessionMcpConfig, mergeCallerMcpServers, type SessionMcpConfig } from '../mcp';
+import { listWorkspaceSkills } from '../skill/workspace';
 import {
   DEFAULT_AGENT_PROFILES,
   loadAgentProfilesFromDirectories,
@@ -91,6 +93,7 @@ import type {
   InstallPluginPayload,
   ListSessionsPayload,
   ListAgentProfilesPayload,
+  ListWorkspaceSkillsPayload,
   ListOutputStylesPayload,
   McpServerInfo,
   SkillActivationResult,
@@ -132,7 +135,6 @@ import type { ResumedAgentState, ResumeSessionResult } from './resumed';
 import type { SDKRPC } from './sdk-api';
 import { proxyWithExtraPayload } from './types';
 
-const PYTHINKER_CODE_PROVIDER_NAME = 'managed:pythinker-code';
 const PYTHINKER_CODE_BASE_URL_ENV = 'PYTHINKER_CODE_BASE_URL';
 const PYTHINKER_CODE_OAUTH_HOST_ENV = 'PYTHINKER_CODE_OAUTH_HOST';
 const PYTHINKER_OAUTH_HOST_ENV = 'PYTHINKER_OAUTH_HOST';
@@ -613,6 +615,21 @@ export class PythinkerCore implements PromisableMethods<CoreAPI> {
     await this.pluginsReady;
     this.assertPluginsLoaded();
     return this.loadAgentProfileCatalog(requiredWorkDir('listAgentProfiles', workDir));
+  }
+
+  // Resolves the same roots a session would, so a caller that has no session yet
+  // (a freshly opened editor panel) still sees the workspace's real skill list.
+  async listWorkspaceSkills({
+    workDir,
+  }: ListWorkspaceSkillsPayload): Promise<readonly SkillSummary[]> {
+    await this.pluginsReady;
+    this.assertPluginsLoaded();
+    return listWorkspaceSkills({
+      workDir: requiredWorkDir('listWorkspaceSkills', workDir),
+      // The lenient runtime read, matching session creation: a warning in an
+      // unrelated config section must not make listing skills throw.
+      ...this.resolveSessionSkillConfig(this.reloadRuntimeConfig()),
+    });
   }
 
   async setPythinkerConfig(input: SetPythinkerConfigPayload): Promise<PythinkerConfig> {
@@ -1114,7 +1131,7 @@ export class PythinkerCore implements PromisableMethods<CoreAPI> {
   }
 
   private mergePluginMcpConfig(base: SessionMcpConfig | undefined): SessionMcpConfig | undefined {
-    const pluginServers = this.withManagedPythinkerPluginEnv(this.plugins.enabledMcpServers());
+    const pluginServers = this.withManagedKimiPluginEnv(this.plugins.enabledMcpServers());
     if (Object.keys(pluginServers).length === 0) return base;
     return {
       servers: {
@@ -1124,7 +1141,7 @@ export class PythinkerCore implements PromisableMethods<CoreAPI> {
     };
   }
 
-  private withManagedPythinkerPluginEnv(
+  private withManagedKimiPluginEnv(
     pluginServers: Record<string, McpServerConfig>,
   ): Record<string, McpServerConfig> {
     const managedEnv = this.managedPythinkerCodeEnvForPlugins();
@@ -1141,7 +1158,7 @@ export class PythinkerCore implements PromisableMethods<CoreAPI> {
   }
 
   private managedPythinkerCodeEnvForPlugins(): Record<string, string> {
-    const provider = this.config.providers[PYTHINKER_CODE_PROVIDER_NAME];
+    const provider = this.config.providers[KIMI_CODE_PROVIDER_NAME];
     const envBaseUrl = process.env[PYTHINKER_CODE_BASE_URL_ENV];
     const envOAuthHost =
       process.env[PYTHINKER_CODE_OAUTH_HOST_ENV] ?? process.env[PYTHINKER_OAUTH_HOST_ENV];
@@ -1345,7 +1362,7 @@ function serviceCredentials(
     apiKey,
     tokenProvider:
       service.oauth !== undefined
-        ? resolveOAuthTokenProvider?.(PYTHINKER_CODE_PROVIDER_NAME, service.oauth)
+        ? resolveOAuthTokenProvider?.(KIMI_CODE_PROVIDER_NAME, service.oauth)
         : undefined,
     customHeaders: service.customHeaders,
   };

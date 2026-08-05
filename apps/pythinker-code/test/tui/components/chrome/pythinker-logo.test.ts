@@ -3,11 +3,13 @@ import chalk from 'chalk';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
+  ANTENNA_SPINNER_FRAMES,
   buildLogoHeaderRows,
   LOGO_EYES_OPEN,
   PYTHINKER_LOGO_LINES,
   PYTHINKER_LOGO_WIDTH,
   renderPythinkerLogo,
+  renderPythinkerLogoAntennaRow,
   renderPythinkerLogoEyeRow,
   renderPythinkerLogoLine,
   renderPythinkerLogoWithEyes,
@@ -66,6 +68,17 @@ describe('pythinker logo', () => {
     const glance = renderPythinkerLogoEyeRow({ left: 'glance', right: 'open' });
     expect(glance).toContain('◉');
     expect(visibleWidth(glance)).toBe(visibleWidth(PYTHINKER_LOGO_LINES[3]));
+  });
+
+  it('renders antenna spinner frames at stable width', () => {
+    for (let frame = 0; frame < ANTENNA_SPINNER_FRAMES.length; frame++) {
+      const row = renderPythinkerLogoAntennaRow(frame);
+      expect(row).toContain(ANTENNA_SPINNER_FRAMES[frame]);
+      expect(visibleWidth(row)).toBe(visibleWidth(PYTHINKER_LOGO_LINES[0]));
+    }
+    const lines = renderPythinkerLogoWithEyes(LOGO_EYES_OPEN, 2);
+    expect(lines).toHaveLength(5);
+    expect(lines[0]).toContain(ANTENNA_SPINNER_FRAMES[2]);
   });
 
   it('keeps logo width stable across eye blink states', () => {

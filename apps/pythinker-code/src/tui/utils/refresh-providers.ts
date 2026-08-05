@@ -1,22 +1,22 @@
 import {
-  PYTHINKER_CODE_PLATFORM_ID,
-  PYTHINKER_CODE_PROVIDER_NAME,
+  KIMI_CODE_PLATFORM_ID,
+  KIMI_CODE_PROVIDER_NAME,
   OPENAI_CODEX_PROVIDER_ID,
-  applyManagedPythinkerCodeConfig,
+  applyManagedKimiCodeConfig,
   applyOpenAICodexOAuthConfig,
   applyOpenPlatformConfig,
   applyCustomRegistryProvider,
   fetchCustomRegistry,
-  fetchManagedPythinkerCodeModels,
+  fetchManagedKimiCodeModels,
   fetchOpenAICodexModels,
   fetchOpenPlatformModels,
   filterModelsByPrefix,
   getOpenPlatformById,
   isOpenPlatformId,
   removeCustomRegistryProvider,
-  resolvePythinkerCodeRuntimeAuth,
+  resolveKimiCodeRuntimeAuth,
   type CustomRegistrySource,
-  type ManagedPythinkerConfigShape,
+  type ManagedKimiConfigShape,
 } from '@pythoughts/pythinker-code-oauth';
 import {
   applyCatalogProvider,
@@ -116,8 +116,8 @@ async function fetchCustomRegistryFromSources(
   throw new Error('No custom registry sources configured.');
 }
 
-function asManaged(config: PythinkerConfig): ManagedPythinkerConfigShape {
-  return config as unknown as ManagedPythinkerConfigShape;
+function asManaged(config: PythinkerConfig): ManagedKimiConfigShape {
+  return config as unknown as ManagedKimiConfigShape;
 }
 
 function collectModelIdsForAliases(config: PythinkerConfig, aliasKeys: ReadonlySet<string>): Set<string> {
@@ -341,25 +341,25 @@ export async function refreshAllProviderModels(
   // -------------------------------------------------------------------------
   // 1. Managed Pythinker Code (OAuth)
   // -------------------------------------------------------------------------
-  const managedProvider = config.providers[PYTHINKER_CODE_PROVIDER_NAME];
+  const managedProvider = config.providers[KIMI_CODE_PROVIDER_NAME];
   if (
     managedProvider !== undefined &&
     managedProvider.type === 'pythinker' &&
     managedProvider.oauth !== undefined
   ) {
     try {
-      const auth = resolvePythinkerCodeRuntimeAuth({
+      const auth = resolveKimiCodeRuntimeAuth({
         configuredBaseUrl: managedProvider.baseUrl,
         configuredOAuthRef: managedProvider.oauth,
       });
-      const accessToken = await host.resolveOAuthToken(PYTHINKER_CODE_PROVIDER_NAME, auth.oauthRef);
-      const models = await fetchManagedPythinkerCodeModels({
+      const accessToken = await host.resolveOAuthToken(KIMI_CODE_PROVIDER_NAME, auth.oauthRef);
+      const models = await fetchManagedKimiCodeModels({
         accessToken,
         baseUrl: auth.baseUrl,
       });
       if (models.length > 0) {
         const next = structuredClone(config);
-        applyManagedPythinkerCodeConfig(asManaged(next), {
+        applyManagedKimiCodeConfig(asManaged(next), {
           models,
           baseUrl: auth.baseUrl,
           oauthKey: auth.oauthRef.key,
@@ -369,25 +369,25 @@ export async function refreshAllProviderModels(
         const refreshedAliasKeys = providerRefreshAliasKeys(
           config,
           next,
-          PYTHINKER_CODE_PROVIDER_NAME,
-          `${PYTHINKER_CODE_PLATFORM_ID}/`,
+          KIMI_CODE_PROVIDER_NAME,
+          `${KIMI_CODE_PLATFORM_ID}/`,
         );
         restoreProviderAliases(
           next,
-          preserveUserProviderAliases(config, PYTHINKER_CODE_PROVIDER_NAME, refreshedAliasKeys),
+          preserveUserProviderAliases(config, KIMI_CODE_PROVIDER_NAME, refreshedAliasKeys),
         );
         restoreDefaultSelection(next, config.defaultModel, config.defaultThinking);
         clampDanglingDefault(next);
         clearDefaultThinkingWhenDefaultRemoved(next, config.defaultModel);
 
-        if (providerModelsEqual(config, next, PYTHINKER_CODE_PROVIDER_NAME, refreshedAliasKeys)) {
-          unchanged.push(PYTHINKER_CODE_PROVIDER_NAME);
+        if (providerModelsEqual(config, next, KIMI_CODE_PROVIDER_NAME, refreshedAliasKeys)) {
+          unchanged.push(KIMI_CODE_PROVIDER_NAME);
         } else {
           const { added, removed } = computeChanges(
             collectModelIdsForAliases(config, refreshedAliasKeys),
             collectModelIdsForAliases(next, refreshedAliasKeys),
           );
-          await host.removeProvider(PYTHINKER_CODE_PROVIDER_NAME);
+          await host.removeProvider(KIMI_CODE_PROVIDER_NAME);
           config = await host.setConfig({
             providers: next.providers,
             models: next.models,
@@ -395,7 +395,7 @@ export async function refreshAllProviderModels(
             defaultThinking: next.defaultThinking,
           });
           changed.push({
-            providerId: PYTHINKER_CODE_PROVIDER_NAME,
+            providerId: KIMI_CODE_PROVIDER_NAME,
             providerName: PRODUCT_NAME,
             added,
             removed,
@@ -404,7 +404,7 @@ export async function refreshAllProviderModels(
       }
     } catch (error) {
       failed.push({
-        provider: PYTHINKER_CODE_PROVIDER_NAME,
+        provider: KIMI_CODE_PROVIDER_NAME,
         reason: error instanceof Error ? error.message : String(error),
       });
     }
@@ -688,7 +688,7 @@ export async function refreshAllProviderModels(
     }
   >();
   for (const [providerId, providerConfig] of Object.entries(config.providers)) {
-    if (providerId === PYTHINKER_CODE_PROVIDER_NAME) continue;
+    if (providerId === KIMI_CODE_PROVIDER_NAME) continue;
     if (providerId === OPENAI_CODEX_PROVIDER_ID) continue;
     if (isOpenPlatformId(providerId)) continue;
     const source = readCustomRegistrySource(providerConfig);

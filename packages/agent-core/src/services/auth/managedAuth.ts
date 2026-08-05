@@ -2,20 +2,20 @@ import { readConfigFile, writeConfigFile } from '../../config';
 import type { PythinkerConfig, OAuthRef } from '../../config';
 import type { OAuthTokenProviderResolver } from '../../session/provider-manager';
 import {
-  applyManagedPythinkerCodeConfig,
-  applyManagedPythinkerCodeLogoutConfig,
-  PYTHINKER_CODE_PROVIDER_NAME,
+  applyManagedKimiCodeConfig,
+  applyManagedKimiCodeLogoutConfig,
+  KIMI_CODE_PROVIDER_NAME,
   PythinkerOAuthToolkit,
-  resolvePythinkerCodeLoginAuth,
-  resolvePythinkerCodeRuntimeAuth,
+  resolveKimiCodeLoginAuth,
+  resolveKimiCodeRuntimeAuth,
   type BearerTokenProvider,
   type PythinkerOAuthLoginOptions,
-  type ManagedPythinkerConfigShape,
+  type ManagedKimiConfigShape,
 } from '@pythoughts/pythinker-code-oauth';
 
 import type { IEnvironmentService } from '../environment/environment';
 
-type ServicesManagedConfig = PythinkerConfig & ManagedPythinkerConfigShape;
+type ServicesManagedConfig = PythinkerConfig & ManagedKimiConfigShape;
 
 type ServicesAuthLoginOptions = Omit<PythinkerOAuthLoginOptions, 'provisionConfig'>;
 
@@ -59,18 +59,18 @@ class ServicesManagedAuthFacade implements ServicesAuthFacade {
         write: async (config) => {
           await writeConfigFile(options.configPath, config);
         },
-        apply: applyManagedPythinkerCodeConfig,
-        remove: applyManagedPythinkerCodeLogoutConfig,
+        apply: applyManagedKimiCodeConfig,
+        remove: applyManagedKimiCodeLogoutConfig,
       },
     });
   }
 
   async login(
-    providerName: string | undefined = PYTHINKER_CODE_PROVIDER_NAME,
+    providerName: string | undefined = KIMI_CODE_PROVIDER_NAME,
     options: ServicesAuthLoginOptions = {},
   ): Promise<ServicesAuthLoginResult> {
     const auth = this.resolveManagedAuth(providerName);
-    const loginAuth = resolvePythinkerCodeLoginAuth({
+    const loginAuth = resolveKimiCodeLoginAuth({
       configuredBaseUrl: auth.baseUrl,
       configuredOAuthRef: auth.oauthRef,
       requestedBaseUrl: options.baseUrl,
@@ -132,7 +132,7 @@ class ServicesManagedAuthFacade implements ServicesAuthFacade {
     readonly oauthRef?: OAuthRef | undefined;
     readonly baseUrl?: string | undefined;
   } {
-    const name = providerName ?? PYTHINKER_CODE_PROVIDER_NAME;
+    const name = providerName ?? KIMI_CODE_PROVIDER_NAME;
     const config = readConfigFile(this.options.configPath);
     const provider = config.providers[name];
     return {
@@ -146,7 +146,7 @@ class ServicesManagedAuthFacade implements ServicesAuthFacade {
     readonly baseUrl?: string | undefined;
   } {
     const auth = this.resolveManagedAuth(providerName);
-    return resolvePythinkerCodeRuntimeAuth({
+    return resolveKimiCodeRuntimeAuth({
       configuredBaseUrl: auth.baseUrl,
       configuredOAuthRef: auth.oauthRef,
     });
@@ -156,11 +156,11 @@ class ServicesManagedAuthFacade implements ServicesAuthFacade {
     providerName: string | undefined,
     oauthRef?: OAuthRef | undefined,
   ): OAuthRef | undefined {
-    if ((providerName ?? PYTHINKER_CODE_PROVIDER_NAME) !== PYTHINKER_CODE_PROVIDER_NAME) {
+    if ((providerName ?? KIMI_CODE_PROVIDER_NAME) !== KIMI_CODE_PROVIDER_NAME) {
       return oauthRef;
     }
     const auth = this.resolveManagedAuth(providerName);
-    return resolvePythinkerCodeRuntimeAuth({
+    return resolveKimiCodeRuntimeAuth({
       configuredBaseUrl: auth.baseUrl,
       configuredOAuthRef: oauthRef ?? auth.oauthRef,
     }).oauthRef;

@@ -19,6 +19,10 @@ overrides:
 importers:
 
   .:
+    dependencies:
+      '@earendil-works/pi-tui':
+        specifier: ^0.83.0
+        version: 0.83.0
     devDependencies:
       '@arethetypeswrong/cli':
         specifier: 0.18.3
@@ -165,8 +169,8 @@ importers:
         version: 0.25.10
     devDependencies:
       '@earendil-works/pi-tui':
-        specifier: ^0.81.1
-        version: 0.81.1
+        specifier: ^0.83.0
+        version: 0.83.0
       '@pythoughts/acp-adapter':
         specifier: workspace:^
         version: link:../../packages/acp-adapter
@@ -1320,8 +1324,8 @@ packages:
   '@dotenvx/primitives@0.8.0':
     resolution: {integrity: sha512-VYJy0uhFm9zTJ1TxBaW/pA8bjbOM/OttaNMwZ1RHG4JKyRG7DhSdiqD1ipQoAyoD22olUtxbP78W9xY3Wd11bg==}
 
-  '@earendil-works/pi-tui@0.81.1':
-    resolution: {integrity: sha512-OMEe+Zt8oQYi/rCq3upxsTlIScWL0FPhXwQus34TbQb3EmTx88S7Uzx32JxvQiEeWOw8eDCdJf2PBUBE9r6wIg==}
+  '@earendil-works/pi-tui@0.83.0':
+    resolution: {integrity: sha512-IoYrb0rORjELmEpNtoCA/U8je3KopMkRAVJRdSzvXRvgb+Huo1gNh8Q5CSZvNOiYtDxJdj2tYZZHZ4B3+IN3hA==}
     engines: {node: '>=22.19.0'}
 
   '@emnapi/core@1.10.0':
@@ -10446,7 +10450,7 @@ snapshots:
 
   '@dotenvx/primitives@0.8.0': {}
 
-  '@earendil-works/pi-tui@0.81.1':
+  '@earendil-works/pi-tui@0.83.0':
     dependencies:
       get-east-asian-width: 1.6.0
       marked: 18.0.5

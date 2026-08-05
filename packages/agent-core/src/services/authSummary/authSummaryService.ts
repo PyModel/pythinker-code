@@ -2,6 +2,7 @@
  * `AuthSummaryService` — implementation of `IAuthSummaryService`.
  */
 
+import { KIMI_CODE_PROVIDER_NAME } from '@pythoughts/pythinker-code-oauth';
 import { Disposable, InstantiationType, registerSingleton } from '../../di';
 import { resolveProviderApiKey, type PythinkerConfig } from '../../config';
 import type { AuthSummary } from '@pythoughts/protocol';
@@ -15,8 +16,6 @@ import {
   AuthModelNotResolvedError,
 } from './authSummary';
 
-/** Wire name of the OAuth-managed provider (`@pythoughts/pythinker-code-oauth`'s `PYTHINKER_CODE_PROVIDER_NAME`). */
-const MANAGED_PROVIDER_NAME = 'managed:pythinker-code';
 
 export class AuthSummaryService
   extends Disposable
@@ -40,10 +39,10 @@ export class AuthSummaryService
     const default_model = nonEmpty(config.defaultModel);
 
     let managed_provider: AuthSummary['managed_provider'] = null;
-    if (providers[MANAGED_PROVIDER_NAME] !== undefined) {
-      const hasToken = await this._hasCachedToken(MANAGED_PROVIDER_NAME);
+    if (providers[KIMI_CODE_PROVIDER_NAME] !== undefined) {
+      const hasToken = await this._hasCachedToken(KIMI_CODE_PROVIDER_NAME);
       managed_provider = {
-        name: MANAGED_PROVIDER_NAME,
+        name: KIMI_CODE_PROVIDER_NAME,
         status: hasToken ? 'authenticated' : 'unauthenticated',
       };
     }

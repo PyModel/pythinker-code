@@ -2,11 +2,13 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 
 import {
+  Events,
   validateRpcMessage,
   type RpcMethod,
   type RpcResult,
 } from "../shared/bridge";
 import { VSCodeSettings } from "./config/vscode-settings";
+import { getSlashCommands } from "./handlers/config.handler";
 import { handlers, type BroadcastFn, type HandlerContext, type ReloadWebviewFn, type ShowLogsFn } from "./handlers";
 import { BaselineManager, type BaselineSession } from "./managers/baseline.manager";
 import { FileManager } from "./managers/file.manager";
@@ -161,6 +163,7 @@ export class BridgeHandler {
           ...(sessionId === undefined ? {} : { sessionId }),
         });
         this.fileManager.setSession(webviewId, baselineSession(runtime));
+        void this.broadcastSlashCommands(webviewId);
         return runtime;
       },
       resumeSession: async (sessionId) => {
@@ -182,6 +185,7 @@ export class BridgeHandler {
           VSCodeSettings.yoloMode,
         );
         this.fileManager.setSession(webviewId, baselineSession(runtime));
+        void this.broadcastSlashCommands(webviewId);
         return runtime;
       },
       closeSession: async () => {
@@ -191,6 +195,20 @@ export class BridgeHandler {
       saveAllDirty: () => this.saveAllDirty(),
       setCustomWorkDir: (workDir) => this.setCustomWorkDir(webviewId, workDir),
     };
+  }
+
+  /**
+   * The skill catalog only exists once a session does, so the command list the
+   * Webview loaded at startup is missing every skill. Re-push it on session
+   * create/resume rather than making the Webview poll.
+   */
+  private async broadcastSlashCommands(webviewId: string): Promise<void> {
+    try {
+      const commands = await getSlashCommands(undefined, this.createContext(webviewId));
+      this.broadcast(Events.SlashCommandsChanged, commands, webviewId);
+    } catch (error) {
+      this.logRuntimeError("Unable to refresh the slash commands", error);
+    }
   }
 
   private async saveAllDirty(): Promise<void> {

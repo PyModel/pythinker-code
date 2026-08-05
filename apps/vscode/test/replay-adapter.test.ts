@@ -555,6 +555,7 @@ describe("replay adapter (renders the public SDK resume state for the Webview)",
       type: "SubagentEvent",
       payload: {
         parent_tool_call_id: "agent-call-1",
+        agent_id: "sub-1",
         event: { type: "ContentPart", payload: { type: "text", text: "first child answer" } },
       },
     }));
@@ -562,6 +563,7 @@ describe("replay adapter (renders the public SDK resume state for the Webview)",
       type: "SubagentEvent",
       payload: {
         parent_tool_call_id: "agent-call-2",
+        agent_id: "sub-1",
         event: { type: "ContentPart", payload: { type: "text", text: "second child answer" } },
       },
     }));

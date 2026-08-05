@@ -58,7 +58,7 @@ export function modelDisplayName(alias: string, model: ModelAlias | undefined): 
 }
 
 export function providerDisplayName(provider: string): string {
-  if (provider === DEFAULT_OAUTH_PROVIDER_NAME) return 'Pythinker';
+  if (provider === DEFAULT_OAUTH_PROVIDER_NAME) return 'Kimi';
   if (provider.startsWith('managed:')) return provider.slice('managed:'.length);
   return provider;
 }

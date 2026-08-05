@@ -19,7 +19,7 @@
  *   3. Same-provider new flow superseding (→ 'cancelled')
  *
  * **Token + config** land via the toolkit's provisioning path: on success,
- * the `managed:pythinker-code` provider + models entry are written to
+ * the `managed:kimi-code` provider + models entry are written to
  * `config.toml`, and the cached token is saved to credentials. Frontend
  * follow-up: hit `GET /v1/auth` to confirm `ready: true`.
  *
@@ -75,7 +75,7 @@ export interface IOAuthService {
 
   /**
    * Kick off a device-code flow for `providerName` (default
-   * `'managed:pythinker-code'`). Requests the device authorization synchronously
+   * `'managed:kimi-code'`). Requests the device authorization synchronously
    * (1-2 round-trips to the OAuth host), starts background polling, and
    * returns the verification URLs + flow_id.
    *

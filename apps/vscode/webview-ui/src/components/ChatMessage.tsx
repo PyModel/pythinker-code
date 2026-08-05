@@ -1,4 +1,4 @@
-import { useState, Fragment, memo } from "react";
+import { useState, Fragment, memo, type ReactNode } from "react";
 import { IconGitFork, IconBolt } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { Content } from "@/lib/content";
@@ -33,7 +33,7 @@ function ThinkingIndicator() {
 
   return (
     <div className="flex items-center gap-2.5 mt-1 py-1">
-      <div className="flex items-center gap-2">
+      <div className="flex min-w-0 items-center gap-2">
         <PythinkerLogo className="size-4 shrink-0" />
         <span className="text-[11px] font-medium tracking-wide text-zinc-400 dark:text-zinc-300 flex items-center">
           <span className="animate-shimmer-text">Pythinking</span>
@@ -45,9 +45,9 @@ function ThinkingIndicator() {
         </span>
       </div>
       {speed > 0 && (
-        <span className="inline-flex items-center gap-1 text-[10px] font-mono text-zinc-400 dark:text-zinc-400 bg-zinc-800/20 dark:bg-zinc-800/40 px-1.5 py-0.5 rounded-full border border-zinc-700/30">
-          <IconBolt className="size-3 text-amber-400 animate-pulse" />
-          <span>{speed.toFixed(1)} t/s</span>
+        <span className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-[10px] font-mono text-zinc-400 dark:text-zinc-400 bg-zinc-800/20 dark:bg-zinc-800/40 px-1.5 py-0.5 rounded-full border border-zinc-700/30">
+          <IconBolt className="size-3 shrink-0 text-amber-400 animate-pulse" />
+          <span className="tabular-nums">{speed.toFixed(1)} t/s</span>
         </span>
       )}
     </div>
@@ -72,7 +72,7 @@ function StepItemRenderer({ item }: { item: UIStepItem }) {
     case "text":
       return <Markdown content={item.content} className="text-xs leading-relaxed" enableEnrichment={item.finished === true} />;
     case "tool_use":
-      return <ToolCallCard call={item.call} result={item.result} subagentSteps={item.subagent_steps} />;
+      return <ToolCallCard call={item.call} result={item.result} subagentSteps={item.subagent_steps} subagentStatus={item.subagent_status} />;
     case "compaction":
       return <CompactionCard />;
     case "steer":
@@ -82,10 +82,23 @@ function StepItemRenderer({ item }: { item: UIStepItem }) {
   }
 }
 
-function StepContent({ step, showConnector }: { step: UIStep; showConnector?: boolean }) {
+/** A reply row whose gutter carries the assistant logo, lined up with the step markers. */
+function LogoRow({ children, className }: { children: ReactNode; className?: string }) {
+  return (
+    <div className={cn("flex gap-2", className)}>
+      <div className="hidden @[420px]:flex shrink-0 w-5 justify-center">
+        <PythinkerLogo className="size-4 mt-0.5" />
+      </div>
+      <div className="flex-1 min-w-0">{children}</div>
+    </div>
+  );
+}
+
+function StepContent({ step, showConnector, showLogo }:{ step: UIStep; showConnector?: boolean; showLogo?: boolean }) {
   const hasItems = step.items.length > 0;
   const hasToolOrThinking = step.items.some((item) => item.type === "tool_use" || item.type === "thinking" || item.type === "compaction");
   const showIndicator = hasToolOrThinking;
+  const logoItemIndex = step.items.findIndex((item) => item.type === "text");
   const hasActiveItem = step.items.some((item) => (item.type === "text" || item.type === "thinking") && !item.finished);
 
   if (!hasItems) {
@@ -113,9 +126,20 @@ function StepContent({ step, showConnector }: { step: UIStep; showConnector?: bo
         <div className="hidden @[420px]:block shrink-0 w-5" />
       )}
       <div className="flex-1 min-w-0 space-y-2">
-        {step.items.map((item, idx) => (
-          <StepItemRenderer key={`${step.n}-${idx}`} item={item} />
-        ))}
+        {step.items.map((item, idx) => {
+          const renderer = <StepItemRenderer item={item} />;
+          if (!showLogo || idx !== logoItemIndex) {
+            return <Fragment key={`${step.n}-${idx}`}>{renderer}</Fragment>;
+          }
+          // The logo belongs beside the reply itself, not beside whatever tool or
+          // thinking block happens to open the step, so it claims the outer gutter
+          // from this row: `-ml-7` is the `w-5` marker column plus the `gap-2`.
+          return (
+            <LogoRow key={`${step.n}-${idx}`} className="@[420px]:-ml-7">
+              {renderer}
+            </LogoRow>
+          );
+        })}
       </div>
     </div>
   );
@@ -295,6 +319,11 @@ function AssistantMessage({ message, turnIndex, isStreaming }: { message: ChatMe
               {hasSteps &&
                 groupStepsByPlanMode(steps).map((group, gi) => {
                   const totalSteps = steps.length;
+                  // The logo identifies the assistant on its first reply, but only when the
+                  // message draws no timeline: sitting in the gutter, it would cut the
+                  // connector running between the step markers.
+                  const hasTimeline = stepHasIndicator.filter(Boolean).length > 1;
+                  const firstTextStepIndex = hasTimeline ? -1 : steps.findIndex((s) => s.items.some((item) => item.type === "text"));
                   const stepsContent = group.steps.map((step, i) => {
                     const globalIndex = group.startIndex + i;
                     const isLastInGroup = i === group.steps.length - 1;
@@ -302,7 +331,7 @@ function AssistantMessage({ message, turnIndex, isStreaming }: { message: ChatMe
                     const hasIndicator = stepHasIndicator[globalIndex];
                     const hasNextIndicator = stepHasIndicator.slice(globalIndex + 1).some(Boolean);
                     const showConnector = hasIndicator && hasNextIndicator && !isLastInGroup && !isLastOverall;
-                    return <StepContent key={step.n} step={step} showConnector={showConnector} />;
+                    return <StepContent key={step.n} step={step} showConnector={showConnector} showLogo={globalIndex === firstTextStepIndex} />;
                   });
 
                   if (group.planMode) {
@@ -310,7 +339,11 @@ function AssistantMessage({ message, turnIndex, isStreaming }: { message: ChatMe
                   }
                   return <Fragment key={`normal-${gi}`}>{stepsContent}</Fragment>;
                 })}
-              {!hasSteps && displayContent && <Markdown content={displayContent} className="text-xs leading-relaxed @[420px]:pl-5" enableEnrichment={!isStreaming} />}
+              {!hasSteps && displayContent && (
+                <LogoRow>
+                  <Markdown content={displayContent} className="text-xs leading-relaxed" enableEnrichment={!isStreaming} />
+                </LogoRow>
+              )}
               {(images.length > 0 || videos.length > 0) && (
                 <div className="@[420px]:pl-5">
                   <MessageMedia images={images} videos={videos} onPreview={setPreviewMedia} />

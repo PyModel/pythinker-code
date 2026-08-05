@@ -20,7 +20,6 @@ import type {
 import { describe, expect, it } from "vitest";
 
 import { Events } from "../shared/bridge";
-import type { LegacyApprovalFlags } from "../src/runtime/legacy-approval";
 import { SessionRuntime } from "../src/runtime/session-runtime";
 
 interface BroadcastRecord {
@@ -53,7 +52,7 @@ interface FakeSessionBoundary {
   requestQuestion(request: QuestionRequest): Promise<Awaited<ReturnType<QuestionHandler>>>;
 }
 
-const DEFAULT_LEGACY_APPROVAL: LegacyApprovalFlags = { yolo: false, afk: false };
+const DEFAULT_PERMISSION_MODE: PermissionMode = "manual";
 
 function createFakeSession(): FakeSessionBoundary {
   const listeners = new Set<(event: Event) => void>();
@@ -129,13 +128,16 @@ function createFakeSession(): FakeSessionBoundary {
       permission = mode;
       setPermissions.push(mode);
     },
-    async updateMetadata(patch: JsonObject) {
+    async getSessionMetadata() {
+      return { custom: summary.metadata };
+    },
+    async updateSessionMetadata(patch: { custom?: JsonObject }) {
       if (nextMetadataError !== undefined) {
         const error = nextMetadataError;
         nextMetadataError = undefined;
         throw error;
       }
-      metadataUpdates.push(patch);
+      metadataUpdates.push(patch.custom ?? {});
     },
     async close() {
       closes += 1;
@@ -173,13 +175,13 @@ function createFakeSession(): FakeSessionBoundary {
   };
 }
 
-function createRuntime(legacyApproval = DEFAULT_LEGACY_APPROVAL) {
+function createRuntime(permissionMode = DEFAULT_PERMISSION_MODE) {
   const sdk = createFakeSession();
   const broadcasts: BroadcastRecord[] = [];
   const baselines: BaselineRecord[] = [];
   const runtime = new SessionRuntime({
     session: sdk.session,
-    legacyApproval,
+    permissionMode,
     broadcast: (event, data, webviewId) => broadcasts.push({ event, data, webviewId }),
     captureBaseline: (session, filePath, webviewIds) => {
       baselines.push({ session, filePath, webviewIds });
@@ -570,8 +572,8 @@ describe("session runtime (adapts one SDK session for subscribed Webviews)", () 
     await expect(pending).resolves.toEqual(expected);
   });
 
-  it("forwards SDK approval requests to the Webview in legacy yolo mode", async () => {
-    const { runtime, sdk, broadcasts } = createRuntime({ yolo: true, afk: false });
+  it("forwards SDK approval requests to the Webview in yolo mode", async () => {
+    const { runtime, sdk, broadcasts } = createRuntime("yolo");
     const pending = sdk.requestApproval({
       toolCallId: "tool-yolo",
       toolName: "Bash",
@@ -590,13 +592,31 @@ describe("session runtime (adapts one SDK session for subscribed Webviews)", () 
     await expect(pending).resolves.toEqual({ decision: "approved" });
   });
 
-  it("switches core permission when a legacy approval flag is toggled", async () => {
+  it("switches core permission when the mode is toggled on", async () => {
     const { runtime, sdk } = createRuntime();
 
-    await runtime.toggleLegacyApproval("afk");
+    await expect(runtime.togglePermissionMode("auto")).resolves.toBe("auto");
 
     expect(sdk.setPermissions).toEqual(["auto"]);
-    expect(runtime.legacyApprovalFlags).toEqual({ yolo: false, afk: true });
+    expect(runtime.permissionMode).toBe("auto");
+  });
+
+  it("returns to manual when the same mode is toggled again", async () => {
+    const { runtime, sdk } = createRuntime();
+
+    await runtime.togglePermissionMode("auto");
+    await expect(runtime.togglePermissionMode("auto")).resolves.toBe("manual");
+
+    expect(sdk.setPermissions).toEqual(["auto", "manual"]);
+    expect(runtime.permissionMode).toBe("manual");
+  });
+
+  it("persists each mode change into the session metadata", async () => {
+    const { runtime, sdk } = createRuntime();
+
+    await runtime.setPermissionMode("yolo");
+
+    expect(sdk.metadataUpdates.at(-1)).toMatchObject({ vscode_permission_mode: "yolo" });
   });
 
   it("resolves an SDK question when the Webview submits answers", async () => {
@@ -624,8 +644,8 @@ describe("session runtime (adapts one SDK session for subscribed Webviews)", () 
     await expect(pending).resolves.toEqual({ answers: { "Choose a target": "Tests" } });
   });
 
-  it("keeps SDK questions interactive in legacy yolo mode", async () => {
-    const { runtime, sdk, broadcasts } = createRuntime({ yolo: true, afk: false });
+  it("keeps SDK questions interactive in yolo mode", async () => {
+    const { runtime, sdk, broadcasts } = createRuntime("yolo");
     const pending = sdk.requestQuestion({
       toolCallId: "question-yolo",
       questions: [

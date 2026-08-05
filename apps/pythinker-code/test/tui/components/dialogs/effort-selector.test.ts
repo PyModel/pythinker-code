@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { EffortSelectorComponent } from '#/tui/components/dialogs/effort-selector';
 import { defaultKeybindings, parseKeybindingBlocks } from '#/tui/keybindings';
 
-const ANSI = /\[[0-9;]*m/g;
+const ANSI = /\u001B\[[0-9;]*m/g;
 const strip = (s: string): string => s.replaceAll(ANSI, '');
 const ESC = String.fromCodePoint(27);
 const DOWN = `${ESC}[B`;

@@ -42,6 +42,10 @@ import {
 } from '#/tui/utils/terminal-theme';
 import { LEGACY_TEST_PATHS, PARITY_CASES } from './parity/feature-matrix';
 
+/** The picker colours labels and values separately, so raw frames interleave SGR escapes. */
+const ANSI_SGR = /\u001B\[[0-9;]*m/g;
+const stripAnsi = (frame: string): string => frame.replaceAll(ANSI_SGR, '');
+
 vi.mock('#/tui/commands/prompts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('#/tui/commands/prompts')>();
   return {
@@ -296,7 +300,7 @@ function createResumeState(overrides: { permissionMode?: string; planMode?: bool
 }
 
 function loginRequiredError(): Error & { readonly code: string } {
-  return Object.assign(new Error('OAuth provider "managed:pythinker-code" requires login.'), {
+  return Object.assign(new Error('OAuth provider "managed:kimi-code" requires login.'), {
     code: 'auth.login_required',
   });
 }
@@ -905,13 +909,13 @@ describe('PythinkerTUI startup', () => {
 
   it('passes the CLI model override when creating a fresh startup session', async () => {
     const harness = makeHarness();
-    const driver = makeDriver(harness, makeStartupInput({ model: 'pythinker-code/k2.5' }));
+    const driver = makeDriver(harness, makeStartupInput({ model: 'kimi-code/k2.5' }));
 
     await expect(driver.init()).resolves.toBe(false);
 
     expect(harness.createSession).toHaveBeenCalledWith({
       workDir: '/tmp/proj-a',
-      model: 'pythinker-code/k2.5',
+      model: 'kimi-code/k2.5',
       permission: undefined,
       planMode: undefined,
     });
@@ -938,13 +942,13 @@ describe('PythinkerTUI startup', () => {
     });
     const driver = makeDriver(
       harness,
-      makeStartupInput({ continue: true, model: 'pythinker-code/k2.5' }),
+      makeStartupInput({ continue: true, model: 'kimi-code/k2.5' }),
     );
 
     await expect(driver.init()).resolves.toBe(true);
 
-    expect(session.setModel).toHaveBeenCalledWith('pythinker-code/k2.5');
-    expect(driver.state.appState.model).toBe('pythinker-code/k2.5');
+    expect(session.setModel).toHaveBeenCalledWith('kimi-code/k2.5');
+    expect(driver.state.appState.model).toBe('kimi-code/k2.5');
   });
 
   it('enters picker startup for bare --session without creating a session', async () => {
@@ -1178,7 +1182,7 @@ describe('PythinkerTUI startup', () => {
     firstPicker.handleInput('c');
     firstPicker.handleInput('w');
     firstPicker.handleInput('d');
-    expect(firstPicker.render(160).join('\n')).toContain('Search: cwd');
+    expect(stripAnsi(firstPicker.render(160).join('\n'))).toContain('Search: cwd');
 
     firstPicker.handleInput('\u0001');
     await new Promise((resolve) => setImmediate(resolve));
@@ -1187,7 +1191,7 @@ describe('PythinkerTUI startup', () => {
       handleInput(data: string): void;
       render(width: number): string[];
     };
-    const output = allPicker.render(160).join('\n');
+    const output = stripAnsi(allPicker.render(160).join('\n'));
 
     expect(driver.state.sessionsScope).toBe('all');
     expect(output).toContain('All sessions');
@@ -1517,7 +1521,7 @@ describe('PythinkerTUI startup', () => {
     });
 
     vi.mocked(promptPlatformSelection).mockResolvedValue({
-      platformId: 'pythinker-code',
+      platformId: 'kimi-code',
       catalog: {},
     });
     await handleLoginCommand(driver as any);
@@ -1572,7 +1576,7 @@ describe('PythinkerTUI startup', () => {
 
     await expect(driver.init()).resolves.toBe(false);
     vi.mocked(promptPlatformSelection).mockResolvedValue({
-      platformId: 'pythinker-code',
+      platformId: 'kimi-code',
       catalog: {},
     });
     await handleLoginCommand(driver as any);
@@ -1606,7 +1610,7 @@ describe('PythinkerTUI startup', () => {
     expect(driver.state.appState.thinkingLevel).toBe('off');
 
     vi.mocked(promptPlatformSelection).mockResolvedValue({
-      platformId: 'pythinker-code',
+      platformId: 'kimi-code',
       catalog: {},
     });
     await handleLoginCommand(driver as any);
@@ -1619,7 +1623,7 @@ describe('PythinkerTUI startup', () => {
       maxContextTokens: 100,
     });
     expect(harness.track).toHaveBeenCalledWith('login', {
-      provider: 'managed:pythinker-code',
+      provider: 'managed:kimi-code',
       already_logged_in: false,
     });
   });
@@ -1629,7 +1633,7 @@ describe('PythinkerTUI startup', () => {
     const harness = makeHarness(session, {
       auth: {
         status: vi.fn(async () => ({
-          providers: [{ providerName: 'managed:pythinker-code', hasToken: true }],
+          providers: [{ providerName: 'managed:kimi-code', hasToken: true }],
         })),
         login: vi.fn(async () => {}),
         logout: vi.fn(),
@@ -1642,20 +1646,20 @@ describe('PythinkerTUI startup', () => {
     harness.track.mockClear();
 
     vi.mocked(promptPlatformSelection).mockResolvedValue({
-      platformId: 'pythinker-code',
+      platformId: 'kimi-code',
       catalog: {},
     });
     await handleLoginCommand(driver as any);
 
     expect(harness.auth.login).toHaveBeenCalledWith(
-      'managed:pythinker-code',
+      'managed:kimi-code',
       expect.objectContaining({
         signal: expect.any(AbortSignal),
         onDeviceCode: expect.any(Function),
       }),
     );
     expect(harness.track).toHaveBeenCalledWith('login', {
-      provider: 'managed:pythinker-code',
+      provider: 'managed:kimi-code',
       already_logged_in: true,
     });
   });
@@ -1680,13 +1684,13 @@ describe('PythinkerTUI startup', () => {
       await expect(driver.init()).resolves.toBe(false);
 
       vi.mocked(promptPlatformSelection).mockResolvedValue({
-        platformId: 'pythinker-code',
+        platformId: 'kimi-code',
         catalog: {},
       });
       await handleLoginCommand(driver as any);
 
       expect(harness.auth.login).toHaveBeenCalledWith(
-        'managed:pythinker-code',
+        'managed:kimi-code',
         expect.objectContaining({
           signal: expect.any(AbortSignal),
           onDeviceCode: expect.any(Function),
@@ -1695,7 +1699,7 @@ describe('PythinkerTUI startup', () => {
       expect(warn).toHaveBeenCalledWith(
         'login failed',
         expect.objectContaining({
-          providerName: 'managed:pythinker-code',
+          providerName: 'managed:kimi-code',
           alreadyLoggedIn: false,
           sessionId: 'ses-1',
           error: expect.objectContaining({
@@ -1880,13 +1884,13 @@ describe('PythinkerTUI startup', () => {
     const harness = makeHarness(session, {
       getConfig: vi.fn(async () => ({
         models: {
-          k2: { provider: 'managed:pythinker-code', model: 'pythoughts-v1', maxContextSize: 100 },
+          k2: { provider: 'managed:kimi-code', model: 'pythoughts-v1', maxContextSize: 100 },
         },
-        providers: { 'managed:pythinker-code': { type: 'pythinker' } },
+        providers: { 'managed:kimi-code': { type: 'pythinker' } },
       })),
       auth: {
         status: vi.fn(async () => ({
-          providers: [{ providerName: 'managed:pythinker-code', hasToken: true }],
+          providers: [{ providerName: 'managed:kimi-code', hasToken: true }],
         })),
         login: vi.fn(async () => {}),
         logout: vi.fn(),
@@ -1898,17 +1902,17 @@ describe('PythinkerTUI startup', () => {
     await expect(driver.init()).resolves.toBe(false);
     harness.track.mockClear();
 
-    vi.mocked(promptLogoutProviderSelection).mockResolvedValue('managed:pythinker-code');
+    vi.mocked(promptLogoutProviderSelection).mockResolvedValue('managed:kimi-code');
     await handleLogoutCommand(driver as any);
 
-    expect(harness.auth.logout).toHaveBeenCalledWith('managed:pythinker-code');
+    expect(harness.auth.logout).toHaveBeenCalledWith('managed:kimi-code');
     expect(session.close).toHaveBeenCalledOnce();
     expect(driver.state.appState).toMatchObject({
       sessionId: '',
       model: '',
       sessionTitle: null,
     });
-    expect(harness.track).toHaveBeenCalledWith('logout', { provider: 'managed:pythinker-code' });
+    expect(harness.track).toHaveBeenCalledWith('logout', { provider: 'managed:kimi-code' });
   });
 
   it('keeps the active session when logging out a different provider', async () => {
@@ -1917,17 +1921,17 @@ describe('PythinkerTUI startup', () => {
     const harness = makeHarness(session, {
       getConfig: vi.fn(async () => ({
         models: {
-          k2: { provider: 'managed:pythinker-code', model: 'pythoughts-v1', maxContextSize: 100 },
+          k2: { provider: 'managed:kimi-code', model: 'pythoughts-v1', maxContextSize: 100 },
         },
         providers: {
-          'managed:pythinker-code': { type: 'pythinker' },
+          'managed:kimi-code': { type: 'pythinker' },
           openai: { type: 'openai', baseUrl: 'https://api.openai.com/v1' },
         },
       })),
       removeProvider,
       auth: {
         status: vi.fn(async () => ({
-          providers: [{ providerName: 'managed:pythinker-code', hasToken: true }],
+          providers: [{ providerName: 'managed:kimi-code', hasToken: true }],
         })),
         login: vi.fn(async () => {}),
         logout: vi.fn(),
@@ -1957,15 +1961,15 @@ describe('PythinkerTUI startup', () => {
     const harness = makeHarness(session, {
       getConfig: vi.fn(async () => ({
         models: {
-          k2: { provider: 'managed:pythinker-code', model: 'pythoughts-v1', maxContextSize: 100 },
+          k2: { provider: 'managed:kimi-code', model: 'pythoughts-v1', maxContextSize: 100 },
         },
-        providers: { 'managed:pythinker-code': { type: 'pythinker' } },
+        providers: { 'managed:kimi-code': { type: 'pythinker' } },
       })),
       auth: {
         // Token gone (e.g. credentials file deleted) but the managed entry
         // is still sitting in config.providers.
         status: vi.fn(async () => ({
-          providers: [{ providerName: 'managed:pythinker-code', hasToken: false }],
+          providers: [{ providerName: 'managed:kimi-code', hasToken: false }],
         })),
         login: vi.fn(async () => {}),
         logout: vi.fn(),
@@ -1976,10 +1980,10 @@ describe('PythinkerTUI startup', () => {
 
     await expect(driver.init()).resolves.toBe(false);
 
-    vi.mocked(promptLogoutProviderSelection).mockResolvedValue('managed:pythinker-code');
+    vi.mocked(promptLogoutProviderSelection).mockResolvedValue('managed:kimi-code');
     await handleLogoutCommand(driver as any);
 
-    expect(harness.auth.logout).toHaveBeenCalledWith('managed:pythinker-code');
+    expect(harness.auth.logout).toHaveBeenCalledWith('managed:kimi-code');
   });
 
   it('starts TUI without replaying when --continue needs OAuth login', async () => {

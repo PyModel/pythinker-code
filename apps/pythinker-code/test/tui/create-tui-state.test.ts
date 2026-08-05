@@ -36,6 +36,27 @@ thinkingLevel: 'off',
 }
 
 describe('createTUIState', () => {
+  it('gates rendering until the event loop starts, and ui.start() re-opens it', () => {
+    // The gate writes pi-tui's PRIVATE `stopped` field, and `ui.start()` clearing
+    // it again is what lets the TUI ever paint. If an upgrade renames the field or
+    // stops resetting it, the app renders nothing — a silent, total failure. This
+    // asserts both halves so that upgrade fails here instead of in someone's terminal.
+    const state = createTUIState({
+      initialAppState: fakeInitialAppState(),
+      startup: { continueLast: false, yolo: false, auto: false, plan: false },
+      layout: 'fixed',
+    });
+    const ui = state.ui as unknown as { stopped: boolean; start: () => void };
+
+    expect(ui.stopped).toBe(true);
+
+    vi.spyOn(state.terminal, 'start').mockImplementation(() => {});
+    vi.spyOn(state.terminal, 'hideCursor').mockImplementation(() => {});
+    ui.start();
+
+    expect(ui.stopped).toBe(false);
+  });
+
   it('initializes all fields with sensible defaults', () => {
     const opts: PythinkerTUIOptions = {
       initialAppState: fakeInitialAppState(),

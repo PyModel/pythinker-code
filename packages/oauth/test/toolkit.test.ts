@@ -3,12 +3,12 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
-  applyManagedPythinkerCodeConfig,
-  PYTHINKER_CODE_PROVIDER_NAME,
+  applyManagedKimiCodeConfig,
+  KIMI_CODE_PROVIDER_NAME,
   PythinkerOAuthToolkit,
-  resolvePythinkerCodeOAuthKey,
+  resolveKimiCodeOAuthKey,
   resolvePythinkerTokenStorageName,
-  type ManagedPythinkerConfigShape,
+  type ManagedKimiConfigShape,
   type TokenInfo,
   type TokenStorage,
 } from '../src';
@@ -80,18 +80,18 @@ describe('resolvePythinkerTokenStorageName', () => {
   it('maps config oauth keys to the file storage token name', () => {
     expect(
       resolvePythinkerTokenStorageName({
-        providerName: PYTHINKER_CODE_PROVIDER_NAME,
-        oauthKey: 'oauth/pythinker-code',
+        providerName: KIMI_CODE_PROVIDER_NAME,
+        oauthKey: 'oauth/kimi-code',
       }),
-    ).toBe('pythinker-code');
-    expect(resolvePythinkerTokenStorageName({ oauthKey: 'pythinker-code' })).toBe('pythinker-code');
+    ).toBe('kimi-code');
+    expect(resolvePythinkerTokenStorageName({ oauthKey: 'kimi-code' })).toBe('kimi-code');
   });
 
   it('rejects unsupported providers and unsafe token keys', () => {
     expect(() =>
       resolvePythinkerTokenStorageName({
         providerName: 'custom',
-        oauthKey: 'pythinker-code',
+        oauthKey: 'kimi-code',
       }),
     ).toThrow(/No OAuth manager/);
     expect(() => resolvePythinkerTokenStorageName({ oauthKey: '../pythinker-code' })).toThrow(/Invalid/);
@@ -101,7 +101,7 @@ describe('resolvePythinkerTokenStorageName', () => {
 describe('PythinkerOAuthToolkit', () => {
   it('can be constructed without host identity', async () => {
     const storage = new MemoryTokenStorage();
-    storage.tokens.set('pythinker-code', token('access-1'));
+    storage.tokens.set('kimi-code', token('access-1'));
     const toolkit = new PythinkerOAuthToolkit({
       homeDir: join('/tmp', 'pythinker-oauth-toolkit-test'),
       storage,
@@ -113,7 +113,7 @@ describe('PythinkerOAuthToolkit', () => {
 
   it('reports status and exposes a bearer token provider', async () => {
     const storage = new MemoryTokenStorage();
-    storage.tokens.set('pythinker-code', token('access-1'));
+    storage.tokens.set('kimi-code', token('access-1'));
     const toolkit = new PythinkerOAuthToolkit({
       homeDir: join('/tmp', 'pythinker-oauth-toolkit-test'),
       identity: TEST_IDENTITY,
@@ -122,7 +122,7 @@ describe('PythinkerOAuthToolkit', () => {
     });
 
     await expect(toolkit.status()).resolves.toEqual({
-      providers: [{ providerName: PYTHINKER_CODE_PROVIDER_NAME, hasToken: true }],
+      providers: [{ providerName: KIMI_CODE_PROVIDER_NAME, hasToken: true }],
     });
     await expect(toolkit.tokenProvider().getAccessToken()).resolves.toBe('access-1');
   });
@@ -139,7 +139,7 @@ describe('PythinkerOAuthToolkit', () => {
 
     await expect(
       toolkit
-        .tokenProvider(PYTHINKER_CODE_PROVIDER_NAME, { key: 'oauth/custom-pythinker-code' })
+        .tokenProvider(KIMI_CODE_PROVIDER_NAME, { key: 'oauth/custom-pythinker-code' })
         .getAccessToken(),
     ).resolves.toBe('custom-access');
   });
@@ -147,7 +147,7 @@ describe('PythinkerOAuthToolkit', () => {
   it('refreshes configured bearer token refs against their OAuth host', async () => {
     const storage = new MemoryTokenStorage();
     const oauthHost = 'https://auth.dev.example.test';
-    const oauthKey = resolvePythinkerCodeOAuthKey({
+    const oauthKey = resolveKimiCodeOAuthKey({
       oauthHost,
       baseUrl: 'https://api.dev.example.test/coding/v1',
     });
@@ -177,7 +177,7 @@ describe('PythinkerOAuthToolkit', () => {
       storage,
       now: () => 1_000,
       flowConfig: {
-        name: 'pythinker-code',
+        name: 'kimi-code',
         oauthHost: 'https://auth.kimi.com',
         clientId: 'test-client-id',
       },
@@ -185,7 +185,7 @@ describe('PythinkerOAuthToolkit', () => {
 
     await expect(
       toolkit
-        .tokenProvider(PYTHINKER_CODE_PROVIDER_NAME, { key: oauthKey, oauthHost })
+        .tokenProvider(KIMI_CODE_PROVIDER_NAME, { key: oauthKey, oauthHost })
         .getAccessToken(),
     ).resolves.toBe('rotated-dev-access');
   });
@@ -217,7 +217,7 @@ describe('PythinkerOAuthToolkit', () => {
       storage,
       now: () => 1_000,
       flowConfig: {
-        name: 'pythinker-code',
+        name: 'kimi-code',
         oauthHost: 'https://auth.kimi.com',
         clientId: 'test-client-id',
       },
@@ -225,7 +225,7 @@ describe('PythinkerOAuthToolkit', () => {
 
     await expect(
       toolkit
-        .tokenProvider(PYTHINKER_CODE_PROVIDER_NAME, {
+        .tokenProvider(KIMI_CODE_PROVIDER_NAME, {
           key: 'oauth/custom-pythinker-code',
           oauthHost: 'https://auth.one.test/',
         })
@@ -233,7 +233,7 @@ describe('PythinkerOAuthToolkit', () => {
     ).resolves.toBe('rotated-1');
     await expect(
       toolkit
-        .tokenProvider(PYTHINKER_CODE_PROVIDER_NAME, {
+        .tokenProvider(KIMI_CODE_PROVIDER_NAME, {
           key: 'oauth/custom-pythinker-code',
           oauthHost: 'https://auth.two.test',
         })
@@ -248,7 +248,7 @@ describe('PythinkerOAuthToolkit', () => {
 
   it('returns the cached access token without refreshing it', async () => {
     const storage = new MemoryTokenStorage();
-    storage.tokens.set('pythinker-code', {
+    storage.tokens.set('kimi-code', {
       ...token('cached-access'),
       expiresAt: 1,
     });
@@ -273,7 +273,7 @@ describe('PythinkerOAuthToolkit', () => {
     });
 
     await expect(
-      toolkit.getCachedAccessToken(PYTHINKER_CODE_PROVIDER_NAME, { key: 'oauth/custom-pythinker-code' }),
+      toolkit.getCachedAccessToken(KIMI_CODE_PROVIDER_NAME, { key: 'oauth/custom-pythinker-code' }),
     ).resolves.toBe('custom-cached-access');
   });
 
@@ -303,7 +303,7 @@ describe('PythinkerOAuthToolkit', () => {
         read: () => config,
         write,
         apply: (target, input) => {
-          target.providers[PYTHINKER_CODE_PROVIDER_NAME] = {
+          target.providers[KIMI_CODE_PROVIDER_NAME] = {
             type: 'pythinker',
             apiKey: '',
           };
@@ -315,9 +315,9 @@ describe('PythinkerOAuthToolkit', () => {
       },
     });
 
-    storage.tokens.set('pythinker-code', token('access-1'));
+    storage.tokens.set('kimi-code', token('access-1'));
     await expect(toolkit.login()).resolves.toMatchObject({
-      providerName: PYTHINKER_CODE_PROVIDER_NAME,
+      providerName: KIMI_CODE_PROVIDER_NAME,
       ok: true,
       provision: {
         defaultModel: 'pythinker-code/pythinker-for-coding',
@@ -334,7 +334,7 @@ describe('PythinkerOAuthToolkit', () => {
       const onDeviceCode = vi.fn();
       const config = { providers: {} };
       const oauthHost = 'https://auth.test';
-      const oauthKey = resolvePythinkerCodeOAuthKey({ oauthHost });
+      const oauthKey = resolveKimiCodeOAuthKey({ oauthHost });
       storage.tokens.set(resolvePythinkerTokenStorageName({ oauthKey }), token('stale-access'));
       const fetchMock = vi
         .fn()
@@ -373,7 +373,7 @@ describe('PythinkerOAuthToolkit', () => {
         now: () => 100,
         fetchImpl,
         flowConfig: {
-          name: 'pythinker-code',
+          name: 'kimi-code',
           oauthHost,
           clientId: 'test-client-id',
         },
@@ -381,7 +381,7 @@ describe('PythinkerOAuthToolkit', () => {
           read: () => config,
           write,
           apply: (target, input) => {
-            target.providers[PYTHINKER_CODE_PROVIDER_NAME] = {
+            target.providers[KIMI_CODE_PROVIDER_NAME] = {
               type: 'pythinker',
               apiKey: '',
             };
@@ -394,7 +394,7 @@ describe('PythinkerOAuthToolkit', () => {
       });
 
       await expect(toolkit.login(undefined, { onDeviceCode })).resolves.toMatchObject({
-        providerName: PYTHINKER_CODE_PROVIDER_NAME,
+        providerName: KIMI_CODE_PROVIDER_NAME,
         ok: true,
         provision: {
           defaultModel: 'pythinker-code/pythinker-for-coding',
@@ -417,11 +417,11 @@ describe('PythinkerOAuthToolkit', () => {
 
   it('uses a scoped credential slot for non-default OAuth login environments', async () => {
     const storage = new MemoryTokenStorage();
-    storage.tokens.set('pythinker-code', token('prod-access'));
-    const config: ManagedPythinkerConfigShape = { providers: {} };
+    storage.tokens.set('kimi-code', token('prod-access'));
+    const config: ManagedKimiConfigShape = { providers: {} };
     const devBaseUrl = 'https://api.dev.example.test/coding/v1';
     const devOauthHost = 'https://auth.dev.example.test';
-    const devOauthKey = resolvePythinkerCodeOAuthKey({
+    const devOauthKey = resolveKimiCodeOAuthKey({
       oauthHost: devOauthHost,
       baseUrl: devBaseUrl,
     });
@@ -465,25 +465,25 @@ describe('PythinkerOAuthToolkit', () => {
       now: () => 100,
       fetchImpl: fetchMock as unknown as typeof fetch,
       flowConfig: {
-        name: 'pythinker-code',
+        name: 'kimi-code',
         oauthHost: devOauthHost,
         clientId: 'test-client-id',
       },
       configAdapter: {
         read: () => config,
         write,
-        apply: applyManagedPythinkerCodeConfig,
+        apply: applyManagedKimiCodeConfig,
       },
     });
 
     await expect(toolkit.login(undefined, { baseUrl: devBaseUrl })).resolves.toMatchObject({
-      providerName: PYTHINKER_CODE_PROVIDER_NAME,
+      providerName: KIMI_CODE_PROVIDER_NAME,
       ok: true,
     });
     expect(oauthFetch).toHaveBeenCalledTimes(2);
-    expect(storage.tokens.get('pythinker-code')?.accessToken).toBe('prod-access');
+    expect(storage.tokens.get('kimi-code')?.accessToken).toBe('prod-access');
     expect(storage.tokens.get(devStorageName)?.accessToken).toBe('dev-access');
-    expect(config.providers[PYTHINKER_CODE_PROVIDER_NAME]?.oauth).toEqual({
+    expect(config.providers[KIMI_CODE_PROVIDER_NAME]?.oauth).toEqual({
       storage: 'file',
       key: devOauthKey,
       oauthHost: devOauthHost,
@@ -496,7 +496,7 @@ describe('PythinkerOAuthToolkit', () => {
   it('starts a new device flow when the stored refresh token is invalid', async () => {
     const storage = new MemoryTokenStorage();
     const oauthHost = 'https://auth.test';
-    const oauthKey = resolvePythinkerCodeOAuthKey({ oauthHost });
+    const oauthKey = resolveKimiCodeOAuthKey({ oauthHost });
     const storageName = resolvePythinkerTokenStorageName({ oauthKey });
     storage.tokens.set(storageName, {
       ...token('stale-access'),
@@ -547,14 +547,14 @@ describe('PythinkerOAuthToolkit', () => {
       storage,
       now: () => 100,
       flowConfig: {
-        name: 'pythinker-code',
+        name: 'kimi-code',
         oauthHost,
         clientId: 'test-client-id',
       },
     });
 
     await expect(toolkit.login(undefined, { onDeviceCode })).resolves.toMatchObject({
-      providerName: PYTHINKER_CODE_PROVIDER_NAME,
+      providerName: KIMI_CODE_PROVIDER_NAME,
       ok: true,
     });
     expect(onDeviceCode).toHaveBeenCalledTimes(1);
@@ -563,8 +563,8 @@ describe('PythinkerOAuthToolkit', () => {
 
   it('removes managed config on logout when an adapter supports cleanup', async () => {
     const storage = new MemoryTokenStorage();
-    storage.tokens.set('pythinker-code', token('access-1'));
-    const config = { providers: { [PYTHINKER_CODE_PROVIDER_NAME]: { type: 'pythinker' } } };
+    storage.tokens.set('kimi-code', token('access-1'));
+    const config = { providers: { [KIMI_CODE_PROVIDER_NAME]: { type: 'pythinker' } } };
     const write = vi.fn();
     const remove = vi.fn();
     const toolkit = new PythinkerOAuthToolkit({
@@ -581,11 +581,11 @@ describe('PythinkerOAuthToolkit', () => {
     });
 
     await expect(toolkit.logout()).resolves.toMatchObject({
-      providerName: PYTHINKER_CODE_PROVIDER_NAME,
+      providerName: KIMI_CODE_PROVIDER_NAME,
       ok: true,
     });
     expect(remove).toHaveBeenCalledWith(config);
     expect(write).toHaveBeenCalledWith(config);
-    await expect(storage.load('pythinker-code')).resolves.toBeUndefined();
+    await expect(storage.load('kimi-code')).resolves.toBeUndefined();
   });
 });

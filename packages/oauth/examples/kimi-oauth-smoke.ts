@@ -3,28 +3,28 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
-  applyManagedPythinkerCodeConfig,
-  PYTHINKER_CODE_PROVIDER_NAME,
+  applyManagedKimiCodeConfig,
+  KIMI_CODE_PROVIDER_NAME,
   PythinkerOAuthToolkit,
   type DeviceAuthorization,
   type PythinkerHostIdentity,
-  type ManagedPythinkerConfigShape,
+  type ManagedKimiConfigShape,
 } from '@pythoughts/pythinker-code-oauth';
 
 async function main(): Promise<void> {
   const explicitHomeDir = process.env['PYTHINKER_OAUTH_SMOKE_HOME'];
-  const homeDir = explicitHomeDir ?? (await mkdtemp(join(tmpdir(), 'pythinker-oauth-smoke-')));
+  const homeDir = explicitHomeDir ?? (await mkdtemp(join(tmpdir(), 'kimi-oauth-smoke-')));
   const keepToken = shouldKeepToken(explicitHomeDir !== undefined);
   const forceLogin = process.env['PYTHINKER_OAUTH_SMOKE_FORCE_LOGIN'] === '1';
-  const config: ManagedPythinkerConfigShape = { providers: {} };
+  const config: ManagedKimiConfigShape = { providers: {} };
 
-  const toolkit = new PythinkerOAuthToolkit<ManagedPythinkerConfigShape>({
+  const toolkit = new PythinkerOAuthToolkit<ManagedKimiConfigShape>({
     homeDir,
     identity: smokeIdentityFromEnv(),
     configAdapter: {
       read: () => config,
       write: () => {},
-      apply: applyManagedPythinkerCodeConfig,
+      apply: applyManagedKimiCodeConfig,
       configPath: '<memory>',
     },
   });
@@ -33,16 +33,16 @@ async function main(): Promise<void> {
 
   try {
     if (forceLogin) {
-      await toolkit.logout(PYTHINKER_CODE_PROVIDER_NAME);
+      await toolkit.logout(KIMI_CODE_PROVIDER_NAME);
       process.stdout.write('cleared existing smoke token\n');
     }
 
-    const login = await toolkit.login(PYTHINKER_CODE_PROVIDER_NAME, {
+    const login = await toolkit.login(KIMI_CODE_PROVIDER_NAME, {
       onDeviceCode: printDeviceCode,
     });
-    const status = await toolkit.status(PYTHINKER_CODE_PROVIDER_NAME);
-    const accessToken = await toolkit.tokenProvider(PYTHINKER_CODE_PROVIDER_NAME).getAccessToken();
-    const usage = await toolkit.getManagedUsage(PYTHINKER_CODE_PROVIDER_NAME);
+    const status = await toolkit.status(KIMI_CODE_PROVIDER_NAME);
+    const accessToken = await toolkit.tokenProvider(KIMI_CODE_PROVIDER_NAME).getAccessToken();
+    const usage = await toolkit.getManagedUsage(KIMI_CODE_PROVIDER_NAME);
 
     if (login.provision?.defaultModel === undefined) {
       throw new Error('login did not provision a default model');
@@ -53,7 +53,7 @@ async function main(): Promise<void> {
     if (accessToken.length === 0) {
       throw new Error('token provider returned an empty access token');
     }
-    if (config.providers[PYTHINKER_CODE_PROVIDER_NAME] === undefined) {
+    if (config.providers[KIMI_CODE_PROVIDER_NAME] === undefined) {
       throw new Error('managed provider was not written to config');
     }
 
@@ -64,7 +64,7 @@ async function main(): Promise<void> {
     process.stdout.write('oauth smoke passed\n');
   } finally {
     if (!keepToken) {
-      await toolkit.logout(PYTHINKER_CODE_PROVIDER_NAME).catch(() => {});
+      await toolkit.logout(KIMI_CODE_PROVIDER_NAME).catch(() => {});
     }
     if (explicitHomeDir === undefined && !keepToken) {
       await rm(homeDir, { recursive: true, force: true });
@@ -75,7 +75,7 @@ async function main(): Promise<void> {
 function smokeIdentityFromEnv(): PythinkerHostIdentity {
   const version = process.env['PYTHINKER_CODE_SMOKE_VERSION'];
   if (version === undefined || version.trim().length === 0) {
-    throw new Error('PYTHINKER_CODE_SMOKE_VERSION is required for Pythinker OAuth smoke.');
+    throw new Error('PYTHINKER_CODE_SMOKE_VERSION is required for Kimi OAuth smoke.');
   }
   return {
     userAgentProduct: "pythinker-code-cli",
@@ -86,7 +86,7 @@ function smokeIdentityFromEnv(): PythinkerHostIdentity {
 function printDeviceCode(auth: DeviceAuthorization): void {
   process.stdout.write(
     [
-      'Complete Pythinker OAuth device login:',
+      'Complete Kimi OAuth device login:',
       `  URL: ${auth.verificationUriComplete || auth.verificationUri}`,
       `  Code: ${auth.userCode}`,
       auth.expiresIn === null ? undefined : `  Expires in: ${String(auth.expiresIn)}s`,
@@ -98,7 +98,7 @@ function printDeviceCode(auth: DeviceAuthorization): void {
 }
 
 function printUsage(
-  usage: Awaited<ReturnType<PythinkerOAuthToolkit<ManagedPythinkerConfigShape>['getManagedUsage']>>,
+  usage: Awaited<ReturnType<PythinkerOAuthToolkit<ManagedKimiConfigShape>['getManagedUsage']>>,
 ): void {
   if (usage.kind === 'error') {
     process.stderr.write(`usage request returned: ${usage.message}\n`);

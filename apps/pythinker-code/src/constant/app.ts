@@ -34,7 +34,7 @@ export const PYTHINKER_CODE_BANNER_DIR_NAME = 'banner';
 export const PYTHINKER_CODE_BANNER_STATE_FILE_NAME = 'state.json';
 
 // Managed Pythinker auth provider key shared with OAuth/SDK config.
-export const DEFAULT_OAUTH_PROVIDER_NAME = 'managed:pythinker-code';
+export { KIMI_CODE_PROVIDER_NAME as DEFAULT_OAUTH_PROVIDER_NAME } from '@pythoughts/pythinker-code-oauth';
 
 // SDK/core error code that tells the TUI to show a login-required startup
 // notice. Derived from sdk's ErrorCodes so a future rename in core

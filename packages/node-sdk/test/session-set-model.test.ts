@@ -66,21 +66,21 @@ describe('Session.setModel', () => {
     try {
       await harness.setConfig({
         providers: {
-          'managed:pythinker-code': {
+          'managed:kimi-code': {
             type: 'pythinker',
             baseUrl: 'https://api.pythinker.com/coding/v1',
             apiKey: '',
-            oauth: { storage: 'file', key: 'oauth/pythinker-code' },
+            oauth: { storage: 'file', key: 'oauth/kimi-code' },
           },
         },
         models: {
           'pythinker-code/initial': {
-            provider: 'managed:pythinker-code',
+            provider: 'managed:kimi-code',
             model: 'pythinker-initial',
             maxContextSize: 262144,
           },
           'pythinker-code/pythinker-for-coding': {
-            provider: 'managed:pythinker-code',
+            provider: 'managed:kimi-code',
             model: 'pythinker-for-coding',
             maxContextSize: 262144,
           },

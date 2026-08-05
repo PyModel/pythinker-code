@@ -17,7 +17,7 @@ const SETTING_ROWS: SettingRow[] = [
   {
     key: "yoloMode",
     label: "YOLO mode",
-    description: "Auto-approve regular tool calls; the agent may still ask questions.",
+    description: "Auto-approve regular tool calls; the agent may still ask questions. Also starts new sessions in this mode.",
   },
   {
     key: "autosave",

@@ -4,6 +4,7 @@ import { Header } from "./components/Header";
 import { ChatArea } from "./components/ChatArea";
 import { InputArea } from "./components/inputarea/InputArea";
 import { MCPServersModal } from "./components/MCPServersModal";
+import { ProvidersModal } from "./components/ProvidersModal";
 import { WorkDirModal } from "./components/WorkDirModal";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { ConfigErrorScreen } from "./components/ConfigErrorScreen";
@@ -18,7 +19,7 @@ import "./styles/index.css";
 
 function MainContent({ onAuthAction }: { onAuthAction: () => void }) {
   const { processEvent, startNewConversation, sessionId } = useChatStore();
-  const { setMCPServers, setExtensionConfig, extensionConfig } = useSettingsStore();
+  const { setMCPServers, setExtensionConfig, extensionConfig, setWireSlashCommands } = useSettingsStore();
 
   useEffect(() => {
     return bridge.on(Events.StreamEvent, (event: UIStreamEvent) => {
@@ -40,6 +41,7 @@ function MainContent({ onAuthAction }: { onAuthAction: () => void }) {
   useEffect(() => {
     const unsubs = [
       bridge.on(Events.MCPServersChanged, setMCPServers),
+      bridge.on(Events.SlashCommandsChanged, setWireSlashCommands),
       bridge.on(Events.ExtensionConfigChanged, ({ config }: { config: ExtensionConfig }) => setExtensionConfig(config)),
       bridge.on(Events.FocusInput, () => document.querySelector<HTMLTextAreaElement>("textarea")?.focus()),
       bridge.on(Events.NewConversation, () => {
@@ -49,7 +51,7 @@ function MainContent({ onAuthAction }: { onAuthAction: () => void }) {
       }),
     ];
     return () => unsubs.forEach((u) => u());
-  }, [setMCPServers, setExtensionConfig, startNewConversation]);
+  }, [setMCPServers, setExtensionConfig, setWireSlashCommands, startNewConversation]);
 
   useEffect(() => {
     if (!extensionConfig.enableNewConversationShortcut) return;
@@ -74,6 +76,7 @@ function MainContent({ onAuthAction }: { onAuthAction: () => void }) {
         <InputArea onAuthAction={onAuthAction} />
       </div>
       <MCPServersModal />
+      <ProvidersModal />
       <WorkDirModal />
       <SettingsDialog />
     </>

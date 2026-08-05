@@ -30,13 +30,13 @@ default_plan_mode = false
 merge_all_available_skills = true
 telemetry = true
 
-[providers."managed:pythinker-code"]
+[providers."managed:kimi-code"]
 type = "pythinker"
 base_url = "https://api.pythinker.com/coding/v1"
 api_key = ""
 
 [models."pythinker-code/pythinker-for-coding"]
-provider = "managed:pythinker-code"
+provider = "managed:kimi-code"
 model = "pythinker-for-coding"
 max_context_size = 262144
 

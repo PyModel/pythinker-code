@@ -34,7 +34,7 @@ function resolveRuntimeProvider(input: {
 const BASE_CONFIG: PythinkerConfig = {
   defaultModel: 'pythinker-code/pythinker-for-coding',
   providers: {
-    'managed:pythinker-code': {
+    'managed:kimi-code': {
       type: 'pythinker',
       apiKey: 'test-key',
       baseUrl: 'https://api.example/v1',
@@ -42,7 +42,7 @@ const BASE_CONFIG: PythinkerConfig = {
   },
   models: {
     'pythinker-code/pythinker-for-coding': {
-      provider: 'managed:pythinker-code',
+      provider: 'managed:kimi-code',
       model: 'pythinker-for-coding',
       maxContextSize: 1_000_000,
       capabilities: ['thinking', 'image_in', 'video_in', 'tool_use'],
@@ -115,11 +115,11 @@ describe('resolveRuntimeProvider model metadata', () => {
       config: {
         ...BASE_CONFIG,
         providers: {
-          'managed:pythinker-code': {
+          'managed:kimi-code': {
             type: 'pythinker',
             apiKey: '',
             baseUrl: 'https://api.example/v1',
-            oauth: { storage: 'file', key: 'oauth/pythinker-code' },
+            oauth: { storage: 'file', key: 'oauth/kimi-code' },
           },
         },
       },
@@ -140,7 +140,7 @@ describe('resolveRuntimeProvider model metadata', () => {
         ...BASE_CONFIG,
         models: {
           'pythinker-code/pythinker-for-coding': {
-            provider: 'managed:pythinker-code',
+            provider: 'managed:kimi-code',
             model: 'pythinker-for-coding',
             maxContextSize: 1_000_000,
           },
@@ -212,7 +212,7 @@ describe('resolveRuntimeProvider model metadata', () => {
       ...BASE_CONFIG,
       models: {
         broken: {
-          provider: 'managed:pythinker-code',
+          provider: 'managed:kimi-code',
           model: 'pythinker-for-coding',
           capabilities: ['thinking'],
         },
@@ -443,11 +443,11 @@ describe('resolveRuntimeProvider maxOutputSize forwarding', () => {
       config: {
         defaultModel: 'managed-fable',
         providers: {
-          'managed:pythinker-code': { type: 'pythinker', apiKey: 'test-key' },
+          'managed:kimi-code': { type: 'pythinker', apiKey: 'test-key' },
         },
         models: {
           'managed-fable': {
-            provider: 'managed:pythinker-code',
+            provider: 'managed:kimi-code',
             model: 'claude-fable-5',
             maxContextSize: 200000,
           },
@@ -499,7 +499,7 @@ describe('resolveRuntimeProvider Pythinker request headers', () => {
       config: {
         ...BASE_CONFIG,
         providers: {
-          'managed:pythinker-code': {
+          'managed:kimi-code': {
             type: 'pythinker',
             apiKey: 'test-key',
             baseUrl: 'https://api.example/v1',
@@ -550,7 +550,7 @@ describe('resolveRuntimeProvider Pythinker request headers', () => {
       config: {
         ...BASE_CONFIG,
         providers: {
-          'managed:pythinker-code': {
+          'managed:kimi-code': {
             type: 'pythinker',
             apiKey: 'test-key',
             baseUrl: 'https://api.example/v1',
@@ -856,11 +856,11 @@ describe('ProviderManager OAuth auth', () => {
     return {
       ...BASE_CONFIG,
       providers: {
-        'managed:pythinker-code': {
+        'managed:kimi-code': {
           type: 'pythinker',
           apiKey: '',
           baseUrl: 'https://api.example/v1',
-          oauth: { storage: 'file', key: 'oauth/pythinker-code' },
+          oauth: { storage: 'file', key: 'oauth/kimi-code' },
         },
       },
     };
@@ -870,8 +870,8 @@ describe('ProviderManager OAuth auth', () => {
     'rejects an API key environment reference with OAuth when its value is %#',
     (value) => {
       const config = oauthConfig();
-      config.providers['managed:pythinker-code'] = {
-        ...config.providers['managed:pythinker-code']!,
+      config.providers['managed:kimi-code'] = {
+        ...config.providers['managed:kimi-code']!,
         apiKeyEnvVar: 'OAUTH_CONFLICT_KEY',
       };
       const manager = new ProviderManager({

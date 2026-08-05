@@ -305,7 +305,7 @@ describe("Webview workspace paths (selected-directory containment)", () => {
     } as unknown as Session;
     const runtime = new SessionRuntime({
       session,
-      legacyApproval: { yolo: false, afk: false },
+      permissionMode: "manual",
       broadcast: vi.fn(),
       captureBaseline: (summary, filePath, webviewIds) => {
         bridge.captureFileBaseline(summary, filePath, webviewIds);

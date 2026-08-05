@@ -4,6 +4,12 @@ import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import * as vscode from "vscode";
 
+import {
+  buildSkillSlashCommands,
+  type PermissionMode,
+  type SkillSummary,
+} from "@pythoughts/pythinker-code-sdk";
+
 import type { SessionRuntime } from "../runtime/session-runtime";
 import {
   buildExportMarkdown,
@@ -32,16 +38,40 @@ export interface HostSlashCommand {
   readonly name: string;
   readonly args: string;
   readonly raw: string;
+  /** Set when the command names a skill; built-in skills are not `skill:`-prefixed. */
+  readonly skillName?: string;
 }
 
-export function parseHostSlashCommand(content: string | readonly unknown[]): HostSlashCommand | undefined {
+/**
+ * `listSkills` is consulted only for a `/word` that is not a host command, so an
+ * ordinary message never pays for it. Anything that resolves to neither a host
+ * command nor a skill is left alone and goes to the model as text.
+ */
+export async function parseHostSlashCommand(
+  content: string | readonly unknown[],
+  listSkills?: () => Promise<readonly SkillSummary[]>,
+): Promise<HostSlashCommand | undefined> {
   if (typeof content !== "string") return undefined;
   const raw = content.trim();
   const match = /^\/([^\s]+)(?:\s+(.*))?\s*$/s.exec(raw);
   if (match === null) return undefined;
   const name = match[1]!.toLowerCase();
-  if (!HOST_COMMANDS.has(name) && !name.startsWith("skill:")) return undefined;
-  return { name, args: match[2]?.trim() ?? "", raw };
+  const args = match[2]?.trim() ?? "";
+  if (HOST_COMMANDS.has(name)) return { name, args, raw };
+
+  const skills = listSkills === undefined ? undefined : await listSkills().catch(() => undefined);
+  if (skills === undefined) {
+    // The parser runs on every message that starts with "/", so a catalog
+    // failure must degrade to the prefix check rather than reject and take the
+    // whole send down with it.
+    return name.startsWith("skill:") ? { name, args, raw, skillName: name.slice(6) } : undefined;
+  }
+  const { commandMap } = buildSkillSlashCommands(skills);
+  const skillName = commandMap.get(name) ?? commandMap.get(match[1]!);
+  if (skillName !== undefined) return { name, args, raw, skillName };
+  // A skill the catalog no longer lists still reaches the engine, which reports
+  // the miss far better than silently sending "/skill:foo" to the model.
+  return name.startsWith("skill:") ? { name, args, raw, skillName: name.slice(6) } : undefined;
 }
 
 export async function runHostSlashCommand(
@@ -49,8 +79,8 @@ export async function runHostSlashCommand(
   command: HostSlashCommand,
   ctx: HandlerContext,
 ): Promise<boolean> {
-  if (command.name.startsWith("skill:")) {
-    const skillName = command.name.slice("skill:".length);
+  if (command.skillName !== undefined) {
+    const skillName = command.skillName;
     const result = await runtime.runTurnAction(command.raw, async () => {
       await runtime.session.activateSkill(skillName, command.args || undefined);
     });
@@ -84,11 +114,11 @@ export async function runHostSlashCommand(
           emit("The context has been cleared.");
           break;
         case "yolo":
-          await toggleLegacyPermission(runtime, "yolo", emit);
+          await runPermissionCommand(runtime, "yolo", command.args, emit);
           break;
         case "auto":
         case "afk":
-          await toggleLegacyPermission(runtime, "afk", emit);
+          await runPermissionCommand(runtime, "auto", command.args, emit);
           break;
         case "plan":
           await runPlanCommand(runtime, command.args, emit);
@@ -114,26 +144,49 @@ export async function runHostSlashCommand(
   }
 }
 
-async function toggleLegacyPermission(
+const PERMISSION_MODE_ENABLED_MESSAGE = {
+  yolo: "You only live once! Tool actions will be auto-approved; the agent may still ask questions.",
+  auto: "Auto mode enabled. Questions will be auto-dismissed and tool calls auto-approved.",
+} as const;
+
+const PERMISSION_MODE_DISABLED_MESSAGE = {
+  yolo: "You only die once! Actions will require approval.",
+  auto: "Auto mode disabled. You are back at the keyboard.",
+} as const;
+
+/** `/yolo` and `/auto` accept `on` and `off`, and toggle without an argument — as the CLI does. */
+async function runPermissionCommand(
   runtime: SessionRuntime,
-  kind: "yolo" | "afk",
+  mode: "yolo" | "auto",
+  args: string,
   emit: (text: string) => void,
 ): Promise<void> {
-  const flags = await runtime.toggleLegacyApproval(kind);
+  const subcommand = args.trim().toLowerCase();
+  const requested =
+    subcommand === "on" ? mode : subcommand === "off" ? "manual" : undefined;
 
-  if (kind === "yolo") {
-    emit(flags.yolo
-      ? "You only live once! Tool actions will be auto-approved; the agent may still ask questions."
-      : flags.afk
-        ? "Yolo disabled, but Auto is still on — tool calls remain auto-approved."
-        : "You only die once! Actions will require approval.");
+  if (requested !== undefined && runtime.permissionMode === requested) {
+    emit(requested === mode ? `${label(mode)} is already on.` : `${label(mode)} is already off.`);
     return;
   }
-  emit(flags.afk
-    ? "Auto mode enabled. Questions will be auto-dismissed and tool calls auto-approved."
-    : flags.yolo
-      ? "Auto mode disabled. You are back at the keyboard. Yolo is still on."
-      : "Auto mode disabled. You are back at the keyboard.");
+
+  let current: PermissionMode;
+  if (requested === undefined) {
+    current = await runtime.togglePermissionMode(mode);
+  } else {
+    await runtime.setPermissionMode(requested);
+    current = requested;
+  }
+
+  emit(
+    current === mode
+      ? PERMISSION_MODE_ENABLED_MESSAGE[mode]
+      : PERMISSION_MODE_DISABLED_MESSAGE[mode],
+  );
+}
+
+function label(mode: "yolo" | "auto"): string {
+  return mode === "yolo" ? "YOLO mode" : "Auto mode";
 }
 
 async function runPlanCommand(

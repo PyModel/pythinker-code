@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 
-import type { ManagedPythinkerConfigShape } from '../src/managed-pythinker-code';
+import type { ManagedKimiConfigShape } from '../src/managed-kimi-code';
 import {
   applyOpenAICodexOAuthConfig,
   buildOpenAICodexAuthorizeUrl,
@@ -200,7 +200,7 @@ describe('openai-codex-oauth', () => {
     });
     const config = {
       providers: {},
-    } as ManagedPythinkerConfigShape;
+    } as ManagedKimiConfigShape;
     const models = CODEX_MODELS_RESPONSE.models.map((model) => ({
       id: model.slug,
       contextLength: model.context_window,
@@ -245,7 +245,7 @@ describe('openai-codex-oauth', () => {
   });
 
   it('uses the selected model highest supported effort when max is unavailable', () => {
-    const config: ManagedPythinkerConfigShape = {
+    const config: ManagedKimiConfigShape = {
       providers: {},
       thinking: { mode: 'auto', effort: 'low' },
     };

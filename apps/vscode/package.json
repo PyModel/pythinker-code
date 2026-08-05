@@ -3,7 +3,7 @@
   "publisher": "pythoughts",
   "displayName": "Pythinker Code",
   "description": "Pythinker Code extension for VS Code",
-  "version": "0.6.7",
+  "version": "0.8.3",
   "private": true,
   "license": "Apache-2.0",
   "type": "module",
@@ -53,7 +53,7 @@
         "pythinker.yoloMode": {
           "type": "boolean",
           "default": false,
-          "description": "Auto-approve regular tool calls; the agent may still ask questions"
+          "description": "Start new sessions in YOLO mode (auto-approve regular tool calls; the agent may still ask questions). Sessions keep the mode they were last left in; changing this applies to the open sessions too."
         },
         "pythinker.autosave": {
           "type": "boolean",
@@ -249,6 +249,7 @@
     "package:platform": "node scripts/vsix-package.mjs",
     "package:verify": "node scripts/vsix-verify.mjs",
     "publish:vsix": "node scripts/vsix-publish.mjs",
+    "release": "node scripts/release-extension.mjs",
     "publish:ovsx": "node scripts/ovsx-publish.mjs"
   },
   "devDependencies": {

@@ -21,16 +21,16 @@ async function main(): Promise<void> {
     defaultPermissionMode: 'manual',
     defaultPlanMode: false,
     providers: {
-      'managed:pythinker-code': {
+      'managed:kimi-code': {
         type: 'pythinker',
         baseUrl: 'https://api.pythinker.com/coding/v1',
         apiKey: '',
-        oauth: { storage: 'file', key: 'oauth/pythinker-code' },
+        oauth: { storage: 'file', key: 'oauth/kimi-code' },
       },
     },
     models: {
       'pythinker-code/pythinker-for-coding': {
-        provider: 'managed:pythinker-code',
+        provider: 'managed:kimi-code',
         model: 'pythinker-for-coding',
         maxContextSize: 262144,
         capabilities: ['image_in', 'thinking', 'video_in'],
@@ -47,12 +47,12 @@ async function main(): Promise<void> {
       pythoughtsSearch: {
         baseUrl: 'https://api.pythinker.com/coding/v1/search',
         apiKey: '',
-        oauth: { storage: 'file', key: 'oauth/pythinker-code' },
+        oauth: { storage: 'file', key: 'oauth/kimi-code' },
       },
       pythoughtsFetch: {
         baseUrl: 'https://api.pythinker.com/coding/v1/fetch',
         apiKey: '',
-        oauth: { storage: 'file', key: 'oauth/pythinker-code' },
+        oauth: { storage: 'file', key: 'oauth/kimi-code' },
       },
     },
   });
@@ -62,8 +62,8 @@ async function main(): Promise<void> {
   for (const expected of [
     'default_model = "pythinker-code/pythinker-for-coding"',
     'default_permission_mode = "manual"',
-    '[providers."managed:pythinker-code"]',
-    '[providers."managed:pythinker-code".oauth]',
+    '[providers."managed:kimi-code"]',
+    '[providers."managed:kimi-code".oauth]',
     '[models."pythinker-code/pythinker-for-coding"]',
     '[services.pythoughts_search]',
   ]) {
@@ -76,7 +76,7 @@ async function main(): Promise<void> {
   if (reloaded.defaultModel !== 'pythinker-code/pythinker-for-coding') {
     throw new Error('reloaded config did not preserve defaultModel');
   }
-  if (reloaded.providers['managed:pythinker-code']?.oauth?.key !== 'oauth/pythinker-code') {
+  if (reloaded.providers['managed:kimi-code']?.oauth?.key !== 'oauth/kimi-code') {
     throw new Error('reloaded config did not preserve provider oauth');
   }
 

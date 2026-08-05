@@ -3,10 +3,10 @@ import { createServer, type Server } from 'node:http';
 
 import { readApiErrorMessage } from './api-error';
 import type {
-  ManagedPythinkerCodeModelInfo,
-  ManagedPythinkerConfigShape,
-} from './managed-pythinker-code';
-import { parseSupportsThinkingType } from './managed-pythinker-code';
+  ManagedKimiCodeModelInfo,
+  ManagedKimiConfigShape,
+} from './managed-kimi-code';
+import { parseSupportsThinkingType } from './managed-kimi-code';
 import { renderOAuthErrorPage, renderOpenAICodexOAuthSuccessPage } from './oauth-pages';
 import { capabilitiesForModel } from './open-platform';
 import { isRecord } from './utils';
@@ -442,7 +442,7 @@ function readCodexFastMode(item: Record<string, unknown>): boolean {
   });
 }
 
-function toCodexModelInfo(item: unknown): ManagedPythinkerCodeModelInfo | undefined {
+function toCodexModelInfo(item: unknown): ManagedKimiCodeModelInfo | undefined {
   if (!isRecord(item)) return undefined;
 
   const id =
@@ -506,7 +506,7 @@ function toCodexModelInfo(item: unknown): ManagedPythinkerCodeModelInfo | undefi
   };
 }
 
-function parseCodexModelsPayload(payload: unknown): ManagedPythinkerCodeModelInfo[] {
+function parseCodexModelsPayload(payload: unknown): ManagedKimiCodeModelInfo[] {
   if (!isRecord(payload)) {
     throw new Error(`Unexpected models response for ${CODEX_BASE_URL}.`);
   }
@@ -522,7 +522,7 @@ function parseCodexModelsPayload(payload: unknown): ManagedPythinkerCodeModelInf
 
   return rawModels
     .map((item) => toCodexModelInfo(item))
-    .filter((item): item is ManagedPythinkerCodeModelInfo => item !== undefined);
+    .filter((item): item is ManagedKimiCodeModelInfo => item !== undefined);
 }
 
 /**
@@ -531,7 +531,7 @@ function parseCodexModelsPayload(payload: unknown): ManagedPythinkerCodeModelInf
  */
 export async function fetchOpenAICodexModels(
   options: FetchOpenAICodexModelsOptions,
-): Promise<ManagedPythinkerCodeModelInfo[]> {
+): Promise<ManagedKimiCodeModelInfo[]> {
   const fetchImpl = options.fetchImpl ?? fetch;
   const modelsUrl = `${CODEX_BASE_URL}/models?client_version=${encodeURIComponent(OPENAI_CODEX_CLI_CLIENT_VERSION)}`;
   const response = await fetchImpl(modelsUrl, {
@@ -565,13 +565,13 @@ export interface ApplyOpenAICodexOAuthResult {
  * reasoning effort into the config in place.
  */
 export function applyOpenAICodexOAuthConfig(
-  config: ManagedPythinkerConfigShape,
+  config: ManagedKimiConfigShape,
   options: {
     readonly accessToken: string;
     readonly accountId?: string | undefined;
     readonly refreshToken?: string | undefined;
-    readonly models: readonly ManagedPythinkerCodeModelInfo[];
-    readonly selectedModel: ManagedPythinkerCodeModelInfo;
+    readonly models: readonly ManagedKimiCodeModelInfo[];
+    readonly selectedModel: ManagedKimiCodeModelInfo;
     readonly thinking?: boolean | undefined;
   },
 ): ApplyOpenAICodexOAuthResult {

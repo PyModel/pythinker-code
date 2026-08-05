@@ -1,15 +1,15 @@
 import { createHash } from 'node:crypto';
 
 import { readApiErrorMessage } from './api-error';
-import { DEFAULT_PYTHINKER_CODE_OAUTH_HOST } from './constants';
+import { DEFAULT_KIMI_CODE_OAUTH_HOST } from './constants';
 import { OAuthUnauthorizedError } from './errors';
-import { DEFAULT_PYTHINKER_CODE_BASE_URL, pythinkerCodeBaseUrl } from './managed-usage';
+import { DEFAULT_KIMI_CODE_BASE_URL, kimiCodeBaseUrl } from './managed-usage';
 import { isRecord } from './utils';
 
-export const PYTHINKER_CODE_PLATFORM_ID = 'pythinker-code';
-export const PYTHINKER_CODE_PROVIDER_NAME = 'managed:pythinker-code';
-export const PYTHINKER_CODE_OAUTH_KEY = 'oauth/pythinker-code';
-const PYTHINKER_CODE_SCOPED_OAUTH_KEY_PREFIX = 'oauth/pythinker-code-env-';
+export const KIMI_CODE_PLATFORM_ID = 'kimi-code';
+export const KIMI_CODE_PROVIDER_NAME = 'managed:kimi-code';
+export const KIMI_CODE_OAUTH_KEY = 'oauth/kimi-code';
+const KIMI_CODE_SCOPED_OAUTH_KEY_PREFIX = 'oauth/kimi-code-env-';
 
 /**
  * Server-declared thinking toggle support from `/models`:
@@ -21,11 +21,11 @@ const PYTHINKER_CODE_SCOPED_OAUTH_KEY_PREFIX = 'oauth/pythinker-code-env-';
 export type SupportsThinkingType = 'only' | 'no' | 'both';
 
 /**
- * Normalized model catalog entry returned by the managed Pythinker Code
+ * Normalized model catalog entry returned by the managed Kimi Code
  * `/models` endpoint; raw snake_case server fields map to these camelCase
  * fields.
  */
-export interface ManagedPythinkerCodeModelInfo {
+export interface ManagedKimiCodeModelInfo {
   readonly id: string;
   readonly contextLength: number;
   readonly supportsReasoning: boolean;
@@ -38,63 +38,63 @@ export interface ManagedPythinkerCodeModelInfo {
   readonly displayName?: string | undefined;
 }
 
-export interface ManagedPythinkerCodeProvisionResult {
-  readonly providerName: typeof PYTHINKER_CODE_PROVIDER_NAME;
+export interface ManagedKimiCodeProvisionResult {
+  readonly providerName: typeof KIMI_CODE_PROVIDER_NAME;
   readonly defaultModel: string;
   readonly defaultThinking: boolean;
-  readonly models: readonly ManagedPythinkerCodeModelInfo[];
+  readonly models: readonly ManagedKimiCodeModelInfo[];
   readonly configPath?: string | undefined;
 }
 
-export interface FetchManagedPythinkerCodeModelsOptions {
+export interface FetchManagedKimiCodeModelsOptions {
   readonly accessToken: string;
   readonly baseUrl?: string | undefined;
   readonly fetchImpl?: typeof fetch | undefined;
 }
 
-export interface ManagedPythinkerCodeApplyResult {
+export interface ManagedKimiCodeApplyResult {
   readonly defaultModel: string;
   readonly defaultThinking: boolean;
 }
 
-export interface ManagedPythinkerCodeCleanupResult {
-  readonly providerName: typeof PYTHINKER_CODE_PROVIDER_NAME;
+export interface ManagedKimiCodeCleanupResult {
+  readonly providerName: typeof KIMI_CODE_PROVIDER_NAME;
   readonly removedProvider: boolean;
   readonly removedModels: readonly string[];
   readonly defaultModelCleared: boolean;
   readonly removedServices: readonly string[];
 }
 
-export interface ManagedPythinkerOAuthRef {
+export interface ManagedKimiOAuthRef {
   readonly storage: 'file' | 'keyring';
   readonly key: string;
   readonly oauthHost?: string | undefined;
 }
 
-export interface ManagedPythinkerOAuthRefInput {
+export interface ManagedKimiOAuthRefInput {
   readonly storage?: 'file' | 'keyring' | undefined;
   readonly key?: string | undefined;
   readonly oauthHost?: string | undefined;
 }
 
-export interface ManagedPythinkerRuntimeAuth {
+export interface ManagedKimiRuntimeAuth {
   readonly baseUrl?: string | undefined;
-  readonly oauthRef: ManagedPythinkerOAuthRef;
+  readonly oauthRef: ManagedKimiOAuthRef;
 }
 
-export interface ManagedPythinkerLoginAuth {
+export interface ManagedKimiLoginAuth {
   readonly baseUrl?: string | undefined;
   readonly oauthHost?: string | undefined;
-  readonly oauthRef?: ManagedPythinkerOAuthRef | undefined;
+  readonly oauthRef?: ManagedKimiOAuthRef | undefined;
 }
 
-export interface ManagedPythinkerEnv {
+export interface ManagedKimiEnv {
   readonly PYTHINKER_CODE_BASE_URL?: string | undefined;
   readonly PYTHINKER_CODE_OAUTH_HOST?: string | undefined;
   readonly PYTHINKER_OAUTH_HOST?: string | undefined;
 }
 
-export class ManagedPythinkerCodeModelsAuthError extends OAuthUnauthorizedError {
+export class ManagedKimiCodeModelsAuthError extends OAuthUnauthorizedError {
   readonly status: number;
   readonly baseUrl: string;
 
@@ -104,23 +104,23 @@ export class ManagedPythinkerCodeModelsAuthError extends OAuthUnauthorizedError 
     readonly message: string;
   }) {
     super(
-      `Pythinker Code models endpoint ${options.baseUrl} rejected OAuth credentials: ${options.message}`,
+      `Kimi Code models endpoint ${options.baseUrl} rejected OAuth credentials: ${options.message}`,
     );
-    this.name = 'ManagedPythinkerCodeModelsAuthError';
+    this.name = 'ManagedKimiCodeModelsAuthError';
     this.status = options.status;
     this.baseUrl = options.baseUrl;
   }
 }
 
-export interface ManagedPythinkerProviderConfig {
+export interface ManagedKimiProviderConfig {
   type: 'pythinker';
   baseUrl?: string | undefined;
   apiKey?: string | undefined;
-  oauth?: ManagedPythinkerOAuthRef | undefined;
+  oauth?: ManagedKimiOAuthRef | undefined;
   readonly [key: string]: unknown;
 }
 
-export interface ManagedPythinkerModelAlias {
+export interface ManagedKimiModelAlias {
   provider: string;
   model: string;
   maxContextSize: number;
@@ -130,50 +130,50 @@ export interface ManagedPythinkerModelAlias {
   readonly [key: string]: unknown;
 }
 
-export interface ManagedPythinkerServiceConfig {
+export interface ManagedKimiServiceConfig {
   baseUrl?: string | undefined;
   apiKey?: string | undefined;
-  oauth?: ManagedPythinkerOAuthRef | undefined;
+  oauth?: ManagedKimiOAuthRef | undefined;
 }
 
-export interface ManagedPythinkerServicesConfig {
-  pythoughtsSearch?: ManagedPythinkerServiceConfig | undefined;
-  pythoughtsFetch?: ManagedPythinkerServiceConfig | undefined;
+export interface ManagedKimiServicesConfig {
+  pythoughtsSearch?: ManagedKimiServiceConfig | undefined;
+  pythoughtsFetch?: ManagedKimiServiceConfig | undefined;
   readonly [key: string]: unknown;
 }
 
-export interface ManagedPythinkerConfigShape {
-  providers: Record<string, ManagedPythinkerProviderConfig | Record<string, unknown>>;
-  models?: Record<string, ManagedPythinkerModelAlias | Record<string, unknown>> | undefined;
+export interface ManagedKimiConfigShape {
+  providers: Record<string, ManagedKimiProviderConfig | Record<string, unknown>>;
+  models?: Record<string, ManagedKimiModelAlias | Record<string, unknown>> | undefined;
   defaultModel?: string | undefined;
   defaultThinking?: boolean | undefined;
   thinking?: {
     mode?: 'auto' | 'on' | 'off';
     effort?: string;
   };
-  services?: ManagedPythinkerServicesConfig | undefined;
+  services?: ManagedKimiServicesConfig | undefined;
   [key: string]: unknown;
 }
 
-export interface ManagedPythinkerConfigAdapter<TConfig> {
+export interface ManagedKimiConfigAdapter<TConfig> {
   read(): Promise<TConfig> | TConfig;
   write(config: TConfig): Promise<void> | void;
   apply(
     config: TConfig,
     input: {
-      readonly models: readonly ManagedPythinkerCodeModelInfo[];
+      readonly models: readonly ManagedKimiCodeModelInfo[];
       readonly baseUrl?: string | undefined;
       readonly oauthKey?: string | undefined;
       readonly oauthHost?: string | undefined;
       readonly preserveDefaultModel?: boolean | undefined;
     },
-  ): ManagedPythinkerCodeApplyResult;
+  ): ManagedKimiCodeApplyResult;
   remove?(config: TConfig): void;
   readonly configPath?: string | undefined;
 }
 
-export interface ProvisionManagedPythinkerCodeConfigOptions<TConfig> {
-  readonly adapter: ManagedPythinkerConfigAdapter<TConfig>;
+export interface ProvisionManagedKimiCodeConfigOptions<TConfig> {
+  readonly adapter: ManagedKimiConfigAdapter<TConfig>;
   readonly accessToken: string;
   readonly baseUrl?: string | undefined;
   readonly oauthKey?: string | undefined;
@@ -183,7 +183,7 @@ export interface ProvisionManagedPythinkerCodeConfigOptions<TConfig> {
 }
 
 function managedModelKey(modelId: string): string {
-  return `${PYTHINKER_CODE_PLATFORM_ID}/${modelId}`;
+  return `${KIMI_CODE_PLATFORM_ID}/${modelId}`;
 }
 
 interface SelectedDefaultModel {
@@ -191,7 +191,7 @@ interface SelectedDefaultModel {
   readonly thinking: boolean;
 }
 
-function capabilitiesForModel(model: ManagedPythinkerCodeModelInfo): string[] | undefined {
+function capabilitiesForModel(model: ManagedKimiCodeModelInfo): string[] | undefined {
   const caps = new Set<string>();
   // supports_thinking_type is the full three-state declaration and wins over
   // the legacy supports_reasoning boolean; absent (older servers) falls back.
@@ -219,7 +219,7 @@ function capabilitiesForModel(model: ManagedPythinkerCodeModelInfo): string[] | 
 }
 
 function defaultBaseUrl(baseUrl: string | undefined): string {
-  return (baseUrl ?? pythinkerCodeBaseUrl()).replace(/\/+$/, '');
+  return (baseUrl ?? kimiCodeBaseUrl()).replace(/\/+$/, '');
 }
 
 function normalizeBaseUrl(baseUrl: string): string {
@@ -235,10 +235,10 @@ function persistedOAuthHost(options: {
   readonly oauthHost?: string | undefined;
 }): string | undefined {
   const oauthHost = options.oauthHost;
-  const normalized = normalizeEndpoint(oauthHost ?? DEFAULT_PYTHINKER_CODE_OAUTH_HOST);
+  const normalized = normalizeEndpoint(oauthHost ?? DEFAULT_KIMI_CODE_OAUTH_HOST);
   if (
-    options.key === PYTHINKER_CODE_OAUTH_KEY &&
-    normalized === normalizeEndpoint(DEFAULT_PYTHINKER_CODE_OAUTH_HOST)
+    options.key === KIMI_CODE_OAUTH_KEY &&
+    normalized === normalizeEndpoint(DEFAULT_KIMI_CODE_OAUTH_HOST)
   ) {
     return undefined;
   }
@@ -249,7 +249,7 @@ function managedOAuthRef(options: {
   readonly key: string;
   readonly oauthHost?: string | undefined;
   readonly storage?: 'file' | 'keyring' | undefined;
-}): ManagedPythinkerOAuthRef {
+}): ManagedKimiOAuthRef {
   const oauthHost = persistedOAuthHost(options);
   return {
     storage: options.storage ?? 'file',
@@ -259,8 +259,8 @@ function managedOAuthRef(options: {
 }
 
 function configuredOAuthRef(
-  oauthRef: ManagedPythinkerOAuthRefInput | undefined,
-): ManagedPythinkerOAuthRef | undefined {
+  oauthRef: ManagedKimiOAuthRefInput | undefined,
+): ManagedKimiOAuthRef | undefined {
   if (oauthRef === undefined) return undefined;
   const key = oauthRef.key;
   if (key === undefined) return undefined;
@@ -272,16 +272,16 @@ function configuredOAuthRef(
 }
 
 /**
- * Managed Pythinker Code base URL from the environment.
+ * Managed Kimi Code base URL from the environment.
  */
-export function pythinkerCodeEnvBaseUrl(env: ManagedPythinkerEnv = process.env): string | undefined {
+export function kimiCodeEnvBaseUrl(env: ManagedKimiEnv = process.env): string | undefined {
   return env.PYTHINKER_CODE_BASE_URL;
 }
 
 /**
- * Managed Pythinker Code OAuth host from the environment.
+ * Managed Kimi Code OAuth host from the environment.
  */
-export function pythinkerCodeEnvOAuthHost(env: ManagedPythinkerEnv = process.env): string | undefined {
+export function kimiCodeEnvOAuthHost(env: ManagedKimiEnv = process.env): string | undefined {
   return env.PYTHINKER_CODE_OAUTH_HOST ?? env.PYTHINKER_OAUTH_HOST;
 }
 
@@ -289,28 +289,28 @@ export function pythinkerCodeEnvOAuthHost(env: ManagedPythinkerEnv = process.env
  * Returns the credential-storage key for an (oauthHost, baseUrl) pair: the
  * global slot for defaults, otherwise a hash-scoped per-environment slot.
  */
-export function resolvePythinkerCodeOAuthKey(options: {
+export function resolveKimiCodeOAuthKey(options: {
   readonly oauthHost?: string | undefined;
   readonly baseUrl?: string | undefined;
 }): string {
-  const oauthHost = normalizeEndpoint(options.oauthHost ?? DEFAULT_PYTHINKER_CODE_OAUTH_HOST);
+  const oauthHost = normalizeEndpoint(options.oauthHost ?? DEFAULT_KIMI_CODE_OAUTH_HOST);
   const baseUrl = defaultBaseUrl(options.baseUrl);
-  const defaultOauthHost = normalizeEndpoint(DEFAULT_PYTHINKER_CODE_OAUTH_HOST);
-  const defaultApiBaseUrl = normalizeEndpoint(DEFAULT_PYTHINKER_CODE_BASE_URL);
+  const defaultOauthHost = normalizeEndpoint(DEFAULT_KIMI_CODE_OAUTH_HOST);
+  const defaultApiBaseUrl = normalizeEndpoint(DEFAULT_KIMI_CODE_BASE_URL);
 
   if (oauthHost === defaultOauthHost && baseUrl === defaultApiBaseUrl) {
-    return PYTHINKER_CODE_OAUTH_KEY;
+    return KIMI_CODE_OAUTH_KEY;
   }
 
   const digest = createHash('sha256')
     .update(JSON.stringify({ oauthHost, baseUrl }))
     .digest('hex')
     .slice(0, 16);
-  return `${PYTHINKER_CODE_SCOPED_OAUTH_KEY_PREFIX}${digest}`;
+  return `${KIMI_CODE_SCOPED_OAUTH_KEY_PREFIX}${digest}`;
 }
 
 /**
- * Resolve the full managed-Pythinker-Code OAuth ref (credential storage key +
+ * Resolve the full managed-Kimi-Code OAuth ref (credential storage key +
  * persisted host) for an (oauthHost, baseUrl) environment.
  *
  * Single source of truth for "which credential slot does this environment map
@@ -319,12 +319,12 @@ export function resolvePythinkerCodeOAuthKey(options: {
  * is later read from — preventing the env-mismatch credential mix-ups this
  * scoping is meant to fix.
  */
-export function resolvePythinkerCodeOAuthRef(options: {
+export function resolveKimiCodeOAuthRef(options: {
   readonly oauthHost?: string | undefined;
   readonly baseUrl?: string | undefined;
-}): ManagedPythinkerOAuthRef {
+}): ManagedKimiOAuthRef {
   return managedOAuthRef({
-    key: resolvePythinkerCodeOAuthKey(options),
+    key: resolveKimiCodeOAuthKey(options),
     oauthHost: options.oauthHost,
   });
 }
@@ -334,18 +334,18 @@ export function resolvePythinkerCodeOAuthRef(options: {
  * the runtime auth the managed provider should use, migrating to the env's
  * credential slot when they disagree.
  */
-export function resolvePythinkerCodeRuntimeAuth(options: {
+export function resolveKimiCodeRuntimeAuth(options: {
   readonly configuredBaseUrl?: string | undefined;
-  readonly configuredOAuthRef?: ManagedPythinkerOAuthRefInput | undefined;
-  readonly env?: ManagedPythinkerEnv | undefined;
-}): ManagedPythinkerRuntimeAuth {
+  readonly configuredOAuthRef?: ManagedKimiOAuthRefInput | undefined;
+  readonly env?: ManagedKimiEnv | undefined;
+}): ManagedKimiRuntimeAuth {
   const env = options.env ?? process.env;
-  const envBaseUrl = pythinkerCodeEnvBaseUrl(env);
-  const envOAuthHost = pythinkerCodeEnvOAuthHost(env);
+  const envBaseUrl = kimiCodeEnvBaseUrl(env);
+  const envOAuthHost = kimiCodeEnvOAuthHost(env);
   const hasEnvOverride = envBaseUrl !== undefined || envOAuthHost !== undefined;
   const baseUrl =
     envBaseUrl !== undefined ? normalizeBaseUrl(envBaseUrl) : options.configuredBaseUrl;
-  const expected = resolvePythinkerCodeOAuthRef({
+  const expected = resolveKimiCodeOAuthRef({
     oauthHost: hasEnvOverride ? envOAuthHost : options.configuredOAuthRef?.oauthHost,
     baseUrl,
   });
@@ -361,16 +361,16 @@ export function resolvePythinkerCodeRuntimeAuth(options: {
  * then env overrides, then the configured ref validated against the key the
  * resolved base URL implies.
  */
-export function resolvePythinkerCodeLoginAuth(options: {
+export function resolveKimiCodeLoginAuth(options: {
   readonly configuredBaseUrl?: string | undefined;
-  readonly configuredOAuthRef?: ManagedPythinkerOAuthRefInput | undefined;
+  readonly configuredOAuthRef?: ManagedKimiOAuthRefInput | undefined;
   readonly requestedBaseUrl?: string | undefined;
   readonly requestedOAuthHost?: string | undefined;
-  readonly env?: ManagedPythinkerEnv | undefined;
-}): ManagedPythinkerLoginAuth {
+  readonly env?: ManagedKimiEnv | undefined;
+}): ManagedKimiLoginAuth {
   const env = options.env ?? process.env;
-  const envBaseUrl = pythinkerCodeEnvBaseUrl(env);
-  const envOAuthHost = pythinkerCodeEnvOAuthHost(env);
+  const envBaseUrl = kimiCodeEnvBaseUrl(env);
+  const envOAuthHost = kimiCodeEnvOAuthHost(env);
   const hasOverride =
     options.requestedBaseUrl !== undefined ||
     options.requestedOAuthHost !== undefined ||
@@ -387,7 +387,7 @@ export function resolvePythinkerCodeLoginAuth(options: {
 
   const configured = configuredOAuthRef(options.configuredOAuthRef);
   if (configured === undefined) return { baseUrl, oauthHost };
-  const expectedKey = resolvePythinkerCodeOAuthKey({
+  const expectedKey = resolveKimiCodeOAuthKey({
     oauthHost: configured.oauthHost,
     baseUrl,
   });
@@ -396,13 +396,13 @@ export function resolvePythinkerCodeLoginAuth(options: {
     : { baseUrl, oauthHost };
 }
 
-function toModelInfo(item: unknown): ManagedPythinkerCodeModelInfo | undefined {
+function toModelInfo(item: unknown): ManagedKimiCodeModelInfo | undefined {
   if (!isRecord(item) || typeof item['id'] !== 'string' || item['id'].length === 0) {
     return undefined;
   }
   const contextLength = Number(item['context_length']);
   if (!Number.isInteger(contextLength) || contextLength <= 0) {
-    throw new Error(`Pythinker Code model "${item['id']}" must include a positive context_length.`);
+    throw new Error(`Kimi Code model "${item['id']}" must include a positive context_length.`);
   }
   const displayName = item['display_name'];
   const normalizedDisplayName =
@@ -439,13 +439,13 @@ export function parseSupportsThinkingType(value: unknown): SupportsThinkingType 
 }
 
 /**
- * Lists the managed Pythinker Code models for an access token. Throws
- * ManagedPythinkerCodeModelsAuthError on 401/402/403 so callers can trigger
+ * Lists the managed Kimi Code models for an access token. Throws
+ * ManagedKimiCodeModelsAuthError on 401/402/403 so callers can trigger
  * re-login.
  */
-export async function fetchManagedPythinkerCodeModels(
-  options: FetchManagedPythinkerCodeModelsOptions,
-): Promise<ManagedPythinkerCodeModelInfo[]> {
+export async function fetchManagedKimiCodeModels(
+  options: FetchManagedKimiCodeModelsOptions,
+): Promise<ManagedKimiCodeModelInfo[]> {
   const fetchImpl = options.fetchImpl ?? fetch;
   const baseUrl = defaultBaseUrl(options.baseUrl);
   const response = await fetchImpl(`${baseUrl}/models`, {
@@ -457,10 +457,10 @@ export async function fetchManagedPythinkerCodeModels(
   if (!response.ok) {
     const message = await readApiErrorMessage(
       response,
-      `Failed to list Pythinker Code models (HTTP ${response.status}).`,
+      `Failed to list Kimi Code models (HTTP ${response.status}).`,
     );
     if (response.status === 401 || response.status === 402 || response.status === 403) {
-      throw new ManagedPythinkerCodeModelsAuthError({
+      throw new ManagedKimiCodeModelsAuthError({
         status: response.status,
         baseUrl,
         message,
@@ -474,7 +474,7 @@ export async function fetchManagedPythinkerCodeModels(
   }
   return payload['data']
     .map((item) => toModelInfo(item))
-    .filter((item): item is ManagedPythinkerCodeModelInfo => item !== undefined);
+    .filter((item): item is ManagedKimiCodeModelInfo => item !== undefined);
 }
 
 /**
@@ -482,18 +482,18 @@ export async function fetchManagedPythinkerCodeModels(
  * model into the config in place. The current default is preserved when
  * preserveDefaultModel is set and it still exists in the new catalog.
  */
-export function applyManagedPythinkerCodeConfig(
-  config: ManagedPythinkerConfigShape,
+export function applyManagedKimiCodeConfig(
+  config: ManagedKimiConfigShape,
   options: {
-    readonly models: readonly ManagedPythinkerCodeModelInfo[];
+    readonly models: readonly ManagedKimiCodeModelInfo[];
     readonly baseUrl?: string | undefined;
     readonly oauthKey?: string | undefined;
     readonly oauthHost?: string | undefined;
     readonly preserveDefaultModel?: boolean | undefined;
   },
-): ManagedPythinkerCodeApplyResult {
+): ManagedKimiCodeApplyResult {
   if (options.models.length === 0) {
-    throw new Error('No models available for Pythinker Code.');
+    throw new Error('No models available for Kimi Code.');
   }
   for (const model of options.models) {
     assertPositiveContextLength(model);
@@ -503,13 +503,13 @@ export function applyManagedPythinkerCodeConfig(
   const oauth =
     options.oauthKey !== undefined
       ? managedOAuthRef({ key: options.oauthKey, oauthHost: options.oauthHost })
-      : resolvePythinkerCodeOAuthRef({ baseUrl, oauthHost: options.oauthHost });
+      : resolveKimiCodeOAuthRef({ baseUrl, oauthHost: options.oauthHost });
   const existingModels = config.models ?? {};
   const selectedDefault = selectDefaultModel(config, options.models, {
     preserveExisting: options.preserveDefaultModel === true,
   });
 
-  config.providers[PYTHINKER_CODE_PROVIDER_NAME] = {
+  config.providers[KIMI_CODE_PROVIDER_NAME] = {
     type: 'pythinker',
     baseUrl,
     apiKey: '',
@@ -517,14 +517,14 @@ export function applyManagedPythinkerCodeConfig(
   };
 
   for (const [key, model] of Object.entries(existingModels)) {
-    if (isRecord(model) && model['provider'] === PYTHINKER_CODE_PROVIDER_NAME) {
+    if (isRecord(model) && model['provider'] === KIMI_CODE_PROVIDER_NAME) {
       delete existingModels[key];
     }
   }
   for (const model of options.models) {
     const capabilities = capabilitiesForModel(model);
     existingModels[managedModelKey(model.id)] = {
-      provider: PYTHINKER_CODE_PROVIDER_NAME,
+      provider: KIMI_CODE_PROVIDER_NAME,
       model: model.id,
       maxContextSize: model.contextLength,
       capabilities,
@@ -562,13 +562,13 @@ export function applyManagedPythinkerCodeConfig(
  * Removes the managed provider and its aliases/services from the config,
  * clearing defaults that pointed at them.
  */
-export function applyManagedPythinkerCodeLogoutConfig(config: ManagedPythinkerConfigShape): void {
-  delete config.providers[PYTHINKER_CODE_PROVIDER_NAME];
+export function applyManagedKimiCodeLogoutConfig(config: ManagedKimiConfigShape): void {
+  delete config.providers[KIMI_CODE_PROVIDER_NAME];
 
   let removedDefaultModel = false;
   const existingModels = config.models ?? {};
   for (const [key, model] of Object.entries(existingModels)) {
-    if (!isRecord(model) || model['provider'] !== PYTHINKER_CODE_PROVIDER_NAME) continue;
+    if (!isRecord(model) || model['provider'] !== KIMI_CODE_PROVIDER_NAME) continue;
     delete existingModels[key];
     if (config.defaultModel === key) removedDefaultModel = true;
   }
@@ -578,7 +578,7 @@ export function applyManagedPythinkerCodeLogoutConfig(config: ManagedPythinkerCo
     config.defaultModel = undefined;
   }
 
-  if (config['defaultProvider'] === PYTHINKER_CODE_PROVIDER_NAME) {
+  if (config['defaultProvider'] === KIMI_CODE_PROVIDER_NAME) {
     config['defaultProvider'] = undefined;
   }
 
@@ -596,7 +596,7 @@ export function applyManagedPythinkerCodeLogoutConfig(config: ManagedPythinkerCo
 // must never end up with thinking off, and a non-thinking model ('no') must
 // never end up with thinking on.
 function forcedThinking(
-  model: ManagedPythinkerCodeModelInfo | undefined,
+  model: ManagedKimiCodeModelInfo | undefined,
   fallback: boolean,
 ): boolean {
   if (model?.supportsThinkingType === 'only') return true;
@@ -605,13 +605,13 @@ function forcedThinking(
 }
 
 function selectDefaultModel(
-  config: ManagedPythinkerConfigShape,
-  models: readonly ManagedPythinkerCodeModelInfo[],
+  config: ManagedKimiConfigShape,
+  models: readonly ManagedKimiCodeModelInfo[],
   options: { readonly preserveExisting: boolean },
 ): SelectedDefaultModel {
   const firstModel = models[0];
   if (firstModel === undefined) {
-    throw new Error('No models available for Pythinker Code.');
+    throw new Error('No models available for Kimi Code.');
   }
 
   const managedModels = new Map(models.map((model) => [managedModelKey(model.id), model]));
@@ -643,30 +643,30 @@ function selectDefaultModel(
 }
 
 function canPreserveDefaultModel(
-  existingModels: Record<string, ManagedPythinkerModelAlias | Record<string, unknown>>,
+  existingModels: Record<string, ManagedKimiModelAlias | Record<string, unknown>>,
   defaultModel: string,
-  managedModels: ReadonlyMap<string, ManagedPythinkerCodeModelInfo>,
+  managedModels: ReadonlyMap<string, ManagedKimiCodeModelInfo>,
 ): boolean {
   if (managedModels.has(defaultModel)) return true;
   const existing = existingModels[defaultModel];
-  return isRecord(existing) && existing['provider'] !== PYTHINKER_CODE_PROVIDER_NAME;
+  return isRecord(existing) && existing['provider'] !== KIMI_CODE_PROVIDER_NAME;
 }
 
 /**
  * Removes the managed provider, model aliases, and services from the config
  * and reports what was actually removed.
  */
-export function clearManagedPythinkerCodeConfig(
-  config: ManagedPythinkerConfigShape,
-): ManagedPythinkerCodeCleanupResult {
-  const removedProvider = Object.hasOwn(config.providers, PYTHINKER_CODE_PROVIDER_NAME);
-  delete config.providers[PYTHINKER_CODE_PROVIDER_NAME];
+export function clearManagedKimiCodeConfig(
+  config: ManagedKimiConfigShape,
+): ManagedKimiCodeCleanupResult {
+  const removedProvider = Object.hasOwn(config.providers, KIMI_CODE_PROVIDER_NAME);
+  delete config.providers[KIMI_CODE_PROVIDER_NAME];
 
   const removedModels: string[] = [];
   const models = config.models;
   if (models !== undefined) {
     for (const [key, model] of Object.entries(models)) {
-      if (!isRecord(model) || model['provider'] !== PYTHINKER_CODE_PROVIDER_NAME) continue;
+      if (!isRecord(model) || model['provider'] !== KIMI_CODE_PROVIDER_NAME) continue;
       delete models[key];
       removedModels.push(key);
     }
@@ -692,7 +692,7 @@ export function clearManagedPythinkerCodeConfig(
   }
 
   return {
-    providerName: PYTHINKER_CODE_PROVIDER_NAME,
+    providerName: KIMI_CODE_PROVIDER_NAME,
     removedProvider,
     removedModels,
     defaultModelCleared,
@@ -700,26 +700,26 @@ export function clearManagedPythinkerCodeConfig(
   };
 }
 
-function assertPositiveContextLength(model: ManagedPythinkerCodeModelInfo): void {
+function assertPositiveContextLength(model: ManagedKimiCodeModelInfo): void {
   if (!Number.isInteger(model.contextLength) || model.contextLength <= 0) {
-    throw new Error(`Pythinker Code model "${model.id}" must include a positive context_length.`);
+    throw new Error(`Kimi Code model "${model.id}" must include a positive context_length.`);
   }
 }
 
-export async function provisionManagedPythinkerCodeConfigAfterLogin(
-  options: ProvisionManagedPythinkerCodeConfigOptions<ManagedPythinkerConfigShape>,
-): Promise<ManagedPythinkerCodeProvisionResult> {
-  return provisionManagedPythinkerCodeConfig(options);
+export async function provisionManagedKimiCodeConfigAfterLogin(
+  options: ProvisionManagedKimiCodeConfigOptions<ManagedKimiConfigShape>,
+): Promise<ManagedKimiCodeProvisionResult> {
+  return provisionManagedKimiCodeConfig(options);
 }
 
 /**
  * Full login-completion flow: fetches models, applies the provider config via
  * the adapter, and persists it. Returns the provisioned provider summary.
  */
-export async function provisionManagedPythinkerCodeConfig<TConfig>(
-  options: ProvisionManagedPythinkerCodeConfigOptions<TConfig>,
-): Promise<ManagedPythinkerCodeProvisionResult> {
-  const models = await fetchManagedPythinkerCodeModels(options);
+export async function provisionManagedKimiCodeConfig<TConfig>(
+  options: ProvisionManagedKimiCodeConfigOptions<TConfig>,
+): Promise<ManagedKimiCodeProvisionResult> {
+  const models = await fetchManagedKimiCodeModels(options);
   const config = await options.adapter.read();
   const applied = options.adapter.apply(config, {
     models,
@@ -730,7 +730,7 @@ export async function provisionManagedPythinkerCodeConfig<TConfig>(
   });
   await options.adapter.write(config);
   return {
-    providerName: PYTHINKER_CODE_PROVIDER_NAME,
+    providerName: KIMI_CODE_PROVIDER_NAME,
     defaultModel: applied.defaultModel,
     defaultThinking: applied.defaultThinking,
     models,

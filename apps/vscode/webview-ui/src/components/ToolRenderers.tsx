@@ -14,12 +14,14 @@ import {
   IconSquareChevronRight,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
+import { getToolLabel, parseArgs } from "@/lib/tool-args";
 import { FileLink, Markdown } from "./Markdown";
 import { DisplayBlocks } from "./DisplayBlocks";
 import { formatContentOutput } from "shared/legacy-sdk";
 import { cleanSystemTags } from "shared/utils";
 import { ThinkingBlock } from "./ThinkingBlock";
-import type { UIToolCall, UIStep, UIStepItem } from "@/stores/chat.store";
+import { WorkflowCard } from "./WorkflowCard";
+import type { UIToolCall, UIStep, UIStepItem, UISubagentStatus } from "@/stores/chat.store";
 import type { ToolResult, DisplayBlock, TodoBlock } from "shared/legacy-sdk";
 
 type ToolResultValue = ToolResult["return_value"];
@@ -28,17 +30,7 @@ interface ToolRendererProps {
   call: UIToolCall;
   result?: ToolResultValue;
   subagentSteps?: UIStep[];
-}
-
-function parseArgs(args: string | null): Record<string, unknown> {
-  if (!args) {
-    return {};
-  }
-  try {
-    return JSON.parse(args);
-  } catch {
-    return { raw: args };
-  }
+  subagentStatus?: Record<string, UISubagentStatus>;
 }
 
 function formatOutput(output: string | object | object[]): string {
@@ -307,7 +299,7 @@ function GenericTool({ call, result }: ToolRendererProps) {
   );
 }
 
-function SubagentStepItemRenderer({ item }: { item: UIStepItem }) {
+export function SubagentStepItemRenderer({ item }: { item: UIStepItem }) {
   if (item.type === "thinking") {
     return <ThinkingBlock content={item.content} finished={item.finished} compact />;
   }
@@ -315,7 +307,7 @@ function SubagentStepItemRenderer({ item }: { item: UIStepItem }) {
     return <Markdown content={item.content} className="text-[0.75rem] leading-relaxed" enableEnrichment={item.finished} />;
   }
   if (item.type === "tool_use") {
-    return <ToolCallCard call={item.call} result={item.result} subagentSteps={item.subagent_steps} />;
+    return <ToolCallCard call={item.call} result={item.result} subagentSteps={item.subagent_steps} subagentStatus={item.subagent_status} />;
   }
   return null;
 }
@@ -385,31 +377,23 @@ function TaskTool({ call, result, subagentSteps }: ToolRendererProps) {
   );
 }
 
-function getToolLabel(call: UIToolCall): string {
-  const args = parseArgs(call.arguments);
-  switch (call.name) {
-    case "Shell":
-      return (args.command as string) || "command";
-    case "ReadFile":
-      return (args.path as string)?.split("/").pop() || "file";
-    case "WriteFile":
-      return (args.path as string)?.split("/").pop() || "file";
-    case "StrReplaceFile":
-      return (args.path as string)?.split("/").pop() || "file";
-    case "Glob":
-      return (args.pattern as string) || "pattern";
-    case "Task":
-      return (args.description as string) || "subagent task";
-    case "SetTodoList":
-      return "Update Todos";
-    default:
-      return "";
-  }
-}
-
-export function ToolCallCard({ call, result, subagentSteps }: ToolRendererProps) {
+export function ToolCallCard({ call, result, subagentSteps, subagentStatus }: ToolRendererProps) {
   const [expanded, setExpanded] = useState(false);
   const status = !result ? "pending" : !result.is_error ? "success" : "error";
+
+  // DynamicWorkflow batches render as per-agent lanes instead of the generic
+  // escaped-JSON card: its header/progress semantics don't fit the shared shell.
+  if (call.name === "DynamicWorkflow") {
+    return (
+      <WorkflowCard
+        call={call}
+        result={result}
+        subagentSteps={subagentSteps ?? []}
+        subagentStatus={subagentStatus ?? {}}
+        renderStepItem={(item) => <SubagentStepItemRenderer item={item} />}
+      />
+    );
+  }
 
   const renderContent = () => {
     const props = { call, result, subagentSteps };

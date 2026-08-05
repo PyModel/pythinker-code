@@ -6,7 +6,7 @@ import { createPythinkerHarness, type PythinkerHarness } from '@pythoughts/pythi
 
 import { smokeIdentityFromEnv, runPromptToEnd } from './runtime-smoke-helpers';
 
-const MANAGED_PYTHINKER_CODE_PROVIDER = 'managed:pythinker-code';
+const MANAGED_KIMI_CODE_PROVIDER = 'managed:kimi-code';
 
 async function main(): Promise<void> {
   const explicitHomeDir = process.env['PYTHINKER_SDK_AUTH_SMOKE_HOME'];
@@ -24,14 +24,14 @@ async function main(): Promise<void> {
 
   try {
     if (forceLogin) {
-      await harness.auth.logout(MANAGED_PYTHINKER_CODE_PROVIDER);
+      await harness.auth.logout(MANAGED_KIMI_CODE_PROVIDER);
       process.stdout.write('cleared existing smoke token\n');
     }
 
     const login = await harness.auth.login(undefined, { onDeviceCode: printDeviceCode });
     const config = await harness.getConfig({ reload: true });
-    const status = await harness.auth.status(MANAGED_PYTHINKER_CODE_PROVIDER);
-    const usage = await harness.auth.getManagedUsage(MANAGED_PYTHINKER_CODE_PROVIDER);
+    const status = await harness.auth.status(MANAGED_KIMI_CODE_PROVIDER);
+    const usage = await harness.auth.getManagedUsage(MANAGED_KIMI_CODE_PROVIDER);
 
     if (login.defaultModel === undefined || config.defaultModel === undefined) {
       throw new Error('login did not provision a default model');
@@ -39,7 +39,7 @@ async function main(): Promise<void> {
     if (status.providers[0]?.hasToken !== true) {
       throw new Error('status did not report a stored token after login');
     }
-    if (config.providers[MANAGED_PYTHINKER_CODE_PROVIDER]?.oauth?.key !== 'oauth/pythinker-code') {
+    if (config.providers[MANAGED_KIMI_CODE_PROVIDER]?.oauth?.key !== 'oauth/kimi-code') {
       throw new Error('managed provider oauth config was not written');
     }
 
@@ -59,7 +59,7 @@ async function main(): Promise<void> {
     process.stdout.write(`auth smoke passed: ${session.id}\n`);
   } finally {
     if (!keepToken) {
-      await harness.auth.logout(MANAGED_PYTHINKER_CODE_PROVIDER).catch(() => {});
+      await harness.auth.logout(MANAGED_KIMI_CODE_PROVIDER).catch(() => {});
     }
     await harness.close();
     if (explicitHomeDir === undefined && !keepToken) {

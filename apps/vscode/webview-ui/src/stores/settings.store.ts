@@ -5,7 +5,7 @@ import type { ExtensionConfig } from "shared/types";
 import type { MCPServerConfig, ModelConfig, ThinkingMode, SlashCommandInfo } from "shared/legacy-sdk";
 
 let settingsSaveRevision = 0;
-const MANAGED_PYTHINKER_CODE_PROVIDER = "managed:pythinker-code";
+const MANAGED_KIMI_CODE_PROVIDER = "managed:kimi-code";
 
 function saveConfigWithRollback(
   config: Parameters<typeof bridge.saveConfig>[0],
@@ -47,7 +47,7 @@ export function getModelThinkingMode(model: ModelConfig): ThinkingMode {
 }
 
 export function providerDisplayName(provider: string): string {
-  if (provider === MANAGED_PYTHINKER_CODE_PROVIDER) return "Pythinker Code";
+  if (provider === MANAGED_KIMI_CODE_PROVIDER) return "Kimi Code";
   if (provider.startsWith("managed:")) return provider.slice("managed:".length);
   return provider;
 }
@@ -84,7 +84,7 @@ export function requiresManagedProviderLogin(
 ): boolean {
   if (loggedIn) return false;
   const activeModel = getModelById(models, defaultModel ?? "") ?? models[0];
-  return activeModel?.provider === MANAGED_PYTHINKER_CODE_PROVIDER;
+  return activeModel?.provider === MANAGED_KIMI_CODE_PROVIDER;
 }
 
 function defaultEffortForModel(model: ModelConfig, defaultThinking: boolean, configuredEffort?: string): string {
@@ -145,6 +145,7 @@ interface SettingsState {
   extensionConfig: ExtensionConfig;
   mcpServers: MCPServerConfig[];
   mcpModalOpen: boolean;
+  providersModalOpen: boolean;
   workDirModalOpen: boolean;
   settingsDialogOpen: boolean;
   currentWorkDir: string | null;
@@ -166,6 +167,7 @@ interface SettingsState {
   setExtensionConfig: (config: ExtensionConfig) => void;
   setMCPServers: (servers: MCPServerConfig[]) => void;
   setMCPModalOpen: (open: boolean) => void;
+  setProvidersModalOpen: (open: boolean) => void;
   setWorkDirModalOpen: (open: boolean) => void;
   setSettingsDialogOpen: (open: boolean) => void;
   setCurrentWorkDir: (workDir: string | null) => void;
@@ -182,6 +184,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   extensionConfig: DEFAULT_EXTENSION_CONFIG,
   mcpServers: [],
   mcpModalOpen: false,
+  providersModalOpen: false,
   workDirModalOpen: false,
   settingsDialogOpen: false,
   currentWorkDir: null,
@@ -281,6 +284,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setMCPServers: (mcpServers) => set({ mcpServers }),
 
   setMCPModalOpen: (mcpModalOpen) => set({ mcpModalOpen }),
+  setProvidersModalOpen: (providersModalOpen) => set({ providersModalOpen }),
 
   setWorkDirModalOpen: (workDirModalOpen) => set({ workDirModalOpen }),
 

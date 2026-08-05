@@ -298,6 +298,7 @@ describe("VS Code replay from a public Node SDK resume state", () => {
         type: "SubagentEvent",
         payload: {
           parent_tool_call_id: "agent-call-1",
+          agent_id: "agent-0",
           event: { type: "StepBegin", payload: { n: 1 } },
         },
       }),
@@ -307,6 +308,7 @@ describe("VS Code replay from a public Node SDK resume state", () => {
         type: "SubagentEvent",
         payload: {
           parent_tool_call_id: "agent-call-1",
+          agent_id: "agent-0",
           event: { type: "ContentPart", payload: { type: "text", text: childAnswer } },
         },
       }),

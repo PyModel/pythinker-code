@@ -126,6 +126,22 @@ export interface QuestionResponse {
 export interface SubagentEvent {
   parent_tool_call_id: string;
   event: LegacyWireEvent;
+  /** Emitting subagent. */
+  agent_id: string;
+  /** Display name for the lane, e.g. "explore". Absent for non-DynamicWorkflow subagents. */
+  agent_label?: string;
+  /** Position within the DynamicWorkflow batch, 1-based. Absent when the subagent has none. */
+  agent_index?: number;
+}
+
+export interface SubagentStatusPayload {
+  parent_tool_call_id: string;
+  agent_id: string;
+  agent_label?: string;
+  agent_index?: number;
+  status: 'spawned' | 'running' | 'done' | 'failed' | 'suspended';
+  error?: string;
+  result_summary?: string;
 }
 
 export type LegacyWireEvent =
@@ -142,6 +158,7 @@ export type LegacyWireEvent =
   | { type: 'ToolResult'; payload: ToolResult }
   | { type: 'SteerInput'; payload: { user_input: string | ContentPart[] } }
   | { type: 'SubagentEvent'; payload: SubagentEvent }
+  | { type: 'SubagentStatus'; payload: SubagentStatusPayload }
   | { type: string; payload: unknown };
 
 export type StreamEvent =

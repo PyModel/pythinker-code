@@ -28,8 +28,10 @@ export {
   catalogModelToAlias,
   catalogProviderModels,
   CatalogFetchError,
+  CatalogProviderError,
   DEFAULT_CATALOG_URL,
   fetchCatalog,
+  importCatalogProvider,
   inferWireType,
   loadBuiltInCatalog,
 } from '#/catalog';
@@ -38,7 +40,13 @@ export type {
   Catalog,
   CatalogModel,
   CatalogProviderEntry,
+  CatalogProviderStore,
+  ImportCatalogProviderOptions,
+  ImportCatalogProviderResult,
 } from '#/catalog';
+
+export { buildSkillSlashCommands, isUserActivatableSkill } from '#/skill-commands';
+export type { SkillSlashCommand, SkillSlashCommands } from '#/skill-commands';
 
 export {
   ErrorCodes,

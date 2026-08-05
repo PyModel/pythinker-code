@@ -4,7 +4,7 @@ import {
   fetchManagedUsage,
   formatDuration,
   formatResetTime,
-  isManagedPythinkerCode,
+  isManagedKimiCode,
   parseManagedUsagePayload,
 } from '../src/managed-usage';
 
@@ -12,14 +12,14 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('isManagedPythinkerCode', () => {
+describe('isManagedKimiCode', () => {
   it('matches only the pythinker-code managed provider', () => {
-    expect(isManagedPythinkerCode('managed:pythinker-code')).toBe(true);
-    expect(isManagedPythinkerCode('managed:pythoughts-labs')).toBe(false);
-    expect(isManagedPythinkerCode('openai')).toBe(false);
-    expect(isManagedPythinkerCode('')).toBe(false);
-    expect(isManagedPythinkerCode(null)).toBe(false);
-    expect(isManagedPythinkerCode()).toBe(false);
+    expect(isManagedKimiCode('managed:kimi-code')).toBe(true);
+    expect(isManagedKimiCode('managed:pythoughts-labs')).toBe(false);
+    expect(isManagedKimiCode('openai')).toBe(false);
+    expect(isManagedKimiCode('')).toBe(false);
+    expect(isManagedKimiCode(null)).toBe(false);
+    expect(isManagedKimiCode()).toBe(false);
   });
 });
 
@@ -152,7 +152,7 @@ describe('fetchManagedUsage', () => {
     expect(result.kind).toBe('error');
     if (result.kind !== 'error') return;
     expect(result.status).toBe(404);
-    expect(result.message).toBe('Usage endpoint not available. Try Pythinker For Coding.');
+    expect(result.message).toBe('Usage endpoint not available. Try Kimi For Coding.');
   });
 });
 

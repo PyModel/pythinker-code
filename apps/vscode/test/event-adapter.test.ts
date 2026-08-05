@@ -360,6 +360,8 @@ describe('event adapter (projects SDK events into the legacy Webview contract)',
       type: 'SubagentEvent',
       payload: {
         parent_tool_call_id: 'agent-call-1',
+        agent_id: 'child-1',
+        agent_label: 'coder',
         event: {
           type: 'ContentPart',
           payload: { type: 'text', text: 'Child result' },
@@ -394,6 +396,8 @@ describe('event adapter (projects SDK events into the legacy Webview contract)',
       type: 'SubagentEvent',
       payload: {
         parent_tool_call_id: 'agent-call-1',
+        agent_id: 'child-1',
+        agent_label: 'coder',
         event: {
           type: 'ToolCall',
           payload: {
@@ -406,6 +410,76 @@ describe('event adapter (projects SDK events into the legacy Webview contract)',
           },
         },
       },
+      _sessionId: 'session-1',
+    });
+  });
+
+  it('emits a spawned SubagentStatus the moment a subagent is queued', () => {
+    const result = adaptSdkEvent(createEventAdapterState(), {
+      type: 'subagent.spawned',
+      sessionId: 'session-1',
+      agentId: 'main',
+      subagentId: 'child-1',
+      subagentName: 'explore',
+      parentToolCallId: 'wf-1',
+      parentAgentId: 'main',
+      dynamicWorkflowIndex: 2,
+      runInBackground: false,
+    });
+
+    expect(result.event).toEqual({
+      type: 'SubagentStatus',
+      payload: {
+        parent_tool_call_id: 'wf-1',
+        agent_id: 'child-1',
+        agent_label: 'explore',
+        agent_index: 2,
+        status: 'spawned',
+      },
+      _sessionId: 'session-1',
+    });
+  });
+
+  it.each([
+    ['subagent.started' as const, 'running' as const, {}],
+    ['subagent.suspended' as const, 'suspended' as const, { reason: 'waiting on approval' }],
+    ['subagent.completed' as const, 'done' as const, { resultSummary: 'Explored 3 files' }],
+    ['subagent.failed' as const, 'failed' as const, { error: 'timed out' }],
+  ])('routes each %s lifecycle event to one SubagentStatus on the spawning tool call', (sdkType, status, extra) => {
+    const spawned = adaptSdkEvent(createEventAdapterState(), {
+      type: 'subagent.spawned',
+      sessionId: 'session-1',
+      agentId: 'main',
+      subagentId: 'child-1',
+      subagentName: 'explore',
+      parentToolCallId: 'wf-1',
+      parentAgentId: 'main',
+      dynamicWorkflowIndex: 2,
+      runInBackground: false,
+    });
+
+    const lifecycle = adaptSdkEvent(spawned.state, {
+      type: sdkType,
+      sessionId: 'session-1',
+      agentId: 'main',
+      subagentId: 'child-1',
+      parentToolCallId: 'wf-1',
+      ...extra,
+    } as any);
+
+    const expectedPayload: Record<string, unknown> = {
+      parent_tool_call_id: 'wf-1',
+      agent_id: 'child-1',
+      agent_label: 'explore',
+      agent_index: 2,
+      status,
+    };
+    if ('error' in extra) expectedPayload['error'] = (extra as { error: string }).error;
+    if ('resultSummary' in extra) expectedPayload['result_summary'] = (extra as { resultSummary: string }).resultSummary;
+
+    expect(lifecycle.event).toEqual({
+      type: 'SubagentStatus',
+      payload: expectedPayload,
       _sessionId: 'session-1',
     });
   });

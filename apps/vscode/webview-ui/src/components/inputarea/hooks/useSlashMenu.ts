@@ -1,26 +1,12 @@
-import { useMemo, useState, useCallback } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSettingsStore } from "@/stores";
 import type { SlashCommandInfo } from "shared/legacy-sdk";
+import { rankSlashCommands } from "./slash-command-match";
 
 interface ActiveToken {
   trigger: "/" | "@";
   start: number;
   query: string;
-}
-
-function fuzzyMatch(text: string, query: string): boolean {
-  if (!query) {
-    return true;
-  }
-  const lowerText = text.toLowerCase();
-  const lowerQuery = query.toLowerCase();
-  let qi = 0;
-  for (let i = 0; i < lowerText.length && qi < lowerQuery.length; i++) {
-    if (lowerText[i] === lowerQuery[qi]) {
-      qi++;
-    }
-  }
-  return qi === lowerQuery.length;
 }
 
 export function findActiveToken(text: string, cursorPos: number): ActiveToken | null {
@@ -56,16 +42,19 @@ export function useSlashMenu(activeToken: ActiveToken | null, onSelectCommand: (
     if (!showSlashMenu) {
       return [];
     }
-    const q = activeToken.query;
-    if (!q) {
-      return slashCommands;
-    }
-    return slashCommands.filter((cmd) => fuzzyMatch(cmd.name, q) || fuzzyMatch(cmd.description, q));
+    return rankSlashCommands(slashCommands, activeToken.query);
   }, [showSlashMenu, activeToken?.query, slashCommands]);
 
   const resetSlashMenu = useCallback(() => {
     setSelectedIndex(0);
   }, []);
+
+  // Every keystroke reorders the list, so a selection carried over from the
+  // previous query points at an unrelated command — or past the end of the list.
+  const query = showSlashMenu ? activeToken.query : "";
+  useEffect(() => {
+    setSelectedIndex(0);
+  }, [query]);
 
   const handleSlashMenuKey = useCallback(
     (e: React.KeyboardEvent): boolean => {

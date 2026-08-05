@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 
 import { runLocalCli } from './local-cli.mjs';
 import { parsePublishArguments, publishUsage } from './publish-args.mjs';
+import { publishEachTarget } from './publish-retry.mjs';
 import { extensionRoot, isMainModule } from './vsix-targets.mjs';
 import { verifyVsix } from './vsix-verify.mjs';
 
@@ -12,18 +13,30 @@ async function main() {
     console.log(publishUsage('Visual Studio Marketplace'));
     return;
   }
-  if (!process.env.VSCE_PAT) throw new Error('VSCE_PAT is required to publish.');
+  // A token is the only option in CI, but a maintainer publishing by hand can
+  // authenticate as the Entra identity `az login` already established instead.
+  const azureCredential = process.env.VSCE_AZURE_CREDENTIAL === '1';
+  if (!azureCredential && !process.env.VSCE_PAT) {
+    throw new Error('Set VSCE_PAT, or VSCE_AZURE_CREDENTIAL=1 to publish as the signed-in Entra identity.');
+  }
 
   await verifyInputs(options);
-  for (const file of options.files) {
-    console.log(`Publishing verified package ${file}...`);
-    runLocalCli(
-      '@vscode/vsce',
-      'vsce',
-      ['publish', '--packagePath', file, '--skip-duplicate'],
-      { cwd: extensionRoot },
-    );
-  }
+  await publishEachTarget({
+    targets: options.targets,
+    files: options.files,
+    registry: 'Marketplace',
+    publishOne: (file) => {
+      const result = runLocalCli(
+        '@vscode/vsce',
+        'vsce',
+        ['publish', '--packagePath', file, '--skip-duplicate', ...(azureCredential ? ['--azure-credential'] : [])],
+        { cwd: extensionRoot, encoding: 'utf8', stdio: 'pipe' },
+      );
+      const output = `${result.stdout ?? ''}${result.stderr ?? ''}`;
+      process.stdout.write(output);
+      return /already published/i.test(output) ? 'skipped' : 'published';
+    },
+  });
 }
 
 async function verifyInputs(options) {

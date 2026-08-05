@@ -455,7 +455,7 @@ describe('MigrationScreenComponent — result phase', () => {
             migratedHooks: 0,
             droppedHooks: 0,
             siblingContents: {
-              providers: ['openai', 'managed:pythinker-code'],
+              providers: ['openai', 'managed:kimi-code'],
               models: ['gpt4'],
               hooks: 3,
             },

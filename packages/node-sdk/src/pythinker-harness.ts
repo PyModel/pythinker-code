@@ -25,6 +25,7 @@ import type {
   RenameSessionInput,
   ResumeSessionInput,
   SessionSummary,
+  SkillSummary,
   TelemetryClient,
   TelemetryContextPatch,
   TelemetryProperties,
@@ -233,6 +234,11 @@ export class PythinkerHarness {
 
   async listAgentProfiles(workDir: string): Promise<AgentProfileCatalog> {
     return this.rpc.listAgentProfiles(workDir);
+  }
+
+  /** The workspace's skills without opening a session; excludes session-only MCP prompts. */
+  async listWorkspaceSkills(workDir: string): Promise<readonly SkillSummary[]> {
+    return this.rpc.listWorkspaceSkills(workDir);
   }
 
   async ensureConfigFile(): Promise<void> {

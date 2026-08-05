@@ -113,9 +113,12 @@ function createFakeSession(
       setPermissions.push(permission);
       status = { ...status, permission };
     },
-    async updateMetadata(patch: JsonObject) {
-      metadataUpdates.push(patch);
-      summary = { ...summary, metadata: { ...summary.metadata, ...patch } };
+    async getSessionMetadata() {
+      return { custom: summary.metadata };
+    },
+    async updateSessionMetadata(patch: { custom?: JsonObject }) {
+      metadataUpdates.push(patch.custom ?? {});
+      summary = { ...summary, metadata: patch.custom };
     },
     async close() {
       closes += 1;
@@ -261,7 +264,7 @@ describe("Pythinker runtime (owns shared SDK sessions for Webviews)", () => {
         model: "kimi-k2",
         thinking: "high",
         permission: "yolo",
-        metadata: { vscode_legacy_approval: { yolo: true, afk: false } },
+        metadata: { vscode_permission_mode: "yolo" },
       },
     ]);
     expect(opened.subscribers).toEqual(["view-1"]);
@@ -396,91 +399,95 @@ describe("Pythinker runtime (owns shared SDK sessions for Webviews)", () => {
     });
   });
 
-  it("uses the yolo setting as the initial value for an unmarked resumed session", async () => {
+  it("seeds an unmarked resumed session from the yolo setting", async () => {
     const { runtime, sdk } = createRuntime();
     const session = sdk.addSession("saved-1", "/workspace", { permission: "manual" });
 
     await runtime.openSession(openOptions({ sessionId: "saved-1", yoloMode: true }));
 
-    expect(session.metadataUpdates).toEqual([
-      { vscode_legacy_approval: { yolo: true, afk: false } },
-    ]);
+    expect(session.metadataUpdates).toEqual([{ vscode_permission_mode: "yolo" }]);
   });
 
-  it("lets the global yolo setting override a persisted off flag on resume", async () => {
+  it("keeps a stored yolo mode when the global setting is off", async () => {
     const { runtime, sdk } = createRuntime();
     const session = sdk.addSession(
       "saved-1",
       "/workspace",
       { permission: "manual" },
-      { vscode_legacy_approval: { yolo: false, afk: false } },
-    );
-
-    const opened = await runtime.openSession(openOptions({ sessionId: "saved-1", yoloMode: true }));
-
-    expect(session.setPermissions).toEqual(["yolo"]);
-    expect(session.metadataUpdates).toEqual([
-      { vscode_legacy_approval: { yolo: true, afk: false } },
-    ]);
-    expect(opened.legacyApprovalFlags).toEqual({ yolo: true, afk: false });
-  });
-
-  it("lets the global yolo setting disable a persisted session yolo flag on resume", async () => {
-    const { runtime, sdk } = createRuntime();
-    const session = sdk.addSession(
-      "saved-1",
-      "/workspace",
-      { permission: "yolo" },
-      { vscode_legacy_approval: { yolo: true, afk: false } },
+      { vscode_permission_mode: "yolo" },
     );
 
     const opened = await runtime.openSession(openOptions({ sessionId: "saved-1", yoloMode: false }));
 
-    expect(session.setPermissions).toEqual(["manual"]);
-    expect(session.metadataUpdates).toEqual([
-      { vscode_legacy_approval: { yolo: false, afk: false } },
-    ]);
-    expect(opened.legacyApprovalFlags).toEqual({ yolo: false, afk: false });
+    expect(session.setPermissions).toEqual(["yolo"]);
+    expect(session.metadataUpdates).toEqual([]);
+    expect(opened.permissionMode).toBe("yolo");
   });
 
-  it("keeps the persisted afk flag while applying the global yolo setting on resume", async () => {
+  it("keeps a stored manual mode when the global setting is on", async () => {
     const { runtime, sdk } = createRuntime();
     const session = sdk.addSession(
       "saved-1",
       "/workspace",
       { permission: "manual" },
-      { vscode_legacy_approval: { yolo: false, afk: true } },
+      { vscode_permission_mode: "manual" },
     );
 
     const opened = await runtime.openSession(openOptions({ sessionId: "saved-1", yoloMode: true }));
 
-    expect(session.setPermissions).toEqual(["auto"]);
-    expect(opened.legacyApprovalFlags).toEqual({ yolo: true, afk: true });
+    expect(session.setPermissions).toEqual([]);
+    expect(session.metadataUpdates).toEqual([]);
+    expect(opened.permissionMode).toBe("manual");
   });
 
-  it("restores persisted afk with core auto permission", async () => {
+  it("restores a stored auto mode", async () => {
     const { runtime, sdk } = createRuntime();
     const session = sdk.addSession(
       "saved-1",
       "/workspace",
       { permission: "manual" },
-      { vscode_legacy_approval: { yolo: false, afk: true } },
+      { vscode_permission_mode: "auto" },
     );
 
-    await runtime.openSession(openOptions({ sessionId: "saved-1", yoloMode: false }));
+    const opened = await runtime.openSession(openOptions({ sessionId: "saved-1", yoloMode: false }));
 
     expect(session.setPermissions).toEqual(["auto"]);
+    expect(opened.permissionMode).toBe("auto");
   });
 
-  it("changes the setting-backed yolo flag without clearing session afk", async () => {
+  it("ignores an unrecognised stored mode and falls back to the setting", async () => {
+    const { runtime, sdk } = createRuntime();
+    const session = sdk.addSession(
+      "saved-1",
+      "/workspace",
+      { permission: "manual" },
+      { vscode_permission_mode: "nonsense" },
+    );
+
+    const opened = await runtime.openSession(openOptions({ sessionId: "saved-1", yoloMode: true }));
+
+    expect(opened.permissionMode).toBe("yolo");
+    expect(session.metadataUpdates).toEqual([{ vscode_permission_mode: "yolo" }]);
+  });
+
+  it("applies an explicit settings change to the live sessions", async () => {
     const { runtime } = createRuntime();
     const opened = await runtime.openSession(openOptions());
-    await opened.toggleLegacyApproval("afk");
 
-    await runtime.setYoloModeForActiveSessions(true);
+    await runtime.setPermissionModeForActiveSessions("yolo");
 
-    expect(opened.legacyApprovalFlags).toEqual({ yolo: true, afk: true });
-    await expect(opened.session.getStatus()).resolves.toMatchObject({ permission: "auto" });
+    expect(opened.permissionMode).toBe("yolo");
+    await expect(opened.session.getStatus()).resolves.toMatchObject({ permission: "yolo" });
+  });
+
+  it("persists a mode change so the next attach restores it", async () => {
+    const { runtime, sdk } = createRuntime();
+    const session = sdk.addSession("saved-1", "/workspace", { permission: "manual" });
+    const opened = await runtime.openSession(openOptions({ sessionId: "saved-1", yoloMode: false }));
+
+    await opened.setPermissionMode("yolo");
+
+    expect(session.metadataUpdates.at(-1)).toEqual({ vscode_permission_mode: "yolo" });
   });
 
   it("keeps a shared session open when one of its Webviews detaches", async () => {

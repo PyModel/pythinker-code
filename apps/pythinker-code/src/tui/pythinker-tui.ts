@@ -468,9 +468,14 @@ export class PythinkerTUI {
         return;
       }
 
-      const shouldReplayHistory = await this.initMainTui();
+      // Start the loop before mounting anything: pi-tui paints on invalidate
+      // even before ui.start(), so mounting first anchors early frames to the
+      // shell cursor and startEventLoop's scroll-to-home would push the live
+      // frame's top rows into scrollback for good. Same order as the
+      // migration branch above.
       this.startEventLoop();
       try {
+        const shouldReplayHistory = await this.initMainTui();
         this.startBackgroundFdAutocomplete();
         await this.finishStartup(shouldReplayHistory);
         this.startKeybindingsWatcher();
@@ -550,6 +555,14 @@ export class PythinkerTUI {
 
   private startEventLoop(): void {
     const start = (): void => {
+      // The fixed layout emits exactly `terminal.rows` lines per frame, and
+      // pi-tui's first render assumes a clean screen. Any shell output already
+      // on screen would scroll the frame's top rows (panel border included)
+      // out of view for good, so scroll the history up first and start at home.
+      if (this.state.layout === 'fixed') {
+        const rows = this.state.terminal.rows;
+        this.presentation.writeTerminalControl('\n'.repeat(Math.max(1, rows)) + '\u001B[H');
+      }
       this.presentation.start(() => {
         this.refreshFooter();
         this.state.ui.requestRender();

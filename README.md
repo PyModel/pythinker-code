@@ -10,7 +10,7 @@
 <br />
 
 [![npm version](https://img.shields.io/npm/v/@pythoughts/pythinker-code?style=for-the-badge&logo=npm&logoColor=white&color=CB3837&label=pythinker-code)](https://www.npmjs.com/package/@pythoughts/pythinker-code)
-[![Downloads](https://img.shields.io/npm/dm/@pythoughts/pythinker-code?style=for-the-badge&logo=npm&logoColor=white&color=16a34a&label=downloads)](https://www.npmjs.com/package/@pythoughts/pythinker-code)
+[![Downloads](https://img.shields.io/npm/dm/@pythoughts/pythinker-code?style=for-the-badge&logo=npm&logoColor=white&color=2b89ff&label=downloads)](https://www.npmjs.com/package/@pythoughts/pythinker-code)
 [![Node.js](https://img.shields.io/badge/Node.js-26%2B-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)](https://github.com/Pythoughts-labs/pythinker-code/blob/main/package.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-16a34a.svg?style=for-the-badge)](https://github.com/Pythoughts-labs/pythinker-code/blob/main/LICENSE)
 [![CI](https://img.shields.io/github/actions/workflow/status/Pythoughts-labs/pythinker-code/ci.yml?branch=main&label=CI&style=for-the-badge&logo=githubactions&logoColor=white)](https://github.com/Pythoughts-labs/pythinker-code/actions/workflows/ci.yml?query=branch%3Amain)

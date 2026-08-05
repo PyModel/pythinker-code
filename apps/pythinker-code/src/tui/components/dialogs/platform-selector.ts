@@ -44,9 +44,9 @@ function buildPlatformOptions(catalog: Catalog): readonly ChoiceOption[] {
       label: OPENAI_CODEX_OAUTH_LOGIN.name,
       description: 'OAuth',
     },
-    { value: 'pythinker-code', label: 'Pythinker (OAuth)', description: 'OAuth' },
+    { value: 'kimi-code', label: 'Kimi (OAuth)', description: 'OAuth' },
   ];
-  const seen = new Set(['pythinker-code', OPENAI_CODEX_OAUTH_LOGIN.id]);
+  const seen = new Set(['kimi-code', OPENAI_CODEX_OAUTH_LOGIN.id]);
 
   for (const featured of FEATURED_CATALOG_PROVIDERS) {
     const entry = catalog[featured.id];

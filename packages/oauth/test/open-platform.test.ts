@@ -10,7 +10,7 @@ import {
   OPEN_PLATFORMS,
   OpenPlatformApiError,
   removeOpenPlatformConfig,
-  type ManagedPythinkerConfigShape,
+  type ManagedKimiConfigShape,
 } from '../src/open-platform';
 
 function makeModelsResponse(): Response {
@@ -155,7 +155,7 @@ describe('filterModelsByPrefix', () => {
       { id: 'gpt-4', contextLength: 1000, supportsReasoning: false, supportsImageIn: false, supportsVideoIn: false },
     ];
 
-    const filtered = filterModelsByPrefix(models as unknown as import('../src/managed-pythinker-code').ManagedPythinkerCodeModelInfo[], platform);
+    const filtered = filterModelsByPrefix(models as unknown as import('../src/managed-kimi-code').ManagedKimiCodeModelInfo[], platform);
     expect(filtered).toHaveLength(1);
     expect(filtered[0]?.id).toBe('kimi-k2-0712-preview');
   });
@@ -171,7 +171,7 @@ describe('filterModelsByPrefix', () => {
       { id: 'model-b', contextLength: 2000, supportsReasoning: false, supportsImageIn: false, supportsVideoIn: false },
     ];
 
-    const filtered = filterModelsByPrefix(models as unknown as import('../src/managed-pythinker-code').ManagedPythinkerCodeModelInfo[], platform);
+    const filtered = filterModelsByPrefix(models as unknown as import('../src/managed-kimi-code').ManagedKimiCodeModelInfo[], platform);
     expect(filtered).toHaveLength(2);
   });
 });
@@ -275,7 +275,7 @@ describe('capabilitiesForModel', () => {
 
 describe('applyOpenPlatformConfig', () => {
   it('writes provider, models, and defaults', () => {
-    const config: ManagedPythinkerConfigShape = {
+    const config: ManagedKimiConfigShape = {
       providers: {},
     };
     const platform = getOpenPlatformById('moonshot-cn')!;
@@ -315,7 +315,7 @@ describe('applyOpenPlatformConfig', () => {
   });
 
   it('clears stale models for the same provider', () => {
-    const config: ManagedPythinkerConfigShape = {
+    const config: ManagedKimiConfigShape = {
       providers: {
         'moonshot-cn': { type: 'pythinker', baseUrl: 'https://api.moonshot.cn/v1', apiKey: 'sk-old' },
       },
@@ -344,7 +344,7 @@ describe('applyOpenPlatformConfig', () => {
 
 describe('removeOpenPlatformConfig', () => {
   it('removes provider, its models, and defaultModel when matched', () => {
-    const config: ManagedPythinkerConfigShape = {
+    const config: ManagedKimiConfigShape = {
       providers: {
         'moonshot-cn': { type: 'pythinker', baseUrl: 'https://api.moonshot.cn/v1', apiKey: 'sk-test' },
         'other': { type: 'pythinker', baseUrl: 'https://other.test/v1', apiKey: 'sk-other' },
@@ -366,7 +366,7 @@ describe('removeOpenPlatformConfig', () => {
   });
 
   it('leaves defaultModel intact when it belongs to another provider', () => {
-    const config: ManagedPythinkerConfigShape = {
+    const config: ManagedKimiConfigShape = {
       providers: {
         'moonshot-cn': { type: 'pythinker', baseUrl: 'https://api.moonshot.cn/v1', apiKey: 'sk-test' },
       },

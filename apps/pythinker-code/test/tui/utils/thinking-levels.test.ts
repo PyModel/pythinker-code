@@ -10,7 +10,7 @@ import {
 
 function model(overrides: Partial<ModelAlias> = {}): ModelAlias {
   return {
-    provider: 'managed:pythinker-code',
+    provider: 'managed:kimi-code',
     model: 'k2',
     maxContextSize: 200_000,
     capabilities: ['thinking'],

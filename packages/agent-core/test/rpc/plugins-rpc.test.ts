@@ -123,11 +123,11 @@ describe('PythinkerCore plugin RPCs', () => {
       await writeFile(
         path.join(home, 'config.toml'),
         `
-[providers."managed:pythinker-code"]
+[providers."managed:kimi-code"]
 type = "pythinker"
 base_url = "https://api.dev.example.test/coding/v1"
 api_key = ""
-oauth = { storage = "file", key = "oauth/pythinker-code-env-1234", oauth_host = "https://auth.dev.example.test" }
+oauth = { storage = "file", key = "oauth/kimi-code-env-1234", oauth_host = "https://auth.dev.example.test" }
 `,
         'utf8',
       );

@@ -1,7 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { WelcomeComponent } from '#/tui/components/chrome/welcome';
-import { WelcomeLogoEyeAnimator, welcomeLogoAnimationEnabled } from '#/tui/components/chrome/welcome-logo-animation';
+import {
+  WELCOME_ANTENNA_SPIN_DURATION_MS,
+  WELCOME_ANTENNA_SPIN_TICK_MS,
+  WELCOME_BLINK_INTERVAL_MS,
+  WelcomeLogoAnimator,
+  welcomeLogoAnimationEnabled,
+} from '#/tui/components/chrome/welcome-logo-animation';
 import { LOGO_EYES_OPEN } from '#/tui/components/chrome/pythinker-logo';
 import { DEFAULT_STATUS_LINE_CONFIG } from '#/tui/config';
 import { setRainbowColors } from '#/tui/easter-eggs/rainbow-colors';
@@ -66,8 +72,9 @@ describe('WelcomeComponent eye animation', () => {
       setEyeBlinkState(state: typeof LOGO_EYES_OPEN) {
         states.push(`${state.left}:${state.right}`);
       },
+      setAntennaFrame(_frame: number | null) {},
     };
-    const animator = new WelcomeLogoEyeAnimator(host, () => {});
+    const animator = new WelcomeLogoAnimator(host, () => {});
     animator.start();
 
     expect(states[0]).toBe('glance:open');
@@ -76,6 +83,58 @@ describe('WelcomeComponent eye animation', () => {
     expect(states).toContain('open-shine:open');
     vi.advanceTimersByTime(600);
     expect(states.at(-1)).toBe('open:open');
+    animator.dispose();
+  });
+
+  it('repeats the blink every 5 seconds', () => {
+    const states: string[] = [];
+    const host = {
+      setEyeBlinkState(state: typeof LOGO_EYES_OPEN) {
+        states.push(`${state.left}:${state.right}`);
+      },
+      setAntennaFrame(_frame: number | null) {},
+    };
+    const animator = new WelcomeLogoAnimator(host, () => {});
+    animator.start();
+
+    const glanceCount = () => states.filter((s) => s === 'glance:open').length;
+    vi.advanceTimersByTime(1140); // one full two-eye blink sequence
+    expect(states.at(-1)).toBe('open:open');
+    expect(glanceCount()).toBe(1);
+
+    vi.advanceTimersByTime(WELCOME_BLINK_INTERVAL_MS);
+    expect(glanceCount()).toBe(2);
+
+    vi.advanceTimersByTime(1140 + WELCOME_BLINK_INTERVAL_MS);
+    expect(glanceCount()).toBe(3);
+    animator.dispose();
+
+    const afterDispose = glanceCount();
+    vi.advanceTimersByTime(WELCOME_BLINK_INTERVAL_MS + 2000);
+    expect(glanceCount()).toBe(afterDispose);
+  });
+
+  it('spins the antenna for six seconds on startup, then restores the bulb', () => {
+    const frames: (number | null)[] = [];
+    const host = {
+      setEyeBlinkState(_state: typeof LOGO_EYES_OPEN) {},
+      setAntennaFrame(frame: number | null) {
+        frames.push(frame);
+      },
+    };
+    const animator = new WelcomeLogoAnimator(host, () => {});
+    animator.start();
+
+    expect(frames[0]).toBe(0);
+    vi.advanceTimersByTime(WELCOME_ANTENNA_SPIN_TICK_MS * 3);
+    expect(frames).toEqual([0, 1, 2, 3]);
+
+    vi.advanceTimersByTime(WELCOME_ANTENNA_SPIN_DURATION_MS);
+    expect(frames.at(-1)).toBeNull();
+
+    const settled = frames.length;
+    vi.advanceTimersByTime(WELCOME_ANTENNA_SPIN_DURATION_MS);
+    expect(frames.length).toBe(settled);
     animator.dispose();
   });
 

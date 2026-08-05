@@ -7,16 +7,16 @@ import { ProviderManager } from '../../agent-core/src/session/provider-manager';
 function managedConfig(): PythinkerConfig {
   return {
     providers: {
-      'managed:pythinker-code': {
+      'managed:kimi-code': {
         type: 'pythinker',
         baseUrl: 'https://api.pythinker.com/coding/v1',
         apiKey: '',
-        oauth: { storage: 'file', key: 'oauth/pythinker-code' },
+        oauth: { storage: 'file', key: 'oauth/kimi-code' },
       },
     },
     models: {
       'pythinker-code/pythinker-for-coding': {
-        provider: 'managed:pythinker-code',
+        provider: 'managed:kimi-code',
         model: 'pythinker-for-coding',
         maxContextSize: 262144,
       },
@@ -118,12 +118,12 @@ describe('resolveRuntimeProviderWithOAuth', () => {
     const resolved = await resolveRuntimeProviderWithOAuth({
       config: managedConfig(),
       resolveOAuthTokenProvider: (_providerName, oauthRef) => {
-        expect(oauthRef).toEqual({ storage: 'file', key: 'oauth/pythinker-code' });
+        expect(oauthRef).toEqual({ storage: 'file', key: 'oauth/kimi-code' });
         return { getAccessToken };
       },
     });
 
-    expect(resolved.providerName).toBe('managed:pythinker-code');
+    expect(resolved.providerName).toBe('managed:kimi-code');
     expect(resolved.provider).toMatchObject({
       type: 'pythinker',
       model: 'pythinker-for-coding',
@@ -149,11 +149,11 @@ describe('resolveRuntimeProviderWithOAuth', () => {
     const conflicting: PythinkerConfig = {
       ...managedConfig(),
       providers: {
-        'managed:pythinker-code': {
+        'managed:kimi-code': {
           type: 'pythinker',
           baseUrl: 'https://api.pythinker.com/coding/v1',
           apiKey: 'static-key',
-          oauth: { storage: 'file', key: 'oauth/pythinker-code' },
+          oauth: { storage: 'file', key: 'oauth/kimi-code' },
         },
       },
     };
@@ -196,7 +196,7 @@ describe('resolveRuntimeProviderWithOAuth', () => {
     expect(log.warn).toHaveBeenCalledWith(
       'oauth token fetch failed',
       expect.objectContaining({
-        providerName: 'managed:pythinker-code',
+        providerName: 'managed:kimi-code',
         error: expect.any(Error),
       }),
     );

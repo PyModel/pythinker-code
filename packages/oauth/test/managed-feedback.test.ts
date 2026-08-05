@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   fetchSubmitFeedback,
-  pythinkerCodeFeedbackUrl,
+  kimiCodeFeedbackUrl,
   type SubmitFeedbackBody,
 } from '../src/managed-feedback';
 
@@ -19,14 +19,14 @@ const SAMPLE_BODY: SubmitFeedbackBody = {
   model: 'pythinker-code/pythinker-for-coding',
 };
 
-describe('pythinkerCodeFeedbackUrl', () => {
+describe('kimiCodeFeedbackUrl', () => {
   it('appends /feedback to the default base URL', () => {
-    expect(pythinkerCodeFeedbackUrl()).toBe('https://api.kimi.com/coding/v1/feedback');
+    expect(kimiCodeFeedbackUrl()).toBe('https://api.kimi.com/coding/v1/feedback');
   });
 
   it('honours PYTHINKER_CODE_BASE_URL and trims trailing slashes', () => {
     vi.stubEnv('PYTHINKER_CODE_BASE_URL', 'https://example.test/v9///');
-    expect(pythinkerCodeFeedbackUrl()).toBe('https://example.test/v9/feedback');
+    expect(kimiCodeFeedbackUrl()).toBe('https://example.test/v9/feedback');
   });
 });
 

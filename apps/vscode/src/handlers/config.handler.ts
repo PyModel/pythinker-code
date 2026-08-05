@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { buildSkillSlashCommands, type SkillSlashCommand } from "@pythoughts/pythinker-code-sdk";
 type SdkConfig = any;
 
 import { Methods } from "../../shared/bridge";
@@ -16,11 +17,15 @@ const SLASH_COMMANDS: SlashCommandInfo[] = [
   { name: "init", aliases: [], description: "Analyze the codebase and generate AGENTS.md" },
   { name: "compact", aliases: [], description: "Compact the conversation context" },
   { name: "clear", aliases: ["reset"], description: "Clear the context" },
-  { name: "yolo", aliases: [], description: "Toggle YOLO mode (auto-approve tool actions; may still ask questions)" },
+  {
+    name: "yolo",
+    aliases: [],
+    description: "Toggle YOLO mode (auto-approve tool actions; may still ask questions). Usage: /yolo [on|off]",
+  },
   {
     name: "auto",
     aliases: ["afk"],
-    description: "Toggle Auto mode (fully autonomous; the agent will not ask questions)",
+    description: "Toggle Auto mode (fully autonomous; the agent will not ask questions). Usage: /auto [on|off]",
   },
   { name: "plan", aliases: [], description: "Toggle plan mode. Usage: /plan [on|off|view|clear]" },
   {
@@ -83,24 +88,35 @@ const getModels: Handler<void, ModelsConfig> = async (_, ctx) => {
   return toWebviewConfig(await ctx.harness.getConfig({ reload: true }));
 };
 
-const getSlashCommands: Handler<void, SlashCommandInfo[]> = async (_, ctx) => {
-  if (!ctx.workDir) return SLASH_COMMANDS;
+/**
+ * Skills are resolved from the workspace, not from a session, so a panel that
+ * has not sent a message yet still lists them. A live session is preferred when
+ * there is one: only it can report the prompts of its MCP connections.
+ */
+export const getSlashCommands: Handler<void, SlashCommandInfo[]> = async (_, ctx) => {
+  const session = ctx.getSession()?.session;
   try {
-    const skills = await (ctx.harness as any).listWorkspaceSkills?.(ctx.workDir) ?? [];
-    const skillCommands = (skills as Array<{ name: string; type: string; description?: string }>)
-      .filter((skill) => isUserActivatableSkill(skill.type))
-      .toSorted((left, right) => left.name.localeCompare(right.name))
-      .map((skill) => ({
-        name: `skill:${skill.name}`,
-        aliases: [],
-        description: skill.description ?? "",
-      }));
-    return [...SLASH_COMMANDS, ...skillCommands];
+    const skills =
+      session !== undefined
+        ? await session.listSkills()
+        : ctx.workDir !== null
+          ? await ctx.harness.listWorkspaceSkills(ctx.workDir)
+          : [];
+    const { commands } = buildSkillSlashCommands(skills);
+    return [...SLASH_COMMANDS, ...commands.map(toSlashCommandInfo)];
   } catch (error) {
-    ctx.logError("Unable to list workspace skills", error);
+    ctx.logError("Unable to list skills", error);
     return SLASH_COMMANDS;
   }
 };
+
+function toSlashCommandInfo(command: SkillSlashCommand): SlashCommandInfo {
+  return {
+    name: command.name,
+    aliases: [...command.aliases],
+    description: command.description,
+  };
+}
 
 const showLogs: Handler<void, { ok: boolean }> = async (_, ctx) => {
   ctx.showLogs();
@@ -150,6 +166,3 @@ function toWebviewModel(id: string, model: any): ModelConfig {
   };
 }
 
-function isUserActivatableSkill(type: string | undefined): boolean {
-  return type === undefined || type === "prompt" || type === "inline" || type === "flow";
-}

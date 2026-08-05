@@ -6,7 +6,7 @@ import { ModelSelectorComponent } from '#/tui/components/dialogs/model-selector'
 import { parseKeybindingBlocks } from '#/tui/keybindings';
 import { currentTheme } from '#/tui/theme';
 
-const ANSI = /\[[0-9;]*m/g;
+const ANSI = /\u001B\[[0-9;]*m/g;
 const strip = (s: string): string => s.replaceAll(ANSI, '');
 const ESC = String.fromCodePoint(27);
 const UP = `${ESC}[A`;
@@ -20,7 +20,7 @@ function model(
   supportEfforts?: string[],
 ): ModelAlias {
   return {
-    provider: 'managed:pythinker-code',
+    provider: 'managed:kimi-code',
     model: displayName.toLowerCase().replaceAll(' ', '-'),
     maxContextSize: 200_000,
     displayName,
@@ -95,7 +95,7 @@ describe('ModelSelectorComponent', () => {
 
     const out = text(picker);
     // Model name on the left, provider on the right, with the current marker.
-    expect(out).toMatch(/❯ Kimi K2\s+Pythinker ← current/);
+    expect(out).toMatch(/❯ Kimi K2\s+Kimi ← current/);
     expect(out).not.toContain('Kimi K2 (Kimi)');
   });
 

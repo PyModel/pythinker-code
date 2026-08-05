@@ -136,3 +136,111 @@ export function applyCatalogProvider(
   config.defaultThinking = options.thinking;
   return { defaultModel };
 }
+
+export interface CatalogProviderStore {
+  ensureConfigFile(): Promise<void>;
+  getConfig(): Promise<PythinkerConfig>;
+  removeProvider(providerId: string): Promise<PythinkerConfig>;
+  setConfig(patch: Partial<PythinkerConfig>): Promise<PythinkerConfig>;
+}
+
+export interface ImportCatalogProviderOptions {
+  readonly providerId: string;
+  readonly entry: CatalogProviderEntry;
+  readonly catalogUrl?: string;
+  /** Literal key, written into config.toml. Mutually exclusive with `apiKeyEnvVar`. */
+  readonly apiKey?: string;
+  /** Name of an environment variable the key is read from at connection time. */
+  readonly apiKeyEnvVar?: string;
+  /** Alias to make the default model, as a bare catalog model id. */
+  readonly defaultModel?: string;
+}
+
+export interface ImportCatalogProviderResult {
+  readonly models: readonly CatalogModel[];
+  readonly defaultModel: string | undefined;
+}
+
+export class CatalogProviderError extends Error {}
+
+/**
+ * Writes one catalog provider and its models into the persisted config.
+ *
+ * Re-importing a configured provider has to drop its stale aliases first, and
+ * `removeProvider` clears any default pointing at them — so the defaults are
+ * snapshotted up front and restored afterwards, but only while they still
+ * resolve against the refreshed catalog. A default left pointing at a model the
+ * catalog no longer lists would break the next session.
+ */
+export async function importCatalogProvider(
+  store: CatalogProviderStore,
+  options: ImportCatalogProviderOptions,
+): Promise<ImportCatalogProviderResult> {
+  const { providerId, entry } = options;
+  const wire = catalogConnectionWire(entry);
+  if (wire === undefined) {
+    throw new CatalogProviderError(
+      `Provider "${providerId}" cannot be configured with a single API key.`,
+    );
+  }
+
+  const apiKey = options.apiKey?.trim();
+  const apiKeyEnvVar = options.apiKeyEnvVar?.trim();
+  if ((apiKey ?? '').length === 0 && (apiKeyEnvVar ?? '').length === 0) {
+    throw new CatalogProviderError(`Provider "${providerId}" needs an API key.`);
+  }
+
+  const models = catalogProviderModels(entry);
+  if (models.length === 0) {
+    throw new CatalogProviderError(`Provider "${providerId}" lists no usable models.`);
+  }
+  if (options.defaultModel !== undefined && !models.some((m) => m.id === options.defaultModel)) {
+    throw new CatalogProviderError(
+      `Model "${options.defaultModel}" is not offered by provider "${providerId}".`,
+    );
+  }
+
+  await store.ensureConfigFile();
+  let config = await store.getConfig();
+  const previousDefaultProvider = config.defaultProvider;
+  const previousDefaultModel = config.defaultModel;
+  const previousDefaultThinking = config.defaultThinking;
+
+  if (config.providers[providerId] !== undefined) {
+    config = await store.removeProvider(providerId);
+  }
+
+  const useEnvVar = (apiKey ?? '').length === 0;
+  applyCatalogProvider(config, {
+    providerId,
+    catalogUrl: options.catalogUrl ?? DEFAULT_CATALOG_URL,
+    wire,
+    baseUrl: catalogBaseUrl(entry, wire),
+    apiKey: useEnvVar ? undefined : apiKey,
+    apiKeyEnvVar: useEnvVar ? apiKeyEnvVar : undefined,
+    models,
+    selectedModelId: options.defaultModel ?? '',
+    thinking: false,
+  });
+
+  if (options.defaultModel === undefined) {
+    const stillResolves =
+      previousDefaultModel !== undefined && config.models?.[previousDefaultModel] !== undefined;
+    config.defaultModel = stillResolves ? previousDefaultModel : undefined;
+  }
+  config.defaultProvider =
+    previousDefaultProvider !== undefined && config.providers[previousDefaultProvider] !== undefined
+      ? previousDefaultProvider
+      : undefined;
+  config.defaultThinking = previousDefaultThinking;
+
+  await store.setConfig({
+    providers: config.providers,
+    models: config.models,
+    defaultProvider: config.defaultProvider,
+    defaultModel: config.defaultModel,
+    defaultThinking: config.defaultThinking,
+  });
+
+  return { models, defaultModel: config.defaultModel };
+}

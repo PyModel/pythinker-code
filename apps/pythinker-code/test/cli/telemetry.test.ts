@@ -31,7 +31,7 @@ vi.mock('@pythoughts/pythinker-telemetry', () => ({
 
 vi.mock('@pythoughts/pythinker-code-oauth', () => ({
   createPythinkerDeviceId: mocks.createPythinkerDeviceId,
-  PYTHINKER_CODE_PROVIDER_NAME: 'managed:pythinker-code',
+  KIMI_CODE_PROVIDER_NAME: 'managed:kimi-code',
 }));
 
 vi.mock('@pythoughts/pythinker-code-sdk', async (importOriginal) => {

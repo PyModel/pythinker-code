@@ -10,7 +10,7 @@ import {
 } from '@pythoughts/pythinker-code-sdk';
 import { capabilitiesForModel } from '@pythoughts/pythinker-code-oauth';
 import type {
-  ManagedPythinkerCodeModelInfo,
+  ManagedKimiCodeModelInfo,
   OpenPlatformDefinition,
 } from '@pythoughts/pythinker-code-oauth';
 
@@ -159,9 +159,9 @@ export function promptCatalogProviderSelection(host: SlashCommandHost, catalog: 
 
 export async function promptModelSelectionForOpenPlatform(
   host: SlashCommandHost,
-  models: ManagedPythinkerCodeModelInfo[],
+  models: ManagedKimiCodeModelInfo[],
   platform: OpenPlatformDefinition,
-): Promise<{ model: ManagedPythinkerCodeModelInfo; effort: string } | undefined> {
+): Promise<{ model: ManagedKimiCodeModelInfo; effort: string } | undefined> {
   const modelDict: Record<string, ModelAlias> = {};
   for (const m of models) {
     modelDict[`${platform.id}/${m.id}`] = {

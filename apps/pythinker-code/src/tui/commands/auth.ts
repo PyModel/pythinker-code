@@ -10,8 +10,8 @@ import {
   OpenAICodexApiError,
   OpenPlatformApiError,
   runOpenAICodexOAuthFlow,
-  type ManagedPythinkerCodeModelInfo,
-  type ManagedPythinkerConfigShape,
+  type ManagedKimiCodeModelInfo,
+  type ManagedKimiConfigShape,
   type OpenPlatformDefinition,
 } from '@pythoughts/pythinker-code-oauth';
 import {
@@ -54,7 +54,7 @@ export async function handleLoginCommand(host: SlashCommandHost): Promise<void> 
     return;
   }
 
-  if (platformId === 'pythinker-code') {
+  if (platformId === 'kimi-code') {
     await handlePythinkerCodeOAuthLogin(host);
     return;
   }
@@ -156,7 +156,7 @@ async function handleOpenPlatformLogin(
   };
   host.cancelInFlight = cancelLogin;
 
-  let models: ManagedPythinkerCodeModelInfo[];
+  let models: ManagedKimiCodeModelInfo[];
   try {
     models = await fetchOpenPlatformModels(platform, apiKey, fetch, controller.signal);
     models = filterModelsByPrefix(models, platform);
@@ -193,7 +193,7 @@ async function handleOpenPlatformLogin(
   }
 
   const config = await host.harness.getConfig();
-  applyOpenPlatformConfig(config as ManagedPythinkerConfigShape, {
+  applyOpenPlatformConfig(config as ManagedKimiConfigShape, {
     platform,
     models,
     selectedModel: selection.model,
@@ -358,7 +358,7 @@ async function handleOpenAICodexOAuthLogin(host: SlashCommandHost): Promise<void
     await host.harness.removeProvider(OPENAI_CODEX_PROVIDER_ID);
   }
 
-  let models: ManagedPythinkerCodeModelInfo[];
+  let models: ManagedKimiCodeModelInfo[];
   try {
     models = await fetchOpenAICodexModels({
       accessToken: tokens.accessToken,
@@ -388,7 +388,7 @@ async function handleOpenAICodexOAuthLogin(host: SlashCommandHost): Promise<void
   if (selection === undefined) return;
 
   const config = await host.harness.getConfig();
-  applyOpenAICodexOAuthConfig(config as ManagedPythinkerConfigShape, {
+  applyOpenAICodexOAuthConfig(config as ManagedKimiConfigShape, {
     accessToken: tokens.accessToken,
     refreshToken: tokens.refreshToken,
     accountId: tokens.accountId,

@@ -1,10 +1,13 @@
 /**
- * Welcome-banner eye blink — same phases as install.ps1 `Blink-Eye` / install.sh
- * `_blink_eyes`, with longer holds so the closed eye registers in the TUI.
+ * Welcome-banner animation — eye blink with the same phases as install.ps1
+ * `Blink-Eye` / install.sh `_blink_eyes` (longer holds so the closed eye
+ * registers in the TUI), plus a one-shot antenna spin while the banner
+ * first loads.
  */
 
 import { asciiGlyphsEnabled } from './welcome-banner';
 import {
+  ANTENNA_SPINNER_FRAMES,
   LOGO_EYES_OPEN,
   type EyeBlinkPhase,
   type LogoEyeBlinkState,
@@ -33,17 +36,28 @@ export function welcomeLogoAnimationEnabled(): boolean {
   return true;
 }
 
-export interface WelcomeEyeAnimationHost {
+export interface WelcomeLogoAnimationHost {
   setEyeBlinkState(state: LogoEyeBlinkState): void;
+  /** `null` restores the static ● bulb. */
+  setAntennaFrame(frame: number | null): void;
 }
 
-export class WelcomeLogoEyeAnimator {
+/** Idle time between blink sequences. */
+export const WELCOME_BLINK_INTERVAL_MS = 5000;
+
+/** Antenna spin cadence and total length — one spin at banner load. */
+export const WELCOME_ANTENNA_SPIN_TICK_MS = 120;
+export const WELCOME_ANTENNA_SPIN_DURATION_MS = 6000;
+
+export class WelcomeLogoAnimator {
   private eyeState: LogoEyeBlinkState = LOGO_EYES_OPEN;
-  private timer: ReturnType<typeof setTimeout> | null = null;
+  private antennaFrameIndex = 0;
+  private blinkTimer: ReturnType<typeof setTimeout> | null = null;
+  private spinTimer: ReturnType<typeof setTimeout> | null = null;
   private disposed = false;
 
   constructor(
-    private readonly host: WelcomeEyeAnimationHost,
+    private readonly host: WelcomeLogoAnimationHost,
     private readonly requestRender: () => void,
   ) {}
 
@@ -53,20 +67,58 @@ export class WelcomeLogoEyeAnimator {
 
   start(): void {
     if (!welcomeLogoAnimationEnabled() || this.disposed) return;
+    this.spinAntenna(0);
+    this.playBlink();
+  }
+
+  private playBlink(): void {
     this.runEye('left', 0, () => {
       this.runEye('right', 0, () => {
         this.applyState(LOGO_EYES_OPEN);
+        this.scheduleNextBlink();
       });
     });
   }
 
+  private scheduleNextBlink(): void {
+    if (this.disposed) return;
+    this.blinkTimer = setTimeout(() => {
+      this.blinkTimer = null;
+      this.playBlink();
+    }, WELCOME_BLINK_INTERVAL_MS);
+  }
+
+  private spinAntenna(elapsedMs: number): void {
+    if (this.disposed) return;
+    if (elapsedMs >= WELCOME_ANTENNA_SPIN_DURATION_MS) {
+      this.applyAntennaFrame(null);
+      return;
+    }
+    this.applyAntennaFrame(this.antennaFrameIndex);
+    this.antennaFrameIndex = (this.antennaFrameIndex + 1) % ANTENNA_SPINNER_FRAMES.length;
+    this.spinTimer = setTimeout(() => {
+      this.spinTimer = null;
+      this.spinAntenna(elapsedMs + WELCOME_ANTENNA_SPIN_TICK_MS);
+    }, WELCOME_ANTENNA_SPIN_TICK_MS);
+  }
+
+  private applyAntennaFrame(frame: number | null): void {
+    this.host.setAntennaFrame(frame);
+    this.requestRender();
+  }
+
   dispose(): void {
     this.disposed = true;
-    if (this.timer !== null) {
-      clearTimeout(this.timer);
-      this.timer = null;
+    if (this.blinkTimer !== null) {
+      clearTimeout(this.blinkTimer);
+      this.blinkTimer = null;
+    }
+    if (this.spinTimer !== null) {
+      clearTimeout(this.spinTimer);
+      this.spinTimer = null;
     }
     this.applyState(LOGO_EYES_OPEN);
+    this.applyAntennaFrame(null);
   }
 
   private runEye(side: 'left' | 'right', stepIndex: number, done: () => void): void {
@@ -84,8 +136,8 @@ export class WelcomeLogoEyeAnimator {
       this.runEye(side, stepIndex + 1, done);
       return;
     }
-    this.timer = setTimeout(() => {
-      this.timer = null;
+    this.blinkTimer = setTimeout(() => {
+      this.blinkTimer = null;
       this.runEye(side, stepIndex + 1, done);
     }, step.delayMs);
   }

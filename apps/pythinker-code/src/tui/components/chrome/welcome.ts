@@ -19,9 +19,9 @@ import {
   type LogoEyeBlinkState,
 } from './pythinker-logo';
 import {
-  WelcomeLogoEyeAnimator,
+  WelcomeLogoAnimator,
   welcomeLogoAnimationEnabled,
-  type WelcomeEyeAnimationHost,
+  type WelcomeLogoAnimationHost,
 } from './welcome-logo-animation';
 import {
   asciiGlyphsEnabled,
@@ -32,11 +32,12 @@ import {
   renderWelcomeBanner,
 } from './welcome-banner';
 
-export class WelcomeComponent implements Component, WelcomeEyeAnimationHost {
+export class WelcomeComponent implements Component, WelcomeLogoAnimationHost {
   private state: AppState;
   private readonly gitCache: GitStatusCache;
   private eyeBlinkState: LogoEyeBlinkState = LOGO_EYES_OPEN;
-  private eyeAnimator: WelcomeLogoEyeAnimator | null = null;
+  private antennaFrame: number | null = null;
+  private eyeAnimator: WelcomeLogoAnimator | null = null;
 
   constructor(
     state: AppState,
@@ -45,13 +46,17 @@ export class WelcomeComponent implements Component, WelcomeEyeAnimationHost {
     this.state = state;
     this.gitCache = createWelcomeGitCache(state.workDir);
     if (requestRender !== undefined && welcomeLogoAnimationEnabled() && !isRainbowColorActive()) {
-      this.eyeAnimator = new WelcomeLogoEyeAnimator(this, requestRender);
+      this.eyeAnimator = new WelcomeLogoAnimator(this, requestRender);
       queueMicrotask(() => this.eyeAnimator?.start());
     }
   }
 
   setEyeBlinkState(state: LogoEyeBlinkState): void {
     this.eyeBlinkState = state;
+  }
+
+  setAntennaFrame(frame: number | null): void {
+    this.antennaFrame = frame;
   }
 
   invalidate(): void {}
@@ -69,7 +74,7 @@ export class WelcomeComponent implements Component, WelcomeEyeAnimationHost {
 
     const logoLines = isRainbowColorActive()
       ? renderRainbowWelcomeLogo()
-      : renderPythinkerLogoWithEyes(this.eyeBlinkState);
+      : renderPythinkerLogoWithEyes(this.eyeBlinkState, this.antennaFrame ?? undefined);
 
     return renderWelcomeBanner({
       width,
