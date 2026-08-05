@@ -12,7 +12,12 @@ async function main() {
     console.log(publishUsage('Visual Studio Marketplace'));
     return;
   }
-  if (!process.env.VSCE_PAT) throw new Error('VSCE_PAT is required to publish.');
+  // A token is the only option in CI, but a maintainer publishing by hand can
+  // authenticate as the Entra identity `az login` already established instead.
+  const azureCredential = process.env.VSCE_AZURE_CREDENTIAL === '1';
+  if (!azureCredential && !process.env.VSCE_PAT) {
+    throw new Error('Set VSCE_PAT, or VSCE_AZURE_CREDENTIAL=1 to publish as the signed-in Entra identity.');
+  }
 
   await verifyInputs(options);
   for (const file of options.files) {
@@ -20,7 +25,7 @@ async function main() {
     runLocalCli(
       '@vscode/vsce',
       'vsce',
-      ['publish', '--packagePath', file, '--skip-duplicate'],
+      ['publish', '--packagePath', file, '--skip-duplicate', ...(azureCredential ? ['--azure-credential'] : [])],
       { cwd: extensionRoot },
     );
   }
