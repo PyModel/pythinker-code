@@ -95,7 +95,7 @@
     "web-tree-sitter": "0.25.10"
   },
   "devDependencies": {
-    "@earendil-works/pi-tui": "^0.81.1",
+    "@earendil-works/pi-tui": "^0.83.0",
     "@pythoughts/acp-adapter": "workspace:^",
     "@pythoughts/dashboard-server": "workspace:^",
     "@pythoughts/dashboard-web": "workspace:*",
