@@ -5,7 +5,7 @@
 [![npm](https://img.shields.io/npm/v/@pythoughts/pythinker-code)](https://www.npmjs.com/package/@pythoughts/pythinker-code) [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)  [![Docs](https://img.shields.io/badge/docs-online-blue)](https://pythoughts-labs.github.io/pythinker-code/)
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/Pythoughts-labs/pythinker-code/main/docs/media/init.webp" alt="Pythinker Code terminal demo" width="860">
+  <img src="https://raw.githubusercontent.com/Pythoughts-labs/pythinker-code/main/docs/media/terminal-ui.webp" alt="Pythinker Code terminal demo" width="860">
 </p>
 
 ## What is Pythinker Code CLI
