@@ -45,6 +45,9 @@ export type {
   ImportCatalogProviderResult,
 } from '#/catalog';
 
+export { buildSkillSlashCommands, isUserActivatableSkill } from '#/skill-commands';
+export type { SkillSlashCommand, SkillSlashCommands } from '#/skill-commands';
+
 export {
   ErrorCodes,
   PythinkerError,

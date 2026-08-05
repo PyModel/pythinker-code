@@ -264,7 +264,10 @@ describe('importCatalogProvider', () => {
   it("keeps a default that belongs to another provider when re-importing", async () => {
     const rig = createStore({
       providers: { anthropic: { type: 'anthropic' }, other: { type: 'openai' } },
-      models: { 'other/x': { provider: 'other', model: 'x' }, 'anthropic/old': { provider: 'anthropic', model: 'old' } },
+      models: {
+        'other/x': { provider: 'other', model: 'x', maxContextSize: 1000 },
+        'anthropic/old': { provider: 'anthropic', model: 'old', maxContextSize: 1000 },
+      },
       defaultModel: 'other/x',
       defaultProvider: 'other',
       defaultThinking: true,
@@ -282,7 +285,7 @@ describe('importCatalogProvider', () => {
   it('clears a default the refreshed catalog no longer offers', async () => {
     const rig = createStore({
       providers: { anthropic: { type: 'anthropic' } },
-      models: { 'anthropic/gone': { provider: 'anthropic', model: 'gone' } },
+      models: { 'anthropic/gone': { provider: 'anthropic', model: 'gone', maxContextSize: 1000 } },
       defaultModel: 'anthropic/gone',
     } as Partial<PythinkerConfig>);
 

@@ -96,6 +96,7 @@ export const Events = {
   ExtensionConfigChanged: "extensionConfigChanged",
   MCPServersChanged: "mcpServersChanged",
   ProvidersChanged: "providersChanged",
+  SlashCommandsChanged: "slashCommandsChanged",
   StreamEvent: "streamEvent",
   FocusInput: "focusInput",
   InsertMention: "insertMention",

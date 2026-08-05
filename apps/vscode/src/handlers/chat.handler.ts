@@ -124,7 +124,7 @@ const streamChat: Handler<StreamChatParams, { done: boolean }> = async (params, 
     return { done: false };
   }
 
-  const slash = parseHostSlashCommand(params.content);
+  const slash = await parseHostSlashCommand(params.content, () => runtime.session.listSkills());
   if (slash !== undefined) {
     try {
       return { done: await runHostSlashCommand(runtime, slash, ctx) };

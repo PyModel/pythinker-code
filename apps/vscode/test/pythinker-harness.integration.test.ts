@@ -355,32 +355,62 @@ async function runSlash(
   raw: string,
   ctx = {} as HandlerContext,
 ): Promise<boolean> {
-  const command = parseHostSlashCommand(raw);
+  return (await startSlash(runtime, raw, ctx))();
+}
+
+/** Parses first and hands back the dispatch, for tests that assert on the busy flag. */
+async function startSlash(
+  runtime: SessionRuntime,
+  raw: string,
+  ctx = {} as HandlerContext,
+): Promise<() => Promise<boolean>> {
+  const command = await parseHostSlashCommand(raw, () => runtime.session.listSkills());
   if (command === undefined) throw new Error(`Expected host slash command: ${raw}`);
-  return runHostSlashCommand(runtime, command, ctx);
+  return () => runHostSlashCommand(runtime, command, ctx);
 }
 
 describe("VS Code Pythinker harness integration (shares one in-process SDK home)", () => {
-  it("only intercepts released slash commands and user-invoked skills", () => {
-    expect(parseHostSlashCommand("/plan on")).toEqual({ name: "plan", args: "on", raw: "/plan on" });
-    expect(parseHostSlashCommand(" /skill:review carefully ")).toEqual({
+  it("only intercepts released slash commands and user-invoked skills", async () => {
+    await expect(parseHostSlashCommand("/plan on")).resolves.toEqual({
+      name: "plan",
+      args: "on",
+      raw: "/plan on",
+    });
+    await expect(parseHostSlashCommand(" /skill:review carefully ")).resolves.toEqual({
       name: "skill:review",
       args: "carefully",
       raw: "/skill:review carefully",
+      skillName: "review",
     });
-    expect(parseHostSlashCommand("/not-a-host-command")).toBeUndefined();
-    expect(parseHostSlashCommand([{ type: "text", text: "/clear" }])).toBeUndefined();
+    await expect(parseHostSlashCommand("/not-a-host-command")).resolves.toBeUndefined();
+    await expect(parseHostSlashCommand([{ type: "text", text: "/clear" }])).resolves.toBeUndefined();
   });
 
-  it("combines the released slash commands with user-activatable workspace skills", async () => {
+  it("resolves a built-in skill invoked under its bare name", async () => {
+    const listSkills = async () => [
+      { name: "gen-changesets", description: "", path: "/s", source: "builtin", type: "prompt" },
+    ];
+
+    await expect(
+      parseHostSlashCommand("/gen-changesets", listSkills as never),
+    ).resolves.toMatchObject({ skillName: "gen-changesets" });
+    await expect(
+      parseHostSlashCommand("/still-not-a-command", listSkills as never),
+    ).resolves.toBeUndefined();
+  });
+
+  it("combines the released slash commands with the session's user-activatable skills", async () => {
     const commands = await configHandlers[Methods.GetSlashCommands]!(undefined, {
-      workDir: "/workspace",
-      harness: {
-        listWorkspaceSkills: async () => [
-          { name: "review", description: "Review changes", path: "/skills/review", source: "user", type: "prompt" },
-          { name: "reference-only", description: "Reference", path: "/skills/ref", source: "user", type: "reference" },
-        ],
-      },
+      getSession: () => ({
+        session: {
+          listSkills: async () => [
+            { name: "review", description: "Review changes", path: "/skills/review", source: "user", type: "prompt" },
+            { name: "reference-only", description: "Reference", path: "/skills/ref", source: "user", type: "reference" },
+            { name: "model-only", description: "Model", path: "/skills/m", source: "user", type: "prompt", userInvocable: false },
+            { name: "builtin-one", description: "Builtin", path: "/skills/b", source: "builtin", type: "prompt" },
+          ],
+        },
+      }),
       logError: () => undefined,
     } as unknown as HandlerContext);
 
@@ -394,8 +424,18 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
       "add-dir",
       "export",
       "import",
+      "builtin-one",
       "skill:review",
     ]);
+  });
+
+  it("falls back to the released commands when no session is open yet", async () => {
+    const commands = await configHandlers[Methods.GetSlashCommands]!(undefined, {
+      getSession: () => undefined,
+      logError: () => undefined,
+    } as unknown as HandlerContext);
+
+    expect((commands as Array<{ name: string }>).some((command) => command.name.startsWith("skill:"))).toBe(false);
   });
 
   it("sends the package version in User-Agent when VS Code prompts the provider", async () => {
@@ -1143,7 +1183,8 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
     await writeFile(join(rig.workDir, "prior.md"), "Enough prior context to compact.");
     await runSlash(runtime, "/import prior.md", streamChatContext(rig));
 
-    const command = runSlash(runtime, "/compact keep decisions");
+    const dispatch = await startSlash(runtime, "/compact keep decisions");
+    const command = dispatch();
     expect(runtime.isBusy).toBe(true);
 
     await expect(command).resolves.toBe(true);

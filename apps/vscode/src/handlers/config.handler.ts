@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { buildSkillSlashCommands, type SkillSlashCommand } from "@pythoughts/pythinker-code-sdk";
 type SdkConfig = any;
 
 import { Methods } from "../../shared/bridge";
@@ -87,24 +88,30 @@ const getModels: Handler<void, ModelsConfig> = async (_, ctx) => {
   return toWebviewConfig(await ctx.harness.getConfig({ reload: true }));
 };
 
-const getSlashCommands: Handler<void, SlashCommandInfo[]> = async (_, ctx) => {
-  if (!ctx.workDir) return SLASH_COMMANDS;
+/**
+ * The skill catalog is session-scoped in the engine, so the list is empty until
+ * a session exists. `bridge-handler` re-broadcasts the commands once one is
+ * created, which is what fills the menu on a cold start.
+ */
+export const getSlashCommands: Handler<void, SlashCommandInfo[]> = async (_, ctx) => {
+  const session = ctx.getSession()?.session;
+  if (session === undefined) return SLASH_COMMANDS;
   try {
-    const skills = await (ctx.harness as any).listWorkspaceSkills?.(ctx.workDir) ?? [];
-    const skillCommands = (skills as Array<{ name: string; type: string; description?: string }>)
-      .filter((skill) => isUserActivatableSkill(skill.type))
-      .toSorted((left, right) => left.name.localeCompare(right.name))
-      .map((skill) => ({
-        name: `skill:${skill.name}`,
-        aliases: [],
-        description: skill.description ?? "",
-      }));
-    return [...SLASH_COMMANDS, ...skillCommands];
+    const { commands } = buildSkillSlashCommands(await session.listSkills());
+    return [...SLASH_COMMANDS, ...commands.map(toSlashCommandInfo)];
   } catch (error) {
-    ctx.logError("Unable to list workspace skills", error);
+    ctx.logError("Unable to list skills", error);
     return SLASH_COMMANDS;
   }
 };
+
+function toSlashCommandInfo(command: SkillSlashCommand): SlashCommandInfo {
+  return {
+    name: command.name,
+    aliases: [...command.aliases],
+    description: command.description,
+  };
+}
 
 const showLogs: Handler<void, { ok: boolean }> = async (_, ctx) => {
   ctx.showLogs();
@@ -154,6 +161,3 @@ function toWebviewModel(id: string, model: any): ModelConfig {
   };
 }
 
-function isUserActivatableSkill(type: string | undefined): boolean {
-  return type === undefined || type === "prompt" || type === "inline" || type === "flow";
-}
