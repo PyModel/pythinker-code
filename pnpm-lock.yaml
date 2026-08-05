@@ -19,6 +19,10 @@ overrides:
 importers:
 
   .:
+    dependencies:
+      '@earendil-works/pi-tui':
+        specifier: 0.83.0
+        version: 0.83.0
     devDependencies:
       '@arethetypeswrong/cli':
         specifier: 0.18.3
@@ -476,7 +480,7 @@ importers:
         version: 3.5.2(vite@6.4.3(@types/node@22.20.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.5)(yaml@2.9.0))
       vitest:
         specifier: 4.1.4
-        version: 4.1.4(@types/node@22.20.1)(@vitest/coverage-v8@4.1.9)(jsdom@25.0.1)(msw@2.15.0(@types/node@22.20.1)(typescript@6.0.3))(vite@6.4.3(@types/node@22.20.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.5)(yaml@2.9.0))
+        version: 4.1.4(@types/node@22.20.1)(@vitest/coverage-v8@4.1.9(vitest@4.1.9))(jsdom@25.0.1)(msw@2.15.0(@types/node@22.20.1)(typescript@6.0.3))(vite@6.4.3(@types/node@22.20.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.5)(yaml@2.9.0))
 
   docs:
     dependencies:
@@ -1322,6 +1326,10 @@ packages:
 
   '@earendil-works/pi-tui@0.81.1':
     resolution: {integrity: sha512-OMEe+Zt8oQYi/rCq3upxsTlIScWL0FPhXwQus34TbQb3EmTx88S7Uzx32JxvQiEeWOw8eDCdJf2PBUBE9r6wIg==}
+    engines: {node: '>=22.19.0'}
+
+  '@earendil-works/pi-tui@0.83.0':
+    resolution: {integrity: sha512-IoYrb0rORjELmEpNtoCA/U8je3KopMkRAVJRdSzvXRvgb+Huo1gNh8Q5CSZvNOiYtDxJdj2tYZZHZ4B3+IN3hA==}
     engines: {node: '>=22.19.0'}
 
   '@emnapi/core@1.10.0':
@@ -10451,6 +10459,11 @@ snapshots:
       get-east-asian-width: 1.6.0
       marked: 18.0.5
 
+  '@earendil-works/pi-tui@0.83.0':
+    dependencies:
+      get-east-asian-width: 1.6.0
+      marked: 18.0.5
+
   '@emnapi/core@1.10.0':
     dependencies:
       '@emnapi/wasi-threads': 1.2.1
@@ -19069,7 +19082,7 @@ snapshots:
       - typescript
       - universal-cookie
 
-  vitest@4.1.4(@types/node@22.20.1)(@vitest/coverage-v8@4.1.9)(jsdom@25.0.1)(msw@2.15.0(@types/node@22.20.1)(typescript@6.0.3))(vite@6.4.3(@types/node@22.20.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.5)(yaml@2.9.0)):
+  vitest@4.1.4(@types/node@22.20.1)(@vitest/coverage-v8@4.1.9(vitest@4.1.9))(jsdom@25.0.1)(msw@2.15.0(@types/node@22.20.1)(typescript@6.0.3))(vite@6.4.3(@types/node@22.20.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.5)(yaml@2.9.0)):
     dependencies:
       '@vitest/expect': 4.1.4
       '@vitest/mocker': 4.1.4(msw@2.15.0(@types/node@22.20.1)(typescript@6.0.3))(vite@6.4.3(@types/node@22.20.1)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.5)(yaml@2.9.0))
