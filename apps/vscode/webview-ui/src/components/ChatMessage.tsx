@@ -82,7 +82,7 @@ function StepItemRenderer({ item }: { item: UIStepItem }) {
   }
 }
 
-function StepContent({ step, showConnector }: { step: UIStep; showConnector?: boolean }) {
+function StepContent({ step, showConnector, showLogo }: { step: UIStep; showConnector?: boolean; showLogo?: boolean }) {
   const hasItems = step.items.length > 0;
   const hasToolOrThinking = step.items.some((item) => item.type === "tool_use" || item.type === "thinking" || item.type === "compaction");
   const showIndicator = hasToolOrThinking;
@@ -96,16 +96,26 @@ function StepContent({ step, showConnector }: { step: UIStep; showConnector?: bo
     <div className="flex gap-2">
       {showIndicator ? (
         <div className="hidden @[420px]:flex shrink-0 w-5 flex-col items-center relative">
-          <div
-            className={cn("size-1.5 rounded-full mt-2 shrink-0 relative z-10", hasActiveItem ? "bg-blue-400 shadow-[0_0_8px_rgba(59,130,246,0.6)] animate-pulse" : "bg-blue-400")}
-          />
+          {showLogo ? (
+            <PythinkerLogo className={cn("size-4 mt-2 shrink-0 relative z-10", hasActiveItem && "animate-pulse")} />
+          ) : (
+            <div
+              className={cn("size-1.5 rounded-full mt-2 shrink-0 relative z-10", hasActiveItem ? "bg-blue-400 shadow-[0_0_8px_rgba(59,130,246,0.6)] animate-pulse" : "bg-blue-400")}
+            />
+          )}
           {showConnector && (
             <div
               className={cn(
                 "absolute left-1/2 w-px",
                 hasActiveItem ? "bg-gradient-to-b from-zinc-300 to-transparent dark:from-zinc-600 dark:to-transparent" : "bg-zinc-300 dark:bg-zinc-600",
               )}
-              style={{ top: "calc(0.5rem + 0.1875rem)", bottom: "calc(-0.75rem - 0.5rem - 0.1875rem)", transform: "translateX(-50%)" }}
+              // The marker is centred on the column, so the line has to start below whichever
+              // marker this step drew: half a `size-4` logo, or half a `size-1.5` dot.
+              style={{
+                top: showLogo ? "calc(0.5rem + 0.5rem)" : "calc(0.5rem + 0.1875rem)",
+                bottom: "calc(-0.75rem - 0.5rem - 0.1875rem)",
+                transform: "translateX(-50%)",
+              }}
             />
           )}
         </div>
@@ -295,6 +305,8 @@ function AssistantMessage({ message, turnIndex, isStreaming }: { message: ChatMe
               {hasSteps &&
                 groupStepsByPlanMode(steps).map((group, gi) => {
                   const totalSteps = steps.length;
+                  // The logo identifies the assistant once per message; later steps keep the dot.
+                  const firstIndicatorIndex = stepHasIndicator.indexOf(true);
                   const stepsContent = group.steps.map((step, i) => {
                     const globalIndex = group.startIndex + i;
                     const isLastInGroup = i === group.steps.length - 1;
@@ -302,7 +314,7 @@ function AssistantMessage({ message, turnIndex, isStreaming }: { message: ChatMe
                     const hasIndicator = stepHasIndicator[globalIndex];
                     const hasNextIndicator = stepHasIndicator.slice(globalIndex + 1).some(Boolean);
                     const showConnector = hasIndicator && hasNextIndicator && !isLastInGroup && !isLastOverall;
-                    return <StepContent key={step.n} step={step} showConnector={showConnector} />;
+                    return <StepContent key={step.n} step={step} showConnector={showConnector} showLogo={globalIndex === firstIndicatorIndex} />;
                   });
 
                   if (group.planMode) {
