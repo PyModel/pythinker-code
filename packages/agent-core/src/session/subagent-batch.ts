@@ -49,6 +49,8 @@ type BaseQueuedSubagentTask<T> = {
   readonly runInBackground: boolean;
   readonly timeout?: number;
   readonly signal?: AbortSignal;
+  readonly modelAlias?: string;
+  readonly thinkingLevel?: string;
 };
 
 export type SpawnQueuedSubagentTask<T = unknown> = BaseQueuedSubagentTask<T> & {
@@ -286,6 +288,8 @@ export class SubagentBatch<T> {
       dynamicWorkflowIndex: task.dynamicWorkflowIndex,
       dynamicWorkflowItem: task.dynamicWorkflowItem,
       runInBackground: task.runInBackground,
+      modelAlias: task.modelAlias,
+      thinkingLevel: task.thinkingLevel,
       signal: attempt.controller.signal,
       onReady: () => {
         this.markAttemptReady(attempt);

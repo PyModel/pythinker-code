@@ -19,6 +19,8 @@ export async function handleDynamicWorkflowCommand(host: SlashCommandHost, args:
   }
 
   const prompt = args.trim();
+  if (handleModelSubcommand(host, prompt)) return;
+
   const mode = dynamicWorkflowModeSubcommand(prompt);
   if (mode !== undefined) {
     await applyDynamicWorkflowMode(host, mode, `/workflow ${prompt}`);
@@ -93,7 +95,43 @@ async function startDynamicWorkflowTask(host: SlashCommandHost, prompt: string):
     return;
   }
   renderDynamicWorkflowModeMarker(host, 'active');
-  host.sendNormalUserInput(prompt);
+  host.sendNormalUserInput(withWorkerModelInstruction(prompt, host.state.appState.dynamicWorkflowModel));
+}
+
+/**
+ * `/workflow model <alias>` is a preference, not a hard override: it reaches the
+ * subagents as an instruction to set DynamicWorkflow's `model` field, so the
+ * agent can still pick something else when the task plainly calls for it.
+ */
+function withWorkerModelInstruction(prompt: string, model: string | undefined): string {
+  return model === undefined
+    ? prompt
+    : `${prompt}\n\nUse model "${model}" for the DynamicWorkflow subagents in this task.`;
+}
+
+/** Returns true when the input was a `model` subcommand and has been handled. */
+function handleModelSubcommand(host: SlashCommandHost, input: string): boolean {
+  const match = /^model(?:\s+(.*))?$/i.exec(input);
+  if (match === null) return false;
+
+  const value = match[1]?.trim() ?? '';
+  const current = host.state.appState.dynamicWorkflowModel;
+  if (value.length === 0) {
+    host.showStatus(
+      current === undefined
+        ? 'Dynamic Workflow subagents use this session model. Set another with /workflow model <alias>.'
+        : `Dynamic Workflow subagents use ${current}. Clear it with /workflow model off.`,
+    );
+    return true;
+  }
+  if (value.toLowerCase() === 'off' || value.toLowerCase() === 'clear') {
+    host.setAppState({ dynamicWorkflowModel: undefined });
+    host.showStatus('Dynamic Workflow subagents now use this session model.');
+    return true;
+  }
+  host.setAppState({ dynamicWorkflowModel: value });
+  host.showStatus(`Dynamic Workflow subagents will use ${value}.`);
+  return true;
 }
 
 async function applyDynamicWorkflowMode(

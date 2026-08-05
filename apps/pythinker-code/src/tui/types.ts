@@ -40,6 +40,9 @@ export interface AppState {
   permissionMode: PermissionMode;
   planMode: boolean;
   dynamicWorkflowMode: boolean;
+  /** Model alias `/workflow` asks Dynamic Workflow subagents to run on, so workers
+   *  can use a cheaper or faster model than the agent orchestrating them. */
+  dynamicWorkflowModel?: string;
   /** Whether provider-native Fast mode is requested for this session. */
   fastMode?: boolean;
   /** Whether the current model/provider accepts provider-native Fast mode. */

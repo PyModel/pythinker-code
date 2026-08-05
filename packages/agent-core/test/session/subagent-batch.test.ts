@@ -668,6 +668,22 @@ describe('SubagentBatch scheduling contract', () => {
       vi.useRealTimers();
     }
   });
+
+  it('carries a task model and effort through to the launcher', async () => {
+    const { runBatch, attempts } = createMockBatchRunner();
+    const running = runBatch([routedTask(1), routedTask(2)], { signal });
+    await Promise.resolve();
+
+    // A workflow routed to a cheaper model must reach every spawned child;
+    // dropping it here would silently run the batch on the parent's model.
+    expect(attempts).toHaveLength(2);
+    for (const attempt of attempts) {
+      expect(attempt.runOptions.modelAlias).toBe('implementer-model');
+      expect(attempt.runOptions.thinkingLevel).toBe('medium');
+      attempt.outcome.resolve({ task: attempt.task, status: 'completed', result: 'done' });
+    }
+    await running;
+  });
 });
 
 type MockAttemptOutcome<T> =
@@ -679,6 +695,7 @@ type MockAttemptOutcome<T> =
 
 type MockAttemptRecord = {
   readonly task: QueuedSubagentTask<number>;
+  readonly runOptions: RunSubagentOptions;
   readonly retryAgentId?: string;
   readonly markReady: () => void;
   readonly outcome: ReturnType<typeof createControlledPromise<MockAttemptOutcome<number>>>;
@@ -716,6 +733,7 @@ function createMockBatchRunner(
     const attemptIndex = attempts.length;
     attempts.push({
       task: task as unknown as QueuedSubagentTask<number>,
+      runOptions,
       retryAgentId,
       markReady,
       outcome: outcome as unknown as MockAttemptRecord['outcome'],
@@ -820,6 +838,10 @@ function isMockRateLimitOutcome<T>(
   outcome: MockAttemptOutcome<T>,
 ): outcome is Extract<MockAttemptOutcome<T>, { readonly type: 'rate_limited' }> {
   return 'type' in outcome && outcome.type === 'rate_limited';
+}
+
+function routedTask(index: number): QueuedSubagentTask<number> {
+  return { ...queuedTask(index), modelAlias: 'implementer-model', thinkingLevel: 'medium' };
 }
 
 function queuedTask(index: number): QueuedSubagentTask<number> {
