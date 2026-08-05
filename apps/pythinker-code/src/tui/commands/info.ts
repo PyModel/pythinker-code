@@ -314,8 +314,8 @@ export async function handleUpdateCommand(
       host.showNotice(
         `Updating to v${result.version}`,
         result.installOnRestart
-          ? 'Preparing with Homebrew in the background. Once ready, restart the CLI to install it.'
-          : 'Installing in the background — restart the CLI when it completes.',
+          ? 'Preparing with Homebrew in the background. Once ready, close this terminal and open a new one to install it.'
+          : 'Installing in the background — close this terminal and open a new one to apply the update.',
       );
       return;
     case 'in-progress':
@@ -323,9 +323,9 @@ export async function handleUpdateCommand(
         `Update to v${result.version} already in progress`,
         result.installOnRestart
           ? result.readyToInstall
-            ? 'Restart the CLI to install it.'
-            : 'Restart after the current update operation finishes.'
-          : 'Restart the CLI once it completes.',
+            ? 'Close this terminal and open a new one to install it.'
+            : 'Close this terminal and open a new one after the current update operation finishes.'
+          : 'Close this terminal and open a new one once it completes.',
       );
       return;
     case 'manual':

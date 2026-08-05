@@ -28,8 +28,28 @@ export interface InstallPromptOptions {
   readonly target: UpdateTarget;
   readonly installCommand: string;
   readonly installSource: InstallSource;
+  /**
+   * Why the last automatic install of this same version failed. A silently
+   * failed background install otherwise looks identical to one that never
+   * started, and the prompt is where the user decides what to do about it.
+   */
+  readonly previousFailure?: string;
   readonly input?: NodeJS.ReadStream;
   readonly output?: NodeJS.WriteStream;
+}
+
+/** Keep the prompt readable: one line, the first line of the recorded error. */
+const FAILURE_SUMMARY_MAX_CHARS = 120;
+
+export function summarizeInstallFailure(message: string): string | undefined {
+  const firstLine = message
+    .split('\n')
+    .map((line) => line.trim())
+    .find((line) => line.length > 0);
+  if (firstLine === undefined) return undefined;
+  return firstLine.length > FAILURE_SUMMARY_MAX_CHARS
+    ? `${firstLine.slice(0, FAILURE_SUMMARY_MAX_CHARS - 1)}…`
+    : firstLine;
 }
 
 const INSTALL_HINT = 'Install update now';
@@ -78,10 +98,25 @@ function renderInstallPrompt(
     `${label('Target ')}  ${targetVersion}`,
     `${label('Source ')}  ${sourceLabel}`,
     `${label('Command')}  ${command}`,
+  ];
+
+  const failureSummary =
+    options.previousFailure === undefined
+      ? undefined
+      : summarizeInstallFailure(options.previousFailure);
+  if (failureSummary !== undefined) {
+    lines.push(
+      '',
+      chalk.hex(UPDATE_PROMPT_WARNING).bold('The last automatic update failed'),
+      chalk.hex(UPDATE_PROMPT_MUTED)(failureSummary),
+    );
+  }
+
+  lines.push(
     '',
     chalk.hex(UPDATE_PROMPT_MUTED)('↑↓ choose · Enter confirm · Esc continue'),
     '',
-  ];
+  );
 
   for (let i = 0; i < choices.length; i++) {
     const choice = choices[i];

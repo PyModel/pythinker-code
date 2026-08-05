@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
+import type { Readable } from 'node:stream';
 
 import { gte, valid } from 'semver';
 
@@ -10,6 +11,7 @@ import type { TelemetryProperties } from '@pythoughts/pythinker-telemetry';
 import {
   NATIVE_INSTALL_COMMAND_UNIX,
   NATIVE_INSTALL_COMMAND_WIN,
+  PYTHINKER_CODE_INSTALL_SH_URL,
 } from '#/constant/app';
 import { loadTuiConfig } from '#/tui/config';
 
@@ -163,7 +165,18 @@ export function spawnForSource(
       // would look like a successful update. `pipefail` makes the pipeline
       // surface curl's non-zero status so installUpdate() rejects and we warn
       // instead of printing "Updated …".
-      return { cmd: 'bash', args: ['-c', `set -o pipefail; ${NATIVE_INSTALL_COMMAND_UNIX}`] };
+      //
+      // `-s -- --version` pins the install to the version this preflight
+      // decided on, the same guarantee PYTHINKER_VERSION gives on Windows.
+      // Without it the script installs whatever the CDN currently calls
+      // latest, which can differ from the rollout's target.
+      return {
+        cmd: 'bash',
+        args: [
+          '-c',
+          `set -o pipefail; curl -fsSL ${PYTHINKER_CODE_INSTALL_SH_URL} | bash -s -- --version ${version}`,
+        ],
+      };
     case 'unsupported':
       throw new Error('unsupported install source cannot be auto-installed');
   }
@@ -207,7 +220,10 @@ export function renderManualUpdateMessage(
 }
 
 export function renderInstallSuccessMessage(target: UpdateTarget): string {
-  return `Updated ${NPM_PACKAGE_NAME} to ${target.version}. Restart the CLI to use the new version.\n`;
+  return (
+    `Updated ${NPM_PACKAGE_NAME} to ${target.version}. ` +
+    'Close this terminal and open a new one to use the new version.\n'
+  );
 }
 
 function renderBackgroundInstallSuccessNotice(version: string): string {
@@ -548,14 +564,29 @@ async function promptInstall(
   target: UpdateTarget,
   source: InstallSource,
   installCommand: string,
+  previousFailure: string | undefined,
 ): Promise<InstallPromptChoiceValue> {
   const options: InstallPromptOptions = {
     currentVersion,
     target,
     installSource: source,
     installCommand,
+    previousFailure,
   };
   return promptForInstallChoice(options);
+}
+
+/**
+ * A recorded failure is only worth showing when it is about the version the
+ * prompt is offering — an older version's failure is stale noise.
+ */
+function failureMessageFor(
+  state: UpdateInstallState,
+  target: UpdateTarget,
+): string | undefined {
+  const failure = state.lastFailure;
+  if (failure === null || failure.version !== target.version) return undefined;
+  return failure.message;
 }
 
 export async function installUpdate(
@@ -579,6 +610,41 @@ export async function installUpdate(
       reject(new Error(`${cmd} exited with ${detail}`));
     });
   });
+}
+
+/** Keep the tail only: installers can be chatty, and the state file is small. */
+const INSTALLER_STDERR_TAIL_CHARS = 2000;
+
+/**
+ * Buffer the installer's stderr so a failed background install records why it
+ * failed. Discarding it (the previous `stdio: 'ignore'`) left `lastFailure`
+ * with nothing but an exit code, which made a broken installer script
+ * impossible to diagnose without reproducing the spawn by hand.
+ */
+function captureStderrTail(child: ReturnType<typeof spawn>): () => string | undefined {
+  // Typed `Readable | null`, but absent entirely when stderr was not piped.
+  const stream: Readable | null | undefined = child.stderr;
+  if (stream === null || stream === undefined) return () => undefined;
+  let tail = '';
+  stream.setEncoding('utf8');
+  stream.on('data', (chunk: string) => {
+    tail = (tail + chunk).slice(-INSTALLER_STDERR_TAIL_CHARS);
+  });
+  // A detached installer outliving this process must not crash it, and the
+  // pipe must not hold the event loop open on the way out. `child.stderr` is
+  // typed as a plain Readable, but the pipe is a Socket at runtime and that is
+  // where unref lives.
+  stream.on('error', () => {});
+  (stream as Readable & { unref?: () => void }).unref?.();
+  return () => {
+    const trimmed = tail.trim();
+    return trimmed.length === 0 ? undefined : trimmed;
+  };
+}
+
+function describeChildExit(cmd: string, code: number | null, signal: NodeJS.Signals | null): string {
+  const detail = signal !== null ? `signal ${signal}` : `code ${String(code)}`;
+  return `${cmd} exited with ${detail}`;
 }
 
 async function waitForChildSpawn(child: ReturnType<typeof spawn>): Promise<void> {
@@ -750,16 +816,18 @@ async function startBackgroundInstall(
     // the terminal outcome until the handler is "ready".
     let ready = false;
     let settled = false;
-    let pendingOutcome: boolean | undefined;
+    let pendingOutcome: { succeeded: boolean; reason: string } | undefined;
 
-    const finish = async (succeeded: boolean): Promise<void> => {
+    const finish = async (succeeded: boolean, reason: string): Promise<void> => {
       if (!ready) {
-        pendingOutcome ??= succeeded;
+        pendingOutcome ??= { succeeded, reason };
         return;
       }
       if (settled) return;
       settled = true;
       const attempts = failureAttemptsFor(startedState, target, 'install') + 1;
+      const stderrTail = readStderrTail();
+      const message = stderrTail === undefined ? reason : `${reason}: ${stderrTail}`;
 
       const nextState: UpdateInstallState = succeeded
         ? {
@@ -780,6 +848,7 @@ async function startBackgroundInstall(
             failedAt: nowIso(),
             attempts,
             operation: 'install',
+            message,
           },
         };
       try {
@@ -804,6 +873,7 @@ async function startBackgroundInstall(
           targetVersion: target.version,
           source,
           attempts,
+          message,
         });
       } finally {
         await lock.release().catch(() => {});
@@ -815,11 +885,16 @@ async function startBackgroundInstall(
       // A detached child gets its own console window on Windows regardless
       // of stdio; stdio: 'ignore' alone does not suppress it.
       windowsHide: platform === 'win32',
-      stdio: 'ignore',
+      // stdout stays discarded (install progress is noise); stderr is piped so
+      // a failure records the installer's own error text.
+      stdio: ['ignore', 'ignore', 'pipe'],
       env: env === undefined ? undefined : { ...process.env, ...env },
     });
-    child.once('error', () => { void finish(false); });
-    child.once('exit', (code) => { void finish(code === 0); });
+    const readStderrTail = captureStderrTail(child);
+    child.once('error', (error) => { void finish(false, formatErrorMessage(error)); });
+    child.once('exit', (code, signal) => {
+      void finish(code === 0, describeChildExit(cmd, code, signal));
+    });
     if (child.pid !== undefined && child.pid > 0) {
       const stateWithPid: UpdateInstallState = {
         ...startedState,
@@ -841,7 +916,7 @@ async function startBackgroundInstall(
     child.unref();
     finalizerOwnsLock = true;
     ready = true;
-    if (pendingOutcome !== undefined) void finish(pendingOutcome);
+    if (pendingOutcome !== undefined) void finish(pendingOutcome.succeeded, pendingOutcome.reason);
     return true;
   // When startup failed before handoff, release the lock here; the
   // finalizer releases it once the terminal state write completes.
@@ -1196,7 +1271,13 @@ export async function runUpdatePreflight(
       return 'continue';
     }
 
-    const choice = await promptInstall(currentVersion, userVisibleTarget, source, installCommand);
+    const choice = await promptInstall(
+      currentVersion,
+      userVisibleTarget,
+      source,
+      installCommand,
+      failureMessageFor(installState, userVisibleTarget),
+    );
     if (choice === 'skip') return 'continue';
 
     try {
