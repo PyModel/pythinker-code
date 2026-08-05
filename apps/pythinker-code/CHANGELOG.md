@@ -1,5 +1,19 @@
 # @pythoughts/pythinker-code
 
+## 0.8.0
+
+### Minor Changes
+
+- [`23e0bc7`](https://github.com/Pythoughts-labs/pythinker-code/commit/23e0bc7ed62e718cee0b709ab0ab483ef6b87708) - Improve performance and fix bugs.
+
+- [`c0f0976`](https://github.com/Pythoughts-labs/pythinker-code/commit/c0f09769e76c92002ca9b9a09d9cb820750f1046) - Remove the Pythinker Datasource plugin from the marketplace; its data gateway backend is not available, so every datasource query failed.
+
+- [`c0f0976`](https://github.com/Pythoughts-labs/pythinker-code/commit/c0f09769e76c92002ca9b9a09d9cb820750f1046) - Enable automatic updates for native installs on Windows: /update now installs the new version in the background instead of printing a manual command, and the installer safely replaces the running executable.
+
+### Patch Changes
+
+- [`c0f0976`](https://github.com/Pythoughts-labs/pythinker-code/commit/c0f09769e76c92002ca9b9a09d9cb820750f1046) - Fix Kimi and Moonshot models rejecting every request with an invalid tool schema error when a tool declares `anyOf` alongside its own type or properties.
+
 ## 0.7.0
 
 ### Minor Changes
