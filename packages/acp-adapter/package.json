@@ -1,0 +1,48 @@
+{
+  "name": "@pythoughts/acp-adapter",
+  "version": "0.3.0",
+  "private": true,
+  "description": "Agent Client Protocol adapter for pythinker-code",
+  "license": "MIT",
+  "author": "Pythoughts",
+  "type": "module",
+  "imports": {
+    "#/*": [
+      "./src/*.ts",
+      "./src/*/index.ts"
+    ]
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.mts",
+        "import": "./dist/index.mjs",
+        "default": "./dist/index.mjs"
+      }
+    },
+    "provenance": true
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@agentclientprotocol/sdk": "^0.23.0",
+    "@pythoughts/agent-core": "workspace:^",
+    "@pythoughts/kaos": "workspace:^",
+    "@pythoughts/pythinker-code-sdk": "workspace:^"
+  }
+}

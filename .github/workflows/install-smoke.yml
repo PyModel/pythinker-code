@@ -1,0 +1,39 @@
+name: Install scripts smoke
+
+on:
+  pull_request:
+    paths:
+      - apps/pythinker-web/public/install.sh
+      - apps/pythinker-web/public/install.ps1
+      - .github/workflows/install-smoke.yml
+  push:
+    branches:
+      - main
+    paths:
+      - apps/pythinker-web/public/install.sh
+      - apps/pythinker-web/public/install.ps1
+      - .github/workflows/install-smoke.yml
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Validate install scripts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Check shell syntax
+        run: bash -n apps/pythinker-web/public/install.sh
+
+      - name: Lint shell installer
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y shellcheck
+          shellcheck -e SC1091 apps/pythinker-web/public/install.sh
+
+      - name: Check PowerShell syntax
+        run: |
+          pwsh -NoProfile -Command '$errs = $null; [void][System.Management.Automation.Language.Parser]::ParseFile("apps/pythinker-web/public/install.ps1", [ref]$null, [ref]$errs); if ($errs.Count) { $errs; exit 1 }'

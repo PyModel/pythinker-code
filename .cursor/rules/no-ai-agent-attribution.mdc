@@ -1,0 +1,42 @@
+---
+description: Hard constraint — never add AI agent attribution to commits or PRs
+alwaysApply: true
+---
+
+# No AI Agent Attribution (Hard Constraint)
+
+AI agent attribution in version control is **strictly forbidden** under all circumstances. This applies to Cursor, Composer, Claude, Copilot, Codex, Gemini, Pythinker, and any other AI coding agent.
+
+## Prohibited in commits
+
+Never add any of the following to commit messages, commit commands, or PR text:
+
+- `Co-authored-by:` trailers naming an AI agent or tool
+- `Made-with:` / `Made-by:` / `Generated-by:` trailers
+- `git commit --trailer ...` or any `--trailer` flag
+- Phrases such as "Done by AI", "Written with Cursor", or similar attribution
+
+## Required commit format
+
+Use plain commits only:
+
+```bash
+git commit -m "type: subject"
+# or
+git commit -F /path/to/message.txt
+```
+
+Do **not** append trailers, co-authors, or attribution metadata.
+
+## If attribution was added anyway
+
+1. Amend locally to remove it: `git commit --amend` (edit message to remove trailers)
+2. Never use `--no-verify` or `--no-gpg-sign` to bypass hooks
+3. Never ask the user to bypass project policy
+
+## Enforcement
+
+- `.cursor/hooks/block-ai-commit-attribution.sh` blocks offending `git commit` shell commands
+- `scripts/git-hooks/pre-push-no-ai-coauthorship.sh` rejects pushes containing AI attribution
+
+These checks are mandatory and cannot be disabled by the agent.
