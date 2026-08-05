@@ -1,38 +1,79 @@
-import { useState, useEffect, useRef } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 import { useChatStore, useSettingsStore } from "@/stores";
 import { cn } from "@/lib/utils";
 import { IconArrowUp, IconArrowDown, IconGauge, IconRefresh, IconBolt } from "@tabler/icons-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 
+/**
+ * Generation speed is one property of one stream, so it is measured once here
+ * rather than per component.
+ *
+ * This used to be per-hook state. `TokenInfo` and `ChatStatus` are mounted at
+ * the same time and both call it, so each kept its own start timestamp and
+ * token baseline and averaged over a different window — the header and the
+ * expanded panel showed different numbers for the same response.
+ *
+ * The 250ms sampler also cannot depend on the token count: tokens change on
+ * every streamed chunk, and re-running the effect per chunk tore down the
+ * interval before it could fire, pinning the readout at 0 for fast streams.
+ */
+const speedListeners = new Set<() => void>();
+let currentSpeed = 0;
+let sampler: ReturnType<typeof setInterval> | null = null;
+let startedAt: number | null = null;
+let startTokens = 0;
+let latestTokens = 0;
+
+function setSpeed(next: number): void {
+  if (next === currentSpeed) return;
+  currentSpeed = next;
+  for (const listener of speedListeners) listener();
+}
+
+function beginMeasuring(tokens: number): void {
+  startedAt = Date.now();
+  startTokens = tokens;
+  latestTokens = tokens;
+  sampler ??= setInterval(() => {
+    if (startedAt === null) return;
+    const elapsedSec = (Date.now() - startedAt) / 1000;
+    const generated = latestTokens - startTokens;
+    if (elapsedSec > 0.2 && generated >= 0) setSpeed(generated / elapsedSec);
+  }, 250);
+}
+
+function stopMeasuring(): void {
+  startedAt = null;
+  if (sampler !== null) {
+    clearInterval(sampler);
+    sampler = null;
+  }
+  // A finished stream has no rate; leaving the last value up made a stale
+  // number look live.
+  setSpeed(0);
+}
+
+function subscribeToSpeed(listener: () => void): () => void {
+  speedListeners.add(listener);
+  return () => speedListeners.delete(listener);
+}
+
 export function useTokenSpeed() {
   const isStreaming = useChatStore((s) => s.isStreaming);
   const outputTokens = useChatStore((s) => s.tokenUsage.output + s.activeTokenUsage.output);
+  const speed = useSyncExternalStore(subscribeToSpeed, () => currentSpeed);
 
-  const [speed, setSpeed] = useState<number>(0);
-  const startTimeRef = useRef<number | null>(null);
-  const startTokensRef = useRef<number>(0);
+  latestTokens = outputTokens;
 
   useEffect(() => {
-    if (isStreaming) {
-      if (startTimeRef.current === null) {
-        startTimeRef.current = Date.now();
-        startTokensRef.current = outputTokens;
-      }
-
-      const interval = setInterval(() => {
-        if (!startTimeRef.current) return;
-        const elapsedSec = (Date.now() - startTimeRef.current) / 1000;
-        const tokensGenerated = outputTokens - startTokensRef.current;
-        if (elapsedSec > 0.2 && tokensGenerated >= 0) {
-          setSpeed(tokensGenerated / elapsedSec);
-        }
-      }, 250);
-
-      return () => clearInterval(interval);
+    if (!isStreaming) {
+      stopMeasuring();
+      return;
     }
-      startTimeRef.current = null;
-    
-  }, [isStreaming, outputTokens]);
+    // Idempotent across concurrent consumers: the first one to see the stream
+    // start defines the window, the rest attach to the same measurement.
+    if (startedAt === null) beginMeasuring(latestTokens);
+  }, [isStreaming]);
 
   return { speed, isStreaming };
 }
@@ -78,7 +119,7 @@ export function TokenInfo() {
           <span className="text-muted-foreground text-[10px] flex items-center gap-1">
             <IconBolt className="size-3 text-amber-400" /> Generation Speed
           </span>
-          <span className="text-sm font-semibold font-mono text-foreground mt-0.5">
+          <span className="text-sm font-semibold font-mono text-foreground mt-0.5 whitespace-nowrap tabular-nums">
             {speed > 0 ? `${speed.toFixed(1)} tok/s` : "Idle"}
           </span>
           <span className="text-[10px] text-muted-foreground font-mono mt-0.5">
@@ -150,9 +191,13 @@ export function ChatStatus() {
       {speed > 0 && (
         <Tooltip>
           <TooltipTrigger asChild>
-            <span className="flex items-center gap-1 text-amber-500 font-mono font-medium">
-              <IconBolt className="size-3 fill-amber-400/20 text-amber-400 animate-pulse" />
-              <span>{speed.toFixed(1)} t/s</span>
+            <span className="flex items-center gap-1 whitespace-nowrap text-amber-500 font-mono font-medium">
+              <IconBolt className="size-3 shrink-0 fill-amber-400/20 text-amber-400 animate-pulse" />
+              {/* tabular-nums keeps the pill from resizing as the rate changes,
+                  and nowrap stops "74.7" and "t/s" breaking onto two lines in a
+                  narrow sidebar. */}
+              <span className="tabular-nums">{speed.toFixed(1)}</span>
+              <span>t/s</span>
             </span>
           </TooltipTrigger>
           <TooltipContent>Live Generation Speed (tokens / second)</TooltipContent>
