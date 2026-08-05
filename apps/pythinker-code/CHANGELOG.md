@@ -1,5 +1,13 @@
 # @pythoughts/pythinker-code
 
+## 0.9.1
+
+### Patch Changes
+
+- [#24](https://github.com/Pythoughts-labs/pythinker-code/pull/24) [`ae01098`](https://github.com/Pythoughts-labs/pythinker-code/commit/ae01098b862a567552c7d49a6d5bd1808077a794) - Fix the Dynamic Workflow card showing `[object Object]`, phantom extra agent rows, and tool labels fused into streamed text when a workflow is called with object items.
+
+- [#24](https://github.com/Pythoughts-labs/pythinker-code/pull/24) [`ae01098`](https://github.com/Pythoughts-labs/pythinker-code/commit/ae01098b862a567552c7d49a6d5bd1808077a794) - Show Dynamic Workflow member progress from the observed stage only, so a running subagent no longer sits at 99% for the rest of its run.
+
 ## 0.9.0
 
 ### Minor Changes
