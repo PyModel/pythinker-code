@@ -1371,6 +1371,58 @@ describe('SessionSubagentHost', () => {
     expect(child.agent.config.modelAlias).toBe(parent.agent.config.modelAlias);
     expect(child.agent.config.modelAlias).not.toBe('stale-model-from-initial-spawn');
   });
+
+  it('keeps a profile-routed model and effort across resume', async () => {
+    const parent = testAgent();
+    parent.configure();
+    parent.agent.permission.setMode('yolo');
+
+    const child = testAgent();
+    child.configure({ tools: ['Read'] });
+    // Register a second alias so the child's provider can resolve the model the
+    // profile routes to (in production this is a [models."..."] config entry
+    // that may point at an entirely different provider).
+    child.configureRuntimeModel({ type: 'pythinker', apiKey: 'test-key', model: 'implementer-model' });
+    child.agent.context.appendUserMessage([{ type: 'text', text: 'Earlier context' }]);
+    child.mockNextResponse({
+      type: 'text',
+      text: 'Resumed the routed subagent from its earlier context and carried the assigned task through to completion, then reported a full and detailed technical summary of every change so the parent agent can continue without repeating any prior work.',
+    });
+
+    const implementerProfile: ResolvedAgentProfile = {
+      name: 'implementer',
+      description: 'Cheap implementer routed to another model.',
+      systemPrompt: () => 'implementer system prompt',
+      tools: ['Read'],
+      model: 'implementer-model',
+      effort: 'medium',
+    };
+    child.agent.useProfile(implementerProfile);
+
+    const session = Object.assign(
+      fakeSession(parent.agent, child.agent, {
+        'agent-0': { type: 'sub', parentAgentId: 'main' },
+      }),
+      { agentProfiles: { implementer: implementerProfile } },
+    );
+    const host = new SessionSubagentHost(session, 'main');
+
+    const handle = await host.resume('agent-0', {
+      parentToolCallId: 'call_agent',
+      prompt: 'Continue from context',
+      description: 'Continue work',
+      runInBackground: false,
+      signal,
+    });
+    await handle.completion;
+
+    // Resume must re-resolve through the spawn precedence rather than copying
+    // the parent's model, or a routed implementer silently reverts to the
+    // orchestrator's (expensive) model on its second turn.
+    expect(child.agent.config.modelAlias).toBe('implementer-model');
+    expect(child.agent.config.modelAlias).not.toBe(parent.agent.config.modelAlias);
+    expect(child.agent.config.thinkingLevel).toBe('medium');
+  });
 });
 
 describe('Session resume permission parent chain', () => {

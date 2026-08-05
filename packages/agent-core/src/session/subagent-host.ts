@@ -238,10 +238,9 @@ export class SessionSubagentHost {
     const completion = this.runWithActiveChild(agentId, options, async (runOptions) => {
       this.emitSubagentSpawned(parent, agentId, profileName, runOptions);
       try {
-        child.config.update({
-          modelAlias: parent.config.modelAlias,
-          fastMode: parent.config.fastMode,
-        });
+        child.config.update(
+          this.childModelConfig(parent, child, this.tryResolveProfile(parent, profileName), runOptions),
+        );
         return await this.runPromptTurn(parent, agentId, child, profileName, runOptions);
       } catch (error) {
         this.emitSubagentFailed(parent, agentId, runOptions, error);
@@ -257,10 +256,9 @@ export class SessionSubagentHost {
     const completion = this.runWithActiveChild(agentId, options, async (runOptions) => {
       try {
         runOptions.signal.throwIfAborted();
-        child.config.update({
-          modelAlias: parent.config.modelAlias,
-          fastMode: parent.config.fastMode,
-        });
+        child.config.update(
+          this.childModelConfig(parent, child, this.tryResolveProfile(parent, profileName), runOptions),
+        );
         this.emitSubagentStarted(parent, agentId, runOptions.parentToolCallId);
         const turnId = child.turn.retry('agent-host');
         if (turnId === null) {
@@ -374,6 +372,43 @@ export class SessionSubagentHost {
     return metadata.dynamicWorkflowItem;
   }
 
+  /**
+   * Model selection for a child: explicit option → profile → parent. Resume and
+   * retry re-resolve through the same precedence, so a profile that routes its
+   * subagents to another model (and provider) is not silently replaced by the
+   * parent's model on the second turn.
+   *
+   * An alias the provider cannot resolve (e.g. a typo, or a session built on
+   * SingleModelProvider) falls back to the parent's model instead of failing at
+   * generate time. fastMode stays a straight inherit: it is a preference the
+   * provider layer already drops when the active model cannot serve it.
+   */
+  private childModelConfig(
+    parent: Agent,
+    child: Agent,
+    profile: ResolvedAgentProfile | undefined,
+    options: Pick<RunSubagentOptions, 'modelAlias' | 'thinkingLevel'>,
+  ): { modelAlias: string | undefined; thinkingLevel: string | undefined; fastMode: boolean } {
+    const requested = options.modelAlias ?? profile?.model;
+    const modelAlias =
+      requested !== undefined && child.config.canResolveModel(requested)
+        ? requested
+        : parent.config.modelAlias;
+    return {
+      modelAlias,
+      thinkingLevel: options.thinkingLevel ?? profile?.effort ?? parent.config.thinkingLevel,
+      fastMode: parent.config.fastMode,
+    };
+  }
+
+  private tryResolveProfile(parent: Agent, profileName: string): ResolvedAgentProfile | undefined {
+    try {
+      return this.resolveProfile(parent, profileName);
+    } catch {
+      return undefined;
+    }
+  }
+
   private resolveProfile(parent: Agent, profileName: string): ResolvedAgentProfile {
     const configuredProfiles = this.session.agentProfiles;
     const profile =
@@ -484,9 +519,7 @@ export class SessionSubagentHost {
     child.setKaos(child.kaos.withCwd(cwd));
     child.config.update({
       cwd,
-      modelAlias: options.modelAlias ?? profile?.model ?? parent.config.modelAlias,
-      thinkingLevel: options.thinkingLevel ?? profile?.effort ?? parent.config.thinkingLevel,
-      fastMode: parent.config.fastMode,
+      ...this.childModelConfig(parent, child, profile, options),
     });
 
     if (options.forkContext === true) {
