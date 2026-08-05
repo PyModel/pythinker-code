@@ -193,6 +193,9 @@ fail() {
   exit 1
 }
 
+# The explicit width argument is optional; callers other than _wrap_text omit it
+# and rely on detection.
+# shellcheck disable=SC2120
 _terminal_columns() {
   local explicit="${1:-}"
   local detected=""
@@ -852,6 +855,8 @@ _print_path_guidance() {
     'PATH update required' \
     "$(_display_path "$bin_dir") is not currently on PATH"
   printf '  %sBash or Zsh%s\n' "$MUTED" "$RESET"
+  # $PATH stays literal on purpose — this line is shell config for the user to copy.
+  # shellcheck disable=SC2016
   printf '    export PATH="%s:$PATH"\n' "$bin_dir"
   printf '  %sFish%s\n' "$MUTED" "$RESET"
   printf '    fish_add_path "%s"\n' "$bin_dir"
