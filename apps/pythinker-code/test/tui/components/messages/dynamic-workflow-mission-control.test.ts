@@ -29,6 +29,12 @@ function memberLine(output: string, index: number): string {
   return line;
 }
 
+function memberRowCount(output: string): number {
+  return output.split('\n').filter(
+    (candidate) => /^\d{3}\s/u.test(candidate.replace(/^│\s*/u, '')),
+  ).length;
+}
+
 function displayedPercent(output: string, index: number): number {
   const match = /(\d+)%/u.exec(memberLine(output, index));
   if (match === null) throw new Error(`Missing percent for member ${String(index)}`);
@@ -598,7 +604,7 @@ describe('DynamicWorkflowMissionControlComponent', () => {
     },
   );
 
-  it('creeps past 90 across streamed deltas and completes only on the terminal event', () => {
+  it('holds the observed stage across streamed deltas and completes only on the terminal event', () => {
     const component = createComponent();
     component.updateArgs({ items: ['Long streaming work'] });
     component.markInputComplete();
@@ -606,26 +612,18 @@ describe('DynamicWorkflowMissionControlComponent', () => {
     component.markStarted('agent-1');
     component.recordToolCall({ agentId: 'agent-1', name: 'Read' });
 
-    for (let index = 0; index < 10; index += 1) {
+    for (let index = 0; index < 200; index += 1) {
       component.appendModelDelta({ agentId: 'agent-1', delta: `chunk ${String(index)} ` });
     }
-    const early = displayedPercent(renderText(component, 100), 1);
-    // No snap to 90: the finalizing phase climbs from 75 instead of jumping.
-    expect(early).toBeGreaterThan(75);
-    expect(early).toBeLessThan(90);
-
-    for (let index = 0; index < 200; index += 1) {
-      component.appendModelDelta({ agentId: 'agent-1', delta: 'more ' });
-    }
-    const late = displayedPercent(renderText(component, 100), 1);
-    expect(late).toBeGreaterThan(90);
-    expect(late).toBeLessThan(100);
+    // No invented progress: text after a tool call never climbs toward 100.
+    expect(displayedPercent(renderText(component, 100), 1))
+      .toBe(DYNAMIC_WORKFLOW_RENDERING.toolActivityProgress);
 
     component.markCompleted('agent-1', 'Done');
     expect(displayedPercent(renderText(component, 100), 1)).toBe(100);
   });
 
-  it('keeps mid-work delta creep under the tool-activity stage until a tool call lifts it', () => {
+  it('keeps streamed text at the model stage until a tool call lifts it', () => {
     const component = createComponent();
     component.updateArgs({ items: ['Chatty work'] });
     component.markInputComplete();
@@ -635,13 +633,50 @@ describe('DynamicWorkflowMissionControlComponent', () => {
     for (let index = 0; index < 300; index += 1) {
       component.appendModelDelta({ agentId: 'agent-1', delta: 'more ' });
     }
-    const midwork = displayedPercent(renderText(component, 100), 1);
-    expect(midwork).toBeGreaterThan(50);
-    expect(midwork).toBeLessThan(DYNAMIC_WORKFLOW_RENDERING.toolActivityProgress);
+    expect(displayedPercent(renderText(component, 100), 1))
+      .toBe(DYNAMIC_WORKFLOW_RENDERING.modelActivityProgress);
 
     component.recordToolCall({ agentId: 'agent-1', name: 'Read' });
     expect(displayedPercent(renderText(component, 100), 1))
-      .toBeGreaterThanOrEqual(DYNAMIC_WORKFLOW_RENDERING.toolActivityProgress);
+      .toBe(DYNAMIC_WORKFLOW_RENDERING.toolActivityProgress);
+  });
+
+  it('starts a new line for model text after a tool label instead of fusing them', () => {
+    const component = createComponent();
+    component.updateArgs({ items: ['Work'] });
+    component.markInputComplete();
+    register(component, 'agent-1');
+    component.markStarted('agent-1');
+    component.recordToolCall({ agentId: 'agent-1', name: 'Read' });
+    component.appendModelDelta({ agentId: 'agent-1', delta: "I've read the files" });
+
+    const line = memberLine(renderText(component, 200), 1);
+    expect(line).not.toContain("Using ReadI've");
+    expect(line).toContain("I've read the files");
+  });
+
+  it('renders object items by their prompt field and drops streamed phantom rows', () => {
+    const component = createComponent();
+    const streamingArguments =
+      '{"items": [{"prompt": "Explore records", "description": "Records"},'
+      + ' {"prompt": "Explore events", "description": "Events"}';
+    component.updateArgs({}, { streamingArguments });
+    // Object keys and nested values are not items: two members, not eight.
+    expect(memberRowCount(renderText(component, 200))).toBe(2);
+
+    component.updateArgs({
+      items: [
+        { prompt: 'Explore records', description: 'Records' },
+        { prompt: 'Explore events', description: 'Events' },
+      ],
+    });
+    component.markInputComplete();
+
+    const output = renderText(component, 200);
+    expect(memberRowCount(output)).toBe(2);
+    expect(memberLine(output, 1)).toContain('Explore records');
+    expect(memberLine(output, 1)).not.toContain('[object Object]');
+    expect(memberLine(output, 2)).toContain('Explore events');
   });
 
   it('shimmers Finalizing once every member is terminal but the result has not arrived', () => {
