@@ -155,6 +155,47 @@ function clearAllInlineErrors(draft: ChatState): void {
   }
 }
 
+interface PermissionCommand {
+  readonly mode: "yolo" | "auto";
+  readonly request: "on" | "off" | "toggle";
+}
+
+/** `/yolo`, `/auto`, and `/afk`, each with an optional `on` / `off` argument. */
+function parsePermissionCommand(text: string): PermissionCommand | undefined {
+  const match = /^\/(yolo|auto|afk)(?:\s+(on|off))?\s*$/i.exec(text.trim());
+  if (match === null) return undefined;
+  const name = match[1]!.toLowerCase();
+  const argument = match[2]?.toLowerCase();
+  return {
+    mode: name === "yolo" ? "yolo" : "auto",
+    request: argument === "on" ? "on" : argument === "off" ? "off" : "toggle",
+  };
+}
+
+/**
+ * Enabling a mode that auto-approves does not retract the approval the engine
+ * already asked for, so the requests on screen are answered here — otherwise
+ * the turn stays parked on the very prompt the user just turned off.
+ */
+async function applyPermissionCommand(command: PermissionCommand): Promise<void> {
+  const result = await bridge
+    .setPermissionMode(command.mode, command.request)
+    .catch(() => undefined);
+  if (result === undefined || !result.ok) {
+    toast.error("Could not change the permission mode.");
+    return;
+  }
+  if (result.message) toast.success(result.message);
+
+  if (result.mode !== "yolo" && result.mode !== "auto") return;
+  const approvals = useApprovalStore.getState();
+  const response = result.mode === "yolo" ? "approve_for_session" : "approve";
+  // `pending` is replaced on every response, so this snapshot stays stable.
+  for (const request of approvals.pending) {
+    await approvals.respondToRequest(request.id, response).catch(() => undefined);
+  }
+}
+
 function doSend(state: ChatState, content: string | ContentPart[], model: string) {
   const { sessionId, planMode } = state;
   const { thinkingEffort } = useSettingsStore.getState();
@@ -210,6 +251,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const content = readyMedia.length > 0 ? Content.build(text, readyMedia) : text;
 
     if (Content.isEmpty(content)) {
+      return;
+    }
+
+    // `/yolo` and `/auto` change how the running turn behaves, so they take a
+    // control path: queueing them behind a turn that is itself blocked on an
+    // approval means the command can never arrive.
+    const permissionCommand = parsePermissionCommand(text);
+    if (permissionCommand) {
+      set({ draftMedia: [] });
+      void applyPermissionCommand(permissionCommand);
       return;
     }
 

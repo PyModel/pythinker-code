@@ -216,6 +216,13 @@ class Bridge {
     return this.call<{ aborted: boolean }>(Methods.AbortChat);
   }
 
+  setPermissionMode(mode: "yolo" | "auto", request: "on" | "off" | "toggle") {
+    return this.call<{ ok: boolean; mode?: string; message?: string }>(
+      Methods.SetPermissionMode,
+      { mode, request },
+    );
+  }
+
   resetSession() {
     return this.call<{ ok: boolean }>(Methods.ResetSession);
   }

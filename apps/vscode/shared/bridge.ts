@@ -42,6 +42,7 @@ export const Methods = {
   AbortChat: "abortChat",
   ResetSession: "resetSession",
   SetPlanMode: "setPlanMode",
+  SetPermissionMode: "setPermissionMode",
   SteerChat: "steerChat",
   RespondApproval: "respondApproval",
 
@@ -208,6 +209,12 @@ function validateParams(method: RpcMethod, params: unknown): boolean {
         && isStringRecord(params["answers"]);
     case Methods.SetPlanMode:
       return hasBoolean(params, "enabled");
+    case Methods.SetPermissionMode:
+      return isPlainObject(params)
+        && (params["mode"] === "yolo" || params["mode"] === "auto")
+        && (params["request"] === "on"
+          || params["request"] === "off"
+          || params["request"] === "toggle");
     case Methods.SteerChat:
       return isPlainObject(params) && isContent(params["content"]);
     case Methods.GetProjectFiles:

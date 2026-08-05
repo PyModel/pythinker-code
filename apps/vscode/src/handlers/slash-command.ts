@@ -154,20 +154,34 @@ const PERMISSION_MODE_DISABLED_MESSAGE = {
   auto: "Auto mode disabled. You are back at the keyboard.",
 } as const;
 
-/** `/yolo` and `/auto` accept `on` and `off`, and toggle without an argument — as the CLI does. */
-async function runPermissionCommand(
+/** `on`, `off`, or a bare toggle — the argument forms `/yolo` and `/auto` accept. */
+export type PermissionCommandRequest = "on" | "off" | "toggle";
+
+export function parsePermissionCommandRequest(args: string): PermissionCommandRequest {
+  const subcommand = args.trim().toLowerCase();
+  if (subcommand === "on") return "on";
+  if (subcommand === "off") return "off";
+  return "toggle";
+}
+
+/**
+ * Applies a `/yolo` or `/auto` request and reports the resulting mode. Callers
+ * own how the message is surfaced, so this runs identically whether the command
+ * came in between turns or mid-turn over the bridge.
+ */
+export async function applyPermissionCommand(
   runtime: SessionRuntime,
   mode: "yolo" | "auto",
-  args: string,
-  emit: (text: string) => void,
-): Promise<void> {
-  const subcommand = args.trim().toLowerCase();
-  const requested =
-    subcommand === "on" ? mode : subcommand === "off" ? "manual" : undefined;
+  request: PermissionCommandRequest,
+): Promise<{ mode: PermissionMode; message: string }> {
+  const requested = request === "on" ? mode : request === "off" ? "manual" : undefined;
 
   if (requested !== undefined && runtime.permissionMode === requested) {
-    emit(requested === mode ? `${label(mode)} is already on.` : `${label(mode)} is already off.`);
-    return;
+    return {
+      mode: requested,
+      message:
+        requested === mode ? `${label(mode)} is already on.` : `${label(mode)} is already off.`,
+    };
   }
 
   let current: PermissionMode;
@@ -178,11 +192,28 @@ async function runPermissionCommand(
     current = requested;
   }
 
-  emit(
-    current === mode
-      ? PERMISSION_MODE_ENABLED_MESSAGE[mode]
-      : PERMISSION_MODE_DISABLED_MESSAGE[mode],
+  return {
+    mode: current,
+    message:
+      current === mode
+        ? PERMISSION_MODE_ENABLED_MESSAGE[mode]
+        : PERMISSION_MODE_DISABLED_MESSAGE[mode],
+  };
+}
+
+/** `/yolo` and `/auto` accept `on` and `off`, and toggle without an argument — as the CLI does. */
+async function runPermissionCommand(
+  runtime: SessionRuntime,
+  mode: "yolo" | "auto",
+  args: string,
+  emit: (text: string) => void,
+): Promise<void> {
+  const result = await applyPermissionCommand(
+    runtime,
+    mode,
+    parsePermissionCommandRequest(args),
   );
+  emit(result.message);
 }
 
 function label(mode: "yolo" | "auto"): string {

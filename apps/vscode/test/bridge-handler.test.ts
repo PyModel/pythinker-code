@@ -149,6 +149,37 @@ describe("Webview RPC boundary (validates requests before host dispatch)", () =>
     expect(cancel).toHaveBeenCalledOnce();
   });
 
+  it("changes the permission mode of a running session without starting a turn", async () => {
+    const setPermissionMode = vi.fn(async () => undefined);
+    vi.spyOn(bridge.runtime, "getSessionForView").mockReturnValue({
+      permissionMode: "manual",
+      setPermissionMode,
+      beginHostAction: () => {
+        throw new Error("A host action must not frame a permission change");
+      },
+    } as never);
+
+    const result = await bridge.handle(
+      { id: "rpc-1", method: Methods.SetPermissionMode, params: { mode: "yolo", request: "on" } },
+      "view-1",
+    );
+
+    expect(setPermissionMode).toHaveBeenCalledWith("yolo");
+    expect(result).toMatchObject({ id: "rpc-1", result: { ok: true, mode: "yolo" } });
+  });
+
+  it("rejects a permission change for a mode it does not control", async () => {
+    const result = await bridge.handle(
+      { id: "rpc-1", method: Methods.SetPermissionMode, params: { mode: "plan", request: "on" } },
+      "view-1",
+    );
+
+    expect(result).toEqual({
+      id: "rpc-1",
+      error: "Invalid bridge params for method: setPermissionMode",
+    });
+  });
+
   it.each(["missingMethod", "toString", "constructor", "__proto__"])(
     "does not dispatch the unknown or prototype method %s",
     async (method) => {
