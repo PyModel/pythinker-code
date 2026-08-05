@@ -387,6 +387,10 @@ export interface ListAgentProfilesPayload {
   readonly workDir: string;
 }
 
+export interface ListWorkspaceSkillsPayload {
+  readonly workDir: string;
+}
+
 export interface AgentProfileSummary {
   readonly name: string;
   readonly description?: string;
@@ -494,6 +498,7 @@ export interface CoreAPI extends SessionAPIWithId {
   getConfigDiagnostics: (payload: EmptyPayload) => ConfigDiagnostics;
   listOutputStyles: (payload: ListOutputStylesPayload) => OutputStyleCatalog;
   listAgentProfiles: (payload: ListAgentProfilesPayload) => AgentProfileCatalog;
+  listWorkspaceSkills: (payload: ListWorkspaceSkillsPayload) => readonly SkillSummary[];
   setPythinkerConfig: (payload: SetPythinkerConfigPayload) => PythinkerConfig;
   replacePythinkerConfig: (payload: ReplacePythinkerConfigPayload) => PythinkerConfig;
   removePythinkerProvider: (payload: RemovePythinkerProviderPayload) => PythinkerConfig;

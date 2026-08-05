@@ -89,15 +89,20 @@ const getModels: Handler<void, ModelsConfig> = async (_, ctx) => {
 };
 
 /**
- * The skill catalog is session-scoped in the engine, so the list is empty until
- * a session exists. `bridge-handler` re-broadcasts the commands once one is
- * created, which is what fills the menu on a cold start.
+ * Skills are resolved from the workspace, not from a session, so a panel that
+ * has not sent a message yet still lists them. A live session is preferred when
+ * there is one: only it can report the prompts of its MCP connections.
  */
 export const getSlashCommands: Handler<void, SlashCommandInfo[]> = async (_, ctx) => {
   const session = ctx.getSession()?.session;
-  if (session === undefined) return SLASH_COMMANDS;
   try {
-    const { commands } = buildSkillSlashCommands(await session.listSkills());
+    const skills =
+      session !== undefined
+        ? await session.listSkills()
+        : ctx.workDir !== null
+          ? await ctx.harness.listWorkspaceSkills(ctx.workDir)
+          : [];
+    const { commands } = buildSkillSlashCommands(skills);
     return [...SLASH_COMMANDS, ...commands.map(toSlashCommandInfo)];
   } catch (error) {
     ctx.logError("Unable to list skills", error);

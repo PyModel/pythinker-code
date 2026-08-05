@@ -35,6 +35,7 @@ import {
 import { FLAG_DEFINITIONS, FlagResolver, type ExperimentalFeatureState } from '../flags';
 import type { Logger } from '../logging/types';
 import { resolveSessionMcpConfig, mergeCallerMcpServers, type SessionMcpConfig } from '../mcp';
+import { listWorkspaceSkills } from '../skill/workspace';
 import {
   DEFAULT_AGENT_PROFILES,
   loadAgentProfilesFromDirectories,
@@ -92,6 +93,7 @@ import type {
   InstallPluginPayload,
   ListSessionsPayload,
   ListAgentProfilesPayload,
+  ListWorkspaceSkillsPayload,
   ListOutputStylesPayload,
   McpServerInfo,
   SkillActivationResult,
@@ -613,6 +615,19 @@ export class PythinkerCore implements PromisableMethods<CoreAPI> {
     await this.pluginsReady;
     this.assertPluginsLoaded();
     return this.loadAgentProfileCatalog(requiredWorkDir('listAgentProfiles', workDir));
+  }
+
+  // Resolves the same roots a session would, so a caller that has no session yet
+  // (a freshly opened editor panel) still sees the workspace's real skill list.
+  async listWorkspaceSkills({
+    workDir,
+  }: ListWorkspaceSkillsPayload): Promise<readonly SkillSummary[]> {
+    await this.pluginsReady;
+    this.assertPluginsLoaded();
+    return listWorkspaceSkills({
+      workDir: requiredWorkDir('listWorkspaceSkills', workDir),
+      ...this.resolveSessionSkillConfig(this.readConfigForWrite()),
+    });
   }
 
   async setPythinkerConfig(input: SetPythinkerConfigPayload): Promise<PythinkerConfig> {

@@ -249,6 +249,12 @@ export abstract class SDKRpcClientBase {
     return rpc.listAgentProfiles({ workDir });
   }
 
+  /** The workspace's skills without opening a session; excludes session-only MCP prompts. */
+  async listWorkspaceSkills(workDir: string): Promise<readonly SkillSummary[]> {
+    const rpc = await this.getRpc();
+    return rpc.listWorkspaceSkills({ workDir });
+  }
+
   async setConfig(input: PythinkerConfigPatch): Promise<PythinkerConfig> {
     const rpc = await this.getRpc();
     return rpc.setPythinkerConfig(input);
