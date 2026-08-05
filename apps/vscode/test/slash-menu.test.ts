@@ -42,14 +42,15 @@ describe("scoreCommand", () => {
     expect(Number.isFinite(scoreCommand(RESEARCH_SKILL, "reswrit"))).toBe(true);
   });
 
-  it("still falls back to the description when nothing matches the name", () => {
-    expect(Number.isFinite(scoreCommand(CUSTOM_THEME, "color"))).toBe(true);
-  });
-
-  it("ranks every name match above a description match", () => {
-    expect(rank([CUSTOM_THEME, command("theme-picker", "Nothing to see.")], "theme")).toEqual([
-      "theme-picker",
-      "custom-theme",
+  it("never matches on the description", () => {
+    // "/sk" used to reach "/yolo" because its description contains those
+    // letters, so the highlight sat on an unrelated command.
+    const yolo = command("yolo", "Skip every approval prompt for this session.");
+    expect(scoreCommand(yolo, "sk")).toBe(NO_MATCH);
+    expect(rank([yolo, command("sub-skill"), command("invoke-skill")], "sk")).toEqual([
+      "sub-skill",
+      "invoke-skill",
     ]);
+    expect(scoreCommand(CUSTOM_THEME, "color")).toBe(NO_MATCH);
   });
 });

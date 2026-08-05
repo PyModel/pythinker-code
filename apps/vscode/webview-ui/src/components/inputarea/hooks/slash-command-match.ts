@@ -25,10 +25,12 @@ function matchesAnyWordPrefix(text: string, query: string): boolean {
 }
 
 /**
- * Lower is a better match, `NO_MATCH` means the command is filtered out. Every
- * way of matching the name outranks the description: the name is what the user
- * is typing, and matching a long description loosely lets nearly every command
- * through — which is what made the menu look unfiltered.
+ * Lower is a better match, `NO_MATCH` means the command is filtered out.
+ *
+ * Only the command name is matched. A description is prose — matching it pulls
+ * in commands that have nothing to do with what was typed (`/sk` reaching
+ * `/yolo` because its description happens to contain those letters), and the
+ * user cannot tell why they are listed.
  */
 export function scoreCommand(command: SlashCommandInfo, query: string): number {
   const name = command.name.toLowerCase();
@@ -45,14 +47,7 @@ export function scoreCommand(command: SlashCommandInfo, query: string): number {
     return 2;
   }
   // Forgiving tier: skipped letters and dropped separators still match.
-  if (isSubsequence(letters(name), letters(q))) {
-    return 3;
-  }
-  const description = command.description;
-  if (matchesAnyWordPrefix(description, q)) {
-    return 4;
-  }
-  return description.toLowerCase().includes(q) ? 5 : NO_MATCH;
+  return isSubsequence(letters(name), letters(q)) ? 3 : NO_MATCH;
 }
 
 /** Commands that match `query`, best match first. An empty query keeps the original order. */
