@@ -20,14 +20,13 @@ import {
   type ManagedPythinkerConfigShape,
 } from '@pythoughts/pythinker-code-oauth';
 import {
-  applyCatalogProvider,
-  catalogBaseUrl,
   catalogConnectionWire,
   catalogProviderModels,
   CatalogFetchError,
   createPythinkerHarness,
   DEFAULT_CATALOG_URL,
   fetchCatalog,
+  importCatalogProvider,
   inferWireType,
   type Catalog,
   type CatalogProviderEntry,
@@ -366,73 +365,19 @@ export async function handleCatalogAdd(
   }
 
   const harness = deps.getHarness();
-  await harness.ensureConfigFile();
-
-  let config = await harness.getConfig();
-
-  // Capture defaults BEFORE `removeProvider`, because that call clears
-  // `defaultModel` when it points at one of this provider's aliases (see
-  // `core-impl.ts removePythinkerProvider`). Without this, re-importing an
-  // already-configured provider would lose the user's previously-set default
-  // even when `--default-model` is not supplied.
-  const previousDefaultProvider = config.defaultProvider;
-  const previousDefaultModel = config.defaultModel;
-  const previousDefaultThinking = config.defaultThinking;
-
-  if (config.providers[providerId] !== undefined) {
-    config = await harness.removeProvider(providerId);
+  try {
+    await importCatalogProvider(harness, {
+      providerId,
+      entry,
+      catalogUrl: url,
+      apiKey: useEnvVar ? undefined : literalApiKey,
+      apiKeyEnvVar: useEnvVar ? apiKeyEnvVar : undefined,
+      defaultModel: opts.defaultModel,
+    });
+  } catch (error) {
+    deps.stderr.write(`${errorMessage(error)}\n`);
+    deps.exit(1);
   }
-
-  const baseUrl = catalogBaseUrl(entry, wire);
-  // `applyCatalogProvider` always overwrites both `defaultModel` and
-  // `defaultThinking`. The values we pass here are temporary; we restore
-  // a consistent state in the post-apply block below.
-  applyCatalogProvider(config, {
-    providerId,
-    catalogUrl: url,
-    wire,
-    baseUrl,
-    apiKey: useEnvVar ? undefined : literalApiKey,
-    apiKeyEnvVar: useEnvVar ? apiKeyEnvVar : undefined,
-    models,
-    selectedModelId: opts.defaultModel ?? '',
-    thinking: false,
-  });
-
-  // Resolve the final `defaultModel`:
-  //   - If the caller asked for one, `applyCatalogProvider` already set it.
-  //   - Else, restore the previous default ONLY when its alias still resolves
-  //     after the catalog refresh; the catalog may have dropped the old
-  //     model, in which case restoring would point default_model at a
-  //     non-existent alias and break the next session.
-  if (opts.defaultModel === undefined) {
-    const stillResolves =
-      previousDefaultModel !== undefined &&
-      config.models?.[previousDefaultModel] !== undefined;
-    config.defaultModel = stillResolves ? previousDefaultModel : undefined;
-  }
-
-  // Mirror the defaultModel handling for defaultProvider: `removeProvider`
-  // cleared it, and the catalog refresh may have dropped the provider id.
-  config.defaultProvider =
-    previousDefaultProvider !== undefined && config.providers[previousDefaultProvider] !== undefined
-      ? previousDefaultProvider
-      : undefined;
-
-  // Always restore `defaultThinking` from what was there before — including
-  // `undefined`. Persisting `false` when the user never set it would make
-  // `resolveThinkingLevel` (agent-core/src/agent/config/thinking.ts) treat
-  // it as an explicit "off" request and silently disable thinking, even
-  // for thinking-capable models.
-  config.defaultThinking = previousDefaultThinking;
-
-  await harness.setConfig({
-    providers: config.providers,
-    models: config.models,
-    defaultProvider: config.defaultProvider,
-    defaultModel: config.defaultModel,
-    defaultThinking: config.defaultThinking,
-  });
 
   const displayName = entry.name ?? providerId;
   deps.stdout.write(

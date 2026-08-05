@@ -25,6 +25,11 @@ export const Methods = {
   OpenFolder: "openFolder",
   GetModels: "getModels",
 
+  GetProviders: "getProviders",
+  GetProviderCatalog: "getProviderCatalog",
+  AddCatalogProvider: "addCatalogProvider",
+  RemoveProvider: "removeProvider",
+
   GetMCPServers: "getMCPServers",
   AddMCPServer: "addMCPServer",
   UpdateMCPServer: "updateMCPServer",
@@ -90,6 +95,7 @@ export type RpcMessageValidation =
 export const Events = {
   ExtensionConfigChanged: "extensionConfigChanged",
   MCPServersChanged: "mcpServersChanged",
+  ProvidersChanged: "providersChanged",
   StreamEvent: "streamEvent",
   FocusInput: "focusInput",
   InsertMention: "insertMention",
@@ -139,6 +145,8 @@ function validateParams(method: RpcMethod, params: unknown): boolean {
     case Methods.OpenSettings:
     case Methods.OpenFolder:
     case Methods.GetModels:
+    case Methods.GetProviders:
+    case Methods.GetProviderCatalog:
     case Methods.GetMCPServers:
     case Methods.AbortChat:
     case Methods.ResetSession:
@@ -167,6 +175,14 @@ function validateParams(method: RpcMethod, params: unknown): boolean {
         && isOptionalType(params["enableNewConversationShortcut"], "boolean")
         && isOptionalType(params["showThinkingContent"], "boolean")
         && isOptionalType(params["showThinkingExpanded"], "boolean");
+    case Methods.AddCatalogProvider:
+      return isPlainObject(params)
+        && isNonEmptyString(params["providerId"])
+        && isOptionalType(params["apiKey"], "string")
+        && isOptionalType(params["apiKeyEnvVar"], "string")
+        && isOptionalType(params["defaultModel"], "string");
+    case Methods.RemoveProvider:
+      return hasNonEmptyString(params, "providerId");
     case Methods.AddMCPServer:
       return isMcpServerConfig(params);
     case Methods.UpdateMCPServer:

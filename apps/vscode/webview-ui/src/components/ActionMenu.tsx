@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { IconSettings, IconServer, IconLogout, IconLogin, IconLoader2, IconRefresh, IconFileText, IconFolder } from "@tabler/icons-react";
+import { IconSettings, IconServer, IconPlug, IconLogout, IconLogin, IconLoader2, IconRefresh, IconFileText, IconFolder } from "@tabler/icons-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -44,10 +44,15 @@ function MenuItem({ onClick, disabled, danger, children }: { onClick: () => void
 export function ActionMenu({ className, onAuthAction }: ActionMenuProps) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
-  const { setMCPModalOpen, isLoggedIn, setIsLoggedIn, extensionConfig } = useSettingsStore();
+  const { setMCPModalOpen, setProvidersModalOpen, isLoggedIn, setIsLoggedIn, extensionConfig } = useSettingsStore();
 
   const handleOpenSettings = () => {
     void bridge.openSettings();
+    setOpen(false);
+  };
+
+  const handleOpenProviders = () => {
+    setProvidersModalOpen(true);
     setOpen(false);
   };
 
@@ -104,6 +109,10 @@ export function ActionMenu({ className, onAuthAction }: ActionMenuProps) {
           <MenuItem onClick={handleChangeWorkDir}>
             <IconFolder className="size-4 text-muted-foreground" />
             <span className="flex-1">Working Directory</span>
+          </MenuItem>
+          <MenuItem onClick={handleOpenProviders}>
+            <IconPlug className="size-4 text-muted-foreground" />
+            <span className="flex-1">Model Providers</span>
           </MenuItem>
           <MenuItem onClick={handleOpenMCPServers}>
             <IconServer className="size-4 text-muted-foreground" />

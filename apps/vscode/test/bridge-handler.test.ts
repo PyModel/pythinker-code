@@ -26,6 +26,8 @@ const host = vi.hoisted(() => {
     close: vi.fn(async () => undefined),
     getConfig: vi.fn(),
     setConfig: vi.fn(async () => undefined),
+    ensureConfigFile: vi.fn(async () => undefined),
+    removeProvider: vi.fn(async () => undefined),
     listSessions: vi.fn(async () => []),
     resumeSession: vi.fn(),
     forkSession: vi.fn(),
@@ -566,3 +568,98 @@ function createResumedSession(id: string, workDir: string) {
     onEvent: () => () => undefined,
   };
 }
+
+describe("Webview provider management (writes the same config.toml the CLI reads)", () => {
+  const catalog = {
+    anthropic: {
+      id: "anthropic",
+      name: "Anthropic",
+      api: "https://api.anthropic.com",
+      npm: "@ai-sdk/anthropic",
+      env: ["ANTHROPIC_API_KEY"],
+      models: { m1: { id: "m1", name: "M1", limit: { context: 200000, output: 64000 } } },
+    },
+    unusable: { id: "unusable", name: "Unusable", models: {} },
+  };
+
+  beforeEach(() => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify(catalog), { status: 200 })),
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("lists configured providers without ever sending the API key", async () => {
+    host.harness.getConfig.mockResolvedValue({
+      providers: { anthropic: { type: "anthropic", apiKey: "sk-secret", baseUrl: "https://api.anthropic.com" } },
+      models: { "anthropic/m1": { provider: "anthropic", model: "m1" } },
+      defaultModel: "anthropic/m1",
+    } as never);
+
+    const response = await bridge.handle({ id: "rpc-1", method: Methods.GetProviders }, "view-1");
+
+    const result = (response as { result: any }).result;
+    expect(result.providers).toEqual([
+      expect.objectContaining({ id: "anthropic", keySource: "config", models: ["anthropic/m1"] }),
+    ]);
+    expect(JSON.stringify(result)).not.toContain("sk-secret");
+  });
+
+  it("offers only catalog providers that a single key can reach", async () => {
+    const response = await bridge.handle({ id: "rpc-1", method: Methods.GetProviderCatalog }, "view-1");
+
+    const result = (response as { result: any }).result;
+    expect(result.map((entry: any) => entry.id)).toEqual(["anthropic"]);
+    expect(result[0].models).toEqual([expect.objectContaining({ id: "m1" })]);
+  });
+
+  it("imports a catalog provider into the config", async () => {
+    host.harness.getConfig.mockResolvedValue({ providers: {} } as never);
+
+    const response = await bridge.handle(
+      {
+        id: "rpc-1",
+        method: Methods.AddCatalogProvider,
+        params: { providerId: "anthropic", apiKey: "sk-test", defaultModel: "m1" },
+      },
+      "view-1",
+    );
+
+    expect((response as { error?: unknown }).error).toBeUndefined();
+    expect(host.harness.setConfig).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providers: expect.objectContaining({
+          anthropic: expect.objectContaining({ apiKey: "sk-test" }),
+        }),
+        defaultModel: "anthropic/m1",
+      }),
+    );
+  });
+
+  it("rejects an import with no key rather than writing a broken provider", async () => {
+    host.harness.getConfig.mockResolvedValue({ providers: {} } as never);
+
+    const response = await bridge.handle(
+      { id: "rpc-1", method: Methods.AddCatalogProvider, params: { providerId: "anthropic" } },
+      "view-1",
+    );
+
+    expect((response as { error?: string }).error).toMatch(/needs an API key/);
+    expect(host.harness.setConfig).not.toHaveBeenCalled();
+  });
+
+  it("removes a provider through the harness", async () => {
+    host.harness.getConfig.mockResolvedValue({ providers: {} } as never);
+
+    await bridge.handle(
+      { id: "rpc-1", method: Methods.RemoveProvider, params: { providerId: "anthropic" } },
+      "view-1",
+    );
+
+    expect(host.harness.removeProvider).toHaveBeenCalledWith("anthropic");
+  });
+});

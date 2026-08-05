@@ -145,6 +145,7 @@ interface SettingsState {
   extensionConfig: ExtensionConfig;
   mcpServers: MCPServerConfig[];
   mcpModalOpen: boolean;
+  providersModalOpen: boolean;
   workDirModalOpen: boolean;
   settingsDialogOpen: boolean;
   currentWorkDir: string | null;
@@ -166,6 +167,7 @@ interface SettingsState {
   setExtensionConfig: (config: ExtensionConfig) => void;
   setMCPServers: (servers: MCPServerConfig[]) => void;
   setMCPModalOpen: (open: boolean) => void;
+  setProvidersModalOpen: (open: boolean) => void;
   setWorkDirModalOpen: (open: boolean) => void;
   setSettingsDialogOpen: (open: boolean) => void;
   setCurrentWorkDir: (workDir: string | null) => void;
@@ -182,6 +184,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   extensionConfig: DEFAULT_EXTENSION_CONFIG,
   mcpServers: [],
   mcpModalOpen: false,
+  providersModalOpen: false,
   workDirModalOpen: false,
   settingsDialogOpen: false,
   currentWorkDir: null,
@@ -281,6 +284,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setMCPServers: (mcpServers) => set({ mcpServers }),
 
   setMCPModalOpen: (mcpModalOpen) => set({ mcpModalOpen }),
+  setProvidersModalOpen: (providersModalOpen) => set({ providersModalOpen }),
 
   setWorkDirModalOpen: (workDirModalOpen) => set({ workDirModalOpen }),
 

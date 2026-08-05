@@ -69,3 +69,41 @@ export interface LoginStatus {
 }
 
 export type { QuestionRequest, QuestionItem, QuestionOption, QuestionResponse } from "./legacy-sdk";
+
+/** A provider as it exists in config.toml. The API key itself never crosses the bridge. */
+export interface ConfiguredProvider {
+  id: string;
+  type: string;
+  baseUrl?: string;
+  keySource: "config" | "env" | "none";
+  apiKeyEnvVar?: string;
+  catalogUrl?: string;
+  models: string[];
+}
+
+export interface ProvidersView {
+  providers: ConfiguredProvider[];
+  defaultModel: string | null;
+}
+
+export interface CatalogModelSummary {
+  id: string;
+  name: string;
+  maxContextTokens?: number;
+  thinking: boolean;
+}
+
+export interface CatalogProviderSummary {
+  id: string;
+  name: string;
+  wire?: string;
+  apiKeyEnvVar?: string;
+  models: CatalogModelSummary[];
+}
+
+export interface AddCatalogProviderRequest {
+  providerId: string;
+  apiKey?: string;
+  apiKeyEnvVar?: string;
+  defaultModel?: string;
+}

@@ -4,6 +4,7 @@ import { Header } from "./components/Header";
 import { ChatArea } from "./components/ChatArea";
 import { InputArea } from "./components/inputarea/InputArea";
 import { MCPServersModal } from "./components/MCPServersModal";
+import { ProvidersModal } from "./components/ProvidersModal";
 import { WorkDirModal } from "./components/WorkDirModal";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { ConfigErrorScreen } from "./components/ConfigErrorScreen";
@@ -74,6 +75,7 @@ function MainContent({ onAuthAction }: { onAuthAction: () => void }) {
         <InputArea onAuthAction={onAuthAction} />
       </div>
       <MCPServersModal />
+      <ProvidersModal />
       <WorkDirModal />
       <SettingsDialog />
     </>

@@ -10,9 +10,12 @@ import type {
   UpdateMCPServerRequest,
 } from "shared/legacy-sdk";
 import type {
+  AddCatalogProviderRequest,
+  CatalogProviderSummary,
   FileChange,
   SessionConfig,
   ExtensionConfig,
+  ProvidersView,
   WorkspaceStatus,
   LoginStatus,
   UIStreamEvent,
@@ -26,6 +29,8 @@ interface PendingRequest {
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 10 * 60 * 1000;
 const OAUTH_REQUEST_TIMEOUT_MS = 16 * 60 * 1000;
+/** The catalog is ~1 MB over the public network, and an import writes config.toml. */
+const CATALOG_REQUEST_TIMEOUT_MS = 60 * 1000;
 
 interface VSCodeAPI {
   postMessage(message: unknown): void;
@@ -156,6 +161,22 @@ class Bridge {
 
   getModels() {
     return this.call<ModelsConfig>(Methods.GetModels);
+  }
+
+  getProviders() {
+    return this.call<ProvidersView>(Methods.GetProviders);
+  }
+
+  getProviderCatalog() {
+    return this.call<CatalogProviderSummary[]>(Methods.GetProviderCatalog, undefined, CATALOG_REQUEST_TIMEOUT_MS);
+  }
+
+  addCatalogProvider(request: AddCatalogProviderRequest) {
+    return this.call<ProvidersView>(Methods.AddCatalogProvider, request, CATALOG_REQUEST_TIMEOUT_MS);
+  }
+
+  removeProvider(providerId: string) {
+    return this.call<ProvidersView>(Methods.RemoveProvider, { providerId });
   }
 
   getMCPServers() {
