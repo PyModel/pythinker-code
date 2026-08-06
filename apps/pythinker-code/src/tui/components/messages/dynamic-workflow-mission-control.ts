@@ -332,6 +332,10 @@ export class DynamicWorkflowMissionControlComponent implements Component {
     this.recordActivity('SYS', 'Workflow cancelled');
   }
 
+  markWarning(message: string): void {
+    this.recordActivity('SYS', normalizeText(message));
+  }
+
   applyResult(output: string): boolean {
     const statuses = parseDynamicWorkflowResultStatuses(output);
     if (!isDynamicWorkflowResult(output)) return false;

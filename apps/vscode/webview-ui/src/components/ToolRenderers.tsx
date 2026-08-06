@@ -21,7 +21,7 @@ import { formatContentOutput } from "shared/legacy-sdk";
 import { cleanSystemTags } from "shared/utils";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { WorkflowCard } from "./WorkflowCard";
-import type { UIToolCall, UIStep, UIStepItem, UISubagentStatus } from "@/stores/chat.store";
+import type { UIToolCall, UIStep, UIStepItem, UISubagentStatus, UIWorkflowWarning } from "@/stores/chat.store";
 import type { ToolResult, DisplayBlock, TodoBlock } from "shared/legacy-sdk";
 
 type ToolResultValue = ToolResult["return_value"];
@@ -31,6 +31,7 @@ interface ToolRendererProps {
   result?: ToolResultValue;
   subagentSteps?: UIStep[];
   subagentStatus?: Record<string, UISubagentStatus>;
+  workflowWarning?: UIWorkflowWarning;
 }
 
 function formatOutput(output: string | object | object[]): string {
@@ -307,7 +308,7 @@ export function SubagentStepItemRenderer({ item }: { item: UIStepItem }) {
     return <Markdown content={item.content} className="text-[0.75rem] leading-relaxed" enableEnrichment={item.finished} />;
   }
   if (item.type === "tool_use") {
-    return <ToolCallCard call={item.call} result={item.result} subagentSteps={item.subagent_steps} subagentStatus={item.subagent_status} />;
+    return <ToolCallCard call={item.call} result={item.result} subagentSteps={item.subagent_steps} subagentStatus={item.subagent_status} workflowWarning={item.workflow_warning} />;
   }
   return null;
 }
@@ -377,7 +378,7 @@ function TaskTool({ call, result, subagentSteps }: ToolRendererProps) {
   );
 }
 
-export function ToolCallCard({ call, result, subagentSteps, subagentStatus }: ToolRendererProps) {
+export function ToolCallCard({ call, result, subagentSteps, subagentStatus, workflowWarning }: ToolRendererProps) {
   const [expanded, setExpanded] = useState(false);
   const status = !result ? "pending" : !result.is_error ? "success" : "error";
 
@@ -390,6 +391,7 @@ export function ToolCallCard({ call, result, subagentSteps, subagentStatus }: To
         result={result}
         subagentSteps={subagentSteps ?? []}
         subagentStatus={subagentStatus ?? {}}
+        workflowWarning={workflowWarning}
         renderStepItem={(item) => <SubagentStepItemRenderer item={item} />}
       />
     );

@@ -72,7 +72,7 @@ function StepItemRenderer({ item }: { item: UIStepItem }) {
     case "text":
       return <Markdown content={item.content} className="text-xs leading-relaxed" enableEnrichment={item.finished === true} />;
     case "tool_use":
-      return <ToolCallCard call={item.call} result={item.result} subagentSteps={item.subagent_steps} subagentStatus={item.subagent_status} />;
+      return <ToolCallCard call={item.call} result={item.result} subagentSteps={item.subagent_steps} subagentStatus={item.subagent_status} workflowWarning={item.workflow_warning} />;
     case "compaction":
       return <CompactionCard />;
     case "steer":
