@@ -347,6 +347,7 @@ describe('handleDynamicWorkflowCommand', () => {
 
     await handleDynamicWorkflowCommand(host, 'model deepseek-v4');
     expect(host.showStatus).toHaveBeenLastCalledWith('Dynamic Workflow subagents will use deepseek-v4.');
+    expect(host.state.appState.dynamicWorkflowModel).toBe('deepseek-v4');
 
     await handleDynamicWorkflowCommand(host, 'model');
     expect(host.showStatus).toHaveBeenLastCalledWith(
@@ -357,6 +358,7 @@ describe('handleDynamicWorkflowCommand', () => {
     expect(host.showStatus).toHaveBeenLastCalledWith(
       'Dynamic Workflow subagents now use this session model.',
     );
+    expect(host.state.appState.dynamicWorkflowModel).toBeUndefined();
 
     // A model subcommand must never be mistaken for a task prompt.
     expect(session.setDynamicWorkflowMode).not.toHaveBeenCalled();

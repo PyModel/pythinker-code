@@ -111,7 +111,7 @@ function withWorkerModelInstruction(prompt: string, model: string | undefined): 
 
 /** Returns true when the input was a `model` subcommand and has been handled. */
 function handleModelSubcommand(host: SlashCommandHost, input: string): boolean {
-  const match = /^model(?:\s+(.*))?$/i.exec(input);
+  const match = /^model(?:\s+(.*))?$/iu.exec(input);
   if (match === null) return false;
 
   const value = match[1]?.trim() ?? '';

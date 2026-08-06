@@ -669,20 +669,51 @@ describe('SubagentBatch scheduling contract', () => {
     }
   });
 
-  it('carries a task model and effort through to the launcher', async () => {
-    const { runBatch, attempts } = createMockBatchRunner();
-    const running = runBatch([routedTask(1), routedTask(2)], { signal });
-    await Promise.resolve();
+  it('carries a task model and effort through spawn, resume, and retry attempts', async () => {
+    vi.useFakeTimers();
+    try {
+      const { runBatch, attempts } = createMockBatchRunner();
+      const resumeTask: QueuedSubagentTask<number> = {
+        ...routedTask(2),
+        kind: 'resume',
+        resumeAgentId: 'agent-2',
+      };
+      const running = runBatch([routedTask(1), resumeTask, routedTask(3)], { signal });
+      void running.catch(() => {});
 
-    // A workflow routed to a cheaper model must reach every spawned child;
-    // dropping it here would silently run the batch on the parent's model.
-    expect(attempts).toHaveLength(2);
-    for (const attempt of attempts) {
-      expect(attempt.runOptions.modelAlias).toBe('implementer-model');
-      expect(attempt.runOptions.thinkingLevel).toBe('medium');
-      attempt.outcome.resolve({ task: attempt.task, status: 'completed', result: 'done' });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(attempts).toHaveLength(3);
+      attempts.forEach((attempt) => {
+        attempt.markReady();
+      });
+
+      // Rate-limit one attempt so the batch re-launches it through the retry
+      // path, which is the third way a child can be started. Another task has
+      // to finish first to free the shrunken capacity, and a third has to stay
+      // unfinished so the rate-limited one suspends instead of failing.
+      const rateLimitedAgentId = `agent-${String(attempts[0]!.task.data)}`;
+      attempts[0]!.outcome.resolve({ type: 'rate_limited', agentId: rateLimitedAgentId });
+      attempts[1]!.outcome.resolve({ task: attempts[1]!.task, status: 'completed', result: 'done' });
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(attempts).toHaveLength(4);
+      expect(attempts[3]!.retryAgentId).toBe(rateLimitedAgentId);
+
+      // A workflow routed to a cheaper model must reach every child however it
+      // was started; dropping it on any path silently runs that child on the
+      // parent's model.
+      for (const attempt of attempts) {
+        expect(attempt.runOptions.modelAlias).toBe('implementer-model');
+        expect(attempt.runOptions.thinkingLevel).toBe('medium');
+      }
+
+      attempts.slice(2).forEach((attempt) => {
+        attempt.outcome.resolve({ task: attempt.task, status: 'completed', result: 'done' });
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      await running;
+    } finally {
+      vi.useRealTimers();
     }
-    await running;
   });
 });
 
