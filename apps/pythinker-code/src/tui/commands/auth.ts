@@ -54,17 +54,17 @@ function loginUiFromHost(host: SlashCommandHost): LoginUi {
   };
 }
 
-export function handleLoginCommand(host: SlashCommandHost): Promise<void> {
-  return runLogin(loginUiFromHost(host));
+export async function handleLoginCommand(host: SlashCommandHost): Promise<void> {
+  await runLogin(loginUiFromHost(host));
 }
 
-export function connectCatalogProvider(
+export async function connectCatalogProvider(
   host: SlashCommandHost,
   providerId: string,
   selectedCatalogEntry?: CatalogProviderEntry,
   displayName?: string,
 ): Promise<void> {
-  return connectCatalogProviderFlow(
+  await connectCatalogProviderFlow(
     loginUiFromHost(host),
     providerId,
     selectedCatalogEntry,

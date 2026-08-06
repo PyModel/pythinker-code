@@ -66,44 +66,48 @@ export interface LoginUi {
   track(event: string, props?: Record<string, unknown>): void;
 }
 
-export async function runLogin(ui: LoginUi): Promise<void> {
+/**
+ * Run the provider picker and the selected provider's login flow.
+ *
+ * Resolves `true` only when credentials were written to config. Callers such as
+ * `pythinker login` use that for their exit code, so it must never be inferred
+ * from a side effect like telemetry: every early return here is a user
+ * cancellation or a failure the flow already reported.
+ */
+export async function runLogin(ui: LoginUi): Promise<boolean> {
   const selection = await ui.promptPlatformSelection();
-  if (selection === undefined) return;
+  if (selection === undefined) return false;
   const { platformId, catalog } = selection;
 
   const catalogProviderId = catalogProviderIdFromPlatformValue(platformId);
   if (catalogProviderId !== undefined) {
-    await connectCatalogProvider(ui, catalogProviderId, catalog[catalogProviderId]);
-    return;
+    return connectCatalogProvider(ui, catalogProviderId, catalog[catalogProviderId]);
   }
 
   if (platformId === 'kimi-code') {
-    await handlePythinkerCodeOAuthLogin(ui);
-    return;
+    return handlePythinkerCodeOAuthLogin(ui);
   }
 
   if (platformId === OPENAI_CODEX_OAUTH_PLATFORM_ID) {
-    await handleOpenAICodexOAuthLogin(ui);
-    return;
+    return handleOpenAICodexOAuthLogin(ui);
   }
 
   const platform = getOpenPlatformById(platformId);
-  if (platform === undefined) return;
+  if (platform === undefined) return false;
 
   if (platform.catalogProviderId !== undefined) {
-    await connectCatalogProvider(
+    return connectCatalogProvider(
       ui,
       platform.catalogProviderId,
       catalog[platform.catalogProviderId],
       platform.name,
     );
-    return;
   }
 
-  await handleOpenPlatformLogin(ui, platform);
+  return handleOpenPlatformLogin(ui, platform);
 }
 
-async function handlePythinkerCodeOAuthLogin(ui: LoginUi): Promise<void> {
+async function handlePythinkerCodeOAuthLogin(ui: LoginUi): Promise<boolean> {
   const status = await ui.harness.auth.status(DEFAULT_OAUTH_PROVIDER_NAME);
   const alreadyLoggedIn = status.providers.some(
     (provider) => provider.providerName === DEFAULT_OAUTH_PROVIDER_NAME && provider.hasToken,
@@ -129,7 +133,7 @@ async function handlePythinkerCodeOAuthLogin(ui: LoginUi): Promise<void> {
     } catch (refreshError) {
       const message = formatErrorMessage(refreshError);
       ui.showError(`Authentication successful, but failed to refresh config: ${message}`);
-      return;
+      return false;
     }
     ui.track('login', {
       provider: DEFAULT_OAUTH_PROVIDER_NAME,
@@ -138,6 +142,7 @@ async function handlePythinkerCodeOAuthLogin(ui: LoginUi): Promise<void> {
     if (alreadyLoggedIn) {
       ui.showStatus('Already logged in. Model configuration refreshed.');
     }
+    return true;
   } catch (error) {
     const cancelled = controller.signal.aborted;
     spinner?.stop({
@@ -145,7 +150,7 @@ async function handlePythinkerCodeOAuthLogin(ui: LoginUi): Promise<void> {
       label: cancelled ? 'Login cancelled.' : 'Login failed.',
     });
     spinner = undefined;
-    if (cancelled) return;
+    if (cancelled) return false;
     log.warn('login failed', {
       providerName: DEFAULT_OAUTH_PROVIDER_NAME,
       alreadyLoggedIn,
@@ -154,6 +159,7 @@ async function handlePythinkerCodeOAuthLogin(ui: LoginUi): Promise<void> {
     });
     const message = formatErrorMessage(error);
     ui.showError(`Login failed: ${message}`);
+    return false;
   } finally {
     if (ui.cancelInFlight === cancelLogin) {
       ui.cancelInFlight = undefined;
@@ -164,14 +170,14 @@ async function handlePythinkerCodeOAuthLogin(ui: LoginUi): Promise<void> {
 async function handleOpenPlatformLogin(
   ui: LoginUi,
   platform: OpenPlatformDefinition,
-): Promise<void> {
+): Promise<boolean> {
   const platformName = platform.name;
   const subtitleLines = [
     `${'base_url'.padEnd(12)}${platform.baseUrl}`,
     `${'saved to'.padEnd(12)}~/.pythinker-code/config.toml`,
   ];
   const apiKey = await ui.promptApiKey(platformName, subtitleLines);
-  if (apiKey === undefined) return;
+  if (apiKey === undefined) return false;
 
   const controller = new AbortController();
   const cancelLogin = (): void => {
@@ -184,7 +190,7 @@ async function handleOpenPlatformLogin(
     models = await fetchOpenPlatformModels(platform, apiKey, fetch, controller.signal);
     models = filterModelsByPrefix(models, platform);
   } catch (error) {
-    if (controller.signal.aborted) return;
+    if (controller.signal.aborted) return false;
     const msg = formatErrorMessage(error);
     ui.showError(`Failed to verify API key: ${msg}`);
     if (
@@ -195,7 +201,7 @@ async function handleOpenPlatformLogin(
         'Hint: If your API key was obtained from Pythinker OAuth, please select "Pythinker (OAuth)" instead.',
       );
     }
-    return;
+    return false;
   } finally {
     if (ui.cancelInFlight === cancelLogin) {
       ui.cancelInFlight = undefined;
@@ -204,11 +210,11 @@ async function handleOpenPlatformLogin(
 
   if (models.length === 0) {
     ui.showError('No models available for this platform.');
-    return;
+    return false;
   }
 
   const selection = await ui.promptModelSelectionForOpenPlatform(models, platform);
-  if (selection === undefined) return;
+  if (selection === undefined) return false;
 
   const existingConfig = await ui.harness.getConfig();
   if (existingConfig.providers[platform.id] !== undefined) {
@@ -234,6 +240,7 @@ async function handleOpenPlatformLogin(
   await ui.refreshConfigAfterLogin();
   ui.track('login', { provider: platform.id, method: 'api_key' });
   ui.showStatus(`Setup complete: ${platform.name} · ${selection.model.id}`);
+  return true;
 }
 
 export async function connectCatalogProvider(
@@ -241,7 +248,7 @@ export async function connectCatalogProvider(
   providerId: string,
   selectedCatalogEntry?: CatalogProviderEntry,
   displayName?: string,
-): Promise<void> {
+): Promise<boolean> {
   let catalogEntry = selectedCatalogEntry;
   if (catalogEntry === undefined) {
     const controller = new AbortController();
@@ -253,9 +260,9 @@ export async function connectCatalogProvider(
       const catalog = await fetchCatalog(DEFAULT_CATALOG_URL, controller.signal);
       catalogEntry = catalog[providerId];
     } catch (error) {
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted) return false;
       ui.showError(`Failed to load model catalog: ${formatErrorMessage(error)}`);
-      return;
+      return false;
     } finally {
       if (ui.cancelInFlight === cancelLogin) {
         ui.cancelInFlight = undefined;
@@ -265,12 +272,12 @@ export async function connectCatalogProvider(
 
   if (catalogEntry === undefined) {
     ui.showError(`Catalog provider "${providerId}" was not found.`);
-    return;
+    return false;
   }
   const wire = catalogConnectionWire(catalogEntry);
   if (wire === undefined) {
     ui.showError(`Catalog provider "${providerId}" is not supported for login.`);
-    return;
+    return false;
   }
 
   const baseUrl = catalogBaseUrl(catalogEntry, wire);
@@ -288,17 +295,17 @@ export async function connectCatalogProvider(
       `${'saved to'.padEnd(12)}~/.pythinker-code/config.toml`,
     ];
     apiKey = await ui.promptApiKey(platformName, subtitleLines);
-    if (apiKey === undefined) return;
+    if (apiKey === undefined) return false;
   }
 
   const models = catalogProviderModels(catalogEntry);
   if (models.length === 0) {
     ui.showError('No models available for this platform.');
-    return;
+    return false;
   }
 
   const selection = await ui.promptModelSelectionForCatalog(providerId, models);
-  if (selection === undefined) return;
+  if (selection === undefined) return false;
 
   const existingConfig = await ui.harness.getConfig();
   if (existingConfig.providers[providerId] !== undefined) {
@@ -328,110 +335,117 @@ export async function connectCatalogProvider(
   await ui.refreshConfigAfterLogin();
   ui.track('login', { provider: providerId, method: envVarHasValue ? 'api_key_env' : 'api_key' });
   ui.showStatus(`Setup complete: ${platformName} · ${selection.model.id}`);
+  return true;
 }
 
-async function handleOpenAICodexOAuthLogin(ui: LoginUi): Promise<void> {
+async function handleOpenAICodexOAuthLogin(ui: LoginUi): Promise<boolean> {
   const controller = new AbortController();
   const cancelLogin = (): void => {
     controller.abort();
   };
   ui.cancelInFlight = cancelLogin;
-
-  ui.showStatus('Opening browser for OpenAI Codex sign-in…');
-  const { openUrl } = await import('#/utils/open-url');
-
-  let tokens;
+  // Stay armed for the whole flow: the model fetch and the model picker
+  // below are cancellable too, and disarming here left SIGINT with
+  // nothing to abort.
   try {
-    tokens = await runOpenAICodexOAuthFlow({
-      signal: controller.signal,
-      openBrowser: (url) => {
-        ui.showStatus('Opening browser for OpenAI Codex sign-in…');
-        openUrl(url);
-      },
-      onManualInput: async () =>
-        ui.promptApiKey(
-          'OpenAI Codex (OAuth)',
-          [
-            'Sign in with your ChatGPT account in the browser.',
-            'If the browser callback fails, paste the full redirect URL here.',
-          ],
-          {
-            title: 'Paste OpenAI Codex redirect URL',
-            secret: false,
-            emptyMessage: 'Redirect URL cannot be empty.',
-          },
-        ),
-    });
-  } catch (error) {
-    if (controller.signal.aborted) {
-      ui.showStatus('OpenAI Codex login cancelled.');
-      return;
+
+    ui.showStatus('Opening browser for OpenAI Codex sign-in…');
+    const { openUrl } = await import('#/utils/open-url');
+
+    let tokens;
+    try {
+      tokens = await runOpenAICodexOAuthFlow({
+        signal: controller.signal,
+        openBrowser: (url) => {
+          ui.showStatus('Opening browser for OpenAI Codex sign-in…');
+          openUrl(url);
+        },
+        onManualInput: async () =>
+          ui.promptApiKey(
+            'OpenAI Codex (OAuth)',
+            [
+              'Sign in with your ChatGPT account in the browser.',
+              'If the browser callback fails, paste the full redirect URL here.',
+            ],
+            {
+              title: 'Paste OpenAI Codex redirect URL',
+              secret: false,
+              emptyMessage: 'Redirect URL cannot be empty.',
+            },
+          ),
+      });
+    } catch (error) {
+      if (controller.signal.aborted) {
+        ui.showStatus('OpenAI Codex login cancelled.');
+        return false;
+      }
+      ui.showError(`OpenAI Codex login failed: ${formatErrorMessage(error)}`);
+      return false;
     }
-    ui.showError(`OpenAI Codex login failed: ${formatErrorMessage(error)}`);
-    return;
+
+    let models: ManagedKimiCodeModelInfo[];
+    try {
+      models = await fetchOpenAICodexModels({
+        accessToken: tokens.accessToken,
+        accountId: tokens.accountId,
+        signal: controller.signal,
+      });
+    } catch (error) {
+      if (controller.signal.aborted) return false;
+      ui.showError(`Failed to list OpenAI Codex models: ${formatErrorMessage(error)}`);
+      if (error instanceof OpenAICodexApiError && error.status === 401) {
+        ui.showStatus('Hint: Sign in again with /login if your OpenAI Codex session expired.');
+      }
+      return false;
+    }
+
+    if (models.length === 0) {
+      ui.showError('No models available for OpenAI Codex.');
+      return false;
+    }
+
+    const codexPlatform: OpenPlatformDefinition = {
+      id: OPENAI_CODEX_PROVIDER_ID,
+      name: 'OpenAI Codex (OAuth)',
+      defaultContextLength: 256_000,
+    };
+    const selection = await ui.promptModelSelectionForOpenPlatform(models, codexPlatform);
+    if (selection === undefined) return false;
+
+    // Drop the previous provider only once the replacement is certain. Removing
+    // it earlier loses the user's working config on any of the early returns
+    // above — most easily by cancelling the model picker. Matches the ordering
+    // in handleOpenPlatformLogin and connectCatalogProvider.
+    const existingConfig = await ui.harness.getConfig();
+    if (existingConfig.providers[OPENAI_CODEX_PROVIDER_ID] !== undefined) {
+      await ui.harness.removeProvider(OPENAI_CODEX_PROVIDER_ID);
+    }
+
+    const config = await ui.harness.getConfig();
+    applyOpenAICodexOAuthConfig(config as ManagedKimiConfigShape, {
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      accountId: tokens.accountId,
+      models,
+      selectedModel: selection.model,
+      thinking: selection.effort !== 'off',
+    });
+
+    await ui.harness.setConfig({
+      providers: config.providers,
+      models: config.models,
+      defaultModel: config.defaultModel,
+      defaultThinking: config.defaultThinking,
+      thinking: config.thinking,
+    });
+
+    await ui.refreshConfigAfterLogin();
+    ui.track('login', { provider: OPENAI_CODEX_OAUTH_PLATFORM_ID, method: 'oauth' });
+    ui.showStatus(`Logged in to OpenAI Codex · ${selection.model.id}`);
+    return true;
   } finally {
     if (ui.cancelInFlight === cancelLogin) {
       ui.cancelInFlight = undefined;
     }
   }
-
-  let models: ManagedKimiCodeModelInfo[];
-  try {
-    models = await fetchOpenAICodexModels({
-      accessToken: tokens.accessToken,
-      accountId: tokens.accountId,
-      signal: controller.signal,
-    });
-  } catch (error) {
-    if (controller.signal.aborted) return;
-    ui.showError(`Failed to list OpenAI Codex models: ${formatErrorMessage(error)}`);
-    if (error instanceof OpenAICodexApiError && error.status === 401) {
-      ui.showStatus('Hint: Sign in again with /login if your OpenAI Codex session expired.');
-    }
-    return;
-  }
-
-  if (models.length === 0) {
-    ui.showError('No models available for OpenAI Codex.');
-    return;
-  }
-
-  const codexPlatform: OpenPlatformDefinition = {
-    id: OPENAI_CODEX_PROVIDER_ID,
-    name: 'OpenAI Codex (OAuth)',
-    defaultContextLength: 256_000,
-  };
-  const selection = await ui.promptModelSelectionForOpenPlatform(models, codexPlatform);
-  if (selection === undefined) return;
-
-  // Drop the previous provider only once the replacement is certain. Removing
-  // it earlier loses the user's working config on any of the early returns
-  // above — most easily by cancelling the model picker. Matches the ordering
-  // in handleOpenPlatformLogin and connectCatalogProvider.
-  const existingConfig = await ui.harness.getConfig();
-  if (existingConfig.providers[OPENAI_CODEX_PROVIDER_ID] !== undefined) {
-    await ui.harness.removeProvider(OPENAI_CODEX_PROVIDER_ID);
-  }
-
-  const config = await ui.harness.getConfig();
-  applyOpenAICodexOAuthConfig(config as ManagedKimiConfigShape, {
-    accessToken: tokens.accessToken,
-    refreshToken: tokens.refreshToken,
-    accountId: tokens.accountId,
-    models,
-    selectedModel: selection.model,
-    thinking: selection.effort !== 'off',
-  });
-
-  await ui.harness.setConfig({
-    providers: config.providers,
-    models: config.models,
-    defaultModel: config.defaultModel,
-    defaultThinking: config.defaultThinking,
-    thinking: config.thinking,
-  });
-
-  await ui.refreshConfigAfterLogin();
-  ui.track('login', { provider: OPENAI_CODEX_OAUTH_PLATFORM_ID, method: 'oauth' });
-  ui.showStatus(`Logged in to OpenAI Codex · ${selection.model.id}`);
 }

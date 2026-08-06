@@ -1,65 +1,66 @@
 /**
- * Shared device-code login flow used by both `pythinker login` (top-level
- * subcommand) and `pythinker acp --login` (the first-class ACP terminal-auth
- * entry point). Exiting the process is part of the contract — callers
- * MUST treat the returned promise as `Promise<never>`.
+ * Shared login flow used by both `pythinker login` (top-level subcommand) and
+ * `pythinker acp --login` (the first-class ACP terminal-auth entry point).
+ * Exiting the process is part of the contract — callers MUST treat the
+ * returned promise as `Promise<never>`.
+ *
+ * The terminal `LoginUi` renderer (`#/auth/terminal-login-ui`) shows the same
+ * provider picker as the TUI's `/login`. `--provider <id|name>` skips the
+ * picker; anything that does not match a known provider fails loudly rather
+ * than falling back to a default. Without a TTY the flow refuses to guess and
+ * exits non-zero.
  */
 
 import { createPythinkerHarness } from '@pythoughts/pythinker-code-sdk';
 
+import { runLogin } from '#/auth/login-flows';
+import { createTerminalLoginUi, UnknownProviderError } from '#/auth/terminal-login-ui';
 import { writeAndDrain } from '#/cli/output';
 import { createPythinkerCodeHostIdentity } from '#/cli/version';
-import { openUrl } from '#/utils/open-url';
 
-export async function runLoginFlow(): Promise<never> {
+export interface LoginFlowOptions {
+  /** `--provider <id|name>` — resolve and skip the interactive picker. */
+  readonly provider?: string | undefined;
+}
+
+export async function runLoginFlow(options: LoginFlowOptions = {}): Promise<never> {
+  if (!process.stdin.isTTY) {
+    try {
+      await writeAndDrain(
+        process.stderr,
+        'Login requires an interactive terminal.\n',
+      );
+    } finally {
+      process.exit(1);
+    }
+  }
+
   const identity = createPythinkerCodeHostIdentity();
   const harness = createPythinkerHarness({
     identity,
     uiMode: 'cli',
   });
-  const controller = new AbortController();
+  const ui = createTerminalLoginUi(harness, { provider: options.provider });
+  // Ctrl-C cancels whatever is in flight (catalog fetch, OAuth poll). While a
+  // clack prompt is active, clack handles the signal itself and resolves the
+  // prompt with the cancel symbol — cancelInFlight is unset then, so this is
+  // a no-op and the prompt's own cancel path decides the outcome.
   process.once('SIGINT', () => {
-    controller.abort();
+    ui.cancelInFlight?.();
   });
   try {
-    const result = await harness.auth.login(undefined, {
-      signal: controller.signal,
-      onDeviceCode: (data) => {
-        const url = data.verificationUriComplete || data.verificationUri;
-        // Print the manual fallback before attempting to open the user's
-        // browser so headless/browser-opener failures never hide the URL
-        // and code needed to complete login.
-        process.stderr.write(
-          [
-            '',
-            `Opening browser for Pythinker device login: ${url}`,
-            `If the browser did not open, paste the URL above and enter code: ${data.userCode}`,
-            data.expiresIn !== null && data.expiresIn !== undefined
-              ? `Code expires in ${data.expiresIn}s.`
-              : undefined,
-            'Waiting for authorization to complete...',
-            '',
-          ]
-            .filter((line): line is string => line !== undefined)
-            .join('\n'),
-        );
-        try {
-          openUrl(url);
-        } catch {
-          // Best effort only: the manual fallback has already been printed.
-        }
-      },
-    });
-    // Flush before exit so the confirmation survives process.exit.
+    const loggedIn = await runLogin(ui);
+    // Flush before exit so clack's final frame survives process.exit.
     try {
-      await writeAndDrain(process.stderr, `Logged in to ${result.providerName}.\n`);
+      await writeAndDrain(process.stderr, '');
     } finally {
-      process.exit(0);
+      process.exit(loggedIn ? 0 : 1);
     }
   } catch (error) {
-    const message = controller.signal.aborted
-      ? 'Login cancelled.\n'
-      : `Login failed: ${error instanceof Error ? error.message : String(error)}\n`;
+    const message =
+      error instanceof UnknownProviderError
+        ? `Unknown provider "${error.input}"\nValid provider ids: ${error.validIds.join(', ')}\n`
+        : `Login failed: ${error instanceof Error ? error.message : String(error)}\n`;
     try {
       await writeAndDrain(process.stderr, message);
     } finally {
