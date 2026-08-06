@@ -20,6 +20,7 @@ const GOAL_NEXT_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
 const DYNAMIC_WORKFLOW_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
   { value: 'on', description: 'Turn Dynamic Workflow mode on' },
   { value: 'off', description: 'Turn Dynamic Workflow mode off' },
+  { value: 'model', description: 'Set the model Dynamic Workflow subagents run on' },
 ];
 
 const FAST_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
@@ -154,7 +155,7 @@ export const BUILTIN_SLASH_COMMANDS = [
   {
     name: 'workflow',
     aliases: [],
-    description: 'Toggle Dynamic Workflow or run a task in parallel',
+    description: 'Toggle Dynamic Workflow, set its subagent model, or run a task in parallel',
     priority: 100,
     completeArgs: dynamicWorkflowArgumentCompletions,
     availability: 'idle-only',

@@ -22,6 +22,7 @@ function makeHost(
     hasSession?: boolean;
     permissionMode?: 'manual' | 'auto' | 'yolo';
     dynamicWorkflowMode?: boolean;
+    availableModels?: Record<string, unknown>;
   } = {},
 ) {
   const session = {
@@ -35,6 +36,9 @@ function makeHost(
         model: overrides.model ?? 'pythinker-model',
         permissionMode: overrides.permissionMode ?? 'auto',
         dynamicWorkflowMode: overrides.dynamicWorkflowMode ?? false,
+        availableModels: overrides.availableModels ?? {
+          'deepseek-v4': { provider: 'deepseek', model: 'deepseek-v4' },
+        },
       },
       theme: currentTheme,
       transcriptContainer: { addChild: vi.fn() },
@@ -335,5 +339,56 @@ describe('handleDynamicWorkflowCommand', () => {
     );
     expect(markerAddChild(host)).not.toHaveBeenCalled();
     expect(host.sendNormalUserInput).not.toHaveBeenCalled();
+  });
+
+  it('sets, reports, and clears the Dynamic Workflow subagent model', async () => {
+    const { host, session } = makeHost({ permissionMode: 'auto' });
+
+    await handleDynamicWorkflowCommand(host, 'model');
+    expect(host.showStatus).toHaveBeenLastCalledWith(
+      expect.stringContaining('use this session model'),
+    );
+
+    await handleDynamicWorkflowCommand(host, 'model deepseek-v4');
+    expect(host.showStatus).toHaveBeenLastCalledWith('Dynamic Workflow subagents will use deepseek-v4.');
+    expect(host.state.appState.dynamicWorkflowModel).toBe('deepseek-v4');
+
+    await handleDynamicWorkflowCommand(host, 'model');
+    expect(host.showStatus).toHaveBeenLastCalledWith(
+      expect.stringContaining('subagents use deepseek-v4'),
+    );
+
+    await handleDynamicWorkflowCommand(host, 'model off');
+    expect(host.showStatus).toHaveBeenLastCalledWith(
+      'Dynamic Workflow subagents now use this session model.',
+    );
+    expect(host.state.appState.dynamicWorkflowModel).toBeUndefined();
+
+    // A model subcommand must never be mistaken for a task prompt.
+    expect(session.setDynamicWorkflowMode).not.toHaveBeenCalled();
+    expect(host.sendNormalUserInput).not.toHaveBeenCalled();
+  });
+
+  it('rejects a model alias that is not configured', async () => {
+    const { host } = makeHost({ permissionMode: 'auto' });
+
+    await handleDynamicWorkflowCommand(host, 'model not-a-real-alias');
+
+    expect(host.showError).toHaveBeenCalledWith(
+      expect.stringContaining('Unknown model: not-a-real-alias'),
+    );
+    expect(host.state.appState.dynamicWorkflowModel).toBeUndefined();
+    expect(host.sendNormalUserInput).not.toHaveBeenCalled();
+  });
+
+  it('asks the task to route subagents to the configured model', async () => {
+    const { host } = makeHost({ permissionMode: 'auto' });
+
+    await handleDynamicWorkflowCommand(host, 'model deepseek-v4');
+    await handleDynamicWorkflowCommand(host, 'Audit every route for missing auth');
+
+    expect(host.sendNormalUserInput).toHaveBeenCalledWith(
+      'Audit every route for missing auth\n\nUse model "deepseek-v4" for the DynamicWorkflow subagents in this task.',
+    );
   });
 });

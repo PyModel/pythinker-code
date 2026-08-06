@@ -376,9 +376,15 @@ describe('current builtin collaboration tools', () => {
         subagent_type: { type: 'string' },
       },
     });
-    expect(Object.keys(tool.parameters['properties'] as Record<string, unknown>).at(-1)).toBe(
+    expect(Object.keys(tool.parameters['properties'] as Record<string, unknown>)).toEqual([
+      'description',
+      'subagent_type',
+      'prompt_template',
+      'items',
       'resume_agent_ids',
-    );
+      'model',
+      'effort',
+    ]);
 
     const result = await executeTool(tool, context(input, 'call_dynamic_workflow'));
 

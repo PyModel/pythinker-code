@@ -51,6 +51,22 @@ export const DynamicWorkflowToolInputSchema = z
       .describe(
         'Map of existing subagent agent_id to the prompt used to resume that subagent. These resumed subagents are launched before new item-based subagents.',
       ),
+    model: z
+      .string()
+      .trim()
+      .min(1)
+      .optional()
+      .describe(
+        'Model alias for every subagent in this workflow, so the orchestrator can run on one model while the workers run on a cheaper or faster one. Defaults to the subagent type profile model, then this agent model.',
+      ),
+    effort: z
+      .string()
+      .trim()
+      .min(1)
+      .optional()
+      .describe(
+        'Reasoning effort for every subagent in this workflow. Defaults to the subagent type profile effort, then this agent effort.',
+      ),
   })
   .strict();
 
@@ -145,6 +161,11 @@ export class DynamicWorkflowTool implements BuiltinTool<DynamicWorkflowToolInput
         dynamicWorkflowIndex: spec.index,
         runInBackground: false,
         dynamicWorkflowItem: spec.item,
+        // Undefined falls through to the profile, then the parent agent, in
+        // SessionSubagentHost — so a workflow can run its workers on a
+        // different model (and provider) than the orchestrating agent.
+        modelAlias: normalizeOptionalString(args.model),
+        thinkingLevel: normalizeOptionalString(args.effort),
         signal,
       };
       if (spec.kind === 'resume') {
