@@ -39,6 +39,17 @@ export async function persistPermissionMode(
   });
 }
 
+/**
+ * What `/yolo` and `/auto` act on. A live session is the usual target, but the
+ * command also arrives before the view has one, so the pending target below
+ * satisfies the same shape.
+ */
+export interface PermissionModeTarget {
+  readonly permissionMode: PermissionMode;
+  setPermissionMode(mode: PermissionMode): Promise<void>;
+  togglePermissionMode(mode: Exclude<PermissionMode, "manual">): Promise<PermissionMode>;
+}
+
 /** The `pythinker.yoloMode` setting seeds new sessions; it never overrides a stored mode. */
 export function defaultPermissionMode(yoloModeSetting: boolean): PermissionMode {
   return yoloModeSetting ? "yolo" : "manual";

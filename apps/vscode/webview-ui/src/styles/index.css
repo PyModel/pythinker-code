@@ -51,7 +51,7 @@
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.704 0.191 22.216);
   /* Muted periwinkle accent (CLI primary), dark variant. */
-  --brand: #aab3e8;
+  --brand: #b3b9f4;
   /* CLI darkColors.success — the "on" colour for toggles. */
   --success: #4ec87e;
   --success-foreground: oklch(0.141 0.005 285.823);
