@@ -517,6 +517,10 @@ export interface SubagentSpawnedEvent {
   readonly parentAgentId?: string;
   readonly description?: string;
   readonly dynamicWorkflowIndex?: number;
+  /** Identifies the Dynamic Workflow run this subagent belongs to; absent outside a workflow. */
+  readonly workflowRunId?: string;
+  /** The workflow's user-facing description, repeated on each subagent for correlation. */
+  readonly workflowName?: string;
   readonly runInBackground: boolean;
 }
 
@@ -525,6 +529,8 @@ export interface SubagentStartedEvent {
   readonly subagentId: string;
   /** Tool call in the parent agent that spawned the subagent; absent when spawned outside a tool call. */
   readonly parentToolCallId?: string;
+  /** Identifies the Dynamic Workflow run this subagent belongs to; absent outside a workflow. */
+  readonly workflowRunId?: string;
 }
 
 export interface SubagentSuspendedEvent {
@@ -540,6 +546,8 @@ export interface SubagentCompletedEvent {
   readonly subagentId: string;
   /** Tool call in the parent agent that spawned the subagent; absent when spawned outside a tool call. */
   readonly parentToolCallId?: string;
+  /** Identifies the Dynamic Workflow run this subagent belongs to; absent outside a workflow. */
+  readonly workflowRunId?: string;
   readonly resultSummary: string;
   readonly usage?: TokenUsage;
   readonly contextTokens?: number;
@@ -550,7 +558,21 @@ export interface SubagentFailedEvent {
   readonly subagentId: string;
   /** Tool call in the parent agent that spawned the subagent; absent when spawned outside a tool call. */
   readonly parentToolCallId?: string;
+  /** Identifies the Dynamic Workflow run this subagent belongs to; absent outside a workflow. */
+  readonly workflowRunId?: string;
   readonly error: string;
+}
+
+export interface WorkflowWarningEvent {
+  readonly type: 'workflow.warning';
+  readonly workflowRunId: string;
+  /** Tool call in the parent agent that launched this workflow. */
+  readonly parentToolCallId: string;
+  /** Number of subagents this run will launch. */
+  readonly agentCount: number;
+  /** The advisory ceiling that was exceeded. */
+  readonly threshold: number;
+  readonly message: string;
 }
 
 export interface CompactionStartedEvent {
@@ -653,6 +675,7 @@ export type AgentEvent =
   | SubagentSuspendedEvent
   | SubagentCompletedEvent
   | SubagentFailedEvent
+  | WorkflowWarningEvent
   | CompactionStartedEvent
   | CompactionBlockedEvent
   | CompactionCancelledEvent
@@ -1175,6 +1198,8 @@ export const subagentSpawnedEventSchema = z.object({
   parentAgentId: z.string().optional(),
   description: z.string().optional(),
   dynamicWorkflowIndex: z.number().optional(),
+  workflowRunId: z.string().optional(),
+  workflowName: z.string().optional(),
   runInBackground: z.boolean(),
 }).strict() satisfies z.ZodType<SubagentSpawnedEvent>;
 
@@ -1182,6 +1207,7 @@ export const subagentStartedEventSchema = z.object({
   type: z.literal('subagent.started'),
   subagentId: z.string(),
   parentToolCallId: z.string().optional(),
+  workflowRunId: z.string().optional(),
 }) satisfies z.ZodType<SubagentStartedEvent>;
 
 export const subagentSuspendedEventSchema = z.object({
@@ -1195,6 +1221,7 @@ export const subagentCompletedEventSchema = z.object({
   type: z.literal('subagent.completed'),
   subagentId: z.string(),
   parentToolCallId: z.string().optional(),
+  workflowRunId: z.string().optional(),
   resultSummary: z.string(),
   usage: tokenUsageSchema.optional(),
   contextTokens: z.number().optional(),
@@ -1204,8 +1231,18 @@ export const subagentFailedEventSchema = z.object({
   type: z.literal('subagent.failed'),
   subagentId: z.string(),
   parentToolCallId: z.string().optional(),
+  workflowRunId: z.string().optional(),
   error: z.string(),
 }) satisfies z.ZodType<SubagentFailedEvent>;
+
+export const workflowWarningEventSchema = z.object({
+  type: z.literal('workflow.warning'),
+  workflowRunId: z.string(),
+  parentToolCallId: z.string(),
+  agentCount: z.number(),
+  threshold: z.number(),
+  message: z.string(),
+}) satisfies z.ZodType<WorkflowWarningEvent>;
 
 export const compactionStartedEventSchema = z.object({
   type: z.literal('compaction.started'),
@@ -1310,6 +1347,7 @@ export const agentEventSchema = z.discriminatedUnion('type', [
   subagentSuspendedEventSchema,
   subagentCompletedEventSchema,
   subagentFailedEventSchema,
+  workflowWarningEventSchema,
   compactionStartedEventSchema,
   compactionBlockedEventSchema,
   compactionCancelledEventSchema,

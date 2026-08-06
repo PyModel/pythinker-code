@@ -565,6 +565,7 @@ export class ToolManager {
             this.agent.subagentHost,
             this.agent.dynamicWorkflowMode,
             workflowSizeGuideline,
+            (event) => this.agent.emitEvent(event),
           ),
         toolServices?.webSearcher && new b.WebSearchTool(toolServices.webSearcher),
         toolServices?.urlFetcher && new b.FetchURLTool(toolServices.urlFetcher, kaos),

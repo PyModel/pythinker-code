@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import type { WorkflowWarningEvent } from '@pythoughts/protocol';
+
 import type { DynamicWorkflowMode } from '../../../agent/dynamic-workflow';
 import type { BuiltinTool } from '../../../agent/tool';
 import type {
@@ -12,6 +14,7 @@ import { parseBooleanEnv, resolveConfigValue, type PythinkerConfig, type Workflo
 import {
   DEFAULT_WORKFLOW_SIZE_GUIDELINE,
   workflowSizeGuidelineNote,
+  workflowSizeGuidelineTarget,
 } from '../../../agent/dynamic-workflow/size-guideline';
 import { generateWorkflowRunId } from '../../../agent/dynamic-workflow/run-id';
 import { toInputJsonSchema } from '../../support/input-schema';
@@ -20,6 +23,11 @@ import DYNAMIC_WORKFLOW_DESCRIPTION from './dynamic-workflow.md?raw';
 const DEFAULT_SUBAGENT_TYPE = 'coder';
 const PROMPT_TEMPLATE_PLACEHOLDER = '{{item}}';
 const MAX_DYNAMIC_WORKFLOW_SUBAGENTS = 128;
+/**
+ * Warning threshold when the operator chose `unrestricted`, so even an
+ * unrestricted operator still hears about a very large fan-out.
+ */
+const UNRESTRICTED_WARNING_THRESHOLD = 25;
 
 export const DISABLE_WORKFLOWS_ENV = 'PYTHINKER_CODE_DISABLE_WORKFLOWS';
 
@@ -131,9 +139,10 @@ export class DynamicWorkflowTool implements BuiltinTool<DynamicWorkflowToolInput
   constructor(
     private readonly subagentHost: SessionSubagentHost,
     private readonly dynamicWorkflowMode: DynamicWorkflowMode,
-    sizeGuideline: WorkflowSizeGuideline = DEFAULT_WORKFLOW_SIZE_GUIDELINE,
+    private readonly sizeGuideline: WorkflowSizeGuideline = DEFAULT_WORKFLOW_SIZE_GUIDELINE,
+    private readonly emitEvent?: (event: WorkflowWarningEvent) => void,
   ) {
-    const sizeNote = workflowSizeGuidelineNote(sizeGuideline);
+    const sizeNote = workflowSizeGuidelineNote(this.sizeGuideline);
     this.description =
       sizeNote === undefined
         ? DYNAMIC_WORKFLOW_DESCRIPTION
@@ -181,6 +190,18 @@ export class DynamicWorkflowTool implements BuiltinTool<DynamicWorkflowToolInput
     const profileName = normalizeOptionalString(args.subagent_type) ?? DEFAULT_SUBAGENT_TYPE;
     const specs = createDynamicWorkflowSpecs(args, (agentId) => this.subagentHost.getDynamicWorkflowItem(agentId));
     const runId = generateWorkflowRunId();
+    const threshold =
+      workflowSizeGuidelineTarget(this.sizeGuideline) ?? UNRESTRICTED_WARNING_THRESHOLD;
+    if (specs.length > threshold) {
+      this.emitEvent?.({
+        type: 'workflow.warning',
+        workflowRunId: runId,
+        parentToolCallId: toolCallId,
+        agentCount: specs.length,
+        threshold,
+        message: `This Dynamic Workflow will launch ${String(specs.length)} subagents, above the advisory ceiling of ${String(threshold)}; the run is proceeding anyway.`,
+      });
+    }
     // Workflow tasks intentionally carry no timeout: they run until they
     // complete, fail, or the user cancels (see dynamic-workflow.md).
     const tasks = specs.map((spec): QueuedSubagentTask<DynamicWorkflowSpec> => {
@@ -201,6 +222,8 @@ export class DynamicWorkflowTool implements BuiltinTool<DynamicWorkflowToolInput
         thinkingLevel: normalizeOptionalString(args.effort),
         // One id per call, shared by every subagent and reported back as run_id.
         workflowRunId: runId,
+        // The workflow's user-facing description, repeated on each subagent.
+        workflowName: args.description,
         signal,
       };
       if (spec.kind === 'resume') {

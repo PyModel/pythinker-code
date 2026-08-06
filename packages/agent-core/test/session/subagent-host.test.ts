@@ -1418,6 +1418,7 @@ describe('SessionSubagentHost', () => {
   it('runQueued carries a workflow run id to the child launch options', async () => {
     const parent = testAgent();
     parent.configure();
+    parent.newEvents();
 
     const child = testAgent({ type: 'sub' });
     child.configure();
@@ -1432,7 +1433,14 @@ describe('SessionSubagentHost', () => {
     const spawnSpy = vi.spyOn(host, 'spawn');
 
     await expect(
-      host.runQueued([{ ...queuedTask(1), workflowRunId: 'wfr-test-001', signal }]),
+      host.runQueued([
+        {
+          ...queuedTask(1),
+          workflowRunId: 'wfr-test-001',
+          workflowName: 'Review files',
+          signal,
+        },
+      ]),
     ).resolves.toMatchObject([
       {
         agentId: 'agent-0',
@@ -1443,6 +1451,18 @@ describe('SessionSubagentHost', () => {
 
     expect(spawnSpy).toHaveBeenCalledTimes(1);
     expect(spawnSpy.mock.calls[0]?.[0]?.workflowRunId).toBe('wfr-test-001');
+    expect(spawnSpy.mock.calls[0]?.[0]?.workflowName).toBe('Review files');
+    expect(parent.allEvents).toContainEqual(
+      expect.objectContaining({
+        type: '[rpc]',
+        event: 'subagent.spawned',
+        args: expect.objectContaining({
+          subagentId: 'agent-0',
+          workflowRunId: 'wfr-test-001',
+          workflowName: 'Review files',
+        }),
+      }),
+    );
   });
 
   it('retries a rate-limited child turn without appending the original prompt again', async () => {

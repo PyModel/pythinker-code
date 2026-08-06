@@ -94,6 +94,7 @@ export interface RunSubagentOptions {
   readonly modelAlias?: string;
   readonly thinkingLevel?: string;
   readonly workflowRunId?: string;
+  readonly workflowName?: string;
   readonly allowedTools?: readonly string[];
   readonly cwd?: string;
   readonly forkContext?: boolean;
@@ -308,7 +309,7 @@ export class SessionSubagentHost {
         child.config.update(
           this.childModelConfig(parent, child, this.tryResolveProfile(parent, profileName), runOptions),
         );
-        this.emitSubagentStarted(parent, agentId, runOptions.parentToolCallId);
+        this.emitSubagentStarted(parent, agentId, runOptions);
         const turnId = child.turn.retry('agent-host');
         if (turnId === null) {
           throw new Error(`Agent instance "${agentId}" could not start a retry turn`);
@@ -509,7 +510,7 @@ export class SessionSubagentHost {
       if (gitContext) childPrompt = `${gitContext}\n\n${childPrompt}`;
     }
 
-    this.emitSubagentStarted(parent, childId, options.parentToolCallId);
+    this.emitSubagentStarted(parent, childId, options);
     const turnId = child.turn.prompt([{ type: 'text', text: childPrompt }], SUBAGENT_PROMPT_ORIGIN);
     if (turnId === null) {
       throw new Error(`Agent instance "${childId}" could not start a turn`);
@@ -545,6 +546,7 @@ export class SessionSubagentHost {
       type: 'subagent.completed',
       subagentId: childId,
       parentToolCallId: options.parentToolCallId,
+      workflowRunId: options.workflowRunId,
       resultSummary: result,
       usage,
       contextTokens: child.context.tokenCount,
@@ -674,23 +676,27 @@ export class SessionSubagentHost {
       parentAgentId: this.ownerAgentId,
       description: options.description,
       dynamicWorkflowIndex: options.dynamicWorkflowIndex,
+      workflowRunId: options.workflowRunId,
+      workflowName: options.workflowName,
       runInBackground: options.runInBackground,
     });
     parent.telemetry.track('subagent_created', {
       subagent_name: profileName,
       run_in_background: options.runInBackground,
+      workflow_run_id: options.workflowRunId,
     });
   }
 
   private emitSubagentStarted(
     parent: Agent,
     childId: string,
-    parentToolCallId: string,
+    options: RunSubagentOptions,
   ): void {
     parent.emitEvent({
       type: 'subagent.started',
       subagentId: childId,
-      parentToolCallId,
+      parentToolCallId: options.parentToolCallId,
+      workflowRunId: options.workflowRunId,
     });
   }
 
@@ -705,6 +711,7 @@ export class SessionSubagentHost {
       type: 'subagent.failed',
       subagentId: childId,
       parentToolCallId: options.parentToolCallId,
+      workflowRunId: options.workflowRunId,
       error: error instanceof Error ? error.message : String(error),
     });
   }

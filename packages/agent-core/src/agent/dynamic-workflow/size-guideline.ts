@@ -19,6 +19,11 @@ const WORKFLOW_SIZE_GUIDELINE_NAMES = new Set<string>([
   'unrestricted',
 ]);
 
+/** The numeric subagent-count target for a guideline, or `undefined` for `unrestricted`. */
+export function workflowSizeGuidelineTarget(guideline: WorkflowSizeGuideline): number | undefined {
+  return GUIDELINE_TARGETS[guideline];
+}
+
 function parseWorkflowSizeGuidelineEnv(value: string | undefined): WorkflowSizeGuideline | undefined {
   const normalized = value?.trim().toLowerCase();
   if (normalized === undefined || !WORKFLOW_SIZE_GUIDELINE_NAMES.has(normalized)) return undefined;

@@ -8,6 +8,7 @@
 import { Readable, type Writable } from 'node:stream';
 
 import type { Kaos, KaosProcess } from '@pythoughts/kaos';
+import type { WorkflowWarningEvent } from '@pythoughts/protocol';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { Agent } from '../../src/agent';
@@ -399,8 +400,8 @@ describe('current builtin collaboration tools', () => {
     const queuedTasks = vi.mocked(host.runQueued).mock.calls[0]![0];
     const runId = queuedTasks[0]!.workflowRunId!;
     expect(isWorkflowRunId(runId)).toBe(true);
-    expect(isWorkflowRunId(runId)).toBe(true);
     expect(queuedTasks[1]!.workflowRunId).toBe(runId);
+    expect(queuedTasks.every((task: QueuedSubagentTask) => task.workflowName === 'Review files')).toBe(true);
     expect(host.runQueued).toHaveBeenCalledWith(
       [
         {
@@ -414,6 +415,7 @@ describe('current builtin collaboration tools', () => {
           dynamicWorkflowItem: 'src/a.ts',
           runInBackground: false,
           workflowRunId: runId,
+          workflowName: 'Review files',
           signal,
         },
         {
@@ -427,6 +429,7 @@ describe('current builtin collaboration tools', () => {
           dynamicWorkflowItem: 'src/b.ts',
           runInBackground: false,
           workflowRunId: runId,
+          workflowName: 'Review files',
           signal,
         },
       ],
@@ -438,6 +441,152 @@ describe('current builtin collaboration tools', () => {
       '<subagent agent_id="agent-explore-2" item="src/b.ts" outcome="completed">explore result b</subagent>',
       '</dynamic_workflow_result>',
     ].join('\n'));
+    expect(result.isError).toBeUndefined();
+  });
+
+  it('DynamicWorkflow emits exactly one workflow.warning above the size guideline and still runs', async () => {
+    const runQueued = vi.fn(
+      async <T>(
+        tasks: readonly QueuedSubagentTask<T>[],
+      ): Promise<Array<QueuedSubagentRunResult<T>>> => {
+        return tasks.map((task) => ({
+          task,
+          agentId: 'agent-1',
+          status: 'completed' as const,
+          result: 'done',
+        }));
+      },
+    );
+    const host = mockSubagentHost({
+      runQueued: runQueued as unknown as SessionSubagentHost['runQueued'],
+    });
+    const emitEvent = vi.fn<(event: WorkflowWarningEvent) => void>();
+    const tool = new DynamicWorkflowTool(host, mockDynamicWorkflowMode(), 'small', emitEvent);
+
+    const result = await executeTool(
+      tool,
+      context({
+        description: 'Review files',
+        items: Array.from({ length: 6 }, (_, index) => `src/${String(index + 1)}.ts`),
+      }),
+    );
+
+    expect(emitEvent).toHaveBeenCalledTimes(1);
+    expect(host.runQueued).toHaveBeenCalledTimes(1);
+    const warning = emitEvent.mock.calls[0]![0];
+    expect(isWorkflowRunId(warning.workflowRunId)).toBe(true);
+    expect(warning).toMatchObject({
+      type: 'workflow.warning',
+      parentToolCallId: 'call_1',
+      agentCount: 6,
+      threshold: 5,
+    });
+    expect(warning.message).toContain('6');
+    expect(warning.message).toContain('5');
+    expect(result.isError).toBeUndefined();
+  });
+
+  it('DynamicWorkflow emits exactly one workflow.warning above the unrestricted fallback threshold', async () => {
+    const runQueued = vi.fn(
+      async <T>(
+        tasks: readonly QueuedSubagentTask<T>[],
+      ): Promise<Array<QueuedSubagentRunResult<T>>> => {
+        return tasks.map((task) => ({
+          task,
+          agentId: 'agent-1',
+          status: 'completed' as const,
+          result: 'done',
+        }));
+      },
+    );
+    const host = mockSubagentHost({
+      runQueued: runQueued as unknown as SessionSubagentHost['runQueued'],
+    });
+    const emitEvent = vi.fn<(event: WorkflowWarningEvent) => void>();
+    const tool = new DynamicWorkflowTool(host, mockDynamicWorkflowMode(), 'unrestricted', emitEvent);
+
+    const result = await executeTool(
+      tool,
+      context({
+        description: 'Review files',
+        items: Array.from({ length: 26 }, (_, index) => `src/${String(index + 1)}.ts`),
+      }),
+    );
+
+    expect(emitEvent).toHaveBeenCalledTimes(1);
+    expect(host.runQueued).toHaveBeenCalledTimes(1);
+    const warning = emitEvent.mock.calls[0]![0];
+    expect(isWorkflowRunId(warning.workflowRunId)).toBe(true);
+    expect(warning).toMatchObject({
+      type: 'workflow.warning',
+      parentToolCallId: 'call_1',
+      agentCount: 26,
+      threshold: 25,
+    });
+    expect(warning.message).toContain('26');
+    expect(warning.message).toContain('25');
+    expect(result.isError).toBeUndefined();
+  });
+
+  it('DynamicWorkflow emits no warning at or below the size guideline', async () => {
+    const runQueued = vi.fn(
+      async <T>(
+        tasks: readonly QueuedSubagentTask<T>[],
+      ): Promise<Array<QueuedSubagentRunResult<T>>> => {
+        return tasks.map((task) => ({
+          task,
+          agentId: 'agent-1',
+          status: 'completed' as const,
+          result: 'done',
+        }));
+      },
+    );
+    const host = mockSubagentHost({
+      runQueued: runQueued as unknown as SessionSubagentHost['runQueued'],
+    });
+    const emitEvent = vi.fn<(event: WorkflowWarningEvent) => void>();
+    const tool = new DynamicWorkflowTool(host, mockDynamicWorkflowMode(), 'small', emitEvent);
+
+    const result = await executeTool(
+      tool,
+      context({
+        description: 'Review files',
+        items: Array.from({ length: 5 }, (_, index) => `src/${String(index + 1)}.ts`),
+      }),
+    );
+
+    expect(emitEvent).not.toHaveBeenCalled();
+    expect(host.runQueued).toHaveBeenCalledTimes(1);
+    expect(result.isError).toBeUndefined();
+  });
+
+  it('DynamicWorkflow above the size guideline without an emitter does not throw', async () => {
+    const runQueued = vi.fn(
+      async <T>(
+        tasks: readonly QueuedSubagentTask<T>[],
+      ): Promise<Array<QueuedSubagentRunResult<T>>> => {
+        return tasks.map((task) => ({
+          task,
+          agentId: 'agent-1',
+          status: 'completed' as const,
+          result: 'done',
+        }));
+      },
+    );
+    const host = mockSubagentHost({
+      runQueued: runQueued as unknown as SessionSubagentHost['runQueued'],
+    });
+    const tool = new DynamicWorkflowTool(host, mockDynamicWorkflowMode(), 'small');
+
+    const result = await executeTool(
+      tool,
+      context({
+        description: 'Review files',
+        items: Array.from({ length: 6 }, (_, index) => `src/${String(index + 1)}.ts`),
+      }),
+    );
+
+    expect(host.runQueued).toHaveBeenCalledTimes(1);
     expect(result.isError).toBeUndefined();
   });
 
@@ -650,6 +799,7 @@ describe('current builtin collaboration tools', () => {
           dynamicWorkflowItem: 'src/old-a.ts',
           runInBackground: false,
           workflowRunId: runId,
+          workflowName: 'Finish review',
           resumeAgentId: 'agent-old-1',
           signal,
         },
@@ -670,6 +820,7 @@ describe('current builtin collaboration tools', () => {
           dynamicWorkflowItem: 'src/old-b.ts',
           runInBackground: false,
           workflowRunId: runId,
+          workflowName: 'Finish review',
           resumeAgentId: 'agent-old-2',
           signal,
         },
@@ -689,6 +840,7 @@ describe('current builtin collaboration tools', () => {
           dynamicWorkflowItem: 'src/new.ts',
           runInBackground: false,
           workflowRunId: runId,
+          workflowName: 'Finish review',
           signal,
         },
       ],
@@ -757,6 +909,7 @@ describe('current builtin collaboration tools', () => {
         dynamicWorkflowItem: 'src/old-a.ts',
         runInBackground: false,
         workflowRunId: runId,
+        workflowName: 'Resume review',
         resumeAgentId: 'agent-old-1',
         signal,
       },

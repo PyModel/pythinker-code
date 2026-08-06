@@ -53,6 +53,7 @@ type BaseQueuedSubagentTask<T> = {
   readonly modelAlias?: string;
   readonly thinkingLevel?: string;
   readonly workflowRunId?: string;
+  readonly workflowName?: string;
 };
 
 export type SpawnQueuedSubagentTask<T = unknown> = BaseQueuedSubagentTask<T> & {
@@ -305,6 +306,7 @@ export class SubagentBatch<T> {
       modelAlias: task.modelAlias,
       thinkingLevel: task.thinkingLevel,
       workflowRunId: task.workflowRunId,
+      workflowName: task.workflowName,
       signal: attempt.controller.signal,
       onReady: () => {
         this.markAttemptReady(attempt);
