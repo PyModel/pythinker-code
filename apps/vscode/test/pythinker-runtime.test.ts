@@ -493,6 +493,22 @@ describe("Pythinker runtime (owns shared SDK sessions for Webviews)", () => {
     expect(runtime.pendingPermissionTarget("view-1", "manual").permissionMode).toBe("manual");
   });
 
+  it("keeps a pending permission mode when applying it to the session fails", async () => {
+    const { runtime, sdk } = createRuntime();
+    const boundary = sdk.addSession("saved-1", "/workspace");
+    (boundary.session as { setPermission: (mode: PermissionMode) => Promise<void> }).setPermission =
+      async () => {
+        throw new Error("engine offline");
+      };
+    await runtime.pendingPermissionTarget("view-1", "manual").setPermissionMode("yolo");
+
+    await expect(
+      runtime.openSession(openOptions({ webviewId: "view-1", sessionId: "saved-1" })),
+    ).rejects.toThrow("engine offline");
+
+    expect(runtime.pendingPermissionTarget("view-1", "manual").permissionMode).toBe("yolo");
+  });
+
   it("persists a mode change so the next attach restores it", async () => {
     const { runtime, sdk } = createRuntime();
     const session = sdk.addSession("saved-1", "/workspace", { permission: "manual" });

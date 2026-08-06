@@ -239,8 +239,13 @@ export class PythinkerRuntime {
   ): Promise<void> {
     const pending = this.pendingPermissionByView.get(webviewId);
     if (pending === undefined) return;
-    this.pendingPermissionByView.delete(webviewId);
     await runtime.setPermissionMode(pending);
+    // Dropped only once it landed, and only if it is still the request in hand:
+    // a failed apply keeps the command for the next attempt, and a command that
+    // arrived during the await outranks the one just applied.
+    if (this.pendingPermissionByView.get(webviewId) === pending) {
+      this.pendingPermissionByView.delete(webviewId);
+    }
   }
 
   private wrapSession(session: Session, permissionMode: PermissionMode): SessionRuntime {
