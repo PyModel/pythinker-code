@@ -129,6 +129,13 @@ function handleModelSubcommand(host: SlashCommandHost, input: string): boolean {
     host.showStatus('Dynamic Workflow subagents now use this session model.');
     return true;
   }
+  // An alias the engine cannot resolve falls back to the session model at spawn
+  // time, so accepting one here would report a routing that never happens.
+  const configured = host.state.appState.availableModels;
+  if (Object.keys(configured).length > 0 && !Object.hasOwn(configured, value)) {
+    host.showError(`Unknown model: ${value}. Run /model to see the configured aliases.`);
+    return true;
+  }
   host.setAppState({ dynamicWorkflowModel: value });
   host.showStatus(`Dynamic Workflow subagents will use ${value}.`);
   return true;

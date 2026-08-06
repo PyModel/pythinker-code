@@ -22,6 +22,7 @@ function makeHost(
     hasSession?: boolean;
     permissionMode?: 'manual' | 'auto' | 'yolo';
     dynamicWorkflowMode?: boolean;
+    availableModels?: Record<string, unknown>;
   } = {},
 ) {
   const session = {
@@ -35,6 +36,9 @@ function makeHost(
         model: overrides.model ?? 'pythinker-model',
         permissionMode: overrides.permissionMode ?? 'auto',
         dynamicWorkflowMode: overrides.dynamicWorkflowMode ?? false,
+        availableModels: overrides.availableModels ?? {
+          'deepseek-v4': { provider: 'deepseek', model: 'deepseek-v4' },
+        },
       },
       theme: currentTheme,
       transcriptContainer: { addChild: vi.fn() },
@@ -362,6 +366,18 @@ describe('handleDynamicWorkflowCommand', () => {
 
     // A model subcommand must never be mistaken for a task prompt.
     expect(session.setDynamicWorkflowMode).not.toHaveBeenCalled();
+    expect(host.sendNormalUserInput).not.toHaveBeenCalled();
+  });
+
+  it('rejects a model alias that is not configured', async () => {
+    const { host } = makeHost({ permissionMode: 'auto' });
+
+    await handleDynamicWorkflowCommand(host, 'model not-a-real-alias');
+
+    expect(host.showError).toHaveBeenCalledWith(
+      expect.stringContaining('Unknown model: not-a-real-alias'),
+    );
+    expect(host.state.appState.dynamicWorkflowModel).toBeUndefined();
     expect(host.sendNormalUserInput).not.toHaveBeenCalled();
   });
 
