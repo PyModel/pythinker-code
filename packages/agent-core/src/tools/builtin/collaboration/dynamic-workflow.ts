@@ -13,6 +13,7 @@ import {
   DEFAULT_WORKFLOW_SIZE_GUIDELINE,
   workflowSizeGuidelineNote,
 } from '../../../agent/dynamic-workflow/size-guideline';
+import { generateWorkflowRunId } from '../../../agent/dynamic-workflow/run-id';
 import { toInputJsonSchema } from '../../support/input-schema';
 import DYNAMIC_WORKFLOW_DESCRIPTION from './dynamic-workflow.md?raw';
 
@@ -179,6 +180,7 @@ export class DynamicWorkflowTool implements BuiltinTool<DynamicWorkflowToolInput
   ): Promise<string> {
     const profileName = normalizeOptionalString(args.subagent_type) ?? DEFAULT_SUBAGENT_TYPE;
     const specs = createDynamicWorkflowSpecs(args, (agentId) => this.subagentHost.getDynamicWorkflowItem(agentId));
+    const runId = generateWorkflowRunId();
     // Workflow tasks intentionally carry no timeout: they run until they
     // complete, fail, or the user cancels (see dynamic-workflow.md).
     const tasks = specs.map((spec): QueuedSubagentTask<DynamicWorkflowSpec> => {
@@ -197,6 +199,8 @@ export class DynamicWorkflowTool implements BuiltinTool<DynamicWorkflowToolInput
         // different model (and provider) than the orchestrating agent.
         modelAlias: normalizeOptionalString(args.model),
         thinkingLevel: normalizeOptionalString(args.effort),
+        // One id per call, shared by every subagent and reported back as run_id.
+        workflowRunId: runId,
         signal,
       };
       if (spec.kind === 'resume') {
@@ -212,7 +216,10 @@ export class DynamicWorkflowTool implements BuiltinTool<DynamicWorkflowToolInput
       };
     });
     const results = await this.subagentHost.runQueued(tasks);
-    return renderDynamicWorkflowResults(results.map(({ task, ...result }) => ({ spec: task.data, ...result })));
+    return renderDynamicWorkflowResults(
+      results.map(({ task, ...result }) => ({ spec: task.data, ...result })),
+      runId,
+    );
   }
 }
 
@@ -286,7 +293,10 @@ function childDescription(workflowDescription: string, index: number, profileNam
 // Render results as an XML block that the consumer parses, so every
 // interpolated value (agent ids, item names, result/error bodies — all user
 // data) must be escaped; an unescaped `<` or `>` would break the structure.
-function renderDynamicWorkflowResults(results: readonly DynamicWorkflowRunResult[]): string {
+function renderDynamicWorkflowResults(
+  results: readonly DynamicWorkflowRunResult[],
+  runId: string,
+): string {
   const completed = results.filter((result) => result.status === 'completed').length;
   const failed = results.filter((result) => result.status === 'failed').length;
   const aborted = results.filter((result) => result.status === 'aborted').length;
@@ -294,7 +304,7 @@ function renderDynamicWorkflowResults(results: readonly DynamicWorkflowRunResult
     (result) => result.status !== 'completed' && result.agentId !== undefined,
   );
   const lines = [
-    '<dynamic_workflow_result>',
+    `<dynamic_workflow_result run_id="${escapeXml(runId)}">`,
     `<summary>${renderDynamicWorkflowSummary(completed, failed, aborted)}</summary>`,
   ];
 

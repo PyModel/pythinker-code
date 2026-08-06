@@ -12,6 +12,10 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { Agent } from '../../src/agent';
 import type { DynamicWorkflowMode } from '../../src/agent/dynamic-workflow';
+import {
+  generateWorkflowRunId,
+  isWorkflowRunId,
+} from '../../src/agent/dynamic-workflow/run-id';
 import { resolveWorkflowSizeGuideline } from '../../src/agent/dynamic-workflow/size-guideline';
 import { FLAG_DEFINITIONS, FlagResolver } from '../../src/flags';
 import type {
@@ -392,6 +396,11 @@ describe('current builtin collaboration tools', () => {
 
     expect(dynamicWorkflowMode.enter).toHaveBeenCalledWith('tool');
     expect(host.runQueued).toHaveBeenCalledTimes(1);
+    const queuedTasks = vi.mocked(host.runQueued).mock.calls[0]![0];
+    const runId = queuedTasks[0]!.workflowRunId!;
+    expect(isWorkflowRunId(runId)).toBe(true);
+    expect(isWorkflowRunId(runId)).toBe(true);
+    expect(queuedTasks[1]!.workflowRunId).toBe(runId);
     expect(host.runQueued).toHaveBeenCalledWith(
       [
         {
@@ -404,6 +413,7 @@ describe('current builtin collaboration tools', () => {
           dynamicWorkflowIndex: 1,
           dynamicWorkflowItem: 'src/a.ts',
           runInBackground: false,
+          workflowRunId: runId,
           signal,
         },
         {
@@ -416,12 +426,13 @@ describe('current builtin collaboration tools', () => {
           dynamicWorkflowIndex: 2,
           dynamicWorkflowItem: 'src/b.ts',
           runInBackground: false,
+          workflowRunId: runId,
           signal,
         },
       ],
     );
     expect(result.output).toBe([
-      '<dynamic_workflow_result>',
+      `<dynamic_workflow_result run_id="${runId}">`,
       '<summary>completed: 2</summary>',
       '<subagent agent_id="agent-explore-1" item="src/a.ts" outcome="completed">explore result a</subagent>',
       '<subagent agent_id="agent-explore-2" item="src/b.ts" outcome="completed">explore result b</subagent>',
@@ -616,6 +627,8 @@ describe('current builtin collaboration tools', () => {
     ).toBe(true);
 
     const result = await executeTool(tool, context(input, 'call_dynamic_workflow'));
+    const runId = vi.mocked(host.runQueued).mock.calls[0]![0]![0]!.workflowRunId!;
+    expect(isWorkflowRunId(runId)).toBe(true);
 
     expect(host.runQueued).toHaveBeenCalledTimes(1);
     expect(host.runQueued).toHaveBeenCalledWith(
@@ -636,6 +649,7 @@ describe('current builtin collaboration tools', () => {
           dynamicWorkflowIndex: 1,
           dynamicWorkflowItem: 'src/old-a.ts',
           runInBackground: false,
+          workflowRunId: runId,
           resumeAgentId: 'agent-old-1',
           signal,
         },
@@ -655,6 +669,7 @@ describe('current builtin collaboration tools', () => {
           dynamicWorkflowIndex: 2,
           dynamicWorkflowItem: 'src/old-b.ts',
           runInBackground: false,
+          workflowRunId: runId,
           resumeAgentId: 'agent-old-2',
           signal,
         },
@@ -673,12 +688,13 @@ describe('current builtin collaboration tools', () => {
           dynamicWorkflowIndex: 3,
           dynamicWorkflowItem: 'src/new.ts',
           runInBackground: false,
+          workflowRunId: runId,
           signal,
         },
       ],
     );
     expect(result.output).toBe([
-      '<dynamic_workflow_result>',
+      `<dynamic_workflow_result run_id="${runId}">`,
       '<summary>completed: 3</summary>',
       '<subagent mode="resume" agent_id="agent-old-1" item="src/old-a.ts" outcome="completed">result 1</subagent>',
       '<subagent mode="resume" agent_id="agent-old-2" item="src/old-b.ts" outcome="completed">result 2</subagent>',
@@ -719,6 +735,8 @@ describe('current builtin collaboration tools', () => {
     expect(DynamicWorkflowToolInputSchema.safeParse(input).success).toBe(true);
 
     const result = await executeTool(tool, context(input, 'call_dynamic_workflow'));
+    const runId = vi.mocked(host.runQueued).mock.calls[0]![0]![0]!.workflowRunId!;
+    expect(isWorkflowRunId(runId)).toBe(true);
 
     expect(host.runQueued).toHaveBeenCalledTimes(1);
     expect(host.runQueued).toHaveBeenCalledWith([
@@ -738,12 +756,13 @@ describe('current builtin collaboration tools', () => {
         dynamicWorkflowIndex: 1,
         dynamicWorkflowItem: 'src/old-a.ts',
         runInBackground: false,
+        workflowRunId: runId,
         resumeAgentId: 'agent-old-1',
         signal,
       },
     ]);
     expect(result.output).toBe([
-      '<dynamic_workflow_result>',
+      `<dynamic_workflow_result run_id="${runId}">`,
       '<summary>completed: 1</summary>',
       '<subagent mode="resume" agent_id="agent-old-1" item="src/old-a.ts" outcome="completed">resumed result</subagent>',
       '</dynamic_workflow_result>',
@@ -799,8 +818,10 @@ describe('current builtin collaboration tools', () => {
       ),
     );
 
+    const runId = vi.mocked(host.runQueued).mock.calls[0]![0]![0]!.workflowRunId!;
+    expect(isWorkflowRunId(runId)).toBe(true);
     expect(result.output).toBe([
-      '<dynamic_workflow_result>',
+      `<dynamic_workflow_result run_id="${runId}">`,
       '<summary>completed: 1, failed: 1</summary>',
       '<resume_hint>Call DynamicWorkflow with resume_agent_ids using the agent_id values in this result to continue unfinished work.</resume_hint>',
       '<subagent agent_id="agent-coder-1" item="src/a.ts" outcome="completed">imports are stable</subagent>',
@@ -857,8 +878,10 @@ describe('current builtin collaboration tools', () => {
       ),
     );
 
+    const runId = vi.mocked(host.runQueued).mock.calls[0]![0]![0]!.workflowRunId!;
+    expect(isWorkflowRunId(runId)).toBe(true);
     expect(result.output).toBe([
-      '<dynamic_workflow_result>',
+      `<dynamic_workflow_result run_id="${runId}">`,
       '<summary>failed: 2</summary>',
       '<subagent item="src/a.ts" outcome="failed">Agent did not start.</subagent>',
       '<subagent item="src/b.ts" outcome="failed">Agent also did not start.</subagent>',
@@ -910,8 +933,10 @@ describe('current builtin collaboration tools', () => {
       }),
     );
 
+    const runId = vi.mocked(host.runQueued).mock.calls[0]![0]![0]!.workflowRunId!;
+    expect(isWorkflowRunId(runId)).toBe(true);
     expect(result.output).toBe([
-      '<dynamic_workflow_result>',
+      `<dynamic_workflow_result run_id="${runId}">`,
       '<summary>completed: 1, failed: 1</summary>',
       '<subagent agent_id="agent-coder-1" item="src/a.ts" outcome="completed">imports are stable</subagent>',
       '<subagent item="src/b.ts" outcome="failed">Agent did not start.</subagent>',
@@ -982,8 +1007,10 @@ describe('current builtin collaboration tools', () => {
       ),
     );
 
+    const runId = vi.mocked(host.runQueued).mock.calls[0]![0]![0]!.workflowRunId!;
+    expect(isWorkflowRunId(runId)).toBe(true);
     expect(result.output).toBe([
-      '<dynamic_workflow_result>',
+      `<dynamic_workflow_result run_id="${runId}">`,
       '<summary>completed: 1, aborted: 2</summary>',
       '<resume_hint>Call DynamicWorkflow with resume_agent_ids using the agent_id values in this result to continue unfinished work.</resume_hint>',
       '<subagent agent_id="agent-coder-1" item="src/a.ts" outcome="completed">imports are stable</subagent>',
@@ -1061,6 +1088,37 @@ describe('workflowSizeGuideline', () => {
     const unrestrictedTool = new DynamicWorkflowTool(host, mockDynamicWorkflowMode(), 'unrestricted');
     expect(unrestrictedTool.description).toContain('DynamicWorkflow supports up to 128 subagents');
     expect(unrestrictedTool.description).not.toContain('Workflow size guideline:');
+  });
+});
+
+describe('workflow run ids', () => {
+  it('generates ids that satisfy the validator', () => {
+    expect(isWorkflowRunId(generateWorkflowRunId())).toBe(true);
+  });
+
+  it('generates distinct ids on consecutive calls', () => {
+    expect(generateWorkflowRunId()).not.toBe(generateWorkflowRunId());
+  });
+
+  it.each([
+    { name: 'an empty string', value: '' },
+    { name: 'a path traversal', value: 'wfr-../etc/passwd' },
+    { name: 'a value containing a slash', value: 'wfr-a/b-c' },
+    { name: 'uppercase letters', value: 'WFR-ABC-DEF' },
+    { name: 'a trailing space', value: 'wfr-abc-def ' },
+    { name: 'a plain string without the wfr- prefix', value: 'plain-string' },
+    { name: 'an overlong string', value: 'x'.repeat(500) },
+    // Structurally valid, so this reaches the component-length cap instead of
+    // failing earlier on a missing prefix.
+    { name: 'an overlong first component', value: `wfr-${'a'.repeat(33)}-def` },
+    { name: 'an overlong second component', value: `wfr-abc-${'a'.repeat(17)}` },
+    // A run id becomes a filename segment, so anything that could terminate or
+    // split a path has to be rejected outright rather than merely unexpected.
+    { name: 'a trailing newline', value: `wfr-abc-def${String.fromCodePoint(10)}` },
+    { name: 'an embedded NUL', value: `wfr-abc-def${String.fromCodePoint(0)}` },
+    { name: 'a NUL followed by traversal', value: `wfr-abc-def${String.fromCodePoint(0)}/../x` },
+  ])('rejects $name', ({ value }) => {
+    expect(isWorkflowRunId(value)).toBe(false);
   });
 });
 

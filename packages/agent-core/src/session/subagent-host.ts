@@ -93,6 +93,7 @@ export interface RunSubagentOptions {
   readonly suppressRateLimitFailureEvent?: boolean;
   readonly modelAlias?: string;
   readonly thinkingLevel?: string;
+  readonly workflowRunId?: string;
   readonly allowedTools?: readonly string[];
   readonly cwd?: string;
   readonly forkContext?: boolean;

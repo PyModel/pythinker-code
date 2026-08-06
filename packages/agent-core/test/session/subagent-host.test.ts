@@ -1415,6 +1415,36 @@ describe('SessionSubagentHost', () => {
     );
   });
 
+  it('runQueued carries a workflow run id to the child launch options', async () => {
+    const parent = testAgent();
+    parent.configure();
+
+    const child = testAgent({ type: 'sub' });
+    child.configure();
+    const summary =
+      'Completed the queued dynamic workflow item and returned a detailed technical handoff so the parent can map the result back to the original dynamic workflow input. '.repeat(
+        2,
+      );
+    child.mockNextResponse({ type: 'text', text: summary });
+
+    const session = fakeSession(parent.agent, child.agent);
+    const host = new SessionSubagentHost(session, 'main');
+    const spawnSpy = vi.spyOn(host, 'spawn');
+
+    await expect(
+      host.runQueued([{ ...queuedTask(1), workflowRunId: 'wfr-test-001', signal }]),
+    ).resolves.toMatchObject([
+      {
+        agentId: 'agent-0',
+        status: 'completed',
+        result: summary.trim(),
+      },
+    ]);
+
+    expect(spawnSpy).toHaveBeenCalledTimes(1);
+    expect(spawnSpy.mock.calls[0]?.[0]?.workflowRunId).toBe('wfr-test-001');
+  });
+
   it('retries a rate-limited child turn without appending the original prompt again', async () => {
     const parent = testAgent();
     parent.configure();
