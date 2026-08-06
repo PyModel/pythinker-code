@@ -13,6 +13,7 @@ import type { MCPClient } from '../../mcp/types';
 import { extendWorkspaceWithSkillRoots } from '../../skill';
 import * as b from '../../tools/builtin';
 import { isDynamicWorkflowDisabled } from '../../tools/builtin/collaboration/dynamic-workflow';
+import { resolveWorkflowSizeGuideline } from '../dynamic-workflow/size-guideline';
 import type { ToolStore, ToolStoreData, ToolStoreKey } from '../../tools/store';
 import type {
   BuiltinTool,
@@ -468,6 +469,7 @@ export class ToolManager {
       this.agent.lsp.hasServers &&
       this.agent.experimentalFlags.enabled('lsp');
     const dynamicWorkflowEnabled = !isDynamicWorkflowDisabled(this.agent.pythinkerConfig);
+    const workflowSizeGuideline = resolveWorkflowSizeGuideline(this.agent.pythinkerConfig);
     const builtinTools = new Map(
       [
         new b.ReadTool(kaos, workspace, this.fileReadState),
@@ -559,7 +561,11 @@ export class ToolManager {
           ),
         this.agent.subagentHost &&
           dynamicWorkflowEnabled &&
-          new b.DynamicWorkflowTool(this.agent.subagentHost, this.agent.dynamicWorkflowMode),
+          new b.DynamicWorkflowTool(
+            this.agent.subagentHost,
+            this.agent.dynamicWorkflowMode,
+            workflowSizeGuideline,
+          ),
         toolServices?.webSearcher && new b.WebSearchTool(toolServices.webSearcher),
         toolServices?.urlFetcher && new b.FetchURLTool(toolServices.urlFetcher, kaos),
       ]

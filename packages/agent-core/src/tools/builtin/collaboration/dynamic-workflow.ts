@@ -8,7 +8,11 @@ import type {
 } from '../../../session/subagent-host';
 import { ToolAccesses } from '../../../loop/tool-access';
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '../../../loop/types';
-import { parseBooleanEnv, resolveConfigValue, type PythinkerConfig } from '../../../config';
+import { parseBooleanEnv, resolveConfigValue, type PythinkerConfig, type WorkflowSizeGuideline } from '../../../config';
+import {
+  DEFAULT_WORKFLOW_SIZE_GUIDELINE,
+  workflowSizeGuidelineNote,
+} from '../../../agent/dynamic-workflow/size-guideline';
 import { toInputJsonSchema } from '../../support/input-schema';
 import DYNAMIC_WORKFLOW_DESCRIPTION from './dynamic-workflow.md?raw';
 
@@ -120,13 +124,20 @@ interface DynamicWorkflowRunResult {
 
 export class DynamicWorkflowTool implements BuiltinTool<DynamicWorkflowToolInput> {
   readonly name = 'DynamicWorkflow' as const;
-  readonly description = DYNAMIC_WORKFLOW_DESCRIPTION;
+  readonly description: string;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(DynamicWorkflowToolInputSchema);
 
   constructor(
     private readonly subagentHost: SessionSubagentHost,
     private readonly dynamicWorkflowMode: DynamicWorkflowMode,
-  ) {}
+    sizeGuideline: WorkflowSizeGuideline = DEFAULT_WORKFLOW_SIZE_GUIDELINE,
+  ) {
+    const sizeNote = workflowSizeGuidelineNote(sizeGuideline);
+    this.description =
+      sizeNote === undefined
+        ? DYNAMIC_WORKFLOW_DESCRIPTION
+        : `${DYNAMIC_WORKFLOW_DESCRIPTION}\n\n${sizeNote}`;
+  }
 
   resolveExecution(args: DynamicWorkflowToolInput): ToolExecution {
     const agentCount = (args.items?.length ?? 0) + Object.keys(args.resume_agent_ids ?? {}).length;

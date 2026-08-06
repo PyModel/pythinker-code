@@ -12,6 +12,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { Agent } from '../../src/agent';
 import type { DynamicWorkflowMode } from '../../src/agent/dynamic-workflow';
+import { resolveWorkflowSizeGuideline } from '../../src/agent/dynamic-workflow/size-guideline';
 import { FLAG_DEFINITIONS, FlagResolver } from '../../src/flags';
 import type {
   QueuedSubagentRunResult,
@@ -1027,6 +1028,39 @@ describe('isDynamicWorkflowDisabled', () => {
     expect(
       isDynamicWorkflowDisabled({ disableWorkflows: true }, { PYTHINKER_CODE_DISABLE_WORKFLOWS: 'maybe' }),
     ).toBe(true);
+  });
+});
+
+describe('workflowSizeGuideline', () => {
+  it('resolves the guideline from config and env with env winning', () => {
+    expect(resolveWorkflowSizeGuideline(undefined, {})).toBe('medium');
+    expect(resolveWorkflowSizeGuideline({ workflowSizeGuideline: 'small' }, {})).toBe('small');
+    expect(
+      resolveWorkflowSizeGuideline(undefined, { PYTHINKER_CODE_WORKFLOW_SIZE_GUIDELINE: 'large' }),
+    ).toBe('large');
+    expect(
+      resolveWorkflowSizeGuideline(
+        { workflowSizeGuideline: 'small' },
+        { PYTHINKER_CODE_WORKFLOW_SIZE_GUIDELINE: 'LARGE' },
+      ),
+    ).toBe('large');
+    expect(
+      resolveWorkflowSizeGuideline(
+        { workflowSizeGuideline: 'small' },
+        { PYTHINKER_CODE_WORKFLOW_SIZE_GUIDELINE: 'huge' },
+      ),
+    ).toBe('small');
+  });
+
+  it('appends the advisory note to DynamicWorkflowTool descriptions unless unrestricted', () => {
+    const host = mockSubagentHost({});
+
+    const smallTool = new DynamicWorkflowTool(host, mockDynamicWorkflowMode(), 'small');
+    expect(smallTool.description).toContain('about 5 subagents');
+
+    const unrestrictedTool = new DynamicWorkflowTool(host, mockDynamicWorkflowMode(), 'unrestricted');
+    expect(unrestrictedTool.description).toContain('DynamicWorkflow supports up to 128 subagents');
+    expect(unrestrictedTool.description).not.toContain('Workflow size guideline:');
   });
 });
 

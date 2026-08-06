@@ -2,6 +2,7 @@ import type { Agent } from '..';
 
 import DYNAMIC_WORKFLOW_MODE_ENTER_REMINDER from './enter-reminder.md?raw';
 import DYNAMIC_WORKFLOW_MODE_EXIT_REMINDER from './exit-reminder.md?raw';
+import { resolveWorkflowSizeGuideline, workflowSizeGuidelineNote } from './size-guideline';
 
 /**
  * manual = persistent toggle;
@@ -20,10 +21,18 @@ export class DynamicWorkflowMode {
     this.agent.records.logRecord({ type: 'dynamic_workflow_mode.enter', trigger });
     this.active = trigger;
     if (trigger !== 'tool') {
-      this.agent.context.appendSystemReminder(DYNAMIC_WORKFLOW_MODE_ENTER_REMINDER, {
-        kind: 'injection',
-        variant: 'dynamic_workflow_mode',
-      });
+      const sizeNote = workflowSizeGuidelineNote(
+        resolveWorkflowSizeGuideline(this.agent.pythinkerConfig),
+      );
+      this.agent.context.appendSystemReminder(
+        sizeNote === undefined
+          ? DYNAMIC_WORKFLOW_MODE_ENTER_REMINDER
+          : `${DYNAMIC_WORKFLOW_MODE_ENTER_REMINDER}\n\n${sizeNote}`,
+        {
+          kind: 'injection',
+          variant: 'dynamic_workflow_mode',
+        },
+      );
     }
     this.agent.emitStatusUpdated();
   }

@@ -319,6 +319,23 @@ micro_compaction = false
     expect(parseConfigString(text, configPath).disableWorkflows).toBe(true);
   });
 
+  it('round-trips workflowSizeGuideline as workflow_size_guideline', async () => {
+    const dir = makeTempDir();
+    const configPath = join(dir, 'workflow-size-guideline.toml');
+
+    expect(
+      parseConfigString('workflow_size_guideline = "small"\n', configPath).workflowSizeGuideline,
+    ).toBe('small');
+
+    // Written from an in-memory config with no `raw`, so the key only reaches the
+    // file through the scalar-field writer rather than being copied from `raw`.
+    await writeConfigFile(configPath, { providers: {}, workflowSizeGuideline: 'small' });
+    const text = await readFile(configPath, 'utf-8');
+
+    expect(text).toContain('workflow_size_guideline = "small"');
+    expect(parseConfigString(text, configPath).workflowSizeGuideline).toBe('small');
+  });
+
   it('accepts obsolete experimental feature keys as inert config', async () => {
     const dir = makeTempDir();
     const configPath = join(dir, 'obsolete-experimental.toml');
