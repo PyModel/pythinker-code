@@ -10,6 +10,7 @@ import {
   type SkillSummary,
 } from "@pythoughts/pythinker-code-sdk";
 
+import type { PermissionModeTarget } from "../runtime/permission-mode";
 import type { SessionRuntime } from "../runtime/session-runtime";
 import {
   buildExportMarkdown,
@@ -167,10 +168,11 @@ export function parsePermissionCommandRequest(args: string): PermissionCommandRe
 /**
  * Applies a `/yolo` or `/auto` request and reports the resulting mode. Callers
  * own how the message is surfaced, so this runs identically whether the command
- * came in between turns or mid-turn over the bridge.
+ * came in between turns, mid-turn over the bridge, or before the view has a
+ * session at all.
  */
 export async function applyPermissionCommand(
-  runtime: SessionRuntime,
+  runtime: PermissionModeTarget,
   mode: "yolo" | "auto",
   request: PermissionCommandRequest,
 ): Promise<{ mode: PermissionMode; message: string }> {

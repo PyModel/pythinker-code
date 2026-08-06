@@ -6,6 +6,7 @@ import type { ApprovalResponse, ContentPart } from "../../shared/legacy-sdk";
 import { getUserMessage } from "../../shared/errors";
 import type { ErrorPhase } from "../../shared/types";
 import { VSCodeSettings } from "../config/vscode-settings";
+import { defaultPermissionMode } from "../runtime/permission-mode";
 import { normalizeEffort } from "../runtime/pythinker-runtime";
 import type { SessionRuntime } from "../runtime/session-runtime";
 import { isWorkspacePathContained, relativeWorkspacePath } from "../utils/workspace-path";
@@ -177,15 +178,21 @@ const setPlanMode: Handler<{ enabled: boolean }, { ok: boolean; planMode: boolea
 /**
  * `/yolo` and `/auto` are control commands, not turns: the webview sends them
  * here instead of through the chat queue so they still take effect while the
- * agent is running — which is exactly when a pending approval blocks it.
+ * agent is running — which is exactly when a pending approval blocks it. Before
+ * the first message there is no session yet, so the request is parked on the
+ * view and applied to the session that view opens next.
  */
 const setPermissionMode: Handler<
   { mode: "yolo" | "auto"; request: PermissionCommandRequest },
   { ok: boolean; mode?: PermissionMode; message?: string }
 > = async (params, ctx) => {
-  const runtime = ctx.getSession();
-  if (runtime === undefined) return { ok: false };
-  const result = await applyPermissionCommand(runtime, params.mode, params.request);
+  const target =
+    ctx.getSession() ??
+    ctx.runtime.pendingPermissionTarget(
+      ctx.webviewId,
+      defaultPermissionMode(VSCodeSettings.yoloMode),
+    );
+  const result = await applyPermissionCommand(target, params.mode, params.request);
   return { ok: true, mode: result.mode, message: result.message };
 };
 

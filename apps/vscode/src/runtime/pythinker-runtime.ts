@@ -12,6 +12,7 @@ import {
   permissionModeMetadata,
   persistPermissionMode,
   readPermissionMode,
+  type PermissionModeTarget,
 } from "./permission-mode";
 import { SessionRuntime } from "./session-runtime";
 import { areSameFsPath } from "../utils/fs-path";
@@ -47,6 +48,7 @@ export class PythinkerRuntime {
   private readonly log: PythinkerRuntimeOptions["log"];
   private readonly sessions = new Map<string, SessionRuntime>();
   private readonly sessionByView = new Map<string, string>();
+  private readonly pendingPermissionByView = new Map<string, PermissionMode>();
   private closed = false;
 
   constructor(options: PythinkerRuntimeOptions) {
@@ -72,6 +74,29 @@ export class PythinkerRuntime {
 
   getSession(id: string): SessionRuntime | undefined {
     return this.sessions.get(id);
+  }
+
+  /**
+   * `/yolo` and `/auto` are usable before the view has opened a session — the
+   * first message is what creates one. The request is held per view and applied
+   * to the session that view opens next, so the command is never just lost.
+   */
+  pendingPermissionTarget(webviewId: string, fallback: PermissionMode): PermissionModeTarget {
+    const pending = this.pendingPermissionByView;
+    const target: PermissionModeTarget = {
+      get permissionMode(): PermissionMode {
+        return pending.get(webviewId) ?? fallback;
+      },
+      async setPermissionMode(mode: PermissionMode): Promise<void> {
+        pending.set(webviewId, mode);
+      },
+      async togglePermissionMode(mode: Exclude<PermissionMode, "manual">): Promise<PermissionMode> {
+        const next = target.permissionMode === mode ? "manual" : mode;
+        await target.setPermissionMode(next);
+        return next;
+      },
+    };
+    return target;
   }
 
   async openSession(options: OpenSessionOptions): Promise<SessionRuntime> {
@@ -119,6 +144,7 @@ export class PythinkerRuntime {
       }
     }
 
+    await this.applyPendingPermissionMode(options.webviewId, runtime);
     runtime.subscribe(options.webviewId);
     this.sessionByView.set(options.webviewId, runtime.id);
     await runtime.announceStatus(options.webviewId);
@@ -149,6 +175,7 @@ export class PythinkerRuntime {
         throw error;
       }
     }
+    await this.applyPendingPermissionMode(webviewId, runtime);
     runtime.subscribe(webviewId);
     this.sessionByView.set(webviewId, runtime.id);
     await runtime.announceStatus(webviewId);
@@ -203,6 +230,22 @@ export class PythinkerRuntime {
     this.sessions.clear();
     this.sessionByView.clear();
     await this.harness.close();
+  }
+
+  /** Hands a `/yolo` or `/auto` issued before this view had a session to the session it just got. */
+  private async applyPendingPermissionMode(
+    webviewId: string,
+    runtime: SessionRuntime,
+  ): Promise<void> {
+    const pending = this.pendingPermissionByView.get(webviewId);
+    if (pending === undefined) return;
+    await runtime.setPermissionMode(pending);
+    // Dropped only once it landed, and only if it is still the request in hand:
+    // a failed apply keeps the command for the next attempt, and a command that
+    // arrived during the await outranks the one just applied.
+    if (this.pendingPermissionByView.get(webviewId) === pending) {
+      this.pendingPermissionByView.delete(webviewId);
+    }
   }
 
   private wrapSession(session: Session, permissionMode: PermissionMode): SessionRuntime {
