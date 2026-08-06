@@ -20,7 +20,7 @@ import {
   promptPlatformSelection,
   promptLogoutProviderSelection,
 } from '#/tui/commands/prompts';
-import { CATALOG_PLATFORM_VALUE_PREFIX } from '#/tui/components/dialogs/platform-selector';
+import { CATALOG_PLATFORM_VALUE_PREFIX } from '#/auth/platform-values';
 import { BannerComponent } from '#/tui/components/chrome/banner';
 import { WelcomeComponent } from '#/tui/components/chrome/welcome';
 import { DEFAULT_STATUS_LINE_CONFIG } from '#/tui/config';

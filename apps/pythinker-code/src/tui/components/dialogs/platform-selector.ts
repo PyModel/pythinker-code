@@ -5,9 +5,9 @@ import {
   type CatalogProviderEntry,
 } from '@pythoughts/pythinker-code-sdk';
 
-import { ChoicePickerComponent, type ChoiceOption } from './choice-picker';
+import { CATALOG_PLATFORM_VALUE_PREFIX } from '#/auth/platform-values';
 
-export const CATALOG_PLATFORM_VALUE_PREFIX = 'catalog:';
+import { ChoicePickerComponent, type ChoiceOption } from './choice-picker';
 
 const FEATURED_CATALOG_PROVIDERS = [
   { id: 'deepseek', label: 'DeepSeek API' },
@@ -17,12 +17,6 @@ const FEATURED_CATALOG_PROVIDERS = [
 ] as const;
 
 const REPLACED_OPEN_PLATFORM_IDS = new Set(['moonshot-ai', 'minimax-token']);
-
-export function catalogProviderIdFromPlatformValue(value: string): string | undefined {
-  if (!value.startsWith(CATALOG_PLATFORM_VALUE_PREFIX)) return undefined;
-  const providerId = value.slice(CATALOG_PLATFORM_VALUE_PREFIX.length);
-  return providerId.length > 0 ? providerId : undefined;
-}
 
 function catalogOption(
   providerId: string,
