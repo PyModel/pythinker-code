@@ -17,6 +17,8 @@ import {
   settleSubagentWorktree,
 } from '../../src/session/subagent-worktree';
 import {
+  MAX_SUBAGENTS_PER_SESSION,
+  MAX_SUBAGENT_SPAWN_DEPTH,
   SessionSubagentHost,
   type QueuedSubagentTask,
 } from '../../src/session/subagent-host';
@@ -689,6 +691,7 @@ describe('SessionSubagentHost', () => {
     const host = new SessionSubagentHost(
       {
         agents: new Map([['main', parent.agent]]),
+        metadata: { agents: {} },
         ensureAgentResumed: vi.fn(async () => parent.agent),
         createAgent,
       } as never,
@@ -715,6 +718,7 @@ describe('SessionSubagentHost', () => {
     const host = new SessionSubagentHost(
       {
         agents: new Map([['main', parent.agent]]),
+        metadata: { agents: {} },
         ensureAgentResumed: vi.fn(async () => parent.agent),
         createAgent,
       } as never,
@@ -732,6 +736,148 @@ describe('SessionSubagentHost', () => {
       }),
     ).rejects.toThrow('Subagent profile "btw" was not found');
     expect(createAgent).not.toHaveBeenCalled();
+  });
+
+  it('rejects a spawn when the session has reached its subagent cap', async () => {
+    const parent = testAgent();
+    parent.configure();
+    const child = testAgent({ type: 'sub' });
+    const metadataAgents = Object.fromEntries(
+      Array.from({ length: MAX_SUBAGENTS_PER_SESSION }, (_, index) => [
+        `agent-${String(index)}`,
+        { type: 'sub' as const, parentAgentId: 'main' },
+      ]),
+    );
+    const session = fakeSession(parent.agent, child.agent, metadataAgents);
+    const host = new SessionSubagentHost(session, 'main');
+
+    await expect(
+      host.spawn({
+        profileName: 'coder',
+        parentToolCallId: 'call_agent',
+        prompt: 'Implement the fix',
+        description: 'Fix bug',
+        runInBackground: false,
+        signal,
+      }),
+    ).rejects.toThrow(String(MAX_SUBAGENTS_PER_SESSION));
+    expect(session.createAgent).not.toHaveBeenCalled();
+  });
+
+  it('rejects a spawn when the owner is already at the nesting depth cap', async () => {
+    const parent = testAgent();
+    parent.configure();
+    const child = testAgent({ type: 'sub' });
+    const session = Object.assign(
+      fakeSession(parent.agent, child.agent, {
+        main: { type: 'main', parentAgentId: null },
+        'agent-0': { type: 'sub', parentAgentId: 'main' },
+        'agent-1': { type: 'sub', parentAgentId: 'agent-0' },
+        'agent-2': { type: 'sub', parentAgentId: 'agent-1' },
+      }),
+      {
+        ensureAgentResumed: vi.fn(async () => parent.agent),
+      },
+    );
+    // 'agent-2' is at depth 3 (main is depth 0), so its child would be at
+    // depth 4 — beyond MAX_SUBAGENT_SPAWN_DEPTH.
+    const host = new SessionSubagentHost(session, 'agent-2');
+
+    await expect(
+      host.spawn({
+        profileName: 'coder',
+        parentToolCallId: 'call_agent',
+        prompt: 'Nest too deep',
+        description: 'Too deep',
+        runInBackground: false,
+        signal,
+      }),
+    ).rejects.toThrow(String(MAX_SUBAGENT_SPAWN_DEPTH));
+    expect(session.createAgent).not.toHaveBeenCalled();
+  });
+
+  it('allows a spawn one nesting level shallower than the depth cap', async () => {
+    const parent = testAgent();
+    parent.configure();
+    parent.newEvents();
+
+    const summary =
+      'Completed the delegated subagent task from the shallower nesting level and returned a detailed technical handoff to the parent agent, so the work continues without repeating any of it. '.repeat(
+        2,
+      );
+    const child = testAgent({ type: 'sub' });
+    child.mockNextResponse({ type: 'text', text: summary });
+    const session = Object.assign(
+      fakeSession(parent.agent, child.agent, {
+        main: { type: 'main', parentAgentId: null },
+        'agent-0': { type: 'sub', parentAgentId: 'main' },
+        'agent-1': { type: 'sub', parentAgentId: 'agent-0' },
+      }),
+      {
+        ensureAgentResumed: vi.fn(async () => parent.agent),
+      },
+    );
+    // 'agent-1' is at depth 2, so its child lands at depth 3 — exactly the
+    // cap, and therefore allowed.
+    const host = new SessionSubagentHost(session, 'agent-1');
+
+    const handle = await host.spawn({
+      profileName: 'coder',
+      parentToolCallId: 'call_agent',
+      prompt: 'Work at the allowed depth',
+      description: 'Allowed depth',
+      runInBackground: false,
+      signal,
+    });
+    await expect(handle.completion).resolves.toMatchObject({ result: summary.trim() });
+    expect(session.createAgent).toHaveBeenCalledTimes(1);
+  });
+
+  it('resume is not blocked by the per-session subagent cap', async () => {
+    const parent = testAgent();
+    parent.configure();
+
+    const child = testAgent({ type: 'sub' });
+    child.configure({ tools: ['Read'] });
+    child.agent.useProfile(
+      profile({ name: 'explore', tools: ['Read'], systemPrompt: 'explore prompt' }),
+    );
+    child.agent.context.appendUserMessage([{ type: 'text', text: 'Earlier context' }]);
+    child.mockNextResponse({
+      type: 'text',
+      text: 'Resumed the subagent from its earlier context and carried the task through to completion, then reported a full and detailed technical summary so the parent agent can continue without repeating prior work.',
+    });
+
+    const otherAgents = Object.fromEntries(
+      Array.from({ length: MAX_SUBAGENTS_PER_SESSION - 1 }, (_, index) => [
+        `agent-${String(index + 1)}`,
+        { type: 'sub' as const, parentAgentId: 'main' },
+      ]),
+    );
+    const session = fakeSession(parent.agent, child.agent, {
+      'agent-0': { type: 'sub', parentAgentId: 'main' },
+      ...otherAgents,
+    });
+    const host = new SessionSubagentHost(session, 'main');
+
+    const handle = await host.resume('agent-0', {
+      parentToolCallId: 'call_agent',
+      prompt: 'Continue from context',
+      description: 'Continue work',
+      runInBackground: false,
+      signal,
+    });
+
+    expect(handle).toMatchObject({
+      agentId: 'agent-0',
+      profileName: 'explore',
+      resumed: true,
+    });
+    await expect(handle.completion).resolves.toMatchObject({
+      result:
+        'Resumed the subagent from its earlier context and carried the task through to completion, then reported a full and detailed technical summary so the parent agent can continue without repeating prior work.',
+    });
+    expect(session.createAgent).not.toHaveBeenCalled();
   });
 
   it('cancels the child turn when the caller signal aborts', async () => {

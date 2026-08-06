@@ -30,7 +30,7 @@ import {
   type SettledSubagentWorktree,
   type SubagentWorktree,
 } from './subagent-worktree';
-import type { Session } from './index';
+import type { AgentMeta, Session } from './index';
 import {
   SubagentBatch,
   type SubagentResult,
@@ -41,6 +41,8 @@ import SUMMARY_CONTINUATION_PROMPT from './summary-continuation.md?raw';
 
 export const DEFAULT_SUBAGENT_TIMEOUT_MS = 30 * 60 * 1000;
 export const DEFAULT_SUBAGENT_TIMEOUT_DESCRIPTION = '30 minutes';
+export const MAX_SUBAGENTS_PER_SESSION = 200;
+export const MAX_SUBAGENT_SPAWN_DEPTH = 3;
 
 export type {
   SubagentResult as QueuedSubagentRunResult,
@@ -135,6 +137,7 @@ export class SessionSubagentHost {
     if (options.forkContext === true && parent.type !== 'main') {
       throw new Error('Fork is not available inside a forked worker');
     }
+    this.enforceSpawnCaps();
     const profile = options.forkContext === true
       ? undefined
       : this.resolveProfile(parent, options.profileName);
@@ -230,6 +233,51 @@ export class SessionSubagentHost {
       resumed: false,
       completion,
     };
+  }
+
+  /**
+   * Runaway guards for new subagents. Both throw, which the batch scheduler turns into a
+   * single failed task rather than a failed batch, so the error text is written for the model
+   * that will read it. Only `spawn` is guarded — `resume` and `retry` reuse an agent that
+   * already exists and was already counted.
+   *
+   * The per-session count is read before `createAgent` awaits, so concurrent spawns can
+   * overshoot the cap by up to the batch concurrency limit. That is accepted: these are
+   * runaway guards, not quotas, and a reservation counter that has to be released on every
+   * failure path is a likelier source of leaks than the bounded overshoot it prevents.
+   */
+  private enforceSpawnCaps(): void {
+    const agents = this.session.metadata.agents;
+
+    let subagentCount = 0;
+    for (const meta of Object.values(agents)) {
+      if (meta.type === 'sub') subagentCount += 1;
+    }
+    if (subagentCount >= MAX_SUBAGENTS_PER_SESSION) {
+      throw new Error(
+        `This session is limited to ${String(MAX_SUBAGENTS_PER_SESSION)} subagents and can create no more; split the remaining work across fewer, larger subagents.`,
+      );
+    }
+
+    // The owner's depth is its number of ancestors, so the main agent is depth 0 and its
+    // child lands at depth 1. The walk is bounded by the agent count so malformed metadata
+    // with a parent cycle cannot hang the process.
+    let ownerDepth = 0;
+    let cursor: string | null = this.ownerAgentId;
+    const agentCount = Object.keys(agents).length;
+    for (let steps = 0; cursor !== null && steps <= agentCount; steps += 1) {
+      // Annotated because the Session -> Agent -> SessionSubagentHost module cycle makes tsc
+      // infer this read circularly (TS7022) when left implicit.
+      const meta: AgentMeta | undefined = agents[cursor];
+      if (meta === undefined) break;
+      cursor = meta.parentAgentId;
+      if (cursor !== null) ownerDepth += 1;
+    }
+    if (ownerDepth + 1 > MAX_SUBAGENT_SPAWN_DEPTH) {
+      throw new Error(
+        `Subagents may nest at most ${String(MAX_SUBAGENT_SPAWN_DEPTH)} levels deep (the main agent is depth 0), and this parent agent is already at depth ${String(ownerDepth)}; split the work across fewer, larger subagents instead of nesting deeper.`,
+      );
+    }
   }
 
   async resume(agentId: string, options: RunSubagentOptions): Promise<SubagentHandle> {
