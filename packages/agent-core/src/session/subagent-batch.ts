@@ -54,6 +54,7 @@ type BaseQueuedSubagentTask<T> = {
   readonly thinkingLevel?: string;
   readonly workflowRunId?: string;
   readonly workflowName?: string;
+  readonly outputSchema?: Record<string, unknown>;
 };
 
 export type SpawnQueuedSubagentTask<T = unknown> = BaseQueuedSubagentTask<T> & {
@@ -73,7 +74,7 @@ export type QueuedSubagentTask<T = unknown> =
 export type SubagentResult<T = unknown> = {
   readonly task: QueuedSubagentTask<T>;
   readonly agentId?: string;
-  readonly status: 'completed' | 'failed' | 'aborted';
+  readonly status: 'completed' | 'failed' | 'aborted' | 'schema_error';
   readonly state?: 'started' | 'not_started';
   readonly result?: string;
   readonly usage?: TokenUsage;
@@ -98,6 +99,20 @@ type RateLimitedOutcome = {
   readonly agentId: string;
   readonly error: string;
 };
+
+/**
+ * A child turn failed because it never produced valid structured output
+ * (ErrorCodes.STRUCTURED_OUTPUT_MAX_RETRIES). The batch reports that child as
+ * status 'schema_error' instead of 'failed': the child ran, but its
+ * deliverable was the structured output, so a schema miss is not a generic
+ * child failure and must not fail the rest of the batch.
+ */
+export class StructuredOutputMaxRetriesError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'StructuredOutputMaxRetriesError';
+  }
+}
 
 type AttemptOutcome<T> = SubagentResult<T> | RateLimitedOutcome;
 
@@ -307,6 +322,7 @@ export class SubagentBatch<T> {
       thinkingLevel: task.thinkingLevel,
       workflowRunId: task.workflowRunId,
       workflowName: task.workflowName,
+      outputSchema: task.outputSchema,
       signal: attempt.controller.signal,
       onReady: () => {
         this.markAttemptReady(attempt);
@@ -359,7 +375,7 @@ export class SubagentBatch<T> {
     const status =
       attempt.controller.signal.aborted && isUserCancellation(attempt.controller.signal.reason)
         ? 'aborted'
-        : 'failed';
+        : this.attemptFailureStatus(error);
     return {
       task: attempt.state.task,
       agentId: attempt.state.agentId,
@@ -367,6 +383,10 @@ export class SubagentBatch<T> {
       state: attempt.state.agentId === undefined ? 'not_started' : 'started',
       error: this.attemptErrorMessage(attempt, error, status),
     };
+  }
+
+  private attemptFailureStatus(error: unknown): SubagentResult<T>['status'] {
+    return error instanceof StructuredOutputMaxRetriesError ? 'schema_error' : 'failed';
   }
 
   private markAttemptReady(attempt: ActiveAttempt<T>): void {
@@ -411,7 +431,7 @@ export class SubagentBatch<T> {
     this.results[attempt.state.index] = {
       task: attempt.state.task,
       agentId: attempt.state.agentId,
-      status: 'failed',
+      status: this.attemptFailureStatus(error),
       error: error instanceof Error ? error.message : String(error),
     };
     this.schedule();

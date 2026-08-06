@@ -1168,6 +1168,126 @@ describe('SessionSubagentHost', () => {
     expect(child.llmCalls).toHaveLength(1);
   });
 
+  it('passes an output schema to the child turn and returns the structured output', async () => {
+    const parent = testAgent();
+    parent.configure();
+    parent.newEvents();
+
+    const outputSchema = {
+      type: 'object',
+      properties: { answer: { type: 'string' } },
+      required: ['answer'],
+    };
+    const child = testAgent({ type: 'sub' });
+    child.mockNextResponse(
+      { type: 'text', text: 'I will return structured output.' },
+      {
+        type: 'function',
+        id: 'call_structured_output',
+        name: 'StructuredOutput',
+        arguments: JSON.stringify({ answer: 'done' }),
+      },
+    );
+    const session = fakeSession(parent.agent, child.agent);
+    const host = new SessionSubagentHost(session, 'main');
+    const promptSpy = vi.spyOn(child.agent.turn, 'prompt');
+
+    const handle = await host.spawn({
+      profileName: 'coder',
+      outputSchema,
+      parentToolCallId: 'call_agent',
+      prompt: 'Return structured output',
+      description: 'Structured task',
+      runInBackground: false,
+      signal,
+    });
+
+    await expect(handle.completion).resolves.toMatchObject({
+      result: JSON.stringify({ answer: 'done' }),
+    });
+    expect(promptSpy).toHaveBeenCalledTimes(1);
+    expect(promptSpy.mock.calls[0]?.[2]).toBe(outputSchema);
+  });
+
+  it('skips the short-summary continuation when an output schema is set', async () => {
+    const parent = testAgent();
+    parent.configure();
+    parent.newEvents();
+
+    const outputSchema = { type: 'object', properties: { answer: { type: 'string' } } };
+    const child = testAgent({ type: 'sub' });
+    for (let i = 0; i < 6; i += 1) {
+      child.mockNextResponse({ type: 'text', text: 'short' });
+    }
+    const session = fakeSession(parent.agent, child.agent);
+    const host = new SessionSubagentHost(session, 'main');
+    const promptSpy = vi.spyOn(child.agent.turn, 'prompt');
+
+    const handle = await host.spawn({
+      profileName: 'coder',
+      outputSchema,
+      parentToolCallId: 'call_agent',
+      prompt: 'Return structured output',
+      description: 'Structured task',
+      runInBackground: false,
+      signal,
+    });
+
+    // The model never calls StructuredOutput, so the turn exhausts its
+    // completion reminders and fails with structured_output.max_retries. The
+    // assistant text stays well under SUMMARY_MIN_LENGTH, so a second
+    // turn.prompt call would mean the continuation ran.
+    await expect(handle.completion).rejects.toThrow('structured_output.max_retries');
+    expect(promptSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports structured_output.max_retries as schema_error and other failures as failed', async () => {
+    const parent = testAgent();
+    parent.configure();
+    parent.newEvents();
+
+    const child = testAgent({ type: 'sub' });
+    child.configure();
+    for (let i = 0; i < 6; i += 1) {
+      child.mockNextResponse({ type: 'text', text: 'short' });
+    }
+    const session = fakeSession(parent.agent, child.agent);
+    const host = new SessionSubagentHost(session, 'main');
+
+    const schemaErrorResults = await host.runQueued([
+      {
+        ...queuedTask(1),
+        outputSchema: { type: 'object', properties: { answer: { type: 'string' } } },
+        signal,
+      },
+    ]);
+    const schemaErrorResult = schemaErrorResults[0]!;
+
+    expect(schemaErrorResult).toMatchObject({
+      status: 'schema_error',
+      state: 'started',
+    });
+    expect(schemaErrorResult.error).toContain('structured_output.max_retries');
+
+    child.mockNextProviderResponse({
+      parts: [
+        { type: 'think', think: 'The child used its output budget before writing a summary.' },
+      ],
+      finishReason: 'truncated',
+      rawFinishReason: 'length',
+    });
+    const failedResults = await host.runQueued([{ ...queuedTask(2), signal }]);
+    const failedResult = failedResults[0]!;
+
+    expect(failedResult).toMatchObject({
+      status: 'failed',
+      state: 'started',
+    });
+    expect(failedResult.error).toContain(
+      'Subagent turn failed before completing its final summary',
+    );
+  });
+
   it('prepends git context to the prompt for explore subagents', async () => {
     vi.mocked(collectGitContext).mockResolvedValueOnce(
       '<git-context>\nWorking directory: /repo\nBranch: main\n</git-context>',

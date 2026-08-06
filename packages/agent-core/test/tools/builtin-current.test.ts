@@ -391,6 +391,7 @@ describe('current builtin collaboration tools', () => {
       'resume_agent_ids',
       'model',
       'effort',
+      'output_schema',
     ]);
 
     const result = await executeTool(tool, context(input, 'call_dynamic_workflow'));
@@ -441,6 +442,104 @@ describe('current builtin collaboration tools', () => {
       '<subagent agent_id="agent-explore-2" item="src/b.ts" outcome="completed">explore result b</subagent>',
       '</dynamic_workflow_result>',
     ].join('\n'));
+    expect(result.isError).toBeUndefined();
+  });
+
+  it('DynamicWorkflow accepts output_schema and passes it to every queued task', async () => {
+    const outputSchema = {
+      type: 'object',
+      properties: { summary: { type: 'string' } },
+      required: ['summary'],
+    };
+    const runQueued = vi.fn(
+      async <T>(
+        tasks: readonly QueuedSubagentTask<T>[],
+      ): Promise<Array<QueuedSubagentRunResult<T>>> => {
+        return tasks.map((task) => ({
+          task,
+          agentId: 'agent-1',
+          status: 'completed' as const,
+          result: 'done',
+        }));
+      },
+    );
+    const host = mockSubagentHost({
+      runQueued: runQueued as unknown as SessionSubagentHost['runQueued'],
+    });
+    const tool = new DynamicWorkflowTool(host, mockDynamicWorkflowMode());
+    const input = {
+      description: 'Review files',
+      prompt_template: 'Review {{item}}',
+      items: ['src/a.ts', 'src/b.ts'],
+      output_schema: outputSchema,
+    };
+
+    expect(DynamicWorkflowToolInputSchema.safeParse(input).success).toBe(true);
+    expect(
+      DynamicWorkflowToolInputSchema.safeParse({ ...input, output_schema: { type: 'string' } })
+        .success,
+    ).toBe(true);
+
+    const result = await executeTool(tool, context(input, 'call_dynamic_workflow'));
+
+    expect(result.isError).toBeUndefined();
+    expect(runQueued).toHaveBeenCalledTimes(1);
+    const queuedTasks = vi.mocked(runQueued).mock.calls[0]![0];
+    expect(queuedTasks).toHaveLength(2);
+    expect(queuedTasks.every((task) => task.outputSchema === outputSchema)).toBe(true);
+  });
+
+  it('DynamicWorkflow renders a schema_error child alongside the other outcomes', async () => {
+    const runQueued = vi.fn(
+      async <T>(
+        tasks: readonly QueuedSubagentTask<T>[],
+      ): Promise<Array<QueuedSubagentRunResult<T>>> => {
+        // One outcome per item, positionally: a schema miss, a clean run, and
+        // an ordinary failure — so the render covers all three side by side.
+        const outcomes = [
+          {
+            agentId: 'agent-schema-error',
+            status: 'schema_error' as const,
+            error:
+              '[structured_output.max_retries] Failed to provide valid structured output after the maximum number of retries.',
+          },
+          {
+            agentId: 'agent-clean',
+            status: 'completed' as const,
+            result: 'clean result',
+          },
+          {
+            agentId: 'agent-timed-out',
+            status: 'failed' as const,
+            error: 'Agent timed out after 30s.',
+          },
+        ];
+        return tasks.map((task, index) => ({ task, ...outcomes[index]! }));
+      },
+    );
+    const host = mockSubagentHost({
+      runQueued: runQueued as unknown as SessionSubagentHost['runQueued'],
+    });
+    const tool = new DynamicWorkflowTool(host, mockDynamicWorkflowMode());
+
+    const result = await executeTool(
+      tool,
+      context({
+        description: 'Review files',
+        items: ['src/a.ts', 'src/b.ts', 'src/c.ts'],
+      }),
+    );
+
+    expect(result.output).toContain(
+      '<subagent agent_id="agent-schema-error" item="src/a.ts" outcome="schema_error">[structured_output.max_retries] Failed to provide valid structured output after the maximum number of retries.</subagent>',
+    );
+    expect(result.output).toContain(
+      '<subagent agent_id="agent-clean" item="src/b.ts" outcome="completed">clean result</subagent>',
+    );
+    expect(result.output).toContain(
+      '<subagent agent_id="agent-timed-out" item="src/c.ts" outcome="failed">Agent timed out after 30s.</subagent>',
+    );
+    expect(result.output).toContain('<summary>completed: 1, failed: 1, schema_error: 1</summary>');
     expect(result.isError).toBeUndefined();
   });
 

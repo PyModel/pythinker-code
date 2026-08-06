@@ -100,6 +100,12 @@ export const DynamicWorkflowToolInputSchema = z
       .describe(
         'Reasoning effort for every subagent in this workflow. Defaults to the subagent type profile effort, then this agent effort.',
       ),
+    output_schema: z
+      .record(z.string(), z.unknown())
+      .optional()
+      .describe(
+        'JSON Schema every subagent in this workflow must satisfy. Each subagent returns its result by calling the StructuredOutput tool instead of writing a prose summary. A subagent that cannot produce conforming output is reported with outcome="schema_error" and does not fail the batch.',
+      ),
   })
   .strict();
 
@@ -125,7 +131,7 @@ type DynamicWorkflowSpec = DynamicWorkflowSpawnSpec | DynamicWorkflowResumeSpec;
 interface DynamicWorkflowRunResult {
   readonly spec: DynamicWorkflowSpec;
   readonly agentId?: string;
-  readonly status: 'completed' | 'failed' | 'aborted';
+  readonly status: 'completed' | 'failed' | 'aborted' | 'schema_error';
   readonly state?: 'started' | 'not_started';
   readonly result?: string;
   readonly error?: string;
@@ -224,6 +230,9 @@ export class DynamicWorkflowTool implements BuiltinTool<DynamicWorkflowToolInput
         workflowRunId: runId,
         // The workflow's user-facing description, repeated on each subagent.
         workflowName: args.description,
+        // One schema for the whole workflow: every item runs the same prompt
+        // template, so a per-item schema is not expressible in this contract.
+        outputSchema: args.output_schema,
         signal,
       };
       if (spec.kind === 'resume') {
@@ -323,12 +332,13 @@ function renderDynamicWorkflowResults(
   const completed = results.filter((result) => result.status === 'completed').length;
   const failed = results.filter((result) => result.status === 'failed').length;
   const aborted = results.filter((result) => result.status === 'aborted').length;
+  const schemaError = results.filter((result) => result.status === 'schema_error').length;
   const shouldRenderResumeHint = results.some(
     (result) => result.status !== 'completed' && result.agentId !== undefined,
   );
   const lines = [
     `<dynamic_workflow_result run_id="${escapeXml(runId)}">`,
-    `<summary>${renderDynamicWorkflowSummary(completed, failed, aborted)}</summary>`,
+    `<summary>${renderDynamicWorkflowSummary(completed, failed, aborted, schemaError)}</summary>`,
   ];
 
   if (shouldRenderResumeHint) {
@@ -358,11 +368,19 @@ function normalizeOptionalString(value: string | undefined): string | undefined 
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
-function renderDynamicWorkflowSummary(completed: number, failed: number, aborted = 0): string {
+function renderDynamicWorkflowSummary(
+  completed: number,
+  failed: number,
+  aborted = 0,
+  schemaError = 0,
+): string {
   const parts: string[] = [];
   if (completed > 0) parts.push(`completed: ${String(completed)}`);
   if (failed > 0) parts.push(`failed: ${String(failed)}`);
   if (aborted > 0) parts.push(`aborted: ${String(aborted)}`);
+  // A schema_error child DID run, so it is neither completed nor aborted;
+  // it is counted separately and rendered with outcome="schema_error".
+  if (schemaError > 0) parts.push(`schema_error: ${String(schemaError)}`);
   return parts.join(', ');
 }
 

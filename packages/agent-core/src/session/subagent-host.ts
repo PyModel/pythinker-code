@@ -33,6 +33,7 @@ import {
 import type { AgentMeta, Session } from './index';
 import {
   SubagentBatch,
+  StructuredOutputMaxRetriesError,
   type SubagentResult,
   type SubagentSuspendedEvent,
   type QueuedSubagentTask,
@@ -95,6 +96,7 @@ export interface RunSubagentOptions {
   readonly thinkingLevel?: string;
   readonly workflowRunId?: string;
   readonly workflowName?: string;
+  readonly outputSchema?: Record<string, unknown>;
   readonly allowedTools?: readonly string[];
   readonly cwd?: string;
   readonly forkContext?: boolean;
@@ -511,7 +513,11 @@ export class SessionSubagentHost {
     }
 
     this.emitSubagentStarted(parent, childId, options);
-    const turnId = child.turn.prompt([{ type: 'text', text: childPrompt }], SUBAGENT_PROMPT_ORIGIN);
+    const turnId = child.turn.prompt(
+      [{ type: 'text', text: childPrompt }],
+      SUBAGENT_PROMPT_ORIGIN,
+      options.outputSchema,
+    );
     if (turnId === null) {
       throw new Error(`Agent instance "${childId}" could not start a turn`);
     }
@@ -526,20 +532,26 @@ export class SessionSubagentHost {
     profileName: string,
     options: RunSubagentOptions,
   ): Promise<SubagentCompletion> {
-    await runChildTurnToCompletion(child, options.signal);
+    const turnResult = await runChildTurnToCompletion(child, options.signal);
 
     // A subagent that returns an overly terse summary leaves the parent
     // agent under-informed. Give it a bounded number of chances to expand
     // the handoff; if it is still short after that, accept it as-is rather
-    // than retrying indefinitely.
+    // than retrying indefinitely. When a schema is in effect the structured
+    // output — not the prose — is the deliverable, so the continuation never
+    // runs and the turn would cost an extra request without a schema.
     let result = lastAssistantText(child);
-    let remainingContinuations = SUMMARY_CONTINUATION_ATTEMPTS;
-    while (remainingContinuations > 0 && result.length < SUMMARY_MIN_LENGTH) {
-      remainingContinuations -= 1;
-      options.signal.throwIfAborted();
-      child.turn.prompt([{ type: 'text', text: SUMMARY_CONTINUATION_PROMPT }], SUBAGENT_PROMPT_ORIGIN);
-      await runChildTurnToCompletion(child, options.signal);
-      result = lastAssistantText(child);
+    if (options.outputSchema === undefined) {
+      let remainingContinuations = SUMMARY_CONTINUATION_ATTEMPTS;
+      while (remainingContinuations > 0 && result.length < SUMMARY_MIN_LENGTH) {
+        remainingContinuations -= 1;
+        options.signal.throwIfAborted();
+        child.turn.prompt([{ type: 'text', text: SUMMARY_CONTINUATION_PROMPT }], SUBAGENT_PROMPT_ORIGIN);
+        await runChildTurnToCompletion(child, options.signal);
+        result = lastAssistantText(child);
+      }
+    } else if (turnResult.structuredOutput !== undefined) {
+      result = JSON.stringify(turnResult.structuredOutput);
     }
     const usage = child.usage.data().total;
     parent.emitEvent({
@@ -717,12 +729,20 @@ export class SessionSubagentHost {
   }
 }
 
-async function runChildTurnToCompletion(child: Agent, signal: AbortSignal): Promise<void> {
+async function runChildTurnToCompletion(
+  child: Agent,
+  signal: AbortSignal,
+): Promise<{ readonly structuredOutput?: unknown }> {
   const completion = await child.turn.waitForCurrentTurn(signal);
   const turnEnded = completion.event;
   if (turnEnded.reason !== 'completed') {
     if (turnEnded.error?.code === ErrorCodes.PROVIDER_RATE_LIMIT) {
       throw providerRateLimitErrorFromPayload(turnEnded.error);
+    }
+    if (turnEnded.error?.code === ErrorCodes.STRUCTURED_OUTPUT_MAX_RETRIES) {
+      throw new StructuredOutputMaxRetriesError(
+        `[${turnEnded.error.code}] ${turnEnded.error.message}`,
+      );
     }
     throw new Error(
       turnEnded.error === undefined
@@ -733,6 +753,7 @@ async function runChildTurnToCompletion(child: Agent, signal: AbortSignal): Prom
   if (completion.stopReason === 'max_tokens') {
     throw new Error(`${SUBAGENT_MAX_TOKENS_ERROR}.`);
   }
+  return { structuredOutput: turnEnded.structuredOutput };
 }
 
 function providerRateLimitErrorFromPayload(error: PythinkerErrorPayload): APIProviderRateLimitError {
