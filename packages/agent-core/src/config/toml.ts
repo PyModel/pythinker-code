@@ -486,6 +486,7 @@ export function configToTomlData(config: PythinkerConfig): Record<string, unknow
     'allowedHttpHookUrls',
     'httpHookAllowedEnvVars',
     'telemetry',
+    'disableWorkflows',
   ];
   for (const key of scalarFields) {
     setDefined(out, camelToSnake(key), config[key]);

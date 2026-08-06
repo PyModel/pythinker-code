@@ -41,6 +41,7 @@ import { createBackgroundManager } from '../agent/background/helpers';
 import {
   DynamicWorkflowTool,
   DynamicWorkflowToolInputSchema,
+  isDynamicWorkflowDisabled,
 } from '../../src/tools/builtin/collaboration/dynamic-workflow';
 
 const signal = new AbortController().signal;
@@ -1012,6 +1013,20 @@ describe('current builtin collaboration tools', () => {
     const result = await executeTool(tool, context({ skill: 'missing' }));
     expect(result).toMatchObject({ isError: true });
     expect(result.output).toContain('not found');
+  });
+});
+
+describe('isDynamicWorkflowDisabled', () => {
+  it('resolves the switch from config and env with env winning', () => {
+    expect(isDynamicWorkflowDisabled(undefined, {})).toBe(false);
+    expect(isDynamicWorkflowDisabled({ disableWorkflows: true }, {})).toBe(true);
+    expect(isDynamicWorkflowDisabled(undefined, { PYTHINKER_CODE_DISABLE_WORKFLOWS: '1' })).toBe(true);
+    expect(
+      isDynamicWorkflowDisabled({ disableWorkflows: true }, { PYTHINKER_CODE_DISABLE_WORKFLOWS: 'false' }),
+    ).toBe(false);
+    expect(
+      isDynamicWorkflowDisabled({ disableWorkflows: true }, { PYTHINKER_CODE_DISABLE_WORKFLOWS: 'maybe' }),
+    ).toBe(true);
   });
 });
 

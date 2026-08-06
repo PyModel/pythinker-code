@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { handleDynamicWorkflowCommand } from '#/tui/commands/index';
 import type { SlashCommandHost } from '#/tui/commands/dispatch';
+import { setDynamicWorkflowDisabled } from '#/tui/commands/workflow-availability';
 import { currentTheme } from '#/tui/theme';
 
 const ENTER = '\r';
@@ -78,6 +79,23 @@ function expectDynamicWorkflowMarker(host: SlashCommandHost, text: string): void
 }
 
 describe('handleDynamicWorkflowCommand', () => {
+  it('refuses to run when Dynamic Workflow is disabled by configuration', async () => {
+    setDynamicWorkflowDisabled(true, {});
+
+    try {
+      const { host, session } = makeHost({ permissionMode: 'auto' });
+
+      await handleDynamicWorkflowCommand(host, 'Ship feature X');
+
+      expect(host.showError).toHaveBeenCalledWith('Dynamic Workflow is disabled by configuration.');
+      expect(host.sendNormalUserInput).not.toHaveBeenCalled();
+      expect(session.setDynamicWorkflowMode).not.toHaveBeenCalled();
+      expect(markerAddChild(host)).not.toHaveBeenCalled();
+    } finally {
+      setDynamicWorkflowDisabled(false, {});
+    }
+  });
+
   it('sends the Dynamic Workflow prompt as a normal prompt after enabling Dynamic Workflow mode', async () => {
     const { host, session } = makeHost({ permissionMode: 'auto' });
 

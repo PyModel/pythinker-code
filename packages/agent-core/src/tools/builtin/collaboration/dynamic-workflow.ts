@@ -8,12 +8,32 @@ import type {
 } from '../../../session/subagent-host';
 import { ToolAccesses } from '../../../loop/tool-access';
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '../../../loop/types';
+import { parseBooleanEnv, resolveConfigValue, type PythinkerConfig } from '../../../config';
 import { toInputJsonSchema } from '../../support/input-schema';
 import DYNAMIC_WORKFLOW_DESCRIPTION from './dynamic-workflow.md?raw';
 
 const DEFAULT_SUBAGENT_TYPE = 'coder';
 const PROMPT_TEMPLATE_PLACEHOLDER = '{{item}}';
 const MAX_DYNAMIC_WORKFLOW_SUBAGENTS = 128;
+
+export const DISABLE_WORKFLOWS_ENV = 'PYTHINKER_CODE_DISABLE_WORKFLOWS';
+
+/**
+ * Dynamic Workflow is off when the env var says so, else when the config key says so.
+ * Env wins so an operator can force it off without editing config.
+ */
+export function isDynamicWorkflowDisabled(
+  config: Pick<PythinkerConfig, 'disableWorkflows'> | undefined,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): boolean {
+  return resolveConfigValue({
+    env,
+    envKey: DISABLE_WORKFLOWS_ENV,
+    configValue: config?.disableWorkflows,
+    defaultValue: false,
+    parseEnv: parseBooleanEnv,
+  });
+}
 
 export const DynamicWorkflowToolInputSchema = z
   .object({

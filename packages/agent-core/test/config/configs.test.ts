@@ -304,6 +304,21 @@ micro_compaction = false
     expect(parseConfigString(text, configPath).experimental).toEqual(config.experimental);
   });
 
+  it('round-trips disableWorkflows as disable_workflows', async () => {
+    const dir = makeTempDir();
+    const configPath = join(dir, 'disable-workflows.toml');
+
+    expect(parseConfigString('disable_workflows = true\n', configPath).disableWorkflows).toBe(true);
+
+    // Written from an in-memory config with no `raw`, so the key only reaches the
+    // file through the scalar-field writer rather than being copied from `raw`.
+    await writeConfigFile(configPath, { providers: {}, disableWorkflows: true });
+    const text = await readFile(configPath, 'utf-8');
+
+    expect(text).toContain('disable_workflows = true');
+    expect(parseConfigString(text, configPath).disableWorkflows).toBe(true);
+  });
+
   it('accepts obsolete experimental feature keys as inert config', async () => {
     const dir = makeTempDir();
     const configPath = join(dir, 'obsolete-experimental.toml');

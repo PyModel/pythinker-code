@@ -306,6 +306,7 @@ export const PythinkerConfigSchema = z.object({
   background: BackgroundConfigSchema.optional(),
   experimental: ExperimentalConfigSchema.optional(),
   telemetry: z.boolean().optional(),
+  disableWorkflows: z.boolean().optional(),
   raw: z.record(z.string(), z.unknown()).optional(),
 });
 
@@ -349,6 +350,7 @@ export const PythinkerConfigPatchSchema = z
     background: BackgroundConfigPatchSchema.optional(),
     experimental: ExperimentalConfigPatchSchema.optional(),
     telemetry: z.boolean().optional(),
+    disableWorkflows: z.boolean().optional(),
   })
   .strict();
 

@@ -405,6 +405,19 @@ describe('Agent tools', () => {
     expect(ctx.agent.tools.loopTools.some((tool) => tool.name === 'AgentSwarm')).toBe(false);
   });
 
+  it('skips DynamicWorkflow registration when disableWorkflows is set', () => {
+    const subagentHost = { getProfiles: () => ({}) } as unknown as SessionSubagentHost;
+
+    const ctx = testAgent({
+      subagentHost,
+      experimentalFlags: new FlagResolver({}, FLAG_DEFINITIONS),
+      initialConfig: { providers: {}, disableWorkflows: true },
+    });
+    ctx.configure({ tools: ['DynamicWorkflow'] });
+
+    expect(ctx.agent.tools.loopTools.some((tool) => tool.name === 'DynamicWorkflow')).toBe(false);
+  });
+
   it('rejects a user tool whose name collides with a builtin before recording it', () => {
     const ctx = testAgent();
     ctx.configure();
