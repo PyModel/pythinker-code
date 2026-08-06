@@ -1,5 +1,19 @@
 # @pythoughts/pythinker-code
 
+## 0.10.0
+
+### Minor Changes
+
+- [#30](https://github.com/Pythoughts-labs/pythinker-code/pull/30) [`463b176`](https://github.com/Pythoughts-labs/pythinker-code/commit/463b1766a80389fe44cd675bff29b83b3ce6c86b) - Let a Dynamic Workflow run its subagents on a different model than the agent orchestrating them. `DynamicWorkflow` accepts `model` and `effort` for every subagent in the call, and `/workflow model <alias>` sets that model for the session so an expensive orchestrator can hand mechanical work to a cheaper or faster one.
+
+### Patch Changes
+
+- [#28](https://github.com/Pythoughts-labs/pythinker-code/pull/28) [`cf5b6b1`](https://github.com/Pythoughts-labs/pythinker-code/commit/cf5b6b16e999431bd1a8f511c09883c330fc569d) - Keep a subagent on the model and effort its profile assigns when the subagent is resumed or retried, instead of reverting it to the main agent's model.
+
+- [#31](https://github.com/Pythoughts-labs/pythinker-code/pull/31) [`e5e9de4`](https://github.com/Pythoughts-labs/pythinker-code/commit/e5e9de46f0f51be6f3ab3d03d59a5841779c2215) - Brighten the periwinkle accent in the VS Code extension's dark theme so inline code in chat is easier to read.
+
+- [#31](https://github.com/Pythoughts-labs/pythinker-code/pull/31) [`e5e9de4`](https://github.com/Pythoughts-labs/pythinker-code/commit/e5e9de46f0f51be6f3ab3d03d59a5841779c2215) - Let `/yolo` and `/auto` be used in the VS Code extension before the first message is sent — the request now applies to the session that chat opens next instead of failing with "Could not change the permission mode."
+
 ## 0.9.2
 
 ### Patch Changes
