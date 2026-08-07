@@ -107,5 +107,12 @@ export function resolvePlatformOption(
   const byId = options.find((option) => option.value === wanted);
   if (byId !== undefined) return byId;
   const lowered = wanted.toLowerCase();
-  return options.find((option) => option.label.toLowerCase() === lowered);
+  const byLabel = options.find((option) => option.label.toLowerCase() === lowered);
+  if (byLabel !== undefined) return byLabel;
+  // A catalog provider's value carries the internal `catalog:` prefix and its
+  // label is a product name ("DeepSeek API"), so the id the user actually knows
+  // — `deepseek` — matches neither rule above. Ids are unique across the whole
+  // option list, so accepting the bare form cannot become ambiguous.
+  const catalogValue = `${CATALOG_PLATFORM_VALUE_PREFIX}${lowered}`;
+  return options.find((option) => option.value.toLowerCase() === catalogValue);
 }

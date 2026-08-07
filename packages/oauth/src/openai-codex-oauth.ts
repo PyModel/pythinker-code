@@ -293,6 +293,14 @@ export async function startOpenAICodexCallbackServer(
             return new Promise<{ code: string } | null>((resolveWait, rejectWait) => {
               let timer: NodeJS.Timeout | undefined;
               const onAbort = (): void => {
+                // Tear down here rather than leaning on the `waitPromise.then`
+                // below: an already-aborted signal returns before that handler
+                // is ever registered, which left both the full timeout and the
+                // listening callback server alive to hold the host's event
+                // loop. Every other exit from the wait closes the server, so
+                // this path has to as well.
+                cleanup();
+                close();
                 settleWait?.(null);
                 settleWait = undefined;
                 rejectWait(

@@ -87,7 +87,11 @@ vi.mock('@pythoughts/pythinker-code-oauth', async () => {
 vi.mock('#/utils/open-url', () => ({ openUrl: vi.fn() }));
 
 import { password, select } from '@clack/prompts';
-import { createPythinkerHarness } from '@pythoughts/pythinker-code-sdk';
+import {
+  createPythinkerHarness,
+  fetchCatalog,
+  type Catalog,
+} from '@pythoughts/pythinker-code-sdk';
 
 import { registerLoginCommand } from '#/cli/sub/login';
 import { openUrl } from '#/utils/open-url';
@@ -157,6 +161,26 @@ describe('pythinker login', () => {
 
   function writtenChunks(): string[] {
     return stderrSpy.mock.calls.map((call: unknown[]) => String(call[0]));
+  }
+
+  /** One connectable catalog provider, enough for `buildPlatformOptions` to list it. */
+  function catalogWithDeepSeek(): Catalog {
+    return {
+      deepseek: {
+        id: 'deepseek',
+        name: 'DeepSeek',
+        npm: '@ai-sdk/openai-compatible',
+        api: 'https://api.example.com/v1',
+        models: {
+          'deepseek-chat': {
+            id: 'deepseek-chat',
+            name: 'DeepSeek Chat',
+            tool_call: true,
+            limit: { context: 128_000, output: 8_192 },
+          },
+        },
+      },
+    };
   }
 
   it('registers a `login` subcommand with a --provider option on the program', () => {
@@ -282,6 +306,44 @@ describe('pythinker login', () => {
 
     expect(select).not.toHaveBeenCalled();
     expect(mockLogin).toHaveBeenCalledTimes(1);
+    expect(exitSpy.mock.calls[0]?.[0]).toBe(0);
+  });
+
+  it('--provider matches a catalog provider by its bare id', async () => {
+    // A catalog provider's option value carries the internal `catalog:` prefix
+    // and its label is a product name, so the id printed everywhere else —
+    // `deepseek` — used to match neither and the login failed outright.
+    mockStatus.mockResolvedValue({ providers: [] });
+    mockGetConfig.mockResolvedValue({ providers: {}, models: {} });
+    vi.mocked(fetchCatalog).mockResolvedValueOnce(catalogWithDeepSeek());
+    vi.mocked(password).mockResolvedValue('sk-test-key');
+    vi.mocked(select)
+      .mockResolvedValueOnce('deepseek/deepseek-chat')
+      .mockResolvedValueOnce('off');
+
+    await runLogin(['login', '--provider', 'DeepSeek API']);
+
+    expect(select).not.toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'Select a provider' }),
+    );
+    expect(mockSetConfig).toHaveBeenCalled();
+    expect(exitSpy.mock.calls[0]?.[0]).toBe(0);
+
+    // The bare id resolves the same option the label does.
+    vi.mocked(select).mockReset();
+    mockSetConfig.mockClear();
+    exitSpy.mockClear();
+    vi.mocked(fetchCatalog).mockResolvedValueOnce(catalogWithDeepSeek());
+    vi.mocked(select)
+      .mockResolvedValueOnce('deepseek/deepseek-chat')
+      .mockResolvedValueOnce('off');
+
+    await runLogin(['login', '--provider', 'deepseek']);
+
+    expect(select).not.toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'Select a provider' }),
+    );
+    expect(mockSetConfig).toHaveBeenCalled();
     expect(exitSpy.mock.calls[0]?.[0]).toBe(0);
   });
 

@@ -44,9 +44,30 @@ const host = vi.hoisted(() => {
   const showInputBox = vi.fn();
   const showInformationMessage = vi.fn();
   const showErrorMessage = vi.fn();
+  // Minimal stand-in for VS Code's own token source: enough to observe that a
+  // token was handed to a prompt, and to fire the cancellation listeners.
+  class CancellationTokenSource {
+    private readonly listeners: Array<() => void> = [];
+    readonly token = {
+      isCancellationRequested: false,
+      onCancellationRequested: (listener: () => void) => {
+        this.listeners.push(listener);
+        return { dispose: () => {} };
+      },
+    };
+
+    cancel(): void {
+      this.token.isCancellationRequested = true;
+      for (const listener of this.listeners) listener();
+    }
+
+    dispose(): void {}
+  }
   const withProgress = vi.fn(
-    async (_options: unknown, task: (progress: unknown) => Promise<unknown>) =>
-      task({ report: vi.fn() }),
+    async (
+      _options: unknown,
+      task: (progress: unknown, token: unknown) => Promise<unknown>,
+    ) => task({ report: vi.fn() }, new CancellationTokenSource().token),
   );
   const openExternal = vi.fn(async () => true);
   const executeCommand = vi.fn(async () => undefined);
@@ -75,6 +96,7 @@ const host = vi.hoisted(() => {
 
   return {
     Uri,
+    CancellationTokenSource,
     watcher,
     harness,
     showWarningMessage,
@@ -91,6 +113,7 @@ const host = vi.hoisted(() => {
 
 vi.mock("vscode", () => ({
   Uri: host.Uri,
+  CancellationTokenSource: host.CancellationTokenSource,
   workspace: {
     get workspaceFolders() {
       return host.workspaceFolders;
@@ -144,8 +167,8 @@ beforeEach(async () => {
   host.showErrorMessage.mockReset();
   host.withProgress.mockReset();
   host.withProgress.mockImplementation(
-    async (_options: unknown, task: (progress: unknown) => Promise<unknown>) =>
-      task({ report: vi.fn() }),
+    async (_options: unknown, task: (progress: unknown, token: unknown) => Promise<unknown>) =>
+      task({ report: vi.fn() }, new host.CancellationTokenSource().token),
   );
   host.openExternal.mockReset();
   host.openExternal.mockResolvedValue(true);
@@ -771,6 +794,10 @@ const CATALOG_RESPONSE = {
   },
 };
 
+// The single-flight guard behind Methods.Login is module state, held for as
+// long as a login runs. A test that hangs never releases it, so every later
+// login here joins the hung one and times out too: when several of these fail
+// at once, fix the first and the rest usually go with it.
 describe("Webview login (multi-provider picker behind Methods.Login)", () => {
   beforeEach(() => {
     // Default to an unreachable models.dev: login must fall back to the bundled
@@ -873,5 +900,116 @@ describe("Webview login (multi-provider picker behind Methods.Login)", () => {
       state: "error",
       error: "boom",
     });
+  });
+
+  it("opens one cancellable progress notification and hands its token to every prompt", async () => {
+    host.showQuickPick.mockResolvedValue(undefined as never);
+
+    await bridge.handle({ id: "rpc-login", method: Methods.Login }, "view-1");
+
+    // The OAuth flows wait minutes on a browser round trip with no spinner of
+    // their own, so this notification is the only way out of them.
+    const loginProgress = host.withProgress.mock.calls.find(
+      (call) => (call[0] as { title?: string }).title === "Signing in to Pythinker",
+    );
+    expect(loginProgress?.[0]).toMatchObject({ cancellable: true });
+    // The token has to reach the prompt itself: cancelling has to close the
+    // widget the user is looking at, not just abort a background fetch.
+    expect(host.showQuickPick.mock.calls[0]?.[2]).toBeDefined();
+  });
+
+  it("cancelling the progress notification aborts the catalog fetch", async () => {
+    // A catalog fetch that only ever settles by being aborted: without a cancel
+    // path this login hangs there and the picker never opens.
+    let abortSignal: AbortSignal | undefined;
+    let fetchEntered: () => void = () => {};
+    const fetchStarted = new Promise<void>((resolve) => {
+      fetchEntered = resolve;
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: { signal?: AbortSignal }) => {
+        abortSignal = init.signal;
+        fetchEntered();
+        return new Promise((_resolve, reject) => {
+          init.signal?.addEventListener(
+            "abort",
+            () => {
+              reject(new Error("aborted"));
+            },
+            { once: true },
+          );
+        });
+      }),
+    );
+    host.showQuickPick.mockResolvedValue(undefined as never);
+    host.withProgress.mockImplementation(
+      async (
+        _options: unknown,
+        task: (progress: unknown, token: unknown) => Promise<unknown>,
+      ) => {
+        const source = new host.CancellationTokenSource();
+        const running = task({ report: vi.fn() }, source.token);
+        // Cancel once the flow is parked on the catalog fetch.
+        await fetchStarted;
+        source.cancel();
+        return running;
+      },
+    );
+
+    const result = await bridge.handle({ id: "rpc-login", method: Methods.Login }, "view-1");
+
+    expect(abortSignal?.aborted).toBe(true);
+    expect(result).toEqual({ id: "rpc-login", result: { success: false } });
+    expect(host.harness.setConfig).not.toHaveBeenCalled();
+  });
+
+  it("joins a concurrent login instead of opening a second set of prompts", async () => {
+    let openPickers = 0;
+    host.showQuickPick.mockImplementation(async () => {
+      openPickers += 1;
+      return undefined;
+    });
+
+    const [first, second] = await Promise.all([
+      bridge.handle({ id: "rpc-login-1", method: Methods.Login }, "view-1"),
+      bridge.handle({ id: "rpc-login-2", method: Methods.Login }, "view-1"),
+    ]);
+
+    // Two flows would race to write credentials behind two competing pickers.
+    expect(openPickers).toBe(1);
+    expect(first).toEqual({ id: "rpc-login-1", result: { success: false } });
+    expect(second).toEqual({ id: "rpc-login-2", result: { success: false } });
+
+    // The slot is released, so a later login still runs.
+    await bridge.handle({ id: "rpc-login-3", method: Methods.Login }, "view-1");
+    expect(openPickers).toBe(2);
+  });
+
+  it("keeps a completed login successful when the status refresh fails", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, status: 200, json: async () => CATALOG_RESPONSE })),
+    );
+    host.harness.getConfig.mockResolvedValue({ providers: {}, models: {} } as never);
+    host.showInputBox.mockResolvedValue("sk-typed-in" as never);
+    host.showQuickPick
+      .mockImplementationOnce(
+        async (items: Array<{ value: string }>) =>
+          items.find((item) => item.value === "catalog:anthropic"),
+      )
+      .mockImplementationOnce(async (items: unknown[]) => items[0])
+      .mockImplementationOnce(async (items: Array<{ label: string }>) =>
+        items.find((item) => item.label === "medium"),
+      );
+    // The refresh runs after credentials are already on disk, so its failure is
+    // a stale badge — reporting it as a failed login would send the user back
+    // to the sign-in screen they just completed.
+    host.harness.auth.status.mockRejectedValue(new Error("status backend down") as never);
+
+    const result = await bridge.handle({ id: "rpc-login", method: Methods.Login }, "view-1");
+
+    expect(result).toEqual({ id: "rpc-login", result: { success: true } });
+    expect(host.harness.setConfig).toHaveBeenCalled();
   });
 });

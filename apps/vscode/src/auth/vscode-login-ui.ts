@@ -51,10 +51,14 @@ const BUILT_IN_CATALOG_JSON: string | undefined =
 const CATALOG_FETCH_TIMEOUT_MS = 10_000;
 
 /** One quick pick for the effort level, from a list of supported levels. */
-async function promptEffortLevel(levels: readonly string[]): Promise<string | undefined> {
+async function promptEffortLevel(
+  levels: readonly string[],
+  token: vscode.CancellationToken,
+): Promise<string | undefined> {
   const selected = await vscode.window.showQuickPick(
     levels.map((level) => ({ label: level })),
     { title: "Select effort level", placeHolder: "Select effort level", ignoreFocusOut: true },
+    token,
   );
   return selected?.label;
 }
@@ -69,6 +73,10 @@ function createProgressHandle(title: string): LoginProgressSpinnerHandle {
   const finished = new Promise<void>((resolve) => {
     resolveFinished = resolve;
   });
+  // Deliberately not cancellable: these track one step of a login, but the only
+  // thing a cancel could do is abort the whole flow, and a Cancel button that
+  // silently means more than its label is worse than none. The login-wide
+  // progress notification the handler opens owns cancellation for every step.
   void vscode.window.withProgress(
     { location: vscode.ProgressLocation.Notification, title, cancellable: false },
     () => finished,
@@ -92,8 +100,16 @@ function createProgressHandle(title: string): LoginProgressSpinnerHandle {
  * Build a `LoginUi` for the extension host, rendering every prompt with VS
  * Code's own widgets. The webview keeps receiving the OAuth device URL it
  * already renders (`Events.LoginUrl`), so the pending-login screen still works.
+ *
+ * `token` is the login-wide cancellation token owned by the caller. Every quick
+ * pick and input box receives it, so cancelling closes whichever prompt is open
+ * instead of leaving the user staring at a widget the flow has already given
+ * up on; network waits are cancelled through `cancelInFlight`.
  */
-export function createVscodeLoginUi(ctx: HandlerContext): LoginUi {
+export function createVscodeLoginUi(
+  ctx: HandlerContext,
+  token: vscode.CancellationToken,
+): LoginUi {
   let cancelInFlight: (() => void) | undefined;
 
   function openBrowser(url: string): void {
@@ -168,38 +184,46 @@ export function createVscodeLoginUi(ctx: HandlerContext): LoginUi {
         description: option.description,
         value: option.value,
       }));
-      const selected = await vscode.window.showQuickPick(items, {
-        title: "Select a provider",
-        placeHolder: "Select a provider",
-        ignoreFocusOut: true,
-      });
+      const selected = await vscode.window.showQuickPick(
+        items,
+        { title: "Select a provider", placeHolder: "Select a provider", ignoreFocusOut: true },
+        token,
+      );
       if (selected === undefined) return undefined;
       return { platformId: selected.value, catalog };
     },
     async promptApiKey(platformName, subtitleLines, promptOptions: ApiKeyPromptOptions = {}) {
       const emptyMessage = promptOptions.emptyMessage ?? "API key cannot be empty.";
-      return vscode.window.showInputBox({
-        title: promptOptions.title ?? `Enter API key for ${platformName}`,
-        // An input box prompt is a single line, so newlines would collapse.
-        prompt: subtitleLines?.join(" — "),
-        password: promptOptions.secret !== false,
-        ignoreFocusOut: true,
-        validateInput: (input: string) => (input.length === 0 ? emptyMessage : undefined),
-      });
+      return vscode.window.showInputBox(
+        {
+          title: promptOptions.title ?? `Enter API key for ${platformName}`,
+          // An input box prompt is a single line, so newlines would collapse.
+          prompt: subtitleLines?.join(" — "),
+          password: promptOptions.secret !== false,
+          ignoreFocusOut: true,
+          validateInput: (input: string) => (input.length === 0 ? emptyMessage : undefined),
+        },
+        token,
+      );
     },
     async promptModelSelectionForOpenPlatform(models, platform) {
       const items = models.map((model) => ({
         label: model.displayName ?? model.id,
         model,
       }));
-      const selected = await vscode.window.showQuickPick(items, {
-        title: `Select a model for ${platform.name}`,
-        placeHolder: "Select a model",
-        ignoreFocusOut: true,
-      });
+      const selected = await vscode.window.showQuickPick(
+        items,
+        {
+          title: `Select a model for ${platform.name}`,
+          placeHolder: "Select a model",
+          ignoreFocusOut: true,
+        },
+        token,
+      );
       if (selected === undefined) return undefined;
       const effort = await promptEffortLevel(
         effortLevelsForModel(managedModelToAlias(platform.id, selected.model)),
+        token,
       );
       if (effort === undefined) return undefined;
       return { model: selected.model, effort };
@@ -209,14 +233,19 @@ export function createVscodeLoginUi(ctx: HandlerContext): LoginUi {
         label: model.name ?? model.id,
         model,
       }));
-      const selected = await vscode.window.showQuickPick(items, {
-        title: `Select a model for ${providerId}`,
-        placeHolder: "Select a model",
-        ignoreFocusOut: true,
-      });
+      const selected = await vscode.window.showQuickPick(
+        items,
+        {
+          title: `Select a model for ${providerId}`,
+          placeHolder: "Select a model",
+          ignoreFocusOut: true,
+        },
+        token,
+      );
       if (selected === undefined) return undefined;
       const effort = await promptEffortLevel(
         effortLevelsForModel(catalogModelToAlias(providerId, selected.model)),
+        token,
       );
       if (effort === undefined) return undefined;
       return { model: selected.model, effort };
