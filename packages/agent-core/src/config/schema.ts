@@ -74,6 +74,10 @@ export type ThinkingConfig = z.infer<typeof ThinkingConfigSchema>;
 
 export const PermissionModeSchema = z.enum(['yolo', 'manual', 'auto']);
 
+export const WorkflowSizeGuidelineSchema = z.enum(['small', 'medium', 'large', 'unrestricted']);
+
+export type WorkflowSizeGuideline = z.infer<typeof WorkflowSizeGuidelineSchema>;
+
 export const PermissionRuleDecisionSchema = z.enum(['allow', 'deny', 'ask']);
 export const PermissionRuleScopeSchema = z.enum([
   'turn-override',
@@ -306,6 +310,8 @@ export const PythinkerConfigSchema = z.object({
   background: BackgroundConfigSchema.optional(),
   experimental: ExperimentalConfigSchema.optional(),
   telemetry: z.boolean().optional(),
+  disableWorkflows: z.boolean().optional(),
+  workflowSizeGuideline: WorkflowSizeGuidelineSchema.optional(),
   raw: z.record(z.string(), z.unknown()).optional(),
 });
 
@@ -349,6 +355,8 @@ export const PythinkerConfigPatchSchema = z
     background: BackgroundConfigPatchSchema.optional(),
     experimental: ExperimentalConfigPatchSchema.optional(),
     telemetry: z.boolean().optional(),
+    disableWorkflows: z.boolean().optional(),
+    workflowSizeGuideline: WorkflowSizeGuidelineSchema.optional(),
   })
   .strict();
 

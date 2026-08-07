@@ -3,7 +3,7 @@ import { IconChevronDown, IconChevronRight } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { deriveWorkflowLanes, maxLaneStepCount, type WorkflowLane } from "@/lib/workflow-lanes";
 import { getToolLabel, parseArgs } from "@/lib/tool-args";
-import type { UIToolCall, UIStep, UIStepItem, UISubagentStatus } from "@/stores/chat.store";
+import type { UIToolCall, UIStep, UIStepItem, UISubagentStatus, UIWorkflowWarning } from "@/stores/chat.store";
 import type { ToolResult } from "shared/legacy-sdk";
 
 interface WorkflowCardProps {
@@ -11,6 +11,7 @@ interface WorkflowCardProps {
   result?: ToolResult["return_value"];
   subagentSteps: UIStep[];
   subagentStatus: Record<string, UISubagentStatus>;
+  workflowWarning?: UIWorkflowWarning;
   /** Injected by ToolRenderers: tool rendering is mutually recursive, and importing
    * it here would close an import cycle that oxlint rejects. */
   renderStepItem: (item: UIStepItem) => ReactNode;
@@ -96,7 +97,7 @@ function LaneRow({ lane, maxSteps, renderStepItem }: { lane: WorkflowLane; maxSt
   );
 }
 
-export function WorkflowCard({ call, result, subagentSteps, subagentStatus, renderStepItem }: WorkflowCardProps) {
+export function WorkflowCard({ call, result, subagentSteps, subagentStatus, workflowWarning, renderStepItem }: WorkflowCardProps) {
   const description = (parseArgs(call.arguments).description as string) || "Dynamic workflow";
   const lanes = useMemo(
     () => deriveWorkflowLanes(subagentSteps, subagentStatus),
@@ -127,6 +128,11 @@ export function WorkflowCard({ call, result, subagentSteps, subagentStatus, rend
           )}
         </div>
       </div>
+      {workflowWarning && (
+        <div className="px-3 pb-2 text-[11px] text-amber-600 dark:text-amber-400 break-words">
+          {workflowWarning.message}
+        </div>
+      )}
       <div className="px-3 pb-2 border-t border-border max-h-96 overflow-y-auto">
         {lanes.map((lane) => (
           <LaneRow key={lane.agentId} lane={lane} maxSteps={maxSteps} renderStepItem={renderStepItem} />

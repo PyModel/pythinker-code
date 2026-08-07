@@ -11,8 +11,13 @@ import {
 import { LLM_NOT_SET_MESSAGE, NO_ACTIVE_SESSION_MESSAGE } from '../constant/pythinker-tui';
 import { formatErrorMessage } from '../utils/event-payload';
 import type { SlashCommandHost } from './dispatch';
+import { isDynamicWorkflowDisabled } from './workflow-availability';
 
 export async function handleDynamicWorkflowCommand(host: SlashCommandHost, args: string): Promise<void> {
+  if (isDynamicWorkflowDisabled()) {
+    host.showError('Dynamic Workflow is disabled by configuration.');
+    return;
+  }
   if (host.session === undefined) {
     host.showError(NO_ACTIVE_SESSION_MESSAGE);
     return;

@@ -11,8 +11,9 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import type * as vscode from "vscode";
 
-import { Methods } from "../shared/bridge";
+import { Events, Methods } from "../shared/bridge";
 import { BridgeHandler } from "../src/bridge-handler";
+import { loginOutcomeState } from "../webview-ui/src/components/login-outcome";
 
 const host = vi.hoisted(() => {
   const watcher = {
@@ -32,38 +33,105 @@ const host = vi.hoisted(() => {
     resumeSession: vi.fn(),
     forkSession: vi.fn(),
     deleteSession: vi.fn(async () => undefined),
+    auth: {
+      status: vi.fn(),
+      login: vi.fn(),
+      logout: vi.fn(),
+    },
   };
   const showWarningMessage = vi.fn(async () => undefined as string | undefined);
+  const showQuickPick = vi.fn();
+  const showInputBox = vi.fn();
+  const showInformationMessage = vi.fn();
+  const showErrorMessage = vi.fn();
+  // Minimal stand-in for VS Code's own token source: enough to observe that a
+  // token was handed to a prompt, and to fire the cancellation listeners.
+  class CancellationTokenSource {
+    private readonly listeners: Array<() => void> = [];
+    readonly token = {
+      isCancellationRequested: false,
+      onCancellationRequested: (listener: () => void) => {
+        this.listeners.push(listener);
+        return { dispose: () => {} };
+      },
+    };
+
+    cancel(): void {
+      this.token.isCancellationRequested = true;
+      for (const listener of this.listeners) listener();
+    }
+
+    dispose(): void {}
+  }
+  const withProgress = vi.fn(
+    async (
+      _options: unknown,
+      task: (progress: unknown, token: unknown) => Promise<unknown>,
+    ) => task({ report: vi.fn() }, new CancellationTokenSource().token),
+  );
+  // Typed to match the real `env.openExternal`, so a test can read back the URI
+  // it was handed rather than an empty argument tuple.
+  const openExternal = vi.fn(async (_target: Uri) => true);
+  const executeCommand = vi.fn(async () => undefined);
 
   class Uri {
-    readonly scheme = "file";
-    readonly authority = "";
+    readonly scheme: string;
+    readonly authority: string;
     readonly path: string;
 
-    constructor(readonly fsPath: string) {
-      this.path = fsPath;
+    constructor(
+      readonly fsPath: string,
+      parts?: { scheme: string; authority: string; path: string },
+    ) {
+      this.scheme = parts?.scheme ?? "file";
+      this.authority = parts?.authority ?? "";
+      this.path = parts?.path ?? fsPath;
     }
 
     static joinPath(base: Uri, ...segments: string[]): Uri {
       return new Uri(join(base.fsPath, ...segments));
     }
 
+    // Keeps the scheme the caller parsed. Collapsing every input to `file:`
+    // hid what `openExternal` actually received, which is the one thing an
+    // OAuth assertion needs to see.
+    static parse(input: string): Uri {
+      const match = /^([a-z][a-z0-9+.-]*):\/\/([^/?#]*)(.*)$/iu.exec(input);
+      if (match === null) return new Uri(input);
+      return new Uri(input, {
+        scheme: match[1]!.toLowerCase(),
+        authority: match[2]!,
+        path: match[3]!,
+      });
+    }
+
     toString(): string {
-      return `file://${this.path}`;
+      return this.scheme === "file" && this.authority === ""
+        ? `file://${this.path}`
+        : `${this.scheme}://${this.authority}${this.path}`;
     }
   }
 
   return {
     Uri,
+    CancellationTokenSource,
     watcher,
     harness,
     showWarningMessage,
+    showQuickPick,
+    showInputBox,
+    showInformationMessage,
+    showErrorMessage,
+    withProgress,
+    openExternal,
+    executeCommand,
     workspaceFolders: [] as Array<{ uri: Uri }>,
   };
 });
 
 vi.mock("vscode", () => ({
   Uri: host.Uri,
+  CancellationTokenSource: host.CancellationTokenSource,
   workspace: {
     get workspaceFolders() {
       return host.workspaceFolders;
@@ -72,7 +140,17 @@ vi.mock("vscode", () => ({
     createFileSystemWatcher: () => host.watcher,
     textDocuments: [],
   },
-  window: { showWarningMessage: host.showWarningMessage },
+  window: {
+    showWarningMessage: host.showWarningMessage,
+    showQuickPick: host.showQuickPick,
+    showInputBox: host.showInputBox,
+    showInformationMessage: host.showInformationMessage,
+    showErrorMessage: host.showErrorMessage,
+    withProgress: host.withProgress,
+  },
+  env: { openExternal: host.openExternal },
+  commands: { executeCommand: host.executeCommand },
+  ProgressLocation: { Notification: 15 },
 }));
 
 vi.mock("@pythoughts/pythinker-code-sdk", async (importOriginal) => {
@@ -82,6 +160,7 @@ vi.mock("@pythoughts/pythinker-code-sdk", async (importOriginal) => {
 
 let bridge: BridgeHandler;
 let root: string;
+let broadcast: Mock;
 let showLogs: Mock<() => void>;
 let writeLog: Mock<(message: string) => void>;
 let workspaceState: { get: ReturnType<typeof vi.fn>; update: ReturnType<typeof vi.fn> };
@@ -94,11 +173,29 @@ beforeEach(async () => {
   host.harness.resumeSession.mockReset();
   host.harness.getConfig.mockReset();
   host.harness.getConfig.mockResolvedValue({ models: {} });
+  host.harness.auth.status.mockReset();
+  host.harness.auth.status.mockResolvedValue({ providers: [] } as never);
+  host.harness.auth.login.mockReset();
+  host.harness.auth.logout.mockReset();
   host.showWarningMessage.mockReset();
   host.showWarningMessage.mockResolvedValue(undefined);
+  host.showQuickPick.mockReset();
+  host.showInputBox.mockReset();
+  host.showInformationMessage.mockReset();
+  host.showErrorMessage.mockReset();
+  host.withProgress.mockReset();
+  host.withProgress.mockImplementation(
+    async (_options: unknown, task: (progress: unknown, token: unknown) => Promise<unknown>) =>
+      task({ report: vi.fn() }, new host.CancellationTokenSource().token),
+  );
+  host.openExternal.mockReset();
+  host.openExternal.mockResolvedValue(true);
+  host.executeCommand.mockReset();
+  host.executeCommand.mockResolvedValue(undefined);
   workspaceState = { get: vi.fn((_key, fallback) => fallback), update: vi.fn() };
+  broadcast = vi.fn();
   bridge = new BridgeHandler(
-    vi.fn(),
+    broadcast,
     workspaceState as unknown as vscode.Memento,
     join(root, "global-storage"),
     vi.fn(),
@@ -692,5 +789,314 @@ describe("Webview provider management (writes the same config.toml the CLI reads
     );
 
     expect(host.harness.removeProvider).toHaveBeenCalledWith("anthropic");
+  });
+});
+
+const CATALOG_RESPONSE = {
+  anthropic: {
+    id: "anthropic",
+    name: "Anthropic",
+    npm: "@ai-sdk/anthropic",
+    api: "https://api.anthropic.com",
+    env: ["PYTHINKER_TEST_ANTHROPIC_KEY"],
+    models: {
+      "claude-opus-4-7": {
+        id: "claude-opus-4-7",
+        name: "Claude Opus 4.7",
+        limit: { context: 200_000, output: 64_000 },
+        tool_call: true,
+        reasoning: true,
+        modalities: { input: ["text"], output: ["text"] },
+      },
+    },
+  },
+};
+
+// The single-flight guard behind Methods.Login is module state, held for as
+// long as a login runs. A test that hangs never releases it, so every later
+// login here joins the hung one and times out too: when several of these fail
+// at once, fix the first and the rest usually go with it.
+describe("Webview login (multi-provider picker behind Methods.Login)", () => {
+  beforeEach(() => {
+    // Default to an unreachable models.dev: login must fall back to the bundled
+    // catalog seed and still offer the built-in OAuth platforms. Tests that
+    // exercise a catalog provider stub a live response over this.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("offline");
+      }),
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("writes the picked provider's credentials and reports success", async () => {
+    // A live catalog, so the API-key flow runs end to end: provider pick, key
+    // entry, model pick, effort pick.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => CATALOG_RESPONSE,
+      })),
+    );
+    host.harness.getConfig.mockResolvedValue({ providers: {}, models: {} } as never);
+    host.showInputBox.mockResolvedValue("sk-typed-in" as never);
+
+    let offeredEffortLevels: string[] = [];
+    host.showQuickPick
+      .mockImplementationOnce(
+        async (items: Array<{ value: string }>) =>
+          items.find((item) => item.value === "catalog:anthropic"),
+      )
+      .mockImplementationOnce(async (items: unknown[]) => items[0])
+      .mockImplementationOnce(async (items: Array<{ label: string }>) => {
+        offeredEffortLevels = items.map((item) => item.label);
+        return items.find((item) => item.label === "medium");
+      });
+
+    const result = await bridge.handle({ id: "rpc-login", method: Methods.Login }, "view-1");
+
+    expect(result).toEqual({ id: "rpc-login", result: { success: true } });
+    const platformItems = host.showQuickPick.mock.calls[0]?.[0] as Array<{ label: string }>;
+    expect(platformItems.map((item) => item.label)).toEqual(
+      expect.arrayContaining(["OpenAI Codex (OAuth)", "Anthropic"]),
+    );
+    // The effort levels come from the SDK's shared rule, so the extension
+    // offers exactly what the terminal renderer offers for the same model.
+    // `claude-opus-4-7` declares reasoning and no `supportEfforts`, which is
+    // the low/medium/high fallback plus the `off` toggle.
+    expect(offeredEffortLevels).toEqual(["off", "low", "medium", "high"]);
+    expect(host.harness.setConfig).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providers: expect.objectContaining({
+          anthropic: expect.objectContaining({ apiKey: "sk-typed-in" }),
+        }),
+        defaultModel: "anthropic/claude-opus-4-7",
+        // The picked level, not just the on/off bit: the patch used to omit
+        // `thinking`, so every session reopened at the default effort.
+        defaultThinking: true,
+        thinking: expect.objectContaining({ effort: "medium" }),
+      }),
+    );
+  });
+
+  it("still offers the built-in OAuth platforms when the live catalog is unreachable", async () => {
+    host.showQuickPick.mockResolvedValue(undefined as never);
+
+    await bridge.handle({ id: "rpc-login", method: Methods.Login }, "view-1");
+
+    // Offline is a benign fallback, not a failure: the picker still opens with
+    // the built-in OAuth platforms and no error toast is shown.
+    const platformItems = host.showQuickPick.mock.calls[0]?.[0] as Array<{ label: string }>;
+    expect(platformItems.map((item) => item.label)).toEqual(
+      expect.arrayContaining(["OpenAI Codex (OAuth)"]),
+    );
+    expect(host.showErrorMessage).not.toHaveBeenCalled();
+    expect(host.showInformationMessage).toHaveBeenCalledWith(
+      expect.stringContaining("Using bundled provider catalog"),
+    );
+  });
+
+  it("opens the OAuth verification URL externally with its scheme intact", async () => {
+    host.harness.auth.status.mockResolvedValue({ providers: [] } as never);
+    host.harness.auth.login.mockImplementation(
+      async (_provider: string, options: { onDeviceCode?: (auth: unknown) => void }) => {
+        options.onDeviceCode?.({
+          userCode: "WDJB-MJHT",
+          deviceCode: "devcode123",
+          verificationUri: "https://auth.kimi.com/verify",
+          verificationUriComplete: "https://auth.kimi.com/verify?user_code=WDJB-MJHT",
+          expiresIn: 600,
+          interval: 5,
+        });
+        return { providerName: "managed:kimi-code", ok: true };
+      },
+    );
+    host.showQuickPick.mockImplementationOnce(
+      async (items: Array<{ value: string }>) =>
+        items.find((item) => item.value === "kimi-code"),
+    );
+
+    await bridge.handle({ id: "rpc-login", method: Methods.Login }, "view-1");
+
+    // The webview and the browser must be handed the same https URL. An earlier
+    // mock collapsed every scheme to `file:`, which would have hidden a URL the
+    // extension opened with the wrong one.
+    expect(broadcast).toHaveBeenCalledWith(
+      Events.LoginUrl,
+      { url: "https://auth.kimi.com/verify?user_code=WDJB-MJHT" },
+      "view-1",
+    );
+    const opened = host.openExternal.mock.calls[0]?.[0];
+    expect(opened?.scheme).toBe("https");
+    expect(opened?.toString()).toBe("https://auth.kimi.com/verify?user_code=WDJB-MJHT");
+  });
+
+  it("reports cancellation without writing config when the picker is dismissed", async () => {
+    host.showQuickPick.mockResolvedValue(undefined as never);
+
+    const result = await bridge.handle({ id: "rpc-login", method: Methods.Login }, "view-1");
+
+    // No `error` field: the webview renders a cancellation as idle, not as a
+    // failed login.
+    expect(result).toEqual({ id: "rpc-login", result: { success: false } });
+    expect(host.harness.setConfig).not.toHaveBeenCalled();
+    expect(broadcast).not.toHaveBeenCalledWith(Events.LoginUrl, expect.anything(), "view-1");
+  });
+
+  it("renders a dismissed picker as idle, and only a real failure as an error", () => {
+    // Before login was multi-provider this branch was unreachable, so a
+    // cancelled picker used to fall through to the "Login failed" screen.
+    expect(loginOutcomeState({ success: false })).toEqual({ state: "idle", error: null });
+    expect(loginOutcomeState({ success: false, error: "boom" })).toEqual({
+      state: "error",
+      error: "boom",
+    });
+  });
+
+  it("opens one cancellable progress notification and hands its token to every prompt", async () => {
+    // Driven all the way through the credential flow rather than dismissed at
+    // the picker: a token that only reaches the first widget still strands the
+    // user on the key, model, and effort prompts.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => CATALOG_RESPONSE,
+      })),
+    );
+    host.harness.getConfig.mockResolvedValue({ providers: {}, models: {} } as never);
+    host.showInputBox.mockResolvedValue("sk-typed-in" as never);
+    host.showQuickPick
+      .mockImplementationOnce(
+        async (items: Array<{ value: string }>) =>
+          items.find((item) => item.value === "catalog:anthropic"),
+      )
+      .mockImplementationOnce(async (items: unknown[]) => items[0])
+      .mockImplementationOnce(async (items: Array<{ label: string }>) =>
+        items.find((item) => item.label === "medium"),
+      );
+
+    await bridge.handle({ id: "rpc-login", method: Methods.Login }, "view-1");
+
+    // The OAuth flows wait minutes on a browser round trip with no spinner of
+    // their own, so this notification is the only way out of them.
+    const loginProgress = host.withProgress.mock.calls.find(
+      (call) => (call[0] as { title?: string }).title === "Signing in to Pythinker",
+    );
+    expect(loginProgress?.[0]).toMatchObject({ cancellable: true });
+
+    // The token has to reach each prompt itself: cancelling has to close the
+    // widget the user is looking at, not just abort a background fetch.
+    // Provider, model, and effort pickers, then the API-key box.
+    expect(host.showQuickPick).toHaveBeenCalledTimes(3);
+    for (const call of host.showQuickPick.mock.calls) {
+      expect(call[2]).toBeDefined();
+    }
+    expect(host.showInputBox).toHaveBeenCalled();
+    for (const call of host.showInputBox.mock.calls) {
+      expect(call[1]).toBeDefined();
+    }
+  });
+
+  it("cancelling the progress notification aborts the catalog fetch", async () => {
+    // A catalog fetch that only ever settles by being aborted: without a cancel
+    // path this login hangs there and the picker never opens.
+    let abortSignal: AbortSignal | undefined;
+    let fetchEntered: () => void = () => {};
+    const fetchStarted = new Promise<void>((resolve) => {
+      fetchEntered = resolve;
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: { signal?: AbortSignal }) => {
+        abortSignal = init.signal;
+        fetchEntered();
+        return new Promise((_resolve, reject) => {
+          init.signal?.addEventListener(
+            "abort",
+            () => {
+              reject(new Error("aborted"));
+            },
+            { once: true },
+          );
+        });
+      }),
+    );
+    host.showQuickPick.mockResolvedValue(undefined as never);
+    host.withProgress.mockImplementation(
+      async (
+        _options: unknown,
+        task: (progress: unknown, token: unknown) => Promise<unknown>,
+      ) => {
+        const source = new host.CancellationTokenSource();
+        const running = task({ report: vi.fn() }, source.token);
+        // Cancel once the flow is parked on the catalog fetch.
+        await fetchStarted;
+        source.cancel();
+        return running;
+      },
+    );
+
+    const result = await bridge.handle({ id: "rpc-login", method: Methods.Login }, "view-1");
+
+    expect(abortSignal?.aborted).toBe(true);
+    expect(result).toEqual({ id: "rpc-login", result: { success: false } });
+    expect(host.harness.setConfig).not.toHaveBeenCalled();
+  });
+
+  it("joins a concurrent login instead of opening a second set of prompts", async () => {
+    let openPickers = 0;
+    host.showQuickPick.mockImplementation(async () => {
+      openPickers += 1;
+      return undefined;
+    });
+
+    const [first, second] = await Promise.all([
+      bridge.handle({ id: "rpc-login-1", method: Methods.Login }, "view-1"),
+      bridge.handle({ id: "rpc-login-2", method: Methods.Login }, "view-1"),
+    ]);
+
+    // Two flows would race to write credentials behind two competing pickers.
+    expect(openPickers).toBe(1);
+    expect(first).toEqual({ id: "rpc-login-1", result: { success: false } });
+    expect(second).toEqual({ id: "rpc-login-2", result: { success: false } });
+
+    // The slot is released, so a later login still runs.
+    await bridge.handle({ id: "rpc-login-3", method: Methods.Login }, "view-1");
+    expect(openPickers).toBe(2);
+  });
+
+  it("keeps a completed login successful when the status refresh fails", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, status: 200, json: async () => CATALOG_RESPONSE })),
+    );
+    host.harness.getConfig.mockResolvedValue({ providers: {}, models: {} } as never);
+    host.showInputBox.mockResolvedValue("sk-typed-in" as never);
+    host.showQuickPick
+      .mockImplementationOnce(
+        async (items: Array<{ value: string }>) =>
+          items.find((item) => item.value === "catalog:anthropic"),
+      )
+      .mockImplementationOnce(async (items: unknown[]) => items[0])
+      .mockImplementationOnce(async (items: Array<{ label: string }>) =>
+        items.find((item) => item.label === "medium"),
+      );
+    // The refresh runs after credentials are already on disk, so its failure is
+    // a stale badge — reporting it as a failed login would send the user back
+    // to the sign-in screen they just completed.
+    host.harness.auth.status.mockRejectedValue(new Error("status backend down") as never);
+
+    const result = await bridge.handle({ id: "rpc-login", method: Methods.Login }, "view-1");
+
+    expect(result).toEqual({ id: "rpc-login", result: { success: true } });
+    expect(host.harness.setConfig).toHaveBeenCalled();
   });
 });

@@ -125,3 +125,60 @@ describe('connectCatalogProvider credential acquisition', () => {
     expect(promptModelSelectionForCatalog).not.toHaveBeenCalled();
   });
 });
+
+describe('OpenAI Codex login keeps the existing provider until it is replaced', () => {
+  afterEach(() => {
+    vi.resetModules();
+    vi.doUnmock('@pythoughts/pythinker-code-oauth');
+  });
+
+  it('leaves the configured provider intact when the model picker is cancelled', async () => {
+    const oauth = await import('@pythoughts/pythinker-code-oauth');
+    vi.doMock('@pythoughts/pythinker-code-oauth', () => ({
+      ...oauth,
+      runOpenAICodexOAuthFlow: vi.fn(async () => ({
+        accessToken: 'access',
+        refreshToken: 'refresh',
+        accountId: 'account',
+      })),
+      fetchOpenAICodexModels: vi.fn(async () => [{ id: 'gpt-5-codex', name: 'GPT-5 Codex' }]),
+    }));
+    vi.resetModules();
+    const { runLogin } = await import('@pythoughts/pythinker-code-sdk');
+    const { OPENAI_CODEX_OAUTH_PLATFORM_ID, OPENAI_CODEX_PROVIDER_ID } = oauth;
+
+    let config = {
+      providers: { [OPENAI_CODEX_PROVIDER_ID]: { apiKey: 'already-signed-in' } },
+    } as unknown as PythinkerConfig;
+    const removeProvider = vi.fn(async (id: string) => {
+      delete config.providers[id];
+      return config;
+    });
+    const setConfig = vi.fn();
+
+    await runLogin({
+      harness: { getConfig: async () => config, setConfig, removeProvider },
+      cancelInFlight: undefined,
+      showStatus: vi.fn(),
+      showError: vi.fn(),
+      showLoginProgressSpinner: vi.fn(),
+      showLoginAuthorizationPrompt: vi.fn(),
+      promptPlatformSelection: async () => ({
+        platformId: OPENAI_CODEX_OAUTH_PLATFORM_ID,
+        catalog: {},
+      }),
+      promptApiKey: async () => undefined,
+      // The user backs out at the model picker — the most likely early return.
+      promptModelSelectionForOpenPlatform: async () => undefined,
+      promptModelSelectionForCatalog: async () => undefined,
+      refreshConfigAfterLogin: async () => undefined,
+      track: vi.fn(),
+    } as never);
+
+    // Removing the provider before the replacement is certain would have
+    // signed the user out of a working Codex setup for nothing.
+    expect(removeProvider).not.toHaveBeenCalled();
+    expect(config.providers[OPENAI_CODEX_PROVIDER_ID]).toBeDefined();
+    expect(setConfig).not.toHaveBeenCalled();
+  });
+});

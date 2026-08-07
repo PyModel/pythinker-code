@@ -413,6 +413,32 @@ describe('Agent turn flow', () => {
     await ctx.expectResumeMatches();
   });
 
+  it('carries the workflow size guideline into the dynamic workflow mode reminder', async () => {
+    const restricted = testAgent({ initialConfig: { providers: {}, workflowSizeGuideline: 'small' } });
+    restricted.configure();
+    await restricted.rpc.enterDynamicWorkflow({ trigger: 'manual' });
+
+    const restrictedReminder = restricted.agent.context.history.at(-1);
+    expect(restrictedReminder?.origin).toEqual({
+      kind: 'injection',
+      variant: 'dynamic_workflow_mode',
+    });
+    expect(JSON.stringify(restrictedReminder)).toContain('about 5 subagents');
+
+    const unrestricted = testAgent({
+      initialConfig: { providers: {}, workflowSizeGuideline: 'unrestricted' },
+    });
+    unrestricted.configure();
+    await unrestricted.rpc.enterDynamicWorkflow({ trigger: 'manual' });
+
+    const unrestrictedReminder = unrestricted.agent.context.history.at(-1);
+    expect(unrestrictedReminder?.origin).toEqual({
+      kind: 'injection',
+      variant: 'dynamic_workflow_mode',
+    });
+    expect(JSON.stringify(unrestrictedReminder)).not.toContain('Workflow size guideline:');
+  });
+
   it('exits task dynamic workflow mode after a turn completes normally', async () => {
     const ctx = testAgent();
     ctx.configure();

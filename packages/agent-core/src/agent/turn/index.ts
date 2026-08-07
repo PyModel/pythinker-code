@@ -191,8 +191,13 @@ export class TurnFlow {
     return this.launch(input, origin);
   }
 
-  retry(trigger?: string): number | null {
-    return this.prompt([], { kind: 'retry', trigger });
+  /**
+   * Re-runs the turn. The schema must be passed again: a retried turn builds a
+   * fresh StructuredOutputState, and without one the model is never offered the
+   * StructuredOutput tool, so a schema'd subagent would quietly answer in prose.
+   */
+  retry(trigger?: string, outputSchema?: Record<string, unknown>): number | null {
+    return this.prompt([], { kind: 'retry', trigger }, outputSchema);
   }
 
   private launch(

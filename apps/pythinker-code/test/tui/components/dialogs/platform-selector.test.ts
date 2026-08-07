@@ -1,9 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import {
-  CATALOG_PLATFORM_VALUE_PREFIX,
-  PlatformSelectorComponent,
-} from '#/tui/components/dialogs/platform-selector';
+import { CATALOG_PLATFORM_VALUE_PREFIX } from '@pythoughts/pythinker-code-sdk';
+import { PlatformSelectorComponent } from '#/tui/components/dialogs/platform-selector';
 import { promptPlatformSelection } from '#/tui/commands/prompts';
 
 const SGR = new RegExp(`${String.fromCodePoint(27)}\\[[0-9;]*m`, 'gu');

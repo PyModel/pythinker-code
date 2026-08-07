@@ -182,7 +182,7 @@ describe('AcpServer + AgentSideConnection', () => {
     // Legacy _meta fallback uses absolute command + 'login' subcommand.
     expect(method._meta?.['terminal-auth']).toEqual({
       type: 'terminal',
-      label: 'Login with Pythinker account',
+      label: 'Login with a provider',
       command: '/abs/path/to/pythinker',
       args: ['login'],
       env: { PYTHINKER_CODE_HOME: '/tmp/pythinker-debug' },

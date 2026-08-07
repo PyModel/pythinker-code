@@ -30,9 +30,10 @@ import {
   type SettledSubagentWorktree,
   type SubagentWorktree,
 } from './subagent-worktree';
-import type { Session } from './index';
+import type { AgentMeta, Session } from './index';
 import {
   SubagentBatch,
+  StructuredOutputMaxRetriesError,
   type SubagentResult,
   type SubagentSuspendedEvent,
   type QueuedSubagentTask,
@@ -41,6 +42,8 @@ import SUMMARY_CONTINUATION_PROMPT from './summary-continuation.md?raw';
 
 export const DEFAULT_SUBAGENT_TIMEOUT_MS = 30 * 60 * 1000;
 export const DEFAULT_SUBAGENT_TIMEOUT_DESCRIPTION = '30 minutes';
+export const MAX_SUBAGENTS_PER_SESSION = 200;
+export const MAX_SUBAGENT_SPAWN_DEPTH = 3;
 
 export type {
   SubagentResult as QueuedSubagentRunResult,
@@ -91,6 +94,9 @@ export interface RunSubagentOptions {
   readonly suppressRateLimitFailureEvent?: boolean;
   readonly modelAlias?: string;
   readonly thinkingLevel?: string;
+  readonly workflowRunId?: string;
+  readonly workflowName?: string;
+  readonly outputSchema?: Record<string, unknown>;
   readonly allowedTools?: readonly string[];
   readonly cwd?: string;
   readonly forkContext?: boolean;
@@ -135,6 +141,7 @@ export class SessionSubagentHost {
     if (options.forkContext === true && parent.type !== 'main') {
       throw new Error('Fork is not available inside a forked worker');
     }
+    this.enforceSpawnCaps();
     const profile = options.forkContext === true
       ? undefined
       : this.resolveProfile(parent, options.profileName);
@@ -232,6 +239,51 @@ export class SessionSubagentHost {
     };
   }
 
+  /**
+   * Runaway guards for new subagents. Both throw, which the batch scheduler turns into a
+   * single failed task rather than a failed batch, so the error text is written for the model
+   * that will read it. Only `spawn` is guarded — `resume` and `retry` reuse an agent that
+   * already exists and was already counted.
+   *
+   * The per-session count is read before `createAgent` awaits, so concurrent spawns can
+   * overshoot the cap by up to the batch concurrency limit. That is accepted: these are
+   * runaway guards, not quotas, and a reservation counter that has to be released on every
+   * failure path is a likelier source of leaks than the bounded overshoot it prevents.
+   */
+  private enforceSpawnCaps(): void {
+    const agents = this.session.metadata.agents;
+
+    let subagentCount = 0;
+    for (const meta of Object.values(agents)) {
+      if (meta.type === 'sub') subagentCount += 1;
+    }
+    if (subagentCount >= MAX_SUBAGENTS_PER_SESSION) {
+      throw new Error(
+        `This session is limited to ${String(MAX_SUBAGENTS_PER_SESSION)} subagents and can create no more; split the remaining work across fewer, larger subagents.`,
+      );
+    }
+
+    // The owner's depth is its number of ancestors, so the main agent is depth 0 and its
+    // child lands at depth 1. The walk is bounded by the agent count so malformed metadata
+    // with a parent cycle cannot hang the process.
+    let ownerDepth = 0;
+    let cursor: string | null = this.ownerAgentId;
+    const agentCount = Object.keys(agents).length;
+    for (let steps = 0; cursor !== null && steps <= agentCount; steps += 1) {
+      // Annotated because the Session -> Agent -> SessionSubagentHost module cycle makes tsc
+      // infer this read circularly (TS7022) when left implicit.
+      const meta: AgentMeta | undefined = agents[cursor];
+      if (meta === undefined) break;
+      cursor = meta.parentAgentId;
+      if (cursor !== null) ownerDepth += 1;
+    }
+    if (ownerDepth + 1 > MAX_SUBAGENT_SPAWN_DEPTH) {
+      throw new Error(
+        `Subagents may nest at most ${String(MAX_SUBAGENT_SPAWN_DEPTH)} levels deep (the main agent is depth 0), and this parent agent is already at depth ${String(ownerDepth)}; split the work across fewer, larger subagents instead of nesting deeper.`,
+      );
+    }
+  }
+
   async resume(agentId: string, options: RunSubagentOptions): Promise<SubagentHandle> {
     options.signal.throwIfAborted();
     const { parent, child, profileName } = await this.ensureIdleSubagent(agentId);
@@ -259,8 +311,11 @@ export class SessionSubagentHost {
         child.config.update(
           this.childModelConfig(parent, child, this.tryResolveProfile(parent, profileName), runOptions),
         );
-        this.emitSubagentStarted(parent, agentId, runOptions.parentToolCallId);
-        const turnId = child.turn.retry('agent-host');
+        this.emitSubagentStarted(parent, agentId, runOptions);
+        // The schema has to ride along: waitForChildCompletion still branches on
+        // runOptions.outputSchema, so a retry that dropped it would skip the
+        // continuation AND find no structured output, silently yielding prose.
+        const turnId = child.turn.retry('agent-host', runOptions.outputSchema);
         if (turnId === null) {
           throw new Error(`Agent instance "${agentId}" could not start a retry turn`);
         }
@@ -460,8 +515,12 @@ export class SessionSubagentHost {
       if (gitContext) childPrompt = `${gitContext}\n\n${childPrompt}`;
     }
 
-    this.emitSubagentStarted(parent, childId, options.parentToolCallId);
-    const turnId = child.turn.prompt([{ type: 'text', text: childPrompt }], SUBAGENT_PROMPT_ORIGIN);
+    this.emitSubagentStarted(parent, childId, options);
+    const turnId = child.turn.prompt(
+      [{ type: 'text', text: childPrompt }],
+      SUBAGENT_PROMPT_ORIGIN,
+      options.outputSchema,
+    );
     if (turnId === null) {
       throw new Error(`Agent instance "${childId}" could not start a turn`);
     }
@@ -476,26 +535,33 @@ export class SessionSubagentHost {
     profileName: string,
     options: RunSubagentOptions,
   ): Promise<SubagentCompletion> {
-    await runChildTurnToCompletion(child, options.signal);
+    const turnResult = await runChildTurnToCompletion(child, options.signal);
 
     // A subagent that returns an overly terse summary leaves the parent
     // agent under-informed. Give it a bounded number of chances to expand
     // the handoff; if it is still short after that, accept it as-is rather
-    // than retrying indefinitely.
+    // than retrying indefinitely. When a schema is in effect the structured
+    // output — not the prose — is the deliverable, so the continuation never
+    // runs and the turn would cost an extra request without a schema.
     let result = lastAssistantText(child);
-    let remainingContinuations = SUMMARY_CONTINUATION_ATTEMPTS;
-    while (remainingContinuations > 0 && result.length < SUMMARY_MIN_LENGTH) {
-      remainingContinuations -= 1;
-      options.signal.throwIfAborted();
-      child.turn.prompt([{ type: 'text', text: SUMMARY_CONTINUATION_PROMPT }], SUBAGENT_PROMPT_ORIGIN);
-      await runChildTurnToCompletion(child, options.signal);
-      result = lastAssistantText(child);
+    if (options.outputSchema === undefined) {
+      let remainingContinuations = SUMMARY_CONTINUATION_ATTEMPTS;
+      while (remainingContinuations > 0 && result.length < SUMMARY_MIN_LENGTH) {
+        remainingContinuations -= 1;
+        options.signal.throwIfAborted();
+        child.turn.prompt([{ type: 'text', text: SUMMARY_CONTINUATION_PROMPT }], SUBAGENT_PROMPT_ORIGIN);
+        await runChildTurnToCompletion(child, options.signal);
+        result = lastAssistantText(child);
+      }
+    } else if (turnResult.structuredOutput !== undefined) {
+      result = JSON.stringify(turnResult.structuredOutput);
     }
     const usage = child.usage.data().total;
     parent.emitEvent({
       type: 'subagent.completed',
       subagentId: childId,
       parentToolCallId: options.parentToolCallId,
+      workflowRunId: options.workflowRunId,
       resultSummary: result,
       usage,
       contextTokens: child.context.tokenCount,
@@ -625,23 +691,27 @@ export class SessionSubagentHost {
       parentAgentId: this.ownerAgentId,
       description: options.description,
       dynamicWorkflowIndex: options.dynamicWorkflowIndex,
+      workflowRunId: options.workflowRunId,
+      workflowName: options.workflowName,
       runInBackground: options.runInBackground,
     });
     parent.telemetry.track('subagent_created', {
       subagent_name: profileName,
       run_in_background: options.runInBackground,
+      workflow_run_id: options.workflowRunId,
     });
   }
 
   private emitSubagentStarted(
     parent: Agent,
     childId: string,
-    parentToolCallId: string,
+    options: RunSubagentOptions,
   ): void {
     parent.emitEvent({
       type: 'subagent.started',
       subagentId: childId,
-      parentToolCallId,
+      parentToolCallId: options.parentToolCallId,
+      workflowRunId: options.workflowRunId,
     });
   }
 
@@ -656,17 +726,26 @@ export class SessionSubagentHost {
       type: 'subagent.failed',
       subagentId: childId,
       parentToolCallId: options.parentToolCallId,
+      workflowRunId: options.workflowRunId,
       error: error instanceof Error ? error.message : String(error),
     });
   }
 }
 
-async function runChildTurnToCompletion(child: Agent, signal: AbortSignal): Promise<void> {
+async function runChildTurnToCompletion(
+  child: Agent,
+  signal: AbortSignal,
+): Promise<{ readonly structuredOutput?: unknown }> {
   const completion = await child.turn.waitForCurrentTurn(signal);
   const turnEnded = completion.event;
   if (turnEnded.reason !== 'completed') {
     if (turnEnded.error?.code === ErrorCodes.PROVIDER_RATE_LIMIT) {
       throw providerRateLimitErrorFromPayload(turnEnded.error);
+    }
+    if (turnEnded.error?.code === ErrorCodes.STRUCTURED_OUTPUT_MAX_RETRIES) {
+      throw new StructuredOutputMaxRetriesError(
+        `[${turnEnded.error.code}] ${turnEnded.error.message}`,
+      );
     }
     throw new Error(
       turnEnded.error === undefined
@@ -677,6 +756,7 @@ async function runChildTurnToCompletion(child: Agent, signal: AbortSignal): Prom
   if (completion.stopReason === 'max_tokens') {
     throw new Error(`${SUBAGENT_MAX_TOKENS_ERROR}.`);
   }
+  return { structuredOutput: turnEnded.structuredOutput };
 }
 
 function providerRateLimitErrorFromPayload(error: PythinkerErrorPayload): APIProviderRateLimitError {

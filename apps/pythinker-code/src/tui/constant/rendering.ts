@@ -28,11 +28,10 @@ export const DYNAMIC_WORKFLOW_RENDERING = {
   frameHorizontalInset: 4,
   memberProgressMinWidth: 60,
   memberProgressWidth: 9,
-  startedProgress: 20,
-  modelActivityProgress: 50,
-  toolActivityProgress: 75,
-  // Two 2×4 Braille cells form a compact 4×4 dotted cube that fills bottom-up.
-  cubeFillLevels: [' ', '⡀', '⣀', '⣄', '⣤', '⣦', '⣶', '⣷', '⣿'],
+  /** Idle age at which a row's silence is worth noticing. */
+  quietIdleMs: 60_000,
+  /** Idle age at which a row has almost certainly stalled. */
+  stalledIdleMs: 180_000,
 } as const;
 
 /** Live activity labels: one shown at a time, rotating on a fixed cadence. */

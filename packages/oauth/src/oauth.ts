@@ -108,6 +108,23 @@ function describeFetchFailure(error: unknown): string {
   return [...messages].join(': ');
 }
 
+/**
+ * Whether a URL is safe to hand to a browser.
+ *
+ * The verification URLs come off the wire and every renderer opens them with
+ * the host's "open this externally" API, so a provider that answered with
+ * `file:`, `javascript:`, or an installed app's custom scheme would have the
+ * agent launch it. Checked here, at the boundary the response is parsed, rather
+ * than in each renderer.
+ */
+function isHttpsUrl(value: string): boolean {
+  try {
+    return new URL(value).protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 // ── requestDeviceAuthorization ────────────────────────────────────────
 
 export async function requestDeviceAuthorization(
@@ -140,11 +157,19 @@ export async function requestDeviceAuthorization(
   if (typeof verificationUriComplete !== 'string' || verificationUriComplete.length === 0) {
     throw new OAuthError('Device authorization response missing verification_uri_complete');
   }
+  if (!isHttpsUrl(verificationUriComplete)) {
+    throw new OAuthError('Device authorization response has a non-HTTPS verification_uri_complete');
+  }
+  const verificationUri = data['verification_uri'];
+  if (typeof verificationUri === 'string' && verificationUri.length > 0
+    && !isHttpsUrl(verificationUri)) {
+    throw new OAuthError('Device authorization response has a non-HTTPS verification_uri');
+  }
 
   return {
     userCode,
     deviceCode,
-    verificationUri: typeof data['verification_uri'] === 'string' ? data['verification_uri'] : '',
+    verificationUri: typeof verificationUri === 'string' ? verificationUri : '',
     verificationUriComplete,
     expiresIn: data['expires_in'] !== undefined ? Number(data['expires_in']) : null,
     interval: Number(data['interval'] ?? 5),

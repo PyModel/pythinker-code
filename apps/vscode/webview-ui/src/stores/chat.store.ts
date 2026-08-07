@@ -37,6 +37,12 @@ export interface UISubagentStatus {
   resultSummary?: string;
 }
 
+export interface UIWorkflowWarning {
+  message: string;
+  agentCount: number;
+  threshold: number;
+}
+
 export interface InlineError {
   code: string;
   message: string;
@@ -55,6 +61,7 @@ export type UIStepItem =
       result?: ToolResult["return_value"];
       subagent_steps?: UIStep[];
       subagent_status?: Record<string, UISubagentStatus>;
+      workflow_warning?: UIWorkflowWarning;
     };
 
 export interface ChatMessage {

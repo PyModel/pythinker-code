@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { createServer as createNetServer } from 'node:net';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { ManagedKimiConfigShape } from '../src/managed-kimi-code';
@@ -9,6 +10,7 @@ import {
   extractOpenAICodexAccountId,
   fetchOpenAICodexModels,
   parseOpenAICodexAuthorizationInput,
+  startOpenAICodexCallbackServer,
 } from '../src/openai-codex-oauth';
 import { renderOpenAICodexOAuthSuccessPage } from '../src/oauth-pages';
 
@@ -271,5 +273,57 @@ describe('openai-codex-oauth', () => {
       supportEfforts: ['low', 'medium', 'high', 'xhigh'],
     });
     expect(config.thinking).toEqual({ mode: 'auto', effort: 'xhigh' });
+  });
+});
+
+describe('startOpenAICodexCallbackServer', () => {
+  /** Resolves true once nothing is listening on the callback port. */
+  async function portFreedWithin(port: number, deadlineMs: number): Promise<boolean> {
+    const started = Date.now();
+    for (;;) {
+      const free = await new Promise<boolean>((resolve) => {
+        const probe = createNetServer();
+        probe.once('error', () => {
+          resolve(false);
+        });
+        probe.listen(port, '127.0.0.1', () => {
+          probe.close(() => {
+            resolve(true);
+          });
+        });
+      });
+      if (free) return true;
+      if (Date.now() - started > deadlineMs) return false;
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 20);
+      });
+    }
+  }
+
+  it('tears the wait down when it is aborted before it starts', async () => {
+    const server = await startOpenAICodexCallbackServer('state-abc');
+    // Fake timers only count what is scheduled while they are installed, so
+    // install them after the (real, I/O-bound) bind and before the wait.
+    vi.useFakeTimers();
+    try {
+      // An already-aborted signal takes the early-return branch, which never
+      // registers the completion handler every other exit relies on. Left to
+      // it, both the two-minute timeout and the listening server outlive the
+      // cancelled login and pin the host event loop.
+      await expect(
+        server.waitForCode({
+          signal: AbortSignal.abort(new Error('login cancelled')),
+          timeoutMs: 120_000,
+        }),
+      ).rejects.toThrow('login cancelled');
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+    // Probed before this test closes anything: the abort path has to release
+    // the port on its own, the way every other exit from the wait does.
+    const freed = await portFreedWithin(1455, 1_000);
+    server.close();
+    expect(freed).toBe(true);
   });
 });

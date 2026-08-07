@@ -212,6 +212,18 @@ export class SubAgentEventHandler {
     }
   }
 
+  handleWorkflowWarning(event: Extract<Event, { type: 'workflow.warning' }>): void {
+    const missionControl = this.dynamicWorkflowMissionControls.get(event.parentToolCallId);
+    if (missionControl !== undefined) {
+      missionControl.markWarning(event.message);
+      this.requestRender();
+      return;
+    }
+    // The tool call was retired or the warning arrived without a card: never
+    // drop it silently.
+    this.host.showStatus(event.message, 'warning');
+  }
+
   // Retires every live mission control: the tool call ids are recorded so
   // any late events for them are dropped, and their subagents are forgotten.
   clearDynamicWorkflowMissionControls(): void {

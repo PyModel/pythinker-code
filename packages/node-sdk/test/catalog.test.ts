@@ -11,6 +11,8 @@ import {
   importCatalogProvider,
   type CatalogModel,
 } from '../src/catalog';
+import { managedModelToAlias } from '../src/login/model-alias';
+import { effortLevelsForModel } from '../src/thinking-levels';
 
 function catalogResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -53,6 +55,18 @@ describe('fetchCatalog', () => {
     await expect(
       fetchCatalog('https://x', undefined, fetchMock as unknown as typeof fetch),
     ).rejects.toThrow(/Unexpected catalog response/);
+  });
+
+  it('drops entries that are not objects instead of failing the whole catalog', async () => {
+    // A malformed entry reaches `catalogConnectionWire` and throws well past
+    // the caller's bundled-catalog fallback, so one bad record used to take the
+    // whole provider picker down with it.
+    const good = { id: 'anthropic', models: { x: { id: 'x', limit: { context: 1000 } } } };
+    const fetchMock = vi.fn(async () =>
+      catalogResponse({ anthropic: good, broken: null, alsoBroken: 'nope', listy: [1] }),
+    );
+    const result = await fetchCatalog('https://x', undefined, fetchMock as unknown as typeof fetch);
+    expect(result).toEqual({ anthropic: good });
   });
 });
 
@@ -126,6 +140,43 @@ describe('applyCatalogProvider', () => {
     });
     expect(config.defaultModel).toBe('anthropic/m1');
     expect(config.defaultThinking).toBe(true);
+  });
+
+  it('persists the picked effort level, not just the on/off bit', () => {
+    const config = { providers: {} } as PythinkerConfig;
+    applyCatalogProvider(config, {
+      providerId: 'anthropic',
+      wire: 'anthropic',
+      apiKey: 'test-key',
+      models: [model],
+      selectedModelId: 'm1',
+      thinking: true,
+      effort: 'medium',
+    });
+
+    // defaultThinking is a boolean, so without config.thinking.effort the
+    // session reopens at 'high' no matter which level the user chose.
+    expect(config.defaultThinking).toBe(true);
+    expect(config.thinking?.effort).toBe('medium');
+  });
+
+  it('overwrites a previous effort when the user turns thinking off', () => {
+    const config = { providers: {}, thinking: { effort: 'high' } } as PythinkerConfig;
+    applyCatalogProvider(config, {
+      providerId: 'anthropic',
+      wire: 'anthropic',
+      apiKey: 'test-key',
+      models: [model],
+      selectedModelId: 'm1',
+      thinking: false,
+      effort: 'off',
+    });
+
+    // 'off' is written rather than deleted: callers persist through `setConfig`,
+    // a deep merge that cannot remove a key, so leaving it out would keep 'high'
+    // on disk for the next session.
+    expect(config.defaultThinking).toBe(false);
+    expect(config.thinking?.effort).toBe('off');
   });
 
   it('writes interleaved reasoning key from a catalog-selected model alias', () => {
@@ -311,5 +362,46 @@ describe('importCatalogProvider', () => {
         defaultModel: 'nope',
       }),
     ).rejects.toThrow(/is not offered/);
+  });
+});
+
+describe('managedModelToAlias', () => {
+  const managed = {
+    id: 'gpt-5-codex',
+    contextLength: 256_000,
+    supportsReasoning: true,
+    supportedReasoningEfforts: ['minimal', 'low', 'medium', 'high', 'xhigh'],
+    supportsImageIn: true,
+    supportsVideoIn: false,
+    supportsThinkingType: 'both',
+    displayName: 'GPT-5 Codex',
+  } as const;
+
+  it('carries the declared reasoning efforts into the alias', () => {
+    // Dropping them silently offered the low/medium/high fallback at the login
+    // picker while the config written right after recorded the real list.
+    expect(managedModelToAlias('openai-codex', managed)).toMatchObject({
+      provider: 'openai-codex',
+      model: 'gpt-5-codex',
+      maxContextSize: 256_000,
+      supportEfforts: ['minimal', 'low', 'medium', 'high', 'xhigh'],
+    });
+    expect(effortLevelsForModel(managedModelToAlias('openai-codex', managed))).toEqual([
+      'off',
+      'minimal',
+      'low',
+      'medium',
+      'high',
+      'xhigh',
+    ]);
+  });
+
+  it('leaves the efforts undefined when the model declares none', () => {
+    const alias = managedModelToAlias('openai-codex', {
+      ...managed,
+      supportedReasoningEfforts: undefined,
+    });
+    expect(alias.supportEfforts).toBeUndefined();
+    expect(effortLevelsForModel(alias)).toEqual(['off', 'low', 'medium', 'high']);
   });
 });

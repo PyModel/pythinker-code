@@ -16,6 +16,7 @@ import {
   subagentStartedEventSchema,
   subagentSuspendedEventSchema,
   toolCallStartedEventSchema,
+  workflowWarningEventSchema,
 } from '../events';
 import type { Event } from '../events';
 import type { ToolInputDisplay } from '../display';
@@ -156,6 +157,39 @@ describe('events / display re-exports', () => {
       expect(schema.parse(withParent)).toEqual(withParent);
       expect(schema.safeParse(event).success).toBe(true);
     }
+  });
+
+  it('validates workflow.warning events and requires a run id', () => {
+    const warning = {
+      type: 'workflow.warning' as const,
+      workflowRunId: 'wfr-test-001',
+      parentToolCallId: 'call_1',
+      agentCount: 26,
+      threshold: 25,
+      message: 'This Dynamic Workflow will launch 26 subagents, above the advisory ceiling of 25; the run is proceeding anyway.',
+    };
+
+    expect(workflowWarningEventSchema.parse(warning)).toEqual(warning);
+    // Also through the union: registering the schema but forgetting the
+    // discriminatedUnion member would leave the event unserializable.
+    expect(agentEventSchema.parse(warning)).toEqual(warning);
+    expect(
+      workflowWarningEventSchema.safeParse({
+        type: 'workflow.warning',
+        agentCount: 26,
+        threshold: 25,
+        message: 'missing run id',
+      }).success,
+    ).toBe(false);
+    expect(
+      workflowWarningEventSchema.safeParse({
+        type: 'workflow.warning',
+        workflowRunId: 'wfr-test-001',
+        agentCount: 26,
+        threshold: 25,
+        message: 'missing parent tool call id',
+      }).success,
+    ).toBe(false);
   });
 
   it('validates model rates and accumulated spend while rejecting unknown status keys', () => {
