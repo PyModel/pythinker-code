@@ -19,6 +19,7 @@ import {
 } from '../../src/agent/dynamic-workflow/run-id';
 import { resolveWorkflowSizeGuideline } from '../../src/agent/dynamic-workflow/size-guideline';
 import { FLAG_DEFINITIONS, FlagResolver } from '../../src/flags';
+import { matchPermissionRule } from '../../src/agent/permission/matches-rule';
 import { estimateTokens } from '../../src/utils/tokens';
 import type {
   QueuedSubagentRunResult,
@@ -857,18 +858,67 @@ describe('current builtin collaboration tools', () => {
   // fan-out. The matcher must ship with the keyed rule: an arg-bearing rule with
   // no `matchesRule` never matches, which would record the grant and then ignore
   // it on every later call.
-  it('DynamicWorkflow keys its approval rule on the description and can match it', () => {
+  it('DynamicWorkflow matches a session approval only for the identical plan', () => {
     const tool = new DynamicWorkflowTool(mockSubagentHost({}), mockDynamicWorkflowMode());
-    const execution = tool.resolveExecution({
+    const subjectOf = (input: Parameters<DynamicWorkflowTool['resolveExecution']>[0]): string => {
+      const execution = tool.resolveExecution(input);
+      if (execution.isError === true) throw new Error('resolveExecution returned an error');
+      // `Tool(subject)` — recover the subject the approval was recorded against.
+      return execution.approvalRule.slice('DynamicWorkflow('.length, -1);
+    };
+
+    const base = {
       description: 'Review files',
       prompt_template: 'Review {{item}}',
       items: ['src/a.ts', 'src/b.ts'],
-    });
-    if (execution.isError === true) throw new Error('DynamicWorkflow resolveExecution returned an error');
+    };
+    const execution = tool.resolveExecution(base);
+    if (execution.isError === true) throw new Error('resolveExecution returned an error');
 
-    expect(execution.approvalRule).toBe('DynamicWorkflow(Review files)');
-    expect(execution.matchesRule?.('Review files')).toBe(true);
-    expect(execution.matchesRule?.('Delete everything')).toBe(false);
+    expect(execution.matchesRule?.(subjectOf(base))).toBe(true);
+
+    // The description is the obvious key and the wrong one: reusing it while
+    // swapping the item list is exactly how an unreviewed fan-out would ride in
+    // on an earlier approval.
+    expect(
+      execution.matchesRule?.(
+        subjectOf({ ...base, items: Array.from({ length: 128 }, (_, i) => `src/${String(i)}.ts`) }),
+      ),
+    ).toBe(false);
+    expect(execution.matchesRule?.(subjectOf({ ...base, model: 'other-model' }))).toBe(false);
+    expect(execution.matchesRule?.(subjectOf({ ...base, subagent_type: 'shell' }))).toBe(false);
+    expect(
+      execution.matchesRule?.(subjectOf({ ...base, prompt_template: 'Rewrite {{item}}' })),
+    ).toBe(false);
+  });
+
+  // `matchesRule` alone is not proof: the recorded rule is `Tool(subject)`,
+  // which is parsed by splitting on the first paren and then glob matched. A
+  // subject carrying JSON punctuation fails both, so an approval would be
+  // stored and then never match again. Drive the real matcher, not the callback.
+  it('DynamicWorkflow session approval survives the permission rule DSL', () => {
+    const tool = new DynamicWorkflowTool(mockSubagentHost({}), mockDynamicWorkflowMode());
+    const args = {
+      // Punctuation the DSL cannot carry, plus a glob character.
+      description: 'Review (all) files: *.ts {urgent}',
+      prompt_template: 'Review {{item}}',
+      items: ['src/a.ts', 'src/b.ts'],
+    };
+    const execution = tool.resolveExecution(args);
+    if (execution.isError === true) throw new Error('resolveExecution returned an error');
+
+    const match = matchPermissionRule({
+      rule: {
+        decision: 'allow',
+        scope: 'session-runtime',
+        pattern: execution.approvalRule,
+        reason: 'approve for session',
+      },
+      toolName: 'DynamicWorkflow',
+      execution,
+    });
+
+    expect(match).toMatchObject({ strategy: 'matches_rule', hasRuleArgs: true });
   });
 
   it('DynamicWorkflow previews the fan-out for the approval panel', () => {

@@ -1,3 +1,5 @@
+import { promises as fs } from 'node:fs';
+
 import path from 'pathe';
 
 import { normalizeSkillName } from '../../skill/types';
@@ -62,8 +64,14 @@ export function savedWorkflowSkillDir(input: {
   return path.join(input.brandHomeDir, 'skills', normalized);
 }
 
+/**
+ * YAML's double-quoted style uses JSON's escapes, so `JSON.stringify` produces
+ * a valid scalar and handles what hand-rolled quote/backslash escaping misses:
+ * a newline or control character in a description would otherwise be emitted
+ * raw and split the frontmatter.
+ */
 function quoteYamlScalar(value: string): string {
-  return `"${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`;
+  return JSON.stringify(value);
 }
 
 // A fence that cannot collide with the template body: start at ``` and grow
@@ -107,4 +115,32 @@ export function renderSavedWorkflowSkill(workflow: SavedWorkflow): string {
     );
   }
   return `${lines.join('\n')}\n`;
+}
+
+/**
+ * Write a saved workflow to disk and return the directory it landed in.
+ *
+ * Lives here rather than in the slash command so every surface that can run a
+ * workflow can also keep one. The name is validated before any directory is
+ * created, so a rejected name leaves nothing behind.
+ */
+export async function writeSavedWorkflowSkill(input: {
+  readonly scope: SavedWorkflowScope;
+  readonly workflow: SavedWorkflow;
+  readonly projectRoot: string;
+  readonly brandHomeDir: string;
+}): Promise<string> {
+  const dir = savedWorkflowSkillDir({
+    scope: input.scope,
+    name: input.workflow.name,
+    projectRoot: input.projectRoot,
+    brandHomeDir: input.brandHomeDir,
+  });
+  const content = renderSavedWorkflowSkill({
+    ...input.workflow,
+    name: savedWorkflowSkillName(input.workflow.name),
+  });
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(path.join(dir, 'SKILL.md'), content, 'utf8');
+  return dir;
 }

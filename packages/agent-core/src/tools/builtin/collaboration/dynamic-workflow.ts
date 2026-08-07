@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import { z } from 'zod';
 
 import type { WorkflowWarningEvent } from '@pythoughts/protocol';
@@ -163,6 +165,7 @@ export class DynamicWorkflowTool implements BuiltinTool<DynamicWorkflowToolInput
 
   resolveExecution(args: DynamicWorkflowToolInput): ToolExecution {
     const workflow = dynamicWorkflowPreview(args);
+    const approvalSubject = dynamicWorkflowApprovalSubject(args, workflow);
     return {
       accesses: ToolAccesses.all(),
       description: `Launching Dynamic Workflow: ${args.description}`,
@@ -172,13 +175,16 @@ export class DynamicWorkflowTool implements BuiltinTool<DynamicWorkflowToolInput
         prompt: args.description,
         workflow,
       },
-      // Keyed on the description so "approve for this session" grants this one
-      // workflow, not every DynamicWorkflow call for the rest of the session.
-      // The matcher has to come with it: an arg-bearing rule with no
+      // Keyed on the whole plan, not the tool name and not the description.
+      // The bare name granted every future DynamicWorkflow call; the
+      // description alone would let a second call reuse it and swap in 128
+      // different items, which is exactly the fan-out the preview exists to
+      // show. "Approve for this session" now grants the plan that was shown.
+      // The matcher has to ship with it: an arg-bearing rule with no
       // `matchesRule` never matches, so the grant would be recorded and then
       // silently ignored on every later call.
-      approvalRule: literalRulePattern(this.name, args.description),
-      matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, args.description),
+      approvalRule: literalRulePattern(this.name, approvalSubject),
+      matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, approvalSubject),
       execute: (ctx) => this.execution(args, ctx),
     };
   }
@@ -373,6 +379,48 @@ function dynamicWorkflowPreview(args: DynamicWorkflowToolInput): {
     prompt_template: promptTemplate,
     model: normalizeOptionalString(args.model),
   };
+}
+
+/**
+ * Characters a permission-rule subject can carry safely. The rule DSL parses
+ * `Tool(subject)` by splitting on the first paren, and the subject is then glob
+ * matched — so parens break parsing outright and `{}[]*?!+@|` survive neither
+ * escaping nor picomatch reliably. Everything else is dropped from the readable
+ * half of the subject; the digest carries the precision.
+ */
+const RULE_SUBJECT_UNSAFE = /[^a-zA-Z0-9 ._-]/gu;
+
+/**
+ * Subject a session approval is recorded against: a readable prefix plus a
+ * digest of the whole plan.
+ *
+ * Every field that changes what actually runs feeds the digest, the item list
+ * included. Keying on the description alone would let a later call keep the
+ * description, swap in a different 128-item list, and ride in on the earlier
+ * grant — the precise fan-out the preview exists to expose. Two plans share a
+ * grant only when they would launch the same work.
+ *
+ * The plan cannot be the subject verbatim: a JSON blob does not survive the
+ * rule DSL. Hence digest, with a trimmed description kept in front so a
+ * recorded rule is still recognisable.
+ */
+function dynamicWorkflowApprovalSubject(
+  args: DynamicWorkflowToolInput,
+  workflow: { readonly items: readonly string[]; readonly agent_count: number },
+): string {
+  const plan = JSON.stringify({
+    description: args.description,
+    subagentType: normalizeOptionalString(args.subagent_type),
+    promptTemplate: normalizeOptionalString(args.prompt_template),
+    model: normalizeOptionalString(args.model),
+    effort: normalizeOptionalString(args.effort),
+    outputSchema: args.output_schema,
+    agentCount: workflow.agent_count,
+    items: workflow.items,
+  });
+  const digest = createHash('sha256').update(plan).digest('hex').slice(0, 16);
+  const label = args.description.replace(RULE_SUBJECT_UNSAFE, ' ').trim();
+  return label.length === 0 ? digest : `${label} ${digest}`;
 }
 
 function renderItemPrompt(item: string, promptTemplate: string | undefined): string {

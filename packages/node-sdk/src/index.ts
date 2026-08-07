@@ -49,6 +49,7 @@ export {
   renderSavedWorkflowSkill,
   savedWorkflowSkillDir,
   savedWorkflowSkillName,
+  writeSavedWorkflowSkill,
 } from '@pythoughts/agent-core';
 export type { SavedWorkflow, SavedWorkflowScope } from '@pythoughts/agent-core';
 export { buildSkillSlashCommands, isUserActivatableSkill } from '#/skill-commands';

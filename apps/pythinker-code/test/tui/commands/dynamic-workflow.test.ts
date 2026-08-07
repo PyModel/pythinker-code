@@ -468,7 +468,7 @@ describe('/workflow save', () => {
         expect.stringContaining('not a valid skill name'),
       );
       expect(host.refreshSlashCommandAutocomplete).not.toHaveBeenCalled();
-      await expect(fs.stat(join(workDir, '.pythinker-code'))).rejects.toThrow(/ENOENT/);
+      await expect(fs.stat(join(workDir, '.pythinker-code'))).rejects.toThrow(/ENOENT/u);
     } finally {
       await fs.rm(workDir, { recursive: true, force: true });
     }

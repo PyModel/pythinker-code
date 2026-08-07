@@ -275,6 +275,10 @@ export class SubAgentEventHandler {
     if (this.isRetiredDynamicWorkflowToolCall(toolCallId)) return;
     const missionControl = this.ensureDynamicWorkflowMissionControl(toolCallId, args);
     missionControl.markInputComplete();
+    // Captured here rather than in `ensure…`, which the delta path also calls:
+    // mid-stream arguments are half-parsed, and saving those would write a
+    // workflow missing most of its items.
+    this.host.state.lastDynamicWorkflowArgs = args;
     this.requestRender();
   }
 
@@ -633,8 +637,6 @@ export class SubAgentEventHandler {
     args: Record<string, unknown>,
     options: { readonly streamingArguments?: string } = {},
   ): DynamicWorkflowMissionControlComponent {
-    // Kept so `/workflow save` can name a run the user just watched succeed.
-    this.host.state.lastDynamicWorkflowArgs = args;
     const existing = this.dynamicWorkflowMissionControls.get(toolCallId);
     if (existing !== undefined) {
       existing.updateArgs(args, options);

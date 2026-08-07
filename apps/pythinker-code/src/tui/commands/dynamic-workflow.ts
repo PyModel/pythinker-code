@@ -1,12 +1,8 @@
-import { mkdir, writeFile } from 'node:fs/promises';
-
 import {
-  renderSavedWorkflowSkill,
-  savedWorkflowSkillDir,
   savedWorkflowSkillName,
+  writeSavedWorkflowSkill,
   type PermissionMode,
 } from '@pythoughts/pythinker-code-sdk';
-import { join } from 'pathe';
 
 import { getDataDir } from '#/utils/paths';
 import {
@@ -153,26 +149,20 @@ async function handleSaveSubcommand(host: SlashCommandHost, input: string): Prom
   }
 
   try {
-    const dir = savedWorkflowSkillDir({
+    const dir = await writeSavedWorkflowSkill({
       scope: 'project',
-      name,
       projectRoot: host.state.appState.workDir,
       brandHomeDir: getDataDir(),
-    });
-    await mkdir(dir, { recursive: true });
-    await writeFile(
-      join(dir, 'SKILL.md'),
-      renderSavedWorkflowSkill({
-        name: savedWorkflowSkillName(name),
+      workflow: {
+        name,
         description,
         subagentType: stringArg(args, 'subagent_type'),
         promptTemplate: stringArg(args, 'prompt_template'),
         model: stringArg(args, 'model'),
         effort: stringArg(args, 'effort'),
         outputSchema: recordArg(args, 'output_schema'),
-      }),
-      'utf8',
-    );
+      },
+    });
     host.refreshSlashCommandAutocomplete();
     host.showStatus(`Saved /${savedWorkflowSkillName(name)} to ${dir}.`);
   } catch (error) {
