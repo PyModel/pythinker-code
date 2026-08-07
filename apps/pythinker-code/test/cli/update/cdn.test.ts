@@ -112,6 +112,32 @@ describe('fetchUpdateManifest', () => {
     expect(manifestArtifactAvailability(result, 'darwin-arm64')).toBe('available');
   });
 
+  it('carries a well-formed minRequiredVersion onto the parsed manifest', async () => {
+    const body = JSON.stringify({
+      version: '2.0.0',
+      publishedAt: '2026-06-12T00:00:00.000Z',
+      rollout: [],
+      minRequiredVersion: '1.5.0',
+    });
+    const f = mockRoutedFetch({ [PYTHINKER_CODE_CDN_LATEST_JSON_URL]: { body } });
+    const result = await fetchUpdateManifest(f);
+    expect(result.version).toBe('2.0.0');
+    expect(result.minRequiredVersion).toBe('1.5.0');
+  });
+
+  it('drops a malformed minRequiredVersion but keeps the manifest', async () => {
+    const body = JSON.stringify({
+      version: '2.0.0',
+      publishedAt: '2026-06-12T00:00:00.000Z',
+      rollout: [],
+      minRequiredVersion: 'nope',
+    });
+    const f = mockRoutedFetch({ [PYTHINKER_CODE_CDN_LATEST_JSON_URL]: { body } });
+    const result = await fetchUpdateManifest(f);
+    expect(result.version).toBe('2.0.0');
+    expect(result.minRequiredVersion).toBeUndefined();
+  });
+
   it('carries a well-formed platforms record onto the parsed manifest', async () => {
     const body = JSON.stringify({
       version: '2.0.0',

@@ -494,6 +494,11 @@ describe('footer model', () => {
         '↑ v0.11.0',
       ],
       [
+        'required',
+        { version: '0.11.0', state: 'required', percent: null },
+        '↑ v0.11.0 required',
+      ],
+      [
         'downloading with percent',
         { version: '0.11.0', state: 'downloading', percent: 42 },
         '↓ v0.11.0 ▰▰▰▱▱▱▱▱ 42%',

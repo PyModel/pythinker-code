@@ -80,6 +80,7 @@ export interface FooterCompaction {
 
 export type FooterUpdateState =
   | 'available'
+  | 'required'
   | 'downloading'
   | 'waiting'
   | 'ready'
@@ -612,10 +613,12 @@ function formatUpdate(update: FooterUpdate): string | null {
   const version = update.version;
   const state = update.state;
   if (version === null || state === null) return null;
-  const base = `${state === 'available' || state === 'ready' || state === 'failed' ? '↑' : '↓'} v${version}`;
+  const base = `${state === 'available' || state === 'required' || state === 'ready' || state === 'failed' ? '↑' : '↓'} v${version}`;
   switch (state) {
     case 'available':
       return base;
+    case 'required':
+      return `${base} required`;
     case 'downloading': {
       const percent = update.percent;
       if (percent === null || !Number.isFinite(percent)) return base;

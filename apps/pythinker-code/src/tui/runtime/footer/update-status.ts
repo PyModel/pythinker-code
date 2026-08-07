@@ -1,5 +1,6 @@
 import { gt, valid } from 'semver';
 
+import { isBelowMinRequiredVersion } from '#/cli/update/cdn';
 import { isTargetInstallable, selectUpdateTarget } from '#/cli/update/select';
 import type {
   InstallSource,
@@ -54,7 +55,16 @@ export function footerUpdateFromState(
 
   const target = selectUpdateTarget(currentVersion, cache?.latest ?? null);
   if (target !== null && isTargetInstallable(source, cache?.manifest ?? null)) {
-    return { version: target.version, state: 'available', percent: null };
+    // A manifest floor above the running version labels the offer as
+    // required; the precedence order above still lets a download in flight
+    // outrank it.
+    return {
+      version: target.version,
+      state: isBelowMinRequiredVersion(cache?.manifest ?? null, currentVersion)
+        ? 'required'
+        : 'available',
+      percent: null,
+    };
   }
 
   return { version: null, state: null, percent: null };

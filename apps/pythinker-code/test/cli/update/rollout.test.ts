@@ -246,6 +246,89 @@ describe('decidePassiveUpdateTarget', () => {
       delaySeconds: 43_200,
     });
   });
+
+  it('returns the target with reason required while the batch is still held', () => {
+    const manifest = makeManifest({
+      rollout: [{ percent: 100, delaySeconds: 86_400 }],
+      minRequiredVersion: '1.9.0',
+    });
+    const decision = decidePassiveUpdateTarget(
+      '1.0.0',
+      '2.0.0',
+      manifest,
+      'device-a',
+      secondsAfterPublish(60),
+    );
+    expect(decision).toMatchObject({
+      target: { version: '2.0.0' },
+      reason: 'required',
+      bucket: rolloutBucket('device-a', '2.0.0'),
+      delaySeconds: 86_400,
+      eligibleAt: new Date(PUBLISHED_AT_MS + 86_400 * 1000).toISOString(),
+    });
+  });
+
+  it('returns the target with reason required even when already eligible', () => {
+    const manifest = makeManifest({
+      rollout: [{ percent: 100, delaySeconds: 0 }],
+      minRequiredVersion: '1.9.0',
+    });
+    const decision = decidePassiveUpdateTarget(
+      '1.0.0',
+      '2.0.0',
+      manifest,
+      'device-a',
+      secondsAfterPublish(60),
+    );
+    expect(decision).toMatchObject({
+      target: { version: '2.0.0' },
+      reason: 'required',
+      bucket: rolloutBucket('device-a', '2.0.0'),
+      delaySeconds: 0,
+    });
+  });
+
+  it('applies ordinary eligibility rules when running at minRequiredVersion', () => {
+    const held = makeManifest({
+      rollout: [{ percent: 100, delaySeconds: 86_400 }],
+      minRequiredVersion: '1.0.0',
+    });
+    expect(
+      decidePassiveUpdateTarget('1.0.0', '2.0.0', held, 'device-a', secondsAfterPublish(60)),
+    ).toMatchObject({ target: null, reason: 'held' });
+    const immediate = makeManifest({
+      rollout: [{ percent: 100, delaySeconds: 0 }],
+      minRequiredVersion: '1.0.0',
+    });
+    expect(
+      decidePassiveUpdateTarget('1.0.0', '2.0.0', immediate, 'device-a', secondsAfterPublish(60)),
+    ).toMatchObject({ target: { version: '2.0.0' }, reason: 'eligible' });
+  });
+
+  it('applies ordinary eligibility rules when running above minRequiredVersion', () => {
+    const manifest = makeManifest({
+      rollout: [{ percent: 100, delaySeconds: 86_400 }],
+      minRequiredVersion: '0.9.0',
+    });
+    expect(
+      decidePassiveUpdateTarget('1.0.0', '2.0.0', manifest, 'device-a', secondsAfterPublish(60)),
+    ).toMatchObject({ target: null, reason: 'held' });
+  });
+
+  it('behaves exactly as before when the manifest declares no minRequiredVersion', () => {
+    const held = makeManifest({ rollout: [{ percent: 100, delaySeconds: 86_400 }] });
+    expect(
+      decidePassiveUpdateTarget('1.0.0', '2.0.0', held, 'device-a', secondsAfterPublish(60)),
+    ).toMatchObject({
+      target: null,
+      reason: 'held',
+      bucket: rolloutBucket('device-a', '2.0.0'),
+    });
+    const immediate = makeManifest({ rollout: [{ percent: 100, delaySeconds: 0 }] });
+    expect(
+      decidePassiveUpdateTarget('1.0.0', '2.0.0', immediate, 'device-a', secondsAfterPublish(60)),
+    ).toMatchObject({ target: { version: '2.0.0' }, reason: 'eligible' });
+  });
 });
 
 describe('appendRolloutDecisionLog', () => {
@@ -322,6 +405,21 @@ describe('experimental flag bypass', () => {
 
   it('bypasses a held rollout and reports experimental', () => {
     const decision = decidePassiveUpdateTarget('1.0.0', '2.0.0', heldManifest, 'device-a', now, true);
+    expect(decision).toMatchObject({
+      target: { version: '2.0.0' },
+      reason: 'experimental',
+      bucket: null,
+      delaySeconds: null,
+      eligibleAt: null,
+    });
+  });
+
+  it('still reports experimental under bypass when below minRequiredVersion', () => {
+    const manifest = makeManifest({
+      rollout: [{ percent: 100, delaySeconds: 86_400 }],
+      minRequiredVersion: '1.9.0',
+    });
+    const decision = decidePassiveUpdateTarget('1.0.0', '2.0.0', manifest, 'device-a', now, true);
     expect(decision).toMatchObject({
       target: { version: '2.0.0' },
       reason: 'experimental',

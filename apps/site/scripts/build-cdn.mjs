@@ -73,6 +73,11 @@ async function resolvePublishedRelease(packageName) {
 
 const RELEASE_DOWNLOAD_BASE = 'https://github.com/Pythoughts-labs/pythinker-code/releases/download';
 
+// Set to a version string only when an older client can no longer work against
+// the current services; it makes every client below it take the update without
+// waiting for its rollout batch. Reset to null once that release is the floor.
+const MIN_REQUIRED_VERSION = null;
+
 /**
  * Resolve the per-platform native artifacts for a published version.
  *
@@ -216,6 +221,7 @@ const platforms = await resolvePlatformArtifacts(version);
 await writeFile(join(channelRoot, 'latest.json'), `${JSON.stringify({
   version,
   publishedAt,
+  minRequiredVersion: MIN_REQUIRED_VERSION ?? undefined,
   platforms: platforms ?? undefined,
   rollout: [],
 }, null, 2)}\n`);

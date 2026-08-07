@@ -1,4 +1,4 @@
-import { valid } from 'semver';
+import { lt, valid } from 'semver';
 import { z } from 'zod';
 
 import { PYTHINKER_CODE_CDN_LATEST_JSON_URL } from '#/constant/app';
@@ -32,8 +32,8 @@ const UpdateManifestPlatformSchema = z.object({
 /**
  * CDN `latest.json` wire format. Deliberately NOT `.strict()` — unknown
  * fields are ignored so future manifest additions never break shipped
- * clients (the plain-text `/latest` taught us that hard-failing on
- * unexpected content bricks the update path forever).
+ * clients. Hard-failing on unexpected content bricks the update path for
+ * every already-installed client, which is unrecoverable from our side.
  */
 export const UpdateManifestSchema = z.object({
   version: z.string().refine((value) => valid(value) !== null, { error: 'invalid semver' }),
@@ -44,13 +44,23 @@ export const UpdateManifestSchema = z.object({
   /**
    * Resolved per-platform artifacts, keyed `<platform>-<arch>`. A malformed
    * value drops only this field via `.catch(undefined)` so `version` and
-   * `publishedAt` still parse — failing the whole manifest would send
-   * clients to the plain-text `/latest` fallback, which carries no platform
-   * information at all.
+   * `publishedAt` still parse — failing the whole manifest would cost the
+   * client its update over one unreadable field.
    */
   platforms: z
     .record(z.string(), UpdateManifestPlatformSchema)
     .readonly()
+    .optional()
+    .catch(undefined),
+  /**
+   * Lowest version that can still work against the current services. A
+   * malformed value drops only this field via `.catch(undefined)` so
+   * `version` and `publishedAt` still parse — a client below the floor must
+   * not lose its update because the declaration is unreadable.
+   */
+  minRequiredVersion: z
+    .string()
+    .refine((value) => valid(value) !== null, { error: 'invalid semver' })
     .optional()
     .catch(undefined),
 });
@@ -114,4 +124,22 @@ export function manifestArtifactAvailability(
     return 'available';
   }
   return Object.hasOwn(manifest.platforms, target) ? 'available' : 'unavailable';
+}
+
+/**
+ * Whether the running version is below the manifest's declared floor, which
+ * makes its update mandatory rather than merely available: the staged rollout
+ * delay exists for ordinary releases, not for one a client cannot skip.
+ *
+ * An absent, unreadable or non-semver floor answers false — a declaration we
+ * cannot understand must not escalate an update on its own.
+ */
+export function isBelowMinRequiredVersion(
+  manifest: UpdateManifest | null,
+  currentVersion: string,
+): boolean {
+  const floor = manifest?.minRequiredVersion;
+  if (floor === undefined) return false;
+  if (valid(currentVersion) === null || valid(floor) === null) return false;
+  return lt(currentVersion, floor);
 }

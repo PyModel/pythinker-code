@@ -217,6 +217,91 @@ describe('footerUpdateFromState', () => {
     });
   });
 
+  it('shows required when the cached manifest declares a minRequiredVersion above current', () => {
+    const requiredCache: UpdateCache = {
+      source: 'cdn',
+      checkedAt: '2026-04-23T08:00:00.000Z',
+      latest: NEWER,
+      manifest: {
+        version: NEWER,
+        publishedAt: '2026-04-23T08:00:00.000Z',
+        rollout: [],
+        minRequiredVersion: '0.10.1',
+      },
+    };
+
+    expect(footerUpdateFromState(CURRENT, 'native', requiredCache, installState())).toEqual({
+      version: NEWER,
+      state: 'required',
+      percent: null,
+    });
+  });
+
+  it('keeps available when the declared minRequiredVersion is at or below current', () => {
+    const baseManifest = {
+      version: NEWER,
+      publishedAt: '2026-04-23T08:00:00.000Z',
+      rollout: [],
+    };
+    const atCurrent: UpdateCache = {
+      source: 'cdn',
+      checkedAt: '2026-04-23T08:00:00.000Z',
+      latest: NEWER,
+      manifest: { ...baseManifest, minRequiredVersion: CURRENT },
+    };
+    const belowCurrent: UpdateCache = {
+      source: 'cdn',
+      checkedAt: '2026-04-23T08:00:00.000Z',
+      latest: NEWER,
+      manifest: { ...baseManifest, minRequiredVersion: '0.9.0' },
+    };
+
+    expect(footerUpdateFromState(CURRENT, 'native', atCurrent, installState())).toEqual({
+      version: NEWER,
+      state: 'available',
+      percent: null,
+    });
+    expect(footerUpdateFromState(CURRENT, 'native', belowCurrent, installState())).toEqual({
+      version: NEWER,
+      state: 'available',
+      percent: null,
+    });
+  });
+
+  it('still shows downloading when a required update is already in flight', () => {
+    const requiredCache: UpdateCache = {
+      source: 'cdn',
+      checkedAt: '2026-04-23T08:00:00.000Z',
+      latest: NEWER,
+      manifest: {
+        version: NEWER,
+        publishedAt: '2026-04-23T08:00:00.000Z',
+        rollout: [],
+        minRequiredVersion: '0.10.1',
+      },
+    };
+    const state = installState({
+      active: {
+        version: NEWER,
+        source: 'native',
+        startedAt: '2026-04-23T08:00:00.000Z',
+        progress: {
+          state: 'downloading',
+          percent: 42,
+          transferred: 5_320_000,
+          total: 12_600_000,
+          updatedAt: '2026-04-23T08:01:00.000Z',
+        },
+      },
+    });
+
+    expect(footerUpdateFromState(CURRENT, 'native', requiredCache, state)).toEqual({
+      version: NEWER,
+      state: 'downloading',
+      percent: 42,
+    });
+  });
+
   it('shows nothing when the cache target is not installable from this source', () => {
     const unavailableCache: UpdateCache = {
       source: 'cdn',

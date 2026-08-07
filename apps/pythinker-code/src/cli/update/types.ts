@@ -40,6 +40,12 @@ export interface UpdateManifest {
    * manifests published before artifact addressing shipped.
    */
   readonly platforms?: Readonly<Record<string, UpdateManifestPlatform>>;
+  /**
+   * Lowest version that can still work against the current services. A
+   * client below it must take the update without waiting for its rollout
+   * batch. Absent on ordinary releases.
+   */
+  readonly minRequiredVersion?: string;
 }
 
 export interface UpdateCache {
