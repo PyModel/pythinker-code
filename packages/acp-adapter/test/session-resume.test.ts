@@ -104,7 +104,7 @@ function makeHarness(opts: {
 }): PythinkerHarness {
   const authed = opts.hasUsableToken ?? true;
   return {
-    isAuthenticated: async () => authed,
+    isAuthenticated: authed ? AUTHED : UNAUTHED,
     resumeSession: async (_input: { id: string }) => {
       if (opts.resumeError) throw opts.resumeError;
       if (!opts.session) throw new Error('test harness has no session configured');

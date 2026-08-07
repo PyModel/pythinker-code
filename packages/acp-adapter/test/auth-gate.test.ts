@@ -47,7 +47,7 @@ function makeInMemoryStreamPair(): {
 
 function makeHarnessWithToken(hasToken: boolean): PythinkerHarness {
   return {
-    isAuthenticated: async () => hasToken,
+    isAuthenticated: hasToken ? AUTHED : UNAUTHED,
   } as unknown as PythinkerHarness;
 }
 
