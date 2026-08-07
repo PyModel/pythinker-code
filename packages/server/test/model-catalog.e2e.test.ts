@@ -239,18 +239,6 @@ describe('model/provider catalog routes', () => {
       setDefaultModel: async () => {
         throw new Error('unused');
       },
-      refreshOAuthProviderModels: async () => ({
-        changed: [
-          {
-            provider_id: 'managed:kimi-code',
-            provider_name: 'Pythinker Code',
-            added: 1,
-            removed: 0,
-          },
-        ],
-        unchanged: [],
-        failed: [],
-      }),
     };
     const r = await bootDaemon([[IModelCatalogService, stub]]);
 

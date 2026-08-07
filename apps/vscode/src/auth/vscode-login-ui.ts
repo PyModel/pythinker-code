@@ -34,7 +34,6 @@ import {
   type LoginUi,
 } from "@pythoughts/pythinker-code-sdk";
 
-import { Events } from "../../shared/bridge";
 import type { HandlerContext } from "../handlers/types";
 
 // Filled by the tsdown define in release builds (same env var the CLI's
@@ -140,12 +139,6 @@ export function createVscodeLoginUi(
     showStatus,
     showError,
     showLoginProgressSpinner,
-    showLoginAuthorizationPrompt(auth) {
-      const url = auth.verificationUriComplete || auth.verificationUri;
-      ctx.broadcast(Events.LoginUrl, { url }, ctx.webviewId);
-      openBrowser(url);
-      return createProgressHandle(`Waiting for authorization — enter code ${auth.userCode}`);
-    },
     async promptPlatformSelection() {
       let catalog = loadBuiltInCatalog(BUILT_IN_CATALOG_JSON) ?? {};
       const controller = new AbortController();

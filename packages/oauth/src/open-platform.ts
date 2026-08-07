@@ -1,14 +1,82 @@
 import { readApiErrorMessage } from './api-error';
 import { isRecord } from './utils';
-import { parseSupportsThinkingType } from './managed-kimi-code';
-import type {
-  ManagedKimiCodeModelInfo,
-  ManagedKimiConfigShape,
-} from './managed-kimi-code';
-
-export type { ManagedKimiConfigShape };
 
 export type LoginPlatformProviderType = 'pythinker' | 'openai' | 'anthropic' | 'openai_responses';
+
+/**
+ * Server-declared thinking toggle support from `/models`:
+ *  - 'only' — thinking cannot be turned off (always-thinking)
+ *  - 'no'   — thinking is not supported at all
+ *  - 'both' — thinking can be toggled on and off
+ * Absent on older servers — callers fall back to `supportsReasoning`.
+ */
+export type SupportsThinkingType = 'only' | 'no' | 'both';
+
+/**
+ * A model as a login platform describes it, normalized from the platform's
+ * `/models` response (snake_case on the wire) or from a models.dev catalog
+ * entry. Shared by every platform: API-key platforms, the OpenAI Codex OAuth
+ * login, and the custom api.json registry.
+ */
+export interface PlatformModelInfo {
+  readonly id: string;
+  readonly contextLength: number;
+  readonly supportsReasoning: boolean;
+  readonly supportedReasoningEfforts?: readonly string[];
+  readonly supportsImageIn: boolean;
+  readonly supportsVideoIn: boolean;
+  readonly supportsToolUse?: boolean;
+  readonly supportsFastMode?: boolean;
+  readonly supportsThinkingType?: SupportsThinkingType;
+  readonly displayName?: string | undefined;
+}
+
+export interface PlatformProviderConfig {
+  type: LoginPlatformProviderType;
+  baseUrl?: string | undefined;
+  apiKey?: string | undefined;
+  readonly [key: string]: unknown;
+}
+
+export interface PlatformModelAlias {
+  provider: string;
+  model: string;
+  maxContextSize: number;
+  capabilities?: string[] | undefined;
+  supportEfforts?: readonly string[];
+  displayName?: string | undefined;
+  readonly [key: string]: unknown;
+}
+
+/**
+ * The slice of the on-disk config a login writes. Structural rather than
+ * imported from `agent-core` so this package stays dependency-free.
+ */
+export interface PlatformConfigShape {
+  providers: Record<string, PlatformProviderConfig | Record<string, unknown>>;
+  models?: Record<string, PlatformModelAlias | Record<string, unknown>> | undefined;
+  defaultModel?: string | undefined;
+  defaultThinking?: boolean | undefined;
+  thinking?: {
+    mode?: 'auto' | 'on' | 'off';
+    effort?: string;
+  };
+  [key: string]: unknown;
+}
+
+// Unknown or missing values resolve to undefined so callers fall back to the
+// legacy supports_reasoning boolean instead of guessing.
+export function parseSupportsThinkingType(value: unknown): SupportsThinkingType | undefined {
+  return value === 'only' || value === 'no' || value === 'both' ? value : undefined;
+}
+
+// Unknown or missing values resolve to undefined so the field is simply absent
+// for older servers instead of being guessed.
+function parseSupportedReasoningEfforts(value: unknown): readonly string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const efforts = value.filter((effort): effort is string => typeof effort === 'string');
+  return efforts.length > 0 ? efforts : undefined;
+}
 
 /**
  * A platform the user can add with an API key. Models are fetched from the
@@ -104,7 +172,7 @@ export function isOpenPlatformId(id: string): boolean {
 function toModelInfo(
   item: unknown,
   platform: OpenPlatformDefinition,
-): ManagedKimiCodeModelInfo | undefined {
+): PlatformModelInfo | undefined {
   if (!isRecord(item) || typeof item['id'] !== 'string' || item['id'].length === 0) {
     return undefined;
   }
@@ -131,6 +199,7 @@ function toModelInfo(
     supportsToolUse,
     supportsFastMode: Boolean(item['supports_fast_mode']),
     supportsThinkingType: parseSupportsThinkingType(item['supports_thinking_type']),
+    supportedReasoningEfforts: parseSupportedReasoningEfforts(item['supported_reasoning_efforts']),
     displayName: normalizedDisplayName,
   };
 }
@@ -139,7 +208,7 @@ function toModelInfo(
  * Derives kosong capability strings from a model info entry; undefined when
  * the model declares no capabilities.
  */
-export function capabilitiesForModel(model: ManagedKimiCodeModelInfo): string[] | undefined {
+export function capabilitiesForModel(model: PlatformModelInfo): string[] | undefined {
   const caps = new Set<string>();
   // supports_thinking_type is the full three-state declaration and wins over
   // the legacy supports_reasoning boolean; absent (older servers) falls back.
@@ -185,7 +254,7 @@ export async function fetchOpenPlatformModels(
   apiKey: string,
   fetchImpl: typeof fetch = fetch,
   signal?: AbortSignal,
-): Promise<ManagedKimiCodeModelInfo[]> {
+): Promise<PlatformModelInfo[]> {
   const baseUrl = platform.baseUrl;
   if (baseUrl === undefined || baseUrl.length === 0) {
     throw new Error(`Platform "${platform.id}" has no baseUrl for remote model listing.`);
@@ -209,7 +278,7 @@ export async function fetchOpenPlatformModels(
   }
   return payload['data']
     .map((item) => toModelInfo(item, platform))
-    .filter((item): item is ManagedKimiCodeModelInfo => item !== undefined);
+    .filter((item): item is PlatformModelInfo => item !== undefined);
 }
 
 /**
@@ -217,9 +286,9 @@ export async function fetchOpenPlatformModels(
  * prefixes; returns the full list when no prefixes are configured.
  */
 export function filterModelsByPrefix(
-  models: ManagedKimiCodeModelInfo[],
+  models: PlatformModelInfo[],
   platform: OpenPlatformDefinition,
-): ManagedKimiCodeModelInfo[] {
+): PlatformModelInfo[] {
   if (!platform.allowedPrefixes || platform.allowedPrefixes.length === 0) {
     return models;
   }
@@ -238,11 +307,11 @@ export interface ApplyOpenPlatformResult {
  * default model to the selected one.
  */
 export function applyOpenPlatformConfig(
-  config: ManagedKimiConfigShape,
+  config: PlatformConfigShape,
   options: {
     readonly platform: OpenPlatformDefinition;
-    readonly models: readonly ManagedKimiCodeModelInfo[];
-    readonly selectedModel: ManagedKimiCodeModelInfo;
+    readonly models: readonly PlatformModelInfo[];
+    readonly selectedModel: PlatformModelInfo;
     readonly thinking: boolean;
     /** The effort level the user picked; only the on/off bit persists without it. */
     readonly effort?: string;
@@ -295,7 +364,7 @@ export function applyOpenPlatformConfig(
  * that pointed at them.
  */
 export function removeOpenPlatformConfig(
-  config: ManagedKimiConfigShape,
+  config: PlatformConfigShape,
   platformId: string,
 ): void {
   delete config.providers[platformId];

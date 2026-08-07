@@ -13,9 +13,17 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { arch, hostname, release, type } from 'node:os';
 import { join } from 'node:path';
 
-import type { DeviceHeaders } from './types';
-
 export const PYTHINKER_CODE_PLATFORM = 'pythinker_code_cli';
+
+/** Device identification headers a `pythinker`-wire endpoint expects. */
+export interface DeviceHeaders {
+  readonly 'X-Msh-Platform': string;
+  readonly 'X-Msh-Version': string;
+  readonly 'X-Msh-Device-Name': string;
+  readonly 'X-Msh-Device-Model': string;
+  readonly 'X-Msh-Os-Version': string;
+  readonly 'X-Msh-Device-Id': string;
+}
 
 export interface PythinkerHostIdentity {
   readonly userAgentProduct: string;

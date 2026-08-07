@@ -38,12 +38,7 @@ function makeService(): AuthSummaryService {
     ready: async () => undefined,
     dispose: () => undefined,
   };
-  const env: IEnvironmentService = {
-    _serviceBrand: undefined,
-    homeDir: '/tmp/pythinker-auth-summary-test',
-    configPath: '/tmp/pythinker-auth-summary-test/config.toml',
-  };
-  return new AuthSummaryService(env, core);
+  return new AuthSummaryService(core);
 }
 
 describe('AuthSummaryService API key environment references', () => {

@@ -186,30 +186,6 @@ describe('GET /api/v1/auth — readiness probe (P2.1 D2)', () => {
     });
   });
 
-  it('surfaces managed_provider.unauthenticated when config has managed:kimi-code but no cached token', async () => {
-    seedConfig(
-      [
-        '[providers."managed:kimi-code"]',
-        'type = "pythinker"',
-        'base_url = "https://example/v1"',
-        '',
-        '[providers."managed:kimi-code".oauth]',
-        'storage = "file"',
-        'key = "oauth/kimi-code"',
-        '',
-      ].join('\n'),
-    );
-    const r = await bootDaemon();
-    const res = await appOf(r).inject({ method: 'GET', url: '/api/v1/auth' });
-    const env = envelopeOf<AuthSummary>(res.json());
-    const summary = authSummarySchema.parse(env.data);
-    expect(summary.managed_provider).toEqual({
-      name: 'managed:kimi-code',
-      status: 'unauthenticated',
-    });
-    // ready is still false — no default_model, even though provider exists
-    expect(summary.ready).toBe(false);
-  });
 });
 
 /* -------------------------------------------------------------------- */

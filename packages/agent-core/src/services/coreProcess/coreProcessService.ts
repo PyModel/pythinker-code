@@ -5,13 +5,11 @@
 import { createRPC, PythinkerCore } from '../../rpc';
 import { Disposable, registerSingleton, SyncDescriptor } from '../../di';
 import type { CoreAPI, CoreRPC, SDKAPI } from '../../rpc';
-import type { OAuthTokenProviderResolver } from '../../session/provider-manager';
 import {
   createPythinkerDefaultHeaders,
   type PythinkerHostIdentity,
 } from '@pythoughts/pythinker-code-oauth';
 
-import { createManagedAuthFacade } from '../auth/managedAuth';
 import { BridgeClientAPI } from './coreProcessClient';
 import { IApprovalService } from '../approval/approval';
 import { IEnvironmentService } from '../environment/environment';
@@ -67,21 +65,6 @@ export class CoreProcessService extends Disposable implements ICoreProcessServic
     //    function PythinkerCore receives, `sdkRpc` is the one we satisfy.
     const [coreRpc, sdkRpc] = createRPC<CoreAPI, SDKAPI>();
 
-    // Default-wire the OAuth token resolver. Without this, PythinkerCore's
-    // `ProviderManager.resolveAuth` sees `resolveOAuthTokenProvider ===
-    // undefined` and synthesizes a closure that ALWAYS throws
-    // `AUTH_LOGIN_REQUIRED` — even after a successful device-code login that
-    // persisted a fresh token to disk. The daemon's `/auth` readiness probe
-    // is a different code path (file existence on the credentials store) so
-    // it stays green; the failure only surfaces inside the prompt turn, as
-    // an `auth.login_required` error after `turn.step.started`. We bridge
-    // the gap by default-constructing a managed auth facade against the same
-    // home + config paths PythinkerCore will use, and handing its
-    // `resolveOAuthTokenProvider` into the core. Callers (e.g. node-sdk
-    // tests) can still override via `options.resolveOAuthTokenProvider`.
-    const resolveOAuthTokenProvider: OAuthTokenProviderResolver =
-      options.resolveOAuthTokenProvider ??
-      CoreProcessService._defaultOAuthTokenResolver(env.homeDir, env.configPath);
 
     // Default-wire the Pythinker request headers (User-Agent + X-Msh-* device
     // identity). Without this, PythinkerCore's outbound fetch carries the
@@ -114,7 +97,6 @@ export class CoreProcessService extends Disposable implements ICoreProcessServic
       configPath: env.configPath,
       pythinkerRequestHeaders,
       appVersion,
-      resolveOAuthTokenProvider,
       resolveWorkspaceId,
     });
 
@@ -183,23 +165,6 @@ export class CoreProcessService extends Disposable implements ICoreProcessServic
     });
   }
 
-  /**
-   * Build the default `resolveOAuthTokenProvider` from the same home + config
-   * paths PythinkerCore resolves internally. Mirrors `SDKRpcClient`'s default in
-   * `packages/node-sdk/src/sdk-rpc-client.ts` so the daemon and the SDK
-   * runtimes share OAuth credentials when both run against the same
-   * `~/.pythinker-code`.
-   *
-   * Exposed as `static` so tests can assert the wiring without exercising the
-   * full agent-core turn loop.
-   */
-  static _defaultOAuthTokenResolver(
-    homeDir: string,
-    configPath: string,
-  ): OAuthTokenProviderResolver {
-    const facade = createManagedAuthFacade({ homeDir, configPath });
-    return facade.resolveOAuthTokenProvider;
-  }
 
   /**
    * Build the default `pythinkerRequestHeaders` from `options.identity` so the

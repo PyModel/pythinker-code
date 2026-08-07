@@ -81,7 +81,10 @@ export const authHandlers: Record<string, Handler<any, any>> = {
 
   [Methods.Logout]: async (_, ctx): Promise<LoginResult> => {
     try {
-      await ctx.harness.auth.logout();
+      const config = await ctx.harness.getConfig({ reload: true });
+      for (const providerId of Object.keys(config.providers ?? {})) {
+        await ctx.harness.removeProvider(providerId);
+      }
       await updateLoginContext(ctx.harness);
       return { success: true };
     } catch (error) {

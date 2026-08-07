@@ -11,7 +11,6 @@ import type { Kaos } from '@pythoughts/kaos';
 import type { ContentPart, ModelCostRates } from '@pythoughts/kosong';
 import type {
   PythinkerHostIdentity,
-  OAuthRefreshOutcome,
 } from '@pythoughts/pythinker-code-oauth';
 
 export type JsonPrimitive = string | number | boolean | null;
@@ -96,7 +95,7 @@ export type {
   WorkingTreeFileDiff,
 } from '@pythoughts/agent-core';
 
-export type { PythinkerHostIdentity, OAuthRefreshOutcome };
+export type { PythinkerHostIdentity };
 export type { TelemetryClient, TelemetryContextPatch, TelemetryProperties };
 export type { ContentPart, ModelCostRates, Role, ToolCall } from '@pythoughts/kosong';
 
@@ -124,7 +123,6 @@ export interface PythinkerHarnessOptions {
   readonly uiMode?: string;
   readonly skillDirs?: readonly string[];
   readonly telemetry?: TelemetryClient | undefined;
-  readonly onOAuthRefresh?: ((outcome: OAuthRefreshOutcome) => void) | undefined;
 }
 
 export interface CreateSessionOptions {

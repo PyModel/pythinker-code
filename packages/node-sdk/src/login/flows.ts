@@ -10,12 +10,10 @@ import {
   OpenAICodexApiError,
   OpenPlatformApiError,
   runOpenAICodexOAuthFlow,
-  type ManagedKimiCodeModelInfo,
-  type ManagedKimiConfigShape,
-  KIMI_CODE_PROVIDER_NAME as DEFAULT_OAUTH_PROVIDER_NAME,
   type OpenPlatformDefinition,
+  type PlatformConfigShape,
+  type PlatformModelInfo,
 } from '@pythoughts/pythinker-code-oauth';
-import { log } from '@pythoughts/agent-core';
 import {
   applyCatalogProvider,
   catalogBaseUrl,
@@ -27,9 +25,8 @@ import {
 } from '#/catalog';
 
 import { formatErrorMessage } from '../error-format';
-import { KIMI_CODE_PLATFORM_ID } from './platform-options';
 import { catalogProviderIdFromPlatformValue } from './platform-values';
-import type { LoginProgressSpinnerHandle, LoginUi } from './types';
+import type { LoginUi } from './types';
 
 // ---------------------------------------------------------------------------
 // Login flows behind the LoginUi port (shared with non-TUI renderers)
@@ -54,9 +51,6 @@ export async function runLogin(ui: LoginUi): Promise<boolean> {
     return connectCatalogProvider(ui, catalogProviderId, catalog[catalogProviderId]);
   }
 
-  if (platformId === KIMI_CODE_PLATFORM_ID) {
-    return handlePythinkerCodeOAuthLogin(ui);
-  }
 
   if (platformId === OPENAI_CODEX_OAUTH_PLATFORM_ID) {
     return handleOpenAICodexOAuthLogin(ui);
@@ -77,66 +71,6 @@ export async function runLogin(ui: LoginUi): Promise<boolean> {
   return handleOpenPlatformLogin(ui, platform);
 }
 
-async function handlePythinkerCodeOAuthLogin(ui: LoginUi): Promise<boolean> {
-  const status = await ui.harness.auth.status(DEFAULT_OAUTH_PROVIDER_NAME);
-  const alreadyLoggedIn = status.providers.some(
-    (provider) => provider.providerName === DEFAULT_OAUTH_PROVIDER_NAME && provider.hasToken,
-  );
-
-  let spinner: LoginProgressSpinnerHandle | undefined;
-  const controller = new AbortController();
-  const cancelLogin = (): void => {
-    controller.abort();
-  };
-  ui.cancelInFlight = cancelLogin;
-  try {
-    await ui.harness.auth.login(DEFAULT_OAUTH_PROVIDER_NAME, {
-      signal: controller.signal,
-      onDeviceCode: (data) => {
-        spinner = ui.showLoginAuthorizationPrompt(data);
-      },
-    });
-    spinner?.stop({ ok: true, label: 'Logged in.' });
-    spinner = undefined;
-    try {
-      await ui.refreshConfigAfterLogin();
-    } catch (refreshError) {
-      const message = formatErrorMessage(refreshError);
-      ui.showError(`Authentication successful, but failed to refresh config: ${message}`);
-      return false;
-    }
-    ui.track('login', {
-      provider: DEFAULT_OAUTH_PROVIDER_NAME,
-      already_logged_in: alreadyLoggedIn,
-    });
-    if (alreadyLoggedIn) {
-      ui.showStatus('Already logged in. Model configuration refreshed.');
-    }
-    return true;
-  } catch (error) {
-    const cancelled = controller.signal.aborted;
-    spinner?.stop({
-      ok: false,
-      label: cancelled ? 'Login cancelled.' : 'Login failed.',
-    });
-    spinner = undefined;
-    if (cancelled) return false;
-    log.warn('login failed', {
-      providerName: DEFAULT_OAUTH_PROVIDER_NAME,
-      alreadyLoggedIn,
-      sessionId: ui.sessionId,
-      error,
-    });
-    const message = formatErrorMessage(error);
-    ui.showError(`Login failed: ${message}`);
-    return false;
-  } finally {
-    if (ui.cancelInFlight === cancelLogin) {
-      ui.cancelInFlight = undefined;
-    }
-  }
-}
-
 async function handleOpenPlatformLogin(
   ui: LoginUi,
   platform: OpenPlatformDefinition,
@@ -155,7 +89,7 @@ async function handleOpenPlatformLogin(
   };
   ui.cancelInFlight = cancelLogin;
 
-  let models: ManagedKimiCodeModelInfo[];
+  let models: PlatformModelInfo[];
   try {
     models = await fetchOpenPlatformModels(platform, apiKey, fetch, controller.signal);
     models = filterModelsByPrefix(models, platform);
@@ -192,7 +126,7 @@ async function handleOpenPlatformLogin(
   }
 
   const config = await ui.harness.getConfig();
-  applyOpenPlatformConfig(config as ManagedKimiConfigShape, {
+  applyOpenPlatformConfig(config as PlatformConfigShape, {
     platform,
     models,
     selectedModel: selection.model,
@@ -360,7 +294,7 @@ async function handleOpenAICodexOAuthLogin(ui: LoginUi): Promise<boolean> {
       return false;
     }
 
-    let models: ManagedKimiCodeModelInfo[];
+    let models: PlatformModelInfo[];
     try {
       models = await fetchOpenAICodexModels({
         accessToken: tokens.accessToken,
@@ -402,7 +336,7 @@ async function handleOpenAICodexOAuthLogin(ui: LoginUi): Promise<boolean> {
     }
 
     const config = await ui.harness.getConfig();
-    applyOpenAICodexOAuthConfig(config as ManagedKimiConfigShape, {
+    applyOpenAICodexOAuthConfig(config as PlatformConfigShape, {
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
       accountId: tokens.accountId,

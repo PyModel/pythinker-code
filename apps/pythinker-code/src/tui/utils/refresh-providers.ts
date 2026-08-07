@@ -1,22 +1,17 @@
 import {
-  KIMI_CODE_PLATFORM_ID,
-  KIMI_CODE_PROVIDER_NAME,
   OPENAI_CODEX_PROVIDER_ID,
-  applyManagedKimiCodeConfig,
   applyOpenAICodexOAuthConfig,
   applyOpenPlatformConfig,
   applyCustomRegistryProvider,
   fetchCustomRegistry,
-  fetchManagedKimiCodeModels,
   fetchOpenAICodexModels,
   fetchOpenPlatformModels,
   filterModelsByPrefix,
   getOpenPlatformById,
   isOpenPlatformId,
   removeCustomRegistryProvider,
-  resolveKimiCodeRuntimeAuth,
   type CustomRegistrySource,
-  type ManagedKimiConfigShape,
+  type PlatformConfigShape,
 } from '@pythoughts/pythinker-code-oauth';
 import {
   applyCatalogProvider,
@@ -28,11 +23,9 @@ import {
   type PythinkerConfig,
   type PythinkerConfigPatch,
   type ModelAlias,
-  type OAuthRef,
   type ProviderConfig,
 } from '@pythoughts/pythinker-code-sdk';
 
-import { PRODUCT_NAME } from '#/constant/app';
 
 export interface RefreshProviderHost {
   getConfig(): Promise<PythinkerConfig>;
@@ -40,7 +33,6 @@ export interface RefreshProviderHost {
   setConfig(patch: PythinkerConfigPatch): Promise<PythinkerConfig>;
   /** Persists a fully-recomputed config; removals and cleared defaults survive. */
   replaceConfig(config: PythinkerConfig): Promise<PythinkerConfig>;
-  resolveOAuthToken(providerName: string, oauthRef?: OAuthRef): Promise<string>;
 }
 
 export interface ProviderChange {
@@ -116,8 +108,8 @@ async function fetchCustomRegistryFromSources(
   throw new Error('No custom registry sources configured.');
 }
 
-function asManaged(config: PythinkerConfig): ManagedKimiConfigShape {
-  return config as unknown as ManagedKimiConfigShape;
+function asManaged(config: PythinkerConfig): PlatformConfigShape {
+  return config as unknown as PlatformConfigShape;
 }
 
 function collectModelIdsForAliases(config: PythinkerConfig, aliasKeys: ReadonlySet<string>): Set<string> {
@@ -339,79 +331,7 @@ export async function refreshAllProviderModels(
   let config = await host.getConfig();
 
   // -------------------------------------------------------------------------
-  // 1. Managed Pythinker Code (OAuth)
-  // -------------------------------------------------------------------------
-  const managedProvider = config.providers[KIMI_CODE_PROVIDER_NAME];
-  if (
-    managedProvider !== undefined &&
-    managedProvider.type === 'pythinker' &&
-    managedProvider.oauth !== undefined
-  ) {
-    try {
-      const auth = resolveKimiCodeRuntimeAuth({
-        configuredBaseUrl: managedProvider.baseUrl,
-        configuredOAuthRef: managedProvider.oauth,
-      });
-      const accessToken = await host.resolveOAuthToken(KIMI_CODE_PROVIDER_NAME, auth.oauthRef);
-      const models = await fetchManagedKimiCodeModels({
-        accessToken,
-        baseUrl: auth.baseUrl,
-      });
-      if (models.length > 0) {
-        const next = structuredClone(config);
-        applyManagedKimiCodeConfig(asManaged(next), {
-          models,
-          baseUrl: auth.baseUrl,
-          oauthKey: auth.oauthRef.key,
-          oauthHost: auth.oauthRef.oauthHost,
-          preserveDefaultModel: true,
-        });
-        const refreshedAliasKeys = providerRefreshAliasKeys(
-          config,
-          next,
-          KIMI_CODE_PROVIDER_NAME,
-          `${KIMI_CODE_PLATFORM_ID}/`,
-        );
-        restoreProviderAliases(
-          next,
-          preserveUserProviderAliases(config, KIMI_CODE_PROVIDER_NAME, refreshedAliasKeys),
-        );
-        restoreDefaultSelection(next, config.defaultModel, config.defaultThinking);
-        clampDanglingDefault(next);
-        clearDefaultThinkingWhenDefaultRemoved(next, config.defaultModel);
-
-        if (providerModelsEqual(config, next, KIMI_CODE_PROVIDER_NAME, refreshedAliasKeys)) {
-          unchanged.push(KIMI_CODE_PROVIDER_NAME);
-        } else {
-          const { added, removed } = computeChanges(
-            collectModelIdsForAliases(config, refreshedAliasKeys),
-            collectModelIdsForAliases(next, refreshedAliasKeys),
-          );
-          await host.removeProvider(KIMI_CODE_PROVIDER_NAME);
-          config = await host.setConfig({
-            providers: next.providers,
-            models: next.models,
-            defaultModel: next.defaultModel,
-            defaultThinking: next.defaultThinking,
-          });
-          changed.push({
-            providerId: KIMI_CODE_PROVIDER_NAME,
-            providerName: PRODUCT_NAME,
-            added,
-            removed,
-          });
-        }
-      }
-    } catch (error) {
-      failed.push({
-        provider: KIMI_CODE_PROVIDER_NAME,
-        reason: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-
-  // -------------------------------------------------------------------------
-  // 1b. OpenAI Codex (OAuth)
+  // 1. OpenAI Codex (OAuth)
   // -------------------------------------------------------------------------
   const codexProvider = config.providers[OPENAI_CODEX_PROVIDER_ID];
   if (codexProvider !== undefined && codexProvider.type === 'openai_responses') {
@@ -688,7 +608,6 @@ export async function refreshAllProviderModels(
     }
   >();
   for (const [providerId, providerConfig] of Object.entries(config.providers)) {
-    if (providerId === KIMI_CODE_PROVIDER_NAME) continue;
     if (providerId === OPENAI_CODEX_PROVIDER_ID) continue;
     if (isOpenPlatformId(providerId)) continue;
     const source = readCustomRegistrySource(providerConfig);

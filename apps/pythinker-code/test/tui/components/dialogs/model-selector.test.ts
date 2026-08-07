@@ -20,7 +20,7 @@ function model(
   supportEfforts?: string[],
 ): ModelAlias {
   return {
-    provider: 'managed:kimi-code',
+    provider: 'moonshot-cn',
     model: displayName.toLowerCase().replaceAll(' ', '-'),
     maxContextSize: 200_000,
     displayName,
@@ -95,8 +95,8 @@ describe('ModelSelectorComponent', () => {
 
     const out = text(picker);
     // Model name on the left, provider on the right, with the current marker.
-    expect(out).toMatch(/❯ Kimi K2\s+Kimi ← current/);
-    expect(out).not.toContain('Kimi K2 (Kimi)');
+    expect(out).toMatch(/❯ Kimi K2\s+moonshot-cn ← current/);
+    expect(out).not.toContain('Kimi K2 (moonshot-cn)');
   });
 
   it('moves the effort draft with Left/Right (no wraparound)', () => {

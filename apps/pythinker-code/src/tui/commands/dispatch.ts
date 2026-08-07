@@ -1,5 +1,4 @@
 import type { Component, Focusable } from '@earendil-works/pi-tui';
-import type { DeviceAuthorization } from '@pythoughts/pythinker-code-oauth';
 import type { PythinkerHarness, Session } from '@pythoughts/pythinker-code-sdk';
 
 import type { ColorToken, ThemeName } from '#/tui/theme';
@@ -179,7 +178,6 @@ export interface SlashCommandHost {
 
   // UI
   showLoginProgressSpinner(label: string): LoginProgressSpinnerHandle;
-  showLoginAuthorizationPrompt(auth: DeviceAuthorization): LoginProgressSpinnerHandle;
   showProgressSpinner(label: string): LoginProgressSpinnerHandle;
 
   // Theme

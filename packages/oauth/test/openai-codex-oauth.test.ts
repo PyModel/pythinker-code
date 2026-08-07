@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { createServer as createNetServer } from 'node:net';
 import { describe, expect, it, vi } from 'vitest';
 
-import type { ManagedKimiConfigShape } from '../src/managed-kimi-code';
+import type { PlatformConfigShape } from '../src/open-platform';
 import {
   applyOpenAICodexOAuthConfig,
   buildOpenAICodexAuthorizeUrl,
@@ -202,7 +202,7 @@ describe('openai-codex-oauth', () => {
     });
     const config = {
       providers: {},
-    } as ManagedKimiConfigShape;
+    } as PlatformConfigShape;
     const models = CODEX_MODELS_RESPONSE.models.map((model) => ({
       id: model.slug,
       contextLength: model.context_window,
@@ -247,7 +247,7 @@ describe('openai-codex-oauth', () => {
   });
 
   it('uses the selected model highest supported effort when max is unavailable', () => {
-    const config: ManagedKimiConfigShape = {
+    const config: PlatformConfigShape = {
       providers: {},
       thinking: { mode: 'auto', effort: 'low' },
     };

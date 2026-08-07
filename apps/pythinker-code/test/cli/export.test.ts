@@ -411,7 +411,6 @@ describe('pythinker export', () => {
       version: expect.any(String),
       uiMode: 'shell',
       model: 'k2',
-      getAccessToken: expect.any(Function),
     });
     expect(mocks.initializeTelemetry.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.harnessExportSession.mock.invocationCallOrder[0]!,

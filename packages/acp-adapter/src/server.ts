@@ -104,15 +104,8 @@ function toResolvedSlashCommands(
   };
 }
 
-/**
- * Inline auth gate — moved out of `PythinkerAuthFacade.hasUsableToken()` so
- * the SDK doesn't have to carry an ACP-specific convenience method.
- * Mirrors the original semantics exactly: any provider with `hasToken`
- * set counts as authed.
- */
 async function harnessIsAuthed(harness: PythinkerHarness): Promise<boolean> {
-  const status = await harness.auth.status();
-  return status.providers.some((entry) => entry.hasToken === true);
+  return harness.isAuthenticated();
 }
 
 /**

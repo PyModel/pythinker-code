@@ -535,7 +535,6 @@ effort = "medium"
     const harness = new PythinkerHarness(rpc, {
       homeDir: '/tmp/home',
       configPath: '/tmp/config.toml',
-      auth: { status: async () => ({ providers: [] }) } as never,
       telemetry: recordingTelemetry(records),
       ensureConfigFile: async () => undefined,
       onClose: () => undefined,

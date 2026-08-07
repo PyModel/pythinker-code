@@ -1,6 +1,5 @@
-import { createPythinkerDeviceId, KIMI_CODE_PROVIDER_NAME } from '@pythoughts/pythinker-code-oauth';
+import { createPythinkerDeviceId } from '@pythoughts/pythinker-code-oauth';
 import {
-  PythinkerAuthFacade,
   loadRuntimeConfigSafe,
   resolveConfigPath,
   resolvePythinkerHome,
@@ -17,7 +16,6 @@ import {
 
 import { CLI_USER_AGENT_PRODUCT, WEB_UI_MODE } from '#/constant/app';
 
-import { createPythinkerCodeHostIdentity } from './version';
 
 export interface CliTelemetryBootstrap {
   readonly homeDir: string;
@@ -54,8 +52,6 @@ export function initializeCliTelemetry(options: InitializeCliTelemetryOptions): 
     version: options.version,
     uiMode: options.uiMode,
     model: options.model ?? options.config.defaultModel,
-    getAccessToken: async () =>
-      (await options.harness.auth.getCachedAccessToken(KIMI_CODE_PROVIDER_NAME)) ?? null,
   });
   if (options.bootstrap.firstLaunch) {
     options.harness.track('first_launch');
@@ -88,11 +84,6 @@ export function initializeServerTelemetry(
   const bootstrap = createCliTelemetryBootstrap();
   const configPath = resolveConfigPath({ homeDir: bootstrap.homeDir });
   const config = readServerTelemetryConfig(configPath);
-  const auth = new PythinkerAuthFacade({
-    homeDir: bootstrap.homeDir,
-    configPath,
-    identity: createPythinkerCodeHostIdentity(options.version),
-  });
 
   initializeTelemetry({
     homeDir: bootstrap.homeDir,
@@ -102,7 +93,6 @@ export function initializeServerTelemetry(
     version: options.version,
     uiMode: WEB_UI_MODE,
     model: config.defaultModel,
-    getAccessToken: async () => (await auth.getCachedAccessToken(KIMI_CODE_PROVIDER_NAME)) ?? null,
   });
 
   return {
