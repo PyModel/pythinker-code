@@ -426,16 +426,23 @@ describe('pythinker login', () => {
     mockGetConfig.mockResolvedValue({ providers: {}, models: {} });
     vi.mocked(password).mockResolvedValue('sk-test-key');
     mockFetchOpenPlatformModels.mockResolvedValue([
-      { id: 'glm-4', name: 'GLM 4', contextLength: 128_000 },
+      { id: 'glm-4', name: 'GLM 4', contextLength: 128_000, supportsReasoning: true },
     ]);
     // The model select's value is the `<platform>/<model>` alias, not the bare id.
     vi.mocked(select)
       .mockResolvedValueOnce('glm-zai-coding/glm-4')
-      .mockResolvedValueOnce('off');
+      .mockResolvedValueOnce('medium');
 
     await runLogin(['login', '--provider', 'glm-zai-coding']);
 
-    expect(mockSetConfig).toHaveBeenCalled();
+    // This path has its own setConfig patch, which omitted `thinking` the same
+    // way the catalog one did, so the picked level needs asserting here too.
+    expect(mockSetConfig).toHaveBeenCalledWith(
+      expect.objectContaining({
+        defaultThinking: true,
+        thinking: expect.objectContaining({ effort: 'medium' }),
+      }),
+    );
     expect(exitSpy.mock.calls[0]?.[0]).toBe(0);
   });
 });
