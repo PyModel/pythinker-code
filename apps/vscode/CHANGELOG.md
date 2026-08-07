@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.5
+
+### Patch Changes
+
+- Updated dependencies [[`42da384`](https://github.com/Pythoughts-labs/pythinker-code/commit/42da384cb36d29ecf0cc147f753790e022e13709)]:
+  - @pythoughts/pythinker-code-sdk@0.12.0
+
 ## 0.8.4
 
 ### Patch Changes
