@@ -1,6 +1,6 @@
 # Repository-level Agent Guide
 
-Reply in English unless the user explicitly asks otherwise.
+Reply in English unless the user explicitly asks otherwise. Always talk in ASD-STE100 Simplified Technical English.
 
 TypeScript monorepo for **pythinker-code**, a provider-agnostic AI coding agent. This file covers product identity, project map, hard constraints, and workflow rules.
 
