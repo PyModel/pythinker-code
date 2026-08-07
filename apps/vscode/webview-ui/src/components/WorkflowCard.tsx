@@ -129,7 +129,7 @@ export function WorkflowCard({ call, result, subagentSteps, subagentStatus, work
         </div>
       </div>
       {workflowWarning && (
-        <div className="px-3 pb-2 text-[11px] text-amber-600 dark:text-amber-400 truncate">
+        <div className="px-3 pb-2 text-[11px] text-amber-600 dark:text-amber-400 break-words">
           {workflowWarning.message}
         </div>
       )}

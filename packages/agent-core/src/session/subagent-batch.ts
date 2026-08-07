@@ -166,7 +166,11 @@ export class SubagentBatch<T> {
   ) {
     // Clamped rather than validated: a limit of 0 would stall the batch forever with no
     // error to read, which is a worse failure than quietly running one at a time.
-    this.concurrencyLimit = Math.max(1, Math.trunc(concurrencyLimit));
+    // NaN survives both Math.trunc and Math.max, and every `running < limit` test
+    // against it is false, so it stalls the batch the same way 0 would.
+    this.concurrencyLimit = Number.isFinite(concurrencyLimit)
+      ? Math.max(1, Math.trunc(concurrencyLimit))
+      : MAX_CONCURRENT_WORKFLOW_SUBAGENTS;
     this.states = tasks.map((task, index) => ({
       index,
       task,

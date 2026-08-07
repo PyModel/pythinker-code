@@ -27,6 +27,7 @@ import {
 } from '#/catalog';
 
 import { formatErrorMessage } from '../error-format';
+import { KIMI_CODE_PLATFORM_ID } from './platform-options';
 import { catalogProviderIdFromPlatformValue } from './platform-values';
 import type { LoginProgressSpinnerHandle, LoginUi } from './types';
 
@@ -53,7 +54,7 @@ export async function runLogin(ui: LoginUi): Promise<boolean> {
     return connectCatalogProvider(ui, catalogProviderId, catalog[catalogProviderId]);
   }
 
-  if (platformId === 'kimi-code') {
+  if (platformId === KIMI_CODE_PLATFORM_ID) {
     return handlePythinkerCodeOAuthLogin(ui);
   }
 
@@ -205,6 +206,9 @@ async function handleOpenPlatformLogin(
     models: config.models,
     defaultModel: config.defaultModel,
     defaultThinking: config.defaultThinking,
+    // `applyOpenPlatformConfig` writes the picked effort here. Leaving it out of
+    // the patch dropped it, so only the on/off bit ever reached disk.
+    thinking: config.thinking,
   });
 
   await ui.refreshConfigAfterLogin();
@@ -301,6 +305,9 @@ export async function connectCatalogProvider(
     models: config.models,
     defaultModel: config.defaultModel,
     defaultThinking: config.defaultThinking,
+    // `applyCatalogProvider` writes the picked effort here. Leaving it out of
+    // the patch dropped it, so only the on/off bit ever reached disk.
+    thinking: config.thinking,
   });
 
   await ui.refreshConfigAfterLogin();

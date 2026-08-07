@@ -38,7 +38,13 @@ export async function fetchCatalog(
   if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
     throw new Error(`Unexpected catalog response from ${url}.`);
   }
-  return payload as Catalog;
+  // Drop entries that are not objects instead of casting the payload whole. A
+  // `null` entry reaches `catalogConnectionWire` and throws well past the
+  // caller's fallback, which turns one malformed record into a dead login.
+  const entries = Object.entries(payload).filter(
+    ([, entry]) => typeof entry === 'object' && entry !== null && !Array.isArray(entry),
+  );
+  return Object.fromEntries(entries) as Catalog;
 }
 
 function capabilityToStrings(
@@ -137,8 +143,10 @@ export function applyCatalogProvider(
   config.defaultModel = defaultModel;
   config.defaultThinking = options.thinking;
   // defaultThinking is a boolean, so without this the picked level is lost and
-  // the session reopens at 'high' regardless of what the user chose.
-  if (options.effort !== undefined && options.effort !== 'off') {
+  // the session reopens at 'high' regardless of what the user chose. 'off' is
+  // written too rather than skipped: `setConfig` deep-merges and cannot delete a
+  // key, so skipping it would leave a previous login's effort on disk.
+  if (options.effort !== undefined) {
     config.thinking = { ...config.thinking, effort: options.effort };
   }
   return { defaultModel };

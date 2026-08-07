@@ -73,24 +73,40 @@ const host = vi.hoisted(() => {
   const executeCommand = vi.fn(async () => undefined);
 
   class Uri {
-    readonly scheme = "file";
-    readonly authority = "";
+    readonly scheme: string;
+    readonly authority: string;
     readonly path: string;
 
-    constructor(readonly fsPath: string) {
-      this.path = fsPath;
+    constructor(
+      readonly fsPath: string,
+      parts?: { scheme: string; authority: string; path: string },
+    ) {
+      this.scheme = parts?.scheme ?? "file";
+      this.authority = parts?.authority ?? "";
+      this.path = parts?.path ?? fsPath;
     }
 
     static joinPath(base: Uri, ...segments: string[]): Uri {
       return new Uri(join(base.fsPath, ...segments));
     }
 
+    // Keeps the scheme the caller parsed. Collapsing every input to `file:`
+    // hid what `openExternal` actually received, which is the one thing an
+    // OAuth assertion needs to see.
     static parse(input: string): Uri {
-      return new Uri(input);
+      const match = /^([a-z][a-z0-9+.-]*):\/\/([^/?#]*)(.*)$/iu.exec(input);
+      if (match === null) return new Uri(input);
+      return new Uri(input, {
+        scheme: match[1]!.toLowerCase(),
+        authority: match[2]!,
+        path: match[3]!,
+      });
     }
 
     toString(): string {
-      return `file://${this.path}`;
+      return this.scheme === "file" && this.authority === ""
+        ? `file://${this.path}`
+        : `${this.scheme}://${this.authority}${this.path}`;
     }
   }
 
@@ -859,6 +875,10 @@ describe("Webview login (multi-provider picker behind Methods.Login)", () => {
           anthropic: expect.objectContaining({ apiKey: "sk-typed-in" }),
         }),
         defaultModel: "anthropic/claude-opus-4-7",
+        // The picked level, not just the on/off bit: the patch used to omit
+        // `thinking`, so every session reopened at the default effort.
+        defaultThinking: true,
+        thinking: expect.objectContaining({ effort: "medium" }),
       }),
     );
   });
@@ -878,6 +898,41 @@ describe("Webview login (multi-provider picker behind Methods.Login)", () => {
     expect(host.showInformationMessage).toHaveBeenCalledWith(
       expect.stringContaining("Using bundled provider catalog"),
     );
+  });
+
+  it("opens the OAuth verification URL externally with its scheme intact", async () => {
+    host.harness.auth.status.mockResolvedValue({ providers: [] } as never);
+    host.harness.auth.login.mockImplementation(
+      async (_provider: string, options: { onDeviceCode?: (auth: unknown) => void }) => {
+        options.onDeviceCode?.({
+          userCode: "WDJB-MJHT",
+          deviceCode: "devcode123",
+          verificationUri: "https://auth.kimi.com/verify",
+          verificationUriComplete: "https://auth.kimi.com/verify?user_code=WDJB-MJHT",
+          expiresIn: 600,
+          interval: 5,
+        });
+        return { providerName: "managed:kimi-code", ok: true };
+      },
+    );
+    host.showQuickPick.mockImplementationOnce(
+      async (items: Array<{ value: string }>) =>
+        items.find((item) => item.value === "kimi-code"),
+    );
+
+    await bridge.handle({ id: "rpc-login", method: Methods.Login }, "view-1");
+
+    // The webview and the browser must be handed the same https URL. An earlier
+    // mock collapsed every scheme to `file:`, which would have hidden a URL the
+    // extension opened with the wrong one.
+    expect(broadcast).toHaveBeenCalledWith(
+      Events.LoginUrl,
+      { url: "https://auth.kimi.com/verify?user_code=WDJB-MJHT" },
+      "view-1",
+    );
+    const opened = host.openExternal.mock.calls[0]?.[0] as { scheme: string; toString: () => string };
+    expect(opened.scheme).toBe("https");
+    expect(opened.toString()).toBe("https://auth.kimi.com/verify?user_code=WDJB-MJHT");
   });
 
   it("reports cancellation without writing config when the picker is dismissed", async () => {
@@ -903,7 +958,28 @@ describe("Webview login (multi-provider picker behind Methods.Login)", () => {
   });
 
   it("opens one cancellable progress notification and hands its token to every prompt", async () => {
-    host.showQuickPick.mockResolvedValue(undefined as never);
+    // Driven all the way through the credential flow rather than dismissed at
+    // the picker: a token that only reaches the first widget still strands the
+    // user on the key, model, and effort prompts.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => CATALOG_RESPONSE,
+      })),
+    );
+    host.harness.getConfig.mockResolvedValue({ providers: {}, models: {} } as never);
+    host.showInputBox.mockResolvedValue("sk-typed-in" as never);
+    host.showQuickPick
+      .mockImplementationOnce(
+        async (items: Array<{ value: string }>) =>
+          items.find((item) => item.value === "catalog:anthropic"),
+      )
+      .mockImplementationOnce(async (items: unknown[]) => items[0])
+      .mockImplementationOnce(async (items: Array<{ label: string }>) =>
+        items.find((item) => item.label === "medium"),
+      );
 
     await bridge.handle({ id: "rpc-login", method: Methods.Login }, "view-1");
 
@@ -913,9 +989,18 @@ describe("Webview login (multi-provider picker behind Methods.Login)", () => {
       (call) => (call[0] as { title?: string }).title === "Signing in to Pythinker",
     );
     expect(loginProgress?.[0]).toMatchObject({ cancellable: true });
-    // The token has to reach the prompt itself: cancelling has to close the
+
+    // The token has to reach each prompt itself: cancelling has to close the
     // widget the user is looking at, not just abort a background fetch.
-    expect(host.showQuickPick.mock.calls[0]?.[2]).toBeDefined();
+    // Provider, model, and effort pickers, then the API-key box.
+    expect(host.showQuickPick).toHaveBeenCalledTimes(3);
+    for (const call of host.showQuickPick.mock.calls) {
+      expect(call[2]).toBeDefined();
+    }
+    expect(host.showInputBox).toHaveBeenCalled();
+    for (const call of host.showInputBox.mock.calls) {
+      expect(call[1]).toBeDefined();
+    }
   });
 
   it("cancelling the progress notification aborts the catalog fetch", async () => {

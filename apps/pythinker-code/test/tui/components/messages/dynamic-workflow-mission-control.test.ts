@@ -665,6 +665,43 @@ describe('DynamicWorkflowMissionControlComponent', () => {
     }
   });
 
+  it('never marks a row that has not started as stalled', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const previousLevel = chalk.level;
+    const previousPalette = currentTheme.palette;
+    chalk.level = 3;
+    currentTheme.setPalette(darkColors);
+
+    try {
+      const component = createComponent();
+      component.updateArgs({ items: ['First', 'Second'] });
+      component.markInputComplete();
+      component.registerSubagent({ agentId: 'agent-1' });
+      component.registerSubagent({ agentId: 'agent-2' });
+      component.markStarted('agent-1');
+
+      // A queued row waits behind the concurrency limit; its clock would run
+      // from the launch of the workflow, so a long queue used to paint every
+      // waiting row red while nothing was wrong.
+      vi.setSystemTime(DYNAMIC_WORKFLOW_RENDERING.stalledIdleMs * 2);
+      const queued = memberLine(renderText(component, 100), 2);
+      expect(queued).toMatch(/0⚒\s+–\s+◌ WAIT/u);
+      expect(queued).not.toMatch(/\d+s/u);
+
+      const queuedRaw = component.render(100).find(
+        (candidate) => strip(candidate).replace(/^│\s*/u, '').startsWith('002'),
+      );
+      expect(queuedRaw).toContain(chalk.hex(darkColors.textMuted)('   –'));
+      // The running row still reports its silence, so the alarm is not simply gone.
+      expect(memberLine(renderText(component, 100), 1)).toMatch(/0⚒\s+\d+s/u);
+    } finally {
+      vi.useRealTimers();
+      chalk.level = previousLevel;
+      currentTheme.setPalette(previousPalette);
+    }
+  });
+
   it('reports aggregate completion counts without estimating overall progress', () => {
     const component = createComponent();
     component.updateArgs({

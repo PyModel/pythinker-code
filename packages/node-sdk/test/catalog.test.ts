@@ -56,6 +56,18 @@ describe('fetchCatalog', () => {
       fetchCatalog('https://x', undefined, fetchMock as unknown as typeof fetch),
     ).rejects.toThrow(/Unexpected catalog response/);
   });
+
+  it('drops entries that are not objects instead of failing the whole catalog', async () => {
+    // A malformed entry reaches `catalogConnectionWire` and throws well past
+    // the caller's bundled-catalog fallback, so one bad record used to take the
+    // whole provider picker down with it.
+    const good = { id: 'anthropic', models: { x: { id: 'x', limit: { context: 1000 } } } };
+    const fetchMock = vi.fn(async () =>
+      catalogResponse({ anthropic: good, broken: null, alsoBroken: 'nope', listy: [1] }),
+    );
+    const result = await fetchCatalog('https://x', undefined, fetchMock as unknown as typeof fetch);
+    expect(result).toEqual({ anthropic: good });
+  });
 });
 
 describe('catalogModelToAlias', () => {
@@ -148,8 +160,8 @@ describe('applyCatalogProvider', () => {
     expect(config.thinking?.effort).toBe('medium');
   });
 
-  it('records thinking off without inventing an effort level', () => {
-    const config = { providers: {} } as PythinkerConfig;
+  it('overwrites a previous effort when the user turns thinking off', () => {
+    const config = { providers: {}, thinking: { effort: 'high' } } as PythinkerConfig;
     applyCatalogProvider(config, {
       providerId: 'anthropic',
       wire: 'anthropic',
@@ -160,8 +172,11 @@ describe('applyCatalogProvider', () => {
       effort: 'off',
     });
 
+    // 'off' is written rather than deleted: callers persist through `setConfig`,
+    // a deep merge that cannot remove a key, so leaving it out would keep 'high'
+    // on disk for the next session.
     expect(config.defaultThinking).toBe(false);
-    expect(config.thinking?.effort).toBeUndefined();
+    expect(config.thinking?.effort).toBe('off');
   });
 
   it('writes interleaved reasoning key from a catalog-selected model alias', () => {

@@ -147,6 +147,37 @@ describe('SubagentBatch scheduling contract', () => {
     }
   });
 
+  it.each([
+    ['NaN', Number.NaN],
+    ['Infinity', Number.POSITIVE_INFINITY],
+  ])('falls back to the default limit for a %s concurrency limit', async (_label, limit) => {
+    vi.useFakeTimers();
+    try {
+      // NaN survives Math.trunc and Math.max, and `running < NaN` is always
+      // false, so the batch would launch nothing and never finish.
+      const { runBatch, attempts } = createMockBatchRunner({}, limit);
+      const running = runBatch([queuedTask(1), queuedTask(2)], { signal });
+
+      await vi.advanceTimersByTimeAsync(0);
+      expect(attempts).toHaveLength(2);
+
+      for (const [index, attempt] of attempts.entries()) {
+        attempt.outcome.resolve({
+          task: attempt.task,
+          agentId: `agent-${String(index + 1)}`,
+          status: 'completed',
+          result: `completed ${String(index + 1)}`,
+        });
+      }
+      await vi.advanceTimersByTimeAsync(0);
+
+      const results = await running;
+      expect(results.map((result) => result.task.data)).toEqual([1, 2]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('re-arms the launch timer while the concurrency cap blocks the ramp', async () => {
     vi.useFakeTimers();
     try {

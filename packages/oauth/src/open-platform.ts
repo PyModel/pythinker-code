@@ -280,8 +280,10 @@ export function applyOpenPlatformConfig(
   config.defaultModel = modelKey;
   config.defaultThinking = options.thinking;
   // defaultThinking is a boolean, so without this the picked level is lost and
-  // the session reopens at 'high' regardless of what the user chose.
-  if (options.effort !== undefined && options.effort !== 'off') {
+  // the session reopens at 'high' regardless of what the user chose. 'off' is
+  // written too rather than skipped: `setConfig` deep-merges and cannot delete a
+  // key, so skipping it would leave a previous login's effort on disk.
+  if (options.effort !== undefined) {
     config.thinking = { ...config.thinking, effort: options.effort };
   }
 

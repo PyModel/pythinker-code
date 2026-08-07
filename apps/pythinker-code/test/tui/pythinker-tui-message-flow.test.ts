@@ -1841,7 +1841,7 @@ command = "vim"
     );
 
     transcript = stripSgr(renderTranscript(driver));
-    expect(transcript).toMatch(/001\s+0⚒\s+\d+s\s+◌ WAIT\s+Fresh work/u);
+    expect(transcript).toMatch(/001\s+0⚒\s+–\s+◌ WAIT\s+Fresh work/u);
     expect(transcript).not.toContain('Late completion from undone work');
   });
 
@@ -4092,7 +4092,7 @@ command = "vim"
 
     transcript = stripSgr(renderTranscript(driver));
     expect(transcript).toContain('0/2 complete');
-    expect(transcript).toMatch(/001\s+0⚒\s+\d+s\s+◌ WAIT\s+src\/a.ts/u);
+    expect(transcript).toMatch(/001\s+0⚒\s+–\s+◌ WAIT\s+src\/a.ts/u);
   });
 
   it('keeps terminal Dynamic Workflow results static and does not fabricate child failures', async () => {
@@ -4161,7 +4161,7 @@ command = "vim"
     } as Event);
 
     const transcript = stripSgr(renderTranscript(driver));
-    expect(transcript).toMatch(/001\s+0⚒\s+\d+s\s+◌ WAIT\s+src\/fresh.ts/u);
+    expect(transcript).toMatch(/001\s+0⚒\s+–\s+◌ WAIT\s+src\/fresh.ts/u);
     expect(transcript).not.toContain('must not leak');
     },
   );

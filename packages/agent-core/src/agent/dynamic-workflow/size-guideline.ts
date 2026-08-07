@@ -12,12 +12,10 @@ const GUIDELINE_TARGETS: Record<WorkflowSizeGuideline, number | undefined> = {
   unrestricted: undefined,
 };
 
-const WORKFLOW_SIZE_GUIDELINE_NAMES = new Set<string>([
-  'small',
-  'medium',
-  'large',
-  'unrestricted',
-]);
+// Derived from the targets rather than listed again: the record is
+// exhaustiveness-checked against WorkflowSizeGuideline, so a new guideline
+// cannot be accepted by the env parser without also getting a target.
+const WORKFLOW_SIZE_GUIDELINE_NAMES = new Set<string>(Object.keys(GUIDELINE_TARGETS));
 
 /** The numeric subagent-count target for a guideline, or `undefined` for `unrestricted`. */
 export function workflowSizeGuidelineTarget(guideline: WorkflowSizeGuideline): number | undefined {

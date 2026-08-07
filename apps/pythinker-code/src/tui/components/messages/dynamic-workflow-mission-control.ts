@@ -1037,16 +1037,24 @@ function normalizeText(text: string | undefined): string {
  */
 function renderWorkCell(member: DynamicWorkflowMember, nowMs: number): string {
   const tools = currentTheme.fg('textDim', `${String(member.toolCalls).padStart(3, ' ')}⚒`);
-  if (isTerminalPhase(member.phase)) {
+  // A row that has not started has no silence to measure: its clock would run
+  // from the launch of the whole workflow, so a queue that is simply long would
+  // paint every waiting row red. Only a finished row and an unstarted one share
+  // the placeholder; the reason differs, but neither has an idle age.
+  if (isTerminalPhase(member.phase) || member.phase === 'pending' || member.phase === 'queued') {
     return `${tools} ${currentTheme.fg('textMuted', '   –')}`;
   }
   const idleMs = Math.max(0, nowMs - member.lastEventAtMs);
   const idleSeconds = Math.floor(idleMs / 1000);
-  const token = idleMs >= DYNAMIC_WORKFLOW_RENDERING.stalledIdleMs
-    ? 'error'
-    : idleMs >= DYNAMIC_WORKFLOW_RENDERING.quietIdleMs
-      ? 'warning'
-      : 'textMuted';
+  // Only a running row can stall. A suspended one is waiting on the user by
+  // design, so it keeps the count without the alarm colours.
+  const token = member.phase !== 'running'
+    ? 'textMuted'
+    : idleMs >= DYNAMIC_WORKFLOW_RENDERING.stalledIdleMs
+      ? 'error'
+      : idleMs >= DYNAMIC_WORKFLOW_RENDERING.quietIdleMs
+        ? 'warning'
+        : 'textMuted';
   return `${tools} ${currentTheme.fg(token, `${String(idleSeconds)}s`.padStart(4, ' '))}`;
 }
 

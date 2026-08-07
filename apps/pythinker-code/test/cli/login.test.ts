@@ -86,7 +86,7 @@ vi.mock('@pythoughts/pythinker-code-oauth', async () => {
 
 vi.mock('#/utils/open-url', () => ({ openUrl: vi.fn() }));
 
-import { password, select } from '@clack/prompts';
+import { password, select, text } from '@clack/prompts';
 import {
   createPythinkerHarness,
   fetchCatalog,
@@ -118,6 +118,14 @@ describe('pythinker login', () => {
     vi.mocked(openUrl).mockReset();
     vi.mocked(createPythinkerHarness).mockClear();
     vi.mocked(select).mockReset();
+    // Every prompt and catalog mock resets too: a test that sets a persistent
+    // implementation (the API-key prompt, the model catalog) would otherwise
+    // leak it into whichever test runs next.
+    vi.mocked(password).mockReset();
+    vi.mocked(text).mockReset();
+    vi.mocked(fetchCatalog).mockReset();
+    vi.mocked(fetchCatalog).mockRejectedValue(new Error('offline'));
+    mockFetchOpenPlatformModels.mockReset();
     // Capture the real descriptor so teardown restores it exactly; assigning
     // `undefined` would leave a fake own-property behind for later suites.
     originalIsTTY = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
@@ -344,6 +352,29 @@ describe('pythinker login', () => {
       expect.objectContaining({ message: 'Select a provider' }),
     );
     expect(mockSetConfig).toHaveBeenCalled();
+    expect(exitSpy.mock.calls[0]?.[0]).toBe(0);
+  });
+
+  it('persists the picked thinking effort, not just the on/off bit', async () => {
+    // The apply step writes config.thinking.effort, but the setConfig patch used
+    // to list only providers/models/defaultModel/defaultThinking — so the level
+    // never reached disk and every session reopened at the default.
+    mockStatus.mockResolvedValue({ providers: [] });
+    mockGetConfig.mockResolvedValue({ providers: {}, models: {} });
+    vi.mocked(fetchCatalog).mockResolvedValueOnce(catalogWithDeepSeek());
+    vi.mocked(password).mockResolvedValue('sk-test-key');
+    vi.mocked(select)
+      .mockResolvedValueOnce('deepseek/deepseek-chat')
+      .mockResolvedValueOnce('medium');
+
+    await runLogin(['login', '--provider', 'deepseek']);
+
+    expect(mockSetConfig).toHaveBeenCalledWith(
+      expect.objectContaining({
+        defaultThinking: true,
+        thinking: expect.objectContaining({ effort: 'medium' }),
+      }),
+    );
     expect(exitSpy.mock.calls[0]?.[0]).toBe(0);
   });
 

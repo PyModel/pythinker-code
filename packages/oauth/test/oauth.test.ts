@@ -273,6 +273,44 @@ describe('requestDeviceAuthorization', () => {
     await expect(requestAuth()).rejects.toBeInstanceOf(OAuthError);
   });
 
+  // Every renderer hands these URLs straight to the host's "open externally"
+  // API, so a provider answering with `file:` or an app's custom scheme would
+  // have the agent launch it. Rejected here, where the response is parsed,
+  // rather than in each renderer.
+  it.each([
+    ['file:///etc/passwd'],
+    ['javascript:alert(1)'],
+    ['vscode://extension/install?id=evil'],
+    ['not a url'],
+  ])('rejects a non-HTTPS verification_uri_complete (%s)', async (uri) => {
+    server.enqueue('/api/oauth/device_authorization', {
+      status: 200,
+      body: {
+        user_code: 'U',
+        device_code: 'D',
+        verification_uri_complete: uri,
+        expires_in: 60,
+        interval: 5,
+      },
+    });
+    await expect(requestAuth()).rejects.toBeInstanceOf(OAuthError);
+  });
+
+  it('rejects a non-HTTPS verification_uri even when the complete one is safe', async () => {
+    server.enqueue('/api/oauth/device_authorization', {
+      status: 200,
+      body: {
+        user_code: 'U',
+        device_code: 'D',
+        verification_uri: 'file:///etc/passwd',
+        verification_uri_complete: 'https://auth.kimi.com/verify?user_code=U',
+        expires_in: 60,
+        interval: 5,
+      },
+    });
+    await expect(requestAuth()).rejects.toBeInstanceOf(OAuthError);
+  });
+
   it('surfaces message fields from failed device authorization responses', async () => {
     server.enqueue('/api/oauth/device_authorization', {
       status: 400,
