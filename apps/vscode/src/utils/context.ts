@@ -2,8 +2,7 @@ import * as vscode from "vscode";
 import type { PythinkerHarness } from "@pythoughts/pythinker-code-sdk";
 
 export async function updateLoginContext(harness: PythinkerHarness): Promise<boolean> {
-  const status = await harness.auth.status();
-  const loggedIn = status.providers.some((provider) => provider.hasToken);
+  const loggedIn = await harness.isAuthenticated();
   await vscode.commands.executeCommand("setContext", "pythinker.isLoggedIn", loggedIn);
   return loggedIn;
 }

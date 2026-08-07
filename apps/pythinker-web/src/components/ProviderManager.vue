@@ -25,7 +25,6 @@ const emit = defineEmits<{
   refresh: [id: string];
   delete: [id: string];
   /** Open the login dialog for the given platform (OAuth flow) */
-  openLogin: [platform: string];
   close: [];
 }>();
 
@@ -196,19 +195,6 @@ function statusLabel(status: AppProvider['status']): string {
       <div v-if="!unavailable" class="add-section">
         <template v-if="!showAddForm">
           <div class="add-btns">
-            <!-- OAuth login shortcuts for common platforms -->
-            <button class="add-btn-oauth" @click="emit('openLogin', 'pythoughts')">
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5">
-                <circle cx="5" cy="3" r="2"/><path d="M1 9c0-2.2 1.8-4 4-4s4 1.8 4 4"/>
-              </svg>
-              {{ t('providers.loginPythinker') }}
-            </button>
-            <button class="add-btn-oauth" @click="emit('openLogin', 'anthropic')">
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5">
-                <circle cx="5" cy="3" r="2"/><path d="M1 9c0-2.2 1.8-4 4-4s4 1.8 4 4"/>
-              </svg>
-              {{ t('providers.loginAnthropic') }}
-            </button>
             <button class="add-btn add-btn-key" @click="openAdd">
               <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5">
                 <line x1="5" y1="1" x2="5" y2="9"/><line x1="1" y1="5" x2="9" y2="5"/>

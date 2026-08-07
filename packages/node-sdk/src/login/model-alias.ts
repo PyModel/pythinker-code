@@ -1,7 +1,7 @@
 import type { ModelAlias } from '@pythoughts/agent-core';
 import {
   capabilitiesForModel,
-  type ManagedKimiCodeModelInfo,
+  type PlatformModelInfo,
 } from '@pythoughts/pythinker-code-oauth';
 
 /**
@@ -13,7 +13,7 @@ import {
  */
 export function managedModelToAlias(
   platformId: string,
-  model: ManagedKimiCodeModelInfo,
+  model: PlatformModelInfo,
 ): ModelAlias {
   return {
     provider: platformId,

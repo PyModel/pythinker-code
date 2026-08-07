@@ -463,7 +463,6 @@ interface ExtendedState extends PythinkerClientState {
   // Auth state (real daemon)
   authReady: boolean;
   defaultModel: string | null;
-  managedProviderStatus: string | null;
   // Workspace state
   workspaces: AppWorkspace[];
   activeWorkspaceId: string | null;
@@ -503,7 +502,6 @@ const rawState: ExtendedState = reactive({
   unreadBySession: loadUnreadFromStorage(),
   authReady: false,
   defaultModel: null,
-  managedProviderStatus: null,
   workspaces: [],
   activeWorkspaceId: loadActiveWorkspaceFromStorage(),
   fsHome: null,
@@ -2292,7 +2290,6 @@ const sessionCost = computed<number>(() => {
 
 const authReady = computed<boolean>(() => rawState.authReady);
 const defaultModel = computed<string | null>(() => rawState.defaultModel);
-const managedProviderStatus = computed<string | null>(() => rawState.managedProviderStatus);
 const config = computed<AppConfig | null>(() => rawState.config);
 
 /** path → status map for quick badge lookup in the file tree */
@@ -2655,7 +2652,6 @@ async function checkAuth(): Promise<void> {
     const result = await api.getAuth();
     rawState.authReady = result.ready;
     rawState.defaultModel = result.defaultModel;
-    rawState.managedProviderStatus = result.managedProvider?.status ?? null;
   } catch {
     // Daemon may not have this endpoint yet; leave defaults (authReady: false)
   }
@@ -3976,64 +3972,6 @@ async function refreshProvider(id: string): Promise<void> {
   }
 }
 
-/** Start managed Pythinker OAuth device flow. Returns flow data or null on error. */
-async function startOAuthLogin(): Promise<{
-  flowId: string;
-  provider: string;
-  verificationUri: string;
-  verificationUriComplete: string;
-  userCode: string;
-  expiresIn: number;
-  interval: number;
-  status: 'pending';
-  expiresAt: string;
-} | null> {
-  try {
-    const api = getPythinkerWebApi();
-    return await api.startOAuthLogin();
-  } catch {
-    return null;
-  }
-}
-
-/** Poll the singleton OAuth flow. Returns null on error or no active flow. */
-async function pollOAuthLogin(): Promise<{
-  flowId: string;
-  status: 'pending' | 'authenticated' | 'expired' | 'cancelled';
-  resolvedAt?: string;
-} | null> {
-  try {
-    const api = getPythinkerWebApi();
-    return await api.pollOAuthLogin();
-  } catch (error) {
-    // The dialog counts consecutive nulls and gives up after a few; keep the
-    // cause in the log so a dead daemon is diagnosable.
-    console.warn('[pythinker-web] pollOAuthLogin failed', error);
-    return null;
-  }
-}
-
-/** Cancel the current OAuth flow (best-effort). */
-async function cancelOAuthLogin(): Promise<void> {
-  try {
-    const api = getPythinkerWebApi();
-    await api.cancelOAuthLogin();
-  } catch {
-    // Best-effort
-  }
-}
-
-/** Logout from the managed Pythinker provider. Re-checks auth and reloads sessions. */
-async function logout(): Promise<void> {
-  try {
-    const api = getPythinkerWebApi();
-    await api.logout();
-    await checkAuth();
-    await load();
-  } catch (error) {
-    pushOperationFailure('logout', error);
-  }
-}
 
 /**
  * compact() — request history compaction via POST /sessions/{id}:compact.
@@ -4442,7 +4380,6 @@ export function usePythinkerWebClient() {
     // Auth state
     authReady,
     defaultModel,
-    managedProviderStatus,
 
     // Config state + actions
     config,
@@ -4450,10 +4387,6 @@ export function usePythinkerWebClient() {
 
     // Auth actions
     checkAuth,
-    startOAuthLogin,
-    pollOAuthLogin,
-    cancelOAuthLogin,
-    logout,
   };
 }
 

@@ -6,7 +6,6 @@ import {
 } from '@pythoughts/pythinker-code-sdk';
 
 import type { ChoiceOption } from '../components/dialogs/choice-picker';
-import { DEFAULT_OAUTH_PROVIDER_NAME, PRODUCT_NAME } from '../constant/pythinker-tui';
 import {
   promptApiKey,
   promptLogoutProviderSelection,
@@ -42,7 +41,6 @@ function loginUiFromHost(host: SlashCommandHost): LoginUi {
       host.showError(message);
     },
     showLoginProgressSpinner: (label) => host.showLoginProgressSpinner(label),
-    showLoginAuthorizationPrompt: (auth) => host.showLoginAuthorizationPrompt(auth),
     promptPlatformSelection: () => promptPlatformSelection(host),
     promptApiKey: (platformName, subtitleLines, options) =>
       options === undefined
@@ -78,26 +76,11 @@ export async function connectCatalogProvider(
 }
 
 export async function handleLogoutCommand(host: SlashCommandHost): Promise<void> {
-  const oauthStatus = await host.harness.auth.status(DEFAULT_OAUTH_PROVIDER_NAME);
-  const hasOAuthToken = oauthStatus.providers.some(
-    (p) => p.providerName === DEFAULT_OAUTH_PROVIDER_NAME && p.hasToken,
-  );
   const config = await host.harness.getConfig();
-  const hasManagedRemnant =
-    hasOAuthToken || config.providers[DEFAULT_OAUTH_PROVIDER_NAME] !== undefined;
-  const apiKeyProviderIds = Object.keys(config.providers ?? {})
-    .filter((id) => id !== DEFAULT_OAUTH_PROVIDER_NAME)
-    .toSorted();
+  const providerIds = Object.keys(config.providers ?? {}).toSorted();
 
   const options: ChoiceOption[] = [];
-  if (hasManagedRemnant) {
-    options.push({
-      value: DEFAULT_OAUTH_PROVIDER_NAME,
-      label: PRODUCT_NAME,
-      description: 'OAuth login',
-    });
-  }
-  for (const id of apiKeyProviderIds) {
+  for (const id of providerIds) {
     const baseUrl = config.providers[id]?.baseUrl;
     options.push({
       value: id,
@@ -117,11 +100,7 @@ export async function handleLogoutCommand(host: SlashCommandHost): Promise<void>
   const target = await promptLogoutProviderSelection(host, options, currentProvider);
   if (target === undefined) return;
 
-  if (target === DEFAULT_OAUTH_PROVIDER_NAME) {
-    await host.harness.auth.logout(DEFAULT_OAUTH_PROVIDER_NAME);
-  } else {
-    await host.harness.removeProvider(target);
-  }
+  await host.harness.removeProvider(target);
 
   if (target === currentProvider) {
     await host.authFlow.refreshConfigAfterLogout();
@@ -135,6 +114,5 @@ export async function handleLogoutCommand(host: SlashCommandHost): Promise<void>
   }
 
   host.track('logout', { provider: target });
-  const label = target === DEFAULT_OAUTH_PROVIDER_NAME ? PRODUCT_NAME : target;
-  host.showStatus(`Logged out from ${label}.`);
+  host.showStatus(`Logged out from ${target}.`);
 }

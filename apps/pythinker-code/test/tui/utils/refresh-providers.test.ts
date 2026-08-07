@@ -2,11 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import {
-  KIMI_CODE_PROVIDER_NAME,
-  resolveKimiCodeOAuthKey,
-  resolveKimiCodeOAuthRef,
-} from '@pythoughts/pythinker-code-oauth';
+
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { refreshAllProviderModels } from '../../../src/tui/utils/refresh-providers';
@@ -69,131 +65,44 @@ describe('refreshAllProviderModels', () => {
     vi.unstubAllGlobals();
   });
 
-  it('refreshes managed Pythinker Code against environment endpoints over persisted config', async () => {
-    const configuredBaseUrl = 'https://api.configured.example.test/coding/v1';
-    const envBaseUrl = 'https://api.env.example.test/coding/v1';
-    const envOauthHost = 'https://auth.env.example.test';
-    const configuredOauthKey = resolveKimiCodeOAuthKey({ baseUrl: configuredBaseUrl });
-    const envOauthRef = resolveKimiCodeOAuthRef({
-      oauthHost: envOauthHost,
-      baseUrl: envBaseUrl,
-    });
-    const config: PythinkerConfig = {
+
+
+  it('refreshes the OpenAI Codex provider under scope oauth and drops a default model the refresh removed', async () => {
+    const host = makeRefreshHost({
       providers: {
-        [KIMI_CODE_PROVIDER_NAME]: {
-          type: 'pythinker',
-          baseUrl: configuredBaseUrl,
-          apiKey: '',
-          oauth: {
-            storage: 'file',
-            key: configuredOauthKey,
-            oauthHost: 'https://auth.pythinker.com',
-          },
+        'openai-codex': {
+          type: 'openai_responses',
+          baseUrl: 'https://chatgpt.com/backend-api/codex',
+          apiKey: 'codex-access-token',
+          customHeaders: { 'chatgpt-account-id': 'acct-1' },
+          source: { auth: 'openai-codex-oauth', accountId: 'acct-1', refreshToken: 'codex-refresh' },
         },
+        manual: { type: 'openai', baseUrl: 'https://manual.example.test/v1', apiKey: 'sk-manual' },
       },
       models: {
-        'kimi-code/pythinker-for-coding': {
-          provider: KIMI_CODE_PROVIDER_NAME,
-          model: 'pythinker-for-coding',
-          maxContextSize: 262144,
-          capabilities: ['thinking', 'tool_use'],
-        },
-      },
-      defaultModel: 'kimi-code/pythinker-for-coding',
-      telemetry: true,
-    };
-    vi.stubEnv('PYTHINKER_CODE_BASE_URL', envBaseUrl);
-    vi.stubEnv('PYTHINKER_CODE_OAUTH_HOST', envOauthHost);
-    const resolveOAuthToken = vi.fn(async (_providerName, oauthRef) => {
-      expect(oauthRef).toEqual(envOauthRef);
-      return 'env-access-token';
-    });
-    const fetchMock = vi.fn<FetchMock>(async (input, init) => {
-      expect(fetchInputUrl(input)).toBe(`${envBaseUrl}/models`);
-      expect(new Headers(init?.headers).get('authorization')).toBe('Bearer env-access-token');
-      return new Response(
-        JSON.stringify({
-          data: [
-            {
-              id: 'pythinker-for-coding',
-              context_length: 262144,
-              supports_reasoning: true,
-            },
-          ],
-        }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      );
-    });
-    vi.stubGlobal('fetch', fetchMock);
-
-    const result = await refreshAllProviderModels({
-      getConfig: async () => config,
-      removeProvider: vi.fn(),
-      setConfig: vi.fn(),
-      replaceConfig: vi.fn(),
-      resolveOAuthToken,
-    });
-
-    expect(result.failed).toEqual([]);
-    expect(result.unchanged).toEqual([KIMI_CODE_PROVIDER_NAME]);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(resolveOAuthToken).toHaveBeenCalledWith(KIMI_CODE_PROVIDER_NAME, envOauthRef);
-  });
-
-  it('can refresh only the managed OAuth provider without fetching third-party registries', async () => {
-    const baseUrl = 'https://api.example.test/coding/v1';
-    const registryUrl = 'https://registry.example.test/v1/models/api.json';
-    const config: PythinkerConfig = {
-      providers: {
-        [KIMI_CODE_PROVIDER_NAME]: {
-          type: 'pythinker',
-          baseUrl,
-          apiKey: '',
-          oauth: {
-            storage: 'file',
-            key: resolveKimiCodeOAuthKey({ baseUrl }),
-          },
-        },
-        custom: {
-          type: 'openai',
-          baseUrl: 'https://custom.example.test/v1',
-          apiKey: 'sk-test-token',
-          source: { kind: 'apiJson', url: registryUrl, apiKey: 'sk-test-token' },
-        },
-      },
-      models: {
-        'kimi-code/pythinker-for-coding': {
-          provider: KIMI_CODE_PROVIDER_NAME,
-          model: 'pythinker-for-coding',
-          maxContextSize: 262144,
-          capabilities: ['thinking', 'tool_use'],
-          displayName: 'Old Pythinker',
-        },
-        'custom/m1': {
-          provider: 'custom',
-          model: 'm1',
-          maxContextSize: 131072,
+        'openai-codex/gone': {
+          provider: 'openai-codex',
+          model: 'gone',
+          maxContextSize: 128_000,
           capabilities: ['tool_use'],
-          displayName: 'Custom M1',
+        },
+        'manual/kept': {
+          provider: 'manual',
+          model: 'kept',
+          maxContextSize: 8_000,
+          capabilities: ['tool_use'],
         },
       },
-      defaultModel: 'kimi-code/pythinker-for-coding',
-      telemetry: true,
-    };
-    const host = makeRefreshHost(config);
-    const resolveOAuthToken = vi.fn(async () => 'oauth-access-token');
-    const fetchMock = vi.fn<FetchMock>(async (input, init) => {
-      expect(fetchInputUrl(input)).toBe(`${baseUrl}/models`);
-      expect(new Headers(init?.headers).get('authorization')).toBe('Bearer oauth-access-token');
+      defaultModel: 'openai-codex/gone',
+      defaultThinking: true,
+    } as unknown as PythinkerConfig);
+
+    const fetchMock = vi.fn<FetchMock>(async (input) => {
+      expect(fetchInputUrl(input)).toContain('/models?client_version=');
       return new Response(
         JSON.stringify({
-          data: [
-            {
-              id: 'pythinker-for-coding',
-              context_length: 262144,
-              supports_reasoning: true,
-              display_name: 'Fresh Pythinker',
-            },
+          models: [
+            { id: 'gpt-5-codex', context_length: 272_000, supports_reasoning: true },
           ],
         }),
         { status: 200, headers: { 'Content-Type': 'application/json' } },
@@ -207,24 +116,22 @@ describe('refreshAllProviderModels', () => {
         removeProvider: host.removeProvider,
         setConfig: host.setConfig,
         replaceConfig: host.replaceConfig,
-        resolveOAuthToken,
       },
       { scope: 'oauth' },
     );
 
     expect(result.failed).toEqual([]);
     expect(result.changed).toEqual([
-      {
-        providerId: KIMI_CODE_PROVIDER_NAME,
-        providerName: 'Pythinker',
-        added: 0,
-        removed: 0,
-      },
+      { providerId: 'openai-codex', providerName: 'OpenAI Codex (OAuth)', added: 1, removed: 1 },
     ]);
-    expect(result.unchanged).toEqual([]);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(host.current().models?.['kimi-code/pythinker-for-coding']?.displayName).toBe('Fresh Pythinker');
-    expect(host.current().models?.['custom/m1']?.displayName).toBe('Custom M1');
+    // scope 'oauth' must not touch the hand-written provider.
+    expect(host.current().providers['manual']).toMatchObject({ apiKey: 'sk-manual' });
+    expect(host.current().models?.['manual/kept']).toBeDefined();
+    // The old default alias is gone. The refresh re-points the selection at the
+    // model it just fetched rather than clearing it, so the session still has a
+    // model to run on.
+    expect(host.current().models?.['openai-codex/gone']).toBeUndefined();
+    expect(host.current().defaultModel).toBe('openai-codex/gpt-5-codex');
   });
 
   it('refreshes catalog-backed providers once per models.dev source', async () => {
@@ -309,7 +216,6 @@ describe('refreshAllProviderModels', () => {
       removeProvider: host.removeProvider,
       setConfig: host.setConfig,
       replaceConfig: host.replaceConfig,
-      resolveOAuthToken: vi.fn(),
     });
 
     expect(result.failed).toEqual([]);
@@ -376,7 +282,6 @@ describe('refreshAllProviderModels', () => {
       removeProvider: host.removeProvider,
       setConfig: host.setConfig,
       replaceConfig: host.replaceConfig,
-      resolveOAuthToken: vi.fn(),
     });
 
     expect(result.failed).toEqual([]);
@@ -432,7 +337,6 @@ describe('refreshAllProviderModels', () => {
       removeProvider: host.removeProvider,
       setConfig: host.setConfig,
       replaceConfig: host.replaceConfig,
-      resolveOAuthToken: vi.fn(),
     });
 
     expect(result.failed).toEqual([
@@ -485,7 +389,6 @@ describe('refreshAllProviderModels', () => {
       removeProvider: host.removeProvider,
       setConfig: host.setConfig,
       replaceConfig: host.replaceConfig,
-      resolveOAuthToken: vi.fn(),
     });
 
     expect(result.changed).toHaveLength(1);
@@ -592,7 +495,6 @@ describe('refreshAllProviderModels', () => {
       removeProvider: host.removeProvider,
       setConfig: host.setConfig,
       replaceConfig: host.replaceConfig,
-      resolveOAuthToken: vi.fn(),
     });
 
     expect(result.failed).toEqual([]);
@@ -684,7 +586,6 @@ describe('refreshAllProviderModels', () => {
       removeProvider: host.removeProvider,
       setConfig: host.setConfig,
       replaceConfig: host.replaceConfig,
-      resolveOAuthToken: vi.fn(),
     });
 
     expect(result.failed).toEqual([]);
@@ -788,7 +689,6 @@ describe('refreshAllProviderModels', () => {
       removeProvider: host.removeProvider,
       setConfig: host.setConfig,
       replaceConfig: host.replaceConfig,
-      resolveOAuthToken: vi.fn(),
     });
 
     expect(result.failed).toEqual([]);
@@ -889,7 +789,6 @@ max_context_size = 64000
         removeProvider: (providerId) => harness.removeProvider(providerId),
         setConfig: (patch) => harness.setConfig(patch),
         replaceConfig: (config) => harness.replaceConfig(config),
-        resolveOAuthToken: vi.fn(),
       });
       expect(result.failed).toEqual([]);
       expect(result.changed).toContainEqual({
@@ -994,7 +893,6 @@ max_context_size = 64000
       removeProvider: host.removeProvider,
       setConfig: host.setConfig,
       replaceConfig: host.replaceConfig,
-      resolveOAuthToken: vi.fn(),
     });
 
     expect(result.failed).toEqual([]);
@@ -1094,7 +992,6 @@ max_context_size = 64000
       removeProvider: host.removeProvider,
       setConfig: host.setConfig,
       replaceConfig: host.replaceConfig,
-      resolveOAuthToken: vi.fn(),
     });
 
     expect(result.failed).toEqual([]);
@@ -1108,61 +1005,4 @@ max_context_size = 64000
     expect(host.current().defaultThinking).toBe(false);
   });
 
-  it('forces default thinking on when the refreshed default model cannot disable thinking', async () => {
-    const host = makeRefreshHost({
-      providers: {
-        [KIMI_CODE_PROVIDER_NAME]: {
-          type: 'pythinker',
-          apiKey: '',
-          oauth: { storage: 'file', key: 'oauth/kimi-code' },
-        },
-      },
-      models: {
-        'kimi-code/pythinker-deep-coder': {
-          provider: KIMI_CODE_PROVIDER_NAME,
-          model: 'pythinker-deep-coder',
-          maxContextSize: 262144,
-          capabilities: ['thinking', 'tool_use'],
-        },
-      },
-      defaultModel: 'kimi-code/pythinker-deep-coder',
-      defaultThinking: false,
-      telemetry: true,
-    } as unknown as PythinkerConfig);
-
-    const fetchMock = vi.fn<FetchMock>(
-      async () =>
-        new Response(
-          JSON.stringify({
-            data: [
-              {
-                id: 'pythinker-deep-coder',
-                context_length: 262144,
-                supports_reasoning: true,
-                supports_thinking_type: 'only',
-              },
-            ],
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
-        ),
-    );
-    vi.stubGlobal('fetch', fetchMock);
-
-    const result = await refreshAllProviderModels({
-      getConfig: async () => host.current(),
-      removeProvider: host.removeProvider,
-      setConfig: host.setConfig,
-      replaceConfig: host.replaceConfig,
-      resolveOAuthToken: vi.fn(async () => 'oauth-access-token'),
-    });
-
-    expect(result.failed).toEqual([]);
-    expect(host.current().models?.['kimi-code/pythinker-deep-coder']?.capabilities).toEqual([
-      'thinking',
-      'always_thinking',
-      'tool_use',
-    ]);
-    expect(host.current().defaultModel).toBe('kimi-code/pythinker-deep-coder');
-    expect(host.current().defaultThinking).toBe(true);
-  });
 });

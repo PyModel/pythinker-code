@@ -2,7 +2,7 @@ import {
   applyCustomRegistryEntries,
   fetchCustomRegistry,
   type CustomRegistrySource,
-  type ManagedKimiConfigShape,
+  type PlatformConfigShape,
 } from '@pythoughts/pythinker-code-oauth';
 import {
   CatalogFetchError,
@@ -21,7 +21,6 @@ import {
   type ProviderManagerOptions,
 } from '../components/dialogs/provider-manager';
 import { TabbedModelSelectorComponent } from '../components/dialogs/tabbed-model-selector';
-import { DEFAULT_OAUTH_PROVIDER_NAME } from '../constant/pythinker-tui';
 import { formatErrorMessage } from '../utils/event-payload';
 import { connectCatalogProvider } from './auth';
 import { promptCatalogProviderSelection } from './prompts';
@@ -75,13 +74,6 @@ async function handleProviderManagerDeleteSource(
 }
 
 async function handleProviderDelete(host: SlashCommandHost, providerId: string): Promise<void> {
-  if (providerId === DEFAULT_OAUTH_PROVIDER_NAME) {
-    await host.harness.auth.logout(DEFAULT_OAUTH_PROVIDER_NAME);
-    await host.authFlow.refreshConfigAfterLogout();
-    await host.authFlow.clearActiveSessionAfterLogout();
-    return;
-  }
-
   const activeProvider =
     host.state.appState.availableModels[host.state.appState.model]?.provider;
   const config = await host.harness.removeProvider(providerId);
@@ -212,7 +204,7 @@ async function handleCustomRegistryAddViaDialog(host: SlashCommandHost): Promise
   try {
     const config = await host.harness.getConfig();
     applyCustomRegistryEntries(
-      config as unknown as ManagedKimiConfigShape,
+      config as unknown as PlatformConfigShape,
       entries,
       source,
     );

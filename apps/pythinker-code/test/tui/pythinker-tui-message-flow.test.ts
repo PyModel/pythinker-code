@@ -1212,69 +1212,7 @@ command = "vim"
     expect(transcript).toContain('Session reloaded.');
   });
 
-  it('tracks successful feedback submissions only after the request succeeds', async () => {
-    const { driver, harness } = await makeDriver(
-      makeSession(),
-      {
-        getConfig: vi.fn(async () => ({
-          models: {
-            k2: {
-              model: 'pythoughts-v1',
-              maxContextSize: 100,
-              provider: 'managed:kimi-code',
-            },
-          },
-        })),
-      },
-    );
-    const feedbackDriver = driver as unknown as FeedbackDriver;
-    vi.mocked(promptFeedbackInput).mockImplementation(async () => 'useful feedback');
-    harness.auth.submitFeedback.mockResolvedValueOnce({ kind: 'ok' });
-    harness.track.mockClear();
 
-    await handleFeedbackCommand(feedbackDriver as any);
-
-    expect(harness.auth.submitFeedback).toHaveBeenCalledWith(
-      expect.objectContaining({
-        content: 'useful feedback',
-        sessionId: 'ses-1',
-        version: 'pythinker-code-0.0.0-test',
-        model: 'k2',
-      }),
-    );
-    expect(harness.track).toHaveBeenCalledWith('feedback_submitted', undefined);
-  });
-
-  it('shows feedback API error messages without replacing them with HTTP status text', async () => {
-    const { driver, harness } = await makeDriver(
-      makeSession(),
-      {
-        getConfig: vi.fn(async () => ({
-          models: {
-            k2: {
-              model: 'pythoughts-v1',
-              maxContextSize: 100,
-              provider: 'managed:kimi-code',
-            },
-          },
-        })),
-      },
-    );
-    const feedbackDriver = driver as unknown as FeedbackDriver;
-    vi.mocked(promptFeedbackInput).mockImplementation(async () => 'useful feedback');
-    harness.auth.submitFeedback.mockResolvedValueOnce({
-      kind: 'error',
-      status: 500,
-      message: 'backend says no',
-    });
-
-    await handleFeedbackCommand(feedbackDriver as any);
-
-    const transcript = stripSgr(renderTranscript(driver));
-    expect(transcript).toContain('backend says no');
-    expect(transcript).toContain('Opening GitHub Issues as fallback');
-    expect(transcript).not.toContain('Failed to submit feedback (HTTP 500).');
-  });
 
   it('does not track feedback when the dialog is cancelled', async () => {
     const { driver, harness } = await makeDriver(
@@ -5268,8 +5206,8 @@ command = "vim"
     });
     const picker = driver.state.editorContainer.children[0];
     const pickerOutput = stripSgr((picker as TabbedModelSelectorComponent).render(120).join('\n'));
-    expect(pickerOutput).toMatch(/Kimi K2\s+Kimi ← current/);
-    expect(pickerOutput).toMatch(/❯ Kimi Turbo\s+Kimi/);
+    expect(pickerOutput).toMatch(/Kimi K2\s+kimi-code ← current/);
+    expect(pickerOutput).toMatch(/❯ Kimi Turbo\s+kimi-code/);
     (picker as TabbedModelSelectorComponent).handleInput('t');
     (picker as TabbedModelSelectorComponent).handleInput('u');
     const filteredOutput = stripSgr((picker as TabbedModelSelectorComponent).render(120).join('\n'));

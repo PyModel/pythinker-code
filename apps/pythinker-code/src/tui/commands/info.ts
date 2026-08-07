@@ -1,4 +1,3 @@
-import { release as osRelease, type as osType } from 'node:os';
 import { join, relative } from 'node:path';
 
 import type {
@@ -19,22 +18,11 @@ import {
   buildCostReportLines,
   buildUsageReportLines,
   UsagePanelComponent,
-  type ManagedUsageReport,
 } from '../components/messages/usage-panel';
 import {
   FEEDBACK_ISSUE_URL,
-  FEEDBACK_STATUS_CANCELLED,
-  FEEDBACK_STATUS_FALLBACK,
-  FEEDBACK_STATUS_NOT_SIGNED_IN,
-  FEEDBACK_STATUS_SUBMITTING,
-  FEEDBACK_STATUS_SUCCESS,
-  FEEDBACK_TELEMETRY_EVENT,
-  feedbackSessionLine,
-  withFeedbackVersionPrefix,
 } from '../constant/feedback';
-import { isManagedUsageProvider } from '../constant/pythinker-tui';
 import { formatErrorMessage } from '../utils/event-payload';
-import { promptFeedbackInput } from './prompts';
 import type { SlashCommandHost } from './dispatch';
 
 // ---------------------------------------------------------------------------
@@ -42,42 +30,8 @@ import type { SlashCommandHost } from './dispatch';
 // ---------------------------------------------------------------------------
 
 export async function handleFeedbackCommand(host: SlashCommandHost): Promise<void> {
-  const fallback = (reason: string): void => {
-    host.showStatus(reason);
-    host.showStatus(FEEDBACK_ISSUE_URL);
-    openUrl(FEEDBACK_ISSUE_URL);
-  };
-
-  const providerKey = host.state.appState.availableModels[host.state.appState.model]?.provider;
-  if (!isManagedUsageProvider(providerKey)) {
-    fallback(FEEDBACK_STATUS_NOT_SIGNED_IN);
-    return;
-  }
-
-  const content = await promptFeedbackInput(host);
-  if (content === undefined) {
-    host.showStatus(FEEDBACK_STATUS_CANCELLED);
-    return;
-  }
-
-  const spinner = host.showLoginProgressSpinner(FEEDBACK_STATUS_SUBMITTING);
-  const res = await host.harness.auth.submitFeedback({
-    content,
-    sessionId: host.state.appState.sessionId,
-    version: withFeedbackVersionPrefix(host.state.appState.version),
-    os: `${osType()} ${osRelease()}`,
-    model: host.state.appState.model.length > 0 ? host.state.appState.model : null,
-  });
-
-  if (res.kind === 'ok') {
-    spinner.stop({ ok: true, label: FEEDBACK_STATUS_SUCCESS });
-    host.showStatus(feedbackSessionLine(host.state.appState.sessionId));
-    host.track(FEEDBACK_TELEMETRY_EVENT);
-    return;
-  }
-
-  spinner.stop({ ok: false, label: res.message });
-  fallback(FEEDBACK_STATUS_FALLBACK);
+  host.showStatus(FEEDBACK_ISSUE_URL);
+  openUrl(FEEDBACK_ISSUE_URL);
 }
 
 // ---------------------------------------------------------------------------
@@ -94,10 +48,6 @@ interface RuntimeStatusResult {
   readonly error?: string;
 }
 
-interface ManagedUsageResult {
-  readonly usage?: ManagedUsageReport;
-  readonly error?: string;
-}
 
 export function showCost(host: SlashCommandHost): void {
   const { model, modelCostRates, totalCostUsd } = host.state.appState;
@@ -112,15 +62,12 @@ export function showCost(host: SlashCommandHost): void {
 
 export async function showUsage(host: SlashCommandHost): Promise<void> {
   const sessionUsage = await loadSessionUsageReport(host);
-  const managedUsage = await loadManagedUsageReport(host);
   const reportArgs = {
     sessionUsage: sessionUsage.usage,
     sessionUsageError: sessionUsage.error,
     contextUsage: host.state.appState.contextUsage,
     contextTokens: host.state.appState.contextTokens,
     maxContextTokens: host.state.appState.maxContextTokens,
-    managedUsage: managedUsage?.usage,
-    managedUsageError: managedUsage?.error,
   };
   const panel = new UsagePanelComponent(() => buildUsageReportLines(reportArgs), 'primary');
   host.state.transcriptContainer.addChild(panel);
@@ -171,10 +118,7 @@ export async function showContextReport(
 }
 
 export async function showStatusReport(host: SlashCommandHost): Promise<void> {
-  const [runtimeStatus, managedUsage] = await Promise.all([
-    loadRuntimeStatusReport(host),
-    loadManagedUsageReport(host),
-  ]);
+  const runtimeStatus = await loadRuntimeStatusReport(host);
   const appState = host.state.appState;
   const reportArgs = {
     version: appState.version,
@@ -193,8 +137,6 @@ export async function showStatusReport(host: SlashCommandHost): Promise<void> {
     availableModels: appState.availableModels,
     status: runtimeStatus.status,
     statusError: runtimeStatus.error,
-    managedUsage: managedUsage?.usage,
-    managedUsageError: managedUsage?.error,
   };
   const panel = new UsagePanelComponent(() => buildStatusReportLines(reportArgs), 'primary', ' Status ');
   host.state.transcriptContainer.addChild(panel);
@@ -456,19 +398,3 @@ async function loadRuntimeStatusReport(host: SlashCommandHost): Promise<RuntimeS
   }
 }
 
-async function loadManagedUsageReport(host: SlashCommandHost): Promise<ManagedUsageResult | undefined> {
-  const alias = host.state.appState.model;
-  const providerKey = host.state.appState.availableModels[alias]?.provider;
-  if (!isManagedUsageProvider(providerKey)) return undefined;
-
-  let res;
-  try {
-    res = await host.harness.auth.getManagedUsage(providerKey);
-  } catch (error) {
-    return { error: formatErrorMessage(error) };
-  }
-  if (res.kind === 'error') {
-    return { error: res.message };
-  }
-  return { usage: { summary: res.summary, limits: res.limits } };
-}

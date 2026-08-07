@@ -495,10 +495,10 @@ describe('pythinker provider list', () => {
         apiKey: 'k',
         source: { kind: 'apiJson', url: REGISTRY_URL, apiKey: 'k' },
       },
-      'managed:kimi-code': {
+      'moonshot-cn': {
         type: 'pythinker',
-        baseUrl: 'https://api.pythinker.com/coding/v1',
-        oauth: { storage: 'file', key: 'oauth/kimi-code' },
+        baseUrl: 'https://api.moonshot.cn/v1',
+        apiKey: 'sk-moonshot',
       },
       manual: { type: 'openai', baseUrl: 'https://y', apiKey: 'm' },
     },
@@ -533,7 +533,7 @@ describe('pythinker provider list', () => {
 
     const out = stdout.join('');
     expect(out).toMatch(/kohub\s+type=anthropic\s+models=2\s+source=apiJson\(/);
-    expect(out).toMatch(/managed:kimi-code\s+type=pythinker\s+models=0\s+source=oauth/);
+    expect(out).toMatch(/moonshot-cn\s+type=pythinker\s+models=0\s+source=inline/u);
     expect(out).toMatch(/manual\s+type=openai\s+models=1\s+source=inline/);
     expect(out).toContain('Default model: kohub/a');
   });
@@ -559,8 +559,8 @@ describe('pythinker provider list', () => {
     };
     expect(Object.keys(parsed.providers).toSorted()).toEqual([
       'kohub',
-      'managed:kimi-code',
       'manual',
+      'moonshot-cn',
     ]);
     expect(Object.keys(parsed.models)).toContain('kohub/a');
   });

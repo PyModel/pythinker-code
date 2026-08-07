@@ -2,22 +2,18 @@
  * Test stubs for `PythinkerHarness` interactions that used to live as
  * dedicated convenience methods on the SDK (`auth.hasUsableToken`,
  * `listAvailableModels`). The methods are gone; the adapter now calls
- * the underlying SDK API directly (`auth.status`, `getConfig().models`)
+ * the underlying SDK API directly (`isAuthenticated`, `getConfig().models`)
  * and the helpers below produce the matching stub shapes so each test
  * file doesn't have to hand-roll them.
  */
 
 import type { ModelAlias } from '@pythoughts/pythinker-code-sdk';
 
-/** Stub `auth.status()` payload for an authenticated harness. */
-export const AUTHED_STATUS = {
-  providers: [{ providerName: 'pythinker', hasToken: true }],
-} as const;
+/** Stub `harness.isAuthenticated()` for a harness with a usable credential. */
+export const AUTHED = async (): Promise<boolean> => true;
 
-/** Stub `auth.status()` payload for an unauthenticated harness. */
-export const UNAUTHED_STATUS = {
-  providers: [{ providerName: 'pythinker', hasToken: false }],
-} as const;
+/** Stub `harness.isAuthenticated()` for a harness with none. */
+export const UNAUTHED = async (): Promise<boolean> => false;
 
 /**
  * Build a `Record<string, ModelAlias>` suitable for stubbing

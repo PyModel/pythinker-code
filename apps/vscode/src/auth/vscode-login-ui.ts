@@ -10,8 +10,8 @@
  * `promptPlatformSelection` — bundled catalog seed first, live fetch with a
  * bundled fallback, so login still works offline.
  *
- * The `ManagedKimiCodeModelInfo` / `OpenPlatformDefinition` /
- * `DeviceAuthorization` types live in `@pythoughts/pythinker-code-oauth`,
+ * The `PlatformModelInfo` / `OpenPlatformDefinition` types live in
+ * `@pythoughts/pythinker-code-oauth`,
  * which the extension does not depend on, so the port members are written
  * inline and contextually typed against `LoginUi`. Effort levels come from the
  * SDK's shared rule, reached through the two model-alias converters, so this
@@ -34,7 +34,6 @@ import {
   type LoginUi,
 } from "@pythoughts/pythinker-code-sdk";
 
-import { Events } from "../../shared/bridge";
 import type { HandlerContext } from "../handlers/types";
 
 // Filled by the tsdown define in release builds (same env var the CLI's
@@ -99,7 +98,6 @@ function createProgressHandle(title: string): LoginProgressSpinnerHandle {
 /**
  * Build a `LoginUi` for the extension host, rendering every prompt with VS
  * Code's own widgets. The webview keeps receiving the OAuth device URL it
- * already renders (`Events.LoginUrl`), so the pending-login screen still works.
  *
  * `token` is the login-wide cancellation token owned by the caller. Every quick
  * pick and input box receives it, so cancelling closes whichever prompt is open
@@ -140,12 +138,6 @@ export function createVscodeLoginUi(
     showStatus,
     showError,
     showLoginProgressSpinner,
-    showLoginAuthorizationPrompt(auth) {
-      const url = auth.verificationUriComplete || auth.verificationUri;
-      ctx.broadcast(Events.LoginUrl, { url }, ctx.webviewId);
-      openBrowser(url);
-      return createProgressHandle(`Waiting for authorization — enter code ${auth.userCode}`);
-    },
     async promptPlatformSelection() {
       let catalog = loadBuiltInCatalog(BUILT_IN_CATALOG_JSON) ?? {};
       const controller = new AbortController();

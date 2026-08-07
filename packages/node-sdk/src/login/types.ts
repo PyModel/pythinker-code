@@ -1,7 +1,6 @@
 import type {
-  DeviceAuthorization,
-  ManagedKimiCodeModelInfo,
   OpenPlatformDefinition,
+  PlatformModelInfo,
 } from '@pythoughts/pythinker-code-oauth';
 import type { Catalog, CatalogModel } from '#/catalog';
 import type { PythinkerHarness } from '#/pythinker-harness';
@@ -34,7 +33,6 @@ export interface LoginUi {
   showStatus(message: string): void;
   showError(message: string): void;
   showLoginProgressSpinner(label: string): LoginProgressSpinnerHandle;
-  showLoginAuthorizationPrompt(auth: DeviceAuthorization): LoginProgressSpinnerHandle;
   promptPlatformSelection(): Promise<PlatformSelection | undefined>;
   promptApiKey(
     platformName: string,
@@ -42,9 +40,9 @@ export interface LoginUi {
     options?: ApiKeyPromptOptions,
   ): Promise<string | undefined>;
   promptModelSelectionForOpenPlatform(
-    models: ManagedKimiCodeModelInfo[],
+    models: PlatformModelInfo[],
     platform: OpenPlatformDefinition,
-  ): Promise<{ model: ManagedKimiCodeModelInfo; effort: string } | undefined>;
+  ): Promise<{ model: PlatformModelInfo; effort: string } | undefined>;
   promptModelSelectionForCatalog(
     providerId: string,
     models: CatalogModel[],

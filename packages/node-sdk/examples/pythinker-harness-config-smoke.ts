@@ -16,25 +16,24 @@ async function main(): Promise<void> {
   }
 
   await harness.setConfig({
-    defaultModel: 'pythinker-code/pythinker-for-coding',
+    defaultModel: 'moonshot-cn/kimi-k2',
     defaultThinking: true,
     defaultPermissionMode: 'manual',
     defaultPlanMode: false,
     providers: {
-      'managed:kimi-code': {
+      'moonshot-cn': {
         type: 'pythinker',
-        baseUrl: 'https://api.pythinker.com/coding/v1',
-        apiKey: '',
-        oauth: { storage: 'file', key: 'oauth/kimi-code' },
+        baseUrl: 'https://api.moonshot.cn/v1',
+        apiKey: 'sk-config-smoke',
       },
     },
     models: {
-      'pythinker-code/pythinker-for-coding': {
-        provider: 'managed:kimi-code',
-        model: 'pythinker-for-coding',
+      'moonshot-cn/kimi-k2': {
+        provider: 'moonshot-cn',
+        model: 'kimi-k2',
         maxContextSize: 262144,
         capabilities: ['image_in', 'thinking', 'video_in'],
-        displayName: 'Pythinker for Coding',
+        displayName: 'Kimi K2',
       },
     },
     loopControl: {
@@ -43,29 +42,15 @@ async function main(): Promise<void> {
       reservedContextSize: 50000,
       compactionTriggerRatio: 0.85,
     },
-    services: {
-      pythoughtsSearch: {
-        baseUrl: 'https://api.pythinker.com/coding/v1/search',
-        apiKey: '',
-        oauth: { storage: 'file', key: 'oauth/kimi-code' },
-      },
-      pythoughtsFetch: {
-        baseUrl: 'https://api.pythinker.com/coding/v1/fetch',
-        apiKey: '',
-        oauth: { storage: 'file', key: 'oauth/kimi-code' },
-      },
-    },
   });
 
   const configPath = join(homeDir, 'config.toml');
   const text = await readFile(configPath, 'utf-8');
   for (const expected of [
-    'default_model = "pythinker-code/pythinker-for-coding"',
+    'default_model = "moonshot-cn/kimi-k2"',
     'default_permission_mode = "manual"',
-    '[providers."managed:kimi-code"]',
-    '[providers."managed:kimi-code".oauth]',
-    '[models."pythinker-code/pythinker-for-coding"]',
-    '[services.pythoughts_search]',
+    '[providers."moonshot-cn"]',
+    '[models."moonshot-cn/kimi-k2"]',
   ]) {
     if (!text.includes(expected)) {
       throw new Error(`missing ${expected} in written config`);
@@ -73,11 +58,11 @@ async function main(): Promise<void> {
   }
 
   const reloaded = await harness.getConfig({ reload: true });
-  if (reloaded.defaultModel !== 'pythinker-code/pythinker-for-coding') {
+  if (reloaded.defaultModel !== 'moonshot-cn/kimi-k2') {
     throw new Error('reloaded config did not preserve defaultModel');
   }
-  if (reloaded.providers['managed:kimi-code']?.oauth?.key !== 'oauth/kimi-code') {
-    throw new Error('reloaded config did not preserve provider oauth');
+  if (reloaded.providers['moonshot-cn']?.apiKey !== 'sk-config-smoke') {
+    throw new Error('reloaded config did not preserve the provider api key');
   }
 
   process.stdout.write(`config: ${configPath}\n`);

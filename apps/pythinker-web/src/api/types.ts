@@ -680,24 +680,5 @@ export interface PythinkerWebApi {
     ready: boolean;
     providersCount: number;
     defaultModel: string | null;
-    managedProvider: { status: string } | null;
   }>;
-  startOAuthLogin(): Promise<{
-    flowId: string;
-    provider: string;
-    verificationUri: string;
-    verificationUriComplete: string;
-    userCode: string;
-    expiresIn: number;
-    interval: number;
-    status: 'pending';
-    expiresAt: string;
-  }>;
-  pollOAuthLogin(): Promise<{
-    flowId: string;
-    status: 'pending' | 'authenticated' | 'expired' | 'cancelled';
-    resolvedAt?: string;
-  } | null>;
-  cancelOAuthLogin(): Promise<{ cancelled: boolean; status: string }>;
-  logout(): Promise<{ loggedOut: boolean }>;
 }

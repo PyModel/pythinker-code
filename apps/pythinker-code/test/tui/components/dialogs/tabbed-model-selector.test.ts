@@ -34,7 +34,7 @@ function make(): {
   const onSelect = vi.fn();
   const component = new TabbedModelSelectorComponent({
     models: {
-      k2: model('Kimi K2', 'managed:kimi-code'),
+      k2: model('Kimi K2', 'moonshot-cn'),
       gpt: model('GPT-5', 'openai'),
     },
     currentValue: 'k2',
@@ -59,7 +59,7 @@ describe('TabbedModelSelectorComponent', () => {
   it('renders an "All" + per-provider tab strip', () => {
     const out = strip(make().component.render(120).join('\n'));
     expect(out).toContain('All');
-    expect(out).toContain('Kimi');
+    expect(out).toContain('moonshot-cn');
     expect(out).toContain('openai');
   });
 
@@ -72,10 +72,10 @@ describe('TabbedModelSelectorComponent', () => {
   it('opens on the current model provider by default', () => {
     const { component } = make();
     const out = strip(component.render(120).join('\n'));
-    expect(component.activeTabId()).toBe('managed:kimi-code');
+    expect(component.activeTabId()).toBe('moonshot-cn');
     expect(out).toContain('Kimi K2');
     expect(out).not.toContain('GPT-5');
-    expect(out).toMatch(/❯ Kimi K2\s+Kimi ← current/u);
+    expect(out).toMatch(/❯ Kimi K2\s+moonshot-cn ← current/u);
   });
 
   it('opens the matching provider when the current canonical alias is stale', () => {
@@ -135,7 +135,7 @@ describe('TabbedModelSelectorComponent', () => {
 
     component.handleInput(RIGHT); // off -> low for k2
     const output = strip(component.render(120).join('\n'));
-    expect(component.activeTabId()).toBe('managed:kimi-code');
+    expect(component.activeTabId()).toBe('moonshot-cn');
     expect(output).toContain('Kimi K2');
 
     component.handleInput('\r');

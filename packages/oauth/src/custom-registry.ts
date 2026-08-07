@@ -1,8 +1,6 @@
 import { readApiErrorMessage } from './api-error';
 import { isRecord } from './utils';
-import type { ManagedKimiConfigShape } from './managed-kimi-code';
-
-export type { ManagedKimiConfigShape };
+import type { PlatformConfigShape } from './open-platform';
 
 /**
  * Identifies where a custom-registry-managed provider came from. The same
@@ -292,7 +290,7 @@ function resolveCapabilities(model: CustomRegistryModelEntry): string[] {
  * refresh dispatcher can rediscover it later.
  */
 export function applyCustomRegistryProvider(
-  config: ManagedKimiConfigShape,
+  config: PlatformConfigShape,
   entry: CustomRegistryProviderEntry,
   source: CustomRegistrySource,
 ): void {
@@ -339,7 +337,7 @@ export function applyCustomRegistryProvider(
  * `removeOpenPlatformConfig`.
  */
 export function removeCustomRegistryProvider(
-  config: ManagedKimiConfigShape,
+  config: PlatformConfigShape,
   providerId: string,
 ): void {
   delete config.providers[providerId];
@@ -383,7 +381,7 @@ export function removeCustomRegistryProvider(
  * registry".
  */
 export function applyCustomRegistryEntries(
-  config: ManagedKimiConfigShape,
+  config: PlatformConfigShape,
   entries: Record<string, CustomRegistryProviderEntry>,
   source: CustomRegistrySource,
 ): void {

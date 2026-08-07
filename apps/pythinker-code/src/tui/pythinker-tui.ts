@@ -8,7 +8,6 @@ import {
   getCapabilities,
   Spacer,
 } from '@earendil-works/pi-tui';
-import type { DeviceAuthorization } from '@pythoughts/pythinker-code-oauth';
 import type {
   ApprovalRequest,
   ApprovalResponse,
@@ -56,7 +55,6 @@ import {
 } from './commands/workflow-availability';
 import * as slashCommands from './commands/dispatch';
 import { BannerComponent } from './components/chrome/banner';
-import { DeviceCodeBoxComponent } from './components/chrome/device-code-box';
 import { ActivityLoader } from './components/chrome/activity-loader';
 import { WelcomeComponent } from './components/chrome/welcome';
 import {
@@ -1844,19 +1842,6 @@ export class PythinkerTUI {
     };
   }
 
-  showLoginAuthorizationPrompt(auth: DeviceAuthorization): LoginProgressSpinnerHandle {
-    openUrl(auth.verificationUriComplete);
-    this.state.transcriptContainer.addChild(
-      new DeviceCodeBoxComponent({
-        title: 'Sign in to Pythinker',
-        url: auth.verificationUriComplete,
-        code: auth.userCode,
-        hint: 'Press Ctrl-C to cancel',
-      }),
-    );
-    this.state.ui.requestRender();
-    return this.showLoginProgressSpinner('Waiting for authorization…');
-  }
 
   // =========================================================================
   // Panes / Presentation State

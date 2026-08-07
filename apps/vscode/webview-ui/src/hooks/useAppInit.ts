@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { bridge, Events } from "@/services";
-import { requiresManagedProviderLogin, useSettingsStore } from "@/stores";
+import { useSettingsStore } from "@/stores";
 import type { ExtensionConfig } from "shared/types";
 
 export type AppStatus = "loading" | "no-workspace" | "runtime-error" | "not-logged-in" | "no-models" | "ready";
@@ -123,7 +123,7 @@ export function useAppInit(): AppInitState {
           return;
         }
 
-        if (requiresManagedProviderLogin(modelsConfig.models, modelsConfig.defaultModel, loginStatus.loggedIn)) {
+        if (!loginStatus.loggedIn) {
           setState({ status: "not-logged-in", errorMessage: null, modelsCount });
           return;
         }

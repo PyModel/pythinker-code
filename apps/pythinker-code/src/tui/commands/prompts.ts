@@ -13,7 +13,7 @@ import {
   type PlatformSelection,
 } from '@pythoughts/pythinker-code-sdk';
 import type {
-  ManagedKimiCodeModelInfo,
+  PlatformModelInfo,
   OpenPlatformDefinition,
 } from '@pythoughts/pythinker-code-oauth';
 
@@ -156,9 +156,9 @@ export function promptCatalogProviderSelection(host: SlashCommandHost, catalog: 
 
 export async function promptModelSelectionForOpenPlatform(
   host: SlashCommandHost,
-  models: ManagedKimiCodeModelInfo[],
+  models: PlatformModelInfo[],
   platform: OpenPlatformDefinition,
-): Promise<{ model: ManagedKimiCodeModelInfo; effort: string } | undefined> {
+): Promise<{ model: PlatformModelInfo; effort: string } | undefined> {
   const modelDict: Record<string, ModelAlias> = {};
   for (const m of models) {
     modelDict[`${platform.id}/${m.id}`] = managedModelToAlias(platform.id, m);

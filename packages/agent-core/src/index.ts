@@ -64,9 +64,7 @@ export { startAgentToolMcpServer } from './mcp/tool-server';
 export type { AgentToolMcpServerOptions } from './mcp/tool-server';
 export { SingleModelProvider } from './session/provider-manager';
 export type {
-  BearerTokenProvider,
   ModelProvider,
-  OAuthTokenProviderResolver,
   ResolvedRuntimeProvider,
 } from './session/provider-manager';
 

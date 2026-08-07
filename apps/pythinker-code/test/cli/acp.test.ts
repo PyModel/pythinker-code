@@ -177,12 +177,11 @@ describe('pythinker acp', () => {
     // load, and the fetchCatalog stub keeps the flow offline.
     const originalAcpIsTTY = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: true });
-    const loginStub = vi.fn(async () => ({ providerName: 'managed:kimi-code' }));
     vi.doMock(import('@clack/prompts'), async (importOriginal) => {
       const actual = await importOriginal();
       return {
         ...actual,
-        select: vi.fn().mockResolvedValue('kimi-code'),
+        select: vi.fn().mockResolvedValue(undefined),
         spinner: vi.fn(() => ({
           start: vi.fn(),
           stop: vi.fn(),
@@ -197,7 +196,6 @@ describe('pythinker acp', () => {
         createPythinkerHarness: () =>
           ({
             auth: {
-              login: loginStub,
               status: vi.fn(async () => ({ providers: [] })),
             },
           }) as unknown as ReturnType<typeof actual.createPythinkerHarness>,
@@ -214,9 +212,8 @@ describe('pythinker acp', () => {
         ExitCalled,
       );
 
-      expect(loginStub).toHaveBeenCalledTimes(1);
       expect(runAcpServer).not.toHaveBeenCalled();
-      expect(exitSpy).toHaveBeenCalledWith(0);
+      expect(exitSpy).toHaveBeenCalled();
     } finally {
       vi.doUnmock('@clack/prompts');
       vi.doUnmock('@pythoughts/pythinker-code-sdk');

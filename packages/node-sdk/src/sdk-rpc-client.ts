@@ -8,7 +8,6 @@ import {
   resolvePythinkerHome,
   resolveLoggingConfig,
   type CoreAPI,
-  type OAuthTokenProviderResolver,
   type RPCMethods,
   type SDKAPI,
   type TelemetryClient,
@@ -16,14 +15,12 @@ import {
 import type { Kaos } from '@pythoughts/kaos';
 import { assertPythinkerHostIdentity, createPythinkerDefaultHeaders } from '@pythoughts/pythinker-code-oauth';
 
-import { PythinkerAuthFacade } from '#/auth';
 import { PythinkerHarness } from '#/pythinker-harness';
 import { ClientAPI, SDKRpcClientBase } from '#/rpc';
 import type {
   CreateSessionOptions,
   PythinkerHarnessOptions,
   PythinkerHostIdentity,
-  OAuthRefreshOutcome,
   ResumeSessionInput,
   ResumedSessionSummary,
   SessionSummary,
@@ -33,10 +30,8 @@ export interface SDKRpcClientOptions {
   readonly homeDir?: string;
   readonly configPath?: string;
   readonly identity?: PythinkerHostIdentity;
-  readonly resolveOAuthTokenProvider?: OAuthTokenProviderResolver;
   readonly skillDirs?: readonly string[];
   readonly telemetry?: TelemetryClient;
-  readonly onOAuthRefresh?: (outcome: OAuthRefreshOutcome) => void;
 }
 
 export class SDKRpcClient extends SDKRpcClientBase {
@@ -44,7 +39,6 @@ export class SDKRpcClient extends SDKRpcClientBase {
   readonly configPath: string;
   readonly identity: PythinkerHostIdentity | undefined;
   readonly telemetry: TelemetryClient;
-  readonly auth: PythinkerAuthFacade;
   readonly core: PythinkerCore;
 
   private readonly ready: Promise<RPCMethods<CoreAPI>>;
@@ -59,12 +53,6 @@ export class SDKRpcClient extends SDKRpcClientBase {
       configPath: options.configPath,
     });
     this.telemetry = options.telemetry ?? noopTelemetryClient;
-    this.auth = new PythinkerAuthFacade({
-      homeDir: this.homeDir,
-      configPath: this.configPath,
-      identity: this.identity,
-      onRefresh: options.onOAuthRefresh,
-    });
 
     void getRootLogger().configure(resolveLoggingConfig({ homeDir: this.homeDir }));
 
@@ -73,8 +61,6 @@ export class SDKRpcClient extends SDKRpcClientBase {
       homeDir: options.homeDir,
       configPath: this.configPath,
       pythinkerRequestHeaders: this.createPythinkerRequestHeaders(),
-      resolveOAuthTokenProvider:
-        options.resolveOAuthTokenProvider ?? this.auth.resolveOAuthTokenProvider,
       skillDirs: options.skillDirs,
       telemetry: this.telemetry,
       appVersion: this.identity?.version,
@@ -136,7 +122,6 @@ export function createPythinkerHarness(options: PythinkerHarnessOptions): Pythin
     uiMode: options.uiMode,
     homeDir: rpc.homeDir,
     configPath: rpc.configPath,
-    auth: rpc.auth,
     telemetry: rpc.telemetry,
     ensureConfigFile: () => rpc.ensureConfigFile(),
     onClose: () => rpc.close(),

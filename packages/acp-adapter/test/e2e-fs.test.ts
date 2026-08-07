@@ -40,7 +40,7 @@ import type { Event, PythinkerHarness, Session } from '@pythoughts/pythinker-cod
 import { describe, expect, it } from 'vitest';
 
 import { AcpServer } from '../src/server';
-import { AUTHED_STATUS } from './_helpers/harness-stubs';
+import { AUTHED } from './_helpers/harness-stubs';
 
 function makeInMemoryStreamPair(): {
   agentStream: ReturnType<typeof ndJsonStream>;
@@ -130,7 +130,7 @@ describe('end-to-end FS reverse-RPC', () => {
     let createdSession: Session | undefined;
     let capturedSessionId: string | undefined;
     const harness = {
-      auth: { status: async () => AUTHED_STATUS },
+      isAuthenticated: AUTHED,
       createSession: async (options: { id?: string; workDir: string; kaos?: Kaos }) => {
         capturedSessionId = options.id ?? 'fallback';
         createdSession = makeReadingSession(capturedSessionId, targetPath, options.kaos);
@@ -190,7 +190,7 @@ describe('end-to-end FS reverse-RPC', () => {
 
     const listeners = new Set<(event: Event) => void>();
     const harness = {
-      auth: { status: async () => AUTHED_STATUS },
+      isAuthenticated: AUTHED,
       createSession: async (options: { id?: string; workDir: string; kaos?: Kaos }) => {
         observedKaos = options.kaos;
         capturedSessionId = options.id ?? 'fallback';
