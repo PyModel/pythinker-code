@@ -8,6 +8,9 @@ const AUTH_PATTERN = /\b401\b|unauthorized|invalidaccess|access denied|not allow
 
 export const DEFAULT_ATTEMPTS = 3;
 
+/** Longest summary line worth printing; registry errors can be one huge JSON blob. */
+export const SUMMARY_LIMIT = 400;
+
 export function messageOf(error) {
   return error instanceof Error ? error.message : String(error);
 }
@@ -27,7 +30,9 @@ export function summaryLine(error) {
     .filter((line) => line !== '');
   if (lines.length === 0) return '';
   const [wrapper, ...rest] = lines;
-  return rest.length === 0 ? wrapper : `${wrapper} ${rest.join(' ')}`.slice(0, 400);
+  // Cap the whole result, not just the joined branch: a registry that answers
+  // with one long JSON line would otherwise print unbounded.
+  return (rest.length === 0 ? wrapper : `${wrapper} ${rest.join(' ')}`).slice(0, SUMMARY_LIMIT);
 }
 
 /**

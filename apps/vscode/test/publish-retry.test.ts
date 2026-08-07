@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 // @ts-expect-error -- plain .mjs build script, no type declarations
-import { classifyError, publishEachTarget, summaryLine, withRetry } from '../scripts/publish-retry.mjs';
+import { classifyError, publishEachTarget, SUMMARY_LIMIT, summaryLine, withRetry } from '../scripts/publish-retry.mjs';
 
 const TARGETS = ['darwin-x64', 'darwin-arm64', 'linux-x64'];
 const FILES = TARGETS.map((target) => `/tmp/${target}.vsix`);
@@ -65,6 +65,13 @@ describe('summaryLine', () => {
 
     expect(line).toContain('Unknown namespace: pythoughts');
     expect(line).toContain('exited with code 1');
+  });
+
+  it('caps a long error whether or not it has a second line', () => {
+    // The cap used to bind only to the joined branch, so a registry answering
+    // with one long JSON line printed in full.
+    expect(summaryLine(new Error('x'.repeat(500)))).toHaveLength(SUMMARY_LIMIT);
+    expect(summaryLine(new Error(`wrapper:\n${'y'.repeat(500)}`))).toHaveLength(SUMMARY_LIMIT);
   });
 
   it('leaves a single-line error alone and survives a blank one', () => {
