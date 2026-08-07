@@ -1,11 +1,42 @@
 #!/usr/bin/env node
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import { runLocalCli } from './local-cli.mjs';
 import { parsePublishArguments, publishUsage } from './publish-args.mjs';
 import { messageOf, publishEachTarget } from './publish-retry.mjs';
 import { extensionRoot, isMainModule } from './vsix-targets.mjs';
 import { verifyVsix } from './vsix-verify.mjs';
+
+/**
+ * Open VSX refuses every publish into a namespace that does not exist yet, and
+ * the Marketplace has no such concept — so a publisher that works there fails
+ * here on all six targets at once. Creating it is idempotent from our side: the
+ * namespace already existing is the success case, not an error.
+ *
+ * This is why 0.8.6 reached the Marketplace but no version ever reached Open VSX.
+ */
+export function ensureNamespace(namespace, run = runLocalCli) {
+  try {
+    run('ovsx', 'ovsx', ['create-namespace', namespace], {
+      cwd: extensionRoot,
+      encoding: 'utf8',
+      stdio: 'pipe',
+    });
+    console.log(`Created Open VSX namespace ${namespace}.`);
+  } catch (error) {
+    if (/already exists|already owned/i.test(messageOf(error))) return;
+    throw error;
+  }
+}
+
+function publisherName() {
+  const manifest = JSON.parse(readFileSync(join(extensionRoot, 'package.json'), 'utf8'));
+  if (typeof manifest.publisher !== 'string' || manifest.publisher === '') {
+    throw new Error('apps/vscode/package.json has no publisher to use as the Open VSX namespace.');
+  }
+  return manifest.publisher;
+}
 
 async function main() {
   const options = parsePublishArguments(process.argv.slice(2));
@@ -16,6 +47,7 @@ async function main() {
   if (!process.env.OVSX_PAT) throw new Error('OVSX_PAT is required to publish.');
 
   await verifyInputs(options);
+  ensureNamespace(publisherName());
   await publishEachTarget({
     targets: options.targets,
     files: options.files,

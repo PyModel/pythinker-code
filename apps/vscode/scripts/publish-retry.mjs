@@ -13,6 +13,24 @@ export function messageOf(error) {
 }
 
 /**
+ * One line for a summary, chosen so it carries the registry's own words.
+ *
+ * `runLocalCli` wraps a CLI failure as `Local ovsx exited with code 1:` followed
+ * by the captured output, so reporting only the first line printed six identical
+ * `FAILED <target>: Local ovsx exited with code 1:` entries with the actual cause
+ * — a missing Open VSX namespace — cut off right after the colon.
+ */
+export function summaryLine(error) {
+  const lines = messageOf(error)
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line !== '');
+  if (lines.length === 0) return '';
+  const [wrapper, ...rest] = lines;
+  return rest.length === 0 ? wrapper : `${wrapper} ${rest.join(' ')}`.slice(0, 400);
+}
+
+/**
  * `auth` aborts the whole run — every remaining target would fail identically.
  * `transient` is worth retrying. `fatal` fails one target and lets the rest go.
  */
@@ -48,7 +66,7 @@ export async function withRetry(action, options = {}) {
       }
       const wait = backoffMs[Math.min(attempt - 1, backoffMs.length - 1)];
       console.warn(`${label}: ${kind} failure on attempt ${attempt}/${attempts}, retrying in ${wait / 1000}s...`);
-      console.warn(`  ${messageOf(error).split('\n')[0]}`);
+      console.warn(`  ${summaryLine(error)}`);
       await delay(wait);
     }
   }
@@ -79,7 +97,7 @@ export async function publishEachTarget({ targets, files, registry, publishOne }
       (outcome === 'skipped' ? skipped : published).push(target);
     } catch (error) {
       const kind = classifyError(error);
-      failures.push({ target, message: messageOf(error).split('\n')[0] });
+      failures.push({ target, message: summaryLine(error) });
       if (kind === 'auth') {
         abortReason = 'aborted after an authentication failure';
       }
