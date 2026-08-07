@@ -30,6 +30,8 @@ function parseArgs() {
   return { out, skipRg };
 }
 
+const RELEASE_VERSION = /^\d+\.\d+\.\d+$/;
+
 /**
  * Resolve the version this CDN advertises from a *published* release, never from
  * the working tree.
@@ -50,7 +52,18 @@ function parseArgs() {
  */
 async function resolvePublishedRelease(packageName) {
   const pinned = process.env.PYTHINKER_CDN_VERSION?.trim();
-  if (pinned) return { version: pinned, publishedAt: new Date().toISOString() };
+  if (pinned) {
+    // The override answers to the same shape rule as the registry path below.
+    // A client rejects a manifest whose `version` is not semver, so an
+    // unusable override has to stop the build instead of publishing a
+    // latest.json that every installed client fails to parse.
+    if (!RELEASE_VERSION.test(pinned)) {
+      throw new Error(`PYTHINKER_CDN_VERSION is not a release version: ${pinned}`);
+    }
+    // Build time is the only timestamp available for a manual pin; the
+    // registry path below requires npm's own and never stamps one.
+    return { version: pinned, publishedAt: new Date().toISOString() };
+  }
   const view = JSON.parse(
     execFileSync(
       'npm',
@@ -59,16 +72,21 @@ async function resolvePublishedRelease(packageName) {
     ),
   );
   const version = view['dist-tags']?.latest;
-  if (typeof version !== 'string' || !/^\d+\.\d+\.\d+$/.test(version)) {
+  if (typeof version !== 'string' || !RELEASE_VERSION.test(version)) {
     throw new Error(
       `npm dist-tag latest for ${packageName} is not a release version: ${String(version)}`,
     );
   }
   const publishedAt = view.time?.[version];
-  return {
-    version,
-    publishedAt: typeof publishedAt === 'string' ? publishedAt : new Date().toISOString(),
-  };
+  // Stamping build time here is the bug this function documents: it would move
+  // the rollout anchor on every unrelated site deploy. Unreadable registry
+  // metadata is a failed read, and a failed read must fail the build.
+  if (typeof publishedAt !== 'string' || !Number.isFinite(Date.parse(publishedAt))) {
+    throw new Error(
+      `npm has no usable publish time for ${packageName}@${version}: ${String(publishedAt)}`,
+    );
+  }
+  return { version, publishedAt };
 }
 
 const RELEASE_DOWNLOAD_BASE = 'https://github.com/Pythoughts-labs/pythinker-code/releases/download';
