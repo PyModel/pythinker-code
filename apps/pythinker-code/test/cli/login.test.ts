@@ -12,6 +12,16 @@ import { Command } from 'commander';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DeviceAuthorization } from '@pythoughts/pythinker-code-oauth';
 
+import { password, select, text } from '@clack/prompts';
+import {
+  createPythinkerHarness,
+  fetchCatalog,
+  type Catalog,
+} from '@pythoughts/pythinker-code-sdk';
+
+import { registerLoginCommand } from '#/cli/sub/login';
+import { openUrl } from '#/utils/open-url';
+
 const mockLogin = vi.fn();
 const mockStatus = vi.fn();
 const mockGetConfig = vi.fn();
@@ -85,16 +95,6 @@ vi.mock('@pythoughts/pythinker-code-oauth', async () => {
 });
 
 vi.mock('#/utils/open-url', () => ({ openUrl: vi.fn() }));
-
-import { password, select, text } from '@clack/prompts';
-import {
-  createPythinkerHarness,
-  fetchCatalog,
-  type Catalog,
-} from '@pythoughts/pythinker-code-sdk';
-
-import { registerLoginCommand } from '#/cli/sub/login';
-import { openUrl } from '#/utils/open-url';
 
 class ExitCalled extends Error {
   constructor(public code: number | string | null | undefined) {
