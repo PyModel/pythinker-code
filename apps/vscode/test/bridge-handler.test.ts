@@ -33,11 +33,7 @@ const host = vi.hoisted(() => {
     resumeSession: vi.fn(),
     forkSession: vi.fn(),
     deleteSession: vi.fn(async () => undefined),
-    auth: {
-      status: vi.fn(),
-      login: vi.fn(),
-      logout: vi.fn(),
-    },
+    isAuthenticated: vi.fn(async () => false),
   };
   const showWarningMessage = vi.fn(async () => undefined as string | undefined);
   const showQuickPick = vi.fn();
@@ -173,10 +169,8 @@ beforeEach(async () => {
   host.harness.resumeSession.mockReset();
   host.harness.getConfig.mockReset();
   host.harness.getConfig.mockResolvedValue({ models: {} });
-  host.harness.auth.status.mockReset();
-  host.harness.auth.status.mockResolvedValue({ providers: [] } as never);
-  host.harness.auth.login.mockReset();
-  host.harness.auth.logout.mockReset();
+  host.harness.isAuthenticated.mockReset();
+  host.harness.isAuthenticated.mockResolvedValue(false);
   host.showWarningMessage.mockReset();
   host.showWarningMessage.mockResolvedValue(undefined);
   host.showQuickPick.mockReset();
@@ -902,40 +896,6 @@ describe("Webview login (multi-provider picker behind Methods.Login)", () => {
     );
   });
 
-  it("opens the OAuth verification URL externally with its scheme intact", async () => {
-    host.harness.auth.status.mockResolvedValue({ providers: [] } as never);
-    host.harness.auth.login.mockImplementation(
-      async (_provider: string, options: { onDeviceCode?: (auth: unknown) => void }) => {
-        options.onDeviceCode?.({
-          userCode: "WDJB-MJHT",
-          deviceCode: "devcode123",
-          verificationUri: "https://auth.kimi.com/verify",
-          verificationUriComplete: "https://auth.kimi.com/verify?user_code=WDJB-MJHT",
-          expiresIn: 600,
-          interval: 5,
-        });
-        return { providerName: "managed:kimi-code", ok: true };
-      },
-    );
-    host.showQuickPick.mockImplementationOnce(
-      async (items: Array<{ value: string }>) =>
-        items.find((item) => item.value === "kimi-code"),
-    );
-
-    await bridge.handle({ id: "rpc-login", method: Methods.Login }, "view-1");
-
-    // The webview and the browser must be handed the same https URL. An earlier
-    // mock collapsed every scheme to `file:`, which would have hidden a URL the
-    // extension opened with the wrong one.
-    expect(broadcast).toHaveBeenCalledWith(
-      Events.LoginUrl,
-      { url: "https://auth.kimi.com/verify?user_code=WDJB-MJHT" },
-      "view-1",
-    );
-    const opened = host.openExternal.mock.calls[0]?.[0];
-    expect(opened?.scheme).toBe("https");
-    expect(opened?.toString()).toBe("https://auth.kimi.com/verify?user_code=WDJB-MJHT");
-  });
 
   it("reports cancellation without writing config when the picker is dismissed", async () => {
     host.showQuickPick.mockResolvedValue(undefined as never);
@@ -946,7 +906,6 @@ describe("Webview login (multi-provider picker behind Methods.Login)", () => {
     // failed login.
     expect(result).toEqual({ id: "rpc-login", result: { success: false } });
     expect(host.harness.setConfig).not.toHaveBeenCalled();
-    expect(broadcast).not.toHaveBeenCalledWith(Events.LoginUrl, expect.anything(), "view-1");
   });
 
   it("renders a dismissed picker as idle, and only a real failure as an error", () => {
@@ -1092,7 +1051,7 @@ describe("Webview login (multi-provider picker behind Methods.Login)", () => {
     // The refresh runs after credentials are already on disk, so its failure is
     // a stale badge — reporting it as a failed login would send the user back
     // to the sign-in screen they just completed.
-    host.harness.auth.status.mockRejectedValue(new Error("status backend down") as never);
+    host.harness.isAuthenticated.mockRejectedValue(new Error("status backend down") as never);
 
     const result = await bridge.handle({ id: "rpc-login", method: Methods.Login }, "view-1");
 

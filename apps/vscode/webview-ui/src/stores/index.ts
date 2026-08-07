@@ -12,7 +12,6 @@ export {
   isImageModel,
   isVideoModel,
   providerDisplayName,
-  requiresManagedProviderLogin,
 } from "./settings.store";
 export type { MediaRequirements, ModelProviderGroup } from "./settings.store";
 

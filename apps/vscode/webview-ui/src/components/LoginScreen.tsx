@@ -1,8 +1,8 @@
-import { useState, useEffect } from "react";
-import { IconLoader2, IconCopy, IconCheck, IconExternalLink, IconArrowRight } from "@tabler/icons-react";
+import { useState } from "react";
+import { IconLoader2, IconArrowRight } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { PythinkerMascot } from "./PythinkerMascot";
-import { bridge, Events } from "@/services";
+import { bridge } from "@/services";
 import { loginOutcomeState, type LoginState } from "./login-outcome";
 
 interface LoginScreenProps {
@@ -12,19 +12,11 @@ interface LoginScreenProps {
 
 export function LoginScreen({ onLoginSuccess, onSkip }: LoginScreenProps) {
   const [state, setState] = useState<LoginState>("idle");
-  const [url, setUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
 
-  useEffect(() => {
-    return bridge.on<{ url: string }>(Events.LoginUrl, ({ url }) => {
-      setUrl(url);
-    });
-  }, []);
 
   const handleLogin = async () => {
     setState("pending");
-    setUrl(null);
     setError(null);
     try {
       const result = await bridge.login();
@@ -41,12 +33,6 @@ export function LoginScreen({ onLoginSuccess, onSkip }: LoginScreenProps) {
     }
   };
 
-  const handleCopyUrl = async () => {
-    if (!url) return;
-    await navigator.clipboard.writeText(url);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
 
   if (state === "pending") {
     return (
@@ -60,28 +46,6 @@ export function LoginScreen({ onLoginSuccess, onSkip }: LoginScreenProps) {
             </div>
             <p className="text-xs leading-5 text-muted-foreground text-left">A browser window should open automatically. Complete the sign-in process there.</p>
           </div>
-          {url && (
-            <div className="bg-muted/50 rounded-lg p-2 text-left space-y-3">
-              <p className="text-xs text-muted-foreground">If the browser didn&apos;t open, visit this URL:</p>
-              <div className="flex items-center gap-2">
-                <code className="flex-1 text-xs bg-background rounded px-2 py-1.5 font-mono break-all select-all">{url}</code>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="shrink-0 size-8"
-                  onClick={() => {
-                    void handleCopyUrl();
-                  }}
-                >
-                  {copied ? <IconCheck className="size-4 text-emerald-500" /> : <IconCopy className="size-4" />}
-                </Button>
-              </div>
-              <a href={url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-xs text-blue-500 hover:underline">
-                <IconExternalLink className="size-3.5" />
-                Open in browser
-              </a>
-            </div>
-          )}
         </div>
       </div>
     );
@@ -95,7 +59,7 @@ export function LoginScreen({ onLoginSuccess, onSkip }: LoginScreenProps) {
           <div className="space-y-2">
             <h1 className="text-lg font-semibold">Welcome to Pythinker Code</h1>
             <div className="text-left space-y-2">
-              <p className="text-xs leading-5">Use Pythinker Code with your Kimi Code Plan subscription or your existing API setup.</p>
+              <p className="text-xs leading-5">Sign in to add a provider, or skip and use your existing API key configuration.</p>
             </div>
           </div>
 
@@ -113,9 +77,9 @@ export function LoginScreen({ onLoginSuccess, onSkip }: LoginScreenProps) {
                 }}
                 className="w-full justify-center gap-2"
               >
-                Sign in with Kimi
+                Sign in
               </Button>
-              <p className="text-[11px] text-muted-foreground leading-4">Use your Kimi account and Kimi Code Plan subscription.</p>
+              <p className="text-[11px] text-muted-foreground leading-4">Pick a provider and paste its API key, or authorize OpenAI Codex.</p>
             </div>
 
             <div className="text-left space-y-1">

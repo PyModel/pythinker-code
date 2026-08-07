@@ -50,7 +50,6 @@ export type { SkillSlashCommand, SkillSlashCommands } from '#/skill-commands';
 export { formatErrorMessage, formatErrorPayload } from '#/error-format';
 export {
   buildPlatformOptions,
-  KIMI_CODE_PLATFORM_ID,
   resolvePlatformOption,
   type PlatformOption,
 } from '#/login/platform-options';

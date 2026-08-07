@@ -56,9 +56,9 @@ describe('PlatformSelectorComponent', () => {
     });
 
     const output = rendered(component);
-    expect(output.indexOf('OpenAI Codex (OAuth)')).toBeLessThan(
-      output.indexOf('Kimi (OAuth)'),
-    );
+    expect(output).toContain('OpenAI Codex (OAuth)');
+    expect(output).not.toContain('Kimi (OAuth)');
+    expect(output.indexOf('OpenAI Codex (OAuth)')).toBeLessThan(output.indexOf('DeepSeek API'));
     expect(output).toContain('DeepSeek API');
     expect(output).toContain('GLM Coding Plan');
     expect(output).toContain('MiniMax Token Plan');

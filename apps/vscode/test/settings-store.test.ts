@@ -33,22 +33,21 @@ import {
   getMediaFallbackModel,
   getModelThinkingMode,
   groupModelsByProvider,
-  requiresManagedProviderLogin,
   useSettingsStore,
 } from "../webview-ui/src/stores/settings.store";
 import { useChatStore } from "../webview-ui/src/stores/chat.store";
 
 const MODELS = [
-  { id: "plain", name: "Plain", provider: "managed:kimi-code", capabilities: [] },
+  { id: "plain", name: "Plain", provider: "moonshot-cn", capabilities: [] },
   {
     id: "reasoning",
     name: "Reasoning",
-    provider: "managed:kimi-code",
+    provider: "moonshot-cn",
     capabilities: ["thinking"],
     support_efforts: ["low", "high"],
     default_effort: "high",
   },
-  { id: "always", name: "Always", provider: "managed:kimi-code", capabilities: ["always_thinking"] },
+  { id: "always", name: "Always", provider: "moonshot-cn", capabilities: ["always_thinking"] },
 ];
 
 beforeEach(() => {
@@ -145,7 +144,7 @@ describe("Webview model settings persistence", () => {
 describe("Webview model metadata", () => {
   it("keeps same-named models in separate provider groups", () => {
     const groups = groupModelsByProvider([
-      { id: "kimi/shared", name: "Shared", provider: "managed:kimi-code", capabilities: [] },
+      { id: "kimi/shared", name: "Shared", provider: "moonshot-cn", capabilities: [] },
       { id: "proxy/shared", name: "Shared", provider: "company-proxy", capabilities: [] },
     ]);
 
@@ -155,7 +154,7 @@ describe("Webview model metadata", () => {
       models: group.models.map((model) => model.id),
     }))).toEqual([
       { provider: "company-proxy", label: "company-proxy", models: ["proxy/shared"] },
-      { provider: "managed:kimi-code", label: "Kimi Code", models: ["kimi/shared"] },
+      { provider: "moonshot-cn", label: "moonshot-cn", models: ["kimi/shared"] },
     ]);
   });
 
@@ -184,17 +183,6 @@ describe("Webview model metadata", () => {
     expect(fallback?.id).toBe("openai/vision");
   });
 
-  it("does not require Kimi login when the default model uses a custom provider", () => {
-    expect(requiresManagedProviderLogin([
-      { id: "local/model", name: "Local", provider: "local", capabilities: [] },
-    ], "local/model", false)).toBe(false);
-  });
-
-  it("requires Kimi login when the default model uses the managed provider", () => {
-    expect(requiresManagedProviderLogin([
-      { id: "kimi/model", name: "Kimi", provider: "managed:kimi-code", capabilities: [] },
-    ], "kimi/model", false)).toBe(true);
-  });
 });
 
 describe("Webview MCP update bridge", () => {

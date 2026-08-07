@@ -98,7 +98,6 @@ function createProgressHandle(title: string): LoginProgressSpinnerHandle {
 /**
  * Build a `LoginUi` for the extension host, rendering every prompt with VS
  * Code's own widgets. The webview keeps receiving the OAuth device URL it
- * already renders (`Events.LoginUrl`), so the pending-login screen still works.
  *
  * `token` is the login-wide cancellation token owned by the caller. Every quick
  * pick and input box receives it, so cancelling closes whichever prompt is open
