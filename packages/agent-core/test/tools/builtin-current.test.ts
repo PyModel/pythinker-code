@@ -322,6 +322,91 @@ describe('current builtin collaboration tools', () => {
     expect(result.output).toContain('child result');
   });
 
+  it('DynamicWorkflow ignores empty items instead of rejecting the whole call', async () => {
+    // A model that emits a trailing empty string used to fail argument
+    // validation, which rejects the entire call before the tool ever runs and
+    // costs a full re-send of every prompt.
+    const input = {
+      description: 'Review files',
+      prompt_template: 'Review {{item}}',
+      items: ['src/a.ts', 'src/b.ts', ''],
+      subagent_type: 'explore',
+    };
+    expect(DynamicWorkflowToolInputSchema.safeParse(input).success).toBe(true);
+    expect(
+      DynamicWorkflowToolInputSchema.safeParse({ ...input, items: ['src/a.ts', '   '] }).success,
+    ).toBe(true);
+
+    const host = mockSubagentHost({
+      runQueued: vi.fn().mockResolvedValue([
+        {
+          task: {
+            kind: 'spawn',
+            data: { kind: 'spawn', index: 1, item: 'src/a.ts', prompt: 'Review src/a.ts' },
+            profileName: 'explore',
+            parentToolCallId: 'call_dynamic_workflow',
+            prompt: 'Review src/a.ts',
+            description: 'Review files #1 (explore)',
+            runInBackground: false,
+          },
+          agentId: 'agent-explore-1',
+          status: 'completed',
+          result: 'explore result a',
+        },
+        {
+          task: {
+            kind: 'spawn',
+            data: { kind: 'spawn', index: 2, item: 'src/b.ts', prompt: 'Review src/b.ts' },
+            profileName: 'explore',
+            parentToolCallId: 'call_dynamic_workflow',
+            prompt: 'Review src/b.ts',
+            description: 'Review files #2 (explore)',
+            runInBackground: false,
+          },
+          agentId: 'agent-explore-2',
+          status: 'completed',
+          result: 'explore result b',
+        },
+      ]),
+    });
+    const tool = new DynamicWorkflowTool(host, mockDynamicWorkflowMode());
+
+    // The panel must advertise the two subagents that will actually launch,
+    // not the three entries that were sent.
+    const execution = tool.resolveExecution(input as never);
+    if (execution.isError === true) throw new Error('expected runnable execution');
+    expect(execution.display).toMatchObject({
+      agent_name: 'Dynamic Workflow (2 subagents)',
+    });
+
+    const result = await executeTool(tool, context(input, 'call_dynamic_workflow'));
+
+    expect(result.isError).not.toBe(true);
+    const queued = host.runQueued.mock.calls[0]?.[0] as Array<{ prompt: string }>;
+    expect(queued.map((task) => task.prompt)).toEqual(['Review src/a.ts', 'Review src/b.ts']);
+    // A quietly shorter workflow must not read as one the model sized right.
+    expect(result.output).toContain('1 empty item was ignored');
+  });
+
+  it('DynamicWorkflow says items were dropped when too few survive', async () => {
+    const host = mockSubagentHost({ runQueued: vi.fn() });
+    const tool = new DynamicWorkflowTool(host, mockDynamicWorkflowMode());
+    const input = {
+      description: 'Review files',
+      items: ['src/a.ts', '', ''],
+      subagent_type: 'explore',
+    };
+
+    const result = await executeTool(tool, context(input, 'call_dynamic_workflow'));
+
+    expect(result.isError).toBe(true);
+    // Without the second half the caller reads "requires at least 2 items"
+    // while looking at a list that had three.
+    expect(result.output).toContain('requires at least 2 items');
+    expect(result.output).toContain('2 empty items were ignored');
+    expect(host.runQueued).not.toHaveBeenCalled();
+  });
+
   it('DynamicWorkflow applies one subagent_type without automatic timeouts', async () => {
     const host = mockSubagentHost({
       runQueued: vi.fn().mockResolvedValue([

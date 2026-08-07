@@ -72,7 +72,11 @@ export const DynamicWorkflowToolInputSchema = z
         `Optional prompt template for each subagent. The ${PROMPT_TEMPLATE_PLACEHOLDER} placeholder is replaced with each item value. When omitted, each item is used as a complete prompt.`,
       ),
     items: z
-      .array(z.string().trim().min(1))
+      // Deliberately NOT `.min(1)` per item: a model that emits a trailing
+      // empty string would otherwise fail argument validation, which rejects
+      // the WHOLE call before the tool runs and costs a full re-send of every
+      // prompt. Empty entries are dropped and reported by the tool instead.
+      .array(z.string())
       .max(MAX_DYNAMIC_WORKFLOW_SUBAGENTS)
       .optional()
       .describe(
@@ -156,7 +160,11 @@ export class DynamicWorkflowTool implements BuiltinTool<DynamicWorkflowToolInput
   }
 
   resolveExecution(args: DynamicWorkflowToolInput): ToolExecution {
-    const agentCount = (args.items?.length ?? 0) + Object.keys(args.resume_agent_ids ?? {}).length;
+    // Count the items that will actually launch, so the panel never advertises
+    // a subagent that was never going to run.
+    const agentCount =
+      normalizeWorkflowItems(args.items).items.length +
+      Object.keys(args.resume_agent_ids ?? {}).length;
     return {
       accesses: ToolAccesses.all(),
       description: `Launching Dynamic Workflow: ${args.description}`,
@@ -248,10 +256,13 @@ export class DynamicWorkflowTool implements BuiltinTool<DynamicWorkflowToolInput
       };
     });
     const results = await this.subagentHost.runQueued(tasks);
-    return renderDynamicWorkflowResults(
+    const rendered = renderDynamicWorkflowResults(
       results.map(({ task, ...result }) => ({ spec: task.data, ...result })),
       runId,
     );
+    const { dropped } = normalizeWorkflowItems(args.items);
+    if (dropped === 0) return rendered;
+    return `${droppedItemsNote(dropped)}\n${rendered}`;
   }
 }
 
@@ -263,12 +274,17 @@ function createDynamicWorkflowSpecs(
     agentId: agentId.trim(),
     prompt: prompt.trim(),
   }));
-  const items = (args.items ?? []).map((item) => item.trim());
+  const { items, dropped } = normalizeWorkflowItems(args.items);
   const itemCount = items.length;
   const resumeCount = resumeEntries.length;
   const totalCount = resumeCount + itemCount;
   if (!hasMinimumDynamicWorkflowInputs(itemCount, resumeCount)) {
-    throw new Error('DynamicWorkflow requires at least 2 items unless resume_agent_ids is provided.');
+    // Name the dropped items here: without it the caller reads "requires at
+    // least 2 items" while looking at a list that had enough entries.
+    const droppedNote = dropped === 0 ? '' : ` ${droppedItemsNote(dropped)}`;
+    throw new Error(
+      `DynamicWorkflow requires at least 2 items unless resume_agent_ids is provided.${droppedNote}`,
+    );
   }
   if (totalCount > MAX_DYNAMIC_WORKFLOW_SUBAGENTS) {
     throw new Error(`DynamicWorkflow supports at most ${String(MAX_DYNAMIC_WORKFLOW_SUBAGENTS)} subagents.`);
@@ -316,6 +332,28 @@ function createDynamicWorkflowSpecs(
 
 function hasMinimumDynamicWorkflowInputs(itemCount: number, resumeCount: number): boolean {
   return resumeCount > 0 || itemCount >= 2;
+}
+
+/**
+ * Trims items and drops the blank ones, reporting how many went.
+ *
+ * Models routinely emit a trailing empty string when building the list. Per
+ * item that is not worth failing the call over — but it is worth saying out
+ * loud, because a silently shorter workflow looks identical to one the model
+ * sized correctly.
+ */
+function normalizeWorkflowItems(raw: readonly string[] | undefined): {
+  items: string[];
+  dropped: number;
+} {
+  const trimmed = (raw ?? []).map((item) => item.trim());
+  const items = trimmed.filter((item) => item.length > 0);
+  return { items, dropped: trimmed.length - items.length };
+}
+
+function droppedItemsNote(dropped: number): string {
+  const plural = dropped === 1 ? 'item was' : 'items were';
+  return `Note: ${String(dropped)} empty ${plural} ignored; the workflow ran without them.`;
 }
 
 function childDescription(workflowDescription: string, index: number, profileName: string): string {
