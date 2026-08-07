@@ -78,10 +78,18 @@ export interface FooterCompaction {
   readonly label: string | null;
 }
 
-export interface FooterTerminalProgress {
-  readonly active: boolean;
+export type FooterUpdateState =
+  | 'available'
+  | 'downloading'
+  | 'waiting'
+  | 'ready'
+  | 'failed';
+
+export interface FooterUpdate {
+  readonly version: string | null;
+  readonly state: FooterUpdateState | null;
+  /** Null means indeterminate — render without a bar rather than inventing a percentage. */
   readonly percent: number | null;
-  readonly label: string | null;
 }
 
 export type FooterBtwPhase = 'closed' | 'running' | 'done' | 'failed';
@@ -146,7 +154,7 @@ export interface FooterState {
   readonly subagents: FooterSubagentCounts;
   readonly compaction: FooterCompaction;
   readonly transientHint: string | null;
-  readonly terminalProgress: FooterTerminalProgress;
+  readonly update: FooterUpdate;
   readonly btw: FooterBtwState;
   readonly status: FooterStatus;
   readonly composer: FooterComposerState;
@@ -174,10 +182,7 @@ export type FooterEvent =
       readonly compaction: FooterCompaction;
     }
   | { readonly type: 'transient-hint.updated'; readonly hint: string | null }
-  | {
-      readonly type: 'terminal-progress.updated';
-      readonly progress: FooterTerminalProgress;
-    }
+  | { readonly type: 'update.updated'; readonly update: FooterUpdate }
   | { readonly type: 'btw.updated'; readonly btw: FooterBtwState }
   | { readonly type: 'status.updated'; readonly changes: Partial<FooterStatus> }
   | {
@@ -272,7 +277,7 @@ export function createFooterState(
     subagents: { active: 0, queued: 0, completed: 0, failed: 0 },
     compaction: { active: false, label: null },
     transientHint: null,
-    terminalProgress: { active: false, percent: null, label: null },
+    update: { version: null, state: null, percent: null },
     btw: { phase: 'closed', turnCount: 0 },
     status: { ...DEFAULT_STATUS, ...status },
     composer: { textLength: 0, placeholder: 'Composer' },
@@ -304,8 +309,8 @@ export function reduceFooterState(
       return freezeState({ ...state, compaction: event.compaction });
     case 'transient-hint.updated':
       return freezeState({ ...state, transientHint: event.hint });
-    case 'terminal-progress.updated':
-      return freezeState({ ...state, terminalProgress: event.progress });
+    case 'update.updated':
+      return freezeState({ ...state, update: event.update });
     case 'btw.updated':
       return freezeState({ ...state, btw: event.btw });
     case 'status.updated':
@@ -416,12 +421,6 @@ function selectActivityRow(state: FooterState): FooterActivityRowViewModel {
       state.activity.label?.trim() ||
       defaultActivityLabel(state.activity.phase);
     spinnerActive = state.activity.spinnerActive;
-  } else if (
-    state.terminalProgress.active &&
-    state.terminalProgress.label !== null
-  ) {
-    primary = state.terminalProgress.label.trim();
-    spinnerActive = true;
   }
 
   if (spinnerActive && primary.length > 0) {
@@ -430,8 +429,6 @@ function selectActivityRow(state: FooterState): FooterActivityRowViewModel {
   }
 
   const indicators: string[] = [];
-  const progress = formatTerminalProgress(state.terminalProgress);
-  if (progress !== null) indicators.push(progress);
   if (state.queue.count > 0) {
     indicators.push(
       `[${String(nonNegativeInteger(state.queue.count))} queued]`,
@@ -472,6 +469,8 @@ function selectStatusItems(
   statusLine: StatusLineConfig,
 ): string[] {
   const items: string[] = [];
+  const update = formatUpdate(state.update);
+  if (update !== null) items.push(update);
   const model = normalizeSingleLine(state.status.model);
   if (statusLine.showModel && model.length > 0) {
     const effortSuffix =
@@ -608,19 +607,35 @@ function formatSessionSpend(spend: number | undefined): string | null {
     : `$${spend.toFixed(6).replace(/\.?0+$/, '')}`;
 }
 
-function formatTerminalProgress(
-  progress: FooterTerminalProgress,
-): string | null {
-  if (!progress.active) return null;
-  const parts = ['progress'];
-  if (progress.percent !== null && Number.isFinite(progress.percent)) {
-    parts.push(
-      `${String(Math.round(Math.min(100, Math.max(0, progress.percent))))}%`,
-    );
+/** `↑ v0.11.0` — or `↓` while the download is in flight. */
+function formatUpdate(update: FooterUpdate): string | null {
+  const version = update.version;
+  const state = update.state;
+  if (version === null || state === null) return null;
+  const base = `${state === 'available' || state === 'ready' || state === 'failed' ? '↑' : '↓'} v${version}`;
+  switch (state) {
+    case 'available':
+      return base;
+    case 'downloading': {
+      const percent = update.percent;
+      if (percent === null || !Number.isFinite(percent)) return base;
+      const rounded = Math.round(Math.min(100, Math.max(0, percent)));
+      const filled = Math.min(
+        CONTEXT_BAR_CELLS,
+        Math.round((rounded / 100) * CONTEXT_BAR_CELLS),
+      );
+      const bar =
+        CONTEXT_BAR_FILLED.repeat(filled) +
+        CONTEXT_BAR_EMPTY.repeat(CONTEXT_BAR_CELLS - filled);
+      return `${base} ${bar} ${String(rounded)}%`;
+    }
+    case 'waiting':
+      return `${base} waiting`;
+    case 'ready':
+      return `${base} restart to apply`;
+    case 'failed':
+      return `${base} failed`;
   }
-  const label = normalizeSingleLine(progress.label ?? '');
-  if (label.length > 0) parts.push(label);
-  return `[${parts.join(' ')}]`;
 }
 
 /**
@@ -722,7 +737,7 @@ function freezeState(state: FooterState): FooterState {
       failed: nonNegativeInteger(state.subagents.failed),
     }),
     compaction: Object.freeze({ ...state.compaction }),
-    terminalProgress: Object.freeze({ ...state.terminalProgress }),
+    update: Object.freeze({ ...state.update }),
     btw: Object.freeze({
       ...state.btw,
       turnCount: nonNegativeInteger(state.btw.turnCount),

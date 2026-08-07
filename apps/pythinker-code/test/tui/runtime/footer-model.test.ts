@@ -14,6 +14,7 @@ import {
   type FooterEvent,
   type FooterStatus,
   type FooterStatusRowViewModel,
+  type FooterUpdate,
 } from '#/tui/runtime/footer/footer-model';
 
 const CLOCK_MS = 90_000;
@@ -469,5 +470,121 @@ describe('footer model', () => {
     expect(source).not.toMatch(
       /FooterModelCostRates|modelCostRates|formatModelRates|isValidRate|formatRate/,
     );
+  });
+
+  describe('update status row', () => {
+    function statusRowWithUpdate(
+      update: FooterUpdate,
+      statusLine: StatusLineConfig = hideAllStatusItems(),
+    ): FooterStatusRowViewModel {
+      const state = foldFooterEvents(createFooterState(), [
+        { type: 'update.updated', update },
+      ] satisfies readonly FooterEvent[]);
+      const row = selectFooterViewModel(state, CLOCK_MS, statusLine).rows.find(
+        (candidate) => candidate.kind === 'status',
+      );
+      if (row?.kind !== 'status') throw new Error('Expected a status row');
+      return row;
+    }
+
+    it.each([
+      [
+        'available',
+        { version: '0.11.0', state: 'available', percent: null },
+        '↑ v0.11.0',
+      ],
+      [
+        'downloading with percent',
+        { version: '0.11.0', state: 'downloading', percent: 42 },
+        '↓ v0.11.0 ▰▰▰▱▱▱▱▱ 42%',
+      ],
+      [
+        'downloading without percent',
+        { version: '0.11.0', state: 'downloading', percent: null },
+        '↓ v0.11.0',
+      ],
+      [
+        'waiting',
+        { version: '0.11.0', state: 'waiting', percent: null },
+        '↓ v0.11.0 waiting',
+      ],
+      [
+        'ready',
+        { version: '0.11.0', state: 'ready', percent: null },
+        '↑ v0.11.0 restart to apply',
+      ],
+      [
+        'failed',
+        { version: '0.11.0', state: 'failed', percent: null },
+        '↑ v0.11.0 failed',
+      ],
+    ] as const)('renders %s first in the status row', (_name, update, expected) => {
+      expect(statusRowWithUpdate(update).items).toEqual([expected]);
+    });
+
+    it.each([
+      [0, '↓ v0.11.0 ▱▱▱▱▱▱▱▱ 0%'],
+      [100, '↓ v0.11.0 ▰▰▰▰▰▰▰▰ 100%'],
+      [-5, '↓ v0.11.0 ▱▱▱▱▱▱▱▱ 0%'],
+      [150, '↓ v0.11.0 ▰▰▰▰▰▰▰▰ 100%'],
+    ] as const)('clamps percent %s into the eight-cell bar', (percent, expected) => {
+      const items = statusRowWithUpdate({
+        version: '0.11.0',
+        state: 'downloading',
+        percent,
+      }).items;
+
+      expect(items).toEqual([expected]);
+    });
+
+    it('adds no item for an empty update and leaves the status row unchanged', () => {
+      const state = foldFooterEvents(createFooterState(), [
+        { type: 'update.updated', update: { version: null, state: null, percent: null } },
+      ] satisfies readonly FooterEvent[]);
+      const base = selectFooterViewModel(createFooterState(), CLOCK_MS).rows.at(-1);
+      const updated = selectFooterViewModel(state, CLOCK_MS).rows.at(-1);
+
+      expect(updated).toEqual(base);
+    });
+
+    it('adds no item when the version is null', () => {
+      const row = statusRowWithUpdate({
+        version: null,
+        state: 'available',
+        percent: null,
+      });
+
+      expect(row.items).toEqual([]);
+    });
+
+    it('keeps the update under the composer and out of the activity row', () => {
+      const state = foldFooterEvents(createFooterState(), [
+        {
+          type: 'activity.updated',
+          activity: {
+            phase: 'thinking',
+            label: 'Thinking through the change',
+            spinnerActive: true,
+            spinnerFrame: '⠹',
+          },
+        },
+        {
+          type: 'update.updated',
+          update: { version: '0.11.0', state: 'downloading', percent: 42 },
+        },
+      ] satisfies readonly FooterEvent[]);
+      const rows = selectFooterViewModel(state, CLOCK_MS).rows;
+
+      expect(rows.map((row) => row.kind)).toEqual(['activity', 'composer', 'status']);
+      expect(rows[0]).toMatchObject({
+        kind: 'activity',
+        primary: '⠹ Thinking through the change',
+        indicators: [],
+      });
+      expect(rows[2]).toMatchObject({
+        kind: 'status',
+        items: ['↓ v0.11.0 ▰▰▰▱▱▱▱▱ 42%', '▱▱▱▱▱▱▱▱ 0%'],
+      });
+    });
   });
 });
