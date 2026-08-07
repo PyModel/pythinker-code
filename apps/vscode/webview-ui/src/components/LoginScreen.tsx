@@ -3,27 +3,11 @@ import { IconLoader2, IconCopy, IconCheck, IconExternalLink, IconArrowRight } fr
 import { Button } from "@/components/ui/button";
 import { PythinkerMascot } from "./PythinkerMascot";
 import { bridge, Events } from "@/services";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { loginOutcomeState, type LoginState } from "./login-outcome";
 
 interface LoginScreenProps {
   onLoginSuccess: () => void;
   onSkip: () => void;
-}
-
-type LoginState = "idle" | "pending" | "error";
-
-function isPaymentRequiredError(error: string | null): boolean {
-  if (!error) return false;
-  return error.includes("402") || error.toLowerCase().includes("payment required");
 }
 
 export function LoginScreen({ onLoginSuccess, onSkip }: LoginScreenProps) {
@@ -31,7 +15,6 @@ export function LoginScreen({ onLoginSuccess, onSkip }: LoginScreenProps) {
   const [url, setUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const [showSubscribeDialog, setShowSubscribeDialog] = useState(false);
 
   useEffect(() => {
     return bridge.on<{ url: string }>(Events.LoginUrl, ({ url }) => {
@@ -48,30 +31,14 @@ export function LoginScreen({ onLoginSuccess, onSkip }: LoginScreenProps) {
       if (result.success) {
         onLoginSuccess();
       } else {
-        const errorMessage = result.error || "Login failed";
-        if (isPaymentRequiredError(errorMessage)) {
-          setShowSubscribeDialog(true);
-          setState("idle");
-        } else {
-          setState("error");
-          setError(errorMessage);
-        }
+        const outcome = loginOutcomeState(result);
+        setState(outcome.state);
+        setError(outcome.error);
       }
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      if (isPaymentRequiredError(errorMessage)) {
-        setShowSubscribeDialog(true);
-        setState("idle");
-      } else {
-        setState("error");
-        setError(errorMessage);
-      }
+      setState("error");
+      setError(error instanceof Error ? error.message : String(error));
     }
-  };
-
-  const handleSubscribe = () => {
-    window.open("https://www.kimi.com/code", "_blank");
-    setShowSubscribeDialog(false);
   };
 
   const handleCopyUrl = async () => {
@@ -161,21 +128,6 @@ export function LoginScreen({ onLoginSuccess, onSkip }: LoginScreenProps) {
           </div>
         </div>
       </div>
-
-      <AlertDialog open={showSubscribeDialog} onOpenChange={setShowSubscribeDialog}>
-        <AlertDialogContent size="sm">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Subscription Required</AlertDialogTitle>
-            <AlertDialogDescription>
-              Your Kimi account does not have an active Kimi Code Plan subscription. Please subscribe to continue using Pythinker Code with Kimi.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setShowSubscribeDialog(false)}>Skip</AlertDialogCancel>
-            <AlertDialogAction onClick={handleSubscribe}>Subscribe</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </>
   );
 }

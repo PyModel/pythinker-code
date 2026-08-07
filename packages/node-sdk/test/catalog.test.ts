@@ -11,6 +11,8 @@ import {
   importCatalogProvider,
   type CatalogModel,
 } from '../src/catalog';
+import { managedModelToAlias } from '../src/login/model-alias';
+import { effortLevelsForModel } from '../src/thinking-levels';
 
 function catalogResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -311,5 +313,46 @@ describe('importCatalogProvider', () => {
         defaultModel: 'nope',
       }),
     ).rejects.toThrow(/is not offered/);
+  });
+});
+
+describe('managedModelToAlias', () => {
+  const managed = {
+    id: 'gpt-5-codex',
+    contextLength: 256_000,
+    supportsReasoning: true,
+    supportedReasoningEfforts: ['minimal', 'low', 'medium', 'high', 'xhigh'],
+    supportsImageIn: true,
+    supportsVideoIn: false,
+    supportsThinkingType: 'both',
+    displayName: 'GPT-5 Codex',
+  } as const;
+
+  it('carries the declared reasoning efforts into the alias', () => {
+    // Dropping them silently offered the low/medium/high fallback at the login
+    // picker while the config written right after recorded the real list.
+    expect(managedModelToAlias('openai-codex', managed)).toMatchObject({
+      provider: 'openai-codex',
+      model: 'gpt-5-codex',
+      maxContextSize: 256_000,
+      supportEfforts: ['minimal', 'low', 'medium', 'high', 'xhigh'],
+    });
+    expect(effortLevelsForModel(managedModelToAlias('openai-codex', managed))).toEqual([
+      'off',
+      'minimal',
+      'low',
+      'medium',
+      'high',
+      'xhigh',
+    ]);
+  });
+
+  it('leaves the efforts undefined when the model declares none', () => {
+    const alias = managedModelToAlias('openai-codex', {
+      ...managed,
+      supportedReasoningEfforts: undefined,
+    });
+    expect(alias.supportEfforts).toBeUndefined();
+    expect(effortLevelsForModel(alias)).toEqual(['off', 'low', 'medium', 'high']);
   });
 });

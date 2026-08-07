@@ -15,7 +15,6 @@
 
 import { isCancel, log, password, select, spinner, text } from '@clack/prompts';
 import {
-  capabilitiesForModel,
   type DeviceAuthorization,
   type ManagedKimiCodeModelInfo,
   type OpenPlatformDefinition,
@@ -27,6 +26,7 @@ import {
   fetchCatalog,
   formatErrorMessage,
   loadBuiltInCatalog,
+  managedModelToAlias,
   resolvePlatformOption,
   type ApiKeyPromptOptions,
   type CatalogModel,
@@ -218,13 +218,7 @@ export function createTerminalLoginUi(
   ): Promise<{ model: ManagedKimiCodeModelInfo; effort: string } | undefined> {
     const modelDict: Record<string, ModelAlias> = {};
     for (const m of models) {
-      modelDict[`${platform.id}/${m.id}`] = {
-        provider: platform.id,
-        model: m.id,
-        maxContextSize: m.contextLength,
-        capabilities: capabilitiesForModel(m),
-        displayName: m.displayName,
-      };
+      modelDict[`${platform.id}/${m.id}`] = managedModelToAlias(platform.id, m);
     }
     const selection = await selectModelAndEffort(modelDict);
     if (selection === undefined) return undefined;

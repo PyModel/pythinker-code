@@ -1,8 +1,9 @@
-import * as vscode from "vscode";
+import { runLogin } from "@pythoughts/pythinker-code-sdk";
 
-import { Events, Methods } from "../../shared/bridge";
+import { Methods } from "../../shared/bridge";
 import type { LoginResult } from "../../shared/legacy-sdk";
 import type { LoginStatus } from "../../shared/types";
+import { createVscodeLoginUi } from "../auth/vscode-login-ui";
 import { updateLoginContext } from "../utils/context";
 import type { Handler } from "./types";
 
@@ -13,15 +14,11 @@ export const authHandlers: Record<string, Handler<any, any>> = {
 
   [Methods.Login]: async (_, ctx): Promise<LoginResult> => {
     try {
-      await ctx.harness.auth.login(undefined, {
-        onDeviceCode: async (authorization) => {
-          const url = authorization.verificationUriComplete || authorization.verificationUri;
-          ctx.broadcast(Events.LoginUrl, { url }, ctx.webviewId);
-          await vscode.env.openExternal(vscode.Uri.parse(url));
-        },
-      });
+      // `runLogin` resolves true only when credentials were written; a false
+      // result is a user cancellation or a failure the flow already reported.
+      const success = await runLogin(createVscodeLoginUi(ctx));
       await updateLoginContext(ctx.harness);
-      return { success: true };
+      return { success };
     } catch (error) {
       ctx.logError("Pythinker login failed", error);
       await updateLoginContext(ctx.harness).catch((statusError: unknown) => {

@@ -62,6 +62,15 @@ export {
   catalogProviderIdFromPlatformValue,
 } from '#/login/platform-values';
 export { connectCatalogProvider, runLogin } from '#/login/flows';
+export { managedModelToAlias } from '#/login/model-alias';
+export {
+  CANONICAL_EFFORT_ORDER,
+  coerceEffortForModel,
+  DEFAULT_SUPPORTED_EFFORTS,
+  effortLevelsForModel,
+  thinkingAvailability,
+  type ThinkingAvailability,
+} from '#/thinking-levels';
 export type {
   ApiKeyPromptOptions,
   LoginProgressSpinnerHandle,
