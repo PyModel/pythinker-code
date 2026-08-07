@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -76,6 +76,11 @@ interface StartupDriver {
 
 interface RuntimeStateDriver extends StartupDriver {
   closeSession(reason: string): Promise<void>;
+}
+
+interface UpdatePollDriver extends StartupDriver {
+  startUpdateStatusPolling(): void;
+  stopUpdateStatusPolling(): void;
 }
 
 interface ThemeTrackingDriver extends StartupDriver {
@@ -2007,4 +2012,86 @@ describe('startup feature parity baseline', () => {
       linked.every(({ status, scenarioId }) => status === 'active' && scenarioId.length > 0),
     ).toBe(true);
   });
+});
+
+describe('footer update status poll', () => {
+  /**
+   * The poll is the only thing that puts an update into the footer, and it is
+   * wired from `finishStartup` — so nothing else in this suite would notice if
+   * it stopped dispatching. Drive it against real state files.
+   */
+  it('dispatches availability and then live progress into the status row', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'pk-footer-update-'));
+    const previousHome = process.env['PYTHINKER_CODE_HOME'];
+    process.env['PYTHINKER_CODE_HOME'] = home;
+    const updates = join(home, 'updates');
+    mkdirSync(updates, { recursive: true });
+    const manifest = {
+      version: '9.9.9',
+      publishedAt: '2026-08-07T00:00:00.000Z',
+      rollout: [],
+    };
+    writeFileSync(
+      join(updates, 'latest.json'),
+      JSON.stringify({
+        source: 'cdn',
+        checkedAt: '2026-08-07T00:00:00.000Z',
+        latest: '9.9.9',
+        manifest,
+      }),
+    );
+
+    const presentation = new RecordingPresentation();
+    const driver = new PythinkerTUI(
+      makeHarness() as never,
+      makeStartupInput(),
+      presentation,
+    ) as unknown as UpdatePollDriver;
+
+    try {
+      driver.startUpdateStatusPolling();
+      await vi.waitFor(
+        () => {
+          expect(footerStatusItems(presentation.footerModels.at(-1))).toContain('↑ v9.9.9');
+        },
+        { timeout: 10_000, interval: 50 },
+      );
+
+      writeFileSync(
+        join(updates, 'install.json'),
+        JSON.stringify({
+          active: {
+            version: '9.9.9',
+            source: 'native',
+            startedAt: new Date().toISOString(),
+            pid: process.pid,
+            progress: {
+              state: 'downloading',
+              percent: 42,
+              transferred: 5_320_000,
+              total: 12_600_000,
+              updatedAt: new Date().toISOString(),
+            },
+          },
+          pending: null,
+          lastFailure: null,
+          lastSuccess: null,
+        }),
+      );
+      await vi.waitFor(
+        () => {
+          expect(footerStatusItems(presentation.footerModels.at(-1))).toContain(
+            '↓ v9.9.9 ▰▰▰▱▱▱▱▱ 42%',
+          );
+        },
+        { timeout: 10_000, interval: 50 },
+      );
+    } finally {
+      driver.stopUpdateStatusPolling();
+      driver.state.footer.dispose();
+      if (previousHome === undefined) delete process.env['PYTHINKER_CODE_HOME'];
+      else process.env['PYTHINKER_CODE_HOME'] = previousHome;
+      rmSync(home, { recursive: true, force: true });
+    }
+  }, 30_000);
 });

@@ -2058,6 +2058,47 @@ describe('runUpdatePreflight', () => {
       }));
     });
 
+    /**
+     * The exact bytes a real `install.sh` run emitted while downloading the
+     * 0.9.2 release, captured from its stderr. Pinning them here means the
+     * emitter and this parser cannot drift apart silently.
+     */
+    it('parses the bytes a real installer run actually emitted', async () => {
+      mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+      mocks.readUpdateInstallState.mockResolvedValue(installState());
+      mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+      mocks.detectInstallSource.mockResolvedValue('npm-global');
+      mockSpawnExitWithStderr(
+        0,
+        'progress: state=downloading percent=0 transferred=0 total=55795679\n'
+        + 'progress: state=downloading percent=49 transferred=27103232 total=55795679\n'
+        + 'progress: state=done transferred=55795679\n',
+      );
+      const { options } = captureOutput();
+
+      await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
+      await flushBackgroundInstall();
+
+      // All three lines arrive in one chunk, so the 2-second write throttle
+      // keeps the first downloading update and drops the second; the terminal
+      // state always bypasses the throttle.
+      expect(writeUpdateInstallState).toHaveBeenCalledWith(expect.objectContaining({
+        active: expect.objectContaining({
+          progress: expect.objectContaining({
+            state: 'downloading',
+            percent: 0,
+            transferred: 0,
+            total: 55_795_679,
+          }),
+        }),
+      }));
+      expect(writeUpdateInstallState).toHaveBeenCalledWith(expect.objectContaining({
+        active: expect.objectContaining({
+          progress: expect.objectContaining({ state: 'done', transferred: 55_795_679 }),
+        }),
+      }));
+    });
+
     it('keeps progress lines out of the failure tail and ordinary stderr lines in it', async () => {
       mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
       mocks.readUpdateInstallState.mockResolvedValue(installState());
