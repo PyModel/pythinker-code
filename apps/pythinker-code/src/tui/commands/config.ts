@@ -11,6 +11,7 @@ import type {
   Session,
   WorkspaceDirectory,
 } from '@pythoughts/pythinker-code-sdk';
+import { coerceEffortForModel, effortLevelsForModel } from '@pythoughts/pythinker-code-sdk';
 import { disableTelemetry } from '@pythoughts/pythinker-telemetry';
 
 import { ApiKeyInputDialogComponent } from '../components/dialogs/api-key-input-dialog';
@@ -42,7 +43,6 @@ import {
 } from '#/utils/process/external-editor';
 import { LLM_NOT_SET_MESSAGE, NO_ACTIVE_SESSION_MESSAGE } from '../constant/pythinker-tui';
 import { formatErrorMessage } from '../utils/event-payload';
-import { coerceEffortForModel, effortLevelsForModel } from '../utils/thinking-levels';
 import { showUsage } from './info';
 import { setExperimentalFeatures } from './experimental-flags';
 import { showDirectoryInput } from './add-dir';

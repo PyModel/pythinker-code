@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createAgentProjector } from '../src/api/daemon/agentEventProjector';
+import { classifyFrame, createAgentProjector } from '../src/api/daemon/agentEventProjector';
 import { createInitialState, reduceAppEvent } from '../src/api/daemon/eventReducer';
 import { toAppEvent } from '../src/api/daemon/mappers';
 
@@ -217,5 +217,38 @@ describe('subagent and goal projection', () => {
         turnsUsed: 3,
       }),
     }));
+  });
+
+  it('projects workflow.warning through the agent-warning path and recognises the raw type', () => {
+    const projector = createAgentProjector();
+    const sid = 'ses_1';
+
+    const events = projector.project('workflow.warning', {
+      workflowRunId: 'run_1',
+      parentToolCallId: 'tc_agent',
+      agentCount: 12,
+      threshold: 8,
+      message: 'This Dynamic Workflow will launch 12 subagents, above the advisory ceiling of 8; the run is proceeding anyway.',
+    }, sid);
+    expect(events).toEqual([
+      {
+        type: 'unknown',
+        raw: {
+          _agentWarning: true,
+          message: 'This Dynamic Workflow will launch 12 subagents, above the advisory ceiling of 8; the run is proceeding anyway.',
+        },
+      },
+    ]);
+
+    // KNOWN_AGENT_CORE_TYPES: raw (unprefixed) and "event."-prefixed frames
+    // both route to the agent projector.
+    expect(classifyFrame('workflow.warning', {})).toEqual({
+      route: 'agent',
+      agentType: 'workflow.warning',
+    });
+    expect(classifyFrame('event.workflow.warning', {})).toEqual({
+      route: 'agent',
+      agentType: 'workflow.warning',
+    });
   });
 });

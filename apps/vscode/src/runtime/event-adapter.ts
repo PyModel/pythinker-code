@@ -7,6 +7,7 @@ import type {
   SubagentStatusPayload,
   TokenUsage,
   TurnBegin,
+  WorkflowWarningPayload,
 } from '../../shared/legacy-sdk';
 import type { ErrorPhase, UIStreamEvent } from '../../shared/types';
 import { toLegacyDisplay } from './tool-display';
@@ -345,6 +346,26 @@ function mapLegacyWireEvent(
       return mapSubagentStatus(state, sdkEvent, 'failed');
     case 'subagent.suspended':
       return mapSubagentStatus(state, sdkEvent, 'suspended');
+    case 'workflow.warning': {
+      // The warning names its DynamicWorkflow parent tool call directly, so
+      // session membership is decided by routing (same as every other event):
+      // unknown agents are dropped by routeSubagentEvent below.
+      const payload: WorkflowWarningPayload = {
+        parent_tool_call_id: scopedToolCallId(
+          sdkEvent.agentId,
+          sdkEvent.parentToolCallId,
+          mainAgentId,
+        ),
+        workflow_run_id: sdkEvent.workflowRunId,
+        agent_count: sdkEvent.agentCount,
+        threshold: sdkEvent.threshold,
+        message: sdkEvent.message,
+      };
+      return {
+        state,
+        event: { type: 'WorkflowWarning', payload },
+      };
+    }
     case 'compaction.started':
       return {
         state,

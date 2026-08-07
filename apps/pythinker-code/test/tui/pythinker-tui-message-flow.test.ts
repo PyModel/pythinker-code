@@ -1841,7 +1841,7 @@ command = "vim"
     );
 
     transcript = stripSgr(renderTranscript(driver));
-    expect(transcript).toMatch(/001\s+▏  ▕\s+0%\s+◌ WAIT\s+Fresh work/u);
+    expect(transcript).toMatch(/001\s+0⚒\s+–\s+◌ WAIT\s+Fresh work/u);
     expect(transcript).not.toContain('Late completion from undone work');
   });
 
@@ -4005,13 +4005,58 @@ command = "vim"
 
     const transcript = stripSgr(renderTranscript(driver));
     expect(transcript).toContain('Dynamic Workflow');
-    expect(transcript).toMatch(/001\s+▏⣤⣤▕\s+50%\s+● RUN\s+src\/a.ts/u);
-    expect(transcript).toMatch(/002\s+▏⣿⣿▕\s+100%\s+✓ DONE\s+src\/b.ts/u);
+    // The running row spins a grey braille dot, so its symbol varies by frame.
+    expect(transcript).toMatch(/001\s+\d+⚒\s+\d+s\s+[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] RUN\s+src\/a.ts/u);
+    expect(transcript).toMatch(/002\s+\d+⚒\s+–\s+✓ DONE\s+src\/b.ts/u);
     expect(transcript).toMatch(/Orchestrating\s+1\/2 complete/u);
     expect(transcript).not.toContain('━');
     expect(transcript).toContain('Completed before spawn');
     expect(transcript).not.toContain('Late failure');
     expect(driver.streamingUI.getToolComponent('call_dynamic_workflow')).toBeUndefined();
+  });
+
+  it('surfaces a workflow.warning on the live Dynamic Workflow mission control', async () => {
+    const { driver } = await makeDriver();
+    const sendQueued = vi.fn();
+    const dispatch = (event: Event): void => driver.sessionEventHandler.handleEvent(event, sendQueued);
+
+    dispatch({
+      type: 'tool.call.started', agentId: 'main', sessionId: 'ses-1', turnId: 1,
+      toolCallId: 'call_warn_workflow', name: 'DynamicWorkflow',
+      args: { description: 'Review changed files', items: ['src/a.ts', 'src/b.ts'] },
+    } as Event);
+    dispatch({
+      type: 'workflow.warning', agentId: 'main', sessionId: 'ses-1',
+      workflowRunId: 'run-1', parentToolCallId: 'call_warn_workflow',
+      agentCount: 12, threshold: 8,
+      message: 'This Dynamic Workflow will launch 12 subagents, above the advisory ceiling of 8; the run is proceeding anyway.',
+    } as Event);
+
+    const transcript = stripSgr(renderTranscript(driver));
+    expect(transcript).toContain('Dynamic Workflow');
+    expect(transcript).toContain('12 subagents');
+    expect(transcript).toContain('advisory ceiling of 8');
+  });
+
+  it('falls back to the status line when a workflow.warning has no mission control', async () => {
+    const { driver } = await makeDriver();
+    const sendQueued = vi.fn();
+    const showStatus = vi
+      .spyOn(driver as unknown as { showStatus: (message: string, color?: unknown) => void }, 'showStatus')
+      .mockImplementation(() => {});
+    const dispatch = (event: Event): void => driver.sessionEventHandler.handleEvent(event, sendQueued);
+
+    dispatch({
+      type: 'workflow.warning', agentId: 'main', sessionId: 'ses-1',
+      workflowRunId: 'run-1', parentToolCallId: 'call_retired_workflow',
+      agentCount: 12, threshold: 8,
+      message: 'This Dynamic Workflow will launch 12 subagents, above the advisory ceiling of 8; the run is proceeding anyway.',
+    } as Event);
+
+    expect(showStatus).toHaveBeenCalledWith(
+      'This Dynamic Workflow will launch 12 subagents, above the advisory ceiling of 8; the run is proceeding anyway.',
+      'warning',
+    );
   });
 
   it('mounts the framed workflow on the first named delta before the denominator is known', async () => {
@@ -4047,7 +4092,7 @@ command = "vim"
 
     transcript = stripSgr(renderTranscript(driver));
     expect(transcript).toContain('0/2 complete');
-    expect(transcript).toMatch(/001\s+▏  ▕\s+0%\s+◌ WAIT\s+src\/a.ts/u);
+    expect(transcript).toMatch(/001\s+0⚒\s+–\s+◌ WAIT\s+src\/a.ts/u);
   });
 
   it('keeps terminal Dynamic Workflow results static and does not fabricate child failures', async () => {
@@ -4074,8 +4119,8 @@ command = "vim"
 
     const transcript = stripSgr(renderTranscript(driver));
     expect(transcript).toContain('✓ Completed');
-    expect(transcript).toMatch(/001\s+▏⣿⣿▕\s+100%\s+✓ DONE\s+src\/a.ts/u);
-    expect(transcript).toMatch(/002\s+▏⣿⣿▕\s+100%\s+× FAIL\s+src\/b.ts/u);
+    expect(transcript).toMatch(/001\s+\d+⚒\s+–\s+✓ DONE\s+src\/a.ts/u);
+    expect(transcript).toMatch(/002\s+\d+⚒\s+–\s+× FAIL\s+src\/b.ts/u);
     expect(transcript).toContain('Agent timed out after 30s.');
     expect(transcript).not.toContain('⠋ Orchestrating');
   });
@@ -4116,7 +4161,7 @@ command = "vim"
     } as Event);
 
     const transcript = stripSgr(renderTranscript(driver));
-    expect(transcript).toMatch(/001\s+▏  ▕\s+0%\s+◌ WAIT\s+src\/fresh.ts/u);
+    expect(transcript).toMatch(/001\s+0⚒\s+–\s+◌ WAIT\s+src\/fresh.ts/u);
     expect(transcript).not.toContain('must not leak');
     },
   );
@@ -4209,7 +4254,7 @@ command = "vim"
     } as Event);
 
     const transcript = stripSgr(renderTranscript(driver));
-    expect(transcript).toMatch(/001\s+▏⣿⣿▕\s+100%\s+× FAIL\s+src\/generic.ts/u);
+    expect(transcript).toMatch(/001\s+\d+⚒\s+–\s+× FAIL\s+src\/generic.ts/u);
     expect(transcript).toContain('Early generic failure');
   });
 
@@ -4235,7 +4280,7 @@ command = "vim"
 
     const transcript = stripSgr(renderTranscript(driver));
     expect(transcript).toContain('× Failed');
-    expect(transcript).toMatch(/001\s+▏⣿⣿▕\s+100%\s+✓ DONE\s+src\/a.ts/u);
+    expect(transcript).toMatch(/001\s+\d+⚒\s+–\s+✓ DONE\s+src\/a.ts/u);
     expect(transcript).toContain('Child completed before request error');
   });
 

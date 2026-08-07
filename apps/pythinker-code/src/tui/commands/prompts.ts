@@ -1,14 +1,17 @@
 import {
   catalogModelToAlias,
   catalogConnectionWire,
+  coerceEffortForModel,
   DEFAULT_CATALOG_URL,
+  effortLevelsForModel,
   fetchCatalog,
   loadBuiltInCatalog,
+  managedModelToAlias,
   type Catalog,
   type CatalogModel,
   type ModelAlias,
+  type PlatformSelection,
 } from '@pythoughts/pythinker-code-sdk';
-import { capabilitiesForModel } from '@pythoughts/pythinker-code-oauth';
 import type {
   ManagedKimiCodeModelInfo,
   OpenPlatformDefinition,
@@ -20,14 +23,8 @@ import { FeedbackInputDialogComponent, type FeedbackInputDialogResult } from '..
 import { ModelSelectorComponent } from '../components/dialogs/model-selector';
 import { PlatformSelectorComponent } from '../components/dialogs/platform-selector';
 import { BUILT_IN_CATALOG_JSON } from '#/built-in-catalog';
-import { coerceEffortForModel, effortLevelsForModel } from '../utils/thinking-levels';
 import { formatErrorMessage } from '../utils/event-payload';
 import type { SlashCommandHost } from './dispatch';
-
-export interface PlatformSelection {
-  readonly platformId: string;
-  readonly catalog: Catalog;
-}
 
 export async function promptPlatformSelection(
   host: SlashCommandHost,
@@ -164,13 +161,7 @@ export async function promptModelSelectionForOpenPlatform(
 ): Promise<{ model: ManagedKimiCodeModelInfo; effort: string } | undefined> {
   const modelDict: Record<string, ModelAlias> = {};
   for (const m of models) {
-    modelDict[`${platform.id}/${m.id}`] = {
-      provider: platform.id,
-      model: m.id,
-      maxContextSize: m.contextLength,
-      capabilities: capabilitiesForModel(m),
-      displayName: m.displayName,
-    };
+    modelDict[`${platform.id}/${m.id}`] = managedModelToAlias(platform.id, m);
   }
   const selection = await runModelSelector(host, modelDict);
   if (selection === undefined) return undefined;

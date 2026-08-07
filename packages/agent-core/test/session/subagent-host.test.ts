@@ -17,6 +17,8 @@ import {
   settleSubagentWorktree,
 } from '../../src/session/subagent-worktree';
 import {
+  MAX_SUBAGENTS_PER_SESSION,
+  MAX_SUBAGENT_SPAWN_DEPTH,
   SessionSubagentHost,
   type QueuedSubagentTask,
 } from '../../src/session/subagent-host';
@@ -689,6 +691,7 @@ describe('SessionSubagentHost', () => {
     const host = new SessionSubagentHost(
       {
         agents: new Map([['main', parent.agent]]),
+        metadata: { agents: {} },
         ensureAgentResumed: vi.fn(async () => parent.agent),
         createAgent,
       } as never,
@@ -715,6 +718,7 @@ describe('SessionSubagentHost', () => {
     const host = new SessionSubagentHost(
       {
         agents: new Map([['main', parent.agent]]),
+        metadata: { agents: {} },
         ensureAgentResumed: vi.fn(async () => parent.agent),
         createAgent,
       } as never,
@@ -732,6 +736,148 @@ describe('SessionSubagentHost', () => {
       }),
     ).rejects.toThrow('Subagent profile "btw" was not found');
     expect(createAgent).not.toHaveBeenCalled();
+  });
+
+  it('rejects a spawn when the session has reached its subagent cap', async () => {
+    const parent = testAgent();
+    parent.configure();
+    const child = testAgent({ type: 'sub' });
+    const metadataAgents = Object.fromEntries(
+      Array.from({ length: MAX_SUBAGENTS_PER_SESSION }, (_, index) => [
+        `agent-${String(index)}`,
+        { type: 'sub' as const, parentAgentId: 'main' },
+      ]),
+    );
+    const session = fakeSession(parent.agent, child.agent, metadataAgents);
+    const host = new SessionSubagentHost(session, 'main');
+
+    await expect(
+      host.spawn({
+        profileName: 'coder',
+        parentToolCallId: 'call_agent',
+        prompt: 'Implement the fix',
+        description: 'Fix bug',
+        runInBackground: false,
+        signal,
+      }),
+    ).rejects.toThrow(String(MAX_SUBAGENTS_PER_SESSION));
+    expect(session.createAgent).not.toHaveBeenCalled();
+  });
+
+  it('rejects a spawn when the owner is already at the nesting depth cap', async () => {
+    const parent = testAgent();
+    parent.configure();
+    const child = testAgent({ type: 'sub' });
+    const session = Object.assign(
+      fakeSession(parent.agent, child.agent, {
+        main: { type: 'main', parentAgentId: null },
+        'agent-0': { type: 'sub', parentAgentId: 'main' },
+        'agent-1': { type: 'sub', parentAgentId: 'agent-0' },
+        'agent-2': { type: 'sub', parentAgentId: 'agent-1' },
+      }),
+      {
+        ensureAgentResumed: vi.fn(async () => parent.agent),
+      },
+    );
+    // 'agent-2' is at depth 3 (main is depth 0), so its child would be at
+    // depth 4 — beyond MAX_SUBAGENT_SPAWN_DEPTH.
+    const host = new SessionSubagentHost(session, 'agent-2');
+
+    await expect(
+      host.spawn({
+        profileName: 'coder',
+        parentToolCallId: 'call_agent',
+        prompt: 'Nest too deep',
+        description: 'Too deep',
+        runInBackground: false,
+        signal,
+      }),
+    ).rejects.toThrow(String(MAX_SUBAGENT_SPAWN_DEPTH));
+    expect(session.createAgent).not.toHaveBeenCalled();
+  });
+
+  it('allows a spawn one nesting level shallower than the depth cap', async () => {
+    const parent = testAgent();
+    parent.configure();
+    parent.newEvents();
+
+    const summary =
+      'Completed the delegated subagent task from the shallower nesting level and returned a detailed technical handoff to the parent agent, so the work continues without repeating any of it. '.repeat(
+        2,
+      );
+    const child = testAgent({ type: 'sub' });
+    child.mockNextResponse({ type: 'text', text: summary });
+    const session = Object.assign(
+      fakeSession(parent.agent, child.agent, {
+        main: { type: 'main', parentAgentId: null },
+        'agent-0': { type: 'sub', parentAgentId: 'main' },
+        'agent-1': { type: 'sub', parentAgentId: 'agent-0' },
+      }),
+      {
+        ensureAgentResumed: vi.fn(async () => parent.agent),
+      },
+    );
+    // 'agent-1' is at depth 2, so its child lands at depth 3 — exactly the
+    // cap, and therefore allowed.
+    const host = new SessionSubagentHost(session, 'agent-1');
+
+    const handle = await host.spawn({
+      profileName: 'coder',
+      parentToolCallId: 'call_agent',
+      prompt: 'Work at the allowed depth',
+      description: 'Allowed depth',
+      runInBackground: false,
+      signal,
+    });
+    await expect(handle.completion).resolves.toMatchObject({ result: summary.trim() });
+    expect(session.createAgent).toHaveBeenCalledTimes(1);
+  });
+
+  it('resume is not blocked by the per-session subagent cap', async () => {
+    const parent = testAgent();
+    parent.configure();
+
+    const child = testAgent({ type: 'sub' });
+    child.configure({ tools: ['Read'] });
+    child.agent.useProfile(
+      profile({ name: 'explore', tools: ['Read'], systemPrompt: 'explore prompt' }),
+    );
+    child.agent.context.appendUserMessage([{ type: 'text', text: 'Earlier context' }]);
+    child.mockNextResponse({
+      type: 'text',
+      text: 'Resumed the subagent from its earlier context and carried the task through to completion, then reported a full and detailed technical summary so the parent agent can continue without repeating prior work.',
+    });
+
+    const otherAgents = Object.fromEntries(
+      Array.from({ length: MAX_SUBAGENTS_PER_SESSION - 1 }, (_, index) => [
+        `agent-${String(index + 1)}`,
+        { type: 'sub' as const, parentAgentId: 'main' },
+      ]),
+    );
+    const session = fakeSession(parent.agent, child.agent, {
+      'agent-0': { type: 'sub', parentAgentId: 'main' },
+      ...otherAgents,
+    });
+    const host = new SessionSubagentHost(session, 'main');
+
+    const handle = await host.resume('agent-0', {
+      parentToolCallId: 'call_agent',
+      prompt: 'Continue from context',
+      description: 'Continue work',
+      runInBackground: false,
+      signal,
+    });
+
+    expect(handle).toMatchObject({
+      agentId: 'agent-0',
+      profileName: 'explore',
+      resumed: true,
+    });
+    await expect(handle.completion).resolves.toMatchObject({
+      result:
+        'Resumed the subagent from its earlier context and carried the task through to completion, then reported a full and detailed technical summary so the parent agent can continue without repeating prior work.',
+    });
+    expect(session.createAgent).not.toHaveBeenCalled();
   });
 
   it('cancels the child turn when the caller signal aborts', async () => {
@@ -1022,6 +1168,126 @@ describe('SessionSubagentHost', () => {
     expect(child.llmCalls).toHaveLength(1);
   });
 
+  it('passes an output schema to the child turn and returns the structured output', async () => {
+    const parent = testAgent();
+    parent.configure();
+    parent.newEvents();
+
+    const outputSchema = {
+      type: 'object',
+      properties: { answer: { type: 'string' } },
+      required: ['answer'],
+    };
+    const child = testAgent({ type: 'sub' });
+    child.mockNextResponse(
+      { type: 'text', text: 'I will return structured output.' },
+      {
+        type: 'function',
+        id: 'call_structured_output',
+        name: 'StructuredOutput',
+        arguments: JSON.stringify({ answer: 'done' }),
+      },
+    );
+    const session = fakeSession(parent.agent, child.agent);
+    const host = new SessionSubagentHost(session, 'main');
+    const promptSpy = vi.spyOn(child.agent.turn, 'prompt');
+
+    const handle = await host.spawn({
+      profileName: 'coder',
+      outputSchema,
+      parentToolCallId: 'call_agent',
+      prompt: 'Return structured output',
+      description: 'Structured task',
+      runInBackground: false,
+      signal,
+    });
+
+    await expect(handle.completion).resolves.toMatchObject({
+      result: JSON.stringify({ answer: 'done' }),
+    });
+    expect(promptSpy).toHaveBeenCalledTimes(1);
+    expect(promptSpy.mock.calls[0]?.[2]).toBe(outputSchema);
+  });
+
+  it('skips the short-summary continuation when an output schema is set', async () => {
+    const parent = testAgent();
+    parent.configure();
+    parent.newEvents();
+
+    const outputSchema = { type: 'object', properties: { answer: { type: 'string' } } };
+    const child = testAgent({ type: 'sub' });
+    for (let i = 0; i < 6; i += 1) {
+      child.mockNextResponse({ type: 'text', text: 'short' });
+    }
+    const session = fakeSession(parent.agent, child.agent);
+    const host = new SessionSubagentHost(session, 'main');
+    const promptSpy = vi.spyOn(child.agent.turn, 'prompt');
+
+    const handle = await host.spawn({
+      profileName: 'coder',
+      outputSchema,
+      parentToolCallId: 'call_agent',
+      prompt: 'Return structured output',
+      description: 'Structured task',
+      runInBackground: false,
+      signal,
+    });
+
+    // The model never calls StructuredOutput, so the turn exhausts its
+    // completion reminders and fails with structured_output.max_retries. The
+    // assistant text stays well under SUMMARY_MIN_LENGTH, so a second
+    // turn.prompt call would mean the continuation ran.
+    await expect(handle.completion).rejects.toThrow('structured_output.max_retries');
+    expect(promptSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports structured_output.max_retries as schema_error and other failures as failed', async () => {
+    const parent = testAgent();
+    parent.configure();
+    parent.newEvents();
+
+    const child = testAgent({ type: 'sub' });
+    child.configure();
+    for (let i = 0; i < 6; i += 1) {
+      child.mockNextResponse({ type: 'text', text: 'short' });
+    }
+    const session = fakeSession(parent.agent, child.agent);
+    const host = new SessionSubagentHost(session, 'main');
+
+    const schemaErrorResults = await host.runQueued([
+      {
+        ...queuedTask(1),
+        outputSchema: { type: 'object', properties: { answer: { type: 'string' } } },
+        signal,
+      },
+    ]);
+    const schemaErrorResult = schemaErrorResults[0]!;
+
+    expect(schemaErrorResult).toMatchObject({
+      status: 'schema_error',
+      state: 'started',
+    });
+    expect(schemaErrorResult.error).toContain('structured_output.max_retries');
+
+    child.mockNextProviderResponse({
+      parts: [
+        { type: 'think', think: 'The child used its output budget before writing a summary.' },
+      ],
+      finishReason: 'truncated',
+      rawFinishReason: 'length',
+    });
+    const failedResults = await host.runQueued([{ ...queuedTask(2), signal }]);
+    const failedResult = failedResults[0]!;
+
+    expect(failedResult).toMatchObject({
+      status: 'failed',
+      state: 'started',
+    });
+    expect(failedResult.error).toContain(
+      'Subagent turn failed before completing its final summary',
+    );
+  });
+
   it('prepends git context to the prompt for explore subagents', async () => {
     vi.mocked(collectGitContext).mockResolvedValueOnce(
       '<git-context>\nWorking directory: /repo\nBranch: main\n</git-context>',
@@ -1269,6 +1535,56 @@ describe('SessionSubagentHost', () => {
     );
   });
 
+  it('runQueued carries a workflow run id to the child launch options', async () => {
+    const parent = testAgent();
+    parent.configure();
+    parent.newEvents();
+
+    const child = testAgent({ type: 'sub' });
+    child.configure();
+    const summary =
+      'Completed the queued dynamic workflow item and returned a detailed technical handoff so the parent can map the result back to the original dynamic workflow input. '.repeat(
+        2,
+      );
+    child.mockNextResponse({ type: 'text', text: summary });
+
+    const session = fakeSession(parent.agent, child.agent);
+    const host = new SessionSubagentHost(session, 'main');
+    const spawnSpy = vi.spyOn(host, 'spawn');
+
+    await expect(
+      host.runQueued([
+        {
+          ...queuedTask(1),
+          workflowRunId: 'wfr-test-001',
+          workflowName: 'Review files',
+          signal,
+        },
+      ]),
+    ).resolves.toMatchObject([
+      {
+        agentId: 'agent-0',
+        status: 'completed',
+        result: summary.trim(),
+      },
+    ]);
+
+    expect(spawnSpy).toHaveBeenCalledTimes(1);
+    expect(spawnSpy.mock.calls[0]?.[0]?.workflowRunId).toBe('wfr-test-001');
+    expect(spawnSpy.mock.calls[0]?.[0]?.workflowName).toBe('Review files');
+    expect(parent.allEvents).toContainEqual(
+      expect.objectContaining({
+        type: '[rpc]',
+        event: 'subagent.spawned',
+        args: expect.objectContaining({
+          subagentId: 'agent-0',
+          workflowRunId: 'wfr-test-001',
+          workflowName: 'Review files',
+        }),
+      }),
+    );
+  });
+
   it('retries a rate-limited child turn without appending the original prompt again', async () => {
     const parent = testAgent();
     parent.configure();
@@ -1328,6 +1644,65 @@ describe('SessionSubagentHost', () => {
     await expect(retryHandle.completion).resolves.toMatchObject({ result: summary.trim() });
     expect(generateCalls).toBe(2);
     expect(userTextMessages(histories[1] ?? [])).toEqual(['Implement the retry-safe change']);
+  });
+
+  it('keeps the output schema when a rate-limited subagent is retried', async () => {
+    const parent = testAgent();
+    parent.configure();
+    parent.newEvents();
+
+    const outputSchema = {
+      type: 'object',
+      properties: { answer: { type: 'string' } },
+      required: ['answer'],
+    };
+    const toolNamesPerCall: string[][] = [];
+    let generateCalls = 0;
+    const generate: GenerateFn = async (
+      _provider,
+      _systemPrompt,
+      tools,
+      _history,
+      callbacks,
+    ) => {
+      toolNamesPerCall.push(tools.map((tool) => tool.name));
+      generateCalls += 1;
+      if (generateCalls === 1) {
+        throw new APIStatusError(429, 'Rate limited', 'req-429');
+      }
+      // Answers in prose instead of calling StructuredOutput.
+      await callbacks?.onMessagePart?.({ type: 'text', text: 'plain prose answer' });
+      return textResult('plain prose answer');
+    };
+    const child = testAgent({
+      generate,
+      initialConfig: { providers: {}, loopControl: { maxRetriesPerStep: 1 } },
+    });
+    child.configure();
+
+    const session = fakeSession(parent.agent, child.agent);
+    const host = new SessionSubagentHost(session, 'main');
+    const retrySpy = vi.spyOn(child.agent.turn, 'retry');
+
+    const options = {
+      profileName: 'coder',
+      outputSchema,
+      parentToolCallId: 'call_agent',
+      prompt: 'Return structured output',
+      description: 'Structured task',
+      runInBackground: false,
+      signal,
+    };
+    const handle = await host.spawn(options);
+    await expect(handle.completion).rejects.toThrow('Rate limited');
+
+    const retryHandle = await host.retry(handle.agentId, options);
+
+    // Dropping the schema here used to let the retried turn answer in prose and
+    // report completed, silently voiding the structured-output contract.
+    await expect(retryHandle.completion).rejects.toThrow('structured_output.max_retries');
+    expect(retrySpy.mock.calls[0]?.[1]).toBe(outputSchema);
+    expect(toolNamesPerCall.at(-1)).toContain('StructuredOutput');
   });
 
   it('realigns a resumed subagent to the parent agent current model', async () => {

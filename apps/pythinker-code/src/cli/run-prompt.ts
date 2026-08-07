@@ -605,6 +605,7 @@ function runPromptTurn(
         case 'turn.started':
         case 'turn.step.completed':
         case 'warning':
+        case 'workflow.warning':
           return;
       }
     });

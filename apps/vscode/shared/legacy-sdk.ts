@@ -144,6 +144,14 @@ export interface SubagentStatusPayload {
   result_summary?: string;
 }
 
+export interface WorkflowWarningPayload {
+  parent_tool_call_id: string;
+  workflow_run_id: string;
+  agent_count: number;
+  threshold: number;
+  message: string;
+}
+
 export type LegacyWireEvent =
   | { type: 'TurnBegin'; payload: TurnBegin & { forkable?: boolean } }
   | { type: 'TurnEnd'; payload: Record<string, never> }
@@ -159,6 +167,7 @@ export type LegacyWireEvent =
   | { type: 'SteerInput'; payload: { user_input: string | ContentPart[] } }
   | { type: 'SubagentEvent'; payload: SubagentEvent }
   | { type: 'SubagentStatus'; payload: SubagentStatusPayload }
+  | { type: 'WorkflowWarning'; payload: WorkflowWarningPayload }
   | { type: string; payload: unknown };
 
 export type StreamEvent =

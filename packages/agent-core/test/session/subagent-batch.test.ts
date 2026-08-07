@@ -66,6 +66,211 @@ describe('SubagentBatch scheduling contract', () => {
     }
   });
 
+  it('caps live attempts at the concurrency limit and completes all tasks in order', async () => {
+    vi.useFakeTimers();
+    try {
+      const { runBatch, attempts } = createMockBatchRunner({}, 2);
+      const running = runBatch(
+        Array.from({ length: 6 }, (_, index) => queuedTask(index + 1)),
+        { signal },
+      );
+
+      await vi.advanceTimersByTimeAsync(0);
+      expect(attempts).toHaveLength(2);
+
+      // Each completion frees a slot for the next queued task; at most two
+      // attempts are ever live at once.
+      attempts[0]!.outcome.resolve({
+        task: attempts[0]!.task,
+        agentId: 'agent-1',
+        status: 'completed',
+        result: 'completed 1',
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(attempts).toHaveLength(3);
+      expect(attempts[2]!.task.data).toBe(3);
+
+      attempts[1]!.outcome.resolve({
+        task: attempts[1]!.task,
+        agentId: 'agent-2',
+        status: 'completed',
+        result: 'completed 2',
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(attempts).toHaveLength(4);
+      expect(attempts[3]!.task.data).toBe(4);
+
+      attempts[2]!.outcome.resolve({
+        task: attempts[2]!.task,
+        agentId: 'agent-3',
+        status: 'completed',
+        result: 'completed 3',
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(attempts).toHaveLength(5);
+      expect(attempts[4]!.task.data).toBe(5);
+
+      attempts[3]!.outcome.resolve({
+        task: attempts[3]!.task,
+        agentId: 'agent-4',
+        status: 'completed',
+        result: 'completed 4',
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(attempts).toHaveLength(5);
+
+      // The initial launch limit of 5 is exhausted, so task 6 starts when
+      // the ramp timer fires with a free slot.
+      await vi.advanceTimersByTimeAsync(700);
+      expect(attempts).toHaveLength(6);
+      expect(attempts[5]!.task.data).toBe(6);
+
+      attempts[4]!.outcome.resolve({
+        task: attempts[4]!.task,
+        agentId: 'agent-5',
+        status: 'completed',
+        result: 'completed 5',
+      });
+      attempts[5]!.outcome.resolve({
+        task: attempts[5]!.task,
+        agentId: 'agent-6',
+        status: 'completed',
+        result: 'completed 6',
+      });
+      await vi.advanceTimersByTimeAsync(0);
+
+      const results = await running;
+      expect(results.map((result) => result.task.data)).toEqual([1, 2, 3, 4, 5, 6]);
+      expect(results.every((result) => result.status === 'completed')).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    ['NaN', Number.NaN],
+    ['Infinity', Number.POSITIVE_INFINITY],
+  ])('falls back to the default limit for a %s concurrency limit', async (_label, limit) => {
+    vi.useFakeTimers();
+    try {
+      // NaN survives Math.trunc and Math.max, and `running < NaN` is always
+      // false, so the batch would launch nothing and never finish.
+      const { runBatch, attempts } = createMockBatchRunner({}, limit);
+      const running = runBatch([queuedTask(1), queuedTask(2)], { signal });
+
+      await vi.advanceTimersByTimeAsync(0);
+      expect(attempts).toHaveLength(2);
+
+      for (const [index, attempt] of attempts.entries()) {
+        attempt.outcome.resolve({
+          task: attempt.task,
+          agentId: `agent-${String(index + 1)}`,
+          status: 'completed',
+          result: `completed ${String(index + 1)}`,
+        });
+      }
+      await vi.advanceTimersByTimeAsync(0);
+
+      const results = await running;
+      expect(results.map((result) => result.task.data)).toEqual([1, 2]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('re-arms the launch timer while the concurrency cap blocks the ramp', async () => {
+    vi.useFakeTimers();
+    try {
+      const { runBatch, attempts } = createMockBatchRunner({}, 2);
+      const running = runBatch(
+        Array.from({ length: 6 }, (_, index) => queuedTask(index + 1)),
+        { signal },
+      );
+
+      await vi.advanceTimersByTimeAsync(0);
+      expect(attempts).toHaveLength(2);
+
+      attempts[0]!.outcome.resolve({
+        task: attempts[0]!.task,
+        agentId: 'agent-1',
+        status: 'completed',
+        result: 'completed 1',
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(attempts).toHaveLength(3);
+      expect(attempts[2]!.task.data).toBe(3);
+
+      // The t=0 timer fires while both slots are full. The batch must re-arm
+      // it rather than drop the wakeup; a dropped wakeup is only replaced by
+      // the next completion, which shifts every later launch one timer period
+      // later and strands the last task behind the exhausted initial launch
+      // limit.
+      await vi.advanceTimersByTimeAsync(700);
+      expect(attempts).toHaveLength(3);
+
+      await vi.advanceTimersByTimeAsync(1);
+      attempts[1]!.outcome.resolve({
+        task: attempts[1]!.task,
+        agentId: 'agent-2',
+        status: 'completed',
+        result: 'completed 2',
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(attempts).toHaveLength(4);
+      expect(attempts[3]!.task.data).toBe(4);
+
+      // Second blocked fire at t=1400 (re-armed from t=700).
+      await vi.advanceTimersByTimeAsync(699);
+      expect(attempts).toHaveLength(4);
+
+      await vi.advanceTimersByTimeAsync(1);
+      attempts[2]!.outcome.resolve({
+        task: attempts[2]!.task,
+        agentId: 'agent-3',
+        status: 'completed',
+        result: 'completed 3',
+      });
+      attempts[3]!.outcome.resolve({
+        task: attempts[3]!.task,
+        agentId: 'agent-4',
+        status: 'completed',
+        result: 'completed 4',
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(attempts).toHaveLength(5);
+      expect(attempts[4]!.task.data).toBe(5);
+
+      // Task 6 can no longer be started by a completion (the initial launch
+      // limit of 5 is exhausted), so it depends entirely on the re-armed
+      // timer firing after a slot frees.
+      await vi.advanceTimersByTimeAsync(698);
+      expect(attempts).toHaveLength(5);
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(attempts).toHaveLength(6);
+      expect(attempts[5]!.task.data).toBe(6);
+
+      attempts[4]!.outcome.resolve({
+        task: attempts[4]!.task,
+        agentId: 'agent-5',
+        status: 'completed',
+        result: 'completed 5',
+      });
+      attempts[5]!.outcome.resolve({
+        task: attempts[5]!.task,
+        agentId: 'agent-6',
+        status: 'completed',
+        result: 'completed 6',
+      });
+      await vi.advanceTimersByTimeAsync(0);
+
+      const results = await running;
+      expect(results.map((result) => result.task.data)).toEqual([1, 2, 3, 4, 5, 6]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('rate-limit phase starts when the first provider rate limit stops the normal ramp', async () => {
     vi.useFakeTimers();
     try {
@@ -739,6 +944,7 @@ type MockBatchRunnerOptions = {
 
 function createMockBatchRunner(
   options: MockBatchRunnerOptions = {},
+  concurrencyLimit?: number,
 ): {
   readonly runBatch: <T>(
     tasks: readonly QueuedSubagentTask<T>[],
@@ -809,7 +1015,7 @@ function createMockBatchRunner(
         ...task,
         signal: task.signal ?? runOptions?.signal,
       }));
-      return new SubagentBatch(host, activeTasks as readonly QueuedSubagentTask<T>[]).run();
+      return new SubagentBatch(host, activeTasks as readonly QueuedSubagentTask<T>[], concurrencyLimit).run();
     },
     attempts,
   };

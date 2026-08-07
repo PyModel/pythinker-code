@@ -1,13 +1,12 @@
 import {
-  isPythinkerError,
-  type PythinkerErrorPayload,
-} from '@pythoughts/pythinker-code-sdk';
-
-import {
   STREAMING_ARGS_FIELD_RE,
   STREAMING_ARGS_PREVIEW_MAX_CHARS,
 } from '#/tui/constant/streaming';
 import type { TodoItem } from '#/tui/components/chrome/todo-panel';
+
+// Generic error formatting lives in the SDK so non-TUI surfaces (login flows,
+// CLI) share it; re-exported here for the TUI's existing importers.
+export { formatErrorMessage, formatErrorPayload } from '@pythoughts/pythinker-code-sdk';
 
 export function appendStreamingArgsPreview(
   current: string | undefined,
@@ -115,45 +114,6 @@ export function normalizeTodoList(value: unknown): TodoItem[] {
     return [{ title, activeForm, status }];
   });
   return todos.length > 0 && todos.every((todo) => todo.status === 'done') ? [] : todos;
-}
-
-export function formatErrorMessage(error: unknown): string {
-  if (isPythinkerError(error)) {
-    return formatErrorPayload({
-      code: error.code,
-      message: error.message,
-      details: error.details,
-    });
-  }
-  return error instanceof Error ? error.message : String(error);
-}
-
-export function formatErrorPayload(
-  error: Pick<PythinkerErrorPayload, 'code' | 'message' | 'details'>,
-): string {
-  const filteredMessage = formatProviderFilteredMessage(error.details);
-  if (filteredMessage !== undefined) return `[${error.code}] ${filteredMessage}`;
-  return `[${error.code}] ${error.message}`;
-}
-
-function formatProviderFilteredMessage(
-  details: Record<string, unknown> | undefined,
-): string | undefined {
-  const finishReason = stringDetail(details, 'finishReason');
-  const rawFinishReason = stringDetail(details, 'rawFinishReason');
-  if (finishReason !== 'filtered' && rawFinishReason !== 'content_filter') return undefined;
-
-  const normalizedFinishReason = finishReason ?? 'filtered';
-  const raw = rawFinishReason === undefined ? '' : `, rawFinishReason=${rawFinishReason}`;
-  return `Provider filtered the response before visible output (finishReason=${normalizedFinishReason}${raw}).`;
-}
-
-function stringDetail(
-  details: Record<string, unknown> | undefined,
-  key: string,
-): string | undefined {
-  const value = details?.[key];
-  return typeof value === 'string' ? value : undefined;
 }
 
 export function stringValue(value: unknown): string | undefined {

@@ -81,6 +81,7 @@ const SESSION_EVENTS = [
   'skill.activated',
   'error',
   'warning',
+  'workflow.warning',
   'compaction.started',
   'compaction.completed',
   'compaction.blocked',

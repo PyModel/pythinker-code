@@ -12,7 +12,7 @@ import { isUserCancellation } from '../utils/abort';
 Subagent batch scheduling contract:
 Normal phase:
 - Return results in input order; empty input returns an empty list.
-- Start up to 5 tasks immediately, then 1 more every 700 ms while queued work remains; active tasks do not cap this ramp.
+- Start up to 5 tasks immediately, then 1 more every 700 ms while queued work remains; the ramp is additionally capped at MAX_CONCURRENT_WORKFLOW_SUBAGENTS live attempts, and further launches wait for a freed slot.
 - Launch priority: previous agent id saved after a rate limit, explicit resume, then new spawn.
 - Readiness can be reported while the attempt is active. Ready normal launches seed the first rate-limit capacity.
 - The first provider rate limit stops the ramp and enters rate-limit phase.
@@ -31,6 +31,7 @@ Results and cancellation:
 
 const INITIAL_LAUNCH_LIMIT = 5;
 const INITIAL_LAUNCH_INTERVAL_MS = 700;
+export const MAX_CONCURRENT_WORKFLOW_SUBAGENTS = 20;
 const RATE_LIMIT_RETRY_BASE_MS = 3000;
 const RATE_LIMIT_RETRY_FACTOR = 2;
 const RATE_LIMIT_CAPACITY_SHRINK_INTERVAL_MS = 2000;
@@ -51,6 +52,9 @@ type BaseQueuedSubagentTask<T> = {
   readonly signal?: AbortSignal;
   readonly modelAlias?: string;
   readonly thinkingLevel?: string;
+  readonly workflowRunId?: string;
+  readonly workflowName?: string;
+  readonly outputSchema?: Record<string, unknown>;
 };
 
 export type SpawnQueuedSubagentTask<T = unknown> = BaseQueuedSubagentTask<T> & {
@@ -70,7 +74,7 @@ export type QueuedSubagentTask<T = unknown> =
 export type SubagentResult<T = unknown> = {
   readonly task: QueuedSubagentTask<T>;
   readonly agentId?: string;
-  readonly status: 'completed' | 'failed' | 'aborted';
+  readonly status: 'completed' | 'failed' | 'aborted' | 'schema_error';
   readonly state?: 'started' | 'not_started';
   readonly result?: string;
   readonly usage?: TokenUsage;
@@ -96,6 +100,20 @@ type RateLimitedOutcome = {
   readonly error: string;
 };
 
+/**
+ * A child turn failed because it never produced valid structured output
+ * (ErrorCodes.STRUCTURED_OUTPUT_MAX_RETRIES). The batch reports that child as
+ * status 'schema_error' instead of 'failed': the child ran, but its
+ * deliverable was the structured output, so a schema miss is not a generic
+ * child failure and must not fail the rest of the batch.
+ */
+export class StructuredOutputMaxRetriesError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'StructuredOutputMaxRetriesError';
+  }
+}
+
 type AttemptOutcome<T> = SubagentResult<T> | RateLimitedOutcome;
 
 type TaskState<T> = {
@@ -120,6 +138,7 @@ export class SubagentBatch<T> {
   private readonly states: Array<TaskState<T>>;
   private readonly pending: Array<TaskState<T>>;
   private readonly results: Array<SubagentResult<T> | undefined>;
+  private readonly concurrencyLimit: number;
   private readonly active = new Set<ActiveAttempt<T>>();
   private readonly controller = new AbortController();
   private readonly batchSignal: AbortSignal | undefined;
@@ -143,7 +162,15 @@ export class SubagentBatch<T> {
   constructor(
     private readonly launcher: SubagentBatchLauncher,
     tasks: readonly QueuedSubagentTask<T>[],
+    concurrencyLimit: number = MAX_CONCURRENT_WORKFLOW_SUBAGENTS,
   ) {
+    // Clamped rather than validated: a limit of 0 would stall the batch forever with no
+    // error to read, which is a worse failure than quietly running one at a time.
+    // NaN survives both Math.trunc and Math.max, and every `running < limit` test
+    // against it is false, so it stalls the batch the same way 0 would.
+    this.concurrencyLimit = Number.isFinite(concurrencyLimit)
+      ? Math.max(1, Math.trunc(concurrencyLimit))
+      : MAX_CONCURRENT_WORKFLOW_SUBAGENTS;
     this.states = tasks.map((task, index) => ({
       index,
       task,
@@ -205,7 +232,8 @@ export class SubagentBatch<T> {
     while (
       this.normalLaunchCount < INITIAL_LAUNCH_LIMIT &&
       this.pending.length > 0 &&
-      !this.rateLimitMode
+      !this.rateLimitMode &&
+      this.active.size < this.concurrencyLimit
     ) {
       this.startAttempt(this.pending.shift()!);
       this.normalLaunchCount += 1;
@@ -222,6 +250,12 @@ export class SubagentBatch<T> {
     this.normalLaunchTimer = setTimeout(() => {
       this.normalLaunchTimer = undefined;
       if (this.finished || this.rateLimitMode || this.pending.length === 0) return;
+      if (this.active.size >= this.concurrencyLimit) {
+        // The concurrency cap blocks the ramp; re-arm rather than dropping
+        // the wakeup so the batch retries once a slot frees.
+        this.schedule();
+        return;
+      }
       this.startAttempt(this.pending.shift()!);
       this.normalLaunchCount += 1;
       this.schedule();
@@ -234,7 +268,7 @@ export class SubagentBatch<T> {
 
     const now = Date.now();
     this.recoverRateLimitCapacity(now);
-    if (this.active.size >= this.rateLimitCapacity) {
+    if (this.active.size >= this.effectiveRateLimitCapacity()) {
       this.scheduleRateLimitWakeup(this.nextRateLimitCapacityRecoveryAt(), now);
       return;
     }
@@ -290,6 +324,9 @@ export class SubagentBatch<T> {
       runInBackground: task.runInBackground,
       modelAlias: task.modelAlias,
       thinkingLevel: task.thinkingLevel,
+      workflowRunId: task.workflowRunId,
+      workflowName: task.workflowName,
+      outputSchema: task.outputSchema,
       signal: attempt.controller.signal,
       onReady: () => {
         this.markAttemptReady(attempt);
@@ -342,7 +379,7 @@ export class SubagentBatch<T> {
     const status =
       attempt.controller.signal.aborted && isUserCancellation(attempt.controller.signal.reason)
         ? 'aborted'
-        : 'failed';
+        : this.attemptFailureStatus(error);
     return {
       task: attempt.state.task,
       agentId: attempt.state.agentId,
@@ -350,6 +387,10 @@ export class SubagentBatch<T> {
       state: attempt.state.agentId === undefined ? 'not_started' : 'started',
       error: this.attemptErrorMessage(attempt, error, status),
     };
+  }
+
+  private attemptFailureStatus(error: unknown): SubagentResult<T>['status'] {
+    return error instanceof StructuredOutputMaxRetriesError ? 'schema_error' : 'failed';
   }
 
   private markAttemptReady(attempt: ActiveAttempt<T>): void {
@@ -394,7 +435,7 @@ export class SubagentBatch<T> {
     this.results[attempt.state.index] = {
       task: attempt.state.task,
       agentId: attempt.state.agentId,
-      status: 'failed',
+      status: this.attemptFailureStatus(error),
       error: error instanceof Error ? error.message : String(error),
     };
     this.schedule();
@@ -472,6 +513,14 @@ export class SubagentBatch<T> {
     this.lastCapacityShrinkAt = now;
   }
 
+  /**
+   * Rate-limit capacity grows by 1 per quiet window, so on a long batch it can drift past
+   * the concurrency cap. The cap holds in both phases.
+   */
+  private effectiveRateLimitCapacity(): number {
+    return Math.min(this.rateLimitCapacity, this.concurrencyLimit);
+  }
+
   private recoverRateLimitCapacity(now: number): void {
     const nextRecoveryAt = this.nextRateLimitCapacityRecoveryAt();
     if (nextRecoveryAt > now) return;
@@ -505,7 +554,7 @@ export class SubagentBatch<T> {
     if (this.pending.length === 0) return;
 
     const nextWakeupAt =
-      this.active.size >= this.rateLimitCapacity
+      this.active.size >= this.effectiveRateLimitCapacity()
         ? this.nextRateLimitCapacityRecoveryAt()
         : Math.min(
             Math.max(this.nextRateLimitLaunchAt, this.nextPendingReadyAt()),

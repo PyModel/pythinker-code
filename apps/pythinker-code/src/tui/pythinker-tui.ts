@@ -50,6 +50,10 @@ import {
   onExperimentalFeaturesChanged,
   setExperimentalFeatures,
 } from './commands/experimental-flags';
+import {
+  isDynamicWorkflowDisabled,
+  setDynamicWorkflowDisabled,
+} from './commands/workflow-availability';
 import * as slashCommands from './commands/dispatch';
 import { BannerComponent } from './components/chrome/banner';
 import { DeviceCodeBoxComponent } from './components/chrome/device-code-box';
@@ -380,7 +384,10 @@ export class PythinkerTUI {
 
   private getSlashCommands(): readonly PythinkerSlashCommand[] {
     const builtins = sortSlashCommands(BUILTIN_SLASH_COMMANDS).filter(
-      (command) => command.hidden !== true && isExperimentalFlagEnabled(command.experimentalFlag),
+      (command) =>
+        command.hidden !== true &&
+        (command.name !== 'workflow' || !isDynamicWorkflowDisabled()) &&
+        isExperimentalFlagEnabled(command.experimentalFlag),
     );
     return [...builtins, ...this.skillCommands];
   }
@@ -643,6 +650,7 @@ export class PythinkerTUI {
 
   private async init(): Promise<boolean> {
     setExperimentalFeatures(await this.harness.getExperimentalFeatures());
+    setDynamicWorkflowDisabled((await this.harness.getConfig()).disableWorkflows);
     await this.authFlow.refreshAvailableModels();
     void this.refreshProviderModelsInBackground();
 

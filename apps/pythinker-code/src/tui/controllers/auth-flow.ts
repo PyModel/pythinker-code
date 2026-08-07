@@ -1,4 +1,8 @@
-import type { PythinkerHarness, Session } from '@pythoughts/pythinker-code-sdk';
+import {
+  coerceEffortForModel,
+  type PythinkerHarness,
+  type Session,
+} from '@pythoughts/pythinker-code-sdk';
 import type { SkillListSession } from '../commands';
 
 import { OAUTH_LOGIN_REQUIRED_STARTUP_NOTICE } from '../constant/pythinker-tui';
@@ -7,7 +11,6 @@ import {
   type RefreshProviderScope,
   type RefreshResult,
 } from '../utils/refresh-providers';
-import { coerceEffortForModel } from '../utils/thinking-levels';
 import type { SessionEventHandler } from './session-event-handler';
 import type { AppState, PythinkerTUIOptions } from '../types';
 import type { TUIState } from '../tui-state';

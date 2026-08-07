@@ -36,8 +36,8 @@ export function buildTerminalAuthMethod(
   const method: AuthMethod = {
     id: 'login',
     type: 'terminal',
-    name: 'Login with Pythinker account',
-    description: 'Open the device-code login flow in a terminal.',
+    name: 'Login with a provider',
+    description: 'Choose a provider and complete login in a terminal.',
     // Appended to the agent's configured args by spec-compliant clients
     // (e.g. `args:['acp']` + `args:['--login']` → `acp --login`). The
     // `--login` flag on `pythinker acp` pivots into the login flow before
@@ -49,7 +49,7 @@ export function buildTerminalAuthMethod(
     (method as AuthMethod & { _meta: { 'terminal-auth': unknown } })._meta = {
       'terminal-auth': {
         type: 'terminal',
-        label: 'Login with Pythinker account',
+        label: 'Login with a provider',
         // Legacy clients use this verbatim as the executable path, NOT
         // combined with the agent server's configured command (per Zed's
         // `meta_terminal_auth_task` in `agent_servers/src/acp.rs`).

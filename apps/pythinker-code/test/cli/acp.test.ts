@@ -170,19 +170,38 @@ describe('pythinker acp', () => {
   });
 
   it('exits without starting the ACP server when --login is passed', async () => {
-    // Stub the harness module so runLoginFlow doesn't hit a real OAuth
-    // endpoint: harness.auth.login resolves immediately and triggers exit 0.
-    // `importOriginal` preserves the other named exports (`ErrorCodes`, etc.)
-    // that constant/app.ts depends on at module load.
-    const loginStub = vi.fn(async () => ({ providerName: 'pythinker-code' }));
+    // `acp --login` pivots into the same `runLoginFlow` as `pythinker login`:
+    // the terminal picker (mocked to choose Kimi OAuth) runs, then the login
+    // resolves and triggers exit 0. `importOriginal` preserves the other named
+    // exports (`ErrorCodes`, etc.) that constant/app.ts depends on at module
+    // load, and the fetchCatalog stub keeps the flow offline.
+    const originalAcpIsTTY = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: true });
+    const loginStub = vi.fn(async () => ({ providerName: 'managed:kimi-code' }));
+    vi.doMock(import('@clack/prompts'), async (importOriginal) => {
+      const actual = await importOriginal();
+      return {
+        ...actual,
+        select: vi.fn().mockResolvedValue('kimi-code'),
+        spinner: vi.fn(() => ({
+          start: vi.fn(),
+          stop: vi.fn(),
+          error: vi.fn(),
+        })) as unknown as typeof actual.spinner,
+      };
+    });
     vi.doMock(import('@pythoughts/pythinker-code-sdk'), async (importOriginal) => {
       const actual = await importOriginal();
       return {
         ...actual,
         createPythinkerHarness: () =>
           ({
-            auth: { login: loginStub },
+            auth: {
+              login: loginStub,
+              status: vi.fn(async () => ({ providers: [] })),
+            },
           }) as unknown as ReturnType<typeof actual.createPythinkerHarness>,
+        fetchCatalog: vi.fn().mockRejectedValue(new Error('offline')),
       };
     });
     vi.resetModules();
@@ -199,7 +218,13 @@ describe('pythinker acp', () => {
       expect(runAcpServer).not.toHaveBeenCalled();
       expect(exitSpy).toHaveBeenCalledWith(0);
     } finally {
+      vi.doUnmock('@clack/prompts');
       vi.doUnmock('@pythoughts/pythinker-code-sdk');
+      if (originalAcpIsTTY === undefined) {
+        delete (process.stdin as { isTTY?: boolean }).isTTY;
+      } else {
+        Object.defineProperty(process.stdin, 'isTTY', originalAcpIsTTY);
+      }
       vi.resetModules();
     }
   });

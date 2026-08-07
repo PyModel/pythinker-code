@@ -3,7 +3,7 @@ import { useApprovalStore } from "./approval.store";
 import { useSettingsStore } from "./settings.store";
 import { isPreflightError, isUserInterrupt } from "shared/errors";
 import type { ChatMessage, UIStep, UIStepItem, UISubagentStatus, ChatState, TokenUsage } from "./chat.store";
-import type { ContentPart, ToolCall, ToolResult, TurnBegin, SubagentEvent, SubagentStatusPayload, ApprovalRequestPayload, DiffBlock, RunResult, QuestionRequest } from "shared/legacy-sdk";
+import type { ContentPart, ToolCall, ToolResult, TurnBegin, SubagentEvent, SubagentStatusPayload, WorkflowWarningPayload, ApprovalRequestPayload, DiffBlock, RunResult, QuestionRequest } from "shared/legacy-sdk";
 import type { UIStreamEvent, StreamError } from "shared/types";
 
 type EventHandler = (draft: ChatState, payload: any) => void;
@@ -601,6 +601,24 @@ const eventHandlers: Record<string, EventHandler> = {
     }
 
     applySubagentStatus(toolItem, payload);
+  },
+
+  WorkflowWarning: (draft, payload: WorkflowWarningPayload) => {
+    const last = getLastAssistant(draft);
+    if (!last?.steps) {
+      return;
+    }
+
+    const toolItem = findToolUseItem(last.steps, payload.parent_tool_call_id);
+    if (!toolItem) {
+      return;
+    }
+
+    toolItem.workflow_warning = {
+      message: payload.message,
+      agentCount: payload.agent_count,
+      threshold: payload.threshold,
+    };
   },
 
   ApprovalRequest: (_, payload: ApprovalRequestPayload) => {

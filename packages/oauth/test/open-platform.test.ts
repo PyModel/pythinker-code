@@ -314,6 +314,41 @@ describe('applyOpenPlatformConfig', () => {
     expect(config.services).toBeUndefined();
   });
 
+  it('persists the picked effort, and overwrites a previous one when thinking is off', () => {
+    const platform = getOpenPlatformById('moonshot-cn')!;
+    const models = [
+      { id: 'kimi-k2-0712-preview', contextLength: 256000, supportsReasoning: true, supportsImageIn: false, supportsVideoIn: false },
+    ];
+
+    const picked: ManagedKimiConfigShape = { providers: {} };
+    applyOpenPlatformConfig(picked, {
+      platform,
+      models,
+      selectedModel: models[0]!,
+      thinking: true,
+      effort: 'medium',
+      apiKey: 'sk-test',
+    });
+    // defaultThinking is a boolean, so without this the level is lost and the
+    // session reopens at the default no matter what the user chose.
+    expect(picked.thinking?.effort).toBe('medium');
+
+    const turnedOff: ManagedKimiConfigShape = { providers: {}, thinking: { effort: 'high' } };
+    applyOpenPlatformConfig(turnedOff, {
+      platform,
+      models,
+      selectedModel: models[0]!,
+      thinking: false,
+      effort: 'off',
+      apiKey: 'sk-test',
+    });
+    // 'off' is written rather than skipped: the caller persists through a
+    // `setConfig` deep merge, which cannot delete a key, so omitting it would
+    // leave 'high' on disk for the next session.
+    expect(turnedOff.defaultThinking).toBe(false);
+    expect(turnedOff.thinking?.effort).toBe('off');
+  });
+
   it('clears stale models for the same provider', () => {
     const config: ManagedKimiConfigShape = {
       providers: {

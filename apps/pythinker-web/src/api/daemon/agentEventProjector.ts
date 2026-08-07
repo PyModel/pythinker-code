@@ -1063,6 +1063,14 @@ export function createAgentProjector(): AgentProjector {
         break;
       }
 
+      case 'workflow.warning': {
+        out.push({
+          type: 'unknown',
+          raw: { _agentWarning: true, message: p?.message },
+        });
+        break;
+      }
+
       // -----------------------------------------------------------------------
       // Background tasks (e.g. a backgrounded Bash command). Real daemon shape:
       // payload.info = { taskId, description, status, startedAt(ms), endedAt,
@@ -1255,6 +1263,7 @@ const KNOWN_AGENT_CORE_TYPES = new Set([
   'subagent.suspended',
   'subagent.completed',
   'subagent.failed',
+  'workflow.warning',
   'background.task.started',
   'background.task.terminated',
 ]);

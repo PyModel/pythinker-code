@@ -293,6 +293,14 @@ export async function startOpenAICodexCallbackServer(
             return new Promise<{ code: string } | null>((resolveWait, rejectWait) => {
               let timer: NodeJS.Timeout | undefined;
               const onAbort = (): void => {
+                // Tear down here rather than leaning on the `waitPromise.then`
+                // below: an already-aborted signal returns before that handler
+                // is ever registered, which left both the full timeout and the
+                // listening callback server alive to hold the host's event
+                // loop. Every other exit from the wait closes the server, so
+                // this path has to as well.
+                cleanup();
+                close();
                 settleWait?.(null);
                 settleWait = undefined;
                 rejectWait(
@@ -573,6 +581,11 @@ export function applyOpenAICodexOAuthConfig(
     readonly models: readonly ManagedKimiCodeModelInfo[];
     readonly selectedModel: ManagedKimiCodeModelInfo;
     readonly thinking?: boolean | undefined;
+    /**
+     * The effort level the user picked. Omitted, the model's top supported
+     * effort is used, which is what callers that never asked the user get.
+     */
+    readonly effort?: string;
   },
 ): ApplyOpenAICodexOAuthResult {
   if (options.models.length === 0) {
@@ -630,7 +643,15 @@ export function applyOpenAICodexOAuthConfig(
       ? 'max'
       : CODEX_REASONING_EFFORT_ORDER.findLast((effort) => supportedEfforts.includes(effort)) ??
         'max';
-  config.thinking = { ...config.thinking, effort: topEffort };
+  // A level the user picked wins over the derived top effort, but only when the
+  // model actually declares it — otherwise we would persist an unusable level.
+  const picked =
+    options.effort !== undefined &&
+    options.effort !== 'off' &&
+    (supportedEfforts === undefined || supportedEfforts.includes(options.effort))
+      ? options.effort
+      : undefined;
+  config.thinking = { ...config.thinking, effort: picked ?? topEffort };
 
   return { defaultModel: modelKey, defaultThinking: config.defaultThinking ?? true };
 }

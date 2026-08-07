@@ -154,6 +154,44 @@ describe("Webview DynamicWorkflow per-agent lanes", () => {
     expect(typeof status.endedAt).toBe("number");
   });
 
+  it("stores a WorkflowWarning on the workflow's own tool item", () => {
+    startWorkflowTurn();
+
+    useChatStore.getState().processEvent({
+      type: "WorkflowWarning",
+      payload: {
+        parent_tool_call_id: "wf-1",
+        workflow_run_id: "wfr-test-001",
+        agent_count: 26,
+        threshold: 25,
+        message: "This Dynamic Workflow will launch 26 subagents, above the advisory ceiling of 25; the run is proceeding anyway.",
+      },
+    });
+
+    expect(workflowToolItem().workflow_warning).toEqual({
+      message: "This Dynamic Workflow will launch 26 subagents, above the advisory ceiling of 25; the run is proceeding anyway.",
+      agentCount: 26,
+      threshold: 25,
+    });
+  });
+
+  it("drops a WorkflowWarning naming a tool call that is not on screen", () => {
+    startWorkflowTurn();
+
+    useChatStore.getState().processEvent({
+      type: "WorkflowWarning",
+      payload: {
+        parent_tool_call_id: "wf-other",
+        workflow_run_id: "wfr-test-002",
+        agent_count: 26,
+        threshold: 25,
+        message: "belongs to a different workflow",
+      },
+    });
+
+    expect(workflowToolItem().workflow_warning).toBeUndefined();
+  });
+
   it("targets the main agent's steps by array tail when no agent is scoped", () => {
     // The only remaining no-agent case: applyEventToSteps called directly for
     // the main agent's own turn, not through a SubagentEvent wrapper.
