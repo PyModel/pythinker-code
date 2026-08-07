@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import type { TokenUsage } from '@pythoughts/kosong';
 import type { WorkflowWarningEvent } from '@pythoughts/protocol';
 
 import type { DynamicWorkflowMode } from '../../../agent/dynamic-workflow';
@@ -139,6 +140,14 @@ interface DynamicWorkflowRunResult {
   readonly state?: 'started' | 'not_started';
   readonly result?: string;
   readonly error?: string;
+  /**
+   * Carried from `SubagentResult`. The spread below always preserved both at
+   * runtime; leaving them off this type is what made them invisible to
+   * everything downstream, so a run's real cost and launch order were reachable
+   * and simply never read.
+   */
+  readonly usage?: TokenUsage;
+  readonly startOrder?: number;
 }
 
 export class DynamicWorkflowTool implements BuiltinTool<DynamicWorkflowToolInput> {

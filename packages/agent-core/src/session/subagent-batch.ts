@@ -76,6 +76,16 @@ export type SubagentResult<T = unknown> = {
   readonly agentId?: string;
   readonly status: 'completed' | 'failed' | 'aborted' | 'schema_error';
   readonly state?: 'started' | 'not_started';
+  /**
+   * 1-based order in which this subagent first became ready, which is not the
+   * task's input order once the ramp or a rate-limit requeue reorders launches.
+   * A requeued task keeps the number from its first start.
+   *
+   * Absent when the subagent never reported readiness — it was cancelled while
+   * queued, or its launch threw. Nothing that never ran has a cached result to
+   * replay, so a journal replaying in start order can skip those safely.
+   */
+  readonly startOrder?: number;
   readonly result?: string;
   readonly usage?: TokenUsage;
   readonly error?: string;
@@ -124,6 +134,7 @@ type TaskState<T> = {
   retryCount: number;
   retryReadyAt: number;
   started: boolean;
+  startOrder?: number;
 };
 
 type ActiveAttempt<T> = {
@@ -152,6 +163,7 @@ export class SubagentBatch<T> {
   private started = false;
   private rateLimitMode = false;
   private startedSuccessCount = 0;
+  private startOrderCounter = 0;
   private rateLimitCapacity = 1;
   private lastRateLimitAt: number | undefined;
   private lastCapacityShrinkAt: number | undefined;
@@ -361,6 +373,7 @@ export class SubagentBatch<T> {
         status: 'completed',
         result: completion.result,
         usage: completion.usage,
+        startOrder: attempt.state.startOrder,
       };
     } catch (error) {
       if (isProviderRateLimitError(error)) {
@@ -386,6 +399,7 @@ export class SubagentBatch<T> {
       status,
       state: attempt.state.agentId === undefined ? 'not_started' : 'started',
       error: this.attemptErrorMessage(attempt, error, status),
+      startOrder: attempt.state.startOrder,
     };
   }
 
@@ -398,6 +412,12 @@ export class SubagentBatch<T> {
 
     attempt.ready = true;
     attempt.state.started = true;
+    // A retried task must keep the order of its first start: the rate-limit
+    // requeue runs this again on a fresh attempt for the same TaskState.
+    if (attempt.state.startOrder === undefined) {
+      this.startOrderCounter += 1;
+      attempt.state.startOrder = this.startOrderCounter;
+    }
     if (!this.rateLimitMode) {
       this.startedSuccessCount += 1;
     }
@@ -422,6 +442,7 @@ export class SubagentBatch<T> {
         status: 'failed',
         state: 'started',
         error: outcome.error,
+        startOrder: attempt.state.startOrder,
       };
     } else {
       this.requeueRateLimited(attempt, outcome.agentId);
@@ -437,6 +458,7 @@ export class SubagentBatch<T> {
       agentId: attempt.state.agentId,
       status: this.attemptFailureStatus(error),
       error: error instanceof Error ? error.message : String(error),
+      startOrder: attempt.state.startOrder,
     };
     this.schedule();
   }
@@ -598,6 +620,7 @@ export class SubagentBatch<T> {
             state: 'started',
             error:
               'The user manually interrupted this subagent batch before this subagent finished.',
+            startOrder: state.startOrder,
           };
         }
 
@@ -607,6 +630,7 @@ export class SubagentBatch<T> {
           state: 'not_started',
           error:
             'The user manually interrupted this subagent batch before this subagent was started.',
+          startOrder: state.startOrder,
         };
       }),
     );

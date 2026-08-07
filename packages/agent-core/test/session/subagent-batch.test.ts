@@ -920,6 +920,153 @@ describe('SubagentBatch scheduling contract', () => {
       vi.useRealTimers();
     }
   });
+
+  it('records 1-based start order matching input order when nothing is reordered', async () => {
+    vi.useFakeTimers();
+    try {
+      const { runBatch, attempts } = createMockBatchRunner();
+      const running = runBatch(
+        Array.from({ length: 4 }, (_, index) => queuedTask(index + 1)),
+        { signal },
+      );
+
+      await vi.advanceTimersByTimeAsync(0);
+      expect(attempts).toHaveLength(4);
+      attempts.forEach((attempt) => {
+        attempt.markReady();
+      });
+
+      attempts[0]!.outcome.resolve({
+        task: attempts[0]!.task,
+        agentId: 'agent-1',
+        status: 'completed',
+        result: 'completed 1',
+      });
+      // A failure result must carry the same start order as a completion.
+      attempts[1]!.outcome.resolve({
+        task: attempts[1]!.task,
+        agentId: 'agent-2',
+        status: 'failed',
+        error: 'boom',
+      });
+      attempts[2]!.outcome.resolve({
+        task: attempts[2]!.task,
+        agentId: 'agent-3',
+        status: 'completed',
+        result: 'completed 3',
+      });
+      attempts[3]!.outcome.resolve({
+        task: attempts[3]!.task,
+        agentId: 'agent-4',
+        status: 'completed',
+        result: 'completed 4',
+      });
+      await vi.advanceTimersByTimeAsync(0);
+
+      const results = await running;
+      expect(results.map((result) => result.startOrder)).toEqual([1, 2, 3, 4]);
+      expect(results.map((result) => result.status)).toEqual([
+        'completed',
+        'failed',
+        'completed',
+        'completed',
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps the original start order when a rate-limited task is requeued and starts again', async () => {
+    vi.useFakeTimers();
+    try {
+      const { runBatch, attempts } = createMockBatchRunner();
+      const running = runBatch(
+        Array.from({ length: 3 }, (_, index) => queuedTask(index + 1)),
+        { signal },
+      );
+      void running.catch(() => {});
+
+      await vi.advanceTimersByTimeAsync(0);
+      expect(attempts).toHaveLength(3);
+      attempts.forEach((attempt) => {
+        attempt.markReady();
+      });
+
+      attempts[0]!.outcome.resolve({ type: 'rate_limited', agentId: 'agent-1' });
+      await vi.advanceTimersByTimeAsync(0);
+
+      attempts[1]!.outcome.resolve({
+        task: attempts[1]!.task,
+        agentId: 'agent-2',
+        status: 'completed',
+        result: 'completed 2',
+      });
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(attempts).toHaveLength(4);
+      expect(attempts[3]!.task.data).toBe(1);
+      expect(attempts[3]!.retryAgentId).toBe('agent-1');
+
+      // The requeued task starts again: its readiness for the second attempt
+      // must not renumber it past the tasks that started in between.
+      attempts[3]!.markReady();
+
+      attempts[2]!.outcome.resolve({
+        task: attempts[2]!.task,
+        agentId: 'agent-3',
+        status: 'completed',
+        result: 'completed 3',
+      });
+      attempts[3]!.outcome.resolve({
+        task: attempts[3]!.task,
+        agentId: 'agent-1',
+        status: 'completed',
+        result: 'completed 1',
+      });
+      await vi.advanceTimersByTimeAsync(0);
+
+      const results = await running;
+      expect(results.map((result) => result.task.data)).toEqual([1, 2, 3]);
+      expect(results.map((result) => result.startOrder)).toEqual([1, 2, 3]);
+      expect(results[0]!.startOrder).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('leaves startOrder undefined for tasks that never started', async () => {
+    vi.useFakeTimers();
+    try {
+      const controller = new AbortController();
+      const { runBatch, attempts } = createMockBatchRunner();
+      const running = runBatch(
+        Array.from({ length: 6 }, (_, index) => queuedTask(index + 1)),
+        { signal: controller.signal },
+      );
+
+      await vi.advanceTimersByTimeAsync(0);
+      expect(attempts).toHaveLength(5);
+      attempts.forEach((attempt) => {
+        attempt.markReady();
+      });
+
+      attempts[0]!.outcome.resolve({
+        task: attempts[0]!.task,
+        agentId: 'agent-1',
+        status: 'completed',
+        result: 'completed 1',
+      });
+      await vi.advanceTimersByTimeAsync(0);
+
+      controller.abort(userCancellationReason());
+      const results = await running;
+
+      expect(results.map((result) => result.startOrder)).toEqual([1, 2, 3, 4, 5, undefined]);
+      expect(results[5]!.status).toBe('aborted');
+      expect(results[5]!.state).toBe('not_started');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 type MockAttemptOutcome<T> =
