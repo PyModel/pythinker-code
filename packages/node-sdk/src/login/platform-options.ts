@@ -25,9 +25,6 @@ export interface PlatformOption {
   readonly description?: string;
 }
 
-/** Kimi's managed OAuth platform id — one option among many, never a default. */
-export const KIMI_CODE_PLATFORM_ID = 'kimi-code';
-
 const FEATURED_CATALOG_PROVIDERS = [
   { id: 'deepseek', label: 'DeepSeek API' },
   { id: 'zai-coding-plan', label: 'GLM Coding Plan' },
@@ -57,9 +54,8 @@ export function buildPlatformOptions(catalog: Catalog): readonly PlatformOption[
       label: OPENAI_CODEX_OAUTH_LOGIN.name,
       description: 'OAuth',
     },
-    { value: KIMI_CODE_PLATFORM_ID, label: 'Kimi (OAuth)', description: 'OAuth' },
   ];
-  const seen = new Set<string>([KIMI_CODE_PLATFORM_ID, OPENAI_CODEX_OAUTH_LOGIN.id]);
+  const seen = new Set<string>([OPENAI_CODEX_OAUTH_LOGIN.id]);
 
   for (const featured of FEATURED_CATALOG_PROVIDERS) {
     const entry = catalog[featured.id];

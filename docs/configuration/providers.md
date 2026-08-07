@@ -34,10 +34,6 @@ Two paths when adding:
 - **Known third-party provider**: fetches the model catalog from [models.dev](https://models.dev/), validates the catalog-declared credential variable from the shell, then lets you select a default model. Set the variable before starting the TUI; the token is not written to `config.toml`.
 - **Custom registry (api.json)**: paste a custom registry URL and Bearer token; the CLI automatically creates the `providers` / `models` entries. On later startup, providers from the same registry URL are refreshed together, so upstream provider additions, removals, and model metadata changes are synced.
 
-::: warning
-Pythinker Code OAuth managed accounts logged in via `/login` do not appear in `/provider`. Use `/login` and `/logout` to manage them.
-:::
-
 The same operations are also available in non-interactive environments via the shell command: [`pythinker provider`](../reference/pythinker-command.md#pythinker-provider).
 
 ## Catalog-backed API and coding-plan providers
@@ -179,9 +175,9 @@ gcloud auth application-default login   # one-time authentication
 pythinker
 ```
 
-## OAuth and credential injection
+## OAuth
 
-The Pythinker Code managed service uses OAuth rather than static API keys. After running `/login`, the built-in authentication toolchain automatically writes and refreshes credentials — no manual configuration is needed in `config.toml` for this.
+OpenAI Codex is the one provider that authenticates with OAuth rather than a static API key. `/login` runs the browser flow and writes the resulting credentials into `config.toml` — no manual configuration is needed. Other providers use provider-specific credentials: most use an API key, while Vertex AI uses Google Cloud ADC.
 
 ## Next steps
 

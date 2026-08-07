@@ -1,7 +1,6 @@
 import type { Logger } from '#/logging/types';
 import type { ProviderConfig as KosongProviderConfig, ModelCapability, ProviderRequestAuth } from '@pythoughts/kosong';
 import {
-  APIStatusError,
   createProvider,
   getModelCapability,
   UNKNOWN_CAPABILITY,
@@ -13,20 +12,12 @@ import {
 import {
   resolveProviderApiKey,
   type ModelAlias,
-  type OAuthRef,
   type ProviderConfig,
   type PythinkerConfig,
 } from '../config';
-import { ErrorCodes, isPythinkerError, PythinkerError } from '../errors';
+import { ErrorCodes, PythinkerError } from '../errors';
 
-export interface BearerTokenProvider {
-  getAccessToken(options?: { readonly force?: boolean }): Promise<string>;
-}
 
-export type OAuthTokenProviderResolver = (
-  providerName: string,
-  oauthRef?: OAuthRef,
-) => BearerTokenProvider | undefined;
 
 export interface ResolvedRuntimeProvider {
   readonly providerName: string;
@@ -41,7 +32,6 @@ interface ProviderManagerOptions {
   readonly config: PythinkerConfig | (() => PythinkerConfig);
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly pythinkerRequestHeaders?: Record<string, string>;
-  readonly resolveOAuthTokenProvider?: OAuthTokenProviderResolver;
   readonly promptCacheKey?: string;
 }
 
@@ -154,88 +144,6 @@ export class ProviderManager implements ModelProvider {
     };
   }
 
-  resolveAuth(
-    model: string,
-    options?: { readonly log?: Logger },
-  ): AuthorizedRequest | undefined {
-    const configuredProviderName =
-      this.config.models?.[model]?.provider ?? this.config.defaultProvider;
-    const configuredProvider =
-      configuredProviderName === undefined
-        ? undefined
-        : this.config.providers[configuredProviderName];
-    if (
-      configuredProvider?.oauth !== undefined &&
-      ((configuredProvider.apiKey?.trim().length ?? 0) > 0 ||
-        configuredProvider.apiKeyEnvVar !== undefined)
-    ) {
-      // oauth + static credentials on the same provider makes request auth
-      // ambiguous: provider construction would prefer the static key while
-      // runtime auth resolves OAuth. Reject it before resolving either source.
-      throw new PythinkerError(
-        ErrorCodes.CONFIG_INVALID,
-        `Provider "${configuredProviderName}" has both static API key configuration and oauth set in config.toml — they are mutually exclusive. Remove one.`,
-      );
-    }
-
-    const { providerName } = this.resolveProviderConfig(model);
-    const providerConfig = this.config.providers[providerName];
-    if (providerConfig?.oauth === undefined) return undefined;
-
-    const loginRequired = (cause?: unknown): PythinkerError =>
-      new PythinkerError(
-        ErrorCodes.AUTH_LOGIN_REQUIRED,
-        `OAuth provider "${providerName}" requires login before it can be used.`,
-        cause === undefined ? undefined : { cause },
-      );
-
-    const tokenProvider = this.options.resolveOAuthTokenProvider?.(providerName, providerConfig.oauth);
-    if (tokenProvider === undefined) {
-      return async () => {
-        throw loginRequired();
-      };
-    }
-
-    const log = options?.log;
-    const fetchAuth = async (force: boolean): Promise<ProviderRequestAuth> => {
-      let apiKey: string;
-      try {
-        apiKey = await tokenProvider.getAccessToken(force ? { force: true } : undefined);
-      } catch (error) {
-        // login-required is an expected state (the user must /login); don't
-        // warn. Other failures (connection errors, etc.) are logged once for
-        // diagnosis and then propagated — chatWithRetry does not retry them.
-        if (!isPythinkerError(error) || error.code !== ErrorCodes.AUTH_LOGIN_REQUIRED) {
-          log?.warn('oauth token fetch failed', { providerName, error });
-        }
-        throw error;
-      }
-      if (apiKey.trim().length === 0) throw loginRequired();
-      return { apiKey };
-    };
-
-    return async (request) => {
-      let auth = await fetchAuth(false);
-      for (let refreshed = false; ; refreshed = true) {
-        try {
-          return await request(auth);
-        } catch (error) {
-          if (!(error instanceof APIStatusError) || error.statusCode !== 401) throw error;
-          if (refreshed) {
-            throw new PythinkerError(
-              ErrorCodes.AUTH_LOGIN_REQUIRED,
-              'OAuth provider credentials were rejected. Send /login to login.',
-              {
-                cause: error,
-                details: { statusCode: error.statusCode, requestId: error.requestId },
-              },
-            );
-          }
-          auth = await fetchAuth(true);
-        }
-      }
-    };
-  }
 }
 
 function resolveModelCapabilities(

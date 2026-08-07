@@ -17,7 +17,7 @@ import {
   CustomRegistryApiError,
   fetchCustomRegistry,
   type CustomRegistrySource,
-  type ManagedKimiConfigShape,
+  type PlatformConfigShape,
 } from '@pythoughts/pythinker-code-oauth';
 import {
   catalogConnectionWire,
@@ -517,8 +517,8 @@ function resolveApiKey(flag: string | undefined, env: NodeJS.ProcessEnv): string
   return undefined;
 }
 
-function asManaged(config: PythinkerConfig): ManagedKimiConfigShape {
-  return config as unknown as ManagedKimiConfigShape;
+function asManaged(config: PythinkerConfig): PlatformConfigShape {
+  return config as unknown as PlatformConfigShape;
 }
 
 function providerSourceLabel(provider: PythinkerConfig['providers'][string]): string {
@@ -531,7 +531,6 @@ function providerSourceLabel(provider: PythinkerConfig['providers'][string]): st
       return `modelsDev(${source['url']})`;
     }
   }
-  if (provider.oauth !== undefined) return 'oauth';
   return 'inline';
 }
 

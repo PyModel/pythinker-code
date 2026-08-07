@@ -17,7 +17,7 @@ import {
 import type { PythinkerHarness, Session } from '@pythoughts/pythinker-code-sdk';
 
 import { AcpServer } from '../src/server';
-import { AUTHED_STATUS, makeModelsMap } from './_helpers/harness-stubs';
+import { AUTHED, makeModelsMap } from './_helpers/harness-stubs';
 
 class StubClient implements Client {
   async requestPermission(_p: RequestPermissionRequest): Promise<RequestPermissionResponse> {
@@ -60,7 +60,7 @@ function makeHarness(sessionId: string, captured: CapturedCall[]): {
     onEvent: () => () => undefined,
   } as unknown as Session;
   const harness = {
-    auth: { status: async () => AUTHED_STATUS },
+    isAuthenticated: AUTHED,
     createSession: async (options: { id?: string; workDir: string }) => {
       captured.push({ options });
       return Object.assign({}, fakeSession, { id: options.id ?? sessionId }) as Session;
@@ -113,7 +113,7 @@ describe('AcpServer session/new', () => {
   it('returns a distinct sessionId per call (one createSession per request)', async () => {
     const captured: CapturedCall[] = [];
     const harness = {
-      auth: { status: async () => AUTHED_STATUS },
+      isAuthenticated: AUTHED,
       createSession: async (options: { id?: string; workDir: string }) => {
         captured.push({ options });
         return {

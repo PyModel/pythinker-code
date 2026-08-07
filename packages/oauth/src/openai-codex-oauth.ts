@@ -2,13 +2,13 @@ import { createHash, randomBytes } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 
 import { readApiErrorMessage } from './api-error';
-import type {
-  ManagedKimiCodeModelInfo,
-  ManagedKimiConfigShape,
-} from './managed-kimi-code';
-import { parseSupportsThinkingType } from './managed-kimi-code';
 import { renderOAuthErrorPage, renderOpenAICodexOAuthSuccessPage } from './oauth-pages';
-import { capabilitiesForModel } from './open-platform';
+import {
+  capabilitiesForModel,
+  parseSupportsThinkingType,
+  type PlatformConfigShape,
+  type PlatformModelInfo,
+} from './open-platform';
 import { isRecord } from './utils';
 
 export const OPENAI_CODEX_OAUTH_PLATFORM_ID = 'openai-codex-oauth';
@@ -450,7 +450,7 @@ function readCodexFastMode(item: Record<string, unknown>): boolean {
   });
 }
 
-function toCodexModelInfo(item: unknown): ManagedKimiCodeModelInfo | undefined {
+function toCodexModelInfo(item: unknown): PlatformModelInfo | undefined {
   if (!isRecord(item)) return undefined;
 
   const id =
@@ -514,7 +514,7 @@ function toCodexModelInfo(item: unknown): ManagedKimiCodeModelInfo | undefined {
   };
 }
 
-function parseCodexModelsPayload(payload: unknown): ManagedKimiCodeModelInfo[] {
+function parseCodexModelsPayload(payload: unknown): PlatformModelInfo[] {
   if (!isRecord(payload)) {
     throw new Error(`Unexpected models response for ${CODEX_BASE_URL}.`);
   }
@@ -530,7 +530,7 @@ function parseCodexModelsPayload(payload: unknown): ManagedKimiCodeModelInfo[] {
 
   return rawModels
     .map((item) => toCodexModelInfo(item))
-    .filter((item): item is ManagedKimiCodeModelInfo => item !== undefined);
+    .filter((item): item is PlatformModelInfo => item !== undefined);
 }
 
 /**
@@ -539,7 +539,7 @@ function parseCodexModelsPayload(payload: unknown): ManagedKimiCodeModelInfo[] {
  */
 export async function fetchOpenAICodexModels(
   options: FetchOpenAICodexModelsOptions,
-): Promise<ManagedKimiCodeModelInfo[]> {
+): Promise<PlatformModelInfo[]> {
   const fetchImpl = options.fetchImpl ?? fetch;
   const modelsUrl = `${CODEX_BASE_URL}/models?client_version=${encodeURIComponent(OPENAI_CODEX_CLI_CLIENT_VERSION)}`;
   const response = await fetchImpl(modelsUrl, {
@@ -573,13 +573,13 @@ export interface ApplyOpenAICodexOAuthResult {
  * reasoning effort into the config in place.
  */
 export function applyOpenAICodexOAuthConfig(
-  config: ManagedKimiConfigShape,
+  config: PlatformConfigShape,
   options: {
     readonly accessToken: string;
     readonly accountId?: string | undefined;
     readonly refreshToken?: string | undefined;
-    readonly models: readonly ManagedKimiCodeModelInfo[];
-    readonly selectedModel: ManagedKimiCodeModelInfo;
+    readonly models: readonly PlatformModelInfo[];
+    readonly selectedModel: PlatformModelInfo;
     readonly thinking?: boolean | undefined;
     /**
      * The effort level the user picked. Omitted, the model's top supported

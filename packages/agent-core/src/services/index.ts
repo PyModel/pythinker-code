@@ -105,8 +105,6 @@ export {
 } from './authSummary/authSummary';
 export { AuthSummaryService } from './authSummary/authSummaryService';
 
-export { IOAuthService } from './oauth/oauth';
-export { OAuthService } from './oauth/oauthService';
 
 export {
   IModelCatalogService,

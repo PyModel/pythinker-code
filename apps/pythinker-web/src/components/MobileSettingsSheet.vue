@@ -44,7 +44,6 @@ const emit = defineEmits<{
   setUiFontSize: [size: number];
   setBetaToc: [on: boolean];
   login: [];
-  logout: [];
 }>();
 
 // Tap-to-cycle order follows the same safest → most permissive progression
@@ -100,10 +99,6 @@ function onLogin(): void {
   emit('update:modelValue', false);
 }
 
-function onLogout(): void {
-  emit('logout');
-  emit('update:modelValue', false);
-}
 </script>
 
 <template>
@@ -250,15 +245,10 @@ function onLogout(): void {
       <span class="toggle" :class="{ on: betaToc }" role="switch" :aria-checked="betaToc" />
     </button>
 
-    <!-- Account: sign in / out -->
-    <button v-if="authReady" type="button" class="srow acct out" @click="onLogout">
+    <!-- Account: open provider management -->
+    <button type="button" class="srow acct in" @click="onLogin">
       <span class="srow-main">
-        <span class="srow-label">{{ t('sidebar.signOut') }}</span>
-      </span>
-    </button>
-    <button v-else type="button" class="srow acct in" @click="onLogin">
-      <span class="srow-main">
-        <span class="srow-label">{{ t('sidebar.signIn') }}</span>
+        <span class="srow-label">{{ t('providers.title') }}</span>
       </span>
     </button>
   </BottomSheet>

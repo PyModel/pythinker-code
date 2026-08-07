@@ -63,16 +63,6 @@ export async function runShell(
     homeDir: telemetryBootstrap.homeDir,
     identity: createPythinkerCodeHostIdentity(version),
     telemetry: telemetryClient,
-    onOAuthRefresh: (outcome) => {
-      if (outcome.success) {
-        track('oauth_refresh', { success: true });
-        return;
-      }
-      track('oauth_refresh', {
-        success: false,
-        reason: outcome.reason,
-      });
-    },
   });
   log.info('pythinker-code starting', {
     version,

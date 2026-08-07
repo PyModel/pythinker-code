@@ -22,7 +22,6 @@ import {
   resolveGlobalLogPath,
 } from '../../src/logging/logger';
 import { resolveLoggingConfig } from '../../src/logging/resolve-config';
-import type { OAuthTokenProviderResolver } from '../../src/session/provider-manager';
 import { testKaos } from '../fixtures/test-kaos';
 
 function requiredFlagEnv(id: string): string {
@@ -640,69 +639,6 @@ lsp = true
     });
   });
 
-  it('uses the shared OAuth resolver for Pythoughts service tokens', async () => {
-    tmp = await mkdtemp(join(tmpdir(), 'pythinker-core-runtime-'));
-    const homeDir = join(tmp, 'home');
-    const workDir = join(tmp, 'work');
-    await mkdir(homeDir, { recursive: true });
-    await mkdir(workDir, { recursive: true });
-    await writeFile(
-      join(homeDir, 'config.toml'),
-      `
-[services.pythoughts_search]
-base_url = "https://search.example/v1"
-oauth = { storage = "file", key = "oauth/custom-pythinker-code" }
-custom_headers = { "X-Test" = "1" }
-`,
-    );
-
-    const getAccessToken = vi.fn().mockResolvedValue('service-token');
-    const resolveOAuthTokenProvider = vi.fn<OAuthTokenProviderResolver>(() => ({
-      getAccessToken,
-    }));
-    const fetchImpl = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ search_results: [] }), {
-        status: 200,
-      }),
-    );
-    vi.stubGlobal('fetch', fetchImpl);
-
-    const [coreRpc, sdkRpc] = createRPC<CoreAPI, SDKAPI>();
-    const core = new PythinkerCore(coreRpc, {
-      homeDir,
-      pythinkerRequestHeaders: {
-        'User-Agent': 'pythinker-code-cli/0.0.0-test',
-        'X-Msh-Version': '0.0.0-test',
-      },
-      resolveOAuthTokenProvider,
-    });
-    const rpc = await sdkRpc({
-      emitEvent: vi.fn(),
-      requestApproval: vi.fn(async (): Promise<ApprovalResponse> => ({ decision: 'rejected' })),
-      requestQuestion: vi.fn(async () => null),
-      toolCall: vi.fn(async () => ({ output: '' })),
-    });
-
-    const created = await rpc.createSession({ id: 'ses_runtime_service_oauth', workDir });
-    const session = core.sessions.get(created.id);
-
-    expect(resolveOAuthTokenProvider).toHaveBeenCalledWith('managed:kimi-code', {
-      storage: 'file',
-      key: 'oauth/custom-pythinker-code',
-    });
-    expect(session?.options.toolServices?.webSearcher).toBeDefined();
-
-    await session!.options.toolServices?.webSearcher!.search('pythinker');
-
-    expect(getAccessToken).toHaveBeenCalledWith();
-    const init = fetchImpl.mock.calls[0]?.[1] as RequestInit;
-    expect(init.headers).toMatchObject({
-      Authorization: 'Bearer service-token',
-      'User-Agent': 'pythinker-code-cli/0.0.0-test',
-      'X-Msh-Version': '0.0.0-test',
-      'X-Test': '1',
-    });
-  });
 
   it('falls back to defaultModel when createSession receives no model option', async () => {
     tmp = await mkdtemp(join(tmpdir(), 'pythinker-core-runtime-'));

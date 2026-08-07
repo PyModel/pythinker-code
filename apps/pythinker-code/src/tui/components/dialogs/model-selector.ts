@@ -13,7 +13,6 @@ import {
   type Focusable,
 } from '@earendil-works/pi-tui';
 
-import { DEFAULT_OAUTH_PROVIDER_NAME } from '#/constant/app';
 import { CURRENT_MARK, SELECT_POINTER } from '#/tui/constant/symbols';
 import {
   defaultKeybindings,
@@ -58,7 +57,6 @@ export function modelDisplayName(alias: string, model: ModelAlias | undefined): 
 }
 
 export function providerDisplayName(provider: string): string {
-  if (provider === DEFAULT_OAUTH_PROVIDER_NAME) return 'Kimi';
   if (provider.startsWith('managed:')) return provider.slice('managed:'.length);
   return provider;
 }

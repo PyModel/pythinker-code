@@ -110,30 +110,6 @@ describe('resolveRuntimeProvider model metadata', () => {
     });
   });
 
-  it('uses config Pythinker capabilities without requiring an api key during OAuth setup', () => {
-    const resolved = resolveRuntimeProvider({
-      config: {
-        ...BASE_CONFIG,
-        providers: {
-          'managed:kimi-code': {
-            type: 'pythinker',
-            apiKey: '',
-            baseUrl: 'https://api.example/v1',
-            oauth: { storage: 'file', key: 'oauth/kimi-code' },
-          },
-        },
-      },
-    });
-
-    expect(resolved.modelCapabilities).toMatchObject({
-      image_in: true,
-      video_in: true,
-      thinking: true,
-      tool_use: true,
-      max_context_tokens: 1_000_000,
-    });
-  });
-
   it('does not infer Pythinker capabilities from the provider model name', () => {
     const resolved = resolveRuntimeProvider({
       config: {
@@ -851,75 +827,6 @@ describe('ProviderManager prompt cache key', () => {
   });
 });
 
-describe('ProviderManager OAuth auth', () => {
-  function oauthConfig(): PythinkerConfig {
-    return {
-      ...BASE_CONFIG,
-      providers: {
-        'managed:kimi-code': {
-          type: 'pythinker',
-          apiKey: '',
-          baseUrl: 'https://api.example/v1',
-          oauth: { storage: 'file', key: 'oauth/kimi-code' },
-        },
-      },
-    };
-  }
-
-  it.each([undefined, '', 'runtime-key'])(
-    'rejects an API key environment reference with OAuth when its value is %#',
-    (value) => {
-      const config = oauthConfig();
-      config.providers['managed:kimi-code'] = {
-        ...config.providers['managed:kimi-code']!,
-        apiKeyEnvVar: 'OAUTH_CONFLICT_KEY',
-      };
-      const manager = new ProviderManager({
-        config,
-        env: { OAUTH_CONFLICT_KEY: value },
-      });
-
-      expect(() => manager.resolveAuth('pythinker-code/pythinker-for-coding')).toThrow(
-        'has both static API key configuration and oauth set in config.toml',
-      );
-    },
-  );
-
-  it('preserves non-Pythinker token fetch failures instead of guessing their category', async () => {
-    const tokenError = new Error('token storage permission denied');
-    const manager = new ProviderManager({
-      config: oauthConfig(),
-      resolveOAuthTokenProvider: () => ({
-        async getAccessToken() {
-          throw tokenError;
-        },
-      }),
-    });
-
-    const resolveAuth = manager.resolveAuth('pythinker-code/pythinker-for-coding');
-    expect(resolveAuth).toBeDefined();
-
-    await expect(resolveAuth!(async () => 'ok')).rejects.toBe(tokenError);
-  });
-
-  it('keeps explicit login-required token failures as login-required errors', async () => {
-    const manager = new ProviderManager({
-      config: oauthConfig(),
-      resolveOAuthTokenProvider: () => ({
-        async getAccessToken() {
-          throw new PythinkerError(ErrorCodes.AUTH_LOGIN_REQUIRED, 'not logged in');
-        },
-      }),
-    });
-
-    const resolveAuth = manager.resolveAuth('pythinker-code/pythinker-for-coding');
-    expect(resolveAuth).toBeDefined();
-
-    await expect(resolveAuth!(async () => 'ok')).rejects.toMatchObject({
-      code: ErrorCodes.AUTH_LOGIN_REQUIRED,
-    });
-  });
-});
 
 describe('resolveThinkingLevel', () => {
   it('normalizes requested thinking into a concrete effort', () => {

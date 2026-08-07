@@ -242,13 +242,6 @@ describe('CoreProcessService direct construction', () => {
     await expect(core.rpc.getCoreInfo({})).rejects.toThrow(/disposed/);
   });
 
-  it('default-wires a resolveOAuthTokenProvider when caller omits one', () => {
-    const resolver = CoreProcessService._defaultOAuthTokenResolver(tmpHome, join(tmpHome, 'config.toml'));
-    expect(typeof resolver).toBe('function');
-    const tokenProvider = resolver('managed:kimi-code');
-    expect(tokenProvider).toBeDefined();
-    expect(typeof tokenProvider?.getAccessToken).toBe('function');
-  });
 
   it('default-wires pythinkerRequestHeaders from identity when caller omits headers', () => {
     const headers = CoreProcessService._defaultPythinkerRequestHeaders(

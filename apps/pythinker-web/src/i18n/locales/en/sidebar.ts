@@ -17,7 +17,6 @@ export default {
   removeWorkspace: 'Remove workspace',
   brand: 'Pythinker Code',
   signedIn: 'Signed in',
-  signOut: 'Sign out',
   notSignedIn: 'Not signed in',
   signIn: 'Sign in',
   language: 'Language',

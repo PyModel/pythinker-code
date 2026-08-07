@@ -16,7 +16,7 @@ import {
 import { PythinkerError, ErrorCodes, type Event, type PythinkerHarness, type Session } from '@pythoughts/pythinker-code-sdk';
 
 import { AcpServer } from '../src/server';
-import { AUTHED_STATUS, UNAUTHED_STATUS, makeModelsMap } from './_helpers/harness-stubs';
+import { AUTHED, UNAUTHED, makeModelsMap } from './_helpers/harness-stubs';
 
 /**
  * Tests for the ACP `session/resume` handler (gap-4.3). Mirrors the
@@ -104,9 +104,7 @@ function makeHarness(opts: {
 }): PythinkerHarness {
   const authed = opts.hasUsableToken ?? true;
   return {
-    auth: {
-      status: async () => (authed ? AUTHED_STATUS : UNAUTHED_STATUS),
-    },
+    isAuthenticated: authed ? AUTHED : UNAUTHED,
     resumeSession: async (_input: { id: string }) => {
       if (opts.resumeError) throw opts.resumeError;
       if (!opts.session) throw new Error('test harness has no session configured');

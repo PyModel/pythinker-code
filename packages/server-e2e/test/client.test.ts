@@ -441,7 +441,6 @@ describe('DaemonClient session action helpers', () => {
             ready: true,
             providers_count: 1,
             default_model: model.model,
-            managed_provider: null,
           }),
           okEnvelope({ items: [model] }),
           okEnvelope({ default_model: model.model, model }),

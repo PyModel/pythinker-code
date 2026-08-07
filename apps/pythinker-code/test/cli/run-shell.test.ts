@@ -111,7 +111,6 @@ vi.mock('@pythoughts/pythinker-code-oauth', async () => {
   return {
     ...actual,
     createPythinkerDeviceId: mocks.createPythinkerDeviceId,
-    KIMI_CODE_PROVIDER_NAME: 'pythinker-code',
   };
 });
 
@@ -234,7 +233,6 @@ describe('runShell', () => {
       version: '1.2.3-test',
       uiMode: 'shell',
       model: 'k2',
-      getAccessToken: expect.any(Function),
     });
     expect(mocks.setCrashPhase).toHaveBeenCalledWith('runtime');
 
@@ -436,50 +434,6 @@ describe('runShell', () => {
     });
   });
 
-  it('bridges OAuth refresh outcomes to telemetry', async () => {
-    mocks.loadTuiConfig.mockResolvedValue(tuiConfig());
-    mocks.tuiStart.mockResolvedValue(undefined);
-
-    await runShell(
-      {
-        session: undefined,
-        continue: false,
-        rewindFiles: undefined,
-        yolo: false,
-        auto: false,
-        plan: false,
-        model: undefined,
-        outputFormat: undefined,
-        prompt: undefined,
-        skillsDirs: [],
-      },
-      '1.2.3-test',
-    );
-
-    const [harnessOptions] = mocks.pythinkerHarnessConstructor.mock.calls[0] as [
-      {
-        readonly onOAuthRefresh: (
-          outcome:
-            | { readonly success: true }
-            | { readonly success: false; readonly reason: 'unauthorized' | 'network_or_other' },
-        ) => void;
-      },
-    ];
-
-    harnessOptions.onOAuthRefresh({ success: true });
-    harnessOptions.onOAuthRefresh({ success: false, reason: 'unauthorized' });
-    harnessOptions.onOAuthRefresh({ success: false, reason: 'network_or_other' });
-
-    expect(mocks.telemetryTrack).toHaveBeenCalledWith('oauth_refresh', { success: true });
-    expect(mocks.telemetryTrack).toHaveBeenCalledWith('oauth_refresh', {
-      success: false,
-      reason: 'unauthorized',
-    });
-    expect(mocks.telemetryTrack).toHaveBeenCalledWith('oauth_refresh', {
-      success: false,
-      reason: 'network_or_other',
-    });
-  });
 
   it('detects auto theme and forwards config parse warnings as startup notice', async () => {
     const fallbackTuiConfig = tuiConfig({

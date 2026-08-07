@@ -1,4 +1,3 @@
-import { KIMI_CODE_PROVIDER_NAME } from '@pythoughts/pythinker-code-oauth';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
@@ -29,7 +28,6 @@ import {
   resolvePythinkerHome,
   writeConfigFile,
   type PythinkerConfig,
-  type McpServerConfig,
   type PythoughtsServiceConfig,
 } from '../config';
 import { FLAG_DEFINITIONS, FlagResolver, type ExperimentalFeatureState } from '../flags';
@@ -49,8 +47,6 @@ import { Session, type SessionMeta, type SessionSkillConfig } from '../session';
 import { exportSessionDirectory } from '../session/export';
 import {
   ProviderManager,
-  type BearerTokenProvider,
-  type OAuthTokenProviderResolver,
 } from '../session/provider-manager';
 import { SessionAPIImpl } from '../session/rpc';
 import { normalizeWorkDir, SessionStore } from '../session/store/index';
@@ -135,9 +131,6 @@ import type { ResumedAgentState, ResumeSessionResult } from './resumed';
 import type { SDKRPC } from './sdk-api';
 import { proxyWithExtraPayload } from './types';
 
-const PYTHINKER_CODE_BASE_URL_ENV = 'PYTHINKER_CODE_BASE_URL';
-const PYTHINKER_CODE_OAUTH_HOST_ENV = 'PYTHINKER_CODE_OAUTH_HOST';
-const PYTHINKER_OAUTH_HOST_ENV = 'PYTHINKER_OAUTH_HOST';
 type AgentScopedPayload<T> = T & { readonly agentId: string };
 type SessionScopedPayload<T> = T & { readonly sessionId: string };
 type SessionAgentPayload<T> = SessionScopedPayload<AgentScopedPayload<T>>;
@@ -149,7 +142,6 @@ export interface PythinkerCoreOptions {
   readonly configPath?: string | undefined;
   readonly runtime?: ToolServices | undefined;
   readonly pythinkerRequestHeaders?: Record<string, string> | undefined;
-  readonly resolveOAuthTokenProvider?: OAuthTokenProviderResolver | undefined;
   readonly resolveWorkspaceId?: (workDir: string) => Promise<string | undefined>;
   readonly skillDirs?: readonly string[];
   readonly telemetry?: TelemetryClient | undefined;
@@ -170,7 +162,6 @@ export class PythinkerCore implements PromisableMethods<CoreAPI> {
   private readonly runtimeOverride: ToolServices | undefined;
   private readonly userHomeDir: string;
   private readonly pythinkerRequestHeaders: Record<string, string> | undefined;
-  private readonly resolveOAuthTokenProvider: OAuthTokenProviderResolver | undefined;
   private readonly skillDirs: readonly string[];
   private readonly sessionStore: SessionStore;
   readonly plugins: PluginManager;
@@ -195,7 +186,6 @@ export class PythinkerCore implements PromisableMethods<CoreAPI> {
     this.runtimeOverride = options.runtime;
     this.runtime = options.runtime;
     this.pythinkerRequestHeaders = options.pythinkerRequestHeaders;
-    this.resolveOAuthTokenProvider = options.resolveOAuthTokenProvider;
     this.skillDirs = options.skillDirs ?? [];
     this.telemetry = options.telemetry ?? noopTelemetryClient;
     this.appVersion = options.appVersion;
@@ -1021,7 +1011,6 @@ export class PythinkerCore implements PromisableMethods<CoreAPI> {
     const providers = await createRuntimeConfig({
       config,
       pythinkerRequestHeaders: this.pythinkerRequestHeaders,
-      resolveOAuthTokenProvider: this.resolveOAuthTokenProvider,
     });
     const runtime = this.withConfigStore(providers);
     this.runtime = runtime;
@@ -1125,13 +1114,12 @@ export class PythinkerCore implements PromisableMethods<CoreAPI> {
     return new ProviderManager({
       config: () => this.config,
       pythinkerRequestHeaders: this.pythinkerRequestHeaders,
-      resolveOAuthTokenProvider: this.resolveOAuthTokenProvider,
       promptCacheKey: sessionId,
     });
   }
 
   private mergePluginMcpConfig(base: SessionMcpConfig | undefined): SessionMcpConfig | undefined {
-    const pluginServers = this.withManagedKimiPluginEnv(this.plugins.enabledMcpServers());
+    const pluginServers = this.plugins.enabledMcpServers();
     if (Object.keys(pluginServers).length === 0) return base;
     return {
       servers: {
@@ -1141,35 +1129,6 @@ export class PythinkerCore implements PromisableMethods<CoreAPI> {
     };
   }
 
-  private withManagedKimiPluginEnv(
-    pluginServers: Record<string, McpServerConfig>,
-  ): Record<string, McpServerConfig> {
-    const managedEnv = this.managedPythinkerCodeEnvForPlugins();
-    if (Object.keys(managedEnv).length === 0) return pluginServers;
-
-    const out: Record<string, McpServerConfig> = {};
-    for (const [name, server] of Object.entries(pluginServers)) {
-      out[name] =
-        server.transport === 'stdio'
-          ? { ...server, env: { ...server.env, ...managedEnv } }
-          : server;
-    }
-    return out;
-  }
-
-  private managedPythinkerCodeEnvForPlugins(): Record<string, string> {
-    const provider = this.config.providers[KIMI_CODE_PROVIDER_NAME];
-    const envBaseUrl = process.env[PYTHINKER_CODE_BASE_URL_ENV];
-    const envOAuthHost =
-      process.env[PYTHINKER_CODE_OAUTH_HOST_ENV] ?? process.env[PYTHINKER_OAUTH_HOST_ENV];
-    const hasEnvOverride = envBaseUrl !== undefined || envOAuthHost !== undefined;
-    const baseUrl = envBaseUrl !== undefined ? envBaseUrl.replace(/\/+$/, '') : provider?.baseUrl;
-    const oauthHost = hasEnvOverride ? envOAuthHost : provider?.oauth?.oauthHost;
-    const env: Record<string, string> = {};
-    if (baseUrl !== undefined) env[PYTHINKER_CODE_BASE_URL_ENV] = baseUrl;
-    if (oauthHost !== undefined) env[PYTHINKER_CODE_OAUTH_HOST_ENV] = oauthHost;
-    return env;
-  }
 
   private sessionApi(sessionId: string): SessionAPIImpl {
     const session = this.sessions.get(sessionId);
@@ -1322,7 +1281,6 @@ async function readConfigContents(path: string): Promise<string | undefined> {
 async function createRuntimeConfig(input: {
   readonly config: PythinkerConfig;
   readonly pythinkerRequestHeaders?: Record<string, string> | undefined;
-  readonly resolveOAuthTokenProvider?: OAuthTokenProviderResolver | undefined;
 }): Promise<ToolServices> {
   const localFetcher = new LocalFetchURLProvider();
   const searchService = input.config.services?.pythoughtsSearch;
@@ -1336,7 +1294,7 @@ async function createRuntimeConfig(input: {
             baseUrl: fetchService.baseUrl,
             localFallback: localFetcher,
             defaultHeaders: input.pythinkerRequestHeaders,
-            ...serviceCredentials(fetchService, input.resolveOAuthTokenProvider),
+            ...serviceCredentials(fetchService),
           }),
     webSearcher:
       searchService?.baseUrl === undefined
@@ -1344,26 +1302,17 @@ async function createRuntimeConfig(input: {
         : new PythoughtsWebSearchProvider({
             baseUrl: searchService.baseUrl,
             defaultHeaders: input.pythinkerRequestHeaders,
-            ...serviceCredentials(searchService, input.resolveOAuthTokenProvider),
+            ...serviceCredentials(searchService),
           }),
   };
 }
 
-function serviceCredentials(
-  service: PythoughtsServiceConfig,
-  resolveOAuthTokenProvider: OAuthTokenProviderResolver | undefined,
-): {
+function serviceCredentials(service: PythoughtsServiceConfig): {
   readonly apiKey?: string | undefined;
-  readonly tokenProvider?: BearerTokenProvider | undefined;
   readonly customHeaders?: Record<string, string> | undefined;
 } {
-  const apiKey = nonEmptyString(service.apiKey);
   return {
-    apiKey,
-    tokenProvider:
-      service.oauth !== undefined
-        ? resolveOAuthTokenProvider?.(KIMI_CODE_PROVIDER_NAME, service.oauth)
-        : undefined,
+    apiKey: nonEmptyString(service.apiKey),
     customHeaders: service.customHeaders,
   };
 }

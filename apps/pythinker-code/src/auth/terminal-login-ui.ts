@@ -15,8 +15,7 @@
 
 import { isCancel, log, password, select, spinner, text } from '@clack/prompts';
 import {
-  type DeviceAuthorization,
-  type ManagedKimiCodeModelInfo,
+  type PlatformModelInfo,
   type OpenPlatformDefinition,
 } from '@pythoughts/pythinker-code-oauth';
 import {
@@ -93,20 +92,6 @@ export function createTerminalLoginUi(
     };
   }
 
-  function showLoginAuthorizationPrompt(auth: DeviceAuthorization): LoginProgressSpinnerHandle {
-    const url = auth.verificationUriComplete || auth.verificationUri;
-    // Print the manual fallback before attempting to open the user's browser
-    // so headless/browser-opener failures never hide the URL and code needed
-    // to complete login.
-    log.info(`Go to: ${url}`);
-    log.info(`Enter code: ${auth.userCode}`);
-    try {
-      openUrl(url);
-    } catch {
-      // Best effort only: the manual fallback has already been printed.
-    }
-    return showLoginProgressSpinner('Waiting for authorization…');
-  }
 
   async function promptPlatformSelection(): Promise<PlatformSelection | undefined> {
     let catalog = loadBuiltInCatalog(BUILT_IN_CATALOG_JSON) ?? {};
@@ -214,9 +199,9 @@ export function createTerminalLoginUi(
   }
 
   async function promptModelSelectionForOpenPlatform(
-    models: readonly ManagedKimiCodeModelInfo[],
+    models: readonly PlatformModelInfo[],
     platform: OpenPlatformDefinition,
-  ): Promise<{ model: ManagedKimiCodeModelInfo; effort: string } | undefined> {
+  ): Promise<{ model: PlatformModelInfo; effort: string } | undefined> {
     const modelDict: Record<string, ModelAlias> = {};
     for (const m of models) {
       modelDict[`${platform.id}/${m.id}`] = managedModelToAlias(platform.id, m);
@@ -257,7 +242,6 @@ export function createTerminalLoginUi(
       log.error(message);
     },
     showLoginProgressSpinner,
-    showLoginAuthorizationPrompt,
     promptPlatformSelection,
     promptApiKey,
     promptModelSelectionForOpenPlatform,

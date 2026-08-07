@@ -79,41 +79,6 @@ describe('chatWithRetry: terminated stream drops', () => {
     });
     expect(calls).toBe(1);
   });
-
-  it('does not retry OAuth token fetch connection errors (already retried internally)', async () => {
-    let tokenCalls = 0;
-    const manager = new ProviderManager({
-      config: oauthConfig(),
-      resolveOAuthTokenProvider: () => ({
-        async getAccessToken() {
-          tokenCalls += 1;
-          throw new PythinkerError(
-            ErrorCodes.PROVIDER_CONNECTION_ERROR,
-            'OAuth provider "managed:kimi-code" failed to fetch an access token: fetch failed',
-          );
-        },
-      }),
-    });
-    const resolveAuth = manager.resolveAuth('pythinker-code/pythinker-for-coding');
-    if (resolveAuth === undefined) throw new Error('expected OAuth auth resolver');
-
-    let chatCalls = 0;
-    const llm: LLM = {
-      systemPrompt: '',
-      modelName: 'mock',
-      isRetryableError: (e) => isRetryableGenerateError(e),
-      async chat(_params: LLMChatParams): Promise<LLMChatResponse> {
-        chatCalls += 1;
-        return resolveAuth(async () => okResponse());
-      },
-    };
-
-    await expect(chatWithRetry(makeInput(llm, new AbortController().signal))).rejects.toMatchObject({
-      code: ErrorCodes.PROVIDER_CONNECTION_ERROR,
-    });
-    expect(chatCalls).toBe(1);
-    expect(tokenCalls).toBe(1);
-  });
 });
 
 describe('chatWithRetry: quota-exhausted 429 fails fast', () => {
@@ -142,24 +107,3 @@ describe('chatWithRetry: quota-exhausted 429 fails fast', () => {
     expect(calls).toBe(1);
   });
 });
-
-function oauthConfig(): PythinkerConfig {
-  return {
-    defaultModel: 'pythinker-code/pythinker-for-coding',
-    providers: {
-      'managed:kimi-code': {
-        type: 'pythinker',
-        apiKey: '',
-        baseUrl: 'https://api.example/v1',
-        oauth: { storage: 'file', key: 'oauth/kimi-code' },
-      },
-    },
-    models: {
-      'pythinker-code/pythinker-for-coding': {
-        provider: 'managed:kimi-code',
-        model: 'pythinker-for-coding',
-        maxContextSize: 1_000_000,
-      },
-    },
-  };
-}

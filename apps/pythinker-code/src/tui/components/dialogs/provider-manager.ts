@@ -44,7 +44,6 @@ import {
   type Focusable,
 } from '@earendil-works/pi-tui';
 
-import { DEFAULT_OAUTH_PROVIDER_NAME } from '#/constant/app';
 import { combinedBindingHint, formatBindingKeys } from '#/tui/components/dialogs/choice-picker';
 import { CURRENT_MARK, SELECT_POINTER } from '#/tui/constant/symbols';
 import {
@@ -150,8 +149,6 @@ function buildRows(opts: ProviderManagerOptions): readonly Row[] {
   const customRegistryIndex = new Map<string, number>();
 
   for (const [id, cfg] of Object.entries(opts.providers)) {
-    if (id === DEFAULT_OAUTH_PROVIDER_NAME) continue;
-
     const isActive = id === opts.activeProviderId;
 
     if (isOpenPlatformId(id)) {

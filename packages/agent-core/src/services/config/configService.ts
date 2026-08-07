@@ -78,9 +78,7 @@ function toConfigResponse(config: PythinkerConfig): ConfigResponse {
 }
 
 function hasProviderCredential(provider: ProviderConfig): boolean {
-  if (resolveProviderApiKey(provider) !== undefined) return true;
-  if (provider.oauth !== undefined) return true;
-  return false;
+  return resolveProviderApiKey(provider) !== undefined;
 }
 
 function convertKeysSnakeToCamel(obj: unknown): unknown {

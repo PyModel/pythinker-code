@@ -10,7 +10,6 @@
 
 import { Command } from 'commander';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { DeviceAuthorization } from '@pythoughts/pythinker-code-oauth';
 
 import { password, select, text } from '@clack/prompts';
 import {
@@ -201,119 +200,33 @@ describe('pythinker login', () => {
     expect(login?.options.some((option) => option.attributeName() === 'provider')).toBe(true);
   });
 
-  it('shows the provider picker and exits 0 after a successful OAuth login', async () => {
-    vi.mocked(select).mockResolvedValueOnce('kimi-code');
-    mockStatus.mockResolvedValue({ providers: [] });
-    mockLogin.mockResolvedValue({ providerName: 'managed:kimi-code', ok: true });
 
-    await runLogin(['login']);
 
-    expect(select).toHaveBeenCalledWith(
-      expect.objectContaining({ message: 'Select a provider' }),
-    );
-    expect(mockLogin).toHaveBeenCalledTimes(1);
-    expect(mockLogin).toHaveBeenCalledWith(
-      'managed:kimi-code',
-      expect.objectContaining({
-        signal: expect.any(AbortSignal),
-        onDeviceCode: expect.any(Function),
-      }),
-    );
-    expect(exitSpy.mock.calls[0]?.[0]).toBe(0);
-  });
 
-  it('prints the device code and verification URL to stderr', async () => {
-    vi.mocked(select).mockResolvedValueOnce('kimi-code');
-    mockStatus.mockResolvedValue({ providers: [] });
-    mockLogin.mockImplementation(
-      async (
-        _providerName: string,
-        options: { onDeviceCode?: (data: DeviceAuthorization) => void | Promise<void> },
-      ) => {
-        await options.onDeviceCode?.({
-          userCode: 'ABCD-EFGH',
-          deviceCode: 'device-code',
-          verificationUri: 'https://example.com/v',
-          verificationUriComplete: 'https://example.com/v?code=ABCD-EFGH',
-          expiresIn: 600,
-          interval: 5,
-        });
-        return { providerName: 'managed:kimi-code', ok: true };
-      },
-    );
 
-    await runLogin(['login']);
-
-    const chunks = writtenChunks();
-    expect(chunks.some((chunk: string) => chunk.includes('ABCD-EFGH'))).toBe(true);
-    expect(chunks.some((chunk: string) => chunk.includes('https://example.com/v'))).toBe(true);
-    expect(openUrl).toHaveBeenCalledWith('https://example.com/v?code=ABCD-EFGH');
-    expect(exitSpy.mock.calls[0]?.[0]).toBe(0);
-  });
-
-  it('still prints the device code when opening the browser fails', async () => {
-    vi.mocked(openUrl).mockImplementation(() => {
-      throw new Error('no browser');
-    });
-    vi.mocked(select).mockResolvedValueOnce('kimi-code');
-    mockStatus.mockResolvedValue({ providers: [] });
-    mockLogin.mockImplementation(
-      async (
-        _providerName: string,
-        options: { onDeviceCode?: (data: DeviceAuthorization) => void | Promise<void> },
-      ) => {
-        await options.onDeviceCode?.({
-          userCode: 'ABCD-EFGH',
-          deviceCode: 'device-code',
-          verificationUri: 'https://example.com/v',
-          verificationUriComplete: 'https://example.com/v?code=ABCD-EFGH',
-          expiresIn: 600,
-          interval: 5,
-        });
-        return { providerName: 'managed:kimi-code', ok: true };
-      },
-    );
-
-    await runLogin(['login']);
-
-    const chunks = writtenChunks();
-    expect(chunks.some((chunk: string) => chunk.includes('ABCD-EFGH'))).toBe(true);
-    expect(chunks.some((chunk: string) => chunk.includes('https://example.com/v'))).toBe(true);
-    expect(openUrl).toHaveBeenCalledWith('https://example.com/v?code=ABCD-EFGH');
-    expect(exitSpy.mock.calls[0]?.[0]).toBe(0);
-  });
-
-  it('exits 1 when auth.login throws', async () => {
-    vi.mocked(select).mockResolvedValueOnce('kimi-code');
-    mockStatus.mockResolvedValue({ providers: [] });
-    mockLogin.mockRejectedValue(new Error('boom'));
-
-    await runLogin(['login']);
-
-    const chunks = writtenChunks();
-    expect(chunks.some((chunk: string) => chunk.includes('boom'))).toBe(true);
-    expect(exitSpy.mock.calls[0]?.[0]).toBe(1);
-  });
-
-  it('--provider <id> skips the picker entirely and logs in directly', async () => {
-    mockStatus.mockResolvedValue({ providers: [] });
-    mockLogin.mockResolvedValue({ providerName: 'managed:kimi-code', ok: true });
-
-    await runLogin(['login', '--provider', 'kimi-code']);
-
-    expect(select).not.toHaveBeenCalled();
-    expect(mockLogin).toHaveBeenCalledTimes(1);
-    expect(exitSpy.mock.calls[0]?.[0]).toBe(0);
-  });
 
   it('--provider matches a display name case-insensitively', async () => {
     mockStatus.mockResolvedValue({ providers: [] });
-    mockLogin.mockResolvedValue({ providerName: 'managed:kimi-code', ok: true });
+    mockGetConfig.mockResolvedValue({ providers: {}, models: {} });
+    vi.mocked(fetchCatalog).mockResolvedValueOnce(catalogWithDeepSeek());
+    vi.mocked(password).mockResolvedValue('sk-test-key');
+    vi.mocked(select)
+      .mockResolvedValueOnce('deepseek/deepseek-chat')
+      .mockResolvedValueOnce('off');
 
-    await runLogin(['login', '-p', 'kimi (oauth)']);
+    await runLogin(['login', '-p', 'deepseek api']);
 
-    expect(select).not.toHaveBeenCalled();
-    expect(mockLogin).toHaveBeenCalledTimes(1);
+    // Positive first: the label resolved to a real platform and the flow ran
+    // all the way to persisting it. Without this the negative assertion below
+    // would also hold for a login that never started.
+    expect(mockSetConfig).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providers: expect.objectContaining({ deepseek: expect.anything() }),
+      }),
+    );
+    expect(select).not.toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'Select a provider' }),
+    );
     expect(exitSpy.mock.calls[0]?.[0]).toBe(0);
   });
 
@@ -378,16 +291,6 @@ describe('pythinker login', () => {
     expect(exitSpy.mock.calls[0]?.[0]).toBe(0);
   });
 
-  it('--provider with an unknown value exits non-zero, names the input, and never runs the picker', async () => {
-    await runLogin(['login', '--provider', 'nope']);
-
-    expect(select).not.toHaveBeenCalled();
-    const chunks = writtenChunks();
-    expect(chunks.some((chunk: string) => chunk.includes('Unknown provider "nope"'))).toBe(true);
-    // The valid ids follow, so the user can retry with a real value.
-    expect(chunks.some((chunk: string) => chunk.includes('kimi-code'))).toBe(true);
-    expect(exitSpy.mock.calls[0]?.[0]).toBe(1);
-  });
 
   it('refuses to prompt when stdin is not a TTY and exits non-zero', async () => {
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: false });

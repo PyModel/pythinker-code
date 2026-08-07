@@ -12,7 +12,6 @@ import { registerFsRoutes } from './fs';
 import { registerMessagesRoutes } from './messages';
 import { registerMetaRoute } from './meta';
 import { registerModelCatalogRoutes } from './modelCatalog';
-import { registerOAuthRoutes } from './oauth';
 import { registerPromptsRoutes } from './prompts';
 import { registerQuestionsRoutes } from './questions';
 import { registerSessionsRoutes } from './sessions';
@@ -70,7 +69,6 @@ export async function registerApiV1Routes(
       apiV1 as unknown as Parameters<typeof registerConnectionsRoutes>[0],
       ix,
     );
-    registerOAuthRoutes(apiV1 as unknown as Parameters<typeof registerOAuthRoutes>[0], ix);
     registerModelCatalogRoutes(
       apiV1 as unknown as Parameters<typeof registerModelCatalogRoutes>[0],
       ix,

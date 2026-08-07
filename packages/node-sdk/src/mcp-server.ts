@@ -23,7 +23,6 @@ export async function runPythinkerMcpServer(
     configPath: options.configPath,
     skillDirs: options.skillDirs,
     telemetry: options.telemetry,
-    onOAuthRefresh: options.onOAuthRefresh,
   });
   const summary = await rpc.createSession({
     workDir: options.workDir,

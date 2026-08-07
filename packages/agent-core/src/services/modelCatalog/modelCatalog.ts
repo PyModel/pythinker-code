@@ -3,7 +3,6 @@ import type { PythinkerConfig, ModelAlias, ProviderConfig } from '../../config';
 import type {
   ModelCatalogItem,
   ProviderCatalogItem,
-  RefreshOAuthProviderModelsResponse,
   SetDefaultModelResponse,
 } from '@pythoughts/protocol';
 
@@ -14,7 +13,6 @@ export interface IModelCatalogService {
   listProviders(): Promise<readonly ProviderCatalogItem[]>;
   getProvider(providerId: string): Promise<ProviderCatalogItem>;
   setDefaultModel(modelId: string): Promise<SetDefaultModelResponse>;
-  refreshOAuthProviderModels(): Promise<RefreshOAuthProviderModelsResponse>;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare

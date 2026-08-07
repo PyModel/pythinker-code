@@ -1,7 +1,6 @@
 export { PythinkerHarness } from '#/pythinker-harness';
 export type { PythinkerHarnessRuntimeOptions } from '#/pythinker-harness';
 export { Session } from '#/session';
-export { PythinkerAuthFacade } from '#/auth';
 export { createPythinkerHarness, SDKRpcClient, type SDKRpcClientOptions } from '#/sdk-rpc-client';
 export { runPythinkerMcpServer, type PythinkerMcpServerOptions } from '#/mcp-server';
 export {
@@ -18,8 +17,6 @@ export {
   type SetSessionDynamicWorkflowModeRpcInput,
   type SetSessionFastModeRpcInput,
 } from '#/rpc';
-export { PythinkerForCodingProvider } from '#/pythinker-code-model-provider';
-export type { PythinkerForCodingProviderOptions } from '#/pythinker-code-model-provider';
 
 export {
   applyCatalogProvider,
@@ -60,7 +57,6 @@ export type { SkillSlashCommand, SkillSlashCommands } from '#/skill-commands';
 export { formatErrorMessage, formatErrorPayload } from '#/error-format';
 export {
   buildPlatformOptions,
-  KIMI_CODE_PLATFORM_ID,
   resolvePlatformOption,
   type PlatformOption,
 } from '#/login/platform-options';
@@ -133,11 +129,6 @@ export type {
   FlagSurface,
 } from '@pythoughts/agent-core';
 
-export type {
-  PythinkerAuthLoginResult,
-  PythinkerAuthLogoutResult,
-  PythinkerAuthSubmitFeedbackInput,
-} from '#/auth';
 
 export * from '#/events';
 export type * from '#/types';

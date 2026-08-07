@@ -15,7 +15,6 @@ import {
   type LoopControl,
   type ModelAlias,
   type PythoughtsServiceConfig,
-  type OAuthRef,
   type PermissionConfig,
   type ProviderConfig,
   type ServicesConfig,
@@ -351,9 +350,7 @@ function transformProviderData(data: Record<string, unknown>): Record<string, un
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(data)) {
     const targetKey = snakeToCamel(key);
-    if (targetKey === 'oauth') {
-      out[targetKey] = isPlainObject(value) ? transformPlainObject(value) : value;
-    } else if (targetKey === 'env' || targetKey === 'customHeaders') {
+    if (targetKey === 'env' || targetKey === 'customHeaders') {
       out[targetKey] = cloneObjectValue(value);
     } else {
       out[targetKey] = value;
@@ -430,9 +427,7 @@ function transformServiceData(data: Record<string, unknown>): Record<string, unk
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(data)) {
     const targetKey = snakeToCamel(key);
-    if (targetKey === 'oauth') {
-      out[targetKey] = isPlainObject(value) ? transformPlainObject(value) : value;
-    } else if (targetKey === 'customHeaders') {
+    if (targetKey === 'customHeaders') {
       out[targetKey] = cloneObjectValue(value);
     } else {
       out[targetKey] = value;
@@ -552,9 +547,7 @@ function setSection<T>(
 function providerToToml(provider: ProviderConfig, rawProvider: unknown): Record<string, unknown> {
   const out = cloneRecord(rawProvider);
   for (const [key, value] of Object.entries(provider)) {
-    if (key === 'oauth' && value !== undefined) {
-      out[camelToSnake(key)] = oauthToToml(value as OAuthRef);
-    } else if ((key === 'env' || key === 'customHeaders') && value !== undefined) {
+    if ((key === 'env' || key === 'customHeaders') && value !== undefined) {
       out[camelToSnake(key)] = cloneUnknown(value);
     } else {
       setDefined(out, camelToSnake(key), value);
@@ -628,9 +621,7 @@ function servicesToToml(services: ServicesConfig, rawServices: unknown): Record<
 function serviceToToml(service: PythoughtsServiceConfig): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(service)) {
-    if (key === 'oauth' && value !== undefined) {
-      out[camelToSnake(key)] = oauthToToml(value as OAuthRef);
-    } else if (key === 'customHeaders' && value !== undefined) {
+    if (key === 'customHeaders' && value !== undefined) {
       out[camelToSnake(key)] = cloneUnknown(value);
     } else {
       setDefined(out, camelToSnake(key), value);
@@ -688,13 +679,6 @@ function hookToToml(hook: HookDefConfig): Record<string, unknown> {
   return out;
 }
 
-function oauthToToml(oauth: OAuthRef): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(oauth)) {
-    setDefined(out, camelToSnake(key), value);
-  }
-  return out;
-}
 
 /* ------------------------------------------------------------------ */
 /*  Utilities                                                          */

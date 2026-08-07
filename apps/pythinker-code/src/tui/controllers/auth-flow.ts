@@ -175,10 +175,6 @@ export class AuthFlowController {
         removeProvider: (id) => host.harness.removeProvider(id),
         setConfig: (patch) => host.harness.setConfig(patch),
         replaceConfig: (config) => host.harness.replaceConfig(config),
-        resolveOAuthToken: async (providerName, oauthRef) => {
-          const tokenProvider = host.harness.auth.resolveOAuthTokenProvider(providerName, oauthRef);
-          return tokenProvider.getAccessToken();
-        },
       },
       { scope },
     );

@@ -23,21 +23,21 @@ TOML field names always use snake_case, for example `default_model` and `max_con
 The following example covers the most commonly used configuration fields. You can copy it and adjust as needed:
 
 ```toml
-default_model = "pythinker-code/pythinker-for-coding"
+default_model = "moonshot-cn/kimi-k2"
 default_thinking = true
 default_permission_mode = "manual"
 default_plan_mode = false
 merge_all_available_skills = true
 telemetry = true
 
-[providers."managed:kimi-code"]
+[providers."moonshot-cn"]
 type = "pythinker"
-base_url = "https://api.pythinker.com/coding/v1"
-api_key = ""
+base_url = "https://api.moonshot.cn/v1"
+api_key_env_var = "KIMI_API_KEY"
 
-[models."pythinker-code/pythinker-for-coding"]
-provider = "managed:kimi-code"
-model = "pythinker-for-coding"
+[models."moonshot-cn/kimi-k2"]
+provider = "moonshot-cn"
+model = "kimi-k2"
 max_context_size = 262144
 
 [thinking]
@@ -104,7 +104,6 @@ Each entry in the `providers` table defines an API provider, keyed by a unique n
 | `api_key` | `string` | No | API key, written in plain text in the config file |
 | `api_key_env_var` | `string` | No | Name of a shell environment variable containing the API key; the name is persisted, not its value |
 | `base_url` | `string` | No | API base URL |
-| `oauth` | `table` | No | OAuth credential reference (`storage` and `key` fields); injected automatically by the login flow — normally no need to write this by hand |
 | `env` | `table<string, string>` | No | Fallback source for provider credentials; see below |
 | `custom_headers` | `table<string, string>` | No | Custom HTTP headers attached to each request |
 | `source` | `table` | No | Catalog or custom-registry refresh metadata written by provider commands; normally not edited by hand |
@@ -200,7 +199,6 @@ You can also switch models temporarily without touching the config file — by s
 | --- | --- | --- | --- |
 | `base_url` | `string` | No | Service API URL |
 | `api_key` | `string` | No | API key |
-| `oauth` | `table` | No | OAuth credential reference, same structure as `providers.*.oauth` |
 | `custom_headers` | `table<string, string>` | No | Custom HTTP headers attached to each request |
 
 ```toml

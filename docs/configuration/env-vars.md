@@ -14,7 +14,7 @@ For background, see [Config overrides: provider credentials](./overrides.md#prov
 
 ### `PYTHINKER_CODE_HOME`
 
-Overrides the data root directory; the default is `~/.pythinker-code`. Once set, the config file, sessions, logs, OAuth credentials, and all other data land under the new path:
+Overrides the data root directory; the default is `~/.pythinker-code`. Once set, the config file, sessions, logs, credentials, and all other data land under the new path:
 
 ```sh
 export PYTHINKER_CODE_HOME="/path/to/custom/pythinker-code"
@@ -88,20 +88,6 @@ Catalog entries can declare other credential names and persist them through `api
 :::
 
 For the full provider type and field reference, see [Providers and models](./providers.md).
-
-## OAuth and managed services
-
-This group of variables redirects OAuth authentication and managed service endpoints to a self-hosted or test environment. They are not needed for everyday use.
-
-| Variable | Purpose | Default |
-| --- | --- | --- |
-| `PYTHINKER_CODE_OAUTH_HOST` | OAuth auth host; highest priority | Falls back to `PYTHINKER_OAUTH_HOST` when unset |
-| `PYTHINKER_OAUTH_HOST` | OAuth auth host; fallback for `PYTHINKER_CODE_OAUTH_HOST` | Falls back to `https://auth.pythinker.com` when unset |
-| `PYTHINKER_CODE_BASE_URL` | Managed API base URL used after OAuth login | `https://api.pythinker.com/coding/v1` |
-
-::: warning
-`PYTHINKER_CODE_BASE_URL` (OAuth-managed service, targeting `pythinker.com`) and `PYTHINKER_BASE_URL` (direct API key connection, targeting `pythoughts.ai`) are two distinct variables. Use each one in its appropriate context.
-:::
 
 ## Define a model from environment variables (`PYTHINKER_MODEL_*`)
 

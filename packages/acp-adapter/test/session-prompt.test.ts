@@ -17,7 +17,7 @@ import {
 import type { Event, PythinkerHarness, Session } from '@pythoughts/pythinker-code-sdk';
 
 import { AcpServer } from '../src/server';
-import { AUTHED_STATUS } from './_helpers/harness-stubs';
+import { AUTHED } from './_helpers/harness-stubs';
 
 class CollectingClient implements Client {
   readonly updates: SessionNotification[] = [];
@@ -106,7 +106,7 @@ describe('AcpServer session/prompt', () => {
       { type: 'turn.ended', sessionId, agentId: 'main', turnId: 1, reason: 'completed' } as Event,
     ]);
     const harness = {
-      auth: { status: async () => AUTHED_STATUS },
+      isAuthenticated: AUTHED,
       createSession: async () => session,
     } as unknown as PythinkerHarness;
 
@@ -154,7 +154,7 @@ describe('AcpServer session/prompt', () => {
       { type: 'turn.ended', sessionId, agentId: 'main', turnId: 1, reason: 'cancelled' } as Event,
     ]);
     const harness = {
-      auth: { status: async () => AUTHED_STATUS },
+      isAuthenticated: AUTHED,
       createSession: async () => session,
     } as unknown as PythinkerHarness;
 
@@ -176,7 +176,7 @@ describe('AcpServer session/prompt', () => {
 
   it('rejects prompt with invalid_params when sessionId is unknown', async () => {
     const harness = {
-      auth: { status: async () => AUTHED_STATUS },
+      isAuthenticated: AUTHED,
       createSession: async () => {
         throw new Error('createSession should not be called for unknown-id test');
       },
@@ -211,7 +211,7 @@ describe('AcpServer session/prompt', () => {
     } as unknown as Session;
 
     const harness = {
-      auth: { status: async () => AUTHED_STATUS },
+      isAuthenticated: AUTHED,
       createSession: async () => session,
     } as unknown as PythinkerHarness;
 
@@ -241,7 +241,7 @@ describe('AcpServer session/prompt', () => {
       } as unknown as Event,
     ]);
     const harness = {
-      auth: { status: async () => AUTHED_STATUS },
+      isAuthenticated: AUTHED,
       createSession: async () => session,
     } as unknown as PythinkerHarness;
 
@@ -314,7 +314,7 @@ describe('AcpServer session/prompt', () => {
       },
     } as unknown as Session;
     const harness = {
-      auth: { status: async () => AUTHED_STATUS },
+      isAuthenticated: AUTHED,
       createSession: async () => session,
     } as unknown as PythinkerHarness;
 
@@ -382,7 +382,7 @@ describe('AcpServer session/prompt', () => {
       { type: 'turn.ended', sessionId, agentId: 'main', turnId: 1, reason: 'completed' } as Event,
     ]);
     const harness = {
-      auth: { status: async () => AUTHED_STATUS },
+      isAuthenticated: AUTHED,
       createSession: async () => session,
     } as unknown as PythinkerHarness;
 

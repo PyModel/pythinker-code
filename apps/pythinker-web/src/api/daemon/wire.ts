@@ -387,47 +387,19 @@ export interface WireConfig {
 }
 
 // ---------------------------------------------------------------------------
-// Auth wire DTOs — REAL endpoints (GET /api/v1/auth, POST/GET/DELETE /api/v1/oauth/login, POST /api/v1/oauth/logout)
+// Auth wire DTOs — REAL endpoint (GET /api/v1/auth)
 // ---------------------------------------------------------------------------
 
-export interface WireManagedProvider {
-  status: string;
-  [key: string]: unknown;
-}
 
 export interface WireAuthResult {
   ready: boolean;
   providers_count: number;
   default_model: string | null;
-  managed_provider: WireManagedProvider | null;
 }
 
-export interface WireOAuthLoginStartResult {
-  flow_id: string;
-  provider: string;
-  verification_uri: string;
-  verification_uri_complete: string;
-  user_code: string;
-  expires_in: number;
-  interval: number;
-  status: 'pending';
-  expires_at: string;
-}
 
-export interface WireOAuthLoginPollResult {
-  flow_id: string;
-  status: 'pending' | 'authenticated' | 'expired' | 'cancelled';
-  resolved_at?: string;
-}
 
-export interface WireOAuthCancelResult {
-  cancelled: boolean;
-  status: string;
-}
 
-export interface WireLogoutResult {
-  logged_out: boolean;
-}
 
 // ---------------------------------------------------------------------------
 // File upload wire DTOs

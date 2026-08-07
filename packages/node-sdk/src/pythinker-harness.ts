@@ -2,12 +2,12 @@ import type { Kaos } from '@pythoughts/kaos';
 import {
   ErrorCodes,
   PythinkerError,
+  resolveProviderApiKey,
   withTelemetryContext,
   type ExperimentalFeatureState,
 } from '@pythoughts/agent-core';
 
 import { Session } from '#/session';
-import type { PythinkerAuthFacade } from '#/auth';
 import type { SDKRpcClientBase } from '#/rpc';
 import type {
   AgentProfileCatalog,
@@ -36,7 +36,6 @@ export interface PythinkerHarnessRuntimeOptions {
   readonly uiMode?: string;
   readonly homeDir: string;
   readonly configPath: string;
-  readonly auth: PythinkerAuthFacade;
   readonly telemetry: TelemetryClient;
   readonly ensureConfigFile: () => Promise<void>;
   readonly onClose: () => void | Promise<void>;
@@ -45,7 +44,6 @@ export interface PythinkerHarnessRuntimeOptions {
 export class PythinkerHarness {
   readonly homeDir: string;
   readonly configPath: string;
-  readonly auth: PythinkerAuthFacade;
 
   private readonly identity: PythinkerHostIdentity | undefined;
   private readonly uiMode: string;
@@ -63,7 +61,6 @@ export class PythinkerHarness {
     this.homeDir = options.homeDir;
     this.configPath = options.configPath;
     this.telemetry = options.telemetry;
-    this.auth = options.auth;
     this.ensureConfigFileImpl = options.ensureConfigFile;
     this.closeImpl = options.onClose;
   }
@@ -217,6 +214,19 @@ export class PythinkerHarness {
 
   async getConfig(options: GetConfigOptions = {}): Promise<PythinkerConfig> {
     return this.rpc.getConfig(options);
+  }
+
+  /**
+   * True when at least one configured provider resolves a usable credential.
+   * This is the whole of "is the user logged in" now that every login path —
+   * API key, catalog provider, OpenAI Codex OAuth — ends in a provider entry
+   * carrying an `apiKey` or an `apiKeyEnvVar`.
+   */
+  async isAuthenticated(): Promise<boolean> {
+    const config = await this.getConfig({ reload: true });
+    return Object.values(config.providers ?? {}).some(
+      (provider) => resolveProviderApiKey(provider) !== undefined,
+    );
   }
 
   /** Warnings from the most recent config.toml load; empty when the config is fully valid. */
