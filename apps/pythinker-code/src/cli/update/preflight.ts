@@ -841,6 +841,15 @@ async function startBackgroundInstall(
     let ready = false;
     let settled = false;
     let pendingOutcome: { succeeded: boolean; reason: string } | undefined;
+    // Progress writes are fire-and-forget, and the state file is written as a
+    // temp file plus rename — so the last rename wins. The installer's terminal
+    // `state=done` line bypasses the throttle and writes just as the child
+    // exits, so without ordering that write can land *after* the outcome write
+    // and restore `active` while dropping `lastSuccess`. The next launch reads
+    // that as an abandoned install and records a failure for a version that
+    // installed cleanly. One chain keeps the writes ordered and gives `finish`
+    // something to drain.
+    let progressWrites: Promise<void> = Promise.resolve();
 
     const finish = async (succeeded: boolean, reason: string): Promise<void> => {
       if (!ready) {
@@ -849,6 +858,9 @@ async function startBackgroundInstall(
       }
       if (settled) return;
       settled = true;
+      // `settled` already stops new progress writes; drain the ones in flight so
+      // none of them renames over the outcome below.
+      await progressWrites;
       const attempts = failureAttemptsFor(startedState, target, 'install') + 1;
       const stderrTail = readStderrTail();
       const message = stderrTail === undefined ? reason : `${reason}: ${stderrTail}`;
@@ -917,6 +929,9 @@ async function startBackgroundInstall(
     });
     let lastProgressWriteAt = 0;
     const recordInstallerProgress = (update: UpdateInstallProgress): void => {
+      // Once the outcome is being written, progress is history: writing it would
+      // undo the terminal record.
+      if (settled) return;
       // Terminal states always persist; intermediate ones at most every 2s.
       const terminal = update.state === 'done' || update.state === 'failed';
       if (
@@ -936,14 +951,17 @@ async function startBackgroundInstall(
           progress: update,
         },
       };
-      writeUpdateInstallState(nextState).catch((error) => {
-        // A progress write is best-effort; it must never reject the spawn path.
-        logUpdateWarn(logger, 'could not record installer progress', {
-          targetVersion: target.version,
-          source,
-          error: formatErrorMessage(error),
+      progressWrites = progressWrites
+        .then(() => writeUpdateInstallState(nextState))
+        .catch((error) => {
+          // A progress write is best-effort; it must never reject the spawn path
+          // and must not break the chain for the writes queued behind it.
+          logUpdateWarn(logger, 'could not record installer progress', {
+            targetVersion: target.version,
+            source,
+            error: formatErrorMessage(error),
+          });
         });
-      });
     };
     const readStderrTail = captureStderrTail(child, recordInstallerProgress);
     child.once('error', (error) => { void finish(false, formatErrorMessage(error)); });

@@ -2022,8 +2022,7 @@ describe('footer update status poll', () => {
    */
   it('dispatches availability and then live progress into the status row', async () => {
     const home = mkdtempSync(join(tmpdir(), 'pk-footer-update-'));
-    const previousHome = process.env['PYTHINKER_CODE_HOME'];
-    process.env['PYTHINKER_CODE_HOME'] = home;
+    vi.stubEnv('PYTHINKER_CODE_HOME', home);
     const updates = join(home, 'updates');
     mkdirSync(updates, { recursive: true });
     const manifest = {
@@ -2089,8 +2088,7 @@ describe('footer update status poll', () => {
     } finally {
       driver.stopUpdateStatusPolling();
       driver.state.footer.dispose();
-      if (previousHome === undefined) delete process.env['PYTHINKER_CODE_HOME'];
-      else process.env['PYTHINKER_CODE_HOME'] = previousHome;
+      vi.unstubAllEnvs();
       rmSync(home, { recursive: true, force: true });
     }
   }, 30_000);

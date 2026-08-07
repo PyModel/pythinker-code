@@ -388,6 +388,14 @@ function progressActiveStates(): unknown[] {
     .filter((state) => state !== undefined && state !== null && state.active?.progress !== undefined);
 }
 
+/** The terminal success records written by the finalizer, in order. */
+function successOutcomeStates(): unknown[] {
+  return mocks.writeUpdateInstallState.mock.calls
+    .map((call) => call[0])
+    .filter((state) => state !== undefined && state !== null
+      && state.active === null && state.lastSuccess !== undefined && state.lastSuccess !== null);
+}
+
 async function flushBackgroundInstall(): Promise<void> {
   await new Promise<void>((resolve) => {
     setImmediate(resolve);
@@ -961,6 +969,13 @@ describe('runUpdatePreflight', () => {
 
     const running = runUpdatePreflight('0.4.0', options);
 
+    // Let the flow actually reach the prompt first. Asserting straight after the
+    // call was vacuous: nothing had run past the first await, so "no lock yet"
+    // held wherever the acquisition sat, and the ordering claim in the test name
+    // went unchecked.
+    await vi.waitFor(() => {
+      expect(mocks.promptForInstallChoice).toHaveBeenCalled();
+    });
     expect(mocks.tryAcquireUpdateInstallLock).not.toHaveBeenCalled();
     resolvePrompt?.('install');
     await expect(running).resolves.toBe('exit');
@@ -1178,7 +1193,7 @@ describe('runUpdatePreflight', () => {
     await expect(runUpdatePreflight('0.5.0', options)).resolves.toBe('continue');
 
     expect(mocks.spawn).toHaveBeenCalledWith(
-      expect.stringMatching(/^npm(\.cmd)?$/),
+      expect.stringMatching(/^npm(\.cmd)?$/u),
       ['install', '-g', '@pythoughts/pythinker-code@0.6.0'],
       { detached: true, windowsHide: false, stdio: ['ignore', 'ignore', 'pipe'] },
     );
@@ -2097,6 +2112,50 @@ describe('runUpdatePreflight', () => {
           progress: expect.objectContaining({ state: 'done', transferred: 55_795_679 }),
         }),
       }));
+    });
+
+    /**
+     * The state file is written as a temp file plus rename, so the last rename
+     * wins. The installer's terminal `state=done` line writes just as the child
+     * exits, so an unawaited progress write can rename over the outcome —
+     * restoring `active` and dropping `lastSuccess`. The next launch reads that
+     * as an abandoned install and records a failure for a version that
+     * installed cleanly, which at two attempts parks it for good.
+     */
+    it('never lets a slow progress write rename over the install outcome', async () => {
+      mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+      mocks.readUpdateInstallState.mockResolvedValue(installState());
+      mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+      mocks.detectInstallSource.mockResolvedValue('npm-global');
+      // Hold the progress write open; every other write settles at once.
+      let releaseProgressWrite: (() => void) | undefined;
+      mocks.writeUpdateInstallState.mockImplementation(
+        (state: { active?: { progress?: unknown } | null }) => (
+          state.active?.progress === undefined
+            ? Promise.resolve()
+            : new Promise<void>((resolve) => { releaseProgressWrite = resolve; })
+        ),
+      );
+      mockSpawnExitWithStderr(0, 'progress: state=done transferred=55795679\n');
+      const { options } = captureOutput();
+
+      await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
+      await flushBackgroundInstall();
+
+      // The progress write is still in flight, so the outcome must not be out yet.
+      expect(progressActiveStates()).toHaveLength(1);
+      expect(successOutcomeStates()).toEqual([]);
+
+      releaseProgressWrite?.();
+      await flushBackgroundInstall();
+      await flushBackgroundInstall();
+
+      expect(successOutcomeStates()).toHaveLength(1);
+      // The outcome is the last thing written, so it survives on disk.
+      expect(mocks.writeUpdateInstallState.mock.calls.at(-1)?.[0]).toMatchObject({
+        active: null,
+        lastSuccess: expect.objectContaining({ version: '0.5.0' }),
+      });
     });
 
     it('keeps progress lines out of the failure tail and ordinary stderr lines in it', async () => {

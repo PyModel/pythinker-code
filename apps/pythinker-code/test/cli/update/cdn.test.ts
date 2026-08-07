@@ -173,18 +173,18 @@ describe('fetchUpdateManifest', () => {
   // so reading it after a bad manifest would report an unverifiable target as
   // verified. Every one of these must reject and leave the cached answer alone.
   const rejectCases: ReadonlyArray<readonly [string, Route, RegExp]> = [
-    ['latest.json is missing (HTTP 404)', { status: 404 }, /HTTP 404/],
-    ['latest.json fetch throws', new Error('network down'), /network down/],
-    ['body is not valid JSON', { body: 'not json {' }, /JSON/i],
+    ['latest.json is missing (HTTP 404)', { status: 404 }, /HTTP 404/u],
+    ['latest.json fetch throws', new Error('network down'), /network down/u],
+    ['body is not valid JSON', { body: 'not json {' }, /JSON/iu],
     [
       'version is not semver',
       { body: JSON.stringify({ version: 'nope', publishedAt: '2026-06-12T00:00:00.000Z' }) },
-      /invalid semver/,
+      /invalid semver/u,
     ],
     [
       'publishedAt is unparseable',
       { body: JSON.stringify({ version: '2.0.0', publishedAt: 'garbage' }) },
-      /invalid timestamp/,
+      /invalid timestamp/u,
     ],
     [
       'a batch percent is out of range',
@@ -195,7 +195,9 @@ describe('fetchUpdateManifest', () => {
           rollout: [{ percent: 150, delaySeconds: 0 }],
         }),
       },
-      /./,
+      // Name the field: `/./` matched any non-empty message, so a JSON.parse
+      // failure would have satisfied it just as well as the schema rejection.
+      /percent/u,
     ],
     [
       'a batch delay is negative',
@@ -206,7 +208,7 @@ describe('fetchUpdateManifest', () => {
           rollout: [{ percent: 100, delaySeconds: -1 }],
         }),
       },
-      /./,
+      /delaySeconds/u,
     ],
   ];
 
@@ -229,7 +231,7 @@ describe('fetchUpdateManifest', () => {
       }) as unknown as typeof fetch;
 
       const result = fetchUpdateManifest(f);
-      const expectation = expect(result).rejects.toThrow(/aborted/);
+      const expectation = expect(result).rejects.toThrow(/aborted/u);
       await vi.advanceTimersByTimeAsync(3_000);
 
       await expectation;
