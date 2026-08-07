@@ -807,6 +807,95 @@ describe('runUpdatePreflight', () => {
     expect(mocks.spawn).not.toHaveBeenCalled();
   });
 
+  it('does not prompt for a foreground install while a fresh active install is running', async () => {
+    disableAutoInstall();
+    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.readUpdateInstallState.mockResolvedValue(installState({
+      active: {
+        version: '0.5.0',
+        source: 'npm-global',
+        startedAt: new Date().toISOString(),
+      },
+    }));
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.detectInstallSource.mockResolvedValue('npm-global');
+    mocks.promptForInstallChoice.mockResolvedValue('install');
+    const { options } = captureOutput();
+
+    await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
+
+    expect(mocks.promptForInstallChoice).not.toHaveBeenCalled();
+    expect(mocks.spawn).not.toHaveBeenCalled();
+    expect(mocks.tryAcquireUpdateInstallLock).not.toHaveBeenCalled();
+  });
+
+  it('acquires the install lock only after the prompt resolves and releases it afterwards', async () => {
+    disableAutoInstall();
+    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.readUpdateInstallState.mockResolvedValue(installState());
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.detectInstallSource.mockResolvedValue('npm-global');
+    mockSpawnExit(0);
+    const release = vi.fn().mockResolvedValue(undefined);
+    mocks.tryAcquireUpdateInstallLock.mockResolvedValue({
+      filePath: '/tmp/pythinker-update-install.lock',
+      release,
+    });
+    let resolvePrompt: ((value: 'install') => void) | undefined;
+    const prompt = new Promise<'install'>((resolve) => { resolvePrompt = resolve; });
+    mocks.promptForInstallChoice.mockReturnValue(prompt);
+    const { stdout, options } = captureOutput();
+
+    const running = runUpdatePreflight('0.4.0', options);
+
+    expect(mocks.tryAcquireUpdateInstallLock).not.toHaveBeenCalled();
+    resolvePrompt?.('install');
+    await expect(running).resolves.toBe('exit');
+    expect(mocks.tryAcquireUpdateInstallLock).toHaveBeenCalledWith({ version: '0.5.0' });
+    expect(release).toHaveBeenCalledOnce();
+    expect(writeUpdateInstallState).toHaveBeenCalledWith(expect.objectContaining({
+      active: null,
+      lastFailure: null,
+      lastSuccess: {
+        version: '0.5.0',
+        installedAt: expect.any(String),
+        notifiedAt: null,
+      },
+    }));
+    expect(stdout.join('')).toContain('Updated @pythoughts/pythinker-code to 0.5.0');
+  });
+
+  it('releases the lock and records the failure when the foreground install fails', async () => {
+    disableAutoInstall();
+    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.readUpdateInstallState.mockResolvedValue(installState());
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.detectInstallSource.mockResolvedValue('npm-global');
+    mocks.promptForInstallChoice.mockResolvedValue('install');
+    mockSpawnExit(1);
+    const release = vi.fn().mockResolvedValue(undefined);
+    mocks.tryAcquireUpdateInstallLock.mockResolvedValue({
+      filePath: '/tmp/pythinker-update-install.lock',
+      release,
+    });
+    const { stderr, options } = captureOutput();
+
+    await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
+
+    expect(stderr.join('')).toContain('warning: failed to install');
+    expect(release).toHaveBeenCalledOnce();
+    expect(writeUpdateInstallState).toHaveBeenCalledWith(expect.objectContaining({
+      active: null,
+      lastFailure: expect.objectContaining({
+        version: '0.5.0',
+        attempts: 1,
+        operation: 'install',
+        failedAt: expect.any(String),
+      }),
+      lastSuccess: null,
+    }));
+  });
+
   it('warns and continues when spawn exits non-zero, without claiming success', async () => {
     disableAutoInstall();
     mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));

@@ -1337,6 +1337,11 @@ export async function runUpdatePreflight(
       return 'continue';
     }
 
+    // An install that is already in flight must not be prompted for a second
+    // time: the user would get a confusing double message for work that is
+    // already running elsewhere.
+    if (hasFreshActiveInstall(installState)) return 'continue';
+
     const choice = await promptInstall(
       currentVersion,
       userVisibleTarget,
@@ -1346,16 +1351,47 @@ export async function runUpdatePreflight(
     );
     if (choice === 'skip') return 'continue';
 
+    // Take the lock only after the prompt resolves: holding it across an
+    // indefinite interactive wait would block the background path as long as
+    // the prompt sits unanswered. A null handle means another installer is
+    // already running — do not install on top of it.
+    const lock = await tryAcquireUpdateInstallLock({ version: userVisibleTarget.version });
+    if (lock === null) return 'continue';
+
     try {
       await installUpdate(source, userVisibleTarget.version, platform);
+      await writeUpdateInstallState({
+        ...installState,
+        active: null,
+        lastFailure: null,
+        lastSuccess: {
+          version: userVisibleTarget.version,
+          installedAt: nowIso(),
+          notifiedAt: null,
+        },
+      }).catch(() => {});
       stdout.write(renderInstallSuccessMessage(userVisibleTarget));
       return 'exit';
     } catch (error) {
+      const attempts = failureAttemptsFor(installState, userVisibleTarget, 'install') + 1;
+      await writeUpdateInstallState({
+        ...installState,
+        active: null,
+        lastFailure: {
+          version: userVisibleTarget.version,
+          failedAt: nowIso(),
+          attempts,
+          operation: 'install',
+          message: formatErrorMessage(error),
+        },
+      }).catch(() => {});
       stderr.write(
         `warning: failed to install ${NPM_PACKAGE_NAME}@${userVisibleTarget.version}: ` +
           `${formatErrorMessage(error)}\n`,
       );
       return 'continue';
+    } finally {
+      await lock.release().catch(() => {});
     }
   } catch {
     return 'continue';
