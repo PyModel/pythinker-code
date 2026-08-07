@@ -16,6 +16,31 @@ function cacheWith(
   };
 }
 
+function platformManifest(version: string, platform: string): UpdateCache['manifest'] {
+  return {
+    version,
+    publishedAt: '2020-01-01T00:00:00.000Z',
+    rollout: [],
+    platforms: {
+      [platform]: {
+        url: `https://code.pythinker.com/pythinker-code-${version}.zip`,
+        sha256: 'a'.repeat(64),
+      },
+    },
+  };
+}
+
+/** A manifest advertising an artifact for a platform other than the running one. */
+function manifestOmittingRunningTarget(version: string): UpdateCache['manifest'] {
+  const otherArch = process.arch === 'arm64' ? 'x64' : 'arm64';
+  return platformManifest(version, `${process.platform}-${otherArch}`);
+}
+
+/** A manifest advertising an artifact for the running platform. */
+function manifestForRunningTarget(version: string): UpdateCache['manifest'] {
+  return platformManifest(version, `${process.platform}-${process.arch}`);
+}
+
 function captureOutput(): {
   stdout: string[];
   stderr: string[];
@@ -230,6 +255,57 @@ describe('handleUpgrade', () => {
     await expect(handleUpgrade('0.4.0', { ...deps, ...writable })).resolves.toBe(0);
 
     expect(deps.installUpdate).toHaveBeenCalledWith('npm-global', '0.5.0', 'darwin');
+    expect(stdout.join('')).toContain('Updated @pythoughts/pythinker-code to 0.5.0');
+  });
+
+  it('native: refuses the update when the manifest omits the running platform', async () => {
+    const { stdout, writable } = captureOutput();
+    const deps = createDeps({
+      latest: '0.5.0',
+      source: 'native',
+      manifest: manifestOmittingRunningTarget('0.5.0'),
+    });
+
+    await expect(handleUpgrade('0.4.0', { ...deps, ...writable })).resolves.toBe(0);
+
+    expect(deps.detectInstallSource).toHaveBeenCalledTimes(1);
+    expect(deps.promptForInstallChoice).not.toHaveBeenCalled();
+    expect(deps.installUpdate).not.toHaveBeenCalled();
+    expect(deps.track).toHaveBeenCalledWith('upgrade_command_no_update', expect.objectContaining({
+      current_version: '0.4.0',
+    }));
+    expect(stdout.join('')).toContain('v0.5.0 is published but has no build for this platform yet.');
+  });
+
+  it('native: installs when the manifest advertises the running platform', async () => {
+    const { stdout, writable } = captureOutput();
+    const deps = createDeps({
+      latest: '0.5.0',
+      source: 'native',
+      manifest: manifestForRunningTarget('0.5.0'),
+    });
+
+    await expect(handleUpgrade('0.4.0', { ...deps, ...writable })).resolves.toBe(0);
+
+    expect(deps.installUpdate).toHaveBeenCalledWith('native', '0.5.0', 'darwin');
+    expect(stdout.join('')).toContain('Updated @pythoughts/pythinker-code to 0.5.0');
+  });
+
+  it('npm-global: still installs when the manifest omits the running platform', async () => {
+    const { stdout, writable } = captureOutput();
+    const deps = createDeps({
+      latest: '0.5.0',
+      source: 'npm-global',
+      manifest: manifestOmittingRunningTarget('0.5.0'),
+    });
+
+    await expect(handleUpgrade('0.4.0', { ...deps, ...writable })).resolves.toBe(0);
+
+    expect(deps.installUpdate).toHaveBeenCalledWith('npm-global', '0.5.0', 'darwin');
+    expect(deps.track).toHaveBeenCalledWith('upgrade_command_prompted', expect.objectContaining({
+      target_version: '0.5.0',
+      source: 'npm-global',
+    }));
     expect(stdout.join('')).toContain('Updated @pythoughts/pythinker-code to 0.5.0');
   });
 });

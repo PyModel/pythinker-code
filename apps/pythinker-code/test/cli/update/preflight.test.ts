@@ -160,6 +160,31 @@ function releasedForEveryone(version: string): UpdateManifest {
   });
 }
 
+/** A manifest advertising an artifact for a platform other than the running one. */
+function manifestOmittingRunningTarget(version: string): UpdateManifest {
+  const otherArch = process.arch === 'arm64' ? 'x64' : 'arm64';
+  return manifestFor(version, {
+    platforms: {
+      [`${process.platform}-${otherArch}`]: {
+        url: `https://code.pythinker.com/pythinker-code-${version}.zip`,
+        sha256: 'a'.repeat(64),
+      },
+    },
+  });
+}
+
+/** A manifest advertising an artifact for the running platform. */
+function manifestForRunningTarget(version: string): UpdateManifest {
+  return manifestFor(version, {
+    platforms: {
+      [`${process.platform}-${process.arch}`]: {
+        url: `https://code.pythinker.com/pythinker-code-${version}.zip`,
+        sha256: 'a'.repeat(64),
+      },
+    },
+  });
+}
+
 function installState(overrides: Partial<UpdateInstallState> = {}): UpdateInstallState {
   return {
     active: null,
@@ -614,6 +639,61 @@ describe('runUpdatePreflight', () => {
     } finally {
       Object.defineProperty(process, 'platform', { value: originalPlatform });
     }
+  });
+
+  it('native: offers and installs nothing when the manifest omits the running platform', async () => {
+    const omitted = cacheWithManifest(manifestOmittingRunningTarget('0.5.0'));
+    mocks.readUpdateCache.mockResolvedValue(omitted);
+    mocks.refreshUpdateCache.mockResolvedValue(omitted);
+    mocks.detectInstallSource.mockResolvedValue('native');
+    const { stdout, options } = captureOutput();
+
+    await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
+
+    expect(stdout.join('')).toBe('');
+    expect(promptForInstallChoice).not.toHaveBeenCalled();
+    expect(mocks.spawn).not.toHaveBeenCalled();
+    expect(detectInstallSource).toHaveBeenCalledTimes(1);
+  });
+
+  it('native: prompts and installs when the manifest advertises the running platform', async () => {
+    disableAutoInstall();
+    const advertised = cacheWithManifest(manifestForRunningTarget('0.5.0'));
+    mocks.readUpdateCache.mockResolvedValue(advertised);
+    mocks.refreshUpdateCache.mockResolvedValue(advertised);
+    mocks.detectInstallSource.mockResolvedValue('native');
+    mocks.promptForInstallChoice.mockResolvedValue('install');
+    mockSpawnExit(0);
+    const { options } = captureOutput();
+
+    await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('exit');
+
+    expect(mocks.promptForInstallChoice).toHaveBeenCalledWith(
+      expect.objectContaining({ installSource: 'native' }),
+    );
+    expect(mocks.spawn).toHaveBeenCalledTimes(1);
+  });
+
+  it('npm-global: still prompts and installs when the manifest omits the running platform', async () => {
+    disableAutoInstall();
+    const omitted = cacheWithManifest(manifestOmittingRunningTarget('0.5.0'));
+    mocks.readUpdateCache.mockResolvedValue(omitted);
+    mocks.refreshUpdateCache.mockResolvedValue(omitted);
+    mocks.detectInstallSource.mockResolvedValue('npm-global');
+    mocks.promptForInstallChoice.mockResolvedValue('install');
+    mockSpawnExit(0);
+    const { options } = captureOutput();
+
+    await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('exit');
+
+    expect(mocks.promptForInstallChoice).toHaveBeenCalledWith(
+      expect.objectContaining({ installSource: 'npm-global' }),
+    );
+    expect(mocks.spawn).toHaveBeenCalledWith(
+      expect.stringMatching(/^npm(\.cmd)?$/u),
+      ['install', '-g', '@pythoughts/pythinker-code@0.5.0'],
+      { stdio: 'inherit' },
+    );
   });
 
   it('unsupported: prints fallback npm command', async () => {
@@ -1661,6 +1741,40 @@ describe('startManualUpdate', () => {
 
     await expect(startManualUpdate('0.4.0')).resolves.toEqual({ status: 'up-to-date' });
     expect(mocks.spawn).not.toHaveBeenCalled();
+  });
+
+  it('native: reports up-to-date when the manifest omits the running platform', async () => {
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWithManifest(manifestOmittingRunningTarget('0.5.0')));
+    mocks.detectInstallSource.mockResolvedValue('native');
+
+    await expect(startManualUpdate('0.4.0')).resolves.toEqual({ status: 'up-to-date' });
+    expect(mocks.spawn).not.toHaveBeenCalled();
+  });
+
+  it('native: starts a background install when the manifest advertises the running platform', async () => {
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWithManifest(manifestForRunningTarget('0.5.0')));
+    mocks.detectInstallSource.mockResolvedValue('native');
+    mockSpawnExit(0);
+
+    await expect(startManualUpdate('0.4.0')).resolves.toEqual({
+      status: 'started',
+      version: '0.5.0',
+      installOnRestart: false,
+    });
+    await flushBackgroundInstall();
+    expect(mocks.spawn).toHaveBeenCalledTimes(1);
+  });
+
+  it('npm-global: still starts the update when the manifest omits the running platform', async () => {
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWithManifest(manifestOmittingRunningTarget('0.5.0')));
+    mocks.detectInstallSource.mockResolvedValue('npm-global');
+    mockSpawnExit(0);
+
+    await expect(startManualUpdate('0.4.0')).resolves.toEqual({
+      status: 'started',
+      version: '0.5.0',
+      installOnRestart: false,
+    });
   });
 
   it('starts a background install for an auto-installable source', async () => {

@@ -26,7 +26,7 @@ import {
   type InstallPromptOptions,
 } from './prompt';
 import { refreshUpdateCache } from './refresh';
-import { selectUpdateTarget } from './select';
+import { isTargetInstallable, selectUpdateTarget } from './select';
 import {
   appendRolloutDecisionLog,
   decidePassiveUpdateTarget,
@@ -1032,6 +1032,11 @@ export async function startManualUpdate(
 
   const platform = process.platform;
   const source = await detectInstallSource().catch(() => 'unsupported' as const);
+  // A native install consumes the manifest's platform artifact; without one
+  // the update cannot succeed, so treat it as nothing to update.
+  if (!isTargetInstallable(source, cache.manifest)) {
+    return { status: 'up-to-date' };
+  }
   const installState = await readUpdateInstallState().catch(() => emptyUpdateInstallState());
   if (hasFreshActiveInstall(installState)) {
     return {
@@ -1205,6 +1210,17 @@ export async function runUpdatePreflight(
       !isInteractive
         ? 'unsupported'
         : await detectInstallSource().catch(() => 'unsupported' as const);
+
+    // A native install consumes the manifest's platform artifact; without one
+    // the update cannot succeed, so do not offer or start it. Non-native
+    // sources install from the registry/formula and are never gated here.
+    if (!isTargetInstallable(source, cachedManifest)) {
+      // Still refresh: the next manifest may carry this platform's artifact,
+      // and returning without one would freeze this client on the cached
+      // answer forever.
+      refreshInBackground();
+      return 'continue';
+    }
 
     const decision = decideUpdateAction(target, isInteractive, source, platform);
     if (decision === 'none') {

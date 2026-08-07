@@ -2,7 +2,7 @@ import { log, type Logger } from '@pythoughts/pythinker-code-sdk';
 import { track as trackTelemetry, type TelemetryProperties } from '@pythoughts/pythinker-telemetry';
 
 import { refreshUpdateCache } from '#/cli/update/refresh';
-import { selectUpdateTarget } from '#/cli/update/select';
+import { isTargetInstallable, selectUpdateTarget } from '#/cli/update/select';
 import { detectInstallSource } from '#/cli/update/source';
 import {
   canAutoInstall,
@@ -85,6 +85,20 @@ export async function handleUpgrade(
   }
 
   const source = await deps.detectInstallSource().catch(() => 'unsupported' as const);
+  // A native install consumes the manifest's platform artifact; without one
+  // the update cannot succeed, so take the same exit as being up to date.
+  if (!isTargetInstallable(source, cache.manifest)) {
+    trackUpgradeEvent(deps.track, 'upgrade_command_no_update', {
+      current_version: currentVersion,
+    });
+    logUpgradeInfo(deps.logger, 'manual upgrade no update', {
+      currentVersion,
+    });
+    deps.stdout.write(
+      `${formatDisplayVersion(target.version)} is published but has no build for this platform yet.\n`,
+    );
+    return 0;
+  }
   const installCommand = installCommandFor(source, target.version, deps.platform);
   if (!canAutoInstall(source, deps.platform) || !deps.isInteractive) {
     trackUpgradeEvent(deps.track, 'upgrade_command_manual_command', {
