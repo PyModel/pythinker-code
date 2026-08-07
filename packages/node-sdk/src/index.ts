@@ -45,6 +45,12 @@ export type {
   ImportCatalogProviderResult,
 } from '#/catalog';
 
+export {
+  renderSavedWorkflowSkill,
+  savedWorkflowSkillDir,
+  savedWorkflowSkillName,
+} from '@pythoughts/agent-core';
+export type { SavedWorkflow, SavedWorkflowScope } from '@pythoughts/agent-core';
 export { buildSkillSlashCommands, isUserActivatableSkill } from '#/skill-commands';
 export type { SkillSlashCommand, SkillSlashCommands } from '#/skill-commands';
 

@@ -32,6 +32,7 @@ import type {
   DisplayBlock,
   FileContentDisplayBlock,
   PendingApproval,
+  WorkflowPlanDisplayBlock,
 } from '#/tui/reverse-rpc/types';
 import { printableChar } from '#/tui/utils/printable-key';
 
@@ -167,6 +168,8 @@ function renderDisplayBlock(
       }
       return lines;
     }
+    case 'workflow_plan':
+      return renderWorkflowPlanDisplayBlock(block, s);
     case 'brief':
       return block.text
         ? block.text.split('\n').map((line) => (line.length > 0 ? s.strong(line) : ''))
@@ -180,6 +183,41 @@ function renderDisplayBlock(
     default:
       return [];
   }
+}
+
+/**
+ * A workflow can carry up to 128 items. Listing all of them would push the
+ * buttons off the screen, so the panel shows enough to judge the shape of the
+ * fan-out and says how many it held back.
+ */
+const MAX_PREVIEW_ITEMS = 10;
+
+function renderWorkflowPlanDisplayBlock(
+  block: WorkflowPlanDisplayBlock,
+  s: BlockStyles,
+): string[] {
+  const plural = block.agent_count === 1 ? 'subagent' : 'subagents';
+  const summary = [
+    `${String(block.agent_count)} ${plural}`,
+    `~${String(block.prompt_tokens)} prompt tokens`,
+  ];
+  if (block.model !== undefined && block.model.length > 0) {
+    summary.push(`model: ${block.model}`);
+  }
+  const lines = [s.strong(summary.join('  '))];
+
+  if (block.prompt_template !== undefined && block.prompt_template.length > 0) {
+    lines.push(`${s.accent('prompt')} ${s.dim(truncateOneLine(block.prompt_template, 200))}`);
+  }
+
+  for (const [index, item] of block.items.slice(0, MAX_PREVIEW_ITEMS).entries()) {
+    lines.push(s.dim(`${String(index + 1).padStart(3)}. ${truncateOneLine(item, 120)}`));
+  }
+  const hidden = block.items.length - MAX_PREVIEW_ITEMS;
+  if (hidden > 0) {
+    lines.push(s.dim(`     +${String(hidden)} more`));
+  }
+  return lines;
 }
 
 function normalizeApprovalText(text: string): string {
@@ -209,6 +247,8 @@ function headerFor(toolName: string): string {
       return 'Stop this task?';
     case 'ExitPlanMode':
       return 'Ready to build with this plan?';
+    case 'DynamicWorkflow':
+      return 'Run this Dynamic Workflow?';
     default:
       return `Approve ${toolName}?`;
   }

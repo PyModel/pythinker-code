@@ -1,3 +1,7 @@
+import { promises as fs } from 'node:fs';
+import { tmpdir } from 'node:os';
+
+import { join } from 'pathe';
 import { describe, expect, it, vi } from 'vitest';
 
 import { handleDynamicWorkflowCommand } from '#/tui/commands/index';
@@ -24,6 +28,8 @@ function makeHost(
     permissionMode?: 'manual' | 'auto' | 'yolo';
     dynamicWorkflowMode?: boolean;
     availableModels?: Record<string, unknown>;
+    workDir?: string;
+    lastDynamicWorkflowArgs?: Record<string, unknown>;
   } = {},
 ) {
   const session = {
@@ -40,10 +46,12 @@ function makeHost(
         availableModels: overrides.availableModels ?? {
           'deepseek-v4': { provider: 'deepseek', model: 'deepseek-v4' },
         },
+        workDir: overrides.workDir ?? '/workspace',
       },
       theme: currentTheme,
       transcriptContainer: { addChild: vi.fn() },
       ui: { requestRender: vi.fn() },
+      lastDynamicWorkflowArgs: overrides.lastDynamicWorkflowArgs,
     },
     session: hasSession ? session : undefined,
     requireSession: () => session,
@@ -54,6 +62,7 @@ function makeHost(
     restoreEditor: vi.fn(),
     restoreInputText: vi.fn(),
     sendNormalUserInput: vi.fn(),
+    refreshSlashCommandAutocomplete: vi.fn(),
   } as unknown as SlashCommandHost;
   return { host, session };
 }
@@ -408,5 +417,78 @@ describe('handleDynamicWorkflowCommand', () => {
     expect(host.sendNormalUserInput).toHaveBeenCalledWith(
       'Audit every route for missing auth\n\nUse model "deepseek-v4" for the DynamicWorkflow subagents in this task.',
     );
+  });
+});
+
+describe('/workflow save', () => {
+  it('writes the last run as a skill and refreshes the command list', async () => {
+    const workDir = await fs.mkdtemp(join(tmpdir(), 'workflow-save-'));
+    try {
+      const { host } = makeHost({
+        permissionMode: 'auto',
+        workDir,
+        lastDynamicWorkflowArgs: {
+          description: 'Audit routes for missing auth',
+          subagent_type: 'reviewer',
+          prompt_template: 'Audit {{item}}',
+          model: 'deepseek-v4',
+          items: ['a.ts', 'b.ts'],
+        },
+      });
+
+      await handleDynamicWorkflowCommand(host, 'save Audit Routes');
+
+      const saved = await fs.readFile(
+        join(workDir, '.pythinker-code', 'skills', 'audit-routes', 'SKILL.md'),
+        'utf8',
+      );
+      expect(saved).toContain('name: "audit-routes"');
+      expect(saved).toContain('description: "Audit routes for missing auth"');
+      expect(saved).toContain('subagent-type: "reviewer"');
+      expect(saved).toContain('Audit {{item}}');
+      expect(host.refreshSlashCommandAutocomplete).toHaveBeenCalled();
+      expect(host.showError).not.toHaveBeenCalled();
+    } finally {
+      await fs.rm(workDir, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses a name that would escape the project skills directory', async () => {
+    const workDir = await fs.mkdtemp(join(tmpdir(), 'workflow-save-'));
+    try {
+      const { host } = makeHost({
+        permissionMode: 'auto',
+        workDir,
+        lastDynamicWorkflowArgs: { description: 'Audit routes' },
+      });
+
+      await handleDynamicWorkflowCommand(host, 'save ../../../../tmp/pwned');
+
+      expect(host.showError).toHaveBeenCalledWith(
+        expect.stringContaining('not a valid skill name'),
+      );
+      expect(host.refreshSlashCommandAutocomplete).not.toHaveBeenCalled();
+      await expect(fs.stat(join(workDir, '.pythinker-code'))).rejects.toThrow(/ENOENT/);
+    } finally {
+      await fs.rm(workDir, { recursive: true, force: true });
+    }
+  });
+
+  it('explains itself when no workflow has run yet', async () => {
+    const { host } = makeHost({ permissionMode: 'auto' });
+
+    await handleDynamicWorkflowCommand(host, 'save nightly-audit');
+
+    expect(host.showError).toHaveBeenCalledWith(
+      'No Dynamic Workflow has run in this session yet.',
+    );
+  });
+
+  it('asks for a name when given none', async () => {
+    const { host } = makeHost({ permissionMode: 'auto' });
+
+    await handleDynamicWorkflowCommand(host, 'save');
+
+    expect(host.showError).toHaveBeenCalledWith('Usage: /workflow save <name>');
   });
 });

@@ -89,6 +89,69 @@ describe('ApprovalPanelComponent', () => {
     expect(out).not.toContain('⚠');
   });
 
+  // The whole point of asking before a Dynamic Workflow is that the operator
+  // sees the fan-out. A block that reaches the panel and paints nothing would
+  // still typecheck, so assert the painted lines rather than the payload.
+  it('paints the Dynamic Workflow plan: counts, prompt size, template and items', () => {
+    const pending: PendingApproval = {
+      data: {
+        id: 'approval_workflow',
+        tool_call_id: 'tool_workflow',
+        tool_name: 'DynamicWorkflow',
+        action: 'run',
+        description: 'Review the diff',
+        display: [
+          {
+            type: 'workflow_plan',
+            agent_count: 3,
+            items: ['src/a.ts', 'src/b.ts', 'src/c.ts'],
+            prompt_tokens: 128,
+            prompt_template: 'Review {{item}} for races',
+            model: 'claude-sonnet-4',
+          },
+        ],
+        choices: [{ label: 'Approve once', response: 'approved' }],
+      },
+    };
+
+    const out = strip(new ApprovalPanelComponent(pending, () => {}).render(80).join('\n'));
+
+    expect(out).toContain('3 subagents');
+    expect(out).toContain('~128 prompt tokens');
+    expect(out).toContain('model: claude-sonnet-4');
+    expect(out).toContain('Review {{item}} for races');
+    expect(out).toContain('src/a.ts');
+    expect(out).toContain('src/c.ts');
+  });
+
+  it('caps the plan item list and says how many it held back', () => {
+    const pending: PendingApproval = {
+      data: {
+        id: 'approval_workflow_big',
+        tool_call_id: 'tool_workflow_big',
+        tool_name: 'DynamicWorkflow',
+        action: 'run',
+        description: 'Sweep',
+        display: [
+          {
+            type: 'workflow_plan',
+            agent_count: 40,
+            items: Array.from({ length: 40 }, (_unused, index) => `item-${String(index)}`),
+            prompt_tokens: 4096,
+          },
+        ],
+        choices: [{ label: 'Approve once', response: 'approved' }],
+      },
+    };
+
+    const out = strip(new ApprovalPanelComponent(pending, () => {}).render(80).join('\n'));
+
+    expect(out).toContain('40 subagents');
+    expect(out).toContain('item-9');
+    expect(out).not.toContain('item-10');
+    expect(out).toContain('+30 more');
+  });
+
   it('wraps a long single-line shell command instead of truncating it', () => {
     const head = 'approve-long-command-head';
     const tail = 'approve-long-command-tail';

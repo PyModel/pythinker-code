@@ -17,7 +17,9 @@ import {
   workflowSizeGuidelineTarget,
 } from '../../../agent/dynamic-workflow/size-guideline';
 import { generateWorkflowRunId } from '../../../agent/dynamic-workflow/run-id';
+import { estimateTokens } from '../../../utils/tokens';
 import { toInputJsonSchema } from '../../support/input-schema';
+import { literalRulePattern, matchesGlobRuleSubject } from '../../support/rule-match';
 import DYNAMIC_WORKFLOW_DESCRIPTION from './dynamic-workflow.md?raw';
 
 const DEFAULT_SUBAGENT_TYPE = 'coder';
@@ -160,20 +162,23 @@ export class DynamicWorkflowTool implements BuiltinTool<DynamicWorkflowToolInput
   }
 
   resolveExecution(args: DynamicWorkflowToolInput): ToolExecution {
-    // Count the items that will actually launch, so the panel never advertises
-    // a subagent that was never going to run.
-    const agentCount =
-      normalizeWorkflowItems(args.items).items.length +
-      Object.keys(args.resume_agent_ids ?? {}).length;
+    const workflow = dynamicWorkflowPreview(args);
     return {
       accesses: ToolAccesses.all(),
       description: `Launching Dynamic Workflow: ${args.description}`,
       display: {
         kind: 'agent_call',
-        agent_name: `Dynamic Workflow (${agentCount} subagents)`,
+        agent_name: `Dynamic Workflow (${String(workflow.agent_count)} subagents)`,
         prompt: args.description,
+        workflow,
       },
-      approvalRule: this.name,
+      // Keyed on the description so "approve for this session" grants this one
+      // workflow, not every DynamicWorkflow call for the rest of the session.
+      // The matcher has to come with it: an arg-bearing rule with no
+      // `matchesRule` never matches, so the grant would be recorded and then
+      // silently ignored on every later call.
+      approvalRule: literalRulePattern(this.name, args.description),
+      matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, args.description),
       execute: (ctx) => this.execution(args, ctx),
     };
   }
@@ -312,9 +317,7 @@ function createDynamicWorkflowSpecs(
   }
   if (items.length > 0) {
     items.forEach((item, index) => {
-      const prompt = promptTemplate === undefined
-        ? item
-        : promptTemplate.split(PROMPT_TEMPLATE_PLACEHOLDER).join(item);
+      const prompt = renderItemPrompt(item, promptTemplate);
       const previousIndex = seenPrompts.get(prompt);
       if (previousIndex !== undefined) {
         throw new Error(
@@ -335,6 +338,47 @@ function createDynamicWorkflowSpecs(
 
 function hasMinimumDynamicWorkflowInputs(itemCount: number, resumeCount: number): boolean {
   return resumeCount > 0 || itemCount >= 2;
+}
+
+/**
+ * What the call is about to launch, for the approval panel — the counted
+ * subagents, the work each one gets, and how much prompt that adds up to.
+ *
+ * Built from the arguments alone and deliberately total: `resolveExecution`
+ * runs before `createDynamicWorkflowSpecs` validates anything, so a call this
+ * function threw on would never reach the panel that exists to refuse it.
+ * `prompt_tokens` is the summed prompt estimate, which is a real input size —
+ * not a guess at what the run will finally cost.
+ */
+function dynamicWorkflowPreview(args: DynamicWorkflowToolInput): {
+  agent_count: number;
+  items: string[];
+  prompt_tokens: number;
+  prompt_template?: string;
+  model?: string;
+} {
+  const { items } = normalizeWorkflowItems(args.items);
+  const promptTemplate = normalizeOptionalString(args.prompt_template);
+  const resumeIds = Object.keys(args.resume_agent_ids ?? {});
+  const prompts = [
+    ...Object.values(args.resume_agent_ids ?? {}),
+    ...items.map((item) => renderItemPrompt(item, promptTemplate)),
+  ];
+  return {
+    agent_count: prompts.length,
+    // Resumed subagents carry an id rather than an item, so label them to keep
+    // the list the same length as the count it sits under.
+    items: [...resumeIds.map((agentId) => `resume ${agentId}`), ...items],
+    prompt_tokens: prompts.reduce((total, prompt) => total + estimateTokens(prompt), 0),
+    prompt_template: promptTemplate,
+    model: normalizeOptionalString(args.model),
+  };
+}
+
+function renderItemPrompt(item: string, promptTemplate: string | undefined): string {
+  return promptTemplate === undefined
+    ? item
+    : promptTemplate.split(PROMPT_TEMPLATE_PLACEHOLDER).join(item);
 }
 
 /**

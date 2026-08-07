@@ -19,6 +19,7 @@ import {
 } from '../../src/agent/dynamic-workflow/run-id';
 import { resolveWorkflowSizeGuideline } from '../../src/agent/dynamic-workflow/size-guideline';
 import { FLAG_DEFINITIONS, FlagResolver } from '../../src/flags';
+import { estimateTokens } from '../../src/utils/tokens';
 import type {
   QueuedSubagentRunResult,
   QueuedSubagentTask,
@@ -851,7 +852,12 @@ describe('current builtin collaboration tools', () => {
     expect(result.isError).toBeUndefined();
   });
 
-  it('DynamicWorkflow does not expose permission rule argument matching', () => {
+  // "Approve for this session" is scoped to the workflow that was approved, so
+  // agreeing to one 3-file review does not silently pre-approve a later 128-agent
+  // fan-out. The matcher must ship with the keyed rule: an arg-bearing rule with
+  // no `matchesRule` never matches, which would record the grant and then ignore
+  // it on every later call.
+  it('DynamicWorkflow keys its approval rule on the description and can match it', () => {
     const tool = new DynamicWorkflowTool(mockSubagentHost({}), mockDynamicWorkflowMode());
     const execution = tool.resolveExecution({
       description: 'Review files',
@@ -860,8 +866,54 @@ describe('current builtin collaboration tools', () => {
     });
     if (execution.isError === true) throw new Error('DynamicWorkflow resolveExecution returned an error');
 
-    expect(execution.approvalRule).toBe('DynamicWorkflow');
-    expect(execution.matchesRule).toBeUndefined();
+    expect(execution.approvalRule).toBe('DynamicWorkflow(Review files)');
+    expect(execution.matchesRule?.('Review files')).toBe(true);
+    expect(execution.matchesRule?.('Delete everything')).toBe(false);
+  });
+
+  it('DynamicWorkflow previews the fan-out for the approval panel', () => {
+    const tool = new DynamicWorkflowTool(mockSubagentHost({}), mockDynamicWorkflowMode());
+    const execution = tool.resolveExecution({
+      description: 'Review files',
+      prompt_template: 'Review {{item}}',
+      items: ['src/a.ts', 'src/b.ts'],
+      model: 'deepseek-v4',
+    });
+    if (execution.isError === true) throw new Error('DynamicWorkflow resolveExecution returned an error');
+
+    expect(execution.display).toMatchObject({
+      kind: 'agent_call',
+      agent_name: 'Dynamic Workflow (2 subagents)',
+      workflow: {
+        agent_count: 2,
+        items: ['src/a.ts', 'src/b.ts'],
+        prompt_template: 'Review {{item}}',
+        model: 'deepseek-v4',
+      },
+    });
+    // Both rendered prompts, not the template once.
+    const workflow = (execution.display as { workflow: { prompt_tokens: number } }).workflow;
+    expect(workflow.prompt_tokens).toBe(
+      estimateTokens('Review src/a.ts') + estimateTokens('Review src/b.ts'),
+    );
+  });
+
+  it('DynamicWorkflow counts resumed subagents in the preview', () => {
+    const tool = new DynamicWorkflowTool(mockSubagentHost({}), mockDynamicWorkflowMode());
+    const execution = tool.resolveExecution({
+      description: 'Finish the sweep',
+      items: ['src/a.ts', 'src/b.ts'],
+      resume_agent_ids: { 'agent-7': 'Carry on' },
+    });
+    if (execution.isError === true) throw new Error('DynamicWorkflow resolveExecution returned an error');
+
+    expect(execution.display).toMatchObject({
+      agent_name: 'Dynamic Workflow (3 subagents)',
+      workflow: {
+        agent_count: 3,
+        items: ['resume agent-7', 'src/a.ts', 'src/b.ts'],
+      },
+    });
   });
 
   it('DynamicWorkflow accepts a full item list carrying a blank entry', async () => {

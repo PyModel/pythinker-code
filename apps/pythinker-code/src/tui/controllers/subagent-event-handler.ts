@@ -633,6 +633,8 @@ export class SubAgentEventHandler {
     args: Record<string, unknown>,
     options: { readonly streamingArguments?: string } = {},
   ): DynamicWorkflowMissionControlComponent {
+    // Kept so `/workflow save` can name a run the user just watched succeed.
+    this.host.state.lastDynamicWorkflowArgs = args;
     const existing = this.dynamicWorkflowMissionControls.get(toolCallId);
     if (existing !== undefined) {
       existing.updateArgs(args, options);
