@@ -4005,7 +4005,8 @@ command = "vim"
 
     const transcript = stripSgr(renderTranscript(driver));
     expect(transcript).toContain('Dynamic Workflow');
-    expect(transcript).toMatch(/001\s+▏⣤⣤▕\s+50%\s+● RUN\s+src\/a.ts/u);
+    // The running row spins a grey braille dot, so its symbol varies by frame.
+    expect(transcript).toMatch(/001\s+▏⣤⣤▕\s+50%\s+[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] RUN\s+src\/a.ts/u);
     expect(transcript).toMatch(/002\s+▏⣿⣿▕\s+100%\s+✓ DONE\s+src\/b.ts/u);
     expect(transcript).toMatch(/Orchestrating\s+1\/2 complete/u);
     expect(transcript).not.toContain('━');

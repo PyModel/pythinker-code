@@ -20,6 +20,9 @@ function renderText(component: DynamicWorkflowMissionControlComponent, width = 1
   return strip(component.render(width).join('\n'));
 }
 
+/** The STATE cell of a running row: a grey braille spinner frame, then the label. */
+const RUNNING_CELL = /[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] RUN/u;
+
 function memberLine(output: string, index: number): string {
   const id = String(index).padStart(3, '0');
   const line = output.split('\n').find(
@@ -248,7 +251,9 @@ describe('DynamicWorkflowMissionControlComponent', () => {
     expect(aggregateLine(output)).toContain('2/3 complete');
     expect(aggregateLine(output)).not.toMatch(/\b\d+%/u);
     expect(aggregateLine(output)).not.toContain('━');
-    expect(memberLine(output, 1)).toMatch(/▏⣀⣀▕\s+20%\s+● RUN\s+Layout hierarchy/u);
+    expect(memberLine(output, 1)).toMatch(
+      /▏⣀⣀▕\s+20%\s+[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] RUN\s+Layout hierarchy/u,
+    );
     expect(memberLine(output, 2)).toMatch(/▏⣿⣿▕\s+100%\s+✓ DONE\s+Interaction audit/u);
     expect(output).not.toMatch(/[⣿⣷⣯⣟⡿⢿⣻⣽]{4,}/u);
   });
@@ -309,6 +314,54 @@ describe('DynamicWorkflowMissionControlComponent', () => {
     }
   });
 
+  it('spins a grey dot on running rows and shimmers Orchestrating in periwinkle', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const previousLevel = chalk.level;
+    const previousPalette = currentTheme.palette;
+    chalk.level = 3;
+    currentTheme.setPalette(darkColors);
+
+    try {
+      const component = createComponent();
+      component.updateArgs({ items: ['Layout hierarchy'] });
+      component.markInputComplete();
+      component.setActivitySpinnerText(() => '⠋');
+      register(component, 'agent-1');
+      component.markStarted('agent-1');
+
+      // memberLine expects stripped text; these assertions need the escapes, so
+      // the row is located by its stripped form and returned coloured.
+      const colouredMemberLine = (): string => {
+        const line = component.render(100).find(
+          (candidate) => strip(candidate).replace(/^│\s*/u, '').startsWith('001'),
+        );
+        if (line === undefined) throw new Error('Missing Dynamic Workflow member 001');
+        return line;
+      };
+
+      const first = colouredMemberLine();
+      vi.setSystemTime(BRAILLE_SPINNER_INTERVAL_MS);
+      const second = colouredMemberLine();
+
+      // The dot is grey and it moves; the label keeps the panel's periwinkle.
+      expect(first).toContain(chalk.hex(darkColors.textDim)('⠋'));
+      expect(second).toContain(chalk.hex(darkColors.textDim)('⠙'));
+      expect(first).toContain(chalk.hex(darkColors.primary)('RUN'));
+      // The periwinkle it must NOT be: the old dot took the label's colour.
+      expect(first).not.toContain(chalk.hex(darkColors.primary)('●'));
+
+      // Orchestrating shimmers periwinkle-on-periwinkle, not periwinkle-on-grey.
+      const aggregate = aggregateLine(component.render(100).join('\n'));
+      expect(aggregate).toContain(chalk.hex(darkColors.primary)('rchestrating'));
+      expect(aggregate).not.toContain(chalk.hex(darkColors.text)('rchestrating'));
+    } finally {
+      vi.useRealTimers();
+      chalk.level = previousLevel;
+      currentTheme.setPalette(previousPalette);
+    }
+  });
+
   it('cancels the request without inventing terminal child states', () => {
     const component = createComponent();
     component.updateArgs({ items: ['Running work', 'Queued work'] });
@@ -322,7 +375,7 @@ describe('DynamicWorkflowMissionControlComponent', () => {
 
     const output = renderText(component, 120);
     expect(output).toContain('– Cancelled');
-    expect(memberLine(output, 1)).toMatch(/20%\s+● RUN\s+Running work/);
+    expect(memberLine(output, 1)).toMatch(/20%\s+[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] RUN\s+Running work/u);
     expect(memberLine(output, 2)).toMatch(/0%\s+◌ WAIT\s+Queued work/);
     expect(output).not.toContain('– STOP');
     expect(output).not.toContain('⠋ Orchestrating');
@@ -468,9 +521,11 @@ describe('DynamicWorkflowMissionControlComponent', () => {
     component.markCancelled('agent-6');
 
     const output = renderText(component, 140);
-    for (const token of ['◌ WAIT', '● RUN', '! HOLD', '✓ DONE', '× FAIL', '– STOP']) {
+    for (const token of ['◌ WAIT', '! HOLD', '✓ DONE', '× FAIL', '– STOP']) {
       expect(output).toContain(token);
     }
+    // Running is the one animated phase, so its symbol varies by frame.
+    expect(output).toMatch(RUNNING_CELL);
     expect(output).toContain('Orchestrating');
 
     const failed = createComponent();
@@ -598,7 +653,7 @@ describe('DynamicWorkflowMissionControlComponent', () => {
 
       const showsProgress = width >= 64;
       expect(rendered.every((line) => visibleWidth(line) <= width)).toBe(true);
-      expect(memberLine(output, 1)).toContain('● RUN');
+      expect(memberLine(output, 1)).toMatch(RUNNING_CELL);
       expect(memberLine(output, 1).includes('▏⣀⣀▕  20%')).toBe(showsProgress);
       expect(output.includes('PROGRESS')).toBe(showsProgress);
     },
@@ -721,7 +776,7 @@ describe('DynamicWorkflowMissionControlComponent', () => {
     component.markCompleted('agent-2', 'Done');
 
     const output = renderText(component, 100);
-    expect(output).toContain('● RUN');
+    expect(output).toMatch(RUNNING_CELL);
     expect(output).toContain('Orchestrating');
     expect(output).not.toContain('Finalizing');
 

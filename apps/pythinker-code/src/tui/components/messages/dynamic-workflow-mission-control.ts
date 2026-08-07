@@ -1,6 +1,7 @@
 import { truncateToWidth, visibleWidth, type Component } from '@earendil-works/pi-tui';
 
 import {
+  BRAILLE_SPINNER_FRAMES,
   BRAILLE_SPINNER_INTERVAL_MS,
   DYNAMIC_WORKFLOW_RENDERING,
 } from '#/tui/constant/rendering';
@@ -100,7 +101,9 @@ export interface DynamicWorkflowMissionControlOptions {
 const PHASE_TOKENS: Record<DynamicWorkflowPhase, string> = {
   pending: '◌ PEND',
   queued: '◌ WAIT',
-  running: '● RUN',
+  // Label only: a running row is the one phase that animates, so its symbol is
+  // a spinner supplied per frame by renderPhaseCell rather than a fixed glyph.
+  running: 'RUN',
   suspended: '! HOLD',
   completed: '✓ DONE',
   failed: '× FAIL',
@@ -501,7 +504,9 @@ export class DynamicWorkflowMissionControlComponent implements Component {
     const label = terminal
       ? currentTheme.fg('text', requestPhaseLabel(this.model.requestPhase))
       : shimmerText(finalizing ? FINALIZING_LABEL : ORCHESTRATING_LABEL, {
-          baseToken: 'text',
+          // `primary` / `primaryShimmer` are a designed pair, so the sweep stays
+          // periwinkle throughout; the old grey `text` base washed it out.
+          baseToken: 'primary',
           shimmerToken: 'primaryShimmer',
           frame: Math.floor(
             Math.max(0, nowMs - this.model.startedAtMs) / BRAILLE_SPINNER_INTERVAL_MS,
@@ -552,7 +557,12 @@ export class DynamicWorkflowMissionControlComponent implements Component {
 
   private renderMember(member: DynamicWorkflowMember, width: number, nowMs: number): string {
     const id = currentTheme.fg('primary', String(member.index).padStart(3, '0'));
-    const state = currentTheme.fg(PHASE_COLORS[member.phase], PHASE_TOKENS[member.phase]);
+    // All running rows share the workflow's clock, so they spin in step instead
+    // of drifting apart by whenever each agent happened to start.
+    const state = renderPhaseCell(
+      member.phase,
+      Math.floor(Math.max(0, nowMs - this.model.startedAtMs) / BRAILLE_SPINNER_INTERVAL_MS),
+    );
     const progressPercent = member.progressPercent;
     const showProgress = width >= DYNAMIC_WORKFLOW_RENDERING.memberProgressMinWidth;
     const progress = `${renderProgressCube(progressPercent)} ${currentTheme.fg(
@@ -1035,6 +1045,22 @@ function latestNonEmptyLine(text: string): string {
 
 function normalizeText(text: string | undefined): string {
   return text?.replaceAll(/\s+/g, ' ').trim() ?? '';
+}
+
+/**
+ * The STATE cell for one row.
+ *
+ * Every phase but `running` is a fixed symbol plus its label. A running row
+ * spins a dim grey braille dot instead, so "this agent is working" reads as
+ * motion rather than as another coloured dot competing with the periwinkle the
+ * panel already uses for identity.
+ */
+function renderPhaseCell(phase: DynamicWorkflowPhase, frame: number): string {
+  const label = currentTheme.fg(PHASE_COLORS[phase], PHASE_TOKENS[phase]);
+  if (phase !== 'running') return label;
+  const spinner =
+    BRAILLE_SPINNER_FRAMES[frame % BRAILLE_SPINNER_FRAMES.length] ?? BRAILLE_SPINNER_FRAMES[0] ?? '';
+  return `${currentTheme.fg('textDim', spinner)} ${label}`;
 }
 
 function padToWidth(text: string, width: number): string {
