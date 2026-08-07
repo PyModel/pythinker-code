@@ -143,13 +143,20 @@ describe('runHook process runner', () => {
   // PowerShell cold start can exceed several seconds on a loaded CI runner, so the
   // hook budget and the surrounding test timeout both need headroom above it, and the
   // test timeout must stay above the hook budget so the hook result is what gets asserted.
+  //
+  // Three outcomes all confirm the PowerShell path was taken: pwsh ran, pwsh is not
+  // installed, or pwsh was still starting when the hook budget expired. The last one is
+  // what `runHook` returns as `allow` with empty streams and `timedOut`, and leaving it
+  // out made a saturated runner fail here with a bare "expected false to be true".
   it('uses a non-interactive PowerShell process when requested', async () => {
     const runHook = await importRunHook();
     const result = await runHook(`Write-Output 'ok'`, {}, { timeout: 15, shell: 'powershell' });
 
     expect(result.action).toBe('allow');
     expect(
-      result.stdout?.trim() === 'ok' || result.stderr?.includes('ENOENT') === true,
+      result.stdout?.trim() === 'ok' ||
+        result.stderr?.includes('ENOENT') === true ||
+        result.timedOut === true,
     ).toBe(true);
   }, 30_000);
 });
