@@ -10,8 +10,8 @@
  * `promptPlatformSelection` — bundled catalog seed first, live fetch with a
  * bundled fallback, so login still works offline.
  *
- * The `ManagedKimiCodeModelInfo` / `OpenPlatformDefinition` /
- * `DeviceAuthorization` types live in `@pythoughts/pythinker-code-oauth`,
+ * The `PlatformModelInfo` / `OpenPlatformDefinition` types live in
+ * `@pythoughts/pythinker-code-oauth`,
  * which the extension does not depend on, so the port members are written
  * inline and contextually typed against `LoginUi`. Effort levels come from the
  * SDK's shared rule, reached through the two model-alias converters, so this
