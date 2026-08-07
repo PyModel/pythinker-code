@@ -207,6 +207,10 @@ await rm(outDir, { recursive: true, force: true });
 await cp(siteDist, outDir, { recursive: true });
 const channelRoot = join(outDir, 'pythinker-code');
 await mkdir(channelRoot, { recursive: true });
+// Plain-text `/latest`: install.sh reads it for a fresh install, and clients
+// shipped before latest.json existed still poll it. Current clients read only
+// the manifest, so this file must keep being written but must never become the
+// place a new field lands.
 await writeFile(join(channelRoot, 'latest'), `${version}\n`);
 const platforms = await resolvePlatformArtifacts(version);
 await writeFile(join(channelRoot, 'latest.json'), `${JSON.stringify({
@@ -215,14 +219,15 @@ await writeFile(join(channelRoot, 'latest.json'), `${JSON.stringify({
   platforms: platforms ?? undefined,
   rollout: [],
 }, null, 2)}\n`);
-await cp(
-  join(repoRoot, 'apps/pythinker-web/public/install.sh'),
-  join(channelRoot, 'install.sh'),
-);
-await cp(
-  join(repoRoot, 'apps/pythinker-web/public/install.ps1'),
-  join(channelRoot, 'install.ps1'),
-);
+// One checked-in installer, served at both paths. `apps/site/public/` used to
+// hold its own byte-identical copy, which meant a one-sided edit shipped
+// silently; the site root keeps working because the file is placed here at
+// build time instead of being duplicated in the tree.
+for (const name of ['install.sh', 'install.ps1']) {
+  const source = join(repoRoot, 'apps/pythinker-web/public', name);
+  await cp(source, join(channelRoot, name));
+  await cp(source, join(outDir, name));
+}
 await copyPlugins(repoRoot, outDir);
 if (!skipRg) await downloadRipgrep(repoRoot, outDir);
 
