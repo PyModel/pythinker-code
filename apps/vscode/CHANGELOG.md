@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.7
+
+### Patch Changes
+
+- [#39](https://github.com/Pythoughts-labs/pythinker-code/pull/39) [`acf57d1`](https://github.com/Pythoughts-labs/pythinker-code/commit/acf57d197631ce90ef64cf0768bfc22009cda820) - Publish the VS Code extension to Open VSX by creating the publisher namespace first, so Cursor, VSCodium and Windsurf can install it, and report the registry's own error when a publish fails instead of only the CLI exit line.
+
 ## 0.8.6
 
 ### Patch Changes
