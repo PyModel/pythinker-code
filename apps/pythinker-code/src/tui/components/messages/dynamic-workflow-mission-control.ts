@@ -1046,16 +1046,25 @@ function renderWorkCell(member: DynamicWorkflowMember, nowMs: number): string {
   }
   const idleMs = Math.max(0, nowMs - member.lastEventAtMs);
   const idleSeconds = Math.floor(idleMs / 1000);
-  // Only a running row can stall. A suspended one is waiting on the user by
-  // design, so it keeps the count without the alarm colours.
-  const token = member.phase !== 'running'
-    ? 'textMuted'
-    : idleMs >= DYNAMIC_WORKFLOW_RENDERING.stalledIdleMs
-      ? 'error'
-      : idleMs >= DYNAMIC_WORKFLOW_RENDERING.quietIdleMs
-        ? 'warning'
-        : 'textMuted';
+  const token = idleColor(member.phase, idleMs);
   return `${tools} ${currentTheme.fg(token, `${String(idleSeconds)}s`.padStart(4, ' '))}`;
+}
+
+/**
+ * How loud an idle age reads.
+ *
+ * Only a running row can stall. A suspended one is waiting on the user by
+ * design, so it keeps the count without the alarm colours.
+ */
+function idleColor(
+  phase: DynamicWorkflowPhase,
+  idleMs: number,
+): 'textMuted' | 'warning' | 'error' {
+  if (phase === 'running') {
+    if (idleMs >= DYNAMIC_WORKFLOW_RENDERING.stalledIdleMs) return 'error';
+    if (idleMs >= DYNAMIC_WORKFLOW_RENDERING.quietIdleMs) return 'warning';
+  }
+  return 'textMuted';
 }
 
 /**

@@ -665,6 +665,42 @@ describe('DynamicWorkflowMissionControlComponent', () => {
     }
   });
 
+  it('keeps a suspended row muted however long it stays silent', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const previousLevel = chalk.level;
+    const previousPalette = currentTheme.palette;
+    chalk.level = 3;
+    currentTheme.setPalette(darkColors);
+
+    try {
+      const component = createComponent();
+      component.updateArgs({ items: ['Held work'] });
+      component.markInputComplete();
+      component.registerSubagent({ agentId: 'agent-1' });
+      component.markStarted('agent-1');
+      // The last event lands a minute in, so the idle age and the elapsed age
+      // read as different numbers and the assertion cannot match the wrong cell.
+      vi.setSystemTime(60_000);
+      component.recordToolCall({ agentId: 'agent-1', name: 'Bash' });
+      component.markSuspended({ agentId: 'agent-1', reason: 'Waiting for approval' });
+
+      // A suspended agent waits on the user by design, so its silence is not a
+      // stall and must never borrow the alarm colours.
+      vi.setSystemTime(60_000 + DYNAMIC_WORKFLOW_RENDERING.stalledIdleMs * 2);
+      const line = component.render(100).find(
+        (candidate) => strip(candidate).replace(/^│\s*/u, '').startsWith('001'),
+      );
+      if (line === undefined) throw new Error('Missing Dynamic Workflow member 001');
+      expect(strip(line)).toContain('1⚒ 360s');
+      expect(line).toContain(chalk.hex(darkColors.textMuted)('360s'));
+    } finally {
+      vi.useRealTimers();
+      chalk.level = previousLevel;
+      currentTheme.setPalette(previousPalette);
+    }
+  });
+
   it('never marks a row that has not started as stalled', () => {
     vi.useFakeTimers();
     vi.setSystemTime(0);
