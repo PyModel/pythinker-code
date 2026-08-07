@@ -127,9 +127,11 @@ describe('refreshAllProviderModels', () => {
     // scope 'oauth' must not touch the hand-written provider.
     expect(host.current().providers['manual']).toMatchObject({ apiKey: 'sk-manual' });
     expect(host.current().models?.['manual/kept']).toBeDefined();
-    // The old default alias is gone, so the stale selection must not survive.
+    // The old default alias is gone. The refresh re-points the selection at the
+    // model it just fetched rather than clearing it, so the session still has a
+    // model to run on.
     expect(host.current().models?.['openai-codex/gone']).toBeUndefined();
-    expect(host.current().defaultModel).not.toBe('openai-codex/gone');
+    expect(host.current().defaultModel).toBe('openai-codex/gpt-5-codex');
   });
 
   it('refreshes catalog-backed providers once per models.dev source', async () => {

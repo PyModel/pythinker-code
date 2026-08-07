@@ -1056,6 +1056,9 @@ describe("Webview login (multi-provider picker behind Methods.Login)", () => {
     const result = await bridge.handle({ id: "rpc-login", method: Methods.Login }, "view-1");
 
     expect(result).toEqual({ id: "rpc-login", result: { success: true } });
+    // The refresh has to have been attempted — otherwise this asserts nothing
+    // about a failure it never reached.
+    expect(host.harness.isAuthenticated).toHaveBeenCalledTimes(1);
     expect(host.harness.setConfig).toHaveBeenCalled();
   });
 });

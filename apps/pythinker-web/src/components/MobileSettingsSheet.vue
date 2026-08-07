@@ -248,7 +248,7 @@ function onLogin(): void {
     <!-- Account: open provider management -->
     <button type="button" class="srow acct in" @click="onLogin">
       <span class="srow-main">
-        <span class="srow-label">{{ t('sidebar.signIn') }}</span>
+        <span class="srow-label">{{ t('providers.title') }}</span>
       </span>
     </button>
   </BottomSheet>
