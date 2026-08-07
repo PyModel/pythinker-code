@@ -709,7 +709,14 @@ export class DynamicWorkflowMissionControlComponent implements Component {
 /** Item list from the completed tool-call `items` argument. */
 export function dynamicWorkflowItemsFromArgs(args: Record<string, unknown>): string[] {
   const items = args['items'];
-  return Array.isArray(items) ? items.map(itemLabel) : [];
+  if (!Array.isArray(items)) return [];
+  // Blank entries are dropped by the engine before any agent is launched, so
+  // counting them here would leave a phantom row waiting forever and pin the
+  // header below its total. Non-strings are kept: the engine rejects those, and
+  // itemLabel renders them readably.
+  return items
+    .filter((item) => typeof item !== 'string' || item.trim().length > 0)
+    .map(itemLabel);
 }
 
 /**

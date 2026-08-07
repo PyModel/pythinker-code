@@ -386,6 +386,11 @@ describe('current builtin collaboration tools', () => {
     expect(queued.map((task) => task.prompt)).toEqual(['Review src/a.ts', 'Review src/b.ts']);
     // A quietly shorter workflow must not read as one the model sized right.
     expect(result.output).toContain('1 empty item was ignored');
+    // The note must not precede the envelope: consumers match the result
+    // document anchored at the start, so a prefix renders a successful run as
+    // an unsupported result.
+    const outputText = typeof result.output === 'string' ? result.output : '';
+    expect(outputText.trimStart().startsWith('<dynamic_workflow_result')).toBe(true);
   });
 
   it('DynamicWorkflow says items were dropped when too few survive', async () => {
@@ -456,12 +461,15 @@ describe('current builtin collaboration tools', () => {
         items: Array.from({ length: 128 }, (_, index) => `src/${String(index + 1)}.ts`),
       }).success,
     ).toBe(true);
+    // Over the cap now passes argument validation and fails inside the tool
+    // with a readable message. Rejecting at the schema would discard the whole
+    // call -- including the 128 valid prompts -- over one surplus entry.
     expect(
       DynamicWorkflowToolInputSchema.safeParse({
         ...input,
         items: Array.from({ length: 129 }, (_, index) => `src/${String(index + 1)}.ts`),
       }).success,
-    ).toBe(false);
+    ).toBe(true);
     expect(tool.parameters).toMatchObject({
       type: 'object',
       properties: {
@@ -854,6 +862,24 @@ describe('current builtin collaboration tools', () => {
 
     expect(execution.approvalRule).toBe('DynamicWorkflow');
     expect(execution.matchesRule).toBeUndefined();
+  });
+
+  it('DynamicWorkflow accepts a full item list carrying a blank entry', async () => {
+    // 128 real prompts plus one blank used to trip the schema's raw-length cap,
+    // which rejected the entire call -- the very hole the blank-item handling
+    // exists to close, reopened at the boundary.
+    const items = [...Array.from({ length: 128 }, (_, index) => `src/${String(index + 1)}.ts`), ''];
+    const input = { description: 'Review files', prompt_template: 'Review {{item}}', items };
+
+    expect(DynamicWorkflowToolInputSchema.safeParse(input).success).toBe(true);
+
+    const host = mockSubagentHost({ runQueued: vi.fn().mockResolvedValue([]) });
+    const tool = new DynamicWorkflowTool(host, mockDynamicWorkflowMode());
+    const result = await executeTool(tool, context(input, 'call_dynamic_workflow'));
+
+    expect(result.isError).not.toBe(true);
+    expect(host.runQueued).toHaveBeenCalledTimes(1);
+    expect((host.runQueued.mock.calls[0]?.[0] as unknown[]).length).toBe(128);
   });
 
   it('DynamicWorkflow rejects more than 128 subagents at execution time', async () => {

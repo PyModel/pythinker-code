@@ -121,6 +121,56 @@ describe('DynamicWorkflowMissionControlComponent', () => {
     }
   });
 
+  it('ignores blank items so no phantom row waits forever', () => {
+    const component = createComponent();
+    // The engine drops the blank before launching anything, so counting it here
+    // would leave a third row queued for good and pin the header at 2/3.
+    component.updateArgs({ items: ['Layout hierarchy', 'Interaction audit', '   '] });
+    component.markInputComplete();
+    register(component, 'agent-1');
+    component.markStarted('agent-1');
+    component.markCompleted('agent-1', 'Done one');
+    register(component, 'agent-2');
+    component.markStarted('agent-2');
+    component.markCompleted('agent-2', 'Done two');
+
+    const output = renderText(component, 120);
+    expect(memberLine(output, 1)).toContain('✓ DONE');
+    expect(memberLine(output, 2)).toContain('✓ DONE');
+    // memberRowCount also counts activity lines, so assert the row's absence.
+    expect(() => memberLine(output, 3)).toThrow(/Missing Dynamic Workflow member 003/u);
+    expect(aggregateLine(output)).toContain('2/2 complete');
+  });
+
+  it('still parses a result that carries the dropped-items note', () => {
+    // agent-core appends this note when it ignores blank items. It used to be
+    // prepended, which made the envelope regex miss and rendered a successful
+    // run as "Unsupported Dynamic Workflow result".
+    const result = [
+      '<dynamic_workflow_result>',
+      '<summary>completed: 1</summary>',
+      '<subagent outcome="completed">Layout hierarchy</subagent>',
+      '</dynamic_workflow_result>',
+      'Note: 1 empty item was ignored; the workflow ran without them.',
+    ].join('\n');
+
+    expect(dynamicWorkflowResultSummaryFromOutput(result)).toEqual({
+      completed: 1,
+      failed: 0,
+      aborted: 0,
+      parsed: true,
+    });
+
+    const component = createComponent();
+    component.updateArgs({ items: ['Layout hierarchy'] });
+    component.markInputComplete();
+    expect(component.applyResult(result)).toBe(true);
+
+    const output = renderText(component, 120);
+    expect(memberLine(output, 1)).toContain('✓ DONE');
+    expect(output).not.toContain('Unsupported');
+  });
+
   it('decodes escaped XML fields and preserves literal closing-tag text', () => {
     const result = [
       '<dynamic_workflow_result>',

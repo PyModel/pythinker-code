@@ -72,12 +72,12 @@ export const DynamicWorkflowToolInputSchema = z
         `Optional prompt template for each subagent. The ${PROMPT_TEMPLATE_PLACEHOLDER} placeholder is replaced with each item value. When omitted, each item is used as a complete prompt.`,
       ),
     items: z
-      // Deliberately NOT `.min(1)` per item: a model that emits a trailing
-      // empty string would otherwise fail argument validation, which rejects
-      // the WHOLE call before the tool runs and costs a full re-send of every
-      // prompt. Empty entries are dropped and reported by the tool instead.
+      // Deliberately unconstrained per item and unbounded in length: argument
+      // validation rejects the WHOLE call before the tool runs, so a trailing
+      // empty string — or one blank entry pushing a full list one over the cap
+      // — would cost a re-send of every prompt. The tool drops blanks, reports
+      // how many, and enforces the real cap against the surviving count.
       .array(z.string())
-      .max(MAX_DYNAMIC_WORKFLOW_SUBAGENTS)
       .optional()
       .describe(
         `Each item launches one new subagent. Items fill ${PROMPT_TEMPLATE_PLACEHOLDER} when prompt_template is provided; otherwise they are complete prompts.`,
@@ -262,7 +262,10 @@ export class DynamicWorkflowTool implements BuiltinTool<DynamicWorkflowToolInput
     );
     const { dropped } = normalizeWorkflowItems(args.items);
     if (dropped === 0) return rendered;
-    return `${droppedItemsNote(dropped)}\n${rendered}`;
+    // After the envelope, never before it: consumers match the result document
+    // anchored at the start of the output, so a prefix makes a successful run
+    // parse as an unsupported result.
+    return `${rendered}\n${droppedItemsNote(dropped)}`;
   }
 }
 
