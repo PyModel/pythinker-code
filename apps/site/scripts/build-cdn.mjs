@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { access, cp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, parse, resolve } from 'node:path';
@@ -27,6 +28,65 @@ function parseArgs() {
   }
   if (!out) throw new Error('Usage: build-cdn.mjs --out <dir> [--skip-rg]');
   return { out, skipRg };
+}
+
+const RELEASE_VERSION = /^\d+\.\d+\.\d+$/;
+
+/**
+ * Resolve the version this CDN advertises from a *published* release, never from
+ * the working tree.
+ *
+ * `apps/pythinker-code/package.json` is bumped by the `ci: release packages`
+ * merge and this site autodeploys on every push to main, so deriving the
+ * manifest from it advertised the next version the moment that merge landed —
+ * before the npm publish and the GitHub release assets existed, and permanently
+ * when the publish never ran at all. Installed clients then polled GitHub for
+ * assets that did not exist (~6 minutes per launch, every launch). The npm
+ * dist-tag is the publish barrier, so it is the only safe source.
+ *
+ * `publishedAt` comes from npm's own publish timestamp: stamping build time made
+ * every unrelated site deploy re-anchor the clients' rollout eligibility window.
+ *
+ * A registry read failure throws on purpose: a failed image build leaves the
+ * previous container serving the last good manifest, which is the safe outcome.
+ */
+async function resolvePublishedRelease(packageName) {
+  const pinned = process.env.PYTHINKER_CDN_VERSION?.trim();
+  if (pinned) {
+    // The override answers to the same shape rule as the registry path below.
+    // A client rejects a manifest whose `version` is not semver, so an
+    // unusable override has to stop the build instead of publishing a
+    // latest.json that every installed client fails to parse.
+    if (!RELEASE_VERSION.test(pinned)) {
+      throw new Error(`PYTHINKER_CDN_VERSION is not a release version: ${pinned}`);
+    }
+    // Build time is the only timestamp available for a manual pin; the
+    // registry path below requires npm's own and never stamps one.
+    return { version: pinned, publishedAt: new Date().toISOString() };
+  }
+  const view = JSON.parse(
+    execFileSync(
+      'npm',
+      ['view', packageName, 'dist-tags', 'time', '--json', '--registry=https://registry.npmjs.org'],
+      { encoding: 'utf8', timeout: 60_000 },
+    ),
+  );
+  const version = view['dist-tags']?.latest;
+  if (typeof version !== 'string' || !RELEASE_VERSION.test(version)) {
+    throw new Error(
+      `npm dist-tag latest for ${packageName} is not a release version: ${String(version)}`,
+    );
+  }
+  const publishedAt = view.time?.[version];
+  // Stamping build time here is the bug this function documents: it would move
+  // the rollout anchor on every unrelated site deploy. Unreadable registry
+  // metadata is a failed read, and a failed read must fail the build.
+  if (typeof publishedAt !== 'string' || !Number.isFinite(Date.parse(publishedAt))) {
+    throw new Error(
+      `npm has no usable publish time for ${packageName}@${version}: ${String(publishedAt)}`,
+    );
+  }
+  return { version, publishedAt };
 }
 
 async function copyPlugins(repoRoot, cdnRoot) {
@@ -101,10 +161,11 @@ const repoRoot = await findRepoRoot();
 const packageJson = JSON.parse(
   await readFile(join(repoRoot, 'apps/pythinker-code/package.json'), 'utf8'),
 );
-const version = packageJson.version;
-if (typeof version !== 'string' || version.trim() === '') {
-  throw new Error('apps/pythinker-code/package.json has no version');
+const packageName = packageJson.name;
+if (typeof packageName !== 'string' || packageName.trim() === '') {
+  throw new Error('apps/pythinker-code/package.json has no name');
 }
+const { version, publishedAt } = await resolvePublishedRelease(packageName);
 
 const siteDist = join(repoRoot, 'apps/site/dist');
 await access(join(siteDist, 'index.html'));
@@ -126,7 +187,7 @@ await mkdir(channelRoot, { recursive: true });
 await writeFile(join(channelRoot, 'latest'), `${version}\n`);
 await writeFile(join(channelRoot, 'latest.json'), `${JSON.stringify({
   version,
-  publishedAt: new Date().toISOString(),
+  publishedAt,
   rollout: [],
 }, null, 2)}\n`);
 await cp(

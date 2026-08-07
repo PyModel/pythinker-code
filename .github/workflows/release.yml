@@ -203,15 +203,23 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
-  # code.pythinker.com redeploys via Dokploy autodeploy on push to main
-  # (app Pythinker/code builds apps/site/Dockerfile from the repo, no npm
-  # registry dependency), so no deploy webhook is fired here — this job only
-  # verifies the published release is internally consistent.
+  # code.pythinker.com redeploys via Dokploy autodeploy on push to main (app
+  # Pythinker/code builds apps/site/Dockerfile from the repo), so no deploy
+  # webhook is fired here — this job verifies that the published release is
+  # internally consistent and that the CDN is not advertising a version npm
+  # does not have.
+  #
+  # It also runs on a `ci: release packages` merge that published nothing: that
+  # commit bumps the version on main, so gating the check on a successful
+  # publish hid the one case where the version and the published artifacts
+  # diverge — and every client polled the CDN for a release that never existed.
   verify-cdn-release:
     timeout-minutes: 15
     name: Verify release consistency
     needs: release
-    if: needs.release.outputs.packages_published == 'true'
+    if: >-
+      needs.release.outputs.packages_published == 'true'
+      || startsWith(github.event.head_commit.message, 'ci: release packages')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
