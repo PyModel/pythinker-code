@@ -41,6 +41,15 @@ param(
   $InstallShUrl = "https://code.pythinker.com/pythinker-code/install.sh"
   $InstallPs1Url = "https://code.pythinker.com/pythinker-code/install.ps1"
 
+  # Network timeouts, in seconds. The installer owns retry (helpers re-invoke
+  # up to 3 times with backoff), so no client-side retry is used and each bound
+  # covers exactly one attempt.
+  # - Metadata requests (CDN version, GitHub API, checksum): 30s total.
+  # - Archive download: 600s total. Both share a 10s connect cap.
+  $ConnectTimeoutSeconds = 10
+  $MetadataTimeoutSeconds = 30
+  $ArchiveTimeoutSeconds = 600
+
   $previousOutputEncoding = $null
   $previousSecurityProtocol = $null
   $httpClient = $null
@@ -302,8 +311,23 @@ Unix / macOS / Linux users:
 
     $handler = New-Object System.Net.Http.HttpClientHandler
     $handler.AllowAutoRedirect = $true
+    # Connect cap: 10s. HttpClientHandler.ConnectTimeout is available on
+    # PowerShell 7 (System.Net.Http on .NET Core) and on Windows PowerShell 5.1
+    # hosts with .NET Framework 4.7.2+; the guard below skips it on older .NET
+    # Framework hosts, where the operation timeout still bounds the whole call.
+    try {
+      $handler.ConnectTimeout = [TimeSpan]::FromSeconds($ConnectTimeoutSeconds)
+    } catch {
+      # Older .NET Framework without ConnectTimeout: nothing to set; the
+      # operation timeout below still bounds the call.
+    }
     $client = New-Object System.Net.Http.HttpClient -ArgumentList $handler
-    $client.Timeout = [TimeSpan]::FromMinutes(15)
+    # Operation timeout: 30s, and never reassigned — the setter throws once the
+    # client has sent its first request. For the metadata calls, which read with
+    # ResponseContentRead, this covers the whole operation (request, headers and
+    # body) on both PowerShell 7 and Windows PowerShell 5.1. The archive
+    # download bounds itself with a cancellation token; see Download-File.
+    $client.Timeout = [TimeSpan]::FromSeconds($MetadataTimeoutSeconds)
     [void]$client.DefaultRequestHeaders.UserAgent.ParseAdd('Pythinker-Code-Installer/1.0')
     [void]$client.DefaultRequestHeaders.Accept.ParseAdd('*/*')
     return $client
@@ -365,6 +389,7 @@ Unix / macOS / Linux users:
       $inputStream = $null
       $outputStream = $null
       $stopwatch = $null
+      $attemptCts = $null
       $received = [long]0
       $frameIndex = 0
 
@@ -378,7 +403,22 @@ Unix / macOS / Linux users:
       try {
         if ($useAnimation) { Write-Host -NoNewline $HIDE_CURSOR }
 
-        $response = $Client.GetAsync($Uri, [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead).GetAwaiter().GetResult()
+        # Archive download: bounded by a cancellation token, not by
+        # HttpClient.Timeout. Two reasons the property cannot do this job.
+        # First, its setter throws InvalidOperationException once the client has
+        # sent a request, and metadata calls have already run by the time we get
+        # here. Second, with ResponseHeadersRead it only bounds the wait for the
+        # headers, never the streaming body — so a connection that accepts and
+        # then stops would hang the installer forever, with its pid still
+        # recorded as the active update.
+        # One token covers the header wait and every read below.
+        # Total ceiling only, no per-read stall guard: curl's --speed-time
+        # equivalent needs a token per read. Add it if a 600s trickle ever
+        # shows up in the wild.
+        $attemptCts = New-Object System.Threading.CancellationTokenSource
+        $attemptCts.CancelAfter([TimeSpan]::FromSeconds($ArchiveTimeoutSeconds))
+
+        $response = $Client.GetAsync($Uri, [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead, $attemptCts.Token).GetAwaiter().GetResult()
         if (-not $response.IsSuccessStatusCode) {
           $status = [int]$response.StatusCode
           throw "$Label failed with HTTP $status $($response.ReasonPhrase)"
@@ -398,7 +438,7 @@ Unix / macOS / Linux users:
         $lastRenderMilliseconds = [long]-1000
 
         while ($true) {
-          $read = $inputStream.Read($buffer, 0, $buffer.Length)
+          $read = $inputStream.ReadAsync($buffer, 0, $buffer.Length, $attemptCts.Token).GetAwaiter().GetResult()
           if ($read -le 0) { break }
 
           $outputStream.Write($buffer, 0, $read)
@@ -434,6 +474,7 @@ Unix / macOS / Linux users:
         if ($null -ne $outputStream) { $outputStream.Dispose() }
         if ($null -ne $inputStream) { $inputStream.Dispose() }
         if ($null -ne $response) { $response.Dispose() }
+        if ($null -ne $attemptCts) { $attemptCts.Dispose() }
         if ($null -ne $stopwatch -and $stopwatch.IsRunning) { $stopwatch.Stop() }
         Remove-Item -LiteralPath $partialPath -Force -ErrorAction SilentlyContinue
         if ($useAnimation) {

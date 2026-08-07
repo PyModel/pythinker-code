@@ -28,6 +28,30 @@ NO_COLOR="${NO_COLOR:-}"
 REPO="Pythoughts-labs/pythinker-code"
 CDN_LATEST_URL="https://code.pythinker.com/pythinker-code/latest"
 
+# Network timeout policy. The script owns retry — _download_with_progress and
+# _download_quiet_with_retry re-invoke the helpers up to 3 times with backoff —
+# so curl and wget must not add their own retry: curl's --max-time counter
+# resets on every --retry attempt, which would let one logical attempt run far
+# beyond its budget. With retry left to the script, --max-time bounds exactly
+# one attempt, which is what the retry loops expect.
+#
+# Metadata requests (_content_length, _fetch): 10s connect, 30s total.
+# Archive downloads (_download_quiet, _start_download): 10s connect, 600s total,
+# plus a stall guard that aborts when throughput stays under 1024 bytes/s for
+# 30s — a connection that is alive but crawling would otherwise burn the whole
+# 600s budget.
+# wget gets `-T` and nothing else on purpose. GNU's --connect-timeout /
+# --read-timeout / --tries do not exist in BusyBox wget, which is the only wget
+# on Alpine-class systems, and an unrecognized option there aborts the install
+# outright — turning a working fallback into a hard failure. `-T` is understood
+# by both: GNU treats it as dns+connect+read at once, BusyBox as the network
+# read timeout. It is an inactivity bound, not a total one, so it is sized for
+# "this connection is dead", not for the whole transfer.
+CURL_META_OPTS=(--connect-timeout 10 --max-time 30)
+WGET_META_OPTS=(-T 30)
+CURL_ARCHIVE_OPTS=(--connect-timeout 10 --max-time 600 --speed-limit 1024 --speed-time 30)
+WGET_ARCHIVE_OPTS=(-T 60)
+
 # Operational globals are populated by main(). Keeping rendering helpers at
 # file scope makes the installer sourceable for regression tests and tooling.
 target=""
@@ -322,7 +346,7 @@ _current_file_size() {
 _content_length() {
   local url="$1"
   command -v curl >/dev/null 2>&1 || return 1
-  curl -fsIL "$url" 2>/dev/null \
+  curl -fsIL "${CURL_META_OPTS[@]}" "$url" 2>/dev/null \
     | awk 'tolower($1) == "content-length:" {
         gsub("\r", "", $2)
         bytes = $2
@@ -534,9 +558,9 @@ print_done() {
 _fetch() {
   local url="$1"
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL "$url"
+    curl -fsSL "${CURL_META_OPTS[@]}" "$url"
   elif command -v wget >/dev/null 2>&1; then
-    wget -qO- "$url"
+    wget -qO- "${WGET_META_OPTS[@]}" "$url"
   else
     return 127
   fi
@@ -545,9 +569,9 @@ _fetch() {
 _download_quiet() {
   local url="$1" output="$2"
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL "$url" -o "$output"
+    curl -fsSL "${CURL_ARCHIVE_OPTS[@]}" "$url" -o "$output"
   elif command -v wget >/dev/null 2>&1; then
-    wget -q "$url" -O "$output"
+    wget -q "${WGET_ARCHIVE_OPTS[@]}" "$url" -O "$output"
   else
     return 127
   fi
@@ -558,9 +582,9 @@ _start_download() {
   DOWNLOAD_PID=""
 
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL "$url" -o "$output" &
+    curl -fsSL "${CURL_ARCHIVE_OPTS[@]}" "$url" -o "$output" &
   elif command -v wget >/dev/null 2>&1; then
-    wget -q "$url" -O "$output" &
+    wget -q "${WGET_ARCHIVE_OPTS[@]}" "$url" -O "$output" &
   else
     return 127
   fi
