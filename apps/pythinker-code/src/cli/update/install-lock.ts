@@ -4,8 +4,13 @@ import { dirname } from 'node:path';
 
 import { getUpdateInstallLockFile } from '#/utils/paths';
 
-const UPDATE_INSTALL_LOCK_STALE_MS = 30 * 60 * 1000;
-const UPDATE_INSTALL_LOCK_CLOCK_SKEW_MS = 5 * 60 * 1000;
+import { isLeaseFresh, type LeaseLimits } from './lease';
+
+const LOCK_LEASE_LIMITS: LeaseLimits = {
+  pidCeilingMs: 6 * 60 * 60 * 1000,
+  pidlessTtlMs: 30 * 60 * 1000,
+  clockSkewMs: 5 * 60 * 1000,
+};
 
 export interface UpdateInstallLockRequest {
   readonly version: string;
@@ -36,23 +41,6 @@ function isAlreadyExists(error: unknown): boolean {
   );
 }
 
-/**
- * Liveness probe via `kill(pid, 0)`. EPERM means the process exists but is
- * owned by another user, which is still "running" for lock purposes.
- */
-function isProcessRunning(pid: number): boolean {
-  if (!Number.isSafeInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return typeof error === 'object'
-      && error !== null
-      && 'code' in error
-      && error.code === 'EPERM';
-  }
-}
-
 async function readLockSnapshot(filePath: string): Promise<LockSnapshot | null> {
   try {
     const raw = await readFile(filePath, 'utf-8');
@@ -80,18 +68,8 @@ async function readLockSnapshot(filePath: string): Promise<LockSnapshot | null> 
   }
 }
 
-/**
- * A recorded pid overrides timestamps: a live owner keeps the lock no
- * matter how old it is. PID-less (legacy) locks expire by age, with a
- * clock-skew tolerance so a small rollback cannot orphan a live install.
- */
 function isStaleLock(snapshot: LockSnapshot, now: Date): boolean {
-  if (snapshot.pid !== undefined) return !isProcessRunning(snapshot.pid);
-  if (snapshot.startedAt === undefined) return true;
-  const startedAt = Date.parse(snapshot.startedAt);
-  if (!Number.isFinite(startedAt)) return true;
-  const age = now.getTime() - startedAt;
-  return age < -UPDATE_INSTALL_LOCK_CLOCK_SKEW_MS || age > UPDATE_INSTALL_LOCK_STALE_MS;
+  return !isLeaseFresh(snapshot, LOCK_LEASE_LIMITS, now);
 }
 
 function hasSameOwner(current: LockSnapshot, expected: LockSnapshot): boolean {

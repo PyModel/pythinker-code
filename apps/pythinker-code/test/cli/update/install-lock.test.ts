@@ -44,12 +44,91 @@ describe('update install lock', () => {
     await third?.release();
   });
 
-  it('does not reclaim an old lock while its owner process is alive', async () => {
+  it('does not reclaim a lock with a live pid just under the 6-hour pid ceiling', async () => {
     writeLock({
       version: '0.5.0',
       ownerId: 'live-owner',
       pid: process.pid,
-      startedAt: '2026-01-01T00:00:00.000Z',
+      startedAt: '2026-08-03T00:00:00.000Z',
+    });
+
+    await expect(tryAcquireUpdateInstallLock({
+      version: '0.5.0',
+      now: new Date('2026-08-03T05:59:00.000Z'),
+    })).resolves.toBeNull();
+  });
+
+  it('reclaims a lock with a live pid just over the 6-hour pid ceiling', async () => {
+    writeLock({
+      version: '0.5.0',
+      ownerId: 'live-owner',
+      pid: process.pid,
+      startedAt: '2026-08-03T00:00:00.000Z',
+    });
+
+    const lock = await tryAcquireUpdateInstallLock({
+      version: '0.5.0',
+      now: new Date('2026-08-03T06:01:00.000Z'),
+    });
+
+    expect(lock).not.toBeNull();
+    await lock?.release();
+  });
+
+  it('reclaims a lock with a live pid and no startedAt', async () => {
+    writeLock({
+      version: '0.5.0',
+      ownerId: 'untimestamped-owner',
+      pid: process.pid,
+    });
+
+    const lock = await tryAcquireUpdateInstallLock({ version: '0.5.0' });
+
+    expect(lock).not.toBeNull();
+    await lock?.release();
+  });
+
+  it('expires a pid-less lock at 30 minutes, not the 6-hour pid ceiling', async () => {
+    writeLock({
+      version: '0.5.0',
+      ownerId: 'legacy-owner',
+      startedAt: '2026-08-03T00:00:00.000Z',
+    });
+
+    // 29 minutes: still honoured.
+    await expect(tryAcquireUpdateInstallLock({
+      version: '0.5.0',
+      now: new Date('2026-08-03T00:29:00.000Z'),
+    })).resolves.toBeNull();
+
+    // 31 minutes: stale, well before the pid ceiling.
+    const lock = await tryAcquireUpdateInstallLock({
+      version: '0.5.0',
+      now: new Date('2026-08-03T00:31:00.000Z'),
+    });
+    expect(lock).not.toBeNull();
+    await lock?.release();
+  });
+
+  it('honours a lock 2 minutes in the future while its owner process is alive', async () => {
+    writeLock({
+      version: '0.5.0',
+      ownerId: 'skewed-owner',
+      pid: process.pid,
+      startedAt: '2026-08-03T00:02:00.000Z',
+    });
+
+    await expect(tryAcquireUpdateInstallLock({
+      version: '0.5.0',
+      now: new Date('2026-08-03T00:00:00.000Z'),
+    })).resolves.toBeNull();
+  });
+
+  it('honours a pid-less lock 2 minutes in the future', async () => {
+    writeLock({
+      version: '0.5.0',
+      ownerId: 'skewed-legacy-owner',
+      startedAt: '2026-08-03T00:02:00.000Z',
     });
 
     await expect(tryAcquireUpdateInstallLock({

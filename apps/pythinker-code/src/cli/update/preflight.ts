@@ -18,7 +18,12 @@ import { loadTuiConfig } from '#/tui/config';
 import { readUpdateCache } from './cache';
 import { formatErrorMessage } from './format-error';
 import { tryAcquireUpdateInstallLock } from './install-lock';
-import { emptyUpdateInstallState, readUpdateInstallState, writeUpdateInstallState } from './install-state';
+import {
+  emptyUpdateInstallState,
+  hasFreshActiveInstall,
+  readUpdateInstallState,
+  writeUpdateInstallState,
+} from './install-state';
 import {
   CHANGELOG_URL,
   promptForInstallChoice,
@@ -62,8 +67,6 @@ export interface RunUpdatePreflightOptions {
 }
 
 const AUTO_INSTALL_FAILURE_PROMPT_THRESHOLD = 2;
-const AUTO_INSTALL_ACTIVE_TTL_MS = 6 * 60 * 60 * 1000;
-const AUTO_INSTALL_ACTIVE_CLOCK_SKEW_MS = 5 * 60 * 1000;
 const USER_VISIBLE_UPDATE_REFRESH_TIMEOUT_MS = 1_000;
 const UPDATE_HELPER_ENV = 'PYTHINKER_CODE_UPDATE_HELPER';
 
@@ -396,36 +399,6 @@ function failureAttemptsFor(
     return 0;
   }
   return failure.attempts;
-}
-
-function isProcessRunning(pid: number): boolean {
-  if (!Number.isSafeInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return typeof error === 'object'
-      && error !== null
-      && 'code' in error
-      && error.code === 'EPERM';
-  }
-}
-
-/**
- * An active record still counts as a lease when the recorded installer
- * pid is alive (liveness beats the TTL), or — for legacy pid-less
- * records — when its timestamp is within the TTL (with clock-skew
- * tolerance). Far-future timestamps never count as fresh.
- */
-function hasFreshActiveInstall(state: UpdateInstallState): boolean {
-  const active = state.active;
-  if (active === null) return false;
-  const startedAt = Date.parse(active.startedAt);
-  if (!Number.isFinite(startedAt)) return false;
-  const age = Date.now() - startedAt;
-  if (age < -AUTO_INSTALL_ACTIVE_CLOCK_SKEW_MS) return false;
-  if (active.pid !== undefined) return isProcessRunning(active.pid);
-  return age < AUTO_INSTALL_ACTIVE_TTL_MS;
 }
 
 async function showPendingBackgroundInstallNotice(

@@ -3,7 +3,28 @@ import { z } from 'zod';
 import { getUpdateInstallStateFile } from '#/utils/paths';
 import { readJsonFile, writeJsonFile } from '#/utils/persistence';
 
+import { isLeaseFresh, type LeaseLimits } from './lease';
 import { emptyUpdateInstallState, type InstallSource, type UpdateInstallProgress, type UpdateInstallState } from './types';
+
+const ACTIVE_LEASE_LIMITS: LeaseLimits = {
+  pidCeilingMs: 6 * 60 * 60 * 1000,
+  pidlessTtlMs: 6 * 60 * 60 * 1000,
+  clockSkewMs: 5 * 60 * 1000,
+};
+
+/**
+ * Whether an install is still in flight. It lives here, next to the record it
+ * reads, because both the preflight and the foreground upgrade command must
+ * answer it the same way — a second copy of this predicate is how the
+ * foreground paths came to ignore the lease at all.
+ */
+export function hasFreshActiveInstall(
+  state: UpdateInstallState,
+  now: Date = new Date(),
+): boolean {
+  const active = state.active;
+  return active !== null && isLeaseFresh(active, ACTIVE_LEASE_LIMITS, now);
+}
 
 const InstallSourceSchema: z.ZodType<InstallSource> = z.enum([
   'npm-global',

@@ -51,16 +51,18 @@ vi.mock('../../../src/cli/update/install-lock', () => ({
   tryAcquireUpdateInstallLock: mocks.tryAcquireUpdateInstallLock,
 }));
 
-vi.mock('../../../src/cli/update/install-state', () => ({
-  emptyUpdateInstallState: () => ({
-    active: null,
-    pending: null,
-    lastFailure: null,
-    lastSuccess: null,
-  }),
-  readUpdateInstallState: mocks.readUpdateInstallState,
-  writeUpdateInstallState: mocks.writeUpdateInstallState,
-}));
+// Only the file IO is faked: `hasFreshActiveInstall` is the lease rule under
+// test in several cases below, so it must be the real one.
+vi.mock('../../../src/cli/update/install-state', async () => {
+  const actual = await vi.importActual<
+    typeof import('../../../src/cli/update/install-state.js')
+  >('../../../src/cli/update/install-state');
+  return {
+    ...actual,
+    readUpdateInstallState: mocks.readUpdateInstallState,
+    writeUpdateInstallState: mocks.writeUpdateInstallState,
+  };
+});
 
 vi.mock('../../../src/tui/config', async () => {
   const actual = await vi.importActual<typeof import('../../../src/tui/config.js')>(
@@ -921,13 +923,13 @@ describe('runUpdatePreflight', () => {
     expect(promptForInstallChoice).not.toHaveBeenCalled();
   });
 
-  it('blocks a changed target while the previous target installer pid remains alive past the PID-less TTL', async () => {
+  it('blocks a changed target while the previous target installer pid remains alive within the TTL', async () => {
     mocks.readUpdateCache.mockResolvedValue(cacheWith('0.6.0'));
     mocks.readUpdateInstallState.mockResolvedValue(installState({
       active: {
         version: '0.5.0',
         source: 'npm-global',
-        startedAt: new Date(Date.now() - 7 * 60 * 60 * 1_000).toISOString(),
+        startedAt: new Date(Date.now() - (6 * 60 * 60 * 1_000 - 60_000)).toISOString(),
         pid: process.pid,
       },
     }));
@@ -940,6 +942,30 @@ describe('runUpdatePreflight', () => {
     expect(mocks.spawn).not.toHaveBeenCalled();
     expect(mocks.tryAcquireUpdateInstallLock).not.toHaveBeenCalled();
     expect(promptForInstallChoice).not.toHaveBeenCalled();
+  });
+
+  it('recovers a changed target after the previous installer pid outlives the TTL ceiling', async () => {
+    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.6.0'));
+    mocks.readUpdateInstallState.mockResolvedValue(installState({
+      active: {
+        version: '0.5.0',
+        source: 'npm-global',
+        startedAt: new Date(Date.now() - (6 * 60 * 60 * 1_000 + 60_000)).toISOString(),
+        pid: process.pid,
+      },
+    }));
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.6.0'));
+    mocks.detectInstallSource.mockResolvedValue('npm-global');
+    mockSpawnExit(0);
+    const { options } = captureOutput();
+
+    await expect(runUpdatePreflight('0.5.0', options)).resolves.toBe('continue');
+
+    expect(mocks.spawn).toHaveBeenCalledWith(
+      expect.stringMatching(/^npm(\.cmd)?$/),
+      ['install', '-g', '@pythoughts/pythinker-code@0.6.0'],
+      { detached: true, windowsHide: false, stdio: ['ignore', 'ignore', 'pipe'] },
+    );
   });
 
   it('tolerates a small clock rollback while the recorded installer pid is alive', async () => {
