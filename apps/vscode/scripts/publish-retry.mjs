@@ -8,8 +8,31 @@ const AUTH_PATTERN = /\b401\b|unauthorized|invalidaccess|access denied|not allow
 
 export const DEFAULT_ATTEMPTS = 3;
 
+/** Longest summary line worth printing; registry errors can be one huge JSON blob. */
+export const SUMMARY_LIMIT = 400;
+
 export function messageOf(error) {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * One line for a summary, chosen so it carries the registry's own words.
+ *
+ * `runLocalCli` wraps a CLI failure as `Local ovsx exited with code 1:` followed
+ * by the captured output, so reporting only the first line printed six identical
+ * `FAILED <target>: Local ovsx exited with code 1:` entries with the actual cause
+ * — a missing Open VSX namespace — cut off right after the colon.
+ */
+export function summaryLine(error) {
+  const lines = messageOf(error)
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line !== '');
+  if (lines.length === 0) return '';
+  const [wrapper, ...rest] = lines;
+  // Cap the whole result, not just the joined branch: a registry that answers
+  // with one long JSON line would otherwise print unbounded.
+  return (rest.length === 0 ? wrapper : `${wrapper} ${rest.join(' ')}`).slice(0, SUMMARY_LIMIT);
 }
 
 /**
@@ -48,7 +71,7 @@ export async function withRetry(action, options = {}) {
       }
       const wait = backoffMs[Math.min(attempt - 1, backoffMs.length - 1)];
       console.warn(`${label}: ${kind} failure on attempt ${attempt}/${attempts}, retrying in ${wait / 1000}s...`);
-      console.warn(`  ${messageOf(error).split('\n')[0]}`);
+      console.warn(`  ${summaryLine(error)}`);
       await delay(wait);
     }
   }
@@ -79,7 +102,7 @@ export async function publishEachTarget({ targets, files, registry, publishOne }
       (outcome === 'skipped' ? skipped : published).push(target);
     } catch (error) {
       const kind = classifyError(error);
-      failures.push({ target, message: messageOf(error).split('\n')[0] });
+      failures.push({ target, message: summaryLine(error) });
       if (kind === 'auth') {
         abortReason = 'aborted after an authentication failure';
       }
