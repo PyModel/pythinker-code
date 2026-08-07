@@ -1,5 +1,55 @@
 # @pythoughts/pythinker-code
 
+## 0.11.0
+
+### Minor Changes
+
+- [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Rename the ACP authentication method to reflect that login is multi-provider: it now reads "Log in with a provider" and explains that the provider is chosen in a terminal. Clients matching the previous wording will need updating.
+
+- [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Let a Dynamic Workflow require structured output from its subagents. Passing `output_schema` makes each subagent return a validated object instead of free text, and a subagent that cannot satisfy the schema is reported separately from one that failed outright.
+
+- [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - `pythinker login` now opens a provider picker instead of going straight to one provider, and accepts `--provider <id|name>` to skip it. The VS Code extension's sign-in offers the same providers, and both surfaces present the same thinking-effort levels for a given model.
+
+- [#34](https://github.com/Pythoughts-labs/pythinker-code/pull/34) [`42da384`](https://github.com/Pythoughts-labs/pythinker-code/commit/42da384cb36d29ecf0cc147f753790e022e13709) - Make the login platform layer provider-neutral. Model listing, capability derivation and the on-disk config shape are now one set of types shared by every login path, instead of living in a provider-specific module that other providers imported from; the duplicate copies of the capability derivation and the model-info parser are collapsed into one.
+
+  Logging in is an API key, a models.dev catalog provider, or OpenAI Codex OAuth. "Is the user logged in" is now a single predicate over configured providers with a usable credential, shared by the CLI, the VS Code extension and the ACP adapter. `/feedback` opens the issue tracker.
+
+- [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Give every Dynamic Workflow run an id and stamp it on the subagent events it produces, so a client can tell which run a given subagent belongs to when several are in flight.
+
+- [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Add two ways to rein in Dynamic Workflow fan-out: `disableWorkflows` turns the tool off entirely, and `workflowSizeGuideline` sets an advisory ceiling that is mentioned to the model and warned about, on every surface, when a run exceeds it. Both are settable in config or by environment variable.
+
+- [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Bound subagent fan-out with hard caps: 128 subagents per call, 200 per session, and a nesting depth of 3. Nesting was previously unbounded, so a workflow that spawned workflows could grow without limit; past depth 3 the call now fails instead.
+
+- [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Replace the Dynamic Workflow progress bar with the two things it can actually know: how many tool calls each agent has made, and how long it has been silent. The old bar pinned every tool-using agent at 75% until it finished, so an agent working hard and one wedged for ten minutes looked identical. A row that goes quiet now turns amber, then red.
+
+### Patch Changes
+
+- [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Survive two malformed inputs that used to end a run. A catalog entry that is not an object is now dropped when the catalog is read, instead of reaching the provider picker and throwing past the bundled-catalog fallback that was meant to save the login. A non-finite subagent concurrency limit now falls back to the default: `NaN` passed every clamp, and each free-slot test against it was false, so the batch launched nothing and never finished.
+
+- [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Offer a model's declared thinking-effort levels when signing in to OpenAI Codex. The picker previously fell back to low / medium / high regardless of what the model supports, disagreeing with the effort list recorded in the config it then wrote.
+
+- [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Accept a provider's plain id for `--provider` at login, so a catalog provider no longer has to be named by its full display name, and stop a cancelled OpenAI Codex sign-in from holding the process open for the rest of its two-minute callback timeout. In the editor extension, signing in now shows one cancellable progress notification, a repeated sign-in joins the one already running instead of opening a second set of prompts, and a completed sign-in is no longer reported as failed when the status refresh behind it fails.
+
+- [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Save the thinking-effort level picked during login. Only an on/off flag was stored, so choosing low, medium, or xhigh reopened the session at high, and an OpenAI Codex login reopened at the model's maximum effort regardless of the choice.
+
+- [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Write the thinking effort picked at login to disk. The apply step recorded the level, but the patch that saved the result listed everything except it, so an API-key login still reopened at the default effort. Choosing `off` now also clears a level a previous login left behind, which a patch that only merges could not do by omitting the key.
+
+- [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Keep the configured provider signed in when a login is abandoned. Backing out at the model picker, or a failure while fetching the model list, no longer clears the existing credentials, and dismissing the provider picker returns to the sign-in screen instead of reporting a failed login.
+
+- [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Refuse a device authorization whose verification URL is not HTTPS. Every surface hands that URL to the host's "open externally" API, so a provider answering with `file:`, `javascript:`, or an installed application's own scheme had the agent launch it. The check runs where the response is parsed, so the terminal, the TUI, and the editor extension are all covered.
+
+- [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Finish handling blank Dynamic Workflow items. A run that dropped one reported its results after a note explaining the drop, which made the whole result parse as unsupported and rendered a successful run as failed; the note now follows the results. A blank entry also no longer leaves a row queued forever with the header stuck below its total, and no longer pushes a full item list over the subagent cap and back into whole-call rejection.
+
+- [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Ignore empty entries in a Dynamic Workflow's item list instead of rejecting the call. A trailing empty item used to fail argument validation, which discarded the whole workflow before any subagent started and forced the agent to send every prompt again. The dropped count is now reported with the results, and the launch panel counts only the subagents that will actually run.
+
+- [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Stop a Dynamic Workflow row that has not started from reading as stalled. A queued row measured its silence from the launch of the whole run, so a long queue turned every waiting row amber and then red while nothing was wrong. A queued row now shows the same placeholder a finished one does, and a suspended row keeps its count without the alarm colours, because only a running row can stall.
+
+- [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Keep a Dynamic Workflow subagent's output schema when a provider rate limit forces its turn to be retried. The retried turn lost the schema, so the subagent answered in prose and the workflow reported it as completed rather than as a schema failure.
+
+- [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Show a Dynamic Workflow's running rows with a spinning grey dot, so a working agent reads as motion rather than as a static dot the eye cannot tell from a finished one, and shimmer the Orchestrating label in periwinkle instead of grey.
+
+- [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Show the whole large-workflow warning in the editor extension. The line was truncated to the panel width, so in a narrow side panel the reader saw the opening words and no reason.
+
 ## 0.10.0
 
 ### Minor Changes
