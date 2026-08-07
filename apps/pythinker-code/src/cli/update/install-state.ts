@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { getUpdateInstallStateFile } from '#/utils/paths';
 import { readJsonFile, writeJsonFile } from '#/utils/persistence';
 
-import { emptyUpdateInstallState, type InstallSource, type UpdateInstallState } from './types';
+import { emptyUpdateInstallState, type InstallSource, type UpdateInstallProgress, type UpdateInstallState } from './types';
 
 const InstallSourceSchema: z.ZodType<InstallSource> = z.enum([
   'npm-global',
@@ -18,6 +18,16 @@ const InstallSourceSchema: z.ZodType<InstallSource> = z.enum([
 const UpdateInstallOperationSchema = z.enum(['install', 'prepare', 'activate']);
 const Sha256Schema = z.string().regex(/^[a-f0-9]{64}$/u);
 
+const UpdateInstallProgressSchema: z.ZodType<UpdateInstallProgress> = z
+  .object({
+    state: z.enum(['downloading', 'waiting', 'done', 'failed']),
+    percent: z.number().int().min(0).max(100).optional(),
+    transferred: z.number().int().nonnegative().optional(),
+    total: z.number().int().nonnegative().optional(),
+    updatedAt: z.string().min(1),
+  })
+  .strict();
+
 const UpdateInstallStateSchema: z.ZodType<UpdateInstallState> = z
   .object({
     active: z
@@ -28,6 +38,7 @@ const UpdateInstallStateSchema: z.ZodType<UpdateInstallState> = z
         pid: z.number().int().positive().optional(),
         operation: UpdateInstallOperationSchema.optional(),
         jobId: z.uuid().optional(),
+        progress: UpdateInstallProgressSchema.optional(),
       })
       .strict()
       .nullable(),

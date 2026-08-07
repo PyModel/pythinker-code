@@ -300,6 +300,80 @@ function mockSpawnExitWithStderr(code: number, stderrText: string): void {
   });
 }
 
+/**
+ * Like mockSpawnExitWithStderr, but stderr arrives as several separate chunks
+ * so the line reader has to reassemble a progress line split mid-way across
+ * 'data' events.
+ */
+function mockSpawnExitWithChunkedStderr(code: number, chunks: string[]): void {
+  mocks.spawn.mockImplementation((_cmd: string, _args: string[], options?: { stdio?: unknown }) => {
+    const stdio = options?.stdio;
+    const stderrPiped = Array.isArray(stdio) && stdio[2] === 'pipe';
+    const stderr = Object.assign(new EventEmitter(), {
+      setEncoding: vi.fn(),
+      unref: vi.fn(),
+    });
+    const child = Object.assign(new EventEmitter(), {
+      pid: 42_424,
+      unref: vi.fn(),
+      stderr: stderrPiped ? stderr : null,
+    });
+    queueMicrotask(() => {
+      if (stderrPiped) {
+        for (const chunk of chunks) stderr.emit('data', chunk);
+      }
+      child.emit('exit', code, null);
+    });
+    return child;
+  });
+}
+
+/**
+ * Like mockSpawnExitWithStderr, but stderr chunks and the exit arrive on real
+ * timers, so the parent's write throttle sees realistic time deltas.
+ */
+function mockSpawnExitWithTimedStderr(
+  code: number,
+  chunks: Array<{ atMs: number; text: string }>,
+  exitAtMs: number,
+): void {
+  mocks.spawn.mockImplementation((_cmd: string, _args: string[], options?: { stdio?: unknown }) => {
+    const stdio = options?.stdio;
+    const stderrPiped = Array.isArray(stdio) && stdio[2] === 'pipe';
+    const stderr = Object.assign(new EventEmitter(), {
+      setEncoding: vi.fn(),
+      unref: vi.fn(),
+    });
+    const child = Object.assign(new EventEmitter(), {
+      pid: 42_424,
+      unref: vi.fn(),
+      stderr: stderrPiped ? stderr : null,
+    });
+    for (const chunk of chunks) {
+      setTimeout(() => {
+        if (stderrPiped) stderr.emit('data', chunk.text);
+      }, chunk.atMs);
+    }
+    setTimeout(() => { child.emit('exit', code, null); }, exitAtMs);
+    return child;
+  });
+}
+
+/** The failure messages written by the background-install finalizer, in order. */
+function progressFailureMessages(): string[] {
+  return mocks.writeUpdateInstallState.mock.calls
+    .map((call) => call[0])
+    .filter((state) => state !== undefined && state !== null && state.lastFailure !== undefined && state.lastFailure !== null)
+    .map((state) => state.lastFailure.message);
+}
+
+/** The states written with an active record carrying progress, in order. */
+function progressActiveStates(): unknown[] {
+  return mocks.writeUpdateInstallState.mock.calls
+    .map((call) => call[0])
+    .filter((state) => state !== undefined && state !== null && state.active?.progress !== undefined);
+}
+
 async function flushBackgroundInstall(): Promise<void> {
   await new Promise<void>((resolve) => {
     setImmediate(resolve);
@@ -1659,6 +1733,160 @@ describe('runUpdatePreflight', () => {
       expect(mocks.promptForInstallChoice).toHaveBeenCalledWith(
         expect.objectContaining({ target: { version: '0.5.0' } }),
       );
+    });
+  });
+
+  describe('background installer progress lines', () => {
+    it('reassembles a progress line split across data events into one update', async () => {
+      mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+      mocks.readUpdateInstallState.mockResolvedValue(installState());
+      mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+      mocks.detectInstallSource.mockResolvedValue('npm-global');
+      mockSpawnExitWithChunkedStderr(0, [
+        'progress: state=downloading percent=4',
+        '2 transferred=5320',
+        '000 total=12600000\n',
+      ]);
+      const { options } = captureOutput();
+
+      await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
+      await flushBackgroundInstall();
+
+      expect(writeUpdateInstallState).toHaveBeenCalledWith(expect.objectContaining({
+        active: expect.objectContaining({
+          progress: expect.objectContaining({
+            state: 'downloading',
+            percent: 42,
+            transferred: 5_320_000,
+            total: 12_600_000,
+          }),
+        }),
+      }));
+    });
+
+    it('keeps progress lines out of the failure tail and ordinary stderr lines in it', async () => {
+      mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+      mocks.readUpdateInstallState.mockResolvedValue(installState());
+      mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+      mocks.detectInstallSource.mockResolvedValue('npm-global');
+      mockSpawnExitWithStderr(
+        1,
+        'progress: state=downloading percent=42 transferred=5320000 total=12600000\n'
+        + 'bash: line 900: BASH_SOURCE[0]: unbound variable\n',
+      );
+      const { options } = captureOutput();
+
+      await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
+      await flushBackgroundInstall();
+
+      const messages = progressFailureMessages();
+      expect(messages).toHaveLength(1);
+      expect(messages[0]).toContain('BASH_SOURCE[0]: unbound variable');
+      expect(messages[0]).not.toContain('progress: state=downloading');
+      expect(messages[0]).not.toContain('percent=42');
+    });
+
+    it('leaves the real error in the tail after a hundred progress lines', async () => {
+      mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+      mocks.readUpdateInstallState.mockResolvedValue(installState());
+      mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+      mocks.detectInstallSource.mockResolvedValue('npm-global');
+      const progressLines = Array.from({ length: 100 }, (_, i) => (
+        `progress: state=downloading percent=${i} transferred=${(i + 1) * 1000} total=12600000\n`
+      )).join('');
+      mockSpawnExitWithStderr(1, `${progressLines}npm ERR! real failure\n`);
+      const { options } = captureOutput();
+
+      await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
+      await flushBackgroundInstall();
+
+      const messages = progressFailureMessages();
+      expect(messages).toHaveLength(1);
+      expect(messages[0]).toContain('npm ERR! real failure');
+      expect(messages[0]).not.toContain('progress:');
+      expect(messages[0]).not.toContain('percent=');
+    });
+
+    it('ignores unknown keys and non-numeric percent values without throwing', async () => {
+      mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+      mocks.readUpdateInstallState.mockResolvedValue(installState());
+      mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+      mocks.detectInstallSource.mockResolvedValue('npm-global');
+      mockSpawnExitWithStderr(
+        0,
+        'progress: state=downloading percent=not-a-number transferred=5320000 total=12600000 mystery=1\n',
+      );
+      const { options } = captureOutput();
+
+      await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
+      await flushBackgroundInstall();
+
+      expect(writeUpdateInstallState).toHaveBeenCalledWith(expect.objectContaining({
+        active: expect.objectContaining({
+          progress: expect.objectContaining({
+            state: 'downloading',
+            transferred: 5_320_000,
+            total: 12_600_000,
+            percent: undefined,
+          }),
+        }),
+      }));
+    });
+
+    it('accepts a downloading update without a total and without a percent', async () => {
+      mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+      mocks.readUpdateInstallState.mockResolvedValue(installState());
+      mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+      mocks.detectInstallSource.mockResolvedValue('npm-global');
+      mockSpawnExitWithStderr(0, 'progress: state=downloading transferred=5320000\n');
+      const { options } = captureOutput();
+
+      await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
+      await flushBackgroundInstall();
+
+      expect(writeUpdateInstallState).toHaveBeenCalledWith(expect.objectContaining({
+        active: expect.objectContaining({
+          progress: expect.objectContaining({
+            state: 'downloading',
+            transferred: 5_320_000,
+            percent: undefined,
+            total: undefined,
+          }),
+        }),
+      }));
+    });
+
+    it('throttles progress writes to one per two seconds but never drops the terminal update', async () => {
+      mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+      mocks.readUpdateInstallState.mockResolvedValue(installState());
+      mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+      mocks.detectInstallSource.mockResolvedValue('npm-global');
+      mockSpawnExitWithTimedStderr(
+        0,
+        [
+          { atMs: 0, text: 'progress: state=downloading percent=10 transferred=1000 total=10000\n' },
+          { atMs: 100, text: 'progress: state=downloading percent=20 transferred=2000 total=10000\n' },
+          { atMs: 250, text: 'progress: state=done transferred=10000\n' },
+        ],
+        320,
+      );
+      const { options } = captureOutput();
+
+      await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
+      const progressStates = progressActiveStates();
+      expect(progressStates).toHaveLength(2);
+      expect(progressStates[0]).toEqual(expect.objectContaining({
+        active: expect.objectContaining({
+          progress: expect.objectContaining({ state: 'downloading', percent: 10 }),
+        }),
+      }));
+      expect(progressStates[1]).toEqual(expect.objectContaining({
+        active: expect.objectContaining({
+          progress: expect.objectContaining({ state: 'done', transferred: 10_000 }),
+        }),
+      }));
     });
   });
 });

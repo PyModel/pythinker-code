@@ -53,6 +53,19 @@ export interface UpdateCache {
 export type UpdateInstallOperation = 'install' | 'prepare' | 'activate';
 export type UpdateRequestOrigin = 'automatic' | 'manual';
 
+/**
+ * Latest machine-readable progress line from the background installer's
+ * stderr, as recorded on the active install record.
+ */
+export interface UpdateInstallProgress {
+  readonly state: 'downloading' | 'waiting' | 'done' | 'failed';
+  /** Integer 0..100; absent while the download size is unknown. */
+  readonly percent?: number;
+  readonly transferred?: number;
+  readonly total?: number;
+  readonly updatedAt: string;
+}
+
 export interface UpdateInstallActive {
   readonly version: string;
   readonly source: InstallSource;
@@ -61,6 +74,11 @@ export interface UpdateInstallActive {
   readonly pid?: number;
   readonly operation?: UpdateInstallOperation;
   readonly jobId?: string;
+  /**
+   * Latest progress line from the installer; absent until the installer
+   * emits one or in records persisted by older versions.
+   */
+  readonly progress?: UpdateInstallProgress;
 }
 
 export interface UpdatePreparedHomebrew {

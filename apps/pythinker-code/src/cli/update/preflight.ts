@@ -42,6 +42,7 @@ import {
   type InstallSource,
   type UpdateDecision,
   type UpdateInstallOperation,
+  type UpdateInstallProgress,
   type UpdateInstallState,
   type UpdateCache,
   type UpdateManifest,
@@ -614,21 +615,79 @@ export async function installUpdate(
 
 /** Keep the tail only: installers can be chatty, and the state file is small. */
 const INSTALLER_STDERR_TAIL_CHARS = 2000;
+/** At most one active-record progress write every 2s; terminal states bypass it. */
+const INSTALLER_PROGRESS_WRITE_INTERVAL_MS = 2_000;
+const INSTALLER_PROGRESS_PREFIX = 'progress: ';
+
+function isInstallerProgressState(value: string): value is UpdateInstallProgress['state'] {
+  return value === 'downloading' || value === 'waiting' || value === 'done' || value === 'failed';
+}
 
 /**
- * Buffer the installer's stderr so a failed background install records why it
- * failed. Discarding it (the previous `stdio: 'ignore'`) left `lastFailure`
- * with nothing but an exit code, which made a broken installer script
- * impossible to diagnose without reproducing the spawn by hand.
+ * Parse one `progress: key=value key=value` line from the installer's stderr.
+ * Unknown or malformed keys are skipped — an installer from a different
+ * release must never crash the parent. Returns null when the line carries no
+ * usable state.
  */
-function captureStderrTail(child: ReturnType<typeof spawn>): () => string | undefined {
+function parseInstallerProgressLine(line: string): UpdateInstallProgress | null {
+  let state: UpdateInstallProgress['state'] | undefined;
+  let percent: number | undefined;
+  let transferred: number | undefined;
+  let total: number | undefined;
+  for (const field of line.slice(INSTALLER_PROGRESS_PREFIX.length).split(/\s+/u)) {
+    const eq = field.indexOf('=');
+    if (eq <= 0) continue;
+    const key = field.slice(0, eq);
+    const value = field.slice(eq + 1);
+    switch (key) {
+      case 'state':
+        if (isInstallerProgressState(value)) state = value;
+        break;
+      case 'percent':
+        if (/^(?:100|[0-9]{1,2})$/u.test(value)) percent = Number(value);
+        break;
+      case 'transferred':
+        if (/^[0-9]+$/u.test(value)) transferred = Number(value);
+        break;
+      case 'total':
+        if (/^[0-9]+$/u.test(value)) total = Number(value);
+        break;
+      default:
+        break;
+    }
+  }
+  if (state === undefined) return null;
+  return { state, percent, transferred, total, updatedAt: nowIso() };
+}
+
+/**
+ * Read the installer's stderr as lines. `progress: …` lines are parsed and
+ * handed to `onProgress`; they never enter the failure tail, or a long
+ * download would evict the very error text the tail exists to preserve. All
+ * other lines are kept in the trailing `INSTALLER_STDERR_TAIL_CHARS` window.
+ * Returns a getter for that tail.
+ */
+function captureStderrTail(
+  child: ReturnType<typeof spawn>,
+  onProgress: (update: UpdateInstallProgress) => void,
+): () => string | undefined {
   // Typed `Readable | null`, but absent entirely when stderr was not piped.
   const stream: Readable | null | undefined = child.stderr;
   if (stream === null || stream === undefined) return () => undefined;
   let tail = '';
+  let partial = '';
   stream.setEncoding('utf8');
   stream.on('data', (chunk: string) => {
-    tail = (tail + chunk).slice(-INSTALLER_STDERR_TAIL_CHARS);
+    const lines = (partial + chunk).split('\n');
+    partial = lines.pop() ?? '';
+    for (const line of lines) {
+      if (line.startsWith(INSTALLER_PROGRESS_PREFIX)) {
+        const update = parseInstallerProgressLine(line);
+        if (update !== null) onProgress(update);
+      } else {
+        tail = (tail + line + '\n').slice(-INSTALLER_STDERR_TAIL_CHARS);
+      }
+    }
   });
   // A detached installer outliving this process must not crash it, and the
   // pipe must not hold the event loop open on the way out. `child.stderr` is
@@ -637,7 +696,12 @@ function captureStderrTail(child: ReturnType<typeof spawn>): () => string | unde
   stream.on('error', () => {});
   (stream as Readable & { unref?: () => void }).unref?.();
   return () => {
-    const trimmed = tail.trim();
+    // A final partial line without a newline is still installer text; include
+    // it unless it is a truncated progress line.
+    const complete = partial.length === 0 || partial.startsWith(INSTALLER_PROGRESS_PREFIX)
+      ? tail
+      : tail + partial;
+    const trimmed = complete.trim();
     return trimmed.length === 0 ? undefined : trimmed;
   };
 }
@@ -886,11 +950,42 @@ async function startBackgroundInstall(
       // of stdio; stdio: 'ignore' alone does not suppress it.
       windowsHide: platform === 'win32',
       // stdout stays discarded (install progress is noise); stderr is piped so
-      // a failure records the installer's own error text.
+      // the installer's machine-readable progress lines can be recorded and a
+      // failure still keeps the installer's own error text.
       stdio: ['ignore', 'ignore', 'pipe'],
       env: env === undefined ? undefined : { ...process.env, ...env },
     });
-    const readStderrTail = captureStderrTail(child);
+    let lastProgressWriteAt = 0;
+    const recordInstallerProgress = (update: UpdateInstallProgress): void => {
+      // Terminal states always persist; intermediate ones at most every 2s.
+      const terminal = update.state === 'done' || update.state === 'failed';
+      if (
+        !terminal
+        && Date.now() - lastProgressWriteAt < INSTALLER_PROGRESS_WRITE_INTERVAL_MS
+      ) return;
+      if (startedState.active === null) return;
+      lastProgressWriteAt = Date.now();
+      const nextState: UpdateInstallState = {
+        ...startedState,
+        // Carry the pid explicitly: a progress line can arrive while the pid
+        // write is still in flight, and writing the pre-pid record over it
+        // would strip the pid this record's liveness check depends on.
+        active: {
+          ...startedState.active,
+          pid: child.pid ?? startedState.active.pid,
+          progress: update,
+        },
+      };
+      writeUpdateInstallState(nextState).catch((error) => {
+        // A progress write is best-effort; it must never reject the spawn path.
+        logUpdateWarn(logger, 'could not record installer progress', {
+          targetVersion: target.version,
+          source,
+          error: formatErrorMessage(error),
+        });
+      });
+    };
+    const readStderrTail = captureStderrTail(child, recordInstallerProgress);
     child.once('error', (error) => { void finish(false, formatErrorMessage(error)); });
     child.once('exit', (code, signal) => {
       void finish(code === 0, describeChildExit(cmd, code, signal));
