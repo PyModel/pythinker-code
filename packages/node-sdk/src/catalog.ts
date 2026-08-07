@@ -82,6 +82,8 @@ export interface ApplyCatalogProviderOptions {
   readonly models: readonly CatalogModel[];
   readonly selectedModelId: string;
   readonly thinking: boolean;
+  /** The effort level the user picked; only the on/off bit persists without it. */
+  readonly effort?: string;
 }
 
 /**
@@ -134,6 +136,11 @@ export function applyCatalogProvider(
   const defaultModel = `${options.providerId}/${options.selectedModelId}`;
   config.defaultModel = defaultModel;
   config.defaultThinking = options.thinking;
+  // defaultThinking is a boolean, so without this the picked level is lost and
+  // the session reopens at 'high' regardless of what the user chose.
+  if (options.effort !== undefined && options.effort !== 'off') {
+    config.thinking = { ...config.thinking, effort: options.effort };
+  }
   return { defaultModel };
 }
 

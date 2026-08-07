@@ -573,6 +573,11 @@ export function applyOpenAICodexOAuthConfig(
     readonly models: readonly ManagedKimiCodeModelInfo[];
     readonly selectedModel: ManagedKimiCodeModelInfo;
     readonly thinking?: boolean | undefined;
+    /**
+     * The effort level the user picked. Omitted, the model's top supported
+     * effort is used, which is what callers that never asked the user get.
+     */
+    readonly effort?: string;
   },
 ): ApplyOpenAICodexOAuthResult {
   if (options.models.length === 0) {
@@ -630,7 +635,15 @@ export function applyOpenAICodexOAuthConfig(
       ? 'max'
       : CODEX_REASONING_EFFORT_ORDER.findLast((effort) => supportedEfforts.includes(effort)) ??
         'max';
-  config.thinking = { ...config.thinking, effort: topEffort };
+  // A level the user picked wins over the derived top effort, but only when the
+  // model actually declares it — otherwise we would persist an unusable level.
+  const picked =
+    options.effort !== undefined &&
+    options.effort !== 'off' &&
+    (supportedEfforts === undefined || supportedEfforts.includes(options.effort))
+      ? options.effort
+      : undefined;
+  config.thinking = { ...config.thinking, effort: picked ?? topEffort };
 
   return { defaultModel: modelKey, defaultThinking: config.defaultThinking ?? true };
 }

@@ -244,6 +244,8 @@ export function applyOpenPlatformConfig(
     readonly models: readonly ManagedKimiCodeModelInfo[];
     readonly selectedModel: ManagedKimiCodeModelInfo;
     readonly thinking: boolean;
+    /** The effort level the user picked; only the on/off bit persists without it. */
+    readonly effort?: string;
     readonly apiKey: string;
   },
 ): ApplyOpenPlatformResult {
@@ -277,6 +279,11 @@ export function applyOpenPlatformConfig(
   config.models = existingModels;
   config.defaultModel = modelKey;
   config.defaultThinking = options.thinking;
+  // defaultThinking is a boolean, so without this the picked level is lost and
+  // the session reopens at 'high' regardless of what the user chose.
+  if (options.effort !== undefined && options.effort !== 'off') {
+    config.thinking = { ...config.thinking, effort: options.effort };
+  }
 
   return { defaultModel: modelKey, defaultThinking: options.thinking };
 }

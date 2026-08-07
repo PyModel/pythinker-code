@@ -196,6 +196,7 @@ async function handleOpenPlatformLogin(
     models,
     selectedModel: selection.model,
     thinking: selection.effort !== 'off',
+    effort: selection.effort,
     apiKey,
   });
 
@@ -292,6 +293,7 @@ export async function connectCatalogProvider(
     models,
     selectedModelId: selection.model.id,
     thinking: selection.effort !== 'off',
+    effort: selection.effort,
   });
 
   await ui.harness.setConfig({
@@ -400,6 +402,7 @@ async function handleOpenAICodexOAuthLogin(ui: LoginUi): Promise<boolean> {
       models,
       selectedModel: selection.model,
       thinking: selection.effort !== 'off',
+      effort: selection.effort,
     });
 
     await ui.harness.setConfig({

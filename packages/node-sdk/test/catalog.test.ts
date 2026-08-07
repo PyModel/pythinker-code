@@ -130,6 +130,40 @@ describe('applyCatalogProvider', () => {
     expect(config.defaultThinking).toBe(true);
   });
 
+  it('persists the picked effort level, not just the on/off bit', () => {
+    const config = { providers: {} } as PythinkerConfig;
+    applyCatalogProvider(config, {
+      providerId: 'anthropic',
+      wire: 'anthropic',
+      apiKey: 'test-key',
+      models: [model],
+      selectedModelId: 'm1',
+      thinking: true,
+      effort: 'medium',
+    });
+
+    // defaultThinking is a boolean, so without config.thinking.effort the
+    // session reopens at 'high' no matter which level the user chose.
+    expect(config.defaultThinking).toBe(true);
+    expect(config.thinking?.effort).toBe('medium');
+  });
+
+  it('records thinking off without inventing an effort level', () => {
+    const config = { providers: {} } as PythinkerConfig;
+    applyCatalogProvider(config, {
+      providerId: 'anthropic',
+      wire: 'anthropic',
+      apiKey: 'test-key',
+      models: [model],
+      selectedModelId: 'm1',
+      thinking: false,
+      effort: 'off',
+    });
+
+    expect(config.defaultThinking).toBe(false);
+    expect(config.thinking?.effort).toBeUndefined();
+  });
+
   it('writes interleaved reasoning key from a catalog-selected model alias', () => {
     const models = catalogProviderModels({
       id: 'deepseek',

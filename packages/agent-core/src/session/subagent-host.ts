@@ -312,7 +312,10 @@ export class SessionSubagentHost {
           this.childModelConfig(parent, child, this.tryResolveProfile(parent, profileName), runOptions),
         );
         this.emitSubagentStarted(parent, agentId, runOptions);
-        const turnId = child.turn.retry('agent-host');
+        // The schema has to ride along: waitForChildCompletion still branches on
+        // runOptions.outputSchema, so a retry that dropped it would skip the
+        // continuation AND find no structured output, silently yielding prose.
+        const turnId = child.turn.retry('agent-host', runOptions.outputSchema);
         if (turnId === null) {
           throw new Error(`Agent instance "${agentId}" could not start a retry turn`);
         }

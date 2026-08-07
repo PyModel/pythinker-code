@@ -1646,6 +1646,65 @@ describe('SessionSubagentHost', () => {
     expect(userTextMessages(histories[1] ?? [])).toEqual(['Implement the retry-safe change']);
   });
 
+  it('keeps the output schema when a rate-limited subagent is retried', async () => {
+    const parent = testAgent();
+    parent.configure();
+    parent.newEvents();
+
+    const outputSchema = {
+      type: 'object',
+      properties: { answer: { type: 'string' } },
+      required: ['answer'],
+    };
+    const toolNamesPerCall: string[][] = [];
+    let generateCalls = 0;
+    const generate: GenerateFn = async (
+      _provider,
+      _systemPrompt,
+      tools,
+      _history,
+      callbacks,
+    ) => {
+      toolNamesPerCall.push(tools.map((tool) => tool.name));
+      generateCalls += 1;
+      if (generateCalls === 1) {
+        throw new APIStatusError(429, 'Rate limited', 'req-429');
+      }
+      // Answers in prose instead of calling StructuredOutput.
+      await callbacks?.onMessagePart?.({ type: 'text', text: 'plain prose answer' });
+      return textResult('plain prose answer');
+    };
+    const child = testAgent({
+      generate,
+      initialConfig: { providers: {}, loopControl: { maxRetriesPerStep: 1 } },
+    });
+    child.configure();
+
+    const session = fakeSession(parent.agent, child.agent);
+    const host = new SessionSubagentHost(session, 'main');
+    const retrySpy = vi.spyOn(child.agent.turn, 'retry');
+
+    const options = {
+      profileName: 'coder',
+      outputSchema,
+      parentToolCallId: 'call_agent',
+      prompt: 'Return structured output',
+      description: 'Structured task',
+      runInBackground: false,
+      signal,
+    };
+    const handle = await host.spawn(options);
+    await expect(handle.completion).rejects.toThrow('Rate limited');
+
+    const retryHandle = await host.retry(handle.agentId, options);
+
+    // Dropping the schema here used to let the retried turn answer in prose and
+    // report completed, silently voiding the structured-output contract.
+    await expect(retryHandle.completion).rejects.toThrow('structured_output.max_retries');
+    expect(retrySpy.mock.calls[0]?.[1]).toBe(outputSchema);
+    expect(toolNamesPerCall.at(-1)).toContain('StructuredOutput');
+  });
+
   it('realigns a resumed subagent to the parent agent current model', async () => {
     const parent = testAgent();
     parent.configure();
