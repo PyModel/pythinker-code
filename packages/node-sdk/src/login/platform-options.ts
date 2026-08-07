@@ -12,7 +12,7 @@ import {
   catalogConnectionWire,
   type Catalog,
   type CatalogProviderEntry,
-} from '@pythoughts/pythinker-code-sdk';
+} from '#/catalog';
 
 import { CATALOG_PLATFORM_VALUE_PREFIX } from './platform-values';
 
@@ -22,7 +22,7 @@ export interface PlatformOption {
   /** Display name shown in the picker. */
   readonly label: string;
   /** Secondary line: the auth kind (`OAuth` / `API key`) or the platform base URL. */
-  readonly description?: string | undefined;
+  readonly description?: string;
 }
 
 /** Kimi's managed OAuth platform id — one option among many, never a default. */

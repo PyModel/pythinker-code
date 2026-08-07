@@ -1,5 +1,6 @@
 /**
- * Terminal renderer for the multi-provider login flows (`#/auth/login-flows`).
+ * Terminal renderer for the multi-provider login flows (`runLogin` from
+ * `@pythoughts/pythinker-code-sdk`).
  *
  * `pythinker login` (and `pythinker acp --login`) build a `LoginUi` backed by
  * `@clack/prompts`: the provider picker, API-key / redirect-URL input, model
@@ -20,26 +21,26 @@ import {
   type OpenPlatformDefinition,
 } from '@pythoughts/pythinker-code-oauth';
 import {
+  buildPlatformOptions,
   catalogModelToAlias,
   DEFAULT_CATALOG_URL,
   fetchCatalog,
+  formatErrorMessage,
   loadBuiltInCatalog,
+  resolvePlatformOption,
+  type ApiKeyPromptOptions,
   type CatalogModel,
+  type LoginProgressSpinnerHandle,
+  type LoginUi,
   type ModelAlias,
+  type PlatformSelection,
   type PythinkerHarness,
 } from '@pythoughts/pythinker-code-sdk';
 
-import { buildPlatformOptions, resolvePlatformOption } from '#/auth/platform-options';
 import { BUILT_IN_CATALOG_JSON } from '#/built-in-catalog';
-import type { ApiKeyInputDialogOptions } from '#/tui/components/dialogs/api-key-input-dialog';
-import type { PlatformSelection } from '#/tui/commands/prompts';
 import type { ColorToken } from '#/tui/theme';
-import type { LoginProgressSpinnerHandle } from '#/tui/types';
-import { formatErrorMessage } from '#/tui/utils/event-payload';
 import { coerceEffortForModel, effortLevelsForModel } from '#/tui/utils/thinking-levels';
 import { openUrl } from '#/utils/open-url';
-
-import type { LoginUi } from './login-flows';
 
 /** Thrown when `--provider` does not match any platform id or display name. */
 export class UnknownProviderError extends Error {
@@ -156,7 +157,7 @@ export function createTerminalLoginUi(
   async function promptApiKey(
     platformName: string,
     subtitleLines?: readonly string[],
-    promptOptions: ApiKeyInputDialogOptions = {},
+    promptOptions: ApiKeyPromptOptions = {},
   ): Promise<string | undefined> {
     for (const line of subtitleLines ?? []) {
       log.info(line);
@@ -252,6 +253,9 @@ export function createTerminalLoginUi(
     },
     set cancelInFlight(value: (() => void) | undefined) {
       cancelInFlight = value;
+    },
+    openBrowser(url: string): void {
+      openUrl(url);
     },
     showStatus,
     showError(message: string): void {

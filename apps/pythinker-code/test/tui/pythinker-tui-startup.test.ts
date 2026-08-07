@@ -7,7 +7,11 @@ import {
   resetCapabilitiesCache,
   setCapabilities,
 } from '@earendil-works/pi-tui';
-import { log, type GoalSnapshot } from '@pythoughts/pythinker-code-sdk';
+import {
+  CATALOG_PLATFORM_VALUE_PREFIX,
+  log,
+  type GoalSnapshot,
+} from '@pythoughts/pythinker-code-sdk';
 import type { MigrationPlan } from '@pythoughts/migration-legacy';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -20,7 +24,6 @@ import {
   promptPlatformSelection,
   promptLogoutProviderSelection,
 } from '#/tui/commands/prompts';
-import { CATALOG_PLATFORM_VALUE_PREFIX } from '#/auth/platform-values';
 import { BannerComponent } from '#/tui/components/chrome/banner';
 import { WelcomeComponent } from '#/tui/components/chrome/welcome';
 import { DEFAULT_STATUS_LINE_CONFIG } from '#/tui/config';

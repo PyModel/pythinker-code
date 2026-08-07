@@ -458,20 +458,25 @@ describe('HarnessAPI session skills', () => {
     });
     await waitForEvent(events, (event) => event.type === 'skill.activated');
 
-    expect(telemetryRecords).toContainEqual({
-      event: 'skill_invoked',
-      sessionId: created.id,
-      properties: {
-        skill_name: 'review-flow',
-        trigger: 'user-slash',
-      },
-    });
-    expect(telemetryRecords).toContainEqual({
-      event: 'flow_invoked',
-      sessionId: created.id,
-      properties: {
-        flow_name: 'review-flow',
-      },
+    // The telemetry records are written independently of `skill.activated`, so
+    // the event is not a barrier for them — asserting straight after it raced
+    // and failed intermittently on a loaded machine.
+    await vi.waitFor(() => {
+      expect(telemetryRecords).toContainEqual({
+        event: 'skill_invoked',
+        sessionId: created.id,
+        properties: {
+          skill_name: 'review-flow',
+          trigger: 'user-slash',
+        },
+      });
+      expect(telemetryRecords).toContainEqual({
+        event: 'flow_invoked',
+        sessionId: created.id,
+        properties: {
+          flow_name: 'review-flow',
+        },
+      });
     });
   });
 

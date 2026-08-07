@@ -2,7 +2,7 @@
  * Platform-selection value vocabulary, shared by the login flows and every
  * renderer that presents them.
  *
- * These live outside `#/tui` on purpose: `#/auth/login-flows` is renderer
+ * These live in the SDK on purpose: the login flows are renderer
  * agnostic, and importing them from the TUI's platform selector would pull the
  * whole dialog stack (choice picker, theme, searchable list) into non-TUI
  * callers such as the `pythinker login` subcommand.

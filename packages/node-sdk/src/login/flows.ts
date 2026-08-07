@@ -10,12 +10,12 @@ import {
   OpenAICodexApiError,
   OpenPlatformApiError,
   runOpenAICodexOAuthFlow,
-  type DeviceAuthorization,
   type ManagedKimiCodeModelInfo,
   type ManagedKimiConfigShape,
   KIMI_CODE_PROVIDER_NAME as DEFAULT_OAUTH_PROVIDER_NAME,
   type OpenPlatformDefinition,
 } from '@pythoughts/pythinker-code-oauth';
+import { log } from '@pythoughts/agent-core';
 import {
   applyCatalogProvider,
   catalogBaseUrl,
@@ -23,48 +23,17 @@ import {
   catalogProviderModels,
   DEFAULT_CATALOG_URL,
   fetchCatalog,
-  log,
-  type CatalogModel,
   type CatalogProviderEntry,
-  type PythinkerHarness,
-} from '@pythoughts/pythinker-code-sdk';
+} from '#/catalog';
 
-import { catalogProviderIdFromPlatformValue } from '#/auth/platform-values';
-import type { ApiKeyInputDialogOptions } from '#/tui/components/dialogs/api-key-input-dialog';
-import type { PlatformSelection } from '#/tui/commands/prompts';
-import type { ColorToken } from '#/tui/theme';
-import type { LoginProgressSpinnerHandle } from '#/tui/types';
-import { formatErrorMessage } from '#/tui/utils/event-payload';
+import { formatErrorMessage } from '../error-format';
+import { catalogProviderIdFromPlatformValue } from './platform-values';
+import type { LoginProgressSpinnerHandle, LoginUi } from './types';
 
 // ---------------------------------------------------------------------------
 // Login flows behind the LoginUi port (shared with non-TUI renderers)
 // ---------------------------------------------------------------------------
 
-export interface LoginUi {
-  readonly harness: PythinkerHarness;
-  readonly sessionId?: string;
-  cancelInFlight: (() => void) | undefined;
-  showStatus(message: string, level?: ColorToken): void;
-  showError(message: string): void;
-  showLoginProgressSpinner(label: string): LoginProgressSpinnerHandle;
-  showLoginAuthorizationPrompt(auth: DeviceAuthorization): LoginProgressSpinnerHandle;
-  promptPlatformSelection(): Promise<PlatformSelection | undefined>;
-  promptApiKey(
-    platformName: string,
-    subtitleLines?: readonly string[],
-    options?: ApiKeyInputDialogOptions,
-  ): Promise<string | undefined>;
-  promptModelSelectionForOpenPlatform(
-    models: ManagedKimiCodeModelInfo[],
-    platform: OpenPlatformDefinition,
-  ): Promise<{ model: ManagedKimiCodeModelInfo; effort: string } | undefined>;
-  promptModelSelectionForCatalog(
-    providerId: string,
-    models: CatalogModel[],
-  ): Promise<{ model: CatalogModel; effort: string } | undefined>;
-  refreshConfigAfterLogin(): Promise<void>;
-  track(event: string, props?: Record<string, unknown>): void;
-}
 
 /**
  * Run the provider picker and the selected provider's login flow.
@@ -350,7 +319,6 @@ async function handleOpenAICodexOAuthLogin(ui: LoginUi): Promise<boolean> {
   try {
 
     ui.showStatus('Opening browser for OpenAI Codex sign-in…');
-    const { openUrl } = await import('#/utils/open-url');
 
     let tokens;
     try {
@@ -358,7 +326,7 @@ async function handleOpenAICodexOAuthLogin(ui: LoginUi): Promise<boolean> {
         signal: controller.signal,
         openBrowser: (url) => {
           ui.showStatus('Opening browser for OpenAI Codex sign-in…');
-          openUrl(url);
+          ui.openBrowser(url);
         },
         onManualInput: async () =>
           ui.promptApiKey(
@@ -411,6 +379,9 @@ async function handleOpenAICodexOAuthLogin(ui: LoginUi): Promise<boolean> {
     };
     const selection = await ui.promptModelSelectionForOpenPlatform(models, codexPlatform);
     if (selection === undefined) return false;
+    // Ctrl-C while the picker was open aborts the flow; the picker may still
+    // resolve with a value, and an aborted login must not write credentials.
+    if (controller.signal.aborted) return false;
 
     // Drop the previous provider only once the replacement is certain. Removing
     // it earlier loses the user's working config on any of the early returns

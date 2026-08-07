@@ -144,7 +144,7 @@ describe('OpenAI Codex login keeps the existing provider until it is replaced', 
       fetchOpenAICodexModels: vi.fn(async () => [{ id: 'gpt-5-codex', name: 'GPT-5 Codex' }]),
     }));
     vi.resetModules();
-    const { runLogin } = await import('#/auth/login-flows');
+    const { runLogin } = await import('@pythoughts/pythinker-code-sdk');
     const { OPENAI_CODEX_OAUTH_PLATFORM_ID, OPENAI_CODEX_PROVIDER_ID } = oauth;
 
     let config = {

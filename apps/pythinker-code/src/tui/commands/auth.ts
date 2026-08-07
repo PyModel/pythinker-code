@@ -1,9 +1,9 @@
 import {
   connectCatalogProvider as connectCatalogProviderFlow,
   runLogin,
+  type CatalogProviderEntry,
   type LoginUi,
-} from '#/auth/login-flows';
-import type { CatalogProviderEntry } from '@pythoughts/pythinker-code-sdk';
+} from '@pythoughts/pythinker-code-sdk';
 
 import type { ChoiceOption } from '../components/dialogs/choice-picker';
 import { DEFAULT_OAUTH_PROVIDER_NAME, PRODUCT_NAME } from '../constant/pythinker-tui';
@@ -14,6 +14,8 @@ import {
   promptModelSelectionForOpenPlatform,
   promptPlatformSelection,
 } from './prompts';
+import { openUrl } from '#/utils/open-url';
+
 import type { SlashCommandHost } from './dispatch';
 
 // ---------------------------------------------------------------------------
@@ -30,8 +32,11 @@ function loginUiFromHost(host: SlashCommandHost): LoginUi {
     set cancelInFlight(cancelInFlight: (() => void) | undefined) {
       host.cancelInFlight = cancelInFlight;
     },
-    showStatus: (message, level) => {
-      host.showStatus(message, level);
+    openBrowser: (url) => {
+      openUrl(url);
+    },
+    showStatus: (message) => {
+      host.showStatus(message);
     },
     showError: (message) => {
       host.showError(message);

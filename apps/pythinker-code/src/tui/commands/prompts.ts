@@ -7,6 +7,7 @@ import {
   type Catalog,
   type CatalogModel,
   type ModelAlias,
+  type PlatformSelection,
 } from '@pythoughts/pythinker-code-sdk';
 import { capabilitiesForModel } from '@pythoughts/pythinker-code-oauth';
 import type {
@@ -23,11 +24,6 @@ import { BUILT_IN_CATALOG_JSON } from '#/built-in-catalog';
 import { coerceEffortForModel, effortLevelsForModel } from '../utils/thinking-levels';
 import { formatErrorMessage } from '../utils/event-payload';
 import type { SlashCommandHost } from './dispatch';
-
-export interface PlatformSelection {
-  readonly platformId: string;
-  readonly catalog: Catalog;
-}
 
 export async function promptPlatformSelection(
   host: SlashCommandHost,

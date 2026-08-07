@@ -48,6 +48,27 @@ export type {
 export { buildSkillSlashCommands, isUserActivatableSkill } from '#/skill-commands';
 export type { SkillSlashCommand, SkillSlashCommands } from '#/skill-commands';
 
+// Multi-provider login flows behind the LoginUi port, shared by every surface
+// (CLI, TUI, VS Code extension).
+export { formatErrorMessage, formatErrorPayload } from '#/error-format';
+export {
+  buildPlatformOptions,
+  KIMI_CODE_PLATFORM_ID,
+  resolvePlatformOption,
+  type PlatformOption,
+} from '#/login/platform-options';
+export {
+  CATALOG_PLATFORM_VALUE_PREFIX,
+  catalogProviderIdFromPlatformValue,
+} from '#/login/platform-values';
+export { connectCatalogProvider, runLogin } from '#/login/flows';
+export type {
+  ApiKeyPromptOptions,
+  LoginProgressSpinnerHandle,
+  LoginUi,
+  PlatformSelection,
+} from '#/login/types';
+
 export {
   ErrorCodes,
   PythinkerError,
