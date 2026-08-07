@@ -22,7 +22,7 @@ import type {
 } from '@pythoughts/pythinker-code-sdk';
 
 import { AcpServer } from '../src/server';
-import { AUTHED_STATUS, makeModelsMap } from './_helpers/harness-stubs';
+import { AUTHED, makeModelsMap } from './_helpers/harness-stubs';
 
 /**
  * Phase 14.3 funnel — three input paths converge on identical
@@ -80,7 +80,7 @@ function makeFakeSession(sessionId: string): Session {
 
 function makeHarness(session: Session): PythinkerHarness {
   return {
-    auth: { status: async () => AUTHED_STATUS },
+    isAuthenticated: AUTHED,
     createSession: async () => session,
     getConfig: async () => ({
       providers: {},
@@ -178,7 +178,7 @@ describe('config_option_update wire-shape funnel', () => {
     // (the harness's configured default).
     const session = makeFakeSession('sess-funnel-thinking');
     const harness = {
-      auth: { status: async () => AUTHED_STATUS },
+      isAuthenticated: AUTHED,
       createSession: async () => session,
       getConfig: async () => ({
         providers: {},

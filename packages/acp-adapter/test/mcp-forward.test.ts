@@ -69,9 +69,7 @@ function makeHarness(
     onEvent: () => () => undefined,
   } as unknown as Session;
   const harness = {
-    auth: {
-      status: async () => ({ providers: [{ providerName: 'pythinker', hasToken: true }] }),
-    },
+    isAuthenticated: async () => true,
     createSession: async (options: CapturedCall['options']) => {
       captured.push({ options });
       return fakeSession;

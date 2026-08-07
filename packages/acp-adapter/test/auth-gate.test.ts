@@ -17,7 +17,7 @@ import {
 import type { PythinkerHarness } from '@pythoughts/pythinker-code-sdk';
 
 import { AcpServer } from '../src/server';
-import { AUTHED_STATUS, UNAUTHED_STATUS } from './_helpers/harness-stubs';
+import { AUTHED, UNAUTHED } from './_helpers/harness-stubs';
 
 class StubClient implements Client {
   async requestPermission(_p: RequestPermissionRequest): Promise<RequestPermissionResponse> {
@@ -47,9 +47,7 @@ function makeInMemoryStreamPair(): {
 
 function makeHarnessWithToken(hasToken: boolean): PythinkerHarness {
   return {
-    auth: {
-      status: async () => (hasToken ? AUTHED_STATUS : UNAUTHED_STATUS),
-    },
+    isAuthenticated: async () => hasToken,
   } as unknown as PythinkerHarness;
 }
 
@@ -74,9 +72,7 @@ describe('AcpServer auth gate', () => {
   it('does not call createSession when the auth gate fails', async () => {
     let createCalled = false;
     const harness = {
-      auth: {
-        status: async () => UNAUTHED_STATUS,
-      },
+      isAuthenticated: UNAUTHED,
       createSession: async (_opts: unknown) => {
         createCalled = true;
         return { id: 'should-not-be-reached' };

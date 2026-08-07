@@ -131,7 +131,6 @@ describe('GET /api/v1/auth — readiness probe (P2.1 D2)', () => {
       ready: false,
       providers_count: 0,
       default_model: null,
-      managed_provider: null,
     });
   });
 
@@ -182,7 +181,6 @@ describe('GET /api/v1/auth — readiness probe (P2.1 D2)', () => {
       ready: true,
       providers_count: 1,
       default_model: 'x',
-      managed_provider: null,
     });
   });
 

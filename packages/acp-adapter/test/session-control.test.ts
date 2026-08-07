@@ -22,7 +22,7 @@ import type {
 } from '@pythoughts/pythinker-code-sdk';
 
 import { AcpServer } from '../src/server';
-import { AUTHED_STATUS, makeModelsMap } from './_helpers/harness-stubs';
+import { AUTHED, makeModelsMap } from './_helpers/harness-stubs';
 
 /**
  * Captures every `session/update` notification the server pushes so
@@ -113,7 +113,7 @@ function makeFakeSession(
 
 function makeHarness(handle: FakeSessionHandle): PythinkerHarness {
   return {
-    auth: { status: async () => AUTHED_STATUS },
+    isAuthenticated: AUTHED,
     createSession: async (_options: unknown) => handle.session,
     // Phase 14: server.newSession reads these for configOptions assembly.
     getConfig: async () => ({
@@ -266,7 +266,7 @@ describe('AcpServer session/unstable_setSessionModel', () => {
     // This test needs a thinking-supported catalog row so the snapshot
     // includes the toggle (otherwise it would be omitted).
     const harness = {
-      auth: { status: async () => AUTHED_STATUS },
+      isAuthenticated: AUTHED,
       createSession: async () => handle.session,
       getConfig: async () => ({
         providers: {},

@@ -24,7 +24,7 @@ import {
 } from '@pythoughts/pythinker-code-sdk';
 
 import { AcpServer } from '../src/server';
-import { AUTHED_STATUS } from './_helpers/harness-stubs';
+import { AUTHED } from './_helpers/harness-stubs';
 
 class StubClient implements Client {
   async requestPermission(_p: RequestPermissionRequest): Promise<RequestPermissionResponse> {
@@ -96,7 +96,7 @@ const textBlock = (text: string): ContentBlock => ({ type: 'text', text });
 
 function makeHarnessWithSession(session: Session): PythinkerHarness {
   return {
-    auth: { status: async () => AUTHED_STATUS },
+    isAuthenticated: AUTHED,
     createSession: async () => session,
   } as unknown as PythinkerHarness;
 }

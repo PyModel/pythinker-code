@@ -22,7 +22,7 @@ import type {
 } from '@pythoughts/pythinker-code-sdk';
 
 import { AcpServer } from '../src/server';
-import { AUTHED_STATUS, makeModelsMap } from './_helpers/harness-stubs';
+import { AUTHED, makeModelsMap } from './_helpers/harness-stubs';
 
 class CapturingClient implements Client {
   readonly notifications: SessionNotification[] = [];
@@ -88,7 +88,7 @@ function makeFakeSession(sessionId: string): FakeSessionHandle {
 
 function makeHarness(handle: FakeSessionHandle): PythinkerHarness {
   return {
-    auth: { status: async () => AUTHED_STATUS },
+    isAuthenticated: AUTHED,
     createSession: async () => handle.session,
     getConfig: async () => ({
       providers: {},
@@ -226,7 +226,7 @@ describe('AcpServer session/set_config_option', () => {
   it('configId="thinking" + "off" on an always-thinking model → no SDK call, toggle stays locked on', async () => {
     const handle = makeFakeSession('sess-thinking-locked');
     const harness = {
-      auth: { status: async () => AUTHED_STATUS },
+      isAuthenticated: AUTHED,
       createSession: async () => handle.session,
       getConfig: async () => ({
         providers: {},
