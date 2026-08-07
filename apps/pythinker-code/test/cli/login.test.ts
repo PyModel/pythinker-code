@@ -216,6 +216,14 @@ describe('pythinker login', () => {
 
     await runLogin(['login', '-p', 'deepseek api']);
 
+    // Positive first: the label resolved to a real platform and the flow ran
+    // all the way to persisting it. Without this the negative assertion below
+    // would also hold for a login that never started.
+    expect(mockSetConfig).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providers: expect.objectContaining({ deepseek: expect.anything() }),
+      }),
+    );
     expect(select).not.toHaveBeenCalledWith(
       expect.objectContaining({ message: 'Select a provider' }),
     );

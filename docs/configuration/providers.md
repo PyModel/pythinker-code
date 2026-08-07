@@ -177,7 +177,7 @@ pythinker
 
 ## OAuth
 
-OpenAI Codex is the one provider that authenticates with OAuth rather than a static API key. `/login` runs the browser flow and writes the resulting credentials into `config.toml` — no manual configuration is needed. Every other provider uses an API key.
+OpenAI Codex is the one provider that authenticates with OAuth rather than a static API key. `/login` runs the browser flow and writes the resulting credentials into `config.toml` — no manual configuration is needed. Other providers use provider-specific credentials: most use an API key, while Vertex AI uses Google Cloud ADC.
 
 ## Next steps
 

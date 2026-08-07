@@ -95,7 +95,7 @@ describe('ModelSelectorComponent', () => {
 
     const out = text(picker);
     // Model name on the left, provider on the right, with the current marker.
-    expect(out).toMatch(/❯ Kimi K2\s+moonshot-cn ← current/);
+    expect(out).toMatch(/❯ Kimi K2\s+moonshot-cn ← current/u);
     expect(out).not.toContain('Kimi K2 (moonshot-cn)');
   });
 

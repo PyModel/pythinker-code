@@ -533,7 +533,7 @@ describe('pythinker provider list', () => {
 
     const out = stdout.join('');
     expect(out).toMatch(/kohub\s+type=anthropic\s+models=2\s+source=apiJson\(/);
-    expect(out).toMatch(/moonshot-cn\s+type=pythinker\s+models=0\s+source=inline/);
+    expect(out).toMatch(/moonshot-cn\s+type=pythinker\s+models=0\s+source=inline/u);
     expect(out).toMatch(/manual\s+type=openai\s+models=1\s+source=inline/);
     expect(out).toContain('Default model: kohub/a');
   });

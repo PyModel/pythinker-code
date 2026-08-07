@@ -554,7 +554,7 @@ describe("Webview RPC boundary (validates requests before host dispatch)", () =>
 
 describe("Webview config saves (thinking effort persistence parity with the TUI)", () => {
   const effortModel = {
-    provider: "managed:kimi-code",
+    provider: "moonshot-cn",
     model: "reasoning",
     supportEfforts: ["low", "high", "max"],
     defaultEffort: "high",

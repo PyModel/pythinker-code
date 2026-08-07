@@ -645,7 +645,7 @@ async function openProviders(): Promise<void> {
 // Logging in is provider configuration now: every path (API key, models.dev
 // catalog entry) is added through the provider manager.
 function openLogin(): void {
-  showProviders.value = true;
+  void openProviders();
 }
 
 async function handleSelectModel(modelId: string): Promise<void> {

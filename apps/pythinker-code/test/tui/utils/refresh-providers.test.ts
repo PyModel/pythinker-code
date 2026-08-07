@@ -67,6 +67,71 @@ describe('refreshAllProviderModels', () => {
 
 
 
+  it('refreshes the OpenAI Codex provider under scope oauth and drops a default model the refresh removed', async () => {
+    const host = makeRefreshHost({
+      providers: {
+        'openai-codex': {
+          type: 'openai_responses',
+          baseUrl: 'https://chatgpt.com/backend-api/codex',
+          apiKey: 'codex-access-token',
+          customHeaders: { 'chatgpt-account-id': 'acct-1' },
+          source: { auth: 'openai-codex-oauth', accountId: 'acct-1', refreshToken: 'codex-refresh' },
+        },
+        manual: { type: 'openai', baseUrl: 'https://manual.example.test/v1', apiKey: 'sk-manual' },
+      },
+      models: {
+        'openai-codex/gone': {
+          provider: 'openai-codex',
+          model: 'gone',
+          maxContextSize: 128_000,
+          capabilities: ['tool_use'],
+        },
+        'manual/kept': {
+          provider: 'manual',
+          model: 'kept',
+          maxContextSize: 8_000,
+          capabilities: ['tool_use'],
+        },
+      },
+      defaultModel: 'openai-codex/gone',
+      defaultThinking: true,
+    } as unknown as PythinkerConfig);
+
+    const fetchMock = vi.fn<FetchMock>(async (input) => {
+      expect(fetchInputUrl(input)).toContain('/models?client_version=');
+      return new Response(
+        JSON.stringify({
+          models: [
+            { id: 'gpt-5-codex', context_length: 272_000, supports_reasoning: true },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await refreshAllProviderModels(
+      {
+        getConfig: async () => host.current(),
+        removeProvider: host.removeProvider,
+        setConfig: host.setConfig,
+        replaceConfig: host.replaceConfig,
+      },
+      { scope: 'oauth' },
+    );
+
+    expect(result.failed).toEqual([]);
+    expect(result.changed).toEqual([
+      { providerId: 'openai-codex', providerName: 'OpenAI Codex (OAuth)', added: 1, removed: 1 },
+    ]);
+    // scope 'oauth' must not touch the hand-written provider.
+    expect(host.current().providers['manual']).toMatchObject({ apiKey: 'sk-manual' });
+    expect(host.current().models?.['manual/kept']).toBeDefined();
+    // The old default alias is gone, so the stale selection must not survive.
+    expect(host.current().models?.['openai-codex/gone']).toBeUndefined();
+    expect(host.current().defaultModel).not.toBe('openai-codex/gone');
+  });
+
   it('refreshes catalog-backed providers once per models.dev source', async () => {
     const catalogUrl = 'https://catalog.example.test/api.json';
     const source = { kind: 'modelsDev', url: catalogUrl };

@@ -16,7 +16,7 @@ async function main(): Promise<void> {
   }
 
   await harness.setConfig({
-    defaultModel: 'pythinker-code/pythinker-for-coding',
+    defaultModel: 'moonshot-cn/kimi-k2',
     defaultThinking: true,
     defaultPermissionMode: 'manual',
     defaultPlanMode: false,
@@ -28,12 +28,12 @@ async function main(): Promise<void> {
       },
     },
     models: {
-      'pythinker-code/pythinker-for-coding': {
+      'moonshot-cn/kimi-k2': {
         provider: 'moonshot-cn',
-        model: 'pythinker-for-coding',
+        model: 'kimi-k2',
         maxContextSize: 262144,
         capabilities: ['image_in', 'thinking', 'video_in'],
-        displayName: 'Pythinker for Coding',
+        displayName: 'Kimi K2',
       },
     },
     loopControl: {
@@ -42,26 +42,15 @@ async function main(): Promise<void> {
       reservedContextSize: 50000,
       compactionTriggerRatio: 0.85,
     },
-    services: {
-      pythoughtsSearch: {
-        baseUrl: 'https://api.moonshot.cn/v1/search',
-        apiKey: 'sk-config-smoke',
-      },
-      pythoughtsFetch: {
-        baseUrl: 'https://api.moonshot.cn/v1/fetch',
-        apiKey: 'sk-config-smoke',
-      },
-    },
   });
 
   const configPath = join(homeDir, 'config.toml');
   const text = await readFile(configPath, 'utf-8');
   for (const expected of [
-    'default_model = "pythinker-code/pythinker-for-coding"',
+    'default_model = "moonshot-cn/kimi-k2"',
     'default_permission_mode = "manual"',
     '[providers."moonshot-cn"]',
-    '[models."pythinker-code/pythinker-for-coding"]',
-    '[services.pythoughts_search]',
+    '[models."moonshot-cn/kimi-k2"]',
   ]) {
     if (!text.includes(expected)) {
       throw new Error(`missing ${expected} in written config`);
@@ -69,7 +58,7 @@ async function main(): Promise<void> {
   }
 
   const reloaded = await harness.getConfig({ reload: true });
-  if (reloaded.defaultModel !== 'pythinker-code/pythinker-for-coding') {
+  if (reloaded.defaultModel !== 'moonshot-cn/kimi-k2') {
     throw new Error('reloaded config did not preserve defaultModel');
   }
   if (reloaded.providers['moonshot-cn']?.apiKey !== 'sk-config-smoke') {

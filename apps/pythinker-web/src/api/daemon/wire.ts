@@ -387,7 +387,7 @@ export interface WireConfig {
 }
 
 // ---------------------------------------------------------------------------
-// Auth wire DTOs — REAL endpoints (GET /api/v1/auth, POST/GET/DELETE /api/v1/oauth/login, POST /api/v1/oauth/logout)
+// Auth wire DTOs — REAL endpoint (GET /api/v1/auth)
 // ---------------------------------------------------------------------------
 
 

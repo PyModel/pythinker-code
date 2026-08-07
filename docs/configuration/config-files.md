@@ -23,7 +23,7 @@ TOML field names always use snake_case, for example `default_model` and `max_con
 The following example covers the most commonly used configuration fields. You can copy it and adjust as needed:
 
 ```toml
-default_model = "pythinker-code/pythinker-for-coding"
+default_model = "moonshot-cn/kimi-k2"
 default_thinking = true
 default_permission_mode = "manual"
 default_plan_mode = false

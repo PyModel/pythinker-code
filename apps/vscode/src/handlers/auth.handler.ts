@@ -81,10 +81,30 @@ export const authHandlers: Record<string, Handler<any, any>> = {
 
   [Methods.Logout]: async (_, ctx): Promise<LoginResult> => {
     try {
+      // Only providers a login created carry a `source` (catalog id, custom
+      // registry URL, or the OpenAI Codex OAuth marker). Hand-written
+      // `config.toml` entries have none and must survive a sign-out. One
+      // `replaceConfig` write so a failure cannot leave a half-signed-out
+      // config behind.
       const config = await ctx.harness.getConfig({ reload: true });
-      for (const providerId of Object.keys(config.providers ?? {})) {
-        await ctx.harness.removeProvider(providerId);
-      }
+      const providers = Object.fromEntries(
+        Object.entries(config.providers ?? {}).filter(([, provider]) => provider.source === undefined),
+      );
+      const removed = new Set(
+        Object.keys(config.providers ?? {}).filter((id) => providers[id] === undefined),
+      );
+      const models = Object.fromEntries(
+        Object.entries(config.models ?? {}).filter(([, alias]) => !removed.has(alias.provider)),
+      );
+      await ctx.harness.replaceConfig({
+        ...config,
+        providers,
+        models,
+        defaultModel:
+          config.defaultModel !== undefined && models[config.defaultModel] === undefined
+            ? undefined
+            : config.defaultModel,
+      });
       await updateLoginContext(ctx.harness);
       return { success: true };
     } catch (error) {

@@ -30,15 +30,15 @@ describe('authSummarySchema', () => {
   });
 
   it('rejects a negative providers_count', () => {
-    expect(() => authSummarySchema.parse({ ...emptyState, providers_count: -1 })).toThrow(/invalid|expected|Invalid/i);
+    expect(() => authSummarySchema.parse({ ...emptyState, providers_count: -1 })).toThrow(/invalid|expected|Invalid/iu);
   });
 
   it('rejects a non-integer providers_count', () => {
-    expect(() => authSummarySchema.parse({ ...emptyState, providers_count: 1.5 })).toThrow(/invalid|expected|Invalid/i);
+    expect(() => authSummarySchema.parse({ ...emptyState, providers_count: 1.5 })).toThrow(/invalid|expected|Invalid/iu);
   });
 
   it('rejects a missing default_model rather than defaulting it', () => {
     const { default_model: _omit, ...rest } = emptyState;
-    expect(() => authSummarySchema.parse(rest)).toThrow(/invalid|expected|Invalid/i);
+    expect(() => authSummarySchema.parse(rest)).toThrow(/invalid|expected|Invalid/iu);
   });
 });

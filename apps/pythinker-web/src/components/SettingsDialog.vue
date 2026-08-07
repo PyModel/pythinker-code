@@ -40,7 +40,6 @@ const emit = defineEmits<{
   setNotify: [on: boolean];
   setBetaToc: [on: boolean];
   login: [];
-  logout: [];
   openOnboarding: [];
   updateConfig: [patch: Partial<AppConfig>];
   close: [];
@@ -264,13 +263,12 @@ function setTab(tab: SettingsTab): void {
             <section class="sec">
               <h3 class="sec-title">{{ t('settings.account') }}</h3>
               <div class="row">
-                <span class="rlabel">{{ authReady ? 'managed:kimi-code' : t('sidebar.notSignedIn') }}</span>
+                <span class="rlabel">{{ authReady ? t('sidebar.signedIn') : t('sidebar.notSignedIn') }}</span>
                 <span v-if="authReady && accountModel" class="rvalue" :title="accountModel">{{ accountModel }}</span>
               </div>
               <div class="actions">
                 <button type="button" class="act" @click="emit('openOnboarding'); emit('close')">{{ t('onboarding.reopen') }}</button>
-                <button v-if="authReady" type="button" class="act danger" @click="emit('logout')">{{ t('sidebar.signOut') }}</button>
-                <button v-else type="button" class="act signin" @click="emit('login')">{{ t('sidebar.signIn') }}</button>
+                <button type="button" class="act signin" @click="emit('login')">{{ t('providers.title') }}</button>
               </div>
             </section>
           </section>
