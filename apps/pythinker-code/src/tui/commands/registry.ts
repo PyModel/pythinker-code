@@ -21,6 +21,7 @@ const DYNAMIC_WORKFLOW_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
   { value: 'on', description: 'Turn Dynamic Workflow mode on' },
   { value: 'off', description: 'Turn Dynamic Workflow mode off' },
   { value: 'model', description: 'Set the model Dynamic Workflow subagents run on' },
+  { value: 'save', description: 'Save the last Dynamic Workflow as a reusable command' },
 ];
 
 const FAST_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [

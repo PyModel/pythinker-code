@@ -1,4 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+// Delegates to the real `spawn` so every other test in this file keeps running
+// actual processes; the wrapper exists only so the PowerShell test can assert
+// which binary was launched instead of waiting on its output.
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>();
+  return { ...actual, spawn: vi.fn(actual.spawn) };
+});
 
 const RUNNER_MODULE = '../../src/session/hooks/runner' as string;
 
@@ -140,16 +148,29 @@ describe('runHook process runner', () => {
     expect(result.stdout?.trim()).toBe('WriteFile');
   });
 
-  // PowerShell cold start can exceed several seconds on a loaded CI runner, so the
-  // hook budget and the surrounding test timeout both need headroom above it, and the
-  // test timeout must stay above the hook budget so the hook result is what gets asserted.
+  // Asserting on pwsh's own output would tie this test to PowerShell being installed
+  // and to its cold start fitting inside the hook budget -- on a loaded CI runner the
+  // budget expired, `runHook` returned allow with empty streams, and the assertion
+  // failed with a bare "expected false to be true". Widening it to accept the timeout
+  // would have made it vacuous: a runner that ignored `shell` entirely would pass.
+  // The contract worth asserting is the spawn itself, which is deterministic.
   it('uses a non-interactive PowerShell process when requested', async () => {
-    const runHook = await importRunHook();
-    const result = await runHook(`Write-Output 'ok'`, {}, { timeout: 15, shell: 'powershell' });
+    const { spawn } = await import('node:child_process');
+    const spawnMock = vi.mocked(spawn);
+    spawnMock.mockClear();
 
-    expect(result.action).toBe('allow');
-    expect(
-      result.stdout?.trim() === 'ok' || result.stderr?.includes('ENOENT') === true,
-    ).toBe(true);
+    const runHook = await importRunHook();
+    await runHook(`Write-Output 'ok'`, {}, { timeout: 5, shell: 'powershell' });
+
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+    expect(spawnMock.mock.calls[0]?.[0]).toBe(
+      process.platform === 'win32' ? 'powershell.exe' : 'pwsh',
+    );
+    expect(spawnMock.mock.calls[0]?.[1]).toEqual([
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      `Write-Output 'ok'`,
+    ]);
   }, 30_000);
 });

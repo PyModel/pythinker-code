@@ -300,8 +300,8 @@ function adaptDisplay(display: ToolInputDisplay): DisplayBlock[] {
           scope: display.scope,
         },
       ];
-    case 'agent_call':
-      return [
+    case 'agent_call': {
+      const blocks: DisplayBlock[] = [
         {
           type: 'invocation',
           kind: 'agent',
@@ -309,6 +309,18 @@ function adaptDisplay(display: ToolInputDisplay): DisplayBlock[] {
           description: display.prompt,
         },
       ];
+      if (display.workflow !== undefined) {
+        blocks.push({
+          type: 'workflow_plan',
+          agent_count: display.workflow.agent_count,
+          items: [...display.workflow.items],
+          prompt_tokens: display.workflow.prompt_tokens,
+          prompt_template: display.workflow.prompt_template,
+          model: display.workflow.model,
+        });
+      }
+      return blocks;
+    }
     case 'skill_call':
       return [
         {

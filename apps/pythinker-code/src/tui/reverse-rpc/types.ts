@@ -68,6 +68,19 @@ export interface InvocationDisplayBlock {
   description?: string | undefined;
 }
 
+/**
+ * The fan-out a Dynamic Workflow is about to launch. Shown at approval time so
+ * the decision is made against the actual task list rather than a count.
+ */
+export interface WorkflowPlanDisplayBlock {
+  type: 'workflow_plan';
+  agent_count: number;
+  items: string[];
+  prompt_tokens: number;
+  prompt_template?: string;
+  model?: string;
+}
+
 export interface TodoDisplayItem {
   title: string;
   status: 'pending' | 'in_progress' | 'done';
@@ -95,6 +108,7 @@ export type DisplayBlock =
   | UrlFetchDisplayBlock
   | SearchDisplayBlock
   | InvocationDisplayBlock
+  | WorkflowPlanDisplayBlock
   | TodoDisplayBlock
   | BackgroundTaskDisplayBlock;
 

@@ -124,9 +124,10 @@ describe('built-in slash command registry', () => {
       return items === null ? null : items.map((item) => item.value);
     };
 
-    expect(values('')).toEqual(['on', 'off', 'model']);
+    expect(values('')).toEqual(['on', 'off', 'model', 'save']);
     expect(values('O')).toEqual(['on', 'off']);
     expect(values('mod')).toEqual(['model']);
+    expect(values('sa')).toEqual(['save']);
     expect(dynamicWorkflowArgumentCompletions('of')).toEqual([
       { value: 'off', label: 'off', description: 'Turn Dynamic Workflow mode off' },
     ]);

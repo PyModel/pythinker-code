@@ -1,5 +1,10 @@
-import type { PermissionMode } from '@pythoughts/pythinker-code-sdk';
+import {
+  savedWorkflowSkillName,
+  writeSavedWorkflowSkill,
+  type PermissionMode,
+} from '@pythoughts/pythinker-code-sdk';
 
+import { getDataDir } from '#/utils/paths';
 import {
   DynamicWorkflowStartPermissionPromptComponent,
   type DynamicWorkflowStartPermissionChoice,
@@ -25,6 +30,7 @@ export async function handleDynamicWorkflowCommand(host: SlashCommandHost, args:
 
   const prompt = args.trim();
   if (handleModelSubcommand(host, prompt)) return;
+  if (await handleSaveSubcommand(host, prompt)) return;
 
   const mode = dynamicWorkflowModeSubcommand(prompt);
   if (mode !== undefined) {
@@ -112,6 +118,69 @@ function withWorkerModelInstruction(prompt: string, model: string | undefined): 
   return model === undefined
     ? prompt
     : `${prompt}\n\nUse model "${model}" for the DynamicWorkflow subagents in this task.`;
+}
+
+/**
+ * `/workflow save <name>` writes the last run back out as a skill, so a fan-out
+ * that worked can be re-run by name instead of re-described.
+ *
+ * Returns true when the input was a `save` subcommand and has been handled.
+ */
+async function handleSaveSubcommand(host: SlashCommandHost, input: string): Promise<boolean> {
+  const match = /^save(?:\s+(.*))?$/iu.exec(input);
+  if (match === null) return false;
+
+  const name = match[1]?.trim() ?? '';
+  if (name.length === 0) {
+    host.showError('Usage: /workflow save <name>');
+    return true;
+  }
+
+  const args = host.state.lastDynamicWorkflowArgs;
+  if (args === undefined) {
+    host.showError('No Dynamic Workflow has run in this session yet.');
+    return true;
+  }
+
+  const description = stringArg(args, 'description');
+  if (description === undefined) {
+    host.showError('The last Dynamic Workflow has no description to save.');
+    return true;
+  }
+
+  try {
+    const dir = await writeSavedWorkflowSkill({
+      scope: 'project',
+      projectRoot: host.state.appState.workDir,
+      brandHomeDir: getDataDir(),
+      workflow: {
+        name,
+        description,
+        subagentType: stringArg(args, 'subagent_type'),
+        promptTemplate: stringArg(args, 'prompt_template'),
+        model: stringArg(args, 'model'),
+        effort: stringArg(args, 'effort'),
+        outputSchema: recordArg(args, 'output_schema'),
+      },
+    });
+    host.refreshSlashCommandAutocomplete();
+    host.showStatus(`Saved /${savedWorkflowSkillName(name)} to ${dir}.`);
+  } catch (error) {
+    host.showError(`Failed to save workflow: ${formatErrorMessage(error)}`);
+  }
+  return true;
+}
+
+function stringArg(args: Record<string, unknown>, key: string): string | undefined {
+  const value = args[key];
+  return typeof value === 'string' && value.trim().length > 0 ? value : undefined;
+}
+
+function recordArg(args: Record<string, unknown>, key: string): Record<string, unknown> | undefined {
+  const value = args[key];
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
 }
 
 /** Returns true when the input was a `model` subcommand and has been handled. */

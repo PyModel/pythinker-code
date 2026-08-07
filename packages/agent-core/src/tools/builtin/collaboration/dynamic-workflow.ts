@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import { z } from 'zod';
 
 import type { WorkflowWarningEvent } from '@pythoughts/protocol';
@@ -17,7 +19,9 @@ import {
   workflowSizeGuidelineTarget,
 } from '../../../agent/dynamic-workflow/size-guideline';
 import { generateWorkflowRunId } from '../../../agent/dynamic-workflow/run-id';
+import { estimateTokens } from '../../../utils/tokens';
 import { toInputJsonSchema } from '../../support/input-schema';
+import { literalRulePattern, matchesGlobRuleSubject } from '../../support/rule-match';
 import DYNAMIC_WORKFLOW_DESCRIPTION from './dynamic-workflow.md?raw';
 
 const DEFAULT_SUBAGENT_TYPE = 'coder';
@@ -160,20 +164,27 @@ export class DynamicWorkflowTool implements BuiltinTool<DynamicWorkflowToolInput
   }
 
   resolveExecution(args: DynamicWorkflowToolInput): ToolExecution {
-    // Count the items that will actually launch, so the panel never advertises
-    // a subagent that was never going to run.
-    const agentCount =
-      normalizeWorkflowItems(args.items).items.length +
-      Object.keys(args.resume_agent_ids ?? {}).length;
+    const workflow = dynamicWorkflowPreview(args);
+    const approvalSubject = dynamicWorkflowApprovalSubject(args, workflow);
     return {
       accesses: ToolAccesses.all(),
       description: `Launching Dynamic Workflow: ${args.description}`,
       display: {
         kind: 'agent_call',
-        agent_name: `Dynamic Workflow (${agentCount} subagents)`,
+        agent_name: `Dynamic Workflow (${String(workflow.agent_count)} subagents)`,
         prompt: args.description,
+        workflow,
       },
-      approvalRule: this.name,
+      // Keyed on the whole plan, not the tool name and not the description.
+      // The bare name granted every future DynamicWorkflow call; the
+      // description alone would let a second call reuse it and swap in 128
+      // different items, which is exactly the fan-out the preview exists to
+      // show. "Approve for this session" now grants the plan that was shown.
+      // The matcher has to ship with it: an arg-bearing rule with no
+      // `matchesRule` never matches, so the grant would be recorded and then
+      // silently ignored on every later call.
+      approvalRule: literalRulePattern(this.name, approvalSubject),
+      matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, approvalSubject),
       execute: (ctx) => this.execution(args, ctx),
     };
   }
@@ -312,9 +323,7 @@ function createDynamicWorkflowSpecs(
   }
   if (items.length > 0) {
     items.forEach((item, index) => {
-      const prompt = promptTemplate === undefined
-        ? item
-        : promptTemplate.split(PROMPT_TEMPLATE_PLACEHOLDER).join(item);
+      const prompt = renderItemPrompt(item, promptTemplate);
       const previousIndex = seenPrompts.get(prompt);
       if (previousIndex !== undefined) {
         throw new Error(
@@ -335,6 +344,98 @@ function createDynamicWorkflowSpecs(
 
 function hasMinimumDynamicWorkflowInputs(itemCount: number, resumeCount: number): boolean {
   return resumeCount > 0 || itemCount >= 2;
+}
+
+/**
+ * What the call is about to launch, for the approval panel — the counted
+ * subagents, the work each one gets, and how much prompt that adds up to.
+ *
+ * Built from the arguments alone and deliberately total: `resolveExecution`
+ * runs before `createDynamicWorkflowSpecs` validates anything, so a call this
+ * function threw on would never reach the panel that exists to refuse it.
+ * `prompt_tokens` is the summed prompt estimate, which is a real input size —
+ * not a guess at what the run will finally cost.
+ */
+function dynamicWorkflowPreview(args: DynamicWorkflowToolInput): {
+  agent_count: number;
+  items: string[];
+  prompt_tokens: number;
+  prompt_template?: string;
+  model?: string;
+} {
+  const { items } = normalizeWorkflowItems(args.items);
+  const promptTemplate = normalizeOptionalString(args.prompt_template);
+  const resumeIds = Object.keys(args.resume_agent_ids ?? {});
+  const prompts = [
+    ...Object.values(args.resume_agent_ids ?? {}),
+    ...items.map((item) => renderItemPrompt(item, promptTemplate)),
+  ];
+  return {
+    agent_count: prompts.length,
+    // Resumed subagents carry an id rather than an item, so label them to keep
+    // the list the same length as the count it sits under. The prompt goes in
+    // too: it is the instruction that subagent will actually receive, and the
+    // approval digest is built from this list — an id alone would let a second
+    // call keep the same ids, change what it tells them to do, and match the
+    // earlier grant.
+    items: [
+      ...resumeIds.map(
+        (agentId) => `resume ${agentId}: ${(args.resume_agent_ids ?? {})[agentId] ?? ''}`,
+      ),
+      ...items,
+    ],
+    prompt_tokens: prompts.reduce((total, prompt) => total + estimateTokens(prompt), 0),
+    prompt_template: promptTemplate,
+    model: normalizeOptionalString(args.model),
+  };
+}
+
+/**
+ * Characters a permission-rule subject can carry safely. The rule DSL parses
+ * `Tool(subject)` by splitting on the first paren, and the subject is then glob
+ * matched — so parens break parsing outright and `{}[]*?!+@|` survive neither
+ * escaping nor picomatch reliably. Everything else is dropped from the readable
+ * half of the subject; the digest carries the precision.
+ */
+const RULE_SUBJECT_UNSAFE = /[^a-zA-Z0-9 ._-]/gu;
+
+/**
+ * Subject a session approval is recorded against: a readable prefix plus a
+ * digest of the whole plan.
+ *
+ * Every field that changes what actually runs feeds the digest, the item list
+ * included. Keying on the description alone would let a later call keep the
+ * description, swap in a different 128-item list, and ride in on the earlier
+ * grant — the precise fan-out the preview exists to expose. Two plans share a
+ * grant only when they would launch the same work.
+ *
+ * The plan cannot be the subject verbatim: a JSON blob does not survive the
+ * rule DSL. Hence digest, with a trimmed description kept in front so a
+ * recorded rule is still recognisable.
+ */
+function dynamicWorkflowApprovalSubject(
+  args: DynamicWorkflowToolInput,
+  workflow: { readonly items: readonly string[]; readonly agent_count: number },
+): string {
+  const plan = JSON.stringify({
+    description: args.description,
+    subagentType: normalizeOptionalString(args.subagent_type),
+    promptTemplate: normalizeOptionalString(args.prompt_template),
+    model: normalizeOptionalString(args.model),
+    effort: normalizeOptionalString(args.effort),
+    outputSchema: args.output_schema,
+    agentCount: workflow.agent_count,
+    items: workflow.items,
+  });
+  const digest = createHash('sha256').update(plan).digest('hex').slice(0, 16);
+  const label = args.description.replace(RULE_SUBJECT_UNSAFE, ' ').trim();
+  return label.length === 0 ? digest : `${label} ${digest}`;
+}
+
+function renderItemPrompt(item: string, promptTemplate: string | undefined): string {
+  return promptTemplate === undefined
+    ? item
+    : promptTemplate.split(PROMPT_TEMPLATE_PLACEHOLDER).join(item);
 }
 
 /**
