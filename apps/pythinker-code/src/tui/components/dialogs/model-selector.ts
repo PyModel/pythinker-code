@@ -1,4 +1,9 @@
-import type { ModelAlias } from '@pythoughts/pythinker-code-sdk';
+import {
+  coerceEffortForModel,
+  effortLevelsForModel,
+  thinkingAvailability,
+  type ModelAlias,
+} from '@pythoughts/pythinker-code-sdk';
 import {
   Container,
   Key,
@@ -18,12 +23,7 @@ import {
 } from '#/tui/keybindings';
 import { currentTheme } from '#/tui/theme';
 import { SearchableList } from '#/tui/utils/searchable-list';
-import {
-  coerceEffortForModel,
-  effortLevelsForModel,
-  shortEffortLabel,
-  thinkingAvailability,
-} from '#/tui/utils/thinking-levels';
+import { shortEffortLabel } from '#/tui/utils/thinking-levels';
 
 import {
   combinedBindingHint,

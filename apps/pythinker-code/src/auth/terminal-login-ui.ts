@@ -22,7 +22,9 @@ import {
 import {
   buildPlatformOptions,
   catalogModelToAlias,
+  coerceEffortForModel,
   DEFAULT_CATALOG_URL,
+  effortLevelsForModel,
   fetchCatalog,
   formatErrorMessage,
   loadBuiltInCatalog,
@@ -39,7 +41,6 @@ import {
 
 import { BUILT_IN_CATALOG_JSON } from '#/built-in-catalog';
 import type { ColorToken } from '#/tui/theme';
-import { coerceEffortForModel, effortLevelsForModel } from '#/tui/utils/thinking-levels';
 import { openUrl } from '#/utils/open-url';
 
 /** Thrown when `--provider` does not match any platform id or display name. */

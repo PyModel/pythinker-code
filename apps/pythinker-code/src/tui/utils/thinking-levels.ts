@@ -1,23 +1,13 @@
 /**
  * Thinking-effort presentation helpers (TUI-only).
  *
- * The level rules themselves live in the SDK (`#/thinking-levels` there) so the
- * terminal and VS Code renderers offer the same levels for the same model; they
- * are re-exported here so existing TUI importers keep their import path. Only
- * the theme-bound presentation stays local, because the SDK must not depend on
- * the TUI theme.
+ * Only theme-bound presentation lives here, because the SDK must not depend on
+ * the TUI theme. The level rules themselves are
+ * `@pythoughts/pythinker-code-sdk`'s, so the terminal and VS Code renderers
+ * offer the same levels for the same model; import them from there.
  */
 
 import type { ColorToken } from '#/tui/theme';
-
-export {
-  CANONICAL_EFFORT_ORDER,
-  coerceEffortForModel,
-  DEFAULT_SUPPORTED_EFFORTS,
-  effortLevelsForModel,
-  thinkingAvailability,
-  type ThinkingAvailability,
-} from '@pythoughts/pythinker-code-sdk';
 
 const EFFORT_COLOR_TOKENS = {
   minimal: 'effortLow',

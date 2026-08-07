@@ -1,7 +1,9 @@
 import {
   catalogModelToAlias,
   catalogConnectionWire,
+  coerceEffortForModel,
   DEFAULT_CATALOG_URL,
+  effortLevelsForModel,
   fetchCatalog,
   loadBuiltInCatalog,
   managedModelToAlias,
@@ -21,7 +23,6 @@ import { FeedbackInputDialogComponent, type FeedbackInputDialogResult } from '..
 import { ModelSelectorComponent } from '../components/dialogs/model-selector';
 import { PlatformSelectorComponent } from '../components/dialogs/platform-selector';
 import { BUILT_IN_CATALOG_JSON } from '#/built-in-catalog';
-import { coerceEffortForModel, effortLevelsForModel } from '../utils/thinking-levels';
 import { formatErrorMessage } from '../utils/event-payload';
 import type { SlashCommandHost } from './dispatch';
 

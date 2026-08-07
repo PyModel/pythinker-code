@@ -1,5 +1,9 @@
 import { Editor, parseKey } from '@earendil-works/pi-tui';
-import type { Session } from '@pythoughts/pythinker-code-sdk';
+import {
+  coerceEffortForModel,
+  effortLevelsForModel,
+  type Session,
+} from '@pythoughts/pythinker-code-sdk';
 
 import { ClipboardMediaError, readClipboardMedia } from '#/utils/clipboard/clipboard-image';
 import { parseImageMeta } from '#/utils/image/image-mime';
@@ -13,7 +17,6 @@ import {
 } from '../constant/pythinker-tui';
 import { formatErrorMessage } from '../utils/event-payload';
 import type { ImageAttachmentStore } from '../utils/image-attachment-store';
-import { coerceEffortForModel, effortLevelsForModel } from '../utils/thinking-levels';
 import type { AppState, PendingExit } from '../types';
 import type { TUIState } from '../tui-state';
 import type { FooterEvent } from '../runtime/footer/footer-model';
