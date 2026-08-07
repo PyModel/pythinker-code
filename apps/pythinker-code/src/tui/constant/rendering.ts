@@ -28,6 +28,18 @@ export const DYNAMIC_WORKFLOW_RENDERING = {
   frameHorizontalInset: 4,
   memberProgressMinWidth: 60,
   memberProgressWidth: 9,
+  /** Least room the task keeps before the detail may claim any of the row. */
+  memberTaskMinWidth: 12,
+  /** Share of the free row the task may take before the detail gets the rest. */
+  memberTaskShare: 0.6,
+  /** Below this the detail is dropped: a few clipped characters say nothing. */
+  memberDetailMinWidth: 8,
+  /**
+   * Upper bound on one buffered output line. A model may stream a single line
+   * with no newline in it at all, so this is the only thing that stops the
+   * buffered text from growing for as long as the agent runs.
+   */
+  memberLatestMaxChars: 512,
   /** Idle age at which a row's silence is worth noticing. */
   quietIdleMs: 60_000,
   /** Idle age at which a row has almost certainly stalled. */

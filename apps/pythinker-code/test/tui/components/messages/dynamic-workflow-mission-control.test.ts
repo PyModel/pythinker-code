@@ -856,6 +856,49 @@ describe('DynamicWorkflowMissionControlComponent', () => {
     expect(line).toContain("I've read the files");
   });
 
+  it.each([64, 70, 80, 100, 200])(
+    'keeps the task readable beside a long agent summary at width %i',
+    (width) => {
+      const component = createComponent();
+      component.updateArgs({ items: ['Cluster B: verify the plan appendix'] });
+      component.markInputComplete();
+      register(component, 'agent-1');
+      component.markStarted('agent-1');
+      component.markCompleted(
+        'agent-1',
+        'Verification complete. All six Phase-1 items checked against the current tree. '.repeat(4),
+      );
+
+      // The task names the row. A long summary may be clipped; the identity may
+      // not — it used to collapse to a single character once a detail arrived.
+      const rendered = component.render(width);
+      expect(rendered.every((line) => visibleWidth(line) <= width)).toBe(true);
+      const line = memberLine(strip(rendered.join('\n')), 1);
+      expect(line).toContain('Cluster B: v');
+      expect(line).toContain('Verific');
+      expect(line).toMatch(/\b0s\s*│?\s*$/u);
+    },
+  );
+
+  it('closes a streamed line at its newline instead of fusing the whole message', () => {
+    const component = createComponent();
+    component.updateArgs({ items: ['Stream a report'] });
+    component.markInputComplete();
+    register(component, 'agent-1');
+    component.markStarted('agent-1');
+    for (const delta of ['First line\n', 'Second line\n', 'Third line\n']) {
+      component.appendModelDelta({ agentId: 'agent-1', delta });
+    }
+
+    const output = renderText(component, 200);
+    expect(output).not.toContain('First lineSecond line');
+    expect(memberLine(output, 1)).toContain('Third line');
+    expect(memberLine(output, 1)).not.toContain('First line');
+    // Each closed line is its own activity entry, not three copies of one prefix.
+    expect(output).toContain('First line');
+    expect(output).toContain('Second line');
+  });
+
   it('renders object items by their prompt field and drops streamed phantom rows', () => {
     const component = createComponent();
     const streamingArguments =

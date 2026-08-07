@@ -9,6 +9,8 @@ import { currentTheme } from '#/tui/theme';
 import { shimmerText } from '#/tui/utils/shimmer';
 
 const RESUMED_ITEM_LABEL = '(resumed)';
+/** Divider between the cells that share a member row's free space. */
+const MEMBER_SEPARATOR = ' · ';
 const ORCHESTRATING_LABEL = 'Orchestrating';
 const FINALIZING_LABEL = 'Finalizing';
 // Pad to the wider live label so the suffix column never shifts between them.
@@ -42,8 +44,12 @@ export interface DynamicWorkflowMember {
   item: string;
   phase: DynamicWorkflowPhase;
   latest: string;
-  /** `latest` holds a tool-activity label, not streamed model text. */
-  latestFromTool?: boolean;
+  /**
+   * The part of the streamed line that has not been closed by a newline yet.
+   * Held apart from `latest` because `latest` may be a finished line or a tool
+   * label, and neither may be prepended to the next delta.
+   */
+  carry: string;
   statusDetail?: string;
   startedAtMs?: number;
   endedAtMs?: number;
@@ -266,7 +272,7 @@ export class DynamicWorkflowMissionControlComponent implements Component {
     const latest = input.name === undefined ? 'Using a tool' : `Using ${input.name}`;
     this.setLatest(member, latest, true);
     // Streamed text that follows starts a new line, never continues this label.
-    member.latestFromTool = true;
+    member.carry = '';
   }
 
   appendModelDelta(input: { readonly agentId: string; readonly delta: string }): void {
@@ -275,10 +281,15 @@ export class DynamicWorkflowMissionControlComponent implements Component {
     this.markStarted(input.agentId);
     const recordActivity = input.delta.includes('\n') || member.latest.length === 0;
     member.lastEventAtMs = Date.now();
-    const carried = member.latestFromTool === true ? '' : member.latest;
-    const latest = latestNonEmptyLine(`${carried}${input.delta}`);
-    member.latestFromTool = false;
-    this.setLatest(member, latest, recordActivity);
+    const combined = `${member.carry}${input.delta}`;
+    // Only the text after the last newline is still being written. A delta that
+    // ends exactly at a newline leaves nothing pending, so carrying the closed
+    // line into the next delta fused a whole streamed message into one string
+    // that grew for as long as the agent talked.
+    const newlineIndex = combined.lastIndexOf('\n');
+    const pending = newlineIndex < 0 ? combined : combined.slice(newlineIndex + 1);
+    member.carry = clampLine(pending);
+    this.setLatest(member, clampLine(latestNonEmptyLine(combined)), recordActivity);
   }
 
   markSuspended(input: {
@@ -581,16 +592,42 @@ export class DynamicWorkflowMissionControlComponent implements Component {
     const elapsed = member.startedAtMs === undefined
       ? undefined
       : `${String(elapsedSeconds(member.startedAtMs, member.endedAtMs ?? nowMs))}s`;
-    const showDetail = showWork && detail !== undefined && detail.length > 0;
-    const showElapsed = showWork && elapsed !== undefined;
-    const tail = [
-      showDetail ? currentTheme.fg('textDim', detail) : '',
-      showElapsed ? currentTheme.fg('textMuted', elapsed) : '',
-    ].filter((part) => part.length > 0).join(' · ');
-    const separator = tail.length > 0 ? ' · ' : '';
-    const taskWidth = Math.max(1, width - visibleWidth(prefix) - visibleWidth(separator) - visibleWidth(tail));
-    const taskText = truncateToWidth(currentTheme.fg('text', task), taskWidth);
-    return truncateToWidth(`${prefix}${taskText}${separator}${tail}`, width);
+    const free = Math.max(1, width - visibleWidth(prefix));
+
+    // The elapsed cell is short and fixed, so it is reserved first — but only
+    // while the task still keeps its floor.
+    const elapsedPart = showWork && elapsed !== undefined
+      ? `${MEMBER_SEPARATOR}${currentTheme.fg('textMuted', elapsed)}`
+      : '';
+    const elapsedWidth = visibleWidth(elapsedPart);
+    const keepsElapsed = elapsedPart.length > 0 &&
+      free - elapsedWidth >= DYNAMIC_WORKFLOW_RENDERING.memberTaskMinWidth;
+    const rest = free - (keepsElapsed ? elapsedWidth : 0);
+
+    // The task names the row, so it is measured before the detail rather than
+    // with whatever the detail leaves over: a finished agent returns its whole
+    // summary as the detail, which used to collapse the task to one character.
+    // The share keeps a short task from starving the detail in turn.
+    const taskCap = Math.max(
+      DYNAMIC_WORKFLOW_RENDERING.memberTaskMinWidth,
+      Math.floor(rest * DYNAMIC_WORKFLOW_RENDERING.memberTaskShare),
+    );
+    const detailBudget = showWork && detail !== undefined && detail.length > 0
+      ? rest - Math.min(visibleWidth(task), taskCap) - MEMBER_SEPARATOR.length
+      : 0;
+    const detailPart = detailBudget >= DYNAMIC_WORKFLOW_RENDERING.memberDetailMinWidth
+      ? `${MEMBER_SEPARATOR}${truncateToWidth(currentTheme.fg('textDim', detail ?? ''), detailBudget)}`
+      : '';
+
+    // Whatever the detail did not take goes back to the task.
+    const taskText = truncateToWidth(
+      currentTheme.fg('text', task),
+      Math.max(1, rest - visibleWidth(detailPart)),
+    );
+    return truncateToWidth(
+      `${prefix}${taskText}${detailPart}${keepsElapsed ? elapsedPart : ''}`,
+      width,
+    );
   }
 
   private renderActivity(entry: DynamicWorkflowActivity, width: number): string {
@@ -655,6 +692,7 @@ export class DynamicWorkflowMissionControlComponent implements Component {
         item: '',
         phase: this.model.inputComplete ? 'queued' : 'pending',
         latest: '',
+        carry: '',
         toolCalls: 0,
         lastEventAtMs: Date.now(),
       });
@@ -1020,6 +1058,15 @@ function latestNonEmptyLine(text: string): string {
     if (normalized.length > 0) return normalized;
   }
   return '';
+}
+
+/**
+ * Keeps the head of one streamed line. The row shows the head and clips the
+ * rest, so dropping the tail is invisible — and it is the only bound on a line
+ * the model never closes with a newline.
+ */
+function clampLine(text: string): string {
+  return text.slice(0, DYNAMIC_WORKFLOW_RENDERING.memberLatestMaxChars);
 }
 
 function normalizeText(text: string | undefined): string {
