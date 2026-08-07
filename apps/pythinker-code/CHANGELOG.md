@@ -1,5 +1,33 @@
 # @pythoughts/pythinker-code
 
+## 0.12.0
+
+### Minor Changes
+
+- [#35](https://github.com/Pythoughts-labs/pythinker-code/pull/35) [`2ce6b5e`](https://github.com/Pythoughts-labs/pythinker-code/commit/2ce6b5e66935335567a6525413ad8e77b84d852f) - Show the plan before a Dynamic Workflow runs, and let a good one be saved as a command
+
+  Manual mode used to approve every `DynamicWorkflow` call outright. That approval
+  only ever fired in manual mode — auto and yolo approve earlier in the chain — so
+  the one mode whose purpose is to ask was the one mode that never saw what it was
+  agreeing to. A `DynamicWorkflow` call in manual mode now asks, and the approval
+  carries the fan-out: how many subagents, the task list, the prompt template, the
+  worker model, and the summed size of the prompts about to be sent. "Approve for
+  this session" is keyed to that workflow's description rather than granting every
+  future `DynamicWorkflow` call.
+
+  `/workflow save <name>` writes the last run back out as a skill under
+  `.pythinker-code/skills/`, so a fan-out that worked can be re-run by name.
+
+- [#38](https://github.com/Pythoughts-labs/pythinker-code/pull/38) [`44efbc7`](https://github.com/Pythoughts-labs/pythinker-code/commit/44efbc77360105de0efce185c86740fcf503944e) - Let a release declare a minimum supported version, so a client below it is offered the update without waiting for its staged rollout batch.
+
+- [#38](https://github.com/Pythoughts-labs/pythinker-code/pull/38) [`44efbc7`](https://github.com/Pythoughts-labs/pythinker-code/commit/44efbc77360105de0efce185c86740fcf503944e) - Show update availability and live download progress in the status row under the prompt, replacing the startup banner chip that was computed once and never refreshed.
+
+### Patch Changes
+
+- [#37](https://github.com/Pythoughts-labs/pythinker-code/pull/37) [`12069a8`](https://github.com/Pythoughts-labs/pythinker-code/commit/12069a890144380bff5d648ad51d7411ece94437) - Stop offering updates to versions that were never published: the update channel now advertises only the release that is actually available for download.
+
+- [#38](https://github.com/Pythoughts-labs/pythinker-code/pull/38) [`44efbc7`](https://github.com/Pythoughts-labs/pythinker-code/commit/44efbc77360105de0efce185c86740fcf503944e) - Stop offering an update with no build for the running platform, give every installer network call a timeout, expire a stale install lease instead of blocking updates forever, and say which version is installing and why a failed one stopped retrying.
+
 ## 0.11.0
 
 ### Minor Changes
