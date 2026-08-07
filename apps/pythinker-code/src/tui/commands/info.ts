@@ -237,6 +237,21 @@ export async function handleHooksCommand(
   );
 }
 
+/** The installer's recorded stderr tail can be ~2 KB; show one line of it. */
+const UPDATE_FAILURE_REASON_MAX_CHARS = 160;
+
+/**
+ * Collapse the recorded failure reason onto one line; a long tail is cut to
+ * a single sensible line and marked as truncated instead of flooding the
+ * transcript with the installer's full stderr.
+ */
+function renderUpdateFailureReason(message: string): string | undefined {
+  const singleLine = message.replaceAll(/\s+/gu, ' ').trim();
+  if (singleLine.length === 0) return undefined;
+  if (singleLine.length <= UPDATE_FAILURE_REASON_MAX_CHARS) return singleLine;
+  return `${singleLine.slice(0, UPDATE_FAILURE_REASON_MAX_CHARS)}… (truncated)`;
+}
+
 export async function handleUpdateCommand(
   host: SlashCommandHost,
   args: string,
@@ -261,8 +276,18 @@ export async function handleUpdateCommand(
       );
       return;
     case 'in-progress':
+      // The target is present only when it is newer than the version the
+      // running install is working on; everything else keeps the old wording.
+      if (result.targetVersion !== undefined) {
+        host.showNotice(
+          `Installing v${result.installingVersion} — v${result.targetVersion} will follow`,
+          `The running install of v${result.installingVersion} finishes first; ` +
+            `v${result.targetVersion} installs after the next start.`,
+        );
+        return;
+      }
       host.showNotice(
-        `Update to v${result.version} already in progress`,
+        `Update to v${result.installingVersion} already in progress`,
         result.installOnRestart
           ? result.readyToInstall
             ? 'Close this terminal and open a new one to install it.'
@@ -276,6 +301,16 @@ export async function handleUpdateCommand(
         `Run: ${result.command}`,
       );
       return;
+    case 'failed': {
+      const reason =
+        result.message === undefined ? undefined : renderUpdateFailureReason(result.message);
+      host.showError(
+        `Update to v${result.version} failed after ${result.attempts} attempts.` +
+          (reason === undefined ? '' : `\nReason: ${reason}`) +
+          `\nTo update manually, run: ${result.command}`,
+      );
+      return;
+    }
     case 'check-failed':
       host.showError(`Update check failed: ${result.message}`);
       return;

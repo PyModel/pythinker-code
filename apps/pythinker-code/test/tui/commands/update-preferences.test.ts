@@ -8,12 +8,14 @@ import {
   handleOutputStyleCommand,
   handlePermissionsCommand,
 } from '#/tui/commands/config';
+import { handleUpdateCommand } from '#/tui/commands/info';
 import { DEFAULT_STATUS_LINE_CONFIG } from '#/tui/config';
 import { darkColors } from '#/tui/theme/colors';
 
 const mocks = vi.hoisted(() => ({
   disableTelemetry: vi.fn(),
   saveTuiConfig: vi.fn(),
+  startManualUpdate: vi.fn(),
 }));
 
 vi.mock('@pythoughts/pythinker-telemetry', async (importOriginal) => ({
@@ -28,6 +30,16 @@ vi.mock('../../../src/tui/config', async () => {
   return {
     ...actual,
     saveTuiConfig: mocks.saveTuiConfig,
+  };
+});
+
+vi.mock('../../../src/cli/update/preflight', async (importOriginal) => {
+  const actual = await vi.importActual<typeof import('../../../src/cli/update/preflight.js')>(
+    '../../../src/cli/update/preflight.js',
+  );
+  return {
+    ...actual,
+    startManualUpdate: mocks.startManualUpdate,
   };
 });
 
@@ -226,6 +238,133 @@ describe('output style commands', () => {
     expect(host.showNotice).toHaveBeenCalledWith(
       'Output style saved: default',
       'example:Strict remains active while its plugin forces that style.',
+    );
+  });
+});
+
+describe('update command', () => {
+  function makeHost() {
+    const host = {
+      state: { appState: { version: '0.9.0' } },
+      showStatus: vi.fn(),
+      showNotice: vi.fn(),
+      showError: vi.fn(),
+    } as unknown as SlashCommandHost & {
+      showStatus: ReturnType<typeof vi.fn>;
+      showNotice: ReturnType<typeof vi.fn>;
+      showError: ReturnType<typeof vi.fn>;
+    };
+    return host;
+  }
+
+  it('keeps the existing wording for an in-progress update of the same version', async () => {
+    const host = makeHost();
+    mocks.startManualUpdate.mockResolvedValue({
+      status: 'in-progress',
+      installingVersion: '0.10.0',
+      installOnRestart: false,
+      readyToInstall: false,
+    });
+
+    await handleUpdateCommand(host, '');
+
+    expect(host.showNotice).toHaveBeenCalledWith(
+      'Update to v0.10.0 already in progress',
+      'Close this terminal and open a new one once it completes.',
+    );
+  });
+
+  it('keeps the homebrew ready-to-install wording for a same-version in-progress update', async () => {
+    const host = makeHost();
+    mocks.startManualUpdate.mockResolvedValue({
+      status: 'in-progress',
+      installingVersion: '0.10.0',
+      installOnRestart: true,
+      readyToInstall: true,
+    });
+
+    await handleUpdateCommand(host, '');
+
+    expect(host.showNotice).toHaveBeenCalledWith(
+      'Update to v0.10.0 already in progress',
+      'Close this terminal and open a new one to install it.',
+    );
+  });
+
+  it('announces the newer target when the running install is for an older version', async () => {
+    const host = makeHost();
+    mocks.startManualUpdate.mockResolvedValue({
+      status: 'in-progress',
+      installingVersion: '0.10.0',
+      targetVersion: '0.11.0',
+      installOnRestart: false,
+      readyToInstall: false,
+    });
+
+    await handleUpdateCommand(host, '');
+
+    expect(host.showNotice).toHaveBeenCalledWith(
+      'Installing v0.10.0 — v0.11.0 will follow',
+      'The running install of v0.10.0 finishes first; v0.11.0 installs after the next start.',
+    );
+  });
+
+  it('reports a parked version as failed with the recorded reason', async () => {
+    const host = makeHost();
+    mocks.startManualUpdate.mockResolvedValue({
+      status: 'failed',
+      version: '0.10.0',
+      attempts: 2,
+      failedAt: '2026-08-05T08:00:00.000Z',
+      message: 'npm exited with code 1',
+      command: 'npm install -g @pythoughts/pythinker-code@0.10.0',
+    });
+
+    await handleUpdateCommand(host, '');
+
+    expect(host.showError).toHaveBeenCalledWith(
+      'Update to v0.10.0 failed after 2 attempts.\n' +
+        'Reason: npm exited with code 1\n' +
+        'To update manually, run: npm install -g @pythoughts/pythinker-code@0.10.0',
+    );
+  });
+
+  it('reports a parked version as failed without a reason line', async () => {
+    const host = makeHost();
+    mocks.startManualUpdate.mockResolvedValue({
+      status: 'failed',
+      version: '0.10.0',
+      attempts: 2,
+      failedAt: '2026-08-05T08:00:00.000Z',
+      command: 'npm install -g @pythoughts/pythinker-code@0.10.0',
+    });
+
+    await handleUpdateCommand(host, '');
+
+    expect(host.showError).toHaveBeenCalledWith(
+      'Update to v0.10.0 failed after 2 attempts.\n' +
+        'To update manually, run: npm install -g @pythoughts/pythinker-code@0.10.0',
+    );
+  });
+
+  it('truncates a very long recorded reason to one line and marks it truncated', async () => {
+    const host = makeHost();
+    const longReason = `npm failed: ${'x'.repeat(5000)}`;
+    mocks.startManualUpdate.mockResolvedValue({
+      status: 'failed',
+      version: '0.10.0',
+      attempts: 3,
+      failedAt: '2026-08-05T08:00:00.000Z',
+      message: longReason,
+      command: 'npm install -g @pythoughts/pythinker-code@0.10.0',
+    });
+
+    await handleUpdateCommand(host, '');
+
+    expect(host.showError).toHaveBeenCalledWith(
+      'Update to v0.10.0 failed after 3 attempts.\n' +
+        `Reason: ${longReason.slice(0, 160)}… (truncated)\n` +
+        'To update manually, run: npm install -g @pythoughts/pythinker-code@0.10.0',
     );
   });
 });

@@ -17,7 +17,7 @@ describe('refreshUpdateCache', () => {
   it('writes a fresh cache carrying the manifest on successful fetch', async () => {
     const writeCache = vi.fn(async () => {});
     const result = await refreshUpdateCache({
-      fetchLatest: async () => ({ latest: '0.5.0', manifest: MANIFEST }),
+      fetchManifest: async () => MANIFEST,
       writeCache,
       now: () => new Date('2026-05-20T12:34:56.000Z'),
     });
@@ -31,28 +31,23 @@ describe('refreshUpdateCache', () => {
     expect(writeCache).toHaveBeenCalledWith(result);
   });
 
-  it('writes a null manifest when the fetch fell back to plain text', async () => {
+  it('takes `latest` from the manifest rather than a separate field', async () => {
     const writeCache = vi.fn(async () => {});
     const result = await refreshUpdateCache({
-      fetchLatest: async () => ({ latest: '0.5.0', manifest: null }),
+      fetchManifest: async () => ({ ...MANIFEST, version: '0.6.0' }),
       writeCache,
       now: () => new Date('2026-05-20T12:34:56.000Z'),
     });
 
-    expect(result).toEqual({
-      source: 'cdn',
-      checkedAt: '2026-05-20T12:34:56.000Z',
-      latest: '0.5.0',
-      manifest: null,
-    });
-    expect(writeCache).toHaveBeenCalledWith(result);
+    expect(result.latest).toBe('0.6.0');
+    expect(result.manifest?.version).toBe('0.6.0');
   });
 
   it('propagates fetch errors and skips writeCache so the cache is preserved', async () => {
     const writeCache = vi.fn(async () => {});
     await expect(
       refreshUpdateCache({
-        fetchLatest: async () => {
+        fetchManifest: async () => {
           throw new Error('network down');
         },
         writeCache,

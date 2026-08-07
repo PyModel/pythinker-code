@@ -1,15 +1,11 @@
 /**
  * Welcome banner layout — mirrors the Python shell `_print_welcome_info` design:
- * panel title + subtitle chip, robot mark, facts grid, and optional tips column.
+ * panel title, robot mark, facts grid, and optional tips column.
  */
 
-import { readFileSync } from 'node:fs';
-
 import { truncateToWidth, visibleWidth } from '@earendil-works/pi-tui';
-import { gt, valid } from 'semver';
 import chalk from 'chalk';
 
-import { getUpdateStateFile } from '#/utils/paths';
 import { createGitStatusCache, type GitStatusCache } from '#/utils/git/git-status';
 import { currentTheme } from '#/tui/theme';
 import type { AppState } from '#/tui/types';
@@ -68,7 +64,6 @@ export interface RenderWelcomeBannerOptions {
   readonly version: string;
   readonly infoItems: readonly WelcomeInfoItem[];
   readonly copy: WelcomeBannerCopy;
-  readonly subtitleChip?: string | null;
   readonly logoLines?: readonly string[];
   readonly asciiMode?: boolean;
 }
@@ -293,26 +288,12 @@ function renderTwoColumns(
   return rows;
 }
 
-function renderPanelTopBorder(title: string, subtitle: string | null, width: number): string {
+function renderPanelTopBorder(title: string, width: number): string {
   const inner = Math.max(0, width - 2);
   const titlePart = ` ${title} `;
   const titleWidth = visibleWidth(titlePart);
-
-  if (!subtitle) {
-    const dashCount = Math.max(0, inner - titleWidth);
-    return borderPaint('╭') + titlePart + borderPaint('─'.repeat(dashCount)) + borderPaint('╮');
-  }
-
-  const subtitlePart = ` ${subtitle} `;
-  const subtitleWidth = visibleWidth(subtitlePart);
-  const dashCount = Math.max(1, inner - titleWidth - subtitleWidth);
-  return (
-    borderPaint('╭') +
-    titlePart +
-    borderPaint('─'.repeat(dashCount)) +
-    subtitlePart +
-    borderPaint('╮')
-  );
+  const dashCount = Math.max(0, inner - titleWidth);
+  return borderPaint('╭') + titlePart + borderPaint('─'.repeat(dashCount)) + borderPaint('╮');
 }
 
 export function buildWelcomeCopy(isLoggedOut: boolean): WelcomeBannerCopy {
@@ -364,38 +345,6 @@ export function buildWelcomeInfoItems(
 
 export function buildWelcomeTips(): WelcomeInfoItem[] {
   return WELCOME_TIPS.map((value) => ({ name: 'Tip', value }));
-}
-
-export function readWelcomeUpdateTarget(currentVersion: string): string | null {
-  try {
-    const raw = readFileSync(getUpdateStateFile(), 'utf-8');
-    const parsed = JSON.parse(raw) as { latest?: string | null };
-    const latest = parsed.latest;
-    if (
-      typeof latest === 'string' &&
-      valid(latest) &&
-      valid(currentVersion) &&
-      gt(latest, currentVersion)
-    ) {
-      return latest;
-    }
-  } catch {
-    // Missing or malformed cache — no chip.
-  }
-  return null;
-}
-
-export function buildWelcomeSubtitleChip(version: string): string | null {
-  const updateTarget = readWelcomeUpdateTarget(version);
-  const palette = currentTheme.palette;
-  if (updateTarget) {
-    return paintWithSlashAccent(
-      `↑ Update available — v${updateTarget} · /update`,
-      palette.warning,
-      PYTHINKER_LOGO_COLORS.accent,
-    );
-  }
-  return null;
 }
 
 export function renderWelcomeBanner(options: RenderWelcomeBannerOptions): string[] {
@@ -490,11 +439,10 @@ export function renderWelcomeBanner(options: RenderWelcomeBannerOptions): string
   const versionTitle =
     chalk.hex(currentTheme.palette.textMuted)('Pythinker Code') +
     chalk.hex(currentTheme.palette.textDim)(` v${options.version}`);
-  const subtitle = options.subtitleChip ?? null;
 
   const lines: string[] = [
     '',
-    renderPanelTopBorder(versionTitle, subtitle, panelWidth),
+    renderPanelTopBorder(versionTitle, panelWidth),
     borderPaint('│') + ' '.repeat(panelWidth - 2) + borderPaint('│'),
   ];
 

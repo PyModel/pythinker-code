@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { handleUpgrade } from '#/cli/sub/upgrade';
+import { emptyUpdateInstallState } from '#/cli/update/install-state';
+import type { UpdateInstallLockHandle } from '#/cli/update/install-lock';
 import type { InstallPromptChoiceValue } from '#/cli/update/prompt';
-import type { InstallSource, UpdateCache } from '#/cli/update/types';
+import type { InstallSource, UpdateCache, UpdateInstallState } from '#/cli/update/types';
 
 function cacheWith(
   version: string | null,
@@ -14,6 +16,31 @@ function cacheWith(
     latest: version,
     manifest,
   };
+}
+
+function platformManifest(version: string, platform: string): UpdateCache['manifest'] {
+  return {
+    version,
+    publishedAt: '2020-01-01T00:00:00.000Z',
+    rollout: [],
+    platforms: {
+      [platform]: {
+        url: `https://code.pythinker.com/pythinker-code-${version}.zip`,
+        sha256: 'a'.repeat(64),
+      },
+    },
+  };
+}
+
+/** A manifest advertising an artifact for a platform other than the running one. */
+function manifestOmittingRunningTarget(version: string): UpdateCache['manifest'] {
+  const otherArch = process.arch === 'arm64' ? 'x64' : 'arm64';
+  return platformManifest(version, `${process.platform}-${otherArch}`);
+}
+
+/** A manifest advertising an artifact for the running platform. */
+function manifestForRunningTarget(version: string): UpdateCache['manifest'] {
+  return platformManifest(version, `${process.platform}-${process.arch}`);
 }
 
 function captureOutput(): {
@@ -43,6 +70,9 @@ function createDeps(overrides: {
   readonly isInteractive?: boolean;
   readonly promptForInstallChoice?: () => Promise<InstallPromptChoiceValue>;
   readonly installUpdate?: (source: InstallSource, version: string, platform: NodeJS.Platform) => Promise<void>;
+  readonly readUpdateInstallState?: () => Promise<UpdateInstallState>;
+  readonly writeUpdateInstallState?: (state: UpdateInstallState) => Promise<void>;
+  readonly tryAcquireUpdateInstallLock?: () => Promise<UpdateInstallLockHandle | null>;
 } = {}) {
   const installUpdate =
     overrides.installUpdate ??
@@ -60,6 +90,16 @@ function createDeps(overrides: {
     promptForInstallChoice:
       overrides.promptForInstallChoice ?? vi.fn().mockResolvedValue('install'),
     installUpdate,
+    readUpdateInstallState:
+      overrides.readUpdateInstallState ?? vi.fn().mockResolvedValue(emptyUpdateInstallState()),
+    writeUpdateInstallState:
+      overrides.writeUpdateInstallState ?? vi.fn().mockResolvedValue(undefined),
+    tryAcquireUpdateInstallLock:
+      overrides.tryAcquireUpdateInstallLock ??
+      vi.fn().mockResolvedValue({
+        filePath: '/tmp/pythinker-update-install.lock',
+        release: vi.fn().mockResolvedValue(undefined),
+      }),
     track: vi.fn(),
     logger: {
       info: vi.fn(),
@@ -231,5 +271,188 @@ describe('handleUpgrade', () => {
 
     expect(deps.installUpdate).toHaveBeenCalledWith('npm-global', '0.5.0', 'darwin');
     expect(stdout.join('')).toContain('Updated @pythoughts/pythinker-code to 0.5.0');
+  });
+
+  it('native: refuses the update when the manifest omits the running platform', async () => {
+    const { stdout, writable } = captureOutput();
+    const deps = createDeps({
+      latest: '0.5.0',
+      source: 'native',
+      manifest: manifestOmittingRunningTarget('0.5.0'),
+    });
+
+    await expect(handleUpgrade('0.4.0', { ...deps, ...writable })).resolves.toBe(0);
+
+    expect(deps.detectInstallSource).toHaveBeenCalledTimes(1);
+    expect(deps.promptForInstallChoice).not.toHaveBeenCalled();
+    expect(deps.installUpdate).not.toHaveBeenCalled();
+    expect(deps.track).toHaveBeenCalledWith('upgrade_command_no_update', expect.objectContaining({
+      current_version: '0.4.0',
+    }));
+    expect(stdout.join('')).toContain('v0.5.0 is published but has no build for this platform yet.');
+  });
+
+  it('native: installs when the manifest advertises the running platform', async () => {
+    const { stdout, writable } = captureOutput();
+    const deps = createDeps({
+      latest: '0.5.0',
+      source: 'native',
+      manifest: manifestForRunningTarget('0.5.0'),
+    });
+
+    await expect(handleUpgrade('0.4.0', { ...deps, ...writable })).resolves.toBe(0);
+
+    expect(deps.installUpdate).toHaveBeenCalledWith('native', '0.5.0', 'darwin');
+    expect(stdout.join('')).toContain('Updated @pythoughts/pythinker-code to 0.5.0');
+  });
+
+  it('npm-global: still installs when the manifest omits the running platform', async () => {
+    const { stdout, writable } = captureOutput();
+    const deps = createDeps({
+      latest: '0.5.0',
+      source: 'npm-global',
+      manifest: manifestOmittingRunningTarget('0.5.0'),
+    });
+
+    await expect(handleUpgrade('0.4.0', { ...deps, ...writable })).resolves.toBe(0);
+
+    expect(deps.installUpdate).toHaveBeenCalledWith('npm-global', '0.5.0', 'darwin');
+    expect(deps.track).toHaveBeenCalledWith('upgrade_command_prompted', expect.objectContaining({
+      target_version: '0.5.0',
+      source: 'npm-global',
+    }));
+    expect(stdout.join('')).toContain('Updated @pythoughts/pythinker-code to 0.5.0');
+  });
+
+  it('refuses the install while a fresh active install for another version is running', async () => {
+    const { stderr, writable } = captureOutput();
+    const deps = createDeps({
+      latest: '0.5.0',
+      source: 'npm-global',
+      readUpdateInstallState: vi.fn().mockResolvedValue({
+        ...emptyUpdateInstallState(),
+        active: {
+          version: '0.5.1',
+          source: 'npm-global',
+          startedAt: new Date().toISOString(),
+        },
+      }),
+    });
+
+    await expect(handleUpgrade('0.4.0', { ...deps, ...writable })).resolves.toBe(1);
+
+    expect(deps.installUpdate).not.toHaveBeenCalled();
+    expect(deps.tryAcquireUpdateInstallLock).not.toHaveBeenCalled();
+    expect(stderr.join('')).toContain('0.5.1');
+    expect(deps.track).toHaveBeenCalledWith('upgrade_command_failed', expect.objectContaining({
+      target_version: '0.5.0',
+      source: 'npm-global',
+      stage: 'install',
+    }));
+  });
+
+  it('refuses the install when another process holds the install lock', async () => {
+    const { stderr, writable } = captureOutput();
+    const deps = createDeps({
+      latest: '0.5.0',
+      source: 'npm-global',
+      tryAcquireUpdateInstallLock: vi.fn().mockResolvedValue(null),
+    });
+
+    await expect(handleUpgrade('0.4.0', { ...deps, ...writable })).resolves.toBe(1);
+
+    expect(deps.installUpdate).not.toHaveBeenCalled();
+    expect(stderr.join('')).not.toBe('');
+    expect(deps.track).toHaveBeenCalledWith('upgrade_command_failed', expect.objectContaining({
+      target_version: '0.5.0',
+      source: 'npm-global',
+      stage: 'install',
+    }));
+  });
+
+  it('takes the install lock, installs, and records the success', async () => {
+    const { stdout, writable } = captureOutput();
+    const release = vi.fn().mockResolvedValue(undefined);
+    const deps = createDeps({
+      latest: '0.5.0',
+      source: 'npm-global',
+      tryAcquireUpdateInstallLock: vi.fn().mockResolvedValue({
+        filePath: '/tmp/pythinker-update-install.lock',
+        release,
+      }),
+    });
+
+    await expect(handleUpgrade('0.4.0', { ...deps, ...writable })).resolves.toBe(0);
+
+    expect(deps.tryAcquireUpdateInstallLock).toHaveBeenCalledWith({ version: '0.5.0' });
+    expect(deps.installUpdate).toHaveBeenCalledWith('npm-global', '0.5.0', 'darwin');
+    expect(release).toHaveBeenCalledOnce();
+    expect(deps.writeUpdateInstallState).toHaveBeenCalledWith(expect.objectContaining({
+      active: null,
+      lastFailure: null,
+      lastSuccess: {
+        version: '0.5.0',
+        installedAt: expect.any(String),
+        notifiedAt: null,
+      },
+    }));
+    expect(stdout.join('')).toContain('Updated @pythoughts/pythinker-code to 0.5.0');
+  });
+
+  it('releases the lock and records the failure when the foreground install fails', async () => {
+    const { stderr, writable } = captureOutput();
+    const release = vi.fn().mockResolvedValue(undefined);
+    const deps = createDeps({
+      latest: '0.5.0',
+      source: 'npm-global',
+      installUpdate: vi.fn().mockRejectedValue(new Error('npm exited with code 1')),
+      tryAcquireUpdateInstallLock: vi.fn().mockResolvedValue({
+        filePath: '/tmp/pythinker-update-install.lock',
+        release,
+      }),
+      readUpdateInstallState: vi.fn().mockResolvedValue({
+        ...emptyUpdateInstallState(),
+        lastFailure: {
+          version: '0.5.0',
+          failedAt: '2026-04-23T08:00:00.000Z',
+          attempts: 1,
+          operation: 'install',
+        },
+      }),
+    });
+
+    await expect(handleUpgrade('0.4.0', { ...deps, ...writable })).resolves.toBe(1);
+
+    expect(release).toHaveBeenCalledOnce();
+    expect(deps.writeUpdateInstallState).toHaveBeenCalledWith(expect.objectContaining({
+      active: null,
+      lastFailure: expect.objectContaining({
+        version: '0.5.0',
+        attempts: 2,
+        operation: 'install',
+        failedAt: expect.any(String),
+        message: 'npm exited with code 1',
+      }),
+    }));
+    expect(stderr.join('')).toContain(
+      'warning: failed to install @pythoughts/pythinker-code@0.5.0: npm exited with code 1',
+    );
+  });
+
+  it('never writes an active record for the foreground install', async () => {
+    const { writable } = captureOutput();
+    const writeUpdateInstallState = vi.fn().mockResolvedValue(undefined);
+    const deps = createDeps({
+      latest: '0.5.0',
+      source: 'npm-global',
+      writeUpdateInstallState,
+    });
+
+    await expect(handleUpgrade('0.4.0', { ...deps, ...writable })).resolves.toBe(0);
+
+    expect(writeUpdateInstallState).toHaveBeenCalledTimes(1);
+    expect(writeUpdateInstallState.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+      active: null,
+    }));
   });
 });

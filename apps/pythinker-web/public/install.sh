@@ -28,6 +28,30 @@ NO_COLOR="${NO_COLOR:-}"
 REPO="Pythoughts-labs/pythinker-code"
 CDN_LATEST_URL="https://code.pythinker.com/pythinker-code/latest"
 
+# Network timeout policy. The script owns retry — _download_with_progress and
+# _download_quiet_with_retry re-invoke the helpers up to 3 times with backoff —
+# so curl and wget must not add their own retry: curl's --max-time counter
+# resets on every --retry attempt, which would let one logical attempt run far
+# beyond its budget. With retry left to the script, --max-time bounds exactly
+# one attempt, which is what the retry loops expect.
+#
+# Metadata requests (_content_length, _fetch): 10s connect, 30s total.
+# Archive downloads (_download_quiet, _start_download): 10s connect, 600s total,
+# plus a stall guard that aborts when throughput stays under 1024 bytes/s for
+# 30s — a connection that is alive but crawling would otherwise burn the whole
+# 600s budget.
+# wget gets `-T` and nothing else on purpose. GNU's --connect-timeout /
+# --read-timeout / --tries do not exist in BusyBox wget, which is the only wget
+# on Alpine-class systems, and an unrecognized option there aborts the install
+# outright — turning a working fallback into a hard failure. `-T` is understood
+# by both: GNU treats it as dns+connect+read at once, BusyBox as the network
+# read timeout. It is an inactivity bound, not a total one, so it is sized for
+# "this connection is dead", not for the whole transfer.
+CURL_META_OPTS=(--connect-timeout 10 --max-time 30)
+WGET_META_OPTS=(-T 30)
+CURL_ARCHIVE_OPTS=(--connect-timeout 10 --max-time 600 --speed-limit 1024 --speed-time 30)
+WGET_ARCHIVE_OPTS=(-T 60)
+
 # Operational globals are populated by main(). Keeping rendering helpers at
 # file scope makes the installer sourceable for regression tests and tooling.
 target=""
@@ -322,7 +346,7 @@ _current_file_size() {
 _content_length() {
   local url="$1"
   command -v curl >/dev/null 2>&1 || return 1
-  curl -fsIL "$url" 2>/dev/null \
+  curl -fsIL "${CURL_META_OPTS[@]}" "$url" 2>/dev/null \
     | awk 'tolower($1) == "content-length:" {
         gsub("\r", "", $2)
         bytes = $2
@@ -534,9 +558,9 @@ print_done() {
 _fetch() {
   local url="$1"
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL "$url"
+    curl -fsSL "${CURL_META_OPTS[@]}" "$url"
   elif command -v wget >/dev/null 2>&1; then
-    wget -qO- "$url"
+    wget -qO- "${WGET_META_OPTS[@]}" "$url"
   else
     return 127
   fi
@@ -545,9 +569,9 @@ _fetch() {
 _download_quiet() {
   local url="$1" output="$2"
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL "$url" -o "$output"
+    curl -fsSL "${CURL_ARCHIVE_OPTS[@]}" "$url" -o "$output"
   elif command -v wget >/dev/null 2>&1; then
-    wget -q "$url" -O "$output"
+    wget -q "${WGET_ARCHIVE_OPTS[@]}" "$url" -O "$output"
   else
     return 127
   fi
@@ -558,9 +582,9 @@ _start_download() {
   DOWNLOAD_PID=""
 
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL "$url" -o "$output" &
+    curl -fsSL "${CURL_ARCHIVE_OPTS[@]}" "$url" -o "$output" &
   elif command -v wget >/dev/null 2>&1; then
-    wget -q "$url" -O "$output" &
+    wget -q "${WGET_ARCHIVE_OPTS[@]}" "$url" -O "$output" &
   else
     return 127
   fi
@@ -568,19 +592,83 @@ _start_download() {
   DOWNLOAD_PID=$!
 }
 
+# Machine-readable progress for the parent process. The background installer
+# has no TTY, so stdout stays human-only (and is discarded by the spawn) and
+# stderr carries the protocol: one newline-terminated line per update.
+_emit_download_progress() {
+  local percent="${1:-}" current="$2" total="$3"
+  if [[ -n "$percent" ]]; then
+    printf 'progress: state=downloading percent=%s transferred=%s total=%s\n' \
+      "$percent" "$current" "$total" >&2
+  else
+    printf 'progress: state=downloading transferred=%s\n' "$current" >&2
+  fi
+}
+
 # One download attempt with a live progress display. Returns non-zero on
 # transport failure, an empty file, or a size short of Content-Length.
 _download_attempt_with_progress() {
   local url="$1" output="$2"
-  local total="" pid="" current=0 percent=0 i=0 frame_index=0
+  local total="" pid="" current=0 percent="" last_percent="-1" i=0 last_emit_i=-100 frame_index=0
   local -a frames=('◐' '◓' '◑' '◒')
 
   rm -f "$output"
 
   if [[ -z "$_anim" ]]; then
-    _download_quiet "$url" "$output" || return 1
-    _validate_download "$output" "" || return 1
+    # Background install: no TTY, so no ANSI. Poll the same way as the
+    # animated branch, but report machine-readable lines on stderr instead of
+    # rendering a bar. One line per second at most, and only when the integer
+    # percent moved; the parent records these at most every 2s, so the
+    # protocol stays far below the parent's throttle.
+    if command -v curl >/dev/null 2>&1; then
+      total="$(_content_length "$url" || true)"
+    fi
+
+    # `|| {...}` and not `if ! …`: after `if ! cmd`, `$?` inside the branch is
+    # the negation's 0, so the real failure code would be reported as success.
+    _start_download "$url" "$output" || {
+      local start_rc=$?
+      printf 'progress: state=failed\n' >&2
+      return "$start_rc"
+    }
+    pid="$DOWNLOAD_PID"
+
+    while kill -0 "$pid" 2>/dev/null; do
+      current="$(_current_file_size "$output")"
+
+      if [[ "$total" =~ ^[0-9]+$ ]] && (( total > 0 )); then
+        percent="$(_download_percent "$output" "$total" || printf '0')"
+      else
+        percent=""
+      fi
+
+      # An unknown size has no percent to change, so it emits on the interval
+      # alone — otherwise a wget-only host would show one line and then look
+      # frozen for the whole download.
+      if (( i - last_emit_i >= 9 )) && [[ -z "$percent" || "$percent" != "$last_percent" ]]; then
+        _emit_download_progress "$percent" "$current" "$total"
+        last_percent="$percent"
+        last_emit_i="$i"
+      fi
+
+      sleep 0.12
+      i=$((i + 1))
+    done
+
+    if ! wait "$pid"; then
+      DOWNLOAD_PID=""
+      printf 'progress: state=failed\n' >&2
+      return 1
+    fi
+    DOWNLOAD_PID=""
+
+    if ! _validate_download "$output" "$total"; then
+      printf 'progress: state=failed\n' >&2
+      return 1
+    fi
+
     current="$(_current_file_size "$output")"
+    printf 'progress: state=done transferred=%s\n' "$current" >&2
     status_ok 'Download complete' "$(_format_bytes "$current")"
     return 0
   fi
@@ -763,6 +851,7 @@ The release may still be publishing. Try again shortly, or pin a known-good vers
       _render_waiting "${frames[$((attempt % 4))]}" "$delay"
     else
       printf '  Waiting for release assets; retrying in %ss\n' "$delay"
+      printf 'progress: state=waiting retry_in=%s elapsed=%s\n' "$delay" "$elapsed" >&2
     fi
 
     sleep "$delay"

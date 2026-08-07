@@ -22,6 +22,10 @@ import type { MigrationPlan } from '@pythoughts/migration-legacy';
 import { resolve } from 'pathe';
 
 import type { CLIOptions } from '#/cli/options';
+import { readUpdateCache } from '#/cli/update/cache';
+import { readUpdateInstallState } from '#/cli/update/install-state';
+import { detectInstallSource } from '#/cli/update/source';
+import type { InstallSource } from '#/cli/update/types';
 import { MigrationScreenComponent, type MigrationScreenResult } from '#/migration/index';
 import { effortColorToken } from '#/tui/utils/thinking-levels';
 import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
@@ -138,7 +142,9 @@ import {
   type FooterActivity,
   type FooterEvent,
   type FooterGoal,
+  type FooterUpdate,
 } from './runtime/footer/footer-model';
+import { footerUpdateFromState } from './runtime/footer/update-status';
 import { LegacyPiPresentation } from './runtime/legacy-pi-presentation';
 import { currentTheme, getColorPalette, getBuiltInPalette, isBuiltInTheme } from './theme';
 import type { ColorToken, ResolvedTheme, ThemeName } from './theme';
@@ -190,6 +196,13 @@ export interface PythinkerTUIStartupInput {
 }
 
 type EffectiveActivityPaneMode = ActivityPaneMode | 'idle' | 'session';
+
+/** Poll cadence for the update cache and install state files. */
+const UPDATE_STATUS_POLL_INTERVAL_MS = 2_000;
+
+function footerUpdateEquals(a: FooterUpdate, b: FooterUpdate): boolean {
+  return a.version === b.version && a.state === b.state && a.percent === b.percent;
+}
 
 function createInitialAppState(input: PythinkerTUIStartupInput): AppState {
   const startupPermission: PermissionMode = input.cliOptions.auto
@@ -292,6 +305,13 @@ export class PythinkerTUI {
       }
     | undefined;
   private stopKeybindingsWatcher: (() => void) | undefined;
+  private updateStatusSource: InstallSource | null = null;
+  private updateStatusTimer: ReturnType<typeof setInterval> | undefined;
+  private lastDispatchedUpdate: FooterUpdate = {
+    version: null,
+    state: null,
+    percent: null,
+  };
 
   public onExit?: (exitCode?: number) => Promise<void>;
 
@@ -601,6 +621,57 @@ export class PythinkerTUI {
       });
   }
 
+  // Update availability + install progress poll. The install source is
+  // resolved once — it cannot change mid-session and detecting it repeatedly
+  // costs a subprocess. Both state files are read off the render path, and a
+  // quiet session repaints only when the computed update changes.
+  private startUpdateStatusPolling(): void {
+    void (async () => {
+      let source: InstallSource = 'unsupported';
+      try {
+        source = await detectInstallSource();
+      } catch {
+        // Detection failure means the update flow treats this install as unsupported.
+      }
+      this.updateStatusSource = source;
+      if (this.isShuttingDown) return;
+      await this.pollUpdateStatus();
+      if (this.isShuttingDown) return;
+      this.updateStatusTimer = setInterval(() => {
+        void this.pollUpdateStatus();
+      }, UPDATE_STATUS_POLL_INTERVAL_MS);
+      // A cosmetic poll must never be the reason the process refuses to exit.
+      this.updateStatusTimer.unref();
+    })();
+  }
+
+  private async pollUpdateStatus(): Promise<void> {
+    if (this.isShuttingDown || this.updateStatusSource === null) return;
+    try {
+      const [cache, installState] = await Promise.all([
+        readUpdateCache(),
+        readUpdateInstallState(),
+      ]);
+      const update = footerUpdateFromState(
+        this.state.appState.version,
+        this.updateStatusSource,
+        cache,
+        installState,
+      );
+      if (footerUpdateEquals(this.lastDispatchedUpdate, update)) return;
+      this.lastDispatchedUpdate = update;
+      this.dispatchFooter({ type: 'update.updated', update });
+    } catch {
+      // An unreadable update state file means "no update to show", never a crash.
+    }
+  }
+
+  private stopUpdateStatusPolling(): void {
+    if (this.updateStatusTimer === undefined) return;
+    clearInterval(this.updateStatusTimer);
+    this.updateStatusTimer = undefined;
+  }
+
   private async refreshProviderModelsInBackground(): Promise<void> {
     try {
       const result = await this.authFlow.refreshProviderModels();
@@ -617,6 +688,7 @@ export class PythinkerTUI {
   }
 
   private async finishStartup(shouldReplayHistory: boolean): Promise<void> {
+    this.startUpdateStatusPolling();
     if (this.startupNotice !== undefined) {
       this.showStatus(this.startupNotice);
       this.startupNotice = undefined;
@@ -763,6 +835,7 @@ export class PythinkerTUI {
     this.editorKeyboard.clearPendingExit();
     this.stopKeybindingsWatcher?.();
     this.stopKeybindingsWatcher = undefined;
+    this.stopUpdateStatusPolling();
     for (const dispose of this.reverseRpcDisposers) {
       dispose();
     }

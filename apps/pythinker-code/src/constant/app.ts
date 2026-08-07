@@ -51,10 +51,10 @@ export const FEEDBACK_TELEMETRY_EVENT = 'feedback_submitted';
 
 // CDN source of truth: all version checks and native install scripts pull from here.
 export const PYTHINKER_CODE_CDN_BASE = 'https://code.pythinker.com/pythinker-code';
-export const PYTHINKER_CODE_CDN_LATEST_URL = `${PYTHINKER_CODE_CDN_BASE}/latest`;
-// Rollout manifest consumed by update checks; the plain-text `/latest` above
-// stays unchanged forever — already-shipped clients hard-fail on non-semver
-// bodies, and the CDN install scripts read it for fresh installs.
+// The only update source this client reads. The plain-text `/latest` endpoint
+// still exists on the CDN for install.sh and for clients shipped before the
+// manifest, but it carries no per-platform artifact data, so reading it here
+// would report an unverifiable target as verified.
 export const PYTHINKER_CODE_CDN_LATEST_JSON_URL = `${PYTHINKER_CODE_CDN_BASE}/latest.json`;
 export const PYTHINKER_CODE_TIPS_BANNER_URL = 'https://cdn.pythinker.com/pythinker-code-tips/tips.json';
 export const PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL = `${PYTHINKER_CODE_CDN_BASE}/plugins/marketplace.json`;

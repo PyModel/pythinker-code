@@ -89,6 +89,52 @@ async function resolvePublishedRelease(packageName) {
   return { version, publishedAt };
 }
 
+const RELEASE_DOWNLOAD_BASE = 'https://github.com/Pythoughts-labs/pythinker-code/releases/download';
+
+// Set to a version string only when an older client can no longer work against
+// the current services; it makes every client below it take the update without
+// waiting for its rollout batch. Reset to null once that release is the floor.
+const MIN_REQUIRED_VERSION = null;
+
+/**
+ * Resolve the per-platform native artifacts for a published version.
+ *
+ * The release already carries a `manifest.json` asset written by
+ * `apps/pythinker-code/scripts/native/produce-manifest.mjs`, so this only turns
+ * `{ filename, checksum }` into `{ url, sha256 }`. Naming the artifact in
+ * `latest.json` is what lets a client answer "is there anything to download for
+ * my platform" from the manifest alone, instead of guessing an asset URL and
+ * polling GitHub for six minutes when the guess is wrong.
+ *
+ * Returns null — never throws — when the release shipped no native manifest.
+ * An npm-only release is legitimate, and a site build must not fail because of
+ * it; clients that see no `platforms` key keep their previous behaviour.
+ */
+async function resolvePlatformArtifacts(version) {
+  const base = `${RELEASE_DOWNLOAD_BASE}/%40pythoughts%2Fpythinker-code%40${version}`;
+  let native;
+  try {
+    const response = await fetch(`${base}/manifest.json`, { signal: AbortSignal.timeout(30_000) });
+    if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`);
+    native = await response.json();
+  } catch (error) {
+    console.log(`no native manifest for ${version} (${error.message}); omitting platforms`);
+    return null;
+  }
+  if (native?.version !== version) {
+    console.log(`native manifest reports ${native?.version}, expected ${version}; omitting platforms`);
+    return null;
+  }
+  const platforms = {};
+  for (const [target, entry] of Object.entries(native.platforms ?? {})) {
+    if (typeof entry?.filename !== 'string' || !/^[a-f0-9]{64}$/.test(entry?.checksum ?? '')) {
+      throw new Error(`Malformed native manifest entry for ${target}`);
+    }
+    platforms[target] = { url: `${base}/${entry.filename}`, sha256: entry.checksum };
+  }
+  return Object.keys(platforms).length > 0 ? platforms : null;
+}
+
 async function copyPlugins(repoRoot, cdnRoot) {
   const source = join(repoRoot, 'plugins/cdn');
   const destination = join(cdnRoot, 'pythinker-code/plugins');
@@ -184,20 +230,28 @@ await rm(outDir, { recursive: true, force: true });
 await cp(siteDist, outDir, { recursive: true });
 const channelRoot = join(outDir, 'pythinker-code');
 await mkdir(channelRoot, { recursive: true });
+// Plain-text `/latest`: install.sh reads it for a fresh install, and clients
+// shipped before latest.json existed still poll it. Current clients read only
+// the manifest, so this file must keep being written but must never become the
+// place a new field lands.
 await writeFile(join(channelRoot, 'latest'), `${version}\n`);
+const platforms = await resolvePlatformArtifacts(version);
 await writeFile(join(channelRoot, 'latest.json'), `${JSON.stringify({
   version,
   publishedAt,
+  minRequiredVersion: MIN_REQUIRED_VERSION ?? undefined,
+  platforms: platforms ?? undefined,
   rollout: [],
 }, null, 2)}\n`);
-await cp(
-  join(repoRoot, 'apps/pythinker-web/public/install.sh'),
-  join(channelRoot, 'install.sh'),
-);
-await cp(
-  join(repoRoot, 'apps/pythinker-web/public/install.ps1'),
-  join(channelRoot, 'install.ps1'),
-);
+// One checked-in installer, served at both paths. `apps/site/public/` used to
+// hold its own byte-identical copy, which meant a one-sided edit shipped
+// silently; the site root keeps working because the file is placed here at
+// build time instead of being duplicated in the tree.
+for (const name of ['install.sh', 'install.ps1']) {
+  const source = join(repoRoot, 'apps/pythinker-web/public', name);
+  await cp(source, join(channelRoot, name));
+  await cp(source, join(outDir, name));
+}
 await copyPlugins(repoRoot, outDir);
 if (!skipRg) await downloadRipgrep(repoRoot, outDir);
 

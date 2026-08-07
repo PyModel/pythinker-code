@@ -22,6 +22,11 @@ export interface RolloutBatch {
   readonly delaySeconds: number;
 }
 
+export interface UpdateManifestPlatform {
+  readonly url: string;
+  readonly sha256: string;
+}
+
 /**
  * Parsed CDN `latest.json`. `rollout` batches claim bucket ranges in array
  * order; an empty array means the release is fully rolled out immediately.
@@ -30,6 +35,17 @@ export interface UpdateManifest {
   readonly version: string;
   readonly publishedAt: string;
   readonly rollout: readonly RolloutBatch[];
+  /**
+   * Resolved per-platform artifacts, keyed `<platform>-<arch>`. Absent on
+   * manifests published before artifact addressing shipped.
+   */
+  readonly platforms?: Readonly<Record<string, UpdateManifestPlatform>>;
+  /**
+   * Lowest version that can still work against the current services. A
+   * client below it must take the update without waiting for its rollout
+   * batch. Absent on ordinary releases.
+   */
+  readonly minRequiredVersion?: string;
 }
 
 export interface UpdateCache {
@@ -43,6 +59,19 @@ export interface UpdateCache {
 export type UpdateInstallOperation = 'install' | 'prepare' | 'activate';
 export type UpdateRequestOrigin = 'automatic' | 'manual';
 
+/**
+ * Latest machine-readable progress line from the background installer's
+ * stderr, as recorded on the active install record.
+ */
+export interface UpdateInstallProgress {
+  readonly state: 'downloading' | 'waiting' | 'done' | 'failed';
+  /** Integer 0..100; absent while the download size is unknown. */
+  readonly percent?: number;
+  readonly transferred?: number;
+  readonly total?: number;
+  readonly updatedAt: string;
+}
+
 export interface UpdateInstallActive {
   readonly version: string;
   readonly source: InstallSource;
@@ -51,6 +80,11 @@ export interface UpdateInstallActive {
   readonly pid?: number;
   readonly operation?: UpdateInstallOperation;
   readonly jobId?: string;
+  /**
+   * Latest progress line from the installer; absent until the installer
+   * emits one or in records persisted by older versions.
+   */
+  readonly progress?: UpdateInstallProgress;
 }
 
 export interface UpdatePreparedHomebrew {

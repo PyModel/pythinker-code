@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import type { Readable } from 'node:stream';
 
-import { gte, valid } from 'semver';
+import { gt, gte, valid } from 'semver';
 
 import { log, type Logger } from '@pythoughts/pythinker-code-sdk';
 import type { TelemetryProperties } from '@pythoughts/pythinker-telemetry';
@@ -18,7 +18,14 @@ import { loadTuiConfig } from '#/tui/config';
 import { readUpdateCache } from './cache';
 import { formatErrorMessage } from './format-error';
 import { tryAcquireUpdateInstallLock } from './install-lock';
-import { emptyUpdateInstallState, readUpdateInstallState, writeUpdateInstallState } from './install-state';
+import {
+  emptyUpdateInstallState,
+  failureAttemptsFor,
+  hasFreshActiveInstall,
+  readUpdateInstallState,
+  reconcileAbandonedInstall,
+  writeUpdateInstallState,
+} from './install-state';
 import {
   CHANGELOG_URL,
   promptForInstallChoice,
@@ -26,7 +33,7 @@ import {
   type InstallPromptOptions,
 } from './prompt';
 import { refreshUpdateCache } from './refresh';
-import { selectUpdateTarget } from './select';
+import { isTargetInstallable, selectUpdateTarget } from './select';
 import {
   appendRolloutDecisionLog,
   decidePassiveUpdateTarget,
@@ -41,7 +48,7 @@ import {
   NPM_PACKAGE_NAME,
   type InstallSource,
   type UpdateDecision,
-  type UpdateInstallOperation,
+  type UpdateInstallProgress,
   type UpdateInstallState,
   type UpdateCache,
   type UpdateManifest,
@@ -61,8 +68,6 @@ export interface RunUpdatePreflightOptions {
 }
 
 const AUTO_INSTALL_FAILURE_PROMPT_THRESHOLD = 2;
-const AUTO_INSTALL_ACTIVE_TTL_MS = 6 * 60 * 60 * 1000;
-const AUTO_INSTALL_ACTIVE_CLOCK_SKEW_MS = 5 * 60 * 1000;
 const USER_VISIBLE_UPDATE_REFRESH_TIMEOUT_MS = 1_000;
 const UPDATE_HELPER_ENV = 'PYTHINKER_CODE_UPDATE_HELPER';
 
@@ -231,10 +236,6 @@ function renderBackgroundInstallSuccessNotice(version: string): string {
   return `Pythinker Code updated to ${displayVersion}\nChangelog: ${CHANGELOG_URL}\n`;
 }
 
-function refreshInBackground(): void {
-  void refreshUpdateCache().catch(() => {});
-}
-
 /** Telemetry properties describing where this device sits in the rollout. */
 interface RolloutTelemetry {
   readonly rollout_bucket: number;
@@ -374,57 +375,6 @@ async function refreshUserVisibleUpdateTarget(
 
 function nowIso(): string {
   return new Date().toISOString();
-}
-
-function failureAttemptsFor(
-  state: UpdateInstallState,
-  target: UpdateTarget,
-  operation?: UpdateInstallOperation,
-): number {
-  const failure = state.lastFailure;
-  if (failure?.version !== target.version) return 0;
-  // Threshold gates omit `operation`: any failure kind at the limit parks the
-  // version. Increment sites pass their operation so a counter never resumes
-  // from another operation's attempts. Legacy records without `operation`
-  // count toward any operation.
-  if (
-    operation !== undefined &&
-    failure.operation !== undefined &&
-    failure.operation !== operation
-  ) {
-    return 0;
-  }
-  return failure.attempts;
-}
-
-function isProcessRunning(pid: number): boolean {
-  if (!Number.isSafeInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return typeof error === 'object'
-      && error !== null
-      && 'code' in error
-      && error.code === 'EPERM';
-  }
-}
-
-/**
- * An active record still counts as a lease when the recorded installer
- * pid is alive (liveness beats the TTL), or — for legacy pid-less
- * records — when its timestamp is within the TTL (with clock-skew
- * tolerance). Far-future timestamps never count as fresh.
- */
-function hasFreshActiveInstall(state: UpdateInstallState): boolean {
-  const active = state.active;
-  if (active === null) return false;
-  const startedAt = Date.parse(active.startedAt);
-  if (!Number.isFinite(startedAt)) return false;
-  const age = Date.now() - startedAt;
-  if (age < -AUTO_INSTALL_ACTIVE_CLOCK_SKEW_MS) return false;
-  if (active.pid !== undefined) return isProcessRunning(active.pid);
-  return age < AUTO_INSTALL_ACTIVE_TTL_MS;
 }
 
 async function showPendingBackgroundInstallNotice(
@@ -614,21 +564,79 @@ export async function installUpdate(
 
 /** Keep the tail only: installers can be chatty, and the state file is small. */
 const INSTALLER_STDERR_TAIL_CHARS = 2000;
+/** At most one active-record progress write every 2s; terminal states bypass it. */
+const INSTALLER_PROGRESS_WRITE_INTERVAL_MS = 2_000;
+const INSTALLER_PROGRESS_PREFIX = 'progress: ';
+
+function isInstallerProgressState(value: string): value is UpdateInstallProgress['state'] {
+  return value === 'downloading' || value === 'waiting' || value === 'done' || value === 'failed';
+}
 
 /**
- * Buffer the installer's stderr so a failed background install records why it
- * failed. Discarding it (the previous `stdio: 'ignore'`) left `lastFailure`
- * with nothing but an exit code, which made a broken installer script
- * impossible to diagnose without reproducing the spawn by hand.
+ * Parse one `progress: key=value key=value` line from the installer's stderr.
+ * Unknown or malformed keys are skipped — an installer from a different
+ * release must never crash the parent. Returns null when the line carries no
+ * usable state.
  */
-function captureStderrTail(child: ReturnType<typeof spawn>): () => string | undefined {
+function parseInstallerProgressLine(line: string): UpdateInstallProgress | null {
+  let state: UpdateInstallProgress['state'] | undefined;
+  let percent: number | undefined;
+  let transferred: number | undefined;
+  let total: number | undefined;
+  for (const field of line.slice(INSTALLER_PROGRESS_PREFIX.length).split(/\s+/u)) {
+    const eq = field.indexOf('=');
+    if (eq <= 0) continue;
+    const key = field.slice(0, eq);
+    const value = field.slice(eq + 1);
+    switch (key) {
+      case 'state':
+        if (isInstallerProgressState(value)) state = value;
+        break;
+      case 'percent':
+        if (/^(?:100|[0-9]{1,2})$/u.test(value)) percent = Number(value);
+        break;
+      case 'transferred':
+        if (/^[0-9]+$/u.test(value)) transferred = Number(value);
+        break;
+      case 'total':
+        if (/^[0-9]+$/u.test(value)) total = Number(value);
+        break;
+      default:
+        break;
+    }
+  }
+  if (state === undefined) return null;
+  return { state, percent, transferred, total, updatedAt: nowIso() };
+}
+
+/**
+ * Read the installer's stderr as lines. `progress: …` lines are parsed and
+ * handed to `onProgress`; they never enter the failure tail, or a long
+ * download would evict the very error text the tail exists to preserve. All
+ * other lines are kept in the trailing `INSTALLER_STDERR_TAIL_CHARS` window.
+ * Returns a getter for that tail.
+ */
+function captureStderrTail(
+  child: ReturnType<typeof spawn>,
+  onProgress: (update: UpdateInstallProgress) => void,
+): () => string | undefined {
   // Typed `Readable | null`, but absent entirely when stderr was not piped.
   const stream: Readable | null | undefined = child.stderr;
   if (stream === null || stream === undefined) return () => undefined;
   let tail = '';
+  let partial = '';
   stream.setEncoding('utf8');
   stream.on('data', (chunk: string) => {
-    tail = (tail + chunk).slice(-INSTALLER_STDERR_TAIL_CHARS);
+    const lines = (partial + chunk).split('\n');
+    partial = lines.pop() ?? '';
+    for (const line of lines) {
+      if (line.startsWith(INSTALLER_PROGRESS_PREFIX)) {
+        const update = parseInstallerProgressLine(line);
+        if (update !== null) onProgress(update);
+      } else {
+        tail = (tail + line + '\n').slice(-INSTALLER_STDERR_TAIL_CHARS);
+      }
+    }
   });
   // A detached installer outliving this process must not crash it, and the
   // pipe must not hold the event loop open on the way out. `child.stderr` is
@@ -637,7 +645,12 @@ function captureStderrTail(child: ReturnType<typeof spawn>): () => string | unde
   stream.on('error', () => {});
   (stream as Readable & { unref?: () => void }).unref?.();
   return () => {
-    const trimmed = tail.trim();
+    // A final partial line without a newline is still installer text; include
+    // it unless it is a truncated progress line.
+    const complete = partial.length === 0 || partial.startsWith(INSTALLER_PROGRESS_PREFIX)
+      ? tail
+      : tail + partial;
+    const trimmed = complete.trim();
     return trimmed.length === 0 ? undefined : trimmed;
   };
 }
@@ -679,6 +692,17 @@ function updateHelperCommand(
 
 function preparedVersionCoversTarget(preparedVersion: string, targetVersion: string): boolean {
   return valid(preparedVersion) !== null && valid(targetVersion) !== null && gte(preparedVersion, targetVersion);
+}
+
+/**
+ * Whether the target is strictly newer than the version an active install is
+ * working on — the newer update can only start after the running one finishes.
+ */
+function targetSupersedesInstallingVersion(
+  installingVersion: string,
+  targetVersion: string,
+): boolean {
+  return valid(installingVersion) !== null && valid(targetVersion) !== null && gt(targetVersion, installingVersion);
 }
 
 async function startBackgroundHomebrewPreparation(
@@ -817,6 +841,15 @@ async function startBackgroundInstall(
     let ready = false;
     let settled = false;
     let pendingOutcome: { succeeded: boolean; reason: string } | undefined;
+    // Progress writes are fire-and-forget, and the state file is written as a
+    // temp file plus rename — so the last rename wins. The installer's terminal
+    // `state=done` line bypasses the throttle and writes just as the child
+    // exits, so without ordering that write can land *after* the outcome write
+    // and restore `active` while dropping `lastSuccess`. The next launch reads
+    // that as an abandoned install and records a failure for a version that
+    // installed cleanly. One chain keeps the writes ordered and gives `finish`
+    // something to drain.
+    let progressWrites: Promise<void> = Promise.resolve();
 
     const finish = async (succeeded: boolean, reason: string): Promise<void> => {
       if (!ready) {
@@ -825,6 +858,9 @@ async function startBackgroundInstall(
       }
       if (settled) return;
       settled = true;
+      // `settled` already stops new progress writes; drain the ones in flight so
+      // none of them renames over the outcome below.
+      await progressWrites;
       const attempts = failureAttemptsFor(startedState, target, 'install') + 1;
       const stderrTail = readStderrTail();
       const message = stderrTail === undefined ? reason : `${reason}: ${stderrTail}`;
@@ -886,11 +922,48 @@ async function startBackgroundInstall(
       // of stdio; stdio: 'ignore' alone does not suppress it.
       windowsHide: platform === 'win32',
       // stdout stays discarded (install progress is noise); stderr is piped so
-      // a failure records the installer's own error text.
+      // the installer's machine-readable progress lines can be recorded and a
+      // failure still keeps the installer's own error text.
       stdio: ['ignore', 'ignore', 'pipe'],
       env: env === undefined ? undefined : { ...process.env, ...env },
     });
-    const readStderrTail = captureStderrTail(child);
+    let lastProgressWriteAt = 0;
+    const recordInstallerProgress = (update: UpdateInstallProgress): void => {
+      // Once the outcome is being written, progress is history: writing it would
+      // undo the terminal record.
+      if (settled) return;
+      // Terminal states always persist; intermediate ones at most every 2s.
+      const terminal = update.state === 'done' || update.state === 'failed';
+      if (
+        !terminal
+        && Date.now() - lastProgressWriteAt < INSTALLER_PROGRESS_WRITE_INTERVAL_MS
+      ) return;
+      if (startedState.active === null) return;
+      lastProgressWriteAt = Date.now();
+      const nextState: UpdateInstallState = {
+        ...startedState,
+        // Carry the pid explicitly: a progress line can arrive while the pid
+        // write is still in flight, and writing the pre-pid record over it
+        // would strip the pid this record's liveness check depends on.
+        active: {
+          ...startedState.active,
+          pid: child.pid ?? startedState.active.pid,
+          progress: update,
+        },
+      };
+      progressWrites = progressWrites
+        .then(() => writeUpdateInstallState(nextState))
+        .catch((error) => {
+          // A progress write is best-effort; it must never reject the spawn path
+          // and must not break the chain for the writes queued behind it.
+          logUpdateWarn(logger, 'could not record installer progress', {
+            targetVersion: target.version,
+            source,
+            error: formatErrorMessage(error),
+          });
+        });
+    };
+    const readStderrTail = captureStderrTail(child, recordInstallerProgress);
     child.once('error', (error) => { void finish(false, formatErrorMessage(error)); });
     child.once('exit', (code, signal) => {
       void finish(code === 0, describeChildExit(cmd, code, signal));
@@ -999,7 +1072,9 @@ export type ManualUpdateResult =
   | { readonly status: 'started'; readonly version: string; readonly installOnRestart: boolean }
   | {
     readonly status: 'in-progress';
-    readonly version: string;
+    readonly installingVersion: string;
+    /** Present only when it is newer than the version being installed. */
+    readonly targetVersion?: string;
     readonly installOnRestart: boolean;
     readonly readyToInstall: boolean;
   }
@@ -1008,6 +1083,14 @@ export type ManualUpdateResult =
     readonly version: string;
     readonly command: string;
     readonly source: InstallSource;
+  }
+  | {
+    readonly status: 'failed';
+    readonly version: string;
+    readonly attempts: number;
+    readonly failedAt: string;
+    readonly message?: string;
+    readonly command: string;
   };
 
 /**
@@ -1032,11 +1115,21 @@ export async function startManualUpdate(
 
   const platform = process.platform;
   const source = await detectInstallSource().catch(() => 'unsupported' as const);
-  const installState = await readUpdateInstallState().catch(() => emptyUpdateInstallState());
+  // A native install consumes the manifest's platform artifact; without one
+  // the update cannot succeed, so treat it as nothing to update.
+  if (!isTargetInstallable(source, cache.manifest)) {
+    return { status: 'up-to-date' };
+  }
+  let installState = await readUpdateInstallState().catch(() => emptyUpdateInstallState());
+  installState = await reconcileAbandonedInstall(installState);
   if (hasFreshActiveInstall(installState)) {
+    const installingVersion = installState.active?.version ?? target.version;
     return {
       status: 'in-progress',
-      version: installState.active?.version ?? target.version,
+      installingVersion,
+      targetVersion: targetSupersedesInstallingVersion(installingVersion, target.version)
+        ? target.version
+        : undefined,
       installOnRestart: installState.active?.source === 'homebrew',
       readyToInstall: false,
     };
@@ -1059,19 +1152,28 @@ export async function startManualUpdate(
     }
     return {
       status: 'in-progress',
-      version: pending.version,
+      installingVersion: pending.version,
       installOnRestart: true,
       readyToInstall: true,
     };
   }
-  // Repeated background failures fall back to the copyable command instead of
-  // claiming "started" for work the background lifecycle would refuse.
-  if (failureAttemptsFor(installState, target) >= AUTO_INSTALL_FAILURE_PROMPT_THRESHOLD) {
+  // A version parks once the failure counter hits the threshold: the
+  // background lifecycle refuses to touch it again, so claiming "started" or
+  // "in-progress" would be a lie and another retry would only burn another
+  // launch on an install that already failed. Report the recorded failure
+  // and the copyable command instead.
+  const failure = installState.lastFailure;
+  if (
+    failure !== null &&
+    failureAttemptsFor(installState, target) >= AUTO_INSTALL_FAILURE_PROMPT_THRESHOLD
+  ) {
     return {
-      status: 'manual',
+      status: 'failed',
       version: target.version,
+      attempts: failure.attempts,
+      failedAt: failure.failedAt,
+      message: failure.message,
       command: installCommandFor(source, target.version, platform),
-      source,
     };
   }
 
@@ -1097,7 +1199,7 @@ export async function startManualUpdate(
       if (!started) {
         return {
           status: 'in-progress',
-          version: target.version,
+          installingVersion: target.version,
           installOnRestart: true,
           readyToInstall: false,
         };
@@ -1125,7 +1227,7 @@ export async function startManualUpdate(
     if (!started) {
       return {
         status: 'in-progress',
-        version: target.version,
+        installingVersion: target.version,
         installOnRestart: false,
         readyToInstall: false,
       };
@@ -1165,6 +1267,7 @@ export async function runUpdatePreflight(
     const deviceId = resolveUpdateDeviceId();
     const bypassRollout = isRolloutBypassedByExperimentalEnv();
     let installState = await readUpdateInstallState().catch(() => emptyUpdateInstallState());
+    installState = await reconcileAbandonedInstall(installState);
     if (isInteractive) {
       installState = await showPendingBackgroundInstallNotice(
         installState,
@@ -1206,28 +1309,11 @@ export async function runUpdatePreflight(
         ? 'unsupported'
         : await detectInstallSource().catch(() => 'unsupported' as const);
 
-    const decision = decideUpdateAction(target, isInteractive, source, platform);
-    if (decision === 'none') {
-      refreshInBackground();
-      return 'continue';
-    }
-
-    if (
-      await tryStartAutomaticBackgroundInstall(
-        installState,
-        currentVersion,
-        target,
-        source,
-        platform,
-        options.track,
-        logger,
-        rolloutTelemetryFor(deviceId, target.version, cachedManifest, bypassRollout),
-      )
-    ) {
-      refreshInBackground();
-      return 'continue';
-    }
-
+    // The cached target above only decides whether anything is worth
+    // refreshing for; the bounded refresh below is this launch's single
+    // decision. Everything after it uses the refreshed target and manifest,
+    // with the cached pair as the fallback when the refresh fails or times
+    // out. A null refreshed target means the refresh offers nothing.
     const userVisibleUpdate = await refreshUserVisibleUpdateTarget(
       currentVersion,
       deviceId,
@@ -1243,6 +1329,19 @@ export async function runUpdatePreflight(
       userVisibleUpdate.manifest,
       bypassRollout,
     );
+
+    // A native install consumes the manifest's platform artifact; without one
+    // the update cannot succeed, so do not offer or start it. Non-native
+    // sources install from the registry/formula and are never gated here.
+    if (!isTargetInstallable(source, userVisibleUpdate.manifest)) {
+      return 'continue';
+    }
+
+    const decision = decideUpdateAction(userVisibleTarget, isInteractive, source, platform);
+    if (decision === 'none') {
+      return 'continue';
+    }
+
     if (
       await tryStartAutomaticBackgroundInstall(
         installState,
@@ -1271,6 +1370,11 @@ export async function runUpdatePreflight(
       return 'continue';
     }
 
+    // An install that is already in flight must not be prompted for a second
+    // time: the user would get a confusing double message for work that is
+    // already running elsewhere.
+    if (hasFreshActiveInstall(installState)) return 'continue';
+
     const choice = await promptInstall(
       currentVersion,
       userVisibleTarget,
@@ -1280,16 +1384,47 @@ export async function runUpdatePreflight(
     );
     if (choice === 'skip') return 'continue';
 
+    // Take the lock only after the prompt resolves: holding it across an
+    // indefinite interactive wait would block the background path as long as
+    // the prompt sits unanswered. A null handle means another installer is
+    // already running — do not install on top of it.
+    const lock = await tryAcquireUpdateInstallLock({ version: userVisibleTarget.version });
+    if (lock === null) return 'continue';
+
     try {
       await installUpdate(source, userVisibleTarget.version, platform);
+      await writeUpdateInstallState({
+        ...installState,
+        active: null,
+        lastFailure: null,
+        lastSuccess: {
+          version: userVisibleTarget.version,
+          installedAt: nowIso(),
+          notifiedAt: null,
+        },
+      }).catch(() => {});
       stdout.write(renderInstallSuccessMessage(userVisibleTarget));
       return 'exit';
     } catch (error) {
+      const attempts = failureAttemptsFor(installState, userVisibleTarget, 'install') + 1;
+      await writeUpdateInstallState({
+        ...installState,
+        active: null,
+        lastFailure: {
+          version: userVisibleTarget.version,
+          failedAt: nowIso(),
+          attempts,
+          operation: 'install',
+          message: formatErrorMessage(error),
+        },
+      }).catch(() => {});
       stderr.write(
         `warning: failed to install ${NPM_PACKAGE_NAME}@${userVisibleTarget.version}: ` +
           `${formatErrorMessage(error)}\n`,
       );
       return 'continue';
+    } finally {
+      await lock.release().catch(() => {});
     }
   } catch {
     return 'continue';
