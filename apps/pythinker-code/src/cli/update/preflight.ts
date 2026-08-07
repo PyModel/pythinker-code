@@ -1065,6 +1065,14 @@ export type ManualUpdateResult =
     readonly version: string;
     readonly command: string;
     readonly source: InstallSource;
+  }
+  | {
+    readonly status: 'failed';
+    readonly version: string;
+    readonly attempts: number;
+    readonly failedAt: string;
+    readonly message?: string;
+    readonly command: string;
   };
 
 /**
@@ -1131,14 +1139,23 @@ export async function startManualUpdate(
       readyToInstall: true,
     };
   }
-  // Repeated background failures fall back to the copyable command instead of
-  // claiming "started" for work the background lifecycle would refuse.
-  if (failureAttemptsFor(installState, target) >= AUTO_INSTALL_FAILURE_PROMPT_THRESHOLD) {
+  // A version parks once the failure counter hits the threshold: the
+  // background lifecycle refuses to touch it again, so claiming "started" or
+  // "in-progress" would be a lie and another retry would only burn another
+  // launch on an install that already failed. Report the recorded failure
+  // and the copyable command instead.
+  const failure = installState.lastFailure;
+  if (
+    failure !== null &&
+    failureAttemptsFor(installState, target) >= AUTO_INSTALL_FAILURE_PROMPT_THRESHOLD
+  ) {
     return {
-      status: 'manual',
+      status: 'failed',
       version: target.version,
+      attempts: failure.attempts,
+      failedAt: failure.failedAt,
+      message: failure.message,
       command: installCommandFor(source, target.version, platform),
-      source,
     };
   }
 

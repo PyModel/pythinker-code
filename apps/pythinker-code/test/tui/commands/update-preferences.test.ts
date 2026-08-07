@@ -308,6 +308,65 @@ describe('update command', () => {
       'The running install of v0.10.0 finishes first; v0.11.0 installs after the next start.',
     );
   });
+
+  it('reports a parked version as failed with the recorded reason', async () => {
+    const host = makeHost();
+    mocks.startManualUpdate.mockResolvedValue({
+      status: 'failed',
+      version: '0.10.0',
+      attempts: 2,
+      failedAt: '2026-08-05T08:00:00.000Z',
+      message: 'npm exited with code 1',
+      command: 'npm install -g @pythoughts/pythinker-code@0.10.0',
+    });
+
+    await handleUpdateCommand(host, '');
+
+    expect(host.showError).toHaveBeenCalledWith(
+      'Update to v0.10.0 failed after 2 attempts.\n' +
+        'Reason: npm exited with code 1\n' +
+        'To update manually, run: npm install -g @pythoughts/pythinker-code@0.10.0',
+    );
+  });
+
+  it('reports a parked version as failed without a reason line', async () => {
+    const host = makeHost();
+    mocks.startManualUpdate.mockResolvedValue({
+      status: 'failed',
+      version: '0.10.0',
+      attempts: 2,
+      failedAt: '2026-08-05T08:00:00.000Z',
+      command: 'npm install -g @pythoughts/pythinker-code@0.10.0',
+    });
+
+    await handleUpdateCommand(host, '');
+
+    expect(host.showError).toHaveBeenCalledWith(
+      'Update to v0.10.0 failed after 2 attempts.\n' +
+        'To update manually, run: npm install -g @pythoughts/pythinker-code@0.10.0',
+    );
+  });
+
+  it('truncates a very long recorded reason to one line and marks it truncated', async () => {
+    const host = makeHost();
+    const longReason = `npm failed: ${'x'.repeat(5000)}`;
+    mocks.startManualUpdate.mockResolvedValue({
+      status: 'failed',
+      version: '0.10.0',
+      attempts: 3,
+      failedAt: '2026-08-05T08:00:00.000Z',
+      message: longReason,
+      command: 'npm install -g @pythoughts/pythinker-code@0.10.0',
+    });
+
+    await handleUpdateCommand(host, '');
+
+    expect(host.showError).toHaveBeenCalledWith(
+      'Update to v0.10.0 failed after 3 attempts.\n' +
+        `Reason: ${longReason.slice(0, 160)}… (truncated)\n` +
+        'To update manually, run: npm install -g @pythoughts/pythinker-code@0.10.0',
+    );
+  });
 });
 
 describe('permission rule commands', () => {

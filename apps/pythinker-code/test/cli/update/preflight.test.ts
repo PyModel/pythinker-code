@@ -2471,15 +2471,116 @@ describe('startManualUpdate', () => {
     expect(mocks.spawn).not.toHaveBeenCalled();
   });
 
-  it('falls back to the manual command after repeated background failures', async () => {
+  it('reports a parked version as failed with the recorded attempts and reason', async () => {
     mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
     mocks.detectInstallSource.mockResolvedValue('npm-global');
     mocks.readUpdateInstallState.mockResolvedValue(installState({
-      lastFailure: { version: '0.5.0', failedAt: new Date().toISOString(), attempts: 2 },
+      lastFailure: {
+        version: '0.5.0',
+        failedAt: '2026-08-05T08:00:00.000Z',
+        attempts: 2,
+        operation: 'install',
+        message: 'npm exited with code 1',
+      },
     }));
 
     const result = await startManualUpdate('0.4.0');
-    expect(result.status).toBe('manual');
+    expect(result).toEqual({
+      status: 'failed',
+      version: '0.5.0',
+      attempts: 2,
+      failedAt: '2026-08-05T08:00:00.000Z',
+      message: 'npm exited with code 1',
+      command: 'npm install -g @pythoughts/pythinker-code@0.5.0',
+    });
+    expect(mocks.spawn).not.toHaveBeenCalled();
+  });
+
+  it('still attempts the install one failure below the parked threshold', async () => {
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.detectInstallSource.mockResolvedValue('npm-global');
+    mocks.readUpdateInstallState.mockResolvedValue(installState({
+      lastFailure: {
+        version: '0.5.0',
+        failedAt: '2026-08-05T08:00:00.000Z',
+        attempts: 1,
+        message: 'npm exited with code 1',
+      },
+    }));
+    mockSpawnExit(0);
+
+    await expect(startManualUpdate('0.4.0')).resolves.toEqual({
+      status: 'started',
+      version: '0.5.0',
+      installOnRestart: false,
+    });
+    await flushBackgroundInstall();
+    expect(mocks.spawn).toHaveBeenCalledTimes(1);
+  });
+
+  it('still attempts the install when the parked failures belong to another version', async () => {
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.detectInstallSource.mockResolvedValue('npm-global');
+    mocks.readUpdateInstallState.mockResolvedValue(installState({
+      lastFailure: {
+        version: '0.4.1',
+        failedAt: '2026-08-05T08:00:00.000Z',
+        attempts: 2,
+        message: 'npm exited with code 1',
+      },
+    }));
+    mockSpawnExit(0);
+
+    await expect(startManualUpdate('0.4.0')).resolves.toEqual({
+      status: 'started',
+      version: '0.5.0',
+      installOnRestart: false,
+    });
+    await flushBackgroundInstall();
+    expect(mocks.spawn).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports in-progress when a fresh install runs despite a parked failure', async () => {
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.detectInstallSource.mockResolvedValue('npm-global');
+    mocks.readUpdateInstallState.mockResolvedValue(installState({
+      active: { version: '0.5.0', source: 'npm-global', startedAt: new Date().toISOString() },
+      lastFailure: {
+        version: '0.5.0',
+        failedAt: '2026-08-05T08:00:00.000Z',
+        attempts: 2,
+        message: 'npm exited with code 1',
+      },
+    }));
+
+    await expect(startManualUpdate('0.4.0')).resolves.toEqual({
+      status: 'in-progress',
+      installingVersion: '0.5.0',
+      installOnRestart: false,
+      readyToInstall: false,
+    });
+    expect(mocks.spawn).not.toHaveBeenCalled();
+  });
+
+  it('omits the reason when the recorded failure carries none', async () => {
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.detectInstallSource.mockResolvedValue('npm-global');
+    mocks.readUpdateInstallState.mockResolvedValue(installState({
+      lastFailure: {
+        version: '0.5.0',
+        failedAt: '2026-08-05T08:00:00.000Z',
+        attempts: 2,
+      },
+    }));
+
+    const result = await startManualUpdate('0.4.0');
+    expect(result).toEqual({
+      status: 'failed',
+      version: '0.5.0',
+      attempts: 2,
+      failedAt: '2026-08-05T08:00:00.000Z',
+      command: 'npm install -g @pythoughts/pythinker-code@0.5.0',
+    });
     expect(mocks.spawn).not.toHaveBeenCalled();
   });
 
