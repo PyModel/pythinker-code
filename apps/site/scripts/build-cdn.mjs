@@ -71,6 +71,47 @@ async function resolvePublishedRelease(packageName) {
   };
 }
 
+const RELEASE_DOWNLOAD_BASE = 'https://github.com/Pythoughts-labs/pythinker-code/releases/download';
+
+/**
+ * Resolve the per-platform native artifacts for a published version.
+ *
+ * The release already carries a `manifest.json` asset written by
+ * `apps/pythinker-code/scripts/native/produce-manifest.mjs`, so this only turns
+ * `{ filename, checksum }` into `{ url, sha256 }`. Naming the artifact in
+ * `latest.json` is what lets a client answer "is there anything to download for
+ * my platform" from the manifest alone, instead of guessing an asset URL and
+ * polling GitHub for six minutes when the guess is wrong.
+ *
+ * Returns null — never throws — when the release shipped no native manifest.
+ * An npm-only release is legitimate, and a site build must not fail because of
+ * it; clients that see no `platforms` key keep their previous behaviour.
+ */
+async function resolvePlatformArtifacts(version) {
+  const base = `${RELEASE_DOWNLOAD_BASE}/%40pythoughts%2Fpythinker-code%40${version}`;
+  let native;
+  try {
+    const response = await fetch(`${base}/manifest.json`, { signal: AbortSignal.timeout(30_000) });
+    if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`);
+    native = await response.json();
+  } catch (error) {
+    console.log(`no native manifest for ${version} (${error.message}); omitting platforms`);
+    return null;
+  }
+  if (native?.version !== version) {
+    console.log(`native manifest reports ${native?.version}, expected ${version}; omitting platforms`);
+    return null;
+  }
+  const platforms = {};
+  for (const [target, entry] of Object.entries(native.platforms ?? {})) {
+    if (typeof entry?.filename !== 'string' || !/^[a-f0-9]{64}$/.test(entry?.checksum ?? '')) {
+      throw new Error(`Malformed native manifest entry for ${target}`);
+    }
+    platforms[target] = { url: `${base}/${entry.filename}`, sha256: entry.checksum };
+  }
+  return Object.keys(platforms).length > 0 ? platforms : null;
+}
+
 async function copyPlugins(repoRoot, cdnRoot) {
   const source = join(repoRoot, 'plugins/cdn');
   const destination = join(cdnRoot, 'pythinker-code/plugins');
@@ -167,9 +208,11 @@ await cp(siteDist, outDir, { recursive: true });
 const channelRoot = join(outDir, 'pythinker-code');
 await mkdir(channelRoot, { recursive: true });
 await writeFile(join(channelRoot, 'latest'), `${version}\n`);
+const platforms = await resolvePlatformArtifacts(version);
 await writeFile(join(channelRoot, 'latest.json'), `${JSON.stringify({
   version,
   publishedAt,
+  platforms: platforms ?? undefined,
   rollout: [],
 }, null, 2)}\n`);
 await cp(

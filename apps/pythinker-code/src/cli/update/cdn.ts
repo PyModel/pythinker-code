@@ -12,6 +12,23 @@ const RolloutBatchSchema = z.object({
   delaySeconds: z.number().int().min(0),
 });
 
+const UpdateManifestPlatformSchema = z.object({
+  url: z
+    .string()
+    .refine(
+      (value) => {
+        try {
+          const url = new URL(value);
+          return url.protocol === 'http:' || url.protocol === 'https:';
+        } catch {
+          return false;
+        }
+      },
+      { error: 'invalid url' },
+    ),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/u),
+});
+
 /**
  * CDN `latest.json` wire format. Deliberately NOT `.strict()` — unknown
  * fields are ignored so future manifest additions never break shipped
@@ -24,6 +41,18 @@ export const UpdateManifestSchema = z.object({
     .string()
     .refine((value) => Number.isFinite(Date.parse(value)), { error: 'invalid timestamp' }),
   rollout: z.array(RolloutBatchSchema).readonly().default([]),
+  /**
+   * Resolved per-platform artifacts, keyed `<platform>-<arch>`. A malformed
+   * value drops only this field via `.catch(undefined)` so `version` and
+   * `publishedAt` still parse — failing the whole manifest would send
+   * clients to the plain-text `/latest` fallback, which carries no platform
+   * information at all.
+   */
+  platforms: z
+    .record(z.string(), UpdateManifestPlatformSchema)
+    .readonly()
+    .optional()
+    .catch(undefined),
 });
 
 export interface FetchLatestResult {
@@ -94,4 +123,26 @@ export async function fetchLatestFromCdn(
   }
   const latest = await fetchLatestVersionFromCdn(fetchImpl);
   return { latest, manifest: null };
+}
+
+export type ArtifactAvailability = 'available' | 'unavailable';
+
+/**
+ * Whether the manifest advertises an artifact for `target`. Unknown — a
+ * null manifest or one that predates artifact addressing — resolves to
+ * 'available': a CDN blip must never stop a working update, while a
+ * manifest that explicitly omits the target platform is a definitive
+ * denial.
+ */
+export function manifestArtifactAvailability(
+  manifest: UpdateManifest | null,
+  target: string = `${process.platform}-${process.arch}`,
+): ArtifactAvailability {
+  if (manifest === null) {
+    return 'available';
+  }
+  if (manifest.platforms === undefined) {
+    return 'available';
+  }
+  return Object.hasOwn(manifest.platforms, target) ? 'available' : 'unavailable';
 }

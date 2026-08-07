@@ -22,6 +22,11 @@ export interface RolloutBatch {
   readonly delaySeconds: number;
 }
 
+export interface UpdateManifestPlatform {
+  readonly url: string;
+  readonly sha256: string;
+}
+
 /**
  * Parsed CDN `latest.json`. `rollout` batches claim bucket ranges in array
  * order; an empty array means the release is fully rolled out immediately.
@@ -30,6 +35,11 @@ export interface UpdateManifest {
   readonly version: string;
   readonly publishedAt: string;
   readonly rollout: readonly RolloutBatch[];
+  /**
+   * Resolved per-platform artifacts, keyed `<platform>-<arch>`. Absent on
+   * manifests published before artifact addressing shipped.
+   */
+  readonly platforms?: Readonly<Record<string, UpdateManifestPlatform>>;
 }
 
 export interface UpdateCache {

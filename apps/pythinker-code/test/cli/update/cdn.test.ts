@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { fetchLatestFromCdn, fetchLatestVersionFromCdn } from '#/cli/update/cdn';
+import {
+  fetchLatestFromCdn,
+  fetchLatestVersionFromCdn,
+  manifestArtifactAvailability,
+} from '#/cli/update/cdn';
 import { PYTHINKER_CODE_CDN_LATEST_JSON_URL, PYTHINKER_CODE_CDN_LATEST_URL } from '#/constant/app';
 
 function mockFetchOk(body: string): typeof fetch {
@@ -130,6 +134,72 @@ describe('fetchLatestFromCdn', () => {
     expect(result.manifest?.rollout).toEqual([]);
   });
 
+  it('drops a platforms entry with an invalid sha256 but keeps the manifest', async () => {
+    const body = JSON.stringify({
+      version: '2.0.0',
+      publishedAt: '2026-06-12T00:00:00.000Z',
+      platforms: {
+        'darwin-arm64': {
+          url: 'https://github.com/Pythoughts-labs/pythinker-code/releases/download/%40pythoughts%2Fpythinker-code%400.9.2/pythinker-code-darwin-arm64.zip',
+          sha256: 'nope',
+        },
+      },
+    });
+    const f = mockRoutedFetch({ [PYTHINKER_CODE_CDN_LATEST_JSON_URL]: { body } });
+    const result = await fetchLatestFromCdn(f);
+    expect(result.latest).toBe('2.0.0');
+    expect(result.manifest?.version).toBe('2.0.0');
+    expect(result.manifest?.platforms).toBeUndefined();
+    expect(manifestArtifactAvailability(result.manifest, 'darwin-arm64')).toBe('available');
+  });
+
+  it('drops a platforms entry with a non-URL url but keeps the manifest', async () => {
+    const body = JSON.stringify({
+      version: '2.0.0',
+      publishedAt: '2026-06-12T00:00:00.000Z',
+      platforms: {
+        'darwin-arm64': { url: 'not-a-url', sha256: 'a'.repeat(64) },
+      },
+    });
+    const f = mockRoutedFetch({ [PYTHINKER_CODE_CDN_LATEST_JSON_URL]: { body } });
+    const result = await fetchLatestFromCdn(f);
+    expect(result.latest).toBe('2.0.0');
+    expect(result.manifest?.version).toBe('2.0.0');
+    expect(result.manifest?.platforms).toBeUndefined();
+    expect(manifestArtifactAvailability(result.manifest, 'darwin-arm64')).toBe('available');
+  });
+
+  it('carries a well-formed platforms record onto the parsed manifest', async () => {
+    const body = JSON.stringify({
+      version: '2.0.0',
+      publishedAt: '2026-06-12T00:00:00.000Z',
+      rollout: [],
+      platforms: {
+        'darwin-arm64': {
+          url: 'https://github.com/Pythoughts-labs/pythinker-code/releases/download/%40pythoughts%2Fpythinker-code%400.9.2/pythinker-code-darwin-arm64.zip',
+          sha256: 'a'.repeat(64),
+        },
+        'linux-x64': {
+          url: 'https://github.com/Pythoughts-labs/pythinker-code/releases/download/%40pythoughts%2Fpythinker-code%400.9.2/pythinker-code-linux-x64.zip',
+          sha256: 'b'.repeat(64),
+        },
+      },
+    });
+    const f = mockRoutedFetch({ [PYTHINKER_CODE_CDN_LATEST_JSON_URL]: { body } });
+    const result = await fetchLatestFromCdn(f);
+    expect(result.latest).toBe('2.0.0');
+    expect(result.manifest?.platforms).toEqual({
+      'darwin-arm64': {
+        url: 'https://github.com/Pythoughts-labs/pythinker-code/releases/download/%40pythoughts%2Fpythinker-code%400.9.2/pythinker-code-darwin-arm64.zip',
+        sha256: 'a'.repeat(64),
+      },
+      'linux-x64': {
+        url: 'https://github.com/Pythoughts-labs/pythinker-code/releases/download/%40pythoughts%2Fpythinker-code%400.9.2/pythinker-code-linux-x64.zip',
+        sha256: 'b'.repeat(64),
+      },
+    });
+  });
+
   const fallbackCases: ReadonlyArray<readonly [string, Route]> = [
     ['latest.json is missing (HTTP 404)', { status: 404 }],
     ['latest.json fetch throws', new Error('network down')],
@@ -229,5 +299,75 @@ describe('fetchLatestFromCdn', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('manifestArtifactAvailability', () => {
+  it('treats a null manifest as available (unknown is not a denial)', () => {
+    expect(manifestArtifactAvailability(null)).toBe('available');
+  });
+
+  it('treats a manifest without platforms as available', () => {
+    const manifest = {
+      version: '2.0.0',
+      publishedAt: '2026-06-12T00:00:00.000Z',
+      rollout: [],
+    };
+    expect(manifestArtifactAvailability(manifest, 'darwin-arm64')).toBe('available');
+  });
+
+  it('is available when platforms has an own entry for the target', () => {
+    const manifest = {
+      version: '2.0.0',
+      publishedAt: '2026-06-12T00:00:00.000Z',
+      rollout: [],
+      platforms: {
+        'darwin-arm64': {
+          url: 'https://github.com/Pythoughts-labs/pythinker-code/releases/download/%40pythoughts%2Fpythinker-code%400.9.2/pythinker-code-darwin-arm64.zip',
+          sha256: 'a'.repeat(64),
+        },
+      },
+    };
+    expect(manifestArtifactAvailability(manifest, 'darwin-arm64')).toBe('available');
+  });
+
+  it('is unavailable when platforms omits the target', () => {
+    const manifest = {
+      version: '2.0.0',
+      publishedAt: '2026-06-12T00:00:00.000Z',
+      rollout: [],
+      platforms: {
+        'darwin-arm64': {
+          url: 'https://github.com/Pythoughts-labs/pythinker-code/releases/download/%40pythoughts%2Fpythinker-code%400.9.2/pythinker-code-darwin-arm64.zip',
+          sha256: 'a'.repeat(64),
+        },
+      },
+    };
+    expect(manifestArtifactAvailability(manifest, 'linux-x64')).toBe('unavailable');
+  });
+
+  it('is unavailable for an empty platforms object', () => {
+    const manifest = {
+      version: '2.0.0',
+      publishedAt: '2026-06-12T00:00:00.000Z',
+      rollout: [],
+      platforms: {},
+    };
+    expect(manifestArtifactAvailability(manifest, 'darwin-arm64')).toBe('unavailable');
+  });
+
+  it('defaults the target to the running platform', () => {
+    const manifest = {
+      version: '2.0.0',
+      publishedAt: '2026-06-12T00:00:00.000Z',
+      rollout: [],
+      platforms: {
+        [`${process.platform}-${process.arch}`]: {
+          url: 'https://github.com/Pythoughts-labs/pythinker-code/releases/download/%40pythoughts%2Fpythinker-code%400.9.2/pythinker-code-darwin-arm64.zip',
+          sha256: 'a'.repeat(64),
+        },
+      },
+    };
+    expect(manifestArtifactAvailability(manifest)).toBe('available');
   });
 });
