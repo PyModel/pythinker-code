@@ -4,6 +4,8 @@
  * Container-based component with keyboard navigation.
  */
 
+import { stripVTControlCharacters } from 'node:util';
+
 import {
   Container,
   Input,
@@ -192,6 +194,18 @@ function renderDisplayBlock(
  */
 const MAX_PREVIEW_ITEMS = 10;
 
+/**
+ * The plan is the thing being approved, and every field in it came from the
+ * model. Escape sequences would let that text repaint the panel it is being
+ * judged in — hide a line, redraw the buttons, or reverse the reading order —
+ * so they are removed rather than styled. `stripVTControlCharacters` takes the
+ * CSI and OSC sequences; the class escape then takes the bare control and
+ * format characters it leaves behind, which include the bidi overrides.
+ */
+function sanitizePlanText(text: string): string {
+  return stripVTControlCharacters(text).replaceAll(/[\p{Cc}\p{Cf}]/gu, ' ');
+}
+
 function renderWorkflowPlanDisplayBlock(
   block: WorkflowPlanDisplayBlock,
   s: BlockStyles,
@@ -202,16 +216,20 @@ function renderWorkflowPlanDisplayBlock(
     `~${String(block.prompt_tokens)} prompt tokens`,
   ];
   if (block.model !== undefined && block.model.length > 0) {
-    summary.push(`model: ${block.model}`);
+    summary.push(`model: ${sanitizePlanText(block.model)}`);
   }
   const lines = [s.strong(summary.join('  '))];
 
   if (block.prompt_template !== undefined && block.prompt_template.length > 0) {
-    lines.push(`${s.accent('prompt')} ${s.dim(truncateOneLine(block.prompt_template, 200))}`);
+    lines.push(
+      `${s.accent('prompt')} ${s.dim(truncateOneLine(sanitizePlanText(block.prompt_template), 200))}`,
+    );
   }
 
   for (const [index, item] of block.items.slice(0, MAX_PREVIEW_ITEMS).entries()) {
-    lines.push(s.dim(`${String(index + 1).padStart(3)}. ${truncateOneLine(item, 120)}`));
+    lines.push(
+      s.dim(`${String(index + 1).padStart(3)}. ${truncateOneLine(sanitizePlanText(item), 120)}`),
+    );
   }
   const hidden = block.items.length - MAX_PREVIEW_ITEMS;
   if (hidden > 0) {

@@ -1,7 +1,8 @@
-import { promises as fs } from 'node:fs';
+import { constants, promises as fs } from 'node:fs';
 
 import path from 'pathe';
 
+import { resolveSafePath } from '../../services/fs/fsPathSafety';
 import { normalizeSkillName } from '../../skill/types';
 
 /**
@@ -123,6 +124,14 @@ export function renderSavedWorkflowSkill(workflow: SavedWorkflow): string {
  * Lives here rather than in the slash command so every surface that can run a
  * workflow can also keep one. The name is validated before any directory is
  * created, so a rejected name leaves nothing behind.
+ *
+ * A validated name is not enough on its own. Agents work in repositories they
+ * did not write, and a checked-out tree can already contain
+ * `.pythinker-code/skills/<name>/SKILL.md` as a symlink pointing anywhere on
+ * the machine — saving a workflow would then write through it. The resolved
+ * path is checked against the scope root before the write, and the write
+ * itself refuses to follow a final symlink, so neither a planted link nor one
+ * swapped in afterwards is followed.
  */
 export async function writeSavedWorkflowSkill(input: {
   readonly scope: SavedWorkflowScope;
@@ -130,17 +139,58 @@ export async function writeSavedWorkflowSkill(input: {
   readonly projectRoot: string;
   readonly brandHomeDir: string;
 }): Promise<string> {
+  const name = savedWorkflowSkillName(input.workflow.name);
+  const root = input.scope === 'project' ? input.projectRoot : input.brandHomeDir;
   const dir = savedWorkflowSkillDir({
     scope: input.scope,
     name: input.workflow.name,
     projectRoot: input.projectRoot,
     brandHomeDir: input.brandHomeDir,
   });
-  const content = renderSavedWorkflowSkill({
-    ...input.workflow,
-    name: savedWorkflowSkillName(input.workflow.name),
-  });
+  const content = renderSavedWorkflowSkill({ ...input.workflow, name });
+  const skillMdPath = path.join(dir, 'SKILL.md');
+
+  // Before `mkdir`, not after: a symlinked `skills/` would otherwise have a
+  // directory created through it and left behind outside the project even
+  // though the write was refused.
+  await assertResolvesInsideRoot(root, dir);
   await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(path.join(dir, 'SKILL.md'), content, 'utf8');
+  // Again once the directory exists, so a `SKILL.md` symlink planted inside it
+  // is resolved rather than treated as the not-yet-existing tail.
+  await assertResolvesInsideRoot(root, skillMdPath);
+  await writeFileNoFollow(skillMdPath, content);
   return dir;
+}
+
+/** Throws when `target` resolves outside `root` once every symlink is followed. */
+async function assertResolvesInsideRoot(root: string, target: string): Promise<void> {
+  // `target` was built from `root` verbatim, so take the relative path against
+  // that same un-resolved root. Measuring it against the realpath instead makes
+  // every `/var` -> `/private/var` style link look like a `..` escape.
+  const relative = path.relative(root, target);
+  // `resolveSafePath` rejects an absolute or `..`-bearing input outright, and
+  // otherwise resolves the longest existing prefix through its symlinks before
+  // checking containment — which is exactly the planted-link case.
+  await resolveSafePath(await fs.realpath(root), relative);
+}
+
+/**
+ * Write without following a symlink at the final path component.
+ *
+ * `O_NOFOLLOW` is POSIX; on a platform without it the constant is undefined and
+ * the containment check above is the guard, so the flag is added only when the
+ * runtime offers it rather than failing the save outright.
+ */
+async function writeFileNoFollow(target: string, content: string): Promise<void> {
+  const noFollow = constants.O_NOFOLLOW ?? 0;
+  const handle = await fs.open(
+    target,
+    constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | noFollow,
+    0o600,
+  );
+  try {
+    await handle.writeFile(content, 'utf8');
+  } finally {
+    await handle.close();
+  }
 }

@@ -50,6 +50,7 @@ import {
   DynamicWorkflowTool,
   DynamicWorkflowToolInputSchema,
   isDynamicWorkflowDisabled,
+  type DynamicWorkflowToolInput,
 } from '../../src/tools/builtin/collaboration/dynamic-workflow';
 
 const signal = new AbortController().signal;
@@ -89,6 +90,21 @@ function mockSubagentHost<T extends Partial<SessionSubagentHost>>(
 
 function mockDynamicWorkflowMode(): DynamicWorkflowMode {
   return { enter: vi.fn() } as unknown as DynamicWorkflowMode;
+}
+
+/**
+ * `resolveExecution` narrowed to its runnable branch. The narrowing lives here
+ * so the tests that need it stay free of the branch themselves.
+ */
+function runnableExecution(
+  tool: DynamicWorkflowTool,
+  args: DynamicWorkflowToolInput,
+): Extract<ReturnType<DynamicWorkflowTool['resolveExecution']>, { execute: unknown }> {
+  const execution = tool.resolveExecution(args);
+  if (execution.isError === true) {
+    throw new TypeError('DynamicWorkflow resolveExecution returned an error');
+  }
+  return execution;
 }
 
 function processWithOutput(stdout: string, exitCode = 0): KaosProcess {
@@ -861,10 +877,8 @@ describe('current builtin collaboration tools', () => {
   it('DynamicWorkflow matches a session approval only for the identical plan', () => {
     const tool = new DynamicWorkflowTool(mockSubagentHost({}), mockDynamicWorkflowMode());
     const subjectOf = (input: Parameters<DynamicWorkflowTool['resolveExecution']>[0]): string => {
-      const execution = tool.resolveExecution(input);
-      if (execution.isError === true) throw new Error('resolveExecution returned an error');
       // `Tool(subject)` — recover the subject the approval was recorded against.
-      return execution.approvalRule.slice('DynamicWorkflow('.length, -1);
+      return runnableExecution(tool, input).approvalRule.slice('DynamicWorkflow('.length, -1);
     };
 
     const base = {
@@ -872,8 +886,7 @@ describe('current builtin collaboration tools', () => {
       prompt_template: 'Review {{item}}',
       items: ['src/a.ts', 'src/b.ts'],
     };
-    const execution = tool.resolveExecution(base);
-    if (execution.isError === true) throw new Error('resolveExecution returned an error');
+    const execution = runnableExecution(tool, base);
 
     expect(execution.matchesRule?.(subjectOf(base))).toBe(true);
 
@@ -904,8 +917,7 @@ describe('current builtin collaboration tools', () => {
       prompt_template: 'Review {{item}}',
       items: ['src/a.ts', 'src/b.ts'],
     };
-    const execution = tool.resolveExecution(args);
-    if (execution.isError === true) throw new Error('resolveExecution returned an error');
+    const execution = runnableExecution(tool, args);
 
     const match = matchPermissionRule({
       rule: {
@@ -923,13 +935,12 @@ describe('current builtin collaboration tools', () => {
 
   it('DynamicWorkflow previews the fan-out for the approval panel', () => {
     const tool = new DynamicWorkflowTool(mockSubagentHost({}), mockDynamicWorkflowMode());
-    const execution = tool.resolveExecution({
+    const execution = runnableExecution(tool, {
       description: 'Review files',
       prompt_template: 'Review {{item}}',
       items: ['src/a.ts', 'src/b.ts'],
       model: 'deepseek-v4',
     });
-    if (execution.isError === true) throw new Error('DynamicWorkflow resolveExecution returned an error');
 
     expect(execution.display).toMatchObject({
       kind: 'agent_call',
@@ -950,20 +961,43 @@ describe('current builtin collaboration tools', () => {
 
   it('DynamicWorkflow counts resumed subagents in the preview', () => {
     const tool = new DynamicWorkflowTool(mockSubagentHost({}), mockDynamicWorkflowMode());
-    const execution = tool.resolveExecution({
+    const execution = runnableExecution(tool, {
       description: 'Finish the sweep',
       items: ['src/a.ts', 'src/b.ts'],
       resume_agent_ids: { 'agent-7': 'Carry on' },
     });
-    if (execution.isError === true) throw new Error('DynamicWorkflow resolveExecution returned an error');
 
     expect(execution.display).toMatchObject({
       agent_name: 'Dynamic Workflow (3 subagents)',
       workflow: {
         agent_count: 3,
-        items: ['resume agent-7', 'src/a.ts', 'src/b.ts'],
+        // The resume prompt is shown, not just the agent id: it is the
+        // instruction that subagent receives, and it feeds the approval digest.
+        items: ['resume agent-7: Carry on', 'src/a.ts', 'src/b.ts'],
       },
     });
+  });
+
+  // A resumed subagent's prompt is what it will actually be told to do. If the
+  // digest ignored it, a second call could keep the same agent ids, change
+  // their instructions, and ride in on the first call's session approval.
+  it('DynamicWorkflow will not reuse an approval when a resume prompt changes', () => {
+    const tool = new DynamicWorkflowTool(mockSubagentHost({}), mockDynamicWorkflowMode());
+    const base = {
+      description: 'Finish the sweep',
+      items: ['src/a.ts', 'src/b.ts'],
+      resume_agent_ids: { 'agent-7': 'Carry on' },
+    };
+    const execution = runnableExecution(tool, base);
+    const subjectOf = (input: DynamicWorkflowToolInput): string =>
+      runnableExecution(tool, input).approvalRule.slice('DynamicWorkflow('.length, -1);
+
+    expect(execution.matchesRule?.(subjectOf(base))).toBe(true);
+    expect(
+      execution.matchesRule?.(
+        subjectOf({ ...base, resume_agent_ids: { 'agent-7': 'Delete everything instead' } }),
+      ),
+    ).toBe(false);
   });
 
   it('DynamicWorkflow accepts a full item list carrying a blank entry', async () => {

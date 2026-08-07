@@ -124,6 +124,52 @@ describe('ApprovalPanelComponent', () => {
     expect(out).toContain('src/c.ts');
   });
 
+  // The plan is what the operator is judging, and every field in it came from
+  // the model. Escape sequences left intact could repaint the panel deciding
+  // their fate — blank a line, redraw the buttons, or reverse the text order.
+  it('strips terminal control sequences from the plan before painting it', () => {
+    const esc = String.fromCodePoint(0x1B);
+    const rtlOverride = String.fromCodePoint(0x202E);
+    const pending: PendingApproval = {
+      data: {
+        id: 'approval_workflow_ansi',
+        tool_call_id: 'tool_workflow_ansi',
+        tool_name: 'DynamicWorkflow',
+        action: 'run',
+        description: 'Sweep',
+        display: [
+          {
+            type: 'workflow_plan',
+            agent_count: 2,
+            items: [
+              `${esc}[2Kharmless-item`,
+              // OSC 8 hyperlink, and a right-to-left override.
+              `${esc}]8;;http://evil.example${esc}\\second-item${rtlOverride}`,
+            ],
+            prompt_tokens: 12,
+            prompt_template: `${esc}[31mReview {{item}}`,
+            model: `${esc}[1msonnet`,
+          },
+        ],
+        choices: [{ label: 'Approve once', response: 'approved' }],
+      },
+    };
+
+    const raw = new ApprovalPanelComponent(pending, () => {}).render(80).join('\n');
+    const out = strip(raw);
+
+    expect(out).toContain('harmless-item');
+    expect(out).toContain('second-item');
+    expect(out).toContain('Review {{item}}');
+    expect(out).toContain('model: sonnet');
+    // `strip` only removes SGR colour codes, so anything else the model smuggled
+    // in would still be sitting in `out`.
+    expect(out).not.toContain(`${esc}[2K`);
+    expect(out).not.toContain(']8;;');
+    expect(out).not.toContain('http://evil.example');
+    expect(out).not.toContain(rtlOverride);
+  });
+
   it('caps the plan item list and says how many it held back', () => {
     const pending: PendingApproval = {
       data: {

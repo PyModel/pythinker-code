@@ -373,8 +373,17 @@ function dynamicWorkflowPreview(args: DynamicWorkflowToolInput): {
   return {
     agent_count: prompts.length,
     // Resumed subagents carry an id rather than an item, so label them to keep
-    // the list the same length as the count it sits under.
-    items: [...resumeIds.map((agentId) => `resume ${agentId}`), ...items],
+    // the list the same length as the count it sits under. The prompt goes in
+    // too: it is the instruction that subagent will actually receive, and the
+    // approval digest is built from this list — an id alone would let a second
+    // call keep the same ids, change what it tells them to do, and match the
+    // earlier grant.
+    items: [
+      ...resumeIds.map(
+        (agentId) => `resume ${agentId}: ${(args.resume_agent_ids ?? {})[agentId] ?? ''}`,
+      ),
+      ...items,
+    ],
     prompt_tokens: prompts.reduce((total, prompt) => total + estimateTokens(prompt), 0),
     prompt_template: promptTemplate,
     model: normalizeOptionalString(args.model),

@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 import {
   renderSavedWorkflowSkill,
   savedWorkflowSkillDir,
+  writeSavedWorkflowSkill,
 } from '../../src/agent/dynamic-workflow/save-as-skill';
 import { parseSkillFromFile } from '../../src/skill/parser';
 
@@ -172,6 +173,78 @@ describe('renderSavedWorkflowSkill', () => {
       promptTemplate: 'Inspect the changes.',
     });
     expect(rendered).toContain('\n---\n\n# Review the diff\n');
+  });
+});
+
+// Agents work in repositories they did not write. A checked-out tree can
+// already contain the saved-skill path as a symlink pointing anywhere on the
+// machine, and a validated name does nothing about that — the write would
+// simply follow it.
+describe('writeSavedWorkflowSkill refuses to write through a symlink', () => {
+  const workflow = { name: 'audit', description: 'Audit routes' };
+
+  it('refuses when SKILL.md is a symlink pointing outside the project', async () => {
+    const root = await fs.mkdtemp(path.join(tmpdir(), 'workflow-symlink-'));
+    try {
+      const outside = path.join(root, 'outside.txt');
+      await fs.writeFile(outside, 'original', 'utf8');
+      const skillDir = path.join(root, 'project', '.pythinker-code', 'skills', 'audit');
+      await fs.mkdir(skillDir, { recursive: true });
+      await fs.symlink(outside, path.join(skillDir, 'SKILL.md'));
+
+      await expect(
+        writeSavedWorkflowSkill({
+          scope: 'project',
+          workflow,
+          projectRoot: path.join(root, 'project'),
+          brandHomeDir: path.join(root, 'home'),
+        }),
+      ).rejects.toThrow(/rejected \(symlink_outside_cwd\)/u);
+
+      // The planted target must be untouched, not merely "an error was thrown".
+      expect(await fs.readFile(outside, 'utf8')).toBe('original');
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses when a parent directory is a symlink pointing outside the project', async () => {
+    const root = await fs.mkdtemp(path.join(tmpdir(), 'workflow-symlink-dir-'));
+    try {
+      const projectRoot = path.join(root, 'project');
+      const escape = path.join(root, 'escape');
+      await fs.mkdir(escape, { recursive: true });
+      await fs.mkdir(path.join(projectRoot, '.pythinker-code'), { recursive: true });
+      await fs.symlink(escape, path.join(projectRoot, '.pythinker-code', 'skills'));
+
+      await expect(
+        writeSavedWorkflowSkill({
+          scope: 'project',
+          workflow,
+          projectRoot,
+          brandHomeDir: path.join(root, 'home'),
+        }),
+      ).rejects.toThrow(/rejected \(symlink_outside_cwd\)/u);
+
+      expect(await fs.readdir(escape)).toEqual([]);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('still writes a normal saved workflow', async () => {
+    const root = await fs.mkdtemp(path.join(tmpdir(), 'workflow-ok-'));
+    try {
+      const dir = await writeSavedWorkflowSkill({
+        scope: 'project',
+        workflow,
+        projectRoot: root,
+        brandHomeDir: path.join(root, 'home'),
+      });
+      expect(await fs.readFile(path.join(dir, 'SKILL.md'), 'utf8')).toContain('name: "audit"');
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
   });
 });
 
