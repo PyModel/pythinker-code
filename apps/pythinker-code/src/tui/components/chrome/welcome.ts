@@ -27,7 +27,6 @@ import {
   asciiGlyphsEnabled,
   buildWelcomeCopy,
   buildWelcomeInfoItems,
-  buildWelcomeSubtitleChip,
   createWelcomeGitCache,
   renderWelcomeBanner,
 } from './welcome-banner';
@@ -81,7 +80,6 @@ export class WelcomeComponent implements Component, WelcomeLogoAnimationHost {
       version: this.state.version,
       infoItems: buildWelcomeInfoItems(this.state, this.gitCache),
       copy,
-      subtitleChip: buildWelcomeSubtitleChip(this.state.version),
       logoLines,
       asciiMode: asciiGlyphsEnabled(),
     });
