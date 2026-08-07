@@ -38,11 +38,6 @@ function memberRowCount(output: string): number {
   ).length;
 }
 
-function displayedPercent(output: string, index: number): number {
-  const match = /(\d+)%/u.exec(memberLine(output, index));
-  if (match === null) throw new Error(`Missing percent for member ${String(index)}`);
-  return Number(match[1]);
-}
 
 function aggregateLine(output: string): string {
   const line = output.split('\n').find((candidate) =>
@@ -252,9 +247,9 @@ describe('DynamicWorkflowMissionControlComponent', () => {
     expect(aggregateLine(output)).not.toMatch(/\b\d+%/u);
     expect(aggregateLine(output)).not.toContain('━');
     expect(memberLine(output, 1)).toMatch(
-      /▏⣀⣀▕\s+20%\s+[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] RUN\s+Layout hierarchy/u,
+      /[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] RUN\s+Layout hierarchy/u,
     );
-    expect(memberLine(output, 2)).toMatch(/▏⣿⣿▕\s+100%\s+✓ DONE\s+Interaction audit/u);
+    expect(memberLine(output, 2)).toMatch(/–\s+✓ DONE\s+Interaction audit/u);
     expect(output).not.toMatch(/[⣿⣷⣯⣟⡿⢿⣻⣽]{4,}/u);
   });
 
@@ -270,7 +265,7 @@ describe('DynamicWorkflowMissionControlComponent', () => {
     expect(output).toContain('Waiting for delegated agents');
     expect(aggregateLine(output)).toMatch(/\b\d+s elapsed\b/);
     expect(aggregateLine(output)).not.toMatch(/\b\d+%/);
-    expect(memberLine(output, 1)).toContain('▏  ▕   0%');
+    expect(memberLine(output, 1)).toContain('0⚒');
     expect(output).not.toMatch(/[⣿⣷⣯⣟⡿⢿⣻⣽]{4,}/u);
     expect(aggregateLine(output)).not.toContain('━');
   });
@@ -375,8 +370,8 @@ describe('DynamicWorkflowMissionControlComponent', () => {
 
     const output = renderText(component, 120);
     expect(output).toContain('– Cancelled');
-    expect(memberLine(output, 1)).toMatch(/20%\s+[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] RUN\s+Running work/u);
-    expect(memberLine(output, 2)).toMatch(/0%\s+◌ WAIT\s+Queued work/);
+    expect(memberLine(output, 1)).toMatch(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] RUN\s+Running work/u);
+    expect(memberLine(output, 2)).toMatch(/◌ WAIT\s+Queued work/);
     expect(output).not.toContain('– STOP');
     expect(output).not.toContain('⠋ Orchestrating');
   });
@@ -390,7 +385,7 @@ describe('DynamicWorkflowMissionControlComponent', () => {
     component.markFailed('agent-1', 'Late failure');
 
     const output = renderText(component, 100);
-    expect(memberLine(output, 1)).toMatch(/100%\s+✓ DONE\s+Layout hierarchy/u);
+    expect(memberLine(output, 1)).toMatch(/✓ DONE\s+Layout hierarchy/u);
     expect(output).toContain('Finished first');
     expect(output).not.toContain('Late failure');
   });
@@ -410,10 +405,10 @@ describe('DynamicWorkflowMissionControlComponent', () => {
     ].join('\n'));
 
     const output = renderText(component, 120);
-    expect(memberLine(output, 1)).toMatch(/100%\s+✓ DONE\s+Observed first/u);
+    expect(memberLine(output, 1)).toMatch(/✓ DONE\s+Observed first/u);
     expect(output).toContain('Observed completion');
     expect(output).not.toContain('Late result failure');
-    expect(memberLine(output, 2)).toMatch(/100%\s+× FAIL\s+Result-only second/u);
+    expect(memberLine(output, 2)).toMatch(/× FAIL\s+Result-only second/u);
     expect(output).toContain('Result failure');
   });
 
@@ -434,7 +429,7 @@ describe('DynamicWorkflowMissionControlComponent', () => {
     expect(memberLine(output, 1)).toContain('✓ DONE');
     expect(output).not.toContain('002');
     expect(output).not.toContain('Phantom failure');
-    expect(output).not.toContain('200%');
+    expect(output).not.toMatch(/\d+%/u);
   });
 
   it('prefers a suspension detail over stale model progress in the member row', () => {
@@ -447,7 +442,7 @@ describe('DynamicWorkflowMissionControlComponent', () => {
     component.markSuspended({ agentId: 'agent-1', reason: 'Rate limited' });
 
     const output = renderText(component, 120);
-    expect(memberLine(output, 1)).toMatch(/50%\s+! HOLD\s+Throttle-sensitive work/);
+    expect(memberLine(output, 1)).toMatch(/! HOLD\s+Throttle-sensitive work/);
     expect(output).toContain('Rate limited');
     expect(output).not.toContain('Stale model progress');
   });
@@ -462,7 +457,7 @@ describe('DynamicWorkflowMissionControlComponent', () => {
     component.markFailed('agent-1', 'Provider exhausted');
 
     const output = renderText(component, 120);
-    expect(memberLine(output, 1)).toMatch(/100%\s+× FAIL\s+Failure-sensitive work/);
+    expect(memberLine(output, 1)).toMatch(/× FAIL\s+Failure-sensitive work/);
     expect(output).toContain('Provider exhausted');
     expect(output).not.toContain('Stale model progress');
   });
@@ -504,7 +499,7 @@ describe('DynamicWorkflowMissionControlComponent', () => {
   it('renders every observed member and request phase without inventing lifecycle events', () => {
     const pending = createComponent();
     pending.updateArgs({}, { streamingArguments: '{"items":["Pending work"' });
-    expect(memberLine(renderText(pending, 100), 1)).toMatch(/0%\s+◌ PEND\s+Pending work/);
+    expect(memberLine(renderText(pending, 100), 1)).toMatch(/◌ PEND\s+Pending work/);
 
     const component = createComponent();
     component.updateArgs({
@@ -551,38 +546,73 @@ describe('DynamicWorkflowMissionControlComponent', () => {
     },
   );
 
-  it('advances member cubes through observed work stages', () => {
-    const component = createComponent();
-    component.updateArgs({ items: ['Live work'] });
-    component.markInputComplete();
-    component.registerSubagent({ agentId: 'agent-1' });
+  it('counts real work and shows how long a row has been silent', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    try {
+      const component = createComponent();
+      component.updateArgs({ items: ['Live work'] });
+      component.markInputComplete();
+      component.registerSubagent({ agentId: 'agent-1' });
+      component.markStarted('agent-1');
 
-    const expectProgress = (percent: number, fill: string) => {
-      const output = renderText(component, 100);
-      expect(memberLine(output, 1)).toContain(
-        `▏${fill.repeat(2)}▕ ${String(percent).padStart(3, ' ')}%`,
-      );
-      return output;
-    };
+      // No percentage anywhere: nothing knows how many steps an agent will take.
+      expect(renderText(component, 100)).not.toMatch(/\b\d+%/u);
 
-    expectProgress(0, ' ');
-    component.markStarted('agent-1');
-    expectProgress(20, '⣀');
-    component.appendModelDelta({ agentId: 'agent-1', delta: 'Inspecting' });
-    expectProgress(50, '⣤');
-    component.appendModelDelta({ agentId: 'agent-1', delta: ' more' });
-    expectProgress(50, '⣤');
-    component.recordToolCall({ agentId: 'agent-1', name: 'Read' });
-    expectProgress(75, '⣶');
-    component.appendModelDelta({ agentId: 'agent-1', delta: 'Summarizing' });
-    const activeOutput = expectProgress(75, '⣶');
-    expect(aggregateLine(activeOutput)).toContain('0/1 complete');
-    expect(aggregateLine(activeOutput)).not.toMatch(/\b\d+%/u);
-    expect(aggregateLine(activeOutput)).not.toContain('━');
+      component.recordToolCall({ agentId: 'agent-1', name: 'Read' });
+      component.recordToolCall({ agentId: 'agent-1', name: 'Bash' });
+      expect(memberLine(renderText(component, 100), 1)).toMatch(/2⚒\s+0s/u);
 
-    component.markCompleted('agent-1', 'Done');
-    const completedOutput = expectProgress(100, '⣿');
-    expect(aggregateLine(completedOutput)).toContain('1/1 complete');
+      // The old bar froze at 75% here; the idle age keeps moving instead.
+      vi.setSystemTime(45_000);
+      expect(memberLine(renderText(component, 100), 1)).toMatch(/2⚒\s+45s/u);
+
+      // Any observed event resets the silence, tool call or streamed text.
+      component.appendModelDelta({ agentId: 'agent-1', delta: 'Summarizing' });
+      expect(memberLine(renderText(component, 100), 1)).toMatch(/2⚒\s+0s/u);
+
+      // A finished row has no idle age to report.
+      component.markCompleted('agent-1', 'Done');
+      expect(memberLine(renderText(component, 100), 1)).toMatch(/2⚒\s+–\s+✓ DONE/u);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('colours a silent row amber, then red once it has almost certainly stalled', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const previousLevel = chalk.level;
+    const previousPalette = currentTheme.palette;
+    chalk.level = 3;
+    currentTheme.setPalette(darkColors);
+
+    try {
+      const component = createComponent();
+      component.updateArgs({ items: ['Live work'] });
+      component.markInputComplete();
+      component.registerSubagent({ agentId: 'agent-1' });
+      component.markStarted('agent-1');
+      component.recordToolCall({ agentId: 'agent-1', name: 'Bash' });
+
+      const workCell = (): string => {
+        const line = component.render(100).find(
+          (candidate) => strip(candidate).replace(/^│\s*/u, '').startsWith('001'),
+        );
+        if (line === undefined) throw new Error('Missing Dynamic Workflow member 001');
+        return line;
+      };
+
+      expect(workCell()).toContain(chalk.hex(darkColors.textMuted)('  0s'));
+      vi.setSystemTime(DYNAMIC_WORKFLOW_RENDERING.quietIdleMs);
+      expect(workCell()).toContain(chalk.hex(darkColors.warning)(' 60s'));
+      vi.setSystemTime(DYNAMIC_WORKFLOW_RENDERING.stalledIdleMs);
+      expect(workCell()).toContain(chalk.hex(darkColors.error)('180s'));
+    } finally {
+      vi.useRealTimers();
+      chalk.level = previousLevel;
+      currentTheme.setPalette(previousPalette);
+    }
   });
 
   it('reports aggregate completion counts without estimating overall progress', () => {
@@ -614,7 +644,7 @@ describe('DynamicWorkflowMissionControlComponent', () => {
 
     const lines = renderText(component, 100).split('\n');
     expect(lines).toHaveLength(6);
-    expect(memberLine(lines.join('\n'), 1)).toMatch(/0%\s+◌ WAIT\s+One/u);
+    expect(memberLine(lines.join('\n'), 1)).toMatch(/◌ WAIT\s+One/u);
     expect(lines.join('\n')).toContain('+ 4 more agents');
     expect(lines.join('\n')).not.toContain('Recent activity');
   });
@@ -651,49 +681,42 @@ describe('DynamicWorkflowMissionControlComponent', () => {
       const rendered = component.render(width);
       const output = strip(rendered.join('\n'));
 
-      const showsProgress = width >= 64;
+      const showsWork = width >= 64;
       expect(rendered.every((line) => visibleWidth(line) <= width)).toBe(true);
       expect(memberLine(output, 1)).toMatch(RUNNING_CELL);
-      expect(memberLine(output, 1).includes('▏⣀⣀▕  20%')).toBe(showsProgress);
-      expect(output.includes('PROGRESS')).toBe(showsProgress);
+      // The work cell is the first thing dropped when the frame gets narrow.
+      expect(/\d⚒/u.test(memberLine(output, 1))).toBe(showsWork);
+      expect(output.includes('WORK IDLE')).toBe(showsWork);
     },
   );
 
-  it('holds the observed stage across streamed deltas and completes only on the terminal event', () => {
-    const component = createComponent();
-    component.updateArgs({ items: ['Long streaming work'] });
-    component.markInputComplete();
-    register(component, 'agent-1');
-    component.markStarted('agent-1');
-    component.recordToolCall({ agentId: 'agent-1', name: 'Read' });
+  it('counts tool calls as work and streamed text only as liveness', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    try {
+      const component = createComponent();
+      component.updateArgs({ items: ['Long streaming work'] });
+      component.markInputComplete();
+      register(component, 'agent-1');
+      component.markStarted('agent-1');
+      component.recordToolCall({ agentId: 'agent-1', name: 'Read' });
 
-    for (let index = 0; index < 200; index += 1) {
-      component.appendModelDelta({ agentId: 'agent-1', delta: `chunk ${String(index)} ` });
+      vi.setSystemTime(30_000);
+      for (let index = 0; index < 200; index += 1) {
+        component.appendModelDelta({ agentId: 'agent-1', delta: `chunk ${String(index)} ` });
+      }
+
+      // 200 deltas are not 200 units of work — the count tracks tool calls only.
+      // But they prove the agent is alive, so the idle age resets.
+      const line = memberLine(renderText(component, 100), 1);
+      expect(line).toMatch(/1⚒\s+0s/u);
+      expect(renderText(component, 100)).not.toMatch(/\b\d+%/u);
+
+      component.recordToolCall({ agentId: 'agent-1', name: 'Bash' });
+      expect(memberLine(renderText(component, 100), 1)).toMatch(/2⚒/u);
+    } finally {
+      vi.useRealTimers();
     }
-    // No invented progress: text after a tool call never climbs toward 100.
-    expect(displayedPercent(renderText(component, 100), 1))
-      .toBe(DYNAMIC_WORKFLOW_RENDERING.toolActivityProgress);
-
-    component.markCompleted('agent-1', 'Done');
-    expect(displayedPercent(renderText(component, 100), 1)).toBe(100);
-  });
-
-  it('keeps streamed text at the model stage until a tool call lifts it', () => {
-    const component = createComponent();
-    component.updateArgs({ items: ['Chatty work'] });
-    component.markInputComplete();
-    register(component, 'agent-1');
-    component.markStarted('agent-1');
-
-    for (let index = 0; index < 300; index += 1) {
-      component.appendModelDelta({ agentId: 'agent-1', delta: 'more ' });
-    }
-    expect(displayedPercent(renderText(component, 100), 1))
-      .toBe(DYNAMIC_WORKFLOW_RENDERING.modelActivityProgress);
-
-    component.recordToolCall({ agentId: 'agent-1', name: 'Read' });
-    expect(displayedPercent(renderText(component, 100), 1))
-      .toBe(DYNAMIC_WORKFLOW_RENDERING.toolActivityProgress);
   });
 
   it('starts a new line for model text after a tool label instead of fusing them', () => {

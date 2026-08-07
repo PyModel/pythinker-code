@@ -48,12 +48,15 @@ export interface DynamicWorkflowMember {
   startedAtMs?: number;
   endedAtMs?: number;
   /**
-   * Observed-stage progress heuristic (0-100): the protocol emits no per-task
-   * percentage, so stage floors map to observed events and streamed deltas
-   * creep asymptotically toward a ceiling. May hold fractional values
-   * internally; display floors it. Only a terminal event reaches 100.
+   * Tool calls observed for this agent. Real work done, monotonic — unlike a
+   * percentage, which would need a total nobody can know in advance.
    */
-  progressPercent: number;
+  toolCalls: number;
+  /**
+   * When this agent last produced any observed event. Its age is the liveness
+   * signal: a working agent stays near zero, a wedged one climbs without bound.
+   */
+  lastEventAtMs: number;
 }
 
 export interface DynamicWorkflowActivity {
@@ -246,7 +249,7 @@ export class DynamicWorkflowMissionControlComponent implements Component {
     if (member.phase === 'running') return;
     member.phase = 'running';
     member.startedAtMs ??= Date.now();
-    this.advanceMemberProgress(member, DYNAMIC_WORKFLOW_RENDERING.startedProgress);
+    member.lastEventAtMs = Date.now();
     delete member.statusDetail;
     this.recordActivity(member.index, 'Started');
   }
@@ -258,7 +261,8 @@ export class DynamicWorkflowMissionControlComponent implements Component {
     const member = this.findMemberByAgentId(input.agentId);
     if (member === undefined || isTerminalPhase(member.phase)) return;
     this.markStarted(input.agentId);
-    this.advanceMemberProgress(member, DYNAMIC_WORKFLOW_RENDERING.toolActivityProgress);
+    member.toolCalls += 1;
+    member.lastEventAtMs = Date.now();
     const latest = input.name === undefined ? 'Using a tool' : `Using ${input.name}`;
     this.setLatest(member, latest, true);
     // Streamed text that follows starts a new line, never continues this label.
@@ -270,10 +274,7 @@ export class DynamicWorkflowMissionControlComponent implements Component {
     if (member === undefined || isTerminalPhase(member.phase) || input.delta.length === 0) return;
     this.markStarted(input.agentId);
     const recordActivity = input.delta.includes('\n') || member.latest.length === 0;
-    // Progress reflects the observed stage only. The protocol emits no per-task
-    // completion signal, so streamed text never advances past its stage floor —
-    // elapsed time and the latest line carry liveness instead.
-    this.advanceMemberProgress(member, DYNAMIC_WORKFLOW_RENDERING.modelActivityProgress);
+    member.lastEventAtMs = Date.now();
     const carried = member.latestFromTool === true ? '' : member.latest;
     const latest = latestNonEmptyLine(`${carried}${input.delta}`);
     member.latestFromTool = false;
@@ -547,7 +548,7 @@ export class DynamicWorkflowMissionControlComponent implements Component {
     const header = width >= DYNAMIC_WORKFLOW_RENDERING.memberProgressMinWidth
       ? [
         padToWidth('ID', 3),
-        padToWidth('PROGRESS', DYNAMIC_WORKFLOW_RENDERING.memberProgressWidth),
+        padToWidth('WORK IDLE', DYNAMIC_WORKFLOW_RENDERING.memberProgressWidth),
         padToWidth('STATE', 6),
         'TASK',
       ].join('  ')
@@ -563,19 +564,14 @@ export class DynamicWorkflowMissionControlComponent implements Component {
       member.phase,
       Math.floor(Math.max(0, nowMs - this.model.startedAtMs) / BRAILLE_SPINNER_INTERVAL_MS),
     );
-    const progressPercent = member.progressPercent;
-    const showProgress = width >= DYNAMIC_WORKFLOW_RENDERING.memberProgressMinWidth;
-    const progress = `${renderProgressCube(progressPercent)} ${currentTheme.fg(
-      'textMuted',
-      `${String(Math.floor(progressPercent)).padStart(3, ' ')}%`,
-    )}`;
-    const progressColumn = padToWidth(
-      progress,
+    const showWork = width >= DYNAMIC_WORKFLOW_RENDERING.memberProgressMinWidth;
+    const workColumn = padToWidth(
+      renderWorkCell(member, nowMs),
       DYNAMIC_WORKFLOW_RENDERING.memberProgressWidth,
     );
     const stateColumn = padToWidth(state, 6);
-    const prefix = showProgress
-      ? `${id}  ${progressColumn}  ${stateColumn}  `
+    const prefix = showWork
+      ? `${id}  ${workColumn}  ${stateColumn}  `
       : `${id} ${padToWidth(state, 6)} `;
     const task = member.item || 'Delegated agent';
     const latest = member.latest.length > 0 && member.latest !== task ? member.latest : undefined;
@@ -585,8 +581,8 @@ export class DynamicWorkflowMissionControlComponent implements Component {
     const elapsed = member.startedAtMs === undefined
       ? undefined
       : `${String(elapsedSeconds(member.startedAtMs, member.endedAtMs ?? nowMs))}s`;
-    const showDetail = showProgress && detail !== undefined && detail.length > 0;
-    const showElapsed = showProgress && elapsed !== undefined;
+    const showDetail = showWork && detail !== undefined && detail.length > 0;
+    const showElapsed = showWork && elapsed !== undefined;
     const tail = [
       showDetail ? currentTheme.fg('textDim', detail) : '',
       showElapsed ? currentTheme.fg('textMuted', elapsed) : '',
@@ -659,7 +655,8 @@ export class DynamicWorkflowMissionControlComponent implements Component {
         item: '',
         phase: this.model.inputComplete ? 'queued' : 'pending',
         latest: '',
-        progressPercent: 0,
+        toolCalls: 0,
+        lastEventAtMs: Date.now(),
       });
     }
   }
@@ -684,18 +681,10 @@ export class DynamicWorkflowMissionControlComponent implements Component {
     const normalizedDetail = normalizeText(detail);
     member.phase = phase;
     member.endedAtMs = Date.now();
-    member.progressPercent = 100;
+    member.lastEventAtMs = Date.now();
     member.statusDetail = normalizedDetail.length > 0 ? normalizedDetail : undefined;
     const label = phase === 'completed' ? 'Completed' : phase === 'failed' ? 'Failed' : 'Cancelled';
     this.recordActivity(member.index, normalizedDetail.length > 0 ? `${label}: ${normalizedDetail}` : label);
-  }
-
-  /**
-   * Progress only ever advances; stages map to observed events, never to time.
-   * Creep is per observed event too (each streamed delta), so no timers exist.
-   */
-  private advanceMemberProgress(member: DynamicWorkflowMember, targetPercent: number): void {
-    member.progressPercent = Math.max(member.progressPercent, targetPercent);
   }
 
   private setLatest(member: DynamicWorkflowMember, latest: string, recordActivity: boolean): void {
@@ -972,23 +961,6 @@ function decodeXmlEntities(value: string): string {
 }
 
 /** Maps a percent to one of the dotted cube levels; the cube fills bottom-up. */
-function renderProgressCube(percent: number): string {
-  const bounded = Math.min(100, Math.max(0, percent));
-  const levels = DYNAMIC_WORKFLOW_RENDERING.cubeFillLevels;
-  const level = bounded <= 0
-    ? 0
-    : bounded >= 100
-      ? levels.length - 1
-      : Math.min(
-        levels.length - 2,
-        Math.ceil(bounded * (levels.length - 2) / 100),
-      );
-  const fill = levels[level]!;
-  const fillToken = bounded >= 100 ? 'progressHead' : 'progressFill';
-  return currentTheme.fg('progressEmpty', '▏') +
-    currentTheme.fg(fillToken, fill.repeat(2)) +
-    currentTheme.fg('progressEmpty', '▕');
-}
 
 function requestPhaseLabel(phase: DynamicWorkflowRequestPhase): string {
   const labels: Record<DynamicWorkflowRequestPhase, string> = {
@@ -1045,6 +1017,30 @@ function latestNonEmptyLine(text: string): string {
 
 function normalizeText(text: string | undefined): string {
   return text?.replaceAll(/\s+/g, ' ').trim() ?? '';
+}
+
+/**
+ * The WORK cell: tool calls done, and how long this agent has been silent.
+ *
+ * There is deliberately no percentage. Nothing knows how many steps an agent
+ * will take, so any percent is invented — the old one pinned every tool-using
+ * agent at 75% until it finished, which made a wedged agent look identical to a
+ * busy one. A count and an idle age are both real and answer the actual
+ * question: is this thing still working?
+ */
+function renderWorkCell(member: DynamicWorkflowMember, nowMs: number): string {
+  const tools = currentTheme.fg('textDim', `${String(member.toolCalls).padStart(3, ' ')}⚒`);
+  if (isTerminalPhase(member.phase)) {
+    return `${tools} ${currentTheme.fg('textMuted', '   –')}`;
+  }
+  const idleMs = Math.max(0, nowMs - member.lastEventAtMs);
+  const idleSeconds = Math.floor(idleMs / 1000);
+  const token = idleMs >= DYNAMIC_WORKFLOW_RENDERING.stalledIdleMs
+    ? 'error'
+    : idleMs >= DYNAMIC_WORKFLOW_RENDERING.quietIdleMs
+      ? 'warning'
+      : 'textMuted';
+  return `${tools} ${currentTheme.fg(token, `${String(idleSeconds)}s`.padStart(4, ' '))}`;
 }
 
 /**
