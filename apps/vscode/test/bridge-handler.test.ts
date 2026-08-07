@@ -69,7 +69,9 @@ const host = vi.hoisted(() => {
       task: (progress: unknown, token: unknown) => Promise<unknown>,
     ) => task({ report: vi.fn() }, new CancellationTokenSource().token),
   );
-  const openExternal = vi.fn(async () => true);
+  // Typed to match the real `env.openExternal`, so a test can read back the URI
+  // it was handed rather than an empty argument tuple.
+  const openExternal = vi.fn(async (_target: Uri) => true);
   const executeCommand = vi.fn(async () => undefined);
 
   class Uri {
@@ -930,9 +932,9 @@ describe("Webview login (multi-provider picker behind Methods.Login)", () => {
       { url: "https://auth.kimi.com/verify?user_code=WDJB-MJHT" },
       "view-1",
     );
-    const opened = host.openExternal.mock.calls[0]?.[0] as { scheme: string; toString: () => string };
-    expect(opened.scheme).toBe("https");
-    expect(opened.toString()).toBe("https://auth.kimi.com/verify?user_code=WDJB-MJHT");
+    const opened = host.openExternal.mock.calls[0]?.[0];
+    expect(opened?.scheme).toBe("https");
+    expect(opened?.toString()).toBe("https://auth.kimi.com/verify?user_code=WDJB-MJHT");
   });
 
   it("reports cancellation without writing config when the picker is dismissed", async () => {
