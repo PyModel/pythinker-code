@@ -236,10 +236,6 @@ function renderBackgroundInstallSuccessNotice(version: string): string {
   return `Pythinker Code updated to ${displayVersion}\nChangelog: ${CHANGELOG_URL}\n`;
 }
 
-function refreshInBackground(): void {
-  void refreshUpdateCache().catch(() => {});
-}
-
 /** Telemetry properties describing where this device sits in the rollout. */
 interface RolloutTelemetry {
   readonly rollout_bucket: number;
@@ -1278,39 +1274,11 @@ export async function runUpdatePreflight(
         ? 'unsupported'
         : await detectInstallSource().catch(() => 'unsupported' as const);
 
-    // A native install consumes the manifest's platform artifact; without one
-    // the update cannot succeed, so do not offer or start it. Non-native
-    // sources install from the registry/formula and are never gated here.
-    if (!isTargetInstallable(source, cachedManifest)) {
-      // Still refresh: the next manifest may carry this platform's artifact,
-      // and returning without one would freeze this client on the cached
-      // answer forever.
-      refreshInBackground();
-      return 'continue';
-    }
-
-    const decision = decideUpdateAction(target, isInteractive, source, platform);
-    if (decision === 'none') {
-      refreshInBackground();
-      return 'continue';
-    }
-
-    if (
-      await tryStartAutomaticBackgroundInstall(
-        installState,
-        currentVersion,
-        target,
-        source,
-        platform,
-        options.track,
-        logger,
-        rolloutTelemetryFor(deviceId, target.version, cachedManifest, bypassRollout),
-      )
-    ) {
-      refreshInBackground();
-      return 'continue';
-    }
-
+    // The cached target above only decides whether anything is worth
+    // refreshing for; the bounded refresh below is this launch's single
+    // decision. Everything after it uses the refreshed target and manifest,
+    // with the cached pair as the fallback when the refresh fails or times
+    // out. A null refreshed target means the refresh offers nothing.
     const userVisibleUpdate = await refreshUserVisibleUpdateTarget(
       currentVersion,
       deviceId,
@@ -1326,6 +1294,19 @@ export async function runUpdatePreflight(
       userVisibleUpdate.manifest,
       bypassRollout,
     );
+
+    // A native install consumes the manifest's platform artifact; without one
+    // the update cannot succeed, so do not offer or start it. Non-native
+    // sources install from the registry/formula and are never gated here.
+    if (!isTargetInstallable(source, userVisibleUpdate.manifest)) {
+      return 'continue';
+    }
+
+    const decision = decideUpdateAction(userVisibleTarget, isInteractive, source, platform);
+    if (decision === 'none') {
+      return 'continue';
+    }
+
     if (
       await tryStartAutomaticBackgroundInstall(
         installState,

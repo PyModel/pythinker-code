@@ -575,6 +575,119 @@ describe('runUpdatePreflight', () => {
     }
   });
 
+  it('starts the background install for the refreshed version, never the cached one', async () => {
+    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.10.0'));
+    mocks.readUpdateInstallState.mockResolvedValue(installState());
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.11.0'));
+    mocks.detectInstallSource.mockResolvedValue('npm-global');
+    mockSpawnExit(0);
+    const { options } = captureOutput();
+
+    await expect(runUpdatePreflight('0.9.0', options)).resolves.toBe('continue');
+    await flushBackgroundInstall();
+
+    expect(mocks.spawn).toHaveBeenCalledTimes(1);
+    expect(mocks.spawn).toHaveBeenCalledWith(
+      expect.stringMatching(/^npm(\.cmd)?$/u),
+      ['install', '-g', '@pythoughts/pythinker-code@0.11.0'],
+      { detached: true, windowsHide: false, stdio: ['ignore', 'ignore', 'pipe'] },
+    );
+    expect(mocks.spawn).not.toHaveBeenCalledWith(
+      expect.stringMatching(/^npm(\.cmd)?$/u),
+      ['install', '-g', '@pythoughts/pythinker-code@0.10.0'],
+      expect.anything(),
+    );
+  });
+
+  it('starts nothing when the refresh offers no newer version than the current one', async () => {
+    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.10.0'));
+    mocks.readUpdateInstallState.mockResolvedValue(installState());
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.9.0'));
+    mocks.detectInstallSource.mockResolvedValue('npm-global');
+    const { options } = captureOutput();
+
+    await expect(runUpdatePreflight('0.9.0', options)).resolves.toBe('continue');
+
+    expect(mocks.spawn).not.toHaveBeenCalled();
+    expect(promptForInstallChoice).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the cached target when the refresh rejects', async () => {
+    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.10.0'));
+    mocks.readUpdateInstallState.mockResolvedValue(installState());
+    mocks.refreshUpdateCache.mockRejectedValue(new Error('offline'));
+    mocks.detectInstallSource.mockResolvedValue('npm-global');
+    mockSpawnExit(0);
+    const { options } = captureOutput();
+
+    await expect(runUpdatePreflight('0.9.0', options)).resolves.toBe('continue');
+    await flushBackgroundInstall();
+
+    expect(mocks.spawn).toHaveBeenCalledTimes(1);
+    expect(mocks.spawn).toHaveBeenCalledWith(
+      expect.stringMatching(/^npm(\.cmd)?$/u),
+      ['install', '-g', '@pythoughts/pythinker-code@0.10.0'],
+      { detached: true, windowsHide: false, stdio: ['ignore', 'ignore', 'pipe'] },
+    );
+  });
+
+  it('falls back to the cached target when the refresh hangs past the 1-second budget', async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.readUpdateCache.mockResolvedValue(cacheWith('0.10.0'));
+      mocks.readUpdateInstallState.mockResolvedValue(installState());
+      mocks.refreshUpdateCache.mockReturnValue(new Promise(() => {}));
+      mocks.detectInstallSource.mockResolvedValue('npm-global');
+      mockSpawnExit(0);
+      const { options } = captureOutput();
+
+      const result = runUpdatePreflight('0.9.0', options);
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      await expect(result).resolves.toBe('continue');
+      expect(mocks.spawn).toHaveBeenCalledTimes(1);
+      expect(mocks.spawn).toHaveBeenCalledWith(
+        expect.stringMatching(/^npm(\.cmd)?$/u),
+        ['install', '-g', '@pythoughts/pythinker-code@0.10.0'],
+        { detached: true, windowsHide: false, stdio: ['ignore', 'ignore', 'pipe'] },
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('native: offers and installs nothing when the refreshed manifest omits the running platform', async () => {
+    const cached = cacheWithManifest(manifestForRunningTarget('0.10.0'));
+    const refreshed = cacheWithManifest(manifestOmittingRunningTarget('0.11.0'));
+    mocks.readUpdateCache.mockResolvedValue(cached);
+    mocks.refreshUpdateCache.mockResolvedValue(refreshed);
+    mocks.detectInstallSource.mockResolvedValue('native');
+    const { stdout, options } = captureOutput();
+
+    await expect(runUpdatePreflight('0.9.0', options)).resolves.toBe('continue');
+
+    expect(stdout.join('')).toBe('');
+    expect(promptForInstallChoice).not.toHaveBeenCalled();
+    expect(mocks.spawn).not.toHaveBeenCalled();
+  });
+
+  it('decides from the cache and from the refresh exactly once each per launch', async () => {
+    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.10.0'));
+    mocks.readUpdateInstallState.mockResolvedValue(installState());
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.11.0'));
+    mocks.detectInstallSource.mockResolvedValue('npm-global');
+    mockSpawnExit(0);
+    const { options } = captureOutput();
+
+    await expect(runUpdatePreflight('0.9.0', options)).resolves.toBe('continue');
+    await flushBackgroundInstall();
+
+    const phases = mocks.appendRolloutDecisionLog.mock.calls.map((call) => call[0].phase);
+    expect(phases.filter((phase) => phase === 'startup-cache')).toHaveLength(1);
+    expect(phases.filter((phase) => phase === 'prompt-refresh')).toHaveLength(1);
+    expect(phases.filter((phase) => phase === 'background-refresh')).toHaveLength(0);
+  });
+
   it('pnpm-global: spawns pnpm add -g', async () => {
     disableAutoInstall();
     mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
