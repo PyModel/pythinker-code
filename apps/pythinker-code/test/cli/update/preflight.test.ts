@@ -2283,7 +2283,7 @@ describe('startManualUpdate', () => {
 
     await expect(startManualUpdate('0.4.0')).resolves.toEqual({
       status: 'in-progress',
-      version: '0.5.0',
+      installingVersion: '0.5.0',
       installOnRestart: true,
       readyToInstall: true,
     });
@@ -2302,8 +2302,57 @@ describe('startManualUpdate', () => {
 
     await expect(startManualUpdate('0.4.0')).resolves.toEqual({
       status: 'in-progress',
-      version: '0.5.0',
+      installingVersion: '0.5.0',
       installOnRestart: false,
+      readyToInstall: false,
+    });
+    expect(mocks.spawn).not.toHaveBeenCalled();
+  });
+
+  it('reports both the running older install and the newer target it will follow', async () => {
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.11.0'));
+    mocks.detectInstallSource.mockResolvedValue('npm-global');
+    mocks.readUpdateInstallState.mockResolvedValue(installState({
+      active: { version: '0.10.0', source: 'npm-global', startedAt: new Date().toISOString() },
+    }));
+
+    await expect(startManualUpdate('0.9.0')).resolves.toEqual({
+      status: 'in-progress',
+      installingVersion: '0.10.0',
+      targetVersion: '0.11.0',
+      installOnRestart: false,
+      readyToInstall: false,
+    });
+    expect(mocks.spawn).not.toHaveBeenCalled();
+  });
+
+  it('does not claim the target supersedes an active install of a newer version', async () => {
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.10.0'));
+    mocks.detectInstallSource.mockResolvedValue('npm-global');
+    mocks.readUpdateInstallState.mockResolvedValue(installState({
+      active: { version: '0.11.0', source: 'npm-global', startedAt: new Date().toISOString() },
+    }));
+
+    await expect(startManualUpdate('0.9.0')).resolves.toEqual({
+      status: 'in-progress',
+      installingVersion: '0.11.0',
+      installOnRestart: false,
+      readyToInstall: false,
+    });
+    expect(mocks.spawn).not.toHaveBeenCalled();
+  });
+
+  it('keeps installOnRestart for a fresh homebrew active install', async () => {
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.detectInstallSource.mockResolvedValue('homebrew');
+    mocks.readUpdateInstallState.mockResolvedValue(installState({
+      active: { version: '0.5.0', source: 'homebrew', startedAt: new Date().toISOString() },
+    }));
+
+    await expect(startManualUpdate('0.4.0')).resolves.toEqual({
+      status: 'in-progress',
+      installingVersion: '0.5.0',
+      installOnRestart: true,
       readyToInstall: false,
     });
     expect(mocks.spawn).not.toHaveBeenCalled();

@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import type { Readable } from 'node:stream';
 
-import { gte, valid } from 'semver';
+import { gt, gte, valid } from 'semver';
 
 import { log, type Logger } from '@pythoughts/pythinker-code-sdk';
 import type { TelemetryProperties } from '@pythoughts/pythinker-telemetry';
@@ -698,6 +698,17 @@ function preparedVersionCoversTarget(preparedVersion: string, targetVersion: str
   return valid(preparedVersion) !== null && valid(targetVersion) !== null && gte(preparedVersion, targetVersion);
 }
 
+/**
+ * Whether the target is strictly newer than the version an active install is
+ * working on — the newer update can only start after the running one finishes.
+ */
+function targetSupersedesInstallingVersion(
+  installingVersion: string,
+  targetVersion: string,
+): boolean {
+  return valid(installingVersion) !== null && valid(targetVersion) !== null && gt(targetVersion, installingVersion);
+}
+
 async function startBackgroundHomebrewPreparation(
   state: UpdateInstallState,
   currentVersion: string,
@@ -1047,7 +1058,9 @@ export type ManualUpdateResult =
   | { readonly status: 'started'; readonly version: string; readonly installOnRestart: boolean }
   | {
     readonly status: 'in-progress';
-    readonly version: string;
+    readonly installingVersion: string;
+    /** Present only when it is newer than the version being installed. */
+    readonly targetVersion?: string;
     readonly installOnRestart: boolean;
     readonly readyToInstall: boolean;
   }
@@ -1088,9 +1101,13 @@ export async function startManualUpdate(
   let installState = await readUpdateInstallState().catch(() => emptyUpdateInstallState());
   installState = await reconcileAbandonedInstall(installState);
   if (hasFreshActiveInstall(installState)) {
+    const installingVersion = installState.active?.version ?? target.version;
     return {
       status: 'in-progress',
-      version: installState.active?.version ?? target.version,
+      installingVersion,
+      targetVersion: targetSupersedesInstallingVersion(installingVersion, target.version)
+        ? target.version
+        : undefined,
       installOnRestart: installState.active?.source === 'homebrew',
       readyToInstall: false,
     };
@@ -1113,7 +1130,7 @@ export async function startManualUpdate(
     }
     return {
       status: 'in-progress',
-      version: pending.version,
+      installingVersion: pending.version,
       installOnRestart: true,
       readyToInstall: true,
     };
@@ -1151,7 +1168,7 @@ export async function startManualUpdate(
       if (!started) {
         return {
           status: 'in-progress',
-          version: target.version,
+          installingVersion: target.version,
           installOnRestart: true,
           readyToInstall: false,
         };
@@ -1179,7 +1196,7 @@ export async function startManualUpdate(
     if (!started) {
       return {
         status: 'in-progress',
-        version: target.version,
+        installingVersion: target.version,
         installOnRestart: false,
         readyToInstall: false,
       };

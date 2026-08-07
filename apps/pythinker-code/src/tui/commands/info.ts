@@ -261,8 +261,18 @@ export async function handleUpdateCommand(
       );
       return;
     case 'in-progress':
+      // The target is present only when it is newer than the version the
+      // running install is working on; everything else keeps the old wording.
+      if (result.targetVersion !== undefined) {
+        host.showNotice(
+          `Installing v${result.installingVersion} — v${result.targetVersion} will follow`,
+          `The running install of v${result.installingVersion} finishes first; ` +
+            `v${result.targetVersion} installs after the next start.`,
+        );
+        return;
+      }
       host.showNotice(
-        `Update to v${result.version} already in progress`,
+        `Update to v${result.installingVersion} already in progress`,
         result.installOnRestart
           ? result.readyToInstall
             ? 'Close this terminal and open a new one to install it.'
