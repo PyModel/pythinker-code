@@ -253,6 +253,63 @@ describe('approval adapter', () => {
     ]);
   });
 
+  // A DynamicWorkflow approval is the one place the fan-out can still be
+  // refused, so the plan has to survive the trip into the panel rather than
+  // being flattened into the "N subagents" label.
+  it('carries a Dynamic Workflow plan through as its own display block', () => {
+    const adapted = adaptApprovalRequest({
+      toolCallId: 'tc-workflow',
+      toolName: 'DynamicWorkflow',
+      action: 'run',
+      display: {
+        kind: 'agent_call',
+        agent_name: 'Dynamic Workflow (3 subagents)',
+        prompt: 'Review the diff',
+        workflow: {
+          agent_count: 3,
+          items: ['src/a.ts', 'src/b.ts', 'src/c.ts'],
+          prompt_tokens: 42,
+          prompt_template: 'Review {{item}}',
+          model: 'claude-sonnet-4',
+        },
+      },
+    });
+
+    expect(adapted.display).toEqual([
+      {
+        type: 'invocation',
+        kind: 'agent',
+        name: 'Dynamic Workflow (3 subagents)',
+        description: 'Review the diff',
+      },
+      {
+        type: 'workflow_plan',
+        agent_count: 3,
+        items: ['src/a.ts', 'src/b.ts', 'src/c.ts'],
+        prompt_tokens: 42,
+        prompt_template: 'Review {{item}}',
+        model: 'claude-sonnet-4',
+      },
+    ]);
+  });
+
+  it('adds no plan block to a plain agent call', () => {
+    const adapted = adaptApprovalRequest({
+      toolCallId: 'tc-agent',
+      toolName: 'Agent',
+      action: 'run',
+      display: {
+        kind: 'agent_call',
+        agent_name: 'coder',
+        prompt: 'Fix the build',
+      },
+    });
+
+    expect(adapted.display).toEqual([
+      { type: 'invocation', kind: 'agent', name: 'coder', description: 'Fix the build' },
+    ]);
+  });
+
   it('maps approved-for-session responses into core approval payloads', () => {
     expect(
       adaptPanelResponse({

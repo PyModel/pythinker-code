@@ -66,6 +66,13 @@ export {
   assertAgentWireProtocolVersion,
 } from './records';
 export type { DynamicWorkflowModeTrigger } from './dynamic-workflow';
+export {
+  renderSavedWorkflowSkill,
+  savedWorkflowSkillDir,
+  savedWorkflowSkillName,
+  writeSavedWorkflowSkill,
+} from './dynamic-workflow/save-as-skill';
+export type { SavedWorkflow, SavedWorkflowScope } from './dynamic-workflow/save-as-skill';
 export type { BuiltinTool, ToolInfo, ToolSource, UserToolRegistration } from './tool';
 export * from './goal';
 

@@ -63,6 +63,12 @@ export interface TUIState {
   externalEditorRunning: boolean;
   queuedMessages: QueuedMessage[];
   dynamicWorkflowModeEntry: 'manual' | 'task' | undefined;
+  /**
+   * Arguments of the most recent DynamicWorkflow tool call, so `/workflow save`
+   * can turn a run that just worked into a reusable command. Overwritten as the
+   * call streams in; the last write is the complete one.
+   */
+  lastDynamicWorkflowArgs: Record<string, unknown> | undefined;
 }
 
 export function createTUIState(options: PythinkerTUIOptions): TUIState {
@@ -143,5 +149,6 @@ export function createTUIState(options: PythinkerTUIOptions): TUIState {
     externalEditorRunning: false,
     queuedMessages: [],
     dynamicWorkflowModeEntry: undefined,
+    lastDynamicWorkflowArgs: undefined,
   };
 }

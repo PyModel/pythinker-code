@@ -22,7 +22,6 @@ import { AutoModeApprovePermissionPolicy } from '../../src/agent/permission/poli
 import { AutoModeAskUserQuestionDenyPermissionPolicy } from '../../src/agent/permission/policies/auto-mode-ask-user-question-deny';
 import { FallbackAskPermissionPolicy } from '../../src/agent/permission/policies/fallback-ask';
 import { createPermissionDecisionPolicies } from '../../src/agent/permission/policies';
-import { DynamicWorkflowModeApprovePermissionPolicy } from '../../src/agent/permission/policies/dynamic-workflow-mode-approve';
 import { YoloModeApprovePermissionPolicy } from '../../src/agent/permission/policies/yolo-mode-approve';
 import { ToolAccesses } from '../../src/loop';
 import type { ToolInputDisplay } from '../../src/tools/display';
@@ -749,7 +748,6 @@ describe('Permission policy chain', () => {
       'sensitive-file-access-ask',
       'git-control-path-access-ask',
       'yolo-mode-approve',
-      'dynamic-workflow-mode-approve',
       'default-tool-approve',
       'git-cwd-write-approve',
       'fallback-ask',
@@ -791,6 +789,49 @@ describe('Permission policy chain', () => {
         decision: 'deny',
       }),
     );
+  });
+
+  // Dynamic Workflow mode once approved every DynamicWorkflow call on its own.
+  // That policy only ever fired in manual mode, so the one mode whose whole
+  // point is to ask was the one mode that never saw the plan. Manual mode must
+  // reach `fallback-ask` so the approval can carry a preview of the fan-out.
+  it('asks before a DynamicWorkflow call in manual mode even with workflow mode active', async () => {
+    const { manager, requestApproval, telemetryTrack } = makePermissionManager(
+      async () => ({ decision: 'approved' }),
+      { dynamicWorkflowModeActive: true },
+    );
+    manager.mode = 'manual';
+
+    await manager.beforeToolCall(
+      hookContext({ id: 'call_dynamic_workflow', toolName: 'DynamicWorkflow' }),
+    );
+
+    expect(requestApproval).toHaveBeenCalledTimes(1);
+    expect(telemetryTrack).toHaveBeenCalledWith(
+      'permission_policy_decision',
+      expect.objectContaining({
+        policy_name: 'fallback-ask',
+        tool_name: 'DynamicWorkflow',
+        permission_mode: 'manual',
+        decision: 'ask',
+      }),
+    );
+  });
+
+  it('still approves a DynamicWorkflow call without asking in auto and yolo mode', async () => {
+    for (const mode of ['auto', 'yolo'] as const) {
+      const { manager, requestApproval } = makePermissionManager(
+        async () => ({ decision: 'approved' }),
+        { dynamicWorkflowModeActive: true },
+      );
+      manager.mode = mode;
+
+      await manager.beforeToolCall(
+        hookContext({ id: `call_dynamic_workflow_${mode}`, toolName: 'DynamicWorkflow' }),
+      );
+
+      expect(requestApproval).not.toHaveBeenCalled();
+    }
   });
 });
 
@@ -845,23 +886,6 @@ describe('Simple permission policy direct behavior', () => {
     expect(policy.evaluate()).toBeUndefined();
     Object.assign(agent.permission, { mode: 'yolo' });
     expect(policy.evaluate()).toEqual({ kind: 'approve' });
-  });
-
-  it('approves only DynamicWorkflow when dynamic workflow mode is active', () => {
-    const dynamicWorkflowMode = { isActive: false };
-    const agent = { dynamicWorkflowMode } as unknown as Agent;
-    const policy = new DynamicWorkflowModeApprovePermissionPolicy(agent);
-
-    expect(
-      policy.evaluate(hookContext({ id: 'call_dynamic_workflow_inactive', toolName: 'DynamicWorkflow' })),
-    ).toBeUndefined();
-    Object.assign(dynamicWorkflowMode, { isActive: true });
-    expect(
-      policy.evaluate(hookContext({ id: 'call_dynamic_workflow_active', toolName: 'DynamicWorkflow' })),
-    ).toEqual({ kind: 'approve' });
-    expect(
-      policy.evaluate(hookContext({ id: 'call_agent_active', toolName: 'Agent' })),
-    ).toBeUndefined();
   });
 
   it('denies DynamicWorkflow mixed with other tool calls in the same response', () => {

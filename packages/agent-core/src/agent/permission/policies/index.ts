@@ -15,7 +15,6 @@ import { PlanModeGuardDenyPermissionPolicy } from './plan-mode-guard-deny';
 import { PlanModeToolApprovePermissionPolicy } from './plan-mode-tool-approve';
 import { PreToolCallHookPermissionPolicy } from './pre-tool-call-hook';
 import { SessionApprovalHistoryPermissionPolicy } from './session-approval-history';
-import { DynamicWorkflowModeApprovePermissionPolicy } from './dynamic-workflow-mode-approve';
 import {
   UserConfiguredAllowPermissionPolicy,
   UserConfiguredAskPermissionPolicy,
@@ -54,8 +53,12 @@ export function createPermissionDecisionPolicies(agent: Agent): PermissionPolicy
     new GitControlPathAccessAskPermissionPolicy(agent),
     // yolo mode → approve.
     new YoloModeApprovePermissionPolicy(agent),
-    // Dynamic Workflow mode keeps DynamicWorkflow available without making it a globally default-approved tool.
-    new DynamicWorkflowModeApprovePermissionPolicy(agent),
+    // No Dynamic Workflow policy sits here. Dynamic Workflow mode used to
+    // approve every DynamicWorkflow call outright, which only ever fired in
+    // manual mode (auto approves above, yolo just above) and so made the plan
+    // preview unreachable for the one mode that asks for it. A DynamicWorkflow
+    // call in manual mode now falls through to the ask below and renders its
+    // plan; `session-approval-history` remembers the answer per description.
     // Tool is in the default-approve list (read-only / UI helpers) → approve.
     new DefaultToolApprovePermissionPolicy(),
     // Write/Edit on POSIX paths inside cwd inside a git work tree → approve.
