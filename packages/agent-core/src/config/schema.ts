@@ -14,13 +14,6 @@ export const ProviderTypeSchema = z.enum([
 
 export type ProviderType = z.infer<typeof ProviderTypeSchema>;
 
-export const OAuthRefSchema = z.object({
-  storage: z.enum(['file', 'keyring']),
-  key: z.string().min(1),
-  oauthHost: z.string().min(1).optional(),
-});
-
-export type OAuthRef = z.infer<typeof OAuthRefSchema>;
 
 const StringRecordSchema = z.record(z.string(), z.string());
 
@@ -30,20 +23,12 @@ const ProviderConfigFieldsSchema = z.object({
   apiKeyEnvVar: z.string().trim().min(1).optional(),
   baseUrl: z.string().optional(),
   defaultModel: z.string().optional(),
-  oauth: OAuthRefSchema.optional(),
   env: StringRecordSchema.optional(),
   customHeaders: StringRecordSchema.optional(),
   source: z.record(z.string(), z.unknown()).optional(),
 });
 
-export const ProviderConfigSchema = ProviderConfigFieldsSchema.refine(
-  (provider) =>
-    provider.oauth === undefined ||
-    ((provider.apiKey?.trim().length ?? 0) === 0 && provider.apiKeyEnvVar === undefined),
-  {
-    message: 'OAuth is mutually exclusive with apiKey and apiKeyEnvVar.',
-  },
-);
+export const ProviderConfigSchema = ProviderConfigFieldsSchema;
 
 export type ProviderConfig = z.infer<typeof ProviderConfigSchema>;
 
@@ -208,7 +193,6 @@ export function parseFrontmatterHooks(value: unknown): HookDefConfig[] | undefin
 export const PythoughtsServiceConfigSchema = z.object({
   baseUrl: z.string().optional(),
   apiKey: z.string().optional(),
-  oauth: OAuthRefSchema.optional(),
   customHeaders: StringRecordSchema.optional(),
 });
 

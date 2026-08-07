@@ -251,38 +251,6 @@ api_key_env_var = "DEEPSEEK_API_KEY"
     });
   });
 
-  it('round-trips OAuth refs with scoped OAuth hosts', async () => {
-    const dir = makeTempDir();
-    const configPath = join(dir, 'oauth-ref.toml');
-    const toml = `
-[providers."managed:kimi-code"]
-type = "pythinker"
-base_url = "https://api.dev.example.test/coding/v1"
-api_key = ""
-oauth = { storage = "file", key = "oauth/kimi-code-env-1234", oauth_host = "https://auth.dev.example.test" }
-
-[services.pythoughts_search]
-base_url = "https://api.dev.example.test/coding/v1/search"
-api_key = ""
-oauth = { storage = "file", key = "oauth/kimi-code-env-1234", oauth_host = "https://auth.dev.example.test" }
-`;
-    const config = parseConfigString(toml, configPath);
-    expect(config.providers['managed:kimi-code']?.oauth).toEqual({
-      storage: 'file',
-      key: 'oauth/kimi-code-env-1234',
-      oauthHost: 'https://auth.dev.example.test',
-    });
-    expect(config.services?.pythoughtsSearch?.oauth?.oauthHost).toBe('https://auth.dev.example.test');
-
-    await writeConfigFile(configPath, config);
-    const text = await readFile(configPath, 'utf-8');
-    expect(text).toContain('oauth_host = "https://auth.dev.example.test"');
-    const roundTripped = parseConfigString(text, configPath);
-    expect(roundTripped.providers['managed:kimi-code']?.oauth?.oauthHost).toBe(
-      'https://auth.dev.example.test',
-    );
-  });
-
   it('parses and round-trips experimental feature flags', async () => {
     const dir = makeTempDir();
     const configPath = join(dir, 'experimental.toml');
@@ -585,24 +553,6 @@ describe('harness config schema and patch merge', () => {
     ).toThrow(/max_context_size/);
   });
 
-  it('rejects OAuth providers configured with static API credentials', () => {
-    for (const staticCredential of [
-      { apiKey: 'static-key' },
-      { apiKeyEnvVar: 'CATALOG_API_KEY' },
-    ]) {
-      expect(() =>
-        validateConfig({
-          providers: {
-            oauth: {
-              type: 'openai',
-              ...staticCredential,
-              oauth: { storage: 'file', key: 'oauth/test' },
-            },
-          },
-        }),
-      ).toThrow('OAuth is mutually exclusive with apiKey and apiKeyEnvVar.');
-    }
-  });
 
   it('deep-merges validated patches while preserving existing typed and raw data', () => {
     const base = parseConfigString(COMPLETE_TOML);

@@ -21,16 +21,15 @@ async function main(): Promise<void> {
     defaultPermissionMode: 'manual',
     defaultPlanMode: false,
     providers: {
-      'managed:kimi-code': {
+      'moonshot-cn': {
         type: 'pythinker',
-        baseUrl: 'https://api.pythinker.com/coding/v1',
-        apiKey: '',
-        oauth: { storage: 'file', key: 'oauth/kimi-code' },
+        baseUrl: 'https://api.moonshot.cn/v1',
+        apiKey: 'sk-config-smoke',
       },
     },
     models: {
       'pythinker-code/pythinker-for-coding': {
-        provider: 'managed:kimi-code',
+        provider: 'moonshot-cn',
         model: 'pythinker-for-coding',
         maxContextSize: 262144,
         capabilities: ['image_in', 'thinking', 'video_in'],
@@ -45,14 +44,12 @@ async function main(): Promise<void> {
     },
     services: {
       pythoughtsSearch: {
-        baseUrl: 'https://api.pythinker.com/coding/v1/search',
-        apiKey: '',
-        oauth: { storage: 'file', key: 'oauth/kimi-code' },
+        baseUrl: 'https://api.moonshot.cn/v1/search',
+        apiKey: 'sk-config-smoke',
       },
       pythoughtsFetch: {
-        baseUrl: 'https://api.pythinker.com/coding/v1/fetch',
-        apiKey: '',
-        oauth: { storage: 'file', key: 'oauth/kimi-code' },
+        baseUrl: 'https://api.moonshot.cn/v1/fetch',
+        apiKey: 'sk-config-smoke',
       },
     },
   });
@@ -62,8 +59,7 @@ async function main(): Promise<void> {
   for (const expected of [
     'default_model = "pythinker-code/pythinker-for-coding"',
     'default_permission_mode = "manual"',
-    '[providers."managed:kimi-code"]',
-    '[providers."managed:kimi-code".oauth]',
+    '[providers."moonshot-cn"]',
     '[models."pythinker-code/pythinker-for-coding"]',
     '[services.pythoughts_search]',
   ]) {
@@ -76,8 +72,8 @@ async function main(): Promise<void> {
   if (reloaded.defaultModel !== 'pythinker-code/pythinker-for-coding') {
     throw new Error('reloaded config did not preserve defaultModel');
   }
-  if (reloaded.providers['managed:kimi-code']?.oauth?.key !== 'oauth/kimi-code') {
-    throw new Error('reloaded config did not preserve provider oauth');
+  if (reloaded.providers['moonshot-cn']?.apiKey !== 'sk-config-smoke') {
+    throw new Error('reloaded config did not preserve the provider api key');
   }
 
   process.stdout.write(`config: ${configPath}\n`);

@@ -54,7 +54,6 @@ export type {
   McpStartupMetrics,
   ModelAlias,
   PythoughtsServiceConfig,
-  OAuthRef,
   OutputStyleCatalog,
   OutputStyleSummary,
   PartialCompactionDirection,

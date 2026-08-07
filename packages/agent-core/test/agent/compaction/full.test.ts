@@ -394,74 +394,6 @@ describe('FullCompaction', () => {
     expect(messageText(compactionCall?.history[5])).toBe('lookup result');
   });
 
-  it('force-refreshes OAuth credentials on compaction 401 and falls back to login_required when replay 401', async () => {
-    const tokenCalls: Array<boolean | undefined> = [];
-    const authKeys: string[] = [];
-    const oauthOptions = oauthTestAgentOptions(async (options) => {
-      tokenCalls.push(options?.force);
-      return options?.force === true ? 'forced-refresh-token' : 'fresh-token';
-    });
-    const generate: GenerateFn = async (
-      _provider,
-      _system,
-      _tools,
-      _history,
-      _callbacks,
-      options,
-    ) => {
-      authKeys.push(options?.auth?.apiKey ?? '<missing>');
-      if (authKeys.length <= 2) {
-        throw new APIStatusError(401, 'Unauthorized', 'req-compact-401');
-      }
-      return textResult('Recovered compacted summary.');
-    };
-    const ctx = testAgent({ ...oauthOptions, generate });
-    ctx.configure();
-    await ctx.rpc.setModel({ model: 'pythinker-code' });
-    ctx.newEvents();
-    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
-    ctx.appendExchange(2, 'recent user two', 'recent assistant two', 80);
-    const outcome = ctx.onceAny(['context.apply_compaction', 'error']);
-
-    await ctx.rpc.beginCompaction({});
-
-    expect(await outcome).toBe('error');
-    expect(ctx.newEvents()).toContainEqual(
-      expect.objectContaining({
-        event: 'error',
-        args: expect.objectContaining({
-          code: 'auth.login_required',
-          details: expect.objectContaining({
-            statusCode: 401,
-            requestId: 'req-compact-401',
-          }),
-        }),
-      }),
-    );
-    expect(authKeys).toEqual(['fresh-token', 'forced-refresh-token']);
-    expect(tokenCalls).toEqual([undefined, true]);
-    expect(ctx.compactHistory()).toEqual([
-      { role: 'user', text: 'old user one' },
-      { role: 'assistant', text: 'old assistant one' },
-      { role: 'user', text: 'recent user two' },
-      { role: 'assistant', text: 'recent assistant two' },
-    ]);
-
-    const retryOutcome = ctx.onceAny(['context.apply_compaction', 'error']);
-    const completed = ctx.once('compaction.completed');
-
-    await ctx.rpc.beginCompaction({});
-
-    expect(await retryOutcome).toBe('context.apply_compaction');
-    await completed;
-    expect(authKeys).toEqual(['fresh-token', 'forced-refresh-token', 'fresh-token']);
-    expect(tokenCalls).toEqual([undefined, true, undefined]);
-    expect(ctx.compactHistory()).toEqual([
-      { role: 'assistant', text: 'Recovered compacted summary.' },
-    ]);
-    await ctx.expectResumeMatches();
-  });
-
   it('fires PreCompact and PostCompact hooks from the compaction module', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'pythinker-compact-hooks-'));
     const hookLog = join(dir, 'hooks.jsonl');
@@ -2117,33 +2049,6 @@ function countEvents(events: ReturnType<TestAgentContext['newEvents']>, type: st
     if (typeof event !== 'object' || event === null) return false;
     return (event as { readonly event?: unknown }).event === type;
   }).length;
-}
-
-function oauthTestAgentOptions(
-  getAccessToken: (options?: { readonly force?: boolean }) => Promise<string>,
-): Pick<TestAgentOptions, 'initialConfig' | 'providerManagerOverrides'> {
-  return {
-    initialConfig: {
-      defaultModel: 'pythinker-code',
-      providers: {
-        'managed:kimi-code': {
-          type: 'vertexai',
-          baseUrl: 'https://api.example/v1',
-          oauth: { storage: 'file', key: 'oauth/kimi-code' },
-        },
-      },
-      models: {
-        'pythinker-code': {
-          provider: 'managed:kimi-code',
-          model: 'pythinker-for-coding',
-          maxContextSize: 1_000_000,
-        },
-      },
-    },
-    providerManagerOverrides: {
-      resolveOAuthTokenProvider: () => ({ getAccessToken }),
-    },
-  };
 }
 
 function providerMaxCompletionTokens(provider: Parameters<GenerateFn>[0]): unknown {

@@ -531,7 +531,6 @@ function providerSourceLabel(provider: PythinkerConfig['providers'][string]): st
       return `modelsDev(${source['url']})`;
     }
   }
-  if (provider.oauth !== undefined) return 'oauth';
   return 'inline';
 }
 

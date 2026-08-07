@@ -13,7 +13,6 @@ import DiffView from './components/DiffView.vue';
 import type { AgentMember } from './types';
 import ModelPicker from './components/ModelPicker.vue';
 import ProviderManager from './components/ProviderManager.vue';
-import LoginDialog from './components/LoginDialog.vue';
 import NewSessionDialog from './components/NewSessionDialog.vue';
 import SettingsDialog from './components/SettingsDialog.vue';
 import SessionsDialog from './components/SessionsDialog.vue';
@@ -580,7 +579,6 @@ function handleSelectWorkspaces(ids: string[]): void {
 // Dialog visibility refs
 const showModelPicker = ref(false);
 const showProviders = ref(false);
-const showLogin = ref(false);
 const showNewSession = ref(false);
 const showSessions = ref(false);
 const showAddWorkspace = ref(false);
@@ -600,7 +598,6 @@ const pendingWorkspaceSubmit = ref<SubmitPayload | null>(null);
 const anyOverlayOpen = computed<boolean>(() =>
   showModelPicker.value ||
   showProviders.value ||
-  showLogin.value ||
   showNewSession.value ||
   showSessions.value ||
   showAddWorkspace.value ||
@@ -645,8 +642,10 @@ async function openProviders(): Promise<void> {
   }
 }
 
+// Logging in is provider configuration now: every path (API key, models.dev
+// catalog entry) is added through the provider manager.
 function openLogin(): void {
-  showLogin.value = true;
+  showProviders.value = true;
 }
 
 async function handleSelectModel(modelId: string): Promise<void> {
@@ -678,25 +677,6 @@ async function handleUpdateConfig(patch: Partial<AppConfig>): Promise<void> {
   }
 }
 
-// LoginDialog callbacks — delegates to composable
-async function handleStartOAuthLogin() {
-  return client.startOAuthLogin();
-}
-
-async function handlePollOAuthLogin() {
-  return client.pollOAuthLogin();
-}
-
-async function handleCancelOAuthLogin() {
-  return client.cancelOAuthLogin();
-}
-
-async function handleLoginSuccess(): Promise<void> {
-  showLogin.value = false;
-  // Re-check auth state and reload sessions now that we're authenticated
-  await client.checkAuth();
-  await client.load();
-}
 
 // Edit + resend the last user message: undo the latest exchange on the daemon,
 // then drop that message's text back into the composer for editing.
@@ -1155,8 +1135,7 @@ function openPr(url: string): void {
       @set-beta-toc="client.setBetaToc($event)"
       @update-config="handleUpdateConfig($event)"
       @login="() => { showSettings = false; openLogin(); }"
-      @logout="client.logout"
-      @open-onboarding="() => { showSettings = false; openOnboarding(); }"
+            @open-onboarding="() => { showSettings = false; openOnboarding(); }"
       @close="showSettings = false"
     />
 
@@ -1169,7 +1148,6 @@ function openPr(url: string): void {
       @add="handleAddProvider($event)"
       @refresh="handleRefreshProvider($event)"
       @delete="handleDeleteProvider($event)"
-      @open-login="() => { showProviders = false; openLogin(); }"
       @close="showProviders = false"
     />
 
@@ -1275,18 +1253,8 @@ function openPr(url: string): void {
       @set-ui-font-size="client.setUiFontSize($event)"
       @set-beta-toc="client.setBetaToc($event)"
       @login="() => { showMobileSettings = false; openLogin(); }"
-      @logout="client.logout"
-    />
+          />
     </div>
-    <!-- Login Dialog overlay. It is outside `.app` so `/login` can open it too. -->
-    <LoginDialog
-      v-if="showLogin"
-      :on-start-o-auth-login="handleStartOAuthLogin"
-      :on-poll-o-auth-login="handlePollOAuthLogin"
-      :on-cancel-o-auth-login="handleCancelOAuthLogin"
-      @success="handleLoginSuccess"
-      @close="showLogin = false"
-    />
   </div>
 </template>
 
