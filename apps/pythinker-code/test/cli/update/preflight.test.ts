@@ -28,6 +28,7 @@ import {
   DEFAULT_STATUS_LINE_CONFIG,
   type TuiConfig,
 } from '#/tui/config';
+import { getUpdateInstallStateFile } from '#/utils/paths';
 
 const mocks = vi.hoisted(() => ({
   readUpdateCache: vi.fn(),
@@ -40,6 +41,8 @@ const mocks = vi.hoisted(() => ({
   refreshUpdateCache: vi.fn(),
   resolveUpdateDeviceId: vi.fn(),
   appendRolloutDecisionLog: vi.fn(),
+  readJsonFile: vi.fn(),
+  writeJsonFile: vi.fn(),
   spawn: vi.fn(),
 }));
 
@@ -63,6 +66,15 @@ vi.mock('../../../src/cli/update/install-state', async () => {
     writeUpdateInstallState: mocks.writeUpdateInstallState,
   };
 });
+
+// The reconciliation lives inside install-state.ts and calls its own module's
+// writer directly, which the module mock above cannot rewire. Mocking the
+// persistence layer catches those writes too — and keeps them off the real
+// home directory.
+vi.mock('../../../src/utils/persistence', () => ({
+  readJsonFile: mocks.readJsonFile,
+  writeJsonFile: mocks.writeJsonFile,
+}));
 
 vi.mock('../../../src/tui/config', async () => {
   const actual = await vi.importActual<typeof import('../../../src/tui/config.js')>(
@@ -386,6 +398,8 @@ describe('runUpdatePreflight', () => {
   beforeEach(() => {
     mocks.readUpdateInstallState.mockResolvedValue(emptyUpdateInstallState());
     mocks.writeUpdateInstallState.mockResolvedValue(undefined);
+    mocks.readJsonFile.mockResolvedValue(null);
+    mocks.writeJsonFile.mockResolvedValue(undefined);
     mocks.loadTuiConfig.mockResolvedValue(tuiConfig());
     mocks.resolveUpdateDeviceId.mockReturnValue('test-device');
     mocks.appendRolloutDecisionLog.mockResolvedValue(undefined);
@@ -1055,6 +1069,51 @@ describe('runUpdatePreflight', () => {
     );
   });
 
+  it('parks a doomed version after two abandoned installs are reconciled', async () => {
+    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.detectInstallSource.mockResolvedValue('npm-global');
+    mocks.promptForInstallChoice.mockResolvedValue('skip');
+    let persisted: UpdateInstallState = installState({
+      active: {
+        version: '0.5.0',
+        source: 'npm-global',
+        startedAt: new Date().toISOString(),
+        pid: 999_999_999,
+      },
+    });
+    // The reconciliation writes through install-state's own writer, which the
+    // module mock cannot intercept — capture that path via the persistence
+    // mock so both write routes feed the same simulated state file.
+    mocks.writeUpdateInstallState.mockImplementation(
+      async (state: UpdateInstallState) => { persisted = state; },
+    );
+    mocks.writeJsonFile.mockImplementation(
+      async (_filePath: string, _schema: unknown, value: UpdateInstallState) => { persisted = value; },
+    );
+    mocks.readUpdateInstallState.mockImplementation(async () => persisted);
+    // Each launch's installer dies without recording an outcome, so the next
+    // launch finds only an abandoned active record.
+    mocks.spawn.mockImplementation(
+      () => Object.assign(new EventEmitter(), { pid: 999_999_999, unref: vi.fn() }),
+    );
+    const { options } = captureOutput();
+
+    // First launch: the abandoned record is reconciled to one attempt and the
+    // version is still attempted in the background.
+    await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
+    expect(persisted.lastFailure?.attempts).toBe(1);
+    expect(mocks.spawn).toHaveBeenCalledTimes(1);
+
+    // Second launch: the counter reaches the parking threshold and the
+    // automatic path refuses to start the installer again — assert the
+    // refusal, not just the counter.
+    await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
+    expect(persisted.lastFailure?.attempts).toBe(2);
+    expect(mocks.spawn).toHaveBeenCalledTimes(1);
+    expect(mocks.tryAcquireUpdateInstallLock).toHaveBeenCalledTimes(1);
+  });
+
   it('recovers a changed target from a far-future active timestamp', async () => {
     mocks.readUpdateCache.mockResolvedValue(cacheWith('0.6.0'));
     mocks.readUpdateInstallState.mockResolvedValue(installState({
@@ -1496,7 +1555,7 @@ describe('runUpdatePreflight', () => {
     expect(mocks.tryAcquireUpdateInstallLock).not.toHaveBeenCalled();
   });
 
-  it('infers a background update success notice when the active install version is now running', async () => {
+  it('records an abandoned install as a failure instead of inferring a success notice', async () => {
     mocks.readUpdateCache.mockResolvedValue(emptyUpdateCache());
     mocks.readUpdateInstallState.mockResolvedValue(installState({
       active: {
@@ -1510,15 +1569,22 @@ describe('runUpdatePreflight', () => {
 
     await expect(runUpdatePreflight('0.5.0', options)).resolves.toBe('continue');
 
-    expect(stdout.join('')).toContain('Pythinker Code updated to v0.5.0');
-    expect(writeUpdateInstallState).toHaveBeenCalledWith(expect.objectContaining({
-      active: null,
-      lastFailure: null,
-      lastSuccess: expect.objectContaining({
-        version: '0.5.0',
-        notifiedAt: expect.any(String),
+    // A stale active record is an abandoned install, not an inferred success:
+    // it is reconciled into a recorded failure and never shows the notice.
+    expect(stdout.join('')).toBe('');
+    expect(mocks.writeJsonFile).toHaveBeenCalledWith(
+      getUpdateInstallStateFile(),
+      expect.anything(),
+      expect.objectContaining({
+        active: null,
+        lastFailure: expect.objectContaining({
+          version: '0.5.0',
+          attempts: 1,
+          message: expect.stringContaining('abandoned'),
+        }),
       }),
-    }));
+      expect.objectContaining({ durable: true }),
+    );
   });
 
   it('tracks update_prompted telemetry', async () => {
@@ -1979,6 +2045,8 @@ describe('startManualUpdate', () => {
   beforeEach(() => {
     mocks.readUpdateInstallState.mockResolvedValue(emptyUpdateInstallState());
     mocks.writeUpdateInstallState.mockResolvedValue(undefined);
+    mocks.readJsonFile.mockResolvedValue(null);
+    mocks.writeJsonFile.mockResolvedValue(undefined);
     mocks.loadTuiConfig.mockResolvedValue(tuiConfig());
     mocks.resolveUpdateDeviceId.mockReturnValue('test-device');
     mocks.appendRolloutDecisionLog.mockResolvedValue(undefined);

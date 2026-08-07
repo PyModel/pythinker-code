@@ -20,8 +20,10 @@ import { formatErrorMessage } from './format-error';
 import { tryAcquireUpdateInstallLock } from './install-lock';
 import {
   emptyUpdateInstallState,
+  failureAttemptsFor,
   hasFreshActiveInstall,
   readUpdateInstallState,
+  reconcileAbandonedInstall,
   writeUpdateInstallState,
 } from './install-state';
 import {
@@ -46,7 +48,6 @@ import {
   NPM_PACKAGE_NAME,
   type InstallSource,
   type UpdateDecision,
-  type UpdateInstallOperation,
   type UpdateInstallProgress,
   type UpdateInstallState,
   type UpdateCache,
@@ -378,27 +379,6 @@ async function refreshUserVisibleUpdateTarget(
 
 function nowIso(): string {
   return new Date().toISOString();
-}
-
-function failureAttemptsFor(
-  state: UpdateInstallState,
-  target: UpdateTarget,
-  operation?: UpdateInstallOperation,
-): number {
-  const failure = state.lastFailure;
-  if (failure?.version !== target.version) return 0;
-  // Threshold gates omit `operation`: any failure kind at the limit parks the
-  // version. Increment sites pass their operation so a counter never resumes
-  // from another operation's attempts. Legacy records without `operation`
-  // count toward any operation.
-  if (
-    operation !== undefined &&
-    failure.operation !== undefined &&
-    failure.operation !== operation
-  ) {
-    return 0;
-  }
-  return failure.attempts;
 }
 
 async function showPendingBackgroundInstallNotice(
@@ -1105,7 +1085,8 @@ export async function startManualUpdate(
   if (!isTargetInstallable(source, cache.manifest)) {
     return { status: 'up-to-date' };
   }
-  const installState = await readUpdateInstallState().catch(() => emptyUpdateInstallState());
+  let installState = await readUpdateInstallState().catch(() => emptyUpdateInstallState());
+  installState = await reconcileAbandonedInstall(installState);
   if (hasFreshActiveInstall(installState)) {
     return {
       status: 'in-progress',
@@ -1238,6 +1219,7 @@ export async function runUpdatePreflight(
     const deviceId = resolveUpdateDeviceId();
     const bypassRollout = isRolloutBypassedByExperimentalEnv();
     let installState = await readUpdateInstallState().catch(() => emptyUpdateInstallState());
+    installState = await reconcileAbandonedInstall(installState);
     if (isInteractive) {
       installState = await showPendingBackgroundInstallNotice(
         installState,
