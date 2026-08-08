@@ -29,6 +29,15 @@ import type { InstallSource } from './types';
 /** Bound on the `--version` probe: a native binary starts in well under this. */
 const VERSION_PROBE_TIMEOUT_MS = 20_000;
 
+/**
+ * What a *completed* install still could not prove. A mismatch is never one of
+ * these — it is thrown by the installer path — so callers cannot mistake a
+ * failed verification for a success they are free to record.
+ */
+export interface InstallOutcome {
+  readonly unverified?: string;
+}
+
 export type InstallVerification =
   /** Installed as expected, or not checkable — `unverified` says which. */
   | { readonly ok: true; readonly unverified?: string }

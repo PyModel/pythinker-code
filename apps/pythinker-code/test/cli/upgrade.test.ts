@@ -5,7 +5,7 @@ import { emptyUpdateInstallState } from '#/cli/update/install-state';
 import type { UpdateInstallLockHandle } from '#/cli/update/install-lock';
 import type { InstallPromptChoiceValue } from '#/cli/update/prompt';
 import type { InstallSource, UpdateCache, UpdateInstallState } from '#/cli/update/types';
-import type { InstallVerification } from '#/cli/update/verify-install';
+import type { InstallOutcome } from '#/cli/update/verify-install';
 
 function cacheWith(
   version: string | null,
@@ -74,7 +74,7 @@ function createDeps(overrides: {
     source: InstallSource,
     version: string,
     platform: NodeJS.Platform,
-  ) => Promise<InstallVerification>;
+  ) => Promise<InstallOutcome>;
   readonly readUpdateInstallState?: () => Promise<UpdateInstallState>;
   readonly writeUpdateInstallState?: (state: UpdateInstallState) => Promise<void>;
   readonly tryAcquireUpdateInstallLock?: () => Promise<UpdateInstallLockHandle | null>;
@@ -85,7 +85,7 @@ function createDeps(overrides: {
       source: InstallSource,
       version: string,
       platform: NodeJS.Platform,
-    ) => Promise<InstallVerification>>().mockResolvedValue({ ok: true });
+    ) => Promise<InstallOutcome>>().mockResolvedValue({});
 
   return {
     refreshUpdateCache: vi
@@ -219,24 +219,23 @@ describe('handleUpgrade', () => {
 
   it('records why a manual install could not be verified', async () => {
     const { writable } = captureOutput();
+    const unverified = '/usr/local/bin/pythinker could not be run: ETIMEDOUT';
     const writeUpdateInstallState = vi.fn().mockResolvedValue(undefined);
+    // A native target without an artifact for this platform is refused before
+    // the install runs, so the manifest has to advertise the running one.
     const deps = createDeps({
       latest: '0.5.0',
       source: 'native',
-      installUpdate: vi.fn().mockResolvedValue({
-        ok: true,
-        unverified: '/usr/local/bin/pythinker could not be run: ETIMEDOUT',
-      }),
+      manifest: manifestForRunningTarget('0.5.0'),
+      installUpdate: vi.fn().mockResolvedValue({ unverified }),
       writeUpdateInstallState,
     });
 
     await expect(handleUpgrade('0.4.0', { ...deps, ...writable })).resolves.toBe(0);
 
+    expect(deps.installUpdate).toHaveBeenCalledWith('native', '0.5.0', 'darwin');
     expect(writeUpdateInstallState).toHaveBeenCalledWith(expect.objectContaining({
-      lastSuccess: expect.objectContaining({
-        version: '0.5.0',
-        unverified: expect.stringContaining('ETIMEDOUT'),
-      }),
+      lastSuccess: expect.objectContaining({ version: '0.5.0', unverified }),
     }));
   });
 

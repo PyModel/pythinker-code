@@ -56,7 +56,11 @@ import {
   type UpdateRequestOrigin,
   type UpdateTarget,
 } from './types';
-import { verifyInstalledVersion, type InstallVerification } from './verify-install';
+import {
+  verifyInstalledVersion,
+  type InstallOutcome,
+  type InstallVerification,
+} from './verify-install';
 
 export type { UpdatePreflightResult } from './types';
 
@@ -583,7 +587,7 @@ export async function installUpdate(
   source: InstallSource,
   version: string,
   platform: NodeJS.Platform,
-): Promise<InstallVerification> {
+): Promise<InstallOutcome> {
   const { cmd, args, env } = spawnForSource(source, version, platform);
   await new Promise<void>((resolve, reject) => {
     const child = spawn(cmd, [...args], {
@@ -607,7 +611,7 @@ export async function installUpdate(
   if (!verification.ok) throw new Error(verification.reason);
   // Returned so the caller can record *why* a success is unproven; see
   // verify-install.ts for the fail-open rule.
-  return verification;
+  return { unverified: verification.unverified };
 }
 
 /** Keep the tail only: installers can be chatty, and the state file is small. */
@@ -1452,7 +1456,7 @@ export async function runUpdatePreflight(
     if (lock === null) return 'continue';
 
     try {
-      const verification = await installUpdate(source, userVisibleTarget.version, platform);
+      const outcome = await installUpdate(source, userVisibleTarget.version, platform);
       await writeUpdateInstallState({
         ...installState,
         active: null,
@@ -1461,7 +1465,7 @@ export async function runUpdatePreflight(
           version: userVisibleTarget.version,
           installedAt: nowIso(),
           notifiedAt: null,
-          unverified: verification.ok ? verification.unverified : undefined,
+          unverified: outcome.unverified,
         },
       }).catch(() => {});
       stdout.write(renderInstallSuccessMessage(userVisibleTarget));
