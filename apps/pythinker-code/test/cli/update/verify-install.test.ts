@@ -2,12 +2,9 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { parseVersionOutput, verifyInstalledVersion } from '#/cli/update/verify-install';
 
-const NEVER_CALLED = {
+const NEVER_PROBED = {
   probeExecutableVersion: vi.fn(async () => {
-    throw new Error('probe must not run for this source');
-  }),
-  readPackageVersion: vi.fn(async () => {
-    throw new Error('package read must not run for this source');
+    throw new Error('the binary must not be probed for this source');
   }),
 };
 
@@ -61,80 +58,54 @@ describe('verifyInstalledVersion native', () => {
     expect(probe).toHaveBeenCalledWith('/usr/local/bin/pythinker');
   });
 
-  // Fail open: an antivirus scan or a slow first start must never turn a good
-  // install into a recorded failure that parks the version after two attempts.
-  it('accepts the install when the probe cannot run', async () => {
+  // Fail open, but say so: an antivirus scan or a slow first start must never
+  // turn a good install into a recorded failure that parks the version after
+  // two attempts — and the note is what makes the next report diagnosable.
+  it('accepts the install unverified when the probe cannot run', async () => {
     await expect(
       verifyInstalledVersion('native', '0.13.1', {
+        execPath: '/usr/local/bin/pythinker',
         probeExecutableVersion: async () => {
           throw new Error('ETIMEDOUT');
         },
       }),
-    ).resolves.toEqual({ ok: true });
+    ).resolves.toEqual({
+      ok: true,
+      unverified: expect.stringContaining('/usr/local/bin/pythinker could not be run'),
+    });
   });
 
-  it('accepts the install when the output carries no version', async () => {
+  it('accepts the install unverified when the output carries no version', async () => {
     await expect(
       verifyInstalledVersion('native', '0.13.1', {
         probeExecutableVersion: async () => '',
       }),
-    ).resolves.toEqual({ ok: true });
-  });
-});
-
-describe('verifyInstalledVersion npm family', () => {
-  it('reads the installed package rather than spawning the binary', async () => {
-    const result = await verifyInstalledVersion('npm-global', '0.13.1', {
-      ...NEVER_CALLED,
-      readPackageVersion: async () => '0.12.0',
-    });
-
-    expect(result).toEqual({
-      ok: false,
-      reason: expect.stringContaining('still 0.12.0 (expected 0.13.1)'),
-    });
-    expect(NEVER_CALLED.probeExecutableVersion).not.toHaveBeenCalled();
+    ).resolves.toEqual({ ok: true, unverified: expect.stringContaining('printed no version') });
   });
 
-  it('accepts a package that now carries the target version', async () => {
-    for (const source of ['npm-global', 'pnpm-global', 'yarn-global', 'bun-global'] as const) {
-      await expect(
-        verifyInstalledVersion(source, '0.13.1', {
-          ...NEVER_CALLED,
-          readPackageVersion: async () => '0.13.1',
-        }),
-      ).resolves.toEqual({ ok: true });
-    }
-  });
-
-  it('accepts the install when the package cannot be read', async () => {
+  it('accepts the install unverified when the target is not a version', async () => {
     await expect(
-      verifyInstalledVersion('npm-global', '0.13.1', {
-        ...NEVER_CALLED,
-        readPackageVersion: async () => {
-          throw new Error('ENOENT');
-        },
-      }),
-    ).resolves.toEqual({ ok: true });
+      verifyInstalledVersion('native', 'latest', NEVER_PROBED),
+    ).resolves.toEqual({ ok: true, unverified: expect.stringContaining('latest') });
   });
 });
 
 describe('verifyInstalledVersion other sources', () => {
-  it('checks nothing for homebrew (it installs on the next launch)', async () => {
-    await expect(
-      verifyInstalledVersion('homebrew', '0.13.1', NEVER_CALLED),
-    ).resolves.toEqual({ ok: true });
-  });
-
-  it('checks nothing for an unsupported layout', async () => {
-    await expect(
-      verifyInstalledVersion('unsupported', '0.13.1', NEVER_CALLED),
-    ).resolves.toEqual({ ok: true });
-  });
-
-  it('checks nothing when the target version is not a version', async () => {
-    await expect(
-      verifyInstalledVersion('native', 'latest', NEVER_CALLED),
-    ).resolves.toEqual({ ok: true });
+  // A global reinstall rewrites the directory this process was loaded from,
+  // so nothing readable here proves what the next launch will run.
+  it('leaves every non-native source unverified without probing', async () => {
+    for (const source of [
+      'npm-global',
+      'pnpm-global',
+      'yarn-global',
+      'bun-global',
+      'homebrew',
+      'unsupported',
+    ] as const) {
+      await expect(
+        verifyInstalledVersion(source, '0.13.1', NEVER_PROBED),
+      ).resolves.toEqual({ ok: true, unverified: `not verified for ${source} installs` });
+    }
+    expect(NEVER_PROBED.probeExecutableVersion).not.toHaveBeenCalled();
   });
 });

@@ -500,7 +500,6 @@ Unix / macOS / Linux users:
         return
       } catch {
         $lastError = $_.Exception.Message
-        Write-MachineProgress 'state=failed'
       } finally {
         if ($null -ne $outputStream) { $outputStream.Dispose() }
         if ($null -ne $inputStream) { $inputStream.Dispose() }
@@ -520,6 +519,10 @@ Unix / macOS / Linux users:
       }
     }
 
+    # Emitted once, after the last attempt: a `failed` line between retries
+    # would drop the parent's footer out of its downloading state and back to
+    # a failure it is about to recover from.
+    Write-MachineProgress 'state=failed'
     Stop-Installer "$Label failed after 3 attempts: $lastError"
   }
 

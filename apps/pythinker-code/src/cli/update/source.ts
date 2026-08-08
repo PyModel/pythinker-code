@@ -81,22 +81,25 @@ function execFileText(
   args: readonly string[],
   platform: NodeJS.Platform = process.platform,
 ): Promise<string> {
+  // `npm.cmd` cannot be spawned directly on Node ≥18.20/20.12
+  // (CVE-2024-27980): it fails with EINVAL, and every npm-family Windows
+  // install then classifies as `unsupported` and never auto-updates.
+  const viaInterpreter = platform === 'win32' && command.toLowerCase().endsWith('.cmd');
+  const spawnCommand = viaInterpreter ? process.env['ComSpec'] ?? 'cmd.exe' : command;
+  const spawnArgs = viaInterpreter ? ['/d', '/s', '/c', command, ...args] : [...args];
   return new Promise((resolveOutput, reject) => {
-    // `npm.cmd` cannot be spawned without a shell on Node ≥18.20/20.12
-    // (CVE-2024-27980); without this the npm prefix lookup fails with EINVAL
-    // and every npm-family Windows install classifies as `unsupported`.
-    const options = {
-      encoding: 'utf-8',
-      shell: platform === 'win32' && command.toLowerCase().endsWith('.cmd'),
-      windowsHide: true,
-    } as const;
-    execFile(command, [...args], options, (error, stdout) => {
-      if (error) {
-        reject(error);
-        return;
-      }
-      resolveOutput(stdout);
-    });
+    execFile(
+      spawnCommand,
+      spawnArgs,
+      { encoding: 'utf-8', windowsHide: true },
+      (error, stdout) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolveOutput(stdout);
+      },
+    );
   });
 }
 

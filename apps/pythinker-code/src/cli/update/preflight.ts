@@ -86,16 +86,30 @@ function bunCommand(platform: NodeJS.Platform): string {
 }
 
 /**
- * Node ≥18.20/20.12 refuses to spawn a `.cmd`/`.bat` file without a shell
- * (CVE-2024-27980) and fails with `EINVAL`, which is every npm-family update
- * on Windows: `npm.cmd`, `pnpm.cmd`, `yarn.cmd`. Only the package manager
- * wrappers need it — the arguments are a fixed flag list plus
- * `<package>@<semver>`, so nothing here reaches the shell as data.
+ * Node ≥18.20/20.12 refuses to spawn a `.cmd`/`.bat` file directly
+ * (CVE-2024-27980) and fails with `EINVAL` — which is every npm-family update
+ * on Windows: `npm.cmd`, `pnpm.cmd`, `yarn.cmd`. The command interpreter runs
+ * them instead. It is spelled out as argv rather than `shell: true` so the
+ * exact command line is visible here (and asserted in tests) instead of being
+ * assembled by Node's string joining.
  */
-export function needsShell(cmd: string, platform: NodeJS.Platform): boolean {
+function viaCommandInterpreter(command: SpawnCommand): SpawnCommand {
+  return {
+    ...command,
+    cmd: process.env['ComSpec'] ?? 'cmd.exe',
+    args: ['/d', '/s', '/c', command.cmd, ...command.args],
+  };
+}
+
+/** True for the Windows package-manager shims that cannot be spawned directly. */
+export function isWindowsShim(cmd: string, platform: NodeJS.Platform): boolean {
   if (platform !== 'win32') return false;
   const lower = cmd.toLowerCase();
   return lower.endsWith('.cmd') || lower.endsWith('.bat');
+}
+
+function spawnable(command: SpawnCommand, platform: NodeJS.Platform): SpawnCommand {
+  return isWindowsShim(command.cmd, platform) ? viaCommandInterpreter(command) : command;
 }
 
 export function installCommandFor(
@@ -162,11 +176,20 @@ export function spawnForSource(
 ): SpawnCommand {
   switch (source) {
     case 'npm-global':
-      return { cmd: withCmdSuffix('npm', platform), args: ['install', '-g', `${NPM_PACKAGE_NAME}@${version}`] };
+      return spawnable(
+        { cmd: withCmdSuffix('npm', platform), args: ['install', '-g', `${NPM_PACKAGE_NAME}@${version}`] },
+        platform,
+      );
     case 'pnpm-global':
-      return { cmd: withCmdSuffix('pnpm', platform), args: ['add', '-g', `${NPM_PACKAGE_NAME}@${version}`] };
+      return spawnable(
+        { cmd: withCmdSuffix('pnpm', platform), args: ['add', '-g', `${NPM_PACKAGE_NAME}@${version}`] },
+        platform,
+      );
     case 'yarn-global':
-      return { cmd: withCmdSuffix('yarn', platform), args: ['global', 'add', `${NPM_PACKAGE_NAME}@${version}`] };
+      return spawnable(
+        { cmd: withCmdSuffix('yarn', platform), args: ['global', 'add', `${NPM_PACKAGE_NAME}@${version}`] },
+        platform,
+      );
     case 'bun-global':
       return { cmd: bunCommand(platform), args: ['add', '-g', `${NPM_PACKAGE_NAME}@${version}`] };
     case 'homebrew':
@@ -565,7 +588,6 @@ export async function installUpdate(
   await new Promise<void>((resolve, reject) => {
     const child = spawn(cmd, [...args], {
       stdio: 'inherit',
-      shell: needsShell(cmd, platform),
       env: env === undefined ? undefined : { ...process.env, ...env },
     });
     child.once('error', reject);
@@ -928,6 +950,9 @@ async function startBackgroundInstall(
           logUpdateInfo(logger, 'background update install succeeded', {
             targetVersion: target.version,
             source,
+            // Present when the install was recorded without proof, so a report
+            // of "it says updated but it did not" is answerable from the log.
+            unverified: verification.ok ? verification.unverified : undefined,
           });
           return;
         }
@@ -952,7 +977,6 @@ async function startBackgroundInstall(
       // A detached child gets its own console window on Windows regardless
       // of stdio; stdio: 'ignore' alone does not suppress it.
       windowsHide: platform === 'win32',
-      shell: needsShell(cmd, platform),
       // stdout stays discarded (install progress is noise); stderr is piped so
       // the installer's machine-readable progress lines can be recorded and a
       // failure still keeps the installer's own error text.
