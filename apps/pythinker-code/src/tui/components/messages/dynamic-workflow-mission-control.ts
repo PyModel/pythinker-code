@@ -9,6 +9,10 @@ import { currentTheme } from '#/tui/theme';
 import { shimmerText } from '#/tui/utils/shimmer';
 
 const RESUMED_ITEM_LABEL = '(resumed)';
+/** Divider between the cells that share a member row's free space. */
+const MEMBER_SEPARATOR = ' · ';
+/** Marks a task cell whose shared preamble was dropped. One column wide. */
+const TASK_ELISION_MARK = '…';
 const ORCHESTRATING_LABEL = 'Orchestrating';
 const FINALIZING_LABEL = 'Finalizing';
 // Pad to the wider live label so the suffix column never shifts between them.
@@ -42,8 +46,12 @@ export interface DynamicWorkflowMember {
   item: string;
   phase: DynamicWorkflowPhase;
   latest: string;
-  /** `latest` holds a tool-activity label, not streamed model text. */
-  latestFromTool?: boolean;
+  /**
+   * The part of the streamed line that has not been closed by a newline yet.
+   * Held apart from `latest` because `latest` may be a finished line or a tool
+   * label, and neither may be prepended to the next delta.
+   */
+  carry: string;
   statusDetail?: string;
   startedAtMs?: number;
   endedAtMs?: number;
@@ -266,19 +274,37 @@ export class DynamicWorkflowMissionControlComponent implements Component {
     const latest = input.name === undefined ? 'Using a tool' : `Using ${input.name}`;
     this.setLatest(member, latest, true);
     // Streamed text that follows starts a new line, never continues this label.
-    member.latestFromTool = true;
+    member.carry = '';
   }
 
   appendModelDelta(input: { readonly agentId: string; readonly delta: string }): void {
     const member = this.findMemberByAgentId(input.agentId);
     if (member === undefined || isTerminalPhase(member.phase) || input.delta.length === 0) return;
     this.markStarted(input.agentId);
-    const recordActivity = input.delta.includes('\n') || member.latest.length === 0;
     member.lastEventAtMs = Date.now();
-    const carried = member.latestFromTool === true ? '' : member.latest;
-    const latest = latestNonEmptyLine(`${carried}${input.delta}`);
-    member.latestFromTool = false;
-    this.setLatest(member, latest, recordActivity);
+    const combined = `${member.carry}${input.delta}`;
+    // Only the text after the last newline is still being written. A delta that
+    // ends exactly at a newline leaves nothing pending, so carrying the closed
+    // line into the next delta fused a whole streamed message into one string
+    // that grew for as long as the agent talked.
+    const newlineIndex = combined.lastIndexOf('\n');
+    const pending = newlineIndex < 0 ? combined : combined.slice(newlineIndex + 1);
+    member.carry = clampLine(pending);
+
+    // Every line the delta closed is an event of its own. Recording only the
+    // last one dropped whole lines whenever a provider sent several in one
+    // chunk, so the same agent showed less activity on a batching provider than
+    // on one that streams a token at a time.
+    if (newlineIndex >= 0) {
+      for (const line of combined.slice(0, newlineIndex).split('\n')) {
+        this.setLatest(member, clampLine(line), true);
+      }
+    }
+    // The unclosed tail is shown but is not an event yet — except as the row's
+    // first text, which would otherwise leave the row blank until a newline.
+    if (pending.length > 0) {
+      this.setLatest(member, clampLine(pending), member.latest.length === 0);
+    }
   }
 
   markSuspended(input: {
@@ -429,8 +455,11 @@ export class DynamicWorkflowMissionControlComponent implements Component {
       const needsMore = members.length > slots;
       const memberSlots = needsMore && slots >= 2 ? slots - 1 : slots;
       const visibleMembers = members.slice(0, Math.max(0, memberSlots));
+      // Measured across every member, not the visible ones: a prefix that came
+      // and went as rows scrolled would rewrite the task column under the eye.
+      const sharedPrefix = sharedTaskPrefix(members);
       for (const member of visibleMembers) {
-        lines.push(this.renderMember(member, width, nowMs));
+        lines.push(this.renderMember(member, width, nowMs, sharedPrefix));
       }
       const hidden = members.length - visibleMembers.length;
       if (hidden > 0 && lines.length < rowBudget) {
@@ -556,7 +585,12 @@ export class DynamicWorkflowMissionControlComponent implements Component {
     return truncateToWidth(currentTheme.fg('textDim', header), width);
   }
 
-  private renderMember(member: DynamicWorkflowMember, width: number, nowMs: number): string {
+  private renderMember(
+    member: DynamicWorkflowMember,
+    width: number,
+    nowMs: number,
+    sharedPrefix: string,
+  ): string {
     const id = currentTheme.fg('primary', String(member.index).padStart(3, '0'));
     // All running rows share the workflow's clock, so they spin in step instead
     // of drifting apart by whenever each agent happened to start.
@@ -574,6 +608,11 @@ export class DynamicWorkflowMissionControlComponent implements Component {
       ? `${id}  ${workColumn}  ${stateColumn}  `
       : `${id} ${padToWidth(state, 6)} `;
     const task = member.item || 'Delegated agent';
+    // The elision is display-only: the dedup below still compares whole items,
+    // so a streamed line that merely repeats the task is still suppressed.
+    const shownTask = sharedPrefix.length > 0 && member.item.startsWith(sharedPrefix)
+      ? `${TASK_ELISION_MARK}${member.item.slice(sharedPrefix.length)}`
+      : task;
     const latest = member.latest.length > 0 && member.latest !== task ? member.latest : undefined;
     const detail = member.phase === 'suspended' || isTerminalPhase(member.phase)
       ? member.statusDetail ?? latest
@@ -581,16 +620,42 @@ export class DynamicWorkflowMissionControlComponent implements Component {
     const elapsed = member.startedAtMs === undefined
       ? undefined
       : `${String(elapsedSeconds(member.startedAtMs, member.endedAtMs ?? nowMs))}s`;
-    const showDetail = showWork && detail !== undefined && detail.length > 0;
-    const showElapsed = showWork && elapsed !== undefined;
-    const tail = [
-      showDetail ? currentTheme.fg('textDim', detail) : '',
-      showElapsed ? currentTheme.fg('textMuted', elapsed) : '',
-    ].filter((part) => part.length > 0).join(' · ');
-    const separator = tail.length > 0 ? ' · ' : '';
-    const taskWidth = Math.max(1, width - visibleWidth(prefix) - visibleWidth(separator) - visibleWidth(tail));
-    const taskText = truncateToWidth(currentTheme.fg('text', task), taskWidth);
-    return truncateToWidth(`${prefix}${taskText}${separator}${tail}`, width);
+    const free = Math.max(1, width - visibleWidth(prefix));
+
+    // The elapsed cell is short and fixed, so it is reserved first — but only
+    // while the task still keeps its floor.
+    const elapsedPart = showWork && elapsed !== undefined
+      ? `${MEMBER_SEPARATOR}${currentTheme.fg('textMuted', elapsed)}`
+      : '';
+    const elapsedWidth = visibleWidth(elapsedPart);
+    const keepsElapsed = elapsedPart.length > 0 &&
+      free - elapsedWidth >= DYNAMIC_WORKFLOW_RENDERING.memberTaskMinWidth;
+    const rest = free - (keepsElapsed ? elapsedWidth : 0);
+
+    // The task names the row, so it is measured before the detail rather than
+    // with whatever the detail leaves over: a finished agent returns its whole
+    // summary as the detail, which used to collapse the task to one character.
+    // The share keeps a short task from starving the detail in turn.
+    const taskCap = Math.max(
+      DYNAMIC_WORKFLOW_RENDERING.memberTaskMinWidth,
+      Math.floor(rest * DYNAMIC_WORKFLOW_RENDERING.memberTaskShare),
+    );
+    const detailBudget = showWork && detail !== undefined && detail.length > 0
+      ? rest - Math.min(visibleWidth(shownTask), taskCap) - MEMBER_SEPARATOR.length
+      : 0;
+    const detailPart = detailBudget >= DYNAMIC_WORKFLOW_RENDERING.memberDetailMinWidth
+      ? `${MEMBER_SEPARATOR}${truncateToWidth(currentTheme.fg('textDim', detail ?? ''), detailBudget)}`
+      : '';
+
+    // Whatever the detail did not take goes back to the task.
+    const taskText = truncateToWidth(
+      currentTheme.fg('text', shownTask),
+      Math.max(1, rest - visibleWidth(detailPart)),
+    );
+    return truncateToWidth(
+      `${prefix}${taskText}${detailPart}${keepsElapsed ? elapsedPart : ''}`,
+      width,
+    );
   }
 
   private renderActivity(entry: DynamicWorkflowActivity, width: number): string {
@@ -655,6 +720,7 @@ export class DynamicWorkflowMissionControlComponent implements Component {
         item: '',
         phase: this.model.inputComplete ? 'queued' : 'pending',
         latest: '',
+        carry: '',
         toolCalls: 0,
         lastEventAtMs: Date.now(),
       });
@@ -967,8 +1033,6 @@ function decodeXmlEntities(value: string): string {
   );
 }
 
-/** Maps a percent to one of the dotted cube levels; the cube fills bottom-up. */
-
 function requestPhaseLabel(phase: DynamicWorkflowRequestPhase): string {
   const labels: Record<DynamicWorkflowRequestPhase, string> = {
     collecting: ORCHESTRATING_LABEL,
@@ -1014,16 +1078,63 @@ function elapsedSeconds(startedAtMs: number, endedAtMs: number): number {
   return Math.floor(Math.max(0, endedAtMs - startedAtMs) / 1_000);
 }
 
-function latestNonEmptyLine(text: string): string {
-  for (const line of text.split(/\r?\n/).toReversed()) {
-    const normalized = normalizeText(line);
-    if (normalized.length > 0) return normalized;
-  }
-  return '';
+/**
+ * Keeps the head of one streamed line. The row shows the head and clips the
+ * rest, so dropping the tail is invisible — and it is the only bound on a line
+ * the model never closes with a newline.
+ */
+function clampLine(text: string): string {
+  return text.slice(0, DYNAMIC_WORKFLOW_RENDERING.memberLatestMaxChars);
 }
 
 function normalizeText(text: string | undefined): string {
   return text?.replaceAll(/\s+/g, ' ').trim() ?? '';
+}
+
+/**
+ * The preamble every task repeats, or `''` when dropping it would not help.
+ *
+ * `prompt_template` is optional, so a caller may pass a whole prompt as each
+ * item. Every row then opens with the same paragraph and the TASK column clips
+ * inside it — six rows reading `You are auditing the pythinker-code mono...`
+ * name nothing. Dropping the shared head once puts the tail that identifies the
+ * row back on screen.
+ *
+ * All-or-nothing on purpose: eliding a prefix that only some rows carry would
+ * make two cells at the same column mean different things.
+ */
+function sharedTaskPrefix(members: readonly DynamicWorkflowMember[]): string {
+  const items = members.map((member) => member.item).filter((item) => item.length > 0);
+  const first = items[0];
+  if (first === undefined || items.length < 2) return '';
+
+  // Skips `first` against itself: that comparison can only return its own
+  // length, and it walks the whole string to say so on every animation frame.
+  let length = first.length;
+  for (const item of items.slice(1)) {
+    length = commonPrefixLength(first, item, length);
+    if (length === 0) return '';
+  }
+
+  // Cut at the last space inside the shared text. A cut mid-word reads as
+  // corruption, and a space is always a whole code unit, so ending there is
+  // also what keeps the slice off the middle of a surrogate pair.
+  //
+  // Backing off to before the last shared word is what leaves every row
+  // something after the mark: items are normalized, so none of them ends in a
+  // space, and the shortest one therefore still holds the word the cut skipped.
+  const boundary = first.lastIndexOf(' ', length - 1);
+  if (boundary < 0) return '';
+  const prefix = first.slice(0, boundary + 1);
+  if (visibleWidth(prefix) < DYNAMIC_WORKFLOW_RENDERING.memberTaskSharedPrefixMinWidth) return '';
+  return prefix;
+}
+
+function commonPrefixLength(left: string, right: string, limit: number): number {
+  const bound = Math.min(limit, left.length, right.length);
+  let index = 0;
+  while (index < bound && left[index] === right[index]) index += 1;
+  return index;
 }
 
 /**

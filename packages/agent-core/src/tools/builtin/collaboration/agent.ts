@@ -38,7 +38,7 @@ import {
 } from '../../../utils/abort';
 import { AgentBackgroundTask, type BackgroundManager } from '../../../agent/background';
 import { toInputJsonSchema } from '../../support/input-schema';
-import { matchesGlobRuleSubject } from '../../support/rule-match';
+import { matchesGlobRuleSubjects, modelRuleSubject } from '../../support/rule-match';
 import AGENT_BACKGROUND_DISABLED_DESCRIPTION from './agent-background-disabled.md?raw';
 import AGENT_BACKGROUND_DESCRIPTION from './agent-background-enabled.md?raw';
 import AGENT_DESCRIPTION_BASE from './agent.md?raw';
@@ -221,7 +221,12 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
         cwd: args.cwd,
       },
       approvalRule: this.name,
-      matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, profileName),
+      // The model the call asked for is a second subject, so `Agent(model:opus)`
+      // constrains it. Only an explicit request is gated: inheriting the
+      // parent's model is not an escalation, and gating that would deny every
+      // subagent whenever the parent happened to run the named model.
+      matchesRule: (ruleArgs) =>
+        matchesGlobRuleSubjects(ruleArgs, [profileName, ...modelRuleSubject(args.model)]),
       execute: (ctx) => this.execution({ ...args, isolation }, ctx),
     };
   }

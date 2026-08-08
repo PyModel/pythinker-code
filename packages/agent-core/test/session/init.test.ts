@@ -1135,6 +1135,146 @@ describe('AgentAPI.startBtw', () => {
     }
   });
 
+  it('reloadSkills picks up a skill written after the session opened', async () => {
+    const workDir = await makeTempDir();
+    const sessionDir = await makeTempDir();
+    const skillsRoot = join(workDir, 'skills');
+    await mkdir(skillsRoot, { recursive: true });
+
+    const session = new Session({
+      id: 'test-reload-skills',
+      kaos: testKaos.withCwd(workDir),
+      homedir: sessionDir,
+      rpc: createSessionRpc([]),
+      skills: { explicitDirs: [skillsRoot] },
+    });
+
+    try {
+      expect((await session.listSkills()).map((skill) => skill.name)).not.toContain('audit-routes');
+
+      // What `/workflow save` does: write a skill into a root the open session
+      // already scanned. The registry is built once, so it stays invisible
+      // until something re-discovers it.
+      await mkdir(join(skillsRoot, 'audit-routes'), { recursive: true });
+      await writeFile(
+        join(skillsRoot, 'audit-routes', 'SKILL.md'),
+        ['---', 'name: audit-routes', 'description: Audit routes', '---', '', 'Body.'].join('\n'),
+      );
+      expect((await session.listSkills()).map((skill) => skill.name)).not.toContain('audit-routes');
+
+      await session.reloadSkills();
+      expect((await session.listSkills()).map((skill) => skill.name)).toContain('audit-routes');
+    } finally {
+      await session.close();
+    }
+  });
+
+  it('reloadSkills re-renders the skill listing the model reads', async () => {
+    const workDir = await makeTempDir();
+    const sessionDir = await makeTempDir();
+    const skillsRoot = join(workDir, 'skills');
+    await mkdir(skillsRoot, { recursive: true });
+
+    const session = new Session({
+      id: 'test-reload-skills-prompt',
+      kaos: testKaos.withCwd(workDir),
+      homedir: sessionDir,
+      rpc: createSessionRpc([]),
+      skills: { explicitDirs: [skillsRoot] },
+      providerManager: testProviderManager(),
+    });
+
+    try {
+      const { agent: main } = await session.createAgent(
+        { type: 'main' },
+        { profile: skillListingProfile() },
+      );
+      main.config.update({ modelAlias: 'mock-model', thinkingLevel: 'off' });
+      expect(main.config.systemPrompt).not.toContain('audit-routes');
+      const toolsBefore = main.tools.loopTools.map((tool) => tool.name);
+      expect(toolsBefore).toEqual(['Read', 'Write']);
+      expect(main.config.maxStepsPerTurn).toBe(7);
+
+      await mkdir(join(skillsRoot, 'audit-routes'), { recursive: true });
+      await writeFile(
+        join(skillsRoot, 'audit-routes', 'SKILL.md'),
+        ['---', 'name: audit-routes', 'description: Audit routes', '---', '', 'Body.'].join('\n'),
+      );
+
+      const setActiveTools = vi.spyOn(main.tools, 'setActiveTools');
+      await session.reloadSkills();
+
+      // Reloading the registry is not enough on its own: the listing is
+      // rendered into the prompt, so without a re-render the model never
+      // learns that the skill it was just told about exists.
+      expect(main.config.systemPrompt).toContain('audit-routes');
+      // Only the prompt. Re-applying the whole profile would reset the tools of
+      // an agent that is already running, and its turn limit with them.
+      expect(setActiveTools).not.toHaveBeenCalled();
+      expect(main.tools.loopTools.map((tool) => tool.name)).toEqual(toolsBefore);
+      expect(main.config.maxStepsPerTurn).toBe(7);
+      expect(main.config.profileName).toBe('skill-listing');
+    } finally {
+      await session.close();
+    }
+  });
+
+  it('a skill saved into an empty root is invocable after reloadSkills', async () => {
+    const workDir = await makeTempDir();
+    const sessionDir = await makeTempDir();
+    const skillsRoot = join(workDir, 'skills');
+    await mkdir(skillsRoot, { recursive: true });
+
+    const session = new Session({
+      id: 'test-reload-skills-tool',
+      kaos: testKaos.withCwd(workDir),
+      homedir: sessionDir,
+      rpc: createSessionRpc([]),
+      skills: { explicitDirs: [skillsRoot] },
+      providerManager: testProviderManager(),
+    });
+
+    try {
+      const { agent: main } = await session.createAgent(
+        { type: 'main' },
+        { profile: skillListingProfile(['Skill', 'Read']) },
+      );
+      main.config.update({ modelAlias: 'mock-model', thinkingLevel: 'off' });
+
+      // The builtin set is built once, and it only carries the Skill tool when
+      // a skill was already invocable. The user root is empty here, so what
+      // keeps the tool present is `loadSkills` registering the builtin skills
+      // before any agent is built — `createAgent` awaits that load. Were the
+      // tool to go missing, a saved workflow would be listed and uncallable.
+      expect(main.tools.loopTools.map((tool) => tool.name)).toContain('Skill');
+
+      await mkdir(join(skillsRoot, 'audit-routes'), { recursive: true });
+      await writeFile(
+        join(skillsRoot, 'audit-routes', 'SKILL.md'),
+        ['---', 'name: audit-routes', 'description: Audit routes', '---', '', 'Body.'].join('\n'),
+      );
+
+      const setActiveTools = vi.spyOn(main.tools, 'setActiveTools');
+      await session.reloadSkills();
+
+      // The tool reads the registry as it runs, so the reload is all it needs
+      // to reach a skill written after the session opened.
+      const skill = main.tools.loopTools.find((tool) => tool.name === 'Skill');
+      expect(skill).toBeDefined();
+      const result = await executeTool(skill!, {
+        turnId: '0',
+        toolCallId: 'call_skill',
+        args: { skill: 'audit-routes' },
+        signal: new AbortController().signal,
+      });
+      expect(result.isError).not.toBe(true);
+      expect(JSON.stringify(result.output)).toContain('audit-routes');
+      expect(setActiveTools).not.toHaveBeenCalled();
+    } finally {
+      await session.close();
+    }
+  });
+
   it('discovers sub-skills and builtins', async () => {
     const workDir = await makeTempDir();
     const sessionDir = await makeTempDir();
@@ -1224,6 +1364,22 @@ function testProfile(): ResolvedAgentProfile {
     name: 'test',
     systemPrompt: () => '<system-prompt>',
     tools: [],
+  };
+}
+
+/** Renders the skill listing the way the real template's `PYTHINKER_SKILLS` does. */
+function skillListingProfile(tools: string[] = ['Read', 'Write']): ResolvedAgentProfile {
+  return {
+    name: 'skill-listing',
+    systemPrompt: (context) =>
+      `<skills>${
+        typeof context.skills === 'string'
+          ? context.skills
+          : (context.skills?.getModelSkillListing() ?? '')
+      }</skills>`,
+    tools,
+    // Non-default, so a refresh that resets the turn limit is visible.
+    maxTurns: 7,
   };
 }
 

@@ -35,6 +35,7 @@ function makeHost(
   const session = {
     setPermission: vi.fn(async () => {}),
     setDynamicWorkflowMode: vi.fn(async () => {}),
+    reloadSkills: vi.fn(async () => {}),
   };
   const hasSession = overrides.hasSession ?? true;
   const host = {
@@ -62,7 +63,7 @@ function makeHost(
     restoreEditor: vi.fn(),
     restoreInputText: vi.fn(),
     sendNormalUserInput: vi.fn(),
-    refreshSlashCommandAutocomplete: vi.fn(),
+    refreshSkillCommands: vi.fn(async () => {}),
   } as unknown as SlashCommandHost;
   return { host, session };
 }
@@ -424,7 +425,7 @@ describe('/workflow save', () => {
   it('writes the last run as a skill and refreshes the command list', async () => {
     const workDir = await fs.mkdtemp(join(tmpdir(), 'workflow-save-'));
     try {
-      const { host } = makeHost({
+      const { host, session } = makeHost({
         permissionMode: 'auto',
         workDir,
         lastDynamicWorkflowArgs: {
@@ -446,7 +447,13 @@ describe('/workflow save', () => {
       expect(saved).toContain('description: "Audit routes for missing auth"');
       expect(saved).toContain('subagent-type: "reviewer"');
       expect(saved).toContain('Audit {{item}}');
-      expect(host.refreshSlashCommandAutocomplete).toHaveBeenCalled();
+      // Re-discovery must happen before the command set is rebuilt, or the
+      // freshly written skill is rebuilt from a registry that never saw it.
+      expect(session.reloadSkills).toHaveBeenCalledOnce();
+      expect(host.refreshSkillCommands).toHaveBeenCalledWith(session);
+      expect(session.reloadSkills.mock.invocationCallOrder[0]).toBeLessThan(
+        (host.refreshSkillCommands as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0] ?? 0,
+      );
       expect(host.showError).not.toHaveBeenCalled();
     } finally {
       await fs.rm(workDir, { recursive: true, force: true });
@@ -456,7 +463,7 @@ describe('/workflow save', () => {
   it('refuses a name that would escape the project skills directory', async () => {
     const workDir = await fs.mkdtemp(join(tmpdir(), 'workflow-save-'));
     try {
-      const { host } = makeHost({
+      const { host, session } = makeHost({
         permissionMode: 'auto',
         workDir,
         lastDynamicWorkflowArgs: { description: 'Audit routes' },
@@ -467,7 +474,8 @@ describe('/workflow save', () => {
       expect(host.showError).toHaveBeenCalledWith(
         expect.stringContaining('not a valid skill name'),
       );
-      expect(host.refreshSlashCommandAutocomplete).not.toHaveBeenCalled();
+      expect(host.refreshSkillCommands).not.toHaveBeenCalled();
+      expect(session.reloadSkills).not.toHaveBeenCalled();
       await expect(fs.stat(join(workDir, '.pythinker-code'))).rejects.toThrow(/ENOENT/u);
     } finally {
       await fs.rm(workDir, { recursive: true, force: true });

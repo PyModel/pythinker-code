@@ -477,6 +477,8 @@ export interface SessionAPI extends AgentAPIWithId {
   addWorkspaceDirectory: (payload: WorkspaceDirectoryPayload) => WorkspaceDirectory;
   removeWorkspaceDirectory: (payload: WorkspaceDirectoryPayload) => void;
   listSkills: (payload: EmptyPayload) => readonly SkillSummary[];
+  /** Re-discovers skills from disk so one written mid-session becomes usable. */
+  reloadSkills: (payload: EmptyPayload) => void;
   listMcpServers: (payload: EmptyPayload) => readonly McpServerInfo[];
   getMcpStartupMetrics: (payload: EmptyPayload) => McpStartupMetrics;
   reconnectMcpServer: (payload: ReconnectMcpServerPayload) => void;

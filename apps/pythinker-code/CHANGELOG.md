@@ -22,15 +22,6 @@
 
 - [#38](https://github.com/Pythoughts-labs/pythinker-code/pull/38) [`44efbc7`](https://github.com/Pythoughts-labs/pythinker-code/commit/44efbc77360105de0efce185c86740fcf503944e) - Show update availability and live download progress in the status row under the prompt, replacing the startup banner chip that was computed once and never refreshed.
 
-### Patch Changes
-
-- [#37](https://github.com/Pythoughts-labs/pythinker-code/pull/37) [`12069a8`](https://github.com/Pythoughts-labs/pythinker-code/commit/12069a890144380bff5d648ad51d7411ece94437) - Stop offering updates to versions that were never published: the update channel now advertises only the release that is actually available for download.
-
-- [#38](https://github.com/Pythoughts-labs/pythinker-code/pull/38) [`44efbc7`](https://github.com/Pythoughts-labs/pythinker-code/commit/44efbc77360105de0efce185c86740fcf503944e) - Stop offering an update with no build for the running platform, give every installer network call a timeout, expire a stale install lease instead of blocking updates forever, and say which version is installing and why a failed one stopped retrying.
-
-## 0.11.0
-
-### Minor Changes
 
 - [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Rename the ACP authentication method to reflect that login is multi-provider: it now reads "Log in with a provider" and explains that the provider is chosen in a terminal. Clients matching the previous wording will need updating.
 
@@ -50,7 +41,15 @@
 
 - [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Replace the Dynamic Workflow progress bar with the two things it can actually know: how many tool calls each agent has made, and how long it has been silent. The old bar pinned every tool-using agent at 75% until it finished, so an agent working hard and one wedged for ten minutes looked identical. A row that goes quiet now turns amber, then red.
 
+
+- [#30](https://github.com/Pythoughts-labs/pythinker-code/pull/30) [`463b176`](https://github.com/Pythoughts-labs/pythinker-code/commit/463b1766a80389fe44cd675bff29b83b3ce6c86b) - Let a Dynamic Workflow run its subagents on a different model than the agent orchestrating them. `DynamicWorkflow` accepts `model` and `effort` for every subagent in the call, and `/workflow model <alias>` sets that model for the session so an expensive orchestrator can hand mechanical work to a cheaper or faster one.
+
 ### Patch Changes
+
+- [#37](https://github.com/Pythoughts-labs/pythinker-code/pull/37) [`12069a8`](https://github.com/Pythoughts-labs/pythinker-code/commit/12069a890144380bff5d648ad51d7411ece94437) - Stop offering updates to versions that were never published: the update channel now advertises only the release that is actually available for download.
+
+- [#38](https://github.com/Pythoughts-labs/pythinker-code/pull/38) [`44efbc7`](https://github.com/Pythoughts-labs/pythinker-code/commit/44efbc77360105de0efce185c86740fcf503944e) - Stop offering an update with no build for the running platform, give every installer network call a timeout, expire a stale install lease instead of blocking updates forever, and say which version is installing and why a failed one stopped retrying.
+
 
 - [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Survive two malformed inputs that used to end a run. A catalog entry that is not an object is now dropped when the catalog is read, instead of reaching the provider picker and throwing past the bundled-catalog fallback that was meant to save the login. A non-finite subagent concurrency limit now falls back to the default: `NaN` passed every clamp, and each free-slot test against it was false, so the batch launched nothing and never finished.
 
@@ -58,7 +57,7 @@
 
 - [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Accept a provider's plain id for `--provider` at login, so a catalog provider no longer has to be named by its full display name, and stop a cancelled OpenAI Codex sign-in from holding the process open for the rest of its two-minute callback timeout. In the editor extension, signing in now shows one cancellable progress notification, a repeated sign-in joins the one already running instead of opening a second set of prompts, and a completed sign-in is no longer reported as failed when the status refresh behind it fails.
 
-- [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Save the thinking-effort level picked during login. Only an on/off flag was stored, so choosing low, medium, or xhigh reopened the session at high, and an OpenAI Codex login reopened at the model's maximum effort regardless of the choice.
+- [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Save the thinking-effort level picked during login. Only an on/off flag was stored, so choosing `low`, `medium`, or `xhigh` reopened the session at `high`, and an OpenAI Codex login reopened at the model's maximum effort regardless of the choice.
 
 - [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Write the thinking effort picked at login to disk. The apply step recorded the level, but the patch that saved the result listed everything except it, so an API-key login still reopened at the default effort. Choosing `off` now also clears a level a previous login left behind, which a patch that only merges could not do by omitting the key.
 
@@ -78,13 +77,6 @@
 
 - [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Show the whole large-workflow warning in the editor extension. The line was truncated to the panel width, so in a narrow side panel the reader saw the opening words and no reason.
 
-## 0.10.0
-
-### Minor Changes
-
-- [#30](https://github.com/Pythoughts-labs/pythinker-code/pull/30) [`463b176`](https://github.com/Pythoughts-labs/pythinker-code/commit/463b1766a80389fe44cd675bff29b83b3ce6c86b) - Let a Dynamic Workflow run its subagents on a different model than the agent orchestrating them. `DynamicWorkflow` accepts `model` and `effort` for every subagent in the call, and `/workflow model <alias>` sets that model for the session so an expensive orchestrator can hand mechanical work to a cheaper or faster one.
-
-### Patch Changes
 
 - [#28](https://github.com/Pythoughts-labs/pythinker-code/pull/28) [`cf5b6b1`](https://github.com/Pythoughts-labs/pythinker-code/commit/cf5b6b16e999431bd1a8f511c09883c330fc569d) - Keep a subagent on the model and effort its profile assigns when the subagent is resumed or retried, instead of reverting it to the main agent's model.
 
@@ -92,19 +84,16 @@
 
 - [#31](https://github.com/Pythoughts-labs/pythinker-code/pull/31) [`e5e9de4`](https://github.com/Pythoughts-labs/pythinker-code/commit/e5e9de46f0f51be6f3ab3d03d59a5841779c2215) - Let `/yolo` and `/auto` be used in the VS Code extension before the first message is sent — the request now applies to the session that chat opens next instead of failing with "Could not change the permission mode."
 
+
+- [#24](https://github.com/Pythoughts-labs/pythinker-code/pull/24) [`ae01098`](https://github.com/Pythoughts-labs/pythinker-code/commit/ae01098b862a567552c7d49a6d5bd1808077a794) - Fix the Dynamic Workflow card showing `[object Object]`, phantom extra agent rows, and tool labels fused into streamed text when a workflow is called with object items.
+
+- [#24](https://github.com/Pythoughts-labs/pythinker-code/pull/24) [`ae01098`](https://github.com/Pythoughts-labs/pythinker-code/commit/ae01098b862a567552c7d49a6d5bd1808077a794) - Show Dynamic Workflow member progress from the observed stage only, so a running subagent no longer sits at 99% for the rest of its run.
+
 ## 0.9.2
 
 ### Patch Changes
 
 - [#25](https://github.com/Pythoughts-labs/pythinker-code/pull/25) [`649ec69`](https://github.com/Pythoughts-labs/pythinker-code/commit/649ec69f8e039c031248ce939faadf253bee7259) - Let `/yolo` and `/auto` take effect in the VS Code extension while the agent is running, and auto-approve the requests already waiting on screen.
-
-## 0.9.1
-
-### Patch Changes
-
-- [#24](https://github.com/Pythoughts-labs/pythinker-code/pull/24) [`ae01098`](https://github.com/Pythoughts-labs/pythinker-code/commit/ae01098b862a567552c7d49a6d5bd1808077a794) - Fix the Dynamic Workflow card showing `[object Object]`, phantom extra agent rows, and tool labels fused into streamed text when a workflow is called with object items.
-
-- [#24](https://github.com/Pythoughts-labs/pythinker-code/pull/24) [`ae01098`](https://github.com/Pythoughts-labs/pythinker-code/commit/ae01098b862a567552c7d49a6d5bd1808077a794) - Show Dynamic Workflow member progress from the observed stage only, so a running subagent no longer sits at 99% for the rest of its run.
 
 ## 0.9.0
 
@@ -138,7 +127,7 @@
 
 - [`c0f0976`](https://github.com/Pythoughts-labs/pythinker-code/commit/c0f09769e76c92002ca9b9a09d9cb820750f1046) - Remove the Pythinker Datasource plugin from the marketplace; its data gateway backend is not available, so every datasource query failed.
 
-- [`c0f0976`](https://github.com/Pythoughts-labs/pythinker-code/commit/c0f09769e76c92002ca9b9a09d9cb820750f1046) - Enable automatic updates for native installs on Windows: /update now installs the new version in the background instead of printing a manual command, and the installer safely replaces the running executable.
+- [`c0f0976`](https://github.com/Pythoughts-labs/pythinker-code/commit/c0f09769e76c92002ca9b9a09d9cb820750f1046) - Enable automatic updates for native installs on Windows: `/update` now installs the new version in the background instead of printing a manual command, and the installer safely replaces the running executable.
 
 ### Patch Changes
 

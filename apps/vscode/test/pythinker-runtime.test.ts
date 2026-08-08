@@ -392,7 +392,40 @@ describe("Pythinker runtime (owns shared SDK sessions for Webviews)", () => {
       event: Events.StreamEvent,
       data: {
         type: "StatusUpdate",
-        payload: { model: "kimi-test", thinking_effort: "max", plan_mode: true },
+        // The permission mode rides along: the chat badge is the only place the
+        // user can see which mode a toggle command just landed on.
+        payload: { model: "kimi-test", thinking_effort: "max", plan_mode: true, permission: "manual" },
+        _sessionId: "saved-1",
+      },
+      webviewId: "view-1",
+    });
+  });
+
+  it("announces the new permission mode so the chat badge can show it", async () => {
+    const sdk = createFakeHarness();
+    const broadcasts: { event: string; data: unknown; webviewId?: string }[] = [];
+    const runtime = new PythinkerRuntime({
+      version: "0.6.0",
+      harness: sdk.harness,
+      broadcast: (event: string, data: unknown, webviewId?: string) => {
+        broadcasts.push({ event, data, webviewId });
+      },
+      captureBaseline: () => undefined,
+      log: () => undefined,
+    });
+    sdk.addSession("saved-1", "/workspace", { permission: "manual" });
+    const opened = await runtime.openSession(openOptions({ sessionId: "saved-1" }));
+
+    broadcasts.length = 0;
+    await opened.setPermissionMode("yolo");
+
+    // `/yolo` toggles, so a mode the chat cannot see is a command that silently
+    // does the opposite of what the user meant.
+    expect(broadcasts).toContainEqual({
+      event: Events.StreamEvent,
+      data: {
+        type: "StatusUpdate",
+        payload: { model: "kimi-test", thinking_effort: "off", plan_mode: false, permission: "yolo" },
         _sessionId: "saved-1",
       },
       webviewId: "view-1",

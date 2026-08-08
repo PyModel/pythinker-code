@@ -65,6 +65,29 @@ describe('AgentTool', () => {
     });
   });
 
+  it('gates a permission rule on the model the call asked for', async () => {
+    const host = mockSubagentHost({ spawn: vi.fn() });
+    const tool = new AgentTool(host);
+    const base = { prompt: 'Audit auth', description: 'Audit auth', subagent_type: 'reviewer' };
+
+    const onOpus = await tool.resolveExecution({ ...base, model: 'opus' });
+    if (onOpus.isError === true) throw new Error('expected runnable execution');
+    // `Agent(model:opus)` parsed before this but was globbed against the profile
+    // name, so it never fired and any resolvable model got through.
+    expect(onOpus.matchesRule?.('model:opus')).toBe(true);
+    expect(onOpus.matchesRule?.('model:sonnet')).toBe(false);
+    // The profile subject still matches, and the model subject is namespaced so
+    // an existing profile rule cannot start matching a same-named model.
+    expect(onOpus.matchesRule?.('reviewer')).toBe(true);
+    expect(onOpus.matchesRule?.('opus')).toBe(false);
+
+    // Inheriting the parent's model is not an escalation and is not gated.
+    const inherited = await tool.resolveExecution(base);
+    if (inherited.isError === true) throw new Error('expected runnable execution');
+    expect(inherited.matchesRule?.('model:opus')).toBe(false);
+    expect(inherited.matchesRule?.('reviewer')).toBe(true);
+  });
+
   it('exposes run_in_background and not runInBackground in the JSON schema', () => {
     const host = mockSubagentHost({ spawn: vi.fn() });
     const tool = new AgentTool(host);

@@ -559,6 +559,11 @@ export abstract class SDKRpcClientBase {
     return rpc.listSkills({ sessionId: input.sessionId });
   }
 
+  async reloadSkills(input: SessionIdRpcInput): Promise<void> {
+    const rpc = await this.getRpc();
+    await rpc.reloadSkills({ sessionId: input.sessionId });
+  }
+
   async listContextFiles(input: SessionIdRpcInput): Promise<readonly string[]> {
     const rpc = await this.getRpc();
     return rpc.listContextFiles({

@@ -637,7 +637,7 @@ const eventHandlers: Record<string, EventHandler> = {
   },
 
   StatusUpdate: (draft, payload) => {
-    const { context_usage, token_usage, plan_mode, model, thinking_effort, retrying } = payload;
+    const { context_usage, token_usage, plan_mode, permission, model, thinking_effort, retrying } = payload;
 
     if (typeof model === "string" && model.length > 0) {
       useSettingsStore.getState().setCurrentModel(model);
@@ -648,6 +648,10 @@ const eventHandlers: Record<string, EventHandler> = {
 
     if (plan_mode !== undefined && plan_mode !== null) {
       draft.planMode = plan_mode;
+    }
+
+    if (permission !== undefined && permission !== null) {
+      draft.permissionMode = permission;
     }
 
     if (token_usage) {

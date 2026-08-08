@@ -1,6 +1,7 @@
 import type { Agent } from '../..';
 import type { PermissionPolicy } from '../types';
 import { DynamicWorkflowExclusiveDenyPermissionPolicy } from './dynamic-workflow-exclusive-deny';
+import { DynamicWorkflowPlanAskPermissionPolicy } from './dynamic-workflow-plan-ask';
 import { AutoModeApprovePermissionPolicy } from './auto-mode-approve';
 import { AutoModeAskUserQuestionDenyPermissionPolicy } from './auto-mode-ask-user-question-deny';
 import { DefaultToolApprovePermissionPolicy } from './default-tool-approve';
@@ -35,6 +36,9 @@ export function createPermissionDecisionPolicies(agent: Agent): PermissionPolicy
     new PlanModeGuardDenyPermissionPolicy(agent),
     // User-configured deny rule matches → deny.
     new UserConfiguredDenyPermissionPolicy(agent),
+    // auto mode + DynamicWorkflow → ask, so the plan preview still renders.
+    // Must sit above the auto approval below, which would otherwise swallow it.
+    new DynamicWorkflowPlanAskPermissionPolicy(agent),
     // auto mode → approve (any auto-mode block must be a deny rule above this).
     new AutoModeApprovePermissionPolicy(agent),
     // Approve-for-session memorized rule matches → approve. Runs before user-configured ask rules so an in-session grant beats a still-matching ask rule on later calls.

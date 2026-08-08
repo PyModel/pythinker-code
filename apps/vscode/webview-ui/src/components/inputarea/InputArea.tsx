@@ -20,6 +20,7 @@ import { BottomToolbar } from "../BottomToolbar";
 import { StreamingConfirmDialog } from "../StreamingConfirmDialog";
 import { ThinkingButton } from "../ThinkingButton";
 import { PlanModeButton } from "../PlanModeButton";
+import { PermissionModeBadge } from "../PermissionModeBadge";
 import {
   getModelById,
   getMediaFallbackModel,
@@ -53,7 +54,7 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
   const [cursorPos, setCursorPos] = useState(0);
   const [previewMedia, setPreviewMedia] = useState<string | null>(null);
 
-  const { isStreaming, sendMessage, abort, draftMedia, removeDraftMedia, hasProcessingMedia, getMediaInConversation, pendingInput, planMode, messages } = useChatStore();
+  const { isStreaming, sendMessage, abort, draftMedia, removeDraftMedia, hasProcessingMedia, getMediaInConversation, pendingInput, planMode, permissionMode, messages } = useChatStore();
   const { currentModel, thinkingEffort, updateModel, toggleThinking, selectThinkingEffort, models, extensionConfig, getCurrentThinkingMode } = useSettingsStore();
 
   const isProcessing = hasProcessingMedia();
@@ -483,6 +484,7 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
                 onSelectEffort={selectThinkingEffort}
               />
               <PlanModeButton active={planMode} onToggle={handleTogglePlanMode} />
+              <PermissionModeBadge mode={permissionMode} />
             </div>
 
             <div className="flex items-center gap-2 shrink-0">

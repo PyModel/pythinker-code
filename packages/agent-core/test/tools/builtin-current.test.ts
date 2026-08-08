@@ -899,6 +899,18 @@ describe('current builtin collaboration tools', () => {
       ),
     ).toBe(false);
     expect(execution.matchesRule?.(subjectOf({ ...base, model: 'other-model' }))).toBe(false);
+
+    // A rule may also name the model the call asked its subagents to run on, so
+    // `DynamicWorkflow(model:opus)` gates a fan-out that used to be bounded only
+    // by whether the provider could resolve the alias.
+    const onOpus = runnableExecution(tool, { ...base, model: 'opus' });
+    expect(onOpus.matchesRule?.('model:opus')).toBe(true);
+    expect(onOpus.matchesRule?.('model:sonnet')).toBe(false);
+    // No model requested → nothing for a model rule to match.
+    expect(execution.matchesRule?.('model:opus')).toBe(false);
+    // The model subject is namespaced, so a rule written for the plan subject
+    // never starts matching a model that happens to share its name.
+    expect(onOpus.matchesRule?.('opus')).toBe(false);
     expect(execution.matchesRule?.(subjectOf({ ...base, subagent_type: 'shell' }))).toBe(false);
     expect(
       execution.matchesRule?.(subjectOf({ ...base, prompt_template: 'Rewrite {{item}}' })),

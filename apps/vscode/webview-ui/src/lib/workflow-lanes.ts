@@ -56,8 +56,19 @@ export function deriveWorkflowLanes(steps: UIStep[], statuses: Record<string, UI
   return lanes;
 }
 
-/** The comparative-fill denominator: the busiest lane's step count. There is no
- * per-agent step total, so progress bars read relative to each other, not absolute. */
-export function maxLaneStepCount(lanes: readonly WorkflowLane[]): number {
-  return lanes.reduce((max, lane) => Math.max(max, lane.stepCount), 0);
+/** A lane that reported an outcome. Anything else is still owed one. */
+export function isLaneSettled(lane: Pick<WorkflowLane, "status">): boolean {
+  return lane.status === "done" || lane.status === "failed";
+}
+
+/**
+ * The lanes a finished workflow never got an outcome from.
+ *
+ * Empty while the workflow is still going — a lane that has not reported yet is
+ * simply still working. Once the tool call has returned nothing is running any
+ * more, so a lane still marked `running` was cancelled or cut off with the turn,
+ * and showing it as live is the card reporting work that already stopped.
+ */
+export function abandonedLanes(lanes: readonly WorkflowLane[], workflowEnded: boolean): WorkflowLane[] {
+  return workflowEnded ? lanes.filter((lane) => !isLaneSettled(lane)) : [];
 }

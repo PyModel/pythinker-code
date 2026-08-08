@@ -144,6 +144,10 @@ export class SessionRuntime {
       await persistPermissionMode(this.session, mode);
       this.currentPermissionMode = mode;
     }
+    // Tell every attached view at once. `/yolo` is a toggle, so a chat that
+    // cannot see the mode it landed on is how a user turns YOLO off while
+    // trying to turn it on.
+    await Promise.all([...this.webviewIds].map((id) => this.announceStatus(id)));
   }
 
   subscribe(webviewId: string): void {
@@ -168,6 +172,7 @@ export class SessionRuntime {
           model: status.model,
           thinking_effort: status.thinkingLevel,
           plan_mode: status.planMode,
+          permission: status.permission,
         },
         _sessionId: this.id,
       },

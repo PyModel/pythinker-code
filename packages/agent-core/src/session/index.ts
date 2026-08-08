@@ -48,6 +48,7 @@ import {
   loadAgentsMd,
   prepareSystemPromptContext,
   type OutputStyleConfig,
+  type PreparedSystemPromptContext,
   type ResolvedAgentProfile,
 } from '../profile';
 import type { ProviderManager } from './provider-manager';
@@ -813,13 +814,31 @@ export class Session {
     profile: ResolvedAgentProfile,
     instructionsLoadReason?: 'session_start' | 'compact',
   ): Promise<void> {
+    const context = await this.prepareAgentProfileContext(agent, profile, instructionsLoadReason);
+    agent.useProfile(
+      profile,
+      context,
+      agent.type === 'main' ? (this.options.outputStyle ?? undefined) : undefined,
+    );
+  }
+
+  /**
+   * Builds the render context for one agent's profile. `InstructionsLoaded`
+   * fires only when a load reason is given, so a caller that is merely
+   * re-rendering an existing prompt does not replay a session-start hook.
+   */
+  private async prepareAgentProfileContext(
+    agent: Agent,
+    profile: ResolvedAgentProfile,
+    instructionsLoadReason?: 'session_start' | 'compact',
+  ): Promise<PreparedSystemPromptContext> {
     const memory =
       agent.experimentalFlags.enabled('agent_memory') && profile.memory !== undefined
         ? { name: profile.name, scope: profile.memory }
         : agent.experimentalFlags.enabled('agent_memory') && agent.type === 'main'
           ? { name: 'agent', scope: 'project' as const }
           : undefined;
-    const context = await prepareSystemPromptContext(
+    return prepareSystemPromptContext(
       this.systemContextKaos(agent.kaos.getcwd()),
       this.options.pythinkerHomeDir,
       memory,
@@ -837,11 +856,6 @@ export class Session {
             });
           }
         : undefined,
-    );
-    agent.useProfile(
-      profile,
-      context,
-      agent.type === 'main' ? (this.options.outputStyle ?? undefined) : undefined,
     );
   }
 
@@ -1113,6 +1127,33 @@ export class Session {
         argumentHint: promptArgumentHint(prompt.arguments),
       })),
     ];
+  }
+
+  /**
+   * Re-discovers skills from disk and replaces the registry entries.
+   *
+   * A skill written while the session is open — `/workflow save`, an edited
+   * `SKILL.md` — is otherwise invisible until the session is reloaded, because
+   * the registry is built once at construction. `loadRoots` registers with
+   * `replace: true`, so re-running is idempotent for skills that already exist
+   * and additive for new ones. A skill deleted from disk stays until the
+   * session reloads; nothing needs its removal yet.
+   */
+  async reloadSkills(): Promise<void> {
+    await this.skillsReady;
+    await this.loadSkills();
+    // The tool reads the registry as it runs, so it sees the new skill at once.
+    // The model does not: the skill listing is rendered into the system prompt
+    // when the profile is applied, so a workflow saved mid-session would stay
+    // off the list the model reads until the session reloaded.
+    const main = this.getReadyAgent('main');
+    const profile = main?.activeProfile;
+    if (main === undefined || profile === undefined) return;
+    main.refreshSystemPrompt(
+      profile,
+      await this.prepareAgentProfileContext(main, profile),
+      this.options.outputStyle ?? undefined,
+    );
   }
 
   private async loadSkills(): Promise<void> {

@@ -26,7 +26,7 @@ export async function handleReloadCommand(host: SlashCommandHost): Promise<void>
 
   const config = await host.harness.getConfig({ reload: true });
   setExperimentalFeatures(await host.harness.getExperimentalFeatures());
-  host.refreshSlashCommandAutocomplete();
+  await host.refreshSkillCommands(session);
   applyRuntimeConfig(host, config);
   await applyReloadedTuiConfig(host, tuiConfig);
   host.reloadKeybindings?.();
