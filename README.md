@@ -274,7 +274,7 @@ Pythinker is a small, extensible runtime — not a monolith. Build on it.
 
 ### Prepare the workspace
 
-**Requirements:**Node.js ≥ 26.4.0 · pnpm 10.34.3 · Git
+**Requirements:**Node.js ≥ 24.14.0 · pnpm 10.34.3 · Git
 
 ```sh
 git clone https://github.com/Pythoughts-labs/pythinker-code.git
