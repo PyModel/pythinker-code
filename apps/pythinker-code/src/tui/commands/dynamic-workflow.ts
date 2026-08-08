@@ -163,7 +163,12 @@ async function handleSaveSubcommand(host: SlashCommandHost, input: string): Prom
         outputSchema: recordArg(args, 'output_schema'),
       },
     });
-    host.refreshSlashCommandAutocomplete();
+    // The skill registry is built once when the session opens, so the file just
+    // written is invisible to it. Re-discover before rebuilding the command set,
+    // or `/<name>` stays a plain message until the session is reloaded.
+    const session = host.session;
+    if (session !== undefined) await session.reloadSkills();
+    await host.refreshSkillCommands(session);
     host.showStatus(`Saved /${savedWorkflowSkillName(name)} to ${dir}.`);
   } catch (error) {
     host.showError(`Failed to save workflow: ${formatErrorMessage(error)}`);

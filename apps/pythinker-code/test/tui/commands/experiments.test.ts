@@ -44,7 +44,7 @@ function makeHost() {
       ]),
     },
     session,
-    refreshSlashCommandAutocomplete: vi.fn(),
+    refreshSkillCommands: vi.fn(async () => {}),
     reloadCurrentSessionView: vi.fn(async () => {}),
     mountEditorReplacement: vi.fn(),
     restoreEditor: vi.fn(),
@@ -56,7 +56,7 @@ function makeHost() {
       setConfig: ReturnType<typeof vi.fn>;
       getExperimentalFeatures: ReturnType<typeof vi.fn>;
     };
-    refreshSlashCommandAutocomplete: ReturnType<typeof vi.fn>;
+    refreshSkillCommands: ReturnType<typeof vi.fn>;
     reloadCurrentSessionView: ReturnType<typeof vi.fn>;
     mountEditorReplacement: ReturnType<typeof vi.fn>;
     restoreEditor: ReturnType<typeof vi.fn>;
@@ -85,7 +85,7 @@ describe('experimental feature command handlers', () => {
     });
     expect(host.harness.getExperimentalFeatures).toHaveBeenCalledOnce();
     expect(isExperimentalFlagEnabled('micro_compaction')).toBe(false);
-    expect(host.refreshSlashCommandAutocomplete).toHaveBeenCalled();
+    expect(host.refreshSkillCommands).toHaveBeenCalled();
     expect(host.restoreEditor).toHaveBeenCalled();
     expect(host.session.reloadSession).toHaveBeenCalledOnce();
     expect(host.reloadCurrentSessionView).toHaveBeenCalledWith(

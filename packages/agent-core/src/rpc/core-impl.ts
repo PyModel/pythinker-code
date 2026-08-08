@@ -851,6 +851,13 @@ export class PythinkerCore implements PromisableMethods<CoreAPI> {
     return this.sessionApi(sessionId).listSkills(payload);
   }
 
+  reloadSkills({
+    sessionId,
+    ...payload
+  }: SessionScopedPayload<EmptyPayload>): Promise<void> {
+    return this.sessionApi(sessionId).reloadSkills(payload);
+  }
+
   listMcpServers({
     sessionId,
     ...payload

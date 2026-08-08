@@ -161,7 +161,7 @@ export interface SlashCommandHost {
   mountEditorReplacement(panel: Component & Focusable): void;
   restoreEditor(): void;
   restoreInputText(text: string): void;
-  refreshSlashCommandAutocomplete(): void;
+  refreshSkillCommands(session?: Session): Promise<void>;
   reloadKeybindings?(): readonly string[];
   setExternalEditorRunning?(running: boolean): void;
 

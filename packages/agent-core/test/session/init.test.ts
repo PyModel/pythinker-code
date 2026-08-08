@@ -1135,6 +1135,40 @@ describe('AgentAPI.startBtw', () => {
     }
   });
 
+  it('reloadSkills picks up a skill written after the session opened', async () => {
+    const workDir = await makeTempDir();
+    const sessionDir = await makeTempDir();
+    const skillsRoot = join(workDir, 'skills');
+    await mkdir(skillsRoot, { recursive: true });
+
+    const session = new Session({
+      id: 'test-reload-skills',
+      kaos: testKaos.withCwd(workDir),
+      homedir: sessionDir,
+      rpc: createSessionRpc([]),
+      skills: { explicitDirs: [skillsRoot] },
+    });
+
+    try {
+      expect((await session.listSkills()).map((skill) => skill.name)).not.toContain('audit-routes');
+
+      // What `/workflow save` does: write a skill into a root the open session
+      // already scanned. The registry is built once, so it stays invisible
+      // until something re-discovers it.
+      await mkdir(join(skillsRoot, 'audit-routes'), { recursive: true });
+      await writeFile(
+        join(skillsRoot, 'audit-routes', 'SKILL.md'),
+        ['---', 'name: audit-routes', 'description: Audit routes', '---', '', 'Body.'].join('\n'),
+      );
+      expect((await session.listSkills()).map((skill) => skill.name)).not.toContain('audit-routes');
+
+      await session.reloadSkills();
+      expect((await session.listSkills()).map((skill) => skill.name)).toContain('audit-routes');
+    } finally {
+      await session.close();
+    }
+  });
+
   it('discovers sub-skills and builtins', async () => {
     const workDir = await makeTempDir();
     const sessionDir = await makeTempDir();

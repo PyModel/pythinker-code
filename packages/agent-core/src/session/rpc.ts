@@ -98,6 +98,10 @@ export class SessionAPIImpl implements PromisableMethods<SessionAPI> {
     return this.session.listSkills();
   }
 
+  reloadSkills(_payload: EmptyPayload): Promise<void> {
+    return this.session.reloadSkills();
+  }
+
   listMcpServers(_payload: EmptyPayload): readonly McpServerInfo[] {
     return this.session.mcp.list();
   }

@@ -1005,8 +1005,6 @@ function decodeXmlEntities(value: string): string {
   );
 }
 
-/** Maps a percent to one of the dotted cube levels; the cube fills bottom-up. */
-
 function requestPhaseLabel(phase: DynamicWorkflowRequestPhase): string {
   const labels: Record<DynamicWorkflowRequestPhase, string> = {
     collecting: ORCHESTRATING_LABEL,

@@ -82,6 +82,8 @@ Fields in the config file fall into two categories: **top-level scalars** that d
 | `merge_all_available_skills` | `boolean` | `true` | Whether to merge Agent Skills from all available directories |
 | `extra_skill_dirs` | `array<string>` | — | Extra skill search directories, layered on top of the default directories |
 | `telemetry` | `boolean` | `true` | Whether anonymous telemetry is enabled; disabled only when explicitly set to `false` |
+| `disable_workflows` | `boolean` | `false` | Whether to remove the `DynamicWorkflow` tool and hide `/workflow`; the `PYTHINKER_CODE_DISABLE_WORKFLOWS` environment variable overrides it |
+| `workflow_size_guideline` | `string` | `medium` | Advisory subagent-count target for one Dynamic Workflow; one of `small` (about 5), `medium` (about 15), `large` (about 40), or `unrestricted` (no target). Exceeding it emits a warning rather than blocking the run; the `PYTHINKER_CODE_WORKFLOW_SIZE_GUIDELINE` environment variable overrides it |
 | `providers` | `table` | `{}` | API provider table → [`providers`](#providers) |
 | `models` | `table` | — | Model alias table → [`models`](#models) |
 | `thinking` | `table` | — | Default parameters for Thinking mode → [`thinking`](#thinking) |
@@ -222,7 +224,7 @@ api_key = "sk-xxx"
 | `pattern` | `string` | Yes | Match pattern in the form `ToolName` or `ToolName(arg-pattern)`, e.g. `Read` or `Bash(rm -rf*)` |
 | `reason` | `string` | No | Rule description for debugging and auditing |
 
-Built-in tool names are listed in [Built-in tools](../reference/tools.md). Most built-in tools that accept rule arguments define their own matching subject, such as `Bash(command-pattern)` or `Read(path-pattern)`. `DynamicWorkflow`, MCP tools, and custom tools can only be matched by tool name — argument patterns are not supported for them.
+Built-in tool names are listed in [Built-in tools](../reference/tools.md). Most built-in tools that accept rule arguments define their own matching subject, such as `Bash(command-pattern)` or `Read(path-pattern)`. `DynamicWorkflow` matches on the plan it is about to run, or on `model:<alias>` for the model a call asks its subagents to use. `Agent` matches on the subagent type, or on `model:<alias>` the same way. MCP tools and custom tools can only be matched by tool name.
 
 ```toml
 [[permission.rules]]

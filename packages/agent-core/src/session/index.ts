@@ -1115,6 +1115,21 @@ export class Session {
     ];
   }
 
+  /**
+   * Re-discovers skills from disk and replaces the registry entries.
+   *
+   * A skill written while the session is open — `/workflow save`, an edited
+   * `SKILL.md` — is otherwise invisible until the session is reloaded, because
+   * the registry is built once at construction. `loadRoots` registers with
+   * `replace: true`, so re-running is idempotent for skills that already exist
+   * and additive for new ones. A skill deleted from disk stays until the
+   * session reloads; nothing needs its removal yet.
+   */
+  async reloadSkills(): Promise<void> {
+    await this.skillsReady;
+    await this.loadSkills();
+  }
+
   private async loadSkills(): Promise<void> {
     const roots = await resolveSkillRoots({
       paths: {

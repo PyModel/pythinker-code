@@ -431,10 +431,12 @@ export class PythinkerTUI {
     this.state.editor.setAutocompleteProvider(provider);
   }
 
-  refreshSlashCommandAutocomplete(): void {
-    this.setupAutocomplete();
-  }
-
+  /**
+   * The one way to refresh the slash-command set. Every caller that can change
+   * it — session switch, login/logout, experimental flags, `/reload`, saving a
+   * workflow — goes through here, so autocomplete and `skillCommandMap` are
+   * never rebuilt from a skill list that has moved on.
+   */
   async refreshSkillCommands(session?: SkillListSession): Promise<void> {
     if (session === undefined) {
       this.skillCommands = [];
@@ -443,17 +445,16 @@ export class PythinkerTUI {
       return;
     }
 
-    let skills;
     try {
-      skills = await session.listSkills();
+      const skillCommands = buildSkillSlashCommands(await session.listSkills());
+      this.skillCommands = skillCommands.commands;
+      this.skillCommandMap.clear();
+      for (const [commandName, skillName] of skillCommands.commandMap) {
+        this.skillCommandMap.set(commandName, skillName);
+      }
     } catch {
-      return;
-    }
-    const skillCommands = buildSkillSlashCommands(skills);
-    this.skillCommands = skillCommands.commands;
-    this.skillCommandMap.clear();
-    for (const [commandName, skillName] of skillCommands.commandMap) {
-      this.skillCommandMap.set(commandName, skillName);
+      // Keep the skills already known. The builtin command set may still have
+      // changed, so the autocomplete provider is rebuilt either way.
     }
     this.setupAutocomplete();
   }

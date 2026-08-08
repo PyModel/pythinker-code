@@ -739,6 +739,7 @@ describe('Permission policy chain', () => {
       'auto-mode-ask-user-question-deny',
       'plan-mode-guard-deny',
       'user-configured-deny',
+      'dynamic-workflow-plan-ask',
       'auto-mode-approve',
       'session-approval-history',
       'user-configured-ask',
@@ -818,20 +819,75 @@ describe('Permission policy chain', () => {
     );
   });
 
-  it('still approves a DynamicWorkflow call without asking in auto and yolo mode', async () => {
-    for (const mode of ['auto', 'yolo'] as const) {
-      const { manager, requestApproval } = makePermissionManager(
-        async () => ({ decision: 'approved' }),
-        { dynamicWorkflowModeActive: true },
-      );
-      manager.mode = mode;
+  // The start prompt's default option is "Switch to Auto and start", so the
+  // easiest path through it used to hand back the plan preview without saying
+  // so. Auto still approves everything the subagents do; it no longer waives
+  // seeing what is about to be launched.
+  it('asks before a DynamicWorkflow call in auto mode so the plan still renders', async () => {
+    const { manager, requestApproval, telemetryTrack } = makePermissionManager(
+      async () => ({ decision: 'approved' }),
+      { dynamicWorkflowModeActive: true },
+    );
+    manager.mode = 'auto';
 
-      await manager.beforeToolCall(
-        hookContext({ id: `call_dynamic_workflow_${mode}`, toolName: 'DynamicWorkflow' }),
-      );
+    await manager.beforeToolCall(
+      hookContext({ id: 'call_dynamic_workflow_auto', toolName: 'DynamicWorkflow' }),
+    );
 
-      expect(requestApproval).not.toHaveBeenCalled();
-    }
+    expect(requestApproval).toHaveBeenCalledTimes(1);
+    expect(telemetryTrack).toHaveBeenCalledWith(
+      'permission_policy_decision',
+      expect.objectContaining({
+        policy_name: 'dynamic-workflow-plan-ask',
+        tool_name: 'DynamicWorkflow',
+        permission_mode: 'auto',
+        decision: 'ask',
+      }),
+    );
+  });
+
+  // Auto mode is not turned into a nag: the ask is per distinct plan, and an
+  // explicit grant falls straight through to the auto approval below it.
+  it('does not re-ask in auto mode once the plan is approved for the session', async () => {
+    const { manager, requestApproval } = makePermissionManager(
+      async () => ({
+        decision: 'approved',
+        scope: 'session',
+        selectedLabel: 'Approve for this session',
+      }),
+      { dynamicWorkflowModeActive: true },
+    );
+    manager.mode = 'auto';
+    const args = {
+      description: 'Review files',
+      prompt_template: 'Review {{item}}',
+      items: ['src/a.ts', 'src/b.ts'],
+    };
+
+    await manager.beforeToolCall(
+      hookContext({ id: 'call_dw_1', toolName: 'DynamicWorkflow', args }),
+    );
+    await manager.beforeToolCall(
+      hookContext({ id: 'call_dw_2', toolName: 'DynamicWorkflow', args }),
+    );
+
+    expect(requestApproval).toHaveBeenCalledTimes(1);
+  });
+
+  // YOLO is chosen explicitly and its own label promises that everything is
+  // approved automatically, so it keeps waiving the preview.
+  it('still approves a DynamicWorkflow call without asking in yolo mode', async () => {
+    const { manager, requestApproval } = makePermissionManager(
+      async () => ({ decision: 'approved' }),
+      { dynamicWorkflowModeActive: true },
+    );
+    manager.mode = 'yolo';
+
+    await manager.beforeToolCall(
+      hookContext({ id: 'call_dynamic_workflow_yolo', toolName: 'DynamicWorkflow' }),
+    );
+
+    expect(requestApproval).not.toHaveBeenCalled();
   });
 });
 

@@ -1198,7 +1198,7 @@ export async function applyExperimentalFeatureChanges(
     await host.harness.setConfig({ experimental });
     const features = await host.harness.getExperimentalFeatures();
     setExperimentalFeatures(features);
-    host.refreshSlashCommandAutocomplete();
+    await host.refreshSkillCommands(host.session);
     host.restoreEditor();
     if (host.session !== undefined) {
       await host.session.reloadSession();

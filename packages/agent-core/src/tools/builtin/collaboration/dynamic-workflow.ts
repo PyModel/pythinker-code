@@ -21,7 +21,11 @@ import {
 import { generateWorkflowRunId } from '../../../agent/dynamic-workflow/run-id';
 import { estimateTokens } from '../../../utils/tokens';
 import { toInputJsonSchema } from '../../support/input-schema';
-import { literalRulePattern, matchesGlobRuleSubject } from '../../support/rule-match';
+import {
+  literalRulePattern,
+  matchesGlobRuleSubjects,
+  modelRuleSubject,
+} from '../../support/rule-match';
 import DYNAMIC_WORKFLOW_DESCRIPTION from './dynamic-workflow.md?raw';
 
 const DEFAULT_SUBAGENT_TYPE = 'coder';
@@ -184,7 +188,11 @@ export class DynamicWorkflowTool implements BuiltinTool<DynamicWorkflowToolInput
       // `matchesRule` never matches, so the grant would be recorded and then
       // silently ignored on every later call.
       approvalRule: literalRulePattern(this.name, approvalSubject),
-      matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, approvalSubject),
+      // The model this workflow asked its subagents to use is a second subject,
+      // so `DynamicWorkflow(model:opus)` constrains a fan-out that would
+      // otherwise run 128 children on any model the provider can resolve.
+      matchesRule: (ruleArgs) =>
+        matchesGlobRuleSubjects(ruleArgs, [approvalSubject, ...modelRuleSubject(args.model)]),
       execute: (ctx) => this.execution(args, ctx),
     };
   }

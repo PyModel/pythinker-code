@@ -346,6 +346,12 @@ export class Session {
     return this.rpc.listSkills({ sessionId: this.id });
   }
 
+  /** Re-discovers skills from disk; call after writing one into a skill root. */
+  async reloadSkills(): Promise<void> {
+    this.ensureOpen();
+    await this.rpc.reloadSkills({ sessionId: this.id });
+  }
+
   async listContextFiles(): Promise<readonly string[]> {
     this.ensureOpen();
     return this.rpc.listContextFiles({ sessionId: this.id });

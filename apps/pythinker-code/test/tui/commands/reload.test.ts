@@ -99,7 +99,7 @@ show_elapsed = false
     );
     expect(host.harness.getConfig).toHaveBeenCalledWith({ reload: true });
     expect(host.harness.getExperimentalFeatures).toHaveBeenCalledOnce();
-    expect(host.refreshSlashCommandAutocomplete).toHaveBeenCalledOnce();
+    expect(host.refreshSkillCommands).toHaveBeenCalledOnce();
     expect(host.reloadKeybindings).toHaveBeenCalledOnce();
     expect(isExperimentalFlagEnabled('micro_compaction')).toBe(true);
     expect(host.state.appState.theme).toBe('light');
@@ -188,7 +188,7 @@ function makeHost({
       state.appState.theme = theme;
     }),
     refreshTerminalThemeTracking: vi.fn(),
-    refreshSlashCommandAutocomplete: vi.fn(),
+    refreshSkillCommands: vi.fn(async () => {}),
     reloadKeybindings: vi.fn(() => []),
     reloadCurrentSessionView: vi.fn(async () => {}),
     showStatus: vi.fn(),
@@ -197,7 +197,7 @@ function makeHost({
       readonly getConfig: ReturnType<typeof vi.fn>;
       readonly getExperimentalFeatures: ReturnType<typeof vi.fn>;
     };
-    readonly refreshSlashCommandAutocomplete: ReturnType<typeof vi.fn>;
+    readonly refreshSkillCommands: ReturnType<typeof vi.fn>;
     readonly reloadKeybindings: ReturnType<typeof vi.fn>;
     readonly reloadCurrentSessionView: ReturnType<typeof vi.fn>;
     readonly showStatus: ReturnType<typeof vi.fn>;
