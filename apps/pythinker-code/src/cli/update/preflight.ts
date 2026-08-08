@@ -583,7 +583,7 @@ export async function installUpdate(
   source: InstallSource,
   version: string,
   platform: NodeJS.Platform,
-): Promise<void> {
+): Promise<InstallVerification> {
   const { cmd, args, env } = spawnForSource(source, version, platform);
   await new Promise<void>((resolve, reject) => {
     const child = spawn(cmd, [...args], {
@@ -605,6 +605,9 @@ export async function installUpdate(
   // installer gets, instead of printing "Updated …" over an unchanged binary.
   const verification = await verifyInstalledVersion(source, version);
   if (!verification.ok) throw new Error(verification.reason);
+  // Returned so the caller can record *why* a success is unproven; see
+  // verify-install.ts for the fail-open rule.
+  return verification;
 }
 
 /** Keep the tail only: installers can be chatty, and the state file is small. */
@@ -1449,7 +1452,7 @@ export async function runUpdatePreflight(
     if (lock === null) return 'continue';
 
     try {
-      await installUpdate(source, userVisibleTarget.version, platform);
+      const verification = await installUpdate(source, userVisibleTarget.version, platform);
       await writeUpdateInstallState({
         ...installState,
         active: null,
@@ -1458,6 +1461,7 @@ export async function runUpdatePreflight(
           version: userVisibleTarget.version,
           installedAt: nowIso(),
           notifiedAt: null,
+          unverified: verification.ok ? verification.unverified : undefined,
         },
       }).catch(() => {});
       stdout.write(renderInstallSuccessMessage(userVisibleTarget));

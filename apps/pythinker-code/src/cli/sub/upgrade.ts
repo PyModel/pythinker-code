@@ -13,6 +13,7 @@ import {
 } from '#/cli/update/install-state';
 import { isTargetInstallable, selectUpdateTarget } from '#/cli/update/select';
 import { detectInstallSource } from '#/cli/update/source';
+import type { InstallVerification } from '#/cli/update/verify-install';
 import {
   canAutoInstall,
   installCommandFor,
@@ -47,7 +48,7 @@ export interface UpgradeDeps {
     source: InstallSource,
     version: string,
     platform: NodeJS.Platform,
-  ) => Promise<void>;
+  ) => Promise<InstallVerification>;
   readonly promptForInstallChoice: (
     options: InstallPromptOptions,
   ) => Promise<InstallPromptChoiceValue>;
@@ -180,7 +181,7 @@ export async function handleUpgrade(
       target_version: target.version,
       source,
     });
-    await deps.installUpdate(source, target.version, deps.platform);
+    const verification = await deps.installUpdate(source, target.version, deps.platform);
     await deps.writeUpdateInstallState({
       ...installState,
       active: null,
@@ -189,6 +190,7 @@ export async function handleUpgrade(
         version: target.version,
         installedAt: nowIso(),
         notifiedAt: null,
+        unverified: verification.ok ? verification.unverified : undefined,
       },
     }).catch(() => {});
     trackUpgradeEvent(deps.track, 'upgrade_command_succeeded', {
