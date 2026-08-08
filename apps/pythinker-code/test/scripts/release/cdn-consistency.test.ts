@@ -49,6 +49,13 @@ describe('compareRelease', () => {
     expect(compareRelease(parse('0.12.1'), parse('0.12.2'))).toBeLessThan(0);
     expect(compareRelease(parse('0.12.0'), parse('0.12.0'))).toBe(0);
   });
+
+  it('separates identifiers that float arithmetic would round together', () => {
+    const parse = (value: string) => /^(\d+)\.(\d+)\.(\d+)$/u.exec(value) as RegExpExecArray;
+    // 9007199254740992 and 9007199254740993 are the same IEEE-754 double.
+    expect(compareRelease(parse('9007199254740993.0.0'), parse('9007199254740992.0.0'))).toBe(1);
+    expect(compareRelease(parse('0.9007199254740992.0'), parse('0.9007199254740993.0'))).toBe(-1);
+  });
 });
 
 describe('classifyCdnVersion', () => {

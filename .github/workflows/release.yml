@@ -239,6 +239,17 @@ jobs:
             echo "::warning::DOKPLOY_CDN_DEPLOY_WEBHOOK not set — skipping CDN redeploy."
             exit 0
           fi
+          # The URL is itself the deploy credential, so never send it over a
+          # scheme that puts it on the wire in cleartext. Warn rather than fail:
+          # verify-cdn-release runs only if this job succeeds, and failing here
+          # would drop the consistency gate instead of tripping it.
+          case "$WEBHOOK" in
+            https://*) ;;
+            *)
+              echo "::warning::DOKPLOY_CDN_DEPLOY_WEBHOOK is not an https:// URL — refusing to send the deploy credential in cleartext."
+              exit 0
+              ;;
+          esac
           # The webhook matches the branch from the request body: a bare POST
           # answers 301 {"message":"Branch Not Match"} and deploys nothing.
           #
@@ -246,8 +257,10 @@ jobs:
           # published by now and that is irreversible, so dying here buys
           # nothing — an earlier version of this job was deleted because a
           # curl exit-28 timeout failed the 0.5.0 release. verify-cdn-release
-          # polls the manifest and is the gate that fails loudly.
-          curl -sS -X POST "$WEBHOOK" \
+          # polls the manifest and is the gate that fails loudly. `--fail` is
+          # what makes an HTTP error status reach the retries and the warning
+          # instead of exiting 0 and reading as a successful deploy.
+          curl -sS --fail -X POST "$WEBHOOK" \
             -H 'Content-Type: application/json' \
             -d '{"ref":"refs/heads/main"}' \
             --retry 3 --retry-all-errors --retry-delay 10 --max-time 60 \

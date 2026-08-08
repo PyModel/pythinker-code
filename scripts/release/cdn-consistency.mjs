@@ -15,11 +15,18 @@
 /** Stable release semver. The CDN manifest never advertises a prerelease. */
 const RELEASE_SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u;
 
-/** Numeric major/minor/patch compare over two RELEASE_SEMVER matches. */
+/**
+ * Numeric major/minor/patch compare over two RELEASE_SEMVER matches.
+ *
+ * BigInt rather than Number: semver puts no ceiling on an identifier, and two
+ * distinct versions past 2^53 would round to the same float and compare equal —
+ * reporting a stale or impossible CDN as a match.
+ */
 export function compareRelease(left, right) {
   for (let index = 1; index <= 3; index += 1) {
-    const diff = Number(left[index]) - Number(right[index]);
-    if (diff !== 0) return diff;
+    const a = BigInt(left[index]);
+    const b = BigInt(right[index]);
+    if (a !== b) return a < b ? -1 : 1;
   }
   return 0;
 }

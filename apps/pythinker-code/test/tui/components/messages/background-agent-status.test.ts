@@ -64,8 +64,8 @@ describe('BackgroundAgentStatusComponent', () => {
     const previousLevel = chalk.level;
     chalk.level = 3;
     try {
-      const startedLine = started.render(120)[1] ?? '';
-      const completedLine = completed.render(120)[1] ?? '';
+      const startedLine = started.render(120).join('\n');
+      const completedLine = completed.render(120).join('\n');
 
       // A running task is ambient: dim dot, dim wording, no accent colour.
       expect(startedLine).toContain(currentTheme.fg('textDim', STATUS_BULLET));
