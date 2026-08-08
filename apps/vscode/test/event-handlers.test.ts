@@ -8,7 +8,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useChatStore } from "../webview-ui/src/stores/chat.store";
 import { useApprovalStore } from "../webview-ui/src/stores/approval.store";
-import { deriveWorkflowLanes, maxLaneStepCount } from "../webview-ui/src/lib/workflow-lanes";
+import { abandonedLanes, deriveWorkflowLanes, isLaneSettled } from "../webview-ui/src/lib/workflow-lanes";
 import type { UIStepItem } from "../webview-ui/src/stores/chat.store";
 
 const boundary = vi.hoisted(() => ({
@@ -299,7 +299,7 @@ describe("Webview DynamicWorkflow per-agent lanes", () => {
 });
 
 describe("workflow lane derivation", () => {
-  it("groups steps by agent, orders lanes by agentIndex, and sizes the bar to the busiest lane", () => {
+  it("groups steps by agent and orders lanes by agentIndex", () => {
     const steps = [
       { n: 1, items: [], agentId: "b", agentLabel: "explore", agentIndex: 2 },
       { n: 1, items: [], agentId: "a", agentLabel: "explore", agentIndex: 1 },
@@ -315,7 +315,31 @@ describe("workflow lane derivation", () => {
 
     expect(lanes.map((l) => l.agentId)).toEqual(["a", "b", "c"]);
     expect(lanes.map((l) => l.stepCount)).toEqual([2, 1, 0]);
-    expect(maxLaneStepCount(lanes)).toBe(2);
+    expect(lanes.map((l) => l.status)).toEqual(["done", "running", "spawned"]);
+  });
+
+  it("calls no lane abandoned while the workflow is still going", () => {
+    const lanes = [
+      { status: "running" as const },
+      { status: "spawned" as const },
+      { status: "done" as const },
+    ];
+
+    expect(abandonedLanes(lanes as never, false)).toEqual([]);
+  });
+
+  it("reports the lanes a finished workflow never got a result from", () => {
+    const lanes = [
+      { agentId: "a", status: "done" as const },
+      { agentId: "b", status: "failed" as const },
+      // The workflow returned while this one still read as running: it was
+      // cancelled, or the turn ended under it.
+      { agentId: "c", status: "running" as const },
+      { agentId: "d", status: "spawned" as const },
+    ];
+
+    expect(abandonedLanes(lanes as never, true).map((l) => l.agentId)).toEqual(["c", "d"]);
+    expect(lanes.filter((l) => isLaneSettled(l)).map((l) => l.agentId)).toEqual(["a", "b"]);
   });
 });
 
