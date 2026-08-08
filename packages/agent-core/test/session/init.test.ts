@@ -1259,10 +1259,16 @@ describe('AgentAPI.startBtw', () => {
 
       // The tool reads the registry as it runs, so the reload is all it needs
       // to reach a skill written after the session opened.
-      expect(main.tools.loopTools.map((tool) => tool.name)).toContain('Skill');
-      expect(
-        (await session.listSkills()).map((skill) => skill.name),
-      ).toContain('audit-routes');
+      const skill = main.tools.loopTools.find((tool) => tool.name === 'Skill');
+      expect(skill).toBeDefined();
+      const result = await executeTool(skill!, {
+        turnId: '0',
+        toolCallId: 'call_skill',
+        args: { skill: 'audit-routes' },
+        signal: new AbortController().signal,
+      });
+      expect(result.isError).not.toBe(true);
+      expect(JSON.stringify(result.output)).toContain('audit-routes');
       expect(setActiveTools).not.toHaveBeenCalled();
     } finally {
       await session.close();
