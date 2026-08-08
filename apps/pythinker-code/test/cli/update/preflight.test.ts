@@ -10,7 +10,13 @@ import {
   readUpdateInstallState,
   writeUpdateInstallState,
 } from '#/cli/update/install-state';
-import { canAutoInstall, runUpdatePreflight, spawnForSource, startManualUpdate } from '#/cli/update/preflight';
+import {
+  canAutoInstall,
+  needsShell,
+  runUpdatePreflight,
+  spawnForSource,
+  startManualUpdate,
+} from '#/cli/update/preflight';
 import { promptForInstallChoice } from '#/cli/update/prompt';
 import type * as PromptModule from '#/cli/update/prompt';
 import { refreshUpdateCache } from '#/cli/update/refresh';
@@ -44,6 +50,7 @@ const mocks = vi.hoisted(() => ({
   readJsonFile: vi.fn(),
   writeJsonFile: vi.fn(),
   spawn: vi.fn(),
+  verifyInstalledVersion: vi.fn(),
 }));
 
 vi.mock('../../../src/cli/update/cache', () => ({
@@ -121,6 +128,19 @@ vi.mock('../../../src/cli/update/rollout', async () => {
     resolveUpdateDeviceId: mocks.resolveUpdateDeviceId,
     // Stubbed so preflight tests never write a real rollout.log.
     appendRolloutDecisionLog: mocks.appendRolloutDecisionLog,
+  };
+});
+
+// Post-install verification runs a real probe (a `--version` spawn, or a
+// package.json read) — stubbed here so these tests exercise the reporting,
+// with its own suite in verify-install.test.ts.
+vi.mock('../../../src/cli/update/verify-install', async () => {
+  const actual = await vi.importActual<
+    typeof import('../../../src/cli/update/verify-install.js')
+  >('../../../src/cli/update/verify-install.js');
+  return {
+    ...actual,
+    verifyInstalledVersion: mocks.verifyInstalledVersion,
   };
 });
 
@@ -411,6 +431,7 @@ describe('runUpdatePreflight', () => {
     mocks.loadTuiConfig.mockResolvedValue(tuiConfig());
     mocks.resolveUpdateDeviceId.mockReturnValue('test-device');
     mocks.appendRolloutDecisionLog.mockResolvedValue(undefined);
+    mocks.verifyInstalledVersion.mockResolvedValue({ ok: true });
     mocks.tryAcquireUpdateInstallLock.mockResolvedValue({
       filePath: '/tmp/pythinker-update-install.lock',
       release: vi.fn().mockResolvedValue(undefined),
@@ -462,7 +483,7 @@ describe('runUpdatePreflight', () => {
     expect(mocks.spawn).toHaveBeenCalledWith(
       expect.stringMatching(/^npm(\.cmd)?$/),
       ['install', '-g', '@pythoughts/pythinker-code@0.5.0'],
-      { detached: true, windowsHide: false, stdio: ['ignore', 'ignore', 'pipe'] },
+      { detached: true, windowsHide: false, shell: false, stdio: ['ignore', 'ignore', 'pipe'] },
     );
   });
 
@@ -527,7 +548,7 @@ describe('runUpdatePreflight', () => {
     expect(mocks.spawn).toHaveBeenCalledWith(
       expect.stringMatching(/^npm(\.cmd)?$/),
       ['install', '-g', '@pythoughts/pythinker-code@0.5.0'],
-      { stdio: 'inherit' },
+      { stdio: 'inherit', shell: false },
     );
     expect(stdout.join('')).toContain('Updated @pythoughts/pythinker-code to 0.5.0');
   });
@@ -553,7 +574,7 @@ describe('runUpdatePreflight', () => {
     expect(mocks.spawn).toHaveBeenCalledWith(
       expect.stringMatching(/^npm(\.cmd)?$/),
       ['install', '-g', '@pythoughts/pythinker-code@0.7.0'],
-      { stdio: 'inherit' },
+      { stdio: 'inherit', shell: false },
     );
     expect(stdout.join('')).toContain('Updated @pythoughts/pythinker-code to 0.7.0');
   });
@@ -598,7 +619,7 @@ describe('runUpdatePreflight', () => {
     expect(mocks.spawn).toHaveBeenCalledWith(
       expect.stringMatching(/^npm(\.cmd)?$/u),
       ['install', '-g', '@pythoughts/pythinker-code@0.11.0'],
-      { detached: true, windowsHide: false, stdio: ['ignore', 'ignore', 'pipe'] },
+      { detached: true, windowsHide: false, shell: false, stdio: ['ignore', 'ignore', 'pipe'] },
     );
     expect(mocks.spawn).not.toHaveBeenCalledWith(
       expect.stringMatching(/^npm(\.cmd)?$/u),
@@ -635,7 +656,7 @@ describe('runUpdatePreflight', () => {
     expect(mocks.spawn).toHaveBeenCalledWith(
       expect.stringMatching(/^npm(\.cmd)?$/u),
       ['install', '-g', '@pythoughts/pythinker-code@0.10.0'],
-      { detached: true, windowsHide: false, stdio: ['ignore', 'ignore', 'pipe'] },
+      { detached: true, windowsHide: false, shell: false, stdio: ['ignore', 'ignore', 'pipe'] },
     );
   });
 
@@ -657,7 +678,7 @@ describe('runUpdatePreflight', () => {
       expect(mocks.spawn).toHaveBeenCalledWith(
         expect.stringMatching(/^npm(\.cmd)?$/u),
         ['install', '-g', '@pythoughts/pythinker-code@0.10.0'],
-        { detached: true, windowsHide: false, stdio: ['ignore', 'ignore', 'pipe'] },
+        { detached: true, windowsHide: false, shell: false, stdio: ['ignore', 'ignore', 'pipe'] },
       );
     } finally {
       vi.useRealTimers();
@@ -708,7 +729,7 @@ describe('runUpdatePreflight', () => {
     expect(mocks.spawn).toHaveBeenCalledWith(
       expect.stringMatching(/^pnpm(\.cmd)?$/),
       ['add', '-g', '@pythoughts/pythinker-code@0.5.0'],
-      { stdio: 'inherit' },
+      { stdio: 'inherit', shell: false },
     );
   });
 
@@ -724,7 +745,7 @@ describe('runUpdatePreflight', () => {
     expect(mocks.spawn).toHaveBeenCalledWith(
       expect.stringMatching(/^yarn(\.cmd)?$/),
       ['global', 'add', '@pythoughts/pythinker-code@0.5.0'],
-      { stdio: 'inherit' },
+      { stdio: 'inherit', shell: false },
     );
   });
 
@@ -740,7 +761,7 @@ describe('runUpdatePreflight', () => {
     expect(mocks.spawn).toHaveBeenCalledWith(
       expect.stringMatching(/^bun(\.exe)?$/),
       ['add', '-g', '@pythoughts/pythinker-code@0.5.0'],
-      { stdio: 'inherit' },
+      { stdio: 'inherit', shell: false },
     );
   });
 
@@ -802,7 +823,7 @@ describe('runUpdatePreflight', () => {
       await runUpdatePreflight('0.4.0', options);
       const call = mocks.spawn.mock.calls[0];
       expect(call?.[0]).toBe('bash');
-      expect(call?.[2]).toEqual({ stdio: 'inherit' });
+      expect(call?.[2]).toEqual({ stdio: 'inherit', shell: false });
       const [flag, script] = call?.[1] as string[];
       expect(flag).toBe('-c');
       // pipefail must come before the pipeline so a failed `curl` is not masked
@@ -843,6 +864,8 @@ describe('runUpdatePreflight', () => {
         {
           detached: true,
           windowsHide: true,
+          // powershell.exe is a real executable: no shell wrapper needed.
+          shell: false,
           stdio: ['ignore', 'ignore', 'pipe'],
           env: expect.objectContaining({ PYTHINKER_VERSION: '0.5.0' }),
         },
@@ -903,7 +926,7 @@ describe('runUpdatePreflight', () => {
     expect(mocks.spawn).toHaveBeenCalledWith(
       expect.stringMatching(/^npm(\.cmd)?$/u),
       ['install', '-g', '@pythoughts/pythinker-code@0.5.0'],
-      { stdio: 'inherit' },
+      { stdio: 'inherit', shell: false },
     );
   });
 
@@ -1051,7 +1074,7 @@ describe('runUpdatePreflight', () => {
     expect(mocks.spawn).toHaveBeenCalledWith(
       expect.stringMatching(/^npm(\.cmd)?$/),
       ['install', '-g', '@pythoughts/pythinker-code@0.5.0'],
-      { detached: true, windowsHide: false, stdio: ['ignore', 'ignore', 'pipe'] },
+      { detached: true, windowsHide: false, shell: false, stdio: ['ignore', 'ignore', 'pipe'] },
     );
     expect(writeUpdateInstallState).toHaveBeenCalledWith(expect.objectContaining({
       active: expect.objectContaining({
@@ -1195,7 +1218,7 @@ describe('runUpdatePreflight', () => {
     expect(mocks.spawn).toHaveBeenCalledWith(
       expect.stringMatching(/^npm(\.cmd)?$/u),
       ['install', '-g', '@pythoughts/pythinker-code@0.6.0'],
-      { detached: true, windowsHide: false, stdio: ['ignore', 'ignore', 'pipe'] },
+      { detached: true, windowsHide: false, shell: false, stdio: ['ignore', 'ignore', 'pipe'] },
     );
   });
 
@@ -1258,7 +1281,7 @@ describe('runUpdatePreflight', () => {
     expect(mocks.spawn).toHaveBeenCalledWith(
       expect.stringMatching(/^npm(\.cmd)?$/),
       ['install', '-g', '@pythoughts/pythinker-code@0.6.0'],
-      { detached: true, windowsHide: false, stdio: ['ignore', 'ignore', 'pipe'] },
+      { detached: true, windowsHide: false, shell: false, stdio: ['ignore', 'ignore', 'pipe'] },
     );
   });
 
@@ -1282,7 +1305,7 @@ describe('runUpdatePreflight', () => {
     expect(mocks.spawn).toHaveBeenCalledWith(
       expect.stringMatching(/^npm(\.cmd)?$/),
       ['install', '-g', '@pythoughts/pythinker-code@0.6.0'],
-      { detached: true, windowsHide: false, stdio: ['ignore', 'ignore', 'pipe'] },
+      { detached: true, windowsHide: false, shell: false, stdio: ['ignore', 'ignore', 'pipe'] },
     );
   });
 
@@ -1351,7 +1374,7 @@ describe('runUpdatePreflight', () => {
     expect(mocks.spawn).toHaveBeenCalledWith(
       expect.stringMatching(/^npm(\.cmd)?$/),
       ['install', '-g', '@pythoughts/pythinker-code@0.6.0'],
-      { detached: true, windowsHide: false, stdio: ['ignore', 'ignore', 'pipe'] },
+      { detached: true, windowsHide: false, shell: false, stdio: ['ignore', 'ignore', 'pipe'] },
     );
   });
 
@@ -1388,6 +1411,53 @@ describe('runUpdatePreflight', () => {
       .toBeLessThan(release.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY);
   });
 
+  it('records a failure when the installer exits 0 without installing the target', async () => {
+    // The Windows report this exists for: install.ps1 exited 0 repeatedly
+    // while the executable on disk stayed on the old version, so the footer
+    // advertised "restart to apply" for a version that never ran.
+    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.readUpdateInstallState.mockResolvedValue(installState());
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.detectInstallSource.mockResolvedValue('native');
+    mocks.verifyInstalledVersion.mockResolvedValue({
+      ok: false,
+      reason: 'the installer reported success but /bin/pythinker still reports 0.4.0 (expected 0.5.0)',
+    });
+    mockSpawnExit(0);
+    const { options } = captureOutput();
+
+    await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
+    await flushBackgroundInstall();
+
+    expect(mocks.verifyInstalledVersion).toHaveBeenCalledWith('native', '0.5.0');
+    expect(successOutcomeStates()).toHaveLength(0);
+    expect(writeUpdateInstallState).toHaveBeenLastCalledWith(expect.objectContaining({
+      active: null,
+      lastFailure: expect.objectContaining({
+        version: '0.5.0',
+        attempts: 1,
+        message: expect.stringContaining('still reports 0.4.0'),
+      }),
+    }));
+  });
+
+  it('does not verify an install the installer already reported as failed', async () => {
+    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.readUpdateInstallState.mockResolvedValue(installState());
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.detectInstallSource.mockResolvedValue('native');
+    mockSpawnExit(1);
+    const { options } = captureOutput();
+
+    await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
+    await flushBackgroundInstall();
+
+    expect(mocks.verifyInstalledVersion).not.toHaveBeenCalled();
+    expect(writeUpdateInstallState).toHaveBeenLastCalledWith(expect.objectContaining({
+      lastFailure: expect.objectContaining({ version: '0.5.0' }),
+    }));
+  });
+
   it('keeps the install lock until a delayed terminal state write completes', async () => {
     mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
     mocks.readUpdateInstallState.mockResolvedValue(installState());
@@ -1420,7 +1490,9 @@ describe('runUpdatePreflight', () => {
 
     await expect(runUpdatePreflight('0.4.0', first.options)).resolves.toBe('continue');
     child.emit('exit', 0, null);
-    await Promise.resolve();
+    // The finalizer verifies the installed version before it writes the
+    // outcome, so the terminal write is more than one microtask away.
+    await flushBackgroundInstall();
 
     expect(terminalWriteStarted).toBe(true);
     expect(held).toBe(true);
@@ -1504,7 +1576,7 @@ describe('runUpdatePreflight', () => {
     expect(mocks.spawn).toHaveBeenCalledWith(
       expect.stringMatching(/^npm(\.cmd)?$/),
       ['install', '-g', '@pythoughts/pythinker-code@0.5.0'],
-      { detached: true, windowsHide: false, stdio: ['ignore', 'ignore', 'pipe'] },
+      { detached: true, windowsHide: false, shell: false, stdio: ['ignore', 'ignore', 'pipe'] },
     );
   });
 
@@ -1870,7 +1942,7 @@ describe('runUpdatePreflight', () => {
       expect(mocks.spawn).toHaveBeenCalledWith(
         expect.stringMatching(/^npm(\.cmd)?$/),
         ['install', '-g', '@pythoughts/pythinker-code@0.5.0'],
-        { detached: true, windowsHide: false, stdio: ['ignore', 'ignore', 'pipe'] },
+        { detached: true, windowsHide: false, shell: false, stdio: ['ignore', 'ignore', 'pipe'] },
       );
       expect(track).toHaveBeenCalledWith('update_background_install_started', expect.objectContaining({
         target_version: '0.5.0',
@@ -1996,7 +2068,7 @@ describe('runUpdatePreflight', () => {
       expect(mocks.spawn).toHaveBeenCalledWith(
         expect.stringMatching(/^npm(\.cmd)?$/),
         ['install', '-g', '@pythoughts/pythinker-code@0.5.0'],
-        { detached: true, windowsHide: false, stdio: ['ignore', 'ignore', 'pipe'] },
+        { detached: true, windowsHide: false, shell: false, stdio: ['ignore', 'ignore', 'pipe'] },
       );
       expect(track).toHaveBeenCalledWith('update_background_install_started', expect.objectContaining({
         target_version: '0.5.0',
@@ -2332,6 +2404,30 @@ describe('spawnForSource native', () => {
   });
 });
 
+describe('needsShell', () => {
+  // Node >=18.20/20.12 refuses to spawn a .cmd without a shell
+  // (CVE-2024-27980), which is every npm-family update on Windows.
+  it('is true for the Windows package-manager shims', () => {
+    expect(needsShell('npm.cmd', 'win32')).toBe(true);
+    expect(needsShell('pnpm.cmd', 'win32')).toBe(true);
+    expect(needsShell('YARN.CMD', 'win32')).toBe(true);
+  });
+
+  it('is false for real executables and for every other platform', () => {
+    expect(needsShell('powershell.exe', 'win32')).toBe(false);
+    expect(needsShell('bun.exe', 'win32')).toBe(false);
+    expect(needsShell('npm.cmd', 'darwin')).toBe(false);
+    expect(needsShell('npm', 'linux')).toBe(false);
+  });
+
+  it('matches the command spawnForSource picks for each npm-family source', () => {
+    for (const source of ['npm-global', 'pnpm-global', 'yarn-global'] as const) {
+      expect(needsShell(spawnForSource(source, '0.5.0', 'win32').cmd, 'win32')).toBe(true);
+    }
+    expect(needsShell(spawnForSource('bun-global', '0.5.0', 'win32').cmd, 'win32')).toBe(false);
+  });
+});
+
 describe('canAutoInstall native', () => {
   it('is true on win32 (rename-aside replace no longer needs the platform gate)', () => {
     expect(canAutoInstall('native', 'win32')).toBe(true);
@@ -2352,6 +2448,7 @@ describe('startManualUpdate', () => {
     mocks.loadTuiConfig.mockResolvedValue(tuiConfig());
     mocks.resolveUpdateDeviceId.mockReturnValue('test-device');
     mocks.appendRolloutDecisionLog.mockResolvedValue(undefined);
+    mocks.verifyInstalledVersion.mockResolvedValue({ ok: true });
     mocks.tryAcquireUpdateInstallLock.mockResolvedValue({
       filePath: '/tmp/pythinker-update-install.lock',
       release: vi.fn().mockResolvedValue(undefined),

@@ -76,9 +76,21 @@ function npmCommand(platform: NodeJS.Platform): string {
   return platform === 'win32' ? 'npm.cmd' : 'npm';
 }
 
-function execFileText(command: string, args: readonly string[]): Promise<string> {
+function execFileText(
+  command: string,
+  args: readonly string[],
+  platform: NodeJS.Platform = process.platform,
+): Promise<string> {
   return new Promise((resolveOutput, reject) => {
-    execFile(command, [...args], { encoding: 'utf-8' }, (error, stdout) => {
+    // `npm.cmd` cannot be spawned without a shell on Node ≥18.20/20.12
+    // (CVE-2024-27980); without this the npm prefix lookup fails with EINVAL
+    // and every npm-family Windows install classifies as `unsupported`.
+    const options = {
+      encoding: 'utf-8',
+      shell: platform === 'win32' && command.toLowerCase().endsWith('.cmd'),
+      windowsHide: true,
+    } as const;
+    execFile(command, [...args], options, (error, stdout) => {
       if (error) {
         reject(error);
         return;
@@ -140,14 +152,22 @@ export async function detectInstallSource(
     getPackageRoot: deps.getPackageRoot ?? getHostPackageRoot,
     getGlobalPrefix:
       deps.getGlobalPrefix ??
-      (() => execFileText(npmCommand(platform), ['prefix', '-g']).then((text) => text.trim())),
+      (() =>
+        execFileText(npmCommand(platform), ['prefix', '-g'], platform).then((text) => text.trim())),
     detectNative: deps.detectNative ?? detectNativeInstall,
     platform,
   };
 
   if (resolved.detectNative()) return 'native';
 
-  const packageRoot = resolved.getPackageRoot();
+  // A layout with no reachable `package.json` cannot be classified, and this
+  // runs on every launch — it reports "unsupported" rather than throwing.
+  let packageRoot: string;
+  try {
+    packageRoot = resolved.getPackageRoot();
+  } catch {
+    return 'unsupported';
+  }
   const heuristic = classifyByPathHeuristic(packageRoot);
   if (heuristic !== null) return heuristic;
 

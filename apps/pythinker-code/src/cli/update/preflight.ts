@@ -56,8 +56,12 @@ import {
   type UpdateRequestOrigin,
   type UpdateTarget,
 } from './types';
+import { verifyInstalledVersion, type InstallVerification } from './verify-install';
 
 export type { UpdatePreflightResult } from './types';
+
+/** Reused for the paths that never reach verification (a failed install). */
+const OK_VERIFICATION: InstallVerification = { ok: true };
 
 export interface RunUpdatePreflightOptions {
   readonly stdout?: { write(chunk: string): boolean };
@@ -79,6 +83,19 @@ function withCmdSuffix(base: string, platform: NodeJS.Platform): string {
 
 function bunCommand(platform: NodeJS.Platform): string {
   return platform === 'win32' ? 'bun.exe' : 'bun';
+}
+
+/**
+ * Node ≥18.20/20.12 refuses to spawn a `.cmd`/`.bat` file without a shell
+ * (CVE-2024-27980) and fails with `EINVAL`, which is every npm-family update
+ * on Windows: `npm.cmd`, `pnpm.cmd`, `yarn.cmd`. Only the package manager
+ * wrappers need it — the arguments are a fixed flag list plus
+ * `<package>@<semver>`, so nothing here reaches the shell as data.
+ */
+export function needsShell(cmd: string, platform: NodeJS.Platform): boolean {
+  if (platform !== 'win32') return false;
+  const lower = cmd.toLowerCase();
+  return lower.endsWith('.cmd') || lower.endsWith('.bat');
 }
 
 export function installCommandFor(
@@ -548,6 +565,7 @@ export async function installUpdate(
   await new Promise<void>((resolve, reject) => {
     const child = spawn(cmd, [...args], {
       stdio: 'inherit',
+      shell: needsShell(cmd, platform),
       env: env === undefined ? undefined : { ...process.env, ...env },
     });
     child.once('error', reject);
@@ -560,6 +578,11 @@ export async function installUpdate(
       reject(new Error(`${cmd} exited with ${detail}`));
     });
   });
+  // Exit code 0 is the installer's opinion; this is the fact. Rejecting here
+  // routes a silent no-op install into the same failure reporting a crashed
+  // installer gets, instead of printing "Updated …" over an unchanged binary.
+  const verification = await verifyInstalledVersion(source, version);
+  if (!verification.ok) throw new Error(verification.reason);
 }
 
 /** Keep the tail only: installers can be chatty, and the state file is small. */
@@ -861,11 +884,19 @@ async function startBackgroundInstall(
       // `settled` already stops new progress writes; drain the ones in flight so
       // none of them renames over the outcome below.
       await progressWrites;
+      // An installer that exits 0 without replacing the binary must not be
+      // recorded as a success: the footer would advertise "restart to apply"
+      // for a version that never runs, on every launch, forever.
+      const verification = succeeded
+        ? await verifyInstalledVersion(source, target.version)
+        : OK_VERIFICATION;
+      const installed = succeeded && verification.ok;
+      const outcomeReason = verification.ok ? reason : verification.reason;
       const attempts = failureAttemptsFor(startedState, target, 'install') + 1;
       const stderrTail = readStderrTail();
-      const message = stderrTail === undefined ? reason : `${reason}: ${stderrTail}`;
+      const message = stderrTail === undefined ? outcomeReason : `${outcomeReason}: ${stderrTail}`;
 
-      const nextState: UpdateInstallState = succeeded
+      const nextState: UpdateInstallState = installed
         ? {
           ...startedState,
           active: null,
@@ -889,7 +920,7 @@ async function startBackgroundInstall(
         };
       try {
         await writeUpdateInstallState(nextState).catch(() => {});
-        if (succeeded) {
+        if (installed) {
           trackUpdateEvent(track, 'update_background_install_succeeded', {
             target_version: target.version,
             source,
@@ -921,6 +952,7 @@ async function startBackgroundInstall(
       // A detached child gets its own console window on Windows regardless
       // of stdio; stdio: 'ignore' alone does not suppress it.
       windowsHide: platform === 'win32',
+      shell: needsShell(cmd, platform),
       // stdout stays discarded (install progress is noise); stderr is piped so
       // the installer's machine-readable progress lines can be recorded and a
       // failure still keeps the installer's own error text.

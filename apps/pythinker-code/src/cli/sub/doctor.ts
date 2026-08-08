@@ -24,7 +24,7 @@ import {
 } from '#/cli/update/preflight';
 import { detectInstallSource } from '#/cli/update/source';
 import type { UpdateInstallFailure } from '#/cli/update/types';
-import { getHostPackageRoot, getVersion } from '#/cli/version';
+import { findHostPackageRoot, getVersion } from '#/cli/version';
 import { getUpdateInstallLogFile } from '#/utils/paths';
 
 interface WritableLike {
@@ -50,7 +50,8 @@ export interface DoctorDeps {
 export interface DoctorRuntimeInfo {
   readonly version: string;
   readonly installSource: string;
-  readonly packageRoot: string;
+  /** Absent on a native binary: a packaged install has no `package.json`. */
+  readonly packageRoot?: string;
   readonly executable: string;
   readonly installations?: readonly string[];
   readonly ripgrep?: RgResolution;
@@ -62,6 +63,7 @@ export interface DoctorRuntimeInfo {
     readonly pendingVersion?: string;
     readonly pendingRequestedBy?: 'automatic' | 'manual';
     readonly activeOperation?: string;
+    readonly lastSuccess?: string;
     readonly lastFailure?: string;
     readonly logPath?: string;
   };
@@ -191,7 +193,7 @@ function resolveDeps(deps: Partial<DoctorDeps> | DoctorDeps | undefined): Resolv
         return {
           version: getVersion(),
           installSource,
-          packageRoot: getHostPackageRoot(),
+          packageRoot: findHostPackageRoot() ?? undefined,
           executable: process.execPath,
           installations,
           ripgrep,
@@ -206,6 +208,11 @@ function resolveDeps(deps: Partial<DoctorDeps> | DoctorDeps | undefined): Resolv
               installState.active === null
                 ? undefined
                 : `${installState.active.operation ?? 'install'} ${installState.active.version}`,
+            lastSuccess:
+              installState.lastSuccess === null
+                ? undefined
+                : `${installState.lastSuccess.version} (installed ` +
+                  `${installState.lastSuccess.installedAt})`,
             lastFailure:
               installState.lastFailure === null
                 ? undefined
@@ -387,7 +394,7 @@ function formatRuntimeInfo(info: DoctorRuntimeInfo | undefined): string[] {
     'Runtime',
     `  Version: ${info.version}`,
     `  Install source: ${info.installSource}`,
-    `  Package root: ${info.packageRoot}`,
+    ...(info.packageRoot === undefined ? [] : [`  Package root: ${info.packageRoot}`]),
     `  Executable: ${info.executable}`,
     ...(installations.length > 1
       ? [
@@ -414,6 +421,9 @@ function formatRuntimeInfo(info: DoctorRuntimeInfo | undefined): string[] {
           ...(info.update.activeOperation === undefined
             ? []
             : [`  Update operation: ${info.update.activeOperation}`]),
+          ...(info.update.lastSuccess === undefined
+            ? []
+            : [`  Last update success: ${info.update.lastSuccess}`]),
           ...(info.update.lastFailure === undefined
             ? []
             : [`  Last update failure: ${info.update.lastFailure}`]),

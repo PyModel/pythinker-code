@@ -85,6 +85,22 @@ describe('classifyInstallSource (npm prefix matching)', () => {
 });
 
 describe('detectInstallSource', () => {
+  // Every launch calls this. A layout with no reachable package.json used to
+  // throw out of the preflight instead of classifying as unsupported.
+  it('returns unsupported when the package root cannot be resolved', async () => {
+    await expect(
+      detectInstallSource({
+        getPackageRoot: () => {
+          throw new Error('Could not locate package.json near /opt/pythinker');
+        },
+        getGlobalPrefix: async () => '/usr/local',
+        detectNative: () => false,
+        platform: 'linux',
+      }),
+    ).resolves.toBe('unsupported');
+  });
+
+
   it('returns pnpm-global when packageRoot matches pnpm heuristic', async () => {
     await expect(
       detectInstallSource({
