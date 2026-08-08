@@ -57,7 +57,7 @@
 
 - [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Accept a provider's plain id for `--provider` at login, so a catalog provider no longer has to be named by its full display name, and stop a cancelled OpenAI Codex sign-in from holding the process open for the rest of its two-minute callback timeout. In the editor extension, signing in now shows one cancellable progress notification, a repeated sign-in joins the one already running instead of opening a second set of prompts, and a completed sign-in is no longer reported as failed when the status refresh behind it fails.
 
-- [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Save the thinking-effort level picked during login. Only an on/off flag was stored, so choosing low, medium, or xhigh reopened the session at high, and an OpenAI Codex login reopened at the model's maximum effort regardless of the choice.
+- [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Save the thinking-effort level picked during login. Only an on/off flag was stored, so choosing `low`, `medium`, or `xhigh` reopened the session at `high`, and an OpenAI Codex login reopened at the model's maximum effort regardless of the choice.
 
 - [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Write the thinking effort picked at login to disk. The apply step recorded the level, but the patch that saved the result listed everything except it, so an API-key login still reopened at the default effort. Choosing `off` now also clears a level a previous login left behind, which a patch that only merges could not do by omitting the key.
 
@@ -127,7 +127,7 @@
 
 - [`c0f0976`](https://github.com/Pythoughts-labs/pythinker-code/commit/c0f09769e76c92002ca9b9a09d9cb820750f1046) - Remove the Pythinker Datasource plugin from the marketplace; its data gateway backend is not available, so every datasource query failed.
 
-- [`c0f0976`](https://github.com/Pythoughts-labs/pythinker-code/commit/c0f09769e76c92002ca9b9a09d9cb820750f1046) - Enable automatic updates for native installs on Windows: /update now installs the new version in the background instead of printing a manual command, and the installer safely replaces the running executable.
+- [`c0f0976`](https://github.com/Pythoughts-labs/pythinker-code/commit/c0f09769e76c92002ca9b9a09d9cb820750f1046) - Enable automatic updates for native installs on Windows: `/update` now installs the new version in the background instead of printing a manual command, and the installer safely replaces the running executable.
 
 ### Patch Changes
 

@@ -124,6 +124,7 @@ export class Agent {
   readonly type: AgentType;
   private _kaos: Kaos;
   private additionalDirectories: readonly string[];
+  private _activeProfile: ResolvedAgentProfile | undefined;
 
   get kaos(): Kaos {
     return this._kaos;
@@ -327,6 +328,53 @@ export class Agent {
     context?: PreparedSystemPromptContext,
     outputStyle?: Pick<OutputStyleConfig, 'name' | 'prompt' | 'keepCodingInstructions'>,
   ): void {
+    this._activeProfile = profile;
+    this.config.update({
+      profileName: profile.name,
+      systemPrompt: this.renderSystemPrompt(profile, context, outputStyle),
+      maxStepsPerTurn: profile.maxTurns,
+    });
+    this.tools.setActiveTools(
+      context?.agentMemoryPrompt === undefined
+        ? profile.tools
+        : [...new Set([...profile.tools, 'Read', 'Write', 'Edit'])],
+    );
+  }
+
+  /** The profile whose render produced the current system prompt, if any. */
+  get activeProfile(): ResolvedAgentProfile | undefined {
+    return this._activeProfile;
+  }
+
+  /**
+   * Renders the system prompt again and swaps it in, leaving the active tool
+   * set and the turn limit as they are.
+   *
+   * The skill listing is baked into the prompt when the profile is applied, so
+   * a skill discovered later — a saved workflow, an edited `SKILL.md` — stays
+   * invisible to the model until the prompt is rebuilt. Re-applying the whole
+   * profile would rebuild it, but it would also reset the tools of an agent
+   * that is already running.
+   *
+   * Pass the profile the prompt was built from — `activeProfile` — so a main
+   * agent running a non-default profile is not re-rendered as the default one.
+   */
+  refreshSystemPrompt(
+    profile: ResolvedAgentProfile,
+    context?: PreparedSystemPromptContext,
+    outputStyle?: Pick<OutputStyleConfig, 'name' | 'prompt' | 'keepCodingInstructions'>,
+  ): void {
+    this._activeProfile = profile;
+    this.config.update({
+      systemPrompt: this.renderSystemPrompt(profile, context, outputStyle),
+    });
+  }
+
+  private renderSystemPrompt(
+    profile: ResolvedAgentProfile,
+    context?: PreparedSystemPromptContext,
+    outputStyle?: Pick<OutputStyleConfig, 'name' | 'prompt' | 'keepCodingInstructions'>,
+  ): string {
     let profilePrompt = profile.systemPrompt({
       osEnv: this.kaos.osEnv,
       cwd: this.config.cwd,
@@ -341,7 +389,7 @@ export class Agent {
     if (outputStyle !== undefined && outputStyle.keepCodingInstructions !== true) {
       profilePrompt = withoutBundledCodingInstructions(profilePrompt);
     }
-    const systemPrompt = [
+    return [
       profilePrompt,
       context?.agentMemoryPrompt,
       outputStyle === undefined
@@ -350,16 +398,6 @@ export class Agent {
     ]
       .filter((block): block is string => block !== undefined)
       .join('\n\n');
-    this.config.update({
-      profileName: profile.name,
-      systemPrompt,
-      maxStepsPerTurn: profile.maxTurns,
-    });
-    this.tools.setActiveTools(
-      context?.agentMemoryPrompt === undefined
-        ? profile.tools
-        : [...new Set([...profile.tools, 'Read', 'Write', 'Edit'])],
-    );
   }
 
   async resume(): Promise<void> {

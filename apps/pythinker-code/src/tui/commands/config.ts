@@ -1198,15 +1198,18 @@ export async function applyExperimentalFeatureChanges(
     await host.harness.setConfig({ experimental });
     const features = await host.harness.getExperimentalFeatures();
     setExperimentalFeatures(features);
-    await host.refreshSkillCommands(host.session);
     host.restoreEditor();
     if (host.session !== undefined) {
       await host.session.reloadSession();
+      // After the reload, never before: a flag can gate which skills exist, so
+      // rebuilding first read the registry the reload was about to replace.
+      await host.refreshSkillCommands(host.session);
       await host.reloadCurrentSessionView(
         host.session,
         'Experimental features updated. Session reloaded.',
       );
     } else {
+      await host.refreshSkillCommands(undefined);
       host.showStatus('Experimental features updated.', 'success');
     }
     host.track('experimental_features_apply', { changed: changes.length });

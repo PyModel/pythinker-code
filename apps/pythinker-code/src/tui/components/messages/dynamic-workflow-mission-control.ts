@@ -281,7 +281,6 @@ export class DynamicWorkflowMissionControlComponent implements Component {
     const member = this.findMemberByAgentId(input.agentId);
     if (member === undefined || isTerminalPhase(member.phase) || input.delta.length === 0) return;
     this.markStarted(input.agentId);
-    const recordActivity = input.delta.includes('\n') || member.latest.length === 0;
     member.lastEventAtMs = Date.now();
     const combined = `${member.carry}${input.delta}`;
     // Only the text after the last newline is still being written. A delta that
@@ -291,7 +290,21 @@ export class DynamicWorkflowMissionControlComponent implements Component {
     const newlineIndex = combined.lastIndexOf('\n');
     const pending = newlineIndex < 0 ? combined : combined.slice(newlineIndex + 1);
     member.carry = clampLine(pending);
-    this.setLatest(member, clampLine(latestNonEmptyLine(combined)), recordActivity);
+
+    // Every line the delta closed is an event of its own. Recording only the
+    // last one dropped whole lines whenever a provider sent several in one
+    // chunk, so the same agent showed less activity on a batching provider than
+    // on one that streams a token at a time.
+    if (newlineIndex >= 0) {
+      for (const line of combined.slice(0, newlineIndex).split('\n')) {
+        this.setLatest(member, clampLine(line), true);
+      }
+    }
+    // The unclosed tail is shown but is not an event yet — except as the row's
+    // first text, which would otherwise leave the row blank until a newline.
+    if (pending.length > 0) {
+      this.setLatest(member, clampLine(pending), member.latest.length === 0);
+    }
   }
 
   markSuspended(input: {
@@ -1063,14 +1076,6 @@ function isTerminalRequestPhase(phase: DynamicWorkflowRequestPhase): boolean {
 
 function elapsedSeconds(startedAtMs: number, endedAtMs: number): number {
   return Math.floor(Math.max(0, endedAtMs - startedAtMs) / 1_000);
-}
-
-function latestNonEmptyLine(text: string): string {
-  for (const line of text.split(/\r?\n/).toReversed()) {
-    const normalized = normalizeText(line);
-    if (normalized.length > 0) return normalized;
-  }
-  return '';
 }
 
 /**

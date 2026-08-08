@@ -943,6 +943,44 @@ describe('DynamicWorkflowMissionControlComponent', () => {
     expect(line).toContain("I've read the files");
   });
 
+  it('records every line a provider packs into one delta', () => {
+    const component = createComponent();
+    component.updateArgs({ items: ['Work'] });
+    component.markInputComplete();
+    register(component, 'agent-1');
+    component.markStarted('agent-1');
+
+    // A provider that batches sends whole lines at once. Only the last one used
+    // to reach the activity list, so the same run showed less on that provider.
+    component.appendModelDelta({
+      agentId: 'agent-1',
+      delta: 'First line\nSecond line\nThird line\n',
+    });
+
+    const output = renderText(component, 200);
+    expect(output).toContain('First line');
+    expect(output).toContain('Second line');
+    expect(output).toContain('Third line');
+  });
+
+  it('does not report an unfinished line as an event of its own', () => {
+    const component = createComponent();
+    component.updateArgs({ items: ['Work'] });
+    component.markInputComplete();
+    register(component, 'agent-1');
+    component.markStarted('agent-1');
+    component.appendModelDelta({ agentId: 'agent-1', delta: 'Closed line\nstill wri' });
+
+    // The row shows the tail as it arrives, but the activity list only carries
+    // the line the delta actually closed.
+    expect(memberLine(renderText(component, 200), 1)).toContain('still wri');
+    const activity = renderText(component, 200).split('\n').filter(
+      (line) => /^│\s*001 \+/u.test(line),
+    );
+    expect(activity.join('\n')).toContain('Closed line');
+    expect(activity.join('\n')).not.toContain('still wri');
+  });
+
   it.each([64, 70, 80, 100, 200])(
     'keeps the task readable beside a long agent summary at width %i',
     (width) => {

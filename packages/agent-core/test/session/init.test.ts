@@ -1169,6 +1169,49 @@ describe('AgentAPI.startBtw', () => {
     }
   });
 
+  it('reloadSkills re-renders the skill listing the model reads', async () => {
+    const workDir = await makeTempDir();
+    const sessionDir = await makeTempDir();
+    const skillsRoot = join(workDir, 'skills');
+    await mkdir(skillsRoot, { recursive: true });
+
+    const session = new Session({
+      id: 'test-reload-skills-prompt',
+      kaos: testKaos.withCwd(workDir),
+      homedir: sessionDir,
+      rpc: createSessionRpc([]),
+      skills: { explicitDirs: [skillsRoot] },
+    });
+
+    try {
+      const { agent: main } = await session.createAgent(
+        { type: 'main' },
+        { profile: skillListingProfile() },
+      );
+      expect(main.config.systemPrompt).not.toContain('audit-routes');
+
+      await mkdir(join(skillsRoot, 'audit-routes'), { recursive: true });
+      await writeFile(
+        join(skillsRoot, 'audit-routes', 'SKILL.md'),
+        ['---', 'name: audit-routes', 'description: Audit routes', '---', '', 'Body.'].join('\n'),
+      );
+
+      const setActiveTools = vi.spyOn(main.tools, 'setActiveTools');
+      await session.reloadSkills();
+
+      // Reloading the registry is not enough on its own: the listing is
+      // rendered into the prompt, so without a re-render the model never
+      // learns that the skill it was just told about exists.
+      expect(main.config.systemPrompt).toContain('audit-routes');
+      // Only the prompt. Re-applying the whole profile would reset the tools of
+      // an agent that is already running.
+      expect(setActiveTools).not.toHaveBeenCalled();
+      expect(main.config.profileName).toBe('skill-listing');
+    } finally {
+      await session.close();
+    }
+  });
+
   it('discovers sub-skills and builtins', async () => {
     const workDir = await makeTempDir();
     const sessionDir = await makeTempDir();
@@ -1257,6 +1300,20 @@ function testProfile(): ResolvedAgentProfile {
   return {
     name: 'test',
     systemPrompt: () => '<system-prompt>',
+    tools: [],
+  };
+}
+
+/** Renders the skill listing the way the real template's `PYTHINKER_SKILLS` does. */
+function skillListingProfile(): ResolvedAgentProfile {
+  return {
+    name: 'skill-listing',
+    systemPrompt: (context) =>
+      `<skills>${
+        typeof context.skills === 'string'
+          ? context.skills
+          : (context.skills?.getModelSkillListing() ?? '')
+      }</skills>`,
     tools: [],
   };
 }

@@ -47,6 +47,7 @@ import {
   sortSlashCommands,
   type PythinkerSlashCommand,
   type SkillListSession,
+  type SkillSlashCommands,
 } from './commands';
 import {
   isExperimentalFlagEnabled,
@@ -259,6 +260,10 @@ export class PythinkerTUI {
   private readonly reverseRpcDisposers: Array<() => void> = [];
   private skillCommands: readonly PythinkerSlashCommand[] = [];
   readonly skillCommandMap = new Map<string, string>();
+  /** Bumped per refresh so a slow one cannot apply over a newer one. */
+  private skillCommandRefresh = 0;
+  /** The session whose skills the commands on screen were built from. */
+  private skillCommandSession: SkillListSession | undefined;
   private readonly imageStore = new ImageAttachmentStore();
   private fdPath: string | null = detectFdPath();
   private fdDownloadStarted = false;
@@ -438,23 +443,43 @@ export class PythinkerTUI {
    * never rebuilt from a skill list that has moved on.
    */
   async refreshSkillCommands(session?: SkillListSession): Promise<void> {
+    const refresh = (this.skillCommandRefresh += 1);
     if (session === undefined) {
+      this.skillCommandSession = undefined;
       this.skillCommands = [];
       this.skillCommandMap.clear();
       this.setupAutocomplete();
       return;
     }
 
+    let built: SkillSlashCommands | undefined;
     try {
-      const skillCommands = buildSkillSlashCommands(await session.listSkills());
-      this.skillCommands = skillCommands.commands;
-      this.skillCommandMap.clear();
-      for (const [commandName, skillName] of skillCommands.commandMap) {
-        this.skillCommandMap.set(commandName, skillName);
-      }
+      built = buildSkillSlashCommands(await session.listSkills());
     } catch {
-      // Keep the skills already known. The builtin command set may still have
-      // changed, so the autocomplete provider is rebuilt either way.
+      // What to do about a failure depends on which session the commands on
+      // screen came from, and that is only decided after the await below.
+    }
+
+    // A refresh that started later has already applied. Several callers start
+    // this without awaiting it, so a slow list for the session the user just
+    // left would otherwise land on top of the one they switched to.
+    if (refresh !== this.skillCommandRefresh) return;
+
+    if (built === undefined && this.skillCommandSession === session) {
+      // A transient failure for the session already on screen: its commands are
+      // still the right ones, so keep them. The builtin command set may still
+      // have changed, so the autocomplete provider is rebuilt either way.
+      this.setupAutocomplete();
+      return;
+    }
+
+    // Either it listed, or it failed for a session whose skills were never on
+    // screen — keeping another session's commands would be worse than none.
+    this.skillCommandSession = built === undefined ? undefined : session;
+    this.skillCommands = built?.commands ?? [];
+    this.skillCommandMap.clear();
+    for (const [commandName, skillName] of built?.commandMap ?? []) {
+      this.skillCommandMap.set(commandName, skillName);
     }
     this.setupAutocomplete();
   }

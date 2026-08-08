@@ -35,7 +35,7 @@ This page documents the changes in each Pythinker Code CLI release.
 - Refuse a device authorization whose verification URL is not HTTPS. Every surface hands that URL to the host's "open externally" API, so a provider answering with `file:`, `javascript:`, or an installed application's own scheme had the agent launch it. The check runs where the response is parsed, so the terminal, the TUI, and the editor extension are all covered.
 - Keep the configured provider signed in when a login is abandoned. Backing out at the model picker, or a failure while fetching the model list, no longer clears the existing credentials, and dismissing the provider picker returns to the sign-in screen instead of reporting a failed login.
 - Write the thinking effort picked at login to disk. The apply step recorded the level, but the patch that saved the result listed everything except it, so an API-key login still reopened at the default effort. Choosing `off` now also clears a level a previous login left behind, which a patch that only merges could not do by omitting the key.
-- Save the thinking-effort level picked during login. Only an on/off flag was stored, so choosing low, medium, or xhigh reopened the session at high, and an OpenAI Codex login reopened at the model's maximum effort regardless of the choice.
+- Save the thinking-effort level picked during login. Only an on/off flag was stored, so choosing `low`, `medium`, or `xhigh` reopened the session at `high`, and an OpenAI Codex login reopened at the model's maximum effort regardless of the choice.
 - Accept a provider's plain id for `--provider` at login, so a catalog provider no longer has to be named by its full display name, and stop a cancelled OpenAI Codex sign-in from holding the process open for the rest of its two-minute callback timeout. In the editor extension, signing in now shows one cancellable progress notification, a repeated sign-in joins the one already running instead of opening a second set of prompts, and a completed sign-in is no longer reported as failed when the status refresh behind it fails.
 - Offer a model's declared thinking-effort levels when signing in to OpenAI Codex. The picker previously fell back to low / medium / high regardless of what the model supports, disagreeing with the effort list recorded in the config it then wrote.
 
@@ -84,7 +84,7 @@ This page documents the changes in each Pythinker Code CLI release.
 
 ### Features
 
-- Enable automatic updates for native installs on Windows: /update now installs the new version in the background instead of printing a manual command, and the installer safely replaces the running executable.
+- Enable automatic updates for native installs on Windows: `/update` now installs the new version in the background instead of printing a manual command, and the installer safely replaces the running executable.
 
 ### Bug Fixes
 

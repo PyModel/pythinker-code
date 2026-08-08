@@ -77,7 +77,7 @@ Fields in the config file fall into two categories: **top-level scalars** that d
 | --- | --- | --- | --- |
 | `default_model` | `string` | — | Default model alias; must be defined in `models` |
 | `default_thinking` | `boolean` | `false` | Whether new sessions enable Thinking (deep reasoning) mode by default; can be toggled from the model menu inside a session. Even when set to `true`, `[thinking].mode = "off"` will still force Thinking off |
-| `default_permission_mode` | `string` | `manual` | Default permission mode for new sessions; one of `manual` (prompt each time), `yolo` (auto-approve tool actions, but the agent may still ask questions), or `auto` (fully autonomous — the agent decides everything without asking) |
+| `default_permission_mode` | `string` | `manual` | Default permission mode for new sessions; one of `manual` (prompt each time), `yolo` (auto-approve tool actions, but the agent may still ask questions), or `auto` (fully autonomous — the agent decides everything without asking, except a `DynamicWorkflow` call, which still shows its plan for approval) |
 | `default_plan_mode` | `boolean` | `false` | Whether new sessions start in Plan mode (produce a plan before executing) by default |
 | `merge_all_available_skills` | `boolean` | `true` | Whether to merge Agent Skills from all available directories |
 | `extra_skill_dirs` | `array<string>` | — | Extra skill search directories, layered on top of the default directories |
