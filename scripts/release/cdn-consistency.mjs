@@ -46,6 +46,12 @@ export function classifyCdnVersion(cdnVersion, npmLatest) {
   return diff > 0 ? 'ahead' : 'behind';
 }
 
+/**
+ * Read the version the CDN manifest currently advertises.
+ *
+ * Throws on transport, status and parse failures alike; the caller treats all
+ * three the same way, so they are deliberately not distinguished here.
+ */
 async function readCdnVersion(fetchImpl, url) {
   const response = await fetchImpl(url);
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
