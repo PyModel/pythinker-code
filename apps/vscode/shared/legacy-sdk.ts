@@ -76,11 +76,15 @@ export interface TokenUsage {
   input_cache_creation: number;
 }
 
+export type PermissionMode = "manual" | "auto" | "yolo";
+
 export interface StatusUpdate {
   context_usage?: number | null;
   token_usage?: TokenUsage | null;
   message_id?: string | null;
   plan_mode?: boolean | null;
+  /** The live permission mode. Without it the chat cannot show which one is on. */
+  permission?: PermissionMode | null;
   model?: string | null;
   thinking_effort?: string | null;
   retrying?: {

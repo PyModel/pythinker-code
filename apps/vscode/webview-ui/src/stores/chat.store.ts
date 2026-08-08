@@ -7,7 +7,7 @@ import { toast } from "@/components/ui/sonner";
 
 import { useSettingsStore } from "./settings.store";
 import { processEvent } from "./event-handlers";
-import type { StatusUpdate, ContentPart, QuestionRequest, ToolResult } from "shared/legacy-sdk";
+import type { StatusUpdate, ContentPart, PermissionMode, QuestionRequest, ToolResult } from "shared/legacy-sdk";
 import type { UIStreamEvent } from "shared/types";
 
 const HANDSHAKE_TIMEOUT_MS = 30_000;
@@ -122,6 +122,8 @@ export interface ChatState {
   queue: QueuedItem[];
   pendingQuestion: QuestionRequest | null;
   planMode: boolean;
+  /** The mode the engine is actually in, as last reported by the host. */
+  permissionMode: PermissionMode;
 
   sendMessage: (text: string) => void;
   retryLastMessage: () => void;
@@ -249,6 +251,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   queue: [],
   pendingQuestion: null,
   planMode: false,
+  permissionMode: "manual",
 
   sendMessage: (text) => {
     const { draftMedia, isStreaming } = get();
@@ -375,6 +378,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       queue: [],
       pendingQuestion: null,
       planMode: false,
+      permissionMode: "manual",
     });
     useApprovalStore.getState().clearRequests();
 
@@ -429,6 +433,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       queue: [],
       pendingQuestion: null,
       planMode: false,
+      permissionMode: "manual",
     });
     useApprovalStore.getState().clearRequests();
   },
