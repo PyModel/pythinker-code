@@ -1181,6 +1181,7 @@ describe('AgentAPI.startBtw', () => {
       homedir: sessionDir,
       rpc: createSessionRpc([]),
       skills: { explicitDirs: [skillsRoot] },
+      providerManager: testProviderManager(),
     });
 
     try {
@@ -1188,7 +1189,11 @@ describe('AgentAPI.startBtw', () => {
         { type: 'main' },
         { profile: skillListingProfile() },
       );
+      main.config.update({ modelAlias: 'mock-model', thinkingLevel: 'off' });
       expect(main.config.systemPrompt).not.toContain('audit-routes');
+      const toolsBefore = main.tools.loopTools.map((tool) => tool.name);
+      expect(toolsBefore).toEqual(['Read', 'Write']);
+      expect(main.config.maxStepsPerTurn).toBe(7);
 
       await mkdir(join(skillsRoot, 'audit-routes'), { recursive: true });
       await writeFile(
@@ -1204,9 +1209,61 @@ describe('AgentAPI.startBtw', () => {
       // learns that the skill it was just told about exists.
       expect(main.config.systemPrompt).toContain('audit-routes');
       // Only the prompt. Re-applying the whole profile would reset the tools of
-      // an agent that is already running.
+      // an agent that is already running, and its turn limit with them.
       expect(setActiveTools).not.toHaveBeenCalled();
+      expect(main.tools.loopTools.map((tool) => tool.name)).toEqual(toolsBefore);
+      expect(main.config.maxStepsPerTurn).toBe(7);
       expect(main.config.profileName).toBe('skill-listing');
+    } finally {
+      await session.close();
+    }
+  });
+
+  it('a skill saved into an empty root is invocable after reloadSkills', async () => {
+    const workDir = await makeTempDir();
+    const sessionDir = await makeTempDir();
+    const skillsRoot = join(workDir, 'skills');
+    await mkdir(skillsRoot, { recursive: true });
+
+    const session = new Session({
+      id: 'test-reload-skills-tool',
+      kaos: testKaos.withCwd(workDir),
+      homedir: sessionDir,
+      rpc: createSessionRpc([]),
+      skills: { explicitDirs: [skillsRoot] },
+      providerManager: testProviderManager(),
+    });
+
+    try {
+      const { agent: main } = await session.createAgent(
+        { type: 'main' },
+        { profile: skillListingProfile(['Skill', 'Read']) },
+      );
+      main.config.update({ modelAlias: 'mock-model', thinkingLevel: 'off' });
+
+      // The builtin set is built once, and it only carries the Skill tool when
+      // a skill was already invocable. The user root is empty here, so what
+      // keeps the tool present is `loadSkills` registering the builtin skills
+      // before any agent is built — `createAgent` awaits that load. Were the
+      // tool to go missing, a saved workflow would be listed and uncallable.
+      expect(main.tools.loopTools.map((tool) => tool.name)).toContain('Skill');
+
+      await mkdir(join(skillsRoot, 'audit-routes'), { recursive: true });
+      await writeFile(
+        join(skillsRoot, 'audit-routes', 'SKILL.md'),
+        ['---', 'name: audit-routes', 'description: Audit routes', '---', '', 'Body.'].join('\n'),
+      );
+
+      const setActiveTools = vi.spyOn(main.tools, 'setActiveTools');
+      await session.reloadSkills();
+
+      // The tool reads the registry as it runs, so the reload is all it needs
+      // to reach a skill written after the session opened.
+      expect(main.tools.loopTools.map((tool) => tool.name)).toContain('Skill');
+      expect(
+        (await session.listSkills()).map((skill) => skill.name),
+      ).toContain('audit-routes');
+      expect(setActiveTools).not.toHaveBeenCalled();
     } finally {
       await session.close();
     }
@@ -1305,7 +1362,7 @@ function testProfile(): ResolvedAgentProfile {
 }
 
 /** Renders the skill listing the way the real template's `PYTHINKER_SKILLS` does. */
-function skillListingProfile(): ResolvedAgentProfile {
+function skillListingProfile(tools: string[] = ['Read', 'Write']): ResolvedAgentProfile {
   return {
     name: 'skill-listing',
     systemPrompt: (context) =>
@@ -1314,7 +1371,9 @@ function skillListingProfile(): ResolvedAgentProfile {
           ? context.skills
           : (context.skills?.getModelSkillListing() ?? '')
       }</skills>`,
-    tools: [],
+    tools,
+    // Non-default, so a refresh that resets the turn limit is visible.
+    maxTurns: 7,
   };
 }
 

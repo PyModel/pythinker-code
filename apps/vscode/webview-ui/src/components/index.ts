@@ -24,6 +24,6 @@ export { InlineError } from "./InlineError";
 export { QuestionDialog } from "./QuestionDialog";
 export { PlanCard } from "./PlanCard";
 export { PlanModeButton } from "./PlanModeButton";
-export { PermissionModeBadge } from "./PermissionModeBadge";
+export * from "./PermissionModeBadge";
 export { BrailleSpinner } from "./BrailleSpinner";
 export { SilverSpinner } from "./SilverSpinner";

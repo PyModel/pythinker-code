@@ -91,7 +91,7 @@ describe('experimental feature command handlers', () => {
     // A flag can gate which skills exist, so rebuilding the command set before
     // the reload read the registry the reload was about to replace.
     expect(host.session.reloadSession.mock.invocationCallOrder[0]).toBeLessThan(
-      host.refreshSkillCommands.mock.invocationCallOrder[0] ?? 0,
+      host.refreshSkillCommands.mock.invocationCallOrder[0]!,
     );
     expect(host.reloadCurrentSessionView).toHaveBeenCalledWith(
       host.session,
