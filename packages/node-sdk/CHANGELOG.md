@@ -1,5 +1,11 @@
 # @pythoughts/pythinker-code-sdk
 
+## 0.14.0
+
+### Minor Changes
+
+- [#41](https://github.com/Pythoughts-labs/pythinker-code/pull/41) [`e534040`](https://github.com/Pythoughts-labs/pythinker-code/commit/e534040c82d1e3b8c217e6e35ddcf248065ff950) - Fix `/workflow save` leaving the saved workflow uncallable until the session was reloaded, and add `Session.reloadSkills()` to re-discover skills written while a session is open.
+
 ## 0.13.0
 
 ### Minor Changes
