@@ -11,6 +11,8 @@ import { shimmerText } from '#/tui/utils/shimmer';
 const RESUMED_ITEM_LABEL = '(resumed)';
 /** Divider between the cells that share a member row's free space. */
 const MEMBER_SEPARATOR = ' · ';
+/** Marks a task cell whose shared preamble was dropped. One column wide. */
+const TASK_ELISION_MARK = '…';
 const ORCHESTRATING_LABEL = 'Orchestrating';
 const FINALIZING_LABEL = 'Finalizing';
 // Pad to the wider live label so the suffix column never shifts between them.
@@ -440,8 +442,11 @@ export class DynamicWorkflowMissionControlComponent implements Component {
       const needsMore = members.length > slots;
       const memberSlots = needsMore && slots >= 2 ? slots - 1 : slots;
       const visibleMembers = members.slice(0, Math.max(0, memberSlots));
+      // Measured across every member, not the visible ones: a prefix that came
+      // and went as rows scrolled would rewrite the task column under the eye.
+      const sharedPrefix = sharedTaskPrefix(members);
       for (const member of visibleMembers) {
-        lines.push(this.renderMember(member, width, nowMs));
+        lines.push(this.renderMember(member, width, nowMs, sharedPrefix));
       }
       const hidden = members.length - visibleMembers.length;
       if (hidden > 0 && lines.length < rowBudget) {
@@ -567,7 +572,12 @@ export class DynamicWorkflowMissionControlComponent implements Component {
     return truncateToWidth(currentTheme.fg('textDim', header), width);
   }
 
-  private renderMember(member: DynamicWorkflowMember, width: number, nowMs: number): string {
+  private renderMember(
+    member: DynamicWorkflowMember,
+    width: number,
+    nowMs: number,
+    sharedPrefix: string,
+  ): string {
     const id = currentTheme.fg('primary', String(member.index).padStart(3, '0'));
     // All running rows share the workflow's clock, so they spin in step instead
     // of drifting apart by whenever each agent happened to start.
@@ -585,6 +595,11 @@ export class DynamicWorkflowMissionControlComponent implements Component {
       ? `${id}  ${workColumn}  ${stateColumn}  `
       : `${id} ${padToWidth(state, 6)} `;
     const task = member.item || 'Delegated agent';
+    // The elision is display-only: the dedup below still compares whole items,
+    // so a streamed line that merely repeats the task is still suppressed.
+    const shownTask = sharedPrefix.length > 0 && member.item.startsWith(sharedPrefix)
+      ? `${TASK_ELISION_MARK}${member.item.slice(sharedPrefix.length)}`
+      : task;
     const latest = member.latest.length > 0 && member.latest !== task ? member.latest : undefined;
     const detail = member.phase === 'suspended' || isTerminalPhase(member.phase)
       ? member.statusDetail ?? latest
@@ -613,7 +628,7 @@ export class DynamicWorkflowMissionControlComponent implements Component {
       Math.floor(rest * DYNAMIC_WORKFLOW_RENDERING.memberTaskShare),
     );
     const detailBudget = showWork && detail !== undefined && detail.length > 0
-      ? rest - Math.min(visibleWidth(task), taskCap) - MEMBER_SEPARATOR.length
+      ? rest - Math.min(visibleWidth(shownTask), taskCap) - MEMBER_SEPARATOR.length
       : 0;
     const detailPart = detailBudget >= DYNAMIC_WORKFLOW_RENDERING.memberDetailMinWidth
       ? `${MEMBER_SEPARATOR}${truncateToWidth(currentTheme.fg('textDim', detail ?? ''), detailBudget)}`
@@ -621,7 +636,7 @@ export class DynamicWorkflowMissionControlComponent implements Component {
 
     // Whatever the detail did not take goes back to the task.
     const taskText = truncateToWidth(
-      currentTheme.fg('text', task),
+      currentTheme.fg('text', shownTask),
       Math.max(1, rest - visibleWidth(detailPart)),
     );
     return truncateToWidth(
@@ -1069,6 +1084,52 @@ function clampLine(text: string): string {
 
 function normalizeText(text: string | undefined): string {
   return text?.replaceAll(/\s+/g, ' ').trim() ?? '';
+}
+
+/**
+ * The preamble every task repeats, or `''` when dropping it would not help.
+ *
+ * `prompt_template` is optional, so a caller may pass a whole prompt as each
+ * item. Every row then opens with the same paragraph and the TASK column clips
+ * inside it — six rows reading `You are auditing the pythinker-code mono...`
+ * name nothing. Dropping the shared head once puts the tail that identifies the
+ * row back on screen.
+ *
+ * All-or-nothing on purpose: eliding a prefix that only some rows carry would
+ * make two cells at the same column mean different things.
+ */
+function sharedTaskPrefix(members: readonly DynamicWorkflowMember[]): string {
+  const items = members.map((member) => member.item).filter((item) => item.length > 0);
+  const first = items[0];
+  if (first === undefined || items.length < 2) return '';
+
+  // Skips `first` against itself: that comparison can only return its own
+  // length, and it walks the whole string to say so on every animation frame.
+  let length = first.length;
+  for (const item of items.slice(1)) {
+    length = commonPrefixLength(first, item, length);
+    if (length === 0) return '';
+  }
+
+  // Cut at the last space inside the shared text. A cut mid-word reads as
+  // corruption, and a space is always a whole code unit, so ending there is
+  // also what keeps the slice off the middle of a surrogate pair.
+  //
+  // Backing off to before the last shared word is what leaves every row
+  // something after the mark: items are normalized, so none of them ends in a
+  // space, and the shortest one therefore still holds the word the cut skipped.
+  const boundary = first.lastIndexOf(' ', length - 1);
+  if (boundary < 0) return '';
+  const prefix = first.slice(0, boundary + 1);
+  if (visibleWidth(prefix) < DYNAMIC_WORKFLOW_RENDERING.memberTaskSharedPrefixMinWidth) return '';
+  return prefix;
+}
+
+function commonPrefixLength(left: string, right: string, limit: number): number {
+  const bound = Math.min(limit, left.length, right.length);
+  let index = 0;
+  while (index < bound && left[index] === right[index]) index += 1;
+  return index;
 }
 
 /**

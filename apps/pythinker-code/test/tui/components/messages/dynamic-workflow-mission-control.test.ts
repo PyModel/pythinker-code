@@ -23,6 +23,9 @@ function renderText(component: DynamicWorkflowMissionControlComponent, width = 1
 /** The STATE cell of a running row: a grey braille spinner frame, then the label. */
 const RUNNING_CELL = /[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] RUN/u;
 
+/** Head of a task cell that lost the preamble every row shared. */
+const TASK_ELISION_MARK = '…';
+
 function memberLine(output: string, index: number): string {
   const id = String(index).padStart(3, '0');
   const line = output.split('\n').find(
@@ -770,6 +773,90 @@ describe('DynamicWorkflowMissionControlComponent', () => {
     expect(memberLine(lines.join('\n'), 1)).toMatch(/◌ WAIT\s+One/u);
     expect(lines.join('\n')).toContain('+ 4 more agents');
     expect(lines.join('\n')).not.toContain('Recent activity');
+  });
+
+  it('drops the preamble every task repeats so the row keeps what names it', () => {
+    const preamble = 'You are auditing the pythinker-code monorepo at /Users/panda. Verify ';
+    const component = createComponent();
+    component.updateArgs({
+      items: [
+        `${preamble}the permission glob`,
+        `${preamble}the concurrency cap`,
+        `${preamble}the resume path`,
+      ],
+    });
+    component.markInputComplete();
+
+    const output = renderText(component, 100);
+    expect(output).not.toContain('You are auditing');
+    // Greedy on purpose: the shared `the ` goes with the rest of the preamble.
+    expect(memberLine(output, 1)).toContain('…permission glob');
+    expect(memberLine(output, 2)).toContain('…concurrency cap');
+    expect(memberLine(output, 3)).toContain('…resume path');
+
+    // The mark is one column wide, so it never pushes a row past the frame.
+    for (const width of [20, 40, 63, 64, 79, 80, 100, 150]) {
+      expect(component.render(width).every((line) => visibleWidth(line) <= width)).toBe(true);
+    }
+  });
+
+  it.each([
+    // Nothing shared: every row already names itself.
+    { name: 'no shared head', items: ['Audit the plan', 'Ship the release'] },
+    // Shared but short: the mark would cost about what the elision frees.
+    { name: 'a short shared head', items: ['Audit the plan', 'Audit the release'] },
+    // One row is the whole of what the other shares, and what is left over is
+    // one short word — below the floor, so the rows stay whole.
+    { name: 'a row that is the whole shared head', items: ['Audit the plan appendix', 'Audit the plan'] },
+    // A prefix with no space in it can only be cut mid-word.
+    { name: 'an unbroken shared head', items: ['aaaaaaaaaaaaaaaaaaaa-one', 'aaaaaaaaaaaaaaaaaaaa-two'] },
+  ])('keeps whole tasks when there is $name', ({ items }) => {
+    const component = createComponent();
+    component.updateArgs({ items });
+    component.markInputComplete();
+
+    const output = renderText(component, 200);
+    items.forEach((item, index) => {
+      expect(memberLine(output, index + 1)).toContain(item);
+      expect(memberLine(output, index + 1)).not.toContain(TASK_ELISION_MARK);
+    });
+  });
+
+  it('leaves a row whose whole task is the shared head with the word the cut skipped', () => {
+    const component = createComponent();
+    component.updateArgs({
+      items: [
+        'Audit the pythinker-code monorepo',
+        'Audit the pythinker-code monorepo plan',
+      ],
+    });
+    component.markInputComplete();
+
+    // The cut lands before `monorepo`, not after it, so the shorter row keeps a
+    // word rather than collapsing to the mark on its own.
+    const output = renderText(component, 100);
+    expect(memberLine(output, 1)).toContain('…monorepo');
+    expect(memberLine(output, 2)).toContain('…monorepo plan');
+    expect(output).not.toContain('Audit the pythinker-code');
+  });
+
+  it('holds the elision steady while rows are clipped away', () => {
+    const preamble = 'Audit the pythinker-code monorepo and report on ';
+    const items = ['the plan', 'the cap', 'the resume path', 'the glob'].map(
+      (tail) => `${preamble}${tail}`,
+    );
+    const full = createComponent();
+    full.updateArgs({ items });
+    full.markInputComplete();
+    // Two of the four rows are clipped, but the prefix is measured across every
+    // member, so the visible rows read exactly as they did before the clip.
+    const clipped = createComponent({ availableRows: () => 6 });
+    clipped.updateArgs({ items });
+    clipped.markInputComplete();
+
+    expect(memberLine(renderText(clipped, 100), 1))
+      .toBe(memberLine(renderText(full, 100), 1));
+    expect(memberLine(renderText(clipped, 100), 1)).toContain('…plan');
   });
 
   it('keeps three workflow-relative activity entries with suspension and failure details', () => {

@@ -35,6 +35,12 @@ export const DYNAMIC_WORKFLOW_RENDERING = {
   /** Below this the detail is dropped: a few clipped characters say nothing. */
   memberDetailMinWidth: 8,
   /**
+   * Least shared task prefix worth eliding. A short prefix costs about as much
+   * to mark as it frees, so only a preamble long enough to have been clipping
+   * the part that names the row is dropped.
+   */
+  memberTaskSharedPrefixMinWidth: 16,
+  /**
    * Upper bound on one buffered output line. A model may stream a single line
    * with no newline in it at all, so this is the only thing that stops the
    * buffered text from growing for as long as the agent runs.
