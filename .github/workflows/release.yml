@@ -250,21 +250,29 @@ jobs:
               exit 0
               ;;
           esac
-          # The webhook matches the branch from the request body: a bare POST
-          # answers 301 {"message":"Branch Not Match"} and deploys nothing.
+          # The webhook reads the branch from the body, but only when the
+          # request also carries `X-GitHub-Event`: Dokploy's extractBranchName
+          # returns null without that header, so the request answers
+          # 301 {"message":"Branch Not Match"} and deploys nothing.
+          #
+          # 301 is not an error status, so `--fail` does not see it and curl
+          # exits 0. Capture the status code and treat anything but 2xx as a
+          # failed deploy.
           #
           # A transient failure must never fail the workflow. npm has already
           # published by now and that is irreversible, so dying here buys
           # nothing — an earlier version of this job was deleted because a
           # curl exit-28 timeout failed the 0.5.0 release. verify-cdn-release
-          # polls the manifest and is the gate that fails loudly. `--fail` is
-          # what makes an HTTP error status reach the retries and the warning
-          # instead of exiting 0 and reading as a successful deploy.
-          curl -sS --fail -X POST "$WEBHOOK" \
+          # polls the manifest and is the gate that fails loudly.
+          status=$(curl -sS -o /dev/stderr -w '%{http_code}' -X POST "$WEBHOOK" \
             -H 'Content-Type: application/json' \
+            -H 'X-GitHub-Event: push' \
             -d '{"ref":"refs/heads/main"}' \
-            --retry 3 --retry-all-errors --retry-delay 10 --max-time 60 \
-            || echo "::warning::CDN redeploy webhook failed — verify-cdn-release will catch a stale CDN."
+            --retry 3 --retry-all-errors --retry-delay 10 --max-time 60) || status=000
+          case "$status" in
+            2*) echo "CDN redeploy triggered (HTTP $status)." ;;
+            *) echo "::warning::CDN redeploy webhook returned HTTP $status — verify-cdn-release will catch a stale CDN." ;;
+          esac
 
   # Verifies that the published release is internally consistent and that the
   # CDN caught up with npm. It polls, so it must run after redeploy-cdn.
