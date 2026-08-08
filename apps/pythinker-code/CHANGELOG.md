@@ -1,5 +1,11 @@
 # @pythoughts/pythinker-code
 
+## 0.13.1
+
+### Patch Changes
+
+- [#43](https://github.com/Pythoughts-labs/pythinker-code/pull/43) [`0ea74d4`](https://github.com/Pythoughts-labs/pythinker-code/commit/0ea74d4b7afa49e79440bff9464ed4019e3fcb1c) - Dim the wording on background task status lines so only the status dot is coloured.
+
 ## 0.13.0
 
 ### Minor Changes
