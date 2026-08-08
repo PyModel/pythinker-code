@@ -1,23 +1,22 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 
+import { pollCdnUntilCaughtUp } from './cdn-consistency.mjs';
+
 const PACKAGE_NAME = '@pythoughts/pythinker-code';
 const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 
 const CDN_MANIFEST_URL = 'https://code.pythinker.com/pythinker-code/latest.json';
 
+// A Dokploy rebuild serves the new manifest in roughly two minutes. The budget
+// stays well under the job's own timeout-minutes so a stale CDN is reported
+// here rather than killed by the runner.
+const CDN_POLL_BUDGET_MS = 600_000;
+const CDN_POLL_INTERVAL_MS = 15_000;
+
 function fail(reason) {
   console.error(`consistency failed: ${reason}`);
   process.exit(1);
-}
-
-/** Numeric major/minor/patch compare over two SEMVER regex matches. */
-function compareRelease(left, right) {
-  for (let index = 1; index <= 3; index += 1) {
-    const diff = Number(left[index]) - Number(right[index]);
-    if (diff !== 0) return diff;
-  }
-  return 0;
 }
 
 let localVersion;
@@ -60,31 +59,39 @@ try {
 }
 if (!gitTags.trim().split('\n').includes(releaseTag)) fail(`missing git tag ${releaseTag}`);
 
-// The CDN manifest is what every installed client polls for updates, so a
-// version it advertises that npm does not have sends all of them into an install
-// that cannot succeed. Ahead of npm is a hard failure; behind is deploy lag,
-// since the site rebuilds on the next push to main.
-let cdnVersion;
-try {
-  const response = await fetch(CDN_MANIFEST_URL, { signal: AbortSignal.timeout(15_000) });
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  cdnVersion = JSON.parse(await response.text()).version;
-} catch (error) {
-  console.warn(`warning: cannot read the CDN manifest (${error.message}) — CDN check skipped`);
-}
+// The CDN manifest is what every installed client polls for updates. A version
+// it advertises that npm does not have sends all of them into an install that
+// cannot succeed; a version it never catches up to hides the release entirely.
+// The pipeline triggers a rebuild before this job, so both are hard failures —
+// waiting it out is the whole point of the poll.
+const cdnPoll = await pollCdnUntilCaughtUp({
+  fetchImpl: (url) => fetch(url, { signal: AbortSignal.timeout(15_000) }),
+  sleep: (ms) =>
+    new Promise((resolve) => {
+      setTimeout(resolve, ms);
+    }),
+  now: () => Date.now(),
+  url: CDN_MANIFEST_URL,
+  npmLatest: distTags.latest,
+  budgetMs: CDN_POLL_BUDGET_MS,
+  intervalMs: CDN_POLL_INTERVAL_MS,
+});
 
-if (typeof cdnVersion === 'string' && cdnVersion !== distTags.latest) {
-  const cdnMatch = cdnVersion.match(SEMVER);
-  if (!cdnMatch) fail(`CDN manifest version is not semver: ${cdnVersion}`);
-  if (compareRelease(cdnMatch, latestMatch) > 0) {
-    fail(
-      `CDN advertises ${cdnVersion} but npm latest is ${distTags.latest} — ` +
-        'clients would try to install a release that does not exist',
-    );
-  }
-  console.log(
-    `CDN is behind npm (cdn=${cdnVersion} latest=${distTags.latest}); it catches up on the next push to main`,
+if (cdnPoll.reason === 'ahead') {
+  fail(
+    `CDN advertises ${cdnPoll.cdnVersion} but npm latest is ${distTags.latest} — ` +
+      'clients would try to install a release that does not exist',
   );
 }
+if (!cdnPoll.ok) {
+  fail(
+    `CDN never caught up with npm within ${CDN_POLL_BUDGET_MS / 1000}s ` +
+      `(cdn=${cdnPoll.cdnVersion ?? 'unreachable'} latest=${distTags.latest}, ` +
+      `${cdnPoll.attempts} attempts) — every installed client polls this manifest, ` +
+      'so the release stays invisible until the site rebuilds',
+  );
+}
+
+console.log(`CDN matches npm (${cdnPoll.cdnVersion}) after ${cdnPoll.attempts} attempt(s)`);
 
 console.log(`consistency OK: latest=${distTags.latest} beta=${distTags.beta ?? '-'} dev=${distTags.dev ?? '-'}`);

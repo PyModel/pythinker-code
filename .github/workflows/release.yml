@@ -204,10 +204,70 @@ jobs:
           if-no-files-found: error
 
   # code.pythinker.com redeploys via Dokploy autodeploy on push to main (app
-  # Pythinker/code builds apps/site/Dockerfile from the repo), so no deploy
-  # webhook is fired here — this job verifies that the published release is
-  # internally consistent and that the CDN is not advertising a version npm
-  # does not have.
+  # Pythinker/code builds apps/site/Dockerfile from the repo). That autodeploy
+  # fires on the `ci: release packages` push — which STARTS the release — while
+  # apps/site/scripts/build-cdn.mjs reads the version from npm's dist-tag, which
+  # only moves when the publish FINISHES. The first build therefore bakes in the
+  # previous version and nothing rebuilds it, so the release stays invisible to
+  # every installed client. This job fires a second deploy after the publish.
+  #
+  # It must run after publish-native-assets: latest.json only gets its
+  # per-platform `platforms` block once the native zips exist on the release.
+  # That job is itself conditional and SKIPS on an npm-only release, and a job
+  # whose `needs` includes a skipped job is skipped too — hence `always()`, and
+  # hence the explicit upstream result assertions it forces us to spell out.
+  redeploy-cdn:
+    timeout-minutes: 10
+    name: Redeploy CDN
+    needs:
+      - release
+      - publish-native-assets
+    if: >-
+      always()
+      && needs.release.result == 'success'
+      && needs.publish-native-assets.result != 'failure'
+      && needs.publish-native-assets.result != 'cancelled'
+      && (needs.release.outputs.packages_published == 'true'
+          || startsWith(github.event.head_commit.message, 'ci: release packages'))
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Dokploy rebuild
+        env:
+          WEBHOOK: ${{ secrets.DOKPLOY_CDN_DEPLOY_WEBHOOK }}
+        run: |
+          if [ -z "$WEBHOOK" ]; then
+            echo "::warning::DOKPLOY_CDN_DEPLOY_WEBHOOK not set — skipping CDN redeploy."
+            exit 0
+          fi
+          # The URL is itself the deploy credential, so never send it over a
+          # scheme that puts it on the wire in cleartext. Warn rather than fail:
+          # verify-cdn-release runs only if this job succeeds, and failing here
+          # would drop the consistency gate instead of tripping it.
+          case "$WEBHOOK" in
+            https://*) ;;
+            *)
+              echo "::warning::DOKPLOY_CDN_DEPLOY_WEBHOOK is not an https:// URL — refusing to send the deploy credential in cleartext."
+              exit 0
+              ;;
+          esac
+          # The webhook matches the branch from the request body: a bare POST
+          # answers 301 {"message":"Branch Not Match"} and deploys nothing.
+          #
+          # A transient failure must never fail the workflow. npm has already
+          # published by now and that is irreversible, so dying here buys
+          # nothing — an earlier version of this job was deleted because a
+          # curl exit-28 timeout failed the 0.5.0 release. verify-cdn-release
+          # polls the manifest and is the gate that fails loudly. `--fail` is
+          # what makes an HTTP error status reach the retries and the warning
+          # instead of exiting 0 and reading as a successful deploy.
+          curl -sS --fail -X POST "$WEBHOOK" \
+            -H 'Content-Type: application/json' \
+            -d '{"ref":"refs/heads/main"}' \
+            --retry 3 --retry-all-errors --retry-delay 10 --max-time 60 \
+            || echo "::warning::CDN redeploy webhook failed — verify-cdn-release will catch a stale CDN."
+
+  # Verifies that the published release is internally consistent and that the
+  # CDN caught up with npm. It polls, so it must run after redeploy-cdn.
   #
   # It also runs on a `ci: release packages` merge that published nothing: that
   # commit bumps the version on main, so gating the check on a successful
@@ -216,7 +276,9 @@ jobs:
   verify-cdn-release:
     timeout-minutes: 15
     name: Verify release consistency
-    needs: release
+    needs:
+      - release
+      - redeploy-cdn
     if: >-
       needs.release.outputs.packages_published == 'true'
       || startsWith(github.event.head_commit.message, 'ci: release packages')
