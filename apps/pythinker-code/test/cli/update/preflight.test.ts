@@ -1439,6 +1439,30 @@ describe('runUpdatePreflight', () => {
     }));
   });
 
+  it('records why a success could not be verified', async () => {
+    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.readUpdateInstallState.mockResolvedValue(installState());
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.detectInstallSource.mockResolvedValue('native');
+    mocks.verifyInstalledVersion.mockResolvedValue({
+      ok: true,
+      unverified: '/usr/local/bin/pythinker could not be run: ETIMEDOUT',
+    });
+    mockSpawnExit(0);
+    const { options } = captureOutput();
+
+    await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
+    await flushBackgroundInstall();
+
+    expect(writeUpdateInstallState).toHaveBeenLastCalledWith(expect.objectContaining({
+      lastFailure: null,
+      lastSuccess: expect.objectContaining({
+        version: '0.5.0',
+        unverified: expect.stringContaining('ETIMEDOUT'),
+      }),
+    }));
+  });
+
   it('does not verify an install the installer already reported as failed', async () => {
     mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
     mocks.readUpdateInstallState.mockResolvedValue(installState());

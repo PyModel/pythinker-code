@@ -153,6 +153,7 @@ const UpdateInstallStateSchema: z.ZodType<UpdateInstallState> = z
         version: z.string().min(1),
         installedAt: z.string().min(1),
         notifiedAt: z.string().min(1).nullable(),
+        unverified: z.string().min(1).optional(),
       })
       .strict()
       .nullable(),

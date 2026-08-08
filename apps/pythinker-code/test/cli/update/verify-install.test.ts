@@ -83,17 +83,17 @@ describe('verifyInstalledVersion native', () => {
     ).resolves.toEqual({ ok: true, unverified: expect.stringContaining('printed no version') });
   });
 
-  it('accepts the install unverified when the target is not a version', async () => {
+  it('checks nothing when the target is not a version', async () => {
     await expect(
       verifyInstalledVersion('native', 'latest', NEVER_PROBED),
-    ).resolves.toEqual({ ok: true, unverified: expect.stringContaining('latest') });
+    ).resolves.toEqual({ ok: true });
   });
 });
 
 describe('verifyInstalledVersion other sources', () => {
   // A global reinstall rewrites the directory this process was loaded from,
   // so nothing readable here proves what the next launch will run.
-  it('leaves every non-native source unverified without probing', async () => {
+  it('checks nothing for a source it cannot prove, without probing', async () => {
     for (const source of [
       'npm-global',
       'pnpm-global',
@@ -104,7 +104,7 @@ describe('verifyInstalledVersion other sources', () => {
     ] as const) {
       await expect(
         verifyInstalledVersion(source, '0.13.1', NEVER_PROBED),
-      ).resolves.toEqual({ ok: true, unverified: `not verified for ${source} installs` });
+      ).resolves.toEqual({ ok: true });
     }
     expect(NEVER_PROBED.probeExecutableVersion).not.toHaveBeenCalled();
   });

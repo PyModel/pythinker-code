@@ -207,7 +207,8 @@ describe('pythinker doctor', () => {
           update: {
             latest: '0.13.1',
             checkedAt: '2026-08-08T12:00:00.000Z',
-            lastSuccess: '0.13.1 (installed 2026-08-08T12:01:00.000Z)',
+            lastSuccess:
+              '0.13.1 (installed 2026-08-08T12:01:00.000Z) — unverified: probe timed out',
             lastFailure: 'install 0.13.1 (attempt 1): still reports 0.12.0',
           },
         }),
@@ -217,7 +218,9 @@ describe('pythinker doctor', () => {
 
     expect(code).toBe(0);
     const output = stdout.join('');
-    expect(output).toContain('  Last update success: 0.13.1 (installed 2026-08-08T12:01:00.000Z)');
+    expect(output).toContain(
+      '  Last update success: 0.13.1 (installed 2026-08-08T12:01:00.000Z) — unverified: probe timed out',
+    );
     expect(output).toContain('  Last update failure: install 0.13.1 (attempt 1): still reports 0.12.0');
   });
 

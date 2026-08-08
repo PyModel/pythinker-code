@@ -927,6 +927,7 @@ async function startBackgroundInstall(
             version: target.version,
             installedAt: nowIso(),
             notifiedAt: null,
+            unverified: verification.ok ? verification.unverified : undefined,
           },
         }
         : {

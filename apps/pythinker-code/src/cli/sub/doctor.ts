@@ -212,7 +212,10 @@ function resolveDeps(deps: Partial<DoctorDeps> | DoctorDeps | undefined): Resolv
               installState.lastSuccess === null
                 ? undefined
                 : `${installState.lastSuccess.version} (installed ` +
-                  `${installState.lastSuccess.installedAt})`,
+                  `${installState.lastSuccess.installedAt})` +
+                  (installState.lastSuccess.unverified === undefined
+                    ? ''
+                    : ` — unverified: ${installState.lastSuccess.unverified}`),
             lastFailure:
               installState.lastFailure === null
                 ? undefined

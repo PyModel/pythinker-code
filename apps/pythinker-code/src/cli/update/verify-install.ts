@@ -94,10 +94,9 @@ export async function verifyInstalledVersion(
   expectedVersion: string,
   overrides: Partial<VerifyInstalledVersionDeps> = {},
 ): Promise<InstallVerification> {
-  if (source !== 'native') return unverified(`not verified for ${source} installs`);
-  if (valid(expectedVersion) === null) {
-    return unverified(`not a version to verify against: ${expectedVersion}`);
-  }
+  // Non-native sources are not checkable from here (see the module comment),
+  // and a note on every npm install would be noise rather than a signal.
+  if (source !== 'native' || valid(expectedVersion) === null) return { ok: true };
 
   const execPath = overrides.execPath ?? process.execPath;
   const probe = overrides.probeExecutableVersion ?? defaultProbeExecutableVersion;
