@@ -57,6 +57,7 @@ import {
 import {
   isDynamicWorkflowDisabled,
   setDynamicWorkflowDisabled,
+  setWorkflowSizeGuideline,
 } from './commands/workflow-availability';
 import * as slashCommands from './commands/dispatch';
 import { BannerComponent } from './components/chrome/banner';
@@ -746,7 +747,9 @@ export class PythinkerTUI {
 
   private async init(): Promise<boolean> {
     setExperimentalFeatures(await this.harness.getExperimentalFeatures());
-    setDynamicWorkflowDisabled((await this.harness.getConfig()).disableWorkflows);
+    const pythinkerConfig = await this.harness.getConfig();
+    setDynamicWorkflowDisabled(pythinkerConfig.disableWorkflows);
+    setWorkflowSizeGuideline(pythinkerConfig.workflowSizeGuideline);
     await this.authFlow.refreshAvailableModels();
     void this.refreshProviderModelsInBackground();
 

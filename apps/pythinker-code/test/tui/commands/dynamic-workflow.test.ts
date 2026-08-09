@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { handleDynamicWorkflowCommand } from '#/tui/commands/index';
 import type { SlashCommandHost } from '#/tui/commands/dispatch';
-import { setDynamicWorkflowDisabled } from '#/tui/commands/workflow-availability';
+import { setDynamicWorkflowDisabled, setWorkflowSizeGuideline } from '#/tui/commands/workflow-availability';
 import { currentTheme } from '#/tui/theme';
 
 const ENTER = '\r';
@@ -497,6 +497,50 @@ describe('/workflow save', () => {
 
     await handleDynamicWorkflowCommand(host, 'save');
 
-    expect(host.showError).toHaveBeenCalledWith('Usage: /workflow save <name>');
+    expect(host.showError).toHaveBeenCalledWith('Usage: /workflow save <name> [--personal]');
+  });
+
+  it('asks for a name when given only the --personal flag', async () => {
+    const { host } = makeHost({ permissionMode: 'auto' });
+
+    await handleDynamicWorkflowCommand(host, 'save --personal');
+
+    expect(host.showError).toHaveBeenCalledWith('Usage: /workflow save <name> [--personal]');
+  });
+
+  it('saves --personal into the data dir and records the size guideline', async () => {
+    const home = await fs.mkdtemp(join(tmpdir(), 'workflow-home-'));
+    const previousHome = process.env['PYTHINKER_CODE_HOME'];
+    process.env['PYTHINKER_CODE_HOME'] = home;
+    // Explicit empty env: the default is process.env, where an exported
+    // PYTHINKER_CODE_WORKFLOW_SIZE_GUIDELINE would override 'small' and fail
+    // this test for reasons unrelated to the change under test.
+    setWorkflowSizeGuideline('small', {});
+    try {
+      const { host, session } = makeHost({
+        permissionMode: 'auto',
+        lastDynamicWorkflowArgs: { description: 'Audit routes for missing auth' },
+      });
+
+      await handleDynamicWorkflowCommand(host, 'save --personal Audit Routes');
+
+      const saved = await fs.readFile(join(home, 'skills', 'audit-routes', 'SKILL.md'), 'utf8');
+      expect(saved).toContain('name: "audit-routes"');
+      expect(saved).toContain('size-guideline: "small"');
+      // The body line is what shapes the re-run; the frontmatter alone is inert.
+      expect(saved).toContain('at most about 5 subagents');
+      expect(session.reloadSkills).toHaveBeenCalledOnce();
+      expect(host.showError).not.toHaveBeenCalled();
+    } finally {
+      if (previousHome === undefined) {
+        delete process.env['PYTHINKER_CODE_HOME'];
+      } else {
+        process.env['PYTHINKER_CODE_HOME'] = previousHome;
+      }
+      // The module-level cache cannot return to unset; the resolved default
+      // ('medium') matches what TUI startup would have cached in production.
+      setWorkflowSizeGuideline(undefined, {});
+      await fs.rm(home, { recursive: true, force: true });
+    }
   });
 });

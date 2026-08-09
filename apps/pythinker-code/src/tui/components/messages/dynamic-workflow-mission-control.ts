@@ -773,7 +773,7 @@ export class DynamicWorkflowMissionControlComponent implements Component {
 }
 
 /** Item list from the completed tool-call `items` argument. */
-export function dynamicWorkflowItemsFromArgs(args: Record<string, unknown>): string[] {
+function dynamicWorkflowItemsFromArgs(args: Record<string, unknown>): string[] {
   const items = args['items'];
   if (!Array.isArray(items)) return [];
   // Blank entries are dropped by the engine before any agent is launched, so
@@ -831,11 +831,6 @@ export function dynamicWorkflowPartialItemsFromArguments(argumentsText: string):
     index = parsed.nextIndex;
   }
   return items;
-}
-
-/** Count of `items` parsed so far from streaming arguments. */
-export function dynamicWorkflowPartialItemsCountFromArguments(argumentsText: string): number {
-  return dynamicWorkflowPartialItemsFromArguments(argumentsText).length;
 }
 
 /** Description from the completed tool-call `description` argument. */

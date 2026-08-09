@@ -174,6 +174,35 @@ describe('renderSavedWorkflowSkill', () => {
     });
     expect(rendered).toContain('\n---\n\n# Review the diff\n');
   });
+
+  it('persists the size guideline in the frontmatter and states it in the body', () => {
+    const rendered = renderSavedWorkflowSkill({
+      name: 'review',
+      description: 'Review the diff',
+      sizeGuideline: 'small',
+    });
+    expect(frontmatterOf(rendered)).toContain('size-guideline: "small"');
+    // The body is what the model reads on invocation; the frontmatter alone
+    // would record the guideline without ever applying it to a re-run.
+    expect(rendered).toContain('at most about 5 subagents');
+
+    const withoutGuideline = renderSavedWorkflowSkill({
+      name: 'review',
+      description: 'Review the diff',
+    });
+    expect(withoutGuideline).not.toContain('size-guideline');
+    expect(withoutGuideline).not.toContain('subagents');
+  });
+
+  it('records `unrestricted` in the frontmatter without a body target', () => {
+    const rendered = renderSavedWorkflowSkill({
+      name: 'review',
+      description: 'Review the diff',
+      sizeGuideline: 'unrestricted',
+    });
+    expect(frontmatterOf(rendered)).toContain('size-guideline: "unrestricted"');
+    expect(rendered).not.toContain('at most about');
+  });
 });
 
 // Agents work in repositories they did not write. A checked-out tree can
@@ -196,7 +225,7 @@ describe('writeSavedWorkflowSkill refuses to write through a symlink', () => {
         writeSavedWorkflowSkill({
           scope: 'project',
           workflow,
-          projectRoot: path.join(root, 'project'),
+          workDir: path.join(root, 'project'),
           brandHomeDir: path.join(root, 'home'),
         }),
       ).rejects.toThrow(/rejected \(symlink_outside_cwd\)/u);
@@ -221,7 +250,7 @@ describe('writeSavedWorkflowSkill refuses to write through a symlink', () => {
         writeSavedWorkflowSkill({
           scope: 'project',
           workflow,
-          projectRoot,
+          workDir: projectRoot,
           brandHomeDir: path.join(root, 'home'),
         }),
       ).rejects.toThrow(/rejected \(symlink_outside_cwd\)/u);
@@ -238,10 +267,53 @@ describe('writeSavedWorkflowSkill refuses to write through a symlink', () => {
       const dir = await writeSavedWorkflowSkill({
         scope: 'project',
         workflow,
-        projectRoot: root,
+        workDir: root,
         brandHomeDir: path.join(root, 'home'),
       });
       expect(await fs.readFile(path.join(dir, 'SKILL.md'), 'utf8')).toContain('name: "audit"');
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+// The skill scanner resolves its project root from the closest `.git`
+// ancestor. A save made from a repository subdirectory must land at that same
+// root — a skill written to `<subdir>/.pythinker-code/skills` would exist on
+// disk and never be discovered.
+describe('writeSavedWorkflowSkill resolves the project root like the scanner', () => {
+  it('saves from a repo subdirectory into the repo root skills directory', async () => {
+    const root = await fs.mkdtemp(path.join(tmpdir(), 'workflow-monorepo-'));
+    try {
+      const repoRoot = path.join(root, 'repo');
+      const subDir = path.join(repoRoot, 'packages', 'app');
+      await fs.mkdir(path.join(repoRoot, '.git'), { recursive: true });
+      await fs.mkdir(subDir, { recursive: true });
+
+      const dir = await writeSavedWorkflowSkill({
+        scope: 'project',
+        workflow: { name: 'audit', description: 'Audit routes' },
+        workDir: subDir,
+        brandHomeDir: path.join(root, 'home'),
+      });
+
+      expect(dir).toBe(path.join(repoRoot, '.pythinker-code', 'skills', 'audit'));
+      expect(await fs.readFile(path.join(dir, 'SKILL.md'), 'utf8')).toContain('name: "audit"');
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('falls back to the working directory itself outside any repository', async () => {
+    const root = await fs.mkdtemp(path.join(tmpdir(), 'workflow-no-repo-'));
+    try {
+      const dir = await writeSavedWorkflowSkill({
+        scope: 'project',
+        workflow: { name: 'audit', description: 'Audit routes' },
+        workDir: root,
+        brandHomeDir: path.join(root, 'home'),
+      });
+      expect(dir).toBe(path.join(path.resolve(root), '.pythinker-code', 'skills', 'audit'));
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }

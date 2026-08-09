@@ -2,6 +2,7 @@ import {
   savedWorkflowSkillName,
   writeSavedWorkflowSkill,
   type PermissionMode,
+  type SavedWorkflowScope,
 } from '@pythoughts/pythinker-code-sdk';
 
 import { getDataDir } from '#/utils/paths';
@@ -16,7 +17,7 @@ import {
 import { LLM_NOT_SET_MESSAGE, NO_ACTIVE_SESSION_MESSAGE } from '../constant/pythinker-tui';
 import { formatErrorMessage } from '../utils/event-payload';
 import type { SlashCommandHost } from './dispatch';
-import { isDynamicWorkflowDisabled } from './workflow-availability';
+import { currentWorkflowSizeGuideline, isDynamicWorkflowDisabled } from './workflow-availability';
 
 export async function handleDynamicWorkflowCommand(host: SlashCommandHost, args: string): Promise<void> {
   if (isDynamicWorkflowDisabled()) {
@@ -121,8 +122,10 @@ function withWorkerModelInstruction(prompt: string, model: string | undefined): 
 }
 
 /**
- * `/workflow save <name>` writes the last run back out as a skill, so a fan-out
- * that worked can be re-run by name instead of re-described.
+ * `/workflow save <name> [--personal]` writes the last run back out as a
+ * skill, so a fan-out that worked can be re-run by name instead of
+ * re-described. Project scope is the default; `--personal` keeps the skill in
+ * the user's home skills directory instead of the repository.
  *
  * Returns true when the input was a `save` subcommand and has been handled.
  */
@@ -130,9 +133,13 @@ async function handleSaveSubcommand(host: SlashCommandHost, input: string): Prom
   const match = /^save(?:\s+(.*))?$/iu.exec(input);
   if (match === null) return false;
 
-  const name = match[1]?.trim() ?? '';
+  const tokens = (match[1] ?? '').split(/\s+/u).filter((token) => token.length > 0);
+  const personalIndex = tokens.indexOf('--personal');
+  const scope: SavedWorkflowScope = personalIndex === -1 ? 'project' : 'personal';
+  if (personalIndex !== -1) tokens.splice(personalIndex, 1);
+  const name = tokens.join(' ');
   if (name.length === 0) {
-    host.showError('Usage: /workflow save <name>');
+    host.showError('Usage: /workflow save <name> [--personal]');
     return true;
   }
 
@@ -150,8 +157,8 @@ async function handleSaveSubcommand(host: SlashCommandHost, input: string): Prom
 
   try {
     const dir = await writeSavedWorkflowSkill({
-      scope: 'project',
-      projectRoot: host.state.appState.workDir,
+      scope,
+      workDir: host.state.appState.workDir,
       brandHomeDir: getDataDir(),
       workflow: {
         name,
@@ -161,6 +168,7 @@ async function handleSaveSubcommand(host: SlashCommandHost, input: string): Prom
         model: stringArg(args, 'model'),
         effort: stringArg(args, 'effort'),
         outputSchema: recordArg(args, 'output_schema'),
+        sizeGuideline: currentWorkflowSizeGuideline(),
       },
     });
     // The skill registry is built once when the session opens, so the file just
