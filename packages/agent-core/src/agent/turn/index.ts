@@ -62,6 +62,8 @@ interface ActiveTurn {
   readonly controller: AbortController;
   readonly promise: Promise<TurnEndResult>;
   readonly firstRequest: ControlledPromise<void>;
+  /** Origin of the prompt that launched this turn, for consumers that need to know who is driving (e.g. the dynamic_workflow_mode.enter record). */
+  readonly origin: PromptOrigin;
 }
 
 interface BufferedSteer {
@@ -229,6 +231,7 @@ export class TurnFlow {
       controller,
       promise,
       firstRequest,
+      origin,
     };
 
     void firstRequest.catch(() => undefined);
@@ -295,6 +298,13 @@ export class TurnFlow {
 
   get hasActiveTurn(): boolean {
     return this.activeTurn !== null && this.activeTurn !== 'resuming';
+  }
+
+  /** Origin of the prompt that launched the active turn; undefined between turns and while resuming. */
+  get activeTurnOrigin(): PromptOrigin | undefined {
+    return this.activeTurn === null || this.activeTurn === 'resuming'
+      ? undefined
+      : this.activeTurn.origin;
   }
 
   private ensureActiveTurn(): ActiveTurn {

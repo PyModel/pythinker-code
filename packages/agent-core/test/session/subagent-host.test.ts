@@ -1583,6 +1583,55 @@ describe('SessionSubagentHost', () => {
         }),
       }),
     );
+    // Every lifecycle event carries the correlation pair, not only spawned —
+    // a consumer that joins on completion must not need a spawned-event cache.
+    for (const event of ['subagent.started', 'subagent.completed']) {
+      expect(parent.allEvents).toContainEqual(
+        expect.objectContaining({
+          type: '[rpc]',
+          event,
+          args: expect.objectContaining({
+            subagentId: 'agent-0',
+            workflowRunId: 'wfr-test-001',
+            workflowName: 'Review files',
+          }),
+        }),
+      );
+    }
+  });
+
+  it('carries the workflow correlation pair on subagent.suspended', () => {
+    const parent = testAgent();
+    parent.configure();
+    parent.newEvents();
+
+    const child = testAgent({ type: 'sub' });
+    child.configure();
+    const session = fakeSession(parent.agent, child.agent);
+    const host = new SessionSubagentHost(session, 'main');
+
+    host.suspended({
+      task: {
+        ...queuedTask(1),
+        workflowRunId: 'wfr-test-001',
+        workflowName: 'Review files',
+      },
+      agentId: 'agent-7',
+      reason: 'rate_limited',
+    });
+
+    expect(parent.allEvents).toContainEqual(
+      expect.objectContaining({
+        type: '[rpc]',
+        event: 'subagent.suspended',
+        args: expect.objectContaining({
+          subagentId: 'agent-7',
+          workflowRunId: 'wfr-test-001',
+          workflowName: 'Review files',
+          reason: 'rate_limited',
+        }),
+      }),
+    );
   });
 
   it('retries a rate-limited child turn without appending the original prompt again', async () => {
@@ -1845,6 +1894,216 @@ describe('SessionSubagentHost', () => {
     expect(child.agent.config.modelAlias).toBe('implementer-model');
     expect(child.agent.config.modelAlias).not.toBe(parent.agent.config.modelAlias);
     expect(child.agent.config.thinkingLevel).toBe('medium');
+  });
+
+  it('an Agent(model:) deny rule strips a profile-routed model override', async () => {
+    const parent = testAgent();
+    parent.configure();
+    parent.agent.permission.setMode('yolo');
+    // The rule fires at tool approval only when the model appears in the tool
+    // arguments. A profile-sourced override never goes back through approval,
+    // so the spawn-time containment check is what has to strip it.
+    parent.agent.permission.rules.push({
+      decision: 'deny',
+      scope: 'session-runtime',
+      pattern: 'Agent(model:implementer-model)',
+    });
+
+    const child = testAgent();
+    child.configure({ tools: ['Read'] });
+    child.configureRuntimeModel({ type: 'pythinker', apiKey: 'test-key', model: 'implementer-model' });
+    child.agent.context.appendUserMessage([{ type: 'text', text: 'Earlier context' }]);
+    child.mockNextResponse({
+      type: 'text',
+      text: 'Resumed the subagent on the contained model and carried the assigned task through to completion, then reported a full and detailed technical summary of every change so the parent agent can continue without repeating any prior work.',
+    });
+
+    const implementerProfile: ResolvedAgentProfile = {
+      name: 'implementer',
+      description: 'Cheap implementer routed to another model.',
+      systemPrompt: () => 'implementer system prompt',
+      tools: ['Read'],
+      model: 'implementer-model',
+      effort: 'medium',
+    };
+    child.agent.useProfile(implementerProfile);
+
+    const session = Object.assign(
+      fakeSession(parent.agent, child.agent, {
+        'agent-0': { type: 'sub', parentAgentId: 'main' },
+      }),
+      { agentProfiles: { implementer: implementerProfile } },
+    );
+    const host = new SessionSubagentHost(session, 'main');
+
+    const handle = await host.resume('agent-0', {
+      parentToolCallId: 'call_agent',
+      prompt: 'Continue from context',
+      description: 'Continue work',
+      runInBackground: false,
+      signal,
+    });
+    await handle.completion;
+
+    expect(child.agent.config.modelAlias).toBe(parent.agent.config.modelAlias);
+    expect(child.agent.config.modelAlias).not.toBe('implementer-model');
+  });
+
+  it('scopes model deny rules to the spawning surface', async () => {
+    const parent = testAgent();
+    parent.configure();
+    parent.agent.permission.setMode('yolo');
+    // A workflow child answers to DynamicWorkflow(model:...) rules; an
+    // Agent-scoped rule must not strip its override.
+    parent.agent.permission.rules.push({
+      decision: 'deny',
+      scope: 'session-runtime',
+      pattern: 'Agent(model:implementer-model)',
+    });
+
+    const child = testAgent();
+    child.configure({ tools: ['Read'] });
+    child.configureRuntimeModel({ type: 'pythinker', apiKey: 'test-key', model: 'implementer-model' });
+    child.agent.context.appendUserMessage([{ type: 'text', text: 'Earlier context' }]);
+    child.mockNextResponse({
+      type: 'text',
+      text: 'Resumed the routed workflow subagent from its earlier context and carried the assigned task through to completion, then reported a full and detailed technical summary of every change so the parent agent can continue without repeating any prior work.',
+    });
+
+    const implementerProfile: ResolvedAgentProfile = {
+      name: 'implementer',
+      description: 'Cheap implementer routed to another model.',
+      systemPrompt: () => 'implementer system prompt',
+      tools: ['Read'],
+      model: 'implementer-model',
+      effort: 'medium',
+    };
+    child.agent.useProfile(implementerProfile);
+
+    const session = Object.assign(
+      fakeSession(parent.agent, child.agent, {
+        'agent-0': { type: 'sub', parentAgentId: 'main' },
+      }),
+      { agentProfiles: { implementer: implementerProfile } },
+    );
+    const host = new SessionSubagentHost(session, 'main');
+
+    const handle = await host.resume('agent-0', {
+      parentToolCallId: 'call_agent',
+      prompt: 'Continue from context',
+      description: 'Continue work',
+      runInBackground: false,
+      workflowRunId: 'wfr-scope-test',
+      signal,
+    });
+    await handle.completion;
+
+    expect(child.agent.config.modelAlias).toBe('implementer-model');
+  });
+
+  it('ignores negated non-model deny rules when containing a model override', async () => {
+    const parent = testAgent();
+    parent.configure();
+    parent.agent.permission.setMode('yolo');
+    // `Agent(!reviewer)` is a profile policy ("only reviewer may spawn").
+    // Approval evaluates it against the call's full subject set; the spawn-time
+    // model re-check sees only `model:<alias>`, where the negation would match
+    // anything — it must not be re-interpreted as a model rule.
+    parent.agent.permission.rules.push({
+      decision: 'deny',
+      scope: 'session-runtime',
+      pattern: 'Agent(!implementer)',
+    });
+
+    const child = testAgent();
+    child.configure({ tools: ['Read'] });
+    child.configureRuntimeModel({ type: 'pythinker', apiKey: 'test-key', model: 'implementer-model' });
+    child.agent.context.appendUserMessage([{ type: 'text', text: 'Earlier context' }]);
+    child.mockNextResponse({
+      type: 'text',
+      text: 'Resumed the routed subagent past the negated profile rule and carried the assigned task through to completion, then reported a full and detailed technical summary of every change so the parent agent can continue without repeating any prior work.',
+    });
+
+    const implementerProfile: ResolvedAgentProfile = {
+      name: 'implementer',
+      description: 'Cheap implementer routed to another model.',
+      systemPrompt: () => 'implementer system prompt',
+      tools: ['Read'],
+      model: 'implementer-model',
+      effort: 'medium',
+    };
+    child.agent.useProfile(implementerProfile);
+
+    const session = Object.assign(
+      fakeSession(parent.agent, child.agent, {
+        'agent-0': { type: 'sub', parentAgentId: 'main' },
+      }),
+      { agentProfiles: { implementer: implementerProfile } },
+    );
+    const host = new SessionSubagentHost(session, 'main');
+
+    const handle = await host.resume('agent-0', {
+      parentToolCallId: 'call_agent',
+      prompt: 'Continue from context',
+      description: 'Continue work',
+      runInBackground: false,
+      signal,
+    });
+    await handle.completion;
+
+    expect(child.agent.config.modelAlias).toBe('implementer-model');
+  });
+
+  it('applies a negated model deny rule to the override it excepts', async () => {
+    const parent = testAgent();
+    parent.configure();
+    parent.agent.permission.setMode('yolo');
+    // "Deny every model except implementer-model" — the excepted model must
+    // survive containment, proving negated model rules are evaluated rather
+    // than skipped along with the non-model patterns.
+    parent.agent.permission.rules.push({
+      decision: 'deny',
+      scope: 'session-runtime',
+      pattern: 'Agent(!model:implementer-model)',
+    });
+
+    const child = testAgent();
+    child.configure({ tools: ['Read'] });
+    child.configureRuntimeModel({ type: 'pythinker', apiKey: 'test-key', model: 'implementer-model' });
+    child.agent.context.appendUserMessage([{ type: 'text', text: 'Earlier context' }]);
+    child.mockNextResponse({
+      type: 'text',
+      text: 'Resumed the routed subagent on the excepted model and carried the assigned task through to completion, then reported a full and detailed technical summary of every change so the parent agent can continue without repeating any prior work.',
+    });
+
+    const implementerProfile: ResolvedAgentProfile = {
+      name: 'implementer',
+      description: 'Cheap implementer routed to another model.',
+      systemPrompt: () => 'implementer system prompt',
+      tools: ['Read'],
+      model: 'implementer-model',
+      effort: 'medium',
+    };
+    child.agent.useProfile(implementerProfile);
+
+    const session = Object.assign(
+      fakeSession(parent.agent, child.agent, {
+        'agent-0': { type: 'sub', parentAgentId: 'main' },
+      }),
+      { agentProfiles: { implementer: implementerProfile } },
+    );
+    const host = new SessionSubagentHost(session, 'main');
+
+    const handle = await host.resume('agent-0', {
+      parentToolCallId: 'call_agent',
+      prompt: 'Continue from context',
+      description: 'Continue work',
+      runInBackground: false,
+      signal,
+    });
+    await handle.completion;
+
+    expect(child.agent.config.modelAlias).toBe('implementer-model');
   });
 });
 
