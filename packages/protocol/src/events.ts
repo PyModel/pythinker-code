@@ -531,6 +531,8 @@ export interface SubagentStartedEvent {
   readonly parentToolCallId?: string;
   /** Identifies the Dynamic Workflow run this subagent belongs to; absent outside a workflow. */
   readonly workflowRunId?: string;
+  /** The workflow's user-facing description, repeated on each subagent for correlation. */
+  readonly workflowName?: string;
 }
 
 export interface SubagentSuspendedEvent {
@@ -538,6 +540,10 @@ export interface SubagentSuspendedEvent {
   readonly subagentId: string;
   /** Tool call in the parent agent that spawned the subagent; absent when spawned outside a tool call. */
   readonly parentToolCallId?: string;
+  /** Identifies the Dynamic Workflow run this subagent belongs to; absent outside a workflow. */
+  readonly workflowRunId?: string;
+  /** The workflow's user-facing description, repeated on each subagent for correlation. */
+  readonly workflowName?: string;
   readonly reason: string;
 }
 
@@ -548,6 +554,8 @@ export interface SubagentCompletedEvent {
   readonly parentToolCallId?: string;
   /** Identifies the Dynamic Workflow run this subagent belongs to; absent outside a workflow. */
   readonly workflowRunId?: string;
+  /** The workflow's user-facing description, repeated on each subagent for correlation. */
+  readonly workflowName?: string;
   readonly resultSummary: string;
   readonly usage?: TokenUsage;
   readonly contextTokens?: number;
@@ -560,6 +568,8 @@ export interface SubagentFailedEvent {
   readonly parentToolCallId?: string;
   /** Identifies the Dynamic Workflow run this subagent belongs to; absent outside a workflow. */
   readonly workflowRunId?: string;
+  /** The workflow's user-facing description, repeated on each subagent for correlation. */
+  readonly workflowName?: string;
   readonly error: string;
 }
 
@@ -1208,12 +1218,15 @@ export const subagentStartedEventSchema = z.object({
   subagentId: z.string(),
   parentToolCallId: z.string().optional(),
   workflowRunId: z.string().optional(),
+  workflowName: z.string().optional(),
 }) satisfies z.ZodType<SubagentStartedEvent>;
 
 export const subagentSuspendedEventSchema = z.object({
   type: z.literal('subagent.suspended'),
   subagentId: z.string(),
   parentToolCallId: z.string().optional(),
+  workflowRunId: z.string().optional(),
+  workflowName: z.string().optional(),
   reason: z.string(),
 }) satisfies z.ZodType<SubagentSuspendedEvent>;
 
@@ -1222,6 +1235,7 @@ export const subagentCompletedEventSchema = z.object({
   subagentId: z.string(),
   parentToolCallId: z.string().optional(),
   workflowRunId: z.string().optional(),
+  workflowName: z.string().optional(),
   resultSummary: z.string(),
   usage: tokenUsageSchema.optional(),
   contextTokens: z.number().optional(),
@@ -1232,6 +1246,7 @@ export const subagentFailedEventSchema = z.object({
   subagentId: z.string(),
   parentToolCallId: z.string().optional(),
   workflowRunId: z.string().optional(),
+  workflowName: z.string().optional(),
   error: z.string(),
 }) satisfies z.ZodType<SubagentFailedEvent>;
 
