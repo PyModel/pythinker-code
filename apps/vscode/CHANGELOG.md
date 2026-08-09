@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.9.0
+
+### Minor Changes
+
+- [#48](https://github.com/Pythoughts-labs/pythinker-code/pull/48) [`17967df`](https://github.com/Pythoughts-labs/pythinker-code/commit/17967dffb7ca3ed6f23f9bc0346042fc8a1b2bf0) - Combine permission mode, plan mode, and thinking effort into one composer menu, and answer approval prompts with number keys.
+
+- [#48](https://github.com/Pythoughts-labs/pythinker-code/pull/48) [`17967df`](https://github.com/Pythoughts-labs/pythinker-code/commit/17967dffb7ca3ed6f23f9bc0346042fc8a1b2bf0) - Add a config hub page that shows models, providers, MCP servers, the local config file, and extension settings in one place.
+
+- [#48](https://github.com/Pythoughts-labs/pythinker-code/pull/48) [`17967df`](https://github.com/Pythoughts-labs/pythinker-code/commit/17967dffb7ca3ed6f23f9bc0346042fc8a1b2bf0) - The extension UI now follows the editor color theme, including light, dark, and high-contrast themes.
+
+- [#48](https://github.com/Pythoughts-labs/pythinker-code/pull/48) [`17967df`](https://github.com/Pythoughts-labs/pythinker-code/commit/17967dffb7ca3ed6f23f9bc0346042fc8a1b2bf0) - Add a status bar indicator, quick-fix code actions, terminal and editor context menu entries, a getting-started walkthrough, and a new-conversation keybinding.
+
+### Patch Changes
+
+- [#48](https://github.com/Pythoughts-labs/pythinker-code/pull/48) [`17967df`](https://github.com/Pythoughts-labs/pythinker-code/commit/17967dffb7ca3ed6f23f9bc0346042fc8a1b2bf0) - Render long conversations with a virtualized list, fix control overlap at narrow sidebar widths, and make sign-out work from the command palette.
+
+- Updated dependencies [[`c8cdcc7`](https://github.com/Pythoughts-labs/pythinker-code/commit/c8cdcc78528f3fd8dedf9111ec0c91f3242e3012)]:
+  - @pythoughts/pythinker-code-sdk@0.15.0
+
 ## 0.8.8
 
 ### Patch Changes

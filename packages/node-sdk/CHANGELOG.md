@@ -1,5 +1,11 @@
 # @pythoughts/pythinker-code-sdk
 
+## 0.15.0
+
+### Minor Changes
+
+- [#51](https://github.com/Pythoughts-labs/pythinker-code/pull/51) [`c8cdcc7`](https://github.com/Pythoughts-labs/pythinker-code/commit/c8cdcc78528f3fd8dedf9111ec0c91f3242e3012) - The saved-workflow write helper now takes the working directory and resolves the repository root itself, saved workflows can carry a size guideline, and the workflow size guideline resolver is exported.
+
 ## 0.14.0
 
 ### Minor Changes
