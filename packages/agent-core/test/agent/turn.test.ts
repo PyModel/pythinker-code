@@ -533,7 +533,9 @@ describe('Agent turn flow', () => {
       .filter((origin) => origin?.kind === 'injection');
 
     expect(runQueued).toHaveBeenCalledTimes(1);
-    expect(enterEvent?.args).toMatchObject({ trigger: 'tool' });
+    // The enter record names who drove the fan-out: a cron- or hook-originated
+    // turn calling DynamicWorkflow is attributable after the fact.
+    expect(enterEvent?.args).toMatchObject({ trigger: 'tool', origin: { kind: 'user' } });
     expect(ctx.agent.dynamicWorkflowMode.isActive).toBe(false);
     expect(eventIndex(ctx, '[wire]', 'dynamic_workflow_mode.exit')).toBeGreaterThan(
       eventIndex(ctx, '[rpc]', 'turn.ended'),
