@@ -83,7 +83,7 @@ export function BottomToolbar() {
                 <IconFileCode className="size-3.5" />
                 <span>{fileChanges.length} Changed</span>
                 <span className="text-[10px] tabular-nums">
-                  <span className="text-green-600 dark:text-green-400">+{fileStats.additions}</span> <span className="text-red-600 dark:text-red-400">-{fileStats.deletions}</span>
+                  <span className="text-success">+{fileStats.additions}</span> <span className="text-destructive">-{fileStats.deletions}</span>
                 </span>
                 <IconChevronUp className={cn("size-3 transition-transform", activeTab === "changes" && "rotate-180")} />
               </button>

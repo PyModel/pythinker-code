@@ -207,7 +207,7 @@ function ServerForm({
                 onClick={() => set("transport", t)}
                 className={cn(
                   "flex-1 h-7 text-xs rounded border flex items-center justify-center gap-1",
-                  data.transport === t ? "border-blue-500 bg-blue-500/10 text-blue-500" : "border-border",
+                  data.transport === t ? "border-brand bg-brand/10 text-brand" : "border-border",
                 )}
               >
                 {t === "stdio" ? <IconTerminal2 className="size-3" /> : <IconWorld className="size-3" />}
@@ -348,13 +348,13 @@ function ServerItem({ server, onDelete }: { server: MCPServerConfig; onDelete: (
   return (
     <div className="rounded-md border border-border/60 bg-card/30">
       <div className="flex items-center gap-2 px-2.5 py-1.5 cursor-pointer hover:bg-muted/30" onClick={() => setExpanded(!expanded)}>
-        <div className={cn("size-6 rounded flex items-center justify-center text-xs", isHttp ? "bg-blue-500/10 text-blue-500" : "bg-emerald-500/10 text-emerald-500")}>
+        <div className={cn("size-6 rounded flex items-center justify-center text-xs", isHttp ? "bg-brand/10 text-brand" : "bg-success/15 text-success")}>
           {isHttp ? <IconWorld className="size-3.5" /> : <IconTerminal2 className="size-3.5" />}
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5">
             <span className="text-xs font-medium">{server.name}</span>
-            {server.auth === "oauth" && <span className="text-[9px] px-1 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400">OAuth</span>}
+            {server.auth === "oauth" && <span className="text-[9px] px-1 py-0.5 rounded bg-warning/15 text-warning">OAuth</span>}
           </div>
           <p className="text-[10px] text-muted-foreground truncate font-mono">
             {isHttp ? server.url : (
@@ -407,7 +407,7 @@ function ServerItem({ server, onDelete }: { server: MCPServerConfig; onDelete: (
 function RecommendedItem({ server, onInstall, isInstalling }: { server: RecommendedMCPServer; onInstall: () => void; isInstalling: boolean }) {
   return (
     <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-md border border-dashed border-border/50">
-      <div className="size-6 rounded flex items-center justify-center bg-violet-500/10 text-violet-500">
+      <div className="size-6 rounded flex items-center justify-center bg-brand/10 text-brand">
         <IconTerminal2 className="size-3.5" />
       </div>
       <div className="flex-1 min-w-0">
@@ -435,8 +435,8 @@ function RecommendedItem({ server, onInstall, isInstalling }: { server: Recommen
   );
 }
 
-export function MCPServersModal() {
-  const { mcpServers, mcpModalOpen, setMCPServers, setMCPModalOpen } = useSettingsStore();
+export function MCPServersSection() {
+  const { mcpServers, setMCPServers } = useSettingsStore();
   const [showAdd, setShowAdd] = useState(false);
   const [addForm, setAddForm] = useState<FormData>(() => emptyForm());
   const [installingRecommended, setInstallingRecommended] = useState<string | null>(null);
@@ -445,12 +445,10 @@ export function MCPServersModal() {
   const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (mcpModalOpen) {
-      void bridge.getMCPServers().then(setMCPServers).catch((error: unknown) => {
-        setActionError(error instanceof Error ? error.message : String(error));
-      });
-    }
-  }, [mcpModalOpen, setMCPServers]);
+    void bridge.getMCPServers().then(setMCPServers).catch((error: unknown) => {
+      setActionError(error instanceof Error ? error.message : String(error));
+    });
+  }, [setMCPServers]);
 
   useEffect(() => {
     if (!showAdd) setAddForm(emptyForm());
@@ -496,68 +494,55 @@ export function MCPServersModal() {
     setInstallingRecommended(null);
   };
 
-  if (!mcpModalOpen) return null;
-
   return (
     <>
-      <div className="fixed inset-0 z-40 flex flex-col bg-background">
-        <div className="flex items-center justify-between px-3 py-2 border-b">
-          <div className="flex items-center gap-2">
-            <IconServer className="size-4 text-blue-500" />
-            <h2 className="text-xs font-medium">MCP Servers</h2>
-          </div>
-          <div className="flex items-center gap-1">
-            <Button variant="outline" size="sm" className="h-6 text-xs" onClick={() => setShowAdd(true)}>
-              <IconPlus className="size-3 mr-1" />
-              Add
-            </Button>
-            <Button variant="ghost" size="icon" className="size-6" onClick={() => setMCPModalOpen(false)}>
-              <IconX className="size-3.5" />
-            </Button>
-          </div>
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-xs font-medium">MCP Servers</h2>
+          <Button variant="outline" size="sm" className="h-6 text-xs" onClick={() => setShowAdd(true)}>
+            <IconPlus className="size-3 mr-1" />
+            Add
+          </Button>
         </div>
-        <div className="flex-1 overflow-y-auto">
-          <div className="max-w-2xl mx-auto px-3 py-3 space-y-4">
-            {actionError && (
-              <div className="rounded border border-destructive/30 bg-destructive/5 px-2.5 py-2 text-xs text-destructive">
-                {actionError}
-              </div>
-            )}
-            {showAdd && (
-              <div className="rounded-md border border-blue-500/5 p-2.5">
-                <div className="flex items-center gap-2 mb-2">
-                  <IconPlus className="size-3.5 text-blue-500" />
-                  <span className="text-xs font-medium">Add MCP Server</span>
-                </div>
-                <ServerForm data={addForm} onChange={setAddForm} onSubmit={() => { void handleAdd(); }} onCancel={() => setShowAdd(false)} submitLabel="Add Server" />
-              </div>
-            )}
 
-            {mcpServers.length > 0 && (
-              <div className="space-y-1.5">
-                {mcpServers.map((server) => (
-                  <ServerItem key={server.name} server={server} onDelete={() => setDeleteTarget(server.name)} />
-                ))}
-              </div>
-            )}
-
-            {mcpServers.length === 0 && !showAdd && (
-              <div className="py-6 text-center">
-                <IconServer className="size-6 mx-auto text-muted-foreground/30 mb-1" />
-                <p className="text-xs text-muted-foreground">No MCP servers configured</p>
-              </div>
-            )}
-
-            <div className="space-y-1.5">
-              <h3 className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Recommended</h3>
-              {RECOMMENDED_MCP_SERVERS.filter((s) => !installedNames.has(s.id)).map((server) => (
-                <RecommendedItem key={server.id} server={server} onInstall={() => { void handleInstallRecommended(server); }} isInstalling={installingRecommended === server.id} />
-              ))}
-              {RECOMMENDED_MCP_SERVERS.every((s) => installedNames.has(s.id)) && (
-                <p className="text-[10px] text-muted-foreground text-center py-2">All recommended servers installed</p>
-              )}
-            </div>
+        {actionError && (
+          <div className="rounded border border-destructive/30 bg-destructive/5 px-2.5 py-2 text-xs text-destructive">
+            {actionError}
           </div>
+        )}
+        {showAdd && (
+          <div className="rounded-md border border-brand/40 p-2.5">
+            <div className="flex items-center gap-2 mb-2">
+              <IconPlus className="size-3.5 text-brand" />
+              <span className="text-xs font-medium">Add MCP Server</span>
+            </div>
+            <ServerForm data={addForm} onChange={setAddForm} onSubmit={() => { void handleAdd(); }} onCancel={() => setShowAdd(false)} submitLabel="Add Server" />
+          </div>
+        )}
+
+        {mcpServers.length > 0 && (
+          <div className="space-y-1.5">
+            {mcpServers.map((server) => (
+              <ServerItem key={server.name} server={server} onDelete={() => setDeleteTarget(server.name)} />
+            ))}
+          </div>
+        )}
+
+        {mcpServers.length === 0 && !showAdd && (
+          <div className="py-6 text-center">
+            <IconServer className="size-6 mx-auto text-muted-foreground/30 mb-1" />
+            <p className="text-xs text-muted-foreground">No MCP servers configured</p>
+          </div>
+        )}
+
+        <div className="space-y-1.5">
+          <h3 className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Recommended</h3>
+          {RECOMMENDED_MCP_SERVERS.filter((s) => !installedNames.has(s.id)).map((server) => (
+            <RecommendedItem key={server.id} server={server} onInstall={() => { void handleInstallRecommended(server); }} isInstalling={installingRecommended === server.id} />
+          ))}
+          {RECOMMENDED_MCP_SERVERS.every((s) => installedNames.has(s.id)) && (
+            <p className="text-[10px] text-muted-foreground text-center py-2">All recommended servers installed</p>
+          )}
         </div>
       </div>
 

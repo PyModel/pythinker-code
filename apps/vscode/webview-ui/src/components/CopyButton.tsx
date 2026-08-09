@@ -30,8 +30,8 @@ export function CopyButton({ content, className }: CopyButtonProps) {
       variant="ghost"
       size="icon-xs"
       className={cn(
-        "h-5 w-5 text-muted-foreground hover:text-foreground transition-all border-0! hover:bg-zinc-200 dark:hover:bg-zinc-800 cursor-pointer",
-        isCopied && "text-emerald-500 hover:text-emerald-600",
+        "h-5 w-5 text-muted-foreground hover:text-foreground transition-all border-0! hover:bg-toolbar-hover cursor-pointer",
+        isCopied && "text-success hover:text-success",
         className,
       )}
       onClick={() => {

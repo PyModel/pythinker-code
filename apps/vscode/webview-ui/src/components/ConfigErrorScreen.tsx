@@ -61,7 +61,7 @@ function NoModelsContent({ onRefresh, onBackToLogin }: Pick<Props, "onRefresh" |
   return (
     <>
       <div className="space-y-2">
-        <div className="inline-flex items-center gap-2 text-amber-500">
+        <div className="inline-flex items-center gap-2 text-warning">
           <IconAlertTriangle className="size-5" />
           <span className="text-sm font-medium">Model setup required</span>
         </div>
@@ -119,7 +119,7 @@ export function ConfigErrorScreen({ type, errorMessage, onRefresh, onBackToLogin
         <div className="max-w-sm text-center space-y-6">
           <PythinkerMascot className="h-10 mx-auto opacity-50" />
           <div className="space-y-2">
-            <div className="inline-flex items-center gap-2 text-amber-500">
+            <div className="inline-flex items-center gap-2 text-warning">
               <IconFolderOpen className="size-5" />
               <span className="text-sm font-medium">No workspace open</span>
             </div>
@@ -155,7 +155,7 @@ export function ConfigErrorScreen({ type, errorMessage, onRefresh, onBackToLogin
       <div className="max-w-sm mx-auto text-center space-y-6">
         <PythinkerMascot className="h-10 mx-auto opacity-50" />
         <div className="space-y-2">
-          <div className="inline-flex items-center gap-2 text-red-500">
+          <div className="inline-flex items-center gap-2 text-destructive">
             <IconAlertTriangle className="size-5" />
             <span className="text-sm font-medium">Pythinker Code could not start</span>
           </div>

@@ -125,15 +125,15 @@ export function getMediaFallbackModel(
     ?? compatibleModels[0];
 }
 
+export type ConfigHubSection = "overview" | "models" | "providers" | "mcp" | "config" | "settings";
+
 interface SettingsState {
   currentModel: string;
   thinkingEffort: string;
   extensionConfig: ExtensionConfig;
   mcpServers: MCPServerConfig[];
-  mcpModalOpen: boolean;
-  providersModalOpen: boolean;
+  configHub: { open: boolean; section: ConfigHubSection };
   workDirModalOpen: boolean;
-  settingsDialogOpen: boolean;
   currentWorkDir: string | null;
   workspaceRoot: string | null;
   models: ModelConfig[];
@@ -152,10 +152,9 @@ interface SettingsState {
   selectThinkingEffort: (effort: string) => void;
   setExtensionConfig: (config: ExtensionConfig) => void;
   setMCPServers: (servers: MCPServerConfig[]) => void;
-  setMCPModalOpen: (open: boolean) => void;
-  setProvidersModalOpen: (open: boolean) => void;
+  openConfigHub: (section?: ConfigHubSection) => void;
+  closeConfigHub: () => void;
   setWorkDirModalOpen: (open: boolean) => void;
-  setSettingsDialogOpen: (open: boolean) => void;
   setCurrentWorkDir: (workDir: string | null) => void;
   setWorkspaceRoot: (root: string | null) => void;
   initModels: (models: ModelConfig[], defaultModel: string | null, defaultThinking: boolean, defaultThinkingEffort?: string) => void;
@@ -169,10 +168,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   thinkingEffort: "off",
   extensionConfig: DEFAULT_EXTENSION_CONFIG,
   mcpServers: [],
-  mcpModalOpen: false,
-  providersModalOpen: false,
+  configHub: { open: false, section: "overview" },
   workDirModalOpen: false,
-  settingsDialogOpen: false,
   currentWorkDir: null,
   workspaceRoot: null,
   models: [],
@@ -269,12 +266,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
   setMCPServers: (mcpServers) => set({ mcpServers }),
 
-  setMCPModalOpen: (mcpModalOpen) => set({ mcpModalOpen }),
-  setProvidersModalOpen: (providersModalOpen) => set({ providersModalOpen }),
+  openConfigHub: (section = "overview") => set({ configHub: { open: true, section } }),
+  closeConfigHub: () => set((state) => ({ configHub: { ...state.configHub, open: false } })),
 
   setWorkDirModalOpen: (workDirModalOpen) => set({ workDirModalOpen }),
-
-  setSettingsDialogOpen: (settingsDialogOpen) => set({ settingsDialogOpen }),
 
   setCurrentWorkDir: (currentWorkDir) => set({ currentWorkDir }),
 

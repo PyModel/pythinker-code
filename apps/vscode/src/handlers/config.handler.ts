@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import * as vscode from "vscode";
 import { buildSkillSlashCommands, type SkillSlashCommand } from "@pythoughts/pythinker-code-sdk";
 type SdkConfig = any;
@@ -8,7 +9,7 @@ import type {
   ModelsConfig,
   SlashCommandInfo,
 } from "../../shared/legacy-sdk";
-import type { ExtensionConfig, SessionConfig } from "../../shared/types";
+import type { ConfigInfo, ExtensionConfig, SessionConfig } from "../../shared/types";
 import { VSCodeSettings } from "../config/vscode-settings";
 import { normalizeEffort } from "../runtime/pythinker-runtime";
 import type { Handler } from "./types";
@@ -66,6 +67,23 @@ const saveConfig: Handler<SessionConfig, { ok: boolean }> = async (params, ctx) 
     if (status.thinkingLevel !== effort) await runtime.session.setThinking(effort);
   }
   return { ok: true };
+};
+
+/**
+ * The raw config file, verbatim — deliberately NOT the parsed+redacted webview
+ * config. It is the user's own local file rendered in their own editor, so any
+ * API keys in it are shown as-is; nothing is redacted silently.
+ */
+const getConfigInfo: Handler<void, ConfigInfo> = async (_, ctx) => {
+  const path = ctx.harness.configPath;
+  try {
+    return { path, exists: true, content: await readFile(path, "utf8") };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return { path, exists: false, content: null };
+    }
+    throw error;
+  }
 };
 
 const getExtensionConfig: Handler<void, ExtensionConfig> = async () => {
@@ -132,6 +150,7 @@ const reloadWebview: Handler<void, { ok: boolean }> = async (_, ctx) => {
 
 export const configHandlers = {
   [Methods.SaveConfig]: saveConfig,
+  [Methods.GetConfigInfo]: getConfigInfo,
   [Methods.GetExtensionConfig]: getExtensionConfig,
   [Methods.SaveExtensionConfig]: saveExtensionConfig,
   [Methods.OpenSettings]: openSettings,
@@ -159,6 +178,7 @@ function toWebviewModel(id: string, model: any): ModelConfig {
     name: model.displayName ?? model.model ?? id,
     provider: model.provider ?? "unknown",
     capabilities: [...(model.capabilities ?? [])],
+    contextWindow: typeof model.maxContextSize === "number" ? model.maxContextSize : undefined,
     adaptive_thinking: model.adaptiveThinking,
     support_efforts:
       model.supportEfforts === undefined ? undefined : [...model.supportEfforts],

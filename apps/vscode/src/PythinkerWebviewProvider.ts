@@ -19,6 +19,8 @@ function getNonce(): string {
 export class PythinkerWebviewProvider implements vscode.WebviewViewProvider {
   private webviews = new Map<string, vscode.Webview>();
   private bridgeHandler: BridgeHandler;
+  private sidebarView: vscode.WebviewView | undefined;
+  private badgeCount = 0;
 
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -51,11 +53,35 @@ export class PythinkerWebviewProvider implements vscode.WebviewViewProvider {
   resolveWebviewView(webviewView: vscode.WebviewView): void {
     const webviewId = `sidebar_${crypto.randomUUID()}`;
     this.setupWebview(webviewId, webviewView.webview);
+    this.sidebarView = webviewView;
+    this.applyBadge();
 
     webviewView.onDidDispose(() => {
       void this.bridgeHandler.disposeView(webviewId);
       this.webviews.delete(webviewId);
+      if (this.sidebarView === webviewView) this.sidebarView = undefined;
     });
+  }
+
+  /** Shows `count` pending approval requests on the sidebar view; 0 clears the badge. */
+  setSidebarBadge(count: number): void {
+    this.badgeCount = count;
+    this.applyBadge();
+  }
+
+  private applyBadge(): void {
+    const view = this.sidebarView;
+    if (view === undefined) return;
+    view.badge =
+      this.badgeCount > 0
+        ? {
+            value: this.badgeCount,
+            tooltip:
+              this.badgeCount === 1
+                ? "1 approval request waits for your decision"
+                : `${this.badgeCount} approval requests wait for your decision`,
+          }
+        : undefined;
   }
 
   createPanel(): vscode.WebviewPanel {

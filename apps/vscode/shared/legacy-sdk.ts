@@ -196,6 +196,8 @@ export interface ModelConfig {
   name: string;
   provider: string;
   capabilities: string[];
+  /** Maximum context size in tokens, from the model alias config (maxContextSize). */
+  contextWindow?: number;
   adaptive_thinking?: boolean;
   support_efforts?: string[];
   default_effort?: string;

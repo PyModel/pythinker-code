@@ -3,10 +3,8 @@ import { useEffect, useState, useCallback } from "react";
 import { Header } from "./components/Header";
 import { ChatArea } from "./components/ChatArea";
 import { InputArea } from "./components/inputarea/InputArea";
-import { MCPServersModal } from "./components/MCPServersModal";
-import { ProvidersModal } from "./components/ProvidersModal";
 import { WorkDirModal } from "./components/WorkDirModal";
-import { SettingsDialog } from "./components/SettingsDialog";
+import { ConfigHub } from "./components/confighub/ConfigHub";
 import { ConfigErrorScreen } from "./components/ConfigErrorScreen";
 import { LoginScreen } from "./components/LoginScreen";
 import { Toaster, toast } from "./components/ui/sonner";
@@ -19,13 +17,12 @@ import "./styles/index.css";
 
 function MainContent({ onAuthAction }: { onAuthAction: () => void }) {
   const { processEvent, startNewConversation, sessionId } = useChatStore();
-  const { setMCPServers, setExtensionConfig, extensionConfig, setWireSlashCommands } = useSettingsStore();
+  const { setMCPServers, setExtensionConfig, extensionConfig, setWireSlashCommands, configHub } = useSettingsStore();
 
   useEffect(() => {
     return bridge.on(Events.StreamEvent, (event: UIStreamEvent) => {
       // Filter only when a session already exists to ensure session_start is handled properly
       if (sessionId && "_sessionId" in event && event._sessionId && event._sessionId !== sessionId) {
-        console.log("Ignored stream event from another session:", event._sessionId);
         return;
       }
       processEvent(event);
@@ -69,16 +66,19 @@ function MainContent({ onAuthAction }: { onAuthAction: () => void }) {
 
   return (
     <>
-      <div className="flex-1 min-h-0 relative group/chat">
-        <ChatArea />
-      </div>
-      <div className="shrink-0 max-h-[80vh] flex flex-col min-h-0">
-        <InputArea onAuthAction={onAuthAction} />
-      </div>
-      <MCPServersModal />
-      <ProvidersModal />
+      {configHub.open ? (
+        <ConfigHub />
+      ) : (
+        <>
+          <div className="flex-1 min-h-0 relative group/chat">
+            <ChatArea />
+          </div>
+          <div className="shrink-0 max-h-[80vh] flex flex-col min-h-0">
+            <InputArea onAuthAction={onAuthAction} />
+          </div>
+        </>
+      )}
       <WorkDirModal />
-      <SettingsDialog />
     </>
   );
 }

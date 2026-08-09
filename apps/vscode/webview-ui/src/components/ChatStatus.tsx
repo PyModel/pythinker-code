@@ -58,6 +58,14 @@ function subscribeToSpeed(listener: () => void): () => void {
   return () => speedListeners.delete(listener);
 }
 
+/** Compact token count in Cline's style: 999, 12.3k, 1.2m. */
+function formatTokens(count: number): string {
+  // 999_950+ rounds to 1.0m; without this the k branch prints "1000.0k".
+  if (count >= 999_950) return `${(count / 1e6).toFixed(1)}m`;
+  if (count >= 1e3) return `${(count / 1e3).toFixed(1)}k`;
+  return String(count);
+}
+
 export function useTokenSpeed() {
   const isStreaming = useChatStore((s) => s.isStreaming);
   const outputTokens = useChatStore((s) => s.tokenUsage.output + s.activeTokenUsage.output);
@@ -107,7 +115,7 @@ export function TokenInfo() {
           <span className="text-muted-foreground text-[10px] flex items-center gap-1">
             <IconGauge className="size-3" /> Context Window
           </span>
-          <span className={cn("text-sm font-semibold mt-0.5", contextPercent > 80 && "text-amber-500", contextPercent > 95 && "text-destructive")}>
+          <span className={cn("text-sm font-semibold mt-0.5", contextPercent > 80 && "text-warning", contextPercent > 95 && "text-destructive")}>
             {contextPercent}%
           </span>
           <span className="text-[10px] text-muted-foreground font-mono mt-0.5">
@@ -117,7 +125,7 @@ export function TokenInfo() {
 
         <div className="flex flex-col p-2 rounded bg-muted/40 border border-border/40">
           <span className="text-muted-foreground text-[10px] flex items-center gap-1">
-            <IconBolt className="size-3 text-amber-400" /> Generation Speed
+            <IconBolt className="size-3 text-warning" /> Generation Speed
           </span>
           <span className="text-sm font-semibold font-mono text-foreground mt-0.5 whitespace-nowrap tabular-nums">
             {speed > 0 ? `${speed.toFixed(1)} tok/s` : "Idle"}
@@ -150,6 +158,7 @@ export function TokenInfo() {
 
 export function ChatStatus() {
   const { lastStatus, tokenUsage, activeTokenUsage } = useChatStore();
+  const { currentModel, models } = useSettingsStore();
   const { speed, isStreaming } = useTokenSpeed();
 
   if (!lastStatus && !isStreaming) {
@@ -168,14 +177,24 @@ export function ChatStatus() {
     activeTokenUsage.input_cache_creation;
 
   const outputTotal = tokenUsage.output + activeTokenUsage.output;
+  const cacheRead = tokenUsage.input_cache_read + activeTokenUsage.input_cache_read;
+  const cacheWrite = tokenUsage.input_cache_creation + activeTokenUsage.input_cache_creation;
+  const hasUsage = inputTotal + outputTotal > 0;
   const contextPercent = context_usage ? Math.round(context_usage * 1000) / 10 : 0;
+  // ponytail: the bar reuses the engine-reported context_usage fraction so it
+  // never competes with the percent shown next to it; contextWindow only
+  // supplies the tooltip's absolute numbers.
+  const contextWindow = models.find((m) => m.id === currentModel)?.contextWindow;
+  const contextUsedTokens = contextWindow !== undefined && context_usage
+    ? Math.round(context_usage * contextWindow)
+    : undefined;
 
   return (
     <div className="flex items-center gap-2 text-[10px] text-muted-foreground border border-border/40 rounded-full px-2.5 py-0.5 select-none h-6 box-border mr-2 @max-[240px]:hidden bg-muted/20">
       {retrying && (
         <Tooltip>
           <TooltipTrigger asChild>
-            <span className="flex items-center gap-1 text-amber-500 font-mono">
+            <span className="flex items-center gap-1 text-warning font-mono">
               <IconRefresh className="size-3 animate-spin" />
               Retry {retrying.next_attempt}/{retrying.max_attempts}
             </span>
@@ -191,8 +210,8 @@ export function ChatStatus() {
       {speed > 0 && (
         <Tooltip>
           <TooltipTrigger asChild>
-            <span className="flex items-center gap-1 whitespace-nowrap text-amber-500 font-mono font-medium">
-              <IconBolt className="size-3 shrink-0 fill-amber-400/20 text-amber-400 animate-pulse" />
+            <span className="flex items-center gap-1 whitespace-nowrap text-warning font-mono font-medium">
+              <IconBolt className="size-3 shrink-0 fill-warning/20 text-warning animate-pulse" />
               {/* tabular-nums keeps the pill from resizing as the rate changes,
                   and nowrap stops "74.7" and "t/s" breaking onto two lines in a
                   narrow sidebar. */}
@@ -209,46 +228,79 @@ export function ChatStatus() {
       <div className="flex items-center gap-1" title="Context Window Usage">
         <Tooltip>
           <TooltipTrigger asChild>
-            <span className="flex items-center gap-1 font-mono">
+            <span className="flex items-center gap-1.5 font-mono">
               <IconGauge className="size-3 opacity-70" />
-              <span className={cn(contextPercent > 70 && "text-amber-500", contextPercent > 90 && "text-destructive font-semibold")}>
+              <span className={cn(contextPercent > 70 && "text-warning", contextPercent > 90 && "text-destructive font-semibold")}>
                 {contextPercent}%
+              </span>
+              {/* Cline-style context bar: 2px track, fill turns warning above 80%. */}
+              <span className="w-10 h-0.5 rounded-full bg-muted overflow-hidden shrink-0 @max-[300px]:hidden">
+                <span
+                  className={cn("block h-full rounded-full", contextPercent > 80 ? "bg-warning" : "bg-brand")}
+                  style={{ width: `${Math.min(contextPercent, 100)}%` }}
+                />
               </span>
             </span>
           </TooltipTrigger>
-          <TooltipContent>Context Window Usage ({contextPercent}%)</TooltipContent>
+          <TooltipContent>
+            <div className="space-y-0.5">
+              <div>
+                Context Window Usage ({contextPercent}%)
+                {contextWindow !== undefined && (
+                  <>
+                    {contextUsedTokens !== undefined && <> — {formatTokens(contextUsedTokens)}</>} of{" "}
+                    {formatTokens(contextWindow)} tokens
+                  </>
+                )}
+              </div>
+              {hasUsage && (
+                <div className="text-muted-foreground">
+                  Input {formatTokens(inputTotal)} (cache read {formatTokens(cacheRead)}, cache write{" "}
+                  {formatTokens(cacheWrite)})
+                </div>
+              )}
+            </div>
+          </TooltipContent>
         </Tooltip>
       </div>
 
-      <div className="w-px h-3 bg-border/50 @max-[440px]:hidden" />
+      {/* Session token usage — only shown when the session has used tokens. */}
+      {hasUsage && (
+        <>
+          <div className="w-px h-3 bg-border/50 @max-[440px]:hidden" />
 
-      {/* Input Tokens */}
-      <div className="flex items-center gap-1 @max-[440px]:hidden" title="Total Input Tokens">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span className="flex items-center gap-1 font-mono">
-              <IconArrowUp className="size-3 opacity-70" />
-              <span>{inputTotal.toLocaleString()}</span>
-            </span>
-          </TooltipTrigger>
-          <TooltipContent>Total Input Tokens</TooltipContent>
-        </Tooltip>
-      </div>
+          {/* Input Tokens */}
+          <div className="flex items-center gap-1 @max-[440px]:hidden">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="flex items-center gap-1 font-mono tabular-nums">
+                  <IconArrowUp className="size-3 opacity-70" />
+                  <span>{formatTokens(inputTotal)}</span>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                Input {inputTotal.toLocaleString()} tokens (cache read {cacheRead.toLocaleString()}, cache write{" "}
+                {cacheWrite.toLocaleString()})
+              </TooltipContent>
+            </Tooltip>
+          </div>
 
-      <div className="w-px h-3 bg-border/50 @max-[440px]:hidden" />
+          <div className="w-px h-3 bg-border/50 @max-[440px]:hidden" />
 
-      {/* Output Tokens */}
-      <div className="flex items-center gap-1 @max-[440px]:hidden" title="Output Tokens">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span className="flex items-center gap-1 font-mono">
-              <IconArrowDown className="size-3 opacity-70" />
-              <span>{outputTotal.toLocaleString()}</span>
-            </span>
-          </TooltipTrigger>
-          <TooltipContent>Total Output Tokens</TooltipContent>
-        </Tooltip>
-      </div>
+          {/* Output Tokens */}
+          <div className="flex items-center gap-1 @max-[440px]:hidden">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="flex items-center gap-1 font-mono tabular-nums">
+                  <IconArrowDown className="size-3 opacity-70" />
+                  <span>{formatTokens(outputTotal)}</span>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>Output {outputTotal.toLocaleString()} tokens</TooltipContent>
+            </Tooltip>
+          </div>
+        </>
+      )}
     </div>
   );
 }

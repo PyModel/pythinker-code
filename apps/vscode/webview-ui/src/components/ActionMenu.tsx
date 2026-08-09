@@ -33,7 +33,7 @@ function MenuItem({ onClick, disabled, danger, children }: { onClick: () => void
       className={cn(
         "w-full flex items-center gap-2 px-2.5 py-1.5 text-xs hover:bg-accent transition-colors text-left cursor-pointer",
         disabled && "opacity-50 cursor-not-allowed",
-        danger && "text-red-500 hover:text-red-600",
+        danger && "text-destructive hover:text-destructive/80",
       )}
     >
       {children}
@@ -44,7 +44,7 @@ function MenuItem({ onClick, disabled, danger, children }: { onClick: () => void
 export function ActionMenu({ className, onAuthAction }: ActionMenuProps) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
-  const { setMCPModalOpen, setProvidersModalOpen, isLoggedIn, setIsLoggedIn, extensionConfig } = useSettingsStore();
+  const { openConfigHub, isLoggedIn, setIsLoggedIn, extensionConfig } = useSettingsStore();
 
   const handleOpenSettings = () => {
     void bridge.openSettings();
@@ -52,12 +52,12 @@ export function ActionMenu({ className, onAuthAction }: ActionMenuProps) {
   };
 
   const handleOpenProviders = () => {
-    setProvidersModalOpen(true);
+    openConfigHub("providers");
     setOpen(false);
   };
 
   const handleOpenMCPServers = () => {
-    setMCPModalOpen(true);
+    openConfigHub("mcp");
     setOpen(false);
   };
 

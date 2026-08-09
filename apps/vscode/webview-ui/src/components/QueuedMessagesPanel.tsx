@@ -31,7 +31,7 @@ function QueueItem({ id, content, isStreaming, onEdit }: { id: string; content: 
           <Button
             variant="ghost"
             size="icon"
-            className="size-5 border-0! text-amber-500 hover:text-amber-600"
+            className="size-5 border-0! text-warning hover:text-warning/80"
             onClick={() => {
               void handleSteer();
             }}

@@ -13,24 +13,13 @@ import { CopyButton } from "@/components/CopyButton";
 import { MediaPreviewModal, StreamImagePreview, ImageLoadFail } from "@/components/MediaPreviewModal";
 import { getMediaTypeFromSrc } from "@/lib/media-utils";
 import { bridge } from "@/services";
+import { useIsDark } from "@/hooks/useIsDark";
 
 interface MarkdownProps {
   content: string;
   className?: string;
   enableEnrichment?: boolean;
   enableLocalImageRender?: boolean;
-}
-
-function useIsDark(): boolean {
-  const [isDark, setIsDark] = useState(() => typeof document !== "undefined" && document.documentElement.classList.contains("dark"));
-  useEffect(() => {
-    if (typeof document === "undefined") return;
-    const el = document.documentElement;
-    const obs = new MutationObserver(() => setIsDark(el.classList.contains("dark")));
-    obs.observe(el, { attributes: true, attributeFilter: ["class"] });
-    return () => obs.disconnect();
-  }, []);
-  return isDark;
 }
 
 function ColorSwatch({ color }: { color: string }) {
@@ -46,7 +35,7 @@ export function FileLink({ path, display }: { path: string; display: string }) {
     [path],
   );
   return (
-    <button type="button" className="hover:text-zinc-900 dark:hover:text-white hover:underline cursor-pointer break-all text-left" onClick={onClick}>
+    <button type="button" className="hover:text-link hover:underline cursor-pointer break-all text-left" onClick={onClick}>
       {display}
     </button>
   );
@@ -154,7 +143,7 @@ const CodeBlock = memo(function CodeBlock({ code, language, enableHighlight, sty
           {code}
         </SyntaxHighlighter>
       ) : (
-        <pre className="bg-muted rounded px-2 py-1 overflow-x-auto text-[11px]">
+        <pre className="bg-code-block text-editor-foreground rounded px-2 py-1 overflow-x-auto text-[11px]">
           <code className="bg-transparent!">{code}</code>
         </pre>
       )}
@@ -222,7 +211,7 @@ export const Markdown = memo(function Markdown({ content, className, enableEnric
       ul: ({ children }) => <ul className="list-disc list-outside pl-5 mb-2 space-y-1">{children}</ul>,
       ol: ({ children }) => <ol className="list-decimal list-outside pl-5 mb-2 space-y-1">{children}</ol>,
       a: ({ href, children }) => (
-        <a href={href} className="text-blue-600 dark:text-blue-400 underline hover:no-underline" target="_blank" rel="noopener noreferrer">
+        <a href={href} className="text-link underline hover:no-underline" target="_blank" rel="noopener noreferrer">
           {children}
         </a>
       ),

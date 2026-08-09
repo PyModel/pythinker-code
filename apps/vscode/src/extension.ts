@@ -2,7 +2,11 @@ import * as vscode from "vscode";
 
 import { Events } from "../shared/bridge";
 import { PythinkerWebviewProvider } from "./PythinkerWebviewProvider";
+import { getActivity, onActivityChange, type ActivityStatus } from "./activity";
 import { onSettingsChange, VSCodeSettings } from "./config/vscode-settings";
+import { performLogout } from "./handlers/auth.handler";
+import { clearInputHistory } from "./handlers/workspace.handler";
+import { registerChatContext } from "./integrations/chat-context";
 import { defaultPermissionMode } from "./runtime/permission-mode";
 import { updateLoginContext } from "./utils/context";
 
@@ -56,11 +60,35 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       webviewOptions: { retainContextWhenHidden: true },
     }));
 
+  const statusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+  statusItem.name = "Pythinker Code";
+  statusItem.command = "pythinker.webview.focus";
+  const renderActivity = (activity: ActivityStatus): void => {
+    if (activity.pendingApprovals > 0) {
+      statusItem.text = "$(bell) Pythinker: approval needed";
+      statusItem.tooltip =
+        activity.pendingApprovals === 1
+          ? "1 request waits for your decision"
+          : `${activity.pendingApprovals} requests wait for your decision`;
+      statusItem.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground");
+    } else if (activity.activeStreams > 0) {
+      statusItem.text = "$(sync~spin) Pythinker";
+      statusItem.tooltip = "Pythinker works on your request";
+      statusItem.backgroundColor = undefined;
+    } else {
+      statusItem.text = "$(sparkle) Pythinker";
+      statusItem.tooltip = "Open Pythinker Code";
+      statusItem.backgroundColor = undefined;
+    }
+    statusItem.show();
+    provider?.setSidebarBadge(activity.pendingApprovals);
+  };
+  renderActivity(getActivity());
+  context.subscriptions.push(statusItem, { dispose: onActivityChange(renderActivity) });
+
   const commands: Record<string, () => void | Promise<void>> = {
     "pythinker.clearAllState": async () => {
-      await context.globalState.update("pythinker.config", undefined);
-      await context.globalState.update("pythinker.mcpServers", undefined);
-      await context.workspaceState.update("pythinker.mcpEnabled", undefined);
+      await clearInputHistory(context.workspaceState);
       await vscode.window.showInformationMessage("Pythinker: Extension UI state cleared.");
     },
     "pythinker.openInTab": () => {
@@ -91,14 +119,32 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     "pythinker.showLogs": () => outputChannel?.show(),
     "pythinker.resetPythinker": () => provider?.resetAllWebviews(),
     "pythinker.logout": async () => {
-      await vscode.commands.executeCommand("pythinker.webview.focus");
-      await vscode.window.showInformationMessage("Use the logout button in Pythinker settings.");
+      if (!provider) return;
+      const result = await performLogout(provider.harness, logError);
+      if (!result.success) {
+        await vscode.window.showErrorMessage(
+          `Pythinker: Sign out failed.${result.error ? ` ${result.error}` : ""}`,
+        );
+        return;
+      }
+      // No login-state broadcast exists on the bridge; a reload re-runs the
+      // webview init, which re-checks the login status and provider list.
+      provider.reloadAllWebviews();
     },
   };
 
   for (const [id, handler] of Object.entries(commands)) {
     context.subscriptions.push(vscode.commands.registerCommand(id, handler));
   }
+
+  context.subscriptions.push(
+    ...registerChatContext({
+      insertMention: (uri, selection) =>
+        provider?.insertEditorMention(uri, selection) ?? Promise.resolve(false),
+      insertText: (text) => provider?.broadcast(Events.InsertMention, { mention: text }),
+      logError,
+    }),
+  );
 
   log("Pythinker Code activated");
 }

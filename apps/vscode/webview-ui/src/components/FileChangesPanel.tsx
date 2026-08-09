@@ -9,9 +9,9 @@ import { FileChange } from "shared/types";
 import { toast } from "./ui/sonner";
 
 const STATUS_CONFIG = {
-  Added: { icon: IconFilePlus, color: "text-green-600 dark:text-green-400" },
-  Deleted: { icon: IconFileX, color: "text-red-600 dark:text-red-400" },
-  Modified: { icon: IconFileMinus, color: "text-yellow-600 dark:text-yellow-400" },
+  Added: { icon: IconFilePlus, color: "text-success" },
+  Deleted: { icon: IconFileX, color: "text-destructive" },
+  Modified: { icon: IconFileMinus, color: "text-warning" },
 } as const;
 
 function getTotalStats(changes: FileChange[]) {
@@ -76,8 +76,8 @@ function FileItem({ file, onRevert, onKeep, onViewDiff, disabled, isStreaming }:
         )}
       </div>
       <div className="flex items-center gap-1 text-[10px] tabular-nums shrink-0">
-        <span className="text-green-600 dark:text-green-400">+{file.additions}</span>
-        <span className="text-red-600 dark:text-red-400">-{file.deletions}</span>
+        <span className="text-success">+{file.additions}</span>
+        <span className="text-destructive">-{file.deletions}</span>
       </div>
     </div>
   );
@@ -128,8 +128,8 @@ export function FileChangesPanel({ changes }: FileChangesPanelProps) {
             {changes.length} file{changes.length !== 1 ? "s" : ""}
           </span>
           <div className="flex items-center gap-1 text-[10px] tabular-nums">
-            <span className="text-green-600 dark:text-green-400">+{stats.additions}</span>
-            <span className="text-red-600 dark:text-red-400">-{stats.deletions}</span>
+            <span className="text-success">+{stats.additions}</span>
+            <span className="text-destructive">-{stats.deletions}</span>
           </div>
         </div>
         {!isStreaming && (

@@ -1,4 +1,3 @@
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { useSettingsStore } from "@/stores";
@@ -47,8 +46,8 @@ const SETTING_ROWS: SettingRow[] = [
   },
 ];
 
-export function SettingsDialog() {
-  const { settingsDialogOpen, setSettingsDialogOpen, extensionConfig, setExtensionConfig } = useSettingsStore();
+export function SettingsSection() {
+  const { extensionConfig, setExtensionConfig } = useSettingsStore();
 
   const handleToggle = (key: SettingRow["key"], value: boolean) => {
     const previous = extensionConfig;
@@ -60,34 +59,28 @@ export function SettingsDialog() {
   };
 
   return (
-    <Dialog open={settingsDialogOpen} onOpenChange={setSettingsDialogOpen}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle className="text-sm">Settings</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-4 py-1">
-          {SETTING_ROWS.map((row) => {
-            const isDisabled = row.disabled?.(extensionConfig) ?? false;
-            return (
-              <div key={row.key} className="flex items-start justify-between gap-4">
-                <div className="space-y-0.5">
-                  <Label htmlFor={`setting-${row.key}`} className="text-xs font-medium">
-                    {row.label}
-                  </Label>
-                  <p className="text-[11px] text-muted-foreground leading-4">{row.description}</p>
-                </div>
-                <Switch
-                  id={`setting-${row.key}`}
-                  checked={extensionConfig[row.key]}
-                  disabled={isDisabled}
-                  onCheckedChange={(checked) => handleToggle(row.key, checked)}
-                  className="mt-0.5 shrink-0"
-                />
-              </div>
-            );
-          })}
-        </div>
-      </DialogContent>
-    </Dialog>
+    <div className="space-y-4 max-w-md">
+      <h2 className="text-xs font-medium">Settings</h2>
+      {SETTING_ROWS.map((row) => {
+        const isDisabled = row.disabled?.(extensionConfig) ?? false;
+        return (
+          <div key={row.key} className="flex items-start justify-between gap-4">
+            <div className="space-y-0.5">
+              <Label htmlFor={`setting-${row.key}`} className="text-xs font-medium">
+                {row.label}
+              </Label>
+              <p className="text-[11px] text-muted-foreground leading-4">{row.description}</p>
+            </div>
+            <Switch
+              id={`setting-${row.key}`}
+              checked={extensionConfig[row.key]}
+              disabled={isDisabled}
+              onCheckedChange={(checked) => handleToggle(row.key, checked)}
+              className="mt-0.5 shrink-0"
+            />
+          </div>
+        );
+      })}
+    </div>
   );
 }

@@ -21,7 +21,7 @@ function ThumbnailWrapper({ onClick, onRemove, sizeClass, children }: ThumbnailW
             e.stopPropagation();
             onRemove();
           }}
-          className="absolute -top-1.5 -right-1.5 size-5 rounded-full text-red-500 bg-white border border-red-500 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+          className="absolute -top-1.5 -right-1.5 size-5 rounded-full text-destructive bg-background border border-destructive/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
         >
           <IconX className="size-3" />
         </button>

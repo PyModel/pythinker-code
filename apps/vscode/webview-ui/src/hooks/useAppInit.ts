@@ -106,8 +106,6 @@ export function useAppInit(): AppInitState {
           return;
         }
 
-        console.log("[AppInit] Login status:", loginStatus, "models config:", modelsConfig);
-
         setIsLoggedIn(loginStatus.loggedIn);
         initModels(modelsConfig.models, modelsConfig.defaultModel, modelsConfig.defaultThinking, modelsConfig.defaultThinkingEffort);
 

@@ -27,7 +27,7 @@ export const VSCodeSettings = {
   },
 
   get showThinkingContent(): boolean {
-    return getConfig().get<boolean>("showThinkingContent", false);
+    return getConfig().get<boolean>("showThinkingContent", true);
   },
 
   get showThinkingExpanded(): boolean {

@@ -14,7 +14,7 @@ export function Header() {
   const [showSessionInfo, setShowSessionInfo] = useState(false);
   const [showConfirmNew, setShowConfirmNew] = useState(false);
   const { startNewConversation, sessionId, messages, isStreaming } = useChatStore();
-  const { setSettingsDialogOpen } = useSettingsStore();
+  const { openConfigHub } = useSettingsStore();
 
   const handleNewSession = async () => {
     // If streaming, show confirmation dialog
@@ -71,7 +71,7 @@ export function Header() {
         >
           <IconPlus className="size-3.5" />
         </Button>
-        <Button variant="ghost" size="icon-xs" onClick={() => setSettingsDialogOpen(true)}>
+        <Button variant="ghost" size="icon-xs" onClick={() => openConfigHub("settings")}>
           <IconSettings className="size-3.5" />
         </Button>
       </div>

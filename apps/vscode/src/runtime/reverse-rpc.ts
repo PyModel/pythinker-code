@@ -8,6 +8,7 @@ import type {
 } from "@pythoughts/pythinker-code-sdk";
 
 import type { ApprovalResponse, QuestionRequest as LegacyQuestionRequest } from "../../shared/legacy-sdk";
+import { trackApprovals } from "../activity";
 import { describeToolDisplay, toLegacyDisplay } from "./tool-display";
 
 export type ReverseRpcEvent =
@@ -24,6 +25,7 @@ export class ReverseRpcController {
     const id = randomUUID();
     return new Promise((resolve) => {
       this.approvals.set(id, resolve);
+      trackApprovals(1);
       this.emit({ type: "ApprovalRequest", payload: approvalPayload(id, request) });
     });
   }
@@ -32,6 +34,7 @@ export class ReverseRpcController {
     const id = randomUUID();
     return new Promise((resolve) => {
       this.questions.set(id, resolve);
+      trackApprovals(1);
       this.emit({
         type: "QuestionRequest",
         payload: {
@@ -55,6 +58,7 @@ export class ReverseRpcController {
     const resolve = this.approvals.get(id);
     if (!resolve) return false;
     this.approvals.delete(id);
+    trackApprovals(-1);
     if (response === "approve_for_session") {
       resolve({ decision: "approved", scope: "session" });
     } else if (response === "approve") {
@@ -69,11 +73,13 @@ export class ReverseRpcController {
     const resolve = this.questions.get(id);
     if (!resolve) return false;
     this.questions.delete(id);
+    trackApprovals(-1);
     resolve({ answers });
     return true;
   }
 
   cancelAll(reason: string): void {
+    trackApprovals(-(this.approvals.size + this.questions.size));
     for (const resolve of this.approvals.values()) {
       resolve({ decision: "cancelled", feedback: reason });
     }

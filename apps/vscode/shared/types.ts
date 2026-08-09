@@ -36,6 +36,13 @@ export interface ExtensionConfig {
   version: string;
 }
 
+/** The user's local config file, verbatim. Content is the raw on-disk text and may contain API keys. */
+export interface ConfigInfo {
+  path: string | null;
+  exists: boolean;
+  content: string | null;
+}
+
 export interface WorkspaceStatus {
   hasWorkspace: boolean;
   path?: string;

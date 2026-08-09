@@ -84,7 +84,7 @@ export function WorkDirModal() {
                 <IconFolder className="size-4 text-muted-foreground shrink-0" />
               )}
               <span className="flex-1 truncate">{displayPath(dir)}</span>
-              {isSelected(dir) && <IconCheck className="size-4 text-blue-500 shrink-0" />}
+              {isSelected(dir) && <IconCheck className="size-4 text-brand shrink-0" />}
               {dir === workspaceRoot && <span className="text-xs text-muted-foreground">(root)</span>}
             </button>
           ))}

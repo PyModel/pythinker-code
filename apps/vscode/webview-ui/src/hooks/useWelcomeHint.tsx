@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { bridge } from "@/services";
+import type { SessionInfo } from "shared/legacy-sdk";
 
 export interface WelcomeHint {
   title: string;
@@ -98,34 +99,48 @@ function pickRandom<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
-function withProbability(p: number): boolean {
-  return Math.random() < p;
+// Rolled once per app load so the hint stays stable when the chat empties again.
+const SESSION_HINT = pickRandom(HINTS_POOL);
+const SHOW_AGENTS_HINT = Math.random() < 0.3;
+
+export interface WelcomeContent {
+  hint: WelcomeHint;
+  recentSessions: SessionInfo[];
 }
 
-export function useWelcomeHint(): WelcomeHint {
-  const [hasAgentMd, setHasAgentMd] = useState<boolean | null>(null);
-  const [hasHistory, setHasHistory] = useState<boolean | null>(null);
+export function useWelcomeHint(): WelcomeContent {
+  const [hasAgentsMd, setHasAgentsMd] = useState<boolean | null>(null);
+  const [sessions, setSessions] = useState<SessionInfo[] | null>(null);
 
   useEffect(() => {
     bridge
-      .checkFileExists("AGENT.md")
-      .then(setHasAgentMd)
-      .catch(() => setHasAgentMd(false));
+      .checkFileExists("AGENTS.md")
+      .then(setHasAgentsMd)
+      .catch(() => setHasAgentsMd(false));
     bridge
       .getSessions()
-      .then((s) => setHasHistory(s.length > 0))
-      .catch(() => setHasHistory(false));
+      .then(setSessions)
+      .catch(() => setSessions([]));
   }, []);
 
-  return useMemo(() => {
+  const hasHistory = sessions === null ? null : sessions.length > 0;
+
+  const hint = useMemo(() => {
     // First time user: show shortcut guide
     if (hasHistory === false) {
       return HINT_FIRST_TIME;
     }
-    // 30% chance to show AGENT.md hint if missing
-    if (hasAgentMd === false && withProbability(0.3)) {
+    // 30% chance to show AGENTS.md hint if missing
+    if (hasAgentsMd === false && SHOW_AGENTS_HINT) {
       return HINT_AGENT_MD;
     }
-    return pickRandom(HINTS_POOL);
-  }, [hasAgentMd, hasHistory]);
+    return SESSION_HINT;
+  }, [hasAgentsMd, hasHistory]);
+
+  const recentSessions = useMemo(
+    () => [...(sessions ?? [])].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 3),
+    [sessions],
+  );
+
+  return { hint, recentSessions };
 }
