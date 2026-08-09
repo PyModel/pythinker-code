@@ -137,7 +137,6 @@ export interface ChatState {
   clearDraftMedia: () => void;
   getMediaInConversation: () => MediaInConversation;
   hasProcessingMedia: () => boolean;
-  rollbackInput: (content: string | ContentPart[]) => void;
   respondQuestion: (answers: Record<string, string>) => Promise<void>;
 
   enqueue: (content: string | ContentPart[], model: string) => void;
@@ -164,7 +163,7 @@ function clearAllInlineErrors(draft: ChatState): void {
   }
 }
 
-interface PermissionCommand {
+export interface PermissionCommand {
   readonly mode: "yolo" | "auto";
   readonly request: "on" | "off" | "toggle";
 }
@@ -186,7 +185,7 @@ function parsePermissionCommand(text: string): PermissionCommand | undefined {
  * already asked for, so the requests on screen are answered here — otherwise
  * the turn stays parked on the very prompt the user just turned off.
  */
-async function applyPermissionCommand(command: PermissionCommand): Promise<void> {
+export async function applyPermissionCommand(command: PermissionCommand): Promise<void> {
   const result = await bridge
     .setPermissionMode(command.mode, command.request)
     .catch(() => undefined);
@@ -497,11 +496,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   hasProcessingMedia: () => {
     return get().draftMedia.some((m) => !m.dataUri);
-  },
-
-  rollbackInput: (content) => {
-    const { currentModel } = useSettingsStore.getState();
-    set({ pendingInput: { content, model: currentModel } });
   },
 
   respondQuestion: async (answers) => {

@@ -4,10 +4,9 @@ import { bridge } from "@/services";
 interface UseInputHistoryOptions {
   text: string;
   setText: (text: string) => void;
-  onHeightChange?: () => void;
 }
 
-export function useInputHistory({ text, setText, onHeightChange }: UseInputHistoryOptions) {
+export function useInputHistory({ text, setText }: UseInputHistoryOptions) {
   const [history, setHistory] = useState<string[]>([]);
   const [index, setIndex] = useState(-1);
 
@@ -39,7 +38,6 @@ export function useInputHistory({ text, setText, onHeightChange }: UseInputHisto
           e.preventDefault();
           setIndex(newIndex);
           setText(history[history.length - 1 - newIndex]);
-          onHeightChange?.();
           return true;
         }
       }
@@ -49,13 +47,12 @@ export function useInputHistory({ text, setText, onHeightChange }: UseInputHisto
         const newIndex = index - 1;
         setIndex(newIndex);
         setText(newIndex === -1 ? "" : history[history.length - 1 - newIndex]);
-        onHeightChange?.();
         return true;
       }
 
       return false;
     },
-    [history, index, text, setText, onHeightChange],
+    [history, index, text, setText],
   );
 
   const reset = useCallback(() => setIndex(-1), []);

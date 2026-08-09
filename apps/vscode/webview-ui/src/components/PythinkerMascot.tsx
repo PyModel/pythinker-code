@@ -1,23 +1,9 @@
 import { cn } from "@/lib/utils";
-import { useState, useEffect } from "react";
 import { useExtensionImageUrl } from "./hooks/useExtensionImageUrl";
+import { useIsDark } from "@/hooks/useIsDark";
 
 export function PythinkerMascot({ className }: { className?: string }) {
-  const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains("dark"));
-
-  useEffect(() => {
-    const checkTheme = () => {
-      setIsDark(document.documentElement.classList.contains("dark"));
-    };
-
-    const observer = new MutationObserver(checkTheme);
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ["class"],
-    });
-
-    return () => observer.disconnect();
-  }, []);
+  const isDark = useIsDark();
 
   const imageName = isDark ? "pythinker_banner_dark.svg" : "pythinker_banner_light.svg";
   const logoUrl = useExtensionImageUrl(imageName);

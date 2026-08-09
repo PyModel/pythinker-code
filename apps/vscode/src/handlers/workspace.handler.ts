@@ -19,6 +19,10 @@ const openFolder: Handler<void, { ok: boolean }> = async () => {
   return { ok: true };
 };
 
+export async function clearInputHistory(workspaceState: vscode.Memento): Promise<void> {
+  await workspaceState.update(INPUT_HISTORY_KEY, undefined);
+}
+
 const getInputHistory: Handler<void, string[]> = async (_, ctx) => {
   return ctx.workspaceState.get<string[]>(INPUT_HISTORY_KEY, []);
 };

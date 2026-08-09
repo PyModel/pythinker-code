@@ -1,4 +1,4 @@
-import { runLogin } from "@pythoughts/pythinker-code-sdk";
+import { runLogin, type PythinkerHarness } from "@pythoughts/pythinker-code-sdk";
 import * as vscode from "vscode";
 
 import { Methods } from "../../shared/bridge";
@@ -80,42 +80,53 @@ export const authHandlers: Record<string, Handler<any, any>> = {
   },
 
   [Methods.Logout]: async (_, ctx): Promise<LoginResult> => {
-    try {
-      // Only providers a login created carry a `source` (catalog id, custom
-      // registry URL, or the OpenAI Codex OAuth marker). Hand-written
-      // `config.toml` entries have none and must survive a sign-out. One
-      // `replaceConfig` write so a failure cannot leave a half-signed-out
-      // config behind.
-      const config = await ctx.harness.getConfig({ reload: true });
-      const providers = Object.fromEntries(
-        Object.entries(config.providers ?? {}).filter(([, provider]) => provider.source === undefined),
-      );
-      const removed = new Set(
-        Object.keys(config.providers ?? {}).filter((id) => providers[id] === undefined),
-      );
-      const models = Object.fromEntries(
-        Object.entries(config.models ?? {}).filter(([, alias]) => !removed.has(alias.provider)),
-      );
-      await ctx.harness.replaceConfig({
-        ...config,
-        providers,
-        models,
-        defaultModel:
-          config.defaultModel !== undefined && models[config.defaultModel] === undefined
-            ? undefined
-            : config.defaultModel,
-      });
-      await updateLoginContext(ctx.harness);
-      return { success: true };
-    } catch (error) {
-      ctx.logError("Pythinker logout failed", error);
-      await updateLoginContext(ctx.harness).catch((statusError: unknown) => {
-        ctx.logError("Unable to refresh login status after a failed logout", statusError);
-      });
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
+    return performLogout(ctx.harness, ctx.logError);
   },
 };
+
+/**
+ * The one logout path — shared by the webview bridge and the
+ * `pythinker.logout` command.
+ */
+export async function performLogout(
+  harness: PythinkerHarness,
+  logError: (message: string, error: unknown) => void,
+): Promise<LoginResult> {
+  try {
+    // Only providers a login created carry a `source` (catalog id, custom
+    // registry URL, or the OpenAI Codex OAuth marker). Hand-written
+    // `config.toml` entries have none and must survive a sign-out. One
+    // `replaceConfig` write so a failure cannot leave a half-signed-out
+    // config behind.
+    const config = await harness.getConfig({ reload: true });
+    const providers = Object.fromEntries(
+      Object.entries(config.providers ?? {}).filter(([, provider]) => provider.source === undefined),
+    );
+    const removed = new Set(
+      Object.keys(config.providers ?? {}).filter((id) => providers[id] === undefined),
+    );
+    const models = Object.fromEntries(
+      Object.entries(config.models ?? {}).filter(([, alias]) => !removed.has(alias.provider)),
+    );
+    await harness.replaceConfig({
+      ...config,
+      providers,
+      models,
+      defaultModel:
+        config.defaultModel !== undefined && models[config.defaultModel] === undefined
+          ? undefined
+          : config.defaultModel,
+    });
+    await updateLoginContext(harness);
+    return { success: true };
+  } catch (error) {
+    logError("Pythinker logout failed", error);
+    await updateLoginContext(harness).catch((statusError: unknown) => {
+      logError("Unable to refresh login status after a failed logout", statusError);
+    });
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}

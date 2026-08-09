@@ -18,9 +18,7 @@ import { MediaThumbnail } from "../MediaThumbnail";
 import { MediaPreviewModal } from "../MediaPreviewModal";
 import { BottomToolbar } from "../BottomToolbar";
 import { StreamingConfirmDialog } from "../StreamingConfirmDialog";
-import { ThinkingButton } from "../ThinkingButton";
-import { PlanModeButton } from "../PlanModeButton";
-import { PermissionModeBadge } from "../PermissionModeBadge";
+import { ComposerModeMenu } from "../ComposerModeMenu";
 import {
   getModelById,
   getMediaFallbackModel,
@@ -128,7 +126,6 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
       setText(textContent);
       setTimeout(() => {
         textareaRef.current?.focus();
-        adjustHeight();
       }, 0);
     }
   }, [pendingInput, isStreaming]);
@@ -137,14 +134,6 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
 
   const { handlePaste, handlePickMedia } = useMediaUpload();
 
-  const adjustHeight = useMemoizedFn(() => {
-    const ta = textareaRef.current;
-    if (ta) {
-      ta.style.height = "auto";
-      ta.style.height = `${Math.min(ta.scrollHeight, 140)}px`;
-    }
-  });
-
   const {
     handleKey: handleHistoryKey,
     add: addToHistory,
@@ -152,13 +141,11 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
   } = useInputHistory({
     text,
     setText,
-    onHeightChange: () => setTimeout(adjustHeight, 0),
   });
 
   const clearInput = useMemoizedFn(() => {
     setText("");
     setCursorPos(0);
-    setTimeout(adjustHeight, 0);
   });
 
   const removeActiveToken = useMemoizedFn(() => {
@@ -169,7 +156,6 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
     setCursorPos(newCursorPos);
     setTimeout(() => {
       textareaRef.current?.setSelectionRange(newCursorPos, newCursorPos);
-      adjustHeight();
     }, 0);
   });
 
@@ -189,7 +175,6 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
     setTimeout(() => {
       textareaRef.current?.setSelectionRange(newCursorPos, newCursorPos);
       textareaRef.current?.focus();
-      adjustHeight();
     }, 0);
   });
 
@@ -269,12 +254,11 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
 
       setTimeout(() => {
         textareaRef.current?.focus();
-        adjustHeight();
       }, 0);
     });
 
     return unsub;
-  }, [adjustHeight]);
+  }, []);
 
   const handleKeyDown = useMemoizedFn((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.nativeEvent.isComposing) {
@@ -310,7 +294,6 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
     setText(e.target.value);
     setCursorPos(e.target.selectionStart);
     resetHistoryIndex();
-    setTimeout(adjustHeight, 0);
   };
 
   const handleSelect = () => {
@@ -324,7 +307,6 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
     setTimeout(() => {
       textareaRef.current?.focus();
       textareaRef.current?.setSelectionRange(newText.length, newText.length);
-      adjustHeight();
     }, 0);
   });
 
@@ -408,7 +390,7 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
             onPaste={handlePaste}
             placeholder={isStreaming ? "Add a follow-up..." : "Ask Pythinker Code... (/ commands · @ files · Alt+K code)"}
             className={cn(
-              "w-full min-h-12 max-h-35 px-2.5 py-1.5 text-xs leading-relaxed",
+              "w-full field-sizing-content min-h-12 max-h-35 px-2.5 py-1.5 text-xs leading-relaxed",
               "bg-transparent resize-none outline-none border-none overflow-y-auto",
               "placeholder:text-muted-foreground",
             )}
@@ -473,21 +455,22 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
                 </DropdownMenuContent>
               </DropdownMenu>
 
-              <ThinkingButton
-                mode={thinkingMode}
-                effort={thinkingEffort}
-                efforts={currentModelConfig?.support_efforts}
-                alwaysOn={currentModelConfig?.capabilities.includes("always_thinking")}
-                disabled={isStreaming}
+              <ComposerModeMenu
+                permissionMode={permissionMode}
+                planMode={planMode}
+                onTogglePlanMode={handleTogglePlanMode}
+                thinkingMode={thinkingMode}
+                thinkingEffort={thinkingEffort}
+                thinkingEfforts={currentModelConfig?.support_efforts}
+                thinkingAlwaysOn={currentModelConfig?.capabilities.includes("always_thinking")}
+                thinkingDisabled={isStreaming}
                 cacheNote={hasConversationHistory ? SWITCH_CACHE_NOTE : undefined}
-                onToggle={toggleThinking}
-                onSelectEffort={selectThinkingEffort}
+                onToggleThinking={toggleThinking}
+                onSelectThinkingEffort={selectThinkingEffort}
               />
-              <PlanModeButton active={planMode} onToggle={handleTogglePlanMode} />
-              <PermissionModeBadge mode={permissionMode} />
             </div>
 
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex items-center gap-1.5 shrink-0">
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button variant="ghost" size="icon-xs" onClick={handleAddButtonClick} className="text-muted-foreground">

@@ -1,6 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useChatStore } from "@/stores";
 import { cn } from "@/lib/utils";
+
+const focusComposer = () => document.querySelector<HTMLTextAreaElement>("textarea")?.focus();
 
 export function QuestionDialog() {
   const { pendingQuestion, respondQuestion } = useChatStore();
@@ -9,6 +11,7 @@ export function QuestionDialog() {
   const [selectedIndex, setSelectedIndex] = useState(1);
   const [questionIndex, setQuestionIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string>>({});
+  const cardRef = useRef<HTMLDivElement>(null);
 
   const questions = pendingQuestion?.questions ?? [];
   const question = questions[questionIndex];
@@ -20,6 +23,7 @@ export function QuestionDialog() {
       setSelectedIndex(1);
       setQuestionIndex(0);
       setAnswers({});
+      cardRef.current?.focus();
     }
   }, [pendingQuestion?.id]);
 
@@ -36,6 +40,7 @@ export function QuestionDialog() {
       setSelectedIndex(1);
     } else {
       await respondQuestion(nextAnswers);
+      focusComposer();
     }
   };
 
@@ -51,8 +56,44 @@ export function QuestionDialog() {
   const options = question.options || [];
   const customIndex = options.length + 1;
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (showCustom) return; // the custom input owns the keyboard while open
+    const digit = Number(e.key);
+    if (digit >= 1 && digit <= customIndex) {
+      e.preventDefault();
+      if (digit === customIndex) {
+        setShowCustom(true);
+      } else {
+        const opt = options[digit - 1];
+        if (opt) void handleSelect(opt.label);
+      }
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setSelectedIndex((i) => Math.min(i + 1, customIndex));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setSelectedIndex((i) => Math.max(i - 1, 1));
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (selectedIndex === customIndex) {
+        setShowCustom(true);
+      } else {
+        const opt = options[selectedIndex - 1];
+        if (opt) void handleSelect(opt.label);
+      }
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      focusComposer();
+    }
+  };
+
   return (
-    <div className={cn("mb-0.5 border border-blue-200 dark:border-blue-800 rounded-lg overflow-hidden bg-background flex flex-col shrink")}>
+    <div
+      ref={cardRef}
+      tabIndex={-1}
+      onKeyDown={handleKeyDown}
+      className={cn("mb-0.5 border border-brand/40 rounded-lg overflow-hidden bg-background flex flex-col shrink", "outline-none focus:ring-1 focus:ring-ring")}
+    >
       <div className="p-2 space-y-2">
         {questions.length > 1 && (
           <div className="text-[10px] text-muted-foreground">
@@ -72,13 +113,13 @@ export function QuestionDialog() {
               className={cn(
                 "w-full text-left px-2 py-1 rounded-md text-xs transition-colors",
                 "border border-border cursor-pointer",
-                selectedIndex === idx + 1 ? "bg-blue-500 text-white border-blue-500" : "bg-background hover:bg-muted/50",
+                selectedIndex === idx + 1 ? "bg-primary text-primary-foreground border-primary" : "bg-background hover:bg-muted/50",
               )}
             >
-              <span className={cn("mr-2", selectedIndex === idx + 1 ? "text-blue-200" : "text-muted-foreground")}>{idx + 1}</span>
+              <span className={cn("mr-2", selectedIndex === idx + 1 ? "text-primary-foreground/70" : "text-muted-foreground")}>{idx + 1}</span>
               <span className="font-medium">{option.label}</span>
               {option.description && (
-                <span className={cn("ml-2", selectedIndex === idx + 1 ? "text-blue-200" : "text-muted-foreground")}>- {option.description}</span>
+                <span className={cn("ml-2", selectedIndex === idx + 1 ? "text-primary-foreground/70" : "text-muted-foreground")}>- {option.description}</span>
               )}
             </button>
           ))}
@@ -90,17 +131,20 @@ export function QuestionDialog() {
                 onChange={(e) => setCustomInput(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") void handleCustomSubmit();
-                  if (e.key === "Escape") setShowCustom(false);
+                  if (e.key === "Escape") {
+                    setShowCustom(false);
+                    cardRef.current?.focus();
+                  }
                 }}
                 placeholder="Enter your response..."
-                className="flex-1 px-2 py-1 rounded-md text-xs border border-border bg-background outline-none focus:border-blue-500"
+                className="flex-1 px-2 py-1 rounded-md text-xs border border-border bg-background outline-none focus:border-ring"
               />
               <button
                 onClick={() => {
                   void handleCustomSubmit();
                 }}
                 disabled={!customInput.trim()}
-                className="px-2 py-1 rounded-md text-xs bg-blue-500 text-white disabled:opacity-50 cursor-pointer"
+                className="px-2 py-1 rounded-md text-xs bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 cursor-pointer"
               >
                 Send
               </button>
@@ -112,10 +156,10 @@ export function QuestionDialog() {
               className={cn(
                 "w-full text-left px-2 py-1 rounded-md text-xs transition-colors",
                 "border border-border cursor-pointer",
-                selectedIndex === customIndex ? "bg-blue-500 text-white border-blue-500" : "bg-background hover:bg-muted/50",
+                selectedIndex === customIndex ? "bg-primary text-primary-foreground border-primary" : "bg-background hover:bg-muted/50",
               )}
             >
-              <span className={cn("mr-2", selectedIndex === customIndex ? "text-blue-200" : "text-muted-foreground")}>{customIndex}</span>
+              <span className={cn("mr-2", selectedIndex === customIndex ? "text-primary-foreground/70" : "text-muted-foreground")}>{customIndex}</span>
               <span className="font-medium">Custom response...</span>
             </button>
           )}

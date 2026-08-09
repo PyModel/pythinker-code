@@ -12,6 +12,7 @@ import type {
 import type {
   AddCatalogProviderRequest,
   CatalogProviderSummary,
+  ConfigInfo,
   FileChange,
   SessionConfig,
   ExtensionConfig,
@@ -111,6 +112,11 @@ class Bridge {
     };
   }
 
+  /** Dispatches an event to local subscribers only — no host round-trip. */
+  emit<T>(event: string, data: T) {
+    this.eventHandlers.get(event)?.forEach((h) => h(data));
+  }
+
   checkWorkspace() {
     return this.call<WorkspaceStatus>(Methods.CheckWorkspace);
   }
@@ -141,6 +147,10 @@ class Bridge {
 
   saveConfig(sessionConfig: SessionConfig) {
     return this.call<{ ok: boolean }>(Methods.SaveConfig, sessionConfig);
+  }
+
+  getConfigInfo() {
+    return this.call<ConfigInfo>(Methods.GetConfigInfo);
   }
 
   getExtensionConfig() {

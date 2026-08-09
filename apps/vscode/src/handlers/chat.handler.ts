@@ -5,6 +5,7 @@ import { Events, Methods } from "../../shared/bridge";
 import type { ApprovalResponse, ContentPart } from "../../shared/legacy-sdk";
 import { getUserMessage } from "../../shared/errors";
 import type { ErrorPhase } from "../../shared/types";
+import { trackStream } from "../activity";
 import { VSCodeSettings } from "../config/vscode-settings";
 import { defaultPermissionMode } from "../runtime/permission-mode";
 import { normalizeEffort } from "../runtime/pythinker-runtime";
@@ -212,7 +213,16 @@ const resetSession: Handler<void, { ok: boolean }> = async (_, ctx) => {
 };
 
 export const chatHandlers: Record<string, Handler<any, any>> = {
-  [Methods.StreamChat]: streamChat,
+  // The stream is active for exactly the lifetime of the StreamChat request:
+  // the handler resolves only when the turn reaches its terminal event.
+  [Methods.StreamChat]: async (params: StreamChatParams, ctx) => {
+    trackStream(1);
+    try {
+      return await streamChat(params, ctx);
+    } finally {
+      trackStream(-1);
+    }
+  },
   [Methods.AbortChat]: abortChat,
   [Methods.RespondApproval]: respondApproval,
   [Methods.RespondQuestion]: respondQuestion,

@@ -78,7 +78,7 @@ function LaneRow({ lane, workflowEnded, renderStepItem }: { lane: WorkflowLane; 
         {/* What the lane is doing now takes the slack, so the counts stay in a
             column instead of drifting with the width of each label. */}
         <span className="flex-1 min-w-0 truncate text-muted-foreground">{abandoned ? "" : (runningToolLabel ?? "")}</span>
-        <span className={cn("tabular-nums shrink-0", abandoned ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground")}>
+        <span className={cn("tabular-nums shrink-0", abandoned ? "text-warning" : "text-muted-foreground")}>
           {queued ? "queued" : `${abandoned ? "no result · " : lane.status === "done" ? "done · " : ""}${lane.stepCount} step${lane.stepCount === 1 ? "" : "s"}`}
           {duration && ` · ${duration}`}
         </span>
@@ -140,7 +140,7 @@ export function WorkflowCard({ call, result, subagentSteps, subagentStatus, work
         </div>
       </div>
       {workflowWarning && (
-        <div className="px-3 pb-2 text-[11px] text-amber-600 dark:text-amber-400 break-words">
+        <div className="px-3 pb-2 text-[11px] text-warning break-words">
           {workflowWarning.message}
         </div>
       )}
@@ -150,7 +150,7 @@ export function WorkflowCard({ call, result, subagentSteps, subagentStatus, work
         ))}
       </div>
       {abandonedCount > 0 && (
-        <div className="px-3 pb-2 text-[11px] text-amber-600 dark:text-amber-400">
+        <div className="px-3 pb-2 text-[11px] text-warning">
           {abandonedCount} agent{abandonedCount === 1 ? "" : "s"} stopped without reporting a result.
         </div>
       )}

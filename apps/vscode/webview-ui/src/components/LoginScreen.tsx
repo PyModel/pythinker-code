@@ -40,7 +40,7 @@ export function LoginScreen({ onLoginSuccess, onSkip }: LoginScreenProps) {
         <div className="max-w-sm w-full text-center space-y-6">
           <PythinkerMascot className="h-24 w-auto max-w-[280px] mx-auto" />
           <div className="space-y-2">
-            <div className="inline-flex items-center gap-2 text-blue-500">
+            <div className="inline-flex items-center gap-2 text-brand">
               <IconLoader2 className="size-5 animate-spin" />
               <span className="text-sm font-medium">Waiting for authentication...</span>
             </div>
@@ -64,8 +64,8 @@ export function LoginScreen({ onLoginSuccess, onSkip }: LoginScreenProps) {
           </div>
 
           {error && (
-            <div className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/50 rounded-lg px-3 py-2 text-left">
-              <p className="text-xs text-red-600 dark:text-red-400">{error}</p>
+            <div className="bg-destructive/10 border border-destructive/40 rounded-lg px-3 py-2 text-left">
+              <p className="text-xs text-destructive">{error}</p>
             </div>
           )}
 

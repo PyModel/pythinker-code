@@ -4,10 +4,7 @@ import { oneDark, oneLight } from "react-syntax-highlighter/dist/esm/styles/pris
 import type { DisplayBlock, DiffBlock, TodoBlock, BriefBlock, ShellBlock } from "shared/legacy-sdk";
 import { cn } from "@/lib/utils";
 import * as Diff from "diff";
-
-function useIsDark(): boolean {
-  return typeof document !== "undefined" && document.documentElement.classList.contains("dark");
-}
+import { useIsDark } from "@/hooks/useIsDark";
 
 interface DiffBlockProps {
   block: DiffBlock;
@@ -25,18 +22,17 @@ function renderDiffLine(parts: DiffPart[], type: "added" | "removed"): React.Rea
     if (type === "removed") {
       if (part.added) return null;
       return (
-        <span key={i} className={cn(part.removed && "bg-red-300/50 dark:bg-red-700/50 rounded-sm")}>
+        <span key={i} className={cn(part.removed && "bg-diff-removed rounded-sm")}>
           {part.value}
         </span>
       );
     }
-      if (part.removed) return null;
-      return (
-        <span key={i} className={cn(part.added && "bg-emerald-300/50 dark:bg-emerald-700/50 rounded-sm")}>
-          {part.value}
-        </span>
-      );
-    
+    if (part.removed) return null;
+    return (
+      <span key={i} className={cn(part.added && "bg-diff-added rounded-sm")}>
+        {part.value}
+      </span>
+    );
   });
 }
 
@@ -97,24 +93,24 @@ export function DiffBlockView({ block, maxHeight = "max-h-40" }: DiffBlockProps)
       <div className="px-2 py-1 bg-muted/50 border-b border-border text-muted-foreground truncate">{fileName}</div>
       <div className="flex flex-col md:flex-row">
         {hasOld && (
-          <div className="bg-red-500/5 dark:bg-red-500/10 border-b md:border-b-0 md:border-r border-border/50 flex-1 min-w-0">
+          <div className="bg-diff-removed/40 border-b md:border-b-0 md:border-r border-border/50 flex-1 min-w-0">
             <div className={cn("px-2 py-1.5 overflow-auto", maxHeight)}>
               {oldLines.map((lineParts, i) => (
                 <div key={i} className="flex">
-                  <span className="text-red-500 select-none mr-2 shrink-0">-</span>
-                  <span className="text-red-600 dark:text-red-400 whitespace-pre-wrap break-all">{renderDiffLine(lineParts, "removed") || " "}</span>
+                  <span className="text-destructive select-none mr-2 shrink-0">-</span>
+                  <span className="whitespace-pre-wrap break-all">{renderDiffLine(lineParts, "removed") || " "}</span>
                 </div>
               ))}
             </div>
           </div>
         )}
         {hasNew && (
-          <div className="bg-emerald-500/5 dark:bg-emerald-500/10 flex-1 min-w-0">
+          <div className="bg-diff-added/40 flex-1 min-w-0">
             <div className={cn("px-2 py-1.5 overflow-auto", maxHeight)}>
               {newLines.map((lineParts, i) => (
                 <div key={i} className="flex">
-                  <span className="text-emerald-500 select-none mr-2 shrink-0">+</span>
-                  <span className="text-emerald-600 dark:text-emerald-400 whitespace-pre-wrap break-all">{renderDiffLine(lineParts, "added") || " "}</span>
+                  <span className="text-success select-none mr-2 shrink-0">+</span>
+                  <span className="whitespace-pre-wrap break-all">{renderDiffLine(lineParts, "added") || " "}</span>
                 </div>
               ))}
             </div>
@@ -137,9 +133,9 @@ export function TodoBlockView({ block }: TodoBlockProps) {
           <span
             className={cn(
               "size-2 rounded-full shrink-0",
-              item.status === "done" && "bg-emerald-500",
-              item.status === "in_progress" && "bg-amber-500",
-              item.status === "pending" && "bg-zinc-400",
+              item.status === "done" && "bg-success",
+              item.status === "in_progress" && "bg-warning",
+              item.status === "pending" && "bg-muted-foreground",
             )}
           />
           <span className="truncate">{item.title}</span>
@@ -163,7 +159,6 @@ interface ShellBlockProps {
 }
 
 export function ShellBlockView({ block, maxHeight = "max-h-40" }: ShellBlockProps) {
-  console.log("ShellBlockView render", { block });
   const isDark = useIsDark();
   const language = block.language || "bash";
 
@@ -201,6 +196,8 @@ export function DisplayBlockView({ block, maxHeight }: DisplayBlockViewProps) {
       return <TodoBlockView block={block as TodoBlock} />;
     case "brief":
       return <BriefBlockView block={block as BriefBlock} />;
+    case "shell":
+      return <ShellBlockView block={block as ShellBlock} maxHeight={maxHeight} />;
     default:
       return null;
   }
