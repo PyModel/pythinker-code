@@ -56,8 +56,16 @@ import {
   type UpdateRequestOrigin,
   type UpdateTarget,
 } from './types';
+import {
+  verifyInstalledVersion,
+  type InstallOutcome,
+  type InstallVerification,
+} from './verify-install';
 
 export type { UpdatePreflightResult } from './types';
+
+/** Reused for the paths that never reach verification (a failed install). */
+const OK_VERIFICATION: InstallVerification = { ok: true };
 
 export interface RunUpdatePreflightOptions {
   readonly stdout?: { write(chunk: string): boolean };
@@ -79,6 +87,33 @@ function withCmdSuffix(base: string, platform: NodeJS.Platform): string {
 
 function bunCommand(platform: NodeJS.Platform): string {
   return platform === 'win32' ? 'bun.exe' : 'bun';
+}
+
+/**
+ * Node ≥18.20/20.12 refuses to spawn a `.cmd`/`.bat` file directly
+ * (CVE-2024-27980) and fails with `EINVAL` — which is every npm-family update
+ * on Windows: `npm.cmd`, `pnpm.cmd`, `yarn.cmd`. The command interpreter runs
+ * them instead. It is spelled out as argv rather than `shell: true` so the
+ * exact command line is visible here (and asserted in tests) instead of being
+ * assembled by Node's string joining.
+ */
+function viaCommandInterpreter(command: SpawnCommand): SpawnCommand {
+  return {
+    ...command,
+    cmd: process.env['ComSpec'] ?? 'cmd.exe',
+    args: ['/d', '/s', '/c', command.cmd, ...command.args],
+  };
+}
+
+/** True for the Windows package-manager shims that cannot be spawned directly. */
+export function isWindowsShim(cmd: string, platform: NodeJS.Platform): boolean {
+  if (platform !== 'win32') return false;
+  const lower = cmd.toLowerCase();
+  return lower.endsWith('.cmd') || lower.endsWith('.bat');
+}
+
+function spawnable(command: SpawnCommand, platform: NodeJS.Platform): SpawnCommand {
+  return isWindowsShim(command.cmd, platform) ? viaCommandInterpreter(command) : command;
 }
 
 export function installCommandFor(
@@ -145,11 +180,20 @@ export function spawnForSource(
 ): SpawnCommand {
   switch (source) {
     case 'npm-global':
-      return { cmd: withCmdSuffix('npm', platform), args: ['install', '-g', `${NPM_PACKAGE_NAME}@${version}`] };
+      return spawnable(
+        { cmd: withCmdSuffix('npm', platform), args: ['install', '-g', `${NPM_PACKAGE_NAME}@${version}`] },
+        platform,
+      );
     case 'pnpm-global':
-      return { cmd: withCmdSuffix('pnpm', platform), args: ['add', '-g', `${NPM_PACKAGE_NAME}@${version}`] };
+      return spawnable(
+        { cmd: withCmdSuffix('pnpm', platform), args: ['add', '-g', `${NPM_PACKAGE_NAME}@${version}`] },
+        platform,
+      );
     case 'yarn-global':
-      return { cmd: withCmdSuffix('yarn', platform), args: ['global', 'add', `${NPM_PACKAGE_NAME}@${version}`] };
+      return spawnable(
+        { cmd: withCmdSuffix('yarn', platform), args: ['global', 'add', `${NPM_PACKAGE_NAME}@${version}`] },
+        platform,
+      );
     case 'bun-global':
       return { cmd: bunCommand(platform), args: ['add', '-g', `${NPM_PACKAGE_NAME}@${version}`] };
     case 'homebrew':
@@ -543,7 +587,7 @@ export async function installUpdate(
   source: InstallSource,
   version: string,
   platform: NodeJS.Platform,
-): Promise<void> {
+): Promise<InstallOutcome> {
   const { cmd, args, env } = spawnForSource(source, version, platform);
   await new Promise<void>((resolve, reject) => {
     const child = spawn(cmd, [...args], {
@@ -560,6 +604,14 @@ export async function installUpdate(
       reject(new Error(`${cmd} exited with ${detail}`));
     });
   });
+  // Exit code 0 is the installer's opinion; this is the fact. Rejecting here
+  // routes a silent no-op install into the same failure reporting a crashed
+  // installer gets, instead of printing "Updated …" over an unchanged binary.
+  const verification = await verifyInstalledVersion(source, version);
+  if (!verification.ok) throw new Error(verification.reason);
+  // Returned so the caller can record *why* a success is unproven; see
+  // verify-install.ts for the fail-open rule.
+  return { unverified: verification.unverified };
 }
 
 /** Keep the tail only: installers can be chatty, and the state file is small. */
@@ -861,11 +913,19 @@ async function startBackgroundInstall(
       // `settled` already stops new progress writes; drain the ones in flight so
       // none of them renames over the outcome below.
       await progressWrites;
+      // An installer that exits 0 without replacing the binary must not be
+      // recorded as a success: the footer would advertise "restart to apply"
+      // for a version that never runs, on every launch, forever.
+      const verification = succeeded
+        ? await verifyInstalledVersion(source, target.version)
+        : OK_VERIFICATION;
+      const installed = succeeded && verification.ok;
+      const outcomeReason = verification.ok ? reason : verification.reason;
       const attempts = failureAttemptsFor(startedState, target, 'install') + 1;
       const stderrTail = readStderrTail();
-      const message = stderrTail === undefined ? reason : `${reason}: ${stderrTail}`;
+      const message = stderrTail === undefined ? outcomeReason : `${outcomeReason}: ${stderrTail}`;
 
-      const nextState: UpdateInstallState = succeeded
+      const nextState: UpdateInstallState = installed
         ? {
           ...startedState,
           active: null,
@@ -874,6 +934,7 @@ async function startBackgroundInstall(
             version: target.version,
             installedAt: nowIso(),
             notifiedAt: null,
+            unverified: verification.ok ? verification.unverified : undefined,
           },
         }
         : {
@@ -889,7 +950,7 @@ async function startBackgroundInstall(
         };
       try {
         await writeUpdateInstallState(nextState).catch(() => {});
-        if (succeeded) {
+        if (installed) {
           trackUpdateEvent(track, 'update_background_install_succeeded', {
             target_version: target.version,
             source,
@@ -897,6 +958,9 @@ async function startBackgroundInstall(
           logUpdateInfo(logger, 'background update install succeeded', {
             targetVersion: target.version,
             source,
+            // Present when the install was recorded without proof, so a report
+            // of "it says updated but it did not" is answerable from the log.
+            unverified: verification.ok ? verification.unverified : undefined,
           });
           return;
         }
@@ -1392,7 +1456,7 @@ export async function runUpdatePreflight(
     if (lock === null) return 'continue';
 
     try {
-      await installUpdate(source, userVisibleTarget.version, platform);
+      const outcome = await installUpdate(source, userVisibleTarget.version, platform);
       await writeUpdateInstallState({
         ...installState,
         active: null,
@@ -1401,6 +1465,7 @@ export async function runUpdatePreflight(
           version: userVisibleTarget.version,
           installedAt: nowIso(),
           notifiedAt: null,
+          unverified: outcome.unverified,
         },
       }).catch(() => {});
       stdout.write(renderInstallSuccessMessage(userVisibleTarget));

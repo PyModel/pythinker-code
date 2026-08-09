@@ -380,6 +380,25 @@ Unix / macOS / Linux users:
     }
   }
 
+  # Machine-readable progress for the parent process, mirroring install.sh.
+  # The background installer has no TTY, so stdout stays human-only (and is
+  # discarded by the spawn) and stderr carries the protocol: one
+  # newline-terminated line per update. Without these lines a Windows update in
+  # flight is indistinguishable from a wedged one.
+  function Write-MachineProgress([string]$Fields) {
+    try { [Console]::Error.WriteLine("progress: $Fields") } catch {}
+  }
+
+  function Write-MachineDownloadProgress([long]$Received, $TotalBytes) {
+    if ($null -ne $TotalBytes -and [long]$TotalBytes -gt 0) {
+      $percent = [int][Math]::Floor(($Received * 100) / [long]$TotalBytes)
+      if ($percent -gt 100) { $percent = 100 }
+      Write-MachineProgress "state=downloading percent=$percent transferred=$Received total=$([long]$TotalBytes)"
+    } else {
+      Write-MachineProgress "state=downloading transferred=$Received"
+    }
+  }
+
   function Download-File($Client, [string]$Uri, [string]$Destination, [string]$Label) {
     $lastError = $null
 
@@ -436,6 +455,9 @@ Unix / macOS / Linux users:
         $buffer = New-Object byte[] 131072
         $stopwatch = [Diagnostics.Stopwatch]::StartNew()
         $lastRenderMilliseconds = [long]-1000
+        $lastMachineMilliseconds = [long]-1000
+
+        Write-MachineDownloadProgress $received $totalBytes
 
         while ($true) {
           $read = $inputStream.ReadAsync($buffer, 0, $buffer.Length, $attemptCts.Token).GetAwaiter().GetResult()
@@ -448,6 +470,13 @@ Unix / macOS / Linux users:
             Write-DownloadProgress $received $totalBytes $stopwatch.Elapsed.TotalSeconds $frameIndex
             $lastRenderMilliseconds = $stopwatch.ElapsedMilliseconds
             $frameIndex++
+          }
+
+          # One line per second at most: the parent throttles its own writes,
+          # and the pipe is shared with the failure tail.
+          if (($stopwatch.ElapsedMilliseconds - $lastMachineMilliseconds) -ge 1000) {
+            Write-MachineDownloadProgress $received $totalBytes
+            $lastMachineMilliseconds = $stopwatch.ElapsedMilliseconds
           }
         }
 
@@ -466,6 +495,7 @@ Unix / macOS / Linux users:
         if ($received -le 0) { throw "$Label returned an empty file" }
 
         [System.IO.File]::Move($partialPath, $Destination)
+        Write-MachineProgress "state=done transferred=$received"
         Write-DownloadComplete $received $stopwatch.Elapsed.TotalSeconds
         return
       } catch {
@@ -489,6 +519,10 @@ Unix / macOS / Linux users:
       }
     }
 
+    # Emitted once, after the last attempt: a `failed` line between retries
+    # would drop the parent's footer out of its downloading state and back to
+    # a failure it is about to recover from.
+    Write-MachineProgress 'state=failed'
     Stop-Installer "$Label failed after 3 attempts: $lastError"
   }
 
@@ -560,6 +594,8 @@ Unix / macOS / Linux users:
         $detail = if ($lastError) { " Last error: $lastError" } else { "" }
         Stop-Installer "release assets for $ResolvedVersion were not available after ${maxElapsed}s.$detail"
       }
+
+      Write-MachineProgress "state=waiting retry_in=$delay elapsed=$elapsed"
 
       if ($useAnimation) {
         $waitFrames = @('◐', '◓', '◑', '◒')

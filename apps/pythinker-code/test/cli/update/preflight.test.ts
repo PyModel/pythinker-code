@@ -10,7 +10,13 @@ import {
   readUpdateInstallState,
   writeUpdateInstallState,
 } from '#/cli/update/install-state';
-import { canAutoInstall, runUpdatePreflight, spawnForSource, startManualUpdate } from '#/cli/update/preflight';
+import {
+  canAutoInstall,
+  isWindowsShim,
+  runUpdatePreflight,
+  spawnForSource,
+  startManualUpdate,
+} from '#/cli/update/preflight';
 import { promptForInstallChoice } from '#/cli/update/prompt';
 import type * as PromptModule from '#/cli/update/prompt';
 import { refreshUpdateCache } from '#/cli/update/refresh';
@@ -44,6 +50,7 @@ const mocks = vi.hoisted(() => ({
   readJsonFile: vi.fn(),
   writeJsonFile: vi.fn(),
   spawn: vi.fn(),
+  verifyInstalledVersion: vi.fn(),
 }));
 
 vi.mock('../../../src/cli/update/cache', () => ({
@@ -121,6 +128,19 @@ vi.mock('../../../src/cli/update/rollout', async () => {
     resolveUpdateDeviceId: mocks.resolveUpdateDeviceId,
     // Stubbed so preflight tests never write a real rollout.log.
     appendRolloutDecisionLog: mocks.appendRolloutDecisionLog,
+  };
+});
+
+// Post-install verification runs a real probe (a `--version` spawn, or a
+// package.json read) — stubbed here so these tests exercise the reporting,
+// with its own suite in verify-install.test.ts.
+vi.mock('../../../src/cli/update/verify-install', async () => {
+  const actual = await vi.importActual<
+    typeof import('../../../src/cli/update/verify-install.js')
+  >('../../../src/cli/update/verify-install.js');
+  return {
+    ...actual,
+    verifyInstalledVersion: mocks.verifyInstalledVersion,
   };
 });
 
@@ -411,6 +431,7 @@ describe('runUpdatePreflight', () => {
     mocks.loadTuiConfig.mockResolvedValue(tuiConfig());
     mocks.resolveUpdateDeviceId.mockReturnValue('test-device');
     mocks.appendRolloutDecisionLog.mockResolvedValue(undefined);
+    mocks.verifyInstalledVersion.mockResolvedValue({ ok: true });
     mocks.tryAcquireUpdateInstallLock.mockResolvedValue({
       filePath: '/tmp/pythinker-update-install.lock',
       release: vi.fn().mockResolvedValue(undefined),
@@ -1388,6 +1409,77 @@ describe('runUpdatePreflight', () => {
       .toBeLessThan(release.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY);
   });
 
+  it('records a failure when the installer exits 0 without installing the target', async () => {
+    // The Windows report this exists for: install.ps1 exited 0 repeatedly
+    // while the executable on disk stayed on the old version, so the footer
+    // advertised "restart to apply" for a version that never ran.
+    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.readUpdateInstallState.mockResolvedValue(installState());
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.detectInstallSource.mockResolvedValue('native');
+    mocks.verifyInstalledVersion.mockResolvedValue({
+      ok: false,
+      reason: 'the installer reported success but /bin/pythinker still reports 0.4.0 (expected 0.5.0)',
+    });
+    mockSpawnExit(0);
+    const { options } = captureOutput();
+
+    await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
+    await flushBackgroundInstall();
+
+    expect(mocks.verifyInstalledVersion).toHaveBeenCalledWith('native', '0.5.0');
+    expect(successOutcomeStates()).toHaveLength(0);
+    expect(writeUpdateInstallState).toHaveBeenLastCalledWith(expect.objectContaining({
+      active: null,
+      lastFailure: expect.objectContaining({
+        version: '0.5.0',
+        attempts: 1,
+        message: expect.stringContaining('still reports 0.4.0'),
+      }),
+    }));
+  });
+
+  it('records why a success could not be verified', async () => {
+    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.readUpdateInstallState.mockResolvedValue(installState());
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.detectInstallSource.mockResolvedValue('native');
+    mocks.verifyInstalledVersion.mockResolvedValue({
+      ok: true,
+      unverified: '/usr/local/bin/pythinker could not be run: ETIMEDOUT',
+    });
+    mockSpawnExit(0);
+    const { options } = captureOutput();
+
+    await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
+    await flushBackgroundInstall();
+
+    expect(writeUpdateInstallState).toHaveBeenLastCalledWith(expect.objectContaining({
+      lastFailure: null,
+      lastSuccess: expect.objectContaining({
+        version: '0.5.0',
+        unverified: expect.stringContaining('ETIMEDOUT'),
+      }),
+    }));
+  });
+
+  it('does not verify an install the installer already reported as failed', async () => {
+    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.readUpdateInstallState.mockResolvedValue(installState());
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.detectInstallSource.mockResolvedValue('native');
+    mockSpawnExit(1);
+    const { options } = captureOutput();
+
+    await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
+    await flushBackgroundInstall();
+
+    expect(mocks.verifyInstalledVersion).not.toHaveBeenCalled();
+    expect(writeUpdateInstallState).toHaveBeenLastCalledWith(expect.objectContaining({
+      lastFailure: expect.objectContaining({ version: '0.5.0' }),
+    }));
+  });
+
   it('keeps the install lock until a delayed terminal state write completes', async () => {
     mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
     mocks.readUpdateInstallState.mockResolvedValue(installState());
@@ -1420,7 +1512,9 @@ describe('runUpdatePreflight', () => {
 
     await expect(runUpdatePreflight('0.4.0', first.options)).resolves.toBe('continue');
     child.emit('exit', 0, null);
-    await Promise.resolve();
+    // The finalizer verifies the installed version before it writes the
+    // outcome, so the terminal write is more than one microtask away.
+    await flushBackgroundInstall();
 
     expect(terminalWriteStarted).toBe(true);
     expect(held).toBe(true);
@@ -2201,6 +2295,39 @@ describe('runUpdatePreflight', () => {
       expect(messages[0]).not.toContain('percent=');
     });
 
+    it('parses the exact lines install.ps1 and install.sh emit', async () => {
+      // Captured from a real run of the installer's progress helpers. Windows
+      // shipped without these lines, which is why an update in flight looked
+      // identical to a wedged one there. Drift on either side fails here.
+      mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+      mocks.readUpdateInstallState.mockResolvedValue(installState());
+      mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+      mocks.detectInstallSource.mockResolvedValue('npm-global');
+      mockSpawnExitWithStderr(
+        0,
+        'progress: state=waiting retry_in=4 elapsed=8\n'
+        + 'progress: state=downloading transferred=5242880\n'
+        + 'progress: state=downloading percent=25 transferred=5242880 total=20971520\n'
+        + 'progress: state=done transferred=20971520\n',
+      );
+      const { options } = captureOutput();
+
+      await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
+      await flushBackgroundInstall();
+
+      const states = progressActiveStates() as Array<{
+        active: { progress: { state: string; percent?: number; transferred?: number } };
+      }>;
+      expect(states[0]?.active.progress).toMatchObject({ state: 'waiting' });
+      expect(states.at(-1)?.active.progress).toMatchObject({
+        state: 'done',
+        transferred: 20_971_520,
+      });
+      // The downloading lines in between are dropped by the 2s write throttle,
+      // not by the parser — a line it could not read would throw instead.
+      expect(states).toHaveLength(2);
+    });
+
     it('ignores unknown keys and non-numeric percent values without throwing', async () => {
       mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
       mocks.readUpdateInstallState.mockResolvedValue(installState());
@@ -2332,6 +2459,53 @@ describe('spawnForSource native', () => {
   });
 });
 
+describe('windows package-manager shims', () => {
+  // Node >=18.20/20.12 refuses to spawn a .cmd directly (CVE-2024-27980), so
+  // every npm-family update on Windows failed with EINVAL. The command
+  // interpreter runs them, and the exact argv is asserted here because it
+  // cannot be exercised from a non-Windows test run.
+  it('runs npm.cmd through the command interpreter', () => {
+    const { cmd, args } = spawnForSource('npm-global', '0.5.0', 'win32');
+    expect(cmd.toLowerCase()).toContain('cmd.exe');
+    expect(args).toEqual([
+      '/d',
+      '/s',
+      '/c',
+      'npm.cmd',
+      'install',
+      '-g',
+      '@pythoughts/pythinker-code@0.5.0',
+    ]);
+  });
+
+  it('runs pnpm.cmd and yarn.cmd the same way', () => {
+    expect(spawnForSource('pnpm-global', '0.5.0', 'win32').args).toEqual([
+      '/d', '/s', '/c', 'pnpm.cmd', 'add', '-g', '@pythoughts/pythinker-code@0.5.0',
+    ]);
+    expect(spawnForSource('yarn-global', '0.5.0', 'win32').args).toEqual([
+      '/d', '/s', '/c', 'yarn.cmd', 'global', 'add', '@pythoughts/pythinker-code@0.5.0',
+    ]);
+  });
+
+  it('leaves real executables alone', () => {
+    expect(spawnForSource('bun-global', '0.5.0', 'win32')).toEqual({
+      cmd: 'bun.exe',
+      args: ['add', '-g', '@pythoughts/pythinker-code@0.5.0'],
+    });
+    expect(spawnForSource('native', '0.5.0', 'win32').cmd).toBe('powershell.exe');
+  });
+
+  it('never wraps anything off Windows', () => {
+    expect(spawnForSource('npm-global', '0.5.0', 'darwin')).toEqual({
+      cmd: 'npm',
+      args: ['install', '-g', '@pythoughts/pythinker-code@0.5.0'],
+    });
+    expect(isWindowsShim('npm.cmd', 'darwin')).toBe(false);
+    expect(isWindowsShim('npm.cmd', 'win32')).toBe(true);
+    expect(isWindowsShim('powershell.exe', 'win32')).toBe(false);
+  });
+});
+
 describe('canAutoInstall native', () => {
   it('is true on win32 (rename-aside replace no longer needs the platform gate)', () => {
     expect(canAutoInstall('native', 'win32')).toBe(true);
@@ -2352,6 +2526,7 @@ describe('startManualUpdate', () => {
     mocks.loadTuiConfig.mockResolvedValue(tuiConfig());
     mocks.resolveUpdateDeviceId.mockReturnValue('test-device');
     mocks.appendRolloutDecisionLog.mockResolvedValue(undefined);
+    mocks.verifyInstalledVersion.mockResolvedValue({ ok: true });
     mocks.tryAcquireUpdateInstallLock.mockResolvedValue({
       filePath: '/tmp/pythinker-update-install.lock',
       release: vi.fn().mockResolvedValue(undefined),

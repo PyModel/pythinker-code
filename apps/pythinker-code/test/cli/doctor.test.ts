@@ -194,6 +194,60 @@ describe('pythinker doctor', () => {
     );
   });
 
+  it('reports the recorded update outcomes', async () => {
+    const { deps, stdout } = makeDeps();
+
+    const code = await handleDoctor(
+      {
+        ...deps,
+        runtimeInfo: async () => ({
+          version: '0.12.0',
+          installSource: 'native',
+          executable: '/usr/local/bin/pythinker',
+          update: {
+            latest: '0.13.1',
+            checkedAt: '2026-08-08T12:00:00.000Z',
+            lastSuccess:
+              '0.13.1 (installed 2026-08-08T12:01:00.000Z) — unverified: probe timed out',
+            lastFailure: 'install 0.13.1 (attempt 1): still reports 0.12.0',
+          },
+        }),
+      },
+      {},
+    );
+
+    expect(code).toBe(0);
+    const output = stdout.join('');
+    expect(output).toContain(
+      '  Last update success: 0.13.1 (installed 2026-08-08T12:01:00.000Z) — unverified: probe timed out',
+    );
+    expect(output).toContain('  Last update failure: install 0.13.1 (attempt 1): still reports 0.12.0');
+  });
+
+  // A packaged native binary ships no package.json. Reporting it used to
+  // crash the whole command with "Could not locate package.json near …".
+  it('reports a native install that has no package root', async () => {
+    const { deps, stdout } = makeDeps();
+
+    const code = await handleDoctor(
+      {
+        ...deps,
+        runtimeInfo: async () => ({
+          version: '1.2.3',
+          installSource: 'native',
+          executable: 'C:\\Programs\\Pythinker\\pythinker.exe',
+        }),
+      },
+      {},
+    );
+
+    expect(code).toBe(0);
+    const output = stdout.join('');
+    expect(output).toContain('  Install source: native');
+    expect(output).toContain('  Executable: C:\\Programs\\Pythinker\\pythinker.exe');
+    expect(output).not.toContain('Package root');
+  });
+
   it('warns when multiple Pythinker executables are installed', async () => {
     const { deps, stdout } = makeDeps();
 

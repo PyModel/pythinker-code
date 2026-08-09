@@ -76,15 +76,30 @@ function npmCommand(platform: NodeJS.Platform): string {
   return platform === 'win32' ? 'npm.cmd' : 'npm';
 }
 
-function execFileText(command: string, args: readonly string[]): Promise<string> {
+function execFileText(
+  command: string,
+  args: readonly string[],
+  platform: NodeJS.Platform = process.platform,
+): Promise<string> {
+  // `npm.cmd` cannot be spawned directly on Node ≥18.20/20.12
+  // (CVE-2024-27980): it fails with EINVAL, and every npm-family Windows
+  // install then classifies as `unsupported` and never auto-updates.
+  const viaInterpreter = platform === 'win32' && command.toLowerCase().endsWith('.cmd');
+  const spawnCommand = viaInterpreter ? process.env['ComSpec'] ?? 'cmd.exe' : command;
+  const spawnArgs = viaInterpreter ? ['/d', '/s', '/c', command, ...args] : [...args];
   return new Promise((resolveOutput, reject) => {
-    execFile(command, [...args], { encoding: 'utf-8' }, (error, stdout) => {
-      if (error) {
-        reject(error);
-        return;
-      }
-      resolveOutput(stdout);
-    });
+    execFile(
+      spawnCommand,
+      spawnArgs,
+      { encoding: 'utf-8', windowsHide: true },
+      (error, stdout) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolveOutput(stdout);
+      },
+    );
   });
 }
 
@@ -140,14 +155,22 @@ export async function detectInstallSource(
     getPackageRoot: deps.getPackageRoot ?? getHostPackageRoot,
     getGlobalPrefix:
       deps.getGlobalPrefix ??
-      (() => execFileText(npmCommand(platform), ['prefix', '-g']).then((text) => text.trim())),
+      (() =>
+        execFileText(npmCommand(platform), ['prefix', '-g'], platform).then((text) => text.trim())),
     detectNative: deps.detectNative ?? detectNativeInstall,
     platform,
   };
 
   if (resolved.detectNative()) return 'native';
 
-  const packageRoot = resolved.getPackageRoot();
+  // A layout with no reachable `package.json` cannot be classified, and this
+  // runs on every launch — it reports "unsupported" rather than throwing.
+  let packageRoot: string;
+  try {
+    packageRoot = resolved.getPackageRoot();
+  } catch {
+    return 'unsupported';
+  }
   const heuristic = classifyByPathHeuristic(packageRoot);
   if (heuristic !== null) return heuristic;
 

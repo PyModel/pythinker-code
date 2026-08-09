@@ -112,6 +112,12 @@ export interface UpdateInstallSuccess {
   readonly version: string;
   readonly installedAt: string;
   readonly notifiedAt: string | null;
+  /**
+   * Why this success was recorded without proof that the new version runs.
+   * Absent when the installed binary was probed and matched. `doctor` prints
+   * it, so "it says updated but it did not" is answerable in one command.
+   */
+  readonly unverified?: string;
 }
 
 export interface UpdateInstallState {
