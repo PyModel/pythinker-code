@@ -1,6 +1,8 @@
 import type { Agent } from '..';
 import type { PrepareToolExecutionResult } from '../../loop';
 import { createHookIfMatcher } from '../../session/hooks';
+import { matchesGlobRuleSubjects, modelRuleSubject } from '../../tools/support/rule-match';
+import { matchPermissionRule } from './matches-rule';
 import { createPermissionDecisionPolicies } from './policies';
 import type {
   ApprovalResponse,
@@ -55,6 +57,40 @@ export class PermissionManager {
       mode: this.mode,
       rules: this.effectiveRules,
     };
+  }
+
+  /**
+   * Whether a deny rule forbids running a subagent on `modelAlias`, asked
+   * outside the tool-approval path.
+   *
+   * Deny rules with an argument pattern fire at approval only when their
+   * subject appears in the tool arguments. A model resolved after approval —
+   * a subagent profile's override, or a resume/retry that re-resolves it —
+   * never comes back through approval, so the spawn path re-checks it here
+   * against the same rules.
+   *
+   * Only rules whose argument pattern targets the `model:` namespace are
+   * consulted. Approval evaluates every rule against the call's full subject
+   * set (profile name, plan digest, model); this check sees only the model, so
+   * a rule keyed on another subject — `Agent(!reviewer)`, a workflow plan
+   * digest — must not be re-interpreted here: its negation would match any
+   * model-only subject list and strip an override approval already allowed.
+   */
+  deniesModelOverride(toolName: string, modelAlias: string): boolean {
+    const subjects = modelRuleSubject(modelAlias);
+    if (subjects.length === 0) return false;
+    return this.effectiveRules.some(
+      (rule) =>
+        rule.decision === 'deny' &&
+        matchPermissionRule({
+          rule,
+          toolName,
+          execution: {
+            matchesRule: (ruleArgs) =>
+              targetsModelSubject(ruleArgs) && matchesGlobRuleSubjects(ruleArgs, subjects),
+          },
+        })?.hasRuleArgs === true,
+    );
   }
 
   setMode(mode: PermissionMode): void {
@@ -367,4 +403,10 @@ export class PermissionManager {
     }
     return prefix;
   }
+}
+
+/** Whether a rule argument pattern (optionally negated) targets the `model:` subject namespace. */
+function targetsModelSubject(ruleArgs: string): boolean {
+  const positive = ruleArgs.startsWith('!') ? ruleArgs.slice(1) : ruleArgs;
+  return positive.startsWith('model:');
 }
