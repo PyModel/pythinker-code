@@ -18,7 +18,14 @@ export class DynamicWorkflowMode {
 
   enter(trigger: DynamicWorkflowModeTrigger): void {
     if (this.active !== null) return;
-    this.agent.records.logRecord({ type: 'dynamic_workflow_mode.enter', trigger });
+    this.agent.records.logRecord({
+      type: 'dynamic_workflow_mode.enter',
+      trigger,
+      // The 'tool' trigger always fires inside a turn, so the origin names
+      // what drove the model to fan out (user, cron, hook, ...). The RPC
+      // triggers run between turns and record no origin.
+      origin: this.agent.turn.activeTurnOrigin,
+    });
     this.active = trigger;
     if (trigger !== 'tool') {
       const sizeNote = workflowSizeGuidelineNote(
