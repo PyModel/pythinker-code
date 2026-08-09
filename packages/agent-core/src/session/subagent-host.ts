@@ -361,6 +361,8 @@ export class SessionSubagentHost {
       // All subagent lifecycle events carry the launching tool call id so
       // consumers can correlate them to a workflow and drop stale events.
       parentToolCallId: event.task.parentToolCallId,
+      workflowRunId: event.task.workflowRunId,
+      workflowName: event.task.workflowName,
       reason: event.reason,
     });
   }
@@ -437,16 +439,28 @@ export class SessionSubagentHost {
    * SingleModelProvider) falls back to the parent's model instead of failing at
    * generate time. fastMode stays a straight inherit: it is a preference the
    * provider layer already drops when the active model cannot serve it.
+   *
+   * A `model:` deny rule is re-checked here as well — approval only sees a
+   * model that was in the tool arguments, so a profile-sourced override (or a
+   * resume/retry re-resolution) would otherwise ride past `Agent(model:x)` /
+   * `DynamicWorkflow(model:x)`. Every override lands in this method, making it
+   * the one containment point; a denied override falls back to the parent's
+   * model rather than failing the spawn.
    */
   private childModelConfig(
     parent: Agent,
     child: Agent,
     profile: ResolvedAgentProfile | undefined,
-    options: Pick<RunSubagentOptions, 'modelAlias' | 'thinkingLevel'>,
+    options: Pick<RunSubagentOptions, 'modelAlias' | 'thinkingLevel' | 'workflowRunId'>,
   ): { modelAlias: string | undefined; thinkingLevel: string | undefined; fastMode: boolean } {
     const requested = options.modelAlias ?? profile?.model;
     const modelAlias =
-      requested !== undefined && child.config.canResolveModel(requested)
+      requested !== undefined &&
+      child.config.canResolveModel(requested) &&
+      !parent.permission.deniesModelOverride(
+        options.workflowRunId === undefined ? 'Agent' : 'DynamicWorkflow',
+        requested,
+      )
         ? requested
         : parent.config.modelAlias;
     return {
@@ -562,6 +576,7 @@ export class SessionSubagentHost {
       subagentId: childId,
       parentToolCallId: options.parentToolCallId,
       workflowRunId: options.workflowRunId,
+      workflowName: options.workflowName,
       resultSummary: result,
       usage,
       contextTokens: child.context.tokenCount,
@@ -712,6 +727,7 @@ export class SessionSubagentHost {
       subagentId: childId,
       parentToolCallId: options.parentToolCallId,
       workflowRunId: options.workflowRunId,
+      workflowName: options.workflowName,
     });
   }
 
@@ -727,6 +743,7 @@ export class SessionSubagentHost {
       subagentId: childId,
       parentToolCallId: options.parentToolCallId,
       workflowRunId: options.workflowRunId,
+      workflowName: options.workflowName,
       error: error instanceof Error ? error.message : String(error),
     });
   }
