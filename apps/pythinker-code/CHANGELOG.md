@@ -1,5 +1,27 @@
 # @pythoughts/pythinker-code
 
+## 0.14.0
+
+### Minor Changes
+
+- [#51](https://github.com/Pythoughts-labs/pythinker-code/pull/51) [`c8cdcc7`](https://github.com/Pythoughts-labs/pythinker-code/commit/c8cdcc78528f3fd8dedf9111ec0c91f3242e3012) - `/workflow save` accepts `--personal` to save into the home skills directory, resolves the repository root when saving from a subdirectory so the saved skill is discoverable, and persists the workflow size guideline into the saved skill.
+
+### Patch Changes
+
+- [#46](https://github.com/Pythoughts-labs/pythinker-code/pull/46) [`bceff21`](https://github.com/Pythoughts-labs/pythinker-code/commit/bceff2191cd196f30cd59a297ad29b642073030d) - Fix `pythinker doctor` crashing on native installs, and report the last recorded update outcome.
+
+- [#49](https://github.com/Pythoughts-labs/pythinker-code/pull/49) [`f35061e`](https://github.com/Pythoughts-labs/pythinker-code/commit/f35061e39de539476d3897c6acf4966991669576) - Model permission deny rules now also apply to subagent model overrides coming from agent profiles and from resume or retry, not only to models named in tool arguments; a denied override falls back to the parent agent's model.
+
+- [#46](https://github.com/Pythoughts-labs/pythinker-code/pull/46) [`bceff21`](https://github.com/Pythoughts-labs/pythinker-code/commit/bceff2191cd196f30cd59a297ad29b642073030d) - Stop reporting an update as installed when the executable did not change; the version is checked after the installer finishes and a mismatch is recorded as a failure with the reason.
+
+- [#46](https://github.com/Pythoughts-labs/pythinker-code/pull/46) [`bceff21`](https://github.com/Pythoughts-labs/pythinker-code/commit/bceff2191cd196f30cd59a297ad29b642073030d) - Show download progress under the prompt while a Windows update installs, instead of nothing until it finishes.
+
+- [#46](https://github.com/Pythoughts-labs/pythinker-code/pull/46) [`bceff21`](https://github.com/Pythoughts-labs/pythinker-code/commit/bceff2191cd196f30cd59a297ad29b642073030d) - Fix automatic updates on Windows for npm, pnpm, and yarn installs, which failed to start at all.
+
+- [#50](https://github.com/Pythoughts-labs/pythinker-code/pull/50) [`38e3504`](https://github.com/Pythoughts-labs/pythinker-code/commit/38e35047069dd4f9a22e3160e34861b6550b6b56) - Record the origin of the prompt that entered Dynamic Workflow mode, so a fan-out started by a scheduled job or hook is attributable in the session records.
+
+- [#49](https://github.com/Pythoughts-labs/pythinker-code/pull/49) [`f35061e`](https://github.com/Pythoughts-labs/pythinker-code/commit/f35061e39de539476d3897c6acf4966991669576) - Subagent lifecycle events now carry the workflow name on start, completion and failure, and suspension events carry both the workflow run id and name, so clients can correlate every event without caching the spawn event.
+
 ## 0.13.1
 
 ### Patch Changes
