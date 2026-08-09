@@ -48,7 +48,11 @@ export function ConfigFileSection() {
         </div>
       )}
 
-      {info === null || info.path === null || !info.exists ? (
+      {info === null ? (
+        // A load error with no result means the state is unknown — the error
+        // banner above is the whole story, so do not claim the file is missing.
+        error === undefined && <p className="text-xs text-muted-foreground text-center py-10">No config file was found.</p>
+      ) : info.path === null || !info.exists ? (
         <p className="text-xs text-muted-foreground text-center py-10">No config file was found.</p>
       ) : (
         <>

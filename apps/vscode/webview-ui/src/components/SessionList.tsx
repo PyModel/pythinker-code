@@ -17,12 +17,16 @@ interface SessionListProps {
   onClose: () => void;
 }
 
-const DAY_MS = 86400000;
+interface GroupBoundaries {
+  startOfToday: number;
+  startOfYesterday: number;
+  startOfWeekWindow: number;
+}
 
-function getGroupLabel(timestamp: number, startOfToday: number): string {
-  if (timestamp >= startOfToday) return "Today";
-  if (timestamp >= startOfToday - DAY_MS) return "Yesterday";
-  if (timestamp >= startOfToday - 6 * DAY_MS) return "This week";
+function getGroupLabel(timestamp: number, boundaries: GroupBoundaries): string {
+  if (timestamp >= boundaries.startOfToday) return "Today";
+  if (timestamp >= boundaries.startOfYesterday) return "Yesterday";
+  if (timestamp >= boundaries.startOfWeekWindow) return "This week";
   return "Older";
 }
 
@@ -131,11 +135,17 @@ export function SessionList({ onClose }: SessionListProps) {
     const sorted = [...filtered].sort((a, b) => (sortOrder === "recent" ? b.updatedAt - a.updatedAt : a.updatedAt - b.updatedAt));
 
     const now = new Date();
-    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    // Calendar-day arithmetic, not fixed 24h offsets — a DST change makes a
+    // local day 23 or 25 hours, which would shift sessions between groups.
+    const boundaries = {
+      startOfToday: new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime(),
+      startOfYesterday: new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1).getTime(),
+      startOfWeekWindow: new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6).getTime(),
+    };
     // Map preserves insertion order, so group order follows the sort direction
     const groups = new Map<string, SessionInfo[]>();
     for (const session of sorted) {
-      const label = getGroupLabel(session.updatedAt, startOfToday);
+      const label = getGroupLabel(session.updatedAt, boundaries);
       const bucket = groups.get(label);
       if (bucket) {
         bucket.push(session);

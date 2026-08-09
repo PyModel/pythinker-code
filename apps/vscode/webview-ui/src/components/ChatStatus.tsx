@@ -60,7 +60,8 @@ function subscribeToSpeed(listener: () => void): () => void {
 
 /** Compact token count in Cline's style: 999, 12.3k, 1.2m. */
 function formatTokens(count: number): string {
-  if (count >= 1e6) return `${(count / 1e6).toFixed(1)}m`;
+  // 999_950+ rounds to 1.0m; without this the k branch prints "1000.0k".
+  if (count >= 999_950) return `${(count / 1e6).toFixed(1)}m`;
   if (count >= 1e3) return `${(count / 1e3).toFixed(1)}k`;
   return String(count);
 }

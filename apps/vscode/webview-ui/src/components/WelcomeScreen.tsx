@@ -18,7 +18,6 @@ export function WelcomeScreen() {
       const events = await bridge.loadSessionHistory(session.id);
       await loadSession(session.id, events);
     } catch (error) {
-      console.error("[WelcomeScreen] Failed to load session:", error);
       toast.error(`Unable to open the conversation: ${error instanceof Error ? error.message : String(error)}`);
     }
   };

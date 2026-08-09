@@ -12,6 +12,9 @@ export function ApprovalDialog() {
   const [selectedIndex, setSelectedIndex] = useState(1);
   const [expanded, setExpanded] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
+  // The request stays in the store until the RPC settles, so repeated key
+  // presses would send duplicate responses without this guard.
+  const inFlightRef = useRef(false);
 
   const req = pending[0];
 
@@ -28,10 +31,16 @@ export function ApprovalDialog() {
   const hasDisplay = req.display && req.display.length > 0;
 
   const handleResponse = async (response: ApprovalResponse) => {
-    await respondToRequest(req.id, response);
-    setSelectedIndex(1);
-    setExpanded(false);
-    focusComposer();
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
+    try {
+      await respondToRequest(req.id, response);
+      setSelectedIndex(1);
+      setExpanded(false);
+      focusComposer();
+    } finally {
+      inFlightRef.current = false;
+    }
   };
 
   const options = [

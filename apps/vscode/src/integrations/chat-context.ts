@@ -91,10 +91,14 @@ export function registerChatContext(deps: ChatContextDeps): vscode.Disposable[] 
     vscode.commands.registerCommand("pythinker.addTerminalSelection", async () => {
       // Clipboard round-trip: workbench.action.terminal.copySelection is the
       // only way to read the terminal selection, so save and restore the
-      // user's clipboard around it.
+      // user's clipboard around it. A sentinel distinguishes "no selection"
+      // (copySelection is a no-op) from a selection that happens to equal the
+      // old clipboard content.
       const previousClipboard = await vscode.env.clipboard.readText();
+      const sentinel = `__pythinker_no_selection_${Date.now()}__`;
       let selection = "";
       try {
+        await vscode.env.clipboard.writeText(sentinel);
         await vscode.commands.executeCommand("workbench.action.terminal.copySelection");
         selection = (await vscode.env.clipboard.readText()).trim();
       } catch (error) {
@@ -102,9 +106,7 @@ export function registerChatContext(deps: ChatContextDeps): vscode.Disposable[] 
       } finally {
         await vscode.env.clipboard.writeText(previousClipboard);
       }
-      // copySelection is a no-op without a selection, which leaves the old
-      // clipboard content in place — do not insert that.
-      if (!selection || selection === previousClipboard.trim()) return;
+      if (!selection || selection === sentinel) return;
       await vscode.commands.executeCommand("pythinker.webview.focus");
       deps.insertText(`Terminal output:\n\`\`\`\n${selection}\n\`\`\``);
     }),

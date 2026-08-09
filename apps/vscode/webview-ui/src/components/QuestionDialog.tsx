@@ -12,6 +12,9 @@ export function QuestionDialog() {
   const [questionIndex, setQuestionIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const cardRef = useRef<HTMLDivElement>(null);
+  // The question stays pending until the RPC settles, so repeated key presses
+  // would submit duplicate answers without this guard.
+  const inFlightRef = useRef(false);
 
   const questions = pendingQuestion?.questions ?? [];
   const question = questions[questionIndex];
@@ -39,8 +42,14 @@ export function QuestionDialog() {
       setCustomInput("");
       setSelectedIndex(1);
     } else {
-      await respondQuestion(nextAnswers);
-      focusComposer();
+      if (inFlightRef.current) return;
+      inFlightRef.current = true;
+      try {
+        await respondQuestion(nextAnswers);
+        focusComposer();
+      } finally {
+        inFlightRef.current = false;
+      }
     }
   };
 
