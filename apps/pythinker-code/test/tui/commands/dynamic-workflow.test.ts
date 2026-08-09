@@ -510,8 +510,7 @@ describe('/workflow save', () => {
 
   it('saves --personal into the data dir and records the size guideline', async () => {
     const home = await fs.mkdtemp(join(tmpdir(), 'workflow-home-'));
-    const previousHome = process.env['PYTHINKER_CODE_HOME'];
-    process.env['PYTHINKER_CODE_HOME'] = home;
+    vi.stubEnv('PYTHINKER_CODE_HOME', home);
     // Explicit empty env: the default is process.env, where an exported
     // PYTHINKER_CODE_WORKFLOW_SIZE_GUIDELINE would override 'small' and fail
     // this test for reasons unrelated to the change under test.
@@ -532,15 +531,25 @@ describe('/workflow save', () => {
       expect(session.reloadSkills).toHaveBeenCalledOnce();
       expect(host.showError).not.toHaveBeenCalled();
     } finally {
-      if (previousHome === undefined) {
-        delete process.env['PYTHINKER_CODE_HOME'];
-      } else {
-        process.env['PYTHINKER_CODE_HOME'] = previousHome;
-      }
+      vi.unstubAllEnvs();
       // The module-level cache cannot return to unset; the resolved default
       // ('medium') matches what TUI startup would have cached in production.
       setWorkflowSizeGuideline(undefined, {});
       await fs.rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects --personal when it is repeated or not at either end', async () => {
+    for (const input of [
+      'save Audit --personal Routes',
+      'save --personal Audit --personal',
+      'save --personal --personal',
+    ]) {
+      const { host } = makeHost({ permissionMode: 'auto' });
+
+      await handleDynamicWorkflowCommand(host, input);
+
+      expect(host.showError).toHaveBeenCalledWith('Usage: /workflow save <name> [--personal]');
     }
   });
 });

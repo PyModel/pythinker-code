@@ -134,11 +134,16 @@ async function handleSaveSubcommand(host: SlashCommandHost, input: string): Prom
   if (match === null) return false;
 
   const tokens = (match[1] ?? '').split(/\s+/u).filter((token) => token.length > 0);
-  const personalIndex = tokens.indexOf('--personal');
-  const scope: SavedWorkflowScope = personalIndex === -1 ? 'project' : 'personal';
-  if (personalIndex !== -1) tokens.splice(personalIndex, 1);
+  // A name may contain spaces, so the flag is only recognised at either end.
+  // Anywhere else — or twice — it is a typo rather than part of the name, and
+  // folding it in would silently save under a different name and scope.
+  const personalFirst = tokens[0] === '--personal';
+  const personalLast = !personalFirst && tokens.at(-1) === '--personal';
+  if (personalFirst) tokens.shift();
+  else if (personalLast) tokens.pop();
+  const scope: SavedWorkflowScope = personalFirst || personalLast ? 'personal' : 'project';
   const name = tokens.join(' ');
-  if (name.length === 0) {
+  if (name.length === 0 || tokens.includes('--personal')) {
     host.showError('Usage: /workflow save <name> [--personal]');
     return true;
   }
