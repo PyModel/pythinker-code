@@ -2,8 +2,11 @@ import { constants, promises as fs } from 'node:fs';
 
 import path from 'pathe';
 
+import type { WorkflowSizeGuideline } from '../../config';
 import { resolveSafePath } from '../../services/fs/fsPathSafety';
+import { findProjectRoot } from '../../skill/scanner';
 import { normalizeSkillName } from '../../skill/types';
+import { workflowSizeGuidelineTarget } from './size-guideline';
 
 /**
  * A saved workflow's name becomes both a directory name and a slash command,
@@ -40,6 +43,8 @@ export interface SavedWorkflow {
   readonly model?: string;
   readonly effort?: string;
   readonly outputSchema?: Record<string, unknown>;
+  /** Size guideline in force when the workflow ran, so a re-run keeps the same fan-out expectation. */
+  readonly sizeGuideline?: WorkflowSizeGuideline;
 }
 
 /**
@@ -100,7 +105,22 @@ export function renderSavedWorkflowSkill(workflow: SavedWorkflow): string {
   if (workflow.effort !== undefined) {
     lines.push(`effort: ${quoteYamlScalar(workflow.effort)}`);
   }
+  if (workflow.sizeGuideline !== undefined) {
+    lines.push(`size-guideline: ${quoteYamlScalar(workflow.sizeGuideline)}`);
+  }
   lines.push('---', '', `# ${workflow.description}`);
+  // The body is what the model reads on invocation, so the guideline has to be
+  // stated there to shape the re-run; the frontmatter alone is inert metadata.
+  const sizeTarget =
+    workflow.sizeGuideline === undefined
+      ? undefined
+      : workflowSizeGuidelineTarget(workflow.sizeGuideline);
+  if (sizeTarget !== undefined) {
+    lines.push(
+      '',
+      `Size guideline: aim for at most about ${String(sizeTarget)} subagents in this workflow, preferring fewer, larger items over many tiny ones.`,
+    );
+  }
   if (workflow.promptTemplate !== undefined) {
     const fence = renderFence(workflow.promptTemplate);
     lines.push('', '## Prompt template', '', fence, workflow.promptTemplate, fence);
@@ -125,6 +145,12 @@ export function renderSavedWorkflowSkill(workflow: SavedWorkflow): string {
  * workflow can also keep one. The name is validated before any directory is
  * created, so a rejected name leaves nothing behind.
  *
+ * Project scope resolves the closest `.git` ancestor of `workDir` — the same
+ * rule the skill scanner uses to pick its project root — so a save made from a
+ * repository subdirectory lands where the scanner will look for it. Without
+ * that, the saved skill is invisible until the session is reopened at the
+ * repository root.
+ *
  * A validated name is not enough on its own. Agents work in repositories they
  * did not write, and a checked-out tree can already contain
  * `.pythinker-code/skills/<name>/SKILL.md` as a symlink pointing anywhere on
@@ -136,15 +162,16 @@ export function renderSavedWorkflowSkill(workflow: SavedWorkflow): string {
 export async function writeSavedWorkflowSkill(input: {
   readonly scope: SavedWorkflowScope;
   readonly workflow: SavedWorkflow;
-  readonly projectRoot: string;
+  readonly workDir: string;
   readonly brandHomeDir: string;
 }): Promise<string> {
   const name = savedWorkflowSkillName(input.workflow.name);
-  const root = input.scope === 'project' ? input.projectRoot : input.brandHomeDir;
+  const projectRoot = input.scope === 'project' ? await findProjectRoot(input.workDir) : input.workDir;
+  const root = input.scope === 'project' ? projectRoot : input.brandHomeDir;
   const dir = savedWorkflowSkillDir({
     scope: input.scope,
     name: input.workflow.name,
-    projectRoot: input.projectRoot,
+    projectRoot,
     brandHomeDir: input.brandHomeDir,
   });
   const content = renderSavedWorkflowSkill({ ...input.workflow, name });

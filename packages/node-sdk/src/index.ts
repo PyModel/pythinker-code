@@ -44,11 +44,12 @@ export type {
 
 export {
   renderSavedWorkflowSkill,
+  resolveWorkflowSizeGuideline,
   savedWorkflowSkillDir,
   savedWorkflowSkillName,
   writeSavedWorkflowSkill,
 } from '@pythoughts/agent-core';
-export type { SavedWorkflow, SavedWorkflowScope } from '@pythoughts/agent-core';
+export type { SavedWorkflow, SavedWorkflowScope, WorkflowSizeGuideline } from '@pythoughts/agent-core';
 export { buildSkillSlashCommands, isUserActivatableSkill } from '#/skill-commands';
 export type { SkillSlashCommand, SkillSlashCommands } from '#/skill-commands';
 

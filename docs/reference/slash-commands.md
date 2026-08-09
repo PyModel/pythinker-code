@@ -52,6 +52,7 @@ Some commands are only available in the idle state. Executing these commands whi
 | `/workflow [on\|off]` | — | Toggle Dynamic Workflow mode without sending a prompt. Without arguments, flips the current state; explicitly passing `on`/`off` forces the setting. | No |
 | `/workflow <task>` | — | Turn Dynamic Workflow mode on, then send `<task>` as a normal prompt. If the turn completes normally, Dynamic Workflow mode turns off automatically. In `manual` permission mode, Pythinker Code asks whether to switch to `auto` or `yolo` before starting. | No |
 | `/workflow model [alias\|off]` | — | Ask Dynamic Workflow subagents to run on `alias` instead of the session model, so workers can use a cheaper or faster model than the agent orchestrating them. Without arguments, shows the current setting; `off` clears it. Lasts for the session. | No |
+| `/workflow save <name> [--personal]` | — | Save the last Dynamic Workflow that ran in this session as a skill, immediately invocable under its generated skill name — `Audit Routes` becomes `/audit-routes`. Saves into the project (`<repo root>/.pythinker-code/skills/`) by default; `--personal` saves into your home skills directory instead. | No |
 | `/goal [...]` | — | Start or manage an autonomous goal | See below |
 
 ::: info
