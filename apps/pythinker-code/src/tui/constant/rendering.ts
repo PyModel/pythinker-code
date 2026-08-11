@@ -27,7 +27,7 @@ export const DYNAMIC_WORKFLOW_RENDERING = {
   frameMinWidth: 21,
   frameHorizontalInset: 4,
   memberProgressMinWidth: 60,
-  memberProgressWidth: 9,
+  memberProgressWidth: 8,
   /** Least room the task keeps before the detail may claim any of the row. */
   memberTaskMinWidth: 12,
   /** Share of the free row the task may take before the detail gets the rest. */
@@ -46,10 +46,6 @@ export const DYNAMIC_WORKFLOW_RENDERING = {
    * buffered text from growing for as long as the agent runs.
    */
   memberLatestMaxChars: 512,
-  /** Idle age at which a row's silence is worth noticing. */
-  quietIdleMs: 60_000,
-  /** Idle age at which a row has almost certainly stalled. */
-  stalledIdleMs: 180_000,
 } as const;
 
 /** Live activity labels: one shown at a time, rotating on a fixed cadence. */

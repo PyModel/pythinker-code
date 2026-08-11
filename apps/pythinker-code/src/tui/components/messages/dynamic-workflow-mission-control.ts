@@ -1,7 +1,6 @@
 import { truncateToWidth, visibleWidth, type Component } from '@earendil-works/pi-tui';
 
 import {
-  BRAILLE_SPINNER_FRAMES,
   BRAILLE_SPINNER_INTERVAL_MS,
   DYNAMIC_WORKFLOW_RENDERING,
 } from '#/tui/constant/rendering';
@@ -55,16 +54,6 @@ export interface DynamicWorkflowMember {
   statusDetail?: string;
   startedAtMs?: number;
   endedAtMs?: number;
-  /**
-   * Tool calls observed for this agent. Real work done, monotonic — unlike a
-   * percentage, which would need a total nobody can know in advance.
-   */
-  toolCalls: number;
-  /**
-   * When this agent last produced any observed event. Its age is the liveness
-   * signal: a working agent stays near zero, a wedged one climbs without bound.
-   */
-  lastEventAtMs: number;
 }
 
 export interface DynamicWorkflowActivity {
@@ -109,16 +98,27 @@ export interface DynamicWorkflowMissionControlOptions {
   readonly availableRows?: () => number | undefined;
 }
 
-const PHASE_TOKENS: Record<DynamicWorkflowPhase, string> = {
-  pending: '◌ PEND',
-  queued: '◌ WAIT',
-  // Label only: a running row is the one phase that animates, so its symbol is
-  // a spinner supplied per frame by renderPhaseCell rather than a fixed glyph.
+const DYNAMIC_WORKFLOW_PROGRESS_FRAMES = ['○', '◔', '◑', '◕'] as const;
+const DYNAMIC_WORKFLOW_PROGRESS_FRAME_MS = BRAILLE_SPINNER_INTERVAL_MS * 2;
+const STATE_COLUMN_WIDTH = 6;
+
+const PHASE_LABELS: Record<DynamicWorkflowPhase, string> = {
+  pending: 'PEND',
+  queued: 'WAIT',
   running: 'RUN',
-  suspended: '! HOLD',
-  completed: '✓ DONE',
-  failed: '× FAIL',
-  cancelled: '– STOP',
+  suspended: 'HOLD',
+  completed: 'DONE',
+  failed: 'FAIL',
+  cancelled: 'STOP',
+};
+
+const PHASE_GLYPHS: Record<Exclude<DynamicWorkflowPhase, 'running'>, string> = {
+  pending: '○',
+  queued: '○',
+  suspended: '◑',
+  completed: '●',
+  failed: '×',
+  cancelled: '–',
 };
 
 const PHASE_COLORS: Record<DynamicWorkflowPhase, 'textMuted' | 'primary' | 'success' | 'warning' | 'error'> = {
@@ -257,7 +257,6 @@ export class DynamicWorkflowMissionControlComponent implements Component {
     if (member.phase === 'running') return;
     member.phase = 'running';
     member.startedAtMs ??= Date.now();
-    member.lastEventAtMs = Date.now();
     delete member.statusDetail;
     this.recordActivity(member.index, 'Started');
   }
@@ -269,8 +268,6 @@ export class DynamicWorkflowMissionControlComponent implements Component {
     const member = this.findMemberByAgentId(input.agentId);
     if (member === undefined || isTerminalPhase(member.phase)) return;
     this.markStarted(input.agentId);
-    member.toolCalls += 1;
-    member.lastEventAtMs = Date.now();
     const latest = input.name === undefined ? 'Using a tool' : `Using ${input.name}`;
     this.setLatest(member, latest, true);
     // Streamed text that follows starts a new line, never continues this label.
@@ -281,7 +278,6 @@ export class DynamicWorkflowMissionControlComponent implements Component {
     const member = this.findMemberByAgentId(input.agentId);
     if (member === undefined || isTerminalPhase(member.phase) || input.delta.length === 0) return;
     this.markStarted(input.agentId);
-    member.lastEventAtMs = Date.now();
     const combined = `${member.carry}${input.delta}`;
     // Only the text after the last newline is still being written. A delta that
     // ends exactly at a newline leaves nothing pending, so carrying the closed
@@ -450,7 +446,9 @@ export class DynamicWorkflowMissionControlComponent implements Component {
     }
 
     if (members.length > 0 && rowBudget - lines.length >= 2) {
-      lines.push(this.renderTableHeader(width));
+      if (width >= DYNAMIC_WORKFLOW_RENDERING.frameMinWidth) {
+        lines.push(this.renderTableHeader(width));
+      }
       const slots = rowBudget - lines.length;
       const needsMore = members.length > slots;
       const memberSlots = needsMore && slots >= 2 ? slots - 1 : slots;
@@ -577,11 +575,11 @@ export class DynamicWorkflowMissionControlComponent implements Component {
     const header = width >= DYNAMIC_WORKFLOW_RENDERING.memberProgressMinWidth
       ? [
         padToWidth('ID', 3),
-        padToWidth('WORK IDLE', DYNAMIC_WORKFLOW_RENDERING.memberProgressWidth),
-        padToWidth('STATE', 6),
+        padToWidth('PROGRESS', DYNAMIC_WORKFLOW_RENDERING.memberProgressWidth),
+        padToWidth('STATE', STATE_COLUMN_WIDTH),
         'TASK',
       ].join('  ')
-      : `${padToWidth('ID', 3)} ${padToWidth('STATE', 6)} TASK`;
+      : `${padToWidth('ID', 3)} ${padToWidth('STATUS', STATE_COLUMN_WIDTH)} TASK`;
     return truncateToWidth(currentTheme.fg('textDim', header), width);
   }
 
@@ -594,19 +592,19 @@ export class DynamicWorkflowMissionControlComponent implements Component {
     const id = currentTheme.fg('primary', String(member.index).padStart(3, '0'));
     // All running rows share the workflow's clock, so they spin in step instead
     // of drifting apart by whenever each agent happened to start.
-    const state = renderPhaseCell(
-      member.phase,
-      Math.floor(Math.max(0, nowMs - this.model.startedAtMs) / BRAILLE_SPINNER_INTERVAL_MS),
+    const frame = Math.floor(
+      Math.max(0, nowMs - this.model.startedAtMs) / DYNAMIC_WORKFLOW_PROGRESS_FRAME_MS,
     );
-    const showWork = width >= DYNAMIC_WORKFLOW_RENDERING.memberProgressMinWidth;
-    const workColumn = padToWidth(
-      renderWorkCell(member, nowMs),
+    const showProgress = width >= DYNAMIC_WORKFLOW_RENDERING.memberProgressMinWidth;
+    const progressColumn = centerToWidth(
+      renderProgressGlyph(member.phase, frame),
       DYNAMIC_WORKFLOW_RENDERING.memberProgressWidth,
     );
-    const stateColumn = padToWidth(state, 6);
-    const prefix = showWork
-      ? `${id}  ${workColumn}  ${stateColumn}  `
-      : `${id} ${padToWidth(state, 6)} `;
+    const stateColumn = padToWidth(renderStateLabel(member.phase), STATE_COLUMN_WIDTH);
+    const compactStatus = padToWidth(renderCompactStatus(member.phase, frame), STATE_COLUMN_WIDTH);
+    const prefix = showProgress
+      ? `${id}  ${progressColumn}  ${stateColumn}  `
+      : `${id} ${compactStatus} `;
     const task = member.item || 'Delegated agent';
     // The elision is display-only: the dedup below still compares whole items,
     // so a streamed line that merely repeats the task is still suppressed.
@@ -624,7 +622,7 @@ export class DynamicWorkflowMissionControlComponent implements Component {
 
     // The elapsed cell is short and fixed, so it is reserved first — but only
     // while the task still keeps its floor.
-    const elapsedPart = showWork && elapsed !== undefined
+    const elapsedPart = showProgress && elapsed !== undefined
       ? `${MEMBER_SEPARATOR}${currentTheme.fg('textMuted', elapsed)}`
       : '';
     const elapsedWidth = visibleWidth(elapsedPart);
@@ -640,7 +638,7 @@ export class DynamicWorkflowMissionControlComponent implements Component {
       DYNAMIC_WORKFLOW_RENDERING.memberTaskMinWidth,
       Math.floor(rest * DYNAMIC_WORKFLOW_RENDERING.memberTaskShare),
     );
-    const detailBudget = showWork && detail !== undefined && detail.length > 0
+    const detailBudget = showProgress && detail !== undefined && detail.length > 0
       ? rest - Math.min(visibleWidth(shownTask), taskCap) - MEMBER_SEPARATOR.length
       : 0;
     const detailPart = detailBudget >= DYNAMIC_WORKFLOW_RENDERING.memberDetailMinWidth
@@ -721,8 +719,6 @@ export class DynamicWorkflowMissionControlComponent implements Component {
         phase: this.model.inputComplete ? 'queued' : 'pending',
         latest: '',
         carry: '',
-        toolCalls: 0,
-        lastEventAtMs: Date.now(),
       });
     }
   }
@@ -747,7 +743,6 @@ export class DynamicWorkflowMissionControlComponent implements Component {
     const normalizedDetail = normalizeText(detail);
     member.phase = phase;
     member.endedAtMs = Date.now();
-    member.lastEventAtMs = Date.now();
     member.statusDetail = normalizedDetail.length > 0 ? normalizedDetail : undefined;
     const label = phase === 'completed' ? 'Completed' : phase === 'failed' ? 'Failed' : 'Cancelled';
     this.recordActivity(member.index, normalizedDetail.length > 0 ? `${label}: ${normalizedDetail}` : label);
@@ -1132,61 +1127,26 @@ function commonPrefixLength(left: string, right: string, limit: number): number 
   return index;
 }
 
-/**
- * The WORK cell: tool calls done, and how long this agent has been silent.
- *
- * There is deliberately no percentage. Nothing knows how many steps an agent
- * will take, so any percent is invented — the old one pinned every tool-using
- * agent at 75% until it finished, which made a wedged agent look identical to a
- * busy one. A count and an idle age are both real and answer the actual
- * question: is this thing still working?
- */
-function renderWorkCell(member: DynamicWorkflowMember, nowMs: number): string {
-  const tools = currentTheme.fg('textDim', `${String(member.toolCalls).padStart(3, ' ')}⚒`);
-  // A row that has not started has no silence to measure: its clock would run
-  // from the launch of the whole workflow, so a queue that is simply long would
-  // paint every waiting row red. Only a finished row and an unstarted one share
-  // the placeholder; the reason differs, but neither has an idle age.
-  if (isTerminalPhase(member.phase) || member.phase === 'pending' || member.phase === 'queued') {
-    return `${tools} ${currentTheme.fg('textMuted', '   –')}`;
-  }
-  const idleMs = Math.max(0, nowMs - member.lastEventAtMs);
-  const idleSeconds = Math.floor(idleMs / 1000);
-  const token = idleColor(member.phase, idleMs);
-  return `${tools} ${currentTheme.fg(token, `${String(idleSeconds)}s`.padStart(4, ' '))}`;
+function renderProgressGlyph(phase: DynamicWorkflowPhase, frame: number): string {
+  const glyph = phase === 'running'
+    ? DYNAMIC_WORKFLOW_PROGRESS_FRAMES[frame % DYNAMIC_WORKFLOW_PROGRESS_FRAMES.length] ??
+      DYNAMIC_WORKFLOW_PROGRESS_FRAMES[0]
+    : PHASE_GLYPHS[phase];
+  return currentTheme.fg(PHASE_COLORS[phase], glyph);
 }
 
-/**
- * How loud an idle age reads.
- *
- * Only a running row can stall. A suspended one is waiting on the user by
- * design, so it keeps the count without the alarm colours.
- */
-function idleColor(
-  phase: DynamicWorkflowPhase,
-  idleMs: number,
-): 'textMuted' | 'warning' | 'error' {
-  if (phase === 'running') {
-    if (idleMs >= DYNAMIC_WORKFLOW_RENDERING.stalledIdleMs) return 'error';
-    if (idleMs >= DYNAMIC_WORKFLOW_RENDERING.quietIdleMs) return 'warning';
-  }
-  return 'textMuted';
+function renderStateLabel(phase: DynamicWorkflowPhase): string {
+  return currentTheme.fg(PHASE_COLORS[phase], PHASE_LABELS[phase]);
 }
 
-/**
- * The STATE cell for one row.
- *
- * Every phase but `running` is a fixed symbol plus its label. A running row
- * spins a dim grey braille dot instead, so "this agent is working" reads as
- * motion rather than as another coloured dot competing with the periwinkle the
- * panel already uses for identity.
- */
-function renderPhaseCell(phase: DynamicWorkflowPhase, frame: number): string {
-  const label = currentTheme.fg(PHASE_COLORS[phase], PHASE_TOKENS[phase]);
-  if (phase !== 'running') return label;
-  const spinner =
-    BRAILLE_SPINNER_FRAMES[frame % BRAILLE_SPINNER_FRAMES.length] ?? BRAILLE_SPINNER_FRAMES[0] ?? '';
-  return `${currentTheme.fg('textDim', spinner)} ${label}`;
+function renderCompactStatus(phase: DynamicWorkflowPhase, frame: number): string {
+  return `${renderProgressGlyph(phase, frame)} ${renderStateLabel(phase)}`;
+}
+
+function centerToWidth(text: string, width: number): string {
+  const paddingWidth = Math.max(0, width - visibleWidth(text));
+  const left = Math.floor(paddingWidth / 2);
+  return `${' '.repeat(left)}${text}${' '.repeat(paddingWidth - left)}`;
 }
 
 function padToWidth(text: string, width: number): string {
