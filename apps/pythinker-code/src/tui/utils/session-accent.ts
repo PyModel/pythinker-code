@@ -2,7 +2,7 @@
 export function sessionAccentHex(key: string, mode: 'dark' | 'light'): string {
   let hash = 5381;
   for (let index = 0; index < key.length; index++) {
-    hash = Math.imul(hash, 33) + key.codePointAt(index);
+    hash = Math.imul(hash, 33) + (key.codePointAt(index) ?? 0);
   }
 
   return hslToHex((hash >>> 0) % 360, 0.9, mode === 'dark' ? 0.72 : 0.42);
