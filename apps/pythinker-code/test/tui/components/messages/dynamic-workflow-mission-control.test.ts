@@ -866,17 +866,25 @@ describe('DynamicWorkflowMissionControlComponent', () => {
     expect(output).not.toContain('001 +1s Agent spawned');
   });
 
-  it.each([20, 40, 63, 64, 79, 80, 100])(
+  it.each([
+    [20, false, false],
+    [40, false, true],
+    [63, false, true],
+    [64, true, false],
+    [79, true, false],
+    [80, true, false],
+    [100, true, false],
+  ] as const)(
     'keeps progress and task columns aligned at width %i',
-    (width) => {
+    (width, expectedProgress, expectedStatus) => {
       const component = prepareObservedWorkflow();
       const rendered = component.render(width);
       const output = strip(rendered.join('\n'));
 
       expect(rendered.every((line) => visibleWidth(line) <= width)).toBe(true);
       expect(memberLine(output, 1)).toMatch(/[○◔◑◕]\s+RUN/u);
-      expect(output.includes('PROGRESS')).toBe(width >= 64);
-      expect(output.includes('STATUS')).toBe(width >= 21 && width < 64);
+      expect(output.includes('PROGRESS')).toBe(expectedProgress);
+      expect(output.includes('STATUS')).toBe(expectedStatus);
       expect(output).not.toContain('WORK IDLE');
     },
   );
@@ -892,7 +900,6 @@ describe('DynamicWorkflowMissionControlComponent', () => {
 
     vi.setSystemTime(30_000);
     const before = memberLine(renderText(component, 100), 1).match(/[○◔◑◕]/u)?.[0];
-    if (before === undefined) throw new Error('Missing lifecycle progress glyph');
     component.recordToolCall({ agentId: 'agent-1', name: 'Read' });
     for (let index = 0; index < 200; index += 1) {
       component.appendModelDelta({ agentId: 'agent-1', delta: `chunk ${String(index)} ` });
@@ -900,8 +907,9 @@ describe('DynamicWorkflowMissionControlComponent', () => {
     component.recordToolCall({ agentId: 'agent-1', name: 'Bash' });
 
     const output = renderText(component, 100);
-    expect(before).toMatch(/[○◔◑◕]/u);
-    expect(memberLine(output, 1)).toContain(before);
+    const after = memberLine(output, 1).match(/[○◔◑◕]/u)?.[0];
+    expect(before).toBeDefined();
+    expect(after).toBe(before);
     expect(output).not.toMatch(/\b\d+%|⚒/u);
   });
 

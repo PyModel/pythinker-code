@@ -261,13 +261,6 @@ export class DynamicWorkflowMissionControlComponent implements Component {
     this.recordActivity(member.index, 'Started');
   }
 
-  private markStartedFromActivity(member: DynamicWorkflowMember): void {
-    if (member.phase !== 'pending' && member.phase !== 'queued') return;
-    member.phase = 'running';
-    member.startedAtMs ??= Date.now();
-    delete member.statusDetail;
-    this.recordActivity(member.index, 'Started');
-  }
 
   recordToolCall(input: {
     readonly agentId: string;
@@ -275,7 +268,7 @@ export class DynamicWorkflowMissionControlComponent implements Component {
   }): void {
     const member = this.findMemberByAgentId(input.agentId);
     if (member === undefined || isTerminalPhase(member.phase)) return;
-    this.markStartedFromActivity(member);
+    if (member.phase === 'pending' || member.phase === 'queued') this.markStarted(input.agentId);
     const latest = input.name === undefined ? 'Using a tool' : `Using ${input.name}`;
     this.setLatest(member, latest, true);
     // Streamed text that follows starts a new line, never continues this label.
@@ -285,7 +278,7 @@ export class DynamicWorkflowMissionControlComponent implements Component {
   appendModelDelta(input: { readonly agentId: string; readonly delta: string }): void {
     const member = this.findMemberByAgentId(input.agentId);
     if (member === undefined || isTerminalPhase(member.phase) || input.delta.length === 0) return;
-    this.markStartedFromActivity(member);
+    if (member.phase === 'pending' || member.phase === 'queued') this.markStarted(input.agentId);
     const combined = `${member.carry}${input.delta}`;
     // Only the text after the last newline is still being written. A delta that
     // ends exactly at a newline leaves nothing pending, so carrying the closed
@@ -604,15 +597,14 @@ export class DynamicWorkflowMissionControlComponent implements Component {
       Math.max(0, nowMs - this.model.startedAtMs) / DYNAMIC_WORKFLOW_PROGRESS_FRAME_MS,
     );
     const showProgress = width >= DYNAMIC_WORKFLOW_RENDERING.memberProgressMinWidth;
-    const progressColumn = centerToWidth(
-      renderProgressGlyph(member.phase, frame),
-      DYNAMIC_WORKFLOW_RENDERING.memberProgressWidth,
-    );
-    const stateColumn = padToWidth(renderStateLabel(member.phase), STATE_COLUMN_WIDTH);
-    const compactStatus = padToWidth(renderCompactStatus(member.phase, frame), STATE_COLUMN_WIDTH);
     const prefix = showProgress
-      ? `${id}  ${progressColumn}  ${stateColumn}  `
-      : `${id} ${compactStatus} `;
+      ? `${id}  ${
+        centerToWidth(
+          renderProgressGlyph(member.phase, frame),
+          DYNAMIC_WORKFLOW_RENDERING.memberProgressWidth,
+        )
+      }  ${padToWidth(renderStateLabel(member.phase), STATE_COLUMN_WIDTH)}  `
+      : `${id} ${padToWidth(renderCompactStatus(member.phase, frame), STATE_COLUMN_WIDTH)} `;
     const task = member.item || 'Delegated agent';
     // The elision is display-only: the dedup below still compares whole items,
     // so a streamed line that merely repeats the task is still suppressed.
