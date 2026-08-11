@@ -1,9 +1,6 @@
 import { truncateToWidth, visibleWidth, type Component } from '@earendil-works/pi-tui';
 
-import {
-  BRAILLE_SPINNER_INTERVAL_MS,
-  DYNAMIC_WORKFLOW_RENDERING,
-} from '#/tui/constant/rendering';
+import { DYNAMIC_WORKFLOW_RENDERING } from '#/tui/constant/rendering';
 import { currentTheme } from '#/tui/theme';
 import { shimmerText } from '#/tui/utils/shimmer';
 
@@ -533,7 +530,8 @@ export class DynamicWorkflowMissionControlComponent implements Component {
           baseToken: 'primary',
           shimmerToken: 'primaryShimmer',
           frame: Math.floor(
-            Math.max(0, nowMs - this.model.startedAtMs) / BRAILLE_SPINNER_INTERVAL_MS,
+            Math.max(0, nowMs - this.model.startedAtMs) /
+              DYNAMIC_WORKFLOW_RENDERING.aggregateShimmerFrameMs,
           ),
           windowSize: 4,
         });

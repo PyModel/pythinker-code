@@ -30,6 +30,8 @@ export const DYNAMIC_WORKFLOW_RENDERING = {
   memberProgressWidth: 8,
   /** Least width of the lifecycle STATE column in member rows. */
   stateColumnWidth: 6,
+  /** Cadence for the live aggregate-label shimmer. */
+  aggregateShimmerFrameMs: BRAILLE_SPINNER_INTERVAL_MS,
   /** Thin-arc frames for a running row; all rows share one clock. */
   progressFrames: ['◜', '◝', '◞', '◟'],
   /** Arc cadence in milliseconds. */
