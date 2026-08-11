@@ -63,6 +63,7 @@ import {
 } from '../skill';
 import { noopTelemetryClient, type TelemetryClient } from '../telemetry';
 import { SessionSubagentHost } from './subagent-host';
+import { SessionAdvisor } from './session-advisor';
 import type { ToolServices } from '../tools/support/services';
 import { FlagResolver, type ExperimentalFlagResolver } from '../flags';
 import { abortError } from '../utils/abort';
@@ -366,6 +367,7 @@ export class Session {
   readonly worktree: SessionWorktree;
   readonly lsp: LspManager;
   readonly fileCheckpoints: SessionFileCheckpointStore | undefined;
+  readonly advisor: SessionAdvisor;
   private fileChangedWatcher?: FSWatcher;
   private readonly fileChangedWatcherReady: Promise<void>;
   private fileChangedWatchCwd: string;
@@ -399,6 +401,7 @@ export class Session {
     this.log =
       this.logHandle?.logger ??
       (options.id === undefined ? log : log.createChild({ sessionId: options.id }));
+    this.advisor = new SessionAdvisor(this);
     this.rpc = options.rpc;
     this.experimentalFlags = options.experimentalFlags ?? new FlagResolver();
     this.agentProfiles = {
@@ -1329,6 +1332,16 @@ export class Session {
       lsp: this.lsp,
       additionalDirs: this.listWorkspaceDirectories().map((entry) => entry.path),
       fileCheckpoints: this.fileCheckpoints,
+      onEvent:
+        id === 'main'
+          ? (event) => {
+              if (event.type === 'turn.started') {
+                this.advisor.onMainTurnStarted(event.origin);
+              } else if (event.type === 'turn.ended' && event.reason === 'completed') {
+                this.advisor.onMainTurnEnded();
+              }
+            }
+          : undefined,
     });
     agent.setFileCheckpointId(parentAgent?.fileCheckpointId);
     return agent;

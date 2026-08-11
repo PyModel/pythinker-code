@@ -303,6 +303,8 @@ export function transformTomlData(data: Record<string, unknown>): Record<string,
       result[targetKey] = transformRecord(value, transformModelData);
     } else if (targetKey === 'thinking' && isPlainObject(value)) {
       result[targetKey] = transformPlainObject(value);
+    } else if (targetKey === 'advisor' && isPlainObject(value)) {
+      result[targetKey] = transformPlainObject(value);
     } else if (targetKey === 'permission' && isPlainObject(value)) {
       result[targetKey] = transformPermissionData(value);
     } else if (targetKey === 'hooks' && Array.isArray(value)) {

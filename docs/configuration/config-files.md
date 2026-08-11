@@ -77,6 +77,7 @@ Fields in the config file fall into two categories: **top-level scalars** that d
 | --- | --- | --- | --- |
 | `default_model` | `string` | — | Default model alias; must be defined in `models` |
 | `model_roles` | `table` | — | Model role assignments → [`model_roles`](#model_roles) |
+| `advisor` | `table` | — | Second-opinion reviewer → [`advisor`](#advisor) |
 | `default_thinking` | `boolean` | `false` | Whether new sessions enable Thinking (deep reasoning) mode by default; can be toggled from the model menu inside a session. Even when set to `true`, `[thinking].mode = "off"` will still force Thinking off |
 | `default_permission_mode` | `string` | `manual` | Default permission mode for new sessions; one of `manual` (prompt each time), `yolo` (auto-approve tool actions, but the agent may still ask questions), or `auto` (fully autonomous — the agent decides everything without asking, except a `DynamicWorkflow` call, which still shows its plan for approval) |
 | `default_plan_mode` | `boolean` | `false` | Whether new sessions start in Plan mode (produce a plan before executing) by default |
@@ -173,6 +174,26 @@ Roles take effect in two places:
 - When `implementer` is assigned, it becomes the default model for subagents that do not set an explicit or profile model. Subagents of those subagents inherit the same default.
 
 Inside the TUI, `/model <role>` assigns a role from the model picker, `/model <role> clear` (or `/model <role> none`) removes it, and `/model roles` lists the current assignments. See [Slash commands](../reference/slash-commands.md).
+
+## `advisor`
+
+`advisor` enables a second-opinion reviewer: after each completed turn, a second model reviews the conversation and returns notes, which appear in the agent's context as an `<advisory>` block at the start of its next turn. The advisor never interrupts or slows a running turn.
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `enabled` | `boolean` | `false` | Turn the advisor on. It also needs a model: set `model` here or lock one to the `advisor` role |
+| `model` | `string` | — | Model alias for the advisor; when unset, the `advisor` entry in `model_roles` is used |
+| `instructions` | `string` | — | Extra instructions appended to the advisor's system prompt |
+
+The advisor sends the session conversation to the advisor model. As a safety default, it runs only when the advisor model uses the same provider entry as the session model; a cross-provider advisor stays inactive and logs one warning.
+
+```toml
+[advisor]
+enabled = true
+
+[model_roles]
+advisor = "reviewer-model"
+```
 
 ## `thinking`
 

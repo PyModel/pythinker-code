@@ -272,6 +272,23 @@ source = { kind = "apiJson", url = "https://registry.example/api.json", apiKey =
     expect(readConfigFile(configPath).modelRoles).toBeUndefined();
   });
 
+  it('round-trips advisor config', async () => {
+    const configPath = join(makeTempDir(), 'advisor.toml');
+    const config = parseConfigString(
+      '[advisor]\nenabled = true\nmodel = "reviewer"\ninstructions = "Check risks."\n',
+      configPath,
+    );
+
+    expect(config.advisor).toEqual({
+      enabled: true,
+      model: 'reviewer',
+      instructions: 'Check risks.',
+    });
+
+    await writeConfigFile(configPath, config);
+    expect(readConfigFile(configPath).advisor).toEqual(config.advisor);
+  });
+
   it('round-trips an API key environment reference without an API key', async () => {
     const configPath = join(makeTempDir(), 'api-key-env-var.toml');
     const config = parseConfigString(
@@ -638,6 +655,22 @@ describe('harness config schema and patch merge', () => {
     );
 
     expect(merged.modelRoles).toEqual({ small: 'y', advisor: 'z' });
+  });
+
+  it('deep-merges advisor patches', () => {
+    const merged = mergeConfigPatch(
+      {
+        providers: {},
+        advisor: { enabled: true, model: 'reviewer', instructions: 'Check risks.' },
+      },
+      { advisor: { instructions: 'Check correctness.' } },
+    );
+
+    expect(merged.advisor).toEqual({
+      enabled: true,
+      model: 'reviewer',
+      instructions: 'Check correctness.',
+    });
   });
 
   it('deep-merges experimental config patches', () => {

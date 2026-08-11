@@ -119,6 +119,7 @@ export interface AgentOptions {
   readonly lsp?: LspManager;
   readonly additionalDirs?: readonly string[];
   readonly fileCheckpoints?: SessionFileCheckpointStore;
+  readonly onEvent?: (event: AgentEvent) => void;
 }
 
 export class Agent {
@@ -150,6 +151,7 @@ export class Agent {
   readonly worktree?: SessionWorktree;
   readonly lsp?: LspManager;
   private readonly fileCheckpoints?: SessionFileCheckpointStore;
+  private readonly onEvent?: (event: AgentEvent) => void;
   private currentFileCheckpointId?: string;
 
   readonly llmRequestLogger: LlmRequestLogger;
@@ -195,6 +197,7 @@ export class Agent {
     this.worktree = options.worktree;
     this.lsp = options.lsp;
     this.fileCheckpoints = options.fileCheckpoints;
+    this.onEvent = options.onEvent;
 
     this.llmRequestLogger = new LlmRequestLogger(this.log);
     this.blobStore = options.homedir
@@ -570,6 +573,7 @@ export class Agent {
 
   emitEvent(event: AgentEvent): void {
     if (this.records.restoring) return;
+    this.onEvent?.(event);
     void this.rpc?.emitEvent?.(event);
   }
 
