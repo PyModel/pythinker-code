@@ -1,5 +1,11 @@
 # @pythoughts/pythinker-code
 
+## 0.15.0
+
+### Minor Changes
+
+- [#54](https://github.com/Pythoughts-labs/pythinker-code/pull/54) [`1f45a5f`](https://github.com/Pythoughts-labs/pythinker-code/commit/1f45a5fefbdf4d5d8006f82613d51e24adb2e413) - Show indeterminate lifecycle progress for Dynamic Workflow rows in the TUI, and report schema-error outcomes as failed.
+
 ## 0.14.0
 
 ### Minor Changes
