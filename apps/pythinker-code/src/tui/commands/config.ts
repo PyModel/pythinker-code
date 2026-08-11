@@ -48,6 +48,8 @@ import { setExperimentalFeatures } from './experimental-flags';
 import { showDirectoryInput } from './add-dir';
 import type { SlashCommandHost } from './dispatch';
 
+const BUILT_IN_MODEL_ROLES = ['small', 'implementer', 'advisor'] as const;
+
 // ---------------------------------------------------------------------------
 // Plan / Config commands
 // ---------------------------------------------------------------------------
@@ -480,6 +482,34 @@ function resolveWorkspaceConfigPath(input: string, workDir: string): string {
 
 export async function handleModelCommand(host: SlashCommandHost, args: string): Promise<void> {
   const requestedAlias = args.trim();
+  const tokens = requestedAlias.split(/\s+/).filter(Boolean);
+  const config = await host.harness.getConfig({ reload: true });
+  const roles = [...new Set([...BUILT_IN_MODEL_ROLES, ...Object.keys(config.modelRoles ?? {})])]
+    .filter((role) => role.length > 0 && role !== 'default');
+
+  if (tokens.length === 1 && tokens[0] === 'roles') {
+    host.showNotice(
+      'Model roles',
+      roles
+        .map((role) => `${role}: ${config.modelRoles?.[role]?.trim() || '(not set)'}`)
+        .join('\n'),
+    );
+    return;
+  }
+
+  const role = tokens[0];
+  if (role !== undefined && roles.includes(role)) {
+    if (tokens.length === 2 && (tokens[1] === 'clear' || tokens[1] === 'none')) {
+      await host.harness.setConfig({ modelRoles: { [role]: '' } });
+      host.showStatus(`Cleared the ${role} model role.`, 'success');
+      return;
+    }
+    if (tokens.length === 1) {
+      showModelPicker(host, config.modelRoles?.[role], undefined, { assignToRole: role });
+      return;
+    }
+  }
+
   const normalized = normalizeModelChoices(host.state.appState.availableModels);
   const selectedValue =
     requestedAlias.length === 0
@@ -615,6 +645,7 @@ export function showModelPicker(
   host: SlashCommandHost,
   selectedValue?: string,
   initialTabId?: string,
+  options?: { assignToRole?: string },
 ): TabbedModelSelectorComponent | undefined {
   const normalized = normalizeModelChoices(host.state.appState.availableModels);
   const entries = Object.entries(normalized.models);
@@ -646,6 +677,10 @@ export function showModelPicker(
     initialTabId,
     onSelect: ({ alias, effort }) => {
       host.restoreEditor();
+      if (options?.assignToRole !== undefined) {
+        void assignModelRole(host, options.assignToRole, alias);
+        return;
+      }
       void performModelSwitch(host, alias, effort);
     },
     onCancel: () => {
@@ -654,6 +689,17 @@ export function showModelPicker(
   });
   host.mountEditorReplacement(picker);
   return picker;
+}
+
+async function assignModelRole(host: SlashCommandHost, role: string, alias: string): Promise<void> {
+  // Model roles store aliases only; thinking effort stays with the active model.
+  try {
+    await host.harness.setConfig({ modelRoles: { [role]: alias } });
+  } catch (error) {
+    host.showError(`Failed to lock the ${role} model: ${formatErrorMessage(error)}`);
+    return;
+  }
+  host.showStatus(`Locked ${alias} as the ${role} model.`, 'success');
 }
 
 async function performModelSwitch(host: SlashCommandHost, alias: string, effort: string): Promise<void> {

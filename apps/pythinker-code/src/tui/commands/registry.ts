@@ -164,7 +164,7 @@ export const BUILTIN_SLASH_COMMANDS = [
   {
     name: 'model',
     aliases: [],
-    description: 'Switch LLM model',
+    description: 'Switch model; assign with /model <role>, clear it, or list /model roles',
     priority: 100,
     availability: 'always',
   },

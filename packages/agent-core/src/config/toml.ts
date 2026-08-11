@@ -317,6 +317,8 @@ export function transformTomlData(data: Record<string, unknown>): Record<string,
       result[targetKey] = transformPlainObject(value);
     } else if (targetKey === 'experimental' && isPlainObject(value)) {
       result[targetKey] = cloneRecord(value);
+    } else if (targetKey === 'modelRoles' && isPlainObject(value)) {
+      result[targetKey] = cloneRecord(value);
     } else if (!isPlainObject(value)) {
       result[targetKey] = value;
     }

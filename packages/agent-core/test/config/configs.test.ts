@@ -231,6 +231,16 @@ source = { kind = "apiJson", url = "https://registry.example/api.json", apiKey =
     });
   });
 
+  it('round-trips model roles', async () => {
+    const configPath = join(makeTempDir(), 'model-roles.toml');
+    const config = parseConfigString('[model_roles]\nsmall = "x"\n', configPath);
+
+    expect(config.modelRoles).toEqual({ small: 'x' });
+
+    await writeConfigFile(configPath, config);
+    expect(readConfigFile(configPath).modelRoles).toEqual({ small: 'x' });
+  });
+
   it('round-trips an API key environment reference without an API key', async () => {
     const configPath = join(makeTempDir(), 'api-key-env-var.toml');
     const config = parseConfigString(
@@ -588,6 +598,15 @@ describe('harness config schema and patch merge', () => {
     expect(merged.thinking).toEqual({ mode: 'auto', effort: 'high' });
     expect(merged.hooks).toEqual(base.hooks);
     expect(merged.raw?.['theme']).toBe('dark');
+  });
+
+  it('deep-merges model role patches', () => {
+    const merged = mergeConfigPatch(
+      { providers: {}, modelRoles: { small: 'x', advisor: 'z' } },
+      { modelRoles: { small: 'y' } },
+    );
+
+    expect(merged.modelRoles).toEqual({ small: 'y', advisor: 'z' });
   });
 
   it('deep-merges experimental config patches', () => {

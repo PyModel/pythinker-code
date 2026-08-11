@@ -62,7 +62,9 @@ function createAgentToolInputSchema(forkContextEnabled: boolean, teamsEnabled = 
       .trim()
       .min(1)
       .optional()
-      .describe('Optional configured model alias for this new subagent'),
+      .describe(
+        'Optional configured model alias for this new subagent. References such as @small, @implementer, @advisor, and @<custom-role> resolve through configured model roles and fall back to normal precedence when unassigned.',
+      ),
     cwd: z
       .string()
       .trim()

@@ -1754,6 +1754,155 @@ describe('SessionSubagentHost', () => {
     expect(toolNamesPerCall.at(-1)).toContain('StructuredOutput');
   });
 
+  it('uses the implementer role when no explicit or profile model is set', async () => {
+    const parent = testAgent({
+      initialConfig: { providers: {}, modelRoles: { implementer: 'implementer-model' } },
+    });
+    parent.configure();
+    parent.agent.permission.setMode('yolo');
+
+    const child = testAgent();
+    child.configure();
+    child.configureRuntimeModel({ type: 'pythinker', apiKey: 'test-key', model: 'implementer-model' });
+    child.mockNextResponse({
+      type: 'text',
+      text: 'Completed the delegated implementation with enough detail for the parent agent to continue without repeating the work. '.repeat(2),
+    });
+
+    const host = new SessionSubagentHost(fakeSession(parent.agent, child.agent), 'main');
+    const handle = await host.spawn({
+      profileName: 'coder',
+      parentToolCallId: 'call_agent',
+      prompt: 'Implement the feature',
+      description: 'Implement feature',
+      runInBackground: false,
+      signal,
+    });
+    await handle.completion;
+
+    expect(child.agent.config.modelAlias).toBe('implementer-model');
+  });
+
+  it('expands an explicit model role reference', async () => {
+    const parent = testAgent({
+      initialConfig: { providers: {}, modelRoles: { small: 'small-model' } },
+    });
+    parent.configure();
+    parent.agent.permission.setMode('yolo');
+
+    const child = testAgent();
+    child.configure();
+    child.configureRuntimeModel({ type: 'pythinker', apiKey: 'test-key', model: 'small-model' });
+    child.mockNextResponse({
+      type: 'text',
+      text: 'Completed the delegated task on the selected small model and returned enough detail for the parent to continue. '.repeat(2),
+    });
+
+    const host = new SessionSubagentHost(fakeSession(parent.agent, child.agent), 'main');
+    const handle = await host.spawn({
+      profileName: 'coder',
+      modelAlias: '@small',
+      parentToolCallId: 'call_agent',
+      prompt: 'Investigate the issue',
+      description: 'Investigate issue',
+      runInBackground: false,
+      signal,
+    });
+    await handle.completion;
+
+    expect(child.agent.config.modelAlias).toBe('small-model');
+  });
+
+  it('falls back to the parent model when an explicit role is unassigned', async () => {
+    const parent = testAgent();
+    parent.configure();
+    parent.agent.permission.setMode('yolo');
+
+    const child = testAgent();
+    child.configure();
+    child.mockNextResponse({
+      type: 'text',
+      text: 'Completed the delegated task with the inherited model and returned enough detail for the parent agent to continue. '.repeat(2),
+    });
+
+    const host = new SessionSubagentHost(fakeSession(parent.agent, child.agent), 'main');
+    const handle = await host.spawn({
+      profileName: 'coder',
+      modelAlias: '@small',
+      parentToolCallId: 'call_agent',
+      prompt: 'Investigate the issue',
+      description: 'Investigate issue',
+      runInBackground: false,
+      signal,
+    });
+    await handle.completion;
+
+    expect(child.agent.config.modelAlias).toBe(parent.agent.config.modelAlias);
+  });
+
+  it('falls back to the parent model when the implementer role is unresolvable', async () => {
+    const parent = testAgent({
+      initialConfig: { providers: {}, modelRoles: { implementer: 'no-such-alias' } },
+    });
+    parent.configure();
+    parent.agent.permission.setMode('yolo');
+
+    const child = testAgent();
+    child.configure();
+    child.mockNextResponse({
+      type: 'text',
+      text: 'Completed the delegated task with the inherited model and returned enough detail for the parent agent to continue. '.repeat(2),
+    });
+
+    const host = new SessionSubagentHost(fakeSession(parent.agent, child.agent), 'main');
+    const handle = await host.spawn({
+      profileName: 'coder',
+      parentToolCallId: 'call_agent',
+      prompt: 'Implement the feature',
+      description: 'Implement feature',
+      runInBackground: false,
+      signal,
+    });
+    await handle.completion;
+
+    expect(child.agent.config.modelAlias).toBe(parent.agent.config.modelAlias);
+  });
+
+  it('applies model deny rules to the alias resolved from a role reference', async () => {
+    const parent = testAgent({
+      initialConfig: { providers: {}, modelRoles: { small: 'small-model' } },
+    });
+    parent.configure();
+    parent.agent.permission.setMode('yolo');
+    parent.agent.permission.rules.push({
+      decision: 'deny',
+      scope: 'session-runtime',
+      pattern: 'Agent(model:small-model)',
+    });
+
+    const child = testAgent();
+    child.configure();
+    child.configureRuntimeModel({ type: 'pythinker', apiKey: 'test-key', model: 'small-model' });
+    child.mockNextResponse({
+      type: 'text',
+      text: 'Completed the contained delegated task with enough detail for the parent agent to continue without repeating the work. '.repeat(2),
+    });
+
+    const host = new SessionSubagentHost(fakeSession(parent.agent, child.agent), 'main');
+    const handle = await host.spawn({
+      profileName: 'coder',
+      modelAlias: '@small',
+      parentToolCallId: 'call_agent',
+      prompt: 'Investigate the issue',
+      description: 'Investigate issue',
+      runInBackground: false,
+      signal,
+    });
+    await handle.completion;
+
+    expect(child.agent.config.modelAlias).toBe(parent.agent.config.modelAlias);
+  });
+
   it('realigns a resumed subagent to the parent agent current model', async () => {
     const parent = testAgent();
     parent.configure();

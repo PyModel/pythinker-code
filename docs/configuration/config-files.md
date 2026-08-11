@@ -76,6 +76,7 @@ Fields in the config file fall into two categories: **top-level scalars** that d
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `default_model` | `string` | — | Default model alias; must be defined in `models` |
+| `model_roles` | `table` | — | Model role assignments → [`model_roles`](#model_roles) |
 | `default_thinking` | `boolean` | `false` | Whether new sessions enable Thinking (deep reasoning) mode by default; can be toggled from the model menu inside a session. Even when set to `true`, `[thinking].mode = "off"` will still force Thinking off |
 | `default_permission_mode` | `string` | `manual` | Default permission mode for new sessions; one of `manual` (prompt each time), `yolo` (auto-approve tool actions, but the agent may still ask questions), or `auto` (fully autonomous — the agent decides everything without asking, except a `DynamicWorkflow` call, which still shows its plan for approval) |
 | `default_plan_mode` | `boolean` | `false` | Whether new sessions start in Plan mode (produce a plan before executing) by default |
@@ -94,7 +95,7 @@ Fields in the config file fall into two categories: **top-level scalars** that d
 | `permission` | `table` | — | Initial permission rules → [`permission`](#permission) |
 | `hooks` | `array<table>` | — | Lifecycle hooks; see [Hooks](../customization/hooks.md) |
 
-The following sections cover each of the nested tables in turn: `providers`, `models`, `thinking`, `loop_control`, `background`, `experimental`, `services`, and `permission`.
+The following sections cover each of the nested tables in turn: `providers`, `models`, `model_roles`, `thinking`, `loop_control`, `background`, `experimental`, `services`, and `permission`.
 
 ## `providers`
 
@@ -154,6 +155,24 @@ max_context_size = 1047576
 ```
 
 You can also switch models temporarily without touching the config file — by setting `PYTHINKER_MODEL_*` environment variables, the CLI synthesizes a temporary provider in memory that does not persist after restart. See [Define a model from environment variables](./env-vars.md#define-a-model-from-environment-variables-pythinker_model).
+
+## `model_roles`
+
+Each entry in the `model_roles` table locks a model alias to a named role. The built-in roles are `small`, `implementer`, and `advisor`; any other key defines a custom role. Values must be aliases defined in `models`; an empty string clears the role.
+
+```toml
+[model_roles]
+small = "haiku"
+implementer = "worker-model"
+advisor = "reviewer-model"
+```
+
+Roles take effect in two places:
+
+- Wherever a subagent model alias is accepted (the `Agent` and `DynamicWorkflow` tool `model` arguments, and agent profile frontmatter), a `@<role>` reference such as `@small` resolves to the locked alias. An unassigned or unresolvable role falls back to the normal model precedence.
+- When `implementer` is assigned, it becomes the default model for subagents that do not set an explicit or profile model. Subagents of those subagents inherit the same default.
+
+Inside the TUI, `/model <role>` assigns a role from the model picker, `/model <role> clear` removes it, and `/model roles` lists the current assignments. See [Slash commands](../reference/slash-commands.md).
 
 ## `thinking`
 
