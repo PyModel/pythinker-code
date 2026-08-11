@@ -269,14 +269,8 @@ onUnmounted(() => {
             @play="heroVideoPlaying = true"
             @pause="heroVideoPlaying = false"
           >
-            <source src="/pythinker-hero-loop.mp4" type="video/mp4" />
+            <source src="/pythinker-hero-clean-v2.mp4" type="video/mp4" />
           </video>
-          <span class="hero-video-toggle-icon" aria-hidden="true">
-            <svg viewBox="0 0 20 20">
-              <path v-if="heroVideoPlaying" d="M5 4h3v12H5zM12 4h3v12h-3z" />
-              <path v-else d="m6 4 10 6-10 6z" />
-            </svg>
-          </span>
         </button>
         <h1>Pythinker Code</h1>
         <p class="hero-accent">Think first, then code.</p>
@@ -803,26 +797,6 @@ onUnmounted(() => {
   mask-image: radial-gradient(ellipse 50% 50% at center, black 58%, transparent 100%);
   mix-blend-mode: multiply;
   pointer-events: none;
-}
-
-.hero-video-toggle-icon {
-  position: absolute;
-  right: 4px;
-  bottom: 4px;
-  display: grid;
-  width: 28px;
-  height: 28px;
-  border: 1px solid var(--hairline);
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 2px 8px rgba(16, 38, 60, 0.12);
-  place-items: center;
-}
-
-.hero-video-toggle-icon svg {
-  width: 12px;
-  height: 12px;
-  fill: currentColor;
 }
 
 .works-with {
