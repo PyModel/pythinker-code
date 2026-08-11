@@ -21,7 +21,7 @@ function renderText(component: DynamicWorkflowMissionControlComponent, width = 1
 }
 
 /** Lifecycle progress glyph and label for a running row. */
-const RUNNING_CELL = /[○◔◑◕]\s+RUN/u;
+const RUNNING_CELL = /[◜◝◞◟]\s+RUN/u;
 
 /** Head of a task cell that lost the preamble every row shared. */
 const TASK_ELISION_MARK = '…';
@@ -143,7 +143,7 @@ describe('DynamicWorkflowMissionControlComponent', () => {
     });
     expect(component.applyResult(result)).toBe(true);
     expect(memberLine(renderText(component, 120), 1)).toMatch(/×\s+FAIL\s+Schema work/u);
-    expect(memberLine(renderText(component, 120), 2)).toMatch(/●\s+DONE\s+Normal work/u);
+    expect(memberLine(renderText(component, 120), 2)).toMatch(/✓\s+DONE\s+Normal work/u);
   });
 
   it('ignores blank items so no phantom row waits forever', () => {
@@ -160,8 +160,8 @@ describe('DynamicWorkflowMissionControlComponent', () => {
     component.markCompleted('agent-2', 'Done two');
 
     const output = renderText(component, 120);
-    expect(memberLine(output, 1)).toContain('●      DONE');
-    expect(memberLine(output, 2)).toContain('●      DONE');
+    expect(memberLine(output, 1)).toContain('✓      DONE');
+    expect(memberLine(output, 2)).toContain('✓      DONE');
     // memberRowCount also counts activity lines, so assert the row's absence.
     expect(() => memberLine(output, 3)).toThrow(/Missing Dynamic Workflow member 003/u);
     expect(aggregateLine(output)).toContain('2/2 complete');
@@ -192,7 +192,7 @@ describe('DynamicWorkflowMissionControlComponent', () => {
     expect(component.applyResult(result)).toBe(true);
 
     const output = renderText(component, 120);
-    expect(memberLine(output, 1)).toContain('●      DONE');
+    expect(memberLine(output, 1)).toContain('✓      DONE');
     expect(output).not.toContain('Unsupported');
   });
 
@@ -243,7 +243,7 @@ describe('DynamicWorkflowMissionControlComponent', () => {
     expect(component.applyResult(result)).toBe(true);
 
     const output = renderText(component, 120);
-    expect(memberLine(output, 1)).toContain('●      DONE');
+    expect(memberLine(output, 1)).toContain('✓      DONE');
     expect(output).toContain('Accepted result');
     expect(output).not.toContain('Out-of-range result');
     expect(output).not.toContain('Duplicate result');
@@ -321,8 +321,8 @@ describe('DynamicWorkflowMissionControlComponent', () => {
     expect(aggregateLine(output)).toContain('2/3 complete');
     expect(aggregateLine(output)).not.toMatch(/\b\d+%/u);
     expect(aggregateLine(output)).not.toContain('━');
-    expect(memberLine(output, 1)).toMatch(/[○◔◑◕]\s+RUN\s+Layout hierarchy/u);
-    expect(memberLine(output, 2)).toMatch(/●\s+DONE\s+Interaction audit/u);
+    expect(memberLine(output, 1)).toMatch(/[◜◝◞◟]\s+RUN\s+Layout hierarchy/u);
+    expect(memberLine(output, 2)).toMatch(/✓\s+DONE\s+Interaction audit/u);
     expect(output).not.toMatch(/[⣿⣷⣯⣟⡿⢿⣻⣽]{4,}/u);
   });
 
@@ -408,11 +408,11 @@ describe('DynamicWorkflowMissionControlComponent', () => {
       };
 
       const first = colouredMemberLine();
-      vi.setSystemTime(BRAILLE_SPINNER_INTERVAL_MS * 2);
+      vi.setSystemTime(120);
       const second = colouredMemberLine();
 
-      expect(first).toContain(chalk.hex(darkColors.primary)('○'));
-      expect(second).toContain(chalk.hex(darkColors.primary)('◔'));
+      expect(first).toContain(chalk.hex(darkColors.primary)('◜'));
+      expect(second).toContain(chalk.hex(darkColors.primary)('◝'));
       expect(first).toContain(chalk.hex(darkColors.primary)('RUN'));
       vi.setSystemTime(BRAILLE_SPINNER_INTERVAL_MS);
 
@@ -439,7 +439,7 @@ describe('DynamicWorkflowMissionControlComponent', () => {
 
     const output = renderText(component, 120);
     expect(output).toContain('– Cancelled');
-    expect(memberLine(output, 1)).toMatch(/[○◔◑◕]\s+RUN\s+Running work/u);
+    expect(memberLine(output, 1)).toMatch(/[◜◝◞◟]\s+RUN\s+Running work/u);
     expect(memberLine(output, 2)).toMatch(/○\s+WAIT\s+Queued work/u);
     expect(output).not.toContain('– STOP');
     expect(output).not.toContain('⠋ Orchestrating');
@@ -454,7 +454,7 @@ describe('DynamicWorkflowMissionControlComponent', () => {
     component.markFailed('agent-1', 'Late failure');
 
     const output = renderText(component, 100);
-    expect(memberLine(output, 1)).toMatch(/●\s+DONE\s+Layout hierarchy/u);
+    expect(memberLine(output, 1)).toMatch(/✓\s+DONE\s+Layout hierarchy/u);
     expect(output).toContain('Finished first');
     expect(output).not.toContain('Late failure');
   });
@@ -474,7 +474,7 @@ describe('DynamicWorkflowMissionControlComponent', () => {
     ].join('\n'));
 
     const output = renderText(component, 120);
-    expect(memberLine(output, 1)).toMatch(/●\s+DONE\s+Observed first/u);
+    expect(memberLine(output, 1)).toMatch(/✓\s+DONE\s+Observed first/u);
     expect(output).toContain('Observed completion');
     expect(output).not.toContain('Late result failure');
     expect(memberLine(output, 2)).toMatch(/×\s+FAIL\s+Result-only second/u);
@@ -495,7 +495,7 @@ describe('DynamicWorkflowMissionControlComponent', () => {
 
     const output = renderText(component, 120);
     expect(aggregateLine(output)).toContain('1/1 complete');
-    expect(memberLine(output, 1)).toContain('●      DONE');
+    expect(memberLine(output, 1)).toContain('✓      DONE');
     expect(output).not.toContain('002');
     expect(output).not.toContain('Phantom failure');
     expect(output).not.toMatch(/\d+%/u);
@@ -515,7 +515,7 @@ describe('DynamicWorkflowMissionControlComponent', () => {
     expect(renderText(component, 100)).toContain('Rate limited');
 
     component.markStarted('agent-1');
-    expect(memberLine(renderText(component, 100), 1)).toMatch(/[○◔◑◕]\s+RUN/u);
+    expect(memberLine(renderText(component, 100), 1)).toMatch(/[◜◝◞◟]\s+RUN/u);
   });
 
   it('prefers a suspension detail over stale model progress in the member row', () => {
@@ -602,7 +602,7 @@ describe('DynamicWorkflowMissionControlComponent', () => {
     component.markCancelled('agent-6');
 
     const output = renderText(component, 140);
-    for (const token of ['○      WAIT', '◑      HOLD', '●      DONE', '×      FAIL', '–      STOP']) {
+    for (const token of ['○      WAIT', '◑      HOLD', '✓      DONE', '×      FAIL', '–      STOP']) {
       expect(output).toContain(token);
     }
     // Running is the one animated phase, so its symbol varies by frame.
@@ -644,12 +644,12 @@ describe('DynamicWorkflowMissionControlComponent', () => {
     const running = renderText(component, 100);
     expect(running).toContain('PROGRESS');
     expect(running).not.toContain('WORK IDLE');
-    expect(memberLine(running, 1)).toMatch(/○\s+RUN\s+Live work/u);
+    expect(memberLine(running, 1)).toMatch(/◜\s+RUN\s+Live work/u);
     expect(memberLine(running, 2)).toMatch(/○\s+WAIT\s+Queued work/u);
     expect(running).not.toMatch(/\b\d+%|⚒|━/u);
   });
 
-  it('fills the running circle from the shared workflow clock and freezes completion', () => {
+  it('rotates the running arc from the shared workflow clock and freezes completion', () => {
     vi.useFakeTimers();
     vi.setSystemTime(0);
     const previousLevel = chalk.level;
@@ -664,16 +664,17 @@ describe('DynamicWorkflowMissionControlComponent', () => {
       component.registerSubagent({ agentId: 'agent-1' });
       component.markStarted('agent-1');
 
-      for (const [time, glyph] of [[0, '○'], [160, '◔'], [320, '◑'], [480, '◕']] as const) {
+      for (const [time, glyph] of [[0, '◜'], [120, '◝'], [240, '◞'], [360, '◟']] as const) {
         vi.setSystemTime(time);
-        expect(memberLine(renderText(component, 100), 1)).toContain(glyph);
+        const line = component.render(100).find((candidate) => strip(candidate).includes('001'));
+        expect(line).toContain(chalk.hex(darkColors.primary)(glyph));
       }
 
       component.markCompleted('agent-1', 'Done');
       const completed = component.render(100).find((line) => strip(line).includes('001'));
-      expect(completed).toContain(chalk.hex(darkColors.success)('●'));
+      expect(completed).toContain(chalk.hex(darkColors.success)('✓'));
       vi.setSystemTime(10_000);
-      expect(memberLine(renderText(component, 100), 1)).toMatch(/●\s+DONE/u);
+      expect(memberLine(renderText(component, 100), 1)).toMatch(/✓\s+DONE/u);
     } finally {
       chalk.level = previousLevel;
       currentTheme.setPalette(previousPalette);
@@ -697,8 +698,8 @@ describe('DynamicWorkflowMissionControlComponent', () => {
 
       const output = renderText(component, 100);
       expect(memberLine(output, 1)).toMatch(/○\s+WAIT/u);
-      expect(memberLine(output, 2)).toMatch(/[○◔◑◕]\s+RUN/u);
-      expect(memberLine(output, 3)).toMatch(/●\s+DONE/u);
+      expect(memberLine(output, 2)).toMatch(/[◜◝◞◟]\s+RUN/u);
+      expect(memberLine(output, 3)).toMatch(/✓\s+DONE/u);
     } finally {
       chalk.level = previousLevel;
     }
@@ -716,8 +717,8 @@ describe('DynamicWorkflowMissionControlComponent', () => {
     const output = renderText(component, 100);
     const glyphColumns = [
       memberLine(output, 1).indexOf('○'),
-      memberLine(output, 2).search(/[○◔◑◕]/u),
-      memberLine(output, 3).indexOf('●'),
+      memberLine(output, 2).search(/[◜◝◞◟]/u),
+      memberLine(output, 3).indexOf('✓'),
     ];
     expect(glyphColumns[0]).toBeGreaterThan(0);
     expect(new Set(glyphColumns).size).toBe(1);
@@ -882,7 +883,7 @@ describe('DynamicWorkflowMissionControlComponent', () => {
       const output = strip(rendered.join('\n'));
 
       expect(rendered.every((line) => visibleWidth(line) <= width)).toBe(true);
-      expect(memberLine(output, 1)).toMatch(/[○◔◑◕]\s+RUN/u);
+      expect(memberLine(output, 1)).toMatch(/[◜◝◞◟]\s+RUN/u);
       expect(output.includes('PROGRESS')).toBe(expectedProgress);
       expect(output.includes('STATUS')).toBe(expectedStatus);
       expect(output).not.toContain('WORK IDLE');
@@ -899,7 +900,7 @@ describe('DynamicWorkflowMissionControlComponent', () => {
     component.markStarted('agent-1');
 
     vi.setSystemTime(30_000);
-    const before = memberLine(renderText(component, 100), 1).match(/[○◔◑◕]/u)?.[0];
+    const before = memberLine(renderText(component, 100), 1).match(/[◜◝◞◟]/u)?.[0];
     component.recordToolCall({ agentId: 'agent-1', name: 'Read' });
     for (let index = 0; index < 200; index += 1) {
       component.appendModelDelta({ agentId: 'agent-1', delta: `chunk ${String(index)} ` });
@@ -907,7 +908,7 @@ describe('DynamicWorkflowMissionControlComponent', () => {
     component.recordToolCall({ agentId: 'agent-1', name: 'Bash' });
 
     const output = renderText(component, 100);
-    const after = memberLine(output, 1).match(/[○◔◑◕]/u)?.[0];
+    const after = memberLine(output, 1).match(/[◜◝◞◟]/u)?.[0];
     expect(before).toBeDefined();
     expect(after).toBe(before);
     expect(output).not.toMatch(/\b\d+%|⚒/u);

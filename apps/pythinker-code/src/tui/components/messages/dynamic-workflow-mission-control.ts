@@ -98,10 +98,6 @@ export interface DynamicWorkflowMissionControlOptions {
   readonly availableRows?: () => number | undefined;
 }
 
-const DYNAMIC_WORKFLOW_PROGRESS_FRAMES = ['○', '◔', '◑', '◕'] as const;
-const DYNAMIC_WORKFLOW_PROGRESS_FRAME_MS = BRAILLE_SPINNER_INTERVAL_MS * 2;
-const STATE_COLUMN_WIDTH = 6;
-
 const PHASE_LABELS: Record<DynamicWorkflowPhase, string> = {
   pending: 'PEND',
   queued: 'WAIT',
@@ -116,7 +112,7 @@ const PHASE_GLYPHS: Record<Exclude<DynamicWorkflowPhase, 'running'>, string> = {
   pending: '○',
   queued: '○',
   suspended: '◑',
-  completed: '●',
+  completed: '✓',
   failed: '×',
   cancelled: '–',
 };
@@ -260,7 +256,6 @@ export class DynamicWorkflowMissionControlComponent implements Component {
     delete member.statusDetail;
     this.recordActivity(member.index, 'Started');
   }
-
 
   recordToolCall(input: {
     readonly agentId: string;
@@ -577,10 +572,10 @@ export class DynamicWorkflowMissionControlComponent implements Component {
       ? [
         padToWidth('ID', 3),
         padToWidth('PROGRESS', DYNAMIC_WORKFLOW_RENDERING.memberProgressWidth),
-        padToWidth('STATE', STATE_COLUMN_WIDTH),
+        padToWidth('STATE', DYNAMIC_WORKFLOW_RENDERING.stateColumnWidth),
         'TASK',
       ].join('  ')
-      : `${padToWidth('ID', 3)} ${padToWidth('STATUS', STATE_COLUMN_WIDTH)} TASK`;
+      : `${padToWidth('ID', 3)} ${padToWidth('STATUS', DYNAMIC_WORKFLOW_RENDERING.stateColumnWidth)} TASK`;
     return truncateToWidth(currentTheme.fg('textDim', header), width);
   }
 
@@ -594,7 +589,7 @@ export class DynamicWorkflowMissionControlComponent implements Component {
     // All running rows share the workflow's clock, so they spin in step instead
     // of drifting apart by whenever each agent happened to start.
     const frame = Math.floor(
-      Math.max(0, nowMs - this.model.startedAtMs) / DYNAMIC_WORKFLOW_PROGRESS_FRAME_MS,
+      Math.max(0, nowMs - this.model.startedAtMs) / DYNAMIC_WORKFLOW_RENDERING.progressFrameMs,
     );
     const showProgress = width >= DYNAMIC_WORKFLOW_RENDERING.memberProgressMinWidth;
     const prefix = showProgress
@@ -603,8 +598,8 @@ export class DynamicWorkflowMissionControlComponent implements Component {
           renderProgressGlyph(member.phase, frame),
           DYNAMIC_WORKFLOW_RENDERING.memberProgressWidth,
         )
-      }  ${padToWidth(renderStateLabel(member.phase), STATE_COLUMN_WIDTH)}  `
-      : `${id} ${padToWidth(renderCompactStatus(member.phase, frame), STATE_COLUMN_WIDTH)} `;
+      }  ${padToWidth(renderStateLabel(member.phase), DYNAMIC_WORKFLOW_RENDERING.stateColumnWidth)}  `
+      : `${id} ${padToWidth(renderCompactStatus(member.phase, frame), DYNAMIC_WORKFLOW_RENDERING.stateColumnWidth)} `;
     const task = member.item || 'Delegated agent';
     // The elision is display-only: the dedup below still compares whole items,
     // so a streamed line that merely repeats the task is still suppressed.
@@ -1134,8 +1129,8 @@ function commonPrefixLength(left: string, right: string, limit: number): number 
 
 function renderProgressGlyph(phase: DynamicWorkflowPhase, frame: number): string {
   const glyph = phase === 'running'
-    ? DYNAMIC_WORKFLOW_PROGRESS_FRAMES[frame % DYNAMIC_WORKFLOW_PROGRESS_FRAMES.length] ??
-      DYNAMIC_WORKFLOW_PROGRESS_FRAMES[0]
+    ? DYNAMIC_WORKFLOW_RENDERING.progressFrames[frame % DYNAMIC_WORKFLOW_RENDERING.progressFrames.length] ??
+      DYNAMIC_WORKFLOW_RENDERING.progressFrames[0]
     : PHASE_GLYPHS[phase];
   return currentTheme.fg(PHASE_COLORS[phase], glyph);
 }

@@ -28,6 +28,12 @@ export const DYNAMIC_WORKFLOW_RENDERING = {
   frameHorizontalInset: 4,
   memberProgressMinWidth: 60,
   memberProgressWidth: 8,
+  /** Least width of the lifecycle STATE column in member rows. */
+  stateColumnWidth: 6,
+  /** Thin-arc frames for a running row; all rows share one clock. */
+  progressFrames: ['◜', '◝', '◞', '◟'],
+  /** Arc cadence in milliseconds. */
+  progressFrameMs: 120,
   /** Least room the task keeps before the detail may claim any of the row. */
   memberTaskMinWidth: 12,
   /** Share of the free row the task may take before the detail gets the rest. */
