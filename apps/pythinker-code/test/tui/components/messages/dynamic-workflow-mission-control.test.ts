@@ -124,6 +124,28 @@ describe('DynamicWorkflowMissionControlComponent', () => {
     }
   });
 
+  it('maps schema errors to failed rows without shifting later results', () => {
+    const result = [
+      '<dynamic_workflow_result>',
+      '<subagent outcome="schema_error">Invalid structured output</subagent>',
+      '<subagent outcome="completed">Valid result</subagent>',
+      '</dynamic_workflow_result>',
+    ].join('\n');
+    const component = createComponent();
+    component.updateArgs({ items: ['Schema work', 'Normal work'] });
+    component.markInputComplete();
+
+    expect(dynamicWorkflowResultSummaryFromOutput(result)).toEqual({
+      completed: 1,
+      failed: 1,
+      aborted: 0,
+      parsed: true,
+    });
+    expect(component.applyResult(result)).toBe(true);
+    expect(memberLine(renderText(component, 120), 1)).toMatch(/×\s+FAIL\s+Schema work/u);
+    expect(memberLine(renderText(component, 120), 2)).toMatch(/●\s+DONE\s+Normal work/u);
+  });
+
   it('ignores blank items so no phantom row waits forever', () => {
     const component = createComponent();
     // The engine drops the blank before launching anything, so counting it here
@@ -477,6 +499,23 @@ describe('DynamicWorkflowMissionControlComponent', () => {
     expect(output).not.toContain('002');
     expect(output).not.toContain('Phantom failure');
     expect(output).not.toMatch(/\d+%/u);
+  });
+
+  it('keeps late activity suspended until a lifecycle start resumes it', () => {
+    const component = createComponent();
+    component.updateArgs({ items: ['Rate-limited work'] });
+    component.markInputComplete();
+    component.registerSubagent({ agentId: 'agent-1' });
+    component.markStarted('agent-1');
+    component.markSuspended({ agentId: 'agent-1', reason: 'Rate limited' });
+
+    component.appendModelDelta({ agentId: 'agent-1', delta: 'Late output' });
+    component.recordToolCall({ agentId: 'agent-1', name: 'Read' });
+    expect(memberLine(renderText(component, 100), 1)).toMatch(/◑\s+HOLD/u);
+    expect(renderText(component, 100)).toContain('Rate limited');
+
+    component.markStarted('agent-1');
+    expect(memberLine(renderText(component, 100), 1)).toMatch(/[○◔◑◕]\s+RUN/u);
   });
 
   it('prefers a suspension detail over stale model progress in the member row', () => {

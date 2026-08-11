@@ -261,13 +261,21 @@ export class DynamicWorkflowMissionControlComponent implements Component {
     this.recordActivity(member.index, 'Started');
   }
 
+  private markStartedFromActivity(member: DynamicWorkflowMember): void {
+    if (member.phase !== 'pending' && member.phase !== 'queued') return;
+    member.phase = 'running';
+    member.startedAtMs ??= Date.now();
+    delete member.statusDetail;
+    this.recordActivity(member.index, 'Started');
+  }
+
   recordToolCall(input: {
     readonly agentId: string;
     readonly name?: string;
   }): void {
     const member = this.findMemberByAgentId(input.agentId);
     if (member === undefined || isTerminalPhase(member.phase)) return;
-    this.markStarted(input.agentId);
+    this.markStartedFromActivity(member);
     const latest = input.name === undefined ? 'Using a tool' : `Using ${input.name}`;
     this.setLatest(member, latest, true);
     // Streamed text that follows starts a new line, never continues this label.
@@ -277,7 +285,7 @@ export class DynamicWorkflowMissionControlComponent implements Component {
   appendModelDelta(input: { readonly agentId: string; readonly delta: string }): void {
     const member = this.findMemberByAgentId(input.agentId);
     if (member === undefined || isTerminalPhase(member.phase) || input.delta.length === 0) return;
-    this.markStarted(input.agentId);
+    this.markStartedFromActivity(member);
     const combined = `${member.carry}${input.delta}`;
     // Only the text after the last newline is still being written. A delta that
     // ends exactly at a newline leaves nothing pending, so carrying the closed
@@ -926,7 +934,8 @@ function parseDynamicWorkflowResultStatuses(output: string): DynamicWorkflowResu
       outcome === 'completed' ||
       outcome === 'failed' ||
       outcome === 'aborted' ||
-      outcome === 'cancelled'
+      outcome === 'cancelled' ||
+      outcome === 'schema_error'
     ) {
       // Omitted `index` falls back to the lowest free slot so unordered tags
       // still render in ascending row order.
@@ -948,7 +957,11 @@ function parseDynamicWorkflowResultStatuses(output: string): DynamicWorkflowResu
           index,
           agentId: xmlAttribute(attrs, 'agent_id'),
           item: xmlAttribute(attrs, 'item'),
-          status: outcome === 'aborted' || outcome === 'cancelled' ? 'cancelled' : outcome,
+          status: outcome === 'aborted' || outcome === 'cancelled'
+            ? 'cancelled'
+            : outcome === 'schema_error'
+              ? 'failed'
+              : outcome,
           detail: normalizeText(decodeXmlEntities(body)),
         });
       }
