@@ -61,6 +61,8 @@ const vscodeInstallCommand = 'code --install-extension pythoughts.pythinker-code
 
 const copiedCommand = ref('');
 const mobileMenu = ref(null);
+const heroVideo = ref(null);
+const heroVideoPlaying = ref(false);
 const menuButton = ref(null);
 const menuOpen = ref(false);
 const activeTerminalDemo = ref(terminalDemos[0]);
@@ -70,6 +72,7 @@ let resetTimer;
 let menuCloseTimer;
 let terminalTimer;
 let revealObserver;
+let reducedMotionQuery;
 let menuOpenedByHover = false;
 
 function fallbackCopy(text) {
@@ -168,11 +171,32 @@ function onDocumentKeydown(event) {
   if (event.key === 'Escape') closeMenu();
 }
 
+async function playHeroVideo() {
+  try {
+    await heroVideo.value?.play();
+  } catch {
+    heroVideoPlaying.value = false;
+  }
+}
+
+function syncHeroMotionPreference() {
+  if (reducedMotionQuery.matches) heroVideo.value?.pause();
+  else void playHeroVideo();
+}
+
+function toggleHeroVideo() {
+  if (heroVideo.value?.paused) void playHeroVideo();
+  else heroVideo.value?.pause();
+}
+
 onMounted(() => {
   document.addEventListener('pointerdown', onDocumentPointerdown);
   document.addEventListener('keydown', onDocumentKeydown);
+  reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+  reducedMotionQuery.addEventListener('change', syncHeroMotionPreference);
+  syncHeroMotionPreference();
   playTerminalDemo();
-  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  if (reducedMotionQuery.matches) return;
 
   revealObserver = new IntersectionObserver((entries) => {
     for (const entry of entries) {
@@ -190,6 +214,7 @@ onUnmounted(() => {
   clearTimeout(menuCloseTimer);
   clearTerminalPlayback();
   revealObserver?.disconnect();
+  reducedMotionQuery?.removeEventListener('change', syncHeroMotionPreference);
   document.removeEventListener('pointerdown', onDocumentPointerdown);
   document.removeEventListener('keydown', onDocumentKeydown);
 });
@@ -225,7 +250,28 @@ onUnmounted(() => {
   <main id="top">
     <header class="hero container">
       <div class="hero-copy">
-        <PythinkerMascot :width="72" :height="90" />
+        <button
+          class="hero-mascot-video"
+          type="button"
+          :aria-label="heroVideoPlaying ? 'Pause mascot animation' : 'Play mascot animation'"
+          @click="toggleHeroVideo"
+        >
+          <video
+            ref="heroVideo"
+            autoplay
+            muted
+            loop
+            playsinline
+            preload="metadata"
+            width="1280"
+            height="720"
+            aria-hidden="true"
+            @play="heroVideoPlaying = true"
+            @pause="heroVideoPlaying = false"
+          >
+            <source src="/pythinker-hero-clean-v2.mp4" type="video/mp4" />
+          </video>
+        </button>
         <h1>Pythinker Code</h1>
         <p class="hero-accent">Think first, then code.</p>
         <p class="hero-lead">An open-source AI engineering agent for your terminal. It reads your repo, edits files, runs commands, and iterates until the job is done.</p>
@@ -720,6 +766,37 @@ onUnmounted(() => {
   color: var(--ink-subtle);
   font-size: 13px;
   line-height: 1.38;
+}
+
+.hero-mascot-video {
+  position: relative;
+  display: block;
+  width: clamp(160px, 16vw, 200px);
+  margin-inline: auto;
+  padding: 0;
+  border: 0;
+  appearance: none;
+  aspect-ratio: 4 / 3;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.hero-mascot-video:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: var(--radius-sm);
+}
+
+.hero-mascot-video video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  -webkit-mask-image: radial-gradient(ellipse 50% 50% at center, black 58%, transparent 100%);
+  mask-image: radial-gradient(ellipse 50% 50% at center, black 58%, transparent 100%);
+  mix-blend-mode: multiply;
+  pointer-events: none;
 }
 
 .works-with {
