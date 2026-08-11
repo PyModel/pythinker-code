@@ -61,6 +61,11 @@ describe('tool intent schema injection', () => {
     }
   });
 
+  it('returns StructuredOutput unchanged', () => {
+    const tool = makeTool('StructuredOutput');
+    expect(injectIntentIntoTools([tool])[0]).toBe(tool);
+  });
+
   it('returns tools with an intent collision unchanged', () => {
     const tool = makeTool('collision', {
       type: 'object',
