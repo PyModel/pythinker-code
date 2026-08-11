@@ -44,6 +44,7 @@ import {
   OAUTH_LOGIN_REQUIRED_STARTUP_NOTICE,
 } from '../constant/pythinker-tui';
 import { FAILURE_MARK, STATUS_BULLET, SUCCESS_MARK } from '../constant/symbols';
+import { setLiveIntent } from '../constant/rendering';
 import { buildGoalCompletionMessage } from '../utils/goal-completion';
 import {
   argsRecord,
@@ -166,6 +167,7 @@ export class SessionEventHandler {
   >();
 
   resetRuntimeState(): void {
+    setLiveIntent(undefined);
     this.backgroundTasks.clear();
     this.backgroundTaskTranscriptedTerminal.clear();
     this.subAgentEventHandler.resetRuntimeState();
@@ -361,6 +363,7 @@ export class SessionEventHandler {
   // ---------------------------------------------------------------------------
 
   private handleTurnBegin(_event: TurnStartedEvent): void {
+    setLiveIntent(undefined);
     void _event;
     this.currentTurnHasAssistantText = false;
     // Throughput belongs to the finished turn; clear it so a stale t/s rate
@@ -402,6 +405,7 @@ export class SessionEventHandler {
   }
 
   private handleTurnEnd(event: TurnEndedEvent, sendQueued: (item: QueuedMessage) => void): void {
+    setLiveIntent(undefined);
     this.host.streamingUI.flushNow();
     this.host.dispatchFooter({
       type: 'status.updated',
@@ -423,6 +427,7 @@ export class SessionEventHandler {
   }
 
   private handleStepBegin(event: TurnStepStartedEvent): void {
+    setLiveIntent(undefined);
     this.host.streamingUI.flushNow();
     this.host.streamingUI.setStep(event.step);
     this.host.streamingUI.resetToolUi();
@@ -439,6 +444,7 @@ export class SessionEventHandler {
   }
 
   private handleStepCompleted(event: TurnStepCompletedEvent): void {
+    setLiveIntent(undefined);
     this.host.streamingUI.flushNow();
     this.maybeShowDebugTiming(event);
     if (event.finishReason !== 'max_tokens') return;
@@ -555,6 +561,7 @@ export class SessionEventHandler {
   }
 
   private handleStepInterrupted(event: TurnStepInterruptedEvent): void {
+    setLiveIntent(undefined);
     this.host.streamingUI.flushNow();
     this.host.streamingUI.resetToolUi();
     this.host.streamingUI.finalizeLiveTextBuffers('idle');
@@ -639,6 +646,7 @@ export class SessionEventHandler {
     ) {
       return;
     }
+    if (event.intent !== undefined) setLiveIntent(event.intent);
     const { streamingUI } = this.host;
     streamingUI.flushNow();
     const { turnId, step } = streamingUI.getTurnContext();
@@ -673,6 +681,8 @@ export class SessionEventHandler {
     const { state, streamingUI } = this.host;
     streamingUI.accumulateToolCallDelta(event.toolCallId, event.name, event.argumentsPart);
     const preview = streamingUI.getStreamingToolCallPreview(event.toolCallId);
+    const intent = preview?.args['i'];
+    if (typeof intent === 'string') setLiveIntent(intent);
     if (
       preview !== undefined &&
       preview.name === 'DynamicWorkflow'
@@ -708,6 +718,7 @@ export class SessionEventHandler {
   }
 
   private handleToolResult(event: ToolResultEvent): void {
+    setLiveIntent(undefined);
     const { streamingUI } = this.host;
     streamingUI.flushNow();
     const resultData: ToolResultBlockData = {
@@ -1003,6 +1014,7 @@ export class SessionEventHandler {
   }
 
   private handleSessionError(event: ErrorEvent): void {
+    setLiveIntent(undefined);
     this.host.streamingUI.flushNow();
     this.host.streamingUI.resetToolUi();
     this.host.streamingUI.finalizeLiveTextBuffers('idle');

@@ -132,6 +132,26 @@ export const THINKING_SPINNER_LABELS = [
 
 export const THINKING_SPINNER_LABEL_INTERVAL_MS = 12_000;
 
+const LIVE_INTENT_MAX_LENGTH = 120;
+// oxlint-disable-next-line no-control-regex -- wire text must not retain terminal escape sequences.
+const ANSI_ESCAPE = /\u001B(?:\[[0-?]*[ -/]*[@-~]|\][^\u0007]*(?:\u0007|$))/gu;
+const CONTROL_CHARACTER = /\p{Cc}/gu;
+let liveIntent: string | undefined;
+
+export function setLiveIntent(text: string | undefined): void {
+  if (text === undefined) {
+    liveIntent = undefined;
+    return;
+  }
+  const normalized = text
+    .replaceAll(ANSI_ESCAPE, '')
+    .replaceAll(CONTROL_CHARACTER, ' ')
+    .replaceAll(/\s+/gu, ' ')
+    .trim();
+  liveIntent =
+    Array.from(normalized).slice(0, LIVE_INTENT_MAX_LENGTH).join('').trimEnd() || undefined;
+}
+
 /** Rotating thinking label for the given wall-clock moment; falls back to the first label. */
 export function getThinkingSpinnerLabel(nowMs: number = Date.now()): string {
   const index =
@@ -143,5 +163,5 @@ export function getThinkingSpinnerLabel(nowMs: number = Date.now()): string {
 
 /** Thinking label plus an ellipsis, for the thinking block header. */
 export function formatThinkingSpinnerLabel(nowMs: number = Date.now()): string {
-  return `${getThinkingSpinnerLabel(nowMs)}…`;
+  return `${liveIntent ?? getThinkingSpinnerLabel(nowMs)}…`;
 }

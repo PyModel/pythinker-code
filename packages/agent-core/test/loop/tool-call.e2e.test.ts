@@ -11,7 +11,7 @@
 import type { ContentPart } from '@pythoughts/kosong';
 import { describe, expect, it } from 'vitest';
 
-import { ToolAccesses } from '../../src/loop';
+import { createLoopEventDispatcher, runTurn as runTurnImpl, ToolAccesses } from '../../src/loop';
 import type { Logger } from '../../src/logging';
 import type {
   ExecutableTool,
@@ -28,8 +28,11 @@ import {
   makeThinkingParts,
   makeToolCall,
   makeToolUseResponse,
+  FakeLLM,
 } from './fixtures/fake-llm';
 import { runTurn } from './fixtures/helpers';
+import { CollectingSink } from './fixtures/collecting-sink';
+import { RecordingContext } from './fixtures/recording-context';
 import {
   ContentBlocksTool,
   EchoTool,
@@ -65,6 +68,41 @@ function waitOneMacrotask(): Promise<void> {
   });
 }
 
+async function runToolIntentTurn(
+  toolIntentEnabled: boolean,
+  hooks?: LoopHooks,
+): Promise<{
+  strict: StrictArgsTool;
+  sink: CollectingSink;
+  context: RecordingContext;
+}> {
+  const strict = new StrictArgsTool();
+  const sink = new CollectingSink();
+  const context = new RecordingContext();
+  const llm = new FakeLLM({
+    responses: [
+      makeToolUseResponse([
+        makeToolCall('strict', { i: 'do the thing', value: 7 }, 'tc-intent'),
+      ]),
+      makeEndTurnResponse('done'),
+    ],
+  });
+  await runTurnImpl({
+    turnId: 'turn-intent',
+    signal: new AbortController().signal,
+    llm,
+    buildMessages: context.buildMessages,
+    dispatchEvent: createLoopEventDispatcher({
+      appendTranscriptRecord: context.appendTranscriptRecord,
+      emitLiveEvent: sink.emit,
+    }),
+    tools: [strict],
+    hooks,
+    toolIntentEnabled,
+  });
+  return { strict, sink, context };
+}
+
 function makeTestLogger(): {
   readonly log: Logger;
   readonly entries: Array<{ readonly level: string; readonly message: string; readonly payload: unknown }>;
@@ -81,6 +119,45 @@ function makeTestLogger(): {
 }
 
 describe('runTurn — tool-call behaviour', () => {
+  it('strips enabled intent before hooks, validation, execution, and persistence', async () => {
+    const hookArgs: unknown[] = [];
+    const hooks: LoopHooks = {
+      prepareToolExecution: async (context) => {
+        hookArgs.push(context.args);
+        return undefined;
+      },
+      authorizeToolExecution: async (context) => {
+        hookArgs.push(context.args);
+        return undefined;
+      },
+    };
+
+    const { strict, sink, context } = await runToolIntentTurn(true, hooks);
+
+    expect(strict.calls[0]?.args).toEqual({ value: 7 });
+    expect(hookArgs).toEqual([{ value: 7 }, { value: 7 }]);
+    expect(sink.byType('tool.call')[0]).toMatchObject({
+      args: { value: 7 },
+      intent: 'do the thing',
+    });
+    expect(context.toolCalls()[0]).toMatchObject({
+      args: { value: 7 },
+      intent: 'do the thing',
+    });
+  });
+
+  it('keeps intent in args when the feature is disabled', async () => {
+    const { strict, sink } = await runToolIntentTurn(false);
+
+    expect(strict.calls).toHaveLength(0);
+    expect(sink.byType('tool.call')[0]).toMatchObject({
+      args: { i: 'do the thing', value: 7 },
+    });
+    expect(sink.byType('tool.call')[0]?.intent).toBeUndefined();
+    expect(sink.byType('tool.result')[0]?.result.isError).toBe(true);
+    expect(sink.byType('tool.result')[0]?.result.output).toContain('Invalid args');
+  });
+
   it('routes a successful tool call through execute and emits paired events', async () => {
     const echo = new EchoTool();
     const { sink, context } = await runTurn({

@@ -229,11 +229,12 @@ advisor = "reviewer-model"
 
 ## `experimental`
 
-`experimental` stores persistent overrides for experimental-feature flags. Currently, `micro_compaction` is the only user-facing entry and defaults to `true`; set it to `false` only when you need to disable automatic trimming of older large tool results.
+`experimental` stores persistent overrides for experimental-feature flags.
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `micro_compaction` | `boolean` | `true` | Trim older large tool results from context while preserving recent conversation |
+| `tool_intent` | `boolean` | `true` | Ask the model to state a concise intent with each tool call and show it live in the working indicator; set `false` to return to the rotating label |
 
 ## `services`
 

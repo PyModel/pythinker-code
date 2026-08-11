@@ -84,6 +84,7 @@ describe('events / display re-exports', () => {
         toolCallId: 'call_1',
         name: 'bash',
         args: { command: 'pwd' },
+        intent: 'check cwd',
         display: { kind: 'command', command: 'pwd', language: 'bash' },
       }).success,
     ).toBe(true);

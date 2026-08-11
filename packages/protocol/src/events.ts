@@ -488,6 +488,7 @@ export interface ToolCallStartedEvent {
   readonly toolCallId: string;
   readonly name: string;
   readonly args: unknown;
+  readonly intent?: string;
   readonly description?: string;
   readonly display?: ToolInputDisplay;
 }
@@ -1179,6 +1180,7 @@ export const toolCallStartedEventSchema = z.object({
   toolCallId: z.string(),
   name: z.string(),
   args: z.unknown(),
+  intent: z.string().optional(),
   description: z.string().optional(),
   display: ToolInputDisplaySchema.optional(),
 }) satisfies z.ZodType<ToolCallStartedEvent>;
