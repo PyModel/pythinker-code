@@ -1779,7 +1779,7 @@ command = "vim"
     );
 
     transcript = stripSgr(renderTranscript(driver));
-    expect(transcript).toMatch(/001\s+0⚒\s+–\s+◌ WAIT\s+Fresh work/u);
+    expect(transcript).toMatch(/001\s+○\s+WAIT\s+Fresh work/u);
     expect(transcript).not.toContain('Late completion from undone work');
   });
 
@@ -3943,9 +3943,9 @@ command = "vim"
 
     const transcript = stripSgr(renderTranscript(driver));
     expect(transcript).toContain('Dynamic Workflow');
-    // The running row spins a grey braille dot, so its symbol varies by frame.
-    expect(transcript).toMatch(/001\s+\d+⚒\s+\d+s\s+[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] RUN\s+src\/a.ts/u);
-    expect(transcript).toMatch(/002\s+\d+⚒\s+–\s+✓ DONE\s+src\/b.ts/u);
+    // The running row advances through the approved progress-glyph frames.
+    expect(transcript).toMatch(/001\s+[○◔◑◕]\s+RUN\s+src\/a.ts/u);
+    expect(transcript).toMatch(/002\s+●\s+DONE\s+src\/b.ts/u);
     expect(transcript).toMatch(/Orchestrating\s+1\/2 complete/u);
     expect(transcript).not.toContain('━');
     expect(transcript).toContain('Completed before spawn');
@@ -4030,7 +4030,7 @@ command = "vim"
 
     transcript = stripSgr(renderTranscript(driver));
     expect(transcript).toContain('0/2 complete');
-    expect(transcript).toMatch(/001\s+0⚒\s+–\s+◌ WAIT\s+src\/a.ts/u);
+    expect(transcript).toMatch(/001\s+○\s+WAIT\s+src\/a.ts/u);
   });
 
   it('keeps terminal Dynamic Workflow results static and does not fabricate child failures', async () => {
@@ -4057,8 +4057,8 @@ command = "vim"
 
     const transcript = stripSgr(renderTranscript(driver));
     expect(transcript).toContain('✓ Completed');
-    expect(transcript).toMatch(/001\s+\d+⚒\s+–\s+✓ DONE\s+src\/a.ts/u);
-    expect(transcript).toMatch(/002\s+\d+⚒\s+–\s+× FAIL\s+src\/b.ts/u);
+    expect(transcript).toMatch(/001\s+●\s+DONE\s+src\/a.ts/u);
+    expect(transcript).toMatch(/002\s+×\s+FAIL\s+src\/b.ts/u);
     expect(transcript).toContain('Agent timed out after 30s.');
     expect(transcript).not.toContain('⠋ Orchestrating');
   });
@@ -4099,7 +4099,7 @@ command = "vim"
     } as Event);
 
     const transcript = stripSgr(renderTranscript(driver));
-    expect(transcript).toMatch(/001\s+0⚒\s+–\s+◌ WAIT\s+src\/fresh.ts/u);
+    expect(transcript).toMatch(/001\s+○\s+WAIT\s+src\/fresh.ts/u);
     expect(transcript).not.toContain('must not leak');
     },
   );
@@ -4192,7 +4192,7 @@ command = "vim"
     } as Event);
 
     const transcript = stripSgr(renderTranscript(driver));
-    expect(transcript).toMatch(/001\s+\d+⚒\s+–\s+× FAIL\s+src\/generic.ts/u);
+    expect(transcript).toMatch(/001\s+×\s+FAIL\s+src\/generic.ts/u);
     expect(transcript).toContain('Early generic failure');
   });
 
@@ -4218,7 +4218,7 @@ command = "vim"
 
     const transcript = stripSgr(renderTranscript(driver));
     expect(transcript).toContain('× Failed');
-    expect(transcript).toMatch(/001\s+\d+⚒\s+–\s+✓ DONE\s+src\/a.ts/u);
+    expect(transcript).toMatch(/001\s+●\s+DONE\s+src\/a.ts/u);
     expect(transcript).toContain('Child completed before request error');
   });
 
