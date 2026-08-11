@@ -8,52 +8,58 @@ export interface ShimmerTextOptions {
   phaseOffset?: number;
 }
 
-const MIN_WINDOW_SIZE = 2;
-const MAX_WINDOW_SIZE = 6;
+const CELLS_PER_SECOND = 30;
+const BAND_HALF_WIDTH = 6;
 
-function resolveWindowSize(length: number, requested?: number): number {
-  if (length <= 0) return 0;
-  const fallback = Math.max(MIN_WINDOW_SIZE, Math.min(MAX_WINDOW_SIZE, Math.ceil(length / 3)));
-  return Math.max(1, Math.min(length, requested ?? fallback));
-}
+type ShimmerTier = 'dim' | 'base' | 'shimmer';
 
 export function shimmerText(text: string, options: ShimmerTextOptions): string {
   const chars = Array.from(text);
   if (chars.length === 0) return '';
 
-  const windowSize = resolveWindowSize(chars.length, options.windowSize);
-  const cycleLength = chars.length + windowSize;
-  const start = ((options.frame + (options.phaseOffset ?? 0)) % cycleLength) - windowSize;
-  const end = start + windowSize;
+  const halfWidth = Math.max(1, options.windowSize ?? BAND_HALF_WIDTH);
+  const cycleLength = chars.length + halfWidth * 2;
+  const center =
+    ((Date.now() / 1_000 * CELLS_PER_SECOND + (options.phaseOffset ?? 0)) % cycleLength) -
+    halfWidth;
 
   let result = '';
   let segment = '';
-  let activeToken: ColorToken | undefined;
+  let activeTier: ShimmerTier | undefined;
 
   for (let index = 0; index < chars.length; index++) {
     const char = chars[index];
     if (char === undefined) continue;
 
-    const token = index >= start && index < end ? options.shimmerToken : options.baseToken;
-    if (activeToken === undefined) {
-      activeToken = token;
+    const distance = Math.abs(index - center);
+    const intensity =
+      distance >= halfWidth ? 0 : (Math.cos(Math.PI * distance / halfWidth) + 1) / 2;
+    const tier: ShimmerTier = intensity < 0.22 ? 'dim' : intensity < 0.65 ? 'base' : 'shimmer';
+    if (activeTier === undefined) {
+      activeTier = tier;
       segment = char;
       continue;
     }
 
-    if (token === activeToken) {
+    if (tier === activeTier) {
       segment += char;
       continue;
     }
 
-    result += currentTheme.fg(activeToken, segment);
-    activeToken = token;
+    result += paintTier(activeTier, segment, options);
+    activeTier = tier;
     segment = char;
   }
 
-  if (activeToken !== undefined) {
-    result += currentTheme.fg(activeToken, segment);
+  if (activeTier !== undefined) {
+    result += paintTier(activeTier, segment, options);
   }
 
   return result;
+}
+
+function paintTier(tier: ShimmerTier, text: string, options: ShimmerTextOptions): string {
+  if (tier === 'dim') return currentTheme.fg('textDim', text);
+  if (tier === 'shimmer') return currentTheme.boldFg(options.shimmerToken, text);
+  return currentTheme.fg(options.baseToken, text);
 }

@@ -81,6 +81,9 @@ const exemptTokens = [
   'inverseText',
   'selectionBg',
   'surfaceHighlight',
+  'toolPendingBg',
+  'toolSuccessBg',
+  'toolErrorBg',
   'progressEmpty',
 ] as const;
 
@@ -348,7 +351,7 @@ describe('theme palettes', () => {
     const lightTokens = Object.keys(lightColors).toSorted();
     const schemaProperties = schema.properties.colors.properties;
 
-    expect(darkTokens).toHaveLength(57);
+    expect(darkTokens).toHaveLength(60);
     expect(lightTokens).toEqual(darkTokens);
     expect(Object.keys(schemaProperties).toSorted()).toEqual(darkTokens);
     expect(

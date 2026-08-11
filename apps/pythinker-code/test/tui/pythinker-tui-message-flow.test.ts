@@ -3064,7 +3064,7 @@ command = "vim"
     expect(transcript).not.toContain('I am implementing the dedicated /btw panel.');
   });
 
-  it('keeps the /btw panel above MCP status and the input after later transcript output', async () => {
+  it('keeps the /btw panel above MCP status, the status bar, and the input', async () => {
     const session = makeSession();
     const { driver } = await makeDriver(session);
     await openBtwPanel(driver, session);
@@ -3119,6 +3119,9 @@ command = "vim"
       rootChildren.indexOf(driver.state.mcpStatusContainer) - 1,
     );
     expect(rootChildren.indexOf(driver.state.mcpStatusContainer)).toBe(
+      rootChildren.indexOf(driver.state.statusBarContainer) - 1,
+    );
+    expect(rootChildren.indexOf(driver.state.statusBarContainer)).toBe(
       rootChildren.indexOf(driver.state.editorContainer) - 1,
     );
     expect(transcript).toContain('main answer after btw');

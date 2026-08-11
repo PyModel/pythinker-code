@@ -49,6 +49,45 @@ describe('ToolCallComponent', () => {
     expect(out).not.toContain(`${String.fromCodePoint(0x23fa, 0xfe0e)} Used Read`);
   });
 
+  it('tints the tool card for pending, successful, and failed states', () => {
+    const previousLevel = chalk.level;
+    chalk.level = 3;
+    const component = new ToolCallComponent(
+      {
+        id: 'call_tint',
+        name: 'Read',
+        args: { path: 'foo.ts' },
+      },
+      undefined,
+    );
+
+    try {
+      const pending = component.render(40);
+      expect(pending[0]).not.toContain('\u001B[48;2;29;33;41m');
+      expect(
+        pending.slice(1).every((line) => line.includes('\u001B[48;2;29;33;41m')),
+      ).toBe(true);
+
+      component.setResult({ tool_call_id: 'call_tint', output: 'content', is_error: false });
+      expect(
+        component
+          .render(40)
+          .slice(1)
+          .every((line) => line.includes('\u001B[48;2;20;23;27m')),
+      ).toBe(true);
+
+      component.setResult({ tool_call_id: 'call_tint', output: 'failed', is_error: true });
+      expect(
+        component
+          .render(40)
+          .slice(1)
+          .every((line) => line.includes('\u001B[48;2;41;29;29m')),
+      ).toBe(true);
+    } finally {
+      chalk.level = previousLevel;
+    }
+  });
+
   it('renders MCP resource tools with friendly labels, context, and counts', () => {
     const list = new ToolCallComponent(
       {

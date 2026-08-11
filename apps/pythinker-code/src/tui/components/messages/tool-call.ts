@@ -658,7 +658,21 @@ export class ToolCallComponent extends Container {
 
   override render(width: number): string[] {
     this.headerText.setText(truncateToWidth(this.buildHeader(), Math.max(0, width)));
-    return super.render(width);
+    const lines = super.render(width);
+    const background =
+      this.result === undefined && this.toolCall.truncated !== true
+        ? 'toolPendingBg'
+        : this.result !== undefined && this.result.is_error !== true
+          ? 'toolSuccessBg'
+          : 'toolErrorBg';
+    return lines.map((line, index) =>
+      index === 0
+        ? line
+        : currentTheme.bg(
+            background,
+            `${line}${' '.repeat(Math.max(0, width - visibleWidth(line)))}`,
+          ),
+    );
   }
 
   setExpanded(expanded: boolean): void {

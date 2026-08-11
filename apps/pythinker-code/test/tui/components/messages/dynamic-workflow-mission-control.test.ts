@@ -383,7 +383,7 @@ describe('DynamicWorkflowMissionControlComponent', () => {
     }
   });
 
-  it('colours running progress and Orchestrating in periwinkle', () => {
+  it('colours running progress and gives Orchestrating three shimmer tiers', () => {
     vi.useFakeTimers();
     vi.setSystemTime(0);
     const previousLevel = chalk.level;
@@ -417,8 +417,10 @@ describe('DynamicWorkflowMissionControlComponent', () => {
       vi.setSystemTime(BRAILLE_SPINNER_INTERVAL_MS);
 
       const aggregate = aggregateLine(component.render(100).join('\n'));
-      expect(aggregate).toContain(chalk.hex(darkColors.primary)('rchestrating'));
-      expect(aggregate).not.toContain(chalk.hex(darkColors.text)('rchestrating'));
+      expect(strip(aggregate)).toContain('Orchestrating');
+      expect(aggregate).toContain(chalk.hex(darkColors.primaryShimmer).bold('O'));
+      expect(aggregate).toContain(chalk.hex(darkColors.primary)('r'));
+      expect(aggregate).toContain(chalk.hex(darkColors.textDim)('chestrating'));
     } finally {
       vi.useRealTimers();
       chalk.level = previousLevel;

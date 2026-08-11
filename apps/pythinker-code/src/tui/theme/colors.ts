@@ -164,6 +164,12 @@ export interface ColorPalette {
   selectionBg: string;
   /** Subtle fill for highlighted rows and message surfaces, including user transcript rows. */
   surfaceHighlight: string;
+  /** Background tint for a tool card while the call is running. */
+  toolPendingBg: string;
+  /** Background tint for a tool card after a successful result. */
+  toolSuccessBg: string;
+  /** Background tint for a tool card after an error result. */
+  toolErrorBg: string;
 
   // ── Progress ──
   /** Filled segment of the Dynamic Workflow aggregate progress line. */
@@ -242,6 +248,9 @@ export const darkColors: ColorPalette = {
   inverseText: '#FFFFFF',
   selectionBg: '#344274',
   surfaceHighlight: '#1C2238',
+  toolPendingBg: '#1D2129',
+  toolSuccessBg: '#14171B',
+  toolErrorBg: '#291D1D',
 
   progressFill: '#25764A',
   progressHead: '#4EC87E',
@@ -316,6 +325,9 @@ export const lightColors: ColorPalette = {
   inverseText: '#0B1020',
   selectionBg: '#C9D1FA',
   surfaceHighlight: '#E8EBFC',
+  toolPendingBg: '#E8EEF7',
+  toolSuccessBg: '#F1F3F5',
+  toolErrorBg: '#F9E9E9',
 
   progressFill: '#3B9A65',
   progressHead: '#0E7A38',
