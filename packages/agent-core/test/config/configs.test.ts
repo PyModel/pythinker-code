@@ -231,14 +231,33 @@ source = { kind = "apiJson", url = "https://registry.example/api.json", apiKey =
     });
   });
 
-  it('round-trips model roles', async () => {
+  it('round-trips model roles from a fresh config', async () => {
     const configPath = join(makeTempDir(), 'model-roles.toml');
-    const config = parseConfigString('[model_roles]\nsmall = "x"\n', configPath);
 
-    expect(config.modelRoles).toEqual({ small: 'x' });
+    await writeConfigFile(configPath, { providers: {}, modelRoles: { small: 'haiku' } });
 
-    await writeConfigFile(configPath, config);
-    expect(readConfigFile(configPath).modelRoles).toEqual({ small: 'x' });
+    const text = await readFile(configPath, 'utf-8');
+    expect(text).toContain('[model_roles]');
+    expect(text).toContain('small = "haiku"');
+    expect(readConfigFile(configPath).modelRoles).toEqual({ small: 'haiku' });
+  });
+
+  it('round-trips reassigned model roles instead of stale raw values', async () => {
+    const configPath = join(makeTempDir(), 'model-roles-reassigned.toml');
+    const config = parseConfigString('[model_roles]\nsmall = "old"\n', configPath);
+
+    await writeConfigFile(configPath, { ...config, modelRoles: { small: 'new' } });
+
+    expect(readConfigFile(configPath).modelRoles).toEqual({ small: 'new' });
+  });
+
+  it('round-trips cleared model roles instead of stale raw values', async () => {
+    const configPath = join(makeTempDir(), 'model-roles-cleared.toml');
+    const config = parseConfigString('[model_roles]\nsmall = "old"\n', configPath);
+
+    await writeConfigFile(configPath, { ...config, modelRoles: { small: '' } });
+
+    expect(readConfigFile(configPath).modelRoles).toEqual({ small: '' });
   });
 
   it('round-trips an API key environment reference without an API key', async () => {

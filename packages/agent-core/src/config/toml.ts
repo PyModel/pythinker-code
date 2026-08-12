@@ -492,6 +492,9 @@ export function configToTomlData(config: PythinkerConfig): Record<string, unknow
 
   setRecordSection(out, 'providers', config.providers, providerToToml);
   setRecordSection(out, 'models', config.models, modelToToml);
+  if (config.modelRoles !== undefined) {
+    out['model_roles'] = cloneUnknown(config.modelRoles);
+  }
   setSection(out, 'thinking', config.thinking, thinkingToToml);
   setSection(out, 'services', config.services, servicesToToml);
   setSection(out, 'loop_control', config.loopControl, loopControlToToml);
