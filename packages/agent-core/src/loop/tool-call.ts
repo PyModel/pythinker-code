@@ -313,10 +313,11 @@ export function parseToolCallArguments(
 }
 
 /**
- * Models sometimes emit markdown-style escapes (\* \_ \[) inside JSON string
- * values; strict JSON.parse rejects them while streaming previews tolerate
- * them, so the call dies only at preflight. Rewrite ONLY invalid escapes to a
- * literal backslash + character, leaving valid escapes and structure alone.
+ * Models sometimes emit invalid escapes (\* \_ \[) or unescaped quotes inside
+ * JSON string values. Rewrite invalid escapes to a literal backslash +
+ * character and quotes that cannot terminate the string to escaped quotes.
+ * A content quote followed by a structural character is ambiguous and still
+ * closes the string; if reparsing fails, the original parse error is reported.
  * Returns null when nothing was repaired.
  */
 function repairInvalidStringEscapes(raw: string): string | null {
@@ -327,8 +328,22 @@ function repairInvalidStringEscapes(raw: string): string | null {
   for (let index = 0; index < raw.length; index += 1) {
     const character = raw[index];
     if (character === '"') {
-      inString = !inString;
-      result += character;
+      if (!inString) {
+        inString = true;
+        result += character;
+        continue;
+      }
+
+      let lookahead = index + 1;
+      while (lookahead < raw.length && ' \t\n\r'.includes(raw[lookahead]!)) lookahead += 1;
+      const next = raw[lookahead];
+      if (next === undefined || ',:}]'.includes(next)) {
+        inString = false;
+        result += character;
+      } else {
+        result += '\\"';
+        repaired = true;
+      }
       continue;
     }
     if (!inString || character !== '\\') {

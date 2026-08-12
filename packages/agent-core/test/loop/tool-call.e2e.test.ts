@@ -138,6 +138,47 @@ describe('parseToolCallArguments', () => {
     expect(result).toEqual({ success: true, data: { a: '\\u12ZZ' } });
   });
 
+  it('repairs unescaped quotes inside items-array string values', () => {
+    const result = parseToolCallArguments(
+      '{"items":[{"prompt":"Review the "config" module carefully","i":"review config"}]}',
+    );
+
+    expect(result).toEqual({
+      success: true,
+      data: { items: [{ prompt: 'Review the "config" module carefully', i: 'review config' }] },
+    });
+  });
+
+  it('leaves a quote before a structural character unchanged', () => {
+    const raw = '{"a":"done","b":1}';
+
+    expect(parseToolCallArguments(raw)).toEqual({ success: true, data: JSON.parse(raw) });
+  });
+
+  it('repairs invalid escapes and unescaped quotes together', () => {
+    const result = parseToolCallArguments('{"a":"bold \\*x and a "quoted" word"}');
+
+    expect(result).toEqual({ success: true, data: { a: 'bold \\*x and a "quoted" word' } });
+  });
+
+  it('recognizes a string terminator separated from structure by whitespace', () => {
+    const result = parseToolCallArguments('{"a":"text" , "b":"x "y" z"}');
+
+    expect(result).toEqual({ success: true, data: { a: 'text', b: 'x "y" z' } });
+  });
+
+  it('returns the original parse error after quote repair still fails', () => {
+    const raw = '{"a":[1,}';
+    let originalError = '';
+    try {
+      JSON.parse(raw);
+    } catch (error) {
+      originalError = error instanceof Error ? error.message : String(error);
+    }
+
+    expect(parseToolCallArguments(raw)).toEqual({ success: false, error: originalError });
+  });
+
   it('returns the original parse error for structurally broken input', () => {
     const raw = '{"a":"truncated';
     let originalError = '';
