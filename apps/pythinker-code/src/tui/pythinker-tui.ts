@@ -27,7 +27,6 @@ import { readUpdateInstallState } from '#/cli/update/install-state';
 import { detectInstallSource } from '#/cli/update/source';
 import type { InstallSource } from '#/cli/update/types';
 import { MigrationScreenComponent, type MigrationScreenResult } from '#/migration/index';
-import { effortColorToken } from '#/tui/utils/thinking-levels';
 import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
 import {
   appendInputHistory,
@@ -2128,19 +2127,9 @@ export class PythinkerTUI {
     const highlighted =
       this.state.appState.planMode || findSlashAutocompleteContext(currentLine, col) !== null;
     this.state.editor.borderHighlighted = highlighted;
-    // Reads thinkingLevel at paint time so cycling effort (Shift-Tab/Ctrl-T)
-    // recolors the prompt box on the next render without re-wiring the closure.
     this.state.editor.borderColor = (s: string) => {
       if (highlighted) return currentTheme.fg('primary', s);
-      if (this.state.appState.permissionMode === 'yolo') {
-        return currentTheme.fg('modeAutoAccept', s);
-      }
-      if (this.state.appState.permissionMode === 'auto') {
-        return currentTheme.fg('modePermission', s);
-      }
-      const level = this.state.appState.thinkingLevel;
-      if (level === 'off' || level.trim().length === 0) return currentTheme.fg('border', s);
-      return currentTheme.fg(effortColorToken(level), s);
+      return currentTheme.fg('border', s);
     };
     this.state.ui.requestRender();
   }

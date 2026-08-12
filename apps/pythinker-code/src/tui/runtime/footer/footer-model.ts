@@ -565,7 +565,6 @@ export function selectStatusBarExtras(
     parts.context,
     parts.git,
     parts.update,
-    parts.speed,
     parts.spend,
     parts.elapsed,
     parts.goal,
@@ -638,7 +637,9 @@ function formatStatusElapsed(ms: number): string {
   return totalMinutes < 60 ? clock : `${String(Math.floor(totalMinutes / 60))}:${clock}`;
 }
 
-function formatTokenSpeed(status: FooterStatus): string | null {
+export function formatTokenSpeed(
+  status: Pick<FooterStatus, 'tokenSpeed' | 'tokenSpeedEstimated'>,
+): string | null {
   const speed = status.tokenSpeed;
   if (speed === null || !Number.isFinite(speed) || speed < 0) return null;
   return `${status.tokenSpeedEstimated ? '~' : ''}${speed.toFixed(1)} t/s`;

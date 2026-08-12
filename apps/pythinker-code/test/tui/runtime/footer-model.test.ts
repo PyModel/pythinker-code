@@ -309,6 +309,8 @@ describe('footer model', () => {
         contextUsage: 0.05,
         dynamicWorkflowMode: true,
         git: workflowStatus().git,
+        tokenSpeed: 75.7,
+        tokenSpeedEstimated: true,
       }),
       [
         {

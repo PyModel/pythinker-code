@@ -23,6 +23,8 @@ function status(overrides: Partial<StatusBarStatus> = {}): StatusBarStatus {
     planMode: true,
     fastMode: false,
     dynamicWorkflowMode: true,
+    tokenSpeed: null,
+    tokenSpeedEstimated: false,
     extras: [],
     sessionKey: 'session-alpha',
     statusLine: DEFAULT_STATUS_LINE_CONFIG,
@@ -143,6 +145,40 @@ describe('StatusBarComponent', () => {
     } finally {
       chalk.level = previousLevel;
     }
+  });
+
+  it('renders token speed at the end of the model chip', () => {
+    const component = new StatusBarComponent();
+    component.update(status({
+      fastMode: true,
+      tokenSpeed: 75.7,
+      tokenSpeedEstimated: true,
+    }));
+
+    const modelChip = stripAnsi(component.render(120)[0] ?? '').split('  ')[0]?.trim();
+
+    expect(modelChip).toBe('Model Alpha · high · ↯ fast · ~75.7 t/s');
+  });
+
+  it('hides token speed when showTokenSpeed is false', () => {
+    const component = new StatusBarComponent();
+    component.update(status({
+      tokenSpeed: 75.7,
+      statusLine: { ...DEFAULT_STATUS_LINE_CONFIG, showTokenSpeed: false },
+    }));
+
+    const modelChip = stripAnsi(component.render(120)[0] ?? '').split('  ')[0]?.trim();
+
+    expect(modelChip).toBe('Model Alpha · high');
+  });
+
+  it('does not leave a separator when token speed is null', () => {
+    const component = new StatusBarComponent();
+    component.update(status({ fastMode: true, tokenSpeed: null }));
+
+    const modelChip = stripAnsi(component.render(120)[0] ?? '').split('  ')[0]?.trim();
+
+    expect(modelChip).toBe('Model Alpha · high · ↯ fast');
   });
 
   it('renders extras in order between modes and cwd', () => {

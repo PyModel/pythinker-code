@@ -4,7 +4,10 @@ import { truncateToWidth, visibleWidth, type Component } from '@earendil-works/p
 import chalk from 'chalk';
 
 import type { StatusLineConfig } from '#/tui/config';
-import type { FooterStatus } from '#/tui/runtime/footer/footer-model';
+import {
+  formatTokenSpeed,
+  type FooterStatus,
+} from '#/tui/runtime/footer/footer-model';
 import { currentTheme } from '#/tui/theme';
 import { themeFromHexChannels } from '#/tui/theme/terminal-background';
 import { effortColorToken, shortEffortLabel } from '#/tui/utils/thinking-levels';
@@ -20,6 +23,8 @@ export type StatusBarStatus = Pick<
   | 'planMode'
   | 'fastMode'
   | 'dynamicWorkflowMode'
+  | 'tokenSpeed'
+  | 'tokenSpeedEstimated'
 > & {
   readonly extras: readonly string[];
   readonly sessionKey: string;
@@ -43,8 +48,16 @@ export class StatusBarComponent implements Component {
           shortEffortLabel(status.thinkingLevel),
         )}`
       : '';
+    const fastSuffix = status.statusLine.showModes && status.fastMode
+      ? `${currentTheme.fg('textDim', ' · ')}${currentTheme.fg('modeFast', '↯ fast')}`
+      : '';
+    const speed = status.statusLine.showTokenSpeed ? formatTokenSpeed(status) : null;
     const modelChip = status.statusLine.showModel
-      ? chip(`${currentTheme.fg('text', status.model)}${effortSuffix}`)
+      ? chip(
+          `${currentTheme.fg('text', status.model)}${effortSuffix}${fastSuffix}${
+            speed === null ? '' : currentTheme.fg('textDim', ` · ${speed}`)
+          }`,
+        )
       : undefined;
     let modesChip = status.statusLine.showModes ? renderModesChip(status) : undefined;
     const extraChips = status.extras.map((extra) =>
@@ -101,7 +114,6 @@ function renderModesChip(status: StatusBarStatus): string | undefined {
   if (status.planMode) modes.push(currentTheme.fg('modePlan', 'plan'));
   if (status.permissionMode === 'auto') modes.push(currentTheme.fg('modePermission', 'auto'));
   if (status.permissionMode === 'yolo') modes.push(currentTheme.fg('error', 'yolo'));
-  if (status.fastMode) modes.push(currentTheme.fg('modeFast', '↯ fast'));
   if (status.dynamicWorkflowMode) modes.push(currentTheme.fg('accent', 'workflow'));
   return modes.length === 0 ? undefined : chip(modes.join(' '));
 }

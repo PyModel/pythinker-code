@@ -50,6 +50,7 @@ import {
   promptFeedbackInput,
   runModelSelector,
 } from '#/tui/commands/prompts';
+import { currentTheme } from '#/tui/theme';
 import type { QueuedMessage } from '#/tui/types';
 import type { ImageAttachmentStore } from '#/tui/utils/image-attachment-store';
 import { LEGACY_TEST_PATHS, PARITY_CASES } from './parity/feature-matrix';
@@ -5435,7 +5436,7 @@ command = "vim"
     expect(driver.state.appState.thinkingLevel).toBe('off');
   });
 
-  it('tints the prompt-box border by the current thinking effort', async () => {
+  it('keeps the prompt-box border neutral across thinking effort and permission mode', async () => {
     const session = makeSession();
     const { driver } = await makeDriver(session, {
       getConfig: vi.fn(async () => ({
@@ -5459,16 +5460,21 @@ command = "vim"
     chalk.level = 3;
     try {
       const tui = driver as unknown as PythinkerTUI;
-      const paintAt = (level: string): string => {
-        tui.setAppState({ thinkingLevel: level });
+      const paintAt = (thinkingLevel: string): string => {
+        tui.setAppState({ thinkingLevel });
         return driver.state.editor.borderColor('─');
       };
       const offPaint = paintAt('off');
+      tui.setAppState({ permissionMode: 'yolo' });
+      expect(driver.state.editor.borderColor('─')).toBe(offPaint);
+
+      tui.setAppState({ permissionMode: 'manual' });
       const perLevel = ['low', 'medium', 'high'].map(paintAt);
-      // Effort levels tint the border away from the default, each with the
-      // theme's own gradient stop for that level.
-      for (const painted of perLevel) expect(painted).not.toBe(offPaint);
-      expect(new Set(perLevel).size).toBe(perLevel.length);
+      for (const painted of perLevel) expect(painted).toBe(offPaint);
+
+      tui.setAppState({ planMode: true });
+      expect(driver.state.editor.borderColor('─')).toBe(currentTheme.fg('primary', '─'));
+      expect(driver.state.editor.borderColor('─')).not.toBe(offPaint);
     } finally {
       chalk.level = previousLevel;
     }
