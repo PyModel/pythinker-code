@@ -272,7 +272,7 @@ export class FooterComponent implements Component {
           this.state.statusLine,
         );
     return viewModel.rows.flatMap((row) => {
-      if (row.kind === 'composer' || row.kind === 'status') return [];
+      if (row.kind === 'composer' || row.kind === 'status' || row.kind === 'activity') return [];
       return [truncateToWidth(renderLegacyRow(row), width, '…')];
     });
   }
@@ -374,21 +374,9 @@ export class FooterComponent implements Component {
 }
 
 function renderLegacyRow(
-  row: Exclude<
-    FooterViewModelRow,
-    { readonly kind: 'composer' } | { readonly kind: 'status' }
-  >,
+  row: Extract<FooterViewModelRow, { readonly kind: 'validation' }>,
 ): string {
-  switch (row.kind) {
-    case 'activity':
-      return row.primary.length === 0
-        ? row.indicators.join('  ')
-        : row.indicators.length === 0
-          ? row.primary
-          : `${row.primary}  ${row.indicators.join('  ')}`;
-    case 'validation':
-      return row.level === 'info' ? row.message : `${row.level}: ${row.message}`;
-  }
+  return row.level === 'info' ? row.message : `${row.level}: ${row.message}`;
 }
 
 function hasGoalBadge(goal: AppState['goal']): boolean {

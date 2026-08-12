@@ -84,6 +84,33 @@ describe('ToolCallComponent', () => {
     }
   });
 
+  it('does not tint a truncated tool call without a result', () => {
+    const previousLevel = chalk.level;
+    chalk.level = 3;
+    const component = new ToolCallComponent(
+      {
+        id: 'call_truncated_tint',
+        name: 'Read',
+        args: { path: 'foo.ts' },
+        truncated: true,
+      },
+      undefined,
+    );
+
+    try {
+      const backgrounds = [
+        '\u001B[48;2;29;33;41m',
+        '\u001B[48;2;20;23;27m',
+        '\u001B[48;2;41;29;29m',
+      ];
+      expect(
+        component.render(40).every((line) => backgrounds.every((code) => !line.includes(code))),
+      ).toBe(true);
+    } finally {
+      chalk.level = previousLevel;
+    }
+  });
+
   it('renders MCP resource tools with friendly labels, context, and counts', () => {
     const list = new ToolCallComponent(
       {

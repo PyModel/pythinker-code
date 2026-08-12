@@ -118,7 +118,7 @@ describe('FooterComponent', () => {
     expect(footer.render(160)).toEqual([]);
   });
 
-  it('renders activity and validation rows but suppresses shared status rows', () => {
+  it('renders validation rows but suppresses activity and shared status rows', () => {
     const footer = new FooterComponent(appState);
     const activity = selectFooterViewModel(
       foldFooterEvents(createFooterState(), [
@@ -137,7 +137,7 @@ describe('FooterComponent', () => {
     );
     footer.setViewModel(activity);
 
-    expect(footer.render(120).map(stripAnsi)).toEqual(['⠋ Waiting for response']);
+    expect(footer.render(120).map(stripAnsi)).toEqual([]);
 
     const validation = selectFooterViewModel(
       foldFooterEvents(createFooterState(), [

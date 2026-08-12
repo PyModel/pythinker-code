@@ -660,11 +660,14 @@ export class ToolCallComponent extends Container {
     this.headerText.setText(truncateToWidth(this.buildHeader(), Math.max(0, width)));
     const lines = super.render(width);
     const background =
-      this.result === undefined && this.toolCall.truncated !== true
-        ? 'toolPendingBg'
-        : this.result !== undefined && this.result.is_error !== true
+      this.result === undefined
+        ? this.toolCall.truncated === true
+          ? undefined
+          : 'toolPendingBg'
+        : this.result.is_error !== true
           ? 'toolSuccessBg'
           : 'toolErrorBg';
+    if (background === undefined) return lines;
     return lines.map((line, index) =>
       index === 0
         ? line
