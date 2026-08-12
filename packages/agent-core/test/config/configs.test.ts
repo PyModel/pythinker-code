@@ -260,6 +260,18 @@ source = { kind = "apiJson", url = "https://registry.example/api.json", apiKey =
     expect(readConfigFile(configPath).modelRoles).toEqual({ small: '' });
   });
 
+  it('removes model roles when the role map is cleared', async () => {
+    const configPath = join(makeTempDir(), 'model-roles-removed.toml');
+    await writeFile(configPath, '[model_roles]\nsmall = "old"\n');
+    const config = readConfigFile(configPath);
+
+    await writeConfigFile(configPath, { ...config, modelRoles: undefined });
+
+    const text = await readFile(configPath, 'utf-8');
+    expect(text).not.toContain('[model_roles]');
+    expect(readConfigFile(configPath).modelRoles).toBeUndefined();
+  });
+
   it('round-trips an API key environment reference without an API key', async () => {
     const configPath = join(makeTempDir(), 'api-key-env-var.toml');
     const config = parseConfigString(
