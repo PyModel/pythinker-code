@@ -464,7 +464,7 @@ function selectActivityRow(state: FooterState): FooterActivityRowViewModel {
   });
 }
 
-function selectStatusItemParts(
+export function selectStatusItemParts(
   state: FooterState,
   clockMs: number,
   statusLine: StatusLineConfig,
