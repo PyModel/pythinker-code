@@ -45,7 +45,13 @@ export class SessionAdvisor {
   onMainTurnStarted(origin: PromptOrigin): void {
     // Autonomous turns must not compound advisor cost.
     this.#reviewCurrentTurn = origin.kind === 'user';
-    queueMicrotask(() => this.#deliverPending());
+    queueMicrotask(() => {
+      try {
+        this.#deliverPending();
+      } catch (error) {
+        this.session.log.debug('advisor delivery failed', { error });
+      }
+    });
   }
 
   /** Called after each completed main-agent turn. Never throws; never blocks the caller. */
@@ -167,20 +173,21 @@ function parseNotes(output: unknown): AdvisoryNote[] {
   if (typeof output !== 'object' || output === null || !Array.isArray((output as { notes?: unknown }).notes)) {
     throw new Error('Advisor did not return structured notes.');
   }
-  return (output as { notes: unknown[] }).notes.slice(0, 10).map((value) => {
-    if (typeof value !== 'object' || value === null) {
-      throw new Error('Advisor returned an invalid note.');
-    }
+  const notes: AdvisoryNote[] = [];
+  for (const value of (output as { notes: unknown[] }).notes) {
+    if (typeof value !== 'object' || value === null) continue;
     const { note, severity } = value as { note?: unknown; severity?: unknown };
-    if (typeof note !== 'string') throw new Error('Advisor returned an invalid note.');
+    if (typeof note !== 'string') continue;
     if (
       severity !== undefined &&
       severity !== 'nit' &&
       severity !== 'concern' &&
       severity !== 'blocker'
     ) {
-      throw new Error('Advisor returned an invalid severity.');
+      continue;
     }
-    return { note: Array.from(note.trim()).slice(0, 500).join(''), severity } as AdvisoryNote;
-  });
+    notes.push({ note: Array.from(note.trim()).slice(0, 500).join(''), severity });
+    if (notes.length === 10) break;
+  }
+  return notes;
 }

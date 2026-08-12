@@ -573,7 +573,11 @@ export class Agent {
 
   emitEvent(event: AgentEvent): void {
     if (this.records.restoring) return;
-    this.onEvent?.(event);
+    try {
+      this.onEvent?.(event);
+    } catch (error) {
+      this.log.warn('agent event observer failed', { error });
+    }
     void this.rpc?.emitEvent?.(event);
   }
 
