@@ -49,6 +49,15 @@ function expectTextOutput(output: unknown): string {
   return output as string;
 }
 
+function parseErrorMessage(raw: string): string {
+  try {
+    JSON.parse(raw);
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+  throw new Error(`expected ${raw} to fail JSON.parse`);
+}
+
 async function contentBlockOutput(output: ContentPart[]): Promise<ContentPart[]> {
   const blocks = new ContentBlocksTool({ output });
   const { context } = await runTurn({
@@ -169,26 +178,14 @@ describe('parseToolCallArguments', () => {
 
   it('returns the original parse error after quote repair still fails', () => {
     const raw = '{"a":[1,}';
-    let originalError = '';
-    try {
-      JSON.parse(raw);
-    } catch (error) {
-      originalError = error instanceof Error ? error.message : String(error);
-    }
 
-    expect(parseToolCallArguments(raw)).toEqual({ success: false, error: originalError });
+    expect(parseToolCallArguments(raw)).toEqual({ success: false, error: parseErrorMessage(raw) });
   });
 
   it('returns the original parse error for structurally broken input', () => {
     const raw = '{"a":"truncated';
-    let originalError = '';
-    try {
-      JSON.parse(raw);
-    } catch (error) {
-      originalError = error instanceof Error ? error.message : String(error);
-    }
 
-    expect(parseToolCallArguments(raw)).toEqual({ success: false, error: originalError });
+    expect(parseToolCallArguments(raw)).toEqual({ success: false, error: parseErrorMessage(raw) });
   });
 
   it('does not repair a backslash outside a string', () => {

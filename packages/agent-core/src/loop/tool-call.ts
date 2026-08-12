@@ -357,7 +357,7 @@ function repairInvalidStringEscapes(raw: string): string | null {
       index += 1;
       continue;
     }
-    if (next === 'u' && /^[0-9a-fA-F]{4}$/.test(raw.slice(index + 2, index + 6))) {
+    if (next === 'u' && /^[0-9a-fA-F]{4}$/u.test(raw.slice(index + 2, index + 6))) {
       result += raw.slice(index, index + 6);
       index += 5;
       continue;
