@@ -507,9 +507,20 @@ export class DynamicWorkflowMissionControlComponent implements Component {
 
   private renderAggregate(width: number, nowMs: number): string {
     const terminal = isTerminalRequestPhase(this.model.requestPhase);
+    const frame = Math.floor(
+      Math.max(0, nowMs - this.model.startedAtMs) /
+        DYNAMIC_WORKFLOW_RENDERING.progressFrameMs,
+    );
     const loader = terminal
       ? currentTheme.fg(requestPhaseColor(this.model.requestPhase), requestPhaseSymbol(this.model.requestPhase))
-      : this.activitySpinnerText?.() ?? currentTheme.fg('primary', '●');
+      : this.activitySpinnerText === undefined
+        ? currentTheme.fg('primary', '●')
+        : currentTheme.fg(
+            'primary',
+            DYNAMIC_WORKFLOW_RENDERING.progressFrames[
+              frame % DYNAMIC_WORKFLOW_RENDERING.progressFrames.length
+            ] ?? DYNAMIC_WORKFLOW_RENDERING.progressFrames[0],
+          );
     const aggregateMembers = this.aggregateMembers();
     // All spawned agents are done but the tool result has not arrived yet:
     // the label says so instead of pretending orchestration is still active.

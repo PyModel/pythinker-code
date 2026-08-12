@@ -9,7 +9,6 @@ import {
   foldFooterEvents,
   selectFooterViewModel,
 } from '#/tui/runtime/footer/footer-model';
-import { currentTheme } from '#/tui/theme';
 import type { AppState } from '#/tui/types';
 import type { GitStatusCache } from '#/utils/git/git-status';
 
@@ -113,49 +112,13 @@ describe('FooterComponent', () => {
     vi.useRealTimers();
   });
 
-  it('renders one faint status hierarchy without path, bar, tips, or a wall clock', () => {
+  it('does not render shared status rows', () => {
     const footer = new FooterComponent(appState);
-    footer.setTokenSpeed(75.7);
 
-    const rendered = footer.render(160);
-    const rows = rendered.map(stripAnsi);
-
-    expect(rows).toHaveLength(1);
-    expect(rendered[0]).toBe(currentTheme.fg('textDim', rows[0]!));
-    expect(rows[0]).toContain('DeepSeek V4 Flash · max · 75.7 t/s');
-    expect(rows[0]).toContain('▱▱▱▱▱▱▱▱ 5%');
-    expect(rows[0]).toContain('workflow');
-    expect(rows[0]).toContain('elapsed 04:12');
-    expect(rows.join('\n')).not.toContain('/Users/example/work/pythinker-code');
-    expect(rows.join('\n')).not.toContain('shift+tab: plan mode');
-    expect(rows.join('\n')).not.toContain('00:04');
-    expect(rows.join('\n')).not.toContain('◆');
+    expect(footer.render(160)).toEqual([]);
   });
 
-  it('renders YOLO at the start of a second row beneath the model', () => {
-    const footer = new FooterComponent({ ...appState, permissionMode: 'yolo' });
-
-    const rendered = footer.render(160);
-    const rows = rendered.map(stripAnsi);
-
-    expect(rows).toHaveLength(2);
-    expect(rows[0]).toContain('DeepSeek V4 Flash');
-    expect(rows[0]).not.toContain('yolo');
-    expect(rows[1]).toBe('  yolo');
-    expect(rendered[1]).toBe(currentTheme.fg('error', '  yolo'));
-  });
-
-  it('marks estimated token speed without changing the single status row', () => {
-    const footer = new FooterComponent(appState);
-    footer.setTokenSpeed(75.7, true);
-
-    const rows = footer.render(160).map(stripAnsi);
-
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toContain('~75.7 t/s');
-  });
-
-  it('suppresses legacy activity only and retains validation errors', () => {
+  it('renders activity and validation rows but suppresses shared status rows', () => {
     const footer = new FooterComponent(appState);
     const activity = selectFooterViewModel(
       foldFooterEvents(createFooterState(), [
@@ -174,7 +137,7 @@ describe('FooterComponent', () => {
     );
     footer.setViewModel(activity);
 
-    expect(footer.render(120).map(stripAnsi)).toEqual(['  ▱▱▱▱▱▱▱▱ 0%']);
+    expect(footer.render(120).map(stripAnsi)).toEqual(['⠋ Waiting for response']);
 
     const validation = selectFooterViewModel(
       foldFooterEvents(createFooterState(), [
@@ -188,10 +151,7 @@ describe('FooterComponent', () => {
     );
     footer.setViewModel(validation);
 
-    expect(footer.render(120).map(stripAnsi)).toEqual([
-      'error: Fix the request',
-      '  ▱▱▱▱▱▱▱▱ 0%',
-    ]);
+    expect(footer.render(120).map(stripAnsi)).toEqual(['error: Fix the request']);
   });
 
   it('omits elapsed for an idle workflow after its completed turn', () => {
@@ -340,7 +300,7 @@ describe('FooterComponent', () => {
     footer.setTransientHint('Press Ctrl-C again to exit');
 
     const rows = footer.render(40).map(stripAnsi);
-    expect(rows).toEqual(['Press Ctrl-C again to exit', '']);
+    expect(rows).toEqual(['Press Ctrl-C again to exit']);
     expect(rows.every((row) => visibleWidth(row) <= 40)).toBe(true);
 
     footer.dispose();

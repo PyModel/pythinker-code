@@ -22,6 +22,7 @@ function status(overrides: Partial<StatusBarStatus> = {}): StatusBarStatus {
     planMode: true,
     fastMode: false,
     dynamicWorkflowMode: true,
+    extras: [],
     sessionKey: 'session-alpha',
     ...overrides,
   };
@@ -79,6 +80,30 @@ describe('StatusBarComponent', () => {
     } finally {
       chalk.level = previousLevel;
     }
+  });
+
+  it('renders extras in order between modes and cwd', () => {
+    const component = new StatusBarComponent();
+    component.update(status({ extras: ['6% · 55.6k/1M', 'main ± [PR#1]'] }));
+
+    const line = stripAnsi(component.render(160)[0] ?? '');
+
+    expect(line.indexOf('workflow')).toBeLessThan(line.indexOf('6% · 55.6k/1M'));
+    expect(line.indexOf('6% · 55.6k/1M')).toBeLessThan(line.indexOf('main ± [PR#1]'));
+    expect(line.indexOf('main ± [PR#1]')).toBeLessThan(line.indexOf('~/project'));
+  });
+
+  it('drops extras from the tail before the modes and cwd chips', () => {
+    const component = new StatusBarComponent();
+    component.update(status({ extras: ['first', 'second'] }));
+
+    const line = stripAnsi(component.render(62)[0] ?? '');
+
+    expect(line).toContain('Model Alpha');
+    expect(line).toContain('first');
+    expect(line).not.toContain('second');
+    expect(line).toContain('workflow');
+    expect(line).toContain('~/project');
   });
 });
 

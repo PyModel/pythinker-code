@@ -3119,10 +3119,10 @@ command = "vim"
       rootChildren.indexOf(driver.state.mcpStatusContainer) - 1,
     );
     expect(rootChildren.indexOf(driver.state.mcpStatusContainer)).toBe(
-      rootChildren.indexOf(driver.state.statusBarContainer) - 1,
-    );
-    expect(rootChildren.indexOf(driver.state.statusBarContainer)).toBe(
       rootChildren.indexOf(driver.state.editorContainer) - 1,
+    );
+    expect(rootChildren.indexOf(driver.state.editorContainer)).toBe(
+      rootChildren.indexOf(driver.state.statusBarContainer) - 1,
     );
     expect(transcript).toContain('main answer after btw');
     expect(transcript).not.toContain('side answer');
@@ -3947,7 +3947,7 @@ command = "vim"
     const transcript = stripSgr(renderTranscript(driver));
     expect(transcript).toContain('Dynamic Workflow');
     // The running row advances through the approved progress-glyph frames.
-    expect(transcript).toMatch(/001\s+[◜◝◞◟]\s+RUN\s+src\/a.ts/u);
+    expect(transcript).toMatch(/001\s+[◐◓◑◒]\s+RUN\s+src\/a.ts/u);
     expect(transcript).toMatch(/002\s+✓\s+DONE\s+src\/b.ts/u);
     expect(transcript).toMatch(/Orchestrating\s+1\/2 complete/u);
     expect(transcript).not.toContain('━');

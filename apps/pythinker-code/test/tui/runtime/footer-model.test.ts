@@ -11,6 +11,7 @@ import {
   foldFooterEvents,
   formatStatusRow,
   selectFooterViewModel as selectFooterViewModelBase,
+  selectStatusBarExtras,
   type FooterEvent,
   type FooterStatus,
   type FooterStatusRowViewModel,
@@ -299,6 +300,31 @@ describe('footer model', () => {
       ],
       modelName: 'DeepSeek V4 Flash',
     });
+  });
+
+  it('projects status-bar extras without the model and modes items', () => {
+    const state = foldFooterEvents(
+      createFooterState({
+        model: 'DeepSeek V4 Flash',
+        contextUsage: 0.05,
+        dynamicWorkflowMode: true,
+        git: workflowStatus().git,
+      }),
+      [
+        {
+          type: 'update.updated',
+          update: { version: '0.11.0', state: 'available', percent: null },
+        },
+      ],
+    );
+    const status = selectFooterViewModel(state, CLOCK_MS).rows.at(-1);
+    if (status?.kind !== 'status') throw new Error('Expected a status row');
+
+    expect(selectStatusBarExtras(state, CLOCK_MS, DEFAULT_STATUS_LINE_CONFIG)).toEqual(
+      status.items.filter(
+        (item) => item !== 'DeepSeek V4 Flash' && item !== 'workflow',
+      ),
+    );
   });
 
   it('hides model metadata and spend together when the model item is disabled', () => {

@@ -19,7 +19,10 @@ export type StatusBarStatus = Pick<
   | 'planMode'
   | 'fastMode'
   | 'dynamicWorkflowMode'
-> & { readonly sessionKey: string };
+> & {
+  readonly extras: readonly string[];
+  readonly sessionKey: string;
+};
 
 export class StatusBarComponent implements Component {
   private status: StatusBarStatus | undefined;
@@ -39,10 +42,16 @@ export class StatusBarComponent implements Component {
       )}`,
     );
     let modesChip = renderModesChip(status);
+    const extraChips = status.extras.map((extra) =>
+      chip(currentTheme.fg('textDim', extra)),
+    );
     let cwdChip: string | undefined = chip(
       currentTheme.fg('textDim', shortenCwd(status.cwd, status.homeDir)),
     );
-    const left = (): string => `${modelChip}${modesChip === undefined ? '' : ` ${modesChip}`}`;
+    const left = (): string =>
+      [modelChip, modesChip, ...extraChips]
+        .filter((item): item is string => item !== undefined)
+        .join(' ');
     const fullGapWidth =
       width - visibleWidth(left()) - (cwdChip === undefined ? 1 : visibleWidth(cwdChip) + 2);
 
@@ -58,6 +67,10 @@ export class StatusBarComponent implements Component {
       line = cwdChip === undefined ? `${left()} ${gap}` : `${left()} ${gap} ${cwdChip}`;
     } else {
       line = `${left()}${cwdChip === undefined ? '' : ` ${cwdChip}`}`;
+      while (visibleWidth(line) > width && extraChips.length > 0) {
+        extraChips.pop();
+        line = `${left()}${cwdChip === undefined ? '' : ` ${cwdChip}`}`;
+      }
       if (visibleWidth(line) > width && modesChip !== undefined) {
         modesChip = undefined;
         line = `${left()}${cwdChip === undefined ? '' : ` ${cwdChip}`}`;

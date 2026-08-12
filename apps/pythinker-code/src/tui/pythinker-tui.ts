@@ -141,6 +141,7 @@ import type { TuiPresentation } from './runtime/contracts';
 import {
   foldFooterEvents,
   selectFooterViewModel,
+  selectStatusBarExtras,
   type FooterActivity,
   type FooterEvent,
   type FooterGoal,
@@ -964,8 +965,8 @@ export class PythinkerTUI {
     ui.addChild(this.state.queueContainer);
     ui.addChild(this.state.btwPanelContainer);
     ui.addChild(this.state.mcpStatusContainer);
-    ui.addChild(this.state.statusBarContainer);
     ui.addChild(this.state.editorContainer);
+    ui.addChild(this.state.statusBarContainer);
     // Footer is mounted later (mountFooter), not here.
   }
 
@@ -1396,6 +1397,11 @@ export class PythinkerTUI {
     );
     this.state.statusBar.update({
       ...this.state.footerState.status,
+      extras: selectStatusBarExtras(
+        this.state.footerState,
+        Date.now(),
+        this.state.appState.statusLine,
+      ),
       sessionKey:
         this.state.appState.sessionTitle?.trim() ||
         this.state.appState.sessionId ||

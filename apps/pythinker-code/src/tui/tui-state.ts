@@ -114,8 +114,8 @@ export function createTUIState(options: PythinkerTUIOptions): TUIState {
       queueContainer,
       btwPanelContainer,
       mcpStatusContainer,
-      statusBarContainer,
       editorContainer,
+      statusBarContainer,
     ],
     footerWrap,
   );

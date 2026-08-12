@@ -32,10 +32,10 @@ export const DYNAMIC_WORKFLOW_RENDERING = {
   stateColumnWidth: 6,
   /** Cadence for the live aggregate-label shimmer. */
   aggregateShimmerFrameMs: BRAILLE_SPINNER_INTERVAL_MS,
-  /** Thin-arc frames for a running row; all rows share one clock. */
-  progressFrames: ['◜', '◝', '◞', '◟'],
-  /** Arc cadence in milliseconds. */
-  progressFrameMs: 120,
+  /** Half-circle frames for a running row; all rows share one clock. */
+  progressFrames: ['◐', '◓', '◑', '◒'],
+  /** Rotation cadence in milliseconds — deliberately slow; this is ambience, not progress. */
+  progressFrameMs: 300,
   /** Least room the task keeps before the detail may claim any of the row. */
   memberTaskMinWidth: 12,
   /** Share of the free row the task may take before the detail gets the rest. */

@@ -10,7 +10,6 @@ import chalk from 'chalk';
 
 import {
   createFooterState,
-  formatStatusRow,
   reduceFooterState,
   selectFooterViewModel,
   type FooterBackgroundCounts,
@@ -18,11 +17,9 @@ import {
   type FooterGoal,
   type FooterState,
   type FooterStatus,
-  type FooterStatusRowViewModel,
   type FooterViewModel,
   type FooterViewModelRow,
 } from '#/tui/runtime/footer/footer-model';
-import { currentTheme } from '#/tui/theme';
 import type { AppState } from '#/tui/types';
 import {
   createGitStatusCache,
@@ -275,7 +272,7 @@ export class FooterComponent implements Component {
           this.state.statusLine,
         );
     return viewModel.rows.flatMap((row) => {
-      if (row.kind === 'activity' || row.kind === 'composer') return [];
+      if (row.kind === 'composer' || row.kind === 'status') return [];
       return [truncateToWidth(renderLegacyRow(row), width, '…')];
     });
   }
@@ -376,16 +373,12 @@ export class FooterComponent implements Component {
   }
 }
 
-/** Keep the persistent status quiet; danger rows remain explicitly red. */
-function paintStatusRow(
-  row: string,
-  _modelName: string | null,
-  emphasis: FooterStatusRowViewModel['emphasis'],
+function renderLegacyRow(
+  row: Exclude<
+    FooterViewModelRow,
+    { readonly kind: 'composer' } | { readonly kind: 'status' }
+  >,
 ): string {
-  return currentTheme.fg(emphasis === 'danger' ? 'error' : 'textDim', row);
-}
-
-function renderLegacyRow(row: Exclude<FooterViewModelRow, { readonly kind: 'composer' }>): string {
   switch (row.kind) {
     case 'activity':
       return row.primary.length === 0
@@ -395,8 +388,6 @@ function renderLegacyRow(row: Exclude<FooterViewModelRow, { readonly kind: 'comp
           : `${row.primary}  ${row.indicators.join('  ')}`;
     case 'validation':
       return row.level === 'info' ? row.message : `${row.level}: ${row.message}`;
-    case 'status':
-      return paintStatusRow(formatStatusRow(row.items), row.modelName, row.emphasis);
   }
 }
 
