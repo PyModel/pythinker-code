@@ -300,8 +300,74 @@ export function parseToolCallArguments(
   try {
     return { success: true, data: JSON.parse(raw) as unknown };
   } catch (error) {
+    const repaired = repairInvalidStringEscapes(raw);
+    if (repaired !== null) {
+      try {
+        return { success: true, data: JSON.parse(repaired) as unknown };
+      } catch {
+        // Report the original parse error below.
+      }
+    }
     return { success: false, error: errorMessage(error) };
   }
+}
+
+/**
+ * Models sometimes emit invalid escapes (\* \_ \[) or unescaped quotes inside
+ * JSON string values. Rewrite invalid escapes to a literal backslash +
+ * character and quotes that cannot terminate the string to escaped quotes.
+ * A content quote followed by a structural character is ambiguous and still
+ * closes the string; if reparsing fails, the original parse error is reported.
+ * Returns null when nothing was repaired.
+ */
+function repairInvalidStringEscapes(raw: string): string | null {
+  let result = '';
+  let inString = false;
+  let repaired = false;
+
+  for (let index = 0; index < raw.length; index += 1) {
+    const character = raw[index];
+    if (character === '"') {
+      if (!inString) {
+        inString = true;
+        result += character;
+        continue;
+      }
+
+      let lookahead = index + 1;
+      while (lookahead < raw.length && ' \t\n\r'.includes(raw[lookahead]!)) lookahead += 1;
+      const next = raw[lookahead];
+      if (next === undefined || ',:}]'.includes(next)) {
+        inString = false;
+        result += character;
+      } else {
+        result += '\\"';
+        repaired = true;
+      }
+      continue;
+    }
+    if (!inString || character !== '\\') {
+      result += character;
+      continue;
+    }
+
+    const next = raw[index + 1];
+    if (next !== undefined && '"\\/bfnrt'.includes(next)) {
+      result += character + next;
+      index += 1;
+      continue;
+    }
+    if (next === 'u' && /^[0-9a-fA-F]{4}$/u.test(raw.slice(index + 2, index + 6))) {
+      result += raw.slice(index, index + 6);
+      index += 5;
+      continue;
+    }
+
+    result += '\\\\';
+    repaired = true;
+  }
+
+  return repaired ? result : null;
 }
 
 function validateExecutableToolArgs(tool: ExecutableTool, args: unknown): string | null {

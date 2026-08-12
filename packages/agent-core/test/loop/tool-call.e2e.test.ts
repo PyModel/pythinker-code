@@ -12,6 +12,7 @@ import type { ContentPart } from '@pythoughts/kosong';
 import { describe, expect, it } from 'vitest';
 
 import { createLoopEventDispatcher, runTurn as runTurnImpl, ToolAccesses } from '../../src/loop';
+import { parseToolCallArguments } from '../../src/loop/tool-call';
 import type { Logger } from '../../src/logging';
 import type {
   ExecutableTool,
@@ -46,6 +47,15 @@ import {
 function expectTextOutput(output: unknown): string {
   expect(typeof output).toBe('string');
   return output as string;
+}
+
+function parseErrorMessage(raw: string): string {
+  try {
+    JSON.parse(raw);
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+  throw new Error(`expected ${raw} to fail JSON.parse`);
 }
 
 async function contentBlockOutput(output: ContentPart[]): Promise<ContentPart[]> {
@@ -117,6 +127,71 @@ function makeTestLogger(): {
   };
   return { log, entries };
 }
+
+describe('parseToolCallArguments', () => {
+  it('repairs markdown-style escapes inside string values', () => {
+    const result = parseToolCallArguments('{"a":"bold \\*text\\* and \\_x"}');
+
+    expect(result).toEqual({ success: true, data: { a: 'bold \\*text\\* and \\_x' } });
+  });
+
+  it('leaves valid escapes unchanged', () => {
+    const raw = '{"a":"line\\nquote\\" uA slash\\\\/"}';
+
+    expect(parseToolCallArguments(raw)).toEqual({ success: true, data: JSON.parse(raw) });
+  });
+
+  it('repairs a bad unicode escape inside a string value', () => {
+    const result = parseToolCallArguments('{"a":"\\u12ZZ"}');
+
+    expect(result).toEqual({ success: true, data: { a: '\\u12ZZ' } });
+  });
+
+  it('repairs unescaped quotes inside items-array string values', () => {
+    const result = parseToolCallArguments(
+      '{"items":[{"prompt":"Review the "config" module carefully","i":"review config"}]}',
+    );
+
+    expect(result).toEqual({
+      success: true,
+      data: { items: [{ prompt: 'Review the "config" module carefully', i: 'review config' }] },
+    });
+  });
+
+  it('leaves a quote before a structural character unchanged', () => {
+    const raw = '{"a":"done","b":1}';
+
+    expect(parseToolCallArguments(raw)).toEqual({ success: true, data: JSON.parse(raw) });
+  });
+
+  it('repairs invalid escapes and unescaped quotes together', () => {
+    const result = parseToolCallArguments('{"a":"bold \\*x and a "quoted" word"}');
+
+    expect(result).toEqual({ success: true, data: { a: 'bold \\*x and a "quoted" word' } });
+  });
+
+  it('recognizes a string terminator separated from structure by whitespace', () => {
+    const result = parseToolCallArguments('{"a":"text" , "b":"x "y" z"}');
+
+    expect(result).toEqual({ success: true, data: { a: 'text', b: 'x "y" z' } });
+  });
+
+  it('returns the original parse error after quote repair still fails', () => {
+    const raw = String.raw`{"a":"bad \*","b":[}`;
+
+    expect(parseToolCallArguments(raw)).toEqual({ success: false, error: parseErrorMessage(raw) });
+  });
+
+  it('returns the original parse error for structurally broken input', () => {
+    const raw = '{"a":"truncated';
+
+    expect(parseToolCallArguments(raw)).toEqual({ success: false, error: parseErrorMessage(raw) });
+  });
+
+  it('does not repair a backslash outside a string', () => {
+    expect(parseToolCallArguments('{\\*"a":1}').success).toBe(false);
+  });
+});
 
 describe('runTurn — tool-call behaviour', () => {
   it('strips enabled intent before hooks, validation, execution, and persistence', async () => {
