@@ -12,6 +12,7 @@ import type { ContentPart } from '@pythoughts/kosong';
 import { describe, expect, it } from 'vitest';
 
 import { createLoopEventDispatcher, runTurn as runTurnImpl, ToolAccesses } from '../../src/loop';
+import { parseToolCallArguments } from '../../src/loop/tool-call';
 import type { Logger } from '../../src/logging';
 import type {
   ExecutableTool,
@@ -117,6 +118,42 @@ function makeTestLogger(): {
   };
   return { log, entries };
 }
+
+describe('parseToolCallArguments', () => {
+  it('repairs markdown-style escapes inside string values', () => {
+    const result = parseToolCallArguments('{"a":"bold \\*text\\* and \\_x"}');
+
+    expect(result).toEqual({ success: true, data: { a: 'bold \\*text\\* and \\_x' } });
+  });
+
+  it('leaves valid escapes unchanged', () => {
+    const raw = '{"a":"line\\nquote\\" uA slash\\\\/"}';
+
+    expect(parseToolCallArguments(raw)).toEqual({ success: true, data: JSON.parse(raw) });
+  });
+
+  it('repairs a bad unicode escape inside a string value', () => {
+    const result = parseToolCallArguments('{"a":"\\u12ZZ"}');
+
+    expect(result).toEqual({ success: true, data: { a: '\\u12ZZ' } });
+  });
+
+  it('returns the original parse error for structurally broken input', () => {
+    const raw = '{"a":"truncated';
+    let originalError = '';
+    try {
+      JSON.parse(raw);
+    } catch (error) {
+      originalError = error instanceof Error ? error.message : String(error);
+    }
+
+    expect(parseToolCallArguments(raw)).toEqual({ success: false, error: originalError });
+  });
+
+  it('does not repair a backslash outside a string', () => {
+    expect(parseToolCallArguments('{\\*"a":1}').success).toBe(false);
+  });
+});
 
 describe('runTurn — tool-call behaviour', () => {
   it('strips enabled intent before hooks, validation, execution, and persistence', async () => {

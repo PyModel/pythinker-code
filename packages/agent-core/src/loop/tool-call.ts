@@ -300,8 +300,59 @@ export function parseToolCallArguments(
   try {
     return { success: true, data: JSON.parse(raw) as unknown };
   } catch (error) {
+    const repaired = repairInvalidStringEscapes(raw);
+    if (repaired !== null) {
+      try {
+        return { success: true, data: JSON.parse(repaired) as unknown };
+      } catch {
+        // Report the original parse error below.
+      }
+    }
     return { success: false, error: errorMessage(error) };
   }
+}
+
+/**
+ * Models sometimes emit markdown-style escapes (\* \_ \[) inside JSON string
+ * values; strict JSON.parse rejects them while streaming previews tolerate
+ * them, so the call dies only at preflight. Rewrite ONLY invalid escapes to a
+ * literal backslash + character, leaving valid escapes and structure alone.
+ * Returns null when nothing was repaired.
+ */
+function repairInvalidStringEscapes(raw: string): string | null {
+  let result = '';
+  let inString = false;
+  let repaired = false;
+
+  for (let index = 0; index < raw.length; index += 1) {
+    const character = raw[index];
+    if (character === '"') {
+      inString = !inString;
+      result += character;
+      continue;
+    }
+    if (!inString || character !== '\\') {
+      result += character;
+      continue;
+    }
+
+    const next = raw[index + 1];
+    if (next !== undefined && '"\\/bfnrt'.includes(next)) {
+      result += character + next;
+      index += 1;
+      continue;
+    }
+    if (next === 'u' && /^[0-9a-fA-F]{4}$/.test(raw.slice(index + 2, index + 6))) {
+      result += raw.slice(index, index + 6);
+      index += 5;
+      continue;
+    }
+
+    result += '\\\\';
+    repaired = true;
+  }
+
+  return repaired ? result : null;
 }
 
 function validateExecutableToolArgs(tool: ExecutableTool, args: unknown): string | null {
