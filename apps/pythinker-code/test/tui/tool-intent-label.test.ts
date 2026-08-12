@@ -80,4 +80,32 @@ describe('tool intent thinking label', () => {
     });
     expect(formatThinkingSpinnerLabel(0)).toBe('thinking…');
   });
+
+  it('clears a stale intent when the next tool call has no intent', () => {
+    const driver = new PythinkerTUI({} as never, makeStartupInput());
+    const dispatch = (event: Event): void =>
+      driver.sessionEventHandler.handleEvent(event, vi.fn());
+
+    dispatch({
+      type: 'tool.call.started',
+      agentId: 'main',
+      sessionId: 'session-1',
+      turnId: 1,
+      toolCallId: 'call-1',
+      name: 'echo',
+      args: {},
+      intent: 'check failing test',
+    });
+    dispatch({
+      type: 'tool.call.started',
+      agentId: 'main',
+      sessionId: 'session-1',
+      turnId: 1,
+      toolCallId: 'call-2',
+      name: 'StructuredOutput',
+      args: {},
+    });
+
+    expect(formatThinkingSpinnerLabel(0)).toBe('thinking…');
+  });
 });

@@ -50,6 +50,18 @@ describe('tool intent schema injection', () => {
     expect(injected?.parameters['required']).toEqual([INTENT_FIELD, 'value']);
   });
 
+  it('does not duplicate intent in required', () => {
+    const tool = makeTool('test', {
+      type: 'object',
+      properties: { value: { type: 'string' } },
+      required: [INTENT_FIELD],
+    });
+
+    const [injected] = injectIntentIntoTools([tool]);
+
+    expect(injected?.parameters['required']).toEqual([INTENT_FIELD]);
+  });
+
   it('returns omitted tools unchanged', () => {
     const omittedTools = INTENT_OMIT_TOOLS as Set<string>;
     omittedTools.add('omitted');
@@ -102,6 +114,12 @@ describe('tool intent extraction', () => {
 describe('tool intent sanitization', () => {
   it('strips terminal escapes and controls and collapses whitespace', () => {
     expect(sanitizeIntent('\u001B[31mcheck\n\u0007 failing\u001B[0m')).toBe('check failing');
+  });
+
+  it('preserves visible text after an ST-terminated OSC hyperlink', () => {
+    expect(sanitizeIntent('\u001B]8;;https://example.com\u001B\\click\u001B]8;;\u001B\\ done')).toBe(
+      'click done',
+    );
   });
 
   it('caps the result by code points', () => {

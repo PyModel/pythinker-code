@@ -234,7 +234,7 @@ advisor = "reviewer-model"
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `micro_compaction` | `boolean` | `true` | Trim older large tool results from context while preserving recent conversation |
-| `tool_intent` | `boolean` | `true` | Ask the model to state a concise intent with each tool call and show it live in the working indicator; set `false` to return to the rotating label |
+| `tool_intent` | `boolean` | `true` | Ask the model to state a concise intent with eligible tool calls whose input schema accepts the injected field and show it live in the working indicator; set `false` to return to the rotating label |
 
 ## `services`
 

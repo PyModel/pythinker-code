@@ -6,7 +6,7 @@ export const INTENT_MAX_LENGTH = 120;
 export const INTENT_OMIT_TOOLS: ReadonlySet<string> = new Set(['StructuredOutput']);
 
 // oxlint-disable-next-line no-control-regex -- model-authored terminal text must not retain escape sequences.
-const ANSI_ESCAPE = /\u001B(?:\[[0-?]*[ -/]*[@-~]|\][^\u0007]*(?:\u0007|$))/gu;
+const ANSI_ESCAPE = /\u001B(?:\[[0-?]*[ -/]*[@-~]|\][^\u0007\u001B]*(?:\u0007|\u001B\\|$))/gu;
 const CONTROL_CHARACTER = /\p{Cc}/gu;
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
@@ -35,7 +35,7 @@ export function injectIntentIntoTools(tools: readonly ExecutableTool[]): Executa
           [INTENT_FIELD]: { type: 'string', description: 'concise intent' },
           ...properties,
         },
-        required: [INTENT_FIELD, ...required],
+        required: [INTENT_FIELD, ...required.filter((entry) => entry !== INTENT_FIELD)],
       },
       resolveExecution: tool.resolveExecution.bind(tool),
     };

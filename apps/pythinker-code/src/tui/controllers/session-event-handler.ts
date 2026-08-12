@@ -646,7 +646,7 @@ export class SessionEventHandler {
     ) {
       return;
     }
-    if (event.intent !== undefined) setLiveIntent(event.intent);
+    setLiveIntent(event.intent);
     const { streamingUI } = this.host;
     streamingUI.flushNow();
     const { turnId, step } = streamingUI.getTurnContext();
@@ -682,7 +682,7 @@ export class SessionEventHandler {
     streamingUI.accumulateToolCallDelta(event.toolCallId, event.name, event.argumentsPart);
     const preview = streamingUI.getStreamingToolCallPreview(event.toolCallId);
     const intent = preview?.args['i'];
-    if (typeof intent === 'string') setLiveIntent(intent);
+    setLiveIntent(typeof intent === 'string' ? intent : undefined);
     if (
       preview !== undefined &&
       preview.name === 'DynamicWorkflow'
