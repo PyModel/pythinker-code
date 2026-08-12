@@ -220,7 +220,7 @@ describe('updateActivityPane terminal progress', () => {
       expect(state.activityContainer.children).toHaveLength(0);
       expect(vi.getTimerCount()).toBe(timersBeforeMissionControl);
       const output = strip(missionControl.render(100).join('\n'));
-      expect(output).toMatch(/[◐◓◑◒] Orchestrating/);
+      expect(output).toMatch(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] Orchestrating/);
       expect(output).not.toContain(formatThinkingSpinnerLabel());
 
       state.activitySpinner?.instance.stop();
@@ -369,7 +369,9 @@ describe('updateActivityPane terminal progress', () => {
       state.livePane = { ...state.livePane, mode: 'tool' };
       driver.updateActivityPane();
       const missionControl = startDynamicWorkflow(driver, state);
-      expect(strip(missionControl.render(100).join('\n'))).toMatch(/[◐◓◑◒] Orchestrating/);
+      expect(strip(missionControl.render(100).join('\n'))).toMatch(
+        /[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] Orchestrating/,
+      );
 
       cleanup(driver);
       driver.updateActivityPane();

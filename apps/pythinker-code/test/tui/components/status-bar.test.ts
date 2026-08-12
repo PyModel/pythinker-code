@@ -105,6 +105,22 @@ describe('StatusBarComponent', () => {
     expect(line).toContain('workflow');
     expect(line).toContain('~/project');
   });
+
+  it.each([
+    [
+      '/Users/test/Projects/active/pythinker-code-tsc/apps/pythinker-code',
+      '/Users/test',
+      '…/apps/pythinker-code',
+    ],
+    ['/Users/test/Projects/active', '/Users/test', '~/Projects/active'],
+    ['/Users/test', '/Users/test', '~'],
+    ['/a/b/c/d', '/Users/test', '…/c/d'],
+  ])('shortens cwd %s to %s', (cwd, homeDir, expected) => {
+    const component = new StatusBarComponent();
+    component.update(status({ cwd, homeDir }));
+
+    expect(stripAnsi(component.render(240)[0] ?? '')).toContain(expected);
+  });
 });
 
 describe('shimmerText', () => {

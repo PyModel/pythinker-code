@@ -102,7 +102,17 @@ function renderModesChip(status: StatusBarStatus): string | undefined {
 }
 
 function shortenCwd(cwd: string, homeDir: string | null): string {
-  if (homeDir === null || homeDir.length === 0) return cwd;
-  if (cwd === homeDir) return '~';
-  return cwd.startsWith(`${homeDir}${sep}`) ? `~${cwd.slice(homeDir.length)}` : cwd;
+  const path = homeDir !== null && homeDir.length > 0
+    ? cwd === homeDir
+      ? '~'
+      : cwd.startsWith(`${homeDir}${sep}`)
+        ? `~${cwd.slice(homeDir.length)}`
+        : cwd
+    : cwd;
+  const segments = path.startsWith(`~${sep}`)
+    ? path.slice(2).split(sep)
+    : path.startsWith(sep)
+      ? path.slice(1).split(sep)
+      : [];
+  return segments.length > 2 ? `…${sep}${segments.slice(-2).join(sep)}` : path;
 }

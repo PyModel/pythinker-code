@@ -302,7 +302,7 @@ describe('footer model', () => {
     });
   });
 
-  it('projects status-bar extras without the model and modes items', () => {
+  it('projects status-bar extras in priority order without the model and modes items', () => {
     const state = foldFooterEvents(
       createFooterState({
         model: 'DeepSeek V4 Flash',
@@ -317,13 +317,8 @@ describe('footer model', () => {
         },
       ],
     );
-    const status = selectFooterViewModel(state, CLOCK_MS).rows.at(-1);
-    if (status?.kind !== 'status') throw new Error('Expected a status row');
-
     expect(selectStatusBarExtras(state, CLOCK_MS, DEFAULT_STATUS_LINE_CONFIG)).toEqual(
-      status.items.filter(
-        (item) => item !== 'DeepSeek V4 Flash' && item !== 'workflow',
-      ),
+      ['▱▱▱▱▱▱▱▱ 5%', 'main ↑15', '↑ v0.11.0'],
     );
   });
 

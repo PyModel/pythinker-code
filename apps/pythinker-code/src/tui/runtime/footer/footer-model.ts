@@ -562,11 +562,11 @@ export function selectStatusBarExtras(
 ): string[] {
   const parts = selectStatusItemParts(state, clockMs, statusLine);
   const items = [
+    parts.context,
+    parts.git,
     parts.update,
     parts.speed,
     parts.spend,
-    parts.context,
-    parts.git,
     parts.elapsed,
     parts.goal,
   ].filter((item): item is string => item !== null);

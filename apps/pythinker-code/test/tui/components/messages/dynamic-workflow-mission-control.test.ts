@@ -356,7 +356,7 @@ describe('DynamicWorkflowMissionControlComponent', () => {
     expect(vi.getTimerCount()).toBe(timerCount);
   });
 
-  it('shimmers Orchestrating without changing its text or creating a timer', () => {
+  it('animates the braille header and shimmers Orchestrating without creating a timer', () => {
     vi.useFakeTimers();
     vi.setSystemTime(0);
     const previousLevel = chalk.level;
@@ -373,8 +373,11 @@ describe('DynamicWorkflowMissionControlComponent', () => {
       vi.setSystemTime(BRAILLE_SPINNER_INTERVAL_MS);
       const after = aggregateLine(component.render(100).join('\n'));
 
-      expect(strip(after)).toBe(strip(before));
+      expect(strip(after).replace(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/u, '')).toBe(
+        strip(before).replace(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/u, ''),
+      );
       expect(after).not.toBe(before);
+      expect(strip(after)).toMatch(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] Orchestrating/);
       expect(strip(after)).toContain('Orchestrating');
       expect(vi.getTimerCount()).toBe(timerCount);
     } finally {
@@ -671,8 +674,8 @@ describe('DynamicWorkflowMissionControlComponent', () => {
         vi.setSystemTime(time);
         const line = component.render(100).find((candidate) => strip(candidate).includes('001'));
         expect(line).toContain(chalk.hex(darkColors.primary)(glyph));
-        expect(aggregateLine(component.render(100).join('\n'))).toContain(
-          chalk.hex(darkColors.primary)(glyph),
+        expect(strip(aggregateLine(component.render(100).join('\n')))).toMatch(
+          /[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] Orchestrating/,
         );
       }
 

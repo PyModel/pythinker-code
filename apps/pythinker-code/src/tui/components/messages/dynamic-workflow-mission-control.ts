@@ -1,6 +1,10 @@
 import { truncateToWidth, visibleWidth, type Component } from '@earendil-works/pi-tui';
 
-import { DYNAMIC_WORKFLOW_RENDERING } from '#/tui/constant/rendering';
+import {
+  BRAILLE_SPINNER_FRAMES,
+  BRAILLE_SPINNER_INTERVAL_MS,
+  DYNAMIC_WORKFLOW_RENDERING,
+} from '#/tui/constant/rendering';
 import { currentTheme } from '#/tui/theme';
 import { shimmerText } from '#/tui/utils/shimmer';
 
@@ -509,7 +513,7 @@ export class DynamicWorkflowMissionControlComponent implements Component {
     const terminal = isTerminalRequestPhase(this.model.requestPhase);
     const frame = Math.floor(
       Math.max(0, nowMs - this.model.startedAtMs) /
-        DYNAMIC_WORKFLOW_RENDERING.progressFrameMs,
+        BRAILLE_SPINNER_INTERVAL_MS,
     );
     const loader = terminal
       ? currentTheme.fg(requestPhaseColor(this.model.requestPhase), requestPhaseSymbol(this.model.requestPhase))
@@ -517,9 +521,7 @@ export class DynamicWorkflowMissionControlComponent implements Component {
         ? currentTheme.fg('primary', '●')
         : currentTheme.fg(
             'primary',
-            DYNAMIC_WORKFLOW_RENDERING.progressFrames[
-              frame % DYNAMIC_WORKFLOW_RENDERING.progressFrames.length
-            ] ?? DYNAMIC_WORKFLOW_RENDERING.progressFrames[0],
+            BRAILLE_SPINNER_FRAMES[frame % BRAILLE_SPINNER_FRAMES.length]!,
           );
     const aggregateMembers = this.aggregateMembers();
     // All spawned agents are done but the tool result has not arrived yet:
