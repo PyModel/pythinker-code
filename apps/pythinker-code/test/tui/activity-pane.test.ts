@@ -220,7 +220,7 @@ describe('updateActivityPane terminal progress', () => {
       expect(state.activityContainer.children).toHaveLength(0);
       expect(vi.getTimerCount()).toBe(timersBeforeMissionControl);
       const output = strip(missionControl.render(100).join('\n'));
-      expect(output).toMatch(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] Orchestrating/);
+      expect(output).toMatch(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] Orchestrating/u);
       expect(output).not.toContain(formatThinkingSpinnerLabel());
 
       state.activitySpinner?.instance.stop();
@@ -289,6 +289,7 @@ describe('updateActivityPane terminal progress', () => {
       const output = strip(missionControl.render(100).join('\n'));
       expect(output).toContain('✓ Completed');
       expect(output).not.toMatch(/[◐◓◑◒] Orchestrating/);
+      for (const frame of BRAILLE_SPINNER_FRAMES) expect(output).not.toContain(frame);
 
       state.activitySpinner?.instance.stop();
       driver.sessionEventHandler.clearDynamicWorkflowMissionControls();
@@ -370,7 +371,7 @@ describe('updateActivityPane terminal progress', () => {
       driver.updateActivityPane();
       const missionControl = startDynamicWorkflow(driver, state);
       expect(strip(missionControl.render(100).join('\n'))).toMatch(
-        /[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] Orchestrating/,
+        /[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] Orchestrating/u,
       );
 
       cleanup(driver);
@@ -379,6 +380,7 @@ describe('updateActivityPane terminal progress', () => {
       const output = strip(missionControl.render(100).join('\n'));
       expect(output).toContain('– Cancelled');
       expect(output).not.toMatch(/[◐◓◑◒] Orchestrating/);
+      for (const frame of BRAILLE_SPINNER_FRAMES) expect(output).not.toContain(frame);
       state.activitySpinner?.instance.stop();
     } finally {
       vi.useRealTimers();

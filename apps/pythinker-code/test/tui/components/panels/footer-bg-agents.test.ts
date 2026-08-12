@@ -53,16 +53,16 @@ describe('FooterComponent — background task / agent badges', () => {
     const footer = new FooterComponent(baseState());
     footer.setBackgroundCounts({ bashTasks: 1, agentTasks: 0 });
     const out = backgroundExtras(1, 0);
-    expect(out).toMatch(/\[1 task running\]/);
-    expect(out).not.toMatch(/agents? running/);
+    expect(out).toMatch(/\[1 task running\]/u);
+    expect(out).not.toMatch(/agents? running/u);
   });
 
   it('renders the agent badge alone when only agent tasks are running', () => {
     const footer = new FooterComponent(baseState());
     footer.setBackgroundCounts({ bashTasks: 0, agentTasks: 1 });
     const out = backgroundExtras(0, 1);
-    expect(out).toMatch(/\[1 agent running\]/);
-    expect(out).not.toMatch(/tasks? running/);
+    expect(out).toMatch(/\[1 agent running\]/u);
+    expect(out).not.toMatch(/tasks? running/u);
   });
 
   it('renders both badges side by side when both are non-zero', () => {

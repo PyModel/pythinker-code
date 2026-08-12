@@ -13,6 +13,12 @@ function stripAnsi(text: string): string {
   return text.replaceAll(/\u001B\[[0-9;]*m/gu, '');
 }
 
+function renderRow(component: StatusBarComponent, width: number): string {
+  const rows = component.render(width);
+  expect(rows.length).toBeGreaterThan(0);
+  return rows[0] as string;
+}
+
 function status(overrides: Partial<StatusBarStatus> = {}): StatusBarStatus {
   return {
     model: 'Model Alpha',
@@ -40,14 +46,14 @@ describe('StatusBarComponent', () => {
     const lines = component.render(80);
 
     expect(lines).toHaveLength(1);
-    expect(stripAnsi(lines[0] ?? '')).toContain('Model Alpha · high');
+    expect(stripAnsi(lines[0] as string)).toContain('Model Alpha · high');
   });
 
   it('omits the effort suffix when thinking is off', () => {
     const component = new StatusBarComponent();
     component.update(status({ thinkingLevel: 'off' }));
 
-    const line = stripAnsi(component.render(80)[0] ?? '');
+    const line = stripAnsi(renderRow(component, 80));
 
     expect(line).toContain('Model Alpha');
     expect(line).not.toContain('· off');
@@ -58,8 +64,7 @@ describe('StatusBarComponent', () => {
     component.update(status({
       statusLine: { ...DEFAULT_STATUS_LINE_CONFIG, showModel: false },
     }));
-
-    expect(stripAnsi(component.render(80)[0] ?? '')).not.toContain('Model Alpha');
+    expect(stripAnsi(renderRow(component, 80))).not.toContain('Model Alpha');
   });
 
   it('hides the modes chip when showModes is false', () => {
@@ -67,8 +72,7 @@ describe('StatusBarComponent', () => {
     component.update(status({
       statusLine: { ...DEFAULT_STATUS_LINE_CONFIG, showModes: false },
     }));
-
-    const line = stripAnsi(component.render(80)[0] ?? '');
+    const line = stripAnsi(renderRow(component, 80));
 
     expect(line).not.toContain('plan');
     expect(line).not.toContain('auto');
@@ -81,7 +85,7 @@ describe('StatusBarComponent', () => {
       statusLine: { ...DEFAULT_STATUS_LINE_CONFIG, showEffort: false },
     }));
 
-    const line = stripAnsi(component.render(80)[0] ?? '');
+    const line = stripAnsi(renderRow(component, 80));
 
     expect(line).toContain('Model Alpha');
     expect(line).not.toContain('· high');
@@ -97,7 +101,7 @@ describe('StatusBarComponent', () => {
       const component = new StatusBarComponent();
       component.update(status({ permissionMode: 'yolo' }));
 
-      expect(component.render(80)[0] ?? '').toContain(chalk.hex(darkColors.error)('yolo'));
+      expect(renderRow(component, 80)).toContain(chalk.hex(darkColors.error)('yolo'));
     } finally {
       chalk.level = previousLevel;
       currentTheme.setPalette(previousPalette);
@@ -108,10 +112,10 @@ describe('StatusBarComponent', () => {
     const component = new StatusBarComponent();
     component.update(status());
 
-    const wide = stripAnsi(component.render(60)[0] ?? '');
-    const withoutGap = stripAnsi(component.render(53)[0] ?? '');
-    const withoutModes = stripAnsi(component.render(45)[0] ?? '');
-    const modelOnly = stripAnsi(component.render(25)[0] ?? '');
+    const wide = stripAnsi(renderRow(component, 60));
+    const withoutGap = stripAnsi(renderRow(component, 53));
+    const withoutModes = stripAnsi(renderRow(component, 45));
+    const modelOnly = stripAnsi(renderRow(component, 25));
 
     expect(wide).toContain('─');
     expect(withoutGap).not.toContain('─');
@@ -141,7 +145,7 @@ describe('StatusBarComponent', () => {
     component.update(status({ fastMode: true }));
 
     try {
-      expect(stripAnsi(component.render(80)[0] ?? '')).toContain('↯ fast');
+      expect(stripAnsi(renderRow(component, 80))).toContain('↯ fast');
     } finally {
       chalk.level = previousLevel;
     }
@@ -155,7 +159,7 @@ describe('StatusBarComponent', () => {
       tokenSpeedEstimated: true,
     }));
 
-    const modelChip = stripAnsi(component.render(120)[0] ?? '').split('  ')[0]?.trim();
+    const modelChip = stripAnsi(renderRow(component, 120)).split('  ')[0]?.trim();
 
     expect(modelChip).toBe('Model Alpha · high · ↯ fast · ~75.7 t/s');
   });
@@ -167,7 +171,7 @@ describe('StatusBarComponent', () => {
       statusLine: { ...DEFAULT_STATUS_LINE_CONFIG, showTokenSpeed: false },
     }));
 
-    const modelChip = stripAnsi(component.render(120)[0] ?? '').split('  ')[0]?.trim();
+    const modelChip = stripAnsi(renderRow(component, 120)).split('  ')[0]?.trim();
 
     expect(modelChip).toBe('Model Alpha · high');
   });
@@ -176,7 +180,7 @@ describe('StatusBarComponent', () => {
     const component = new StatusBarComponent();
     component.update(status({ fastMode: true, tokenSpeed: null }));
 
-    const modelChip = stripAnsi(component.render(120)[0] ?? '').split('  ')[0]?.trim();
+    const modelChip = stripAnsi(renderRow(component, 120)).split('  ')[0]?.trim();
 
     expect(modelChip).toBe('Model Alpha · high · ↯ fast');
   });
@@ -185,7 +189,7 @@ describe('StatusBarComponent', () => {
     const component = new StatusBarComponent();
     component.update(status({ extras: ['6% · 55.6k/1M', 'main ± [PR#1]'] }));
 
-    const line = stripAnsi(component.render(160)[0] ?? '');
+    const line = stripAnsi(renderRow(component, 160));
 
     expect(line.indexOf('workflow')).toBeLessThan(line.indexOf('6% · 55.6k/1M'));
     expect(line.indexOf('6% · 55.6k/1M')).toBeLessThan(line.indexOf('main ± [PR#1]'));
@@ -196,7 +200,7 @@ describe('StatusBarComponent', () => {
     const component = new StatusBarComponent();
     component.update(status({ extras: ['first', 'second'] }));
 
-    const line = stripAnsi(component.render(62)[0] ?? '');
+    const line = stripAnsi(renderRow(component, 62));
 
     expect(line).toContain('Model Alpha');
     expect(line).toContain('first');
@@ -218,6 +222,6 @@ describe('StatusBarComponent', () => {
     const component = new StatusBarComponent();
     component.update(status({ cwd, homeDir }));
 
-    expect(stripAnsi(component.render(240)[0] ?? '')).toContain(expected);
+    expect(stripAnsi(renderRow(component, 240))).toContain(expected);
   });
 });

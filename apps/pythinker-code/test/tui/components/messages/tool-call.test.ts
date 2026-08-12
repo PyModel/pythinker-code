@@ -60,7 +60,6 @@ describe('ToolCallComponent', () => {
       },
       undefined,
     );
-
     try {
       const pending = component.render(40);
       const pendingBody = pending.slice(1);
@@ -96,15 +95,16 @@ describe('ToolCallComponent', () => {
       },
       undefined,
     );
-
     try {
       const backgrounds = [
         '\u001B[48;2;29;33;41m',
         '\u001B[48;2;20;23;27m',
         '\u001B[48;2;41;29;29m',
       ];
+      const lines = component.render(40);
+      expect(lines.length).toBeGreaterThan(0);
       expect(
-        component.render(40).every((line) => backgrounds.every((code) => !line.includes(code))),
+        lines.every((line) => backgrounds.every((code) => !line.includes(code))),
       ).toBe(true);
     } finally {
       chalk.level = previousLevel;
