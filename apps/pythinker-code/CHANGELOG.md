@@ -1,5 +1,21 @@
 # @pythoughts/pythinker-code
 
+## 0.16.0
+
+### Minor Changes
+
+- [#59](https://github.com/Pythoughts-labs/pythinker-code/pull/59) [`6999b68`](https://github.com/Pythoughts-labs/pythinker-code/commit/6999b685ff63fb275a179be61f47e8b5cb727ba5) - Add an opt-in advisor: a second model reviews the conversation after a completed user turn unless another review is already running, and its notes appear as an `<advisory>` block in the agent's next turn; enable with `[advisor] enabled = true` plus an advisor model (the `advisor` model role or `[advisor] model`), and it runs only when the advisor shares the session model's provider.
+
+- [#56](https://github.com/Pythoughts-labs/pythinker-code/pull/56) [`b71f094`](https://github.com/Pythoughts-labs/pythinker-code/commit/b71f09460825feb63bdf1dbb029c12a34e140598) - Add model roles: lock a model alias to the small, implementer, or advisor slot with `/model <role>`, list assignments with `/model roles`, and reference roles as `@small`, `@implementer`, or `@advisor` wherever a subagent model can be set; an assigned implementer role becomes the default model for subagents.
+
+- [#57](https://github.com/Pythoughts-labs/pythinker-code/pull/57) [`99c427c`](https://github.com/Pythoughts-labs/pythinker-code/commit/99c427ce686a2c7dca183cb60235f8ecc3fd393f) - Show what the agent is doing in the working indicator: eligible tool calls whose input schema accepts the injected field now carry a short model-written intent, streamed live into the spinner label (for example "check failing test…") instead of a rotating placeholder; disable with `PYTHINKER_CODE_EXPERIMENTAL_TOOL_INTENT=0`.
+
+- [#58](https://github.com/Pythoughts-labs/pythinker-code/pull/58) [`065bf2e`](https://github.com/Pythoughts-labs/pythinker-code/commit/065bf2e9b90cfe9f5ec103132996baae73daaf26) - Redesign core TUI surfaces: tool cards get state-tinted backgrounds with three new theme tokens, a status bar with a per-session accent color appears between the input box and footer, and the prompt box uses a neutral border while permission mode appears in the status bar. The working-label shimmer uses a calmer constant-velocity sweep with alternating mission-control highlights.
+
+### Patch Changes
+
+- [#62](https://github.com/Pythoughts-labs/pythinker-code/pull/62) [`7fc36fd`](https://github.com/Pythoughts-labs/pythinker-code/commit/7fc36fdc4c5694812fce65c57151cd14c182b8fc) - Repair invalid escape sequences and unescaped quotes in model-written tool arguments instead of failing the tool call.
+
 ## 0.15.0
 
 ### Minor Changes
