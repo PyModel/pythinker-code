@@ -143,7 +143,6 @@ export class SessionAdvisor {
         '</advisory>',
       ].join('\n');
       this.#pendingAdvisory = block;
-      this.#deliverPending();
     } finally {
       if (id !== undefined) this.session.agents.delete(id);
     }

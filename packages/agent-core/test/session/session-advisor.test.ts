@@ -72,6 +72,64 @@ describe('SessionAdvisor', () => {
     );
   });
 
+  it('waits until the next turn when a review finishes mid-turn', async () => {
+    const fixture = await createFixture({ advisorAlias: 'advisor' });
+    const reviewGate = createDeferred<void>();
+    const activeTurnGate = createDeferred<void>();
+    const generate = fixture.main.rawGenerate;
+    let generateCall = 0;
+    vi.spyOn(fixture.main, 'rawGenerate').mockImplementation(async (...args) => {
+      generateCall += 1;
+      const currentCall = generateCall;
+      const result = await generate(...args);
+      if (currentCall === 2) await reviewGate.promise;
+      if (currentCall === 3) await activeTurnGate.promise;
+      return result;
+    });
+    const steer = vi.spyOn(fixture.main.turn, 'steer').mockReturnValue(null);
+    queueReview(fixture.scripted, 'Check the active turn.', 'concern');
+
+    await runMainTurn(fixture.main, { kind: 'user' });
+
+    queueReview(fixture.scripted);
+    const turnId = fixture.main.turn.prompt(
+      [{ type: 'text', text: 'Continue.' }],
+      { kind: 'user' },
+    );
+    expect(turnId).not.toBeNull();
+    const activeTurn = fixture.main.turn.waitForCurrentTurn();
+    await vi.waitFor(() => {
+      expect(fixture.scripted.calls).toHaveLength(3);
+      expect(fixture.main.turn.hasActiveTurn).toBe(true);
+    });
+
+    reviewGate.resolve();
+    await waitForAdvisor(fixture);
+    const callsWhileActive = steer.mock.calls.length;
+
+    activeTurnGate.resolve();
+    await activeTurn;
+    await vi.waitFor(() => {
+      expect(fixture.scripted.calls).toHaveLength(4);
+      expect(fixture.session.agents.size).toBe(1);
+    });
+
+    fixture.scripted.mockNextResponse({ type: 'text', text: 'Following turn.' });
+    await runMainTurn(fixture.main, { kind: 'system_trigger', name: 'follow-up' });
+
+    expect(callsWhileActive).toBe(0);
+    expect(steer).toHaveBeenCalledOnce();
+    expect(steer).toHaveBeenCalledWith(
+      [
+        {
+          type: 'text',
+          text: expect.stringContaining('- [concern] Check the active turn.'),
+        },
+      ],
+      { kind: 'hook_result', event: 'advisor' },
+    );
+  });
+
   it('contains errors from delivering notes at turn start', async () => {
     const fixture = await createFixture({ advisorAlias: 'advisor' });
     const error = new Error('steer failed');

@@ -177,7 +177,7 @@ Inside the TUI, `/model <role>` assigns a role from the model picker, `/model <r
 
 ## `advisor`
 
-`advisor` enables a second-opinion reviewer: after a completed user turn, a second model reviews the conversation and returns notes. Notes are delivered into the next turn, at its start when the review has already finished or as soon as the review completes, which may be after that turn is under way.
+`advisor` enables a second-opinion reviewer: after a completed user turn, a second model reviews the conversation and returns notes. Notes are delivered at the start of the next turn after the review finishes, so a review may lag a turn.
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
