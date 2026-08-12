@@ -76,7 +76,6 @@ Fields in the config file fall into two categories: **top-level scalars** that d
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `default_model` | `string` | — | Default model alias; must be defined in `models` |
-| `model_roles` | `table` | — | Model role assignments → [`model_roles`](#model_roles) |
 | `default_thinking` | `boolean` | `false` | Whether new sessions enable Thinking (deep reasoning) mode by default; can be toggled from the model menu inside a session. Even when set to `true`, `[thinking].mode = "off"` will still force Thinking off |
 | `default_permission_mode` | `string` | `manual` | Default permission mode for new sessions; one of `manual` (prompt each time), `yolo` (auto-approve tool actions, but the agent may still ask questions), or `auto` (fully autonomous — the agent decides everything without asking, except a `DynamicWorkflow` call, which still shows its plan for approval) |
 | `default_plan_mode` | `boolean` | `false` | Whether new sessions start in Plan mode (produce a plan before executing) by default |
@@ -87,6 +86,8 @@ Fields in the config file fall into two categories: **top-level scalars** that d
 | `workflow_size_guideline` | `string` | `medium` | Advisory subagent-count target for one Dynamic Workflow; one of `small` (about 5), `medium` (about 15), `large` (about 40), or `unrestricted` (no target). Exceeding it emits a warning rather than blocking the run; the `PYTHINKER_CODE_WORKFLOW_SIZE_GUIDELINE` environment variable overrides it |
 | `providers` | `table` | `{}` | API provider table → [`providers`](#providers) |
 | `models` | `table` | — | Model alias table → [`models`](#models) |
+| `model_roles` | `table` | — | Model role assignments → [`model_roles`](#model_roles) |
+| `advisor` | `table` | — | Second-opinion reviewer → [`advisor`](#advisor) |
 | `thinking` | `table` | — | Default parameters for Thinking mode → [`thinking`](#thinking) |
 | `loop_control` | `table` | — | Agent loop control parameters → [`loop_control`](#loop_control) |
 | `background` | `table` | — | Background task runtime parameters → [`background`](#background) |
@@ -95,7 +96,7 @@ Fields in the config file fall into two categories: **top-level scalars** that d
 | `permission` | `table` | — | Initial permission rules → [`permission`](#permission) |
 | `hooks` | `array<table>` | — | Lifecycle hooks; see [Hooks](../customization/hooks.md) |
 
-The following sections cover each of the nested tables in turn: `providers`, `models`, `model_roles`, `thinking`, `loop_control`, `background`, `experimental`, `services`, and `permission`.
+The following sections cover each of the nested tables in turn: `providers`, `models`, `model_roles`, `advisor`, `thinking`, `loop_control`, `background`, `experimental`, `services`, and `permission`.
 
 ## `providers`
 
@@ -173,6 +174,28 @@ Roles take effect in two places:
 - When `implementer` is assigned, it becomes the default model for subagents that do not set an explicit or profile model. Subagents of those subagents inherit the same default.
 
 Inside the TUI, `/model <role>` assigns a role from the model picker, `/model <role> clear` (or `/model <role> none`) removes it, and `/model roles` lists the current assignments. See [Slash commands](../reference/slash-commands.md).
+
+## `advisor`
+
+`advisor` enables a second-opinion reviewer: after a completed user turn, a second model reviews the conversation and returns notes. Notes are delivered at the start of the next turn after the review finishes, so a review may lag a turn.
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `enabled` | `boolean` | `false` | Turn the advisor on. It also needs a model: set `model` here or lock one to the `advisor` role |
+| `model` | `string` | — | Model alias for the advisor; when unset, the `advisor` entry in `model_roles` is used |
+| `instructions` | `string` | — | Extra instructions appended to the advisor's system prompt |
+
+The advisor sends the session conversation to the advisor model. As a safety default, it runs only when the advisor model uses the same provider entry as the session model; a cross-provider advisor stays inactive and logs one warning.
+
+Reviews run only for user-started turns, and a turn is skipped when a review is already running. The advisor's token usage is not yet included in usage reporting.
+
+```toml
+[advisor]
+enabled = true
+
+[model_roles]
+advisor = "reviewer-model"
+```
 
 ## `thinking`
 

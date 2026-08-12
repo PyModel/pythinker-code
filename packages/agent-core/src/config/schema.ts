@@ -57,6 +57,14 @@ export const ThinkingConfigSchema = z.object({
 
 export type ThinkingConfig = z.infer<typeof ThinkingConfigSchema>;
 
+export const AdvisorConfigSchema = z.object({
+  enabled: z.boolean().optional(),
+  model: z.string().optional(),
+  instructions: z.string().optional(),
+});
+
+export type AdvisorConfig = z.infer<typeof AdvisorConfigSchema>;
+
 export const PermissionModeSchema = z.enum(['yolo', 'manual', 'auto']);
 
 export const WorkflowSizeGuidelineSchema = z.enum(['small', 'medium', 'large', 'unrestricted']);
@@ -283,6 +291,7 @@ export const PythinkerConfigSchema = z.object({
   outputStyle: z.string().trim().min(1).optional(),
   models: z.record(z.string(), ModelAliasSchema).optional(),
   thinking: ThinkingConfigSchema.optional(),
+  advisor: AdvisorConfigSchema.optional(),
   planMode: z.boolean().optional(),
   yolo: z.boolean().optional(),
   defaultThinking: z.boolean().optional(),
@@ -310,6 +319,7 @@ export type PythinkerConfig = z.infer<typeof PythinkerConfigSchema>;
 const ProviderConfigPatchSchema = ProviderConfigFieldsSchema.partial();
 const ModelAliasPatchSchema = ModelAliasSchema.partial();
 const ThinkingConfigPatchSchema = ThinkingConfigSchema.partial();
+const AdvisorConfigPatchSchema = AdvisorConfigSchema.partial();
 const PermissionConfigPatchSchema = PermissionConfigSchema.partial();
 const LoopControlPatchSchema = LoopControlSchema.partial();
 const BackgroundConfigPatchSchema = BackgroundConfigSchema.partial();
@@ -329,6 +339,7 @@ export const PythinkerConfigPatchSchema = z
     outputStyle: z.string().trim().min(1).optional(),
     models: z.record(z.string(), ModelAliasPatchSchema).optional(),
     thinking: ThinkingConfigPatchSchema.optional(),
+    advisor: AdvisorConfigPatchSchema.optional(),
     planMode: z.boolean().optional(),
     yolo: z.boolean().optional(),
     defaultThinking: z.boolean().optional(),

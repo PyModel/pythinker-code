@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { ErrorCodes, PythinkerError } from '../../src/errors';
 import {
+  type PythinkerConfig,
   PythinkerConfigSchema,
   ensureConfigFile,
   loadRuntimeConfig,
@@ -270,6 +271,19 @@ source = { kind = "apiJson", url = "https://registry.example/api.json", apiKey =
     const text = await readFile(configPath, 'utf-8');
     expect(text).not.toContain('[model_roles]');
     expect(readConfigFile(configPath).modelRoles).toBeUndefined();
+  });
+
+  it('writes typed advisor config over stale raw data', async () => {
+    const configPath = join(makeTempDir(), 'advisor.toml');
+    const config: PythinkerConfig = {
+      providers: {},
+      advisor: { enabled: true, model: 'reviewer' },
+      raw: { advisor: { enabled: false, model: 'stale-reviewer' } },
+    };
+
+    await writeConfigFile(configPath, config);
+    expect(await readFile(configPath, 'utf-8')).toContain('[advisor]');
+    expect(readConfigFile(configPath).advisor).toEqual(config.advisor);
   });
 
   it('round-trips an API key environment reference without an API key', async () => {
@@ -638,6 +652,22 @@ describe('harness config schema and patch merge', () => {
     );
 
     expect(merged.modelRoles).toEqual({ small: 'y', advisor: 'z' });
+  });
+
+  it('deep-merges advisor patches', () => {
+    const merged = mergeConfigPatch(
+      {
+        providers: {},
+        advisor: { enabled: true, model: 'reviewer', instructions: 'Check risks.' },
+      },
+      { advisor: { instructions: 'Check correctness.' } },
+    );
+
+    expect(merged.advisor).toEqual({
+      enabled: true,
+      model: 'reviewer',
+      instructions: 'Check correctness.',
+    });
   });
 
   it('deep-merges experimental config patches', () => {
