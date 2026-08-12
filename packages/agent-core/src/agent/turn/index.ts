@@ -746,6 +746,7 @@ export class TurnFlow {
         this.agent.config.maxStepsPerTurn ?? loopControl?.maxStepsPerTurn;
       let stopForGoalBudget = false;
       try {
+        const toolIntentEnabled = this.agent.experimentalFlags.enabled('tool_intent');
         const result = await runTurn({
           turnId: String(turnId),
           signal,
@@ -764,6 +765,7 @@ export class TurnFlow {
           log: this.agent.log,
           maxSteps: maxStepsPerTurn,
           maxRetryAttempts: loopControl?.maxRetriesPerStep,
+          toolIntentEnabled,
           recordStepUsage: async (usage) => {
             outputTokens += usage.output;
             try {
@@ -1232,6 +1234,7 @@ function mapLoopEvent(event: LoopEvent, turnId: number): AgentEvent | undefined 
         toolCallId: event.toolCallId,
         name: event.name,
         args: event.args,
+        intent: event.intent,
         description: event.description,
         display: event.display,
       };

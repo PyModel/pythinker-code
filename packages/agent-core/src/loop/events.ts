@@ -61,6 +61,7 @@ export interface LoopToolCallEvent {
   readonly toolCallId: string;
   readonly name: string;
   readonly args: unknown;
+  readonly intent?: string | undefined;
   readonly description?: string | undefined;
   readonly display?: ToolInputDisplay | undefined;
 }

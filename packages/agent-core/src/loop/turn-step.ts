@@ -15,6 +15,7 @@ import type { Logger } from '#/logging/types';
 import type { LoopEventDispatcher } from './events';
 import type { LLM, LLMChatParams, LLMChatResponse } from './llm';
 import { chatWithRetry } from './retry';
+import { injectIntentIntoTools } from './tool-intent';
 import {
   recordUnexecutedToolCalls,
   runToolCallBatch,
@@ -43,6 +44,7 @@ export interface ExecuteLoopStepDeps {
   readonly hooks?: LoopHooks | undefined;
   readonly log?: Logger | undefined;
   readonly currentStep: number;
+  readonly toolIntentEnabled: boolean;
   readonly maxRetryAttempts?: number;
   readonly recordUsage: (usage: TokenUsage) => RecordStepUsageResult | void | Promise<RecordStepUsageResult | void>;
 }
@@ -61,6 +63,7 @@ export async function executeLoopStep(deps: ExecuteLoopStepDeps): Promise<{
     hooks,
     log,
     currentStep,
+    toolIntentEnabled,
     maxRetryAttempts,
     recordUsage,
   } = deps;
@@ -94,6 +97,7 @@ export async function executeLoopStep(deps: ExecuteLoopStepDeps): Promise<{
     turnId,
     currentStep,
     stepUuid,
+    toolIntentEnabled,
   };
 
   await dispatchEvent({
@@ -105,7 +109,7 @@ export async function executeLoopStep(deps: ExecuteLoopStepDeps): Promise<{
 
   const chatParams: LLMChatParams = {
     messages,
-    tools: tools ?? [],
+    tools: toolIntentEnabled ? injectIntentIntoTools(tools ?? []) : (tools ?? []),
     signal,
     ...createChatStreamingCallbacks({
       dispatchEvent,

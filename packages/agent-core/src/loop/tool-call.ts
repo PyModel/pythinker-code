@@ -30,6 +30,7 @@ import type { LoopEventDispatcher, LoopToolCallEvent } from './events';
 import type { LLM, LLMChatResponse } from './llm';
 import { ToolAccesses } from './tool-access';
 import { ToolScheduler, type ToolCallTask } from './tool-scheduler';
+import { extractIntentFromArgs, isIntentInjected } from './tool-intent';
 import type {
   AuthorizeToolExecutionResult,
   ExecutableTool,
@@ -74,6 +75,7 @@ export interface ToolCallStepContext {
   readonly turnId: string;
   readonly currentStep: number;
   readonly stepUuid: string;
+  readonly toolIntentEnabled?: boolean | undefined;
 }
 
 interface ToolCallBatchContext extends ToolCallStepContext {
@@ -88,6 +90,7 @@ interface RunnableToolCall {
   readonly toolName: string;
   readonly tool: ExecutableTool;
   readonly args: unknown;
+  readonly intent?: string | undefined;
 }
 
 interface RejectedToolCall {
@@ -95,6 +98,7 @@ interface RejectedToolCall {
   readonly toolCall: ToolCall;
   readonly toolName: string;
   readonly args: unknown;
+  readonly intent?: string | undefined;
   readonly output: string;
 }
 
@@ -130,7 +134,9 @@ export async function runToolCallBatch(
 ): Promise<ToolCallBatchResult> {
   if (response.toolCalls.length === 0) return { stopTurn: false };
   const batchStep: ToolCallBatchContext = { ...step, toolCalls: response.toolCalls };
-  const calls = response.toolCalls.map((toolCall) => preflightToolCall(step.tools, toolCall));
+  const calls = response.toolCalls.map((toolCall) =>
+    preflightToolCall(step.tools, toolCall, step.toolIntentEnabled === true),
+  );
   const scheduler = new ToolScheduler<PendingToolResult>();
   const pendingResults: Array<Promise<PendingToolResult>> = [];
   let stopTurn = false;
@@ -179,7 +185,19 @@ export async function recordUnexecutedToolCalls(
 ): Promise<void> {
   for (const toolCall of response.toolCalls) {
     const parsedArgs = parseToolCallArguments(toolCall.arguments);
-    const args = parsedArgs.success ? parsedArgs.data : {};
+    let args = parsedArgs.success ? parsedArgs.data : {};
+    let intent: string | undefined;
+    const tool =
+      step.tools?.find((candidate) => candidate.name === toolCall.name) ??
+      step.tools?.find((candidate) => candidate.aliases?.includes(toolCall.name) === true);
+    if (
+      parsedArgs.success &&
+      tool !== undefined &&
+      step.toolIntentEnabled === true &&
+      isIntentInjected(tool)
+    ) {
+      ({ args, intent } = extractIntentFromArgs(args));
+    }
     if (!parsedArgs.success) {
       step.log?.debug('recording unexecuted tool call with unparseable arguments', {
         toolName: toolCall.name,
@@ -197,6 +215,7 @@ export async function recordUnexecutedToolCalls(
       toolCallId: toolCall.id,
       name: toolCall.name,
       args,
+      intent,
     });
     await step.dispatchEvent({
       type: 'tool.result',
@@ -214,6 +233,7 @@ export async function recordUnexecutedToolCalls(
 function preflightToolCall(
   tools: readonly ExecutableTool[] | undefined,
   toolCall: ToolCall,
+  toolIntentEnabled: boolean,
 ): PreflightedToolCall {
   const requestedName = toolCall.name;
   const parsedArgs = parseToolCallArguments(toolCall.arguments);
@@ -244,13 +264,18 @@ function preflightToolCall(
       output: `Invalid args for tool "${toolName}": malformed JSON in arguments: ${parsedArgs.error}`,
     };
   }
-  const validationError = validateExecutableToolArgs(tool, parsedArgs.data);
+  const extracted =
+    toolIntentEnabled && isIntentInjected(tool)
+      ? extractIntentFromArgs(parsedArgs.data)
+      : { args: parsedArgs.data, intent: undefined };
+  const validationError = validateExecutableToolArgs(tool, extracted.args);
   if (validationError !== null) {
     return {
       kind: 'rejected',
       toolCall,
       toolName,
-      args: parsedArgs.data,
+      args: extracted.args,
+      intent: extracted.intent,
       output: `Invalid args for tool "${toolName}": ${validationError}`,
     };
   }
@@ -259,7 +284,8 @@ function preflightToolCall(
     toolCall: canonicalToolCall,
     toolName,
     tool,
-    args: parsedArgs.data,
+    args: extracted.args,
+    intent: extracted.intent,
   };
 }
 
@@ -781,6 +807,7 @@ async function dispatchToolCall(
     toolCallId: toolCall.id,
     name: toolName,
     args,
+    intent: call.intent,
     description: displayFields?.description,
     display: displayFields?.display,
   });

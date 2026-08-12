@@ -737,10 +737,12 @@ export class StreamingUIController {
   private flushToolCallPreview(id: string): void {
     const streaming = this._streamingToolCallArguments.get(id);
     if (streaming === undefined) return;
+    const args = parseStreamingArgs(streaming.argumentsText);
+    if (typeof args['i'] === 'string') delete args['i'];
     const toolCall: ToolCallBlockData = {
       id,
       name: streaming.name ?? this._activeToolCalls.get(id)?.name ?? 'Tool',
-      args: parseStreamingArgs(streaming.argumentsText),
+      args,
       streamingArguments: streaming.argumentsText,
       streamingStartedAtMs: streaming.startedAtMs,
       step: this._currentStep,

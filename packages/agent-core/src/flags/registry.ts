@@ -21,6 +21,14 @@ export const FLAG_DEFINITIONS = [
     surface: 'core',
   },
   {
+    id: 'tool_intent',
+    title: 'Tool intent indicator',
+    description: 'Ask the model to state a concise intent with each tool call and show it in the working indicator.',
+    env: 'PYTHINKER_CODE_EXPERIMENTAL_TOOL_INTENT',
+    default: true,
+    surface: 'core',
+  },
+  {
     id: 'vim_mode',
     title: 'Vim mode',
     description: 'Modal editing in the composer: normal, insert, and visual modes with motions, operators, and dot-repeat.',

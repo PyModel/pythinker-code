@@ -18,6 +18,12 @@ describe('streaming tool argument payload helpers', () => {
     });
   });
 
+  it('parses intent from partial streaming arguments', () => {
+    expect(parseStreamingArgs('{"i":"scan configs","path":"/tmp/x')).toMatchObject({
+      i: 'scan configs',
+    });
+  });
+
   it('caps accumulated streaming preview text', () => {
     const current = 'a'.repeat(STREAMING_ARGS_PREVIEW_MAX_CHARS - 2);
 

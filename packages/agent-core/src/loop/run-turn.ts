@@ -40,6 +40,7 @@ export interface RunTurnInput {
   readonly log?: Logger | undefined;
   readonly maxSteps?: number | undefined;
   readonly maxRetryAttempts?: number;
+  readonly toolIntentEnabled?: boolean;
   readonly recordStepUsage?:
     | ((usage: TokenUsage) => RecordStepUsageResult | void | Promise<RecordStepUsageResult | void>)
     | undefined;
@@ -57,6 +58,7 @@ export async function runTurn(input: RunTurnInput): Promise<TurnResult> {
     log,
     maxSteps,
     maxRetryAttempts,
+    toolIntentEnabled = false,
     recordStepUsage: hostRecordStepUsage,
   } = input;
   let usage: TokenUsage = emptyUsage();
@@ -91,6 +93,7 @@ export async function runTurn(input: RunTurnInput): Promise<TurnResult> {
         hooks,
         log,
         currentStep: steps,
+        toolIntentEnabled,
         maxRetryAttempts,
         recordUsage: recordStepUsage,
       });
