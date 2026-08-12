@@ -54,6 +54,13 @@ describe('tool intent thinking label', () => {
     expect(formatThinkingSpinnerLabel(0)).toBe('check failing test…');
   });
 
+  it('removes ST-terminated OSC hyperlinks before display', () => {
+    setLiveIntent(
+      '\u001B]8;;https://example.com\u001B\\click\u001B]8;;\u001B\\ done',
+    );
+    expect(formatThinkingSpinnerLabel(0)).toBe('click done…');
+  });
+
   it('sets intent from a tool delta and clears it on the result', () => {
     const driver = new PythinkerTUI({} as never, makeStartupInput());
     const dispatch = (event: Event): void =>
