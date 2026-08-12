@@ -509,7 +509,9 @@ export async function handleModelCommand(host: SlashCommandHost, args: string): 
         assignToRole: role,
       });
       if (picker !== undefined) {
-        void refreshModelsForOpenPicker(host, picker, config.modelRoles?.[role]);
+        void refreshModelsForOpenPicker(host, picker, config.modelRoles?.[role], {
+          assignToRole: role,
+        });
       }
       return;
     }
@@ -559,6 +561,7 @@ async function refreshModelsForOpenPicker(
   host: SlashCommandHost,
   picker: TabbedModelSelectorComponent,
   selectedValue: string | undefined,
+  options?: { assignToRole?: string },
 ): Promise<void> {
   const availableModels = host.state.appState.availableModels;
   const normalized = normalizeModelChoices(availableModels);
@@ -609,7 +612,7 @@ async function refreshModelsForOpenPicker(
     }
   }
 
-  showModelPicker(host, refreshedSelected, activeTabId);
+  showModelPicker(host, refreshedSelected, activeTabId, options);
 }
 
 async function applyEditorChoice(host: SlashCommandHost, value: string): Promise<void> {

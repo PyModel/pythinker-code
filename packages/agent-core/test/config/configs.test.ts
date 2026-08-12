@@ -924,6 +924,18 @@ max_context_size = -5
     expect(result.fileWarnings[0]).toContain('models.broken');
   });
 
+  it('drops only the broken model role entry', async () => {
+    const configPath = await writeTempConfig(`${VALID_TOML}
+[model_roles]
+small = 123
+implementer = "k2"
+`);
+    const result = loadRuntimeConfigSafe(configPath, {});
+    expect(result.config.modelRoles?.['small']).toBeUndefined();
+    expect(result.config.modelRoles?.['implementer']).toBe('k2');
+    expect(result.fileWarnings[0]).toContain('model_roles.small');
+  });
+
   it('drops the whole hooks list when one hook is invalid', async () => {
     const configPath = await writeTempConfig(`${VALID_TOML}
 [[hooks]]

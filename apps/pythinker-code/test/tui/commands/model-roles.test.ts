@@ -60,9 +60,9 @@ function makeHost(options: {
   return { host, session, setConfig };
 }
 
-function mountedPicker(host: SlashCommandHost): TestPicker {
+function mountedPicker(host: SlashCommandHost, index = 0): TestPicker {
   const mount = host.mountEditorReplacement as ReturnType<typeof vi.fn>;
-  return mount.mock.calls[0]?.[0] as TestPicker;
+  return mount.mock.calls[index]?.[0] as TestPicker;
 }
 
 describe('/model roles', () => {
@@ -83,6 +83,35 @@ describe('/model roles', () => {
     await handleModelCommand(host, 'small');
     expect(host.authFlow.refreshProviderModels).toHaveBeenCalledOnce();
     mountedPicker(host).handleInput(ENTER);
+
+    await vi.waitFor(() => {
+      expect(setConfig).toHaveBeenCalledWith({ modelRoles: { small: 'worker' } });
+    });
+    expect(session.setModel).not.toHaveBeenCalled();
+  });
+
+  it('keeps role assignment active after the picker refreshes', async () => {
+    const { host, session, setConfig } = makeHost({
+      currentModel: 'parent',
+      availableModels: {
+        parent: model('parent'),
+        worker: model('worker'),
+      },
+      modelRoles: { small: 'worker' },
+    });
+    vi.mocked(host.mountEditorReplacement).mockImplementation((picker) => {
+      host.state.editorContainer.children[0] = picker;
+    });
+    vi.mocked(host.authFlow.refreshProviderModels).mockImplementation(async () => {
+      host.state.appState.availableModels['reviewer'] = model('reviewer');
+      return { changed: [], unchanged: [], failed: [] };
+    });
+
+    await handleModelCommand(host, 'small');
+    await vi.waitFor(() => {
+      expect(host.mountEditorReplacement).toHaveBeenCalledTimes(2);
+    });
+    mountedPicker(host, 1).handleInput(ENTER);
 
     await vi.waitFor(() => {
       expect(setConfig).toHaveBeenCalledWith({ modelRoles: { small: 'worker' } });

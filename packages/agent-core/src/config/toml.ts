@@ -200,7 +200,7 @@ export function loadRuntimeConfigSafe(
 }
 
 /** Sections keyed by user-chosen names where single entries can be dropped. */
-const ENTRY_KEYED_SECTIONS = new Set(['providers', 'models']);
+const ENTRY_KEYED_SECTIONS = new Set(['providers', 'models', 'modelRoles']);
 
 interface SalvageResult {
   readonly config: PythinkerConfig | undefined;
