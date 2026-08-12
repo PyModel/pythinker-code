@@ -81,6 +81,7 @@ describe('/model roles', () => {
     const { host, session, setConfig } = makeHost();
 
     await handleModelCommand(host, 'small');
+    expect(host.authFlow.refreshProviderModels).toHaveBeenCalledOnce();
     mountedPicker(host).handleInput(ENTER);
 
     await vi.waitFor(() => {

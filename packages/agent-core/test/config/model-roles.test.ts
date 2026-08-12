@@ -1,8 +1,24 @@
 import { describe, expect, it } from 'vitest';
 
-import { expandModelRef, resolveModelRoleAlias } from '../../src/config';
+import {
+  expandModelRef,
+  PythinkerConfigPatchSchema,
+  PythinkerConfigSchema,
+  resolveModelRoleAlias,
+} from '../../src/config';
 
 describe('model roles', () => {
+  it('rejects the reserved default role in full and patch configs', () => {
+    expect(
+      PythinkerConfigSchema.safeParse({ modelRoles: { default: 'x' } }).success,
+    ).toBe(false);
+    expect(
+      PythinkerConfigPatchSchema.safeParse({ modelRoles: { default: 'x' } }).success,
+    ).toBe(false);
+    expect(PythinkerConfigSchema.safeParse({ modelRoles: { custom: 'x' } }).success).toBe(true);
+    expect(PythinkerConfigPatchSchema.safeParse({ modelRoles: { custom: 'x' } }).success).toBe(true);
+  });
+
   it('resolves assigned roles and treats empty assignments as cleared', () => {
     const config = {
       modelRoles: {

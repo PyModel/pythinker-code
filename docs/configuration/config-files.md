@@ -158,7 +158,7 @@ You can also switch models temporarily without touching the config file — by s
 
 ## `model_roles`
 
-Each entry in the `model_roles` table locks a model alias to a named role. The built-in roles are `small`, `implementer`, and `advisor`; any other key defines a custom role. Values must be aliases defined in `models`; an empty string clears the role.
+Each entry in the `model_roles` table locks a model alias to a named role. The built-in roles are `small`, `implementer`, and `advisor`; any other key except the reserved `default` defines a custom role. Values must be aliases defined in `models`; an empty string clears the role.
 
 ```toml
 [model_roles]
@@ -169,7 +169,7 @@ advisor = "reviewer-model"
 
 Roles take effect in two places:
 
-- Wherever a subagent model alias is accepted (the `Agent` and `DynamicWorkflow` tool `model` arguments, and agent profile frontmatter), a `@<role>` reference such as `@small` resolves to the locked alias. An unassigned or unresolvable role falls back to the normal model precedence.
+- Wherever a subagent model alias is accepted (the `Agent` and `DynamicWorkflow` tool `model` arguments, and agent profile frontmatter), a `@<role>` reference such as `@small` resolves to the locked alias. An unassigned or unresolvable role falls back to the parent agent's model.
 - When `implementer` is assigned, it becomes the default model for subagents that do not set an explicit or profile model. Subagents of those subagents inherit the same default.
 
 Inside the TUI, `/model <role>` assigns a role from the model picker, `/model <role> clear` removes it, and `/model roles` lists the current assignments. See [Slash commands](../reference/slash-commands.md).

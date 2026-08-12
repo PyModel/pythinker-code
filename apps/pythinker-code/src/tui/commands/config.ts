@@ -482,7 +482,7 @@ function resolveWorkspaceConfigPath(input: string, workDir: string): string {
 
 export async function handleModelCommand(host: SlashCommandHost, args: string): Promise<void> {
   const requestedAlias = args.trim();
-  const tokens = requestedAlias.split(/\s+/).filter(Boolean);
+  const tokens = requestedAlias.split(/\s+/u).filter(Boolean);
   const config = await host.harness.getConfig({ reload: true });
   const roles = [...new Set([...BUILT_IN_MODEL_ROLES, ...Object.keys(config.modelRoles ?? {})])]
     .filter((role) => role.length > 0 && role !== 'default');
@@ -505,7 +505,12 @@ export async function handleModelCommand(host: SlashCommandHost, args: string): 
       return;
     }
     if (tokens.length === 1) {
-      showModelPicker(host, config.modelRoles?.[role], undefined, { assignToRole: role });
+      const picker = showModelPicker(host, config.modelRoles?.[role], undefined, {
+        assignToRole: role,
+      });
+      if (picker !== undefined) {
+        void refreshModelsForOpenPicker(host, picker, config.modelRoles?.[role]);
+      }
       return;
     }
   }
