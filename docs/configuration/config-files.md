@@ -177,7 +177,7 @@ Inside the TUI, `/model <role>` assigns a role from the model picker, `/model <r
 
 ## `advisor`
 
-`advisor` enables a second-opinion reviewer: after each completed turn, a second model reviews the conversation and returns notes, which appear in the agent's context as an `<advisory>` block at the start of its next turn. The advisor never interrupts or slows a running turn.
+`advisor` enables a second-opinion reviewer: after each completed user turn, a second model reviews the conversation and returns notes, which appear in the agent's context as an `<advisory>` block at the start of its next turn. The advisor never interrupts or slows a running turn.
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -186,6 +186,8 @@ Inside the TUI, `/model <role>` assigns a role from the model picker, `/model <r
 | `instructions` | `string` | — | Extra instructions appended to the advisor's system prompt |
 
 The advisor sends the session conversation to the advisor model. As a safety default, it runs only when the advisor model uses the same provider entry as the session model; a cross-provider advisor stays inactive and logs one warning.
+
+Reviews run only for user-started turns and are delivered at the start of the next turn, so a review may lag by one turn. The advisor's token usage is not yet included in usage reporting.
 
 ```toml
 [advisor]
