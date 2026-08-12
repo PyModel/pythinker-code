@@ -47,11 +47,14 @@ export function extractIntentFromArgs(args: unknown): {
   args: unknown;
   intent: string | undefined;
 } {
-  if (!isPlainRecord(args) || typeof args[INTENT_FIELD] !== 'string') {
+  if (!isPlainRecord(args) || !Object.hasOwn(args, INTENT_FIELD)) {
     return { args, intent: undefined };
   }
   const { [INTENT_FIELD]: rawIntent, ...rest } = args;
-  return { args: rest, intent: sanitizeIntent(rawIntent as string) };
+  return {
+    args: rest,
+    intent: typeof rawIntent === 'string' ? sanitizeIntent(rawIntent) : undefined,
+  };
 }
 
 export function sanitizeIntent(raw: string): string | undefined {

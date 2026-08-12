@@ -19,16 +19,17 @@ const SANITIZER_FIXTURES = [
 
 function makeTool(
   name = 'test',
-  parameters: Record<string, unknown> = {
+  parameters?: Record<string, unknown>,
+): ExecutableTool {
+  const toolParameters = parameters ?? {
     type: 'object',
     properties: { value: { type: 'string' } },
     required: ['value'],
-  },
-): ExecutableTool {
+  };
   return {
     name,
     description: 'Test tool.',
-    parameters,
+    parameters: toolParameters,
     resolveExecution: () => ({
       approvalRule: name,
       execute: () => Promise.resolve({ output: 'ok' }),
@@ -107,6 +108,13 @@ describe('tool intent extraction', () => {
     });
   });
 
+  it.each([1, null])('removes a non-string intent value %j', (intent) => {
+    expect(extractIntentFromArgs({ i: intent, value: 1 })).toEqual({
+      args: { value: 1 },
+      intent: undefined,
+    });
+  });
+
   it('passes non-object args through', () => {
     const args = ['value'];
     expect(extractIntentFromArgs(args)).toEqual({ args, intent: undefined });
@@ -124,8 +132,12 @@ describe('tool intent sanitization', () => {
   });
 
   it('caps the result by code points', () => {
-    const sanitized = sanitizeIntent('🙂'.repeat(INTENT_MAX_LENGTH + 1));
-    expect(Array.from(sanitized ?? '')).toHaveLength(INTENT_MAX_LENGTH);
+    // U+1F642 SLIGHTLY SMILING FACE. Must stay a surrogate pair: this test proves
+    // the cap counts code points rather than UTF-16 code units.
+    const surrogatePair = String.fromCodePoint(0x1f642);
+    const sanitized = sanitizeIntent(surrogatePair.repeat(INTENT_MAX_LENGTH + 1));
+    expect(typeof sanitized).toBe('string');
+    expect(Array.from(sanitized as string)).toHaveLength(INTENT_MAX_LENGTH);
   });
 
   it('returns undefined for an empty result', () => {
