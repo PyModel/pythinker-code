@@ -177,7 +177,7 @@ describe('parseToolCallArguments', () => {
   });
 
   it('returns the original parse error after quote repair still fails', () => {
-    const raw = '{"a":[1,}';
+    const raw = String.raw`{"a":"bad \*","b":[}`;
 
     expect(parseToolCallArguments(raw)).toEqual({ success: false, error: parseErrorMessage(raw) });
   });
