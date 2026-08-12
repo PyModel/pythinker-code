@@ -41,14 +41,16 @@ import {
   openFileInExternalEditor,
   resolveEditorCommand,
 } from '#/utils/process/external-editor';
-import { LLM_NOT_SET_MESSAGE, NO_ACTIVE_SESSION_MESSAGE } from '../constant/pythinker-tui';
+import {
+  BUILT_IN_MODEL_ROLES,
+  LLM_NOT_SET_MESSAGE,
+  NO_ACTIVE_SESSION_MESSAGE,
+} from '#/tui/constant/pythinker-tui';
 import { formatErrorMessage } from '../utils/event-payload';
 import { showUsage } from './info';
 import { setExperimentalFeatures } from './experimental-flags';
 import { showDirectoryInput } from './add-dir';
 import type { SlashCommandHost } from './dispatch';
-
-const BUILT_IN_MODEL_ROLES = ['small', 'implementer', 'advisor'] as const;
 
 // ---------------------------------------------------------------------------
 // Plan / Config commands

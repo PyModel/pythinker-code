@@ -1,5 +1,8 @@
 export { OAUTH_LOGIN_REQUIRED_CODE, PRODUCT_NAME } from '#/constant/app';
 
+/** Canonical model roles offered by `/model <role>`, mirroring agent-core's list across the SDK package boundary. */
+export const BUILT_IN_MODEL_ROLES = ['small', 'implementer', 'advisor'] as const;
+
 export const LLM_NOT_SET_MESSAGE = 'LLM not set, send "/login" to login';
 export const NO_ACTIVE_SESSION_MESSAGE = 'No active session. Send /login to login.';
 export const CTRL_D_HINT = 'Press Ctrl+D again to exit';
@@ -8,4 +11,3 @@ export const MAIN_AGENT_ID = 'main';
 export const OAUTH_LOGIN_REQUIRED_STARTUP_NOTICE = 'OAuth login expired. Send /login to login.';
 export const EXIT_CONFIRM_WINDOW_MS = 1500;
 export const MCP_STATUS_TRANSIENT_DURATION_MS = 750;
-
