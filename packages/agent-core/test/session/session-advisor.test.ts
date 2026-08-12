@@ -77,15 +77,19 @@ describe('SessionAdvisor', () => {
     const reviewGate = createDeferred<void>();
     const activeTurnGate = createDeferred<void>();
     const generate = fixture.main.rawGenerate;
-    let generateCall = 0;
-    vi.spyOn(fixture.main, 'rawGenerate').mockImplementation(async (...args) => {
-      generateCall += 1;
-      const currentCall = generateCall;
-      const result = await generate(...args);
-      if (currentCall === 2) await reviewGate.promise;
-      if (currentCall === 3) await activeTurnGate.promise;
-      return result;
-    });
+    vi.spyOn(fixture.main, 'rawGenerate')
+      .mockImplementationOnce(generate)
+      .mockImplementationOnce(async (...args) => {
+        const result = await generate(...args);
+        await reviewGate.promise;
+        return result;
+      })
+      .mockImplementationOnce(async (...args) => {
+        const result = await generate(...args);
+        await activeTurnGate.promise;
+        return result;
+      })
+      .mockImplementation(generate);
     const steer = vi.spyOn(fixture.main.turn, 'steer').mockReturnValue(null);
     queueReview(fixture.scripted, 'Check the active turn.', 'concern');
 
