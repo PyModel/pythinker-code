@@ -20,6 +20,7 @@ function status(overrides: Partial<StatusBarStatus> = {}): StatusBarStatus {
     homeDir: '/Users/test',
     permissionMode: 'auto',
     planMode: true,
+    fastMode: false,
     dynamicWorkflowMode: true,
     sessionKey: 'session-alpha',
     ...overrides,
@@ -61,7 +62,22 @@ describe('StatusBarComponent', () => {
     component.update(status());
 
     for (const width of [0, 1, 10, 25, 45, 53, 80]) {
-      expect(visibleWidth(component.render(width)[0] ?? '')).toBeLessThanOrEqual(width);
+      const lines = component.render(width);
+      expect(lines).toHaveLength(1);
+      expect(visibleWidth(lines[0]!)).toBeLessThanOrEqual(width);
+    }
+  });
+
+  it('renders fast mode', () => {
+    const previousLevel = chalk.level;
+    chalk.level = 3;
+    const component = new StatusBarComponent();
+    component.update(status({ fastMode: true }));
+
+    try {
+      expect(stripAnsi(component.render(80)[0] ?? '')).toContain('↯ fast');
+    } finally {
+      chalk.level = previousLevel;
     }
   });
 });

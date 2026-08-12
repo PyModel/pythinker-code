@@ -17,6 +17,7 @@ export type StatusBarStatus = Pick<
   | 'homeDir'
   | 'permissionMode'
   | 'planMode'
+  | 'fastMode'
   | 'dynamicWorkflowMode'
 > & { readonly sessionKey: string };
 
@@ -82,7 +83,8 @@ function renderModesChip(status: StatusBarStatus): string | undefined {
   if (status.planMode) modes.push(currentTheme.fg('modePlan', 'plan'));
   if (status.permissionMode === 'auto') modes.push(currentTheme.fg('modePermission', 'auto'));
   if (status.permissionMode === 'yolo') modes.push(currentTheme.fg('modeAutoAccept', 'yolo'));
-  if (status.dynamicWorkflowMode) modes.push(currentTheme.fg('modeFast', 'workflow'));
+  if (status.fastMode) modes.push(currentTheme.fg('modeFast', '↯ fast'));
+  if (status.dynamicWorkflowMode) modes.push(currentTheme.fg('accent', 'workflow'));
   return modes.length === 0 ? undefined : chip(modes.join(' '));
 }
 

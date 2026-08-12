@@ -63,26 +63,22 @@ describe('ToolCallComponent', () => {
 
     try {
       const pending = component.render(40);
+      const pendingBody = pending.slice(1);
       expect(pending[0]).not.toContain('\u001B[48;2;29;33;41m');
-      expect(
-        pending.slice(1).every((line) => line.includes('\u001B[48;2;29;33;41m')),
-      ).toBe(true);
+      expect(pendingBody.length).toBeGreaterThan(0);
+      expect(pendingBody.every((line) => line.includes('\u001B[48;2;29;33;41m'))).toBe(true);
 
       component.setResult({ tool_call_id: 'call_tint', output: 'content', is_error: false });
-      expect(
-        component
-          .render(40)
-          .slice(1)
-          .every((line) => line.includes('\u001B[48;2;20;23;27m')),
-      ).toBe(true);
+      const success = component.render(40);
+      const successBody = success.slice(1);
+      expect(successBody.length).toBeGreaterThan(0);
+      expect(successBody.every((line) => line.includes('\u001B[48;2;20;23;27m'))).toBe(true);
 
       component.setResult({ tool_call_id: 'call_tint', output: 'failed', is_error: true });
-      expect(
-        component
-          .render(40)
-          .slice(1)
-          .every((line) => line.includes('\u001B[48;2;41;29;29m')),
-      ).toBe(true);
+      const error = component.render(40);
+      const errorBody = error.slice(1);
+      expect(errorBody.length).toBeGreaterThan(0);
+      expect(errorBody.every((line) => line.includes('\u001B[48;2;41;29;29m'))).toBe(true);
     } finally {
       chalk.level = previousLevel;
     }
