@@ -6,6 +6,7 @@ import { testKaos } from '../fixtures/test-kaos';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { Agent } from '../../src/agent';
+import type { PromptOrigin } from '../../src/agent/context';
 import type { PythinkerConfig } from '../../src/config';
 import type { ResolvedAgentProfile } from '../../src/profile';
 import type { SDKSessionRPC } from '../../src/rpc';
@@ -40,7 +41,7 @@ describe('SessionAdvisor', () => {
     const steer = vi.spyOn(fixture.main.turn, 'steer').mockReturnValue(null);
     queueReview(fixture.scripted, 'Check the error path.', 'concern');
 
-    await runMainTurn(fixture.main);
+    await runMainTurn(fixture.main, { kind: 'user' });
     await waitForAdvisor(fixture);
 
     expect(spawn).toHaveBeenCalledOnce();
@@ -62,6 +63,30 @@ describe('SessionAdvisor', () => {
       ],
       { kind: 'hook_result', event: 'advisor' },
     );
+    await fixture.session.close();
+  });
+
+  it('does not review system-trigger turns', async () => {
+    const fixture = await createFixture({ advisorAlias: 'advisor' });
+    const spawn = vi.spyOn(fixture.session, 'createAgent');
+
+    fixture.scripted.mockNextResponse({ type: 'text', text: 'Continued.' });
+    await runMainTurn(fixture.main, { kind: 'system_trigger', name: 'goal-continuation' });
+    await flushAsync();
+
+    expect(spawn).not.toHaveBeenCalled();
+    await fixture.session.close();
+  });
+
+  it('expands an explicit advisor role reference', async () => {
+    const fixture = await createFixture({ advisorAlias: 'reviewer', advisorModel: '@advisor' });
+    const spawn = vi.spyOn(fixture.session, 'createAgent');
+    queueReview(fixture.scripted);
+
+    await runMainTurn(fixture.main);
+    await waitForAdvisor(fixture);
+
+    expect((await spawn.mock.results[0]!.value).agent.config.modelAlias).toBe('reviewer');
     await fixture.session.close();
   });
 
@@ -149,11 +174,87 @@ describe('SessionAdvisor', () => {
     expect(steer).not.toHaveBeenCalled();
     await fixture.session.close();
   });
+
+  it('contains advisor errors without affecting the main turn', async () => {
+    const fixture = await createFixture({ advisorAlias: 'advisor' });
+    const error = new Error('advisor failed');
+    vi.spyOn(fixture.session, 'createAgent').mockRejectedValueOnce(error);
+    const debug = vi.spyOn(fixture.session.log, 'debug');
+
+    fixture.scripted.mockNextResponse({ type: 'text', text: 'Done.' });
+    await expect(runMainTurn(fixture.main)).resolves.toBeUndefined();
+    await vi.waitFor(() =>
+      expect(debug).toHaveBeenCalledWith('advisor run failed', { error }),
+    );
+
+    expect(fixture.main.turn.hasActiveTurn).toBe(false);
+    await fixture.session.close();
+  });
+
+  it('disables the advisor after three consecutive failures', async () => {
+    const fixture = await createFixture({ advisorAlias: 'advisor' });
+    const spawn = vi
+      .spyOn(fixture.session, 'createAgent')
+      .mockRejectedValue(new Error('advisor failed'));
+    const warn = vi.spyOn(fixture.session.log, 'warn');
+
+    for (let turn = 0; turn < 3; turn += 1) {
+      fixture.scripted.mockNextResponse({ type: 'text', text: 'Done.' });
+      await runMainTurn(fixture.main);
+      await flushAsync();
+    }
+    await vi.waitFor(() =>
+      expect(warn).toHaveBeenCalledWith('advisor disabled after three consecutive failures'),
+    );
+
+    fixture.scripted.mockNextResponse({ type: 'text', text: 'Done.' });
+    await runMainTurn(fixture.main);
+    await flushAsync();
+
+    expect(spawn).toHaveBeenCalledTimes(3);
+    await fixture.session.close();
+  });
+
+  it('counts an aborted advisor wait as a failure', async () => {
+    const fixture = await createFixture({ advisorAlias: 'advisor' });
+    const timeoutError = new Error('advisor timed out');
+    const originalCreate = fixture.session.createAgent.bind(fixture.session);
+    const spawn = vi
+      .spyOn(fixture.session, 'createAgent')
+      .mockRejectedValueOnce(new Error('first failure'))
+      .mockRejectedValueOnce(new Error('second failure'))
+      .mockImplementationOnce((...args) => originalCreate(...args));
+    const timeout = vi
+      .spyOn(AbortSignal, 'timeout')
+      .mockReturnValue(AbortSignal.abort(timeoutError));
+    const warn = vi.spyOn(fixture.session.log, 'warn');
+
+    for (let turn = 0; turn < 2; turn += 1) {
+      fixture.scripted.mockNextResponse({ type: 'text', text: 'Done.' });
+      await runMainTurn(fixture.main);
+      await flushAsync();
+    }
+    queueReview(fixture.scripted);
+    await runMainTurn(fixture.main);
+    await vi.waitFor(() =>
+      expect(warn).toHaveBeenCalledWith('advisor disabled after three consecutive failures'),
+    );
+
+    fixture.scripted.mockNextResponse({ type: 'text', text: 'Done.' });
+    await runMainTurn(fixture.main);
+    await flushAsync();
+
+    expect(timeout).toHaveBeenCalledWith(120_000);
+    expect(spawn).toHaveBeenCalledTimes(3);
+    timeout.mockRestore();
+    await fixture.session.close();
+  });
 });
 
 interface FixtureOptions {
   readonly enabled?: boolean;
-  readonly advisorAlias?: 'advisor' | 'cross-advisor';
+  readonly advisorAlias?: 'advisor' | 'cross-advisor' | 'reviewer';
+  readonly advisorModel?: string;
 }
 
 async function createFixture(options: FixtureOptions = {}): Promise<{
@@ -193,18 +294,21 @@ function testConfig(options: FixtureOptions): PythinkerConfig {
     models: {
       main: { provider: 'primary', model: 'main', maxContextSize: 100_000 },
       advisor: { provider: 'primary', model: 'advisor', maxContextSize: 100_000 },
+      reviewer: { provider: 'primary', model: 'reviewer', maxContextSize: 100_000 },
       'cross-advisor': {
         provider: 'secondary',
         model: 'cross-advisor',
         maxContextSize: 100_000,
       },
     },
-    ...(options.advisorAlias === undefined
-      ? {}
-      : { modelRoles: { advisor: options.advisorAlias } }),
-    ...(options.enabled === true || options.advisorAlias !== undefined
-      ? { advisor: { enabled: true } }
-      : {}),
+    modelRoles:
+      options.advisorAlias === undefined ? undefined : { advisor: options.advisorAlias },
+    advisor:
+      options.enabled === true ||
+      options.advisorAlias !== undefined ||
+      options.advisorModel !== undefined
+        ? { enabled: true, model: options.advisorModel }
+        : undefined,
   };
 }
 
@@ -222,8 +326,8 @@ function queueReview(
   });
 }
 
-async function runMainTurn(main: Agent): Promise<void> {
-  const turnId = main.turn.prompt([{ type: 'text', text: 'Continue.' }]);
+async function runMainTurn(main: Agent, origin?: PromptOrigin): Promise<void> {
+  const turnId = main.turn.prompt([{ type: 'text', text: 'Continue.' }], origin);
   expect(turnId).not.toBeNull();
   await main.turn.waitForCurrentTurn();
 }

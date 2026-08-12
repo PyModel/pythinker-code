@@ -1,6 +1,6 @@
 import type { PromptOrigin } from '../agent/context';
 import { InMemoryAgentRecordPersistence } from '../agent/records';
-import { resolveModelRoleAlias } from '../config/model-roles';
+import { expandModelRef, resolveModelRoleAlias } from '../config/model-roles';
 import { HookEngine } from './hooks';
 import type { Session } from '.';
 
@@ -42,7 +42,8 @@ export class SessionAdvisor {
 
   /** Called when a main-agent turn starts. Delivers notes without starting a new turn. */
   onMainTurnStarted(origin: PromptOrigin): void {
-    this.#reviewCurrentTurn = origin.kind === 'user' || origin.kind === 'system_trigger';
+    // Autonomous turns must not compound advisor cost.
+    this.#reviewCurrentTurn = origin.kind === 'user';
     queueMicrotask(() => this.#deliverPending());
   }
 
@@ -66,7 +67,10 @@ export class SessionAdvisor {
 
     const main = this.session.getReadyAgent('main');
     if (main === undefined) return;
-    const advisorAlias = config.advisor.model ?? resolveModelRoleAlias(config, 'advisor');
+    const advisorAlias =
+      config.advisor.model === undefined
+        ? resolveModelRoleAlias(config, 'advisor')
+        : expandModelRef(config, config.advisor.model);
     if (!main.config.canResolveModel(advisorAlias) || advisorAlias === undefined) return;
 
     const mainAlias = main.config.modelAlias;

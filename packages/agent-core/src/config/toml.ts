@@ -8,6 +8,7 @@ import {
   PythinkerConfigSchema,
   formatConfigValidationError,
   getDefaultConfig,
+  type AdvisorConfig,
   type BackgroundConfig,
   type ExperimentalConfig,
   type HookDefConfig,
@@ -500,6 +501,7 @@ export function configToTomlData(config: PythinkerConfig): Record<string, unknow
     out['model_roles'] = cloneUnknown(config.modelRoles);
   }
   setSection(out, 'thinking', config.thinking, thinkingToToml);
+  setSection(out, 'advisor', config.advisor, advisorToToml);
   setSection(out, 'services', config.services, servicesToToml);
   setSection(out, 'loop_control', config.loopControl, loopControlToToml);
   setSection(out, 'background', config.background, backgroundToToml);
@@ -580,6 +582,14 @@ function modelToToml(model: ModelAlias, rawModel: unknown): Record<string, unkno
 function thinkingToToml(thinking: ThinkingConfig, rawThinking: unknown): Record<string, unknown> {
   const out = cloneRecord(rawThinking);
   for (const [key, value] of Object.entries(thinking)) {
+    setDefined(out, camelToSnake(key), value);
+  }
+  return out;
+}
+
+function advisorToToml(advisor: AdvisorConfig, rawAdvisor: unknown): Record<string, unknown> {
+  const out = cloneRecord(rawAdvisor);
+  for (const [key, value] of Object.entries(advisor)) {
     setDefined(out, camelToSnake(key), value);
   }
   return out;

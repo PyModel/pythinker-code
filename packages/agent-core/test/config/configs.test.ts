@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { ErrorCodes, PythinkerError } from '../../src/errors';
 import {
+  type PythinkerConfig,
   PythinkerConfigSchema,
   ensureConfigFile,
   loadRuntimeConfig,
@@ -272,20 +273,16 @@ source = { kind = "apiJson", url = "https://registry.example/api.json", apiKey =
     expect(readConfigFile(configPath).modelRoles).toBeUndefined();
   });
 
-  it('round-trips advisor config', async () => {
+  it('writes typed advisor config over stale raw data', async () => {
     const configPath = join(makeTempDir(), 'advisor.toml');
-    const config = parseConfigString(
-      '[advisor]\nenabled = true\nmodel = "reviewer"\ninstructions = "Check risks."\n',
-      configPath,
-    );
-
-    expect(config.advisor).toEqual({
-      enabled: true,
-      model: 'reviewer',
-      instructions: 'Check risks.',
-    });
+    const config: PythinkerConfig = {
+      providers: {},
+      advisor: { enabled: true, model: 'reviewer' },
+      raw: { advisor: { enabled: false, model: 'stale-reviewer' } },
+    };
 
     await writeConfigFile(configPath, config);
+    expect(await readFile(configPath, 'utf-8')).toContain('[advisor]');
     expect(readConfigFile(configPath).advisor).toEqual(config.advisor);
   });
 
