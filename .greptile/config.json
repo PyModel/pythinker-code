@@ -1,0 +1,39 @@
+{
+  "strictness": 2,
+  "commentTypes": ["logic", "syntax", "style"],
+  "triggerOnUpdates": true,
+  "includeBranches": ["main"],
+  "ignoreKeywords": "WIP\nDO NOT REVIEW",
+  "ignorePatterns": "node_modules/**\ndist/**\nbuild/**\n**/*.min.js\npnpm-lock.yaml\nflake.lock\n**/*.snap\nreports/**\n**/*.webp\n**/*.png\n**/*.gif",
+  "instructions": "TypeScript pnpm monorepo for pythinker-code, a provider-agnostic AI coding agent. The published user-facing package is the CLI (@pythoughts/pythinker-code); packages/node-sdk is the public TypeScript SDK; packages/agent-core, kosong, kaos, oauth, and telemetry are internal engine packages. apps/* are the CLI/TUI, web UI, and dashboard. The root AGENTS.md is the authoritative contributor guide; nearest sub-directory AGENTS.md files add local rules.",
+  "rules": [
+    {
+      "id": "no-type-weakening",
+      "rule": "Do not weaken types to silence errors: no `any`, unconstrained `unknown`, `@ts-ignore`, or type assertions added only to make a type error go away.",
+      "scope": ["packages/**", "apps/**"],
+      "severity": "high"
+    },
+    {
+      "id": "flake-workspace-sync",
+      "rule": "When a workspace package is added or removed in pnpm-workspace.yaml, flake.nix workspacePaths and workspaceNames must be updated in the same PR. A missing path silently drops files from the Nix build.",
+      "severity": "high"
+    },
+    {
+      "id": "tests-can-fail",
+      "rule": "Tests must be able to fail. Flag vacuous assertions: empty-set matches, missing awaits on async expectations, and mocked units asserting on the mock itself.",
+      "scope": ["**/*.test.ts", "**/*.test.tsx"],
+      "severity": "medium"
+    },
+    {
+      "id": "tui-reactivity",
+      "rule": "Solid signals must not be destructured, rendering must stay allocation-light, and no blocking I/O on the render path.",
+      "scope": ["apps/pythinker-code/src/tui/**"],
+      "severity": "high"
+    },
+    {
+      "id": "changeset-required",
+      "rule": "Every PR that affects release artifacts (code, behavior, or public API) must include a changeset; only docs-only, test-only, or CI-only PRs may skip one. Default to minor or patch; a major bump requires explicit maintainer confirmation.",
+      "severity": "medium"
+    }
+  ]
+}

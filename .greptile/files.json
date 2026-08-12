@@ -1,0 +1,38 @@
+{
+  "files": [
+    {
+      "path": "AGENTS.md",
+      "description": "Repository-wide contributor guide: product identity, project map, coding rules, and PR workflow"
+    },
+    {
+      "path": "apps/pythinker-code/AGENTS.md",
+      "description": "CLI / terminal UI app rules",
+      "scope": ["apps/pythinker-code/**"]
+    },
+    {
+      "path": "apps/pythinker-web/AGENTS.md",
+      "description": "Browser UI (Vue 3) rules",
+      "scope": ["apps/pythinker-web/**"]
+    },
+    {
+      "path": "packages/agent-core/src/services/AGENTS.md",
+      "description": "Service layer rules: naming, layout, and registration conventions",
+      "scope": ["packages/agent-core/src/services/**"]
+    },
+    {
+      "path": "packages/server/AGENTS.md",
+      "description": "Server package rules (REST + WS /api/v1)",
+      "scope": ["packages/server/**"]
+    },
+    {
+      "path": "packages/server-e2e/AGENTS.md",
+      "description": "E2E test suite rules",
+      "scope": ["packages/server-e2e/**"]
+    },
+    {
+      "path": "docs/AGENTS.md",
+      "description": "Documentation rules",
+      "scope": ["docs/**"]
+    }
+  ]
+}
