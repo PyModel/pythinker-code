@@ -5,6 +5,7 @@ export const INTENT_MAX_LENGTH = 120;
 /** Tool names excluded from intent injection. StructuredOutput is mechanical and has an exact schema contract. */
 export const INTENT_OMIT_TOOLS: ReadonlySet<string> = new Set(['StructuredOutput']);
 
+// Keep in sync with apps/pythinker-code/src/tui/constant/rendering.ts.
 // oxlint-disable-next-line no-control-regex -- model-authored terminal text must not retain escape sequences.
 const ANSI_ESCAPE = /\u001B(?:\[[0-?]*[ -/]*[@-~]|\][^\u0007\u001B]*(?:\u0007|\u001B\\|$))/gu;
 const CONTROL_CHARACTER = /\p{Cc}/gu;

@@ -10,6 +10,13 @@ import {
   sanitizeIntent,
 } from '../../src/loop/tool-intent';
 
+const SANITIZER_FIXTURES = [
+  ['\u001B[31mred\u001B[0m', 'red'],
+  ['\u001B]0;title\u0007visible', 'visible'],
+  ['\u001B]0;title\u001B\\visible', 'visible'],
+  ['check\n\u0007test', 'check test'],
+] as const;
+
 function makeTool(
   name = 'test',
   parameters: Record<string, unknown> = {
@@ -112,14 +119,8 @@ describe('tool intent extraction', () => {
 });
 
 describe('tool intent sanitization', () => {
-  it('strips terminal escapes and controls and collapses whitespace', () => {
-    expect(sanitizeIntent('\u001B[31mcheck\n\u0007 failing\u001B[0m')).toBe('check failing');
-  });
-
-  it('preserves visible text after an ST-terminated OSC hyperlink', () => {
-    expect(sanitizeIntent('\u001B]8;;https://example.com\u001B\\click\u001B]8;;\u001B\\ done')).toBe(
-      'click done',
-    );
+  it.each(SANITIZER_FIXTURES)('sanitizes intent %j', (raw, expected) => {
+    expect(sanitizeIntent(raw)).toBe(expected);
   });
 
   it('caps the result by code points', () => {

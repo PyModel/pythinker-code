@@ -287,7 +287,7 @@ export class SessionEventHandler {
       case 'turn.step.started': this.handleStepBegin(event); break;
       case 'turn.step.interrupted': this.handleStepInterrupted(event); break;
       case 'turn.step.completed': this.handleStepCompleted(event); break;
-      case 'turn.step.retrying': break;
+      case 'turn.step.retrying': setLiveIntent(undefined); break;
       case 'tool.progress': this.handleToolProgress(event); break;
       case 'assistant.delta': this.handleAssistantDelta(event); break;
       case 'hook.result': this.handleHookResult(event); break;

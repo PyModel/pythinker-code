@@ -8,6 +8,13 @@ import {
 } from '#/tui/constant/rendering';
 import { PythinkerTUI, type PythinkerTUIStartupInput } from '#/tui/pythinker-tui';
 
+const SANITIZER_FIXTURES = [
+  ['\u001B[31mred\u001B[0m', 'red'],
+  ['\u001B]0;title\u0007visible', 'visible'],
+  ['\u001B]0;title\u001B\\visible', 'visible'],
+  ['check\n\u0007test', 'check test'],
+] as const;
+
 function makeStartupInput(): PythinkerTUIStartupInput {
   return {
     cliOptions: {
@@ -49,16 +56,9 @@ describe('tool intent thinking label', () => {
     expect(formatThinkingSpinnerLabel(0)).toBe('thinking…');
   });
 
-  it('removes control characters before display', () => {
-    setLiveIntent('\u001B[31mcheck\n\u0007 failing test\u001B[0m');
-    expect(formatThinkingSpinnerLabel(0)).toBe('check failing test…');
-  });
-
-  it('removes ST-terminated OSC hyperlinks before display', () => {
-    setLiveIntent(
-      '\u001B]8;;https://example.com\u001B\\click\u001B]8;;\u001B\\ done',
-    );
-    expect(formatThinkingSpinnerLabel(0)).toBe('click done…');
+  it.each(SANITIZER_FIXTURES)('sanitizes intent %j', (raw, expected) => {
+    setLiveIntent(raw);
+    expect(formatThinkingSpinnerLabel(0)).toBe(`${expected}…`);
   });
 
   it('sets intent from a tool delta and clears it on the result', () => {
@@ -111,6 +111,38 @@ describe('tool intent thinking label', () => {
       toolCallId: 'call-2',
       name: 'StructuredOutput',
       args: {},
+    });
+
+    expect(formatThinkingSpinnerLabel(0)).toBe('thinking…');
+  });
+
+  it('clears the live intent when a step retries', () => {
+    const driver = new PythinkerTUI({} as never, makeStartupInput());
+    const dispatch = (event: Event): void =>
+      driver.sessionEventHandler.handleEvent(event, vi.fn());
+
+    dispatch({
+      type: 'tool.call.started',
+      agentId: 'main',
+      sessionId: 'session-1',
+      turnId: 1,
+      toolCallId: 'call-1',
+      name: 'echo',
+      args: {},
+      intent: 'check failing test',
+    });
+    dispatch({
+      type: 'turn.step.retrying',
+      agentId: 'main',
+      sessionId: 'session-1',
+      turnId: 1,
+      step: 1,
+      failedAttempt: 1,
+      nextAttempt: 2,
+      maxAttempts: 3,
+      delayMs: 100,
+      errorName: 'Error',
+      errorMessage: 'retry',
     });
 
     expect(formatThinkingSpinnerLabel(0)).toBe('thinking…');

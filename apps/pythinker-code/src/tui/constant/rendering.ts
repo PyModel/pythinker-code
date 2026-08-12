@@ -133,6 +133,7 @@ export const THINKING_SPINNER_LABELS = [
 export const THINKING_SPINNER_LABEL_INTERVAL_MS = 12_000;
 
 const LIVE_INTENT_MAX_LENGTH = 120;
+// Keep in sync with packages/agent-core/src/loop/tool-intent.ts.
 // oxlint-disable-next-line no-control-regex -- wire text must not retain terminal escape sequences.
 const ANSI_ESCAPE = /\u001B(?:\[[0-?]*[ -/]*[@-~]|\][^\u0007\u001B]*(?:\u0007|\u001B\\|$))/gu;
 const CONTROL_CHARACTER = /\p{Cc}/gu;
