@@ -270,10 +270,16 @@ export const McpServerConfigSchema = z.preprocess((raw) => {
 
 export type McpServerConfig = z.infer<typeof McpServerConfigSchema>;
 
+const ModelRolesSchema = z.record(z.string(), z.string()).refine(
+  (roles) => !Object.hasOwn(roles, 'default'),
+  { message: '"default" is a reserved model role name' },
+);
+
 export const PythinkerConfigSchema = z.object({
   providers: z.record(z.string(), ProviderConfigSchema).default({}),
   defaultProvider: z.string().optional(),
   defaultModel: z.string().optional(),
+  modelRoles: ModelRolesSchema.optional(),
   outputStyle: z.string().trim().min(1).optional(),
   models: z.record(z.string(), ModelAliasSchema).optional(),
   thinking: ThinkingConfigSchema.optional(),
@@ -319,6 +325,7 @@ export const PythinkerConfigPatchSchema = z
     providers: z.record(z.string(), ProviderConfigPatchSchema).optional(),
     defaultProvider: z.string().optional(),
     defaultModel: z.string().optional(),
+    modelRoles: ModelRolesSchema.optional(),
     outputStyle: z.string().trim().min(1).optional(),
     models: z.record(z.string(), ModelAliasPatchSchema).optional(),
     thinking: ThinkingConfigPatchSchema.optional(),

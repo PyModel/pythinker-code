@@ -231,6 +231,47 @@ source = { kind = "apiJson", url = "https://registry.example/api.json", apiKey =
     });
   });
 
+  it('round-trips model roles from a fresh config', async () => {
+    const configPath = join(makeTempDir(), 'model-roles.toml');
+
+    await writeConfigFile(configPath, { providers: {}, modelRoles: { small: 'haiku' } });
+
+    const text = await readFile(configPath, 'utf-8');
+    expect(text).toContain('[model_roles]');
+    expect(text).toContain('small = "haiku"');
+    expect(readConfigFile(configPath).modelRoles).toEqual({ small: 'haiku' });
+  });
+
+  it('round-trips reassigned model roles instead of stale raw values', async () => {
+    const configPath = join(makeTempDir(), 'model-roles-reassigned.toml');
+    const config = parseConfigString('[model_roles]\nsmall = "old"\n', configPath);
+
+    await writeConfigFile(configPath, { ...config, modelRoles: { small: 'new' } });
+
+    expect(readConfigFile(configPath).modelRoles).toEqual({ small: 'new' });
+  });
+
+  it('round-trips cleared model roles instead of stale raw values', async () => {
+    const configPath = join(makeTempDir(), 'model-roles-cleared.toml');
+    const config = parseConfigString('[model_roles]\nsmall = "old"\n', configPath);
+
+    await writeConfigFile(configPath, { ...config, modelRoles: { small: '' } });
+
+    expect(readConfigFile(configPath).modelRoles).toEqual({ small: '' });
+  });
+
+  it('removes model roles when the role map is cleared', async () => {
+    const configPath = join(makeTempDir(), 'model-roles-removed.toml');
+    await writeFile(configPath, '[model_roles]\nsmall = "old"\n');
+    const config = readConfigFile(configPath);
+
+    await writeConfigFile(configPath, { ...config, modelRoles: undefined });
+
+    const text = await readFile(configPath, 'utf-8');
+    expect(text).not.toContain('[model_roles]');
+    expect(readConfigFile(configPath).modelRoles).toBeUndefined();
+  });
+
   it('round-trips an API key environment reference without an API key', async () => {
     const configPath = join(makeTempDir(), 'api-key-env-var.toml');
     const config = parseConfigString(
@@ -590,6 +631,15 @@ describe('harness config schema and patch merge', () => {
     expect(merged.raw?.['theme']).toBe('dark');
   });
 
+  it('deep-merges model role patches', () => {
+    const merged = mergeConfigPatch(
+      { providers: {}, modelRoles: { small: 'x', advisor: 'z' } },
+      { modelRoles: { small: 'y' } },
+    );
+
+    expect(merged.modelRoles).toEqual({ small: 'y', advisor: 'z' });
+  });
+
   it('deep-merges experimental config patches', () => {
     const base = parseConfigString(`
 [experimental]
@@ -884,6 +934,18 @@ max_context_size = -5
     expect(result.config.models?.['broken']).toBeUndefined();
     expect(result.config.models?.['k2']).toBeDefined();
     expect(result.fileWarnings[0]).toContain('models.broken');
+  });
+
+  it('drops only the broken model role entry', async () => {
+    const configPath = await writeTempConfig(`${VALID_TOML}
+[model_roles]
+small = 123
+implementer = "k2"
+`);
+    const result = loadRuntimeConfigSafe(configPath, {});
+    expect(result.config.modelRoles?.['small']).toBeUndefined();
+    expect(result.config.modelRoles?.['implementer']).toBe('k2');
+    expect(result.fileWarnings[0]).toContain('model_roles.small');
   });
 
   it('drops the whole hooks list when one hook is invalid', async () => {

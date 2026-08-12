@@ -9,6 +9,7 @@ import {
 import type { Agent } from '../agent';
 import type { PromptOrigin } from '../agent/context';
 import type { PermissionRule } from '../agent/permission';
+import { expandModelRef, resolveModelRoleAlias } from '../config';
 import { ErrorCodes, type PythinkerErrorPayload } from '../errors';
 import { DenyAllPermissionPolicy } from '../agent/permission/policies/deny-all';
 import { InMemoryAgentRecordPersistence } from '../agent/records';
@@ -430,10 +431,11 @@ export class SessionSubagentHost {
   }
 
   /**
-   * Model selection for a child: explicit option → profile → parent. Resume and
-   * retry re-resolve through the same precedence, so a profile that routes its
-   * subagents to another model (and provider) is not silently replaced by the
-   * parent's model on the second turn.
+   * Model selection for a child: explicit option → profile → implementer role
+   * → parent. `@role` references in the first two sources expand before model
+   * resolution. Resume and retry re-resolve through the same precedence, so a
+   * profile that routes its subagents to another model (and provider) is not
+   * silently replaced by the parent's model on the second turn.
    *
    * An alias the provider cannot resolve (e.g. a typo, or a session built on
    * SingleModelProvider) falls back to the parent's model instead of failing at
@@ -453,14 +455,23 @@ export class SessionSubagentHost {
     profile: ResolvedAgentProfile | undefined,
     options: Pick<RunSubagentOptions, 'modelAlias' | 'thinkingLevel' | 'workflowRunId'>,
   ): { modelAlias: string | undefined; thinkingLevel: string | undefined; fastMode: boolean } {
-    const requested = options.modelAlias ?? profile?.model;
+    const config = parent.pythinkerConfig;
+    const requestedRaw = options.modelAlias ?? profile?.model;
+    const requested =
+      requestedRaw !== undefined
+        ? expandModelRef(config, requestedRaw)
+        : resolveModelRoleAlias(config, 'implementer');
+    const tool = options.workflowRunId === undefined ? 'Agent' : 'DynamicWorkflow';
+    const requestedDenied =
+      requested !== undefined &&
+      ((requestedRaw !== undefined &&
+        requestedRaw !== requested &&
+        parent.permission.deniesModelOverride(tool, requestedRaw)) ||
+        parent.permission.deniesModelOverride(tool, requested));
     const modelAlias =
       requested !== undefined &&
       child.config.canResolveModel(requested) &&
-      !parent.permission.deniesModelOverride(
-        options.workflowRunId === undefined ? 'Agent' : 'DynamicWorkflow',
-        requested,
-      )
+      !requestedDenied
         ? requested
         : parent.config.modelAlias;
     return {

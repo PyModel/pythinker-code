@@ -102,7 +102,7 @@ export const DynamicWorkflowToolInputSchema = z
       .min(1)
       .optional()
       .describe(
-        'Model alias for every subagent in this workflow, so the orchestrator can run on one model while the workers run on a cheaper or faster one. Defaults to the subagent type profile model, then this agent model.',
+        'Model alias for every subagent in this workflow, so the orchestrator can run on one model while the workers run on a cheaper or faster one. References such as @small, @implementer, @advisor, and @<custom-role> resolve through configured model roles and fall back to normal precedence when unassigned. Defaults to the subagent type profile model, then the configured implementer model role, then this agent model.',
       ),
     effort: z
       .string()

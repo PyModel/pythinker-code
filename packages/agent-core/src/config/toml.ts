@@ -200,7 +200,7 @@ export function loadRuntimeConfigSafe(
 }
 
 /** Sections keyed by user-chosen names where single entries can be dropped. */
-const ENTRY_KEYED_SECTIONS = new Set(['providers', 'models']);
+const ENTRY_KEYED_SECTIONS = new Set(['providers', 'models', 'modelRoles']);
 
 interface SalvageResult {
   readonly config: PythinkerConfig | undefined;
@@ -316,6 +316,8 @@ export function transformTomlData(data: Record<string, unknown>): Record<string,
     } else if (targetKey === 'background' && isPlainObject(value)) {
       result[targetKey] = transformPlainObject(value);
     } else if (targetKey === 'experimental' && isPlainObject(value)) {
+      result[targetKey] = cloneRecord(value);
+    } else if (targetKey === 'modelRoles' && isPlainObject(value)) {
       result[targetKey] = cloneRecord(value);
     } else if (!isPlainObject(value)) {
       result[targetKey] = value;
@@ -490,6 +492,11 @@ export function configToTomlData(config: PythinkerConfig): Record<string, unknow
 
   setRecordSection(out, 'providers', config.providers, providerToToml);
   setRecordSection(out, 'models', config.models, modelToToml);
+  if (config.modelRoles === undefined) {
+    delete out['model_roles'];
+  } else {
+    out['model_roles'] = cloneUnknown(config.modelRoles);
+  }
   setSection(out, 'thinking', config.thinking, thinkingToToml);
   setSection(out, 'services', config.services, servicesToToml);
   setSection(out, 'loop_control', config.loopControl, loopControlToToml);
