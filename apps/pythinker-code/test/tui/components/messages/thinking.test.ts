@@ -89,9 +89,21 @@ describe('ThinkingComponent', () => {
       expect(strip(secondHeader ?? '')).toBe(`⠙ ${formatThinkingSpinnerLabel()}`);
 
       vi.advanceTimersByTime(BRAILLE_SPINNER_INTERVAL_MS * (BRAILLE_SPINNER_FRAMES.length - 1));
-      const shimmerHeader = component.render(80)[1];
-      expect(strip(shimmerHeader ?? '')).toBe(strip(firstHeader ?? ''));
-      expect(shimmerHeader).not.toBe(firstHeader);
+      const fullCycleHeader = component.render(80)[1];
+      expect(fullCycleHeader).toBeDefined();
+      expect(firstHeader).toBeDefined();
+      expect(strip(fullCycleHeader as string)).toBe(strip(firstHeader as string));
+
+      const shimmerHeaders = [firstHeader, fullCycleHeader];
+      for (let sample = 0; sample < 3; sample++) {
+        vi.advanceTimersByTime(BRAILLE_SPINNER_INTERVAL_MS * BRAILLE_SPINNER_FRAMES.length);
+        shimmerHeaders.push(component.render(80)[1]);
+      }
+      for (const header of shimmerHeaders) expect(header).toBeDefined();
+      expect(shimmerHeaders.map((header) => strip(header as string))).toEqual(
+        shimmerHeaders.map(() => strip(firstHeader as string)),
+      );
+      expect(new Set(shimmerHeaders).size).toBeGreaterThan(1);
 
       component.finalize();
       requestRender.mockClear();

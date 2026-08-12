@@ -27,7 +27,6 @@ import { readUpdateInstallState } from '#/cli/update/install-state';
 import { detectInstallSource } from '#/cli/update/source';
 import type { InstallSource } from '#/cli/update/types';
 import { MigrationScreenComponent, type MigrationScreenResult } from '#/migration/index';
-import { effortColorToken } from '#/tui/utils/thinking-levels';
 import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
 import {
   appendInputHistory,
@@ -141,6 +140,7 @@ import type { TuiPresentation } from './runtime/contracts';
 import {
   foldFooterEvents,
   selectFooterViewModel,
+  selectStatusBarExtras,
   type FooterActivity,
   type FooterEvent,
   type FooterGoal,
@@ -965,6 +965,7 @@ export class PythinkerTUI {
     ui.addChild(this.state.btwPanelContainer);
     ui.addChild(this.state.mcpStatusContainer);
     ui.addChild(this.state.editorContainer);
+    ui.addChild(this.state.statusBarContainer);
     // Footer is mounted later (mountFooter), not here.
   }
 
@@ -974,6 +975,8 @@ export class PythinkerTUI {
   // only once init() succeeds. FooterComponent isn't a Container, so wrap it to
   // pick up the same outer gutter as the panels above.
   private mountFooter(): void {
+    this.state.statusBarContainer.clear();
+    this.state.statusBarContainer.addChild(this.state.statusBar);
     if (this.state.layout === 'fixed') {
       this.state.layoutRoot.setFooterMounted(true);
       return;
@@ -1333,7 +1336,7 @@ export class PythinkerTUI {
     if (!hasPatchChanges(this.state.appState, patch)) return;
     const busyChanged = 'streamingPhase' in patch || 'isCompacting' in patch;
     Object.assign(this.state.appState, patch);
-    if ('planMode' in patch) this.updateEditorBorderHighlight();
+    if ('planMode' in patch || 'permissionMode' in patch) this.updateEditorBorderHighlight();
     this.state.footer.syncAppState(this.state.appState);
     this.syncFooterState();
     this.updateActivityPane();
@@ -1391,6 +1394,19 @@ export class PythinkerTUI {
         this.state.appState.statusLine,
       ),
     );
+    this.state.statusBar.update({
+      ...this.state.footerState.status,
+      extras: selectStatusBarExtras(
+        this.state.footerState,
+        Date.now(),
+        this.state.appState.statusLine,
+      ),
+      sessionKey:
+        this.state.appState.sessionTitle?.trim() ||
+        this.state.appState.sessionId ||
+        this.state.appState.workDir,
+      statusLine: this.state.appState.statusLine,
+    });
   }
 
   private footerGoal(): FooterGoal | null {
@@ -2111,13 +2127,9 @@ export class PythinkerTUI {
     const highlighted =
       this.state.appState.planMode || findSlashAutocompleteContext(currentLine, col) !== null;
     this.state.editor.borderHighlighted = highlighted;
-    // Reads thinkingLevel at paint time so cycling effort (Shift-Tab/Ctrl-T)
-    // recolors the prompt box on the next render without re-wiring the closure.
     this.state.editor.borderColor = (s: string) => {
       if (highlighted) return currentTheme.fg('primary', s);
-      const level = this.state.appState.thinkingLevel;
-      if (level === 'off' || level.trim().length === 0) return currentTheme.fg('border', s);
-      return currentTheme.fg(effortColorToken(level), s);
+      return currentTheme.fg('border', s);
     };
     this.state.ui.requestRender();
   }

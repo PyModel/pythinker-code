@@ -1,6 +1,10 @@
 import { truncateToWidth, visibleWidth, type Component } from '@earendil-works/pi-tui';
 
-import { DYNAMIC_WORKFLOW_RENDERING } from '#/tui/constant/rendering';
+import {
+  BRAILLE_SPINNER_FRAMES,
+  BRAILLE_SPINNER_INTERVAL_MS,
+  DYNAMIC_WORKFLOW_RENDERING,
+} from '#/tui/constant/rendering';
 import { currentTheme } from '#/tui/theme';
 import { shimmerText } from '#/tui/utils/shimmer';
 
@@ -507,9 +511,18 @@ export class DynamicWorkflowMissionControlComponent implements Component {
 
   private renderAggregate(width: number, nowMs: number): string {
     const terminal = isTerminalRequestPhase(this.model.requestPhase);
+    const frame = Math.floor(
+      Math.max(0, nowMs - this.model.startedAtMs) /
+        BRAILLE_SPINNER_INTERVAL_MS,
+    );
     const loader = terminal
       ? currentTheme.fg(requestPhaseColor(this.model.requestPhase), requestPhaseSymbol(this.model.requestPhase))
-      : this.activitySpinnerText?.() ?? currentTheme.fg('primary', '●');
+      : this.activitySpinnerText === undefined
+        ? currentTheme.fg('primary', '●')
+        : currentTheme.fg(
+            'primary',
+            BRAILLE_SPINNER_FRAMES[frame % BRAILLE_SPINNER_FRAMES.length]!,
+          );
     const aggregateMembers = this.aggregateMembers();
     // All spawned agents are done but the tool result has not arrived yet:
     // the label says so instead of pretending orchestration is still active.
@@ -525,15 +538,10 @@ export class DynamicWorkflowMissionControlComponent implements Component {
     const label = terminal
       ? currentTheme.fg('text', requestPhaseLabel(this.model.requestPhase))
       : shimmerText(finalizing ? FINALIZING_LABEL : ORCHESTRATING_LABEL, {
-          // `primary` / `primaryShimmer` are a designed pair, so the sweep stays
-          // periwinkle throughout; the old grey `text` base washed it out.
           baseToken: 'primary',
           shimmerToken: 'primaryShimmer',
-          frame: Math.floor(
-            Math.max(0, nowMs - this.model.startedAtMs) /
-              DYNAMIC_WORKFLOW_RENDERING.aggregateShimmerFrameMs,
-          ),
-          windowSize: 4,
+          altShimmerToken: 'warningShimmer',
+          bandHalfWidth: 4,
         });
     const paddedLabel = padToWidth(label, LIVE_LABEL_WIDTH);
     const prefix = `${loader} ${paddedLabel}`;

@@ -551,13 +551,16 @@ describe('PythinkerTUI startup', () => {
     expect(driver.state.ui.children).toEqual([driver.state.layoutRoot]);
   });
 
-  it('places MCP startup status immediately above the editor in inline layout', () => {
+  it('places the status bar directly below the editor in inline layout', () => {
     const harness = makeHarness();
     const driver = makeDriver(harness, makeStartupInput({}, { layout: 'inline' }));
     const children = driver.state.ui.children;
     expect(children[0]).toBe(driver.state.transcriptContainer);
     expect(children.indexOf(driver.state.mcpStatusContainer)).toBe(
       children.indexOf(driver.state.editorContainer) - 1,
+    );
+    expect(children.indexOf(driver.state.editorContainer)).toBe(
+      children.indexOf(driver.state.statusBarContainer) - 1,
     );
   });
 

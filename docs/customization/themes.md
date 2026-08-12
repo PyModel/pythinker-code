@@ -64,6 +64,9 @@ Active `/model` provider and `AskUserQuestion` tabs use `selectionBg` for the ba
 | `inverseText` | `#FFFFFF` | `#0B1020` | Foreground for active `/model` provider and `AskUserQuestion` tabs; pair with `selectionBg` at 4.5:1 contrast or higher. |
 | `selectionBg` | `#344274` | `#C9D1FA` | Background for active `/model` provider and `AskUserQuestion` tabs; pair with `inverseText` at 4.5:1 contrast or higher. |
 | `surfaceHighlight` | `#1C2238` | `#E8EBFC` | Subtle fill for highlighted rows and message surfaces, including user transcript rows. |
+| `toolPendingBg` | `#1D2129` | `#E8EEF7` | Background tint for a tool card while the call is running. |
+| `toolSuccessBg` | `#14171B` | `#F1F3F5` | Background tint for a tool card after a successful result. |
+| `toolErrorBg` | `#291D1D` | `#F9E9E9` | Background tint for a tool card after an error result. |
 | `progressFill` | `#25764A` | `#3B9A65` | Filled segment of the Dynamic Workflow aggregate progress line. |
 | `progressHead` | `#4EC87E` | `#0E7A38` | Static head of the Dynamic Workflow aggregate progress track. |
 | `progressEmpty` | `#D9DEE8` | `#6B7280` | Empty segment of the Dynamic Workflow aggregate progress line. |

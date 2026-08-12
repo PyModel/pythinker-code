@@ -1,14 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { FooterComponent } from '#/tui/components/chrome/footer';
+import { FooterComponent, footerStatusFromAppState } from '#/tui/components/chrome/footer';
 import { DEFAULT_STATUS_LINE_CONFIG } from '#/tui/config';
+import {
+  createFooterState,
+  reduceFooterState,
+  selectStatusBarExtras,
+} from '#/tui/runtime/footer/footer-model';
 import type { GoalSnapshot } from '@pythoughts/pythinker-code-sdk';
 import type { AppState } from '#/tui/types';
-
-const ANSI_SGR = /\u001B\[[0-9;]*m/g;
-function strip(text: string): string {
-  return text.replaceAll(ANSI_SGR, '');
-}
 
 function baseState(overrides: Partial<AppState> = {}): AppState {
   return {
@@ -52,19 +52,42 @@ function goal(overrides: Partial<GoalSnapshot> = {}): GoalSnapshot {
   } as GoalSnapshot;
 }
 
+function goalExtras(
+  state: AppState,
+  observedAtMs = Date.now(),
+  clockMs = Date.now(),
+): string {
+  const snapshot = state.goal;
+  const footerState = reduceFooterState(
+    createFooterState(footerStatusFromAppState(state, null)),
+    {
+      type: 'goal.updated',
+      goal:
+        snapshot === null || snapshot === undefined
+          ? null
+          : {
+              status: snapshot.status,
+              turnsUsed: snapshot.turnsUsed,
+              turnBudget: snapshot.budget.turnBudget,
+              wallClockMs: snapshot.wallClockMs,
+              observedAtMs,
+            },
+    },
+  );
+  return selectStatusBarExtras(footerState, clockMs, state.statusLine).join(' ');
+}
+
 describe('FooterComponent — goal badge', () => {
   afterEach(() => {
     vi.useRealTimers();
   });
 
   it('omits the badge when there is no goal', () => {
-    const footer = new FooterComponent(baseState({ goal: null }));
-    expect(strip(footer.render(160)[0]!)).not.toMatch(/goal/);
+    expect(goalExtras(baseState({ goal: null }))).not.toMatch(/goal/);
   });
 
   it('shows status, elapsed, and a raw turn count for an unbounded active goal', () => {
-    const footer = new FooterComponent(baseState({ goal: goal() }));
-    const out = strip(footer.render(160)[0]!);
+    const out = goalExtras(baseState({ goal: goal() }));
     expect(out).toContain('[goal');
     expect(out).toContain('active');
     expect(out).toContain('4m');
@@ -77,13 +100,10 @@ describe('FooterComponent — goal badge', () => {
     vi.useFakeTimers();
     vi.setSystemTime(0);
 
-    const footer = new FooterComponent(
-      baseState({ goal: goal({ wallClockMs: 0, turnsUsed: 0 }) }),
-    );
-
-    expect(strip(footer.render(160)[0]!)).toContain('0s');
+    const state = baseState({ goal: goal({ wallClockMs: 0, turnsUsed: 0 }) });
+    expect(goalExtras(state, 0, 0)).toContain('0s');
     vi.setSystemTime(2_500);
-    expect(strip(footer.render(160)[0]!)).toContain('3s');
+    expect(goalExtras(state, 0, 2_500)).toContain('3s');
   });
 
   it('requests a repaint while an active goal timer is visible', () => {
@@ -97,27 +117,24 @@ describe('FooterComponent — goal badge', () => {
   });
 
   it('shows used/limit turns only when a turn budget is set', () => {
-    const footer = new FooterComponent(
+    const out = goalExtras(
       baseState({ goal: goal({ budget: { turnBudget: 20, tokenBudget: null, wallClockBudgetMs: null } } as Partial<GoalSnapshot>) }),
     );
-    expect(strip(footer.render(160)[0]!)).toContain('7/20 turns');
+    expect(out).toContain('7/20 turns');
   });
 
   it('shows a paused badge', () => {
-    const footer = new FooterComponent(baseState({ goal: goal({ status: 'paused' }) }));
-    expect(strip(footer.render(160)[0]!)).toContain('paused');
+    expect(goalExtras(baseState({ goal: goal({ status: 'paused' }) }))).toContain('paused');
   });
 
   it('shows a blocked badge (resumable, still present)', () => {
-    const footer = new FooterComponent(baseState({ goal: goal({ status: 'blocked' }) }));
-    const out = strip(footer.render(160)[0]!);
+    const out = goalExtras(baseState({ goal: goal({ status: 'blocked' }) }));
     expect(out).toContain('[goal');
     expect(out).toContain('blocked');
   });
 
   it('hides the badge for a completed goal', () => {
-    const footer = new FooterComponent(baseState({ goal: goal({ status: 'complete' }) }));
-    expect(strip(footer.render(160)[0]!)).not.toMatch(/goal/);
+    expect(goalExtras(baseState({ goal: goal({ status: 'complete' }) }))).not.toMatch(/goal/);
   });
 
   it('clears selection when the selected goal disappears', () => {
@@ -131,8 +148,7 @@ describe('FooterComponent — goal badge', () => {
   });
 
   it('singularizes a single turn', () => {
-    const footer = new FooterComponent(baseState({ goal: goal({ turnsUsed: 1 }) }));
-    const out = strip(footer.render(160)[0]!);
+    const out = goalExtras(baseState({ goal: goal({ turnsUsed: 1 }) }));
     expect(out).toContain('1 turn');
     expect(out).not.toContain('1 turns');
   });

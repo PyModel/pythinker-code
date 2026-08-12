@@ -464,16 +464,27 @@ function selectActivityRow(state: FooterState): FooterActivityRowViewModel {
   });
 }
 
-function selectStatusItems(
+export function selectStatusItemParts(
   state: FooterState,
   clockMs: number,
   statusLine: StatusLineConfig,
-): string[] {
-  const items: string[] = [];
+): {
+  readonly update: string | null;
+  readonly model: string | null;
+  readonly speed: string | null;
+  readonly spend: string | null;
+  readonly context: string | null;
+  readonly git: string | null;
+  readonly modes: string | null;
+  readonly elapsed: string | null;
+  readonly goal: string | null;
+  readonly background: readonly string[];
+} {
   const update = formatUpdate(state.update);
-  if (update !== null) items.push(update);
-  const model = normalizeSingleLine(state.status.model);
-  if (statusLine.showModel && model.length > 0) {
+  const modelName = normalizeSingleLine(state.status.model);
+  const speed = statusLine.showTokenSpeed ? formatTokenSpeed(state.status) : null;
+  let model: string | null = null;
+  if (statusLine.showModel && modelName.length > 0) {
     const effortSuffix =
       statusLine.showEffort && state.status.thinkingLevel !== 'off'
         ? ` · ${shortEffortLabel(state.status.thinkingLevel)}`
@@ -481,51 +492,84 @@ function selectStatusItems(
     // Fast rides on the model item and only while mode badges are visible,
     // so it can never appear twice in the row.
     const fastSuffix = statusLine.showModes && state.status.fastMode ? ' · ↯ fast' : '';
-    const speed = statusLine.showTokenSpeed ? formatTokenSpeed(state.status) : null;
-    items.push(`${model}${effortSuffix}${fastSuffix}${speed === null ? '' : ` · ${speed}`}`);
+    model = `${modelName}${effortSuffix}${fastSuffix}${speed === null ? '' : ` · ${speed}`}`;
   }
 
-  if (statusLine.showModel) {
-    const spend = formatSessionSpend(state.status.sessionSpendUsd);
-    if (spend !== null) items.push(spend);
-  }
-
-  if (statusLine.showContextBar) items.push(formatContext(state.status));
-
-  if (statusLine.showGit) {
-    const git = formatGitStatus(state.status.git);
-    if (git !== null) items.push(git);
-  }
-
+  let modes: string | null = null;
   if (statusLine.showModes) {
-    const modes: string[] = [];
-    if (state.status.dynamicWorkflowMode) modes.push('workflow');
-    if (state.status.permissionMode === 'auto') modes.push('auto');
-    if (state.status.planMode) modes.push('plan');
-    if (modes.length > 0) items.push(modes.join(' '));
+    const modeItems: string[] = [];
+    if (state.status.dynamicWorkflowMode) modeItems.push('workflow');
+    if (state.status.permissionMode === 'auto') modeItems.push('auto');
+    if (state.status.planMode) modeItems.push('plan');
+    if (modeItems.length > 0) modes = modeItems.join(' ');
   }
 
-  if (statusLine.showElapsed && state.status.elapsedMs !== null) {
-    items.push(`elapsed ${formatStatusElapsed(state.status.elapsedMs)}`);
-  }
-
-  if (statusLine.showGoal) {
-    const goal = formatGoal(state.goal, clockMs);
-    if (goal !== null) items.push(goal);
-  }
-
+  const background: string[] = [];
   if (statusLine.showBackgroundTasks) {
     const bashTasks = nonNegativeInteger(state.background.bashTasks);
     if (bashTasks > 0) {
-      items.push(`[${String(bashTasks)} ${plural(bashTasks, 'task')} running]`);
+      background.push(`[${String(bashTasks)} ${plural(bashTasks, 'task')} running]`);
     }
     const agentTasks = nonNegativeInteger(state.background.agentTasks);
     if (agentTasks > 0) {
-      items.push(
+      background.push(
         `[${String(agentTasks)} ${plural(agentTasks, 'agent')} running]`,
       );
     }
   }
+
+  return {
+    update,
+    model,
+    speed,
+    spend: statusLine.showModel ? formatSessionSpend(state.status.sessionSpendUsd) : null,
+    context: statusLine.showContextBar ? formatContext(state.status) : null,
+    git: statusLine.showGit ? formatGitStatus(state.status.git) : null,
+    modes,
+    elapsed:
+      statusLine.showElapsed && state.status.elapsedMs !== null
+        ? `elapsed ${formatStatusElapsed(state.status.elapsedMs)}`
+        : null,
+    goal: statusLine.showGoal ? formatGoal(state.goal, clockMs) : null,
+    background,
+  };
+}
+
+function selectStatusItems(
+  state: FooterState,
+  clockMs: number,
+  statusLine: StatusLineConfig,
+): string[] {
+  const parts = selectStatusItemParts(state, clockMs, statusLine);
+  const items = [
+    parts.update,
+    parts.model,
+    parts.spend,
+    parts.context,
+    parts.git,
+    parts.modes,
+    parts.elapsed,
+    parts.goal,
+  ].filter((item): item is string => item !== null);
+  items.push(...parts.background);
+  return items;
+}
+
+export function selectStatusBarExtras(
+  state: FooterState,
+  clockMs: number,
+  statusLine: StatusLineConfig,
+): string[] {
+  const parts = selectStatusItemParts(state, clockMs, statusLine);
+  const items = [
+    parts.context,
+    parts.git,
+    parts.update,
+    parts.spend,
+    parts.elapsed,
+    parts.goal,
+  ].filter((item): item is string => item !== null);
+  items.push(...parts.background);
   return items;
 }
 
@@ -593,7 +637,9 @@ function formatStatusElapsed(ms: number): string {
   return totalMinutes < 60 ? clock : `${String(Math.floor(totalMinutes / 60))}:${clock}`;
 }
 
-function formatTokenSpeed(status: FooterStatus): string | null {
+export function formatTokenSpeed(
+  status: Pick<FooterStatus, 'tokenSpeed' | 'tokenSpeedEstimated'>,
+): string | null {
   const speed = status.tokenSpeed;
   if (speed === null || !Number.isFinite(speed) || speed < 0) return null;
   return `${status.tokenSpeedEstimated ? '~' : ''}${speed.toFixed(1)} t/s`;

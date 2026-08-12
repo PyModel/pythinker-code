@@ -7,6 +7,7 @@ import {
 import { FooterComponent } from './components/chrome/footer';
 import { GutterContainer } from './components/chrome/gutter-container';
 import type { ActivityLoader } from './components/chrome/activity-loader';
+import { StatusBarComponent } from './components/chrome/status-bar';
 import { TodoPanelComponent } from './components/chrome/todo-panel';
 import { TranscriptViewport } from './components/chrome/transcript-viewport';
 import { ViewportLayoutRoot } from './components/chrome/viewport-layout';
@@ -43,6 +44,8 @@ export interface TUIState {
   queueContainer: Container;
   btwPanelContainer: Container;
   mcpStatusContainer: Container;
+  statusBarContainer: Container;
+  statusBar: StatusBarComponent;
   editorContainer: Container;
   footer: FooterComponent;
   footerState: FooterState;
@@ -90,6 +93,8 @@ export function createTUIState(options: PythinkerTUIOptions): TUIState {
   const queueContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
   const btwPanelContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
   const mcpStatusContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
+  const statusBarContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
+  const statusBar = new StatusBarComponent();
   const editorContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
   const editor = new CustomEditor(ui);
   const footer = new FooterComponent({ ...initialAppState }, () => {
@@ -110,6 +115,7 @@ export function createTUIState(options: PythinkerTUIOptions): TUIState {
       btwPanelContainer,
       mcpStatusContainer,
       editorContainer,
+      statusBarContainer,
     ],
     footerWrap,
   );
@@ -129,6 +135,8 @@ export function createTUIState(options: PythinkerTUIOptions): TUIState {
     queueContainer,
     btwPanelContainer,
     mcpStatusContainer,
+    statusBarContainer,
+    statusBar,
     editorContainer,
     editor,
     footer,

@@ -100,8 +100,7 @@ export class ThinkingComponent implements Component {
       const label = shimmerText(formatThinkingSpinnerLabel(), {
         baseToken: 'primary',
         shimmerToken: 'primaryShimmer',
-        frame: this.animationFrame,
-        windowSize: 4,
+        bandHalfWidth: 4,
       });
       return ['', spinner + label, ...visibleLines.map((line) => MESSAGE_INDENT + line)];
     }

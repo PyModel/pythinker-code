@@ -81,26 +81,34 @@ describe('CompactionComponent', () => {
       const firstHeader = firstRender.find((line) => strip(line).includes('Compacting conversation…'));
       const firstBar = firstRender.find((line) => strip(line).includes('▱'));
 
-      vi.advanceTimersByTime(BRAILLE_SPINNER_INTERVAL_MS);
-      const animationRender = component.render(120);
-      const animationHeader = animationRender.find((line) =>
-        strip(line).includes('Compacting conversation…'),
-      );
-      const animationBar = animationRender.find((line) => strip(line).includes('▱'));
-
       expect(firstHeader).toBeDefined();
       expect(firstBar).toBeDefined();
-      expect(animationHeader).toBeDefined();
-      expect(animationBar).toBeDefined();
-      expect(strip(animationHeader)).toBe(strip(firstHeader));
-      expect(animationHeader).not.toBe(firstHeader);
-      expect(animationBar).toBe(firstBar);
+
+      const headerSamples = [firstHeader];
+      const barSamples = [firstBar];
+      const shimmerSampleCount = 12;
+      for (let sample = 0; sample < shimmerSampleCount; sample++) {
+        vi.advanceTimersByTime(BRAILLE_SPINNER_INTERVAL_MS);
+        const render = component.render(120);
+        headerSamples.push(
+          render.find((line) => strip(line).includes('Compacting conversation…')),
+        );
+        barSamples.push(render.find((line) => strip(line).includes('▱')));
+      }
+
+      expect(headerSamples.every((header) => header !== undefined)).toBe(true);
+      expect(barSamples.every((bar) => bar !== undefined)).toBe(true);
+      expect(new Set(headerSamples.map(strip))).toEqual(new Set([strip(firstHeader)]));
+      expect(new Set(headerSamples).size).toBeGreaterThan(1);
+      expect(new Set(barSamples)).toEqual(new Set([firstBar]));
       expect(strip(firstBar).trimEnd()).toBe(`  ${'▰'.repeat(11)}${'▱'.repeat(29)} 27%`);
       expect(firstBar).toContain(currentTheme.fg('primary', '▰'.repeat(11)));
       expect(firstBar).not.toContain(currentTheme.fg('progressFill', '▰'.repeat(11)));
       expect(firstBar).toContain(currentTheme.fg('progressEmpty', '▱'.repeat(29)));
 
-      vi.advanceTimersByTime(1_000 - BRAILLE_SPINNER_INTERVAL_MS);
+      vi.advanceTimersByTime(
+        1_000 - BRAILLE_SPINNER_INTERVAL_MS * shimmerSampleCount,
+      );
       const elapsedRender = component.render(120);
       const elapsedHeader = elapsedRender.find((line) =>
         strip(line).includes('Compacting conversation…'),

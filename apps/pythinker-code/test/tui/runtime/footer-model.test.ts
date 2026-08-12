@@ -11,6 +11,7 @@ import {
   foldFooterEvents,
   formatStatusRow,
   selectFooterViewModel as selectFooterViewModelBase,
+  selectStatusBarExtras,
   type FooterEvent,
   type FooterStatus,
   type FooterStatusRowViewModel,
@@ -299,6 +300,28 @@ describe('footer model', () => {
       ],
       modelName: 'DeepSeek V4 Flash',
     });
+  });
+
+  it('projects status-bar extras in priority order without the model and modes items', () => {
+    const state = foldFooterEvents(
+      createFooterState({
+        model: 'DeepSeek V4 Flash',
+        contextUsage: 0.05,
+        dynamicWorkflowMode: true,
+        git: workflowStatus().git,
+        tokenSpeed: 75.7,
+        tokenSpeedEstimated: true,
+      }),
+      [
+        {
+          type: 'update.updated',
+          update: { version: '0.11.0', state: 'available', percent: null },
+        },
+      ],
+    );
+    expect(selectStatusBarExtras(state, CLOCK_MS, DEFAULT_STATUS_LINE_CONFIG)).toEqual(
+      ['▱▱▱▱▱▱▱▱ 5%', 'main ↑15', '↑ v0.11.0'],
+    );
   });
 
   it('hides model metadata and spend together when the model item is disabled', () => {

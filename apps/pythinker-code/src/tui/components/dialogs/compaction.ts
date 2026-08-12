@@ -182,7 +182,6 @@ export class CompactionComponent extends Container {
       shimmerText('Compacting conversation…', {
         baseToken: 'primary',
         shimmerToken: 'primaryShimmer',
-        frame: this.animationFrame,
       }),
     );
     return `${label}${currentTheme.dim(` (${String(this.elapsedSeconds())}s)`)}`;

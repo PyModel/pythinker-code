@@ -21,7 +21,7 @@ function renderText(component: DynamicWorkflowMissionControlComponent, width = 1
 }
 
 /** Lifecycle progress glyph and label for a running row. */
-const RUNNING_CELL = /[◜◝◞◟]\s+RUN/u;
+const RUNNING_CELL = /[◐◓◑◒]\s+RUN/u;
 
 /** Head of a task cell that lost the preamble every row shared. */
 const TASK_ELISION_MARK = '…';
@@ -321,7 +321,7 @@ describe('DynamicWorkflowMissionControlComponent', () => {
     expect(aggregateLine(output)).toContain('2/3 complete');
     expect(aggregateLine(output)).not.toMatch(/\b\d+%/u);
     expect(aggregateLine(output)).not.toContain('━');
-    expect(memberLine(output, 1)).toMatch(/[◜◝◞◟]\s+RUN\s+Layout hierarchy/u);
+    expect(memberLine(output, 1)).toMatch(/[◐◓◑◒]\s+RUN\s+Layout hierarchy/u);
     expect(memberLine(output, 2)).toMatch(/✓\s+DONE\s+Interaction audit/u);
     expect(output).not.toMatch(/[⣿⣷⣯⣟⡿⢿⣻⣽]{4,}/u);
   });
@@ -356,7 +356,7 @@ describe('DynamicWorkflowMissionControlComponent', () => {
     expect(vi.getTimerCount()).toBe(timerCount);
   });
 
-  it('shimmers Orchestrating without changing its text or creating a timer', () => {
+  it('animates the braille header and shimmers Orchestrating without creating a timer', () => {
     vi.useFakeTimers();
     vi.setSystemTime(0);
     const previousLevel = chalk.level;
@@ -373,8 +373,11 @@ describe('DynamicWorkflowMissionControlComponent', () => {
       vi.setSystemTime(BRAILLE_SPINNER_INTERVAL_MS);
       const after = aggregateLine(component.render(100).join('\n'));
 
-      expect(strip(after)).toBe(strip(before));
+      expect(strip(after).replace(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/u, '')).toBe(
+        strip(before).replace(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/u, ''),
+      );
       expect(after).not.toBe(before);
+      expect(strip(after)).toMatch(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] Orchestrating/);
       expect(strip(after)).toContain('Orchestrating');
       expect(vi.getTimerCount()).toBe(timerCount);
     } finally {
@@ -383,7 +386,7 @@ describe('DynamicWorkflowMissionControlComponent', () => {
     }
   });
 
-  it('colours running progress and Orchestrating in periwinkle', () => {
+  it('colours running progress and gives Orchestrating three shimmer tiers', () => {
     vi.useFakeTimers();
     vi.setSystemTime(0);
     const previousLevel = chalk.level;
@@ -408,17 +411,19 @@ describe('DynamicWorkflowMissionControlComponent', () => {
       };
 
       const first = colouredMemberLine();
-      vi.setSystemTime(120);
+      vi.setSystemTime(300);
       const second = colouredMemberLine();
 
-      expect(first).toContain(chalk.hex(darkColors.primary)('◜'));
-      expect(second).toContain(chalk.hex(darkColors.primary)('◝'));
+      expect(first).toContain(chalk.hex(darkColors.primary)('◐'));
+      expect(second).toContain(chalk.hex(darkColors.primary)('◓'));
       expect(first).toContain(chalk.hex(darkColors.primary)('RUN'));
-      vi.setSystemTime(BRAILLE_SPINNER_INTERVAL_MS);
+      vi.setSystemTime(BRAILLE_SPINNER_INTERVAL_MS * 1.5);
 
       const aggregate = aggregateLine(component.render(100).join('\n'));
-      expect(aggregate).toContain(chalk.hex(darkColors.primary)('rchestrating'));
-      expect(aggregate).not.toContain(chalk.hex(darkColors.text)('rchestrating'));
+      expect(strip(aggregate)).toContain('Orchestrating');
+      expect(aggregate).toContain(chalk.hex(darkColors.primaryShimmer).bold('O'));
+      expect(aggregate).toContain(chalk.hex(darkColors.primary)('r'));
+      expect(aggregate).toContain(chalk.hex(darkColors.textDim)('chestrating'));
     } finally {
       vi.useRealTimers();
       chalk.level = previousLevel;
@@ -439,7 +444,7 @@ describe('DynamicWorkflowMissionControlComponent', () => {
 
     const output = renderText(component, 120);
     expect(output).toContain('– Cancelled');
-    expect(memberLine(output, 1)).toMatch(/[◜◝◞◟]\s+RUN\s+Running work/u);
+    expect(memberLine(output, 1)).toMatch(/[◐◓◑◒]\s+RUN\s+Running work/u);
     expect(memberLine(output, 2)).toMatch(/○\s+WAIT\s+Queued work/u);
     expect(output).not.toContain('– STOP');
     expect(output).not.toContain('⠋ Orchestrating');
@@ -515,7 +520,7 @@ describe('DynamicWorkflowMissionControlComponent', () => {
     expect(renderText(component, 100)).toContain('Rate limited');
 
     component.markStarted('agent-1');
-    expect(memberLine(renderText(component, 100), 1)).toMatch(/[◜◝◞◟]\s+RUN/u);
+    expect(memberLine(renderText(component, 100), 1)).toMatch(/[◐◓◑◒]\s+RUN/u);
   });
 
   it('prefers a suspension detail over stale model progress in the member row', () => {
@@ -644,12 +649,12 @@ describe('DynamicWorkflowMissionControlComponent', () => {
     const running = renderText(component, 100);
     expect(running).toContain('PROGRESS');
     expect(running).not.toContain('WORK IDLE');
-    expect(memberLine(running, 1)).toMatch(/◜\s+RUN\s+Live work/u);
+    expect(memberLine(running, 1)).toMatch(/◐\s+RUN\s+Live work/u);
     expect(memberLine(running, 2)).toMatch(/○\s+WAIT\s+Queued work/u);
     expect(running).not.toMatch(/\b\d+%|⚒|━/u);
   });
 
-  it('rotates the running arc from the shared workflow clock and freezes completion', () => {
+  it('rotates the running indicators from the shared workflow clock and freezes completion', () => {
     vi.useFakeTimers();
     vi.setSystemTime(0);
     const previousLevel = chalk.level;
@@ -661,13 +666,17 @@ describe('DynamicWorkflowMissionControlComponent', () => {
       const component = createComponent();
       component.updateArgs({ items: ['Live work'] });
       component.markInputComplete();
+      component.setActivitySpinnerText(() => '⠋');
       component.registerSubagent({ agentId: 'agent-1' });
       component.markStarted('agent-1');
 
-      for (const [time, glyph] of [[0, '◜'], [120, '◝'], [240, '◞'], [360, '◟']] as const) {
+      for (const [time, glyph] of [[0, '◐'], [300, '◓'], [600, '◑'], [900, '◒']] as const) {
         vi.setSystemTime(time);
         const line = component.render(100).find((candidate) => strip(candidate).includes('001'));
         expect(line).toContain(chalk.hex(darkColors.primary)(glyph));
+        expect(strip(aggregateLine(component.render(100).join('\n')))).toMatch(
+          /[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] Orchestrating/,
+        );
       }
 
       component.markCompleted('agent-1', 'Done');
@@ -698,7 +707,7 @@ describe('DynamicWorkflowMissionControlComponent', () => {
 
       const output = renderText(component, 100);
       expect(memberLine(output, 1)).toMatch(/○\s+WAIT/u);
-      expect(memberLine(output, 2)).toMatch(/[◜◝◞◟]\s+RUN/u);
+      expect(memberLine(output, 2)).toMatch(/[◐◓◑◒]\s+RUN/u);
       expect(memberLine(output, 3)).toMatch(/✓\s+DONE/u);
     } finally {
       chalk.level = previousLevel;
@@ -717,7 +726,7 @@ describe('DynamicWorkflowMissionControlComponent', () => {
     const output = renderText(component, 100);
     const glyphColumns = [
       memberLine(output, 1).indexOf('○'),
-      memberLine(output, 2).search(/[◜◝◞◟]/u),
+      memberLine(output, 2).search(/[◐◓◑◒]/u),
       memberLine(output, 3).indexOf('✓'),
     ];
     expect(glyphColumns[0]).toBeGreaterThan(0);
@@ -883,7 +892,7 @@ describe('DynamicWorkflowMissionControlComponent', () => {
       const output = strip(rendered.join('\n'));
 
       expect(rendered.every((line) => visibleWidth(line) <= width)).toBe(true);
-      expect(memberLine(output, 1)).toMatch(/[◜◝◞◟]\s+RUN/u);
+      expect(memberLine(output, 1)).toMatch(/[◐◓◑◒]\s+RUN/u);
       expect(output.includes('PROGRESS')).toBe(expectedProgress);
       expect(output.includes('STATUS')).toBe(expectedStatus);
       expect(output).not.toContain('WORK IDLE');
@@ -900,7 +909,7 @@ describe('DynamicWorkflowMissionControlComponent', () => {
     component.markStarted('agent-1');
 
     vi.setSystemTime(30_000);
-    const before = memberLine(renderText(component, 100), 1).match(/[◜◝◞◟]/u)?.[0];
+    const before = memberLine(renderText(component, 100), 1).match(/[◐◓◑◒]/u)?.[0];
     component.recordToolCall({ agentId: 'agent-1', name: 'Read' });
     for (let index = 0; index < 200; index += 1) {
       component.appendModelDelta({ agentId: 'agent-1', delta: `chunk ${String(index)} ` });
@@ -908,7 +917,7 @@ describe('DynamicWorkflowMissionControlComponent', () => {
     component.recordToolCall({ agentId: 'agent-1', name: 'Bash' });
 
     const output = renderText(component, 100);
-    const after = memberLine(output, 1).match(/[◜◝◞◟]/u)?.[0];
+    const after = memberLine(output, 1).match(/[◐◓◑◒]/u)?.[0];
     expect(before).toBeDefined();
     expect(after).toBe(before);
     expect(output).not.toMatch(/\b\d+%|⚒/u);

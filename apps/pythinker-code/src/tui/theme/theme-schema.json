@@ -82,6 +82,9 @@
         "inverseText": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Foreground for active `/model` provider and `AskUserQuestion` tabs; pair with `selectionBg` at 4.5:1 contrast or higher." },
         "selectionBg": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Background for active `/model` provider and `AskUserQuestion` tabs; pair with `inverseText` at 4.5:1 contrast or higher." },
         "surfaceHighlight": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Highlighted row and message fill" },
+        "toolPendingBg": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Background tint for a running tool card" },
+        "toolSuccessBg": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Background tint for a successful tool card" },
+        "toolErrorBg": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Background tint for a failed tool card" },
         "progressFill": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Filled segment of the Dynamic Workflow aggregate progress line." },
         "progressHead": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Static head of the Dynamic Workflow aggregate progress track." },
         "progressEmpty": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Empty segment of the Dynamic Workflow aggregate progress line." }
