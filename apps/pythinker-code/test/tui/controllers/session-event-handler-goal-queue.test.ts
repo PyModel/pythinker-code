@@ -8,6 +8,7 @@ import {
   createFooterState,
   reduceFooterState,
   selectFooterViewModel,
+  selectStatusBarExtras,
   type FooterEvent,
 } from '#/tui/runtime/footer/footer-model';
 import { SessionEventHandler } from '#/tui/controllers/session-event-handler';
@@ -174,11 +175,12 @@ function makeTokenSpeedHost() {
       ),
     );
   });
-  return { host, footer };
-}
-
-function renderFooter(footer: FooterComponent): string {
-  return footer.render(160)[0]?.replaceAll(/\u001B\[[0-9;]*m/g, '') ?? '';
+  return {
+    host,
+    footer,
+    renderStatusBarExtras: () =>
+      selectStatusBarExtras(footerState, Date.now(), DEFAULT_STATUS_LINE_CONFIG).join(' '),
+  };
 }
 
 function sendQueuedViaHost(host: ReturnType<typeof makeHost>['host'], session: unknown) {
@@ -368,7 +370,7 @@ describe('SessionEventHandler Dynamic Workflow routing', () => {
 
 describe('SessionEventHandler token speed', () => {
   it('projects spend into the footer and retains pricing for /cost', () => {
-    const { host, footer } = makeTokenSpeedHost();
+    const { host, footer, renderStatusBarExtras } = makeTokenSpeedHost();
     const handler = new SessionEventHandler(host);
     try {
       handler.handleEvent(
@@ -382,9 +384,9 @@ describe('SessionEventHandler token speed', () => {
         vi.fn(),
       );
 
-      expect(renderFooter(footer)).not.toContain('in $3/M out $15/M');
-      expect(renderFooter(footer)).toContain('$0.13');
-      expect(renderFooter(footer)).not.toContain('spent');
+      expect(renderStatusBarExtras()).not.toContain('in $3/M out $15/M');
+      expect(renderStatusBarExtras()).toContain('$0.13');
+      expect(renderStatusBarExtras()).not.toContain('spent');
       expect(host.state.appState.modelCostRates).toEqual({ input: 3, output: 15 });
       expect(host.state.appState.totalCostUsd).toBe(0.125);
 
@@ -445,7 +447,7 @@ describe('SessionEventHandler token speed', () => {
   ])('updates a live estimate from $name and replaces it with exact usage', ({ event }) => {
     vi.useFakeTimers();
     vi.setSystemTime(0);
-    const { host, footer } = makeTokenSpeedHost();
+    const { host, footer, renderStatusBarExtras } = makeTokenSpeedHost();
     const handler = new SessionEventHandler(host);
     try {
       handler.handleEvent(
@@ -464,7 +466,7 @@ describe('SessionEventHandler token speed', () => {
       vi.setSystemTime(3_000);
       handler.handleEvent(event('x'.repeat(400)), vi.fn());
 
-      expect(renderFooter(footer)).toContain('~100.0 t/s');
+      expect(renderStatusBarExtras()).toContain('~100.0 t/s');
 
       handler.handleEvent(
         {
@@ -483,8 +485,8 @@ describe('SessionEventHandler token speed', () => {
         },
         vi.fn(),
       );
-      expect(renderFooter(footer)).toContain('42.0 t/s');
-      expect(renderFooter(footer)).not.toContain('~42.0 t/s');
+      expect(renderStatusBarExtras()).toContain('42.0 t/s');
+      expect(renderStatusBarExtras()).not.toContain('~42.0 t/s');
     } finally {
       footer.dispose();
     }
@@ -493,7 +495,7 @@ describe('SessionEventHandler token speed', () => {
   it('keeps concurrent agent stream estimates separate', () => {
     vi.useFakeTimers();
     vi.setSystemTime(0);
-    const { host, footer } = makeTokenSpeedHost();
+    const { host, footer, renderStatusBarExtras } = makeTokenSpeedHost();
     const handler = new SessionEventHandler(host);
     const event = (agentId: string, delta: string) => ({
       type: 'assistant.delta' as const,
@@ -508,18 +510,18 @@ describe('SessionEventHandler token speed', () => {
       handler.handleEvent(event('agent-b', 'abcd'), vi.fn());
       vi.setSystemTime(1_000);
       handler.handleEvent(event('agent-a', 'x'.repeat(400)), vi.fn());
-      expect(renderFooter(footer)).toContain('~100.0 t/s');
+      expect(renderStatusBarExtras()).toContain('~100.0 t/s');
 
       vi.setSystemTime(1_500);
       handler.handleEvent(event('agent-b', 'x'.repeat(200)), vi.fn());
-      expect(renderFooter(footer)).toContain('~50.0 t/s');
+      expect(renderStatusBarExtras()).toContain('~50.0 t/s');
     } finally {
       footer.dispose();
     }
   });
 
   it('uses the latest valid main or child completed stream', () => {
-    const { host, footer } = makeTokenSpeedHost();
+    const { host, footer, renderStatusBarExtras } = makeTokenSpeedHost();
     const handler = new SessionEventHandler(host);
     try {
       handler.handleEvent(
@@ -539,7 +541,7 @@ describe('SessionEventHandler token speed', () => {
         },
         vi.fn(),
       );
-      expect(renderFooter(footer)).toContain('42.0 t/s');
+      expect(renderStatusBarExtras()).toContain('42.0 t/s');
 
       handler.handleEvent(
         {
@@ -558,7 +560,7 @@ describe('SessionEventHandler token speed', () => {
         },
         vi.fn(),
       );
-      expect(renderFooter(footer)).toContain('50.0 t/s');
+      expect(renderStatusBarExtras()).toContain('50.0 t/s');
     } finally {
       footer.dispose();
     }
@@ -591,7 +593,7 @@ describe('SessionEventHandler token speed', () => {
       output: 10,
     }, Number.NaN],
   ] as const)('ignores %s', (_label, usage, llmStreamDurationMs) => {
-    const { host, footer } = makeTokenSpeedHost();
+    const { host, footer, renderStatusBarExtras } = makeTokenSpeedHost();
     const handler = new SessionEventHandler(host);
     try {
       handler.handleEvent(
@@ -611,7 +613,7 @@ describe('SessionEventHandler token speed', () => {
         },
         vi.fn(),
       );
-      expect(renderFooter(footer)).toContain('42.0 t/s');
+      expect(renderStatusBarExtras()).toContain('42.0 t/s');
 
       handler.handleEvent(
         {
@@ -625,14 +627,14 @@ describe('SessionEventHandler token speed', () => {
         },
         vi.fn(),
       );
-      expect(renderFooter(footer)).toContain('42.0 t/s');
+      expect(renderStatusBarExtras()).toContain('42.0 t/s');
     } finally {
       footer.dispose();
     }
   });
 
   it('clears completed throughput when the turn ends', () => {
-    const { host, footer } = makeTokenSpeedHost();
+    const { host, footer, renderStatusBarExtras } = makeTokenSpeedHost();
     const handler = new SessionEventHandler(host);
     try {
       handler.handleEvent(
@@ -652,18 +654,18 @@ describe('SessionEventHandler token speed', () => {
         },
         vi.fn(),
       );
-      expect(renderFooter(footer)).toContain('42.0 t/s');
+      expect(renderStatusBarExtras()).toContain('42.0 t/s');
 
       handler.handleEvent(turnEndedEvent(), vi.fn());
 
-      expect(renderFooter(footer)).not.toContain('t/s');
+      expect(renderStatusBarExtras()).not.toContain('t/s');
     } finally {
       footer.dispose();
     }
   });
 
   it('ignores replayed completion metrics and clears on runtime reset', () => {
-    const { host, footer } = makeTokenSpeedHost();
+    const { host, footer, renderStatusBarExtras } = makeTokenSpeedHost();
     const handler = new SessionEventHandler(host);
     try {
       handler.handleEvent(
@@ -683,7 +685,7 @@ describe('SessionEventHandler token speed', () => {
         },
         vi.fn(),
       );
-      expect(renderFooter(footer)).toContain('10.0 t/s');
+      expect(renderStatusBarExtras()).toContain('10.0 t/s');
 
       host.state.appState.isReplaying = true;
       handler.handleEvent(
@@ -703,10 +705,10 @@ describe('SessionEventHandler token speed', () => {
         },
         vi.fn(),
       );
-      expect(renderFooter(footer)).toContain('10.0 t/s');
+      expect(renderStatusBarExtras()).toContain('10.0 t/s');
 
       handler.resetRuntimeState();
-      expect(renderFooter(footer)).not.toContain('t/s');
+      expect(renderStatusBarExtras()).not.toContain('t/s');
     } finally {
       footer.dispose();
     }
