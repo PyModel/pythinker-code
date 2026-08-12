@@ -15,6 +15,11 @@
       "scope": ["apps/pythinker-web/**"]
     },
     {
+      "path": "packages/agent-core/src/services/AGENTS.md",
+      "description": "Service layer rules: naming, layout, and registration conventions",
+      "scope": ["packages/agent-core/src/services/**"]
+    },
+    {
       "path": "packages/server/AGENTS.md",
       "description": "Server package rules (REST + WS /api/v1)",
       "scope": ["packages/server/**"]
