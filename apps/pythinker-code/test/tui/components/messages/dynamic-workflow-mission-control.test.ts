@@ -417,7 +417,7 @@ describe('DynamicWorkflowMissionControlComponent', () => {
       expect(first).toContain(chalk.hex(darkColors.primary)('◐'));
       expect(second).toContain(chalk.hex(darkColors.primary)('◓'));
       expect(first).toContain(chalk.hex(darkColors.primary)('RUN'));
-      vi.setSystemTime(BRAILLE_SPINNER_INTERVAL_MS);
+      vi.setSystemTime(BRAILLE_SPINNER_INTERVAL_MS * 1.5);
 
       const aggregate = aggregateLine(component.render(100).join('\n'));
       expect(strip(aggregate)).toContain('Orchestrating');

@@ -538,15 +538,10 @@ export class DynamicWorkflowMissionControlComponent implements Component {
     const label = terminal
       ? currentTheme.fg('text', requestPhaseLabel(this.model.requestPhase))
       : shimmerText(finalizing ? FINALIZING_LABEL : ORCHESTRATING_LABEL, {
-          // `primary` / `primaryShimmer` are a designed pair, so the sweep stays
-          // periwinkle throughout; the old grey `text` base washed it out.
           baseToken: 'primary',
           shimmerToken: 'primaryShimmer',
-          frame: Math.floor(
-            Math.max(0, nowMs - this.model.startedAtMs) /
-              DYNAMIC_WORKFLOW_RENDERING.aggregateShimmerFrameMs,
-          ),
-          windowSize: 4,
+          altShimmerToken: 'warningShimmer',
+          bandHalfWidth: 4,
         });
     const paddedLabel = padToWidth(label, LIVE_LABEL_WIDTH);
     const prefix = `${loader} ${paddedLabel}`;

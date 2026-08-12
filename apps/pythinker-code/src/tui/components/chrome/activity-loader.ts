@@ -89,7 +89,6 @@ export class ActivityLoader extends Text {
       ? shimmerText(this.label, {
           baseToken: 'primary',
           shimmerToken: 'primaryShimmer',
-          frame: this.animationFrame,
         })
       : this.label;
     this.displayText = label ? `${coloredFrame} ${label}` : coloredFrame;

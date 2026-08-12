@@ -1,12 +1,13 @@
 import { visibleWidth } from '@earendil-works/pi-tui';
 import chalk from 'chalk';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import {
   StatusBarComponent,
   type StatusBarStatus,
 } from '#/tui/components/chrome/status-bar';
-import { shimmerText } from '#/tui/utils/shimmer';
+import { DEFAULT_STATUS_LINE_CONFIG } from '#/tui/config';
+import { currentTheme, darkColors } from '#/tui/theme';
 
 function stripAnsi(text: string): string {
   return text.replaceAll(/\u001B\[[0-9;]*m/gu, '');
@@ -24,6 +25,7 @@ function status(overrides: Partial<StatusBarStatus> = {}): StatusBarStatus {
     dynamicWorkflowMode: true,
     extras: [],
     sessionKey: 'session-alpha',
+    statusLine: DEFAULT_STATUS_LINE_CONFIG,
     ...overrides,
   };
 }
@@ -37,6 +39,67 @@ describe('StatusBarComponent', () => {
 
     expect(lines).toHaveLength(1);
     expect(stripAnsi(lines[0] ?? '')).toContain('Model Alpha · high');
+  });
+
+  it('omits the effort suffix when thinking is off', () => {
+    const component = new StatusBarComponent();
+    component.update(status({ thinkingLevel: 'off' }));
+
+    const line = stripAnsi(component.render(80)[0] ?? '');
+
+    expect(line).toContain('Model Alpha');
+    expect(line).not.toContain('· off');
+  });
+
+  it('hides the model chip when showModel is false', () => {
+    const component = new StatusBarComponent();
+    component.update(status({
+      statusLine: { ...DEFAULT_STATUS_LINE_CONFIG, showModel: false },
+    }));
+
+    expect(stripAnsi(component.render(80)[0] ?? '')).not.toContain('Model Alpha');
+  });
+
+  it('hides the modes chip when showModes is false', () => {
+    const component = new StatusBarComponent();
+    component.update(status({
+      statusLine: { ...DEFAULT_STATUS_LINE_CONFIG, showModes: false },
+    }));
+
+    const line = stripAnsi(component.render(80)[0] ?? '');
+
+    expect(line).not.toContain('plan');
+    expect(line).not.toContain('auto');
+    expect(line).not.toContain('workflow');
+  });
+
+  it('hides only the effort suffix when showEffort is false', () => {
+    const component = new StatusBarComponent();
+    component.update(status({
+      statusLine: { ...DEFAULT_STATUS_LINE_CONFIG, showEffort: false },
+    }));
+
+    const line = stripAnsi(component.render(80)[0] ?? '');
+
+    expect(line).toContain('Model Alpha');
+    expect(line).not.toContain('· high');
+  });
+
+  it('renders yolo with the error colour', () => {
+    const previousLevel = chalk.level;
+    const previousPalette = currentTheme.palette;
+    chalk.level = 3;
+    currentTheme.setPalette(darkColors);
+
+    try {
+      const component = new StatusBarComponent();
+      component.update(status({ permissionMode: 'yolo' }));
+
+      expect(component.render(80)[0] ?? '').toContain(chalk.hex(darkColors.error)('yolo'));
+    } finally {
+      chalk.level = previousLevel;
+      currentTheme.setPalette(previousPalette);
+    }
   });
 
   it('drops the gap, modes, and cwd in that order as width shrinks', () => {
@@ -120,50 +183,5 @@ describe('StatusBarComponent', () => {
     component.update(status({ cwd, homeDir }));
 
     expect(stripAnsi(component.render(240)[0] ?? '')).toContain(expected);
-  });
-});
-
-describe('shimmerText', () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it('preserves the input text when ANSI is removed', () => {
-    vi.spyOn(Date, 'now').mockReturnValue(0);
-    const text = 'Thinking carefully';
-
-    expect(
-      stripAnsi(
-        shimmerText(text, {
-          baseToken: 'primary',
-          shimmerToken: 'primaryShimmer',
-          frame: 0,
-        }),
-      ),
-    ).toBe(text);
-  });
-
-  it('moves the cosine band with wall-clock time', () => {
-    const previousLevel = chalk.level;
-    chalk.level = 3;
-    const now = vi.spyOn(Date, 'now');
-    try {
-      now.mockReturnValue(0);
-      const first = shimmerText('abcdefghijklmno', {
-        baseToken: 'primary',
-        shimmerToken: 'primaryShimmer',
-        frame: 0,
-      });
-      now.mockReturnValue(100);
-      const second = shimmerText('abcdefghijklmno', {
-        baseToken: 'primary',
-        shimmerToken: 'primaryShimmer',
-        frame: 0,
-      });
-
-      expect(second).not.toBe(first);
-    } finally {
-      chalk.level = previousLevel;
-    }
   });
 });

@@ -1406,6 +1406,7 @@ export class PythinkerTUI {
         this.state.appState.sessionTitle?.trim() ||
         this.state.appState.sessionId ||
         this.state.appState.workDir,
+      statusLine: this.state.appState.statusLine,
     });
   }
 
