@@ -211,7 +211,7 @@
 
             meta = {
               description = "Pythinker Code CLI";
-              homepage = "https://github.com/Pythoughts-labs/pythinker-code";
+              homepage = "https://github.com/PyModel/pythinker-code";
               license = lib.licenses.mit;
               mainProgram = "pythinker";
               platforms = systems;

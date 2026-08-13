@@ -5,14 +5,14 @@
   "description": "Execution environment abstraction for AI agent applications",
   "license": "MIT",
   "author": "Pythoughts",
-  "homepage": "https://github.com/Pythoughts-labs/pythinker-code/tree/main/packages/kaos#readme",
+  "homepage": "https://github.com/PyModel/pythinker-code/tree/main/packages/kaos#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Pythoughts-labs/pythinker-code.git",
+    "url": "git+https://github.com/PyModel/pythinker-code.git",
     "directory": "packages/kaos"
   },
   "bugs": {
-    "url": "https://github.com/Pythoughts-labs/pythinker-code/issues"
+    "url": "https://github.com/PyModel/pythinker-code/issues"
   },
   "keywords": [
     "pythinker",

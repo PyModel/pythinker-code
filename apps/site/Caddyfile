@@ -9,7 +9,7 @@
 
 	header Content-Signal "ai-train=no, search=yes, ai-input=yes"
 	header / {
-		Link "<https://pythoughts-labs.github.io/pythinker-code/>; rel=\"describedby\"; type=\"text/html\", </index.md>; rel=\"alternate\"; type=\"text/markdown\""
+		Link "<https://pymodel.github.io/pythinker-code/>; rel=\"describedby\"; type=\"text/html\", </index.md>; rel=\"alternate\"; type=\"text/markdown\""
 		Vary "Accept"
 	}
 	header @markdown Content-Type "text/markdown; charset=utf-8"

@@ -38,9 +38,9 @@ export const PYTHINKER_CODE_BANNER_STATE_FILE_NAME = 'state.json';
 // auto-propagates instead of silently breaking the startup recovery path.
 export const OAUTH_LOGIN_REQUIRED_CODE = ErrorCodes.AUTH_LOGIN_REQUIRED;
 
-export const FEEDBACK_ISSUE_URL = 'https://github.com/Pythoughts-labs/pythinker-code/issues';
+export const FEEDBACK_ISSUE_URL = 'https://github.com/PyModel/pythinker-code/issues';
 export const PYTHINKER_CODE_CHANGELOG_URL =
-  'https://pythoughts-labs.github.io/pythinker-code/release-notes/changelog.html';
+  'https://pymodel.github.io/pythinker-code/release-notes/changelog.html';
 
 // Sent in the feedback `version` field so the backend can distinguish this
 // TypeScript client from clients that send a bare version.

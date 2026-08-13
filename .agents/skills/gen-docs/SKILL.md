@@ -7,7 +7,7 @@ description: Update Pythinker Code CLI user documentation after meaningful code 
 
 ## Overview
 
-This repository (`github.com/Pythoughts-labs/pythinker-code`) maintains English user documentation under `docs/`, published at **https://code.pythinker.com**.
+This repository (`github.com/PyModel/pythinker-code`) maintains English user documentation under `docs/`, published at **https://code.pythinker.com**.
 
 Use this skill to update the corresponding documentation whenever the codebase has changes that affect product behavior or user experience.
 

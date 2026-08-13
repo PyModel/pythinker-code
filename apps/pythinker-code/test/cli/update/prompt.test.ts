@@ -34,7 +34,7 @@ describe('install prompt helpers', () => {
 
 describe('promptForInstallChoice', () => {
   it('renders changelog hyperlink in the prompt output', async () => {
-    const CHANGELOG_URL = 'https://pythoughts-labs.github.io/pythinker-code/release-notes/changelog.html';
+    const CHANGELOG_URL = 'https://pymodel.github.io/pythinker-code/release-notes/changelog.html';
 
     const input = Object.assign(new EventEmitter(), {
       isRaw: false,

@@ -2,10 +2,10 @@
 
 > The Starting Point for Next-Gen Agents
 
-[![npm](https://img.shields.io/npm/v/@pythoughts/pythinker-code)](https://www.npmjs.com/package/@pythoughts/pythinker-code) [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)  [![Docs](https://img.shields.io/badge/docs-online-blue)](https://pythoughts-labs.github.io/pythinker-code/)
+[![npm](https://img.shields.io/npm/v/@pythoughts/pythinker-code)](https://www.npmjs.com/package/@pythoughts/pythinker-code) [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)  [![Docs](https://img.shields.io/badge/docs-online-blue)](https://pymodel.github.io/pythinker-code/)
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/Pythoughts-labs/pythinker-code/main/docs/media/terminal-ui.webp" alt="Pythinker Code terminal demo" width="860">
+  <img src="https://raw.githubusercontent.com/PyModel/pythinker-code/main/docs/media/terminal-ui.webp" alt="Pythinker Code terminal demo" width="860">
 </p>
 
 ## What is Pythinker Code CLI
@@ -50,7 +50,7 @@ Or with pnpm:
 pnpm add -g @pythoughts/pythinker-code
 ```
 
-For upgrade and uninstall instructions, see the [Getting Started guide](https://pythoughts-labs.github.io/pythinker-code/guides/getting-started).
+For upgrade and uninstall instructions, see the [Getting Started guide](https://pymodel.github.io/pythinker-code/guides/getting-started).
 
 ## Quick Start
 
@@ -79,13 +79,13 @@ Take a look at this project and explain the main directories.
 
 ## Documentation
 
-- Full docs: https://pythoughts-labs.github.io/pythinker-code/
-- Getting Started: https://pythoughts-labs.github.io/pythinker-code/guides/getting-started
+- Full docs: https://pymodel.github.io/pythinker-code/
+- Getting Started: https://pymodel.github.io/pythinker-code/guides/getting-started
 
 ## Repository & Issues
 
-- Source: https://github.com/Pythoughts-labs/pythinker-code
-- Issues: https://github.com/Pythoughts-labs/pythinker-code/issues
+- Source: https://github.com/PyModel/pythinker-code
+- Issues: https://github.com/PyModel/pythinker-code/issues
 - Security: see SECURITY.md in the main repository
 
 ## License

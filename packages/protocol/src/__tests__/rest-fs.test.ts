@@ -402,7 +402,7 @@ describe('fsGitStatusResponseSchema (W11.2)', () => {
       pullRequest: {
         number: 625,
         state: 'open' as const,
-        url: 'https://github.com/Pythoughts-labs/pythinker-code/pull/625',
+        url: 'https://github.com/PyModel/pythinker-code/pull/625',
       },
     };
     expect(fsGitStatusResponseSchema.parse(r)).toEqual(r);

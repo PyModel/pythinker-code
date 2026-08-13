@@ -1,5 +1,5 @@
 {
-  "changelog": ["@changesets/changelog-github", { "repo": "Pythoughts-labs/pythinker-code", "disableThanks": true }],
+  "changelog": ["@changesets/changelog-github", { "repo": "PyModel/pythinker-code", "disableThanks": true }],
   "commit": false,
   "fixed": [],
   "linked": [],

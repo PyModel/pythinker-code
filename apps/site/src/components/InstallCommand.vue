@@ -142,7 +142,7 @@ onUnmounted(() => {
           <svg v-if="selectedId === channel.id" aria-hidden="true" viewBox="0 0 20 20"><path d="m4 10 4 4 8-9" /></svg>
         </button>
         <div class="install-divider" role="separator"></div>
-        <a href="https://github.com/Pythoughts-labs/pythinker-code" target="_blank" rel="noopener">
+        <a href="https://github.com/PyModel/pythinker-code" target="_blank" rel="noopener">
           <span class="channel-label"><img src="/brand/github.svg" alt="" width="16" height="16" />GitHub repository</span>
           <svg aria-hidden="true" viewBox="0 0 20 20"><path d="M6 14 14 6M8 6h6v6" /></svg>
         </a>

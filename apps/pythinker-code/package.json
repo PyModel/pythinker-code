@@ -4,14 +4,14 @@
   "description": "The Starting Point for Next-Gen Agents",
   "license": "MIT",
   "author": "Pythoughts",
-  "homepage": "https://github.com/Pythoughts-labs/pythinker-code/tree/main/apps/pythinker-code#readme",
+  "homepage": "https://github.com/PyModel/pythinker-code/tree/main/apps/pythinker-code#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Pythoughts-labs/pythinker-code.git",
+    "url": "git+https://github.com/PyModel/pythinker-code.git",
     "directory": "apps/pythinker-code"
   },
   "bugs": {
-    "url": "https://github.com/Pythoughts-labs/pythinker-code/issues"
+    "url": "https://github.com/PyModel/pythinker-code/issues"
   },
   "keywords": [
     "pythinker",

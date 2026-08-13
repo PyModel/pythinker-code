@@ -36,7 +36,7 @@ param(
   $ErrorActionPreference = "Stop"
   Set-StrictMode -Version 2.0
 
-  $Repo = "Pythoughts-labs/pythinker-code"
+  $Repo = "PyModel/pythinker-code"
   $CdnLatestUrl = "https://code.pythinker.com/pythinker-code/latest"
   $InstallShUrl = "https://code.pythinker.com/pythinker-code/install.sh"
   $InstallPs1Url = "https://code.pythinker.com/pythinker-code/install.ps1"

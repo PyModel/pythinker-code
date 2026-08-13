@@ -2,7 +2,7 @@
 Thank you for your contribution to Pythinker Code!
 Please open an issue before sending a feature PR — PRs without prior discussion may be closed without review.
 
-See https://github.com/Pythoughts-labs/pythinker-code/blob/main/CONTRIBUTING.md for more.
+See https://github.com/PyModel/pythinker-code/blob/main/CONTRIBUTING.md for more.
 -->
 
 ## Related Issue
@@ -21,7 +21,7 @@ Resolve #(issue_number)
 
 ## Checklist
 
-- [ ] I have read the [CONTRIBUTING](https://github.com/Pythoughts-labs/pythinker-code/blob/main/CONTRIBUTING.md) document.
+- [ ] I have read the [CONTRIBUTING](https://github.com/PyModel/pythinker-code/blob/main/CONTRIBUTING.md) document.
 - [ ] I have linked a related issue, or explained the problem above.
 - [ ] I have added tests that prove my feature works.
 - [ ] Ran `gen-changesets` skill, or this PR needs no changeset.

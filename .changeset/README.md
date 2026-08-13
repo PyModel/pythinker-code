@@ -63,7 +63,7 @@ Fill in the following:
 
 | Field | Value |
 | --- | --- |
-| GitHub Organization | `Pythoughts-labs` |
+| GitHub Organization | `PyModel` |
 | GitHub Repository | `pythinker-code` |
 | GitHub Workflow | `release.yml` |
 | Environment | leave empty |

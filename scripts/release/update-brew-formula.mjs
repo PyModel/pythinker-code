@@ -21,7 +21,7 @@ async function main() {
   const tapDir = mkdtempSync(join(tmpdir(), 'tap-'));
   try {
     try {
-      execFileSync('git', ['clone', `https://x-access-token:${token}@github.com/Pythoughts-labs/homebrew-tap.git`, tapDir], {
+      execFileSync('git', ['clone', `https://x-access-token:${token}@github.com/PyModel/homebrew-tap.git`, tapDir], {
         stdio: 'ignore',
       });
     } catch {

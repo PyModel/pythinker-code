@@ -30,7 +30,7 @@ cross-process session locking is not guaranteed.
 
 ## Docs
 
-Full documentation is available at [pythoughts-labs.github.io/pythinker-code](https://pythoughts-labs.github.io/pythinker-code/).
+Full documentation is available at [pymodel.github.io/pythinker-code](https://pymodel.github.io/pythinker-code/).
 
 ## License
 

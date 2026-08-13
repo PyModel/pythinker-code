@@ -1815,7 +1815,7 @@ describe('runUpdatePreflight', () => {
     const rendered = stdout.join('');
     expect(rendered).toContain('Pythinker Code updated to v0.5.0');
     expect(rendered).toContain(
-      'https://pythoughts-labs.github.io/pythinker-code/release-notes/changelog.html',
+      'https://pymodel.github.io/pythinker-code/release-notes/changelog.html',
     );
     expect(track).toHaveBeenCalledWith('update_success_notice_shown', expect.objectContaining({
       version: '0.5.0',

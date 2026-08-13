@@ -25,7 +25,7 @@ VERSION=""
 INSTALL_PREFIX="${PYTHINKER_INSTALL_PREFIX:-$HOME/.local}"
 NO_COLOR="${NO_COLOR:-}"
 
-REPO="Pythoughts-labs/pythinker-code"
+REPO="PyModel/pythinker-code"
 CDN_LATEST_URL="https://code.pythinker.com/pythinker-code/latest"
 
 # Network timeout policy. The script owns retry — _download_with_progress and

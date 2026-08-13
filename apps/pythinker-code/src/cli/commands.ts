@@ -31,7 +31,7 @@ export function createProgram(
     .configureHelp({ helpWidth: 100 })
     .helpOption('-h, --help', 'Show help.')
     .usage('[options] [command]')
-    .addHelpText('after', '\nDocumentation:        https://pythoughts-labs.github.io/pythinker-code/\n');
+    .addHelpText('after', '\nDocumentation:        https://pymodel.github.io/pythinker-code/\n');
 
   program
     .addOption(

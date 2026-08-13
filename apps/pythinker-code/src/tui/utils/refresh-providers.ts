@@ -404,7 +404,7 @@ export async function refreshAllProviderModels(
   }
 
   // -------------------------------------------------------------------------
-  // 2. Open Platforms (pythoughts-cn, pythoughts-labs, …)
+  // 2. Open Platforms (pythoughts-cn, pymodel, …)
   // -------------------------------------------------------------------------
   const openPlatformIds = Object.keys(config.providers).filter((id) => isOpenPlatformId(id));
   for (const providerId of openPlatformIds) {

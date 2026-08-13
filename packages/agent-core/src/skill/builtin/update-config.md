@@ -30,7 +30,7 @@ The "read → copy → Edit → validate → back up → overwrite" flow below a
 Before touching any config, use **FetchURL** to fetch the official config docs as the one authoritative reference for fields (key names, types, allowed values, owning section):
 
 ```
-https://pythoughts-labs.github.io/pythinker-code/configuration/config-files.html
+https://pymodel.github.io/pythinker-code/configuration/config-files.html
 ```
 
 - Use the **snake_case key names and sections exactly as documented** — don't invent them, don't guess camelCase.
