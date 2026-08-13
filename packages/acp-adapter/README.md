@@ -2,7 +2,7 @@
 
 Agent Client Protocol adapter for pythinker-code. Exposes the pythinker-code agent over the [Agent Client Protocol](https://agentclientprotocol.com/) so that ACP-compatible clients (editors, IDEs, custom front-ends) can drive a pythinker-code session over stdio.
 
-Part of the [Pythinker Code](https://github.com/Pythoughts-labs/pythinker-code) monorepo.
+Part of the [Pythinker Code](https://github.com/PyModel/pythinker-code) monorepo.
 
 ## Minimum usage
 

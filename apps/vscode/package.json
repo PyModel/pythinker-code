@@ -9,7 +9,7 @@
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Pythoughts-labs/pythinker-code.git",
+    "url": "git+https://github.com/PyModel/pythinker-code.git",
     "directory": "apps/vscode"
   },
   "engines": {

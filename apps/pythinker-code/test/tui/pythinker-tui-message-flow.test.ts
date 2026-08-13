@@ -4577,7 +4577,7 @@ command = "vim"
       const transcript = stripSgr(renderTranscript(driver));
       expect(transcript).toContain('Release notes');
       expect(transcript).toContain(
-        'https://pythoughts-labs.github.io/pythinker-code/release-notes/changelog.html',
+        'https://pymodel.github.io/pythinker-code/release-notes/changelog.html',
       );
     });
     expect(session.prompt).not.toHaveBeenCalled();

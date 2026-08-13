@@ -28,13 +28,13 @@ irm https://code.pythinker.com/pythinker-code/install.ps1 | iex
 ### Homebrew
 
 ```sh
-brew install pythoughts-labs/tap/pythinker-code
+brew install pymodel/tap/pythinker-code
 ```
 
 ### Nix
 
 ```sh
-nix run github:Pythoughts-labs/pythinker-code
+nix run github:PyModel/pythinker-code
 ```
 
 ### npm
@@ -61,9 +61,9 @@ Verify the installation with `pythinker --version`.
 
 ## Resources
 
-- [Documentation](https://pythoughts-labs.github.io/pythinker-code/)
-- [Getting started](https://pythoughts-labs.github.io/pythinker-code/guides/getting-started)
-- [Configuration](https://pythoughts-labs.github.io/pythinker-code/configuration/config-files)
-- [Command reference](https://pythoughts-labs.github.io/pythinker-code/reference/pythinker-command)
-- [GitHub repository](https://github.com/Pythoughts-labs/pythinker-code)
+- [Documentation](https://pymodel.github.io/pythinker-code/)
+- [Getting started](https://pymodel.github.io/pythinker-code/guides/getting-started)
+- [Configuration](https://pymodel.github.io/pythinker-code/configuration/config-files)
+- [Command reference](https://pymodel.github.io/pythinker-code/reference/pythinker-command)
+- [GitHub repository](https://github.com/PyModel/pythinker-code)
 - [npm package](https://www.npmjs.com/package/@pythoughts/pythinker-code)

@@ -10,7 +10,7 @@ const copy = {
   primaryText: 'Get started',
   primaryHref: '/guides/getting-started',
   secondaryText: 'View on GitHub',
-  secondaryHref: 'https://github.com/Pythoughts-labs/pythinker-code',
+  secondaryHref: 'https://github.com/PyModel/pythinker-code',
 }
 </script>
 

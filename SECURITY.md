@@ -10,7 +10,7 @@ We take security seriously. **Please do not open a public issue for security vul
 
 Preferred channel:
 
-- GitHub Security Advisories — https://github.com/Pythoughts-labs/pythinker-code/security/advisories/new
+- GitHub Security Advisories — https://github.com/PyModel/pythinker-code/security/advisories/new
   (private disclosure, tracked with the codebase)
 
 Alternative channel:

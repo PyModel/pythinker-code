@@ -4,75 +4,75 @@
 
 ### Minor Changes
 
-- [#59](https://github.com/Pythoughts-labs/pythinker-code/pull/59) [`6999b68`](https://github.com/Pythoughts-labs/pythinker-code/commit/6999b685ff63fb275a179be61f47e8b5cb727ba5) - Add an opt-in advisor: a second model reviews the conversation after a completed user turn unless another review is already running, and its notes appear as an `<advisory>` block in the agent's next turn; enable with `[advisor] enabled = true` plus an advisor model (the `advisor` model role or `[advisor] model`), and it runs only when the advisor shares the session model's provider.
+- [#59](https://github.com/PyModel/pythinker-code/pull/59) [`6999b68`](https://github.com/PyModel/pythinker-code/commit/6999b685ff63fb275a179be61f47e8b5cb727ba5) - Add an opt-in advisor: a second model reviews the conversation after a completed user turn unless another review is already running, and its notes appear as an `<advisory>` block in the agent's next turn; enable with `[advisor] enabled = true` plus an advisor model (the `advisor` model role or `[advisor] model`), and it runs only when the advisor shares the session model's provider.
 
-- [#56](https://github.com/Pythoughts-labs/pythinker-code/pull/56) [`b71f094`](https://github.com/Pythoughts-labs/pythinker-code/commit/b71f09460825feb63bdf1dbb029c12a34e140598) - Add model roles: lock a model alias to the small, implementer, or advisor slot with `/model <role>`, list assignments with `/model roles`, and reference roles as `@small`, `@implementer`, or `@advisor` wherever a subagent model can be set; an assigned implementer role becomes the default model for subagents.
+- [#56](https://github.com/PyModel/pythinker-code/pull/56) [`b71f094`](https://github.com/PyModel/pythinker-code/commit/b71f09460825feb63bdf1dbb029c12a34e140598) - Add model roles: lock a model alias to the small, implementer, or advisor slot with `/model <role>`, list assignments with `/model roles`, and reference roles as `@small`, `@implementer`, or `@advisor` wherever a subagent model can be set; an assigned implementer role becomes the default model for subagents.
 
-- [#57](https://github.com/Pythoughts-labs/pythinker-code/pull/57) [`99c427c`](https://github.com/Pythoughts-labs/pythinker-code/commit/99c427ce686a2c7dca183cb60235f8ecc3fd393f) - Show what the agent is doing in the working indicator: eligible tool calls whose input schema accepts the injected field now carry a short model-written intent, streamed live into the spinner label (for example "check failing test…") instead of a rotating placeholder; disable with `PYTHINKER_CODE_EXPERIMENTAL_TOOL_INTENT=0`.
+- [#57](https://github.com/PyModel/pythinker-code/pull/57) [`99c427c`](https://github.com/PyModel/pythinker-code/commit/99c427ce686a2c7dca183cb60235f8ecc3fd393f) - Show what the agent is doing in the working indicator: eligible tool calls whose input schema accepts the injected field now carry a short model-written intent, streamed live into the spinner label (for example "check failing test…") instead of a rotating placeholder; disable with `PYTHINKER_CODE_EXPERIMENTAL_TOOL_INTENT=0`.
 
-- [#58](https://github.com/Pythoughts-labs/pythinker-code/pull/58) [`065bf2e`](https://github.com/Pythoughts-labs/pythinker-code/commit/065bf2e9b90cfe9f5ec103132996baae73daaf26) - Redesign core TUI surfaces: tool cards get state-tinted backgrounds with three new theme tokens, a status bar with a per-session accent color appears between the input box and footer, and the prompt box uses a neutral border while permission mode appears in the status bar. The working-label shimmer uses a calmer constant-velocity sweep with alternating mission-control highlights.
+- [#58](https://github.com/PyModel/pythinker-code/pull/58) [`065bf2e`](https://github.com/PyModel/pythinker-code/commit/065bf2e9b90cfe9f5ec103132996baae73daaf26) - Redesign core TUI surfaces: tool cards get state-tinted backgrounds with three new theme tokens, a status bar with a per-session accent color appears between the input box and footer, and the prompt box uses a neutral border while permission mode appears in the status bar. The working-label shimmer uses a calmer constant-velocity sweep with alternating mission-control highlights.
 
 ### Patch Changes
 
-- [#62](https://github.com/Pythoughts-labs/pythinker-code/pull/62) [`7fc36fd`](https://github.com/Pythoughts-labs/pythinker-code/commit/7fc36fdc4c5694812fce65c57151cd14c182b8fc) - Repair invalid escape sequences and unescaped quotes in model-written tool arguments instead of failing the tool call.
+- [#62](https://github.com/PyModel/pythinker-code/pull/62) [`7fc36fd`](https://github.com/PyModel/pythinker-code/commit/7fc36fdc4c5694812fce65c57151cd14c182b8fc) - Repair invalid escape sequences and unescaped quotes in model-written tool arguments instead of failing the tool call.
 
 ## 0.15.0
 
 ### Minor Changes
 
-- [#54](https://github.com/Pythoughts-labs/pythinker-code/pull/54) [`1f45a5f`](https://github.com/Pythoughts-labs/pythinker-code/commit/1f45a5fefbdf4d5d8006f82613d51e24adb2e413) - Show indeterminate lifecycle progress for Dynamic Workflow rows in the TUI, and report schema-error outcomes as failed.
+- [#54](https://github.com/PyModel/pythinker-code/pull/54) [`1f45a5f`](https://github.com/PyModel/pythinker-code/commit/1f45a5fefbdf4d5d8006f82613d51e24adb2e413) - Show indeterminate lifecycle progress for Dynamic Workflow rows in the TUI, and report schema-error outcomes as failed.
 
 ## 0.14.0
 
 ### Minor Changes
 
-- [#51](https://github.com/Pythoughts-labs/pythinker-code/pull/51) [`c8cdcc7`](https://github.com/Pythoughts-labs/pythinker-code/commit/c8cdcc78528f3fd8dedf9111ec0c91f3242e3012) - `/workflow save` accepts `--personal` to save into the home skills directory, resolves the repository root when saving from a subdirectory so the saved skill is discoverable, and persists the workflow size guideline into the saved skill.
+- [#51](https://github.com/PyModel/pythinker-code/pull/51) [`c8cdcc7`](https://github.com/PyModel/pythinker-code/commit/c8cdcc78528f3fd8dedf9111ec0c91f3242e3012) - `/workflow save` accepts `--personal` to save into the home skills directory, resolves the repository root when saving from a subdirectory so the saved skill is discoverable, and persists the workflow size guideline into the saved skill.
 
 ### Patch Changes
 
-- [#46](https://github.com/Pythoughts-labs/pythinker-code/pull/46) [`bceff21`](https://github.com/Pythoughts-labs/pythinker-code/commit/bceff2191cd196f30cd59a297ad29b642073030d) - Fix `pythinker doctor` crashing on native installs, and report the last recorded update outcome.
+- [#46](https://github.com/PyModel/pythinker-code/pull/46) [`bceff21`](https://github.com/PyModel/pythinker-code/commit/bceff2191cd196f30cd59a297ad29b642073030d) - Fix `pythinker doctor` crashing on native installs, and report the last recorded update outcome.
 
-- [#49](https://github.com/Pythoughts-labs/pythinker-code/pull/49) [`f35061e`](https://github.com/Pythoughts-labs/pythinker-code/commit/f35061e39de539476d3897c6acf4966991669576) - Model permission deny rules now also apply to subagent model overrides coming from agent profiles and from resume or retry, not only to models named in tool arguments; a denied override falls back to the parent agent's model.
+- [#49](https://github.com/PyModel/pythinker-code/pull/49) [`f35061e`](https://github.com/PyModel/pythinker-code/commit/f35061e39de539476d3897c6acf4966991669576) - Model permission deny rules now also apply to subagent model overrides coming from agent profiles and from resume or retry, not only to models named in tool arguments; a denied override falls back to the parent agent's model.
 
-- [#46](https://github.com/Pythoughts-labs/pythinker-code/pull/46) [`bceff21`](https://github.com/Pythoughts-labs/pythinker-code/commit/bceff2191cd196f30cd59a297ad29b642073030d) - Stop reporting an update as installed when the executable did not change; the version is checked after the installer finishes and a mismatch is recorded as a failure with the reason.
+- [#46](https://github.com/PyModel/pythinker-code/pull/46) [`bceff21`](https://github.com/PyModel/pythinker-code/commit/bceff2191cd196f30cd59a297ad29b642073030d) - Stop reporting an update as installed when the executable did not change; the version is checked after the installer finishes and a mismatch is recorded as a failure with the reason.
 
-- [#46](https://github.com/Pythoughts-labs/pythinker-code/pull/46) [`bceff21`](https://github.com/Pythoughts-labs/pythinker-code/commit/bceff2191cd196f30cd59a297ad29b642073030d) - Show download progress under the prompt while a Windows update installs, instead of nothing until it finishes.
+- [#46](https://github.com/PyModel/pythinker-code/pull/46) [`bceff21`](https://github.com/PyModel/pythinker-code/commit/bceff2191cd196f30cd59a297ad29b642073030d) - Show download progress under the prompt while a Windows update installs, instead of nothing until it finishes.
 
-- [#46](https://github.com/Pythoughts-labs/pythinker-code/pull/46) [`bceff21`](https://github.com/Pythoughts-labs/pythinker-code/commit/bceff2191cd196f30cd59a297ad29b642073030d) - Fix automatic updates on Windows for npm, pnpm, and yarn installs, which failed to start at all.
+- [#46](https://github.com/PyModel/pythinker-code/pull/46) [`bceff21`](https://github.com/PyModel/pythinker-code/commit/bceff2191cd196f30cd59a297ad29b642073030d) - Fix automatic updates on Windows for npm, pnpm, and yarn installs, which failed to start at all.
 
-- [#50](https://github.com/Pythoughts-labs/pythinker-code/pull/50) [`38e3504`](https://github.com/Pythoughts-labs/pythinker-code/commit/38e35047069dd4f9a22e3160e34861b6550b6b56) - Record the origin of the prompt that entered Dynamic Workflow mode, so a fan-out started by a scheduled job or hook is attributable in the session records.
+- [#50](https://github.com/PyModel/pythinker-code/pull/50) [`38e3504`](https://github.com/PyModel/pythinker-code/commit/38e35047069dd4f9a22e3160e34861b6550b6b56) - Record the origin of the prompt that entered Dynamic Workflow mode, so a fan-out started by a scheduled job or hook is attributable in the session records.
 
-- [#49](https://github.com/Pythoughts-labs/pythinker-code/pull/49) [`f35061e`](https://github.com/Pythoughts-labs/pythinker-code/commit/f35061e39de539476d3897c6acf4966991669576) - Subagent lifecycle events now carry the workflow name on start, completion and failure, and suspension events carry both the workflow run id and name, so clients can correlate every event without caching the spawn event.
+- [#49](https://github.com/PyModel/pythinker-code/pull/49) [`f35061e`](https://github.com/PyModel/pythinker-code/commit/f35061e39de539476d3897c6acf4966991669576) - Subagent lifecycle events now carry the workflow name on start, completion and failure, and suspension events carry both the workflow run id and name, so clients can correlate every event without caching the spawn event.
 
 ## 0.13.1
 
 ### Patch Changes
 
-- [#43](https://github.com/Pythoughts-labs/pythinker-code/pull/43) [`0ea74d4`](https://github.com/Pythoughts-labs/pythinker-code/commit/0ea74d4b7afa49e79440bff9464ed4019e3fcb1c) - Dim the wording on background task status lines so only the status dot is coloured.
+- [#43](https://github.com/PyModel/pythinker-code/pull/43) [`0ea74d4`](https://github.com/PyModel/pythinker-code/commit/0ea74d4b7afa49e79440bff9464ed4019e3fcb1c) - Dim the wording on background task status lines so only the status dot is coloured.
 
 ## 0.13.0
 
 ### Minor Changes
 
-- [#41](https://github.com/Pythoughts-labs/pythinker-code/pull/41) [`e534040`](https://github.com/Pythoughts-labs/pythinker-code/commit/e534040c82d1e3b8c217e6e35ddcf248065ff950) - Let permission rules gate the model a subagent runs on, so `Agent(model:some-model)` and `DynamicWorkflow(model:some-model)` now match instead of being silently ignored.
+- [#41](https://github.com/PyModel/pythinker-code/pull/41) [`e534040`](https://github.com/PyModel/pythinker-code/commit/e534040c82d1e3b8c217e6e35ddcf248065ff950) - Let permission rules gate the model a subagent runs on, so `Agent(model:some-model)` and `DynamicWorkflow(model:some-model)` now match instead of being silently ignored.
 
-- [#41](https://github.com/Pythoughts-labs/pythinker-code/pull/41) [`e534040`](https://github.com/Pythoughts-labs/pythinker-code/commit/e534040c82d1e3b8c217e6e35ddcf248065ff950) - Show the Dynamic Workflow plan before the run in `auto` permission mode, which previously approved the call without displaying it. The approval is asked once per distinct plan; `yolo` still approves without asking.
+- [#41](https://github.com/PyModel/pythinker-code/pull/41) [`e534040`](https://github.com/PyModel/pythinker-code/commit/e534040c82d1e3b8c217e6e35ddcf248065ff950) - Show the Dynamic Workflow plan before the run in `auto` permission mode, which previously approved the call without displaying it. The approval is asked once per distinct plan; `yolo` still approves without asking.
 
 ### Patch Changes
 
-- [#41](https://github.com/Pythoughts-labs/pythinker-code/pull/41) [`e534040`](https://github.com/Pythoughts-labs/pythinker-code/commit/e534040c82d1e3b8c217e6e35ddcf248065ff950) - Fix Dynamic Workflow recent activity showing one growing line three times instead of the last three lines an agent wrote.
+- [#41](https://github.com/PyModel/pythinker-code/pull/41) [`e534040`](https://github.com/PyModel/pythinker-code/commit/e534040c82d1e3b8c217e6e35ddcf248065ff950) - Fix Dynamic Workflow recent activity showing one growing line three times instead of the last three lines an agent wrote.
 
-- [#41](https://github.com/Pythoughts-labs/pythinker-code/pull/41) [`e534040`](https://github.com/Pythoughts-labs/pythinker-code/commit/e534040c82d1e3b8c217e6e35ddcf248065ff950) - Drop the preamble every Dynamic Workflow task repeats so each agent row shows the part that names it.
+- [#41](https://github.com/PyModel/pythinker-code/pull/41) [`e534040`](https://github.com/PyModel/pythinker-code/commit/e534040c82d1e3b8c217e6e35ddcf248065ff950) - Drop the preamble every Dynamic Workflow task repeats so each agent row shows the part that names it.
 
-- [#41](https://github.com/Pythoughts-labs/pythinker-code/pull/41) [`e534040`](https://github.com/Pythoughts-labs/pythinker-code/commit/e534040c82d1e3b8c217e6e35ddcf248065ff950) - Fix the Dynamic Workflow card clipping an agent's task down to one character once that agent returned a long summary.
+- [#41](https://github.com/PyModel/pythinker-code/pull/41) [`e534040`](https://github.com/PyModel/pythinker-code/commit/e534040c82d1e3b8c217e6e35ddcf248065ff950) - Fix the Dynamic Workflow card clipping an agent's task down to one character once that agent returned a long summary.
 
-- [#41](https://github.com/Pythoughts-labs/pythinker-code/pull/41) [`e534040`](https://github.com/Pythoughts-labs/pythinker-code/commit/e534040c82d1e3b8c217e6e35ddcf248065ff950) - Fix `/workflow save` leaving the saved workflow uncallable until the session was reloaded, and add `Session.reloadSkills()` to re-discover skills written while a session is open.
+- [#41](https://github.com/PyModel/pythinker-code/pull/41) [`e534040`](https://github.com/PyModel/pythinker-code/commit/e534040c82d1e3b8c217e6e35ddcf248065ff950) - Fix `/workflow save` leaving the saved workflow uncallable until the session was reloaded, and add `Session.reloadSkills()` to re-discover skills written while a session is open.
 
 ## 0.12.0
 
 ### Minor Changes
 
-- [#35](https://github.com/Pythoughts-labs/pythinker-code/pull/35) [`2ce6b5e`](https://github.com/Pythoughts-labs/pythinker-code/commit/2ce6b5e66935335567a6525413ad8e77b84d852f) - Show the plan before a Dynamic Workflow runs, and let a good one be saved as a command
+- [#35](https://github.com/PyModel/pythinker-code/pull/35) [`2ce6b5e`](https://github.com/PyModel/pythinker-code/commit/2ce6b5e66935335567a6525413ad8e77b84d852f) - Show the plan before a Dynamic Workflow runs, and let a good one be saved as a command
 
   Manual mode used to approve every `DynamicWorkflow` call outright. That approval
   only ever fired in manual mode — auto and yolo approve earlier in the chain — so
@@ -86,155 +86,155 @@
   `/workflow save <name>` writes the last run back out as a skill under
   `.pythinker-code/skills/`, so a fan-out that worked can be re-run by name.
 
-- [#38](https://github.com/Pythoughts-labs/pythinker-code/pull/38) [`44efbc7`](https://github.com/Pythoughts-labs/pythinker-code/commit/44efbc77360105de0efce185c86740fcf503944e) - Let a release declare a minimum supported version, so a client below it is offered the update without waiting for its staged rollout batch.
+- [#38](https://github.com/PyModel/pythinker-code/pull/38) [`44efbc7`](https://github.com/PyModel/pythinker-code/commit/44efbc77360105de0efce185c86740fcf503944e) - Let a release declare a minimum supported version, so a client below it is offered the update without waiting for its staged rollout batch.
 
-- [#38](https://github.com/Pythoughts-labs/pythinker-code/pull/38) [`44efbc7`](https://github.com/Pythoughts-labs/pythinker-code/commit/44efbc77360105de0efce185c86740fcf503944e) - Show update availability and live download progress in the status row under the prompt, replacing the startup banner chip that was computed once and never refreshed.
+- [#38](https://github.com/PyModel/pythinker-code/pull/38) [`44efbc7`](https://github.com/PyModel/pythinker-code/commit/44efbc77360105de0efce185c86740fcf503944e) - Show update availability and live download progress in the status row under the prompt, replacing the startup banner chip that was computed once and never refreshed.
 
-- [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Rename the ACP authentication method to reflect that login is multi-provider: it now reads "Log in with a provider" and explains that the provider is chosen in a terminal. Clients matching the previous wording will need updating.
+- [#32](https://github.com/PyModel/pythinker-code/pull/32) [`a504a82`](https://github.com/PyModel/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Rename the ACP authentication method to reflect that login is multi-provider: it now reads "Log in with a provider" and explains that the provider is chosen in a terminal. Clients matching the previous wording will need updating.
 
-- [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Let a Dynamic Workflow require structured output from its subagents. Passing `output_schema` makes each subagent return a validated object instead of free text, and a subagent that cannot satisfy the schema is reported separately from one that failed outright.
+- [#32](https://github.com/PyModel/pythinker-code/pull/32) [`a504a82`](https://github.com/PyModel/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Let a Dynamic Workflow require structured output from its subagents. Passing `output_schema` makes each subagent return a validated object instead of free text, and a subagent that cannot satisfy the schema is reported separately from one that failed outright.
 
-- [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - `pythinker login` now opens a provider picker instead of going straight to one provider, and accepts `--provider <id|name>` to skip it. The VS Code extension's sign-in offers the same providers, and both surfaces present the same thinking-effort levels for a given model.
+- [#32](https://github.com/PyModel/pythinker-code/pull/32) [`a504a82`](https://github.com/PyModel/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - `pythinker login` now opens a provider picker instead of going straight to one provider, and accepts `--provider <id|name>` to skip it. The VS Code extension's sign-in offers the same providers, and both surfaces present the same thinking-effort levels for a given model.
 
-- [#34](https://github.com/Pythoughts-labs/pythinker-code/pull/34) [`42da384`](https://github.com/Pythoughts-labs/pythinker-code/commit/42da384cb36d29ecf0cc147f753790e022e13709) - Make the login platform layer provider-neutral. Model listing, capability derivation and the on-disk config shape are now one set of types shared by every login path, instead of living in a provider-specific module that other providers imported from; the duplicate copies of the capability derivation and the model-info parser are collapsed into one.
+- [#34](https://github.com/PyModel/pythinker-code/pull/34) [`42da384`](https://github.com/PyModel/pythinker-code/commit/42da384cb36d29ecf0cc147f753790e022e13709) - Make the login platform layer provider-neutral. Model listing, capability derivation and the on-disk config shape are now one set of types shared by every login path, instead of living in a provider-specific module that other providers imported from; the duplicate copies of the capability derivation and the model-info parser are collapsed into one.
 
   Logging in is an API key, a models.dev catalog provider, or OpenAI Codex OAuth. "Is the user logged in" is now a single predicate over configured providers with a usable credential, shared by the CLI, the VS Code extension and the ACP adapter. `/feedback` opens the issue tracker.
 
-- [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Give every Dynamic Workflow run an id and stamp it on the subagent events it produces, so a client can tell which run a given subagent belongs to when several are in flight.
+- [#32](https://github.com/PyModel/pythinker-code/pull/32) [`a504a82`](https://github.com/PyModel/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Give every Dynamic Workflow run an id and stamp it on the subagent events it produces, so a client can tell which run a given subagent belongs to when several are in flight.
 
-- [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Add two ways to rein in Dynamic Workflow fan-out: `disableWorkflows` turns the tool off entirely, and `workflowSizeGuideline` sets an advisory ceiling that is mentioned to the model and warned about, on every surface, when a run exceeds it. Both are settable in config or by environment variable.
+- [#32](https://github.com/PyModel/pythinker-code/pull/32) [`a504a82`](https://github.com/PyModel/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Add two ways to rein in Dynamic Workflow fan-out: `disableWorkflows` turns the tool off entirely, and `workflowSizeGuideline` sets an advisory ceiling that is mentioned to the model and warned about, on every surface, when a run exceeds it. Both are settable in config or by environment variable.
 
-- [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Bound subagent fan-out with hard caps: 128 subagents per call, 200 per session, and a nesting depth of 3. Nesting was previously unbounded, so a workflow that spawned workflows could grow without limit; past depth 3 the call now fails instead.
+- [#32](https://github.com/PyModel/pythinker-code/pull/32) [`a504a82`](https://github.com/PyModel/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Bound subagent fan-out with hard caps: 128 subagents per call, 200 per session, and a nesting depth of 3. Nesting was previously unbounded, so a workflow that spawned workflows could grow without limit; past depth 3 the call now fails instead.
 
-- [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Replace the Dynamic Workflow progress bar with the two things it can actually know: how many tool calls each agent has made, and how long it has been silent. The old bar pinned every tool-using agent at 75% until it finished, so an agent working hard and one wedged for ten minutes looked identical. A row that goes quiet now turns amber, then red.
+- [#32](https://github.com/PyModel/pythinker-code/pull/32) [`a504a82`](https://github.com/PyModel/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Replace the Dynamic Workflow progress bar with the two things it can actually know: how many tool calls each agent has made, and how long it has been silent. The old bar pinned every tool-using agent at 75% until it finished, so an agent working hard and one wedged for ten minutes looked identical. A row that goes quiet now turns amber, then red.
 
-- [#30](https://github.com/Pythoughts-labs/pythinker-code/pull/30) [`463b176`](https://github.com/Pythoughts-labs/pythinker-code/commit/463b1766a80389fe44cd675bff29b83b3ce6c86b) - Let a Dynamic Workflow run its subagents on a different model than the agent orchestrating them. `DynamicWorkflow` accepts `model` and `effort` for every subagent in the call, and `/workflow model <alias>` sets that model for the session so an expensive orchestrator can hand mechanical work to a cheaper or faster one.
+- [#30](https://github.com/PyModel/pythinker-code/pull/30) [`463b176`](https://github.com/PyModel/pythinker-code/commit/463b1766a80389fe44cd675bff29b83b3ce6c86b) - Let a Dynamic Workflow run its subagents on a different model than the agent orchestrating them. `DynamicWorkflow` accepts `model` and `effort` for every subagent in the call, and `/workflow model <alias>` sets that model for the session so an expensive orchestrator can hand mechanical work to a cheaper or faster one.
 
 ### Patch Changes
 
-- [#37](https://github.com/Pythoughts-labs/pythinker-code/pull/37) [`12069a8`](https://github.com/Pythoughts-labs/pythinker-code/commit/12069a890144380bff5d648ad51d7411ece94437) - Stop offering updates to versions that were never published: the update channel now advertises only the release that is actually available for download.
+- [#37](https://github.com/PyModel/pythinker-code/pull/37) [`12069a8`](https://github.com/PyModel/pythinker-code/commit/12069a890144380bff5d648ad51d7411ece94437) - Stop offering updates to versions that were never published: the update channel now advertises only the release that is actually available for download.
 
-- [#38](https://github.com/Pythoughts-labs/pythinker-code/pull/38) [`44efbc7`](https://github.com/Pythoughts-labs/pythinker-code/commit/44efbc77360105de0efce185c86740fcf503944e) - Stop offering an update with no build for the running platform, give every installer network call a timeout, expire a stale install lease instead of blocking updates forever, and say which version is installing and why a failed one stopped retrying.
+- [#38](https://github.com/PyModel/pythinker-code/pull/38) [`44efbc7`](https://github.com/PyModel/pythinker-code/commit/44efbc77360105de0efce185c86740fcf503944e) - Stop offering an update with no build for the running platform, give every installer network call a timeout, expire a stale install lease instead of blocking updates forever, and say which version is installing and why a failed one stopped retrying.
 
-- [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Survive two malformed inputs that used to end a run. A catalog entry that is not an object is now dropped when the catalog is read, instead of reaching the provider picker and throwing past the bundled-catalog fallback that was meant to save the login. A non-finite subagent concurrency limit now falls back to the default: `NaN` passed every clamp, and each free-slot test against it was false, so the batch launched nothing and never finished.
+- [#32](https://github.com/PyModel/pythinker-code/pull/32) [`a504a82`](https://github.com/PyModel/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Survive two malformed inputs that used to end a run. A catalog entry that is not an object is now dropped when the catalog is read, instead of reaching the provider picker and throwing past the bundled-catalog fallback that was meant to save the login. A non-finite subagent concurrency limit now falls back to the default: `NaN` passed every clamp, and each free-slot test against it was false, so the batch launched nothing and never finished.
 
-- [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Offer a model's declared thinking-effort levels when signing in to OpenAI Codex. The picker previously fell back to low / medium / high regardless of what the model supports, disagreeing with the effort list recorded in the config it then wrote.
+- [#32](https://github.com/PyModel/pythinker-code/pull/32) [`a504a82`](https://github.com/PyModel/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Offer a model's declared thinking-effort levels when signing in to OpenAI Codex. The picker previously fell back to low / medium / high regardless of what the model supports, disagreeing with the effort list recorded in the config it then wrote.
 
-- [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Accept a provider's plain id for `--provider` at login, so a catalog provider no longer has to be named by its full display name, and stop a cancelled OpenAI Codex sign-in from holding the process open for the rest of its two-minute callback timeout. In the editor extension, signing in now shows one cancellable progress notification, a repeated sign-in joins the one already running instead of opening a second set of prompts, and a completed sign-in is no longer reported as failed when the status refresh behind it fails.
+- [#32](https://github.com/PyModel/pythinker-code/pull/32) [`a504a82`](https://github.com/PyModel/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Accept a provider's plain id for `--provider` at login, so a catalog provider no longer has to be named by its full display name, and stop a cancelled OpenAI Codex sign-in from holding the process open for the rest of its two-minute callback timeout. In the editor extension, signing in now shows one cancellable progress notification, a repeated sign-in joins the one already running instead of opening a second set of prompts, and a completed sign-in is no longer reported as failed when the status refresh behind it fails.
 
-- [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Save the thinking-effort level picked during login. Only an on/off flag was stored, so choosing `low`, `medium`, or `xhigh` reopened the session at `high`, and an OpenAI Codex login reopened at the model's maximum effort regardless of the choice.
+- [#32](https://github.com/PyModel/pythinker-code/pull/32) [`a504a82`](https://github.com/PyModel/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Save the thinking-effort level picked during login. Only an on/off flag was stored, so choosing `low`, `medium`, or `xhigh` reopened the session at `high`, and an OpenAI Codex login reopened at the model's maximum effort regardless of the choice.
 
-- [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Write the thinking effort picked at login to disk. The apply step recorded the level, but the patch that saved the result listed everything except it, so an API-key login still reopened at the default effort. Choosing `off` now also clears a level a previous login left behind, which a patch that only merges could not do by omitting the key.
+- [#32](https://github.com/PyModel/pythinker-code/pull/32) [`a504a82`](https://github.com/PyModel/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Write the thinking effort picked at login to disk. The apply step recorded the level, but the patch that saved the result listed everything except it, so an API-key login still reopened at the default effort. Choosing `off` now also clears a level a previous login left behind, which a patch that only merges could not do by omitting the key.
 
-- [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Keep the configured provider signed in when a login is abandoned. Backing out at the model picker, or a failure while fetching the model list, no longer clears the existing credentials, and dismissing the provider picker returns to the sign-in screen instead of reporting a failed login.
+- [#32](https://github.com/PyModel/pythinker-code/pull/32) [`a504a82`](https://github.com/PyModel/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Keep the configured provider signed in when a login is abandoned. Backing out at the model picker, or a failure while fetching the model list, no longer clears the existing credentials, and dismissing the provider picker returns to the sign-in screen instead of reporting a failed login.
 
-- [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Refuse a device authorization whose verification URL is not HTTPS. Every surface hands that URL to the host's "open externally" API, so a provider answering with `file:`, `javascript:`, or an installed application's own scheme had the agent launch it. The check runs where the response is parsed, so the terminal, the TUI, and the editor extension are all covered.
+- [#32](https://github.com/PyModel/pythinker-code/pull/32) [`a504a82`](https://github.com/PyModel/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Refuse a device authorization whose verification URL is not HTTPS. Every surface hands that URL to the host's "open externally" API, so a provider answering with `file:`, `javascript:`, or an installed application's own scheme had the agent launch it. The check runs where the response is parsed, so the terminal, the TUI, and the editor extension are all covered.
 
-- [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Finish handling blank Dynamic Workflow items. A run that dropped one reported its results after a note explaining the drop, which made the whole result parse as unsupported and rendered a successful run as failed; the note now follows the results. A blank entry also no longer leaves a row queued forever with the header stuck below its total, and no longer pushes a full item list over the subagent cap and back into whole-call rejection.
+- [#32](https://github.com/PyModel/pythinker-code/pull/32) [`a504a82`](https://github.com/PyModel/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Finish handling blank Dynamic Workflow items. A run that dropped one reported its results after a note explaining the drop, which made the whole result parse as unsupported and rendered a successful run as failed; the note now follows the results. A blank entry also no longer leaves a row queued forever with the header stuck below its total, and no longer pushes a full item list over the subagent cap and back into whole-call rejection.
 
-- [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Ignore empty entries in a Dynamic Workflow's item list instead of rejecting the call. A trailing empty item used to fail argument validation, which discarded the whole workflow before any subagent started and forced the agent to send every prompt again. The dropped count is now reported with the results, and the launch panel counts only the subagents that will actually run.
+- [#32](https://github.com/PyModel/pythinker-code/pull/32) [`a504a82`](https://github.com/PyModel/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Ignore empty entries in a Dynamic Workflow's item list instead of rejecting the call. A trailing empty item used to fail argument validation, which discarded the whole workflow before any subagent started and forced the agent to send every prompt again. The dropped count is now reported with the results, and the launch panel counts only the subagents that will actually run.
 
-- [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Stop a Dynamic Workflow row that has not started from reading as stalled. A queued row measured its silence from the launch of the whole run, so a long queue turned every waiting row amber and then red while nothing was wrong. A queued row now shows the same placeholder a finished one does, and a suspended row keeps its count without the alarm colours, because only a running row can stall.
+- [#32](https://github.com/PyModel/pythinker-code/pull/32) [`a504a82`](https://github.com/PyModel/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Stop a Dynamic Workflow row that has not started from reading as stalled. A queued row measured its silence from the launch of the whole run, so a long queue turned every waiting row amber and then red while nothing was wrong. A queued row now shows the same placeholder a finished one does, and a suspended row keeps its count without the alarm colours, because only a running row can stall.
 
-- [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Keep a Dynamic Workflow subagent's output schema when a provider rate limit forces its turn to be retried. The retried turn lost the schema, so the subagent answered in prose and the workflow reported it as completed rather than as a schema failure.
+- [#32](https://github.com/PyModel/pythinker-code/pull/32) [`a504a82`](https://github.com/PyModel/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Keep a Dynamic Workflow subagent's output schema when a provider rate limit forces its turn to be retried. The retried turn lost the schema, so the subagent answered in prose and the workflow reported it as completed rather than as a schema failure.
 
-- [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Show a Dynamic Workflow's running rows with a spinning grey dot, so a working agent reads as motion rather than as a static dot the eye cannot tell from a finished one, and shimmer the Orchestrating label in periwinkle instead of grey.
+- [#32](https://github.com/PyModel/pythinker-code/pull/32) [`a504a82`](https://github.com/PyModel/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Show a Dynamic Workflow's running rows with a spinning grey dot, so a working agent reads as motion rather than as a static dot the eye cannot tell from a finished one, and shimmer the Orchestrating label in periwinkle instead of grey.
 
-- [#32](https://github.com/Pythoughts-labs/pythinker-code/pull/32) [`a504a82`](https://github.com/Pythoughts-labs/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Show the whole large-workflow warning in the editor extension. The line was truncated to the panel width, so in a narrow side panel the reader saw the opening words and no reason.
+- [#32](https://github.com/PyModel/pythinker-code/pull/32) [`a504a82`](https://github.com/PyModel/pythinker-code/commit/a504a820c4d9db14e213f4a021c86b048c4b916d) - Show the whole large-workflow warning in the editor extension. The line was truncated to the panel width, so in a narrow side panel the reader saw the opening words and no reason.
 
-- [#28](https://github.com/Pythoughts-labs/pythinker-code/pull/28) [`cf5b6b1`](https://github.com/Pythoughts-labs/pythinker-code/commit/cf5b6b16e999431bd1a8f511c09883c330fc569d) - Keep a subagent on the model and effort its profile assigns when the subagent is resumed or retried, instead of reverting it to the main agent's model.
+- [#28](https://github.com/PyModel/pythinker-code/pull/28) [`cf5b6b1`](https://github.com/PyModel/pythinker-code/commit/cf5b6b16e999431bd1a8f511c09883c330fc569d) - Keep a subagent on the model and effort its profile assigns when the subagent is resumed or retried, instead of reverting it to the main agent's model.
 
-- [#31](https://github.com/Pythoughts-labs/pythinker-code/pull/31) [`e5e9de4`](https://github.com/Pythoughts-labs/pythinker-code/commit/e5e9de46f0f51be6f3ab3d03d59a5841779c2215) - Brighten the periwinkle accent in the VS Code extension's dark theme so inline code in chat is easier to read.
+- [#31](https://github.com/PyModel/pythinker-code/pull/31) [`e5e9de4`](https://github.com/PyModel/pythinker-code/commit/e5e9de46f0f51be6f3ab3d03d59a5841779c2215) - Brighten the periwinkle accent in the VS Code extension's dark theme so inline code in chat is easier to read.
 
-- [#31](https://github.com/Pythoughts-labs/pythinker-code/pull/31) [`e5e9de4`](https://github.com/Pythoughts-labs/pythinker-code/commit/e5e9de46f0f51be6f3ab3d03d59a5841779c2215) - Let `/yolo` and `/auto` be used in the VS Code extension before the first message is sent — the request now applies to the session that chat opens next instead of failing with "Could not change the permission mode."
+- [#31](https://github.com/PyModel/pythinker-code/pull/31) [`e5e9de4`](https://github.com/PyModel/pythinker-code/commit/e5e9de46f0f51be6f3ab3d03d59a5841779c2215) - Let `/yolo` and `/auto` be used in the VS Code extension before the first message is sent — the request now applies to the session that chat opens next instead of failing with "Could not change the permission mode."
 
-- [#24](https://github.com/Pythoughts-labs/pythinker-code/pull/24) [`ae01098`](https://github.com/Pythoughts-labs/pythinker-code/commit/ae01098b862a567552c7d49a6d5bd1808077a794) - Fix the Dynamic Workflow card showing `[object Object]`, phantom extra agent rows, and tool labels fused into streamed text when a workflow is called with object items.
+- [#24](https://github.com/PyModel/pythinker-code/pull/24) [`ae01098`](https://github.com/PyModel/pythinker-code/commit/ae01098b862a567552c7d49a6d5bd1808077a794) - Fix the Dynamic Workflow card showing `[object Object]`, phantom extra agent rows, and tool labels fused into streamed text when a workflow is called with object items.
 
-- [#24](https://github.com/Pythoughts-labs/pythinker-code/pull/24) [`ae01098`](https://github.com/Pythoughts-labs/pythinker-code/commit/ae01098b862a567552c7d49a6d5bd1808077a794) - Show Dynamic Workflow member progress from the observed stage only, so a running subagent no longer sits at 99% for the rest of its run.
+- [#24](https://github.com/PyModel/pythinker-code/pull/24) [`ae01098`](https://github.com/PyModel/pythinker-code/commit/ae01098b862a567552c7d49a6d5bd1808077a794) - Show Dynamic Workflow member progress from the observed stage only, so a running subagent no longer sits at 99% for the rest of its run.
 
 ## 0.9.2
 
 ### Patch Changes
 
-- [#25](https://github.com/Pythoughts-labs/pythinker-code/pull/25) [`649ec69`](https://github.com/Pythoughts-labs/pythinker-code/commit/649ec69f8e039c031248ce939faadf253bee7259) - Let `/yolo` and `/auto` take effect in the VS Code extension while the agent is running, and auto-approve the requests already waiting on screen.
+- [#25](https://github.com/PyModel/pythinker-code/pull/25) [`649ec69`](https://github.com/PyModel/pythinker-code/commit/649ec69f8e039c031248ce939faadf253bee7259) - Let `/yolo` and `/auto` take effect in the VS Code extension while the agent is running, and auto-approve the requests already waiting on screen.
 
 ## 0.9.0
 
 ### Minor Changes
 
-- [#22](https://github.com/Pythoughts-labs/pythinker-code/pull/22) [`45be822`](https://github.com/Pythoughts-labs/pythinker-code/commit/45be8227077847f760fa7b6b09333cf5a8127f32) - Name the managed OAuth provider after the platform that serves it. It is reached over `auth.kimi.com` and `api.kimi.com`, but it was registered as `managed:pythinker-code`, which read as a first-party service in a client that talks to several providers. The provider id is now `managed:kimi-code`, its models are aliased `kimi-code/*`, and its credentials are stored under `oauth/kimi-code`.
+- [#22](https://github.com/PyModel/pythinker-code/pull/22) [`45be822`](https://github.com/PyModel/pythinker-code/commit/45be8227077847f760fa7b6b09333cf5a8127f32) - Name the managed OAuth provider after the platform that serves it. It is reached over `auth.kimi.com` and `api.kimi.com`, but it was registered as `managed:pythinker-code`, which read as a first-party service in a client that talks to several providers. The provider id is now `managed:kimi-code`, its models are aliased `kimi-code/*`, and its credentials are stored under `oauth/kimi-code`.
 
   This is a breaking change for an existing config: the previous entries are not rewritten, so run `pythinker login` once to provision the managed provider under its current name, then remove the stale `managed:pythinker-code` entry.
 
-- [#22](https://github.com/Pythoughts-labs/pythinker-code/pull/22) [`45be822`](https://github.com/Pythoughts-labs/pythinker-code/commit/45be8227077847f760fa7b6b09333cf5a8127f32) - Resolve a workspace's skills without opening a session, so an editor panel can list them before its first message.
+- [#22](https://github.com/PyModel/pythinker-code/pull/22) [`45be822`](https://github.com/PyModel/pythinker-code/commit/45be8227077847f760fa7b6b09333cf5a8127f32) - Resolve a workspace's skills without opening a session, so an editor panel can list them before its first message.
 
 ### Patch Changes
 
-- [#22](https://github.com/Pythoughts-labs/pythinker-code/pull/22) [`45be822`](https://github.com/Pythoughts-labs/pythinker-code/commit/45be8227077847f760fa7b6b09333cf5a8127f32) - Add an SDK routine that imports a catalog provider and its models into the persisted config, and use it for the CLI provider import so both entry points preserve existing defaults the same way.
+- [#22](https://github.com/PyModel/pythinker-code/pull/22) [`45be822`](https://github.com/PyModel/pythinker-code/commit/45be8227077847f760fa7b6b09333cf5a8127f32) - Add an SDK routine that imports a catalog provider and its models into the persisted config, and use it for the CLI provider import so both entry points preserve existing defaults the same way.
 
-- [#22](https://github.com/Pythoughts-labs/pythinker-code/pull/22) [`45be822`](https://github.com/Pythoughts-labs/pythinker-code/commit/45be8227077847f760fa7b6b09333cf5a8127f32) - Stop the fixed-layout TUI anchoring its first frames to the shell cursor, which pushed the panel border into scrollback.
+- [#22](https://github.com/PyModel/pythinker-code/pull/22) [`45be822`](https://github.com/PyModel/pythinker-code/commit/45be8227077847f760fa7b6b09333cf5a8127f32) - Stop the fixed-layout TUI anchoring its first frames to the shell cursor, which pushed the panel border into scrollback.
 
 ## 0.8.1
 
 ### Patch Changes
 
-- [`b5b7b97`](https://github.com/Pythoughts-labs/pythinker-code/commit/b5b7b976df2a5fddd28a15ad034a2bd7cc8babb7) - Fix the native install script exiting immediately without installing anything when run the documented way, `curl -fsSL … | bash`, which also broke automatic background updates for native installs.
+- [`b5b7b97`](https://github.com/PyModel/pythinker-code/commit/b5b7b976df2a5fddd28a15ad034a2bd7cc8babb7) - Fix the native install script exiting immediately without installing anything when run the documented way, `curl -fsSL … | bash`, which also broke automatic background updates for native installs.
 
-- [`d7a5db0`](https://github.com/Pythoughts-labs/pythinker-code/commit/d7a5db02c668ec88f94cb3ccbdb7f314d8a28791) - Report why an automatic update failed instead of failing silently: the installer's error output is now recorded and shown on the next update prompt, native installs on macOS and Linux pin the version the rollout picked, and update messages tell you to open a new terminal to apply the update.
+- [`d7a5db0`](https://github.com/PyModel/pythinker-code/commit/d7a5db02c668ec88f94cb3ccbdb7f314d8a28791) - Report why an automatic update failed instead of failing silently: the installer's error output is now recorded and shown on the next update prompt, native installs on macOS and Linux pin the version the rollout picked, and update messages tell you to open a new terminal to apply the update.
 
 ## 0.8.0
 
 ### Minor Changes
 
-- [`23e0bc7`](https://github.com/Pythoughts-labs/pythinker-code/commit/23e0bc7ed62e718cee0b709ab0ab483ef6b87708) - Improve performance and fix bugs.
+- [`23e0bc7`](https://github.com/PyModel/pythinker-code/commit/23e0bc7ed62e718cee0b709ab0ab483ef6b87708) - Improve performance and fix bugs.
 
-- [`c0f0976`](https://github.com/Pythoughts-labs/pythinker-code/commit/c0f09769e76c92002ca9b9a09d9cb820750f1046) - Remove the Pythinker Datasource plugin from the marketplace; its data gateway backend is not available, so every datasource query failed.
+- [`c0f0976`](https://github.com/PyModel/pythinker-code/commit/c0f09769e76c92002ca9b9a09d9cb820750f1046) - Remove the Pythinker Datasource plugin from the marketplace; its data gateway backend is not available, so every datasource query failed.
 
-- [`c0f0976`](https://github.com/Pythoughts-labs/pythinker-code/commit/c0f09769e76c92002ca9b9a09d9cb820750f1046) - Enable automatic updates for native installs on Windows: `/update` now installs the new version in the background instead of printing a manual command, and the installer safely replaces the running executable.
+- [`c0f0976`](https://github.com/PyModel/pythinker-code/commit/c0f09769e76c92002ca9b9a09d9cb820750f1046) - Enable automatic updates for native installs on Windows: `/update` now installs the new version in the background instead of printing a manual command, and the installer safely replaces the running executable.
 
 ### Patch Changes
 
-- [`c0f0976`](https://github.com/Pythoughts-labs/pythinker-code/commit/c0f09769e76c92002ca9b9a09d9cb820750f1046) - Fix Kimi and Moonshot models rejecting every request with an invalid tool schema error when a tool declares `anyOf` alongside its own type or properties.
+- [`c0f0976`](https://github.com/PyModel/pythinker-code/commit/c0f09769e76c92002ca9b9a09d9cb820750f1046) - Fix Kimi and Moonshot models rejecting every request with an invalid tool schema error when a tool declares `anyOf` alongside its own type or properties.
 
 ## 0.7.0
 
 ### Minor Changes
 
-- [#12](https://github.com/Pythoughts-labs/pythinker-code/pull/12) [`02f7f8d`](https://github.com/Pythoughts-labs/pythinker-code/commit/02f7f8d93ff138611298f8d46c5c54e928c7ae59) - Prepare verified Homebrew updates in the background and install them automatically on the next interactive launch.
+- [#12](https://github.com/PyModel/pythinker-code/pull/12) [`02f7f8d`](https://github.com/PyModel/pythinker-code/commit/02f7f8d93ff138611298f8d46c5c54e928c7ae59) - Prepare verified Homebrew updates in the background and install them automatically on the next interactive launch.
 
 ### Patch Changes
 
-- [#12](https://github.com/Pythoughts-labs/pythinker-code/pull/12) [`02f7f8d`](https://github.com/Pythoughts-labs/pythinker-code/commit/02f7f8d93ff138611298f8d46c5c54e928c7ae59) - Fix context compaction failing with provider "Invalid max_tokens" errors by capping requested completion tokens to the remaining context window and a safe output ceiling instead of the full context window size.
+- [#12](https://github.com/PyModel/pythinker-code/pull/12) [`02f7f8d`](https://github.com/PyModel/pythinker-code/commit/02f7f8d93ff138611298f8d46c5c54e928c7ae59) - Fix context compaction failing with provider "Invalid max_tokens" errors by capping requested completion tokens to the remaining context window and a safe output ceiling instead of the full context window size.
 
-- [#12](https://github.com/Pythoughts-labs/pythinker-code/pull/12) [`02f7f8d`](https://github.com/Pythoughts-labs/pythinker-code/commit/02f7f8d93ff138611298f8d46c5c54e928c7ae59) - Fix Dynamic Workflow progress sticking at 90% during long streaming, show a Finalizing state once all delegated agents finish, and fix member row alignment at narrow widths.
+- [#12](https://github.com/PyModel/pythinker-code/pull/12) [`02f7f8d`](https://github.com/PyModel/pythinker-code/commit/02f7f8d93ff138611298f8d46c5c54e928c7ae59) - Fix Dynamic Workflow progress sticking at 90% during long streaming, show a Finalizing state once all delegated agents finish, and fix member row alignment at narrow widths.
 
 ## 0.6.2
 
 ### Patch Changes
 
-- [#10](https://github.com/Pythoughts-labs/pythinker-code/pull/10) [`ad2391b`](https://github.com/Pythoughts-labs/pythinker-code/commit/ad2391b5601f173d7eecdaab55f1110f506c1ad1) - Clear the terminal before the install script's animated intro so earlier shell output no longer interleaves with the logo animation.
+- [#10](https://github.com/PyModel/pythinker-code/pull/10) [`ad2391b`](https://github.com/PyModel/pythinker-code/commit/ad2391b5601f173d7eecdaab55f1110f506c1ad1) - Clear the terminal before the install script's animated intro so earlier shell output no longer interleaves with the logo animation.
 
-- [#10](https://github.com/Pythoughts-labs/pythinker-code/pull/10) [`ad2391b`](https://github.com/Pythoughts-labs/pythinker-code/commit/ad2391b5601f173d7eecdaab55f1110f506c1ad1) - Restyle the browser OAuth sign-in confirmation pages for all providers to match the website's light design.
+- [#10](https://github.com/PyModel/pythinker-code/pull/10) [`ad2391b`](https://github.com/PyModel/pythinker-code/commit/ad2391b5601f173d7eecdaab55f1110f506c1ad1) - Restyle the browser OAuth sign-in confirmation pages for all providers to match the website's light design.
 
 ## 0.6.1
 
 ### Patch Changes
 
-- [#7](https://github.com/Pythoughts-labs/pythinker-code/pull/7) [`d396320`](https://github.com/Pythoughts-labs/pythinker-code/commit/d396320235e31ce09f04f0da244ec5a694e2bcfe) - Prompt for an API key when connecting a catalog provider whose environment variable is not set, instead of failing with "Environment variable is not set or is empty". Applies to `/login`, `/provider`, and `pythinker provider catalog add`, which now also accepts `--api-key <key>`.
+- [#7](https://github.com/PyModel/pythinker-code/pull/7) [`d396320`](https://github.com/PyModel/pythinker-code/commit/d396320235e31ce09f04f0da244ec5a694e2bcfe) - Prompt for an API key when connecting a catalog provider whose environment variable is not set, instead of failing with "Environment variable is not set or is empty". Applies to `/login`, `/provider`, and `pythinker provider catalog add`, which now also accepts `--api-key <key>`.
 
-- [#7](https://github.com/Pythoughts-labs/pythinker-code/pull/7) [`d396320`](https://github.com/Pythoughts-labs/pythinker-code/commit/d396320235e31ce09f04f0da244ec5a694e2bcfe) - Explain in `/update` and the startup update notice that Homebrew installs do not auto-update, and point to the native installer for automatic background updates.
+- [#7](https://github.com/PyModel/pythinker-code/pull/7) [`d396320`](https://github.com/PyModel/pythinker-code/commit/d396320235e31ce09f04f0da244ec5a694e2bcfe) - Explain in `/update` and the startup update notice that Homebrew installs do not auto-update, and point to the native installer for automatic background updates.
 
-- [#7](https://github.com/Pythoughts-labs/pythinker-code/pull/7) [`d396320`](https://github.com/Pythoughts-labs/pythinker-code/commit/d396320235e31ce09f04f0da244ec5a694e2bcfe) - Point the native install scripts at the published release assets.
+- [#7](https://github.com/PyModel/pythinker-code/pull/7) [`d396320`](https://github.com/PyModel/pythinker-code/commit/d396320235e31ce09f04f0da244ec5a694e2bcfe) - Point the native install scripts at the published release assets.
 
-- [#7](https://github.com/Pythoughts-labs/pythinker-code/pull/7) [`d396320`](https://github.com/Pythoughts-labs/pythinker-code/commit/d396320235e31ce09f04f0da244ec5a694e2bcfe) - Show a clear requirement message with the native-installer alternative when the CLI is launched on Node.js older than 26.4, instead of failing with a cryptic flag error.
+- [#7](https://github.com/PyModel/pythinker-code/pull/7) [`d396320`](https://github.com/PyModel/pythinker-code/commit/d396320235e31ce09f04f0da244ec5a694e2bcfe) - Show a clear requirement message with the native-installer alternative when the CLI is launched on Node.js older than 26.4, instead of failing with a cryptic flag error.
 
-- [#8](https://github.com/Pythoughts-labs/pythinker-code/pull/8) [`9b1b195`](https://github.com/Pythoughts-labs/pythinker-code/commit/9b1b19577a5826f33a2bd70116c48bfeb46362ad) - Fix the CLI failing to start on Windows with "process.execve is unavailable" by using the spawn fallback instead of calling execve there.
+- [#8](https://github.com/PyModel/pythinker-code/pull/8) [`9b1b195`](https://github.com/PyModel/pythinker-code/commit/9b1b19577a5826f33a2bd70116c48bfeb46362ad) - Fix the CLI failing to start on Windows with "process.execve is unavailable" by using the spawn fallback instead of calling execve there.
 
 ## 0.6.0
 
 ### Minor Changes
 
-- [`d7a2554`](https://github.com/Pythoughts-labs/pythinker-code/commit/d7a25545a6f6fb0c2024a11dcde8012a087c9e44) - Maintenance release with internal improvements and dependency updates.
+- [`d7a2554`](https://github.com/PyModel/pythinker-code/commit/d7a25545a6f6fb0c2024a11dcde8012a087c9e44) - Maintenance release with internal improvements and dependency updates.
 
 ## 0.5.1
 
@@ -258,104 +258,104 @@
 
 ### Minor Changes
 
-- [`fc6a226`](https://github.com/Pythoughts-labs/pythinker-code/commit/fc6a22694298d884070130d5918ce7b14c585fdb) - Add the `/update` slash command (alias `/upgrade`) the welcome banner has been advertising: it checks the CDN for a newer version and installs it in the background, falling back to a copyable command for installs that cannot self-update (e.g. Homebrew). `pythinker doctor` now reports whether auto-update is on, off via `tui.toml [upgrade].auto_install`, or disabled by `PYTHINKER_CODE_NO_AUTO_UPDATE`.
+- [`fc6a226`](https://github.com/PyModel/pythinker-code/commit/fc6a22694298d884070130d5918ce7b14c585fdb) - Add the `/update` slash command (alias `/upgrade`) the welcome banner has been advertising: it checks the CDN for a newer version and installs it in the background, falling back to a copyable command for installs that cannot self-update (e.g. Homebrew). `pythinker doctor` now reports whether auto-update is on, off via `tui.toml [upgrade].auto_install`, or disabled by `PYTHINKER_CODE_NO_AUTO_UPDATE`.
 
 ## 0.2.0
 
 ### Minor Changes
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add provider-native Fast mode controls for supported OpenAI and Anthropic models.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add provider-native Fast mode controls for supported OpenAI and Anthropic models.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add validated session and persistent workspace directories with SDK, CLI, and TUI management.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add validated session and persistent workspace directories with SDK, CLI, and TUI management.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Expose the precedence-resolved agent profile catalog through the SDK and a searchable TUI command.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Expose the precedence-resolved agent profile catalog through the SDK and a searchable TUI command.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add persistent named agent teams with background teammate spawning, shared task scopes, direct and broadcast messaging, assignment delivery, shutdown coordination, and native terminal identities.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add persistent named agent teams with background teammate spawning, shared task scopes, direct and broadcast messaging, assignment delivery, shutdown coordination, and native terminal identities.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add project, user, and namespaced plugin subagent profiles with per-profile turn limits and persistent memory, context-fork workers, per-agent model and working-directory overrides, and Git worktree isolation with native terminal status.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add project, user, and namespaced plugin subagent profiles with per-profile turn limits and persistent memory, context-fork workers, per-agent model and working-directory overrides, and Git worktree isolation with native terminal status.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add Anthropic Claude Code marketplace browsing and installation with searchable source selection and install-definition support.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add Anthropic Claude Code marketplace browsing and installation with searchable source selection and install-definition support.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Preserve full truncated Bash output on disk, interpret informational exit codes, and expand destructive-command warnings in the terminal approval flow.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Preserve full truncated Bash output on disk, interpret informational exit codes, and expand destructive-command warnings in the terminal approval flow.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add clearer TUI startup status, effort heat, Dynamic Workflow progress colors, and a brighter dark-theme primary.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add clearer TUI startup status, effort heat, Dynamic Workflow progress colors, and a brighter dark-theme primary.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add catalog-backed provider connections with interactive or environment-referenced credentials, live model discovery, provider-aware model selection, and model-specific thinking controls.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add catalog-backed provider connections with interactive or environment-referenced credentials, live model discovery, provider-aware model selection, and model-specific thinking controls.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add an agent-callable Config tool for approved, validated reads and writes of supported Pythinker settings.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add an agent-callable Config tool for approved, validated reads and writes of supported Pythinker settings.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add configurable Global and Chat TUI keybindings with unbinding, two-key chords, reserved shortcuts, dynamic help labels, template creation, and editor-backed reload.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add configurable Global and Chat TUI keybindings with unbinding, two-key chords, reserved shortcuts, dynamic help labels, template creation, and editor-backed reload.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Expose files loaded by Read through the SDK and a `/files` TUI command.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Expose files loaded by Read through the SDK and a `/files` TUI command.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Expose the model-visible context breakdown through the SDK and a `/context` TUI report.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Expose the model-visible context breakdown through the SDK and a `/context` TUI report.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Show Dynamic Workflow in a coral-framed mission-control panel with live per-agent progress, and let workflow agents run without an automatic timeout.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Show Dynamic Workflow in a coral-framed mission-control panel with live per-agent progress, and let workflow agents run without an automatic timeout.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add persisted file checkpoints with preview and recovery-backed code or conversation rewind through the SDK, CLI, and TUI.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add persisted file checkpoints with preview and recovery-backed code or conversation rewind through the SDK, CLI, and TUI.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add fail-closed Read/Edit/Write state tracking, quote-preserving edits, automatic parent creation, and cell-aware Jupyter notebook editing with terminal summaries.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add fail-closed Read/Edit/Write state tracking, quote-preserving edits, automatic parent creation, and cell-aware Jupyter notebook editing with terminal summaries.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add unchanged-range deduplication and structured Jupyter notebook reads with cell, text-output, and image-output support.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add unchanged-range deduplication and structured Jupyter notebook reads with cell, text-output, and image-output support.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Rework the TUI into a fixed full-height layout: the input box and status bar stay pinned to the bottom, the mouse wheel scrolls the conversation, drag-selecting text copies it to the clipboard, and `layout = "inline"` in tui.toml restores the legacy inline behavior.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Rework the TUI into a fixed full-height layout: the input box and status bar stay pinned to the bottom, the mouse wheel scrolls the conversation, drag-selecting text copies it to the clipboard, and `layout = "inline"` in tui.toml restores the legacy inline behavior.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add configurable context-aware keybindings across dialogs, plugins, rewind,
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add configurable context-aware keybindings across dialogs, plugins, rewind,
   message actions, footer controls, and both terminal renderers.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add experimental plugin-configured language-server support with lazy stdio servers and agent-callable navigation, symbol, hover, reference, implementation, and call-hierarchy operations.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add experimental plugin-configured language-server support with lazy stdio servers and agent-callable navigation, symbol, hover, reference, implementation, and call-hierarchy operations.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add MCP resource discovery and reading with terminal-native summaries.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add MCP resource discovery and reading with terminal-native summaries.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add live instruction refresh and a `/memory` command for user and project memory files.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add live instruction refresh and a `/memory` command for user and project memory files.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add discoverable built-in, user, project, and plugin output styles with config-backed prompt injection and TUI selection.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add discoverable built-in, user, project, and plugin output styles with config-backed prompt injection and TUI selection.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add experimental native PowerShell execution on Windows with non-interactive invocation, streamed foreground and background output, timeout handling, exact-command approval, and terminal language metadata.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add experimental native PowerShell execution on Windows with non-interactive invocation, streamed foreground and background output, timeout handling, exact-command approval, and terminal language metadata.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add responsive option previews, per-question notes, answer annotations, automatic Other choices, and source telemetry tags to structured questions.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add responsive option previews, per-question notes, answer annotations, automatic Other choices, and source telemetry tags to structured questions.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Complete Glob and Grep parity with absolute glob patterns, sensitive-name filtering, context aliases, and multiple glob filters.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Complete Glob and Grep parity with absolute glob patterns, sensitive-name filtering, context aliases, and multiple glob filters.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add `/cost` to show accumulated session spend and current model token rates, with pricing data available through SDK session status.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add `/cost` to show accumulated session spend and current model token rates, with pricing data available through SDK session status.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Expose session metadata through the SDK and add searchable session tags with `/tag`.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Expose session metadata through the SDK and add searchable session tags with `/tag`.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add explicitly requested session worktree entry and exit with named resume, cwd and hook rebinding, safe keep behavior, and fail-closed removal confirmation.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add explicitly requested session worktree entry and exit with named resume, cwd and hook rebinding, safe keep behavior, and fail-closed removal confirmation.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add JSON Schema validated structured output to prompt mode.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add JSON Schema validated structured output to prompt mode.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add persistent project-task creation, lookup, dependency-aware listing, and updates while retaining explicit background-task listing.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add persistent project-task creation, lookup, dependency-aware listing, and updates while retaining explicit background-task listing.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add per-model thinking effort levels: pick the level in the model selector or with the new `/effort` command, cycle it with Ctrl-T, and see the current level in the footer and on the input box border.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add per-model thinking effort levels: pick the level in the model selector or with the new `/effort` command, cycle it with Ctrl-T, and see the current level in the footer and on the input box border.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Show estimated token throughput while output streams in the TUI footer, then replace it with the provider-reported completed rate.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Show estimated token throughput while output streams in the TUI footer, then replace it with the provider-reported completed rate.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add a TUI copy command for recent assistant responses and fenced code blocks with clipboard and file fallbacks.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add a TUI copy command for recent assistant responses and fenced code blocks with clipboard and file fallbacks.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Build the OpenTUI dialog slice with native searchable-dialog interactions.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Build the OpenTUI dialog slice with native searchable-dialog interactions.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Expose configuration and keybinding diagnostics through the TUI doctor command.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Expose configuration and keybinding diagnostics through the TUI doctor command.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add `/colors` and polish terminal progress, context, question, and Markdown activity displays while preserving reasoning-summary boundaries.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add `/colors` and polish terminal progress, context, question, and Markdown activity displays while preserving reasoning-summary boundaries.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add native TUI management for persisted allow, ask, and deny permission rules.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add native TUI management for persisted allow, ask, and deny permission rules.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add TUI commands for listing discovered skills and configured hooks.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add TUI commands for listing discovered skills and configured hooks.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Expand the TUI colour palette from 18 to 50 semantic tokens — shimmer variants, eight per-subagent identity colours, dimmed diff shades, a rainbow set, mode-identity badges, background surfaces, and progress-bar fill — and add a curried theme-aware `colorize` helper that accepts either a palette token or a raw hex.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Expand the TUI colour palette from 18 to 50 semantic tokens — shimmer variants, eight per-subagent identity colours, dimmed diff shades, a rainbow set, mode-identity badges, background surfaces, and progress-bar fill — and add a curried theme-aware `colorize` helper that accepts either a palette token or a raw hex.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Wire the vim core into the composer behind an opt-in `vimMode` option. A narrow, version-pinned bridge is the only seam to pi-tui's private editor state; terminal escape sequences and bracketed pastes are classified before vim sees them, so paste, arrows, and Kitty-protocol keys keep working in every mode.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Wire the vim core into the composer behind an opt-in `vimMode` option. A narrow, version-pinned bridge is the only seam to pi-tui's private editor state; terminal escape sequences and bracketed pastes are classified before vim sees them, so paste, arrows, and Kitty-protocol keys keep working in every mode.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add the `vim_mode` experimental flag, off by default, so modal editing in the composer can be toggled through `/vim` or `/experiments`, `PYTHINKER_CODE_EXPERIMENTAL_VIM_MODE`, or config. The editor picks the flag up when the snapshot lands and follows runtime configuration changes.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add the `vim_mode` experimental flag, off by default, so modal editing in the composer can be toggled through `/vim` or `/experiments`, `PYTHINKER_CODE_EXPERIMENTAL_VIM_MODE`, or config. The editor picks the flag up when the snapshot lands and follows runtime configuration changes.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add the vim-mode state machine for the composer: NORMAL/INSERT transitions, counts, and the full movement set (character, line, word, line-anchored, document, and line-local find with repeat). Pure and renderer-agnostic — editing operators, text objects, and visual mode follow, as does the editor wiring.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add the vim-mode state machine for the composer: NORMAL/INSERT transitions, counts, and the full movement set (character, line, word, line-anchored, document, and line-local find with repeat). Pure and renderer-agnostic — editing operators, text objects, and visual mode follow, as does the editor wiring.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add vim editing operators to the composer state machine: `d`/`c`/`y` over any motion, doubled linewise forms, the single-key shortcuts (`x`, `X`, `s`, `S`, `D`, `C`, `Y`), text objects (`iw`/`aw`, quotes, nested brackets), and an unnamed register with charwise and linewise paste.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add vim editing operators to the composer state machine: `d`/`c`/`y` over any motion, doubled linewise forms, the single-key shortcuts (`x`, `X`, `s`, `S`, `D`, `C`, `Y`), text objects (`iw`/`aw`, quotes, nested brackets), and an unnamed register with charwise and linewise paste.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Complete the vim core for the composer: charwise and linewise visual mode with selection operators, and dot-repeat (`.`) driven by a structured repeat spec rather than replayed keystrokes.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Complete the vim core for the composer: charwise and linewise visual mode with selection operators, and dot-repeat (`.`) driven by a structured repeat spec rather than replayed keystrokes.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add a read-only verification agent and request independent checks when multi-step task lists close without verification.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add a read-only verification agent and request independent checks when multi-step task lists close without verification.
   Accept TodoWrite-compatible checklist items and show their active labels while tasks are in progress.
   Cache successful local URL fetches for 15 minutes with a 50 MiB bound.
   Preserve binary URL responses and save them through Kaos with MIME-derived filenames.
@@ -440,93 +440,93 @@
   Handle MCP form elicitation through the existing question UI with typed JSON Schema validation and paged fields.
   Run source-compatible `Elicitation` and `ElicitationResult` hooks around MCP forms, including validated hook-supplied responses.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add cancellable URL fetching with per-host approval and safe redirect handoff, plus allowed and blocked domain filters for web search.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add cancellable URL fetching with per-host approval and safe redirect handoff, plus allowed and blocked domain filters for web search.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Expose bounded working-tree diffs through the SDK and a native `/diff` browser.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Expose bounded working-tree diffs through the SDK and a native `/diff` browser.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add a configurable `[status_line]` TUI section to toggle footer status items, and show the YOLO indicator on a dedicated row beneath the model.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add a configurable `[status_line]` TUI section to toggle footer status items, and show the YOLO indicator on a dedicated row beneath the model.
 
 ### Patch Changes
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Align Anthropic-compatible thinking profiles, output limits, and incomplete stream handling with model capabilities.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Align Anthropic-compatible thinking profiles, output limits, and incomplete stream handling with model capabilities.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Pulse the Bash activity marker while a command is running and keep the completed marker green.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Pulse the Bash activity marker while a command is running and keep the completed marker green.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Accept `/branch` and `/rewind` as compatibility aliases for `/fork` and `/undo`.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Accept `/branch` and `/rewind` as compatibility aliases for `/fork` and `/undo`.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Allow provider catalog refresh for providers that register an API key directly instead of an environment variable.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Allow provider catalog refresh for providers that register an API key directly instead of an environment variable.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Update OpenAI Codex OAuth for the new model catalog: bump the models client_version gate to 0.145.0 so the gpt-5.6 family appears, carry each model's supported reasoning efforts into config, send real max effort on the wire (ultra maps in as max), clamp requests to what each model supports, and default Codex sign-in to the top supported effort.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Update OpenAI Codex OAuth for the new model catalog: bump the models client_version gate to 0.145.0 so the gpt-5.6 family appears, carry each model's supported reasoning efforts into config, send real max effort on the wire (ultra maps in as max), clamp requests to what each model supports, and default Codex sign-in to the top supported effort.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Align context usage displays with 1024-based units and ceiled percentages.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Align context usage displays with 1024-based units and ceiled percentages.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Prevent repeated session debug exports from overwriting earlier archives by including a timestamp in the default filename.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Prevent repeated session debug exports from overwriting earlier archives by including a timestamp in the default filename.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Default agent reasoning and responses to English unless the user explicitly requests another language.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Default agent reasoning and responses to English unless the user explicitly requests another language.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Increase the default per-step LLM retry budget from 3 to 10 attempts.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Increase the default per-step LLM retry budget from 3 to 10 attempts.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Allow DynamicWorkflow items to be complete prompts when no template is supplied.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Allow DynamicWorkflow items to be complete prompts when no template is supplied.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Show DynamicWorkflow request failures once instead of repeating the reason for every member.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Show DynamicWorkflow request failures once instead of repeating the reason for every member.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Pin @agentclientprotocol/sdk to ^0.23.0 to restore the unstable session-model API the ACP adapter implements, and fix the adapter's typecheck.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Pin @agentclientprotocol/sdk to ^0.23.0 to restore the unstable session-model API the ACP adapter implements, and fix the adapter's typecheck.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Rename the stale afk reference to auto in the built-in MCP configuration guidance.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Rename the stale afk reference to auto in the built-in MCP configuration guidance.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Prevent agent idle cleanup failures from surfacing as unhandled rejections.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Prevent agent idle cleanup failures from surfacing as unhandled rejections.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Translate binary download failures through the standard fetch error path.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Translate binary download failures through the standard fetch error path.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Fix Unicode-safe Vim editing, application shortcuts, selector state, key chords, mouse-selection auto-scrolling, and active-tab contrast.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Fix Unicode-safe Vim editing, application shortcuts, selector state, key chords, mouse-selection auto-scrolling, and active-tab contrast.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Preserve graceful shutdown and exit codes under repeated signals or closed output streams, persist provider removals and cleared defaults, reject unsafe marketplace refs, and recover safely from stalled marketplace loads and interrupted update installs.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Preserve graceful shutdown and exit codes under repeated signals or closed output streams, persist provider removals and cleared defaults, reject unsafe marketplace refs, and recover safely from stalled marketplace loads and interrupted update installs.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Fix ctrl+b / ctrl+f paging in the approval preview and task output viewer under the Kitty keyboard protocol. Both shortcuts compared raw C0 bytes, so they did nothing in terminals that send CSI-u — including VSCode's integrated terminal — while the page-up/page-down checks beside them worked.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Fix ctrl+b / ctrl+f paging in the approval preview and task output viewer under the Kitty keyboard protocol. Both shortcuts compared raw C0 bytes, so they did nothing in terminals that send CSI-u — including VSCode's integrated terminal — while the page-up/page-down checks beside them worked.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Keep Dynamic Workflow results bounded and correctly decoded while preventing undone workflows from receiving late events.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Keep Dynamic Workflow results bounded and correctly decoded while preventing undone workflows from receiving late events.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Preserve MCP prompt client binding during skill activation.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Preserve MCP prompt client binding during skill activation.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Honor an explicit thinking off setting on OpenAI-compatible providers.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Honor an explicit thinking off setting on OpenAI-compatible providers.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Correct the YOLO and Auto permission mode descriptions in CLI help output and ACP session mode selectors.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Correct the YOLO and Auto permission mode descriptions in CLI help output and ACP session mode selectors.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Correct the YOLO and Auto permission mode descriptions in the web slash command list and mobile permission sheet.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Correct the YOLO and Auto permission mode descriptions in the web slash command list and mobile permission sheet.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Clarify that YOLO auto-approves tool actions while Auto runs fully autonomously without asking questions.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Clarify that YOLO auto-approves tool actions while Auto runs fully autonomously without asking questions.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Fix TypeScript errors in the TUI welcome/logo components and their tests (index-signature env access, possibly-undefined logo rows).
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Fix TypeScript errors in the TUI welcome/logo components and their tests (index-signature env access, possibly-undefined logo rows).
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Prevent silent exits from clipboard image failures and report unhandled promise rejections in crash telemetry.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Prevent silent exits from clipboard image failures and report unhandled promise rejections in crash telemetry.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Preserve extended Unicode characters when normalizing replacement quotes.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Preserve extended Unicode characters when normalizing replacement quotes.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Fix sessions getting stuck after a provider records an assistant message with no sendable content.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Fix sessions getting stuck after a provider records an assistant message with no sendable content.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Fix duplicate workspace groups on Windows when the same folder is opened with different path spellings, keeping all of the folder's sessions in one merged group.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Fix duplicate workspace groups on Windows when the same folder is opened with different path spellings, keeping all of the folder's sessions in one merged group.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Correct the YOLO mode notice shown when replaying a session.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Correct the YOLO mode notice shown when replaying a session.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Include the underlying network cause in OAuth connection error messages instead of only reporting a generic fetch failure.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Include the underlying network cause in OAuth connection error messages instead of only reporting a generic fetch failure.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Resolve every bare `solid-js` import to OpenTUI's client runtime so Solid signal updates reach the terminal buffer.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Resolve every bare `solid-js` import to OpenTUI's client runtime so Solid signal updates reach the terminal buffer.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Stop showing a status message after successful automatic keybinding reloads.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Stop showing a status message after successful automatic keybinding reloads.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Record and close tool calls that never ran after an interrupted model response.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Record and close tool calls that never ran after an interrupted model response.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Replay empty thinking content verbatim on preserved-thinking endpoints.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Replay empty thinking content verbatim on preserved-thinking endpoints.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Scope inferred Anthropic thinking profiles to non-managed Anthropic-compatible providers.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Scope inferred Anthropic thinking profiles to non-managed Anthropic-compatible providers.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Fix the built-in URL fetch tool's network safeguards so crafted domains and redirect chains cannot reach loopback or internal network services.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Fix the built-in URL fetch tool's network safeguards so crafted domains and redirect chains cannot reach loopback or internal network services.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Render the slash command menu below the composer and give the selected command a themed pointer and muted description lines.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Render the slash command menu below the composer and give the selected command a themed pointer and muted description lines.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Make MCP startup status lines transient in the TUI: connected/disabled rows show a success mark and disappear after 3 seconds instead of permanently cluttering the transcript, while failed and needs-auth rows stay visible. The welcome-header aggregate remains the durable indicator.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Make MCP startup status lines transient in the TUI: connected/disabled rows show a success mark and disappear after 3 seconds instead of permanently cluttering the transcript, while failed and needs-auth rows stay visible. The welcome-header aggregate remains the durable indicator.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Fix display-width measurement on the OpenTUI render path: strip ANSI escapes before measuring, segment by grapheme cluster so ZWJ emoji and skin-tone modifiers count once, and expand tabs to match the legacy renderer. Footer, composer, and dialog-list text no longer mis-truncate when coloured or containing emoji.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Fix display-width measurement on the OpenTUI render path: strip ANSI escapes before measuring, segment by grapheme cluster so ZWJ emoji and skin-tone modifiers count once, and expand tabs to match the legacy renderer. Footer, composer, and dialog-list text no longer mis-truncate when coloured or containing emoji.
 
 ## 0.17.1
 

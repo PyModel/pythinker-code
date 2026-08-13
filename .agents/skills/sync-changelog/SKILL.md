@@ -38,7 +38,7 @@ Core rule: the English docs changelog is the source of truth for user-facing rel
 
 Before editing, confirm:
 
-- The released version exists on npm (`npm view @pythoughts/pythinker-code versions --json`) or has a matching GitHub Release tag on `Pythoughts-labs/pythinker-code`.
+- The released version exists on npm (`npm view @pythoughts/pythinker-code versions --json`) or has a matching GitHub Release tag on `PyModel/pythinker-code`.
 - The top of `apps/pythinker-code/CHANGELOG.md` is that new version.
 - The current branch is clean, or you are on a dedicated docs-sync branch.
 
@@ -66,7 +66,7 @@ Use upstream order: newest version first.
 Upstream entries look like this:
 
 ```markdown
-- [#317](https://github.com/Pythoughts-labs/pythinker-code/pull/317) [`2f51db4`](https://github.com/Pythoughts-labs/pythinker-code/commit/2f51db4) - Clean up lint warnings ...
+- [#317](https://github.com/PyModel/pythinker-code/pull/317) [`2f51db4`](https://github.com/PyModel/pythinker-code/commit/2f51db4) - Clean up lint warnings ...
 ```
 
 Keep:

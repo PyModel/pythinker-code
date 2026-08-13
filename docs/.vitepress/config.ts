@@ -34,7 +34,7 @@ const config = withMermaid(defineConfig({
     outline: [2, 3],
     search: { provider: 'local' },
     socialLinks: [
-      { icon: 'github', link: 'https://github.com/Pythoughts-labs/pythinker-code' },
+      { icon: 'github', link: 'https://github.com/PyModel/pythinker-code' },
     ],
     nav: [
       { text: 'Guides', link: '/guides/getting-started', activeMatch: '/guides/' },

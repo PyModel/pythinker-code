@@ -85,7 +85,7 @@ describe('fetchUpdateManifest', () => {
       publishedAt: '2026-06-12T00:00:00.000Z',
       platforms: {
         'darwin-arm64': {
-          url: 'https://github.com/Pythoughts-labs/pythinker-code/releases/download/%40pythoughts%2Fpythinker-code%400.9.2/pythinker-code-darwin-arm64.zip',
+          url: 'https://github.com/PyModel/pythinker-code/releases/download/%40pythoughts%2Fpythinker-code%400.9.2/pythinker-code-darwin-arm64.zip',
           sha256: 'nope',
         },
       },
@@ -145,11 +145,11 @@ describe('fetchUpdateManifest', () => {
       rollout: [],
       platforms: {
         'darwin-arm64': {
-          url: 'https://github.com/Pythoughts-labs/pythinker-code/releases/download/%40pythoughts%2Fpythinker-code%400.9.2/pythinker-code-darwin-arm64.zip',
+          url: 'https://github.com/PyModel/pythinker-code/releases/download/%40pythoughts%2Fpythinker-code%400.9.2/pythinker-code-darwin-arm64.zip',
           sha256: 'a'.repeat(64),
         },
         'linux-x64': {
-          url: 'https://github.com/Pythoughts-labs/pythinker-code/releases/download/%40pythoughts%2Fpythinker-code%400.9.2/pythinker-code-linux-x64.zip',
+          url: 'https://github.com/PyModel/pythinker-code/releases/download/%40pythoughts%2Fpythinker-code%400.9.2/pythinker-code-linux-x64.zip',
           sha256: 'b'.repeat(64),
         },
       },
@@ -159,11 +159,11 @@ describe('fetchUpdateManifest', () => {
     expect(result.version).toBe('2.0.0');
     expect(result.platforms).toEqual({
       'darwin-arm64': {
-        url: 'https://github.com/Pythoughts-labs/pythinker-code/releases/download/%40pythoughts%2Fpythinker-code%400.9.2/pythinker-code-darwin-arm64.zip',
+        url: 'https://github.com/PyModel/pythinker-code/releases/download/%40pythoughts%2Fpythinker-code%400.9.2/pythinker-code-darwin-arm64.zip',
         sha256: 'a'.repeat(64),
       },
       'linux-x64': {
-        url: 'https://github.com/Pythoughts-labs/pythinker-code/releases/download/%40pythoughts%2Fpythinker-code%400.9.2/pythinker-code-linux-x64.zip',
+        url: 'https://github.com/PyModel/pythinker-code/releases/download/%40pythoughts%2Fpythinker-code%400.9.2/pythinker-code-linux-x64.zip',
         sha256: 'b'.repeat(64),
       },
     });
@@ -262,7 +262,7 @@ describe('manifestArtifactAvailability', () => {
       rollout: [],
       platforms: {
         'darwin-arm64': {
-          url: 'https://github.com/Pythoughts-labs/pythinker-code/releases/download/%40pythoughts%2Fpythinker-code%400.9.2/pythinker-code-darwin-arm64.zip',
+          url: 'https://github.com/PyModel/pythinker-code/releases/download/%40pythoughts%2Fpythinker-code%400.9.2/pythinker-code-darwin-arm64.zip',
           sha256: 'a'.repeat(64),
         },
       },
@@ -277,7 +277,7 @@ describe('manifestArtifactAvailability', () => {
       rollout: [],
       platforms: {
         'darwin-arm64': {
-          url: 'https://github.com/Pythoughts-labs/pythinker-code/releases/download/%40pythoughts%2Fpythinker-code%400.9.2/pythinker-code-darwin-arm64.zip',
+          url: 'https://github.com/PyModel/pythinker-code/releases/download/%40pythoughts%2Fpythinker-code%400.9.2/pythinker-code-darwin-arm64.zip',
           sha256: 'a'.repeat(64),
         },
       },
@@ -302,7 +302,7 @@ describe('manifestArtifactAvailability', () => {
       rollout: [],
       platforms: {
         [`${process.platform}-${process.arch}`]: {
-          url: 'https://github.com/Pythoughts-labs/pythinker-code/releases/download/%40pythoughts%2Fpythinker-code%400.9.2/pythinker-code-darwin-arm64.zip',
+          url: 'https://github.com/PyModel/pythinker-code/releases/download/%40pythoughts%2Fpythinker-code%400.9.2/pythinker-code-darwin-arm64.zip',
           sha256: 'a'.repeat(64),
         },
       },

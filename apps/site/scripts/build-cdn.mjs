@@ -89,7 +89,7 @@ async function resolvePublishedRelease(packageName) {
   return { version, publishedAt };
 }
 
-const RELEASE_DOWNLOAD_BASE = 'https://github.com/Pythoughts-labs/pythinker-code/releases/download';
+const RELEASE_DOWNLOAD_BASE = 'https://github.com/PyModel/pythinker-code/releases/download';
 
 // Set to a version string only when an older client can no longer work against
 // the current services; it makes every client below it take the update without

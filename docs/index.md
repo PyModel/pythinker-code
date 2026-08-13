@@ -9,5 +9,5 @@ hero:
       link: /guides/getting-started
     - theme: alt
       text: GitHub
-      link: https://github.com/Pythoughts-labs/pythinker-code
+      link: https://github.com/PyModel/pythinker-code
 ---

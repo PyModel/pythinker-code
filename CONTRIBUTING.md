@@ -40,7 +40,7 @@ For the full project map, see [AGENTS.md](AGENTS.md).
 Prerequisites: Node.js >= 24.15.0, pnpm 10.33.0, Git.
 
 ```sh
-git clone https://github.com/Pythoughts-labs/pythinker-code.git
+git clone https://github.com/PyModel/pythinker-code.git
 cd pythinker-code
 pnpm install
 ```

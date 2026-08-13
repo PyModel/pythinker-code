@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://github.com/pythoughts-labs/pythinker-code/blob/main/apps/pythinker-code/src/tui/theme/theme-schema.json",
+  "$id": "https://github.com/pymodel/pythinker-code/blob/main/apps/pythinker-code/src/tui/theme/theme-schema.json",
   "title": "Pythinker Code Custom Theme",
   "description": "Schema for Pythinker Code TUI custom theme definitions",
   "type": "object",

@@ -15,7 +15,7 @@ jobs:
   publish:
     name: Publish Pythinker Code preview
     runs-on: ubuntu-latest
-    if: github.repository_owner == 'Pythoughts-labs' && github.event.pull_request.draft == false
+    if: github.repository_owner == 'PyModel' && github.event.pull_request.draft == false
 
     steps:
       - name: Checkout

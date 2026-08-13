@@ -4,19 +4,19 @@
 
 ### Minor Changes
 
-- [#51](https://github.com/Pythoughts-labs/pythinker-code/pull/51) [`c8cdcc7`](https://github.com/Pythoughts-labs/pythinker-code/commit/c8cdcc78528f3fd8dedf9111ec0c91f3242e3012) - The saved-workflow write helper now takes the working directory and resolves the repository root itself, saved workflows can carry a size guideline, and the workflow size guideline resolver is exported.
+- [#51](https://github.com/PyModel/pythinker-code/pull/51) [`c8cdcc7`](https://github.com/PyModel/pythinker-code/commit/c8cdcc78528f3fd8dedf9111ec0c91f3242e3012) - The saved-workflow write helper now takes the working directory and resolves the repository root itself, saved workflows can carry a size guideline, and the workflow size guideline resolver is exported.
 
 ## 0.14.0
 
 ### Minor Changes
 
-- [#41](https://github.com/Pythoughts-labs/pythinker-code/pull/41) [`e534040`](https://github.com/Pythoughts-labs/pythinker-code/commit/e534040c82d1e3b8c217e6e35ddcf248065ff950) - Fix `/workflow save` leaving the saved workflow uncallable until the session was reloaded, and add `Session.reloadSkills()` to re-discover skills written while a session is open.
+- [#41](https://github.com/PyModel/pythinker-code/pull/41) [`e534040`](https://github.com/PyModel/pythinker-code/commit/e534040c82d1e3b8c217e6e35ddcf248065ff950) - Fix `/workflow save` leaving the saved workflow uncallable until the session was reloaded, and add `Session.reloadSkills()` to re-discover skills written while a session is open.
 
 ## 0.13.0
 
 ### Minor Changes
 
-- [#35](https://github.com/Pythoughts-labs/pythinker-code/pull/35) [`2ce6b5e`](https://github.com/Pythoughts-labs/pythinker-code/commit/2ce6b5e66935335567a6525413ad8e77b84d852f) - Show the plan before a Dynamic Workflow runs, and let a good one be saved as a command
+- [#35](https://github.com/PyModel/pythinker-code/pull/35) [`2ce6b5e`](https://github.com/PyModel/pythinker-code/commit/2ce6b5e66935335567a6525413ad8e77b84d852f) - Show the plan before a Dynamic Workflow runs, and let a good one be saved as a command
 
   Manual mode used to approve every `DynamicWorkflow` call outright. That approval
   only ever fired in manual mode — auto and yolo approve earlier in the chain — so
@@ -34,7 +34,7 @@
 
 ### Minor Changes
 
-- [#34](https://github.com/Pythoughts-labs/pythinker-code/pull/34) [`42da384`](https://github.com/Pythoughts-labs/pythinker-code/commit/42da384cb36d29ecf0cc147f753790e022e13709) - Make the login platform layer provider-neutral. Model listing, capability derivation and the on-disk config shape are now one set of types shared by every login path, instead of living in a provider-specific module that other providers imported from; the duplicate copies of the capability derivation and the model-info parser are collapsed into one.
+- [#34](https://github.com/PyModel/pythinker-code/pull/34) [`42da384`](https://github.com/PyModel/pythinker-code/commit/42da384cb36d29ecf0cc147f753790e022e13709) - Make the login platform layer provider-neutral. Model listing, capability derivation and the on-disk config shape are now one set of types shared by every login path, instead of living in a provider-specific module that other providers imported from; the duplicate copies of the capability derivation and the model-info parser are collapsed into one.
 
   Logging in is an API key, a models.dev catalog provider, or OpenAI Codex OAuth. "Is the user logged in" is now a single predicate over configured providers with a usable credential, shared by the CLI, the VS Code extension and the ACP adapter. `/feedback` opens the issue tracker.
 
@@ -42,45 +42,45 @@
 
 ### Minor Changes
 
-- [#22](https://github.com/Pythoughts-labs/pythinker-code/pull/22) [`45be822`](https://github.com/Pythoughts-labs/pythinker-code/commit/45be8227077847f760fa7b6b09333cf5a8127f32) - Name the managed OAuth provider after the platform that serves it. It is reached over `auth.kimi.com` and `api.kimi.com`, but it was registered as `managed:pythinker-code`, which read as a first-party service in a client that talks to several providers. The provider id is now `managed:kimi-code`, its models are aliased `kimi-code/*`, and its credentials are stored under `oauth/kimi-code`.
+- [#22](https://github.com/PyModel/pythinker-code/pull/22) [`45be822`](https://github.com/PyModel/pythinker-code/commit/45be8227077847f760fa7b6b09333cf5a8127f32) - Name the managed OAuth provider after the platform that serves it. It is reached over `auth.kimi.com` and `api.kimi.com`, but it was registered as `managed:pythinker-code`, which read as a first-party service in a client that talks to several providers. The provider id is now `managed:kimi-code`, its models are aliased `kimi-code/*`, and its credentials are stored under `oauth/kimi-code`.
 
   This is a breaking change for an existing config: the previous entries are not rewritten, so run `pythinker login` once to provision the managed provider under its current name, then remove the stale `managed:pythinker-code` entry.
 
-- [#22](https://github.com/Pythoughts-labs/pythinker-code/pull/22) [`45be822`](https://github.com/Pythoughts-labs/pythinker-code/commit/45be8227077847f760fa7b6b09333cf5a8127f32) - Add an SDK routine that imports a catalog provider and its models into the persisted config, and use it for the CLI provider import so both entry points preserve existing defaults the same way.
+- [#22](https://github.com/PyModel/pythinker-code/pull/22) [`45be822`](https://github.com/PyModel/pythinker-code/commit/45be8227077847f760fa7b6b09333cf5a8127f32) - Add an SDK routine that imports a catalog provider and its models into the persisted config, and use it for the CLI provider import so both entry points preserve existing defaults the same way.
 
 ## 0.10.0
 
 ### Minor Changes
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add provider-native Fast mode controls for supported OpenAI and Anthropic models.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add provider-native Fast mode controls for supported OpenAI and Anthropic models.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add validated session and persistent workspace directories with SDK, CLI, and TUI management.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add validated session and persistent workspace directories with SDK, CLI, and TUI management.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Expose the precedence-resolved agent profile catalog through the SDK and a searchable TUI command.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Expose the precedence-resolved agent profile catalog through the SDK and a searchable TUI command.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add Anthropic Claude Code marketplace browsing and installation with searchable source selection and install-definition support.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add Anthropic Claude Code marketplace browsing and installation with searchable source selection and install-definition support.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add catalog-backed provider connections with interactive or environment-referenced credentials, live model discovery, provider-aware model selection, and model-specific thinking controls.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add catalog-backed provider connections with interactive or environment-referenced credentials, live model discovery, provider-aware model selection, and model-specific thinking controls.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Expose files loaded by Read through the SDK and a `/files` TUI command.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Expose files loaded by Read through the SDK and a `/files` TUI command.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Expose the model-visible context breakdown through the SDK and a `/context` TUI report.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Expose the model-visible context breakdown through the SDK and a `/context` TUI report.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add persisted file checkpoints with preview and recovery-backed code or conversation rewind through the SDK, CLI, and TUI.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add persisted file checkpoints with preview and recovery-backed code or conversation rewind through the SDK, CLI, and TUI.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add live instruction refresh and a `/memory` command for user and project memory files.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add live instruction refresh and a `/memory` command for user and project memory files.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add discoverable built-in, user, project, and plugin output styles with config-backed prompt injection and TUI selection.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add discoverable built-in, user, project, and plugin output styles with config-backed prompt injection and TUI selection.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add validated full configuration replacement to the SDK.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add validated full configuration replacement to the SDK.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Expose parent tool-call identity on subagent lifecycle events.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Expose parent tool-call identity on subagent lifecycle events.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add `/cost` to show accumulated session spend and current model token rates, with pricing data available through SDK session status.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add `/cost` to show accumulated session spend and current model token rates, with pricing data available through SDK session status.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Expose session metadata through the SDK and add searchable session tags with `/tag`.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Expose session metadata through the SDK and add searchable session tags with `/tag`.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add a read-only verification agent and request independent checks when multi-step task lists close without verification.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Add a read-only verification agent and request independent checks when multi-step task lists close without verification.
   Accept TodoWrite-compatible checklist items and show their active labels while tasks are in progress.
   Cache successful local URL fetches for 15 minutes with a 50 MiB bound.
   Preserve binary URL responses and save them through Kaos with MIME-derived filenames.
@@ -165,7 +165,7 @@
   Handle MCP form elicitation through the existing question UI with typed JSON Schema validation and paged fields.
   Run source-compatible `Elicitation` and `ElicitationResult` hooks around MCP forms, including validated hook-supplied responses.
 
-- [`357c850`](https://github.com/Pythoughts-labs/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Expose bounded working-tree diffs through the SDK and a native `/diff` browser.
+- [`357c850`](https://github.com/PyModel/pythinker-code/commit/357c850cdaf1c8be669566ff7a88af895bcf5c4a) - Expose bounded working-tree diffs through the SDK and a native `/diff` browser.
 
 ## 0.9.4
 

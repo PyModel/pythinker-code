@@ -10,8 +10,8 @@ const version = __PYTHINKER_VERSION__;
 const installRows = [
   ['macOS / Linux', 'curl -fsSL https://code.pythinker.com/pythinker-code/install.sh | bash', '/brand/apple.svg'],
   ['Windows (PowerShell)', 'irm https://code.pythinker.com/pythinker-code/install.ps1 | iex', '/brand/windows11.svg'],
-  ['Homebrew', 'brew install pythoughts-labs/tap/pythinker-code'],
-  ['Nix', 'nix run github:Pythoughts-labs/pythinker-code'],
+  ['Homebrew', 'brew install pymodel/tap/pythinker-code'],
+  ['Nix', 'nix run github:PyModel/pythinker-code'],
   ['npm', 'npm install -g @pythoughts/pythinker-code', '/brand/npm.svg'],
   ['Verify', 'pythinker --version'],
 ];
@@ -203,8 +203,8 @@ onUnmounted(() => {
       <a href="/" class="nav-brand"><PythinkerMascot :width="26" :height="32" /><span>Pythinker Code</span></a>
       <div class="nav-actions">
         <div class="nav-links">
-          <a href="https://pythoughts-labs.github.io/pythinker-code/" target="_blank" rel="noopener">Docs</a>
-          <a href="https://github.com/Pythoughts-labs/pythinker-code" target="_blank" rel="noopener"><img src="/brand/github.svg" alt="" width="16" height="16" />GitHub</a>
+          <a href="https://pymodel.github.io/pythinker-code/" target="_blank" rel="noopener">Docs</a>
+          <a href="https://github.com/PyModel/pythinker-code" target="_blank" rel="noopener"><img src="/brand/github.svg" alt="" width="16" height="16" />GitHub</a>
           <a href="https://www.npmjs.com/package/@pythoughts/pythinker-code" target="_blank" rel="noopener"><img src="/brand/npm.svg" alt="" width="16" height="16" />npm</a>
         </div>
         <a class="button button-primary nav-cta" href="#install">Get started</a>
@@ -214,8 +214,8 @@ onUnmounted(() => {
           </button>
           <Transition name="mobile-menu">
             <div v-show="menuOpen" class="mobile-menu-panel">
-              <a href="https://pythoughts-labs.github.io/pythinker-code/" target="_blank" rel="noopener" @click="closeMenu(false)">Docs</a>
-              <a href="https://github.com/Pythoughts-labs/pythinker-code" target="_blank" rel="noopener" @click="closeMenu(false)"><img src="/brand/github.svg" alt="" width="16" height="16" />GitHub</a>
+              <a href="https://pymodel.github.io/pythinker-code/" target="_blank" rel="noopener" @click="closeMenu(false)">Docs</a>
+              <a href="https://github.com/PyModel/pythinker-code" target="_blank" rel="noopener" @click="closeMenu(false)"><img src="/brand/github.svg" alt="" width="16" height="16" />GitHub</a>
               <a href="https://www.npmjs.com/package/@pythoughts/pythinker-code" target="_blank" rel="noopener" @click="closeMenu(false)"><img src="/brand/npm.svg" alt="" width="16" height="16" />npm</a>
             </div>
           </Transition>
@@ -473,10 +473,10 @@ onUnmounted(() => {
           </tbody>
         </table>
         <div class="link-rail">
-          <a href="https://pythoughts-labs.github.io/pythinker-code/guides/getting-started" target="_blank" rel="noopener"><span>Getting Started</span><small>Install, authenticate, and run your first task.</small></a>
-          <a href="https://pythoughts-labs.github.io/pythinker-code/guides/ides" target="_blank" rel="noopener"><span>Using in IDEs</span><small>Connect Pythinker Code through ACP.</small></a>
-          <a href="https://pythoughts-labs.github.io/pythinker-code/configuration/config-files" target="_blank" rel="noopener"><span>Configuration</span><small>Set models, providers, and permissions.</small></a>
-          <a href="https://pythoughts-labs.github.io/pythinker-code/reference/pythinker-command" target="_blank" rel="noopener"><span>Command reference</span><small>Review CLI commands and options.</small></a>
+          <a href="https://pymodel.github.io/pythinker-code/guides/getting-started" target="_blank" rel="noopener"><span>Getting Started</span><small>Install, authenticate, and run your first task.</small></a>
+          <a href="https://pymodel.github.io/pythinker-code/guides/ides" target="_blank" rel="noopener"><span>Using in IDEs</span><small>Connect Pythinker Code through ACP.</small></a>
+          <a href="https://pymodel.github.io/pythinker-code/configuration/config-files" target="_blank" rel="noopener"><span>Configuration</span><small>Set models, providers, and permissions.</small></a>
+          <a href="https://pymodel.github.io/pythinker-code/reference/pythinker-command" target="_blank" rel="noopener"><span>Command reference</span><small>Review CLI commands and options.</small></a>
         </div>
       </div>
     </section>
@@ -486,7 +486,7 @@ onUnmounted(() => {
         <h2 id="cta-title">Install it. Point it at a repo. Ship.</h2>
         <div class="cta-actions">
           <a class="button button-primary" href="#install">Get started</a>
-          <a class="button button-secondary" href="https://pythoughts-labs.github.io/pythinker-code/" target="_blank" rel="noopener">Read the docs</a>
+          <a class="button button-secondary" href="https://pymodel.github.io/pythinker-code/" target="_blank" rel="noopener">Read the docs</a>
         </div>
       </div>
     </section>
@@ -496,11 +496,11 @@ onUnmounted(() => {
     <div class="container footer-inner">
       <div><div class="footer-brand"><PythinkerMascot :width="16" :height="20" /><p class="wordmark">Pythinker Code</p><span class="footer-version">v{{ version }}</span></div><p class="footer-caption">Built by Pythoughts. MIT License.</p></div>
       <div class="footer-links">
-        <a href="https://github.com/Pythoughts-labs/pythinker-code" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://github.com/PyModel/pythinker-code" target="_blank" rel="noopener">GitHub</a>
         <a href="https://www.npmjs.com/package/@pythoughts/pythinker-code" target="_blank" rel="noopener">npm</a>
-        <a href="https://pythoughts-labs.github.io/pythinker-code/" target="_blank" rel="noopener">Docs</a>
+        <a href="https://pymodel.github.io/pythinker-code/" target="_blank" rel="noopener">Docs</a>
         <a href="https://pythinker.com" target="_blank" rel="noopener">pythinker.com</a>
-        <a href="https://github.com/Pythoughts-labs/pythinker-code/blob/main/SECURITY.md" target="_blank" rel="noopener">Security</a>
+        <a href="https://github.com/PyModel/pythinker-code/blob/main/SECURITY.md" target="_blank" rel="noopener">Security</a>
       </div>
     </div>
   </footer>

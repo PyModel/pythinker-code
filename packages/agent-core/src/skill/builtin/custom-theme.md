@@ -52,7 +52,7 @@ Use the first line when it is non-empty; otherwise use the second line. In the r
 Before choosing colors, use **FetchURL** to fetch the official custom-theme docs as the authoritative list of tokens and what each controls:
 
 ```
-https://pythoughts-labs.github.io/pythinker-code/customization/themes.html
+https://pymodel.github.io/pythinker-code/customization/themes.html
 ```
 
 Only set tokens from this set — unknown keys are silently ignored at load. If FetchURL is unavailable or the fetch fails, fall back to the embedded reference below (it mirrors the same tokens) and tell the user you're working from the built-in list rather than the live docs.
