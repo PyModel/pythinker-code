@@ -74,6 +74,20 @@ describe('TranscriptContainer', () => {
     expect(container.render(20)).toEqual([' first', ' ', ' second']);
   });
 
+  it('matches rows after an invisible child to visible separator state', () => {
+    const container = new TranscriptContainer(1, 1);
+    const status = new StubLines(['status']);
+    const empty = new StubLines([]);
+    const second = new StubLines(['second']);
+
+    container.addTranscriptChild(status, ephemeral);
+    container.addTranscriptChild(empty, durable);
+    container.addTranscriptChild(second, durable);
+
+    expect(container.render(20)).toEqual([' status', ' second']);
+    expect(container.renderedRowsAfterChild(20, empty)).toBe(1);
+  });
+
   it('keeps unregistered policy out of normalization by requiring explicit metadata', () => {
     const container = new TranscriptContainer(0, 0);
     const child = new StubLines(['', 'status', '']);

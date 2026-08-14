@@ -13,6 +13,7 @@ export type { TranscriptChildMetadata, TranscriptChildRole } from '../../utils/t
 export class TranscriptContainer extends GutterContainer {
   private readonly leftGutter: number;
   private readonly rightGutter: number;
+  private renderedRowsAfterChildDepth = 0;
 
   constructor(leftPad: number, rightPad: number) {
     super(leftPad, rightPad);
@@ -60,24 +61,46 @@ export class TranscriptContainer extends GutterContainer {
       throw new Error('Transcript child was added without metadata');
     }
     const inner = Math.max(1, width - this.leftGutter - this.rightGutter);
-    let rows = 0;
-    let previousDurable = isDurable(metadata.role);
-    for (let childIndex = index + 1; childIndex < this.children.length; childIndex += 1) {
-      const followingChild = this.children[childIndex]!;
-      const followingMetadata = getTranscriptChildMetadata(followingChild);
-      if (followingMetadata === undefined) {
-        throw new Error('Transcript child was added without metadata');
+    const nestedRender = this.renderedRowsAfterChildDepth > 0;
+    this.renderedRowsAfterChildDepth += 1;
+    try {
+      let rows = 0;
+      let previousDurable = nestedRender ? isDurable(metadata.role) : false;
+      if (!nestedRender) {
+        for (let previousIndex = index; previousIndex >= 0; previousIndex -= 1) {
+          const previousChild = this.children[previousIndex]!;
+          const previousMetadata = getTranscriptChildMetadata(previousChild);
+          if (previousMetadata === undefined) {
+            throw new Error('Transcript child was added without metadata');
+          }
+          const previousRows = this.normalizeRows(
+            previousChild.render(inner),
+            previousMetadata,
+          );
+          if (previousRows.length === 0) continue;
+          previousDurable = isDurable(previousMetadata.role);
+          break;
+        }
       }
-      const followingRows = this.normalizeRows(
-        followingChild.render(inner),
-        followingMetadata,
-      );
-      if (followingRows.length === 0) continue;
-      if (previousDurable && isDurable(followingMetadata.role)) rows += 1;
-      rows += followingRows.length;
-      previousDurable = isDurable(followingMetadata.role);
+      for (let childIndex = index + 1; childIndex < this.children.length; childIndex += 1) {
+        const followingChild = this.children[childIndex]!;
+        const followingMetadata = getTranscriptChildMetadata(followingChild);
+        if (followingMetadata === undefined) {
+          throw new Error('Transcript child was added without metadata');
+        }
+        const followingRows = this.normalizeRows(
+          followingChild.render(inner),
+          followingMetadata,
+        );
+        if (followingRows.length === 0) continue;
+        if (previousDurable && isDurable(followingMetadata.role)) rows += 1;
+        rows += followingRows.length;
+        previousDurable = isDurable(followingMetadata.role);
+      }
+      return rows;
+    } finally {
+      this.renderedRowsAfterChildDepth -= 1;
     }
-    return rows;
   }
 
   override render(width: number): string[] {
