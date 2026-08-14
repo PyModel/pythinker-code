@@ -35,6 +35,7 @@ import { ThemeSelectorComponent } from '../components/dialogs/theme-selector';
 import { UpdatePreferenceSelectorComponent } from '../components/dialogs/update-preference-selector';
 import { saveTuiConfig } from '../config';
 import { generateKeybindingsTemplate } from '../keybindings';
+import { persistDefaultModelSelection } from '../utils/persist-effort';
 import type { ThemeName } from '#/tui/theme';
 import { currentTheme, isBuiltInTheme, lightColors, loadCustomThemeMerged } from '#/tui/theme';
 import {
@@ -769,21 +770,7 @@ async function performModelSwitch(host: SlashCommandHost, alias: string, effort:
 }
 
 async function persistModelSelection(host: SlashCommandHost, alias: string, effort: string): Promise<boolean> {
-  const defaultThinking = effort !== 'off';
-  const config = await host.harness.getConfig({ reload: true });
-  if (
-    config.defaultModel === alias &&
-    config.defaultThinking === defaultThinking &&
-    config.thinking?.effort === effort
-  ) {
-    return false;
-  }
-  await host.harness.setConfig({
-    defaultModel: alias,
-    defaultThinking,
-    thinking: { effort },
-  });
-  return true;
+  return persistDefaultModelSelection(host.harness, alias, effort);
 }
 
 // ---------------------------------------------------------------------------
