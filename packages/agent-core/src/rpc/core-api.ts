@@ -27,10 +27,13 @@ import type {
   FileCheckpointSummary,
   RestoreFileCheckpointResult,
 } from '#/session/file-checkpoints';
+import type { AdvisorStatusSnapshot } from '#/session/advisor-config';
 import type { WorkingTreeChanges, WorkingTreeFileDiff } from '#/session/working-tree';
 
 import type { UsageStatus } from './events';
 import type { WithAgentId, WithSessionId } from './types';
+
+export type AdvisorStatus = AdvisorStatusSnapshot;
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue =
@@ -425,6 +428,17 @@ export interface RemovePythinkerProviderPayload {
   readonly providerId: string;
 }
 
+export interface SetAdvisorEnabledPayload {
+  readonly enabled: boolean;
+  readonly advisorId?: string;
+}
+
+export interface SessionAdvisorAPI {
+  getAdvisorStatus: (payload: EmptyPayload) => readonly AdvisorStatus[];
+  setAdvisorEnabled: (payload: SetAdvisorEnabledPayload) => readonly AdvisorStatus[];
+  reloadAdvisor: (payload: EmptyPayload) => readonly AdvisorStatus[];
+}
+
 export interface AgentAPI {
   prompt: (payload: PromptPayload) => void;
   steer: (payload: SteerPayload) => void;
@@ -469,7 +483,7 @@ export interface AgentAPI {
 
 type AgentAPIWithId = WithAgentId<AgentAPI>;
 
-export interface SessionAPI extends AgentAPIWithId {
+export interface SessionAPI extends AgentAPIWithId, SessionAdvisorAPI {
   renameSession: (payload: RenameSessionPayload) => void;
   updateSessionMetadata: (payload: UpdateSessionMetadataPayload) => void;
   getSessionMetadata: (payload: EmptyPayload) => SessionMeta;

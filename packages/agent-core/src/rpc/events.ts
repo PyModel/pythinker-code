@@ -2,6 +2,7 @@ export { MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE } from '@pymodel/protocol';
 
 export type {
   AgentEvent,
+  AdvisorStatusEvent,
   AgentStatusUpdatedEvent,
   AssistantDeltaEvent,
   BackgroundTaskStartedEvent,

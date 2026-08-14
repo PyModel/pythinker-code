@@ -109,6 +109,7 @@ import type {
   ResumeSessionPayload,
   SessionSummary,
   SetActiveToolsPayload,
+  SetAdvisorEnabledPayload,
   SetFastModePayload,
   SetPythinkerConfigPayload,
   SetModelPayload,
@@ -849,6 +850,26 @@ export class PythinkerCore implements PromisableMethods<CoreAPI> {
     ...payload
   }: SessionScopedPayload<EmptyPayload>): Promise<readonly SkillSummary[]> {
     return this.sessionApi(sessionId).listSkills(payload);
+  }
+  getAdvisorStatus({
+    sessionId,
+    ...payload
+  }: SessionScopedPayload<EmptyPayload>) {
+    return this.sessionApi(sessionId).getAdvisorStatus(payload);
+  }
+
+  setAdvisorEnabled({
+    sessionId,
+    ...payload
+  }: SessionScopedPayload<SetAdvisorEnabledPayload>) {
+    return this.sessionApi(sessionId).setAdvisorEnabled(payload);
+  }
+
+  reloadAdvisor({
+    sessionId,
+    ...payload
+  }: SessionScopedPayload<EmptyPayload>) {
+    return this.sessionApi(sessionId).reloadAdvisor(payload);
   }
 
   reloadSkills({
