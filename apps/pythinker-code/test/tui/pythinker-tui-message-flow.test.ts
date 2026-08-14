@@ -26,6 +26,7 @@ import { performHeapDump } from '#/utils/heap-dump';
 import { getInputHistoryFile } from '#/utils/paths';
 import { DynamicWorkflowMissionControlComponent } from '#/tui/components/messages/dynamic-workflow-mission-control';
 import { ThinkingComponent } from '#/tui/components/messages/thinking';
+import { BRAILLE_SPINNER_FRAMES } from '#/tui/constant/rendering';
 import { BtwPanelComponent } from '#/tui/components/panes/btw-panel';
 import { WelcomeComponent } from '#/tui/components/chrome/welcome';
 import { ChoicePickerComponent } from '#/tui/components/dialogs/choice-picker';
@@ -3948,7 +3949,7 @@ command = "vim"
     const transcript = stripSgr(renderTranscript(driver));
     expect(transcript).toContain('Dynamic Workflow');
     // The running row advances through the approved progress-glyph frames.
-    expect(transcript).toMatch(/001\s+[◐◓◑◒]\s+RUN\s+src\/a.ts/u);
+    expect(transcript).toMatch(/001\s+[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]\s+RUN\s+src\/a.ts/u);
     expect(transcript).toMatch(/002\s+✓\s+DONE\s+src\/b.ts/u);
     expect(transcript).toMatch(/Orchestrating\s+1\/2 complete/u);
     expect(transcript).not.toContain('━');

@@ -109,9 +109,10 @@ const PHASE_LABELS: Record<DynamicWorkflowPhase, string> = {
   cancelled: 'STOP',
 };
 
-const PHASE_GLYPHS: Record<Exclude<DynamicWorkflowPhase, 'running'>, string> = {
+const PHASE_GLYPHS: Record<DynamicWorkflowPhase, string> = {
   pending: '○',
   queued: '○',
+  running: BRAILLE_SPINNER_FRAMES[0] ?? '⠋',
   suspended: '◑',
   completed: '✓',
   failed: '×',
@@ -1136,7 +1137,7 @@ function commonPrefixLength(left: string, right: string, limit: number): number 
 function renderProgressGlyph(phase: DynamicWorkflowPhase, frame: number): string {
   const glyph = phase === 'running'
     ? DYNAMIC_WORKFLOW_RENDERING.progressFrames[frame % DYNAMIC_WORKFLOW_RENDERING.progressFrames.length] ??
-      DYNAMIC_WORKFLOW_RENDERING.progressFrames[0]
+      PHASE_GLYPHS.running
     : PHASE_GLYPHS[phase];
   return currentTheme.fg(PHASE_COLORS[phase], glyph);
 }

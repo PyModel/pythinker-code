@@ -380,7 +380,7 @@ describe('updateActivityPane terminal progress', () => {
       const output = strip(missionControl.render(100).join('\n'));
       expect(output).toContain('– Cancelled');
       expect(output).not.toMatch(/[◐◓◑◒] Orchestrating/);
-      for (const frame of BRAILLE_SPINNER_FRAMES) expect(output).not.toContain(frame);
+      expect(output).toMatch(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]\s+RUN\s+Review changed files/u);
       state.activitySpinner?.instance.stop();
     } finally {
       vi.useRealTimers();
