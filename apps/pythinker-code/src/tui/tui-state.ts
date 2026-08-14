@@ -5,9 +5,10 @@ import {
 } from '@earendil-works/pi-tui';
 
 import { FooterComponent } from './components/chrome/footer';
-import { GutterContainer } from './components/chrome/gutter-container';
-import type { ActivityLoader } from './components/chrome/activity-loader';
 import { StatusBarComponent } from './components/chrome/status-bar';
+import { GutterContainer } from './components/chrome/gutter-container';
+import { TranscriptContainer } from './components/chrome/transcript-container';
+import type { ActivityLoader } from './components/chrome/activity-loader';
 import { TodoPanelComponent } from './components/chrome/todo-panel';
 import { TranscriptViewport } from './components/chrome/transcript-viewport';
 import { ViewportLayoutRoot } from './components/chrome/viewport-layout';
@@ -34,7 +35,7 @@ export interface TUIState {
   terminal: ProcessTerminal;
   layout: TuiLayout;
   copyFullResponse: boolean;
-  transcriptContainer: Container;
+  transcriptContainer: TranscriptContainer;
   transcriptViewport: TranscriptViewport;
   layoutRoot: ViewportLayoutRoot;
   footerWrap: GutterContainer;
@@ -86,7 +87,7 @@ export function createTUIState(options: PythinkerTUIOptions): TUIState {
   // pi-tui's types; ui.start() flips it back to false.
   (ui as unknown as { stopped: boolean }).stopped = true;
 
-  const transcriptContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
+  const transcriptContainer = new TranscriptContainer(CHROME_GUTTER, CHROME_GUTTER);
   const activityContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
   const todoPanelContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
   const todoPanel = new TodoPanelComponent();
