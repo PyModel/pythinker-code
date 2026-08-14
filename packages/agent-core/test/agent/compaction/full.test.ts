@@ -393,6 +393,35 @@ describe('FullCompaction', () => {
     expect(messageText(compactionCall?.history[2])).toBe('[Old tool result content cleared]');
     expect(messageText(compactionCall?.history[5])).toBe('lookup result');
   });
+  it('uses global history offsets when projecting a from compaction range', async () => {
+    enableMicroCompactionFlag();
+    const ctx = testAgent({
+      microCompaction: {
+        keepRecentMessages: 0,
+        minContentTokens: 1,
+      },
+    });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+    ctx.appendToolExchange();
+    const longToolResult = 'lookup result '.repeat(100);
+    const toolResult = ctx.agent.context.history.at(-1);
+    if (toolResult?.role !== 'tool') throw new Error('Expected a tool result.');
+    toolResult.content[0] = { type: 'text', text: longToolResult };
+    ctx.appendExchange(3, 'recent user two', 'recent assistant two', 40);
+    ctx.agent.microCompaction.apply(3);
+    const compacted = ctx.once('context.apply_compaction');
+
+    ctx.mockNextResponse({ type: 'text', text: 'Compacted summary.' });
+    await ctx.rpc.beginCompaction({ promptFromEnd: 2, direction: 'from' } as never);
+    await compacted;
+
+    const [compactionCall] = ctx.llmCalls;
+    expect(messageText(compactionCall?.history[2])).toBe(longToolResult);
+  });
 
   it('fires PreCompact and PostCompact hooks from the compaction module', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'pythinker-compact-hooks-'));

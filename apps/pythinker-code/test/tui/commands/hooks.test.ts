@@ -134,11 +134,11 @@ describe('files slash command', () => {
 
 describe('context slash command', () => {
   it('renders the model-visible context report in the existing usage panel', async () => {
-    const addChild = vi.fn();
+    const addTranscriptChild = vi.fn();
     const requestRender = vi.fn();
     const host = {
       state: {
-        transcriptContainer: { addChild },
+        transcriptContainer: { addTranscriptChild },
         ui: { requestRender },
       },
       requireSession: () => ({
@@ -160,8 +160,8 @@ describe('context slash command', () => {
 
     await showContextReport(host, '');
 
-    expect(addChild).toHaveBeenCalledOnce();
-    const panel = addChild.mock.calls[0]?.[0] as { render(width: number): string[] };
+    expect(addTranscriptChild).toHaveBeenCalledOnce();
+    const panel = addTranscriptChild.mock.calls[0]?.[0] as { render(width: number): string[] };
     expect(panel.render(100).join('\n')).toContain('Context');
     expect(panel.render(100).join('\n')).toContain('mock-model');
     expect(requestRender).toHaveBeenCalledOnce();

@@ -100,6 +100,15 @@ describe('built-in slash command registry', () => {
       { value: 'status', label: 'status', description: 'Show Fast mode status' },
     ]);
   });
+  it('keeps advisor status and the omitted verb available while busy', () => {
+    const advisor = findBuiltInSlashCommand('advisor');
+    expect(advisor).toBeDefined();
+    expect(resolveSlashCommandAvailability(advisor!, '')).toBe('always');
+    expect(resolveSlashCommandAvailability(advisor!, 'status')).toBe('always');
+    expect(resolveSlashCommandAvailability(advisor!, 'on')).toBe('idle-only');
+    expect(resolveSlashCommandAvailability(advisor!, 'off')).toBe('idle-only');
+  });
+
 
   it('marks plan clear as idle-only while normal plan toggles are always available', () => {
     const plan = findBuiltInSlashCommand('plan');

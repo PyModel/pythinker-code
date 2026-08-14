@@ -19,6 +19,7 @@ export type {
   ErrorEvent,
   WarningEvent,
   UsageStatus,
+  AdvisorStatusEvent,
 } from '@pymodel/agent-core';
 
 // Turn and step lifecycle events plus the turn-ending reason enum.

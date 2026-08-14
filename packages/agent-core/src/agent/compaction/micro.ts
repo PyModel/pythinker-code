@@ -94,7 +94,10 @@ export class MicroCompaction {
     }
   }
 
-  compact(messages: readonly ContextMessage[]): readonly ContextMessage[] {
+  compact(
+    messages: readonly ContextMessage[],
+    offset = 0,
+  ): readonly ContextMessage[] {
     if (!this.agent.experimentalFlags.enabled('micro_compaction')) return messages;
 
     const config = this.config;
@@ -102,7 +105,7 @@ export class MicroCompaction {
     let i = 0;
     for (const msg of messages) {
       if (
-        i < this.cutoff &&
+        i + offset < this.cutoff &&
         msg.role === 'tool' &&
         msg.toolCallId !== undefined &&
         estimateTokensForContentParts(msg.content) >= config.minContentTokens

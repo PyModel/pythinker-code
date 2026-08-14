@@ -26,6 +26,7 @@ import { performHeapDump } from '#/utils/heap-dump';
 import { getInputHistoryFile } from '#/utils/paths';
 import { DynamicWorkflowMissionControlComponent } from '#/tui/components/messages/dynamic-workflow-mission-control';
 import { ThinkingComponent } from '#/tui/components/messages/thinking';
+import { BRAILLE_SPINNER_FRAMES } from '#/tui/constant/rendering';
 import { BtwPanelComponent } from '#/tui/components/panes/btw-panel';
 import { WelcomeComponent } from '#/tui/components/chrome/welcome';
 import { ChoicePickerComponent } from '#/tui/components/dialogs/choice-picker';
@@ -3948,7 +3949,7 @@ command = "vim"
     const transcript = stripSgr(renderTranscript(driver));
     expect(transcript).toContain('Dynamic Workflow');
     // The running row advances through the approved progress-glyph frames.
-    expect(transcript).toMatch(/001\s+[◐◓◑◒]\s+RUN\s+src\/a.ts/u);
+    expect(transcript).toMatch(/001\s+[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]\s+RUN\s+src\/a.ts/u);
     expect(transcript).toMatch(/002\s+✓\s+DONE\s+src\/b.ts/u);
     expect(transcript).toMatch(/Orchestrating\s+1\/2 complete/u);
     expect(transcript).not.toContain('━');
@@ -4248,7 +4249,10 @@ command = "vim"
       render: () => ['Later transcript row one', 'Later transcript row two', 'Later transcript row three'],
       invalidate: () => {},
     };
-    driver.state.transcriptContainer.addChild(followingTranscript);
+    driver.state.transcriptContainer.addTranscriptChild(followingTranscript, {
+      role: 'ephemeral',
+      edgeBlankPolicy: 'preserve',
+    });
 
     const lines = missionControl.render(100);
     expect(lines).toHaveLength(5);
@@ -4280,7 +4284,10 @@ command = "vim"
       render: () => ['Later transcript row one', 'Later transcript row two', 'Later transcript row three'],
       invalidate: () => {},
     };
-    driver.state.transcriptContainer.addChild(followingTranscript);
+    driver.state.transcriptContainer.addTranscriptChild(followingTranscript, {
+      role: 'ephemeral',
+      edgeBlankPolicy: 'preserve',
+    });
 
     const lines = missionControl.render(100);
     expect(driver.state.transcriptContainer.children).toContain(missionControl);
@@ -5893,6 +5900,39 @@ command = "vim"
     expect(driver.state.appState.streamingPhase).toBe('thinking');
     // Collapsed live thinking renders only the spinner header, never the text.
     expect(stripSgr(renderTranscript(driver))).not.toContain('visible reasoning');
+  });
+  it('keeps the live thinking spinner in prompt chrome, not the transcript', async () => {
+    const { driver } = await makeDriver();
+
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'thinking.delta',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        delta: 'visible reasoning',
+      } as Event,
+      vi.fn(),
+    );
+    driver.streamingUI.flushNow();
+
+    const activity = stripSgr(renderActivity(driver));
+    const transcript = stripSgr(renderTranscript(driver));
+    expect(activity).toContain(BRAILLE_SPINNER_FRAMES[0]);
+    expect(transcript).not.toMatch(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/u);
+    expect(
+      driver.state.activityContainer.children.some((child) => child instanceof ThinkingComponent),
+    ).toBe(true);
+    expect(
+      driver.state.transcriptContainer.children.some((child) => child instanceof ThinkingComponent),
+    ).toBe(false);
+  });
+  it('expands the prompt-mounted thinking component with the shared toggle', async () => {
+    const { driver } = await makeDriver();
+
+    driver.streamingUI.onThinkingUpdate('line one\nline two');
+    (driver as unknown as PythinkerTUI).toggleToolOutputExpansion();
+
+    expect(stripSgr(renderActivity(driver))).toContain('line two');
   });
 
   it('does not create a thinking component for whitespace-only replay content', async () => {

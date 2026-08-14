@@ -23,6 +23,8 @@ export type JsonObject = { readonly [key: string]: JsonValue };
 export type Unsubscribe = () => void;
 
 export type {
+  AdvisorRuntimeStatus,
+  AdvisorStatusSnapshot,
   AgentReplayRecord,
   AgentProfileCatalog,
   AgentProfileSummary,

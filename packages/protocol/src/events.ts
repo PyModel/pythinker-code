@@ -467,6 +467,16 @@ export interface HookStatusEvent {
   readonly content: string;
   readonly active: boolean;
 }
+export interface AdvisorStatusEvent {
+  readonly type: 'advisor.status';
+  readonly advisorId: string;
+  readonly name: string;
+  readonly status: 'running' | 'paused' | 'quota_exhausted' | 'error' | 'no_model';
+  readonly enabled: boolean;
+  readonly model?: string;
+  readonly message?: string;
+}
+
 
 export interface ThinkingDeltaEvent {
   readonly type: 'thinking.delta';
@@ -674,6 +684,7 @@ export type AgentEvent =
   | AssistantDeltaEvent
   | HookResultEvent
   | HookStatusEvent
+  | AdvisorStatusEvent
   | ThinkingDeltaEvent
   | ToolCallDeltaEvent
   | ToolCallStartedEvent
@@ -1159,6 +1170,15 @@ export const hookStatusEventSchema = z.object({
   content: z.string(),
   active: z.boolean(),
 }) satisfies z.ZodType<HookStatusEvent>;
+export const advisorStatusEventSchema = z.object({
+  type: z.literal('advisor.status'),
+  advisorId: z.string(),
+  name: z.string(),
+  status: z.enum(['running', 'paused', 'quota_exhausted', 'error', 'no_model']),
+  enabled: z.boolean(),
+  model: z.string().optional(),
+  message: z.string().optional(),
+}) satisfies z.ZodType<AdvisorStatusEvent>;
 
 export const thinkingDeltaEventSchema = z.object({
   type: z.literal('thinking.delta'),
@@ -1343,6 +1363,7 @@ export const agentEventSchema = z.discriminatedUnion('type', [
   sessionStatusChangedEventSchema,
   goalUpdatedEventSchema,
   skillActivatedEventSchema,
+  advisorStatusEventSchema,
   turnStartedEventSchema,
   turnEndedEventSchema,
   turnStepStartedEventSchema,

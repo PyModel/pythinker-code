@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, beforeEach, vi } from 'vitest';
 
 import { MCP_STATUS_TRANSIENT_DURATION_MS } from '#/tui/constant/pythinker-tui';
 import { FooterComponent, footerStatusFromAppState } from '#/tui/components/chrome/footer';
+import { TranscriptContainer } from '#/tui/components/chrome/transcript-container';
 import { DEFAULT_STATUS_LINE_CONFIG } from '#/tui/config';
 import {
   createFooterState,
@@ -82,7 +83,7 @@ function makeHost(options: { createGoalRejects?: boolean } = {}) {
       toolOutputExpanded: false,
       todoPanel: { getTodos: vi.fn(() => []) },
       footer: { setTokenSpeed: vi.fn() },
-      transcriptContainer: { addChild: vi.fn() },
+      transcriptContainer: { addTranscriptChild: vi.fn() },
       mcpStatusContainer: new Container(),
       ui: { requestRender: vi.fn() },
     },
@@ -236,7 +237,7 @@ function modelBlockedEvent() {
 }
 
 function addedTranscriptText(host: ReturnType<typeof makeHost>['host']): string {
-  const component = host.state.transcriptContainer.addChild.mock.calls.at(-1)?.[0];
+  const component = host.state.transcriptContainer.addTranscriptChild.mock.calls.at(-1)?.[0];
   return component.render(80).join('\n').replaceAll(/\u001B\[[0-9;]*m/g, '');
 }
 
@@ -939,7 +940,7 @@ describe('SessionEventHandler goal queue promotion', () => {
 
     handler.handleEvent(modelBlockedEvent(), vi.fn());
 
-    expect(host.state.transcriptContainer.addChild).not.toHaveBeenCalled();
+    expect(host.state.transcriptContainer.addTranscriptChild).not.toHaveBeenCalled();
   });
 
   it('renders a blocked fallback when the model does not explain the blocked goal', () => {
@@ -969,7 +970,7 @@ describe('SessionEventHandler goal queue promotion', () => {
     );
     handler.handleEvent(turnEndedEvent(), vi.fn());
 
-    expect(host.state.transcriptContainer.addChild).not.toHaveBeenCalled();
+    expect(host.state.transcriptContainer.addTranscriptChild).not.toHaveBeenCalled();
   });
 
   it('does not render a blocked fallback after earlier assistant text in the same turn', () => {
@@ -989,7 +990,7 @@ describe('SessionEventHandler goal queue promotion', () => {
     handler.handleEvent(modelBlockedEvent(), vi.fn());
     handler.handleEvent(turnEndedEvent(), vi.fn());
 
-    expect(host.state.transcriptContainer.addChild).not.toHaveBeenCalled();
+    expect(host.state.transcriptContainer.addTranscriptChild).not.toHaveBeenCalled();
   });
 
   it('does not promote on paused or cancelled updates', async () => {
@@ -1096,7 +1097,7 @@ describe('SessionEventHandler MCP startup status', () => {
     expect(output).toContain('MCP servers · 2/4 connected · 2 loading…');
     expect(occurrences(output, 'MCP servers')).toBe(1);
     expect(output).not.toContain('"second"');
-    expect(host.state.transcriptContainer.addChild).not.toHaveBeenCalled();
+    expect(host.state.transcriptContainer.addTranscriptChild).not.toHaveBeenCalled();
     handler.disposeMcpServerStatusRows();
     expect(vi.getTimerCount()).toBe(0);
   });
@@ -1216,7 +1217,7 @@ describe('SessionEventHandler MCP startup status', () => {
 describe('SessionEventHandler hook status', () => {
   it('shows configured hook status only while the hook is running', () => {
     const { host } = makeHost();
-    const transcriptContainer = new Container();
+    const transcriptContainer = new TranscriptContainer(0, 0);
     host.state.transcriptContainer = transcriptContainer as never;
     const handler = new SessionEventHandler(host);
     const event = {

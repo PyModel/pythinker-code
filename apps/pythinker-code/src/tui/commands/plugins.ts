@@ -468,7 +468,10 @@ async function renderPluginsList(
     'primary',
     title,
   );
-  host.state.transcriptContainer.addChild(panel);
+  host.state.transcriptContainer.addTranscriptChild(panel, {
+    role: 'ephemeral',
+    edgeBlankPolicy: 'preserve',
+  });
   host.state.ui.requestRender();
 }
 
@@ -479,7 +482,10 @@ async function renderPluginInfo(host: SlashCommandHost, id: string): Promise<voi
     'primary',
     ` ${info.id} `,
   );
-  host.state.transcriptContainer.addChild(panel);
+  host.state.transcriptContainer.addTranscriptChild(panel, {
+    role: 'ephemeral',
+    edgeBlankPolicy: 'preserve',
+  });
   host.state.ui.requestRender();
 }
 

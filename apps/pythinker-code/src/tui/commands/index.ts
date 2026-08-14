@@ -30,6 +30,7 @@ export {
 export { handleCopyCommand, showMessageActions } from './copy';
 export { handleDebugCommand } from './debug';
 export { buildWorkingTreeDiffLines, handleDiffCommand } from './diff';
+export { handleAdvisorCommand } from './advisor';
 export { handleDynamicWorkflowCommand } from './dynamic-workflow';
 export { handleFastCommand } from './fast';
 export {

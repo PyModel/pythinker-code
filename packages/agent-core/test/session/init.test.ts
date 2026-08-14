@@ -1,4 +1,4 @@
-import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'pathe';
 
@@ -618,6 +618,56 @@ describe('Session.init', () => {
 
     expect(main.config.systemPrompt).toContain('# Output Style: concise');
     expect(child.config.systemPrompt).not.toContain('# Output Style: concise');
+    await session.close();
+  });
+
+  it('preserves disabled child event forwarding when resuming persisted agents', async () => {
+    const workDir = await makeTempDir();
+    const sessionDir = await makeTempDir();
+    const events: Array<Record<string, unknown>> = [];
+    const session = new Session({
+      id: 'test-init-event-forwarding',
+      kaos: testKaos.withCwd(workDir),
+      homedir: sessionDir,
+      rpc: createSessionRpc(events),
+      skills: { explicitDirs: [join(workDir, 'missing-skills')] },
+      providerManager: testProviderManager(),
+    });
+    const enabledChild = await session.createAgent(
+      { type: 'sub' },
+      { profile: testProfile() },
+    );
+    session.agents.delete(enabledChild.id);
+    const resumedEnabled = await session.ensureAgentResumed(enabledChild.id);
+    resumedEnabled.config.update({ modelAlias: 'mock-model', thinkingLevel: 'off' });
+    events.length = 0;
+    resumedEnabled.emitStatusUpdated();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'agent.status.updated',
+        agentId: enabledChild.id,
+      }),
+    );
+    events.length = 0;
+
+    const { id } = await session.createAgent(
+      { type: 'sub' },
+      { profile: testProfile(), emitEvents: false },
+    );
+    await session.writeMetadata();
+    const persisted = JSON.parse(await readFile(join(sessionDir, 'state.json'), 'utf8')) as {
+      agents: Record<string, { readonly emitEvents?: boolean }>;
+    };
+    expect(persisted.agents[id]?.emitEvents).toBe(false);
+
+    session.agents.delete(id);
+    const resumed = await session.ensureAgentResumed(id);
+    resumed.config.update({ modelAlias: 'mock-model', thinkingLevel: 'off' });
+    events.length = 0;
+
+    resumed.emitStatusUpdated();
+
+    expect(events).toEqual([]);
     await session.close();
   });
 

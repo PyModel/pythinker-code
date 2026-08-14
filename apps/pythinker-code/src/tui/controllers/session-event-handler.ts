@@ -1,5 +1,6 @@
 import type { Component, Focusable } from '@earendil-works/pi-tui';
 import type {
+  AdvisorStatusEvent,
   AgentStatusUpdatedEvent,
   AssistantDeltaEvent,
   BackgroundTaskInfo,
@@ -173,10 +174,10 @@ export class SessionEventHandler {
     this.subAgentEventHandler.resetRuntimeState();
     this.renderedSkillActivationIds.clear();
     this.renderedMcpServerStatusKeys.clear();
-    this.mcpServers.clear();
     this.mcpServerSnapshotReady = false;
     this.mcpServerSnapshotEpoch += 1;
     this.mcpLiveServerNames.clear();
+    this.mcpServers.clear();
     this.goalCompletionAwaitingClear = false;
     this.goalCompletionTurnEnded = false;
     this.currentTurnHasAssistantText = false;
@@ -297,6 +298,7 @@ export class SessionEventHandler {
       case 'tool.call.delta': this.handleToolCallDelta(event); break;
       case 'tool.result': this.handleToolResult(event); break;
       case 'agent.status.updated': this.handleStatusUpdate(event); break;
+      case 'advisor.status': this.handleAdvisorStatus(event); break;
       case 'session.meta.updated': this.handleSessionMetaChanged(event); break;
       case 'goal.updated': this.handleGoalUpdated(event); break;
       case 'skill.activated': this.handleSkillActivated(event); break;
@@ -345,7 +347,10 @@ export class SessionEventHandler {
     }
     const tint = (text: string): string => currentTheme.fg('textMuted', text);
     const spinner = new ActivityLoader(state.ui, tint, event.content);
-    state.transcriptContainer.addChild(spinner);
+    state.transcriptContainer.addTranscriptChild(spinner, {
+      role: 'ephemeral',
+      edgeBlankPolicy: 'preserve',
+    });
     this.hookStatusSpinners.set(event.statusId, spinner);
     state.ui.requestRender();
   }
@@ -789,8 +794,9 @@ export class SessionEventHandler {
   }
 
   private renderDynamicWorkflowModeMarker(state: DynamicWorkflowModeMarkerState): void {
-    this.host.state.transcriptContainer.addChild(
+    this.host.state.transcriptContainer.addTranscriptChild(
       new DynamicWorkflowModeMarkerComponent(state),
+      { role: 'ephemeral', edgeBlankPolicy: 'preserve' },
     );
     this.host.state.ui.requestRender();
   }
@@ -843,7 +849,10 @@ export class SessionEventHandler {
     }
     const marker = buildGoalMarker(change, state.toolOutputExpanded, change.actor);
     if (marker !== null) {
-      state.transcriptContainer.addChild(marker);
+      state.transcriptContainer.addTranscriptChild(marker, {
+        role: 'ephemeral',
+        edgeBlankPolicy: 'preserve',
+      });
       state.ui.requestRender();
     }
   }
@@ -855,7 +864,10 @@ export class SessionEventHandler {
     const { state } = this.host;
     const marker = buildGoalMarker(change, state.toolOutputExpanded, 'model');
     if (marker !== null) {
-      state.transcriptContainer.addChild(marker);
+      state.transcriptContainer.addTranscriptChild(marker, {
+        role: 'ephemeral',
+        edgeBlankPolicy: 'preserve',
+      });
       state.ui.requestRender();
     }
   }
@@ -1032,6 +1044,16 @@ export class SessionEventHandler {
 
   private handleSessionWarning(event: WarningEvent): void {
     this.host.showStatus(`Warning: ${event.message}`, 'warning');
+  }
+  private handleAdvisorStatus(event: AdvisorStatusEvent): void {
+    const color: ColorToken =
+      event.status === 'error' || event.status === 'quota_exhausted'
+        ? 'error'
+        : event.status === 'running'
+          ? 'success'
+          : 'warning';
+    const message = event.message === undefined ? '' : ` · ${event.message}`;
+    this.host.showStatus(`Advisor ${event.name}: ${event.status}${message}`, color);
   }
 
   private renderMcpServerStatus(server: McpServerStatusSnapshot): void {

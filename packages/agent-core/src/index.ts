@@ -6,6 +6,12 @@ export type {
   WorkingTreeChangeStatus,
   WorkingTreeFileDiff,
 } from './session/working-tree';
+export type {
+  AdvisorConfigEntry,
+  AdvisorRuntimeStatus,
+  AdvisorStatusSnapshot,
+  DiscoveredAdvisors,
+} from './session/advisor-config';
 export * from './rpc';
 export * from './config';
 export * from './flags';

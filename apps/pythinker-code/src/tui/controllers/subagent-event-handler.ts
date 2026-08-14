@@ -651,7 +651,10 @@ export class SubAgentEventHandler {
     missionControl.updateArgs(args, options);
     this.dynamicWorkflowMissionControls.set(toolCallId, missionControl);
     this.host.streamingUI.finalizeLiveTextBuffers('tool');
-    this.host.state.transcriptContainer.addChild(missionControl);
+    this.host.state.transcriptContainer.addTranscriptChild(missionControl, {
+      role: 'live-durable',
+      edgeBlankPolicy: 'trim-plain',
+    });
     this.host.updateActivityPane();
     this.requestRender();
     return missionControl;
@@ -692,7 +695,7 @@ export class SubAgentEventHandler {
     const width = Math.floor(terminalColumns);
     const followingTranscriptRows = missionControl === undefined
       ? 0
-      : renderedRowsAfterChild(state.transcriptContainer.children, missionControl, width);
+      : state.transcriptContainer.renderedRowsAfterChild(width, missionControl);
     // Under the fixed layout the transcript lives inside the layout root, so
     // the rows below it include the root's chrome + footer measurement and
     // later transcript siblings.

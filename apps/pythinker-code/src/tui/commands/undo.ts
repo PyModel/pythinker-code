@@ -702,9 +702,10 @@ function renderWelcome(host: SlashCommandHost): void {
   ) {
     return;
   }
-  host.state.transcriptContainer.addChild(
+  host.state.transcriptContainer.addTranscriptChild(
     new WelcomeComponent(host.state.appState, () => {
       host.state.ui.requestRender();
     }),
+    { role: 'ephemeral', edgeBlankPolicy: 'preserve' },
   );
 }

@@ -101,6 +101,19 @@ pythinker -p "/goal Fix the failing checkout test"
 
 Prompt mode exits with code `0` when the goal completes, `3` when it blocks, and `6` when it pauses. Other `/goal` subcommands, including `next`, are TUI controls and are not handled by `pythinker -p`.
 
+## Session Advisor
+
+The session advisor runs reviewer agents in the background to check your work while the session progresses. It is configured through `WATCHDOG.md` or `WATCHDOG.yml` files in the user and project scopes. The `/advisor` command shows and controls it.
+
+| Command | Action | Availability |
+| --- | --- | --- |
+| `/advisor` | Show advisor status (same as `/advisor status`) | Idle only |
+| `/advisor status` | Show each configured advisor and its runtime status | Always available |
+| `/advisor on [advisor-id]` | Enable all advisors, or the named advisor | Idle only |
+| `/advisor off [advisor-id]` | Disable all advisors, or the named advisor | Idle only |
+| `/advisor toggle [advisor-id]` | Toggle all advisors, or the named advisor | Idle only |
+| `/advisor reload` | Reload the advisor configuration from disk | Idle only |
+
 ## Information & Status
 
 | Command | Alias | Description | Always available |

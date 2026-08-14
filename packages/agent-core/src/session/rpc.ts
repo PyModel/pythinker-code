@@ -2,6 +2,7 @@ import { ErrorCodes, PythinkerError } from '#/errors';
 import { convertMCPContentBlock } from '#/mcp/output';
 import type {
   ActivateSkillPayload,
+  AdvisorStatus,
   AgentAPI,
   BeginCompactionPayload,
   CancelPayload,
@@ -20,6 +21,7 @@ import type {
   RegisterToolPayload,
   SessionAPI,
   SetActiveToolsPayload,
+  SetAdvisorEnabledPayload,
   SetFastModePayload,
   SetModelPayload,
   SetPermissionPayload,
@@ -96,6 +98,17 @@ export class SessionAPIImpl implements PromisableMethods<SessionAPI> {
 
   listSkills(_payload: EmptyPayload): Promise<readonly SkillSummary[]> {
     return this.session.listSkills();
+  }
+  getAdvisorStatus(_payload: EmptyPayload): Promise<readonly AdvisorStatus[]> {
+    return this.session.advisor.status();
+  }
+
+  setAdvisorEnabled(payload: SetAdvisorEnabledPayload): Promise<readonly AdvisorStatus[]> {
+    return this.session.advisor.setEnabled(payload.enabled, payload.advisorId);
+  }
+
+  reloadAdvisor(_payload: EmptyPayload): Promise<readonly AdvisorStatus[]> {
+    return this.session.advisor.reload();
   }
 
   reloadSkills(_payload: EmptyPayload): Promise<void> {

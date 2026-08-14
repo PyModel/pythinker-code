@@ -30,8 +30,8 @@ export const DYNAMIC_WORKFLOW_RENDERING = {
   memberProgressWidth: 8,
   /** Least width of the lifecycle STATE column in member rows. */
   stateColumnWidth: 6,
-  /** Half-circle frames for a running row; all rows share one clock. */
-  progressFrames: ['◐', '◓', '◑', '◒'],
+  /** Braille frames for a running row; all rows share one clock. */
+  progressFrames: BRAILLE_SPINNER_FRAMES,
   /** Rotation cadence in milliseconds — deliberately slow; this is ambience, not progress. */
   progressFrameMs: 300,
   /** Least room the task keeps before the detail may claim any of the row. */

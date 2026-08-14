@@ -1,3 +1,4 @@
+import type { Component } from '@earendil-works/pi-tui';
 import type { Session } from '@pymodel/pythinker-code-sdk';
 
 import { AgentGroupComponent } from '../components/messages/agent-group';
@@ -12,6 +13,7 @@ import { appendStreamingArgsPreview, parseStreamingArgs } from '../utils/event-p
 import { notifyTerminalOnce } from '../utils/terminal-notification';
 import { nextTranscriptId } from '../utils/transcript-id';
 import { ScrollbackBridge } from '../runtime/scrollback/scrollback-bridge';
+import { markTranscriptComponent } from '../utils/transcript-component-metadata';
 import type { TodoItem } from '../components/chrome/todo-panel';
 import type {
   AppState,
@@ -82,9 +84,14 @@ export class StreamingUIController {
     solo?: ToolCallComponent;
     group?: ReadGroupComponent;
   } | null = null;
-
   constructor(private readonly host: StreamingUIHost) {}
 
+  private addLiveTranscriptChild(child: Component): void {
+    this.host.state.transcriptContainer.addTranscriptChild(child, {
+      role: 'live-durable',
+      edgeBlankPolicy: 'trim-plain',
+    });
+  }
   // ---------------------------------------------------------------------------
   // Turn context — read/write accessors
   // ---------------------------------------------------------------------------
@@ -374,10 +381,11 @@ export class StreamingUIController {
   // ---------------------------------------------------------------------------
 
   disposeActiveThinkingComponent(): void {
-    if (this._activeThinkingComponent !== undefined) {
-      this._activeThinkingComponent.dispose();
-      this._activeThinkingComponent = undefined;
-    }
+    const component = this._activeThinkingComponent;
+    if (component === undefined) return;
+    this.host.state.activityContainer.removeChild(component);
+    component.dispose();
+    this._activeThinkingComponent = undefined;
   }
 
   disposeAndClearPendingToolComponents(): void {
@@ -571,10 +579,11 @@ export class StreamingUIController {
       content: '',
     };
     const component = new AssistantMessageComponent();
+    markTranscriptComponent(component, entry);
     this._streamingBlock = { component, entry };
     this.scrollback?.begin(entry.id, this._currentTurnId);
     this.host.pushTranscriptEntry(entry);
-    state.transcriptContainer.addChild(component);
+    this.addLiveTranscriptChild(component);
     state.ui.requestRender();
   }
 
@@ -609,7 +618,7 @@ export class StreamingUIController {
         state.ui,
       );
       if (state.toolOutputExpanded) this._activeThinkingComponent.setExpanded(true);
-      state.transcriptContainer.addChild(this._activeThinkingComponent);
+      state.activityContainer.addChild(this._activeThinkingComponent);
       this._thinkingEntryId = nextTranscriptId();
       this.scrollback?.begin(this._thinkingEntryId, this._currentTurnId);
     } else {
@@ -622,8 +631,11 @@ export class StreamingUIController {
   }
 
   onThinkingEnd(): void {
-    if (this._activeThinkingComponent === undefined) return;
-    this._activeThinkingComponent.finalize();
+    const component = this._activeThinkingComponent;
+    if (component === undefined) return;
+    component.finalize();
+    this.host.state.activityContainer.removeChild(component);
+    this.addLiveTranscriptChild(component);
     this._activeThinkingComponent = undefined;
     if (this._thinkingEntryId !== undefined) {
       this.scrollback?.complete(this._thinkingEntryId);
@@ -651,7 +663,7 @@ export class StreamingUIController {
     let handled = this.tryAttachAgentToolCall(toolCall, tc);
     if (!handled) handled = this.tryAttachReadToolCall(toolCall, tc);
     if (!handled) {
-      state.transcriptContainer.addChild(tc);
+      this.addLiveTranscriptChild(tc);
       state.ui.requestRender();
     }
 
@@ -687,7 +699,7 @@ export class StreamingUIController {
         state.appState.workDir,
       );
       if (state.toolOutputExpanded) completed.setExpanded(true);
-      state.transcriptContainer.addChild(completed);
+      this.addLiveTranscriptChild(completed);
       state.ui.requestRender();
     }
   }
@@ -710,7 +722,7 @@ export class StreamingUIController {
     }
     const block = new CompactionComponent(state.ui, instruction);
     this._activeCompactionBlock = block;
-    state.transcriptContainer.addChild(block);
+    this.addLiveTranscriptChild(block);
     state.ui.requestRender();
   }
 
@@ -780,7 +792,7 @@ export class StreamingUIController {
     const cur = this._pendingAgentGroup;
     if (cur === null) {
       this._pendingAgentGroup = { step, turnId, solo: tc };
-      state.transcriptContainer.addChild(tc);
+      this.addLiveTranscriptChild(tc);
       state.ui.requestRender();
       return true;
     }
@@ -793,7 +805,7 @@ export class StreamingUIController {
     const solo = cur.solo;
     if (solo === undefined) {
       this._pendingAgentGroup = { step, turnId, solo: tc };
-      state.transcriptContainer.addChild(tc);
+      this.addLiveTranscriptChild(tc);
       state.ui.requestRender();
       return true;
     }
@@ -810,9 +822,12 @@ export class StreamingUIController {
     const children = state.transcriptContainer.children;
     const idx = children.indexOf(solo);
     if (idx >= 0) {
-      children[idx] = group;
+      state.transcriptContainer.replaceTranscriptChild(solo, group, {
+        role: 'live-durable',
+        edgeBlankPolicy: 'trim-plain',
+      });
     } else {
-      state.transcriptContainer.addChild(group);
+      this.addLiveTranscriptChild(group);
     }
     group.attach(solo.toolCallView.id, solo);
     return group;
@@ -836,7 +851,7 @@ export class StreamingUIController {
     const cur = this._pendingReadGroup;
     if (cur === null) {
       this._pendingReadGroup = { step, turnId, solo: tc };
-      state.transcriptContainer.addChild(tc);
+      this.addLiveTranscriptChild(tc);
       state.ui.requestRender();
       return true;
     }
@@ -849,7 +864,7 @@ export class StreamingUIController {
     const solo = cur.solo;
     if (solo === undefined) {
       this._pendingReadGroup = { step, turnId, solo: tc };
-      state.transcriptContainer.addChild(tc);
+      this.addLiveTranscriptChild(tc);
       state.ui.requestRender();
       return true;
     }
@@ -866,9 +881,12 @@ export class StreamingUIController {
     const children = state.transcriptContainer.children;
     const idx = children.indexOf(solo);
     if (idx >= 0) {
-      children[idx] = group;
+      state.transcriptContainer.replaceTranscriptChild(solo, group, {
+        role: 'live-durable',
+        edgeBlankPolicy: 'trim-plain',
+      });
     } else {
-      state.transcriptContainer.addChild(group);
+      this.addLiveTranscriptChild(group);
     }
     group.attach(solo.toolCallView.id, solo);
     return group;

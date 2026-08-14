@@ -50,7 +50,7 @@ function makeHost(
         workDir: overrides.workDir ?? '/workspace',
       },
       theme: currentTheme,
-      transcriptContainer: { addChild: vi.fn() },
+      transcriptContainer: { addTranscriptChild: vi.fn() },
       ui: { requestRender: vi.fn() },
       lastDynamicWorkflowArgs: overrides.lastDynamicWorkflowArgs,
     },
@@ -79,7 +79,7 @@ function mountedPicker(host: SlashCommandHost): TestPicker {
 }
 
 function markerAddChild(host: SlashCommandHost): ReturnType<typeof vi.fn> {
-  return host.state.transcriptContainer.addChild as ReturnType<typeof vi.fn>;
+  return host.state.transcriptContainer.addTranscriptChild as ReturnType<typeof vi.fn>;
 }
 
 function expectDynamicWorkflowMarker(host: SlashCommandHost, text: string): void {
