@@ -246,7 +246,7 @@ async function isExecutableFile(filePath) {
 //   - pnpm POSIX shims (literal `/bin/sh` scripts, not symlinks; pnpm
 //     does not symlink into the package root the way npm/yarn classic
 //     do on POSIX)
-const PACKAGE_NAME_MARKERS = ['@pymodel/pythinker-code', '@pythoughts\\pythinker-code'];
+const PACKAGE_NAME_MARKERS = ['@pymodel/pythinker-code', '@pymodel\\pythinker-code'];
 
 async function shimReferencesOwnPackage(shimPath) {
   try {

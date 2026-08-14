@@ -20,13 +20,13 @@ export default defineConfig({
       // doesn't route them through the bare `@pymodel/agent-core` alias
       // (which points at agent-core/src/index.ts, breaking subpath imports).
       {
-        find: /^@pythoughts\/agent-core\/session\/store$/,
+        find: /^@pymodel\/agent-core\/session\/store$/,
         replacement: fileURLToPath(
           new URL('../agent-core/src/session/store/index.ts', import.meta.url),
         ),
       },
       {
-        find: /^@pythoughts\/agent-core\/base\/common\/event$/,
+        find: /^@pymodel\/agent-core\/base\/common\/event$/,
         replacement: fileURLToPath(
           new URL('../agent-core/src/base/common/event.ts', import.meta.url),
         ),

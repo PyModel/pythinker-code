@@ -38,7 +38,7 @@ export default defineConfig({
     [BUILT_IN_CATALOG_DEFINE]: builtInCatalogDefine(),
   },
   deps: {
-    alwaysBundle: [/^@pythoughts\//u, solidRuntimeAlias.find],
+    alwaysBundle: [/^@pymodel\//u, solidRuntimeAlias.find],
     // node-pty is a native addon: its `pty.node` binary cannot be bundled and
     // must resolve from node_modules at runtime. Keep it external (even though
     // its importer @pymodel/agent-core is force-bundled above) and declare it
