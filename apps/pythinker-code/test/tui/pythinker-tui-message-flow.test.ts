@@ -5218,21 +5218,21 @@ command = "vim"
     expect(filteredOutput).toContain('Search: tu');
     expect(filteredOutput).toContain('Kimi Turbo');
     expect(filteredOutput).not.toContain('Kimi K2');
-    // Turbo is a thinking-capable model that is not the active one, so it
-    // defaults to its first non-off effort level without any ←/→ movement.
+    // Turbo is not the active model, but it keeps the live effort (off here)
+    // instead of resetting to its first level and persisting that as default.
     (picker as TabbedModelSelectorComponent).handleInput('\r');
 
     await vi.waitFor(() => {
       expect(session.setModel).toHaveBeenCalledWith('turbo');
-      expect(session.setThinking).toHaveBeenCalledWith('low');
       expect(setConfig).toHaveBeenCalledWith({
         defaultModel: 'turbo',
-        defaultThinking: true,
-        thinking: { effort: 'low' },
+        defaultThinking: false,
+        thinking: { effort: 'off', mode: 'off' },
       });
     });
+    expect(session.setThinking).not.toHaveBeenCalled();
     expect(driver.state.appState.model).toBe('turbo');
-    expect(driver.state.appState.thinkingLevel).toBe('low');
+    expect(driver.state.appState.thinkingLevel).toBe('off');
   });
 
   it('persists /model selection even when runtime state is unchanged', async () => {
@@ -5267,7 +5267,7 @@ command = "vim"
       expect(setConfig).toHaveBeenCalledWith({
         defaultModel: 'k2',
         defaultThinking: false,
-        thinking: { effort: 'off' },
+        thinking: { effort: 'off', mode: 'off' },
       });
     });
     expect(session.setModel).not.toHaveBeenCalled();
@@ -5301,7 +5301,7 @@ command = "vim"
       expect(setConfig).toHaveBeenCalledWith({
         defaultModel: 'k2',
         defaultThinking: true,
-        thinking: { effort: 'high' },
+        thinking: { effort: 'high', mode: 'on' },
       });
     });
     expect(driver.state.appState.thinkingLevel).toBe('high');

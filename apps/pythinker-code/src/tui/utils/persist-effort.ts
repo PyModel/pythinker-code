@@ -10,18 +10,23 @@ export async function persistDefaultModelSelection(
   effort: string,
 ): Promise<boolean> {
   const defaultThinking = effort !== 'off';
+  // setConfig deep-merges, so a stale `mode = "off"` left in config.toml would
+  // survive an effort-only patch and force thinking off on the next startup.
+  // Write mode alongside effort to keep the pair consistent.
+  const mode = defaultThinking ? 'on' : 'off';
   const config = await harness.getConfig({ reload: true });
   if (
     config.defaultModel === alias &&
     config.defaultThinking === defaultThinking &&
-    config.thinking?.effort === effort
+    config.thinking?.effort === effort &&
+    config.thinking.mode === mode
   ) {
     return false;
   }
   await harness.setConfig({
     defaultModel: alias,
     defaultThinking,
-    thinking: { effort },
+    thinking: { effort, mode },
   });
   return true;
 }
