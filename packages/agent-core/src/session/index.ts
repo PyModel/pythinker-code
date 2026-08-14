@@ -183,6 +183,7 @@ export interface SessionSkillConfig {
 export interface AgentMeta {
   readonly type: AgentType;
   readonly parentAgentId: string | null;
+  readonly emitEvents?: boolean;
   readonly dynamicWorkflowItem?: string;
 }
 
@@ -193,6 +194,8 @@ export interface CreateAgentOptions {
   readonly parentAgentId?: string;
   readonly dynamicWorkflowItem?: string;
   readonly persistMetadata?: boolean;
+  /** Whether this agent forwards events to the session RPC. Defaults to true. */
+  readonly emitEvents?: boolean;
 }
 
 export interface SessionMeta {
@@ -215,6 +218,7 @@ const AgentMetaSchema = z
     type: z.enum(['main', 'sub', 'independent']),
     parentAgentId: z.string().nullable(),
     dynamicWorkflowItem: z.string().optional(),
+    emitEvents: z.boolean().optional(),
   })
   .strict();
 
@@ -550,6 +554,7 @@ export class Session {
         Array.from(this.readyAgents(), async (agent) => agent.cron?.stop()),
       );
       await this.cancelActiveTurnsOnClose();
+      await this.advisor.close();
       await this.stopBackgroundTasksOnExit();
       await this.flushMetadata();
       await this.triggerSessionEnd('exit');
@@ -569,6 +574,7 @@ export class Session {
       await Promise.allSettled(
         Array.from(this.readyAgents(), async (agent) => agent.cron?.stop()),
       );
+      await this.advisor.close();
       await this.flushMetadata();
     } finally {
       try {
@@ -708,7 +714,14 @@ export class Session {
     const id = type === 'main' ? 'main' : this.nextGeneratedAgentId();
     const homedir = this.agentDir(id);
     const parentAgentId = options.parentAgentId ?? null;
-    const agent = this.instantiateAgent(id, homedir, type, config, parentAgentId);
+    const agent = this.instantiateAgent(
+      id,
+      homedir,
+      type,
+      config,
+      parentAgentId,
+      options.emitEvents !== false,
+    );
     if (options.profile) {
       await this.bootstrapAgentProfile(
         agent,
@@ -723,6 +736,7 @@ export class Session {
         type,
         parentAgentId,
         dynamicWorkflowItem: options.dynamicWorkflowItem,
+        emitEvents: options.emitEvents !== false,
       };
       void this.writeMetadata();
     }
@@ -1301,9 +1315,12 @@ export class Session {
     type: AgentType,
     config: Partial<AgentOptions> = {},
     parentAgentId: string | null = null,
+    emitEvents = true,
   ): Agent {
     const parentAgent = parentAgentId !== null ? this.getReadyAgent(parentAgentId) : undefined;
     const cwd = parentAgent?.config.cwd ?? this.toolKaos.getcwd();
+    const rpc = proxyWithExtraPayload(this.rpc, { agentId: id });
+    const agentRpc = emitEvents ? rpc : { ...rpc, emitEvent: async () => {} };
     const agent = new Agent({
       ...config,
       type,
@@ -1312,7 +1329,7 @@ export class Session {
       config: this.options.config,
       homedir,
       skills: this.skills,
-      rpc: proxyWithExtraPayload(this.rpc, { agentId: id }),
+      rpc: agentRpc,
       modelProvider: this.options.providerManager,
       hookEngine: config.hookEngine ?? this.hookEngine,
       subagentHost: config.subagentHost ?? new SessionSubagentHost(this, id),
@@ -1414,7 +1431,14 @@ export class Session {
     }
 
     try {
-      const agent = this.instantiateAgent(id, this.agentDir(id), meta.type, {}, parentAgentId);
+      const agent = this.instantiateAgent(
+        id,
+        this.agentDir(id),
+        meta.type,
+        {},
+        parentAgentId,
+        meta.emitEvents !== false,
+      );
       await agent.resume();
       this.agents.set(id, agent);
       return agent;
