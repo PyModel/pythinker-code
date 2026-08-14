@@ -5891,7 +5891,8 @@ command = "vim"
 
     expect(driver.streamingUI.hasActiveThinkingComponent()).toBe(true);
     expect(driver.state.appState.streamingPhase).toBe('thinking');
-    expect(stripSgr(renderTranscript(driver))).toContain('visible reasoning');
+    // Collapsed live thinking renders only the spinner header, never the text.
+    expect(stripSgr(renderTranscript(driver))).not.toContain('visible reasoning');
   });
 
   it('does not create a thinking component for whitespace-only replay content', async () => {
