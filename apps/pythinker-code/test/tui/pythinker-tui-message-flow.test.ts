@@ -5900,6 +5900,39 @@ command = "vim"
     // Collapsed live thinking renders only the spinner header, never the text.
     expect(stripSgr(renderTranscript(driver))).not.toContain('visible reasoning');
   });
+  it('keeps the live thinking spinner in prompt chrome, not the transcript', async () => {
+    const { driver } = await makeDriver();
+
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'thinking.delta',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        delta: 'visible reasoning',
+      } as Event,
+      vi.fn(),
+    );
+    driver.streamingUI.flushNow();
+
+    const activity = stripSgr(renderActivity(driver));
+    const transcript = stripSgr(renderTranscript(driver));
+    expect(activity).toContain(BRAILLE_SPINNER_FRAMES[0]);
+    expect(transcript).not.toMatch(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/u);
+    expect(
+      driver.state.activityContainer.children.some((child) => child instanceof ThinkingComponent),
+    ).toBe(true);
+    expect(
+      driver.state.transcriptContainer.children.some((child) => child instanceof ThinkingComponent),
+    ).toBe(false);
+  });
+  it('expands the prompt-mounted thinking component with the shared toggle', async () => {
+    const { driver } = await makeDriver();
+
+    driver.streamingUI.onThinkingUpdate('line one\nline two');
+    (driver as unknown as PythinkerTUI).toggleToolOutputExpansion();
+
+    expect(stripSgr(renderActivity(driver))).toContain('line two');
+  });
 
   it('does not create a thinking component for whitespace-only replay content', async () => {
     const { driver } = await makeDriver();

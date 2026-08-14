@@ -2133,9 +2133,14 @@ export class PythinkerTUI {
 
   toggleToolOutputExpansion(): void {
     this.state.toolOutputExpanded = !this.state.toolOutputExpanded;
-    for (const child of this.state.transcriptContainer.children) {
-      if (isExpandable(child)) {
-        child.setExpanded(this.state.toolOutputExpanded);
+    for (const container of [
+      this.state.transcriptContainer,
+      this.state.activityContainer,
+    ]) {
+      for (const child of container.children) {
+        if (isExpandable(child)) {
+          child.setExpanded(this.state.toolOutputExpanded);
+        }
       }
     }
     this.state.ui.requestRender();

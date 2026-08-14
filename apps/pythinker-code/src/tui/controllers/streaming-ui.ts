@@ -381,10 +381,11 @@ export class StreamingUIController {
   // ---------------------------------------------------------------------------
 
   disposeActiveThinkingComponent(): void {
-    if (this._activeThinkingComponent !== undefined) {
-      this._activeThinkingComponent.dispose();
-      this._activeThinkingComponent = undefined;
-    }
+    const component = this._activeThinkingComponent;
+    if (component === undefined) return;
+    this.host.state.activityContainer.removeChild(component);
+    component.dispose();
+    this._activeThinkingComponent = undefined;
   }
 
   disposeAndClearPendingToolComponents(): void {
@@ -617,7 +618,7 @@ export class StreamingUIController {
         state.ui,
       );
       if (state.toolOutputExpanded) this._activeThinkingComponent.setExpanded(true);
-      state.transcriptContainer.addChild(this._activeThinkingComponent);
+      state.activityContainer.addChild(this._activeThinkingComponent);
       this._thinkingEntryId = nextTranscriptId();
       this.scrollback?.begin(this._thinkingEntryId, this._currentTurnId);
     } else {
@@ -630,8 +631,11 @@ export class StreamingUIController {
   }
 
   onThinkingEnd(): void {
-    if (this._activeThinkingComponent === undefined) return;
-    this._activeThinkingComponent.finalize();
+    const component = this._activeThinkingComponent;
+    if (component === undefined) return;
+    component.finalize();
+    this.host.state.activityContainer.removeChild(component);
+    this.addLiveTranscriptChild(component);
     this._activeThinkingComponent = undefined;
     if (this._thinkingEntryId !== undefined) {
       this.scrollback?.complete(this._thinkingEntryId);
