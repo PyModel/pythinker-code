@@ -19,6 +19,7 @@ import type {
   TranscriptEntry,
 } from '../types';
 import { formatErrorMessage } from '../utils/event-payload';
+import { handleAdvisorCommand } from './advisor';
 import { handleAddDirCommand } from './add-dir';
 import { handleAgentsCommand } from './agents';
 import { handleLoginCommand, handleLogoutCommand } from './auth';
@@ -387,6 +388,9 @@ async function handleBuiltInSlashCommand(
       return;
     case 'fast':
       await handleFastCommand(host, args);
+      return;
+    case 'advisor':
+      await handleAdvisorCommand(host, args);
       return;
     case 'provider':
       await handleProviderCommand(host);

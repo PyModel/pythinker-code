@@ -29,6 +29,13 @@ const FAST_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
   { value: 'off', description: 'Turn Fast mode off' },
   { value: 'status', description: 'Show Fast mode status' },
 ];
+const ADVISOR_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
+  { value: 'status', description: 'Show advisor status' },
+  { value: 'on', description: 'Enable the advisor' },
+  { value: 'off', description: 'Disable the advisor' },
+  { value: 'toggle', description: 'Toggle the advisor' },
+  { value: 'reload', description: 'Reload WATCHDOG configuration' },
+];
 
 const COLORS_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
   { value: 'on', description: 'Keep rainbow colors on' },
@@ -74,6 +81,10 @@ export function dynamicWorkflowArgumentCompletions(argumentPrefix: string): Auto
 /** Argument autocompletion for the `/fast` command. */
 export function fastArgumentCompletions(argumentPrefix: string): AutocompleteItem[] | null {
   return completeLeadingArg(FAST_ARG_COMPLETIONS, argumentPrefix);
+}
+/** Argument autocompletion for the `/advisor` command. */
+export function advisorArgumentCompletions(argumentPrefix: string): AutocompleteItem[] | null {
+  return completeLeadingArg(ADVISOR_ARG_COMPLETIONS, argumentPrefix);
 }
 
 /** Argument autocompletion for the `/colors` command. */
@@ -181,6 +192,14 @@ export const BUILTIN_SLASH_COMMANDS = [
     description: 'Toggle provider-native Fast mode',
     priority: 100,
     completeArgs: fastArgumentCompletions,
+    availability: (args) => args.trim().toLowerCase() === 'status' ? 'always' : 'idle-only',
+  },
+  {
+    name: 'advisor',
+    aliases: [],
+    description: 'Show or control the second-opinion advisor',
+    priority: 95,
+    completeArgs: advisorArgumentCompletions,
     availability: (args) => args.trim().toLowerCase() === 'status' ? 'always' : 'idle-only',
   },
   {

@@ -96,6 +96,7 @@ const SESSION_EVENTS = [
   'cron.fired',
   'mcp.server.status',
   'tool.list.updated',
+  'advisor.status',
 ] as const;
 
 const TRANSCRIPT_ENTRY_KINDS = [
@@ -148,6 +149,7 @@ const DIALOG_VIEW_ROUTES = [
 
 const COMMANDS = [
   'add-dir',
+  'advisor',
   'agents',
   'yolo',
   'auto',
