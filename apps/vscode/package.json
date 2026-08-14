@@ -3,7 +3,7 @@
   "publisher": "pymodel",
   "displayName": "Pythinker Code",
   "description": "Pythinker Code extension for VS Code",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "private": true,
   "license": "Apache-2.0",
   "type": "module",

@@ -1,5 +1,17 @@
 # @pymodel/pythinker-code
 
+## 0.18.0
+
+### Minor Changes
+
+- [#75](https://github.com/PyModel/pythinker-code/pull/75) [`2b2f438`](https://github.com/PyModel/pythinker-code/commit/2b2f438acbdb1d5367b39c5e479fd72f6c46dec2) - Add a session advisor that reviews work in the background, with the /advisor command to show and control it.
+
+### Patch Changes
+
+- [#75](https://github.com/PyModel/pythinker-code/pull/75) [`2b2f438`](https://github.com/PyModel/pythinker-code/commit/2b2f438acbdb1d5367b39c5e479fd72f6c46dec2) - Stream in-progress thinking in the activity pane and move it into the transcript when complete.
+
+- [#75](https://github.com/PyModel/pythinker-code/pull/75) [`2b2f438`](https://github.com/PyModel/pythinker-code/commit/2b2f438acbdb1d5367b39c5e479fd72f6c46dec2) - Show running dynamic workflow rows with the same braille spinner glyphs as other loaders.
+
 ## 0.17.1
 
 ### Patch Changes

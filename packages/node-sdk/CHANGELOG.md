@@ -1,5 +1,11 @@
 # @pymodel/pythinker-code-sdk
 
+## 0.16.0
+
+### Minor Changes
+
+- [#75](https://github.com/PyModel/pythinker-code/pull/75) [`2b2f438`](https://github.com/PyModel/pythinker-code/commit/2b2f438acbdb1d5367b39c5e479fd72f6c46dec2) - Add advisor status and control methods to the session client.
+
 ## 0.15.0
 
 ### Minor Changes

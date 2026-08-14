@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.1
+
+### Patch Changes
+
+- Updated dependencies [[`2b2f438`](https://github.com/PyModel/pythinker-code/commit/2b2f438acbdb1d5367b39c5e479fd72f6c46dec2)]:
+  - @pymodel/pythinker-code-sdk@0.16.0
+
 ## 0.9.0
 
 ### Minor Changes
