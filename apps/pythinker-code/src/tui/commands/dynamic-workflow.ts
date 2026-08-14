@@ -286,8 +286,9 @@ function dynamicWorkflowModeSubcommand(input: string): boolean | undefined {
 }
 
 function renderDynamicWorkflowModeMarker(host: SlashCommandHost, state: DynamicWorkflowModeMarkerState): void {
-  host.state.transcriptContainer.addChild(
+  host.state.transcriptContainer.addTranscriptChild(
     new DynamicWorkflowModeMarkerComponent(state),
+    { role: 'ephemeral', edgeBlankPolicy: 'preserve' },
   );
   host.state.ui.requestRender();
 }

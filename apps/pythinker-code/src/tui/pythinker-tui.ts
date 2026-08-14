@@ -583,9 +583,15 @@ export class PythinkerTUI {
     );
     const banner = new BannerComponent(this.state.appState.banner);
     if (welcomeIndex >= 0) {
-      this.state.transcriptContainer.children.splice(welcomeIndex + 1, 0, banner);
+      this.state.transcriptContainer.addTranscriptChildAt(welcomeIndex + 1, banner, {
+        role: 'ephemeral',
+        edgeBlankPolicy: 'preserve',
+      });
     } else {
-      this.state.transcriptContainer.children.unshift(banner);
+      this.state.transcriptContainer.addTranscriptChildAt(0, banner, {
+        role: 'ephemeral',
+        edgeBlankPolicy: 'preserve',
+      });
     }
     this.state.transcriptContainer.invalidate();
   }
@@ -1855,7 +1861,10 @@ export class PythinkerTUI {
     const component = this.createTranscriptComponent(entry);
     if (component) {
       markTranscriptComponent(component, entry);
-      this.state.transcriptContainer.addChild(component);
+      this.state.transcriptContainer.addTranscriptChild(component, {
+        role: 'durable',
+        edgeBlankPolicy: 'trim-plain',
+      });
       this.state.ui.requestRender();
     }
   }
@@ -1899,7 +1908,10 @@ export class PythinkerTUI {
     const welcome = new WelcomeComponent(this.state.appState, () => {
       this.state.ui.requestRender();
     });
-    this.state.transcriptContainer.addChild(welcome);
+    this.state.transcriptContainer.addTranscriptChild(welcome, {
+      role: 'ephemeral',
+      edgeBlankPolicy: 'preserve',
+    });
   }
 
   private clearTerminalInlineImages(): void {
@@ -1924,14 +1936,19 @@ export class PythinkerTUI {
     this.imageStore.clear();
     this.renderWelcome();
   }
-
   showStatus(message: string, color?: ColorToken): void {
-    this.state.transcriptContainer.addChild(new StatusMessageComponent(message, color));
+    this.state.transcriptContainer.addTranscriptChild(
+      new StatusMessageComponent(message, color),
+      { role: 'ephemeral', edgeBlankPolicy: 'preserve' },
+    );
     this.state.ui.requestRender();
   }
 
   showNotice(title: string, detail?: string): void {
-    this.state.transcriptContainer.addChild(new NoticeMessageComponent(title, detail));
+    this.state.transcriptContainer.addTranscriptChild(
+      new NoticeMessageComponent(title, detail),
+      { role: 'ephemeral', edgeBlankPolicy: 'preserve' },
+    );
     this.state.ui.requestRender();
   }
 
@@ -1946,8 +1963,14 @@ export class PythinkerTUI {
   showProgressSpinner(label: string): LoginProgressSpinnerHandle {
     const tint = (s: string): string => currentTheme.fg('primary', s);
     const spinner = new ActivityLoader(this.state.ui, tint, label);
-    this.state.transcriptContainer.addChild(new Spacer(1));
-    this.state.transcriptContainer.addChild(spinner);
+    this.state.transcriptContainer.addTranscriptChild(new Spacer(1), {
+      role: 'ephemeral',
+      edgeBlankPolicy: 'preserve',
+    });
+    this.state.transcriptContainer.addTranscriptChild(spinner, {
+      role: 'ephemeral',
+      edgeBlankPolicy: 'preserve',
+    });
     this.state.ui.requestRender();
     return {
       stop: ({ ok, label: finalLabel }) => {

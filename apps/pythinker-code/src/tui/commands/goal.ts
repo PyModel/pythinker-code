@@ -205,8 +205,9 @@ async function queueNextGoal(
   }
   host.track('goal_queue_append');
   if (!hasCurrentGoal) host.requestQueuedGoalPromotion?.();
-  host.state.transcriptContainer.addChild(
+  host.state.transcriptContainer.addTranscriptChild(
     new UpcomingGoalAddedMessageComponent(),
+    { role: 'ephemeral', edgeBlankPolicy: 'preserve' },
   );
   host.state.ui.requestRender();
 }
@@ -413,7 +414,10 @@ async function startGoal(
     return false;
   }
   host.track('goal_create', { replace: parsed.replace });
-  host.state.transcriptContainer.addChild(new GoalSetMessageComponent());
+  host.state.transcriptContainer.addTranscriptChild(new GoalSetMessageComponent(), {
+    role: 'ephemeral',
+    edgeBlankPolicy: 'preserve',
+  });
   host.state.ui.requestRender();
   if (options.sendInput !== undefined) {
     options.sendInput(parsed.objective);
@@ -484,9 +488,10 @@ async function showGoalStatus(host: SlashCommandHost): Promise<void> {
     host.showStatus('No goal set. Start one with `/goal <objective>`.');
     return;
   }
-  host.state.transcriptContainer.addChild(
-    new GoalStatusMessageComponent(goal),
-  );
+  host.state.transcriptContainer.addTranscriptChild(new GoalStatusMessageComponent(goal), {
+    role: 'ephemeral',
+    edgeBlankPolicy: 'preserve',
+  });
   host.state.ui.requestRender();
 }
 

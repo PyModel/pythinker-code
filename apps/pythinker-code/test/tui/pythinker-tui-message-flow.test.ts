@@ -4248,7 +4248,10 @@ command = "vim"
       render: () => ['Later transcript row one', 'Later transcript row two', 'Later transcript row three'],
       invalidate: () => {},
     };
-    driver.state.transcriptContainer.addChild(followingTranscript);
+    driver.state.transcriptContainer.addTranscriptChild(followingTranscript, {
+      role: 'ephemeral',
+      edgeBlankPolicy: 'preserve',
+    });
 
     const lines = missionControl.render(100);
     expect(lines).toHaveLength(5);
@@ -4280,7 +4283,10 @@ command = "vim"
       render: () => ['Later transcript row one', 'Later transcript row two', 'Later transcript row three'],
       invalidate: () => {},
     };
-    driver.state.transcriptContainer.addChild(followingTranscript);
+    driver.state.transcriptContainer.addTranscriptChild(followingTranscript, {
+      role: 'ephemeral',
+      edgeBlankPolicy: 'preserve',
+    });
 
     const lines = missionControl.render(100);
     expect(driver.state.transcriptContainer.children).toContain(missionControl);

@@ -117,7 +117,10 @@ async function showWorkingTreeFileDiff(
       'primary',
       ' Diff ',
     );
-    host.state.transcriptContainer.addChild(panel);
+    host.state.transcriptContainer.addTranscriptChild(panel, {
+      role: 'ephemeral',
+      edgeBlankPolicy: 'preserve',
+    });
     host.state.ui.requestRender();
   } catch (error) {
     host.showError(`Failed to load diff for ${path}: ${formatErrorMessage(error)}`);

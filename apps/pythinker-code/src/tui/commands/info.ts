@@ -56,7 +56,10 @@ export function showCost(host: SlashCommandHost): void {
     'primary',
     ' Cost ',
   );
-  host.state.transcriptContainer.addChild(panel);
+  host.state.transcriptContainer.addTranscriptChild(panel, {
+    role: 'ephemeral',
+    edgeBlankPolicy: 'preserve',
+  });
   host.state.ui.requestRender();
 }
 
@@ -70,7 +73,10 @@ export async function showUsage(host: SlashCommandHost): Promise<void> {
     maxContextTokens: host.state.appState.maxContextTokens,
   };
   const panel = new UsagePanelComponent(() => buildUsageReportLines(reportArgs), 'primary');
-  host.state.transcriptContainer.addChild(panel);
+  host.state.transcriptContainer.addTranscriptChild(panel, {
+    role: 'ephemeral',
+    edgeBlankPolicy: 'preserve',
+  });
   host.state.ui.requestRender();
 }
 
@@ -110,7 +116,10 @@ export async function showContextReport(
       'primary',
       ' Context ',
     );
-    host.state.transcriptContainer.addChild(panel);
+    host.state.transcriptContainer.addTranscriptChild(panel, {
+      role: 'ephemeral',
+      edgeBlankPolicy: 'preserve',
+    });
     host.state.ui.requestRender();
   } catch (error) {
     host.showError(`Failed to load context usage: ${formatErrorMessage(error)}`);
@@ -139,7 +148,10 @@ export async function showStatusReport(host: SlashCommandHost): Promise<void> {
     statusError: runtimeStatus.error,
   };
   const panel = new UsagePanelComponent(() => buildStatusReportLines(reportArgs), 'primary', ' Status ');
-  host.state.transcriptContainer.addChild(panel);
+  host.state.transcriptContainer.addTranscriptChild(panel, {
+    role: 'ephemeral',
+    edgeBlankPolicy: 'preserve',
+  });
   host.state.ui.requestRender();
 }
 
@@ -158,7 +170,10 @@ export async function showMcpServers(host: SlashCommandHost): Promise<void> {
     'primary',
     title,
   );
-  host.state.transcriptContainer.addChild(panel);
+  host.state.transcriptContainer.addTranscriptChild(panel, {
+    role: 'ephemeral',
+    edgeBlankPolicy: 'preserve',
+  });
   host.state.ui.requestRender();
 }
 
