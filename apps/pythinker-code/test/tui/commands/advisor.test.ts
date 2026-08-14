@@ -78,7 +78,7 @@ describe('handleAdvisorCommand', () => {
     const { host, advisor, securityStatus } = makeHost();
     advisor.setEnabled.mockResolvedValueOnce([{ ...securityStatus, enabled: false }]);
 
-    await handleAdvisorCommand(host, 'off security');
+    await handleAdvisorCommand(host, 'toggle security');
 
     expect(advisor.setEnabled).toHaveBeenCalledWith(false, 'security');
     expect(host.showStatus).toHaveBeenCalledWith('Advisor security disabled.');

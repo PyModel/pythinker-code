@@ -18,6 +18,7 @@ describe('advisor configuration discovery', () => {
     const project = await makeTempDir('pythinker-advisor-project-');
     const cwd = join(project, 'packages', 'app');
     await mkdir(cwd, { recursive: true });
+    await mkdir(join(project, '.git'));
     await writeFile(
       join(userHome, 'WATCHDOG.yml'),
       [
@@ -52,6 +53,27 @@ describe('advisor configuration discovery', () => {
     expect(result.files).toEqual(
       expect.arrayContaining([join(userHome, 'WATCHDOG.yml'), join(project, 'WATCHDOG.md'), join(cwd, 'WATCHDOG.yaml')]),
     );
+  });
+  it('does not load project watchdog files above the project root', async () => {
+    const userHome = await makeTempDir('pythinker-advisor-user-');
+    const parent = await makeTempDir('pythinker-advisor-parent-');
+    const project = join(parent, 'repo');
+    const cwd = join(project, 'packages', 'app');
+    await mkdir(join(project, '.git'), { recursive: true });
+    await mkdir(cwd, { recursive: true });
+    await writeFile(
+      join(parent, 'WATCHDOG.yml'),
+      ['advisors:', '  - name: Outside', '    model: outside'].join('\n'),
+    );
+    await writeFile(
+      join(project, 'WATCHDOG.yml'),
+      ['advisors:', '  - name: Inside', '    model: inside'].join('\n'),
+    );
+
+    const result = await discoverAdvisorConfigs(cwd, userHome);
+
+    expect(result.advisors.map((advisor) => advisor.name)).toEqual(['Inside']);
+    expect(result.files).toEqual([join(project, 'WATCHDOG.yml')]);
   });
 
   it('reports malformed entries and keeps valid advisors', async () => {

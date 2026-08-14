@@ -290,8 +290,8 @@ export class ContextMemory {
     return this._historyRevision;
   }
 
-  project(messages: readonly ContextMessage[]): Message[] {
-    return project(this.agent.microCompaction.compact(messages));
+  project(messages: readonly ContextMessage[], offset = 0): Message[] {
+    return project(this.agent.microCompaction.compact(messages, offset));
   }
 
   get messages(): Message[] {

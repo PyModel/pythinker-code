@@ -200,7 +200,10 @@ export const BUILTIN_SLASH_COMMANDS = [
     description: 'Show or control the second-opinion advisor',
     priority: 95,
     completeArgs: advisorArgumentCompletions,
-    availability: (args) => args.trim().toLowerCase() === 'status' ? 'always' : 'idle-only',
+    availability: (args) => {
+      const verb = args.trim().toLowerCase();
+      return verb === '' || verb === 'status' ? 'always' : 'idle-only';
+    },
   },
   {
     name: 'provider',

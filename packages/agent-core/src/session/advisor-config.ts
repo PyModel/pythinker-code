@@ -3,6 +3,7 @@ import { homedir } from 'node:os';
 import path from 'node:path';
 import { load as loadYaml } from 'js-yaml';
 import { isPlainRecord } from '../agent/turn/canonical-args';
+import { findProjectRoot } from '../skill/scanner';
 
 export interface AdvisorConfigEntry {
   readonly name: string;
@@ -57,8 +58,8 @@ interface AdvisorConfigDocumentEntry {
 export function slugifyAdvisorName(name: string): string {
   const slug = name
     .toLowerCase()
-    .replace(/[^a-z0-9]+/gu, '-')
-    .replace(/^-+|-+$/gu, '');
+    .replaceAll(/[^a-z0-9]+/gu, '-')
+    .replaceAll(/^-+|-+$/gu, '');
   return slug.length === 0 ? 'advisor' : slug;
 }
 
@@ -189,10 +190,12 @@ async function collectConfigCandidates(
     }
   }
 
+  const projectRoot = await findProjectRoot(resolvedCwd);
   const projectDirs: string[] = [];
   let current = resolvedCwd;
   while (true) {
     projectDirs.push(current);
+    if (current === projectRoot) break;
     const parent = path.dirname(current);
     if (parent === current) break;
     current = parent;
@@ -200,30 +203,42 @@ async function collectConfigCandidates(
   projectDirs.reverse();
   for (const [depth, directory] of projectDirs.entries()) {
     for (const fileName of fileNames) {
-      candidates.push({ path: path.join(directory, fileName), user: false, depth });
-      candidates.push({ path: path.join(directory, '.omp', fileName), user: false, depth });
+      candidates.push(
+        { path: path.join(directory, fileName), user: false, depth },
+        { path: path.join(directory, '.omp', fileName), user: false, depth },
+      );
     }
   }
 
   const unique = new Map<string, (typeof candidates)[number]>();
   for (const candidate of candidates) unique.set(path.resolve(candidate.path), candidate);
+  const results = await Promise.all(
+    [...unique.values()].map(async (candidate) => {
+      try {
+        const content = await readFile(candidate.path, 'utf8');
+        return { candidate, content };
+      } catch (error) {
+        if (isMissingFile(error)) return undefined;
+        return { candidate, error };
+      }
+    }),
+  );
   const readable: ConfigCandidate[] = [];
-  for (const candidate of unique.values()) {
-    try {
-      const content = await readFile(candidate.path, 'utf8');
-      readable.push({
-        ...candidate,
-        path: path.resolve(candidate.path),
-        fileName: path.basename(candidate.path),
-        content,
-      });
-    } catch (error) {
-      if (isMissingFile(error)) continue;
+  for (const result of results) {
+    if (result === undefined) continue;
+    if ('error' in result) {
       onWarning('Advisor config could not be read', {
-        path: candidate.path,
-        error: error instanceof Error ? error.message : String(error),
+        path: result.candidate.path,
+        error: result.error instanceof Error ? result.error.message : String(result.error),
       });
+      continue;
     }
+    readable.push({
+      ...result.candidate,
+      path: path.resolve(result.candidate.path),
+      fileName: path.basename(result.candidate.path),
+      content: result.content,
+    });
   }
   readable.sort((left, right) => {
     if (left.user !== right.user) return left.user ? -1 : 1;

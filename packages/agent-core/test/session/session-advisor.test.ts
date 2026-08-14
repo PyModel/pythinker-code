@@ -407,6 +407,70 @@ describe('SessionAdvisor', () => {
     await vi.waitFor(() => expect(fixture.scripted.calls).toHaveLength(4));
     expect(JSON.stringify(fixture.scripted.calls[3]?.history)).toContain('Rewritten context.');
   });
+  it('keeps tool exchanges paired across persistent incremental reviews', async () => {
+    const fixture = await createFixture({
+      watchdog: ['advisors:', '  - name: Security', '    model: advisor'].join('\n'),
+    });
+    const longToolResult = 'gap result '.repeat(100);
+    const originalOnMainTurnEnded = fixture.session.advisor.onMainTurnEnded.bind(
+      fixture.session.advisor,
+    );
+    vi.spyOn(fixture.session.advisor, 'onMainTurnEnded').mockImplementationOnce(() => {
+      fixture.main.microCompaction.apply(fixture.main.context.history.length);
+      fixture.main.context.appendLoopEvent({
+        type: 'step.begin',
+        uuid: 'advisor-gap-step',
+        turnId: 'advisor-gap-turn',
+        step: 1,
+      });
+      fixture.main.context.appendLoopEvent({
+        type: 'tool.call',
+        uuid: 'advisor-gap-call',
+        turnId: 'advisor-gap-turn',
+        step: 1,
+        stepUuid: 'advisor-gap-step',
+        toolCallId: 'advisor-gap-call',
+        name: 'Read',
+        args: { path: 'src/gap.ts' },
+      });
+      originalOnMainTurnEnded();
+    });
+
+    queueReview(fixture.scripted, 'First review.', 'concern');
+    await runMainTurn(fixture.main);
+    await vi.waitFor(() => expect(fixture.scripted.calls).toHaveLength(2));
+
+    fixture.main.context.appendLoopEvent({
+      type: 'tool.result',
+      parentUuid: 'advisor-gap-call',
+      toolCallId: 'advisor-gap-call',
+      result: { output: longToolResult },
+    });
+    fixture.main.context.appendLoopEvent({
+      type: 'step.end',
+      uuid: 'advisor-gap-step',
+      turnId: 'advisor-gap-turn',
+      step: 1,
+      finishReason: 'tool_use',
+    });
+
+    queueReview(fixture.scripted, 'Second review.', 'concern');
+    await runMainTurn(fixture.main);
+    await vi.waitFor(() => expect(fixture.scripted.calls).toHaveLength(4));
+
+    const history = fixture.scripted.calls[3]?.history ?? [];
+    const toolCallIndex = history.findIndex((message) =>
+      message.toolCalls.some((toolCall) => toolCall.id === 'advisor-gap-call'),
+    );
+    expect(toolCallIndex).toBeGreaterThanOrEqual(0);
+    expect(history[toolCallIndex + 1]).toMatchObject({
+      role: 'tool',
+      toolCallId: 'advisor-gap-call',
+    });
+    expect(history[toolCallIndex + 1]).toMatchObject({
+      content: [{ type: 'text', text: longToolResult }],
+    });
+  });
   it('attributes notes from named watchdog advisors', async () => {
     const fixture = await createFixture({
       watchdog: [
@@ -885,6 +949,8 @@ describe('SessionAdvisor', () => {
   it('counts an aborted advisor wait as a failure', async () => {
     const fixture = await createFixture({ advisorAlias: 'advisor' });
     const timeoutError = new Error('advisor timed out');
+    const timeoutSignal = AbortSignal.abort(timeoutError);
+    vi.spyOn(AbortSignal, 'timeout').mockReturnValue(timeoutSignal);
     const originalCreate = fixture.session.createAgent.bind(fixture.session);
     const spawn = vi
       .spyOn(fixture.session, 'createAgent')
@@ -892,6 +958,7 @@ describe('SessionAdvisor', () => {
       .mockRejectedValueOnce(new Error('second failure'))
       .mockImplementationOnce(async (...args) => {
         const created = await originalCreate(...args);
+        vi.spyOn(created.agent.usage, 'data').mockReturnValue({ totalCostUsd: 0.42 });
         vi.spyOn(created.agent.turn, 'waitForCurrentTurn').mockRejectedValueOnce(timeoutError);
         return created;
       });
@@ -909,7 +976,12 @@ describe('SessionAdvisor', () => {
     await runMainTurn(fixture.main);
     await vi.waitFor(async () => {
       const [status] = await fixture.session.advisor.status();
-      expect(status).toMatchObject({ failures: 3, status: 'paused', enabled: false });
+      expect(status).toMatchObject({
+        failures: 3,
+        status: 'paused',
+        enabled: false,
+        costUsd: 0.42,
+      });
       expect(warn).toHaveBeenCalledWith('advisor disabled after three consecutive failures');
     });
     expect(spawn).toHaveBeenCalledTimes(3);

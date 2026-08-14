@@ -9,6 +9,7 @@ import {
 } from '#/tui/components/messages/dynamic-workflow-mission-control';
 import {
   BRAILLE_SPINNER_FRAMES,
+  DYNAMIC_WORKFLOW_RENDERING,
   BRAILLE_SPINNER_INTERVAL_MS,
 } from '#/tui/constant/rendering';
 import { currentTheme, darkColors } from '#/tui/theme';
@@ -674,12 +675,8 @@ describe('DynamicWorkflowMissionControlComponent', () => {
       component.registerSubagent({ agentId: 'agent-1' });
       component.markStarted('agent-1');
 
-      for (const [time, glyph] of [
-        [0, BRAILLE_SPINNER_FRAMES[0]],
-        [300, BRAILLE_SPINNER_FRAMES[1]],
-        [600, BRAILLE_SPINNER_FRAMES[2]],
-        [900, BRAILLE_SPINNER_FRAMES[3]],
-      ] as const) {
+      for (const [index, glyph] of BRAILLE_SPINNER_FRAMES.slice(0, 4).entries()) {
+        const time = index * DYNAMIC_WORKFLOW_RENDERING.progressFrameMs;
         vi.setSystemTime(time);
         const line = component.render(100).find((candidate) => strip(candidate).includes('001'));
         expect(line).toContain(chalk.hex(darkColors.primary)(glyph));

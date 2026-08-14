@@ -5,13 +5,14 @@ import { join } from 'node:path';
 import { isProviderRateLimitError } from '@pymodel/kosong';
 
 import type { Agent } from '../agent';
-import type { PromptOrigin } from '../agent/context';
+import type { ContextMessage, PromptOrigin } from '../agent/context';
 import { InMemoryAgentRecordPersistence } from '../agent/records';
 import { expandModelRef, resolveModelRoleAlias } from '../config/model-roles';
 import type { AgentEvent } from '../rpc';
 import { HookEngine } from './hooks';
 import { escapeXml, escapeXmlAttr } from '../utils/xml-escape';
 import { abortError } from '../utils/abort';
+import { trimTrailingOpenToolExchange } from '../agent/context/projector';
 import {
   discoverAdvisorConfigs,
   slugifyAdvisorName,
@@ -263,6 +264,8 @@ export class SessionAdvisor {
     let child: Agent;
     let childId: string | undefined;
     let activeChild: Agent | undefined;
+    let usageRecorded = false;
+    let runCost = 0;
     try {
       if (state.agent !== undefined) {
         child = state.agent;
@@ -289,6 +292,7 @@ export class SessionAdvisor {
         if (state.persistent) state.agent = child;
       }
       activeChild = child;
+
       this.#activeAgents.add(child);
       if (this.#closing) return;
 
@@ -311,19 +315,13 @@ export class SessionAdvisor {
       );
       if (turnId === null) throw new Error('Advisor turn could not start.');
       const result = await child.turn.waitForCurrentTurn(AbortSignal.timeout(ADVISOR_TIMEOUT_MS));
+      runCost = this.#recordUsageCost(state, child);
+      usageRecorded = true;
       if (this.#closing) return;
       if (result.event.reason !== 'completed') {
         throw new Error('Advisor turn did not complete.');
       }
       const notes = parseNotes(result.event.structuredOutput);
-      const childCostAfter = child.usage.data().totalCostUsd;
-      const previousCost = state.persistent ? state.lastUsageCostUsd : 0;
-      const runCost =
-        childCostAfter === undefined ? 0 : Math.max(0, childCostAfter - previousCost);
-      state.lastUsageCostUsd = state.persistent
-        ? childCostAfter ?? state.lastUsageCostUsd
-        : 0;
-      state.costUsd += runCost;
       state.failures = 0;
       this.#setStatus(state, 'running');
       state.notes += notes.length;
@@ -334,7 +332,10 @@ export class SessionAdvisor {
       if (block !== undefined) state.pendingAdvisory = block;
       this.#appendTranscript(state, { type: 'review', at: new Date().toISOString(), notes, costUsd: runCost });
     } finally {
-      if (activeChild !== undefined) this.#activeAgents.delete(activeChild);
+      if (activeChild !== undefined) {
+        if (!usageRecorded) this.#recordUsageCost(state, activeChild);
+        this.#activeAgents.delete(activeChild);
+      }
       if (childId !== undefined && !state.persistent) this.session.agents.delete(childId);
     }
   }
@@ -355,14 +356,22 @@ export class SessionAdvisor {
     }
     if (state.historyCursor === 0) {
       child.context.useProjectedHistoryFrom(main.context);
-      state.historyCursor = history.length;
+      state.historyCursor = trailingOpenToolExchangeStart(history) ?? history.length;
       state.historyRevision = historyRevision;
       return;
     }
-    for (const message of history.slice(state.historyCursor)) {
+    const pending = history.slice(state.historyCursor);
+    const openExchangeStart = trailingOpenToolExchangeStart(pending);
+    const consumable = openExchangeStart === undefined
+      ? pending
+      : pending.slice(0, openExchangeStart);
+    const projected = trimTrailingOpenToolExchange(
+      main.context.project(consumable, state.historyCursor),
+    );
+    for (const message of projected) {
       child.context.appendMessage(message);
     }
-    state.historyCursor = history.length;
+    state.historyCursor += consumable.length;
     state.historyRevision = historyRevision;
   }
 
@@ -382,6 +391,17 @@ export class SessionAdvisor {
     const requested = configuredTools ?? DEFAULT_ADVISOR_TOOLS;
     const available = new Set(child.tools.data().map((tool) => tool.name));
     child.tools.setActiveTools(requested.filter((tool) => available.has(tool)));
+  }
+  #recordUsageCost(state: AdvisorRuntimeState, child: Agent): number {
+    const childCostAfter = child.usage.data().totalCostUsd;
+    const previousCost = state.persistent ? state.lastUsageCostUsd : 0;
+    const runCost =
+      childCostAfter === undefined ? 0 : Math.max(0, childCostAfter - previousCost);
+    state.lastUsageCostUsd = state.persistent
+      ? childCostAfter ?? state.lastUsageCostUsd
+      : 0;
+    state.costUsd += runCost;
+    return runCost;
   }
 
   #recordFailure(state: AdvisorRuntimeState, error: unknown): void {
@@ -596,6 +616,25 @@ export class SessionAdvisor {
 }
 
 
+function trailingOpenToolExchangeStart(
+  history: readonly ContextMessage[],
+): number | undefined {
+  let assistantIndex = history.length - 1;
+  while (assistantIndex >= 0 && history[assistantIndex]?.role === 'tool') {
+    assistantIndex -= 1;
+  }
+  const assistant = history[assistantIndex];
+  if (assistant?.role !== 'assistant' || assistant.toolCalls.length === 0) return undefined;
+  const toolResultIds = new Set<string>();
+  for (const message of history.slice(assistantIndex + 1)) {
+    if (message.role !== 'tool' || message.toolCallId === undefined) continue;
+    toolResultIds.add(message.toolCallId);
+  }
+  return assistant.toolCalls.every((toolCall) => toolResultIds.has(toolCall.id))
+    ? undefined
+    : assistantIndex;
+}
+
 function advisorConfigChanged(
   previous: AdvisorConfigEntry,
   next: AdvisorConfigEntry,
@@ -642,7 +681,7 @@ function parseNotes(output: unknown): AdvisoryNote[] {
   if (!isRecord(output)) throw new Error('Advisor did not return structured notes.');
   const outputNotes = output['notes'];
   if (!Array.isArray(outputNotes)) {
-    throw new Error('Advisor did not return structured notes.');
+    throw new TypeError('Advisor did not return structured notes.');
   }
   const notes: AdvisoryNote[] = [];
   for (const value of outputNotes) {

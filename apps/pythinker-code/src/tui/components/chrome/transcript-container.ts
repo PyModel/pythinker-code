@@ -10,12 +10,6 @@ import {
 
 export type { TranscriptChildMetadata, TranscriptChildRole } from '../../utils/transcript-component-metadata';
 
-interface RenderedChild {
-  readonly child: Component;
-  readonly metadata: TranscriptChildMetadata;
-  readonly rows: readonly string[];
-}
-
 export class TranscriptContainer extends GutterContainer {
   private readonly leftGutter: number;
   private readonly rightGutter: number;
@@ -66,77 +60,57 @@ export class TranscriptContainer extends GutterContainer {
       throw new Error('Transcript child was added without metadata');
     }
     const inner = Math.max(1, width - this.leftGutter - this.rightGutter);
-    const following = this.children.slice(index + 1).map((followingChild) => {
+    let rows = 0;
+    let previousDurable = isDurable(metadata.role);
+    for (let childIndex = index + 1; childIndex < this.children.length; childIndex += 1) {
+      const followingChild = this.children[childIndex]!;
       const followingMetadata = getTranscriptChildMetadata(followingChild);
       if (followingMetadata === undefined) {
         throw new Error('Transcript child was added without metadata');
       }
-      return {
-        child: followingChild,
-        metadata: followingMetadata,
-        rows: this.normalizeRows(followingChild.render(inner), followingMetadata),
-      };
-    });
-    const firstVisible = following.find((segment) => segment.rows.length > 0);
-    const separator =
-      firstVisible !== undefined &&
-      isDurable(metadata.role) &&
-      isDurable(firstVisible.metadata.role)
-        ? 1
-        : 0;
-    return separator + this.rowsForSegments(following).length;
+      const followingRows = this.normalizeRows(
+        followingChild.render(inner),
+        followingMetadata,
+      );
+      if (followingRows.length === 0) continue;
+      if (previousDurable && isDurable(followingMetadata.role)) rows += 1;
+      rows += followingRows.length;
+      previousDurable = isDurable(followingMetadata.role);
+    }
+    return rows;
   }
 
   override render(width: number): string[] {
-    return this.rowsForSegments(this.renderedChildren(width)).map((row) => {
-      return ' '.repeat(this.leftGutter) + row;
-    });
-  }
-
-
-  private renderedChildren(width: number): RenderedChild[] {
     const inner = Math.max(1, width - this.leftGutter - this.rightGutter);
-    return this.children.map((child) => {
+    const lead = ' '.repeat(this.leftGutter);
+    const rows: string[] = [];
+    let hasVisible = false;
+    let previousDurable = false;
+    for (const child of this.children) {
       const metadata = getTranscriptChildMetadata(child);
       if (metadata === undefined) {
         throw new Error('Transcript child was added without metadata');
       }
-      return {
-        child,
-        metadata,
-        rows: this.normalizeRows(child.render(inner), metadata),
-      };
-    });
+      const childRows = this.normalizeRows(child.render(inner), metadata);
+      if (childRows.length === 0) continue;
+      if (hasVisible && previousDurable && isDurable(metadata.role)) rows.push(lead);
+      for (const row of childRows) rows.push(lead + row);
+      hasVisible = true;
+      previousDurable = isDurable(metadata.role);
+    }
+    return rows;
   }
 
   private normalizeRows(
     rows: readonly string[],
     metadata: TranscriptChildMetadata,
   ): readonly string[] {
-    if (metadata.edgeBlankPolicy === 'preserve') return [...rows];
+    if (metadata.edgeBlankPolicy === 'preserve') return rows;
     let start = 0;
     let end = rows.length;
     while (start < end && isPlainBlank(rows[start]!)) start += 1;
     while (end > start && isPlainBlank(rows[end - 1]!)) end -= 1;
     return rows.slice(start, end);
-  }
-
-  private rowsForSegments(segments: readonly RenderedChild[]): string[] {
-    const rows: string[] = [];
-    const visibleSegments = segments.filter((segment) => segment.rows.length > 0);
-    for (let index = 0; index < visibleSegments.length; index += 1) {
-      const segment = visibleSegments[index]!;
-      rows.push(...segment.rows);
-      const next = visibleSegments[index + 1];
-      if (
-        next !== undefined &&
-        isDurable(segment.metadata.role) &&
-        isDurable(next.metadata.role)
-      ) {
-        rows.push('');
-      }
-    }
-    return rows;
   }
 }
 

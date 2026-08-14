@@ -42,7 +42,7 @@ describe('TranscriptContainer', () => {
 
   it('preserves ANSI blank rows and does not invent gaps around ephemeral children', () => {
     const container = new TranscriptContainer(1, 1);
-    const first = new StubLines(['', '\u001b[48;5;1m  \u001b[0m', 'first', '']);
+    const first = new StubLines(['', '\u001B[48;5;1m  \u001B[0m', 'first', '']);
     const status = new StubLines(['status']);
     const second = new StubLines(['', 'second']);
 
@@ -50,7 +50,7 @@ describe('TranscriptContainer', () => {
     container.addTranscriptChild(status, ephemeral);
     container.addTranscriptChild(second, durable);
     expect(container.render(20)).toEqual([
-      ' \u001b[48;5;1m  \u001b[0m',
+      ' \u001B[48;5;1m  \u001B[0m',
       ' first',
       ' status',
       ' second',
