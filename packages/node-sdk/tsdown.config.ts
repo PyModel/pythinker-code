@@ -26,7 +26,7 @@ export default defineConfig({
     '@pymodel/kosong': fileURLToPath(new URL('../kosong/src/index.ts', import.meta.url)),
   },
   deps: {
-    alwaysBundle: [/^@pythoughts\//],
+    alwaysBundle: [/^@pymodel\//],
     neverBundle: [],
   },
 });

@@ -36,7 +36,7 @@ import {
 } from '../../src/services';
 
 const packageRoot = fileURLToPath(new URL('../..', import.meta.url));
-const sdkPackageName = ['@pythoughts', 'pythinker-code-sdk'].join('/');
+const sdkPackageName = ['@pymodel', 'pythinker-code-sdk'].join('/');
 
 function readPackageFiles(): string {
   const files = [

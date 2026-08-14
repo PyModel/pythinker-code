@@ -111,7 +111,7 @@ const MIN_REQUIRED_VERSION = null;
  * it; clients that see no `platforms` key keep their previous behaviour.
  */
 async function resolvePlatformArtifacts(version) {
-  const base = `${RELEASE_DOWNLOAD_BASE}/%40pythoughts%2Fpythinker-code%40${version}`;
+  const base = `${RELEASE_DOWNLOAD_BASE}/%40pymodel%2Fpythinker-code%40${version}`;
   let native;
   try {
     const response = await fetch(`${base}/manifest.json`, { signal: AbortSignal.timeout(30_000) });
