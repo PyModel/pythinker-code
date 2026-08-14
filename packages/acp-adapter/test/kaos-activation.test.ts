@@ -24,8 +24,8 @@ import {
   type WriteTextFileRequest,
   type WriteTextFileResponse,
 } from '@agentclientprotocol/sdk';
-import type { Kaos } from '@pythoughts/kaos';
-import type { PythinkerHarness, Session } from '@pythoughts/pythinker-code-sdk';
+import type { Kaos } from '@pymodel/kaos';
+import type { PythinkerHarness, Session } from '@pymodel/pythinker-code-sdk';
 import { describe, expect, it } from 'vitest';
 
 import { AcpKaos } from '../src/kaos-acp';

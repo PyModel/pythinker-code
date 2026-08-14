@@ -151,7 +151,7 @@ function makeFakeQuestion(): QuestionRequest & { sessionId: string; agentId: str
   };
 }
 
-describe('@pythoughts/agent-core · services interfaces', () => {
+describe('@pymodel/agent-core · services interfaces', () => {
   it('does not depend on the node SDK package', () => {
     expect(readPackageFiles()).not.toContain(sdkPackageName);
   });

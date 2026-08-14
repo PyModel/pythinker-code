@@ -24,7 +24,7 @@ import {
   type Message,
   type ModelCapability,
   type StreamedMessagePart,
-} from '@pythoughts/kosong';
+} from '@pymodel/kosong';
 
 import type {
   LLM,

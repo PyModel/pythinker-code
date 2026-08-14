@@ -4,7 +4,7 @@ import type {
   PythinkerHarness,
   Session,
   TurnEndedEvent,
-} from '@pythoughts/pythinker-code-sdk';
+} from '@pymodel/pythinker-code-sdk';
 
 import { NO_ACTIVE_SESSION_MESSAGE } from '../constant/pythinker-tui';
 import { BtwPanelComponent } from '../components/panes/btw-panel';

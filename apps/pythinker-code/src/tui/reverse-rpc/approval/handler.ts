@@ -1,4 +1,4 @@
-import type { ApprovalHandler, ApprovalRequest, ApprovalResponse } from '@pythoughts/pythinker-code-sdk';
+import type { ApprovalHandler, ApprovalRequest, ApprovalResponse } from '@pymodel/pythinker-code-sdk';
 
 import { adaptApprovalRequest } from './adapter';
 import type { ApprovalController } from './controller';

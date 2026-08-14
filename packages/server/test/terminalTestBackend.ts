@@ -1,4 +1,4 @@
-import { Emitter, type TerminalBackend, type TerminalProcess, type TerminalSpawnOptions } from '@pythoughts/agent-core';
+import { Emitter, type TerminalBackend, type TerminalProcess, type TerminalSpawnOptions } from '@pymodel/agent-core';
 
 export class FakeTerminalProcess implements TerminalProcess {
   readonly writes: string[] = [];

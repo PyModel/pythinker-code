@@ -12,7 +12,7 @@ import {
   removeCustomRegistryProvider,
   type CustomRegistrySource,
   type PlatformConfigShape,
-} from '@pythoughts/pythinker-code-oauth';
+} from '@pymodel/pythinker-code-oauth';
 import {
   applyCatalogProvider,
   catalogBaseUrl,
@@ -24,7 +24,7 @@ import {
   type PythinkerConfigPatch,
   type ModelAlias,
   type ProviderConfig,
-} from '@pythoughts/pythinker-code-sdk';
+} from '@pymodel/pythinker-code-sdk';
 
 
 export interface RefreshProviderHost {

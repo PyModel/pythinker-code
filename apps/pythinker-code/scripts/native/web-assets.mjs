@@ -106,7 +106,7 @@ async function collectAssetRoot({
 
 export async function collectWebAssets({ appRoot, target }) {
   const buildCommand =
-    'pnpm --filter @pythoughts/pythinker-web run build && pnpm --filter @pythoughts/pythinker-code run build';
+    'pnpm --filter @pymodel/pythinker-web run build && pnpm --filter @pymodel/pythinker-code run build';
   return collectAssetRoot({
     appRoot,
     target,

@@ -10,10 +10,10 @@ import {
   deleteFileResponseSchema,
   getFileParamSchema,
   uploadFileResponseSchema,
-} from '@pythoughts/protocol';
+} from '@pymodel/protocol';
 import { z } from 'zod';
 
-import { DEFAULT_MAX_UPLOAD_BYTES, FileNotFoundError, FileTooLargeError, IFileStore, type IInstantiationService } from '@pythoughts/agent-core';
+import { DEFAULT_MAX_UPLOAD_BYTES, FileNotFoundError, FileTooLargeError, IFileStore, type IInstantiationService } from '@pymodel/agent-core';
 
 import { errEnvelope, okEnvelope } from '../envelope';
 import { defineRoute } from '../middleware/defineRoute';

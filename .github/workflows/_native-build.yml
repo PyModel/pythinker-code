@@ -101,16 +101,16 @@ jobs:
         # The SEA blob step embeds apps/pythinker-code/dist-web; build the web app
         # and stage its assets before producing the native executable.
         run: |
-          pnpm --filter @pythoughts/pythinker-web run build
+          pnpm --filter @pymodel/pythinker-web run build
           node apps/pythinker-code/scripts/copy-web-assets.mjs
 
       - name: Build native executable (release profile, macOS signed)
         if: runner.os == 'macOS' && env.APPLE_SIGNING_AVAILABLE == 'true'
-        run: pnpm --filter @pythoughts/pythinker-code run build:native:release
+        run: pnpm --filter @pymodel/pythinker-code run build:native:release
 
       - name: Build native executable (local profile)
         if: '!(runner.os == ''macOS'' && env.APPLE_SIGNING_AVAILABLE == ''true'')'
-        run: pnpm --filter @pythoughts/pythinker-code run build:native:sea
+        run: pnpm --filter @pymodel/pythinker-code run build:native:sea
 
       - name: Notarize macOS binary
         if: runner.os == 'macOS' && env.APPLE_SIGNING_AVAILABLE == 'true'
@@ -126,10 +126,10 @@ jobs:
         uses: ./.github/actions/macos-keychain-cleanup
 
       - name: Smoke test native executable
-        run: pnpm --filter @pythoughts/pythinker-code run test:native:smoke
+        run: pnpm --filter @pymodel/pythinker-code run test:native:smoke
 
       - name: Package native artifact
-        run: pnpm --filter @pythoughts/pythinker-code run package:native
+        run: pnpm --filter @pymodel/pythinker-code run package:native
 
       - name: Upload native artifact
         uses: actions/upload-artifact@v7

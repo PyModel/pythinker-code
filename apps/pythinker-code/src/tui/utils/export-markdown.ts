@@ -1,4 +1,4 @@
-import type { ContentPart, ContextMessage, PromptOrigin, ToolCall } from '@pythoughts/pythinker-code-sdk';
+import type { ContentPart, ContextMessage, PromptOrigin, ToolCall } from '@pymodel/pythinker-code-sdk';
 
 const HINT_KEYS = ['path', 'file_path', 'command', 'query', 'url', 'name', 'pattern'] as const;
 

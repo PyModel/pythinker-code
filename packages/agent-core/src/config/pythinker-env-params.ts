@@ -3,7 +3,7 @@ import {
   type GenerationKwargs,
   PythinkerChatProvider,
   type ThinkingEffort,
-} from '@pythoughts/kosong';
+} from '@pymodel/kosong';
 
 import { parseFloatEnv } from '#/config/resolve';
 

@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 
 import { pollCdnUntilCaughtUp } from './cdn-consistency.mjs';
 
-const PACKAGE_NAME = '@pythoughts/pythinker-code';
+const PACKAGE_NAME = '@pymodel/pythinker-code';
 const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 
 const CDN_MANIFEST_URL = 'https://code.pythinker.com/pythinker-code/latest.json';

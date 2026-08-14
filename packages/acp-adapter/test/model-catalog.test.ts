@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { ModelAlias } from '@pythoughts/pythinker-code-sdk';
+import type { ModelAlias } from '@pymodel/pythinker-code-sdk';
 
 import { deriveAlwaysThinking, deriveThinkingSupported } from '../src/model-catalog';
 

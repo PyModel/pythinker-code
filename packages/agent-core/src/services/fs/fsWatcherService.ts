@@ -10,7 +10,7 @@ import type {
   FsChangeAction,
   FsChangeEntry,
   FsChangeKind,
-} from '@pythoughts/protocol';
+} from '@pymodel/protocol';
 
 import { ILogService } from '../logger/logger';
 import {

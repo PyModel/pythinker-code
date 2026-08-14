@@ -11,7 +11,7 @@
  * `it` keeps Vitest happy.
  */
 
-import type { ContentPart, ModelCapability, TokenUsage } from '@pythoughts/kosong';
+import type { ContentPart, ModelCapability, TokenUsage } from '@pymodel/kosong';
 import { describe, expect, it } from 'vitest';
 
 import { createLoopEventDispatcher, runTurn, ToolAccesses } from '../../src/loop/index';

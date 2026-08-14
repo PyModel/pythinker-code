@@ -4,8 +4,8 @@ import {
   createTerminalRequestSchema,
   getTerminalResponseSchema,
   listTerminalsResponseSchema,
-} from '@pythoughts/protocol';
-import { FsPathEscapesError, ITerminalService, SessionNotFoundError, TerminalNotFoundError, type IInstantiationService } from '@pythoughts/agent-core';
+} from '@pymodel/protocol';
+import { FsPathEscapesError, ITerminalService, SessionNotFoundError, TerminalNotFoundError, type IInstantiationService } from '@pymodel/agent-core';
 import { z } from 'zod';
 
 

@@ -1,4 +1,4 @@
-import { PYTHINKER_ERROR_INFO, isPythinkerError } from '@pythoughts/pythinker-code-sdk';
+import { PYTHINKER_ERROR_INFO, isPythinkerError } from '@pymodel/pythinker-code-sdk';
 import { chalkStderr } from 'chalk';
 
 import { STARTUP_ERROR_COLOR } from '#/constant/startup-error';

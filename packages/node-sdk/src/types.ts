@@ -6,12 +6,12 @@ import type {
   TelemetryClient,
   TelemetryContextPatch,
   TelemetryProperties,
-} from '@pythoughts/agent-core';
-import type { Kaos } from '@pythoughts/kaos';
-import type { ContentPart, ModelCostRates } from '@pythoughts/kosong';
+} from '@pymodel/agent-core';
+import type { Kaos } from '@pymodel/kaos';
+import type { ContentPart, ModelCostRates } from '@pymodel/kosong';
 import type {
   PythinkerHostIdentity,
-} from '@pythoughts/pythinker-code-oauth';
+} from '@pymodel/pythinker-code-oauth';
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue =
@@ -92,11 +92,11 @@ export type {
   WorkingTreeChanges,
   WorkingTreeChangeStatus,
   WorkingTreeFileDiff,
-} from '@pythoughts/agent-core';
+} from '@pymodel/agent-core';
 
 export type { PythinkerHostIdentity };
 export type { TelemetryClient, TelemetryContextPatch, TelemetryProperties };
-export type { ContentPart, ModelCostRates, Role, ToolCall } from '@pythoughts/kosong';
+export type { ContentPart, ModelCostRates, Role, ToolCall } from '@pymodel/kosong';
 
 export type PermissionMode = 'yolo' | 'manual' | 'auto';
 

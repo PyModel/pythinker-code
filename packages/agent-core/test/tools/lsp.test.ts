@@ -1,6 +1,6 @@
 import { PassThrough, Readable, Writable } from 'node:stream';
 
-import type { KaosProcess } from '@pythoughts/kaos';
+import type { KaosProcess } from '@pymodel/kaos';
 import { describe, expect, it, vi } from 'vitest';
 
 import { LspManager } from '../../src/lsp';

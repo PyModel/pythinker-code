@@ -7,7 +7,7 @@ import {
   reduceFooterState,
   selectStatusBarExtras,
 } from '#/tui/runtime/footer/footer-model';
-import type { GoalSnapshot } from '@pythoughts/pythinker-code-sdk';
+import type { GoalSnapshot } from '@pymodel/pythinker-code-sdk';
 import type { AppState } from '#/tui/types';
 
 function baseState(overrides: Partial<AppState> = {}): AppState {

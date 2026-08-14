@@ -1,6 +1,6 @@
 import { writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { AGENT_WIRE_PROTOCOL_VERSION } from '@pythoughts/agent-core';
+import { AGENT_WIRE_PROTOCOL_VERSION } from '@pymodel/agent-core';
 import type { NormalizedMessage } from './translator.js';
 
 export const WIRE_PROTOCOL_VERSION = AGENT_WIRE_PROTOCOL_VERSION;

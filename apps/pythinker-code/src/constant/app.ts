@@ -1,4 +1,4 @@
-import { ErrorCodes } from '@pythoughts/pythinker-code-sdk';
+import { ErrorCodes } from '@pymodel/pythinker-code-sdk';
 
 export const PRODUCT_NAME = 'Pythinker';
 export const CLI_COMMAND_NAME = 'pythinker';
@@ -15,7 +15,7 @@ export const WEB_UI_MODE = 'web';
 export const CLI_SHUTDOWN_TIMEOUT_MS = 3000;
 
 // Published npm package name; this can differ from the executable command.
-export const NPM_PACKAGE_NAME = '@pythoughts/pythinker-code';
+export const NPM_PACKAGE_NAME = '@pymodel/pythinker-code';
 
 // App-owned data paths. SDK/core runtime config is intentionally not routed here.
 export const PYTHINKER_CODE_HOME_ENV = 'PYTHINKER_CODE_HOME';

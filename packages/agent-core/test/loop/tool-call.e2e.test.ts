@@ -8,7 +8,7 @@
  * while dispatching terminal events in provider order.
  */
 
-import type { ContentPart } from '@pythoughts/kosong';
+import type { ContentPart } from '@pymodel/kosong';
 import { describe, expect, it } from 'vitest';
 
 import { createLoopEventDispatcher, runTurn as runTurnImpl, ToolAccesses } from '../../src/loop';

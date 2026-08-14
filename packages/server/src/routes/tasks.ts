@@ -29,8 +29,8 @@ import {
   getTaskResponseSchema,
   listTasksQuerySchema,
   listTasksResponseSchema,
-} from '@pythoughts/protocol';
-import { ITaskService, SessionNotFoundError, TaskAlreadyFinishedError, TaskNotFoundError, type IInstantiationService } from '@pythoughts/agent-core';
+} from '@pymodel/protocol';
+import { ITaskService, SessionNotFoundError, TaskAlreadyFinishedError, TaskNotFoundError, type IInstantiationService } from '@pymodel/agent-core';
 import { z } from 'zod';
 
 

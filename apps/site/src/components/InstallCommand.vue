@@ -146,7 +146,7 @@ onUnmounted(() => {
           <span class="channel-label"><img src="/brand/github.svg" alt="" width="16" height="16" />GitHub repository</span>
           <svg aria-hidden="true" viewBox="0 0 20 20"><path d="M6 14 14 6M8 6h6v6" /></svg>
         </a>
-        <a href="https://www.npmjs.com/package/@pythoughts/pythinker-code" target="_blank" rel="noopener">
+        <a href="https://www.npmjs.com/package/@pymodel/pythinker-code" target="_blank" rel="noopener">
           <span class="channel-label"><img src="/brand/npm.svg" alt="" width="16" height="16" />npm package</span>
           <svg aria-hidden="true" viewBox="0 0 20 20"><path d="M6 14 14 6M8 6h6v6" /></svg>
         </a>

@@ -3,7 +3,7 @@ import path from 'node:path';
 import { watch, type FSWatcher } from 'chokidar';
 import { join } from 'pathe';
 import { z } from 'zod';
-import type { Kaos } from '@pythoughts/kaos';
+import type { Kaos } from '@pymodel/kaos';
 import type {
   ElicitRequestParams,
   ElicitResult,

@@ -1,4 +1,4 @@
-import type { ContentPart, Message, TextPart } from '@pythoughts/kosong';
+import type { ContentPart, Message, TextPart } from '@pymodel/kosong';
 
 import type { ContextMessage } from './types';
 

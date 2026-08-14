@@ -14,9 +14,9 @@
  *   - `SessionStore` (constructor: `new SessionStore(homeDir)`)
  *   - `SessionStore.list({ workDir })`
  *   - `encodeWorkDirKey` / `normalizeWorkDir`
- *     all from `@pythoughts/agent-core/session/store`.
+ *     all from `@pymodel/agent-core/session/store`.
  *   - `Session` (constructor + `resume()` + `getReadyAgent()`), from
- *     `@pythoughts/agent-core`; `localKaos` from `@pythoughts/kaos`. After
+ *     `@pymodel/agent-core`; `localKaos` from `@pymodel/kaos`. After
  *     `resume()`, `session.getReadyAgent('main').context.messages` exposes the
  *     replayed message history.
  */
@@ -30,9 +30,9 @@ import {
   SessionStore,
   encodeWorkDirKey,
   normalizeWorkDir,
-} from '@pythoughts/agent-core/session/store/index';
-import { Session, type SDKSessionRPC } from '@pythoughts/agent-core';
-import { LocalKaos } from '@pythoughts/kaos';
+} from '@pymodel/agent-core/session/store/index';
+import { Session, type SDKSessionRPC } from '@pymodel/agent-core';
+import { LocalKaos } from '@pymodel/kaos';
 
 import { migrateOneSession, type MigrateOneResult } from '../src/sessions/migrate-one.js';
 import { ensureSessionIndexEntry } from '../src/session-index.js';

@@ -9,10 +9,10 @@ export default defineConfig({
   deps: {
     neverBundle: [
       '@agentclientprotocol/sdk',
-      '@pythoughts/agent-core',
-      '@pythoughts/pythinker-code-sdk',
-      '@pythoughts/kosong',
-      '@pythoughts/kaos',
+      '@pymodel/agent-core',
+      '@pymodel/pythinker-code-sdk',
+      '@pymodel/kosong',
+      '@pymodel/kaos',
     ],
   },
 });

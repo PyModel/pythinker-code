@@ -1,6 +1,6 @@
 import { writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { SESSION_FORMAT_VERSION } from '@pythoughts/agent-core';
+import { SESSION_FORMAT_VERSION } from '@pymodel/agent-core';
 import type { OldSessionState } from '../pythinker-cli-schema.js';
 
 export interface StateWriteInput {

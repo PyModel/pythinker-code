@@ -5,7 +5,7 @@
  * `run`, `web`, and `status` all use.
  */
 
-import type { ServerLogLevel } from '@pythoughts/server';
+import type { ServerLogLevel } from '@pymodel/server';
 
 export const DEFAULT_SERVER_HOST = '127.0.0.1';
 export const DEFAULT_SERVER_PORT = 58627;

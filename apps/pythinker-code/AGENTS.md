@@ -42,7 +42,7 @@ Main directories:
 - `reverse-rpc` converts SDK approval/question requests into the data shape a UI panel/dialog needs, and converts the user's choice back into an SDK response.
 - `theme` is the single source of truth for colors and styles. Components must not bypass the theme system and use chalk named colors directly.
 - `utils` holds utility functions with no UI-state dependency. Logic that needs `TUIState` or a component instance must not live under app-level `src/utils`.
-- `apps/pythinker-code` may only use core capabilities through `@pythoughts/pythinker-code-sdk`. Do not import `@pythoughts/agent-core` directly in app code.
+- `apps/pythinker-code` may only use core capabilities through `@pymodel/pythinker-code-sdk`. Do not import `@pymodel/agent-core` directly in app code.
 
 ## TUI Coding Conventions
 

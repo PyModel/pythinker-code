@@ -1,4 +1,4 @@
-import type { ToolCall } from '@pythoughts/kosong';
+import type { ToolCall } from '@pymodel/kosong';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { Agent } from '../../src/agent';

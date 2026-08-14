@@ -3,7 +3,7 @@ import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep, win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import type { PluginInstallOptions, PluginSummary } from '@pythoughts/pythinker-code-sdk';
+import type { PluginInstallOptions, PluginSummary } from '@pymodel/pythinker-code-sdk';
 import { gt, valid } from 'semver';
 
 import {

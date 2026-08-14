@@ -11,7 +11,7 @@ import type {
   ModelCostRates,
   SessionUsage,
   TokenUsage,
-} from '@pythoughts/pythinker-code-sdk';
+} from '@pymodel/pythinker-code-sdk';
 
 import {
   formatTokenCount,

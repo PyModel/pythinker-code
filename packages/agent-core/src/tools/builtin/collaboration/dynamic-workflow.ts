@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 
 import { z } from 'zod';
 
-import type { WorkflowWarningEvent } from '@pythoughts/protocol';
+import type { WorkflowWarningEvent } from '@pymodel/protocol';
 
 import type { DynamicWorkflowMode } from '../../../agent/dynamic-workflow';
 import type { BuiltinTool } from '../../../agent/tool';

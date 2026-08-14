@@ -22,7 +22,7 @@ import {
   visibleWidth,
   type Focusable,
 } from '@earendil-works/pi-tui';
-import type { BackgroundTaskInfo, BackgroundTaskStatus } from '@pythoughts/pythinker-code-sdk';
+import type { BackgroundTaskInfo, BackgroundTaskStatus } from '@pymodel/pythinker-code-sdk';
 
 import { SELECT_POINTER } from '@/tui/constant/symbols';
 import { combinedBindingHint, formatBindingKeys } from '#/tui/components/dialogs/choice-picker';

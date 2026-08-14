@@ -7,8 +7,8 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { InstantiationService, ServiceCollection, EventService, FsWatcherService, IApprovalService, IEventService, ILogService, IQuestionService, type ApprovalResponse, type QuestionResult, type FsWatcherServiceOptions, type IEnvironmentService, type ILogService as ILoggerT, type ISessionService } from '@pythoughts/agent-core';
-import { WS_PROTOCOL_VERSION, type Event } from '@pythoughts/protocol';
+import { InstantiationService, ServiceCollection, EventService, FsWatcherService, IApprovalService, IEventService, ILogService, IQuestionService, type ApprovalResponse, type QuestionResult, type FsWatcherServiceOptions, type IEnvironmentService, type ILogService as ILoggerT, type ISessionService } from '@pymodel/agent-core';
+import { WS_PROTOCOL_VERSION, type Event } from '@pymodel/protocol';
 
 import { ApprovalService } from '#/services/approval/approvalService';
 import { QuestionService } from '#/services/question/questionService';

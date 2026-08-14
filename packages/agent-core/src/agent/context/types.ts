@@ -1,4 +1,4 @@
-import type { ContentPart, Message } from '@pythoughts/kosong';
+import type { ContentPart, Message } from '@pymodel/kosong';
 
 import type { SkillSource } from '../../skill';
 import type { BackgroundTaskStatus } from '../background';

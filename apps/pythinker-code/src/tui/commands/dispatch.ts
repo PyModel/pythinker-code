@@ -1,5 +1,5 @@
 import type { Component, Focusable } from '@earendil-works/pi-tui';
-import type { PythinkerHarness, Session } from '@pythoughts/pythinker-code-sdk';
+import type { PythinkerHarness, Session } from '@pymodel/pythinker-code-sdk';
 
 import type { ColorToken, ThemeName } from '#/tui/theme';
 import { performHeapDump } from '#/utils/heap-dump';

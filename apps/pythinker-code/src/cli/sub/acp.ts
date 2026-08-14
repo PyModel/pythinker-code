@@ -26,8 +26,8 @@ import {
   runAcpServer,
   type AvailableCommand,
   type SlashCommandsSnapshot,
-} from '@pythoughts/acp-adapter';
-import { createPythinkerHarness, type Session, type SkillSummary } from '@pythoughts/pythinker-code-sdk';
+} from '@pymodel/acp-adapter';
+import { createPythinkerHarness, type Session, type SkillSummary } from '@pymodel/pythinker-code-sdk';
 
 import { drainWritable, isBrokenPipeError, writeAndDrain } from '#/cli/output';
 import { createPythinkerCodeHostIdentity, getVersion } from '#/cli/version';

@@ -1,4 +1,4 @@
-import type { SessionSummary } from '@pythoughts/pythinker-code-sdk';
+import type { SessionSummary } from '@pymodel/pythinker-code-sdk';
 import { describe, expect, it } from 'vitest';
 
 import { sessionRowsForPicker } from '#/tui/utils/session-picker-rows';

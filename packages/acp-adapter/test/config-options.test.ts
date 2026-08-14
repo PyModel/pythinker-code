@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type { PythinkerHarness } from '@pythoughts/pythinker-code-sdk';
+import type { PythinkerHarness } from '@pymodel/pythinker-code-sdk';
 
 import {
   buildModelOption,

@@ -2,7 +2,7 @@ import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { createPythinkerHarness } from '@pythoughts/pythinker-code-sdk';
+import { createPythinkerHarness } from '@pymodel/pythinker-code-sdk';
 
 import { smokeIdentityFromEnv } from './runtime-smoke-helpers';
 

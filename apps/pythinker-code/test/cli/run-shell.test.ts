@@ -1,6 +1,6 @@
 import { execSync } from 'node:child_process';
 
-import type { createPythinkerDeviceId as createPythinkerDeviceIdFn } from '@pythoughts/pythinker-code-oauth';
+import type { createPythinkerDeviceId as createPythinkerDeviceIdFn } from '@pymodel/pythinker-code-oauth';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { runShell } from '#/cli/run-shell';
@@ -76,8 +76,8 @@ function tuiConfig(overrides: Partial<TuiConfig> = {}): TuiConfig {
   };
 }
 
-vi.mock('@pythoughts/pythinker-code-sdk', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@pythoughts/pythinker-code-sdk')>();
+vi.mock('@pymodel/pythinker-code-sdk', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@pymodel/pythinker-code-sdk')>();
   return {
     ...actual,
     resolvePythinkerHome: mocks.resolvePythinkerHome,
@@ -104,9 +104,9 @@ vi.mock('@pythoughts/pythinker-code-sdk', async (importOriginal) => {
   };
 });
 
-vi.mock('@pythoughts/pythinker-code-oauth', async () => {
-  const actual = await vi.importActual<typeof import('@pythoughts/pythinker-code-oauth')>(
-    '@pythoughts/pythinker-code-oauth',
+vi.mock('@pymodel/pythinker-code-oauth', async () => {
+  const actual = await vi.importActual<typeof import('@pymodel/pythinker-code-oauth')>(
+    '@pymodel/pythinker-code-oauth',
   );
   return {
     ...actual,
@@ -114,7 +114,7 @@ vi.mock('@pythoughts/pythinker-code-oauth', async () => {
   };
 });
 
-vi.mock('@pythoughts/pythinker-telemetry', () => ({
+vi.mock('@pymodel/pythinker-telemetry', () => ({
   initializeTelemetry: mocks.initializeTelemetry,
   setCrashPhase: mocks.setCrashPhase,
   shutdownTelemetry: mocks.shutdownTelemetry,

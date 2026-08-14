@@ -4,7 +4,7 @@ import {
   shutdownTelemetry,
   track,
   withTelemetryContext,
-} from '@pythoughts/pythinker-telemetry';
+} from '@pymodel/pythinker-telemetry';
 import chalk from 'chalk';
 import {
   createPythinkerHarness,
@@ -17,7 +17,7 @@ import {
   type Session,
   type SessionStatus,
   type TelemetryClient,
-} from '@pythoughts/pythinker-code-sdk';
+} from '@pymodel/pythinker-code-sdk';
 import { resolve } from 'pathe';
 
 import { CLI_SHUTDOWN_TIMEOUT_MS } from '#/constant/app';

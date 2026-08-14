@@ -6,7 +6,7 @@ import type { TodoItem } from '#/tui/components/chrome/todo-panel';
 
 // Generic error formatting lives in the SDK so non-TUI surfaces (login flows,
 // CLI) share it; re-exported here for the TUI's existing importers.
-export { formatErrorMessage, formatErrorPayload } from '@pythoughts/pythinker-code-sdk';
+export { formatErrorMessage, formatErrorPayload } from '@pymodel/pythinker-code-sdk';
 
 export function appendStreamingArgsPreview(
   current: string | undefined,

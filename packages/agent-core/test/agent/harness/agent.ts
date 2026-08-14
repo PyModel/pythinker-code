@@ -2,8 +2,8 @@ import { EventEmitter } from 'node:events';
 import { Readable, type Writable } from 'node:stream';
 
 import { createControlledPromise } from '@antfu/utils';
-import { type Environment, type Kaos, type KaosProcess } from '@pythoughts/kaos';
-import type { ModelCapability, ProviderConfig } from '@pythoughts/kosong';
+import { type Environment, type Kaos, type KaosProcess } from '@pymodel/kaos';
+import type { ModelCapability, ProviderConfig } from '@pymodel/kosong';
 import { expect, onTestFinished, vi } from 'vitest';
 
 import {

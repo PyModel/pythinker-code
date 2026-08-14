@@ -2,7 +2,7 @@
  * `pythinker acp`
  *
  * Verifies that the ACP sub-command is registered on the program and
- * that the action wires the harness into `@pythoughts/acp-adapter`'s
+ * that the action wires the harness into `@pymodel/acp-adapter`'s
  * `runAcpServer` (the real server is stubbed so the test doesn't
  * actually take over stdio).
  */
@@ -10,12 +10,12 @@
 import { Command } from 'commander';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('@pythoughts/acp-adapter', () => ({
+vi.mock('@pymodel/acp-adapter', () => ({
   ACP_BUILTIN_SLASH_COMMANDS: [],
   runAcpServer: vi.fn(async () => undefined),
 }));
 
-import { runAcpServer } from '@pythoughts/acp-adapter';
+import { runAcpServer } from '@pymodel/acp-adapter';
 
 import { registerAcpCommand } from '#/cli/sub/acp';
 
@@ -189,7 +189,7 @@ describe('pythinker acp', () => {
         })) as unknown as typeof actual.spinner,
       };
     });
-    vi.doMock(import('@pythoughts/pythinker-code-sdk'), async (importOriginal) => {
+    vi.doMock(import('@pymodel/pythinker-code-sdk'), async (importOriginal) => {
       const actual = await importOriginal();
       return {
         ...actual,
@@ -216,7 +216,7 @@ describe('pythinker acp', () => {
       expect(exitSpy).toHaveBeenCalled();
     } finally {
       vi.doUnmock('@clack/prompts');
-      vi.doUnmock('@pythoughts/pythinker-code-sdk');
+      vi.doUnmock('@pymodel/pythinker-code-sdk');
       if (originalAcpIsTTY === undefined) {
         delete (process.stdin as { isTTY?: boolean }).isTTY;
       } else {

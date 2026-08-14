@@ -9,7 +9,7 @@ import { refreshAllProviderModels } from '../../../src/tui/utils/refresh-provide
 import {
   createPythinkerHarness,
   type PythinkerConfig,
-} from '@pythoughts/pythinker-code-sdk';
+} from '@pymodel/pythinker-code-sdk';
 
 type FetchMock = (
   input: Parameters<typeof fetch>[0],

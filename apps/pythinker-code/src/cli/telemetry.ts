@@ -1,4 +1,4 @@
-import { createPythinkerDeviceId } from '@pythoughts/pythinker-code-oauth';
+import { createPythinkerDeviceId } from '@pymodel/pythinker-code-oauth';
 import {
   loadRuntimeConfigSafe,
   resolveConfigPath,
@@ -6,13 +6,13 @@ import {
   type PythinkerConfig,
   type PythinkerHarness,
   type TelemetryClient,
-} from '@pythoughts/pythinker-code-sdk';
+} from '@pymodel/pythinker-code-sdk';
 import {
   initializeTelemetry,
   setTelemetryContext,
   track,
   withTelemetryContext,
-} from '@pythoughts/pythinker-telemetry';
+} from '@pymodel/pythinker-telemetry';
 
 import { CLI_USER_AGENT_PRODUCT, WEB_UI_MODE } from '#/constant/app';
 
@@ -74,7 +74,7 @@ export interface InitializeServerTelemetryOptions {
  * events, …) actually leave the process carrying the enriched context
  * (`app_name` / `version` / `ui_mode` / `model` / platform fields).
  *
- * The returned client wraps the `@pythoughts/pythinker-telemetry` module
+ * The returned client wraps the `@pymodel/pythinker-telemetry` module
  * functions, so the module-level `track` / `withTelemetryContext` (used to
  * fire the startup event) share the same underlying client + sink.
  */

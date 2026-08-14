@@ -3,7 +3,7 @@ import {
   writeSavedWorkflowSkill,
   type PermissionMode,
   type SavedWorkflowScope,
-} from '@pythoughts/pythinker-code-sdk';
+} from '@pymodel/pythinker-code-sdk';
 
 import { getDataDir } from '#/utils/paths';
 import {

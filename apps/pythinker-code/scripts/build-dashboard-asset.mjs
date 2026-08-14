@@ -26,7 +26,7 @@ try {
   // runners (.github/workflows/_native-build.yml), which run this generator.
   // A single command string (not an args array) avoids the args+shell
   // deprecation; the command is static (no injection surface).
-  execSync('pnpm --filter @pythoughts/dashboard-web exec vite build', {
+  execSync('pnpm --filter @pymodel/dashboard-web exec vite build', {
     stdio: 'inherit',
     cwd: repoRoot,
     env: { ...process.env, DASHBOARD_SINGLEFILE: '1' },

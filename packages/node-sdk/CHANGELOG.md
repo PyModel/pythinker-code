@@ -1,4 +1,4 @@
-# @pythoughts/pythinker-code-sdk
+# @pymodel/pythinker-code-sdk
 
 ## 0.15.0
 

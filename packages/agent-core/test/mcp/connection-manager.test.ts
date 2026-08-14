@@ -5,7 +5,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { testKaos } from '../fixtures/test-kaos';
-import type { ProviderConfig } from '@pythoughts/kosong';
+import type { ProviderConfig } from '@pymodel/kosong';
 import { describe, expect, it, vi } from 'vitest';
 
 import { randomUUID } from 'node:crypto';

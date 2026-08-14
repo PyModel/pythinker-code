@@ -1,5 +1,5 @@
-import type { PythinkerHostIdentity } from '@pythoughts/pythinker-code-oauth';
-import { type PythinkerHarness, type Session, type Event } from '@pythoughts/pythinker-code-sdk';
+import type { PythinkerHostIdentity } from '@pymodel/pythinker-code-oauth';
+import { type PythinkerHarness, type Session, type Event } from '@pymodel/pythinker-code-sdk';
 
 export function smokeIdentityFromEnv(): PythinkerHostIdentity {
   const version = process.env['PYTHINKER_CODE_SMOKE_VERSION'];

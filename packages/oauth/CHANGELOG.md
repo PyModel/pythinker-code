@@ -1,4 +1,4 @@
-# @pythoughts/pythinker-code-oauth
+# @pymodel/pythinker-code-oauth
 
 ## 0.2.2
 

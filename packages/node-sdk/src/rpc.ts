@@ -18,8 +18,8 @@ import {
   type ToolCallRequest,
   type ToolCallResponse,
   type DynamicWorkflowModeTrigger,
-} from '@pythoughts/agent-core';
-import type { Kaos } from '@pythoughts/kaos';
+} from '@pymodel/agent-core';
+import type { Kaos } from '@pymodel/kaos';
 
 import type { ApprovalHandler, QuestionHandler } from '#/events';
 import type {

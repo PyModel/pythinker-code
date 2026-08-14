@@ -1,4 +1,4 @@
-# @pythoughts/server
+# @pymodel/server
 
 Local REST + WebSocket server that exposes the Pythinker Code SDK over a stable wire
 protocol. It hosts `agent-core` sessions and serves them under a single
@@ -23,9 +23,9 @@ pnpm dev:server
 pnpm dev:server:restart
 
 # Checks
-pnpm --filter @pythoughts/server typecheck   # tsc --noEmit
-pnpm --filter @pythoughts/server test        # vitest run
-pnpm --filter @pythoughts/server build       # tsdown
+pnpm --filter @pymodel/server typecheck   # tsc --noEmit
+pnpm --filter @pymodel/server test        # vitest run
+pnpm --filter @pymodel/server build       # tsdown
 ```
 
 The public entry point is `startServer(opts)` in `src/start.ts`, which returns a
@@ -45,11 +45,11 @@ apps/pythinker-code (CLI)            apps/pythinker-web (browser)
         └──────────┬───────────────────┘
                    │  REST + WebSocket, /api/v1
         ┌──────────▼───────────┐
-        │  @pythoughts/server │
+        │  @pymodel/server │
         │  Fastify REST        │
         │  ws gateway          │
-        │  DI container        │  ← @pythoughts/agent-core
-        │  agent-core sessions │  ← @pythoughts/agent-core
+        │  DI container        │  ← @pymodel/agent-core
+        │  agent-core sessions │  ← @pymodel/agent-core
         └──────────────────────┘
 ```
 
@@ -60,7 +60,7 @@ apps/pythinker-code (CLI)            apps/pythinker-web (browser)
   `server_hello` / `ack` / `event` / `resync_required` frames, replay and
   fan-out.
 - **DI** (`src/services/serviceCollection.ts`): seeds the container from
-  `@pythoughts/agent-core` (`getSingletonServiceDescriptors()`) and layers in
+  `@pymodel/agent-core` (`getSingletonServiceDescriptors()`) and layers in
   server-owned gateways plus `IApprovalService` / `IQuestionService`
   implementations.
 - **OS service managers** (`src/svc/`): launchd / systemd / schtasks backends
@@ -78,12 +78,12 @@ apps/pythinker-code (CLI)            apps/pythinker-web (browser)
 
 ## Related packages
 
-- `@pythoughts/agent-core` — the agent engine the server hosts, including the
+- `@pymodel/agent-core` — the agent engine the server hosts, including the
   in-process DI service layer it wires together.
-- `@pythoughts/protocol` — wire types and the AsyncAPI document.
-- `@pythoughts/node-sdk` — typed in-process facade for user code
+- `@pymodel/protocol` — wire types and the AsyncAPI document.
+- `@pymodel/node-sdk` — typed in-process facade for user code
   (`PythinkerHarness`, `Session`); prefer it over hand-rolling REST/WS calls.
-- `@pythoughts/server-e2e` — wire-level e2e client and scenarios against a
+- `@pymodel/server-e2e` — wire-level e2e client and scenarios against a
   running server.
 
 ## Development

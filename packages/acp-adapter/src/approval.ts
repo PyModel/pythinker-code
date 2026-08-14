@@ -4,7 +4,7 @@ import type {
   ToolCallContent,
   ToolCallUpdate,
 } from '@agentclientprotocol/sdk';
-import type { ApprovalRequest, ApprovalResponse } from '@pythoughts/pythinker-code-sdk';
+import type { ApprovalRequest, ApprovalResponse } from '@pymodel/pythinker-code-sdk';
 
 import { displayBlockToAcpContent } from './convert';
 import { acpToolCallId } from './events-map';

@@ -8,7 +8,7 @@ import type {
   ModelCatalogItem,
   ProviderCatalogItem,
   SetDefaultModelResponse,
-} from '@pythoughts/protocol';
+} from '@pymodel/protocol';
 import { ICoreProcessService } from '../coreProcess/coreProcess';
 import {
   IModelCatalogService,

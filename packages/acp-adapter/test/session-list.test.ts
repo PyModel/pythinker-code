@@ -13,7 +13,7 @@ import {
   type WriteTextFileRequest,
   type WriteTextFileResponse,
 } from '@agentclientprotocol/sdk';
-import type { PythinkerHarness, SessionSummary } from '@pythoughts/pythinker-code-sdk';
+import type { PythinkerHarness, SessionSummary } from '@pymodel/pythinker-code-sdk';
 
 import { AcpServer } from '../src/server';
 import { AUTHED } from './_helpers/harness-stubs';

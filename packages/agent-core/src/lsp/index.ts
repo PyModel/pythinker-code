@@ -1,6 +1,6 @@
 import { posix, win32 } from 'node:path';
 
-import type { Kaos, KaosProcess } from '@pythoughts/kaos';
+import type { Kaos, KaosProcess } from '@pymodel/kaos';
 
 import { abortable } from '../utils/abort';
 import type { LspServerConfig, LspServerConfigs } from './types';

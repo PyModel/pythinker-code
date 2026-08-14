@@ -1,4 +1,4 @@
-import { createPythinkerHarness, type PermissionMode } from '@pythoughts/pythinker-code-sdk';
+import { createPythinkerHarness, type PermissionMode } from '@pymodel/pythinker-code-sdk';
 
 import {
   smokeIdentityFromEnv,

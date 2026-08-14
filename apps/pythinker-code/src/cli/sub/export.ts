@@ -12,7 +12,7 @@ import {
   shutdownTelemetry,
   track,
   withTelemetryContext,
-} from '@pythoughts/pythinker-telemetry';
+} from '@pymodel/pythinker-telemetry';
 import {
   createPythinkerHarness,
   type ExportSessionInput,
@@ -21,7 +21,7 @@ import {
   type SessionSummary,
   type ShellEnvironment,
   type TelemetryClient,
-} from '@pythoughts/pythinker-code-sdk';
+} from '@pymodel/pythinker-code-sdk';
 import type { Command } from 'commander';
 
 import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_UI_MODE } from '#/constant/app';

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { CoreAPI, RPCMethods } from '@pythoughts/agent-core';
+import type { CoreAPI, RPCMethods } from '@pymodel/agent-core';
 
 import type { SessionStatus, SetSessionDynamicWorkflowModeRpcInput } from '../src/index';
 import { SDKRpcClientBase } from '../src/rpc';

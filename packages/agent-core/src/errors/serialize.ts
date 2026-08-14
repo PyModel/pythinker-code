@@ -5,7 +5,7 @@ import {
   APIStatusError,
   APITimeoutError,
   ChatProviderError,
-} from '@pythoughts/kosong';
+} from '@pymodel/kosong';
 
 import { PythinkerError } from './classes';
 import { ErrorCodes, PYTHINKER_ERROR_INFO, type PythinkerErrorCode } from './codes';

@@ -1,7 +1,7 @@
 import {
   resolveWorkflowSizeGuideline,
   type WorkflowSizeGuideline,
-} from '@pythoughts/pythinker-code-sdk';
+} from '@pymodel/pythinker-code-sdk';
 
 const DISABLE_WORKFLOWS_ENV = 'PYTHINKER_CODE_DISABLE_WORKFLOWS';
 const TRUE_ENV_VALUES = new Set(['1', 'true', 'yes', 'on']);

@@ -3,7 +3,7 @@
  */
 
 import { Disposable, InstantiationType, registerSingleton } from '../../di';
-import type { McpServer } from '@pythoughts/protocol';
+import type { McpServer } from '@pymodel/protocol';
 
 import { ICoreProcessService } from '../coreProcess/coreProcess';
 import {

@@ -1,7 +1,7 @@
 import type * as vscode from "vscode";
 import type { FileManager } from "../managers/file.manager";
 import type { BaselineManager } from "../managers/baseline.manager";
-import type { PythinkerHarness } from "@pythoughts/pythinker-code-sdk";
+import type { PythinkerHarness } from "@pymodel/pythinker-code-sdk";
 import type { PythinkerRuntime } from "../runtime/pythinker-runtime";
 import type { SessionRuntime } from "../runtime/session-runtime";
 

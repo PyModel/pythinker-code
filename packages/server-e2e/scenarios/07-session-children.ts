@@ -12,7 +12,7 @@
  */
 import assert from 'node:assert/strict';
 
-import { ErrorCode } from '@pythoughts/protocol';
+import { ErrorCode } from '@pymodel/protocol';
 
 import { DaemonClient, EnvelopeError } from '../src/index';
 

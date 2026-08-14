@@ -2,14 +2,14 @@ import {
   buildSkillSlashCommands,
   isUserActivatableSkill,
   type Session,
-} from '@pythoughts/pythinker-code-sdk';
+} from '@pymodel/pythinker-code-sdk';
 
 import { NO_ACTIVE_SESSION_MESSAGE } from '../constant/pythinker-tui';
 import type { SlashCommandHost } from './dispatch';
 
 export type SkillListSession = Pick<Session, 'listSkills'>;
 
-export type { SkillSlashCommands } from '@pythoughts/pythinker-code-sdk';
+export type { SkillSlashCommands } from '@pymodel/pythinker-code-sdk';
 export { buildSkillSlashCommands, isUserActivatableSkill };
 
 export async function handleSkillsCommand(

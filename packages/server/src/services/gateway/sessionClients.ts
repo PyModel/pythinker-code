@@ -1,5 +1,5 @@
 
-import { createDecorator } from '@pythoughts/agent-core';
+import { createDecorator } from '@pymodel/agent-core';
 import type { WsConnection } from '#/ws/connection';
 
 export interface ISessionClientsService {

@@ -1,6 +1,6 @@
 import { readFile, mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { McpServerConfigSchema } from '@pythoughts/agent-core';
+import { McpServerConfigSchema } from '@pymodel/agent-core';
 import { atomicWrite } from '../atomic-write.js';
 import { siblingMcpJson, sourceMcpJson, targetMcpFile } from '../paths.js';
 

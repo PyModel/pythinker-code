@@ -35,7 +35,7 @@ When a controller or `PythinkerTUI` section keeps growing, split pure functions,
 The feature type decides the landing spot:
 
 - **CLI arguments** → `src/cli/commands.ts` / `src/cli/options.ts`, passed into the TUI via `src/cli/run-shell.ts`. The CLI never operates on the session directly.
-- **CLI subcommands** → `src/cli/sub/`, non-interactive only; reach core via `@pythoughts/pythinker-code-sdk`.
+- **CLI subcommands** → `src/cli/sub/`, non-interactive only; reach core via `@pymodel/pythinker-code-sdk`.
 - **Slash commands** → declare/parse/type under `src/tui/commands/`; add the execution entry in `PythinkerTUI`'s slash-command handler section; sink complex logic into `utils` or a focused component.
 - **Skill-derived commands** → hook into `buildSkillSlashCommands` / the skill command map; do not hard-code a single skill.
 - **Transcript message types** → define the shape in `src/tui/types.ts`, add/extend a `components/messages/` component, register the renderer in the transcript builder.

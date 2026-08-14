@@ -1,4 +1,4 @@
-import type { Message, Tool as LLMTool } from '@pythoughts/kosong';
+import type { Message, Tool as LLMTool } from '@pymodel/kosong';
 import { expect } from 'vitest';
 
 import { AGENT_WIRE_PROTOCOL_VERSION } from '../../../src/agent/records';

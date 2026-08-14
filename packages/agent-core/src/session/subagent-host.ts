@@ -4,7 +4,7 @@ import {
   APIProviderRateLimitError,
   isProviderRateLimitError,
   type TokenUsage,
-} from '@pythoughts/kosong';
+} from '@pymodel/kosong';
 
 import type { Agent } from '../agent';
 import type { PromptOrigin } from '../agent/context';

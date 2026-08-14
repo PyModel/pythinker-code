@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import type { PermissionMode, PythinkerHarness } from "@pythoughts/pythinker-code-sdk";
+import type { PermissionMode, PythinkerHarness } from "@pymodel/pythinker-code-sdk";
 import { Events } from "../shared/bridge";
 import { BridgeHandler } from "./bridge-handler";
 

@@ -1,4 +1,4 @@
-import type { Message } from '@pythoughts/kosong';
+import type { Message } from '@pymodel/kosong';
 import { describe, expect, it } from 'vitest';
 
 import { renderNotificationXml } from '../../src/agent/context/notification-xml';

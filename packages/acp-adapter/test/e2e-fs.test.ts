@@ -35,8 +35,8 @@ import {
   type WriteTextFileRequest,
   type WriteTextFileResponse,
 } from '@agentclientprotocol/sdk';
-import type { Kaos } from '@pythoughts/kaos';
-import type { Event, PythinkerHarness, Session } from '@pythoughts/pythinker-code-sdk';
+import type { Kaos } from '@pymodel/kaos';
+import type { Event, PythinkerHarness, Session } from '@pymodel/pythinker-code-sdk';
 import { describe, expect, it } from 'vitest';
 
 import { AcpServer } from '../src/server';

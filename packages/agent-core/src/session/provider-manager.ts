@@ -1,14 +1,14 @@
 import type { Logger } from '#/logging/types';
-import type { ProviderConfig as KosongProviderConfig, ModelCapability, ProviderRequestAuth } from '@pythoughts/kosong';
+import type { ProviderConfig as KosongProviderConfig, ModelCapability, ProviderRequestAuth } from '@pymodel/kosong';
 import {
   createProvider,
   getModelCapability,
   UNKNOWN_CAPABILITY,
-} from '@pythoughts/kosong';
+} from '@pymodel/kosong';
 import {
   inferAnthropicModelProfile,
   type AnthropicModelProfile,
-} from '@pythoughts/kosong/providers/anthropic-profile';
+} from '@pymodel/kosong/providers/anthropic-profile';
 import {
   resolveProviderApiKey,
   type ModelAlias,

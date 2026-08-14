@@ -8,7 +8,7 @@
  */
 
 import { truncateToWidth, type Component } from '@earendil-works/pi-tui';
-import type { GoalChange } from '@pythoughts/pythinker-code-sdk';
+import type { GoalChange } from '@pymodel/pythinker-code-sdk';
 
 import { STATUS_BULLET } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';

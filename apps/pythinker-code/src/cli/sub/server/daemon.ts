@@ -22,7 +22,7 @@ import { createRequire } from 'node:module';
 import { createServer } from 'node:net';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 
-import { DEFAULT_LOCK_DIR, getLiveLock, type LockContents } from '@pythoughts/server';
+import { DEFAULT_LOCK_DIR, getLiveLock, type LockContents } from '@pymodel/server';
 
 import {
   DEFAULT_SERVER_HOST,

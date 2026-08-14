@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   FsPathEscapesError,
   resolveSafePath,
-} from '@pythoughts/agent-core';
+} from '@pymodel/agent-core';
 
 let tmpDir: string;
 let cwd: string;

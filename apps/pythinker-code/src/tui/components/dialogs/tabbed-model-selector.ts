@@ -13,7 +13,7 @@
  * AskUserQuestion dialog's tab strip) — see .agents/skills/write-tui/DESIGN.md.
  */
 
-import type { ModelAlias } from '@pythoughts/pythinker-code-sdk';
+import type { ModelAlias } from '@pymodel/pythinker-code-sdk';
 import {
   Container,
   truncateToWidth,

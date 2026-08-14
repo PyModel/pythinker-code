@@ -5,7 +5,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { ContentPart } from '@pythoughts/kosong';
+import type { ContentPart } from '@pymodel/kosong';
 
 import { CronManager } from '../../../src/agent/cron/manager';
 import type { ClockSources } from '../../../src/tools/cron/clock';

@@ -31,11 +31,11 @@ export default defineConfig({
   sourcemap: false,
   plugins: [rawTextPlugin()],
   alias: {
-    '@pythoughts/pythinker-code-sdk': resolve(root, '../../packages/node-sdk/src/index.ts'),
-    '@pythoughts/agent-core': resolve(root, '../../packages/agent-core/src/index.ts'),
-    '@pythoughts/kaos': resolve(root, '../../packages/kaos/src/index.ts'),
-    '@pythoughts/pythinker-code-oauth': resolve(root, '../../packages/oauth/src/index.ts'),
-    '@pythoughts/kosong': resolve(root, '../../packages/kosong/src/index.ts'),
+    '@pymodel/pythinker-code-sdk': resolve(root, '../../packages/node-sdk/src/index.ts'),
+    '@pymodel/agent-core': resolve(root, '../../packages/agent-core/src/index.ts'),
+    '@pymodel/kaos': resolve(root, '../../packages/kaos/src/index.ts'),
+    '@pymodel/pythinker-code-oauth': resolve(root, '../../packages/oauth/src/index.ts'),
+    '@pymodel/kosong': resolve(root, '../../packages/kosong/src/index.ts'),
   },
   define: {
     __EXTENSION_VERSION__: JSON.stringify(pkg.version),
@@ -51,7 +51,7 @@ export default defineConfig({
   },
   deps: {
     onlyBundle: false,
-    alwaysBundle: [/^@pythoughts\//, 'zod', 'diff'],
+    alwaysBundle: [/^@pymodel\//, 'zod', 'diff'],
     neverBundle: ['vscode'],
   },
   outputOptions: {

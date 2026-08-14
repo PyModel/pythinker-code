@@ -13,7 +13,7 @@ import type {
   FsStatManyRequest,
   FsStatManyResponse,
   FsStatRequest,
-} from '@pythoughts/protocol';
+} from '@pymodel/protocol';
 
 export class FsPathNotFoundError extends Error {
   readonly inputPath: string;

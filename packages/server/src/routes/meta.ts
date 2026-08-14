@@ -19,12 +19,12 @@
  * `getServerVersion()` — no indirection through services or agent-core.
  */
 
-import { metaResponseSchema } from '@pythoughts/protocol';
+import { metaResponseSchema } from '@pymodel/protocol';
 
 import { getAvailableOpenInApps } from '../lib/fileLaunch';
 import { okEnvelope } from '../envelope';
 import { defineRoute } from '../middleware/defineRoute';
-import type { MetaResponse } from '@pythoughts/protocol';
+import type { MetaResponse } from '@pymodel/protocol';
 
 /**
  * Minimal structural shape for the Fastify instance — just the verbs this

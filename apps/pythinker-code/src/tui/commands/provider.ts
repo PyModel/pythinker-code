@@ -3,13 +3,13 @@ import {
   fetchCustomRegistry,
   type CustomRegistrySource,
   type PlatformConfigShape,
-} from '@pythoughts/pythinker-code-oauth';
+} from '@pymodel/pythinker-code-oauth';
 import {
   CatalogFetchError,
   DEFAULT_CATALOG_URL,
   fetchCatalog,
   type Catalog,
-} from '@pythoughts/pythinker-code-sdk';
+} from '@pymodel/pythinker-code-sdk';
 
 import { ChoicePickerComponent } from '../components/dialogs/choice-picker';
 import {

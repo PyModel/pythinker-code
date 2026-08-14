@@ -99,13 +99,13 @@ web UI of the `pythinker` CLI (`apps/pythinker-code`).
    `scripts/copy-web-assets.mjs`, which copies `apps/pythinker-web/dist` into
    `apps/pythinker-code/dist-web`.
 4. **Publish** — the root `.github/workflows/release.yml` publishes
-   `@pythoughts/pythinker-code` to npm; `dist-web` is listed in the package `files`
+   `@pymodel/pythinker-code` to npm; `dist-web` is listed in the package `files`
    array, so the built web assets travel with the CLI package.
 5. **Serve** — `pythinker server run` / `pythinker web` serves `dist-web` from the
    installed package.
 
 The web UI does not display its own package version or build commit. It is
-bundled into the CLI package and follows the published `@pythoughts/pythinker-code`
+bundled into the CLI package and follows the published `@pymodel/pythinker-code`
 release.
 
 ### Suggested improvements

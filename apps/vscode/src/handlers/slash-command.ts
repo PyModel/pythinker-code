@@ -8,7 +8,7 @@ import {
   buildSkillSlashCommands,
   type PermissionMode,
   type SkillSummary,
-} from "@pythoughts/pythinker-code-sdk";
+} from "@pymodel/pythinker-code-sdk";
 
 import type { PermissionModeTarget } from "../runtime/permission-mode";
 import type { SessionRuntime } from "../runtime/session-runtime";

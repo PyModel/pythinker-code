@@ -14,10 +14,10 @@ const apiExtractorBinPath = packageBinPath('@microsoft/api-extractor', 'bin/api-
 
 const packageDirs = new Set(['agent-core', 'kaos', 'kosong', 'node-sdk', 'oauth']);
 const workspacePackages = new Map([
-  ['@pythoughts/agent-core', 'agent-core'],
-  ['@pythoughts/kaos', 'kaos'],
-  ['@pythoughts/pythinker-code-oauth', 'oauth'],
-  ['@pythoughts/kosong', 'kosong'],
+  ['@pymodel/agent-core', 'agent-core'],
+  ['@pymodel/kaos', 'kaos'],
+  ['@pymodel/pythinker-code-oauth', 'oauth'],
+  ['@pymodel/kosong', 'kosong'],
 ]);
 
 try {

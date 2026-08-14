@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { isPythinkerError, type PermissionMode } from "@pythoughts/pythinker-code-sdk";
+import { isPythinkerError, type PermissionMode } from "@pymodel/pythinker-code-sdk";
 
 import { Events, Methods } from "../../shared/bridge";
 import type { ApprovalResponse, ContentPart } from "../../shared/legacy-sdk";

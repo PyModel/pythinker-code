@@ -16,8 +16,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { pino } from 'pino';
-import { encodeWorkDirKey } from '@pythoughts/agent-core/session/store';
-import type { Session, Workspace } from '@pythoughts/protocol';
+import { encodeWorkDirKey } from '@pymodel/agent-core/session/store';
+import type { Session, Workspace } from '@pymodel/protocol';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { IRestGateway, startServer, type RunningServer } from '../src';

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ErrorCodes, PythinkerError } from '@pythoughts/pythinker-code-sdk';
+import { ErrorCodes, PythinkerError } from '@pymodel/pythinker-code-sdk';
 
 import { OptionConflictError, validateOptions } from '#/cli/options';
 import type { CLIOptions } from '#/cli/options';
@@ -56,7 +56,7 @@ const mocks = vi.hoisted(() => {
   };
 });
 
-vi.mock('@pythoughts/pythinker-telemetry', () => ({
+vi.mock('@pymodel/pythinker-telemetry', () => ({
   installCrashHandlers: mocks.installCrashHandlers,
   track: mocks.track,
   setTelemetryContext: mocks.setTelemetryContext,
@@ -64,9 +64,9 @@ vi.mock('@pythoughts/pythinker-telemetry', () => ({
   shutdownTelemetry: mocks.shutdownTelemetry,
 }));
 
-vi.mock('@pythoughts/pythinker-code-sdk', async () => {
-  const actual = await vi.importActual<typeof import('@pythoughts/pythinker-code-sdk')>(
-    '@pythoughts/pythinker-code-sdk',
+vi.mock('@pymodel/pythinker-code-sdk', async () => {
+  const actual = await vi.importActual<typeof import('@pymodel/pythinker-code-sdk')>(
+    '@pymodel/pythinker-code-sdk',
   );
   class MockPythinkerHarness {
     readonly homeDir = mocks.harness.homeDir;

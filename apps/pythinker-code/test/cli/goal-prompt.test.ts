@@ -107,8 +107,8 @@ const mocks = vi.hoisted(() => {
   };
 });
 
-vi.mock('@pythoughts/pythinker-code-sdk', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@pythoughts/pythinker-code-sdk')>();
+vi.mock('@pymodel/pythinker-code-sdk', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@pymodel/pythinker-code-sdk')>();
   return {
     ...actual,
     createPythinkerHarness: () => ({
@@ -127,7 +127,7 @@ vi.mock('@pythoughts/pythinker-code-sdk', async (importOriginal) => {
   };
 });
 
-vi.mock('@pythoughts/pythinker-telemetry', () => ({
+vi.mock('@pymodel/pythinker-telemetry', () => ({
   initializeTelemetry: vi.fn(),
   setCrashPhase: vi.fn(),
   shutdownTelemetry: vi.fn(),

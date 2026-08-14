@@ -7,7 +7,7 @@ import type {
   ResumedAgentState,
   Session,
   ToolCall,
-} from '@pythoughts/pythinker-code-sdk';
+} from '@pymodel/pythinker-code-sdk';
 
 import { ToolCallComponent } from '../components/messages/tool-call';
 import type {

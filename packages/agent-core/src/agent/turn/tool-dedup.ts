@@ -1,4 +1,4 @@
-import type { ContentPart } from '@pythoughts/kosong';
+import type { ContentPart } from '@pymodel/kosong';
 
 import { parseToolCallArguments } from '../../loop/tool-call';
 import type { TelemetryClient } from '../../telemetry';

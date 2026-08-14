@@ -50,7 +50,7 @@ import type {
   Event,
   PythinkerHarness,
   Session,
-} from '@pythoughts/pythinker-code-sdk';
+} from '@pymodel/pythinker-code-sdk';
 
 import { APPROVE_ONCE_OPTION_ID } from '../src/approval';
 import { AcpServer } from '../src/server';

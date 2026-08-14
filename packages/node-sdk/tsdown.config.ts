@@ -20,10 +20,10 @@ export default defineConfig({
     ].join('\n'),
   },
   alias: {
-    '@pythoughts/agent-core': fileURLToPath(new URL('../agent-core/src/index.ts', import.meta.url)),
-    '@pythoughts/kaos': fileURLToPath(new URL('../kaos/src/index.ts', import.meta.url)),
-    '@pythoughts/pythinker-code-oauth': fileURLToPath(new URL('../oauth/src/index.ts', import.meta.url)),
-    '@pythoughts/kosong': fileURLToPath(new URL('../kosong/src/index.ts', import.meta.url)),
+    '@pymodel/agent-core': fileURLToPath(new URL('../agent-core/src/index.ts', import.meta.url)),
+    '@pymodel/kaos': fileURLToPath(new URL('../kaos/src/index.ts', import.meta.url)),
+    '@pymodel/pythinker-code-oauth': fileURLToPath(new URL('../oauth/src/index.ts', import.meta.url)),
+    '@pymodel/kosong': fileURLToPath(new URL('../kosong/src/index.ts', import.meta.url)),
   },
   deps: {
     alwaysBundle: [/^@pythoughts\//],

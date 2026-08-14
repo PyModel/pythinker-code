@@ -1,4 +1,4 @@
-import { isProviderRateLimitError, type TokenUsage } from '@pythoughts/kosong';
+import { isProviderRateLimitError, type TokenUsage } from '@pymodel/kosong';
 import * as retry from 'retry';
 
 import type {

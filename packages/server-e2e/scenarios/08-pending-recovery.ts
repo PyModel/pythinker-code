@@ -10,7 +10,7 @@
  */
 import assert from 'node:assert/strict';
 
-import type { QuestionAnswer } from '@pythoughts/protocol';
+import type { QuestionAnswer } from '@pymodel/protocol';
 
 import { DaemonClient, type AnyFrame } from '../src/index';
 

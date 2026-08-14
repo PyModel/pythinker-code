@@ -12,7 +12,7 @@ import { join } from 'node:path';
 import { pino } from 'pino';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { ISessionService, FsSearchService, ILogService } from '@pythoughts/agent-core';
+import { ISessionService, FsSearchService, ILogService } from '@pymodel/agent-core';
 
 import { IRestGateway, startServer, type RunningServer } from '../src';
 
@@ -438,13 +438,13 @@ describe('FsSearchService direct: rg fallback + grep timeout (W11.1)', () => {
     class StubTimeout extends FsSearchService {
       protected override async grepWithNode(
         _cwd: string,
-        _req: import('@pythoughts/protocol').FsGrepRequest,
+        _req: import('@pymodel/protocol').FsGrepRequest,
         _signal: AbortSignal,
         startedAt: number,
-      ): Promise<import('@pythoughts/protocol').FsGrepResponse> {
+      ): Promise<import('@pymodel/protocol').FsGrepResponse> {
 
         throw new (
-          await import('@pythoughts/agent-core')
+          await import('@pymodel/agent-core')
         ).FsGrepTimeoutError(Date.now() - startedAt);
       }
       public override probeRg(): Promise<string | null> {

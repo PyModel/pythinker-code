@@ -7,7 +7,7 @@
  * the LLM call, during tool execution, between steps, and during a hook.
  */
 
-import { inputTotal } from '@pythoughts/kosong';
+import { inputTotal } from '@pymodel/kosong';
 import { describe, expect, it } from 'vitest';
 
 import type { LLMChatResponse, LoopHooks } from '../../src/loop/index';

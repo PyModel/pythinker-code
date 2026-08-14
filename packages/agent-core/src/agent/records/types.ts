@@ -1,4 +1,4 @@
-import type { ContentPart, TokenUsage } from '@pythoughts/kosong';
+import type { ContentPart, TokenUsage } from '@pymodel/kosong';
 
 import type { LoopRecordedEvent } from '../../loop';
 import type { GoalActor, GoalBudgetLimits, GoalStatus } from '../goal';

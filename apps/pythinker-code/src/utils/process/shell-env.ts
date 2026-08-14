@@ -1,4 +1,4 @@
-import type { ShellEnvironment } from '@pythoughts/pythinker-code-sdk';
+import type { ShellEnvironment } from '@pymodel/pythinker-code-sdk';
 
 function detectMultiplexer(): string | undefined {
   if (process.env['TMUX']) return 'tmux';

@@ -28,7 +28,7 @@ import type { SessionSummary } from '../../rpc';
 import type {
   Message,
   PageResponse,
-} from '@pythoughts/protocol';
+} from '@pymodel/protocol';
 
 import { ICoreProcessService } from '../coreProcess/coreProcess';
 import { SessionNotFoundError } from '../session/session';

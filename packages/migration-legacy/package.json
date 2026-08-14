@@ -1,5 +1,5 @@
 {
-  "name": "@pythoughts/migration-legacy",
+  "name": "@pymodel/migration-legacy",
   "version": "0.1.13",
   "description": "Migrate pythinker-cli (~/.pythinker/) data into pythinker-code (~/.pythinker-code/).",
   "license": "MIT",
@@ -27,11 +27,11 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@pythoughts/agent-core": "workspace:^",
+    "@pymodel/agent-core": "workspace:^",
     "smol-toml": "^1.7.1",
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@pythoughts/kaos": "workspace:^"
+    "@pymodel/kaos": "workspace:^"
   }
 }

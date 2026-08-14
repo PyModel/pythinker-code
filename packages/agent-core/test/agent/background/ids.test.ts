@@ -5,7 +5,7 @@
 import { Readable } from 'node:stream';
 import type { Writable } from 'node:stream';
 
-import type { KaosProcess } from '@pythoughts/kaos';
+import type { KaosProcess } from '@pymodel/kaos';
 import { describe, expect, it, vi } from 'vitest';
 
 import { AgentBackgroundTask, BackgroundTaskPersistence } from '../../../src/agent/background';

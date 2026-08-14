@@ -6,7 +6,7 @@ import {
   assertAgentRecord,
   assertAgentWireProtocolVersion,
   parseSessionMetadata,
-} from '@pythoughts/agent-core';
+} from '@pymodel/agent-core';
 
 import { OldSessionStateSchema, type OldSessionState } from '../pythinker-cli-schema.js';
 import { targetSessionsDir } from '../paths.js';

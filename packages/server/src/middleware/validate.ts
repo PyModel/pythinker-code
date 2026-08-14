@@ -18,7 +18,7 @@
  * reach the generic error hook, which only emits 50001 for unknown exceptions.
  */
 
-import { ErrorCode } from '@pythoughts/protocol';
+import { ErrorCode } from '@pymodel/protocol';
 import type { z } from 'zod';
 
 /**

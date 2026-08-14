@@ -14,7 +14,7 @@ import {
   type Event,
   type PythinkerHarness,
   type Session,
-} from "@pythoughts/pythinker-code-sdk";
+} from "@pymodel/pythinker-code-sdk";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {

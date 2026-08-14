@@ -28,7 +28,7 @@ import { posix, win32 } from 'node:path';
 import type { Readable } from 'node:stream';
 import { StringDecoder } from 'node:string_decoder';
 
-import type { Kaos, KaosProcess } from '@pythoughts/kaos';
+import type { Kaos, KaosProcess } from '@pymodel/kaos';
 import { z } from 'zod';
 
 import { ProcessBackgroundTask, type BackgroundManager } from '../../../agent/background';

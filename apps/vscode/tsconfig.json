@@ -11,7 +11,7 @@
     "paths": {
       "@/*": ["./src/*"],
       "shared/*": ["./shared/*"],
-      "@pythoughts/pythinker-code-sdk": ["../../packages/node-sdk/src/index.ts"]
+      "@pymodel/pythinker-code-sdk": ["../../packages/node-sdk/src/index.ts"]
     }
   },
   "include": ["src/**/*", "shared/**/*", "test/**/*"],

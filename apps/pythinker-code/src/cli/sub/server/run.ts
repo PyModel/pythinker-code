@@ -14,8 +14,8 @@
 import { join } from 'node:path';
 
 import { truncateToWidth, visibleWidth } from '@earendil-works/pi-tui';
-import { shutdownTelemetry, track } from '@pythoughts/pythinker-telemetry';
-import { startServer, type RunningServer } from '@pythoughts/server';
+import { shutdownTelemetry, track } from '@pymodel/pythinker-telemetry';
+import { startServer, type RunningServer } from '@pymodel/server';
 import chalk from 'chalk';
 import { Option, type Command } from 'commander';
 

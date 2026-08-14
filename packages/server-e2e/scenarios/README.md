@@ -16,7 +16,7 @@ loader. `tsx` (a workspace devDependency) works out of the box:
 npx tsx packages/server-e2e/scenarios/01-create-and-send.ts
 
 # All scenarios (sequential; first failure exits non-zero)
-pnpm --filter @pythoughts/server-e2e test:scenarios
+pnpm --filter @pymodel/server-e2e test:scenarios
 
 # Custom server URL
 PYTHINKER_SERVER_URL=http://127.0.0.1:8080 npx tsx packages/server-e2e/scenarios/02-tool-call-with-approval.ts

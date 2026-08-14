@@ -1,5 +1,5 @@
-import type { Kaos } from '@pythoughts/kaos';
-import type { ToolCall } from '@pythoughts/kosong';
+import type { Kaos } from '@pymodel/kaos';
+import type { ToolCall } from '@pymodel/kosong';
 import * as posixPath from 'node:path/posix';
 import { describe, expect, it, vi } from 'vitest';
 

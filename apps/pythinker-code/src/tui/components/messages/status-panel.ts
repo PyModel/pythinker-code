@@ -5,7 +5,7 @@
  * separate from the TUI orchestration layer.
  */
 
-import type { ModelAlias, PermissionMode, SessionStatus } from '@pythoughts/pythinker-code-sdk';
+import type { ModelAlias, PermissionMode, SessionStatus } from '@pymodel/pythinker-code-sdk';
 
 import { PRODUCT_NAME } from '#/constant/app';
 import { currentTheme } from '#/tui/theme';

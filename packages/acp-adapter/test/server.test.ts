@@ -14,7 +14,7 @@ import {
   type WriteTextFileRequest,
   type WriteTextFileResponse,
 } from '@agentclientprotocol/sdk';
-import type { PythinkerHarness } from '@pythoughts/pythinker-code-sdk';
+import type { PythinkerHarness } from '@pymodel/pythinker-code-sdk';
 
 import { AcpServer } from '../src/server';
 import { TERMINAL_AUTH_METHOD } from '../src';

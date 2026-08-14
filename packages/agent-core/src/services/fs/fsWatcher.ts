@@ -2,7 +2,7 @@ import type { FSWatcher } from 'chokidar';
 
 import { createDecorator } from '../../di';
 
-import type { FsChangeEntry } from '@pythoughts/protocol';
+import type { FsChangeEntry } from '@pymodel/protocol';
 
 export class FsWatchLimitError extends Error {
   readonly connectionId: string;

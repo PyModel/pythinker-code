@@ -32,8 +32,8 @@ import {
   ErrorCode,
   listPendingApprovalsQuerySchema,
   listPendingApprovalsResponseSchema,
-} from '@pythoughts/protocol';
-import { IApprovalService, approvalToAgentCoreResponse, type IInstantiationService } from '@pythoughts/agent-core';
+} from '@pymodel/protocol';
+import { IApprovalService, approvalToAgentCoreResponse, type IInstantiationService } from '@pymodel/agent-core';
 import { z } from 'zod';
 
 

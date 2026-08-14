@@ -10,7 +10,7 @@ import {
   type ListToolsResult,
   type Tool as McpTool,
 } from '@modelcontextprotocol/sdk/types.js';
-import { emptyUsage, type ContentPart } from '@pythoughts/kosong';
+import { emptyUsage, type ContentPart } from '@pymodel/kosong';
 
 import type { Agent } from '../agent';
 import { runToolCallBatch } from '../loop/tool-call';

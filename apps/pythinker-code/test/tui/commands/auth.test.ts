@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { CatalogProviderEntry, PythinkerConfig } from '@pythoughts/pythinker-code-sdk';
+import type { CatalogProviderEntry, PythinkerConfig } from '@pymodel/pythinker-code-sdk';
 
 import { connectCatalogProvider } from '#/tui/commands/auth';
 import type { SlashCommandHost } from '#/tui/commands/dispatch';
@@ -129,12 +129,12 @@ describe('connectCatalogProvider credential acquisition', () => {
 describe('OpenAI Codex login keeps the existing provider until it is replaced', () => {
   afterEach(() => {
     vi.resetModules();
-    vi.doUnmock('@pythoughts/pythinker-code-oauth');
+    vi.doUnmock('@pymodel/pythinker-code-oauth');
   });
 
   it('leaves the configured provider intact when the model picker is cancelled', async () => {
-    const oauth = await import('@pythoughts/pythinker-code-oauth');
-    vi.doMock('@pythoughts/pythinker-code-oauth', () => ({
+    const oauth = await import('@pymodel/pythinker-code-oauth');
+    vi.doMock('@pymodel/pythinker-code-oauth', () => ({
       ...oauth,
       runOpenAICodexOAuthFlow: vi.fn(async () => ({
         accessToken: 'access',
@@ -144,7 +144,7 @@ describe('OpenAI Codex login keeps the existing provider until it is replaced', 
       fetchOpenAICodexModels: vi.fn(async () => [{ id: 'gpt-5-codex', name: 'GPT-5 Codex' }]),
     }));
     vi.resetModules();
-    const { runLogin } = await import('@pythoughts/pythinker-code-sdk');
+    const { runLogin } = await import('@pymodel/pythinker-code-sdk');
     const { OPENAI_CODEX_OAUTH_PLATFORM_ID, OPENAI_CODEX_PROVIDER_ID } = oauth;
 
     let config = {

@@ -30,8 +30,8 @@ import {
   type FsSearchRequest,
   type FsStatManyRequest,
   type FsStatRequest,
-} from '@pythoughts/protocol';
-import { SessionNotFoundError, FsAlreadyExistsError, FsIsBinaryError, FsIsDirectoryError, FsPathNotFoundError, FsTooLargeError, FsTooManyResultsError, IFsService, FsGrepTimeoutError, IFsSearchService, FsGitUnavailableError, IFsGitService, FsPathEscapesError, type IInstantiationService } from '@pythoughts/agent-core';
+} from '@pymodel/protocol';
+import { SessionNotFoundError, FsAlreadyExistsError, FsIsBinaryError, FsIsDirectoryError, FsPathNotFoundError, FsTooLargeError, FsTooManyResultsError, IFsService, FsGrepTimeoutError, IFsSearchService, FsGitUnavailableError, IFsGitService, FsPathEscapesError, type IInstantiationService } from '@pymodel/agent-core';
 import { z } from 'zod';
 
 
@@ -236,7 +236,7 @@ export function registerFsRoutes(
       );
     }
 
-    let resolved: import('@pythoughts/agent-core').FsDownloadResolved;
+    let resolved: import('@pymodel/agent-core').FsDownloadResolved;
     try {
       resolved = await ix.invokeFunction((a) =>
         a.get(IFsService).resolveDownload(session_id, relPath),

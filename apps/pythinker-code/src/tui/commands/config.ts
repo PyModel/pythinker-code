@@ -10,9 +10,9 @@ import type {
   PythinkerConfig,
   Session,
   WorkspaceDirectory,
-} from '@pythoughts/pythinker-code-sdk';
-import { coerceEffortForModel, effortLevelsForModel } from '@pythoughts/pythinker-code-sdk';
-import { disableTelemetry } from '@pythoughts/pythinker-telemetry';
+} from '@pymodel/pythinker-code-sdk';
+import { coerceEffortForModel, effortLevelsForModel } from '@pymodel/pythinker-code-sdk';
+import { disableTelemetry } from '@pymodel/pythinker-telemetry';
 
 import { ApiKeyInputDialogComponent } from '../components/dialogs/api-key-input-dialog';
 import { ChoicePickerComponent } from '../components/dialogs/choice-picker';

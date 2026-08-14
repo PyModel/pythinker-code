@@ -1,4 +1,4 @@
-import type { PythinkerConfig } from '@pythoughts/pythinker-code-sdk';
+import type { PythinkerConfig } from '@pymodel/pythinker-code-sdk';
 
 import { currentTheme, lightColors } from '#/tui/theme';
 import { loadTuiConfig, type TuiConfig } from '../config';

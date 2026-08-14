@@ -5,7 +5,7 @@ import {
   handleSkillsCommand,
   isUserActivatableSkill,
 } from '#/tui/commands/index';
-import type { SkillSummary } from '@pythoughts/pythinker-code-sdk';
+import type { SkillSummary } from '@pymodel/pythinker-code-sdk';
 import { describe, expect, it, vi } from 'vitest';
 
 function skill(

@@ -1,4 +1,4 @@
-import type { GoalSnapshot } from '@pythoughts/pythinker-code-sdk';
+import type { GoalSnapshot } from '@pymodel/pythinker-code-sdk';
 
 import { formatTokenCount } from '#/utils/usage/usage-format';
 

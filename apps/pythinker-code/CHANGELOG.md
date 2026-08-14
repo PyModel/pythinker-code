@@ -1,4 +1,4 @@
-# @pythoughts/pythinker-code
+# @pymodel/pythinker-code
 
 ## 0.16.0
 
@@ -886,7 +886,7 @@
 
 ### Minor Changes
 
-- [#368](https://github.com/PythoughtsAI/pythinker-code/pull/368) [`3eafa79`](https://github.com/PythoughtsAI/pythinker-code/commit/3eafa79f39c06b67d18bd2c1fd5321d2d889ed90) - Add `@pythoughts/acp-adapter` and the `pythinker acp` subcommand: pythinker-code now speaks [Agent Client Protocol 0.23](https://agentclientprotocol.com/) over stdio so IDEs (Zed, JetBrains AI Chat, custom clients) can drive sessions directly — coverage matrix, Zed configuration and breaking pre-release notes are in [pythinker acp Subcommand Page](https://pythoughtsai.github.io/pythinker-code/en/reference/pythinker-acp.html).
+- [#368](https://github.com/PythoughtsAI/pythinker-code/pull/368) [`3eafa79`](https://github.com/PythoughtsAI/pythinker-code/commit/3eafa79f39c06b67d18bd2c1fd5321d2d889ed90) - Add `@pymodel/acp-adapter` and the `pythinker acp` subcommand: pythinker-code now speaks [Agent Client Protocol 0.23](https://agentclientprotocol.com/) over stdio so IDEs (Zed, JetBrains AI Chat, custom clients) can drive sessions directly — coverage matrix, Zed configuration and breaking pre-release notes are in [pythinker acp Subcommand Page](https://pythoughtsai.github.io/pythinker-code/en/reference/pythinker-acp.html).
 
 - [#338](https://github.com/PythoughtsAI/pythinker-code/pull/338) [`ba7dd73`](https://github.com/PythoughtsAI/pythinker-code/commit/ba7dd736a3b295b2a29c229a944208c232d51458) - Add `/btw` for side-channel conversations without steering the active main turn.
 

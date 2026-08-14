@@ -16,7 +16,7 @@ import {
 } from '../../src';
 import { TestInstantiationService } from '../../src/di/test';
 import { SessionAPIImpl } from '../../src/session/rpc';
-import { emptySessionUsage, type Event, type Session } from '@pythoughts/protocol';
+import { emptySessionUsage, type Event, type Session } from '@pymodel/protocol';
 
 import {
   IApprovalService,

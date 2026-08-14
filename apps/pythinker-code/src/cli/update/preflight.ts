@@ -5,8 +5,8 @@ import type { Readable } from 'node:stream';
 
 import { gt, gte, valid } from 'semver';
 
-import { log, type Logger } from '@pythoughts/pythinker-code-sdk';
-import type { TelemetryProperties } from '@pythoughts/pythinker-telemetry';
+import { log, type Logger } from '@pymodel/pythinker-code-sdk';
+import type { TelemetryProperties } from '@pymodel/pythinker-telemetry';
 
 import {
   NATIVE_INSTALL_COMMAND_UNIX,

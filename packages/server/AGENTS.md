@@ -1,6 +1,6 @@
 # server Agent Guide
 
-Package-local rules for `packages/server` (`@pythoughts/server`).
+Package-local rules for `packages/server` (`@pymodel/server`).
 
 ## What it is
 
@@ -21,7 +21,7 @@ The Pythinker Code server. It hosts `agent-core` sessions and exposes them over 
 - `middleware/` — `defineRoute.ts`, `schema.ts`, `validate.ts`. `openapi/transforms.ts`.
 - `svc/` — OS service managers (launchd / systemd / schtasks) backing `pythinker server install/start`.
 
-## DI: how it consumes `@pythoughts/agent-core`
+## DI: how it consumes `@pymodel/agent-core`
 
 Service conventions (naming, file layout, registration) live in `packages/agent-core/src/services/AGENTS.md` — read that before adding or changing a service. This package only wires the container:
 
@@ -33,15 +33,15 @@ Service conventions (naming, file layout, registration) live in `packages/agent-
 
 - REST is **Fastify**. All v1 routes are registered under `/api/v1` in `routes/registerApiV1Routes.ts`. Declare routes with `middleware/defineRoute.ts`: one object carries the Zod validators and the OpenAPI response schema; the `200` schema is expanded into the envelope `oneOf`.
 - `start.ts` neuters Fastify's validator/serializer compilers — validation happens in `defineRoute` preHandlers, not in Fastify's own pipeline.
-- Doc/meta endpoints in `start.ts`: `/openapi.json` (`@fastify/swagger`, lazily imported), `/asyncapi.json` (`createAsyncApiDocument` from `@pythoughts/protocol`), `/healthz`. `webAssetsDir` enables `registerWebAssetRoutes`.
+- Doc/meta endpoints in `start.ts`: `/openapi.json` (`@fastify/swagger`, lazily imported), `/asyncapi.json` (`createAsyncApiDocument` from `@pymodel/protocol`), `/healthz`. `webAssetsDir` enables `registerWebAssetRoutes`.
 - WebSocket uses the `ws` package; frames/envelopes live in `ws/protocol.ts` (`server_hello`, `ack`, `event`, `resync_required`, per-session `seq`).
 
 ## Commands
 
-- `pnpm --filter @pythoughts/server build` — `tsdown`.
-- `pnpm --filter @pythoughts/server typecheck` — `tsc -p tsconfig.json --noEmit`.
-- `pnpm --filter @pythoughts/server test` — `vitest run`.
-- `pnpm --filter @pythoughts/server clean` — `rm -rf dist`.
+- `pnpm --filter @pymodel/server build` — `tsdown`.
+- `pnpm --filter @pymodel/server typecheck` — `tsc -p tsconfig.json --noEmit`.
+- `pnpm --filter @pymodel/server test` — `vitest run`.
+- `pnpm --filter @pymodel/server clean` — `rm -rf dist`.
 - Dev server: `pnpm dev:server` at the repo root.
 - E2E: in-process tests live in `test/*.e2e.test.ts` and boot `startServer` directly. Live e2e against a running server lives in `packages/server-e2e` (default `http://127.0.0.1:58627`, override with `PYTHINKER_SERVER_URL`).
 

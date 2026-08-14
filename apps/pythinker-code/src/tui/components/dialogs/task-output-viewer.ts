@@ -18,7 +18,7 @@ import {
   visibleWidth,
   type Focusable,
 } from '@earendil-works/pi-tui';
-import type { BackgroundTaskInfo, BackgroundTaskStatus } from '@pythoughts/pythinker-code-sdk';
+import type { BackgroundTaskInfo, BackgroundTaskStatus } from '@pymodel/pythinker-code-sdk';
 
 import { currentTheme } from '#/tui/theme';
 import { printableChar } from '@/tui/utils/printable-key';

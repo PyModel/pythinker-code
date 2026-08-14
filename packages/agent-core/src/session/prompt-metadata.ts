@@ -1,5 +1,5 @@
 import type { ActivateSkillPayload, PromptPayload } from '#/rpc';
-import type { ContentPart } from '@pythoughts/kosong';
+import type { ContentPart } from '@pymodel/kosong';
 
 const MAX_TITLE_LENGTH = 200;
 const MAX_LAST_PROMPT_LENGTH = 4000;

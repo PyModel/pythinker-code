@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import type { PythinkerHarness } from "@pythoughts/pythinker-code-sdk";
+import type { PythinkerHarness } from "@pymodel/pythinker-code-sdk";
 
 export async function updateLoginContext(harness: PythinkerHarness): Promise<boolean> {
   const loggedIn = await harness.isAuthenticated();

@@ -22,7 +22,7 @@ if (!inputDir || !tag) {
   process.exit(1);
 }
 
-// Tag formats `@pythoughts/pythinker-code@x.y.z`, `vx.y.z`, or `x.y.z` — all normalize to x.y.z
+// Tag formats `@pymodel/pythinker-code@x.y.z`, `vx.y.z`, or `x.y.z` — all normalize to x.y.z
 const version = tag.replace(/^@pythoughts\/pythinker-code@/, '').replace(/^v/, '');
 
 const entries = await readdir(inputDir);

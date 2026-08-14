@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import {
   ErrorCodes,
   PythinkerError,
-} from '@pythoughts/pythinker-code-sdk';
+} from '@pymodel/pythinker-code-sdk';
 
 const GOAL_QUEUE_FILE = 'upcoming-goals.json';
 const GOAL_QUEUE_VERSION = 1;

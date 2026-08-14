@@ -6,7 +6,7 @@ import {
   type PythinkerErrorCode,
   type SkillActivationResult,
   type DynamicWorkflowModeTrigger,
-} from '@pythoughts/agent-core';
+} from '@pymodel/agent-core';
 
 import { type ApprovalHandler, type Event, type QuestionHandler } from '#/events';
 import type { SDKRpcClientBase } from '#/rpc';

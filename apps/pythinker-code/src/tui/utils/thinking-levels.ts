@@ -3,7 +3,7 @@
  *
  * Only theme-bound presentation lives here, because the SDK must not depend on
  * the TUI theme. The level rules themselves are
- * `@pythoughts/pythinker-code-sdk`'s, so the terminal and VS Code renderers
+ * `@pymodel/pythinker-code-sdk`'s, so the terminal and VS Code renderers
  * offer the same levels for the same model; import them from there.
  */
 

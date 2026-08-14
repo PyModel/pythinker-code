@@ -7,7 +7,7 @@
  * file doesn't have to hand-roll them.
  */
 
-import type { ModelAlias } from '@pythoughts/pythinker-code-sdk';
+import type { ModelAlias } from '@pymodel/pythinker-code-sdk';
 
 /** Stub `harness.isAuthenticated()` for a harness with a usable credential. */
 export const AUTHED = async (): Promise<boolean> => true;

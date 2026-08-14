@@ -34,10 +34,10 @@ import {
   ITaskService,
   TaskAlreadyFinishedError,
   TaskNotFoundError,
-} from '@pythoughts/agent-core';
+} from '@pymodel/agent-core';
 import {
   listTasksResponseSchema,
-} from '@pythoughts/protocol';
+} from '@pymodel/protocol';
 
 import { IRestGateway, startServer, type ServerStartOptions, type RunningServer } from '../src';
 

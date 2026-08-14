@@ -4,7 +4,7 @@
  * in-process subscribers. Transport-agnostic: this interface does NOT know
  * about WS fan-out, ring buffers, sequence numbers, or replay — those are
  * daemon transport concerns, handled by `IWSBroadcastService` in
- * `@pythoughts/server`.
+ * `@pymodel/server`.
  *
  * The service sits on the receive-end of the in-process RPC adapter: when an
  * agent step emits an event, `CoreProcessService`'s `BridgeClientAPI.emitEvent`
@@ -27,15 +27,15 @@
 
 import { createDecorator } from '../../di';
 import type { Event } from '../../base/common/event';
-import type { Event as ProtocolEvent } from '@pythoughts/protocol';
+import type { Event as ProtocolEvent } from '@pymodel/protocol';
 
 /**
  * Naming convention inside this file:
  *
- * - `Event` (from `@pythoughts/agent-core/base/common/event`) — the generic
+ * - `Event` (from `@pymodel/agent-core/base/common/event`) — the generic
  *   VSCode-style emitter accessor type. `Event<T>` is the listener-tuple
  *   type used to declare `readonly onDidXxx: Event<T>`.
- * - `ProtocolEvent` (alias of `@pythoughts/protocol`'s `Event`) — the
+ * - `ProtocolEvent` (alias of `@pymodel/protocol`'s `Event`) — the
  *   wire-level event union published through the bus. Aliased here because
  *   the top-level `Event` symbol must refer to the emitter type so the
  *   accessor declarations read naturally (`Event<ProtocolEvent>` not

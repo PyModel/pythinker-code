@@ -19,7 +19,7 @@
 
 import type { Readable } from 'node:stream';
 
-import type { Kaos, KaosProcess } from '@pythoughts/kaos';
+import type { Kaos, KaosProcess } from '@pymodel/kaos';
 import { normalize } from 'pathe';
 import { z } from 'zod';
 

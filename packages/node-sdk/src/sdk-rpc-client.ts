@@ -11,9 +11,9 @@ import {
   type RPCMethods,
   type SDKAPI,
   type TelemetryClient,
-} from '@pythoughts/agent-core';
-import type { Kaos } from '@pythoughts/kaos';
-import { assertPythinkerHostIdentity, createPythinkerDefaultHeaders } from '@pythoughts/pythinker-code-oauth';
+} from '@pymodel/agent-core';
+import type { Kaos } from '@pymodel/kaos';
+import { assertPythinkerHostIdentity, createPythinkerDefaultHeaders } from '@pymodel/pythinker-code-oauth';
 
 import { PythinkerHarness } from '#/pythinker-harness';
 import { ClientAPI, SDKRpcClientBase } from '#/rpc';

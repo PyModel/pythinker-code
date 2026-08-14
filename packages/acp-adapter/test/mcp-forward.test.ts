@@ -19,9 +19,9 @@ import {
   type WriteTextFileRequest,
   type WriteTextFileResponse,
 } from '@agentclientprotocol/sdk';
-import type { PythinkerHarness, Session } from '@pythoughts/pythinker-code-sdk';
-import { log } from '@pythoughts/pythinker-code-sdk';
-import type { McpServerConfig } from '@pythoughts/agent-core';
+import type { PythinkerHarness, Session } from '@pymodel/pythinker-code-sdk';
+import { log } from '@pymodel/pythinker-code-sdk';
+import type { McpServerConfig } from '@pymodel/agent-core';
 
 import { acpMcpServersToConfigs } from '../src/mcp';
 import { AcpServer } from '../src/server';

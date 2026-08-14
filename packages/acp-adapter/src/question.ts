@@ -2,7 +2,7 @@ import type {
   PermissionOption,
   RequestPermissionResponse,
 } from '@agentclientprotocol/sdk';
-import type { QuestionAnswers, QuestionItem } from '@pythoughts/pythinker-code-sdk';
+import type { QuestionAnswers, QuestionItem } from '@pymodel/pythinker-code-sdk';
 
 /**
  * `optionId` namespace for the AskUserQuestion bridge.

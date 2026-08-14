@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ContentBlock } from '@agentclientprotocol/sdk';
 
-import { log, type ToolInputDisplay } from '@pythoughts/pythinker-code-sdk';
+import { log, type ToolInputDisplay } from '@pymodel/pythinker-code-sdk';
 
 import { acpBlocksToPromptParts, displayBlockToAcpContent } from '../src/convert';
 

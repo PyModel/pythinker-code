@@ -7,7 +7,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 
-import { createPythinkerDefaultHeaders, type PythinkerHostIdentity } from '@pythoughts/pythinker-code-oauth';
+import { createPythinkerDefaultHeaders, type PythinkerHostIdentity } from '@pymodel/pythinker-code-oauth';
 
 import { CLI_USER_AGENT_PRODUCT } from '#/constant/app';
 

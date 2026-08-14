@@ -22,7 +22,7 @@
 
 import type { Server as HttpServer } from 'node:http';
 
-import { createDecorator } from '@pythoughts/agent-core';
+import { createDecorator } from '@pymodel/agent-core';
 
 /**
  * Minimum shape we need from a Fastify instance. Avoids the strict-generic

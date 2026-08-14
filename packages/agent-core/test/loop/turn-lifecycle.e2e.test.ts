@@ -8,7 +8,7 @@
  * referenced.
  */
 
-import { inputTotal } from '@pythoughts/kosong';
+import { inputTotal } from '@pymodel/kosong';
 import { describe, expect, it } from 'vitest';
 
 import { ErrorCodes, PythinkerError } from '../../src/errors';

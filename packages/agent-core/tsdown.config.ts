@@ -12,9 +12,9 @@ export default defineConfig({
   deps: {
     alwaysBundle: ['picomatch'],
     neverBundle: [
-      '@pythoughts/kosong',
-      '@pythoughts/kaos',
-      '@pythoughts/pythinker-code-oauth',
+      '@pymodel/kosong',
+      '@pymodel/kaos',
+      '@pymodel/pythinker-code-oauth',
     ],
   },
 });

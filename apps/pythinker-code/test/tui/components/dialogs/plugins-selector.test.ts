@@ -1,5 +1,5 @@
 import { visibleWidth } from '@earendil-works/pi-tui';
-import type { PluginSummary } from '@pythoughts/pythinker-code-sdk';
+import type { PluginSummary } from '@pymodel/pythinker-code-sdk';
 import { describe, expect, it, vi } from 'vitest';
 import chalk from 'chalk';
 

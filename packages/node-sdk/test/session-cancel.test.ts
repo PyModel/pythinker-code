@@ -1,7 +1,7 @@
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import type * as KosongModule from '@pythoughts/kosong';
+import type * as KosongModule from '@pymodel/kosong';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createPythinkerHarness, type PythinkerError, type Event } from '#/index';
@@ -9,7 +9,7 @@ import { createPythinkerHarness, type PythinkerError, type Event } from '#/index
 import { makeTempDir, removeTempDirs, waitForSDKEvent } from './session-runtime-helpers';
 import { TEST_IDENTITY } from './test-identity';
 
-vi.mock('@pythoughts/kosong', async (importOriginal) => {
+vi.mock('@pymodel/kosong', async (importOriginal) => {
   const actual = await importOriginal<typeof KosongModule>();
   return {
     ...actual,

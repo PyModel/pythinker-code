@@ -9,7 +9,7 @@
 import chalk from 'chalk';
 import type { Command } from 'commander';
 
-import { getLiveLock } from '@pythoughts/server';
+import { getLiveLock } from '@pymodel/server';
 
 import { writeAndDrain } from '../../output';
 import { lockConnectHost } from './daemon';

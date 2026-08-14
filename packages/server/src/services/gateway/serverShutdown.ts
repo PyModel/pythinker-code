@@ -1,4 +1,4 @@
-import { createDecorator } from '@pythoughts/agent-core';
+import { createDecorator } from '@pymodel/agent-core';
 
 /**
  * `IServerShutdownService` — triggers a graceful, process-terminating shutdown

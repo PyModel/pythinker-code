@@ -5,7 +5,7 @@ import {
   enableDiagnosticDebugLogging,
   flushDiagnosticLogs,
   resolveGlobalLogPath,
-} from '@pythoughts/pythinker-code-sdk';
+} from '@pymodel/pythinker-code-sdk';
 
 import { LLM_NOT_SET_MESSAGE } from '../constant/pythinker-tui';
 import type { SlashCommandHost } from './dispatch';

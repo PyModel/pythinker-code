@@ -60,7 +60,7 @@
  * per-message ids can replace this when agent-core exposes a per-message
  * store.
  *
- * **Anti-corruption**: imports `@pythoughts/agent-core` only for type-only
+ * **Anti-corruption**: imports `@pymodel/agent-core` only for type-only
  * `Event` / `TurnStartedEvent` etc. Runtime calls go through
  * `ICoreProcessService.rpc.<method>`. Lifecycle synthesis emits events through
  * `IEventService.publish` (also a daemon-side interface; agent-core not touched).
@@ -74,7 +74,7 @@ import type {
   PromptStatus,
   PromptSteerResult,
   PromptSubmitResult,
-} from '@pythoughts/protocol';
+} from '@pymodel/protocol';
 
 export interface PromptAbortResult {
   /** True iff this call performed the cancel (false on idempotent already-completed). */

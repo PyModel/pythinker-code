@@ -23,8 +23,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { pino } from 'pino';
 import { WebSocket } from 'ws';
 
-import { WS_PROTOCOL_VERSION, type Event } from '@pythoughts/protocol';
-import { IEventService } from '@pythoughts/agent-core';
+import { WS_PROTOCOL_VERSION, type Event } from '@pymodel/protocol';
+import { IEventService } from '@pymodel/agent-core';
 
 import {
   ISessionClientsService,

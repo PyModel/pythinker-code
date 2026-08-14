@@ -149,8 +149,8 @@ vi.mock("vscode", () => ({
   ProgressLocation: { Notification: 15 },
 }));
 
-vi.mock("@pythoughts/pythinker-code-sdk", async (importOriginal) => {
-  const original = await importOriginal<typeof import("@pythoughts/pythinker-code-sdk")>();
+vi.mock("@pymodel/pythinker-code-sdk", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@pymodel/pythinker-code-sdk")>();
   return { ...original, createPythinkerHarness: () => host.harness };
 });
 

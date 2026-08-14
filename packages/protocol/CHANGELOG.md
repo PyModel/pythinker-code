@@ -1,4 +1,4 @@
-# @pythoughts/protocol
+# @pymodel/protocol
 
 ## 0.3.0
 

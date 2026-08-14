@@ -1,6 +1,6 @@
 import * as path from "node:path";
 import * as vscode from "vscode";
-import type { SessionSummary } from "@pythoughts/pythinker-code-sdk";
+import type { SessionSummary } from "@pymodel/pythinker-code-sdk";
 
 import { Events, Methods } from "../../shared/bridge";
 import type { SessionInfo } from "../../shared/legacy-sdk";

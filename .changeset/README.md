@@ -10,28 +10,28 @@ Current publishable packages:
 
 | Package | Directory | Description |
 | --- | --- | --- |
-| `@pythoughts/pythinker-code` | `apps/pythinker-code` | CLI / TUI application — provides the `pythinker` command after install |
-| `@pythoughts/pythinker-code-sdk` | `packages/node-sdk` | Public TypeScript SDK |
+| `@pymodel/pythinker-code` | `apps/pythinker-code` | CLI / TUI application — provides the `pythinker` command after install |
+| `@pymodel/pythinker-code-sdk` | `packages/node-sdk` | Public TypeScript SDK |
 
 All other workspace packages are private internal packages, are not published to npm, and are excluded via `ignore` in `.changeset/config.json`:
 
-- `@pythoughts/acp-adapter`
-- `@pythoughts/agent-core`
-- `@pythoughts/kaos`
-- `@pythoughts/pythinker-code-oauth`
-- `@pythoughts/pythinker-telemetry`
-- `@pythoughts/pythinker-web`
-- `@pythoughts/kosong`
-- `@pythoughts/migration-legacy`
-- `@pythoughts/protocol`
-- `@pythoughts/server`
-- `@pythoughts/server-e2e`
-- `@pythoughts/dashboard`
-- `@pythoughts/dashboard-server`
-- `@pythoughts/dashboard-web`
+- `@pymodel/acp-adapter`
+- `@pymodel/agent-core`
+- `@pymodel/kaos`
+- `@pymodel/pythinker-code-oauth`
+- `@pymodel/pythinker-telemetry`
+- `@pymodel/pythinker-web`
+- `@pymodel/kosong`
+- `@pymodel/migration-legacy`
+- `@pymodel/protocol`
+- `@pymodel/server`
+- `@pymodel/server-e2e`
+- `@pymodel/dashboard`
+- `@pymodel/dashboard-server`
+- `@pymodel/dashboard-web`
 - `pythinker-migration-legacy`
 
-Version impact from internal dependencies must be judged manually. The published artifacts for CLI and SDK bundle internal workspace packages into the artifact itself; runtime `dependencies` of published packages must not include any `@pythoughts/*` internal workspace packages.
+Version impact from internal dependencies must be judged manually. The published artifacts for CLI and SDK bundle internal workspace packages into the artifact itself; runtime `dependencies` of published packages must not include any `@pymodel/*` internal workspace packages.
 
 The repository's `.changeset/config.json` sets `updateInternalDependencies: "patch"`. Because internal packages are not published, you still need to manually select all affected publishable packages in the changeset — do not rely solely on automatic dependency bumps to express user-visible changes.
 
@@ -39,12 +39,12 @@ Example scenarios:
 
 | Change | Changeset selection |
 | --- | --- |
-| Only modifies TUI behavior in `@pythoughts/pythinker-code` | Add `patch` / `minor` / `major` to `@pythoughts/pythinker-code` |
+| Only modifies TUI behavior in `@pymodel/pythinker-code` | Add `patch` / `minor` / `major` to `@pymodel/pythinker-code` |
 | Only modifies internal packages, no user-visible change in SDK / CLI | Usually no changeset needed |
-| Internal package fix changes the CLI user experience | Add a changeset to `@pythoughts/pythinker-code` describing the user-visible fix |
-| Internal package adds a new capability exposed by the SDK | Add a changeset to `@pythoughts/pythinker-code-sdk` |
-| SDK behavior change affects CLI user experience | Add changesets to both `@pythoughts/pythinker-code-sdk` and `@pythoughts/pythinker-code` |
-| Provider abstraction change affects SDK / CLI | Add changesets to the affected `@pythoughts/pythinker-code-sdk` and/or `@pythoughts/pythinker-code` |
+| Internal package fix changes the CLI user experience | Add a changeset to `@pymodel/pythinker-code` describing the user-visible fix |
+| Internal package adds a new capability exposed by the SDK | Add a changeset to `@pymodel/pythinker-code-sdk` |
+| SDK behavior change affects CLI user experience | Add changesets to both `@pymodel/pythinker-code-sdk` and `@pymodel/pythinker-code` |
+| Provider abstraction change affects SDK / CLI | Add changesets to the affected `@pymodel/pythinker-code-sdk` and/or `@pymodel/pythinker-code` |
 | Test-only, internal refactor, docs, or private debug tooling changes | Usually no changeset needed |
 | Bundled official plugin change under `plugins/` (e.g. `pythinker-datasource`) | No changeset — the plugin is versioned via its own `pythinker.plugin.json` / `plugins/marketplace.json` and shipped through the marketplace CDN, not the npm package |
 
@@ -54,7 +54,7 @@ This repository uses npm's **Trusted Publishing** (OIDC-based) for publishing �
 
 ### Configuration steps
 
-1. Open each publishable package's page on the npm website, e.g. `https://www.npmjs.com/package/@pythoughts/pythinker-code`.
+1. Open each publishable package's page on the npm website, e.g. `https://www.npmjs.com/package/@pymodel/pythinker-code`.
 2. Go to **Settings** -> **Publishing access**.
 3. Find **Automate publishing with GitHub Actions** or **Add trusted publisher**.
 4. Click **Add a new trusted publisher**.
@@ -146,12 +146,12 @@ The root-level `pnpm run publish` first runs typecheck, lint, sherif, test, buil
 ## Notes
 
 - Every PR that affects publishable-package behavior or public API should include a corresponding changeset.
-- Changes under `plugins/` (the bundled official plugins such as `pythinker-datasource`) do **not** need a changeset: each plugin carries its own version in `pythinker.plugin.json` and `plugins/marketplace.json` and is distributed via the marketplace CDN, separately from the `@pythoughts/pythinker-code` npm package.
+- Changes under `plugins/` (the bundled official plugins such as `pythinker-datasource`) do **not** need a changeset: each plugin carries its own version in `pythinker.plugin.json` and `plugins/marketplace.json` and is distributed via the marketplace CDN, separately from the `@pymodel/pythinker-code` npm package.
 - Changeset files must be committed to the repository — release PRs are only triggered after they're merged.
 - Release PRs require human review and merge; they will not publish automatically.
-- Do not add release changesets for private internal packages; only select `@pythoughts/pythinker-code` and `@pythoughts/pythinker-code-sdk`.
-- If a change in an underlying internal package alters user-visible behavior or public API of a publishable package, add a changeset to the affected publishable package. For example, when a bug fixed in `@pythoughts/agent-core` resolves an issue CLI users encounter, add a changeset to `@pythoughts/pythinker-code` describing the user-visible fix.
-- `@pythoughts/pythinker-code` is the official CLI package name; after a global install it provides the `pythinker` command.
+- Do not add release changesets for private internal packages; only select `@pymodel/pythinker-code` and `@pymodel/pythinker-code-sdk`.
+- If a change in an underlying internal package alters user-visible behavior or public API of a publishable package, add a changeset to the affected publishable package. For example, when a bug fixed in `@pymodel/agent-core` resolves an issue CLI users encounter, add a changeset to `@pymodel/pythinker-code` describing the user-visible fix.
+- `@pymodel/pythinker-code` is the official CLI package name; after a global install it provides the `pythinker` command.
 - Make sure each publishable package on npm has a Trusted Publisher configured.
 
 ## References

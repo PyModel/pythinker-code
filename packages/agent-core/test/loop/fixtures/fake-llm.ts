@@ -5,7 +5,7 @@ import {
   type TextPart,
   type ThinkPart,
   type TokenUsage,
-} from '@pythoughts/kosong';
+} from '@pymodel/kosong';
 
 import type {
   LLM,

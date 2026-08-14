@@ -1,4 +1,4 @@
-# @pythoughts/server-e2e
+# @pymodel/server-e2e
 
 Wire-level test client for the pythinker-code server (HTTP + WS). This package is
 **private** — it ships scenario scripts that double as smoke tests and a small
@@ -18,12 +18,12 @@ typed `DaemonClient` you can reuse in vitest e2e files.
   `packages/server/test/ws-*.e2e.test.ts` (in-process `startServer` boots are
   faster and assert on the server's internal services directly).
 - You want a typed in-process facade over the server for user-facing code —
-  use `@pythoughts/node-sdk` instead (`PythinkerHarness`, `Session`).
+  use `@pymodel/node-sdk` instead (`PythinkerHarness`, `Session`).
 
 ## Quick start
 
 ```ts
-import { DaemonClient } from '@pythoughts/server-e2e';
+import { DaemonClient } from '@pymodel/server-e2e';
 
 const client = new DaemonClient(); // http://127.0.0.1:58627 by default
 
@@ -47,10 +47,10 @@ await client.archiveSession(session.id);
 ## Scripts
 
 ```sh
-pnpm --filter @pythoughts/server-e2e typecheck
-pnpm --filter @pythoughts/server-e2e test            # vitest self-tests
-pnpm --filter @pythoughts/server-e2e test:scenarios  # run every scenarios/*.ts
-pnpm --filter @pythoughts/server-e2e docker:e2e      # run server + scenarios in docker
+pnpm --filter @pymodel/server-e2e typecheck
+pnpm --filter @pymodel/server-e2e test            # vitest self-tests
+pnpm --filter @pymodel/server-e2e test:scenarios  # run every scenarios/*.ts
+pnpm --filter @pymodel/server-e2e docker:e2e      # run server + scenarios in docker
 ```
 
 Both `test` and `test:scenarios` require a running server (set `PYTHINKER_SERVER_URL`

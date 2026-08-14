@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'pathe';
 
-import type { Environment, Kaos } from '@pythoughts/kaos';
+import type { Environment, Kaos } from '@pymodel/kaos';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {

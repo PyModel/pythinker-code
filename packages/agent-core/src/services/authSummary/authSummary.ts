@@ -28,7 +28,7 @@
  */
 
 import { createDecorator } from '../../di';
-import type { AuthSummary } from '@pythoughts/protocol';
+import type { AuthSummary } from '@pymodel/protocol';
 
 export interface IAuthSummaryService {
   readonly _serviceBrand: undefined;

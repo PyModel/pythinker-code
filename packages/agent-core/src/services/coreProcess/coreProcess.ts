@@ -31,7 +31,7 @@
 
 import { createDecorator } from '../../di';
 import type { CoreRPC, PythinkerCoreOptions } from '../../rpc';
-import { type PythinkerHostIdentity } from '@pythoughts/pythinker-code-oauth';
+import { type PythinkerHostIdentity } from '@pymodel/pythinker-code-oauth';
 
 export interface CoreProcessServiceOptions extends PythinkerCoreOptions {
   /**

@@ -1,7 +1,7 @@
 import type {
   OpenPlatformDefinition,
   PlatformModelInfo,
-} from '@pythoughts/pythinker-code-oauth';
+} from '@pymodel/pythinker-code-oauth';
 import type { Catalog, CatalogModel } from '#/catalog';
 import type { PythinkerHarness } from '#/pythinker-harness';
 

@@ -6,7 +6,7 @@
  * core payloads into these shapes for panel components.
  */
 
-import type { QuestionAnswerMethod } from '@pythoughts/pythinker-code-sdk';
+import type { QuestionAnswerMethod } from '@pymodel/pythinker-code-sdk';
 
 // ── Display blocks (approval panel) ──────────────────────────────────
 

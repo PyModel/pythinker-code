@@ -11,7 +11,7 @@
  * Code renderer must offer the same levels for the same model.
  */
 
-import type { ModelAlias } from '@pythoughts/agent-core';
+import type { ModelAlias } from '@pymodel/agent-core';
 
 export type ThinkingAvailability = 'toggle' | 'always-on' | 'unsupported';
 

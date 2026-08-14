@@ -31,7 +31,7 @@
  * pattern `packages/server/test/prompt.e2e.test.ts` already uses.
  */
 
-import { IPromptService, PromptService, type IInstantiationService } from '@pythoughts/agent-core';
+import { IPromptService, PromptService, type IInstantiationService } from '@pymodel/agent-core';
 import { z } from 'zod';
 
 

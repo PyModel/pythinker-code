@@ -19,7 +19,7 @@ import type {
   PythinkerHarness,
   PermissionMode,
   Session,
-} from '@pythoughts/pythinker-code-sdk';
+} from '@pymodel/pythinker-code-sdk';
 
 import { AcpServer } from '../src/server';
 import { AUTHED, makeModelsMap } from './_helpers/harness-stubs';

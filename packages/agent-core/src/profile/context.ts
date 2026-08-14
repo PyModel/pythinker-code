@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { dirname, join } from 'pathe';
 
-import type { Kaos } from '@pythoughts/kaos';
+import type { Kaos } from '@pymodel/kaos';
 
 import { collectGitContext } from '../session/git-context';
 import { listDirectory } from '../tools/support/list-directory';

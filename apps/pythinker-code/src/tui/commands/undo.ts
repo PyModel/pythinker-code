@@ -5,8 +5,8 @@ import type {
   PartialCompactionDirection,
   RestoreFileCheckpointResult,
   SessionFileCheckpointPreview,
-} from '@pythoughts/pythinker-code-sdk';
-import { isPythinkerError } from '@pythoughts/pythinker-code-sdk';
+} from '@pymodel/pythinker-code-sdk';
+import { isPythinkerError } from '@pymodel/pythinker-code-sdk';
 
 import { WelcomeComponent } from '../components/chrome/welcome';
 import { ChoicePickerComponent, type ChoiceOption } from '../components/dialogs/choice-picker';

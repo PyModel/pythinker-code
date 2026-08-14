@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import type { Kaos } from '@pythoughts/kaos';
+import type { Kaos } from '@pymodel/kaos';
 import { createPythinkerHarness, PythinkerHarness } from '#/index';
 import type { PythinkerError } from '#/index';
 import type { ResumeSessionInput, ResumedSessionSummary } from '#/types';

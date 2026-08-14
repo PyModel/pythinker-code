@@ -14,7 +14,7 @@
  */
 
 import Fastify from 'fastify';
-import { ulidRegex } from '@pythoughts/protocol';
+import { ulidRegex } from '@pymodel/protocol';
 import { pino } from 'pino';
 import { describe, expect, it } from 'vitest';
 

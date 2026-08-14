@@ -16,7 +16,7 @@
  * exercises ONLY the plan_review branch.
  */
 import type { RequestPermissionResponse } from '@agentclientprotocol/sdk';
-import type { ApprovalRequest, ToolInputDisplay } from '@pythoughts/pythinker-code-sdk';
+import type { ApprovalRequest, ToolInputDisplay } from '@pymodel/pythinker-code-sdk';
 import { describe, expect, it } from 'vitest';
 
 import {

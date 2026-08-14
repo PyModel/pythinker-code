@@ -11,7 +11,7 @@
  * exits non-zero.
  */
 
-import { createPythinkerHarness, runLogin } from '@pythoughts/pythinker-code-sdk';
+import { createPythinkerHarness, runLogin } from '@pymodel/pythinker-code-sdk';
 
 import { createTerminalLoginUi, UnknownProviderError } from '#/auth/terminal-login-ui';
 import { writeAndDrain } from '#/cli/output';

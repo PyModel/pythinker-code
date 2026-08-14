@@ -2,7 +2,7 @@ import { mkdtempSync, writeFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'pathe';
 
-import type { ContentPart } from '@pythoughts/kosong';
+import type { ContentPart } from '@pymodel/kosong';
 import { describe, expect, it } from 'vitest';
 
 // Dynamic-import contract: locks the Agent <-> HookEngine integration shape

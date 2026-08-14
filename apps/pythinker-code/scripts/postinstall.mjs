@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Postinstall hook for @pythoughts/pythinker-code.
+ * Postinstall hook for @pymodel/pythinker-code.
  *
  * Goal: when this package is installed globally, ensure typing `pythinker`
  * invokes the new TypeScript CLI. The npm `package.json` bin field
@@ -43,7 +43,7 @@
  *
  * ## Workflow
  *
- * What runs when a user types `npm install -g @pythoughts/pythinker-code`
+ * What runs when a user types `npm install -g @pymodel/pythinker-code`
  * (or the yarn / pnpm equivalent):
  *
  *   1. The manager extracts the package and runs lifecycle scripts.

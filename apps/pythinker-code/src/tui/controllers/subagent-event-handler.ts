@@ -1,7 +1,7 @@
 import type {
   BackgroundTaskInfo,
   Event,
-} from '@pythoughts/pythinker-code-sdk';
+} from '@pymodel/pythinker-code-sdk';
 import type { Component } from '@earendil-works/pi-tui';
 
 import {

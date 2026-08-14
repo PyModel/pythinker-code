@@ -4,7 +4,7 @@ import {
   type FinishReason,
   type Message,
   type StreamedMessagePart,
-} from '@pythoughts/kosong';
+} from '@pymodel/kosong';
 
 import type { AgentOptions } from '../../../src/agent';
 import { estimateTokensForMessages } from '../../../src/utils/tokens';

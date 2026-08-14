@@ -3,7 +3,7 @@ import {
   type ContentPart,
   type Message,
   type Role,
-} from '@pythoughts/kosong';
+} from '@pymodel/kosong';
 
 import type { Agent } from '..';
 import { ErrorCodes, PythinkerError } from '../../errors';

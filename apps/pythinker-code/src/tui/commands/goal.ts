@@ -1,4 +1,4 @@
-import { ErrorCodes, isPythinkerError, type PermissionMode } from '@pythoughts/pythinker-code-sdk';
+import { ErrorCodes, isPythinkerError, type PermissionMode } from '@pymodel/pythinker-code-sdk';
 
 import {
   GoalStartPermissionPromptComponent,

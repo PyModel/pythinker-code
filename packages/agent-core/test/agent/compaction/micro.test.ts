@@ -1,4 +1,4 @@
-import type { ContentPart, Message } from '@pythoughts/kosong';
+import type { ContentPart, Message } from '@pymodel/kosong';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { AgentRecord } from '../../../src/agent';

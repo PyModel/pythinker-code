@@ -5,7 +5,7 @@
  * dashboard server (auto-picking a free port by default), prints the URL,
  * optionally opens the browser (with an optional session deep-link), then
  * waits for Ctrl-C and shuts the server down. The dashboard server itself
- * lives in `@pythoughts/dashboard-server`.
+ * lives in `@pymodel/dashboard-server`.
  */
 
 import type { Command } from 'commander';
@@ -131,7 +131,7 @@ function createDefaultDashboardDeps(overrides: Partial<DashboardDeps> = {}): Das
       overrides.startDashboardServer ??
       (async (opts) => {
         // Dynamic import keeps the dashboard server (and Hono) out of the hot path.
-        const { startDashboardServer } = await import('@pythoughts/dashboard-server/start');
+        const { startDashboardServer } = await import('@pymodel/dashboard-server/start');
         return startDashboardServer(opts);
       }),
     // `openUrl` is a synchronous fire-and-forget; adapt it to the async dep.

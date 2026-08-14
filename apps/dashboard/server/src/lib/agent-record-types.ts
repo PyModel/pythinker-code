@@ -3,7 +3,7 @@
 // Do NOT add local interfaces that duplicate upstream shapes.
 
 // Local binding for the `AgentRecord` type used by dashboard-only DTOs below.
-import type { AgentRecord } from '@pythoughts/agent-core';
+import type { AgentRecord } from '@pymodel/agent-core';
 
 export type {
   AgentRecord,
@@ -19,9 +19,9 @@ export type {
   LoopRecordedEvent,
   ContextMessage,
   PromptOrigin,
-} from '@pythoughts/agent-core';
-export { AGENT_WIRE_PROTOCOL_VERSION } from '@pythoughts/agent-core';
-export type { Message, ContentPart, ToolCall, TokenUsage } from '@pythoughts/kosong';
+} from '@pymodel/agent-core';
+export { AGENT_WIRE_PROTOCOL_VERSION } from '@pymodel/agent-core';
+export type { Message, ContentPart, ToolCall, TokenUsage } from '@pymodel/kosong';
 
 // ── dashboard-only DTOs ──────────────────────────────────────────────────────────
 

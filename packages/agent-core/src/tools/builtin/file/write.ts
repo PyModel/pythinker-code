@@ -5,7 +5,7 @@
  * Path access policy is resolved before any Kaos I/O.
  */
 
-import type { Kaos } from '@pythoughts/kaos';
+import type { Kaos } from '@pymodel/kaos';
 import { dirname } from 'pathe';
 import { z } from 'zod';
 

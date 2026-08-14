@@ -37,7 +37,7 @@ import { join } from 'node:path';
 import { pino } from 'pino';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
-import { WS_PROTOCOL_VERSION } from '@pythoughts/protocol';
+import { WS_PROTOCOL_VERSION } from '@pymodel/protocol';
 
 import {
   IRestGateway,

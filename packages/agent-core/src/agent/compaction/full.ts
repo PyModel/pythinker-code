@@ -11,7 +11,7 @@ import {
   type TokenUsage,
   APIContextOverflowError,
   createUserMessage,
-} from '@pythoughts/kosong';
+} from '@pymodel/kosong';
 
 import type { Agent } from '..';
 import type { ContextMessage } from '../context';

@@ -1,4 +1,4 @@
-import type { ToolCall } from '@pythoughts/kosong';
+import type { ToolCall } from '@pymodel/kosong';
 import { describe, expect, it, vi } from 'vitest';
 
 import { createFakeKaos } from '../tools/fixtures/fake-kaos';

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
-import { createPythinkerHarness } from '@pythoughts/pythinker-code-sdk';
+import { createPythinkerHarness } from '@pymodel/pythinker-code-sdk';
 
 import { smokeIdentityFromEnv } from './runtime-smoke-helpers';
 

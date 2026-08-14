@@ -1,4 +1,4 @@
-import type { ApprovalRequest } from '@pythoughts/pythinker-code-sdk';
+import type { ApprovalRequest } from '@pymodel/pythinker-code-sdk';
 import { describe, expect, it, vi } from 'vitest';
 
 import { ApprovalController } from '#/tui/reverse-rpc/approval/controller';

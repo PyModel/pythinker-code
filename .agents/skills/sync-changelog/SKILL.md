@@ -7,7 +7,7 @@ description: Use after a release succeeds, when maintainers need to sync apps/py
 
 ## Overview
 
-`pythinker-code` uses changesets for versioning. Each package gets its own `CHANGELOG.md`. The user-facing CLI package, `@pythoughts/pythinker-code`, writes its changelog here:
+`pythinker-code` uses changesets for versioning. Each package gets its own `CHANGELOG.md`. The user-facing CLI package, `@pymodel/pythinker-code`, writes its changelog here:
 
 ```text
 apps/pythinker-code/CHANGELOG.md
@@ -38,7 +38,7 @@ Core rule: the English docs changelog is the source of truth for user-facing rel
 
 Before editing, confirm:
 
-- The released version exists on npm (`npm view @pythoughts/pythinker-code versions --json`) or has a matching GitHub Release tag on `PyModel/pythinker-code`.
+- The released version exists on npm (`npm view @pymodel/pythinker-code versions --json`) or has a matching GitHub Release tag on `PyModel/pythinker-code`.
 - The top of `apps/pythinker-code/CHANGELOG.md` is that new version.
 - The current branch is clean, or you are on a dedicated docs-sync branch.
 
@@ -76,7 +76,7 @@ Keep:
 
 Remove:
 
-- The upstream H1 `# @pythoughts/pythinker-code` because the docs page already has `# Changelog`.
+- The upstream H1 `# @pymodel/pythinker-code` because the docs page already has `# Changelog`.
 - Changesets subheadings such as `### Patch Changes`, `### Minor Changes`, and `### Major Changes`.
 - PR links such as `[#317](...)`.
 - Commit hash links such as ``[`2f51db4`](...)``.
@@ -156,7 +156,7 @@ Every version heading must carry its release date in parentheses:
 Take the date from the version's published GitHub Release tag, not from when you run the sync:
 
 ```bash
-git log -1 --format=%cs "@pythoughts/pythinker-code@<version>"
+git log -1 --format=%cs "@pymodel/pythinker-code@<version>"
 ```
 
 Use the half-width parenthesis form ` (YYYY-MM-DD)` on the English page. Never invent or guess a date; if the tag is missing, stop and confirm with the user.

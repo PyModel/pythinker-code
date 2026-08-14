@@ -38,8 +38,8 @@ import {
   listPendingQuestionsResponseSchema,
   questionResolveRequestSchema,
   questionResolveResultSchema,
-} from '@pythoughts/protocol';
-import { IQuestionService, questionToAgentCoreResponse, type IInstantiationService } from '@pythoughts/agent-core';
+} from '@pymodel/protocol';
+import { IQuestionService, questionToAgentCoreResponse, type IInstantiationService } from '@pymodel/agent-core';
 import { z } from 'zod';
 
 

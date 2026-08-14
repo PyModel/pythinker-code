@@ -3,7 +3,7 @@
  * config snapshot into a flat list of selectable models for the ACP
  * `configOptions` picker (`packages/acp-adapter/src/config-options.ts`).
  *
- * Used to live inside `@pythoughts/pythinker-code-sdk` as
+ * Used to live inside `@pymodel/pythinker-code-sdk` as
  * `PythinkerHarness.listAvailableModels()`; moved here so the SDK keeps a
  * minimal surface and ACP-specific heuristics (thinking-capability
  * derivation, the toggleable-models allow-list) stay scoped to the
@@ -22,7 +22,7 @@
  *      allow-list (mirrors `pythinker-cli/src/pythinker_cli/llm.py:derive_model_capabilities`).
  */
 
-import type { PythinkerHarness, ModelAlias } from '@pythoughts/pythinker-code-sdk';
+import type { PythinkerHarness, ModelAlias } from '@pymodel/pythinker-code-sdk';
 
 /**
  * One catalog row per configured model alias, suitable for an ACP

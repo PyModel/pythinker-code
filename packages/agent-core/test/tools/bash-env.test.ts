@@ -1,6 +1,6 @@
 import { Readable, type Writable } from 'node:stream';
 
-import type { Environment, KaosProcess } from '@pythoughts/kaos';
+import type { Environment, KaosProcess } from '@pymodel/kaos';
 import { describe, expect, it, vi } from 'vitest';
 
 import { BashTool } from '../../src/tools/builtin/shell/bash';

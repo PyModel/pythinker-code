@@ -2,7 +2,7 @@ import type {
   PermissionOption,
   RequestPermissionResponse,
 } from '@agentclientprotocol/sdk';
-import type { QuestionItem } from '@pythoughts/pythinker-code-sdk';
+import type { QuestionItem } from '@pymodel/pythinker-code-sdk';
 import { describe, expect, it } from 'vitest';
 
 import { outcomeToQuestionAnswer, questionItemToPermissionOptions } from '../src/question';

@@ -18,7 +18,7 @@ import type {
   Session,
   SessionStatus,
   SessionSummary,
-} from "@pythoughts/pythinker-code-sdk";
+} from "@pymodel/pythinker-code-sdk";
 import { describe, expect, it } from "vitest";
 
 type ThinkingEffort = string;

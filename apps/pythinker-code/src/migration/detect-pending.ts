@@ -6,7 +6,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
-import { detectMigration, type MigrationPlan } from '@pythoughts/migration-legacy';
+import { detectMigration, type MigrationPlan } from '@pymodel/migration-legacy';
 
 export interface DetectPendingInput {
   readonly sourceHome: string;

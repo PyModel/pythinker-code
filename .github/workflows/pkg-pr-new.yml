@@ -37,7 +37,7 @@ jobs:
         run: pnpm run build:packages
 
       - name: Build Pythinker web assets
-        run: pnpm --filter @pythoughts/pythinker-web run build
+        run: pnpm --filter @pymodel/pythinker-web run build
 
       - name: Generate Pythinker Code built-in catalog
         shell: bash
@@ -47,7 +47,7 @@ jobs:
           echo "PYTHINKER_CODE_BUILT_IN_CATALOG_FILE=$CATALOG_FILE" >> "$GITHUB_ENV"
 
       - name: Build Pythinker Code package
-        run: pnpm --filter @pythoughts/pythinker-code run build
+        run: pnpm --filter @pymodel/pythinker-code run build
 
       - name: Publish pkg.pr.new preview
         run: pnpm exec pkg-pr-new publish --bin --commentWithSha --packageManager=pnpm,npm --no-template './apps/pythinker-code'

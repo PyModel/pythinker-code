@@ -13,7 +13,7 @@ import {
   type StreamedMessage,
   type StreamedMessagePart,
   type ToolCall,
-} from '@pythoughts/kosong';
+} from '@pymodel/kosong';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { AgentOptions } from '../../../src/agent';

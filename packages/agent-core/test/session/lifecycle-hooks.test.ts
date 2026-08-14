@@ -4,7 +4,7 @@ import { join } from 'pathe';
 import { Readable } from 'node:stream';
 import type { Writable } from 'node:stream';
 
-import type { KaosProcess } from '@pythoughts/kaos';
+import type { KaosProcess } from '@pymodel/kaos';
 
 import { testKaos } from '../fixtures/test-kaos';
 import { afterEach, describe, expect, it, vi } from 'vitest';

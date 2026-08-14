@@ -3,7 +3,7 @@ import {
   APIProviderQuotaExhaustedError,
   emptyUsage,
   isRetryableGenerateError,
-} from '@pythoughts/kosong';
+} from '@pymodel/kosong';
 import { describe, expect, it } from 'vitest';
 
 import type { PythinkerConfig } from '#/config';

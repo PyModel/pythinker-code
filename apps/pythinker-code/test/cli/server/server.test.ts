@@ -107,7 +107,7 @@ describe('`pythinker server` lifecycle exits with ESERVICE_UNSUPPORTED on unsupp
     // The remaining platforms fall through to the stub that throws
     // `ServiceUnsupportedError` — pin that contract so a future addition
     // (freebsd, etc.) needs a deliberate decision instead of silently working.
-    const { resolveServiceManager, ServiceUnsupportedError } = await import('@pythoughts/server');
+    const { resolveServiceManager, ServiceUnsupportedError } = await import('@pymodel/server');
     const mgr = resolveServiceManager('freebsd');
     await expect(
       mgr.install({ host: '127.0.0.1', port: 58627, logLevel: 'info' }),
@@ -118,7 +118,7 @@ describe('`pythinker server` lifecycle exits with ESERVICE_UNSUPPORTED on unsupp
 
 describe('`pythinker server` lifecycle handles unavailable service managers', () => {
   it('prints a friendly JSON error and exits 2', async () => {
-    const { ServiceUnavailableError } = await import('@pythoughts/server');
+    const { ServiceUnavailableError } = await import('@pymodel/server');
     const program = new Command('pythinker').exitOverride();
     const server = program.command('server');
     let stdout = '';
@@ -171,7 +171,7 @@ describe('`pythinker server` lifecycle handles unavailable service managers', ()
   });
 
   it('preserves exit 2 when output draining rejects', async () => {
-    const { ServiceUnavailableError } = await import('@pythoughts/server');
+    const { ServiceUnavailableError } = await import('@pymodel/server');
     const program = new Command('pythinker').exitOverride();
     const server = program.command('server');
     const exit = vi.spyOn(process, 'exit').mockImplementation(((code?: number | string | null) => {

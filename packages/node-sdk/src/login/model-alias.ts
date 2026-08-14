@@ -1,8 +1,8 @@
-import type { ModelAlias } from '@pythoughts/agent-core';
+import type { ModelAlias } from '@pymodel/agent-core';
 import {
   capabilitiesForModel,
   type PlatformModelInfo,
-} from '@pythoughts/pythinker-code-oauth';
+} from '@pymodel/pythinker-code-oauth';
 
 /**
  * Builds a pythinker-code model alias from an open-platform model entry, the

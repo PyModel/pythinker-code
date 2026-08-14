@@ -8,7 +8,7 @@ import type {
   MigrationPlan,
   MigrationReport,
   RunMigrationInput,
-} from '@pythoughts/migration-legacy';
+} from '@pymodel/migration-legacy';
 
 function makePlan(over: Partial<MigrationPlan> = {}): MigrationPlan {
   return {

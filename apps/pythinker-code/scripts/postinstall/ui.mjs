@@ -181,7 +181,7 @@ function warningHeading(text) {
  *     fs errors). Listed last so the user can see what to retry.
  */
 export function logMigrationDone(outcomes, pm) {
-  const reinstallCmd = pmGlobalInstallCommand(pm, '@pythoughts/pythinker-code');
+  const reinstallCmd = pmGlobalInstallCommand(pm, '@pymodel/pythinker-code');
   const {
     renames,
     consolidates,
@@ -322,7 +322,7 @@ export function logMigrationDone(outcomes, pm) {
  */
 export function logMigrationBlocked(blocked, actionable, pm) {
   const isWindows = process.platform === 'win32';
-  const reinstallCmd = pmGlobalInstallCommand(pm, '@pythoughts/pythinker-code');
+  const reinstallCmd = pmGlobalInstallCommand(pm, '@pymodel/pythinker-code');
 
   const lines = [
     warningHeading('Can\'t switch to the new pythinker yet'),
@@ -384,7 +384,7 @@ export function logMigrationBlocked(blocked, actionable, pm) {
  * user can decide.
  */
 export function logForeignPythinkerInTheWay(foreignPath, pm) {
-  const reinstallCmd = pmGlobalInstallCommand(pm, '@pythoughts/pythinker-code');
+  const reinstallCmd = pmGlobalInstallCommand(pm, '@pymodel/pythinker-code');
   emit(
     renderBox([
       warningHeading('Can\'t switch to the new pythinker yet'),
@@ -426,7 +426,7 @@ export function logForeignPythinkerInTheWay(foreignPath, pm) {
 export function logNewCliNotOnPath(detection, pm) {
   const isWindows = process.platform === 'win32';
   const binCmd = pmGlobalBinCommand(pm);
-  const reinstallCmd = pmGlobalInstallCommand(pm, '@pythoughts/pythinker-code');
+  const reinstallCmd = pmGlobalInstallCommand(pm, '@pymodel/pythinker-code');
 
   const newPathHint = isWindows
     ? `$env:Path = "$(${binCmd});$env:Path"`

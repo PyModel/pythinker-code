@@ -20,7 +20,7 @@ import {
   type QuestionRequest,
   type QuestionResult,
   type Session,
-} from '@pythoughts/pythinker-code-sdk';
+} from '@pymodel/pythinker-code-sdk';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AcpSession, type TelemetryTrackFn } from '../src/session';

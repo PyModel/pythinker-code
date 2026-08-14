@@ -6,7 +6,7 @@ import type {
   Terminal,
   TerminalExitMessage,
   TerminalOutputMessage,
-} from '@pythoughts/protocol';
+} from '@pymodel/protocol';
 
 export type TerminalFrame = TerminalOutputMessage | TerminalExitMessage;
 

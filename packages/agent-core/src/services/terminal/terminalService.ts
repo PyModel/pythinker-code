@@ -8,7 +8,7 @@ import type {
   Terminal,
   TerminalExitMessage,
   TerminalOutputMessage,
-} from '@pythoughts/protocol';
+} from '@pymodel/protocol';
 import { ulid } from 'ulid';
 
 import { resolveSafePath } from '../fs/fsPathSafety';

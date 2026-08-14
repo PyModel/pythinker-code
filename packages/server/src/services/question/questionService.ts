@@ -2,11 +2,11 @@
 
 import { ulid } from 'ulid';
 
-import { Disposable, DisposableMap, IEventService, IQuestionService, questionDismissedResult, questionToBrokerRequest, ILogService, type IDisposable, type QuestionRequest, type QuestionResult } from '@pythoughts/agent-core';
+import { Disposable, DisposableMap, IEventService, IQuestionService, questionDismissedResult, questionToBrokerRequest, ILogService, type IDisposable, type QuestionRequest, type QuestionResult } from '@pymodel/agent-core';
 import type {
   Event,
   QuestionRequest as ProtocolQuestionRequest,
-} from '@pythoughts/protocol';
+} from '@pymodel/protocol';
 
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars

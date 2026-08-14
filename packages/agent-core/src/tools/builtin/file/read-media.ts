@@ -15,13 +15,13 @@
  * Read/Write/Edit.
  */
 
-import type { Kaos } from '@pythoughts/kaos';
+import type { Kaos } from '@pymodel/kaos';
 import type {
   ContentPart,
   ModelCapability,
   VideoURLPart,
   VideoUploadInput as ProviderVideoUploadInput,
-} from '@pythoughts/kosong';
+} from '@pymodel/kosong';
 import { z } from 'zod';
 
 import type { BuiltinTool } from '../../../agent/tool';

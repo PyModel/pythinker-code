@@ -1,4 +1,4 @@
-import type { ContentPart } from '@pythoughts/kosong';
+import type { ContentPart } from '@pymodel/kosong';
 
 import type { BackgroundTaskInfo } from '#/agent/background';
 import type { PartialCompactionDirection } from '#/agent/compaction';

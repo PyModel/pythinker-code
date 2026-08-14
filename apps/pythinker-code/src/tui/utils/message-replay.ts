@@ -6,8 +6,8 @@ import type {
   PromptOrigin,
   ResumedAgentState,
   ToolCall,
-} from '@pythoughts/pythinker-code-sdk';
-import { limitAgentReplayByTurns } from '@pythoughts/pythinker-code-sdk';
+} from '@pymodel/pythinker-code-sdk';
+import { limitAgentReplayByTurns } from '@pymodel/pythinker-code-sdk';
 
 import type {
   AppState,

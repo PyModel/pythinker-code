@@ -1,15 +1,15 @@
 {
-  "name": "@pythoughts/dashboard",
+  "name": "@pymodel/dashboard",
   "version": "0.1.1",
   "private": true,
   "description": "Session dashboard and debugging tool for pythinker-code sessions",
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "build:deps": "pnpm --filter @pythoughts/agent-core... build",
+    "build:deps": "pnpm --filter @pymodel/agent-core... build",
     "predev": "pnpm run build:deps",
     "dev": "node scripts/dev.mjs",
-    "build": "pnpm run build:deps && pnpm --filter @pythoughts/dashboard-server build && pnpm --filter @pythoughts/dashboard-web build && node scripts/copy-web-dist.mjs",
+    "build": "pnpm run build:deps && pnpm --filter @pymodel/dashboard-server build && pnpm --filter @pymodel/dashboard-web build && node scripts/copy-web-dist.mjs",
     "prestart": "pnpm run build",
     "start": "node server/dist/server.mjs"
   },

@@ -7,7 +7,7 @@
  * `ChoiceOption`, which is why the selector can pass these straight through.
  */
 
-import { OPENAI_CODEX_OAUTH_LOGIN, OPEN_PLATFORMS } from '@pythoughts/pythinker-code-oauth';
+import { OPENAI_CODEX_OAUTH_LOGIN, OPEN_PLATFORMS } from '@pymodel/pythinker-code-oauth';
 import {
   catalogConnectionWire,
   type Catalog,

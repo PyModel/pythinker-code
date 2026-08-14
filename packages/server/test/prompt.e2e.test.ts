@@ -29,8 +29,8 @@ import { pino } from 'pino';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
 
-import { WS_PROTOCOL_VERSION, type Event, type PromptSubmission } from '@pythoughts/protocol';
-import { IEventService, IPromptService, PromptService } from '@pythoughts/agent-core';
+import { WS_PROTOCOL_VERSION, type Event, type PromptSubmission } from '@pymodel/protocol';
+import { IEventService, IPromptService, PromptService } from '@pymodel/agent-core';
 
 import { IRestGateway, startServer, type ServerStartOptions, type RunningServer } from '../src';
 
@@ -140,8 +140,7 @@ function buildMultipart(parts: {
       lines.push(`--${boundary}\r\n`, `Content-Disposition: form-data; name="${field.name}"\r\n\r\n${field.value}\r\n`);
     }
   }
-  lines.push(`--${boundary}\r\n`, `Content-Disposition: form-data; name="${parts.file.fieldName}"; filename="${parts.file.filename}"\r\n`, `Content-Type: ${parts.file.contentType}\r\n\r\n`, parts.file.data);
-  lines.push(`\r\n--${boundary}--\r\n`);
+  lines.push(`--${boundary}\r\n`, `Content-Disposition: form-data; name="${parts.file.fieldName}"; filename="${parts.file.filename}"\r\n`, `Content-Type: ${parts.file.contentType}\r\n\r\n`, parts.file.data, `\r\n--${boundary}--\r\n`);
 
   return {
     body: Buffer.concat(

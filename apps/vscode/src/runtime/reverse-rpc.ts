@@ -5,7 +5,7 @@ import type {
   ApprovalResponse as CoreApprovalResponse,
   QuestionRequest,
   QuestionResult,
-} from "@pythoughts/pythinker-code-sdk";
+} from "@pymodel/pythinker-code-sdk";
 
 import type { ApprovalResponse, QuestionRequest as LegacyQuestionRequest } from "../../shared/legacy-sdk";
 import { trackApprovals } from "../activity";

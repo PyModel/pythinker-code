@@ -22,7 +22,7 @@ import { pino } from 'pino';
 import {
   listMcpServersResponseSchema,
   listToolsResponseSchema,
-} from '@pythoughts/protocol';
+} from '@pymodel/protocol';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { IRestGateway, startServer, type RunningServer } from '../src';

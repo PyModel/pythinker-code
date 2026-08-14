@@ -26,7 +26,7 @@ import {
   type Kaos,
   type KaosProcess,
   type StatResult,
-} from '@pythoughts/kaos';
+} from '@pymodel/kaos';
 
 /**
  * `Kaos` that routes `read*` / `write*` through the ACP reverse-RPC

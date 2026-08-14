@@ -52,7 +52,7 @@ import type {
   MessageRole,
   PageResponse,
   ToolUseContent,
-} from '@pythoughts/protocol';
+} from '@pymodel/protocol';
 
 /**
  * Listing query — `before_id`/`after_id` + `page_size` mutex is enforced

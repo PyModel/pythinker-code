@@ -1,4 +1,4 @@
-import type { Message } from "@pythoughts/kosong";
+import type { Message } from "@pymodel/kosong";
 import { estimateTokensForMessage } from "../../utils/tokens";
 import type { CompactionSource } from "./types";
 

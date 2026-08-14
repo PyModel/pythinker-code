@@ -1,4 +1,4 @@
-import { createPythinkerHarness } from '@pythoughts/pythinker-code-sdk';
+import { createPythinkerHarness } from '@pymodel/pythinker-code-sdk';
 
 import {
   smokeIdentityFromEnv,

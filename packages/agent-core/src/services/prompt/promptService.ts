@@ -12,7 +12,7 @@ import type {
   PromptSteerResult,
   PromptSubmitResult,
   PromptThinking,
-} from '@pythoughts/protocol';
+} from '@pymodel/protocol';
 import type { PermissionMode } from '../../agent/permission';
 import { ulid } from 'ulid';
 

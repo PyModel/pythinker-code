@@ -1,4 +1,4 @@
-import type { ChatProvider, ModelCapability } from '@pythoughts/kosong';
+import type { ChatProvider, ModelCapability } from '@pymodel/kosong';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {

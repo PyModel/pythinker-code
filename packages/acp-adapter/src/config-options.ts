@@ -33,7 +33,7 @@
  */
 
 import type { SessionConfigOption, SessionConfigSelectOption } from '@agentclientprotocol/sdk';
-import type { PythinkerHarness } from '@pythoughts/pythinker-code-sdk';
+import type { PythinkerHarness } from '@pymodel/pythinker-code-sdk';
 
 import { ACP_MODES, type AcpModeId } from './modes';
 import { listModelsFromHarness, type AcpModelEntry } from './model-catalog';

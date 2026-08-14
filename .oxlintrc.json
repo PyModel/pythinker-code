@@ -92,18 +92,18 @@
           {
             "paths": [
               {
-                "name": "@pythoughts/agent-core",
-                "message": "See AGENTS.md:19: apps/pythinker-code must consume core through @pythoughts/pythinker-code-sdk."
+                "name": "@pymodel/agent-core",
+                "message": "See AGENTS.md:19: apps/pythinker-code must consume core through @pymodel/pythinker-code-sdk."
               }
             ],
             "patterns": [
               {
                 "group": [
-                  "@pythoughts/agent-core/**",
+                  "@pymodel/agent-core/**",
                   "**/packages/agent-core",
                   "**/packages/agent-core/**"
                 ],
-                "message": "See AGENTS.md:19: apps/pythinker-code must consume core through @pythoughts/pythinker-code-sdk."
+                "message": "See AGENTS.md:19: apps/pythinker-code must consume core through @pymodel/pythinker-code-sdk."
               }
             ]
           }

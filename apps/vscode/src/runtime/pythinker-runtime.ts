@@ -4,7 +4,7 @@ import {
   type PythinkerHarness,
   type Session,
   type SessionSummary,
-} from "@pythoughts/pythinker-code-sdk";
+} from "@pymodel/pythinker-code-sdk";
 
 import type { RuntimeBroadcast } from "./session-runtime";
 import {

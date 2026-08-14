@@ -4,7 +4,7 @@ import {
   type PromptPart,
   type ToolInputDisplay,
   type ToolResultEvent,
-} from '@pythoughts/pythinker-code-sdk';
+} from '@pymodel/pythinker-code-sdk';
 
 import { isHideOutputMarker } from './marker';
 

@@ -4,7 +4,7 @@ import type {
   ModelCatalogItem,
   ProviderCatalogItem,
   SetDefaultModelResponse,
-} from '@pythoughts/protocol';
+} from '@pymodel/protocol';
 
 export interface IModelCatalogService {
   readonly _serviceBrand: undefined;

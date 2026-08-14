@@ -28,7 +28,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { metaResponseSchema, ulidRegex } from '@pythoughts/protocol';
+import { metaResponseSchema, ulidRegex } from '@pymodel/protocol';
 import { pino } from 'pino';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
