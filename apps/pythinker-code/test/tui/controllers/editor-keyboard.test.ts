@@ -54,7 +54,7 @@ describe('EditorKeyboardController thinking-effort cycling', () => {
       expect(setConfig).toHaveBeenCalledWith({
         defaultModel: 'test/model',
         defaultThinking: true,
-        thinking: { effort: 'medium' },
+        thinking: { effort: 'medium', mode: 'on' },
       });
     });
   });
