@@ -1,4 +1,4 @@
-import type { PythinkerHarness } from '@pythoughts/pythinker-code-sdk';
+import type { PythinkerHarness } from '@pymodel/pythinker-code-sdk';
 
 /**
  * Save the model + thinking-effort pair as the startup default.
