@@ -12,7 +12,7 @@ const installRows = [
   ['Windows (PowerShell)', 'irm https://code.pythinker.com/pythinker-code/install.ps1 | iex', '/brand/windows11.svg'],
   ['Homebrew', 'brew install pymodel/tap/pythinker-code'],
   ['Nix', 'nix run github:PyModel/pythinker-code'],
-  ['npm', 'npm install -g @pythoughts/pythinker-code', '/brand/npm.svg'],
+  ['npm', 'npm install -g @pymodel/pythinker-code', '/brand/npm.svg'],
   ['Verify', 'pythinker --version'],
 ];
 
@@ -205,7 +205,7 @@ onUnmounted(() => {
         <div class="nav-links">
           <a href="https://pymodel.github.io/pythinker-code/" target="_blank" rel="noopener">Docs</a>
           <a href="https://github.com/PyModel/pythinker-code" target="_blank" rel="noopener"><img src="/brand/github.svg" alt="" width="16" height="16" />GitHub</a>
-          <a href="https://www.npmjs.com/package/@pythoughts/pythinker-code" target="_blank" rel="noopener"><img src="/brand/npm.svg" alt="" width="16" height="16" />npm</a>
+          <a href="https://www.npmjs.com/package/@pymodel/pythinker-code" target="_blank" rel="noopener"><img src="/brand/npm.svg" alt="" width="16" height="16" />npm</a>
         </div>
         <a class="button button-primary nav-cta" href="#install">Get started</a>
         <div ref="mobileMenu" class="mobile-menu" @mouseenter="openMenuOnHover" @mouseleave="closeMenuOnHover">
@@ -216,7 +216,7 @@ onUnmounted(() => {
             <div v-show="menuOpen" class="mobile-menu-panel">
               <a href="https://pymodel.github.io/pythinker-code/" target="_blank" rel="noopener" @click="closeMenu(false)">Docs</a>
               <a href="https://github.com/PyModel/pythinker-code" target="_blank" rel="noopener" @click="closeMenu(false)"><img src="/brand/github.svg" alt="" width="16" height="16" />GitHub</a>
-              <a href="https://www.npmjs.com/package/@pythoughts/pythinker-code" target="_blank" rel="noopener" @click="closeMenu(false)"><img src="/brand/npm.svg" alt="" width="16" height="16" />npm</a>
+              <a href="https://www.npmjs.com/package/@pymodel/pythinker-code" target="_blank" rel="noopener" @click="closeMenu(false)"><img src="/brand/npm.svg" alt="" width="16" height="16" />npm</a>
             </div>
           </Transition>
         </div>
@@ -233,13 +233,13 @@ onUnmounted(() => {
         <p class="hero-lead">An open-source AI engineering agent for your terminal. It reads your repo, edits files, runs commands, and iterates until the job is done.</p>
         <a
           class="hero-npm-badge"
-          href="https://www.npmjs.com/package/@pythoughts/pythinker-code"
+          href="https://www.npmjs.com/package/@pymodel/pythinker-code"
           target="_blank"
           rel="noopener"
         >
           <img
-            src="https://img.shields.io/npm/dm/%40pythoughts%2Fpythinker-code?style=flat&logo=npm&logoColor=white&color=2b89ff&label=downloads"
-            alt="npm downloads per month for @pythoughts/pythinker-code"
+            src="https://img.shields.io/npm/dm/%40pymodel%2Fpythinker-code?style=flat&logo=npm&logoColor=white&color=2b89ff&label=downloads"
+            alt="npm downloads per month for @pymodel/pythinker-code"
             width="161"
             height="20"
             loading="lazy"
@@ -497,7 +497,7 @@ onUnmounted(() => {
       <div><div class="footer-brand"><PythinkerMascot :width="16" :height="20" /><p class="wordmark">Pythinker Code</p><span class="footer-version">v{{ version }}</span></div><p class="footer-caption">Built by Pythoughts. MIT License.</p></div>
       <div class="footer-links">
         <a href="https://github.com/PyModel/pythinker-code" target="_blank" rel="noopener">GitHub</a>
-        <a href="https://www.npmjs.com/package/@pythoughts/pythinker-code" target="_blank" rel="noopener">npm</a>
+        <a href="https://www.npmjs.com/package/@pymodel/pythinker-code" target="_blank" rel="noopener">npm</a>
         <a href="https://pymodel.github.io/pythinker-code/" target="_blank" rel="noopener">Docs</a>
         <a href="https://pythinker.com" target="_blank" rel="noopener">pythinker.com</a>
         <a href="https://github.com/PyModel/pythinker-code/blob/main/SECURITY.md" target="_blank" rel="noopener">Security</a>

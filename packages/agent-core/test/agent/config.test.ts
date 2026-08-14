@@ -1,4 +1,4 @@
-import type { ModelCapability, ProviderConfig, ToolCall } from '@pythoughts/kosong';
+import type { ModelCapability, ProviderConfig, ToolCall } from '@pymodel/kosong';
 import { describe, expect, it } from 'vitest';
 
 import type { ResolvedAgentProfile } from '../../src/profile';

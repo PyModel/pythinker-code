@@ -1,5 +1,5 @@
-import { buildPlatformOptions } from '@pythoughts/pythinker-code-sdk';
-import type { Catalog } from '@pythoughts/pythinker-code-sdk';
+import { buildPlatformOptions } from '@pymodel/pythinker-code-sdk';
+import type { Catalog } from '@pymodel/pythinker-code-sdk';
 
 import { ChoicePickerComponent } from './choice-picker';
 

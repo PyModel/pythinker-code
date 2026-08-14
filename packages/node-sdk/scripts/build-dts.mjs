@@ -14,10 +14,10 @@ const apiExtractorBinPath = packageBinPath('@microsoft/api-extractor', 'bin/api-
 
 const packageDirs = new Set(['agent-core', 'kaos', 'kosong', 'node-sdk', 'oauth']);
 const workspacePackages = new Map([
-  ['@pythoughts/agent-core', 'agent-core'],
-  ['@pythoughts/kaos', 'kaos'],
-  ['@pythoughts/pythinker-code-oauth', 'oauth'],
-  ['@pythoughts/kosong', 'kosong'],
+  ['@pymodel/agent-core', 'agent-core'],
+  ['@pymodel/kaos', 'kaos'],
+  ['@pymodel/pythinker-code-oauth', 'oauth'],
+  ['@pymodel/kosong', 'kosong'],
 ]);
 
 try {
@@ -105,7 +105,7 @@ async function rewriteWorkspaceSpecifiers() {
           `import { GoogleGenAI as GenAIClient } from '${providerClientSpecifier}';`,
         );
       const updated = providerClientText.replaceAll(
-        /(["'])(#\/[^"']+|@pythoughts\/(?:agent-core|kaos|pythinker-code-oauth|kosong)(?:\/[^"']+)?)\1/g,
+        /(["'])(#\/[^"']+|@pymodel\/(?:agent-core|kaos|pythinker-code-oauth|kosong)(?:\/[^"']+)?)\1/g,
         (_match, quote, specifier) => {
           const resolved = resolveSpecifier({
             currentFile: file,

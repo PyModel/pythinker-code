@@ -1,11 +1,11 @@
-import type { Kaos } from '@pythoughts/kaos';
+import type { Kaos } from '@pymodel/kaos';
 import {
   ErrorCodes,
   PythinkerError,
   resolveProviderApiKey,
   withTelemetryContext,
   type ExperimentalFeatureState,
-} from '@pythoughts/agent-core';
+} from '@pymodel/agent-core';
 
 import { Session } from '#/session';
 import type { SDKRpcClientBase } from '#/rpc';

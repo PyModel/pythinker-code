@@ -21,8 +21,8 @@ import { join } from 'node:path';
 import { pino } from 'pino';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import type { Event, SessionSnapshotResponse } from '@pythoughts/protocol';
-import { IEventService, IPromptService, PromptService } from '@pythoughts/agent-core';
+import type { Event, SessionSnapshotResponse } from '@pymodel/protocol';
+import { IEventService, IPromptService, PromptService } from '@pymodel/agent-core';
 
 import { IRestGateway, IWSBroadcastService, startServer, type RunningServer } from '../src';
 import { WSBroadcastService } from '#/services/gateway/wsBroadcastService';

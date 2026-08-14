@@ -10,7 +10,7 @@ import { mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from 
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Event, Session } from "@pythoughts/pythinker-code-sdk";
+import type { Event, Session } from "@pymodel/pythinker-code-sdk";
 import type * as vscode from "vscode";
 import { Methods } from "../shared/bridge";
 import { BridgeHandler } from "../src/bridge-handler";
@@ -133,8 +133,8 @@ vi.mock("vscode", () => ({
   },
 }));
 
-vi.mock("@pythoughts/pythinker-code-sdk", async (importOriginal) => {
-  const original = await importOriginal<typeof import("@pythoughts/pythinker-code-sdk")>();
+vi.mock("@pymodel/pythinker-code-sdk", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@pymodel/pythinker-code-sdk")>();
   return {
     ...original,
     createPythinkerHarness: () => ({

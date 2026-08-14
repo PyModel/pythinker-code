@@ -1,5 +1,5 @@
 import { createControlledPromise } from '@antfu/utils';
-import { APIProviderRateLimitError } from '@pythoughts/kosong';
+import { APIProviderRateLimitError } from '@pymodel/kosong';
 import { describe, expect, it, vi } from 'vitest';
 
 import {

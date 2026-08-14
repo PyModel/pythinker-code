@@ -2,8 +2,8 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { SyncDescriptor, ITerminalService, TerminalService } from '@pythoughts/agent-core';
-import { WS_PROTOCOL_VERSION, type Terminal } from '@pythoughts/protocol';
+import { SyncDescriptor, ITerminalService, TerminalService } from '@pymodel/agent-core';
+import { WS_PROTOCOL_VERSION, type Terminal } from '@pymodel/protocol';
 import { pino } from 'pino';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';

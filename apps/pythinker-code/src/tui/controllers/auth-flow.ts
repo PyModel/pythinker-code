@@ -2,7 +2,7 @@ import {
   coerceEffortForModel,
   type PythinkerHarness,
   type Session,
-} from '@pythoughts/pythinker-code-sdk';
+} from '@pymodel/pythinker-code-sdk';
 import type { SkillListSession } from '../commands';
 
 import { OAUTH_LOGIN_REQUIRED_STARTUP_NOTICE } from '../constant/pythinker-tui';

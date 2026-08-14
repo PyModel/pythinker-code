@@ -1,6 +1,6 @@
 import { Readable, type Writable } from 'node:stream';
 
-import type { KaosProcess, StatResult } from '@pythoughts/kaos';
+import type { KaosProcess, StatResult } from '@pymodel/kaos';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { type GrepInput, GrepInputSchema, GrepTool } from '../../src/tools/builtin/file/grep';

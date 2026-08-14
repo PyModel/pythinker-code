@@ -26,8 +26,8 @@
  */
 
 import type { McpServer, McpServerStdio } from '@agentclientprotocol/sdk';
-import type { McpServerConfig } from '@pythoughts/agent-core';
-import { log } from '@pythoughts/pythinker-code-sdk';
+import type { McpServerConfig } from '@pymodel/agent-core';
+import { log } from '@pymodel/pythinker-code-sdk';
 
 /**
  * Convert an ACP `McpServer[]` into the kernel-native

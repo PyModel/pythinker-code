@@ -34,8 +34,8 @@ import {
   activateSkillRequestSchema,
   activateSkillResultSchema,
   listSkillsResponseSchema,
-} from '@pythoughts/protocol';
-import { ISkillService, SessionNotFoundError, SkillNotActivatableError, SkillNotFoundError, type IInstantiationService } from '@pythoughts/agent-core';
+} from '@pymodel/protocol';
+import { ISkillService, SessionNotFoundError, SkillNotActivatableError, SkillNotFoundError, type IInstantiationService } from '@pymodel/agent-core';
 import { z } from 'zod';
 
 

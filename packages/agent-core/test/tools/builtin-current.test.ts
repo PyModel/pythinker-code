@@ -7,8 +7,8 @@
 
 import { Readable, type Writable } from 'node:stream';
 
-import type { Kaos, KaosProcess } from '@pythoughts/kaos';
-import type { WorkflowWarningEvent } from '@pythoughts/protocol';
+import type { Kaos, KaosProcess } from '@pymodel/kaos';
+import type { WorkflowWarningEvent } from '@pymodel/protocol';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { Agent } from '../../src/agent';

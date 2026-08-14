@@ -1,4 +1,4 @@
-import type { IInstantiationService } from '@pythoughts/agent-core';
+import type { IInstantiationService } from '@pymodel/agent-core';
 import { ulid } from 'ulid';
 
 import { okEnvelope } from '../envelope';

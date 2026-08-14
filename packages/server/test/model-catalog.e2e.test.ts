@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { pino } from 'pino';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { IModelCatalogService, type IModelCatalogService as ModelCatalogServiceShape } from '@pythoughts/agent-core';
+import { IModelCatalogService, type IModelCatalogService as ModelCatalogServiceShape } from '@pymodel/agent-core';
 
 import { IRestGateway, startServer, type RunningServer, type ServerStartOptions } from '../src';
 

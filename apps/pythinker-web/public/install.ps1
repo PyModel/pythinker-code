@@ -531,7 +531,7 @@ Unix / macOS / Linux users:
   }
 
   function Get-ReleaseTag([string]$ResolvedVersion) {
-    return "@pythoughts/pythinker-code@$ResolvedVersion"
+    return "@pymodel/pythinker-code@$ResolvedVersion"
   }
 
   function Get-EncodedReleaseTag([string]$ResolvedVersion) {
@@ -558,7 +558,7 @@ Unix / macOS / Linux users:
     try {
       $latest = Get-HttpJson $Client $latestApi
       $tag = [string]$latest.tag_name
-      if ($tag -match '^@pythoughts/pythinker-code@(\d+\.\d+\.\d+)$') {
+      if ($tag -match '^@pymodel/pythinker-code@(\d+\.\d+\.\d+)$') {
         return $Matches[1]
       }
       Stop-Installer "could not parse latest release tag '$tag' from GitHub"

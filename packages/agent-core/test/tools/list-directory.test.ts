@@ -1,4 +1,4 @@
-import type { Kaos } from '@pythoughts/kaos';
+import type { Kaos } from '@pymodel/kaos';
 import { describe, expect, it } from 'vitest';
 
 import {

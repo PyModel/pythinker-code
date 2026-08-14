@@ -1,4 +1,4 @@
-import type { ApprovalResponse } from '@pythoughts/pythinker-code-sdk';
+import type { ApprovalResponse } from '@pymodel/pythinker-code-sdk';
 
 import { ReverseRpcController } from '#/tui/reverse-rpc/base-controller';
 import type { ApprovalPanelData } from '#/tui/reverse-rpc/types';

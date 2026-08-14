@@ -1,4 +1,4 @@
-import { ErrorCodes, PythinkerError } from '@pythoughts/pythinker-code-sdk';
+import { ErrorCodes, PythinkerError } from '@pymodel/pythinker-code-sdk';
 import { describe, expect, it } from 'vitest';
 
 import { STREAMING_ARGS_PREVIEW_MAX_CHARS } from '#/tui/constant/streaming';

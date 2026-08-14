@@ -1,8 +1,8 @@
 export {
   ToolInputDisplaySchema,
   ToolResultDisplaySchema,
-} from '@pythoughts/protocol';
+} from '@pymodel/protocol';
 export type {
   ToolInputDisplay,
   ToolResultDisplay,
-} from '@pythoughts/protocol';
+} from '@pymodel/protocol';

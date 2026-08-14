@@ -2,7 +2,7 @@
  * `pythinker server install/uninstall/start/stop/restart/status`.
  *
  * Phase 2 lands the CLI shape; the lifecycle calls into the platform service
- * manager from `@pythoughts/server`, which is filled in by Phase 3+.
+ * manager from `@pymodel/server`, which is filled in by Phase 3+.
  *
  * The Commander wiring here mirrors `addGatewayServiceCommands` from
  * `../openclaw/src/cli/daemon-cli/register-service-commands.ts:58`.
@@ -17,7 +17,7 @@ import {
   type InstallArgs,
   type ServiceManager,
   type ServiceStatus,
-} from '@pythoughts/server';
+} from '@pymodel/server';
 
 import { drainWritable } from '#/cli/output';
 import { openUrl as defaultOpenUrl } from '#/utils/open-url';

@@ -16,7 +16,7 @@ import {
   createPythinkerHarness,
   fetchCatalog,
   type Catalog,
-} from '@pythoughts/pythinker-code-sdk';
+} from '@pymodel/pythinker-code-sdk';
 
 import { registerLoginCommand } from '#/cli/sub/login';
 import { openUrl } from '#/utils/open-url';
@@ -27,9 +27,9 @@ const mockGetConfig = vi.fn();
 const mockSetConfig = vi.fn();
 const mockRemoveProvider = vi.fn();
 
-vi.mock('@pythoughts/pythinker-code-sdk', async () => {
-  const actual = await vi.importActual<typeof import('@pythoughts/pythinker-code-sdk')>(
-    '@pythoughts/pythinker-code-sdk',
+vi.mock('@pymodel/pythinker-code-sdk', async () => {
+  const actual = await vi.importActual<typeof import('@pymodel/pythinker-code-sdk')>(
+    '@pymodel/pythinker-code-sdk',
   );
   return {
     ...actual,
@@ -86,9 +86,9 @@ const { mockFetchOpenPlatformModels } = vi.hoisted(() => ({
   mockFetchOpenPlatformModels: vi.fn(),
 }));
 
-vi.mock('@pythoughts/pythinker-code-oauth', async () => {
-  const actual = await vi.importActual<typeof import('@pythoughts/pythinker-code-oauth')>(
-    '@pythoughts/pythinker-code-oauth',
+vi.mock('@pymodel/pythinker-code-oauth', async () => {
+  const actual = await vi.importActual<typeof import('@pymodel/pythinker-code-oauth')>(
+    '@pymodel/pythinker-code-oauth',
   );
   return { ...actual, fetchOpenPlatformModels: mockFetchOpenPlatformModels };
 });

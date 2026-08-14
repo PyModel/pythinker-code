@@ -1,7 +1,7 @@
 import {
   MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE,
   type ToolUpdate,
-} from '@pythoughts/pythinker-code-sdk';
+} from '@pymodel/pythinker-code-sdk';
 import { describe, expect, it, vi } from 'vitest';
 
 import {

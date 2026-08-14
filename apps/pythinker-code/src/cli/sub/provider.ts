@@ -18,7 +18,7 @@ import {
   fetchCustomRegistry,
   type CustomRegistrySource,
   type PlatformConfigShape,
-} from '@pythoughts/pythinker-code-oauth';
+} from '@pymodel/pythinker-code-oauth';
 import {
   catalogConnectionWire,
   catalogProviderModels,
@@ -32,7 +32,7 @@ import {
   type CatalogProviderEntry,
   type PythinkerConfig,
   type PythinkerHarness,
-} from '@pythoughts/pythinker-code-sdk';
+} from '@pymodel/pythinker-code-sdk';
 import type { Command } from 'commander';
 
 import { createPythinkerCodeHostIdentity } from '#/cli/version';

@@ -6,7 +6,7 @@ import type {
   FsGrepResponse,
   FsSearchRequest,
   FsSearchResponse,
-} from '@pythoughts/protocol';
+} from '@pymodel/protocol';
 
 export class FsGrepTimeoutError extends Error {
   readonly elapsedMs: number;

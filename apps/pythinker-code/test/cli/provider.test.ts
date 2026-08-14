@@ -9,7 +9,7 @@ import { Command } from 'commander';
 import {
   DEFAULT_CATALOG_URL,
   type PythinkerConfig,
-} from '@pythoughts/pythinker-code-sdk';
+} from '@pymodel/pythinker-code-sdk';
 
 import {
   handleCatalogAdd,

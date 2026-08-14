@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import type { Tool, ToolCall } from '@pythoughts/kosong';
+import type { Tool, ToolCall } from '@pymodel/kosong';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { AgentOptions } from '../../src/agent';

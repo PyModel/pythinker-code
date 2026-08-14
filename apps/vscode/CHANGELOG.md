@@ -17,14 +17,14 @@
 - [#48](https://github.com/PyModel/pythinker-code/pull/48) [`17967df`](https://github.com/PyModel/pythinker-code/commit/17967dffb7ca3ed6f23f9bc0346042fc8a1b2bf0) - Render long conversations with a virtualized list, fix control overlap at narrow sidebar widths, and make sign-out work from the command palette.
 
 - Updated dependencies [[`c8cdcc7`](https://github.com/PyModel/pythinker-code/commit/c8cdcc78528f3fd8dedf9111ec0c91f3242e3012)]:
-  - @pythoughts/pythinker-code-sdk@0.15.0
+  - @pymodel/pythinker-code-sdk@0.15.0
 
 ## 0.8.8
 
 ### Patch Changes
 
 - Updated dependencies [[`e534040`](https://github.com/PyModel/pythinker-code/commit/e534040c82d1e3b8c217e6e35ddcf248065ff950)]:
-  - @pythoughts/pythinker-code-sdk@0.14.0
+  - @pymodel/pythinker-code-sdk@0.14.0
 
 ## 0.8.7
 
@@ -37,14 +37,14 @@
 ### Patch Changes
 
 - Updated dependencies [[`2ce6b5e`](https://github.com/PyModel/pythinker-code/commit/2ce6b5e66935335567a6525413ad8e77b84d852f)]:
-  - @pythoughts/pythinker-code-sdk@0.13.0
+  - @pymodel/pythinker-code-sdk@0.13.0
 
 ## 0.8.5
 
 ### Patch Changes
 
 - Updated dependencies [[`42da384`](https://github.com/PyModel/pythinker-code/commit/42da384cb36d29ecf0cc147f753790e022e13709)]:
-  - @pythoughts/pythinker-code-sdk@0.12.0
+  - @pymodel/pythinker-code-sdk@0.12.0
 
 ## 0.8.4
 
@@ -53,7 +53,7 @@
 - [#22](https://github.com/PyModel/pythinker-code/pull/22) [`45be822`](https://github.com/PyModel/pythinker-code/commit/45be8227077847f760fa7b6b09333cf5a8127f32) - Show the assistant logo beside replies without breaking the step timeline, complete a picked slash command in the input instead of sending it on its own, ship a decodable Marketplace icon, and retry transient registry failures when publishing.
 
 - Updated dependencies [[`45be822`](https://github.com/PyModel/pythinker-code/commit/45be8227077847f760fa7b6b09333cf5a8127f32), [`45be822`](https://github.com/PyModel/pythinker-code/commit/45be8227077847f760fa7b6b09333cf5a8127f32)]:
-  - @pythoughts/pythinker-code-sdk@0.11.0
+  - @pymodel/pythinker-code-sdk@0.11.0
 
 ## 0.6.7
 

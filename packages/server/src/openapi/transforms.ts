@@ -20,7 +20,7 @@ import {
   questionResolveResultSchema,
   undoSessionRequestSchema,
   undoSessionResponseSchema,
-} from '@pythoughts/protocol';
+} from '@pymodel/protocol';
 import { z } from 'zod';
 
 import {

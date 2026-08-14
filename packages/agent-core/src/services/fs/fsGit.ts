@@ -9,7 +9,7 @@ import type {
   FsGitStatus,
   FsGitStatusRequest,
   FsGitStatusResponse,
-} from '@pythoughts/protocol';
+} from '@pymodel/protocol';
 
 export class FsGitUnavailableError extends Error {
   readonly cwd: string;

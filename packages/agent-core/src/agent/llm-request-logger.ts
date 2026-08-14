@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 
 import type { Logger } from '#/logging/types';
-import type { ChatProvider, GenerateOptions, Message, Tool } from '@pythoughts/kosong';
+import type { ChatProvider, GenerateOptions, Message, Tool } from '@pymodel/kosong';
 
 import type { LLMRequestLogFields } from '../loop';
 

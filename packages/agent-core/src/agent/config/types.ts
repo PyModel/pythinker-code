@@ -1,4 +1,4 @@
-import type { ModelCapability, ProviderConfig } from '@pythoughts/kosong';
+import type { ModelCapability, ProviderConfig } from '@pymodel/kosong';
 
 export interface AgentConfigData {
   cwd: string;

@@ -3,7 +3,7 @@ import {
   type McpOAuthAuthorizationUrlUpdateData,
   type ToolProgressEvent,
   type ToolUpdate,
-} from '@pythoughts/pythinker-code-sdk';
+} from '@pymodel/pythinker-code-sdk';
 
 export type OpenUrl = (url: string) => void;
 

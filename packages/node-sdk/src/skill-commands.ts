@@ -1,4 +1,4 @@
-import type { SkillSummary } from '@pythoughts/agent-core';
+import type { SkillSummary } from '@pymodel/agent-core';
 
 export interface SkillSlashCommand {
   readonly name: string;

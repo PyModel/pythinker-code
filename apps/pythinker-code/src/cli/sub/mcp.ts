@@ -1,4 +1,4 @@
-import { runPythinkerMcpServer } from '@pythoughts/pythinker-code-sdk';
+import { runPythinkerMcpServer } from '@pymodel/pythinker-code-sdk';
 import type { Command } from 'commander';
 
 import { getVersion } from '#/cli/version';

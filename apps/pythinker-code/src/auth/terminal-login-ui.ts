@@ -1,6 +1,6 @@
 /**
  * Terminal renderer for the multi-provider login flows (`runLogin` from
- * `@pythoughts/pythinker-code-sdk`).
+ * `@pymodel/pythinker-code-sdk`).
  *
  * `pythinker login` (and `pythinker acp --login`) build a `LoginUi` backed by
  * `@clack/prompts`: the provider picker, API-key / redirect-URL input, model
@@ -17,7 +17,7 @@ import { isCancel, log, password, select, spinner, text } from '@clack/prompts';
 import {
   type PlatformModelInfo,
   type OpenPlatformDefinition,
-} from '@pythoughts/pythinker-code-oauth';
+} from '@pymodel/pythinker-code-oauth';
 import {
   buildPlatformOptions,
   catalogModelToAlias,
@@ -36,7 +36,7 @@ import {
   type ModelAlias,
   type PlatformSelection,
   type PythinkerHarness,
-} from '@pythoughts/pythinker-code-sdk';
+} from '@pymodel/pythinker-code-sdk';
 
 import { BUILT_IN_CATALOG_JSON } from '#/built-in-catalog';
 import type { ColorToken } from '#/tui/theme';

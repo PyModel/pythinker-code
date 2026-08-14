@@ -1,4 +1,4 @@
-import type { PluginInfo, PluginSummary } from '@pythoughts/pythinker-code-sdk';
+import type { PluginInfo, PluginSummary } from '@pymodel/pythinker-code-sdk';
 
 import { currentTheme } from '#/tui/theme';
 import {

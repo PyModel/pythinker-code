@@ -90,10 +90,10 @@ importers:
       '@hono/node-server':
         specifier: ^2.0.5
         version: 2.0.12(hono@4.13.0)
-      '@pythoughts/agent-core':
+      '@pymodel/agent-core':
         specifier: workspace:^
         version: link:../../../packages/agent-core
-      '@pythoughts/kosong':
+      '@pymodel/kosong':
         specifier: workspace:^
         version: link:../../../packages/kosong
       hono:
@@ -174,31 +174,31 @@ importers:
       '@earendil-works/pi-tui':
         specifier: ^0.83.0
         version: 0.83.0
-      '@pythoughts/acp-adapter':
+      '@pymodel/acp-adapter':
         specifier: workspace:^
         version: link:../../packages/acp-adapter
-      '@pythoughts/dashboard-server':
+      '@pymodel/dashboard-server':
         specifier: workspace:^
         version: link:../dashboard/server
-      '@pythoughts/dashboard-web':
+      '@pymodel/dashboard-web':
         specifier: workspace:*
         version: link:../dashboard/web
-      '@pythoughts/migration-legacy':
+      '@pymodel/migration-legacy':
         specifier: workspace:^
         version: link:../../packages/migration-legacy
-      '@pythoughts/pythinker-code-oauth':
+      '@pymodel/pythinker-code-oauth':
         specifier: workspace:^
         version: link:../../packages/oauth
-      '@pythoughts/pythinker-code-sdk':
+      '@pymodel/pythinker-code-sdk':
         specifier: workspace:^
         version: link:../../packages/node-sdk
-      '@pythoughts/pythinker-telemetry':
+      '@pymodel/pythinker-telemetry':
         specifier: workspace:^
         version: link:../../packages/telemetry
-      '@pythoughts/pythinker-web':
+      '@pymodel/pythinker-web':
         specifier: workspace:^
         version: link:../pythinker-web
-      '@pythoughts/server':
+      '@pymodel/server':
         specifier: workspace:^
         version: link:../../packages/server
       '@types/node':
@@ -342,7 +342,7 @@ importers:
       '@base-ui/react':
         specifier: ^1.0.0
         version: 1.7.0(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      '@pythoughts/pythinker-code-sdk':
+      '@pymodel/pythinker-code-sdk':
         specifier: workspace:^
         version: link:../../packages/node-sdk
       '@radix-ui/react-accordion':
@@ -500,13 +500,13 @@ importers:
       '@agentclientprotocol/sdk':
         specifier: ^0.23.0
         version: 0.23.0(zod@4.4.3)
-      '@pythoughts/agent-core':
+      '@pymodel/agent-core':
         specifier: workspace:^
         version: link:../agent-core
-      '@pythoughts/kaos':
+      '@pymodel/kaos':
         specifier: workspace:^
         version: link:../kaos
-      '@pythoughts/pythinker-code-sdk':
+      '@pymodel/pythinker-code-sdk':
         specifier: workspace:^
         version: link:../node-sdk
 
@@ -521,16 +521,16 @@ importers:
       '@mozilla/readability':
         specifier: ^0.6.0
         version: 0.6.0
-      '@pythoughts/kaos':
+      '@pymodel/kaos':
         specifier: workspace:^
         version: link:../kaos
-      '@pythoughts/kosong':
+      '@pymodel/kosong':
         specifier: workspace:^
         version: link:../kosong
-      '@pythoughts/protocol':
+      '@pymodel/protocol':
         specifier: workspace:^
         version: link:../protocol
-      '@pythoughts/pythinker-code-oauth':
+      '@pymodel/pythinker-code-oauth':
         specifier: workspace:^
         version: link:../oauth
       ajv:
@@ -677,7 +677,7 @@ importers:
 
   packages/migration-legacy:
     dependencies:
-      '@pythoughts/agent-core':
+      '@pymodel/agent-core':
         specifier: workspace:^
         version: link:../agent-core
       smol-toml:
@@ -687,7 +687,7 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
     devDependencies:
-      '@pythoughts/kaos':
+      '@pymodel/kaos':
         specifier: workspace:^
         version: link:../kaos
 
@@ -706,16 +706,16 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
     devDependencies:
-      '@pythoughts/agent-core':
+      '@pymodel/agent-core':
         specifier: workspace:^
         version: link:../agent-core
-      '@pythoughts/kaos':
+      '@pymodel/kaos':
         specifier: workspace:^
         version: link:../kaos
-      '@pythoughts/kosong':
+      '@pymodel/kosong':
         specifier: workspace:^
         version: link:../kosong
-      '@pythoughts/pythinker-code-oauth':
+      '@pymodel/pythinker-code-oauth':
         specifier: workspace:^
         version: link:../oauth
       '@types/yazl':
@@ -751,10 +751,10 @@ importers:
       '@fastify/swagger':
         specifier: ^9.8.1
         version: 9.8.1
-      '@pythoughts/agent-core':
+      '@pymodel/agent-core':
         specifier: workspace:^
         version: link:../agent-core
-      '@pythoughts/protocol':
+      '@pymodel/protocol':
         specifier: workspace:^
         version: link:../protocol
       fastify:
@@ -785,7 +785,7 @@ importers:
 
   packages/server-e2e:
     dependencies:
-      '@pythoughts/protocol':
+      '@pymodel/protocol':
         specifier: workspace:^
         version: link:../protocol
       ulid:

@@ -4,7 +4,7 @@ import {
   type ModelCapability,
   type StreamedMessagePart,
   type ToolCall,
-} from '@pythoughts/kosong';
+} from '@pymodel/kosong';
 import { describe, expect, it } from 'vitest';
 
 import { KosongLLM, type GenerateFn } from '../../src/agent/turn/kosong-llm';

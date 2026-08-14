@@ -1,6 +1,6 @@
 import { Readable } from 'node:stream';
 
-import type { Kaos, KaosProcess } from '@pythoughts/kaos';
+import type { Kaos, KaosProcess } from '@pymodel/kaos';
 import { describe, expect, it, vi } from 'vitest';
 
 import { collectGitContext, parseProjectName, sanitizeRemoteUrl } from '../../src/session/git-context';

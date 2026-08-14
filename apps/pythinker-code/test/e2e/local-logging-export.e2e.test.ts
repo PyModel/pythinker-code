@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { registerExportCommand } from '#/cli/sub/export';
 import { createPythinkerCodeHostIdentity } from '#/cli/version';
-import { createPythinkerHarness, log } from '@pythoughts/pythinker-code-sdk';
+import { createPythinkerHarness, log } from '@pymodel/pythinker-code-sdk';
 import { __resetRootLoggerForTest } from '../../../../packages/agent-core/src/logging/logger';
 
 const SESSION_LOG = 'logs/pythinker-code.log';

@@ -1,6 +1,6 @@
 import type {
   AgentProfileSummary,
-} from '@pythoughts/pythinker-code-sdk';
+} from '@pymodel/pythinker-code-sdk';
 
 import { ChoicePickerComponent } from '../components/dialogs/choice-picker';
 import { formatErrorMessage } from '../utils/event-payload';

@@ -1,7 +1,7 @@
 import {
   isPythinkerError,
   type PythinkerErrorPayload,
-} from '@pythoughts/agent-core';
+} from '@pymodel/agent-core';
 
 export function formatErrorMessage(error: unknown): string {
   if (isPythinkerError(error)) {

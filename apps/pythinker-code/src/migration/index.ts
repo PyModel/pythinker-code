@@ -4,7 +4,7 @@
  * Removable glue: the `pythinker migrate` sub-command, the first-launch detection,
  * the native pi-tui migration screen, and the session-picker `[imported]`
  * badge helper. Migration logic itself lives in
- * `@pythoughts/migration-legacy`.
+ * `@pymodel/migration-legacy`.
  */
 export { registerMigrateCommand } from './command';
 export { formatSessionLabel, isImportedSession, type SessionLabelInput } from './badge';

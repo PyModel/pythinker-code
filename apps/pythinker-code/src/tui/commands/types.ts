@@ -1,5 +1,5 @@
 import type { AutocompleteItem, SlashCommand } from '@earendil-works/pi-tui';
-import type { FlagId } from '@pythoughts/pythinker-code-sdk';
+import type { FlagId } from '@pymodel/pythinker-code-sdk';
 
 export type SlashCommandAvailability = 'always' | 'idle-only';
 

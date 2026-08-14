@@ -1,4 +1,4 @@
-# @pythoughts/pythinker-code-oauth
+# @pymodel/pythinker-code-oauth
 
 OAuth toolkit for Pythinker Code managed authentication.
 

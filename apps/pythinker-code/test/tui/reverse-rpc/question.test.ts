@@ -1,4 +1,4 @@
-import type { QuestionRequest } from '@pythoughts/pythinker-code-sdk';
+import type { QuestionRequest } from '@pymodel/pythinker-code-sdk';
 import { describe, expect, it, vi } from 'vitest';
 
 import { QuestionController } from '#/tui/reverse-rpc/question/controller';

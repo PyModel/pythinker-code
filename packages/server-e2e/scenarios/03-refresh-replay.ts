@@ -40,7 +40,7 @@
  */
 import assert from 'node:assert/strict';
 
-import { WS_PROTOCOL_VERSION } from '@pythoughts/protocol';
+import { WS_PROTOCOL_VERSION } from '@pymodel/protocol';
 
 import { DaemonClient, WsClient, type AnyFrame } from '../src/index';
 import { fetchWithReport } from '../src/report';

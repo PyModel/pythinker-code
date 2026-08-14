@@ -11,7 +11,7 @@
  * their own `WorkspaceConfig` with narrower bounds.
  */
 
-import type { Environment, Kaos } from '@pythoughts/kaos';
+import type { Environment, Kaos } from '@pymodel/kaos';
 import type { ExecutableToolResult } from '#/loop';
 
 import type { WorkspaceConfig } from '../../../src/tools/support/workspace';

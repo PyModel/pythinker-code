@@ -20,7 +20,7 @@ import {
   type SessionUpdate,
   type UndoSessionRequest,
   type UndoSessionResponse,
-} from '@pythoughts/protocol';
+} from '@pymodel/protocol';
 
 import { IApprovalService } from '../approval/approval';
 import { ICoreProcessService } from '../coreProcess/coreProcess';

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { buildGoalCompletionMessage } from '#/tui/utils/goal-completion';
-import type { GoalSnapshot } from '@pythoughts/pythinker-code-sdk';
+import type { GoalSnapshot } from '@pymodel/pythinker-code-sdk';
 
 function snapshot(overrides: Partial<GoalSnapshot> = {}): GoalSnapshot {
   return {

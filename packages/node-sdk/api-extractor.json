@@ -2,10 +2,10 @@
   "$schema": "https://developer.microsoft.com/json-schemas/api-extractor/v7/api-extractor.schema.json",
   "mainEntryPointFilePath": "<projectFolder>/.tmp-api-extractor/dts/node-sdk/src/index.d.ts",
   "bundledPackages": [
-    "@pythoughts/agent-core",
-    "@pythoughts/kaos",
-    "@pythoughts/pythinker-code-oauth",
-    "@pythoughts/kosong"
+    "@pymodel/agent-core",
+    "@pymodel/kaos",
+    "@pymodel/pythinker-code-oauth",
+    "@pymodel/kosong"
   ],
   "compiler": {
     "tsconfigFilePath": "<projectFolder>/tsconfig.api-extractor.json",

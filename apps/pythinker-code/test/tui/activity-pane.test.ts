@@ -1,5 +1,5 @@
 import chalk from 'chalk';
-import type { Event } from '@pythoughts/pythinker-code-sdk';
+import type { Event } from '@pymodel/pythinker-code-sdk';
 import { describe, expect, it, vi } from 'vitest';
 
 import { DynamicWorkflowMissionControlComponent } from '#/tui/components/messages/dynamic-workflow-mission-control';

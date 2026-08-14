@@ -4,9 +4,9 @@ Pythinker Code CLI is published through three npm release channels. Choose a cha
 
 | Channel | What it provides | npm dist-tag | Install command | Stability promise |
 | --- | --- | --- | --- | --- |
-| latest | Stable releases | `latest` | `npm i -g @pythoughts/pythinker-code@latest` | Recommended for normal use |
-| beta | Prereleases for an upcoming stable version | `beta` | `npm i -g @pythoughts/pythinker-code@beta` | May include incomplete or breaking changes |
-| dev | Nightly snapshots from the current `main` branch | `dev` | `npm i -g @pythoughts/pythinker-code@dev` | No stability guarantee; a new version is published only when commits change |
+| latest | Stable releases | `latest` | `npm i -g @pymodel/pythinker-code@latest` | Recommended for normal use |
+| beta | Prereleases for an upcoming stable version | `beta` | `npm i -g @pymodel/pythinker-code@beta` | May include incomplete or breaking changes |
+| dev | Nightly snapshots from the current `main` branch | `dev` | `npm i -g @pymodel/pythinker-code@dev` | No stability guarantee; a new version is published only when commits change |
 
 ## Running a Beta Cycle
 

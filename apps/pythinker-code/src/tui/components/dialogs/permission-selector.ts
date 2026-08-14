@@ -1,4 +1,4 @@
-import type { PermissionMode } from '@pythoughts/pythinker-code-sdk';
+import type { PermissionMode } from '@pymodel/pythinker-code-sdk';
 
 import { ChoicePickerComponent, type ChoiceOption } from './choice-picker';
 

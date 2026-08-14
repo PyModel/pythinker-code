@@ -5,7 +5,7 @@ import type {
   PluginInfo,
   PluginInstallOptions,
   PluginSummary,
-} from '@pythoughts/pythinker-code-sdk';
+} from '@pymodel/pythinker-code-sdk';
 
 import {
   ANTHROPIC_PLUGIN_MARKETPLACE_ALIAS,

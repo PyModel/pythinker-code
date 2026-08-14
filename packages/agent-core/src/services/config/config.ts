@@ -1,5 +1,5 @@
 import { createDecorator } from '../../di';
-import type { ConfigResponse, PatchConfigRequest } from '@pythoughts/protocol';
+import type { ConfigResponse, PatchConfigRequest } from '@pymodel/protocol';
 
 export interface IConfigService {
   readonly _serviceBrand: undefined;

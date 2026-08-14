@@ -1,4 +1,4 @@
-import { Disposable, ILogService } from '@pythoughts/agent-core';
+import { Disposable, ILogService } from '@pymodel/agent-core';
 import { pino, type Logger, type LoggerOptions } from 'pino';
 import prettyStream from 'pino-pretty';
 

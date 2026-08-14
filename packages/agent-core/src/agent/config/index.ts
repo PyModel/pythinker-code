@@ -4,7 +4,7 @@ import {
   type ChatProvider,
   type ModelCapability,
   type ProviderConfig,
-} from '@pythoughts/kosong';
+} from '@pymodel/kosong';
 
 import { applyPythinkerEnvSamplingParams, applyPythinkerEnvThinkingKeep } from '#/config/pythinker-env-params';
 

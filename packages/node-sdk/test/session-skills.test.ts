@@ -1,7 +1,7 @@
 import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import type * as KosongModule from '@pythoughts/kosong';
+import type * as KosongModule from '@pymodel/kosong';
 import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 
 import {
@@ -27,7 +27,7 @@ const fakeProviderState = vi.hoisted(() => ({
   responseText: 'skill response',
 }));
 
-vi.mock('@pythoughts/kosong', async (importOriginal) => {
+vi.mock('@pymodel/kosong', async (importOriginal) => {
   const actual = await importOriginal<typeof KosongModule>();
   return {
     ...actual,

@@ -4,7 +4,7 @@
 
 import { Disposable, InstantiationType, registerSingleton } from '../../di';
 import { resolveProviderApiKey, type PythinkerConfig } from '../../config';
-import type { AuthSummary } from '@pythoughts/protocol';
+import type { AuthSummary } from '@pymodel/protocol';
 import { ICoreProcessService } from '../coreProcess/coreProcess';
 import {
   IAuthSummaryService,

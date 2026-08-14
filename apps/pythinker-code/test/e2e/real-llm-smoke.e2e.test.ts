@@ -14,7 +14,7 @@
 import { mkdirSync } from 'node:fs';
 import process from 'node:process';
 
-import { createPythinkerHarness, type Event } from '@pythoughts/pythinker-code-sdk';
+import { createPythinkerHarness, type Event } from '@pymodel/pythinker-code-sdk';
 import { describe, expect, test } from 'vitest';
 
 import { createPythinkerCodeHostIdentity, getVersion } from '#/cli/version';

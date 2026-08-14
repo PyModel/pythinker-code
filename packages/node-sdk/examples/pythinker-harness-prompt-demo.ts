@@ -1,4 +1,4 @@
-import { createPythinkerHarness, type Event, type Session } from '@pythoughts/pythinker-code-sdk';
+import { createPythinkerHarness, type Event, type Session } from '@pymodel/pythinker-code-sdk';
 
 import { smokeIdentityFromEnv } from './runtime-smoke-helpers';
 

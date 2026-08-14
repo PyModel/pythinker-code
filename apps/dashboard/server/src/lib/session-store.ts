@@ -1,7 +1,7 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
 
-import { parseSessionMetadata, type SessionMeta } from '@pythoughts/agent-core';
+import { parseSessionMetadata, type SessionMeta } from '@pymodel/agent-core';
 
 import {
   DashboardIncompatibilityError,

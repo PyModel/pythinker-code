@@ -1,4 +1,4 @@
-import type { BackgroundTaskInfo, Session } from '@pythoughts/pythinker-code-sdk';
+import type { BackgroundTaskInfo, Session } from '@pymodel/pythinker-code-sdk';
 import type { Component, ProcessTerminal, TUI } from '@earendil-works/pi-tui';
 
 import { TaskOutputViewer } from '../components/dialogs/task-output-viewer';

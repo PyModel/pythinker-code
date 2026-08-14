@@ -11,7 +11,7 @@ import type {
   ResumedAgentState,
   ResumedSessionState,
   ToolCall,
-} from "@pythoughts/pythinker-code-sdk";
+} from "@pymodel/pythinker-code-sdk";
 import { describe, expect, it } from "vitest";
 
 import {

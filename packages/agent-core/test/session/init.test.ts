@@ -3,8 +3,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'pathe';
 
 import { testKaos } from '../fixtures/test-kaos';
-import type { ProviderConfig, ToolCall } from '@pythoughts/kosong';
-import type { Kaos, StatResult } from '@pythoughts/kaos';
+import type { ProviderConfig, ToolCall } from '@pymodel/kosong';
+import type { Kaos, StatResult } from '@pymodel/kaos';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { Agent, AgentOptions } from '../../src/agent';

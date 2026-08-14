@@ -4,7 +4,7 @@ import {
   calculateCost,
   type ModelCostRates,
   type TokenUsage,
-} from '@pythoughts/kosong';
+} from '@pymodel/kosong';
 
 import type { Agent } from '..';
 

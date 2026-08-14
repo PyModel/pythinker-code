@@ -38,7 +38,7 @@ import type {
   Event,
   SessionSummary,
 } from '../../src';
-import type { PromptSubmission, Session } from '@pythoughts/protocol';
+import type { PromptSubmission, Session } from '@pymodel/protocol';
 
 import {
   type IAuthSummaryService,

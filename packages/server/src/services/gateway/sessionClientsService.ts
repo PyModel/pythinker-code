@@ -1,6 +1,6 @@
 
 
-import { Disposable, ILogService } from '@pythoughts/agent-core';
+import { Disposable, ILogService } from '@pymodel/agent-core';
 
 import { ISessionClientsService } from './sessionClients';
 import type { WsConnection } from '#/ws/connection';

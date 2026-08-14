@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'pathe';
 
-import { APIConnectionError, APIStatusError, type ProviderConfig } from '@pythoughts/kosong';
+import { APIConnectionError, APIStatusError, type ProviderConfig } from '@pymodel/kosong';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ProviderManager } from '../../src/session/provider-manager';

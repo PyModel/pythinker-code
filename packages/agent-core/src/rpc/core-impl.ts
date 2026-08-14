@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 
-import { KaosShellNotFoundError, LocalKaos, type Kaos } from '@pythoughts/kaos';
+import { KaosShellNotFoundError, LocalKaos, type Kaos } from '@pymodel/kaos';
 import { watch, type FSWatcher } from 'chokidar';
 import { join } from 'pathe';
 

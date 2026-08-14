@@ -820,7 +820,7 @@ _resolve_version() {
       payload="$(_fetch "$api")" \
         || fail "could not reach $CDN_LATEST_URL or $api"
       VERSION="$(printf '%s' "$payload" \
-        | sed -nE 's/.*"tag_name": *"@pythoughts\/pythinker-code@([0-9]+\.[0-9]+\.[0-9]+)".*/\1/p' \
+        | sed -nE 's/.*"tag_name": *"@pymodel\/pythinker-code@([0-9]+\.[0-9]+\.[0-9]+)".*/\1/p' \
         | head -n 1)"
     fi
   fi
@@ -969,7 +969,7 @@ main() {
   _detect_target
   _resolve_version
 
-  tag_encoded="%40pythoughts%2Fpythinker-code%40${VERSION}"
+  tag_encoded="%40pymodel%2Fpythinker-code%40${VERSION}"
   archive="pythinker-code-${target}.zip"
   archive_url="https://github.com/${REPO}/releases/download/${tag_encoded}/${archive}"
   sha_url="${archive_url}.sha256"

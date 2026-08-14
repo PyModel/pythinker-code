@@ -1,4 +1,4 @@
-import type { FinishReason, TextPart, ThinkPart, TokenUsage } from '@pythoughts/kosong';
+import type { FinishReason, TextPart, ThinkPart, TokenUsage } from '@pymodel/kosong';
 
 import type { ToolInputDisplay } from '../tools/display';
 import type { ExecutableToolResult, LoopStepStopReason, ToolUpdate } from './types';

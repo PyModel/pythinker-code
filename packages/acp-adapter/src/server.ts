@@ -44,9 +44,9 @@ import {
   type SetSessionModelResponse,
   type Stream,
 } from '@agentclientprotocol/sdk';
-import type { PythinkerHarness, Session, SessionSummary } from '@pythoughts/pythinker-code-sdk';
-import { log } from '@pythoughts/pythinker-code-sdk';
-import { LocalKaos, type Kaos } from '@pythoughts/kaos';
+import type { PythinkerHarness, Session, SessionSummary } from '@pymodel/pythinker-code-sdk';
+import { log } from '@pymodel/pythinker-code-sdk';
+import { LocalKaos, type Kaos } from '@pymodel/kaos';
 
 import { TERMINAL_AUTH_METHOD, buildTerminalAuthMethod } from './auth-methods';
 import { redirectConsoleToStderr } from './log-guard';

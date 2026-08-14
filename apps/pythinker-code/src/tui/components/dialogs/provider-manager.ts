@@ -29,12 +29,12 @@
  * `setOptions`.
  */
 
-import type { ProviderConfig } from '@pythoughts/pythinker-code-sdk';
+import type { ProviderConfig } from '@pymodel/pythinker-code-sdk';
 import {
   getOpenPlatformById,
   isOpenPlatformId,
   type CustomRegistrySource,
-} from '@pythoughts/pythinker-code-oauth';
+} from '@pymodel/pythinker-code-oauth';
 import {
   Container,
   Key,

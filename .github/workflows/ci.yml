@@ -83,8 +83,8 @@ jobs:
             pnpm dlx --package @typescript/native-preview@beta tsgo -p "${config}" --noEmit
           done
       - name: Typecheck pythinker-web (vue-tsc)
-        run: pnpm --filter @pythoughts/pythinker-web run typecheck
+        run: pnpm --filter @pymodel/pythinker-web run typecheck
       - name: Typecheck dashboard-server
-        run: pnpm --filter @pythoughts/dashboard-server run typecheck
+        run: pnpm --filter @pymodel/dashboard-server run typecheck
       - name: Typecheck dashboard-web
-        run: pnpm --filter @pythoughts/dashboard-web run typecheck
+        run: pnpm --filter @pymodel/dashboard-web run typecheck

@@ -1,7 +1,7 @@
 import type { Readable } from 'node:stream';
 import { finished } from 'node:stream/promises';
 
-import type { KaosProcess } from '@pythoughts/kaos';
+import type { KaosProcess } from '@pymodel/kaos';
 
 import { errorMessage } from '../../loop/errors';
 import type {

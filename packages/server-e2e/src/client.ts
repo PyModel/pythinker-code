@@ -12,7 +12,7 @@
  * **What it is NOT**: a server bootstrap helper. Connect to a server process
  * that's already running at `baseUrl` (default `http://127.0.0.1:58627`).
  */
-import { WS_PROTOCOL_VERSION } from '@pythoughts/protocol';
+import { WS_PROTOCOL_VERSION } from '@pymodel/protocol';
 import type {
   ApprovalRequest,
   ApprovalResolveResult,
@@ -57,7 +57,7 @@ import type {
   Workspace,
   WorkspaceCreate,
   WorkspaceUpdate,
-} from '@pythoughts/protocol';
+} from '@pymodel/protocol';
 import { ulid } from 'ulid';
 import { WebSocket as WsWebSocket } from 'ws';
 

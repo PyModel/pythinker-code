@@ -1,4 +1,4 @@
-import type { SessionSummary } from '@pythoughts/pythinker-code-sdk';
+import type { SessionSummary } from '@pymodel/pythinker-code-sdk';
 
 import type { SessionRow } from '#/tui/components/dialogs/session-picker';
 

@@ -1,4 +1,4 @@
-import type { ModelAlias } from '@pythoughts/agent-core';
+import type { ModelAlias } from '@pymodel/agent-core';
 import { describe, expect, it } from 'vitest';
 
 import { coerceEffortForModel, effortLevelsForModel } from '../src/thinking-levels';

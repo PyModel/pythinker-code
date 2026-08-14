@@ -38,10 +38,10 @@ export default defineConfig({
     [BUILT_IN_CATALOG_DEFINE]: builtInCatalogDefine(),
   },
   deps: {
-    alwaysBundle: [/^@pythoughts\//u, solidRuntimeAlias.find],
+    alwaysBundle: [/^@pymodel\//u, solidRuntimeAlias.find],
     // node-pty is a native addon: its `pty.node` binary cannot be bundled and
     // must resolve from node_modules at runtime. Keep it external (even though
-    // its importer @pythoughts/agent-core is force-bundled above) and declare it
+    // its importer @pymodel/agent-core is force-bundled above) and declare it
     // as a runtime dependency of this package so npm/npx installs it with its
     // prebuilt binary. Bundling it leaves the binary unresolvable → the terminal
     // PTY fails with "Failed to load native module: pty.node".

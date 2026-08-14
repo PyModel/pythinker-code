@@ -17,46 +17,46 @@ export default defineConfig({
   resolve: {
     alias: [
       // Order matters — list MORE specific entries first so prefix matching
-      // doesn't route them through the bare `@pythoughts/agent-core` alias
+      // doesn't route them through the bare `@pymodel/agent-core` alias
       // (which points at agent-core/src/index.ts, breaking subpath imports).
       {
-        find: /^@pythoughts\/agent-core\/session\/store$/,
+        find: /^@pymodel\/agent-core\/session\/store$/,
         replacement: fileURLToPath(
           new URL('../agent-core/src/session/store/index.ts', import.meta.url),
         ),
       },
       {
-        find: /^@pythoughts\/agent-core\/base\/common\/event$/,
+        find: /^@pymodel\/agent-core\/base\/common\/event$/,
         replacement: fileURLToPath(
           new URL('../agent-core/src/base/common/event.ts', import.meta.url),
         ),
       },
       {
-        find: '@pythoughts/pythinker-code-sdk',
+        find: '@pymodel/pythinker-code-sdk',
         replacement: fileURLToPath(
           new URL('../node-sdk/src/index.ts', import.meta.url),
         ),
       },
       {
-        find: '@pythoughts/agent-core',
+        find: '@pymodel/agent-core',
         replacement: fileURLToPath(
           new URL('../agent-core/src/index.ts', import.meta.url),
         ),
       },
       {
-        find: '@pythoughts/protocol',
+        find: '@pymodel/protocol',
         replacement: fileURLToPath(
           new URL('../protocol/src/index.ts', import.meta.url),
         ),
       },
       {
-        find: '@pythoughts/pythinker-code-oauth/oauth-pages',
+        find: '@pymodel/pythinker-code-oauth/oauth-pages',
         replacement: fileURLToPath(
           new URL('../oauth/src/oauth-pages.ts', import.meta.url),
         ),
       },
       {
-        find: '@pythoughts/pythinker-code-oauth',
+        find: '@pymodel/pythinker-code-oauth',
         replacement: fileURLToPath(
           new URL('../oauth/src/index.ts', import.meta.url),
         ),

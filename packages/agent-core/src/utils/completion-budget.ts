@@ -1,4 +1,4 @@
-import type { ChatProvider, ModelCapability } from '@pythoughts/kosong';
+import type { ChatProvider, ModelCapability } from '@pymodel/kosong';
 
 /** Completion-token budget for the next LLM request. */
 export interface CompletionBudgetConfig {

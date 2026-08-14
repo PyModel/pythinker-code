@@ -1,4 +1,4 @@
-import type { McpServerInfo, McpServerStatusEvent } from '@pythoughts/pythinker-code-sdk';
+import type { McpServerInfo, McpServerStatusEvent } from '@pymodel/pythinker-code-sdk';
 
 import type { ColorToken } from '#/tui/theme';
 

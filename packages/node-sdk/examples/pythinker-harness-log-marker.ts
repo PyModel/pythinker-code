@@ -8,7 +8,7 @@ import {
   log,
   resolveGlobalLogPath,
   resolvePythinkerHome,
-} from '@pythoughts/pythinker-code-sdk';
+} from '@pymodel/pythinker-code-sdk';
 
 type MarkerLevel = 'error' | 'warn';
 

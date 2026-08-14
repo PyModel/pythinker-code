@@ -20,8 +20,8 @@ import {
   undoSessionRequestSchema,
   undoSessionResponseSchema,
   workspaceIdSchema,
-} from '@pythoughts/protocol';
-import { IPromptService, ISessionService, SessionNotFoundError, SessionUndoUnavailableError, ErrorCodes, PythinkerError, IWorkspaceRegistry, WorkspaceNotFoundError, type IInstantiationService, type SessionClientTelemetry } from '@pythoughts/agent-core';
+} from '@pymodel/protocol';
+import { IPromptService, ISessionService, SessionNotFoundError, SessionUndoUnavailableError, ErrorCodes, PythinkerError, IWorkspaceRegistry, WorkspaceNotFoundError, type IInstantiationService, type SessionClientTelemetry } from '@pymodel/agent-core';
 import { z } from 'zod';
 
 

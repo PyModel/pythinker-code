@@ -6,7 +6,7 @@
  * telemetry.track) and inflating them through `testAgent()` would drag
  * kosong / records / context into every unit-level assertion.
  */
-import type { ContentPart } from '@pythoughts/kosong';
+import type { ContentPart } from '@pymodel/kosong';
 
 import type { Agent } from '../../../../src/agent';
 import type { PromptOrigin } from '../../../../src/agent/context/types';

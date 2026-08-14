@@ -81,22 +81,22 @@
       ];
 
       workspaceNames = [
-        "@pythoughts/acp-adapter"
-        "@pythoughts/agent-core"
-        "@pythoughts/server"
-        "@pythoughts/server-e2e"
-        "@pythoughts/kaos"
-        "@pythoughts/kosong"
-        "@pythoughts/migration-legacy"
-        "@pythoughts/pythinker-code-sdk"
-        "@pythoughts/pythinker-code-oauth"
-        "@pythoughts/protocol"
-        "@pythoughts/pythinker-telemetry"
-        "@pythoughts/pythinker-code"
-        "@pythoughts/pythinker-web"
-        "@pythoughts/dashboard"
-        "@pythoughts/dashboard-server"
-        "@pythoughts/dashboard-web"
+        "@pymodel/acp-adapter"
+        "@pymodel/agent-core"
+        "@pymodel/server"
+        "@pymodel/server-e2e"
+        "@pymodel/kaos"
+        "@pymodel/kosong"
+        "@pymodel/migration-legacy"
+        "@pymodel/pythinker-code-sdk"
+        "@pymodel/pythinker-code-oauth"
+        "@pymodel/protocol"
+        "@pymodel/pythinker-telemetry"
+        "@pymodel/pythinker-code"
+        "@pymodel/pythinker-web"
+        "@pymodel/dashboard"
+        "@pymodel/dashboard-server"
+        "@pymodel/dashboard-web"
         "pythinker-code-docs"
         "pythinker-migration-legacy"
       ];
@@ -189,9 +189,9 @@
               # Pythinker web assets from apps/pythinker-code/dist-web and fails if that
               # directory is missing. Build the web app and stage its assets
               # before producing the native executable.
-              pnpm --filter=@pythoughts/pythinker-web run build
+              pnpm --filter=@pymodel/pythinker-web run build
               node apps/pythinker-code/scripts/copy-web-assets.mjs
-              pnpm --filter=@pythoughts/pythinker-code run build:native:sea
+              pnpm --filter=@pymodel/pythinker-code run build:native:sea
               runHook postBuild
             '';
 

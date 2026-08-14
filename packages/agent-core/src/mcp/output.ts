@@ -19,7 +19,7 @@
  * helpers stay private so callers cannot bypass the limits.
  */
 
-import type { ContentPart } from '@pythoughts/kosong';
+import type { ContentPart } from '@pymodel/kosong';
 
 import type { MCPContentBlock, MCPToolResult } from './types';
 

@@ -1,4 +1,4 @@
-import type { PythinkerConfig, ModelAlias } from '@pythoughts/agent-core';
+import type { PythinkerConfig, ModelAlias } from '@pymodel/agent-core';
 import {
   catalogBaseUrl,
   catalogConnectionWire,
@@ -9,7 +9,7 @@ import {
   type CatalogProviderEntry,
   type ModelCapability,
   type ProviderType,
-} from '@pythoughts/kosong';
+} from '@pymodel/kosong';
 
 export { catalogBaseUrl, catalogConnectionWire, catalogProviderModels, inferWireType };
 export type { Catalog, CatalogModel, CatalogProviderEntry };

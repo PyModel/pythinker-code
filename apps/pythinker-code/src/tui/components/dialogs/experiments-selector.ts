@@ -6,7 +6,7 @@ import {
   visibleWidth,
   type Focusable,
 } from '@earendil-works/pi-tui';
-import type { ExperimentalFeatureState } from '@pythoughts/pythinker-code-sdk';
+import type { ExperimentalFeatureState } from '@pymodel/pythinker-code-sdk';
 
 import { SELECT_POINTER } from '#/tui/constant/symbols';
 import { combinedBindingHint, formatBindingKeys } from '#/tui/components/dialogs/choice-picker';

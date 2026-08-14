@@ -24,7 +24,7 @@ import {
   type ProviderCatalogItem,
   type Session,
   type SessionStatusResponse,
-} from '@pythoughts/protocol';
+} from '@pymodel/protocol';
 
 import { DaemonClient, EnvelopeError } from '../src/index.js';
 import { fetchWithReport } from '../src/report.js';

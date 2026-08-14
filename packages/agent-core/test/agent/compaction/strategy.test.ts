@@ -1,7 +1,7 @@
 
 import {
   type Message
-} from '@pythoughts/kosong';
+} from '@pymodel/kosong';
 import { describe, expect, it } from 'vitest';
 
 import { DefaultCompactionStrategy } from '../../../src/agent/compaction';

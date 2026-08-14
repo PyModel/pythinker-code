@@ -2,7 +2,7 @@
 // detail for every record kind. Because `WIRE_RENDERERS` is typed as a mapped
 // type over the FULL `RecordType` union, TypeScript REQUIRES an entry for each
 // kind: adding a kind upstream in agent-core fails
-// `pnpm --filter @pythoughts/dashboard-web typecheck` here until a renderer is
+// `pnpm --filter @pymodel/dashboard-web typecheck` here until a renderer is
 // added. This is the anti-rot guarantee that keeps dashboard from silently falling
 // behind the wire protocol.
 

@@ -1,4 +1,4 @@
-import type { JsonObject, PermissionMode, Session } from "@pythoughts/pythinker-code-sdk";
+import type { JsonObject, PermissionMode, Session } from "@pymodel/pythinker-code-sdk";
 
 /**
  * The engine keeps the permission mode in memory only, so a resumed session

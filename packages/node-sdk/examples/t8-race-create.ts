@@ -1,5 +1,5 @@
 // T8.4 driver: create session with explicit id, twice concurrently in same process.
-import { createPythinkerHarness, type PythinkerHarness } from '@pythoughts/pythinker-code-sdk';
+import { createPythinkerHarness, type PythinkerHarness } from '@pymodel/pythinker-code-sdk';
 
 const workDir = process.argv[2]!;
 const homeDir = process.argv[3]!;

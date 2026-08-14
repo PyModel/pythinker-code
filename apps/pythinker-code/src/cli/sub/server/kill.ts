@@ -16,7 +16,7 @@
 
 import type { Command } from 'commander';
 
-import { getLiveLock, type LockContents } from '@pythoughts/server';
+import { getLiveLock, type LockContents } from '@pymodel/server';
 
 import { writeAndDrain } from '../../output';
 import { lockConnectHost } from './daemon';

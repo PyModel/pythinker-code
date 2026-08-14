@@ -1,5 +1,5 @@
-import type { Kaos, StatResult } from '@pythoughts/kaos';
-import type { ContentPart } from '@pythoughts/kosong';
+import type { Kaos, StatResult } from '@pymodel/kaos';
+import type { ContentPart } from '@pymodel/kosong';
 import { z } from 'zod';
 
 import type { BuiltinTool } from '../../../agent/tool';

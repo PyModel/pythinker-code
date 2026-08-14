@@ -22,8 +22,8 @@ import {
   IQuestionService,
   type QuestionRequest,
   type QuestionResult,
-} from '@pythoughts/agent-core';
-import { WS_PROTOCOL_VERSION } from '@pythoughts/protocol';
+} from '@pymodel/agent-core';
+import { WS_PROTOCOL_VERSION } from '@pymodel/protocol';
 
 import { IRestGateway, startServer, type RunningServer } from '../src';
 import { rawDataToString } from '../src/ws/rawData';

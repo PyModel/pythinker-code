@@ -4,7 +4,7 @@
 
 import { Disposable, InstantiationType, registerSingleton } from '../../di';
 import { ErrorCodes, PythinkerError } from '../../errors';
-import type { SkillDescriptor } from '@pythoughts/protocol';
+import type { SkillDescriptor } from '@pymodel/protocol';
 
 import { ICoreProcessService } from '../coreProcess/coreProcess';
 import { SessionNotFoundError } from '../session/session';

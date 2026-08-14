@@ -1,4 +1,4 @@
-# @pythoughts/kosong
+# @pymodel/kosong
 
 ## 0.4.6
 

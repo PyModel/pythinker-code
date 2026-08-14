@@ -4,8 +4,8 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import type { PythinkerConfig } from '@pythoughts/agent-core';
-import { createPythinkerDefaultHeaders, PYTHINKER_CODE_PLATFORM } from '@pythoughts/pythinker-code-oauth';
+import type { PythinkerConfig } from '@pymodel/agent-core';
+import { createPythinkerDefaultHeaders, PYTHINKER_CODE_PLATFORM } from '@pymodel/pythinker-code-oauth';
 
 import { ProviderManager } from '../../agent-core/src/session/provider-manager';
 import { SDKRpcClient } from '#/index';

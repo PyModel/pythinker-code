@@ -2,7 +2,7 @@
  * `ConnectionRegistry` — implementation of `IConnectionRegistry`.
  */
 
-import { Disposable } from '@pythoughts/agent-core';
+import { Disposable } from '@pymodel/agent-core';
 
 import type { WsConnection } from '#/ws/connection';
 import { IConnectionRegistry } from './connectionRegistry';

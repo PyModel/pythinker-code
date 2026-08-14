@@ -2,7 +2,7 @@
  * `FastifyRestGateway` — implementation of `IRestGateway`.
  */
 
-import { Disposable } from '@pythoughts/agent-core';
+import { Disposable } from '@pymodel/agent-core';
 
 import { IRestGateway, type FastifyLike } from './restGateway';
 

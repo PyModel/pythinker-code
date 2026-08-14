@@ -15,8 +15,8 @@
  * services-package façade.
  */
 
-import { authSummarySchema } from '@pythoughts/protocol';
-import { IAuthSummaryService, type IInstantiationService } from '@pythoughts/agent-core';
+import { authSummarySchema } from '@pymodel/protocol';
+import { IAuthSummaryService, type IInstantiationService } from '@pymodel/agent-core';
 
 import { okEnvelope } from '../envelope';
 import { defineRoute } from '../middleware/defineRoute';

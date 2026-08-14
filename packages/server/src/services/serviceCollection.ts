@@ -2,8 +2,8 @@ import {
   getSingletonServiceDescriptors,
   ServiceCollection,
   SyncDescriptor,
-} from '@pythoughts/agent-core';
-import * as Services from '@pythoughts/agent-core';
+} from '@pymodel/agent-core';
+import * as Services from '@pymodel/agent-core';
 import type { Logger as PinoLogger } from 'pino';
 
 import type { FastifyLike } from '#/services/gateway/restGateway';

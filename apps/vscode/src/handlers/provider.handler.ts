@@ -6,7 +6,7 @@ import {
   fetchCatalog,
   importCatalogProvider,
   type Catalog,
-} from "@pythoughts/pythinker-code-sdk";
+} from "@pymodel/pythinker-code-sdk";
 
 import { Events, Methods } from "../../shared/bridge";
 import type {

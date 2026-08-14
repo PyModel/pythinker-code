@@ -1,4 +1,4 @@
-import type { ExperimentalFeatureState, ExperimentalFlagMap } from '@pythoughts/pythinker-code-sdk';
+import type { ExperimentalFeatureState, ExperimentalFlagMap } from '@pymodel/pythinker-code-sdk';
 
 import { experimentalFeatureMap } from '#/utils/experimental-features';
 

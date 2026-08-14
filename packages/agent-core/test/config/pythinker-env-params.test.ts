@@ -1,4 +1,4 @@
-import { type ChatProvider, PythinkerChatProvider } from '@pythoughts/kosong';
+import { type ChatProvider, PythinkerChatProvider } from '@pymodel/kosong';
 import { describe, expect, it } from 'vitest';
 
 import { applyPythinkerEnvSamplingParams, applyPythinkerEnvThinkingKeep } from '../../src/config/pythinker-env-params';

@@ -7,7 +7,7 @@ import {
   visibleWidth,
   type Focusable,
 } from '@earendil-works/pi-tui';
-import type { PartialCompactionDirection } from '@pythoughts/pythinker-code-sdk';
+import type { PartialCompactionDirection } from '@pymodel/pythinker-code-sdk';
 
 import { SELECT_POINTER } from '#/tui/constant/symbols';
 import {

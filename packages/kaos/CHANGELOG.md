@@ -1,4 +1,4 @@
-# @pythoughts/kaos
+# @pymodel/kaos
 
 ## 0.1.6
 

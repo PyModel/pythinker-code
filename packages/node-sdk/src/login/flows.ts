@@ -13,7 +13,7 @@ import {
   type OpenPlatformDefinition,
   type PlatformConfigShape,
   type PlatformModelInfo,
-} from '@pythoughts/pythinker-code-oauth';
+} from '@pymodel/pythinker-code-oauth';
 import {
   applyCatalogProvider,
   catalogBaseUrl,

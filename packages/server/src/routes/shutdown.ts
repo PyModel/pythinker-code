@@ -8,7 +8,7 @@
  * connection.
  */
 
-import type { IInstantiationService } from '@pythoughts/agent-core';
+import type { IInstantiationService } from '@pymodel/agent-core';
 import { z } from 'zod';
 
 import { okEnvelope } from '../envelope';

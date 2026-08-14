@@ -1,4 +1,4 @@
-import type { Message } from '@pythoughts/kosong';
+import type { Message } from '@pymodel/kosong';
 
 export function renderMessagesToText(messages: readonly Message[]): string {
   return messages.map((message, index) => renderMessageToText(message, index)).join('\n\n');

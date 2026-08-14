@@ -8,7 +8,7 @@
  * Kaos I/O.
  */
 
-import type { Kaos } from '@pythoughts/kaos';
+import type { Kaos } from '@pymodel/kaos';
 import { z } from 'zod';
 
 import type { BuiltinTool } from '../../../agent/tool';

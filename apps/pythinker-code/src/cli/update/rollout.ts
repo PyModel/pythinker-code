@@ -2,8 +2,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { appendFile, mkdir, stat, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
-import { readPythinkerDeviceId } from '@pythoughts/pythinker-code-oauth';
-import { resolvePythinkerHome } from '@pythoughts/pythinker-code-sdk';
+import { readPythinkerDeviceId } from '@pymodel/pythinker-code-oauth';
+import { resolvePythinkerHome } from '@pymodel/pythinker-code-sdk';
 
 import { getUpdateRolloutLogFile } from '#/utils/paths';
 

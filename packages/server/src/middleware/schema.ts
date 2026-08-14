@@ -7,7 +7,7 @@
  * already drive runtime validation — no second source of truth.
  */
 
-import { envelopeSchema } from '@pythoughts/protocol';
+import { envelopeSchema } from '@pymodel/protocol';
 import { z } from 'zod';
 
 /**

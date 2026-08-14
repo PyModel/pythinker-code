@@ -27,7 +27,7 @@ import {
   type Prompt1Choice,
   type Prompt2Choice,
   type RunMigrationInput,
-} from '@pythoughts/migration-legacy';
+} from '@pymodel/migration-legacy';
 
 type Phase = 'ask1' | 'ask2' | 'progress' | 'result';
 
@@ -286,8 +286,7 @@ export class MigrationScreenComponent extends Container implements Focusable {
       if (this.migrationFailureReason !== undefined) {
         lines.push('', chalk.hex(colors.text)(` Reason: ${this.migrationFailureReason}`));
       }
-      lines.push('', chalk.hex(colors.text)(' You can retry later by running "pythinker migrate".'), '', chalk.hex(colors.textMuted)(' ⏎ continue to pythinker-code'));
-      lines.push(chalk.hex(colors.primary)('─'.repeat(width)));
+      lines.push('', chalk.hex(colors.text)(' You can retry later by running "pythinker migrate".'), '', chalk.hex(colors.textMuted)(' ⏎ continue to pythinker-code'), chalk.hex(colors.primary)('─'.repeat(width)));
       return lines.map((l) => truncateToWidth(l, width));
     }
     const r = this.report;

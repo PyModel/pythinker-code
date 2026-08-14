@@ -1,7 +1,7 @@
 import {
   enableDiagnosticDebugLogging,
   startAgentToolMcpServer,
-} from '@pythoughts/agent-core';
+} from '@pymodel/agent-core';
 
 import { SDKRpcClient } from '#/sdk-rpc-client';
 import type { PythinkerHarnessOptions } from '#/types';

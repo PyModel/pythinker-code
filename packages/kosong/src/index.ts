@@ -77,6 +77,6 @@ export {
 /**
  * Concrete provider adapters stay off the root barrel because their SDK type
  * graphs pollute downstream declaration bundles. Import them from subpaths:
- * `@pythoughts/kosong/providers/pythinker`,
- * `@pythoughts/kosong/providers/openai-legacy`, etc.
+ * `@pymodel/kosong/providers/pythinker`,
+ * `@pymodel/kosong/providers/openai-legacy`, etc.
  */

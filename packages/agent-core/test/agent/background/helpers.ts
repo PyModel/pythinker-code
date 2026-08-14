@@ -1,4 +1,4 @@
-import type { KaosProcess } from '@pythoughts/kaos';
+import type { KaosProcess } from '@pymodel/kaos';
 import { vi } from 'vitest';
 
 import {

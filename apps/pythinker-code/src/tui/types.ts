@@ -7,7 +7,7 @@ import type {
   ProviderConfig,
   PromptPart,
   ToolInputDisplay,
-} from '@pythoughts/pythinker-code-sdk';
+} from '@pymodel/pythinker-code-sdk';
 
 import type {
   NotificationsConfig,

@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 import { WebSocket as WsWebSocket } from 'ws';
-import { WS_PROTOCOL_VERSION } from '@pythoughts/protocol';
+import { WS_PROTOCOL_VERSION } from '@pymodel/protocol';
 
 import {
   fetchWithReport,

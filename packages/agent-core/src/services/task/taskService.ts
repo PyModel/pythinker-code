@@ -3,7 +3,7 @@
  */
 
 import { Disposable, InstantiationType, registerSingleton } from '../../di';
-import type { BackgroundTask } from '@pythoughts/protocol';
+import type { BackgroundTask } from '@pymodel/protocol';
 
 import { ICoreProcessService } from '../coreProcess/coreProcess';
 import { SessionNotFoundError } from '../session/session';

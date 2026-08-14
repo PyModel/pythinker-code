@@ -1,4 +1,4 @@
-import type { Session } from '@pythoughts/pythinker-code-sdk';
+import type { Session } from '@pymodel/pythinker-code-sdk';
 
 import { AgentGroupComponent } from '../components/messages/agent-group';
 import { AssistantMessageComponent } from '../components/messages/assistant-message';

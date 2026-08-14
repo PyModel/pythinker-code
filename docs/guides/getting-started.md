@@ -44,13 +44,13 @@ Requires Node.js 22.19.0 or later:
 
 ```sh
 node --version
-npm install -g @pythoughts/pythinker-code
+npm install -g @pymodel/pythinker-code
 ```
 
 Or with pnpm:
 
 ```sh
-pnpm add -g @pythoughts/pythinker-code
+pnpm add -g @pymodel/pythinker-code
 ```
 
 ## Upgrade and uninstall
@@ -64,13 +64,13 @@ pythinker --version
 **Upgrade**: automatic updates are enabled by default. npm, pnpm, yarn, bun, and supported native installations update in the background. Homebrew installations download and verify the formula source in the background, then install it on the next interactive launch and restart into the new version. Run `pythinker upgrade` to check immediately. For npm, pnpm, yarn, bun, and macOS / Linux native installations it offers to install the update right away; for Homebrew and Windows native installations it prints the command to run. You can also upgrade directly via the package manager:
 
 ```sh
-npm install -g @pythoughts/pythinker-code@latest
+npm install -g @pymodel/pythinker-code@latest
 ```
 
 **Uninstall**: if you installed via the script, delete the `pythinker` executable. If you installed via npm:
 
 ```sh
-npm uninstall -g @pythoughts/pythinker-code
+npm uninstall -g @pymodel/pythinker-code
 ```
 
 ## First launch

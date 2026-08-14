@@ -1,4 +1,4 @@
-import type * as KosongModule from '@pythoughts/kosong';
+import type * as KosongModule from '@pymodel/kosong';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createPythinkerHarness, type PythinkerError } from '#/index';
@@ -10,7 +10,7 @@ const fakeProviderState = vi.hoisted(() => ({
   responseText: 'steer response',
 }));
 
-vi.mock('@pythoughts/kosong', async (importOriginal) => {
+vi.mock('@pymodel/kosong', async (importOriginal) => {
   const actual = await importOriginal<typeof KosongModule>();
   return {
     ...actual,

@@ -48,8 +48,8 @@ export {
   savedWorkflowSkillDir,
   savedWorkflowSkillName,
   writeSavedWorkflowSkill,
-} from '@pythoughts/agent-core';
-export type { SavedWorkflow, SavedWorkflowScope, WorkflowSizeGuideline } from '@pythoughts/agent-core';
+} from '@pymodel/agent-core';
+export type { SavedWorkflow, SavedWorkflowScope, WorkflowSizeGuideline } from '@pymodel/agent-core';
 export { buildSkillSlashCommands, isUserActivatableSkill } from '#/skill-commands';
 export type { SkillSlashCommand, SkillSlashCommands } from '#/skill-commands';
 
@@ -93,7 +93,7 @@ export {
   fromPythinkerErrorPayload,
   isPythinkerError,
   toPythinkerErrorPayload,
-} from '@pythoughts/agent-core';
+} from '@pymodel/agent-core';
 
 // Diagnostic logging — public surface only.
 // RootLogger / getRootLogger / LoggingConfig stay inside agent-core.
@@ -104,19 +104,19 @@ export {
   redact,
   resolveGlobalLogPath,
   resolvePythinkerHome,
-} from '@pythoughts/agent-core';
-export type { LogContext, LogLevel, LogPayload, Logger } from '@pythoughts/agent-core';
+} from '@pymodel/agent-core';
+export type { LogContext, LogLevel, LogPayload, Logger } from '@pymodel/agent-core';
 
 // Host-side config helpers — safe config reader + config path resolution, used
 // by hosts (e.g. the CLI's server telemetry bootstrap) that need to inspect
 // config without spinning up a full PythinkerCore.
-export { loadRuntimeConfigSafe, resolveConfigPath } from '@pythoughts/agent-core';
+export { loadRuntimeConfigSafe, resolveConfigPath } from '@pymodel/agent-core';
 
 // Process-wide HTTP proxy bootstrap — installed once at CLI startup so all
 // outbound fetch honors HTTP_PROXY / HTTPS_PROXY / NO_PROXY.
-export { installGlobalProxyDispatcher } from '@pythoughts/agent-core';
-export { findExistingRg, type RgResolution } from '@pythoughts/agent-core';
-export { limitAgentReplayByTurns } from '@pythoughts/agent-core';
+export { installGlobalProxyDispatcher } from '@pymodel/agent-core';
+export { findExistingRg, type RgResolution } from '@pymodel/agent-core';
+export { limitAgentReplayByTurns } from '@pymodel/agent-core';
 
 // Experimental feature flags — types only. Resolved values come from
 // `PythinkerHarness.getExperimentalFeatures()` over RPC, not from a re-exported runtime value.
@@ -128,7 +128,7 @@ export type {
   FlagDefinitionInput,
   FlagId,
   FlagSurface,
-} from '@pythoughts/agent-core';
+} from '@pymodel/agent-core';
 
 
 export * from '#/events';

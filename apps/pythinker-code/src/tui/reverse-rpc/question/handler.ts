@@ -1,4 +1,4 @@
-import type { QuestionHandler, QuestionRequest, QuestionResult } from '@pythoughts/pythinker-code-sdk';
+import type { QuestionHandler, QuestionRequest, QuestionResult } from '@pymodel/pythinker-code-sdk';
 
 import type {
   QuestionPanelData,

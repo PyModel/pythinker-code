@@ -1,6 +1,6 @@
 /**
  * VS Code renderer for the multi-provider login flows (`runLogin` from
- * `@pythoughts/pythinker-code-sdk`).
+ * `@pymodel/pythinker-code-sdk`).
  *
  * The extension host builds a `LoginUi` backed by VS Code's own UI: the
  * provider picker, API-key input box, model and effort selection, and the
@@ -11,7 +11,7 @@
  * bundled fallback, so login still works offline.
  *
  * The `PlatformModelInfo` / `OpenPlatformDefinition` types live in
- * `@pythoughts/pythinker-code-oauth`,
+ * `@pymodel/pythinker-code-oauth`,
  * which the extension does not depend on, so the port members are written
  * inline and contextually typed against `LoginUi`. Effort levels come from the
  * SDK's shared rule, reached through the two model-alias converters, so this
@@ -32,7 +32,7 @@ import {
   type ApiKeyPromptOptions,
   type LoginProgressSpinnerHandle,
   type LoginUi,
-} from "@pythoughts/pythinker-code-sdk";
+} from "@pymodel/pythinker-code-sdk";
 
 import type { HandlerContext } from "../handlers/types";
 

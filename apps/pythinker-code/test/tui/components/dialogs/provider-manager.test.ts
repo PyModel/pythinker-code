@@ -1,4 +1,4 @@
-import type { ProviderConfig } from '@pythoughts/pythinker-code-sdk';
+import type { ProviderConfig } from '@pymodel/pythinker-code-sdk';
 import chalk from 'chalk';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 

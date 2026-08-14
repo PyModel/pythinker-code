@@ -6,7 +6,7 @@
  * and final `TurnResult` mapping. One-step execution lives in `turn-step.ts`.
  */
 
-import { addUsage, emptyUsage, type TokenUsage } from '@pythoughts/kosong';
+import { addUsage, emptyUsage, type TokenUsage } from '@pymodel/kosong';
 
 import type { Logger } from '#/logging/types';
 

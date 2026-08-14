@@ -2,8 +2,8 @@
  * ReadMediaFileTool tests for the current output/capability contract.
  */
 
-import type { Kaos } from '@pythoughts/kaos';
-import type { ContentPart, ModelCapability } from '@pythoughts/kosong';
+import type { Kaos } from '@pymodel/kaos';
+import type { ContentPart, ModelCapability } from '@pymodel/kosong';
 import { describe, expect, it, vi } from 'vitest';
 
 import { ToolAccesses } from '../../src/loop';

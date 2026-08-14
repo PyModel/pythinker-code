@@ -22,20 +22,20 @@ const mocks = vi.hoisted(() => ({
   getCachedAccessToken: vi.fn(async () => 'tok'),
 }));
 
-vi.mock('@pythoughts/pythinker-telemetry', () => ({
+vi.mock('@pymodel/pythinker-telemetry', () => ({
   initializeTelemetry: mocks.initializeTelemetry,
   setTelemetryContext: vi.fn(),
   track: vi.fn(),
   withTelemetryContext: vi.fn(),
 }));
 
-vi.mock('@pythoughts/pythinker-code-oauth', () => ({
+vi.mock('@pymodel/pythinker-code-oauth', () => ({
   createPythinkerDeviceId: mocks.createPythinkerDeviceId,
   KIMI_CODE_PROVIDER_NAME: 'managed:kimi-code',
 }));
 
-vi.mock('@pythoughts/pythinker-code-sdk', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@pythoughts/pythinker-code-sdk')>();
+vi.mock('@pymodel/pythinker-code-sdk', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@pymodel/pythinker-code-sdk')>();
   return {
     ...actual,
     resolvePythinkerHome: mocks.resolvePythinkerHome,

@@ -1,4 +1,4 @@
-import type { HookResultEvent } from '@pythoughts/pythinker-code-sdk';
+import type { HookResultEvent } from '@pymodel/pythinker-code-sdk';
 
 export function formatHookResultMarkdown(event: HookResultEvent): string {
   return `*${formatHookResultTitle(event)}*\n\n${formatHookResultBody(event)}`;

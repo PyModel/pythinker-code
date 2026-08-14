@@ -6,7 +6,7 @@ import type {
   PromptOrigin,
   ResumedAgentState,
   ResumedSessionState,
-} from "@pythoughts/pythinker-code-sdk";
+} from "@pymodel/pythinker-code-sdk";
 
 import type {
   ContentPart as LegacyContentPart,

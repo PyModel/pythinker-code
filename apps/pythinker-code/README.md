@@ -1,8 +1,8 @@
-# @pythoughts/pythinker-code
+# @pymodel/pythinker-code
 
 > The Starting Point for Next-Gen Agents
 
-[![npm](https://img.shields.io/npm/v/@pythoughts/pythinker-code)](https://www.npmjs.com/package/@pythoughts/pythinker-code) [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)  [![Docs](https://img.shields.io/badge/docs-online-blue)](https://pymodel.github.io/pythinker-code/)
+[![npm](https://img.shields.io/npm/v/@pymodel/pythinker-code)](https://www.npmjs.com/package/@pymodel/pythinker-code) [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)  [![Docs](https://img.shields.io/badge/docs-online-blue)](https://pymodel.github.io/pythinker-code/)
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/PyModel/pythinker-code/main/docs/media/terminal-ui.webp" alt="Pythinker Code terminal demo" width="860">
@@ -41,13 +41,13 @@ pythinker --version
 If you prefer npm, use Node.js 26.4.0 or later:
 
 ```sh
-npm install -g @pythoughts/pythinker-code
+npm install -g @pymodel/pythinker-code
 ```
 
 Or with pnpm:
 
 ```sh
-pnpm add -g @pythoughts/pythinker-code
+pnpm add -g @pymodel/pythinker-code
 ```
 
 For upgrade and uninstall instructions, see the [Getting Started guide](https://pymodel.github.io/pythinker-code/guides/getting-started).

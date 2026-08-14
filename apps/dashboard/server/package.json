@@ -1,5 +1,5 @@
 {
-  "name": "@pythoughts/dashboard-server",
+  "name": "@pymodel/dashboard-server",
   "version": "0.1.1",
   "private": true,
   "license": "MIT",
@@ -32,8 +32,8 @@
   },
   "dependencies": {
     "@hono/node-server": "^2.0.5",
-    "@pythoughts/agent-core": "workspace:^",
-    "@pythoughts/kosong": "workspace:^",
+    "@pymodel/agent-core": "workspace:^",
+    "@pymodel/kosong": "workspace:^",
     "hono": "^4.13.0"
   },
   "devDependencies": {

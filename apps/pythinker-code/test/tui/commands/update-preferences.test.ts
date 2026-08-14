@@ -18,8 +18,8 @@ const mocks = vi.hoisted(() => ({
   startManualUpdate: vi.fn(),
 }));
 
-vi.mock('@pythoughts/pythinker-telemetry', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@pythoughts/pythinker-telemetry')>()),
+vi.mock('@pymodel/pythinker-telemetry', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@pymodel/pythinker-telemetry')>()),
   disableTelemetry: mocks.disableTelemetry,
 }));
 
@@ -317,7 +317,7 @@ describe('update command', () => {
       attempts: 2,
       failedAt: '2026-08-05T08:00:00.000Z',
       message: 'npm exited with code 1',
-      command: 'npm install -g @pythoughts/pythinker-code@0.10.0',
+      command: 'npm install -g @pymodel/pythinker-code@0.10.0',
     });
 
     await handleUpdateCommand(host, '');
@@ -325,7 +325,7 @@ describe('update command', () => {
     expect(host.showError).toHaveBeenCalledWith(
       'Update to v0.10.0 failed after 2 attempts.\n' +
         'Reason: npm exited with code 1\n' +
-        'To update manually, run: npm install -g @pythoughts/pythinker-code@0.10.0',
+        'To update manually, run: npm install -g @pymodel/pythinker-code@0.10.0',
     );
   });
 
@@ -336,14 +336,14 @@ describe('update command', () => {
       version: '0.10.0',
       attempts: 2,
       failedAt: '2026-08-05T08:00:00.000Z',
-      command: 'npm install -g @pythoughts/pythinker-code@0.10.0',
+      command: 'npm install -g @pymodel/pythinker-code@0.10.0',
     });
 
     await handleUpdateCommand(host, '');
 
     expect(host.showError).toHaveBeenCalledWith(
       'Update to v0.10.0 failed after 2 attempts.\n' +
-        'To update manually, run: npm install -g @pythoughts/pythinker-code@0.10.0',
+        'To update manually, run: npm install -g @pymodel/pythinker-code@0.10.0',
     );
   });
 
@@ -356,7 +356,7 @@ describe('update command', () => {
       attempts: 3,
       failedAt: '2026-08-05T08:00:00.000Z',
       message: longReason,
-      command: 'npm install -g @pythoughts/pythinker-code@0.10.0',
+      command: 'npm install -g @pymodel/pythinker-code@0.10.0',
     });
 
     await handleUpdateCommand(host, '');
@@ -364,7 +364,7 @@ describe('update command', () => {
     expect(host.showError).toHaveBeenCalledWith(
       'Update to v0.10.0 failed after 3 attempts.\n' +
         `Reason: ${longReason.slice(0, 160)}… (truncated)\n` +
-        'To update manually, run: npm install -g @pythoughts/pythinker-code@0.10.0',
+        'To update manually, run: npm install -g @pymodel/pythinker-code@0.10.0',
     );
   });
 });

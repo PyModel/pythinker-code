@@ -14,12 +14,12 @@
  * doesn't differentiate per-session, and `setActiveTools` is the only
  * per-session knob. Documented gap in `ToolService`.
  *
- * **Anti-corruption**: imports `@pythoughts/agent-core` only for the
+ * **Anti-corruption**: imports `@pymodel/agent-core` only for the
  * `createDecorator` value.
  */
 
 import { createDecorator } from '../../di';
-import type { ToolDescriptor, ToolSource } from '@pythoughts/protocol';
+import type { ToolDescriptor, ToolSource } from '@pymodel/protocol';
 
 // ---------------------------------------------------------------------------
 // Adapter helpers (tool side of former adapter/tool-adapter.ts)
@@ -27,7 +27,7 @@ import type { ToolDescriptor, ToolSource } from '@pythoughts/protocol';
 
 /**
  * In-process minimal shape we accept for tool conversion. Mirrors
- * `@pythoughts/agent-core` `ToolInfo` without taking a runtime dependency on
+ * `@pymodel/agent-core` `ToolInfo` without taking a runtime dependency on
  * its exact shape (the adapter is the boundary).
  */
 export interface AgentCoreToolInfoLike {

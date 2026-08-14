@@ -7,14 +7,14 @@ import {
   log,
   type PythinkerHarness,
   type TelemetryClient,
-} from '@pythoughts/pythinker-code-sdk';
+} from '@pymodel/pythinker-code-sdk';
 import {
   setCrashPhase,
   setTelemetryContext,
   shutdownTelemetry,
   track,
   withTelemetryContext,
-} from '@pythoughts/pythinker-telemetry';
+} from '@pymodel/pythinker-telemetry';
 
 import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_UI_MODE } from '#/constant/app';
 import { detectPendingMigration } from '#/migration/index';

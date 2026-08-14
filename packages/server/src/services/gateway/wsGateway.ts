@@ -1,4 +1,4 @@
-import { createDecorator, type TelemetryClient } from '@pythoughts/agent-core';
+import { createDecorator, type TelemetryClient } from '@pymodel/agent-core';
 
 import type { AbortHandler, FsWatchHandler, TerminalHandler } from '#/ws/connection';
 

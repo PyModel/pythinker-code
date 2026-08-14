@@ -17,10 +17,10 @@ import {
   type SessionUpdate,
   type UndoSessionRequest,
   type UndoSessionResponse,
-} from '@pythoughts/protocol';
+} from '@pymodel/protocol';
 
 export interface SessionListQuery extends CursorQuery {
-  status?: import('@pythoughts/protocol').SessionStatus;
+  status?: import('@pymodel/protocol').SessionStatus;
   workDir?: string;
   workspaceId?: string;
   includeArchive?: boolean;

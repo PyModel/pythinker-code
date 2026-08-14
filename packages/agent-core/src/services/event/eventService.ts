@@ -4,7 +4,7 @@
  * Pure in-process pub-sub: a thin wrapper over `Emitter<Event>`. No
  * sessionId extraction, no per-session sequence numbers, no ring buffer, no
  * WS fan-out — those daemon transport concerns live in
- * `@pythoughts/server/services/WSBroadcastService`, which subscribes to this
+ * `@pymodel/server/services/WSBroadcastService`, which subscribes to this
  * bus via `onDidPublish` and handles the broadcast/replay machinery.
  *
  * Listener exceptions route to `onUnexpectedError` inside `Emitter.fire()`
@@ -15,7 +15,7 @@
 
 import { Disposable, InstantiationType, registerSingleton } from '../../di';
 import { Emitter } from '../../base/common/event';
-import type { Event as ProtocolEvent } from '@pythoughts/protocol';
+import type { Event as ProtocolEvent } from '@pymodel/protocol';
 
 import { IEventService } from './event';
 

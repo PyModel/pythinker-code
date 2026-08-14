@@ -3,7 +3,7 @@ import {
   effortLevelsForModel,
   thinkingAvailability,
   type ModelAlias,
-} from '@pythoughts/pythinker-code-sdk';
+} from '@pymodel/pythinker-code-sdk';
 import {
   Container,
   Key,

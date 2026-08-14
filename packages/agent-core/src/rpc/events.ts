@@ -1,4 +1,4 @@
-export { MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE } from '@pythoughts/protocol';
+export { MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE } from '@pymodel/protocol';
 
 export type {
   AgentEvent,
@@ -47,6 +47,6 @@ export type {
   TurnStepStartedEvent,
   UsageStatus,
   WarningEvent,
-} from '@pythoughts/protocol';
+} from '@pymodel/protocol';
 
 export type { PythinkerErrorPayload } from '../errors';

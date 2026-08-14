@@ -1,4 +1,4 @@
-# @pythoughts/pythinker-code-sdk
+# @pymodel/pythinker-code-sdk
 
 The TypeScript SDK for Pythinker Code
 

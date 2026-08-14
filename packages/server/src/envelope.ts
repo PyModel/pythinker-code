@@ -1,7 +1,7 @@
 /**
- * Re-export the envelope helpers from `@pythoughts/protocol`.
+ * Re-export the envelope helpers from `@pymodel/protocol`.
  *
- * The wire-shape source of truth lives in `@pythoughts/protocol`. Re-exporting
+ * The wire-shape source of truth lives in `@pymodel/protocol`. Re-exporting
  * the protocol helpers preserves field order and JSON output for server
  * responses.
  *
@@ -9,4 +9,4 @@
  * barrel) so downstream `from './envelope'` imports inside the server stay
  * stable and don't all need to be touched.
  */
-export { okEnvelope, errEnvelope, type Envelope } from '@pythoughts/protocol';
+export { okEnvelope, errEnvelope, type Envelope } from '@pymodel/protocol';

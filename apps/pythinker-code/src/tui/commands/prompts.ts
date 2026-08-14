@@ -11,11 +11,11 @@ import {
   type CatalogModel,
   type ModelAlias,
   type PlatformSelection,
-} from '@pythoughts/pythinker-code-sdk';
+} from '@pymodel/pythinker-code-sdk';
 import type {
   PlatformModelInfo,
   OpenPlatformDefinition,
-} from '@pythoughts/pythinker-code-oauth';
+} from '@pymodel/pythinker-code-oauth';
 
 import { ApiKeyInputDialogComponent, type ApiKeyInputResult } from '../components/dialogs/api-key-input-dialog';
 import { ChoicePickerComponent, type ChoiceOption } from '../components/dialogs/choice-picker';

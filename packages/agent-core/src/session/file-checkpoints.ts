@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 
-import type { Kaos } from '@pythoughts/kaos';
+import type { Kaos } from '@pymodel/kaos';
 import { diffLines } from 'diff';
 import { join } from 'pathe';
 

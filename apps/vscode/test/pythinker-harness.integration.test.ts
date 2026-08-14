@@ -12,7 +12,7 @@ import { join } from "node:path";
 import {
   createPythinkerHarness,
   type PythinkerHarness,
-} from "@pythoughts/pythinker-code-sdk";
+} from "@pymodel/pythinker-code-sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("vscode", () => ({

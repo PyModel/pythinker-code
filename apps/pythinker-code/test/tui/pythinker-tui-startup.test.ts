@@ -11,8 +11,8 @@ import {
   CATALOG_PLATFORM_VALUE_PREFIX,
   log,
   type GoalSnapshot,
-} from '@pythoughts/pythinker-code-sdk';
-import type { MigrationPlan } from '@pythoughts/migration-legacy';
+} from '@pymodel/pythinker-code-sdk';
+import type { MigrationPlan } from '@pymodel/migration-legacy';
 import { describe, expect, it, vi } from 'vitest';
 
 import { BannerProvider } from '#/tui/banner/banner-provider';

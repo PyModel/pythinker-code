@@ -1,4 +1,4 @@
-import type { ModelAlias } from '@pythoughts/pythinker-code-sdk';
+import type { ModelAlias } from '@pymodel/pythinker-code-sdk';
 import { visibleWidth } from '@earendil-works/pi-tui';
 import { describe, expect, it, vi } from 'vitest';
 

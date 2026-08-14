@@ -28,7 +28,7 @@ type _AssertToolInputDisplayNonNever = ToolInputDisplay extends never ? never : 
 const _assertDisplay: _AssertToolInputDisplayNonNever = true;
 
 const packageRoot = fileURLToPath(new URL('../..', import.meta.url));
-const sdkPackageName = ['@pythoughts', 'pythinker-code-sdk'].join('/');
+const sdkPackageName = ['@pymodel', 'pythinker-code-sdk'].join('/');
 
 function readPackageFiles(): string {
   const files = ['package.json', ...sourceFiles(join(packageRoot, 'src'))];

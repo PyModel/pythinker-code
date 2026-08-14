@@ -3,7 +3,7 @@ import type {
   ContextMessage,
   PromptOrigin,
   ToolCall,
-} from "@pythoughts/pythinker-code-sdk";
+} from "@pymodel/pythinker-code-sdk";
 
 const INTERNAL_ORIGINS = new Set<PromptOrigin["kind"]>([
   "injection",

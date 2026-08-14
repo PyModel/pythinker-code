@@ -1,7 +1,7 @@
 import type { IncomingMessage, Server as HttpServer } from 'node:http';
 import type { Socket } from 'node:net';
 
-import { Disposable, ILogService } from '@pythoughts/agent-core';
+import { Disposable, ILogService } from '@pymodel/agent-core';
 import { WebSocketServer, type WebSocket } from 'ws';
 
 import {

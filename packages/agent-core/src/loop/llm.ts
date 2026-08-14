@@ -15,7 +15,7 @@ import type {
   TokenUsage,
   Tool,
   ToolCall,
-} from '@pythoughts/kosong';
+} from '@pymodel/kosong';
 
 export interface ToolCallDelta {
   readonly toolCallId: string;

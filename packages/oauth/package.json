@@ -1,5 +1,5 @@
 {
-  "name": "@pythoughts/pythinker-code-oauth",
+  "name": "@pymodel/pythinker-code-oauth",
   "version": "0.2.2",
   "private": true,
   "description": "Login platform layer: model listing, config provisioning, and OpenAI Codex OAuth",

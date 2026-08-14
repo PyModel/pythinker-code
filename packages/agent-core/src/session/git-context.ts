@@ -10,7 +10,7 @@
 
 import type { Readable } from 'node:stream';
 
-import type { Kaos, KaosProcess } from '@pythoughts/kaos';
+import type { Kaos, KaosProcess } from '@pymodel/kaos';
 
 const GIT_TIMEOUT_MS = 5_000;
 const MAX_DIRTY_FILES = 20;

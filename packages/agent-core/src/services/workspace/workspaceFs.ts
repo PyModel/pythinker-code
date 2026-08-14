@@ -2,7 +2,7 @@
 
 import { createDecorator, Disposable } from '../../di';
 
-import type { FsBrowseResponse, FsHomeResponse } from '@pythoughts/protocol';
+import type { FsBrowseResponse, FsHomeResponse } from '@pymodel/protocol';
 
 export class WorkspaceFsNotAbsoluteError extends Error {
   readonly path: string;

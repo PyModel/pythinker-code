@@ -1,4 +1,4 @@
-import type { ToolCall } from '@pythoughts/kosong';
+import type { ToolCall } from '@pymodel/kosong';
 import { expect, it } from 'vitest';
 
 import { FLAG_DEFINITIONS, FlagResolver } from '../../src/flags';

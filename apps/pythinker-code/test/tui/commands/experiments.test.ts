@@ -1,4 +1,4 @@
-import type { ExperimentalFeatureState } from '@pythoughts/pythinker-code-sdk';
+import type { ExperimentalFeatureState } from '@pymodel/pythinker-code-sdk';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { SlashCommandHost } from '#/tui/commands';

@@ -54,7 +54,7 @@ jobs:
         run: |
           pnpm changeset version --snapshot dev
           VERSION=$(node -p "require('./apps/pythinker-code/package.json').version")
-          if npm view "@pythoughts/pythinker-code@$VERSION" version >/dev/null 2>&1; then
+          if npm view "@pymodel/pythinker-code@$VERSION" version >/dev/null 2>&1; then
             echo "already published — no new commits"
             exit 0
           fi

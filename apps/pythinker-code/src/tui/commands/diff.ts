@@ -1,7 +1,7 @@
 import type {
   WorkingTreeChange,
   WorkingTreeFileDiff,
-} from '@pythoughts/pythinker-code-sdk';
+} from '@pymodel/pythinker-code-sdk';
 
 import { ChoicePickerComponent } from '../components/dialogs/choice-picker';
 import { UsagePanelComponent } from '../components/messages/usage-panel';

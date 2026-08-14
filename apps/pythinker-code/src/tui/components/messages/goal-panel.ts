@@ -20,7 +20,7 @@ import {
   wrapTextWithAnsi,
   type Component,
 } from '@earendil-works/pi-tui';
-import type { GoalSnapshot, GoalStatus } from '@pythoughts/pythinker-code-sdk';
+import type { GoalSnapshot, GoalStatus } from '@pymodel/pythinker-code-sdk';
 
 import { MESSAGE_INDENT } from '#/tui/constant/rendering';
 import { STATUS_BULLET } from '#/tui/constant/symbols';

@@ -5,7 +5,7 @@ import type {
   PythinkerConfig,
   SessionStatus,
   SessionUsage,
-} from '@pythoughts/pythinker-code-sdk';
+} from '@pymodel/pythinker-code-sdk';
 
 import { handleDoctor } from '#/cli/sub/doctor';
 import { startManualUpdate } from '#/cli/update/preflight';

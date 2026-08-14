@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import * as vscode from "vscode";
-import { buildSkillSlashCommands, type SkillSlashCommand } from "@pythoughts/pythinker-code-sdk";
+import { buildSkillSlashCommands, type SkillSlashCommand } from "@pymodel/pythinker-code-sdk";
 type SdkConfig = any;
 
 import { Methods } from "../../shared/bridge";

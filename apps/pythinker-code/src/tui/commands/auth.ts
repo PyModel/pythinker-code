@@ -3,7 +3,7 @@ import {
   runLogin,
   type CatalogProviderEntry,
   type LoginUi,
-} from '@pythoughts/pythinker-code-sdk';
+} from '@pymodel/pythinker-code-sdk';
 
 import type { ChoiceOption } from '../components/dialogs/choice-picker';
 import {

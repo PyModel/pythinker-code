@@ -32,8 +32,8 @@
  * emitter (reverse-construction order in `start.ts` is responsible).
  */
 
-import { createDecorator } from '@pythoughts/agent-core';
-import type { InFlightTurn, SessionCursor } from '@pythoughts/protocol';
+import { createDecorator } from '@pymodel/agent-core';
+import type { InFlightTurn, SessionCursor } from '@pymodel/protocol';
 
 import type { EventEnvelope } from '#/ws/protocol';
 

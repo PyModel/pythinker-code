@@ -36,4 +36,4 @@ export {
   IModelCatalogService,
   ISessionService,
   SessionNotFoundError,
-} from '@pythoughts/agent-core';
+} from '@pymodel/agent-core';

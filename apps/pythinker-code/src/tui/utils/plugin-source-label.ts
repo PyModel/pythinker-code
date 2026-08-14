@@ -1,4 +1,4 @@
-import type { PluginSummary } from '@pythoughts/pythinker-code-sdk';
+import type { PluginSummary } from '@pymodel/pythinker-code-sdk';
 
 export const OFFICIAL_BADGE = 'official';
 export const CURATED_BADGE = 'curated';

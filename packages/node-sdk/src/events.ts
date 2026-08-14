@@ -3,12 +3,12 @@ import type {
   ApprovalResponse,
   QuestionRequest,
   QuestionResult,
-} from '@pythoughts/agent-core';
+} from '@pymodel/agent-core';
 
 // Event union plus shared fields/payloads used across event families.
-export type { PythinkerErrorPayload, Event } from '@pythoughts/agent-core';
+export type { PythinkerErrorPayload, Event } from '@pymodel/agent-core';
 
-export { MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE } from '@pythoughts/agent-core';
+export { MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE } from '@pymodel/agent-core';
 
 // Session lifecycle/status events and their status payload.
 export type {
@@ -19,7 +19,7 @@ export type {
   ErrorEvent,
   WarningEvent,
   UsageStatus,
-} from '@pythoughts/agent-core';
+} from '@pymodel/agent-core';
 
 // Turn and step lifecycle events plus the turn-ending reason enum.
 export type {
@@ -30,7 +30,7 @@ export type {
   TurnStepRetryingEvent,
   TurnStepInterruptedEvent,
   TurnEndReason,
-} from '@pythoughts/agent-core';
+} from '@pymodel/agent-core';
 
 // Streaming content and hook-result events.
 export type {
@@ -38,7 +38,7 @@ export type {
   HookResultEvent,
   HookStatusEvent,
   ThinkingDeltaEvent,
-} from '@pythoughts/agent-core';
+} from '@pymodel/agent-core';
 
 // Tool-call events and incremental progress payloads.
 export type {
@@ -50,7 +50,7 @@ export type {
   ToolCallResponse,
   ToolUpdate,
   McpOAuthAuthorizationUrlUpdateData,
-} from '@pythoughts/agent-core';
+} from '@pymodel/agent-core';
 
 // MCP tool-list and server status events.
 export type {
@@ -58,7 +58,7 @@ export type {
   ToolListUpdatedReason,
   McpServerStatusEvent,
   McpServerStatusPayload,
-} from '@pythoughts/agent-core';
+} from '@pymodel/agent-core';
 
 // Approval reverse-RPC request and response/display payloads.
 export type {
@@ -67,7 +67,7 @@ export type {
   ApprovalScope,
   ApprovalResponse,
   ToolInputDisplay,
-} from '@pythoughts/agent-core';
+} from '@pymodel/agent-core';
 
 // Question reverse-RPC request and answer payloads.
 export type {
@@ -80,7 +80,7 @@ export type {
   QuestionAnnotations,
   QuestionResponse,
   QuestionResult,
-} from '@pythoughts/agent-core';
+} from '@pymodel/agent-core';
 
 // Subagent lifecycle events.
 export type {
@@ -89,7 +89,7 @@ export type {
   SubagentSuspendedEvent,
   SubagentCompletedEvent,
   SubagentFailedEvent,
-} from '@pythoughts/agent-core';
+} from '@pymodel/agent-core';
 
 // Compaction lifecycle events and compaction result payload.
 export type {
@@ -98,16 +98,16 @@ export type {
   CompactionCancelledEvent,
   CompactionCompletedEvent,
   CompactionResult,
-} from '@pythoughts/agent-core';
+} from '@pymodel/agent-core';
 
 // Background task lifecycle events emitted by the BPM. Covers both
 // bash (`bash-*`) and agent (`agent-*`) tasks under one wire format.
 export type {
   BackgroundTaskStartedEvent,
   BackgroundTaskTerminatedEvent,
-} from '@pythoughts/agent-core';
+} from '@pymodel/agent-core';
 
-export type { CronFiredEvent } from '@pythoughts/agent-core';
+export type { CronFiredEvent } from '@pymodel/agent-core';
 
 export type MaybePromise<T> = T | Promise<T>;
 

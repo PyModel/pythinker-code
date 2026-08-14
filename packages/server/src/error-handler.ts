@@ -17,7 +17,7 @@
  * we never bleed it into the JSON response.
  */
 
-import { errEnvelope, ErrorCode } from '@pythoughts/protocol';
+import { errEnvelope, ErrorCode } from '@pymodel/protocol';
 import type { FastifyError } from 'fastify';
 
 /**

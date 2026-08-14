@@ -1,5 +1,5 @@
 {
-  "name": "@pythoughts/pythinker-code-sdk",
+  "name": "@pymodel/pythinker-code-sdk",
   "version": "0.15.0",
   "private": true,
   "description": "TypeScript SDK for the Pythinker Code Agent",
@@ -62,10 +62,10 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@pythoughts/agent-core": "workspace:^",
-    "@pythoughts/kaos": "workspace:^",
-    "@pythoughts/kosong": "workspace:^",
-    "@pythoughts/pythinker-code-oauth": "workspace:^",
+    "@pymodel/agent-core": "workspace:^",
+    "@pymodel/kaos": "workspace:^",
+    "@pymodel/kosong": "workspace:^",
+    "@pymodel/pythinker-code-oauth": "workspace:^",
     "@types/yazl": "^2.4.6"
   }
 }

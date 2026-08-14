@@ -20,7 +20,7 @@ import type {
   PythinkerHarness,
   Session,
   ToolInputDisplay,
-} from '@pythoughts/pythinker-code-sdk';
+} from '@pymodel/pythinker-code-sdk';
 import { describe, expect, it } from 'vitest';
 
 import {

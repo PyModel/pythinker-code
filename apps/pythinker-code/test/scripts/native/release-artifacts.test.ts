@@ -127,7 +127,7 @@ describe('native release artifacts', () => {
       `${checksum}  pythinker-code-darwin-arm64.zip\n`,
     );
 
-    await execFileAsync(process.execPath, [manifestScript, releaseDir, '@pythoughts/pythinker-code@0.5.0']);
+    await execFileAsync(process.execPath, [manifestScript, releaseDir, '@pymodel/pythinker-code@0.5.0']);
 
     const manifest = JSON.parse(
       await readFile(join(releaseDir, 'manifest.json'), 'utf-8'),
@@ -138,7 +138,7 @@ describe('native release artifacts', () => {
     };
     expect(manifest).toEqual({
       version: '0.5.0',
-      tag: '@pythoughts/pythinker-code@0.5.0',
+      tag: '@pymodel/pythinker-code@0.5.0',
       platforms: {
         'darwin-arm64': {
           filename: 'pythinker-code-darwin-arm64.zip',

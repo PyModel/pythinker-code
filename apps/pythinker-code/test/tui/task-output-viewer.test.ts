@@ -1,5 +1,5 @@
 import type { Terminal } from '@earendil-works/pi-tui';
-import type { BackgroundTaskInfo } from '@pythoughts/pythinker-code-sdk';
+import type { BackgroundTaskInfo } from '@pymodel/pythinker-code-sdk';
 import { describe, expect, it, vi } from 'vitest';
 
 import { TaskOutputViewer } from '@/tui/components/dialogs/task-output-viewer';

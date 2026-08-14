@@ -1,4 +1,4 @@
-# @pythoughts/kaos
+# @pymodel/kaos
 
 Execution environment abstraction used by Pythinker Code.
 

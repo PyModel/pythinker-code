@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 
 import { describe, expect, it } from 'vitest';
-import type { PythinkerHarness } from '@pythoughts/pythinker-code-sdk';
+import type { PythinkerHarness } from '@pymodel/pythinker-code-sdk';
 
 import { runAcpServer } from '../src/server';
 

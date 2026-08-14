@@ -8,7 +8,7 @@ import type { CoreAPI, CoreRPC, SDKAPI } from '../../rpc';
 import {
   createPythinkerDefaultHeaders,
   type PythinkerHostIdentity,
-} from '@pythoughts/pythinker-code-oauth';
+} from '@pymodel/pythinker-code-oauth';
 
 import { BridgeClientAPI } from './coreProcessClient';
 import { IApprovalService } from '../approval/approval';

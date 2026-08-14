@@ -33,7 +33,9 @@ describe('HarnessAPI session skills', () => {
   });
 
   afterEach(async () => {
-    await rm(tmp, { recursive: true, force: true });
+    // maxRetries: a late session-journal flush can race the recursive delete
+    // under full-suite load and throw ENOTEMPTY on macOS.
+    await rm(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     vi.unstubAllEnvs();
   });
 

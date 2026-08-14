@@ -15,7 +15,7 @@ async function assertBuiltWeb() {
     }
   } catch {
     throw new Error(
-      `Pythinker web build output was not found at ${source}. Run \`pnpm --filter @pythoughts/pythinker-web run build\` first.`,
+      `Pythinker web build output was not found at ${source}. Run \`pnpm --filter @pymodel/pythinker-web run build\` first.`,
     );
   }
 }

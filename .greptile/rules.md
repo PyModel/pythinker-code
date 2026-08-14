@@ -10,7 +10,7 @@
 
 ## Architecture boundaries
 
-- `apps/pythinker-code` and `apps/pythinker-web` must not depend on `packages/agent-core`. They consume the SDK (`@pythoughts/pythinker-code-sdk`) or the server REST/WS API.
+- `apps/pythinker-code` and `apps/pythinker-web` must not depend on `packages/agent-core`. They consume the SDK (`@pymodel/pythinker-code-sdk`) or the server REST/WS API.
 - The `Agent` class in `packages/agent-core` stays standalone: no mandatory `Session` or `agentId`; optional `sessionId` is a provider hint only.
 - `packages/acp-adapter` pins `@agentclientprotocol/sdk` to `^0.23.0` — flag any bump to 0.24+ (it broke the session-model API).
 - Experimental features are gated behind flags in `packages/agent-core/src/flags/registry.ts`, not shipped unguarded.

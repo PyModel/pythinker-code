@@ -1,4 +1,4 @@
-import { LocalKaos } from '@pythoughts/kaos';
+import { LocalKaos } from '@pymodel/kaos';
 
 import type { AgentReplayRecord } from '../../rpc/resumed';
 import { Agent } from '../index';

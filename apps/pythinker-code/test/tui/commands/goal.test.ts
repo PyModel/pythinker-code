@@ -1,4 +1,4 @@
-import { ErrorCodes, PythinkerError } from '@pythoughts/pythinker-code-sdk';
+import { ErrorCodes, PythinkerError } from '@pymodel/pythinker-code-sdk';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {

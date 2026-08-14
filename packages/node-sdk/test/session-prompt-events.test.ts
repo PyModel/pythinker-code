@@ -4,8 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
-import { PYTHINKER_CODE_PLATFORM } from '@pythoughts/pythinker-code-oauth';
-import type * as KosongModule from '@pythoughts/kosong';
+import { PYTHINKER_CODE_PLATFORM } from '@pymodel/pythinker-code-oauth';
+import type * as KosongModule from '@pymodel/kosong';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createPythinkerHarness, type Event, type PythinkerHarness } from '#/index';
@@ -21,7 +21,7 @@ const fakeProviderState = vi.hoisted(() => ({
   responseText: 'hello from fake provider',
 }));
 
-vi.mock('@pythoughts/kosong', async (importOriginal) => {
+vi.mock('@pymodel/kosong', async (importOriginal) => {
   const actual = await importOriginal<typeof KosongModule>();
   return {
     ...actual,

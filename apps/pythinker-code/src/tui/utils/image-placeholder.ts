@@ -15,7 +15,7 @@
  *     noise between two media parts.
  */
 
-import type { PromptPart } from '@pythoughts/pythinker-code-sdk';
+import type { PromptPart } from '@pymodel/pythinker-code-sdk';
 
 import type {
   ImageAttachment,

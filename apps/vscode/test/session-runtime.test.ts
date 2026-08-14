@@ -16,7 +16,7 @@ import type {
   QuestionRequest,
   Session,
   SessionSummary,
-} from "@pythoughts/pythinker-code-sdk";
+} from "@pymodel/pythinker-code-sdk";
 import { describe, expect, it } from "vitest";
 
 import { Events } from "../shared/bridge";

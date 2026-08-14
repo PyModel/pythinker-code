@@ -2,7 +2,7 @@ import { ErrorCodes, PythinkerError } from '#/errors';
 import type { McpServerConfig } from '#/config/schema';
 import { log as defaultLog } from '#/logging/logger';
 import type { Logger } from '#/logging/types';
-import type { Tool } from '@pythoughts/kosong';
+import type { Tool } from '@pymodel/kosong';
 
 import { abortable } from '../utils/abort';
 import { HttpMcpClient } from './client-http';

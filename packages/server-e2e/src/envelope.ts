@@ -5,7 +5,7 @@
  * Mirrors `packages/protocol/src/envelope.ts` so the server's wire shape and
  * this client's parsing stay in lockstep.
  */
-import { ErrorCode, ErrorCodeReason, type Envelope } from '@pythoughts/protocol';
+import { ErrorCode, ErrorCodeReason, type Envelope } from '@pymodel/protocol';
 
 /**
  * Thrown when an HTTP call lands but `envelope.code !== 0`.

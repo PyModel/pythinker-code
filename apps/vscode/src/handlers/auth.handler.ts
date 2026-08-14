@@ -1,4 +1,4 @@
-import { runLogin, type PythinkerHarness } from "@pythoughts/pythinker-code-sdk";
+import { runLogin, type PythinkerHarness } from "@pymodel/pythinker-code-sdk";
 import * as vscode from "vscode";
 
 import { Methods } from "../../shared/bridge";

@@ -18,7 +18,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { WS_PROTOCOL_VERSION, connectionsListResponseSchema } from '@pythoughts/protocol';
+import { WS_PROTOCOL_VERSION, connectionsListResponseSchema } from '@pymodel/protocol';
 import { pino } from 'pino';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';

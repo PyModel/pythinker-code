@@ -1,5 +1,5 @@
 import { ContentBlockSchema } from '@modelcontextprotocol/sdk/types.js';
-import type { ContentPart } from '@pythoughts/kosong';
+import type { ContentPart } from '@pymodel/kosong';
 import { describe, expect, test } from 'vitest';
 
 import { convertMCPContentBlock, mcpResultToExecutableOutput } from '../../src/mcp/output';

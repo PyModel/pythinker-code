@@ -9,9 +9,9 @@ import {
   updateWorkspaceRequestSchema,
   updateWorkspaceResponseSchema,
   workspaceIdParamSchema,
-} from '@pythoughts/protocol';
+} from '@pymodel/protocol';
 
-import { IWorkspaceRegistry, WorkspaceNotFoundError, WorkspaceRootNotFoundError, type IInstantiationService } from '@pythoughts/agent-core';
+import { IWorkspaceRegistry, WorkspaceNotFoundError, WorkspaceRootNotFoundError, type IInstantiationService } from '@pymodel/agent-core';
 
 import { errEnvelope, okEnvelope } from '../envelope';
 import { defineRoute } from '../middleware/defineRoute';

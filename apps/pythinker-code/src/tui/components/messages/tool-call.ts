@@ -30,7 +30,7 @@ import { FAILURE_MARK, STATUS_BULLET, SUCCESS_MARK } from '#/tui/constant/symbol
 import { currentTheme } from '#/tui/theme';
 import { createPythinkerMarkdownTheme } from '#/tui/theme';
 import type { ToolCallBlockData, ToolResultBlockData } from '#/tui/types';
-import type { TokenUsage } from '@pythoughts/pythinker-code-sdk';
+import type { TokenUsage } from '@pymodel/pythinker-code-sdk';
 import { appendStreamingArgsPreview } from '#/tui/utils/event-payload';
 import { decodeMcpToolName } from '#/tui/utils/mcp-tool-name';
 import { formatTokenCount } from '#/utils/usage/usage-format';

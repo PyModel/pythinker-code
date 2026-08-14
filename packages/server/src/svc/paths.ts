@@ -3,7 +3,7 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-import { resolvePythinkerHome } from '@pythoughts/agent-core';
+import { resolvePythinkerHome } from '@pymodel/agent-core';
 
 
 export const PYTHINKER_SERVER_LABEL = 'ai.pythoughts.pythinker-server';

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { Emitter } from '../../src';
-import type { Session } from '@pythoughts/protocol';
+import type { Session } from '@pymodel/protocol';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {

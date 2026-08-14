@@ -4,7 +4,7 @@ import { createInterface } from 'node:readline';
 import {
   AGENT_WIRE_PROTOCOL_VERSION,
   assertAgentRecord,
-} from '@pythoughts/agent-core';
+} from '@pymodel/agent-core';
 
 import {
   DashboardIncompatibilityError,

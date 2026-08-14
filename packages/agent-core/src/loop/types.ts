@@ -10,7 +10,7 @@
  * `exactOptionalPropertyTypes: true`.
  */
 
-import type { ContentPart, Message, TokenUsage, Tool, ToolCall } from '@pythoughts/kosong';
+import type { ContentPart, Message, TokenUsage, Tool, ToolCall } from '@pymodel/kosong';
 
 import type { ToolInputDisplay } from '../tools/display';
 import type { ToolAccesses } from './tool-access';

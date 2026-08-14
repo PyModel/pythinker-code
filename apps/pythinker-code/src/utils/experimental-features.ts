@@ -1,7 +1,7 @@
 import type {
   ExperimentalFeatureState,
   ExperimentalFlagMap,
-} from '@pythoughts/pythinker-code-sdk';
+} from '@pymodel/pythinker-code-sdk';
 
 export function experimentalFeatureMap(
   features: readonly Pick<ExperimentalFeatureState, 'id' | 'enabled'>[],

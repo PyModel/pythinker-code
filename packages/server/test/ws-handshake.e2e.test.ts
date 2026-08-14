@@ -20,12 +20,12 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import type { ILogService, TelemetryClient, TelemetryProperties } from '@pythoughts/agent-core';
+import type { ILogService, TelemetryClient, TelemetryProperties } from '@pymodel/agent-core';
 import {
   ErrorCode,
   WS_PROTOCOL_VERSION,
   clientHelloAckMessageSchema,
-} from '@pythoughts/protocol';
+} from '@pymodel/protocol';
 import { pino } from 'pino';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';

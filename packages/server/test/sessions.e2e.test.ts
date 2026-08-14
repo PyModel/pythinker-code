@@ -36,8 +36,8 @@ import {
   sessionSchema,
   sessionStatusResponseSchema,
   undoSessionResponseSchema,
-} from '@pythoughts/protocol';
-import type { TelemetryClient, TelemetryProperties } from '@pythoughts/agent-core';
+} from '@pymodel/protocol';
+import type { TelemetryClient, TelemetryProperties } from '@pymodel/agent-core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
 

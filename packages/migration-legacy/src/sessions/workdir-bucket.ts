@@ -17,7 +17,7 @@ const HASH_LENGTH = 12;
  * invisible in the picker.
  *
  * TODO: The canonical slugifier is `slugifyWorkDirName` in
- * `@pythoughts/agent-core` (file: `src/utils/workdir-slug.ts`). It is not part
+ * `@pymodel/agent-core` (file: `src/utils/workdir-slug.ts`). It is not part
  * of that package's public export surface today. When/if it becomes public,
  * delete the local duplicate below and import it from agent-core directly so
  * buckets stay byte-identical between the running app and this migrator.

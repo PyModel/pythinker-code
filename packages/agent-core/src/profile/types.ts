@@ -1,4 +1,4 @@
-import type { Environment } from '@pythoughts/kaos';
+import type { Environment } from '@pymodel/kaos';
 import { z } from 'zod';
 
 import type { SkillRegistry } from '../agent/skill/types';

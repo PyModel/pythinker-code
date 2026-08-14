@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { ContentPart, ToolCall } from '@pythoughts/pythinker-code-sdk';
-import type { ContextMessage, PromptOrigin } from '@pythoughts/pythinker-code-sdk';
+import type { ContentPart, ToolCall } from '@pymodel/pythinker-code-sdk';
+import type { ContextMessage, PromptOrigin } from '@pymodel/pythinker-code-sdk';
 
 import {
   buildExportMarkdown,

@@ -24,8 +24,8 @@ import {
   listToolsQuerySchema,
   listToolsResponseSchema,
   restartMcpServerResultSchema,
-} from '@pythoughts/protocol';
-import { IMcpService, IToolService, McpServerNotFoundError, type IInstantiationService } from '@pythoughts/agent-core';
+} from '@pymodel/protocol';
+import { IMcpService, IToolService, McpServerNotFoundError, type IInstantiationService } from '@pymodel/agent-core';
 
 
 import { errEnvelope, okEnvelope } from '../envelope';

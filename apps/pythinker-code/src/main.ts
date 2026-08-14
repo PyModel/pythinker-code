@@ -13,14 +13,14 @@ import {
   resolveGlobalLogPath,
   resolvePythinkerHome,
   type TelemetryClient,
-} from '@pythoughts/pythinker-code-sdk';
+} from '@pymodel/pythinker-code-sdk';
 import {
   installCrashHandlers,
   setTelemetryContext,
   shutdownTelemetry,
   track,
   withTelemetryContext,
-} from '@pythoughts/pythinker-telemetry';
+} from '@pymodel/pythinker-telemetry';
 
 import { createProgram } from './cli/commands';
 import type { CLIOptions } from './cli/options';

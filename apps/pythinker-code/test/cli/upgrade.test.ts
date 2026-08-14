@@ -129,7 +129,7 @@ describe('handleUpgrade', () => {
     expect(deps.promptForInstallChoice).toHaveBeenCalledWith({
       currentVersion: '0.4.0',
       target: { version: '0.5.0' },
-      installCommand: 'npm install -g @pythoughts/pythinker-code@0.5.0',
+      installCommand: 'npm install -g @pymodel/pythinker-code@0.5.0',
       installSource: 'npm-global',
     });
     expect(deps.installUpdate).toHaveBeenCalledWith('npm-global', '0.5.0', 'darwin');
@@ -150,7 +150,7 @@ describe('handleUpgrade', () => {
       targetVersion: '0.5.0',
       source: 'npm-global',
     }));
-    expect(stdout.join('')).toContain('Updated @pythoughts/pythinker-code to 0.5.0');
+    expect(stdout.join('')).toContain('Updated @pymodel/pythinker-code to 0.5.0');
     expect(stderr.join('')).toBe('');
   });
 
@@ -199,7 +199,7 @@ describe('handleUpgrade', () => {
       target_version: '0.5.0',
       source: 'unsupported',
     }));
-    expect(stdout.join('')).toContain('To update manually, run: npm install -g @pythoughts/pythinker-code@0.5.0');
+    expect(stdout.join('')).toContain('To update manually, run: npm install -g @pymodel/pythinker-code@0.5.0');
   });
 
   it('prints the manual update command without prompting when not interactive', async () => {
@@ -214,7 +214,7 @@ describe('handleUpgrade', () => {
       target_version: '0.5.0',
       source: 'npm-global',
     }));
-    expect(stdout.join('')).toContain('To update manually, run: npm install -g @pythoughts/pythinker-code@0.5.0');
+    expect(stdout.join('')).toContain('To update manually, run: npm install -g @pymodel/pythinker-code@0.5.0');
   });
 
   it('records why a manual install could not be verified', async () => {
@@ -250,7 +250,7 @@ describe('handleUpgrade', () => {
     await expect(handleUpgrade('0.4.0', { ...deps, ...writable })).resolves.toBe(1);
 
     expect(stderr.join('')).toContain(
-      'warning: failed to install @pythoughts/pythinker-code@0.5.0: npm exited with code 1',
+      'warning: failed to install @pymodel/pythinker-code@0.5.0: npm exited with code 1',
     );
     expect(deps.track).toHaveBeenCalledWith('upgrade_command_failed', expect.objectContaining({
       target_version: '0.5.0',
@@ -297,7 +297,7 @@ describe('handleUpgrade', () => {
     await expect(handleUpgrade('0.4.0', { ...deps, ...writable })).resolves.toBe(0);
 
     expect(deps.installUpdate).toHaveBeenCalledWith('npm-global', '0.5.0', 'darwin');
-    expect(stdout.join('')).toContain('Updated @pythoughts/pythinker-code to 0.5.0');
+    expect(stdout.join('')).toContain('Updated @pymodel/pythinker-code to 0.5.0');
   });
 
   it('native: refuses the update when the manifest omits the running platform', async () => {
@@ -330,7 +330,7 @@ describe('handleUpgrade', () => {
     await expect(handleUpgrade('0.4.0', { ...deps, ...writable })).resolves.toBe(0);
 
     expect(deps.installUpdate).toHaveBeenCalledWith('native', '0.5.0', 'darwin');
-    expect(stdout.join('')).toContain('Updated @pythoughts/pythinker-code to 0.5.0');
+    expect(stdout.join('')).toContain('Updated @pymodel/pythinker-code to 0.5.0');
   });
 
   it('npm-global: still installs when the manifest omits the running platform', async () => {
@@ -348,7 +348,7 @@ describe('handleUpgrade', () => {
       target_version: '0.5.0',
       source: 'npm-global',
     }));
-    expect(stdout.join('')).toContain('Updated @pythoughts/pythinker-code to 0.5.0');
+    expect(stdout.join('')).toContain('Updated @pymodel/pythinker-code to 0.5.0');
   });
 
   it('refuses the install while a fresh active install for another version is running', async () => {
@@ -423,7 +423,7 @@ describe('handleUpgrade', () => {
         notifiedAt: null,
       },
     }));
-    expect(stdout.join('')).toContain('Updated @pythoughts/pythinker-code to 0.5.0');
+    expect(stdout.join('')).toContain('Updated @pymodel/pythinker-code to 0.5.0');
   });
 
   it('releases the lock and records the failure when the foreground install fails', async () => {
@@ -462,7 +462,7 @@ describe('handleUpgrade', () => {
       }),
     }));
     expect(stderr.join('')).toContain(
-      'warning: failed to install @pythoughts/pythinker-code@0.5.0: npm exited with code 1',
+      'warning: failed to install @pymodel/pythinker-code@0.5.0: npm exited with code 1',
     );
   });
 

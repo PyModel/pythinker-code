@@ -11,16 +11,16 @@ const here = import.meta.dirname;
 const daemonSrc = resolve(here, '..', 'src');
 
 describe('packages/server/src anti-corruption', () => {
-  it('has zero @pythoughts/pythinker-code-sdk / PythinkerHarness / createRPC / SDKRpcClient references', () => {
+  it('has zero @pymodel/pythinker-code-sdk / PythinkerHarness / createRPC / SDKRpcClient references', () => {
 
     const out = execSync(
-      `grep -rE "@pythoughts/pythinker-code-sdk|PythinkerHarness\\b|createRPC\\b|SDKRpcClient\\b" "${daemonSrc}" || true`,
+      `grep -rE "@pymodel/pythinker-code-sdk|PythinkerHarness\\b|createRPC\\b|SDKRpcClient\\b" "${daemonSrc}" || true`,
       { encoding: 'utf8' },
     ).trim();
     expect(out).toBe('');
   });
 
-  it('imports shared filesystem, file store, logger, and workspace services from @pythoughts/agent-core', () => {
+  it('imports shared filesystem, file store, logger, and workspace services from @pymodel/agent-core', () => {
     const out = execSync(
       `grep -rE '["'"'"']#/services/(fileStore|fs|logger|workspace)(/|["'"'"'])' "${daemonSrc}" || true`,
       { encoding: 'utf8' },

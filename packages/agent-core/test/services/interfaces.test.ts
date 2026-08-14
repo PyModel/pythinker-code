@@ -36,7 +36,7 @@ import {
 } from '../../src/services';
 
 const packageRoot = fileURLToPath(new URL('../..', import.meta.url));
-const sdkPackageName = ['@pythoughts', 'pythinker-code-sdk'].join('/');
+const sdkPackageName = ['@pymodel', 'pythinker-code-sdk'].join('/');
 
 function readPackageFiles(): string {
   const files = [
@@ -151,7 +151,7 @@ function makeFakeQuestion(): QuestionRequest & { sessionId: string; agentId: str
   };
 }
 
-describe('@pythoughts/agent-core · services interfaces', () => {
+describe('@pymodel/agent-core · services interfaces', () => {
   it('does not depend on the node SDK package', () => {
     expect(readPackageFiles()).not.toContain(sdkPackageName);
   });

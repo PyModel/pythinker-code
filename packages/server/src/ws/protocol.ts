@@ -1,5 +1,5 @@
 /**
- * WS envelope helpers — thin builders around the `@pythoughts/protocol`
+ * WS envelope helpers — thin builders around the `@pymodel/protocol`
  * schemas so `WsConnection` and `EventService` don't both re-implement the wire
  * shape (WS.md §2).
  *
@@ -19,7 +19,7 @@
  * the outbound path.
  */
 
-import type { Event } from '@pythoughts/protocol';
+import type { Event } from '@pymodel/protocol';
 import { ulid } from 'ulid';
 
 /** WS.md §3.1: `server_hello.payload`. */

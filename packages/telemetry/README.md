@@ -1,4 +1,4 @@
-# @pythoughts/pythinker-telemetry
+# @pymodel/pythinker-telemetry
 
 Shared telemetry infrastructure for Pythinker Code.
 

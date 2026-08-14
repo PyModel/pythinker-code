@@ -10,7 +10,7 @@ import type {
   FsGitStatusRequest,
   FsGitStatusResponse,
   FsPullRequest,
-} from '@pythoughts/protocol';
+} from '@pymodel/protocol';
 import { ISessionService } from '../session/session';
 
 import { FsPathNotFoundError } from './fs';

@@ -2,7 +2,7 @@ import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-import { createPythinkerHarness, log } from '@pythoughts/pythinker-code-sdk';
+import { createPythinkerHarness, log } from '@pymodel/pythinker-code-sdk';
 
 const SESSION_LOG = 'logs/pythinker-code.log';
 const GLOBAL_LOG = 'logs/global/pythinker-code.log';

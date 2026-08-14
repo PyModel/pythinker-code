@@ -7,7 +7,7 @@ import { join } from 'node:path';
 async function main() {
   const packageJson = JSON.parse(readFileSync(new URL('../../apps/pythinker-code/package.json', import.meta.url), 'utf8'));
   const version = packageJson.version;
-  const tarballUrl = `https://registry.npmjs.org/@pythoughts/pythinker-code/-/pythinker-code-${version}.tgz`;
+  const tarballUrl = `https://registry.npmjs.org/@pymodel/pythinker-code/-/pythinker-code-${version}.tgz`;
   const response = await fetch(tarballUrl);
   if (response.status !== 200) throw new Error(`Failed to download npm tarball: HTTP ${response.status}`);
 

@@ -23,7 +23,7 @@ import type {
   FsBrowseResponse,
   FsHomeResponse,
   Workspace,
-} from '@pythoughts/protocol';
+} from '@pymodel/protocol';
 
 let tmpDir: string;
 let lockPath: string;

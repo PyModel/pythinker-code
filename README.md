@@ -9,8 +9,8 @@
 
 <br />
 
-[![npm version](https://img.shields.io/npm/v/@pythoughts/pythinker-code?style=for-the-badge&logo=npm&logoColor=white&color=CB3837&label=pythinker-code)](https://www.npmjs.com/package/@pythoughts/pythinker-code)
-[![Downloads](https://img.shields.io/npm/dm/@pythoughts/pythinker-code?style=for-the-badge&logo=npm&logoColor=white&color=2b89ff&label=downloads)](https://www.npmjs.com/package/@pythoughts/pythinker-code)
+[![npm version](https://img.shields.io/npm/v/@pymodel/pythinker-code?style=for-the-badge&logo=npm&logoColor=white&color=CB3837&label=pythinker-code)](https://www.npmjs.com/package/@pymodel/pythinker-code)
+[![Downloads](https://img.shields.io/npm/dm/@pymodel/pythinker-code?style=for-the-badge&logo=npm&logoColor=white&color=2b89ff&label=downloads)](https://www.npmjs.com/package/@pymodel/pythinker-code)
 [![Node.js](https://img.shields.io/badge/Node.js-26%2B-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)](https://github.com/PyModel/pythinker-code/blob/main/package.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-16a34a.svg?style=for-the-badge)](https://github.com/PyModel/pythinker-code/blob/main/LICENSE)
 [![CI](https://img.shields.io/github/actions/workflow/status/PyModel/pythinker-code/ci.yml?branch=main&label=CI&style=for-the-badge&logo=githubactions&logoColor=white)](https://github.com/PyModel/pythinker-code/actions/workflows/ci.yml?query=branch%3Amain)
@@ -132,7 +132,7 @@ Pythinker ships **native installers**— no Node.js prerequisite. Pick the row t
 | <img src="https://raw.githubusercontent.com/PyModel/pythinker-code/main/docs/media/icons/homebrew.svg" width="16" height="16" alt="Homebrew" align="top"> **Homebrew**| `brew install pymodel/tap/pythinker-code` | Homebrew |
 | <img src="https://raw.githubusercontent.com/PyModel/pythinker-code/main/docs/media/icons/windows11.svg" width="16" height="16" alt="Windows" align="top"> **Windows (PowerShell)**| `irm https://code.pythinker.com/pythinker-code/install.ps1 \| iex` | [code.pythinker.com](https://code.pythinker.com) |
 | <img src="https://raw.githubusercontent.com/PyModel/pythinker-code/main/docs/media/icons/nixos.svg" width="16" height="16" alt="Nix" align="top"> **Nix**| `nix run github:PyModel/pythinker-code` | flake |
-| <img src="https://raw.githubusercontent.com/PyModel/pythinker-code/main/docs/media/icons/npm.svg" width="16" height="16" alt="npm" align="top"> **npm / pnpm fallback**| `npm install -g @pythoughts/pythinker-code` | requires Node.js ≥ 26.4.0 |
+| <img src="https://raw.githubusercontent.com/PyModel/pythinker-code/main/docs/media/icons/npm.svg" width="16" height="16" alt="npm" align="top"> **npm / pnpm fallback**| `npm install -g @pymodel/pythinker-code` | requires Node.js ≥ 26.4.0 |
 
 > [!NOTE]
 > **Windows:**install [Git for Windows](https://gitforwindows.org/) before first launch — Pythinker Code uses the bundled Git Bash as its shell. For a custom Git Bash location, set `PYTHINKER_SHELL_PATH` to the absolute path of `bash.exe`.
@@ -252,7 +252,7 @@ Pythinker is a small, extensible runtime — not a monolith. Build on it.
 | **Skills**| `/skill:<name>` loads reusable, repo-local instructions on demand | bundled & user-defined |
 | **Hooks**| Observe or block tool execution; integrate policy or automation | lifecycle hook events |
 | **Plugins**| Skills, MCP servers, and data sources from the marketplace or GitHub | plugin ecosystem |
-| **SDK**| Embed agent capabilities in your own tools | [`@pythoughts/pythinker-code-sdk`](packages/node-sdk) |
+| **SDK**| Embed agent capabilities in your own tools | [`@pymodel/pythinker-code-sdk`](packages/node-sdk) |
 
 ---
 
@@ -359,7 +359,7 @@ Our TUI is built on [`pi-tui`](https://github.com/earendil-works/pi-mono/tree/ma
 **Built with  for engineers who live in the terminal.**
 
 [ code.pythinker.com](https://code.pythinker.com) &nbsp;·&nbsp;
-[ npm](https://www.npmjs.com/package/@pythoughts/pythinker-code) &nbsp;·&nbsp;
+[ npm](https://www.npmjs.com/package/@pymodel/pythinker-code) &nbsp;·&nbsp;
 [ GitHub](https://github.com/PyModel/pythinker-code) &nbsp;·&nbsp;
 [ Docs](https://pymodel.github.io/pythinker-code/) &nbsp;·&nbsp;
 [ ACP](https://agentclientprotocol.com/) &nbsp;·&nbsp;

@@ -1,4 +1,4 @@
-# @pythoughts/agent-core
+# @pymodel/agent-core
 
 The unified agent engine for Pythinker Code.
 

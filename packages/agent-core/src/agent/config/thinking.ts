@@ -1,4 +1,4 @@
-import type { ThinkingEffort } from '@pythoughts/kosong';
+import type { ThinkingEffort } from '@pymodel/kosong';
 
 import type { ThinkingConfig } from '../../config/schema';
 

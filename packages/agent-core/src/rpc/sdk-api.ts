@@ -1,4 +1,4 @@
-import type { ContentPart } from '@pythoughts/kosong';
+import type { ContentPart } from '@pymodel/kosong';
 
 import type { RPCMethods } from './client';
 import type { AgentEvent, ToolInputDisplay } from './events';

@@ -5,7 +5,7 @@ import {
   parseConfigString,
   resolveConfigPath,
   type RPCMethods,
-} from '@pythoughts/agent-core';
+} from '@pymodel/agent-core';
 import { z } from 'zod';
 
 export type PythinkerConfigValidationPathSegment = string | number;

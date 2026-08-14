@@ -12,7 +12,7 @@ import {
   type AutocompleteProvider,
   type Component,
 } from '@earendil-works/pi-tui';
-import type { ApprovalRequest, ApprovalResponse, Event } from '@pythoughts/pythinker-code-sdk';
+import type { ApprovalRequest, ApprovalResponse, Event } from '@pymodel/pythinker-code-sdk';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ApprovalPanelComponent } from '#/tui/components/dialogs/approval-panel';

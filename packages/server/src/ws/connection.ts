@@ -21,13 +21,13 @@ import {
   type WatchFsAddMessage,
   type WatchFsRemoveMessage,
   getClientControlOperation,
-} from '@pythoughts/protocol';
+} from '@pymodel/protocol';
 
 import type {
   ILogService,
   TerminalAttachOptions,
   TerminalAttachSink,
-} from '@pythoughts/agent-core';
+} from '@pymodel/agent-core';
 import type { ISessionClientsService } from '#/services/gateway';
 
 import {

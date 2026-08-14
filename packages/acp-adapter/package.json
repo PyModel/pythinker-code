@@ -1,5 +1,5 @@
 {
-  "name": "@pythoughts/acp-adapter",
+  "name": "@pymodel/acp-adapter",
   "version": "0.3.0",
   "private": true,
   "description": "Agent Client Protocol adapter for pythinker-code",
@@ -41,8 +41,8 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.23.0",
-    "@pythoughts/agent-core": "workspace:^",
-    "@pythoughts/kaos": "workspace:^",
-    "@pythoughts/pythinker-code-sdk": "workspace:^"
+    "@pymodel/agent-core": "workspace:^",
+    "@pymodel/kaos": "workspace:^",
+    "@pymodel/pythinker-code-sdk": "workspace:^"
   }
 }

@@ -9,7 +9,7 @@ import {
   type PythinkerConfigRpc,
   type PythinkerConfigValidationIssue,
   type RgResolution,
-} from '@pythoughts/pythinker-code-sdk';
+} from '@pymodel/pythinker-code-sdk';
 import type { Command } from 'commander';
 import { z } from 'zod';
 

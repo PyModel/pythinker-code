@@ -1,4 +1,4 @@
-import { LocalKaos, type Environment } from '@pythoughts/kaos';
+import { LocalKaos, type Environment } from '@pymodel/kaos';
 
 export const TEST_OS_ENV: Environment = {
   osKind: 'Linux',

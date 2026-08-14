@@ -1,5 +1,5 @@
 {
-  "name": "@pythoughts/kosong",
+  "name": "@pymodel/kosong",
   "version": "0.4.6",
   "private": true,
   "description": "The LLM abstraction layer for modern AI agent applications",

@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 
 import { appRoot } from './paths.mjs';
 
-const packageName = '@pythoughts/pythinker-code';
+const packageName = '@pymodel/pythinker-code';
 const packageJson = JSON.parse(
   await readFile(resolve(appRoot, 'package.json'), 'utf-8'),
 );

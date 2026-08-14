@@ -26,8 +26,8 @@ import {
   sessionSnapshotResponseSchema,
   type Message,
   type Session,
-} from '@pythoughts/protocol';
-import { IApprovalService, IMessageService, IPromptService, IQuestionService, ISessionService, SessionNotFoundError, type IInstantiationService } from '@pythoughts/agent-core';
+} from '@pymodel/protocol';
+import { IApprovalService, IMessageService, IPromptService, IQuestionService, ISessionService, SessionNotFoundError, type IInstantiationService } from '@pymodel/agent-core';
 import { z } from 'zod';
 
 

@@ -1,4 +1,4 @@
-import { APIProviderQuotaExhaustedError } from '@pythoughts/kosong';
+import { APIProviderQuotaExhaustedError } from '@pymodel/kosong';
 import { describe, expect, it } from 'vitest';
 
 import { toPythinkerErrorPayload } from '#/errors/serialize';

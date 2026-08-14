@@ -48,7 +48,7 @@ Adding an OpenAI-compatible provider requires **zero code changes** — just add
 
 | Package | Description | Notes |
 | ------- | ----------- | ----- |
-| `apps/pythinker-code` | CLI / TUI app | Consumes `@pythoughts/pythinker-code-sdk`; no `agent-core` dep. Use `write-tui` skill. |
+| `apps/pythinker-code` | CLI / TUI app | Consumes `@pymodel/pythinker-code-sdk`; no `agent-core` dep. Use `write-tui` skill. |
 | `apps/pythinker-web` | Browser UI (Vue 3 + Vite + vue-i18n) | REST + WS `/api/v1`; no `agent-core` dep. See its `AGENTS.md`. |
 | `apps/dashboard` | Session dashboard & replay | `server/` + `web/` subdirs. |
 | `packages/agent-core` | Agent engine | Agent, Session, profile, skills, tools, plan, permission, DI. |
@@ -68,7 +68,7 @@ Adding an OpenAI-compatible provider requires **zero code changes** — just add
 
 - `pnpm-workspace.yaml` is source of truth, but `flake.nix` **hardcodes** `workspacePaths`/`workspaceNames`.
 - **Update both** when adding/removing any workspace package. Missing a path silently drops files from Nix; missing a name breaks `pnpmConfigHook`.
-- CI (`scripts/check-nix-workspace.mjs`) only validates the `@pythoughts/pythinker-code` closure — keep `flake.nix` updated by hand.
+- CI (`scripts/check-nix-workspace.mjs`) only validates the `@pymodel/pythinker-code` closure — keep `flake.nix` updated by hand.
 
 ## Coding Rules
 

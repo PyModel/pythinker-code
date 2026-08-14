@@ -56,7 +56,7 @@ import type { ApprovalRequest, ApprovalResponse } from '../../rpc';
 import type {
   ApprovalRequest as ProtocolApprovalRequest,
   ApprovalResponse as ProtocolApprovalResponse,
-} from '@pythoughts/protocol';
+} from '@pymodel/protocol';
  // type-only marker — keep protocol dep referenced
 
 // Re-export ApprovalResponse for service-side consumers so they don't have to

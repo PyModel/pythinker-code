@@ -16,7 +16,7 @@
  */
 
 import type { SessionMode } from '@agentclientprotocol/sdk';
-import type { PermissionMode } from '@pythoughts/pythinker-code-sdk';
+import type { PermissionMode } from '@pymodel/pythinker-code-sdk';
 
 /**
  * Canonical 4-mode taxonomy (PLAN D9). Order matters: the array

@@ -1,6 +1,6 @@
 # pythinker-web Agent Guide
 
-Package-local rules for `apps/pythinker-web` (`@pythoughts/pythinker-web`).
+Package-local rules for `apps/pythinker-web` (`@pymodel/pythinker-web`).
 
 ## What it is
 
@@ -33,7 +33,7 @@ The browser web UI for Pythinker Code — a peer to the TUI in `apps/pythinker-c
 
 ## Commands
 
-All via `pnpm --filter @pythoughts/pythinker-web …`:
+All via `pnpm --filter @pymodel/pythinker-web …`:
 
 - `dev` — Vite dev server (port `WEB_PORT`, default 5175; proxies `/api/v1` to `PYTHINKER_SERVER_URL`, default `http://127.0.0.1:58627`).
 - `dev:stub` — offline stub daemon (`dev/stub-daemon.mjs`).
@@ -44,7 +44,7 @@ All via `pnpm --filter @pythoughts/pythinker-web …`:
 
 ## Gotchas / hard rules
 
-- **Do not depend on `@pythoughts/agent-core`** (mirrors the CLI/SDK rule). The web app is decoupled from core/protocol; wire types are re-implemented locally in `src/api/daemon/wire.ts`. Keep it that way.
+- **Do not depend on `@pymodel/agent-core`** (mirrors the CLI/SDK rule). The web app is decoupled from core/protocol; wire types are re-implemented locally in `src/api/daemon/wire.ts`. Keep it that way.
 - **Same-origin by default:** the browser only talks to its own origin; Vite proxies `/api/v1` for both HTTP and WS. Set `VITE_PYTHINKER_SERVER_HTTP_URL` only when you intentionally want direct (CORS) mode.
 - Vite-injected globals (`__PYTHINKER_DEV_PROXY_TARGET__`, `__PYTHINKER_WEB_VERSION__`, `__PYTHINKER_WEB_COMMIT__`) are declared in `src/env.d.ts` and defined in `vite.config.ts`. Do not hand-edit `dist/`.
 - **Theming:** the root element carries `data-color-scheme` (`light` | `dark` | `system`); react to it through `useIsDark()`, not by reading the DOM directly.

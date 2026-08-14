@@ -25,7 +25,7 @@ import { pino } from 'pino';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { IRestGateway, startServer, type RunningServer } from '../src';
-import type { Workspace } from '@pythoughts/protocol';
+import type { Workspace } from '@pymodel/protocol';
 
 let tmpDir: string;
 let lockPath: string;

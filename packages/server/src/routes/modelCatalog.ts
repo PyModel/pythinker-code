@@ -6,8 +6,8 @@ import {
   listModelsResponseSchema,
   listProvidersResponseSchema,
   setDefaultModelResponseSchema,
-} from '@pythoughts/protocol';
-import { IModelCatalogService, ModelNotFoundError, ProviderNotFoundError, type IInstantiationService } from '@pythoughts/agent-core';
+} from '@pymodel/protocol';
+import { IModelCatalogService, ModelNotFoundError, ProviderNotFoundError, type IInstantiationService } from '@pymodel/agent-core';
 
 import { errEnvelope, okEnvelope } from '../envelope';
 import { defineRoute } from '../middleware/defineRoute';

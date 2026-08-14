@@ -4,7 +4,7 @@ import {
   type PythinkerConfig,
   type ProviderConfig,
 } from '../../config';
-import type { ConfigResponse, PatchConfigRequest } from '@pythoughts/protocol';
+import type { ConfigResponse, PatchConfigRequest } from '@pymodel/protocol';
 
 import { ICoreProcessService } from '../coreProcess/coreProcess';
 import { IEventService } from '../event/event';

@@ -4,7 +4,7 @@ import { ErrorCodes, PythinkerError, makeErrorPayload } from '#/errors';
 import { log } from '#/logging/logger';
 import type { Logger } from '#/logging/types';
 import type { AgentAPI, AgentEvent, PythinkerConfig, SDKAgentRPC, UsageStatus } from '#/rpc';
-import { generate } from '@pythoughts/kosong';
+import { generate } from '@pymodel/kosong';
 
 import type { EnabledPluginSessionStart } from '#/plugin';
 
@@ -52,7 +52,7 @@ import { KosongLLM } from './turn/kosong-llm';
 import { UsageRecorder } from './usage';
 import { LlmRequestLogger, splitGenerateOptions } from './llm-request-logger';
 import { resolveCompletionBudget } from '../utils/completion-budget';
-import type { Kaos } from '@pythoughts/kaos';
+import type { Kaos } from '@pymodel/kaos';
 import type { ToolServices } from '../tools/support/services';
 import type { SessionTaskGraph } from './task-graph';
 import type { SessionTeam } from '../session/team';

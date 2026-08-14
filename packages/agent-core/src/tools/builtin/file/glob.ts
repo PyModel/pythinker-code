@@ -31,7 +31,7 @@
  *     subdirectory) when 100 results would not be enough.
  */
 
-import type { Kaos } from '@pythoughts/kaos';
+import type { Kaos } from '@pymodel/kaos';
 import { basename, dirname, isAbsolute, normalize } from 'pathe';
 import { z } from 'zod';
 

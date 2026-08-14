@@ -1,5 +1,5 @@
 // One creator: meant to run twice as separate processes simultaneously.
-import { createPythinkerHarness } from '@pythoughts/pythinker-code-sdk';
+import { createPythinkerHarness } from '@pymodel/pythinker-code-sdk';
 
 const workDir = process.argv[2]!;
 const homeDir = process.argv[3]!;

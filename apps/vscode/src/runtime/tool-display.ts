@@ -1,4 +1,4 @@
-import type { ToolInputDisplay } from "@pythoughts/pythinker-code-sdk";
+import type { ToolInputDisplay } from "@pymodel/pythinker-code-sdk";
 
 import type { DisplayBlock } from "../../shared/legacy-sdk";
 

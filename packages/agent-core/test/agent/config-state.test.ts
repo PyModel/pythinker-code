@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { emptyUsage } from '@pythoughts/kosong';
+import { emptyUsage } from '@pymodel/kosong';
 
 import { ProviderManager } from '../../src/session/provider-manager';
 import { testAgent } from './harness';

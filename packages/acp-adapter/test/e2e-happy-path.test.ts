@@ -39,7 +39,7 @@ import {
   type WriteTextFileRequest,
   type WriteTextFileResponse,
 } from '@agentclientprotocol/sdk';
-import type { Event, PythinkerHarness, Session } from '@pythoughts/pythinker-code-sdk';
+import type { Event, PythinkerHarness, Session } from '@pymodel/pythinker-code-sdk';
 
 import { AcpServer } from '../src/server';
 import { AUTHED, makeModelsMap } from './_helpers/harness-stubs';

@@ -1,5 +1,5 @@
 import { uniq } from '@antfu/utils';
-import type { ChatProvider, Tool } from '@pythoughts/kosong';
+import type { ChatProvider, Tool } from '@pymodel/kosong';
 import picomatch from 'picomatch';
 
 import type { Agent } from '..';

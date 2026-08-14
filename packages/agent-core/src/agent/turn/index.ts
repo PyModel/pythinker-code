@@ -13,7 +13,7 @@ import {
   isContextOverflowStatusError,
   type ContentPart,
   type TokenUsage,
-} from '@pythoughts/kosong';
+} from '@pymodel/kosong';
 import { basename } from 'pathe';
 
 import type { Agent } from '..';

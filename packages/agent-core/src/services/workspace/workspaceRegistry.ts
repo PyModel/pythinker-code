@@ -2,7 +2,7 @@
 
 import { Disposable, createDecorator } from '../../di';
 
-import type { Workspace } from '@pythoughts/protocol';
+import type { Workspace } from '@pymodel/protocol';
 
 export class WorkspaceNotFoundError extends Error {
   readonly workspaceId: string;

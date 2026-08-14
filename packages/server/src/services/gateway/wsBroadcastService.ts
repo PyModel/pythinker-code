@@ -2,8 +2,8 @@
 
 import { join } from 'node:path';
 
-import { Disposable, IEnvironmentService, IEventService, ILogService } from '@pythoughts/agent-core';
-import { isVolatileEventType, type Event, type SessionCursor } from '@pythoughts/protocol';
+import { Disposable, IEnvironmentService, IEventService, ILogService } from '@pymodel/agent-core';
+import { isVolatileEventType, type Event, type SessionCursor } from '@pymodel/protocol';
 import { IConnectionRegistry } from './connectionRegistry';
 import { InFlightTurnTracker } from './inFlightTurnTracker';
 import { ISessionClientsService } from './sessionClients';

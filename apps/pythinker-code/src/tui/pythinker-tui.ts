@@ -17,8 +17,8 @@ import type {
   PermissionMode,
   PromptPart,
   Session,
-} from '@pythoughts/pythinker-code-sdk';
-import type { MigrationPlan } from '@pythoughts/migration-legacy';
+} from '@pymodel/pythinker-code-sdk';
+import type { MigrationPlan } from '@pymodel/migration-legacy';
 import { resolve } from 'pathe';
 
 import type { CLIOptions } from '#/cli/options';

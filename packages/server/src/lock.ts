@@ -35,7 +35,7 @@ import {
 } from 'node:fs';
 import { dirname, join } from 'node:path';
 
-import { resolvePythinkerHome } from '@pythoughts/agent-core';
+import { resolvePythinkerHome } from '@pymodel/agent-core';
 
 export const DEFAULT_LOCK_DIR = join(resolvePythinkerHome(), 'server');
 export const DEFAULT_LOCK_PATH = join(DEFAULT_LOCK_DIR, 'lock');

@@ -6,8 +6,8 @@ import {
   ModelAliasSchema,
   ProviderConfigSchema,
   transformTomlData,
-} from '@pythoughts/agent-core';
-import { FLAG_DEFINITIONS } from '@pythoughts/agent-core/flags/registry';
+} from '@pymodel/agent-core';
+import { FLAG_DEFINITIONS } from '@pymodel/agent-core/flags/registry';
 import { atomicWrite } from '../atomic-write.js';
 import { DEFAULT_CONFIG_FILE_TEXT, isTuiStubOrMissing } from '../stub-detect.js';
 import {

@@ -1,5 +1,5 @@
-import { log, type Logger } from '@pythoughts/pythinker-code-sdk';
-import { track as trackTelemetry, type TelemetryProperties } from '@pythoughts/pythinker-telemetry';
+import { log, type Logger } from '@pymodel/pythinker-code-sdk';
+import { track as trackTelemetry, type TelemetryProperties } from '@pymodel/pythinker-telemetry';
 
 import { refreshUpdateCache } from '#/cli/update/refresh';
 import { tryAcquireUpdateInstallLock } from '#/cli/update/install-lock';

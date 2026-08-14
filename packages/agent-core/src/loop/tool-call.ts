@@ -13,7 +13,7 @@
  * should be reviewed together.
  */
 
-import type { ContentPart } from '@pythoughts/kosong';
+import type { ContentPart } from '@pymodel/kosong';
 
 import type { Logger } from '#/logging/types';
 import {

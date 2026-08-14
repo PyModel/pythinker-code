@@ -29,7 +29,7 @@ import { join } from 'node:path';
 import { pino } from 'pino';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { authSummarySchema, type AuthSummary } from '@pythoughts/protocol';
+import { authSummarySchema, type AuthSummary } from '@pymodel/protocol';
 
 import { IRestGateway, startServer, type RunningServer } from '../src';
 

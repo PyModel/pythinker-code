@@ -58,8 +58,8 @@ const child = spawn(
     '-k',
     '-n', 'server,web',
     '-c', 'cyan,magenta',
-    'pnpm --filter @pythoughts/dashboard-server dev',
-    'pnpm --filter @pythoughts/dashboard-web dev',
+    'pnpm --filter @pymodel/dashboard-server dev',
+    'pnpm --filter @pymodel/dashboard-web dev',
   ],
   { stdio: 'inherit', env, shell: false },
 );

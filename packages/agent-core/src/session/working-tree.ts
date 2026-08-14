@@ -1,6 +1,6 @@
 import path from 'node:path';
 
-import type { Kaos } from '@pythoughts/kaos';
+import type { Kaos } from '@pymodel/kaos';
 
 import { ErrorCodes, PythinkerError } from '../errors';
 import { canonicalizePath, isWithinDirectory } from '../tools/policies/path-access';

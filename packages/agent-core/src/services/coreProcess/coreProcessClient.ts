@@ -1,6 +1,6 @@
 /**
  * `BridgeClientAPI` — the SDK side of the in-process RPC pair owned by
- * `CoreProcessService`. Satisfies `SDKAPI` (`@pythoughts/agent-core`
+ * `CoreProcessService`. Satisfies `SDKAPI` (`@pymodel/agent-core`
  * rpc/sdk-api.ts:78, via `SDKAgentAPI` at :67-72) so `PythinkerCore` can call
  * into it through `createRPC<CoreAPI, SDKAPI>()`. Methods route to
  * DI-resolved peer services:

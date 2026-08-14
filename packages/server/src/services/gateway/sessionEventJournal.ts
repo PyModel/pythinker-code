@@ -12,8 +12,8 @@ import { appendFile, mkdir, truncate } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { ulid } from 'ulid';
 
-import { WS_PROTOCOL_VERSION, sessionEventMessageSchema } from '@pythoughts/protocol';
-import type { ILogService } from '@pythoughts/agent-core';
+import { WS_PROTOCOL_VERSION, sessionEventMessageSchema } from '@pymodel/protocol';
+import type { ILogService } from '@pymodel/agent-core';
 
 import type { EventEnvelope } from '#/ws/protocol';
 

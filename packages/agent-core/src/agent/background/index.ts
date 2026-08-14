@@ -12,7 +12,7 @@
 
 import { randomBytes } from 'node:crypto';
 
-import type { ContentPart } from '@pythoughts/kosong';
+import type { ContentPart } from '@pymodel/kosong';
 
 import type { Agent } from '../..';
 import { errorMessage } from '../../loop/errors';

@@ -16,7 +16,7 @@ import type {
   FsStatManyRequest,
   FsStatManyResponse,
   FsStatRequest,
-} from '@pythoughts/protocol';
+} from '@pymodel/protocol';
 import ignore, { type Ignore } from 'ignore';
 
 import { ISessionService, SessionNotFoundError } from '../session/session';

@@ -1,4 +1,4 @@
-import type { Event } from '@pythoughts/pythinker-code-sdk';
+import type { Event } from '@pymodel/pythinker-code-sdk';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { DEFAULT_STATUS_LINE_CONFIG } from '#/tui/config';

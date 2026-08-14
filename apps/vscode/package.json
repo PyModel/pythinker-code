@@ -347,7 +347,7 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.0.0",
-    "@pythoughts/pythinker-code-sdk": "workspace:^",
+    "@pymodel/pythinker-code-sdk": "workspace:^",
     "@radix-ui/react-accordion": "^1.2.12",
     "@tabler/icons-react": "^3.36.0",
     "ahooks": "^3.9.6",

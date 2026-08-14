@@ -29,7 +29,7 @@ import type {
   TurnStepInterruptedEvent,
   TurnStepStartedEvent,
   WarningEvent,
-} from '@pythoughts/pythinker-code-sdk';
+} from '@pymodel/pythinker-code-sdk';
 
 import { ActivityLoader } from '../components/chrome/activity-loader';
 import { buildGoalMarker } from '../components/messages/goal-markers';

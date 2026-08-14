@@ -9,8 +9,8 @@
  * Read-only and effectively infallible: it only snapshots the registry map.
  */
 
-import { connectionsListResponseSchema } from '@pythoughts/protocol';
-import type { IInstantiationService } from '@pythoughts/agent-core';
+import { connectionsListResponseSchema } from '@pymodel/protocol';
+import type { IInstantiationService } from '@pymodel/agent-core';
 
 import { okEnvelope } from '../envelope';
 import { defineRoute } from '../middleware/defineRoute';

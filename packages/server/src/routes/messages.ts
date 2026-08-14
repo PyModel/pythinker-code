@@ -21,7 +21,7 @@
  *
  * **Anti-corruption**: route file lives in `packages/server/src/` and goes
  * through `accessor.get(IMessageService)` whose impl lives in
- * `@pythoughts/agent-core`. No SDK package imports.
+ * `@pymodel/agent-core`. No SDK package imports.
  */
 
 import {
@@ -29,8 +29,8 @@ import {
   getMessageResponseSchema,
   listMessagesResponseSchema,
   messageRoleSchema,
-} from '@pythoughts/protocol';
-import { IMessageService, MessageNotFoundError, SessionNotFoundError, type IInstantiationService } from '@pythoughts/agent-core';
+} from '@pymodel/protocol';
+import { IMessageService, MessageNotFoundError, SessionNotFoundError, type IInstantiationService } from '@pymodel/agent-core';
 import { z } from 'zod';
 
 

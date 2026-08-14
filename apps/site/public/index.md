@@ -40,7 +40,7 @@ nix run github:PyModel/pythinker-code
 ### npm
 
 ```sh
-npm install -g @pythoughts/pythinker-code
+npm install -g @pymodel/pythinker-code
 ```
 
 Verify the installation with `pythinker --version`.
@@ -66,4 +66,4 @@ Verify the installation with `pythinker --version`.
 - [Configuration](https://pymodel.github.io/pythinker-code/configuration/config-files)
 - [Command reference](https://pymodel.github.io/pythinker-code/reference/pythinker-command)
 - [GitHub repository](https://github.com/PyModel/pythinker-code)
-- [npm package](https://www.npmjs.com/package/@pythoughts/pythinker-code)
+- [npm package](https://www.npmjs.com/package/@pymodel/pythinker-code)

@@ -1,4 +1,4 @@
-import type { ContentPart, Message, Tool } from '@pythoughts/kosong';
+import type { ContentPart, Message, Tool } from '@pymodel/kosong';
 
 const messageTokenEstimateCache = new WeakMap<Message, number>();
 

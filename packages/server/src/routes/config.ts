@@ -2,8 +2,8 @@ import {
   configResponseSchema,
   ErrorCode,
   patchConfigRequestSchema,
-} from '@pythoughts/protocol';
-import { IConfigService, type IInstantiationService } from '@pythoughts/agent-core';
+} from '@pymodel/protocol';
+import { IConfigService, type IInstantiationService } from '@pymodel/agent-core';
 
 import { errEnvelope, okEnvelope } from '../envelope';
 import { defineRoute } from '../middleware/defineRoute';

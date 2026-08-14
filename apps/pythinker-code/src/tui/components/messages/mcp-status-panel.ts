@@ -1,4 +1,4 @@
-import type { McpServerInfo } from '@pythoughts/pythinker-code-sdk';
+import type { McpServerInfo } from '@pymodel/pythinker-code-sdk';
 
 import { currentTheme } from '#/tui/theme';
 

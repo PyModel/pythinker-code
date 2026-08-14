@@ -52,7 +52,7 @@ import type {
   QuestionOption as ProtocolQuestionOption,
   QuestionRequest as ProtocolQuestionRequest,
   QuestionResponse as ProtocolQuestionResponse,
-} from '@pythoughts/protocol';
+} from '@pymodel/protocol';
  // type-only marker — keep protocol dep referenced
 
 // Re-export for service-side consumers.

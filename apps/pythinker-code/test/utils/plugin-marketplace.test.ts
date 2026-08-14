@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import type { PluginSummary } from '@pythoughts/pythinker-code-sdk';
+import type { PluginSummary } from '@pymodel/pythinker-code-sdk';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {

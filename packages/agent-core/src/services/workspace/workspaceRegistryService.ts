@@ -11,7 +11,7 @@ import { readSessionIndex } from '../../session/store/session-index';
 import { IEnvironmentService } from '../environment/environment';
 import { IEventService } from '../event/event';
 
-import type { Workspace } from '@pythoughts/protocol';
+import type { Workspace } from '@pymodel/protocol';
 
 import { ILogService } from '../logger/logger';
 import {
