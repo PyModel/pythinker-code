@@ -3,11 +3,12 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import {
   ErrorCodes,
   makeErrorPayload,
+  type AdvisorStatus,
   type AgentContextData,
-  type ContextUsageReport,
   type ApprovalRequest,
   type ApprovalResponse,
   type CoreAPI,
+  type DynamicWorkflowModeTrigger,
   type Event,
   type ExperimentalFeatureState,
   type QuestionRequest,
@@ -17,7 +18,6 @@ import {
   type SkillActivationResult,
   type ToolCallRequest,
   type ToolCallResponse,
-  type DynamicWorkflowModeTrigger,
 } from '@pymodel/agent-core';
 import type { Kaos } from '@pymodel/kaos';
 
@@ -26,6 +26,7 @@ import type {
   AgentProfileCatalog,
   BackgroundTaskInfo,
   ConfigDiagnostics,
+  ContextUsageReport,
   CreateSessionOptions,
   ExportSessionInput,
   ExportSessionResult,
@@ -107,6 +108,10 @@ export interface SetSessionPlanModeRpcInput extends SessionIdRpcInput {
 export type SetSessionDynamicWorkflowModeRpcInput =
   | (SessionIdRpcInput & { readonly enabled: true; readonly trigger: DynamicWorkflowModeTrigger })
   | (SessionIdRpcInput & { readonly enabled: false });
+export interface SetSessionAdvisorEnabledRpcInput extends SessionIdRpcInput {
+  readonly enabled: boolean;
+  readonly advisorId?: string;
+}
 
 export interface ActivateSkillRpcInput extends SessionIdRpcInput {
   readonly name: string;
@@ -559,6 +564,26 @@ export abstract class SDKRpcClientBase {
     return rpc.listSkills({ sessionId: input.sessionId });
   }
 
+  async getAdvisorStatus(input: SessionIdRpcInput): Promise<readonly AdvisorStatus[]> {
+    const rpc = await this.getRpc();
+    return rpc.getAdvisorStatus({ sessionId: input.sessionId });
+  }
+
+  async setAdvisorEnabled(
+    input: SetSessionAdvisorEnabledRpcInput,
+  ): Promise<readonly AdvisorStatus[]> {
+    const rpc = await this.getRpc();
+    return rpc.setAdvisorEnabled({
+      sessionId: input.sessionId,
+      enabled: input.enabled,
+      advisorId: input.advisorId,
+    });
+  }
+
+  async reloadAdvisor(input: SessionIdRpcInput): Promise<readonly AdvisorStatus[]> {
+    const rpc = await this.getRpc();
+    return rpc.reloadAdvisor({ sessionId: input.sessionId });
+  }
   async reloadSkills(input: SessionIdRpcInput): Promise<void> {
     const rpc = await this.getRpc();
     await rpc.reloadSkills({ sessionId: input.sessionId });

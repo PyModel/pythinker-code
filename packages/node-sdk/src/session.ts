@@ -11,6 +11,7 @@ import {
 import { type ApprovalHandler, type Event, type QuestionHandler } from '#/events';
 import type { SDKRpcClientBase } from '#/rpc';
 import type {
+  AdvisorStatusSnapshot,
   BackgroundTaskInfo,
   CompactOptions,
   CreateGoalInput,
@@ -42,8 +43,13 @@ import type {
   WorkingTreeChanges,
   WorkingTreeFileDiff,
 } from '#/types';
-
 const MAIN_AGENT_ID = 'main';
+
+export interface SessionAdvisor {
+  status(): Promise<readonly AdvisorStatusSnapshot[]>;
+  setEnabled(enabled: boolean, advisorId?: string): Promise<readonly AdvisorStatusSnapshot[]>;
+  reload(): Promise<readonly AdvisorStatusSnapshot[]>;
+}
 
 export interface SessionOptions {
   readonly id: string;
@@ -63,6 +69,7 @@ export class Session {
   private readonly rpc: SDKRpcClientBase;
   private readonly onClose?: (() => void | Promise<void>) | undefined;
   private closed = false;
+  readonly advisor: SessionAdvisor;
 
   constructor(options: SessionOptions) {
     this.id = options.id;
@@ -71,6 +78,11 @@ export class Session {
     this.resumeState = options.resumeState ?? resumeStateFromSummary(options.summary);
     this.rpc = options.rpc;
     this.onClose = options.onClose;
+    this.advisor = {
+      status: () => this.getAdvisorStatus(),
+      setEnabled: (enabled, advisorId) => this.setAdvisorEnabled(enabled, advisorId),
+      reload: () => this.reloadAdvisor(),
+    };
   }
 
   getResumeState(): ResumedSessionState | undefined {
@@ -89,6 +101,27 @@ export class Session {
   async getSessionMetadata(): Promise<SessionMeta> {
     this.ensureOpen();
     return this.rpc.getSessionMetadata({ sessionId: this.id });
+  }
+  async getAdvisorStatus(): Promise<readonly AdvisorStatusSnapshot[]> {
+    this.ensureOpen();
+    return this.rpc.getAdvisorStatus({ sessionId: this.id });
+  }
+
+  async setAdvisorEnabled(
+    enabled: boolean,
+    advisorId?: string,
+  ): Promise<readonly AdvisorStatusSnapshot[]> {
+    this.ensureOpen();
+    return this.rpc.setAdvisorEnabled({
+      sessionId: this.id,
+      enabled,
+      advisorId,
+    });
+  }
+
+  async reloadAdvisor(): Promise<readonly AdvisorStatusSnapshot[]> {
+    this.ensureOpen();
+    return this.rpc.reloadAdvisor({ sessionId: this.id });
   }
 
   async updateSessionMetadata(metadata: SessionMetadataPatch): Promise<void> {

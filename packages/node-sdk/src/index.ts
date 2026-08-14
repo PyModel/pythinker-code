@@ -1,6 +1,6 @@
 export { PythinkerHarness } from '#/pythinker-harness';
 export type { PythinkerHarnessRuntimeOptions } from '#/pythinker-harness';
-export { Session } from '#/session';
+export { Session, type SessionAdvisor } from '#/session';
 export { createPythinkerHarness, SDKRpcClient, type SDKRpcClientOptions } from '#/sdk-rpc-client';
 export { runPythinkerMcpServer, type PythinkerMcpServerOptions } from '#/mcp-server';
 export {
@@ -14,6 +14,7 @@ export {
 } from '#/config-rpc';
 export {
   SDKRpcClientBase,
+  type SetSessionAdvisorEnabledRpcInput,
   type SetSessionDynamicWorkflowModeRpcInput,
   type SetSessionFastModeRpcInput,
 } from '#/rpc';
