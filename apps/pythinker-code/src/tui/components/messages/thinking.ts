@@ -5,7 +5,7 @@
  * Supports expand/collapse via Ctrl+O (shared with tool output).
  */
 
-import { Markdown, truncateToWidth, type Component, type TUI } from '@earendil-works/pi-tui';
+import { Markdown, type Component, type TUI } from '@earendil-works/pi-tui';
 
 import {
   formatThinkingSpinnerLabel,
@@ -85,14 +85,11 @@ export class ThinkingComponent implements Component {
   }
 
   render(width: number): string[] {
-    const contentWidth = Math.max(1, width - MESSAGE_INDENT.length);
-    const contentLines = this.text.length > 0 ? this.textComponent.render(contentWidth) : [''];
-
+    // Collapsed thinking renders no body text: while live only the spinner
+    // header shows (it sits directly above the prompt as the newest entry),
+    // and a finalized block disappears from the transcript entirely.
+    // Ctrl+O (expand) opts back into the full text.
     if (this.mode === 'live') {
-      const visibleLines =
-        contentLines.length > THINKING_PREVIEW_LINES
-          ? contentLines.slice(contentLines.length - THINKING_PREVIEW_LINES)
-          : contentLines;
       const spinner = currentTheme.fg(
         'primary',
         `${BRAILLE_SPINNER_FRAMES[this.spinnerFrame] ?? BRAILLE_SPINNER_FRAMES[0]} `,
@@ -102,29 +99,29 @@ export class ThinkingComponent implements Component {
         shimmerToken: 'primaryShimmer',
         bandHalfWidth: 4,
       });
+      if (!this.expanded) return ['', spinner + label];
+      const contentLines = this.renderContent(width);
+      const visibleLines =
+        contentLines.length > THINKING_PREVIEW_LINES
+          ? contentLines.slice(contentLines.length - THINKING_PREVIEW_LINES)
+          : contentLines;
       return ['', spinner + label, ...visibleLines.map((line) => MESSAGE_INDENT + line)];
     }
 
+    if (!this.expanded) return [];
+
+    const contentLines = this.renderContent(width);
     const rendered: string[] = [''];
     for (let i = 0; i < contentLines.length; i++) {
       const p = i === 0 && this.showMarker ? currentTheme.fg('textDim', STATUS_BULLET) : MESSAGE_INDENT;
       rendered.push(p + contentLines[i]);
     }
+    return rendered;
+  }
 
-    if (this.expanded || contentLines.length <= THINKING_PREVIEW_LINES) {
-      return rendered;
-    }
-
-    // Leading blank + first PREVIEW_LINES content lines + hint line.
-    const truncated = rendered.slice(0, 1 + THINKING_PREVIEW_LINES);
-    const remaining = contentLines.length - THINKING_PREVIEW_LINES;
-    const hint = `... (${String(remaining)} more lines, ctrl+o to expand)`;
-    const indentWidth = Math.min(MESSAGE_INDENT.length, Math.max(0, width));
-    const hintWidth = Math.max(0, width - indentWidth);
-    truncated.push(
-      ' '.repeat(indentWidth) + currentTheme.dim(truncateToWidth(hint, hintWidth, '…')),
-    );
-    return truncated;
+  private renderContent(width: number): string[] {
+    const contentWidth = Math.max(1, width - MESSAGE_INDENT.length);
+    return this.text.length > 0 ? this.textComponent.render(contentWidth) : [''];
   }
 
   private startSpinner(): void {
