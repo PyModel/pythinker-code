@@ -494,7 +494,7 @@ onUnmounted(() => {
 
   <footer class="site-footer">
     <div class="container footer-inner">
-      <div><div class="footer-brand"><PythinkerMascot :width="16" :height="20" /><p class="wordmark">Pythinker Code</p><span class="footer-version">v{{ version }}</span></div><p class="footer-caption">Built by Pythoughts. MIT License.</p></div>
+      <div><div class="footer-brand"><PythinkerMascot :width="16" :height="20" /><p class="wordmark">Pythinker Code</p><span class="footer-version">v{{ version }}</span></div><p class="footer-caption">Built by Pymodel. MIT License.</p></div>
       <div class="footer-links">
         <a href="https://github.com/PyModel/pythinker-code" target="_blank" rel="noopener">GitHub</a>
         <a href="https://www.npmjs.com/package/@pymodel/pythinker-code" target="_blank" rel="noopener">npm</a>

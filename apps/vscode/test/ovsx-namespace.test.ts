@@ -27,6 +27,9 @@ describe('ensureNamespace', () => {
     });
 
     expect(() => ensureNamespace('pymodel', run)).not.toThrow();
+    expect(run).toHaveBeenCalledTimes(1);
+    const [, , args] = run.mock.calls[0] as unknown as [string, string, string[]];
+    expect(args).toEqual(['create-namespace', 'pymodel']);
   });
 
   it('propagates a real failure instead of publishing into a broken namespace', () => {
