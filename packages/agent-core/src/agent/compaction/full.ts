@@ -342,7 +342,7 @@ export class FullCompaction {
           startIndex + compactedCount,
         );
         const messages = [
-          ...this.agent.context.project(messagesToCompact),
+          ...this.agent.context.project(messagesToCompact, startIndex),
           createUserMessage(renderPrompt(compactionInstructionTemplate, { customInstruction: data.instruction ?? '' })),
         ];
         try {
