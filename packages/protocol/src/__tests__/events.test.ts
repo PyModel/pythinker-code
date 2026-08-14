@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
 
 import {
+  advisorStatusEventSchema,
   agentStatusUpdatedEventSchema,
   agentEventSchema,
   assistantDeltaEventSchema,
@@ -98,6 +99,25 @@ describe('events / display re-exports', () => {
         display: { kind: 'command', command: 'Get-Location', language: 'powershell' },
       }).success,
     ).toBe(true);
+  });
+  it('validates advisor status events through the event union', () => {
+    const status = {
+      type: 'advisor.status',
+      advisorId: 'security',
+      name: 'Security',
+      status: 'running',
+      enabled: true,
+      model: 'reviewer',
+      message: 'Reviewing the latest turn.',
+    } as const;
+
+    expect(advisorStatusEventSchema.parse(status)).toEqual(status);
+    expect(
+      agentEventSchema.parse({ ...status, agentId: 'main', sessionId: 'session' }),
+    ).toMatchObject(status);
+    expect(
+      advisorStatusEventSchema.safeParse({ ...status, status: 'unknown' }).success,
+    ).toBe(false);
   });
 
   it('uses dynamic workflow fields and rejects the removed swarm fields', () => {
