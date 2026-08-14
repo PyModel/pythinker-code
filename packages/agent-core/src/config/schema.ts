@@ -61,6 +61,7 @@ export const AdvisorConfigSchema = z.object({
   enabled: z.boolean().optional(),
   model: z.string().optional(),
   instructions: z.string().optional(),
+  tools: z.array(z.string()).optional(),
 });
 
 export type AdvisorConfig = z.infer<typeof AdvisorConfigSchema>;
