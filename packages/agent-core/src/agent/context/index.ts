@@ -41,6 +41,7 @@ const TOOL_INTERRUPTED_ON_RESUME_OUTPUT =
 // later messages in deferredMessages until those ids are resolved.
 export class ContextMemory {
   private _history: ContextMessage[] = [];
+  private _historyRevision = 0;
   private _tokenCount = 0;
   private tokenCountCoveredMessageCount = 0;
   private openSteps: Map<string, ContextMessage> = new Map();
@@ -87,11 +88,13 @@ export class ContextMemory {
     } else {
       this._history.pop();
     }
+    this._historyRevision += 1;
     return true;
   }
 
   clear(): void {
     this.agent.records.logRecord({ type: 'context.clear' });
+    this._historyRevision += 1;
     this._history = [];
     this._tokenCount = 0;
     this.tokenCountCoveredMessageCount = 0;
@@ -138,6 +141,7 @@ export class ContextMemory {
     }
 
     this.agent.replayBuilder.removeLastMessages(removedMessages);
+    this._historyRevision += 1;
 
     this.openSteps.clear();
     this.pendingToolResultIds.clear();
@@ -202,6 +206,7 @@ export class ContextMemory {
       },
       ...this._history.slice(endIndex),
     ];
+    this._historyRevision += 1;
     this.openSteps.clear();
     this.flushDeferredMessagesIfToolExchangeClosed();
     this._tokenCount = result.tokensAfter;
@@ -279,6 +284,10 @@ export class ContextMemory {
 
   get history(): readonly ContextMessage[] {
     return this._history;
+  }
+
+  get historyRevision(): number {
+    return this._historyRevision;
   }
 
   project(messages: readonly ContextMessage[]): Message[] {

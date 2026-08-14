@@ -578,6 +578,32 @@ describe('Agent context', () => {
     );
   });
 
+  it('tracks revisions for context rewrites without changing on append', () => {
+    const ctx = testAgent();
+    ctx.configure();
+
+    const initialRevision = ctx.agent.context.historyRevision;
+    ctx.agent.context.appendUserMessage([{ type: 'text', text: 'append' }]);
+    expect(ctx.agent.context.historyRevision).toBe(initialRevision);
+
+    ctx.agent.context.clear();
+    const afterClear = ctx.agent.context.historyRevision;
+    expect(afterClear).toBe(initialRevision + 1);
+
+    ctx.agent.context.appendUserMessage([{ type: 'text', text: 'undo' }]);
+    ctx.agent.context.undo(1);
+    const afterUndo = ctx.agent.context.historyRevision;
+    expect(afterUndo).toBe(afterClear + 1);
+
+    ctx.agent.context.appendUserMessage([{ type: 'text', text: 'compact' }]);
+    ctx.agent.context.applyCompaction({
+      summary: 'summary',
+      compactedCount: 1,
+      tokensBefore: 10,
+      tokensAfter: 1,
+    });
+    expect(ctx.agent.context.historyRevision).toBe(afterUndo + 1);
+  });
   it('undo only counts real user prompts, skipping background notifications', () => {
     const ctx = testAgent();
     ctx.configure();
