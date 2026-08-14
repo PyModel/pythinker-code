@@ -1,5 +1,11 @@
 # @pymodel/pythinker-code
 
+## 0.17.1
+
+### Patch Changes
+
+- [#72](https://github.com/PyModel/pythinker-code/pull/72) [`61ce08e`](https://github.com/PyModel/pythinker-code/commit/61ce08ea82654ffb03fa4a0c2854aa5ce290090c) - Publish the VS Code extension under the pymodel Marketplace publisher and Open VSX namespace.
+
 ## 0.17.0
 
 ### Minor Changes
