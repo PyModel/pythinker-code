@@ -1,5 +1,19 @@
 # @pymodel/pythinker-code
 
+## 0.17.0
+
+### Minor Changes
+
+- [#70](https://github.com/PyModel/pythinker-code/pull/70) [`8506ded`](https://github.com/PyModel/pythinker-code/commit/8506dedac95b4917e1fafaccf6d5d313338d8d13) - Publish the CLI under the @pymodel npm scope; install with `npm install -g @pymodel/pythinker-code`. The old @pythoughts scope is deprecated and no longer receives releases.
+
+### Patch Changes
+
+- [#71](https://github.com/PyModel/pythinker-code/pull/71) [`9d46551`](https://github.com/PyModel/pythinker-code/commit/9d465516d63694957b7e6ada1986858d8d3b19e0) - Keep the current thinking effort when switching models in the model picker instead of silently saving the new model's lowest level as the default, and repair a stale thinking mode in the config when saving an effort.
+
+- [#67](https://github.com/PyModel/pythinker-code/pull/67) [`5cb218f`](https://github.com/PyModel/pythinker-code/commit/5cb218f9c35f2943da6d23c2073b637c6077ced4) - Keep the thinking effort chosen with Ctrl-T/Shift-Tab as the default across restarts.
+
+- [#68](https://github.com/PyModel/pythinker-code/pull/68) [`b69205f`](https://github.com/PyModel/pythinker-code/commit/b69205f5b298d819ae576a2a25df6ae029c27303) - Show only the animated thinking indicator while the model thinks; the streamed thinking text no longer appears in the transcript unless expanded with Ctrl+O.
+
 ## 0.16.0
 
 ### Minor Changes
