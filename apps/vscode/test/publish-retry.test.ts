@@ -58,12 +58,12 @@ describe('summaryLine', () => {
    */
   it('keeps the registry error that follows the CLI wrapper line', () => {
     const error = new Error(
-      'Local ovsx exited with code 1:\nERROR  Unknown namespace: pythoughts\n',
+      'Local ovsx exited with code 1:\nERROR  Unknown namespace: pymodel\n',
     );
 
     const line = summaryLine(error);
 
-    expect(line).toContain('Unknown namespace: pythoughts');
+    expect(line).toContain('Unknown namespace: pymodel');
     expect(line).toContain('exited with code 1');
   });
 
@@ -85,7 +85,7 @@ describe('summaryLine', () => {
 describe('publishEachTarget', () => {
   it('reports the underlying cause for a failed target, not just the wrapper', async () => {
     const publishOne = vi.fn().mockRejectedValue(
-      new Error('Local ovsx exited with code 1:\nERROR  Unknown namespace: pythoughts'),
+      new Error('Local ovsx exited with code 1:\nERROR  Unknown namespace: pymodel'),
     );
     const logged: string[] = [];
     const log = vi.spyOn(console, 'log').mockImplementation((...args) => {
@@ -103,7 +103,7 @@ describe('publishEachTarget', () => {
     const failures = logged.filter((line) => line.includes('FAILED'));
     expect(failures).toHaveLength(3);
     for (const failure of failures) {
-      expect(failure).toContain('Unknown namespace: pythoughts');
+      expect(failure).toContain('Unknown namespace: pymodel');
     }
   });
 
