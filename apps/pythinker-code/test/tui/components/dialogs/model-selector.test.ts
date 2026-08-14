@@ -217,6 +217,24 @@ describe('ModelSelectorComponent', () => {
     expect(onSelect).toHaveBeenLastCalledWith({ alias: 'plain', effort: 'off' });
   });
 
+  it('keeps the live effort when switching to another model instead of resetting to its first level', () => {
+    const onSelect = vi.fn();
+    const picker = new ModelSelectorComponent({
+      models: {
+        current: model('Kimi K2', ['thinking'], ['low', 'high', 'max']),
+        other: model('Kimi K3', ['thinking'], ['low', 'high', 'max']),
+      },
+      currentValue: 'current',
+      currentEffort: 'max',
+      onSelect,
+      onCancel: vi.fn(),
+    });
+
+    picker.handleInput(DOWN);
+    picker.handleInput('\r');
+    expect(onSelect).toHaveBeenLastCalledWith({ alias: 'other', effort: 'max' });
+  });
+
   it('clamps the live effort when it is not in the current model’s set', () => {
     const onSelect = vi.fn();
     const picker = new ModelSelectorComponent({
@@ -259,16 +277,16 @@ describe('ModelSelectorComponent', () => {
       onCancel: vi.fn(),
     });
 
-    picker.handleInput(DOWN); // -> thinking model (defaults to first non-off level)
-    picker.handleInput(RIGHT); // low -> medium
+    picker.handleInput(DOWN); // -> thinking model (keeps the live off state)
+    picker.handleInput(RIGHT); // off -> low
     picker.handleInput(UP); // -> plain
-    picker.handleInput(DOWN); // -> thinking (the medium override persists)
+    picker.handleInput(DOWN); // -> thinking (the low override persists)
     picker.handleInput('\r');
 
-    expect(onSelect).toHaveBeenCalledWith({ alias: 'thinking', effort: 'medium' });
+    expect(onSelect).toHaveBeenCalledWith({ alias: 'thinking', effort: 'low' });
   });
 
-  it('defaults a capable model to its first level but keeps the current model state', () => {
+  it('keeps the live off state when moving to another capable model', () => {
     const onSelect = vi.fn();
     const picker = new ModelSelectorComponent({
       models: {
@@ -284,10 +302,10 @@ describe('ModelSelectorComponent', () => {
     // The active model reflects its live (off) state.
     expect(text(picker)).toContain('[ off ]');
     picker.handleInput(DOWN); // -> the other thinking-capable model
-    // A capable, non-active model defaults to its first non-off level.
-    expect(text(picker)).toContain('[ med ]');
+    // A capable, non-active model keeps the live effort instead of resetting.
+    expect(text(picker)).toContain('[ off ]');
     picker.handleInput('\r');
-    expect(onSelect).toHaveBeenCalledWith({ alias: 'other', effort: 'medium' });
+    expect(onSelect).toHaveBeenCalledWith({ alias: 'other', effort: 'off' });
   });
 
   it('fuzzy-filters by typing and reports a match count', () => {

@@ -215,16 +215,14 @@ export class ModelSelectorComponent extends Container implements Focusable {
 
   /**
    * Effort draft for a model: an explicit ←/→ override when set, otherwise the
-   * live effort level for the active model, otherwise the first non-off level
-   * (or 'off' when the model does not support thinking).
+   * live effort level coerced to what the model supports. Defaulting other
+   * models to their first level instead would silently persist that level as
+   * the new startup default on switch, clobbering the user's saved effort.
    */
   private draftFor(choice: ModelChoice): string {
     const override = this.effortOverrides.get(choice.alias);
     if (override !== undefined) return override;
-    if (choice.alias === this.currentValue) {
-      return coerceEffortForModel(choice.model, this.opts.currentEffort);
-    }
-    return effortLevelsForModel(choice.model).find((level) => level !== 'off') ?? 'off';
+    return coerceEffortForModel(choice.model, this.opts.currentEffort);
   }
 
   handleInput(data: string): boolean {

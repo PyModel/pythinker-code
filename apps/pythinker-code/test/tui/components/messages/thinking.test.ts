@@ -32,7 +32,7 @@ describe('getThinkingSpinnerLabel', () => {
 });
 
 describe('ThinkingComponent', () => {
-  it('shows the live spinner header before thinking content', () => {
+  it('shows only the live spinner header while collapsed', () => {
     const component = new ThinkingComponent('working it out', true, 'live');
     const out = strip(component.render(80).join('\n'));
     const label = formatThinkingSpinnerLabel();
@@ -40,7 +40,7 @@ describe('ThinkingComponent', () => {
     expect(out).toContain(`⠋ ${label}`);
     expect(out).not.toContain(`  ⠋ ${label}`);
     expect(out).not.toContain(`${STATUS_BULLET}⠋`);
-    expect(out).toContain('  working it out');
+    expect(out).not.toContain('working it out');
   });
 
   it('uses the primary activity color while thinking is live', () => {
@@ -57,8 +57,9 @@ describe('ThinkingComponent', () => {
     }
   });
 
-  it('keeps live thinking height-limited to the tail', () => {
+  it('keeps expanded live thinking height-limited to the tail', () => {
     const component = new ThinkingComponent(longThinking, true, 'live');
+    component.setExpanded(true);
     const out = strip(component.render(80).join('\n'));
 
     expect(out).not.toContain('line1');
@@ -116,17 +117,12 @@ describe('ThinkingComponent', () => {
     }
   });
 
-  it('finalizes in place into a collapsed preview', () => {
+  it('finalizes in place into nothing while collapsed', () => {
     const component = new ThinkingComponent(longThinking, true, 'live');
 
     component.finalize();
 
-    const out = strip(component.render(80).join('\n'));
-    expect(out).toContain('line1');
-    expect(out).toContain('line2');
-    expect(out).not.toContain('line3');
-    expect(out).not.toContain('line4');
-    expect(out).toContain('... (5 more lines, ctrl+o to expand)');
+    expect(component.render(80)).toEqual([]);
   });
 
   it('expands and collapses after finalization', () => {
@@ -135,18 +131,18 @@ describe('ThinkingComponent', () => {
 
     component.setExpanded(true);
     const expanded = strip(component.render(80).join('\n'));
+    expect(expanded).toContain('line1');
     expect(expanded).toContain('line7');
     expect(expanded).not.toContain('ctrl+o to expand');
 
     component.setExpanded(false);
-    const collapsed = strip(component.render(80).join('\n'));
-    expect(collapsed).not.toContain('line7');
-    expect(collapsed).toContain('ctrl+o to expand');
+    expect(component.render(80)).toEqual([]);
   });
 
-  it('keeps the finalized truncation footer within the requested render width', () => {
+  it('keeps expanded finalized lines within the requested render width', () => {
     const component = new ThinkingComponent(longThinking, true, 'live');
     component.finalize();
+    component.setExpanded(true);
 
     for (const line of component.render(37)) {
       expect(visibleWidth(line)).toBeLessThanOrEqual(37);

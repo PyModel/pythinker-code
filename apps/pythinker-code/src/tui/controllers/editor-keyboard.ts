@@ -2,6 +2,7 @@ import { Editor, parseKey } from '@earendil-works/pi-tui';
 import {
   coerceEffortForModel,
   effortLevelsForModel,
+  type PythinkerHarness,
   type Session,
 } from '@pymodel/pythinker-code-sdk';
 
@@ -28,6 +29,7 @@ import {
   type ParsedKeybinding,
 } from '#/tui/keybindings';
 import { isPrintableChar, printableChar } from '#/tui/utils/printable-key';
+import { persistDefaultModelSelection } from '#/tui/utils/persist-effort';
 
 function effectiveContextBindings(
   bindings: readonly ParsedKeybinding[],
@@ -45,6 +47,7 @@ function effectiveContextBindings(
 export interface EditorKeyboardHost {
   state: TUIState;
   session: Session | undefined;
+  readonly harness: PythinkerHarness;
   cancelInFlight: (() => void) | undefined;
 
   handleUserInput(text: string): void;
@@ -323,6 +326,13 @@ export class EditorKeyboardController {
     host.track('thinking_toggle', { enabled: next !== 'off', effort: next });
     // No transcript notice: the footer already shows the new level live, and
     // rapid cycling would stack a line per keypress in the chat history.
+    try {
+      await persistDefaultModelSelection(host.harness, alias, next);
+    } catch (error) {
+      host.showError(
+        `Thinking effort set to ${next}, but failed to save default: ${formatErrorMessage(error)}`,
+      );
+    }
   }
 
   private cancelCurrentCompaction(): void {

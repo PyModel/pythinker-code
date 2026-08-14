@@ -190,6 +190,6 @@ describe('TabbedModelSelectorComponent', () => {
     expect(allLines).toHaveLength(1);
 
     component.handleInput('\r');
-    expect(onSelect).toHaveBeenCalledWith({ alias: 'terra/terra-13b', effort: 'low' });
+    expect(onSelect).toHaveBeenCalledWith({ alias: 'terra/terra-13b', effort: 'medium' });
   });
 });
