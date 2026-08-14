@@ -70,7 +70,7 @@ async function assertUnpublished(version) {
   const response = await fetch('https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json;api-version=7.1-preview.1' },
-    body: JSON.stringify({ filters: [{ criteria: [{ filterType: 7, value: 'pythoughts.pythinker-code' }] }], flags: 914 }),
+    body: JSON.stringify({ filters: [{ criteria: [{ filterType: 7, value: 'pymodel.pythinker-code' }] }], flags: 914 }),
   });
   if (!response.ok) {
     console.warn(`Could not reach the Marketplace to check for ${version}; continuing.`);

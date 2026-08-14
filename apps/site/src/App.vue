@@ -57,7 +57,7 @@ const terminalDemos = [
   },
 ];
 
-const vscodeInstallCommand = 'code --install-extension pythoughts.pythinker-code';
+const vscodeInstallCommand = 'code --install-extension pymodel.pythinker-code';
 
 const copiedCommand = ref('');
 const mobileMenu = ref(null);
@@ -307,12 +307,12 @@ onUnmounted(() => {
             <li><strong>Thinking controls.</strong> Toggle reasoning or pick a model-supported thinking effort per task.</li>
           </ul>
           <div class="vscode-actions">
-            <a class="button button-primary" href="https://marketplace.visualstudio.com/items?itemName=pythoughts.pythinker-code" target="_blank" rel="noopener">
+            <a class="button button-primary" href="https://marketplace.visualstudio.com/items?itemName=pymodel.pythinker-code" target="_blank" rel="noopener">
               <img src="/brand/visualstudiocode.svg" alt="" width="16" height="16" />
               Get the extension
             </a>
             <div class="vscode-command">
-              <code>code --install-extension pythoughts.pythinker-code</code>
+              <code>code --install-extension pymodel.pythinker-code</code>
               <button class="row-copy" type="button" aria-label="Copy VS Code install command" @click="copyText(vscodeInstallCommand)">
                 <svg v-if="copiedCommand === vscodeInstallCommand" aria-hidden="true" viewBox="0 0 20 20"><path d="m4 10 4 4 8-9" /></svg>
                 <svg v-else aria-hidden="true" viewBox="0 0 20 20"><rect x="7" y="3" width="10" height="11" rx="2" /><rect x="3" y="7" width="10" height="10" rx="2" /></svg>

@@ -13,20 +13,20 @@ describe('ensureNamespace', () => {
   it('creates the namespace before any publish is attempted', () => {
     const run = vi.fn();
 
-    ensureNamespace('pythoughts', run);
+    ensureNamespace('pymodel', run);
 
     expect(run).toHaveBeenCalledTimes(1);
     const [pkg, bin, args] = run.mock.calls[0] as [string, string, string[]];
     expect([pkg, bin]).toEqual(['ovsx', 'ovsx']);
-    expect(args).toEqual(['create-namespace', 'pythoughts']);
+    expect(args).toEqual(['create-namespace', 'pymodel']);
   });
 
   it('treats an existing namespace as success, so a re-run is safe', () => {
     const run = vi.fn(() => {
-      throw new Error('Local ovsx exited with code 1:\nERROR  Namespace already exists: pythoughts');
+      throw new Error('Local ovsx exited with code 1:\nERROR  Namespace already exists: pymodel');
     });
 
-    expect(() => ensureNamespace('pythoughts', run)).not.toThrow();
+    expect(() => ensureNamespace('pymodel', run)).not.toThrow();
   });
 
   it('propagates a real failure instead of publishing into a broken namespace', () => {
@@ -34,6 +34,6 @@ describe('ensureNamespace', () => {
       throw new Error('Local ovsx exited with code 1:\nERROR  Response code 401 (Unauthorized)');
     });
 
-    expect(() => ensureNamespace('pythoughts', run)).toThrow(/401/u);
+    expect(() => ensureNamespace('pymodel', run)).toThrow(/401/u);
   });
 });
