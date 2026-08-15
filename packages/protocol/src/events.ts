@@ -641,6 +641,27 @@ export interface PromptSubmittedEvent {
   readonly createdAt: string;
 }
 
+export interface PromptCompletedEvent {
+  readonly type: 'prompt.completed';
+  readonly promptId: string;
+  readonly finishedAt: string;
+  readonly reason: 'completed' | 'failed';
+}
+
+export interface PromptAbortedEvent {
+  readonly type: 'prompt.aborted';
+  readonly promptId: string;
+  readonly abortedAt: string;
+}
+
+export interface PromptSteeredEvent {
+  readonly type: 'prompt.steered';
+  readonly activePromptId: string;
+  readonly promptIds: readonly string[];
+  readonly content: readonly MessageContent[];
+  readonly steeredAt: string;
+}
+
 export type ToolListUpdatedReason = 'mcp.connected' | 'mcp.disconnected' | 'mcp.failed';
 
 export interface ToolListUpdatedEvent {
@@ -705,7 +726,10 @@ export type AgentEvent =
   | BackgroundTaskStartedEvent
   | BackgroundTaskTerminatedEvent
   | CronFiredEvent
-  | PromptSubmittedEvent;
+  | PromptSubmittedEvent
+  | PromptCompletedEvent
+  | PromptAbortedEvent
+  | PromptSteeredEvent;
 
 export type Event = AgentEvent & { agentId: string; sessionId: string };
 
@@ -1326,6 +1350,27 @@ export const promptSubmittedEventSchema = z.object({
   createdAt: isoDateTimeSchema,
 }) satisfies z.ZodType<PromptSubmittedEvent>;
 
+export const promptCompletedEventSchema = z.object({
+  type: z.literal('prompt.completed'),
+  promptId: z.string(),
+  finishedAt: isoDateTimeSchema,
+  reason: z.enum(['completed', 'failed']),
+}) satisfies z.ZodType<PromptCompletedEvent>;
+
+export const promptAbortedEventSchema = z.object({
+  type: z.literal('prompt.aborted'),
+  promptId: z.string(),
+  abortedAt: isoDateTimeSchema,
+}) satisfies z.ZodType<PromptAbortedEvent>;
+
+export const promptSteeredEventSchema = z.object({
+  type: z.literal('prompt.steered'),
+  activePromptId: z.string(),
+  promptIds: z.array(z.string()),
+  content: z.array(messageContentSchema),
+  steeredAt: isoDateTimeSchema,
+}) satisfies z.ZodType<PromptSteeredEvent>;
+
 export const toolListUpdatedReasonSchema = z.enum([
   'mcp.connected',
   'mcp.disconnected',
@@ -1394,6 +1439,9 @@ export const agentEventSchema = z.discriminatedUnion('type', [
   backgroundTaskTerminatedEventSchema,
   cronFiredEventSchema,
   promptSubmittedEventSchema,
+  promptCompletedEventSchema,
+  promptAbortedEventSchema,
+  promptSteeredEventSchema,
 ]) satisfies z.ZodType<AgentEvent>;
 
 const eventEnvelopeSchema = z

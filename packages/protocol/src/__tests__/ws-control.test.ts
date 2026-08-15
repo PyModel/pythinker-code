@@ -711,4 +711,43 @@ describe('ws-control — operation registry', () => {
 
     expect(wsOperations.some((op) => op.type === 'session_event')).toBe(true);
   });
+
+  it.each(['completed', 'failed'] as const)('accepts a journaled prompt.completed event with reason=%s', (reason) => {
+    expect(
+      sessionEventMessageSchema.safeParse({
+        type: 'prompt.completed',
+        seq: 558,
+        epoch: 'epoch_01M021XEM56WHDQGYSEDG7KPHK',
+        session_id: 'session_edcd0000000000000000000000',
+        timestamp: TS,
+        payload: {
+          type: 'prompt.completed',
+          agentId: 'main',
+          sessionId: 'session_edcd0000000000000000000000',
+          promptId: 'prompt_01M021XEM56WHDQGYSEDG7KPHK',
+          finishedAt: TS,
+          reason,
+        },
+      }).success,
+    ).toBe(true);
+  });
+
+  it('accepts a journaled prompt.aborted event', () => {
+    expect(
+      sessionEventMessageSchema.safeParse({
+        type: 'prompt.aborted',
+        seq: 559,
+        epoch: 'epoch_01M021XEM56WHDQGYSEDG7KPHK',
+        session_id: 'session_edcd0000000000000000000000',
+        timestamp: TS,
+        payload: {
+          type: 'prompt.aborted',
+          agentId: 'main',
+          sessionId: 'session_edcd0000000000000000000000',
+          promptId: 'prompt_01M021XEM56WHDQGYSEDG7KPHK',
+          abortedAt: TS,
+        },
+      }).success,
+    ).toBe(true);
+  });
 });
