@@ -18,8 +18,24 @@ interface DesktopPackage {
       readonly icon: string
       readonly notarize: boolean
     }
+    readonly nsis: {
+      readonly allowElevation: boolean
+      readonly allowToChangeInstallationDirectory: boolean
+      readonly artifactName: string
+      readonly createDesktopShortcut: boolean
+      readonly createStartMenuShortcut: boolean
+      readonly oneClick: boolean
+      readonly perMachine: boolean
+      readonly shortcutName: string
+    }
     readonly productName: string
-    readonly win: { readonly icon: string }
+    readonly win: {
+      readonly icon: string
+      readonly target: readonly {
+        readonly target: string
+        readonly arch: readonly string[]
+      }[]
+    }
   }
 }
 
@@ -79,9 +95,27 @@ describe('desktop packaging configuration', () => {
     expect(desktopPackage.build.mac.notarize).toBe(true)
   })
 
+  it('configures the Windows x64 NSIS installer', () => {
+    expect(desktopPackage.build.win.target).toEqual([{ target: 'nsis', arch: ['x64'] }])
+    expect(desktopPackage.build.nsis).toEqual({
+      allowElevation: true,
+      allowToChangeInstallationDirectory: true,
+      artifactName: 'Pythinker-${version}-${arch}-Setup.${ext}',
+      createDesktopShortcut: true,
+      createStartMenuShortcut: true,
+      oneClick: false,
+      perMachine: false,
+      shortcutName: 'Pythinker',
+    })
+    expect(desktopPackage.build.nsis.artifactName).toBe('Pythinker-${version}-${arch}-Setup.${ext}')
+    expect(desktopPackage.build.productName).toBe('Pythinker')
+    expect(desktopPackage.scripts['dist:win']).toBe('node --import tsx scripts/release-win.ts')
+  })
+
   it('exposes desktop commands at the repository root', () => {
     expect(rootPackage.scripts['dev:desktop']).toBe('pnpm -C apps/desktop run dev')
     expect(rootPackage.scripts['package:desktop']).toBe('pnpm -C apps/desktop run package')
     expect(rootPackage.scripts['dist:mac:desktop']).toBe('pnpm -C apps/desktop run dist:mac')
+    expect(rootPackage.scripts['dist:win:desktop']).toBe('pnpm -C apps/desktop run dist:win')
   })
 })

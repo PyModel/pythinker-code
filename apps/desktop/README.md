@@ -64,11 +64,15 @@ hdiutil detach "$MOUNT_POINT"
 rmdir "$MOUNT_POINT"
 ```
 
+### Windows
+
+Run `pnpm run dist:win` on a native Windows x64 host; cross-building from macOS is not possible because the staged Host closure contains platform-gated native packages. The output is `dist/Pythinker-<version>-x64-Setup.exe`, a per-user NSIS installer with no elevation required and a selectable installation directory. Artifacts are unsigned unless `WIN_CSC_LINK` and `WIN_CSC_KEY_PASSWORD` are set.
+
 ## Known limitations
 
 The first desktop assembly uses a loopback HTTP Host. The renderer and Host protocol remain unchanged so the application can replace the transport with the IPC carrier reserved by the GUI architecture without changing product features.
 
-The signed installer path currently targets macOS. Windows and Linux packaging creates unpacked applications; their installer formats and distribution signing remain release work.
+The signed installer path currently targets macOS. Linux packaging creates an unpacked application; its installer format and distribution signing remain release work.
 
 ## Model Experience
 

@@ -13,6 +13,7 @@
     "dev:web": "pnpm -C apps/pythinker-web run dev",
     "package:desktop": "pnpm -C apps/desktop run package",
     "dist:mac:desktop": "pnpm -C apps/desktop run dist:mac",
+    "dist:win:desktop": "pnpm -C apps/desktop run dist:win",
     "dev:server": "pnpm -C apps/pythinker-code run dev:server",
     "build:plugin-marketplace": "pnpm -C apps/pythinker-code run build:plugin-marketplace",
     "dashboard": "pnpm -C apps/dashboard run dev",
