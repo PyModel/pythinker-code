@@ -842,7 +842,10 @@ defineExpose({ loadComposerForEdit });
             <!-- Empty session: Composer rendered in the centre of the pane -->
             <div class="empty-spacer" />
             <div class="empty-hint">
-              <span class="empty-hint-title">{{ t('composer.emptyConversationTitle') }}</span>
+              <div class="empty-hint-head">
+                <span class="empty-mascot" aria-hidden="true" />
+                <span class="empty-hint-title">{{ t('composer.emptyConversationTitle') }}</span>
+              </div>
               <span class="empty-hint-text">{{ t('composer.emptyConversation') }}</span>
               <!-- Workspace picker: choose where this new conversation starts. -->
               <div v-if="hasWorkspaces" class="ws-pick">
@@ -1287,6 +1290,28 @@ defineExpose({ loadComposerForEdit });
   padding: 0 16px 16px;
   color: var(--ink);
   font-family: var(--sans);
+}
+.empty-hint-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.empty-mascot {
+  width: 96px;
+  height: 104px;
+  background-image: url('/brand/mascot-idle-strip.png');
+  background-size: 576px 104px;
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+  animation: empty-mascot-idle 0.84s steps(6) infinite;
+  flex: none;
+}
+@keyframes empty-mascot-idle {
+  from { background-position-x: 0; }
+  to { background-position-x: -576px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .empty-mascot { animation: none; }
 }
 .empty-hint-title {
   font-size: calc(var(--ui-font-size) + 16px);

@@ -592,6 +592,14 @@ const showNewWorkspaceButton = false;
   width: 100%;
   box-sizing: border-box;
 }
+:global(html[data-desktop-platform='darwin']) .ch {
+  padding-top: 42px;
+  -webkit-app-region: drag;
+}
+:global(html[data-desktop-platform='darwin']) .ch button,
+:global(html[data-desktop-platform='darwin']) .ch .ch-brand {
+  -webkit-app-region: no-drag;
+}
 .ch-brand {
   display: flex;
   align-items: center;
