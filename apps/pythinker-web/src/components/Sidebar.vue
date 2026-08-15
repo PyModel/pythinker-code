@@ -108,6 +108,118 @@ function visibleSessions(sessions: Session[], expanded: boolean, activeId?: stri
 }
 
 // ---------------------------------------------------------------------------
+// Workspace search and display filters
+// ---------------------------------------------------------------------------
+const searchOpen = ref(false);
+const searchQuery = ref('');
+const searchInputRef = ref<HTMLInputElement | null>(null);
+
+function searchTerm(): string {
+  return searchQuery.value.trim().toLowerCase();
+}
+
+function filteredSessions(sessions: Session[], expanded: boolean, activeId?: string): Session[] {
+  const query = searchTerm();
+  return query
+    ? sessions.filter((session) => session.title.toLowerCase().includes(query))
+    : visibleSessions(sessions, expanded, activeId);
+}
+
+function groupMatchesSearch(group: WorkspaceGroup): boolean {
+  const query = searchTerm();
+  return !query
+    || group.workspace.name.toLowerCase().includes(query)
+    || group.sessions.some((session) => session.title.toLowerCase().includes(query));
+}
+
+async function toggleSearch(): Promise<void> {
+  if (searchOpen.value) {
+    searchOpen.value = false;
+    searchQuery.value = '';
+    return;
+  }
+  searchOpen.value = true;
+  await nextTick();
+  try {
+    searchInputRef.value?.focus();
+    searchInputRef.value?.select();
+  } catch {
+    // jsdom may not implement focus/select
+  }
+}
+
+async function openSearch(): Promise<void> {
+  if (!searchOpen.value) await toggleSearch();
+}
+
+defineExpose({ openSearch });
+
+function closeEmptySearch(): void {
+  if (!searchQuery.value.trim()) searchOpen.value = false;
+}
+
+function clearSearch(): void {
+  searchQuery.value = '';
+  searchOpen.value = false;
+}
+
+const filterMenuOpen = ref(false);
+const filterMenuStyle = ref<Record<string, string>>({});
+const filterMenuRef = ref<HTMLElement | null>(null);
+
+function onFilterMenuDocClick(e: MouseEvent): void {
+  const target = e.target as Element;
+  if (target.closest('.ws-filter-btn') || target.closest('.ws-filter-menu')) return;
+  closeFilterMenu();
+}
+
+async function toggleFilterMenu(e: MouseEvent): Promise<void> {
+  if (filterMenuOpen.value) {
+    closeFilterMenu();
+    return;
+  }
+  const btn = e.currentTarget as HTMLElement;
+  filterMenuOpen.value = true;
+  document.addEventListener('mousedown', onFilterMenuDocClick);
+  document.addEventListener('scroll', closeFilterMenu, true);
+  window.addEventListener('resize', closeFilterMenu);
+  await nextTick();
+  const menu = filterMenuRef.value;
+  const r = btn.getBoundingClientRect();
+  const gap = 4;
+  const margin = 8;
+  const menuH = menu?.offsetHeight ?? 0;
+  const menuW = menu?.offsetWidth ?? 0;
+  let top = r.bottom + gap;
+  if (top + menuH > window.innerHeight - margin) {
+    top = Math.max(margin, r.top - menuH - gap);
+  }
+  let left = r.right - menuW;
+  if (left < margin) left = margin;
+  filterMenuStyle.value = {
+    top: `${Math.round(top)}px`,
+    left: `${Math.round(left)}px`,
+  };
+}
+
+function closeFilterMenu(): void {
+  filterMenuOpen.value = false;
+  document.removeEventListener('mousedown', onFilterMenuDocClick);
+  document.removeEventListener('scroll', closeFilterMenu, true);
+  window.removeEventListener('resize', closeFilterMenu);
+}
+
+function collapseAll(workspaceGroups: WorkspaceGroup[]): void {
+  collapsedIds.value = new Set(workspaceGroups.map((group) => group.workspace.id));
+  closeFilterMenu();
+}
+
+function expandAll(): void {
+  collapsedIds.value = new Set();
+  closeFilterMenu();
+}
+
+// ---------------------------------------------------------------------------
 // Shift-multi-select workspaces
 // ---------------------------------------------------------------------------
 const selectedIds = ref<Set<string>>(new Set());
@@ -328,18 +440,16 @@ onBeforeUnmount(() => {
   document.removeEventListener('mousedown', onWsMenuDocClick);
   document.removeEventListener('scroll', closeWsMenu, true);
   window.removeEventListener('resize', closeWsMenu);
+  closeFilterMenu();
   clearTimeout(deleteArmTimer);
 });
-
-// Temporarily hide the new-workspace button while we evaluate the entry point.
-const showNewWorkspaceButton = false;
 </script>
 
 <template>
   <aside class="side">
     <!-- Session column -->
     <div class="col" :style="{ width: colWidth + 'px' }">
-      <!-- Header: logo + settings (no hard border — flows into workspace list) -->
+      <!-- Header: logo + collapse (no hard border — flows into workspace list) -->
       <div class="ch">
         <div class="ch-brand">
           <PythinkerLogo size="sm" interactive />
@@ -353,47 +463,79 @@ const showNewWorkspaceButton = false;
           @click.stop="emit('collapse')"
         >
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M11 6h9" />
-            <path d="M11 12h9" />
-            <path d="M11 18h9" />
-            <path d="M7 9l-3 3 3 3" />
-          </svg>
-        </button>
-        <button
-          type="button"
-          class="settings-btn"
-          :title="t('settings.title')"
-          :aria-label="t('settings.title')"
-          @click.stop="emit('openSettings')"
-        >
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <circle cx="12" cy="12" r="3" />
-            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l-.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09A1.65 1.65 0 0 0 15 4.6a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09A1.65 1.65 0 0 0 19.4 15z" />
+            <rect x="3" y="4" width="18" height="16" rx="3" />
+            <path d="M9.5 4v16" />
           </svg>
         </button>
       </div>
 
-      <!-- New chat + new workspace buttons -->
+      <!-- New session -->
       <div class="btn-wrap">
-        <button class="btn-new-chat" @click.stop="emit('create')">
-          <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M4 2.5h8a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H8.5l-2.5 2V11.5H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2z" />
+        <button type="button" class="btn-new-chat" @click.stop="emit('create')">
+          <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+            <circle cx="8" cy="8" r="6.5" />
+            <path d="M8 5v6M5 8h6" />
           </svg>
-          <span>{{ t('sidebar.newChat') }}</span>
+          <span>{{ t('sidebar.newSession') }}</span>
         </button>
-        <button
-          v-if="showNewWorkspaceButton"
-          type="button"
-          class="btn-new-ws"
-          :title="t('sidebar.newWorkspace')"
-          :aria-label="t('sidebar.newWorkspace')"
-          @click.stop="emit('addWorkspace')"
-        >
-          <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
-            <path d="M1 3.5V2.5A1 1 0 0 1 2 1.5h3.5l1.3 2h5.2a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1z"/>
-            <path d="M1 5.5h12"/>
-          </svg>
-        </button>
+      </div>
+
+      <!-- Workspace section actions -->
+      <div class="ws-head">
+        <input
+          v-if="searchOpen"
+          ref="searchInputRef"
+          v-model="searchQuery"
+          class="ws-search-input"
+          type="search"
+          :placeholder="t('sidebar.searchSessions')"
+          :aria-label="t('sidebar.searchSessions')"
+          @keydown.esc.stop.prevent="clearSearch"
+          @blur="closeEmptySearch"
+        />
+        <span v-else class="ws-head-label">{{ t('sidebar.workspaces') }}</span>
+        <div class="ws-head-actions">
+          <button
+            type="button"
+            class="ws-search-btn"
+            :title="t('sidebar.searchSessions')"
+            :aria-label="t('sidebar.searchSessions')"
+            @click.stop="toggleSearch"
+          >
+            <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+              <circle cx="7" cy="7" r="4.5" />
+              <path d="m10.5 10.5 3 3" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            class="ws-filter-btn"
+            :title="t('sidebar.filterWorkspaces')"
+            :aria-label="t('sidebar.filterWorkspaces')"
+            :aria-expanded="filterMenuOpen"
+            aria-haspopup="menu"
+            @click.stop="toggleFilterMenu($event)"
+          >
+            <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true">
+              <path d="M2 4h12M2 8h12M2 12h12" />
+              <circle cx="6" cy="4" r="1.25" fill="currentColor" stroke="none" />
+              <circle cx="10" cy="8" r="1.25" fill="currentColor" stroke="none" />
+              <circle cx="5" cy="12" r="1.25" fill="currentColor" stroke="none" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            class="ws-add-btn"
+            :title="t('sidebar.newWorkspace')"
+            :aria-label="t('sidebar.newWorkspace')"
+            @click.stop="emit('addWorkspace')"
+          >
+            <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M1 4V2.5A1 1 0 0 1 2 1.5h3.5l1.3 2H13a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1z" />
+              <path d="M1 5.5h13M10.5 8v3M9 9.5h3" />
+            </svg>
+          </button>
+        </div>
       </div>
 
       <!-- Session list — grouped by workspace -->
@@ -405,7 +547,7 @@ const showNewWorkspaceButton = false;
         </div>
 
         <template v-else>
-          <div v-for="g in groups" :key="g.workspace.id" class="group">
+          <div v-for="g in groups" :key="g.workspace.id" v-show="groupMatchesSearch(g)" class="group">
             <div
               class="gh"
               :class="{ on: g.workspace.id === activeWorkspaceId, sel: selectedIds.has(g.workspace.id) }"
@@ -438,6 +580,7 @@ const showNewWorkspaceButton = false;
                 <span
                   v-if="renamingId !== g.workspace.id"
                   class="gh-name"
+                  :title="g.workspace.root"
                 >{{ g.workspace.name }}</span>
                 <input
                   v-else
@@ -481,11 +624,10 @@ const showNewWorkspaceButton = false;
                 </button>
               </div>
 
-              <div class="gh-path" :title="g.workspace.root">{{ g.workspace.shortPath || g.workspace.root }}</div>
             </div>
             <div v-show="!isCollapsed(g.workspace.id)" class="group-sessions">
               <SessionRow
-                v-for="s in visibleSessions(g.sessions, isExpanded(g.workspace.id), activeId)"
+                v-for="s in filteredSessions(g.sessions, isExpanded(g.workspace.id), activeId)"
                 :key="s.id"
                 :session="s"
                 :active="s.id === activeId"
@@ -498,17 +640,43 @@ const showNewWorkspaceButton = false;
                 @fork="emit('fork', $event)"
               />
               <button
-                v-if="!isExpanded(g.workspace.id) && visibleSessions(g.sessions, false, activeId).length < g.sessions.length"
+                v-if="!searchTerm() && !isExpanded(g.workspace.id) && filteredSessions(g.sessions, false, activeId).length < g.sessions.length"
                 class="show-more"
                 @click.stop="toggleExpand(g.workspace.id)"
               >
-                {{ t('sidebar.showMore', { count: g.sessions.length - visibleSessions(g.sessions, false, activeId).length }) }}
+                {{ t('sidebar.showMore', { count: g.sessions.length - filteredSessions(g.sessions, false, activeId).length }) }}
               </button>
               <div v-if="g.sessions.length === 0" class="group-empty">{{ t('sidebar.noSessions') }}</div>
             </div>
           </div>
         </template>
       </div>
+
+      <div class="side-foot">
+        <button type="button" class="settings-row" @click.stop="emit('openSettings')">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l-.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09A1.65 1.65 0 0 0 15 4.6a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09A1.65 1.65 0 0 0 19.4 15z" />
+          </svg>
+          <span>{{ t('settings.title') }}</span>
+        </button>
+      </div>
+    </div>
+
+    <div
+      v-if="filterMenuOpen"
+      ref="filterMenuRef"
+      class="ws-menu ws-filter-menu"
+      :style="filterMenuStyle"
+      role="menu"
+      @click.stop
+    >
+      <button type="button" class="ws-menu-item" role="menuitem" @click.stop="collapseAll(groups)">
+        {{ t('sidebar.collapseAll') }}
+      </button>
+      <button type="button" class="ws-menu-item" role="menuitem" @click.stop="expandAll">
+        {{ t('sidebar.expandAll') }}
+      </button>
     </div>
 
     <!-- Workspace right-click menu (position:fixed) -->
@@ -563,8 +731,8 @@ const showNewWorkspaceButton = false;
   min-width: 0;
   height: 100%;
   /* Alignment contract, inherited by SessionRow and the theme overrides in
-     style.css: text in the workspace header, the path line and session rows
-     all starts at --sb-pad-x + --sb-gutter + --sb-gap from the sidebar edge. */
+     style.css: text in the workspace header and session rows all starts at
+     --sb-pad-x + --sb-gutter + --sb-gap from the sidebar edge. */
   --sb-pad-x: 16px;  /* row horizontal padding */
   --sb-gutter: 20px; /* leading icon slot (14px folder icon + 6px margin) */
   --sb-gap: 6px;     /* gap between the icon slot and the text */
@@ -582,7 +750,7 @@ const showNewWorkspaceButton = false;
   container-name: sidebar-col;
 }
 
-/* Header: logo + settings (no border — flows into the workspace list). */
+/* Header: logo + collapse (no border — flows into the workspace list). */
 .ch {
   display: flex;
   align-items: center;
@@ -623,7 +791,6 @@ const showNewWorkspaceButton = false;
 @container sidebar-col (max-width: 250px) {
   .ch-name { display: none; }
 }
-.settings-btn,
 .collapse-btn {
   flex: none;
   width: 28px;
@@ -638,16 +805,14 @@ const showNewWorkspaceButton = false;
   cursor: pointer;
   padding: 0;
 }
-.settings-btn:hover,
 .collapse-btn:hover { background: var(--soft); color: var(--ink); }
-.settings-btn:focus-visible,
 .collapse-btn:focus-visible {
   outline: 2px solid var(--blue);
   outline-offset: -2px;
 }
 
 /* Action buttons */
- .btn-wrap {
+.btn-wrap {
   display: flex;
   gap: 8px;
   padding: 10px 12px;
@@ -677,30 +842,70 @@ const showNewWorkspaceButton = false;
 }
 .btn-new-chat {
   flex: 1;
+  justify-content: center;
   gap: 10px;
-  color: var(--dim);
-  background: transparent;
+  color: var(--ink);
+  background: var(--soft);
   border: 1px solid var(--line);
+  border-radius: 10px;
 }
 .btn-new-chat:hover {
-  background: var(--panel);
-  border-color: var(--bd);
-  color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 6%, var(--soft));
 }
-.btn-new-ws {
-  flex: none;
-  justify-content: center;
-  aspect-ratio: 1;
-  padding: 9px 10px;
+
+/* Workspace section header */
+.ws-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px var(--sb-pad-x) 2px;
+  min-width: 0;
+}
+.ws-head-label {
   color: var(--muted);
-  background: transparent;
+  font-size: var(--ui-font-size);
+  min-width: 0;
+}
+.ws-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+.ws-head-actions button {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.ws-head-actions button:hover { background: var(--soft); color: var(--ink); }
+.ws-head-actions button:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: -2px;
+}
+.ws-search-input {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  box-sizing: border-box;
+  padding: 2px 6px;
   border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--soft);
+  color: var(--ink);
+  font: inherit;
+  outline: none;
 }
-.btn-new-ws:hover {
-  background: var(--panel);
-  border-color: var(--bd);
-  color: var(--dim);
-}
+.ws-search-input:focus { border-color: var(--blue); }
+
 /* Sessions */
 .sessions {
   flex: 1;
@@ -749,7 +954,7 @@ const showNewWorkspaceButton = false;
 
 .gh-folder {
   flex: none;
-  color: var(--muted);
+  color: var(--blue);
   /* 14px icon + 2px margin fills the --sb-gutter icon slot */
   margin-right: calc(var(--sb-gutter) - 14px);
 }
@@ -764,14 +969,6 @@ const showNewWorkspaceButton = false;
   text-overflow: ellipsis;
   white-space: nowrap;
   cursor: pointer;
-}
-.gh-path {
-  color: var(--faint);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  padding-left: calc(var(--sb-gutter) + var(--sb-gap));
-  font-size: var(--ui-font-size-xs);
 }
 .gh-add {
   background: transparent;
@@ -839,6 +1036,7 @@ const showNewWorkspaceButton = false;
   overflow: hidden;
   min-width: 88px;
 }
+.ws-filter-menu { min-width: 132px; }
 .ws-menu-item {
   display: block;
   width: 100%;
@@ -936,6 +1134,30 @@ const showNewWorkspaceButton = false;
 }
 .ghm-item:hover {
   background: var(--soft);
+}
+
+/* Pinned settings action */
+.side-foot {
+  flex: none;
+  border-top: none;
+}
+.settings-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: 8px;
+  padding: 10px var(--sb-pad-x);
+  border: none;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.settings-row:hover { color: var(--ink); background: var(--soft); }
+.settings-row:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: -2px;
 }
 
 </style>
