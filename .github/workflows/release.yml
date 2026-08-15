@@ -264,11 +264,14 @@ jobs:
           # nothing — an earlier version of this job was deleted because a
           # curl exit-28 timeout failed the 0.5.0 release. verify-cdn-release
           # polls the manifest and is the gate that fails loudly.
+          # On 0.18.0, one connect consumed the full 60-second budget. A short
+          # connect timeout turns the same wall-clock budget into more attempts
+          # during an outage instead of waiting on connections never made.
           status=$(curl -sS -o /dev/stderr -w '%{http_code}' -X POST "$WEBHOOK" \
             -H 'Content-Type: application/json' \
             -H 'X-GitHub-Event: push' \
             -d '{"ref":"refs/heads/main"}' \
-            --retry 3 --retry-all-errors --retry-delay 10 --max-time 60) || status=000
+            --connect-timeout 15 --max-time 45 --retry 5 --retry-all-errors --retry-delay 15) || status=000
           case "$status" in
             2*) echo "CDN redeploy triggered (HTTP $status)." ;;
             *) echo "::warning::CDN redeploy webhook returned HTTP $status — verify-cdn-release will catch a stale CDN." ;;
@@ -282,7 +285,7 @@ jobs:
   # publish hid the one case where the version and the published artifacts
   # diverge — and every client polled the CDN for a release that never existed.
   verify-cdn-release:
-    timeout-minutes: 15
+    timeout-minutes: 20
     name: Verify release consistency
     needs:
       - release
@@ -303,6 +306,8 @@ jobs:
           node-version-file: .nvmrc
 
       - name: Verify release consistency
+        env:
+          DOKPLOY_CDN_DEPLOY_WEBHOOK: ${{ secrets.DOKPLOY_CDN_DEPLOY_WEBHOOK }}
         run: node scripts/release/verify-release-consistency.mjs
 
   update-brew-tap:

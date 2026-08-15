@@ -67,12 +67,16 @@ async function readCdnVersion(fetchImpl, url) {
  * half-written, and both that and plain lag resolve by waiting, so only the
  * budget decides. 'ahead' returns at once — more waiting cannot fix a manifest
  * that names a release npm does not have.
+ *
+ * A periodic re-trigger heals a lost deploy request. This poll is the only
+ * pipeline stage that both knows the CDN is still behind and is still running.
  */
 export async function pollCdnUntilCaughtUp(options) {
-  const { fetchImpl, sleep, now, url, npmLatest, budgetMs, intervalMs } = options;
+  const { fetchImpl, sleep, now, url, npmLatest, budgetMs, intervalMs, retrigger, retriggerEveryAttempts } = options;
   const deadline = now() + budgetMs;
   let cdnVersion = null;
   let attempts = 0;
+  let retriggers = 0;
 
   for (;;) {
     attempts += 1;
@@ -87,12 +91,25 @@ export async function pollCdnUntilCaughtUp(options) {
       // Deliberately swallowed: an unreachable CDN is lag, not a gate failure.
     }
 
-    if (classification === 'match') return { ok: true, reason: 'match', cdnVersion, attempts };
-    if (classification === 'ahead') return { ok: false, reason: 'ahead', cdnVersion, attempts };
+    if (classification === 'match') return { ok: true, reason: 'match', cdnVersion, attempts, retriggers };
+    if (classification === 'ahead') return { ok: false, reason: 'ahead', cdnVersion, attempts, retriggers };
 
     // Stop before a sleep that would run past the budget rather than after it.
     if (now() + intervalMs >= deadline) {
-      return { ok: false, reason: 'timeout', cdnVersion, attempts };
+      return { ok: false, reason: 'timeout', cdnVersion, attempts, retriggers };
+    }
+    if (
+      typeof retrigger === 'function' &&
+      Number.isInteger(retriggerEveryAttempts) &&
+      retriggerEveryAttempts > 0 &&
+      attempts % retriggerEveryAttempts === 0
+    ) {
+      retriggers += 1;
+      try {
+        await retrigger();
+      } catch {
+        // Deliberately swallowed: a failed trigger is lag, not a gate failure.
+      }
     }
     await sleep(intervalMs);
   }
