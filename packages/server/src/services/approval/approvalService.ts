@@ -106,7 +106,7 @@ export class ApprovalService extends Disposable implements IApprovalService {
       sessionId: req.sessionId,
       agentId: req.agentId,
       ...protocolRequest,
-    } as unknown as Event;
+    };
 
     this.eventService.publish(event);
 
@@ -160,7 +160,7 @@ export class ApprovalService extends Disposable implements IApprovalService {
       feedback: response.feedback,
       selected_label: response.selectedLabel,
       resolved_at: resolvedAt,
-    } as unknown as Event;
+    };
     this.eventService.publish(resolvedEvent);
 
     p.resolve(response);
@@ -217,7 +217,7 @@ export class ApprovalService extends Disposable implements IApprovalService {
       sessionId: p.sessionId,
       agentId: 'main',
       approval_id: p.approvalId,
-    } as unknown as Event;
+    };
     this.eventService.publish(expiredEvent);
 
     p.reject(new ApprovalExpiredError(p.approvalId, this._timeoutMs));

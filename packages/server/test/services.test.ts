@@ -747,6 +747,66 @@ describe('WSBroadcastService (WS transport pump)', () => {
     bus2.dispose();
   });
 
+  it('reopens and replays a journal containing a question request event', async () => {
+    const sessionId = 'sid_question_journal';
+    const requestedEnvelope = {
+      type: 'event.question.requested',
+      seq: 2,
+      epoch: journalEpoch,
+      session_id: sessionId,
+      timestamp: '2026-08-02T00:00:00.000Z',
+      payload: {
+        type: 'event.question.requested',
+        agentId: 'main',
+        sessionId,
+        question_id: 'question_test',
+        session_id: sessionId,
+        questions: [{
+          id: 'q_0',
+          question: 'Which option?',
+          options: [{ id: 'opt_0_0', label: 'A', description: 'First option' }],
+          header: 'Choice',
+          allow_other: true,
+          other_label: 'Other',
+        }],
+        created_at: '2026-08-02T00:00:00.000Z',
+        expires_at: '2026-08-02T00:15:00.000Z',
+      },
+    };
+    writeJournal(sessionId, [
+      JSON.stringify(header()),
+      JSON.stringify(eventLine(sessionId, 1)),
+      JSON.stringify({ kind: 'event', seq: 2, envelope: requestedEnvelope }),
+    ]);
+
+    const bus = new EventService();
+    const broadcast = new WSBroadcastService(
+      bus,
+      testLogger,
+      new FakeSessionClients(),
+      new FakeConnectionRegistry(),
+      makeEnv(),
+    );
+
+    await expect(broadcast.getCursor(sessionId)).resolves.toMatchObject({
+      seq: 2,
+      epoch: journalEpoch,
+    });
+    await expect(broadcast.getBufferedSince(sessionId, { seq: 0, epoch: journalEpoch })).resolves.toMatchObject({
+      events: [expect.objectContaining({ seq: 1 }), expect.objectContaining({ seq: 2 })],
+      currentSeq: 2,
+      epoch: journalEpoch,
+    });
+    await expect(broadcast.getSnapshotState(sessionId)).resolves.toMatchObject({
+      seq: 2,
+      epoch: journalEpoch,
+    });
+
+    await broadcast.closeJournals();
+    broadcast.dispose();
+    bus.dispose();
+  });
+
   it('volatile events ride the watermark, are flagged, and are not journaled or replayed', async () => {
     const clients = new FakeSessionClients();
     const c = fakeConn();

@@ -6,6 +6,13 @@ import { sessionSchema, sessionStatusSchema, type Session, type SessionStatus } 
 import { isoDateTimeSchema } from './time';
 import { configResponseSchema, type ConfigResponse } from './rest/config';
 import { workspaceSchema, type Workspace } from './workspace';
+import {
+  approvalRequestSchema,
+  approvalResponseSchema,
+  type ApprovalRequest,
+  type ApprovalResponse,
+} from './approval';
+import { questionRequestSchema, type QuestionRequest } from './question';
 
 export interface TokenUsage {
   readonly inputOther: number;
@@ -355,6 +362,43 @@ export interface SessionStatusChangedEvent {
   readonly current_prompt_id?: string;
 }
 
+export interface QuestionRequestedEvent extends QuestionRequest {
+  readonly type: 'event.question.requested';
+}
+
+export interface QuestionAnsweredEvent {
+  readonly type: 'event.question.answered';
+  readonly question_id: string;
+  readonly answers: unknown;
+  readonly resolved_at: string;
+}
+
+export interface QuestionDismissedEvent {
+  readonly type: 'event.question.dismissed';
+  readonly question_id: string;
+  readonly dismissed_at: string;
+}
+
+export interface QuestionExpiredEvent {
+  readonly type: 'event.question.expired';
+  readonly question_id: string;
+}
+
+export interface ApprovalRequestedEvent extends ApprovalRequest {
+  readonly type: 'event.approval.requested';
+}
+
+export interface ApprovalResolvedEvent extends ApprovalResponse {
+  readonly type: 'event.approval.resolved';
+  readonly approval_id: string;
+  readonly resolved_at: string;
+}
+
+export interface ApprovalExpiredEvent {
+  readonly type: 'event.approval.expired';
+  readonly approval_id: string;
+}
+
 export interface ConfigChangedEvent {
   readonly type: 'event.config.changed';
   readonly changedFields: string[];
@@ -693,6 +737,13 @@ export type AgentEvent =
   | WorkspaceUpdatedEvent
   | WorkspaceDeletedEvent
   | SessionStatusChangedEvent
+  | QuestionRequestedEvent
+  | QuestionAnsweredEvent
+  | QuestionDismissedEvent
+  | QuestionExpiredEvent
+  | ApprovalRequestedEvent
+  | ApprovalResolvedEvent
+  | ApprovalExpiredEvent
   | ConfigChangedEvent
   | GoalUpdatedEvent
   | SkillActivatedEvent
@@ -1082,6 +1133,43 @@ export const sessionStatusChangedEventSchema = z.object({
   current_prompt_id: z.string().min(1).optional(),
 }) satisfies z.ZodType<SessionStatusChangedEvent>;
 
+export const questionRequestedEventSchema = questionRequestSchema.extend({
+  type: z.literal('event.question.requested'),
+}) satisfies z.ZodType<QuestionRequestedEvent>;
+
+export const questionAnsweredEventSchema = z.object({
+  type: z.literal('event.question.answered'),
+  question_id: z.string().min(1),
+  answers: z.unknown().nullable(),
+  resolved_at: isoDateTimeSchema,
+}) satisfies z.ZodType<QuestionAnsweredEvent>;
+
+export const questionDismissedEventSchema = z.object({
+  type: z.literal('event.question.dismissed'),
+  question_id: z.string().min(1),
+  dismissed_at: isoDateTimeSchema,
+}) satisfies z.ZodType<QuestionDismissedEvent>;
+
+export const questionExpiredEventSchema = z.object({
+  type: z.literal('event.question.expired'),
+  question_id: z.string().min(1),
+}) satisfies z.ZodType<QuestionExpiredEvent>;
+
+export const approvalRequestedEventSchema = approvalRequestSchema.extend({
+  type: z.literal('event.approval.requested'),
+}) satisfies z.ZodType<ApprovalRequestedEvent>;
+
+export const approvalResolvedEventSchema = approvalResponseSchema.extend({
+  type: z.literal('event.approval.resolved'),
+  approval_id: z.string().min(1),
+  resolved_at: isoDateTimeSchema,
+}) satisfies z.ZodType<ApprovalResolvedEvent>;
+
+export const approvalExpiredEventSchema = z.object({
+  type: z.literal('event.approval.expired'),
+  approval_id: z.string().min(1),
+}) satisfies z.ZodType<ApprovalExpiredEvent>;
+
 export const configChangedEventSchema = z.object({
   type: z.literal('event.config.changed'),
   changedFields: z.array(z.string()),
@@ -1406,6 +1494,13 @@ export const agentEventSchema = z.discriminatedUnion('type', [
   workspaceUpdatedEventSchema,
   workspaceDeletedEventSchema,
   sessionStatusChangedEventSchema,
+  questionRequestedEventSchema,
+  questionAnsweredEventSchema,
+  questionDismissedEventSchema,
+  questionExpiredEventSchema,
+  approvalRequestedEventSchema,
+  approvalResolvedEventSchema,
+  approvalExpiredEventSchema,
   goalUpdatedEventSchema,
   skillActivatedEventSchema,
   advisorStatusEventSchema,
