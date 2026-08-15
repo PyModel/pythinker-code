@@ -325,6 +325,9 @@ jobs:
         with:
           node-version-file: .nvmrc
 
+      # Any permission-* input switches the token from inheriting every
+      # permission the App installation holds to exactly the ones listed here.
+      # Cloning and pushing the tap needs contents and nothing else.
       - name: Mint tap token
         id: tap-token
         uses: actions/create-github-app-token@v2
@@ -333,6 +336,7 @@ jobs:
           private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
           owner: PyModel
           repositories: homebrew-tap
+          permission-contents: write
 
       - name: Bump formula
         env:
