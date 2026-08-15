@@ -199,7 +199,8 @@ export class SessionStore {
     const sessions: SessionSummary[] = [];
     for (const entry of index.values()) {
       if (entry.workDir !== workDir || !(await isDirectory(entry.sessionDir))) continue;
-      const summary = await this.summaryFromDir(entry.sessionId, entry.sessionDir, entry.workDir);
+      const summary = await this.trySummaryFromDir(entry.sessionId, entry.sessionDir, entry.workDir);
+      if (summary === undefined) continue;
       if (!includeArchive && summary.archived === true) continue;
       sessions.push(summary);
     }
@@ -228,7 +229,8 @@ export class SessionStore {
     const sessions: SessionSummary[] = [];
     for (const entry of index.values()) {
       if (!(await isDirectory(entry.sessionDir))) continue;
-      const summary = await this.summaryFromDir(entry.sessionId, entry.sessionDir, entry.workDir);
+      const summary = await this.trySummaryFromDir(entry.sessionId, entry.sessionDir, entry.workDir);
+      if (summary === undefined) continue;
       if (!includeArchive && summary.archived === true) continue;
       sessions.push(summary);
     }
@@ -245,7 +247,8 @@ export class SessionStore {
     if (entry === undefined || entry.workDir !== workDir || !(await isDirectory(entry.sessionDir))) {
       return undefined;
     }
-    const summary = await this.summaryFromDir(sessionId, entry.sessionDir, entry.workDir);
+    const summary = await this.trySummaryFromDir(sessionId, entry.sessionDir, entry.workDir);
+    if (summary === undefined) return undefined;
     if (!includeArchive && summary.archived === true) return undefined;
     return summary;
   }
@@ -284,6 +287,21 @@ export class SessionStore {
       createdAt: timestamp,
       updatedAt: timestamp,
     };
+  }
+
+  private async trySummaryFromDir(
+    id: string,
+    sessionDir: string,
+    workDir: string,
+  ): Promise<SessionSummary | undefined> {
+    try {
+      return await this.summaryFromDir(id, sessionDir, workDir);
+    } catch (error) {
+      if (error instanceof PythinkerError && error.code === ErrorCodes.SESSION_STATE_INVALID) {
+        return undefined;
+      }
+      throw error;
+    }
   }
 
   private async summaryFromDir(
