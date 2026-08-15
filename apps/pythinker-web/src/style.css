@@ -179,6 +179,17 @@ html[data-desktop-platform='win32'] #app {
   background: transparent;
 }
 
+/* Desktop app: reference typography — native system UI font + SF Mono-led code
+   stack, overriding every theme's families. Browser builds are unaffected. */
+html[data-desktop-platform][data-desktop-platform],
+html[data-desktop-platform][data-desktop-platform] body {
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial,
+    sans-serif;
+  --mono: "SF Mono", "JetBrains Mono", "Fira Code", Consolas, "Liberation Mono",
+    Menlo, Courier, monospace;
+}
+
 /* Pin the app to the viewport so it always fills the screen even if a dark-mode
    browser extension collapses <html>'s height — the opaque app then fully covers
    any colour the extension paints on the root, and child height:100% resolves
