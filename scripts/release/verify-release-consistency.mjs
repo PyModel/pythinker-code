@@ -8,10 +8,9 @@ const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[
 
 const CDN_MANIFEST_URL = 'https://code.pythinker.com/pythinker-code/latest.json';
 
-// A Dokploy rebuild serves the new manifest in roughly two minutes. The budget
-// stays well under the job's own timeout-minutes so a stale CDN is reported
-// here rather than killed by the runner.
-const CDN_POLL_BUDGET_MS = 600_000;
+// The budget covers detecting a lost trigger and completing a fresh rebuild,
+// while staying under the job timeout so this gate can report a stale CDN.
+const CDN_POLL_BUDGET_MS = 900_000;
 const CDN_POLL_INTERVAL_MS = 15_000;
 
 function fail(reason) {
@@ -59,6 +58,41 @@ try {
 }
 if (!gitTags.trim().split('\n').includes(releaseTag)) fail(`missing git tag ${releaseTag}`);
 
+const webhook = process.env.DOKPLOY_CDN_DEPLOY_WEBHOOK;
+let retrigger;
+if (typeof webhook === 'string' && webhook.length > 0) {
+  let isUsable;
+  try {
+    const url = new URL(webhook);
+    isUsable = url.protocol === 'https:' && url.host.length > 0;
+  } catch {
+    isUsable = false;
+  }
+  if (isUsable) {
+    retrigger = async () => {
+      try {
+        const response = await fetch(webhook, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-GitHub-Event': 'push',
+          },
+          body: '{"ref":"refs/heads/main"}',
+          signal: AbortSignal.timeout(30_000),
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        console.log(`CDN rebuild request returned HTTP ${response.status}`);
+      } catch (error) {
+        const message = error instanceof Error ? error.message.replaceAll(webhook, '***') : 'unknown error';
+        console.error(`CDN rebuild request failed: ${message}`);
+        throw error;
+      }
+    };
+  } else {
+    console.error('warning: DOKPLOY_CDN_DEPLOY_WEBHOOK is not an https:// URL; CDN rebuild requests are disabled');
+  }
+}
+
 // The CDN manifest is what every installed client polls for updates. A version
 // it advertises that npm does not have sends all of them into an install that
 // cannot succeed; a version it never catches up to hides the release entirely.
@@ -75,6 +109,8 @@ const cdnPoll = await pollCdnUntilCaughtUp({
   npmLatest: distTags.latest,
   budgetMs: CDN_POLL_BUDGET_MS,
   intervalMs: CDN_POLL_INTERVAL_MS,
+  retrigger,
+  retriggerEveryAttempts: 8,
 });
 
 if (cdnPoll.reason === 'ahead') {
@@ -87,11 +123,15 @@ if (!cdnPoll.ok) {
   fail(
     `CDN never caught up with npm within ${CDN_POLL_BUDGET_MS / 1000}s ` +
       `(cdn=${cdnPoll.cdnVersion ?? 'unreachable'} latest=${distTags.latest}, ` +
-      `${cdnPoll.attempts} attempts) — every installed client polls this manifest, ` +
+      `${cdnPoll.attempts} attempt(s), ${cdnPoll.retriggers} rebuild request(s)) — ` +
+      'every installed client polls this manifest, ' +
       'so the release stays invisible until the site rebuilds',
   );
 }
 
-console.log(`CDN matches npm (${cdnPoll.cdnVersion}) after ${cdnPoll.attempts} attempt(s)`);
+console.log(
+  `CDN matches npm (${cdnPoll.cdnVersion}) after ${cdnPoll.attempts} attempt(s), ` +
+    `${cdnPoll.retriggers} rebuild request(s)`,
+);
 
 console.log(`consistency OK: latest=${distTags.latest} beta=${distTags.beta ?? '-'} dev=${distTags.dev ?? '-'}`);
