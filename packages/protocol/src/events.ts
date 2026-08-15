@@ -6,6 +6,13 @@ import { sessionSchema, sessionStatusSchema, type Session, type SessionStatus } 
 import { isoDateTimeSchema } from './time';
 import { configResponseSchema, type ConfigResponse } from './rest/config';
 import { workspaceSchema, type Workspace } from './workspace';
+import {
+  approvalRequestSchema,
+  approvalResponseSchema,
+  type ApprovalRequest,
+  type ApprovalResponse,
+} from './approval';
+import { questionRequestSchema, type QuestionRequest } from './question';
 
 export interface TokenUsage {
   readonly inputOther: number;
@@ -355,6 +362,43 @@ export interface SessionStatusChangedEvent {
   readonly current_prompt_id?: string;
 }
 
+export interface QuestionRequestedEvent extends QuestionRequest {
+  readonly type: 'event.question.requested';
+}
+
+export interface QuestionAnsweredEvent {
+  readonly type: 'event.question.answered';
+  readonly question_id: string;
+  readonly answers: unknown;
+  readonly resolved_at: string;
+}
+
+export interface QuestionDismissedEvent {
+  readonly type: 'event.question.dismissed';
+  readonly question_id: string;
+  readonly dismissed_at: string;
+}
+
+export interface QuestionExpiredEvent {
+  readonly type: 'event.question.expired';
+  readonly question_id: string;
+}
+
+export interface ApprovalRequestedEvent extends ApprovalRequest {
+  readonly type: 'event.approval.requested';
+}
+
+export interface ApprovalResolvedEvent extends ApprovalResponse {
+  readonly type: 'event.approval.resolved';
+  readonly approval_id: string;
+  readonly resolved_at: string;
+}
+
+export interface ApprovalExpiredEvent {
+  readonly type: 'event.approval.expired';
+  readonly approval_id: string;
+}
+
 export interface ConfigChangedEvent {
   readonly type: 'event.config.changed';
   readonly changedFields: string[];
@@ -641,6 +685,27 @@ export interface PromptSubmittedEvent {
   readonly createdAt: string;
 }
 
+export interface PromptCompletedEvent {
+  readonly type: 'prompt.completed';
+  readonly promptId: string;
+  readonly finishedAt: string;
+  readonly reason: 'completed' | 'failed';
+}
+
+export interface PromptAbortedEvent {
+  readonly type: 'prompt.aborted';
+  readonly promptId: string;
+  readonly abortedAt: string;
+}
+
+export interface PromptSteeredEvent {
+  readonly type: 'prompt.steered';
+  readonly activePromptId: string;
+  readonly promptIds: readonly string[];
+  readonly content: readonly MessageContent[];
+  readonly steeredAt: string;
+}
+
 export type ToolListUpdatedReason = 'mcp.connected' | 'mcp.disconnected' | 'mcp.failed';
 
 export interface ToolListUpdatedEvent {
@@ -672,6 +737,13 @@ export type AgentEvent =
   | WorkspaceUpdatedEvent
   | WorkspaceDeletedEvent
   | SessionStatusChangedEvent
+  | QuestionRequestedEvent
+  | QuestionAnsweredEvent
+  | QuestionDismissedEvent
+  | QuestionExpiredEvent
+  | ApprovalRequestedEvent
+  | ApprovalResolvedEvent
+  | ApprovalExpiredEvent
   | ConfigChangedEvent
   | GoalUpdatedEvent
   | SkillActivatedEvent
@@ -705,7 +777,10 @@ export type AgentEvent =
   | BackgroundTaskStartedEvent
   | BackgroundTaskTerminatedEvent
   | CronFiredEvent
-  | PromptSubmittedEvent;
+  | PromptSubmittedEvent
+  | PromptCompletedEvent
+  | PromptAbortedEvent
+  | PromptSteeredEvent;
 
 export type Event = AgentEvent & { agentId: string; sessionId: string };
 
@@ -1058,6 +1133,43 @@ export const sessionStatusChangedEventSchema = z.object({
   current_prompt_id: z.string().min(1).optional(),
 }) satisfies z.ZodType<SessionStatusChangedEvent>;
 
+export const questionRequestedEventSchema = questionRequestSchema.extend({
+  type: z.literal('event.question.requested'),
+}) satisfies z.ZodType<QuestionRequestedEvent>;
+
+export const questionAnsweredEventSchema = z.object({
+  type: z.literal('event.question.answered'),
+  question_id: z.string().min(1),
+  answers: z.unknown().nullable(),
+  resolved_at: isoDateTimeSchema,
+}) satisfies z.ZodType<QuestionAnsweredEvent>;
+
+export const questionDismissedEventSchema = z.object({
+  type: z.literal('event.question.dismissed'),
+  question_id: z.string().min(1),
+  dismissed_at: isoDateTimeSchema,
+}) satisfies z.ZodType<QuestionDismissedEvent>;
+
+export const questionExpiredEventSchema = z.object({
+  type: z.literal('event.question.expired'),
+  question_id: z.string().min(1),
+}) satisfies z.ZodType<QuestionExpiredEvent>;
+
+export const approvalRequestedEventSchema = approvalRequestSchema.extend({
+  type: z.literal('event.approval.requested'),
+}) satisfies z.ZodType<ApprovalRequestedEvent>;
+
+export const approvalResolvedEventSchema = approvalResponseSchema.extend({
+  type: z.literal('event.approval.resolved'),
+  approval_id: z.string().min(1),
+  resolved_at: isoDateTimeSchema,
+}) satisfies z.ZodType<ApprovalResolvedEvent>;
+
+export const approvalExpiredEventSchema = z.object({
+  type: z.literal('event.approval.expired'),
+  approval_id: z.string().min(1),
+}) satisfies z.ZodType<ApprovalExpiredEvent>;
+
 export const configChangedEventSchema = z.object({
   type: z.literal('event.config.changed'),
   changedFields: z.array(z.string()),
@@ -1326,6 +1438,27 @@ export const promptSubmittedEventSchema = z.object({
   createdAt: isoDateTimeSchema,
 }) satisfies z.ZodType<PromptSubmittedEvent>;
 
+export const promptCompletedEventSchema = z.object({
+  type: z.literal('prompt.completed'),
+  promptId: z.string(),
+  finishedAt: isoDateTimeSchema,
+  reason: z.enum(['completed', 'failed']),
+}) satisfies z.ZodType<PromptCompletedEvent>;
+
+export const promptAbortedEventSchema = z.object({
+  type: z.literal('prompt.aborted'),
+  promptId: z.string(),
+  abortedAt: isoDateTimeSchema,
+}) satisfies z.ZodType<PromptAbortedEvent>;
+
+export const promptSteeredEventSchema = z.object({
+  type: z.literal('prompt.steered'),
+  activePromptId: z.string(),
+  promptIds: z.array(z.string()),
+  content: z.array(messageContentSchema),
+  steeredAt: isoDateTimeSchema,
+}) satisfies z.ZodType<PromptSteeredEvent>;
+
 export const toolListUpdatedReasonSchema = z.enum([
   'mcp.connected',
   'mcp.disconnected',
@@ -1361,6 +1494,13 @@ export const agentEventSchema = z.discriminatedUnion('type', [
   workspaceUpdatedEventSchema,
   workspaceDeletedEventSchema,
   sessionStatusChangedEventSchema,
+  questionRequestedEventSchema,
+  questionAnsweredEventSchema,
+  questionDismissedEventSchema,
+  questionExpiredEventSchema,
+  approvalRequestedEventSchema,
+  approvalResolvedEventSchema,
+  approvalExpiredEventSchema,
   goalUpdatedEventSchema,
   skillActivatedEventSchema,
   advisorStatusEventSchema,
@@ -1394,6 +1534,9 @@ export const agentEventSchema = z.discriminatedUnion('type', [
   backgroundTaskTerminatedEventSchema,
   cronFiredEventSchema,
   promptSubmittedEventSchema,
+  promptCompletedEventSchema,
+  promptAbortedEventSchema,
+  promptSteeredEventSchema,
 ]) satisfies z.ZodType<AgentEvent>;
 
 const eventEnvelopeSchema = z

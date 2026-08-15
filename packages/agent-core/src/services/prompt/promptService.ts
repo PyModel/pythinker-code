@@ -411,7 +411,7 @@ export class PromptService
       content: selected.flatMap((state) => state.body.content),
       steeredAt: new Date().toISOString(),
     };
-    this.eventService.publish(event as unknown as Event);
+    this.eventService.publish(event);
     return { steered: true, prompt_ids: [...promptIds] };
   }
 
@@ -489,7 +489,7 @@ export class PromptService
     // must still trigger the typed event THEN call publish() for the synthetic
     // event.
     this._onDidAbort.fire(ev);
-    this.eventService.publish(ev as unknown as Event);
+    this.eventService.publish(ev);
   }
 
   async abort(sid: string, pid: string): Promise<PromptAbortResult> {
@@ -841,7 +841,7 @@ export class PromptService
         this._active.delete(key);
         // Fire typed listeners BEFORE publishing the synth event.
         this._onDidAbort.fire(synth);
-        this.eventService.publish(synth as unknown as Event);
+        this.eventService.publish(synth);
         void this._startNextQueued(sid, state.agentId);
         return;
       }
@@ -858,7 +858,7 @@ export class PromptService
       this._active.delete(key);
       // Fire typed listeners BEFORE publishing the synth event.
       this._onDidComplete.fire(synth);
-      this.eventService.publish(synth as unknown as Event);
+      this.eventService.publish(synth);
       void this._startNextQueued(sid, state.agentId);
     }
   }

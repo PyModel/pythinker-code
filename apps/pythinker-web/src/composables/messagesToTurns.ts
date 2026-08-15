@@ -469,7 +469,7 @@ export function messagesToTurns(
       id: g.id,
       role: 'assistant',
       no: no++,
-      text: g.textParts.join('\n'),
+      text: g.textParts.join('\n\n'),
       thinking: g.thinkingParts.length > 0 ? g.thinkingParts.join('\n') : undefined,
       tools: g.tools.length > 0 ? g.tools : undefined,
       blocks: g.blocks.length > 0 ? g.blocks : undefined,
@@ -487,7 +487,7 @@ export function messagesToTurns(
           // Append to a trailing text block, else open a new one — so a tool
           // call between two text segments splits them into separate blocks.
           const last = g.blocks.at(-1);
-          if (last && last.kind === 'text') last.text += '\n' + c.text;
+          if (last && last.kind === 'text') last.text += '\n\n' + c.text;
           else g.blocks.push({ kind: 'text', text: c.text });
         }
       } else if (c.type === 'thinking') {
@@ -694,7 +694,13 @@ export function messagesToTurns(
     // Drop an assistant message whose content was already folded into this group
     // (a duplicate streamed-vs-persisted copy sharing the promptId), so the turn
     // doesn't render the same text + tools twice.
-    const sig = JSON.stringify(msg.content);
+    const sig = JSON.stringify(msg.content.map((part) => {
+      if (part.type === 'thinking') return { type: part.type, thinking: part.thinking };
+      if (part.type === 'toolUse') {
+        return { type: part.type, toolCallId: part.toolCallId, toolName: part.toolName, input: part.input };
+      }
+      return part;
+    }));
     if (group.promptId !== undefined && group.seenSigs.has(sig)) continue;
     group.seenSigs.add(sig);
 

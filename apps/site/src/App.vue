@@ -203,6 +203,7 @@ onUnmounted(() => {
       <a href="/" class="nav-brand"><PythinkerMascot :width="26" :height="32" /><span>Pythinker Code</span></a>
       <div class="nav-actions">
         <div class="nav-links">
+          <a href="#desktop">Desktop</a>
           <a href="https://pymodel.github.io/pythinker-code/" target="_blank" rel="noopener">Docs</a>
           <a href="https://github.com/PyModel/pythinker-code" target="_blank" rel="noopener"><img src="/brand/github.svg" alt="" width="16" height="16" />GitHub</a>
           <a href="https://www.npmjs.com/package/@pymodel/pythinker-code" target="_blank" rel="noopener"><img src="/brand/npm.svg" alt="" width="16" height="16" />npm</a>
@@ -214,6 +215,7 @@ onUnmounted(() => {
           </button>
           <Transition name="mobile-menu">
             <div v-show="menuOpen" class="mobile-menu-panel">
+              <a href="#desktop" @click="closeMenu(false)">Desktop</a>
               <a href="https://pymodel.github.io/pythinker-code/" target="_blank" rel="noopener" @click="closeMenu(false)">Docs</a>
               <a href="https://github.com/PyModel/pythinker-code" target="_blank" rel="noopener" @click="closeMenu(false)"><img src="/brand/github.svg" alt="" width="16" height="16" />GitHub</a>
               <a href="https://www.npmjs.com/package/@pymodel/pythinker-code" target="_blank" rel="noopener" @click="closeMenu(false)"><img src="/brand/npm.svg" alt="" width="16" height="16" />npm</a>
@@ -254,6 +256,25 @@ onUnmounted(() => {
         <p class="hero-caption">Free and open source. MIT licensed. macOS, Linux, and Windows.</p>
       </div>
     </header>
+
+    <section id="desktop" class="section container desktop-showcase" aria-labelledby="desktop-title">
+      <div class="desktop-showcase-media reveal">
+        <video autoplay muted loop playsinline preload="metadata" poster="/pythinker_desktop.png" aria-label="Pythinker Desktop app">
+          <source src="/pythinker_desktop.webm" type="video/webm" />
+          <img src="/pythinker_desktop.webp" alt="Pythinker Desktop showing an AI coding session" />
+        </video>
+        <img class="desktop-showcase-still" src="/pythinker_desktop.webp" alt="Pythinker Desktop showing an AI coding session" />
+      </div>
+      <div class="desktop-showcase-copy reveal">
+        <p class="eyebrow">Desktop app</p>
+        <h2 id="desktop-title" class="display-md">Pythinker Desktop</h2>
+        <p class="desktop-showcase-lead">The agent in a native macOS app, with sidebar sessions, live activity, and auto-updates.</p>
+        <div class="desktop-showcase-actions">
+          <a class="button button-primary" href="https://github.com/PyModel/pythinker-code/releases/latest" target="_blank" rel="noopener">Download for macOS</a>
+          <span class="desktop-showcase-note">Auto-updates included · Apple Silicon</span>
+        </div>
+      </div>
+    </section>
 
     <div class="works-with" aria-label="Works with leading AI models">
       <span class="works-with-label">Works with</span>
@@ -729,6 +750,65 @@ onUnmounted(() => {
   width: clamp(128px, 12vw, 164px);
   height: auto;
   margin-inline: auto;
+}
+
+.desktop-showcase {
+  display: grid;
+  grid-template-columns: 3fr 2fr;
+  align-items: center;
+  gap: 48px;
+}
+
+.desktop-showcase-media {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  aspect-ratio: 2048 / 1300;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-lg);
+  background: var(--terminal-bg);
+  box-shadow: var(--shadow-terminal);
+}
+
+.desktop-showcase-media video,
+.desktop-showcase-media video > img,
+.desktop-showcase-media > img {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.desktop-showcase-still {
+  display: none !important;
+}
+
+.desktop-showcase-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.desktop-showcase-lead {
+  color: var(--ink-muted);
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+.desktop-showcase-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+}
+
+.desktop-showcase-note {
+  color: var(--ink-subtle);
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .works-with {
@@ -1665,7 +1745,8 @@ onUnmounted(() => {
 @media (max-width: 899px) {
   .quickstart-grid,
   .docs-grid,
-  .vscode-grid {
+  .vscode-grid,
+  .desktop-showcase {
     grid-template-columns: 1fr;
   }
 
@@ -1825,6 +1906,14 @@ onUnmounted(() => {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .desktop-showcase-media video {
+    display: none;
+  }
+
+  .desktop-showcase-media .desktop-showcase-still {
+    display: block !important;
+  }
+
   .works-with-track {
     animation: none;
   }

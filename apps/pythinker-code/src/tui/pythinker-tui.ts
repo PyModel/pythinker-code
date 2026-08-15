@@ -141,6 +141,7 @@ import {
   foldFooterEvents,
   selectFooterViewModel,
   selectStatusBarExtras,
+  selectStatusItemParts,
   type FooterActivity,
   type FooterEvent,
   type FooterGoal,
@@ -1400,6 +1401,11 @@ export class PythinkerTUI {
         this.state.appState.statusLine,
       ),
     );
+    const statusParts = selectStatusItemParts(
+      this.state.footerState,
+      Date.now(),
+      this.state.appState.statusLine,
+    );
     this.state.statusBar.update({
       ...this.state.footerState.status,
       extras: selectStatusBarExtras(
@@ -1407,6 +1413,7 @@ export class PythinkerTUI {
         Date.now(),
         this.state.appState.statusLine,
       ),
+      updateExtra: statusParts.update ?? undefined,
       sessionKey:
         this.state.appState.sessionTitle?.trim() ||
         this.state.appState.sessionId ||

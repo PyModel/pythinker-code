@@ -104,7 +104,7 @@ export class QuestionService extends Disposable implements IQuestionService {
       sessionId: req.sessionId,
       agentId: req.agentId,
       ...protocolRequest,
-    } as unknown as Event;
+    };
     this.eventService.publish(event);
 
     this.logger.info(
@@ -154,7 +154,7 @@ export class QuestionService extends Disposable implements IQuestionService {
       question_id: p.questionId,
       answers: response === null ? null : (response as { answers?: unknown }).answers ?? response,
       resolved_at: resolvedAt,
-    } as unknown as Event;
+    };
     this.eventService.publish(answeredEvent);
 
     p.resolve(response);
@@ -174,7 +174,7 @@ export class QuestionService extends Disposable implements IQuestionService {
       agentId: 'main',
       question_id: p.questionId,
       dismissed_at: dismissedAt,
-    } as unknown as Event;
+    };
     this.eventService.publish(dismissedEvent);
 
     p.resolve(questionDismissedResult());
@@ -230,7 +230,7 @@ export class QuestionService extends Disposable implements IQuestionService {
       sessionId: p.sessionId,
       agentId: 'main',
       question_id: p.questionId,
-    } as unknown as Event;
+    };
     this.eventService.publish(expiredEvent);
 
     p.reject(new QuestionExpiredError(p.questionId, this._timeoutMs));

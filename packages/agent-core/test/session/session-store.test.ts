@@ -4,6 +4,7 @@ import { join } from 'pathe';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { ErrorCodes } from '../../src/errors';
 import { SessionStore } from '../../src/session/store';
 
 const tempDirs: string[] = [];
@@ -143,8 +144,6 @@ describe('SessionStore persisted-state boundary', () => {
     const operations = [
       () => store.get(source.id),
       () => store.list({ sessionId: source.id }),
-      () => store.list(),
-      () => store.list({ workDir }),
       () => store.list({ workDir, sessionId: source.id }),
       () => store.rename(source.id, 'Renamed'),
       () => store.archive(source.id),
@@ -154,6 +153,21 @@ describe('SessionStore persisted-state boundary', () => {
     for (const operation of operations) {
       await expect(operation()).rejects.toMatchObject({ code: 'session.state_invalid' });
     }
+  });
+
+  it('skips invalid sessions during enumeration but rejects direct access', async () => {
+    const homeDir = await makeTempDir();
+    const workDir = await makeTempDir();
+    const store = new SessionStore(homeDir);
+    const valid = await createCurrentSession(store, { id: 'ses_valid', workDir });
+    const invalid = await createCurrentSession(store, { id: 'ses_invalid', workDir });
+    await writeFile(join(invalid.sessionDir, 'state.json'), '{"title":"old"}\n', 'utf-8');
+
+    await expect(store.list({})).resolves.toMatchObject([{ id: valid.id }]);
+    await expect(store.list({ workDir })).resolves.toMatchObject([{ id: valid.id }]);
+    await expect(store.get(invalid.id)).rejects.toMatchObject({
+      code: ErrorCodes.SESSION_STATE_INVALID,
+    });
   });
 
   it('accepts archived state and preserves forkedFrom in a strict fork', async () => {

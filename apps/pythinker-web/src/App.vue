@@ -162,6 +162,7 @@ onMounted(() => {
 onUnmounted(() => {
   document.removeEventListener('keydown', onGlobalKeydown, true);
   stopSpinner();
+  clearTimeout(sidebarSwapTimer);
 });
 
 // Escape closes whichever transient right-side detail panel is open.
@@ -195,10 +196,12 @@ const SIDEBAR_COLLAPSED_KEY = 'pythinker-web.sidebar-collapsed';
 const SIDEBAR_DEFAULT = 270;
 const SIDEBAR_MIN = 170;
 const SIDEBAR_MAX = 420;
-const SIDEBAR_COLLAPSED_WIDTH = 36;
+const SIDEBAR_COLLAPSED_WIDTH = 90;
 
 const sessionColWidth = ref(SIDEBAR_DEFAULT);
 const sidebarCollapsed = ref(false);
+const railVisible = ref(false);
+let sidebarSwapTimer: ReturnType<typeof setTimeout> | undefined;
 const sideWidth = computed(() =>
   sidebarCollapsed.value ? SIDEBAR_COLLAPSED_WIDTH : sessionColWidth.value,
 );
@@ -209,6 +212,7 @@ function loadSidebarCollapsed(): void {
   } catch {
     sidebarCollapsed.value = false;
   }
+  railVisible.value = sidebarCollapsed.value;
 }
 
 function saveSidebarCollapsed(): void {
@@ -219,9 +223,23 @@ function saveSidebarCollapsed(): void {
   }
 }
 
-function toggleSidebarCollapse(): void {
-  sidebarCollapsed.value = !sidebarCollapsed.value;
+function setSidebarCollapsed(collapsed: boolean): void {
+  sidebarCollapsed.value = collapsed;
   saveSidebarCollapsed();
+  clearTimeout(sidebarSwapTimer);
+  sidebarSwapTimer = setTimeout(() => {
+    railVisible.value = sidebarCollapsed.value;
+  }, 150);
+}
+
+function toggleSidebarCollapse(): void {
+  setSidebarCollapsed(!sidebarCollapsed.value);
+}
+
+async function expandAndSearch(): Promise<void> {
+  setSidebarCollapsed(false);
+  await nextTick();
+  void sidebarRef.value?.openSearch();
 }
 
 // ---------------------------------------------------------------------------
@@ -565,6 +583,7 @@ watch(client.activeSessionId, () => {
 });
 
 // Reference to ConversationPane so we can imperatively switch tabs
+const sidebarRef = ref<InstanceType<typeof Sidebar> | null>(null);
 const conversationPaneRef = ref<InstanceType<typeof ConversationPane> | null>(null);
 
 // Shift-multi-selected workspace ids; when >1 are selected the main pane
@@ -872,13 +891,17 @@ function openPr(url: string): void {
     <div
       v-else
       class="app"
-      :class="{ mobile: isMobile, 'sidebar-collapsed': sidebarCollapsed && !isMobile }"
+      :class="{
+        mobile: isMobile,
+        'sidebar-collapsed': sidebarCollapsed && !isMobile,
+        'rail-visible': railVisible && !isMobile,
+      }"
       :style="{ '--side-w': sideWidth + 'px', '--preview-w': previewWidth + 'px' }"
     >
     <!-- Desktop navigation: workspace rail + resizable session column. -->
     <template v-if="!isMobile">
       <Sidebar
-        v-show="!sidebarCollapsed"
+        ref="sidebarRef"
         :col-width="sessionColWidth"
         :active-workspace="client.visibleWorkspace.value"
         :active-workspace-id="client.activeWorkspaceId.value"
@@ -910,19 +933,63 @@ function openPr(url: string): void {
         :max="SIDEBAR_MAX"
         @update:width="sessionColWidth = $event"
       />
-      <div v-if="sidebarCollapsed" class="sidebar-rail">
+      <div class="sidebar-rail">
         <button
           type="button"
-          class="sidebar-expand-btn"
+          class="rail-btn rail-logo"
           :title="t('sidebar.expandSidebar')"
           :aria-label="t('sidebar.expandSidebar')"
           @click="toggleSidebarCollapse"
         >
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M4 6h9" />
-            <path d="M4 12h9" />
-            <path d="M4 18h9" />
-            <path d="M17 9l3 3-3 3" />
+          <PythinkerLogo size="sm" />
+        </button>
+        <button
+          type="button"
+          class="rail-btn"
+          :title="t('sidebar.newSession')"
+          :aria-label="t('sidebar.newSession')"
+          @click="handleCreateSession"
+        >
+          <svg viewBox="0 0 16 16" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+            <circle cx="8" cy="8" r="6.5" />
+            <path d="M8 5v6M5 8h6" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          class="rail-btn"
+          :title="t('sidebar.newWorkspace')"
+          :aria-label="t('sidebar.newWorkspace')"
+          @click="showAddWorkspace = true"
+        >
+          <svg viewBox="0 0 16 16" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M1 4V2.5A1 1 0 0 1 2 1.5h3.5l1.3 2H13a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1z" />
+            <path d="M1 5.5h13M10.5 8v3M9 9.5h3" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          class="rail-btn"
+          :title="t('sidebar.searchSessions')"
+          :aria-label="t('sidebar.searchSessions')"
+          @click="expandAndSearch"
+        >
+          <svg viewBox="0 0 16 16" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+            <circle cx="7" cy="7" r="4.5" />
+            <path d="m10.5 10.5 3 3" />
+          </svg>
+        </button>
+        <div class="rail-spacer" />
+        <button
+          type="button"
+          class="rail-btn"
+          :title="t('settings.title')"
+          :aria-label="t('settings.title')"
+          @click="showSettings = true"
+        >
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l-.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09A1.65 1.65 0 0 0 15 4.6a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09A1.65 1.65 0 0 0 19.4 15z" />
           </svg>
         </button>
       </div>
@@ -1347,10 +1414,27 @@ function openPr(url: string): void {
      when closed) — opening animates the aside's width, so the conversation
      column is squeezed over smoothly instead of snapping to a new template. */
   grid-template-columns: var(--side-w) 0 minmax(0, 1fr) 0 auto;
+  transition: grid-template-columns 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   background: var(--bg);
   color: var(--ink);
   overflow: hidden;
   box-sizing: border-box;
+}
+:global(html[data-desktop-platform='darwin'] .app),
+:global(html[data-desktop-platform='win32'] .app) {
+  background: transparent;
+}
+:global(html[data-desktop-platform='darwin'] .side),
+:global(html[data-desktop-platform='win32'] .side),
+:global(html[data-desktop-platform='darwin'] .sidebar-rail),
+:global(html[data-desktop-platform='win32'] .sidebar-rail) {
+  background: color-mix(in srgb, var(--panel) 55%, transparent);
+}
+:global(html[data-desktop-platform='darwin'] .con),
+:global(html[data-desktop-platform='win32'] .con),
+:global(html[data-desktop-platform='darwin'] .global-preview),
+:global(html[data-desktop-platform='win32'] .global-preview) {
+  background: var(--bg);
 }
 /* Grid children must be allowed to shrink below content height so that only
    the inner scroll containers (.panes / .sessions) scroll — otherwise the
@@ -1359,22 +1443,62 @@ function openPr(url: string): void {
   min-height: 0;
   min-width: 0;
 }
+.app > .side {
+  grid-column: 1;
+  grid-row: 1;
+  overflow: hidden;
+}
 
-/* Collapsed sidebar rail: keeps a slim, dedicated grid track so the expand
-   button never overlaps the conversation header or squeezes the main pane. */
+/* Which layer is shown — swapped 150ms after the toggle. */
+:global(.app.rail-visible > .side) {
+  visibility: hidden;
+  pointer-events: none;
+}
+:global(.app:not(.rail-visible) .sidebar-rail) {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* Phase 1a: collapsing — expanded content's children fade out. */
+:global(.app.sidebar-collapsed:not(.rail-visible) > .side .col > *) {
+  opacity: 0;
+  transition: opacity 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+/* Phase 1b: expanding — rail's children fade out. */
+:global(.app:not(.sidebar-collapsed).rail-visible .sidebar-rail > *) {
+  opacity: 0;
+  transition: opacity 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+/* Phase 2a: rail items animate in (collapse direction). */
+:global(.app.sidebar-collapsed.rail-visible .sidebar-rail > .rail-btn) {
+  animation: rail-in 0.15s cubic-bezier(0.4, 0, 0.2, 1) backwards;
+}
+/* Phase 2b: sidebar content animates back in (expand direction). */
+:global(.app:not(.sidebar-collapsed):not(.rail-visible) > .side .col > *) {
+  animation: content-in 0.15s cubic-bezier(0.4, 0, 0.2, 1) backwards;
+}
+@keyframes rail-in { 0% { opacity: 0; transform: translateX(66px); } }
+@keyframes content-in { 0% { opacity: 0; } }
+
+/* Collapsed sidebar rail: keeps a dedicated grid track for the icon rail. */
 .sidebar-rail {
   grid-column: 1;
+  grid-row: 1;
   display: flex;
-  justify-content: center;
-  padding-top: 8px;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 0 10px;
   background: var(--panel);
   border-right: 1px solid var(--line);
+  min-height: 0;
 }
-.sidebar-expand-btn {
+.rail-spacer { flex: 1; }
+.rail-btn {
   flex: none;
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
   background: none;
   border: none;
   color: var(--muted);
@@ -1384,13 +1508,17 @@ function openPr(url: string): void {
   cursor: pointer;
   padding: 0;
 }
-.sidebar-expand-btn:hover {
-  background: var(--soft);
-  color: var(--ink);
-}
-.sidebar-expand-btn:focus-visible {
+.rail-btn:hover { background: var(--soft); color: var(--ink); }
+.rail-btn:focus-visible {
   outline: 2px solid var(--blue);
   outline-offset: -2px;
+}
+:global(html[data-desktop-platform='darwin'] .sidebar-rail) {
+  padding-top: 48px;
+  -webkit-app-region: drag;
+}
+:global(html[data-desktop-platform='darwin'] .sidebar-rail button) {
+  -webkit-app-region: no-drag;
 }
 
 /* The collapsed rail occupies track 1; keep the main pane pinned to the
@@ -1405,6 +1533,20 @@ function openPr(url: string): void {
 .app.mobile {
   grid-template-columns: 1fr;
   grid-template-rows: auto 1fr;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app { transition: none; }
+  .app > .side,
+  .sidebar-rail { transition: none; }
+  :global(.app.sidebar-collapsed:not(.rail-visible) > .side .col > *),
+  :global(.app:not(.sidebar-collapsed).rail-visible .sidebar-rail > *) {
+    transition: none;
+  }
+  :global(.app.sidebar-collapsed.rail-visible .sidebar-rail > .rail-btn),
+  :global(.app:not(.sidebar-collapsed):not(.rail-visible) > .side .col > *) {
+    animation: none;
+  }
 }
 
 /* The right-side panel column: a permanent grid item whose width animates

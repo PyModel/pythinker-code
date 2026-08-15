@@ -3,21 +3,26 @@ import { spawn } from 'node:child_process';
 const FFI_FLAG = '--experimental-ffi';
 const FFI_WARNING_FLAG = '--disable-warning=ExperimentalWarning';
 const FFI_CHILD_ENV = 'PYTHINKER_CODE_FFI_CHILD';
-const REQUIRED_RUNTIME = 'Node.js 26.4.0 or newer with experimental FFI support';
-const MINIMUM_NODE = [26, 4, 0] as const;
+// Local on purpose: the FFI launcher test executes this file standalone, so it must stay import-free beyond node builtins.
+const REQUIRED_RUNTIME = 'Node.js 20 or newer';
+const MINIMUM_NODE = [20, 0, 0] as const;
+const FFI_NODE = [26, 4, 0] as const;
 const NATIVE_INSTALL_HINT =
   'Alternatively, use the native installer (no Node.js required): https://code.pythinker.com';
 
 /**
- * Older Node (e.g. 24 LTS) has no `--experimental-ffi`, so the re-exec below
- * would die with a cryptic `bad option` error. npm installs the package on any
- * Node version (engines is only a warning for consumers), so guard here with
- * an actionable message instead.
+ * Node versions before 26.4 do not support `--experimental-ffi`, so run the
+ * app directly instead of re-execing with an unsupported flag. npm installs
+ * the package on any Node version (engines is only a warning for consumers),
+ * so guard the actual runtime floor here with an actionable message.
  */
-function isRuntimeTooOld(): boolean {
-  const parts = process.versions.node.split('.').map(Number);
+function isVersionBelow(
+  version: string,
+  minimum: readonly [number, number, number],
+): boolean {
+  const parts = version.split('.').map(Number);
   const [major = 0, minor = 0, patch = 0] = parts;
-  const [reqMajor, reqMinor, reqPatch] = MINIMUM_NODE;
+  const [reqMajor, reqMinor, reqPatch] = minimum;
   if (major !== reqMajor) return major < reqMajor;
   if (minor !== reqMinor) return minor < reqMinor;
   return patch < reqPatch;
@@ -29,8 +34,8 @@ function isFfiProcess(): boolean {
 }
 
 /**
- * Windows-only fallback for platforms without `process.execve` (Node < 26.4
- * does not ship it on win32). Re-exec via spawn instead.
+ * Windows-only fallback for platforms without `process.execve`. Older Node
+ * releases do not ship it on win32. Re-exec via spawn instead.
  */
 function launchWindowsFallback(
   nodeArguments: readonly string[],
@@ -84,12 +89,17 @@ function launchWindowsFallback(
 }
 
 async function launch(): Promise<void> {
-  if (isRuntimeTooOld()) {
+  if (isVersionBelow(process.versions.node, MINIMUM_NODE)) {
     process.stderr.write(
       `Pythinker Code requires ${REQUIRED_RUNTIME}; you are running Node.js ${process.versions.node}.\n` +
         `${NATIVE_INSTALL_HINT}\n`,
     );
     process.exitCode = 1;
+    return;
+  }
+
+  if (isVersionBelow(process.versions.node, FFI_NODE)) {
+    await import(new URL('./main.mjs', import.meta.url).href);
     return;
   }
 

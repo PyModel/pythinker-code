@@ -311,7 +311,7 @@ describe('SessionStore.list', () => {
     expect(sessions.find((session) => session.id === fallback.id)?.title).toBe('Fallback Title');
   });
 
-  it('rejects malformed indexed state instead of treating it as an incomplete summary', async () => {
+  it('skips malformed indexed state instead of treating it as an incomplete summary', async () => {
     const homeDir = await makeTempDir();
     const workDir = await makeTempDir();
     const store = new SessionStore(homeDir);
@@ -319,7 +319,7 @@ describe('SessionStore.list', () => {
     const malformed = await createStoredSession(store, { id: 'ses_bad_state', workDir });
     await writeFile(join(malformed.sessionDir, 'state.json'), '{bad json', 'utf-8');
 
-    await expect(store.list({ workDir })).rejects.toMatchObject({ code: 'session.state_invalid' });
+    await expect(store.list({ workDir })).resolves.toEqual([]);
   });
 
   it('sorts by filesystem activity descending', async () => {

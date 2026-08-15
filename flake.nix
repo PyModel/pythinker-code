@@ -74,6 +74,7 @@
         ./packages/telemetry
         ./apps/pythinker-code
         ./apps/pythinker-web
+        ./apps/desktop
         ./apps/dashboard
         ./apps/dashboard/server
         ./apps/dashboard/web
@@ -94,6 +95,7 @@
         "@pymodel/pythinker-telemetry"
         "@pymodel/pythinker-code"
         "@pymodel/pythinker-web"
+        "@pymodel/pythinker-desktop"
         "@pymodel/dashboard"
         "@pymodel/dashboard-server"
         "@pymodel/dashboard-web"
@@ -148,7 +150,7 @@
               inherit (finalAttrs) pname version src pnpmWorkspaces;
               inherit pnpm;
               fetcherVersion = 3;
-              hash = "sha256-iNpwl+jjkjkDHUs4BdU1VxUjz4rgYDDPNzJQWmjTkz0=";
+             hash = "sha256-oV6S2KaH2f0OkBMs3puuze62ae9XIBi8atvG9BlFvfc=";
             };
 
             nativeBuildInputs = [

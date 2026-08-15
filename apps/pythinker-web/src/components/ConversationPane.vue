@@ -842,7 +842,11 @@ defineExpose({ loadComposerForEdit });
             <!-- Empty session: Composer rendered in the centre of the pane -->
             <div class="empty-spacer" />
             <div class="empty-hint">
-              <span class="empty-hint-title">{{ t('composer.emptyConversationTitle') }}</span>
+              <div class="empty-halo" aria-hidden="true" />
+              <div class="empty-hint-head">
+                <span class="empty-mascot" aria-hidden="true" />
+                <span class="empty-hint-title">{{ t('composer.emptyConversationTitle') }}</span>
+              </div>
               <span class="empty-hint-text">{{ t('composer.emptyConversation') }}</span>
               <!-- Workspace picker: choose where this new conversation starts. -->
               <div v-if="hasWorkspaces" class="ws-pick">
@@ -1287,6 +1291,51 @@ defineExpose({ loadComposerForEdit });
   padding: 0 16px 16px;
   color: var(--ink);
   font-family: var(--sans);
+  position: relative;
+}
+.empty-halo {
+  position: absolute;
+  top: -140px;
+  left: 50%;
+  width: 520px;
+  height: 420px;
+  transform: translateX(-50%);
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse 60% 55% at 50% 45%,
+    color-mix(in srgb, var(--blue) 22%, transparent) 0%,
+    color-mix(in srgb, var(--blue) 10%, transparent) 40%,
+    transparent 72%
+  );
+  filter: blur(2px);
+  animation: halo-breathe 6s ease-in-out infinite;
+  z-index: 0;
+}
+.empty-hint > *:not(.empty-halo) {
+  position: relative;
+  z-index: 1;
+}
+.empty-hint-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.empty-mascot {
+  width: 96px;
+  height: 104px;
+  background-image: url('/brand/mascot-idle-strip.png');
+  background-size: 576px 104px;
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+  animation: empty-mascot-idle 0.84s steps(6) infinite;
+  flex: none;
+}
+@keyframes empty-mascot-idle {
+  from { background-position-x: 0; }
+  to { background-position-x: -576px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .empty-mascot { animation: none; }
 }
 .empty-hint-title {
   font-size: calc(var(--ui-font-size) + 16px);
@@ -1300,6 +1349,18 @@ defineExpose({ loadComposerForEdit });
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+@keyframes halo-breathe {
+  0%, 100% { opacity: 0.55; transform: translateX(-50%) scale(1); }
+  50%      { opacity: 0.9;  transform: translateX(-50%) scale(1.06); }
+}
+.empty-hint-head, .empty-hint-text { animation: hero-rise 0.5s ease-out both; }
+@keyframes hero-rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .empty-halo, .empty-hint-head, .empty-hint-text { animation: none; }
 }
 .empty-add-workspace {
   display: inline-flex;

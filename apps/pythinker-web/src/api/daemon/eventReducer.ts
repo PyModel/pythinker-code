@@ -108,6 +108,19 @@ function sameMessageContent(a: AppMessage, b: AppMessage): boolean {
   return JSON.stringify(a.content) === JSON.stringify(b.content);
 }
 
+function sameAssistantMessage(a: AppMessage, b: AppMessage): boolean {
+  if (a.role !== 'assistant' || b.role !== 'assistant') return false;
+  if (a.promptId === undefined || a.promptId !== b.promptId) return false;
+  const contentKey = (message: AppMessage): string => JSON.stringify(message.content.map((part) => {
+    if (part.type === 'thinking') return { type: part.type, thinking: part.thinking };
+    if (part.type === 'toolUse') {
+      return { type: part.type, toolCallId: part.toolCallId, toolName: part.toolName, input: part.input };
+    }
+    return part;
+  }));
+  return contentKey(a) === contentKey(b);
+}
+
 /** Concatenated text + count of image/file parts — a serialization-independent
     shape of a user message. The daemon's echo carries images as a resolved
     URL/base64 while our optimistic copy carries `{kind:'file',fileId}`, so the
@@ -406,7 +419,7 @@ export function reduceAppEvent(
     case 'messageCreated': {
       const sid = event.message.sessionId;
       const msgs = next.messagesBySession[sid] ?? [];
-      const exists = msgs.some((m) => m.id === event.message.id);
+      const exists = msgs.some((m) => m.id === event.message.id || sameAssistantMessage(m, event.message));
       if (!exists) {
         if (event.message.role === 'user') {
           const optimisticIndex = findOptimisticUserEchoIndex(msgs, event.message);

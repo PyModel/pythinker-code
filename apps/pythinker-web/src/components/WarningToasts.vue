@@ -290,7 +290,7 @@ onUnmounted(() => {
   border: 0;
   padding: 0;
   background: none;
-  color: var(--accent, var(--link, #EE9983));
+  color: var(--accent, var(--link, #7B8CE8));
   cursor: pointer;
   font: inherit;
   font-size: var(--ui-font-size-xs);

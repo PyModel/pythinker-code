@@ -27,6 +27,8 @@ export type StatusBarStatus = Pick<
   | 'tokenSpeedEstimated'
 > & {
   readonly extras: readonly string[];
+  /** The `extras` entry that carries the update notice, painted in `warning`. */
+  readonly updateExtra?: string;
   readonly sessionKey: string;
   readonly statusLine: StatusLineConfig;
 };
@@ -61,7 +63,7 @@ export class StatusBarComponent implements Component {
       : undefined;
     let modesChip = status.statusLine.showModes ? renderModesChip(status) : undefined;
     const extraChips = status.extras.map((extra) =>
-      chip(currentTheme.fg('textDim', extra)),
+      chip(currentTheme.fg(extra === status.updateExtra ? 'warning' : 'textDim', extra)),
     );
     let cwdChip: string | undefined = chip(
       currentTheme.fg('textDim', shortenCwd(status.cwd, status.homeDir)),

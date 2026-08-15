@@ -11,17 +11,17 @@
   --panel: #fafbfc;
   --panel2: #f3f5f8;
   --bg: #ffffff;
-  /* Interaction accent = pythinkerCoral (#EE9983) from the logo mark.
+  /* Interaction accent = Pythinker periwinkle from the TUI palette.
      --blue2 is a darker press/hover shade; --soft/--bd/--bluebg/--blueln are
-     light coral fills + borders derived from the same hue. */
-  --blue: #EE9983;
-  --blue2: #DD786D;
-  --soft: #fdeee9;
-  --bd: #f8d9cf;
-  --logo: #EE9983;
-  /* Soft coral bubble fill + border (mobile user message bubble). */
-  --bluebg: #fdeee9;
-  --blueln: #f8d9cf;
+     light periwinkle fills + borders derived from the same hue. */
+  --blue: #4A5BC4;
+  --blue2: #3A4AAE;
+  --soft: #eceffc;
+  --bd: #d3daf6;
+  --logo: #4A5BC4;
+  /* Soft periwinkle bubble fill + border (mobile user message bubble). */
+  --bluebg: #eceffc;
+  --blueln: #d3daf6;
   --ok: #0e7a38;
   --warn: #92660a;
   --star: #eab308;
@@ -81,13 +81,13 @@ html[data-color-scheme="dark"] {
   --panel: #1c2128;
   --panel2: #161b22;
   --bg: #0d1117;
-  --blue: #EE9983;
-  --blue2: #F0AB9E;
-  --soft: rgba(238, 153, 131, 0.14);
-  --bd: rgba(238, 153, 131, 0.35);
-  --logo: #EE9983;
-  --bluebg: #2a221f;
-  --blueln: #3d322c;
+  --blue: #7B8CE8;
+  --blue2: #98A6F0;
+  --soft: rgba(123, 140, 232, 0.14);
+  --bd: rgba(123, 140, 232, 0.35);
+  --logo: #7B8CE8;
+  --bluebg: #20243a;
+  --blueln: #2e3352;
   --ok: #3fb950;
   --warn: #d29922;
   --star: #facc15;
@@ -107,13 +107,13 @@ html[data-color-scheme="dark"] {
     --panel: #1c2128;
     --panel2: #161b22;
     --bg: #0d1117;
-    --blue: #EE9983;
-    --blue2: #F0AB9E;
-    --soft: rgba(238, 153, 131, 0.14);
-    --bd: rgba(238, 153, 131, 0.35);
-    --logo: #EE9983;
-    --bluebg: #2a221f;
-    --blueln: #3d322c;
+    --blue: #7B8CE8;
+    --blue2: #98A6F0;
+    --soft: rgba(123, 140, 232, 0.14);
+    --bd: rgba(123, 140, 232, 0.35);
+    --logo: #7B8CE8;
+    --bluebg: #20243a;
+    --blueln: #2e3352;
     --ok: #3fb950;
     --warn: #d29922;
     --star: #facc15;
@@ -168,6 +168,26 @@ body,
   /* Explicit light background on the root: a transparent <html> gets sampled as
      "dark" by some extensions, which then repaint it. Keep it solid white. */
   background: var(--bg);
+}
+
+html[data-desktop-platform='darwin'],
+html[data-desktop-platform='darwin'] body,
+html[data-desktop-platform='darwin'] #app,
+html[data-desktop-platform='win32'],
+html[data-desktop-platform='win32'] body,
+html[data-desktop-platform='win32'] #app {
+  background: transparent;
+}
+
+/* Desktop app: reference typography — native system UI font + SF Mono-led code
+   stack, overriding every theme's families. Browser builds are unaffected. */
+html[data-desktop-platform][data-desktop-platform],
+html[data-desktop-platform][data-desktop-platform] body {
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial,
+    sans-serif;
+  --mono: "SF Mono", "JetBrains Mono", "Fira Code", Consolas, "Liberation Mono",
+    Menlo, Courier, monospace;
 }
 
 /* Pin the app to the viewport so it always fills the screen even if a dark-mode
@@ -769,8 +789,8 @@ html[data-color-scheme="dark"][data-theme="modern"] {
    The official Pythinker design language ("Quiet Utility") — values from
    pythinker-design-skill tokens.json v0.2.0. It shares the de-terminalization
    rules above with Modern (the :is(...) selectors); everything below is the
-   delta: the full token palette (interaction accent = pythinkerCoral — #EE9983
-   from the logo; pythinkerBlue stays reserved for links/data-viz), flat
+   delta: the full token palette (interaction accent = Pythinker periwinkle
+   from the TUI palette; pythinkerBlue stays reserved for links/data-viz), flat
    cards (no hover lift; shadows only on the composer + floating menus), gray
    user bubbles, and the PingFang / Geist Mono type ramp.
    These token blocks intentionally sit AFTER the html[data-accent] rules:
@@ -792,11 +812,11 @@ html[data-theme="pythinker"] {
   --panel2: #f5f5f5;             /* color.background.secondary */
   --bg: #ffffff;                 /* color.background.primary */
   --canvas: #f9fbfc;
-  /* interaction accent = color.brand.pythinkerCoral (logo accent #EE9983) */
-  --blue: #EE9983;
-  --blue2: #DD786D;
-  --soft: #fdeee9;
-  --bd: #f8d9cf;
+  /* interaction accent = Pythinker periwinkle from the TUI palette */
+  --blue: #4A5BC4;
+  --blue2: #3A4AAE;
+  --soft: #eceffc;
+  --bd: #d3daf6;
   --logo: rgba(0, 0, 0, 0.9);    /* logo-system.md: the mark uses labels.primary */
   --link: #0f6fe0;
   --link-hover: #075fc2;
@@ -837,10 +857,10 @@ html[data-color-scheme="dark"][data-theme="pythinker"] {
   --panel2: #1f1f1f;
   --bg: #121212;
   --canvas: #161717;
-  --blue: #EE9983;
-  --blue2: #F0AB9E;
-  --soft: rgba(238, 153, 131, 0.14);
-  --bd: rgba(238, 153, 131, 0.35);
+  --blue: #7B8CE8;
+  --blue2: #98A6F0;
+  --soft: rgba(123, 140, 232, 0.14);
+  --bd: rgba(123, 140, 232, 0.35);
   --logo: rgba(255, 255, 255, 0.84);
   --link: #58a6ff;
   --link-hover: #79b8ff;
@@ -865,10 +885,10 @@ html[data-color-scheme="dark"][data-theme="pythinker"] {
     --panel2: #1f1f1f;
     --bg: #121212;
     --canvas: #161717;
-    --blue: #EE9983;
-    --blue2: #F0AB9E;
-    --soft: rgba(238, 153, 131, 0.14);
-    --bd: rgba(238, 153, 131, 0.35);
+    --blue: #7B8CE8;
+    --blue2: #98A6F0;
+    --soft: rgba(123, 140, 232, 0.14);
+    --bd: rgba(123, 140, 232, 0.35);
     --logo: rgba(255, 255, 255, 0.84);
     --link: #58a6ff;
     --link-hover: #79b8ff;
@@ -909,7 +929,7 @@ html[data-theme="pythinker"] .backdrop .dialog {
   }
 }
 
-/* The send button is pythinkerCoral fill only — no decorative shadow (§5). */
+/* The send button is a Pythinker periwinkle fill only — no decorative shadow (§5). */
 html[data-theme="pythinker"] .send {
   box-shadow: none;
 }
@@ -988,7 +1008,7 @@ html[data-color-scheme="dark"][data-theme="pythinker"] .backdrop .dialog {
   }
 }
 
-/* Focus: pythinkerCoral ring (principles §9) — outline, so layout never shifts.
+/* Focus: Pythinker periwinkle ring (principles §9) — outline, so layout never shifts.
    Text fields are excluded: :focus-visible matches them on mouse focus too,
    which would draw a ring around the raw textarea inside the composer card;
    the caret is their focus cue. */
@@ -1011,7 +1031,7 @@ html[data-color-scheme="dark"][data-theme="pythinker"] ::selection {
 }
 
 /* Links are a sanctioned Pythinker-blue use in chat prose. The theme's interaction
-   accent is pythinkerCoral, so the shared .md link rule otherwise makes
+   accent is Pythinker periwinkle, so the shared .md link rule otherwise makes
    URLs look like normal text under the native theme. */
 html[data-theme="pythinker"] .md a,
 html[data-theme="pythinker"] .md .md-file-link {

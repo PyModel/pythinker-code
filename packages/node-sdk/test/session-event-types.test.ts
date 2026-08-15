@@ -76,6 +76,13 @@ describe('Event public types', () => {
         case 'event.workspace.updated':
         case 'event.workspace.deleted':
         case 'event.config.changed':
+        case 'event.question.requested':
+        case 'event.question.answered':
+        case 'event.question.dismissed':
+        case 'event.question.expired':
+        case 'event.approval.requested':
+        case 'event.approval.resolved':
+        case 'event.approval.expired':
         case 'goal.updated':
         case 'skill.activated':
         case 'error':
@@ -111,6 +118,9 @@ describe('Event public types', () => {
         case 'background.task.terminated':
         case 'cron.fired':
         case 'prompt.submitted':
+        case 'prompt.completed':
+        case 'prompt.aborted':
+        case 'prompt.steered':
           return;
         default:
           assertNever(event);

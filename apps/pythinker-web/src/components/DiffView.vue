@@ -546,7 +546,7 @@ function treePadding(depth: number): string {
 }
 
 .ch-row:focus-visible {
-  outline: 2px solid var(--blue, #EE9983);
+  outline: 2px solid var(--blue, #7B8CE8);
   outline-offset: -2px;
 }
 
@@ -577,7 +577,7 @@ function treePadding(depth: number): string {
   background: var(--panel2, #f5f6f8);
 }
 .tree-row:focus-visible {
-  outline: 2px solid var(--blue, #EE9983);
+  outline: 2px solid var(--blue, #7B8CE8);
   outline-offset: -2px;
 }
 .tree-folder {
@@ -678,7 +678,7 @@ function treePadding(depth: number): string {
 }
 
 .back-btn:focus-visible {
-  outline: 2px solid var(--blue, #EE9983);
+  outline: 2px solid var(--blue, #7B8CE8);
   outline-offset: 1px;
 }
 

@@ -225,15 +225,17 @@ defineExpose({ closeMenu, cancelArchive });
 
 <style scoped>
 .se {
-  /* --sb-* vars come from .side in Sidebar.vue: the title starts at
-     --sb-pad-x + --sb-gutter + --sb-gap, exactly under the workspace name. */
+  /* --sb-* vars come from .side in Sidebar.vue. The outer margin and reduced
+     inner padding keep the title at --sb-pad-x + --sb-gutter + --sb-gap. */
   display: block;
-  padding: 7px var(--sb-pad-x, 12px);
+  margin: 0 8px;
+  padding: 7px calc(var(--sb-pad-x, 12px) - 8px);
+  border-radius: 8px;
   cursor: pointer;
   position: relative;
 }
 .se:hover { background: var(--panel2); }
-.se.on { background: color-mix(in srgb, var(--blue) 7%, transparent); }
+.se.on { background: var(--soft); }
 
 .row {
   display: flex;
@@ -351,7 +353,7 @@ defineExpose({ closeMenu, cancelArchive });
 
 .menu {
   position: absolute;
-  right: 10px;
+  right: 2px;
   top: 30px;
   background: var(--bg);
   border: 1px solid var(--line);

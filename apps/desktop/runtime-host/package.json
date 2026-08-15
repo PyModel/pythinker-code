@@ -1,0 +1,10 @@
+{
+  "name": "@pymodel/pythinker-desktop-runtime",
+  "description": "Dependency-only deploy root for the packaged desktop Host",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@pymodel/pythinker-code": "workspace:*"
+  }
+}

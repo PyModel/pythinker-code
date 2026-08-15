@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
+import MascotSprite from './MascotSprite.vue';
 import type { AppSubagentPhase } from '../api/types';
 import type { DynamicWorkflowGroup, DynamicWorkflowMember } from '../composables/dynamicWorkflowGroups';
 
@@ -7,6 +8,7 @@ const props = defineProps<{ group: DynamicWorkflowGroup }>();
 
 const total = computed(() => props.group.members.length);
 const done = computed(() => props.group.counts.completed + props.group.counts.failed);
+const running = computed(() => props.group.members.some((member) => member.phase === 'working' || member.phase === 'queued'));
 
 function phaseLabel(phase: AppSubagentPhase): string {
   switch (phase) {
@@ -37,6 +39,7 @@ function latestProgress(member: DynamicWorkflowMember): string | undefined {
   <section class="dynamic-workflow-card" :id="`dynamic-workflow-${group.id}`">
     <header class="dynamic-workflow-head">
       <div class="dynamic-workflow-title">
+        <MascotSprite v-if="running" state="running" :size="22" />
         <span class="dynamic-workflow-mark" aria-hidden="true"></span>
         <span>Dynamic Workflow</span>
       </div>

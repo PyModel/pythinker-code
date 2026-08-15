@@ -711,4 +711,121 @@ describe('ws-control — operation registry', () => {
 
     expect(wsOperations.some((op) => op.type === 'session_event')).toBe(true);
   });
+
+  it.each(['completed', 'failed'] as const)('accepts a journaled prompt.completed event with reason=%s', (reason) => {
+    expect(
+      sessionEventMessageSchema.safeParse({
+        type: 'prompt.completed',
+        seq: 558,
+        epoch: 'epoch_01M021XEM56WHDQGYSEDG7KPHK',
+        session_id: 'session_edcd0000000000000000000000',
+        timestamp: TS,
+        payload: {
+          type: 'prompt.completed',
+          agentId: 'main',
+          sessionId: 'session_edcd0000000000000000000000',
+          promptId: 'prompt_01M021XEM56WHDQGYSEDG7KPHK',
+          finishedAt: TS,
+          reason,
+        },
+      }).success,
+    ).toBe(true);
+  });
+
+  it('accepts a journaled prompt.aborted event', () => {
+    expect(
+      sessionEventMessageSchema.safeParse({
+        type: 'prompt.aborted',
+        seq: 559,
+        epoch: 'epoch_01M021XEM56WHDQGYSEDG7KPHK',
+        session_id: 'session_edcd0000000000000000000000',
+        timestamp: TS,
+        payload: {
+          type: 'prompt.aborted',
+          agentId: 'main',
+          sessionId: 'session_edcd0000000000000000000000',
+          promptId: 'prompt_01M021XEM56WHDQGYSEDG7KPHK',
+          abortedAt: TS,
+        },
+      }).success,
+    ).toBe(true);
+  });
+
+  it('accepts journaled question and approval events', () => {
+    const sessionId = 'session_test';
+    const epoch = 'epoch_test';
+    const message = (
+      type: string,
+      seq: number,
+      fields: Record<string, unknown>,
+    ) => ({
+      type,
+      seq,
+      epoch,
+      session_id: sessionId,
+      timestamp: TS,
+      payload: {
+        type,
+        agentId: 'main',
+        sessionId,
+        ...fields,
+      },
+    });
+    const approvalRequest = {
+      approval_id: 'approval_test',
+      session_id: sessionId,
+      turn_id: 1,
+      tool_call_id: 'tool_call_test',
+      tool_name: 'shell.run',
+      action: 'Run a command',
+      tool_input_display: { kind: 'generic', summary: 'test' },
+      created_at: TS,
+      expires_at: '2026-06-04T10:31:00.000Z',
+    };
+
+    const events = [
+      message('event.question.requested', 1, {
+        question_id: 'question_test',
+        session_id: sessionId,
+        questions: [{
+          id: 'q_0',
+          question: 'Which option?',
+          options: [{ id: 'opt_0_0', label: 'A', description: 'First option' }],
+          header: 'Choice',
+          allow_other: true,
+          other_label: 'Other',
+        }],
+        created_at: TS,
+        expires_at: '2026-06-04T10:31:00.000Z',
+      }),
+      message('event.question.answered', 2, {
+        question_id: 'question_test',
+        answers: { q_0: 'opt_0_0' },
+        resolved_at: TS,
+      }),
+      message('event.question.dismissed', 3, {
+        question_id: 'question_test',
+        dismissed_at: TS,
+      }),
+      message('event.question.expired', 4, {
+        question_id: 'question_test',
+      }),
+      message('event.approval.requested', 5, approvalRequest),
+      message('event.approval.resolved', 6, {
+        approval_id: 'approval_test',
+        decision: 'approved',
+        scope: 'session',
+        feedback: 'Proceed',
+        selected_label: 'Approve',
+        resolved_at: TS,
+      }),
+      message('event.approval.expired', 7, {
+        approval_id: 'approval_test',
+      }),
+    ];
+
+    for (const event of events) {
+      expect(sessionEventMessageSchema.safeParse(event).success).toBe(true);
+    }
+  });
 });

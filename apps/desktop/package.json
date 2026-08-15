@@ -1,0 +1,80 @@
+{
+  "name": "@pymodel/pythinker-desktop",
+  "description": "Pythinker desktop application with tray-owned Host lifecycle",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json && tsdown",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tests/tsconfig.json",
+    "dev": "pnpm -C ../pythinker-code run build && tsc -p tsconfig.json && tsdown && electron .",
+    "package": "pnpm --workspace-root run build && node --import tsx scripts/stage-runtime.ts && electron-builder --dir",
+    "dist": "pnpm --workspace-root run build && node --import tsx scripts/stage-runtime.ts && electron-builder",
+    "dist:mac": "node --import tsx scripts/release-mac.ts"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@pymodel/pythinker-telemetry": "workspace:*",
+    "@types/node": "^26.1.2",
+    "electron": "43.4.0",
+    "electron-builder": "26.15.3",
+    "electron-updater": "^6.8.9",
+    "tsdown": "0.22.3",
+    "typescript": "6.0.3",
+    "vitest": "4.1.9"
+  },
+  "build": {
+    "appId": "com.pythinker.desktop",
+    "productName": "Pythinker",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "PyModel",
+        "repo": "pythinker-code"
+      }
+    ],
+    "afterPack": "./scripts/verify-packaged-runtime.ts",
+    "asar": true,
+    "files": [
+      "dist/main.js",
+      "dist/preload.cjs",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "resources",
+        "to": "desktop-resources"
+      },
+      {
+        "from": "runtime-host/package.json",
+        "to": "host/package.json"
+      },
+      {
+        "from": "runtime-host/node_modules",
+        "to": "host/node_modules"
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "hardenedRuntime": true,
+      "icon": "build/icon.png",
+      "notarize": true,
+      "target": [
+        "dir"
+      ]
+    },
+    "win": {
+      "icon": "build/icon.png",
+      "target": [
+        "dir"
+      ]
+    },
+    "linux": {
+      "category": "Development",
+      "target": [
+        "dir"
+      ]
+    }
+  }
+}

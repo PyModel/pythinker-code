@@ -196,6 +196,55 @@ describe('snapshot turn grouping', () => {
     expect(assistant.thinking).toBe('inspect');
   });
 
+  it('deduplicates a REST assistant message and its seeded streaming copy', () => {
+    let state = createInitialState();
+    state = {
+      ...state,
+      messagesBySession: {
+        [SESSION]: [
+          message('assistant_rest', 'assistant', [
+            { type: 'thinking', thinking: 'planning', signature: 'rest-signature' },
+            { type: 'text', text: 'answer' },
+            { type: 'toolUse', toolCallId: 'workflow_1', toolName: 'DynamicWorkflow', input: { tasks: 2 } },
+          ], 'prompt_1'),
+        ],
+      },
+    };
+
+    state = reduceAppEvent(
+      state,
+      {
+        type: 'messageCreated',
+        message: message('assistant_stream', 'assistant', [
+          { type: 'thinking', thinking: 'planning' },
+          { type: 'text', text: 'answer' },
+          { type: 'toolUse', toolCallId: 'workflow_1', toolName: 'DynamicWorkflow', input: { tasks: 2 } },
+        ], 'prompt_1'),
+      },
+      { sessionId: SESSION, seq: 1 },
+    );
+
+    const turns = messagesToTurns(state.messagesBySession[SESSION]!, []);
+    expect(state.messagesBySession[SESSION]).toHaveLength(1);
+    expect(turns[0]?.blocks?.map((block) => block.kind)).toEqual(['thinking', 'text', 'tool']);
+    expect(turns[0]?.thinking).toBe('planning');
+    expect(turns[0]?.text).toBe('answer');
+  });
+
+  it('keeps paragraph breaks between distinct assistant messages in one turn', () => {
+    const turns = messagesToTurns(
+      [
+        message('assistant_1', 'assistant', [{ type: 'text', text: 'first paragraph' }]),
+        message('assistant_2', 'assistant', [{ type: 'text', text: 'second paragraph' }]),
+      ],
+      [],
+    );
+
+    expect(turns).toHaveLength(1);
+    expect(turns[0]?.text).toBe('first paragraph\n\nsecond paragraph');
+    expect(turns[0]?.blocks).toEqual([{ kind: 'text', text: 'first paragraph\n\nsecond paragraph' }]);
+  });
+
   it('keeps adjacent assistant messages separate when promptIds disagree', () => {
     const turns = messagesToTurns(
       [
