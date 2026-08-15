@@ -2,7 +2,7 @@
  * Scenario: the VS Code host and another Node SDK client share one in-process Pythinker home.
  * Responsibilities: outbound host identity, config/session interoperability, MCP credential/edit compatibility, and terminal provider failures.
  * Wiring: PythinkerRuntime, PythinkerHarness, core, storage, and HTTP provider adapter are real; only the remote provider is local.
- * Run: pnpm --filter pythinker-code exec vitest run test/pythinker-harness.integration.test.ts
+ * Run: pnpm --filter pythinker exec vitest run test/pythinker-harness.integration.test.ts
  */
 
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
