@@ -4,7 +4,7 @@
  * Host cannot discover the developer's real home directory.
  * Wiring: real smoke orchestration and filesystem; @vscode/test-electron is the
  * external process/download boundary.
- * Run: pnpm --filter pythinker-code exec vitest run --config vitest.config.ts test/extension-host-smoke.test.ts
+ * Run: pnpm --filter pythinker exec vitest run --config vitest.config.ts test/extension-host-smoke.test.ts
  */
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';

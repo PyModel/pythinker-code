@@ -15,7 +15,7 @@ AI coding assistant for VS Code, built for long-context workflows and complex co
 
 Pythinker Code requires VS Code 1.100.0 or later.
 
-1. Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=pymodel.pythinker-code)
+1. Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=pymodel.pythinker)
 2. Open a folder in VS Code
 3. Click the Pythinker icon in the Activity Bar
 4. Sign in, or use a provider already configured in the shared `config.toml`

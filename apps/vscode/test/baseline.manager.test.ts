@@ -2,7 +2,7 @@
  * Scenario: VSCode-owned file baselines for new and forked sessions.
  * Responsibilities: capture originals, show changes, keep/undo, and reject unsafe paths.
  * Wiring: real temporary workspace/global-storage files; no stubbed collaborators.
- * Run: pnpm --filter pythinker-code test -- baseline.manager.test.ts
+ * Run: pnpm --filter pythinker test -- baseline.manager.test.ts
  */
 import { existsSync, writeFileSync } from 'node:fs';
 import { chmod, mkdir, mkdtemp, readFile, rm, symlink, unlink, writeFile } from 'node:fs/promises';
