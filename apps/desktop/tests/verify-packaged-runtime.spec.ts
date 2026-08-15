@@ -38,4 +38,38 @@ describe('packaged desktop runtime verification', () => {
       await rm(appOutDir, { recursive: true, force: true })
     }
   })
+
+  it('rejects a Windows shell whose node-pty native closure was filtered out', async () => {
+    const appOutDir = await mkdtemp(join(tmpdir(), 'pythinker-packaged-runtime-'))
+    try {
+      const resources = join(appOutDir, 'resources', 'host', 'node_modules')
+      const cli = join(resources, '@pymodel', 'pythinker-code', 'dist', 'launcher.mjs')
+      const web = join(resources, '@pymodel', 'pythinker-code', 'dist-web', 'index.html')
+      await mkdir(join(cli, '..'), { recursive: true })
+      await mkdir(join(web, '..'), { recursive: true })
+      await writeFile(cli, '')
+      await writeFile(web, '')
+
+      await expect(afterPack(context(appOutDir, 'win32'))).rejects.toMatchObject({ code: 'ENOENT' })
+    } finally {
+      await rm(appOutDir, { recursive: true, force: true })
+    }
+  })
+
+  it('does not require Windows node-pty entries for a Darwin shell', async () => {
+    const appOutDir = await mkdtemp(join(tmpdir(), 'pythinker-packaged-runtime-'))
+    try {
+      const resources = join(appOutDir, 'Pythinker.app', 'Contents', 'Resources', 'host', 'node_modules')
+      const cli = join(resources, '@pymodel', 'pythinker-code', 'dist', 'launcher.mjs')
+      const web = join(resources, '@pymodel', 'pythinker-code', 'dist-web', 'index.html')
+      await mkdir(join(cli, '..'), { recursive: true })
+      await mkdir(join(web, '..'), { recursive: true })
+      await writeFile(cli, '')
+      await writeFile(web, '')
+
+      await expect(afterPack(context(appOutDir))).resolves.toBeUndefined()
+    } finally {
+      await rm(appOutDir, { recursive: true, force: true })
+    }
+  })
 })

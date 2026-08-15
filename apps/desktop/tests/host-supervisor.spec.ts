@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createHostSupervisor,
@@ -313,5 +313,68 @@ describe('desktop Host process', () => {
       ],
       expect.objectContaining({ env: { PYTHINKER_DESKTOP: '1', ELECTRON_RUN_AS_NODE: '1' } }),
     )
+  })
+
+  it('kills the Windows Host process tree', async () => {
+    const child = {
+      pid: 4242,
+      stdout: { on: vi.fn(), off: vi.fn() },
+      stderr: { on: vi.fn(), off: vi.fn() },
+      on: vi.fn(),
+      off: vi.fn(),
+      kill: vi.fn(),
+    }
+    vi.mocked(spawn).mockReturnValue(child as never)
+    vi.mocked(spawnSync).mockReturnValue({
+      pid: 4242,
+      output: [],
+      stdout: Buffer.alloc(0),
+      stderr: Buffer.alloc(0),
+      status: 0,
+      signal: null,
+    })
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+
+    const { spawnPythinkerServer } = await import('../src/host-supervisor')
+    const host = spawnPythinkerServer({
+      nodeExecutable: 'node',
+      cliEntry: '/tmp/launcher.mjs',
+      cwd: '/tmp',
+      env: {},
+    })
+    host.kill('SIGTERM')
+
+    expect(spawnSync).toHaveBeenCalledWith(
+      'taskkill',
+      ['/pid', '4242', '/T', '/F'],
+      { windowsHide: true },
+    )
+    expect(child.kill).not.toHaveBeenCalled()
+  })
+
+  it('uses child.kill unchanged on non-Windows', async () => {
+    const child = {
+      pid: 4242,
+      stdout: { on: vi.fn(), off: vi.fn() },
+      stderr: { on: vi.fn(), off: vi.fn() },
+      on: vi.fn(),
+      off: vi.fn(),
+      kill: vi.fn(),
+    }
+    vi.mocked(spawn).mockReturnValue(child as never)
+    vi.mocked(spawnSync).mockClear()
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
+
+    const { spawnPythinkerServer } = await import('../src/host-supervisor')
+    const host = spawnPythinkerServer({
+      nodeExecutable: 'node',
+      cliEntry: '/tmp/launcher.mjs',
+      cwd: '/tmp',
+      env: {},
+    })
+    host.kill('SIGTERM')
+
+    expect(child.kill).toHaveBeenCalledWith('SIGTERM')
+    expect(spawnSync).not.toHaveBeenCalled()
   })
 })

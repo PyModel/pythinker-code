@@ -2,7 +2,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { isAbsolute, join, resolve } from 'node:path'
 import {
   app,
   BrowserWindow,
@@ -109,7 +109,7 @@ function hostPaths(): { nodeExecutable: string; cliEntry: string; cwd: string; e
 }
 
 function assertHostArtifacts(paths: ReturnType<typeof hostPaths>): void {
-  if (paths.nodeExecutable.includes('/') && !existsSync(paths.nodeExecutable)) {
+  if (isAbsolute(paths.nodeExecutable) && !existsSync(paths.nodeExecutable)) {
     throw new Error(`desktop Node runtime is missing: ${paths.nodeExecutable}`)
   }
   if (!existsSync(paths.cliEntry)) {
@@ -298,6 +298,7 @@ function requestAppQuit(): Promise<void> {
 }
 
 async function boot(): Promise<void> {
+  if (process.platform === 'win32') app.setAppUserModelId('com.pythinker.desktop')
   if (bootQuitPromise !== undefined) return
   initializeDesktopTelemetry()
   const paths = hostPaths()
