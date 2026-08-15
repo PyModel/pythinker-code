@@ -108,6 +108,31 @@ describe('StatusBarComponent', () => {
     }
   });
 
+  it('paints the update extra in warning and leaves other extras dim', () => {
+    const previousLevel = chalk.level;
+    const previousPalette = currentTheme.palette;
+    chalk.level = 3;
+    currentTheme.setPalette(darkColors);
+
+    try {
+      const component = new StatusBarComponent();
+      component.update(
+        status({
+          extras: ['6% · 55.6k/1M', '↑ v0.18.0 restart to apply'],
+          updateExtra: '↑ v0.18.0 restart to apply',
+        }),
+      );
+
+      const line = renderRow(component, 160);
+
+      expect(line).toContain(chalk.hex(darkColors.warning)('↑ v0.18.0 restart to apply'));
+      expect(line).toContain(chalk.hex(darkColors.textDim)('6% · 55.6k/1M'));
+    } finally {
+      chalk.level = previousLevel;
+      currentTheme.setPalette(previousPalette);
+    }
+  });
+
   it('drops the gap, modes, and cwd in that order as width shrinks', () => {
     const component = new StatusBarComponent();
     component.update(status());
