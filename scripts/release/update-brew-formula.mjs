@@ -4,6 +4,11 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+function redactGitOutput(value, token) {
+  const redacted = String(value ?? '').replaceAll(/\/\/x-access-token:[^@\s]*@/gu, '//***@');
+  return token.length >= 8 ? redacted.replaceAll(token, '***') : redacted;
+}
+
 async function main() {
   const packageJson = JSON.parse(readFileSync(new URL('../../apps/pythinker-code/package.json', import.meta.url), 'utf8'));
   const version = packageJson.version;
@@ -22,10 +27,13 @@ async function main() {
   try {
     try {
       execFileSync('git', ['clone', `https://x-access-token:${token}@github.com/PyModel/homebrew-tap.git`, tapDir], {
-        stdio: 'ignore',
+        stdio: 'pipe',
       });
-    } catch {
-      throw new Error('Failed to clone Homebrew tap');
+    } catch (error) {
+      const stderr = redactGitOutput(error.stderr, token).trim();
+      const stdout = redactGitOutput(error.stdout, token).trim();
+      const message = redactGitOutput(error.message, token).trim();
+      throw new Error(`Failed to clone Homebrew tap: ${stderr || stdout || message}`, { cause: error });
     }
 
     const formulaPath = join(tapDir, 'Formula/pythinker-code.rb');
@@ -62,9 +70,12 @@ async function main() {
       { cwd: tapDir, stdio: 'inherit' },
     );
     try {
-      execFileSync('git', ['push', 'origin', 'main'], { cwd: tapDir, stdio: 'ignore' });
-    } catch {
-      throw new Error('Failed to push Homebrew tap');
+      execFileSync('git', ['push', 'origin', 'main'], { cwd: tapDir, stdio: 'pipe' });
+    } catch (error) {
+      const stderr = redactGitOutput(error.stderr, token).trim();
+      const stdout = redactGitOutput(error.stdout, token).trim();
+      const message = redactGitOutput(error.message, token).trim();
+      throw new Error(`Failed to push Homebrew tap: ${stderr || stdout || message}`, { cause: error });
     }
   } finally {
     rmSync(tapDir, { recursive: true, force: true });

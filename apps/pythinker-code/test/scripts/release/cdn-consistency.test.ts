@@ -111,6 +111,125 @@ describe('pollCdnUntilCaughtUp', () => {
     expect(result).toMatchObject({ ok: true, reason: 'match', attempts: 3 });
   });
 
+  it('re-triggers on the configured cadence while the CDN is behind', async () => {
+    const { now, sleep } = fakeClock();
+    let retriggerCalls = 0;
+    const result = await pollCdnUntilCaughtUp({
+      ...base,
+      now,
+      sleep,
+      fetchImpl: scriptedFetch([
+        () => manifest('0.12.0'),
+        () => manifest('0.12.0'),
+        () => manifest('0.12.0'),
+        () => manifest('0.12.0'),
+        () => manifest('0.12.0'),
+        () => manifest('0.12.0'),
+        () => manifest('0.13.0'),
+      ]),
+      retrigger: async () => {
+        retriggerCalls += 1;
+      },
+      retriggerEveryAttempts: 3,
+    });
+
+    expect(retriggerCalls).toBe(2);
+    expect(result).toMatchObject({ ok: true, attempts: 7, retriggers: 2 });
+  });
+
+  it('does not re-trigger when the first attempt matches', async () => {
+    const { now, sleep } = fakeClock();
+    let retriggerCalls = 0;
+    const result = await pollCdnUntilCaughtUp({
+      ...base,
+      now,
+      sleep,
+      fetchImpl: scriptedFetch([() => manifest('0.13.0')]),
+      retrigger: async () => {
+        retriggerCalls += 1;
+      },
+      retriggerEveryAttempts: 1,
+    });
+
+    expect(retriggerCalls).toBe(0);
+    expect(result.retriggers).toBe(0);
+  });
+
+  it('does not re-trigger when the CDN is ahead', async () => {
+    const { now, sleep } = fakeClock();
+    let retriggerCalls = 0;
+    const result = await pollCdnUntilCaughtUp({
+      ...base,
+      now,
+      sleep,
+      fetchImpl: scriptedFetch([() => manifest('0.14.0')]),
+      retrigger: async () => {
+        retriggerCalls += 1;
+      },
+      retriggerEveryAttempts: 1,
+    });
+
+    expect(retriggerCalls).toBe(0);
+    expect(result).toMatchObject({ reason: 'ahead', retriggers: 0 });
+  });
+
+  it('keeps polling when a re-trigger throws', async () => {
+    const { now, sleep } = fakeClock();
+    let retriggerCalls = 0;
+    const result = await pollCdnUntilCaughtUp({
+      ...base,
+      now,
+      sleep,
+      fetchImpl: scriptedFetch([() => manifest('0.12.0'), () => manifest('0.13.0')]),
+      retrigger: async () => {
+        retriggerCalls += 1;
+        throw new Error('trigger failed');
+      },
+      retriggerEveryAttempts: 1,
+    });
+
+    expect(retriggerCalls).toBe(1);
+    expect(result).toMatchObject({ ok: true, attempts: 2, retriggers: 1 });
+  });
+
+  it('re-triggers while the CDN is unreachable', async () => {
+    const { now, sleep } = fakeClock();
+    let retriggerCalls = 0;
+    const result = await pollCdnUntilCaughtUp({
+      ...base,
+      now,
+      sleep,
+      fetchImpl: scriptedFetch([
+        () => {
+          throw new Error('ECONNREFUSED');
+        },
+        () => manifest('0.13.0'),
+      ]),
+      retrigger: async () => {
+        retriggerCalls += 1;
+      },
+      retriggerEveryAttempts: 1,
+    });
+
+    expect(retriggerCalls).toBe(1);
+    expect(result).toMatchObject({ ok: true, retriggers: 1 });
+  });
+
+  it('reports re-trigger attempts when the budget expires', async () => {
+    const { now, sleep } = fakeClock();
+    const result = await pollCdnUntilCaughtUp({
+      ...base,
+      budgetMs: 45_000,
+      now,
+      sleep,
+      fetchImpl: scriptedFetch([() => manifest('0.12.0')]),
+      retrigger: async () => {},
+      retriggerEveryAttempts: 1,
+    });
+
+    expect(result).toMatchObject({ reason: 'timeout', attempts: 3, retriggers: 2 });
+  });
+
   it('treats an unreachable CDN as lag rather than a failure', async () => {
     const { now, sleep } = fakeClock();
     const result = await pollCdnUntilCaughtUp({
