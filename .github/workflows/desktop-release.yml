@@ -17,14 +17,14 @@ jobs:
     runs-on: macos-15
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned from v4
         with:
           fetch-depth: 0
           persist-credentials: true
 
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # pinned from v6
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # pinned from v6
         with:
           node-version-file: .nvmrc
           cache: pnpm
@@ -64,7 +64,7 @@ jobs:
 
       - name: Upload macOS artifacts for manual runs
         if: github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # pinned from v7
         with:
           name: desktop-macos
           path: |

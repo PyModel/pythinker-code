@@ -53,6 +53,7 @@ let getWindow: (() => BrowserWindow | undefined) | undefined
 let initialCheckTimer: ReturnType<typeof setTimeout> | undefined
 let checkInterval: ReturnType<typeof setInterval> | undefined
 let listenersWired = false
+let initialized = false
 let updateTelemetryTrack: UpdateTelemetryTrack = () => {}
 
 export function trackUpdateTransition(
@@ -162,6 +163,13 @@ export function initUpdater(
   windowGetter: () => BrowserWindow | undefined,
   track: UpdateTelemetryTrack = () => {},
 ): void {
+  if (initialized) {
+    getWindow = windowGetter
+    updateTelemetryTrack = track
+    updateState({})
+    return
+  }
+  initialized = true
   getWindow = windowGetter
   updateTelemetryTrack = track
   settings = readUpdateSettings(app.getPath('userData'))
@@ -176,7 +184,7 @@ export function initUpdater(
 
   try {
     autoUpdater.autoDownload = settings.autoUpdate
-    autoUpdater.autoInstallOnAppQuit = true
+    autoUpdater.autoInstallOnAppQuit = settings.autoUpdate
   } catch (error) {
     stateError(error)
     return
@@ -205,15 +213,16 @@ export function setAutoUpdate(enabled: boolean): UpdateState {
 
   try {
     autoUpdater.autoDownload = enabled
+    autoUpdater.autoInstallOnAppQuit = enabled
   } catch (error) {
     stateError(error)
     return state
   }
-  if (!enabled) {
-    clearTimers()
-  } else {
+  if (enabled) {
     scheduleChecks()
     if (!wasEnabled) void checkForUpdatesNow()
+  } else {
+    clearTimers()
   }
   return state
 }
@@ -230,7 +239,11 @@ export async function checkForUpdatesNow(): Promise<UpdateState> {
     stateError(error)
     return state
   }
-  return runCheck()
+  try {
+    return await runCheck()
+  } finally {
+    autoUpdater.autoDownload = settings.autoUpdate
+  }
 }
 
 export function quitAndInstallNow(): UpdateState {

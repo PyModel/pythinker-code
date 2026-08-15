@@ -163,6 +163,13 @@ function hasOrigin(raw: string, expected: string): boolean {
   }
 }
 
+function assertTrustedSender(event: Electron.IpcMainInvokeEvent): void {
+  const frame = event.senderFrame
+  if (hostOrigin === undefined || frame === null || frame !== event.sender.mainFrame || !hasOrigin(frame.url, hostOrigin)) {
+    throw new Error('desktop update IPC rejected an untrusted sender')
+  }
+}
+
 /** Install navigation and permission policy before the first renderer loads. */
 function hardenSession(): void {
   const desktopSession = session.defaultSession
@@ -234,24 +241,40 @@ async function createMainWindow(): Promise<BrowserWindow> {
   return window
 }
 
-ipcMain.handle('pythinker:update:get', () => getUpdateState())
-ipcMain.handle('pythinker:update:set-auto', (_event, enabled: unknown) => {
+function showWindowSafely(): void {
+  void lifecycle?.showWindow().catch((error: unknown) => {
+    console.error('desktop window failed to open:', error)
+  })
+}
+
+ipcMain.handle('pythinker:update:get', (event) => {
+  assertTrustedSender(event)
+  return getUpdateState()
+})
+ipcMain.handle('pythinker:update:set-auto', (event, enabled: unknown) => {
+  assertTrustedSender(event)
   if (typeof enabled !== 'boolean') throw new TypeError('automatic updates must be a boolean')
   return setAutoUpdate(enabled)
 })
-ipcMain.handle('pythinker:update:check', () => checkForUpdatesNow())
-ipcMain.handle('pythinker:update:install', () => quitAndInstallNow())
+ipcMain.handle('pythinker:update:check', (event) => {
+  assertTrustedSender(event)
+  return checkForUpdatesNow()
+})
+ipcMain.handle('pythinker:update:install', (event) => {
+  assertTrustedSender(event)
+  return quitAndInstallNow()
+})
 
 function createTray(images: TrayImages): void {
   tray = new Tray(images.idle)
   tray.setToolTip(APP_NAME)
   const template: MenuItemConstructorOptions[] = [
-    { label: 'Open Pythinker', click: () => { void lifecycle?.showWindow() } },
+    { label: 'Open Pythinker', click: showWindowSafely },
     { type: 'separator' },
     { label: 'Quit', click: () => { void requestAppQuit() } },
   ]
   tray.setContextMenu(Menu.buildFromTemplate(template))
-  tray.on('click', () => { void lifecycle?.showWindow() })
+  tray.on('click', showWindowSafely)
 }
 
 function releaseAppQuit(): void {
@@ -333,8 +356,8 @@ async function boot(): Promise<void> {
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
-  app.on('second-instance', () => { void lifecycle?.showWindow() })
-  app.on('activate', () => { void lifecycle?.showWindow() })
+  app.on('second-instance', showWindowSafely)
+  app.on('activate', showWindowSafely)
   app.on('window-all-closed', () => {
     // Tray and Host own application lifetime on every platform.
   })

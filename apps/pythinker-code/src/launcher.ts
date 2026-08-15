@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process';
 const FFI_FLAG = '--experimental-ffi';
 const FFI_WARNING_FLAG = '--disable-warning=ExperimentalWarning';
 const FFI_CHILD_ENV = 'PYTHINKER_CODE_FFI_CHILD';
+// Local on purpose: the FFI launcher test executes this file standalone, so it must stay import-free beyond node builtins.
 const REQUIRED_RUNTIME = 'Node.js 20 or newer';
 const MINIMUM_NODE = [20, 0, 0] as const;
 const FFI_NODE = [26, 4, 0] as const;
@@ -25,14 +26,6 @@ function isVersionBelow(
   if (major !== reqMajor) return major < reqMajor;
   if (minor !== reqMinor) return minor < reqMinor;
   return patch < reqPatch;
-}
-
-function isRuntimeTooOld(): boolean {
-  return isVersionBelow(process.versions.node, MINIMUM_NODE);
-}
-
-function supportsFfi(): boolean {
-  return !isVersionBelow(process.versions.node, FFI_NODE);
 }
 
 function isFfiProcess(): boolean {
@@ -96,7 +89,7 @@ function launchWindowsFallback(
 }
 
 async function launch(): Promise<void> {
-  if (isRuntimeTooOld()) {
+  if (isVersionBelow(process.versions.node, MINIMUM_NODE)) {
     process.stderr.write(
       `Pythinker Code requires ${REQUIRED_RUNTIME}; you are running Node.js ${process.versions.node}.\n` +
         `${NATIVE_INSTALL_HINT}\n`,
@@ -105,7 +98,7 @@ async function launch(): Promise<void> {
     return;
   }
 
-  if (!supportsFfi()) {
+  if (isVersionBelow(process.versions.node, FFI_NODE)) {
     await import(new URL('./main.mjs', import.meta.url).href);
     return;
   }
