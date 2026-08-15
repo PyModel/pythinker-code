@@ -1,5 +1,6 @@
+import { isAbsolute, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { packageManagerInvocation } from '../scripts/stage-runtime'
+import { deployTargetArgument, packageManagerInvocation } from '../scripts/stage-runtime'
 
 describe('package manager invocation', () => {
   it('leaves non-Windows invocations untouched', () => {
@@ -29,5 +30,23 @@ describe('package manager invocation', () => {
   it('quotes a Windows cmd metacharacter', () => {
     expect(packageManagerInvocation('win32', 'pnpm', ['deploy&verify']).args)
       .toEqual(['"deploy&verify"'])
+  })
+})
+
+describe('deploy target argument', () => {
+  it('is relative to the workspace root', () => {
+    expect(deployTargetArgument('/repo', '/repo/node_modules/.pythinker-desktop-staging/runtime-abc123'))
+      .toBe(join('node_modules', '.pythinker-desktop-staging', 'runtime-abc123'))
+  })
+
+  it('is never absolute', () => {
+    expect(isAbsolute(deployTargetArgument('/repo', '/repo/node_modules/.pythinker-desktop-staging/runtime-abc123')))
+      .toBe(false)
+  })
+
+  it('never returns the target unchanged', () => {
+    const target = '/repo/node_modules/.pythinker-desktop-staging/runtime-abc123'
+
+    expect(deployTargetArgument('/repo', target)).not.toBe(target)
   })
 })

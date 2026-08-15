@@ -3,8 +3,7 @@
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { cp, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join, resolve, sep } from 'node:path'
+import { join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const desktopRoot = resolve(import.meta.dirname, '..')
@@ -14,6 +13,7 @@ const deployPackage = '@pymodel/pythinker-code'
 const entry = join(staging, 'node_modules/@pymodel/pythinker-code/dist/launcher.mjs')
 const frontend = join(staging, 'node_modules/@pymodel/pythinker-code/dist-web/index.html')
 const workspaceState = join(repositoryRoot, 'node_modules/.pnpm-workspace-state-v1.json')
+const stagingParent = join(repositoryRoot, 'node_modules', '.pythinker-desktop-staging')
 
 /** Windows characters that make an argument unsafe to hand to `cmd.exe` unquoted. */
 const WINDOWS_UNSAFE_ARGUMENT = /[\s"&()<>^|]/u
@@ -40,6 +40,21 @@ export function packageManagerInvocation(platform: string, command: string, args
     args: args.map(argument => (WINDOWS_UNSAFE_ARGUMENT.test(argument) ? `"${argument}"` : argument)),
     shell: true,
   }
+}
+
+/**
+ * Express a deploy target the way pnpm accepts it.
+ *
+ * pnpm joins its workspace root with the deploy target rather than resolving
+ * it, so an absolute path on another volume produces a concatenated,
+ * non-existent directory such as `D:\repo\C:\Users\…`. A workspace-relative
+ * target is correct whether pnpm joins or resolves.
+ * @param workspaceRoot - The pnpm workspace root, and the child process's cwd.
+ * @param target - The absolute staging directory.
+ * @returns The target expressed relative to the workspace root.
+ */
+export function deployTargetArgument(workspaceRoot: string, target: string): string {
+  return relative(workspaceRoot, target)
 }
 
 async function run(command: string, args: readonly string[]): Promise<void> {
@@ -96,7 +111,8 @@ async function deploy(target: string): Promise<void> {
   try {
     await run('pnpm', [
       '--config.verify-deps-before-run=false', '--filter', deployPackage, 'deploy', '--legacy', '--prod',
-      '--config.node-linker=hoisted', '--config.auto-install-peers=false', '--config.link-workspace-packages=true', target,
+      '--config.node-linker=hoisted', '--config.auto-install-peers=false', '--config.link-workspace-packages=true',
+      deployTargetArgument(repositoryRoot, target),
     ])
   } finally {
     if (savedWorkspaceState === undefined) await rm(workspaceState, { force: true })
@@ -105,7 +121,8 @@ async function deploy(target: string): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  const deployed = await mkdtemp(join(tmpdir(), 'pythinker-desktop-runtime-'))
+  await mkdir(stagingParent, { recursive: true })
+  const deployed = await mkdtemp(join(stagingParent, 'runtime-'))
   try {
     await deploy(deployed)
     await rm(join(staging, 'node_modules'), { recursive: true, force: true })
