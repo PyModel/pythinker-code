@@ -169,7 +169,7 @@ jobs:
       # Packages all six platform targets and runs the VSIX audit on each one.
       # A failure here must stop the job before anything reaches a registry.
       - name: Package and verify VSIX targets
-        run: pnpm --filter pythinker-code run package:platform
+        run: pnpm --filter pythinker run package:platform
 
       - name: Publish to the Visual Studio Marketplace
         env:
@@ -179,7 +179,7 @@ jobs:
             echo "::warning::VSCE_PAT secret not set — skipping Marketplace publish."
             exit 0
           fi
-          pnpm --filter pythinker-code run publish:vsix
+          pnpm --filter pythinker run publish:vsix
 
       # Open VSX serves Cursor / VSCodium / Windsurf. A failure here must not
       # undo an already-successful Marketplace publish, so it only warns.
@@ -192,7 +192,7 @@ jobs:
             echo "::warning::OVSX_PAT secret not set — skipping Open VSX publish."
             exit 0
           fi
-          pnpm --filter pythinker-code run publish:ovsx
+          pnpm --filter pythinker run publish:ovsx
 
       - name: Upload VSIX artifacts
         if: always()

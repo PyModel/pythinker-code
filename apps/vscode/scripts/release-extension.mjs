@@ -2,8 +2,8 @@
 // Tag and publish the VS Code extension in one pass:
 // preflight -> bump -> commit -> build -> package+verify -> publish -> tag -> push.
 //
-//   pnpm --filter pythinker-code run release 0.8.3
-//   pnpm --filter pythinker-code run release 0.8.3 --dry-run
+//   pnpm --filter pythinker run release 0.8.3
+//   pnpm --filter pythinker run release 0.8.3 --dry-run
 //
 // The Marketplace token is read from the macOS keychain, so it never reaches a
 // shell history or a file. Store it once with:
@@ -70,7 +70,7 @@ async function assertUnpublished(version) {
   const response = await fetch('https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json;api-version=7.1-preview.1' },
-    body: JSON.stringify({ filters: [{ criteria: [{ filterType: 7, value: 'pymodel.pythinker-code' }] }], flags: 914 }),
+    body: JSON.stringify({ filters: [{ criteria: [{ filterType: 7, value: 'pymodel.pythinker' }] }], flags: 914 }),
   });
   if (!response.ok) {
     console.warn(`Could not reach the Marketplace to check for ${version}; continuing.`);
@@ -119,7 +119,7 @@ async function main() {
     // failed build — otherwise the next real run trips its own clean-tree check.
     try {
       run('pnpm', ['build']);
-      run('pnpm', ['--filter', 'pythinker-code', 'run', 'package:platform']);
+      run('pnpm', ['--filter', 'pythinker', 'run', 'package:platform']);
       console.log(`\nDry run: built and verified ${version}. Nothing published, nothing tagged.`);
     } finally {
       writeFileSync(MANIFEST, originalManifest);
@@ -128,7 +128,7 @@ async function main() {
   }
 
   run('pnpm', ['build']);
-  run('pnpm', ['--filter', 'pythinker-code', 'run', 'package:platform']);
+  run('pnpm', ['--filter', 'pythinker', 'run', 'package:platform']);
 
   // Commit before publishing so the shipped bits always correspond to a commit,
   // and tag only once the Marketplace has actually accepted them.
@@ -136,7 +136,7 @@ async function main() {
   run('git', ['commit', '-m', `chore(vscode): release ${version}`]);
 
   try {
-    run('pnpm', ['--filter', 'pythinker-code', 'run', 'publish:vsix'], { env: { ...process.env, VSCE_PAT: vscePat } });
+    run('pnpm', ['--filter', 'pythinker', 'run', 'publish:vsix'], { env: { ...process.env, VSCE_PAT: vscePat } });
   } catch (error) {
     // The version bump is already committed and some targets may already be
     // live, so say exactly how to finish rather than leaving it to be worked out.
@@ -144,7 +144,7 @@ async function main() {
       `${error instanceof Error ? error.message : String(error)}\n\n` +
         `${version} is partly published and NOT tagged. The publish summary above lists which\n` +
         `targets are live; published ones are skipped on a re-run. Finish with:\n` +
-        `  pnpm --filter pythinker-code run publish:vsix\n` +
+        `  pnpm --filter pythinker run publish:vsix\n` +
         `  git tag -a ${tag} -m "Pythinker Code VS Code extension ${version}"\n` +
         `Do not bump the version again — ${version} is already consumed.`,
     );
@@ -155,7 +155,7 @@ async function main() {
     // Open VSX serves Cursor / VSCodium / Windsurf, but it must never undo a
     // successful Marketplace publish.
     try {
-      run('pnpm', ['--filter', 'pythinker-code', 'run', 'publish:ovsx'], { env: { ...process.env, OVSX_PAT: ovsxPat } });
+      run('pnpm', ['--filter', 'pythinker', 'run', 'publish:ovsx'], { env: { ...process.env, OVSX_PAT: ovsxPat } });
     } catch (error) {
       console.warn(`Open VSX publish failed, Marketplace is live: ${error instanceof Error ? error.message : String(error)}`);
     }

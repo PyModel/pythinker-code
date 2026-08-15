@@ -4,7 +4,7 @@ const os = require("node:os");
 const path = require("node:path");
 const vscode = require("vscode");
 
-const EXTENSION_ID = "pymodel.pythinker-code";
+const EXTENSION_ID = "pymodel.pythinker";
 const EXPECTED_COMMANDS = [
   "pythinker.clearAllState",
   "pythinker.focusInput",

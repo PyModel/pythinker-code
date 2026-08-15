@@ -2,7 +2,7 @@
  * Scenario: untrusted Webview RPC messages cross into the VS Code extension host.
  * Responsibilities: validate requests, preserve public model metadata, omit private paths, and recover visibly from persisted state errors.
  * Wiring: the real BridgeHandler and handlers; VS Code and the public Node SDK harness boundary are replaced.
- * Run: pnpm --filter pythinker-code exec vitest run --config vitest.config.ts test/bridge-handler.test.ts
+ * Run: pnpm --filter pythinker exec vitest run --config vitest.config.ts test/bridge-handler.test.ts
  */
 import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
