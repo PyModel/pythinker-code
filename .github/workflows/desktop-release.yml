@@ -51,16 +51,33 @@ jobs:
       # Without Developer ID signing secrets, electron-builder publishes an
       # ad-hoc/self-signed app. macOS auto-update will not accept unsigned updates,
       # but this still proves packaging and the feed shape.
+      # An unset GitHub secret interpolates to an empty string, and
+      # electron-builder resolves an empty CSC_LINK as a certificate path
+      # (path.resolve(appDir, '') === appDir), failing with "not a file".
+      # Export only the variables that carry a value.
+      - name: Resolve macOS signing credentials
+        shell: bash
+        env:
+          IN_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          IN_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          IN_APPLE_ID: ${{ secrets.APPLE_ID }}
+          IN_APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          IN_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          for name in CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+            input="IN_${name}"
+            value="${!input:-}"
+            if [ -n "$value" ]; then printf '%s<<__EOF__\n%s\n__EOF__\n' "$name" "$value" >> "$GITHUB_ENV"; fi
+          done
+          if [ -z "${IN_CSC_LINK:-}" ]; then
+            echo 'CSC_IDENTITY_AUTO_DISCOVERY=false' >> "$GITHUB_ENV"
+            echo 'No macOS signing certificate configured; building unsigned.'
+          fi
       - name: Package and publish desktop release
         working-directory: apps/desktop
         run: pnpm exec electron-builder --mac dmg zip --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
       - name: Upload macOS artifacts for manual runs
         if: github.event_name == 'workflow_dispatch'
@@ -107,15 +124,25 @@ jobs:
         working-directory: apps/desktop
         run: node --import tsx scripts/stage-runtime.ts
 
-      # Without WIN_CSC_* signing secrets, Windows artifacts are unsigned and
-      # installers trigger a SmartScreen warning on first run.
+      # Only non-empty WIN_CSC_* signing secrets are exported. Without them,
+      # Windows artifacts are unsigned and installers trigger a SmartScreen
+      # warning on first run.
+      - name: Resolve Windows signing credentials
+        shell: bash
+        env:
+          IN_WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          IN_WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: |
+          for name in WIN_CSC_LINK WIN_CSC_KEY_PASSWORD; do
+            input="IN_${name}"
+            value="${!input:-}"
+            if [ -n "$value" ]; then printf '%s<<__EOF__\n%s\n__EOF__\n' "$name" "$value" >> "$GITHUB_ENV"; fi
+          done
       - name: Package and publish desktop release
         working-directory: apps/desktop
         run: pnpm exec electron-builder --win nsis --x64 --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
-          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
 
       - name: Upload Windows artifacts for manual runs
         if: github.event_name == 'workflow_dispatch'

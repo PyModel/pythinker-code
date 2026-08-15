@@ -5,6 +5,7 @@ import { existsSync } from 'node:fs'
 import { cp, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 const desktopRoot = resolve(import.meta.dirname, '..')
 const repositoryRoot = resolve(desktopRoot, '../..')
@@ -14,9 +15,42 @@ const entry = join(staging, 'node_modules/@pymodel/pythinker-code/dist/launcher.
 const frontend = join(staging, 'node_modules/@pymodel/pythinker-code/dist-web/index.html')
 const workspaceState = join(repositoryRoot, 'node_modules/.pnpm-workspace-state-v1.json')
 
+/** Windows characters that make an argument unsafe to hand to `cmd.exe` unquoted. */
+const WINDOWS_UNSAFE_ARGUMENT = /[\s"&()<>^|]/u
+
+/**
+ * Decide how to invoke a package manager on one platform.
+ *
+ * Node refuses to spawn a `.cmd` or `.bat` shim without a shell, so Windows
+ * needs `shell: true`. With a shell, Node does not quote arguments, so any
+ * argument carrying whitespace or a `cmd.exe` metacharacter is quoted here.
+ * @param platform - The value of `process.platform`.
+ * @param command - The package-manager binary name.
+ * @param args - Arguments in their unquoted form.
+ * @returns The command, arguments and shell flag to pass to `spawn`.
+ */
+export function packageManagerInvocation(platform: string, command: string, args: readonly string[]): {
+  readonly command: string
+  readonly args: readonly string[]
+  readonly shell: boolean
+} {
+  if (platform !== 'win32') return { command, args, shell: false }
+  return {
+    command,
+    args: args.map(argument => (WINDOWS_UNSAFE_ARGUMENT.test(argument) ? `"${argument}"` : argument)),
+    shell: true,
+  }
+}
+
 async function run(command: string, args: readonly string[]): Promise<void> {
+  const invocation = packageManagerInvocation(process.platform, command, args)
   await new Promise<void>((accept, reject) => {
-    const child = spawn(command, args, { cwd: repositoryRoot, env: { ...process.env, CI: 'true' }, stdio: 'inherit' })
+    const child = spawn(invocation.command, [...invocation.args], {
+      cwd: repositoryRoot,
+      env: { ...process.env, CI: 'true' },
+      stdio: 'inherit',
+      shell: invocation.shell,
+    })
     child.once('error', reject)
     child.once('exit', (code, signal) => {
       if (code === 0) accept()
@@ -60,7 +94,7 @@ async function materializeLinks(): Promise<void> {
 async function deploy(target: string): Promise<void> {
   const savedWorkspaceState = existsSync(workspaceState) ? await readFile(workspaceState) : undefined
   try {
-    await run(process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm', [
+    await run('pnpm', [
       '--config.verify-deps-before-run=false', '--filter', deployPackage, 'deploy', '--legacy', '--prod',
       '--config.node-linker=hoisted', '--config.auto-install-peers=false', '--config.link-workspace-packages=true', target,
     ])
@@ -96,4 +130,7 @@ async function main(): Promise<void> {
   console.log(`desktop runtime staged at ${staging}`)
 }
 
-await main()
+const invokedPath = process.argv[1]
+if (invokedPath !== undefined && resolve(invokedPath) === fileURLToPath(import.meta.url)) {
+  await main()
+}
