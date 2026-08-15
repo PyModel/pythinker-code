@@ -1,0 +1,74 @@
+name: Desktop Release
+
+on:
+  push:
+    tags: ['desktop-v*']
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  mac:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Stamp desktop version for tag builds
+        if: startsWith(github.ref, 'refs/tags/desktop-v')
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          export DESKTOP_VERSION="${TAG_NAME#desktop-v}"
+          node -e 'const fs = require("node:fs"); const path = "apps/desktop/package.json"; const packageJson = JSON.parse(fs.readFileSync(path, "utf8")); packageJson.version = process.env.DESKTOP_VERSION; fs.writeFileSync(path, `${JSON.stringify(packageJson, null, 2)}\n`);'
+
+      - name: Build workspace
+        run: pnpm --workspace-root run build
+
+      - name: Stage desktop runtime
+        working-directory: apps/desktop
+        run: node --import tsx scripts/stage-runtime.ts
+
+      # On a desktop-v* tag, --publish always creates or updates the draft-or-release
+      # for that tag; contents: write makes GITHUB_TOKEN sufficient.
+      # Without Developer ID signing secrets, electron-builder publishes an
+      # ad-hoc/self-signed app. macOS auto-update will not accept unsigned updates,
+      # but this still proves packaging and the feed shape.
+      - name: Package and publish desktop release
+        working-directory: apps/desktop
+        run: pnpm exec electron-builder --mac dmg zip --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Upload macOS artifacts for manual runs
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-macos
+          path: |
+            apps/desktop/dist/*.dmg
+            apps/desktop/dist/*.zip
+            apps/desktop/dist/latest-mac.yml
+          if-no-files-found: error
