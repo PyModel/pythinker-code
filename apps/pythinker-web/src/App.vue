@@ -1352,6 +1352,22 @@ function openPr(url: string): void {
   overflow: hidden;
   box-sizing: border-box;
 }
+:global(html[data-desktop-platform='darwin']) .app,
+:global(html[data-desktop-platform='win32']) .app {
+  background: transparent;
+}
+:global(html[data-desktop-platform='darwin'] .side),
+:global(html[data-desktop-platform='win32'] .side),
+:global(html[data-desktop-platform='darwin']) .sidebar-rail,
+:global(html[data-desktop-platform='win32']) .sidebar-rail {
+  background: color-mix(in srgb, var(--panel) 55%, transparent);
+}
+:global(html[data-desktop-platform='darwin'] .con),
+:global(html[data-desktop-platform='win32'] .con),
+:global(html[data-desktop-platform='darwin']) .global-preview,
+:global(html[data-desktop-platform='win32']) .global-preview {
+  background: var(--bg);
+}
 /* Grid children must be allowed to shrink below content height so that only
    the inner scroll containers (.panes / .sessions) scroll — otherwise the
    whole .app overflows and the page (incl. sidebar) scrolls together. */

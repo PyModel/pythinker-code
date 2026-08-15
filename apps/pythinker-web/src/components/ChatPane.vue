@@ -10,6 +10,7 @@ import ActivityNotice from './ActivityNotice.vue';
 import AgentCard from './AgentCard.vue';
 import AgentGroup from './AgentGroup.vue';
 import ActivitySpinner from './ActivitySpinner.vue';
+import MascotSprite from './MascotSprite.vue';
 import { formatMessageTime } from '../lib/formatMessageTime';
 import { formatTokens } from '../lib/formatTokens';
 
@@ -576,6 +577,7 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
          a page refresh mid-stream, where `sending` was lost but the session is
          still running). -->
     <div v-if="showWorking" class="sending-placeholder">
+      <MascotSprite :state="fastSpinner ? 'running' : 'waiting'" />
       <ActivitySpinner :fast="fastSpinner" />
     </div>
   </div>
@@ -727,7 +729,10 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
           <span class="pr">pythinker</span>
           <span class="who"> &gt; </span>
         </div>
-        <ActivitySpinner :fast="fastSpinner" />
+        <div class="sending-indicator">
+          <MascotSprite :state="fastSpinner ? 'running' : 'waiting'" />
+          <ActivitySpinner :fast="fastSpinner" />
+        </div>
       </div>
     </div>
   </div>
@@ -1291,11 +1296,19 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
 .sending-placeholder {
   align-self: flex-start;
   padding: 10px 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 /* Desktop line-turns sending placeholder */
 .sending-line .tx {
   padding-top: 2px;
+}
+.sending-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 /* Skill activation card (replaces raw <pythinker-skill-loaded> XML) */
