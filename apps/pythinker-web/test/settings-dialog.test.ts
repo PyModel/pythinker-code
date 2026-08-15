@@ -1,7 +1,7 @@
 import { mount } from '@vue/test-utils';
 import { nextTick } from 'vue';
 import { createI18n } from 'vue-i18n';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import SettingsDialog from '../src/components/SettingsDialog.vue';
 import enSettings from '../src/i18n/locales/en/settings';
@@ -102,6 +102,7 @@ function mountDialog() {
 
 afterEach(() => {
   document.body.innerHTML = '';
+  delete window.pythinkerDesktop;
 });
 
 describe('SettingsDialog tabs', () => {
@@ -178,6 +179,35 @@ describe('SettingsDialog config controls', () => {
 
     const pythinkerOptions = groups[1]!.findAll('option');
     expect(pythinkerOptions.some((o) => o.attributes('value') === 'pythinker/k2')).toBe(true);
+  });
+});
+
+describe('SettingsDialog desktop updates', () => {
+  it('renders desktop update controls and checks for updates', async () => {
+    const checkForUpdates = vi.fn().mockResolvedValue(undefined);
+    window.pythinkerDesktop = {
+      platform: 'darwin',
+      getUpdateState: vi.fn().mockResolvedValue({ status: 'idle', autoUpdate: true }),
+      setAutoUpdate: vi.fn().mockResolvedValue({ status: 'idle', autoUpdate: true }),
+      checkForUpdates,
+      quitAndInstall: vi.fn().mockResolvedValue(undefined),
+      onUpdateState: vi.fn().mockReturnValue(() => undefined),
+    };
+
+    const wrapper = mountDialog();
+
+    expect(wrapper.text()).toContain('Desktop app');
+    const checkButton = wrapper.findAll('button').find((button) => button.text() === 'Check for updates');
+    expect(checkButton).toBeDefined();
+
+    await checkButton!.trigger('click');
+    expect(checkForUpdates).toHaveBeenCalledOnce();
+  });
+
+  it('hides desktop update controls outside the desktop app', () => {
+    const wrapper = mountDialog();
+
+    expect(wrapper.text()).not.toContain('Desktop app');
   });
 });
 

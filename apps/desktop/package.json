@@ -15,20 +15,30 @@
   },
   "license": "MIT",
   "devDependencies": {
-    "@types/node": "^22.20.0",
+    "@pymodel/pythinker-telemetry": "workspace:*",
+    "@types/node": "^26.1.2",
     "electron": "43.4.0",
     "electron-builder": "26.15.3",
-    "tsdown": "^0.22.2",
+    "electron-updater": "^6.8.9",
+    "tsdown": "0.22.3",
     "typescript": "6.0.3",
-    "vitest": "^4.1.8"
+    "vitest": "4.1.9"
   },
   "build": {
     "appId": "com.pythinker.desktop",
     "productName": "Pythinker",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "PyModel",
+        "repo": "pythinker-code"
+      }
+    ],
     "afterPack": "./scripts/verify-packaged-runtime.ts",
     "asar": true,
     "files": [
       "dist/main.js",
+      "dist/preload.cjs",
       "package.json"
     ],
     "extraResources": [

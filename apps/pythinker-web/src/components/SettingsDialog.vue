@@ -58,6 +58,76 @@ const tabs: { id: SettingsTab; labelKey: string }[] = [
 
 const daemonEndpoint = serverEndpointLabel();
 const permissionModes = ['manual', 'yolo', 'auto'] as const;
+const desktopBridge = typeof window !== 'undefined' ? window.pythinkerDesktop : undefined;
+const desktopAutoUpdate = ref(true);
+const desktopUpdateState = ref<DesktopUpdateState | undefined>();
+let removeDesktopUpdateListener: (() => void) | undefined;
+
+const desktopStatusText = computed(() => {
+  const state = desktopUpdateState.value;
+  if (state === undefined) return '';
+  if (state.status === 'disabled') return t('settings.desktop.disabled');
+  if (state.status === 'idle') return state.message ? t('settings.desktop.upToDate') : '';
+  if (state.status === 'checking') return t('settings.desktop.checking');
+  if (state.status === 'available' || state.status === 'downloading') {
+    return state.version
+      ? t('settings.desktop.downloading', { version: state.version })
+      : t('settings.desktop.downloadingUnknown');
+  }
+  if (state.status === 'downloaded') return t('settings.desktop.updateReady');
+  return state.message
+    ? t('settings.desktop.error', { message: state.message })
+    : t('settings.desktop.errorGeneric');
+});
+
+const desktopCheckDisabled = computed(() => {
+  const status = desktopUpdateState.value?.status;
+  return status === 'checking' || status === 'downloading';
+});
+
+function setDesktopUpdateState(state: DesktopUpdateState): void {
+  desktopUpdateState.value = state;
+  desktopAutoUpdate.value = state.autoUpdate;
+}
+
+function setDesktopUpdateError(error: unknown): void {
+  desktopUpdateState.value = {
+    status: 'error',
+    autoUpdate: desktopAutoUpdate.value,
+    message: error instanceof Error ? error.message : String(error),
+  };
+}
+
+async function setDesktopAutoUpdate(enabled: boolean): Promise<void> {
+  if (desktopBridge === undefined) return;
+  desktopAutoUpdate.value = enabled;
+  try {
+    const state = await desktopBridge.setAutoUpdate(enabled);
+    if (state !== undefined) setDesktopUpdateState(state);
+  } catch (error) {
+    setDesktopUpdateError(error);
+  }
+}
+
+async function checkDesktopForUpdates(): Promise<void> {
+  if (desktopBridge === undefined) return;
+  try {
+    const state = await desktopBridge.checkForUpdates();
+    if (state !== undefined) setDesktopUpdateState(state);
+  } catch (error) {
+    setDesktopUpdateError(error);
+  }
+}
+
+async function restartDesktopToUpdate(): Promise<void> {
+  if (desktopBridge === undefined) return;
+  try {
+    const state = await desktopBridge.quitAndInstall();
+    if (state !== undefined) setDesktopUpdateState(state);
+  } catch (error) {
+    setDesktopUpdateError(error);
+  }
+}
 
 // Modal focus: move focus into the dialog on open, restore it to the opener on
 // close (Escape-to-close is handled below).
@@ -67,8 +137,17 @@ useDialogFocus(dialogRef);
 function handleKeydown(e: KeyboardEvent): void {
   if (e.key === 'Escape') emit('close');
 }
-onMounted(() => document.addEventListener('keydown', handleKeydown));
-onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
+onMounted(() => {
+  document.addEventListener('keydown', handleKeydown);
+  if (desktopBridge === undefined) return;
+  removeDesktopUpdateListener = desktopBridge.onUpdateState(setDesktopUpdateState);
+  void desktopBridge.getUpdateState().then(setDesktopUpdateState).catch(setDesktopUpdateError);
+});
+onUnmounted(() => {
+  document.removeEventListener('keydown', handleKeydown);
+  removeDesktopUpdateListener?.();
+  removeDesktopUpdateListener = undefined;
+});
 
 function exportLog(): void {
   downloadTraceLog();
@@ -256,6 +335,48 @@ function setTab(tab: SettingsTab): void {
                   @click="emit('setNotify', !notify)"
                 >
                   <span class="knob" />
+                </button>
+              </div>
+            </section>
+
+            <section v-if="desktopBridge !== undefined" class="sec">
+              <h3 class="sec-title">{{ t('settings.desktop.title') }}</h3>
+              <div class="row">
+                <span class="rlabel">
+                  {{ t('settings.desktop.automaticUpdates') }}
+                  <span class="hint">{{ t('settings.desktop.automaticUpdatesHint') }}</span>
+                </span>
+                <button
+                  type="button"
+                  class="switch"
+                  role="switch"
+                  :class="{ on: desktopAutoUpdate }"
+                  :aria-checked="desktopAutoUpdate"
+                  @click="void setDesktopAutoUpdate(!desktopAutoUpdate)"
+                >
+                  <span class="knob" />
+                </button>
+              </div>
+              <div v-if="desktopStatusText" class="row">
+                <span class="rlabel">{{ t('settings.desktop.status') }}</span>
+                <span class="rvalue">{{ desktopStatusText }}</span>
+              </div>
+              <div class="actions">
+                <button
+                  type="button"
+                  class="act"
+                  :disabled="desktopCheckDisabled"
+                  @click="void checkDesktopForUpdates()"
+                >
+                  {{ t('settings.desktop.checkForUpdates') }}
+                </button>
+                <button
+                  v-if="desktopUpdateState?.status === 'downloaded'"
+                  type="button"
+                  class="act"
+                  @click="void restartDesktopToUpdate()"
+                >
+                  {{ t('settings.desktop.restartToUpdate') }}
                 </button>
               </div>
             </section>

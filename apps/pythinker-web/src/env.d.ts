@@ -8,6 +8,27 @@ declare const __PYTHINKER_DEV_PROXY_TARGET__: string;
 // Injected by Vite `define` from apps/pythinker-web/package.json.
 declare const __PYTHINKER_WEB_VERSION__: string;
 
+type DesktopUpdateState = {
+  status: 'disabled' | 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'error';
+  version?: string;
+  percent?: number;
+  message?: string;
+  autoUpdate: boolean;
+};
+
+interface PythinkerDesktopBridge {
+  platform: string;
+  getUpdateState: () => Promise<DesktopUpdateState>;
+  setAutoUpdate: (enabled: boolean) => Promise<DesktopUpdateState>;
+  checkForUpdates: () => Promise<DesktopUpdateState>;
+  quitAndInstall: () => Promise<DesktopUpdateState>;
+  onUpdateState: (callback: (state: DesktopUpdateState) => void) => () => void;
+}
+
+interface Window {
+  pythinkerDesktop?: PythinkerDesktopBridge;
+}
+
 declare module '*.vue' {
   import type { DefineComponent } from 'vue';
 

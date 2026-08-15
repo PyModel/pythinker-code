@@ -1,11 +1,13 @@
 /** Electron application shell for the loopback Pythinker Web Host. */
 
-import { existsSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import {
   app,
   BrowserWindow,
   dialog,
+  ipcMain,
   Menu,
   nativeImage,
   session,
@@ -14,8 +16,22 @@ import {
   type Event,
   type MenuItemConstructorOptions,
 } from 'electron'
+import {
+  flushTelemetrySync,
+  initializeTelemetry,
+  installCrashHandlers,
+  setCrashPhase,
+  track,
+} from '@pymodel/pythinker-telemetry'
 import { createHostSupervisor, spawnPythinkerServer, type HostSupervisor } from './host-supervisor'
 import { createSplashWindow } from './splash'
+import {
+  checkForUpdatesNow,
+  getUpdateState,
+  initUpdater,
+  quitAndInstallNow,
+  setAutoUpdate,
+} from './updater'
 import { createDesktopLifecycle, type DesktopLifecycle } from './window-lifecycle'
 
 const APP_NAME = 'Pythinker'
@@ -23,6 +39,7 @@ const WINDOW_WIDTH = 1440
 const WINDOW_HEIGHT = 920
 const DESKTOP_DIR = resolve(import.meta.dirname, '..')
 const REPOSITORY_ROOT = resolve(DESKTOP_DIR, '../..')
+const TELEMETRY_APP_NAME = 'pythinker-desktop'
 
 interface TrayImages {
   readonly idle: Electron.NativeImage
@@ -37,6 +54,41 @@ let hostOrigin: string | undefined
 let bootQuitPromise: Promise<void> | undefined
 let stopTrayAnimation: (() => void) | undefined
 let quitReleased = false
+let quitTelemetrySent = false
+
+function desktopDeviceId(homeDir: string): string {
+  const path = join(homeDir, 'device_id')
+  try {
+    const existing = readFileSync(path, 'utf8').trim()
+    if (existing !== '') return existing
+  } catch {
+    // A missing or unreadable id gets a fresh in-memory value.
+  }
+  const id = randomUUID()
+  try {
+    writeFileSync(path, id, { encoding: 'utf8', mode: 0o600 })
+  } catch {
+    // Telemetry can still use the in-memory id.
+  }
+  return id
+}
+
+function initializeDesktopTelemetry(): void {
+  const homeDir = app.getPath('userData')
+  initializeTelemetry({
+    homeDir,
+    deviceId: desktopDeviceId(homeDir),
+    appName: TELEMETRY_APP_NAME,
+    version: app.getVersion(),
+    uiMode: 'desktop',
+  })
+  installCrashHandlers()
+  track('desktop_app_start', {
+    platform: process.platform,
+    arch: process.arch,
+    packaged: app.isPackaged,
+  })
+}
 
 /** Resolve artifacts from the checkout in development and resourcesPath when packaged. */
 function hostPaths(): { nodeExecutable: string; cliEntry: string; cwd: string; electronRunAsNode: boolean } {
@@ -155,11 +207,13 @@ async function createMainWindow(): Promise<BrowserWindow> {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      preload: join(app.getAppPath(), 'dist', 'preload.cjs'),
       sandbox: true,
       webSecurity: true,
     },
   })
   mainWindow = window
+  initUpdater(() => mainWindow, track)
   window.on('close', (event) => { lifecycle?.onWindowClose(event) })
   window.on('closed', () => {
     if (mainWindow === window) mainWindow = undefined
@@ -179,6 +233,14 @@ async function createMainWindow(): Promise<BrowserWindow> {
   if (!lifecycle?.isQuitting) window.show()
   return window
 }
+
+ipcMain.handle('pythinker:update:get', () => getUpdateState())
+ipcMain.handle('pythinker:update:set-auto', (_event, enabled: unknown) => {
+  if (typeof enabled !== 'boolean') throw new TypeError('automatic updates must be a boolean')
+  return setAutoUpdate(enabled)
+})
+ipcMain.handle('pythinker:update:check', () => checkForUpdatesNow())
+ipcMain.handle('pythinker:update:install', () => quitAndInstallNow())
 
 function createTray(images: TrayImages): void {
   tray = new Tray(images.idle)
@@ -214,6 +276,7 @@ function requestAppQuit(): Promise<void> {
 
 async function boot(): Promise<void> {
   if (bootQuitPromise !== undefined) return
+  initializeDesktopTelemetry()
   const paths = hostPaths()
   assertHostArtifacts(paths)
   const splash = createSplashWindow(desktopResources('splash'))
@@ -239,7 +302,13 @@ async function boot(): Promise<void> {
         void requestAppQuit()
       },
     })
-    hostOrigin = await host.start()
+    try {
+      hostOrigin = await host.start()
+      track('desktop_server_ready')
+    } catch (error) {
+      track('desktop_server_failed')
+      throw error
+    }
     stopTrayAnimation?.()
     stopTrayAnimation = undefined
     hardenSession()
@@ -251,6 +320,7 @@ async function boot(): Promise<void> {
       reportError: (error) => { console.error('desktop shutdown failed:', error) },
     })
     await lifecycle.showWindow()
+    setCrashPhase('runtime')
     destroySplash()
   } catch (error) {
     stopTrayAnimation?.()
@@ -269,6 +339,12 @@ if (!app.requestSingleInstanceLock()) {
     // Tray and Host own application lifetime on every platform.
   })
   app.on('before-quit', (event: Event) => {
+    if (!quitTelemetrySent) {
+      quitTelemetrySent = true
+      setCrashPhase('shutdown')
+      track('desktop_app_quit')
+      flushTelemetrySync()
+    }
     if (quitReleased) return
     event.preventDefault()
     void requestAppQuit()
