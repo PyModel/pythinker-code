@@ -325,10 +325,20 @@ jobs:
         with:
           node-version-file: .nvmrc
 
+      - name: Mint tap token
+        id: tap-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.RELEASE_BOT_APP_ID }}
+          private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
+          owner: PyModel
+          repositories: homebrew-tap
+
       - name: Bump formula
         env:
-          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+          TAP_GITHUB_TOKEN: ${{ steps.tap-token.outputs.token }}
         run: |
+          # The token comes from the App installation, not a PAT.
           if [ -z "$TAP_GITHUB_TOKEN" ]; then
             echo "TAP_GITHUB_TOKEN secret not set — skipping tap update" >&2
             exit 0
