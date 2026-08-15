@@ -94,7 +94,7 @@ const THINKING_LEVELS: readonly ThinkingLevel[] = [
 
 /** UI theme: 'terminal' = dense line look, 'modern' = bubbles everywhere,
     'pythinker' = the official Pythinker design language (Quiet Utility: flat surfaces,
-    pythinkerCoral interaction accent, PingFang/Geist type). */
+    periwinkle interaction accent, PingFang/Geist type). */
 export type Theme = 'terminal' | 'modern' | 'pythinker';
 
 /** Color scheme: 'light', 'dark', or follow the OS preference ('system'). */
@@ -108,7 +108,7 @@ try {
   // ignore
 }
 
-// Accent / colour scheme: 'blue' (pythinkerCoral interaction accent, default) or
+// Accent / colour scheme: 'blue' (periwinkle interaction accent, default) or
 // 'mono' (black/white, Vercel-style). Reflected onto <html data-accent>; style.css
 // remaps the accent tokens to grayscale for 'mono'. Orthogonal to the theme.
 export type Accent = 'blue' | 'mono';
