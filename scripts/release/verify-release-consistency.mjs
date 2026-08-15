@@ -61,9 +61,14 @@ if (!gitTags.trim().split('\n').includes(releaseTag)) fail(`missing git tag ${re
 const webhook = process.env.DOKPLOY_CDN_DEPLOY_WEBHOOK;
 let retrigger;
 if (typeof webhook === 'string' && webhook.length > 0) {
-  if (!webhook.startsWith('https://')) {
-    console.error('warning: DOKPLOY_CDN_DEPLOY_WEBHOOK is not an https:// URL; CDN rebuild requests are disabled');
-  } else {
+  let isUsable;
+  try {
+    const url = new URL(webhook);
+    isUsable = url.protocol === 'https:' && url.host.length > 0;
+  } catch {
+    isUsable = false;
+  }
+  if (isUsable) {
     retrigger = async () => {
       try {
         const response = await fetch(webhook, {
@@ -83,6 +88,8 @@ if (typeof webhook === 'string' && webhook.length > 0) {
         throw error;
       }
     };
+  } else {
+    console.error('warning: DOKPLOY_CDN_DEPLOY_WEBHOOK is not an https:// URL; CDN rebuild requests are disabled');
   }
 }
 
