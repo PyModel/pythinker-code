@@ -28,16 +28,22 @@ interface StartLauncherOptions {
 
 let fixtureDir: string;
 let launcherPath: string;
+let nodeVersionPatchPath: string;
 
 function startLauncher(
   env?: NodeJS.ProcessEnv,
   options: StartLauncherOptions = {},
 ): ChildProcessWithoutNullStreams {
   const ffiArguments = options.ffi ? [FFI_FLAG, FFI_WARNING_FLAG] : [];
+  const nodeVersionArguments =
+    env?.['PYTHINKER_TEST_NODE_VERSION'] === undefined
+      ? []
+      : ['--import', nodeVersionPatchPath];
   return spawn(
     process.execPath,
     [
       ...ffiArguments,
+      ...nodeVersionArguments,
       '--import',
       tsxLoader,
       launcherPath,
@@ -112,7 +118,22 @@ async function writeMain(source: string): Promise<void> {
 beforeEach(async () => {
   fixtureDir = await mkdtemp(join(tmpdir(), 'pythinker-ffi-launcher-'));
   launcherPath = join(fixtureDir, 'launcher.ts');
+  nodeVersionPatchPath = join(fixtureDir, 'patch-node-version.mjs');
   await copyFile(launcherSource, launcherPath);
+  await writeFile(
+    nodeVersionPatchPath,
+    `
+    const version = process.env.PYTHINKER_TEST_NODE_VERSION;
+    if (version !== undefined) {
+      Object.defineProperty(process.versions, 'node', { configurable: true, value: version });
+    }
+    if (process.env.PYTHINKER_TEST_BLOCK_EXECVE === '1') {
+      process.execve = () => {
+        throw new Error('unexpected process.execve call');
+      };
+    }
+    `,
+  );
 });
 
 afterEach(async () => {
@@ -120,6 +141,61 @@ afterEach(async () => {
 });
 
 describe('FFI launcher', () => {
+  it('rejects Node versions below the runtime floor', async () => {
+    await writeMain("process.stdout.write('unexpected main import');");
+
+    const result = await collect(
+      startLauncher({ PYTHINKER_TEST_NODE_VERSION: '19.9.9' }),
+    );
+
+    expect(result.code).toBe(1);
+    expect(result.signal).toBeNull();
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain(
+      'Pythinker Code requires Node.js 20 or newer; you are running Node.js 19.9.9.',
+    );
+  });
+
+  it('imports the app directly without FFI on Node 24', async () => {
+    await writeMain(`
+      process.stdout.write(JSON.stringify({
+        pid: process.pid,
+        ffi: process.execArgv.includes('${FFI_FLAG}'),
+        warningDisabled: process.execArgv.includes('${FFI_WARNING_FLAG}'),
+        marker: process.env.PYTHINKER_CODE_FFI_CHILD,
+        imported: import.meta.url.endsWith('/main.mjs'),
+      }));
+    `);
+
+    const child = startLauncher(
+      {
+        PYTHINKER_TEST_NODE_VERSION: '24.18.0',
+        PYTHINKER_TEST_BLOCK_EXECVE: '1',
+      },
+      { args: ['direct'] },
+    );
+    const originalPid = child.pid;
+    const result = await collect(child);
+    const details = JSON.parse(result.stdout) as {
+      pid: number;
+      ffi: boolean;
+      warningDisabled: boolean;
+      marker?: string;
+      imported: boolean;
+    };
+
+    expect(result.code).toBe(0);
+    expect(result.signal).toBeNull();
+    expect(result.stderr).toBe('');
+    expect(details).toMatchObject({
+      pid: originalPid,
+      ffi: false,
+      warningDisabled: false,
+      imported: true,
+    });
+    expect(details.marker).toBeUndefined();
+  });
+
   it('starts with FFI and preserves argv', async () => {
     await writeMain(`
       process.stdout.write(JSON.stringify({
