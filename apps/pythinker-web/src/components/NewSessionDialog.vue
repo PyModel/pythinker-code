@@ -166,6 +166,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   border: 1px solid var(--line);
   border-top: 2px solid var(--blue);
   border-radius: 4px;
+  overflow: hidden;
   width: 520px;
   max-width: calc(100vw - 32px);
   height: 360px;
@@ -210,6 +211,8 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   flex-direction: column;
   gap: 12px;
   flex: 1;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .form-row {
@@ -349,7 +352,6 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
     max-height: calc(100dvh - 24px);
   }
   .form-body {
-    overflow-y: auto;
     -webkit-overflow-scrolling: touch;
   }
   .form-row {
