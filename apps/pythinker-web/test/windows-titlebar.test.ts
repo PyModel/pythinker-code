@@ -8,11 +8,11 @@ const appPath = ['src/App.vue', 'apps/pythinker-web/src/App.vue'].find(existsSyn
 if (!appPath) throw new Error('App.vue source was not found');
 
 const appSource = readFileSync(appPath, 'utf8');
-const styleMatch = appSource.match(/<style scoped>([\s\S]*?)<\/style>/);
+const styleMatch = appSource.match(/<style scoped>([\s\S]*?)<\/style>/u);
 
 if (!styleMatch?.[1]) throw new Error('App.vue must have a scoped style block');
 
-const cssRules = [...styleMatch[1].matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(([, selector, declarations]) => ({
+const cssRules = [...styleMatch[1].matchAll(/([^{}]+)\{([^{}]*)\}/gu)].map(([, selector, declarations]) => ({
   selector: selector!,
   declarations: declarations!,
 }));
@@ -30,9 +30,9 @@ describe('Windows titlebar CSS contract', () => {
     expect(appSource).toContain('class="windows-titlebar"');
     expect(appSource).toContain('aria-hidden="true"');
 
-    const win32DragRules = cssRules.filter((rule) => (
-      rule.selector.includes(win32) && rule.declarations.includes('-webkit-app-region: drag')
-    ));
+    const win32DragRules = cssRules
+      .filter((rule) => rule.selector.includes(win32))
+      .filter((rule) => rule.declarations.includes('-webkit-app-region: drag'));
     expect(win32DragRules).toHaveLength(1);
     expect(win32DragRules[0]!.selector).toContain('.windows-titlebar');
 
@@ -47,7 +47,7 @@ describe('Windows titlebar CSS contract', () => {
 
     const win32SidebarRules = rulesFor(win32, ' .side)', '.sidebar-rail');
     expect(win32SidebarRules).toHaveLength(1);
-    expect(win32SidebarRules[0]!.declarations).not.toMatch(/transparent|color-mix/);
+    expect(win32SidebarRules[0]!.declarations).not.toMatch(/transparent|color-mix/u);
 
     const darwinSidebarRules = rulesFor(darwin, ' .side)', '.sidebar-rail');
     expect(darwinSidebarRules).toHaveLength(1);

@@ -9,12 +9,12 @@ const mainSource = readFileSync(resolve(desktopRoot, 'src', 'main.ts'), 'utf8')
 
 describe('desktop window appearance configuration', () => {
   it('keeps Windows opaque and non-Windows windows transparent', () => {
-    const backgroundMaterialMatches = [...mainSource.matchAll(/backgroundMaterial/g)]
+    const backgroundMaterialMatches = [...mainSource.matchAll(/backgroundMaterial/gu)]
     const win32BranchMatches = [...mainSource.matchAll(
-      /\.\.\.\(process\.platform === 'win32' \? \{([\s\S]*?)\} : \{\s*transparent: true,/g,
+      /\.\.\.\(process\.platform === 'win32' \? \{([\s\S]*?)\} : \{\s*transparent: true,/gu,
     )]
     const nonWin32BranchMatches = [...mainSource.matchAll(
-      /\} : \{\s*transparent: true,[\s\S]*?\}\),\s*title:/g,
+      /\} : \{\s*transparent: true,[\s\S]*?\}\),\s*title:/gu,
     )]
 
     expect(backgroundMaterialMatches).toHaveLength(0)
@@ -22,11 +22,11 @@ describe('desktop window appearance configuration', () => {
     expect(nonWin32BranchMatches).toHaveLength(1)
 
     const win32Branch = win32BranchMatches[0]![1]!
-    const opaqueColorMatches = [...win32Branch.matchAll(/backgroundColor:\s*'#[0-9a-fA-F]{6}'/g)]
-    const alphaColorMatches = [...win32Branch.matchAll(/#[0-9a-fA-F]{8}/g)]
-    const hasShadowMatches = [...win32Branch.matchAll(/hasShadow:\s*true/g)]
-    const roundedCornersMatches = [...win32Branch.matchAll(/roundedCorners:\s*true/g)]
-    const thickFrameMatches = [...win32Branch.matchAll(/thickFrame:\s*true/g)]
+    const opaqueColorMatches = [...win32Branch.matchAll(/backgroundColor:\s*'#[0-9a-fA-F]{6}'/gu)]
+    const alphaColorMatches = [...win32Branch.matchAll(/#[0-9a-fA-F]{8}/gu)]
+    const hasShadowMatches = [...win32Branch.matchAll(/hasShadow:\s*true/gu)]
+    const roundedCornersMatches = [...win32Branch.matchAll(/roundedCorners:\s*true/gu)]
+    const thickFrameMatches = [...win32Branch.matchAll(/thickFrame:\s*true/gu)]
 
     expect(opaqueColorMatches).toHaveLength(1)
     expect(alphaColorMatches).toHaveLength(0)
