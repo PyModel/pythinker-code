@@ -107,11 +107,6 @@ export async function handleMainCommand(opts: CLIOptions, version: string): Prom
   await runShell(validated.options, version);
 }
 
-/** `pythinker migrate`: launch the migration screen only, then exit. */
-async function handleMigrateCommand(version: string): Promise<void> {
-  await runShell(MIGRATE_CLI_OPTIONS, version, { migrateOnly: true });
-}
-
 export async function handleUpgradeCommand(version: string): Promise<void> {
   const telemetryBootstrap = createCliTelemetryBootstrap();
   const telemetryClient: TelemetryClient = {
@@ -144,24 +139,6 @@ export async function handleUpgradeCommand(version: string): Promise<void> {
   await Promise.all([drainWritable(process.stdout), drainWritable(process.stderr)]);
   process.exit(exitCode);
 }
-
-/** A neutral CLIOptions value — `pythinker migrate` never opens a chat session. */
-const MIGRATE_CLI_OPTIONS: CLIOptions = {
-  session: undefined,
-  continue: false,
-  rewindFiles: undefined,
-  yolo: false,
-  auto: false,
-  init: false,
-  initOnly: false,
-  maintenance: false,
-  plan: false,
-  model: undefined,
-  outputFormat: undefined,
-  prompt: undefined,
-  skillsDirs: [],
-  additionalDirs: [],
-};
 
 export function main(): void {
   process.title = PROCESS_NAME;
@@ -201,17 +178,6 @@ export function main(): void {
         await writeAndDrain(
           process.stderr,
           formatStartupError(error, { operation })
-            + `See log: ${resolveGlobalLogPath(resolvePythinkerHome())}\n`,
-        );
-        process.exit(1);
-      });
-    },
-    () => {
-      void handleMigrateCommand(version).catch(async (error: unknown) => {
-        await logStartupFailure('run migration', error);
-        await writeAndDrain(
-          process.stderr,
-          formatStartupError(error, { operation: 'run migration' })
             + `See log: ${resolveGlobalLogPath(resolvePythinkerHome())}\n`,
         );
         process.exit(1);

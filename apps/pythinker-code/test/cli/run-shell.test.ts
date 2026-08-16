@@ -39,7 +39,6 @@ const mocks = vi.hoisted(() => {
     harnessGetCachedAccessToken: vi.fn(),
     harnessCreateSession: vi.fn(),
     harnessClose: vi.fn(),
-    detectPendingMigration: vi.fn<() => Promise<unknown>>(async () => null),
     harnessTrack: vi.fn(),
     pythinkerTuiConstructor: vi.fn(),
     tuiStart: vi.fn(),
@@ -151,10 +150,6 @@ vi.mock('../../src/tui/index', () => ({
 
 vi.mock('../../src/tui/theme/detect', () => ({
   detectTerminalTheme: mocks.detectTerminalTheme,
-}));
-
-vi.mock('../../src/migration/index', () => ({
-  detectPendingMigration: mocks.detectPendingMigration,
 }));
 
 vi.mock('node:child_process', () => ({
@@ -623,33 +618,4 @@ describe('runShell', () => {
     }
   });
 
-  it('surfaces an invalid target config as an error for pythinker migrate, not silently', async () => {
-    mocks.loadTuiConfig.mockResolvedValue(tuiConfig());
-    mocks.detectPendingMigration.mockResolvedValue({ totalSessions: 1 });
-    mocks.harnessGetConfig.mockRejectedValue(
-      new Error('Invalid configuration in ~/.pythinker-code/config.toml'),
-    );
-
-    // A broken config.toml must fail loudly — `pythinker migrate` must not swallow
-    // it and proceed, or the user never learns their config is broken.
-    await expect(
-      runShell(
-        {
-          session: undefined,
-          continue: false,
-          rewindFiles: undefined,
-          yolo: false,
-          auto: false,
-          plan: false,
-          model: undefined,
-          outputFormat: undefined,
-          prompt: undefined,
-          skillsDirs: [],
-        },
-        '1.2.3-test',
-        { migrateOnly: true },
-      ),
-    ).rejects.toThrow('Invalid configuration');
-    expect(mocks.tuiStart).not.toHaveBeenCalled();
-  });
 });

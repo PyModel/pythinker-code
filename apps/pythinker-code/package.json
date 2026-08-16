@@ -100,7 +100,6 @@
     "@pymodel/acp-adapter": "workspace:^",
     "@pymodel/dashboard-server": "workspace:^",
     "@pymodel/dashboard-web": "workspace:*",
-    "@pymodel/migration-legacy": "workspace:^",
     "@pymodel/pythinker-code-oauth": "workspace:^",
     "@pymodel/pythinker-code-sdk": "workspace:^",
     "@pymodel/pythinker-telemetry": "workspace:^",

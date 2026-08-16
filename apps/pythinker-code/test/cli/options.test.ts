@@ -12,7 +12,6 @@ function parse(argv: string[]): CLIOptions {
     (opts) => {
       captured = opts;
     },
-    () => {},
   );
 
   program.exitOverride();
@@ -67,7 +66,6 @@ describe('CLI options parsing', () => {
       const program = createProgram(
         '1.2.3',
         () => {},
-        () => {},
       );
       program.exitOverride();
       program.configureOutput({
@@ -84,7 +82,6 @@ describe('CLI options parsing', () => {
       let output = '';
       const program = createProgram(
         '4.5.6',
-        () => {},
         () => {},
       );
       program.exitOverride();
@@ -107,7 +104,6 @@ describe('CLI options parsing', () => {
         () => {
           throw new Error('main action should not run');
         },
-        () => {},
         (entry, args) => {
           pluginRunnerCalls.push({ entry, args });
         },
@@ -423,7 +419,6 @@ describe('CLI options parsing', () => {
           throw new Error('main action should not run');
         },
         () => {},
-        () => {},
         () => {
           upgradeCalls += 1;
         },
@@ -443,7 +438,6 @@ describe('CLI options parsing', () => {
       const program = createProgram(
         '0.0.0',
         () => {},
-        () => {},
       );
       const commandNames: string[] = program.commands
         .filter((command) => !command.name().startsWith('__'))
@@ -458,7 +452,6 @@ describe('CLI options parsing', () => {
         'login',
         'doctor',
         'dashboard',
-        'migrate',
         'upgrade',
       ]);
     });

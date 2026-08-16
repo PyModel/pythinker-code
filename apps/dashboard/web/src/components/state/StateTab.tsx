@@ -17,7 +17,7 @@ interface StateJsonShape {
   createdAt?: string;
   updatedAt?: string;
   agents?: Record<string, unknown>;
-  custom?: Record<string, unknown> & { imported_from_pythinker_cli?: boolean };
+  custom?: Record<string, unknown>;
 }
 
 /** State tab — renders the raw `state.json` blob from session detail.
@@ -33,8 +33,6 @@ export function StateTab({ state }: StateTabProps) {
   const createdMs = parseIso(s.createdAt);
   const updatedMs = parseIso(s.updatedAt);
   const agentIds = s.agents !== undefined ? Object.keys(s.agents) : [];
-  const importedFromPythinkerCli = s.custom?.imported_from_pythinker_cli === true;
-
   return (
     <div className="min-h-0 flex-1 overflow-y-auto p-4">
       <div className="flex items-center justify-between">
@@ -43,14 +41,6 @@ export function StateTab({ state }: StateTabProps) {
         </div>
         <CopyButton value={JSON.stringify(s, null, 2)} label="copy json" />
       </div>
-
-      {importedFromPythinkerCli ? (
-        <div className="mt-3 border border-[var(--color-sev-warning)] bg-[color-mix(in_oklab,var(--color-sev-warning)_10%,transparent)] px-3 py-2 font-mono text-[11px] text-[var(--color-sev-warning)]">
-          warning · this session is marked
-          <code className="mx-1 px-1 bg-surface-0">imported_from_pythinker_cli</code>
-          and would normally be filtered out of the list.
-        </div>
-      ) : null}
 
       {/* Highlight cards */}
       <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">

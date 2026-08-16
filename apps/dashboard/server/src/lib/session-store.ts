@@ -46,7 +46,6 @@ export async function readSessionDetail(home: string, sessionId: string): Promis
   const index = await readSessionIndex(home);
   const workDir = index.get(sessionId)?.workDir ?? '';
   const state = await readState(sessionDir);
-  if (state.custom['imported_from_pythinker_cli'] === true) return null;
   const agents = await inventoryAgents(sessionDir, state);
   return { sessionId, sessionDir, workDir, state, agents };
 }
@@ -65,8 +64,6 @@ async function tryReadSummary(
     }
     throw error;
   }
-  if (state.custom['imported_from_pythinker_cli'] === true) return null;
-
   try {
     const agents = await inventoryAgents(sessionDir, state);
     const main = agents.find((agent) => agent.agentId === 'main');

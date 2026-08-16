@@ -6,7 +6,7 @@ This repository uses VitePress for the documentation site. User-facing pages liv
 
 - English docs live under `docs/`.
 - Main sections (nav + sidebar) are:
-  - Guides: getting-started, migration, use-cases, interaction, sessions
+  - Guides: getting-started, desktop, use-cases, interaction, sessions
   - Customization: mcp, skills, plugins, agents, hooks
   - Configuration: config-files, providers, overrides, env-vars, data-locations
   - Reference: pythinker-command, tools, slash-commands, keyboard
