@@ -331,7 +331,7 @@ describe('desktop Host process', () => {
       stdout: Buffer.alloc(0),
       stderr: Buffer.alloc(0),
       status: 0,
-      signal: null,
+      signal: 'SIGTERM',
     })
     vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
 
@@ -347,9 +347,42 @@ describe('desktop Host process', () => {
     expect(spawnSync).toHaveBeenCalledWith(
       'taskkill',
       ['/pid', '4242', '/T', '/F'],
-      { windowsHide: true },
+      { windowsHide: true, timeout: 5_000 },
     )
     expect(child.kill).not.toHaveBeenCalled()
+  })
+
+  it('falls back to killing the Windows Host when taskkill times out', async () => {
+    const child = {
+      pid: 4242,
+      stdout: { on: vi.fn(), off: vi.fn() },
+      stderr: { on: vi.fn(), off: vi.fn() },
+      on: vi.fn(),
+      off: vi.fn(),
+      kill: vi.fn(),
+    }
+    vi.mocked(spawn).mockReturnValue(child as never)
+    vi.mocked(spawnSync).mockReturnValue({
+      pid: 4242,
+      output: [],
+      stdout: Buffer.alloc(0),
+      stderr: Buffer.alloc(0),
+      status: null,
+      signal: null,
+      error: Object.assign(new Error('spawnSync taskkill ETIMEDOUT'), { code: 'ETIMEDOUT' }),
+    })
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+
+    const { spawnPythinkerServer } = await import('../src/host-supervisor')
+    const host = spawnPythinkerServer({
+      nodeExecutable: 'node',
+      cliEntry: '/tmp/launcher.mjs',
+      cwd: '/tmp',
+      env: {},
+    })
+    host.kill('SIGTERM')
+
+    expect(child.kill).toHaveBeenCalledWith('SIGTERM')
   })
 
   it('uses child.kill unchanged on non-Windows', async () => {

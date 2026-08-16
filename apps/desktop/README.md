@@ -66,7 +66,7 @@ rmdir "$MOUNT_POINT"
 
 ### Windows
 
-Run `pnpm run dist:win` on a native Windows x64 host; cross-building from macOS is not possible because the staged Host closure contains platform-gated native packages. The output is `dist/Pythinker-<version>-x64-Setup.exe`, a per-user NSIS installer with no elevation required and a selectable installation directory. Artifacts are unsigned unless `WIN_CSC_LINK` and `WIN_CSC_KEY_PASSWORD` are set.
+Run `pnpm run dist:win` on a native Windows x64 host; cross-building from macOS is not possible because the staged Host closure contains platform-gated native packages. The output is `dist/Pythinker-<version>-x64-Setup.exe`, an assisted NSIS installer that defaults to a per-user install, offers a per-machine option that requires elevation, and lets you select the installation directory. Artifacts are unsigned unless `WIN_CSC_LINK` and `WIN_CSC_KEY_PASSWORD` are set.
 
 ## Known limitations
 

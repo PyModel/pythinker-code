@@ -37,21 +37,21 @@ describe('Windows installer verification', () => {
   it('accepts the installer and unpacked shell when both are PE binaries', async () => {
     await withFixture(async (root) => {
       await createFixture(root, portableExecutable())
-      expect(() => verifyWindowsInstaller(root)).not.toThrow()
+      expect(() => { verifyWindowsInstaller(root) }).not.toThrow()
     })
   })
 
   it('rejects a missing installer', async () => {
     await withFixture(async (root) => {
       await createFixture(root)
-      expect(() => verifyWindowsInstaller(root)).toThrow('ENOENT')
+      expect(() => { verifyWindowsInstaller(root) }).toThrow('ENOENT')
     })
   })
 
   it('rejects an artifact without a DOS header', async () => {
     await withFixture(async (root) => {
       await createFixture(root, portableExecutable('ZZ'))
-      expect(() => verifyWindowsInstaller(root)).toThrow(/no DOS header/)
+      expect(() => { verifyWindowsInstaller(root) }).toThrow(/no DOS header/u)
     })
   })
 
@@ -61,14 +61,14 @@ describe('Windows installer verification', () => {
       truncated.write('MZ', 0, 2, 'latin1')
       truncated.writeUInt32LE(0x80, 0x3c)
       await createFixture(root, truncated)
-      expect(() => verifyWindowsInstaller(root)).toThrow(/out-of-range PE offset/)
+      expect(() => { verifyWindowsInstaller(root) }).toThrow(/out-of-range PE offset/u)
     })
   })
 
   it('rejects an artifact without a PE signature', async () => {
     await withFixture(async (root) => {
       await createFixture(root, portableExecutable('MZ', 'NE\0\0'))
-      expect(() => verifyWindowsInstaller(root)).toThrow(/no PE signature/)
+      expect(() => { verifyWindowsInstaller(root) }).toThrow(/no PE signature/u)
     })
   })
 })

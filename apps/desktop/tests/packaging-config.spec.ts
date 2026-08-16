@@ -112,6 +112,12 @@ describe('desktop packaging configuration', () => {
     expect(desktopPackage.scripts['dist:win']).toBe('node --import tsx scripts/release-win.ts')
   })
 
+  it('offers an assisted installer that defaults to a per-user install', () => {
+    expect(desktopPackage.build.nsis.oneClick).toBe(false)
+    expect(desktopPackage.build.nsis.perMachine).toBe(false)
+    expect(desktopPackage.build.nsis.allowElevation).toBe(true)
+  })
+
   it('exposes desktop commands at the repository root', () => {
     expect(rootPackage.scripts['dev:desktop']).toBe('pnpm -C apps/desktop run dev')
     expect(rootPackage.scripts['package:desktop']).toBe('pnpm -C apps/desktop run package')
