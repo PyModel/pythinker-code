@@ -33,6 +33,7 @@ export const ErrorCodes = {
 
   AGENT_NOT_FOUND: 'agent.not_found',
   TURN_AGENT_BUSY: 'turn.agent_busy',
+  QUESTION_EXPIRED: 'question.expired',
 
   GOAL_ALREADY_EXISTS: 'goal.already_exists',
   GOAL_NOT_FOUND: 'goal.not_found',
@@ -228,6 +229,12 @@ export const PYTHINKER_ERROR_INFO = {
     retryable: true,
     public: true,
     action: 'Wait for the current turn to finish or steer it.',
+  },
+  'question.expired': {
+    title: 'Question expired',
+    retryable: false,
+    public: true,
+    action: 'Ask the user again if you still need the answer.',
   },
 
   'goal.already_exists': {

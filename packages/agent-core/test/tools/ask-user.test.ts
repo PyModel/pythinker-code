@@ -390,7 +390,7 @@ describe('AskUserQuestionTool', () => {
     expect(telemetryTrack).toHaveBeenCalledWith('question_dismissed');
   });
 
-  it('resolves question rpc error responses as dismissed answers', async () => {
+  it('returns an error when question rpc delivery fails', async () => {
     const { tool } = makeTool({
       requestQuestion: async () => {
         throw new PythinkerError(ErrorCodes.INTERNAL, 'JSON-RPC question error response');
@@ -404,15 +404,31 @@ describe('AskUserQuestionTool', () => {
       signal,
     });
 
-    expect(result).toMatchObject({ isError: false });
-    expect(result.output).toContain('dismissed');
-    expect(typeof result.output).toBe('string');
-    const output = typeof result.output === 'string' ? result.output : '';
-    expect(JSON.parse(output)).toEqual({
-      answers: {},
-      note: 'User dismissed the question without answering.',
-    });
+    expect(result).toMatchObject({ isError: true });
+    expect(result.output).toContain('could not be delivered or answered');
+    expect(result.output).toContain('JSON-RPC question error response');
+    expect(result.output).not.toContain('dismissed');
     expect(result.output).not.toContain('Do NOT call this tool again');
+  });
+
+  it('returns an expired question note without marking it dismissed', async () => {
+    const { tool, telemetryTrack } = makeTool({
+      requestQuestion: async () => {
+        throw new PythinkerError(ErrorCodes.QUESTION_EXPIRED, 'question expired');
+      },
+    });
+
+    const result = await executeTool(tool, {
+      turnId: '0',
+      toolCallId: 'call_question',
+      args: { ...input(), metadata: { source: 'test' } },
+      signal,
+    });
+
+    expect(result).toMatchObject({ isError: false });
+    expect(result.output).toContain('expired');
+    expect(result.output).not.toContain('dismissed');
+    expect(telemetryTrack).toHaveBeenCalledWith('question_expired', { source: 'test' });
   });
 
   it('propagates aborts while waiting for question rpc', async () => {

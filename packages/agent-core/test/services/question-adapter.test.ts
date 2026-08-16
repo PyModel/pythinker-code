@@ -1,8 +1,7 @@
 /**
  * Question adapter unit tests (W8.2 / Chain 6).
  *
- * Covers SCHEMAS §6.4 5-kind ↔ Record<string, string | true> normalization
- * verbatim.
+ * Covers protocol answer normalization into the text the user sees.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -103,74 +102,101 @@ describe('question-adapter · toBrokerRequest (in-process → protocol)', () => 
   });
 });
 
-describe('question-adapter · toAgentCoreResponse · SCHEMAS §6.4 verbatim', () => {
-  it("'single' → answers[qid] = option_id", () => {
+describe('question-adapter · toAgentCoreResponse (protocol ids → user-facing text)', () => {
+  const request = {
+    question_id: '01J_QUESTION',
+    session_id: 'sess_x',
+    questions: [
+      {
+        id: 'q_0',
+        question: 'Which animal?',
+        options: [
+          { id: 'opt_0_0', label: 'Cat' },
+          { id: 'opt_0_1', label: 'Dog' },
+        ],
+      },
+      {
+        id: 'q_1',
+        question: 'Which colors?',
+        options: [
+          { id: 'opt_1_0', label: 'Red' },
+          { id: 'opt_1_1', label: 'Green' },
+          { id: 'opt_1_2', label: 'Blue' },
+        ],
+      },
+    ],
+    created_at: '2026-06-04T10:30:00.000Z',
+    expires_at: '2026-06-04T11:00:00.000Z',
+  };
+
+  it("'single' maps the question text to the option label", () => {
     const inProc = toAgentCoreResponse({
       answers: { q_0: { kind: 'single', option_id: 'opt_0_1' } },
-    });
-    expect(inProc.answers).toEqual({ q_0: 'opt_0_1' });
+    }, request);
+    expect(inProc.answers).toEqual({ 'Which animal?': 'Dog' });
   });
 
-  it("'multi' → answers[qid] = option_ids.join(',')  (lossy)", () => {
+  it("'multi' maps option ids to labels", () => {
     const inProc = toAgentCoreResponse({
       answers: {
-        q_0: { kind: 'multi', option_ids: ['opt_0_0', 'opt_0_2'] },
+        q_1: { kind: 'multi', option_ids: ['opt_1_0', 'opt_1_2'] },
       },
-    });
-    expect(inProc.answers).toEqual({ q_0: 'opt_0_0,opt_0_2' });
+    }, request);
+    expect(inProc.answers).toEqual({ 'Which colors?': 'Red, Blue' });
   });
 
-  it("'other' → answers[qid] = text", () => {
+  it("'other' keeps the entered text", () => {
     const inProc = toAgentCoreResponse({
       answers: { q_0: { kind: 'other', text: 'Hippopotamus' } },
-    });
-    expect(inProc.answers).toEqual({ q_0: 'Hippopotamus' });
+    }, request);
+    expect(inProc.answers).toEqual({ 'Which animal?': 'Hippopotamus' });
   });
 
-  it("'multi_with_other' → [...option_ids, other_text].join(',')", () => {
+  it("'multi_with_other' maps labels and keeps the entered text", () => {
     const inProc = toAgentCoreResponse({
       answers: {
-        q_0: {
+        q_1: {
           kind: 'multi_with_other',
-          option_ids: ['opt_0_0', 'opt_0_1'],
+          option_ids: ['opt_1_0', 'opt_1_1'],
           other_text: 'Custom',
         },
       },
-    });
-    expect(inProc.answers).toEqual({ q_0: 'opt_0_0,opt_0_1,Custom' });
+    }, request);
+    expect(inProc.answers).toEqual({ 'Which colors?': 'Red, Green, Custom' });
   });
 
-  it("'skipped' → entry OMITTED entirely from the record", () => {
+  it("'skipped' omits the answer", () => {
     const inProc = toAgentCoreResponse({
       answers: {
         q_0: { kind: 'single', option_id: 'opt_0_0' },
         q_1: { kind: 'skipped' },
-        q_2: { kind: 'other', text: 'Custom' },
       },
-    });
+    }, request);
     expect(inProc.answers).toEqual({
-      q_0: 'opt_0_0',
-      q_2: 'Custom',
+      'Which animal?': 'Cat',
     });
-    expect(Object.keys(inProc.answers)).not.toContain('q_1');
+    expect(Object.keys(inProc.answers)).not.toContain('Which colors?');
   });
 
-  it('handles a mixed 4-item response with one skipped (e2e prompt acceptance)', () => {
+  it('falls back to raw ids for unknown questions and options', () => {
     const inProc = toAgentCoreResponse({
       answers: {
-        q_0: { kind: 'single', option_id: 'opt_0_0' },
-        q_1: { kind: 'multi', option_ids: ['opt_1_0', 'opt_1_1'] },
-        q_2: { kind: 'other', text: 'Hippopotamus' },
-        q_3: { kind: 'skipped' },
+        q_0: { kind: 'single', option_id: 'opt_0_unknown' },
+        q_unknown: { kind: 'single', option_id: 'opt_unknown' },
       },
-      method: 'click',
-    });
+    }, request);
     expect(inProc.answers).toEqual({
-      q_0: 'opt_0_0',
-      q_1: 'opt_1_0,opt_1_1',
-      q_2: 'Hippopotamus',
+      'Which animal?': 'opt_0_unknown',
+      q_unknown: 'opt_unknown',
     });
-    // method 'click' is NOT in agent-core's in-process method union — dropped.
+  });
+
+  it("drops the protocol-only 'click' method", () => {
+    const inProc = toAgentCoreResponse({
+      answers: { q_0: { kind: 'single', option_id: 'opt_0_0' } },
+      method: 'click',
+    }, request);
+    expect(inProc.answers).toEqual({ 'Which animal?': 'Cat' });
     expect((inProc as { method?: string }).method).toBeUndefined();
   });
 
@@ -178,7 +204,7 @@ describe('question-adapter · toAgentCoreResponse · SCHEMAS §6.4 verbatim', ()
     const inProc = toAgentCoreResponse({
       answers: { q_0: { kind: 'skipped' } },
       method: 'enter',
-    });
+    }, request);
     expect((inProc as { method?: string }).method).toBe('enter');
   });
 
@@ -191,7 +217,7 @@ describe('question-adapter · toAgentCoreResponse · SCHEMAS §6.4 verbatim', ()
           notes: 'Use the calmer option.',
         },
       },
-    });
+    }, request);
 
     expect(inProc.annotations).toEqual({
       'Which animal?': {
@@ -207,7 +233,7 @@ describe('question-adapter · toAgentCoreResponse · SCHEMAS §6.4 verbatim', ()
         q_0: { kind: 'skipped' },
         q_1: { kind: 'skipped' },
       },
-    });
+    }, request);
     expect(inProc.answers).toEqual({});
     // Distinct from dismissedResult() which returns null.
     expect(inProc).not.toBeNull();
