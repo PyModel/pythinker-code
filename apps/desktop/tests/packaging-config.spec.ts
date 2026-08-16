@@ -28,6 +28,12 @@ interface DesktopPackage {
       readonly perMachine: boolean
       readonly shortcutName: string
     }
+    readonly publish: readonly {
+      readonly owner: string
+      readonly provider: string
+      readonly releaseType: string
+      readonly repo: string
+    }[]
     readonly productName: string
     readonly win: {
       readonly icon: string
@@ -56,6 +62,15 @@ describe('desktop packaging configuration', () => {
   it('packages the application with expected metadata', () => {
     expect(desktopPackage.build.appId).toBe('com.pythinker.desktop')
     expect(desktopPackage.build.productName).toBe('Pythinker')
+  })
+
+  it('publishes updates to the dedicated desktop release repository', () => {
+    expect(desktopPackage.build.publish).toContainEqual({
+      owner: 'PyModel',
+      provider: 'github',
+      releaseType: 'release',
+      repo: 'pythinker-desktop-releases',
+    })
   })
 
   it('keeps desktop download URLs derived from their published release version', () => {

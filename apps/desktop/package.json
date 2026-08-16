@@ -32,7 +32,8 @@
       {
         "provider": "github",
         "owner": "PyModel",
-        "repo": "pythinker-code"
+        "repo": "pythinker-desktop-releases",
+        "releaseType": "release"
       }
     ],
     "afterPack": "./scripts/verify-packaged-runtime.ts",

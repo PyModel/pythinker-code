@@ -46,8 +46,8 @@ jobs:
         working-directory: apps/desktop
         run: node --import tsx scripts/stage-runtime.ts
 
-      # On a desktop-v* tag, --publish always creates or updates the draft-or-release
-      # for that tag; contents: write makes GITHUB_TOKEN sufficient.
+      # On a desktop-v* tag, --publish always creates or updates the release
+      # in pythinker-desktop-releases with the GitHub App token below.
       # Without Developer ID signing secrets, electron-builder publishes an
       # ad-hoc/self-signed app. macOS auto-update will not accept unsigned updates,
       # but this still proves packaging and the feed shape.
@@ -73,11 +73,29 @@ jobs:
             echo 'CSC_IDENTITY_AUTO_DISCOVERY=false' >> "$GITHUB_ENV"
             echo 'No macOS signing certificate configured; building unsigned.'
           fi
+      - name: Mint releases-repo token
+        id: releases_token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # pinned from v3.2.0
+        with:
+          app-id: ${{ secrets.DESKTOP_RELEASES_APP_ID }}
+          private-key: ${{ secrets.DESKTOP_RELEASES_APP_PRIVATE_KEY }}
+          owner: PyModel
+          repositories: pythinker-desktop-releases
       - name: Package and publish desktop release
         working-directory: apps/desktop
         run: pnpm exec electron-builder --mac dmg zip --publish always
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.releases_token.outputs.token }}
+
+      - name: Verify macOS packaged update configuration
+        shell: bash
+        run: |
+          app_bundle="$(find apps/desktop/dist -maxdepth 2 -type d -name '*.app' -print -quit)"
+          if [ -z "$app_bundle" ]; then
+            echo 'macOS application bundle not found' >&2
+            exit 1
+          fi
+          test -f "$app_bundle/Contents/Resources/app-update.yml"
 
       - name: Upload macOS artifacts for manual runs
         if: github.event_name == 'workflow_dispatch'
@@ -154,11 +172,23 @@ jobs:
             value="${!input:-}"
             if [ -n "$value" ]; then printf '%s<<__EOF__\n%s\n__EOF__\n' "$name" "$value" >> "$GITHUB_ENV"; fi
           done
+      - name: Mint releases-repo token
+        id: releases_token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # pinned from v3.2.0
+        with:
+          app-id: ${{ secrets.DESKTOP_RELEASES_APP_ID }}
+          private-key: ${{ secrets.DESKTOP_RELEASES_APP_PRIVATE_KEY }}
+          owner: PyModel
+          repositories: pythinker-desktop-releases
       - name: Package and publish desktop release
         working-directory: apps/desktop
         run: node --import tsx scripts/package-win.ts --publish always
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.releases_token.outputs.token }}
+
+      - name: Verify Windows packaged update configuration
+        shell: bash
+        run: test -f apps/desktop/dist/win-unpacked/resources/app-update.yml
 
       - name: Upload Windows artifacts for manual runs
         if: github.event_name == 'workflow_dispatch'
