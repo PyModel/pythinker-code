@@ -3,6 +3,7 @@ import { onMounted, onUnmounted, ref } from 'vue';
 import AgentLoop from './components/AgentLoop.vue';
 import InstallCommand from './components/InstallCommand.vue';
 import LegacyDownloadsPopup from './components/LegacyDownloadsPopup.vue';
+import ParticleField from './components/ParticleField.vue';
 import PythinkerMascot from './components/PythinkerMascot.vue';
 
 const version = __PYTHINKER_VERSION__;
@@ -19,6 +20,18 @@ const desktopDownloads = {
   mac: `${DESKTOP_RELEASE_BASE}/Pythinker-${DESKTOP_VERSION}-arm64.dmg`,
   windows: `${DESKTOP_RELEASE_BASE}/Pythinker-${DESKTOP_VERSION}-x64-Setup.exe`,
 };
+
+const isWindows = /Win/i.test(navigator.platform || navigator.userAgent);
+const heroDownloads = (isWindows
+  ? [
+      { id: 'windows', label: 'Download for Windows', note: 'Windows x64', icon: '/brand/windows11.svg', href: desktopDownloads.windows },
+      { id: 'mac', label: 'Download for macOS', note: 'Apple Silicon', icon: '/brand/apple.svg', href: desktopDownloads.mac },
+    ]
+  : [
+      { id: 'mac', label: 'Download for macOS', note: 'Apple Silicon', icon: '/brand/apple.svg', href: desktopDownloads.mac },
+      { id: 'windows', label: 'Download for Windows', note: 'Windows x64', icon: '/brand/windows11.svg', href: desktopDownloads.windows },
+    ]);
+const heroDownloadsPage = `https://github.com/PyModel/pythinker-code/releases/tag/v${DESKTOP_VERSION}`;
 
 const installRows = [
   ['macOS / Linux', 'curl -fsSL https://code.pythinker.com/pythinker-code/install.sh | bash', '/brand/apple.svg'],
@@ -211,6 +224,7 @@ onUnmounted(() => {
 </script>
 
 <template>
+  <ParticleField />
   <nav class="site-nav" aria-label="Primary navigation">
     <div class="container nav-inner">
       <a href="/" class="nav-brand"><PythinkerMascot :width="26" :height="32" /><span>Pythinker Code</span></a>
@@ -245,26 +259,28 @@ onUnmounted(() => {
         <PythinkerMascot class="hero-mascot" :width="164" :height="205" />
         <h1>Pythinker Code</h1>
         <p class="hero-accent">Think first, then code.</p>
-        <p class="hero-lead">An open-source AI engineering agent for your terminal. It reads your repo, edits files, runs commands, and iterates until the job is done.</p>
-        <a
-          class="hero-npm-badge"
-          href="https://www.npmjs.com/package/@pymodel/pythinker-code"
-          target="_blank"
-          rel="noopener"
-        >
-          <img
-            src="https://img.shields.io/npm/dm/%40pymodel%2Fpythinker-code?style=flat&logo=npm&logoColor=white&color=2b89ff&label=downloads"
-            alt="npm downloads per month for @pymodel/pythinker-code"
-            width="161"
-            height="20"
-            loading="lazy"
-          />
-        </a>
+        <p class="hero-lead">Pythinker Code is an open-source AI engineering agent. It reads your repo, edits files, runs commands, and iterates until the job is done &mdash; in a native desktop app, your terminal, or VS Code.</p>
+        <div class="hero-download">
+          <div class="hero-download-actions">
+            <a
+              v-for="(download, index) in heroDownloads"
+              :key="download.id"
+              :class="index === 0 ? 'button button-primary' : 'button button-secondary'"
+              :href="download.href"
+              rel="noopener"
+            >
+              <img :src="download.icon" alt="" aria-hidden="true" class="button-platform-icon" />
+              {{ download.label }}
+            </a>
+          </div>
+          <p class="hero-download-note">
+            {{ heroDownloads.map((download) => download.note).join(' · ') }} ·
+            <a :href="heroDownloadsPage" target="_blank" rel="noopener">All downloads</a>
+          </p>
+        </div>
+        <p class="hero-install-label">Or install the CLI</p>
         <div class="hero-install">
           <InstallCommand />
-        </div>
-        <div class="hero-download-milestone">
-          <LegacyDownloadsPopup />
         </div>
         <p class="hero-caption">Free and open source. MIT licensed. macOS, Linux, and Windows.</p>
       </div>
@@ -531,6 +547,10 @@ onUnmounted(() => {
         </div>
       </div>
     </section>
+
+    <div class="container milestone-footnote">
+      <LegacyDownloadsPopup />
+    </div>
   </main>
 
   <footer class="site-footer">
@@ -728,40 +748,46 @@ onUnmounted(() => {
   line-height: 1.5;
 }
 
+.hero-download {
+  margin-top: 24px;
+}
+
+.hero-download-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+
 .hero-install {
   max-width: 720px;
   margin: 10px auto 0;
 }
 
-.hero-download-milestone {
+.milestone-footnote {
   display: flex;
-  margin-top: 14px;
   justify-content: center;
+  margin-block: 48px;
 }
 
-.hero-npm-badge {
-  display: inline-flex;
-  margin-top: 14px;
-  border-radius: var(--radius);
-  opacity: 0.85;
-  transition: opacity 0.2s ease;
+.hero-download-note,
+.hero-install-label,
+.hero-caption {
+  color: var(--ink-subtle);
+  font-size: 13px;
 }
 
-.hero-npm-badge:hover {
-  opacity: 1;
+.hero-download-note {
+  margin-top: 10px;
+  line-height: 1.38;
 }
 
-/* ponytail: width:auto lets the badge grow as the download count does; the width attr only reserves space */
-.hero-npm-badge img {
-  display: block;
-  width: auto;
-  height: 20px;
+.hero-install-label {
+  margin-top: 20px;
 }
 
 .hero-caption {
   margin-top: 12px;
-  color: var(--ink-subtle);
-  font-size: 13px;
   line-height: 1.38;
 }
 
@@ -830,11 +856,13 @@ onUnmounted(() => {
   height: 16px;
 }
 
-.desktop-showcase-actions .button {
+.desktop-showcase-actions .button,
+.hero-download-actions .button {
   gap: 8px;
 }
 
-.desktop-showcase-actions .button-primary .button-platform-icon {
+.desktop-showcase-actions .button-primary .button-platform-icon,
+.hero-download-actions .button-primary .button-platform-icon {
   filter: brightness(0) invert(1);
 }
 
