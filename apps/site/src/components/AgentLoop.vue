@@ -1,17 +1,47 @@
 <template>
-  <div class="agent-loop">
-    <span class="visually-hidden">The agent loops: plan, execute, observe, iterate.</span>
-    <svg viewBox="0 0 320 180" width="100%" aria-hidden="true">
-      <rect class="loop-base" x="50" y="40" width="220" height="100" rx="28" />
-      <rect class="loop-progress" x="50" y="40" width="220" height="100" rx="28" />
-      <circle cx="160" cy="40" r="4" />
-      <circle cx="270" cy="90" r="4" />
-      <circle cx="160" cy="140" r="4" />
-      <circle cx="50" cy="90" r="4" />
-      <text x="160" y="22" text-anchor="middle">Plan</text>
-      <text x="284" y="94">Execute</text>
-      <text x="160" y="166" text-anchor="middle">Observe</text>
-      <text x="36" y="94" text-anchor="end">Iterate</text>
+  <div class="agent-loop" aria-label="The autonomous agent loop: Plan, Execute, Observe, Iterate">
+    <span class="visually-hidden">The autonomous loop: Plan, Execute, Observe, Iterate.</span>
+    <svg viewBox="0 0 320 160" width="100%" aria-hidden="true">
+      <defs>
+        <linearGradient id="loopGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="var(--accent)" stop-opacity="0.2" />
+          <stop offset="50%" stop-color="var(--accent)" stop-opacity="1" />
+          <stop offset="100%" stop-color="#38bdf8" stop-opacity="0.6" />
+        </linearGradient>
+        <filter id="nodeGlow" x="-50%" y="-50%" width="200%" height="200%">
+          <feDropShadow dx="0" dy="0" stdDeviation="3" flood-color="var(--accent)" flood-opacity="0.4" />
+        </filter>
+      </defs>
+      
+      <!-- Base track -->
+      <rect class="loop-base" x="60" y="38" width="200" height="84" rx="24" />
+      
+      <!-- Animated energy trail -->
+      <rect class="loop-progress" x="60" y="38" width="200" height="84" rx="24" />
+      
+      <!-- Step Nodes -->
+      <g class="loop-node" transform="translate(160, 38)">
+        <circle cx="0" cy="0" r="5.5" class="node-outer" />
+        <circle cx="0" cy="0" r="2.5" class="node-inner" />
+      </g>
+      <g class="loop-node" transform="translate(260, 80)">
+        <circle cx="0" cy="0" r="5.5" class="node-outer" />
+        <circle cx="0" cy="0" r="2.5" class="node-inner" />
+      </g>
+      <g class="loop-node" transform="translate(160, 122)">
+        <circle cx="0" cy="0" r="5.5" class="node-outer" />
+        <circle cx="0" cy="0" r="2.5" class="node-inner" />
+      </g>
+      <g class="loop-node" transform="translate(60, 80)">
+        <circle cx="0" cy="0" r="5.5" class="node-outer" />
+        <circle cx="0" cy="0" r="2.5" class="node-inner" />
+      </g>
+      
+      <!-- Step Labels -->
+      <text x="160" y="20" text-anchor="middle" class="step-label">Plan</text>
+      <text x="272" y="84" class="step-label">Execute</text>
+      <text x="160" y="150" text-anchor="middle" class="step-label">Observe</text>
+      <text x="48" y="84" text-anchor="end" class="step-label">Iterate</text>
     </svg>
   </div>
 </template>
@@ -19,7 +49,7 @@
 <style scoped>
 .agent-loop {
   width: 100%;
-  padding-inline: 12px;
+  padding-inline: 4px;
 }
 
 svg {
@@ -32,39 +62,53 @@ rect {
 }
 
 .loop-base {
-  stroke: rgba(17, 17, 19, 0.15);
-  stroke-width: 1;
+  stroke: rgba(10, 10, 12, 0.1);
+  stroke-width: 1.5;
 }
 
 .loop-progress {
-  stroke: var(--accent);
-  stroke-dasharray: 40 660;
+  stroke: url(#loopGradient);
+  stroke-dasharray: 52 568;
+  stroke-width: 2;
+  stroke-linecap: round;
+  animation: loop-travel 6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.node-outer {
+  fill: var(--canvas);
+  stroke: var(--hairline-strong);
   stroke-width: 1.5;
-  animation: loop-travel 6s linear infinite;
 }
 
-circle {
-  fill: #d1d1d5;
+.node-inner {
+  fill: var(--accent);
 }
 
-text {
-  fill: var(--ink-subtle);
-  font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', monospace;
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.6px;
+.step-label {
+  fill: var(--ink-muted);
+  font-family: 'Geist Mono', 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
+  transition: fill 200ms ease;
+}
+
+.agent-loop:hover .step-label {
+  fill: var(--ink);
 }
 
 @keyframes loop-travel {
   to {
-    stroke-dashoffset: -700;
+    stroke-dashoffset: -620;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .loop-progress {
     animation: none;
+    stroke: var(--accent);
+    stroke-dasharray: none;
   }
 }
 </style>

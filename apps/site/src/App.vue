@@ -1,8 +1,7 @@
 <script setup>
 import { onMounted, onUnmounted, ref } from 'vue';
 import AgentLoop from './components/AgentLoop.vue';
-
-import LegacyDownloadsPopup from './components/LegacyDownloadsPopup.vue';
+import HeroBackground from './components/HeroBackground.vue';
 import ParticleField from './components/ParticleField.vue';
 import PythinkerMascot from './components/PythinkerMascot.vue';
 
@@ -10,7 +9,7 @@ const version = __PYTHINKER_VERSION__;
 
 /**
  * Desktop release currently published on GitHub. This tracks the published
- * release, not apps/desktop/package.json — the manifest is bumped by changesets
+ * release, not apps/desktop/package.json: the manifest is bumped by changesets
  * ahead of the build that produces these assets. Bump this only after the
  * matching desktop release is public.
  */
@@ -20,18 +19,6 @@ const desktopDownloads = {
   mac: `${DESKTOP_RELEASE_BASE}/Pythinker-${DESKTOP_VERSION}-arm64.dmg`,
   windows: `${DESKTOP_RELEASE_BASE}/Pythinker-${DESKTOP_VERSION}-x64-Setup.exe`,
 };
-
-const isWindows = /Win/i.test(navigator.platform || navigator.userAgent);
-const heroDownloads = (isWindows
-  ? [
-      { id: 'windows', label: 'Download for Windows', note: 'Windows x64', icon: '/brand/windows11.svg', href: desktopDownloads.windows },
-      { id: 'mac', label: 'Download for macOS', note: 'Apple Silicon', icon: '/brand/apple.svg', href: desktopDownloads.mac },
-    ]
-  : [
-      { id: 'mac', label: 'Download for macOS', note: 'Apple Silicon', icon: '/brand/apple.svg', href: desktopDownloads.mac },
-      { id: 'windows', label: 'Download for Windows', note: 'Windows x64', icon: '/brand/windows11.svg', href: desktopDownloads.windows },
-    ]);
-const heroDownloadsPage = `https://github.com/PyModel/pythinker-code/releases/tag/v${DESKTOP_VERSION}`;
 
 const installRows = [
   ['macOS / Linux', 'curl -fsSL https://code.pythinker.com/pythinker-code/install.sh | bash', '/brand/apple.svg'],
@@ -43,11 +30,36 @@ const installRows = [
 ];
 
 const features = [
-  ['Subagents in parallel', 'Dispatch coder, explore, and plan subagents in isolated contexts from a single iterative loop. The agent reads results and keeps going until you are satisfied.'],
-  ['ACP editor integration', 'Run pythinker acp and any Agent Client Protocol editor, including Zed and JetBrains, gets a full session inline.'],
-  ['MCP tools', 'Load Model Context Protocol servers with /mcp-config. The same tools your other agents use just work.'],
-  ['Skills and hooks', 'Reusable repo-local instructions via /skill, and lifecycle hooks to gate risky calls and wire automation.'],
-  ['Bring your own model', 'Works out of the box with Pythinker models and is configurable for other compatible LLM APIs.'],
+  {
+    id: 'subagents',
+    title: 'Parallel Subagent Swarms',
+    body: 'Dispatch coder, explore, and planning agents in isolated branches from a single supervisory loop. The agent synchronizes results and iterates until all verification passes.',
+    badge: 'Autonomous',
+  },
+  {
+    id: 'acp',
+    title: 'ACP Editor Integration',
+    body: 'Run pythinker acp to connect any Agent Client Protocol compatible editor, including Zed, Cursor, and JetBrains, for inline sessions.',
+    badge: 'Protocol Native',
+  },
+  {
+    id: 'mcp',
+    title: 'Universal MCP Ecosystem',
+    body: 'Connect external Model Context Protocol tools and servers dynamically via /mcp-config for seamless context expansion.',
+    badge: 'Extensible',
+  },
+  {
+    id: 'skills',
+    title: 'Custom Skills & Hooks',
+    body: 'Define repo-local instructions with /skill and wire lifecycle security hooks to inspect and gate destructive tool calls.',
+    badge: 'Customizable',
+  },
+  {
+    id: 'byom',
+    title: 'Model & Provider Agnostic',
+    body: 'Works seamlessly with Pythinker managed models, Anthropic Claude, OpenAI, DeepSeek, Google Gemini, Ollama, and custom endpoints.',
+    badge: 'Zero Lock-in',
+  },
 ];
 
 const terminalDemos = [
@@ -86,7 +98,6 @@ const terminalDemos = [
 const vscodeInstallCommand = 'code --install-extension pymodel.pythinker';
 
 const copiedCommand = ref('');
-const scrolled = ref(false);
 const mobileMenu = ref(null);
 const menuButton = ref(null);
 const menuOpen = ref(false);
@@ -123,7 +134,7 @@ async function copyText(text) {
   clearTimeout(resetTimer);
   resetTimer = setTimeout(() => {
     copiedCommand.value = '';
-  }, 1600);
+  }, 1800);
 }
 
 function clearTerminalPlayback() {
@@ -137,7 +148,7 @@ function revealNextTerminalLine() {
     return;
   }
 
-  const delay = visibleTerminalLines.value === 0 ? 420 : 720;
+  const delay = visibleTerminalLines.value === 0 ? 380 : 640;
   terminalTimer = setTimeout(() => {
     visibleTerminalLines.value += 1;
     revealNextTerminalLine();
@@ -196,15 +207,9 @@ function onDocumentKeydown(event) {
   if (event.key === 'Escape') closeMenu();
 }
 
-function onScroll() {
-  scrolled.value = window.scrollY > 40;
-}
-
 onMounted(() => {
   document.addEventListener('pointerdown', onDocumentPointerdown);
   document.addEventListener('keydown', onDocumentKeydown);
-  window.addEventListener('scroll', onScroll, { passive: true });
-  onScroll();
   reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
   playTerminalDemo();
   if (reducedMotionQuery.matches) return;
@@ -215,7 +220,7 @@ onMounted(() => {
       entry.target.classList.add('is-visible');
       revealObserver.unobserve(entry.target);
     }
-  }, { threshold: 0.15 });
+  }, { threshold: 0.12 });
 
   document.querySelectorAll('.reveal').forEach((element) => revealObserver.observe(element));
 });
@@ -227,23 +232,28 @@ onUnmounted(() => {
   revealObserver?.disconnect();
   document.removeEventListener('pointerdown', onDocumentPointerdown);
   document.removeEventListener('keydown', onDocumentKeydown);
-  window.removeEventListener('scroll', onScroll);
 });
 </script>
 
 <template>
   <ParticleField />
-  <nav class="site-nav" :class="{ 'is-scrolled': scrolled }" aria-label="Primary navigation">
+  
+  <nav class="site-nav" aria-label="Primary navigation">
     <div class="container nav-inner">
-      <a href="/" class="nav-brand"><PythinkerMascot :width="26" :height="32" /><span>Pythinker Code</span></a>
+      <a href="/" class="nav-brand">
+        <PythinkerMascot :width="26" :height="32" />
+        <span class="brand-text">Pythinker Code</span>
+      </a>
+      
       <div class="nav-actions">
         <div class="nav-links">
           <a href="#desktop">Desktop</a>
+          <a href="#install">CLI</a>
           <a href="https://pymodel.github.io/pythinker-code/" target="_blank" rel="noopener">Docs</a>
-          <a href="https://github.com/PyModel/pythinker-code" target="_blank" rel="noopener"><img src="/brand/github.svg" alt="" width="16" height="16" />GitHub</a>
-          <a href="https://www.npmjs.com/package/@pymodel/pythinker-code" target="_blank" rel="noopener"><img src="/brand/npm.svg" alt="" width="16" height="16" />npm</a>
         </div>
+        
         <a class="button button-primary nav-cta" href="#install">Get started</a>
+        
         <div ref="mobileMenu" class="mobile-menu" @mouseenter="openMenuOnHover" @mouseleave="closeMenuOnHover">
           <button ref="menuButton" class="menu-button" type="button" aria-label="Menu" aria-haspopup="true" :aria-expanded="menuOpen" @click="toggleMenu">
             <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
@@ -251,9 +261,8 @@ onUnmounted(() => {
           <Transition name="mobile-menu">
             <div v-show="menuOpen" class="mobile-menu-panel">
               <a href="#desktop" @click="closeMenu(false)">Desktop</a>
+              <a href="#install" @click="closeMenu(false)">CLI</a>
               <a href="https://pymodel.github.io/pythinker-code/" target="_blank" rel="noopener" @click="closeMenu(false)">Docs</a>
-              <a href="https://github.com/PyModel/pythinker-code" target="_blank" rel="noopener" @click="closeMenu(false)"><img src="/brand/github.svg" alt="" width="16" height="16" />GitHub</a>
-              <a href="https://www.npmjs.com/package/@pymodel/pythinker-code" target="_blank" rel="noopener" @click="closeMenu(false)"><img src="/brand/npm.svg" alt="" width="16" height="16" />npm</a>
             </div>
           </Transition>
         </div>
@@ -261,104 +270,181 @@ onUnmounted(() => {
     </div>
   </nav>
 
-  <main id="top">
-    <div id="desktop" class="hero-dark">
-      <header class="hero container">
+  <!-- Atmospheric Dark Hero Wrapper -->
+  <div class="hero-atmosphere-wrapper">
+    <HeroBackground />
+
+    <!-- Top Hero Section -->
+    <header id="desktop" class="hero container">
+      <div class="hero-main-grid">
         <div class="hero-copy">
-          <h1>Pythinker<br>Code<br>Desktop</h1>
-          <p class="hero-lead">A native AI engineering agent for macOS and Windows. It reads your repo, edits files, runs commands, and iterates until the job is done.</p>
-          <div class="hero-download">
-            <div class="hero-download-actions">
-              <a
-                v-for="download in heroDownloads"
-                :key="download.id"
-                class="button button-hero"
-                :href="download.href"
-                rel="noopener"
-              >
-                <img :src="download.icon" alt="" aria-hidden="true" class="button-platform-icon" />
-                {{ download.label }}
-              </a>
-            </div>
+          <div class="hero-greeting" aria-hidden="true">
+            <img src="/mascot-waving.png" alt="" width="72" height="78" />
+            <span>Hello</span>
           </div>
-          <div class="hero-meta">
-            <a class="button button-ghost" href="https://github.com/PyModel/pythinker-code" target="_blank" rel="noopener">
-              <img src="/brand/github.svg" alt="" width="16" height="16" />
-              View on GitHub
+          <h1 class="hero-title">
+            <span>Pythinker</span>
+            <span>Code</span>
+            <span>Desktop</span>
+          </h1>
+          
+          <p class="hero-lead">A ready-to-use desktop app built on the official Pythinker Code agent. It reads your repo, edits files, runs commands, and iterates until the job is done.</p>
+          
+          <div class="hero-download-buttons">
+            <a class="button button-download-mac" :href="desktopDownloads.mac" rel="noopener">
+              <img src="/brand/apple.svg" alt="" aria-hidden="true" class="button-os-icon" />
+              <span>Download for Mac</span>
             </a>
-            <span class="hero-install-hint">or <a href="#install">install the CLI</a></span>
+            <a class="button button-download-win" :href="desktopDownloads.windows" rel="noopener">
+              <img
+                src="/mascot-jumping.png"
+                alt=""
+                width="72"
+                height="78"
+                class="hero-download-jumper"
+              />
+              <img src="/brand/windows11.svg" alt="" aria-hidden="true" class="button-os-icon" />
+              <span>Download for Windows</span>
+            </a>
           </div>
-          <p class="hero-caption">Free and open source. MIT licensed. macOS, Linux, and Windows.</p>
+          
+          <div class="hero-subactions">
+            <a class="button button-github-pill" href="https://github.com/PyModel/pythinker-code" target="_blank" rel="noopener">
+              <img src="/brand/github.svg" alt="" width="16" height="16" />
+              <span>View on GitHub</span>
+            </a>
+            <span class="hero-badge-oss">Open source, MIT licensed</span>
+          </div>
         </div>
+        
         <div class="hero-preview">
-          <div class="hero-preview-window">
-            <div class="hero-preview-titlebar">
-              <span class="hero-preview-light"></span>
-              <span class="hero-preview-light"></span>
-              <span class="hero-preview-light"></span>
-            </div>
-            <img src="/pythinker_desktop.webp" alt="Pythinker Desktop showing an AI coding session" width="2048" height="1300" loading="eager" />
+          <div class="hero-preview-mascot-lane" aria-hidden="true">
+            <img
+              src="/mascot-running-left.png"
+              alt=""
+              width="72"
+              height="78"
+              class="hero-mascot-runner hero-mascot-runner--left"
+            />
+          </div>
+          <img
+            src="/pythinker_desktop.webp"
+            alt="Pythinker Desktop application workspace"
+            width="2428"
+            height="1654"
+            loading="eager"
+            class="hero-app-shot"
+          />
+        </div>
+      </div>
+
+      <!-- Floating Hero Providers Marquee -->
+      <div class="hero-providers-bar" aria-label="Compatible with leading AI models and providers">
+        <div class="hero-mascot-lane" aria-hidden="true">
+          <img
+            src="/mascot-running-right.png"
+            alt=""
+            width="72"
+            height="78"
+            class="hero-mascot-runner hero-mascot-runner--right"
+          />
+        </div>
+        <div class="hero-providers-label">Supported Providers</div>
+        <div class="hero-providers-marquee" aria-hidden="true">
+          <div class="hero-providers-track">
+            <img src="/brand/anthropic.svg" alt="Anthropic" class="hero-provider-logo" />
+            <img src="/brand/openai.svg" alt="OpenAI" class="hero-provider-logo" />
+            <img src="/brand/gemini.svg" alt="Google Gemini" class="hero-provider-logo" />
+            <img src="/brand/ollama.svg" alt="Ollama" class="hero-provider-logo" />
+            <img src="/brand/lmstudio.svg" alt="LM Studio" class="hero-provider-logo" />
+            <img src="/brand/deepseek.svg" alt="DeepSeek" class="hero-provider-logo" />
+            <img src="/brand/meta.svg" alt="Meta / Llama" class="hero-provider-logo" />
+            <img src="/brand/mistral.svg" alt="Mistral" class="hero-provider-logo" />
+            <img src="/brand/groq.svg" alt="Groq" class="hero-provider-logo hero-provider-logo--text" />
+            <img src="/brand/aws.svg" alt="AWS" class="hero-provider-logo hero-provider-logo--text" />
+            <img src="/brand/anthropic.svg" alt="" class="hero-provider-logo" />
+            <img src="/brand/openai.svg" alt="" class="hero-provider-logo" />
+            <img src="/brand/gemini.svg" alt="" class="hero-provider-logo" />
+            <img src="/brand/ollama.svg" alt="" class="hero-provider-logo" />
+            <img src="/brand/lmstudio.svg" alt="" class="hero-provider-logo" />
+            <img src="/brand/deepseek.svg" alt="" class="hero-provider-logo" />
+            <img src="/brand/meta.svg" alt="" class="hero-provider-logo" />
+            <img src="/brand/mistral.svg" alt="" class="hero-provider-logo" />
+            <img src="/brand/groq.svg" alt="" class="hero-provider-logo hero-provider-logo--text" />
+            <img src="/brand/aws.svg" alt="" class="hero-provider-logo hero-provider-logo--text" />
           </div>
         </div>
-      </header>
-    </div>
-
-    <div class="works-with" aria-label="Works with leading AI models">
-      <span class="works-with-label">Works with</span>
-      <div class="works-with-marquee" aria-hidden="true">
-        <div class="works-with-track">
-          <img src="/brand/anthropic.svg" alt="Anthropic" class="works-with-logo" />
-          <img src="/brand/openai.svg" alt="OpenAI" class="works-with-logo" />
-          <img src="/brand/gemini.svg" alt="Google Gemini" class="works-with-logo" />
-          <img src="/brand/ollama.svg" alt="Ollama" class="works-with-logo" />
-          <img src="/brand/lmstudio.svg" alt="LM Studio" class="works-with-logo" />
-          <img src="/brand/deepseek.svg" alt="DeepSeek" class="works-with-logo" />
-          <img src="/brand/meta.svg" alt="Meta / Llama" class="works-with-logo" />
-          <img src="/brand/mistral.svg" alt="Mistral" class="works-with-logo" />
-          <img src="/brand/groq.svg" alt="Groq" class="works-with-logo works-with-logo--text" />
-          <img src="/brand/aws.svg" alt="AWS" class="works-with-logo works-with-logo--text" />
-          <img src="/brand/anthropic.svg" alt="" class="works-with-logo" />
-          <img src="/brand/openai.svg" alt="" class="works-with-logo" />
-          <img src="/brand/gemini.svg" alt="" class="works-with-logo" />
-          <img src="/brand/ollama.svg" alt="" class="works-with-logo" />
-          <img src="/brand/lmstudio.svg" alt="" class="works-with-logo" />
-          <img src="/brand/deepseek.svg" alt="" class="works-with-logo" />
-          <img src="/brand/meta.svg" alt="" class="works-with-logo" />
-          <img src="/brand/mistral.svg" alt="" class="works-with-logo" />
-          <img src="/brand/groq.svg" alt="" class="works-with-logo works-with-logo--text" />
-          <img src="/brand/aws.svg" alt="" class="works-with-logo works-with-logo--text" />
-        </div>
       </div>
-    </div>
+    </header>
+  </div>
 
+  <main id="main-content">
+    <!-- VS Code Extension Showcase -->
     <section id="vscode" class="section container" aria-labelledby="vscode-title">
-      <div class="reveal">
-        <p class="eyebrow">VS Code extension</p>
-        <h2 id="vscode-title" class="display-md">The same agent, inside your editor.</h2>
+      <div class="reveal section-header">
+        <p class="eyebrow">Editor Integration</p>
+        <h2 id="vscode-title" class="display-md">The same autonomous engine, inside your editor.</h2>
       </div>
+      
       <div class="vscode-grid">
         <figure class="vscode-shot reveal">
+          <div class="vscode-window-titlebar">
+            <span class="window-dot red"></span>
+            <span class="window-dot yellow"></span>
+            <span class="window-dot green"></span>
+            <span class="vscode-titlebar-text">Visual Studio Code</span>
+          </div>
           <img
             src="/vscode_img.jpeg"
-            alt="Pythinker Code running in the VS Code sidebar next to an open editor"
+            alt="Pythinker Code running in the VS Code sidebar next to active editor tabs"
             width="1280"
             height="844"
             loading="lazy"
             decoding="async"
           />
         </figure>
+        
         <div class="vscode-copy reveal">
-          <p class="vscode-lead">Install from the Marketplace and Pythinker Code lives in the Activity Bar. It reads your repo, proposes edits in the native diff viewer, and runs commands with your approval.</p>
-          <ul class="vscode-points">
-            <li><strong>Native diffs.</strong> Review every proposed change in VS Code's own diff viewer before it lands.</li>
-            <li><strong>Shared config.</strong> Same <code>config.toml</code>, MCP servers, login, and sessions as the terminal app.</li>
-            <li><strong>Thinking controls.</strong> Toggle reasoning or pick a model-supported thinking effort per task.</li>
-          </ul>
+          <p class="vscode-lead">Install from the VS Code Marketplace to access Pythinker Code in your sidebar. It inspects your repo, proposes edits in the native diff viewer, and runs terminal commands with granular approval.</p>
+          
+          <div class="vscode-features-list">
+            <div class="vscode-feature-item">
+              <div class="feature-bullet-icon">
+                <svg viewBox="0 0 16 16"><path d="M2 4h12M2 8h12M2 12h8" /></svg>
+              </div>
+              <div>
+                <strong>Native diff inspection</strong>
+                <p>Review every file modification in VS Code's side-by-side diff viewer before applying changes.</p>
+              </div>
+            </div>
+            
+            <div class="vscode-feature-item">
+              <div class="feature-bullet-icon">
+                <svg viewBox="0 0 16 16"><path d="M4 4h8v8H4zM2 8h2M12 8h2" /></svg>
+              </div>
+              <div>
+                <strong>Unified configuration</strong>
+                <p>Shares the exact same <code>config.toml</code>, MCP server pool, and session state with the CLI.</p>
+              </div>
+            </div>
+            
+            <div class="vscode-feature-item">
+              <div class="feature-bullet-icon">
+                <svg viewBox="0 0 16 16"><path d="M8 2v12M2 8h12" /></svg>
+              </div>
+              <div>
+                <strong>Adaptive thinking controls</strong>
+                <p>Toggle reasoning depth and thinking budgets on a per-task basis.</p>
+              </div>
+            </div>
+          </div>
+          
           <div class="vscode-actions">
             <a class="button button-primary" href="https://marketplace.visualstudio.com/items?itemName=pymodel.pythinker" target="_blank" rel="noopener">
               <img src="/brand/visualstudiocode.svg" alt="" width="16" height="16" />
-              Get the extension
+              <span>Get the extension</span>
             </a>
+            
             <div class="vscode-command">
               <code>code --install-extension pymodel.pythinker</code>
               <button class="row-copy" type="button" aria-label="Copy VS Code install command" @click="copyText(vscodeInstallCommand)">
@@ -367,46 +453,27 @@ onUnmounted(() => {
               </button>
             </div>
           </div>
-          <p class="section-note">Requires VS Code 1.100.0 or later. Cursor, Windsurf, and other VS Code forks install the same VSIX.</p>
+          
+          <p class="section-note">Requires VS Code 1.100.0 or later. Fully compatible with Cursor, Windsurf, and other VS Code forks.</p>
         </div>
       </div>
     </section>
 
-    <section id="install" class="section container" aria-labelledby="install-title">
-      <div class="reveal">
-        <p class="eyebrow">Installation</p>
-        <h2 id="install-title" class="display-md">Every platform, one command.</h2>
+    <!-- Quickstart & Interactive Terminal Demo -->
+    <section id="quickstart" class="section container" aria-labelledby="quickstart-title">
+      <div class="reveal section-header">
+        <p class="eyebrow">Quick Start</p>
+        <h2 id="quickstart-title" class="display-md">From installation to first task in seconds.</h2>
       </div>
-      <div class="command-list reveal">
-        <div v-for="([platform, command, icon]) in installRows" :key="platform" class="command-row">
-          <span class="platform-name">
-            <img v-if="icon" :src="icon" alt="" width="16" height="16" />
-            <svg v-else class="terminal-glyph" aria-hidden="true" viewBox="0 0 16 16"><path d="m2 4 3 3-3 3M7 11h6" /></svg>
-            {{ platform }}
-          </span>
-          <code>{{ command }}</code>
-          <button class="row-copy" type="button" :aria-label="`Copy ${platform} command`" @click="copyText(command)">
-            <svg v-if="copiedCommand === command" aria-hidden="true" viewBox="0 0 20 20"><path d="m4 10 4 4 8-9" /></svg>
-            <svg v-else aria-hidden="true" viewBox="0 0 20 20"><rect x="7" y="3" width="10" height="11" rx="2" /><rect x="3" y="7" width="10" height="10" rx="2" /></svg>
-          </button>
-        </div>
-      </div>
-      <p class="section-note">Windows requires Git for Windows; Pythinker Code uses its bundled Git Bash as the shell. Every release artifact ships with a SHA-256 checksum.</p>
-      <span class="visually-hidden" aria-live="polite">{{ copiedCommand ? 'Copied' : '' }}</span>
-    </section>
-
-    <section class="section container" aria-labelledby="quickstart-title">
-      <div class="reveal">
-        <p class="eyebrow">Quick start</p>
-        <h2 id="quickstart-title" class="display-md">From install to first task in two minutes.</h2>
-      </div>
+      
       <div class="quickstart-grid">
+        <!-- Interactive Terminal Panel -->
         <div class="terminal-panel" aria-label="Interactive macOS-style Pythinker Code terminal demo">
           <div class="terminal-header">
             <div class="terminal-lights" aria-hidden="true"><span></span><span></span><span></span></div>
             <div class="terminal-title" aria-hidden="true">
               <span class="terminal-title-icon"><svg viewBox="0 0 16 16"><path d="m3 5 2.5 2.5L3 10M7 10h5" /></svg></span>
-              <span>your-project — zsh</span>
+              <span>your-project: zsh</span>
             </div>
             <div class="terminal-window-actions">
               <span class="terminal-mode"><span aria-hidden="true"></span>YOLO mode</span>
@@ -415,16 +482,23 @@ onUnmounted(() => {
               </button>
             </div>
           </div>
+          
           <div class="terminal-body">
             <div class="terminal-session" aria-label="Launch commands">
               <div class="terminal-line shell-line"><span class="terminal-prompt" aria-hidden="true">%</span><code>cd your-project</code></div>
               <div class="terminal-line shell-line"><span class="terminal-prompt" aria-hidden="true">%</span><code>pythinker <strong class="terminal-flag">--yolo</strong></code></div>
             </div>
-            <div class="terminal-yolo-note"><strong>YOLO</strong><span>Regular tool actions run without approval.</span></div>
+            
+            <div class="terminal-yolo-note">
+              <strong>YOLO</strong>
+              <span>Autonomous execution mode: tool actions execute with safe iteration bounds.</span>
+            </div>
+            
             <div class="terminal-line terminal-user-line">
               <span class="terminal-prompt" aria-hidden="true">›</span>
               <code>{{ activeTerminalDemo.input }}</code>
             </div>
+            
             <TransitionGroup tag="div" name="terminal-output" class="terminal-output" role="log" aria-live="polite">
               <div
                 v-for="(line, index) in activeTerminalDemo.output.slice(0, visibleTerminalLines)"
@@ -436,117 +510,333 @@ onUnmounted(() => {
                 <code>{{ line.text }}</code>
               </div>
             </TransitionGroup>
+            
             <div v-if="!terminalPlaying && visibleTerminalLines === activeTerminalDemo.output.length" class="terminal-line terminal-ready-line">
               <span class="terminal-prompt" aria-hidden="true">›</span><span class="caret" aria-hidden="true"></span>
               <span class="visually-hidden">Ready for the next command</span>
             </div>
           </div>
+          
           <div class="terminal-presets" aria-label="Terminal demo commands">
-            <span class="terminal-presets-label">Try a command</span>
-            <button
-              v-for="demo in terminalDemos"
-              :key="demo.id"
-              class="terminal-preset"
-              :class="{ 'is-active': activeTerminalDemo.id === demo.id }"
-              type="button"
-              :aria-pressed="activeTerminalDemo.id === demo.id"
-              @click="playTerminalDemo(demo.id)"
-            >
-              {{ demo.label }}
-            </button>
+            <span class="terminal-presets-label">Presets</span>
+            <div class="terminal-presets-buttons">
+              <button
+                v-for="demo in terminalDemos"
+                :key="demo.id"
+                class="terminal-preset"
+                :class="{ 'is-active': activeTerminalDemo.id === demo.id }"
+                type="button"
+                :aria-pressed="activeTerminalDemo.id === demo.id"
+                @click="playTerminalDemo(demo.id)"
+              >
+                {{ demo.label }}
+              </button>
+            </div>
           </div>
         </div>
+
+        <!-- Side Loop Diagram & Step Guide -->
         <div class="quickstart-steps">
-          <AgentLoop />
-          <ol class="steps">
-            <li><h3>Authenticate</h3><p>Run /login and choose Pythinker Code OAuth or an API key from the console.</p></li>
-            <li><h3>Give it a task</h3><p>Refactor a module, trace a bug, scaffold a feature. The agent plans, executes tools, and iterates.</p></li>
-            <li><h3>Stay in control</h3><p>Approval flows let you review every tool call before it runs, with a granular permission model.</p></li>
+          <div class="agent-loop-wrapper">
+            <AgentLoop />
+          </div>
+          
+          <ol class="steps-card-list">
+            <li class="step-card">
+              <div class="step-index">01</div>
+              <div class="step-content">
+                <h3>Authenticate</h3>
+                <p>Run <code>/login</code> to connect with Pythinker Code OAuth or provide an API key.</p>
+              </div>
+            </li>
+            <li class="step-card">
+              <div class="step-index">02</div>
+              <div class="step-content">
+                <h3>Assign a task</h3>
+                <p>Describe your goal: refactor modules, fix failing tests, or scaffold new microservices.</p>
+              </div>
+            </li>
+            <li class="step-card">
+              <div class="step-index">03</div>
+              <div class="step-content">
+                <h3>Review & Ship</h3>
+                <p>Inspect tool diffs in real time with granular permission gates and safety rollbacks.</p>
+              </div>
+            </li>
           </ol>
         </div>
       </div>
     </section>
 
-    <section class="section container" aria-labelledby="features-title">
-      <div class="reveal">
+    <!-- Capabilities Bento Grid -->
+    <section id="features" class="section container" aria-labelledby="features-title">
+      <div class="reveal section-header">
         <p class="eyebrow">Capabilities</p>
-        <h2 id="features-title" class="display-md">Built for real engineering work.</h2>
+        <h2 id="features-title" class="display-md">Engineered for autonomous software delivery.</h2>
       </div>
-      <div class="feature-grid">
-        <article v-for="([title, body], index) in features" :key="title" class="feature-card reveal" :class="{ lead: index === 0 }" :style="{ transitionDelay: `${Math.min(index, 4) * 80}ms` }">
-          <h3>{{ title }}</h3>
-          <p>{{ body }}</p>
-          <div v-if="title === 'ACP editor integration'" class="feature-icons" aria-hidden="true">
-            <img src="/brand/visualstudiocode.svg" alt="" width="16" height="16" />
-            <img src="/brand/jetbrains.svg" alt="" width="16" height="16" />
+      
+      <div class="bento-grid">
+        <!-- Lead Bento Card: Parallel Subagent Swarms -->
+        <article class="bento-card bento-card-lead reveal">
+          <div class="bento-card-header">
+            <span class="bento-badge">Multi-Agent Swarms</span>
+            <h3>Parallel Subagent Execution</h3>
+            <p>Dispatch specialized subagents (coder, explore, plan) across isolated Git worktrees. The supervisory agent coordinates tasks and consolidates the solution without context clutter.</p>
           </div>
-          <div v-else-if="title === 'MCP tools'" class="feature-icons" aria-hidden="true">
-            <img src="/brand/mcp.svg" alt="" width="16" height="16" />
+          
+          <div class="subagents-visual" aria-hidden="true">
+            <div class="subagent-node supervisor-node">
+              <span class="node-badge">Supervisor</span>
+              <span class="node-title">pythinker-coordinator</span>
+            </div>
+            <div class="subagent-branch-lines">
+              <span class="branch-line"></span>
+              <span class="branch-line"></span>
+              <span class="branch-line"></span>
+            </div>
+            <div class="subagent-children">
+              <div class="subagent-child">
+                <div class="child-heading">
+                  <span class="child-indicator is-running"></span>
+                  <span class="child-name">explore-agent</span>
+                </div>
+                <span class="child-task">repo indexing</span>
+              </div>
+              <div class="subagent-child">
+                <div class="child-heading">
+                  <span class="child-indicator is-running"></span>
+                  <span class="child-name">coder-agent</span>
+                </div>
+                <span class="child-task">patching logic</span>
+              </div>
+              <div class="subagent-child">
+                <div class="child-heading">
+                  <span class="child-indicator is-done"></span>
+                  <span class="child-name">test-verifier</span>
+                </div>
+                <span class="child-task">all tests passed</span>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <!-- Bento Card 2: ACP Editor Protocol -->
+        <article class="bento-card reveal" style="transition-delay: 80ms">
+          <div class="bento-card-header">
+            <span class="bento-badge">Protocol Native</span>
+            <h3>ACP Editor Integration</h3>
+            <p>Run <code>pythinker acp</code> for native editor integration across Zed, Cursor, and JetBrains.</p>
+          </div>
+          <div class="bento-icon-tray" aria-hidden="true">
+            <img src="/brand/visualstudiocode.svg" alt="" width="20" height="20" />
+            <img src="/brand/jetbrains.svg" alt="" width="20" height="20" />
+          </div>
+        </article>
+
+        <!-- Bento Card 3: Universal MCP Tools -->
+        <article class="bento-card reveal" style="transition-delay: 160ms">
+          <div class="bento-card-header">
+            <span class="bento-badge">Extensible</span>
+            <h3>Model Context Protocol</h3>
+            <p>Load any MCP server dynamically with <code>/mcp-config</code>. Database, browser, and search tools work instantly.</p>
+          </div>
+          <div class="bento-code-pill" aria-hidden="true">
+            <code>/mcp-config add postgres</code>
+          </div>
+        </article>
+
+        <!-- Bento Card 4: Custom Skills & Hooks -->
+        <article class="bento-card reveal" style="transition-delay: 240ms">
+          <div class="bento-card-header">
+            <span class="bento-badge">Customizable</span>
+            <h3>Skills & Lifecycle Hooks</h3>
+            <p>Add repo-local custom skills via <code>/skill</code> and configure pre-execution hooks to prevent accidental destructive calls.</p>
+          </div>
+          <div class="bento-code-pill" aria-hidden="true">
+            <code>.agents/skills/deploy.md</code>
+          </div>
+        </article>
+
+        <!-- Bento Card 5: Provider Agnostic -->
+        <article class="bento-card reveal" style="transition-delay: 320ms">
+          <div class="bento-card-header">
+            <span class="bento-badge">Zero Lock-In</span>
+            <h3>Universal LLM Compatibility</h3>
+            <p>Switch between Claude 3.7 Sonnet, OpenAI o3, DeepSeek, Google Gemini, or local models running via Ollama.</p>
+          </div>
+          <div class="bento-provider-chips" aria-hidden="true">
+            <span class="provider-chip">Claude 3.7</span>
+            <span class="provider-chip">GPT-4.5</span>
+            <span class="provider-chip">DeepSeek R1</span>
+            <span class="provider-chip">Ollama</span>
           </div>
         </article>
       </div>
     </section>
 
+    <!-- Installation Matrix -->
+    <section id="install" class="section container" aria-labelledby="install-title">
+      <div class="reveal section-header">
+        <p class="eyebrow">Installation</p>
+        <h2 id="install-title" class="display-md">Every platform, one command.</h2>
+      </div>
+      
+      <div class="command-list reveal">
+        <div v-for="([platform, command, icon]) in installRows" :key="platform" class="command-row">
+          <span class="platform-name">
+            <span class="platform-icon-wrapper">
+              <img v-if="icon" :src="icon" alt="" width="16" height="16" class="platform-brand-icon" />
+              <svg v-else class="terminal-glyph" aria-hidden="true" viewBox="0 0 16 16"><path d="M4 5.5l3 2.5-3 2.5M8.5 10.5h3.5" /></svg>
+            </span>
+            <span class="platform-title">{{ platform }}</span>
+          </span>
+          <code class="command-code">{{ command }}</code>
+          <button class="row-copy" type="button" :aria-label="`Copy ${platform} command`" @click="copyText(command)">
+            <svg v-if="copiedCommand === command" class="check-icon" aria-hidden="true" viewBox="0 0 20 20"><path d="m4 10 4 4 8-9" /></svg>
+            <svg v-else aria-hidden="true" viewBox="0 0 20 20"><rect x="7" y="3" width="10" height="11" rx="2" /><rect x="3" y="7" width="10" height="10" rx="2" /></svg>
+            <span class="row-copy-tooltip">{{ copiedCommand === command ? 'Copied!' : 'Copy' }}</span>
+          </button>
+        </div>
+      </div>
+      
+      <p class="section-note">Windows requires Git for Windows with bundled Git Bash. All binary releases include SHA-256 integrity checksums.</p>
+      <span class="visually-hidden" aria-live="polite">{{ copiedCommand ? 'Copied to clipboard' : '' }}</span>
+    </section>
+
+    <!-- Plugin Marketplace -->
     <section class="section container" aria-labelledby="plugins-title">
-      <div class="reveal">
-        <p class="eyebrow">Plugin marketplace</p>
-        <h2 id="plugins-title" class="display-md">Extend it from the marketplace.</h2>
+      <div class="reveal section-header">
+        <p class="eyebrow">Plugin Ecosystem</p>
+        <h2 id="plugins-title" class="display-md">Extend workflows from the curated registry.</h2>
       </div>
-      <div class="plugin-list">
-        <div class="plugin-row reveal">
-          <p><strong>pythinker-datasource 3.2.0, official.</strong> Finance, macro, enterprise, academic, and legal data tools.</p>
-          <code>/plugins install</code>
+      
+      <div class="plugin-grid">
+        <div class="plugin-card reveal">
+          <div class="plugin-badge-row">
+            <span class="plugin-tag official">Official</span>
+            <span class="plugin-version">v3.2.0</span>
+          </div>
+          <h3>pythinker-datasource</h3>
+          <p>Financial, macroeconomic, academic research, and enterprise knowledge graph search tools for coding agents.</p>
+          <div class="plugin-install-box">
+            <code>/plugins install datasource</code>
+            <button class="row-copy" type="button" aria-label="Copy datasource install command" @click="copyText('/plugins install datasource')">
+              <svg v-if="copiedCommand === '/plugins install datasource'" class="check-icon" aria-hidden="true" viewBox="0 0 20 20"><path d="m4 10 4 4 8-9" /></svg>
+              <svg v-else aria-hidden="true" viewBox="0 0 20 20"><rect x="7" y="3" width="10" height="11" rx="2" /><rect x="3" y="7" width="10" height="10" rx="2" /></svg>
+            </button>
+          </div>
         </div>
-        <div class="plugin-row reveal">
-          <p><strong>superpowers 6.2.0, curated.</strong> Planning, TDD, debugging, and delivery workflows for coding agents.</p>
-          <code>/plugins install</code>
+
+        <div class="plugin-card reveal" style="transition-delay: 100ms">
+          <div class="plugin-badge-row">
+            <span class="plugin-tag curated">Curated</span>
+            <span class="plugin-version">v6.2.0</span>
+          </div>
+          <h3>superpowers</h3>
+          <p>Structured test-driven development (TDD), automated refactoring plans, and proactive debugging suites.</p>
+          <div class="plugin-install-box">
+            <code>/plugins install superpowers</code>
+            <button class="row-copy" type="button" aria-label="Copy superpowers install command" @click="copyText('/plugins install superpowers')">
+              <svg v-if="copiedCommand === '/plugins install superpowers'" class="check-icon" aria-hidden="true" viewBox="0 0 20 20"><path d="m4 10 4 4 8-9" /></svg>
+              <svg v-else aria-hidden="true" viewBox="0 0 20 20"><rect x="7" y="3" width="10" height="11" rx="2" /><rect x="3" y="7" width="10" height="10" rx="2" /></svg>
+            </button>
+          </div>
         </div>
       </div>
-      <p class="section-note">Marketplace is served from this domain and managed inside the CLI.</p>
+      
+      <p class="section-note">Plugins are distributed over HTTPS and managed directly within the Pythinker CLI.</p>
     </section>
 
-    <section class="section container" aria-labelledby="docs-title">
-      <div class="reveal">
-        <p class="eyebrow">Documentation</p>
-        <h2 id="docs-title" class="display-md">Learn the commands, then forget the docs.</h2>
+    <!-- Command Reference & Documentation -->
+    <section id="docs" class="section container" aria-labelledby="docs-title">
+      <div class="reveal section-header">
+        <p class="eyebrow">Developer Reference</p>
+        <h2 id="docs-title" class="display-md">Quick commands and guides.</h2>
       </div>
+      
       <div class="docs-grid reveal">
-        <table class="command-table">
-          <caption class="visually-hidden">Pythinker Code slash commands</caption>
-          <tbody>
-            <tr><th scope="row"><code>/login</code></th><td>Authenticate with OAuth or API key</td></tr>
-            <tr><th scope="row"><code>/mcp-config</code></th><td>Manage MCP servers conversationally</td></tr>
-            <tr><th scope="row"><code>/skill:&lt;name&gt;</code></th><td>Invoke an installed skill</td></tr>
-            <tr><th scope="row"><code>/help</code></th><td>Keyboard shortcut reference</td></tr>
-          </tbody>
-        </table>
+        <div class="command-table-wrapper">
+          <table class="command-table">
+            <caption class="visually-hidden">Pythinker Code slash commands cheat sheet</caption>
+            <thead>
+              <tr>
+                <th scope="col">Command</th>
+                <th scope="col">Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><th scope="row"><code>/login</code></th><td>Authenticate with OAuth or provider API keys</td></tr>
+              <tr><th scope="row"><code>/mcp-config</code></th><td>Configure MCP servers conversationally</td></tr>
+              <tr><th scope="row"><code>/skill:&lt;name&gt;</code></th><td>Invoke an installed custom skill</td></tr>
+              <tr><th scope="row"><code>/model</code></th><td>Switch the active model or provider backend</td></tr>
+              <tr><th scope="row"><code>/tasks</code></th><td>Inspect background subagent workflows</td></tr>
+              <tr><th scope="row"><code>/help</code></th><td>Display keyboard shortcuts and system commands</td></tr>
+            </tbody>
+          </table>
+        </div>
+        
         <div class="link-rail">
-          <a href="https://pymodel.github.io/pythinker-code/guides/getting-started" target="_blank" rel="noopener"><span>Getting Started</span><small>Install, authenticate, and run your first task.</small></a>
-          <a href="https://pymodel.github.io/pythinker-code/guides/ides" target="_blank" rel="noopener"><span>Using in IDEs</span><small>Connect Pythinker Code through ACP.</small></a>
-          <a href="https://pymodel.github.io/pythinker-code/configuration/config-files" target="_blank" rel="noopener"><span>Configuration</span><small>Set models, providers, and permissions.</small></a>
-          <a href="https://pymodel.github.io/pythinker-code/reference/pythinker-command" target="_blank" rel="noopener"><span>Command reference</span><small>Review CLI commands and options.</small></a>
+          <a href="https://pymodel.github.io/pythinker-code/guides/getting-started" target="_blank" rel="noopener" class="doc-card-link">
+            <div class="doc-card-header">
+              <span class="doc-card-title">Getting Started</span>
+              <svg class="arrow-icon" viewBox="0 0 20 20"><path d="M6 14 14 6M8 6h6v6" /></svg>
+            </div>
+            <small>Install, authenticate, and run your first repository task.</small>
+          </a>
+          <a href="https://pymodel.github.io/pythinker-code/guides/ides" target="_blank" rel="noopener" class="doc-card-link">
+            <div class="doc-card-header">
+              <span class="doc-card-title">Editor Protocols</span>
+              <svg class="arrow-icon" viewBox="0 0 20 20"><path d="M6 14 14 6M8 6h6v6" /></svg>
+            </div>
+            <small>Connect Pythinker Code through ACP to Zed and VS Code.</small>
+          </a>
+          <a href="https://pymodel.github.io/pythinker-code/configuration/config-files" target="_blank" rel="noopener" class="doc-card-link">
+            <div class="doc-card-header">
+              <span class="doc-card-title">Configuration</span>
+              <svg class="arrow-icon" viewBox="0 0 20 20"><path d="M6 14 14 6M8 6h6v6" /></svg>
+            </div>
+            <small>Customize provider models, permissions, and tools.</small>
+          </a>
+          <a href="https://pymodel.github.io/pythinker-code/reference/pythinker-command" target="_blank" rel="noopener" class="doc-card-link">
+            <div class="doc-card-header">
+              <span class="doc-card-title">CLI Reference</span>
+              <svg class="arrow-icon" viewBox="0 0 20 20"><path d="M6 14 14 6M8 6h6v6" /></svg>
+            </div>
+            <small>Comprehensive flags, subcommands, and environment variables.</small>
+          </a>
         </div>
       </div>
     </section>
 
+    <!-- Call to Action Banner -->
     <section class="section container" aria-labelledby="cta-title">
       <div class="cta-panel reveal">
-        <h2 id="cta-title">Install it. Point it at a repo. Ship.</h2>
+        <div class="cta-content">
+          <span class="cta-badge">Ready to accelerate delivery?</span>
+          <h2 id="cta-title">Install it. Point it at a repo. Ship.</h2>
+          <p class="cta-desc">Join thousands of developers shipping faster with autonomous AI engineering.</p>
+        </div>
         <div class="cta-actions">
-          <a class="button button-primary" href="#install">Get started</a>
-          <a class="button button-secondary" href="https://pymodel.github.io/pythinker-code/" target="_blank" rel="noopener">Read the docs</a>
+          <a class="button button-accent cta-primary-btn" href="#install">Get started free</a>
+          <a class="button button-secondary cta-secondary-btn" href="https://pymodel.github.io/pythinker-code/" target="_blank" rel="noopener">Read the docs</a>
         </div>
       </div>
     </section>
 
-    <div class="container milestone-footnote">
-      <LegacyDownloadsPopup />
-    </div>
   </main>
 
+  <!-- Site Footer -->
   <footer class="site-footer">
     <div class="container footer-inner">
-      <div><div class="footer-brand"><PythinkerMascot :width="16" :height="20" /><p class="wordmark">Pythinker Code</p><span class="footer-version">v{{ version }}</span></div><p class="footer-caption">Built by Pymodel. MIT License.</p></div>
+      <div class="footer-left">
+        <div class="footer-brand">
+          <PythinkerMascot :width="20" :height="24" />
+          <span class="footer-wordmark">Pythinker Code</span>
+          <span class="footer-version">v{{ version }}</span>
+        </div>
+        <p class="footer-caption">Built with precision by Pymodel. Released under the MIT License.</p>
+      </div>
+      
       <div class="footer-links">
         <a href="https://github.com/PyModel/pythinker-code" target="_blank" rel="noopener">GitHub</a>
         <a href="https://www.npmjs.com/package/@pymodel/pythinker-code" target="_blank" rel="noopener">npm</a>
@@ -559,109 +849,75 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+/* ==========================================================================
+   Atmospheric Dark Hero Container
+   ========================================================================== */
+.hero-atmosphere-wrapper {
+  position: relative;
+  width: 100%;
+  background: linear-gradient(180deg, #060b14 0%, #08111f 55%, #0b172a 100%);
+  color: #ffffff;
+  overflow: hidden;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+/* ==========================================================================
+   Navigation Bar
+   ========================================================================== */
 .site-nav {
-  position: fixed;
-  z-index: 10;
+  position: sticky;
+  z-index: 100;
   top: 0;
-  right: 0;
-  left: 0;
   height: 64px;
-  border-bottom: 1px solid transparent;
-  background: transparent;
-  transition: background-color 300ms ease, border-color 300ms ease, box-shadow 300ms ease;
-}
-
-.site-nav.is-scrolled {
-  border-bottom-color: var(--hairline);
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(8px);
-}
-
-.site-nav:not(.is-scrolled) .nav-brand {
-  color: rgba(255, 255, 255, 0.95);
-}
-
-.site-nav:not(.is-scrolled) .nav-brand :deep(svg) {
-  filter: brightness(0) invert(1);
-}
-
-.site-nav:not(.is-scrolled) .nav-links a {
-  color: rgba(255, 255, 255, 0.7);
-}
-
-.site-nav:not(.is-scrolled) .nav-links a:hover {
-  color: #ffffff;
-}
-
-.site-nav:not(.is-scrolled) .nav-links img {
-  filter: brightness(0) invert(1);
-}
-
-.site-nav:not(.is-scrolled) .nav-cta {
-  background: rgba(255, 255, 255, 0.12);
-  color: #ffffff;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-}
-
-.site-nav:not(.is-scrolled) .nav-cta:hover {
-  background: rgba(255, 255, 255, 0.2);
-}
-
-.site-nav:not(.is-scrolled) .menu-button {
-  background: rgba(255, 255, 255, 0.1);
-  color: #ffffff;
-}
-
-.site-nav:not(.is-scrolled) .menu-button:hover {
-  background: rgba(255, 255, 255, 0.18);
+  border-bottom: 1px solid var(--hairline);
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  transition: background-color 150ms ease, border-color 150ms ease;
 }
 
 .nav-inner {
   display: flex;
   height: 100%;
   align-items: center;
-  gap: 24px;
+  justify-content: space-between;
 }
 
-.wordmark {
-  color: var(--ink);
-  font-size: 16px;
-  font-weight: 700;
-}
-
-.nav-brand,
-.footer-brand {
+.nav-brand {
   display: flex;
   align-items: center;
   gap: 10px;
   color: var(--ink);
-  font-size: 17px;
+  font-size: 16.5px;
   font-weight: 700;
+  letter-spacing: -0.025em;
+  transition: opacity 140ms ease;
 }
 
-.nav-actions,
-.nav-links {
-  display: flex;
-  align-items: center;
+.nav-brand:hover {
+  opacity: 0.85;
 }
 
 .nav-actions {
-  margin-left: auto;
-  gap: 20px;
+  display: flex;
+  align-items: center;
+  gap: 24px;
 }
 
 .nav-links {
+  display: flex;
+  align-items: center;
   gap: 28px;
 }
 
 .nav-links a {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
   color: var(--ink-muted);
-  font-size: 15px;
+  font-size: 14.5px;
   font-weight: 500;
-  transition: color 150ms ease;
+  letter-spacing: -0.01em;
+  transition: color 140ms ease;
 }
 
 .nav-links a:hover {
@@ -669,10 +925,11 @@ onUnmounted(() => {
 }
 
 .nav-cta {
-  min-height: 44px;
+  min-height: 38px;
   padding: 8px 18px;
-  font-size: 14px;
+  font-size: 13.5px;
   font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
 .mobile-menu {
@@ -682,9 +939,9 @@ onUnmounted(() => {
 
 .menu-button {
   display: grid;
-  width: 44px;
-  height: 44px;
-  padding: 12px;
+  width: 40px;
+  height: 40px;
+  padding: 10px;
   border: 0;
   border-radius: 50%;
   background: var(--surface-2);
@@ -694,17 +951,17 @@ onUnmounted(() => {
 }
 
 .menu-button svg {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   fill: none;
   stroke: currentColor;
   stroke-linecap: round;
-  stroke-width: 1.7;
+  stroke-width: 1.8;
 }
 
 .mobile-menu-panel {
   position: absolute;
-  z-index: 30;
+  z-index: 50;
   top: calc(100% + 8px);
   right: 0;
   min-width: 220px;
@@ -712,23 +969,20 @@ onUnmounted(() => {
   border: 1px solid var(--hairline);
   border-radius: var(--radius-sm);
   background: var(--canvas);
-  box-shadow: var(--shadow-card);
+  box-shadow: var(--shadow-md);
 }
 
 .mobile-menu-panel a {
   display: flex;
-  min-height: 44px;
+  min-height: 40px;
   align-items: center;
   gap: 8px;
-  padding: 14px 16px;
-  border-radius: 12px;
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
   color: var(--ink);
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 500;
-}
-
-.mobile-menu-panel img {
-  filter: opacity(0.75);
+  transition: background-color 100ms ease;
 }
 
 .mobile-menu-panel a:hover {
@@ -743,378 +997,600 @@ onUnmounted(() => {
 .mobile-menu-enter-from,
 .mobile-menu-leave-to {
   opacity: 0;
-  transform: translateY(-4px);
+  transform: translateY(-6px);
 }
 
-/* ---- Dark hero ---- */
-
-.hero-dark {
-  position: relative;
-  padding-top: 64px; /* nav height offset (nav is now fixed) */
-  overflow: hidden;
-  background: transparent;
-}
-
+/* ==========================================================================
+   Hero Section
+   ========================================================================== */
 .hero {
   position: relative;
   z-index: 1;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100dvh - 64px);
+  padding-top: 48px;
+  padding-bottom: 28px;
+  gap: 32px;
+}
+
+.hero-main-grid {
   display: grid;
-  grid-template-columns: minmax(0, 520px) 1fr;
+  grid-template-columns: minmax(0, 420px) 1fr;
   align-items: center;
   gap: 48px;
-  padding-top: 72px;
-  padding-bottom: 80px;
+  width: 100%;
+  margin-block: auto;
 }
 
 .hero-copy {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
   text-align: left;
 }
 
-.hero h1 {
-  color: #f1f5fa;
-  font-size: clamp(48px, 8vw, 80px);
+.hero-greeting {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 10px);
+  display: flex;
+  align-items: flex-start;
+  pointer-events: none;
+  animation: mascot-greeting-cycle 120s ease infinite;
+}
+
+.hero-greeting img {
+  display: block;
+  width: 72px;
+  height: 78px;
+  object-fit: contain;
+  filter: drop-shadow(0 8px 8px rgba(0, 0, 0, 0.24));
+}
+
+.hero-greeting span {
+  margin-top: 4px;
+  margin-left: -4px;
+  padding: 6px 10px;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.94);
+  color: #0f172a;
+  font-size: 12px;
   font-weight: 700;
-  line-height: 1.05;
-  letter-spacing: -0.025em;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.2);
+}
+
+.hero-title {
+  display: flex;
+  flex-direction: column;
+  color: #ffffff;
+  font-size: clamp(40px, 4.2vw, 56px);
+  font-weight: 750;
+  line-height: 1.04;
+  letter-spacing: -0.04em;
+  margin: 0;
 }
 
 .hero-lead {
-  max-width: 480px;
-  margin-top: 24px;
-  color: rgba(241, 245, 250, 0.55);
-  font-size: 18px;
+  max-width: 420px;
+  margin-top: 20px;
+  color: #94a3b8;
+  font-size: 15.5px;
   font-weight: 400;
   line-height: 1.6;
+  letter-spacing: -0.008em;
 }
 
-.hero-download {
-  margin-top: 32px;
-}
-
-.hero-download-actions {
+.hero-download-buttons {
+  position: relative;
   display: flex;
-  flex-wrap: wrap;
+  align-items: center;
   gap: 12px;
+  margin-top: 32px;
+  flex-wrap: wrap;
+  width: max-content;
 }
 
-.button-hero {
-  gap: 10px;
-  min-height: 52px;
-  padding: 12px 24px;
-  border: 1px solid rgba(255, 255, 255, 0.9);
-  border-radius: var(--r-pill);
-  background: rgba(255, 255, 255, 0.95);
-  color: #111113;
-  font-size: 15px;
-  font-weight: 600;
-  transition: background-color 150ms ease, transform 150ms ease;
-}
-
-.button-hero:hover {
+.button-download-mac,
+.button-download-win {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-height: 46px;
+  padding: 10px 22px;
+  border-radius: var(--radius-pill);
   background: #ffffff;
+  color: #09090b;
+  border: 1px solid #ffffff;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  transition: all 140ms cubic-bezier(0.16, 1, 0.3, 1);
+  white-space: nowrap;
+}
+
+.button-download-mac:hover,
+.button-download-win:hover {
+  background: #f1f5f9;
+  border-color: #f1f5f9;
   transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
 }
 
-.button-hero .button-platform-icon {
-  width: 18px;
-  height: 18px;
+.button-os-icon {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
 }
 
-.hero-meta {
+.hero-subactions {
   display: flex;
   align-items: center;
   gap: 16px;
-  margin-top: 20px;
+  margin-top: 16px;
 }
 
-.button-ghost {
+.button-github-pill {
+  display: inline-flex;
+  align-items: center;
   gap: 8px;
-  min-height: 44px;
-  padding: 10px 18px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: var(--r-pill);
-  background: transparent;
-  color: rgba(255, 255, 255, 0.8);
-  font-size: 14px;
-  font-weight: 600;
-  transition: background-color 150ms ease, border-color 150ms ease;
-}
-
-.button-ghost:hover {
-  border-color: rgba(255, 255, 255, 0.32);
+  min-height: 38px;
+  padding: 7px 18px;
+  border-radius: var(--radius-pill);
+  border: 1px solid rgba(255, 255, 255, 0.14);
   background: rgba(255, 255, 255, 0.06);
+  color: #e2e8f0;
+  font-size: 13.5px;
+  font-weight: 600;
+  transition: all 140ms ease;
 }
 
-.button-ghost img {
-  width: 16px;
-  height: 16px;
+.button-github-pill:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.24);
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+
+.button-github-pill img {
   filter: brightness(0) invert(1);
-  opacity: 0.7;
+  opacity: 0.85;
 }
 
-.hero-install-hint {
-  color: rgba(241, 245, 250, 0.4);
-  font-size: 14px;
+.hero-badge-oss {
+  color: #64748b;
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
 }
 
-.hero-install-hint a {
-  color: rgba(241, 245, 250, 0.65);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-.hero-install-hint a:hover {
-  color: rgba(241, 245, 250, 0.9);
-}
-
-.hero-caption {
-  margin-top: 20px;
-  color: rgba(241, 245, 250, 0.3);
-  font-size: 13px;
-  line-height: 1.38;
-}
-
-.milestone-footnote {
-  display: flex;
-  justify-content: center;
-  margin-block: 48px;
-}
-
-/* ---- Hero app preview ---- */
-
+/* ==========================================================================
+   Hero Desktop App Image (Right Column)
+   ========================================================================== */
 .hero-preview {
   position: relative;
-  margin-right: calc(-48px - 40px); /* bleed past container */
-}
-
-.hero-preview-window {
-  position: relative;
-  overflow: hidden;
-  border-radius: 12px 0 0 12px;
-  background: #1a1a2e;
-  box-shadow:
-    0 48px 100px -24px rgba(0, 0, 0, 0.7),
-    0 24px 48px -12px rgba(0, 0, 0, 0.4),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06);
-}
-
-.hero-preview-titlebar {
   display: flex;
+  width: calc(100% + clamp(236px, 22vw, 340px));
   align-items: center;
-  gap: 8px;
-  padding: 12px 16px;
-  background: linear-gradient(180deg, #3a3a4a 0%, #2e2e3e 100%);
+  justify-content: flex-end;
+  margin-right: clamp(-340px, -22vw, -236px);
 }
 
-.hero-preview-light {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  border: 0.5px solid rgba(0, 0, 0, 0.15);
-  box-shadow: inset 0 -1px 1px rgba(0, 0, 0, 0.1);
+.hero-preview-mascot-lane {
+  position: absolute;
+  z-index: 2;
+  right: 0;
+  bottom: calc(100% - 8px);
+  left: 0;
+  height: 78px;
+  overflow: hidden;
+  pointer-events: none;
 }
 
-.hero-preview-light:nth-child(1) {
-  background: #ff5f57;
+.hero-download-jumper {
+  position: absolute;
+  z-index: 1;
+  bottom: calc(100% - 6px);
+  left: 50%;
+  display: block;
+  width: 72px;
+  height: 78px;
+  object-fit: contain;
+  opacity: 0;
+  pointer-events: none;
+  filter: drop-shadow(0 8px 8px rgba(0, 0, 0, 0.24));
+  transform: translateX(-50%);
+  animation: mascot-jump-cycle 120s ease 28s infinite;
 }
 
-.hero-preview-light:nth-child(2) {
-  background: #febc2e;
-}
-
-.hero-preview-light:nth-child(3) {
-  background: #28c840;
-}
-
-.hero-preview-window img {
+.hero-app-shot {
+  position: relative;
+  z-index: 0;
   display: block;
   width: 100%;
+  max-width: none;
   height: auto;
+  border-radius: 14px;
+  box-shadow: 0 24px 52px -32px rgba(15, 23, 42, 0.32);
+  transition: transform 300ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 300ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.works-with {
+.hero-preview::after {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  border-radius: 14px;
+  background: rgba(71, 85, 105, 0.1);
+  content: '';
+  pointer-events: none;
+}
+
+.hero-app-shot:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 30px 60px -32px rgba(15, 23, 42, 0.38);
+}
+
+/* ==========================================================================
+   Floating Hero Providers Marquee Bar
+   ========================================================================== */
+.hero-providers-bar {
+  position: relative;
   display: flex;
-  width: 100%;
-  margin-top: 80px;
   align-items: center;
-  overflow: hidden;
-  padding: 0.7rem 0;
-  border-top: 1px solid var(--hairline);
-  border-bottom: 1px solid var(--hairline);
-  background: rgba(17, 17, 19, 0.03);
+  width: 100%;
+  margin-top: auto;
+  padding: 10px 20px;
+  border-radius: var(--radius-pill);
+  background: rgba(10, 18, 32, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: 
+    0 8px 32px -4px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
-.works-with-label {
+.hero-mascot-lane {
+  position: absolute;
+  z-index: 2;
+  right: 0;
+  bottom: calc(100% - 8px);
+  left: 0;
+  height: 78px;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.hero-mascot-runner {
+  position: absolute;
+  bottom: 0;
+  left: -72px;
+  display: block;
+  width: 72px;
+  height: 78px;
+  object-fit: contain;
+  filter: drop-shadow(0 8px 8px rgba(0, 0, 0, 0.24));
+  animation: mascot-run-cycle 120s linear infinite backwards;
+}
+
+.hero-mascot-runner--right {
+  animation-delay: 4s;
+}
+
+
+.hero-mascot-runner--left {
+  animation-name: mascot-run-cycle-left;
+  animation-delay: 16s;
+}
+
+@keyframes mascot-run-cycle {
+  0% {
+    left: -72px;
+    opacity: 1;
+  }
+
+  10% {
+    left: 100%;
+    opacity: 1;
+  }
+
+  10.01% {
+    left: 100%;
+    opacity: 0;
+  }
+
+  99.99% {
+    left: -72px;
+    opacity: 0;
+  }
+
+  100% {
+    left: -72px;
+    opacity: 1;
+  }
+}
+
+@keyframes mascot-run-cycle-left {
+  0% {
+    left: 100%;
+    opacity: 1;
+  }
+
+  10% {
+    left: -72px;
+    opacity: 1;
+  }
+
+  10.01% {
+    left: -72px;
+    opacity: 0;
+  }
+
+  99.99% {
+    left: 100%;
+    opacity: 0;
+  }
+
+  100% {
+    left: 100%;
+    opacity: 1;
+  }
+}
+
+@keyframes mascot-greeting-cycle {
+  0%,
+  3.33% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  4%,
+  99.99% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes mascot-jump-cycle {
+  0%,
+  3.33% {
+    opacity: 1;
+  }
+
+  3.34%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-greeting,
+  .hero-mascot-runner,
+  .hero-download-jumper {
+    display: none;
+  }
+}
+
+.hero-providers-label {
   flex-shrink: 0;
-  padding: 0 1.75rem;
-  border-right: 1px solid var(--hairline);
-  color: var(--ink-muted);
-  font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', monospace;
-  font-size: 0.58rem;
+  padding-right: 18px;
+  margin-right: 18px;
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+  color: #94a3b8;
+  font-family: 'Geist Mono', monospace;
+  font-size: 0.72rem;
   font-weight: 600;
-  letter-spacing: 0.15em;
-  opacity: 0.5;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   white-space: nowrap;
 }
 
-.works-with-marquee {
+.hero-providers-marquee {
   flex: 1;
   overflow: hidden;
-  mask-image: linear-gradient(to right, transparent, black 6%, black 94%, transparent);
-  -webkit-mask-image: linear-gradient(to right, transparent, black 6%, black 94%, transparent);
+  mask-image: linear-gradient(to right, transparent, black 4%, black 96%, transparent);
+  -webkit-mask-image: linear-gradient(to right, transparent, black 4%, black 96%, transparent);
 }
 
-.works-with-track {
+.hero-providers-track {
   display: inline-flex;
   align-items: center;
-  gap: 4rem;
-  animation: works-scroll 30s linear infinite;
+  gap: 3.5rem;
+  animation: works-scroll 32s linear infinite;
   white-space: nowrap;
 }
 
-.works-with-track:hover {
+.hero-providers-track:hover {
   animation-play-state: paused;
 }
 
-.works-with-logo {
+.hero-provider-logo {
   width: auto;
-  height: 28px;
-  flex: none;
-  filter: grayscale(1) opacity(0.45);
-  object-fit: contain;
-  transition: filter 200ms ease;
-}
-
-.works-with-logo--text {
   height: 22px;
+  flex: none;
+  filter: brightness(0) invert(1) opacity(0.48);
+  object-fit: contain;
+  transition: opacity 160ms ease, filter 160ms ease;
 }
 
-.works-with-track:hover .works-with-logo {
-  filter: grayscale(0.2) opacity(0.75);
+.hero-provider-logo--text {
+  height: 17px;
+}
+
+.hero-providers-track:hover .hero-provider-logo {
+  opacity: 0.9;
+  filter: brightness(0) invert(1) opacity(0.9);
 }
 
 @keyframes works-scroll {
-  from {
-    transform: translateX(0);
-  }
-
-  to {
-    transform: translateX(-50%);
-  }
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
 }
 
-.section > .display-md {
-  max-width: 780px;
+/* ==========================================================================
+   VS Code Section
+   ========================================================================== */
+.vscode-grid {
+  display: grid;
+  grid-template-columns: 1.25fr 1fr;
+  align-items: stretch;
+  gap: 48px;
 }
 
-.command-list,
-.plugin-list {
+.vscode-shot {
   overflow: hidden;
-  margin-top: 32px;
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-lg);
-  background: var(--canvas);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-lg);
+  background: #1e1e1e;
+  box-shadow: var(--shadow-terminal);
 }
 
-.command-row {
+.vscode-window-titlebar {
   display: flex;
-  min-height: 64px;
   align-items: center;
-  gap: 18px;
-  padding: 12px 16px 12px 24px;
+  gap: 8px;
+  padding: 10px 14px;
+  background: #252526;
+  border-bottom: 1px solid #333333;
 }
 
-.command-row + .command-row,
-.plugin-row + .plugin-row {
-  border-top: 1px solid var(--hairline-soft);
+.vscode-titlebar-text {
+  color: #cccccc;
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 11px;
+  margin-left: 8px;
 }
 
-.platform-name {
+.vscode-shot img {
+  display: block;
+  width: 100%;
+  height: calc(100% - 34px);
+  object-fit: cover;
+  object-position: left top;
+}
+
+.vscode-copy {
   display: flex;
-  min-width: 200px;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.vscode-lead {
+  color: var(--ink-muted);
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+.vscode-features-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.vscode-feature-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.feature-bullet-icon {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  border-radius: 8px;
+  background: var(--accent-subtle);
+  color: var(--accent);
+  place-items: center;
+  margin-top: 2px;
+}
+
+.feature-bullet-icon svg {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  stroke-width: 2;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.vscode-feature-item strong {
+  display: block;
   color: var(--ink);
   font-size: 15px;
   font-weight: 600;
+  margin-bottom: 2px;
 }
 
-.platform-name img,
-.terminal-glyph {
-  width: 16px;
-  height: 16px;
-  flex: 0 0 16px;
+.vscode-feature-item p {
+  color: var(--ink-muted);
+  font-size: 14px;
+  line-height: 1.5;
 }
 
-.platform-name img {
-  filter: opacity(0.75);
+.vscode-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: flex-start;
+  margin-top: 8px;
 }
 
-.terminal-glyph {
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.5;
+.vscode-actions .button-primary {
+  gap: 8px;
 }
 
-.command-row code {
+.vscode-actions .button-primary img {
+  filter: brightness(0) invert(1);
+}
+
+.vscode-command {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 4px 4px 12px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+}
+
+.vscode-command code {
   min-width: 0;
   flex: 1;
   overflow-x: auto;
-  padding: 6px 10px;
-  border-radius: var(--r-sm);
-  background: var(--surface-2);
   color: var(--ink);
-  font-size: 14px;
+  font-family: 'Geist Mono', monospace;
+  font-size: 13px;
   white-space: nowrap;
 }
 
-.row-copy {
-  display: grid;
-  flex: 0 0 44px;
-  width: 44px;
-  height: 44px;
-  padding: 12px;
-  border: 0;
-  border-radius: var(--r-sm);
-  background: transparent;
-  color: var(--ink-subtle);
-  cursor: pointer;
-}
-
-.row-copy:hover {
-  color: var(--ink);
-  background: var(--surface-2);
-}
-
-.row-copy svg {
-  width: 20px;
-  height: 20px;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.5;
-}
-
 .section-note {
-  margin-top: 16px;
-  color: var(--ink-muted);
-  font-size: 14px;
-  line-height: 1.71;
+  margin-top: 14px;
+  color: var(--ink-subtle);
+  font-size: 13px;
+  line-height: 1.6;
 }
 
-.quickstart-grid,
-.docs-grid {
-  display: grid;
-  grid-template-columns: 3fr 2fr;
-  gap: 48px;
-  margin-top: 32px;
-}
-
+/* ==========================================================================
+   Terminal & Quickstart Section
+   ========================================================================== */
 .quickstart-grid {
+  display: grid;
+  grid-template-columns: 1.35fr 1fr;
+  gap: 40px;
   align-items: stretch;
 }
 
@@ -1122,44 +1598,24 @@ onUnmounted(() => {
   position: relative;
   display: flex;
   min-width: 0;
-  align-self: stretch;
-  margin-top: 16px;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid rgba(143, 184, 219, 0.24);
-  border-radius: 18px;
-  background: #0c1e30;
-  color: #f1f5fa;
-  box-shadow:
-    0 28px 60px rgba(16, 38, 59, 0.18),
-    0 8px 20px rgba(16, 38, 59, 0.12),
-    inset 0 1px rgba(255, 255, 255, 0.08);
-}
-
-.terminal-panel::before {
-  position: absolute;
-  z-index: 2;
-  top: 0;
-  left: 16%;
-  width: 68%;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.22), transparent);
-  content: '';
-  pointer-events: none;
+  border: 1px solid var(--terminal-border);
+  border-radius: var(--radius-lg);
+  background: var(--terminal-bg);
+  color: var(--terminal-text);
+  box-shadow: var(--shadow-terminal);
 }
 
 .terminal-header {
   position: relative;
   display: flex;
-  height: 50px;
+  height: 48px;
   align-items: center;
   gap: 12px;
   padding: 0 16px;
-  border-bottom: 1px solid rgba(7, 18, 30, 0.58);
-  background: linear-gradient(180deg, #294158 0%, #20364d 100%);
-  box-shadow:
-    inset 0 1px rgba(255, 255, 255, 0.08),
-    inset 0 -1px rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(180deg, #152238 0%, #0d1624 100%);
   user-select: none;
 }
 
@@ -1170,72 +1626,29 @@ onUnmounted(() => {
 }
 
 .terminal-lights span {
-  position: relative;
-  display: grid;
-  width: 12px;
-  height: 12px;
-  border: 0.5px solid rgba(0, 0, 0, 0.2);
+  width: 11px;
+  height: 11px;
   border-radius: 50%;
   background: #ff5f57;
-  box-shadow: inset 0 -1px 1px rgba(0, 0, 0, 0.12);
-  place-items: center;
 }
 
-.terminal-lights span::after {
-  color: rgba(69, 8, 5, 0.62);
-  font-family: Arial, sans-serif;
-  font-size: 9px;
-  font-weight: 700;
-  line-height: 1;
-  opacity: 0;
-  transition: opacity 100ms ease;
-}
-
-.terminal-lights span:first-child::after {
-  content: '×';
-}
-
-.terminal-lights span:nth-child(2) {
-  background: #febc2e;
-}
-
-.terminal-lights span:nth-child(2)::after {
-  color: rgba(92, 57, 0, 0.7);
-  content: '−';
-}
-
-.terminal-lights span:nth-child(3) {
-  background: #28c840;
-}
-
-.terminal-lights span:nth-child(3)::after {
-  color: rgba(0, 73, 10, 0.72);
-  content: '+';
-}
-
-.terminal-lights:hover span::after {
-  opacity: 1;
-}
+.terminal-lights span:nth-child(2) { background: #febc2e; }
+.terminal-lights span:nth-child(3) { background: #28c840; }
 
 .terminal-title {
   position: absolute;
   left: 50%;
   display: flex;
-  max-width: calc(100% - 290px);
+  max-width: calc(100% - 280px);
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   overflow: hidden;
-  color: #bdc9d5;
-  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
+  color: #94a3b8;
+  font-family: 'Geist Mono', monospace;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 500;
   transform: translateX(-50%);
   white-space: nowrap;
-}
-
-.terminal-title > span:last-child {
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .terminal-title-icon {
@@ -1243,94 +1656,89 @@ onUnmounted(() => {
   width: 18px;
   height: 16px;
   flex: 0 0 18px;
-  border: 1px solid rgba(183, 205, 225, 0.24);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 4px;
-  background: rgba(9, 23, 38, 0.72);
-  color: #9db4c9;
+  background: rgba(255, 255, 255, 0.06);
+  color: #cbd5e1;
   place-items: center;
 }
 
 .terminal-title-icon svg {
-  width: 12px;
-  height: 12px;
+  width: 11px;
+  height: 11px;
   fill: none;
   stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.4;
+  stroke-width: 1.5;
 }
 
 .terminal-window-actions {
   display: flex;
   margin-left: auto;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 
 .terminal-mode {
   display: inline-flex;
-  flex: 0 0 auto;
   align-items: center;
   gap: 6px;
-  padding: 5px 9px;
-  border: 1px solid rgba(238, 153, 131, 0.24);
-  border-radius: var(--r-pill);
-  background: rgba(18, 31, 47, 0.32);
+  padding: 3px 9px;
+  border: 1px solid var(--coral-subtle);
+  border-radius: var(--radius-pill);
+  background: rgba(238, 153, 131, 0.08);
   color: #ffc1ad;
+  font-family: 'Geist Mono', monospace;
   font-size: 11px;
   font-weight: 600;
-  box-shadow: inset 0 1px rgba(255, 255, 255, 0.04);
 }
 
 .terminal-mode span {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #ee9983;
-  box-shadow: 0 0 10px rgba(238, 153, 131, 0.7);
+  background: var(--coral-accent);
+  box-shadow: 0 0 8px var(--coral-accent);
 }
 
 .terminal-replay {
   display: grid;
-  width: 32px;
-  height: 32px;
-  flex: 0 0 32px;
-  padding: 7px;
+  width: 30px;
+  height: 30px;
+  padding: 6px;
   border: 0;
   border-radius: 50%;
   background: transparent;
-  color: #8fa4b8;
+  color: #94a3b8;
   cursor: pointer;
   place-items: center;
+  transition: all 120ms ease;
 }
 
 .terminal-replay:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.1);
   color: #ffffff;
 }
 
 .terminal-replay svg {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   fill: none;
   stroke: currentColor;
   stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.5;
+  stroke-width: 1.6;
 }
 
 .terminal-body {
   display: flex;
-  min-height: 300px;
+  min-height: 290px;
   flex: 1;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
   overflow: hidden;
-  padding: 24px;
+  padding: 22px;
   background:
-    radial-gradient(circle at 50% -25%, rgba(141, 200, 255, 0.06), transparent 48%),
-    #0c1e30;
-  box-shadow: inset 0 1px rgba(255, 255, 255, 0.025);
+    radial-gradient(ellipse at 50% 0%, rgba(37, 99, 235, 0.07) 0%, transparent 60%),
+    var(--terminal-bg);
 }
 
 .terminal-session,
@@ -1351,27 +1759,27 @@ onUnmounted(() => {
 .terminal-line code,
 .terminal-output-line code {
   min-width: 0;
-  color: #aebdca;
+  color: #cbd5e1;
+  font-family: 'Geist Mono', monospace;
   font-size: 13px;
   line-height: 1.5;
-  overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
 
 .terminal-prompt,
 .terminal-output-marker {
   flex: 0 0 12px;
-  color: #70879c;
-  font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', monospace;
+  color: #64748b;
+  font-family: 'Geist Mono', monospace;
   text-align: center;
 }
 
 .shell-line code {
-  color: #c6d0dc;
+  color: #e2e8f0;
 }
 
 .terminal-flag {
-  color: #8dc8ff;
+  color: #60a5fa;
   font-weight: 600;
 }
 
@@ -1379,51 +1787,51 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 10px;
-  border: 1px solid rgba(238, 153, 131, 0.14);
-  border-radius: 8px;
+  padding: 7px 10px;
+  border: 1px solid rgba(238, 153, 131, 0.18);
+  border-radius: 6px;
   background: rgba(238, 153, 131, 0.06);
-  color: #9fb0bf;
-  font-size: 11px;
-  line-height: 1.45;
+  color: #cbd5e1;
+  font-size: 12px;
 }
 
 .terminal-yolo-note strong {
   color: #ffc1ad;
+  font-family: 'Geist Mono', monospace;
   font-size: 10px;
   letter-spacing: 0.08em;
 }
 
 .terminal-user-line {
-  padding: 10px 12px;
-  border: 1px solid rgba(141, 200, 255, 0.14);
+  padding: 8px 12px;
+  border: 1px solid rgba(37, 99, 235, 0.2);
   border-radius: 8px;
-  background: rgba(141, 200, 255, 0.06);
+  background: rgba(37, 99, 235, 0.08);
 }
 
-.terminal-user-line .terminal-prompt,
-.terminal-ready-line .terminal-prompt {
-  color: #8dc8ff;
+.terminal-user-line .terminal-prompt {
+  color: #60a5fa;
 }
 
 .terminal-user-line code {
-  color: #f1f5fa;
+  color: #ffffff;
+  font-weight: 500;
 }
 
 .terminal-output {
-  min-height: 72px;
+  min-height: 68px;
 }
 
 .terminal-output-line.is-progress .terminal-output-marker {
-  color: #8dc8ff;
+  color: #60a5fa;
 }
 
 .terminal-output-line.is-success .terminal-output-marker {
-  color: #72dda5;
+  color: #34d399;
 }
 
 .terminal-output-line.is-success code {
-  color: #d9ffeb;
+  color: #d1fae5;
 }
 
 .terminal-output-line.is-command .terminal-output-marker {
@@ -1435,393 +1843,778 @@ onUnmounted(() => {
   align-items: center;
 }
 
-.terminal-output-enter-active {
-  transition: opacity 220ms ease, transform 220ms ease;
-}
-
-.terminal-output-enter-from {
-  opacity: 0;
-  transform: translateY(4px);
-}
-
 .caret {
   display: inline-block;
   width: 7px;
-  height: 15px;
-  background: #ee9983;
-  animation: caret-blink 1.1s steps(1) infinite;
+  height: 14px;
+  background: var(--coral-accent);
+  animation: caret-blink 1s steps(1) infinite;
+}
+
+@keyframes caret-blink {
+  50% { opacity: 0; }
 }
 
 .terminal-presets {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 12px 16px;
-  border-top: 1px solid rgba(7, 18, 30, 0.58);
-  background: linear-gradient(180deg, #22394f 0%, #1f354b 100%);
-  box-shadow: inset 0 1px rgba(255, 255, 255, 0.045);
+  gap: 12px;
+  padding: 10px 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: #0d1624;
 }
 
 .terminal-presets-label {
-  margin-right: auto;
-  color: #70879c;
+  color: #64748b;
+  font-family: 'Geist Mono', monospace;
   font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
+.terminal-presets-buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .terminal-preset {
-  min-height: 30px;
-  padding: 5px 10px;
-  border: 1px solid rgba(198, 208, 220, 0.13);
-  border-radius: var(--r-pill);
+  min-height: 28px;
+  padding: 4px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-pill);
   background: transparent;
-  color: #aebdca;
+  color: #94a3b8;
   cursor: pointer;
-  font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', monospace;
+  font-family: 'Geist Mono', monospace;
   font-size: 11px;
-  transition: border-color 140ms ease, background-color 140ms ease, color 140ms ease;
+  transition: all 120ms ease;
 }
 
 .terminal-preset:hover,
 .terminal-preset.is-active {
-  border-color: rgba(141, 200, 255, 0.34);
-  background: rgba(141, 200, 255, 0.1);
+  border-color: rgba(37, 99, 235, 0.4);
+  background: rgba(37, 99, 235, 0.15);
   color: #ffffff;
 }
 
-@keyframes caret-blink {
-  50% {
-    opacity: 0;
-  }
-}
-
 .quickstart-steps {
-  display: flex;
-  min-height: 0;
-  flex-direction: column;
-  gap: 28px;
-}
-
-.steps {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  justify-content: space-between;
-  gap: 28px;
-  padding: 0;
-  list-style: none;
-  counter-reset: step;
-}
-
-.steps li {
-  counter-increment: step;
-}
-
-.steps h3 {
-  font-size: 18px;
-  font-weight: 600;
-  line-height: 1.18;
-}
-
-.steps h3::before {
-  content: counter(step, decimal-leading-zero) ' ';
-  color: var(--ink-subtle);
-}
-
-.steps p,
-.feature-card p {
-  margin-top: 8px;
-  color: var(--ink-muted);
-  font-size: 14px;
-  line-height: 1.71;
-}
-
-.feature-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 16px;
-  margin-top: 32px;
-}
-
-.feature-card {
-  display: flex;
-  flex-direction: column;
-  padding: 24px;
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-lg);
-  background: var(--canvas);
-  transition: border-color 150ms ease, background-color 150ms ease;
-}
-
-.feature-card:hover {
-  border-color: var(--surface-3);
-  background: var(--canvas);
-}
-
-.feature-card.lead {
-  grid-column: 1 / -1;
-  min-height: 190px;
-}
-
-.feature-card h3 {
-  font-size: 22px;
-  font-weight: 600;
-  line-height: 1.18;
-}
-
-.feature-card.lead p {
-  max-width: 670px;
-}
-
-.feature-icons {
-  display: flex;
-  gap: 8px;
-  margin-top: auto;
-  padding-top: 20px;
-  opacity: 0.6;
-}
-
-.vscode-grid {
-  display: grid;
-  grid-template-columns: 3fr 2fr;
-  align-items: stretch;
-  gap: 48px;
-  margin-top: 32px;
-}
-
-/* ponytail: the shot fills the card so both columns end on the same line; cover
-   crops the screenshot's right-hand marketplace rail, which carries no message */
-.vscode-shot {
-  overflow: hidden;
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-lg);
-  background: var(--terminal-bg);
-  box-shadow: var(--shadow-terminal);
-}
-
-.vscode-shot img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: left center;
-}
-
-.vscode-copy {
   display: flex;
   flex-direction: column;
   gap: 20px;
 }
 
-.vscode-lead {
-  color: var(--ink-muted);
-  font-size: 16px;
-  line-height: 1.6;
+.agent-loop-wrapper {
+  padding: 16px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface-1);
 }
 
-.vscode-points {
+.steps-card-list {
   display: flex;
   flex-direction: column;
   gap: 12px;
   padding: 0;
   list-style: none;
+}
+
+.step-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 14px 18px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  background: var(--canvas);
+  box-shadow: var(--shadow-sm);
+  transition: border-color 140ms ease;
+}
+
+.step-card:hover {
+  border-color: var(--hairline-strong);
+}
+
+.step-index {
+  color: var(--accent);
+  font-family: 'Geist Mono', monospace;
+  font-size: 12px;
+  font-weight: 700;
+  margin-top: 2px;
+}
+
+.step-content h3 {
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.step-content p {
+  color: var(--ink-muted);
+  font-size: 13px;
+  line-height: 1.5;
+  margin-top: 4px;
+}
+
+.step-content code {
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: var(--surface-2);
+  color: var(--ink);
+  font-size: 12px;
+}
+
+/* ==========================================================================
+   Bento Capabilities Grid
+   ========================================================================== */
+.bento-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+}
+
+.bento-card {
+  display: flex;
+  flex-direction: column;
+  padding: 28px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-lg);
+  background: var(--canvas);
+  box-shadow: var(--shadow-sm);
+  transition: all 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.bento-card:hover {
+  border-color: rgba(37, 99, 235, 0.25);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+.bento-card-lead {
+  grid-column: span 2;
+  background: linear-gradient(135deg, #ffffff 0%, var(--surface-1) 100%);
+}
+
+.bento-badge {
+  display: inline-block;
+  margin-bottom: 12px;
+  padding: 3px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-subtle);
+  color: var(--accent);
+  font-family: 'Geist Mono', monospace;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.bento-card h3 {
+  color: var(--ink);
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.2;
+  margin-bottom: 8px;
+}
+
+.bento-card p {
   color: var(--ink-muted);
   font-size: 14px;
   line-height: 1.6;
 }
 
-.vscode-points strong {
+.bento-card-lead p {
+  max-width: 58ch;
+}
+
+.subagents-visual {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 24px;
+  padding: 16px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  background: var(--canvas);
+}
+
+.supervisor-node {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 14px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-pill);
+  background: var(--accent-subtle);
+}
+
+.node-badge {
+  color: var(--accent);
+  font-family: 'Geist Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.node-title {
   color: var(--ink);
+  font-family: 'Geist Mono', monospace;
+  font-size: 12px;
   font-weight: 600;
 }
 
-.vscode-points code {
-  padding: 1px 5px;
-  border-radius: var(--r-sm);
-  background: var(--surface-2);
-  color: var(--ink);
-  font-size: 13px;
+.subagent-branch-lines {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  width: 100%;
+  height: 24px;
 }
 
-.vscode-actions {
+.subagent-branch-lines::before {
+  position: absolute;
+  top: 8px;
+  right: calc(16.6667% - 2px);
+  left: calc(16.6667% - 2px);
+  height: 1.5px;
+  background: var(--hairline-strong);
+  content: '';
+}
+
+.branch-line {
+  position: relative;
+  z-index: 1;
+  width: 1.5px;
+  height: calc(100% - 8px);
+  margin-top: 8px;
+  justify-self: center;
+  background: var(--hairline-strong);
+}
+
+.branch-line:nth-child(2) {
+  height: 100%;
+  margin-top: 0;
+}
+
+.subagent-children {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  width: 100%;
+}
+
+.subagent-child {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  align-items: flex-start;
+  padding: 8px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
 }
 
-.vscode-actions .button-primary {
-  gap: 8px;
-}
-
-.vscode-actions .button-primary img {
-  filter: brightness(0) invert(1);
-}
-
-.vscode-command {
+.child-heading {
   display: flex;
-  width: 100%;
-  min-width: 0;
   align-items: center;
   gap: 8px;
-  padding: 4px 4px 4px 12px;
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-sm);
-  background: var(--surface-2);
 }
 
-.vscode-command code {
+.child-indicator {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+}
+
+.child-indicator.is-running {
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+}
+
+.child-indicator.is-done {
+  background: var(--green-accent);
+  box-shadow: 0 0 6px var(--green-accent);
+}
+
+.child-name {
+  color: var(--ink);
+  font-family: 'Geist Mono', monospace;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.child-task {
+  margin-left: 14px;
+  color: var(--ink-subtle);
+  font-size: 11px;
+}
+
+.bento-icon-tray {
+  display: flex;
+  gap: 12px;
+  margin-top: auto;
+  padding-top: 20px;
+  opacity: 0.75;
+}
+
+.bento-code-pill {
+  margin-top: auto;
+  padding-top: 20px;
+}
+
+.bento-code-pill code {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--ink);
+  font-family: 'Geist Mono', monospace;
+  font-size: 12px;
+}
+
+.bento-provider-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 20px;
+}
+
+.provider-chip {
+  padding: 3px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  color: var(--ink);
+  font-family: 'Geist Mono', monospace;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+/* ==========================================================================
+   Install Matrix
+   ========================================================================== */
+.command-list {
+  overflow: hidden;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-lg);
+  background: var(--canvas);
+  box-shadow: var(--shadow-sm);
+}
+
+.command-row {
+  display: flex;
+  min-height: 56px;
+  align-items: center;
+  gap: 18px;
+  padding: 10px 16px 10px 20px;
+}
+
+.command-row + .command-row {
+  border-top: 1px solid var(--hairline-soft);
+}
+
+.platform-name {
+  display: flex;
+  min-width: 200px;
+  align-items: center;
+  gap: 12px;
+}
+
+.platform-icon-wrapper {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  border-radius: 7px;
+  background: var(--surface-2);
+  border: 1px solid var(--hairline);
+  place-items: center;
+}
+
+.platform-brand-icon {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}
+
+.terminal-glyph {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: var(--ink-muted);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.platform-title {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.command-code {
   min-width: 0;
   flex: 1;
   overflow-x: auto;
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+  border: 1px solid var(--hairline);
   color: var(--ink);
+  font-family: 'Geist Mono', monospace;
   font-size: 13px;
   white-space: nowrap;
 }
 
-.plugin-row {
-  display: flex;
-  min-height: 72px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  padding: 16px 24px;
+.row-copy {
+  position: relative;
+  display: grid;
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  padding: 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-subtle);
+  cursor: pointer;
+  place-items: center;
+  transition: all 120ms ease;
 }
 
-.plugin-row p {
+.row-copy:hover {
+  color: var(--ink);
+  background: var(--surface-2);
+  border-color: var(--hairline);
+}
+
+.row-copy svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.6;
+}
+
+.row-copy .check-icon {
+  stroke: #059669;
+}
+
+.row-copy-tooltip {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  padding: 3px 7px;
+  border-radius: 5px;
+  background: #09090b;
+  color: #ffffff;
+  font-family: 'Geist Mono', monospace;
+  font-size: 10px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.row-copy:hover .row-copy-tooltip {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* ==========================================================================
+   Plugin Section
+   ========================================================================== */
+.plugin-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 20px;
+}
+
+.plugin-card {
+  display: flex;
+  flex-direction: column;
+  padding: 28px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-lg);
+  background: var(--canvas);
+  box-shadow: var(--shadow-sm);
+  transition: all 160ms ease;
+}
+
+.plugin-card:hover {
+  border-color: rgba(37, 99, 235, 0.2);
+  box-shadow: var(--shadow-md);
+}
+
+.plugin-badge-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.plugin-tag {
+  padding: 2px 7px;
+  border-radius: var(--radius-pill);
+  font-family: 'Geist Mono', monospace;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.plugin-tag.official {
+  background: rgba(37, 99, 235, 0.12);
+  color: var(--accent);
+}
+
+.plugin-tag.curated {
+  background: rgba(16, 185, 129, 0.12);
+  color: #059669;
+}
+
+.plugin-version {
+  color: var(--ink-subtle);
+  font-family: 'Geist Mono', monospace;
+  font-size: 11px;
+}
+
+.plugin-card h3 {
+  color: var(--ink);
+  font-size: 19px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.plugin-card p {
   color: var(--ink-muted);
   font-size: 14px;
-  line-height: 1.71;
+  line-height: 1.6;
+  margin-bottom: 20px;
 }
 
-.plugin-row strong {
+.plugin-install-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: auto;
+  padding: 6px 6px 6px 14px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+}
+
+.plugin-install-box code {
   color: var(--ink);
-  font-weight: 600;
+  font-family: 'Geist Mono', monospace;
+  font-size: 13px;
 }
 
-.plugin-row code {
-  flex: 0 0 auto;
-  padding: 6px 10px;
-  border-radius: var(--r-sm);
-  background: var(--surface-2);
-  color: var(--ink);
-  font-size: 14px;
-}
-
+/* ==========================================================================
+   Documentation & Command Reference
+   ========================================================================== */
 .docs-grid {
-  grid-template-columns: 2fr 1fr;
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 32px;
+}
+
+.command-table-wrapper {
+  overflow: hidden;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-lg);
+  background: var(--canvas);
+  box-shadow: var(--shadow-sm);
 }
 
 .command-table {
   width: 100%;
-  overflow: hidden;
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-lg);
   border-spacing: 0;
-  background: var(--canvas);
 }
 
-.command-table th,
-.command-table td {
-  padding: 18px 24px;
+.command-table thead {
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.command-table th[scope="col"] {
+  padding: 12px 20px;
+  color: var(--ink-subtle);
+  font-family: 'Geist Mono', monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   text-align: left;
 }
 
-.command-table tr + tr th,
-.command-table tr + tr td {
+.command-table td,
+.command-table th[scope="row"] {
+  padding: 14px 20px;
+  text-align: left;
   border-top: 1px solid var(--hairline-soft);
 }
 
-.command-table th {
-  width: 180px;
+.command-table th[scope="row"] {
+  width: 160px;
   font-weight: 500;
 }
 
 .command-table code {
-  color: var(--ink);
-  font-size: 14px;
+  color: var(--accent);
+  font-family: 'Geist Mono', monospace;
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .command-table td {
   color: var(--ink-muted);
   font-size: 14px;
-  line-height: 1.71;
+  line-height: 1.5;
 }
 
 .link-rail {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
 }
 
-.link-rail a {
-  color: var(--accent);
+.doc-card-link {
+  display: flex;
+  flex-direction: column;
+  padding: 16px 20px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-md);
+  background: var(--canvas);
+  box-shadow: var(--shadow-sm);
+  transition: all 140ms ease;
+}
+
+.doc-card-link:hover {
+  border-color: rgba(37, 99, 235, 0.3);
+  transform: translateY(-1px);
+}
+
+.doc-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.doc-card-title {
+  color: var(--ink);
   font-size: 15px;
   font-weight: 600;
 }
 
-.link-rail a:hover {
-  color: var(--accent);
+.arrow-icon {
+  width: 14px;
+  height: 14px;
+  stroke: var(--ink-subtle);
+  stroke-width: 2;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform 120ms ease, stroke 120ms ease;
 }
 
-.link-rail small {
-  display: block;
-  margin-top: 3px;
+.doc-card-link:hover .arrow-icon {
+  stroke: var(--accent);
+  transform: translate(2px, -2px);
+}
+
+.doc-card-link small {
+  margin-top: 4px;
   color: var(--ink-muted);
   font-size: 13px;
-  font-weight: 500;
-  line-height: 1.38;
+  line-height: 1.4;
 }
 
+/* ==========================================================================
+   Call to Action Panel
+   ========================================================================== */
 .cta-panel {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 32px;
+  gap: 36px;
   padding: 48px;
-  border-radius: var(--radius);
-  background: var(--terminal-bg);
+  border-radius: var(--radius-xl);
+  background: 
+    radial-gradient(ellipse at 80% 20%, rgba(37, 99, 235, 0.25) 0%, transparent 50%),
+    linear-gradient(135deg, #0f172a 0%, #020617 100%);
+  color: #ffffff;
   box-shadow: var(--shadow-terminal);
 }
 
-.cta-panel h2 {
-  max-width: 620px;
-  font-size: 28px;
+.cta-content {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cta-badge {
+  color: #93c5fd;
+  font-family: 'Geist Mono', monospace;
+  font-size: 12px;
   font-weight: 600;
-  line-height: 1.21;
-  color: #F1F5FA;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
-.cta-panel .button-primary {
-  background: #ffffff;
-  color: var(--ink);
+.cta-panel h2 {
+  font-size: clamp(28px, 3.2vw, 36px);
+  font-weight: 750;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+  color: #ffffff;
 }
 
-.cta-panel .button-primary:hover {
-  background: var(--surface-1);
-}
-
-.cta-panel .button-secondary {
-  border-color: rgba(241, 245, 250, 0.3);
-  background: transparent;
-  color: #F1F5FA;
-}
-
-.cta-panel .button-secondary:hover {
-  background: rgba(241, 245, 250, 0.08);
+.cta-desc {
+  color: #94a3b8;
+  font-size: 15px;
 }
 
 .cta-actions {
   display: flex;
-  flex: 0 0 auto;
-  gap: 12px;
+  flex-shrink: 0;
+  gap: 14px;
 }
 
+.cta-primary-btn {
+  background: #ffffff;
+  color: #09090b;
+  border-color: #ffffff;
+}
+
+.cta-primary-btn:hover {
+  background: #f1f5f9;
+  border-color: #f1f5f9;
+  box-shadow: 0 4px 18px rgba(255, 255, 255, 0.25);
+}
+
+.cta-secondary-btn {
+  background: transparent;
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.cta-secondary-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+/* ==========================================================================
+   Site Footer
+   ========================================================================== */
+
 .site-footer {
-  margin-top: 96px;
-  padding-block: 64px;
+  margin-top: 112px;
+  padding-block: 56px;
   border-top: 1px solid var(--hairline);
   background: var(--canvas);
 }
@@ -1833,65 +2626,106 @@ onUnmounted(() => {
   gap: 32px;
 }
 
-.footer-caption {
-  margin-top: 6px;
-  color: var(--ink-subtle);
-  font-size: 13px;
-  line-height: 1.38;
+.footer-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.footer-wordmark {
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 700;
 }
 
 .footer-version {
   color: var(--ink-subtle);
-  font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', monospace;
-  font-size: 12px;
+  font-family: 'Geist Mono', monospace;
+  font-size: 11px;
+}
+
+.footer-caption {
+  margin-top: 8px;
+  color: var(--ink-subtle);
+  font-size: 13px;
 }
 
 .footer-links {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 20px;
+  gap: 24px;
 }
 
 .footer-links a {
   color: var(--ink-muted);
   font-size: 13px;
-  line-height: 1.38;
+  font-weight: 500;
+  transition: color 120ms ease;
 }
 
 .footer-links a:hover {
-  color: var(--accent);
+  color: var(--ink);
 }
 
-@media (max-width: 899px) {
+/* ==========================================================================
+   Responsive Breakpoints
+   ========================================================================== */
+@media (max-width: 960px) {
   .hero {
-    grid-template-columns: 1fr;
-    gap: 40px;
-    padding-top: 48px;
-    padding-bottom: 56px;
+    gap: 36px;
+    padding-top: 36px;
+    padding-bottom: 32px;
+    min-height: auto;
   }
+
+  .hero-main-grid {
+    grid-template-columns: 1fr;
+    gap: 36px;
+  }
+
+  .hero-greeting {
+    top: 0;
+    right: 0;
+    bottom: auto;
+    left: auto;
+  }
+
 
   .hero-preview {
-    margin-right: calc(-24px - 20px);
+    width: 100%;
+    max-width: 520px;
+    margin-right: 0;
+    margin-inline: auto;
   }
 
+  .hero-providers-bar {
+    padding: 8px 14px;
+    border-radius: var(--radius-md);
+  }
+
+  .vscode-grid,
   .quickstart-grid,
-  .docs-grid,
-  .vscode-grid {
+  .docs-grid {
     grid-template-columns: 1fr;
+  }
+
+  .bento-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .bento-card-lead {
+    grid-column: span 2;
   }
 
   .cta-panel {
-    align-items: flex-start;
     flex-direction: column;
+    align-items: flex-start;
+    padding: 36px;
   }
 }
 
-@media (max-width: 767px) {
-  .nav-inner {
-    justify-content: space-between;
-  }
-
+@media (max-width: 768px) {
   .nav-links {
     display: none;
   }
@@ -1900,61 +2734,37 @@ onUnmounted(() => {
     display: block;
   }
 
-  .feature-grid {
+  .bento-grid {
     grid-template-columns: 1fr;
   }
 
-  .feature-card.lead {
-    grid-column: auto;
+  .bento-card-lead {
+    grid-column: span 1;
+  }
+
+  .plugin-grid {
+    grid-template-columns: 1fr;
   }
 
   .command-row {
+    flex-direction: column;
     align-items: flex-start;
-    flex-wrap: wrap;
     gap: 10px;
     padding: 16px;
   }
 
   .platform-name {
-    width: calc(100% - 50px);
     min-width: 0;
+    width: 100%;
   }
 
-  .command-row code {
-    order: 3;
-    flex-basis: 100%;
+  .command-code {
+    width: 100%;
   }
 
   .row-copy {
-    margin-left: auto;
-  }
-
-  .plugin-row {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .command-table th,
-  .command-table td {
-    display: block;
-    width: 100%;
-    padding: 12px 16px;
-  }
-
-  .command-table th {
-    padding-bottom: 0;
-  }
-
-  .command-table td {
-    padding-top: 4px;
-  }
-
-  .command-table tr + tr th {
-    border-top: 1px solid var(--hairline-soft);
-  }
-
-  .command-table tr + tr td {
-    border-top: 0;
+    align-self: flex-end;
+    margin-top: -38px;
   }
 
   .footer-inner {
@@ -1967,33 +2777,22 @@ onUnmounted(() => {
 }
 
 @media (max-width: 640px) {
-  .hero {
-    padding-top: 32px;
-    padding-bottom: 40px;
-  }
-
-  .hero h1 {
-    font-size: clamp(36px, 10vw, 48px);
+  .hero-title {
+    font-size: clamp(40px, 9vw, 52px);
   }
 
   .hero-lead {
-    font-size: 16px;
+    font-size: 17px;
   }
 
-  .hero-download-actions {
+  .hero-download-buttons {
     flex-direction: column;
+    width: 100%;
   }
 
-  .hero-preview {
-    margin-right: -24px;
-  }
-
-  .hero-preview-window {
-    border-radius: 10px 0 0 10px;
-  }
-
-  .terminal-header {
-    padding-inline: 12px;
+  .button-download-mac,
+  .button-download-win {
+    width: 100%;
   }
 
   .terminal-title {
@@ -2004,67 +2803,15 @@ onUnmounted(() => {
     margin-left: auto;
   }
 
-  .terminal-body {
-    min-height: 300px;
-    padding: 20px 16px;
-  }
-
-  .terminal-presets {
-    padding-inline: 12px;
-  }
-
-  .terminal-presets-label {
-    display: none;
-  }
-
-  .terminal-preset {
-    flex: 1;
-  }
-
-  .cta-panel {
-    padding: 32px;
-  }
-
   .cta-actions {
-    width: 100%;
     flex-direction: column;
+    width: 100%;
   }
 
-  .site-footer {
-    margin-top: 48px;
-  }
-}
-
-@media (max-width: 480px) {
-  .nav-inner {
-    padding-inline: 12px;
-  }
-
-  .nav-brand {
-    gap: 6px;
-  }
-
-  .nav-actions {
-    gap: 8px;
-  }
-
-  .nav-cta {
-    padding-inline: 12px;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .works-with-track {
-    animation: none;
-  }
-
-  .caret {
-    animation: none;
-  }
-
-  .mobile-menu-enter-active,
-  .mobile-menu-leave-active {
-    transition: none;
+  .cta-primary-btn,
+  .cta-secondary-btn {
+    width: 100%;
+    justify-content: center;
   }
 }
 </style>
