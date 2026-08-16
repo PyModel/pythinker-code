@@ -3,9 +3,7 @@
  *
  * **Service interface** (`IQuestionService`): Reverse-RPC one-shot broker
  * role — routes `QuestionRequest`s coming out of `PythinkerCore` to a waiter
- * (web client over WS, mock handler in tests) and resolves the
- * promise when the response arrives — or `dismiss()`-es it if the user
- * closes the panel (SCHEMAS.md §6.3).
+ * and resolves the promise when the response arrives or the user dismisses it.
  *
  * Role: one-shot broker — see `packages/services/AGENTS.md`. Kept under the
  * `Service` suffix per the package-wide convention; the broker semantics
@@ -13,36 +11,29 @@
  * docstring, not in the type name.
  *
  * **Shape note:** the service returns the in-process
- * `QuestionResult = null | QuestionAnswers | QuestionResponse` (see
- * `packages/agent-core/src/rpc/sdk-api.ts:48`). SCHEMAS.md §6.2/§6.4 defines
- * a protocol-level `QuestionResponse` with a 5-kind discriminated union
- * (`single` / `multi` / `other` / `multi_with_other` / `skipped`); the
- * protocol↔in-process adapter lives at the daemon boundary, NOT inside the
- * service interface. This keeps the SDK side of the adapter untouched and
- * confines protocol shape decisions to one place.
+ * `QuestionResult = null | QuestionAnswers | QuestionResponse`. The
+ * protocol↔in-process adapter lives at the daemon boundary, not inside the
+ * service interface.
  *
  * **Adapter** (`toBrokerRequest` / `toAgentCoreResponse` / `dismissedResult`):
- * Bridges two representations of the same question interaction:
+ * Bridges two representations of the same question interaction. Protocol ids
+ * go in; question text and option labels that the user saw come out. This is
+ * the only protocol↔SDK translation site for questions:
  *
  *   1. **In-process SDK shape** (agent-core, camelCase) — what
- *      `BridgeClientAPI` sees from `PythinkerCore.requestQuestion(...)`. See
- *      `packages/agent-core/src/rpc/sdk-api.ts:50-54`:
+ *      `BridgeClientAPI` sees from `PythinkerCore.requestQuestion(...)`:
  *        `QuestionRequest { turnId?, toolCallId?, questions: QuestionItem[] }`
  *      where `QuestionItem` has `question, header?, body?, options[],
  *      multiSelect?, allowOther?, otherLabel?, otherDescription?`.
  *      `QuestionResult = null | QuestionAnswers | QuestionResponse`,
  *      `QuestionAnswers = Record<string, string | true>`.
  *
- *   2. **Protocol wire shape** (snake_case, with daemon-allocated metadata) —
- *      defined in `packages/protocol/src/question.ts`. 5-kind discriminated
- *      union for answers: `single | multi | other | multi_with_other | skipped`.
+ *   2. **Protocol wire shape** (snake_case, with daemon-allocated metadata).
  *
  * **Synthesizing stable ids** (SDK has no per-item / per-option `id`):
  *   - `QuestionItem.id`     ← `q_<index>` (e.g. `q_0`, `q_1`, ...)
  *   - `QuestionOption.id`   ← `opt_<parent_idx>_<option_idx>` (e.g. `opt_0_0`)
  *
- * **Anti-corruption**: this is the ONLY place protocol↔SDK shape translation
- * happens for question.
  */
 
 import { createDecorator } from '../../di';
@@ -104,14 +95,14 @@ export interface QuestionToBrokerRequestParams {
   readonly sessionId: string;
   /** `createdAt` ISO string; broker passes `new Date().toISOString()`. */
   readonly createdAt: string;
-  /** `expiresAt` ISO string; broker computes `createdAt + 60s`. */
+  /** `expiresAt` ISO string; broker computes the lease deadline. */
   readonly expiresAt: string;
 }
 
 /**
  * Build a protocol option from an SDK option. SDK has only `label?:string` +
  * `description?:string`; we synthesize `id` from parent and child indices so
- * `toAgentCoreAnswers` can map back through `Record<qid, string>`.
+ * the response adapter can map answers back to the question text and labels.
  */
 function buildOption(
   opt: {
@@ -134,7 +125,7 @@ function buildOption(
 
 /**
  * Build a protocol question item from an SDK item + its position. The
- * synthesized `id` (`q_<parentIdx>`) is the key the SDK answers Record uses.
+ * synthesized `id` (`q_<parentIdx>`) identifies the matching response item.
  */
 function buildItem(
   item: InProcessQuestionItem,
@@ -178,36 +169,42 @@ export function toBrokerRequest(
 }
 
 /**
- * Protocol REST response body → in-process SDK `QuestionResponse` (with
- * `answers` flattened to `Record<string, string | true>`).
+ * Protocol response ids + the original request → in-process SDK
+ * `QuestionResponse` with answers flattened to `Record<string, string | true>`.
  *
- * Normalization rules from SCHEMAS §6.4:
- *   - single            → option_id
- *   - multi             → option_ids.join(',')
+ * The original request is the lookup for the text and labels displayed to the
+ * user:
+ *   - single            → option label
+ *   - multi             → option labels joined with `, `
  *   - other             → text
- *   - multi_with_other  → [...option_ids, other_text].join(',')
+ *   - multi_with_other  → option labels and text joined with `, `
  *   - skipped           → OMIT entry
  */
 export function toAgentCoreResponse(
   resp: ProtocolQuestionResponse,
+  request: ProtocolQuestionRequest,
 ): InProcessQuestionResponse {
   const flattened: InProcessQuestionAnswers = {};
   for (const [qid, ans] of Object.entries(resp.answers)) {
+    const item = request.questions.find((question) => question.id === qid);
+    const question = item?.question ?? qid;
+    const optionLabel = (id: string): string =>
+      item?.options.find((option) => option.id === id)?.label ?? id;
     switch (ans.kind) {
       case 'single':
-        flattened[qid] = ans.option_id;
+        flattened[question] = optionLabel(ans.option_id);
         break;
       case 'multi':
-        flattened[qid] = ans.option_ids.join(',');
+        flattened[question] = ans.option_ids.map(optionLabel).join(', ');
         break;
       case 'other':
-        flattened[qid] = ans.text;
+        flattened[question] = ans.text;
         break;
       case 'multi_with_other':
-        flattened[qid] = [...ans.option_ids, ans.other_text].join(',');
+        flattened[question] = [...ans.option_ids.map(optionLabel), ans.other_text].join(', ');
         break;
       case 'skipped':
-        // Omitted from the record — matches SCHEMAS §6.4 ("if skipped continue").
+        // Omitted from the record.
         break;
       default: {
         // Defensive: never-reached if Zod schema is the SOT, but TS narrowing
@@ -219,7 +216,7 @@ export function toAgentCoreResponse(
   }
   const out: InProcessQuestionResponse = { answers: flattened };
   if (resp.method !== undefined) {
-    // SCHEMAS §6.2 protocol allows 'click' as a method; agent-core's in-process
+    // Protocol allows 'click' as a method; agent-core's in-process
     // `QuestionAnswerMethod` is `'enter' | 'space' | 'number_key'` (NO 'click').
     // Drop 'click' on the in-process side to preserve type safety; the wire
     // form keeps it for clients that want to surface the affordance used.

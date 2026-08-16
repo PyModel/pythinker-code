@@ -207,6 +207,7 @@ export type PythinkerErrorCode =
   | 'session.init_failed'
   | 'agent.not_found'
   | 'turn.agent_busy'
+  | 'question.expired'
   | 'goal.already_exists'
   | 'goal.not_found'
   | 'goal.objective_empty'

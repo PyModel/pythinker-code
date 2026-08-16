@@ -2,23 +2,25 @@
 
 import { ulid } from 'ulid';
 
-import { Disposable, DisposableMap, IEventService, IQuestionService, questionDismissedResult, questionToBrokerRequest, ILogService, type IDisposable, type QuestionRequest, type QuestionResult } from '@pymodel/agent-core';
+import { Disposable, DisposableMap, ErrorCodes, IEventService, PythinkerError, questionDismissedResult, questionToAgentCoreResponse, questionToBrokerRequest, ILogService, type IDisposable, type IQuestionService, type QuestionRequest, type QuestionResult } from '@pymodel/agent-core';
 import type {
   Event,
   QuestionRequest as ProtocolQuestionRequest,
+  QuestionResponse as ProtocolQuestionResponse,
 } from '@pymodel/protocol';
 
-
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const _typeAnchor: typeof IQuestionService = IQuestionService;
-
-export const QUESTION_DEFAULT_TIMEOUT_MS = 60_000;
+/**
+ * A pending question waits on a human, so the timer is a leak guard, not a
+ * network timeout. Keep it long enough that a person can read the options,
+ * think, and answer without losing the turn.
+ */
+export const QUESTION_DEFAULT_TIMEOUT_MS = 30 * 60_000;
 
 export const QUESTION_RECENTLY_RESOLVED_CAP = 1024;
 
-export class QuestionExpiredError extends Error {
+export class QuestionExpiredError extends PythinkerError {
   constructor(public readonly questionId: string, timeoutMs: number) {
-    super(`question ${questionId} expired after ${timeoutMs}ms`);
+    super(ErrorCodes.QUESTION_EXPIRED, `question ${questionId} expired after ${timeoutMs}ms`);
     this.name = 'QuestionExpiredError';
   }
 }
@@ -158,6 +160,19 @@ export class QuestionService extends Disposable implements IQuestionService {
     this.eventService.publish(answeredEvent);
 
     p.resolve(response);
+  }
+
+  /**
+   * Resolve a pending question from its protocol response. The adapter needs
+   * the original request to turn ids back into the question text and option
+   * labels the user saw, and the pending entry is the only holder of it.
+   * Returns false when the question is not pending.
+   */
+  resolveProtocolResponse(id: string, response: ProtocolQuestionResponse): boolean {
+    const p = this._pending.get(id);
+    if (!p) return false;
+    this.resolve(id, questionToAgentCoreResponse(response, p.protocolRequest));
+    return true;
   }
 
   dismiss(id: string): void {
