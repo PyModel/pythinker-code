@@ -21,6 +21,8 @@
           if (v === 'light' || v === 'dark' || v === 'system') {
             document.documentElement.dataset.colorScheme = v;
           }
+          var dark = v === 'dark' || (v !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          document.documentElement.toggleAttribute('data-ds-dark-theme', dark);
         } catch (e) {
           /* ignore */
         }

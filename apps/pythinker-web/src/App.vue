@@ -45,6 +45,7 @@ const debugEnabled = isTraceEnabled();
 const isMobile = useIsMobile();
 const isDark = useIsDark();
 watch(isDark, (dark) => {
+  document.documentElement.toggleAttribute('data-ds-dark-theme', dark);
   void window.pythinkerDesktop?.setThemeSource(dark ? 'dark' : 'light');
 }, { immediate: true });
 
