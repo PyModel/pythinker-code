@@ -180,6 +180,17 @@ describe('ConversationPane follow — user scrolls up (req 2)', () => {
     expect(pane.scrollTop).toBe(2000);
     expect(wrapper.find('.newmsg-pill').exists()).toBe(false);
   });
+
+  it('anchors the pill to the message area above the dock', async () => {
+    const { wrapper, pane } = await settledPane({ scrollHeight: 2000, clientHeight: 500 });
+
+    scrollUpTo(pane, 300);
+    await nextTick();
+    await pushTurns(wrapper, [turn(1, 'hi'), turn(2, 'streaming…')]);
+
+    expect(wrapper.find('.newmsg-pill').element.closest('.chat-area')).not.toBeNull();
+    expect(wrapper.findComponent(ChatDock).element.closest('.chat-area')).toBeNull();
+  });
 });
 
 describe('ConversationPane follow — user intent jumps to bottom (req 1)', () => {

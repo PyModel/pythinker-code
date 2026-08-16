@@ -832,11 +832,12 @@ defineExpose({ loadComposerForEdit });
     </nav>
 
     <div class="chat-layout">
-      <div
-        :ref="bindChatPane"
-        class="panes chat-scroll"
-        @scroll.passive="onPanesScroll"
-      >
+      <div class="chat-area">
+        <div
+          :ref="bindChatPane"
+          class="panes chat-scroll"
+          @scroll.passive="onPanesScroll"
+        >
         <div class="content-wrap" :class="[mobile ? 'align-mobile' : 'align-center']">
           <template v-if="turns.length === 0 && !sessionLoading">
             <!-- Empty session: Composer rendered in the centre of the pane -->
@@ -974,6 +975,31 @@ defineExpose({ loadComposerForEdit });
             </div>
           </template>
         </div>
+        </div>
+
+        <!-- "New messages" pill — only visible when scrolled up and new content arrives. -->
+        <Transition name="pill">
+          <button
+            v-if="showPill"
+            class="newmsg-pill"
+            :aria-label="t('conversation.jumpToLatestAria')"
+            @click="scrollToBottom(true)"
+          >
+            <svg
+              class="pill-chevron"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <polyline points="4,6 8,10 12,6" />
+            </svg>
+            {{ t('conversation.newMessages') }}
+          </button>
+        </Transition>
       </div>
       <ChatDock
         v-if="!(turns.length === 0 && !sessionLoading)"
@@ -1034,30 +1060,6 @@ defineExpose({ loadComposerForEdit });
       />
     </div>
 
-    <!-- "New messages" pill — only visible when scrolled up and new content arrives. -->
-    <Transition name="pill">
-      <button
-        v-if="showPill"
-        class="newmsg-pill"
-        :aria-label="t('conversation.jumpToLatestAria')"
-        @click="scrollToBottom(true)"
-      >
-        <svg
-          class="pill-chevron"
-          viewBox="0 0 16 16"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          aria-hidden="true"
-        >
-          <polyline points="4,6 8,10 12,6" />
-        </svg>
-        {{ t('conversation.newMessages') }}
-      </button>
-    </Transition>
-
     <!-- Manual-abort toast: shown when the user presses Escape to stop a prompt -->
     <Transition name="abort-toast">
       <div
@@ -1099,6 +1101,13 @@ defineExpose({ loadComposerForEdit });
   height: 100%;
   min-height: 0;
   position: relative;
+}
+.chat-area {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 .chat-scroll {
   flex: 1;
