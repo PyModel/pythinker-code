@@ -2,16 +2,12 @@
 
 import { ulid } from 'ulid';
 
-import { Disposable, DisposableMap, ErrorCodes, IEventService, IQuestionService, PythinkerError, questionDismissedResult, questionToAgentCoreResponse, questionToBrokerRequest, ILogService, type IDisposable, type QuestionRequest, type QuestionResult } from '@pymodel/agent-core';
+import { Disposable, DisposableMap, ErrorCodes, IEventService, PythinkerError, questionDismissedResult, questionToAgentCoreResponse, questionToBrokerRequest, ILogService, type IDisposable, type IQuestionService, type QuestionRequest, type QuestionResult } from '@pymodel/agent-core';
 import type {
   Event,
   QuestionRequest as ProtocolQuestionRequest,
   QuestionResponse as ProtocolQuestionResponse,
 } from '@pymodel/protocol';
-
-
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const _typeAnchor: typeof IQuestionService = IQuestionService;
 
 /**
  * A pending question waits on a human, so the timer is a leak guard, not a
