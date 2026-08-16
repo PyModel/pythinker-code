@@ -35,6 +35,7 @@ function question(overrides: Partial<UIQuestion['questions'][number]> = {}): UIQ
   return {
     questionId: 'qreq_1',
     sessionId: 'sess_1',
+    expiresAt: new Date(Date.now() + 20 * 60_000).toISOString(),
     questions: [
       {
         id: 'q1',

@@ -23,13 +23,13 @@ The browser web UI for Pythinker Code — a peer to the TUI in `apps/pythinker-c
 - Shared components go in `src/components/`; reusable logic goes in `src/composables/` with a `use` prefix.
 - There is **no auto-import plugin** and **no path alias** — `#/` and `@/` are intentionally unused. Write relative imports (`../i18n`, `./config`).
 
-## i18n (normative — keeping locales in sync is manual)
+## i18n (normative — the app is English-only)
 
 - Setup: `src/i18n/index.ts`, vue-i18n in Composition mode (`legacy: false`), fallback `en`. The active locale is persisted in `localStorage` under `pythinker-locale`.
-- Locale files: `src/i18n/locales/{en,zh}/<namespace>.ts`, each `export default { ... } as const`. New namespaces are registered in `src/i18n/locales/index.ts`.
+- **`en` is the only locale.** `src/i18n/locales/` contains exactly one directory, and `locales/index.ts` registers only `en`. Do not add a second locale, and do not "restore parity" with one that does not exist.
+- Locale files: `src/i18n/locales/en/<namespace>.ts`, each `export default { ... } as const`. New namespaces are registered in `src/i18n/locales/index.ts`.
 - Reference with `const { t } = useI18n()` and `t('namespace.key')` (same form in templates).
-- **Adding a key:** add it to **both** `en/<ns>.ts` and `zh/<ns>.ts`. **Adding a namespace:** create the file in both locales **and** register it in `locales/index.ts`.
-- There is **no automated missing-key or en/zh parity check**. Keeping the two locales in sync is a manual responsibility — do not leave a key present in only one locale.
+- **Adding a key:** add it to `en/<ns>.ts`. **Adding a namespace:** create the file under `en/` **and** register it in `locales/index.ts`.
 
 ## Commands
 

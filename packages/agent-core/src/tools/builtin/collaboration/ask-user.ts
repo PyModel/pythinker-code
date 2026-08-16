@@ -102,6 +102,8 @@ export const AskUserQuestionInputSchema: z.ZodType<AskUserQuestionInput> =
   AskUserQuestionInputBaseSchema;
 
 const QUESTION_DISMISSED_MESSAGE = 'User dismissed the question without answering.';
+const QUESTION_EXPIRED_MESSAGE =
+  'The question expired before the user answered it. The user did NOT dismiss it — ask again in your text response if you still need the answer.';
 
 const QUESTION_UNSUPPORTED_FAILURE_MESSAGE =
   'The connected client does not support interactive questions. Do NOT call this tool again. Ask the user directly in your text response instead.';
@@ -216,7 +218,23 @@ export class AskUserQuestionTool implements BuiltinTool<AskUserQuestionInput> {
         };
       }
 
-      return dismissedQuestionResult();
+      if (error instanceof PythinkerError && error.code === ErrorCodes.QUESTION_EXPIRED) {
+        const source = args.metadata?.source;
+        if (source === undefined) {
+          this.agent.telemetry.track('question_expired');
+        } else {
+          this.agent.telemetry.track('question_expired', { source });
+        }
+        return {
+          isError: false,
+          output: JSON.stringify({ answers: {}, note: QUESTION_EXPIRED_MESSAGE }),
+        };
+      }
+
+      return {
+        isError: true,
+        output: `The question could not be delivered or answered: ${errorMessage(error)}`,
+      };
     }
   }
 

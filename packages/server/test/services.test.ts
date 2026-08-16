@@ -7,7 +7,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { InstantiationService, ServiceCollection, EventService, FsWatcherService, IApprovalService, IEventService, ILogService, IQuestionService, type ApprovalResponse, type QuestionResult, type FsWatcherServiceOptions, type IEnvironmentService, type ILogService as ILoggerT, type ISessionService } from '@pymodel/agent-core';
+import { InstantiationService, ServiceCollection, EventService, ErrorCodes, FsWatcherService, IApprovalService, IEventService, ILogService, IQuestionService, type ApprovalResponse, type QuestionResult, type FsWatcherServiceOptions, type IEnvironmentService, type ILogService as ILoggerT, type ISessionService } from '@pymodel/agent-core';
 import { WS_PROTOCOL_VERSION, type Event } from '@pymodel/protocol';
 
 import { ApprovalService } from '#/services/approval/approvalService';
@@ -1172,7 +1172,7 @@ describe('QuestionService (broadcasts + dismiss)', () => {
     bus.dispose();
   });
 
-  it('60s timeout broadcasts event.question.expired + rejects QuestionExpiredError', async () => {
+  it('lease expiry broadcasts event.question.expired + rejects QuestionExpiredError', async () => {
     const { broker, bus, broadcast, conn } = makeQuestionBroker();
     broker._setTimeoutMsForTests(30);
     const pending = broker.request({
@@ -1184,6 +1184,7 @@ describe('QuestionService (broadcasts + dismiss)', () => {
     } as Parameters<typeof broker.request>[0]);
 
     await expect(pending).rejects.toMatchObject({ name: 'QuestionExpiredError' });
+    await expect(pending).rejects.toHaveProperty('code', ErrorCodes.QUESTION_EXPIRED);
     await broadcast._drainForTest('s');
     const expiredFrame = conn.sent.find(
       (f) => (f as { type: string }).type === 'event.question.expired',

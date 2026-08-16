@@ -239,7 +239,7 @@ describe('Question reverse-RPC: WS broadcast → REST resolve → Promise settle
     expect(env.code).toBe(0);
     expect(env.data?.resolved).toBe(true);
 
-    // Promise resolves with the SCHEMAS §6.4 flattened shape.
+    // Promise resolves with the text and labels that the user saw.
     const result = await pending;
     expect(result).not.toBeNull();
     const inProcResp = result as {
@@ -247,14 +247,43 @@ describe('Question reverse-RPC: WS broadcast → REST resolve → Promise settle
       method?: string;
     };
     expect(inProcResp.answers).toEqual({
-      q_0: 'opt_0_0',
-      q_1: 'opt_1_0,opt_1_2',
-      q_2: 'Hippopotamus',
-      // q_3 omitted entirely (kind: skipped)
+      'Animal?': 'Cat',
+      'Colors?': 'R, B',
+      'Custom?': 'Hippopotamus',
+      // 'Skip me' omitted entirely (kind: skipped)
     });
     expect(inProcResp.method).toBe('enter');
 
     ws.close();
+  });
+
+  it('REST resolve gives the awaiting caller question text and option labels', async () => {
+    const r = await bootDaemon();
+    const sid = await createSession(r);
+    const broker = r.services.invokeFunction(
+      (a) => a.get(IQuestionService) as QuestionService,
+    );
+    const pending = broker.request({
+      sessionId: sid,
+      agentId: 'main',
+      questions: [
+        { question: 'Which animal?', options: [{ label: 'Cat' }, { label: 'Dog' }] },
+      ],
+    });
+    const questionId = firstPendingQuestionId(broker);
+    expect(questionId).toBeDefined();
+    if (questionId === undefined) throw new Error('pending question id is missing');
+
+    const res = await appOf(r).inject({
+      method: 'POST',
+      url: `/api/v1/sessions/${sid}/questions/${questionId}`,
+      payload: { answers: { q_0: { kind: 'single', option_id: 'opt_0_1' } } },
+    });
+
+    expect(envelopeOf<{ resolved: boolean }>(res.json()).code).toBe(0);
+    await expect(pending).resolves.toEqual({
+      answers: { 'Which animal?': 'Dog' },
+    });
   });
 
   it('GET pending questions lists recoverable requests and omits dismissed ones', async () => {
@@ -364,19 +393,19 @@ describe('Question reverse-RPC: WS broadcast → REST resolve → Promise settle
       'single kind',
       [{ question: '?', options: [{ label: 'A' }, { label: 'B' }] }],
       { q_0: { kind: 'single', option_id: 'opt_0_1' } },
-      { q_0: 'opt_0_1' },
+      { '?': 'B' },
     ],
     [
       'multi kind',
       [{ question: '?', options: [{ label: 'A' }, { label: 'B' }, { label: 'C' }], multiSelect: true }],
       { q_0: { kind: 'multi', option_ids: ['opt_0_0', 'opt_0_2'] } },
-      { q_0: 'opt_0_0,opt_0_2' },
+      { '?': 'A, C' },
     ],
     [
       'other kind',
       [{ question: '?', options: [{ label: 'X' }, { label: 'Y' }], otherLabel: 'Other' }],
       { q_0: { kind: 'other', text: 'free' } },
-      { q_0: 'free' },
+      { '?': 'free' },
     ],
     [
       'multi_with_other kind',
@@ -388,7 +417,7 @@ describe('Question reverse-RPC: WS broadcast → REST resolve → Promise settle
           other_text: 'X',
         },
       },
-      { q_0: 'opt_0_0,X' },
+      { '?': 'A, X' },
     ],
     [
       'skipped kind (record entry omitted)',
@@ -397,7 +426,7 @@ describe('Question reverse-RPC: WS broadcast → REST resolve → Promise settle
       {},
     ],
   ] as const)(
-    'normalizes %s per SCHEMAS §6.4',
+    'normalizes %s to the text and labels shown to the user',
     async (_label, questions, answers, expectedRecord) => {
       const r = await bootDaemon();
       const sid = await createSession(r);
@@ -588,7 +617,7 @@ describe('Question reverse-RPC: WS broadcast → REST resolve → Promise settle
     broker.dismiss(questionId!);
   });
 
-  it('60s timeout broadcasts event.question.expired + rejects with QuestionExpiredError', async () => {
+  it('lease expiry broadcasts event.question.expired + rejects with QuestionExpiredError', async () => {
     const r = await bootDaemon();
     const sid = await createSession(r);
     const { ws, received } = await openSubscriber(r, sid);

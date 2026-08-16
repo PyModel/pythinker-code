@@ -39,7 +39,7 @@ import {
   questionResolveRequestSchema,
   questionResolveResultSchema,
 } from '@pymodel/protocol';
-import { IQuestionService, questionToAgentCoreResponse, type IInstantiationService } from '@pymodel/agent-core';
+import { IQuestionService, type IInstantiationService } from '@pymodel/agent-core';
 import { z } from 'zod';
 
 
@@ -226,9 +226,16 @@ export function registerQuestionsRoutes(
       }
 
       const body = bodyParse.data;
-      const inProc = questionToAgentCoreResponse(body);
-      broker.resolve(questionId, inProc);
-      broker.markResolved(questionId);
+      if (!broker.resolveProtocolResponse(questionId, body)) {
+        reply.send(
+          errEnvelope(
+            ErrorCode.QUESTION_NOT_FOUND,
+            `question ${questionId} not found`,
+            req.id,
+          ),
+        );
+        return;
+      }
 
       const result = {
         resolved: true,
