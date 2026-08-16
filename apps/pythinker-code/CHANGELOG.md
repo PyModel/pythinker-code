@@ -1,5 +1,33 @@
 # @pymodel/pythinker-code
 
+## 0.19.0
+
+### Minor Changes
+
+- [#80](https://github.com/PyModel/pythinker-code/pull/80) [`17818ea`](https://github.com/PyModel/pythinker-code/commit/17818ea6006cc3d4176ab7ede048163a457a99f9) - Match the desktop app's sidebar, collapse animation, empty-state visuals, and typography to the desktop design.
+
+- [#80](https://github.com/PyModel/pythinker-code/pull/80) [`17818ea`](https://github.com/PyModel/pythinker-code/commit/17818ea6006cc3d4176ab7ede048163a457a99f9) - Add a Desktop app section to web settings with automatic updates on by default, a manual update check, and a restart-to-update action.
+
+- [#80](https://github.com/PyModel/pythinker-code/pull/80) [`17818ea`](https://github.com/PyModel/pythinker-code/commit/17818ea6006cc3d4176ab7ede048163a457a99f9) - Refresh the web UI accent color and show the animated mascot on workflow cards, the activity spinner, and the empty state.
+
+### Patch Changes
+
+- [#80](https://github.com/PyModel/pythinker-code/pull/80) [`17818ea`](https://github.com/PyModel/pythinker-code/commit/17818ea6006cc3d4176ab7ede048163a457a99f9) - Fix sessions failing to load with an invalid event journal error after questions or approvals were resolved.
+
+- [#80](https://github.com/PyModel/pythinker-code/pull/80) [`17818ea`](https://github.com/PyModel/pythinker-code/commit/17818ea6006cc3d4176ab7ede048163a457a99f9) - Run on Node 20 and newer by only re-executing for FFI support on Node 26.4+.
+
+- [#77](https://github.com/PyModel/pythinker-code/pull/77) [`26f3d18`](https://github.com/PyModel/pythinker-code/commit/26f3d18fe2a3ececb61c0fcb38605528c222c61e) - Keep releases visible in the update channel when a CDN rebuild request is temporarily lost.
+
+- [#78](https://github.com/PyModel/pythinker-code/pull/78) [`86a4f9a`](https://github.com/PyModel/pythinker-code/commit/86a4f9abe9f51f4e81408a47e2f17d1af0c9cfbe) - Change the VS Code extension Marketplace ID to `pymodel.pythinker`. Existing users must install the extension again under the new ID because Microsoft permanently retired the previous ID.
+
+- [#80](https://github.com/PyModel/pythinker-code/pull/80) [`17818ea`](https://github.com/PyModel/pythinker-code/commit/17818ea6006cc3d4176ab7ede048163a457a99f9) - Skip invalid sessions during listing instead of failing the whole list.
+
+- [#80](https://github.com/PyModel/pythinker-code/pull/80) [`17818ea`](https://github.com/PyModel/pythinker-code/commit/17818ea6006cc3d4176ab7ede048163a457a99f9) - Highlight the update notice in the terminal status bar with the warning color.
+
+- [#77](https://github.com/PyModel/pythinker-code/pull/77) [`26f3d18`](https://github.com/PyModel/pythinker-code/commit/26f3d18fe2a3ececb61c0fcb38605528c222c61e) - Use a scoped GitHub App token for Homebrew tap updates.
+
+- [#80](https://github.com/PyModel/pythinker-code/pull/80) [`17818ea`](https://github.com/PyModel/pythinker-code/commit/17818ea6006cc3d4176ab7ede048163a457a99f9) - Fix duplicated streamed transcript copies and lost paragraph breaks in the web UI.
+
 ## 0.18.0
 
 ### Minor Changes
