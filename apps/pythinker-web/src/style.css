@@ -73,9 +73,9 @@ html[data-color-scheme="dark"] {
   color-scheme: dark;
   --ink: #e8eaed;
   --text: #c9cdd4;
-  --dim: #9aa0a8;
-  --muted: #727983;
-  --faint: #525960;
+  --dim: #c2c8d0;
+  --muted: #aab1ba;
+  --faint: #8b939c;
   --line: #2d333b;
   --line2: #22272e;
   --panel: #1c2128;
@@ -99,9 +99,9 @@ html[data-color-scheme="dark"] {
   html[data-color-scheme="system"] {
     --ink: #e8eaed;
     --text: #c9cdd4;
-    --dim: #9aa0a8;
-    --muted: #727983;
-    --faint: #525960;
+    --dim: #c2c8d0;
+    --muted: #aab1ba;
+    --faint: #8b939c;
     --line: #2d333b;
     --line2: #22272e;
     --panel: #1c2128;
