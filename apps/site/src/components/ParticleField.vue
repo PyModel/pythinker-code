@@ -4,301 +4,268 @@ import { nextTick, onMounted, onUnmounted, ref } from 'vue';
 const canvas = ref(null);
 const enabled = ref(false);
 
-let gl = null;
-let ctx2d = null;
-let animationFrame = null;
-let program = null;
-let buffer = null;
-let uniformLocations = {};
-let startTime = 0;
+let context;
+let animationFrame;
 let viewportWidth = 0;
 let viewportHeight = 0;
 let mounted = false;
-let isWebGL = false;
+let scrollY = 0;
+let prefersReducedMotion = false;
 
-// 2D Canvas fallback dots state
-let fallbackDots = [];
+const pointer = { x: -1000, y: -1000, targetX: -1000, targetY: -1000, active: false };
+const GRID_SIZE = 48;
 
-const vsSource = `
-  attribute vec2 a_position;
-  void main() {
-    gl_Position = vec4(a_position, 0.0, 1.0);
-  }
-`;
+// Procedural micro-particles with natural drift
+let particles = [];
+// Procedural grid pulses representing autonomous agent activity
+let gridPulses = [];
 
-const fsSource = `
-  precision highp float;
-  uniform vec2 u_resolution;
-  uniform float u_time;
-  uniform float u_dpr;
-
-  // High quality pseudo-random hashes
-  float hash21(vec2 p) {
-    p = fract(p * vec2(123.34, 456.21));
-    p += dot(p, p + 45.32);
-    return fract(p.x * p.y);
-  }
-
-  float hash22(vec2 p) {
-    return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453123);
-  }
-
-  void main() {
-    vec2 st = gl_FragCoord.xy;
-    vec2 center = u_resolution * 0.5;
-
-    // Uniform grid spacing (~28 physical px scaled by DPR for consistent density)
-    float gridPitch = 26.0 * u_dpr;
-    float dotRadius = (6.0 * 0.5) * u_dpr; // 6px dot diameter
-
-    // Grid cell identification
-    vec2 cellIndex = floor(st / gridPitch);
-    vec2 cellCenter = (cellIndex + 0.5) * gridPitch;
-
-    // Distance to dot center in current cell
-    vec2 delta = st - cellCenter;
-    float distToDot = length(delta);
-
-    // Sharp dot shape with subtle sub-pixel anti-aliasing
-    float dotMask = 1.0 - smoothstep(dotRadius - 0.75 * u_dpr, dotRadius + 0.75 * u_dpr, distToDot);
-
-    if (dotMask <= 0.001) {
-      gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
-      return;
-    }
-
-    // Distance from viewport center (normalized 0.0 at center to 1.0+ at corners)
-    float maxDim = length(center);
-    float distFromCenter = length(cellCenter - center) / maxDim;
-
-    // Random seeds per cell for organic timing & opacity variation
-    float cellHash = hash21(cellIndex);
-    float cellHash2 = hash22(cellIndex);
-
-    // Subtle, technical, randomized base opacity (monochrome white/gray)
-    float baseOpacity = 0.12 + 0.42 * cellHash;
-
-    // Organic timing offset per dot for non-uniform wave front
-    float organicDist = distFromCenter + (cellHash - 0.5) * 0.26;
-
-    // Layer 1: Forward radial reveal wave (expanding outward from center)
-    float speed1 = 0.22;
-    float cycle1 = 7.0;
-    float t1 = mod(u_time * speed1, cycle1);
-    float waveProgress1 = (t1 / cycle1) * 2.2 - 0.2;
-    float forwardWave = smoothstep(waveProgress1 - 0.55, waveProgress1, organicDist)
-                      * (1.0 - smoothstep(waveProgress1, waveProgress1 + 0.55, organicDist));
-
-    // Layer 2: Reverse exit wave (disappearing toward outward regions with different speed)
-    float speed2 = 0.16;
-    float cycle2 = 8.5;
-    float t2 = mod(u_time * speed2 + 3.2, cycle2);
-    float waveProgress2 = (t2 / cycle2) * 2.2 - 0.2;
-    float reverseWave = smoothstep(waveProgress2 - 0.65, waveProgress2, organicDist)
-                      * (1.0 - smoothstep(waveProgress2, waveProgress2 + 0.65, organicDist));
-
-    // Subtle atmospheric baseline presence
-    float ambientPresence = 0.06 * (0.5 + 0.5 * sin(u_time * 0.4 + cellHash2 * 6.2831));
-
-    // Combined animated intensity
-    float waveAlpha = clamp(forwardWave * 0.85 + reverseWave * 0.60 + ambientPresence, 0.0, 1.0);
-    float dotAlpha = baseOpacity * waveAlpha * dotMask;
-
-    // Atmospheric Masking (pure black base):
-    // 1. Strong black radial gradient centered on viewport:
-    //    keeps center dark, allows dot texture to emerge away from center
-    float centerMask = smoothstep(0.08, 0.50, distFromCenter);
-
-    // 2. Top-to-bottom black gradient covering roughly upper third (fades upper area to pure black)
-    float yNorm = st.y / u_resolution.y; // 0.0 at bottom, 1.0 at top in WebGL
-    float topMask = smoothstep(0.96, 0.62, yNorm);
-    float bottomMask = smoothstep(0.02, 0.15, yNorm);
-
-    // Final monochrome white dot on pure black canvas
-    float finalAlpha = dotAlpha * centerMask * topMask * bottomMask;
-
-    gl_FragColor = vec4(vec3(finalAlpha), 1.0);
-  }
-`;
-
-function createShader(glCtx, type, source) {
-  const shader = glCtx.createShader(type);
-  glCtx.shaderSource(shader, source);
-  glCtx.compileShader(shader);
-  if (!glCtx.getShaderParameter(shader, glCtx.COMPILE_STATUS)) {
-    console.warn('WebGL shader compile error:', glCtx.getShaderInfoLog(shader));
-    glCtx.deleteShader(shader);
-    return null;
-  }
-  return shader;
+function initParticles() {
+  const densityFactor = (viewportWidth * viewportHeight) / 18000;
+  const count = Math.max(30, Math.min(75, Math.round(densityFactor)));
+  
+  particles = Array.from({ length: count }, () => {
+    const homeX = Math.random() * viewportWidth;
+    const homeY = Math.random() * viewportHeight;
+    return {
+      homeX,
+      homeY,
+      x: homeX,
+      y: homeY,
+      vx: 0,
+      vy: 0,
+      driftAngle: Math.random() * Math.PI * 2,
+      driftSpeed: 0.15 + Math.random() * 0.25,
+      radius: 0.8 + Math.random() * 0.9,
+      baseAlpha: 0.12 + Math.random() * 0.2,
+      isAccent: Math.random() < 0.15,
+      phase: Math.random() * Math.PI * 2,
+    };
+  });
 }
 
-function initWebGL() {
-  const cvs = canvas.value;
-  if (!cvs) return false;
-
-  gl = cvs.getContext('webgl', { antialias: false, alpha: false, depth: false, stencil: false })
-    || cvs.getContext('experimental-webgl');
-  if (!gl) return false;
-
-  const vs = createShader(gl, gl.VERTEX_SHADER, vsSource);
-  const fs = createShader(gl, gl.FRAGMENT_SHADER, fsSource);
-  if (!vs || !fs) return false;
-
-  program = gl.createProgram();
-  gl.attachShader(program, vs);
-  gl.attachShader(program, fs);
-  gl.linkProgram(program);
-
-  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    console.warn('WebGL program link error:', gl.getProgramInfoLog(program));
-    return false;
-  }
-
-  gl.useProgram(program);
-
-  // Full screen quad (-1 to 1)
-  const vertices = new Float32Array([
-    -1.0, -1.0,
-     1.0, -1.0,
-    -1.0,  1.0,
-    -1.0,  1.0,
-     1.0, -1.0,
-     1.0,  1.0,
-  ]);
-
-  buffer = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-  gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
-
-  const positionLocation = gl.getAttribLocation(program, 'a_position');
-  gl.enableVertexAttribArray(positionLocation);
-  gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
-
-  uniformLocations = {
-    resolution: gl.getUniformLocation(program, 'u_resolution'),
-    time: gl.getUniformLocation(program, 'u_time'),
-    dpr: gl.getUniformLocation(program, 'u_dpr'),
-  };
-
-  return true;
-}
-
-function init2DFallback() {
-  const cvs = canvas.value;
-  if (!cvs) return;
-  ctx2d = cvs.getContext('2d');
-  createFallbackGrid();
-}
-
-function createFallbackGrid() {
-  const gridPitch = 26;
-  const cols = Math.ceil(viewportWidth / gridPitch);
-  const rows = Math.ceil(viewportHeight / gridPitch);
-  const cx = viewportWidth / 2;
-  const cy = viewportHeight / 2;
-  const maxDim = Math.hypot(cx, cy);
-
-  fallbackDots = [];
-  for (let c = 0; c < cols; c++) {
-    for (let r = 0; r < rows; r++) {
-      const x = (c + 0.5) * gridPitch;
-      const y = (r + 0.5) * gridPitch;
-      const dist = Math.hypot(x - cx, y - cy) / maxDim;
-      const hash = Math.abs(Math.sin(c * 12.9898 + r * 78.233) * 43758.5453) % 1;
-      fallbackDots.push({
-        x,
-        y,
-        dist,
-        hash,
-        baseAlpha: 0.12 + 0.42 * hash,
-        noiseDist: dist + (hash - 0.5) * 0.26,
-      });
-    }
-  }
+function initGridPulses() {
+  const pulseCount = Math.max(2, Math.min(5, Math.floor(viewportWidth / 360)));
+  gridPulses = Array.from({ length: pulseCount }, () => {
+    const isHorizontal = Math.random() > 0.5;
+    const gridCoord = Math.floor(Math.random() * (isHorizontal ? viewportHeight : viewportWidth) / GRID_SIZE) * GRID_SIZE;
+    return {
+      isHorizontal,
+      coord: gridCoord,
+      pos: Math.random() * (isHorizontal ? viewportWidth : viewportHeight),
+      speed: 0.6 + Math.random() * 0.8,
+      length: 60 + Math.random() * 80,
+      alpha: 0.18 + Math.random() * 0.14,
+    };
+  });
 }
 
 function resize() {
+  if (!canvas.value) return;
   viewportWidth = window.innerWidth;
   viewportHeight = window.innerHeight;
+  scrollY = window.scrollY || window.pageYOffset || 0;
+  
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
-
-  if (canvas.value) {
-    canvas.value.width = Math.round(viewportWidth * dpr);
-    canvas.value.height = Math.round(viewportHeight * dpr);
-  }
-
-  if (isWebGL && gl && program) {
-    gl.viewport(0, 0, canvas.value.width, canvas.value.height);
-    gl.useProgram(program);
-    gl.uniform2f(uniformLocations.resolution, canvas.value.width, canvas.value.height);
-    gl.uniform1f(uniformLocations.dpr, dpr);
-  } else if (ctx2d) {
-    createFallbackGrid();
+  canvas.value.width = Math.round(viewportWidth * dpr);
+  canvas.value.height = Math.round(viewportHeight * dpr);
+  
+  context.setTransform(1, 0, 0, 1, 0, 0);
+  context.scale(dpr, dpr);
+  
+  initParticles();
+  initGridPulses();
+  
+  if (prefersReducedMotion) {
+    renderStaticBackground();
   }
 }
 
-function render(timestamp) {
-  const timeSec = (timestamp - startTime) * 0.001;
+function updateSimulation() {
+  // Smooth pointer interpolation
+  pointer.x += (pointer.targetX - pointer.x) * 0.12;
+  pointer.y += (pointer.targetY - pointer.y) * 0.12;
 
-  if (isWebGL && gl && program) {
-    gl.useProgram(program);
-    gl.uniform1f(uniformLocations.time, timeSec);
-    gl.drawArrays(gl.TRIANGLES, 0, 6);
-  } else if (ctx2d) {
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    ctx2d.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx2d.fillStyle = '#000000';
-    ctx2d.fillRect(0, 0, viewportWidth, viewportHeight);
+  // Update floating particles
+  for (let i = 0; i < particles.length; i++) {
+    const p = particles[i];
+    p.phase += 0.015;
+    p.homeX += Math.cos(p.driftAngle + p.phase * 0.2) * (p.driftSpeed * 0.4);
+    p.homeY += Math.sin(p.driftAngle + p.phase * 0.2) * (p.driftSpeed * 0.4);
 
-    const speed1 = 0.22;
-    const cycle1 = 7.0;
-    const t1 = (timeSec * speed1) % cycle1;
-    const waveProgress1 = (t1 / cycle1) * 2.2 - 0.2;
+    // Screen wrapping
+    if (p.homeX < -20) p.homeX = viewportWidth + 20;
+    if (p.homeX > viewportWidth + 20) p.homeX = -20;
+    if (p.homeY < -20) p.homeY = viewportHeight + 20;
+    if (p.homeY > viewportHeight + 20) p.homeY = -20;
 
-    const speed2 = 0.16;
-    const cycle2 = 8.5;
-    const t2 = (timeSec * speed2 + 3.2) % cycle2;
-    const waveProgress2 = (t2 / cycle2) * 2.2 - 0.2;
+    // Pointer repulsion physics
+    if (pointer.active) {
+      const dx = p.x - pointer.x;
+      const dy = p.y - pointer.y;
+      const dist = Math.hypot(dx, dy);
+      const interactRadius = 140;
 
-    for (const dot of fallbackDots) {
-      const d1 = dot.noiseDist;
-      let fw = 0;
-      if (d1 >= waveProgress1 - 0.55 && d1 <= waveProgress1 + 0.55) {
-        fw = Math.sin(((d1 - (waveProgress1 - 0.55)) / 1.1) * Math.PI);
+      if (dist < interactRadius && dist > 0.01) {
+        const force = ((interactRadius - dist) / interactRadius) * 1.2;
+        p.vx += (dx / dist) * force;
+        p.vy += (dy / dist) * force;
       }
-      let rw = 0;
-      if (d1 >= waveProgress2 - 0.65 && d1 <= waveProgress2 + 0.65) {
-        rw = Math.sin(((d1 - (waveProgress2 - 0.65)) / 1.3) * Math.PI);
-      }
-      const anim = Math.max(0, Math.min(1, fw * 0.85 + rw * 0.60 + 0.05));
-      const centerMask = Math.max(0, Math.min(1, (dot.dist - 0.08) / 0.42));
-      const yNorm = 1.0 - dot.y / viewportHeight;
-      const topMask = Math.max(0, Math.min(1, (yNorm - 0.62) / 0.34));
-      const alpha = dot.baseAlpha * anim * centerMask * (1.0 - topMask * 0.85);
+    }
 
-      if (alpha > 0.01) {
-        ctx2d.fillStyle = `rgba(255, 255, 255, ${alpha.toFixed(3)})`;
-        ctx2d.beginPath();
-        ctx2d.arc(dot.x, dot.y, 3, 0, Math.PI * 2);
-        ctx2d.fill();
+    // Spring return to home position
+    p.vx += (p.homeX - p.x) * 0.01;
+    p.vy += (p.homeY - p.y) * 0.01;
+    p.vx *= 0.9;
+    p.vy *= 0.9;
+    p.x += p.vx;
+    p.y += p.vy;
+  }
+
+  // Update procedural grid pulses
+  for (let i = 0; i < gridPulses.length; i++) {
+    const pulse = gridPulses[i];
+    pulse.pos += pulse.speed;
+    const maxBound = pulse.isHorizontal ? viewportWidth : viewportHeight;
+    if (pulse.pos - pulse.length > maxBound) {
+      pulse.pos = -pulse.length;
+      pulse.isHorizontal = Math.random() > 0.5;
+      const bound = pulse.isHorizontal ? viewportHeight : viewportWidth;
+      pulse.coord = Math.floor(Math.random() * bound / GRID_SIZE) * GRID_SIZE;
+      pulse.speed = 0.5 + Math.random() * 0.8;
+      pulse.alpha = 0.15 + Math.random() * 0.15;
+    }
+  }
+}
+
+function renderFrame() {
+  if (!context) return;
+  context.clearRect(0, 0, viewportWidth, viewportHeight);
+
+  // 1. Render Interactive Pointer Grid Node Illuminations
+  if (pointer.active) {
+    const pX = pointer.x;
+    const pY = pointer.y;
+    const glowRadius = 180;
+    const minGridX = Math.max(0, Math.floor((pX - glowRadius) / GRID_SIZE) * GRID_SIZE);
+    const maxGridX = Math.min(viewportWidth, Math.ceil((pX + glowRadius) / GRID_SIZE) * GRID_SIZE);
+    const minGridY = Math.max(0, Math.floor((pY - glowRadius) / GRID_SIZE) * GRID_SIZE);
+    const maxGridY = Math.min(viewportHeight, Math.ceil((pY + glowRadius) / GRID_SIZE) * GRID_SIZE);
+
+    for (let gx = minGridX; gx <= maxGridX; gx += GRID_SIZE) {
+      for (let gy = minGridY; gy <= maxGridY; gy += GRID_SIZE) {
+        const dist = Math.hypot(gx - pX, gy - pY);
+        if (dist < glowRadius) {
+          const intensity = 1 - dist / glowRadius;
+          const alpha = intensity * intensity * 0.35;
+          context.beginPath();
+          context.arc(gx, gy, 1.6, 0, Math.PI * 2);
+          context.fillStyle = `rgba(37, 99, 235, ${alpha})`;
+          context.fill();
+        }
       }
     }
   }
 
-  animationFrame = window.requestAnimationFrame(render);
+  // 2. Render Autonomous Grid Pulses (agent pipeline telemetry)
+  for (let i = 0; i < gridPulses.length; i++) {
+    const pulse = gridPulses[i];
+    context.save();
+    context.lineWidth = 1.2;
+    context.beginPath();
+
+    if (pulse.isHorizontal) {
+      const startX = Math.max(0, pulse.pos - pulse.length);
+      const endX = Math.min(viewportWidth, pulse.pos);
+      if (startX < endX) {
+        const gradient = context.createLinearGradient(startX, pulse.coord, endX, pulse.coord);
+        gradient.addColorStop(0, 'rgba(37, 99, 235, 0)');
+        gradient.addColorStop(0.8, `rgba(56, 189, 248, ${pulse.alpha})`);
+        gradient.addColorStop(1, `rgba(37, 99, 235, ${pulse.alpha * 1.5})`);
+        context.strokeStyle = gradient;
+        context.moveTo(startX, pulse.coord);
+        context.lineTo(endX, pulse.coord);
+        context.stroke();
+      }
+    } else {
+      const startY = Math.max(0, pulse.pos - pulse.length);
+      const endY = Math.min(viewportHeight, pulse.pos);
+      if (startY < endY) {
+        const gradient = context.createLinearGradient(pulse.coord, startY, pulse.coord, endY);
+        gradient.addColorStop(0, 'rgba(37, 99, 235, 0)');
+        gradient.addColorStop(0.8, `rgba(56, 189, 248, ${pulse.alpha})`);
+        gradient.addColorStop(1, `rgba(37, 99, 235, ${pulse.alpha * 1.5})`);
+        context.strokeStyle = gradient;
+        context.moveTo(pulse.coord, startY);
+        context.lineTo(pulse.coord, endY);
+        context.stroke();
+      }
+    }
+    context.restore();
+  }
+
+  // 3. Render Subtle Procedural Particles
+  for (let i = 0; i < particles.length; i++) {
+    const p = particles[i];
+    const pulseAlpha = p.baseAlpha + Math.sin(p.phase) * 0.05;
+    context.beginPath();
+    context.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+
+    if (p.isAccent) {
+      context.fillStyle = `rgba(37, 99, 235, ${Math.max(0.04, pulseAlpha * 1.3)})`;
+    } else {
+      context.fillStyle = `rgba(15, 23, 42, ${Math.max(0.03, pulseAlpha * 0.85)})`;
+    }
+    context.fill();
+  }
+}
+
+function renderStaticBackground() {
+  if (!context) return;
+  context.clearRect(0, 0, viewportWidth, viewportHeight);
+  // Elegant, quiet static dot matrix for reduced motion
+  for (let x = GRID_SIZE; x < viewportWidth; x += GRID_SIZE * 2) {
+    for (let y = GRID_SIZE; y < viewportHeight; y += GRID_SIZE * 2) {
+      context.beginPath();
+      context.arc(x, y, 1, 0, Math.PI * 2);
+      context.fillStyle = 'rgba(15, 23, 42, 0.06)';
+      context.fill();
+    }
+  }
+}
+
+function animate() {
+  if (prefersReducedMotion) return;
+  updateSimulation();
+  renderFrame();
+  animationFrame = window.requestAnimationFrame(animate);
 }
 
 function startAnimation() {
-  if (animationFrame !== null || document.hidden) return;
-  startTime = performance.now();
-  animationFrame = window.requestAnimationFrame(render);
+  if (animationFrame !== undefined || document.hidden || prefersReducedMotion) return;
+  animationFrame = window.requestAnimationFrame(animate);
 }
 
 function stopAnimation() {
-  if (animationFrame === null) return;
+  if (animationFrame === undefined) return;
   window.cancelAnimationFrame(animationFrame);
-  animationFrame = null;
+  animationFrame = undefined;
+}
+
+function onPointerMove(event) {
+  pointer.targetX = event.clientX;
+  pointer.targetY = event.clientY;
+  pointer.active = true;
+}
+
+function onPointerLeave() {
+  pointer.active = false;
+  pointer.targetX = -1000;
+  pointer.targetY = -1000;
+}
+
+function onScroll() {
+  scrollY = window.scrollY || window.pageYOffset || 0;
 }
 
 function onVisibilityChange() {
@@ -308,24 +275,22 @@ function onVisibilityChange() {
 
 onMounted(async () => {
   mounted = true;
+  prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   enabled.value = true;
   await nextTick();
   if (!mounted) return;
 
-  isWebGL = initWebGL();
-  if (!isWebGL) {
-    init2DFallback();
-  }
+  context = canvas.value?.getContext('2d', { alpha: true });
+  if (!context) return;
 
   resize();
+  window.addEventListener('pointermove', onPointerMove, { passive: true });
+  document.addEventListener('mouseleave', onPointerLeave);
+  window.addEventListener('scroll', onScroll, { passive: true });
   window.addEventListener('resize', resize, { passive: true });
   document.addEventListener('visibilitychange', onVisibilityChange);
 
-  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    // Render single static frame for reduced motion
-    render(performance.now());
-    stopAnimation();
-  } else {
+  if (!prefersReducedMotion) {
     startAnimation();
   }
 });
@@ -333,72 +298,26 @@ onMounted(async () => {
 onUnmounted(() => {
   mounted = false;
   stopAnimation();
+  window.removeEventListener('pointermove', onPointerMove);
+  document.removeEventListener('mouseleave', onPointerLeave);
+  window.removeEventListener('scroll', onScroll);
   window.removeEventListener('resize', resize);
   document.removeEventListener('visibilitychange', onVisibilityChange);
-  if (gl && program) {
-    gl.deleteProgram(program);
-    gl.deleteBuffer(buffer);
-  }
 });
 </script>
 
 <template>
-  <div class="dot-matrix-bg-container" aria-hidden="true">
-    <canvas v-if="enabled" ref="canvas" class="dot-matrix-canvas"></canvas>
-    <!-- Atmospheric Masking Layers -->
-    <div class="atmospheric-mask atmospheric-mask--radial"></div>
-    <div class="atmospheric-mask atmospheric-mask--gradient"></div>
-  </div>
+  <canvas v-if="enabled" ref="canvas" class="procedural-field" aria-hidden="true"></canvas>
 </template>
 
 <style scoped>
-.dot-matrix-bg-container {
+.procedural-field {
   position: fixed;
   z-index: 0;
   inset: 0;
   width: 100vw;
   height: 100vh;
-  background-color: #000000;
-  overflow: hidden;
   pointer-events: none;
   contain: strict;
-}
-
-.dot-matrix-canvas {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  display: block;
-}
-
-/* Atmospheric masking over particles */
-.atmospheric-mask {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-}
-
-/* 1. Strong black radial gradient keeping center dark */
-.atmospheric-mask--radial {
-  background: radial-gradient(
-    circle at 50% 50%,
-    rgba(0, 0, 0, 0.94) 0%,
-    rgba(0, 0, 0, 0.70) 30%,
-    rgba(0, 0, 0, 0.20) 65%,
-    rgba(0, 0, 0, 0.85) 100%
-  );
-}
-
-/* 2. Top-to-bottom black gradient covering upper third */
-.atmospheric-mask--gradient {
-  background: linear-gradient(
-    180deg,
-    #000000 0%,
-    rgba(0, 0, 0, 0.90) 18%,
-    rgba(0, 0, 0, 0.0) 38%,
-    rgba(0, 0, 0, 0.0) 75%,
-    rgba(0, 0, 0, 0.95) 100%
-  );
 }
 </style>

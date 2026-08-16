@@ -7,7 +7,7 @@ const trigger = ref(null);
 const selectedId = ref(/Win/i.test(navigator.platform || navigator.userAgent) ? 'windows' : 'unix');
 const open = ref(false);
 const copied = ref(false);
-const activeChannel = computed(() => INSTALL_CHANNELS.find((channel) => channel.id === selectedId.value));
+const activeChannel = computed(() => INSTALL_CHANNELS.find((channel) => channel.id === selectedId.value) || INSTALL_CHANNELS[0]);
 let resetTimer;
 
 function fallbackCopy(text) {
@@ -33,7 +33,7 @@ async function copyCommand() {
   clearTimeout(resetTimer);
   resetTimer = setTimeout(() => {
     copied.value = false;
-  }, 1600);
+  }, 1800);
 }
 
 function optionButtons() {
@@ -111,20 +111,42 @@ onUnmounted(() => {
         @click="toggleMenu"
         @keydown="onTriggerKeydown"
       >
-        <img src="/brand/pythinker_animated.svg" alt="" width="16" height="20">
-        Get started
-        <svg aria-hidden="true" viewBox="0 0 12 8"><path d="m1 1 5 5 5-5" /></svg>
+        <span class="channel-indicator">
+          <img v-if="activeChannel.icon" :src="activeChannel.icon" alt="" width="16" height="16" class="channel-current-icon" />
+          <svg v-else class="terminal-glyph" aria-hidden="true" viewBox="0 0 16 16"><path d="m2 4 3 3-3 3M7 11h6" /></svg>
+          <span class="trigger-label">{{ activeChannel.label }}</span>
+        </span>
+        <svg class="chevron-icon" :class="{ 'is-open': open }" aria-hidden="true" viewBox="0 0 12 8">
+          <path d="m1 1 5 5 5-5" />
+        </svg>
       </button>
-      <code>{{ activeChannel.command }}</code>
-      <button class="copy-button" type="button" :aria-label="copied ? 'Copied' : 'Copy install command'" @click="copyCommand">
-        <svg v-if="copied" aria-hidden="true" viewBox="0 0 20 20"><path d="m4 10 4 4 8-9" /></svg>
-        <svg v-else aria-hidden="true" viewBox="0 0 20 20"><rect x="7" y="3" width="10" height="11" rx="2" /><rect x="3" y="7" width="10" height="10" rx="2" /></svg>
+      
+      <code class="command-text" :title="activeChannel.command">{{ activeChannel.command }}</code>
+      
+      <button 
+        class="copy-button" 
+        :class="{ 'is-copied': copied }"
+        type="button" 
+        :aria-label="copied ? 'Copied to clipboard' : 'Copy install command'" 
+        @click="copyCommand"
+      >
+        <Transition name="icon-fade" mode="out-in">
+          <svg v-if="copied" key="check" class="check-icon" aria-hidden="true" viewBox="0 0 20 20">
+            <path d="m4 10 4 4 8-9" />
+          </svg>
+          <svg v-else key="copy" aria-hidden="true" viewBox="0 0 20 20">
+            <rect x="7" y="3" width="10" height="11" rx="2" />
+            <rect x="3" y="7" width="10" height="10" rx="2" />
+          </svg>
+        </Transition>
+        <span class="copy-tooltip" :class="{ 'is-visible': copied }">{{ copied ? 'Copied!' : 'Copy' }}</span>
       </button>
-      <span class="visually-hidden" aria-live="polite">{{ copied ? 'Copied' : '' }}</span>
+      <span class="visually-hidden" aria-live="polite">{{ copied ? 'Copied command to clipboard' : '' }}</span>
     </div>
 
     <Transition name="install-menu">
       <div v-show="open" id="install-menu" class="install-menu" role="listbox" @keydown="onMenuKeydown">
+        <div class="menu-label">Select Package Channel</div>
         <button
           v-for="channel in INSTALL_CHANNELS"
           :key="channel.id"
@@ -139,14 +161,16 @@ onUnmounted(() => {
             <svg v-else class="terminal-glyph" aria-hidden="true" viewBox="0 0 16 16"><path d="m2 4 3 3-3 3M7 11h6" /></svg>
             {{ channel.label }}
           </span>
-          <svg v-if="selectedId === channel.id" aria-hidden="true" viewBox="0 0 20 20"><path d="m4 10 4 4 8-9" /></svg>
+          <svg v-if="selectedId === channel.id" class="check-mark" aria-hidden="true" viewBox="0 0 20 20">
+            <path d="m4 10 4 4 8-9" />
+          </svg>
         </button>
         <div class="install-divider" role="separator"></div>
-        <a href="https://github.com/PyModel/pythinker-code" target="_blank" rel="noopener">
+        <a href="https://github.com/PyModel/pythinker-code" target="_blank" rel="noopener" class="menu-link">
           <span class="channel-label"><img src="/brand/github.svg" alt="" width="16" height="16" />GitHub repository</span>
           <svg aria-hidden="true" viewBox="0 0 20 20"><path d="M6 14 14 6M8 6h6v6" /></svg>
         </a>
-        <a href="https://www.npmjs.com/package/@pymodel/pythinker-code" target="_blank" rel="noopener">
+        <a href="https://www.npmjs.com/package/@pymodel/pythinker-code" target="_blank" rel="noopener" class="menu-link">
           <span class="channel-label"><img src="/brand/npm.svg" alt="" width="16" height="16" />npm package</span>
           <svg aria-hidden="true" viewBox="0 0 20 20"><path d="M6 14 14 6M8 6h6v6" /></svg>
         </a>
@@ -167,142 +191,198 @@ onUnmounted(() => {
   min-height: 56px;
   align-items: center;
   gap: 12px;
-  padding: 8px;
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-pill);
+  padding: 6px 8px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-pill);
   background: var(--canvas);
+  box-shadow: 0 4px 20px -4px rgba(10, 10, 12, 0.07);
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.install-input:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 4px 24px -2px var(--accent-glow);
 }
 
 .install-trigger {
   display: inline-flex;
-  min-height: 44px;
+  min-height: 42px;
   flex: 0 0 auto;
   align-items: center;
-  gap: 8px;
-  padding: 10px 20px;
-  border: 0;
-  border-radius: var(--r-pill);
+  gap: 10px;
+  padding: 8px 16px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
   background: var(--pill-dark);
   color: var(--pill-dark-ink);
   cursor: pointer;
-  font-size: 15px;
+  font-size: 14px;
+  font-weight: 600;
+  transition: all 140ms ease;
+}
+
+.install-trigger:hover {
+  background: #27272a;
+}
+
+.channel-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.channel-current-icon {
+  width: 16px;
+  height: 16px;
+  filter: brightness(0) invert(1);
+}
+
+.trigger-label {
   font-weight: 600;
 }
 
-.install-trigger img {
-  width: 16px;
-  height: 20px;
-  flex: 0 0 auto;
+.chevron-icon {
+  width: 10px;
+  height: 6px;
+  stroke: currentColor;
+  stroke-width: 2;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform 150ms ease;
 }
 
-.install-trigger svg {
-  width: 12px;
-  height: 8px;
+.chevron-icon.is-open {
+  transform: rotate(180deg);
 }
 
-.install-input code {
+.command-text {
   min-width: 0;
   flex: 1;
   overflow: hidden;
   color: var(--ink);
-  font-size: 15px;
+  font-family: 'Geist Mono', 'JetBrains Mono', monospace;
+  font-size: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
+  padding-inline: 6px;
 }
 
 .copy-button {
   position: relative;
   display: grid;
-  width: 44px;
-  height: 44px;
-  flex: 0 0 44px;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
   margin-left: auto;
-  padding: 12px;
-  border: 0;
+  padding: 11px;
+  border: 1px solid transparent;
   border-radius: 50%;
-  background: transparent;
+  background: var(--surface-1);
   color: var(--ink-muted);
   cursor: pointer;
-  opacity: 0.7;
+  place-items: center;
+  transition: all 140ms ease;
 }
 
 .copy-button:hover {
   color: var(--ink);
-  opacity: 1;
-}
-
-.copy-button::before {
-  position: absolute;
-  inset: 6px;
-  border-radius: 50%;
-  content: '';
-}
-
-.copy-button:hover::before {
   background: var(--surface-2);
+  border-color: var(--hairline-strong);
+}
+
+.copy-button.is-copied {
+  background: #ecfdf5;
+  color: #059669;
+  border-color: #a7f3d0;
 }
 
 .copy-button svg {
-  position: relative;
-  width: 20px;
-  height: 20px;
-}
-
-svg {
+  width: 18px;
+  height: 18px;
   fill: none;
   stroke: currentColor;
   stroke-linecap: round;
   stroke-linejoin: round;
-  stroke-width: 1.5;
+  stroke-width: 1.6;
+}
+
+.copy-tooltip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: #09090b;
+  color: #ffffff;
+  font-family: 'Geist Mono', monospace;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+
+.copy-tooltip.is-visible,
+.copy-button:hover .copy-tooltip {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
 }
 
 .install-menu {
   position: absolute;
-  z-index: 20;
+  z-index: 30;
   bottom: calc(100% + 8px);
   left: 0;
-  min-width: 210px;
-  padding: 6px;
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-sm);
+  min-width: 240px;
+  padding: 8px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-md);
   background: var(--canvas);
-  box-shadow: var(--shadow-card);
+  box-shadow: var(--shadow-lg);
+  backdrop-filter: blur(16px);
+}
+
+.menu-label {
+  padding: 6px 10px;
+  color: var(--ink-subtle);
+  font-family: 'Geist Mono', monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
 .install-option,
-.install-menu a {
+.menu-link {
   display: flex;
   width: 100%;
-  min-height: 44px;
+  min-height: 40px;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   padding: 8px 12px;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--ink);
   cursor: pointer;
   font-size: 14px;
   font-weight: 500;
   text-align: left;
+  transition: background-color 100ms ease;
 }
 
 .install-option:hover,
 .install-option[aria-selected='true'],
-.install-menu a:hover {
+.menu-link:hover {
   background: var(--surface-2);
 }
 
-.install-option svg,
-.install-menu a svg {
-  width: 14px;
-  height: 14px;
-  flex: 0 0 14px;
-  color: var(--accent);
-}
-
-.install-menu a svg {
+.install-option[aria-selected='true'] {
+  font-weight: 600;
   color: var(--accent);
 }
 
@@ -310,7 +390,7 @@ svg {
   display: inline-flex;
   min-width: 0;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 
 .channel-label img,
@@ -320,18 +400,37 @@ svg {
   flex: 0 0 16px;
 }
 
-.channel-label img {
-  filter: opacity(0.75);
+.terminal-glyph {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.6;
+  color: var(--ink-muted);
 }
 
-.terminal-glyph {
-  color: var(--ink-muted);
+.check-mark {
+  width: 16px;
+  height: 16px;
+  stroke: var(--accent);
+  stroke-width: 2;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .install-divider {
   height: 1px;
-  margin: 6px 8px;
+  margin: 6px 4px;
   background: var(--hairline);
+}
+
+.menu-link svg {
+  width: 14px;
+  height: 14px;
+  stroke: var(--ink-subtle);
+  stroke-width: 1.5;
+  fill: none;
 }
 
 .install-menu-enter-active,
@@ -342,27 +441,33 @@ svg {
 .install-menu-enter-from,
 .install-menu-leave-to {
   opacity: 0;
-  transform: translateY(4px);
+  transform: translateY(6px);
+}
+
+.icon-fade-enter-active,
+.icon-fade-leave-active {
+  transition: opacity 100ms ease, transform 100ms ease;
+}
+
+.icon-fade-enter-from,
+.icon-fade-leave-to {
+  opacity: 0;
+  transform: scale(0.8);
 }
 
 @media (max-width: 640px) {
   .install-input {
     gap: 8px;
+    padding: 6px;
   }
 
   .install-trigger {
-    padding-inline: 16px;
+    padding: 6px 12px;
+    font-size: 13px;
   }
 
-  .install-input code {
-    font-size: 14px;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .install-menu-enter-active,
-  .install-menu-leave-active {
-    transition: none;
+  .command-text {
+    font-size: 13px;
   }
 }
 </style>
