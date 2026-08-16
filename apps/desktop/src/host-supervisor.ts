@@ -1,11 +1,12 @@
 /** Supervise the loopback Web Host used by the first desktop application. */
 
-import { spawn, type ChildProcessByStdio } from 'node:child_process'
+import { spawn, spawnSync, type ChildProcessByStdio } from 'node:child_process'
 import type { Readable } from 'node:stream'
 
 const READINESS_PREFIX = 'Pythinker server: '
 const DEFAULT_READINESS_TIMEOUT_MS = 90_000
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 5_000
+const TASKKILL_TIMEOUT_MS = 5_000
 const MAX_STARTUP_OUTPUT_CHARS = 32_768
 
 /** Incremental parser for the Web Host's canonical readiness line. */
@@ -297,6 +298,31 @@ export function spawnPythinkerServer(options: SpawnPythinkerServerOptions): Host
   return nodeChildAdapter(process)
 }
 
+/**
+ * Terminate a child and its descendants.
+ *
+ * Windows has no signal delivery: `child.kill` calls TerminateProcess on one
+ * PID, so the Host's own children (node-pty shells, subagent hosts) survive and
+ * keep holding the loopback port. `taskkill /T` walks the tree instead.
+ * Because this call is synchronous, keep it bounded so a stalled taskkill falls
+ * back to a single-process kill instead of blocking the Electron main loop indefinitely.
+ *
+ * ponytail: /F makes every Windows stop a forced stop — Node cannot deliver a
+ * graceful SIGTERM to a Windows child at all. Add a stdin or IPC shutdown
+ * channel to the Host if graceful Windows teardown is ever needed.
+ */
+function killProcessTree(child: ChildProcessByStdio<null, Readable, Readable>, signal: 'SIGTERM' | 'SIGKILL'): void {
+  if (process.platform !== 'win32' || child.pid === undefined) {
+    child.kill(signal)
+    return
+  }
+  const result = spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], {
+    windowsHide: true,
+    timeout: TASKKILL_TIMEOUT_MS,
+  })
+  if (result.error !== undefined || result.status !== 0) child.kill(signal)
+}
+
 /** Adapt Node's event overloads to the supervisor's explicit ownership API. */
 function nodeChildAdapter(child: ChildProcessByStdio<null, Readable, Readable>): HostChild {
   return {
@@ -312,7 +338,7 @@ function nodeChildAdapter(child: ChildProcessByStdio<null, Readable, Readable>):
       return () => { child.off('error', listener) }
     },
     kill(signal) {
-      child.kill(signal)
+      killProcessTree(child, signal)
     },
   }
 }

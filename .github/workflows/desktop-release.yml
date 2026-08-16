@@ -51,16 +51,33 @@ jobs:
       # Without Developer ID signing secrets, electron-builder publishes an
       # ad-hoc/self-signed app. macOS auto-update will not accept unsigned updates,
       # but this still proves packaging and the feed shape.
+      # An unset GitHub secret interpolates to an empty string, and
+      # electron-builder resolves an empty CSC_LINK as a certificate path
+      # (path.resolve(appDir, '') === appDir), failing with "not a file".
+      # Export only the variables that carry a value.
+      - name: Resolve macOS signing credentials
+        shell: bash
+        env:
+          IN_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          IN_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          IN_APPLE_ID: ${{ secrets.APPLE_ID }}
+          IN_APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          IN_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          for name in CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+            input="IN_${name}"
+            value="${!input:-}"
+            if [ -n "$value" ]; then printf '%s<<__EOF__\n%s\n__EOF__\n' "$name" "$value" >> "$GITHUB_ENV"; fi
+          done
+          if [ -z "${IN_CSC_LINK:-}" ]; then
+            echo 'CSC_IDENTITY_AUTO_DISCOVERY=false' >> "$GITHUB_ENV"
+            echo 'No macOS signing certificate configured; building unsigned.'
+          fi
       - name: Package and publish desktop release
         working-directory: apps/desktop
         run: pnpm exec electron-builder --mac dmg zip --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
       - name: Upload macOS artifacts for manual runs
         if: github.event_name == 'workflow_dispatch'
@@ -71,4 +88,68 @@ jobs:
             apps/desktop/dist/*.dmg
             apps/desktop/dist/*.zip
             apps/desktop/dist/latest-mac.yml
+          if-no-files-found: error
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned from v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # pinned from v6
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # pinned from v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Stamp desktop version for tag builds
+        if: startsWith(github.ref, 'refs/tags/desktop-v')
+        shell: bash
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          export DESKTOP_VERSION="${TAG_NAME#desktop-v}"
+          node -e 'const fs = require("node:fs"); const path = "apps/desktop/package.json"; const packageJson = JSON.parse(fs.readFileSync(path, "utf8")); packageJson.version = process.env.DESKTOP_VERSION; fs.writeFileSync(path, `${JSON.stringify(packageJson, null, 2)}\n`);'
+
+      - name: Build workspace
+        run: pnpm --workspace-root run build
+
+      - name: Stage desktop runtime
+        working-directory: apps/desktop
+        run: node --import tsx scripts/stage-runtime.ts
+
+      # Only non-empty WIN_CSC_* signing secrets are exported. Without them,
+      # Windows artifacts are unsigned and installers trigger a SmartScreen
+      # warning on first run.
+      - name: Resolve Windows signing credentials
+        shell: bash
+        env:
+          IN_WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          IN_WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: |
+          for name in WIN_CSC_LINK WIN_CSC_KEY_PASSWORD; do
+            input="IN_${name}"
+            value="${!input:-}"
+            if [ -n "$value" ]; then printf '%s<<__EOF__\n%s\n__EOF__\n' "$name" "$value" >> "$GITHUB_ENV"; fi
+          done
+      - name: Package and publish desktop release
+        working-directory: apps/desktop
+        run: pnpm exec electron-builder --win nsis --x64 --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Windows artifacts for manual runs
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # pinned from v7
+        with:
+          name: desktop-windows
+          path: |
+            apps/desktop/dist/*.exe
+            apps/desktop/dist/latest.yml
           if-no-files-found: error

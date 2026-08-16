@@ -11,7 +11,8 @@
     "dev": "pnpm -C ../pythinker-code run build && tsc -p tsconfig.json && tsdown && electron .",
     "package": "pnpm --workspace-root run build && node --import tsx scripts/stage-runtime.ts && electron-builder --dir",
     "dist": "pnpm --workspace-root run build && node --import tsx scripts/stage-runtime.ts && electron-builder",
-    "dist:mac": "node --import tsx scripts/release-mac.ts"
+    "dist:mac": "node --import tsx scripts/release-mac.ts",
+    "dist:win": "node --import tsx scripts/release-win.ts"
   },
   "license": "MIT",
   "devDependencies": {
@@ -67,8 +68,23 @@
     "win": {
       "icon": "build/icon.png",
       "target": [
-        "dir"
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
       ]
+    },
+    "nsis": {
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "Pythinker-${version}-${arch}-Setup.${ext}",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "oneClick": false,
+      "perMachine": false,
+      "shortcutName": "Pythinker"
     },
     "linux": {
       "category": "Development",
