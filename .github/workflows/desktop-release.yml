@@ -138,9 +138,25 @@ jobs:
             value="${!input:-}"
             if [ -n "$value" ]; then printf '%s<<__EOF__\n%s\n__EOF__\n' "$name" "$value" >> "$GITHUB_ENV"; fi
           done
+      - name: Resolve Azure signing configuration
+        shell: bash
+        env:
+          IN_AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          IN_AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          IN_AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          IN_AZURE_SIGNING_ENDPOINT: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+          IN_AZURE_SIGNING_ACCOUNT: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+          IN_AZURE_SIGNING_CERT_PROFILE: ${{ secrets.AZURE_SIGNING_CERT_PROFILE }}
+          IN_AZURE_SIGNING_PUBLISHER_NAME: ${{ secrets.AZURE_SIGNING_PUBLISHER_NAME }}
+        run: |
+          for name in AZURE_TENANT_ID AZURE_CLIENT_ID AZURE_CLIENT_SECRET AZURE_SIGNING_ENDPOINT AZURE_SIGNING_ACCOUNT AZURE_SIGNING_CERT_PROFILE AZURE_SIGNING_PUBLISHER_NAME; do
+            input="IN_${name}"
+            value="${!input:-}"
+            if [ -n "$value" ]; then printf '%s<<__EOF__\n%s\n__EOF__\n' "$name" "$value" >> "$GITHUB_ENV"; fi
+          done
       - name: Package and publish desktop release
         working-directory: apps/desktop
-        run: pnpm exec electron-builder --win nsis --x64 --publish always
+        run: node --import tsx scripts/package-win.ts --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
