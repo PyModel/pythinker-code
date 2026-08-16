@@ -1,10 +1,11 @@
-import { readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, type BrowserWindow } from 'electron'
 import electronUpdater from 'electron-updater'
 
 const { autoUpdater } = electronUpdater
 const UPDATE_SETTINGS_FILE = 'update-settings.json'
+const UPDATES_UNAVAILABLE_MESSAGE = 'Updates are not available for this build'
 const INITIAL_CHECK_DELAY_MS = 10_000
 const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1_000
 
@@ -117,6 +118,20 @@ function clearTimers(): void {
   checkInterval = undefined
 }
 
+function hasUpdateConfig(): boolean {
+  return existsSync(join(process.resourcesPath, 'app-update.yml'))
+}
+
+function disableUpdates(): UpdateState {
+  updateState({
+    status: 'disabled',
+    message: UPDATES_UNAVAILABLE_MESSAGE,
+    version: undefined,
+    percent: undefined,
+  })
+  return state
+}
+
 function scheduleChecks(): void {
   if (checkInterval !== undefined) return
   checkInterval = setInterval(() => {
@@ -181,6 +196,10 @@ export function initUpdater(
   clearTimers()
 
   if (!app.isPackaged) return
+  if (!hasUpdateConfig()) {
+    disableUpdates()
+    return
+  }
 
   try {
     autoUpdater.autoDownload = settings.autoUpdate
@@ -232,6 +251,7 @@ export async function checkForUpdatesNow(): Promise<UpdateState> {
     updateState({ status: 'disabled' })
     return state
   }
+  if (!hasUpdateConfig()) return disableUpdates()
 
   try {
     autoUpdater.autoDownload = true
@@ -251,6 +271,7 @@ export function quitAndInstallNow(): UpdateState {
     updateState({ status: 'disabled' })
     return state
   }
+  if (!hasUpdateConfig()) return disableUpdates()
 
   try {
     updateTelemetryTrack('desktop_update_install')
