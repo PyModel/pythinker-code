@@ -66,7 +66,11 @@ rmdir "$MOUNT_POINT"
 
 ### Windows
 
-Run `pnpm run dist:win` on a native Windows x64 host; cross-building from macOS is not possible because the staged Host closure contains platform-gated native packages. The output is `dist/Pythinker-<version>-x64-Setup.exe`, an assisted NSIS installer that defaults to a per-user install, offers a per-machine option that requires elevation, and lets you select the installation directory. Artifacts are unsigned unless `WIN_CSC_LINK` and `WIN_CSC_KEY_PASSWORD` are set.
+Run `pnpm run dist:win` on a native Windows x64 host; cross-building from macOS is not possible because the staged Host closure contains platform-gated native packages. The output is `dist/Pythinker-<version>-x64-Setup.exe`, an assisted NSIS installer that defaults to a per-user install, offers a per-machine option that requires elevation, and lets you select the installation directory. The existing certificate-file signing path uses `WIN_CSC_LINK` and `WIN_CSC_KEY_PASSWORD`.
+
+#### Azure Artifact Signing
+
+Windows artifacts are signed through Azure Artifact Signing when `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_SIGNING_ENDPOINT`, `AZURE_SIGNING_ACCOUNT`, `AZURE_SIGNING_CERT_PROFILE`, and `AZURE_SIGNING_PUBLISHER_NAME` are all set; they are unsigned when none are set. The credential variables are read from the environment; the four `AZURE_SIGNING_*` variables map to `azureSignOptions.endpoint`, `azureSignOptions.codeSigningAccountName`, `azureSignOptions.certificateProfileName`, and `azureSignOptions.publisherName`, respectively. Setting only some of the seven variables is a hard error by design.
 
 ## Known limitations
 

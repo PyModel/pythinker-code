@@ -7,6 +7,19 @@ import PythinkerMascot from './components/PythinkerMascot.vue';
 
 const version = __PYTHINKER_VERSION__;
 
+/**
+ * Desktop release currently published on GitHub. This tracks the published
+ * release, not apps/desktop/package.json — the manifest is bumped by changesets
+ * ahead of the build that produces these assets. Bump this only after the
+ * matching desktop release is public.
+ */
+const DESKTOP_VERSION = '0.1.0';
+const DESKTOP_RELEASE_BASE = `https://github.com/PyModel/pythinker-code/releases/download/v${DESKTOP_VERSION}`;
+const desktopDownloads = {
+  mac: `${DESKTOP_RELEASE_BASE}/Pythinker-${DESKTOP_VERSION}-arm64.dmg`,
+  windows: `${DESKTOP_RELEASE_BASE}/Pythinker-${DESKTOP_VERSION}-x64-Setup.exe`,
+};
+
 const installRows = [
   ['macOS / Linux', 'curl -fsSL https://code.pythinker.com/pythinker-code/install.sh | bash', '/brand/apple.svg'],
   ['Windows (PowerShell)', 'irm https://code.pythinker.com/pythinker-code/install.ps1 | iex', '/brand/windows11.svg'],
@@ -268,10 +281,17 @@ onUnmounted(() => {
       <div class="desktop-showcase-copy reveal">
         <p class="eyebrow">Desktop app</p>
         <h2 id="desktop-title" class="display-md">Pythinker Desktop</h2>
-        <p class="desktop-showcase-lead">The agent in a native macOS app, with sidebar sessions, live activity, and auto-updates.</p>
+        <p class="desktop-showcase-lead">The agent in native macOS and Windows apps, with sidebar sessions, live activity, and auto-updates.</p>
         <div class="desktop-showcase-actions">
-          <a class="button button-primary" href="https://github.com/PyModel/pythinker-code/releases/latest" target="_blank" rel="noopener">Download for macOS</a>
-          <span class="desktop-showcase-note">Auto-updates included · Apple Silicon</span>
+          <a class="button button-primary" :href="desktopDownloads.mac" rel="noopener">
+            <img src="/brand/apple.svg" alt="" aria-hidden="true" class="button-platform-icon" />
+            Download for macOS
+          </a>
+          <a class="button button-secondary" :href="desktopDownloads.windows" rel="noopener">
+            <img src="/brand/windows11.svg" alt="" aria-hidden="true" class="button-platform-icon" />
+            Download for Windows
+          </a>
+          <span class="desktop-showcase-note">Auto-updates included · Apple Silicon and Windows x64</span>
         </div>
       </div>
     </section>
@@ -803,6 +823,19 @@ onUnmounted(() => {
   flex-wrap: wrap;
   align-items: center;
   gap: 16px;
+}
+
+.button-platform-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.desktop-showcase-actions .button {
+  gap: 8px;
+}
+
+.desktop-showcase-actions .button-primary .button-platform-icon {
+  filter: brightness(0) invert(1);
 }
 
 .desktop-showcase-note {

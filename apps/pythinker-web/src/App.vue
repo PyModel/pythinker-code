@@ -871,6 +871,7 @@ function openPr(url: string): void {
 
 <template>
   <div class="app-shell">
+    <div class="windows-titlebar" aria-hidden="true"></div>
     <section v-if="showAuthGate" class="auth-page">
       <div class="auth-page-inner">
         <PythinkerLogo size="lg" interactive class="auth-page-logo" />
@@ -1337,6 +1338,21 @@ function openPr(url: string): void {
   overflow: hidden;
   box-sizing: border-box;
 }
+.windows-titlebar { display: none; }
+:global(html[data-desktop-platform='win32'] .app-shell) {
+  padding-top: env(titlebar-area-height, 44px);
+  background: var(--panel);
+}
+:global(html[data-desktop-platform='win32'] .windows-titlebar) {
+  display: block;
+  position: fixed;
+  top: env(titlebar-area-y, 0px);
+  left: env(titlebar-area-x, 0px);
+  width: env(titlebar-area-width, 100%);
+  height: env(titlebar-area-height, 44px);
+  -webkit-app-region: drag;
+  user-select: none;
+}
 .auth-page {
   flex: 1;
   min-height: 0;
@@ -1420,19 +1436,25 @@ function openPr(url: string): void {
   overflow: hidden;
   box-sizing: border-box;
 }
-:global(html[data-desktop-platform='darwin'] .app),
-:global(html[data-desktop-platform='win32'] .app) {
+:global(html[data-desktop-platform='darwin'] .app) {
   background: transparent;
 }
+:global(html[data-desktop-platform='win32'] .app) {
+  background: var(--bg);
+}
 :global(html[data-desktop-platform='darwin'] .side),
-:global(html[data-desktop-platform='win32'] .side),
-:global(html[data-desktop-platform='darwin'] .sidebar-rail),
-:global(html[data-desktop-platform='win32'] .sidebar-rail) {
+:global(html[data-desktop-platform='darwin'] .sidebar-rail) {
   background: color-mix(in srgb, var(--panel) 55%, transparent);
 }
+:global(html[data-desktop-platform='win32'] .side),
+:global(html[data-desktop-platform='win32'] .sidebar-rail) {
+  background: var(--panel);
+}
 :global(html[data-desktop-platform='darwin'] .con),
+:global(html[data-desktop-platform='darwin'] .global-preview) {
+  background: var(--bg);
+}
 :global(html[data-desktop-platform='win32'] .con),
-:global(html[data-desktop-platform='darwin'] .global-preview),
 :global(html[data-desktop-platform='win32'] .global-preview) {
   background: var(--bg);
 }

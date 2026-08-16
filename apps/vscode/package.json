@@ -1,7 +1,7 @@
 {
   "name": "pythinker",
   "publisher": "pymodel",
-  "displayName": "Pythinker Code",
+  "displayName": "Pythinker",
   "description": "Pythinker Code extension for VS Code",
   "version": "0.9.2",
   "private": true,
