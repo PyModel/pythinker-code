@@ -8,36 +8,48 @@ const desktopRoot = resolve(import.meta.dirname, '..')
 const mainSource = readFileSync(resolve(desktopRoot, 'src', 'main.ts'), 'utf8')
 
 describe('desktop window appearance configuration', () => {
-  it('keeps Windows opaque and non-Windows windows transparent', () => {
+  it('keeps the main window opaque on every platform', () => {
     const backgroundMaterialMatches = [...mainSource.matchAll(/backgroundMaterial/gu)]
-    const win32BranchMatches = [...mainSource.matchAll(
-      /\.\.\.\(process\.platform === 'win32' \? \{([\s\S]*?)\} : \{\s*transparent: true,/gu,
-    )]
-    const nonWin32BranchMatches = [...mainSource.matchAll(
-      /\} : \{\s*transparent: true,[\s\S]*?\}\),\s*title:/gu,
+    const mainWindowOptionMatches = [...mainSource.matchAll(
+      /const window = new BrowserWindow\(\{([\s\S]*?)\n  \}\)/gu,
     )]
 
     expect(backgroundMaterialMatches).toHaveLength(0)
-    expect(win32BranchMatches).toHaveLength(1)
-    expect(nonWin32BranchMatches).toHaveLength(1)
+    expect(mainWindowOptionMatches).toHaveLength(1)
 
-    const win32Branch = win32BranchMatches[0]![1]!
-    const opaqueColorMatches = [...win32Branch.matchAll(/backgroundColor:\s*'#[0-9a-fA-F]{6}'/gu)]
-    const alphaColorMatches = [...win32Branch.matchAll(/#[0-9a-fA-F]{8}/gu)]
-    const hasShadowMatches = [...win32Branch.matchAll(/hasShadow:\s*true/gu)]
-    const roundedCornersMatches = [...win32Branch.matchAll(/roundedCorners:\s*true/gu)]
-    const thickFrameMatches = [...win32Branch.matchAll(/thickFrame:\s*true/gu)]
+    const mainWindowOptions = mainWindowOptionMatches[0]![1]!
+    const vibrancyMatches = [...mainWindowOptions.matchAll(/vibrancy\s*:/gu)]
+    const visualEffectStateMatches = [...mainWindowOptions.matchAll(/visualEffectState\s*:/gu)]
+    const transparentMatches = [...mainWindowOptions.matchAll(/transparent:\s*true/gu)]
+    const backgroundColorMatches = [...mainWindowOptions.matchAll(
+      /backgroundColor:\s*'(#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?)'/gu,
+    )]
+    const transparentBackgroundMatches = backgroundColorMatches.filter(
+      (match) => match[1]!.length === 9 && match[1]!.endsWith('00'),
+    )
+    const hasShadowMatches = [...mainWindowOptions.matchAll(
+      /hasShadow:\s*process\.platform === 'win32' \? true : undefined/gu,
+    )]
+    const roundedCornersMatches = [...mainWindowOptions.matchAll(
+      /roundedCorners:\s*process\.platform === 'win32' \? true : undefined/gu,
+    )]
+    const thickFrameMatches = [...mainWindowOptions.matchAll(
+      /thickFrame:\s*process\.platform === 'win32' \? true : undefined/gu,
+    )]
 
-    expect(opaqueColorMatches).toHaveLength(1)
-    expect(alphaColorMatches).toHaveLength(0)
+    expect(vibrancyMatches).toHaveLength(0)
+    expect(visualEffectStateMatches).toHaveLength(0)
+    expect(transparentMatches).toHaveLength(0)
+    expect(backgroundColorMatches).toHaveLength(1)
+    expect(backgroundColorMatches[0]![1]).not.toBe('#00000000')
+    expect(transparentBackgroundMatches).toHaveLength(0)
     expect(hasShadowMatches).toHaveLength(1)
     expect(roundedCornersMatches).toHaveLength(1)
     expect(thickFrameMatches).toHaveLength(1)
 
-    expect(win32Branch).toContain('backgroundColor')
-    expect(nonWin32BranchMatches[0]![0]).toContain('transparent: true')
-    expect(win32Branch).toContain('hasShadow')
-    expect(win32Branch).toContain('roundedCorners')
-    expect(win32Branch).toContain('thickFrame')
+    expect(mainWindowOptions).toContain('backgroundColor')
+    expect(mainWindowOptions).toContain('hasShadow')
+    expect(mainWindowOptions).toContain('roundedCorners')
+    expect(mainWindowOptions).toContain('thickFrame')
   })
 })

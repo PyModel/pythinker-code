@@ -195,28 +195,17 @@ async function createMainWindow(): Promise<BrowserWindow> {
     autoHideMenuBar: true,
     frame: process.platform === 'win32',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
-    ...(process.platform === 'darwin' ? {} : {
-      titleBarOverlay: {
-        color: '#00000000',
-        symbolColor: '#7f858f',
-        height: 44,
-      },
-    }),
-    ...(process.platform === 'darwin' ? {
-      trafficLightPosition: { x: 16, y: 18 },
-      vibrancy: 'sidebar' as const,
-      visualEffectState: 'followWindow' as const,
-    } : {}),
-    // Windows uses an opaque window so theme colors do not blend with desktop wallpaper.
-    ...(process.platform === 'win32' ? {
-      backgroundColor: '#0d1117',
-      hasShadow: true,
-      roundedCorners: true,
-      thickFrame: true,
-    } : {
-      transparent: true,
-      backgroundColor: '#00000000',
-    }),
+    titleBarOverlay: process.platform === 'darwin' ? undefined : {
+      color: '#00000000',
+      symbolColor: '#7f858f',
+      height: 44,
+    },
+    trafficLightPosition: process.platform === 'darwin' ? { x: 16, y: 18 } : undefined,
+    // Use an opaque window so theme colors do not blend with desktop wallpaper.
+    backgroundColor: '#0d1117',
+    hasShadow: process.platform === 'win32' ? true : undefined,
+    roundedCorners: process.platform === 'win32' ? true : undefined,
+    thickFrame: process.platform === 'win32' ? true : undefined,
     title: APP_NAME,
     webPreferences: {
       contextIsolation: true,
