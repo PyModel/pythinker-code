@@ -52,81 +52,11 @@ body {
   min-width: 320px;
   min-height: 100vh;
   overflow-x: clip;
-  background-color: var(--canvas);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48'%3E%3Cpath d='M48 0H0v48' fill='none' stroke='%23111113' stroke-opacity='0.045' stroke-width='1'/%3E%3C/svg%3E");
+  background-color: #000000;
   color: var(--ink);
   font-size: 17px;
   font-weight: 400;
   line-height: 1.55;
-}
-
-body::before,
-body::after {
-  position: fixed;
-  z-index: 0;
-  width: clamp(340px, 34vw, 520px);
-  border: 1px solid rgba(43, 137, 255, 0.1);
-  border-radius: 50%;
-  aspect-ratio: 1;
-  content: '';
-  pointer-events: none;
-  will-change: transform;
-}
-
-body::before {
-  top: 12vh;
-  left: clamp(-300px, -18vw, -190px);
-  background:
-    radial-gradient(circle at 64% 32%, rgba(255, 255, 255, 0.78) 0 4%, transparent 5%),
-    radial-gradient(circle at 58% 46%, var(--bubble-cyan), var(--bubble-blue) 42%, rgba(43, 137, 255, 0.035) 67%, transparent 72%);
-  box-shadow:
-    112px 300px 0 -190px rgba(92, 206, 255, 0.13),
-    188px -38px 0 -214px rgba(43, 137, 255, 0.12),
-    32px 30px 100px rgba(43, 137, 255, 0.08);
-  animation: bubble-drift-left 26s ease-in-out -8s infinite;
-}
-
-body::after {
-  right: clamp(-310px, -19vw, -200px);
-  bottom: 8vh;
-  background:
-    radial-gradient(circle at 32% 30%, rgba(255, 255, 255, 0.72) 0 3.5%, transparent 4.5%),
-    radial-gradient(circle at 42% 44%, rgba(92, 206, 255, 0.16), rgba(43, 137, 255, 0.16) 44%, rgba(43, 137, 255, 0.03) 68%, transparent 73%);
-  box-shadow:
-    -128px -236px 0 -202px rgba(92, 206, 255, 0.12),
-    -194px 54px 0 -218px rgba(43, 137, 255, 0.12),
-    -28px 30px 100px rgba(43, 137, 255, 0.08);
-  animation: bubble-drift-right 31s ease-in-out -17s infinite;
-}
-
-@keyframes bubble-drift-left {
-  0%,
-  100% {
-    transform: translate3d(0, 0, 0) rotate(0deg);
-  }
-
-  36% {
-    transform: translate3d(14px, -18px, 0) rotate(1.5deg);
-  }
-
-  72% {
-    transform: translate3d(-8px, 12px, 0) rotate(-1deg);
-  }
-}
-
-@keyframes bubble-drift-right {
-  0%,
-  100% {
-    transform: translate3d(0, 0, 0) rotate(0deg);
-  }
-
-  42% {
-    transform: translate3d(-16px, 14px, 0) rotate(-1.4deg);
-  }
-
-  76% {
-    transform: translate3d(10px, -16px, 0) rotate(0.9deg);
-  }
 }
 
 #app {
@@ -263,11 +193,6 @@ code {
 }
 
 @media (max-width: 640px) {
-  body::before,
-  body::after {
-    opacity: 0.72;
-  }
-
   .section {
     margin-top: 48px;
   }

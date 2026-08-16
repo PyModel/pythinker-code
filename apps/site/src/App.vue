@@ -1,7 +1,7 @@
 <script setup>
 import { onMounted, onUnmounted, ref } from 'vue';
 import AgentLoop from './components/AgentLoop.vue';
-import InstallCommand from './components/InstallCommand.vue';
+
 import LegacyDownloadsPopup from './components/LegacyDownloadsPopup.vue';
 import ParticleField from './components/ParticleField.vue';
 import PythinkerMascot from './components/PythinkerMascot.vue';
@@ -86,6 +86,7 @@ const terminalDemos = [
 const vscodeInstallCommand = 'code --install-extension pymodel.pythinker';
 
 const copiedCommand = ref('');
+const scrolled = ref(false);
 const mobileMenu = ref(null);
 const menuButton = ref(null);
 const menuOpen = ref(false);
@@ -195,9 +196,15 @@ function onDocumentKeydown(event) {
   if (event.key === 'Escape') closeMenu();
 }
 
+function onScroll() {
+  scrolled.value = window.scrollY > 40;
+}
+
 onMounted(() => {
   document.addEventListener('pointerdown', onDocumentPointerdown);
   document.addEventListener('keydown', onDocumentKeydown);
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
   reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
   playTerminalDemo();
   if (reducedMotionQuery.matches) return;
@@ -220,12 +227,13 @@ onUnmounted(() => {
   revealObserver?.disconnect();
   document.removeEventListener('pointerdown', onDocumentPointerdown);
   document.removeEventListener('keydown', onDocumentKeydown);
+  window.removeEventListener('scroll', onScroll);
 });
 </script>
 
 <template>
   <ParticleField />
-  <nav class="site-nav" aria-label="Primary navigation">
+  <nav class="site-nav" :class="{ 'is-scrolled': scrolled }" aria-label="Primary navigation">
     <div class="container nav-inner">
       <a href="/" class="nav-brand"><PythinkerMascot :width="26" :height="32" /><span>Pythinker Code</span></a>
       <div class="nav-actions">
@@ -254,63 +262,46 @@ onUnmounted(() => {
   </nav>
 
   <main id="top">
-    <header class="hero container">
-      <div class="hero-copy">
-        <PythinkerMascot class="hero-mascot" :width="164" :height="205" />
-        <h1>Pythinker Code</h1>
-        <p class="hero-accent">Think first, then code.</p>
-        <p class="hero-lead">Pythinker Code is an open-source AI engineering agent. It reads your repo, edits files, runs commands, and iterates until the job is done &mdash; in a native desktop app, your terminal, or VS Code.</p>
-        <div class="hero-download">
-          <div class="hero-download-actions">
-            <a
-              v-for="(download, index) in heroDownloads"
-              :key="download.id"
-              :class="index === 0 ? 'button button-primary' : 'button button-secondary'"
-              :href="download.href"
-              rel="noopener"
-            >
-              <img :src="download.icon" alt="" aria-hidden="true" class="button-platform-icon" />
-              {{ download.label }}
-            </a>
+    <div id="desktop" class="hero-dark">
+      <header class="hero container">
+        <div class="hero-copy">
+          <h1>Pythinker<br>Code<br>Desktop</h1>
+          <p class="hero-lead">A native AI engineering agent for macOS and Windows. It reads your repo, edits files, runs commands, and iterates until the job is done.</p>
+          <div class="hero-download">
+            <div class="hero-download-actions">
+              <a
+                v-for="download in heroDownloads"
+                :key="download.id"
+                class="button button-hero"
+                :href="download.href"
+                rel="noopener"
+              >
+                <img :src="download.icon" alt="" aria-hidden="true" class="button-platform-icon" />
+                {{ download.label }}
+              </a>
+            </div>
           </div>
-          <p class="hero-download-note">
-            {{ heroDownloads.map((download) => download.note).join(' · ') }} ·
-            <a :href="heroDownloadsPage" target="_blank" rel="noopener">All downloads</a>
-          </p>
+          <div class="hero-meta">
+            <a class="button button-ghost" href="https://github.com/PyModel/pythinker-code" target="_blank" rel="noopener">
+              <img src="/brand/github.svg" alt="" width="16" height="16" />
+              View on GitHub
+            </a>
+            <span class="hero-install-hint">or <a href="#install">install the CLI</a></span>
+          </div>
+          <p class="hero-caption">Free and open source. MIT licensed. macOS, Linux, and Windows.</p>
         </div>
-        <p class="hero-install-label">Or install the CLI</p>
-        <div class="hero-install">
-          <InstallCommand />
+        <div class="hero-preview">
+          <div class="hero-preview-window">
+            <div class="hero-preview-titlebar">
+              <span class="hero-preview-light"></span>
+              <span class="hero-preview-light"></span>
+              <span class="hero-preview-light"></span>
+            </div>
+            <img src="/pythinker_desktop.webp" alt="Pythinker Desktop showing an AI coding session" width="2048" height="1300" loading="eager" />
+          </div>
         </div>
-        <p class="hero-caption">Free and open source. MIT licensed. macOS, Linux, and Windows.</p>
-      </div>
-    </header>
-
-    <section id="desktop" class="section container desktop-showcase" aria-labelledby="desktop-title">
-      <div class="desktop-showcase-media reveal">
-        <video autoplay muted loop playsinline preload="metadata" poster="/pythinker_desktop.png" aria-label="Pythinker Desktop app">
-          <source src="/pythinker_desktop.webm" type="video/webm" />
-          <img src="/pythinker_desktop.webp" alt="Pythinker Desktop showing an AI coding session" />
-        </video>
-        <img class="desktop-showcase-still" src="/pythinker_desktop.webp" alt="Pythinker Desktop showing an AI coding session" />
-      </div>
-      <div class="desktop-showcase-copy reveal">
-        <p class="eyebrow">Desktop app</p>
-        <h2 id="desktop-title" class="display-md">Pythinker Desktop</h2>
-        <p class="desktop-showcase-lead">The agent in native macOS and Windows apps, with sidebar sessions, live activity, and auto-updates.</p>
-        <div class="desktop-showcase-actions">
-          <a class="button button-primary" :href="desktopDownloads.mac" rel="noopener">
-            <img src="/brand/apple.svg" alt="" aria-hidden="true" class="button-platform-icon" />
-            Download for macOS
-          </a>
-          <a class="button button-secondary" :href="desktopDownloads.windows" rel="noopener">
-            <img src="/brand/windows11.svg" alt="" aria-hidden="true" class="button-platform-icon" />
-            Download for Windows
-          </a>
-          <span class="desktop-showcase-note">Auto-updates included · Apple Silicon and Windows x64</span>
-        </div>
-      </div>
-    </section>
+      </header>
+    </div>
 
     <div class="works-with" aria-label="Works with leading AI models">
       <span class="works-with-label">Works with</span>
@@ -569,13 +560,60 @@ onUnmounted(() => {
 
 <style scoped>
 .site-nav {
-  position: sticky;
+  position: fixed;
   z-index: 10;
   top: 0;
+  right: 0;
+  left: 0;
   height: 64px;
-  border-bottom: 1px solid var(--hairline);
-  background: rgba(255, 255, 255, 0.9);
+  border-bottom: 1px solid transparent;
+  background: transparent;
+  transition: background-color 300ms ease, border-color 300ms ease, box-shadow 300ms ease;
+}
+
+.site-nav.is-scrolled {
+  border-bottom-color: var(--hairline);
+  background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(8px);
+}
+
+.site-nav:not(.is-scrolled) .nav-brand {
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.site-nav:not(.is-scrolled) .nav-brand :deep(svg) {
+  filter: brightness(0) invert(1);
+}
+
+.site-nav:not(.is-scrolled) .nav-links a {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.site-nav:not(.is-scrolled) .nav-links a:hover {
+  color: #ffffff;
+}
+
+.site-nav:not(.is-scrolled) .nav-links img {
+  filter: brightness(0) invert(1);
+}
+
+.site-nav:not(.is-scrolled) .nav-cta {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.site-nav:not(.is-scrolled) .nav-cta:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.site-nav:not(.is-scrolled) .menu-button {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+
+.site-nav:not(.is-scrolled) .menu-button:hover {
+  background: rgba(255, 255, 255, 0.18);
 }
 
 .nav-inner {
@@ -708,60 +746,132 @@ onUnmounted(() => {
   transform: translateY(-4px);
 }
 
+/* ---- Dark hero ---- */
+
+.hero-dark {
+  position: relative;
+  padding-top: 64px; /* nav height offset (nav is now fixed) */
+  overflow: hidden;
+  background: transparent;
+}
+
 .hero {
   position: relative;
-  isolation: isolate;
-  padding-top: 24px;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 520px) 1fr;
+  align-items: center;
+  gap: 48px;
+  padding-top: 72px;
+  padding-bottom: 80px;
 }
 
 .hero-copy {
-  max-width: 780px;
-  margin-inline: auto;
-  text-align: center;
+  text-align: left;
 }
 
 .hero h1 {
-  margin-top: 18px;
-  color: var(--ink);
-  font-size: clamp(52px, 9vw, 88px);
+  color: #f1f5fa;
+  font-size: clamp(48px, 8vw, 80px);
   font-weight: 700;
-  line-height: 1.1;
-  letter-spacing: -0.02em;
-}
-
-.hero-accent {
-  margin-top: 8px;
-  color: var(--ink-muted);
-  font-size: clamp(24px, 3.4vw, 34px);
-  font-style: italic;
-  font-weight: 700;
-  line-height: 1.2;
+  line-height: 1.05;
+  letter-spacing: -0.025em;
 }
 
 .hero-lead {
-  max-width: 640px;
+  max-width: 480px;
   margin-top: 24px;
-  margin-inline: auto;
-  color: var(--ink-muted);
-  font-size: 20px;
-  font-weight: 500;
-  line-height: 1.5;
+  color: rgba(241, 245, 250, 0.55);
+  font-size: 18px;
+  font-weight: 400;
+  line-height: 1.6;
 }
 
 .hero-download {
-  margin-top: 24px;
+  margin-top: 32px;
 }
 
 .hero-download-actions {
   display: flex;
   flex-wrap: wrap;
-  justify-content: center;
-  gap: 10px;
+  gap: 12px;
 }
 
-.hero-install {
-  max-width: 720px;
-  margin: 10px auto 0;
+.button-hero {
+  gap: 10px;
+  min-height: 52px;
+  padding: 12px 24px;
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  border-radius: var(--r-pill);
+  background: rgba(255, 255, 255, 0.95);
+  color: #111113;
+  font-size: 15px;
+  font-weight: 600;
+  transition: background-color 150ms ease, transform 150ms ease;
+}
+
+.button-hero:hover {
+  background: #ffffff;
+  transform: translateY(-1px);
+}
+
+.button-hero .button-platform-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.hero-meta {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.button-ghost {
+  gap: 8px;
+  min-height: 44px;
+  padding: 10px 18px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 14px;
+  font-weight: 600;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+
+.button-ghost:hover {
+  border-color: rgba(255, 255, 255, 0.32);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.button-ghost img {
+  width: 16px;
+  height: 16px;
+  filter: brightness(0) invert(1);
+  opacity: 0.7;
+}
+
+.hero-install-hint {
+  color: rgba(241, 245, 250, 0.4);
+  font-size: 14px;
+}
+
+.hero-install-hint a {
+  color: rgba(241, 245, 250, 0.65);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.hero-install-hint a:hover {
+  color: rgba(241, 245, 250, 0.9);
+}
+
+.hero-caption {
+  margin-top: 20px;
+  color: rgba(241, 245, 250, 0.3);
+  font-size: 13px;
+  line-height: 1.38;
 }
 
 .milestone-footnote {
@@ -770,106 +880,56 @@ onUnmounted(() => {
   margin-block: 48px;
 }
 
-.hero-download-note,
-.hero-install-label,
-.hero-caption {
-  color: var(--ink-subtle);
-  font-size: 13px;
+/* ---- Hero app preview ---- */
+
+.hero-preview {
+  position: relative;
+  margin-right: calc(-48px - 40px); /* bleed past container */
 }
 
-.hero-download-note {
-  margin-top: 10px;
-  line-height: 1.38;
-}
-
-.hero-install-label {
-  margin-top: 20px;
-}
-
-.hero-caption {
-  margin-top: 12px;
-  line-height: 1.38;
-}
-
-.hero-mascot {
-  display: block;
-  width: clamp(128px, 12vw, 164px);
-  height: auto;
-  margin-inline: auto;
-}
-
-.desktop-showcase {
-  display: grid;
-  grid-template-columns: 3fr 2fr;
-  align-items: center;
-  gap: 48px;
-}
-
-.desktop-showcase-media {
-  width: 100%;
-  max-width: 100%;
-  min-width: 0;
+.hero-preview-window {
+  position: relative;
   overflow: hidden;
-  aspect-ratio: 2048 / 1300;
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-lg);
-  background: var(--terminal-bg);
-  box-shadow: var(--shadow-terminal);
+  border-radius: 12px 0 0 12px;
+  background: #1a1a2e;
+  box-shadow:
+    0 48px 100px -24px rgba(0, 0, 0, 0.7),
+    0 24px 48px -12px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
-.desktop-showcase-media video,
-.desktop-showcase-media video > img,
-.desktop-showcase-media > img {
+.hero-preview-titlebar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: linear-gradient(180deg, #3a3a4a 0%, #2e2e3e 100%);
+}
+
+.hero-preview-light {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 0.5px solid rgba(0, 0, 0, 0.15);
+  box-shadow: inset 0 -1px 1px rgba(0, 0, 0, 0.1);
+}
+
+.hero-preview-light:nth-child(1) {
+  background: #ff5f57;
+}
+
+.hero-preview-light:nth-child(2) {
+  background: #febc2e;
+}
+
+.hero-preview-light:nth-child(3) {
+  background: #28c840;
+}
+
+.hero-preview-window img {
   display: block;
   width: 100%;
-  max-width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.desktop-showcase-still {
-  display: none !important;
-}
-
-.desktop-showcase-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-  align-items: flex-start;
-}
-
-.desktop-showcase-lead {
-  color: var(--ink-muted);
-  font-size: 16px;
-  line-height: 1.6;
-}
-
-.desktop-showcase-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 16px;
-}
-
-.button-platform-icon {
-  width: 16px;
-  height: 16px;
-}
-
-.desktop-showcase-actions .button,
-.hero-download-actions .button {
-  gap: 8px;
-}
-
-.desktop-showcase-actions .button-primary .button-platform-icon,
-.hero-download-actions .button-primary .button-platform-icon {
-  filter: brightness(0) invert(1);
-}
-
-.desktop-showcase-note {
-  color: var(--ink-subtle);
-  font-size: 13px;
-  line-height: 1.5;
+  height: auto;
 }
 
 .works-with {
@@ -1804,10 +1864,20 @@ onUnmounted(() => {
 }
 
 @media (max-width: 899px) {
+  .hero {
+    grid-template-columns: 1fr;
+    gap: 40px;
+    padding-top: 48px;
+    padding-bottom: 56px;
+  }
+
+  .hero-preview {
+    margin-right: calc(-24px - 20px);
+  }
+
   .quickstart-grid,
   .docs-grid,
-  .vscode-grid,
-  .desktop-showcase {
+  .vscode-grid {
     grid-template-columns: 1fr;
   }
 
@@ -1898,11 +1968,28 @@ onUnmounted(() => {
 
 @media (max-width: 640px) {
   .hero {
-    padding-top: 0;
+    padding-top: 32px;
+    padding-bottom: 40px;
+  }
+
+  .hero h1 {
+    font-size: clamp(36px, 10vw, 48px);
   }
 
   .hero-lead {
-    font-size: 18px;
+    font-size: 16px;
+  }
+
+  .hero-download-actions {
+    flex-direction: column;
+  }
+
+  .hero-preview {
+    margin-right: -24px;
+  }
+
+  .hero-preview-window {
+    border-radius: 10px 0 0 10px;
   }
 
   .terminal-header {
@@ -1967,14 +2054,6 @@ onUnmounted(() => {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .desktop-showcase-media video {
-    display: none;
-  }
-
-  .desktop-showcase-media .desktop-showcase-still {
-    display: block !important;
-  }
-
   .works-with-track {
     animation: none;
   }
