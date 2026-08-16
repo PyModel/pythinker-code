@@ -193,14 +193,13 @@ async function createMainWindow(): Promise<BrowserWindow> {
     minHeight: 640,
     show: false,
     autoHideMenuBar: true,
-    frame: process.platform === 'win32' ? true : process.platform === 'linux' ? false : undefined,
-    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
+    frame: process.platform === 'win32' ? true : process.platform === 'linux' ? false : false,
+    titleBarStyle: process.platform === 'darwin' ? undefined : 'hidden',
     titleBarOverlay: process.platform === 'darwin' ? undefined : {
       color: '#00000000',
       symbolColor: '#7f858f',
       height: 44,
     },
-    trafficLightPosition: process.platform === 'darwin' ? { x: 16, y: 18 } : undefined,
     vibrancy: process.platform === 'darwin' ? 'sidebar' : undefined,
     visualEffectState: process.platform === 'darwin' ? 'followWindow' : undefined,
     transparent: process.platform === 'darwin' ? true : undefined,
@@ -262,6 +261,21 @@ ipcMain.handle('pythinker:update:check', (event) => {
 ipcMain.handle('pythinker:update:install', (event) => {
   assertTrustedSender(event)
   return quitAndInstallNow()
+})
+ipcMain.handle('pythinker:window:minimize', (event) => {
+  assertTrustedSender(event)
+  BrowserWindow.fromWebContents(event.sender)?.minimize()
+})
+ipcMain.handle('pythinker:window:toggle-maximize', (event) => {
+  assertTrustedSender(event)
+  const window = BrowserWindow.fromWebContents(event.sender)
+  if (window === null) return
+  if (window.isMaximized()) window.unmaximize()
+  else window.maximize()
+})
+ipcMain.handle('pythinker:window:close', (event) => {
+  assertTrustedSender(event)
+  BrowserWindow.fromWebContents(event.sender)?.close()
 })
 
 function createTray(images: TrayImages): void {

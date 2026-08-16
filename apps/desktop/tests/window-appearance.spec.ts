@@ -18,6 +18,9 @@ describe('desktop window appearance configuration', () => {
     expect(mainWindowOptionMatches).toHaveLength(1)
 
     const mainWindowOptions = mainWindowOptionMatches[0]![1]!
+    const options = Object.fromEntries(
+      [...mainWindowOptions.matchAll(/^    (\w+):/gmu)].map(([, key]) => [key, true]),
+    )
     const hasShadowMatches = [...mainWindowOptions.matchAll(
       /hasShadow:\s*process\.platform === 'win32' \? true : undefined/gu,
     )]
@@ -28,11 +31,14 @@ describe('desktop window appearance configuration', () => {
       /thickFrame:\s*process\.platform === 'win32' \? true : undefined/gu,
     )]
 
-    expect(mainWindowOptions).toContain("frame: process.platform === 'win32' ? true : process.platform === 'linux' ? false : undefined")
+    expect(mainWindowOptions).toContain("frame: process.platform === 'win32' ? true : process.platform === 'linux' ? false : false")
+    expect(mainWindowOptions).toContain("titleBarStyle: process.platform === 'darwin' ? undefined : 'hidden'")
+    expect(mainWindowOptions).toContain("titleBarOverlay: process.platform === 'darwin' ? undefined : {")
     expect(mainWindowOptions).toContain("vibrancy: process.platform === 'darwin' ? 'sidebar' : undefined")
     expect(mainWindowOptions).toContain("visualEffectState: process.platform === 'darwin' ? 'followWindow' : undefined")
     expect(mainWindowOptions).toContain("transparent: process.platform === 'darwin' ? true : undefined")
     expect(mainWindowOptions).toContain("backgroundColor: process.platform === 'darwin' ? '#00000000' : '#161616'")
+    expect('trafficLightPosition' in options).toBe(false)
     expect(hasShadowMatches).toHaveLength(1)
     expect(roundedCornersMatches).toHaveLength(1)
     expect(thickFrameMatches).toHaveLength(1)

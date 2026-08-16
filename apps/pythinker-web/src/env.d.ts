@@ -22,6 +22,9 @@ interface PythinkerDesktopBridge {
   setAutoUpdate: (enabled: boolean) => Promise<DesktopUpdateState>;
   checkForUpdates: () => Promise<DesktopUpdateState>;
   quitAndInstall: () => Promise<DesktopUpdateState>;
+  minimizeWindow: () => Promise<void>;
+  toggleMaximizeWindow: () => Promise<void>;
+  closeWindow: () => Promise<void>;
   onUpdateState: (callback: (state: DesktopUpdateState) => void) => () => void;
 }
 

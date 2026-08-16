@@ -35,6 +35,20 @@ import type { FilePreviewRequest, ToolMedia } from './types';
 const client = usePythinkerWebClient();
 provide('resolveImage', client.resolveImageUrl);
 const { t } = useI18n();
+const isDarwinDesktop = typeof document !== 'undefined'
+  && document.documentElement.dataset.desktopPlatform === 'darwin';
+
+function closeWindow(): void {
+  void window.pythinkerDesktop?.closeWindow();
+}
+
+function minimizeWindow(): void {
+  void window.pythinkerDesktop?.minimizeWindow();
+}
+
+function toggleMaximizeWindow(): void {
+  void window.pythinkerDesktop?.toggleMaximizeWindow();
+}
 
 // KAP/daemon debug panel — opt-in via ?debug=1 or localStorage pythinker-web.debug=1.
 const debugEnabled = isTraceEnabled();
@@ -872,6 +886,11 @@ function openPr(url: string): void {
 <template>
   <div class="app-shell">
     <div class="windows-titlebar" aria-hidden="true"></div>
+    <div v-if="isDarwinDesktop" class="window-controls">
+      <button type="button" class="window-control window-control-close" aria-label="Close" @click="closeWindow"></button>
+      <button type="button" class="window-control window-control-minimize" aria-label="Minimize" @click="minimizeWindow"></button>
+      <button type="button" class="window-control window-control-zoom" aria-label="Zoom" @click="toggleMaximizeWindow"></button>
+    </div>
     <section v-if="showAuthGate" class="auth-page">
       <div class="auth-page-inner">
         <PythinkerLogo size="lg" interactive class="auth-page-logo" />
@@ -1339,6 +1358,30 @@ function openPr(url: string): void {
   box-sizing: border-box;
 }
 .windows-titlebar { display: none; }
+.window-controls {
+  position: fixed;
+  top: 0;
+  left: 14px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 48px;
+  -webkit-app-region: no-drag;
+}
+.window-control {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.28);
+  -webkit-app-region: no-drag;
+}
+.window-control-close { background: #ff5f57; }
+.window-control-minimize { background: #febc2e; }
+.window-control-zoom { background: #28c840; }
 :global(html[data-desktop-platform='win32'] .app-shell) {
   padding-top: env(titlebar-area-height, 44px);
   background: var(--panel);
@@ -1438,6 +1481,9 @@ function openPr(url: string): void {
 }
 :global(html[data-desktop-platform='darwin'] .app) {
   background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.28);
 }
 :global(html[data-desktop-platform='win32'] .app) {
   background: var(--bg);
