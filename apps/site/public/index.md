@@ -1,15 +1,15 @@
 ---
 title: Pythinker Code, the terminal-native AI engineering agent
-description: Install Pythinker Code, an open-source AI coding agent for your terminal.
+description: Install Pythinker Code, an AI coding agent for your terminal.
 ---
 
 # Pythinker Code
 
 **Think first, then code.**
 
-Pythinker Code is an open-source AI engineering agent for your terminal. It reads your repository, edits files, runs commands, and iterates until the job is done.
+Pythinker Code is an AI engineering agent for your terminal. It reads your repository, edits files, runs commands, and iterates until the job is done.
 
-It is free, MIT licensed, and available for macOS, Linux, and Windows.
+It is free and available for macOS, Linux, and Windows.
 
 ## Install
 

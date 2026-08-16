@@ -313,7 +313,6 @@ onUnmounted(() => {
               <img src="/brand/github.svg" alt="" width="16" height="16" />
               <span>View on GitHub</span>
             </a>
-            <span class="hero-badge-oss">Open source, MIT licensed</span>
           </div>
         </div>
         
@@ -834,7 +833,7 @@ onUnmounted(() => {
           <span class="footer-wordmark">Pythinker Code</span>
           <span class="footer-version">v{{ version }}</span>
         </div>
-        <p class="footer-caption">Built with precision by Pymodel. Released under the MIT License.</p>
+        <p class="footer-caption">Built with precision by Pymodel.</p>
       </div>
       
       <div class="footer-links">
@@ -1160,13 +1159,6 @@ onUnmounted(() => {
 .button-github-pill img {
   filter: brightness(0) invert(1);
   opacity: 0.85;
-}
-
-.hero-badge-oss {
-  color: #64748b;
-  font-size: 12.5px;
-  font-weight: 500;
-  letter-spacing: 0.01em;
 }
 
 /* ==========================================================================
