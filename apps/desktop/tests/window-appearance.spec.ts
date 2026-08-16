@@ -8,7 +8,7 @@ const desktopRoot = resolve(import.meta.dirname, '..')
 const mainSource = readFileSync(resolve(desktopRoot, 'src', 'main.ts'), 'utf8')
 
 describe('desktop window appearance configuration', () => {
-  it('keeps the main window opaque on every platform', () => {
+  it('uses macOS vibrancy and keeps other platforms opaque', () => {
     const backgroundMaterialMatches = [...mainSource.matchAll(/backgroundMaterial/gu)]
     const mainWindowOptionMatches = [...mainSource.matchAll(
       /const window = new BrowserWindow\(\{([\s\S]*?)\n  \}\)/gu,
@@ -18,15 +18,6 @@ describe('desktop window appearance configuration', () => {
     expect(mainWindowOptionMatches).toHaveLength(1)
 
     const mainWindowOptions = mainWindowOptionMatches[0]![1]!
-    const vibrancyMatches = [...mainWindowOptions.matchAll(/vibrancy\s*:/gu)]
-    const visualEffectStateMatches = [...mainWindowOptions.matchAll(/visualEffectState\s*:/gu)]
-    const transparentMatches = [...mainWindowOptions.matchAll(/transparent:\s*true/gu)]
-    const backgroundColorMatches = [...mainWindowOptions.matchAll(
-      /backgroundColor:\s*'(#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?)'/gu,
-    )]
-    const transparentBackgroundMatches = backgroundColorMatches.filter(
-      (match) => match[1]!.length === 9 && match[1]!.endsWith('00'),
-    )
     const hasShadowMatches = [...mainWindowOptions.matchAll(
       /hasShadow:\s*process\.platform === 'win32' \? true : undefined/gu,
     )]
@@ -37,17 +28,15 @@ describe('desktop window appearance configuration', () => {
       /thickFrame:\s*process\.platform === 'win32' \? true : undefined/gu,
     )]
 
-    expect(vibrancyMatches).toHaveLength(0)
-    expect(visualEffectStateMatches).toHaveLength(0)
-    expect(transparentMatches).toHaveLength(0)
-    expect(backgroundColorMatches).toHaveLength(1)
-    expect(backgroundColorMatches[0]![1]).not.toBe('#00000000')
-    expect(transparentBackgroundMatches).toHaveLength(0)
+    expect(mainWindowOptions).toContain("frame: process.platform === 'win32' ? true : process.platform === 'linux' ? false : undefined")
+    expect(mainWindowOptions).toContain("vibrancy: process.platform === 'darwin' ? 'sidebar' : undefined")
+    expect(mainWindowOptions).toContain("visualEffectState: process.platform === 'darwin' ? 'followWindow' : undefined")
+    expect(mainWindowOptions).toContain("transparent: process.platform === 'darwin' ? true : undefined")
+    expect(mainWindowOptions).toContain("backgroundColor: process.platform === 'darwin' ? '#00000000' : '#161616'")
     expect(hasShadowMatches).toHaveLength(1)
     expect(roundedCornersMatches).toHaveLength(1)
     expect(thickFrameMatches).toHaveLength(1)
 
-    expect(mainWindowOptions).toContain('backgroundColor')
     expect(mainWindowOptions).toContain('hasShadow')
     expect(mainWindowOptions).toContain('roundedCorners')
     expect(mainWindowOptions).toContain('thickFrame')

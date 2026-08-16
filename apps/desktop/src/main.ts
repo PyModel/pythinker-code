@@ -193,7 +193,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
     minHeight: 640,
     show: false,
     autoHideMenuBar: true,
-    frame: process.platform === 'win32',
+    frame: process.platform === 'win32' ? true : process.platform === 'linux' ? false : undefined,
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
     titleBarOverlay: process.platform === 'darwin' ? undefined : {
       color: '#00000000',
@@ -201,8 +201,11 @@ async function createMainWindow(): Promise<BrowserWindow> {
       height: 44,
     },
     trafficLightPosition: process.platform === 'darwin' ? { x: 16, y: 18 } : undefined,
-    // Use an opaque window so theme colors do not blend with desktop wallpaper.
-    backgroundColor: '#151517',
+    vibrancy: process.platform === 'darwin' ? 'sidebar' : undefined,
+    visualEffectState: process.platform === 'darwin' ? 'followWindow' : undefined,
+    transparent: process.platform === 'darwin' ? true : undefined,
+    // Keep macOS transparent for vibrancy; other platforms use the dark app background.
+    backgroundColor: process.platform === 'darwin' ? '#00000000' : '#161616',
     hasShadow: process.platform === 'win32' ? true : undefined,
     roundedCorners: process.platform === 'win32' ? true : undefined,
     thickFrame: process.platform === 'win32' ? true : undefined,

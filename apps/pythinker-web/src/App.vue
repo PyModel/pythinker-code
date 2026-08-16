@@ -1468,6 +1468,7 @@ function openPr(url: string): void {
 .app > .side {
   grid-column: 1;
   grid-row: 1;
+  position: relative;
   overflow: hidden;
 }
 
@@ -1541,6 +1542,16 @@ function openPr(url: string): void {
 }
 :global(html[data-desktop-platform='darwin'] .sidebar-rail button) {
   -webkit-app-region: no-drag;
+}
+:global(html[data-desktop-platform='darwin'] .side) {
+  padding-top: 48px;
+}
+:global(html[data-desktop-platform='darwin'] .side::before) {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 48px;
+  -webkit-app-region: drag;
 }
 
 /* The collapsed rail occupies track 1; keep the main pane pinned to the
