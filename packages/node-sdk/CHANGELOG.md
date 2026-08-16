@@ -1,5 +1,11 @@
 # @pymodel/pythinker-code-sdk
 
+## 1.0.0
+
+### Major Changes
+
+- [#80](https://github.com/PyModel/pythinker-code/pull/80) [`17818ea`](https://github.com/PyModel/pythinker-code/commit/17818ea6006cc3d4176ab7ede048163a457a99f9) - Add question, approval, and prompt lifecycle events to the SDK session event types.
+
 ## 0.16.0
 
 ### Minor Changes
