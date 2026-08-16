@@ -6,8 +6,8 @@ export function windowAppearanceOptions(platform: NodeJS.Platform): BrowserWindo
       autoHideMenuBar: true,
       titleBarStyle: 'hiddenInset',
       trafficLightPosition: { x: 16, y: 16 },
-      transparent: true,
-      backgroundColor: '#00000000',
+      // A transparent NSWindow is non-opaque with a clear background, which
+      // removes native corners and shadow. Vibrancy does not require it.
       vibrancy: 'sidebar',
       visualEffectState: 'followWindow',
     }

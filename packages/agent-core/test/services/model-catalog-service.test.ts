@@ -127,6 +127,34 @@ describe('model catalog adapters', () => {
     });
   });
 
+  it('propagates optional per-model thinking metadata', () => {
+    const configuredAlias = {
+      ...catalogConfig().models!['k2']!,
+      supportEfforts: ['low', 'high', 'max'],
+      adaptiveThinking: true,
+    };
+    expect(toProtocolModel('k2', configuredAlias)).toEqual({
+      provider: 'pythinker',
+      model: 'k2',
+      display_name: 'Pythinker K2',
+      max_context_size: 131072,
+      capabilities: ['thinking'],
+      support_efforts: ['low', 'high', 'max'],
+      adaptive_thinking: true,
+    });
+
+    const unconfigured = toProtocolModel('turbo', catalogConfig().models!['turbo']!);
+    expect(unconfigured).toStrictEqual({
+      provider: 'pythinker',
+      model: 'turbo',
+      display_name: 'pythinker-turbo',
+      max_context_size: 32768,
+      capabilities: undefined,
+      support_efforts: undefined,
+      adaptive_thinking: undefined,
+    });
+  });
+
   it('uses the provider model name as display fallback', () => {
     const alias = catalogConfig().models!['turbo']!;
     expect(toProtocolModel('turbo', alias).display_name).toBe('pythinker-turbo');

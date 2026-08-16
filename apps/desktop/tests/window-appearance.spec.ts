@@ -4,13 +4,15 @@ import { describe, expect, it } from 'vitest'
 import { windowAppearanceOptions } from '../src/window-options'
 
 describe('desktop window appearance configuration', () => {
-  it('uses the reference macOS frame and vibrancy configuration', () => {
+  it('uses the native macOS frame with vibrancy', () => {
     const opts = windowAppearanceOptions('darwin')
 
     expect('frame' in opts).toBe(false)
     expect(opts['titleBarStyle']).toBe('hiddenInset')
     expect(opts['trafficLightPosition']).toEqual({ x: 16, y: 16 })
-    expect(opts['transparent']).toBe(true)
+    // Native corners and shadow require an opaque window.
+    expect('transparent' in opts).toBe(false)
+    expect('backgroundColor' in opts).toBe(false)
     expect(opts['vibrancy']).toBe('sidebar')
   })
 

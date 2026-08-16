@@ -76,6 +76,16 @@
   ) 0 0 / 16px 16px;
 }
 
+/* Light palette only: the vendored label ramp fails WCAG AA on the white page
+   (tertiary 3.71:1, caption 2.13:1, dimmed 1.26:1) and the neutral scale has no
+   step between -600 and -700. These values keep the ramp ordering and measure
+   5.0:1, 4.57:1 and 3.25:1 on #fff. Dark mode keeps the vendored aliases. */
+:root:not([data-ds-dark-theme]) {
+  --dim: #6b7075;
+  --muted: #71767e;
+  --faint: #8a8f97;
+}
+
 /* color-scheme drives UA-rendered parts (scrollbars, form controls, etc.).
    An explicit choice must pin it to a single value — otherwise a dark-mode
    user on a light OS gets light scrollbars floating on the dark UI. */
@@ -347,7 +357,6 @@ html[data-color-scheme="dark"][data-theme="modern"] {
 :is(html[data-theme="modern"], html[data-theme="pythinker"]) .sessions .se:hover { background: var(--panel2); }
 :is(html[data-theme="modern"], html[data-theme="pythinker"]) .sessions .se.on {
   background: var(--soft);
-  box-shadow: inset 0 0 0 1px var(--bd);
 }
 
 /* Tab bar → clean white strip with a single hairline.

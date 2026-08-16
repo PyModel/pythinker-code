@@ -4,6 +4,7 @@ import { watch, type FSWatcher } from 'chokidar';
 import { join } from 'pathe';
 import { z } from 'zod';
 import type { Kaos } from '@pymodel/kaos';
+import type { SessionMode } from '@pymodel/protocol';
 import type {
   ElicitRequestParams,
   ElicitResult,
@@ -88,6 +89,7 @@ const S_IFMT = 0o170000;
 const S_IFDIR = 0o040000;
 const ADDITIONAL_DIRECTORIES_KEY = 'additionalDirectories';
 const REMOVED_ADDITIONAL_DIRECTORIES_KEY = 'removedAdditionalDirectories';
+const SESSION_MODE_KEY = 'mode';
 const HOOK_OUTPUT_SCHEMA = {
   type: 'object',
   properties: {
@@ -167,6 +169,7 @@ export interface SessionOptions {
   readonly agentProfiles?: Readonly<Record<string, ResolvedAgentProfile>>;
   readonly lspConfig?: LspServerConfigs;
   readonly outputStyle?: OutputStyleConfig | null;
+  readonly mode?: SessionMode;
 }
 
 export interface SessionSkillConfig {
@@ -392,6 +395,15 @@ export class Session {
   private writeMetadataPromise = Promise.resolve();
 
   constructor(public readonly options: SessionOptions) {
+    if (options.mode !== undefined) {
+      this.metadata = {
+        ...this.metadata,
+        custom: {
+          ...this.metadata.custom,
+          [SESSION_MODE_KEY]: options.mode,
+        },
+      };
+    }
     // Attach the per-session log sink up front so the constructor's
     // fire-and-forget `loadSkills` / `loadMcpServers` failures (and
     // anything else that races) land in the session log, not just global.
@@ -767,10 +779,21 @@ export class Session {
   }
 
   private mainProfile(): ResolvedAgentProfile {
-    const name = this.experimentalFlags.enabled('coordinator_mode') ? 'coordinator' : 'agent';
+    const name =
+      this.sessionMode() === 'general'
+        ? 'general'
+        : this.experimentalFlags.enabled('coordinator_mode')
+          ? 'coordinator'
+          : 'agent';
     const profile = this.agentProfiles[name];
     if (profile === undefined) throw new Error(`Main agent profile "${name}" was not found`);
     return profile;
+  }
+
+  private sessionMode(): SessionMode {
+    const mode = this.metadata.custom[SESSION_MODE_KEY];
+    if (mode === 'code' || mode === 'general') return mode;
+    return this.options.mode ?? 'code';
   }
 
   async listWorkingTreeChanges(): Promise<WorkingTreeChanges> {

@@ -2,6 +2,8 @@ import agentYaml from './default/agent.yaml?raw';
 import coderYaml from './default/coder.yaml?raw';
 import coordinatorYaml from './default/coordinator.yaml?raw';
 import exploreYaml from './default/explore.yaml?raw';
+import generalMd from './default/general.md?raw';
+import generalYaml from './default/general.yaml?raw';
 import initMd from './default/init.md?raw';
 import planYaml from './default/plan.yaml?raw';
 import systemMd from './default/system.md?raw';
@@ -15,8 +17,10 @@ const PROFILE_SOURCES: Record<string, string> = {
   'profile/default/coder.yaml': coderYaml,
   'profile/default/coordinator.yaml': coordinatorYaml,
   'profile/default/explore.yaml': exploreYaml,
+  'profile/default/general.yaml': generalYaml,
   'profile/default/plan.yaml': planYaml,
   'profile/default/verification.yaml': verificationYaml,
+  'profile/default/general.md': generalMd,
   'profile/default/system.md': systemMd,
 };
 
@@ -28,6 +32,7 @@ export const DEFAULT_AGENT_PROFILES = loadAgentProfilesFromSources(
     'coder.yaml',
     'coordinator.yaml',
     'explore.yaml',
+    'general.yaml',
     'plan.yaml',
     'verification.yaml',
   ].map((file) => `profile/default/${file}`),

@@ -5,6 +5,7 @@ import {
   permissionRuleSchema,
   sessionAgentConfigSchema,
   sessionCreateSchema,
+  sessionMetadataSchema,
   sessionSchema,
   sessionStatusSchema,
   sessionUpdateSchema,
@@ -118,6 +119,17 @@ describe('sessionSchema', () => {
     const { archived: _drop, ...withoutArchived } = fullSession;
     const parsed = sessionSchema.parse(withoutArchived);
     expect(parsed.archived).toBeUndefined();
+  });
+});
+
+describe('sessionMetadataSchema', () => {
+  it('accepts general mode, rejects unknown modes, and allows an absent mode', () => {
+    expect(sessionMetadataSchema.parse({ cwd: '/tmp/test', mode: 'general' })).toEqual({
+      cwd: '/tmp/test',
+      mode: 'general',
+    });
+    expect(sessionMetadataSchema.safeParse({ cwd: '/tmp/test', mode: 'other' }).success).toBe(false);
+    expect(sessionMetadataSchema.parse({ cwd: '/tmp/test' })).toEqual({ cwd: '/tmp/test' });
   });
 });
 

@@ -252,6 +252,8 @@ export class PythinkerCore implements PromisableMethods<CoreAPI> {
     overrides: { kaos?: Kaos; persistenceKaos?: Kaos },
   ): Promise<SessionSummary> {
     const options = input;
+    const metadataMode = options.metadata?.['mode'];
+    const mode = metadataMode === 'code' || metadataMode === 'general' ? metadataMode : undefined;
     const workDir = requiredWorkDir('createSession', options.workDir);
     const config = this.reloadProviderManager();
     const id = options.id ?? createSessionId();
@@ -311,6 +313,7 @@ export class PythinkerCore implements PromisableMethods<CoreAPI> {
           telemetry: sessionTelemetry,
           pluginSessionStarts,
           appVersion: this.appVersion,
+          mode,
         });
         try {
           session.metadata = {

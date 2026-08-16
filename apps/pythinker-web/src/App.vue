@@ -1452,11 +1452,29 @@ function openPr(url: string): void {
 :global(html[data-desktop-platform='darwin'] .sidebar-rail) {
   background: transparent;
 }
+:global(html[data-desktop-platform='darwin'] .app.sidebar-collapsed .sidebar-rail) {
+  background: var(--bg);
+}
 :global(html[data-desktop-platform='win32'] .side),
 :global(html[data-desktop-platform='win32'] .sidebar-rail) {
   background: var(--panel);
 }
-:global(html[data-desktop-platform='darwin'] .con),
+:global(html[data-desktop-platform='darwin'] .con) {
+  position: relative;
+  padding-top: 20px;
+  background: var(--bg);
+  /* macOS now draws the window corners. */
+}
+:global(html[data-desktop-platform='darwin'] .con::before) {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 32px;
+  user-select: none;
+  -webkit-app-region: drag;
+}
 :global(html[data-desktop-platform='darwin'] .global-preview) {
   background: var(--bg);
 }
@@ -1513,6 +1531,7 @@ function openPr(url: string): void {
 .sidebar-rail {
   grid-column: 1;
   grid-row: 1;
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1542,21 +1561,24 @@ function openPr(url: string): void {
   outline: 2px solid var(--blue);
   outline-offset: -2px;
 }
+:global(html[data-desktop-platform='darwin'] .side) {
+  padding-top: 20px;
+}
 :global(html[data-desktop-platform='darwin'] .sidebar-rail) {
   padding-top: 48px;
-  -webkit-app-region: drag;
 }
 :global(html[data-desktop-platform='darwin'] .sidebar-rail button) {
   -webkit-app-region: no-drag;
 }
-:global(html[data-desktop-platform='darwin'] .side) {
-  padding-top: 48px;
-}
-:global(html[data-desktop-platform='darwin'] .side::before) {
+:global(html[data-desktop-platform='darwin'] .side::before),
+:global(html[data-desktop-platform='darwin'] .sidebar-rail::before) {
   content: '';
   position: absolute;
-  inset: 0 0 auto;
-  height: 48px;
+  top: 0;
+  right: 0;
+  left: 80px;
+  height: 32px;
+  user-select: none;
   -webkit-app-region: drag;
 }
 

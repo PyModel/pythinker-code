@@ -69,7 +69,7 @@ const props = defineProps<{
   sessionTitle?: string;
   /** GitHub PR for the current branch, when known (shown in the chat header). */
   pr?: { number: number; state: string; url: string } | null;
-  /** Beta conversation outline: proportional bubbles, viewport indicator, hover tooltip. */
+  /** Beta prompt anchor rail with hover tooltips. */
   betaToc?: boolean;
 }>();
 
@@ -234,9 +234,9 @@ watch(hasDockWork, (hasWork) => {
 
 interface ConversationTocItem {
   id: string;
-  role: ChatTurn['role'];
   no: number;
   title: string;
+  reply: string;
 }
 
 function tocTitle(turn: ChatTurn): string {
@@ -252,66 +252,44 @@ function tocTitle(turn: ChatTurn): string {
   return 'pythinker';
 }
 
-const conversationTocItems = computed<ConversationTocItem[]>(() =>
-  props.turns.map((turn, index) => ({
-    id: turn.id,
-    role: turn.role,
-    no: turn.no || index + 1,
-    title: tocTitle(turn),
-  })),
-);
-
-function turnContentLength(turn: ChatTurn): number {
-  if (turn.role === 'compaction') return 20;
-  if (turn.role === 'user') {
-    return (turn.text?.length ?? 0) + (turn.skillActivation ? 20 : 0);
-  }
-  return (
-    (turn.text?.length ?? 0) +
-    (turn.thinking?.length ?? 0) +
-    (turn.tools?.reduce(
-      (n, tool) => n + tool.name.length + (tool.arg?.length ?? 0) + (tool.output?.join('').length ?? 0),
-      0,
-    ) ?? 0)
-  );
-}
-
-const TOC_BUBBLE_MIN = 10;
-const TOC_BUBBLE_MAX = 56;
-const TOC_TRACK_HEIGHT = 420;
-
-const tocMetrics = computed<{ id: string; height: number }[]>(() => {
-  const items = conversationTocItems.value;
-  const lengths = items.map((item) => {
-    const turn = props.turns.find((t) => t.id === item.id);
-    return turn ? turnContentLength(turn) : TOC_BUBBLE_MIN;
+const conversationTocItems = computed<ConversationTocItem[]>(() => {
+  const items: ConversationTocItem[] = [];
+  props.turns.forEach((turn, index) => {
+    if (turn.role !== 'user') return;
+    const reply = props.turns.find((candidate, replyIndex) =>
+      replyIndex > index && candidate.role === 'assistant',
+    );
+    items.push({
+      id: turn.id,
+      no: turn.no || index + 1,
+      title: tocTitle(turn),
+      reply: reply ? tocTitle(reply) : '',
+    });
   });
-  const total = lengths.reduce((s, n) => s + n, 0) || items.length * TOC_BUBBLE_MIN;
-  return items.map((item, i) => {
-    const len = lengths[i] ?? TOC_BUBBLE_MIN;
-    const ratio = total > 0 ? len / total : 0;
-    const height = Math.max(TOC_BUBBLE_MIN, Math.min(TOC_BUBBLE_MAX, ratio * TOC_TRACK_HEIGHT));
-    return { id: item.id, height: Math.round(height) };
-  });
+  return items;
 });
 
-const tocTotalHeight = computed(() =>
-  tocMetrics.value.reduce((s, m) => s + m.height, 0) + (conversationTocItems.value.length - 1) * 4,
-);
-
 const activeTurnId = ref<string | null>(null);
-const tocViewport = ref<{ top: number; height: number } | null>(null);
-const tooltip = ref<{ visible: boolean; text: string; top: number }>({
+const tooltip = ref<{ visible: boolean; title: string; reply: string; top: number }>({
   visible: false,
-  text: '',
+  title: '',
+  reply: '',
   top: 0,
 });
 
-function updateTocViewport(): void {
+function updateActiveTurn(): void {
   const pane = panesRef.value;
-  if (!pane) return;
-  const anchors = pane.querySelectorAll<HTMLElement>('.turn-anchor[data-turn-id]');
-  if (!anchors.length) return;
+  if (!pane) {
+    activeTurnId.value = null;
+    return;
+  }
+  const userTurnIds = new Set(conversationTocItems.value.map((item) => item.id));
+  const anchors = [...pane.querySelectorAll<HTMLElement>('.turn-anchor[data-turn-id]')]
+    .filter((anchor) => userTurnIds.has(anchor.dataset.turnId ?? ''));
+  if (!anchors.length) {
+    activeTurnId.value = null;
+    return;
+  }
   const paneRect = pane.getBoundingClientRect();
   const paneMiddle = paneRect.height / 2;
   let bestId: string | null = null;
@@ -326,22 +304,12 @@ function updateTocViewport(): void {
     }
   });
   activeTurnId.value = bestId;
-
-  const maxScroll = pane.scrollHeight - pane.clientHeight;
-  const ratio = maxScroll > 0 ? pane.scrollTop / maxScroll : 0;
-  const total = tocTotalHeight.value;
-  const top = ratio * total;
-  const height = pane.scrollHeight > 0 ? (pane.clientHeight / pane.scrollHeight) * total : total;
-  tocViewport.value = {
-    top: Math.max(0, top),
-    height: Math.max(8, Math.min(height, total - top)),
-  };
 }
 
-function showTooltip(text: string, event: MouseEvent): void {
+function showTooltip(item: ConversationTocItem, event: MouseEvent): void {
   const target = event.currentTarget as HTMLElement | null;
   if (!target) return;
-  tooltip.value = { visible: true, text, top: target.offsetTop };
+  tooltip.value = { visible: true, title: item.title, reply: item.reply, top: target.offsetTop };
 }
 
 function hideTooltip(): void {
@@ -460,7 +428,7 @@ function onPanesScroll(): void {
     showPill.value = false;
   }
   lastScrollTop = top;
-  updateTocViewport();
+  updateActiveTurn();
 }
 
 function scrollToBottom(smooth = false): void {
@@ -558,7 +526,7 @@ watch(scrollKey, async () => {
   await nextTick();
   if (following.value || hasUserActionFollowLock()) scrollToBottom(false);
   else showPill.value = true;
-  updateTocViewport();
+  updateActiveTurn();
 });
 
 watch(dockRef, () => {
@@ -580,7 +548,7 @@ watch(
     lastScrollTop = 0;
     await nextTick();
     scheduleStableFollow();
-    updateTocViewport();
+    updateActiveTurn();
   },
 );
 
@@ -591,7 +559,7 @@ watch(
     following.value = true;
     await nextTick();
     scheduleStableFollow();
-    updateTocViewport();
+    updateActiveTurn();
   },
 );
 
@@ -602,7 +570,7 @@ watch(
     if (!following.value && !hasUserActionFollowLock()) return;
     await nextTick();
     scheduleStableFollow(48);
-    updateTocViewport();
+    updateActiveTurn();
   },
 );
 
@@ -741,7 +709,7 @@ onMounted(() => {
     }
     rebindScrollObservers();
     scheduleStableFollow(48);
-    updateTocViewport();
+    updateActiveTurn();
     if (typeof document !== 'undefined') {
       document.addEventListener('visibilitychange', onVisibilityChange);
       document.addEventListener('keydown', onKeyDown);
@@ -795,40 +763,41 @@ defineExpose({ loadComposerForEdit });
       @archive-session="(id) => emit('archiveSession', id)"
     />
 
-    <!-- Beta conversation outline: right edge, proportional bubbles, viewport indicator, hover tooltip. -->
+    <!-- Beta prompt anchors: left rail with hover tooltip. -->
     <nav
       v-if="showConversationToc && betaToc"
       class="conversation-toc"
       :aria-label="t('conversation.toc')"
     >
-      <div class="toc-track">
+      <TransitionGroup
+        tag="div"
+        name="toc-tick"
+        move-class="toc-tick-move"
+        :css="true"
+        :appear="false"
+        class="toc-track"
+      >
         <button
-          v-for="(item, index) in conversationTocItems"
+          v-for="item in conversationTocItems"
           :key="item.id"
           type="button"
-          class="toc-bubble"
-          :class="[item.role, { active: activeTurnId === item.id }]"
-          :style="{ height: tocMetrics[index]?.height + 'px' }"
+          class="anchor-tick"
+          :class="{ active: activeTurnId === item.id }"
+          :data-toc-active="activeTurnId === item.id ? '' : undefined"
           :aria-label="`#${item.no} ${item.title}`"
-          @mouseenter="(e: MouseEvent) => showTooltip(item.title, e)"
+          @mouseenter="(e: MouseEvent) => showTooltip(item, e)"
           @mouseleave="hideTooltip"
           @click="scrollToTurn(item.id)"
-        >
-          <span class="toc-no">{{ item.no }}</span>
-        </button>
-        <div
-          v-if="tocViewport"
-          class="toc-viewport"
-          :style="{ top: tocViewport.top + 'px', height: tocViewport.height + 'px' }"
         />
-      </div>
+      </TransitionGroup>
       <Transition name="toc-tip">
         <div
           v-show="tooltip.visible"
           class="toc-tooltip"
           :style="{ top: tooltip.top + 'px' }"
         >
-          {{ tooltip.text }}
+          <div class="toc-tooltip-title">{{ tooltip.title }}</div>
+          <div v-if="tooltip.reply" class="toc-tooltip-reply">{{ tooltip.reply }}</div>
         </div>
       </Transition>
     </nav>
@@ -1095,6 +1064,11 @@ defineExpose({ loadComposerForEdit });
   scrollbar-gutter: stable;
 }
 
+/* Fade the transcript instead of cutting it off at the composer's top edge. */
+.panes.chat-scroll {
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent 100%);
+}
+
 /* Chat tab layout: the message list scrolls, while the dock stays as the
    bottom sibling inside the same chat pane. */
 .chat-layout {
@@ -1122,6 +1096,7 @@ defineExpose({ loadComposerForEdit });
   width: 100%;
   max-width: var(--read-max);
   min-height: 100%;
+  padding-bottom: 28px;
   display: flex;
   flex-direction: column;
 }
@@ -1149,13 +1124,15 @@ defineExpose({ loadComposerForEdit });
   display: flex;
   flex-direction: column;
   padding: 0;
-  top: 86px;
+  top: 50%;
   bottom: auto;
-  left: calc(50% + (var(--read-max) / 2) + 8px);
-  width: 46px;
-  max-height: calc(100% - 86px - 130px);
+  transform: translateY(-50%);
+  left: 16px;
+  right: auto;
+  width: 36px;
+  max-height: min(60vh, calc(100% - 180px));
   opacity: 0.45;
-  transition: opacity 0.18s ease;
+  transition: opacity 0.18s var(--ds-ease-in-out, cubic-bezier(0.4, 0, 0.2, 1));
 }
 .conversation-toc:hover {
   opacity: 1;
@@ -1164,9 +1141,9 @@ defineExpose({ loadComposerForEdit });
   flex: none;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 8px;
   align-items: center;
-  padding: 6px 4px;
+  padding: 4px 0;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: none;
@@ -1176,105 +1153,101 @@ defineExpose({ loadComposerForEdit });
 .toc-track::-webkit-scrollbar {
   display: none;
 }
-.toc-bubble {
+.anchor-tick {
   appearance: none;
   position: relative;
   flex-shrink: 0;
   border: 0;
-  padding: 0;
-  width: 34px;
-  border-radius: 8px;
-  background: transparent;
+  box-sizing: content-box;
+  width: 18px;
+  height: 2px;
+  padding: 4px 0;
+  border-radius: 999px;
+  background-color: color-mix(in srgb, var(--dim) 60%, transparent);
+  background-clip: content-box;
   cursor: pointer;
-  opacity: 0.85;
-  transition: opacity 0.14s ease, transform 0.14s ease, box-shadow 0.14s ease;
+  transition: background-color 0.18s var(--ds-ease-in-out, cubic-bezier(0.4, 0, 0.2, 1));
 }
-.toc-bubble.active {
-  opacity: 1;
+.anchor-tick:hover {
+  background-color: var(--text);
 }
-.toc-bubble:hover,
-.toc-bubble:focus-visible {
-  opacity: 1;
-  transform: translateX(2px) scale(1.05);
+.anchor-tick:focus-visible {
+  background-color: var(--dim);
+  outline: 1px solid var(--blue);
+  outline-offset: 1px;
+}
+.anchor-tick:focus:not(:focus-visible) {
   outline: none;
 }
-.toc-bubble.user {
-  background: var(--blue);
-  box-shadow: none;
+.anchor-tick.active {
+  background-color: var(--ink);
 }
-.toc-bubble.assistant {
-  background: var(--panel2);
-  box-shadow: inset 0 0 0 1px var(--line);
+.toc-tick-enter-active,
+.toc-tick-leave-active,
+.toc-tick-move {
+  transition:
+    opacity 0.16s var(--ds-ease-in-out, cubic-bezier(0.4, 0, 0.2, 1)),
+    transform 0.16s var(--ds-ease-in-out, cubic-bezier(0.4, 0, 0.2, 1));
 }
-.toc-bubble.compaction {
-  height: 10px;
-  background: transparent;
-  box-shadow: inset 0 0 0 1px var(--faint);
-  border-radius: 999px;
-}
-.toc-bubble.active::after {
-  content: '';
-  position: absolute;
-  inset: -2px;
-  border: 2px solid var(--blue);
-  border-radius: 10px;
-  pointer-events: none;
-  opacity: 0.35;
-}
-.toc-no {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
-}
-.toc-viewport {
-  position: absolute;
-  left: 0;
-  right: 0;
-  background: color-mix(in srgb, var(--blue) 10%, transparent);
-  pointer-events: none;
-  border-radius: 4px;
-  z-index: 0;
+.toc-tick-enter-from,
+.toc-tick-leave-to {
+  opacity: 0;
+  transform: translateX(-4px);
 }
 .toc-tooltip {
   position: absolute;
-  right: calc(100% + 8px);
+  left: calc(100% + 8px);
+  right: auto;
   top: 0;
   z-index: 20;
-  max-width: 240px;
-  padding: 6px 10px;
-  background: var(--bg);
-  color: var(--ink);
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  max-width: 320px;
+  padding: 12px 14px;
+  background: var(--panel);
+  border-radius: var(--r-md);
   font-size: var(--ui-font-size-xs);
-  line-height: 1.45;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.5;
   pointer-events: none;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
 }
-.toc-tooltip::before {
-  content: '';
-  position: absolute;
-  left: auto;
-  right: -5px;
-  top: 10px;
-  border-width: 5px 0 5px 5px;
-  border-style: solid;
-  border-color: transparent transparent transparent var(--bg);
+.toc-tooltip-title {
+  overflow: hidden;
+  color: var(--ink);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.toc-tooltip-title:has(+ .toc-tooltip-reply) {
+  margin-bottom: 6px;
+}
+.toc-tooltip-reply {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--dim);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
 }
 .toc-tip-enter-active,
 .toc-tip-leave-active {
-  transition: opacity 0.12s ease, transform 0.12s ease;
+  transition:
+    opacity 0.14s var(--ds-ease-in-out, cubic-bezier(0.4, 0, 0.2, 1)),
+    transform 0.14s var(--ds-ease-in-out, cubic-bezier(0.4, 0, 0.2, 1));
 }
 .toc-tip-enter-from,
 .toc-tip-leave-to {
   opacity: 0;
-  transform: translateX(4px);
+  transform: translateX(-4px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .conversation-toc,
+  .anchor-tick,
+  .toc-tick-enter-active,
+  .toc-tick-leave-active,
+  .toc-tick-move,
+  .toc-tip-enter-active,
+  .toc-tip-leave-active {
+    transition: none;
+    animation: none;
+  }
 }
 @container (max-width: 920px) {
   .conversation-toc {

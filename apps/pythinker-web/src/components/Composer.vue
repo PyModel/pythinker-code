@@ -925,15 +925,19 @@ function selectModel(modelId: string): void {
     <div v-if="attachments.length > 0" class="att-strip">
       <div v-for="att in attachments" :key="att.localId" class="att-chip" :class="{ 'att-error': att.error }">
         <!-- Thumbnail (video shows its first frame; an icon overlays it) -->
-        <button type="button" class="att-preview" :title="t('composer.previewAttachment', { name: att.name })" @click="openAttachmentPreview(att)">
+        <button
+          type="button"
+          class="att-preview"
+          :title="t('composer.previewAttachment', { name: att.name })"
+          :aria-label="t('composer.previewAttachment', { name: att.name })"
+          @click="openAttachmentPreview(att)"
+        >
           <video v-if="att.kind === 'video'" class="att-thumb" :src="att.previewUrl" muted playsinline preload="metadata" />
           <img v-else class="att-thumb" :src="att.previewUrl" :alt="att.name" />
           <span v-if="att.kind === 'video'" class="att-video-badge" aria-hidden="true">
             <svg viewBox="0 0 16 16" width="9" height="9" fill="currentColor"><path d="M5 3.5v9l7-4.5z"/></svg>
           </span>
         </button>
-        <!-- Name + status -->
-        <span class="att-name">{{ att.name }}</span>
         <!-- Spinner while uploading -->
         <span v-if="att.uploading" class="att-spinner" :aria-label="t('composer.uploading')">
           <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" xmlns="http://www.w3.org/2000/svg">
@@ -1269,7 +1273,7 @@ function selectModel(modelId: string): void {
 
 <style scoped>
 .composer {
-  padding: 7px var(--dock-inline-right, 16px) 12px var(--dock-inline-left, 16px);
+  padding: 0 var(--dock-inline-right, 16px) 12px var(--dock-inline-left, 16px);
   background: transparent;
   transition: background 0.12s;
 }
@@ -1293,37 +1297,44 @@ function selectModel(modelId: string): void {
 /* Attachment strip */
 .att-strip {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 4px 0 6px;
+  flex-wrap: nowrap;
+  gap: 8px;
+  padding: 8px 8px 6px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  --edge-fade-distance: 16px;
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 var(--edge-fade-distance),
+    #000 calc(100% - var(--edge-fade-distance)),
+    transparent 100%
+  );
 }
+.att-strip::-webkit-scrollbar { display: none; }
 
 .att-chip {
   position: relative;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  background: var(--panel2);
-  border: 1px solid var(--bd);
-  border-radius: 4px;
-  padding: 3px 6px 3px 4px;
-  font-family: var(--mono);
-  font-size: calc(var(--ui-font-size) - 3px);
-  color: var(--text);
-  max-width: 220px;
+  flex: none;
+  width: 56px;
+  min-width: 56px;
+  aspect-ratio: 1;
+  border-radius: 18px;
+  overflow: visible;
 }
 
 .att-preview {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  border-radius: 3px;
-  background: transparent;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 1px solid var(--bd);
+  border-radius: 18px;
+  background: var(--panel2);
   padding: 0;
+  overflow: hidden;
   cursor: zoom-in;
-  flex: none;
 }
 .att-preview:focus-visible {
   outline: 2px solid var(--blue);
@@ -1333,9 +1344,9 @@ function selectModel(modelId: string): void {
 /* Play glyph over a video thumbnail so it reads as a video, not a still. */
 .att-video-badge {
   position: absolute;
-  left: 4px;
+  left: 50%;
   top: 50%;
-  transform: translateY(-50%);
+  transform: translate(-50%, -50%);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1347,57 +1358,74 @@ function selectModel(modelId: string): void {
   pointer-events: none;
 }
 
-.att-chip.att-error {
+.att-chip.att-error .att-preview {
   border-color: var(--err);
   color: var(--err);
 }
 
 .att-thumb {
-  width: 28px;
-  height: 28px;
+  width: 100%;
+  height: 100%;
   object-fit: cover;
-  border-radius: 2px;
-  flex-shrink: 0;
+  display: block;
+  border-radius: 0;
   background: var(--line2);
 }
 
-.att-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
-  min-width: 0;
-}
-
 .att-spinner {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
   display: flex;
   align-items: center;
   color: var(--blue);
   flex-shrink: 0;
+  pointer-events: none;
+  z-index: 1;
 }
 
 .att-err-icon {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
   display: flex;
   align-items: center;
   color: var(--err);
   flex-shrink: 0;
+  pointer-events: none;
+  z-index: 1;
 }
 
 .att-rm {
+  position: absolute;
+  top: 5.27px;
+  right: 5.27px;
+  transform: translate(50%, -50%);
+  width: 24px;
+  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: none;
-  border: none;
-  padding: 1px;
+  border-radius: 50%;
+  border: 1px solid var(--bd);
+  background: var(--panel);
+  color: var(--ink);
+  padding: 0;
   cursor: pointer;
-  color: var(--muted);
-  flex-shrink: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s;
+  z-index: 1;
 }
 
-.att-rm:hover {
-  color: var(--err);
+.att-chip:hover .att-rm,
+.att-chip:focus-within .att-rm {
+  opacity: 1;
+  pointer-events: auto;
 }
+.att-rm:hover { color: var(--err); }
 
 .att-lightbox {
   position: fixed;

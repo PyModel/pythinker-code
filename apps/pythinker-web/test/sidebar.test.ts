@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from 'node:fs';
 import { mount } from '@vue/test-utils';
 import { nextTick } from 'vue';
 import { createI18n } from 'vue-i18n';
@@ -9,6 +10,14 @@ import enSettings from '../src/i18n/locales/en/settings';
 import enSidebar from '../src/i18n/locales/en/sidebar';
 import enWorkspace from '../src/i18n/locales/en/workspace';
 import type { Session, WorkspaceGroup, WorkspaceView } from '../src/types';
+
+const sidebarPath = ['src/components/Sidebar.vue', 'apps/pythinker-web/src/components/Sidebar.vue'].find(existsSync);
+if (!sidebarPath) throw new Error('Sidebar.vue source was not found');
+
+const sidebarSource = readFileSync(sidebarPath, 'utf8');
+const styleMatch = sidebarSource.match(/<style scoped>([\s\S]*?)<\/style>/u);
+
+if (!styleMatch?.[1]) throw new Error('Sidebar.vue must have a scoped style block');
 
 const i18n = createI18n({
   legacy: false,
@@ -70,6 +79,70 @@ afterEach(() => {
 });
 
 describe('Sidebar reference layout', () => {
+  it('collapses non-active workspaces and expands the active workspace by default', async () => {
+    const wrapper = mountSidebar();
+    const sessionGroups = wrapper.findAll('.group-sessions');
+
+    expect(sessionGroups).toHaveLength(2);
+    expect((sessionGroups[0]!.element as HTMLElement).style.display).toBe('');
+    expect((sessionGroups[1]!.element as HTMLElement).style.display).toBe('none');
+
+    await wrapper.setProps({ activeWorkspaceId: groups[1]!.workspace.id });
+
+    expect((sessionGroups[0]!.element as HTMLElement).style.display).toBe('none');
+    expect((sessionGroups[1]!.element as HTMLElement).style.display).toBe('');
+  });
+
+  it('keeps a manually expanded non-active workspace expanded', async () => {
+    const wrapper = mountSidebar();
+    const sessionGroups = wrapper.findAll('.group-sessions');
+
+    expect((sessionGroups[1]!.element as HTMLElement).style.display).toBe('none');
+    await wrapper.findAll('.gh')[1]!.trigger('click');
+    expect((sessionGroups[1]!.element as HTMLElement).style.display).toBe('');
+
+    await wrapper.setProps({ activeWorkspaceId: groups[1]!.workspace.id });
+    await wrapper.setProps({ activeWorkspaceId: groups[0]!.workspace.id });
+    expect((sessionGroups[1]!.element as HTMLElement).style.display).toBe('');
+  });
+
+  it('colours only the active workspace folder blue', () => {
+    const folderRule = styleMatch[1].match(/(?:^|\n)\.gh-folder\s*\{([^}]*)\}/u);
+
+    expect(styleMatch[1]).toContain('.gh.on .gh-folder');
+    expect(folderRule).not.toBeNull();
+    expect(folderRule![1]).not.toContain('var(--blue)');
+  });
+
+  it('keeps workspace header actions keyboard focusable while hidden', () => {
+    const addRule = styleMatch[1].match(/(?:^|\n)\.gh-add\s*\{([^}]*)\}/u);
+    const moreRule = styleMatch[1].match(/(?:^|\n)\.gh-more\s*\{([^}]*)\}/u);
+    const revealRule = styleMatch[1].match(
+      /(?:^|\n)\.gh:hover \.gh-more,\s*\n\.gh:hover \.gh-add,\s*\n\.gh-more:focus-visible,\s*\n\.gh-add:focus-visible,\s*\n\.gh-more\.open\s*\{([^}]*)\}/u,
+    );
+
+    expect(addRule?.[1]).toBeTruthy();
+    expect(moreRule?.[1]).toBeTruthy();
+    expect(revealRule?.[1]).toBeTruthy();
+    expect(addRule![1]).not.toContain('display: none');
+    expect(moreRule![1]).not.toContain('display: none');
+    expect(addRule![1]).toContain('opacity: 0');
+    expect(addRule![1]).toContain('pointer-events: none');
+    expect(moreRule![1]).toContain('opacity: 0');
+    expect(moreRule![1]).toContain('pointer-events: none');
+    expect(revealRule![1]).toContain('opacity: 1');
+  });
+
+  it('keeps the macOS brand row clear of the traffic lights', () => {
+    const darwinHeaderRule = styleMatch[1].match(
+      /(?:^|\n):global\(html\[data-desktop-platform='darwin'\] \.ch\)\s*\{([^}]*)\}/u,
+    );
+
+    expect(darwinHeaderRule?.[1]).toBeTruthy();
+    expect(darwinHeaderRule![1]).toContain('padding-top: 20px');
+    expect(darwinHeaderRule![1]).not.toContain('-webkit-app-region: drag');
+  });
+
   it('renders the workspace header actions', () => {
     const wrapper = mountSidebar();
     const header = wrapper.find('.ws-head');

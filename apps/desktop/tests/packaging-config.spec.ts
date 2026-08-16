@@ -87,9 +87,17 @@ describe('desktop packaging configuration', () => {
     expect(siteSource).not.toContain('releases/download/v0.1.0')
 
     expect(siteSource).toContain('id="desktop"')
-    expect(siteSource).toMatch(
-      /\{[^}]*icon: '\/brand\/windows11\.svg', href: desktopDownloads\.windows[^}]*\}/,
+    const macDownload = siteSource.match(
+      /<a[^>]*:href="desktopDownloads\.mac"[^>]*>[\s\S]*?<\/a>/,
     )
+    expect(macDownload).not.toBeNull()
+    expect(macDownload![0]).toContain('/brand/apple.svg')
+
+    const windowsDownload = siteSource.match(
+      /<a[^>]*:href="desktopDownloads\.windows"[^>]*>[\s\S]*?<\/a>/,
+    )
+    expect(windowsDownload).not.toBeNull()
+    expect(windowsDownload![0]).toContain('/brand/windows11.svg')
   })
 
   it('maps the staged Host node_modules directory as the copy root', () => {
