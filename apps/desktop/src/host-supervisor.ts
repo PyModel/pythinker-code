@@ -9,6 +9,26 @@ const DEFAULT_SHUTDOWN_TIMEOUT_MS = 5_000
 const TASKKILL_TIMEOUT_MS = 5_000
 const MAX_STARTUP_OUTPUT_CHARS = 32_768
 
+export const DESKTOP_PACKAGED_PORT = 24_827
+export const DESKTOP_DEV_PORT = 24_828
+
+/** Resolve the fixed Host port, with an optional validated environment override. */
+export function resolveDesktopPort(env: NodeJS.ProcessEnv, isPackaged: boolean): number {
+  const value = env['PYTHINKER_DESKTOP_PORT']
+  if (value === undefined) return isPackaged ? DESKTOP_PACKAGED_PORT : DESKTOP_DEV_PORT
+
+  const port = Number(value)
+  if (!/^\d+$/u.test(value) || !Number.isInteger(port) || port < 1 || port > 65_535) {
+    throw new Error(`PYTHINKER_DESKTOP_PORT must be an integer from 1 to 65535; received ${JSON.stringify(value)}`)
+  }
+  return port
+}
+
+/** Return whether Host output reports that its fixed port is already occupied. */
+export function isPortInUseError(message: string): boolean {
+  return /EADDRINUSE|address already in use/iu.test(message)
+}
+
 /** Incremental parser for the Web Host's canonical readiness line. */
 export interface ReadinessParser {
   /**
@@ -257,6 +277,8 @@ export interface SpawnPythinkerServerOptions {
   readonly cwd: string
   /** Frozen environment for the Host process. */
   readonly env: NodeJS.ProcessEnv
+  /** Fixed loopback port for the Host server. */
+  readonly port: number
   /** Run the Electron executable as its bundled Node runtime. */
   readonly electronRunAsNode?: boolean
 }
@@ -272,7 +294,7 @@ function streamAdapter(stream: NodeJS.ReadableStream): HostChild['stdout'] {
 }
 
 /**
- * Spawn the production Pythinker server on an OS-assigned loopback port.
+ * Spawn the production Pythinker server on a fixed loopback port.
  * @param options - Node runtime, built CLI and process environment.
  * @returns The child handle consumed by {@link createHostSupervisor}.
  */
@@ -286,7 +308,7 @@ export function spawnPythinkerServer(options: SpawnPythinkerServerOptions): Host
     'run',
     '--foreground',
     '--port',
-    '0',
+    String(options.port),
     '--log-level',
     'error',
   ], {

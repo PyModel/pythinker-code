@@ -23,7 +23,13 @@ import {
   setCrashPhase,
   track,
 } from '@pymodel/pythinker-telemetry'
-import { createHostSupervisor, spawnPythinkerServer, type HostSupervisor } from './host-supervisor'
+import {
+  createHostSupervisor,
+  isPortInUseError,
+  resolveDesktopPort,
+  spawnPythinkerServer,
+  type HostSupervisor,
+} from './host-supervisor'
 import { createSplashWindow } from './splash'
 import {
   checkForUpdatesNow,
@@ -303,6 +309,7 @@ async function boot(): Promise<void> {
   if (bootQuitPromise !== undefined) return
   initializeDesktopTelemetry()
   const paths = hostPaths()
+  const port = resolveDesktopPort(process.env, app.isPackaged)
   assertHostArtifacts(paths)
   const splash = createSplashWindow(desktopResources('splash'))
   const destroySplash = (): void => {
@@ -313,26 +320,43 @@ async function boot(): Promise<void> {
     const trayFrames = loadTrayImages()
     createTray(trayFrames)
     stopTrayAnimation = startTrayAnimation(trayFrames)
-    host = createHostSupervisor({
-      spawnHost: () => spawnPythinkerServer({
-        ...paths,
-        env: {
-          ...process.env,
-          PYTHINKER_DESKTOP: '1',
+    for (;;) {
+      host = createHostSupervisor({
+        spawnHost: () => spawnPythinkerServer({
+          ...paths,
+          env: {
+            ...process.env,
+            PYTHINKER_DESKTOP: '1',
+          },
+          port,
+        }),
+        log: chunk => process.stderr.write(chunk),
+        onUnexpectedExit: ({ code, signal }) => {
+          console.error(`desktop Host exited unexpectedly (code ${String(code)}, signal ${String(signal)})`)
+          void requestAppQuit()
         },
-      }),
-      log: chunk => process.stderr.write(chunk),
-      onUnexpectedExit: ({ code, signal }) => {
-        console.error(`desktop Host exited unexpectedly (code ${String(code)}, signal ${String(signal)})`)
-        void requestAppQuit()
-      },
-    })
-    try {
-      hostOrigin = await host.start()
-      track('desktop_server_ready')
-    } catch (error) {
-      track('desktop_server_failed')
-      throw error
+      })
+      try {
+        hostOrigin = await host.start()
+        track('desktop_server_ready')
+        break
+      } catch (error) {
+        track('desktop_server_failed')
+        const message = error instanceof Error ? error.message : String(error)
+        if (!isPortInUseError(message)) throw error
+
+        const result = await dialog.showMessageBox({
+          type: 'error',
+          buttons: ['Retry', 'Quit'],
+          defaultId: 0,
+          cancelId: 1,
+          title: `${APP_NAME} needs its fixed port`,
+          message: `${APP_NAME} cannot use port ${String(port)}. It needs this fixed port so settings persist between launches. Free the port, or set PYTHINKER_DESKTOP_PORT to an unused port.`,
+        })
+        if (result.response === 0) continue
+        await requestAppQuit()
+        return
+      }
     }
     stopTrayAnimation?.()
     stopTrayAnimation = undefined
