@@ -1,6 +1,6 @@
 import { mount } from '@vue/test-utils';
 import { createI18n } from 'vue-i18n';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import QuestionCard from '../src/components/QuestionCard.vue';
 import type { UIQuestion } from '../src/types';
@@ -87,5 +87,29 @@ describe('QuestionCard lifecycle', () => {
 
     expect(soon.find('.qexpires').text()).toBe('Expires in 2 min');
     expect(later.find('.qexpires').exists()).toBe(false);
+  });
+
+  it('hides the expiry warning at five minutes and shows it at four minutes fifty-nine seconds', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
+    try {
+      const boundary = mountCard(question(new Date(Date.now() + 5 * 60_000).toISOString()));
+      const soon = mountCard(question(new Date(Date.now() + 4 * 60_000 + 59_000).toISOString()));
+
+      expect(boundary.find('.qexpires').exists()).toBe(false);
+      expect(soon.find('.qexpires').exists()).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('ignores Enter while minimized', async () => {
+    const wrapper = mountCard(question(new Date(Date.now() + 20 * 60_000).toISOString()));
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: '1', bubbles: true }));
+    await wrapper.find('.qmin').trigger('click');
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+
+    expect(wrapper.emitted('answer')).toBeUndefined();
   });
 });

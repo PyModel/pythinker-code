@@ -40,7 +40,7 @@ const leaseWarning = computed(() => {
   const expiresAt = Date.parse(props.question.expiresAt);
   if (Number.isNaN(expiresAt)) return undefined;
   const remainingMs = expiresAt - now.value;
-  if (remainingMs <= 0 || remainingMs > 5 * 60_000) return undefined;
+  if (remainingMs <= 0 || remainingMs >= 5 * 60_000) return undefined;
   if (remainingMs < 60_000) return t('question.expiresSoonSeconds');
   const minutes = remainingMinutes.value;
   if (minutes === undefined) return undefined;
