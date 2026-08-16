@@ -2,7 +2,7 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
-    projects: ['packages/*', 'apps/pythinker-code', 'apps/desktop'],
+    projects: ['packages/*', 'apps/pythinker-code', 'apps/desktop', 'apps/pythinker-web'],
     coverage: {
       provider: 'v8',
       include: ['packages/*/src/**/*.ts', 'apps/*/src/**/*.ts'],

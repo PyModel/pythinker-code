@@ -201,8 +201,9 @@ async function createMainWindow(): Promise<BrowserWindow> {
       vibrancy: 'sidebar' as const,
       visualEffectState: 'followWindow' as const,
     } : {}),
+    // Windows uses an opaque window so theme colors do not blend with desktop wallpaper.
     ...(process.platform === 'win32' ? {
-      backgroundMaterial: 'acrylic' as const,
+      backgroundColor: '#0d1117',
       hasShadow: true,
       roundedCorners: true,
       thickFrame: true,
