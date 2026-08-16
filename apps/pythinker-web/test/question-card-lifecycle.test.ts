@@ -107,9 +107,16 @@ describe('QuestionCard lifecycle', () => {
     const wrapper = mountCard(question(new Date(Date.now() + 20 * 60_000).toISOString()));
 
     document.dispatchEvent(new KeyboardEvent('keydown', { key: '1', bubbles: true }));
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    const answerCount = wrapper.emitted('answer')?.length ?? 0;
+
+    expect(answerCount).toBe(1);
+
     await wrapper.find('.qmin').trigger('click');
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: '1', bubbles: true }));
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
 
-    expect(wrapper.emitted('answer')).toBeUndefined();
+    expect(wrapper.emitted('answer')).toHaveLength(answerCount);
   });
 });
