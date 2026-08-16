@@ -5,6 +5,7 @@ import {
   createReadinessParser,
   type HostChild,
 } from '../src/host-supervisor'
+import * as hostSupervisor from '../src/host-supervisor'
 
 vi.mock('node:child_process', { spy: true })
 
@@ -109,6 +110,34 @@ describe('desktop Host readiness', () => {
 
     expect(parser.push('Pythinker server: http://127.0.0.1:4173\n')).toBe('http://127.0.0.1:4173')
     expect(() => parser.push('Pythinker server: http://127.0.0.1:4174\n')).toThrow(/conflicting readiness URLs/iu)
+  })
+})
+
+describe('desktop Host port', () => {
+  it('uses fixed ports for packaged and development builds without an override', () => {
+    expect(hostSupervisor.DESKTOP_PACKAGED_PORT).toBe(24_827)
+    expect(hostSupervisor.DESKTOP_DEV_PORT).toBe(24_828)
+    expect(hostSupervisor.resolveDesktopPort({}, true)).toBe(24_827)
+    expect(hostSupervisor.resolveDesktopPort({}, false)).toBe(24_828)
+  })
+
+  it('uses a valid port override for packaged and development builds', () => {
+    const env = { PYTHINKER_DESKTOP_PORT: '45231' }
+
+    expect(hostSupervisor.resolveDesktopPort(env, true)).toBe(45_231)
+    expect(hostSupervisor.resolveDesktopPort(env, false)).toBe(45_231)
+  })
+
+  it.each(['not-a-port', '70000'])('rejects an invalid port override: %s', (value) => {
+    expect(() => hostSupervisor.resolveDesktopPort({ PYTHINKER_DESKTOP_PORT: value }, true))
+      .toThrow(new RegExp(`PYTHINKER_DESKTOP_PORT.*${value}`, 'u'))
+  })
+
+  it('detects output that reports a port collision', () => {
+    expect(hostSupervisor.isPortInUseError(
+      'listen EADDRINUSE: address already in use 127.0.0.1:24827',
+    )).toBe(true)
+    expect(hostSupervisor.isPortInUseError('desktop Host exited before readiness (code 1, signal null)')).toBe(false)
   })
 })
 
@@ -296,6 +325,7 @@ describe('desktop Host process', () => {
       cliEntry: '/Applications/Pythinker.app/Contents/Resources/host/node_modules/@pymodel/pythinker-code/dist/launcher.mjs',
       cwd: '/Users/tester',
       env: { PYTHINKER_DESKTOP: '1' },
+      port: 24_827,
       electronRunAsNode: true,
     })
 
@@ -307,7 +337,7 @@ describe('desktop Host process', () => {
         'run',
         '--foreground',
         '--port',
-        '0',
+        '24827',
         '--log-level',
         'error',
       ],
@@ -341,6 +371,7 @@ describe('desktop Host process', () => {
       cliEntry: '/tmp/launcher.mjs',
       cwd: '/tmp',
       env: {},
+      port: 24_827,
     })
     host.kill('SIGTERM')
 
@@ -379,6 +410,7 @@ describe('desktop Host process', () => {
       cliEntry: '/tmp/launcher.mjs',
       cwd: '/tmp',
       env: {},
+      port: 24_827,
     })
     host.kill('SIGTERM')
 
@@ -404,6 +436,7 @@ describe('desktop Host process', () => {
       cliEntry: '/tmp/launcher.mjs',
       cwd: '/tmp',
       env: {},
+      port: 24_827,
     })
     host.kill('SIGTERM')
 
