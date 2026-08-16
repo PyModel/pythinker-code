@@ -12,6 +12,7 @@ import Composer from './Composer.vue';
 import DynamicWorkflowCard from './DynamicWorkflowCard.vue';
 import ChatDock from './ChatDock.vue';
 import { getVisibleWorkspaces } from '../lib/workspacePicker';
+import { useApngRestart } from '../composables/useApngRestart';
 
 const props = defineProps<{
   turns: ChatTurn[];
@@ -160,6 +161,7 @@ function pickWorkspace(id: string): void {
 }
 
 const { t } = useI18n();
+const idleMascotSrc = useApngRestart('/brand/mascot-idle.png');
 
 // The align toggle was removed with its UI (6e50cb7) — reading layout is
 // always centered now. Drop the old persisted preference so users who once
@@ -845,7 +847,7 @@ defineExpose({ loadComposerForEdit });
             <div class="empty-hint">
               <div class="empty-halo" aria-hidden="true" />
               <div class="empty-hint-head">
-                <img class="empty-mascot" src="/brand/mascot-idle.png" aria-hidden="true" />
+                <img class="empty-mascot" :src="idleMascotSrc" aria-hidden="true" />
                 <span class="empty-hint-title">{{ t('composer.emptyConversationTitle') }}</span>
               </div>
               <span class="empty-hint-text">{{ t('composer.emptyConversation') }}</span>

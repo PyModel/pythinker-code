@@ -51,8 +51,6 @@ describe('Windows titlebar CSS contract', () => {
 
     const darwinSidebarRules = rulesFor(darwin, ' .side)', '.sidebar-rail');
     expect(darwinSidebarRules).toHaveLength(1);
-    expect(darwinSidebarRules[0]!.declarations).toContain(
-      'color-mix(in srgb, var(--panel) 55%, transparent)',
-    );
+    expect(darwinSidebarRules[0]!.declarations).toContain('background: transparent');
   });
 });

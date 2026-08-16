@@ -1,50 +1,40 @@
 // Static check: no Windows host exists in CI or locally, so this test guards the
 // window configuration rather than the rendered result.
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-
-const desktopRoot = resolve(import.meta.dirname, '..')
-const mainSource = readFileSync(resolve(desktopRoot, 'src', 'main.ts'), 'utf8')
+import { windowAppearanceOptions } from '../src/window-options'
 
 describe('desktop window appearance configuration', () => {
-  it('uses macOS vibrancy and keeps other platforms opaque', () => {
-    const backgroundMaterialMatches = [...mainSource.matchAll(/backgroundMaterial/gu)]
-    const mainWindowOptionMatches = [...mainSource.matchAll(
-      /const window = new BrowserWindow\(\{([\s\S]*?)\n  \}\)/gu,
-    )]
+  it('uses the reference macOS frame and vibrancy configuration', () => {
+    const opts = windowAppearanceOptions('darwin')
 
-    expect(backgroundMaterialMatches).toHaveLength(0)
-    expect(mainWindowOptionMatches).toHaveLength(1)
+    expect('frame' in opts).toBe(false)
+    expect(opts['titleBarStyle']).toBe('hiddenInset')
+    expect(opts['trafficLightPosition']).toEqual({ x: 16, y: 16 })
+    expect(opts['transparent']).toBe(true)
+    expect(opts['vibrancy']).toBe('sidebar')
+  })
 
-    const mainWindowOptions = mainWindowOptionMatches[0]![1]!
-    const options = Object.fromEntries(
-      [...mainWindowOptions.matchAll(/^    (\w+):/gmu)].map(([, key]) => [key, true]),
-    )
-    const hasShadowMatches = [...mainWindowOptions.matchAll(
-      /hasShadow:\s*process\.platform === 'win32' \? true : undefined/gu,
-    )]
-    const roundedCornersMatches = [...mainWindowOptions.matchAll(
-      /roundedCorners:\s*process\.platform === 'win32' \? true : undefined/gu,
-    )]
-    const thickFrameMatches = [...mainWindowOptions.matchAll(
-      /thickFrame:\s*process\.platform === 'win32' \? true : undefined/gu,
-    )]
+  it('keeps the Windows window configuration unchanged', () => {
+    const opts = windowAppearanceOptions('win32')
 
-    expect(mainWindowOptions).toContain("frame: process.platform === 'win32' ? true : process.platform === 'linux' ? false : false")
-    expect(mainWindowOptions).toContain("titleBarStyle: process.platform === 'darwin' ? undefined : 'hidden'")
-    expect(mainWindowOptions).toContain("titleBarOverlay: process.platform === 'darwin' ? undefined : {")
-    expect(mainWindowOptions).toContain("vibrancy: process.platform === 'darwin' ? 'sidebar' : undefined")
-    expect(mainWindowOptions).toContain("visualEffectState: process.platform === 'darwin' ? 'followWindow' : undefined")
-    expect(mainWindowOptions).toContain("transparent: process.platform === 'darwin' ? true : undefined")
-    expect(mainWindowOptions).toContain("backgroundColor: process.platform === 'darwin' ? '#00000000' : '#161616'")
-    expect('trafficLightPosition' in options).toBe(false)
-    expect(hasShadowMatches).toHaveLength(1)
-    expect(roundedCornersMatches).toHaveLength(1)
-    expect(thickFrameMatches).toHaveLength(1)
+    expect(opts).toMatchObject({
+      autoHideMenuBar: true,
+      titleBarStyle: 'hidden',
+      titleBarOverlay: { color: '#00000000', symbolColor: '#7f858f', height: 44 },
+      backgroundColor: '#161616',
+      hasShadow: true,
+      roundedCorners: true,
+      thickFrame: true,
+    })
+  })
 
-    expect(mainWindowOptions).toContain('hasShadow')
-    expect(mainWindowOptions).toContain('roundedCorners')
-    expect(mainWindowOptions).toContain('thickFrame')
+  it('keeps the Linux window configuration unchanged', () => {
+    expect(windowAppearanceOptions('linux')).toEqual({
+      autoHideMenuBar: true,
+      frame: false,
+      titleBarStyle: 'hidden',
+      titleBarOverlay: { color: '#00000000', symbolColor: '#7f858f', height: 44 },
+      backgroundColor: '#161616',
+    })
   })
 })

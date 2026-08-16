@@ -10,6 +10,7 @@ import {
   ipcMain,
   Menu,
   nativeImage,
+  nativeTheme,
   session,
   shell,
   Tray,
@@ -38,6 +39,7 @@ import {
   quitAndInstallNow,
   setAutoUpdate,
 } from './updater'
+import { windowAppearanceOptions } from './window-options'
 import { createDesktopLifecycle, type DesktopLifecycle } from './window-lifecycle'
 
 const APP_NAME = 'Pythinker'
@@ -192,22 +194,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
     minWidth: 960,
     minHeight: 640,
     show: false,
-    autoHideMenuBar: true,
-    frame: process.platform === 'win32' ? true : process.platform === 'linux' ? false : false,
-    titleBarStyle: process.platform === 'darwin' ? undefined : 'hidden',
-    titleBarOverlay: process.platform === 'darwin' ? undefined : {
-      color: '#00000000',
-      symbolColor: '#7f858f',
-      height: 44,
-    },
-    vibrancy: process.platform === 'darwin' ? 'sidebar' : undefined,
-    visualEffectState: process.platform === 'darwin' ? 'followWindow' : undefined,
-    transparent: process.platform === 'darwin' ? true : undefined,
-    // Keep macOS transparent for vibrancy; other platforms use the dark app background.
-    backgroundColor: process.platform === 'darwin' ? '#00000000' : '#161616',
-    hasShadow: process.platform === 'win32' ? true : undefined,
-    roundedCorners: process.platform === 'win32' ? true : undefined,
-    thickFrame: process.platform === 'win32' ? true : undefined,
+    ...windowAppearanceOptions(process.platform),
     title: APP_NAME,
     webPreferences: {
       contextIsolation: true,
@@ -262,20 +249,11 @@ ipcMain.handle('pythinker:update:install', (event) => {
   assertTrustedSender(event)
   return quitAndInstallNow()
 })
-ipcMain.handle('pythinker:window:minimize', (event) => {
+ipcMain.handle('pythinker:theme:set-source', (event, source: unknown) => {
   assertTrustedSender(event)
-  BrowserWindow.fromWebContents(event.sender)?.minimize()
-})
-ipcMain.handle('pythinker:window:toggle-maximize', (event) => {
-  assertTrustedSender(event)
-  const window = BrowserWindow.fromWebContents(event.sender)
-  if (window === null) return
-  if (window.isMaximized()) window.unmaximize()
-  else window.maximize()
-})
-ipcMain.handle('pythinker:window:close', (event) => {
-  assertTrustedSender(event)
-  BrowserWindow.fromWebContents(event.sender)?.close()
+  if (source === 'dark' || source === 'light' || source === 'system') {
+    nativeTheme.themeSource = source
+  }
 })
 
 function createTray(images: TrayImages): void {
