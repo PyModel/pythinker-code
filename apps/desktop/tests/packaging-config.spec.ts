@@ -86,9 +86,10 @@ describe('desktop packaging configuration', () => {
     expect(siteSource).toContain('releases/download/v${DESKTOP_VERSION}')
     expect(siteSource).not.toContain('releases/download/v0.1.0')
 
-    const desktopShowcaseMatch = siteSource.match(/<section id="desktop"[\s\S]*?<\/section>/)
-    expect(desktopShowcaseMatch).not.toBeNull()
-    expect(desktopShowcaseMatch![0]).toContain('/brand/windows11.svg')
+    expect(siteSource).toContain('id="desktop"')
+    expect(siteSource).toMatch(
+      /\{[^}]*icon: '\/brand\/windows11\.svg', href: desktopDownloads\.windows[^}]*\}/,
+    )
   })
 
   it('maps the staged Host node_modules directory as the copy root', () => {
