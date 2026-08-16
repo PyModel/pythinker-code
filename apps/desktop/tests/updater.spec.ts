@@ -6,15 +6,26 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 vi.mock('electron', () => ({
   app: {
     isPackaged: false,
-    getPath: () => '',
+    getPath: vi.fn(() => ''),
+    once: vi.fn(),
   },
 }))
 
 vi.mock('electron-updater', () => ({
-  default: { autoUpdater: {} },
+  default: {
+    autoUpdater: {
+      on: vi.fn(),
+      checkForUpdates: vi.fn(),
+      quitAndInstall: vi.fn(),
+    },
+  },
 }))
 
+import { app } from 'electron'
+import electronUpdater from 'electron-updater'
 import {
+  getUpdateState,
+  initUpdater,
   readUpdateSettings,
   trackUpdateTransition,
   writeUpdateSettings,
@@ -22,11 +33,22 @@ import {
 } from '../src/updater'
 
 const temporaryDirectories: string[] = []
+const resourcesPathDescriptor = Object.getOwnPropertyDescriptor(process, 'resourcesPath')
+const { autoUpdater } = electronUpdater
 
 afterEach(() => {
   for (const directory of temporaryDirectories.splice(0)) {
     rmSync(directory, { recursive: true, force: true })
   }
+  Object.defineProperty(app, 'isPackaged', { configurable: true, value: false })
+  vi.mocked(app.getPath).mockReset()
+  vi.mocked(app.getPath).mockReturnValue('')
+  if (resourcesPathDescriptor === undefined) {
+    Reflect.deleteProperty(process, 'resourcesPath')
+  } else {
+    Object.defineProperty(process, 'resourcesPath', resourcesPathDescriptor)
+  }
+  vi.clearAllMocks()
 })
 
 function temporaryDirectory(): string {
@@ -74,5 +96,25 @@ describe('update telemetry transitions', () => {
       'desktop_update_downloaded',
       'desktop_update_error',
     ])
+  })
+})
+
+describe('packaged builds without update metadata', () => {
+  it('disables updates without wiring updater events', () => {
+    const directory = temporaryDirectory()
+    writeUpdateSettings(directory, { autoUpdate: false })
+    vi.mocked(app.getPath).mockReturnValue(directory)
+    Object.defineProperty(app, 'isPackaged', { configurable: true, value: true })
+    Object.defineProperty(process, 'resourcesPath', { configurable: true, value: directory })
+
+    initUpdater(() => undefined)
+
+    expect(getUpdateState()).toMatchObject({
+      status: 'disabled',
+      message: 'Updates are not available for this build',
+      autoUpdate: false,
+    })
+    expect(autoUpdater.on).not.toHaveBeenCalled()
+    expect(app.once).not.toHaveBeenCalled()
   })
 })
