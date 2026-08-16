@@ -1,5 +1,15 @@
 # @pymodel/pythinker-code
 
+## 0.19.1
+
+### Patch Changes
+
+- [#85](https://github.com/PyModel/pythinker-code/pull/85) [`fa82753`](https://github.com/PyModel/pythinker-code/commit/fa82753e675eb95d4b0028755eb2626afb0a6e8f) - Questions no longer expire after 60 seconds, expired questions are not reported as user dismissals, answers retain question text and option labels, and Escape no longer dismisses a question.
+
+- [#82](https://github.com/PyModel/pythinker-code/pull/82) [`1cd8682`](https://github.com/PyModel/pythinker-code/commit/1cd868296da9507cbb28768f71b2611f5ad8a813) - Add a Windows download button to the site and point both desktop download buttons directly at the published installer assets.
+
+- [#82](https://github.com/PyModel/pythinker-code/pull/82) [`1cd8682`](https://github.com/PyModel/pythinker-code/commit/1cd868296da9507cbb28768f71b2611f5ad8a813) - Reserve the Windows title-bar area so the window controls no longer overlap the chat header, paint the Windows sidebar solid, and change the VS Code extension display name to `Pythinker` because the previous name is reserved on the Marketplace.
+
 ## 0.19.0
 
 ### Minor Changes
