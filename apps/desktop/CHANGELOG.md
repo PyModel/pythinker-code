@@ -1,5 +1,13 @@
 # @pymodel/pythinker-desktop
 
+## 0.1.2
+
+### Patch Changes
+
+- [#82](https://github.com/PyModel/pythinker-code/pull/82) [`1cd8682`](https://github.com/PyModel/pythinker-code/commit/1cd868296da9507cbb28768f71b2611f5ad8a813) - Sign the Windows installer through Azure Artifact Signing when the signing environment is configured
+
+- [#82](https://github.com/PyModel/pythinker-code/pull/82) [`1cd8682`](https://github.com/PyModel/pythinker-code/commit/1cd868296da9507cbb28768f71b2611f5ad8a813) - Render the Windows desktop window opaquely so the theme colours are not blended with the desktop wallpaper
+
 ## 0.1.1
 
 ### Patch Changes
