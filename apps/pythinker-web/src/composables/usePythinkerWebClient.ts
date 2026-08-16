@@ -1660,6 +1660,7 @@ function toUiQuestion(q: AppQuestionRequest): UIQuestion {
   return {
     questionId: q.questionId,
     sessionId: q.sessionId,
+    expiresAt: q.expiresAt,
     questions: q.questions.map((qi) => ({
       id: qi.id,
       question: qi.question,

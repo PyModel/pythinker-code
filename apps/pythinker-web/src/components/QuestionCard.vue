@@ -30,6 +30,22 @@ const total = computed(() => props.question.questions.length);
 const hasPreview = computed(() =>
   current.value.options.some((option) => option.preview?.trim()),
 );
+const now = ref(Date.now());
+const remainingMinutes = computed(() => {
+  const expiresAt = Date.parse(props.question.expiresAt);
+  if (Number.isNaN(expiresAt)) return undefined;
+  return Math.ceil((expiresAt - now.value) / 60_000);
+});
+const leaseWarning = computed(() => {
+  const expiresAt = Date.parse(props.question.expiresAt);
+  if (Number.isNaN(expiresAt)) return undefined;
+  const remainingMs = expiresAt - now.value;
+  if (remainingMs <= 0 || remainingMs > 5 * 60_000) return undefined;
+  if (remainingMs < 60_000) return t('question.expiresSoonSeconds');
+  const minutes = remainingMinutes.value;
+  if (minutes === undefined) return undefined;
+  return t('question.expiresSoon', { minutes });
+});
 
 function goBack(): void {
   if (step.value > 0) step.value--;
@@ -207,17 +223,15 @@ function dismiss(): void {
 }
 
 // ---------------------------------------------------------------------------
-// Keyboard: number keys pick options for current question, Enter submit, Esc dismiss
+// Keyboard: number keys pick options for the current question and Enter submits.
 // ---------------------------------------------------------------------------
 
 function handleKeydown(e: KeyboardEvent): void {
   const tag = (document.activeElement?.tagName ?? '').toLowerCase();
   if (tag === 'input' || tag === 'textarea') return;
-  // While minimized the options aren't visible, so don't let number keys pick
-  // an unseen answer; only Escape (dismiss) stays live.
-  if (minimized.value && e.key !== 'Escape') return;
+  // While minimized the options are not visible, so keyboard selection is disabled.
+  if (minimized.value) return;
 
-  if (e.key === 'Escape') { e.preventDefault(); dismiss(); return; }
   if (e.key === 'Enter') { e.preventDefault(); submit(); return; }
 
   const num = parseInt(e.key, 10);
@@ -236,8 +250,19 @@ function handleKeydown(e: KeyboardEvent): void {
   }
 }
 
-onMounted(() => document.addEventListener('keydown', handleKeydown));
-onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
+let leaseTimer: ReturnType<typeof setInterval> | undefined;
+
+onMounted(() => {
+  document.addEventListener('keydown', handleKeydown);
+  leaseTimer = setInterval(() => {
+    now.value = Date.now();
+  }, 30_000);
+});
+
+onUnmounted(() => {
+  document.removeEventListener('keydown', handleKeydown);
+  if (leaseTimer !== undefined) clearInterval(leaseTimer);
+});
 </script>
 
 <template>
@@ -245,6 +270,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
     <!-- Step indicator (multi-question) -->
     <div class="qh">
       <span class="qtitle">{{ t('question.title') }}</span>
+      <span v-if="leaseWarning" class="qexpires">{{ leaseWarning }}</span>
       <template v-if="total > 1 && !minimized">
         <span class="qstep">{{ t('question.step', { current: step + 1, total }) }}</span>
         <button class="qnav" :disabled="step === 0" @click="goBack">{{ t('question.prev') }}</button>
@@ -371,6 +397,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
 }
 .qtitle { color: var(--blue2); font-weight: 700; }
 .qstep { color: var(--muted); font-size: calc(var(--ui-font-size) - 3px); margin-left: 4px; }
+.qexpires { color: var(--muted); font-size: calc(var(--ui-font-size) - 3px); margin-left: 4px; }
 .qnav {
   font-family: var(--mono);
   font-size: calc(var(--ui-font-size) - 3px);

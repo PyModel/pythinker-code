@@ -10,4 +10,6 @@ export default {
   dismiss: 'Dismiss',
   minimize: 'Minimize',
   expand: 'Expand',
+  expiresSoon: 'Expires in {minutes} min',
+  expiresSoonSeconds: 'Expires in less than a minute',
 } as const;

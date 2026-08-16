@@ -242,6 +242,7 @@ export interface QueuedPromptView {
 export interface UIQuestion {
   questionId: string;
   sessionId: string;
+  expiresAt: string;
   questions: {
     id: string;
     question: string;
