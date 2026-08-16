@@ -1,0 +1,56 @@
+# Mirrors apps/site to PyModel/pythinker-site so Dokploy can build the CDN site
+# from a repository that contains nothing else. One-way and force-pushed: this
+# repo is the only source of truth, and any commit made in the mirror is lost on
+# the next push here.
+#
+# Deploy keys are disabled org-wide on PyModel, so the push uses a
+# pythinker-release-bot installation token scoped to pythinker-site only — the
+# same shape release.yml uses for the Homebrew tap.
+name: Mirror site
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/site/**'
+      - '.github/workflows/site-mirror.yml'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: site-mirror
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # git subtree split walks the full history of apps/site.
+          fetch-depth: 0
+
+      - name: Mint release-bot token
+        id: release-bot
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.RELEASE_BOT_APP_ID }}
+          private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
+          owner: PyModel
+          repositories: pythinker-site
+
+      - name: Push apps/site subtree
+        env:
+          GH_TOKEN: ${{ steps.release-bot.outputs.token }}
+        run: |
+          set -euo pipefail
+          # subtree split rewrites commits, so it needs an identity.
+          git config user.name 'pythinker-release-bot[bot]'
+          git config user.email 'pythinker-release-bot[bot]@users.noreply.github.com'
+          # subtree split writes a \r-terminated progress counter to stdout, so
+          # the sha must be isolated or the refspec colon gets overwritten.
+          split="$(git subtree split --prefix=apps/site HEAD | tr -d '\r' | tail -c 41)"
+          git push --force \
+            "https://x-access-token:${GH_TOKEN}@github.com/PyModel/pythinker-site.git" \
+            "${split}:refs/heads/main"
