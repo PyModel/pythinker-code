@@ -9,6 +9,18 @@ afterEach(() => {
 });
 
 describe('MascotSprite', () => {
+  it('renders the failed APNG without joining pose alternation', async () => {
+    vi.useFakeTimers();
+    const wrapper = mount(MascotSprite, { props: { state: 'failed' } });
+
+    const src = wrapper.get('img').attributes('src');
+    expect(src).toContain('mascot-failed');
+
+    vi.advanceTimersByTime(5000);
+    await nextTick();
+    expect(wrapper.get('img').attributes('src')).toBe(src);
+  });
+
   it('alternates its APNG poses after each full play', async () => {
     vi.useFakeTimers();
     const wrapper = mount(MascotSprite, { props: { state: 'waiting' } });

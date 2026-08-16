@@ -844,7 +844,7 @@ defineExpose({ loadComposerForEdit });
             <div class="empty-hint">
               <div class="empty-halo" aria-hidden="true" />
               <div class="empty-hint-head">
-                <span class="empty-mascot" aria-hidden="true" />
+                <img class="empty-mascot" src="/brand/mascot-idle.png" aria-hidden="true" />
                 <span class="empty-hint-title">{{ t('composer.emptyConversationTitle') }}</span>
               </div>
               <span class="empty-hint-text">{{ t('composer.emptyConversation') }}</span>
@@ -1323,19 +1323,8 @@ defineExpose({ loadComposerForEdit });
 .empty-mascot {
   width: 96px;
   height: 104px;
-  background-image: url('/brand/mascot-idle-strip.png');
-  background-size: 576px 104px;
-  background-repeat: no-repeat;
   image-rendering: pixelated;
-  animation: empty-mascot-idle 0.84s steps(6) infinite;
   flex: none;
-}
-@keyframes empty-mascot-idle {
-  from { background-position-x: 0; }
-  to { background-position-x: -576px; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .empty-mascot { animation: none; }
 }
 .empty-hint-title {
   font-size: calc(var(--ui-font-size) + 16px);
