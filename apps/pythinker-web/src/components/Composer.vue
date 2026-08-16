@@ -735,12 +735,18 @@ const hasUpload = computed(() => !!props.uploadImage);
 // ---------------------------------------------------------------------------
 
 const dropdownOpen = ref(false);
+const modelPillRef = ref<HTMLElement | null>(null);
+const modelDropdownStyle = ref<Record<string, string>>({});
 const permDropdownOpen = ref(false);
 const toolbarRef = ref<HTMLElement | null>(null);
 
 function toggleDropdown(): void {
   dropdownOpen.value = !dropdownOpen.value;
   if (dropdownOpen.value) {
+    const rect = modelPillRef.value?.getBoundingClientRect();
+    modelDropdownStyle.value = rect
+      ? { maxHeight: `${Math.max(160, rect.top - 4 - 12)}px` }
+      : {};
     permDropdownOpen.value = false;
     document.addEventListener('click', onDocClick, true);
   } else {
@@ -1179,6 +1185,7 @@ function selectModel(modelId: string): void {
           <!-- Model pill — click to open quick-switch dropdown -->
           <span
             v-if="status"
+            ref="modelPillRef"
             class="model-pill"
             :class="{ open: dropdownOpen }"
             role="button"
@@ -1195,7 +1202,7 @@ function selectModel(modelId: string): void {
         </div>
 
         <!-- Model dropdown — current provider models + controls + more -->
-        <div v-if="dropdownOpen && status" class="model-dropdown" role="menu" @click.stop>
+        <div v-if="dropdownOpen && status" class="model-dropdown" :style="modelDropdownStyle" role="menu" @click.stop>
           <!-- Starred models from other providers -->
           <div v-if="starredOtherModels.length > 0" class="md-section">{{ t('status.starredModels') }}</div>
           <button
@@ -1719,6 +1726,7 @@ function selectModel(modelId: string): void {
   display: flex;
   flex-direction: column;
   gap: 1px;
+  overflow-y: auto;
 }
 
 .md-section {

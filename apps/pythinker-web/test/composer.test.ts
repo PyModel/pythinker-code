@@ -319,6 +319,30 @@ describe('Composer model dropdown', () => {
 
     expect(wrapper.emitted('selectModel')).toEqual([['openai/gpt-5']]);
   });
+
+  it('bounds the quick-switch dropdown to the measured space above its pill', async () => {
+    const wrapper = mountComposer({
+      status: { model: 'Model 0', modelId: 'pythinker/model-0', ctxUsed: 0, ctxMax: 128000, permission: 'manual' },
+      models: Array.from({ length: 17 }, (_, index) => ({
+        id: `pythinker/model-${index}`,
+        provider: 'pythinker',
+        model: `model-${index}`,
+        displayName: `Model ${index}`,
+        maxContextSize: 128000,
+      })),
+    });
+    const pill = wrapper.get('.model-pill');
+    const rect = vi.spyOn(pill.element, 'getBoundingClientRect');
+
+    rect.mockReturnValue({ top: 20 } as DOMRect);
+    await pill.trigger('click');
+    expect(wrapper.get('.model-dropdown').element.style.maxHeight).toBe('160px');
+
+    rect.mockReturnValue({ top: 300 } as DOMRect);
+    await pill.trigger('click');
+    await pill.trigger('click');
+    expect(wrapper.get('.model-dropdown').element.style.maxHeight).toBe('284px');
+  });
 });
 
 describe('Composer context indicator', () => {
