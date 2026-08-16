@@ -202,7 +202,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
     },
     trafficLightPosition: process.platform === 'darwin' ? { x: 16, y: 18 } : undefined,
     // Use an opaque window so theme colors do not blend with desktop wallpaper.
-    backgroundColor: '#0d1117',
+    backgroundColor: '#151517',
     hasShadow: process.platform === 'win32' ? true : undefined,
     roundedCorners: process.platform === 'win32' ? true : undefined,
     thickFrame: process.platform === 'win32' ? true : undefined,

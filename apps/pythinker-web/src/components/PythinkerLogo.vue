@@ -25,7 +25,7 @@ function onClick(): void {
 
 <template>
   <img
-    :src="animated ? '/pythinker_animated.svg' : '/icon.svg'"
+    :src="animated ? '/brand/mascot-waving.png' : '/brand/icon.svg'"
     class="pythinker-logo"
     :class="[`size-${size}`, { interactive }]"
     :alt="label"

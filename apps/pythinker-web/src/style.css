@@ -1,31 +1,33 @@
 @import "tailwindcss";
 
+/* Palette and font stacks below are derived from
+   @deepseek-ai/dsh-client-ui-theme v0.1.0-rc.6 (BSD-3-Clause license). */
 :root {
-  --ink: #14171c;
-  --text: #262626;
-  --dim: #595959;
-  --muted: #8a8a8a;
-  --faint: #b5b5b5;
-  --line: #e7eaee;
-  --line2: #eef1f4;
-  --panel: #fafbfc;
-  --panel2: #f3f5f8;
-  --bg: #ffffff;
-  /* Interaction accent = Pythinker periwinkle from the TUI palette.
+  --ink: rgb(15, 17, 21);
+  --text: rgb(53, 54, 56);
+  --dim: rgb(97, 102, 107);
+  --muted: rgb(129, 133, 140);
+  --faint: rgb(151, 157, 166);
+  --line: rgba(0, 0, 0, 0.1);
+  --line2: rgba(0, 0, 0, 0.04);
+  --panel: rgb(249, 250, 251);
+  --panel2: rgb(241, 243, 245);
+  --bg: rgb(255, 255, 255);
+  /* Interaction accent = DeepSeek accent.
      --blue2 is a darker press/hover shade; --soft/--bd/--bluebg/--blueln are
-     light periwinkle fills + borders derived from the same hue. */
-  --blue: #4A5BC4;
-  --blue2: #3A4AAE;
-  --soft: #eceffc;
-  --bd: #d3daf6;
-  --logo: #4A5BC4;
-  /* Soft periwinkle bubble fill + border (mobile user message bubble). */
-  --bluebg: #eceffc;
-  --blueln: #d3daf6;
-  --ok: #0e7a38;
-  --warn: #92660a;
-  --star: #eab308;
-  --err: #b91c1c;
+     light DeepSeek accent fills + borders derived from the same hue. */
+  --blue: rgb(65, 118, 230);
+  --blue2: rgb(72, 104, 178);
+  --soft: rgb(234, 243, 255);
+  --bd: rgb(219, 234, 254);
+  --logo: rgb(65, 118, 230);
+  /* Soft DeepSeek accent bubble fill + border (mobile user message bubble). */
+  --bluebg: rgb(234, 243, 255);
+  --blueln: rgb(219, 234, 254);
+  --ok: rgb(34, 197, 94);
+  --warn: rgb(245, 158, 11);
+  --star: rgb(245, 158, 11);
+  --err: rgb(239, 68, 68);
   /* Subtle hover wash for icon buttons (toast close, etc.). */
   --hover: rgba(0, 0, 0, 0.05);
   /* Radius scale (Modern). A regular 8 / 12 / 16 progression: list items + pill
@@ -71,54 +73,54 @@ html[data-color-scheme="system"] {
 /* Dark mode variables — applied when explicitly chosen or via system preference. */
 html[data-color-scheme="dark"] {
   color-scheme: dark;
-  --ink: #e8eaed;
-  --text: #c9cdd4;
-  --dim: #c2c8d0;
-  --muted: #aab1ba;
-  --faint: #8b939c;
-  --line: #2d333b;
-  --line2: #22272e;
-  --panel: #1c2128;
-  --panel2: #161b22;
-  --bg: #0d1117;
-  --blue: #7B8CE8;
-  --blue2: #98A6F0;
-  --soft: rgba(123, 140, 232, 0.14);
-  --bd: rgba(123, 140, 232, 0.35);
-  --logo: #7B8CE8;
-  --bluebg: #20243a;
-  --blueln: #2e3352;
-  --ok: #3fb950;
-  --warn: #d29922;
-  --star: #facc15;
-  --err: #f85149;
-  --hover: rgba(255, 255, 255, 0.07);
+  --ink: rgb(249, 250, 251);
+  --text: rgb(235, 238, 242);
+  --dim: rgb(173, 178, 184);
+  --muted: rgb(151, 157, 166);
+  --faint: rgb(129, 133, 140);
+  --line: rgba(255, 255, 255, 0.12);
+  --line2: rgba(255, 255, 255, 0.06);
+  --panel: rgb(27, 27, 28);
+  --panel2: rgb(35, 35, 36);
+  --bg: rgb(21, 21, 23);
+  --blue: rgb(86, 134, 254);
+  --blue2: rgb(103, 158, 254);
+  --soft: rgba(86, 134, 254, 0.14);
+  --bd: rgba(86, 134, 254, 0.35);
+  --logo: rgb(86, 134, 254);
+  --bluebg: rgba(86, 134, 254, 0.16);
+  --blueln: rgba(86, 134, 254, 0.32);
+  --ok: rgb(78, 209, 126);
+  --warn: rgb(247, 173, 49);
+  --star: rgb(247, 173, 49);
+  --err: rgb(242, 90, 90);
+  --hover: rgba(255, 255, 255, 0.08);
 }
 
 @media (prefers-color-scheme: dark) {
   html[data-color-scheme="system"] {
-    --ink: #e8eaed;
-    --text: #c9cdd4;
-    --dim: #c2c8d0;
-    --muted: #aab1ba;
-    --faint: #8b939c;
-    --line: #2d333b;
-    --line2: #22272e;
-    --panel: #1c2128;
-    --panel2: #161b22;
-    --bg: #0d1117;
-    --blue: #7B8CE8;
-    --blue2: #98A6F0;
-    --soft: rgba(123, 140, 232, 0.14);
-    --bd: rgba(123, 140, 232, 0.35);
-    --logo: #7B8CE8;
-    --bluebg: #20243a;
-    --blueln: #2e3352;
-    --ok: #3fb950;
-    --warn: #d29922;
-    --star: #facc15;
-    --err: #f85149;
-    --hover: rgba(255, 255, 255, 0.07);
+    --ink: rgb(249, 250, 251);
+    --text: rgb(235, 238, 242);
+    --dim: rgb(173, 178, 184);
+    --muted: rgb(151, 157, 166);
+    --faint: rgb(129, 133, 140);
+    --line: rgba(255, 255, 255, 0.12);
+    --line2: rgba(255, 255, 255, 0.06);
+    --panel: rgb(27, 27, 28);
+    --panel2: rgb(35, 35, 36);
+    --bg: rgb(21, 21, 23);
+    --blue: rgb(86, 134, 254);
+    --blue2: rgb(103, 158, 254);
+    --soft: rgba(86, 134, 254, 0.14);
+    --bd: rgba(86, 134, 254, 0.35);
+    --logo: rgb(86, 134, 254);
+    --bluebg: rgba(86, 134, 254, 0.16);
+    --blueln: rgba(86, 134, 254, 0.32);
+    --ok: rgb(78, 209, 126);
+    --warn: rgb(247, 173, 49);
+    --star: rgb(247, 173, 49);
+    --err: rgb(242, 90, 90);
+    --hover: rgba(255, 255, 255, 0.08);
   }
 }
 
@@ -301,12 +303,12 @@ body {
 html[data-theme="modern"] {
   /* Softer hairlines + a soft neutral canvas the white cards/bubbles lift off.
      Shadow tokens are shared by the per-element card rules below. */
-  --line: #e9edf3;
-  --line2: #f1f4f8;
+  --line: rgba(0, 0, 0, 0.1);
+  --line2: rgba(0, 0, 0, 0.04);
   --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
     "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
     "Helvetica Neue", Arial, sans-serif;
-  --canvas: #f4f6fa;
+  --canvas: rgb(249, 250, 251);
   --sh: 0 1px 3px rgba(28, 40, 66, 0.05), 0 6px 18px rgba(28, 40, 66, 0.06);
   --shc: 0 1px 2px rgba(28, 40, 66, 0.05);
 }
@@ -314,17 +316,17 @@ html[data-theme="modern"] {
 /* Modern × dark: the light hairlines/canvas above would override the dark
    variables (later in source) — remap them, and lean on darker shadows. */
 html[data-color-scheme="dark"][data-theme="modern"] {
-  --line: #2d333b;
-  --line2: #22272e;
-  --canvas: #161b22;
+  --line: rgba(255, 255, 255, 0.12);
+  --line2: rgba(255, 255, 255, 0.06);
+  --canvas: rgb(21, 21, 23);
   --sh: 0 1px 3px rgba(0, 0, 0, 0.35), 0 6px 18px rgba(0, 0, 0, 0.4);
   --shc: 0 1px 2px rgba(0, 0, 0, 0.35);
 }
 @media (prefers-color-scheme: dark) {
   html[data-color-scheme="system"][data-theme="modern"] {
-    --line: #2d333b;
-    --line2: #22272e;
-    --canvas: #161b22;
+    --line: rgba(255, 255, 255, 0.12);
+    --line2: rgba(255, 255, 255, 0.06);
+    --canvas: rgb(21, 21, 23);
     --sh: 0 1px 3px rgba(0, 0, 0, 0.35), 0 6px 18px rgba(0, 0, 0, 0.4);
     --shc: 0 1px 2px rgba(0, 0, 0, 0.35);
   }
