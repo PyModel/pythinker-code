@@ -70,6 +70,14 @@ function freshState(): FakeBridgeState {
   return { sessions: [], tools: [], mcpServers: [], reconnectCalls: [] };
 }
 
+function makeMcpService(state: FakeBridgeState): McpService {
+  return new McpService(makeFakeBridge(state), {
+    _serviceBrand: undefined,
+    homeDir: '/tmp/pythinker-mcp-service-test',
+    configPath: '/tmp/pythinker-mcp-service-test/config.toml',
+  });
+}
+
 // --- Adapter tests ----------------------------------------------------------
 
 describe('toProtocolTool adapter', () => {
@@ -197,7 +205,7 @@ describe('ToolService.list', () => {
 
 describe('McpService.list', () => {
   it('returns [] when no sessions exist (registrar not reachable)', async () => {
-    const svc = new McpService(makeFakeBridge(freshState()));
+    const svc = makeMcpService(freshState());
     expect(await svc.list()).toEqual([]);
   });
 
@@ -210,7 +218,7 @@ describe('McpService.list', () => {
       status: 'connected',
       toolCount: 7,
     });
-    const svc = new McpService(makeFakeBridge(state));
+    const svc = makeMcpService(state);
     const out = await svc.list();
     expect(out).toHaveLength(1);
     expect(out[0]!.id).toBe('lark');
@@ -220,7 +228,7 @@ describe('McpService.list', () => {
 
 describe('McpService.restart', () => {
   it('throws McpServerNotFoundError when no sessions exist', async () => {
-    const svc = new McpService(makeFakeBridge(freshState()));
+    const svc = makeMcpService(freshState());
     await expect(svc.restart('lark')).rejects.toBeInstanceOf(McpServerNotFoundError);
   });
 
@@ -233,7 +241,7 @@ describe('McpService.restart', () => {
       status: 'connected',
       toolCount: 1,
     });
-    const svc = new McpService(makeFakeBridge(state));
+    const svc = makeMcpService(state);
     await expect(svc.restart('unknown')).rejects.toBeInstanceOf(McpServerNotFoundError);
   });
 
@@ -246,7 +254,7 @@ describe('McpService.restart', () => {
       status: 'connected',
       toolCount: 1,
     });
-    const svc = new McpService(makeFakeBridge(state));
+    const svc = makeMcpService(state);
     const result = await svc.restart('lark');
     expect(result).toEqual({ restarting: true });
     expect(state.reconnectCalls).toHaveLength(1);

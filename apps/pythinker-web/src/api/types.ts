@@ -646,6 +646,19 @@ export interface AppSubagent {
 }
 
 /** A configured MCP server ("connector") and its live connection state. */
+export interface AppMcpServerDefinition {
+  transport: 'stdio' | 'http' | 'sse';
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
+}
+
+export interface AppMcpServerInput extends AppMcpServerDefinition {
+  name: string;
+}
+
 export interface AppConnector {
   id: string;
   name: string;
@@ -653,6 +666,8 @@ export interface AppConnector {
   status: 'connected' | 'connecting' | 'disconnected' | 'error';
   toolCount: number;
   lastError?: string;
+  editable: boolean;
+  definition?: AppMcpServerDefinition;
 }
 
 /** One tool available to the current session. */
@@ -704,6 +719,12 @@ export interface PythinkerWebApi {
   activateSkill(sessionId: string, skillName: string, args?: string): Promise<{ activated: true; skillName: string }>;
   /** Configured MCP servers — GET /mcp/servers. */
   listConnectors(): Promise<AppConnector[]>;
+  /** Create one user-global MCP server — POST /mcp/servers. */
+  createConnector(input: AppMcpServerInput): Promise<{ created: true }>;
+  /** Replace one user-global MCP server — PUT /mcp/servers/{id}. */
+  updateConnector(connectorId: string, input: AppMcpServerInput): Promise<{ updated: true }>;
+  /** Remove one user-global MCP server — DELETE /mcp/servers/{id}. */
+  removeConnector(connectorId: string): Promise<{ deleted: true }>;
   /** Restart one MCP server — POST /mcp/servers/{id}:restart. */
   restartConnector(connectorId: string): Promise<{ restarting: true }>;
   /** Installed plugins — GET /plugins. */

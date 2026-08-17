@@ -2,6 +2,7 @@
 import type {
   AppConfig,
   AppConnector,
+  AppMcpServerInput,
   AppModel,
   AppPlugin,
   AppSession,
@@ -40,6 +41,7 @@ defineProps<{
   skills?: AppSkill[];
   connectors?: AppConnector[];
   connectorsLoading?: boolean;
+  connectorsError?: string;
   sessions?: AppSession[];
   plugins?: AppPlugin[];
   subagents?: AppSubagent[];
@@ -59,6 +61,9 @@ const emit = defineEmits<{
   openOnboarding: [];
   updateConfig: [patch: Partial<AppConfig>];
   restartConnector: [connectorId: string];
+  createConnector: [input: AppMcpServerInput];
+  updateConnector: [payload: { connectorId: string; input: AppMcpServerInput }];
+  removeConnector: [connectorId: string];
   setPluginEnabled: [payload: { pluginId: string; enabled: boolean }];
   setTools: [names: string[]];
   close: [];
@@ -125,7 +130,11 @@ const { t } = useI18n();
       v-show="activeTab === 'connectors'"
       :connectors="connectors"
       :connectors-loading="connectorsLoading"
+      :connectors-error="connectorsError"
       @restart-connector="emit('restartConnector', $event)"
+      @create-connector="emit('createConnector', $event)"
+      @update-connector="emit('updateConnector', $event)"
+      @remove-connector="emit('removeConnector', $event)"
     />
     <HooksPage v-show="activeTab === 'hooks'" :config="config" />
     <UsagePage v-show="activeTab === 'usage'" :sessions="sessions" />

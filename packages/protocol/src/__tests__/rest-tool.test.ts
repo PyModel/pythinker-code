@@ -53,6 +53,7 @@ describe('listMcpServersResponseSchema', () => {
           transport: 'stdio' as const,
           status: 'connected' as const,
           tool_count: 3,
+          editable: false,
         },
       ],
     };

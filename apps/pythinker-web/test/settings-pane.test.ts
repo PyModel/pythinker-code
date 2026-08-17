@@ -42,6 +42,7 @@ vi.mock('../src/composables/usePythinkerWebClient', async () => {
     compaction: vueRef(null),
     config: vueRef(null),
     connectorsLoading: vueRef(false),
+    connectorsError: vueRef(undefined),
     defaultModel: vueRef(null),
     dynamicWorkflowMode: vueRef(false),
     fastSpinner: vueRef(false),
@@ -125,8 +126,8 @@ const skills: AppSkill[] = [
 ];
 
 const connectors: AppConnector[] = [
-  { id: 'mcp_1', name: 'context7', transport: 'http', status: 'connected', toolCount: 2 },
-  { id: 'mcp_2', name: 'tavily', transport: 'stdio', status: 'error', toolCount: 0, lastError: 'spawn ENOENT' },
+  { id: 'mcp_1', name: 'context7', transport: 'http', status: 'connected', toolCount: 2, editable: false },
+  { id: 'mcp_2', name: 'tavily', transport: 'stdio', status: 'error', toolCount: 0, lastError: 'spawn ENOENT', editable: true },
 ];
 
 function mountPane(activeTab: SettingsTab, extraProps: Record<string, unknown> = {}) {
