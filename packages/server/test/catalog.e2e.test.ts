@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { pino } from 'pino';
+import { z } from 'zod';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ICatalogService } from '@pymodel/agent-core';
@@ -85,8 +86,22 @@ function appOf(r: RunningServer): {
   });
 }
 
-function envelopeOf<T>(body: unknown): { code: number; msg: string; data: T | null } {
-  return body as { code: number; msg: string; data: T | null };
+const envelopeSchema = z.object({
+  code: z.number(),
+  msg: z.string(),
+  data: z.unknown(),
+  request_id: z.string().min(1),
+});
+
+/** Parses the uniform `{code, msg, data, request_id}` envelope every route returns. */
+function envelopeOf<T>(body: unknown): {
+  code: number;
+  msg: string;
+  data: T | null;
+  request_id: string;
+} {
+  const envelope = envelopeSchema.parse(body);
+  return { ...envelope, data: envelope.data as T | null };
 }
 
 describe('catalog routes', () => {
