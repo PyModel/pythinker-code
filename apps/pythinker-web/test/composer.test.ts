@@ -1,13 +1,15 @@
 import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { flushPromises, mount } from '@vue/test-utils';
 import { createI18n } from 'vue-i18n';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import Composer from '../src/components/Composer.vue';
 import type { AppModel } from '../src/api/types';
 
-const sourcePath = (path: string) => fileURLToPath(new URL(path, import.meta.url));
+const sourcePath = (path: string) => join(import.meta.dirname, path);
 const composerSource = readFileSync(sourcePath('../src/components/Composer.vue'), 'utf8');
+const conversationPaneSource = readFileSync(sourcePath('../src/components/ConversationPane.vue'), 'utf8');
+const styleSource = readFileSync(sourcePath('../src/style.css'), 'utf8');
 
 function mountComposer(props: Record<string, unknown> = {}) {
   const i18n = createI18n({
@@ -82,6 +84,80 @@ afterEach(() => {
 });
 
 describe('Composer styling', () => {
+  it('uses the shared xl radius token for the composer card', () => {
+    const composerCardRule = composerSource.match(/(?:^|\n)\.composer-card\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(composerCardRule.trim()).not.toBe('');
+    expect(composerCardRule).toMatch(/border-radius:\s*var\(--r-xl\);/);
+
+    const modernCardRule = styleSource.match(/:is\(html\[data-theme="modern"\], html\[data-theme="pythinker"\]\) \.composer-card\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(modernCardRule).toMatch(/border-radius:\s*var\(--r-xl\);/);
+
+    const pythinkerCardRule = styleSource.match(/html\[data-theme="pythinker"\] \.composer-card\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(pythinkerCardRule).toMatch(/border-radius:\s*var\(--r-xl\);/);
+  });
+
+  it('defines the xl radius token in the shared style tokens', () => {
+    expect(styleSource).toMatch(/--r-xl:\s*24px;/);
+  });
+
+  it('uses a translucent card surface with a backdrop blur', () => {
+    const composerCardRule = composerSource.match(/(?:^|\n)\.composer-card\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(composerCardRule).toMatch(/background:\s*color-mix\([^;]+transparent\);/);
+    expect(composerCardRule).toMatch(/backdrop-filter:\s*blur\([^;]+\);/);
+  });
+
+  it('strengthens the card border on hover and focus within', () => {
+    const interactionRule = composerSource.match(/(?:^|\n)\.composer-card:hover,\s*\.composer-card:focus-within\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(interactionRule.trim()).not.toBe('');
+    expect(interactionRule).toMatch(/border-color:\s*[^;]+;/);
+  });
+
+  it('caps the input at 384px and scrolls its content', () => {
+    const inputRule = composerSource.match(/(?:^|\n)\.ph\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(inputRule).toMatch(/max-height:\s*384px;/);
+    expect(inputRule).toMatch(/overflow-y:\s*auto;/);
+    expect(inputRule).toMatch(/field-sizing:\s*content;/);
+  });
+
+  it('uses circular attachment controls and a divider after the plus button', () => {
+    const attachRule = composerSource.match(/(?:^|\n)\.attach-btn\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(attachRule).toMatch(/width:\s*30px;/);
+    expect(attachRule).toMatch(/height:\s*30px;/);
+    expect(attachRule).toMatch(/border-radius:\s*50%;/);
+
+    const themedAttachRule = styleSource.match(/:is\(html\[data-theme="modern"\], html\[data-theme="pythinker"\]\) \.attach-btn\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(themedAttachRule).toMatch(/width:\s*30px;/);
+    expect(themedAttachRule).toMatch(/height:\s*30px;/);
+    expect(themedAttachRule).toMatch(/border-radius:\s*50%;/);
+
+    const dividerRule = composerSource.match(/(?:^|\n)\.toolbar-divider\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(dividerRule).toMatch(/width:\s*1px;/);
+    expect(dividerRule).toMatch(/height:\s*16px;/);
+    expect(composerSource).toMatch(/class="attach-btn"[\s\S]*class="toolbar-divider"/);
+  });
+
+  it('pads the send button around a 20px glyph and keeps the accent fill', () => {
+    const sendRule = composerSource.match(/(?:^|\n)\.send\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(sendRule).toMatch(/padding:\s*5px;/);
+    // The send button carries the theme accent, not a monochrome fill: --blue is
+    // the Pythinker brand colour and each theme redefines it.
+    expect(sendRule).toMatch(/background:\s*var\(--blue\);/);
+    expect(sendRule).toMatch(/color:\s*var\(--bg\);/);
+
+    const sendIconRule = composerSource.match(/(?:^|\n)\.send svg\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(sendIconRule).toMatch(/width:\s*20px;/);
+    expect(sendIconRule).toMatch(/height:\s*20px;/);
+
+    const themedSendRule = styleSource.match(/:is\(html\[data-theme="modern"\], html\[data-theme="pythinker"\]\) \.send\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(themedSendRule).toMatch(/padding:\s*5px;/);
+    expect(themedSendRule).not.toMatch(/background:\s*var\(--ink\);/);
+  });
+
+  it('widens the shared reading column to 928px', () => {
+    const conRule = conversationPaneSource.match(/(?:^|\n)\.con\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(conRule).toMatch(/--read-max:\s*928px;/);
+  });
+
   it('places the composer border flush against the message list', () => {
     const composerRule = composerSource.match(/(?:^|\n)\.composer\s*\{([^}]*)\}/)?.[1] ?? '';
     expect(composerRule.trim()).not.toBe('');
