@@ -69,6 +69,7 @@ import type {
   CancelPlanPayload,
   CloseSessionPayload,
   ConfigDiagnostics,
+  ContextTokenCount,
   CoreAPI,
   CoreInfo,
   CreateGoalPayload,
@@ -84,6 +85,7 @@ import type {
   ForkSessionPayload,
   GetBackgroundOutputPayload,
   GetBackgroundPayload,
+  GetContextTokenCountPayload,
   GetPythinkerConfigPayload,
   GetPluginInfoPayload,
   InstallPluginPayload,
@@ -787,6 +789,14 @@ export class PythinkerCore implements PromisableMethods<CoreAPI> {
     return this.sessionApi(sessionId).getContext(payload);
   }
 
+  async getContextTokenCount({
+    sessionId,
+    agentId,
+  }: GetContextTokenCountPayload): Promise<ContextTokenCount> {
+    const agent = await this.activeSession(sessionId).ensureAgentResumed(agentId);
+    return { tokenCount: agent.context.tokenCount };
+  }
+
   getContextUsage({ sessionId, ...payload }: SessionAgentPayload<EmptyPayload>) {
     return this.sessionApi(sessionId).getContextUsage(payload);
   }
@@ -1162,7 +1172,7 @@ export class PythinkerCore implements PromisableMethods<CoreAPI> {
   }
 
 
-  private sessionApi(sessionId: string): SessionAPIImpl {
+  private activeSession(sessionId: string): Session {
     const session = this.sessions.get(sessionId);
     if (session === undefined) {
       throw new PythinkerError(
@@ -1173,7 +1183,11 @@ export class PythinkerCore implements PromisableMethods<CoreAPI> {
         },
       );
     }
-    return new SessionAPIImpl(session);
+    return session;
+  }
+
+  private sessionApi(sessionId: string): SessionAPIImpl {
+    return new SessionAPIImpl(this.activeSession(sessionId));
   }
 
   private reloadProviderManager(): PythinkerConfig {

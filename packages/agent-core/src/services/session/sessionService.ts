@@ -461,15 +461,15 @@ export class SessionService extends Disposable implements ISessionService {
       throw new SessionNotFoundError(id);
     }
 
-    const [config, context, permission, plan] = await Promise.all([
+    const [config, contextTokenCount, permission, plan] = await Promise.all([
       this.core.rpc.getConfig({ sessionId: id, agentId: 'main' }),
-      this.core.rpc.getContext({ sessionId: id, agentId: 'main' }),
+      this.core.rpc.getContextTokenCount({ sessionId: id, agentId: 'main' }),
       this.core.rpc.getPermission({ sessionId: id, agentId: 'main' }),
       this.core.rpc.getPlan({ sessionId: id, agentId: 'main' }),
     ]);
 
     const maxContextTokens = config.modelCapabilities?.max_context_tokens ?? 0;
-    const contextTokens = context.tokenCount;
+    const contextTokens = contextTokenCount.tokenCount;
     const contextUsage = maxContextTokens > 0 ? contextTokens / maxContextTokens : 0;
 
     const agentState = this.promptService.getAgentStateSnapshot(id);

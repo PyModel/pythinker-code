@@ -677,6 +677,39 @@ max_context_size = 100000
     expect(mainAgent?.config.modelAlias).toBe('default-mock');
   });
 
+  it('returns the same cached token count through the narrow RPC and getContext', async () => {
+    tmp = await mkdtemp(join(tmpdir(), 'pythinker-core-runtime-'));
+    const homeDir = join(tmp, 'home');
+    const workDir = join(tmp, 'work');
+    await mkdir(homeDir, { recursive: true });
+    await mkdir(workDir, { recursive: true });
+    await writeFile(join(homeDir, 'config.toml'), baseModelConfig());
+
+    const [coreRpc, sdkRpc] = createRPC<CoreAPI, SDKAPI>();
+    const core = new PythinkerCore(coreRpc, { homeDir });
+    const rpc = await sdkRpc({
+      emitEvent: vi.fn(),
+      requestApproval: vi.fn(async (): Promise<ApprovalResponse> => ({ decision: 'rejected' })),
+      requestQuestion: vi.fn(async () => null),
+      toolCall: vi.fn(async () => ({ output: '' })),
+    });
+    const created = await rpc.createSession({
+      id: 'ses_context_token_count',
+      workDir,
+      model: 'default-mock',
+    });
+    const agent = core.sessions.get(created.id)!.getReadyAgent('main')!;
+    (agent.context as unknown as { _tokenCount: number })._tokenCount = 37;
+
+    const [context, count] = await Promise.all([
+      rpc.getContext({ sessionId: created.id, agentId: 'main' }),
+      rpc.getContextTokenCount({ sessionId: created.id, agentId: 'main' }),
+    ]);
+
+    expect(count.tokenCount).toBe(37);
+    expect(count.tokenCount).toBe(context.tokenCount);
+  });
+
   it('rejects createSession when shell runtime initialization fails', async () => {
     tmp = await mkdtemp(join(tmpdir(), 'pythinker-core-runtime-'));
     const homeDir = join(tmp, 'home');

@@ -1,4 +1,5 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import type { PathLike, Stats } from 'node:fs';
+import { mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'pathe';
 
@@ -7,9 +8,27 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ErrorCodes } from '../../src/errors';
 import { SessionStore } from '../../src/session/store';
 
+type StatFunction = (path: PathLike) => Promise<Stats>;
+
+const statControl = vi.hoisted(() => ({
+  actual: undefined as StatFunction | undefined,
+  implementation: undefined as StatFunction | undefined,
+}));
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
+  const actualStat = actual.stat as StatFunction;
+  statControl.actual = actualStat;
+  return {
+    ...actual,
+    stat: (path: PathLike) => (statControl.implementation ?? actualStat)(path),
+  };
+});
+
 const tempDirs: string[] = [];
 
 afterEach(async () => {
+  statControl.implementation = undefined;
   for (const dir of tempDirs.splice(0)) {
     await rm(dir, { recursive: true, force: true });
   }
@@ -56,6 +75,14 @@ async function createCurrentSession(
       'utf-8',
     );
   });
+}
+
+function deferred(): { readonly promise: Promise<void>; readonly resolve: () => void } {
+  let resolve!: () => void;
+  const promise = new Promise<void>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
 }
 
 describe('SessionStore persisted-state boundary', () => {
@@ -168,6 +195,127 @@ describe('SessionStore persisted-state boundary', () => {
     await expect(store.get(invalid.id)).rejects.toMatchObject({
       code: ErrorCodes.SESSION_STATE_INVALID,
     });
+  });
+
+  it('lists all sessions with bounded overlap while preserving order and filtering', async () => {
+    const homeDir = await makeTempDir();
+    const workDir = await makeTempDir();
+    const store = new SessionStore(homeDir);
+    const valid = await Promise.all(
+      Array.from({ length: 10 }, (_, index) =>
+        createCurrentSession(store, { id: `ses_concurrent_${String(index)}`, workDir }),
+      ),
+    );
+    const archived = await createCurrentSession(store, { id: 'ses_concurrent_archived', workDir });
+    const invalid = await createCurrentSession(store, { id: 'ses_concurrent_invalid', workDir });
+    await writeFile(
+      join(archived.sessionDir, 'state.json'),
+      `${JSON.stringify(currentState({ archived: true }))}\n`,
+      'utf-8',
+    );
+    await writeFile(join(invalid.sessionDir, 'state.json'), '{"title":"old"}\n', 'utf-8');
+
+    const ordered = [...valid, archived];
+    const baseMtime = Date.now() + 60_000;
+    await Promise.all(
+      ordered.map((session, index) =>
+        utimes(
+          join(session.sessionDir, 'agents', 'main', 'wire.jsonl'),
+          new Date(baseMtime + index * 1_000),
+          new Date(baseMtime + index * 1_000),
+        ),
+      ),
+    );
+
+    const targetDirs = new Set([...ordered, invalid].map((session) => session.sessionDir));
+    const gatedDirs = new Set<string>();
+    const firstStarted = deferred();
+    const gate = deferred();
+    let active = 0;
+    let peak = 0;
+    const actualStat = statControl.actual!;
+    statControl.implementation = async (path) => {
+      const value = String(path);
+      if (targetDirs.has(value) && !gatedDirs.has(value)) {
+        gatedDirs.add(value);
+        active += 1;
+        peak = Math.max(peak, active);
+        firstStarted.resolve();
+        await gate.promise;
+        active -= 1;
+      }
+      return actualStat(path);
+    };
+
+    const listing = store.list();
+    try {
+      await firstStarted.promise;
+      gate.resolve();
+      const visible = await listing;
+      const withArchive = await store.list({ includeArchive: true });
+
+      expect(peak).toBeGreaterThan(1);
+      expect(peak).toBeLessThanOrEqual(8);
+      expect(visible.map((session) => session.id)).toEqual(valid.toReversed().map((session) => session.id));
+      expect(withArchive.map((session) => session.id)).toEqual(
+        ordered.toReversed().map((session) => session.id),
+      );
+      expect(withArchive.map((session) => session.id)).not.toContain(invalid.id);
+    } finally {
+      gate.resolve();
+      statControl.implementation = undefined;
+    }
+  });
+
+  it('finds the newest agent wire mtime with bounded overlap', async () => {
+    const homeDir = await makeTempDir();
+    const workDir = await makeTempDir();
+    const store = new SessionStore(homeDir);
+    const session = await createCurrentSession(store, { id: 'ses_agent_mtimes', workDir });
+    const wirePaths = await Promise.all(
+      Array.from({ length: 12 }, async (_, index) => {
+        const agentId = index === 0 ? 'main' : `agent-${String(index)}`;
+        const agentDir = join(session.sessionDir, 'agents', agentId);
+        const wirePath = join(agentDir, 'wire.jsonl');
+        await mkdir(agentDir, { recursive: true });
+        await writeFile(wirePath, '{}\n', 'utf-8');
+        const mtime = new Date(Date.now() + 60_000 + index * 1_000);
+        await utimes(wirePath, mtime, mtime);
+        return wirePath;
+      }),
+    );
+    const newestMtime = (await stat(wirePaths.at(-1)!)).mtimeMs;
+
+    const targetWires = new Set(wirePaths);
+    const firstStarted = deferred();
+    const gate = deferred();
+    let active = 0;
+    let peak = 0;
+    const actualStat = statControl.actual!;
+    statControl.implementation = async (path) => {
+      if (targetWires.has(String(path))) {
+        active += 1;
+        peak = Math.max(peak, active);
+        firstStarted.resolve();
+        await gate.promise;
+        active -= 1;
+      }
+      return actualStat(path);
+    };
+
+    const summaryPromise = store.get(session.id);
+    try {
+      await firstStarted.promise;
+      gate.resolve();
+      const summary = await summaryPromise;
+
+      expect(peak).toBeGreaterThan(1);
+      expect(peak).toBeLessThanOrEqual(8);
+      expect(summary.updatedAt).toBe(newestMtime);
+    } finally {
+      gate.resolve();
+      statControl.implementation = undefined;
+    }
   });
 
   it('accepts archived state and preserves forkedFrom in a strict fork', async () => {

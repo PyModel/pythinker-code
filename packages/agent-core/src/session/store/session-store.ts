@@ -10,6 +10,8 @@ import type { JsonObject, ListSessionsPayload, SessionSummary } from '#/rpc/core
 import { FileSystemAgentRecordPersistence, type AgentRecordOf } from '../../agent/records';
 
 const FORKED_SESSION_DROPPED_FILES = ['upcoming-goals.json'] as const;
+// Keep large homes from flooding the shared libuv filesystem threadpool.
+const FILESYSTEM_SCAN_CONCURRENCY = 8;
 
 export interface CreateSessionRecordInput {
   readonly id: string;
@@ -226,14 +228,22 @@ export class SessionStore {
 
   private async listAll(includeArchive: boolean): Promise<readonly SessionSummary[]> {
     const index = await readSessionIndex(this.homeDir, this.sessionsDir);
-    const sessions: SessionSummary[] = [];
-    for (const entry of index.values()) {
-      if (!(await isDirectory(entry.sessionDir))) continue;
-      const summary = await this.trySummaryFromDir(entry.sessionId, entry.sessionDir, entry.workDir);
-      if (summary === undefined) continue;
-      if (!includeArchive && summary.archived === true) continue;
-      sessions.push(summary);
-    }
+    const summaries = await mapWithConcurrency(
+      [...index.values()],
+      FILESYSTEM_SCAN_CONCURRENCY,
+      async (entry) => {
+        if (!(await isDirectory(entry.sessionDir))) return undefined;
+        const summary = await this.trySummaryFromDir(
+          entry.sessionId,
+          entry.sessionDir,
+          entry.workDir,
+        );
+        if (summary === undefined) return undefined;
+        if (!includeArchive && summary.archived === true) return undefined;
+        return summary;
+      },
+    );
+    const sessions = summaries.filter((summary): summary is SessionSummary => summary !== undefined);
     sessions.sort(compareSessionSummary);
     return sessions;
   }
@@ -410,13 +420,34 @@ async function latestAgentWireMtime(sessionDir: string): Promise<number | undefi
     return undefined;
   }
 
-  let latest = 0;
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    const wireInfo = await statIfExists(join(agentsDir, entry.name, 'wire.jsonl'));
-    latest = Math.max(latest, wireInfo?.mtimeMs ?? 0);
-  }
+  const mtimes = await mapWithConcurrency(entries, FILESYSTEM_SCAN_CONCURRENCY, async (entry) => {
+    if (!entry.isDirectory()) return 0;
+    return (await statIfExists(join(agentsDir, entry.name, 'wire.jsonl')))?.mtimeMs ?? 0;
+  });
+  const latest = mtimes.reduce((maximum, mtime) => Math.max(maximum, mtime), 0);
   return latest > 0 ? latest : undefined;
+}
+
+async function mapWithConcurrency<T, U>(
+  items: readonly T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<U>,
+): Promise<U[]> {
+  const results: U[] = [];
+  results.length = items.length;
+  let nextIndex = 0;
+  const workerCount = Math.min(concurrency, items.length);
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (true) {
+        const index = nextIndex;
+        nextIndex += 1;
+        if (index >= items.length) return;
+        results[index] = await mapper(items[index] as T, index);
+      }
+    }),
+  );
+  return results;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
