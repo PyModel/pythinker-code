@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getModelCapability } from '@pymodel/kosong';
 
 import type {
   CoreRPC,
