@@ -408,9 +408,11 @@ describe('Composer model dropdown', () => {
     const pill = wrapper.get('.model-pill');
     const rect = vi.spyOn(pill.element, 'getBoundingClientRect');
 
+    // A pill near the top of the viewport used to get a 160px menu that reached
+    // above the viewport edge, so its upper entries could not be scrolled to.
     rect.mockReturnValue({ top: 20 } as DOMRect);
     await pill.trigger('click');
-    expect(wrapper.get('.model-dropdown').element.style.maxHeight).toBe('160px');
+    expect(wrapper.get('.model-dropdown').element.style.maxHeight).toBe('4px');
 
     rect.mockReturnValue({ top: 300 } as DOMRect);
     await pill.trigger('click');
