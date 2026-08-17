@@ -703,7 +703,7 @@ function setUiFontSize(value: number): void {
 }
 
 // ---------------------------------------------------------------------------
-// Beta: proportional conversation TOC with viewport indicator and hover tooltip.
+// Beta: prompt anchor rail — one tick per user prompt, with a hover tooltip.
 // Default on; persisted per browser.
 // ---------------------------------------------------------------------------
 const BETA_TOC_STORAGE_KEY = 'pythinker-web.beta-toc';

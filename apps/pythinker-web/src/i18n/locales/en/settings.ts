@@ -58,5 +58,5 @@ export default {
   exportLogBtn: 'Export log',
   beta: 'Experimental',
   betaToc: 'Prompt anchor rail',
-  betaTocHint: ' Prompt ticks, viewport indicator, and reply previews',
+  betaTocHint: ' Prompt ticks with hover previews, active tick follows the view',
 };
