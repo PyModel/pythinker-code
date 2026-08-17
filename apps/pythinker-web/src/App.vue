@@ -611,7 +611,11 @@ const showAddWorkspace = ref(false);
 const showStatusPanel = ref(false);
 const showSettings = ref(false);
 
-const { activeTab: activeSettingsTab, setTab: selectSettingsTab } = useSettingsNav({
+const {
+  activeTab: activeSettingsTab,
+  setTab: selectSettingsTab,
+  refreshActiveTab: refreshSettingsTab,
+} = useSettingsNav({
   counts: {
     connectors: () => client.connectors.value.length,
     plugins: () => client.plugins.value.length,
@@ -622,8 +626,16 @@ const { activeTab: activeSettingsTab, setTab: selectSettingsTab } = useSettingsN
   onLoadSubagents: () => { void client.loadSubagents(); },
 });
 
+function openSettings(): void {
+  showSettings.value = true;
+  // The active tab persists across visits, so its data has to be refetched on
+  // open — the session it was loaded for may no longer be the active one.
+  refreshSettingsTab();
+}
+
 function toggleSettings(): void {
-  showSettings.value = !showSettings.value;
+  if (showSettings.value) showSettings.value = false;
+  else openSettings();
 }
 
 function loginFromSettings(): void {
@@ -961,7 +973,7 @@ function openPr(url: string): void {
         @rename-workspace="(id, name) => client.renameWorkspace(id, name)"
         @delete-workspace="(id) => client.deleteWorkspace(id)"
         @select-workspaces="handleSelectWorkspaces"
-        @open-settings="showSettings = true"
+        @open-settings="openSettings"
         @close-settings="showSettings = false"
         @select-settings-tab="selectSettingsTab($event)"
         @collapse="toggleSidebarCollapse"

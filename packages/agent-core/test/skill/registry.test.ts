@@ -197,6 +197,27 @@ describe('disabled skills', () => {
 
     expect(registry.getSkill('loop')).toBeUndefined();
   });
+
+  it('never indexes a disabled plugin skill discovered from a root', async () => {
+    // Discovery indexes plugin skills before `register` runs, so a disabled one
+    // stays reachable through `getPluginSkill` unless the check repeats there.
+    const disabled = { ...makeSkill('deploy', 'extra'), plugin: { id: 'acme' } };
+    const kept = { ...makeSkill('rollback', 'extra'), plugin: { id: 'acme' } };
+    const registry = new SessionSkillRegistry({
+      disabledNames: ['Deploy'],
+      discover: async (options) => {
+        options.onDiscoveredSkill?.(disabled);
+        options.onDiscoveredSkill?.(kept);
+        return [disabled, kept];
+      },
+    });
+
+    await registry.loadRoots([{ path: '/tmp/plugins', source: 'extra' }]);
+
+    expect(registry.getPluginSkill('acme', 'deploy')).toBeUndefined();
+    expect(registry.getSkill('deploy')).toBeUndefined();
+    expect(registry.getPluginSkill('acme', 'rollback')).toBeDefined();
+  });
 });
 
 function makeRegistry(skills: readonly SkillDefinition[]): SessionSkillRegistry {

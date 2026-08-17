@@ -3,7 +3,9 @@ import { nextTick } from 'vue';
 import { createI18n } from 'vue-i18n';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import App from '../src/App.vue';
 import type { AppConfig, AppConnector, AppModel, AppSession, AppSkill } from '../src/api/types';
+import ConversationPane from '../src/components/ConversationPane.vue';
 import SettingsNav from '../src/components/settings/SettingsNav.vue';
 import SettingsPane from '../src/components/settings/SettingsPane.vue';
 import { messages } from '../src/i18n/locales';
@@ -81,9 +83,6 @@ vi.mock('../src/composables/usePythinkerWebClient', async () => {
     }),
   };
 });
-
-import App from '../src/App.vue';
-import ConversationPane from '../src/components/ConversationPane.vue';
 
 const i18n = createI18n({
   legacy: false,
@@ -240,6 +239,35 @@ describe('settings navigation', () => {
     setTab('subagents');
     expect(onLoadSubagents).toHaveBeenCalledOnce();
   });
+
+  it('reloads subagents even when a list is already cached', () => {
+    // The cached list belongs to whichever session was active when it loaded,
+    // so a non-empty count must not suppress the refetch.
+    const onLoadSubagents = vi.fn();
+    const { setTab } = useSettingsNav({
+      counts: { connectors: 0, plugins: 0, subagents: 3 },
+      onLoadConnectors: vi.fn(),
+      onLoadPlugins: vi.fn(),
+      onLoadSubagents,
+    });
+
+    setTab('subagents');
+    expect(onLoadSubagents).toHaveBeenCalledOnce();
+  });
+
+  it('reloads the persisted tab when the settings route reopens', () => {
+    const onLoadSubagents = vi.fn();
+    const { setTab, refreshActiveTab } = useSettingsNav({
+      counts: { connectors: 0, plugins: 0, subagents: 3 },
+      onLoadConnectors: vi.fn(),
+      onLoadPlugins: vi.fn(),
+      onLoadSubagents,
+    });
+
+    setTab('subagents');
+    refreshActiveTab();
+    expect(onLoadSubagents).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('SettingsPane config controls', () => {
@@ -297,6 +325,19 @@ describe('SettingsPane desktop updates', () => {
   });
 });
 
+describe('SettingsPane agent page', () => {
+  it('keeps a configured default the catalog no longer offers', () => {
+    // Without a matching option the browser shows its first one, which reads
+    // as a saved default that was never chosen.
+    const wrapper = mountPane('agent', { config: { ...config, defaultModel: 'retired/model' } });
+    const select = wrapper.get('#settings-panel-agent select.select-field');
+
+    expect(select.findAll('option').map((option) => option.attributes('value')))
+      .toContain('retired/model');
+    expect((select.element as HTMLSelectElement).value).toBe('retired/model');
+  });
+});
+
 describe('SettingsPane skills page', () => {
   it('groups skills by source and marks the slash-only ones', () => {
     const panel = mountPane('skills', { skills }).get('#settings-panel-skills');
@@ -308,6 +349,23 @@ describe('SettingsPane skills page', () => {
 
   it('says so when no skill is available', () => {
     expect(mountPane('skills').get('#settings-panel-skills').text()).toContain('No skills are available');
+  });
+
+  it('reads a disabled name that is cased differently as off, and clears it once', async () => {
+    // The core lowercases disabled names, so a config entry cased differently
+    // from the catalog still disables the skill and the page has to agree.
+    const wrapper = mountPane('skills', {
+      skills,
+      config: { ...config, disabledSkills: ['Gen-Changesets'] },
+    });
+    const row = wrapper.get('#settings-panel-skills').findAll('.listing-row')
+      .find((candidate) => candidate.text().includes('gen-changesets'));
+
+    expect(row?.classes()).toContain('off');
+
+    await row?.get('button.switch').trigger('click');
+
+    expect(wrapper.emitted('updateConfig')?.at(-1)).toEqual([{ disabledSkills: [] }]);
   });
 });
 

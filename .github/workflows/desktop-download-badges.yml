@@ -50,6 +50,8 @@ jobs:
             gh api --paginate "repos/${repo}/releases"
           done | jq -s 'add' > releases.json
 
+          # An empty suffix matches every asset, which is what the combined
+          # counter wants; `endswith("")` is true for any string.
           write_badge() {
             local suffix="$1" label="$2" out="$3"
             local total
@@ -70,18 +72,23 @@ jobs:
 
           write_badge '.dmg' 'macOS .dmg' desktop-dmg.json
           write_badge '.exe' 'Windows .exe' desktop-exe.json
+          # The shields `github/downloads/.../total` route reads one repository,
+          # so the combined counter has to be summed here like the other two.
+          write_badge '' 'desktop' desktop-total.json
 
           rm -f releases.json
 
       - name: Publish if the counts moved
         run: |
           set -euo pipefail
-          if git diff --quiet -- desktop-dmg.json desktop-exe.json; then
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          # Stage before comparing: a document added in this run is untracked,
+          # and `git diff` on an untracked path reports no change at all.
+          git add desktop-dmg.json desktop-exe.json desktop-total.json
+          if git diff --cached --quiet; then
             echo 'Counts unchanged; nothing to publish.'
             exit 0
           fi
-          git config user.name 'github-actions[bot]'
-          git config user.email 'github-actions[bot]@users.noreply.github.com'
-          git add desktop-dmg.json desktop-exe.json
           git commit -m 'chore: refresh desktop download counts'
           git push origin badges

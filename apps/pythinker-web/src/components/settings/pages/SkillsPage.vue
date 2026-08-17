@@ -35,18 +35,22 @@ const skillGroups = computed(() => {
     .toSorted((a, b) => a.source.localeCompare(b.source));
 });
 
-const disabledSkills = computed(() => new Set(props.config?.disabledSkills ?? []));
+// The core matches disabled names case-insensitively, so the page has to as
+// well — otherwise a config entry cased differently from the catalog reads as
+// enabled here and the switch never turns it back on.
+const disabledSkills = computed(() => props.config?.disabledSkills ?? []);
 const skillCount = computed(() => skillGroups.value.reduce((sum, group) => sum + group.skills.length, 0));
 
 function isSkillEnabled(name: string): boolean {
-  return !disabledSkills.value.has(name);
+  const key = name.toLowerCase();
+  return !disabledSkills.value.some((entry) => entry.toLowerCase() === key);
 }
 
 function toggleSkill(name: string): void {
-  const next = new Set(disabledSkills.value);
-  if (next.has(name)) next.delete(name);
-  else next.add(name);
-  emit('updateConfig', { disabledSkills: [...next].sort() });
+  const key = name.toLowerCase();
+  const next = disabledSkills.value.filter((entry) => entry.toLowerCase() !== key);
+  if (next.length === disabledSkills.value.length) next.push(name);
+  emit('updateConfig', { disabledSkills: next.toSorted() });
 }
 </script>
 

@@ -167,6 +167,9 @@ export class SessionSkillRegistry implements AgentSkillRegistry {
     options: { readonly replace?: boolean } = {},
   ): void {
     if (skill.plugin === undefined) return;
+    // Discovery indexes plugin skills before `register` runs, so the disabled
+    // check has to repeat here or `getPluginSkill` would still hand one back.
+    if (this.disabledNames.has(normalizeSkillName(skill.name))) return;
     const key = pluginSkillKey(skill.plugin.id, skill.name);
     if (options.replace === true || !this.byPluginAndName.has(key)) {
       this.byPluginAndName.set(key, skill);

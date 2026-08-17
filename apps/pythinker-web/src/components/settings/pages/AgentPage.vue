@@ -39,6 +39,14 @@ const modelOptions = computed<ModelOption[]>(() => {
   return Array.from(byId.values());
 });
 
+// A default the catalog no longer offers still has to appear, or the browser
+// falls back to the first option and shows a model that was never saved.
+const unlistedDefaultModel = computed<string | undefined>(() => {
+  const configured = props.config?.defaultModel;
+  if (configured === undefined || configured === '') return undefined;
+  return modelOptions.value.some((model) => model.id === configured) ? undefined : configured;
+});
+
 const modelGroups = computed<Array<{ provider: string; options: ModelOption[] }>>(() => {
   const map = new Map<string, ModelOption[]>();
   for (const option of modelOptions.value) {
@@ -122,6 +130,7 @@ function toggleConfigBoolean(key: 'defaultThinking' | 'defaultPlanMode' | 'merge
             @change="setDefaultModel"
           >
             <option v-if="!config.defaultModel" value="" disabled>{{ t('settings.noDefaultModel') }}</option>
+            <option v-if="unlistedDefaultModel" :value="unlistedDefaultModel">{{ unlistedDefaultModel }}</option>
             <optgroup v-for="group in modelGroups" :key="group.provider" :label="group.provider">
               <option v-for="model in group.options" :key="model.id" :value="model.id">{{ model.label }}</option>
             </optgroup>

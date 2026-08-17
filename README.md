@@ -11,7 +11,7 @@
 
 [![npm version](https://img.shields.io/npm/v/@pymodel/pythinker-code?style=for-the-badge&logo=npm&logoColor=white&color=CB3837&label=pythinker-code)](https://www.npmjs.com/package/@pymodel/pythinker-code)
 [![Downloads](https://img.shields.io/npm/dm/@pymodel/pythinker-code?style=for-the-badge&logo=npm&logoColor=white&color=2b89ff&label=downloads)](https://www.npmjs.com/package/@pymodel/pythinker-code)
-[![Desktop downloads](https://img.shields.io/github/downloads/PyModel/pythinker-desktop-releases/total?style=for-the-badge&logo=github&logoColor=white&label=desktop&color=4D6BFE)](https://github.com/PyModel/pythinker-desktop-releases/releases)
+[![Desktop downloads](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FPyModel%2Fpythinker-code%2Fbadges%2Fdesktop-total.json&style=for-the-badge&logo=github&logoColor=white)](https://github.com/PyModel/pythinker-desktop-releases/releases)
 [![macOS .dmg](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FPyModel%2Fpythinker-code%2Fbadges%2Fdesktop-dmg.json&style=for-the-badge&logo=apple&logoColor=white)](https://github.com/PyModel/pythinker-desktop-releases/releases/latest)
 [![Windows .exe](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FPyModel%2Fpythinker-code%2Fbadges%2Fdesktop-exe.json&style=for-the-badge&logo=windows&logoColor=white)](https://github.com/PyModel/pythinker-desktop-releases/releases/latest)
 [![Node.js](https://img.shields.io/badge/Node.js-26%2B-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)](https://github.com/PyModel/pythinker-code/blob/main/package.json)

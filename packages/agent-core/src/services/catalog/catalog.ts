@@ -1,20 +1,3 @@
-/**
- * `ICatalogService` — daemon-facing view of what the agent can reach beyond
- * skills and MCP servers: installed plugins and the subagent profiles.
- *
- * Both are read from the core process and both are global rather than
- * session-scoped, so they share one service instead of two near-identical
- * wrappers around `ICoreProcessService.rpc`.
- *
- * **CoreAPI surface used**:
- *   - `core.rpc.listPlugins({})` → `readonly PluginSummary[]`
- *   - `core.rpc.setPluginEnabled({id, enabled})`
- *   - `core.rpc.listAgentProfiles({workDir})` → `AgentProfileCatalog`
- *
- * **Anti-corruption**: imports `@pymodel/agent-core` internals only for the
- * `createDecorator` value and the rpc payload types.
- */
-
 import { createDecorator } from '../../di';
 import type { AgentProfileSummary } from '../../rpc';
 import type { PluginSummary } from '../../plugin';

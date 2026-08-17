@@ -57,12 +57,24 @@ type UseSettingsNavOptions = {
 export function useSettingsNav(options: UseSettingsNavOptions) {
   const activeTab = shallowRef<SettingsTab>('general');
 
-  function setTab(tab: SettingsTab): void {
+  function loadFor(tab: SettingsTab): void {
     if (tab === 'connectors' && toValue(options.counts.connectors) === 0) options.onLoadConnectors();
     if (tab === 'plugins' && toValue(options.counts.plugins) === 0) options.onLoadPlugins();
-    if (tab === 'subagents' && toValue(options.counts.subagents) === 0) options.onLoadSubagents();
+    // Connectors and plugins are daemon-wide, so one load holds. Subagents are
+    // resolved from the active session's working directory, so a cached list
+    // belongs to whichever session was active when it loaded — always refetch.
+    if (tab === 'subagents') options.onLoadSubagents();
+  }
+
+  function setTab(tab: SettingsTab): void {
+    loadFor(tab);
     activeTab.value = tab;
   }
 
-  return { activeTab, setTab };
+  /** Call when the settings route opens; the active tab persists across visits. */
+  function refreshActiveTab(): void {
+    loadFor(activeTab.value);
+  }
+
+  return { activeTab, setTab, refreshActiveTab };
 }
