@@ -451,9 +451,11 @@ defineExpose({ loadForEdit });
   border: 1px solid var(--line);
   cursor: pointer;
 }
+/* Opaque on purpose: the chip floats over the conversation, so a translucent
+   wash would let the text behind it show through. */
 .dock-work-chip:hover,
 .dock-work-chip.on {
-  background: var(--hover-bg);
+  background: color-mix(in srgb, var(--ink) 6%, var(--panel));
   color: var(--ink);
 }
 .dock-work-chip svg {
