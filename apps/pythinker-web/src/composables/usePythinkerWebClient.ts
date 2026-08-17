@@ -21,6 +21,7 @@ import type {
   AppConnector,
   AppPlugin,
   AppSkill,
+  AppTool,
   AppSubagent,
   AppTask,
   AppWarning,
@@ -524,6 +525,9 @@ const starredModelIds = ref<string[]>(loadStarredModelsFromStorage());
 // Session-scoped skills (slash-invocable). Loaded lazily per session; the active
 // session's list feeds the composer's `/` menu.
 const skillsBySession = ref<Record<string, AppSkill[]>>({});
+const skillsLoadingBySession = ref<Record<string, boolean>>({});
+const toolsBySession = ref<Record<string, AppTool[]>>({});
+const toolsLoadingBySession = ref<Record<string, boolean>>({});
 const providers = ref<AppProvider[]>([]);
 
 // CSS handles the spinner frames; this only flips the spinner between normal and
@@ -667,6 +671,39 @@ function persistSessionProfile(patch: {
       // that the daemon did not persist it.
       pushOperationFailure('persistSessionProfile', error, { sessionId: sid });
     });
+}
+
+/** Persist the selected tools and MCP servers with optimistic local state. */
+async function updateCapabilities(input: {
+  tools?: string[];
+  mcpServers?: string[];
+}): Promise<void> {
+  const sid = rawState.activeSessionId;
+  if (!sid) return;
+  const previous = rawState.sessions.find((session) => session.id === sid);
+  if (!previous) return;
+
+  rawState.sessions = rawState.sessions.map((session) =>
+    session.id === sid
+      ? {
+          ...session,
+          tools: input.tools !== undefined ? input.tools : session.tools,
+          mcpServers: input.mcpServers !== undefined ? input.mcpServers : session.mcpServers,
+        }
+      : session,
+  );
+
+  try {
+    await getPythinkerWebApi().updateSession(sid, input);
+  } catch (error) {
+    rawState.sessions = rawState.sessions.map((session) =>
+      session.id === sid
+        ? { ...session, tools: previous.tools, mcpServers: previous.mcpServers }
+        : session,
+    );
+    pushOperationFailure('updateCapabilities', error, { sessionId: sid });
+    throw error;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1458,6 +1495,7 @@ function stopTaskOutputPolling(): void {
 }
 
 async function loadSkillsForSession(sessionId: string): Promise<void> {
+  skillsLoadingBySession.value = { ...skillsLoadingBySession.value, [sessionId]: true };
   try {
     const api = getPythinkerWebApi();
     const list = await api.listSkills(sessionId);
@@ -1465,6 +1503,20 @@ async function loadSkillsForSession(sessionId: string): Promise<void> {
   } catch {
     // Skills are side data; an older daemon without /skills just yields no
     // slash-skills, the built-in commands still work.
+  } finally {
+    skillsLoadingBySession.value = { ...skillsLoadingBySession.value, [sessionId]: false };
+  }
+}
+
+async function loadToolsForSession(sessionId: string): Promise<void> {
+  toolsLoadingBySession.value = { ...toolsLoadingBySession.value, [sessionId]: true };
+  try {
+    const list = await getPythinkerWebApi().listTools(sessionId);
+    toolsBySession.value = { ...toolsBySession.value, [sessionId]: list };
+  } catch {
+    toolsBySession.value = { ...toolsBySession.value, [sessionId]: [] };
+  } finally {
+    toolsLoadingBySession.value = { ...toolsLoadingBySession.value, [sessionId]: false };
   }
 }
 
@@ -1486,24 +1538,47 @@ async function loadConnectors(): Promise<void> {
 }
 
 const plugins = ref<AppPlugin[]>([]);
+const pluginsLoading = ref(false);
 const subagents = ref<AppSubagent[]>([]);
 
 async function loadPlugins(): Promise<void> {
+  pluginsLoading.value = true;
   try {
     plugins.value = await getPythinkerWebApi().listPlugins();
   } catch {
     // An older daemon has no /plugins; an empty list is the honest answer.
     plugins.value = [];
+  } finally {
+    pluginsLoading.value = false;
   }
 }
 
 async function setPluginEnabled(pluginId: string, enabled: boolean): Promise<void> {
+  const previous = plugins.value.find((plugin) => plugin.id === pluginId)?.enabled;
+  plugins.value = plugins.value.map((plugin) =>
+    plugin.id === pluginId ? { ...plugin, enabled } : plugin,
+  );
   try {
     await getPythinkerWebApi().setPluginEnabled(pluginId, enabled);
-  } catch {
-    // The reload below reports whatever state the daemon ended up in.
+  } catch (error) {
+    if (previous !== undefined) {
+      plugins.value = plugins.value.map((plugin) =>
+        plugin.id === pluginId ? { ...plugin, enabled: previous } : plugin,
+      );
+    }
+    pushOperationFailure('setPluginEnabled', error);
+    return;
   }
   await loadPlugins();
+}
+
+async function loadCapabilityData(sessionId: string): Promise<void> {
+  await Promise.all([
+    loadToolsForSession(sessionId),
+    loadSkillsForSession(sessionId),
+    loadConnectors(),
+    loadPlugins(),
+  ]);
 }
 
 async function loadSubagents(): Promise<void> {
@@ -1866,6 +1941,14 @@ const sessions = computed<Session[]>(() => {
 });
 
 const activeSessionId = computed<string>(() => rawState.activeSessionId ?? '');
+
+const activeSessionCapabilities = computed(() => {
+  const session = rawState.sessions.find((candidate) => candidate.id === rawState.activeSessionId);
+  return {
+    tools: session?.tools,
+    mcpServers: session?.mcpServers,
+  };
+});
 
 /** Slash-invocable skills for the active session (feeds the composer `/` menu). */
 const skills = computed<AppSkill[]>(() => {
@@ -4279,6 +4362,7 @@ export function usePythinkerWebClient() {
     workspace,
     sessions,
     activeSessionId,
+    activeSessionCapabilities,
 
     // Workspace view props
     workspacesView,
@@ -4434,10 +4518,16 @@ export function usePythinkerWebClient() {
     loadModels,
     loadProviders,
     skills,
+    skillsLoadingBySession,
+    toolsBySession,
+    toolsLoadingBySession,
+    loadCapabilityData,
+    updateCapabilities,
     activateSkill,
     connectors,
     connectorsLoading,
     plugins,
+    pluginsLoading,
     loadPlugins,
     setPluginEnabled,
     subagents,

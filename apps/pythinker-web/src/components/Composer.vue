@@ -4,6 +4,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import SlashMenu from './SlashMenu.vue';
 import MentionMenu from './MentionMenu.vue';
+import CapabilityMenu from './CapabilityMenu.vue';
 import type { SlashCommand } from '../lib/slashCommands';
 import { buildSlashItems, filterCommands, parseSlash } from '../lib/slashCommands';
 import type { FileItem } from './MentionMenu.vue';
@@ -1079,6 +1080,7 @@ function selectModel(modelId: string): void {
             <svg class="attach-icon" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="M8 3v10M3 8h10"/></svg>
           </button>
           <span v-if="hasUpload" class="toolbar-divider" aria-hidden="true" />
+          <CapabilityMenu v-if="sessionId" :session-id="sessionId" />
 
           <!-- Permission pill — click to open dropdown -->
           <span
