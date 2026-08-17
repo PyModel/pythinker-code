@@ -617,6 +617,30 @@ export interface AppHook {
   async?: boolean;
 }
 
+/** One installed plugin. */
+export interface AppPlugin {
+  id: string;
+  displayName: string;
+  version?: string;
+  enabled: boolean;
+  state: string;
+  skillCount: number;
+  mcpServerCount: number;
+  hasErrors: boolean;
+  source: string;
+}
+
+/** One subagent profile the agent can dispatch work to. */
+export interface AppSubagent {
+  name: string;
+  description?: string;
+  source: 'built-in' | 'plugin' | 'user' | 'project';
+  tools: string[];
+  model?: string;
+  effort?: string;
+  whenToUse?: string;
+}
+
 /** A configured MCP server ("connector") and its live connection state. */
 export interface AppConnector {
   id: string;
@@ -668,6 +692,12 @@ export interface PythinkerWebApi {
   listConnectors(): Promise<AppConnector[]>;
   /** Restart one MCP server — POST /mcp/servers/{id}:restart. */
   restartConnector(connectorId: string): Promise<{ restarting: true }>;
+  /** Installed plugins — GET /plugins. */
+  listPlugins(): Promise<AppPlugin[]>;
+  /** Enable or disable a plugin — POST /plugins/{id}:set-enabled. */
+  setPluginEnabled(pluginId: string, enabled: boolean): Promise<{ id: string; enabled: boolean }>;
+  /** Subagent profiles for a working directory — GET /agent-profiles. */
+  listSubagents(workDir: string): Promise<AppSubagent[]>;
   listTasks(sessionId: string, status?: AppTaskStatus): Promise<AppTask[]>;
   getTask(sessionId: string, taskId: string, input?: { withOutput?: boolean; outputBytes?: number }): Promise<AppTask>;
   cancelTask(sessionId: string, taskId: string): Promise<{ cancelled: true }>;

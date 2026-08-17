@@ -16,6 +16,7 @@ import { registerPromptsRoutes } from './prompts';
 import { registerQuestionsRoutes } from './questions';
 import { registerSessionsRoutes } from './sessions';
 import { registerShutdownRoutes } from './shutdown';
+import { registerCatalogRoutes } from './catalog';
 import { registerSkillsRoutes } from './skills';
 import { registerSnapshotRoutes } from './snapshot';
 import { registerTasksRoutes } from './tasks';
@@ -91,6 +92,7 @@ export async function registerApiV1Routes(
     );
     registerToolsRoutes(apiV1 as unknown as Parameters<typeof registerToolsRoutes>[0], ix);
     registerSkillsRoutes(apiV1 as unknown as Parameters<typeof registerSkillsRoutes>[0], ix);
+    registerCatalogRoutes(apiV1 as unknown as Parameters<typeof registerCatalogRoutes>[0], ix);
     registerTasksRoutes(apiV1 as unknown as Parameters<typeof registerTasksRoutes>[0], ix);
     registerTerminalsRoutes(
       apiV1 as unknown as Parameters<typeof registerTerminalsRoutes>[0],

@@ -30,6 +30,7 @@ export * from './rest/message';
 export * from './rest/prompt';
 export * from './rest/approval';
 export * from './rest/question';
+export * from './rest/catalog';
 export * from './rest/tool';
 export * from './rest/skill';
 export * from './rest/task';

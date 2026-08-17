@@ -8,7 +8,9 @@ export default {
   tabs: {
     general: 'General',
     agent: 'Agent',
+    plugins: 'Plugins',
     skills: 'Skills',
+    subagents: 'Subagents',
     connectors: 'Connectors',
     hooks: 'Hooks',
     usage: 'Usage stats',
@@ -37,6 +39,20 @@ export default {
       disconnected: 'Disconnected.',
       error: 'Failed to connect.',
     },
+  },
+  plugins: {
+    title: 'Plugins',
+    note: 'Installed plugins and the skills and MCP servers each one contributes.',
+    empty: 'No plugins are installed.',
+    counts: '{skills} skills · {servers} servers',
+    hasErrors: 'This plugin reported errors while loading.',
+    toggleAria: 'Enable {name}',
+  },
+  subagents: {
+    title: 'Subagents',
+    note: 'Profiles the agent can dispatch work to, resolved from the active session folder.',
+    empty: 'No subagent profiles were found. Open a session to resolve them.',
+    tools: '{count} tools',
   },
   hooks: {
     title: 'Hooks',

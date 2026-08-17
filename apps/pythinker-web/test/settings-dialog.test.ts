@@ -408,3 +408,91 @@ describe('SettingsDialog usage page', () => {
     expect(panel.findAll('.listing-meta').map((meta) => meta.text())).toEqual(['50%', '50%']);
   });
 });
+
+describe('SettingsDialog plugins page', () => {
+  const plugins = [
+    {
+      id: 'plg_1',
+      displayName: 'Cloudflare',
+      version: '1.2.0',
+      enabled: true,
+      state: 'loaded',
+      skillCount: 3,
+      mcpServerCount: 2,
+      hasErrors: false,
+      source: 'github',
+    },
+    {
+      id: 'plg_2',
+      displayName: 'Designer',
+      enabled: false,
+      state: 'disabled',
+      skillCount: 1,
+      mcpServerCount: 0,
+      hasErrors: true,
+      source: 'local',
+    },
+  ];
+
+  it('loads plugins the first time the page is opened', async () => {
+    const wrapper = mountDialog();
+    await openTab(wrapper, 'Plugins');
+
+    expect(wrapper.emitted('loadPlugins')).toHaveLength(1);
+  });
+
+  it('shows each plugin with its counts and toggles one', async () => {
+    const wrapper = mountDialog({ plugins });
+    await openTab(wrapper, 'Plugins');
+
+    const panel = wrapper.get('#settings-panel-plugins');
+    expect(panel.findAll('.listing-name').map((name) => name.text())).toEqual([
+      'Cloudflare',
+      'Designer',
+    ]);
+    expect(panel.text()).toContain('3 skills · 2 servers');
+    expect(panel.text()).toContain('reported errors');
+    // The disabled plugin's row recedes and its switch is off.
+    expect(panel.findAll('.listing-row')[1]!.classes()).toContain('off');
+
+    await panel.findAll('.switch')[1]!.trigger('click');
+    expect(wrapper.emitted('setPluginEnabled')).toEqual([
+      [{ pluginId: 'plg_2', enabled: true }],
+    ]);
+  });
+});
+
+describe('SettingsDialog subagents page', () => {
+  const subagents = [
+    {
+      name: 'Explore',
+      description: 'Read-only search agent',
+      source: 'built-in' as const,
+      tools: ['Read', 'Grep', 'Glob'],
+      model: 'Pythinker K2',
+      effort: 'max',
+    },
+  ];
+
+  it('loads subagents the first time the page is opened', async () => {
+    const wrapper = mountDialog();
+    await openTab(wrapper, 'Subagents');
+
+    expect(wrapper.emitted('loadSubagents')).toHaveLength(1);
+  });
+
+  it('shows the profile source, tool count, model and effort', async () => {
+    const wrapper = mountDialog({ subagents });
+    await openTab(wrapper, 'Subagents');
+
+    const panel = wrapper.get('#settings-panel-subagents');
+    expect(panel.get('.listing-name').text()).toBe('Explore');
+    expect(panel.findAll('.tag').map((tag) => tag.text())).toEqual([
+      'built-in',
+      '3 tools',
+      'max',
+    ]);
+    expect(panel.text()).toContain('Pythinker K2');
+    expect(panel.text()).toContain('Read-only search agent');
+  });
+});

@@ -12,7 +12,9 @@ import type {
   ProviderRefreshResult,
   AppSession,
   AppConnector,
+  AppPlugin,
   AppSkill,
+  AppSubagent,
   AppSessionCursor,
   AppSessionRuntimeStatus,
   AppSessionSnapshot,
@@ -135,6 +137,28 @@ interface WireMcpServer {
   status: 'connected' | 'connecting' | 'disconnected' | 'error';
   tool_count: number;
   last_error?: string;
+}
+
+interface WirePlugin {
+  id: string;
+  display_name: string;
+  version?: string;
+  enabled: boolean;
+  state: string;
+  skill_count: number;
+  mcp_server_count: number;
+  has_errors: boolean;
+  source: string;
+}
+
+interface WireAgentProfile {
+  name: string;
+  description?: string;
+  source: 'built-in' | 'plugin' | 'user' | 'project';
+  tools: string[];
+  model?: string;
+  effort?: string;
+  when_to_use?: string;
 }
 
 interface WireArchiveResult {
@@ -732,6 +756,46 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
       status: server.status,
       toolCount: server.tool_count,
       lastError: server.last_error,
+    }));
+  }
+
+  async listPlugins(): Promise<AppPlugin[]> {
+    const data = await this.http.get<{ plugins: WirePlugin[] }>('/plugins');
+    return (data.plugins ?? []).map((plugin) => ({
+      id: plugin.id,
+      displayName: plugin.display_name,
+      version: plugin.version,
+      enabled: plugin.enabled,
+      state: plugin.state,
+      skillCount: plugin.skill_count,
+      mcpServerCount: plugin.mcp_server_count,
+      hasErrors: plugin.has_errors,
+      source: plugin.source,
+    }));
+  }
+
+  async setPluginEnabled(
+    pluginId: string,
+    enabled: boolean,
+  ): Promise<{ id: string; enabled: boolean }> {
+    return this.http.post<{ id: string; enabled: boolean }>(
+      `/plugins/${encodeURIComponent(pluginId)}:set-enabled`,
+      { enabled },
+    );
+  }
+
+  async listSubagents(workDir: string): Promise<AppSubagent[]> {
+    const data = await this.http.get<{ profiles: WireAgentProfile[] }>('/agent-profiles', {
+      work_dir: workDir,
+    });
+    return (data.profiles ?? []).map((profile) => ({
+      name: profile.name,
+      description: profile.description,
+      source: profile.source,
+      tools: profile.tools,
+      model: profile.model,
+      effort: profile.effort,
+      whenToUse: profile.when_to_use,
     }));
   }
 

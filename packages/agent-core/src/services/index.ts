@@ -185,6 +185,13 @@ export {
 export { SkillService } from './skill/skillService';
 
 export {
+  ICatalogService,
+  toProtocolAgentProfile,
+  toProtocolPlugin,
+} from './catalog/catalog';
+export { CatalogService } from './catalog/catalogService';
+
+export {
   ITaskService,
   TaskAlreadyFinishedError,
   TaskNotFoundError,

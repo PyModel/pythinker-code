@@ -15,8 +15,10 @@ import type {
   AppConnector,
   AppHook,
   AppModel,
+  AppPlugin,
   AppSession,
   AppSkill,
+  AppSubagent,
 } from '../api/types';
 import { formatTokens } from '../lib/formatTokens';
 
@@ -48,6 +50,10 @@ const props = defineProps<{
   connectorsLoading?: boolean;
   /** Every session the client has loaded, for the usage totals. */
   sessions?: AppSession[];
+  /** Installed plugins, for the Plugins page. */
+  plugins?: AppPlugin[];
+  /** Subagent profiles, for the Subagents page. */
+  subagents?: AppSubagent[];
 }>();
 
 const emit = defineEmits<{
@@ -61,6 +67,9 @@ const emit = defineEmits<{
   updateConfig: [patch: Partial<AppConfig>];
   loadConnectors: [];
   restartConnector: [connectorId: string];
+  loadPlugins: [];
+  setPluginEnabled: [payload: { pluginId: string; enabled: boolean }];
+  loadSubagents: [];
   close: [];
 }>();
 
@@ -69,6 +78,8 @@ type SettingsTab =
   | 'agent'
   | 'skills'
   | 'connectors'
+  | 'plugins'
+  | 'subagents'
   | 'hooks'
   | 'usage'
   | 'advanced'
@@ -89,7 +100,9 @@ const tabGroups: { titleKey: string; tabs: { id: SettingsTab; labelKey: string }
   {
     titleKey: 'settings.groups.capabilities',
     tabs: [
+      { id: 'plugins', labelKey: 'settings.tabs.plugins' },
       { id: 'skills', labelKey: 'settings.tabs.skills' },
+      { id: 'subagents', labelKey: 'settings.tabs.subagents' },
       { id: 'connectors', labelKey: 'settings.tabs.connectors' },
       { id: 'hooks', labelKey: 'settings.tabs.hooks' },
     ],
@@ -379,6 +392,8 @@ function toggleSkill(name: string): void {
 function setTab(tab: SettingsTab): void {
   // The connector list is only fetched when its page is first opened.
   if (tab === 'connectors' && (props.connectors?.length ?? 0) === 0) emit('loadConnectors');
+  if (tab === 'plugins' && (props.plugins?.length ?? 0) === 0) emit('loadPlugins');
+  if (tab === 'subagents' && (props.subagents?.length ?? 0) === 0) emit('loadSubagents');
   activeTab.value = tab;
 }
 </script>
@@ -761,6 +776,75 @@ function setTab(tab: SettingsTab): void {
                   </div>
                   <p class="listing-desc">{{ t(`settings.connectors.status.${connector.status}`) }}</p>
                   <p v-if="connector.lastError" class="listing-error">{{ connector.lastError }}</p>
+                </div>
+              </div>
+            </section>
+          </section>
+
+          <!-- Plugins -->
+          <section
+            v-show="activeTab === 'plugins'"
+            id="settings-panel-plugins"
+            class="panel"
+            role="tabpanel"
+            aria-labelledby="settings-tab-plugins"
+          >
+            <section class="sec">
+              <h2 class="page-title">{{ t('settings.plugins.title') }}</h2>
+              <p class="sec-note">{{ t('settings.plugins.note') }}</p>
+              <p v-if="(plugins?.length ?? 0) === 0" class="sec-empty">{{ t('settings.plugins.empty') }}</p>
+              <div v-else class="listing">
+                <div
+                  v-for="plugin in plugins"
+                  :key="plugin.id"
+                  class="listing-row"
+                  :class="{ off: !plugin.enabled }"
+                >
+                  <div class="listing-main">
+                    <span class="listing-name">{{ plugin.displayName }}</span>
+                    <span v-if="plugin.version" class="tag">{{ plugin.version }}</span>
+                    <span class="tag">{{ plugin.source }}</span>
+                    <span class="listing-meta">{{ t('settings.plugins.counts', { skills: plugin.skillCount, servers: plugin.mcpServerCount }) }}</span>
+                    <button
+                      type="button"
+                      class="switch sm"
+                      role="switch"
+                      :class="{ on: plugin.enabled }"
+                      :aria-checked="plugin.enabled"
+                      :aria-label="t('settings.plugins.toggleAria', { name: plugin.displayName })"
+                      @click="emit('setPluginEnabled', { pluginId: plugin.id, enabled: !plugin.enabled })"
+                    >
+                      <span class="knob" />
+                    </button>
+                  </div>
+                  <p v-if="plugin.hasErrors" class="listing-error">{{ t('settings.plugins.hasErrors') }}</p>
+                </div>
+              </div>
+            </section>
+          </section>
+
+          <!-- Subagents -->
+          <section
+            v-show="activeTab === 'subagents'"
+            id="settings-panel-subagents"
+            class="panel"
+            role="tabpanel"
+            aria-labelledby="settings-tab-subagents"
+          >
+            <section class="sec">
+              <h2 class="page-title">{{ t('settings.subagents.title') }}</h2>
+              <p class="sec-note">{{ t('settings.subagents.note') }}</p>
+              <p v-if="(subagents?.length ?? 0) === 0" class="sec-empty">{{ t('settings.subagents.empty') }}</p>
+              <div v-else class="listing">
+                <div v-for="agent in subagents" :key="agent.name" class="listing-row">
+                  <div class="listing-main">
+                    <span class="listing-name mono">{{ agent.name }}</span>
+                    <span class="tag">{{ agent.source }}</span>
+                    <span class="tag">{{ t('settings.subagents.tools', { count: agent.tools.length }) }}</span>
+                    <span v-if="agent.model" class="listing-meta">{{ agent.model }}</span>
+                    <span v-if="agent.effort" class="tag">{{ agent.effort }}</span>
+                  </div>
+                  <p v-if="agent.description" class="listing-desc">{{ agent.description }}</p>
                 </div>
               </div>
             </section>

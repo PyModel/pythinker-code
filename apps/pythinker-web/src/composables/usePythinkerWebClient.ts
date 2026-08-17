@@ -19,7 +19,9 @@ import type {
   AppSession,
   AppSessionRuntimeStatus,
   AppConnector,
+  AppPlugin,
   AppSkill,
+  AppSubagent,
   AppTask,
   AppWarning,
   AppWorkspace,
@@ -1480,6 +1482,40 @@ async function loadConnectors(): Promise<void> {
     connectors.value = [];
   } finally {
     connectorsLoading.value = false;
+  }
+}
+
+const plugins = ref<AppPlugin[]>([]);
+const subagents = ref<AppSubagent[]>([]);
+
+async function loadPlugins(): Promise<void> {
+  try {
+    plugins.value = await getPythinkerWebApi().listPlugins();
+  } catch {
+    // An older daemon has no /plugins; an empty list is the honest answer.
+    plugins.value = [];
+  }
+}
+
+async function setPluginEnabled(pluginId: string, enabled: boolean): Promise<void> {
+  try {
+    await getPythinkerWebApi().setPluginEnabled(pluginId, enabled);
+  } catch {
+    // The reload below reports whatever state the daemon ended up in.
+  }
+  await loadPlugins();
+}
+
+async function loadSubagents(): Promise<void> {
+  const workDir = rawState.sessions.find((s) => s.id === rawState.activeSessionId)?.cwd;
+  if (workDir === undefined || workDir === '') {
+    subagents.value = [];
+    return;
+  }
+  try {
+    subagents.value = await getPythinkerWebApi().listSubagents(workDir);
+  } catch {
+    subagents.value = [];
   }
 }
 
@@ -4401,6 +4437,11 @@ export function usePythinkerWebClient() {
     activateSkill,
     connectors,
     connectorsLoading,
+    plugins,
+    loadPlugins,
+    setPluginEnabled,
+    subagents,
+    loadSubagents,
     /** Raw sessions with their usage totals — the settings usage page reads these. */
     sessionsWithUsage: computed<AppSession[]>(() => rawState.sessions),
     loadConnectors,
