@@ -12,8 +12,8 @@ const state = ref<DesktopUpdateState>();
 const busy = ref(false);
 /** Versions the user skipped. Persisted per version so the prompt does not
     return for the same build; an unnamed version is skipped for the session. */
-const skipped = ref<string[]>(readSkipped());
 const SKIP_KEY = 'pythinker.update.skipped';
+const skipped = ref<string[]>(readSkipped());
 
 let removeListener: (() => void) | undefined;
 

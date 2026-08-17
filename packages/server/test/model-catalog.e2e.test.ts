@@ -274,7 +274,15 @@ describe('model/provider catalog routes', () => {
 
     const models = await appOf(r).inject({ method: 'GET', url: '/api/v1/models' });
     expect(envelopeOf<{ items: Array<{ provider: string }> }>(models.json()).data?.items)
-      .toEqual([{ provider: 'openai', model: 'gpt4o', display_name: 'gpt-4o', max_context_size: 128000 }]);
+      .toEqual([
+        {
+          provider: 'openai',
+          model: 'gpt4o',
+          display_name: 'gpt-4o',
+          max_context_size: 128000,
+          capabilities: ['image_in', 'tool_use'],
+        },
+      ]);
   });
 
   it('maps unknown provider and model ids to catalog not-found error codes', async () => {
