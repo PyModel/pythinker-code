@@ -5,6 +5,7 @@ import en_workspace from './en/workspace';
 import en_conversation from './en/conversation';
 import en_status from './en/status';
 import en_composer from './en/composer';
+import en_suggestions from './en/suggestions';
 import en_login from './en/login';
 import en_providers from './en/providers';
 import en_model from './en/model';
@@ -38,6 +39,7 @@ export const messages = {
     conversation: en_conversation,
     status: en_status,
     composer: en_composer,
+    suggestions: en_suggestions,
     login: en_login,
     providers: en_providers,
     model: en_model,
