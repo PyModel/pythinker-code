@@ -6,6 +6,7 @@ const MCP_NAME_SEPARATOR = '__';
  * hash suffix so collisions remain extremely unlikely.
  */
 const MAX_QUALIFIED_LENGTH = 64;
+const MAX_HASH_SUFFIX_LENGTH = 10;
 
 /**
  * Replace any character outside the safe ASCII set with `_`, then collapse
@@ -20,6 +21,11 @@ export function sanitizeMcpNamePart(part: string): string {
 
 export function isMcpToolName(name: string): boolean {
   return name.startsWith(MCP_NAME_PREFIX);
+}
+
+export function mcpServerToolPattern(serverName: string): string {
+  const prefix = `${MCP_NAME_PREFIX}${sanitizeMcpNamePart(serverName)}${MCP_NAME_SEPARATOR}`;
+  return `${prefix.slice(0, MAX_QUALIFIED_LENGTH - MAX_HASH_SUFFIX_LENGTH)}*`;
 }
 
 /**

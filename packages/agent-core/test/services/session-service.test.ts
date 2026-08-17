@@ -15,6 +15,8 @@ import {
   type UpdateSessionMetadataPayload,
 } from '../../src';
 import { TestInstantiationService } from '../../src/di/test';
+import type { Agent } from '../../src/agent';
+import { ToolManager } from '../../src/agent/tool';
 import { SessionAPIImpl } from '../../src/session/rpc';
 import { emptySessionUsage, type Event, type Session } from '@pymodel/protocol';
 
@@ -57,6 +59,7 @@ interface FakeBridgeState {
   compactions: Array<{ sessionId: string; agentId: string; instruction?: string }>;
   undoPayloads: Array<{ sessionId: string; agentId: string; count: number }>;
   resumedIds: string[];
+  activeIds: Set<string>;
   contexts: Map<string, AgentContextData>;
   postUndoContexts: Map<string, AgentContextData>;
 }
@@ -78,6 +81,16 @@ function makeFakeBridge(state: FakeBridgeState): ICoreProcessService {
           title: undefined,
         };
         state.sessions.push(created);
+        state.activeIds.add(id);
+        state.metas.set(id, {
+          sessionFormatVersion: 2,
+          title: 'New Session',
+          createdAt: new Date(created.createdAt).toISOString(),
+          updatedAt: new Date(created.updatedAt).toISOString(),
+          isCustomTitle: false,
+          agents: {},
+          custom: { ...payload.metadata },
+        });
         return created;
       }),
     listSessions: vi
@@ -166,7 +179,27 @@ function makeFakeBridge(state: FakeBridgeState): ICoreProcessService {
       .fn()
       .mockImplementation(
         async (payload: WithSessionId<UpdateSessionMetadataPayload>) => {
+          if (!state.activeIds.has(payload.sessionId)) {
+            throw new Error(`inactive session ${payload.sessionId}`);
+          }
           state.metadataPatches.set(payload.sessionId, payload.metadata);
+          const existing = state.metas.get(payload.sessionId);
+          if (existing !== undefined) {
+            const incoming = payload.metadata.agentConfig;
+            const previous = existing.agentConfig;
+            const agentConfig =
+              incoming === undefined
+                ? previous
+                : {
+                    tools: incoming.tools ?? previous?.tools,
+                    mcpServers: incoming.mcpServers ?? previous?.mcpServers,
+                  };
+            state.metas.set(payload.sessionId, {
+              ...existing,
+              ...payload.metadata,
+              agentConfig,
+            });
+          }
         },
       ),
     getSessionMetadata: vi
@@ -187,6 +220,7 @@ function makeFakeBridge(state: FakeBridgeState): ICoreProcessService {
       state.resumedIds.push(sessionId);
       const found = state.sessions.find((session) => session.id === sessionId);
       if (found === undefined) throw new Error(`missing session ${sessionId}`);
+      state.activeIds.add(sessionId);
       return found as ResumeSessionResult;
     }),
     undoHistory: vi
@@ -232,6 +266,7 @@ function freshState(): FakeBridgeState {
     compactions: [],
     undoPayloads: [],
     resumedIds: [],
+    activeIds: new Set(),
     contexts: new Map(),
     postUndoContexts: new Map(),
   };
@@ -441,6 +476,33 @@ describe('toProtocolSession adapter', () => {
     expect(proto.metadata['other_key']).toBe('x');
   });
 
+  it('returns persisted tool and MCP server selections from SessionMeta', () => {
+    const summary: SessionSummary = {
+      id: 'sess_agent_config',
+      workDir: '/tmp/wd',
+      sessionDir: '/tmp/sd',
+      createdAt: 0,
+      updatedAt: 0,
+    };
+    const meta: SessionMeta = {
+      sessionFormatVersion: 2,
+      title: 'Configured',
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString(),
+      isCustomTitle: false,
+      agents: {},
+      agentConfig: {
+        tools: ['Read'],
+        mcpServers: ['github'],
+      },
+      custom: {},
+    };
+    expect(toProtocolSession(summary, meta).agent_config).toMatchObject({
+      tools: ['Read'],
+      mcp_servers: ['github'],
+    });
+  });
+
   it('preserves custom metadata from the summary when SessionMeta is unavailable', () => {
     const summary: SessionSummary = {
       id: 'sess_summary_meta',
@@ -520,6 +582,19 @@ describe('SessionService.create', () => {
       agent_config: { model: 'pythoughts-v1-128k' },
     });
     expect(state.sessions[0]!.metadata?.['cwd']).toBe('/tmp/x');
+  });
+
+  it('persists tool and MCP server selections when supplied', async () => {
+    const session = await svc.create({
+      metadata: { cwd: '/tmp/x' },
+      agent_config: { tools: ['Read'], mcp_servers: ['github'] },
+    });
+    expect(state.metadataPatches.get(session.id)).toEqual({
+      agentConfig: { tools: ['Read'], mcpServers: ['github'] },
+    });
+    expect(promptStub.calls).toEqual([]);
+    expect(session.agent_config.tools).toEqual(['Read']);
+    expect(session.agent_config.mcp_servers).toEqual(['github']);
   });
 
   it('passes client telemetry metadata through to core createSession', async () => {
@@ -704,6 +779,20 @@ describe('SessionService.update', () => {
     ]);
   });
 
+  it('resumes an inactive session before persisting tools + mcp_servers', async () => {
+    state.activeIds.delete(created.id);
+    const after = await svc.update(created.id, {
+      agent_config: { tools: ['Read', 'Bash'], mcp_servers: ['github'] },
+    });
+    expect(state.metadataPatches.get(created.id)).toEqual({
+      agentConfig: { tools: ['Read', 'Bash'], mcpServers: ['github'] },
+    });
+    expect(promptStub.calls).toEqual([]);
+    expect(state.resumedIds).toEqual([created.id]);
+    expect(after.agent_config.tools).toEqual(['Read', 'Bash']);
+    expect(after.agent_config.mcp_servers).toEqual(['github']);
+  });
+
   it('combines model + runtime controls into a single applyAgentState call', async () => {
     await svc.update(created.id, {
       agent_config: { model: 'pythinker-code/k9', plan_mode: false },
@@ -726,6 +815,132 @@ describe('SessionService.update', () => {
 });
 
 describe('SessionAPIImpl persisted metadata boundary', () => {
+  function makeToolSession(
+    metadata: SessionMeta,
+    activeNames: readonly string[],
+  ): {
+    readonly session: import('../../src/session').Session;
+    readonly records: unknown[];
+  } {
+    const records: unknown[] = [];
+    const tools = new ToolManager({
+      config: { hasProvider: false },
+      records: { logRecord: (record: unknown) => records.push(record) },
+    } as unknown as Agent);
+    tools.setActiveTools(activeNames);
+    records.length = 0;
+    const session = {
+      metadata,
+      writeMetadata: vi.fn(async () => {}),
+      ensureAgentResumed: vi.fn(async () => ({ tools })),
+    } as unknown as import('../../src/session').Session;
+    return { session, records };
+  }
+
+  function persistedMetadata(agentConfig?: SessionMeta['agentConfig']): SessionMeta {
+    return {
+      sessionFormatVersion: 2,
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString(),
+      title: 'Persisted metadata',
+      isCustomTitle: false,
+      agents: { main: { type: 'main', parentAgentId: null } },
+      agentConfig,
+      custom: {},
+    };
+  }
+
+  it('a tools-only patch preserves persisted and active MCP servers', async () => {
+    const { session, records } = makeToolSession(
+      persistedMetadata({ tools: ['Read'], mcpServers: ['github'] }),
+      ['Read', 'mcp__github__*'],
+    );
+
+    await new SessionAPIImpl(session).updateSessionMetadata({
+      metadata: { agentConfig: { tools: ['Bash'] } },
+    });
+
+    expect(session.metadata.agentConfig).toEqual({
+      tools: ['Bash'],
+      mcpServers: ['github'],
+    });
+    expect(records).toEqual([
+      { type: 'tools.set_active_tools', names: ['Bash', 'mcp__github__*'] },
+    ]);
+  });
+
+  it('an MCP-only patch preserves persisted and active exact tools', async () => {
+    const { session, records } = makeToolSession(
+      persistedMetadata({ tools: ['Read', 'Bash'], mcpServers: ['github'] }),
+      ['Read', 'Bash', 'mcp__github__*'],
+    );
+
+    await new SessionAPIImpl(session).updateSessionMetadata({
+      metadata: { agentConfig: { mcpServers: ['My Search'] } },
+    });
+
+    expect(session.metadata.agentConfig).toEqual({
+      tools: ['Read', 'Bash'],
+      mcpServers: ['My Search'],
+    });
+    expect(records).toEqual([
+      { type: 'tools.set_active_tools', names: ['Read', 'Bash', 'mcp__My_Search__*'] },
+    ]);
+  });
+
+  it.each([
+    {
+      label: 'tools',
+      activeNames: ['Read', 'mcp__github__*'],
+      patch: { tools: [] },
+      expectedConfig: { tools: [], mcpServers: ['github'] },
+      expectedNames: ['mcp__github__*'],
+    },
+    {
+      label: 'MCP servers',
+      activeNames: ['Read', 'mcp__github__*'],
+      patch: { mcpServers: [] },
+      expectedConfig: { tools: ['Read'], mcpServers: [] },
+      expectedNames: ['Read'],
+    },
+  ])('an empty $label array clears only that field', async ({
+    activeNames,
+    patch,
+    expectedConfig,
+    expectedNames,
+  }) => {
+    const { session, records } = makeToolSession(
+      persistedMetadata({ tools: ['Read'], mcpServers: ['github'] }),
+      activeNames,
+    );
+
+    await new SessionAPIImpl(session).updateSessionMetadata({
+      metadata: { agentConfig: patch },
+    });
+
+    expect(session.metadata.agentConfig).toEqual(expectedConfig);
+    expect(records).toEqual([{ type: 'tools.set_active_tools', names: expectedNames }]);
+  });
+
+  it('a legacy session without agentConfig preserves the active default tools', async () => {
+    const { session, records } = makeToolSession(
+      persistedMetadata(),
+      ['Read', 'Bash', 'mcp__*'],
+    );
+
+    await new SessionAPIImpl(session).updateSessionMetadata({
+      metadata: { agentConfig: { mcpServers: ['github'] } },
+    });
+
+    expect(session.metadata.agentConfig).toEqual({
+      tools: undefined,
+      mcpServers: ['github'],
+    });
+    expect(records).toEqual([
+      { type: 'tools.set_active_tools', names: ['Read', 'Bash', 'mcp__github__*'] },
+    ]);
+  });
+
   it('rejects a runtime sessionFormatVersion patch even when it equals the current format', async () => {
     const metadata: SessionMeta = {
       sessionFormatVersion: 2,
