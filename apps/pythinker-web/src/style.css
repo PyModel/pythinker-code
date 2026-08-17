@@ -41,13 +41,15 @@
   --err: var(--dsw-alias-state-error-secondary);
   /* Subtle hover wash for icon buttons (toast close, etc.). */
   --hover: var(--dsw-alias-interactive-bg-hover);
-  /* Radius scale (Modern). A regular 8 / 12 / 16 progression: list items + pill
-     controls use --r-sm, the input box + cards use --r-md, dialogs use --r-lg.
+  /* Radius scale (Modern). A regular 8 / 12 / 16 / 24 progression: list items + pill
+     controls use --r-sm, input boxes use --r-md, dialogs use --r-lg, and the
+     composer card uses --r-xl.
      The Terminal theme keeps its own sharper 3–4px corners. */
   --r-xs: 6px;
   --r-sm: 8px;
   --r-md: 12px;
   --r-lg: 16px;
+  --r-xl: 24px;
   --ui-font-size: 14px;
   --ui-font-size-sm: calc(var(--ui-font-size) - 1px);
   --ui-font-size-xs: calc(var(--ui-font-size) - 2px);
@@ -387,9 +389,10 @@ html[data-color-scheme="dark"][data-theme="modern"] {
    to the global sheet where they apply reliably. The chat surface is white, so
    the composer card reads as a rounded card via a soft shadow + hairline border. */
 :is(html[data-theme="modern"], html[data-theme="pythinker"]) .composer-card {
-  border-radius: var(--r-md);
+  border-radius: var(--r-xl);
   border: 1px solid var(--line);
-  background: var(--bg);
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  backdrop-filter: blur(16px);
   box-shadow: var(--shc);
 }
 
@@ -408,12 +411,12 @@ html[data-color-scheme="dark"][data-theme="modern"] {
   width: 30px;
   min-width: 30px;
   height: 30px;
-  padding: 0;
+  padding: 5px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 1px 2px rgba(20, 23, 28, 0.1);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 10%, transparent);
   align-self: flex-end;
 }
 :is(html[data-theme="modern"], html[data-theme="pythinker"]) .send:hover { background: var(--blue2); }
@@ -427,10 +430,11 @@ html[data-color-scheme="dark"][data-theme="modern"] {
   background: color-mix(in srgb, var(--panel), black 1.5%);
 }
 :is(html[data-theme="modern"], html[data-theme="pythinker"]) .attach-btn {
-  width: 26px;
-  height: 26px;
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
   padding: 0;
-  border-radius: var(--r-sm);
+  border-radius: 50%;
 }
 :is(html[data-theme="modern"], html[data-theme="pythinker"]) .attach-btn:hover {
   background: var(--soft);
@@ -855,8 +859,8 @@ html[data-color-scheme="dark"][data-theme="pythinker"] {
 /* Composer: the one card that keeps a shadow (effect.shadow.inputDefault),
    with the chat-input radius documented in web-best-practices §8. */
 html[data-theme="pythinker"] .composer-card {
-  border-radius: 20px;
-  box-shadow: 0 5px 16px -4px rgba(0, 0, 0, 0.07);
+  border-radius: var(--r-xl);
+  box-shadow: 0 5px 16px -4px color-mix(in srgb, var(--ink) 7%, transparent);
 }
 
 /* Cards stay flat: no hover lift, no shadow (Quiet Utility / card.md). */
