@@ -130,11 +130,17 @@ const writeCount: Record<CapabilityField, number> = { tools: 0, mcpServers: 0 };
 
 function queueWrite(field: CapabilityField, selection: Ref<string[]>, previous: string[]): Promise<void> {
   const seq = ++writeCount[field];
+  // The write belongs to the session that was rendered when the user toggled.
+  // `updateCapabilities` always targets the active session, so a queued write
+  // that outlives a session switch must be dropped, not sent to the new one —
+  // and its rollback must not touch the new session's selection either.
+  const sessionId = props.sessionId;
   const write = writeChain[field].then(async () => {
+    if (props.sessionId !== sessionId) return;
     try {
       await client.updateCapabilities({ [field]: [...selection.value] });
     } catch {
-      if (seq === writeCount[field]) selection.value = previous;
+      if (seq === writeCount[field] && props.sessionId === sessionId) selection.value = previous;
     }
   });
   writeChain[field] = write;

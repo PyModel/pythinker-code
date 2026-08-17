@@ -136,6 +136,7 @@ afterEach(() => {
   document.body.replaceChildren();
   vi.restoreAllMocks();
   const current = client();
+  current.activeSessionId.value = 'session_1';
   current.activeSessionCapabilities.value = { tools: ['Read'], mcpServers: ['mcp_1'] };
   current.toolsBySession.value = {
     session_1: [
@@ -325,6 +326,38 @@ describe('CapabilityMenu', () => {
     // The stale failure must not discard the newer selection.
     expect(one.getAttribute('aria-checked')).toBe('true');
     expect(two.getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('drops a queued write and its rollback when the session changes first', async () => {
+    const current = client();
+    const pending = deferred();
+    current.updateCapabilities.mockReturnValueOnce(pending.promise);
+
+    const wrapper = mountMenu();
+    await wrapper.get('.capability-trigger').trigger('click');
+    await flushPromises();
+    const toggle = document.body.querySelector('.mcp-row .switch-toggle') as HTMLButtonElement;
+
+    toggle.click();
+    await nextTick();
+
+    // The user moves to a session with a different selection while the write is
+    // still open. `updateCapabilities` targets whichever session is active, so
+    // the stale failure belongs to a session that is gone; rolling back here
+    // would show session one's selection under session two.
+    await wrapper.setProps({ sessionId: 'session_2' });
+    current.activeSessionId.value = 'session_2';
+    current.activeSessionCapabilities.value = { tools: ['Read'], mcpServers: ['mcp_2'] };
+    await nextTick();
+
+    pending.reject(new Error('daemon unreachable'));
+    await flushPromises();
+
+    const checked = [...document.body.querySelectorAll('.mcp-row')].map((row) => [
+      row.textContent?.includes('Docs') === true ? 'Docs' : 'Issue tracker',
+      row.querySelector('.switch-toggle')?.getAttribute('aria-checked'),
+    ]);
+    expect(checked).toEqual([['Docs', 'false'], ['Issue tracker', 'true']]);
   });
 
   it('renders selected tools and MCP servers as chips', () => {

@@ -142,7 +142,13 @@ describe('Composer styling', () => {
     const dividerRule = capture(composerSource, /(?:^|\n)\.toolbar-divider\s*\{([^}]*)\}/u);
     expect(dividerRule).toMatch(/width:\s*1px;/u);
     expect(dividerRule).toMatch(/height:\s*16px;/u);
-    expect(composerSource).toMatch(/class="attach-btn"[\s\S]*class="toolbar-divider"/u);
+    // Rendered, not source order: the divider has to be the attach button's next
+    // sibling inside the same toolbar, which a source-wide match cannot show.
+    const wrapper = mountComposer({ uploadImage: async () => ({ fileId: 'file_1' }) });
+    const attach = wrapper.get('.attach-btn').element;
+    const divider = wrapper.get('.toolbar-divider').element;
+    expect(attach.nextElementSibling).toBe(divider);
+    expect(divider.parentElement).toBe(attach.parentElement);
   });
 
   it('pads the send button around a 20px glyph and keeps the accent fill', () => {
