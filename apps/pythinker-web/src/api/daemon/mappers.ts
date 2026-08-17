@@ -101,6 +101,8 @@ export function toAppSession(wire: WireSession): AppSession {
     currentPromptId: wire.current_prompt_id,
     cwd: wire.metadata.cwd,
     model: wire.agent_config.model,
+    tools: wire.agent_config.tools,
+    mcpServers: wire.agent_config.mcp_servers,
     usage: toAppSessionUsage(wire.usage),
     messageCount: wire.message_count,
     lastSeq: wire.last_seq,

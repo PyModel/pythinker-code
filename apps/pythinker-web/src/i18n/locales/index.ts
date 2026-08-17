@@ -29,6 +29,7 @@ import en_settings from './en/settings';
 import en_header from './en/header';
 import en_sideChat from './en/sideChat';
 import en_update from './en/update';
+import en_capabilityMenu from './en/capabilityMenu';
 
 export const messages = {
   en: {
@@ -63,6 +64,7 @@ export const messages = {
     header: en_header,
     sideChat: en_sideChat,
     update: en_update,
+    capabilityMenu: en_capabilityMenu,
   },
 } as const;
 
