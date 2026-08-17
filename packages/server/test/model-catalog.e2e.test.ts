@@ -3,11 +3,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { pino } from 'pino';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { IModelCatalogService, type IModelCatalogService as ModelCatalogServiceShape } from '@pymodel/agent-core';
+import type { IModelCatalogService as ModelCatalogServiceShape } from '@pymodel/agent-core';
 
 import { IRestGateway, startServer, type RunningServer, type ServerStartOptions } from '../src';
+import { registerModelCatalogRoutes } from '../src/routes/modelCatalog';
 
 let tmpDir: string;
 let lockPath: string;
@@ -110,6 +111,46 @@ function seedCatalogConfig(): void {
 }
 
 describe('model/provider catalog routes', () => {
+  it('registers DELETE /providers/{provider_id} and removes through the service', async () => {
+    type DeleteHandler = (
+      req: { id: string; params: { provider_id: string } },
+      reply: { send(payload: unknown): unknown },
+    ) => Promise<void> | void;
+    let deleteHandler: DeleteHandler = () => {
+      throw new Error('delete route was not registered');
+    };
+    const app = {
+      get: vi.fn(),
+      post: vi.fn(),
+      delete: vi.fn((path: string, _options: unknown, handler: DeleteHandler) => {
+        expect(path).toBe('/providers/:provider_id');
+        deleteHandler = handler;
+      }),
+    } as unknown as Parameters<typeof registerModelCatalogRoutes>[0];
+    const removeProvider = vi.fn(async () => undefined);
+    const service = { removeProvider } as unknown as ModelCatalogServiceShape;
+    const ix = {
+      invokeFunction: (
+        fn: (accessor: { get(): ModelCatalogServiceShape }) => unknown,
+      ) => fn({ get: () => service }),
+    } as unknown as Parameters<typeof registerModelCatalogRoutes>[1];
+    registerModelCatalogRoutes(app, ix);
+    const send = vi.fn();
+
+    await deleteHandler(
+      { id: 'req_delete', params: { provider_id: 'openai' } },
+      { send },
+    );
+
+    expect(removeProvider).toHaveBeenCalledWith('openai');
+    expect(send).toHaveBeenCalledWith({
+      code: 0,
+      msg: 'success',
+      data: { deleted: true },
+      request_id: 'req_delete',
+    });
+  });
+
   it('lists configured models as selectable aliases', async () => {
     seedCatalogConfig();
     const r = await bootDaemon();
@@ -210,6 +251,28 @@ describe('model/provider catalog routes', () => {
     expect(authEnv.data?.default_model).toBe('turbo');
   });
 
+  it('deletes a provider and its model aliases', async () => {
+    seedCatalogConfig();
+    const r = await bootDaemon();
+
+    const removed = await appOf(r).inject({
+      method: 'DELETE',
+      url: '/api/v1/providers/pythinker',
+    });
+    expect(removed.statusCode).toBe(200);
+    expect(envelopeOf<{ deleted: true }>(removed.json()).data).toEqual({ deleted: true });
+
+    const provider = await appOf(r).inject({
+      method: 'GET',
+      url: '/api/v1/providers/pythinker',
+    });
+    expect(envelopeOf<unknown>(provider.json()).code).toBe(40412);
+
+    const models = await appOf(r).inject({ method: 'GET', url: '/api/v1/models' });
+    expect(envelopeOf<{ items: Array<{ provider: string }> }>(models.json()).data?.items)
+      .toEqual([{ provider: 'openai', model: 'gpt4o', display_name: 'gpt-4o', max_context_size: 128000 }]);
+  });
+
   it('maps unknown provider and model ids to catalog not-found error codes', async () => {
     seedCatalogConfig();
     const r = await bootDaemon();
@@ -219,6 +282,12 @@ describe('model/provider catalog routes', () => {
       url: '/api/v1/providers/missing',
     });
     expect(envelopeOf<unknown>(provider.json()).code).toBe(40412);
+
+    const deleteProvider = await appOf(r).inject({
+      method: 'DELETE',
+      url: '/api/v1/providers/missing',
+    });
+    expect(envelopeOf<unknown>(deleteProvider.json()).code).toBe(40412);
 
     const model = await appOf(r).inject({
       method: 'POST',

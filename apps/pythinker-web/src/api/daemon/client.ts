@@ -1106,17 +1106,14 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
 
   // -------------------------------------------------------------------------
   // Models + Providers
-  // PRESUMED — not in current daemon docs; isolated here, swap when backend defines them.
   // -------------------------------------------------------------------------
 
   async listModels(): Promise<AppModel[]> {
-    // PRESUMED endpoint: GET /v1/models → { items: WireModel[] }
     const data = await this.http.get<{ items: WireModel[] }>('/models');
     return data.items.map(toAppModel);
   }
 
   async listProviders(): Promise<AppProvider[]> {
-    // PRESUMED endpoint: GET /v1/providers → { items: WireProvider[] }
     const data = await this.http.get<{ items: WireProvider[] }>('/providers');
     return data.items.map(toAppProvider);
   }
@@ -1127,29 +1124,46 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
     baseUrl?: string;
     defaultModel?: string;
   }): Promise<AppProvider> {
-    // PRESUMED endpoint: POST /v1/providers → WireProvider
-    const body: Record<string, unknown> = { type: input.type };
-    if (input.apiKey !== undefined) body['api_key'] = input.apiKey;
-    if (input.baseUrl !== undefined) body['base_url'] = input.baseUrl;
-    if (input.defaultModel !== undefined) body['default_model'] = input.defaultModel;
-    const data = await this.http.post<WireProvider>('/providers', body);
+    const providerId = input.type.replaceAll('_', '-');
+    const modelId = input.defaultModel ?? providerId;
+    const modelAlias = `${providerId}/${modelId}`.replaceAll('_', '-');
+    await this.http.post('/config', {
+      providers: {
+        [providerId]: {
+          type: input.type,
+          api_key: input.apiKey,
+          base_url: input.baseUrl,
+          default_model: input.defaultModel,
+        },
+      },
+      models: {
+        [modelAlias]: {
+          provider: providerId,
+          model: modelId,
+          max_context_size: 262_144,
+        },
+      },
+      default_model: modelAlias,
+    });
+    const data = await this.http.get<WireProvider>(
+      `/providers/${encodeURIComponent(providerId)}`,
+    );
     return toAppProvider(data);
   }
 
   async deleteProvider(id: string): Promise<{ deleted: true }> {
-    // PRESUMED endpoint: DELETE /v1/providers/{id} → { deleted: true }
     return this.http.delete<{ deleted: true }>(`/providers/${encodeURIComponent(id)}`);
   }
 
   async refreshProvider(id: string): Promise<AppProvider> {
-    // PRESUMED endpoint: POST /v1/providers/{id}:refresh → WireProvider
-    const data = await this.http.post<WireProvider>(
-      `/providers/${encodeURIComponent(id)}:refresh`,
+    const data = await this.http.get<WireProvider>(
+      `/providers/${encodeURIComponent(id)}`,
     );
     return toAppProvider(data);
   }
 
   async refreshOAuthProviderModels(): Promise<ProviderRefreshResult> {
+    // No server route or core RPC currently backs this presumed endpoint.
     const data = await this.http.post<WireProviderRefreshResult>('/providers:refresh_oauth');
     return {
       changed: data.changed.map((item) => ({

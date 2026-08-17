@@ -252,4 +252,17 @@ describe('ModelCatalogService', () => {
     );
   });
 
+  it('removes an existing provider through core RPC', async () => {
+    const configRef = { current: catalogConfig() };
+    const { core, removeCalls } = makeCore(configRef);
+    const svc = new ModelCatalogService(core);
+
+    await expect(svc.removeProvider('pythinker')).resolves.toBeUndefined();
+    expect(removeCalls).toEqual(['pythinker']);
+    await expect(svc.removeProvider('missing')).rejects.toBeInstanceOf(
+      ProviderNotFoundError,
+    );
+    expect(removeCalls).toEqual(['pythinker']);
+  });
+
 });
