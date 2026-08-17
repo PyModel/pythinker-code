@@ -139,6 +139,28 @@ describe('desktop Host port', () => {
     )).toBe(true)
     expect(hostSupervisor.isPortInUseError('desktop Host exited before readiness (code 1, signal null)')).toBe(false)
   })
+
+  it('detects output that reports a single-instance lock conflict', () => {
+    // Verbatim failure observed when a CLI server held the global lock.
+    const observed = [
+      'desktop Host exited before readiness (code 1, signal null)',
+      'Host output:',
+      'server already running (pid=78405, port=58700, started=2026-08-17T18:06:12.341Z)',
+    ].join('\n')
+
+    expect(hostSupervisor.parseRunningServerConflict(observed)).toEqual({
+      pid: 78_405,
+      port: 58_700,
+      startedAt: '2026-08-17T18:06:12.341Z',
+    })
+  })
+
+  it('ignores failures that are not a lock conflict', () => {
+    expect(hostSupervisor.parseRunningServerConflict(
+      'listen EADDRINUSE: address already in use 127.0.0.1:24827',
+    )).toBeUndefined()
+    expect(hostSupervisor.parseRunningServerConflict('server already running')).toBeUndefined()
+  })
 })
 
 describe('desktop Host supervisor', () => {

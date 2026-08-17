@@ -112,7 +112,7 @@ function resolveCredentialGroup(
   return source
 }
 
-function resolveNotarizationCredentials(env: NodeJS.ProcessEnv): NotarizationCredentialSource {
+export function resolveNotarizationCredentials(env: NodeJS.ProcessEnv): NotarizationCredentialSource {
   const appleId = resolveCredentialGroup(
     env,
     ['APPLE_ID', 'APPLE_APP_SPECIFIC_PASSWORD', 'APPLE_TEAM_ID'],
