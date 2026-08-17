@@ -351,14 +351,14 @@ html[data-color-scheme="dark"][data-theme="modern"] {
    .sessions because .se is also a (different) class in MobileTopBar. */
 :is(html[data-theme="modern"], html[data-theme="pythinker"]) .sessions .se {
   margin: 1px 6px;
-  border-radius: var(--r-sm);
+  border-radius: var(--r-md);
   /* Trim the row padding by the inset margin so the title still starts at the
      same x as the workspace name (whose header has no inset). */
   padding: 7px calc(var(--sb-pad-x, 12px) - 6px);
 }
-:is(html[data-theme="modern"], html[data-theme="pythinker"]) .sessions .se:hover { background: var(--panel2); }
+:is(html[data-theme="modern"], html[data-theme="pythinker"]) .sessions .se:hover { background: var(--hover); }
 :is(html[data-theme="modern"], html[data-theme="pythinker"]) .sessions .se.on {
-  background: var(--soft);
+  background: color-mix(in srgb, var(--soft) 45%, var(--panel));
 }
 
 /* Tab bar → clean white strip with a single hairline.
