@@ -19,13 +19,15 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
+import { open, type FileHandle } from 'node:fs/promises';
 import { createServer, type Server } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { pino } from 'pino';
+import type { Event } from '@pymodel/protocol';
 
 import { listenWithPortRetry } from '../src/start';
 
@@ -47,6 +49,11 @@ import {
   type LockContents,
   type RunningServer,
 } from '../src';
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
+  return { ...actual, open: vi.fn(actual.open) };
+});
 
 let tmpDir: string;
 let lockPath: string;
@@ -159,6 +166,68 @@ describe('startServer — lock + healthz smoke', () => {
     await r.close();
     await r.close(); // second call is a no-op (would throw on double-app.close otherwise)
     expect(existsSync(lockPath)).toBe(false);
+  });
+
+  it('waits for journal handles to close before close() resolves', async () => {
+    const r = await spawn();
+    const sessionId = 'session_shutdown_handle';
+    const openSpy = vi.mocked(open);
+    openSpy.mockClear();
+    const bus = r.services.invokeFunction((a) => a.get(IEventService));
+    const broadcast = r.services.invokeFunction((a) => a.get(IWSBroadcastService));
+    bus.publish({
+      type: 'turn.started',
+      sessionId,
+      agentId: 'main',
+      turnId: 1,
+      origin: { kind: 'user' },
+    } as Event);
+    await broadcast.getCursor(sessionId);
+
+    const handleIndex = openSpy.mock.calls.findIndex(([filePath]) =>
+      String(filePath).endsWith(`${sessionId}.jsonl`),
+    );
+    expect(handleIndex).toBeGreaterThanOrEqual(0);
+    // The spy's recorded result is untyped; naming the handle type keeps
+    // `close` a Promise-returning method for the spy below.
+    const handle: FileHandle = await openSpy.mock.results[handleIndex]!.value;
+    const realClose = handle.close.bind(handle);
+    let releaseClose!: () => void;
+    let markCloseStarted!: () => void;
+    let markCloseFinished!: () => void;
+    const closeGate = new Promise<void>((resolve) => {
+      releaseClose = resolve;
+    });
+    const closeStarted = new Promise<void>((resolve) => {
+      markCloseStarted = resolve;
+    });
+    const closeFinished = new Promise<void>((resolve) => {
+      markCloseFinished = resolve;
+    });
+    const closeSpy = vi.spyOn(handle, 'close').mockImplementation(async () => {
+      markCloseStarted();
+      await closeGate;
+      try {
+        await realClose();
+      } finally {
+        markCloseFinished();
+      }
+    });
+
+    let serverCloseResolved = false;
+    const closing = r.close().then(() => {
+      serverCloseResolved = true;
+    });
+    try {
+      await closeStarted;
+      await Promise.resolve();
+      expect(serverCloseResolved).toBe(false);
+    } finally {
+      releaseClose();
+      await closeFinished;
+      await closing;
+    }
+    expect(closeSpy).toHaveBeenCalledOnce();
   });
 
   it('retries on port+1 and updates the lock when the requested port is held by a third party', async () => {

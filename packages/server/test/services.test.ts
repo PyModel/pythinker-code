@@ -1,7 +1,7 @@
 
 
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, open, rm, type FileHandle } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -17,7 +17,18 @@ import {
   type ISessionClientsService as ISessionClientsServiceT,
 } from '#/services/gateway';
 import { WSBroadcastService } from '#/services/gateway/wsBroadcastService';
+import { SessionEventJournal } from '#/services/gateway/sessionEventJournal';
+import type { EventEnvelope } from '#/ws/protocol';
 import type { WsConnection } from '../src/ws/connection';
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
+  return {
+    ...actual,
+    mkdir: vi.fn(actual.mkdir),
+    open: vi.fn(actual.open),
+  };
+});
 
 class TestLogger implements ILoggerT {
   readonly _serviceBrand: undefined;
@@ -182,7 +193,7 @@ describe('WSBroadcastService (WS transport pump)', () => {
     return join(homeDir, 'server', 'events-v3', `${sessionId}.jsonl`);
   }
 
-  function validEnvelope(sessionId: string, seq: number, epoch = journalEpoch): Record<string, unknown> {
+  function validEnvelope(sessionId: string, seq: number, epoch = journalEpoch): EventEnvelope {
     return {
       type: 'turn.started',
       seq,
@@ -212,6 +223,137 @@ describe('WSBroadcastService (WS transport pump)', () => {
     mkdirSync(join(homeDir, 'server', 'events-v3'), { recursive: true });
     writeFileSync(path, lines.join('\n'), 'utf8');
   }
+
+  describe('SessionEventJournal', () => {
+    it('opens one file handle for several appends', async () => {
+      const openSpy = vi.mocked(open);
+      const mkdirSpy = vi.mocked(mkdir);
+      openSpy.mockClear();
+      mkdirSpy.mockClear();
+      const sessionId = 'sid_handle_reuse';
+      const journal = await SessionEventJournal.open(journalPath(sessionId), testLogger);
+
+      for (let seq = 1; seq <= 3; seq++) {
+        await journal.append(seq, validEnvelope(sessionId, seq, journal.epoch));
+      }
+
+      expect(mkdirSpy).toHaveBeenCalledOnce();
+      expect(openSpy).toHaveBeenCalledOnce();
+      await journal.close();
+    });
+
+    it('keeps live-handle writes visible to readers and durable across reopen', async () => {
+      const openSpy = vi.mocked(open);
+      openSpy.mockClear();
+      const sessionId = 'sid_handle_durability';
+      const journal = await SessionEventJournal.open(journalPath(sessionId), testLogger);
+
+      for (let seq = 1; seq <= 3; seq++) {
+        await journal.append(seq, validEnvelope(sessionId, seq, journal.epoch));
+      }
+
+      await expect(journal.readSince(1, 10)).resolves.toMatchObject([
+        { seq: 2, envelope: { seq: 2, epoch: journal.epoch } },
+        { seq: 3, envelope: { seq: 3, epoch: journal.epoch } },
+      ]);
+      const reopened = await SessionEventJournal.open(journalPath(sessionId), testLogger);
+      expect(reopened.seq).toBe(3);
+      expect(reopened.epoch).toBe(journal.epoch);
+      await expect(reopened.readSince(0, 10)).resolves.toMatchObject([
+        { seq: 1, envelope: { seq: 1, epoch: journal.epoch } },
+        { seq: 2, envelope: { seq: 2, epoch: journal.epoch } },
+        { seq: 3, envelope: { seq: 3, epoch: journal.epoch } },
+      ]);
+      expect(openSpy).toHaveBeenCalledOnce();
+      await reopened.close();
+      await journal.close();
+    });
+
+    it('closes idempotently with or without an open handle', async () => {
+      const openSpy = vi.mocked(open);
+      openSpy.mockClear();
+      const unopened = await SessionEventJournal.open(journalPath('sid_never_opened'), testLogger);
+      await expect(unopened.close()).resolves.toBeUndefined();
+      await expect(unopened.close()).resolves.toBeUndefined();
+      expect(openSpy).not.toHaveBeenCalled();
+
+      const sessionId = 'sid_close';
+      const journal = await SessionEventJournal.open(journalPath(sessionId), testLogger);
+      await journal.append(1, validEnvelope(sessionId, 1, journal.epoch));
+      const firstHandle = await openSpy.mock.results[0]!.value;
+      const closeSpy = vi.spyOn(firstHandle, 'close');
+
+      await journal.close();
+      await journal.close();
+      expect(closeSpy).toHaveBeenCalledOnce();
+    });
+
+    it('poisons an append after close without opening another handle', async () => {
+      const openSpy = vi.mocked(open);
+      openSpy.mockClear();
+      const sessionId = 'sid_append_after_close';
+      const journal = await SessionEventJournal.open(journalPath(sessionId), testLogger);
+      await journal.append(1, validEnvelope(sessionId, 1, journal.epoch));
+      await journal.close();
+
+      await expect(
+        journal.append(2, validEnvelope(sessionId, 2, journal.epoch)),
+      ).rejects.toThrow(`event journal is closed: ${journalPath(sessionId)}`);
+      expect(openSpy).toHaveBeenCalledOnce();
+    });
+
+    it('closes a handle opened while close is in flight', async () => {
+      const openSpy = vi.mocked(open);
+      openSpy.mockClear();
+      let resolveOpen!: (handle: FileHandle) => void;
+      let markOpenStarted!: () => void;
+      const openGate = new Promise<FileHandle>((resolve) => {
+        resolveOpen = resolve;
+      });
+      const openStarted = new Promise<void>((resolve) => {
+        markOpenStarted = resolve;
+      });
+      const appendFileSpy = vi.fn(async () => {});
+      const closeSpy = vi.fn(async () => {});
+      const handle = {
+        appendFile: appendFileSpy,
+        close: closeSpy,
+      } as unknown as FileHandle;
+      openSpy.mockImplementationOnce(() => {
+        markOpenStarted();
+        return openGate;
+      });
+      const sessionId = 'sid_close_during_open';
+      const filePath = journalPath(sessionId);
+      const journal = await SessionEventJournal.open(filePath, testLogger);
+      const appendResult = journal.append(1, validEnvelope(sessionId, 1, journal.epoch)).then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+      await openStarted;
+
+      let closeSettled = false;
+      const closing = journal.close().then(
+        () => {
+          closeSettled = true;
+        },
+        () => {
+          closeSettled = true;
+        },
+      );
+      await Promise.resolve();
+      const closeSettledBeforeOpen = closeSettled;
+
+      resolveOpen(handle);
+      await closing;
+      const appendError = await appendResult;
+      expect(closeSettledBeforeOpen).toBe(false);
+      expect(appendError).toBeInstanceOf(Error);
+      expect((appendError as Error).message).toBe(`event journal is closed: ${filePath}`);
+      expect(closeSpy).toHaveBeenCalledOnce();
+      expect(appendFileSpy).not.toHaveBeenCalled();
+    });
+  });
 
   it('publishes event with seq=1, broadcasts to subscribers, advances seq monotonically per session', async () => {
     const clients = new FakeSessionClients();
@@ -885,6 +1027,57 @@ describe('WSBroadcastService (WS transport pump)', () => {
     await broadcast.closeJournals();
     broadcast.dispose();
     bus.dispose();
+  });
+
+  it('peekSnapshotState resolves while a dispatch queue is stalled', async () => {
+    let releaseWrite!: () => void;
+    let markWriteStarted!: () => void;
+    const writeGate = new Promise<void>((resolve) => {
+      releaseWrite = resolve;
+    });
+    const writeStarted = new Promise<void>((resolve) => {
+      markWriteStarted = resolve;
+    });
+    const handle = {
+      appendFile: vi.fn(async () => {
+        markWriteStarted();
+        await writeGate;
+      }),
+      close: vi.fn(async () => {}),
+    } as unknown as FileHandle;
+    vi.mocked(open).mockResolvedValueOnce(handle);
+
+    const sessionId = 'sid_stalled_snapshot';
+    const bus = new EventService();
+    const broadcast = new WSBroadcastService(
+      bus,
+      testLogger,
+      new FakeSessionClients(),
+      new FakeConnectionRegistry(),
+      makeEnv(),
+    );
+    bus.publish({ type: 'evt.stalled', sessionId, agentId: 'main' } as unknown as Event);
+    await writeStarted;
+
+    const draining = broadcast.getSnapshotState(sessionId);
+    let drainSettled = false;
+    void draining.finally(() => {
+      drainSettled = true;
+    });
+    try {
+      await expect(broadcast.peekSnapshotState(sessionId)).resolves.toMatchObject({
+        seq: 0,
+        inFlightTurn: null,
+      });
+      await Promise.resolve();
+      expect(drainSettled).toBe(false);
+    } finally {
+      releaseWrite();
+      await draining;
+      await broadcast.closeJournals();
+      broadcast.dispose();
+      bus.dispose();
+    }
   });
 });
 

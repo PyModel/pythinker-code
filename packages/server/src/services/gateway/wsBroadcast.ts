@@ -85,6 +85,12 @@ export interface IWSBroadcastService {
    */
   getSnapshotState(sessionId: string): Promise<SessionSnapshotState>;
 
+  /** Watermark + in-flight turn without draining the dispatch queue. */
+  peekSnapshotState(sessionId: string): Promise<SessionSnapshotState>;
+
+  /** Flush and close all session journals before shutdown completes. */
+  closeJournals(): Promise<void>;
+
   /**
    * Best-effort sync watermark (0 if the session's journal has not been
    * touched this run). Used by the WS abort ack `at_seq` path.

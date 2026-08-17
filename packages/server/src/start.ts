@@ -389,6 +389,12 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     }
 
     try {
+      await ix.invokeFunction((a) => a.get(IWSBroadcastService).closeJournals());
+    } catch {
+
+    }
+
+    try {
       ix.dispose();
     } catch {
 
