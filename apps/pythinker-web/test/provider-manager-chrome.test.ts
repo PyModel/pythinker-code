@@ -22,11 +22,11 @@ describe('ProviderManager dialog chrome', () => {
   it('clips its children to the rounded corners', () => {
     const dialog = blockOf('.dialog');
 
-    expect(dialog).toMatch(/border-radius:\s*4px/);
-    expect(dialog).toMatch(/overflow:\s*hidden/);
+    expect(dialog).toMatch(/border-radius:\s*4px/u);
+    expect(dialog).toMatch(/overflow:\s*hidden/u);
   });
 
   it('leaves the corner rounding to the dialog instead of the footer', () => {
-    expect(blockOf('.footer-hint')).not.toMatch(/border-radius/);
+    expect(blockOf('.footer-hint')).not.toMatch(/border-radius/u);
   });
 });

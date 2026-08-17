@@ -92,16 +92,27 @@ describe('ConnectorsPage', () => {
 
     await wrapper.get('button.act').trigger('click');
     const labelOf = (field: ReturnType<typeof wrapper.get>): string => field.get('.rlabel').text();
-    const wide = wrapper.findAll('.connector-field-wide').map(labelOf);
-    const narrow = wrapper
-      .findAll('.connector-field')
-      .filter((field) => !field.classes().includes('connector-field-wide'))
-      .map(labelOf);
+    const layout = (): { narrow: string[]; wide: string[] } => ({
+      narrow: wrapper
+        .findAll('.connector-field')
+        .filter((field) => !field.classes().includes('connector-field-wide'))
+        .map(labelOf),
+      wide: wrapper.findAll('.connector-field-wide').map(labelOf),
+    });
 
     // Name and Transport pair up on the first row; the rest take a full row,
     // so no row is left half empty.
-    expect(narrow).toEqual(['Name', 'Transport']);
-    expect(wide).toEqual(['Command', 'Arguments', 'Environment (JSON)']);
+    expect(layout()).toEqual({
+      narrow: ['Name', 'Transport'],
+      wide: ['Command', 'Arguments', 'Environment (JSON)'],
+    });
+
+    await wrapper.get('select').setValue('http');
+
+    expect(layout()).toEqual({
+      narrow: ['Name', 'Transport'],
+      wide: ['URL', 'Headers (JSON)'],
+    });
   });
 
   it('shows the daemon validation message after a rejected write', () => {
