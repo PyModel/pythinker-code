@@ -203,13 +203,17 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
-  # code.pythinker.com redeploys via Dokploy autodeploy on push to main (app
-  # Pythinker/code builds apps/site/Dockerfile from the repo). That autodeploy
-  # fires on the `ci: release packages` push — which STARTS the release — while
-  # apps/site/scripts/build-cdn.mjs reads the version from npm's dist-tag, which
-  # only moves when the publish FINISHES. The first build therefore bakes in the
-  # previous version and nothing rebuilds it, so the release stays invisible to
-  # every installed client. This job fires a second deploy after the publish.
+  # code.pythinker.com is built from the private repository PyModel/pythinker-site,
+  # which owns the site source and its build-cdn.mjs. Dokploy autodeploys on push
+  # to THAT repository, so nothing in this repository triggers a CDN rebuild — this
+  # job is the only thing that does after a release.
+  #
+  # It has to exist because the CDN resolves the version it advertises from npm's
+  # dist-tag, which only moves when the publish FINISHES. Without this job a
+  # release would publish to npm and the CDN would keep serving the previous
+  # version until someone happened to push to the site repository, leaving the
+  # release invisible to every installed client. This job fires the deploy that
+  # picks the new dist-tag up.
   #
   # It must run after publish-native-assets: latest.json only gets its
   # per-platform `platforms` block once the native zips exist on the release.

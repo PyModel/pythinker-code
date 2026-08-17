@@ -50,7 +50,8 @@ const ERROR_BADGE_SVG =
   '<path class="badge-draw" d="M8.5 8.5l7 7M15.5 8.5l-7 7" fill="none" stroke="#dc2626" stroke-width="2" stroke-linecap="round"/>' +
   '</svg>';
 
-// Palette and card treatment mirror apps/site/src/style.css (light canvas,
+// Palette and card treatment mirror src/style.css in the private site
+// repository PyModel/pythinker-site (light canvas,
 // grid background, hairline card, blue accent). Inline-only: the Inter/mono
 // families fall back to system fonts because this page must work offline.
 const GRID_BG =
