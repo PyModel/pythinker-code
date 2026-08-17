@@ -337,6 +337,20 @@ export interface WireModel {
   adaptive_thinking?: boolean;
 }
 
+export interface WireCodexLoginStart {
+  login_id: string;
+  authorize_url: string;
+  loopback: boolean;
+  expires_at: string;
+}
+
+export interface WireCodexLoginStatus {
+  login_id: string;
+  state: 'pending' | 'completed' | 'failed' | 'cancelled';
+  default_model?: string;
+  message?: string;
+}
+
 export interface WireProvider {
   id: string;
   type: string;

@@ -237,6 +237,11 @@ function makeFakeBridge(state: FakeBridgeState): ICoreProcessService {
       .mockImplementation(async ({ sessionId }: { sessionId: string }): Promise<AgentContextData> => {
         return state.contexts.get(sessionId) ?? { history: [], tokenCount: 0 };
       }),
+    getContextTokenCount: vi
+      .fn()
+      .mockImplementation(async ({ sessionId }: { sessionId: string }) => ({
+        tokenCount: state.contexts.get(sessionId)?.tokenCount ?? 0,
+      })),
     getConfig: vi.fn().mockResolvedValue({
       modelAlias: 'pythinker-k2',
       thinkingLevel: 'auto',
@@ -286,6 +291,7 @@ function textMessage(
 }
 
 let state: FakeBridgeState;
+let bridge: ICoreProcessService;
 let svc: SessionService;
 let promptStub: ReturnType<typeof makePromptServiceStub>;
 let approvalStub: ReturnType<typeof makeApprovalServiceStub>;
@@ -396,13 +402,14 @@ beforeEach(() => {
   approvalStub = makeApprovalServiceStub();
   questionStub = makeQuestionServiceStub();
   eventBus = makeEventServiceStub();
+  bridge = makeFakeBridge(state);
   instantiation = makeTestInstantiation({
     promptService: promptStub.promptService,
     approvalService: approvalStub.approvalService,
     questionService: questionStub.questionService,
   });
   svc = new SessionService(
-    makeFakeBridge(state),
+    bridge,
     eventBus.eventService,
     instantiation,
     approvalStub.approvalService,
@@ -1251,6 +1258,23 @@ describe('SessionService status lifecycle', () => {
     const session = await svc.create({ metadata: { cwd: '/tmp/status' } });
     const status = await svc.getStatus(session.id);
     expect(status.status).toBe('idle');
+  });
+
+  it('getStatus reads the narrow token-count RPC without fetching context history', async () => {
+    const session = await svc.create({ metadata: { cwd: '/tmp/status-context' } });
+    state.contexts.set(session.id, {
+      history: [textMessage('user', 'history must stay in the core process')],
+      tokenCount: 37,
+    });
+
+    const status = await svc.getStatus(session.id);
+
+    expect(status.context_tokens).toBe(37);
+    expect(bridge.rpc.getContextTokenCount).toHaveBeenCalledWith({
+      sessionId: session.id,
+      agentId: 'main',
+    });
+    expect(bridge.rpc.getContext).not.toHaveBeenCalled();
   });
 
   it('patches created session status to idle', async () => {

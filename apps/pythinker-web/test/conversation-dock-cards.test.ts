@@ -82,6 +82,15 @@ describe('ConversationPane docked composer', () => {
     expect(wrapper.find('.chat-scroll > .chat-dock').exists()).toBe(false);
   });
 
+  it('clears the floating work chips at the end of the transcript', async () => {
+    const idle = mountPane({});
+    expect(idle.find('.content-wrap').classes()).not.toContain('has-dock-work');
+
+    const todos: TodoView[] = [{ title: 'first', status: 'done' }];
+    const busy = mountPane({ todos });
+    expect(busy.find('.content-wrap').classes()).toContain('has-dock-work');
+  });
+
   it('passes the chat scroller gutter to the dock for composer alignment', async () => {
     const resizeCallbacks: ResizeObserverCallback[] = [];
     class MockResizeObserver {

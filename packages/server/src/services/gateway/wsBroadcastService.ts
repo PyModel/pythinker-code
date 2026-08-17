@@ -173,6 +173,16 @@ export class WSBroadcastService extends Disposable implements IWSBroadcastServic
     };
   }
 
+  async peekSnapshotState(sid: string): Promise<SessionSnapshotState> {
+    const state = this._getOrCreateSession(sid);
+    const journal = await state.ready;
+    return {
+      seq: journal.seq,
+      epoch: journal.epoch,
+      inFlightTurn: this._turnTracker.get(sid),
+    };
+  }
+
   currentSeq(sid: string): number {
     const state = this._sessions.get(sid);
     if (state?.failure !== undefined) throw state.failure;

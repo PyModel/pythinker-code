@@ -37,7 +37,9 @@ Host starts, and the main window replaces it when the Host is ready.
 The desktop application uses the same data directory as the CLI (`~/.pythinker-code/` by default),
 so configuration, providers, MCP servers, and session history are shared. If you already logged in
 with the CLI, the desktop application uses the same credentials. If you did not, complete the login
-in the application interface.
+in the application interface. To connect OpenAI Codex, open Provider management from the sign-in page
+or Settings and choose "Sign in with ChatGPT". If the automatic callback fails, paste the redirect URL
+from the address bar; see the [OAuth section](../configuration/providers.md#oauth) for this fallback.
 
 For the directory layout, see [Data locations](../configuration/data-locations.md).
 

@@ -31,6 +31,7 @@ import en_header from './en/header';
 import en_sideChat from './en/sideChat';
 import en_update from './en/update';
 import en_capabilityMenu from './en/capabilityMenu';
+import en_codexLogin from './en/codexLogin';
 
 export const messages = {
   en: {
@@ -67,6 +68,7 @@ export const messages = {
     sideChat: en_sideChat,
     update: en_update,
     capabilityMenu: en_capabilityMenu,
+    codexLogin: en_codexLogin,
   },
 } as const;
 

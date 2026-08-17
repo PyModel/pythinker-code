@@ -4,13 +4,14 @@ import { computed, nextTick, onMounted, onUnmounted, provide, ref, watch, watchE
 import { useI18n } from 'vue-i18n';
 import Sidebar from './components/Sidebar.vue';
 import ResizeHandle from './components/ResizeHandle.vue';
+import WindowControls from './components/WindowControls.vue';
 import ConversationPane from './components/ConversationPane.vue';
 import FilePreview, { type FileData } from './components/FilePreview.vue';
 import ThinkingPanel from './components/ThinkingPanel.vue';
 import AgentDetailPanel from './components/AgentDetailPanel.vue';
 import SideChatPanel from './components/SideChatPanel.vue';
 import DiffView from './components/DiffView.vue';
-import type { AgentMember } from './types';
+import type { AgentMember, FilePreviewRequest, ToolMedia } from './types';
 import ModelPicker from './components/ModelPicker.vue';
 import ProviderManager from './components/ProviderManager.vue';
 import NewSessionDialog from './components/NewSessionDialog.vue';
@@ -33,7 +34,6 @@ import { useIsMobile } from './composables/useIsMobile';
 import { useIsDark } from './composables/useIsDark';
 import { useSettingsNav } from './composables/useSettingsNav';
 import type { AppConfig, ThinkingLevel } from './api/types';
-import type { FilePreviewRequest, ToolMedia } from './types';
 
 const client = usePythinkerWebClient();
 provide('resolveImage', client.resolveImageUrl);
@@ -729,6 +729,16 @@ async function handleRefreshProvider(id: string): Promise<void> {
   await client.refreshProvider(id);
 }
 
+/** A Codex sign-in wrote its own provider entry; pull the new lists. */
+async function handleProvidersChanged(): Promise<void> {
+  await Promise.all([
+    client.loadProviders(),
+    client.loadModels(),
+    client.checkAuth(),
+    client.loadConfig(),
+  ]);
+}
+
 async function handleUpdateConfig(patch: Partial<AppConfig>): Promise<void> {
   configSaving.value = true;
   try {
@@ -932,6 +942,7 @@ function openPr(url: string): void {
 <template>
   <div class="app-shell">
     <div class="windows-titlebar" aria-hidden="true"></div>
+    <WindowControls />
     <section v-if="showAuthGate" class="auth-page">
       <div class="auth-page-inner">
         <PythinkerLogo size="lg" interactive class="auth-page-logo" />
@@ -1280,18 +1291,6 @@ function openPr(url: string): void {
       @close="showModelPicker = false"
     />
 
-    <!-- Provider Manager overlay -->
-    <ProviderManager
-      v-if="showProviders"
-      :providers="client.providers.value"
-      :loading="providersLoading"
-      :unavailable="providersUnavailable"
-      @add="handleAddProvider($event)"
-      @refresh="handleRefreshProvider($event)"
-      @delete="handleDeleteProvider($event)"
-      @close="showProviders = false"
-    />
-
     <!-- New Session Dialog overlay (fallback cwd-typing path) -->
     <NewSessionDialog
       v-if="showNewSession"
@@ -1399,6 +1398,19 @@ function openPr(url: string): void {
       @login="() => { showMobileSettings = false; openLogin(); }"
           />
     </div>
+
+    <!-- Provider Manager overlay -->
+    <ProviderManager
+      v-if="showProviders"
+      :providers="client.providers.value"
+      :loading="providersLoading"
+      :unavailable="providersUnavailable"
+      @add="handleAddProvider($event)"
+      @refresh="handleRefreshProvider($event)"
+      @delete="handleDeleteProvider($event)"
+      @refresh-all="handleProvidersChanged()"
+      @close="showProviders = false"
+    />
   </div>
 </template>
 

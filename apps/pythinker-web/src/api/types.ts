@@ -553,6 +553,22 @@ export interface AppProvider {
   models?: string[];
 }
 
+/** An OpenAI Codex sign-in in progress. Carries no token: the server keeps them. */
+export interface CodexLoginStart {
+  loginId: string;
+  authorizeUrl: string;
+  /** `false` when the callback port was taken, so the user must paste the redirect URL. */
+  loopback: boolean;
+  expiresAt: string;
+}
+
+export interface CodexLoginStatus {
+  loginId: string;
+  state: 'pending' | 'completed' | 'failed' | 'cancelled';
+  defaultModel?: string;
+  message?: string;
+}
+
 export interface ProviderRefreshResult {
   changed: Array<{
     providerId: string;
@@ -747,6 +763,10 @@ export interface PythinkerWebApi {
   deleteProvider(id: string): Promise<{ deleted: true }>;
   refreshProvider(id: string): Promise<AppProvider>;
   refreshOAuthProviderModels(): Promise<ProviderRefreshResult>;
+  startCodexLogin(): Promise<CodexLoginStart>;
+  getCodexLoginStatus(loginId: string): Promise<CodexLoginStatus>;
+  submitCodexLoginRedirect(loginId: string, redirectUrl: string): Promise<CodexLoginStatus>;
+  cancelCodexLogin(loginId: string): Promise<CodexLoginStatus>;
 
   // File upload / download
   uploadFile(input: { file: Blob; name?: string }): Promise<{ id: string; name: string; mediaType: string; size: number }>;

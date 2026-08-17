@@ -9,6 +9,7 @@ import type {
   AppGoal,
   AppModel,
   AppProvider,
+  CodexLoginStatus,
   FsEntry,
   AppMessage,
   AppMessageContent,
@@ -39,6 +40,7 @@ import type {
   WireMessageContent,
   WireModel,
   WirePromptSubmission,
+  WireCodexLoginStatus,
   WireProvider,
   WireQuestionAnswer,
   WireQuestionItem,
@@ -711,6 +713,15 @@ export function toAppModel(wire: WireModel): AppModel {
     capabilities: wire.capabilities,
     supportEfforts: wire.support_efforts,
     adaptiveThinking: wire.adaptive_thinking,
+  };
+}
+
+export function toCodexLoginStatus(wire: WireCodexLoginStatus): CodexLoginStatus {
+  return {
+    loginId: wire.login_id,
+    state: wire.state,
+    defaultModel: wire.default_model,
+    message: wire.message,
   };
 }
 

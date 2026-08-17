@@ -106,6 +106,7 @@ no new suffixes get reintroduced.
 | `task/` | `task.ts` | `taskService.ts` | `ITaskService` |
 | `oauth/` | `oauth.ts` | `oauthService.ts` | `IOAuthService` |
 | `authSummary/` | `authSummary.ts` | `authSummaryService.ts` | `IAuthSummaryService` |
+| `codexLogin/` | `codexLogin.ts` | `codexLoginService.ts` | `ICodexLoginService` |
 
 Adding a new service: create the folder + contracts + impl pair, add a
 bottom-of-file `registerSingleton(IXxxService, XxxService,

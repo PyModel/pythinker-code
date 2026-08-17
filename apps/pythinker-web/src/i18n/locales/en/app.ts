@@ -6,4 +6,7 @@ export default {
   authPageLogin: 'Sign in',
   connecting: 'Connecting…',
   comingSoon: 'Coming soon…',
+  minimizeWindow: 'Minimize',
+  maximizeWindow: 'Maximize',
+  closeWindow: 'Close',
 } as const;

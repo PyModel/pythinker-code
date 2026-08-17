@@ -97,7 +97,7 @@ export function registerSnapshotRoutes(
             items = [...page.items].toReversed();
             hasMore = page.has_more;
 
-            const post = await broadcast.getSnapshotState(session_id);
+            const post = await broadcast.peekSnapshotState(session_id);
             const stable = post.seq === snapState.seq && post.epoch === snapState.epoch;
             snapState = post;
             if (stable) break;
