@@ -1,0 +1,81 @@
+# Refreshes the per-platform desktop download counters behind the README badges.
+#
+# shields.io cannot do this on its own: its asset wildcards silently report 0
+# (a tag whose .dmg had 39,877 downloads returns 0 for `*.dmg`), exact asset
+# names embed the version so they break on every release, and `dynamic/json`
+# rejects every filter expression. So we sum the counts here and publish them
+# as shields `endpoint` documents.
+#
+# The documents land on the orphan `badges` branch, never on `main` — `main` is
+# protected and rejects pushes from everyone, CI included.
+name: Desktop Download Badges
+
+on:
+  schedule:
+    # Once a day is plenty; the counters move slowly and the API is rate-limited.
+    - cron: '17 4 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-download-badges
+  cancel-in-progress: true
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the badges branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned from v4
+        with:
+          ref: badges
+          persist-credentials: true
+
+      - name: Sum the .dmg and .exe download counts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASES_REPO: PyModel/pythinker-desktop-releases
+        run: |
+          set -euo pipefail
+
+          # --paginate walks every release, so the totals cover the whole
+          # history rather than just the latest tag.
+          gh api --paginate "repos/${RELEASES_REPO}/releases" > releases.json
+
+          write_badge() {
+            local suffix="$1" label="$2" out="$3"
+            local total
+            total="$(jq --arg s "$suffix" '
+              [ .[].assets[]
+                | select(.name | ascii_downcase | endswith($s))
+                | .download_count
+              ] | add // 0
+            ' releases.json)"
+            jq -n --arg label "$label" --arg message "$total" '{
+              schemaVersion: 1,
+              label: $label,
+              message: $message,
+              color: "4D6BFE"
+            }' > "$out"
+            echo "${label}: ${total}"
+          }
+
+          write_badge '.dmg' 'macOS .dmg' desktop-dmg.json
+          write_badge '.exe' 'Windows .exe' desktop-exe.json
+
+          rm -f releases.json
+
+      - name: Publish if the counts moved
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- desktop-dmg.json desktop-exe.json; then
+            echo 'Counts unchanged; nothing to publish.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add desktop-dmg.json desktop-exe.json
+          git commit -m 'chore: refresh desktop download counts'
+          git push origin badges

@@ -11,6 +11,9 @@
 
 [![npm version](https://img.shields.io/npm/v/@pymodel/pythinker-code?style=for-the-badge&logo=npm&logoColor=white&color=CB3837&label=pythinker-code)](https://www.npmjs.com/package/@pymodel/pythinker-code)
 [![Downloads](https://img.shields.io/npm/dm/@pymodel/pythinker-code?style=for-the-badge&logo=npm&logoColor=white&color=2b89ff&label=downloads)](https://www.npmjs.com/package/@pymodel/pythinker-code)
+[![Desktop downloads](https://img.shields.io/github/downloads/PyModel/pythinker-desktop-releases/total?style=for-the-badge&logo=github&logoColor=white&label=desktop&color=4D6BFE)](https://github.com/PyModel/pythinker-desktop-releases/releases)
+[![macOS .dmg](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FPyModel%2Fpythinker-code%2Fbadges%2Fdesktop-dmg.json&style=for-the-badge&logo=apple&logoColor=white)](https://github.com/PyModel/pythinker-desktop-releases/releases/latest)
+[![Windows .exe](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FPyModel%2Fpythinker-code%2Fbadges%2Fdesktop-exe.json&style=for-the-badge&logo=windows&logoColor=white)](https://github.com/PyModel/pythinker-desktop-releases/releases/latest)
 [![Node.js](https://img.shields.io/badge/Node.js-26%2B-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)](https://github.com/PyModel/pythinker-code/blob/main/package.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-16a34a.svg?style=for-the-badge)](https://github.com/PyModel/pythinker-code/blob/main/LICENSE)
 [![CI](https://img.shields.io/github/actions/workflow/status/PyModel/pythinker-code/ci.yml?branch=main&label=CI&style=for-the-badge&logo=githubactions&logoColor=white)](https://github.com/PyModel/pythinker-code/actions/workflows/ci.yml?query=branch%3Amain)
@@ -20,10 +23,6 @@
 [![MCP tools](https://img.shields.io/badge/MCP-tools-0891b2.svg?style=flat-square)](https://modelcontextprotocol.io/)
 [![Docs](https://img.shields.io/badge/docs-online-0284c7.svg?style=flat-square)](https://pymodel.github.io/pythinker-code/)
 [![Homepage](https://img.shields.io/badge/home-code.pythinker.com-ec4899.svg?style=flat-square)](https://code.pythinker.com)
-
-<a href="https://github.com/PyModel/pythinker-desktop-releases/releases"><img src="https://img.shields.io/github/downloads/PyModel/pythinker-desktop-releases/total?style=flat&label=desktop%20downloads&color=4D6BFE" alt="Total desktop downloads"></a>
-<a href="https://github.com/PyModel/pythinker-desktop-releases/releases/latest"><img src="https://img.shields.io/badge/macOS-.dmg-4D6BFE?style=flat&logo=apple&logoColor=white" alt="Download the macOS .dmg"></a>
-<a href="https://github.com/PyModel/pythinker-desktop-releases/releases/latest"><img src="https://img.shields.io/badge/Windows-.exe-4D6BFE?style=flat&logo=windows&logoColor=white" alt="Download the Windows .exe"></a>
 
 <br />
 
