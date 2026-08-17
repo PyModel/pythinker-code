@@ -23,6 +23,7 @@ const panelRef = ref<HTMLElement | null>(null);
 const panelStyle = ref<Record<string, string>>({});
 let opener: HTMLElement | null = null;
 let listenersAttached = false;
+let panelResizeObserver: ResizeObserver | null = null;
 
 function positionPanel(): void {
   const anchor = props.anchor;
@@ -74,6 +75,13 @@ function attachListeners(): void {
   document.addEventListener('keydown', onKeydown);
   document.addEventListener('scroll', onViewportChange, true);
   window.addEventListener('resize', onViewportChange);
+  // The panel is measured once on open, but its content arrives later: a menu
+  // that opens on a spinner and then fills with rows grows downward past the
+  // viewport, because only `top` was written. Re-place it whenever it resizes.
+  if (typeof ResizeObserver !== 'undefined' && panelRef.value) {
+    panelResizeObserver = new ResizeObserver(onViewportChange);
+    panelResizeObserver.observe(panelRef.value);
+  }
   listenersAttached = true;
 }
 
@@ -83,6 +91,8 @@ function detachListeners(): void {
   document.removeEventListener('keydown', onKeydown);
   document.removeEventListener('scroll', onViewportChange, true);
   window.removeEventListener('resize', onViewportChange);
+  panelResizeObserver?.disconnect();
+  panelResizeObserver = null;
   listenersAttached = false;
 }
 

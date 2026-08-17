@@ -360,10 +360,18 @@ describe('CapabilityMenu', () => {
     expect(checked).toEqual([['Docs', 'false'], ['Issue tracker', 'true']]);
   });
 
-  it('renders selected tools and MCP servers as chips', () => {
+  it('renders the selection only inside the panel, never as toolbar chips', async () => {
+    // A chip per selected tool overflowed the composer toolbar: with every tool
+    // on by default the strip pushed the permission and mode controls off the
+    // row and clipped the last chip mid-word. The panel already carries counts.
     const wrapper = mountMenu();
+    expect(wrapper.findAll('.chip')).toHaveLength(0);
 
-    expect(wrapper.findAll('.chip').map((chip) => chip.text())).toEqual(['×Read', '×Docs']);
+    await wrapper.get('.capability-trigger').trigger('click');
+    await flushPromises();
+
+    expect(wrapper.findAll('.chip')).toHaveLength(0);
+    expect(document.body.querySelectorAll('.mcp-row').length).toBeGreaterThan(0);
   });
 
   it('keeps CapabilityMenu.vue free of dark utilities and color literals', () => {

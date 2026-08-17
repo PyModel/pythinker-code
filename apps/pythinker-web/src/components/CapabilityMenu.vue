@@ -2,7 +2,6 @@
 import { computed, ref, watch, type Ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import ActivitySpinner from './ActivitySpinner.vue';
-import Chip from './ui/Chip.vue';
 import MenuRow from './ui/MenuRow.vue';
 import Popover from './ui/Popover.vue';
 import SwitchToggle from './ui/SwitchToggle.vue';
@@ -48,12 +47,6 @@ const capabilities = computed<SessionCapabilities>(() =>
     : {},
 );
 
-const selectedToolItems = computed(() =>
-  tools.value.filter((tool) => selectedTools.value.includes(tool.name)),
-);
-const selectedMcpItems = computed(() =>
-  connectors.value.filter((server) => selectedMcpServers.value.includes(server.id)),
-);
 const showTools = computed(() => toolsLoading.value || tools.value.length > 0);
 const showSkills = computed(() => skillsLoading.value || skills.value.length > 0);
 const showMcp = computed(() => connectorsLoading.value || connectors.value.length > 0);
@@ -190,29 +183,6 @@ function setPluginEnabled(id: string, enabled: boolean): void {
       </svg>
       <span class="capability-trigger-label">{{ t('capabilityMenu.trigger') }}</span>
     </button>
-
-    <div v-if="selectedToolItems.length > 0 || selectedMcpItems.length > 0" class="capability-chip-strip">
-      <Chip
-        v-for="tool in selectedToolItems"
-        :key="`tool:${tool.name}`"
-        class="capability-chip"
-        variant="active"
-        :label="tool.name"
-        :title="t('capabilityMenu.tools.toggle', { name: tool.name })"
-        :aria-label="t('capabilityMenu.tools.toggle', { name: tool.name })"
-        @click="void setToolEnabled(tool.name, false)"
-      />
-      <Chip
-        v-for="server in selectedMcpItems"
-        :key="`mcp:${server.id}`"
-        class="capability-chip"
-        variant="active"
-        :label="server.name"
-        :title="t('capabilityMenu.mcp.toggle', { name: server.name })"
-        :aria-label="t('capabilityMenu.mcp.toggle', { name: server.name })"
-        @click="void setMcpServerEnabled(server.id, false)"
-      />
-    </div>
 
     <Popover :anchor="triggerRef" :open="open" :label="t('capabilityMenu.triggerLabel')" @close="close">
       <div class="capability-panel">
@@ -361,9 +331,8 @@ function setPluginEnabled(id: string, enabled: boolean): void {
 .capability-control {
   display: flex;
   align-items: center;
-  gap: 4px;
+  flex: none;
   min-width: 0;
-  flex: 1 1 auto;
 }
 
 .capability-trigger {
@@ -395,26 +364,6 @@ function setPluginEnabled(id: string, enabled: boolean): void {
   width: 16px;
   height: 16px;
   flex: none;
-}
-
-.capability-chip-strip {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.capability-chip-strip::-webkit-scrollbar {
-  display: none;
-}
-
-.capability-chip {
-  flex: none;
-  min-width: 0;
-  padding: 5px 6px;
-  font-size: var(--ui-font-size-xs);
 }
 
 .capability-panel {

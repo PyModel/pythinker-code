@@ -1,6 +1,6 @@
 export default {
-  trigger: 'Capabilities',
-  triggerLabel: 'Choose which capabilities this session may use',
+  trigger: 'Connectors',
+  triggerLabel: 'Choose which connectors this session may use',
   back: 'Back',
   loading: 'Loading…',
   tools: {
