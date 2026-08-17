@@ -136,6 +136,10 @@ describe('model/provider catalog routes', () => {
         model: 'gpt4o',
         display_name: 'gpt-4o',
         max_context_size: 128000,
+        // Declares no capabilities in config, so they are derived from the
+        // model itself. `k2` above keeps the list its config states, and
+        // `turbo` omits the field because the pythinker wire reports unknown.
+        capabilities: ['image_in', 'tool_use'],
       },
     ]);
   });

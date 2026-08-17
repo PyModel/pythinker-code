@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { getModelCapability } from '@pymodel/kosong';
 
 import type {
   CoreRPC,
@@ -116,6 +117,80 @@ function catalogConfig(): PythinkerConfig {
 }
 
 describe('model catalog adapters', () => {
+  it('derives capabilities from the configured provider wire type', async () => {
+    const config = catalogConfig();
+    const alias = {
+      provider: 'openai',
+      model: 'gpt-5.4',
+      maxContextSize: 200000,
+    };
+    config.models = { gpt54: alias };
+    const { core } = makeCore({ current: config });
+
+    const [model] = await new ModelCatalogService(core).listModels();
+    const detected = getModelCapability('openai', alias.model);
+    expect(model?.capabilities).toEqual(
+      Object.entries(detected)
+        .filter(([, value]) => value === true)
+        .map(([key]) => key),
+    );
+  });
+
+  it('keeps an explicit capability list exactly', () => {
+    const config = catalogConfig();
+    const alias = {
+      ...config.models!['gpt4o']!,
+      capabilities: ['custom_capability', 'always_thinking'],
+    };
+
+    expect(toProtocolModel('gpt4o', alias, config.providers['openai']).capabilities).toEqual(
+      alias.capabilities,
+    );
+  });
+
+  it('emits only true capability flags, excluding context and cost metadata', () => {
+    const config = catalogConfig();
+    const alias = config.models!['gpt4o']!;
+    const capabilities = toProtocolModel('gpt4o', alias, config.providers['openai']).capabilities;
+
+    expect(capabilities).toEqual(['image_in', 'tool_use']);
+    expect(capabilities).not.toContain('video_in');
+    expect(capabilities).not.toContain('audio_in');
+    expect(capabilities).not.toContain('thinking');
+    expect(capabilities).not.toContain('max_context_tokens');
+    expect(capabilities).not.toContain('cost');
+  });
+
+  it('omits capabilities when the provider reports unknown capability data', () => {
+    const config = catalogConfig();
+    const alias = { ...config.models!['turbo']!, capabilities: undefined };
+
+    expect(toProtocolModel('turbo', alias, config.providers['pythinker']).capabilities).toBeUndefined();
+  });
+
+  it('keeps a model entry when its provider cannot be resolved', async () => {
+    const config: PythinkerConfig = {
+      providers: {},
+      models: {
+        orphan: {
+          provider: 'missing',
+          model: 'gpt-4o',
+          maxContextSize: 128000,
+        },
+      },
+    };
+    const { core } = makeCore({ current: config });
+
+    await expect(new ModelCatalogService(core).listModels()).resolves.toMatchObject([
+      {
+        provider: 'missing',
+        model: 'orphan',
+        max_context_size: 128000,
+        capabilities: undefined,
+      },
+    ]);
+  });
+
   it('maps model aliases to selectable wire ids', () => {
     const alias = catalogConfig().models!['k2']!;
     expect(toProtocolModel('k2', alias)).toEqual({
