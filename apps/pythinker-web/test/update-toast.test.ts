@@ -62,17 +62,17 @@ describe('UpdateToast', () => {
     const bridge = installBridge({ status: 'downloaded', version: '1.2.3', autoUpdate: true });
     const wrapper = await mountToast();
     expect(wrapper.get('.title').text()).toContain('1.2.3');
-    expect(wrapper.get('.go').text()).toBe(enSettings.desktop.restartToUpdate);
+    expect(wrapper.get('.go').text()).toBe(enUpdate.install);
     await wrapper.get('.go').trigger('click');
     expect(bridge.quitAndInstall).toHaveBeenCalledTimes(1);
   });
 
-  it('offers a manual download when automatic updates are off', async () => {
+  it('starts the complete update flow when automatic downloads are off', async () => {
     const bridge = installBridge({ status: 'available', version: '1.2.3', autoUpdate: false });
     const wrapper = await mountToast();
-    expect(wrapper.get('.go').text()).toBe(enUpdate.download);
+    expect(wrapper.get('.go').text()).toBe(enUpdate.install);
     await wrapper.get('.go').trigger('click');
-    expect(bridge.checkForUpdates).toHaveBeenCalledTimes(1);
+    expect(bridge.quitAndInstall).toHaveBeenCalledTimes(1);
   });
 
   it('hides the prompt and remembers the skipped version', async () => {

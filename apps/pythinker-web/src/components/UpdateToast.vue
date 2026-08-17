@@ -41,16 +41,11 @@ const title = computed(() =>
     : t('update.available'),
 );
 
-const primaryLabel = computed(() =>
-  state.value?.status === 'downloaded' ? t('settings.desktop.restartToUpdate') : t('update.download'),
-);
-
 async function primary(): Promise<void> {
   if (bridge === undefined || busy.value) return;
   busy.value = true;
   try {
-    state.value =
-      state.value?.status === 'downloaded' ? await bridge.quitAndInstall() : await bridge.checkForUpdates();
+    state.value = await bridge.quitAndInstall();
   } finally {
     busy.value = false;
   }
@@ -97,7 +92,7 @@ onUnmounted(() => {
     </div>
     <div class="acts">
       <button type="button" class="skip" @click="skip">{{ t('update.skip') }}</button>
-      <button type="button" class="go" :disabled="busy" @click="void primary()">{{ primaryLabel }}</button>
+      <button type="button" class="go" :disabled="busy" @click="void primary()">{{ t('update.install') }}</button>
     </div>
   </div>
 </template>
