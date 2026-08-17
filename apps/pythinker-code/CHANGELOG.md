@@ -1,5 +1,11 @@
 # @pymodel/pythinker-code
 
+## 0.21.1
+
+### Patch Changes
+
+- [#123](https://github.com/PyModel/pythinker-code/pull/123) [`46a9cd1`](https://github.com/PyModel/pythinker-code/commit/46a9cd1a77e638e192303161f7975a28b41cc334) - Sign and notarize the macOS desktop build in the release pipeline, and fail a tagged release outright when the signing credentials are missing instead of quietly shipping an unsigned app.
+
 ## 0.21.0
 
 ### Minor Changes
