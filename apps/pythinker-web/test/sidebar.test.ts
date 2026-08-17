@@ -164,6 +164,9 @@ describe('Sidebar reference layout', () => {
     expect(wrapper.find('.ch .settings-btn').exists()).toBe(false);
     const settings = wrapper.find('.side-foot .settings-row');
     expect(settings.exists()).toBe(true);
+    // The footer control wears the same pill as New Session, so it has to stay
+    // inside a `.btn-wrap` — that is what carries the pill styling.
+    expect(wrapper.find('.side-foot').classes()).toContain('btn-wrap');
     await settings.trigger('click');
     expect(wrapper.emitted('openSettings')).toHaveLength(1);
   });

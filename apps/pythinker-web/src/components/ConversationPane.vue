@@ -809,7 +809,10 @@ defineExpose({ loadComposerForEdit });
           class="panes chat-scroll"
           @scroll.passive="onPanesScroll"
         >
-        <div class="content-wrap" :class="[mobile ? 'align-mobile' : 'align-center']">
+        <div
+          class="content-wrap"
+          :class="[mobile ? 'align-mobile' : 'align-center', { 'has-dock-work': hasDockWork }]"
+        >
           <template v-if="turns.length === 0 && !sessionLoading">
             <!-- Empty session: Composer rendered in the centre of the pane -->
             <div class="empty-spacer" />
@@ -1100,6 +1103,9 @@ defineExpose({ loadComposerForEdit });
   display: flex;
   flex-direction: column;
 }
+/* The work chips float over the transcript from the composer's top edge, so the
+   last line needs to clear their height as well as the normal bottom gap. */
+.content-wrap.has-dock-work { padding-bottom: 62px; }
 .content-wrap.align-center { margin-left: auto; margin-right: auto; }
 .content-wrap.align-left { margin-left: 0; margin-right: auto; }
 /* Mobile: bubbles span the full pane width; no reading-column constraint. */

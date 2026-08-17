@@ -668,8 +668,8 @@ onBeforeUnmount(() => {
         </template>
       </div>
 
-      <div class="side-foot">
-        <button type="button" class="settings-row end" @click.stop="emit('openSettings')">
+      <div class="side-foot btn-wrap">
+        <button type="button" class="settings-row" @click.stop="emit('openSettings')">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <circle cx="12" cy="12" r="3" />
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l-.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09A1.65 1.65 0 0 0 15 4.6a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09A1.65 1.65 0 0 0 19.4 15z" />
@@ -683,7 +683,7 @@ onBeforeUnmount(() => {
         <div class="settings-nav-body">
           <SettingsNav :active-tab="activeSettingsTab" @select="emit('selectSettingsTab', $event)" />
         </div>
-        <div class="side-foot">
+        <div class="side-foot btn-wrap">
           <button type="button" class="settings-row" @click.stop="emit('closeSettings')">
             <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="m10 3-5 5 5 5" />
@@ -1198,13 +1198,22 @@ onBeforeUnmount(() => {
   text-align: left;
   cursor: pointer;
 }
-/* The sessions-mode gear sits on the trailing edge; the settings-mode back
-   arrow keeps the leading edge, where a back control belongs. */
-.settings-row.end {
-  justify-content: flex-end;
-  text-align: right;
+/* The pinned footer control reads as an action, not a list row, so it wears the
+   same pill as New Session at the top of the same column. */
+.btn-wrap .settings-row {
+  flex: 1;
+  justify-content: center;
+  gap: 10px;
+  padding: 9px 10px;
+  color: var(--ink);
+  background: var(--soft);
+  border: 1px solid var(--line);
+  border-radius: 10px;
 }
 .settings-row:hover { color: var(--ink); background: var(--soft); }
+.btn-wrap .settings-row:hover {
+  background: color-mix(in srgb, var(--ink) 6%, var(--soft));
+}
 .settings-row:focus-visible {
   outline: 2px solid var(--blue);
   outline-offset: -2px;
