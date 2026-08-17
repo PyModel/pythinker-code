@@ -1,5 +1,69 @@
 # @pymodel/pythinker-code
 
+## 0.21.0
+
+### Minor Changes
+
+- [#100](https://github.com/PyModel/pythinker-code/pull/100) [`cba1341`](https://github.com/PyModel/pythinker-code/commit/cba13413dd3606f218cc6f1dca59a75641371c85) - Add server endpoints that list installed plugins, enable or disable one, and list subagent profiles, and let a named skill be turned off so it is hidden from the model, the slash menu and the API.
+
+- [#119](https://github.com/PyModel/pythinker-code/pull/119) [`0871533`](https://github.com/PyModel/pythinker-code/commit/08715330b820800414345991f9dc616aa15ca824) - Report each model's real capabilities in the catalog. Until now `capabilities` carried only what a user had typed into their config file by hand, so for almost every model it was empty. It is now derived from the model itself when the config says nothing, while an explicit list in the config still wins. A provider whose capabilities are genuinely unknown keeps omitting the field rather than claiming the model can do nothing.
+
+- [#119](https://github.com/PyModel/pythinker-code/pull/119) [`0871533`](https://github.com/PyModel/pythinker-code/commit/08715330b820800414345991f9dc616aa15ca824) - Prompt for desktop updates with a toast that offers install or skip, centre the settings button in the sidebar footer, and start a new session when the sidebar brand is clicked.
+
+- [#100](https://github.com/PyModel/pythinker-code/pull/100) [`cba1341`](https://github.com/PyModel/pythinker-code/commit/cba13413dd3606f218cc6f1dca59a75641371c85) - Open the web settings inside the app shell instead of over it, and add pages for plugins, skills, subagents, connectors, hooks and usage statistics.
+
+- [#119](https://github.com/PyModel/pythinker-code/pull/119) [`0871533`](https://github.com/PyModel/pythinker-code/commit/08715330b820800414345991f9dc616aa15ca824) - Make `agent_config.tools` and `agent_config.mcp_servers` reach the running agent. A session profile update now persists the selection, merges each field independently so supplying one half does not clear the other, resumes an inactive session before the mutation, and applies the result through a single `setActiveTools` call. MCP server names are turned into tool patterns with the shared naming helper, so a server whose name needs sanitizing still matches its tools.
+
+- [#119](https://github.com/PyModel/pythinker-code/pull/119) [`0871533`](https://github.com/PyModel/pythinker-code/commit/08715330b820800414345991f9dc616aa15ca824) - Add a capability menu to the composer. It picks which tools and MCP servers the current session may use, lists the session's skills, and turns plugins on or off. Each group states how far its change reaches, because the three differ: tool and MCP changes apply to this session at once, skills are read-only here, and plugin changes are global to the daemon. Selected tools and servers appear as chips beside the composer controls.
+
+- [#119](https://github.com/PyModel/pythinker-code/pull/119) [`0871533`](https://github.com/PyModel/pythinker-code/commit/08715330b820800414345991f9dc616aa15ca824) - Add OpenAI Codex sign-in to the web and desktop app. The provider dialog now offers "Sign in with ChatGPT" next to the API-key form: the server runs the OAuth exchange, writes the credentials, and reports only which model it selected. When port 1455 is taken, the dialog asks for the redirect URL instead.
+
+- [#119](https://github.com/PyModel/pythinker-code/pull/119) [`0871533`](https://github.com/PyModel/pythinker-code/commit/08715330b820800414345991f9dc616aa15ca824) - Add starter suggestions to the empty conversation screen in the web UI. Each suggestion fills the composer for editing and does not send the message.
+
+- [#119](https://github.com/PyModel/pythinker-code/pull/119) [`0871533`](https://github.com/PyModel/pythinker-code/commit/08715330b820800414345991f9dc616aa15ca824) - Add, edit, and remove your own MCP servers from the connectors page in the web UI; a new or edited server starts with your next session.
+
+- [#119](https://github.com/PyModel/pythinker-code/pull/119) [`0871533`](https://github.com/PyModel/pythinker-code/commit/08715330b820800414345991f9dc616aa15ca824) - Add a Retry action to the last assistant reply and a copy button to user messages in the web UI. Retry asks for confirmation, then sends the original prompt again.
+
+- [#119](https://github.com/PyModel/pythinker-code/pull/119) [`0871533`](https://github.com/PyModel/pythinker-code/commit/08715330b820800414345991f9dc616aa15ca824) - Point the web provider calls at routes that exist. Adding a provider now writes through `POST /config`, refreshing reads `GET /providers/{id}`, and a new `DELETE /providers/{provider_id}` route removes a provider together with the model aliases that referenced it.
+
+- [#119](https://github.com/PyModel/pythinker-code/pull/119) [`0871533`](https://github.com/PyModel/pythinker-code/commit/08715330b820800414345991f9dc616aa15ca824) - Move the web tool picker out of the composer menu into a Tools page in settings, where the full list fits. Every tool stays on until you turn one off, and the selection still applies to the current session only.
+
+### Patch Changes
+
+- [#121](https://github.com/PyModel/pythinker-code/pull/121) [`cb2ecdc`](https://github.com/PyModel/pythinker-code/commit/cb2ecdcdadb874ea30156db237461ca8f79c076e) - Say why the desktop app cannot start when another Pythinker server is already running. It now names the process, port and start time and offers Retry or Quit, in place of an exit code that explained nothing. Stopping the other server stays the user's choice.
+
+- [#119](https://github.com/PyModel/pythinker-code/pull/119) [`0871533`](https://github.com/PyModel/pythinker-code/commit/08715330b820800414345991f9dc616aa15ca824) - Repaint the desktop chrome. The sidebar footer now carries a pill button, so Settings and the way back out of it match New Session and stay visible. The transcript reserves room for the floating work chips instead of letting them sit on the last line. Windows gets round window controls on the trailing edge, in place of the native caption buttons that could not be styled.
+
+- [#121](https://github.com/PyModel/pythinker-code/pull/121) [`cb2ecdc`](https://github.com/PyModel/pythinker-code/commit/cb2ecdcdadb874ea30156db237461ca8f79c076e) - Sign, notarize and staple the macOS disk image, so a downloaded desktop build no longer opens with a Gatekeeper warning, and keep the update metadata in step with the finished file. The install window also gets a deliberate icon layout in place of the stock one.
+
+- [#119](https://github.com/PyModel/pythinker-code/pull/119) [`0871533`](https://github.com/PyModel/pythinker-code/commit/08715330b820800414345991f9dc616aa15ca824) - Keep provider and model ids exactly as you type them, open the ChatGPT sign-in window reliably, stop a second sign-in attempt from holding the callback port, hide provider errors behind a safe message, and finish writing the event journals during shutdown.
+
+- [#119](https://github.com/PyModel/pythinker-code/pull/119) [`0871533`](https://github.com/PyModel/pythinker-code/commit/08715330b820800414345991f9dc616aa15ca824) - Keep provider and model ids exactly as written when a config patch is saved, so an id containing an underscore still resolves.
+
+- [#119](https://github.com/PyModel/pythinker-code/pull/119) [`0871533`](https://github.com/PyModel/pythinker-code/commit/08715330b820800414345991f9dc616aa15ca824) - Stop the session snapshot request from timing out on busy sessions. Each recorded event no longer pays a fresh file open and close, the watermark is read without waiting for pending writes, and the session list is scanned in parallel, so opening or refreshing a session stays fast even with a long history. This was most visible on Windows, where the per-event file cost is highest.
+
+- [#119](https://github.com/PyModel/pythinker-code/pull/119) [`0871533`](https://github.com/PyModel/pythinker-code/commit/08715330b820800414345991f9dc616aa15ca824) - Show the sign-in state, the provider, and the model as separate fields in the web settings account section, and label the button for what it opens.
+
+- [#119](https://github.com/PyModel/pythinker-code/pull/119) [`0871533`](https://github.com/PyModel/pythinker-code/commit/08715330b820800414345991f9dc616aa15ca824) - Fix web capability and retry controls: the capability panel takes keyboard focus when it opens, Retry stays reachable with Tab, rapid capability toggles reach the daemon in order, and retrying a prompt keeps its attachments.
+
+- [#119](https://github.com/PyModel/pythinker-code/pull/119) [`0871533`](https://github.com/PyModel/pythinker-code/commit/08715330b820800414345991f9dc616aa15ca824) - Widen the chat reading column to 928px and restyle the composer card: a 24px radius, a translucent blurred surface, a border that strengthens on hover and focus, and an input that grows to 384px before it scrolls. The toolbar controls are 30px circles with a divider after the attachment button.
+
+- [#122](https://github.com/PyModel/pythinker-code/pull/122) [`5f51b83`](https://github.com/PyModel/pythinker-code/commit/5f51b83531fdc3a39ae1e5c9d9adba2cb24eb658) - Lay the MCP server form out in even rows instead of a ragged grid, and stop the provider manager header and footer from squaring off the dialog corners.
+
+- [#119](https://github.com/PyModel/pythinker-code/pull/119) [`0871533`](https://github.com/PyModel/pythinker-code/commit/08715330b820800414345991f9dc616aa15ca824) - Clean up the web composer capability control: the selected tools no longer render as chips in the toolbar, the button reads "Connectors", and the menu panel stays inside the window when its content loads.
+
+- [#119](https://github.com/PyModel/pythinker-code/pull/119) [`0871533`](https://github.com/PyModel/pythinker-code/commit/08715330b820800414345991f9dc616aa15ca824) - Show model capabilities as badges in the model picker instead of a comma-separated string, and bring its rows and search field onto the app's row metrics, sized from `--ui-font-size` so the font-size setting still scales them. A model that reasons adaptively is now distinguishable from one that exposes an explicit thinking capability, and an unrecognised capability still renders rather than being dropped.
+
+- [#119](https://github.com/PyModel/pythinker-code/pull/119) [`0871533`](https://github.com/PyModel/pythinker-code/commit/08715330b820800414345991f9dc616aa15ca824) - Make the web settings surface use the app design tokens: token corner radii, a theme-aware switch shadow, and control sizes that grow with the UI font size.
+
+- [#119](https://github.com/PyModel/pythinker-code/pull/119) [`0871533`](https://github.com/PyModel/pythinker-code/commit/08715330b820800414345991f9dc616aa15ca824) - Quieten the sidebar session rows. Hover becomes a translucent wash instead of a solid fill, the selected row becomes a faint tint instead of a solid accent, and the radius and sizing match the shared menu row, so the row scales with the UI font-size setting. The same change is applied to the per-theme overrides, so all three themes agree.
+
+- [#119](https://github.com/PyModel/pythinker-code/pull/119) [`0871533`](https://github.com/PyModel/pythinker-code/commit/08715330b820800414345991f9dc616aa15ca824) - Recover the web and desktop app when a session snapshot request fails. It is now retried with a growing delay instead of leaving the todo list and the sub-agent list frozen until a reload, and a failed task refresh reports itself rather than failing in silence.
+
+- [#119](https://github.com/PyModel/pythinker-code/pull/119) [`0871533`](https://github.com/PyModel/pythinker-code/commit/08715330b820800414345991f9dc616aa15ca824) - Add four shared UI primitives to the web app: `Popover`, `MenuRow`, `SwitchToggle` and `Chip`. `Popover` holds the anchored-menu positioning that each menu used to write for itself, including the flip above the trigger and the viewport clamp. `MenuRow` carries the standard list row, sized from `--ui-font-size` so the font-size setting still scales it. All four style themselves only from theme tokens, and a guard test fails on any colour literal.
+
+- [#119](https://github.com/PyModel/pythinker-code/pull/119) [`0871533`](https://github.com/PyModel/pythinker-code/commit/08715330b820800414345991f9dc616aa15ca824) - Open the browser on Windows through `rundll32` instead of `cmd /c start`. `cmd` cut every URL at the first `&`, so OAuth logins reached the provider with only the first query parameter and failed with an invalid authorize request.
+
 ## 0.20.0
 
 ### Minor Changes
