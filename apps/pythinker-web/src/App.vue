@@ -728,6 +728,11 @@ async function handleRefreshProvider(id: string): Promise<void> {
   await client.refreshProvider(id);
 }
 
+/** A Codex sign-in wrote its own provider entry; pull the new lists. */
+async function handleProvidersChanged(): Promise<void> {
+  await Promise.all([client.loadProviders(), client.loadModels()]);
+}
+
 async function handleUpdateConfig(patch: Partial<AppConfig>): Promise<void> {
   configSaving.value = true;
   try {
@@ -1275,6 +1280,7 @@ function openPr(url: string): void {
       @add="handleAddProvider($event)"
       @refresh="handleRefreshProvider($event)"
       @delete="handleDeleteProvider($event)"
+      @refresh-all="handleProvidersChanged()"
       @close="showProviders = false"
     />
 

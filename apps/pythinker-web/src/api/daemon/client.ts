@@ -9,6 +9,8 @@ import type {
   AppMessageRole,
   AppModel,
   AppProvider,
+  CodexLoginStart,
+  CodexLoginStatus,
   ProviderRefreshResult,
   AppSession,
   AppConnector,
@@ -46,6 +48,7 @@ import {
   toAppModel,
   toAppProvider,
   toAppQuestionRequest,
+  toCodexLoginStatus,
   toAppSession,
   toAppTask,
   toWireApprovalResponse,
@@ -58,6 +61,8 @@ import {
 } from './mappers';
 import type {
   WireAuthResult,
+  WireCodexLoginStart,
+  WireCodexLoginStatus,
   WireBackgroundTask,
   WireConfig,
   WireEvent,
@@ -1147,6 +1152,41 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
       `/providers/${encodeURIComponent(id)}:refresh`,
     );
     return toAppProvider(data);
+  }
+
+  async startCodexLogin(): Promise<CodexLoginStart> {
+    const data = await this.http.post<WireCodexLoginStart>('/auth/codex:start');
+    return {
+      loginId: data.login_id,
+      authorizeUrl: data.authorize_url,
+      loopback: data.loopback,
+      expiresAt: data.expires_at,
+    };
+  }
+
+  async getCodexLoginStatus(loginId: string): Promise<CodexLoginStatus> {
+    const data = await this.http.get<WireCodexLoginStatus>(
+      `/auth/codex/${encodeURIComponent(loginId)}`,
+    );
+    return toCodexLoginStatus(data);
+  }
+
+  async submitCodexLoginRedirect(
+    loginId: string,
+    redirectUrl: string,
+  ): Promise<CodexLoginStatus> {
+    const data = await this.http.post<WireCodexLoginStatus>(
+      `/auth/codex/${encodeURIComponent(loginId)}:submit_code`,
+      { redirect_url: redirectUrl },
+    );
+    return toCodexLoginStatus(data);
+  }
+
+  async cancelCodexLogin(loginId: string): Promise<CodexLoginStatus> {
+    const data = await this.http.post<WireCodexLoginStatus>(
+      `/auth/codex/${encodeURIComponent(loginId)}:cancel`,
+    );
+    return toCodexLoginStatus(data);
   }
 
   async refreshOAuthProviderModels(): Promise<ProviderRefreshResult> {
