@@ -4,6 +4,7 @@ import { ulid } from 'ulid';
 import { okEnvelope } from '../envelope';
 import { registerApprovalsRoutes } from './approvals';
 import { registerAuthRoute } from './auth';
+import { registerCodexLoginRoutes } from './codexLogin';
 import { registerConfigRoutes } from './config';
 import { registerConnectionsRoutes } from './connections';
 import { registerDebugRoutes } from './debug';
@@ -65,6 +66,10 @@ export async function registerApiV1Routes(
     });
 
     registerAuthRoute(apiV1 as unknown as Parameters<typeof registerAuthRoute>[0], ix);
+    registerCodexLoginRoutes(
+      apiV1 as unknown as Parameters<typeof registerCodexLoginRoutes>[0],
+      ix,
+    );
     registerConfigRoutes(apiV1 as unknown as Parameters<typeof registerConfigRoutes>[0], ix);
     registerConnectionsRoutes(
       apiV1 as unknown as Parameters<typeof registerConnectionsRoutes>[0],
