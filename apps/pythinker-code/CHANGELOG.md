@@ -1,5 +1,13 @@
 # @pymodel/pythinker-code
 
+## 0.21.0
+
+### Minor Changes
+
+- [#100](https://github.com/PyModel/pythinker-code/pull/100) [`cba1341`](https://github.com/PyModel/pythinker-code/commit/cba13413dd3606f218cc6f1dca59a75641371c85) - Add server endpoints that list installed plugins, enable or disable one, and list subagent profiles, and let a named skill be turned off so it is hidden from the model, the slash menu and the API.
+
+- [#100](https://github.com/PyModel/pythinker-code/pull/100) [`cba1341`](https://github.com/PyModel/pythinker-code/commit/cba13413dd3606f218cc6f1dca59a75641371c85) - Open the web settings inside the app shell instead of over it, and add pages for plugins, skills, subagents, connectors, hooks and usage statistics.
+
 ## 0.20.0
 
 ### Minor Changes
