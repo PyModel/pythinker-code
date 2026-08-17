@@ -110,7 +110,12 @@ export {
   CodexLoginNotFoundError,
   CodexLoginInvalidCodeError,
 } from './codexLogin/codexLogin';
-import './codexLogin/codexLoginService';
+export {
+  CodexLoginFlow,
+  CodexLoginService,
+  pickDefaultModel,
+} from './codexLogin/codexLoginService';
+export type { CodexLoginDeps } from './codexLogin/codexLoginService';
 
 
 export {
