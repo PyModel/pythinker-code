@@ -10,6 +10,7 @@ import type {
 } from '../../api/types';
 import type { ColorScheme, Theme } from '../../composables/usePythinkerWebClient';
 import type { SettingsTab } from '../../composables/useSettingsNav';
+import { useI18n } from 'vue-i18n';
 import AdvancedPage from './pages/AdvancedPage.vue';
 import AgentPage from './pages/AgentPage.vue';
 import ConnectorsPage from './pages/ConnectorsPage.vue';
@@ -53,11 +54,23 @@ const emit = defineEmits<{
   updateConfig: [patch: Partial<AppConfig>];
   restartConnector: [connectorId: string];
   setPluginEnabled: [payload: { pluginId: string; enabled: boolean }];
+  close: [];
 }>();
+
+const { t } = useI18n();
 </script>
 
 <template>
   <main class="settings-pane con">
+    <!-- Zero-height sticky strip: the close button rides the top-right corner
+         without pushing the pages down or scrolling away with them. -->
+    <div class="pane-top">
+      <button type="button" class="close-btn" :title="t('settings.close')" :aria-label="t('settings.close')" @click="emit('close')">
+        <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+          <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" />
+        </svg>
+      </button>
+    </div>
     <GeneralPage
       v-show="activeTab === 'general'"
       :theme="theme"
@@ -115,5 +128,40 @@ const emit = defineEmits<{
   overflow-y: auto;
   background: var(--bg);
   color: var(--ink);
+}
+.pane-top {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  justify-content: flex-end;
+  height: 0;
+}
+.close-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid color-mix(in srgb, var(--err) 35%, transparent);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--err) 10%, transparent);
+  color: var(--err);
+  cursor: pointer;
+}
+.close-btn:hover {
+  color: #fff;
+  background: var(--err);
+  border-color: var(--err);
+}
+/* Windows draws its own min/max/close cluster in the top-right titlebar, so the
+   pane control drops clear of it instead of stacking under the window buttons. */
+:global(html[data-desktop-platform='win32']) .pane-top {
+  top: 8px;
+  padding-right: 4px;
+}
+.close-btn:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 1px;
 }
 </style>

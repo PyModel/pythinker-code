@@ -18,6 +18,8 @@ export default {
   undo: 'Undo',
   undoTooltip: 'Undoing the conversation will not roll back code changes',
   undoConfirm: 'Undo last message?',
+  retry: 'Retry',
+  retryConfirm: 'Retry last reply?',
   confirm: 'Confirm',
   cancel: 'Cancel',
   yesterday: 'Yesterday',

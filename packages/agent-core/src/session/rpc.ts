@@ -1,5 +1,6 @@
 import { ErrorCodes, PythinkerError } from '#/errors';
 import { convertMCPContentBlock } from '#/mcp/output';
+import { mcpServerToolPattern } from '#/mcp/tool-naming';
 import type {
   ActivateSkillPayload,
   AdvisorStatus,
@@ -71,13 +72,33 @@ export class SessionAPIImpl implements PromisableMethods<SessionAPI> {
         'sessionFormatVersion cannot be updated',
       );
     }
+    const incoming = payload.metadata.agentConfig;
+    const previous = this.session.metadata.agentConfig;
+    const agentConfig =
+      incoming === undefined
+        ? previous
+        : {
+            tools: incoming.tools ?? previous?.tools,
+            mcpServers: incoming.mcpServers ?? previous?.mcpServers,
+          };
     this.session.metadata = {
       ...this.session.metadata,
       ...payload.metadata,
+      agentConfig,
       agents: this.session.metadata.agents,
       sessionFormatVersion: this.session.metadata.sessionFormatVersion,
     };
     await this.session.writeMetadata();
+    if (
+      incoming !== undefined &&
+      (incoming.tools !== undefined || incoming.mcpServers !== undefined)
+    ) {
+      const agent = await this.session.ensureAgentResumed('main');
+      agent.tools.patchActiveTools({
+        tools: incoming.tools,
+        mcpPatterns: incoming.mcpServers?.map(mcpServerToolPattern),
+      });
+    }
   }
 
   getSessionMetadata(_payload: EmptyPayload): SessionMeta {

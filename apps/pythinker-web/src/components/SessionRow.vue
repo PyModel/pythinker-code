@@ -227,15 +227,20 @@ defineExpose({ closeMenu, cancelArchive });
 .se {
   /* --sb-* vars come from .side in Sidebar.vue. The outer margin and reduced
      inner padding keep the title at --sb-pad-x + --sb-gutter + --sb-gap. */
+  /* Default 14px: 14 + 13 = 27px; 14 - 1 = 13px. A MINIMUM, not a fixed
+     height: the row also carries an 18px tag pill and the archive-confirm
+     strip, and a fixed height would clip both. */
   display: block;
   margin: 0 8px;
-  padding: 7px calc(var(--sb-pad-x, 12px) - 8px);
-  border-radius: 8px;
+  padding: 4px calc(var(--sb-pad-x, 12px) - 8px);
+  min-height: calc(var(--ui-font-size) + 13px);
+  box-sizing: border-box;
+  border-radius: var(--r-md);
   cursor: pointer;
   position: relative;
 }
-.se:hover { background: var(--panel2); }
-.se.on { background: var(--soft); }
+.se:hover { background: var(--hover); }
+.se.on { background: color-mix(in srgb, var(--soft) 45%, var(--panel)); }
 
 .row {
   display: flex;
@@ -278,7 +283,7 @@ defineExpose({ closeMenu, cancelArchive });
 
 .t {
   color: var(--ink);
-  font-size: var(--ui-font-size);
+  font-size: calc(var(--ui-font-size) - 1px);
   font-weight: 400;
   flex: 1;
   min-width: 0;

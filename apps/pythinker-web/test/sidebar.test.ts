@@ -168,6 +168,12 @@ describe('Sidebar reference layout', () => {
     expect(wrapper.emitted('openSettings')).toHaveLength(1);
   });
 
+  it('starts a new session when the brand is clicked', async () => {
+    const wrapper = mountSidebar();
+    await wrapper.get('.ch .ch-brand').trigger('click');
+    expect(wrapper.emitted('create')).toHaveLength(1);
+  });
+
   it('renders the New Session label without a workspace path row', () => {
     const wrapper = mountSidebar();
 

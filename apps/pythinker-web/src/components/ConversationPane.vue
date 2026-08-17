@@ -104,6 +104,8 @@ const emit = defineEmits<{
   refreshGitStatus: [];
   /** Edit + resend the last user message (App undoes, then refills composer). */
   editMessage: [text: string];
+  /** Undo the last exchange and send its user prompt again. */
+  regenerate: [];
   /** Empty-composer workspace picker: start a new conversation elsewhere. */
   selectWorkspace: [workspaceId: string];
   /** Empty-composer workspace picker: create a new workspace. */
@@ -162,6 +164,7 @@ function pickWorkspace(id: string): void {
 
 const { t } = useI18n();
 const idleMascotSrc = useApngRestart('/brand/mascot-idle.png');
+const starterSuggestionKeys = ['explainRepository', 'suggestFirstTask', 'runChecks', 'reviewWorkingTree'] as const;
 
 // The align toggle was removed with its UI (6e50cb7) — reading layout is
 // always centered now. Drop the old persisted preference so users who once
@@ -183,6 +186,10 @@ let copyConversationCopiedTimer: ReturnType<typeof setTimeout> | null = null;
     empty-session composer). Used by App for "edit & resend the last message". */
 function loadComposerForEdit(value: string): void {
   (dockedComposerRef.value ?? emptyComposerRef.value)?.loadForEdit(value);
+}
+
+function loadSuggestion(key: (typeof starterSuggestionKeys)[number]): void {
+  loadComposerForEdit(t(`suggestions.${key}.prompt`));
 }
 
 function handleCopyConversationCopied(): void {
@@ -820,6 +827,19 @@ defineExpose({ loadComposerForEdit });
                 <span class="empty-hint-title">{{ t('composer.emptyConversationTitle') }}</span>
               </div>
               <span class="empty-hint-text">{{ t('composer.emptyConversation') }}</span>
+              <div class="empty-suggestions">
+                <button
+                  v-for="(suggestion, index) in starterSuggestionKeys"
+                  :key="suggestion"
+                  type="button"
+                  class="empty-suggestion"
+                  :style="{ '--suggestion-index': index }"
+                  @click="loadSuggestion(suggestion)"
+                >
+                  <span class="empty-suggestion-title">{{ t(`suggestions.${suggestion}.title`) }}</span>
+                  <span class="empty-suggestion-description">{{ t(`suggestions.${suggestion}.description`) }}</span>
+                </button>
+              </div>
               <!-- Workspace picker: choose where this new conversation starts. -->
               <div v-if="hasWorkspaces" class="ws-pick">
                 <button type="button" class="ws-pick-btn" :title="t('conversation.switchWorkspace')" @click.stop="wsPickOpen = !wsPickOpen">
@@ -940,6 +960,7 @@ defineExpose({ loadComposerForEdit });
               @open-compaction="emit('openCompaction', $event)"
               @open-agent="emit('openAgent', $event)"
               @edit-message="emit('editMessage', $event)"
+              @regenerate="emit('regenerate')"
             />
             <div v-if="activeDynamicWorkflows.length > 0" class="dynamic-workflow-stack">
               <DynamicWorkflowCard v-for="group in activeDynamicWorkflows" :key="group.id" :group="group" />
@@ -1047,7 +1068,7 @@ defineExpose({ loadComposerForEdit });
 
 <style scoped>
 .con {
-  --read-max: 760px;
+  --read-max: 928px;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -1323,6 +1344,52 @@ defineExpose({ loadComposerForEdit });
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.empty-suggestions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, calc(var(--ui-font-size) * 20)), 1fr));
+  gap: calc(var(--ui-font-size) * 0.75) calc(var(--ui-font-size) * 1.5);
+  inline-size: min(100%, calc(var(--ui-font-size) * 44));
+  padding: calc(var(--ui-font-size) * 0.5) 0;
+}
+.empty-suggestion {
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-inline-size: 0;
+  inline-size: 100%;
+  padding: calc(var(--ui-font-size) * 0.5) calc(var(--ui-font-size) * 0.75);
+  border: 0;
+  background: none;
+  box-shadow: none;
+  color: var(--ink);
+  cursor: pointer;
+  font: inherit;
+  text-align: start;
+  animation: suggestion-rise 200ms ease-out both;
+  animation-delay: calc(var(--suggestion-index) * 45ms);
+}
+.empty-suggestion-title {
+  color: inherit;
+  font-size: var(--ui-font-size);
+  font-weight: 600;
+  line-height: 1.35;
+}
+.empty-suggestion-description {
+  margin-top: calc(var(--ui-font-size) * 0.2);
+  color: var(--muted);
+  font-size: var(--ui-font-size-sm);
+  line-height: 1.4;
+}
+.empty-suggestion:hover .empty-suggestion-title { color: var(--blue); }
+.empty-suggestion:focus-visible {
+  outline: calc(var(--ui-font-size) * 0.14) solid var(--blue);
+  outline-offset: calc(var(--ui-font-size) * 0.14);
+}
+@keyframes suggestion-rise {
+  from { opacity: 0; transform: translateY(calc(var(--ui-font-size) * 0.4)); }
+  to { opacity: 1; transform: translateY(0); }
+}
 @keyframes halo-breathe {
   0%, 100% { opacity: 0.55; transform: translateX(-50%) scale(1); }
   50%      { opacity: 0.9;  transform: translateX(-50%) scale(1.06); }
@@ -1333,7 +1400,7 @@ defineExpose({ loadComposerForEdit });
   to   { opacity: 1; transform: translateY(0); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .empty-halo, .empty-hint-head, .empty-hint-text { animation: none; }
+  .empty-halo, .empty-hint-head, .empty-hint-text, .empty-suggestion { animation: none; }
 }
 .empty-add-workspace {
   display: inline-flex;

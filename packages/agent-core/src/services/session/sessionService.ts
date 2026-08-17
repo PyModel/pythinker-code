@@ -44,6 +44,8 @@ const DEFAULT_UNDO_MESSAGE_PAGE_SIZE = 50;
 const MAX_UNDO_MESSAGE_PAGE_SIZE = 100;
 const CHILD_SESSION_KIND = 'child';
 
+type ToolSelectionPatch = NonNullable<SessionMeta['agentConfig']>;
+
 function asJsonObject(value: Record<string, unknown>): JsonObject {
   return value as unknown as JsonObject;
 }
@@ -250,6 +252,10 @@ export class SessionService extends Disposable implements ISessionService {
       } catch {
       }
     }
+    const toolPatch = this.toToolPatch(input.agent_config);
+    if (toolPatch !== undefined) {
+      await this.persistToolSelection(summary.id, toolPatch);
+    }
     const meta = await this.tryGetMeta(summary.id);
     const session = this._patchSessionStatus(
       toProtocolSession(summary, meta, await this.tryResolveWorkspaceId(summary.workDir)),
@@ -315,6 +321,7 @@ export class SessionService extends Disposable implements ISessionService {
     if (summary === undefined) {
       throw new SessionNotFoundError(id);
     }
+    await this.core.rpc.resumeSession({ sessionId: id });
 
     if (input.title !== undefined) {
       await this.core.rpc.renameSession({ sessionId: id, title: input.title });
@@ -330,6 +337,10 @@ export class SessionService extends Disposable implements ISessionService {
 
     const ac = input.agent_config;
     if (ac !== undefined) {
+      const toolPatch = this.toToolPatch(ac);
+      if (toolPatch !== undefined) {
+        await this.persistToolSelection(id, toolPatch);
+      }
       const patch: AgentStatePatch = {};
       if (ac.model !== undefined && ac.model !== '') patch.model = ac.model;
       if (ac.thinking !== undefined) patch.thinking = ac.thinking;
@@ -357,6 +368,30 @@ export class SessionService extends Disposable implements ISessionService {
     return this._patchSessionStatus(
       toProtocolSession(summaryAfter, meta, await this.tryResolveWorkspaceId(summaryAfter.workDir)),
     );
+  }
+
+  private toToolPatch(
+    agentConfig: SessionCreate['agent_config'],
+  ): ToolSelectionPatch | undefined {
+    if (agentConfig?.tools === undefined && agentConfig?.mcp_servers === undefined) {
+      return undefined;
+    }
+    return {
+      tools: agentConfig.tools,
+      mcpServers: agentConfig.mcp_servers,
+    };
+  }
+
+  private async persistToolSelection(id: string, patch: ToolSelectionPatch): Promise<void> {
+    await this.core.rpc.updateSessionMetadata({
+      sessionId: id,
+      metadata: {
+        agentConfig: {
+          tools: patch.tools,
+          mcpServers: patch.mcpServers,
+        },
+      },
+    });
   }
 
   async fork(id: string, input: SessionFork): Promise<Session> {

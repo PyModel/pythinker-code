@@ -69,6 +69,10 @@ export interface AppSession {
   currentPromptId?: string;
   cwd: string;
   model: string;
+  /** Exact tool names configured for this session, when explicitly set. */
+  tools?: string[];
+  /** MCP server ids configured for this session, when explicitly set. */
+  mcpServers?: string[];
   usage: AppSessionUsage;
   messageCount: number;
   lastSeq: number;
@@ -651,6 +655,15 @@ export interface AppConnector {
   lastError?: string;
 }
 
+/** One tool available to the current session. */
+export interface AppTool {
+  name: string;
+  description: string;
+  inputSchema: unknown;
+  source: 'builtin' | 'skill' | 'mcp';
+  mcpServerId?: string;
+}
+
 // ---------------------------------------------------------------------------
 // PythinkerWebApi — the app-facing interface
 // ---------------------------------------------------------------------------
@@ -662,7 +675,7 @@ export interface PythinkerWebApi {
   createSession(input: { title?: string; cwd?: string; model?: string; workspaceId?: string }): Promise<AppSession>;
   /** Fetch one session by id (deep links beyond the first listSessions page). */
   getSession(sessionId: string): Promise<AppSession>;
-  updateSession(sessionId: string, input: { title?: string; cwd?: string; model?: string; permissionMode?: string; planMode?: boolean; dynamicWorkflowMode?: boolean; goalObjective?: string; goalControl?: 'pause' | 'resume' | 'cancel'; thinking?: string }): Promise<AppSession>;
+  updateSession(sessionId: string, input: { title?: string; cwd?: string; model?: string; permissionMode?: string; planMode?: boolean; dynamicWorkflowMode?: boolean; goalObjective?: string; goalControl?: 'pause' | 'resume' | 'cancel'; thinking?: string; tools?: string[]; mcpServers?: string[] }): Promise<AppSession>;
   getSessionStatus(sessionId: string): Promise<AppSessionRuntimeStatus>;
   archiveSession(sessionId: string): Promise<{ archived: true }>;
   listMessages(sessionId: string, input?: PageRequest & { role?: AppMessageRole }): Promise<Page<AppMessage>>;
@@ -687,6 +700,7 @@ export interface PythinkerWebApi {
   respondQuestion(sessionId: string, questionId: string, response: QuestionResponse): Promise<{ resolved: true; resolvedAt: string }>;
   dismissQuestion(sessionId: string, questionId: string): Promise<{ dismissed: true; dismissedAt: string }>;
   listSkills(sessionId: string): Promise<AppSkill[]>;
+  listTools(sessionId: string): Promise<AppTool[]>;
   activateSkill(sessionId: string, skillName: string, args?: string): Promise<{ activated: true; skillName: string }>;
   /** Configured MCP servers — GET /mcp/servers. */
   listConnectors(): Promise<AppConnector[]>;
