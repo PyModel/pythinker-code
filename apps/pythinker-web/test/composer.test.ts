@@ -416,6 +416,18 @@ describe('Composer model dropdown', () => {
     await pill.trigger('click');
     await pill.trigger('click');
     expect(wrapper.get('.model-dropdown').element.style.maxHeight).toBe('284px');
+
+    // A tall window used to let the menu grow to the full viewport height.
+    rect.mockReturnValue({ top: 1180 } as DOMRect);
+    await pill.trigger('click');
+    await pill.trigger('click');
+    expect(wrapper.get('.model-dropdown').element.style.maxHeight).toBe('360px');
+  });
+
+  it('replaces the binary thinking toggle with the effort list', () => {
+    expect(composerSource).not.toContain('toggleThinking');
+    expect(composerSource).not.toContain('md-row-toggle');
+    expect(composerSource).toContain('selectEffort');
   });
 });
 

@@ -9,7 +9,11 @@ import { buildSlashItems, filterCommands, parseSlash } from '../lib/slashCommand
 import type { FileItem } from './MentionMenu.vue';
 import type { ActivationBadges, ConversationStatus, PermissionMode, QueuedPromptView } from '../types';
 import type { AppModel, AppSkill, ThinkingLevel } from '../api/types';
-import { modelThinkingAvailability } from '../lib/modelThinking';
+import {
+  coerceThinkingForModel,
+  effortLevelsForModel,
+  modelThinkingAvailability,
+} from '../lib/modelThinking';
 import { formatTokens } from '../lib/formatTokens';
 
 // ---------------------------------------------------------------------------
@@ -745,7 +749,7 @@ function toggleDropdown(): void {
   if (dropdownOpen.value) {
     const rect = modelPillRef.value?.getBoundingClientRect();
     modelDropdownStyle.value = rect
-      ? { maxHeight: `${Math.max(160, rect.top - 4 - 12)}px` }
+      ? { maxHeight: `${Math.min(360, Math.max(160, rect.top - 4 - 12))}px` }
       : {};
     permDropdownOpen.value = false;
     document.addEventListener('click', onDocClick, true);
@@ -817,15 +821,16 @@ const currentModel = computed(() => {
   );
 });
 const thinkingAvailability = computed(() => modelThinkingAvailability(currentModel.value));
-const thinkingToggleable = computed(() => thinkingAvailability.value === 'toggle');
-const thinkingOn = computed(() => {
-  if (thinkingAvailability.value === 'always-on') return true;
-  if (thinkingAvailability.value === 'unsupported') return false;
-  return (props.thinking ?? 'off') !== 'off';
-});
-function toggleThinking(): void {
-  if (!thinkingToggleable.value) return;
-  emit('setThinking', thinkingOn.value ? 'off' : 'high');
+const effortLevels = computed(() => effortLevelsForModel(currentModel.value));
+const currentEffort = computed<ThinkingLevel>(() =>
+  coerceThinkingForModel(currentModel.value, props.thinking ?? 'off'),
+);
+function effortLabel(level: ThinkingLevel): string {
+  return t(`status.effortLevels.${level}`);
+}
+function selectEffort(level: ThinkingLevel): void {
+  emit('setThinking', level);
+  closeDropdown();
 }
 
 // Plan toggle
@@ -1200,7 +1205,7 @@ function selectModel(modelId: string): void {
             @keydown.space.prevent="toggleDropdown"
           >
             <b>{{ status.model }}</b>
-            <span v-if="thinkingOn" class="think-suffix">{{ t('composer.thinkingSuffix') }}</span>
+            <span v-if="thinkingAvailability !== 'unsupported'" class="think-suffix">{{ ` · ${effortLabel(currentEffort)}` }}</span>
             <svg class="cv" viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg>
           </span>
         </div>
@@ -1242,19 +1247,21 @@ function selectModel(modelId: string): void {
 
           <div v-if="providerModels.length > 0" class="md-divider" />
 
-          <!-- Thinking toggle -->
-          <button
-            class="md-row md-row-toggle"
-            role="menuitem"
-            :class="{ 'is-on': thinkingOn, 'is-disabled': !thinkingToggleable }"
-            :disabled="!thinkingToggleable"
-            @click="toggleThinking()"
-          >
-            <span class="md-check"><svg v-if="thinkingOn" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5l3.5 3.5L13 4.5"/></svg></span>
-            <span class="md-name">{{ t('status.thinkingLabel') }}</span>
-            <span v-if="thinkingAvailability === 'always-on'" class="md-note">{{ t('status.planOn') }}</span>
-            <span v-else-if="thinkingAvailability === 'unsupported'" class="md-note">{{ t('status.modeNotSupported') }}</span>
-          </button>
+          <!-- Thinking effort -->
+          <div class="md-section">{{ t('status.effortLabel') }}</div>
+          <div v-if="thinkingAvailability === 'unsupported'" class="md-cache-note">{{ t('status.modeNotSupported') }}</div>
+          <template v-else>
+            <button
+              v-for="level in effortLevels"
+              :key="level"
+              class="md-row"
+              role="menuitem"
+              @click="selectEffort(level)"
+            >
+              <span class="md-check"><svg v-if="level === currentEffort" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5l3.5 3.5L13 4.5"/></svg></span>
+              <span class="md-name">{{ effortLabel(level) }}</span>
+            </button>
+          </template>
 
           <div class="md-divider" />
           <div class="md-cache-note">{{ t('status.cacheNote') }}</div>
