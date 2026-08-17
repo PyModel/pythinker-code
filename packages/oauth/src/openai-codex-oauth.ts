@@ -42,6 +42,11 @@ export interface OpenAICodexTokenBundle {
 
 export interface OpenAICodexCallbackServer {
   readonly redirectUri: string;
+  /**
+   * `false` when the port was already taken, so no redirect will ever arrive
+   * and the caller must ask the user to paste the URL back.
+   */
+  readonly loopback: boolean;
   waitForCode(opts?: {
     readonly signal?: AbortSignal | undefined;
     readonly timeoutMs?: number | undefined;
@@ -231,6 +236,7 @@ export async function startOpenAICodexCallbackServer(
 
   const noopServer: OpenAICodexCallbackServer = {
     redirectUri: OPENAI_CODEX_REDIRECT_URI,
+    loopback: false,
     waitForCode: async () => null,
     cancelWait: () => {},
     close: () => {},
@@ -288,6 +294,7 @@ export async function startOpenAICodexCallbackServer(
       .listen(CALLBACK_PORT, '127.0.0.1', () => {
         resolve({
           redirectUri: OPENAI_CODEX_REDIRECT_URI,
+          loopback: true,
           waitForCode: async (opts = {}) => {
             const timeoutMs = opts.timeoutMs ?? DEFAULT_CALLBACK_TIMEOUT_MS;
             return new Promise<{ code: string } | null>((resolveWait, rejectWait) => {
