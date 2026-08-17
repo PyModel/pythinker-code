@@ -16,9 +16,7 @@ type TestPlugin = { id: string; displayName: string; enabled: boolean };
 
 interface MockClient {
   activeSessionId: Ref<string>;
-  activeSessionCapabilities: Ref<{ tools: string[]; mcpServers: string[] }>;
-  toolsBySession: Ref<Record<string, TestTool[]>>;
-  toolsLoadingBySession: Ref<Record<string, boolean>>;
+  activeSessionCapabilities: Ref<{ mcpServers: string[] }>;
   skills: Ref<TestSkill[]>;
   skillsLoadingBySession: Ref<Record<string, boolean>>;
   connectors: Ref<TestConnector[]>;
@@ -38,14 +36,7 @@ vi.mock('../src/composables/usePythinkerWebClient', async () => {
   const updateSession = vi.fn(async () => undefined);
   const client = {
     activeSessionId: vueRef('session_1'),
-    activeSessionCapabilities: vueRef({ tools: ['Read'], mcpServers: ['mcp_1'] }),
-    toolsBySession: vueRef({
-      session_1: [
-        { name: 'Read', description: 'Read files', inputSchema: {}, source: 'builtin' },
-        { name: 'Write', description: 'Write files', inputSchema: {}, source: 'builtin' },
-      ],
-    }),
-    toolsLoadingBySession: vueRef({ session_1: false }),
+    activeSessionCapabilities: vueRef({ mcpServers: ['mcp_1'] }),
     skills: vueRef([{ name: 'review', description: 'Review code', source: 'project' }]),
     skillsLoadingBySession: vueRef({ session_1: false }),
     connectors: vueRef([
@@ -72,11 +63,6 @@ const menuMessages = {
     triggerLabel: 'Choose capabilities',
     back: 'Back',
     loading: 'Loading',
-    tools: {
-      title: 'Tools',
-      caption: 'Applies to this session immediately.',
-      toggle: 'Use {name}',
-    },
     skills: {
       title: 'Skills',
       caption: 'Read-only here.',
@@ -137,20 +123,13 @@ afterEach(() => {
   vi.restoreAllMocks();
   const current = client();
   current.activeSessionId.value = 'session_1';
-  current.activeSessionCapabilities.value = { tools: ['Read'], mcpServers: ['mcp_1'] };
-  current.toolsBySession.value = {
-    session_1: [
-      { name: 'Read', description: 'Read files', inputSchema: {}, source: 'builtin' },
-      { name: 'Write', description: 'Write files', inputSchema: {}, source: 'builtin' },
-    ],
-  };
+  current.activeSessionCapabilities.value = { mcpServers: ['mcp_1'] };
   current.skills.value = [{ name: 'review', description: 'Review code', source: 'project' }];
   current.connectors.value = [
     { id: 'mcp_1', name: 'Docs', transport: 'http', status: 'connected', toolCount: 2 },
     { id: 'mcp_2', name: 'Issue tracker', transport: 'stdio', status: 'connected', toolCount: 1 },
   ];
   current.plugins.value = [{ id: 'plugin_1', displayName: 'Review plugin', enabled: true }];
-  current.toolsLoadingBySession.value = { session_1: false };
   current.skillsLoadingBySession.value = { session_1: false };
   current.connectorsLoading.value = false;
   current.pluginsLoading.value = false;
@@ -248,7 +227,6 @@ function deferred(): { promise: Promise<void>; resolve: () => void; reject: (err
 describe('CapabilityMenu', () => {
   it('omits a capability group with no items', async () => {
     const current = client();
-    current.toolsBySession.value = { session_1: [] };
     current.skills.value = [];
     current.connectors.value = [];
     current.plugins.value = [];
@@ -257,11 +235,13 @@ describe('CapabilityMenu', () => {
     await wrapper.get('.capability-trigger').trigger('click');
     await flushPromises();
 
-    expect(document.body.querySelector('.capability-panel')?.querySelectorAll('.menu-row')).toHaveLength(0);
+    const panel = document.body.querySelector('.capability-panel');
+    expect(panel?.querySelectorAll('.menu-row')).toHaveLength(0);
+    expect(panel?.textContent).not.toContain('Tools');
   });
 
   it('toggling an MCP server calls updateSession with the new server list', async () => {
-    client().activeSessionCapabilities.value = { tools: ['Read'], mcpServers: ['mcp_1', 'mcp_2'] };
+    client().activeSessionCapabilities.value = { mcpServers: ['mcp_1', 'mcp_2'] };
     const wrapper = mountMenu();
     await wrapper.get('.capability-trigger').trigger('click');
     await flushPromises();
@@ -293,7 +273,7 @@ describe('CapabilityMenu', () => {
 
   it('sends capability writes in toggle order and ignores a stale rollback', async () => {
     const current = client();
-    current.activeSessionCapabilities.value = { tools: ['Read'], mcpServers: [] };
+    current.activeSessionCapabilities.value = { mcpServers: [] };
     // Two writes held open, settled in the order the test chooses.
     const first = deferred();
     const second = deferred();
@@ -347,7 +327,7 @@ describe('CapabilityMenu', () => {
     // would show session one's selection under session two.
     await wrapper.setProps({ sessionId: 'session_2' });
     current.activeSessionId.value = 'session_2';
-    current.activeSessionCapabilities.value = { tools: ['Read'], mcpServers: ['mcp_2'] };
+    current.activeSessionCapabilities.value = { mcpServers: ['mcp_2'] };
     await nextTick();
 
     pending.reject(new Error('daemon unreachable'));
@@ -360,10 +340,9 @@ describe('CapabilityMenu', () => {
     expect(checked).toEqual([['Docs', 'false'], ['Issue tracker', 'true']]);
   });
 
-  it('renders the selection only inside the panel, never as toolbar chips', async () => {
-    // A chip per selected tool overflowed the composer toolbar: with every tool
-    // on by default the strip pushed the permission and mode controls off the
-    // row and clipped the last chip mid-word. The panel already carries counts.
+  it('renders the MCP selection only inside the panel, never as toolbar chips', async () => {
+    // The capability panel carries the server rows and counts; the composer
+    // toolbar does not duplicate that selection as chips.
     const wrapper = mountMenu();
     expect(wrapper.findAll('.chip')).toHaveLength(0);
 

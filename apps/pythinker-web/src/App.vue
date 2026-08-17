@@ -624,6 +624,10 @@ const {
   },
   onLoadConnectors: () => { void client.loadConnectors(); },
   onLoadPlugins: () => { void client.loadPlugins(); },
+  onLoadTools: () => {
+    const sessionId = client.activeSessionId.value;
+    if (sessionId) void client.loadCapabilityData(sessionId);
+  },
   onLoadSubagents: () => { void client.loadSubagents(); },
 });
 
@@ -691,6 +695,14 @@ async function openModelPicker(): Promise<void> {
   } finally {
     modelsLoading.value = false;
   }
+}
+
+/** Narrow the active session's tool selection from the settings Tools page. */
+function applySessionTools(names: string[]): void {
+  // `updateCapabilities` rolls its optimistic write back and reports the
+  // failure itself, then rethrows; swallowing here keeps a failed write from
+  // surfacing as an unhandled rejection.
+  void client.updateCapabilities({ tools: names }).catch(() => undefined);
 }
 
 async function openProviders(): Promise<void> {
@@ -1092,7 +1104,12 @@ function openPr(url: string): void {
       :sessions="client.sessionsWithUsage.value"
       :plugins="client.plugins.value"
       :subagents="client.subagents.value"
+      :tools="client.toolsBySession.value[client.activeSessionId.value]"
+      :tools-loading="client.toolsLoadingBySession.value[client.activeSessionId.value] === true"
+      :enabled-tools="client.activeSessionCapabilities.value.tools"
+      :session-id="client.activeSessionId.value"
       @set-plugin-enabled="client.setPluginEnabled($event.pluginId, $event.enabled)"
+      @set-tools="applySessionTools($event)"
       @restart-connector="client.restartConnector($event)"
       @set-theme="client.setTheme($event)"
       @set-color-scheme="client.setColorScheme($event)"

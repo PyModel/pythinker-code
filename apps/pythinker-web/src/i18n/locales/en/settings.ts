@@ -12,6 +12,7 @@ export default {
   tabs: {
     general: 'General',
     agent: 'Agent',
+    tools: 'Tools',
     plugins: 'Plugins',
     skills: 'Skills',
     subagents: 'Subagents',
@@ -20,6 +21,15 @@ export default {
     usage: 'Usage stats',
     advanced: 'Advanced',
     experimental: 'Experimental',
+  },
+  tools: {
+    title: 'Tools',
+    note: 'Applies to this session immediately. The selection is saved for the current session only.',
+    noSession: 'No active session.',
+    loading: 'Loading tools…',
+    empty: 'No tools are available.',
+    enableAll: 'Enable all tools',
+    toggleAria: 'Enable {name}',
   },
   skills: {
     title: 'Skills',

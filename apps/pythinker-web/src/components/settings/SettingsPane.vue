@@ -7,6 +7,7 @@ import type {
   AppSession,
   AppSkill,
   AppSubagent,
+  AppTool,
 } from '../../api/types';
 import type { ColorScheme, Theme } from '../../composables/usePythinkerWebClient';
 import type { SettingsTab } from '../../composables/useSettingsNav';
@@ -20,6 +21,7 @@ import HooksPage from './pages/HooksPage.vue';
 import PluginsPage from './pages/PluginsPage.vue';
 import SkillsPage from './pages/SkillsPage.vue';
 import SubagentsPage from './pages/SubagentsPage.vue';
+import ToolsPage from './pages/ToolsPage.vue';
 import UsagePage from './pages/UsagePage.vue';
 
 defineProps<{
@@ -41,6 +43,10 @@ defineProps<{
   sessions?: AppSession[];
   plugins?: AppPlugin[];
   subagents?: AppSubagent[];
+  tools?: AppTool[];
+  toolsLoading?: boolean;
+  enabledTools?: string[];
+  sessionId?: string;
 }>();
 
 const emit = defineEmits<{
@@ -54,6 +60,7 @@ const emit = defineEmits<{
   updateConfig: [patch: Partial<AppConfig>];
   restartConnector: [connectorId: string];
   setPluginEnabled: [payload: { pluginId: string; enabled: boolean }];
+  setTools: [names: string[]];
   close: [];
 }>();
 
@@ -93,6 +100,14 @@ const { t } = useI18n();
       :models="models"
       :config-saving="configSaving"
       @update-config="emit('updateConfig', $event)"
+    />
+    <ToolsPage
+      v-show="activeTab === 'tools'"
+      :tools="tools"
+      :tools-loading="toolsLoading"
+      :enabled-tools="enabledTools"
+      :session-id="sessionId"
+      @set-tools="emit('setTools', $event)"
     />
     <PluginsPage
       v-show="activeTab === 'plugins'"
@@ -150,7 +165,7 @@ const { t } = useI18n();
   cursor: pointer;
 }
 .close-btn:hover {
-  color: #fff;
+  color: var(--bg);
   background: var(--err);
   border-color: var(--err);
 }
