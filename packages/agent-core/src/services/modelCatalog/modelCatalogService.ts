@@ -52,6 +52,14 @@ export class ModelCatalogService
     return this._provider(config, providerId, provider);
   }
 
+  async removeProvider(providerId: string): Promise<void> {
+    const config = await this._readConfig();
+    if (config.providers?.[providerId] === undefined) {
+      throw new ProviderNotFoundError(providerId);
+    }
+    await this.core.rpc.removePythinkerProvider({ providerId });
+  }
+
   async setDefaultModel(modelId: string): Promise<SetDefaultModelResponse> {
     const config = await this._readConfig();
     const alias = config.models?.[modelId];

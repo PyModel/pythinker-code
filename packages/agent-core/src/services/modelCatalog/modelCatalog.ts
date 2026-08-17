@@ -12,6 +12,7 @@ export interface IModelCatalogService {
   listModels(): Promise<readonly ModelCatalogItem[]>;
   listProviders(): Promise<readonly ProviderCatalogItem[]>;
   getProvider(providerId: string): Promise<ProviderCatalogItem>;
+  removeProvider(providerId: string): Promise<void>;
   setDefaultModel(modelId: string): Promise<SetDefaultModelResponse>;
 }
 
