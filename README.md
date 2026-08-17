@@ -2,190 +2,113 @@
 
 # <img src="https://raw.githubusercontent.com/PyModel/pythinker-code/main/docs/media/pythinker_animated.svg" alt="Pythinker logo" width="34" align="top"> Pythinker Code
 
-### *Think first, then code. Your terminal-native AI engineering agent.*
+### A coding agent you can run as a desktop app
 
-**An intelligent agent that reads your codebase, edits files, runs shell commands, searches the web, and iterates until the job is done.**
-**Powered by [Pythinker models](https://pythinker.com) — compatible with other LLM providers. All from the shell you already live in.**
+[![release](https://img.shields.io/npm/v/@pymodel/pythinker-code?style=flat-square&label=release&color=4f46e5)](https://www.npmjs.com/package/@pymodel/pythinker-code)
+[![downloads](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FPyModel%2Fpythinker-code%2Fbadges%2Fdesktop-total.json&style=flat-square&label=downloads&labelColor=000000&color=dfb317)](https://code.pythinker.com/)
+[![license](https://img.shields.io/badge/license-MIT-16a34a?style=flat-square)](LICENSE)
+[![macOS](https://img.shields.io/badge/macOS-e5e7eb?style=flat-square&logo=apple&logoColor=000000)](https://code.pythinker.com/) | [![Windows](https://img.shields.io/badge/Windows-e5e7eb?style=flat-square&logo=data:image/svg%2Bxml;base64,PHN2ZyByb2xlPSJpbWciIHZpZXdCb3g9IjAgMCAyNCAyNCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48dGl0bGU+V2luZG93cyAxMTwvdGl0bGU+PHBhdGggZmlsbD0iIzAwNzhENCIgZD0iTTAsMEgxMS4zNzdWMTEuMzcySDBaTTEyLjYyMywwSDI0VjExLjM3MkgxMi42MjNaTTAsMTIuNjIzSDExLjM3N1YyNEgwWm0xMi42MjMsMEgyNFYyNEgxMi42MjMiLz48L3N2Zz4=)](https://code.pythinker.com/)
+[![Node.js](https://img.shields.io/badge/Node.js-26.4%2B-339933?style=flat-square&logo=nodedotjs&logoColor=white)](package.json)
+[![visitors](https://komarev.com/ghpvc/?username=PyModel-pythinker-code&label=visitors&color=4f46e5&style=flat-square)](https://github.com/PyModel/pythinker-code)
 
-<br />
-
-[![npm version](https://img.shields.io/npm/v/@pymodel/pythinker-code?style=for-the-badge&logo=npm&logoColor=white&color=CB3837&label=pythinker-code)](https://www.npmjs.com/package/@pymodel/pythinker-code)
-[![Downloads](https://img.shields.io/npm/dm/@pymodel/pythinker-code?style=for-the-badge&logo=npm&logoColor=white&color=2b89ff&label=downloads)](https://www.npmjs.com/package/@pymodel/pythinker-code)
-[![Desktop downloads](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FPyModel%2Fpythinker-code%2Fbadges%2Fdesktop-total.json&style=for-the-badge&logo=github&logoColor=white)](https://github.com/PyModel/pythinker-desktop-releases/releases)
-[![macOS .dmg](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FPyModel%2Fpythinker-code%2Fbadges%2Fdesktop-dmg.json&style=for-the-badge&logo=apple&logoColor=white)](https://github.com/PyModel/pythinker-desktop-releases/releases/latest)
-[![Windows .exe](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FPyModel%2Fpythinker-code%2Fbadges%2Fdesktop-exe.json&style=for-the-badge&logo=windows&logoColor=white)](https://github.com/PyModel/pythinker-desktop-releases/releases/latest)
-[![Node.js](https://img.shields.io/badge/Node.js-26%2B-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)](https://github.com/PyModel/pythinker-code/blob/main/package.json)
-[![License: MIT](https://img.shields.io/badge/License-MIT-16a34a.svg?style=for-the-badge)](https://github.com/PyModel/pythinker-code/blob/main/LICENSE)
-[![CI](https://img.shields.io/github/actions/workflow/status/PyModel/pythinker-code/ci.yml?branch=main&label=CI&style=for-the-badge&logo=githubactions&logoColor=white)](https://github.com/PyModel/pythinker-code/actions/workflows/ci.yml?query=branch%3Amain)
-
-[![Built with TypeScript](https://img.shields.io/badge/built%20with-TypeScript-3178c6.svg?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![ACP ready](https://img.shields.io/badge/ACP-ready-7c3aed.svg?style=flat-square)](https://agentclientprotocol.com/)
-[![MCP tools](https://img.shields.io/badge/MCP-tools-0891b2.svg?style=flat-square)](https://modelcontextprotocol.io/)
-[![Docs](https://img.shields.io/badge/docs-online-0284c7.svg?style=flat-square)](https://pymodel.github.io/pythinker-code/)
-[![Homepage](https://img.shields.io/badge/home-code.pythinker.com-ec4899.svg?style=flat-square)](https://code.pythinker.com)
-
-<br />
-
-<a href="https://code.pythinker.com">Website</a> &nbsp;·&nbsp;
-<a href="#quick-start">Quick Start</a> &nbsp;·&nbsp;
-<a href="#features">Features</a> &nbsp;·&nbsp;
-<a href="#ide-integration-via-acp">IDE Integration</a> &nbsp;·&nbsp;
-<a href="#mcp-tooling">MCP</a> &nbsp;·&nbsp;
-<a href="#architecture">Architecture</a> &nbsp;·&nbsp;
+<a href="#get-the-desktop-app">Download</a> &nbsp;·&nbsp;
+<a href="#what-the-agent-can-do">Capabilities</a> &nbsp;·&nbsp;
+<a href="#in-the-terminal">Terminal</a> &nbsp;·&nbsp;
+<a href="#in-your-editor">Editor</a> &nbsp;·&nbsp;
 <a href="#development">Development</a>
 
-<br /><br />
+<br />
 
-<img src="https://raw.githubusercontent.com/PyModel/pythinker-code/main/docs/media/terminal-ui.webp" alt="Pythinker Code terminal demo" width="860">
+<img src="docs/media/desktop-ui.webp" alt="Pythinker Desktop" width="860">
 
 </div>
 
 ---
 
-## What is Pythinker?
+## Get the desktop app
 
-**Pythinker Code**is an open-source AI engineering agent that lives in your terminal. Give it a task — refactor a module, trace a bug, scaffold a feature — and it plans, executes tools, observes results, and keeps going until you are satisfied. It runs against **your repo, the shell, the web, and MCP tools**, with the model of your choice.
+**[Download for macOS or Windows](https://code.pythinker.com/)**
 
-It ships with first-class subagents for focused work — `coder` for scoped edits, `explore` for codebase reconnaissance, and `plan` for implementation design — all dispatched in parallel, isolated contexts from a single iterative loop.
+Install it, open it, and describe a task. Pythinker then works on your project the way a colleague would: it reads the code, changes files, runs commands, checks what happened, and keeps going until the job is done.
 
-It speaks the [**Agent Client Protocol (ACP)**](https://agentclientprotocol.com/), so it slots cleanly into ACP-aware editors like Zed and JetBrains. It loads [**Model Context Protocol (MCP)**](https://modelcontextprotocol.io/) servers, so the same tools your other agents use just work. And it's hackable: subagents, skills, hooks, and plugins are all first-class extension points.
+The app runs the whole agent on your machine. It starts a local host bound to loopback, so nothing is exposed to your network. Closing the window hides the app to the tray instead of killing it, so a long session survives.
 
-> **Plan · Execute · Verify · Iterate.**One agent, one shell, one workflow. No tab-switching. No context loss. No magic.
+If you already use the CLI, the app picks up the same data directory (`~/.pythinker-code/` by default). Your login, providers, MCP servers, and past sessions are already there. Updates install themselves, and Settings has a switch if you would rather they did not.
 
----
+macOS gets a `.dmg`. Windows gets a per-user installer that does not ask for administrator rights. There is no Linux build yet, so on Linux use the terminal version or run `pythinker web` for the browser interface.
 
-## Features
-
-<table>
-<tr>
-<td width="50%" valign="top">
-
-### Terminal-First
-
-A purpose-built TUI tuned for long, focused agent sessions. Single-binary install, no Node.js required for end users, ready in milliseconds.
-
-</td>
-<td width="50%" valign="top">
-
-### Subagents & Skills
-
-Dispatch `coder`, `explore`, and `plan` subagents in parallel, isolated contexts. Load reusable repo-local instructions via `/skill:<name>`.
-
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-
-### ACP IDE Integration
-
-Run `pythinker acp` and any [Agent Client Protocol](https://agentclientprotocol.com/) editor — Zed, JetBrains, and more — gets a full Pythinker session inline.
-
-</td>
-<td width="50%" valign="top">
-
-### MCP Tool Loading
-
-Add and authenticate MCP servers conversationally with `/mcp-config`. Plus a rich plugin ecosystem: skills, MCP servers, and data sources from the marketplace or GitHub.
-
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-
-### Trust & Control
-
-Approval flows to review tool calls before they run, a granular permission model, and lifecycle hooks to gate risky calls, audit decisions, and wire automation.
-
-</td>
-<td width="50%" valign="top">
-
-### Bring Your Own Model
-
-Works out of the box with [Pythinker models](https://pythinker.com); configurable for other compatible LLM APIs.
-
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-
-### Web & Dashboard UIs
-
-A companion browser interface (`apps/pythinker-web`) and a session dashboard for replaying and debugging agent sessions (`apps/dashboard`).
-
-</td>
-<td width="50%" valign="top">
-
-### Video Input
-
-Drop screen recordings into the conversation — let the agent *see* what is hard to describe.
-
-</td>
-</tr>
-</table>
+More detail is in the [desktop guide](https://pymodel.github.io/pythinker-code/guides/desktop).
 
 ---
 
-## Quick Start
+## What the agent can do
 
-Pythinker ships **native installers**— no Node.js prerequisite. Pick the row that matches your OS:
+Everything below behaves the same in the app, in the terminal, and in your editor.
 
-| Platform | Recommended install | Source |
-|---|---|---|
-| <img src="https://raw.githubusercontent.com/PyModel/pythinker-code/main/docs/media/icons/apple.svg" width="16" height="16" alt="macOS" align="top"> <img src="https://raw.githubusercontent.com/PyModel/pythinker-code/main/docs/media/icons/linux.svg" width="16" height="16" alt="Linux" align="top"> **macOS / Linux**| `curl -fsSL https://code.pythinker.com/pythinker-code/install.sh \| bash` | [code.pythinker.com](https://code.pythinker.com) |
-| <img src="https://raw.githubusercontent.com/PyModel/pythinker-code/main/docs/media/icons/homebrew.svg" width="16" height="16" alt="Homebrew" align="top"> **Homebrew**| `brew install pymodel/tap/pythinker-code` | Homebrew |
-| <img src="https://raw.githubusercontent.com/PyModel/pythinker-code/main/docs/media/icons/windows11.svg" width="16" height="16" alt="Windows" align="top"> **Windows (PowerShell)**| `irm https://code.pythinker.com/pythinker-code/install.ps1 \| iex` | [code.pythinker.com](https://code.pythinker.com) |
-| <img src="https://raw.githubusercontent.com/PyModel/pythinker-code/main/docs/media/icons/nixos.svg" width="16" height="16" alt="Nix" align="top"> **Nix**| `nix run github:PyModel/pythinker-code` | flake |
-| <img src="https://raw.githubusercontent.com/PyModel/pythinker-code/main/docs/media/icons/npm.svg" width="16" height="16" alt="npm" align="top"> **npm / pnpm fallback**| `npm install -g @pymodel/pythinker-code` | requires Node.js ≥ 26.4.0 |
+### Work on a real codebase
 
-> [!NOTE]
-> **Windows:**install [Git for Windows](https://gitforwindows.org/) before first launch — Pythinker Code uses the bundled Git Bash as its shell. For a custom Git Bash location, set `PYTHINKER_SHELL_PATH` to the absolute path of `bash.exe`.
+Pythinker searches and reads your repository, edits files, runs shell commands, and reads the output before it decides what to do next. It runs your tests, reads the failures, and tries again. Ask it to refactor a module, trace a bug, or fill in missing tests, and give it as much rope as you are comfortable with.
 
-After install, open a **new shell**:
+### Split work across subagents
 
-```sh
-pythinker --version            # confirm install
-```
+Large tasks get delegated. A `coder` subagent makes scoped edits, `explore` maps unfamiliar parts of the repo, and `plan` designs the approach. They run in parallel with their own context, so the main conversation stays readable instead of filling with file dumps.
 
-### Authenticate
+### Keep control of the tools
+
+You see a tool call before it runs, and you approve it. The permission model lets you pre-approve the boring calls and hold the risky ones. Hooks fire on lifecycle events, so you can block a command, record a decision, or trigger something in your own systems.
+
+### Load your own tools and instructions
+
+`/mcp-config` adds and authenticates [Model Context Protocol](https://modelcontextprotocol.io/) servers from inside a session, over stdio or HTTP, and remembers them for next time. Skills are repo-local instruction files that load on demand with `/skill:<name>`. Plugins bundle skills, servers, and data sources from the marketplace or straight from GitHub.
+
+### Use the model you want
+
+Pythinker models work out of the box. Other providers work by configuration, including any OpenAI-compatible endpoint and local ones.
+
+### Show it instead of describing it
+
+Drop a screen recording into the conversation when the bug is easier to show than to write down.
+
+---
+
+## In the terminal
+
+The CLI ships as a native binary, so there is no Node.js prerequisite.
+
+| Platform | Command |
+|---|---|
+| macOS / Linux | `curl -fsSL https://code.pythinker.com/pythinker-code/install.sh \| bash` |
+| Homebrew | `brew install pymodel/tap/pythinker-code` |
+| Windows (PowerShell) | `irm https://code.pythinker.com/pythinker-code/install.ps1 \| iex` |
+| Nix | `nix run github:PyModel/pythinker-code` |
+| npm | `npm install -g @pymodel/pythinker-code` (needs Node.js 26.4+) |
 
 ```sh
 cd your-project
 pythinker
 ```
 
-On first launch, run `/login` and choose **[Pythinker Code OAuth](https://pythinker.com/code)**or an **[API key from the console](https://pythinker.com/code/console)**.
+Run `/login` on first launch and pick [OAuth](https://pythinker.com/code) or an [API key](https://pythinker.com/code/console). Then ask for something real:
 
-### Try it out
-
-```
-Take a look at this project and explain its main directories.
-```
-
-```
+```text
 Find where authentication is handled and add a unit test for the token refresh path.
 ```
 
-```
-Refactor the error handling in src/api/ to use a shared Result type — keep the diff minimal.
-```
+> [!NOTE]
+> On Windows, install [Git for Windows](https://gitforwindows.org/) first. Pythinker uses the bundled Git Bash as its shell. To point at a different one, set `PYTHINKER_SHELL_PATH` to the full path of `bash.exe`.
 
-| Command | Description |
-|---------|-------------|
-| `/login` | Authenticate with OAuth or API key |
-| `/mcp-config` | Manage MCP servers conversationally |
-| `/skill:<name>` | Invoke an installed skill |
-| `/help` | Built-in keyboard shortcut reference |
-
-For upgrade, uninstall, headless/automation usage, and platform-specific notes, see the [Getting Started guide](https://pymodel.github.io/pythinker-code/guides/getting-started).
+<div align="center">
+<img src="https://raw.githubusercontent.com/PyModel/pythinker-code/main/docs/media/terminal-ui.webp" alt="Pythinker Code terminal demo" width="860">
+</div>
 
 ---
 
-## IDE Integration via ACP
+## In your editor
 
-Pythinker speaks [**Agent Client Protocol**](https://agentclientprotocol.com/) natively. Log in once via the CLI, then point your ACP-compatible editor at `pythinker acp` for a full agent session inside your IDE.
+Pythinker speaks the [Agent Client Protocol](https://agentclientprotocol.com/), so Zed, JetBrains, and other ACP editors can host a full session inline. Log in once from the CLI, then point the editor at `pythinker acp`.
 
 <details>
-<summary><b>Configuration for Zed / JetBrains</b></summary>
+<summary>Zed configuration</summary>
 
 Add to `~/.config/zed/settings.json`:
 
@@ -204,7 +127,7 @@ Add to `~/.config/zed/settings.json`:
 
 </details>
 
-Open a new conversation in Zed's Agent panel. For JetBrains setup, troubleshooting, and the full capability matrix, see [Using in IDEs](https://pymodel.github.io/pythinker-code/guides/ides) and the [`pythinker acp` reference](https://pymodel.github.io/pythinker-code/reference/pythinker-acp).
+[Using in IDEs](https://pymodel.github.io/pythinker-code/guides/ides) covers JetBrains setup and the capability matrix.
 
 <div align="center">
 <img src="https://raw.githubusercontent.com/PyModel/pythinker-code/main/docs/media/acp-integration.gif" alt="ACP IDE integration demo" width="860">
@@ -212,23 +135,22 @@ Open a new conversation in Zed's Agent panel. For JetBrains setup, troubleshooti
 
 ---
 
-## MCP Tooling
+## Documentation
 
-Pythinker loads [Model Context Protocol](https://modelcontextprotocol.io/) tools so the same servers your other agents use just work — stdio and HTTP transports, OAuth-backed servers, persistent config.
-
-Inside a session, `/mcp-config` manages everything conversationally:
-
-```
-/mcp-config              # add, authenticate, test, and remove MCP servers
-```
-
-See the [configuration docs](https://pymodel.github.io/pythinker-code/configuration/config-files) for config-file based setup.
+| Topic | Link |
+|-------|------|
+| Desktop app | [guides/desktop](https://pymodel.github.io/pythinker-code/guides/desktop) |
+| Getting started | [guides/getting-started](https://pymodel.github.io/pythinker-code/guides/getting-started) |
+| Interaction and approvals | [guides/interaction](https://pymodel.github.io/pythinker-code/guides/interaction) |
+| Sessions | [guides/sessions](https://pymodel.github.io/pythinker-code/guides/sessions) |
+| Configuration | [configuration/config-files](https://pymodel.github.io/pythinker-code/configuration/config-files) |
+| Command reference | [reference/pythinker-command](https://pymodel.github.io/pythinker-code/reference/pythinker-command) |
 
 ---
 
-## Architecture
+## Development
 
-Pythinker Code is a **pnpm monorepo**. The CLI consumes capabilities through the SDK and never depends directly on internal engine packages.
+Pythinker Code is a pnpm monorepo. The desktop app and the CLI both talk to the SDK, never to the engine packages directly.
 
 <p align="center">
   <img src="docs/media/Architecture.webp" alt="Pythinker Code architecture" width="836" />
@@ -236,140 +158,51 @@ Pythinker Code is a **pnpm monorepo**. The CLI consumes capabilities through the
 
 | Package | Role |
 |---------|------|
-| `apps/pythinker-code` | CLI and terminal UI — the primary user-facing entry point |
-| `packages/agent-core` | Unified agent engine: sessions, tools, skills, permissions, plans |
-| `packages/kosong` | "Any LLM" — LLM and provider abstraction layer |
-| `packages/kaos` | Execution environment and file/process abstractions |
-| `packages/server` | Hosts agent sessions over REST + WebSocket (`/api/v1`) |
-| `packages/node-sdk` | Public TypeScript SDK for embedding and automation |
+| `apps/desktop` | macOS and Windows desktop application |
+| `apps/pythinker-code` | CLI and terminal UI |
+| `apps/pythinker-web` | Browser interface that the desktop app renders |
+| `packages/agent-core` | Agent engine: sessions, tools, skills, permissions, plans |
+| `packages/kosong` | LLM and provider abstraction |
+| `packages/kaos` | Execution environment, file and process abstractions |
+| `packages/server` | REST and WebSocket session host (`/api/v1`) |
+| `packages/node-sdk` | Public TypeScript SDK |
 
----
-
-## Extensibility
-
-Pythinker is a small, extensible runtime — not a monolith. Build on it.
-
-| Extension Point | What it does | Where to look |
-|---|---|---|
-| **Subagents**| Delegate focused work to `coder`, `explore`, and `plan` agents in isolated contexts | built-in |
-| **Skills**| `/skill:<name>` loads reusable, repo-local instructions on demand | bundled & user-defined |
-| **Hooks**| Observe or block tool execution; integrate policy or automation | lifecycle hook events |
-| **Plugins**| Skills, MCP servers, and data sources from the marketplace or GitHub | plugin ecosystem |
-| **SDK**| Embed agent capabilities in your own tools | [`@pymodel/pythinker-code-sdk`](packages/node-sdk) |
-
----
-
-## Documentation
-
-| Topic | Link |
-|-------|------|
-| Getting Started | [guides/getting-started](https://pymodel.github.io/pythinker-code/guides/getting-started) |
-| Interaction & approvals | [guides/interaction](https://pymodel.github.io/pythinker-code/guides/interaction) |
-| Sessions | [guides/sessions](https://pymodel.github.io/pythinker-code/guides/sessions) |
-| IDE integration | [guides/ides](https://pymodel.github.io/pythinker-code/guides/ides) |
-| Configuration | [configuration/config-files](https://pymodel.github.io/pythinker-code/configuration/config-files) |
-| Command reference | [reference/pythinker-command](https://pymodel.github.io/pythinker-code/reference/pythinker-command) |
-| Pythinker Code product | [pythinker.com/code](https://pythinker.com/code) |
-
----
-
-## Development
-
-### Prepare the workspace
-
-**Requirements:**Node.js ≥ 26.4.0 · pnpm 10.34.3 · Git
+Requirements: Node.js 26.4+, pnpm 10.34.3, Git.
 
 ```sh
 git clone https://github.com/PyModel/pythinker-code.git
 cd pythinker-code
 pnpm install
-```
 
-### Common commands
-
-<table>
-<tr>
-<td valign="top">
-
-**▶ Run & iterate**
-```sh
-pnpm dev:cli              # CLI in dev mode
-pnpm dev:web              # browser UI
-pnpm dev:server           # agent server
-pnpm dashboard            # session dashboard
-```
-
-</td>
-<td valign="top">
-
-**Verify**
-```sh
-pnpm test                 # test suite (Vitest)
-pnpm typecheck            # TypeScript check
-pnpm lint                 # lint with oxlint
-pnpm build                # build all packages
-```
-
-</td>
-</tr>
-</table>
-
----
-
-## Project Layout
-
-```
-pythinker-code/
-├──  apps/
-│   ├── pythinker-code/        CLI · TUI · ACP · the primary entry point
-│   ├── pythinker-web/         Companion browser UI (Vue 3)
-│   └── dashboard/             Session replay & debugging
-├──  packages/
-│   ├── agent-core/            Unified agent engine: sessions · tools · skills · permissions
-│   ├── kosong/                "Any LLM" provider abstraction
-│   ├── kaos/                  Execution environment & file/process abstractions
-│   ├── server/                REST + WebSocket session host (/api/v1)
-│   └── node-sdk/              Public TypeScript SDK
-└──  per-package test suites (Vitest)
+pnpm dev:desktop    # desktop app in dev mode
+pnpm dev:cli        # CLI in dev mode
+pnpm test           # Vitest
+pnpm typecheck      # TypeScript
+pnpm lint           # oxlint
+pnpm build          # build everything
 ```
 
 ---
 
 ## Contributing
 
-Contributions are warmly welcome — bug reports, PRs, plugins, skills, and docs all help.
+Bug reports, PRs, plugins, skills, and docs are all welcome. Start with [`CONTRIBUTING.md`](CONTRIBUTING.md), and read [`SECURITY.md`](SECURITY.md) before reporting a vulnerability.
 
--  Start with [`CONTRIBUTING.md`](CONTRIBUTING.md)
--  See [`SECURITY.md`](SECURITY.md) for responsible disclosure
--  **Discuss first**for new features, large refactors, or API changes — open an issue before coding
--  **Follow Conventional Commits**(`feat:`, `fix:`, `docs:`, …) and include a changeset (`pnpm changeset`) when your PR affects release artifacts
--  **Understand your diff**— AI-assisted PRs are held to the same standard as hand-written ones
-
-If Pythinker helps you, **a  on GitHub goes a long way.**
+Open an issue before large refactors or API changes. Use Conventional Commits, add a changeset (`pnpm changeset`) when your PR affects a release artifact, and be ready to explain your diff. AI-assisted PRs are held to the same standard as hand-written ones.
 
 ---
 
 ## License
 
-Distributed under the **MIT License**. See [`LICENSE`](LICENSE) for the full text.
+MIT. See [`LICENSE`](LICENSE).
 
-Our TUI is built on [`pi-tui`](https://github.com/earendil-works/pi-mono/tree/main/packages/tui) — thank you to the authors for their excellent work.
-
-<br />
+Our TUI is built on [`pi-tui`](https://github.com/earendil-works/pi-mono/tree/main/packages/tui). Thanks to its authors.
 
 <div align="center">
 
-**Built with  for engineers who live in the terminal.**
-
-[ code.pythinker.com](https://code.pythinker.com) &nbsp;·&nbsp;
-[ npm](https://www.npmjs.com/package/@pymodel/pythinker-code) &nbsp;·&nbsp;
-[ GitHub](https://github.com/PyModel/pythinker-code) &nbsp;·&nbsp;
-[ Docs](https://pymodel.github.io/pythinker-code/) &nbsp;·&nbsp;
-[ ACP](https://agentclientprotocol.com/) &nbsp;·&nbsp;
-[ MCP](https://modelcontextprotocol.io/)
-
-<p align="center">
-  <em>Thanks for visiting  Pythinker!</em>
-</p>
+[code.pythinker.com](https://code.pythinker.com) &nbsp;·&nbsp;
+[Download](https://code.pythinker.com/) &nbsp;·&nbsp;
+[npm](https://www.npmjs.com/package/@pymodel/pythinker-code) &nbsp;·&nbsp;
+[Docs](https://pymodel.github.io/pythinker-code/)
 
 </div>
