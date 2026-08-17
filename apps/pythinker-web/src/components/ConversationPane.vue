@@ -104,6 +104,8 @@ const emit = defineEmits<{
   refreshGitStatus: [];
   /** Edit + resend the last user message (App undoes, then refills composer). */
   editMessage: [text: string];
+  /** Undo the last exchange and send its user prompt again. */
+  regenerate: [];
   /** Empty-composer workspace picker: start a new conversation elsewhere. */
   selectWorkspace: [workspaceId: string];
   /** Empty-composer workspace picker: create a new workspace. */
@@ -958,6 +960,7 @@ defineExpose({ loadComposerForEdit });
               @open-compaction="emit('openCompaction', $event)"
               @open-agent="emit('openAgent', $event)"
               @edit-message="emit('editMessage', $event)"
+              @regenerate="emit('regenerate')"
             />
             <div v-if="activeDynamicWorkflows.length > 0" class="dynamic-workflow-stack">
               <DynamicWorkflowCard v-for="group in activeDynamicWorkflows" :key="group.id" :group="group" />
