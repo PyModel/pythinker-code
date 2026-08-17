@@ -5,6 +5,8 @@ import type { PythinkerApiConfig } from '../config';
 import { buildRestUrl, buildWsUrl } from '../config';
 import type {
   AppConfig,
+  AppMcpServerDefinition,
+  AppMcpServerInput,
   AppMessage,
   AppMessageRole,
   AppModel,
@@ -151,6 +153,17 @@ interface WireMcpServer {
   status: 'connected' | 'connecting' | 'disconnected' | 'error';
   tool_count: number;
   last_error?: string;
+  editable: boolean;
+  definition?: WireMcpServerDefinition;
+}
+
+interface WireMcpServerDefinition {
+  transport: 'stdio' | 'http' | 'sse';
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
 }
 
 interface WirePlugin {
@@ -173,6 +186,28 @@ interface WireAgentProfile {
   model?: string;
   effort?: string;
   when_to_use?: string;
+}
+
+function toAppMcpDefinition(definition: WireMcpServerDefinition): AppMcpServerDefinition {
+  return {
+    transport: definition.transport,
+    command: definition.command,
+    args: definition.args,
+    env: definition.env,
+    url: definition.url,
+    headers: definition.headers,
+  };
+}
+
+function toWireMcpDefinition(input: AppMcpServerInput): WireMcpServerDefinition {
+  return {
+    transport: input.transport,
+    command: input.command,
+    args: input.args,
+    env: input.env,
+    url: input.url,
+    headers: input.headers,
+  };
 }
 
 interface WireArchiveResult {
@@ -791,7 +826,32 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
       status: server.status,
       toolCount: server.tool_count,
       lastError: server.last_error,
+      editable: server.editable,
+      definition: server.definition === undefined ? undefined : toAppMcpDefinition(server.definition),
     }));
+  }
+
+  async createConnector(input: AppMcpServerInput): Promise<{ created: true }> {
+    return this.http.post<{ created: true }>('/mcp/servers', {
+      mcp_server_id: input.name,
+      config: toWireMcpDefinition(input),
+    });
+  }
+
+  async updateConnector(
+    connectorId: string,
+    input: AppMcpServerInput,
+  ): Promise<{ updated: true }> {
+    return this.http.put<{ updated: true }>(
+      `/mcp/servers/${encodeURIComponent(connectorId)}`,
+      { config: toWireMcpDefinition(input) },
+    );
+  }
+
+  async removeConnector(connectorId: string): Promise<{ deleted: true }> {
+    return this.http.delete<{ deleted: true }>(
+      `/mcp/servers/${encodeURIComponent(connectorId)}`,
+    );
   }
 
   async listPlugins(): Promise<AppPlugin[]> {

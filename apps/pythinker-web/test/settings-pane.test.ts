@@ -33,6 +33,7 @@ vi.mock('../src/composables/usePythinkerWebClient', async () => {
   const client: Record<string, unknown> = {
     activePullRequest: vueRef(null),
     activeSessionId: vueRef(''),
+    activeSessionCapabilities: vueRef({ tools: undefined, mcpServers: undefined }),
     activeWorkspaceId: vueRef(null),
     activity: vueRef('idle'),
     authReady: vueRef(true),
@@ -41,6 +42,7 @@ vi.mock('../src/composables/usePythinkerWebClient', async () => {
     compaction: vueRef(null),
     config: vueRef(null),
     connectorsLoading: vueRef(false),
+    connectorsError: vueRef(undefined),
     defaultModel: vueRef(null),
     dynamicWorkflowMode: vueRef(false),
     fastSpinner: vueRef(false),
@@ -64,6 +66,8 @@ vi.mock('../src/composables/usePythinkerWebClient', async () => {
     sideChatSending: vueRef(false),
     sideChatVisible: vueRef(false),
     status: vueRef({ branch: '', cwd: '/workspace', ctxMax: 0, ctxUsed: 0, model: '', modelId: '', permission: 'manual' }),
+    toolsBySession: vueRef({}),
+    toolsLoadingBySession: vueRef({}),
     theme: vueRef('modern'),
     thinking: vueRef('off'),
     uiFontSize: vueRef(15),
@@ -122,8 +126,8 @@ const skills: AppSkill[] = [
 ];
 
 const connectors: AppConnector[] = [
-  { id: 'mcp_1', name: 'context7', transport: 'http', status: 'connected', toolCount: 2 },
-  { id: 'mcp_2', name: 'tavily', transport: 'stdio', status: 'error', toolCount: 0, lastError: 'spawn ENOENT' },
+  { id: 'mcp_1', name: 'context7', transport: 'http', status: 'connected', toolCount: 2, editable: false },
+  { id: 'mcp_2', name: 'tavily', transport: 'stdio', status: 'error', toolCount: 0, lastError: 'spawn ENOENT', editable: true },
 ];
 
 function mountPane(activeTab: SettingsTab, extraProps: Record<string, unknown> = {}) {
@@ -153,13 +157,13 @@ afterEach(() => {
 });
 
 describe('settings navigation', () => {
-  it('renders the ten grouped tabs and emits a selected tab', async () => {
+  it('renders the eleven grouped tabs and emits a selected tab', async () => {
     const wrapper = mount(SettingsNav, {
       props: { activeTab: 'general' },
       global: { plugins: [i18n] },
     });
 
-    expect(wrapper.findAll('.tab')).toHaveLength(10);
+    expect(wrapper.findAll('.tab')).toHaveLength(11);
     expect(wrapper.findAll('.tab-group').map((group) => group.text())).toEqual([
       'Basics',
       'Agent capabilities',
@@ -191,6 +195,7 @@ describe('settings navigation', () => {
       counts: { connectors: 0, plugins: 0, subagents: 0 },
       onLoadConnectors,
       onLoadPlugins: vi.fn(),
+      onLoadTools: vi.fn(),
       onLoadSubagents: vi.fn(),
     });
 
@@ -207,6 +212,7 @@ describe('settings navigation', () => {
       counts: { connectors: 2, plugins: 0, subagents: 0 },
       onLoadConnectors,
       onLoadPlugins: vi.fn(),
+      onLoadTools: vi.fn(),
       onLoadSubagents: vi.fn(),
     });
 
@@ -220,6 +226,7 @@ describe('settings navigation', () => {
       counts: { connectors: 0, plugins: 0, subagents: 0 },
       onLoadConnectors: vi.fn(),
       onLoadPlugins,
+      onLoadTools: vi.fn(),
       onLoadSubagents: vi.fn(),
     });
 
@@ -233,6 +240,7 @@ describe('settings navigation', () => {
       counts: { connectors: 0, plugins: 0, subagents: 0 },
       onLoadConnectors: vi.fn(),
       onLoadPlugins: vi.fn(),
+      onLoadTools: vi.fn(),
       onLoadSubagents,
     });
 
@@ -248,6 +256,7 @@ describe('settings navigation', () => {
       counts: { connectors: 0, plugins: 0, subagents: 3 },
       onLoadConnectors: vi.fn(),
       onLoadPlugins: vi.fn(),
+      onLoadTools: vi.fn(),
       onLoadSubagents,
     });
 
@@ -261,12 +270,30 @@ describe('settings navigation', () => {
       counts: { connectors: 0, plugins: 0, subagents: 3 },
       onLoadConnectors: vi.fn(),
       onLoadPlugins: vi.fn(),
+      onLoadTools: vi.fn(),
       onLoadSubagents,
     });
 
     setTab('subagents');
     refreshActiveTab();
     expect(onLoadSubagents).toHaveBeenCalledTimes(2);
+  });
+
+  it('reloads tools on every visit', () => {
+    const onLoadTools = vi.fn();
+    const { setTab, refreshActiveTab } = useSettingsNav({
+      counts: { connectors: 0, plugins: 0, subagents: 0 },
+      onLoadConnectors: vi.fn(),
+      onLoadPlugins: vi.fn(),
+      onLoadTools,
+      onLoadSubagents: vi.fn(),
+    });
+
+    setTab('tools');
+    setTab('general');
+    setTab('tools');
+    refreshActiveTab();
+    expect(onLoadTools).toHaveBeenCalledTimes(3);
   });
 });
 

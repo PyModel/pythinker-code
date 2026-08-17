@@ -2,11 +2,13 @@
 import type {
   AppConfig,
   AppConnector,
+  AppMcpServerInput,
   AppModel,
   AppPlugin,
   AppSession,
   AppSkill,
   AppSubagent,
+  AppTool,
 } from '../../api/types';
 import type { ColorScheme, Theme } from '../../composables/usePythinkerWebClient';
 import type { SettingsTab } from '../../composables/useSettingsNav';
@@ -20,6 +22,7 @@ import HooksPage from './pages/HooksPage.vue';
 import PluginsPage from './pages/PluginsPage.vue';
 import SkillsPage from './pages/SkillsPage.vue';
 import SubagentsPage from './pages/SubagentsPage.vue';
+import ToolsPage from './pages/ToolsPage.vue';
 import UsagePage from './pages/UsagePage.vue';
 
 defineProps<{
@@ -38,9 +41,14 @@ defineProps<{
   skills?: AppSkill[];
   connectors?: AppConnector[];
   connectorsLoading?: boolean;
+  connectorsError?: string;
   sessions?: AppSession[];
   plugins?: AppPlugin[];
   subagents?: AppSubagent[];
+  tools?: AppTool[];
+  toolsLoading?: boolean;
+  enabledTools?: string[];
+  sessionId?: string;
 }>();
 
 const emit = defineEmits<{
@@ -53,7 +61,11 @@ const emit = defineEmits<{
   openOnboarding: [];
   updateConfig: [patch: Partial<AppConfig>];
   restartConnector: [connectorId: string];
+  createConnector: [input: AppMcpServerInput];
+  updateConnector: [payload: { connectorId: string; input: AppMcpServerInput }];
+  removeConnector: [connectorId: string];
   setPluginEnabled: [payload: { pluginId: string; enabled: boolean }];
+  setTools: [names: string[]];
   close: [];
 }>();
 
@@ -94,6 +106,14 @@ const { t } = useI18n();
       :config-saving="configSaving"
       @update-config="emit('updateConfig', $event)"
     />
+    <ToolsPage
+      v-show="activeTab === 'tools'"
+      :tools="tools"
+      :tools-loading="toolsLoading"
+      :enabled-tools="enabledTools"
+      :session-id="sessionId"
+      @set-tools="emit('setTools', $event)"
+    />
     <PluginsPage
       v-show="activeTab === 'plugins'"
       :plugins="plugins"
@@ -110,7 +130,11 @@ const { t } = useI18n();
       v-show="activeTab === 'connectors'"
       :connectors="connectors"
       :connectors-loading="connectorsLoading"
+      :connectors-error="connectorsError"
       @restart-connector="emit('restartConnector', $event)"
+      @create-connector="emit('createConnector', $event)"
+      @update-connector="emit('updateConnector', $event)"
+      @remove-connector="emit('removeConnector', $event)"
     />
     <HooksPage v-show="activeTab === 'hooks'" :config="config" />
     <UsagePage v-show="activeTab === 'usage'" :sessions="sessions" />
@@ -150,7 +174,7 @@ const { t } = useI18n();
   cursor: pointer;
 }
 .close-btn:hover {
-  color: #fff;
+  color: var(--bg);
   background: var(--err);
   border-color: var(--err);
 }

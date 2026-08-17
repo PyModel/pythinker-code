@@ -5,6 +5,9 @@
  *
  *   GET  /tools                                  query: {session_id?}    data: {tools: ToolDescriptor[]}
  *   GET  /mcp/servers                            -                       data: {servers: McpServer[]}
+ *   POST /mcp/servers                            body: {mcp_server_id, config}
+ *   PUT  /mcp/servers/{mcp_server_id}             body: {config}
+ *   DELETE /mcp/servers/{mcp_server_id}
  *   POST /mcp/servers/{mcp_server_id}:restart    body: empty             data: {restarting: true}
  *
  * **Error mapping**:
@@ -20,13 +23,25 @@
 
 import {
   ErrorCode,
+  createMcpServerRequestSchema,
+  createMcpServerResponseSchema,
+  deleteMcpServerResponseSchema,
   listMcpServersResponseSchema,
   listToolsQuerySchema,
   listToolsResponseSchema,
+  mcpServerIdParamSchema,
   restartMcpServerResultSchema,
+  updateMcpServerRequestSchema,
+  updateMcpServerResponseSchema,
 } from '@pymodel/protocol';
-import { IMcpService, IToolService, McpServerNotFoundError, type IInstantiationService } from '@pymodel/agent-core';
-
+import {
+  IMcpService,
+  IToolService,
+  McpServerAlreadyExistsError,
+  McpServerNotFoundError,
+  McpServerValidationError,
+  type IInstantiationService,
+} from '@pymodel/agent-core';
 
 import { errEnvelope, okEnvelope } from '../envelope';
 import { defineRoute } from '../middleware/defineRoute';
@@ -46,6 +61,22 @@ interface ToolsRouteHost {
     options: { preHandler: unknown[]; schema?: Record<string, unknown> },
     handler: (
       req: { id: string; body: unknown; params: unknown },
+      reply: { send(payload: unknown): unknown },
+    ) => Promise<void> | void,
+  ): unknown;
+  put(
+    path: string,
+    options: { preHandler: unknown[]; schema?: Record<string, unknown> },
+    handler: (
+      req: { id: string; body: unknown; params: unknown },
+      reply: { send(payload: unknown): unknown },
+    ) => Promise<void> | void,
+  ): unknown;
+  delete(
+    path: string,
+    options: { preHandler: unknown[]; schema?: Record<string, unknown> },
+    handler: (
+      req: { id: string; params: unknown },
       reply: { send(payload: unknown): unknown },
     ) => Promise<void> | void,
   ): unknown;
@@ -104,6 +135,102 @@ export function registerToolsRoutes(
     listMcpServersRoute.path,
     listMcpServersRoute.options,
     listMcpServersRoute.handler as Parameters<ToolsRouteHost['get']>[2],
+  );
+
+  const createMcpServerRoute = defineRoute(
+    {
+      method: 'POST',
+      path: '/mcp/servers',
+      body: createMcpServerRequestSchema,
+      success: { data: createMcpServerResponseSchema },
+      errors: {
+        [ErrorCode.VALIDATION_FAILED]: {},
+      },
+      description: 'Create a user-global MCP server',
+      tags: ['tools'],
+      operationId: 'createMcpServer',
+    },
+    async (req, reply) => {
+      try {
+        await ix.invokeFunction((a) =>
+          a.get(IMcpService).create(req.body.mcp_server_id, toAgentMcpConfig(req.body.config)),
+        );
+        reply.send(okEnvelope({ created: true as const }, req.id));
+      } catch (error) {
+        sendMappedError(reply, req.id, error);
+      }
+    },
+  );
+  app.post(
+    createMcpServerRoute.path,
+    createMcpServerRoute.options,
+    createMcpServerRoute.handler as Parameters<ToolsRouteHost['post']>[2],
+  );
+
+  const updateMcpServerRoute = defineRoute(
+    {
+      method: 'PUT',
+      path: '/mcp/servers/{mcp_server_id}',
+      params: mcpServerIdParamSchema,
+      body: updateMcpServerRequestSchema,
+      success: { data: updateMcpServerResponseSchema },
+      errors: {
+        [ErrorCode.VALIDATION_FAILED]: {},
+        [ErrorCode.MCP_SERVER_NOT_FOUND]: {},
+      },
+      description: 'Replace a user-global MCP server',
+      tags: ['tools'],
+      operationId: 'updateMcpServer',
+    },
+    async (req, reply) => {
+      try {
+        await ix.invokeFunction((a) =>
+          a.get(IMcpService).update(
+            req.params.mcp_server_id,
+            toAgentMcpConfig(req.body.config),
+          ),
+        );
+        reply.send(okEnvelope({ updated: true as const }, req.id));
+      } catch (error) {
+        sendMappedError(reply, req.id, error);
+      }
+    },
+  );
+  app.put(
+    updateMcpServerRoute.path,
+    updateMcpServerRoute.options,
+    updateMcpServerRoute.handler as Parameters<ToolsRouteHost['put']>[2],
+  );
+
+  const deleteMcpServerRoute = defineRoute(
+    {
+      method: 'DELETE',
+      path: '/mcp/servers/{mcp_server_id}',
+      params: mcpServerIdParamSchema,
+      success: { data: deleteMcpServerResponseSchema },
+      errors: {
+        [ErrorCode.VALIDATION_FAILED]: {},
+        [ErrorCode.MCP_SERVER_NOT_FOUND]: {},
+      },
+      description: 'Delete a user-global MCP server',
+      tags: ['tools'],
+      operationId: 'deleteMcpServer',
+    },
+    async (req, reply) => {
+      try {
+        await ix.invokeFunction((a) =>
+          a.get(IMcpService).remove(req.params.mcp_server_id),
+        );
+        reply.send(okEnvelope({ deleted: true as const }, req.id));
+      } catch (error) {
+        sendMappedError(reply, req.id, error);
+      }
+    },
+  );
+  app.delete(
+    deleteMcpServerRoute.path,
+    deleteMcpServerRoute.options,
+    deleteMcpServerRoute.handler as Parameters<ToolsRouteHost['delete']>[2],
   );
 
   // POST /mcp/servers/{mcp_server_id}:restart ---------------------------
@@ -172,5 +299,29 @@ function sendMappedError(
     reply.send(errEnvelope(ErrorCode.MCP_SERVER_NOT_FOUND, err.message, requestId));
     return;
   }
+  if (err instanceof McpServerAlreadyExistsError || err instanceof McpServerValidationError) {
+    reply.send(errEnvelope(ErrorCode.VALIDATION_FAILED, err.message, requestId));
+    return;
+  }
   throw err;
+}
+
+function toAgentMcpConfig(input: Record<string, unknown>): Record<string, unknown> {
+  const config = { ...input };
+  renameWireKey(config, 'bearer_token_env_var', 'bearerTokenEnvVar');
+  renameWireKey(config, 'startup_timeout_ms', 'startupTimeoutMs');
+  renameWireKey(config, 'tool_timeout_ms', 'toolTimeoutMs');
+  renameWireKey(config, 'enabled_tools', 'enabledTools');
+  renameWireKey(config, 'disabled_tools', 'disabledTools');
+  return config;
+}
+
+function renameWireKey(
+  input: Record<string, unknown>,
+  wireKey: string,
+  agentKey: string,
+): void {
+  if (!Object.hasOwn(input, wireKey)) return;
+  input[agentKey] = input[wireKey];
+  delete input[wireKey];
 }

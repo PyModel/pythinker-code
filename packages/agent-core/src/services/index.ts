@@ -183,7 +183,9 @@ export { ToolService } from './tool/toolService';
 
 export {
   IMcpService,
+  McpServerAlreadyExistsError,
   McpServerNotFoundError,
+  McpServerValidationError,
   toProtocolMcpServer,
 } from './mcp/mcp';
 export { McpService } from './mcp/mcpService';

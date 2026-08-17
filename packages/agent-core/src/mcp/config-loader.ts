@@ -16,6 +16,11 @@ export interface McpJsonPaths {
   readonly project: string;
 }
 
+export interface McpJsonDocument {
+  readonly data: Record<string, unknown>;
+  readonly servers: Record<string, unknown>;
+}
+
 export interface ResolveMcpJsonPathsInput {
   readonly cwd: string;
   readonly homeDir?: string;
@@ -89,17 +94,28 @@ async function readMcpJson(
   filePath: string,
   options: ReadMcpJsonOptions = {},
 ): Promise<Record<string, McpServerConfig>> {
+  const document = await readMcpJsonDocument(filePath);
+  try {
+    return normalizeMcpServers(McpJsonFileSchema.parse(document.data).mcpServers, options);
+  } catch (error: unknown) {
+    throw new PythinkerError(ErrorCodes.CONFIG_INVALID, `Invalid MCP server config in ${filePath}: ${describeError(error)}`, {
+      cause: error,
+    });
+  }
+}
+
+export async function readMcpJsonDocument(filePath: string): Promise<McpJsonDocument> {
   let text: string;
   try {
     text = await readFile(filePath, 'utf-8');
   } catch (error: unknown) {
-    if (isFileNotFound(error)) return {};
+    if (isFileNotFound(error)) return { data: { mcpServers: {} }, servers: {} };
     throw new PythinkerError(ErrorCodes.CONFIG_INVALID, `Failed to read ${filePath}: ${describeError(error)}`, {
       cause: error,
     });
   }
 
-  if (text.trim().length === 0) return {};
+  if (text.trim().length === 0) return { data: { mcpServers: {} }, servers: {} };
 
   let data: unknown;
   try {
@@ -110,13 +126,15 @@ async function readMcpJson(
     });
   }
 
-  try {
-    return normalizeMcpServers(McpJsonFileSchema.parse(data).mcpServers, options);
-  } catch (error: unknown) {
-    throw new PythinkerError(ErrorCodes.CONFIG_INVALID, `Invalid MCP server config in ${filePath}: ${describeError(error)}`, {
-      cause: error,
-    });
+  if (!isRecord(data)) {
+    throw new PythinkerError(ErrorCodes.CONFIG_INVALID, `Invalid MCP server config in ${filePath}: expected an object`);
   }
+  const servers = data['mcpServers'];
+  if (servers === undefined) return { data, servers: {} };
+  if (!isRecord(servers)) {
+    throw new PythinkerError(ErrorCodes.CONFIG_INVALID, `Invalid MCP server config in ${filePath}: mcpServers must be an object`);
+  }
+  return { data, servers };
 }
 
 function normalizeMcpServers(
@@ -157,4 +175,8 @@ function getErrorCode(error: unknown): unknown {
 
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

@@ -2,7 +2,6 @@
 import { computed, ref, watch, type Ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import ActivitySpinner from './ActivitySpinner.vue';
-import Chip from './ui/Chip.vue';
 import MenuRow from './ui/MenuRow.vue';
 import Popover from './ui/Popover.vue';
 import SwitchToggle from './ui/SwitchToggle.vue';
@@ -12,25 +11,16 @@ const props = defineProps<{
   sessionId?: string;
 }>();
 
-type MenuView = 'root' | 'tools' | 'skills' | 'plugins';
-type SessionCapabilities = { tools?: string[]; mcpServers?: string[] };
+type MenuView = 'root' | 'skills' | 'plugins';
+type SessionCapabilities = { mcpServers?: string[] };
 
 const { t } = useI18n();
 const client = usePythinkerWebClient();
 const triggerRef = ref<HTMLButtonElement | null>(null);
 const open = ref(false);
 const view = ref<MenuView>('root');
-const selectedTools = ref<string[]>([]);
 const selectedMcpServers = ref<string[]>([]);
 
-const tools = computed(() => {
-  const sessionId = props.sessionId;
-  return sessionId ? client.toolsBySession.value[sessionId] ?? [] : [];
-});
-const toolsLoading = computed(() => {
-  const sessionId = props.sessionId;
-  return sessionId ? client.toolsLoadingBySession.value[sessionId] === true : false;
-});
 const skills = computed(() =>
   props.sessionId === client.activeSessionId.value ? client.skills.value : [],
 );
@@ -48,20 +38,12 @@ const capabilities = computed<SessionCapabilities>(() =>
     : {},
 );
 
-const selectedToolItems = computed(() =>
-  tools.value.filter((tool) => selectedTools.value.includes(tool.name)),
-);
-const selectedMcpItems = computed(() =>
-  connectors.value.filter((server) => selectedMcpServers.value.includes(server.id)),
-);
-const showTools = computed(() => toolsLoading.value || tools.value.length > 0);
 const showSkills = computed(() => skillsLoading.value || skills.value.length > 0);
 const showMcp = computed(() => connectorsLoading.value || connectors.value.length > 0);
 const showPlugins = computed(() => pluginsLoading.value || plugins.value.length > 0);
 
 const drilldownTitle = computed(() => {
   switch (view.value) {
-    case 'tools': return t('capabilityMenu.tools.title');
     case 'skills': return t('capabilityMenu.skills.title');
     case 'plugins': return t('capabilityMenu.plugins.title');
     case 'root': return '';
@@ -70,7 +52,6 @@ const drilldownTitle = computed(() => {
 
 const drilldownCount = computed(() => {
   switch (view.value) {
-    case 'tools': return selectedTools.value.length;
     case 'skills': return skills.value.length;
     case 'plugins': return plugins.value.length;
     case 'root': return 0;
@@ -78,24 +59,20 @@ const drilldownCount = computed(() => {
 });
 
 function syncSelection(): void {
-  selectedTools.value = capabilities.value.tools !== undefined
-    ? [...capabilities.value.tools]
-    : tools.value.map((tool) => tool.name);
   selectedMcpServers.value = capabilities.value.mcpServers !== undefined
     ? [...capabilities.value.mcpServers]
     : connectors.value.map((server) => server.id);
 }
 
 watch(
-  [() => props.sessionId, tools, connectors, capabilities],
+  [() => props.sessionId, connectors, capabilities],
   syncSelection,
   { immediate: true },
 );
 
 watch(
-  [tools, toolsLoading, skills, skillsLoading, plugins, pluginsLoading],
+  [skills, skillsLoading, plugins, pluginsLoading],
   () => {
-    if (view.value === 'tools' && !toolsLoading.value && tools.value.length === 0) view.value = 'root';
     if (view.value === 'skills' && !skillsLoading.value && skills.value.length === 0) view.value = 'root';
     if (view.value === 'plugins' && !pluginsLoading.value && plugins.value.length === 0) view.value = 'root';
   },
@@ -147,15 +124,6 @@ function queueWrite(field: CapabilityField, selection: Ref<string[]>, previous: 
   return write;
 }
 
-function setToolEnabled(name: string, enabled: boolean): Promise<void> {
-  const previous = [...selectedTools.value];
-  const next = new Set(previous);
-  if (enabled) next.add(name);
-  else next.delete(name);
-  selectedTools.value = [...next];
-  return queueWrite('tools', selectedTools, previous);
-}
-
 function setMcpServerEnabled(id: string, enabled: boolean): Promise<void> {
   const previous = [...selectedMcpServers.value];
   const next = new Set(previous);
@@ -191,41 +159,11 @@ function setPluginEnabled(id: string, enabled: boolean): void {
       <span class="capability-trigger-label">{{ t('capabilityMenu.trigger') }}</span>
     </button>
 
-    <div v-if="selectedToolItems.length > 0 || selectedMcpItems.length > 0" class="capability-chip-strip">
-      <Chip
-        v-for="tool in selectedToolItems"
-        :key="`tool:${tool.name}`"
-        class="capability-chip"
-        variant="active"
-        :label="tool.name"
-        :title="t('capabilityMenu.tools.toggle', { name: tool.name })"
-        :aria-label="t('capabilityMenu.tools.toggle', { name: tool.name })"
-        @click="void setToolEnabled(tool.name, false)"
-      />
-      <Chip
-        v-for="server in selectedMcpItems"
-        :key="`mcp:${server.id}`"
-        class="capability-chip"
-        variant="active"
-        :label="server.name"
-        :title="t('capabilityMenu.mcp.toggle', { name: server.name })"
-        :aria-label="t('capabilityMenu.mcp.toggle', { name: server.name })"
-        @click="void setMcpServerEnabled(server.id, false)"
-      />
-    </div>
-
     <Popover :anchor="triggerRef" :open="open" :label="t('capabilityMenu.triggerLabel')" @close="close">
       <div class="capability-panel">
         <div class="capability-viewport">
           <div class="capability-track" :class="{ 'is-drilled': view !== 'root' }">
             <div class="capability-view">
-              <MenuRow v-if="showTools" :count="selectedTools.length" @click="view = 'tools'">
-                <template #label>{{ t('capabilityMenu.tools.title') }}</template>
-                <template #trailing>
-                  <svg class="chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 3 5 5-5 5" /></svg>
-                </template>
-              </MenuRow>
-
               <MenuRow v-if="showSkills" :count="skills.length" @click="view = 'skills'">
                 <template #label>{{ t('capabilityMenu.skills.title') }}</template>
                 <template #trailing>
@@ -277,34 +215,7 @@ function setPluginEnabled(id: string, enabled: boolean): void {
                 <template #label>{{ drilldownTitle || t('capabilityMenu.back') }}</template>
               </MenuRow>
 
-              <template v-if="view === 'tools'">
-                <p class="capability-caption">{{ t('capabilityMenu.tools.caption') }}</p>
-                <div v-if="toolsLoading" class="capability-loading">
-                  <ActivitySpinner :label="t('capabilityMenu.loading')" />
-                </div>
-                <template v-else>
-                  <MenuRow
-                    v-for="tool in tools"
-                    :key="tool.name"
-                    class="capability-row"
-                    :selected="selectedTools.includes(tool.name)"
-                    :title="tool.description"
-                    @click="void setToolEnabled(tool.name, !selectedTools.includes(tool.name))"
-                  >
-                    <template #label>{{ tool.name }}</template>
-                    <template #trailing>
-                      <SwitchToggle
-                        :model-value="selectedTools.includes(tool.name)"
-                        :aria-label="t('capabilityMenu.tools.toggle', { name: tool.name })"
-                        @click.stop
-                        @update:model-value="void setToolEnabled(tool.name, $event)"
-                      />
-                    </template>
-                  </MenuRow>
-                </template>
-              </template>
-
-              <template v-else-if="view === 'skills'">
+              <template v-if="view === 'skills'">
                 <p class="capability-caption">{{ t('capabilityMenu.skills.caption') }}</p>
                 <div v-if="skillsLoading" class="capability-loading">
                   <ActivitySpinner :label="t('capabilityMenu.loading')" />
@@ -361,9 +272,8 @@ function setPluginEnabled(id: string, enabled: boolean): void {
 .capability-control {
   display: flex;
   align-items: center;
-  gap: 4px;
+  flex: none;
   min-width: 0;
-  flex: 1 1 auto;
 }
 
 .capability-trigger {
@@ -395,26 +305,6 @@ function setPluginEnabled(id: string, enabled: boolean): void {
   width: 16px;
   height: 16px;
   flex: none;
-}
-
-.capability-chip-strip {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.capability-chip-strip::-webkit-scrollbar {
-  display: none;
-}
-
-.capability-chip {
-  flex: none;
-  min-width: 0;
-  padding: 5px 6px;
-  font-size: var(--ui-font-size-xs);
 }
 
 .capability-panel {

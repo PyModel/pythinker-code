@@ -10,6 +10,7 @@ import type {
   AppApprovalRequest,
   AppConfig,
   AppGoal,
+  AppMcpServerInput,
   AppNotice,
   AppNoticeDetail,
   AppMessage,
@@ -1574,6 +1575,7 @@ async function loadToolsForSession(sessionId: string): Promise<void> {
 // the settings dialog — nothing else in the app needs them.
 const connectors = ref<AppConnector[]>([]);
 const connectorsLoading = ref(false);
+const connectorsError = ref<string>();
 
 async function loadConnectors(): Promise<void> {
   connectorsLoading.value = true;
@@ -1651,6 +1653,39 @@ async function restartConnector(connectorId: string): Promise<void> {
     // The reload below reports whatever state the server ended up in.
   }
   await loadConnectors();
+}
+
+async function createConnector(input: AppMcpServerInput): Promise<void> {
+  connectorsError.value = undefined;
+  try {
+    await getPythinkerWebApi().createConnector(input);
+    await loadConnectors();
+  } catch (error) {
+    connectorsError.value = error instanceof Error ? error.message : String(error);
+    pushOperationFailure('createConnector', error);
+  }
+}
+
+async function updateConnector(connectorId: string, input: AppMcpServerInput): Promise<void> {
+  connectorsError.value = undefined;
+  try {
+    await getPythinkerWebApi().updateConnector(connectorId, input);
+    await loadConnectors();
+  } catch (error) {
+    connectorsError.value = error instanceof Error ? error.message : String(error);
+    pushOperationFailure('updateConnector', error);
+  }
+}
+
+async function removeConnector(connectorId: string): Promise<void> {
+  connectorsError.value = undefined;
+  try {
+    await getPythinkerWebApi().removeConnector(connectorId);
+    await loadConnectors();
+  } catch (error) {
+    connectorsError.value = error instanceof Error ? error.message : String(error);
+    pushOperationFailure('removeConnector', error);
+  }
 }
 
 function hasLoadedMessages(sessionId: string): boolean {
@@ -4584,6 +4619,7 @@ export function usePythinkerWebClient() {
     activateSkill,
     connectors,
     connectorsLoading,
+    connectorsError,
     plugins,
     pluginsLoading,
     loadPlugins,
@@ -4593,6 +4629,9 @@ export function usePythinkerWebClient() {
     /** Raw sessions with their usage totals — the settings usage page reads these. */
     sessionsWithUsage: computed<AppSession[]>(() => rawState.sessions),
     loadConnectors,
+    createConnector,
+    updateConnector,
+    removeConnector,
     restartConnector,
     setModel,
     toggleStarModel,

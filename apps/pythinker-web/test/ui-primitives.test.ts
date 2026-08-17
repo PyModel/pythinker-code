@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { mount } from '@vue/test-utils';
 import { nextTick } from 'vue';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import Chip from '../src/components/ui/Chip.vue';
 import MenuRow from '../src/components/ui/MenuRow.vue';
@@ -27,6 +27,7 @@ async function settle(): Promise<void> {
 
 afterEach(() => {
   document.body.replaceChildren();
+  vi.unstubAllGlobals();
 });
 
 describe('MenuRow', () => {
@@ -146,6 +147,47 @@ describe('Popover', () => {
     expect(readFileSync(join(uiDir, 'Popover.vue'), 'utf8')).toMatch(/position:\s*fixed/u);
     expect(panel.style.top).toBe('616px');
     expect(panel.style.left).toBe('684px');
+    wrapper.unmount();
+  });
+
+  it('re-places the panel when its content grows after opening', async () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 800 });
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 800 });
+    const observed: (() => void)[] = [];
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(callback: () => void) {
+        observed.push(callback);
+      }
+      observe(): void {}
+      disconnect(): void {}
+    });
+    const anchor = document.createElement('button');
+    anchor.getBoundingClientRect = () => ({
+      bottom: 200, height: 20, left: 100, right: 160, top: 180,
+      width: 60, x: 100, y: 180, toJSON: () => ({}),
+    });
+    document.body.append(anchor);
+    const wrapper = mount(Popover, {
+      attachTo: document.body,
+      props: { anchor, open: true },
+      slots: { default: 'Menu' },
+    });
+    const panel = document.body.querySelector('[role="dialog"]') as HTMLElement;
+    Object.defineProperty(panel, 'offsetWidth', { configurable: true, value: 100 });
+    Object.defineProperty(panel, 'offsetHeight', { configurable: true, writable: true, value: 80 });
+
+    await settle();
+    expect(panel.style.top).toBe('204px');
+
+    // The menu opens on a spinner and fills in afterwards. Without the resize
+    // observer the panel keeps the `top` it was measured at and its new bottom
+    // runs off the viewport.
+    Object.defineProperty(panel, 'offsetHeight', { configurable: true, value: 700 });
+    expect(observed).toHaveLength(1);
+    observed[0]!();
+    await settle();
+
+    expect(panel.style.top).toBe('16px');
     wrapper.unmount();
   });
 
