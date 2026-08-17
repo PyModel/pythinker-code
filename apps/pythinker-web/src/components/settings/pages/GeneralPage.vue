@@ -209,7 +209,7 @@ onUnmounted(() => {
   height: 30px;
   padding: 0 8px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--r-sm);
   background: var(--bg);
 }
 .num-input {
@@ -223,7 +223,7 @@ onUnmounted(() => {
   text-align: right;
 }
 .num-unit { color: var(--muted); font-family: var(--mono); font-size: var(--ui-font-size-xs); }
-.seg { display: inline-flex; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; }
+.seg { display: inline-flex; overflow: hidden; border: 1px solid var(--line); border-radius: var(--r-sm); }
 .opt {
   padding: 5px 12px;
   border: none;
