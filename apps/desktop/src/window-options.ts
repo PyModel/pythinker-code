@@ -14,9 +14,11 @@ export function windowAppearanceOptions(platform: NodeJS.Platform): BrowserWindo
   }
   if (platform === 'win32') {
     return {
+      // No `titleBarOverlay`: the renderer draws macOS-style round controls in
+      // the top-right instead. `thickFrame` keeps the native resize border,
+      // shadow and drag-to-snap that `frame: false` would remove.
       autoHideMenuBar: true,
       titleBarStyle: 'hidden',
-      titleBarOverlay: { color: '#00000000', symbolColor: '#7f858f', height: 44 },
       backgroundColor: '#161616',
       hasShadow: true,
       roundedCorners: true,

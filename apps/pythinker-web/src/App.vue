@@ -4,6 +4,7 @@ import { computed, nextTick, onMounted, onUnmounted, provide, ref, watch, watchE
 import { useI18n } from 'vue-i18n';
 import Sidebar from './components/Sidebar.vue';
 import ResizeHandle from './components/ResizeHandle.vue';
+import WindowControls from './components/WindowControls.vue';
 import ConversationPane from './components/ConversationPane.vue';
 import FilePreview, { type FileData } from './components/FilePreview.vue';
 import ThinkingPanel from './components/ThinkingPanel.vue';
@@ -925,6 +926,7 @@ function openPr(url: string): void {
 <template>
   <div class="app-shell">
     <div class="windows-titlebar" aria-hidden="true"></div>
+    <WindowControls />
     <section v-if="showAuthGate" class="auth-page">
       <div class="auth-page-inner">
         <PythinkerLogo size="lg" interactive class="auth-page-logo" />
