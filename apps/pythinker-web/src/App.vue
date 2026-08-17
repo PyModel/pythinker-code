@@ -749,6 +749,14 @@ async function handleEditMessage(text: string): Promise<void> {
   conversationPaneRef.value?.loadComposerForEdit(text);
 }
 
+// Retry the last assistant reply: undo the exchange, then send its original
+// user prompt as a new prompt. Undo reports any failure and returns null.
+async function handleRegenerate(): Promise<void> {
+  const text = await client.undo(1);
+  if (text === null) return;
+  await client.sendPrompt(text);
+}
+
 // Handler for slash commands emitted by Composer (via ConversationPane)
 function handleCommand(cmd: string): void {
   // `/compact <text>` carries an optional free-text instruction steering what
@@ -1167,6 +1175,7 @@ function openPr(url: string): void {
       @open-compaction="openCompactionPanel($event)"
       @open-agent="openAgentPanel($event)"
       @edit-message="handleEditMessage"
+      @regenerate="handleRegenerate"
     />
 
     <!-- Multi-workspace selection placeholder -->
