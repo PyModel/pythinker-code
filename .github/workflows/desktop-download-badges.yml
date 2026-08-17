@@ -36,13 +36,19 @@ jobs:
       - name: Sum the .dmg and .exe download counts
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASES_REPO: PyModel/pythinker-desktop-releases
+          # Desktop installers shipped from this repo up to v0.1.0 and move to
+          # pythinker-desktop-releases from the next release on. Summing both
+          # keeps the counters continuous across that move.
+          RELEASES_REPOS: PyModel/pythinker-code PyModel/pythinker-desktop-releases
         run: |
           set -euo pipefail
 
           # --paginate walks every release, so the totals cover the whole
-          # history rather than just the latest tag.
-          gh api --paginate "repos/${RELEASES_REPO}/releases" > releases.json
+          # history rather than just the latest tag. jq -s concatenates the one
+          # array each repo produces into a single list of releases.
+          for repo in ${RELEASES_REPOS}; do
+            gh api --paginate "repos/${repo}/releases"
+          done | jq -s 'add' > releases.json
 
           write_badge() {
             local suffix="$1" label="$2" out="$3"
