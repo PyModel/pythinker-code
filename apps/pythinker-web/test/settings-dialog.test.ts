@@ -331,7 +331,8 @@ describe('SettingsDialog connectors page', () => {
     expect(panel.text()).toContain('spawn ENOENT');
     expect(panel.text()).toContain('2 tools');
 
-    await panel.findAll('.act')[1]!.trigger('click');
+    // Restart is a ghost icon button in the row's action cluster.
+    await panel.findAll('.icon-btn')[1]!.trigger('click');
     expect(wrapper.emitted('restartConnector')).toEqual([['mcp_2']]);
   });
 });

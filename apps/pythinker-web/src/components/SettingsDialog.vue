@@ -729,21 +729,28 @@ function setTab(tab: SettingsTab): void {
                   class="listing-row"
                   :class="{ off: !isSkillEnabled(skill.name) }"
                 >
-                  <div class="listing-main">
-                    <span class="listing-name mono">{{ skill.name }}</span>
-                    <span v-if="skill.disableModelInvocation" class="tag">{{ t('settings.skills.slashOnly') }}</span>
-                    <span class="listing-desc">{{ skill.description }}</span>
-                    <button
-                      type="button"
-                      class="switch sm"
-                      role="switch"
-                      :class="{ on: isSkillEnabled(skill.name) }"
-                      :aria-checked="isSkillEnabled(skill.name)"
-                      :aria-label="t('settings.skills.toggleAria', { name: skill.name })"
-                      @click="toggleSkill(skill.name)"
-                    >
-                      <span class="knob" />
-                    </button>
+                  <div class="listing-top">
+                    <div class="listing-main">
+                      <svg class="listing-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                        <path d="M12 3l2.1 4.9 5.4.5-4.1 3.6 1.2 5.3L12 14.6 7.4 17.3l1.2-5.3L4.5 8.4l5.4-.5L12 3z" stroke-linejoin="round" />
+                      </svg>
+                      <span class="listing-name mono">{{ skill.name }}</span>
+                      <span v-if="skill.disableModelInvocation" class="tag">{{ t('settings.skills.slashOnly') }}</span>
+                      <span class="listing-desc">{{ skill.description }}</span>
+                    </div>
+                    <div class="row-actions">
+                      <button
+                        type="button"
+                        class="switch sm"
+                        role="switch"
+                        :class="{ on: isSkillEnabled(skill.name) }"
+                        :aria-checked="isSkillEnabled(skill.name)"
+                        :aria-label="t('settings.skills.toggleAria', { name: skill.name })"
+                        @click="toggleSkill(skill.name)"
+                      >
+                        <span class="knob" />
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -765,16 +772,31 @@ function setTab(tab: SettingsTab): void {
               <p v-else-if="(connectors?.length ?? 0) === 0" class="sec-empty">{{ t('settings.connectors.empty') }}</p>
               <div v-else class="listing">
                 <div v-for="connector in connectors" :key="connector.id" class="listing-row">
-                  <div class="listing-main">
-                    <span class="dot" :class="`s-${connector.status}`" aria-hidden="true" />
-                    <span class="listing-name">{{ connector.name }}</span>
-                    <span class="tag">{{ connector.transport }}</span>
-                    <span class="listing-meta">{{ t('settings.connectors.tools', { count: connector.toolCount }) }}</span>
-                    <button type="button" class="act" @click="emit('restartConnector', connector.id)">
-                      {{ t('settings.connectors.restart') }}
-                    </button>
+                  <div class="listing-top">
+                    <div class="listing-main">
+                      <svg class="listing-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                        <path d="M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0V8zM12 17v4" stroke-linecap="round" />
+                      </svg>
+                      <span class="listing-name">{{ connector.name }}</span>
+                      <span class="tag">{{ connector.transport }}</span>
+                      <span class="listing-desc">{{ t(`settings.connectors.status.${connector.status}`) }}</span>
+                      <span class="listing-meta">{{ t('settings.connectors.tools', { count: connector.toolCount }) }}</span>
+                    </div>
+                    <div class="row-actions">
+                      <span class="dot" :class="`s-${connector.status}`" aria-hidden="true" />
+                      <button
+                        type="button"
+                        class="icon-btn"
+                        :title="t('settings.connectors.restart')"
+                        :aria-label="t('settings.connectors.restart')"
+                        @click="emit('restartConnector', connector.id)"
+                      >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                          <path d="M20 12a8 8 0 1 1-2.6-5.9M20 4v5h-5" stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                      </button>
+                    </div>
                   </div>
-                  <p class="listing-desc">{{ t(`settings.connectors.status.${connector.status}`) }}</p>
                   <p v-if="connector.lastError" class="listing-error">{{ connector.lastError }}</p>
                 </div>
               </div>
@@ -800,22 +822,29 @@ function setTab(tab: SettingsTab): void {
                   class="listing-row"
                   :class="{ off: !plugin.enabled }"
                 >
-                  <div class="listing-main">
-                    <span class="listing-name">{{ plugin.displayName }}</span>
-                    <span v-if="plugin.version" class="tag">{{ plugin.version }}</span>
-                    <span class="tag">{{ plugin.source }}</span>
-                    <span class="listing-meta">{{ t('settings.plugins.counts', { skills: plugin.skillCount, servers: plugin.mcpServerCount }) }}</span>
-                    <button
-                      type="button"
-                      class="switch sm"
-                      role="switch"
-                      :class="{ on: plugin.enabled }"
-                      :aria-checked="plugin.enabled"
-                      :aria-label="t('settings.plugins.toggleAria', { name: plugin.displayName })"
-                      @click="emit('setPluginEnabled', { pluginId: plugin.id, enabled: !plugin.enabled })"
-                    >
-                      <span class="knob" />
-                    </button>
+                  <div class="listing-top">
+                    <div class="listing-main">
+                      <svg class="listing-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                        <path d="M10 4a2 2 0 1 1 4 0v1h3a1 1 0 0 1 1 1v3h1a2 2 0 1 1 0 4h-1v3a1 1 0 0 1-1 1h-3v-1a2 2 0 1 0-4 0v1H6a1 1 0 0 1-1-1v-3H4a2 2 0 1 1 0-4h1V6a1 1 0 0 1 1-1h4V4z" stroke-linejoin="round" />
+                      </svg>
+                      <span class="listing-name">{{ plugin.displayName }}</span>
+                      <span v-if="plugin.version" class="tag">{{ plugin.version }}</span>
+                      <span class="tag">{{ plugin.source }}</span>
+                      <span class="listing-meta">{{ t('settings.plugins.counts', { skills: plugin.skillCount, servers: plugin.mcpServerCount }) }}</span>
+                    </div>
+                    <div class="row-actions">
+                      <button
+                        type="button"
+                        class="switch sm"
+                        role="switch"
+                        :class="{ on: plugin.enabled }"
+                        :aria-checked="plugin.enabled"
+                        :aria-label="t('settings.plugins.toggleAria', { name: plugin.displayName })"
+                        @click="emit('setPluginEnabled', { pluginId: plugin.id, enabled: !plugin.enabled })"
+                      >
+                        <span class="knob" />
+                      </button>
+                    </div>
                   </div>
                   <p v-if="plugin.hasErrors" class="listing-error">{{ t('settings.plugins.hasErrors') }}</p>
                 </div>
@@ -837,14 +866,20 @@ function setTab(tab: SettingsTab): void {
               <p v-if="(subagents?.length ?? 0) === 0" class="sec-empty">{{ t('settings.subagents.empty') }}</p>
               <div v-else class="listing">
                 <div v-for="agent in subagents" :key="agent.name" class="listing-row">
-                  <div class="listing-main">
-                    <span class="listing-name mono">{{ agent.name }}</span>
-                    <span class="tag">{{ agent.source }}</span>
-                    <span class="tag">{{ t('settings.subagents.tools', { count: agent.tools.length }) }}</span>
-                    <span v-if="agent.model" class="listing-meta">{{ agent.model }}</span>
-                    <span v-if="agent.effort" class="tag">{{ agent.effort }}</span>
+                  <div class="listing-top">
+                    <div class="listing-main">
+                      <svg class="listing-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                        <rect x="4" y="8" width="16" height="11" rx="3" />
+                        <path d="M12 4v4M9 13h.01M15 13h.01" stroke-linecap="round" />
+                      </svg>
+                      <span class="listing-name mono">{{ agent.name }}</span>
+                      <span class="tag">{{ agent.source }}</span>
+                      <span class="tag">{{ t('settings.subagents.tools', { count: agent.tools.length }) }}</span>
+                      <span v-if="agent.effort" class="tag">{{ agent.effort }}</span>
+                      <span v-if="agent.model" class="listing-meta">{{ agent.model }}</span>
+                    </div>
                   </div>
-                  <p v-if="agent.description" class="listing-desc">{{ agent.description }}</p>
+                  <p v-if="agent.description" class="listing-desc listing-indent">{{ agent.description }}</p>
                 </div>
               </div>
             </section>
@@ -871,11 +906,16 @@ function setTab(tab: SettingsTab): void {
                     :key="`${group.event}/${index}`"
                     class="listing-row"
                   >
-                    <div class="listing-main">
-                      <span class="listing-name mono">{{ hook.matcher ?? '*' }}</span>
-                      <span class="tag">{{ hook.type ?? 'command' }}</span>
-                      <span v-if="hook.async === true" class="tag">{{ t('settings.hooks.async') }}</span>
-                      <span v-if="hook.timeout !== undefined" class="listing-meta">{{ t('settings.hooks.timeout', { seconds: hook.timeout }) }}</span>
+                    <div class="listing-top">
+                      <div class="listing-main">
+                        <svg class="listing-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                          <path d="M13 3L5 14h6l-2 7 8-11h-6l2-7z" stroke-linejoin="round" />
+                        </svg>
+                        <span class="listing-name mono">{{ hook.matcher ?? '*' }}</span>
+                        <span class="tag">{{ hook.type ?? 'command' }}</span>
+                        <span v-if="hook.async === true" class="tag">{{ t('settings.hooks.async') }}</span>
+                        <span v-if="hook.timeout !== undefined" class="listing-meta">{{ t('settings.hooks.timeout', { seconds: hook.timeout }) }}</span>
+                      </div>
                     </div>
                     <p class="listing-path mono">{{ hook.command ?? hook.url ?? '—' }}</p>
                   </div>
@@ -917,9 +957,11 @@ function setTab(tab: SettingsTab): void {
               <p v-if="usageByModel.length === 0" class="sec-empty">{{ t('settings.usage.empty') }}</p>
               <div v-else class="listing">
                 <div v-for="entry in usageByModel" :key="entry.model" class="listing-row">
-                  <div class="listing-main">
-                    <span class="listing-name">{{ entry.model }}</span>
-                    <span class="listing-meta">{{ entry.share }}</span>
+                  <div class="listing-top">
+                    <div class="listing-main">
+                      <span class="listing-name">{{ entry.model }}</span>
+                      <span class="listing-meta">{{ entry.share }}</span>
+                    </div>
                   </div>
                   <div class="usage-bar"><span :style="{ width: entry.share }" /></div>
                 </div>
@@ -1353,7 +1395,7 @@ function setTab(tab: SettingsTab): void {
 .listing {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 2px;
 }
 .listing-head {
   margin: 14px 0 6px;
@@ -1361,53 +1403,94 @@ function setTab(tab: SettingsTab): void {
   font-weight: 600;
   color: var(--muted);
 }
+/* Rows are flat rather than carded: the leading glyph, the name and the right
+   action cluster carry the structure, so a border would only add noise. */
 .listing-row {
-  padding: 8px 12px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+  padding: 5px 0;
 }
-/* A disabled skill stays readable but clearly recedes. */
-.listing-row.off .listing-name,
-.listing-row.off .listing-desc {
-  color: var(--faint);
+.listing-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
 }
+/* Only the content fades when an entry is off — the switch that turns it back
+   on has to stay at full contrast. */
+.listing-row.off .listing-main { opacity: 0.5; }
 .listing-main {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex: 1;
   min-width: 0;
 }
+.row-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+}
+.listing-glyph {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  color: var(--faint);
+}
 .listing-name {
-  font-weight: 600;
+  flex: none;
+  font-weight: 500;
   color: var(--ink);
 }
 .listing-meta {
-  margin-left: auto;
+  flex: none;
   font-size: calc(var(--ui-font-size) - 2px);
-  color: var(--muted);
+  color: var(--faint);
 }
 .listing-desc,
 .listing-path,
 .listing-error {
-  margin: 3px 0 0;
+  margin: 2px 0 0;
   font-size: calc(var(--ui-font-size) - 2px);
   color: var(--muted);
 }
-/* On the skills page the description shares the row with the name, so it
-   truncates instead of wrapping — the switch must stay on the same line. */
+/* Inside a row the description shares the line with the name, so it truncates
+   instead of wrapping and pushes the meta text to the right edge. */
 .listing-main .listing-desc {
-  margin: 0 0 0 auto;
-  padding-left: 10px;
+  margin: 0;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--faint);
 }
+.listing-main .listing-meta { margin-left: auto; }
 .listing-path {
+  padding-left: 27px;
   color: var(--faint);
   word-break: break-all;
 }
+.listing-error { padding-left: 27px; }
+.listing-indent { padding-left: 27px; }
+
+/* Ghost icon button for the per-row actions — no chrome until hover. */
+.icon-btn {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--faint);
+  cursor: pointer;
+}
+.icon-btn svg { width: 15px; height: 15px; }
+.icon-btn:hover { background: var(--soft); color: var(--ink); }
 .listing-error {
   color: var(--err);
 }
@@ -1415,7 +1498,7 @@ function setTab(tab: SettingsTab): void {
   flex: none;
   padding: 1px 6px;
   border-radius: 5px;
-  border: 1px solid var(--line);
+  background: var(--soft);
   font-size: calc(var(--ui-font-size) - 3px);
   color: var(--muted);
 }
