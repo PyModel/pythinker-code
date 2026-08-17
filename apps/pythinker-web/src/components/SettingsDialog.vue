@@ -265,6 +265,20 @@ const skillGroups = computed(() => {
     .toSorted((a, b) => a.source.localeCompare(b.source));
 });
 
+const disabledSkills = computed(() => new Set(props.config?.disabledSkills ?? []));
+
+function isSkillEnabled(name: string): boolean {
+  return !disabledSkills.value.has(name);
+}
+
+/** Disabling a skill stores its name; the daemon then never registers it. */
+function toggleSkill(name: string): void {
+  const next = new Set(disabledSkills.value);
+  if (next.has(name)) next.delete(name);
+  else next.add(name);
+  emit('updateConfig', { disabledSkills: [...next].sort() });
+}
+
 function setTab(tab: SettingsTab): void {
   // The connector list is only fetched when its page is first opened.
   if (tab === 'connectors' && (props.connectors?.length ?? 0) === 0) emit('loadConnectors');
@@ -586,13 +600,28 @@ function setTab(tab: SettingsTab): void {
               <p v-if="skillGroups.length === 0" class="sec-empty">{{ t('settings.skills.empty') }}</p>
               <div v-for="group in skillGroups" :key="group.source" class="listing">
                 <h4 class="listing-head">{{ group.source }}</h4>
-                <div v-for="skill in group.skills" :key="`${group.source}/${skill.name}`" class="listing-row">
+                <div
+                  v-for="skill in group.skills"
+                  :key="`${group.source}/${skill.name}`"
+                  class="listing-row"
+                  :class="{ off: !isSkillEnabled(skill.name) }"
+                >
                   <div class="listing-main">
                     <span class="listing-name mono">{{ skill.name }}</span>
                     <span v-if="skill.disableModelInvocation" class="tag">{{ t('settings.skills.slashOnly') }}</span>
+                    <span class="listing-desc">{{ skill.description }}</span>
+                    <button
+                      type="button"
+                      class="switch sm"
+                      role="switch"
+                      :class="{ on: isSkillEnabled(skill.name) }"
+                      :aria-checked="isSkillEnabled(skill.name)"
+                      :aria-label="t('settings.skills.toggleAria', { name: skill.name })"
+                      @click="toggleSkill(skill.name)"
+                    >
+                      <span class="knob" />
+                    </button>
                   </div>
-                  <p class="listing-desc">{{ skill.description }}</p>
-                  <p v-if="skill.path" class="listing-path mono">{{ skill.path }}</p>
                 </div>
               </div>
             </section>
@@ -962,7 +991,12 @@ function setTab(tab: SettingsTab): void {
 .switch.on .knob { transform: translateX(18px); }
 
 .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
-/* Skills and connectors pages: a read-only list, one block per entry. */
+/* Compact switch for the per-skill rows. */
+.switch.sm { width: 30px; height: 17px; }
+.switch.sm .knob { width: 13px; height: 13px; }
+.switch.sm.on .knob { transform: translateX(13px); }
+
+/* Skills and connectors pages: one dense row per entry. */
 .sec-note {
   margin: -4px 0 12px;
   font-size: calc(var(--ui-font-size) - 2px);
@@ -979,19 +1013,25 @@ function setTab(tab: SettingsTab): void {
   gap: 2px;
 }
 .listing-head {
-  margin: 14px 0 4px;
+  margin: 12px 0 2px;
   font-size: calc(var(--ui-font-size) - 2px);
   font-weight: 600;
   color: var(--muted);
 }
 .listing-row {
-  padding: 8px 0;
+  padding: 5px 0;
   border-top: 1px solid var(--line2);
+}
+/* A disabled skill stays readable but clearly recedes. */
+.listing-row.off .listing-name,
+.listing-row.off .listing-desc {
+  color: var(--faint);
 }
 .listing-main {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
 }
 .listing-name {
   font-weight: 600;
@@ -1008,6 +1048,16 @@ function setTab(tab: SettingsTab): void {
   margin: 3px 0 0;
   font-size: calc(var(--ui-font-size) - 2px);
   color: var(--muted);
+}
+/* On the skills page the description shares the row with the name, so it
+   truncates instead of wrapping — the switch must stay on the same line. */
+.listing-main .listing-desc {
+  margin: 0 0 0 auto;
+  padding-left: 10px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .listing-path {
   color: var(--faint);

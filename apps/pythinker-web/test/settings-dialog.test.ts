@@ -286,7 +286,6 @@ describe('SettingsDialog skills page', () => {
       'gen-changesets',
     ]);
     expect(panel.findAll('.tag').map((tag) => tag.text())).toEqual(['slash only']);
-    expect(panel.text()).toContain('.pythinker/skills/gen-changesets');
   });
 
   it('says so when no skill is available', async () => {

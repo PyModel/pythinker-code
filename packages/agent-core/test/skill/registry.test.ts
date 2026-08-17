@@ -171,6 +171,34 @@ describe('skill registry prompt rendering', () => {
   });
 });
 
+describe('disabled skills', () => {
+  it('never registers a skill the user turned off', () => {
+    const registry = new SessionSkillRegistry({ disabledNames: ['user-a'] });
+
+    registry.register(makeSkill('user-a', 'user'));
+    registry.register(makeSkill('user-b', 'user'));
+
+    expect(registry.getSkill('user-a')).toBeUndefined();
+    expect(registry.getSkill('user-b')).toBeDefined();
+  });
+
+  it('matches the disabled name regardless of case', () => {
+    const registry = new SessionSkillRegistry({ disabledNames: ['Gen-Changesets'] });
+
+    registry.register(makeSkill('gen-changesets', 'project'));
+
+    expect(registry.getSkill('gen-changesets')).toBeUndefined();
+  });
+
+  it('disables built-in skills too', () => {
+    const registry = new SessionSkillRegistry({ disabledNames: ['loop'] });
+
+    registerBuiltinSkills(registry);
+
+    expect(registry.getSkill('loop')).toBeUndefined();
+  });
+});
+
 function makeRegistry(skills: readonly SkillDefinition[]): SessionSkillRegistry {
   const registry = new SessionSkillRegistry();
   for (const skill of skills) registry.register(skill);

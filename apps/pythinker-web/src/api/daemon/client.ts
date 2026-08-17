@@ -1125,6 +1125,7 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
       hooks: 'hooks',
       services: 'services',
       mergeAllAvailableSkills: 'merge_all_available_skills',
+      disabledSkills: 'disabled_skills',
       extraSkillDirs: 'extra_skill_dirs',
       loopControl: 'loop_control',
       background: 'background',

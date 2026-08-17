@@ -749,6 +749,7 @@ export function toAppConfig(wire: WireConfig): AppConfig {
     hooks: wire.hooks,
     services: wire.services,
     mergeAllAvailableSkills: wire.merge_all_available_skills,
+    disabledSkills: wire.disabled_skills,
     extraSkillDirs: wire.extra_skill_dirs,
     loopControl: wire.loop_control,
     background: wire.background,

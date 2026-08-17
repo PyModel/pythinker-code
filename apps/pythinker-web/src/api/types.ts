@@ -582,6 +582,8 @@ export interface AppConfig {
   hooks?: unknown[];
   services?: unknown;
   mergeAllAvailableSkills?: boolean;
+  /** Skill names the user turned off; they never reach the agent. */
+  disabledSkills?: string[];
   extraSkillDirs?: string[];
   loopControl?: unknown;
   background?: unknown;

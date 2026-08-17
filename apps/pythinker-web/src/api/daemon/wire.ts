@@ -380,6 +380,7 @@ export interface WireConfig {
   hooks?: unknown[];
   services?: unknown;
   merge_all_available_skills?: boolean;
+  disabled_skills?: string[];
   extra_skill_dirs?: string[];
   loop_control?: unknown;
   background?: unknown;

@@ -10,9 +10,10 @@ export default {
   },
   skills: {
     title: 'Skills',
-    note: 'Skills the agent can use in this session, grouped by where they come from.',
+    note: 'Skills the agent can use, grouped by source. A skill you turn off is never loaded.',
     empty: 'No skills are available. Open a session to load them.',
     slashOnly: 'slash only',
+    toggleAria: 'Enable {name}',
   },
   connectors: {
     title: 'Connectors',
