@@ -168,25 +168,29 @@ describe('Composer styling', () => {
   });
 
   it('places the composer border flush against the message list', () => {
-    const composerRule = capture(composerSource, /(?:^|\n)\.composer\s*\{([^}]*)\}/u);
+    const composerRule = composerSource.match(/(?:^|\n)\.composer\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(composerRule.trim()).not.toBe('');
 
-    const padding = capture(composerRule, /padding:\s*([^;]+);/u);
-    expect(padding).toMatch(/^0(?:\s|$)/u);
-    expect(padding).not.toMatch(/^7px(?:\s|$)/u);
-    expect(padding).toMatch(/var\(--dock-inline-left, 16px\)$/u);
+    const padding = composerRule.match(/padding:\s*([^;]+);/)?.[1] ?? '';
+    expect(padding).toMatch(/^0(?:\s|$)/);
+    expect(padding).not.toMatch(/^7px(?:\s|$)/);
+    expect(padding).toMatch(/var\(--dock-inline-left, 16px\)$/);
   });
 
   it('styles attachments as a horizontal row of square tiles', () => {
-    const stripRule = capture(composerSource, /(?:^|\n)\.att-strip\s*\{([^}]*)\}/u);
-    expect(stripRule).toMatch(/flex-wrap:\s*nowrap;/u);
-    expect(stripRule).toMatch(/overflow-x:\s*auto;/u);
+    const stripRule = composerSource.match(/(?:^|\n)\.att-strip\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(stripRule.trim()).not.toBe('');
+    expect(stripRule).toMatch(/flex-wrap:\s*nowrap;/);
+    expect(stripRule).toMatch(/overflow-x:\s*auto;/);
 
-    const removeRule = capture(composerSource, /(?:^|\n)\.att-rm\s*\{([^}]*)\}/u);
-    expect(removeRule).toMatch(/opacity:\s*0;/u);
-    expect(removeRule).not.toMatch(/display:\s*none;/u);
+    const removeRule = composerSource.match(/(?:^|\n)\.att-rm\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(removeRule.trim()).not.toBe('');
+    expect(removeRule).toMatch(/opacity:\s*0;/);
+    expect(removeRule).not.toMatch(/display:\s*none;/);
 
-    const chipRule = capture(composerSource, /(?:^|\n)\.att-chip\s*\{([^}]*)\}/u);
-    expect(chipRule).toMatch(/width:\s*56px;/u);
+    const chipRule = composerSource.match(/(?:^|\n)\.att-chip\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(chipRule.trim()).not.toBe('');
+    expect(chipRule).toMatch(/width:\s*56px;/);
   });
 });
 
