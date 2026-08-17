@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import type { OpenAICodexCallbackServer } from '@pymodel/pythinker-code-oauth';
+
 import type {
   CoreRPC,
   GetPythinkerConfigPayload,
@@ -58,13 +60,7 @@ function makeCallback(
   waitForCode: () => Promise<CallbackResult> = async () => null,
   onWaitCancel: () => void = () => {},
 ): {
-  server: {
-    loopback: boolean;
-    redirectUri: string;
-    waitForCode: () => Promise<CallbackResult>;
-    cancelWait: () => void;
-    close: () => void;
-  };
+  server: OpenAICodexCallbackServer;
   closed: () => number;
   waitCancelled: () => number;
 } {
@@ -98,7 +94,7 @@ function makeDeps(
   const deps: CodexLoginDeps = {
     createPkce: () => ({ verifier: 'v', challenge: 'c', state: 'st' }),
     buildAuthorizeUrl: () => 'https://auth.openai.com/oauth/authorize?client_id=app_test&state=st',
-    startCallbackServer: async () => callback.server as never,
+    startCallbackServer: async () => callback.server,
     exchangeCode: async () => ({ accessToken: 'ACCESS-TOKEN-SECRET', refreshToken: 'REFRESH-TOKEN-SECRET', accountId: 'acct' }),
     fetchModels: async () => MODELS,
     now: () => 1_700_000_000_000,
@@ -382,7 +378,7 @@ describe('CodexLoginFlow', () => {
     const { deps } = makeDeps({
       startCallbackServer: async () => {
         bindCount += 1;
-        return (bindCount === 1 ? firstBind.promise : secondBind.promise) as never;
+        return bindCount === 1 ? firstBind.promise : secondBind.promise;
       },
     });
     const flow = new CodexLoginFlow(core, deps);
@@ -406,7 +402,7 @@ describe('CodexLoginFlow', () => {
     const callback = makeCallback(false);
     const bind = deferred<typeof callback.server>();
     const { deps } = makeDeps({
-      startCallbackServer: async () => bind.promise as never,
+      startCallbackServer: async () => bind.promise,
     });
     const flow = new CodexLoginFlow(core, deps);
 

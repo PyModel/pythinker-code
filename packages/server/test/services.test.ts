@@ -420,6 +420,9 @@ describe('WSBroadcastService (WS transport pump)', () => {
     expect(closeSpy).toHaveBeenCalledOnce();
     expect(readFileSync(journalPath('sid_shutdown'), 'utf8')).toContain('fake.queued');
     expect(existsSync(journalPath('sid_late'))).toBe(false);
+    // A read arriving after shutdown must not open a journal nobody closes.
+    await expect(broadcast.getCursor('sid_read_after_close')).rejects.toThrow(/shutting down/);
+    expect(existsSync(journalPath('sid_read_after_close'))).toBe(false);
     broadcast.dispose();
     bus.dispose();
   });

@@ -209,6 +209,10 @@ export class WSBroadcastService extends Disposable implements IWSBroadcastServic
   private _getOrCreateSession(sid: string): SessionState {
     let state = this._sessions.get(sid);
     if (!state) {
+      // Once shutdown starts, `closeJournals` has already taken the session
+      // list. A new journal opened here would never be closed, and it could
+      // reopen a file the previous journal is still closing.
+      if (this.closing) throw new Error('WebSocket broadcast is shutting down.');
       const filePath = join(this._journalDir, `${sanitizeFileName(sid)}.jsonl`);
       const created: SessionState = {
         ready: SessionEventJournal.open(filePath, this.logger),
