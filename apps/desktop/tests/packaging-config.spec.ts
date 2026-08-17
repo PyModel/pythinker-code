@@ -8,6 +8,21 @@ interface DesktopPackage {
   readonly build: {
     readonly afterPack: string
     readonly appId: string
+    readonly dmg: {
+      readonly contents: readonly {
+        readonly path?: string
+        readonly type: string
+        readonly x: number
+        readonly y: number
+      }[]
+      readonly iconSize: number
+      readonly sign: boolean
+      readonly title: string
+      readonly window: {
+        readonly height: number
+        readonly width: number
+      }
+    }
     readonly electronDist?: string
     readonly extraResources: readonly {
       readonly from: string
@@ -57,6 +72,7 @@ const desktopPackage = JSON.parse(
 const rootPackage = JSON.parse(
   readFileSync(resolve(repositoryRoot, 'package.json'), 'utf8'),
 ) as RootPackage
+const releaseMacSource = readFileSync(resolve(desktopRoot, 'scripts/release-mac.ts'), 'utf8')
 
 describe('desktop packaging configuration', () => {
   it('packages the application with expected metadata', () => {
@@ -108,6 +124,20 @@ describe('desktop packaging configuration', () => {
     expect(command).toBe('node --import tsx scripts/release-mac.ts')
     expect(desktopPackage.build.mac.hardenedRuntime).toBe(true)
     expect(desktopPackage.build.mac.notarize).toBe(true)
+    expect(desktopPackage.build.dmg.sign).toBe(true)
+    expect(releaseMacSource).toContain("'--mac', 'dmg'")
+  })
+
+  it('lays out the macOS DMG installer window', () => {
+    expect(desktopPackage.build.dmg).toMatchObject({
+      iconSize: 128,
+      title: 'Pythinker ${version}',
+      window: { height: 400, width: 660 },
+    })
+    expect(desktopPackage.build.dmg.contents).toEqual([
+      { x: 180, y: 200, type: 'file' },
+      { x: 480, y: 200, type: 'link', path: '/Applications' },
+    ])
   })
 
   it('configures the Windows x64 NSIS installer', () => {

@@ -3,6 +3,7 @@
 import { spawnSync } from 'node:child_process'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { finalizeMacArtifacts } from './finalize-mac-artifacts'
 import { adaptMacReleaseEnvironment, assertMacReleaseReady } from './release-preflight'
 
 const RELEASE_VARIABLES = [
@@ -50,6 +51,10 @@ export function releaseMac(): void {
     'exec', 'electron-builder', '--mac', 'dmg',
     '--config.forceCodeSigning=true', '--config.mac.notarize=true',
   ], desktopRoot, releaseEnvironment)
+  finalizeMacArtifacts({
+    distDir: resolve(desktopRoot, 'dist'),
+    env: releaseEnvironment,
+  })
 }
 
 const invokedPath = process.argv[1]
