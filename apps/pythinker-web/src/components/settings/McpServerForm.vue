@@ -99,23 +99,23 @@ function submit(): void {
           <option value="sse">sse</option>
         </select>
       </label>
-      <label v-if="form.transport === 'stdio'" class="connector-field">
+      <label v-if="form.transport === 'stdio'" class="connector-field connector-field-wide">
         <span class="rlabel">{{ t('settings.connectors.form.command') }}</span>
         <input v-model="form.command" class="page-search" required />
       </label>
-      <label v-if="form.transport === 'stdio'" class="connector-field">
+      <label v-if="form.transport === 'stdio'" class="connector-field connector-field-wide">
         <span class="rlabel">{{ t('settings.connectors.form.args') }}</span>
         <textarea v-model="form.args" class="page-search connector-textarea" :placeholder="t('settings.connectors.form.argsHint')" />
       </label>
-      <label v-if="form.transport === 'stdio'" class="connector-field">
+      <label v-if="form.transport === 'stdio'" class="connector-field connector-field-wide">
         <span class="rlabel">{{ t('settings.connectors.form.env') }}</span>
         <textarea v-model="form.env" class="page-search connector-textarea" :placeholder="t('settings.connectors.form.objectHint')" />
       </label>
-      <label v-else class="connector-field">
+      <label v-else class="connector-field connector-field-wide">
         <span class="rlabel">{{ t('settings.connectors.form.url') }}</span>
         <input v-model="form.url" class="page-search" type="url" required />
       </label>
-      <label v-if="form.transport !== 'stdio'" class="connector-field">
+      <label v-if="form.transport !== 'stdio'" class="connector-field connector-field-wide">
         <span class="rlabel">{{ t('settings.connectors.form.headers') }}</span>
         <textarea v-model="form.headers" class="page-search connector-textarea" :placeholder="t('settings.connectors.form.objectHint')" />
       </label>
@@ -139,11 +139,16 @@ function submit(): void {
   background: var(--panel);
 }
 .connector-fields {
+  /* Two fixed columns, not auto-fit: a pane-wide grid stretches the short
+     fields and leaves a ragged tail row. Name and Transport share the first
+     row; every longer field spans both columns so no row ends half empty. */
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px 12px;
+  max-width: 640px;
 }
 .connector-field { min-width: 0; }
+.connector-field-wide { grid-column: 1 / -1; }
 .connector-field .page-search { margin: 4px 0 0; }
 .connector-textarea {
   min-height: 64px;
@@ -154,5 +159,8 @@ function submit(): void {
   display: flex;
   gap: 8px;
   margin-top: 4px;
+}
+@media (max-width: 640px) {
+  .connector-fields { grid-template-columns: 1fr; }
 }
 </style>
