@@ -753,9 +753,12 @@ async function handleEditMessage(text: string): Promise<void> {
 // Retry the last assistant reply: undo the exchange, then send its original
 // user prompt as a new prompt. Undo reports any failure and returns null.
 async function handleRegenerate(): Promise<void> {
-  const text = await client.undo(1);
-  if (text === null) return;
-  await client.sendPrompt(text);
+  const prompt = await client.undo(1);
+  if (prompt === null) return;
+  await client.sendPrompt(
+    prompt.text,
+    prompt.attachments.length > 0 ? prompt.attachments : undefined,
+  );
 }
 
 // Handler for slash commands emitted by Composer (via ConversationPane)

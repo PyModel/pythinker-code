@@ -638,7 +638,6 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
             type="button"
             class="a-cpbtn retry-btn"
             :aria-label="t('conversation.retry')"
-            tabindex="-1"
             @click="confirmingRetryTurnId = turn.id"
           >
             <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -751,7 +750,6 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
               class="cpbtn retry-btn"
               :aria-label="t('conversation.retry')"
               @click="confirmingRetryTurnId = turn.id"
-              tabindex="-1"
             >
               <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M3 7a5 5 0 1 1 1.5 3.6"/>

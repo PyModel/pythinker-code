@@ -784,6 +784,7 @@ html[data-theme="pythinker"] {
   --hover: rgba(0, 0, 0, 0.03);  /* color.fills.f1 */
   /* radius scale snaps to radius.xxs/sm/lg/xl = 4/8/12/16 */
   --r-xs: 4px;
+  --r-xl: 16px;
   /* flat by default; --sh (floating menus only) = effect.shadow.small */
   --sh: 0 4px 16.4px 0 rgba(0, 0, 0, 0.1);
   --shc: none;

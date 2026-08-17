@@ -268,7 +268,10 @@ describe('ModelPicker capability badges', () => {
     expect(explicitThinking.find('[data-capability="thinking"]').attributes('title')).toBe('Thinking');
     expect(adaptive.find('[data-capability="adaptive-thinking"]').attributes('title')).toBe('Adaptive reasoning');
     expect(adaptive.find('[data-capability="thinking"]').exists()).toBe(false);
-    expect(explicitThinking.find('path').attributes('d')).not.toBe(adaptive.find('path').attributes('d'));
+    // Row 0 is the current model, so a bare `path` would match its checkmark.
+    expect(explicitThinking.find('[data-capability="thinking"] path').attributes('d')).not.toBe(
+      adaptive.find('[data-capability="adaptive-thinking"] path').attributes('d'),
+    );
   });
 });
 

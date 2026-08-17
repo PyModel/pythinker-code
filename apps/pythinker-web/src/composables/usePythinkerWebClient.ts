@@ -433,6 +433,12 @@ interface GitStatusEntry {
     type (image vs video) so a still and a clip resolve to the right wire shape. */
 type PromptAttachment = { fileId: string; kind: 'image' | 'video' };
 
+/** The prompt an undo removed, so a caller can edit or resend it unchanged. */
+export interface UndonePrompt {
+  text: string;
+  attachments: PromptAttachment[];
+}
+
 /** A prompt waiting for the session to go idle. Keeps the uploaded
     fileIds so attachments survive queueing (not just the text). */
 interface QueuedPrompt {
@@ -4158,27 +4164,35 @@ async function forkSession(sessionId?: string): Promise<void> {
  * Returns the text of the most-recent user message that was undone, so the UI
  * can offer "edit + resend" (load it back into the composer).
  */
-async function undo(count = 1): Promise<string | null> {
+async function undo(count = 1): Promise<UndonePrompt | null> {
   const sid = rawState.activeSessionId;
   if (!sid) return null;
-  // Capture the last user message text BEFORE the undo removes it.
-  const lastUserText = (() => {
+  // Capture the last user prompt BEFORE the undo removes it. The attachments
+  // come along so a retry resends the same images and clips: undo only trims
+  // the history, so the uploaded fileIds stay valid.
+  const lastUserPrompt = ((): UndonePrompt | null => {
     const msgs = rawState.messagesBySession[sid] ?? [];
     for (let i = msgs.length - 1; i >= 0; i--) {
       const m = msgs[i]!;
       if (m.role !== 'user') continue;
       if (m.metadata?.['origin'] && (m.metadata['origin'] as { kind?: string }).kind !== 'user') continue;
-      return m.content
+      const text = m.content
         .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
         .map((c) => c.text)
         .join('\n');
+      const attachments = m.content.flatMap<PromptAttachment>((c) =>
+        (c.type === 'image' || c.type === 'video') && c.source.kind === 'file'
+          ? [{ fileId: c.source.fileId, kind: c.type }]
+          : [],
+      );
+      return { text, attachments };
     }
     return null;
   })();
   try {
     await getPythinkerWebApi().undoSession(sid, count);
     await syncSessionFromSnapshot(sid);
-    return lastUserText;
+    return lastUserPrompt;
   } catch (error) {
     pushOperationFailure('undo', error, { sessionId: sid });
     return null;

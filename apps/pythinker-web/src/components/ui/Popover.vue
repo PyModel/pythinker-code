@@ -7,8 +7,12 @@ const props = withDefaults(defineProps<{
   anchor: HTMLElement | null;
   open: boolean;
   align?: Alignment;
+  /** Accessible name for the panel. The panel is a dialog, not a menu: the slot
+      holds plain buttons and switches, not `menuitem` children. */
+  label?: string;
 }>(), {
   align: 'start',
+  label: undefined,
 });
 
 const emit = defineEmits<{
@@ -82,6 +86,15 @@ function detachListeners(): void {
   listenersAttached = false;
 }
 
+function focusPanel(): void {
+  const panel = panelRef.value;
+  if (!panel) return;
+  const first = panel.querySelector<HTMLElement>(
+    'button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+  );
+  (first ?? panel).focus();
+}
+
 function restoreFocusIfNeeded(): void {
   const panel = panelRef.value;
   const activeElement = document.activeElement;
@@ -100,6 +113,9 @@ watch(() => props.open, (open, wasOpen) => {
       if (!props.open) return;
       positionPanel();
       attachListeners();
+      // The panel is teleported to the end of <body>, so a keyboard user would
+      // otherwise have to tab through the rest of the page to reach it.
+      focusPanel();
     });
     return;
   }
@@ -126,7 +142,8 @@ onBeforeUnmount(() => {
       ref="panelRef"
       class="popover"
       :style="panelStyle"
-      role="menu"
+      role="dialog"
+      :aria-label="label"
       tabindex="-1"
     >
       <slot />

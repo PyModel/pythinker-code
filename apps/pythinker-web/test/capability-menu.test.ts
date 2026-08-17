@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { flushPromises, mount } from '@vue/test-utils';
 import { createI18n } from 'vue-i18n';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { Ref } from 'vue';
+import { nextTick, type Ref } from 'vue';
 
 import { DaemonPythinkerWebApi } from '../src/api/daemon/client';
 import CapabilityMenu from '../src/components/CapabilityMenu.vue';
@@ -233,6 +233,17 @@ describe('daemon capability contracts', () => {
   });
 });
 
+/** A promise the test settles by hand, so two writes can finish out of order. */
+function deferred(): { promise: Promise<void>; resolve: () => void; reject: (error: Error) => void } {
+  let resolve!: () => void;
+  let reject!: (error: Error) => void;
+  const promise = new Promise<void>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 describe('CapabilityMenu', () => {
   it('omits a capability group with no items', async () => {
     const current = client();
@@ -270,9 +281,50 @@ describe('CapabilityMenu', () => {
     const toggle = document.body.querySelector('.mcp-row .switch-toggle') as HTMLButtonElement;
 
     toggle.click();
+    await nextTick();
+    // The optimistic state has to be observed first: asserting only the final
+    // value would also pass if the toggle never moved.
+    expect(toggle.getAttribute('aria-checked')).toBe('false');
     await flushPromises();
 
     expect(toggle.getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('sends capability writes in toggle order and ignores a stale rollback', async () => {
+    const current = client();
+    current.activeSessionCapabilities.value = { tools: ['Read'], mcpServers: [] };
+    // Two writes held open, settled in the order the test chooses.
+    const first = deferred();
+    const second = deferred();
+    current.updateCapabilities.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+
+    const wrapper = mountMenu();
+    await wrapper.get('.capability-trigger').trigger('click');
+    await flushPromises();
+    const toggles = document.body.querySelectorAll('.mcp-row .switch-toggle');
+    const one = toggles[0] as HTMLButtonElement;
+    const two = toggles[1] as HTMLButtonElement;
+
+    one.click();
+    await nextTick();
+    two.click();
+    await nextTick();
+
+    // The chain holds the second write until the first one settles, so the
+    // daemon can never see [mcp_1] after [mcp_1, mcp_2].
+    expect(current.updateCapabilities).toHaveBeenCalledTimes(1);
+    first.reject(new Error('daemon unreachable'));
+    await flushPromises();
+    second.resolve();
+    await flushPromises();
+
+    expect(current.updateCapabilities.mock.calls.map((call) => call[0])).toEqual([
+      { mcpServers: ['mcp_1'] },
+      { mcpServers: ['mcp_1', 'mcp_2'] },
+    ]);
+    // The stale failure must not discard the newer selection.
+    expect(one.getAttribute('aria-checked')).toBe('true');
+    expect(two.getAttribute('aria-checked')).toBe('true');
   });
 
   it('renders selected tools and MCP servers as chips', () => {
@@ -283,9 +335,8 @@ describe('CapabilityMenu', () => {
 
   it('keeps CapabilityMenu.vue free of dark utilities and color literals', () => {
     const source = readFileSync(join(import.meta.dirname, '../src/components/CapabilityMenu.vue'), 'utf8');
-    expect(source).not.toMatch(/dark:/);
-    expect(source).not.toMatch(/#[0-9a-f]{3,8}\b/i);
-    expect(source).not.toContain(['r', 'gb('].join(''));
-    expect(source).not.toContain(['r', 'gba('].join(''));
+    expect(source).not.toMatch(/\bdark:/u);
+    expect(source).not.toMatch(/#[\da-f]{3,8}\b/iu);
+    expect(source).not.toMatch(/\brgba?\s*\(/iu);
   });
 });

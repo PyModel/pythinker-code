@@ -120,6 +120,20 @@ describe('ChatPane message actions', () => {
     expect(wrapper.emitted('regenerate')).toHaveLength(1);
   });
 
+  it.each([false, true])('keeps Retry in the keyboard tab order (mobile: %s)', async (mobile) => {
+    const wrapper = mountPane(finalExchange, { mobile });
+    const retry = wrapper.find('.retry-btn');
+
+    // Retry undoes a turn and resends the prompt; there is no other way to
+    // reach it, so it must not be taken out of sequential focus. A native
+    // button activates on Enter once it can be focused.
+    expect(retry.attributes('tabindex')).toBeUndefined();
+    expect((retry.element as HTMLButtonElement).tagName).toBe('BUTTON');
+
+    await retry.trigger('click');
+    expect(wrapper.find('.retry-confirm').exists()).toBe(true);
+  });
+
   it('cancelling Retry emits nothing and restores the button', async () => {
     const wrapper = mountPane(finalExchange);
     expect(wrapper.find('.retry-btn').exists()).toBe(true);

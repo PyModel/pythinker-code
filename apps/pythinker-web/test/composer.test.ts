@@ -77,6 +77,17 @@ function waitForCompositionEndTimer(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+/** The first capture of `pattern` in `source`. Throws when nothing matches, so a
+    renamed selector or a dropped declaration fails the test instead of turning
+    into an empty string that every assertion below passes on. */
+function capture(source: string, pattern: RegExp): string {
+  const found = source.match(pattern)?.[1];
+  if (found === undefined || found.trim() === '') {
+    throw new Error(`nothing matched ${pattern.source}`);
+  }
+  return found;
+}
+
 afterEach(() => {
   document.body.innerHTML = '';
   try { localStorage.clear(); } catch { /* ignore */ }
@@ -85,103 +96,97 @@ afterEach(() => {
 
 describe('Composer styling', () => {
   it('uses the shared xl radius token for the composer card', () => {
-    const composerCardRule = composerSource.match(/(?:^|\n)\.composer-card\s*\{([^}]*)\}/)?.[1] ?? '';
-    expect(composerCardRule.trim()).not.toBe('');
-    expect(composerCardRule).toMatch(/border-radius:\s*var\(--r-xl\);/);
+    const composerCardRule = capture(composerSource, /(?:^|\n)\.composer-card\s*\{([^}]*)\}/u);
+    expect(composerCardRule).toMatch(/border-radius:\s*var\(--r-xl\);/u);
 
-    const modernCardRule = styleSource.match(/:is\(html\[data-theme="modern"\], html\[data-theme="pythinker"\]\) \.composer-card\s*\{([^}]*)\}/)?.[1] ?? '';
-    expect(modernCardRule).toMatch(/border-radius:\s*var\(--r-xl\);/);
+    const modernCardRule = capture(styleSource, /:is\(html\[data-theme="modern"\], html\[data-theme="pythinker"\]\) \.composer-card\s*\{([^}]*)\}/u);
+    expect(modernCardRule).toMatch(/border-radius:\s*var\(--r-xl\);/u);
 
-    const pythinkerCardRule = styleSource.match(/html\[data-theme="pythinker"\] \.composer-card\s*\{([^}]*)\}/)?.[1] ?? '';
-    expect(pythinkerCardRule).toMatch(/border-radius:\s*var\(--r-xl\);/);
+    const pythinkerCardRule = capture(styleSource, /html\[data-theme="pythinker"\] \.composer-card\s*\{([^}]*)\}/u);
+    expect(pythinkerCardRule).toMatch(/border-radius:\s*var\(--r-xl\);/u);
   });
 
   it('defines the xl radius token in the shared style tokens', () => {
-    expect(styleSource).toMatch(/--r-xl:\s*24px;/);
+    expect(styleSource).toMatch(/--r-xl:\s*24px;/u);
   });
 
   it('uses a translucent card surface with a backdrop blur', () => {
-    const composerCardRule = composerSource.match(/(?:^|\n)\.composer-card\s*\{([^}]*)\}/)?.[1] ?? '';
-    expect(composerCardRule).toMatch(/background:\s*color-mix\([^;]+transparent\);/);
-    expect(composerCardRule).toMatch(/backdrop-filter:\s*blur\([^;]+\);/);
+    const composerCardRule = capture(composerSource, /(?:^|\n)\.composer-card\s*\{([^}]*)\}/u);
+    expect(composerCardRule).toMatch(/background:\s*color-mix\([^;]+transparent\);/u);
+    expect(composerCardRule).toMatch(/backdrop-filter:\s*blur\([^;]+\);/u);
   });
 
   it('strengthens the card border on hover and focus within', () => {
-    const interactionRule = composerSource.match(/(?:^|\n)\.composer-card:hover,\s*\.composer-card:focus-within\s*\{([^}]*)\}/)?.[1] ?? '';
-    expect(interactionRule.trim()).not.toBe('');
-    expect(interactionRule).toMatch(/border-color:\s*[^;]+;/);
+    const interactionRule = capture(composerSource, /(?:^|\n)\.composer-card:hover,\s*\.composer-card:focus-within\s*\{([^}]*)\}/u);
+    expect(interactionRule).toMatch(/border-color:\s*[^;]+;/u);
   });
 
   it('caps the input at 384px and scrolls its content', () => {
-    const inputRule = composerSource.match(/(?:^|\n)\.ph\s*\{([^}]*)\}/)?.[1] ?? '';
-    expect(inputRule).toMatch(/max-height:\s*384px;/);
-    expect(inputRule).toMatch(/overflow-y:\s*auto;/);
-    expect(inputRule).toMatch(/field-sizing:\s*content;/);
+    const inputRule = capture(composerSource, /(?:^|\n)\.ph\s*\{([^}]*)\}/u);
+    expect(inputRule).toMatch(/max-height:\s*384px;/u);
+    expect(inputRule).toMatch(/overflow-y:\s*auto;/u);
+    expect(inputRule).toMatch(/field-sizing:\s*content;/u);
   });
 
   it('uses circular attachment controls and a divider after the plus button', () => {
-    const attachRule = composerSource.match(/(?:^|\n)\.attach-btn\s*\{([^}]*)\}/)?.[1] ?? '';
-    expect(attachRule).toMatch(/width:\s*30px;/);
-    expect(attachRule).toMatch(/height:\s*30px;/);
-    expect(attachRule).toMatch(/border-radius:\s*50%;/);
+    const attachRule = capture(composerSource, /(?:^|\n)\.attach-btn\s*\{([^}]*)\}/u);
+    expect(attachRule).toMatch(/width:\s*30px;/u);
+    expect(attachRule).toMatch(/height:\s*30px;/u);
+    expect(attachRule).toMatch(/border-radius:\s*50%;/u);
 
-    const themedAttachRule = styleSource.match(/:is\(html\[data-theme="modern"\], html\[data-theme="pythinker"\]\) \.attach-btn\s*\{([^}]*)\}/)?.[1] ?? '';
-    expect(themedAttachRule).toMatch(/width:\s*30px;/);
-    expect(themedAttachRule).toMatch(/height:\s*30px;/);
-    expect(themedAttachRule).toMatch(/border-radius:\s*50%;/);
+    const themedAttachRule = capture(styleSource, /:is\(html\[data-theme="modern"\], html\[data-theme="pythinker"\]\) \.attach-btn\s*\{([^}]*)\}/u);
+    expect(themedAttachRule).toMatch(/width:\s*30px;/u);
+    expect(themedAttachRule).toMatch(/height:\s*30px;/u);
+    expect(themedAttachRule).toMatch(/border-radius:\s*50%;/u);
 
-    const dividerRule = composerSource.match(/(?:^|\n)\.toolbar-divider\s*\{([^}]*)\}/)?.[1] ?? '';
-    expect(dividerRule).toMatch(/width:\s*1px;/);
-    expect(dividerRule).toMatch(/height:\s*16px;/);
-    expect(composerSource).toMatch(/class="attach-btn"[\s\S]*class="toolbar-divider"/);
+    const dividerRule = capture(composerSource, /(?:^|\n)\.toolbar-divider\s*\{([^}]*)\}/u);
+    expect(dividerRule).toMatch(/width:\s*1px;/u);
+    expect(dividerRule).toMatch(/height:\s*16px;/u);
+    expect(composerSource).toMatch(/class="attach-btn"[\s\S]*class="toolbar-divider"/u);
   });
 
   it('pads the send button around a 20px glyph and keeps the accent fill', () => {
-    const sendRule = composerSource.match(/(?:^|\n)\.send\s*\{([^}]*)\}/)?.[1] ?? '';
-    expect(sendRule).toMatch(/padding:\s*5px;/);
+    const sendRule = capture(composerSource, /(?:^|\n)\.send\s*\{([^}]*)\}/u);
+    expect(sendRule).toMatch(/padding:\s*5px;/u);
     // The send button carries the theme accent, not a monochrome fill: --blue is
     // the Pythinker brand colour and each theme redefines it.
-    expect(sendRule).toMatch(/background:\s*var\(--blue\);/);
-    expect(sendRule).toMatch(/color:\s*var\(--bg\);/);
+    expect(sendRule).toMatch(/background:\s*var\(--blue\);/u);
+    expect(sendRule).toMatch(/color:\s*var\(--bg\);/u);
 
-    const sendIconRule = composerSource.match(/(?:^|\n)\.send svg\s*\{([^}]*)\}/)?.[1] ?? '';
-    expect(sendIconRule).toMatch(/width:\s*20px;/);
-    expect(sendIconRule).toMatch(/height:\s*20px;/);
+    const sendIconRule = capture(composerSource, /(?:^|\n)\.send svg\s*\{([^}]*)\}/u);
+    expect(sendIconRule).toMatch(/width:\s*20px;/u);
+    expect(sendIconRule).toMatch(/height:\s*20px;/u);
 
-    const themedSendRule = styleSource.match(/:is\(html\[data-theme="modern"\], html\[data-theme="pythinker"\]\) \.send\s*\{([^}]*)\}/)?.[1] ?? '';
-    expect(themedSendRule).toMatch(/padding:\s*5px;/);
-    expect(themedSendRule).not.toMatch(/background:\s*var\(--ink\);/);
+    const themedSendRule = capture(styleSource, /:is\(html\[data-theme="modern"\], html\[data-theme="pythinker"\]\) \.send\s*\{([^}]*)\}/u);
+    expect(themedSendRule).toMatch(/padding:\s*5px;/u);
+    expect(themedSendRule).not.toMatch(/background:\s*var\(--ink\);/u);
   });
 
   it('widens the shared reading column to 928px', () => {
-    const conRule = conversationPaneSource.match(/(?:^|\n)\.con\s*\{([^}]*)\}/)?.[1] ?? '';
-    expect(conRule).toMatch(/--read-max:\s*928px;/);
+    const conRule = capture(conversationPaneSource, /(?:^|\n)\.con\s*\{([^}]*)\}/u);
+    expect(conRule).toMatch(/--read-max:\s*928px;/u);
   });
 
   it('places the composer border flush against the message list', () => {
-    const composerRule = composerSource.match(/(?:^|\n)\.composer\s*\{([^}]*)\}/)?.[1] ?? '';
-    expect(composerRule.trim()).not.toBe('');
+    const composerRule = capture(composerSource, /(?:^|\n)\.composer\s*\{([^}]*)\}/u);
 
-    const padding = composerRule.match(/padding:\s*([^;]+);/)?.[1] ?? '';
-    expect(padding).toMatch(/^0(?:\s|$)/);
-    expect(padding).not.toMatch(/^7px(?:\s|$)/);
-    expect(padding).toMatch(/var\(--dock-inline-left, 16px\)$/);
+    const padding = capture(composerRule, /padding:\s*([^;]+);/u);
+    expect(padding).toMatch(/^0(?:\s|$)/u);
+    expect(padding).not.toMatch(/^7px(?:\s|$)/u);
+    expect(padding).toMatch(/var\(--dock-inline-left, 16px\)$/u);
   });
 
   it('styles attachments as a horizontal row of square tiles', () => {
-    const stripRule = composerSource.match(/(?:^|\n)\.att-strip\s*\{([^}]*)\}/)?.[1] ?? '';
-    expect(stripRule.trim()).not.toBe('');
-    expect(stripRule).toMatch(/flex-wrap:\s*nowrap;/);
-    expect(stripRule).toMatch(/overflow-x:\s*auto;/);
+    const stripRule = capture(composerSource, /(?:^|\n)\.att-strip\s*\{([^}]*)\}/u);
+    expect(stripRule).toMatch(/flex-wrap:\s*nowrap;/u);
+    expect(stripRule).toMatch(/overflow-x:\s*auto;/u);
 
-    const removeRule = composerSource.match(/(?:^|\n)\.att-rm\s*\{([^}]*)\}/)?.[1] ?? '';
-    expect(removeRule.trim()).not.toBe('');
-    expect(removeRule).toMatch(/opacity:\s*0;/);
-    expect(removeRule).not.toMatch(/display:\s*none;/);
+    const removeRule = capture(composerSource, /(?:^|\n)\.att-rm\s*\{([^}]*)\}/u);
+    expect(removeRule).toMatch(/opacity:\s*0;/u);
+    expect(removeRule).not.toMatch(/display:\s*none;/u);
 
-    const chipRule = composerSource.match(/(?:^|\n)\.att-chip\s*\{([^}]*)\}/)?.[1] ?? '';
-    expect(chipRule.trim()).not.toBe('');
-    expect(chipRule).toMatch(/width:\s*56px;/);
+    const chipRule = capture(composerSource, /(?:^|\n)\.att-chip\s*\{([^}]*)\}/u);
+    expect(chipRule).toMatch(/width:\s*56px;/u);
   });
 });
 

@@ -109,11 +109,11 @@ describe('Popover', () => {
       slots: { default: 'Menu' },
     });
 
-    expect(document.body.querySelector('[role="menu"]')).toBeNull();
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
     await wrapper.setProps({ open: true });
-    expect(document.body.querySelector('[role="menu"]')?.textContent).toBe('Menu');
+    expect(document.body.querySelector('[role="dialog"]')?.textContent).toBe('Menu');
     await wrapper.setProps({ open: false });
-    expect(document.body.querySelector('[role="menu"]')).toBeNull();
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
   });
 
   it('flips above the anchor and clamps to the viewport', async () => {
@@ -137,7 +137,7 @@ describe('Popover', () => {
       props: { anchor, open: true },
       slots: { default: 'Menu' },
     });
-    const panel = document.body.querySelector('[role="menu"]') as HTMLElement;
+    const panel = document.body.querySelector('[role="dialog"]') as HTMLElement;
     Object.defineProperty(panel, 'offsetWidth', { configurable: true, value: 100 });
     Object.defineProperty(panel, 'offsetHeight', { configurable: true, value: 80 });
 
@@ -174,12 +174,49 @@ describe('Popover', () => {
     });
 
     await settle();
-    const panel = document.body.querySelector('[role="menu"]') as HTMLElement;
+    const panel = document.body.querySelector('[role="dialog"]') as HTMLElement;
     panel.dispatchEvent(new Event('pointerdown', { bubbles: true }));
     expect(wrapper.emitted('close')).toBeUndefined();
 
     outside.dispatchEvent(new Event('pointerdown', { bubbles: true }));
     expect(wrapper.emitted('close')).toHaveLength(1);
+  });
+
+  it('moves focus into the panel when it opens', async () => {
+    const anchor = document.createElement('button');
+    document.body.append(anchor);
+    anchor.focus();
+    const wrapper = mount(Popover, {
+      attachTo: document.body,
+      props: { anchor, open: false, label: 'Capabilities' },
+      slots: { default: '<button type="button">First</button><button type="button">Second</button>' },
+    });
+
+    await wrapper.setProps({ open: true });
+    await settle();
+
+    const panel = document.body.querySelector('[role="dialog"]') as HTMLElement;
+    expect(panel.getAttribute('aria-label')).toBe('Capabilities');
+    // The panel is teleported to the end of <body>: without this the first Tab
+    // would walk the rest of the page instead of the panel contents.
+    expect(document.activeElement).toBe(panel.querySelector('button'));
+    wrapper.unmount();
+  });
+
+  it('focuses the panel itself when the slot has nothing focusable', async () => {
+    const anchor = document.createElement('button');
+    document.body.append(anchor);
+    const wrapper = mount(Popover, {
+      attachTo: document.body,
+      props: { anchor, open: false },
+      slots: { default: 'Menu' },
+    });
+
+    await wrapper.setProps({ open: true });
+    await settle();
+
+    expect(document.activeElement).toBe(document.body.querySelector('[role="dialog"]'));
+    wrapper.unmount();
   });
 
   it('restores focus to the anchor only when the panel held focus', async () => {
@@ -193,7 +230,7 @@ describe('Popover', () => {
 
     await wrapper.setProps({ open: true });
     await settle();
-    const panel = document.body.querySelector('[role="menu"]') as HTMLElement;
+    const panel = document.body.querySelector('[role="dialog"]') as HTMLElement;
     panel.focus();
     await wrapper.setProps({ open: false });
     expect(document.activeElement).toBe(anchor);

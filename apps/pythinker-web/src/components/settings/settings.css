@@ -62,6 +62,7 @@
 .act.signin:hover { background: var(--blue2); }
 .switch {
   --switch-knob-size: calc(var(--ui-font-size) + 4px);
+
   position: relative;
   flex: none;
   width: calc(var(--switch-knob-size) * 2 + 4px);
@@ -89,6 +90,7 @@
 .switch.on .knob { transform: translateX(var(--switch-knob-size)); }
 .switch.sm {
   --switch-knob-size: calc(var(--ui-font-size) - 1px);
+
   width: calc(var(--switch-knob-size) * 2 + 4px);
   height: calc(var(--switch-knob-size) + 4px);
 }

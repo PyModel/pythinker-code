@@ -128,12 +128,9 @@ describe('model catalog adapters', () => {
     const { core } = makeCore({ current: config });
 
     const [model] = await new ModelCatalogService(core).listModels();
-    const detected = getModelCapability('openai', alias.model);
-    expect(model?.capabilities).toEqual(
-      Object.entries(detected)
-        .filter(([, value]) => value === true)
-        .map(([key]) => key),
-    );
+    // A fixed list, not a re-derivation of the filter under test: repeating the
+    // implementation would pass for whatever the filter happened to return.
+    expect(model?.capabilities).toEqual(['image_in', 'thinking', 'tool_use', 'fast_mode']);
   });
 
   it('keeps an explicit capability list exactly', () => {

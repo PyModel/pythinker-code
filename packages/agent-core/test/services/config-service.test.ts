@@ -8,7 +8,7 @@ import {
 } from '../../src/services';
 
 describe('ConfigService', () => {
-  it('converts underscores but preserves hyphens in nested record keys', async () => {
+  it('preserves provider and model ids while camel-casing their properties', async () => {
     const setPythinkerConfig = vi.fn(async (patch: unknown) => patch as PythinkerConfig);
     const core = {
       rpc: { setPythinkerConfig } as unknown as CoreRPC,
@@ -35,13 +35,15 @@ describe('ConfigService', () => {
       },
     });
 
+    // The record keys are user-chosen ids: renaming them would break the
+    // `provider` reference below, which keeps its original spelling.
     expect(setPythinkerConfig).toHaveBeenCalledWith({
       providers: {
-        providerWithUnderscore: { type: 'openai' },
+        provider_with_underscore: { type: 'openai' },
         'provider-with-hyphen': { type: 'openai' },
       },
       models: {
-        modelWithUnderscore: {
+        model_with_underscore: {
           provider: 'provider_with_underscore',
           model: 'model_with_underscore',
           maxContextSize: 1000,

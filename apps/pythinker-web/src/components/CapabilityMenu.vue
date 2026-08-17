@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, ref, watch, type Ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import ActivitySpinner from './ActivitySpinner.vue';
 import Chip from './ui/Chip.vue';
@@ -115,30 +115,48 @@ function close(): void {
   view.value = 'root';
 }
 
-async function setToolEnabled(name: string, enabled: boolean): Promise<void> {
+// Each capability field owns one write chain. A snapshot is read when the write
+// leaves the chain, so the daemon sees the toggles in the order the user made
+// them: a slow `[A]` can no longer land after `[A, B]` and drop B. A failed
+// write only rolls the selection back while it is still the newest one —
+// otherwise a stale failure would discard a newer toggle.
+type CapabilityField = 'tools' | 'mcpServers';
+
+const writeChain: Record<CapabilityField, Promise<void>> = {
+  tools: Promise.resolve(),
+  mcpServers: Promise.resolve(),
+};
+const writeCount: Record<CapabilityField, number> = { tools: 0, mcpServers: 0 };
+
+function queueWrite(field: CapabilityField, selection: Ref<string[]>, previous: string[]): Promise<void> {
+  const seq = ++writeCount[field];
+  const write = writeChain[field].then(async () => {
+    try {
+      await client.updateCapabilities({ [field]: [...selection.value] });
+    } catch {
+      if (seq === writeCount[field]) selection.value = previous;
+    }
+  });
+  writeChain[field] = write;
+  return write;
+}
+
+function setToolEnabled(name: string, enabled: boolean): Promise<void> {
   const previous = [...selectedTools.value];
   const next = new Set(previous);
   if (enabled) next.add(name);
   else next.delete(name);
   selectedTools.value = [...next];
-  try {
-    await client.updateCapabilities({ tools: selectedTools.value });
-  } catch {
-    selectedTools.value = previous;
-  }
+  return queueWrite('tools', selectedTools, previous);
 }
 
-async function setMcpServerEnabled(id: string, enabled: boolean): Promise<void> {
+function setMcpServerEnabled(id: string, enabled: boolean): Promise<void> {
   const previous = [...selectedMcpServers.value];
   const next = new Set(previous);
   if (enabled) next.add(id);
   else next.delete(id);
   selectedMcpServers.value = [...next];
-  try {
-    await client.updateCapabilities({ mcpServers: selectedMcpServers.value });
-  } catch {
-    selectedMcpServers.value = previous;
-  }
+  return queueWrite('mcpServers', selectedMcpServers, previous);
 }
 
 function setPluginEnabled(id: string, enabled: boolean): void {
@@ -154,7 +172,7 @@ function setPluginEnabled(id: string, enabled: boolean): void {
       class="capability-trigger"
       :class="{ open }"
       :aria-expanded="open"
-      aria-haspopup="menu"
+      aria-haspopup="dialog"
       :aria-label="t('capabilityMenu.triggerLabel')"
       @click.stop="toggleOpen"
     >
@@ -190,7 +208,7 @@ function setPluginEnabled(id: string, enabled: boolean): void {
       />
     </div>
 
-    <Popover :anchor="triggerRef" :open="open" @close="close">
+    <Popover :anchor="triggerRef" :open="open" :label="t('capabilityMenu.triggerLabel')" @close="close">
       <div class="capability-panel">
         <div class="capability-viewport">
           <div class="capability-track" :class="{ 'is-drilled': view !== 'root' }">
