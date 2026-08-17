@@ -136,19 +136,44 @@ jobs:
         env:
           IN_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
           IN_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          IN_CSC_NAME: ${{ secrets.MAC_CSC_NAME }}
           IN_APPLE_ID: ${{ secrets.APPLE_ID }}
           IN_APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           IN_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          IN_APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          IN_APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          IN_APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
         run: |
-          for name in CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+          # A fixed heredoc marker lets a credential that happens to contain that
+          # line close its own value early and turn the rest into environment
+          # entries. Draw the delimiter at random so no secret can carry it.
+          delimiter="EOF_$(openssl rand -hex 16)"
+          for name in CSC_LINK CSC_KEY_PASSWORD CSC_NAME APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID APPLE_API_KEY_ID APPLE_API_ISSUER; do
             input="IN_${name}"
             value="${!input:-}"
-            if [ -n "$value" ]; then printf '%s<<__EOF__\n%s\n__EOF__\n' "$name" "$value" >> "$GITHUB_ENV"; fi
+            if [ -n "$value" ]; then printf '%s<<%s\n%s\n%s\n' "$name" "$delimiter" "$value" "$delimiter" >> "$GITHUB_ENV"; fi
           done
+          # The App Store Connect key is held as base64 because it is a file, not a
+          # string. notarytool and electron-builder both want a path, so materialize
+          # it outside the workspace to keep it out of the packaged app.
+          if [ -n "${IN_APPLE_API_KEY_P8:-}" ]; then
+            key_path="${RUNNER_TEMP}/AuthKey.p8"
+            printf '%s' "$IN_APPLE_API_KEY_P8" | base64 -d > "$key_path"
+            chmod 600 "$key_path"
+            echo "APPLE_API_KEY=${key_path}" >> "$GITHUB_ENV"
+          fi
           if [ -z "${IN_CSC_LINK:-}" ]; then
             echo 'CSC_IDENTITY_AUTO_DISCOVERY=false' >> "$GITHUB_ENV"
             echo 'No macOS signing certificate configured; building unsigned.'
           fi
+
+      # A tag build that quietly produces an unsigned app is worse than a failed
+      # one: macOS rejects unsigned updates, so it ships a release users cannot
+      # install or update from. Manual runs stay free to build unsigned.
+      - name: Require signing for tagged releases
+        if: startsWith(github.ref, 'refs/tags/desktop-v')
+        working-directory: apps/desktop
+        run: node --import tsx scripts/assert-release-signing.ts
       - name: Mint releases-repo token
         id: releases_token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # pinned from v3.2.0
