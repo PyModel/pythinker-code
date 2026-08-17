@@ -9,7 +9,7 @@ import { useDialogFocus } from '../composables/useDialogFocus';
 import { serverEndpointLabel } from '../api/config';
 import { downloadTraceLog, isTraceEnabled } from '../debug/trace';
 import type { ColorScheme, Theme } from '../composables/usePythinkerWebClient';
-import type { AppConfig, AppConfigProvider, AppModel } from '../api/types';
+import type { AppConfig, AppConfigProvider, AppConnector, AppModel, AppSkill } from '../api/types';
 
 const { t } = useI18n();
 
@@ -31,6 +31,12 @@ const props = defineProps<{
   models?: AppModel[];
   /** True while POST /api/v1/config is saving. */
   configSaving?: boolean;
+  /** Skills available to the active session, for the Skills page. */
+  skills?: AppSkill[];
+  /** Configured MCP servers, for the Connectors page. */
+  connectors?: AppConnector[];
+  /** True while GET /api/v1/mcp/servers is in flight. */
+  connectorsLoading?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -42,16 +48,20 @@ const emit = defineEmits<{
   login: [];
   openOnboarding: [];
   updateConfig: [patch: Partial<AppConfig>];
+  loadConnectors: [];
+  restartConnector: [connectorId: string];
   close: [];
 }>();
 
-type SettingsTab = 'general' | 'agent' | 'advanced' | 'experimental';
+type SettingsTab = 'general' | 'agent' | 'skills' | 'connectors' | 'advanced' | 'experimental';
 
 const activeTab = ref<SettingsTab>('general');
 
 const tabs: { id: SettingsTab; labelKey: string }[] = [
   { id: 'general', labelKey: 'settings.tabs.general' },
   { id: 'agent', labelKey: 'settings.tabs.agent' },
+  { id: 'skills', labelKey: 'settings.tabs.skills' },
+  { id: 'connectors', labelKey: 'settings.tabs.connectors' },
   { id: 'advanced', labelKey: 'settings.tabs.advanced' },
   { id: 'experimental', labelKey: 'settings.tabs.experimental' },
 ];
@@ -239,7 +249,25 @@ function toggleConfigBoolean(key: 'defaultThinking' | 'defaultPlanMode' | 'merge
   emit('updateConfig', { [key]: !configBool(current) } as Partial<AppConfig>);
 }
 
+/** Skills grouped by source, each group's skills sorted by name. */
+const skillGroups = computed(() => {
+  const bySource = new Map<string, AppSkill[]>();
+  for (const skill of props.skills ?? []) {
+    const group = bySource.get(skill.source) ?? [];
+    group.push(skill);
+    bySource.set(skill.source, group);
+  }
+  return [...bySource.entries()]
+    .map(([source, skills]) => ({
+      source,
+      skills: skills.toSorted((a, b) => a.name.localeCompare(b.name)),
+    }))
+    .toSorted((a, b) => a.source.localeCompare(b.source));
+});
+
 function setTab(tab: SettingsTab): void {
+  // The connector list is only fetched when its page is first opened.
+  if (tab === 'connectors' && (props.connectors?.length ?? 0) === 0) emit('loadConnectors');
   activeTab.value = tab;
 }
 </script>
@@ -540,6 +568,63 @@ function setTab(tab: SettingsTab): void {
 
               <div v-else class="empty-config">
                 {{ t('settings.configUnavailable') }}
+              </div>
+            </section>
+          </section>
+
+          <!-- Skills -->
+          <section
+            v-show="activeTab === 'skills'"
+            id="settings-panel-skills"
+            class="panel"
+            role="tabpanel"
+            aria-labelledby="settings-tab-skills"
+          >
+            <section class="sec">
+              <h3 class="sec-title">{{ t('settings.skills.title') }}</h3>
+              <p class="sec-note">{{ t('settings.skills.note') }}</p>
+              <p v-if="skillGroups.length === 0" class="sec-empty">{{ t('settings.skills.empty') }}</p>
+              <div v-for="group in skillGroups" :key="group.source" class="listing">
+                <h4 class="listing-head">{{ group.source }}</h4>
+                <div v-for="skill in group.skills" :key="`${group.source}/${skill.name}`" class="listing-row">
+                  <div class="listing-main">
+                    <span class="listing-name mono">{{ skill.name }}</span>
+                    <span v-if="skill.disableModelInvocation" class="tag">{{ t('settings.skills.slashOnly') }}</span>
+                  </div>
+                  <p class="listing-desc">{{ skill.description }}</p>
+                  <p v-if="skill.path" class="listing-path mono">{{ skill.path }}</p>
+                </div>
+              </div>
+            </section>
+          </section>
+
+          <!-- Connectors -->
+          <section
+            v-show="activeTab === 'connectors'"
+            id="settings-panel-connectors"
+            class="panel"
+            role="tabpanel"
+            aria-labelledby="settings-tab-connectors"
+          >
+            <section class="sec">
+              <h3 class="sec-title">{{ t('settings.connectors.title') }}</h3>
+              <p class="sec-note">{{ t('settings.connectors.note') }}</p>
+              <p v-if="connectorsLoading" class="sec-empty">{{ t('settings.connectors.loading') }}</p>
+              <p v-else-if="(connectors?.length ?? 0) === 0" class="sec-empty">{{ t('settings.connectors.empty') }}</p>
+              <div v-else class="listing">
+                <div v-for="connector in connectors" :key="connector.id" class="listing-row">
+                  <div class="listing-main">
+                    <span class="dot" :class="`s-${connector.status}`" aria-hidden="true" />
+                    <span class="listing-name">{{ connector.name }}</span>
+                    <span class="tag">{{ connector.transport }}</span>
+                    <span class="listing-meta">{{ t('settings.connectors.tools', { count: connector.toolCount }) }}</span>
+                    <button type="button" class="act" @click="emit('restartConnector', connector.id)">
+                      {{ t('settings.connectors.restart') }}
+                    </button>
+                  </div>
+                  <p class="listing-desc">{{ t(`settings.connectors.status.${connector.status}`) }}</p>
+                  <p v-if="connector.lastError" class="listing-error">{{ connector.lastError }}</p>
+                </div>
               </div>
             </section>
           </section>
@@ -877,6 +962,79 @@ function setTab(tab: SettingsTab): void {
 .switch.on .knob { transform: translateX(18px); }
 
 .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+/* Skills and connectors pages: a read-only list, one block per entry. */
+.sec-note {
+  margin: -4px 0 12px;
+  font-size: calc(var(--ui-font-size) - 2px);
+  color: var(--muted);
+}
+.sec-empty {
+  margin: 0;
+  font-size: calc(var(--ui-font-size) - 1px);
+  color: var(--faint);
+}
+.listing {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.listing-head {
+  margin: 14px 0 4px;
+  font-size: calc(var(--ui-font-size) - 2px);
+  font-weight: 600;
+  color: var(--muted);
+}
+.listing-row {
+  padding: 8px 0;
+  border-top: 1px solid var(--line2);
+}
+.listing-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.listing-name {
+  font-weight: 600;
+  color: var(--ink);
+}
+.listing-meta {
+  margin-left: auto;
+  font-size: calc(var(--ui-font-size) - 2px);
+  color: var(--muted);
+}
+.listing-desc,
+.listing-path,
+.listing-error {
+  margin: 3px 0 0;
+  font-size: calc(var(--ui-font-size) - 2px);
+  color: var(--muted);
+}
+.listing-path {
+  color: var(--faint);
+  word-break: break-all;
+}
+.listing-error {
+  color: var(--err);
+}
+.tag {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 5px;
+  border: 1px solid var(--line);
+  font-size: calc(var(--ui-font-size) - 3px);
+  color: var(--muted);
+}
+.dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--faint);
+}
+.dot.s-connected { background: var(--ok); }
+.dot.s-connecting { background: var(--warn); }
+.dot.s-error { background: var(--err); }
+
 .act {
   border: 1px solid var(--line);
   border-radius: 7px;

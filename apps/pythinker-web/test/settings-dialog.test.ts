@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import SettingsDialog from '../src/components/SettingsDialog.vue';
 import enSettings from '../src/i18n/locales/en/settings';
-import type { AppConfig, AppModel } from '../src/api/types';
+import type { AppConfig, AppConnector, AppModel, AppSkill } from '../src/api/types';
 
 const i18n = createI18n({
   legacy: false,
@@ -79,7 +79,18 @@ const models: AppModel[] = [
   },
 ];
 
-function mountDialog() {
+const skills: AppSkill[] = [
+  { name: 'gen-changesets', description: 'Write the changesets for a PR', source: 'project', path: '.pythinker/skills/gen-changesets' },
+  { name: 'brainstorm', description: 'Explore a problem first', source: 'builtin' },
+  { name: 'archive', description: 'Archive a session', source: 'builtin', disableModelInvocation: true },
+];
+
+const connectors: AppConnector[] = [
+  { id: 'mcp_1', name: 'context7', transport: 'http', status: 'connected', toolCount: 2 },
+  { id: 'mcp_2', name: 'tavily', transport: 'stdio', status: 'error', toolCount: 0, lastError: 'spawn ENOENT' },
+];
+
+function mountDialog(extraProps: Record<string, unknown> = {}) {
   return mount(SettingsDialog, {
     props: {
       theme: 'modern',
@@ -93,11 +104,17 @@ function mountDialog() {
       config,
       models,
       configSaving: false,
+      ...extraProps,
     },
     global: {
       plugins: [i18n],
     },
   });
+}
+
+async function openTab(wrapper: ReturnType<typeof mountDialog>, label: string): Promise<void> {
+  const tab = wrapper.findAll('.tab').find((button) => button.text() === label);
+  await tab!.trigger('click');
 }
 
 afterEach(() => {
@@ -249,5 +266,73 @@ describe('SettingsDialog dialog focus', () => {
     expect(document.activeElement).toBe(opener);
 
     opener.remove();
+  });
+});
+
+describe('SettingsDialog skills page', () => {
+  it('groups skills by source and marks the slash-only ones', async () => {
+    const wrapper = mountDialog({ skills });
+    await openTab(wrapper, 'Skills');
+
+    const panel = wrapper.get('#settings-panel-skills');
+    expect(panel.findAll('.listing-head').map((head) => head.text())).toEqual([
+      'builtin',
+      'project',
+    ]);
+    // Sorted by name inside each group.
+    expect(panel.findAll('.listing-name').map((name) => name.text())).toEqual([
+      'archive',
+      'brainstorm',
+      'gen-changesets',
+    ]);
+    expect(panel.findAll('.tag').map((tag) => tag.text())).toEqual(['slash only']);
+    expect(panel.text()).toContain('.pythinker/skills/gen-changesets');
+  });
+
+  it('says so when no skill is available', async () => {
+    const wrapper = mountDialog();
+    await openTab(wrapper, 'Skills');
+
+    expect(wrapper.get('#settings-panel-skills').text()).toContain('No skills are available');
+  });
+});
+
+describe('SettingsDialog connectors page', () => {
+  it('loads the connectors the first time the page is opened', async () => {
+    const wrapper = mountDialog();
+    await openTab(wrapper, 'Connectors');
+
+    expect(wrapper.emitted('loadConnectors')).toHaveLength(1);
+
+    await openTab(wrapper, 'General');
+    await openTab(wrapper, 'Connectors');
+    expect(wrapper.emitted('loadConnectors')).toHaveLength(2);
+  });
+
+  it('does not reload when connectors are already known', async () => {
+    const wrapper = mountDialog({ connectors });
+    await openTab(wrapper, 'Connectors');
+
+    expect(wrapper.emitted('loadConnectors')).toBeUndefined();
+  });
+
+  it('shows each server status and restarts one on demand', async () => {
+    const wrapper = mountDialog({ connectors });
+    await openTab(wrapper, 'Connectors');
+
+    const panel = wrapper.get('#settings-panel-connectors');
+    expect(panel.findAll('.listing-name').map((name) => name.text())).toEqual([
+      'context7',
+      'tavily',
+    ]);
+    expect(panel.findAll('.dot').map((dot) => dot.classes().join(' '))).toEqual([
+      'dot s-connected',
+      'dot s-error',
+    ]);
+    expect(panel.text()).toContain('spawn ENOENT');
+    expect(panel.text()).toContain('2 tools');
+
+    await panel.findAll('.act')[1]!.trigger('click');
+    expect(wrapper.emitted('restartConnector')).toEqual([['mcp_2']]);
   });
 });

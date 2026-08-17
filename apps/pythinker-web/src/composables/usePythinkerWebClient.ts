@@ -18,6 +18,7 @@ import type {
   AppQuestionRequest,
   AppSession,
   AppSessionRuntimeStatus,
+  AppConnector,
   AppSkill,
   AppTask,
   AppWarning,
@@ -1463,6 +1464,32 @@ async function loadSkillsForSession(sessionId: string): Promise<void> {
     // Skills are side data; an older daemon without /skills just yields no
     // slash-skills, the built-in commands still work.
   }
+}
+
+// Configured MCP servers. Global, not session-scoped, and loaded on demand by
+// the settings dialog — nothing else in the app needs them.
+const connectors = ref<AppConnector[]>([]);
+const connectorsLoading = ref(false);
+
+async function loadConnectors(): Promise<void> {
+  connectorsLoading.value = true;
+  try {
+    connectors.value = await getPythinkerWebApi().listConnectors();
+  } catch {
+    // An older daemon has no /mcp/servers; an empty list is the honest answer.
+    connectors.value = [];
+  } finally {
+    connectorsLoading.value = false;
+  }
+}
+
+async function restartConnector(connectorId: string): Promise<void> {
+  try {
+    await getPythinkerWebApi().restartConnector(connectorId);
+  } catch {
+    // The reload below reports whatever state the server ended up in.
+  }
+  await loadConnectors();
 }
 
 function hasLoadedMessages(sessionId: string): boolean {
@@ -4372,6 +4399,10 @@ export function usePythinkerWebClient() {
     loadProviders,
     skills,
     activateSkill,
+    connectors,
+    connectorsLoading,
+    loadConnectors,
+    restartConnector,
     setModel,
     toggleStarModel,
     addProvider,

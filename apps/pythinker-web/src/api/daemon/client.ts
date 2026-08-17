@@ -11,6 +11,7 @@ import type {
   AppProvider,
   ProviderRefreshResult,
   AppSession,
+  AppConnector,
   AppSkill,
   AppSessionCursor,
   AppSessionRuntimeStatus,
@@ -125,6 +126,15 @@ interface WireSkillDescriptor {
   source: string;
   type?: string;
   disable_model_invocation?: boolean;
+}
+
+interface WireMcpServer {
+  id: string;
+  name: string;
+  transport: 'stdio' | 'http' | 'sse';
+  status: 'connected' | 'connecting' | 'disconnected' | 'error';
+  tool_count: number;
+  last_error?: string;
 }
 
 interface WireArchiveResult {
@@ -708,7 +718,28 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
       name: s.name,
       description: s.description,
       source: s.source,
+      path: s.path,
+      disableModelInvocation: s.disable_model_invocation,
     }));
+  }
+
+  async listConnectors(): Promise<AppConnector[]> {
+    const data = await this.http.get<{ servers: WireMcpServer[] }>('/mcp/servers');
+    return (data.servers ?? []).map((server) => ({
+      id: server.id,
+      name: server.name,
+      transport: server.transport,
+      status: server.status,
+      toolCount: server.tool_count,
+      lastError: server.last_error,
+    }));
+  }
+
+  async restartConnector(connectorId: string): Promise<{ restarting: true }> {
+    return this.http.post<{ restarting: true }>(
+      `/mcp/servers/${encodeURIComponent(connectorId)}:restart`,
+      {},
+    );
   }
 
   async activateSkill(

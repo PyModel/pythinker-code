@@ -596,6 +596,20 @@ export interface AppSkill {
   description: string;
   /** Skill source (e.g. 'builtin' | 'project' | 'plugin') for grouping/labels. */
   source: string;
+  /** Where the skill was loaded from; shown in settings, absent in the slash menu. */
+  path?: string;
+  /** Set when the skill is slash-only and the model must not invoke it. */
+  disableModelInvocation?: boolean;
+}
+
+/** A configured MCP server ("connector") and its live connection state. */
+export interface AppConnector {
+  id: string;
+  name: string;
+  transport: 'stdio' | 'http' | 'sse';
+  status: 'connected' | 'connecting' | 'disconnected' | 'error';
+  toolCount: number;
+  lastError?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -635,6 +649,10 @@ export interface PythinkerWebApi {
   dismissQuestion(sessionId: string, questionId: string): Promise<{ dismissed: true; dismissedAt: string }>;
   listSkills(sessionId: string): Promise<AppSkill[]>;
   activateSkill(sessionId: string, skillName: string, args?: string): Promise<{ activated: true; skillName: string }>;
+  /** Configured MCP servers — GET /mcp/servers. */
+  listConnectors(): Promise<AppConnector[]>;
+  /** Restart one MCP server — POST /mcp/servers/{id}:restart. */
+  restartConnector(connectorId: string): Promise<{ restarting: true }>;
   listTasks(sessionId: string, status?: AppTaskStatus): Promise<AppTask[]>;
   getTask(sessionId: string, taskId: string, input?: { withOutput?: boolean; outputBytes?: number }): Promise<AppTask>;
   cancelTask(sessionId: string, taskId: string): Promise<{ cancelled: true }>;
