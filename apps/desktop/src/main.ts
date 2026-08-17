@@ -27,6 +27,7 @@ import {
 import {
   createHostSupervisor,
   isPortInUseError,
+  parseRunningServerConflict,
   resolveDesktopPort,
   spawnPythinkerServer,
   type HostSupervisor,
@@ -345,6 +346,22 @@ async function boot(): Promise<void> {
       } catch (error) {
         track('desktop_server_failed')
         const message = error instanceof Error ? error.message : String(error)
+
+        const conflict = parseRunningServerConflict(message)
+        if (conflict !== undefined) {
+          const conflicted = await dialog.showMessageBox({
+            type: 'error',
+            buttons: ['Retry', 'Quit'],
+            defaultId: 0,
+            cancelId: 1,
+            title: `${APP_NAME} cannot start its server`,
+            message: `Another Pythinker server is already running (process ${String(conflict.pid)} on port ${String(conflict.port)}, started ${conflict.startedAt}). Only one server can run at a time, because they would share the same session files. Stop that server, then retry.`,
+          })
+          if (conflicted.response === 0) continue
+          await requestAppQuit()
+          return
+        }
+
         if (!isPortInUseError(message)) throw error
 
         const result = await dialog.showMessageBox({

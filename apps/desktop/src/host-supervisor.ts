@@ -29,6 +29,30 @@ export function isPortInUseError(message: string): boolean {
   return /EADDRINUSE|address already in use/iu.test(message)
 }
 
+/** The live server described by the Host's single-instance conflict line. */
+export interface RunningServerConflict {
+  readonly pid: number
+  readonly port: number
+  readonly startedAt: string
+}
+
+/**
+ * Recognize the Host's single-instance lock conflict.
+ *
+ * The server refuses to start while another one holds the lock at
+ * `<PYTHINKER_CODE_HOME>/server/lock`, and that lock is global rather than
+ * per-port, so a CLI server on any port blocks the desktop Host. Without this
+ * the conflict surfaces only as a generic non-zero exit, which tells the user
+ * nothing about which process to stop.
+ * @param message - Host output, including the diagnostic appended on failure.
+ * @returns The conflicting server's details, or undefined for other failures.
+ */
+export function parseRunningServerConflict(message: string): RunningServerConflict | undefined {
+  const match = /server already running \(pid=(\d+), port=(\d+), started=([^)]*)\)/u.exec(message)
+  if (match === null) return undefined
+  return { pid: Number(match[1]), port: Number(match[2]), startedAt: match[3]! }
+}
+
 /** Incremental parser for the Web Host's canonical readiness line. */
 export interface ReadinessParser {
   /**

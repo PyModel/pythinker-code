@@ -138,7 +138,10 @@ export function buildRunCommand(cmd: Command, options: { defaultOpen: boolean })
             `${error instanceof Error ? error.message : String(error)}\n`,
           );
         } finally {
-          process.exit(1);
+          // Errors that declare an exit code mean it: ServerLockedError uses 2 so
+          // callers can tell a single-instance conflict from a generic failure.
+          const declared = (error as { readonly exitCode?: unknown }).exitCode;
+          process.exit(typeof declared === 'number' ? declared : 1);
         }
       }
     });
