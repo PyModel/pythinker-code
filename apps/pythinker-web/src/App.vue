@@ -18,6 +18,7 @@ import SettingsPane from './components/settings/SettingsPane.vue';
 import SessionsDialog from './components/SessionsDialog.vue';
 import AddWorkspaceDialog from './components/AddWorkspaceDialog.vue';
 import StatusPanel from './components/StatusPanel.vue';
+import UpdateToast from './components/UpdateToast.vue';
 import WarningToasts from './components/WarningToasts.vue';
 import MobileTopBar from './components/MobileTopBar.vue';
 import MobileSwitcherSheet from './components/MobileSwitcherSheet.vue';
@@ -1090,6 +1091,7 @@ function openPr(url: string): void {
       @update-config="handleUpdateConfig($event)"
       @login="loginFromSettings"
       @open-onboarding="openOnboardingFromSettings"
+      @close="showSettings = false"
     />
 
     <ConversationPane
@@ -1335,6 +1337,9 @@ function openPr(url: string): void {
     <!-- Floating warnings / agent errors (e.g. a 403 from the model provider) -->
     <WarningToasts :warnings="client.warnings.value" @dismiss="client.dismissWarning" />
 
+    <!-- Desktop update prompt (renders nothing in the browser) -->
+    <UpdateToast />
+
     <!-- KAP/daemon debug panel (opt-in, ?debug=1) -->
     <DebugPanel v-if="debugEnabled" />
 
@@ -1411,6 +1416,11 @@ function openPr(url: string): void {
   height: env(titlebar-area-height, 44px);
   -webkit-app-region: drag;
   user-select: none;
+  /* Windows has no vibrancy, so the bar earns its own tone: a shade darker than
+     the shell with a hairline under it, which also frames the window buttons. */
+  background: color-mix(in srgb, var(--ink) 4%, var(--panel));
+  border-bottom: 1px solid var(--line);
+  box-sizing: border-box;
 }
 .auth-page {
   flex: 1;

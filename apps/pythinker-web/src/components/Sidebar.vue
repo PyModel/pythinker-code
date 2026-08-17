@@ -464,10 +464,15 @@ onBeforeUnmount(() => {
     <div class="col" :style="{ width: colWidth + 'px' }">
       <!-- Header: logo + collapse (no hard border — flows into workspace list) -->
       <div class="ch">
-        <div class="ch-brand">
-          <PythinkerLogo size="sm" interactive />
+        <button
+          type="button"
+          class="ch-brand"
+          :title="t('sidebar.newSession')"
+          @click.stop="emit('create')"
+        >
+          <PythinkerLogo size="sm" />
           <span class="ch-name">Pythinker Code</span>
-        </div>
+        </button>
         <button
           type="button"
           class="collapse-btn"
@@ -805,6 +810,17 @@ onBeforeUnmount(() => {
   min-width: 0;
   /* Take the row's slack so the action buttons group together on the right. */
   flex: 1;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ch-brand:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+  border-radius: 6px;
 }
 .ch-name {
   font-size: var(--ui-font-size);
@@ -1198,11 +1214,35 @@ onBeforeUnmount(() => {
   text-align: left;
   cursor: pointer;
 }
-/* The sessions-mode gear sits on the trailing edge; the settings-mode back
-   arrow keeps the leading edge, where a back control belongs. */
+/* The sessions-mode gear centres in the sidebar and carries the New Session
+   card style; the settings-mode back arrow keeps the leading edge, where a
+   back control belongs. */
 .settings-row.end {
-  justify-content: flex-end;
-  text-align: right;
+  width: calc(100% - 24px);
+  margin: 0 12px 10px;
+  justify-content: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--soft);
+  color: var(--ink);
+  font-family: var(--mono);
+  line-height: 1;
+  text-align: center;
+  white-space: nowrap;
+}
+.settings-row.end:hover {
+  background: color-mix(in srgb, var(--ink) 6%, var(--soft));
+}
+.settings-row.end:focus-visible {
+  outline-offset: 1px;
+}
+/* The back control is secondary next to the settings nav above it, so it sits
+   a step dimmer than the muted default until hovered. */
+.settings-row:not(.end) {
+  color: color-mix(in srgb, var(--muted) 65%, transparent);
+  font-weight: 400;
 }
 .settings-row:hover { color: var(--ink); background: var(--soft); }
 .settings-row:focus-visible {

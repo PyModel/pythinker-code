@@ -28,6 +28,7 @@ import en_onboarding from './en/onboarding';
 import en_settings from './en/settings';
 import en_header from './en/header';
 import en_sideChat from './en/sideChat';
+import en_update from './en/update';
 
 export const messages = {
   en: {
@@ -61,6 +62,7 @@ export const messages = {
     settings: en_settings,
     header: en_header,
     sideChat: en_sideChat,
+    update: en_update,
   },
 } as const;
 

@@ -2,6 +2,8 @@ export default {
   title: 'Settings',
   /** Sidebar control that leaves the settings route and restores the session list. */
   backToSessions: 'Back to sessions',
+  /** Round close control in the top-right corner of the settings pane. */
+  close: 'Close settings',
   groups: {
     basics: 'Basics',
     capabilities: 'Agent capabilities',
