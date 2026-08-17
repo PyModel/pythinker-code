@@ -201,17 +201,17 @@ function toggleConfigBoolean(key: 'defaultThinking' | 'defaultPlanMode' | 'merge
 .sec-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .sec-head .sec-title { margin-bottom: 0; }
 .saving { flex: none; color: var(--muted); font-family: var(--mono); font-size: var(--ui-font-size-xs); }
-.seg { display: inline-flex; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; }
+.seg { display: inline-flex; overflow: hidden; border: 1px solid var(--line); border-radius: var(--r-sm); }
 .opt { padding: 5px 12px; border: none; border-left: 1px solid var(--line); background: var(--bg); color: var(--muted); font-family: var(--mono); font-size: var(--ui-font-size-xs); cursor: pointer; }
 .opt:first-child { border-left: none; }
 .opt:hover { color: var(--ink); }
 .opt.on { background: var(--soft); color: var(--blue2); font-weight: 600; }
 .opt:disabled { opacity: 0.55; cursor: not-allowed; }
-.select-field { min-width: 220px; max-width: min(320px, 50vw); height: 32px; padding: 0 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: calc(var(--ui-font-size) - 1.5px); }
+.select-field { min-width: 220px; max-width: min(320px, 50vw); height: 32px; padding: 0 8px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: calc(var(--ui-font-size) - 1.5px); }
 .select-field:disabled { opacity: 0.6; cursor: not-allowed; }
 .empty-config { padding: 4px 0; color: var(--muted); font-family: var(--sans); font-size: calc(var(--ui-font-size) - 1px); }
 .provider-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
-.provider-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel2); }
+.provider-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel2); }
 .provider-main, .provider-meta { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .provider-main { flex: 1; }
 .provider-meta { flex: none; max-width: 45%; }

@@ -46,7 +46,7 @@ const { t } = useI18n();
 .tab {
   padding: 8px 10px;
   border: none;
-  border-radius: 7px;
+  border-radius: var(--r-sm);
   background: transparent;
   color: var(--muted);
   font-family: var(--sans);
