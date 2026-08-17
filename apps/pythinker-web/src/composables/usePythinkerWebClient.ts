@@ -83,6 +83,7 @@ const UI_FONT_SIZE_DEFAULT = 15;
 const UI_FONT_SIZE_MIN = 12;
 const UI_FONT_SIZE_MAX = 20;
 const SESSION_NOT_FOUND_CODE = 40401;
+const SESSION_SNAPSHOT_RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000] as const;
 const PROMPT_NOT_FOUND_CODE = 40402;
 const ONBOARDED_STORAGE_KEY = 'pythinker-web.onboarded';
 const THINKING_LEVELS: readonly ThinkingLevel[] = [
@@ -1061,6 +1062,8 @@ const sessionsKnownEmpty = new Set<string>();
  */
 type SyncSessionResult = 'ok' | 'not-found' | 'failed';
 
+const sessionSnapshotSyncs = new Map<string, Promise<SyncSessionResult>>();
+
 function isSessionNotFoundError(err: unknown): boolean {
   if (isDaemonApiError(err) && err.code === SESSION_NOT_FOUND_CODE) return true;
   return (
@@ -1227,59 +1230,99 @@ async function handleSessionNotFound(sessionId: string): Promise<void> {
   }
 }
 
+function waitForSnapshotRetry(delayMs: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+
+function hasSession(sessionId: string): boolean {
+  return rawState.sessions.some((session) => session.id === sessionId);
+}
+
+async function runSessionSnapshotSync(sessionId: string): Promise<SyncSessionResult> {
+  let lastError: unknown;
+  // Only abandon the chain for a session the list already knows about. A first
+  // open (notification click, deep link) can legitimately run ahead of the
+  // session landing in `rawState.sessions`, and bailing there would drop the
+  // snapshot that open is waiting for.
+  const tracked = hasSession(sessionId);
+  const gone = (): boolean => tracked && !hasSession(sessionId);
+
+  for (const delayMs of [0, ...SESSION_SNAPSHOT_RETRY_DELAYS_MS]) {
+    if (delayMs > 0) await waitForSnapshotRetry(delayMs);
+    if (gone()) return 'not-found';
+
+    try {
+      const api = getPythinkerWebApi();
+      const snap = await api.getSessionSnapshot(sessionId);
+      if (gone()) return 'not-found';
+
+      rawState.sessions = rawState.sessions.map((s) =>
+        s.id === sessionId
+          ? {
+              ...snap.session,
+              model:
+                snap.session.model && snap.session.model.length > 0
+                  ? snap.session.model
+                  : s.model,
+            }
+          : s,
+      );
+      rawState.messagesBySession = {
+        ...rawState.messagesBySession,
+        [sessionId]: snap.messages,
+      };
+      rawState.approvalsBySession = {
+        ...rawState.approvalsBySession,
+        [sessionId]: snap.pendingApprovals,
+      };
+      rawState.questionsBySession = {
+        ...rawState.questionsBySession,
+        [sessionId]: snap.pendingQuestions,
+      };
+      rawState.lastSeqBySession = {
+        ...rawState.lastSeqBySession,
+        [sessionId]: snap.asOfSeq,
+      };
+      epochBySession[sessionId] = snap.epoch;
+
+      connectEventsIfNeeded();
+      if (eventConn) {
+        // Seed BEFORE subscribing: the in-flight assistant message must exist
+        // before live deltas (aligned by wire offset) start appending to it.
+        eventConn.seedSnapshot(sessionId, snap);
+        eventConn.subscribe(sessionId, { seq: snap.asOfSeq, epoch: snap.epoch });
+      }
+      return 'ok';
+    } catch (error) {
+      if (isSessionNotFoundError(error)) {
+        await handleSessionNotFound(sessionId);
+        return 'not-found';
+      }
+      if (gone()) return 'not-found';
+      lastError = error;
+    }
+  }
+
+  pushOperationFailure('getSessionSnapshot', lastError, {
+    title: i18n.global.t('warnings.sessionSnapshotTitle'),
+    message: i18n.global.t('warnings.sessionSnapshotMessage'),
+    sessionId,
+  });
+  return 'failed';
+}
+
 async function syncSessionFromSnapshot(sessionId: string): Promise<SyncSessionResult> {
+  const existing = sessionSnapshotSyncs.get(sessionId);
+  if (existing) return existing;
+
+  const sync = runSessionSnapshotSync(sessionId);
+  sessionSnapshotSyncs.set(sessionId, sync);
   try {
-    const api = getPythinkerWebApi();
-    const snap = await api.getSessionSnapshot(sessionId);
-
-    rawState.sessions = rawState.sessions.map((s) =>
-      s.id === sessionId
-        ? {
-            ...snap.session,
-            model:
-              snap.session.model && snap.session.model.length > 0
-                ? snap.session.model
-                : s.model,
-          }
-        : s,
-    );
-    rawState.messagesBySession = {
-      ...rawState.messagesBySession,
-      [sessionId]: snap.messages,
-    };
-    rawState.approvalsBySession = {
-      ...rawState.approvalsBySession,
-      [sessionId]: snap.pendingApprovals,
-    };
-    rawState.questionsBySession = {
-      ...rawState.questionsBySession,
-      [sessionId]: snap.pendingQuestions,
-    };
-    rawState.lastSeqBySession = {
-      ...rawState.lastSeqBySession,
-      [sessionId]: snap.asOfSeq,
-    };
-    epochBySession[sessionId] = snap.epoch;
-
-    connectEventsIfNeeded();
-    if (eventConn) {
-      // Seed BEFORE subscribing: the in-flight assistant message must exist
-      // before live deltas (aligned by wire offset) start appending to it.
-      eventConn.seedSnapshot(sessionId, snap);
-      eventConn.subscribe(sessionId, { seq: snap.asOfSeq, epoch: snap.epoch });
+    return await sync;
+  } finally {
+    if (sessionSnapshotSyncs.get(sessionId) === sync) {
+      sessionSnapshotSyncs.delete(sessionId);
     }
-    return 'ok';
-  } catch (error) {
-    if (isSessionNotFoundError(error)) {
-      await handleSessionNotFound(sessionId);
-      return 'not-found';
-    }
-    pushOperationFailure('getSessionSnapshot', error, {
-      title: i18n.global.t('warnings.sessionSnapshotTitle'),
-      message: i18n.global.t('warnings.sessionSnapshotMessage'),
-      sessionId,
-    });
-    return 'failed';
   }
 }
 
@@ -1295,8 +1338,9 @@ async function loadTasksForSession(sessionId: string): Promise<void> {
     // Completed tasks may have real terminal output that never streamed over
     // WS. Fetch it once now so the rows are expandable when the session opens.
     await fetchTerminalTaskOutputs(sessionId, taskList);
-  } catch {
-    // Tasks are side data; old/stale sessions may fail without blocking messages.
+  } catch (error) {
+    // Tasks are side data, so report the failure without blocking messages.
+    pushOperationFailure('listTasks', error, { sessionId });
   }
 }
 
