@@ -894,7 +894,7 @@ onBeforeUnmount(() => {
 }
 .ws-head-label {
   color: var(--muted);
-  font-size: var(--ui-font-size);
+  font-size: calc(var(--ui-font-size) - 2px);
   min-width: 0;
 }
 .ws-head-actions {
