@@ -458,8 +458,7 @@ html[data-color-scheme="dark"][data-theme="modern"] {
 :is(html[data-theme="modern"], html[data-theme="pythinker"]) .pd-desc {
   font-family: var(--sans);
 }
-:is(html[data-theme="modern"], html[data-theme="pythinker"]) .queue-item,
-:is(html[data-theme="modern"], html[data-theme="pythinker"]) .att-chip {
+:is(html[data-theme="modern"], html[data-theme="pythinker"]) .queue-item {
   border-radius: var(--r-sm);
 }
 
@@ -583,7 +582,6 @@ html[data-color-scheme="dark"][data-theme="modern"] {
 :is(html[data-theme="modern"], html[data-theme="pythinker"]) .queue-item,
 :is(html[data-theme="modern"], html[data-theme="pythinker"]) .queue-text { font-family: var(--sans); }
 :is(html[data-theme="modern"], html[data-theme="pythinker"]) .compact-chip { border-radius: var(--r-xs); }
-:is(html[data-theme="modern"], html[data-theme="pythinker"]) .att-thumb { border-radius: 5px; }
 
 /* ---- Floating menus + status line ---- */
 :is(html[data-theme="modern"], html[data-theme="pythinker"]) .slash-menu { border-radius: var(--r-md); box-shadow: var(--sh); }
