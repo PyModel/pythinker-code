@@ -1,5 +1,15 @@
 # @pymodel/pythinker-desktop
 
+## 0.1.3
+
+### Patch Changes
+
+- [#97](https://github.com/PyModel/pythinker-code/pull/97) [`7dd68cb`](https://github.com/PyModel/pythinker-code/commit/7dd68cba572576616dfca1730e79c5e650006508) - Make the workspace header, session timestamps, and the settings row legible in dark mode on the translucent desktop sidebar.
+
+- [#97](https://github.com/PyModel/pythinker-code/pull/97) [`7dd68cb`](https://github.com/PyModel/pythinker-code/commit/7dd68cba572576616dfca1730e79c5e650006508) - Publish desktop releases to a dedicated update channel so update checks resolve a desktop build instead of an unrelated release, and fail the release when a packaged build carries no update feed.
+
+- [#97](https://github.com/PyModel/pythinker-code/pull/97) [`7dd68cb`](https://github.com/PyModel/pythinker-code/commit/7dd68cba572576616dfca1730e79c5e650006508) - Pin the Host port so the desktop app reconnects to its own Host, and stop reporting builds that cannot self-update as update errors.
+
 ## 0.1.2
 
 ### Patch Changes

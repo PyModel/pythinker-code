@@ -1,5 +1,18 @@
 # @pymodel/pythinker-code
 
+## 0.20.0
+
+### Minor Changes
+
+- [#97](https://github.com/PyModel/pythinker-code/pull/97) [`7dd68cb`](https://github.com/PyModel/pythinker-code/commit/7dd68cba572576616dfca1730e79c5e650006508) - Remove the legacy pythinker-cli migration: the `pythinker migrate` subcommand, the first-launch
+  migration prompt, and the `[imported]` session badge.
+
+### Patch Changes
+
+- [#97](https://github.com/PyModel/pythinker-code/pull/97) [`7dd68cb`](https://github.com/PyModel/pythinker-code/commit/7dd68cba572576616dfca1730e79c5e650006508) - Make the workspace header, session timestamps, and the settings row legible in dark mode on the translucent desktop sidebar.
+
+- [#96](https://github.com/PyModel/pythinker-code/pull/96) [`71c51b8`](https://github.com/PyModel/pythinker-code/commit/71c51b87879afe13309683c69d5ab8eb7669d72d) - Keep the web model quick-switch menu inside the viewport when the composer sits near the top of the window.
+
 ## 0.19.1
 
 ### Patch Changes
