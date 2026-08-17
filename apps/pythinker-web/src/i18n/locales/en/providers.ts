@@ -1,5 +1,10 @@
 export default {
   dialogLabel: 'Manage providers',
+  manage: 'Manage providers',
+  manageDescription: 'Open provider setup to add or change providers.',
+  signInDescription: 'Open provider setup to sign in.',
+  provider: 'Provider',
+  model: 'Model',
   title: 'Provider management',
   close: 'Close (Esc)',
   loading: 'Loading providers…',

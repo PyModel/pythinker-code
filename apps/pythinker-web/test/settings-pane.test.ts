@@ -352,6 +352,49 @@ describe('SettingsPane desktop updates', () => {
   });
 });
 
+describe('SettingsPane general account section', () => {
+  it('shows signed-in status and separates the provider from the model', () => {
+    const rawModel = 'openai-codex/gpt-5.6-luna';
+    const panel = mountPane('general', { accountModel: rawModel }).get('#settings-panel-general');
+
+    expect(panel.get('.account-status').text()).toContain('Signed in');
+    expect(panel.get('.account-status .dot').classes()).toContain('s-connected');
+    expect(panel.get('.account-provider').text()).toBe('openai-codex');
+    expect(panel.get('.account-model').text()).toBe('gpt-5.6-luna');
+    expect(panel.get('.account-provider').attributes('title')).toBe(rawModel);
+    expect(panel.get('.account-model').attributes('title')).toBe(rawModel);
+  });
+
+  it('shows the full value when the account model has no provider separator', () => {
+    const rawModel = 'legacy-model';
+    const panel = mountPane('general', { accountModel: rawModel }).get('#settings-panel-general');
+
+    expect(panel.get('.account-provider').text()).toBe(rawModel);
+    expect(panel.get('.account-model').text()).toBe(rawModel);
+  });
+
+  it('shows the sign-in affordance when the account is not ready', () => {
+    const panel = mountPane('general', { authReady: false, accountModel: null }).get('#settings-panel-general');
+
+    expect(panel.get('.account-status').text()).toContain('Not signed in');
+    expect(panel.get('.account-status .dot').classes()).toContain('s-unconfigured');
+    expect(panel.get('.account-action-note').text()).toBe('Open provider setup to sign in.');
+    expect(panel.get('button.signin').text()).toBe('Manage providers');
+  });
+
+  it('emits login from the primary action and onboarding from the secondary action', async () => {
+    const wrapper = mountPane('general', { authReady: false, accountModel: null });
+    const panel = wrapper.get('#settings-panel-general');
+    const buttons = panel.findAll('button.act');
+
+    await buttons[0]!.trigger('click');
+    await buttons[1]!.trigger('click');
+
+    expect(wrapper.emitted('login')).toEqual([[]]);
+    expect(wrapper.emitted('openOnboarding')).toEqual([[]]);
+  });
+});
+
 describe('SettingsPane agent page', () => {
   it('keeps a configured default the catalog no longer offers', () => {
     // Without a matching option the browser shows its first one, which reads
