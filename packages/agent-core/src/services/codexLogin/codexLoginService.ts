@@ -57,10 +57,13 @@ export interface CodexLoginDeps {
   readonly now: () => number;
 }
 
+// Every entry is wrapped rather than referenced directly: the module is loaded
+// through `services/index.ts` by tests that mock the OAuth package, and reading
+// a binding those mocks do not define throws at import time.
 const defaultDeps: CodexLoginDeps = {
-  createPkce: createOpenAICodexPkcePair,
-  buildAuthorizeUrl: buildOpenAICodexAuthorizeUrl,
-  startCallbackServer: startOpenAICodexCallbackServer,
+  createPkce: () => createOpenAICodexPkcePair(),
+  buildAuthorizeUrl: (pair) => buildOpenAICodexAuthorizeUrl(pair),
+  startCallbackServer: (state) => startOpenAICodexCallbackServer(state),
   exchangeCode: (code, verifier) => exchangeOpenAICodexAuthorizationCode(code, verifier),
   fetchModels: (input) => fetchOpenAICodexModels(input),
   now: () => Date.now(),
