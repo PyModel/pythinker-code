@@ -880,6 +880,9 @@ function handleCloseAddWorkspace(): void {
 // right pane shows the onboarding composer. The session is only created when
 // the user sends the first message.
 function handleCreateSession(): void {
+  // Starting a session leaves the settings route — the new draft has to be
+  // visible, and the content area can only show one of the two.
+  showSettings.value = false;
   const wsId = client.activeWorkspaceId.value;
   if (wsId) {
     client.openWorkspaceDraft(wsId);
@@ -892,6 +895,7 @@ function handleCreateSession(): void {
 // state in the chosen workspace. No backend session is created until the user
 // actually sends a message.
 function handleCreateSessionInWorkspace(workspaceId: string): void {
+  showSettings.value = false;
   client.openWorkspaceDraft(workspaceId);
 }
 

@@ -433,4 +433,25 @@ describe('desktop settings route', () => {
     expect.soft(wrapper.find('.sessions').exists()).toBe(true);
     expect.soft(wrapper.findComponent(ConversationPane).exists()).toBe(true);
   });
+
+  it('leaves the settings route when a new session starts', async () => {
+    const wrapper = shallowMount(App, {
+      global: {
+        plugins: [i18n],
+        stubs: { Sidebar: false, SettingsNav: false, SettingsPane: false },
+      },
+    });
+
+    await wrapper.get('.side-foot .settings-row').trigger('click');
+    await nextTick();
+    expect(wrapper.findComponent(SettingsPane).exists()).toBe(true);
+
+    // New Session shares the sidebar with the settings nav, so it has to close
+    // the route — the content area can only show one of the two.
+    await wrapper.get('.btn-new-chat').trigger('click');
+    await nextTick();
+
+    expect(wrapper.findComponent(SettingsPane).exists()).toBe(false);
+    expect(wrapper.find('.sessions').exists()).toBe(true);
+  });
 });
