@@ -1068,15 +1068,15 @@ describe('current builtin collaboration tools', () => {
       },
       output: 'prompt_template must include the {{item}} placeholder.',
     },
-  ])('DynamicWorkflow rejects $name at execution time', async ({ input, output }) => {
+  ])('DynamicWorkflow rejects $name before approval', ({ input, output }) => {
     const host = mockSubagentHost({ runQueued: vi.fn() });
     const dynamicWorkflowMode = mockDynamicWorkflowMode();
     const tool = new DynamicWorkflowTool(host, dynamicWorkflowMode);
 
-    const result = await executeTool(tool, context(input));
+    const result = tool.resolveExecution(input);
 
-    expect(result.output).toBe(output);
-    expect(result.isError).toBe(true);
+    expect(result).toEqual({ isError: true, output });
+    expect(dynamicWorkflowMode.enter).not.toHaveBeenCalled();
     expect(host.runQueued).not.toHaveBeenCalled();
   });
 
@@ -1598,6 +1598,7 @@ describe('workflowSizeGuideline', () => {
 
     const unrestrictedTool = new DynamicWorkflowTool(host, mockDynamicWorkflowMode(), 'unrestricted');
     expect(unrestrictedTool.description).toContain('DynamicWorkflow supports up to 128 subagents');
+    expect(unrestrictedTool.description).toContain('at least two non-empty items');
     expect(unrestrictedTool.description).not.toContain('Workflow size guideline:');
   });
 });

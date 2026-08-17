@@ -15,6 +15,7 @@ import {
   TodoListTool,
   type TodoItem,
 } from '../../src/tools/builtin/state/todo-list';
+import { compileToolArgsValidator, validateToolArgs } from '../../src/tools/args-validator';
 import type { ToolStore } from '../../src/tools/store';
 import { executeTool } from './fixtures/execute-tool';
 
@@ -64,6 +65,18 @@ describe('TodoListTool', () => {
         todos: { type: 'array' },
       },
     });
+    const validator = compileToolArgsValidator(tool.parameters);
+    expect(
+      validateToolArgs(validator, {
+        todos: [
+          {
+            title: 'Map logical groups',
+            activeForm: 'Mapping logical groups',
+            status: 'completed',
+          },
+        ],
+      }),
+    ).toBeNull();
   });
 
   it('description includes an Avoid churn section with the anti-spin guardrails', () => {
@@ -175,6 +188,46 @@ describe('TodoListTool', () => {
         activeForm: 'Running focused tests',
         status: 'in_progress',
       },
+    ]);
+  });
+
+  it('normalizes done and completed with either item shape', async () => {
+    const { tool, getTodos } = makeTool();
+    const parsed = TodoListInputSchema.parse({
+      todos: [
+        {
+          title: 'Inspect the implementation',
+          activeForm: 'Inspecting the implementation',
+          status: 'completed',
+        },
+        {
+          content: 'Run focused tests',
+          activeForm: 'Running focused tests',
+          status: 'done',
+        },
+        { title: 'Continue review', status: 'pending' },
+      ],
+    });
+
+    await executeTool(tool, {
+      turnId: 't1',
+      toolCallId: 'call_1',
+      args: parsed,
+      signal,
+    });
+
+    expect(getTodos()).toEqual([
+      {
+        title: 'Inspect the implementation',
+        activeForm: 'Inspecting the implementation',
+        status: 'done',
+      },
+      {
+        title: 'Run focused tests',
+        activeForm: 'Running focused tests',
+        status: 'done',
+      },
+      { title: 'Continue review', status: 'pending' },
     ]);
   });
 

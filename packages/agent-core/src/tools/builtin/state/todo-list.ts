@@ -48,10 +48,14 @@ declare module '../../store' {
 
 // ── Schema ───────────────────────────────────────────────────────────
 
+const TodoInputStatusSchema = z
+  .enum(['pending', 'in_progress', 'done', 'completed'])
+  .describe('Current status of the todo. done and completed are equivalent.');
+
 const NativeTodoItemSchema = z.object({
   title: z.string().min(1).describe('Short, actionable title for the todo.'),
   activeForm: z.string().min(1).optional().describe('Present-continuous activity label.'),
-  status: z.enum(['pending', 'in_progress', 'done']).describe('Current status of the todo.'),
+  status: TodoInputStatusSchema,
 });
 
 // Accept the older TodoWrite-style shape for compatibility, then normalize it
@@ -59,7 +63,7 @@ const NativeTodoItemSchema = z.object({
 const TodoWriteItemSchema = z.object({
   content: z.string().min(1).describe('Imperative description of the task.'),
   activeForm: z.string().min(1).describe('Present-continuous activity label.'),
-  status: z.enum(['pending', 'in_progress', 'completed']).describe('Current status of the todo.'),
+  status: TodoInputStatusSchema,
 });
 
 type TodoListInputItem =
@@ -172,16 +176,17 @@ export class TodoListTool implements BuiltinTool<TodoListInput> {
 }
 
 function normalizeTodoItem(todo: TodoListInputItem): TodoItem {
+  const status = todo.status === 'completed' ? 'done' : todo.status;
   if ('title' in todo) {
     return {
       title: todo.title,
       activeForm: todo.activeForm,
-      status: todo.status,
+      status,
     };
   }
   return {
     title: todo.content,
     activeForm: todo.activeForm,
-    status: todo.status === 'completed' ? 'done' : todo.status,
+    status,
   };
 }

@@ -76,7 +76,7 @@ Plan mode is a constrained working state: once entered, `Write` and `Edit` are r
 | --- | --- | --- |
 | `TodoList` | Auto-allow | Manage a task to-do list |
 
-**`TodoList`** maintains a visible subtask list across multi-step operations; state is stored within the Agent session. The `todos` parameter accepts an array where each item has a `title` and `status` (`pending` / `in_progress` / `done`). Omitting `todos` queries the current list; passing an empty array clears it.
+**`TodoList`** maintains a visible subtask list across multi-step operations; state is stored within the Agent session. The `todos` parameter accepts an array where each item has a `title` and `status` (`pending` / `in_progress` / `done`). TodoWrite-compatible items can use `content`, `activeForm`, and `completed`; `done` and `completed` are equivalent with either item shape. Omitting `todos` queries the current list; passing an empty array clears it.
 
 ## Collaboration Tools
 
@@ -97,7 +97,7 @@ Each entry in `items` launches one new subagent: without `prompt_template`, ever
 
 Pass `subagent_type` to choose the profile used by every spawned subagent, or omit it to use `coder`. Pass `model` and `effort` to run this workflow's subagents on a different model than the agent orchestrating them — a cheaper or faster model for mechanical work, for example; both apply to every subagent in the call, and omitting them falls back to the subagent profile's own settings and then to the calling agent's. A `model` the provider cannot resolve falls back to the calling agent's model rather than failing the run.
 
-Without `resume_agent_ids`, the tool requires at least 2 items; with `resume_agent_ids`, it can resume one or more existing subagents. The tool supports up to 128 total subagents, waits for all of them to finish, and returns an aggregated report. Workflow subagents have no automatic timeout; they run until completion, failure, or user cancellation.
+Without `resume_agent_ids`, the tool requires at least 2 items; with `resume_agent_ids`, it can resume one or more existing subagents. Calls that fail these plan checks are rejected before an approval request is shown. The tool supports up to 128 total subagents, waits for all of them to finish, and returns an aggregated report. Workflow subagents have no automatic timeout; they run until completion, failure, or user cancellation.
 
 If a model response calls `DynamicWorkflow`, that call must be the only tool call in the response; to run several workflows, call one `DynamicWorkflow`, wait for its result, then call the next, or combine the work into a single workflow.
 
