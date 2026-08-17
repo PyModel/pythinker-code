@@ -21,6 +21,10 @@
 [![Docs](https://img.shields.io/badge/docs-online-0284c7.svg?style=flat-square)](https://pymodel.github.io/pythinker-code/)
 [![Homepage](https://img.shields.io/badge/home-code.pythinker.com-ec4899.svg?style=flat-square)](https://code.pythinker.com)
 
+<a href="https://github.com/PyModel/pythinker-desktop-releases/releases"><img src="https://img.shields.io/github/downloads/PyModel/pythinker-desktop-releases/total?style=flat&label=desktop%20downloads&color=4D6BFE" alt="Total desktop downloads"></a>
+<a href="https://github.com/PyModel/pythinker-desktop-releases/releases/latest"><img src="https://img.shields.io/badge/macOS-.dmg-4D6BFE?style=flat&logo=apple&logoColor=white" alt="Download the macOS .dmg"></a>
+<a href="https://github.com/PyModel/pythinker-desktop-releases/releases/latest"><img src="https://img.shields.io/badge/Windows-.exe-4D6BFE?style=flat&logo=windows&logoColor=white" alt="Download the Windows .exe"></a>
+
 <br />
 
 <a href="https://code.pythinker.com">Website</a> &nbsp;·&nbsp;
