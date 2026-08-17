@@ -87,6 +87,23 @@ describe('ConnectorsPage', () => {
     expect(wrapper.findAll('.connector-remove')).toHaveLength(1);
   });
 
+  it('spans every long field across both form columns', async () => {
+    const wrapper = mountPage();
+
+    await wrapper.get('button.act').trigger('click');
+    const labelOf = (field: ReturnType<typeof wrapper.get>): string => field.get('.rlabel').text();
+    const wide = wrapper.findAll('.connector-field-wide').map(labelOf);
+    const narrow = wrapper
+      .findAll('.connector-field')
+      .filter((field) => !field.classes().includes('connector-field-wide'))
+      .map(labelOf);
+
+    // Name and Transport pair up on the first row; the rest take a full row,
+    // so no row is left half empty.
+    expect(narrow).toEqual(['Name', 'Transport']);
+    expect(wide).toEqual(['Command', 'Arguments', 'Environment (JSON)']);
+  });
+
   it('shows the daemon validation message after a rejected write', () => {
     const wrapper = mountPage({ connectorsError: 'MCP server id must be trimmed' });
 

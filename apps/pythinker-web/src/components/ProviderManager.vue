@@ -353,6 +353,9 @@ function statusLabel(status: AppProvider['status']): string {
   max-height: calc(100vh - 80px);
   display: flex;
   flex-direction: column;
+  /* The header, the footer, and the list scrollbar all paint to the dialog
+     edge, so they square off the rounded corners without this. */
+  overflow: hidden;
   font-family: var(--mono);
   box-shadow: 0 8px 32px rgba(0,0,0,0.14);
 }
@@ -578,7 +581,6 @@ function statusLabel(status: AppProvider['status']): string {
   color: var(--faint);
   border-top: 1px solid var(--line2);
   background: var(--panel);
-  border-radius: 0 0 4px 4px;
 }
 
 @media (max-width: 640px) {
