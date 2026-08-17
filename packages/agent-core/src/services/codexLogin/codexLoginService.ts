@@ -16,7 +16,6 @@ import {
   createOpenAICodexPkcePair,
   exchangeOpenAICodexAuthorizationCode,
   fetchOpenAICodexModels,
-  OPENAI_CODEX_PROVIDER_ID,
   parseOpenAICodexAuthorizationInput,
   startOpenAICodexCallbackServer,
   type OpenAICodexCallbackServer,
@@ -50,10 +49,10 @@ export interface CodexLoginDeps {
     code: string,
     verifier: string,
   ) => Promise<{ accessToken: string; refreshToken: string; accountId: string }>;
-  readonly fetchModels: (input: {
+  readonly fetchModels: (input: Readonly<{
     accessToken: string;
     accountId: string;
-  }) => Promise<PlatformModelInfo[]>;
+  }>) => Promise<PlatformModelInfo[]>;
   readonly now: () => number;
 }
 
@@ -77,6 +76,9 @@ interface Attempt {
   state: CodexLoginState;
   defaultModel?: string;
   message?: string;
+  expiryTimer?: NodeJS.Timeout;
+  completion?: Promise<void>;
+  callbackCleaned?: boolean;
 }
 
 /**
@@ -105,18 +107,33 @@ export class CodexLoginFlow {
       state: 'pending',
     };
     this.attempt = attempt;
+    attempt.expiryTimer = setTimeout(() => {
+      this._expire(attempt);
+    }, LOGIN_TTL_MS);
+    attempt.expiryTimer.unref();
 
     if (callback.loopback) {
       // Fire and forget: the client learns the outcome by polling `status`.
-      // A rejection here is the abort/timeout path, which leaves the attempt
-      // pending so the user can still paste the redirect URL.
       void callback
         .waitForCode({ timeoutMs: LOGIN_TTL_MS })
-        .then(async (result) => {
-          if (result === null) return;
-          await this._complete(attempt, result.code);
+        .then((result) => {
+          if (result === null) {
+            if (attempt.state === 'pending' && attempt.completion === undefined) {
+              this._expire(attempt);
+            }
+            return;
+          }
+          return this._complete(attempt, result.code);
         })
-        .catch(() => undefined);
+        .catch(() => {
+          if (
+            attempt.state === 'pending' &&
+            attempt.completion === undefined &&
+            this.deps.now() >= attempt.expiresAtMs
+          ) {
+            this._expire(attempt);
+          }
+        });
     }
 
     return {
@@ -130,15 +147,28 @@ export class CodexLoginFlow {
   status(loginId: string): CodexLoginStatus {
     const attempt = this._require(loginId);
     if (attempt.state === 'pending' && this.deps.now() >= attempt.expiresAtMs) {
-      attempt.state = 'failed';
-      attempt.message = 'OpenAI Codex login timed out. Start again.';
-      attempt.callback.close();
+      this._expire(attempt);
     }
     return toStatus(attempt);
   }
 
   async submitCode(loginId: string, redirectUrl: string): Promise<CodexLoginStatus> {
     const attempt = this._require(loginId);
+    if (attempt.state !== 'pending') {
+      const completion = attempt.completion;
+      if (completion !== undefined) await completion;
+      return toStatus(attempt);
+    }
+    if (this.deps.now() >= attempt.expiresAtMs) {
+      this._expire(attempt);
+      return toStatus(attempt);
+    }
+    const completion = attempt.completion;
+    if (completion !== undefined) {
+      await completion;
+      return toStatus(attempt);
+    }
+
     const parsed = parseOpenAICodexAuthorizationInput(redirectUrl);
     if (parsed.state !== undefined && parsed.state !== attempt.pkce.state) {
       throw new CodexLoginInvalidCodeError(
@@ -156,7 +186,7 @@ export class CodexLoginFlow {
     const attempt = this._require(loginId);
     if (attempt.state === 'pending') {
       attempt.state = 'cancelled';
-      attempt.callback.close();
+      this._cleanup(attempt);
     }
     return toStatus(attempt);
   }
@@ -175,47 +205,96 @@ export class CodexLoginFlow {
     if (attempt === undefined) return;
     if (attempt.state === 'pending') {
       attempt.state = state;
-      attempt.callback.close();
+      this._cleanup(attempt);
     }
     this.attempt = undefined;
   }
 
-  private async _complete(attempt: Attempt, code: string): Promise<void> {
+  private _expire(attempt: Attempt): void {
     if (attempt.state !== 'pending') return;
+    attempt.state = 'failed';
+    attempt.message = 'OpenAI Codex login timed out. Start again.';
+    this._cleanup(attempt);
+  }
+
+  private _cleanup(attempt: Attempt): void {
+    if (attempt.expiryTimer !== undefined) {
+      clearTimeout(attempt.expiryTimer);
+      attempt.expiryTimer = undefined;
+    }
+    this._closeCallback(attempt);
+  }
+
+  private _closeCallback(attempt: Attempt): void {
+    if (attempt.callbackCleaned === true) return;
+    attempt.callback.cancelWait();
     attempt.callback.close();
+    attempt.callbackCleaned = true;
+  }
+
+  private _isActive(attempt: Attempt): boolean {
+    if (attempt.state !== 'pending') return false;
+    if (this.deps.now() >= attempt.expiresAtMs) {
+      this._expire(attempt);
+      return false;
+    }
+    return true;
+  }
+
+  private _complete(attempt: Attempt, code: string): Promise<void> {
+    const completion = attempt.completion;
+    if (completion !== undefined) return completion;
+    if (!this._isActive(attempt)) return Promise.resolve();
+
+    const next = this._completeOnce(attempt, code);
+    attempt.completion = next;
+    return next;
+  }
+
+  private async _completeOnce(attempt: Attempt, code: string): Promise<void> {
+    this._closeCallback(attempt);
     try {
       const tokens = await this.deps.exchangeCode(code, attempt.pkce.verifier);
+      if (!this._isActive(attempt)) return;
       const models = await this.deps.fetchModels({
         accessToken: tokens.accessToken,
         accountId: tokens.accountId,
       });
+      if (!this._isActive(attempt)) return;
       if (models.length === 0) {
         throw new Error('No models available for OpenAI Codex.');
       }
-      const defaultModel = await this._writeConfig(tokens, models);
+      const defaultModel = await this._writeConfig(attempt, tokens, models);
+      if (defaultModel === undefined || !this._isActive(attempt)) return;
       attempt.state = 'completed';
       attempt.defaultModel = defaultModel;
+      this._cleanup(attempt);
     } catch (error) {
+      if (attempt.state !== 'pending') return;
+      if (this.deps.now() >= attempt.expiresAtMs) {
+        this._expire(attempt);
+        return;
+      }
       attempt.state = 'failed';
       attempt.message = error instanceof Error ? error.message : String(error);
+      this._cleanup(attempt);
     }
   }
 
   private async _writeConfig(
-    tokens: { accessToken: string; refreshToken: string; accountId: string },
+    attempt: Attempt,
+    tokens: Readonly<{ accessToken: string; refreshToken: string; accountId: string }>,
     models: readonly PlatformModelInfo[],
-  ): Promise<string> {
-    // `setPythinkerConfig` merges, so a re-login would keep model aliases the
-    // account no longer offers. Drop the provider first, exactly as the CLI
-    // login does, then write the fresh set.
-    const existing = await this.core.rpc.getPythinkerConfig({ reload: true });
-    if (existing.providers?.[OPENAI_CODEX_PROVIDER_ID] !== undefined) {
-      await this.core.rpc.removePythinkerProvider({ providerId: OPENAI_CODEX_PROVIDER_ID });
-    }
-
+  ): Promise<string | undefined> {
     const config = await this.core.rpc.getPythinkerConfig({ reload: true });
-    const shape = config as unknown as PlatformConfigShape;
-    if (shape.providers === undefined) shape.providers = {};
+    if (!this._isActive(attempt)) return undefined;
+
+    const shape = {
+      ...config,
+      providers: { ...config.providers },
+      models: config.models === undefined ? undefined : { ...config.models },
+    } as unknown as PlatformConfigShape;
+    shape.providers ??= {};
     const result = applyOpenAICodexOAuthConfig(shape, {
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
@@ -225,6 +304,7 @@ export class CodexLoginFlow {
       thinking: true,
     });
 
+    if (!this._isActive(attempt)) return undefined;
     // All five fields travel together: the patch is a deep merge, and leaving
     // `thinking` out drops the effort that `applyOpenAICodexOAuthConfig` just
     // picked.

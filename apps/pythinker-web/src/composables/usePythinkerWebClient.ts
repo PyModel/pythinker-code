@@ -4458,6 +4458,7 @@ export function usePythinkerWebClient() {
 
     // Config state + actions
     config,
+    loadConfig,
     updateConfig,
 
     // Auth actions

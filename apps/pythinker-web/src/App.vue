@@ -11,7 +11,7 @@ import ThinkingPanel from './components/ThinkingPanel.vue';
 import AgentDetailPanel from './components/AgentDetailPanel.vue';
 import SideChatPanel from './components/SideChatPanel.vue';
 import DiffView from './components/DiffView.vue';
-import type { AgentMember } from './types';
+import type { AgentMember, FilePreviewRequest, ToolMedia } from './types';
 import ModelPicker from './components/ModelPicker.vue';
 import ProviderManager from './components/ProviderManager.vue';
 import NewSessionDialog from './components/NewSessionDialog.vue';
@@ -33,7 +33,6 @@ import { useIsMobile } from './composables/useIsMobile';
 import { useIsDark } from './composables/useIsDark';
 import { useSettingsNav } from './composables/useSettingsNav';
 import type { AppConfig, ThinkingLevel } from './api/types';
-import type { FilePreviewRequest, ToolMedia } from './types';
 
 const client = usePythinkerWebClient();
 provide('resolveImage', client.resolveImageUrl);
@@ -731,7 +730,12 @@ async function handleRefreshProvider(id: string): Promise<void> {
 
 /** A Codex sign-in wrote its own provider entry; pull the new lists. */
 async function handleProvidersChanged(): Promise<void> {
-  await Promise.all([client.loadProviders(), client.loadModels()]);
+  await Promise.all([
+    client.loadProviders(),
+    client.loadModels(),
+    client.checkAuth(),
+    client.loadConfig(),
+  ]);
 }
 
 async function handleUpdateConfig(patch: Partial<AppConfig>): Promise<void> {
@@ -1273,19 +1277,6 @@ function openPr(url: string): void {
       @close="showModelPicker = false"
     />
 
-    <!-- Provider Manager overlay -->
-    <ProviderManager
-      v-if="showProviders"
-      :providers="client.providers.value"
-      :loading="providersLoading"
-      :unavailable="providersUnavailable"
-      @add="handleAddProvider($event)"
-      @refresh="handleRefreshProvider($event)"
-      @delete="handleDeleteProvider($event)"
-      @refresh-all="handleProvidersChanged()"
-      @close="showProviders = false"
-    />
-
     <!-- New Session Dialog overlay (fallback cwd-typing path) -->
     <NewSessionDialog
       v-if="showNewSession"
@@ -1390,6 +1381,19 @@ function openPr(url: string): void {
       @login="() => { showMobileSettings = false; openLogin(); }"
           />
     </div>
+
+    <!-- Provider Manager overlay -->
+    <ProviderManager
+      v-if="showProviders"
+      :providers="client.providers.value"
+      :loading="providersLoading"
+      :unavailable="providersUnavailable"
+      @add="handleAddProvider($event)"
+      @refresh="handleRefreshProvider($event)"
+      @delete="handleDeleteProvider($event)"
+      @refresh-all="handleProvidersChanged()"
+      @close="showProviders = false"
+    />
   </div>
 </template>
 

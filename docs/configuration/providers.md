@@ -177,7 +177,7 @@ pythinker
 
 ## OAuth
 
-OpenAI Codex is the one provider that authenticates with OAuth rather than a static API key. `/login` runs the browser flow and writes the resulting credentials into `config.toml` — no manual configuration is needed. Other providers use provider-specific credentials: most use an API key, while Vertex AI uses Google Cloud ADC.
+To authenticate OpenAI Codex, use `/login` in the CLI. In the web app or Pythinker Desktop, open the provider manager from the sign-in page or Settings and choose "Sign in with ChatGPT". The authorization page opens in a new browser tab; if the popup is blocked, use the direct link shown. If the automatic callback fails, paste the redirect URL from the address bar. The server writes the credentials to `config.toml`. Other providers use provider-specific credentials: most use an API key, while Vertex AI uses Google Cloud ADC.
 
 ## Next steps
 

@@ -225,7 +225,7 @@ function statusLabel(status: AppProvider['status']): string {
             </button>
             <button
               class="add-btn add-btn-oauth"
-              :disabled="codex.busy.value"
+              :disabled="codex.busy.value || codex.state.value === 'pending'"
               @click="codex.start()"
             >
               {{ t('codexLogin.signIn') }}
@@ -235,7 +235,16 @@ function statusLabel(status: AppProvider['status']): string {
             <p v-if="codex.state.value === 'pending' && codex.loopback.value" class="codex-line">
               {{ t('codexLogin.waiting') }}
             </p>
-            <template v-if="codex.state.value === 'pending' && !codex.loopback.value">
+            <p v-if="codex.popupBlocked.value && codex.authorizeUrl.value" class="codex-line">
+              {{ t('codexLogin.openLinkHint') }}
+              <a
+                class="codex-link"
+                :href="codex.authorizeUrl.value"
+                target="_blank"
+                rel="noopener noreferrer"
+              >{{ t('codexLogin.openLink') }}</a>
+            </p>
+            <template v-if="codex.state.value === 'pending'">
               <p class="codex-line">{{ t('codexLogin.pasteHint') }}</p>
               <div class="form-row">
                 <label class="flabel" for="codex-redirect">{{ t('codexLogin.pasteLabel') }}</label>
@@ -256,7 +265,6 @@ function statusLabel(status: AppProvider['status']): string {
             </p>
             <div v-if="codex.state.value === 'pending'" class="codex-actions">
               <button
-                v-if="!codex.loopback.value"
                 class="act-btn"
                 :disabled="codex.busy.value"
                 @click="submitCodexRedirect"
@@ -480,6 +488,8 @@ function statusLabel(status: AppProvider['status']): string {
 .add-btn-oauth:hover { background: var(--bd); }
 .codex-status { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
 .codex-line { margin: 0; font-size: 12px; color: var(--muted); }
+.codex-link { color: var(--blue); text-decoration: underline; }
+.codex-link:hover { color: var(--blue2); }
 .codex-error { color: var(--err); }
 .codex-actions { display: flex; gap: 6px; }
 .add-btn {
