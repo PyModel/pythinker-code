@@ -1,5 +1,7 @@
 export default {
   title: 'Settings',
+  /** Sidebar control that leaves the settings route and restores the session list. */
+  backToSessions: 'Back to sessions',
   groups: {
     basics: 'Basics',
     capabilities: 'Agent capabilities',
