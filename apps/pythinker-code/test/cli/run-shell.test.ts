@@ -495,6 +495,34 @@ describe('runShell', () => {
     });
   });
 
+  it('surfaces an invalid target config as an error, not silently', async () => {
+    mocks.loadTuiConfig.mockResolvedValue(tuiConfig());
+    mocks.harnessGetConfig.mockRejectedValue(
+      new Error('Invalid configuration in ~/.pythinker-code/config.toml'),
+    );
+
+    // A broken config.toml must fail loudly before the TUI starts — otherwise the
+    // user never learns their config is broken.
+    await expect(
+      runShell(
+        {
+          session: undefined,
+          continue: false,
+          rewindFiles: undefined,
+          yolo: false,
+          auto: false,
+          plan: false,
+          model: undefined,
+          outputFormat: undefined,
+          prompt: undefined,
+          skillsDirs: [],
+        },
+        '1.2.3-test',
+      ),
+    ).rejects.toThrow('Invalid configuration');
+    expect(mocks.tuiStart).not.toHaveBeenCalled();
+  });
+
   it('closes the harness when TUI startup fails', async () => {
     mocks.loadTuiConfig.mockResolvedValue(tuiConfig());
     mocks.tuiStart.mockRejectedValue(new Error('boom'));

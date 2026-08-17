@@ -14,7 +14,7 @@ Download the installer for your platform from the
 
 | Platform | File |
 | --- | --- |
-| macOS | `Pythinker-<version>.dmg` |
+| macOS | `Pythinker-<version>-arm64.dmg` |
 | Windows | `Pythinker-<version>-x64-Setup.exe` |
 
 - **macOS**: open the DMG and drag **Pythinker** into `Applications`.
@@ -26,7 +26,7 @@ There is no Linux desktop distribution at this time. On Linux, use the
 
 ::: tip Unsigned builds
 If a release is published without code-signing credentials, macOS Gatekeeper or Windows SmartScreen
-shows a warning at first launch. Signed builds do not show this warning.
+shows a warning at first launch. A signed build is much less likely to show one.
 :::
 
 ## First launch
@@ -45,7 +45,8 @@ For the directory layout, see [Data locations](../configuration/data-locations.m
 
 - Closing the window **hides** it. The Host continues to run and your session stays alive.
 - The tray icon menu has two items: **Open Pythinker** shows the window again, and **Quit** stops
-  the Host and closes the application. The tray icon animates while the agent works.
+  the Host and closes the application. The tray icon animates while the Host starts, and becomes
+  static when the Host is ready.
 - The window stays on the local Host origin. `http` and `https` links open in your system browser.
 
 ## Updates

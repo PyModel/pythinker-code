@@ -90,6 +90,13 @@ interface InitMainTuiDriver extends StartupDriver {
   initMainTui(): Promise<boolean>;
 }
 
+interface StartFailureDriver extends StartupDriver {
+  start(): Promise<void>;
+  startEventLoop(): void;
+  initMainTui(): Promise<boolean>;
+  terminalFocusTrackingDispose?: () => void;
+}
+
 interface PresentationDriver extends StartupDriver {
   readonly presentation: TuiPresentation;
   startEventLoop(): void;
@@ -2031,4 +2038,36 @@ describe('footer update status poll', () => {
       rmSync(home, { recursive: true, force: true });
     }
   }, 30_000);
+
+  it('disposes terminal tracking when startup fails', async () => {
+    const harness = makeHarness();
+    const driver = makeDriver(harness, makeStartupInput()) as unknown as StartFailureDriver;
+    // pi-tui start/stop and focus tracking touch the real TTY — stub the I/O.
+    vi.spyOn(driver.state.ui, 'start').mockImplementation(() => {});
+    vi.spyOn(driver.state.ui, 'stop').mockImplementation(() => {});
+    vi.spyOn(driver.state.terminal, 'write').mockImplementation(() => {});
+    vi.spyOn(driver, 'initMainTui').mockRejectedValue(new Error('resume boom'));
+
+    // startEventLoop() only installs focus tracking once the terminal reports a
+    // width, so give it one — otherwise there is nothing to dispose and the
+    // assertion below would hold no matter what the teardown does.
+    const stdoutColumns = Object.getOwnPropertyDescriptor(process.stdout, 'columns');
+    Object.defineProperty(process.stdout, 'columns', { configurable: true, value: 80 });
+    try {
+      driver.startEventLoop();
+      expect(driver.terminalFocusTrackingDispose).toBeDefined();
+
+      await expect(driver.start()).rejects.toThrow('resume boom');
+
+      // The focus tracking installed by startEventLoop() must be torn down before
+      // the error propagates — not left active after the process exits.
+      expect(driver.terminalFocusTrackingDispose).toBeUndefined();
+    } finally {
+      if (stdoutColumns === undefined) {
+        Reflect.deleteProperty(process.stdout, 'columns');
+      } else {
+        Object.defineProperty(process.stdout, 'columns', stdoutColumns);
+      }
+    }
+  });
 });

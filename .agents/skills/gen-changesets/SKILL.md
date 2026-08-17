@@ -9,7 +9,7 @@ description: Use when generating changesets in the pythinker-code repository, in
 
 - `@pymodel/pythinker-code`: the CLI
 
-All other `@pymodel/*` packages are treated as internal packages, including `@pymodel/pythinker-code-sdk`, `agent-core`, `kosong`, `kaos`, `pythinker-code-oauth`, `pythinker-telemetry`, and `migration-legacy`.
+All other `@pymodel/*` packages are treated as internal packages, including `@pymodel/pythinker-code-sdk`, `agent-core`, `kosong`, `kaos`, `pythinker-code-oauth`, and `pythinker-telemetry`.
 
 ## Core Rules
 
