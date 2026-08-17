@@ -29,7 +29,7 @@ export function useCodexLogin(onCompleted?: () => void | Promise<void>): UseCode
   const loginId = ref<string | undefined>(undefined);
   const loopback = ref(true);
   const state = ref<CodexLoginStatus['state'] | undefined>(undefined);
-  const error = ref('');
+  const errorMessage = ref('');
   let timer: ReturnType<typeof setInterval> | undefined;
 
   function stopPolling(): void {
@@ -44,7 +44,7 @@ export function useCodexLogin(onCompleted?: () => void | Promise<void>): UseCode
     if (status.state === 'pending') return;
     stopPolling();
     if (status.state === 'failed') {
-      error.value = status.message ?? '';
+      errorMessage.value = status.message ?? '';
       return;
     }
     if (status.state === 'completed') {
@@ -65,7 +65,7 @@ export function useCodexLogin(onCompleted?: () => void | Promise<void>): UseCode
 
   async function start(): Promise<void> {
     busy.value = true;
-    error.value = '';
+    errorMessage.value = '';
     try {
       const started = await getPythinkerWebApi().startCodexLogin();
       loginId.value = started.loginId;
@@ -76,7 +76,7 @@ export function useCodexLogin(onCompleted?: () => void | Promise<void>): UseCode
       stopPolling();
       timer = setInterval(() => void poll(), POLL_INTERVAL_MS);
     } catch (error) {
-      error.value = error instanceof Error ? error.message : String(error);
+      errorMessage.value = error instanceof Error ? error.message : String(error);
       state.value = 'failed';
     } finally {
       busy.value = false;
@@ -87,11 +87,11 @@ export function useCodexLogin(onCompleted?: () => void | Promise<void>): UseCode
     const id = loginId.value;
     if (id === undefined) return;
     busy.value = true;
-    error.value = '';
+    errorMessage.value = '';
     try {
       await settle(await getPythinkerWebApi().submitCodexLoginRedirect(id, redirectUrl));
     } catch (error) {
-      error.value = error instanceof Error ? error.message : String(error);
+      errorMessage.value = error instanceof Error ? error.message : String(error);
     } finally {
       busy.value = false;
     }
@@ -102,7 +102,7 @@ export function useCodexLogin(onCompleted?: () => void | Promise<void>): UseCode
     stopPolling();
     loginId.value = undefined;
     state.value = undefined;
-    error.value = '';
+    errorMessage.value = '';
     if (id === undefined) return;
     try {
       await getPythinkerWebApi().cancelCodexLogin(id);
@@ -118,7 +118,7 @@ export function useCodexLogin(onCompleted?: () => void | Promise<void>): UseCode
     loginId: readonly(loginId),
     loopback: readonly(loopback),
     state: readonly(state),
-    error: readonly(error),
+    error: readonly(errorMessage),
     start,
     submitRedirect,
     cancel,
