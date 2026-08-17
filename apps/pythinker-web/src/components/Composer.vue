@@ -749,7 +749,7 @@ function toggleDropdown(): void {
   if (dropdownOpen.value) {
     const rect = modelPillRef.value?.getBoundingClientRect();
     modelDropdownStyle.value = rect
-      ? { maxHeight: `${Math.min(360, Math.max(160, rect.top - 4 - 12))}px` }
+      ? { maxHeight: `${Math.min(360, Math.max(0, rect.top - 4 - 12))}px` }
       : {};
     permDropdownOpen.value = false;
     document.addEventListener('click', onDocClick, true);
