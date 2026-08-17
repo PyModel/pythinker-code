@@ -27,6 +27,7 @@ import type { CodexLoginStart, CodexLoginState, CodexLoginStatus } from '@pymode
 
 import { Disposable, InstantiationType, registerSingleton } from '../../di';
 import { ICoreProcessService } from '../coreProcess/coreProcess';
+import { ILogService } from '../logger/logger';
 import {
   CodexLoginInvalidCodeError,
   CodexLoginNotFoundError,
@@ -87,17 +88,26 @@ interface Attempt {
  */
 export class CodexLoginFlow {
   private attempt: Attempt | undefined;
+  private disposed = false;
 
   constructor(
     private readonly core: ICoreProcessService,
     private readonly deps: CodexLoginDeps = defaultDeps,
+    private readonly logger?: Pick<ILogService, 'error'>,
   ) {}
 
   async start(): Promise<CodexLoginStart> {
+    if (this.disposed) throw new Error('OpenAI Codex login flow is disposed.');
     this._discard('cancelled');
 
     const pkce = this.deps.createPkce();
     const callback = await this.deps.startCallbackServer(pkce.state);
+    if (this.disposed) {
+      callback.cancelWait();
+      callback.close();
+      throw new Error('OpenAI Codex login flow is disposed.');
+    }
+    if (this.attempt !== undefined) this._discard('cancelled');
     const expiresAtMs = this.deps.now() + LOGIN_TTL_MS;
     const attempt: Attempt = {
       id: randomUUID(),
@@ -191,6 +201,12 @@ export class CodexLoginFlow {
     return toStatus(attempt);
   }
 
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    this._discard('cancelled');
+  }
+
   private _require(loginId: string): Attempt {
     const attempt = this.attempt;
     if (attempt === undefined || attempt.id !== loginId) {
@@ -275,8 +291,9 @@ export class CodexLoginFlow {
         this._expire(attempt);
         return;
       }
+      this.logger?.error({ err: error }, 'OpenAI Codex login failed');
       attempt.state = 'failed';
-      attempt.message = error instanceof Error ? error.message : String(error);
+      attempt.message = 'OpenAI Codex login failed. Try again.';
       this._cleanup(attempt);
     }
   }
@@ -289,6 +306,7 @@ export class CodexLoginFlow {
     const config = await this.core.rpc.getPythinkerConfig({ reload: true });
     if (!this._isActive(attempt)) return undefined;
 
+    // Bridge the core PythinkerConfig shape to the OAuth package PlatformConfigShape.
     const shape = {
       ...config,
       providers: { ...config.providers },
@@ -308,6 +326,7 @@ export class CodexLoginFlow {
     // All five fields travel together: the patch is a deep merge, and leaving
     // `thinking` out drops the effort that `applyOpenAICodexOAuthConfig` just
     // picked.
+    // Bridge the OAuth config patch back to the core RPC PythinkerConfigPatch shape.
     await this.core.rpc.setPythinkerConfig({
       providers: shape.providers,
       models: shape.models,
@@ -350,9 +369,12 @@ export class CodexLoginService extends Disposable implements ICodexLoginService 
 
   private readonly flow: CodexLoginFlow;
 
-  constructor(@ICoreProcessService core: ICoreProcessService) {
+  constructor(
+    @ICoreProcessService core: ICoreProcessService,
+    @ILogService logger: ILogService,
+  ) {
     super();
-    this.flow = new CodexLoginFlow(core);
+    this.flow = this._register(new CodexLoginFlow(core, defaultDeps, logger));
   }
 
   start(): Promise<CodexLoginStart> {

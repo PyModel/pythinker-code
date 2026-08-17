@@ -33,6 +33,7 @@ describe('ConfigService', () => {
           max_context_size: 1000,
         },
       },
+      default_model: 'model_with_underscore',
     });
 
     // The record keys are user-chosen ids: renaming them would break the
@@ -54,6 +55,10 @@ describe('ConfigService', () => {
           maxContextSize: 1000,
         },
       },
+      defaultModel: 'model_with_underscore',
     });
+    expect(eventService.publish).toHaveBeenCalledWith(expect.objectContaining({
+      changedFields: ['providers', 'models', 'default_model'],
+    }));
   });
 });

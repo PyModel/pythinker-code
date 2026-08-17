@@ -81,13 +81,13 @@ function switchVariables(size: Exclude<SwitchSize, ''>): Record<string, string> 
 }
 
 const derivedSizes = [
-  ['.row', 'min-height', 34, {}],
-  ['.act', 'padding-top', 6, {}],
-  ['.act', 'padding-right', 12, {}],
-  ['.icon-btn', 'width', 24, {}],
-  ['.icon-btn', 'height', 24, {}],
-  ['.icon-btn svg', 'width', 15, {}],
-  ['.icon-btn svg', 'height', 15, {}],
+  ['.row', 'min-height', 34, ''],
+  ['.act', 'padding-top', 6, ''],
+  ['.act', 'padding-right', 12, ''],
+  ['.icon-btn', 'width', 24, ''],
+  ['.icon-btn', 'height', 24, ''],
+  ['.icon-btn svg', 'width', 15, ''],
+  ['.icon-btn svg', 'height', 15, ''],
   ['.switch', 'width', 40, 'base'],
   ['.switch', 'height', 22, 'base'],
   ['.switch.sm', 'width', 30, 'small'],
@@ -145,7 +145,7 @@ describe('settings design tokens', () => {
       expect(resolvePx(value, 14, variables)).toBeCloseTo(expected, 5);
     }
 
-    expect(resolvePx(declaration('.switch.on .knob', 'transform').match(/^translateX\((.*)\)$/u)![1]!, 14, switchVariables('base'))).toBeCloseTo(18, 5);
+    expect(transformDistance('.switch.on .knob', switchVariables('base'), 14)).toBeCloseTo(18, 5);
     expect(transformDistance('.switch.sm.on .knob', switchVariables('small'), 14)).toBeCloseTo(13, 5);
   });
 

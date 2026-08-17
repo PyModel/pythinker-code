@@ -42,6 +42,7 @@ export class WSBroadcastService extends Disposable implements IWSBroadcastServic
   private readonly _maxBufferSize: number;
   private readonly _journalDir: string;
   private readonly _turnTracker = new InFlightTurnTracker();
+  private closing = false;
 
   constructor(
     @IEventService eventService: IEventService,
@@ -62,7 +63,7 @@ export class WSBroadcastService extends Disposable implements IWSBroadcastServic
   }
 
   private _onEvent(event: Event): void {
-    if (this._store.isDisposed) return;
+    if (this.closing || this._store.isDisposed) return;
     const sid = extractSessionId(event);
     const evType = (event as { type?: string }).type ?? '<no-type>';
     if (!sid) {
@@ -239,10 +240,12 @@ export class WSBroadcastService extends Disposable implements IWSBroadcastServic
    * that remove the journal directory afterwards must await this instead.
    */
   async closeJournals(): Promise<void> {
+    this.closing = true;
     const states = [...this._sessions.values()];
     this._sessions.clear();
     await Promise.all(
       states.map(async (state) => {
+        await state.queue.catch(() => {});
         const journal = await state.ready.catch(() => undefined);
         await journal?.close().catch(() => {});
       }),

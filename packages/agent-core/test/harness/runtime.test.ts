@@ -699,7 +699,25 @@ max_context_size = 100000
       model: 'default-mock',
     });
     const agent = core.sessions.get(created.id)!.getReadyAgent('main')!;
-    (agent.context as unknown as { _tokenCount: number })._tokenCount = 37;
+    agent.context.appendLoopEvent({
+      type: 'step.begin',
+      uuid: 'step_context_token_count',
+      turnId: 'turn_context_token_count',
+      step: 1,
+    });
+    agent.context.appendLoopEvent({
+      type: 'step.end',
+      uuid: 'step_context_token_count',
+      turnId: 'turn_context_token_count',
+      step: 1,
+      usage: {
+        inputCacheRead: 1,
+        inputCacheCreation: 2,
+        inputOther: 30,
+        output: 4,
+      },
+      finishReason: 'end_turn',
+    });
 
     const [context, count] = await Promise.all([
       rpc.getContext({ sessionId: created.id, agentId: 'main' }),

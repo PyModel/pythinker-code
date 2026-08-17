@@ -625,7 +625,9 @@ describe('plan mode injection cadence', () => {
 });
 
 function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 function lastUserText(history: readonly { role: string; content: readonly unknown[] }[]): string {

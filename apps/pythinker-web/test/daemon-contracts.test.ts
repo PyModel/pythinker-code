@@ -133,13 +133,13 @@ describe('dynamic workflow daemon contracts', () => {
 describe('provider daemon contracts', () => {
   it('adds a provider through one config patch and reads it back', async () => {
     const provider = {
-      id: 'openai-responses',
+      id: 'openai_responses',
       type: 'openai_responses',
       base_url: 'https://api.example.test/v1',
       default_model: 'gpt_5-mini',
       has_api_key: true,
       status: 'connected',
-      models: ['openai-responses/gpt-5-mini'],
+      models: ['openai_responses/gpt_5-mini'],
     };
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(okEnvelope({}))
@@ -151,14 +151,14 @@ describe('provider daemon contracts', () => {
       apiKey: 'sk-test',
       baseUrl: 'https://api.example.test/v1',
       defaultModel: 'gpt_5-mini',
-    })).resolves.toMatchObject({ id: 'openai-responses', defaultModel: 'gpt_5-mini' });
+    })).resolves.toMatchObject({ id: 'openai_responses', defaultModel: 'gpt_5-mini' });
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls[0]![0]).toBe('http://example.test:58627/api/v1/config');
     expect(fetchMock.mock.calls[0]![1]).toMatchObject({ method: 'POST' });
     expect(JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string)).toEqual({
       providers: {
-        'openai-responses': {
+        openai_responses: {
           type: 'openai_responses',
           api_key: 'sk-test',
           base_url: 'https://api.example.test/v1',
@@ -166,16 +166,16 @@ describe('provider daemon contracts', () => {
         },
       },
       models: {
-        'openai-responses/gpt-5-mini': {
-          provider: 'openai-responses',
+        'openai_responses/gpt_5-mini': {
+          provider: 'openai_responses',
           model: 'gpt_5-mini',
           max_context_size: 262_144,
         },
       },
-      default_model: 'openai-responses/gpt-5-mini',
+      default_model: 'openai_responses/gpt_5-mini',
     });
     expect(fetchMock.mock.calls[1]![0]).toBe(
-      'http://example.test:58627/api/v1/providers/openai-responses',
+      'http://example.test:58627/api/v1/providers/openai_responses',
     );
     expect(fetchMock.mock.calls[1]![1]).toMatchObject({ method: 'GET' });
   });

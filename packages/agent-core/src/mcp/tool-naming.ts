@@ -6,7 +6,7 @@ const MCP_NAME_SEPARATOR = '__';
  * hash suffix so collisions remain extremely unlikely.
  */
 const MAX_QUALIFIED_LENGTH = 64;
-const MAX_HASH_SUFFIX_LENGTH = 10;
+const MAX_HASH_SUFFIX_LENGTH = 9;
 
 /**
  * Replace any character outside the safe ASCII set with `_`, then collapse
@@ -51,5 +51,5 @@ function stableHash8(input: string): string {
     hash ^= input.codePointAt(i)!;
     hash = Math.trunc(Math.imul(hash, 0x01000193));
   }
-  return hash.toString(16).padStart(8, '0');
+  return (hash >>> 0).toString(16).padStart(8, '0');
 }

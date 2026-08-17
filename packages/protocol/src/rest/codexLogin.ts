@@ -13,16 +13,18 @@
  */
 import { z } from 'zod';
 
+import { isoDateTimeSchema } from '../time';
+
 export const codexLoginStartSchema = z.object({
   login_id: z.string().min(1),
-  authorize_url: z.string().min(1),
+  authorize_url: z.string().url(),
   /**
    * `true` when the local callback listener owns port 1455, so the browser
    * redirect finishes the login on its own. `false` means the port was taken,
    * and the user has to paste the redirect URL back.
    */
   loopback: z.boolean(),
-  expires_at: z.string().min(1),
+  expires_at: isoDateTimeSchema,
 });
 export type CodexLoginStart = z.infer<typeof codexLoginStartSchema>;
 

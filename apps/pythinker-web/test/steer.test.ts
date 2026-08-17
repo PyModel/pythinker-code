@@ -280,11 +280,12 @@ describe('steerPrompt', () => {
 // fileIds stay valid and a text-only resend would silently drop the images.
 describe('undo', () => {
   it('returns the removed prompt text with no attachments for a plain prompt', async () => {
-    const { client } = await setup();
+    const { api, client } = await setup();
     await client.createSession('/repo');
     await client.sendPrompt('first');
 
     expect(await client.undo(1)).toEqual({ text: 'first', attachments: [] });
+    expect(api.undoSession).toHaveBeenCalledWith('sess_1', 1);
   });
 
   it('returns the attachment fileIds of the removed prompt', async () => {

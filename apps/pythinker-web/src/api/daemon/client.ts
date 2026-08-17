@@ -1219,9 +1219,9 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
     baseUrl?: string;
     defaultModel?: string;
   }): Promise<AppProvider> {
-    const providerId = input.type.replaceAll('_', '-');
+    const providerId = input.type;
     const modelId = input.defaultModel ?? providerId;
-    const modelAlias = `${providerId}/${modelId}`.replaceAll('_', '-');
+    const modelAlias = `${providerId}/${modelId}`;
     await this.http.post('/config', {
       providers: {
         [providerId]: {

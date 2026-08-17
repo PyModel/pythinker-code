@@ -17,22 +17,18 @@ import { errEnvelope, okEnvelope } from '../envelope';
 import { defineRoute } from '../middleware/defineRoute';
 import { parseActionSuffix } from './action-suffix';
 
+type RouteHandler = (...args: never[]) => unknown;
+
 interface CodexLoginRouteHost {
   get(
     path: string,
     options: { preHandler: unknown[]; schema?: Record<string, unknown> } | undefined,
-    handler: (
-      req: { id: string; params: unknown },
-      reply: { send(payload: unknown): unknown },
-    ) => Promise<void> | void,
+    handler: RouteHandler,
   ): unknown;
   post(
     path: string,
     options: { preHandler: unknown[]; schema?: Record<string, unknown> },
-    handler: (
-      req: { id: string; body: unknown; params: unknown },
-      reply: { send(payload: unknown): unknown },
-    ) => Promise<void> | void,
+    handler: RouteHandler,
   ): unknown;
 }
 
@@ -65,7 +61,7 @@ export function registerCodexLoginRoutes(
   app.post(
     startRoute.path,
     startRoute.options,
-    startRoute.handler as Parameters<CodexLoginRouteHost['post']>[2],
+    startRoute.handler,
   );
 
   const statusRoute = defineRoute(
@@ -95,7 +91,7 @@ export function registerCodexLoginRoutes(
   app.get(
     statusRoute.path,
     statusRoute.options,
-    statusRoute.handler as Parameters<CodexLoginRouteHost['get']>[2],
+    statusRoute.handler,
   );
 
   const actionRoute = defineRoute(
@@ -154,7 +150,7 @@ export function registerCodexLoginRoutes(
   app.post(
     actionRoute.path,
     actionRoute.options,
-    actionRoute.handler as Parameters<CodexLoginRouteHost['post']>[2],
+    actionRoute.handler,
   );
 }
 

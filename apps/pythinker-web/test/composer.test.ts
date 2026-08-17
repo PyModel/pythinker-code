@@ -74,7 +74,9 @@ async function openModelList(wrapper: ReturnType<typeof mountComposer>): Promise
 }
 
 function waitForCompositionEndTimer(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 0));
+  return new Promise((resolve) => {
+    setTimeout(resolve, 0);
+  });
 }
 
 /** The first capture of `pattern` in `source`. Throws when nothing matches, so a
@@ -144,11 +146,22 @@ describe('Composer styling', () => {
     expect(dividerRule).toMatch(/height:\s*16px;/u);
     // Rendered, not source order: the divider has to be the attach button's next
     // sibling inside the same toolbar, which a source-wide match cannot show.
-    const wrapper = mountComposer({ uploadImage: async () => ({ fileId: 'file_1' }) });
+    const wrapper = mountComposer({
+      sessionId: 'sess_with_capabilities',
+      uploadImage: async () => ({ fileId: 'file_1' }),
+    });
     const attach = wrapper.get('.attach-btn').element;
     const divider = wrapper.get('.toolbar-divider').element;
     expect(attach.nextElementSibling).toBe(divider);
     expect(divider.parentElement).toBe(attach.parentElement);
+  });
+
+  it('does not render an orphan toolbar divider without a session', () => {
+    const wrapper = mountComposer({ uploadImage: async () => ({ fileId: 'file_1' }) });
+
+    expect(wrapper.find('.attach-btn').exists()).toBe(true);
+    expect(wrapper.find('.toolbar-divider').exists()).toBe(false);
+    expect(wrapper.find('.capability-control').exists()).toBe(false);
   });
 
   it('pads the send button around a 20px glyph and keeps the accent fill', () => {

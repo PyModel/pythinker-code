@@ -56,7 +56,7 @@ const sessionIdParamSchema = z.object({
 const SNAPSHOT_MESSAGE_PAGE_SIZE = 100;
 
 /** Bounded watermark-stability retries (see module header). */
-const MAX_ASSEMBLY_ATTEMPTS = 3;
+export const MAX_ASSEMBLY_ATTEMPTS = 3;
 
 export function registerSnapshotRoutes(
   app: SnapshotRouteHost,

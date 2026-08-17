@@ -35,6 +35,7 @@ export function useCodexLogin(onCompleted?: () => void | Promise<void>): UseCode
   const state = ref<CodexLoginStatus['state'] | undefined>(undefined);
   const errorMessage = ref('');
   let timer: ReturnType<typeof setInterval> | undefined;
+  let activePopup: Window | undefined;
   let disposed = false;
 
   function stopPolling(): void {
@@ -50,6 +51,11 @@ export function useCodexLogin(onCompleted?: () => void | Promise<void>): UseCode
     popupBlocked.value = false;
   }
 
+  function closePopup(): void {
+    activePopup?.close();
+    activePopup = undefined;
+  }
+
   async function settle(id: string, status: Readonly<CodexLoginStatus>): Promise<void> {
     if (disposed || loginId.value !== id || state.value !== 'pending') return;
     state.value = status.state;
@@ -57,10 +63,12 @@ export function useCodexLogin(onCompleted?: () => void | Promise<void>): UseCode
     stopPolling();
     if (status.state === 'failed') {
       errorMessage.value = status.message ?? '';
+      closePopup();
       clearAttempt();
       return;
     }
     if (status.state === 'completed') {
+      activePopup = undefined;
       try {
         await onCompleted?.();
       } finally {
@@ -87,32 +95,44 @@ export function useCodexLogin(onCompleted?: () => void | Promise<void>): UseCode
     errorMessage.value = '';
     state.value = undefined;
     clearAttempt();
+    let popup: Window | null = null;
+    try {
+      popup = typeof window === 'undefined' ? null : window.open('about:blank', '_blank');
+      if (popup !== null) {
+        popup.opener = null;
+        activePopup = popup;
+      }
+    } catch {
+      popup?.close();
+      popup = null;
+    }
+    popupBlocked.value = popup === null;
     try {
       const api = getPythinkerWebApi();
       const started = await api.startCodexLogin();
       if (disposed) {
+        closePopup();
         void api.cancelCodexLogin(started.loginId).catch(() => {});
         return;
       }
       loginId.value = started.loginId;
       authorizeUrl.value = started.authorizeUrl;
-      popupBlocked.value = false;
       loopback.value = started.loopback;
       state.value = 'pending';
 
-      let popup: Window | null = null;
-      try {
-        popup = typeof window === 'undefined'
-          ? null
-          : window.open(started.authorizeUrl, '_blank', 'noopener,noreferrer');
-      } catch {
-        popup = null;
+      if (popup !== null) {
+        try {
+          popup.location.href = started.authorizeUrl;
+        } catch {
+          closePopup();
+          popupBlocked.value = true;
+        }
       }
-      popupBlocked.value = popup === null;
 
       stopPolling();
       timer = setInterval(() => void poll(), POLL_INTERVAL_MS);
     } catch (error) {
+      closePopup();
       if (!disposed) {
         errorMessage.value = error instanceof Error ? error.message : String(error);
         state.value = 'failed';
@@ -141,6 +161,7 @@ export function useCodexLogin(onCompleted?: () => void | Promise<void>): UseCode
   async function cancel(): Promise<void> {
     const id = loginId.value;
     stopPolling();
+    closePopup();
     clearAttempt();
     state.value = undefined;
     errorMessage.value = '';
@@ -155,6 +176,7 @@ export function useCodexLogin(onCompleted?: () => void | Promise<void>): UseCode
   onUnmounted(() => {
     disposed = true;
     stopPolling();
+    closePopup();
     const id = loginId.value;
     if (id !== undefined && state.value === 'pending') {
       void getPythinkerWebApi().cancelCodexLogin(id).catch(() => {});

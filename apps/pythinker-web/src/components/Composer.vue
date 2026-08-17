@@ -1079,7 +1079,7 @@ function selectModel(modelId: string): void {
           >
             <svg class="attach-icon" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="M8 3v10M3 8h10"/></svg>
           </button>
-          <span v-if="hasUpload" class="toolbar-divider" aria-hidden="true" />
+          <span v-if="hasUpload && sessionId" class="toolbar-divider" aria-hidden="true" />
           <CapabilityMenu v-if="sessionId" :session-id="sessionId" />
 
           <!-- Permission pill — click to open dropdown -->

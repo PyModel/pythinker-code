@@ -8,12 +8,16 @@ import type {
   SetPythinkerConfigPayload,
 } from '../../src';
 import {
-  CodexLoginFlow,
   CodexLoginNotFoundError,
+  type ICoreProcessService,
+  type ILogService,
+} from '../../src/services';
+import {
+  CodexLoginFlow,
+  CodexLoginService,
   pickDefaultModel,
   type CodexLoginDeps,
-  type ICoreProcessService,
-} from '../../src/services';
+} from '../../src/services/codexLogin/codexLoginService';
 
 const MODELS = [
   { id: 'gpt-5', contextLength: 256_000, supportsReasoning: true, supportsImageIn: true, supportsVideoIn: false },
@@ -111,6 +115,18 @@ function emptyConfig(): PythinkerConfig {
   return { providers: {} } as PythinkerConfig;
 }
 
+function makeLogger(): ILogService {
+  const logger: ILogService = {
+    _serviceBrand: undefined,
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+    child: () => logger,
+  };
+  return logger;
+}
+
 function deferred<T>(): {
   promise: Promise<T>;
   resolve: (value: T) => void;
@@ -202,20 +218,27 @@ describe('CodexLoginFlow', () => {
     ).rejects.toThrow(/different login/u);
   });
 
-  it('fails the attempt when the token exchange fails, and keeps the message', async () => {
+  it('reports a safe message and logs the token exchange error', async () => {
     const configRef = { current: emptyConfig() };
     const { core, setCalls } = makeCore(configRef);
+    const providerError = new Error('OpenAI Codex token exchange failed (HTTP 400): provider detail');
     const { deps } = makeDeps({
       exchangeCode: async () => {
-        throw new Error('OpenAI Codex token exchange failed (HTTP 400).');
+        throw providerError;
       },
     });
-    const flow = new CodexLoginFlow(core, deps);
+    const logger = { error: vi.fn() };
+    const flow = new CodexLoginFlow(core, deps, logger);
 
     const start = await flow.start();
     const status = await flow.submitCode(start.login_id, 'code-only');
     expect(status.state).toBe('failed');
-    expect(status.message).toContain('HTTP 400');
+    expect(status.message).toBe('OpenAI Codex login failed. Try again.');
+    expect(status.message).not.toContain('provider detail');
+    expect(logger.error).toHaveBeenCalledWith(
+      { err: providerError },
+      'OpenAI Codex login failed',
+    );
     expect(setCalls).toEqual([]);
   });
 
@@ -237,7 +260,7 @@ describe('CodexLoginFlow', () => {
     const status = await flow.submitCode(start.login_id, 'code-only');
 
     expect(status.state).toBe('failed');
-    expect(status.message).toContain('config write failed');
+    expect(status.message).toBe('OpenAI Codex login failed. Try again.');
     expect(removeCalls).toEqual([]);
     expect(configRef.current).toEqual(before);
   });
@@ -346,6 +369,65 @@ describe('CodexLoginFlow', () => {
     // The superseded attempt is gone, so its id no longer resolves.
     expect(() => flow.status(first.login_id)).toThrow(CodexLoginNotFoundError);
     flow.cancel(second.login_id);
+  });
+
+  it('releases the callback listener when concurrent starts finish binding', async () => {
+    const configRef = { current: emptyConfig() };
+    const { core } = makeCore(configRef);
+    const firstCallback = makeCallback(false);
+    const secondCallback = makeCallback(false);
+    const firstBind = deferred<typeof firstCallback.server>();
+    const secondBind = deferred<typeof secondCallback.server>();
+    let bindCount = 0;
+    const { deps } = makeDeps({
+      startCallbackServer: async () => {
+        bindCount += 1;
+        return (bindCount === 1 ? firstBind.promise : secondBind.promise) as never;
+      },
+    });
+    const flow = new CodexLoginFlow(core, deps);
+
+    const firstStart = flow.start();
+    const secondStart = flow.start();
+    firstBind.resolve(firstCallback.server);
+    const first = await firstStart;
+    secondBind.resolve(secondCallback.server);
+    const second = await secondStart;
+
+    expect(firstCallback.closed()).toBe(1);
+    expect(firstCallback.waitCancelled()).toBe(1);
+    expect(() => flow.status(first.login_id)).toThrow(CodexLoginNotFoundError);
+    flow.cancel(second.login_id);
+  });
+
+  it('closes a callback server that finishes binding after disposal', async () => {
+    const configRef = { current: emptyConfig() };
+    const { core } = makeCore(configRef);
+    const callback = makeCallback(false);
+    const bind = deferred<typeof callback.server>();
+    const { deps } = makeDeps({
+      startCallbackServer: async () => bind.promise as never,
+    });
+    const flow = new CodexLoginFlow(core, deps);
+
+    const start = flow.start();
+    flow.dispose();
+    bind.resolve(callback.server);
+
+    await expect(start).rejects.toThrow('disposed');
+    expect(callback.closed()).toBe(1);
+    expect(callback.waitCancelled()).toBe(1);
+  });
+
+  it('registers the flow for service disposal', () => {
+    const configRef = { current: emptyConfig() };
+    const { core } = makeCore(configRef);
+    const dispose = vi.spyOn(CodexLoginFlow.prototype, 'dispose');
+    const service = new CodexLoginService(core, makeLogger());
+
+    service.dispose();
+
+    expect(dispose).toHaveBeenCalledOnce();
   });
 
   it('returns expired before exchanging and releases the callback wait', async () => {

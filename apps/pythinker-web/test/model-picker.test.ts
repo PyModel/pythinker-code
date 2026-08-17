@@ -227,8 +227,13 @@ describe('ModelPicker capability badges', () => {
 
     const row = wrapper.get('.model-row');
     expect(row.findAll('.cap-badge')).toHaveLength(2);
+    expect(row.get('.caps').attributes('role')).toBe('group');
     expect(row.find('.caps').text()).not.toContain(',');
     expect(row.findAll('.cap-badge svg')).toHaveLength(2);
+    expect(row.findAll('.cap-badge').map((badge) => badge.attributes('role'))).toEqual([
+      'img',
+      'img',
+    ]);
     expect(row.find('[data-capability="image_in"]').attributes('title')).toBe('Image input');
     expect(row.find('[data-capability="thinking"]').attributes('title')).toBe('Thinking');
   });

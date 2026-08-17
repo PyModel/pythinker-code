@@ -208,8 +208,7 @@ describe('daemon capability contracts', () => {
     const bodies = fetchMock.mock.calls.map((call) => JSON.parse((call[1] as RequestInit).body as string));
     expect(bodies[0]).toEqual({ agent_config: { tools: ['Read'] } });
     expect(bodies[1]).toEqual({ agent_config: { mcp_servers: ['mcp_1'] } });
-    expect(bodies[2]).not.toHaveProperty('agent_config.tools');
-    expect(bodies[2]).not.toHaveProperty('agent_config.mcp_servers');
+    expect(bodies[2]).toEqual({});
   });
 });
 
@@ -240,7 +239,21 @@ describe('CapabilityMenu', () => {
     expect(panel?.textContent).not.toContain('Tools');
   });
 
-  it('toggling an MCP server calls updateSession with the new server list', async () => {
+  it('announces disabled skill rows as descriptions, not toggles', async () => {
+    const wrapper = mountMenu();
+    await wrapper.get('.capability-trigger').trigger('click');
+    await flushPromises();
+    const skills = [...document.body.querySelectorAll('.menu-row')]
+      .find((row) => row.textContent?.includes('Skills')) as HTMLElement;
+    skills.click();
+    await nextTick();
+
+    const row = document.body.querySelector('.skill-row');
+    expect(row?.textContent).toContain('review');
+    expect(row?.hasAttribute('aria-label')).toBe(false);
+  });
+
+  it('toggling an MCP server updates capabilities with the new server list', async () => {
     client().activeSessionCapabilities.value = { mcpServers: ['mcp_1', 'mcp_2'] };
     const wrapper = mountMenu();
     await wrapper.get('.capability-trigger').trigger('click');
@@ -250,7 +263,7 @@ describe('CapabilityMenu', () => {
     toggle.click();
     await flushPromises();
 
-    expect(client().updateSession).toHaveBeenCalledWith('session_1', { mcpServers: ['mcp_2'] });
+    expect(client().updateCapabilities).toHaveBeenCalledWith({ mcpServers: ['mcp_2'] });
   });
 
   it('restores the previous toggle state when updateSession rejects', async () => {

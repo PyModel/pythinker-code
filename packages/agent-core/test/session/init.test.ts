@@ -946,8 +946,10 @@ describe('Session.init', () => {
       await session.resume();
       await session.mcp.waitForInitialLoad();
       const resumed = await session.ensureAgentResumed('main');
-      expect(resumed.tools.loopTools.map((tool) => tool.name)).toContain('Read');
-      expect(resumed.tools.loopTools.map((tool) => tool.name)).toContain('mcp__github__echo');
+      const toolNames = resumed.tools.loopTools.map((tool) => tool.name);
+      expect(toolNames).toContain('Read');
+      expect(toolNames).toContain('mcp__github__echo');
+      expect(toolNames).not.toContain('Bash');
     } finally {
       await session.close();
     }

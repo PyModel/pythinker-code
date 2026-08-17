@@ -25,6 +25,7 @@ import type { Event, SessionSnapshotResponse } from '@pymodel/protocol';
 import { IEventService, IPromptService, PromptService } from '@pymodel/agent-core';
 
 import { IRestGateway, IWSBroadcastService, startServer, type RunningServer } from '../src';
+import { MAX_ASSEMBLY_ATTEMPTS } from '../src/routes/snapshot';
 import { WSBroadcastService } from '#/services/gateway/wsBroadcastService';
 
 let tmpDir: string;
@@ -45,6 +46,7 @@ afterEach(async () => {
     // ignore
   }
   server = undefined;
+  vi.restoreAllMocks();
   rmSync(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   rmSync(bridgeHome, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
@@ -260,14 +262,13 @@ describe('GET /api/v1/sessions/{sid}/snapshot (v3 initial sync)', () => {
       inFlightTurn: null,
     });
     const drainSpy = vi.spyOn(broadcast, 'getSnapshotState').mockImplementation(nextState);
-    const peekSpy = vi.fn(nextState);
-    Object.assign(broadcast, { peekSnapshotState: peekSpy });
+    const peekSpy = vi.spyOn(broadcast, 'peekSnapshotState').mockImplementation(nextState);
 
     const { env } = await getSnapshot(r, sid);
 
     expect(env.code).toBe(0);
     expect(drainSpy).toHaveBeenCalledOnce();
-    expect(peekSpy).toHaveBeenCalledTimes(3);
-    expect(env.data!.as_of_seq).toBe(4);
+    expect(peekSpy).toHaveBeenCalledTimes(MAX_ASSEMBLY_ATTEMPTS);
+    expect(env.data!.as_of_seq).toBe(MAX_ASSEMBLY_ATTEMPTS + 1);
   });
 });

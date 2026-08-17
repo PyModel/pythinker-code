@@ -34,6 +34,14 @@ function mountLogin(): { wrapper: VueWrapper; login: UseCodexLogin } {
   return { wrapper, login };
 }
 
+function popupWindow(): Window & { close: ReturnType<typeof vi.fn> } {
+  return {
+    opener: window,
+    location: { href: 'about:blank' },
+    close: vi.fn(),
+  } as unknown as Window & { close: ReturnType<typeof vi.fn> };
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
   vi.clearAllMocks();
@@ -54,7 +62,7 @@ describe('useCodexLogin', () => {
 
     await login.start();
 
-    expect(open).toHaveBeenCalledWith(authorizeUrl, '_blank', 'noopener,noreferrer');
+    expect(open).toHaveBeenCalledWith('about:blank', '_blank');
     expect(login.authorizeUrl.value).toBe(authorizeUrl);
     expect(login.popupBlocked.value).toBe(true);
     expect(login.state.value).toBe('pending');
@@ -75,10 +83,13 @@ describe('useCodexLogin', () => {
         resolveStart = resolve;
       }),
     );
-    const open = vi.spyOn(window, 'open').mockReturnValue({} as Window);
+    const popup = popupWindow();
+    const open = vi.spyOn(window, 'open').mockReturnValue(popup);
     const { wrapper, login } = mountLogin();
 
     const first = login.start();
+    expect(open).toHaveBeenCalledWith('about:blank', '_blank');
+    expect(popup.opener).toBeNull();
     await flushPromises();
     await login.start();
 
@@ -92,9 +103,54 @@ describe('useCodexLogin', () => {
     });
     await first;
     expect(login.state.value).toBe('pending');
+    expect(popup.location.href).toContain('state=t');
 
     await login.cancel();
+    expect(popup.close).toHaveBeenCalledOnce();
     wrapper.unmount();
+  });
+
+  it('closes the blank popup when the start request fails', async () => {
+    const popup = popupWindow();
+    vi.spyOn(window, 'open').mockReturnValue(popup);
+    mockApi.startCodexLogin.mockRejectedValue(new Error('daemon unavailable'));
+    const { wrapper, login } = mountLogin();
+
+    await login.start();
+
+    expect(popup.close).toHaveBeenCalledOnce();
+    expect(login.state.value).toBe('failed');
+    expect(login.error.value).toBe('daemon unavailable');
+    wrapper.unmount();
+  });
+
+  it('closes a blank popup when the composable is disposed during start', async () => {
+    let resolveStart!: (value: Readonly<{
+      loginId: string;
+      authorizeUrl: string;
+      loopback: boolean;
+      expiresAt: string;
+    }>) => void;
+    mockApi.startCodexLogin.mockReturnValue(new Promise((resolve) => {
+      resolveStart = resolve;
+    }));
+    mockApi.cancelCodexLogin.mockResolvedValue({ loginId: 'login_disposed', state: 'cancelled' });
+    const popup = popupWindow();
+    vi.spyOn(window, 'open').mockReturnValue(popup);
+    const { wrapper, login } = mountLogin();
+
+    const start = login.start();
+    wrapper.unmount();
+    resolveStart({
+      loginId: 'login_disposed',
+      authorizeUrl: 'https://auth.openai.com/oauth/authorize?state=disposed',
+      loopback: true,
+      expiresAt: '2026-08-17T00:10:00.000Z',
+    });
+    await start;
+
+    expect(popup.close).toHaveBeenCalledOnce();
+    expect(mockApi.cancelCodexLogin).toHaveBeenCalledWith('login_disposed');
   });
 
   it('ignores a redirect result that arrives after cancellation', async () => {
@@ -111,7 +167,8 @@ describe('useCodexLogin', () => {
         resolveSubmit = resolve;
       }),
     );
-    vi.spyOn(window, 'open').mockReturnValue({} as Window);
+    const popup = popupWindow();
+    vi.spyOn(window, 'open').mockReturnValue(popup);
     const { wrapper, login } = mountLogin();
 
     await login.start();
@@ -124,6 +181,7 @@ describe('useCodexLogin', () => {
 
     expect(login.state.value).toBeUndefined();
     expect(mockApi.cancelCodexLogin).toHaveBeenCalledWith('login_3');
+    expect(popup.close).toHaveBeenCalledOnce();
     wrapper.unmount();
   });
 });

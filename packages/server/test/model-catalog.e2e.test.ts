@@ -5,7 +5,12 @@ import { join } from 'node:path';
 import { pino } from 'pino';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { IModelCatalogService as ModelCatalogServiceShape } from '@pymodel/agent-core';
+import {
+  IModelCatalogService,
+  InstantiationService,
+  ServiceCollection,
+  type IModelCatalogService as ModelCatalogServiceShape,
+} from '@pymodel/agent-core';
 
 import { IRestGateway, startServer, type RunningServer, type ServerStartOptions } from '../src';
 import { registerModelCatalogRoutes } from '../src/routes/modelCatalog';
@@ -112,28 +117,31 @@ function seedCatalogConfig(): void {
 
 describe('model/provider catalog routes', () => {
   it('registers DELETE /providers/{provider_id} and removes through the service', async () => {
-    type DeleteHandler = (
-      req: { id: string; params: { provider_id: string } },
-      reply: { send(payload: unknown): unknown },
-    ) => Promise<void> | void;
+    type RouteHost = Parameters<typeof registerModelCatalogRoutes>[0];
+    type DeleteHandler = Parameters<RouteHost['delete']>[2];
     let deleteHandler: DeleteHandler = () => {
       throw new Error('delete route was not registered');
     };
-    const app = {
+    const app: RouteHost = {
       get: vi.fn(),
       post: vi.fn(),
-      delete: vi.fn((path: string, _options: unknown, handler: DeleteHandler) => {
+      delete: vi.fn((path, _options, handler) => {
         expect(path).toBe('/providers/:provider_id');
         deleteHandler = handler;
       }),
-    } as unknown as Parameters<typeof registerModelCatalogRoutes>[0];
+    };
     const removeProvider = vi.fn(async () => undefined);
-    const service = { removeProvider } as unknown as ModelCatalogServiceShape;
-    const ix = {
-      invokeFunction: (
-        fn: (accessor: { get(): ModelCatalogServiceShape }) => unknown,
-      ) => fn({ get: () => service }),
-    } as unknown as Parameters<typeof registerModelCatalogRoutes>[1];
+    const service = {
+      _serviceBrand: undefined,
+      listModels: async () => [],
+      listProviders: async () => [],
+      getProvider: async () => { throw new Error('not used'); },
+      removeProvider,
+      setDefaultModel: async () => { throw new Error('not used'); },
+    } satisfies ModelCatalogServiceShape;
+    const ix = new InstantiationService(
+      new ServiceCollection([IModelCatalogService, service]),
+    );
     registerModelCatalogRoutes(app, ix);
     const send = vi.fn();
 
@@ -149,6 +157,7 @@ describe('model/provider catalog routes', () => {
       data: { deleted: true },
       request_id: 'req_delete',
     });
+    ix.dispose();
   });
 
   it('lists configured models as selectable aliases', async () => {

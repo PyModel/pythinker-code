@@ -1,6 +1,6 @@
 
 
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { mkdtemp, mkdir, open, rm, type FileHandle } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -166,6 +166,7 @@ beforeEach(() => {
 
 afterEach(() => {
   ix.dispose();
+  vi.restoreAllMocks();
   for (const dir of tmpHomeDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
@@ -183,6 +184,8 @@ describe('WSBroadcastService (WS transport pump)', () => {
 
   beforeEach(async () => {
     homeDir = await mkdtemp(join(tmpdir(), 'pythinker-ws-broadcast-'));
+    vi.mocked(open).mockClear();
+    vi.mocked(mkdir).mockClear();
   });
 
   afterEach(async () => {
@@ -228,8 +231,6 @@ describe('WSBroadcastService (WS transport pump)', () => {
     it('opens one file handle for several appends', async () => {
       const openSpy = vi.mocked(open);
       const mkdirSpy = vi.mocked(mkdir);
-      openSpy.mockClear();
-      mkdirSpy.mockClear();
       const sessionId = 'sid_handle_reuse';
       const journal = await SessionEventJournal.open(journalPath(sessionId), testLogger);
 
@@ -244,7 +245,6 @@ describe('WSBroadcastService (WS transport pump)', () => {
 
     it('keeps live-handle writes visible to readers and durable across reopen', async () => {
       const openSpy = vi.mocked(open);
-      openSpy.mockClear();
       const sessionId = 'sid_handle_durability';
       const journal = await SessionEventJournal.open(journalPath(sessionId), testLogger);
 
@@ -271,7 +271,6 @@ describe('WSBroadcastService (WS transport pump)', () => {
 
     it('closes idempotently with or without an open handle', async () => {
       const openSpy = vi.mocked(open);
-      openSpy.mockClear();
       const unopened = await SessionEventJournal.open(journalPath('sid_never_opened'), testLogger);
       await expect(unopened.close()).resolves.toBeUndefined();
       await expect(unopened.close()).resolves.toBeUndefined();
@@ -290,7 +289,6 @@ describe('WSBroadcastService (WS transport pump)', () => {
 
     it('poisons an append after close without opening another handle', async () => {
       const openSpy = vi.mocked(open);
-      openSpy.mockClear();
       const sessionId = 'sid_append_after_close';
       const journal = await SessionEventJournal.open(journalPath(sessionId), testLogger);
       await journal.append(1, validEnvelope(sessionId, 1, journal.epoch));
@@ -304,7 +302,6 @@ describe('WSBroadcastService (WS transport pump)', () => {
 
     it('closes a handle opened while close is in flight', async () => {
       const openSpy = vi.mocked(open);
-      openSpy.mockClear();
       let resolveOpen!: (handle: FileHandle) => void;
       let markOpenStarted!: () => void;
       const openGate = new Promise<FileHandle>((resolve) => {
@@ -379,6 +376,50 @@ describe('WSBroadcastService (WS transport pump)', () => {
     expect(env2.seq).toBe(2);
     expect(env2.type).toBe('fake.y');
     await broadcast.closeJournals();
+    broadcast.dispose();
+    bus.dispose();
+  });
+
+  it('drains a queued dispatch before closing and ignores events published during shutdown', async () => {
+    const bus = new EventService();
+    const broadcast = new WSBroadcastService(
+      bus,
+      testLogger,
+      new FakeSessionClients(),
+      new FakeConnectionRegistry(),
+      makeEnv(),
+    );
+    const originalAppend = SessionEventJournal.prototype.append;
+    let releaseAppend!: () => void;
+    let markAppendStarted!: () => void;
+    const appendGate = new Promise<void>((resolve) => {
+      releaseAppend = resolve;
+    });
+    const appendStarted = new Promise<void>((resolve) => {
+      markAppendStarted = resolve;
+    });
+    vi.spyOn(SessionEventJournal.prototype, 'append').mockImplementation(async function (
+      this: SessionEventJournal,
+      ...args
+    ) {
+      markAppendStarted();
+      await appendGate;
+      return originalAppend.apply(this, args);
+    });
+    const closeSpy = vi.spyOn(SessionEventJournal.prototype, 'close');
+
+    bus.publish({ type: 'fake.queued', sessionId: 'sid_shutdown', agentId: 'main' } as unknown as Event);
+    await appendStarted;
+    const closing = broadcast.closeJournals();
+    bus.publish({ type: 'fake.late', sessionId: 'sid_late', agentId: 'main' } as unknown as Event);
+    await Promise.resolve();
+
+    expect(closeSpy).not.toHaveBeenCalled();
+    releaseAppend();
+    await closing;
+    expect(closeSpy).toHaveBeenCalledOnce();
+    expect(readFileSync(journalPath('sid_shutdown'), 'utf8')).toContain('fake.queued');
+    expect(existsSync(journalPath('sid_late'))).toBe(false);
     broadcast.dispose();
     bus.dispose();
   });

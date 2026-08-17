@@ -1275,7 +1275,9 @@ async function handleSessionNotFound(sessionId: string): Promise<void> {
 }
 
 function waitForSnapshotRetry(delayMs: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, delayMs));
+  return new Promise((resolve) => {
+    setTimeout(resolve, delayMs);
+  });
 }
 
 function hasSession(sessionId: string): boolean {

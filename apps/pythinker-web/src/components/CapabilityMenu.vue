@@ -227,7 +227,6 @@ function setPluginEnabled(id: string, enabled: boolean): void {
                     class="skill-row"
                     disabled
                     :title="skill.description"
-                    :aria-label="t('capabilityMenu.skills.toggle', { name: skill.name })"
                   >
                     <template #label>{{ skill.name }}</template>
                   </MenuRow>

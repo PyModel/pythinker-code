@@ -57,8 +57,28 @@ function appOf(r: RunningServer): {
   });
 }
 
-function envelopeOf<T>(body: unknown): { code: number; data: T | null } {
-  return body as { code: number; data: T | null };
+function envelopeOf<T>(body: unknown): {
+  code: number;
+  msg: string;
+  data: T | null;
+  request_id: string;
+} {
+  if (
+    body === null ||
+    typeof body !== 'object' ||
+    typeof Reflect.get(body, 'code') !== 'number' ||
+    typeof Reflect.get(body, 'msg') !== 'string' ||
+    typeof Reflect.get(body, 'request_id') !== 'string' ||
+    !Reflect.has(body, 'data')
+  ) {
+    throw new Error(`invalid response envelope: ${JSON.stringify(body)}`);
+  }
+  return {
+    code: Reflect.get(body, 'code'),
+    msg: Reflect.get(body, 'msg'),
+    data: Reflect.get(body, 'data') as T | null,
+    request_id: Reflect.get(body, 'request_id'),
+  };
 }
 
 /** Stands in for the OAuth round trip; no browser, no network. */

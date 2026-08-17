@@ -86,4 +86,15 @@ describe('mcpServerToolPattern', () => {
       ),
     ).toBe(true);
   });
+
+  it('reserves exactly the underscore and eight hash characters at the boundary', () => {
+    const serverName = 's'.repeat(80);
+    const qualified = qualifyMcpToolName(serverName, 'lookup');
+    const pattern = mcpServerToolPattern(serverName);
+
+    expect(qualified).toHaveLength(64);
+    expect(qualified).toMatch(/_[\da-f]{8}$/u);
+    expect(pattern).toBe(`${qualified.slice(0, 55)}*`);
+    expect(picomatch.isMatch(qualified, pattern)).toBe(true);
+  });
 });

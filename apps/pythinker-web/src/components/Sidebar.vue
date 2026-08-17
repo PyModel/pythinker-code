@@ -468,6 +468,7 @@ onBeforeUnmount(() => {
           type="button"
           class="ch-brand"
           :title="t('sidebar.newSession')"
+          :aria-label="t('sidebar.newSession')"
           @click.stop="emit('create')"
         >
           <PythinkerLogo size="sm" />

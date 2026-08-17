@@ -182,7 +182,7 @@ const { t } = useI18n();
    pane control drops clear of it instead of stacking under the window buttons. */
 :global(html[data-desktop-platform='win32']) .pane-top {
   top: 8px;
-  padding-right: 4px;
+  padding-right: 72px;
 }
 .close-btn:focus-visible {
   outline: 2px solid var(--blue);

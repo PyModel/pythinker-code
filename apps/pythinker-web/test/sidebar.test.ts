@@ -173,7 +173,9 @@ describe('Sidebar reference layout', () => {
 
   it('starts a new session when the brand is clicked', async () => {
     const wrapper = mountSidebar();
-    await wrapper.get('.ch .ch-brand').trigger('click');
+    const brand = wrapper.get('.ch .ch-brand');
+    expect(brand.attributes('aria-label')).toBe('New Session');
+    await brand.trigger('click');
     expect(wrapper.emitted('create')).toHaveLength(1);
   });
 

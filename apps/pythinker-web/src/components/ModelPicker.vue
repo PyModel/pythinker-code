@@ -290,12 +290,14 @@ function selectTab(tabId: string): void {
           <span
             v-if="(m.capabilities && m.capabilities.length > 0) || m.adaptiveThinking"
             class="caps"
+            role="group"
             :aria-label="t('model.capabilities.label')"
           >
             <span
               v-for="(capability, capabilityIndex) in m.capabilities ?? []"
               :key="`${capability}-${capabilityIndex}`"
               class="cap-badge"
+              role="img"
               :class="{ 'is-unknown': capabilityGlyph(capability) === undefined }"
               :data-capability="capability"
               :title="capabilityTitle(capability)"
@@ -320,6 +322,7 @@ function selectTab(tabId: string): void {
             <span
               v-if="m.adaptiveThinking"
               class="cap-badge is-adaptive"
+              role="img"
               data-capability="adaptive-thinking"
               :title="t(adaptiveThinkingBadge.labelKey)"
               :aria-label="t(adaptiveThinkingBadge.labelKey)"
