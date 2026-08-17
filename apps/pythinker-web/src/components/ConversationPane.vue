@@ -1047,7 +1047,7 @@ defineExpose({ loadComposerForEdit });
 
 <style scoped>
 .con {
-  --read-max: 760px;
+  --read-max: 928px;
   display: flex;
   flex-direction: column;
   min-width: 0;

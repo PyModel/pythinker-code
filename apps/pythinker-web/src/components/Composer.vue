@@ -1078,6 +1078,7 @@ function selectModel(modelId: string): void {
           >
             <svg class="attach-icon" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="M8 3v10M3 8h10"/></svg>
           </button>
+          <span v-if="hasUpload" class="toolbar-divider" aria-hidden="true" />
 
           <!-- Permission pill — click to open dropdown -->
           <span
@@ -1318,10 +1319,16 @@ function selectModel(modelId: string): void {
 .composer-card {
   position: relative;
   border: 1px solid var(--line);
-  border-radius: 16px;
-  background: var(--bg);
-  box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+  border-radius: var(--r-xl);
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  backdrop-filter: blur(16px);
+  box-shadow: 0 1px 4px color-mix(in srgb, var(--ink) 4%, transparent);
   transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.composer-card:hover,
+.composer-card:focus-within {
+  border-color: color-mix(in srgb, var(--line) 55%, var(--ink));
 }
 
 
@@ -1535,10 +1542,11 @@ function selectModel(modelId: string): void {
   font-family: var(--mono);
   font-size: var(--ui-font-size);
   background: transparent;
-  height: 56px;
+  height: auto;
   min-height: 56px;
-  max-height: 56px;
+  max-height: 384px;
   overflow-y: auto;
+  field-sizing: content;
   line-height: 1.5;
   margin-bottom: 6px;
 }
@@ -1570,12 +1578,13 @@ function selectModel(modelId: string): void {
 /* Send button — circular icon (morphs into the abort square while running) */
 .send {
   width: 30px;
+  min-width: 30px;
   height: 30px;
   border-radius: 50%;
   background: var(--blue);
   color: var(--bg); /* on-accent text — readable in dark + mono-dark */
   border: none;
-  padding: 0;
+  padding: 5px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1595,6 +1604,8 @@ function selectModel(modelId: string): void {
 
 .send svg {
   flex: none;
+  width: 20px;
+  height: 20px;
 }
 
 .send-icon {
@@ -1621,9 +1632,9 @@ function selectModel(modelId: string): void {
   align-items: center;
   justify-content: space-between;
   padding: 6px 10px 4px;
-  background: color-mix(in srgb, var(--panel2), black 1.5%);
+  background: color-mix(in srgb, var(--panel2) 98.5%, var(--ink) 1.5%);
   position: relative;
-  border-radius: 0 0 var(--r-md) var(--r-md);
+  border-radius: 0 0 var(--r-xl) var(--r-xl);
 }
 
 .toolbar-left,
@@ -1635,14 +1646,16 @@ function selectModel(modelId: string): void {
   overflow: hidden;
 }
 
-/* Attach button (pill style, matches permission/plan) */
+/* Attach button */
 .attach-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  padding: 2px 7px;
-  border-radius: 6px;
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 50%;
   font-size: var(--ui-font-size);
   color: var(--muted);
   cursor: pointer;
@@ -1661,6 +1674,14 @@ function selectModel(modelId: string): void {
 
 .attach-btn:hover {
   background: var(--soft);
+}
+
+.toolbar-divider {
+  width: 1px;
+  height: 16px;
+  flex: none;
+  margin: 0 4px;
+  background: var(--line);
 }
 
 /* Permission pill */
@@ -2125,19 +2146,19 @@ function selectModel(modelId: string): void {
       var(--dock-inline-left, max(12px, env(safe-area-inset-left)));
   }
   .composer-card {
-    border-radius: 14px;
+    border-radius: var(--r-xl);
     max-width: 100%;
   }
   .input-row {
     gap: 6px;
     min-width: 0;
   }
-  /* Send → 36px round (hide the SVG arrow, show only the ::after glyph) */
+  /* Send → 30px round (hide the SVG arrow, show only the ::after glyph) */
   .send {
-    width: 36px;
-    height: 36px;
-    min-width: 36px;
-    padding: 0;
+    width: 30px;
+    height: 30px;
+    min-width: 30px;
+    padding: 5px;
     border-radius: 50%;
     font-size: 0;
     align-self: flex-end;
@@ -2149,7 +2170,7 @@ function selectModel(modelId: string): void {
   .send::after {
     content: "↑";
     /* Fixed icon glyph size — not part of the UI font scale. */
-    font-size: 17px;
+    font-size: 20px;
     line-height: 1;
     color: var(--bg);
   }
@@ -2177,14 +2198,13 @@ function selectModel(modelId: string): void {
     max-width: calc(100vw - 24px);
   }
 
-  /* Bump mobile font sizes +2px and pin input at 16px to prevent iOS zoom.
-     Single-line-friendly height: 56px desktop default → 44px touch target. */
+  /* Bump mobile font sizes +2px and pin input at 16px to prevent iOS zoom. */
   .ph {
     /* Pinned at 16px to prevent iOS auto-zoom on focus (not part of UI font scale). */
     font-size: 16px;
-    height: 44px;
+    height: auto;
     min-height: 44px;
-    max-height: 44px;
+    max-height: 384px;
   }
   .model-pill,
   .attach-btn {
