@@ -57,6 +57,6 @@ export default {
   logHint: 'Enable with ?debug=1 to capture',
   exportLogBtn: 'Export log',
   beta: 'Experimental',
-  betaToc: 'Proportional conversation outline',
-  betaTocHint: ' Larger bubbles, viewport indicator, and hover tooltip',
+  betaToc: 'Prompt anchor rail',
+  betaTocHint: ' Prompt ticks with hover previews, active tick follows the view',
 };

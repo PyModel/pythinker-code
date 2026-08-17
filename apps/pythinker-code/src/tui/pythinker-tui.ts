@@ -1,6 +1,3 @@
-import { writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-
 import {
   deleteAllKittyImages,
   type Component,
@@ -18,7 +15,6 @@ import type {
   PromptPart,
   Session,
 } from '@pymodel/pythinker-code-sdk';
-import type { MigrationPlan } from '@pymodel/migration-legacy';
 import { resolve } from 'pathe';
 
 import type { CLIOptions } from '#/cli/options';
@@ -26,7 +22,6 @@ import { readUpdateCache } from '#/cli/update/cache';
 import { readUpdateInstallState } from '#/cli/update/install-state';
 import { detectInstallSource } from '#/cli/update/source';
 import type { InstallSource } from '#/cli/update/types';
-import { MigrationScreenComponent, type MigrationScreenResult } from '#/migration/index';
 import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
 import {
   appendInputHistory,
@@ -193,9 +188,6 @@ export interface PythinkerTUIStartupInput {
   readonly version: string;
   readonly workDir: string;
   readonly startupNotice?: string;
-  readonly migrationPlan?: MigrationPlan | null;
-  /** When true, run only the migration screen, then exit (the `pythinker migrate` command). */
-  readonly migrateOnly?: boolean;
 }
 
 type EffectiveActivityPaneMode = ActivityPaneMode | 'idle' | 'session';
@@ -278,8 +270,6 @@ export class PythinkerTUI {
   private uninstallRainbowColors: () => void;
   private signalCleanupHandlers: Array<() => void> = [];
   private isShuttingDown = false;
-  private readonly migrationPlan: MigrationPlan | null;
-  private readonly migrateOnly: boolean;
   private startupNotice: string | undefined;
   private keyboardShortcuts: readonly KeyboardShortcut[] = [];
   private keybindings = defaultKeybindings();
@@ -353,8 +343,6 @@ export class PythinkerTUI {
       copyFullResponse: startupInput.tuiConfig.copyFullResponse,
     };
     this.options = tuiOptions;
-    this.migrationPlan = startupInput.migrationPlan ?? null;
-    this.migrateOnly = startupInput.migrateOnly ?? false;
     this.startupNotice = startupInput.startupNotice;
     this.state = createTUIState(tuiOptions);
     const keybindingWarnings = this.reloadKeybindings();
@@ -495,37 +483,10 @@ export class PythinkerTUI {
     this.registerSignalHandlers();
     // Outer try rolls back signal listeners on startup failure.
     try {
-      if (this.migrationPlan !== null) {
-        // Migration needs the event loop running first (pi-tui component).
-        this.startEventLoop();
-        try {
-          const migrationResult = await this.runMigrationScreen(this.migrationPlan);
-          if (this.migrateOnly) {
-            const failed = migrationResult.decision === 'now' && migrationResult.migrated === false;
-            this.mouseController.stop();
-            this.disposeTerminalTracking();
-            this.presentation.stop();
-            await this.onExit?.(failed ? 1 : 0);
-            return;
-          }
-          const shouldReplayHistory = await this.initMainTui();
-          this.startBackgroundFdAutocomplete();
-          await this.finishStartup(shouldReplayHistory);
-          this.startKeybindingsWatcher();
-        } catch (error) {
-          this.mouseController.stop();
-          this.disposeTerminalTracking();
-          this.presentation.stop();
-          throw error;
-        }
-        return;
-      }
-
       // Start the loop before mounting anything: pi-tui paints on invalidate
       // even before ui.start(), so mounting first anchors early frames to the
       // shell cursor and startEventLoop's scroll-to-home would push the live
-      // frame's top rows into scrollback for good. Same order as the
-      // migration branch above.
+      // frame's top rows into scrollback for good.
       this.startEventLoop();
       try {
         const shouldReplayHistory = await this.initMainTui();
@@ -2333,35 +2294,6 @@ export class PythinkerTUI {
         },
       }),
     );
-  }
-
-  private async runMigrationScreen(plan: MigrationPlan): Promise<MigrationScreenResult> {
-    const result = await new Promise<MigrationScreenResult>((resolve) => {
-      const screen = new MigrationScreenComponent({
-        plan,
-        sourceHome: plan.sourceHome,
-        targetHome: this.harness.homeDir,
-        skipDecisionStep: this.migrateOnly,
-        requestRender: () => {
-          this.state.ui.requestRender();
-        },
-        onComplete: (r) => {
-          resolve(r);
-        },
-      });
-      this.mountEditorReplacement(screen);
-    });
-    this.restoreEditor();
-    if (result.decision === 'never') {
-      // Persist the skip marker `detectPendingMigration` checks, so "Never ask
-      // again" actually stops the prompt from reappearing every launch.
-      try {
-        writeFileSync(join(this.harness.homeDir, '.skip-migration-from-pythinker-cli'), '', 'utf-8');
-      } catch {
-        // Non-blocking: a failed marker write must never crash startup.
-      }
-    }
-    return result;
   }
 
   showHelpPanel(): void {

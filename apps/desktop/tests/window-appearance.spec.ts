@@ -1,43 +1,42 @@
 // Static check: no Windows host exists in CI or locally, so this test guards the
 // window configuration rather than the rendered result.
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-
-const desktopRoot = resolve(import.meta.dirname, '..')
-const mainSource = readFileSync(resolve(desktopRoot, 'src', 'main.ts'), 'utf8')
+import { windowAppearanceOptions } from '../src/window-options'
 
 describe('desktop window appearance configuration', () => {
-  it('keeps Windows opaque and non-Windows windows transparent', () => {
-    const backgroundMaterialMatches = [...mainSource.matchAll(/backgroundMaterial/gu)]
-    const win32BranchMatches = [...mainSource.matchAll(
-      /\.\.\.\(process\.platform === 'win32' \? \{([\s\S]*?)\} : \{\s*transparent: true,/gu,
-    )]
-    const nonWin32BranchMatches = [...mainSource.matchAll(
-      /\} : \{\s*transparent: true,[\s\S]*?\}\),\s*title:/gu,
-    )]
+  it('uses the native macOS frame with vibrancy', () => {
+    const opts = windowAppearanceOptions('darwin')
 
-    expect(backgroundMaterialMatches).toHaveLength(0)
-    expect(win32BranchMatches).toHaveLength(1)
-    expect(nonWin32BranchMatches).toHaveLength(1)
+    expect('frame' in opts).toBe(false)
+    expect(opts['titleBarStyle']).toBe('hiddenInset')
+    expect(opts['trafficLightPosition']).toEqual({ x: 16, y: 16 })
+    // Native corners and shadow require an opaque window.
+    expect('transparent' in opts).toBe(false)
+    expect('backgroundColor' in opts).toBe(false)
+    expect(opts['vibrancy']).toBe('sidebar')
+  })
 
-    const win32Branch = win32BranchMatches[0]![1]!
-    const opaqueColorMatches = [...win32Branch.matchAll(/backgroundColor:\s*'#[0-9a-fA-F]{6}'/gu)]
-    const alphaColorMatches = [...win32Branch.matchAll(/#[0-9a-fA-F]{8}/gu)]
-    const hasShadowMatches = [...win32Branch.matchAll(/hasShadow:\s*true/gu)]
-    const roundedCornersMatches = [...win32Branch.matchAll(/roundedCorners:\s*true/gu)]
-    const thickFrameMatches = [...win32Branch.matchAll(/thickFrame:\s*true/gu)]
+  it('keeps the Windows window configuration unchanged', () => {
+    const opts = windowAppearanceOptions('win32')
 
-    expect(opaqueColorMatches).toHaveLength(1)
-    expect(alphaColorMatches).toHaveLength(0)
-    expect(hasShadowMatches).toHaveLength(1)
-    expect(roundedCornersMatches).toHaveLength(1)
-    expect(thickFrameMatches).toHaveLength(1)
+    expect(opts).toMatchObject({
+      autoHideMenuBar: true,
+      titleBarStyle: 'hidden',
+      titleBarOverlay: { color: '#00000000', symbolColor: '#7f858f', height: 44 },
+      backgroundColor: '#161616',
+      hasShadow: true,
+      roundedCorners: true,
+      thickFrame: true,
+    })
+  })
 
-    expect(win32Branch).toContain('backgroundColor')
-    expect(nonWin32BranchMatches[0]![0]).toContain('transparent: true')
-    expect(win32Branch).toContain('hasShadow')
-    expect(win32Branch).toContain('roundedCorners')
-    expect(win32Branch).toContain('thickFrame')
+  it('keeps the Linux window configuration unchanged', () => {
+    expect(windowAppearanceOptions('linux')).toEqual({
+      autoHideMenuBar: true,
+      frame: false,
+      titleBarStyle: 'hidden',
+      titleBarOverlay: { color: '#00000000', symbolColor: '#7f858f', height: 44 },
+      backgroundColor: '#161616',
+    })
   })
 })

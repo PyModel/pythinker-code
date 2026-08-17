@@ -10,7 +10,6 @@ import {
   visibleWidth,
   type Focusable,
 } from '@earendil-works/pi-tui';
-import { formatSessionLabel } from '#/migration/index';
 import { CURRENT_MARK, SELECT_POINTER } from '#/tui/constant/symbols';
 import {
   combinedBindingHint,
@@ -266,8 +265,7 @@ export class SessionPickerComponent extends Container implements Focusable {
       const hintParts = [scopeHint, cancel === undefined ? undefined : `${formatBindingKeys(cancel)} cancel`].filter(
         (item): item is string => item !== undefined,
       );
-      lines.push(currentTheme.boldFg('primary', truncateToWidth(title, width, ELLIPSIS)), currentTheme.fg('textMuted', truncateToWidth(hintParts.join(' · '), width, ELLIPSIS)), '', currentTheme.fg('textMuted', truncateToWidth('No sessions found.', width, ELLIPSIS)));
-      lines.push(currentTheme.fg('primary', '─'.repeat(width)));
+      lines.push(currentTheme.boldFg('primary', truncateToWidth(title, width, ELLIPSIS)), currentTheme.fg('textMuted', truncateToWidth(hintParts.join(' · '), width, ELLIPSIS)), '', currentTheme.fg('textMuted', truncateToWidth('No sessions found.', width, ELLIPSIS)), currentTheme.fg('primary', '─'.repeat(width)));
       return lines;
     }
 
@@ -355,7 +353,7 @@ export class SessionPickerComponent extends Container implements Focusable {
     const time = formatRelativeTime(session.updated_at);
     const badge = isCurrent ? CURRENT_MARK : '';
     const rawTitle = (session.title ?? session.id).trim() || session.id;
-    const title = formatSessionLabel({ title: rawTitle, metadata: session.metadata });
+    const title = rawTitle;
     const tag = sessionTag(session);
     const titleSource = tag === undefined ? title : `${title} #${tag}`;
 

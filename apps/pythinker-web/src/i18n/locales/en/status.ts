@@ -32,6 +32,16 @@ export default {
   // Thinking selector
   thinkingLabel: 'thinking',
   thinkingTooltip: 'Toggle thinking mode',
+  effortLabel: 'Thinking effort',
+  effortLevels: {
+    off: 'Off',
+    minimal: 'Minimal',
+    low: 'Low',
+    medium: 'Medium',
+    high: 'High',
+    xhigh: 'xHigh',
+    max: 'Max',
+  },
   cacheNote:
     'Note: Switching models or thinking effort invalidates the existing prompt cache. Start a new chat to avoid extra token costs.',
   starredModels: 'Starred',

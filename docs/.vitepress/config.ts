@@ -49,7 +49,7 @@ const config = withMermaid(defineConfig({
           text: 'Guides',
           items: [
             { text: 'Getting Started', link: '/guides/getting-started' },
-            { text: 'Migrating from pythinker-cli', link: '/guides/migration' },
+            { text: 'Desktop App', link: '/guides/desktop' },
             { text: 'Common Use Cases', link: '/guides/use-cases' },
             { text: 'Interaction and Input', link: '/guides/interaction' },
             { text: 'Sessions and Context', link: '/guides/sessions' },

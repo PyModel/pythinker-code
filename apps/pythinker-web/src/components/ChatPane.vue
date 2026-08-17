@@ -1030,8 +1030,6 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
 .u-edit[data-tooltip]::after,
 .u-edit[data-tooltip]::before {
   position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
   pointer-events: none;
   opacity: 0;
   visibility: hidden;
@@ -1042,6 +1040,8 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
 .u-edit[data-tooltip]::after {
   content: attr(data-tooltip);
   bottom: calc(100% + 6px);
+  right: 0;
+  left: auto;
   padding: 4px 8px;
   background: var(--ink);
   color: var(--bg);
@@ -1053,6 +1053,8 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
 .u-edit[data-tooltip]::before {
   content: '';
   bottom: calc(100% + 2px);
+  left: 50%;
+  transform: translateX(-50%);
   border-width: 4px;
   border-style: solid;
   border-color: var(--ink) transparent transparent transparent;

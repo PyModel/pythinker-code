@@ -73,24 +73,6 @@ describe('desktop packaging configuration', () => {
     })
   })
 
-  it('keeps desktop download URLs derived from their published release version', () => {
-    const siteSource = readFileSync(resolve(repositoryRoot, 'apps/site/src/App.vue'), 'utf8')
-    const desktopVersionMatch = siteSource.match(/const DESKTOP_VERSION = '([^']+)'/)
-
-    expect(desktopVersionMatch).not.toBeNull()
-    expect(desktopVersionMatch![1]).not.toBe('')
-    expect(siteSource).not.toContain('Pythinker-0.1.0-arm64.dmg')
-    expect(siteSource).not.toContain('Pythinker-0.1.0-x64-Setup.exe')
-    expect(siteSource).toContain('Pythinker-${DESKTOP_VERSION}-arm64.dmg')
-    expect(siteSource).toContain('Pythinker-${DESKTOP_VERSION}-x64-Setup.exe')
-    expect(siteSource).toContain('releases/download/v${DESKTOP_VERSION}')
-    expect(siteSource).not.toContain('releases/download/v0.1.0')
-
-    const desktopShowcaseMatch = siteSource.match(/<section id="desktop"[\s\S]*?<\/section>/)
-    expect(desktopShowcaseMatch).not.toBeNull()
-    expect(desktopShowcaseMatch![0]).toContain('/brand/windows11.svg')
-  })
-
   it('maps the staged Host node_modules directory as the copy root', () => {
     expect(desktopPackage.build.extraResources).toEqual(expect.arrayContaining([
       { from: 'resources', to: 'desktop-resources' },

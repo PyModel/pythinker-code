@@ -232,10 +232,10 @@ const commandCases: readonly ParityCase[] = COMMANDS.map((command) =>
 
 export const PARITY_CASES: readonly ParityCase[] = [
   automatedCase({
-    id: 'lifecycle-auth-migration-error-recovery',
-    area: 'lifecycle, authentication, migration, and startup error recovery',
+    id: 'lifecycle-auth-error-recovery',
+    area: 'lifecycle, authentication, and startup error recovery',
     legacyTest: LEGACY_TEST_PATHS.startup,
-    scenarioId: 'legacy.lifecycle.startup_auth_migration_recovery',
+    scenarioId: 'legacy.lifecycle.startup_auth_recovery',
     requiredEvidence: ['unit', 'headless-renderer', 'pty'],
   }),
   automatedCase({

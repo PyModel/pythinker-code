@@ -16,6 +16,9 @@ The CLI is written in TypeScript, distributed via npm, and runs on Node.js.
 
 Two installation options are available: the official install script (recommended, no pre-installed Node.js required) and a global npm install.
 
+Prefer a graphical application over the terminal? See the [Desktop App guide](./desktop.md) for the
+macOS and Windows desktop application.
+
 ::: tip Before you install
 Pythinker Code CLI is a fully interactive TUI application. For the best visual experience, run it in a terminal with true-color and ligature support, such as [Kitty](https://sw.kovidgoyal.net/kitty/) or [Ghostty](https://ghostty.org/).
 :::

@@ -1,33 +1,46 @@
+@import './styles/design-platform.css';
+@import './styles/scrollbar.css';
+@import './styles/shiki.css';
 @import "tailwindcss";
 
+/* App tokens below map to @deepseek-ai/dsh-client-ui-theme@0.1.0-rc.5 (MIT). */
 :root {
-  --ink: #14171c;
-  --text: #262626;
-  --dim: #595959;
-  --muted: #8a8a8a;
-  --faint: #b5b5b5;
-  --line: #e7eaee;
-  --line2: #eef1f4;
-  --panel: #fafbfc;
-  --panel2: #f3f5f8;
-  --bg: #ffffff;
-  /* Interaction accent = Pythinker periwinkle from the TUI palette.
+  --dsw-font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --ds-font-family-code: 'SF Mono', 'JetBrains Mono', 'Fira Code', Consolas,
+    'Liberation Mono', Menlo, Courier, 'PingFang SC', 'Microsoft YaHei';
+  --ds-ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --ds-transition-duration: 0.2s;
+  --ds-transition-duration-fast: 0.1s;
+  --ds-transition-duration-slow: 0.3s;
+  --ink: var(--dsw-alias-label-primary);
+  --text: var(--dsw-alias-label-secondary);
+  --dim: var(--dsw-alias-label-tertiary);
+  --muted: var(--dsw-alias-label-caption);
+  --faint: var(--dsw-alias-label-dimmed);
+  --line: var(--dsw-alias-border-l2);
+  --line2: var(--dsw-alias-border-l1);
+  --panel: var(--dsw-specific-sidebar-fill);
+  --panel2: var(--dsw-alias-bg-layer-3);
+  --bg: var(--dsw-alias-bg-base);
+  --canvas: var(--dsw-alias-bg-base);
+  /* Interaction accent = DeepSeek accent.
      --blue2 is a darker press/hover shade; --soft/--bd/--bluebg/--blueln are
-     light periwinkle fills + borders derived from the same hue. */
-  --blue: #4A5BC4;
-  --blue2: #3A4AAE;
-  --soft: #eceffc;
-  --bd: #d3daf6;
-  --logo: #4A5BC4;
-  /* Soft periwinkle bubble fill + border (mobile user message bubble). */
-  --bluebg: #eceffc;
-  --blueln: #d3daf6;
-  --ok: #0e7a38;
-  --warn: #92660a;
-  --star: #eab308;
-  --err: #b91c1c;
+     light DeepSeek accent fills + borders derived from the same hue. */
+  --blue: var(--dsw-alias-brand-primary-new-colorprimary-new-color);
+  --blue2: var(--dsw-static-deepseek-400);
+  --soft: rgb(232, 241, 255);
+  --bd: rgb(199, 221, 255);
+  --logo: rgb(22, 24, 28);
+  /* Soft DeepSeek accent bubble fill + border (mobile user message bubble). */
+  --bluebg: rgb(232, 241, 255);
+  --blueln: rgb(199, 221, 255);
+  --ok: var(--dsw-alias-state-success-secondary);
+  --warn: var(--dsw-alias-state-warn-secondary);
+  --star: rgb(199, 106, 0);
+  --err: var(--dsw-alias-state-error-secondary);
   /* Subtle hover wash for icon buttons (toast close, etc.). */
-  --hover: rgba(0, 0, 0, 0.05);
+  --hover: var(--dsw-alias-interactive-bg-hover);
   /* Radius scale (Modern). A regular 8 / 12 / 16 progression: list items + pill
      controls use --r-sm, the input box + cards use --r-md, dialogs use --r-lg.
      The Terminal theme keeps its own sharper 3–4px corners. */
@@ -40,9 +53,14 @@
   --ui-font-size-xs: calc(var(--ui-font-size) - 2px);
   --ui-font-size-lg: calc(var(--ui-font-size) + 1px);
   --ui-font-size-xl: calc(var(--ui-font-size) + 2px);
+  --ui-line-height-xs: 18px;
+  --ui-line-height-sm: 20px;
+  --ui-line-height: 22px;
+  --ui-line-height-lg: 24px;
+  --ui-line-height-xl: 28px;
   --content-font-size: 16px;
-  --mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
-  --sans: var(--mono);
+  --mono: var(--ds-font-family-code);
+  --sans: var(--dsw-font-family);
   color-scheme: light dark;
   /* Checkerboard canvas behind <img> so transparent PNGs keep white/black
      content visible and read as transparent. Squares are mixed from the
@@ -58,6 +76,16 @@
   ) 0 0 / 16px 16px;
 }
 
+/* Light palette only: the vendored label ramp fails WCAG AA on the white page
+   (tertiary 3.71:1, caption 2.13:1, dimmed 1.26:1) and the neutral scale has no
+   step between -600 and -700. These values keep the ramp ordering and measure
+   5.0:1, 4.57:1 and 3.25:1 on #fff. Dark mode keeps the vendored aliases. */
+:root:not([data-ds-dark-theme]) {
+  --dim: #6b7075;
+  --muted: #71767e;
+  --faint: #8a8f97;
+}
+
 /* color-scheme drives UA-rendered parts (scrollbars, form controls, etc.).
    An explicit choice must pin it to a single value — otherwise a dark-mode
    user on a light OS gets light scrollbars floating on the dark UI. */
@@ -71,54 +99,22 @@ html[data-color-scheme="system"] {
 /* Dark mode variables — applied when explicitly chosen or via system preference. */
 html[data-color-scheme="dark"] {
   color-scheme: dark;
-  --ink: #e8eaed;
-  --text: #c9cdd4;
-  --dim: #9aa0a8;
-  --muted: #727983;
-  --faint: #525960;
-  --line: #2d333b;
-  --line2: #22272e;
-  --panel: #1c2128;
-  --panel2: #161b22;
-  --bg: #0d1117;
-  --blue: #7B8CE8;
-  --blue2: #98A6F0;
-  --soft: rgba(123, 140, 232, 0.14);
-  --bd: rgba(123, 140, 232, 0.35);
-  --logo: #7B8CE8;
-  --bluebg: #20243a;
-  --blueln: #2e3352;
-  --ok: #3fb950;
-  --warn: #d29922;
-  --star: #facc15;
-  --err: #f85149;
-  --hover: rgba(255, 255, 255, 0.07);
+  --soft: rgba(2, 115, 255, 0.14);
+  --bd: rgba(2, 115, 255, 0.35);
+  --logo: rgb(241, 241, 241);
+  --bluebg: rgba(2, 115, 255, 0.16);
+  --blueln: rgba(2, 115, 255, 0.32);
+  --star: rgb(255, 149, 49);
 }
 
 @media (prefers-color-scheme: dark) {
   html[data-color-scheme="system"] {
-    --ink: #e8eaed;
-    --text: #c9cdd4;
-    --dim: #9aa0a8;
-    --muted: #727983;
-    --faint: #525960;
-    --line: #2d333b;
-    --line2: #22272e;
-    --panel: #1c2128;
-    --panel2: #161b22;
-    --bg: #0d1117;
-    --blue: #7B8CE8;
-    --blue2: #98A6F0;
-    --soft: rgba(123, 140, 232, 0.14);
-    --bd: rgba(123, 140, 232, 0.35);
-    --logo: #7B8CE8;
-    --bluebg: #20243a;
-    --blueln: #2e3352;
-    --ok: #3fb950;
-    --warn: #d29922;
-    --star: #facc15;
-    --err: #f85149;
-    --hover: rgba(255, 255, 255, 0.07);
+    --soft: rgba(2, 115, 255, 0.14);
+    --bd: rgba(2, 115, 255, 0.35);
+    --logo: rgb(241, 241, 241);
+    --bluebg: rgba(2, 115, 255, 0.16);
+    --blueln: rgba(2, 115, 255, 0.32);
+    --star: rgb(255, 149, 49);
   }
 }
 
@@ -208,37 +204,6 @@ body {
   overflow: hidden;
 }
 
-/* ---------------------------------------------------------------------------
-   Global scrollbars: thin + faint on every scroller (chat, tasks, file tree,
-   terminal, dialogs…). Firefox reads scrollbar-width/color; WebKit/Blink read
-   the ::-webkit-scrollbar pseudo-elements. The track stays transparent so the
-   bar floats, and the thumb is a neutral semi-transparent gray that reads as a
-   soft hairline on both light and dark surfaces and darkens slightly on hover.
-   A single mid-gray works on either background, so no per-theme tokens needed.
-   Components may still override locally (e.g. the sidebar's even-thinner rule).
-   --------------------------------------------------------------------------- */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(128, 128, 128, 0.3) transparent;
-}
-*::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-*::-webkit-scrollbar-track {
-  background: transparent;
-}
-*::-webkit-scrollbar-thumb {
-  background: rgba(128, 128, 128, 0.3);
-  border-radius: 999px;
-}
-*::-webkit-scrollbar-thumb:hover {
-  background: rgba(128, 128, 128, 0.5);
-}
-*::-webkit-scrollbar-corner {
-  background: transparent;
-}
-
 body {
   font-family: var(--mono);
   color: var(--text);
@@ -299,32 +264,18 @@ body {
    section near the end of this sheet.
    =========================================================================== */
 html[data-theme="modern"] {
-  /* Softer hairlines + a soft neutral canvas the white cards/bubbles lift off.
-     Shadow tokens are shared by the per-element card rules below. */
-  --line: #e9edf3;
-  --line2: #f1f4f8;
-  --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
-    "Helvetica Neue", Arial, sans-serif;
-  --canvas: #f4f6fa;
+  /* Shadow tokens are shared by the per-element card rules below. */
   --sh: 0 1px 3px rgba(28, 40, 66, 0.05), 0 6px 18px rgba(28, 40, 66, 0.06);
   --shc: 0 1px 2px rgba(28, 40, 66, 0.05);
 }
 
-/* Modern × dark: the light hairlines/canvas above would override the dark
-   variables (later in source) — remap them, and lean on darker shadows. */
+/* Modern × dark: lean on darker shadows. */
 html[data-color-scheme="dark"][data-theme="modern"] {
-  --line: #2d333b;
-  --line2: #22272e;
-  --canvas: #161b22;
   --sh: 0 1px 3px rgba(0, 0, 0, 0.35), 0 6px 18px rgba(0, 0, 0, 0.4);
   --shc: 0 1px 2px rgba(0, 0, 0, 0.35);
 }
 @media (prefers-color-scheme: dark) {
   html[data-color-scheme="system"][data-theme="modern"] {
-    --line: #2d333b;
-    --line2: #22272e;
-    --canvas: #161b22;
     --sh: 0 1px 3px rgba(0, 0, 0, 0.35), 0 6px 18px rgba(0, 0, 0, 0.4);
     --shc: 0 1px 2px rgba(0, 0, 0, 0.35);
   }
@@ -406,7 +357,6 @@ html[data-color-scheme="dark"][data-theme="modern"] {
 :is(html[data-theme="modern"], html[data-theme="pythinker"]) .sessions .se:hover { background: var(--panel2); }
 :is(html[data-theme="modern"], html[data-theme="pythinker"]) .sessions .se.on {
   background: var(--soft);
-  box-shadow: inset 0 0 0 1px var(--bd);
 }
 
 /* Tab bar → clean white strip with a single hairline.
@@ -508,8 +458,7 @@ html[data-color-scheme="dark"][data-theme="modern"] {
 :is(html[data-theme="modern"], html[data-theme="pythinker"]) .pd-desc {
   font-family: var(--sans);
 }
-:is(html[data-theme="modern"], html[data-theme="pythinker"]) .queue-item,
-:is(html[data-theme="modern"], html[data-theme="pythinker"]) .att-chip {
+:is(html[data-theme="modern"], html[data-theme="pythinker"]) .queue-item {
   border-radius: var(--r-sm);
 }
 
@@ -633,7 +582,6 @@ html[data-color-scheme="dark"][data-theme="modern"] {
 :is(html[data-theme="modern"], html[data-theme="pythinker"]) .queue-item,
 :is(html[data-theme="modern"], html[data-theme="pythinker"]) .queue-text { font-family: var(--sans); }
 :is(html[data-theme="modern"], html[data-theme="pythinker"]) .compact-chip { border-radius: var(--r-xs); }
-:is(html[data-theme="modern"], html[data-theme="pythinker"]) .att-thumb { border-radius: 5px; }
 
 /* ---- Floating menus + status line ---- */
 :is(html[data-theme="modern"], html[data-theme="pythinker"]) .slash-menu { border-radius: var(--r-md); box-shadow: var(--sh); }

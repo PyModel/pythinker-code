@@ -321,9 +321,16 @@ defineExpose({ loadForEdit });
   padding-right: var(--panes-scrollbar-width, 0px);
   flex: none;
   position: relative;
-  background: var(--bg);
+  background: transparent;
   z-index: 10;
 }
+
+/* Use a different surface so the card radius reads against the page, especially in dark mode; --sh only exists on the modern and pythinker themes, hence the fallback. */
+.chat-dock :deep(.composer-card) {
+  background: var(--panel);
+  box-shadow: var(--sh, 0 6px 18px rgba(0, 0, 0, 0.28));
+}
+
 .chat-dock.align-center { margin-left: auto; margin-right: auto; }
 .chat-dock.align-left { margin-left: 0; margin-right: auto; }
 .chat-dock.align-mobile { max-width: none; }

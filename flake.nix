@@ -65,9 +65,7 @@
         ./packages/server
         ./packages/server-e2e
         ./packages/kaos
-        ./packages/pythinker-migration-legacy
         ./packages/kosong
-        ./packages/migration-legacy
         ./packages/node-sdk
         ./packages/oauth
         ./packages/protocol
@@ -88,7 +86,6 @@
         "@pymodel/server-e2e"
         "@pymodel/kaos"
         "@pymodel/kosong"
-        "@pymodel/migration-legacy"
         "@pymodel/pythinker-code-sdk"
         "@pymodel/pythinker-code-oauth"
         "@pymodel/protocol"
@@ -100,7 +97,6 @@
         "@pymodel/dashboard-server"
         "@pymodel/dashboard-web"
         "pythinker-code-docs"
-        "pythinker-migration-legacy"
       ];
     in
     {

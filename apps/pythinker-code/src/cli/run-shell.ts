@@ -1,6 +1,4 @@
 import { execSync } from 'node:child_process';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
 
 import {
   createPythinkerHarness,
@@ -17,7 +15,6 @@ import {
 } from '@pymodel/pythinker-telemetry';
 
 import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_UI_MODE } from '#/constant/app';
-import { detectPendingMigration } from '#/migration/index';
 import type { TuiConfig } from '#/tui/config';
 import { loadTuiConfig, TuiConfigParseError } from '#/tui/config';
 import { CHROME_GUTTER } from '#/tui/constant/rendering';
@@ -34,7 +31,6 @@ import { createPythinkerCodeHostIdentity } from './version';
 export async function runShell(
   opts: CLIOptions,
   version: string,
-  runOptions: { readonly migrateOnly?: boolean } = {},
 ): Promise<void> {
   const startedAt = Date.now();
   const configStartedAt = startedAt;
@@ -86,16 +82,6 @@ export async function runShell(
     }
     return;
   }
-  const migrationPlan = await detectPendingMigration({
-    sourceHome: join(homedir(), '.pythinker'),
-    targetHome: harness.homeDir,
-    ignoreMarker: runOptions.migrateOnly,
-  });
-  if (runOptions.migrateOnly === true && migrationPlan === null) {
-    process.stdout.write('  Nothing to migrate from ~/.pythinker/.\n');
-    await harness.close();
-    return;
-  }
   const config = await harness.getConfig();
   for (const warning of (await harness.getConfigDiagnostics()).warnings) {
     configWarning = combineStartupNotice(configWarning, warning);
@@ -107,8 +93,6 @@ export async function runShell(
     version,
     workDir,
     startupNotice: configWarning,
-    migrationPlan,
-    migrateOnly: runOptions.migrateOnly,
   });
 
   initializeCliTelemetry({

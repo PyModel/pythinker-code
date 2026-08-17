@@ -29,6 +29,7 @@ import DebugPanel from './debug/DebugPanel.vue';
 import { isTraceEnabled } from './debug/trace';
 import { usePythinkerWebClient } from './composables/usePythinkerWebClient';
 import { useIsMobile } from './composables/useIsMobile';
+import { useIsDark } from './composables/useIsDark';
 import type { AppConfig, ThinkingLevel } from './api/types';
 import type { FilePreviewRequest, ToolMedia } from './types';
 
@@ -42,6 +43,11 @@ const debugEnabled = isTraceEnabled();
 // Narrow viewports (≤640px) render the single-column mobile shell; desktop is
 // unchanged. jsdom defaults to false (desktop) so component tests are unaffected.
 const isMobile = useIsMobile();
+const isDark = useIsDark();
+watch(isDark, (dark) => {
+  document.documentElement.toggleAttribute('data-ds-dark-theme', dark);
+  void window.pythinkerDesktop?.setThemeSource(dark ? 'dark' : 'light');
+}, { immediate: true });
 
 // Mobile sheet visibility
 const showMobileSwitcher = ref(false);
@@ -1444,13 +1450,31 @@ function openPr(url: string): void {
 }
 :global(html[data-desktop-platform='darwin'] .side),
 :global(html[data-desktop-platform='darwin'] .sidebar-rail) {
-  background: color-mix(in srgb, var(--panel) 55%, transparent);
+  background: transparent;
+}
+:global(html[data-desktop-platform='darwin'] .app.sidebar-collapsed .sidebar-rail) {
+  background: var(--bg);
 }
 :global(html[data-desktop-platform='win32'] .side),
 :global(html[data-desktop-platform='win32'] .sidebar-rail) {
   background: var(--panel);
 }
-:global(html[data-desktop-platform='darwin'] .con),
+:global(html[data-desktop-platform='darwin'] .con) {
+  position: relative;
+  padding-top: 20px;
+  background: var(--bg);
+  /* macOS now draws the window corners. */
+}
+:global(html[data-desktop-platform='darwin'] .con::before) {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 32px;
+  user-select: none;
+  -webkit-app-region: drag;
+}
 :global(html[data-desktop-platform='darwin'] .global-preview) {
   background: var(--bg);
 }
@@ -1468,6 +1492,7 @@ function openPr(url: string): void {
 .app > .side {
   grid-column: 1;
   grid-row: 1;
+  position: relative;
   overflow: hidden;
 }
 
@@ -1506,6 +1531,7 @@ function openPr(url: string): void {
 .sidebar-rail {
   grid-column: 1;
   grid-row: 1;
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1535,12 +1561,25 @@ function openPr(url: string): void {
   outline: 2px solid var(--blue);
   outline-offset: -2px;
 }
+:global(html[data-desktop-platform='darwin'] .side) {
+  padding-top: 20px;
+}
 :global(html[data-desktop-platform='darwin'] .sidebar-rail) {
   padding-top: 48px;
-  -webkit-app-region: drag;
 }
 :global(html[data-desktop-platform='darwin'] .sidebar-rail button) {
   -webkit-app-region: no-drag;
+}
+:global(html[data-desktop-platform='darwin'] .side::before),
+:global(html[data-desktop-platform='darwin'] .sidebar-rail::before) {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 80px;
+  height: 32px;
+  user-select: none;
+  -webkit-app-region: drag;
 }
 
 /* The collapsed rail occupies track 1; keep the main pane pinned to the

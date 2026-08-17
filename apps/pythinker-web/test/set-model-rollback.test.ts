@@ -139,10 +139,12 @@ describe('setModel failure handling', () => {
 
     await client.setModel('model-new');
 
-    expect(client.thinking.value).toBe('high');
+    // The model declares no supportEfforts, so it falls back to low/medium/high
+    // and takes the first level — same rule as the SDK's coerceEffortForModel.
+    expect(client.thinking.value).toBe('low');
     expect(api.updateSession).toHaveBeenLastCalledWith('sess_1', {
       model: 'model-new',
-      thinking: 'high',
+      thinking: 'low',
     });
   });
 });

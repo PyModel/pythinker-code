@@ -88,7 +88,7 @@ export const DynamicWorkflowToolInputSchema = z
       .array(z.string())
       .optional()
       .describe(
-        `Each item launches one new subagent. Items fill ${PROMPT_TEMPLATE_PLACEHOLDER} when prompt_template is provided; otherwise they are complete prompts.`,
+        `Each item launches one new subagent. Without resume_agent_ids, provide at least two non-empty items. Items fill ${PROMPT_TEMPLATE_PLACEHOLDER} when prompt_template is provided; otherwise they are complete prompts.`,
       ),
     resume_agent_ids: z
       .record(z.string().trim().min(1), z.string().trim().min(1))
@@ -168,6 +168,13 @@ export class DynamicWorkflowTool implements BuiltinTool<DynamicWorkflowToolInput
   }
 
   resolveExecution(args: DynamicWorkflowToolInput): ToolExecution {
+    try {
+      createDynamicWorkflowSpecs(args, (agentId) =>
+        this.subagentHost.getDynamicWorkflowItem(agentId),
+      );
+    } catch (error) {
+      return { isError: true, output: error instanceof Error ? error.message : String(error) };
+    }
     const workflow = dynamicWorkflowPreview(args);
     const approvalSubject = dynamicWorkflowApprovalSubject(args, workflow);
     return {
@@ -358,9 +365,8 @@ function hasMinimumDynamicWorkflowInputs(itemCount: number, resumeCount: number)
  * What the call is about to launch, for the approval panel — the counted
  * subagents, the work each one gets, and how much prompt that adds up to.
  *
- * Built from the arguments alone and deliberately total: `resolveExecution`
- * runs before `createDynamicWorkflowSpecs` validates anything, so a call this
- * function threw on would never reach the panel that exists to refuse it.
+ * Built from the arguments alone after `createDynamicWorkflowSpecs` validates
+ * the plan, so an invalid workflow never reaches the approval panel.
  * `prompt_tokens` is the summed prompt estimate, which is a real input size —
  * not a guess at what the run will finally cost.
  */

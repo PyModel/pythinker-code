@@ -11,7 +11,7 @@ import PythinkerLogo from './PythinkerLogo.vue';
 
 const { t } = useI18n();
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     activeWorkspace: WorkspaceView | null;
     activeWorkspaceId: string | null;
@@ -57,14 +57,15 @@ const emit = defineEmits<{
 // Collapse groups
 // ---------------------------------------------------------------------------
 const collapsedIds = ref<Set<string>>(new Set());
+const toggledIds = ref<Set<string>>(new Set());
 
 function isCollapsed(id: string): boolean {
-  return collapsedIds.value.has(id);
+  return toggledIds.value.has(id) ? collapsedIds.value.has(id) : id !== props.activeWorkspaceId;
 }
 
 function toggleCollapse(id: string): void {
   const next = new Set(collapsedIds.value);
-  if (next.has(id)) {
+  if (isCollapsed(id)) {
     next.delete(id);
     // Reset session expansion when workspace is expanded
     const expandedNext = new Set(expandedWsIds.value);
@@ -74,6 +75,7 @@ function toggleCollapse(id: string): void {
     next.add(id);
   }
   collapsedIds.value = next;
+  toggledIds.value = new Set(toggledIds.value).add(id);
 }
 
 // ---------------------------------------------------------------------------
@@ -210,12 +212,15 @@ function closeFilterMenu(): void {
 }
 
 function collapseAll(workspaceGroups: WorkspaceGroup[]): void {
-  collapsedIds.value = new Set(workspaceGroups.map((group) => group.workspace.id));
+  const ids = workspaceGroups.map((group) => group.workspace.id);
+  collapsedIds.value = new Set(ids);
+  toggledIds.value = new Set(ids);
   closeFilterMenu();
 }
 
 function expandAll(): void {
   collapsedIds.value = new Set();
+  toggledIds.value = new Set(props.groups.map((group) => group.workspace.id));
   closeFilterMenu();
 }
 
@@ -761,8 +766,7 @@ onBeforeUnmount(() => {
   box-sizing: border-box;
 }
 :global(html[data-desktop-platform='darwin'] .ch) {
-  padding-top: 42px;
-  -webkit-app-region: drag;
+  padding-top: 20px;
 }
 :global(html[data-desktop-platform='darwin'] .ch button),
 :global(html[data-desktop-platform='darwin'] .ch .ch-brand) {
@@ -954,10 +958,11 @@ onBeforeUnmount(() => {
 
 .gh-folder {
   flex: none;
-  color: var(--blue);
+  color: var(--muted);
   /* 14px icon + 2px margin fills the --sb-gutter icon slot */
   margin-right: calc(var(--sb-gutter) - 14px);
 }
+.gh.on .gh-folder { color: var(--blue); }
 
 .gh-name {
   font-size: var(--ui-font-size);
@@ -976,6 +981,8 @@ onBeforeUnmount(() => {
   color: var(--faint);
   cursor: pointer;
   display: inline-flex;
+  opacity: 0;
+  pointer-events: none;
   align-items: center;
   justify-content: center;
   /* Keep the icon small but give the button a ≥24px tap target. Extra padding
@@ -996,7 +1003,9 @@ onBeforeUnmount(() => {
 
 /* More button — hidden until hover */
 .gh-more {
-  display: none;
+  display: inline-flex;
+  opacity: 0;
+  pointer-events: none;
   flex: none;
   width: 24px;
   height: 24px;
@@ -1010,8 +1019,12 @@ onBeforeUnmount(() => {
   border-radius: 4px;
 }
 .gh:hover .gh-more,
+.gh:hover .gh-add,
+.gh-more:focus-visible,
+.gh-add:focus-visible,
 .gh-more.open {
-  display: inline-flex;
+  opacity: 1;
+  pointer-events: auto;
 }
 .gh-more:hover,
 .gh-more.open { color: var(--ink); background: var(--line2); }
@@ -1068,7 +1081,7 @@ onBeforeUnmount(() => {
 .group-empty {
   padding: 8px 10px 8px calc(var(--sb-pad-x) + var(--sb-gutter) + var(--sb-gap));
   font-size: calc(var(--ui-font-size) - 1.5px);
-  color: var(--faint);
+  color: var(--muted);
   font-family: var(--mono);
 }
 .show-more {

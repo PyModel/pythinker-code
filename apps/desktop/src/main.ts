@@ -10,6 +10,7 @@ import {
   ipcMain,
   Menu,
   nativeImage,
+  nativeTheme,
   session,
   shell,
   Tray,
@@ -38,6 +39,7 @@ import {
   quitAndInstallNow,
   setAutoUpdate,
 } from './updater'
+import { windowAppearanceOptions } from './window-options'
 import { createDesktopLifecycle, type DesktopLifecycle } from './window-lifecycle'
 
 const APP_NAME = 'Pythinker'
@@ -192,31 +194,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
     minWidth: 960,
     minHeight: 640,
     show: false,
-    autoHideMenuBar: true,
-    frame: process.platform === 'win32',
-    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
-    ...(process.platform === 'darwin' ? {} : {
-      titleBarOverlay: {
-        color: '#00000000',
-        symbolColor: '#7f858f',
-        height: 44,
-      },
-    }),
-    ...(process.platform === 'darwin' ? {
-      trafficLightPosition: { x: 16, y: 18 },
-      vibrancy: 'sidebar' as const,
-      visualEffectState: 'followWindow' as const,
-    } : {}),
-    // Windows uses an opaque window so theme colors do not blend with desktop wallpaper.
-    ...(process.platform === 'win32' ? {
-      backgroundColor: '#0d1117',
-      hasShadow: true,
-      roundedCorners: true,
-      thickFrame: true,
-    } : {
-      transparent: true,
-      backgroundColor: '#00000000',
-    }),
+    ...windowAppearanceOptions(process.platform),
     title: APP_NAME,
     webPreferences: {
       contextIsolation: true,
@@ -270,6 +248,12 @@ ipcMain.handle('pythinker:update:check', (event) => {
 ipcMain.handle('pythinker:update:install', (event) => {
   assertTrustedSender(event)
   return quitAndInstallNow()
+})
+ipcMain.handle('pythinker:theme:set-source', (event, source: unknown) => {
+  assertTrustedSender(event)
+  if (source === 'dark' || source === 'light' || source === 'system') {
+    nativeTheme.themeSource = source
+  }
 })
 
 function createTray(images: TrayImages): void {

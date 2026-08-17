@@ -77,9 +77,13 @@ export type SessionAgentConfig = z.infer<typeof sessionAgentConfigSchema>;
 export const sessionAgentConfigPartialSchema = sessionAgentConfigSchema.partial();
 export type SessionAgentConfigPartial = z.infer<typeof sessionAgentConfigPartialSchema>;
 
+export const sessionModeSchema = z.enum(['code', 'general']);
+export type SessionMode = z.infer<typeof sessionModeSchema>;
+
 export const sessionMetadataSchema = z
   .object({
     cwd: z.string().min(1),
+    mode: sessionModeSchema.optional(),
   })
   .catchall(z.unknown());
 

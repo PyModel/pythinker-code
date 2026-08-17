@@ -526,6 +526,10 @@ export interface AppModel {
   maxContextSize: number;
   /** Optional capability tags (e.g. ["vision", "thinking"]) */
   capabilities?: string[];
+  /** Effort levels this model offers; absent means fall back to low/medium/high. */
+  supportEfforts?: string[];
+  /** Model reasons adaptively rather than via an explicit thinking capability tag. */
+  adaptiveThinking?: boolean;
 }
 
 export interface AppProvider {

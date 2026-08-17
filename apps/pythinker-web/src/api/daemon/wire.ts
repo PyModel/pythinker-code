@@ -333,6 +333,8 @@ export interface WireModel {
   display_name?: string;
   max_context_size: number;
   capabilities?: string[];
+  support_efforts?: string[];
+  adaptive_thinking?: boolean;
 }
 
 export interface WireProvider {

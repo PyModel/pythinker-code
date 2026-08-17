@@ -14,14 +14,12 @@
     "@pymodel/pythinker-telemetry",
     "@pymodel/pythinker-web",
     "@pymodel/kosong",
-    "@pymodel/migration-legacy",
     "@pymodel/protocol",
     "@pymodel/server",
     "@pymodel/server-e2e",
     "@pymodel/dashboard",
     "@pymodel/dashboard-server",
-    "@pymodel/dashboard-web",
-    "pythinker-migration-legacy"
+    "@pymodel/dashboard-web"
   ],
   "snapshot": {
     "useCalculatedVersion": true,

@@ -20,7 +20,7 @@ Use this tool to maintain a structured TODO list as you work through a multi-ste
 
 **How to use:**
 - Call with `todos: [...]` to replace the full list. Use `title` plus an optional present-continuous `activeForm`; statuses are pending / in_progress / done.
-- TodoWrite-compatible `content`, required `activeForm`, and completed status are also accepted.
+- TodoWrite-compatible `content`, required `activeForm`, and completed status are also accepted. `done` and `completed` are equivalent with either item shape.
 - Call with no arguments to retrieve the current list without changing it.
 - Call with `todos: []` to clear the list.
 - Keep titles short and actionable (e.g. "Read session-control.ts", "Add planMode flag to TurnManager").

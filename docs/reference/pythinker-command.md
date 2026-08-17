@@ -119,7 +119,7 @@ In `stream-json` mode, regular replies produce an Assistant message; when the mo
 
 ## Subcommands
 
-`pythinker` provides the following subcommands: `login` (non-interactive login), `acp` (ACP IDE mode), `server` (run and manage the local REST/WebSocket/web service), `web` (alias for `pythinker server run --open`), `doctor` (validate configuration files), `export` (export a session), `migrate` (migrate legacy data), `upgrade` (check for updates), and `provider` (manage providers).
+`pythinker` provides the following subcommands: `login` (non-interactive login), `acp` (ACP IDE mode), `server` (run and manage the local REST/WebSocket/web service), `web` (alias for `pythinker server run --open`), `doctor` (validate configuration files), `export` (export a session), `upgrade` (check for updates), and `provider` (manage providers).
 
 ### `pythinker login`
 
@@ -257,16 +257,6 @@ pythinker export 01HZ...XYZ -o ./bug-report.zip
 # Exclude the global diagnostic log
 pythinker export 01HZ...XYZ -o ./bug-report.zip --no-include-global-log
 ```
-
-### `pythinker migrate`
-
-Migrate local data from a legacy pythinker-cli installation to pythinker-code, including session history and configuration files. Runs entirely interactively, guiding you through the full process.
-
-```sh
-pythinker migrate
-```
-
-For full migration instructions, see [Migrating from pythinker-cli](../guides/migration.md).
 
 ### `pythinker upgrade`
 

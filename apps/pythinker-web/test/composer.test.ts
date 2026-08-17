@@ -1,8 +1,13 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { flushPromises, mount } from '@vue/test-utils';
 import { createI18n } from 'vue-i18n';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import Composer from '../src/components/Composer.vue';
 import type { AppModel } from '../src/api/types';
+
+const sourcePath = (path: string) => fileURLToPath(new URL(path, import.meta.url));
+const composerSource = readFileSync(sourcePath('../src/components/Composer.vue'), 'utf8');
 
 function mountComposer(props: Record<string, unknown> = {}) {
   const i18n = createI18n({
@@ -57,6 +62,34 @@ afterEach(() => {
   document.body.innerHTML = '';
   try { localStorage.clear(); } catch { /* ignore */ }
   vi.restoreAllMocks();
+});
+
+describe('Composer styling', () => {
+  it('places the composer border flush against the message list', () => {
+    const composerRule = composerSource.match(/(?:^|\n)\.composer\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(composerRule.trim()).not.toBe('');
+
+    const padding = composerRule.match(/padding:\s*([^;]+);/)?.[1] ?? '';
+    expect(padding).toMatch(/^0(?:\s|$)/);
+    expect(padding).not.toMatch(/^7px(?:\s|$)/);
+    expect(padding).toMatch(/var\(--dock-inline-left, 16px\)$/);
+  });
+
+  it('styles attachments as a horizontal row of square tiles', () => {
+    const stripRule = composerSource.match(/(?:^|\n)\.att-strip\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(stripRule.trim()).not.toBe('');
+    expect(stripRule).toMatch(/flex-wrap:\s*nowrap;/);
+    expect(stripRule).toMatch(/overflow-x:\s*auto;/);
+
+    const removeRule = composerSource.match(/(?:^|\n)\.att-rm\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(removeRule.trim()).not.toBe('');
+    expect(removeRule).toMatch(/opacity:\s*0;/);
+    expect(removeRule).not.toMatch(/display:\s*none;/);
+
+    const chipRule = composerSource.match(/(?:^|\n)\.att-chip\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(chipRule.trim()).not.toBe('');
+    expect(chipRule).toMatch(/width:\s*56px;/);
+  });
 });
 
 describe('Composer IME input', () => {
@@ -231,10 +264,51 @@ describe('Composer attachment preview', () => {
     document.dispatchEvent(paste);
     await flushPromises();
 
+    const chips = wrapper.findAll('.att-chip');
+    expect(chips).toHaveLength(1);
+    expect(chips[0]!.find('.att-name').exists()).toBe(false);
+    expect(chips[0]!.get('.att-preview').attributes('aria-label')).toContain('shot.png');
+
     await wrapper.find('.att-preview').trigger('click');
 
     expect(wrapper.find('.att-lightbox').exists()).toBe(true);
     expect(wrapper.find('.att-lightbox-media').attributes('src')).toBe('blob:preview');
+
+    await wrapper.find('.att-rm').trigger('click');
+    expect(wrapper.findAll('.att-chip')).toHaveLength(0);
+
+    Object.defineProperty(URL, 'createObjectURL', {
+      value: originalCreateObjectURL,
+      configurable: true,
+    });
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      value: originalRevokeObjectURL,
+      configurable: true,
+    });
+  });
+
+  it('keeps the error icon when an attachment upload fails', async () => {
+    const originalCreateObjectURL = URL.createObjectURL;
+    const originalRevokeObjectURL = URL.revokeObjectURL;
+    Object.defineProperty(URL, 'createObjectURL', {
+      value: vi.fn(() => 'blob:error-preview'),
+      configurable: true,
+    });
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      value: vi.fn(),
+      configurable: true,
+    });
+    const wrapper = mountComposer({ uploadImage: vi.fn().mockRejectedValue(new Error('upload failed')) });
+    const file = new File(['png'], 'broken.png', { type: 'image/png' });
+    const paste = new Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(paste, 'clipboardData', {
+      value: { items: [], files: [file] },
+    });
+
+    document.dispatchEvent(paste);
+    await flushPromises();
+
+    expect(wrapper.get('.att-chip').find('.att-err-icon').exists()).toBe(true);
 
     Object.defineProperty(URL, 'createObjectURL', {
       value: originalCreateObjectURL,
@@ -318,6 +392,42 @@ describe('Composer model dropdown', () => {
     await starredRow!.trigger('click');
 
     expect(wrapper.emitted('selectModel')).toEqual([['openai/gpt-5']]);
+  });
+
+  it('bounds the quick-switch dropdown to the measured space above its pill', async () => {
+    const wrapper = mountComposer({
+      status: { model: 'Model 0', modelId: 'pythinker/model-0', ctxUsed: 0, ctxMax: 128000, permission: 'manual' },
+      models: Array.from({ length: 17 }, (_, index) => ({
+        id: `pythinker/model-${index}`,
+        provider: 'pythinker',
+        model: `model-${index}`,
+        displayName: `Model ${index}`,
+        maxContextSize: 128000,
+      })),
+    });
+    const pill = wrapper.get('.model-pill');
+    const rect = vi.spyOn(pill.element, 'getBoundingClientRect');
+
+    rect.mockReturnValue({ top: 20 } as DOMRect);
+    await pill.trigger('click');
+    expect(wrapper.get('.model-dropdown').element.style.maxHeight).toBe('160px');
+
+    rect.mockReturnValue({ top: 300 } as DOMRect);
+    await pill.trigger('click');
+    await pill.trigger('click');
+    expect(wrapper.get('.model-dropdown').element.style.maxHeight).toBe('284px');
+
+    // A tall window used to let the menu grow to the full viewport height.
+    rect.mockReturnValue({ top: 1180 } as DOMRect);
+    await pill.trigger('click');
+    await pill.trigger('click');
+    expect(wrapper.get('.model-dropdown').element.style.maxHeight).toBe('360px');
+  });
+
+  it('replaces the binary thinking toggle with the effort list', () => {
+    expect(composerSource).not.toContain('toggleThinking');
+    expect(composerSource).not.toContain('md-row-toggle');
+    expect(composerSource).toContain('selectEffort');
   });
 });
 
