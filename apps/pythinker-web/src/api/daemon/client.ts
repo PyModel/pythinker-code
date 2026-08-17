@@ -11,7 +11,10 @@ import type {
   AppProvider,
   ProviderRefreshResult,
   AppSession,
+  AppConnector,
+  AppPlugin,
   AppSkill,
+  AppSubagent,
   AppSessionCursor,
   AppSessionRuntimeStatus,
   AppSessionSnapshot,
@@ -125,6 +128,37 @@ interface WireSkillDescriptor {
   source: string;
   type?: string;
   disable_model_invocation?: boolean;
+}
+
+interface WireMcpServer {
+  id: string;
+  name: string;
+  transport: 'stdio' | 'http' | 'sse';
+  status: 'connected' | 'connecting' | 'disconnected' | 'error';
+  tool_count: number;
+  last_error?: string;
+}
+
+interface WirePlugin {
+  id: string;
+  display_name: string;
+  version?: string;
+  enabled: boolean;
+  state: string;
+  skill_count: number;
+  mcp_server_count: number;
+  has_errors: boolean;
+  source: string;
+}
+
+interface WireAgentProfile {
+  name: string;
+  description?: string;
+  source: 'built-in' | 'plugin' | 'user' | 'project';
+  tools: string[];
+  model?: string;
+  effort?: string;
+  when_to_use?: string;
 }
 
 interface WireArchiveResult {
@@ -708,7 +742,68 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
       name: s.name,
       description: s.description,
       source: s.source,
+      path: s.path,
+      disableModelInvocation: s.disable_model_invocation,
     }));
+  }
+
+  async listConnectors(): Promise<AppConnector[]> {
+    const data = await this.http.get<{ servers: WireMcpServer[] }>('/mcp/servers');
+    return (data.servers ?? []).map((server) => ({
+      id: server.id,
+      name: server.name,
+      transport: server.transport,
+      status: server.status,
+      toolCount: server.tool_count,
+      lastError: server.last_error,
+    }));
+  }
+
+  async listPlugins(): Promise<AppPlugin[]> {
+    const data = await this.http.get<{ plugins: WirePlugin[] }>('/plugins');
+    return (data.plugins ?? []).map((plugin) => ({
+      id: plugin.id,
+      displayName: plugin.display_name,
+      version: plugin.version,
+      enabled: plugin.enabled,
+      state: plugin.state,
+      skillCount: plugin.skill_count,
+      mcpServerCount: plugin.mcp_server_count,
+      hasErrors: plugin.has_errors,
+      source: plugin.source,
+    }));
+  }
+
+  async setPluginEnabled(
+    pluginId: string,
+    enabled: boolean,
+  ): Promise<{ id: string; enabled: boolean }> {
+    return this.http.post<{ id: string; enabled: boolean }>(
+      `/plugins/${encodeURIComponent(pluginId)}:set-enabled`,
+      { enabled },
+    );
+  }
+
+  async listSubagents(workDir: string): Promise<AppSubagent[]> {
+    const data = await this.http.get<{ profiles: WireAgentProfile[] }>('/agent-profiles', {
+      work_dir: workDir,
+    });
+    return (data.profiles ?? []).map((profile) => ({
+      name: profile.name,
+      description: profile.description,
+      source: profile.source,
+      tools: profile.tools,
+      model: profile.model,
+      effort: profile.effort,
+      whenToUse: profile.when_to_use,
+    }));
+  }
+
+  async restartConnector(connectorId: string): Promise<{ restarting: true }> {
+    return this.http.post<{ restarting: true }>(
+      `/mcp/servers/${encodeURIComponent(connectorId)}:restart`,
+      {},
+    );
   }
 
   async activateSkill(
@@ -1094,6 +1189,7 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
       hooks: 'hooks',
       services: 'services',
       mergeAllAvailableSkills: 'merge_all_available_skills',
+      disabledSkills: 'disabled_skills',
       extraSkillDirs: 'extra_skill_dirs',
       loopControl: 'loop_control',
       background: 'background',

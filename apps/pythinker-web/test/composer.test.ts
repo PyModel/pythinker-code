@@ -35,10 +35,21 @@ function mountComposer(props: Record<string, unknown> = {}) {
           compact: { desc: 'Compact context' },
         },
         status: {
+          modelLabel: 'Model',
           modelTooltip: 'Switch model',
           starredModels: 'Starred',
           moreModels: 'More models…',
           thinkingLabel: 'thinking',
+          effortRow: 'Effort',
+          effortLevels: {
+            off: 'Off',
+            minimal: 'Minimal',
+            low: 'Low',
+            medium: 'Medium',
+            high: 'High',
+            xhigh: 'xHigh',
+            max: 'Max',
+          },
         },
       },
     },
@@ -52,6 +63,12 @@ function mountComposer(props: Record<string, unknown> = {}) {
       plugins: [i18n],
     },
   });
+}
+
+/** The dropdown opens on the root menu; step into the model list. */
+async function openModelList(wrapper: ReturnType<typeof mountComposer>): Promise<void> {
+  const modelRow = wrapper.findAll('.md-row-nav').find((row) => row.text().includes('Model'));
+  await modelRow!.trigger('click');
 }
 
 function waitForCompositionEndTimer(): Promise<void> {
@@ -371,6 +388,7 @@ describe('Composer model dropdown', () => {
     });
 
     await wrapper.find('.model-pill').trigger('click');
+    await openModelList(wrapper);
 
     const rows = wrapper.findAll('.md-row');
     expect(rows.length).toBeGreaterThan(0);
@@ -387,6 +405,7 @@ describe('Composer model dropdown', () => {
     });
 
     await wrapper.find('.model-pill').trigger('click');
+    await openModelList(wrapper);
     const starredRow = wrapper.findAll('.md-row').find((row) => row.text().includes('GPT-5'));
     expect(starredRow).toBeDefined();
     await starredRow!.trigger('click');
@@ -424,6 +443,40 @@ describe('Composer model dropdown', () => {
     await pill.trigger('click');
     await pill.trigger('click');
     expect(wrapper.get('.model-dropdown').element.style.maxHeight).toBe('360px');
+  });
+
+  it('opens on a two-row root menu and drills into the effort list', async () => {
+    const wrapper = mountComposer({
+      status: { model: 'Pythinker K2', modelId: 'pythinker/k2', ctxUsed: 0, ctxMax: 128000, permission: 'manual' },
+      models: [
+        {
+          id: 'pythinker/k2',
+          provider: 'pythinker',
+          model: 'k2',
+          displayName: 'Pythinker K2',
+          maxContextSize: 128000,
+          capabilities: ['thinking'],
+        },
+      ],
+      thinking: 'medium',
+    });
+
+    await wrapper.find('.model-pill').trigger('click');
+    expect(wrapper.findAll('.md-row-nav')).toHaveLength(2);
+    expect(wrapper.text()).toContain('Pythinker K2');
+    expect(wrapper.text()).toContain('Medium');
+    // The model list stays behind the Model row.
+    expect(wrapper.text()).not.toContain('More models…');
+
+    const effortRow = wrapper.findAll('.md-row-nav').find((row) => row.text().includes('Effort'));
+    await effortRow!.trigger('click');
+
+    const levels = wrapper.findAll('.md-row').map((row) => row.text());
+    expect(levels).toEqual(['Effort', 'Off', 'Low', 'Medium', 'High']);
+
+    const high = wrapper.findAll('.md-row').find((row) => row.text() === 'High');
+    await high!.trigger('click');
+    expect(wrapper.emitted('setThinking')).toEqual([['high']]);
   });
 
   it('replaces the binary thinking toggle with the effort list', () => {

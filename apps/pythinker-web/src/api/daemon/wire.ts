@@ -365,6 +365,18 @@ export interface WireConfigProvider {
   has_api_key: boolean;
 }
 
+export interface WireHook {
+  event: string;
+  type?: 'command' | 'http' | 'model';
+  matcher?: string;
+  command?: string;
+  url?: string;
+  statusMessage?: string;
+  timeout?: number;
+  once?: boolean;
+  async?: boolean;
+}
+
 export interface WireConfig {
   providers: Record<string, WireConfigProvider>;
   default_provider?: string;
@@ -377,9 +389,10 @@ export interface WireConfig {
   default_permission_mode?: string;
   default_plan_mode?: boolean;
   permission?: unknown;
-  hooks?: unknown[];
+  hooks?: WireHook[];
   services?: unknown;
   merge_all_available_skills?: boolean;
+  disabled_skills?: string[];
   extra_skill_dirs?: string[];
   loop_control?: unknown;
   background?: unknown;

@@ -18,7 +18,10 @@ import type {
   AppQuestionRequest,
   AppSession,
   AppSessionRuntimeStatus,
+  AppConnector,
+  AppPlugin,
   AppSkill,
+  AppSubagent,
   AppTask,
   AppWarning,
   AppWorkspace,
@@ -1463,6 +1466,66 @@ async function loadSkillsForSession(sessionId: string): Promise<void> {
     // Skills are side data; an older daemon without /skills just yields no
     // slash-skills, the built-in commands still work.
   }
+}
+
+// Configured MCP servers. Global, not session-scoped, and loaded on demand by
+// the settings dialog — nothing else in the app needs them.
+const connectors = ref<AppConnector[]>([]);
+const connectorsLoading = ref(false);
+
+async function loadConnectors(): Promise<void> {
+  connectorsLoading.value = true;
+  try {
+    connectors.value = await getPythinkerWebApi().listConnectors();
+  } catch {
+    // An older daemon has no /mcp/servers; an empty list is the honest answer.
+    connectors.value = [];
+  } finally {
+    connectorsLoading.value = false;
+  }
+}
+
+const plugins = ref<AppPlugin[]>([]);
+const subagents = ref<AppSubagent[]>([]);
+
+async function loadPlugins(): Promise<void> {
+  try {
+    plugins.value = await getPythinkerWebApi().listPlugins();
+  } catch {
+    // An older daemon has no /plugins; an empty list is the honest answer.
+    plugins.value = [];
+  }
+}
+
+async function setPluginEnabled(pluginId: string, enabled: boolean): Promise<void> {
+  try {
+    await getPythinkerWebApi().setPluginEnabled(pluginId, enabled);
+  } catch {
+    // The reload below reports whatever state the daemon ended up in.
+  }
+  await loadPlugins();
+}
+
+async function loadSubagents(): Promise<void> {
+  const workDir = rawState.sessions.find((s) => s.id === rawState.activeSessionId)?.cwd;
+  if (workDir === undefined || workDir === '') {
+    subagents.value = [];
+    return;
+  }
+  try {
+    subagents.value = await getPythinkerWebApi().listSubagents(workDir);
+  } catch {
+    subagents.value = [];
+  }
+}
+
+async function restartConnector(connectorId: string): Promise<void> {
+  try {
+    await getPythinkerWebApi().restartConnector(connectorId);
+  } catch {
+    // The reload below reports whatever state the server ended up in.
+  }
+  await loadConnectors();
 }
 
 function hasLoadedMessages(sessionId: string): boolean {
@@ -4372,6 +4435,17 @@ export function usePythinkerWebClient() {
     loadProviders,
     skills,
     activateSkill,
+    connectors,
+    connectorsLoading,
+    plugins,
+    loadPlugins,
+    setPluginEnabled,
+    subagents,
+    loadSubagents,
+    /** Raw sessions with their usage totals — the settings usage page reads these. */
+    sessionsWithUsage: computed<AppSession[]>(() => rawState.sessions),
+    loadConnectors,
+    restartConnector,
     setModel,
     toggleStarModel,
     addProvider,

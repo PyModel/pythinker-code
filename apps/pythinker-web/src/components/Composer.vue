@@ -741,12 +741,15 @@ const hasUpload = computed(() => !!props.uploadImage);
 const dropdownOpen = ref(false);
 const modelPillRef = ref<HTMLElement | null>(null);
 const modelDropdownStyle = ref<Record<string, string>>({});
+/** The dropdown opens on a two-row root menu and drills into one list at a time. */
+const dropdownView = ref<'root' | 'model' | 'effort'>('root');
 const permDropdownOpen = ref(false);
 const toolbarRef = ref<HTMLElement | null>(null);
 
 function toggleDropdown(): void {
   dropdownOpen.value = !dropdownOpen.value;
   if (dropdownOpen.value) {
+    dropdownView.value = 'root';
     const rect = modelPillRef.value?.getBoundingClientRect();
     modelDropdownStyle.value = rect
       ? { maxHeight: `${Math.min(360, Math.max(0, rect.top - 4 - 12))}px` }
@@ -1210,8 +1213,46 @@ function selectModel(modelId: string): void {
           </span>
         </div>
 
-        <!-- Model dropdown — current provider models + controls + more -->
-        <div v-if="dropdownOpen && status" class="model-dropdown" :style="modelDropdownStyle" role="menu" @click.stop>
+        <!-- Model dropdown — a compact root menu that drills into model / effort -->
+        <div v-if="dropdownOpen && status" class="model-dropdown" :class="{ 'is-root': dropdownView === 'root' }" :style="modelDropdownStyle" role="menu" @click.stop>
+          <template v-if="dropdownView === 'root'">
+            <button class="md-row md-row-nav" role="menuitem" @click="dropdownView = 'model'">
+              <span class="md-name">{{ t('status.modelLabel') }}</span>
+              <span class="md-value">{{ status.model }}</span>
+              <svg class="md-chevron" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3l5 5-5 5"/></svg>
+            </button>
+            <button class="md-row md-row-nav" role="menuitem" :disabled="thinkingAvailability === 'unsupported'" @click="dropdownView = 'effort'">
+              <span class="md-name">{{ t('status.effortRow') }}</span>
+              <span class="md-value">{{ thinkingAvailability === 'unsupported' ? t('status.modeNotSupported') : effortLabel(currentEffort) }}</span>
+              <svg v-if="thinkingAvailability !== 'unsupported'" class="md-chevron" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3l5 5-5 5"/></svg>
+            </button>
+          </template>
+
+          <!-- Effort levels -->
+          <template v-else-if="dropdownView === 'effort'">
+            <button class="md-row md-row-back" role="menuitem" @click="dropdownView = 'root'">
+              <svg class="md-chevron md-chevron-back" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3L5 8l5 5"/></svg>
+              <span class="md-name">{{ t('status.effortRow') }}</span>
+            </button>
+            <button
+              v-for="level in effortLevels"
+              :key="level"
+              class="md-row"
+              role="menuitem"
+              @click="selectEffort(level)"
+            >
+              <span class="md-check"><svg v-if="level === currentEffort" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5l3.5 3.5L13 4.5"/></svg></span>
+              <span class="md-name">{{ effortLabel(level) }}</span>
+            </button>
+          </template>
+
+          <!-- Model list -->
+          <template v-else>
+          <button class="md-row md-row-back" role="menuitem" @click="dropdownView = 'root'">
+            <svg class="md-chevron md-chevron-back" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3L5 8l5 5"/></svg>
+            <span class="md-name">{{ t('status.modelLabel') }}</span>
+          </button>
+
           <!-- Starred models from other providers -->
           <div v-if="starredOtherModels.length > 0" class="md-section">{{ t('status.starredModels') }}</div>
           <button
@@ -1247,23 +1288,6 @@ function selectModel(modelId: string): void {
 
           <div v-if="providerModels.length > 0" class="md-divider" />
 
-          <!-- Thinking effort -->
-          <div class="md-section">{{ t('status.effortLabel') }}</div>
-          <div v-if="thinkingAvailability === 'unsupported'" class="md-cache-note">{{ t('status.modeNotSupported') }}</div>
-          <template v-else>
-            <button
-              v-for="level in effortLevels"
-              :key="level"
-              class="md-row"
-              role="menuitem"
-              @click="selectEffort(level)"
-            >
-              <span class="md-check"><svg v-if="level === currentEffort" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5l3.5 3.5L13 4.5"/></svg></span>
-              <span class="md-name">{{ effortLabel(level) }}</span>
-            </button>
-          </template>
-
-          <div class="md-divider" />
           <div class="md-cache-note">{{ t('status.cacheNote') }}</div>
 
           <div class="md-divider" />
@@ -1272,6 +1296,7 @@ function selectModel(modelId: string): void {
           <button class="md-row md-row-more" role="menuitem" @click="closeDropdown(); emit('pickModel');">
             <span class="md-name">{{ t('status.moreModels') }}</span>
           </button>
+          </template>
         </div>
       </div>
   </div>
@@ -1826,6 +1851,35 @@ function selectModel(modelId: string): void {
   color: var(--muted);
   font-size: var(--ui-font-size-xs);
   flex: none;
+}
+
+/* Root menu: two rows, so it sizes to its content and never scrolls. */
+.model-dropdown.is-root {
+  min-width: 240px;
+  overflow-y: visible;
+}
+
+.md-value {
+  color: var(--muted);
+  flex: none;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.md-chevron {
+  flex: none;
+  color: var(--faint);
+}
+
+.md-row-nav:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.md-row-back {
+  color: var(--muted);
 }
 .md-star {
   color: var(--star);

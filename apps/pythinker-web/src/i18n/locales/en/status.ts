@@ -32,7 +32,7 @@ export default {
   // Thinking selector
   thinkingLabel: 'thinking',
   thinkingTooltip: 'Toggle thinking mode',
-  effortLabel: 'Thinking effort',
+  effortRow: 'Effort',
   effortLevels: {
     off: 'Off',
     minimal: 'Minimal',

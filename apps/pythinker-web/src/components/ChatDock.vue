@@ -119,6 +119,9 @@ defineExpose({ loadForEdit });
 
 <template>
   <div class="chat-dock" :class="[mobile ? 'align-mobile' : 'align-center']" @click.stop>
+    <!-- Task chips and their panel float over the conversation, so opening one
+         never changes the composer's position. -->
+    <div v-if="dockPanel || hasDockWork" class="dock-float">
     <Transition name="dock-panel">
       <div
         ref="workPanelRef"
@@ -188,12 +191,6 @@ defineExpose({ loadForEdit });
       </div>
     </Transition>
 
-    <GoalStrip
-      v-if="goal"
-      :goal="goal"
-      :force-expanded="goalExpandSignal"
-      @control-goal="emit('controlGoal', $event)"
-    />
     <div v-if="hasDockWork" ref="workbarRef" class="dock-workbar">
       <button
         v-if="bashTasks.length > 0"
@@ -257,6 +254,14 @@ defineExpose({ loadForEdit });
         <span class="dw-count">(<b>{{ queued?.length ?? 0 }}</b>)</span>
       </button>
     </div>
+    </div>
+
+    <GoalStrip
+      v-if="goal"
+      :goal="goal"
+      :force-expanded="goalExpandSignal"
+      @control-goal="emit('controlGoal', $event)"
+    />
 
     <QuestionCard
       v-if="pendingQuestion"
@@ -335,16 +340,31 @@ defineExpose({ loadForEdit });
 .chat-dock.align-left { margin-left: 0; margin-right: auto; }
 .chat-dock.align-mobile { max-width: none; }
 
-.dock-work-panel {
+/* The chips and their panel sit outside the flow, stacked upwards from the top
+   edge of the composer. Nothing here changes the dock's height, so opening a
+   panel never moves the composer. */
+.dock-float {
   position: absolute;
-  left: 16px;
-  right: calc(16px + var(--panes-scrollbar-width, 0px));
+  left: var(--dock-inline-left);
+  right: calc(var(--dock-inline-right) + var(--panes-scrollbar-width, 0px));
   bottom: 100%;
+  z-index: 11;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding-bottom: 6px;
+  /* Only the chips and the panel take clicks; the gap between them does not. */
+  pointer-events: none;
+}
+.dock-float > * {
+  pointer-events: auto;
+}
+
+.dock-work-panel {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 10px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
-  margin-bottom: 7px;
   max-height: min(360px, 50vh);
   display: flex;
   flex-direction: column;
@@ -418,7 +438,6 @@ defineExpose({ loadForEdit });
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px var(--dock-inline-right) 2px var(--dock-inline-left);
 }
 .dock-work-chip {
   display: inline-flex;
@@ -432,9 +451,11 @@ defineExpose({ loadForEdit });
   border: 1px solid var(--line);
   cursor: pointer;
 }
+/* Opaque on purpose: the chip floats over the conversation, so a translucent
+   wash would let the text behind it show through. */
 .dock-work-chip:hover,
 .dock-work-chip.on {
-  background: var(--hover-bg);
+  background: color-mix(in srgb, var(--ink) 6%, var(--panel));
   color: var(--ink);
 }
 .dock-work-chip svg {
@@ -461,7 +482,7 @@ defineExpose({ loadForEdit });
     padding-left: env(safe-area-inset-left);
     padding-right: env(safe-area-inset-right);
   }
-  .dock-work-panel {
+  .dock-float {
     left: 10px;
     right: calc(10px + var(--panes-scrollbar-width, 0px));
   }

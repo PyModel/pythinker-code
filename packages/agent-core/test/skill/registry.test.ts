@@ -171,6 +171,55 @@ describe('skill registry prompt rendering', () => {
   });
 });
 
+describe('disabled skills', () => {
+  it('never registers a skill the user turned off', () => {
+    const registry = new SessionSkillRegistry({ disabledNames: ['user-a'] });
+
+    registry.register(makeSkill('user-a', 'user'));
+    registry.register(makeSkill('user-b', 'user'));
+
+    expect(registry.getSkill('user-a')).toBeUndefined();
+    expect(registry.getSkill('user-b')).toBeDefined();
+  });
+
+  it('matches the disabled name regardless of case', () => {
+    const registry = new SessionSkillRegistry({ disabledNames: ['Gen-Changesets'] });
+
+    registry.register(makeSkill('gen-changesets', 'project'));
+
+    expect(registry.getSkill('gen-changesets')).toBeUndefined();
+  });
+
+  it('disables built-in skills too', () => {
+    const registry = new SessionSkillRegistry({ disabledNames: ['loop'] });
+
+    registerBuiltinSkills(registry);
+
+    expect(registry.getSkill('loop')).toBeUndefined();
+  });
+
+  it('never indexes a disabled plugin skill discovered from a root', async () => {
+    // Discovery indexes plugin skills before `register` runs, so a disabled one
+    // stays reachable through `getPluginSkill` unless the check repeats there.
+    const disabled = { ...makeSkill('deploy', 'extra'), plugin: { id: 'acme' } };
+    const kept = { ...makeSkill('rollback', 'extra'), plugin: { id: 'acme' } };
+    const registry = new SessionSkillRegistry({
+      disabledNames: ['Deploy'],
+      discover: async (options) => {
+        options.onDiscoveredSkill?.(disabled);
+        options.onDiscoveredSkill?.(kept);
+        return [disabled, kept];
+      },
+    });
+
+    await registry.loadRoots([{ path: '/tmp/plugins', source: 'extra' }]);
+
+    expect(registry.getPluginSkill('acme', 'deploy')).toBeUndefined();
+    expect(registry.getSkill('deploy')).toBeUndefined();
+    expect(registry.getPluginSkill('acme', 'rollback')).toBeDefined();
+  });
+});
+
 function makeRegistry(skills: readonly SkillDefinition[]): SessionSkillRegistry {
   const registry = new SessionSkillRegistry();
   for (const skill of skills) registry.register(skill);

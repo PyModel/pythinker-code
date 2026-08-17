@@ -68,6 +68,7 @@ function toConfigResponse(config: PythinkerConfig): ConfigResponse {
     hooks: config.hooks,
     services: config.services,
     merge_all_available_skills: config.mergeAllAvailableSkills,
+    disabled_skills: config.disabledSkills,
     extra_skill_dirs: config.extraSkillDirs,
     loop_control: config.loopControl,
     background: config.background,

@@ -1077,6 +1077,7 @@ export class PythinkerCore implements PromisableMethods<CoreAPI> {
       extraDirs: config.extraSkillDirs,
       pluginSkillRoots: this.plugins.pluginSkillRoots(),
       mergeAllAvailableSkills: config.mergeAllAvailableSkills,
+      disabledNames: config.disabledSkills,
     };
   }
 

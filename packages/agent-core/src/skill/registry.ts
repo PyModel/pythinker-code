@@ -19,6 +19,8 @@ export interface SkillRegistryOptions {
   readonly isPathIgnored?: (path: string, cwd: string) => Promise<boolean>;
   readonly onWarning?: (message: string, cause?: unknown) => void;
   readonly sessionId?: string;
+  /** Skill names the user turned off; they are never registered. */
+  readonly disabledNames?: readonly string[];
 }
 
 export class SessionSkillRegistry implements AgentSkillRegistry {
@@ -34,6 +36,7 @@ export class SessionSkillRegistry implements AgentSkillRegistry {
   private readonly discoverImpl: typeof discoverSkills;
   private readonly isPathIgnored: (path: string, cwd: string) => Promise<boolean>;
   private readonly onWarning: (message: string, cause?: unknown) => void;
+  private readonly disabledNames: ReadonlySet<string>;
   readonly sessionId?: string;
 
   constructor(options: SkillRegistryOptions = {}) {
@@ -41,6 +44,9 @@ export class SessionSkillRegistry implements AgentSkillRegistry {
     this.isPathIgnored = options.isPathIgnored ?? (() => Promise.resolve(false));
     this.onWarning = options.onWarning ?? (() => {});
     this.sessionId = options.sessionId;
+    this.disabledNames = new Set(
+      (options.disabledNames ?? []).map((name) => normalizeSkillName(name)),
+    );
   }
 
   async loadRoots(roots: readonly SkillRoot[]): Promise<readonly SkillDefinition[]> {
@@ -69,6 +75,9 @@ export class SessionSkillRegistry implements AgentSkillRegistry {
 
   register(skill: SkillDefinition, options: { readonly replace?: boolean } = {}): void {
     const key = normalizeSkillName(skill.name);
+    // A disabled skill is dropped here, the one funnel every source goes
+    // through, so it is invisible to the model, the slash menu and the API.
+    if (this.disabledNames.has(key)) return;
     if (
       options.replace !== true &&
       (this.byName.has(key) || this.conditionalByName.has(key))
@@ -158,6 +167,9 @@ export class SessionSkillRegistry implements AgentSkillRegistry {
     options: { readonly replace?: boolean } = {},
   ): void {
     if (skill.plugin === undefined) return;
+    // Discovery indexes plugin skills before `register` runs, so the disabled
+    // check has to repeat here or `getPluginSkill` would still hand one back.
+    if (this.disabledNames.has(normalizeSkillName(skill.name))) return;
     const key = pluginSkillKey(skill.plugin.id, skill.name);
     if (options.replace === true || !this.byPluginAndName.has(key)) {
       this.byPluginAndName.set(key, skill);

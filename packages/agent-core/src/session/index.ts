@@ -181,6 +181,8 @@ export interface SessionSkillConfig {
   readonly pluginSkillRoots?: readonly SkillRoot[];
   readonly mergeAllAvailableSkills?: boolean;
   readonly builtinDir?: string;
+  /** Skill names the user turned off in config. */
+  readonly disabledNames?: readonly string[];
 }
 
 export interface AgentMeta {
@@ -476,6 +478,7 @@ export class Session {
           );
     this.skills = new SessionSkillRegistry({
       sessionId: options.id,
+      disabledNames: options.skills?.disabledNames,
       isPathIgnored: (candidate, cwd) =>
         isGitIgnored(this.persistenceKaos, candidate, cwd),
     });

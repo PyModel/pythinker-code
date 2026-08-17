@@ -481,6 +481,7 @@ export function configToTomlData(config: PythinkerConfig): Record<string, unknow
     'defaultPermissionMode',
     'defaultPlanMode',
     'mergeAllAvailableSkills',
+    'disabledSkills',
     'extraSkillDirs',
     'additionalDirs',
     'allowedHttpHookUrls',

@@ -14,7 +14,7 @@ import type { AgentMember } from './types';
 import ModelPicker from './components/ModelPicker.vue';
 import ProviderManager from './components/ProviderManager.vue';
 import NewSessionDialog from './components/NewSessionDialog.vue';
-import SettingsDialog from './components/SettingsDialog.vue';
+import SettingsPane from './components/settings/SettingsPane.vue';
 import SessionsDialog from './components/SessionsDialog.vue';
 import AddWorkspaceDialog from './components/AddWorkspaceDialog.vue';
 import StatusPanel from './components/StatusPanel.vue';
@@ -30,6 +30,7 @@ import { isTraceEnabled } from './debug/trace';
 import { usePythinkerWebClient } from './composables/usePythinkerWebClient';
 import { useIsMobile } from './composables/useIsMobile';
 import { useIsDark } from './composables/useIsDark';
+import { useSettingsNav } from './composables/useSettingsNav';
 import type { AppConfig, ThinkingLevel } from './api/types';
 import type { FilePreviewRequest, ToolMedia } from './types';
 
@@ -610,6 +611,43 @@ const showAddWorkspace = ref(false);
 const showStatusPanel = ref(false);
 const showSettings = ref(false);
 
+const {
+  activeTab: activeSettingsTab,
+  setTab: selectSettingsTab,
+  refreshActiveTab: refreshSettingsTab,
+} = useSettingsNav({
+  counts: {
+    connectors: () => client.connectors.value.length,
+    plugins: () => client.plugins.value.length,
+    subagents: () => client.subagents.value.length,
+  },
+  onLoadConnectors: () => { void client.loadConnectors(); },
+  onLoadPlugins: () => { void client.loadPlugins(); },
+  onLoadSubagents: () => { void client.loadSubagents(); },
+});
+
+function openSettings(): void {
+  showSettings.value = true;
+  // The active tab persists across visits, so its data has to be refetched on
+  // open — the session it was loaded for may no longer be the active one.
+  refreshSettingsTab();
+}
+
+function toggleSettings(): void {
+  if (showSettings.value) showSettings.value = false;
+  else openSettings();
+}
+
+function loginFromSettings(): void {
+  showSettings.value = false;
+  openLogin();
+}
+
+function openOnboardingFromSettings(): void {
+  showSettings.value = false;
+  openOnboarding();
+}
+
 type SubmitPayload = {
   text: string;
   attachments: { fileId: string; kind: 'image' | 'video' }[];
@@ -854,6 +892,9 @@ function handleCloseAddWorkspace(): void {
 // right pane shows the onboarding composer. The session is only created when
 // the user sends the first message.
 function handleCreateSession(): void {
+  // Starting a session leaves the settings route — the new draft has to be
+  // visible, and the content area can only show one of the two.
+  showSettings.value = false;
   const wsId = client.activeWorkspaceId.value;
   if (wsId) {
     client.openWorkspaceDraft(wsId);
@@ -866,6 +907,7 @@ function handleCreateSession(): void {
 // state in the chosen workspace. No backend session is created until the user
 // actually sends a message.
 function handleCreateSessionInWorkspace(workspaceId: string): void {
+  showSettings.value = false;
   client.openWorkspaceDraft(workspaceId);
 }
 
@@ -918,6 +960,8 @@ function openPr(url: string): void {
         :attention-by-session="client.attentionBySession.value"
         :pending-by-session="client.pendingBySession.value"
         :unread-by-session="client.unreadBySession.value"
+        :mode="showSettings ? 'settings' : 'sessions'"
+        :active-settings-tab="activeSettingsTab"
         @select="client.selectSession($event)"
         @create="handleCreateSession"
         @create-in-workspace="handleCreateSessionInWorkspace($event)"
@@ -929,7 +973,9 @@ function openPr(url: string): void {
         @rename-workspace="(id, name) => client.renameWorkspace(id, name)"
         @delete-workspace="(id) => client.deleteWorkspace(id)"
         @select-workspaces="handleSelectWorkspaces"
-        @open-settings="showSettings = true"
+        @open-settings="openSettings"
+        @close-settings="showSettings = false"
+        @select-settings-tab="selectSettingsTab($event)"
         @collapse="toggleSidebarCollapse"
       />
       <ResizeHandle
@@ -992,7 +1038,7 @@ function openPr(url: string): void {
           class="rail-btn"
           :title="t('settings.title')"
           :aria-label="t('settings.title')"
-          @click="showSettings = true"
+          @click="toggleSettings"
         >
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <circle cx="12" cy="12" r="3" />
@@ -1014,8 +1060,40 @@ function openPr(url: string): void {
       @open-settings="showMobileSettings = true"
     />
 
+    <SettingsPane
+      v-if="showSettings && !isMobile"
+      :active-tab="activeSettingsTab"
+      :theme="client.theme.value"
+      :color-scheme="client.colorScheme.value"
+      :ui-font-size="client.uiFontSize.value"
+      :auth-ready="client.authReady.value"
+      :account-model="client.defaultModel.value"
+      :notify="client.notifyOnComplete.value"
+      :notify-permission="client.notifyPermission.value"
+      :beta-toc="client.betaToc.value"
+      :config="client.config.value"
+      :models="client.models.value"
+      :config-saving="configSaving"
+      :skills="client.skills.value"
+      :connectors="client.connectors.value"
+      :connectors-loading="client.connectorsLoading.value"
+      :sessions="client.sessionsWithUsage.value"
+      :plugins="client.plugins.value"
+      :subagents="client.subagents.value"
+      @set-plugin-enabled="client.setPluginEnabled($event.pluginId, $event.enabled)"
+      @restart-connector="client.restartConnector($event)"
+      @set-theme="client.setTheme($event)"
+      @set-color-scheme="client.setColorScheme($event)"
+      @set-ui-font-size="client.setUiFontSize($event)"
+      @set-notify="client.setNotifyOnComplete($event)"
+      @set-beta-toc="client.setBetaToc($event)"
+      @update-config="handleUpdateConfig($event)"
+      @login="loginFromSettings"
+      @open-onboarding="openOnboardingFromSettings"
+    />
+
     <ConversationPane
-      v-if="!hasMultiSelect"
+      v-else-if="!hasMultiSelect"
       ref="conversationPaneRef"
       :mobile="isMobile"
       :modern="client.theme.value === 'modern' || client.theme.value === 'pythinker'"
@@ -1186,31 +1264,6 @@ function openPr(url: string): void {
       @select="handleSelectModel($event)"
       @toggle-star="client.toggleStarModel($event)"
       @close="showModelPicker = false"
-    />
-
-    <!-- Settings page (modal) -->
-    <SettingsDialog
-      v-if="showSettings"
-      :theme="client.theme.value"
-      :color-scheme="client.colorScheme.value"
-      :ui-font-size="client.uiFontSize.value"
-      :auth-ready="client.authReady.value"
-      :account-model="client.defaultModel.value"
-      :notify="client.notifyOnComplete.value"
-      :notify-permission="client.notifyPermission.value"
-      :beta-toc="client.betaToc.value"
-      :config="client.config.value"
-      :models="client.models.value"
-      :config-saving="configSaving"
-      @set-theme="client.setTheme($event)"
-      @set-color-scheme="client.setColorScheme($event)"
-      @set-ui-font-size="client.setUiFontSize($event)"
-      @set-notify="client.setNotifyOnComplete($event)"
-      @set-beta-toc="client.setBetaToc($event)"
-      @update-config="handleUpdateConfig($event)"
-      @login="() => { showSettings = false; openLogin(); }"
-            @open-onboarding="() => { showSettings = false; openOnboarding(); }"
-      @close="showSettings = false"
     />
 
     <!-- Provider Manager overlay -->

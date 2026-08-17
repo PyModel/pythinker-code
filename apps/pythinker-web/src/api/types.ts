@@ -579,9 +579,11 @@ export interface AppConfig {
   defaultPermissionMode?: string;
   defaultPlanMode?: boolean;
   permission?: unknown;
-  hooks?: unknown[];
+  hooks?: AppHook[];
   services?: unknown;
   mergeAllAvailableSkills?: boolean;
+  /** Skill names the user turned off; they never reach the agent. */
+  disabledSkills?: string[];
   extraSkillDirs?: string[];
   loopControl?: unknown;
   background?: unknown;
@@ -596,6 +598,57 @@ export interface AppSkill {
   description: string;
   /** Skill source (e.g. 'builtin' | 'project' | 'plugin') for grouping/labels. */
   source: string;
+  /** Where the skill was loaded from; shown in settings, absent in the slash menu. */
+  path?: string;
+  /** Set when the skill is slash-only and the model must not invoke it. */
+  disableModelInvocation?: boolean;
+}
+
+/** One configured hook, as it appears in the daemon config. */
+export interface AppHook {
+  event: string;
+  type?: 'command' | 'http' | 'model';
+  matcher?: string;
+  command?: string;
+  url?: string;
+  statusMessage?: string;
+  timeout?: number;
+  once?: boolean;
+  async?: boolean;
+}
+
+/** One installed plugin. */
+export interface AppPlugin {
+  id: string;
+  displayName: string;
+  version?: string;
+  enabled: boolean;
+  state: string;
+  skillCount: number;
+  mcpServerCount: number;
+  hasErrors: boolean;
+  source: string;
+}
+
+/** One subagent profile the agent can dispatch work to. */
+export interface AppSubagent {
+  name: string;
+  description?: string;
+  source: 'built-in' | 'plugin' | 'user' | 'project';
+  tools: string[];
+  model?: string;
+  effort?: string;
+  whenToUse?: string;
+}
+
+/** A configured MCP server ("connector") and its live connection state. */
+export interface AppConnector {
+  id: string;
+  name: string;
+  transport: 'stdio' | 'http' | 'sse';
+  status: 'connected' | 'connecting' | 'disconnected' | 'error';
+  toolCount: number;
+  lastError?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -635,6 +688,16 @@ export interface PythinkerWebApi {
   dismissQuestion(sessionId: string, questionId: string): Promise<{ dismissed: true; dismissedAt: string }>;
   listSkills(sessionId: string): Promise<AppSkill[]>;
   activateSkill(sessionId: string, skillName: string, args?: string): Promise<{ activated: true; skillName: string }>;
+  /** Configured MCP servers — GET /mcp/servers. */
+  listConnectors(): Promise<AppConnector[]>;
+  /** Restart one MCP server — POST /mcp/servers/{id}:restart. */
+  restartConnector(connectorId: string): Promise<{ restarting: true }>;
+  /** Installed plugins — GET /plugins. */
+  listPlugins(): Promise<AppPlugin[]>;
+  /** Enable or disable a plugin — POST /plugins/{id}:set-enabled. */
+  setPluginEnabled(pluginId: string, enabled: boolean): Promise<{ id: string; enabled: boolean }>;
+  /** Subagent profiles for a working directory — GET /agent-profiles. */
+  listSubagents(workDir: string): Promise<AppSubagent[]>;
   listTasks(sessionId: string, status?: AppTaskStatus): Promise<AppTask[]>;
   getTask(sessionId: string, taskId: string, input?: { withOutput?: boolean; outputBytes?: number }): Promise<AppTask>;
   cancelTask(sessionId: string, taskId: string): Promise<{ cancelled: true }>;
