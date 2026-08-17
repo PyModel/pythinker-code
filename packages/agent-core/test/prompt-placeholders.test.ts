@@ -23,6 +23,7 @@ const SRC = join(import.meta.dirname, '..', 'src');
 // templated prompt file is introduced.
 const TEMPLATED = new Set([
   'profile/default/system.md',
+  'profile/default/general.md',
   'agent/compaction/compaction-instruction.md',
   'tools/builtin/file/read.md',
   'tools/builtin/file/read-media.md',
