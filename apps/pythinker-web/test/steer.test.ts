@@ -88,6 +88,7 @@ async function setup(opts?: { submitStatuses?: ('running' | 'queued')[] }) {
       return eventConn;
     }),
     getFileUrl: vi.fn((fileId: string) => `/files/${fileId}`),
+    undoSession: vi.fn(async () => undefined),
   } as unknown as PythinkerWebApi;
 
   vi.doMock('../src/api', () => ({ getPythinkerWebApi: () => api }));
@@ -271,5 +272,50 @@ describe('steerPrompt', () => {
     expect(client.warnings.value).toHaveLength(0);
     const userTurns = client.turns.value.filter((t) => t.role === 'user');
     expect(userTurns.map((t) => t.text)).toEqual(['first', 'late message']);
+  });
+});
+
+// undo() reports the prompt it removed so a retry can resend it unchanged. The
+// attachments have to come along: undo only trims the history, so the uploaded
+// fileIds stay valid and a text-only resend would silently drop the images.
+describe('undo', () => {
+  it('returns the removed prompt text with no attachments for a plain prompt', async () => {
+    const { api, client } = await setup();
+    await client.createSession('/repo');
+    await client.sendPrompt('first');
+
+    expect(await client.undo(1)).toEqual({ text: 'first', attachments: [] });
+    expect(api.undoSession).toHaveBeenCalledWith('sess_1', 1);
+  });
+
+  it('returns the attachment fileIds of the removed prompt', async () => {
+    const { client } = await setup();
+    await client.createSession('/repo');
+    await client.sendPrompt('look at this', [
+      { fileId: 'file_1', kind: 'image' },
+      { fileId: 'clip_1', kind: 'video' },
+    ]);
+
+    expect(await client.undo(1)).toEqual({
+      text: 'look at this',
+      attachments: [
+        { fileId: 'file_1', kind: 'image' },
+        { fileId: 'clip_1', kind: 'video' },
+      ],
+    });
+  });
+
+  it('resends the attachments when the undone prompt goes back through sendPrompt', async () => {
+    const { api, client } = await setup();
+    await client.createSession('/repo');
+    await client.sendPrompt('look at this', [{ fileId: 'file_1', kind: 'image' }]);
+
+    const prompt = await client.undo(1);
+    await client.sendPrompt(prompt!.text, prompt!.attachments);
+
+    // The first prompt is still in flight, so the resend queues. What matters is
+    // that the attachment travels with it instead of being dropped on the way.
+    expect(api.submitPrompt).toHaveBeenCalledTimes(1);
+    expect(client.queued.value).toEqual([{ text: 'look at this', attachmentCount: 1 }]);
   });
 });

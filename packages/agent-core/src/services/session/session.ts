@@ -122,6 +122,8 @@ export function toProtocolSession(
     metadata: mergedMetadata,
     agent_config: {
       model: '',
+      tools: meta?.agentConfig?.tools?.slice(),
+      mcp_servers: meta?.agentConfig?.mcpServers?.slice(),
     },
     usage: emptySessionUsage(),
     permission_rules: [],

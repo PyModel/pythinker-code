@@ -2,6 +2,8 @@ export default {
   title: 'Settings',
   /** Sidebar control that leaves the settings route and restores the session list. */
   backToSessions: 'Back to sessions',
+  /** Round close control in the top-right corner of the settings pane. */
+  close: 'Close settings',
   groups: {
     basics: 'Basics',
     capabilities: 'Agent capabilities',
@@ -10,6 +12,7 @@ export default {
   tabs: {
     general: 'General',
     agent: 'Agent',
+    tools: 'Tools',
     plugins: 'Plugins',
     skills: 'Skills',
     subagents: 'Subagents',
@@ -18,6 +21,15 @@ export default {
     usage: 'Usage stats',
     advanced: 'Advanced',
     experimental: 'Experimental',
+  },
+  tools: {
+    title: 'Tools',
+    note: 'Applies to this session immediately. The selection is saved for the current session only.',
+    noSession: 'No active session.',
+    loading: 'Loading tools…',
+    empty: 'No tools are available.',
+    enableAll: 'Enable all tools',
+    toggleAria: 'Enable {name}',
   },
   skills: {
     title: 'Skills',
@@ -31,10 +43,33 @@ export default {
   connectors: {
     title: 'Connectors',
     note: 'MCP servers configured for this workspace and their connection state.',
+    nextSession: 'MCP server changes take effect with your next session. The current session is not reloaded.',
     empty: 'No MCP servers are configured.',
     loading: 'Loading connectors…',
     tools: '{count} tools',
     restart: 'Restart',
+    add: 'Add MCP server',
+    edit: 'Edit',
+    remove: 'Remove',
+    userGlobal: 'User-global and editable',
+    managed: 'Managed by a project file or plugin',
+    form: {
+      name: 'Name',
+      transport: 'Transport',
+      command: 'Command',
+      args: 'Arguments',
+      argsHint: 'One argument per line',
+      env: 'Environment (JSON)',
+      url: 'URL',
+      headers: 'Headers (JSON)',
+      objectHint: 'JSON object with string values',
+      add: 'Add server',
+      save: 'Save changes',
+      cancel: 'Cancel',
+      invalidJson: '{field} must be valid JSON.',
+      objectRequired: '{field} must be a JSON object.',
+      stringValuesRequired: '{field} values must be strings.',
+    },
     status: {
       connected: 'Connected.',
       connecting: 'Connecting…',

@@ -5,6 +5,7 @@
 import { onMounted, onUnmounted, reactive, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { AppProvider } from '../api/types';
+import { useCodexLogin } from '../composables/useCodexLogin';
 import { useDialogFocus } from '../composables/useDialogFocus';
 
 const { t } = useI18n();
@@ -24,6 +25,8 @@ const emit = defineEmits<{
   add: [input: { type: string; apiKey?: string; baseUrl?: string; defaultModel?: string }];
   refresh: [id: string];
   delete: [id: string];
+  /** A Codex sign-in finished; reload the provider and model lists. */
+  'refresh-all': [];
   /** Open the login dialog for the given platform (OAuth flow) */
   close: [];
 }>();
@@ -86,6 +89,25 @@ function submitAdd(): void {
     defaultModel: addForm.defaultModel.trim() || undefined,
   });
   showAddForm.value = false;
+}
+
+// -------------------------------------------------------------------------
+// OpenAI Codex sign-in
+// -------------------------------------------------------------------------
+
+// The server holds the tokens and writes the config; this only opens the tab
+// and reports progress. A finished login changes the provider list, so the
+// parent refreshes through the same event the API-key form uses.
+const codex = useCodexLogin(() => {
+  emit('refresh-all');
+});
+const codexRedirect = ref('');
+
+function submitCodexRedirect(): void {
+  const value = codexRedirect.value.trim();
+  if (value.length === 0) return;
+  codexRedirect.value = '';
+  void codex.submitRedirect(value);
 }
 
 // -------------------------------------------------------------------------
@@ -201,6 +223,56 @@ function statusLabel(status: AppProvider['status']): string {
               </svg>
               {{ t('providers.enterApiKey') }}
             </button>
+            <button
+              class="add-btn add-btn-oauth"
+              :disabled="codex.busy.value || codex.state.value === 'pending'"
+              @click="codex.start()"
+            >
+              {{ t('codexLogin.signIn') }}
+            </button>
+          </div>
+          <div v-if="codex.state.value !== undefined" class="codex-status">
+            <p v-if="codex.state.value === 'pending' && codex.loopback.value" class="codex-line">
+              {{ t('codexLogin.waiting') }}
+            </p>
+            <p v-if="codex.popupBlocked.value && codex.authorizeUrl.value" class="codex-line">
+              {{ t('codexLogin.openLinkHint') }}
+              <a
+                class="codex-link"
+                :href="codex.authorizeUrl.value"
+                target="_blank"
+                rel="noopener noreferrer"
+              >{{ t('codexLogin.openLink') }}</a>
+            </p>
+            <template v-if="codex.state.value === 'pending'">
+              <p class="codex-line">{{ t('codexLogin.pasteHint') }}</p>
+              <div class="form-row">
+                <label class="flabel" for="codex-redirect">{{ t('codexLogin.pasteLabel') }}</label>
+                <input
+                  id="codex-redirect"
+                  v-model="codexRedirect"
+                  class="finput"
+                  type="text"
+                  :placeholder="t('codexLogin.pastePlaceholder')"
+                  autocomplete="off"
+                  spellcheck="false"
+                  @keyup.enter="submitCodexRedirect"
+                />
+              </div>
+            </template>
+            <p v-if="codex.state.value === 'failed'" class="codex-line codex-error">
+              {{ t('codexLogin.failed', { message: codex.error.value }) }}
+            </p>
+            <div v-if="codex.state.value === 'pending'" class="codex-actions">
+              <button
+                class="act-btn"
+                :disabled="codex.busy.value"
+                @click="submitCodexRedirect"
+              >
+                {{ t('codexLogin.submit') }}
+              </button>
+              <button class="act-btn" @click="codex.cancel()">{{ t('codexLogin.cancel') }}</button>
+            </div>
           </div>
         </template>
         <template v-else>
@@ -414,6 +486,12 @@ function statusLabel(status: AppProvider['status']): string {
   cursor: pointer;
 }
 .add-btn-oauth:hover { background: var(--bd); }
+.codex-status { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.codex-line { margin: 0; font-size: 12px; color: var(--muted); }
+.codex-link { color: var(--blue); text-decoration: underline; }
+.codex-link:hover { color: var(--blue2); }
+.codex-error { color: var(--err); }
+.codex-actions { display: flex; gap: 6px; }
 .add-btn {
   display: inline-flex;
   align-items: center;

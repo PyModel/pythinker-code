@@ -213,6 +213,10 @@ export interface SessionMeta {
   lastPrompt?: string;
   forkedFrom?: string;
   agents: Record<string, AgentMeta>;
+  agentConfig?: {
+    readonly tools?: readonly string[];
+    readonly mcpServers?: readonly string[];
+  };
   custom: Record<string, any>;
 }
 
@@ -238,6 +242,13 @@ const SessionMetaSchema = z
     lastPrompt: z.string().optional(),
     forkedFrom: z.string().optional(),
     agents: z.record(z.string(), AgentMetaSchema),
+    agentConfig: z
+      .object({
+        tools: z.array(z.string()).optional(),
+        mcpServers: z.array(z.string()).optional(),
+      })
+      .strict()
+      .optional(),
     custom: z.record(z.string(), z.unknown()),
   })
   .strict();

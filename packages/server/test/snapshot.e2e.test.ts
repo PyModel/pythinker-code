@@ -19,12 +19,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { pino } from 'pino';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Event, SessionSnapshotResponse } from '@pymodel/protocol';
 import { IEventService, IPromptService, PromptService } from '@pymodel/agent-core';
 
 import { IRestGateway, IWSBroadcastService, startServer, type RunningServer } from '../src';
+import { MAX_ASSEMBLY_ATTEMPTS } from '../src/routes/snapshot';
 import { WSBroadcastService } from '#/services/gateway/wsBroadcastService';
 
 let tmpDir: string;
@@ -45,6 +46,7 @@ afterEach(async () => {
     // ignore
   }
   server = undefined;
+  vi.restoreAllMocks();
   rmSync(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   rmSync(bridgeHome, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
@@ -245,5 +247,28 @@ describe('GET /api/v1/sessions/{sid}/snapshot (v3 initial sync)', () => {
     const { env } = await getSnapshot(r, 'sess_missing');
     expect(env.code).toBe(40401);
     expect(env.data).toBeNull();
+  });
+
+  it('drains the broadcast queue once while stability retries use peek reads', async () => {
+    const r = await bootDaemon();
+    const sid = await createSession(r);
+    const broadcast = r.services.invokeFunction(
+      (a) => a.get(IWSBroadcastService),
+    ) as WSBroadcastService;
+    let seq = 0;
+    const nextState = async () => ({
+      seq: ++seq,
+      epoch: 'ep_snapshot_retry',
+      inFlightTurn: null,
+    });
+    const drainSpy = vi.spyOn(broadcast, 'getSnapshotState').mockImplementation(nextState);
+    const peekSpy = vi.spyOn(broadcast, 'peekSnapshotState').mockImplementation(nextState);
+
+    const { env } = await getSnapshot(r, sid);
+
+    expect(env.code).toBe(0);
+    expect(drainSpy).toHaveBeenCalledOnce();
+    expect(peekSpy).toHaveBeenCalledTimes(MAX_ASSEMBLY_ATTEMPTS);
+    expect(env.data!.as_of_seq).toBe(MAX_ASSEMBLY_ATTEMPTS + 1);
   });
 });

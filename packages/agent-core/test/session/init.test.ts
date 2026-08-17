@@ -900,6 +900,60 @@ describe('Session.init', () => {
       await session.close();
     }
   }, 20000);
+
+  it('restores a partial tool selection from the complete agent record', async () => {
+    const workDir = await makeTempDir();
+    const sessionDir = await makeTempDir();
+    const makeSession = () =>
+      new Session({
+        id: 'test-tool-selection-resume',
+        kaos: testKaos.withCwd(workDir),
+        homedir: sessionDir,
+        rpc: createSessionRpc([]),
+        providerManager: testProviderManager(),
+        mcpConfig: {
+          servers: {
+            github: {
+              transport: 'stdio',
+              command: process.execPath,
+              args: [mcpStdioFixture],
+            },
+          },
+        },
+      });
+    let session = makeSession();
+
+    try {
+      await session.mcp.waitForInitialLoad();
+      const { agent } = await session.createAgent(
+        { type: 'main' },
+        {
+          profile: {
+            name: 'resume-tools',
+            systemPrompt: () => '<system-prompt>',
+            tools: ['Read'],
+          },
+        },
+      );
+      agent.config.update({ modelAlias: 'mock-model', thinkingLevel: 'off' });
+      await new SessionAPIImpl(session).updateSessionMetadata({
+        metadata: { agentConfig: { mcpServers: ['github'] } },
+      });
+      await session.flushMetadata();
+      await session.close();
+
+      session = makeSession();
+      await session.resume();
+      await session.mcp.waitForInitialLoad();
+      const resumed = await session.ensureAgentResumed('main');
+      const toolNames = resumed.tools.loopTools.map((tool) => tool.name);
+      expect(toolNames).toContain('Read');
+      expect(toolNames).toContain('mcp__github__echo');
+      expect(toolNames).not.toContain('Bash');
+    } finally {
+      await session.close();
+    }
+  }, 20000);
 });
 
 describe('AgentAPI.startBtw', () => {

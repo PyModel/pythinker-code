@@ -4,13 +4,14 @@ import { computed, nextTick, onMounted, onUnmounted, provide, ref, watch, watchE
 import { useI18n } from 'vue-i18n';
 import Sidebar from './components/Sidebar.vue';
 import ResizeHandle from './components/ResizeHandle.vue';
+import WindowControls from './components/WindowControls.vue';
 import ConversationPane from './components/ConversationPane.vue';
 import FilePreview, { type FileData } from './components/FilePreview.vue';
 import ThinkingPanel from './components/ThinkingPanel.vue';
 import AgentDetailPanel from './components/AgentDetailPanel.vue';
 import SideChatPanel from './components/SideChatPanel.vue';
 import DiffView from './components/DiffView.vue';
-import type { AgentMember } from './types';
+import type { AgentMember, FilePreviewRequest, ToolMedia } from './types';
 import ModelPicker from './components/ModelPicker.vue';
 import ProviderManager from './components/ProviderManager.vue';
 import NewSessionDialog from './components/NewSessionDialog.vue';
@@ -18,6 +19,7 @@ import SettingsPane from './components/settings/SettingsPane.vue';
 import SessionsDialog from './components/SessionsDialog.vue';
 import AddWorkspaceDialog from './components/AddWorkspaceDialog.vue';
 import StatusPanel from './components/StatusPanel.vue';
+import UpdateToast from './components/UpdateToast.vue';
 import WarningToasts from './components/WarningToasts.vue';
 import MobileTopBar from './components/MobileTopBar.vue';
 import MobileSwitcherSheet from './components/MobileSwitcherSheet.vue';
@@ -32,7 +34,6 @@ import { useIsMobile } from './composables/useIsMobile';
 import { useIsDark } from './composables/useIsDark';
 import { useSettingsNav } from './composables/useSettingsNav';
 import type { AppConfig, ThinkingLevel } from './api/types';
-import type { FilePreviewRequest, ToolMedia } from './types';
 
 const client = usePythinkerWebClient();
 provide('resolveImage', client.resolveImageUrl);
@@ -623,6 +624,10 @@ const {
   },
   onLoadConnectors: () => { void client.loadConnectors(); },
   onLoadPlugins: () => { void client.loadPlugins(); },
+  onLoadTools: () => {
+    const sessionId = client.activeSessionId.value;
+    if (sessionId) void client.loadCapabilityData(sessionId);
+  },
   onLoadSubagents: () => { void client.loadSubagents(); },
 });
 
@@ -692,6 +697,14 @@ async function openModelPicker(): Promise<void> {
   }
 }
 
+/** Narrow the active session's tool selection from the settings Tools page. */
+function applySessionTools(names: string[]): void {
+  // `updateCapabilities` rolls its optimistic write back and reports the
+  // failure itself, then rethrows; swallowing here keeps a failed write from
+  // surfacing as an unhandled rejection.
+  void client.updateCapabilities({ tools: names }).catch(() => undefined);
+}
+
 async function openProviders(): Promise<void> {
   providersLoading.value = true;
   providersUnavailable.value = false;
@@ -728,6 +741,16 @@ async function handleRefreshProvider(id: string): Promise<void> {
   await client.refreshProvider(id);
 }
 
+/** A Codex sign-in wrote its own provider entry; pull the new lists. */
+async function handleProvidersChanged(): Promise<void> {
+  await Promise.all([
+    client.loadProviders(),
+    client.loadModels(),
+    client.checkAuth(),
+    client.loadConfig(),
+  ]);
+}
+
 async function handleUpdateConfig(patch: Partial<AppConfig>): Promise<void> {
   configSaving.value = true;
   try {
@@ -747,6 +770,17 @@ async function handleEditMessage(text: string): Promise<void> {
   await client.undo(1);
   await nextTick();
   conversationPaneRef.value?.loadComposerForEdit(text);
+}
+
+// Retry the last assistant reply: undo the exchange, then send its original
+// user prompt as a new prompt. Undo reports any failure and returns null.
+async function handleRegenerate(): Promise<void> {
+  const prompt = await client.undo(1);
+  if (prompt === null) return;
+  await client.sendPrompt(
+    prompt.text,
+    prompt.attachments.length > 0 ? prompt.attachments : undefined,
+  );
 }
 
 // Handler for slash commands emitted by Composer (via ConversationPane)
@@ -920,6 +954,7 @@ function openPr(url: string): void {
 <template>
   <div class="app-shell">
     <div class="windows-titlebar" aria-hidden="true"></div>
+    <WindowControls />
     <section v-if="showAuthGate" class="auth-page">
       <div class="auth-page-inner">
         <PythinkerLogo size="lg" interactive class="auth-page-logo" />
@@ -1077,11 +1112,20 @@ function openPr(url: string): void {
       :skills="client.skills.value"
       :connectors="client.connectors.value"
       :connectors-loading="client.connectorsLoading.value"
+      :connectors-error="client.connectorsError.value"
       :sessions="client.sessionsWithUsage.value"
       :plugins="client.plugins.value"
       :subagents="client.subagents.value"
+      :tools="client.toolsBySession.value[client.activeSessionId.value]"
+      :tools-loading="client.toolsLoadingBySession.value[client.activeSessionId.value] === true"
+      :enabled-tools="client.activeSessionCapabilities.value.tools"
+      :session-id="client.activeSessionId.value"
       @set-plugin-enabled="client.setPluginEnabled($event.pluginId, $event.enabled)"
+      @set-tools="applySessionTools($event)"
       @restart-connector="client.restartConnector($event)"
+      @create-connector="client.createConnector($event)"
+      @update-connector="client.updateConnector($event.connectorId, $event.input)"
+      @remove-connector="client.removeConnector($event)"
       @set-theme="client.setTheme($event)"
       @set-color-scheme="client.setColorScheme($event)"
       @set-ui-font-size="client.setUiFontSize($event)"
@@ -1090,6 +1134,7 @@ function openPr(url: string): void {
       @update-config="handleUpdateConfig($event)"
       @login="loginFromSettings"
       @open-onboarding="openOnboardingFromSettings"
+      @close="showSettings = false"
     />
 
     <ConversationPane
@@ -1167,6 +1212,7 @@ function openPr(url: string): void {
       @open-compaction="openCompactionPanel($event)"
       @open-agent="openAgentPanel($event)"
       @edit-message="handleEditMessage"
+      @regenerate="handleRegenerate"
     />
 
     <!-- Multi-workspace selection placeholder -->
@@ -1266,18 +1312,6 @@ function openPr(url: string): void {
       @close="showModelPicker = false"
     />
 
-    <!-- Provider Manager overlay -->
-    <ProviderManager
-      v-if="showProviders"
-      :providers="client.providers.value"
-      :loading="providersLoading"
-      :unavailable="providersUnavailable"
-      @add="handleAddProvider($event)"
-      @refresh="handleRefreshProvider($event)"
-      @delete="handleDeleteProvider($event)"
-      @close="showProviders = false"
-    />
-
     <!-- New Session Dialog overlay (fallback cwd-typing path) -->
     <NewSessionDialog
       v-if="showNewSession"
@@ -1335,6 +1369,9 @@ function openPr(url: string): void {
     <!-- Floating warnings / agent errors (e.g. a 403 from the model provider) -->
     <WarningToasts :warnings="client.warnings.value" @dismiss="client.dismissWarning" />
 
+    <!-- Desktop update prompt (renders nothing in the browser) -->
+    <UpdateToast />
+
     <!-- KAP/daemon debug panel (opt-in, ?debug=1) -->
     <DebugPanel v-if="debugEnabled" />
 
@@ -1382,6 +1419,19 @@ function openPr(url: string): void {
       @login="() => { showMobileSettings = false; openLogin(); }"
           />
     </div>
+
+    <!-- Provider Manager overlay -->
+    <ProviderManager
+      v-if="showProviders"
+      :providers="client.providers.value"
+      :loading="providersLoading"
+      :unavailable="providersUnavailable"
+      @add="handleAddProvider($event)"
+      @refresh="handleRefreshProvider($event)"
+      @delete="handleDeleteProvider($event)"
+      @refresh-all="handleProvidersChanged()"
+      @close="showProviders = false"
+    />
   </div>
 </template>
 
@@ -1411,6 +1461,11 @@ function openPr(url: string): void {
   height: env(titlebar-area-height, 44px);
   -webkit-app-region: drag;
   user-select: none;
+  /* Windows has no vibrancy, so the bar earns its own tone: a shade darker than
+     the shell with a hairline under it, which also frames the window buttons. */
+  background: color-mix(in srgb, var(--ink) 4%, var(--panel));
+  border-bottom: 1px solid var(--line);
+  box-sizing: border-box;
 }
 .auth-page {
   flex: 1;

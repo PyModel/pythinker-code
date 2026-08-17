@@ -30,6 +30,14 @@ interface ModelCatalogRouteHost {
       reply: { send(payload: unknown): unknown },
     ) => Promise<void> | void,
   ): unknown;
+  delete(
+    path: string,
+    options: { preHandler: unknown[]; schema?: Record<string, unknown> },
+    handler: (
+      req: { id: string; params: unknown },
+      reply: { send(payload: unknown): unknown },
+    ) => Promise<void> | void,
+  ): unknown;
 }
 
 const providerIdParamSchema = z.object({
@@ -38,6 +46,10 @@ const providerIdParamSchema = z.object({
 
 const modelActionTailParamSchema = z.object({
   tail: z.string().min(1),
+});
+
+const deleteProviderResponseSchema = z.object({
+  deleted: z.literal(true),
 });
 
 export function registerModelCatalogRoutes(
@@ -160,6 +172,38 @@ export function registerModelCatalogRoutes(
     getProviderRoute.path,
     getProviderRoute.options,
     getProviderRoute.handler as Parameters<ModelCatalogRouteHost['get']>[2],
+  );
+
+  const deleteProviderRoute = defineRoute(
+    {
+      method: 'DELETE',
+      path: '/providers/{provider_id}',
+      params: providerIdParamSchema,
+      success: { data: deleteProviderResponseSchema },
+      errors: {
+        [ErrorCode.VALIDATION_FAILED]: {},
+        [ErrorCode.PROVIDER_NOT_FOUND]: {},
+      },
+      description: 'Delete a configured provider and its model aliases',
+      tags: ['providers'],
+      operationId: 'deleteProvider',
+    },
+    async (req, reply) => {
+      try {
+        const { provider_id } = req.params;
+        await ix.invokeFunction((a) =>
+          a.get(IModelCatalogService).removeProvider(provider_id),
+        );
+        reply.send(okEnvelope({ deleted: true as const }, req.id));
+      } catch (error) {
+        sendMappedError(reply, req.id, error);
+      }
+    },
+  );
+  app.delete(
+    deleteProviderRoute.path,
+    deleteProviderRoute.options,
+    deleteProviderRoute.handler as Parameters<ModelCatalogRouteHost['delete']>[2],
   );
 }
 

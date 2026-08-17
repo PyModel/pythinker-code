@@ -8,7 +8,7 @@
 
 import { isUtf8 } from 'node:buffer';
 import { createReadStream } from 'node:fs';
-import { appendFile, mkdir, truncate } from 'node:fs/promises';
+import { mkdir, open, truncate, type FileHandle } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { ulid } from 'ulid';
 
@@ -47,6 +47,9 @@ export interface JournalEntry {
 export class SessionEventJournal {
   private failure: Error | undefined;
   private headerPending: boolean;
+  private handle: Promise<FileHandle> | undefined;
+  private directoryReady = false;
+  private closed = false;
 
   private constructor(
     private readonly filePath: string,
@@ -146,6 +149,9 @@ export class SessionEventJournal {
   /** Persist an event before advancing the in-memory durable watermark. */
   async append(seq: number, envelope: EventEnvelope): Promise<void> {
     this.throwIfFailed();
+    if (this.closed) {
+      throw this.poison(new Error(`event journal is closed: ${this.filePath}`));
+    }
     if (seq !== this._seq + 1) {
       throw this.poison(new Error(`non-contiguous event journal append: ${this.filePath}`));
     }
@@ -162,10 +168,12 @@ export class SessionEventJournal {
     lines.push(JSON.stringify({ kind: 'event', seq, envelope } satisfies JournalEventLine));
 
     try {
-      await mkdir(dirname(this.filePath), { recursive: true });
-      await appendFile(this.filePath, lines.join('\n') + '\n', 'utf8');
+      const handle = await this.getHandle();
+      await handle.appendFile(lines.join('\n') + '\n', 'utf8');
     } catch (error) {
-      throw this.poison(error);
+      const failure = this.poison(error);
+      await this.closeHandle().catch(() => {});
+      throw failure;
     }
 
     this.headerPending = false;
@@ -196,7 +204,38 @@ export class SessionEventJournal {
   }
 
   async close(): Promise<void> {
+    this.closed = true;
+    try {
+      await this.closeHandle();
+    } catch (error) {
+      this.poison(error);
+    }
     await this.flush();
+  }
+
+  private getHandle(): Promise<FileHandle> {
+    this.handle ??= this.openHandle();
+    return this.handle;
+  }
+
+  private async openHandle(): Promise<FileHandle> {
+    if (!this.directoryReady) {
+      await mkdir(dirname(this.filePath), { recursive: true });
+      this.directoryReady = true;
+    }
+    const handle = await open(this.filePath, 'a');
+    // close() can land while the open is in flight, so it must not orphan the descriptor.
+    if (this.closed) {
+      await handle.close();
+      throw new Error(`event journal is closed: ${this.filePath}`);
+    }
+    return handle;
+  }
+
+  private async closeHandle(): Promise<void> {
+    const pending = this.handle;
+    this.handle = undefined;
+    await pending?.then((handle) => handle.close(), () => {});
   }
 
   private throwIfFailed(): void {

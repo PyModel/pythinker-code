@@ -22,6 +22,7 @@ export * from './modelCatalog';
 
 export * from './rest/meta';
 export * from './rest/auth';
+export * from './rest/codexLogin';
 export * from './rest/session';
 export * from './rest/snapshot';
 export * from './rest/workspace';

@@ -1,3 +1,4 @@
+import { getModelCapability, isUnknownCapability } from '@pymodel/kosong';
 import { createDecorator } from '../../di';
 import type { PythinkerConfig, ModelAlias, ProviderConfig } from '../../config';
 import type {
@@ -12,6 +13,7 @@ export interface IModelCatalogService {
   listModels(): Promise<readonly ModelCatalogItem[]>;
   listProviders(): Promise<readonly ProviderCatalogItem[]>;
   getProvider(providerId: string): Promise<ProviderCatalogItem>;
+  removeProvider(providerId: string): Promise<void>;
   setDefaultModel(modelId: string): Promise<SetDefaultModelResponse>;
 }
 
@@ -43,16 +45,36 @@ export class ModelNotFoundError extends Error {
 export function toProtocolModel(
   modelId: string,
   alias: ModelAlias,
+  provider?: ProviderConfig,
 ): ModelCatalogItem {
   return {
     provider: alias.provider,
     model: modelId,
     display_name: alias.displayName ?? alias.model,
     max_context_size: alias.maxContextSize,
-    capabilities: alias.capabilities,
+    capabilities: alias.capabilities ?? derivedCapabilities(alias, provider),
     support_efforts: alias.supportEfforts,
     adaptive_thinking: alias.adaptiveThinking,
   };
+}
+
+function derivedCapabilities(
+  alias: ModelAlias,
+  provider: ProviderConfig | undefined,
+): string[] | undefined {
+  if (provider === undefined) return undefined;
+  try {
+    const capability = getModelCapability(provider.type, alias.model);
+    if (isUnknownCapability(capability)) return undefined;
+    return Object.entries(capability)
+      .filter(
+        ([key, value]) =>
+          value === true && key !== 'max_context_tokens' && key !== 'cost',
+      )
+      .map(([key]) => key);
+  } catch {
+    return undefined;
+  }
 }
 
 export interface ProviderCredentialState {

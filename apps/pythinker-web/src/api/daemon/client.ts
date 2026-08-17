@@ -5,15 +5,20 @@ import type { PythinkerApiConfig } from '../config';
 import { buildRestUrl, buildWsUrl } from '../config';
 import type {
   AppConfig,
+  AppMcpServerDefinition,
+  AppMcpServerInput,
   AppMessage,
   AppMessageRole,
   AppModel,
   AppProvider,
+  CodexLoginStart,
+  CodexLoginStatus,
   ProviderRefreshResult,
   AppSession,
   AppConnector,
   AppPlugin,
   AppSkill,
+  AppTool,
   AppSubagent,
   AppSessionCursor,
   AppSessionRuntimeStatus,
@@ -46,6 +51,7 @@ import {
   toAppModel,
   toAppProvider,
   toAppQuestionRequest,
+  toCodexLoginStatus,
   toAppSession,
   toAppTask,
   toWireApprovalResponse,
@@ -58,6 +64,8 @@ import {
 } from './mappers';
 import type {
   WireAuthResult,
+  WireCodexLoginStart,
+  WireCodexLoginStatus,
   WireBackgroundTask,
   WireConfig,
   WireEvent,
@@ -130,6 +138,14 @@ interface WireSkillDescriptor {
   disable_model_invocation?: boolean;
 }
 
+interface WireToolDescriptor {
+  name: string;
+  description: string;
+  input_schema: unknown;
+  source: 'builtin' | 'skill' | 'mcp';
+  mcp_server_id?: string;
+}
+
 interface WireMcpServer {
   id: string;
   name: string;
@@ -137,6 +153,17 @@ interface WireMcpServer {
   status: 'connected' | 'connecting' | 'disconnected' | 'error';
   tool_count: number;
   last_error?: string;
+  editable: boolean;
+  definition?: WireMcpServerDefinition;
+}
+
+interface WireMcpServerDefinition {
+  transport: 'stdio' | 'http' | 'sse';
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
 }
 
 interface WirePlugin {
@@ -159,6 +186,28 @@ interface WireAgentProfile {
   model?: string;
   effort?: string;
   when_to_use?: string;
+}
+
+function toAppMcpDefinition(definition: WireMcpServerDefinition): AppMcpServerDefinition {
+  return {
+    transport: definition.transport,
+    command: definition.command,
+    args: definition.args,
+    env: definition.env,
+    url: definition.url,
+    headers: definition.headers,
+  };
+}
+
+function toWireMcpDefinition(input: AppMcpServerInput): WireMcpServerDefinition {
+  return {
+    transport: input.transport,
+    command: input.command,
+    args: input.args,
+    env: input.env,
+    url: input.url,
+    headers: input.headers,
+  };
 }
 
 interface WireArchiveResult {
@@ -381,6 +430,8 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
       goalObjective?: string;
       goalControl?: 'pause' | 'resume' | 'cancel';
       thinking?: string;
+      tools?: string[];
+      mcpServers?: string[];
     },
   ): Promise<AppSession> {
     const body: Record<string, unknown> = {};
@@ -394,6 +445,8 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
     if (input.goalObjective !== undefined) agentConfig['goal_objective'] = input.goalObjective;
     if (input.goalControl !== undefined) agentConfig['goal_control'] = input.goalControl;
     if (input.thinking !== undefined) agentConfig['thinking'] = input.thinking;
+    if (input.tools !== undefined) agentConfig['tools'] = input.tools;
+    if (input.mcpServers !== undefined) agentConfig['mcp_servers'] = input.mcpServers;
     if (Object.keys(agentConfig).length > 0) body['agent_config'] = agentConfig;
     const data = await this.http.post<WireSession>(
       `/sessions/${encodeURIComponent(sessionId)}/profile`,
@@ -729,6 +782,23 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
   }
 
   // -------------------------------------------------------------------------
+  // Tools — session-visible tool descriptors
+  // GET /tools?session_id={id} → { tools: WireToolDescriptor[] }
+  // -------------------------------------------------------------------------
+
+  async listTools(sessionId: string): Promise<AppTool[]> {
+    const data = await this.http.get<{ tools: WireToolDescriptor[] }>('/tools', {
+      session_id: sessionId,
+    });
+    return (data.tools ?? []).map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      inputSchema: tool.input_schema,
+      source: tool.source,
+      mcpServerId: tool.mcp_server_id,
+    }));
+  }
+
   // Skills — session-scoped slash-invocable skills
   // GET  /sessions/{id}/skills              → { skills: WireSkillDescriptor[] }
   // POST /sessions/{id}/skills/{name}:activate body { args? } → { activated, skill_name }
@@ -756,7 +826,32 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
       status: server.status,
       toolCount: server.tool_count,
       lastError: server.last_error,
+      editable: server.editable,
+      definition: server.definition === undefined ? undefined : toAppMcpDefinition(server.definition),
     }));
+  }
+
+  async createConnector(input: AppMcpServerInput): Promise<{ created: true }> {
+    return this.http.post<{ created: true }>('/mcp/servers', {
+      mcp_server_id: input.name,
+      config: toWireMcpDefinition(input),
+    });
+  }
+
+  async updateConnector(
+    connectorId: string,
+    input: AppMcpServerInput,
+  ): Promise<{ updated: true }> {
+    return this.http.put<{ updated: true }>(
+      `/mcp/servers/${encodeURIComponent(connectorId)}`,
+      { config: toWireMcpDefinition(input) },
+    );
+  }
+
+  async removeConnector(connectorId: string): Promise<{ deleted: true }> {
+    return this.http.delete<{ deleted: true }>(
+      `/mcp/servers/${encodeURIComponent(connectorId)}`,
+    );
   }
 
   async listPlugins(): Promise<AppPlugin[]> {
@@ -1106,17 +1201,14 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
 
   // -------------------------------------------------------------------------
   // Models + Providers
-  // PRESUMED — not in current daemon docs; isolated here, swap when backend defines them.
   // -------------------------------------------------------------------------
 
   async listModels(): Promise<AppModel[]> {
-    // PRESUMED endpoint: GET /v1/models → { items: WireModel[] }
     const data = await this.http.get<{ items: WireModel[] }>('/models');
     return data.items.map(toAppModel);
   }
 
   async listProviders(): Promise<AppProvider[]> {
-    // PRESUMED endpoint: GET /v1/providers → { items: WireProvider[] }
     const data = await this.http.get<{ items: WireProvider[] }>('/providers');
     return data.items.map(toAppProvider);
   }
@@ -1127,29 +1219,81 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
     baseUrl?: string;
     defaultModel?: string;
   }): Promise<AppProvider> {
-    // PRESUMED endpoint: POST /v1/providers → WireProvider
-    const body: Record<string, unknown> = { type: input.type };
-    if (input.apiKey !== undefined) body['api_key'] = input.apiKey;
-    if (input.baseUrl !== undefined) body['base_url'] = input.baseUrl;
-    if (input.defaultModel !== undefined) body['default_model'] = input.defaultModel;
-    const data = await this.http.post<WireProvider>('/providers', body);
-    return toAppProvider(data);
-  }
-
-  async deleteProvider(id: string): Promise<{ deleted: true }> {
-    // PRESUMED endpoint: DELETE /v1/providers/{id} → { deleted: true }
-    return this.http.delete<{ deleted: true }>(`/providers/${encodeURIComponent(id)}`);
-  }
-
-  async refreshProvider(id: string): Promise<AppProvider> {
-    // PRESUMED endpoint: POST /v1/providers/{id}:refresh → WireProvider
-    const data = await this.http.post<WireProvider>(
-      `/providers/${encodeURIComponent(id)}:refresh`,
+    const providerId = input.type;
+    const modelId = input.defaultModel ?? providerId;
+    const modelAlias = `${providerId}/${modelId}`;
+    await this.http.post('/config', {
+      providers: {
+        [providerId]: {
+          type: input.type,
+          api_key: input.apiKey,
+          base_url: input.baseUrl,
+          default_model: input.defaultModel,
+        },
+      },
+      models: {
+        [modelAlias]: {
+          provider: providerId,
+          model: modelId,
+          max_context_size: 262_144,
+        },
+      },
+      default_model: modelAlias,
+    });
+    const data = await this.http.get<WireProvider>(
+      `/providers/${encodeURIComponent(providerId)}`,
     );
     return toAppProvider(data);
   }
 
+  async deleteProvider(id: string): Promise<{ deleted: true }> {
+    return this.http.delete<{ deleted: true }>(`/providers/${encodeURIComponent(id)}`);
+  }
+
+  async refreshProvider(id: string): Promise<AppProvider> {
+    const data = await this.http.get<WireProvider>(
+      `/providers/${encodeURIComponent(id)}`,
+    );
+    return toAppProvider(data);
+  }
+
+  async startCodexLogin(): Promise<CodexLoginStart> {
+    const data = await this.http.post<WireCodexLoginStart>('/auth/codex:start');
+    return {
+      loginId: data.login_id,
+      authorizeUrl: data.authorize_url,
+      loopback: data.loopback,
+      expiresAt: data.expires_at,
+    };
+  }
+
+  async getCodexLoginStatus(loginId: string): Promise<CodexLoginStatus> {
+    const data = await this.http.get<WireCodexLoginStatus>(
+      `/auth/codex/${encodeURIComponent(loginId)}`,
+    );
+    return toCodexLoginStatus(data);
+  }
+
+  async submitCodexLoginRedirect(
+    loginId: string,
+    redirectUrl: string,
+  ): Promise<CodexLoginStatus> {
+    const data = await this.http.post<WireCodexLoginStatus>(
+      `/auth/codex/${encodeURIComponent(loginId)}:submit_code`,
+      { redirect_url: redirectUrl },
+    );
+    return toCodexLoginStatus(data);
+  }
+
+  async cancelCodexLogin(loginId: string): Promise<CodexLoginStatus> {
+    const data = await this.http.post<WireCodexLoginStatus>(
+      `/auth/codex/${encodeURIComponent(loginId)}:cancel`,
+    );
+    return toCodexLoginStatus(data);
+  }
+
   async refreshOAuthProviderModels(): Promise<ProviderRefreshResult> {
+    // No server route or core RPC currently backs this presumed endpoint.
     const data = await this.http.post<WireProviderRefreshResult>('/providers:refresh_oauth');
     return {
       changed: data.changed.map((item) => ({

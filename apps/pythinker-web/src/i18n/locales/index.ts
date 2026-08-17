@@ -5,6 +5,7 @@ import en_workspace from './en/workspace';
 import en_conversation from './en/conversation';
 import en_status from './en/status';
 import en_composer from './en/composer';
+import en_suggestions from './en/suggestions';
 import en_login from './en/login';
 import en_providers from './en/providers';
 import en_model from './en/model';
@@ -28,6 +29,9 @@ import en_onboarding from './en/onboarding';
 import en_settings from './en/settings';
 import en_header from './en/header';
 import en_sideChat from './en/sideChat';
+import en_update from './en/update';
+import en_capabilityMenu from './en/capabilityMenu';
+import en_codexLogin from './en/codexLogin';
 
 export const messages = {
   en: {
@@ -38,6 +42,7 @@ export const messages = {
     conversation: en_conversation,
     status: en_status,
     composer: en_composer,
+    suggestions: en_suggestions,
     login: en_login,
     providers: en_providers,
     model: en_model,
@@ -61,6 +66,9 @@ export const messages = {
     settings: en_settings,
     header: en_header,
     sideChat: en_sideChat,
+    update: en_update,
+    capabilityMenu: en_capabilityMenu,
+    codexLogin: en_codexLogin,
   },
 } as const;
 

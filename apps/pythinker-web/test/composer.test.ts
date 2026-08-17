@@ -1,13 +1,15 @@
 import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { flushPromises, mount } from '@vue/test-utils';
 import { createI18n } from 'vue-i18n';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import Composer from '../src/components/Composer.vue';
 import type { AppModel } from '../src/api/types';
 
-const sourcePath = (path: string) => fileURLToPath(new URL(path, import.meta.url));
+const sourcePath = (path: string) => join(import.meta.dirname, path);
 const composerSource = readFileSync(sourcePath('../src/components/Composer.vue'), 'utf8');
+const conversationPaneSource = readFileSync(sourcePath('../src/components/ConversationPane.vue'), 'utf8');
+const styleSource = readFileSync(sourcePath('../src/style.css'), 'utf8');
 
 function mountComposer(props: Record<string, unknown> = {}) {
   const i18n = createI18n({
@@ -72,7 +74,20 @@ async function openModelList(wrapper: ReturnType<typeof mountComposer>): Promise
 }
 
 function waitForCompositionEndTimer(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 0));
+  return new Promise((resolve) => {
+    setTimeout(resolve, 0);
+  });
+}
+
+/** The first capture of `pattern` in `source`. Throws when nothing matches, so a
+    renamed selector or a dropped declaration fails the test instead of turning
+    into an empty string that every assertion below passes on. */
+function capture(source: string, pattern: RegExp): string {
+  const found = source.match(pattern)?.[1];
+  if (found === undefined || found.trim() === '') {
+    throw new Error(`nothing matched ${pattern.source}`);
+  }
+  return found;
 }
 
 afterEach(() => {
@@ -82,6 +97,95 @@ afterEach(() => {
 });
 
 describe('Composer styling', () => {
+  it('uses the shared xl radius token for the composer card', () => {
+    const composerCardRule = capture(composerSource, /(?:^|\n)\.composer-card\s*\{([^}]*)\}/u);
+    expect(composerCardRule).toMatch(/border-radius:\s*var\(--r-xl\);/u);
+
+    const modernCardRule = capture(styleSource, /:is\(html\[data-theme="modern"\], html\[data-theme="pythinker"\]\) \.composer-card\s*\{([^}]*)\}/u);
+    expect(modernCardRule).toMatch(/border-radius:\s*var\(--r-xl\);/u);
+
+    const pythinkerCardRule = capture(styleSource, /html\[data-theme="pythinker"\] \.composer-card\s*\{([^}]*)\}/u);
+    expect(pythinkerCardRule).toMatch(/border-radius:\s*var\(--r-xl\);/u);
+  });
+
+  it('defines the xl radius token in the shared style tokens', () => {
+    expect(styleSource).toMatch(/--r-xl:\s*24px;/u);
+  });
+
+  it('uses a translucent card surface with a backdrop blur', () => {
+    const composerCardRule = capture(composerSource, /(?:^|\n)\.composer-card\s*\{([^}]*)\}/u);
+    expect(composerCardRule).toMatch(/background:\s*color-mix\([^;]+transparent\);/u);
+    expect(composerCardRule).toMatch(/backdrop-filter:\s*blur\([^;]+\);/u);
+  });
+
+  it('strengthens the card border on hover and focus within', () => {
+    const interactionRule = capture(composerSource, /(?:^|\n)\.composer-card:hover,\s*\.composer-card:focus-within\s*\{([^}]*)\}/u);
+    expect(interactionRule).toMatch(/border-color:\s*[^;]+;/u);
+  });
+
+  it('caps the input at 384px and scrolls its content', () => {
+    const inputRule = capture(composerSource, /(?:^|\n)\.ph\s*\{([^}]*)\}/u);
+    expect(inputRule).toMatch(/max-height:\s*384px;/u);
+    expect(inputRule).toMatch(/overflow-y:\s*auto;/u);
+    expect(inputRule).toMatch(/field-sizing:\s*content;/u);
+  });
+
+  it('uses circular attachment controls and a divider after the plus button', () => {
+    const attachRule = capture(composerSource, /(?:^|\n)\.attach-btn\s*\{([^}]*)\}/u);
+    expect(attachRule).toMatch(/width:\s*30px;/u);
+    expect(attachRule).toMatch(/height:\s*30px;/u);
+    expect(attachRule).toMatch(/border-radius:\s*50%;/u);
+
+    const themedAttachRule = capture(styleSource, /:is\(html\[data-theme="modern"\], html\[data-theme="pythinker"\]\) \.attach-btn\s*\{([^}]*)\}/u);
+    expect(themedAttachRule).toMatch(/width:\s*30px;/u);
+    expect(themedAttachRule).toMatch(/height:\s*30px;/u);
+    expect(themedAttachRule).toMatch(/border-radius:\s*50%;/u);
+
+    const dividerRule = capture(composerSource, /(?:^|\n)\.toolbar-divider\s*\{([^}]*)\}/u);
+    expect(dividerRule).toMatch(/width:\s*1px;/u);
+    expect(dividerRule).toMatch(/height:\s*16px;/u);
+    // Rendered, not source order: the divider has to be the attach button's next
+    // sibling inside the same toolbar, which a source-wide match cannot show.
+    const wrapper = mountComposer({
+      sessionId: 'sess_with_capabilities',
+      uploadImage: async () => ({ fileId: 'file_1' }),
+    });
+    const attach = wrapper.get('.attach-btn').element;
+    const divider = wrapper.get('.toolbar-divider').element;
+    expect(attach.nextElementSibling).toBe(divider);
+    expect(divider.parentElement).toBe(attach.parentElement);
+  });
+
+  it('does not render an orphan toolbar divider without a session', () => {
+    const wrapper = mountComposer({ uploadImage: async () => ({ fileId: 'file_1' }) });
+
+    expect(wrapper.find('.attach-btn').exists()).toBe(true);
+    expect(wrapper.find('.toolbar-divider').exists()).toBe(false);
+    expect(wrapper.find('.capability-control').exists()).toBe(false);
+  });
+
+  it('pads the send button around a 20px glyph and keeps the accent fill', () => {
+    const sendRule = capture(composerSource, /(?:^|\n)\.send\s*\{([^}]*)\}/u);
+    expect(sendRule).toMatch(/padding:\s*5px;/u);
+    // The send button carries the theme accent, not a monochrome fill: --blue is
+    // the Pythinker brand colour and each theme redefines it.
+    expect(sendRule).toMatch(/background:\s*var\(--blue\);/u);
+    expect(sendRule).toMatch(/color:\s*var\(--bg\);/u);
+
+    const sendIconRule = capture(composerSource, /(?:^|\n)\.send svg\s*\{([^}]*)\}/u);
+    expect(sendIconRule).toMatch(/width:\s*20px;/u);
+    expect(sendIconRule).toMatch(/height:\s*20px;/u);
+
+    const themedSendRule = capture(styleSource, /:is\(html\[data-theme="modern"\], html\[data-theme="pythinker"\]\) \.send\s*\{([^}]*)\}/u);
+    expect(themedSendRule).toMatch(/padding:\s*5px;/u);
+    expect(themedSendRule).not.toMatch(/background:\s*var\(--ink\);/u);
+  });
+
+  it('widens the shared reading column to 928px', () => {
+    const conRule = capture(conversationPaneSource, /(?:^|\n)\.con\s*\{([^}]*)\}/u);
+    expect(conRule).toMatch(/--read-max:\s*928px;/u);
+  });
+
   it('places the composer border flush against the message list', () => {
     const composerRule = composerSource.match(/(?:^|\n)\.composer\s*\{([^}]*)\}/)?.[1] ?? '';
     expect(composerRule.trim()).not.toBe('');

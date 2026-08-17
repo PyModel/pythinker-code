@@ -42,6 +42,7 @@ export class WSBroadcastService extends Disposable implements IWSBroadcastServic
   private readonly _maxBufferSize: number;
   private readonly _journalDir: string;
   private readonly _turnTracker = new InFlightTurnTracker();
+  private closing = false;
 
   constructor(
     @IEventService eventService: IEventService,
@@ -62,7 +63,7 @@ export class WSBroadcastService extends Disposable implements IWSBroadcastServic
   }
 
   private _onEvent(event: Event): void {
-    if (this._store.isDisposed) return;
+    if (this.closing || this._store.isDisposed) return;
     const sid = extractSessionId(event);
     const evType = (event as { type?: string }).type ?? '<no-type>';
     if (!sid) {
@@ -173,6 +174,16 @@ export class WSBroadcastService extends Disposable implements IWSBroadcastServic
     };
   }
 
+  async peekSnapshotState(sid: string): Promise<SessionSnapshotState> {
+    const state = this._getOrCreateSession(sid);
+    const journal = await state.ready;
+    return {
+      seq: journal.seq,
+      epoch: journal.epoch,
+      inFlightTurn: this._turnTracker.get(sid),
+    };
+  }
+
   currentSeq(sid: string): number {
     const state = this._sessions.get(sid);
     if (state?.failure !== undefined) throw state.failure;
@@ -198,6 +209,10 @@ export class WSBroadcastService extends Disposable implements IWSBroadcastServic
   private _getOrCreateSession(sid: string): SessionState {
     let state = this._sessions.get(sid);
     if (!state) {
+      // Once shutdown starts, `closeJournals` has already taken the session
+      // list. A new journal opened here would never be closed, and it could
+      // reopen a file the previous journal is still closing.
+      if (this.closing) throw new Error('WebSocket broadcast is shutting down.');
       const filePath = join(this._journalDir, `${sanitizeFileName(sid)}.jsonl`);
       const created: SessionState = {
         ready: SessionEventJournal.open(filePath, this.logger),
@@ -229,10 +244,12 @@ export class WSBroadcastService extends Disposable implements IWSBroadcastServic
    * that remove the journal directory afterwards must await this instead.
    */
   async closeJournals(): Promise<void> {
+    this.closing = true;
     const states = [...this._sessions.values()];
     this._sessions.clear();
     await Promise.all(
       states.map(async (state) => {
+        await state.queue.catch(() => {});
         const journal = await state.ready.catch(() => undefined);
         await journal?.close().catch(() => {});
       }),

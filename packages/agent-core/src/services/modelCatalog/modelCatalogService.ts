@@ -30,7 +30,7 @@ export class ModelCatalogService
   async listModels(): Promise<readonly ModelCatalogItem[]> {
     const config = await this._readConfig();
     return Object.entries(config.models ?? {}).map(([modelId, alias]) =>
-      toProtocolModel(modelId, alias),
+      toProtocolModel(modelId, alias, config.providers[alias.provider]),
     );
   }
 
@@ -52,6 +52,14 @@ export class ModelCatalogService
     return this._provider(config, providerId, provider);
   }
 
+  async removeProvider(providerId: string): Promise<void> {
+    const config = await this._readConfig();
+    if (config.providers?.[providerId] === undefined) {
+      throw new ProviderNotFoundError(providerId);
+    }
+    await this.core.rpc.removePythinkerProvider({ providerId });
+  }
+
   async setDefaultModel(modelId: string): Promise<SetDefaultModelResponse> {
     const config = await this._readConfig();
     const alias = config.models?.[modelId];
@@ -63,7 +71,7 @@ export class ModelCatalogService
     const updatedAlias = updated.models?.[modelId] ?? alias;
     return {
       default_model: modelId,
-      model: toProtocolModel(modelId, updatedAlias),
+      model: toProtocolModel(modelId, updatedAlias, updated.providers[updatedAlias.provider]),
     };
   }
 

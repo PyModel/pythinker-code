@@ -1,0 +1,14 @@
+export default {
+  signIn: 'Sign in with ChatGPT',
+  waiting: 'Waiting for the browser sign-in…',
+  openLinkHint: 'If the sign-in page did not open, use this link:',
+  openLink: 'Open OpenAI sign-in',
+  pasteHint:
+    'If the browser cannot return the result automatically, finish the sign-in and paste the address bar URL here.',
+  pasteLabel: 'Redirect URL',
+  pastePlaceholder: 'http://localhost:1455/auth/callback?code=…',
+  submit: 'Finish sign-in',
+  cancel: 'Cancel',
+  completed: 'Signed in to OpenAI Codex. Model: {model}',
+  failed: 'Sign-in failed: {message}',
+} as const;

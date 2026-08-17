@@ -16,18 +16,22 @@ describe('desktop window appearance configuration', () => {
     expect(opts['vibrancy']).toBe('sidebar')
   })
 
-  it('keeps the Windows window configuration unchanged', () => {
+  it('leaves the Windows caption buttons to the renderer', () => {
     const opts = windowAppearanceOptions('win32')
 
     expect(opts).toMatchObject({
       autoHideMenuBar: true,
       titleBarStyle: 'hidden',
-      titleBarOverlay: { color: '#00000000', symbolColor: '#7f858f', height: 44 },
       backgroundColor: '#161616',
       hasShadow: true,
       roundedCorners: true,
       thickFrame: true,
     })
+    // The overlay would draw native caption buttons on top of the round ones
+    // the renderer paints, so it has to stay off.
+    expect('titleBarOverlay' in opts).toBe(false)
+    // `thickFrame` without `frame: false` keeps the native resize border.
+    expect('frame' in opts).toBe(false)
   })
 
   it('keeps the Linux window configuration unchanged', () => {

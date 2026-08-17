@@ -10,6 +10,70 @@ import { formatTokens } from '../lib/formatTokens';
 
 const { t } = useI18n();
 
+interface CapabilityBadgeMeta {
+  readonly labelKey: string;
+  readonly path: string;
+}
+
+const capabilityBadgeMeta: Record<string, CapabilityBadgeMeta> = {
+  image_in: {
+    labelKey: 'model.capabilities.imageIn',
+    path: 'M3 3.5h10v9H3z M4.5 10l2.3-2.3 2 2 1.4-1.4 2.8 2.8',
+  },
+  image_out: {
+    labelKey: 'model.capabilities.imageOut',
+    path: 'M2.5 4h8v8h-8z M8 2.5h5v5 M10 2.5l3 3',
+  },
+  vision: {
+    labelKey: 'model.capabilities.vision',
+    path: 'M2.5 8s2-3 5.5-3 5.5 3 5.5 3-2 3-5.5 3-5.5-3-5.5-3z M8 6.7a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6z',
+  },
+  video_in: {
+    labelKey: 'model.capabilities.videoIn',
+    path: 'M2.5 4.5h8v7h-8z M10.5 7l3-2v6l-3-2z',
+  },
+  audio_in: {
+    labelKey: 'model.capabilities.audioIn',
+    path: 'M6 3v6a2 2 0 1 1-4 0V7 M2 9a6 6 0 0 0 12 0 M8 15v-3 M5.5 15h5',
+  },
+  audio_out: {
+    labelKey: 'model.capabilities.audioOut',
+    path: 'M3 6h2.5L9 3v10l-3.5-3H3z M11 6a3 3 0 0 1 0 4 M12.5 4.5a5 5 0 0 1 0 7',
+  },
+  thinking: {
+    labelKey: 'model.capabilities.thinking',
+    path: 'M5.2 10.7a4 4 0 1 1 5.6 0c-.5.4-.8.8-.8 1.3H6c0-.5-.3-.9-.8-1.3z M6 14h4',
+  },
+  always_thinking: {
+    labelKey: 'model.capabilities.alwaysThinking',
+    path: 'M8 2.5a5.5 5.5 0 1 0 5.5 5.5 M8 5.5v3l2 1',
+  },
+  tool_use: {
+    labelKey: 'model.capabilities.toolUse',
+    path: 'M3 3.5h10v9H3z M5 6.5l2 1.5-2 1.5 M8.5 9.5h2',
+  },
+  fast_mode: {
+    labelKey: 'model.capabilities.fastMode',
+    path: 'M9.5 1.8 3.5 9h4l-1 5.2L12.5 7h-4z',
+  },
+};
+
+const adaptiveThinkingBadge: CapabilityBadgeMeta = {
+  labelKey: 'model.capabilities.adaptiveThinking',
+  path: 'M3 8a5 5 0 0 1 8.7-3.4 M11.7 4.6V2.5 M11.7 4.6H9.6 M13 8a5 5 0 0 1-8.7 3.4 M4.3 11.4v2.1 M4.3 11.4h2.1',
+};
+
+function capabilityGlyph(capability: string): string | undefined {
+  return capabilityBadgeMeta[capability]?.path;
+}
+
+function capabilityTitle(capability: string): string {
+  const meta = capabilityBadgeMeta[capability];
+  return meta === undefined
+    ? t('model.capabilities.unknown', { capability })
+    : t(meta.labelKey);
+}
+
 const props = defineProps<{
   models: AppModel[];
   current: string;
@@ -223,8 +287,60 @@ function selectTab(tabId: string): void {
           </span>
           <span class="model-provider">{{ m.provider }}</span>
           <span class="model-ctx">{{ t('model.contextSuffix', { size: formatTokens(m.maxContextSize) }) }}</span>
-          <span v-if="m.capabilities && m.capabilities.length > 0" class="caps">
-            {{ m.capabilities.join(', ') }}
+          <span
+            v-if="(m.capabilities && m.capabilities.length > 0) || m.adaptiveThinking"
+            class="caps"
+            role="group"
+            :aria-label="t('model.capabilities.label')"
+          >
+            <span
+              v-for="(capability, capabilityIndex) in m.capabilities ?? []"
+              :key="`${capability}-${capabilityIndex}`"
+              class="cap-badge"
+              role="img"
+              :class="{ 'is-unknown': capabilityGlyph(capability) === undefined }"
+              :data-capability="capability"
+              :title="capabilityTitle(capability)"
+              :aria-label="capabilityTitle(capability)"
+            >
+              <svg
+                v-if="capabilityGlyph(capability)"
+                viewBox="0 0 16 16"
+                width="12"
+                height="12"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.25"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path :d="capabilityGlyph(capability)" />
+              </svg>
+              <span v-else>{{ capability }}</span>
+            </span>
+            <span
+              v-if="m.adaptiveThinking"
+              class="cap-badge is-adaptive"
+              role="img"
+              data-capability="adaptive-thinking"
+              :title="t(adaptiveThinkingBadge.labelKey)"
+              :aria-label="t(adaptiveThinkingBadge.labelKey)"
+            >
+              <svg
+                viewBox="0 0 16 16"
+                width="12"
+                height="12"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.25"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path :d="adaptiveThinkingBadge.path" />
+              </svg>
+            </span>
           </span>
           <button
             type="button"
@@ -316,16 +432,19 @@ function selectTab(tabId: string): void {
   flex: none;
 }
 .search-input {
+  /* Default 14px: 14 + 13 = 27px. */
   width: 100%;
+  height: calc(var(--ui-font-size) + 13px);
   box-sizing: border-box;
   font-family: var(--mono);
-  font-size: calc(var(--ui-font-size) - 1.5px);
-  padding: 5px 8px;
+  font-size: calc(var(--ui-font-size) - 1px);
+  padding: 0 8px;
   border: 1px solid var(--line);
-  border-radius: 3px;
+  border-radius: var(--r-sm);
   background: var(--panel);
   color: var(--ink);
   outline: none;
+  line-height: 1;
 }
 
 .tab-strip {
@@ -369,14 +488,21 @@ function selectTab(tabId: string): void {
 }
 
 .model-row {
+  /* Default 14px: 14 + 18 = 32px; 14 - 1 = 13px. */
   display: flex;
   align-items: center;
+  box-sizing: border-box;
+  height: calc(var(--ui-font-size) + 18px);
   gap: 8px;
-  padding: 7px 14px;
+  padding: 0 8px;
+  border-radius: var(--r-md);
   cursor: pointer;
-  font-size: calc(var(--ui-font-size) - 1.5px);
+  font-size: calc(var(--ui-font-size) - 1px);
+  line-height: 1;
   color: var(--text);
   min-width: 0;
+  content-visibility: auto;
+  contain-intrinsic-size: calc(var(--ui-font-size) + 18px);
 }
 .model-row:hover, .model-row.is-selected {
   background: var(--soft);
@@ -430,12 +556,44 @@ function selectTab(tabId: string): void {
   flex: none;
 }
 .caps {
-  color: var(--blue);
-  font-size: max(9px, calc(var(--ui-font-size) - 4px));
-  border: 1px solid var(--bd);
-  border-radius: 3px;
-  padding: 1px 5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   flex: none;
+  min-width: 0;
+  max-width: 180px;
+  overflow: hidden;
+  color: var(--muted);
+}
+.cap-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  box-sizing: border-box;
+  min-width: 16px;
+  height: 18px;
+  padding: 0 4px;
+  border: 1px solid color-mix(in srgb, var(--line) 65%, var(--panel));
+  border-radius: var(--r-xs);
+  background: color-mix(in srgb, var(--panel2) 45%, var(--panel));
+  color: var(--muted);
+  font-size: max(9px, calc(var(--ui-font-size) - 4px));
+  line-height: 1;
+  white-space: nowrap;
+}
+.cap-badge svg {
+  display: block;
+  flex: none;
+}
+.cap-badge.is-adaptive {
+  border-style: dashed;
+  color: var(--dim);
+}
+.cap-badge.is-unknown {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .star-btn {
   flex: none;
@@ -505,7 +663,7 @@ function selectTab(tabId: string): void {
     max-height: calc(100dvh - 24px);
   }
   .model-provider,
-  .caps {
+  .model-provider {
     display: none;
   }
 }

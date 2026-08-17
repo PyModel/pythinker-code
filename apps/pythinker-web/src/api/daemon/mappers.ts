@@ -9,6 +9,7 @@ import type {
   AppGoal,
   AppModel,
   AppProvider,
+  CodexLoginStatus,
   FsEntry,
   AppMessage,
   AppMessageContent,
@@ -39,6 +40,7 @@ import type {
   WireMessageContent,
   WireModel,
   WirePromptSubmission,
+  WireCodexLoginStatus,
   WireProvider,
   WireQuestionAnswer,
   WireQuestionItem,
@@ -101,6 +103,8 @@ export function toAppSession(wire: WireSession): AppSession {
     currentPromptId: wire.current_prompt_id,
     cwd: wire.metadata.cwd,
     model: wire.agent_config.model,
+    tools: wire.agent_config.tools,
+    mcpServers: wire.agent_config.mcp_servers,
     usage: toAppSessionUsage(wire.usage),
     messageCount: wire.message_count,
     lastSeq: wire.last_seq,
@@ -709,6 +713,15 @@ export function toAppModel(wire: WireModel): AppModel {
     capabilities: wire.capabilities,
     supportEfforts: wire.support_efforts,
     adaptiveThinking: wire.adaptive_thinking,
+  };
+}
+
+export function toCodexLoginStatus(wire: WireCodexLoginStatus): CodexLoginStatus {
+  return {
+    loginId: wire.login_id,
+    state: wire.state,
+    defaultModel: wire.default_model,
+    message: wire.message,
   };
 }
 

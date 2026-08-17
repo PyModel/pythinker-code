@@ -3,7 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { ColorScheme, Theme } from '../../../composables/usePythinkerWebClient';
 
-defineProps<{
+const props = defineProps<{
   theme: Theme;
   colorScheme: ColorScheme;
   uiFontSize: number;
@@ -27,6 +27,17 @@ const desktopBridge = typeof window !== 'undefined' ? window.pythinkerDesktop : 
 const desktopAutoUpdate = ref(true);
 const desktopUpdateState = ref<DesktopUpdateState>();
 let removeDesktopUpdateListener: (() => void) | undefined;
+
+const accountDetails = computed(() => {
+  const value = props.accountModel;
+  if (!value) return null;
+  const separator = value.indexOf('/');
+  return {
+    raw: value,
+    provider: separator === -1 ? value : value.slice(0, separator),
+    model: separator === -1 ? value : value.slice(separator + 1),
+  };
+});
 
 const desktopStatusText = computed(() => {
   const state = desktopUpdateState.value;
@@ -184,15 +195,28 @@ onUnmounted(() => {
       </div>
     </section>
 
-    <section class="sec">
+    <section class="sec account-section">
       <h3 class="sec-title">{{ t('settings.account') }}</h3>
-      <div class="row">
-        <span class="rlabel">{{ authReady ? t('sidebar.signedIn') : t('sidebar.notSignedIn') }}</span>
-        <span v-if="authReady && accountModel" class="rvalue" :title="accountModel">{{ accountModel }}</span>
+      <div class="account-status">
+        <span class="dot" :class="authReady ? 's-connected' : 's-unconfigured'" aria-hidden="true" />
+        <span>{{ authReady ? t('sidebar.signedIn') : t('sidebar.notSignedIn') }}</span>
       </div>
+      <div v-if="authReady && accountDetails" class="account-details">
+        <div class="account-detail">
+          <span class="account-label">{{ t('providers.provider') }}</span>
+          <span class="account-value account-provider" :title="accountDetails.raw">{{ accountDetails.provider }}</span>
+        </div>
+        <div class="account-detail">
+          <span class="account-label">{{ t('providers.model') }}</span>
+          <span class="account-value account-model" :title="accountDetails.raw">{{ accountDetails.model }}</span>
+        </div>
+      </div>
+      <p id="account-action-description" class="account-action-note">
+        {{ t(authReady ? 'providers.manageDescription' : 'providers.signInDescription') }}
+      </p>
       <div class="actions">
+        <button type="button" class="act signin" aria-describedby="account-action-description" @click="emit('login')">{{ t('providers.manage') }}</button>
         <button type="button" class="act" @click="emit('openOnboarding')">{{ t('onboarding.reopen') }}</button>
-        <button type="button" class="act signin" @click="emit('login')">{{ t('providers.title') }}</button>
       </div>
     </section>
   </section>
@@ -209,7 +233,7 @@ onUnmounted(() => {
   height: 30px;
   padding: 0 8px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--r-sm);
   background: var(--bg);
 }
 .num-input {
@@ -223,7 +247,7 @@ onUnmounted(() => {
   text-align: right;
 }
 .num-unit { color: var(--muted); font-family: var(--mono); font-size: var(--ui-font-size-xs); }
-.seg { display: inline-flex; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; }
+.seg { display: inline-flex; overflow: hidden; border: 1px solid var(--line); border-radius: var(--r-sm); }
 .opt {
   padding: 5px 12px;
   border: none;
@@ -238,4 +262,52 @@ onUnmounted(() => {
 .opt:hover { color: var(--ink); }
 .opt.on { background: var(--soft); color: var(--blue2); font-weight: 600; }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.account-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: calc(var(--ui-font-size) - 1px);
+}
+.account-details {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+.account-detail {
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--panel);
+}
+.account-label {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: var(--ui-font-size-xs);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.account-value {
+  display: block;
+  overflow: hidden;
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: calc(var(--ui-font-size) - 1px);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.account-action-note {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: calc(var(--ui-font-size) - 1px);
+}
+
+@media (max-width: 640px) {
+  .account-details { grid-template-columns: 1fr; }
+}
 </style>

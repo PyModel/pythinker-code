@@ -33,9 +33,11 @@
  */
 
 import { createDecorator } from '../../di';
+import type { McpServerConfig } from '#/config/schema';
 import type { McpServerInfo } from '../../rpc';
 import type {
   McpServer,
+  McpServerDefinition,
   McpServerStatus,
   McpServerTransport,
 } from '@pymodel/protocol';
@@ -73,7 +75,10 @@ function mapMcpTransport(t: McpServerInfo['transport']): McpServerTransport {
   }
 }
 
-export function toProtocolMcpServer(info: McpServerInfo): McpServer {
+export function toProtocolMcpServer(
+  info: McpServerInfo,
+  definition?: McpServerConfig,
+): McpServer {
   const status = mapMcpStatus(info.status);
   const base: McpServer = {
     // name-as-id: agent-core doesn't surface a separate id; the daemon's
@@ -83,6 +88,8 @@ export function toProtocolMcpServer(info: McpServerInfo): McpServer {
     transport: mapMcpTransport(info.transport),
     status,
     tool_count: info.toolCount,
+    editable: definition !== undefined,
+    definition: definition === undefined ? undefined : toProtocolMcpDefinition(definition),
   };
   // Surface the upstream error message when present. We expose it on every
   // non-healthy status (not just 'error') because 'needs-auth' arrives with
@@ -91,6 +98,42 @@ export function toProtocolMcpServer(info: McpServerInfo): McpServer {
     return { ...base, last_error: info.error };
   }
   return base;
+}
+
+function toProtocolMcpDefinition(config: McpServerConfig): McpServerDefinition {
+  const common = {
+    enabled: config.enabled,
+    startup_timeout_ms: config.startupTimeoutMs,
+    tool_timeout_ms: config.toolTimeoutMs,
+    enabled_tools: config.enabledTools,
+    disabled_tools: config.disabledTools,
+  };
+  if (config.transport === 'stdio') {
+    return {
+      ...common,
+      transport: config.transport,
+      command: config.command,
+      args: config.args,
+      env: config.env,
+      cwd: config.cwd,
+      executor: config.executor,
+      url: undefined,
+      headers: undefined,
+      bearer_token_env_var: undefined,
+    };
+  }
+  return {
+    ...common,
+    transport: config.transport,
+    command: undefined,
+    args: undefined,
+    env: undefined,
+    cwd: undefined,
+    executor: undefined,
+    url: config.url,
+    headers: config.headers,
+    bearer_token_env_var: config.bearerTokenEnvVar,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -109,6 +152,12 @@ export interface IMcpService {
    * server id is not registered.
    */
   restart(serverId: string): Promise<{ restarting: true }>;
+
+  create(serverId: string, definition: unknown): Promise<void>;
+
+  update(serverId: string, definition: unknown): Promise<void>;
+
+  remove(serverId: string): Promise<void>;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
@@ -125,6 +174,22 @@ export class McpServerNotFoundError extends Error {
     super(`mcp server ${serverId} does not exist`);
     this.name = 'McpServerNotFoundError';
     this.serverId = serverId;
+  }
+}
+
+export class McpServerAlreadyExistsError extends Error {
+  readonly serverId: string;
+  constructor(serverId: string) {
+    super(`mcp server ${serverId} already exists`);
+    this.name = 'McpServerAlreadyExistsError';
+    this.serverId = serverId;
+  }
+}
+
+export class McpServerValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'McpServerValidationError';
   }
 }
 

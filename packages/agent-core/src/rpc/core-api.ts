@@ -246,6 +246,13 @@ export interface GetBackgroundPayload {
   /** Caps the number of tasks returned. When omitted, returns all matching tasks. */
   readonly limit?: number;
 }
+export interface GetContextTokenCountPayload {
+  readonly sessionId: string;
+  readonly agentId: string;
+}
+export interface ContextTokenCount {
+  readonly tokenCount: number;
+}
 export interface SkillSummary {
   readonly name: string;
   readonly commandName?: string;
@@ -515,6 +522,7 @@ export interface CoreAPI extends SessionAPIWithId {
   listOutputStyles: (payload: ListOutputStylesPayload) => OutputStyleCatalog;
   listAgentProfiles: (payload: ListAgentProfilesPayload) => AgentProfileCatalog;
   listWorkspaceSkills: (payload: ListWorkspaceSkillsPayload) => readonly SkillSummary[];
+  getContextTokenCount: (payload: GetContextTokenCountPayload) => ContextTokenCount;
   setPythinkerConfig: (payload: SetPythinkerConfigPayload) => PythinkerConfig;
   replacePythinkerConfig: (payload: ReplacePythinkerConfigPayload) => PythinkerConfig;
   removePythinkerProvider: (payload: RemovePythinkerProviderPayload) => PythinkerConfig;

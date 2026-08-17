@@ -249,6 +249,24 @@ ipcMain.handle('pythinker:update:install', (event) => {
   assertTrustedSender(event)
   return quitAndInstallNow()
 })
+// Windows has no native caption buttons any more, so the renderer drives the
+// window. `close()` is used rather than `destroy()` so the tray lifecycle still
+// intercepts it and only hides the window.
+ipcMain.handle('pythinker:window:minimize', (event) => {
+  assertTrustedSender(event)
+  mainWindow?.minimize()
+})
+ipcMain.handle('pythinker:window:toggle-maximize', (event) => {
+  assertTrustedSender(event)
+  const window = mainWindow
+  if (window === undefined) return
+  if (window.isMaximized()) window.unmaximize()
+  else window.maximize()
+})
+ipcMain.handle('pythinker:window:close', (event) => {
+  assertTrustedSender(event)
+  mainWindow?.close()
+})
 ipcMain.handle('pythinker:theme:set-source', (event, source: unknown) => {
   assertTrustedSender(event)
   if (source === 'dark' || source === 'light' || source === 'system') {

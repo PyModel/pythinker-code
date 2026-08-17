@@ -3,6 +3,7 @@ import { shallowRef, toValue, type MaybeRefOrGetter } from 'vue';
 export type SettingsTab =
   | 'general'
   | 'agent'
+  | 'tools'
   | 'skills'
   | 'connectors'
   | 'plugins'
@@ -26,6 +27,7 @@ export const tabGroups: Array<{
   {
     titleKey: 'settings.groups.capabilities',
     tabs: [
+      { id: 'tools', labelKey: 'settings.tabs.tools' },
       { id: 'plugins', labelKey: 'settings.tabs.plugins' },
       { id: 'skills', labelKey: 'settings.tabs.skills' },
       { id: 'subagents', labelKey: 'settings.tabs.subagents' },
@@ -51,6 +53,7 @@ type UseSettingsNavOptions = {
   };
   onLoadConnectors: () => void;
   onLoadPlugins: () => void;
+  onLoadTools: () => void;
   onLoadSubagents: () => void;
 };
 
@@ -58,11 +61,12 @@ export function useSettingsNav(options: UseSettingsNavOptions) {
   const activeTab = shallowRef<SettingsTab>('general');
 
   function loadFor(tab: SettingsTab): void {
+    if (tab === 'tools') options.onLoadTools();
     if (tab === 'connectors' && toValue(options.counts.connectors) === 0) options.onLoadConnectors();
     if (tab === 'plugins' && toValue(options.counts.plugins) === 0) options.onLoadPlugins();
-    // Connectors and plugins are daemon-wide, so one load holds. Subagents are
-    // resolved from the active session's working directory, so a cached list
-    // belongs to whichever session was active when it loaded — always refetch.
+    // Connectors and plugins are daemon-wide, so one load holds. Tools and
+    // subagents are session-scoped, so always refetch them for the active
+    // session.
     if (tab === 'subagents') options.onLoadSubagents();
   }
 

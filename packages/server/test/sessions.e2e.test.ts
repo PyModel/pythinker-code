@@ -41,7 +41,7 @@ import type { TelemetryClient, TelemetryProperties } from '@pymodel/agent-core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
 
-import { IRestGateway, startServer, type RunningServer } from '../src';
+import { ICoreProcessService, IRestGateway, startServer, type RunningServer } from '../src';
 
 let tmpDir: string;
 let lockPath: string;
@@ -422,6 +422,40 @@ describe('GET /api/v1/sessions/{session_id}/status — fetch live status', () =>
 });
 
 describe('POST /api/v1/sessions/{session_id}/profile — update profile', () => {
+  it('updates tool and MCP server selections after the session becomes inactive', async () => {
+    const r = await bootDaemon();
+    const created = envelopeOf<{ id: string }>(
+      (await appOf(r).inject({
+        method: 'POST',
+        url: '/api/v1/sessions',
+        payload: { metadata: { cwd: join(tmpDir, 'workspace-profile-tools') } },
+      })).json(),
+    ).data!;
+    await r.services.invokeFunction((a) =>
+      a.get(ICoreProcessService).rpc.closeSession({ sessionId: created.id }),
+    );
+
+    const updateRes = await appOf(r).inject({
+      method: 'POST',
+      url: `/api/v1/sessions/${created.id}/profile`,
+      payload: {
+        agent_config: {
+          tools: ['Read', 'Bash'],
+          mcp_servers: ['github', 'slack'],
+        },
+      },
+    });
+    expect(envelopeOf(updateRes.json()).code).toBe(0);
+
+    const getRes = await appOf(r).inject({
+      method: 'GET',
+      url: `/api/v1/sessions/${created.id}`,
+    });
+    const session = sessionSchema.parse(envelopeOf<unknown>(getRes.json()).data);
+    expect(session.agent_config.tools).toEqual(['Read', 'Bash']);
+    expect(session.agent_config.mcp_servers).toEqual(['github', 'slack']);
+  });
+
   it('updates the title and returns the post-update Session', async () => {
     const r = await bootDaemon();
     const cwd = join(tmpDir, 'workspace-profile-update');

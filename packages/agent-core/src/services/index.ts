@@ -105,6 +105,18 @@ export {
 } from './authSummary/authSummary';
 export { AuthSummaryService } from './authSummary/authSummaryService';
 
+export {
+  ICodexLoginService,
+  CodexLoginNotFoundError,
+  CodexLoginInvalidCodeError,
+} from './codexLogin/codexLogin';
+export {
+  CodexLoginFlow,
+  CodexLoginService,
+  pickDefaultModel,
+} from './codexLogin/codexLoginService';
+export type { CodexLoginDeps } from './codexLogin/codexLoginService';
+
 
 export {
   IModelCatalogService,
@@ -171,7 +183,9 @@ export { ToolService } from './tool/toolService';
 
 export {
   IMcpService,
+  McpServerAlreadyExistsError,
   McpServerNotFoundError,
+  McpServerValidationError,
   toProtocolMcpServer,
 } from './mcp/mcp';
 export { McpService } from './mcp/mcpService';

@@ -349,6 +349,16 @@ export class ToolManager {
     this.mcpAccessPatterns = names.filter((name) => isMcpToolName(name));
   }
 
+  patchActiveTools(input: {
+    readonly tools?: readonly string[];
+    readonly mcpPatterns?: readonly string[];
+  }): void {
+    this.setActiveTools([
+      ...(input.tools ?? this.enabledTools),
+      ...(input.mcpPatterns ?? this.mcpAccessPatterns),
+    ]);
+  }
+
   copyLoopToolsFrom(source: ToolManager): void {
     this.loopToolsOverride = source.loopTools;
   }

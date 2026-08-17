@@ -113,6 +113,8 @@ const emit = defineEmits<{
   openAgent: [target: { turnId: string; blockIndex: number; memberId: string }];
   /** Edit + resend the last user message (parent undoes, then refills composer). */
   editMessage: [text: string];
+  /** Undo the last exchange and send its user prompt again. */
+  regenerate: [];
 }>();
 
 // Id of the most recent user turn — the only one offered an "edit & resend"
@@ -166,6 +168,7 @@ const copiedTurn = ref<string | null>(null);
 
 // Undo/edit-and-resend confirmation state (keyed by turn id)
 const confirmingEditTurnId = ref<string | null>(null);
+const confirmingRetryTurnId = ref<string | null>(null);
 const undoingTurnId = ref<string | null>(null);
 let undoTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -199,6 +202,12 @@ function confirmEditMessage(turn: ChatTurn): void {
     emit('editMessage', turn.text);
     undoingTurnId.value = null;
   }, 240);
+}
+
+function confirmRegenerate(): void {
+  if (confirmingRetryTurnId.value === null) return;
+  confirmingRetryTurnId.value = null;
+  emit('regenerate');
 }
 
 // Copy-whole-conversation state
@@ -302,6 +311,38 @@ function isAssistantRunEnd(index: number): boolean {
   return !next || next.role !== 'assistant';
 }
 
+function isFinalAssistantRun(index: number): boolean {
+  if (!isAssistantRunEnd(index)) return false;
+  for (let i = index + 1; i < props.turns.length; i += 1) {
+    if (props.turns[i]?.role === 'assistant') return false;
+  }
+  return true;
+}
+
+function canRetryAssistantRun(index: number): boolean {
+  const turn = props.turns[index];
+  if (!turn || turn.role !== 'assistant') return false;
+
+  let precedingUser: ChatTurn | null = null;
+  for (let i = index - 1; i >= 0; i -= 1) {
+    if (props.turns[i]?.role === 'user') {
+      precedingUser = props.turns[i]!;
+      break;
+    }
+  }
+
+  return (
+    isFinalAssistantRun(index) &&
+    turn.id !== streamingTurnId.value &&
+    !props.running &&
+    !props.sending &&
+    precedingUser !== null &&
+    precedingUser.id === lastUserTurnId.value &&
+    !precedingUser.skillActivation &&
+    assistantRunFinalText(index).trim().length > 0
+  );
+}
+
 // One shared timer: copying B within 1.4s of copying A must not let A's stale
 // timer hide B's checkmark early. Cleared on unmount.
 let copiedTimer: ReturnType<typeof setTimeout> | null = null;
@@ -311,6 +352,18 @@ function copyAssistantRun(index: number): void {
   const text = assistantRunFinalText(index);
   if (!text.trim()) return;
   navigator.clipboard.writeText(text).then(() => {
+    copiedTurn.value = turn.id;
+    if (copiedTimer !== null) clearTimeout(copiedTimer);
+    copiedTimer = setTimeout(() => {
+      copiedTimer = null;
+      copiedTurn.value = null;
+    }, 1400);
+  }).catch(() => {/* ignore */});
+}
+
+function copyUserTurn(turn: ChatTurn): void {
+  if (turn.skillActivation) return;
+  navigator.clipboard.writeText(turn.text).then(() => {
     copiedTurn.value = turn.id;
     if (copiedTimer !== null) clearTimeout(copiedTimer);
     copiedTimer = setTimeout(() => {
@@ -473,7 +526,24 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
           <!-- User input renders verbatim (pre-wrap), never through Markdown -->
           <div v-else class="u-text">{{ turn.text }}</div>
         </div>
-        <div v-if="turn.createdAt || canEditTurn(turn)" class="u-meta">
+        <div v-if="turn.createdAt || canEditTurn(turn) || !turn.skillActivation" class="u-meta">
+          <button
+            v-if="!turn.skillActivation"
+            type="button"
+            class="a-cpbtn user-cpbtn"
+            :aria-label="t('filePreview.copy')"
+            :data-user-turn-id="turn.id"
+            @click.stop="copyUserTurn(turn)"
+          >
+            <svg v-if="copiedTurn !== turn.id" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="3" y="3" width="9" height="9" rx="1.5"/>
+              <path d="M6 1h7a1 1 0 0 1 1 1v7"/>
+            </svg>
+            <svg v-else viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="3,8 6.5,11.5 13,5"/>
+            </svg>
+            <span class="a-cpbtn-text">{{ t('filePreview.copy') }}</span>
+          </button>
           <div v-if="canEditTurn(turn)" class="u-edit-wrap" :class="{ undoing: undoingTurnId === turn.id }">
             <button
               v-if="confirmingEditTurnId !== turn.id"
@@ -563,6 +633,28 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
             </svg>
             <span class="a-cpbtn-text">{{ t('filePreview.copy') }}</span>
           </button>
+          <button
+            v-if="canRetryAssistantRun(ti) && confirmingRetryTurnId !== turn.id"
+            type="button"
+            class="a-cpbtn retry-btn"
+            :aria-label="t('conversation.retry')"
+            @click="confirmingRetryTurnId = turn.id"
+          >
+            <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M3 7a5 5 0 1 1 1.5 3.6"/>
+              <path d="M3 3.5V7h3.5"/>
+            </svg>
+            <span class="a-cpbtn-text">{{ t('conversation.retry') }}</span>
+          </button>
+          <div v-else-if="canRetryAssistantRun(ti)" class="u-edit-confirm retry-confirm" @click.stop>
+            <span>{{ t('conversation.retryConfirm') }}</span>
+            <button type="button" class="u-edit-confirm-btn confirm" @click.stop="confirmRegenerate">
+              {{ t('conversation.confirm') }}
+            </button>
+            <button type="button" class="u-edit-confirm-btn" @click.stop="confirmingRetryTurnId = null">
+              {{ t('conversation.cancel') }}
+            </button>
+          </div>
         </div>
       </div>
     </template>
@@ -631,6 +723,17 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
               <span class="who"> &gt; </span>
             </template>
 
+            <button v-if="turn.role === 'user' && !turn.skillActivation" class="cpbtn user-cpbtn" :aria-label="t('filePreview.copy')" :data-user-turn-id="turn.id" @click="copyUserTurn(turn)" tabindex="-1">
+              <svg v-if="copiedTurn !== turn.id" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="3" y="3" width="9" height="9" rx="1.5"/>
+                <path d="M6 1h7a1 1 0 0 1 1 1v7"/>
+              </svg>
+              <svg v-else viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polyline points="3,8 6.5,11.5 13,5"/>
+              </svg>
+              <span class="cpbtn-text">{{ t('filePreview.copy') }}</span>
+            </button>
+
             <!-- Per-message copy button (always visible, only when turn is complete) -->
             <button v-if="turn.id !== streamingTurnId && isAssistantRunEnd(ti) && assistantRunFinalText(ti).trim().length > 0" class="cpbtn" @click="copyAssistantRun(ti)" tabindex="-1">
               <svg v-if="copiedTurn !== turn.id" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -642,6 +745,27 @@ function renderBlockKey(block: AssistantRenderBlock, index: number): string {
               </svg>
               <span class="cpbtn-text">{{ t('filePreview.copy') }}</span>
             </button>
+            <button
+              v-if="canRetryAssistantRun(ti) && confirmingRetryTurnId !== turn.id"
+              class="cpbtn retry-btn"
+              :aria-label="t('conversation.retry')"
+              @click="confirmingRetryTurnId = turn.id"
+            >
+              <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M3 7a5 5 0 1 1 1.5 3.6"/>
+                <path d="M3 3.5V7h3.5"/>
+              </svg>
+              <span class="cpbtn-text">{{ t('conversation.retry') }}</span>
+            </button>
+            <div v-else-if="canRetryAssistantRun(ti)" class="u-edit-confirm retry-confirm" @click.stop>
+              <span>{{ t('conversation.retryConfirm') }}</span>
+              <button type="button" class="u-edit-confirm-btn confirm" @click.stop="confirmRegenerate">
+                {{ t('conversation.confirm') }}
+              </button>
+              <button type="button" class="u-edit-confirm-btn" @click.stop="confirmingRetryTurnId = null">
+                {{ t('conversation.cancel') }}
+              </button>
+            </div>
             <span v-if="turn.durationMs !== undefined && turn.role === 'assistant'" class="turn-duration" :title="`${turn.durationMs} ms`">{{ formatDuration(turn.durationMs) }}</span>
           </div>
 

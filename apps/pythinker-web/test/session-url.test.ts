@@ -7,7 +7,13 @@
 // the address bar with replaceState.
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { AppSession, AppWarning, PythinkerEventHandlers, PythinkerWebApi } from '../src/api/types';
+import type {
+  AppSession,
+  AppSessionSnapshot,
+  AppWarning,
+  PythinkerEventHandlers,
+  PythinkerWebApi,
+} from '../src/api/types';
 import { readSessionIdFromLocation, sessionUrl } from '../src/lib/sessionRoute';
 
 const now = '2026-06-11T00:00:00.000Z';
@@ -34,6 +40,19 @@ function session(id: string): AppSession {
     },
     messageCount: 0,
     lastSeq: 0,
+  };
+}
+
+function snapshot(value: AppSession): AppSessionSnapshot {
+  return {
+    asOfSeq: 0,
+    epoch: 'ep_test',
+    session: value,
+    messages: [],
+    hasMoreMessages: false,
+    inFlightTurn: null,
+    pendingApprovals: [],
+    pendingQuestions: [],
   };
 }
 
@@ -89,16 +108,7 @@ async function setup(opts: {
         });
       }
       const found = extras.find((s) => s.id === id) ?? listed.find((s) => s.id === id) ?? session(id);
-      return {
-        asOfSeq: 0,
-        epoch: 'ep_test',
-        session: found,
-        messages: [],
-        hasMoreMessages: false,
-        inFlightTurn: null,
-        pendingApprovals: [],
-        pendingQuestions: [],
-      };
+      return snapshot(found);
     }),
     listTasks: vi.fn(async () => []),
     getGitStatus: vi.fn(async () => ({ branch: 'main', ahead: 0, behind: 0, entries: {}, additions: 0, deletions: 0 })),
@@ -125,6 +135,7 @@ async function setup(opts: {
   return {
     api,
     client: usePythinkerWebClient(),
+    eventConn,
     getHandlers: () => {
       if (!handlers) throw new Error('connectEvents was not called');
       return handlers;
@@ -235,9 +246,36 @@ describe('session ↔ URL binding', () => {
     expect(client.sessions.value.map((s) => s.id)).toEqual(['sess_1']);
     expect(window.location.pathname).toBe('/sessions/sess_1');
     expect(client.warnings.value.some((w) => warningText(w).includes('Failed to load session snapshot'))).toBe(false);
+    expect(api.getSessionSnapshot.mock.calls.filter(([id]) => id === 'sess_gone')).toHaveLength(1);
   });
 
-  it('load() surfaces snapshot network failures as actionable diagnostics', async () => {
+  it('retries a transient snapshot failure without warning, then seeds and subscribes', async () => {
+    vi.useFakeTimers();
+    try {
+      const current = session('sess_1');
+      const { api, client, eventConn } = await setup({ sessions: [current] });
+      api.getSessionSnapshot
+        .mockRejectedValueOnce(new Error('temporary snapshot failure'))
+        .mockResolvedValue(snapshot(current));
+
+      const loading = client.load();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(api.getSessionSnapshot).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      await loading;
+
+      expect(api.getSessionSnapshot).toHaveBeenCalledTimes(2);
+      expect(eventConn.seedSnapshot).toHaveBeenCalledWith('sess_1', snapshot(current));
+      expect(eventConn.subscribe).toHaveBeenCalledWith('sess_1', { seq: 0, epoch: 'ep_test' });
+      expect(client.warnings.value).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('surfaces one actionable warning after the bounded snapshot attempts fail', async () => {
+    vi.useFakeTimers();
     localStorage.setItem('pythinker-locale', 'en');
     const networkError = Object.assign(new Error('Network error calling GET /sessions/sess_1/snapshot'), {
       name: 'DaemonNetworkError',
@@ -249,30 +287,98 @@ describe('session ↔ URL binding', () => {
       timeoutMs: 30000,
       cause: new TypeError('Failed to fetch'),
     });
-    const { client } = await setup({
+    const { api, client } = await setup({
       sessions: [session('sess_1')],
       snapshotErrors: { sess_1: networkError },
     });
 
-    await client.load();
+    try {
+      const loading = client.load();
+      await vi.advanceTimersByTimeAsync(15_000);
+      await loading;
 
-    expect(client.warnings.value).toHaveLength(1);
+      expect(api.getSessionSnapshot).toHaveBeenCalledTimes(5);
+      expect(client.warnings.value).toHaveLength(1);
+      const [warning] = client.warnings.value;
+      expect(typeof warning).toBe('object');
+      if (typeof warning === 'string') throw new Error('expected structured warning');
+      expect(warning).toMatchObject({
+        severity: 'error',
+        title: 'Cannot load current conversation',
+        message: expect.stringContaining('could not load the current conversation'),
+      });
+      expect(warning.details).toEqual(
+        expect.arrayContaining([
+          { label: 'Operation', value: 'getSessionSnapshot' },
+          { label: 'Session ID', value: 'sess_1' },
+          { label: 'Request', value: 'GET /sessions/sess_1/snapshot' },
+          { label: 'Endpoint', value: 'http://127.0.0.1:58627/api/v1/sessions/sess_1/snapshot' },
+          { label: 'Request ID', value: '01HZ0000000000000000000000' },
+          { label: 'Cause', value: 'TypeError: Failed to fetch' },
+        ]),
+      );
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(api.getSessionSnapshot).toHaveBeenCalledTimes(5);
+      expect(client.warnings.value).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('shares one snapshot retry chain across concurrent resync triggers', async () => {
+    vi.useFakeTimers();
+    try {
+      const { api, client, getHandlers } = await setup({ sessions: [session('sess_1')] });
+      await client.load();
+      api.getSessionSnapshot.mockReset().mockRejectedValue(new Error('snapshot unavailable'));
+
+      getHandlers().onResync('sess_1', 0);
+      getHandlers().onResync('sess_1', 0);
+      await vi.advanceTimersByTimeAsync(15_000);
+
+      expect(api.getSessionSnapshot).toHaveBeenCalledTimes(5);
+      expect(client.warnings.value).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('abandons snapshot retries after the session is removed', async () => {
+    vi.useFakeTimers();
+    try {
+      const { api, client } = await setup({ sessions: [session('sess_1')] });
+      api.getSessionSnapshot.mockRejectedValue(new Error('snapshot unavailable'));
+
+      const loading = client.load();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(api.getSessionSnapshot).toHaveBeenCalledTimes(1);
+
+      await client.archiveSession('sess_1');
+      await vi.advanceTimersByTimeAsync(15_000);
+      await loading;
+
+      expect(api.getSessionSnapshot).toHaveBeenCalledTimes(1);
+      expect(client.warnings.value).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('surfaces a task refresh failure without rejecting session load', async () => {
+    const { api, client } = await setup({ sessions: [session('sess_1')] });
+    api.listTasks.mockRejectedValue(new Error('task list unavailable'));
+
+    await expect(client.load()).resolves.toBeUndefined();
+    await vi.waitFor(() => expect(client.warnings.value).toHaveLength(1));
+
     const [warning] = client.warnings.value;
     expect(typeof warning).toBe('object');
     if (typeof warning === 'string') throw new Error('expected structured warning');
-    expect(warning).toMatchObject({
-      severity: 'error',
-      title: 'Cannot load current conversation',
-      message: expect.stringContaining('could not load the current conversation'),
-    });
     expect(warning.details).toEqual(
       expect.arrayContaining([
-        { label: 'Operation', value: 'getSessionSnapshot' },
+        { label: 'Operation', value: 'listTasks' },
         { label: 'Session ID', value: 'sess_1' },
-        { label: 'Request', value: 'GET /sessions/sess_1/snapshot' },
-        { label: 'Endpoint', value: 'http://127.0.0.1:58627/api/v1/sessions/sess_1/snapshot' },
-        { label: 'Request ID', value: '01HZ0000000000000000000000' },
-        { label: 'Cause', value: 'TypeError: Failed to fetch' },
       ]),
     );
   });
@@ -311,5 +417,26 @@ describe('session ↔ URL binding', () => {
     expect(client.activeSessionId.value).toBe('sess_2');
     expect(window.location.pathname).toBe('/sessions/sess_2');
     expect(window.history.length).toBe(lenBefore);
+  });
+});
+
+describe('snapshot sync for a session outside the loaded list', () => {
+  it('loads a session the list does not know yet', async () => {
+    const other = session('sess_notified');
+    const { api, client, eventConn } = await setup({
+      sessions: [session('sess_1')],
+      extraSessions: [other],
+    });
+    await client.load();
+    api.getSessionSnapshot.mockClear();
+
+    // A notification click selects a session that never entered
+    // rawState.sessions. Bailing out on "not in the list" would drop its
+    // snapshot and leave the session permanently blank.
+    await client.selectSession('sess_notified');
+
+    expect(api.getSessionSnapshot).toHaveBeenCalledWith('sess_notified');
+    expect(eventConn.seedSnapshot).toHaveBeenCalledWith('sess_notified', snapshot(other));
+    expect(client.activeSessionId.value).toBe('sess_notified');
   });
 });

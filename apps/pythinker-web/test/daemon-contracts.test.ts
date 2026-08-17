@@ -129,3 +129,86 @@ describe('dynamic workflow daemon contracts', () => {
     expect(dynamicClient.dynamicWorkflowMode.value).toBe(false);
   });
 });
+
+describe('provider daemon contracts', () => {
+  it('adds a provider through one config patch and reads it back', async () => {
+    const provider = {
+      id: 'openai_responses',
+      type: 'openai_responses',
+      base_url: 'https://api.example.test/v1',
+      default_model: 'gpt_5-mini',
+      has_api_key: true,
+      status: 'connected',
+      models: ['openai_responses/gpt_5-mini'],
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(okEnvelope({}))
+      .mockResolvedValueOnce(okEnvelope(provider));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(api().addProvider({
+      type: 'openai_responses',
+      apiKey: 'sk-test',
+      baseUrl: 'https://api.example.test/v1',
+      defaultModel: 'gpt_5-mini',
+    })).resolves.toMatchObject({ id: 'openai_responses', defaultModel: 'gpt_5-mini' });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0]![0]).toBe('http://example.test:58627/api/v1/config');
+    expect(fetchMock.mock.calls[0]![1]).toMatchObject({ method: 'POST' });
+    expect(JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string)).toEqual({
+      providers: {
+        openai_responses: {
+          type: 'openai_responses',
+          api_key: 'sk-test',
+          base_url: 'https://api.example.test/v1',
+          default_model: 'gpt_5-mini',
+        },
+      },
+      models: {
+        'openai_responses/gpt_5-mini': {
+          provider: 'openai_responses',
+          model: 'gpt_5-mini',
+          max_context_size: 262_144,
+        },
+      },
+      default_model: 'openai_responses/gpt_5-mini',
+    });
+    expect(fetchMock.mock.calls[1]![0]).toBe(
+      'http://example.test:58627/api/v1/providers/openai_responses',
+    );
+    expect(fetchMock.mock.calls[1]![1]).toMatchObject({ method: 'GET' });
+  });
+
+  it('deletes a provider through the provider resource route', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(okEnvelope({ deleted: true }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(api().deleteProvider('openai/custom')).resolves.toEqual({ deleted: true });
+
+    expect(fetchMock.mock.calls[0]![0]).toBe(
+      'http://example.test:58627/api/v1/providers/openai%2Fcustom',
+    );
+    expect(fetchMock.mock.calls[0]![1]).toMatchObject({ method: 'DELETE' });
+    expect((fetchMock.mock.calls[0]![1] as RequestInit).body).toBeUndefined();
+  });
+
+  it('refreshes a provider by reading the provider resource', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(okEnvelope({
+      id: 'openai',
+      type: 'openai',
+      has_api_key: true,
+      status: 'connected',
+      models: ['openai/gpt-5'],
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(api().refreshProvider('openai')).resolves.toMatchObject({ id: 'openai' });
+
+    expect(fetchMock.mock.calls[0]![0]).toBe(
+      'http://example.test:58627/api/v1/providers/openai',
+    );
+    expect(fetchMock.mock.calls[0]![1]).toMatchObject({ method: 'GET' });
+    expect((fetchMock.mock.calls[0]![1] as RequestInit).body).toBeUndefined();
+  });
+});

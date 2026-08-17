@@ -10,6 +10,7 @@ import type {
   AppApprovalRequest,
   AppConfig,
   AppGoal,
+  AppMcpServerInput,
   AppNotice,
   AppNoticeDetail,
   AppMessage,
@@ -21,6 +22,7 @@ import type {
   AppConnector,
   AppPlugin,
   AppSkill,
+  AppTool,
   AppSubagent,
   AppTask,
   AppWarning,
@@ -83,6 +85,7 @@ const UI_FONT_SIZE_DEFAULT = 15;
 const UI_FONT_SIZE_MIN = 12;
 const UI_FONT_SIZE_MAX = 20;
 const SESSION_NOT_FOUND_CODE = 40401;
+const SESSION_SNAPSHOT_RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000] as const;
 const PROMPT_NOT_FOUND_CODE = 40402;
 const ONBOARDED_STORAGE_KEY = 'pythinker-web.onboarded';
 const THINKING_LEVELS: readonly ThinkingLevel[] = [
@@ -432,6 +435,12 @@ interface GitStatusEntry {
     type (image vs video) so a still and a clip resolve to the right wire shape. */
 type PromptAttachment = { fileId: string; kind: 'image' | 'video' };
 
+/** The prompt an undo removed, so a caller can edit or resend it unchanged. */
+export interface UndonePrompt {
+  text: string;
+  attachments: PromptAttachment[];
+}
+
 /** A prompt waiting for the session to go idle. Keeps the uploaded
     fileIds so attachments survive queueing (not just the text). */
 interface QueuedPrompt {
@@ -524,6 +533,9 @@ const starredModelIds = ref<string[]>(loadStarredModelsFromStorage());
 // Session-scoped skills (slash-invocable). Loaded lazily per session; the active
 // session's list feeds the composer's `/` menu.
 const skillsBySession = ref<Record<string, AppSkill[]>>({});
+const skillsLoadingBySession = ref<Record<string, boolean>>({});
+const toolsBySession = ref<Record<string, AppTool[]>>({});
+const toolsLoadingBySession = ref<Record<string, boolean>>({});
 const providers = ref<AppProvider[]>([]);
 
 // CSS handles the spinner frames; this only flips the spinner between normal and
@@ -667,6 +679,39 @@ function persistSessionProfile(patch: {
       // that the daemon did not persist it.
       pushOperationFailure('persistSessionProfile', error, { sessionId: sid });
     });
+}
+
+/** Persist the selected tools and MCP servers with optimistic local state. */
+async function updateCapabilities(input: {
+  tools?: string[];
+  mcpServers?: string[];
+}): Promise<void> {
+  const sid = rawState.activeSessionId;
+  if (!sid) return;
+  const previous = rawState.sessions.find((session) => session.id === sid);
+  if (!previous) return;
+
+  rawState.sessions = rawState.sessions.map((session) =>
+    session.id === sid
+      ? {
+          ...session,
+          tools: input.tools !== undefined ? input.tools : session.tools,
+          mcpServers: input.mcpServers !== undefined ? input.mcpServers : session.mcpServers,
+        }
+      : session,
+  );
+
+  try {
+    await getPythinkerWebApi().updateSession(sid, input);
+  } catch (error) {
+    rawState.sessions = rawState.sessions.map((session) =>
+      session.id === sid
+        ? { ...session, tools: previous.tools, mcpServers: previous.mcpServers }
+        : session,
+    );
+    pushOperationFailure('updateCapabilities', error, { sessionId: sid });
+    throw error;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1061,6 +1106,8 @@ const sessionsKnownEmpty = new Set<string>();
  */
 type SyncSessionResult = 'ok' | 'not-found' | 'failed';
 
+const sessionSnapshotSyncs = new Map<string, Promise<SyncSessionResult>>();
+
 function isSessionNotFoundError(err: unknown): boolean {
   if (isDaemonApiError(err) && err.code === SESSION_NOT_FOUND_CODE) return true;
   return (
@@ -1227,59 +1274,101 @@ async function handleSessionNotFound(sessionId: string): Promise<void> {
   }
 }
 
+function waitForSnapshotRetry(delayMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, delayMs);
+  });
+}
+
+function hasSession(sessionId: string): boolean {
+  return rawState.sessions.some((session) => session.id === sessionId);
+}
+
+async function runSessionSnapshotSync(sessionId: string): Promise<SyncSessionResult> {
+  let lastError: unknown;
+  // Only abandon the chain for a session the list already knows about. A first
+  // open (notification click, deep link) can legitimately run ahead of the
+  // session landing in `rawState.sessions`, and bailing there would drop the
+  // snapshot that open is waiting for.
+  const tracked = hasSession(sessionId);
+  const gone = (): boolean => tracked && !hasSession(sessionId);
+
+  for (const delayMs of [0, ...SESSION_SNAPSHOT_RETRY_DELAYS_MS]) {
+    if (delayMs > 0) await waitForSnapshotRetry(delayMs);
+    if (gone()) return 'not-found';
+
+    try {
+      const api = getPythinkerWebApi();
+      const snap = await api.getSessionSnapshot(sessionId);
+      if (gone()) return 'not-found';
+
+      rawState.sessions = rawState.sessions.map((s) =>
+        s.id === sessionId
+          ? {
+              ...snap.session,
+              model:
+                snap.session.model && snap.session.model.length > 0
+                  ? snap.session.model
+                  : s.model,
+            }
+          : s,
+      );
+      rawState.messagesBySession = {
+        ...rawState.messagesBySession,
+        [sessionId]: snap.messages,
+      };
+      rawState.approvalsBySession = {
+        ...rawState.approvalsBySession,
+        [sessionId]: snap.pendingApprovals,
+      };
+      rawState.questionsBySession = {
+        ...rawState.questionsBySession,
+        [sessionId]: snap.pendingQuestions,
+      };
+      rawState.lastSeqBySession = {
+        ...rawState.lastSeqBySession,
+        [sessionId]: snap.asOfSeq,
+      };
+      epochBySession[sessionId] = snap.epoch;
+
+      connectEventsIfNeeded();
+      if (eventConn) {
+        // Seed BEFORE subscribing: the in-flight assistant message must exist
+        // before live deltas (aligned by wire offset) start appending to it.
+        eventConn.seedSnapshot(sessionId, snap);
+        eventConn.subscribe(sessionId, { seq: snap.asOfSeq, epoch: snap.epoch });
+      }
+      return 'ok';
+    } catch (error) {
+      if (isSessionNotFoundError(error)) {
+        await handleSessionNotFound(sessionId);
+        return 'not-found';
+      }
+      if (gone()) return 'not-found';
+      lastError = error;
+    }
+  }
+
+  pushOperationFailure('getSessionSnapshot', lastError, {
+    title: i18n.global.t('warnings.sessionSnapshotTitle'),
+    message: i18n.global.t('warnings.sessionSnapshotMessage'),
+    sessionId,
+  });
+  return 'failed';
+}
+
 async function syncSessionFromSnapshot(sessionId: string): Promise<SyncSessionResult> {
+  const existing = sessionSnapshotSyncs.get(sessionId);
+  if (existing) return existing;
+
+  const sync = runSessionSnapshotSync(sessionId);
+  sessionSnapshotSyncs.set(sessionId, sync);
   try {
-    const api = getPythinkerWebApi();
-    const snap = await api.getSessionSnapshot(sessionId);
-
-    rawState.sessions = rawState.sessions.map((s) =>
-      s.id === sessionId
-        ? {
-            ...snap.session,
-            model:
-              snap.session.model && snap.session.model.length > 0
-                ? snap.session.model
-                : s.model,
-          }
-        : s,
-    );
-    rawState.messagesBySession = {
-      ...rawState.messagesBySession,
-      [sessionId]: snap.messages,
-    };
-    rawState.approvalsBySession = {
-      ...rawState.approvalsBySession,
-      [sessionId]: snap.pendingApprovals,
-    };
-    rawState.questionsBySession = {
-      ...rawState.questionsBySession,
-      [sessionId]: snap.pendingQuestions,
-    };
-    rawState.lastSeqBySession = {
-      ...rawState.lastSeqBySession,
-      [sessionId]: snap.asOfSeq,
-    };
-    epochBySession[sessionId] = snap.epoch;
-
-    connectEventsIfNeeded();
-    if (eventConn) {
-      // Seed BEFORE subscribing: the in-flight assistant message must exist
-      // before live deltas (aligned by wire offset) start appending to it.
-      eventConn.seedSnapshot(sessionId, snap);
-      eventConn.subscribe(sessionId, { seq: snap.asOfSeq, epoch: snap.epoch });
+    return await sync;
+  } finally {
+    if (sessionSnapshotSyncs.get(sessionId) === sync) {
+      sessionSnapshotSyncs.delete(sessionId);
     }
-    return 'ok';
-  } catch (error) {
-    if (isSessionNotFoundError(error)) {
-      await handleSessionNotFound(sessionId);
-      return 'not-found';
-    }
-    pushOperationFailure('getSessionSnapshot', error, {
-      title: i18n.global.t('warnings.sessionSnapshotTitle'),
-      message: i18n.global.t('warnings.sessionSnapshotMessage'),
-      sessionId,
-    });
-    return 'failed';
   }
 }
 
@@ -1295,8 +1384,9 @@ async function loadTasksForSession(sessionId: string): Promise<void> {
     // Completed tasks may have real terminal output that never streamed over
     // WS. Fetch it once now so the rows are expandable when the session opens.
     await fetchTerminalTaskOutputs(sessionId, taskList);
-  } catch {
-    // Tasks are side data; old/stale sessions may fail without blocking messages.
+  } catch (error) {
+    // Tasks are side data, so report the failure without blocking messages.
+    pushOperationFailure('listTasks', error, { sessionId });
   }
 }
 
@@ -1458,6 +1548,7 @@ function stopTaskOutputPolling(): void {
 }
 
 async function loadSkillsForSession(sessionId: string): Promise<void> {
+  skillsLoadingBySession.value = { ...skillsLoadingBySession.value, [sessionId]: true };
   try {
     const api = getPythinkerWebApi();
     const list = await api.listSkills(sessionId);
@@ -1465,6 +1556,20 @@ async function loadSkillsForSession(sessionId: string): Promise<void> {
   } catch {
     // Skills are side data; an older daemon without /skills just yields no
     // slash-skills, the built-in commands still work.
+  } finally {
+    skillsLoadingBySession.value = { ...skillsLoadingBySession.value, [sessionId]: false };
+  }
+}
+
+async function loadToolsForSession(sessionId: string): Promise<void> {
+  toolsLoadingBySession.value = { ...toolsLoadingBySession.value, [sessionId]: true };
+  try {
+    const list = await getPythinkerWebApi().listTools(sessionId);
+    toolsBySession.value = { ...toolsBySession.value, [sessionId]: list };
+  } catch {
+    toolsBySession.value = { ...toolsBySession.value, [sessionId]: [] };
+  } finally {
+    toolsLoadingBySession.value = { ...toolsLoadingBySession.value, [sessionId]: false };
   }
 }
 
@@ -1472,6 +1577,7 @@ async function loadSkillsForSession(sessionId: string): Promise<void> {
 // the settings dialog — nothing else in the app needs them.
 const connectors = ref<AppConnector[]>([]);
 const connectorsLoading = ref(false);
+const connectorsError = ref<string>();
 
 async function loadConnectors(): Promise<void> {
   connectorsLoading.value = true;
@@ -1486,24 +1592,47 @@ async function loadConnectors(): Promise<void> {
 }
 
 const plugins = ref<AppPlugin[]>([]);
+const pluginsLoading = ref(false);
 const subagents = ref<AppSubagent[]>([]);
 
 async function loadPlugins(): Promise<void> {
+  pluginsLoading.value = true;
   try {
     plugins.value = await getPythinkerWebApi().listPlugins();
   } catch {
     // An older daemon has no /plugins; an empty list is the honest answer.
     plugins.value = [];
+  } finally {
+    pluginsLoading.value = false;
   }
 }
 
 async function setPluginEnabled(pluginId: string, enabled: boolean): Promise<void> {
+  const previous = plugins.value.find((plugin) => plugin.id === pluginId)?.enabled;
+  plugins.value = plugins.value.map((plugin) =>
+    plugin.id === pluginId ? { ...plugin, enabled } : plugin,
+  );
   try {
     await getPythinkerWebApi().setPluginEnabled(pluginId, enabled);
-  } catch {
-    // The reload below reports whatever state the daemon ended up in.
+  } catch (error) {
+    if (previous !== undefined) {
+      plugins.value = plugins.value.map((plugin) =>
+        plugin.id === pluginId ? { ...plugin, enabled: previous } : plugin,
+      );
+    }
+    pushOperationFailure('setPluginEnabled', error);
+    return;
   }
   await loadPlugins();
+}
+
+async function loadCapabilityData(sessionId: string): Promise<void> {
+  await Promise.all([
+    loadToolsForSession(sessionId),
+    loadSkillsForSession(sessionId),
+    loadConnectors(),
+    loadPlugins(),
+  ]);
 }
 
 async function loadSubagents(): Promise<void> {
@@ -1526,6 +1655,39 @@ async function restartConnector(connectorId: string): Promise<void> {
     // The reload below reports whatever state the server ended up in.
   }
   await loadConnectors();
+}
+
+async function createConnector(input: AppMcpServerInput): Promise<void> {
+  connectorsError.value = undefined;
+  try {
+    await getPythinkerWebApi().createConnector(input);
+    await loadConnectors();
+  } catch (error) {
+    connectorsError.value = error instanceof Error ? error.message : String(error);
+    pushOperationFailure('createConnector', error);
+  }
+}
+
+async function updateConnector(connectorId: string, input: AppMcpServerInput): Promise<void> {
+  connectorsError.value = undefined;
+  try {
+    await getPythinkerWebApi().updateConnector(connectorId, input);
+    await loadConnectors();
+  } catch (error) {
+    connectorsError.value = error instanceof Error ? error.message : String(error);
+    pushOperationFailure('updateConnector', error);
+  }
+}
+
+async function removeConnector(connectorId: string): Promise<void> {
+  connectorsError.value = undefined;
+  try {
+    await getPythinkerWebApi().removeConnector(connectorId);
+    await loadConnectors();
+  } catch (error) {
+    connectorsError.value = error instanceof Error ? error.message : String(error);
+    pushOperationFailure('removeConnector', error);
+  }
 }
 
 function hasLoadedMessages(sessionId: string): boolean {
@@ -1866,6 +2028,14 @@ const sessions = computed<Session[]>(() => {
 });
 
 const activeSessionId = computed<string>(() => rawState.activeSessionId ?? '');
+
+const activeSessionCapabilities = computed(() => {
+  const session = rawState.sessions.find((candidate) => candidate.id === rawState.activeSessionId);
+  return {
+    tools: session?.tools,
+    mcpServers: session?.mcpServers,
+  };
+});
 
 /** Slash-invocable skills for the active session (feeds the composer `/` menu). */
 const skills = computed<AppSkill[]>(() => {
@@ -4075,27 +4245,35 @@ async function forkSession(sessionId?: string): Promise<void> {
  * Returns the text of the most-recent user message that was undone, so the UI
  * can offer "edit + resend" (load it back into the composer).
  */
-async function undo(count = 1): Promise<string | null> {
+async function undo(count = 1): Promise<UndonePrompt | null> {
   const sid = rawState.activeSessionId;
   if (!sid) return null;
-  // Capture the last user message text BEFORE the undo removes it.
-  const lastUserText = (() => {
+  // Capture the last user prompt BEFORE the undo removes it. The attachments
+  // come along so a retry resends the same images and clips: undo only trims
+  // the history, so the uploaded fileIds stay valid.
+  const lastUserPrompt = ((): UndonePrompt | null => {
     const msgs = rawState.messagesBySession[sid] ?? [];
     for (let i = msgs.length - 1; i >= 0; i--) {
       const m = msgs[i]!;
       if (m.role !== 'user') continue;
       if (m.metadata?.['origin'] && (m.metadata['origin'] as { kind?: string }).kind !== 'user') continue;
-      return m.content
+      const text = m.content
         .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
         .map((c) => c.text)
         .join('\n');
+      const attachments = m.content.flatMap<PromptAttachment>((c) =>
+        (c.type === 'image' || c.type === 'video') && c.source.kind === 'file'
+          ? [{ fileId: c.source.fileId, kind: c.type }]
+          : [],
+      );
+      return { text, attachments };
     }
     return null;
   })();
   try {
     await getPythinkerWebApi().undoSession(sid, count);
     await syncSessionFromSnapshot(sid);
-    return lastUserText;
+    return lastUserPrompt;
   } catch (error) {
     pushOperationFailure('undo', error, { sessionId: sid });
     return null;
@@ -4279,6 +4457,7 @@ export function usePythinkerWebClient() {
     workspace,
     sessions,
     activeSessionId,
+    activeSessionCapabilities,
 
     // Workspace view props
     workspacesView,
@@ -4434,10 +4613,17 @@ export function usePythinkerWebClient() {
     loadModels,
     loadProviders,
     skills,
+    skillsLoadingBySession,
+    toolsBySession,
+    toolsLoadingBySession,
+    loadCapabilityData,
+    updateCapabilities,
     activateSkill,
     connectors,
     connectorsLoading,
+    connectorsError,
     plugins,
+    pluginsLoading,
     loadPlugins,
     setPluginEnabled,
     subagents,
@@ -4445,6 +4631,9 @@ export function usePythinkerWebClient() {
     /** Raw sessions with their usage totals — the settings usage page reads these. */
     sessionsWithUsage: computed<AppSession[]>(() => rawState.sessions),
     loadConnectors,
+    createConnector,
+    updateConnector,
+    removeConnector,
     restartConnector,
     setModel,
     toggleStarModel,
@@ -4458,6 +4647,7 @@ export function usePythinkerWebClient() {
 
     // Config state + actions
     config,
+    loadConfig,
     updateConfig,
 
     // Auth actions

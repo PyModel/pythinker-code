@@ -69,6 +69,10 @@ export interface AppSession {
   currentPromptId?: string;
   cwd: string;
   model: string;
+  /** Exact tool names configured for this session, when explicitly set. */
+  tools?: string[];
+  /** MCP server ids configured for this session, when explicitly set. */
+  mcpServers?: string[];
   usage: AppSessionUsage;
   messageCount: number;
   lastSeq: number;
@@ -549,6 +553,22 @@ export interface AppProvider {
   models?: string[];
 }
 
+/** An OpenAI Codex sign-in in progress. Carries no token: the server keeps them. */
+export interface CodexLoginStart {
+  loginId: string;
+  authorizeUrl: string;
+  /** `false` when the callback port was taken, so the user must paste the redirect URL. */
+  loopback: boolean;
+  expiresAt: string;
+}
+
+export interface CodexLoginStatus {
+  loginId: string;
+  state: 'pending' | 'completed' | 'failed' | 'cancelled';
+  defaultModel?: string;
+  message?: string;
+}
+
 export interface ProviderRefreshResult {
   changed: Array<{
     providerId: string;
@@ -642,6 +662,19 @@ export interface AppSubagent {
 }
 
 /** A configured MCP server ("connector") and its live connection state. */
+export interface AppMcpServerDefinition {
+  transport: 'stdio' | 'http' | 'sse';
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
+}
+
+export interface AppMcpServerInput extends AppMcpServerDefinition {
+  name: string;
+}
+
 export interface AppConnector {
   id: string;
   name: string;
@@ -649,6 +682,17 @@ export interface AppConnector {
   status: 'connected' | 'connecting' | 'disconnected' | 'error';
   toolCount: number;
   lastError?: string;
+  editable: boolean;
+  definition?: AppMcpServerDefinition;
+}
+
+/** One tool available to the current session. */
+export interface AppTool {
+  name: string;
+  description: string;
+  inputSchema: unknown;
+  source: 'builtin' | 'skill' | 'mcp';
+  mcpServerId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -662,7 +706,7 @@ export interface PythinkerWebApi {
   createSession(input: { title?: string; cwd?: string; model?: string; workspaceId?: string }): Promise<AppSession>;
   /** Fetch one session by id (deep links beyond the first listSessions page). */
   getSession(sessionId: string): Promise<AppSession>;
-  updateSession(sessionId: string, input: { title?: string; cwd?: string; model?: string; permissionMode?: string; planMode?: boolean; dynamicWorkflowMode?: boolean; goalObjective?: string; goalControl?: 'pause' | 'resume' | 'cancel'; thinking?: string }): Promise<AppSession>;
+  updateSession(sessionId: string, input: { title?: string; cwd?: string; model?: string; permissionMode?: string; planMode?: boolean; dynamicWorkflowMode?: boolean; goalObjective?: string; goalControl?: 'pause' | 'resume' | 'cancel'; thinking?: string; tools?: string[]; mcpServers?: string[] }): Promise<AppSession>;
   getSessionStatus(sessionId: string): Promise<AppSessionRuntimeStatus>;
   archiveSession(sessionId: string): Promise<{ archived: true }>;
   listMessages(sessionId: string, input?: PageRequest & { role?: AppMessageRole }): Promise<Page<AppMessage>>;
@@ -687,9 +731,16 @@ export interface PythinkerWebApi {
   respondQuestion(sessionId: string, questionId: string, response: QuestionResponse): Promise<{ resolved: true; resolvedAt: string }>;
   dismissQuestion(sessionId: string, questionId: string): Promise<{ dismissed: true; dismissedAt: string }>;
   listSkills(sessionId: string): Promise<AppSkill[]>;
+  listTools(sessionId: string): Promise<AppTool[]>;
   activateSkill(sessionId: string, skillName: string, args?: string): Promise<{ activated: true; skillName: string }>;
   /** Configured MCP servers — GET /mcp/servers. */
   listConnectors(): Promise<AppConnector[]>;
+  /** Create one user-global MCP server — POST /mcp/servers. */
+  createConnector(input: AppMcpServerInput): Promise<{ created: true }>;
+  /** Replace one user-global MCP server — PUT /mcp/servers/{id}. */
+  updateConnector(connectorId: string, input: AppMcpServerInput): Promise<{ updated: true }>;
+  /** Remove one user-global MCP server — DELETE /mcp/servers/{id}. */
+  removeConnector(connectorId: string): Promise<{ deleted: true }>;
   /** Restart one MCP server — POST /mcp/servers/{id}:restart. */
   restartConnector(connectorId: string): Promise<{ restarting: true }>;
   /** Installed plugins — GET /plugins. */
@@ -733,6 +784,10 @@ export interface PythinkerWebApi {
   deleteProvider(id: string): Promise<{ deleted: true }>;
   refreshProvider(id: string): Promise<AppProvider>;
   refreshOAuthProviderModels(): Promise<ProviderRefreshResult>;
+  startCodexLogin(): Promise<CodexLoginStart>;
+  getCodexLoginStatus(loginId: string): Promise<CodexLoginStatus>;
+  submitCodexLoginRedirect(loginId: string, redirectUrl: string): Promise<CodexLoginStatus>;
+  cancelCodexLogin(loginId: string): Promise<CodexLoginStatus>;
 
   // File upload / download
   uploadFile(input: { file: Blob; name?: string }): Promise<{ id: string; name: string; mediaType: string; size: number }>;

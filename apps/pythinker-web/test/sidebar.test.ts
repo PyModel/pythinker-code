@@ -164,8 +164,19 @@ describe('Sidebar reference layout', () => {
     expect(wrapper.find('.ch .settings-btn').exists()).toBe(false);
     const settings = wrapper.find('.side-foot .settings-row');
     expect(settings.exists()).toBe(true);
+    // The footer control wears the same pill as New Session; `.settings-row.end`
+    // is what carries that styling.
+    expect(settings.classes()).toContain('end');
     await settings.trigger('click');
     expect(wrapper.emitted('openSettings')).toHaveLength(1);
+  });
+
+  it('starts a new session when the brand is clicked', async () => {
+    const wrapper = mountSidebar();
+    const brand = wrapper.get('.ch .ch-brand');
+    expect(brand.attributes('aria-label')).toBe('New Session');
+    await brand.trigger('click');
+    expect(wrapper.emitted('create')).toHaveLength(1);
   });
 
   it('renders the New Session label without a workspace path row', () => {

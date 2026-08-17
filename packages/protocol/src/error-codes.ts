@@ -57,6 +57,8 @@ export const ErrorCode = {
   TERMINAL_NOT_FOUND: 40414,
   /** skill_name does not exist */
   SKILL_NOT_FOUND: 40415,
+  /** codex login_id does not exist, or its attempt was already discarded */
+  CODEX_LOGIN_NOT_FOUND: 40416,
 
   /** Session has an in-flight prompt; new request rejected */
   SESSION_BUSY: 40901,
@@ -171,6 +173,7 @@ export const ErrorCodeReason: Readonly<Record<ErrorCode, string>> = {
   [ErrorCode.MODEL_NOT_FOUND]: 'model.not_found',
   [ErrorCode.TERMINAL_NOT_FOUND]: 'terminal.not_found',
   [ErrorCode.SKILL_NOT_FOUND]: 'skill.not_found',
+  [ErrorCode.CODEX_LOGIN_NOT_FOUND]: 'codex_login.not_found',
 
   [ErrorCode.SESSION_BUSY]: 'session.busy',
   [ErrorCode.APPROVAL_ALREADY_RESOLVED]: 'approval.already_resolved',
