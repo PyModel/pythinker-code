@@ -579,7 +579,7 @@ export interface AppConfig {
   defaultPermissionMode?: string;
   defaultPlanMode?: boolean;
   permission?: unknown;
-  hooks?: unknown[];
+  hooks?: AppHook[];
   services?: unknown;
   mergeAllAvailableSkills?: boolean;
   /** Skill names the user turned off; they never reach the agent. */
@@ -602,6 +602,19 @@ export interface AppSkill {
   path?: string;
   /** Set when the skill is slash-only and the model must not invoke it. */
   disableModelInvocation?: boolean;
+}
+
+/** One configured hook, as it appears in the daemon config. */
+export interface AppHook {
+  event: string;
+  type?: 'command' | 'http' | 'model';
+  matcher?: string;
+  command?: string;
+  url?: string;
+  statusMessage?: string;
+  timeout?: number;
+  once?: boolean;
+  async?: boolean;
 }
 
 /** A configured MCP server ("connector") and its live connection state. */

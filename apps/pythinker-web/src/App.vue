@@ -1205,6 +1205,7 @@ function openPr(url: string): void {
       :skills="client.skills.value"
       :connectors="client.connectors.value"
       :connectors-loading="client.connectorsLoading.value"
+      :sessions="client.sessionsWithUsage.value"
       @load-connectors="client.loadConnectors()"
       @restart-connector="client.restartConnector($event)"
       @set-theme="client.setTheme($event)"

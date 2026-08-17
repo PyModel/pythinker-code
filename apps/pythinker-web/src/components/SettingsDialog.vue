@@ -9,7 +9,16 @@ import { useDialogFocus } from '../composables/useDialogFocus';
 import { serverEndpointLabel } from '../api/config';
 import { downloadTraceLog, isTraceEnabled } from '../debug/trace';
 import type { ColorScheme, Theme } from '../composables/usePythinkerWebClient';
-import type { AppConfig, AppConfigProvider, AppConnector, AppModel, AppSkill } from '../api/types';
+import type {
+  AppConfig,
+  AppConfigProvider,
+  AppConnector,
+  AppHook,
+  AppModel,
+  AppSession,
+  AppSkill,
+} from '../api/types';
+import { formatTokens } from '../lib/formatTokens';
 
 const { t } = useI18n();
 
@@ -37,6 +46,8 @@ const props = defineProps<{
   connectors?: AppConnector[];
   /** True while GET /api/v1/mcp/servers is in flight. */
   connectorsLoading?: boolean;
+  /** Every session the client has loaded, for the usage totals. */
+  sessions?: AppSession[];
 }>();
 
 const emit = defineEmits<{
@@ -53,17 +64,44 @@ const emit = defineEmits<{
   close: [];
 }>();
 
-type SettingsTab = 'general' | 'agent' | 'skills' | 'connectors' | 'advanced' | 'experimental';
+type SettingsTab =
+  | 'general'
+  | 'agent'
+  | 'skills'
+  | 'connectors'
+  | 'hooks'
+  | 'usage'
+  | 'advanced'
+  | 'experimental';
 
 const activeTab = ref<SettingsTab>('general');
 
-const tabs: { id: SettingsTab; labelKey: string }[] = [
-  { id: 'general', labelKey: 'settings.tabs.general' },
-  { id: 'agent', labelKey: 'settings.tabs.agent' },
-  { id: 'skills', labelKey: 'settings.tabs.skills' },
-  { id: 'connectors', labelKey: 'settings.tabs.connectors' },
-  { id: 'advanced', labelKey: 'settings.tabs.advanced' },
-  { id: 'experimental', labelKey: 'settings.tabs.experimental' },
+/** Nav groups, mirroring how the pages divide up: basics, what the agent can
+    reach, then the read-only data pages. */
+const tabGroups: { titleKey: string; tabs: { id: SettingsTab; labelKey: string }[] }[] = [
+  {
+    titleKey: 'settings.groups.basics',
+    tabs: [
+      { id: 'general', labelKey: 'settings.tabs.general' },
+      { id: 'agent', labelKey: 'settings.tabs.agent' },
+    ],
+  },
+  {
+    titleKey: 'settings.groups.capabilities',
+    tabs: [
+      { id: 'skills', labelKey: 'settings.tabs.skills' },
+      { id: 'connectors', labelKey: 'settings.tabs.connectors' },
+      { id: 'hooks', labelKey: 'settings.tabs.hooks' },
+    ],
+  },
+  {
+    titleKey: 'settings.groups.data',
+    tabs: [
+      { id: 'usage', labelKey: 'settings.tabs.usage' },
+      { id: 'advanced', labelKey: 'settings.tabs.advanced' },
+      { id: 'experimental', labelKey: 'settings.tabs.experimental' },
+    ],
+  },
 ];
 
 const daemonEndpoint = serverEndpointLabel();
@@ -249,10 +287,19 @@ function toggleConfigBoolean(key: 'defaultThinking' | 'defaultPlanMode' | 'merge
   emit('updateConfig', { [key]: !configBool(current) } as Partial<AppConfig>);
 }
 
+const skillQuery = ref('');
+
 /** Skills grouped by source, each group's skills sorted by name. */
 const skillGroups = computed(() => {
+  const query = skillQuery.value.trim().toLowerCase();
+  const matching = (props.skills ?? []).filter(
+    (skill) =>
+      query === '' ||
+      skill.name.toLowerCase().includes(query) ||
+      skill.description.toLowerCase().includes(query),
+  );
   const bySource = new Map<string, AppSkill[]>();
-  for (const skill of props.skills ?? []) {
+  for (const skill of matching) {
     const group = bySource.get(skill.source) ?? [];
     group.push(skill);
     bySource.set(skill.source, group);
@@ -266,6 +313,56 @@ const skillGroups = computed(() => {
 });
 
 const disabledSkills = computed(() => new Set(props.config?.disabledSkills ?? []));
+
+/** Hooks grouped by the event they fire on, in the order the config lists them. */
+const hookGroups = computed(() => {
+  const byEvent = new Map<string, AppHook[]>();
+  for (const hook of props.config?.hooks ?? []) {
+    const group = byEvent.get(hook.event) ?? [];
+    group.push(hook);
+    byEvent.set(hook.event, group);
+  }
+  return [...byEvent.entries()].map(([event, hooks]) => ({ event, hooks }));
+});
+
+const hookCount = computed(() => props.config?.hooks?.length ?? 0);
+
+const skillCount = computed(() => skillGroups.value.reduce((sum, g) => sum + g.skills.length, 0));
+
+/** Totals over every session the client has loaded. */
+const usageStats = computed(() => {
+  const sessions = props.sessions ?? [];
+  let tokens = 0;
+  let turns = 0;
+  let cost = 0;
+  for (const session of sessions) {
+    tokens += session.usage.inputTokens + session.usage.outputTokens;
+    turns += session.usage.turnCount;
+    cost += session.usage.totalCostUsd;
+  }
+  return {
+    tokens: formatTokens(tokens),
+    sessions: String(sessions.length),
+    turns: String(turns),
+    cost: `$${cost.toFixed(2)}`,
+  };
+});
+
+/** Share of total tokens per model, largest first. */
+const usageByModel = computed(() => {
+  const byModel = new Map<string, number>();
+  let total = 0;
+  for (const session of props.sessions ?? []) {
+    const used = session.usage.inputTokens + session.usage.outputTokens;
+    if (used === 0 || session.model === '') continue;
+    byModel.set(session.model, (byModel.get(session.model) ?? 0) + used);
+    total += used;
+  }
+  if (total === 0) return [];
+  return [...byModel.entries()]
+    .toSorted((a, b) => b[1] - a[1])
+    .map(([model, used]) => ({ model, share: `${Math.round((used / total) * 100)}%` }));
+});
 
 function isSkillEnabled(name: string): boolean {
   return !disabledSkills.value.has(name);
@@ -300,20 +397,23 @@ function setTab(tab: SettingsTab): void {
 
       <div class="settings-layout">
         <nav class="settings-tabs" role="tablist" :aria-label="t('settings.title')">
-          <button
-            v-for="tab in tabs"
-            :key="tab.id"
-            type="button"
-            class="tab"
-            role="tab"
-            :aria-selected="activeTab === tab.id"
-            :aria-controls="`settings-panel-${tab.id}`"
-            :id="`settings-tab-${tab.id}`"
-            :class="{ on: activeTab === tab.id }"
-            @click="setTab(tab.id)"
-          >
-            {{ t(tab.labelKey) }}
-          </button>
+          <template v-for="group in tabGroups" :key="group.titleKey">
+            <span class="tab-group">{{ t(group.titleKey) }}</span>
+            <button
+              v-for="tab in group.tabs"
+              :key="tab.id"
+              type="button"
+              class="tab"
+              role="tab"
+              :aria-selected="activeTab === tab.id"
+              :aria-controls="`settings-panel-${tab.id}`"
+              :id="`settings-tab-${tab.id}`"
+              :class="{ on: activeTab === tab.id }"
+              @click="setTab(tab.id)"
+            >
+              {{ t(tab.labelKey) }}
+            </button>
+          </template>
         </nav>
 
         <div class="body">
@@ -595,8 +695,16 @@ function setTab(tab: SettingsTab): void {
             aria-labelledby="settings-tab-skills"
           >
             <section class="sec">
-              <h3 class="sec-title">{{ t('settings.skills.title') }}</h3>
+              <h2 class="page-title">{{ t('settings.skills.title') }}</h2>
               <p class="sec-note">{{ t('settings.skills.note') }}</p>
+              <input
+                v-model="skillQuery"
+                type="search"
+                class="page-search"
+                :placeholder="t('settings.skills.search')"
+                :aria-label="t('settings.skills.search')"
+              >
+              <p class="listing-count">{{ t('settings.skills.count', { count: skillCount }) }}</p>
               <p v-if="skillGroups.length === 0" class="sec-empty">{{ t('settings.skills.empty') }}</p>
               <div v-for="group in skillGroups" :key="group.source" class="listing">
                 <h4 class="listing-head">{{ group.source }}</h4>
@@ -636,7 +744,7 @@ function setTab(tab: SettingsTab): void {
             aria-labelledby="settings-tab-connectors"
           >
             <section class="sec">
-              <h3 class="sec-title">{{ t('settings.connectors.title') }}</h3>
+              <h2 class="page-title">{{ t('settings.connectors.title') }}</h2>
               <p class="sec-note">{{ t('settings.connectors.note') }}</p>
               <p v-if="connectorsLoading" class="sec-empty">{{ t('settings.connectors.loading') }}</p>
               <p v-else-if="(connectors?.length ?? 0) === 0" class="sec-empty">{{ t('settings.connectors.empty') }}</p>
@@ -653,6 +761,83 @@ function setTab(tab: SettingsTab): void {
                   </div>
                   <p class="listing-desc">{{ t(`settings.connectors.status.${connector.status}`) }}</p>
                   <p v-if="connector.lastError" class="listing-error">{{ connector.lastError }}</p>
+                </div>
+              </div>
+            </section>
+          </section>
+
+          <!-- Hooks -->
+          <section
+            v-show="activeTab === 'hooks'"
+            id="settings-panel-hooks"
+            class="panel"
+            role="tabpanel"
+            aria-labelledby="settings-tab-hooks"
+          >
+            <section class="sec">
+              <h2 class="page-title">{{ t('settings.hooks.title') }}</h2>
+              <p class="sec-note">{{ t('settings.hooks.note') }}</p>
+              <p v-if="hookCount === 0" class="sec-empty">{{ t('settings.hooks.empty') }}</p>
+              <template v-else>
+                <p class="listing-count">{{ t('settings.hooks.count', { count: hookCount }) }}</p>
+                <div v-for="group in hookGroups" :key="group.event" class="listing">
+                  <h4 class="listing-head">{{ group.event }}</h4>
+                  <div
+                    v-for="(hook, index) in group.hooks"
+                    :key="`${group.event}/${index}`"
+                    class="listing-row"
+                  >
+                    <div class="listing-main">
+                      <span class="listing-name mono">{{ hook.matcher ?? '*' }}</span>
+                      <span class="tag">{{ hook.type ?? 'command' }}</span>
+                      <span v-if="hook.async === true" class="tag">{{ t('settings.hooks.async') }}</span>
+                      <span v-if="hook.timeout !== undefined" class="listing-meta">{{ t('settings.hooks.timeout', { seconds: hook.timeout }) }}</span>
+                    </div>
+                    <p class="listing-path mono">{{ hook.command ?? hook.url ?? '—' }}</p>
+                  </div>
+                </div>
+              </template>
+            </section>
+          </section>
+
+          <!-- Usage stats -->
+          <section
+            v-show="activeTab === 'usage'"
+            id="settings-panel-usage"
+            class="panel"
+            role="tabpanel"
+            aria-labelledby="settings-tab-usage"
+          >
+            <section class="sec">
+              <h2 class="page-title">{{ t('settings.usage.title') }}</h2>
+              <p class="sec-note">{{ t('settings.usage.note') }}</p>
+              <div class="stat-grid">
+                <div class="stat-card">
+                  <span class="stat-label">{{ t('settings.usage.tokens') }}</span>
+                  <span class="stat-value">{{ usageStats.tokens }}</span>
+                </div>
+                <div class="stat-card">
+                  <span class="stat-label">{{ t('settings.usage.sessions') }}</span>
+                  <span class="stat-value">{{ usageStats.sessions }}</span>
+                </div>
+                <div class="stat-card">
+                  <span class="stat-label">{{ t('settings.usage.turns') }}</span>
+                  <span class="stat-value">{{ usageStats.turns }}</span>
+                </div>
+                <div class="stat-card">
+                  <span class="stat-label">{{ t('settings.usage.cost') }}</span>
+                  <span class="stat-value">{{ usageStats.cost }}</span>
+                </div>
+              </div>
+              <h4 class="listing-head">{{ t('settings.usage.byModel') }}</h4>
+              <p v-if="usageByModel.length === 0" class="sec-empty">{{ t('settings.usage.empty') }}</p>
+              <div v-else class="listing">
+                <div v-for="entry in usageByModel" :key="entry.model" class="listing-row">
+                  <div class="listing-main">
+                    <span class="listing-name">{{ entry.model }}</span>
+                    <span class="listing-meta">{{ entry.share }}</span>
+                  </div>
+                  <div class="usage-bar"><span :style="{ width: entry.share }" /></div>
                 </div>
               </div>
             </section>
@@ -722,15 +907,16 @@ function setTab(tab: SettingsTab): void {
   inset: 0;
   z-index: 100;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  align-items: stretch;
+  justify-content: stretch;
   background: rgba(20, 23, 28, 0.42);
-  padding: 24px;
+  padding: 12px;
 }
+/* Settings is a full-window surface, not a small modal: the pages carry long
+   lists (skills, connectors, plugins) that a 720px box could not show. */
 .dialog {
-  width: min(720px, 100%);
-  height: 640px;
-  max-height: calc(100vh - 80px);
+  width: 100%;
+  height: 100%;
   display: flex;
   flex-direction: column;
   background: var(--bg);
@@ -996,7 +1182,80 @@ function setTab(tab: SettingsTab): void {
 .switch.sm .knob { width: 13px; height: 13px; }
 .switch.sm.on .knob { transform: translateX(13px); }
 
-/* Skills and connectors pages: one dense row per entry. */
+/* The settings pages: a large page title, an optional search, then card rows. */
+.page-title {
+  margin: 0 0 6px;
+  font-size: calc(var(--ui-font-size) + 10px);
+  font-weight: 700;
+  color: var(--ink);
+}
+.page-search {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0 0 12px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: var(--ui-font-size);
+}
+.listing-count {
+  margin: 0 0 8px;
+  font-size: calc(var(--ui-font-size) - 2px);
+  color: var(--faint);
+}
+
+/* Usage stats: a card per headline number, then a share bar per model. */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.stat-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+}
+.stat-label {
+  font-size: calc(var(--ui-font-size) - 2px);
+  color: var(--muted);
+}
+.stat-value {
+  font-size: calc(var(--ui-font-size) + 8px);
+  font-weight: 700;
+  color: var(--ink);
+}
+.usage-bar {
+  margin-top: 6px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--line2);
+  overflow: hidden;
+}
+.usage-bar span {
+  display: block;
+  height: 100%;
+  background: var(--blue);
+}
+
+/* Nav group heading above each block of tabs. */
+.tab-group {
+  padding: 12px 10px 4px;
+  font-size: calc(var(--ui-font-size) - 3px);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+/* Skills and connectors pages: one card row per entry. */
 .sec-note {
   margin: -4px 0 12px;
   font-size: calc(var(--ui-font-size) - 2px);
@@ -1010,17 +1269,19 @@ function setTab(tab: SettingsTab): void {
 .listing {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 6px;
 }
 .listing-head {
-  margin: 12px 0 2px;
+  margin: 14px 0 6px;
   font-size: calc(var(--ui-font-size) - 2px);
   font-weight: 600;
   color: var(--muted);
 }
 .listing-row {
-  padding: 5px 0;
-  border-top: 1px solid var(--line2);
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
 }
 /* A disabled skill stays readable but clearly recedes. */
 .listing-row.off .listing-name,
@@ -1110,7 +1371,7 @@ function setTab(tab: SettingsTab): void {
       max(12px, env(safe-area-inset-left));
   }
   .dialog {
-    max-height: calc(100dvh - 24px);
+    height: 100%;
   }
   .settings-layout { flex-direction: column; }
   .settings-tabs {

@@ -335,3 +335,76 @@ describe('SettingsDialog connectors page', () => {
     expect(wrapper.emitted('restartConnector')).toEqual([['mcp_2']]);
   });
 });
+
+describe('SettingsDialog hooks page', () => {
+  it('groups hooks by event and shows what each one runs', async () => {
+    const wrapper = mountDialog({
+      config: {
+        ...config,
+        hooks: [
+          { event: 'PreToolUse', matcher: 'Bash', type: 'command', command: 'block-no-verify.sh' },
+          { event: 'PreToolUse', type: 'command', command: 'observe.sh pre', timeout: 30 },
+          { event: 'SessionStart', type: 'command', command: 'agent-state.sh', async: true },
+        ],
+      },
+    });
+    await openTab(wrapper, 'Hooks');
+
+    const panel = wrapper.get('#settings-panel-hooks');
+    expect(panel.findAll('.listing-head').map((head) => head.text())).toEqual([
+      'PreToolUse',
+      'SessionStart',
+    ]);
+    // The matcher labels the row; a hook without one is the catch-all.
+    expect(panel.findAll('.listing-name').map((name) => name.text())).toEqual([
+      'Bash',
+      '*',
+      '*',
+    ]);
+    expect(panel.text()).toContain('block-no-verify.sh');
+    expect(panel.text()).toContain('30s timeout');
+    expect(panel.text()).toContain('async');
+  });
+
+  it('says so when no hook is configured', async () => {
+    const wrapper = mountDialog();
+    await openTab(wrapper, 'Hooks');
+
+    expect(wrapper.get('#settings-panel-hooks').text()).toContain('No hooks are configured');
+  });
+});
+
+describe('SettingsDialog usage page', () => {
+  const sessions = [
+    {
+      id: 'ses_1',
+      model: 'Pythinker K2',
+      usage: { inputTokens: 600, outputTokens: 400, turnCount: 3, totalCostUsd: 1.5 },
+    },
+    {
+      id: 'ses_2',
+      model: 'GPT-5',
+      usage: { inputTokens: 800, outputTokens: 200, turnCount: 2, totalCostUsd: 0.75 },
+    },
+  ] as unknown as Parameters<typeof mountDialog>[0]['sessions'];
+
+  it('totals tokens, sessions, turns and cost', async () => {
+    const wrapper = mountDialog({ sessions });
+    await openTab(wrapper, 'Usage stats');
+
+    const values = wrapper.get('#settings-panel-usage').findAll('.stat-value').map((v) => v.text());
+    expect(values).toEqual(['2k', '2', '5', '$2.25']);
+  });
+
+  it('splits the token share per model, largest first', async () => {
+    const wrapper = mountDialog({ sessions });
+    await openTab(wrapper, 'Usage stats');
+
+    const panel = wrapper.get('#settings-panel-usage');
+    expect(panel.findAll('.listing-name').map((name) => name.text())).toEqual([
+      'Pythinker K2',
+      'GPT-5',
+    ]);
+    expect(panel.findAll('.listing-meta').map((meta) => meta.text())).toEqual(['50%', '50%']);
+  });
+});

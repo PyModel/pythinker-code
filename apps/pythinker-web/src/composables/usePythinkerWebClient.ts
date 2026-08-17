@@ -4401,6 +4401,8 @@ export function usePythinkerWebClient() {
     activateSkill,
     connectors,
     connectorsLoading,
+    /** Raw sessions with their usage totals — the settings usage page reads these. */
+    sessionsWithUsage: computed<AppSession[]>(() => rawState.sessions),
     loadConnectors,
     restartConnector,
     setModel,
