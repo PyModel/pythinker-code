@@ -1,5 +1,11 @@
 # @pymodel/pythinker-code
 
+## 0.21.2
+
+### Patch Changes
+
+- [#126](https://github.com/PyModel/pythinker-code/pull/126) [`a447a2c`](https://github.com/PyModel/pythinker-code/commit/a447a2c47451e7f2b65e49e94304f7f7bbd44096) - Fix desktop update prompts so one action downloads, closes, installs, and restarts the app.
+
 ## 0.21.1
 
 ### Patch Changes
