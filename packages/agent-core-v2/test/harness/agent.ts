@@ -764,18 +764,18 @@ function createSessionSkillCatalog(catalog: SkillCatalog): ISessionSkillCatalog 
   };
 }
 
-export function dynamic_workflowServices(
-  dynamic_workflowService: ISessionDynamicWorkflowService | ISessionDynamicWorkflowService['run'],
+export function dynamicWorkflowServices(
+  dynamicWorkflowService: ISessionDynamicWorkflowService | ISessionDynamicWorkflowService['run'],
 ): TestAgentServiceOverride {
   const service =
-    typeof dynamic_workflowService === 'function'
+    typeof dynamicWorkflowService === 'function'
       ? {
           _serviceBrand: undefined,
           getDynamicWorkflowItem: async () => undefined,
-          run: dynamic_workflowService,
+          run: dynamicWorkflowService,
           cancel: () => {},
         } satisfies ISessionDynamicWorkflowService
-      : dynamic_workflowService;
+      : dynamicWorkflowService;
   return [
     sessionService(ISessionDynamicWorkflowService, service),
     agentService(IAgentDynamicWorkflowService, new SyncDescriptor(AgentDynamicWorkflowService)),

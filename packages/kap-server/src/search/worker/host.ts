@@ -337,10 +337,9 @@ export class SearchWorkerHost {
         return {
           url: source,
           execArgv: [
-            '--experimental-transform-types',
             '--disable-warning=ExperimentalWarning',
             '--import',
-            new URL('./register-dev-hooks.mjs', import.meta.url).href,
+            import.meta.resolve('tsx'),
           ],
         };
       }

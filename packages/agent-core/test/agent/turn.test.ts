@@ -602,7 +602,7 @@ describe('Agent turn flow', () => {
     });
 
     // Let the first model step finish and the drain hold engage.
-    for (let i = 0; i < 100 && ctx.llmCalls.length < 1; i++) await delay(5);
+    for (let i = 0; i < 100 && ctx.llmCalls.length === 0; i++) await delay(5);
     await delay(20);
     expect(turnEnded).toBe(false);
 
@@ -974,7 +974,7 @@ describe('Agent turn flow', () => {
     await ctx.untilTurnEnd();
 
     const turnEndedIndex = eventIndex(ctx, '[rpc]', 'turn.ended');
-    const dynamic_workflowExitIndex = eventIndex(ctx, '[wire]', 'dynamic_workflow_mode.exit');
+    const dynamicWorkflowExitIndex = eventIndex(ctx, '[wire]', 'dynamic_workflow_mode.exit');
     const inactiveStatusIndex = ctx.allEvents.findIndex((entry, index) => {
       return (
         index > turnEndedIndex &&
@@ -985,7 +985,7 @@ describe('Agent turn flow', () => {
     });
 
     expect(ctx.agent.dynamicWorkflowMode.isActive).toBe(false);
-    expect(dynamic_workflowExitIndex).toBeGreaterThan(turnEndedIndex);
+    expect(dynamicWorkflowExitIndex).toBeGreaterThan(turnEndedIndex);
     expect(inactiveStatusIndex).toBeGreaterThan(turnEndedIndex);
     expect(ctx.agent.context.history.at(-1)?.origin).toEqual({
       kind: 'injection',

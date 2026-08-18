@@ -353,10 +353,11 @@ export class MigrationScreenComponent extends Container implements Focusable {
         // on a SEPARATE line below — a single-line message with the contents
         // appended would overflow 80 columns and be truncated, silently
         // hiding the very info we want users to see.
+        // The filename no longer fits beside the message at 80 columns, so
+        // it gets its own line rather than being truncated away.
         lines.push(
-          chalk.hex(colors.warning)(
-            '  ⚠ config.toml could not be parsed — review config.migrated-from-pythinker-cli.toml',
-          ),
+          chalk.hex(colors.warning)('  ⚠ config.toml could not be parsed — review'),
+          chalk.hex(colors.warning)('     config.migrated-from-pythinker-cli.toml'),
         );
         const sc = sum.config.siblingContents;
         const items: string[] = [];

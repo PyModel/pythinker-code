@@ -45,7 +45,7 @@ export function goalArgumentCompletions(argumentPrefix: string): AutocompleteIte
 }
 
 /** Argument autocompletion for the `/dynamic_workflow` command (subcommands). */
-export function dynamic_workflowArgumentCompletions(argumentPrefix: string): AutocompleteItem[] | null {
+export function dynamicWorkflowArgumentCompletions(argumentPrefix: string): AutocompleteItem[] | null {
   return completeLeadingArg(DYNAMIC_WORKFLOW_ARG_COMPLETIONS, argumentPrefix);
 }
 
@@ -174,7 +174,7 @@ export const BUILTIN_SLASH_COMMANDS = [
     description: 'Toggle dynamic_workflow mode or run one task in dynamic_workflow mode',
     priority: 100,
     argumentHint: '[on|off] | <task>',
-    completeArgs: dynamic_workflowArgumentCompletions,
+    completeArgs: dynamicWorkflowArgumentCompletions,
     availability: 'idle-only',
   },
   {

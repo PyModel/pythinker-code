@@ -614,7 +614,7 @@ describe('AgentLifecycleService', () => {
     const child = await svc.create({
       agentId: 'child',
       forkedFrom: 'main',
-      labels: { dynamic_workflowItem: 'dynamic-workflow-item-1' },
+      labels: { dynamicWorkflowItem: 'dynamic-workflow-item-1' },
     });
 
     expect(child.id).toBe('child');
@@ -623,7 +623,7 @@ describe('AgentLifecycleService', () => {
       type: 'sub',
       parentAgentId: 'main',
       forkedFrom: 'main',
-      labels: { dynamic_workflowItem: 'dynamic-workflow-item-1' },
+      labels: { dynamicWorkflowItem: 'dynamic-workflow-item-1' },
     });
   });
 

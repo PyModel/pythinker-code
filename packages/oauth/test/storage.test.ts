@@ -123,7 +123,7 @@ describe('FileTokenStorage', () => {
     await storage.save('pythinker-code', sampleToken());
     await storage.save('other-provider', sampleToken());
     const names = await storage.list();
-    expect(names.toSorted()).toEqual(['pythinker-code', 'other-provider']);
+    expect(names.toSorted()).toEqual(['other-provider', 'pythinker-code']);
   });
 
   it('list() ignores non-JSON files in the credentials dir', async () => {

@@ -4,7 +4,7 @@ import { Feature } from '#/features/feature';
 import { registerFeature } from '#/features/featureRegistry';
 
 import { IAgentDynamicWorkflowService } from './agent/dynamic_workflow';
-import { AgentDynamicWorkflowService } from './agent/dynamic_workflowService';
+import { AgentDynamicWorkflowService } from './agent/dynamicWorkflowService';
 import { ISessionDynamicWorkflowService } from './session/sessionDynamicWorkflow';
 import { SessionDynamicWorkflowService } from './session/sessionDynamicWorkflowService';
 import { IAgentDynamicWorkflowTool } from './tools/agent-dynamic_workflow/agent-dynamic_workflow';

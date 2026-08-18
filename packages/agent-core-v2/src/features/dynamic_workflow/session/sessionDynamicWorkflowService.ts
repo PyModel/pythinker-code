@@ -152,7 +152,7 @@ export class SessionDynamicWorkflowService implements ISessionDynamicWorkflowSer
           model: binding.model,
           thinking: binding.thinking,
         },
-        labels: subagentLabels(callerAgentId, { dynamic_workflowItem: options.dynamic_workflowItem }),
+        labels: subagentLabels(callerAgentId, { dynamicWorkflowItem: options.dynamicWorkflowItem }),
         runtimeId: callerRuntime.runtimeId,
       });
     } catch (error) {

@@ -228,7 +228,7 @@ describe('ViewRegistry', () => {
   it('dispatches on view ?? name, origin.kind and marker keys', () => {
     const registry = new ViewRegistry<string>({ fallbackTool: 'generic' });
     registry.registerTool('read', 'readRenderer');
-    registry.registerTool('dynamic_workflow', 'dynamic_workflowRenderer');
+    registry.registerTool('dynamic_workflow', 'dynamicWorkflowRenderer');
     registry.registerInput('cron', 'cronInput');
     registry.registerMarker('goal', 'goalMarker');
 
@@ -237,7 +237,7 @@ describe('ViewRegistry', () => {
     ).toBe('readRenderer');
     expect(
       registry.resolveTool({ kind: 'tool', frameId: 'f', toolCallId: 'c2', name: 'AgentDynamicWorkflow', view: 'dynamic_workflow', state: 'running' }),
-    ).toBe('dynamic_workflowRenderer');
+    ).toBe('dynamicWorkflowRenderer');
     expect(
       registry.resolveTool({ kind: 'tool', frameId: 'f', toolCallId: 'c3', name: 'Bash', state: 'running' }),
     ).toBe('generic');

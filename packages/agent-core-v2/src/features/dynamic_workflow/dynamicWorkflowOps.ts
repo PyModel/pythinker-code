@@ -26,7 +26,7 @@ export class DynamicWorkflowModeExit extends Event2<z.infer<typeof dynamicWorkfl
 }
 export interface DynamicWorkflowModeExit extends z.infer<typeof dynamicWorkflowModeExitSchema> {}
 
-export const dynamic_workflowKey = defineState('dynamic_workflow', (): DynamicWorkflowModeTrigger | null => null).replayable({
+export const dynamicWorkflowKey = defineState('dynamic_workflow', (): DynamicWorkflowModeTrigger | null => null).replayable({
   schema: z.custom<DynamicWorkflowModeTrigger | null>(),
 })
   .on(DynamicWorkflowModeEnter, (_s, e, ctx) => {

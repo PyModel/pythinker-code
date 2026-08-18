@@ -15,7 +15,7 @@ export const agentMetaSchema = z.object({
   parentAgentId: z.union([z.string(), z.null()]).optional(),
   forkedFrom: z.string().optional(),
   labels: z.record(z.string(), z.string()).optional(),
-  dynamic_workflowItem: z.string().optional(),
+  dynamicWorkflowItem: z.string().optional(),
 });
 
 export const sessionMetaSchema = z.object({

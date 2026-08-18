@@ -69,6 +69,7 @@
 //     contextProjector.lastRepairSignature            src/agent/contextProjector/contextProjectorService.ts
 //     cron                                            src/session/cron/cronOps.ts
 //     dateChange.seed                                 src/features/dateChange/dateChangeService.ts
+//     dynamic_workflow                                src/features/dynamic_workflow/dynamicWorkflowOps.ts
 //     externalHooks.stopHookContinuationUsed          src/agent/externalHooks/externalHooksService.ts
 //     fullCompaction                                  src/agent/fullCompaction/compactionOps.ts
 //     fullCompaction.activeTurnId                     src/agent/fullCompaction/fullCompactionService.ts
@@ -128,7 +129,6 @@
 //     skill                                           src/agent/skill/skillOps.ts
 //     stepRetry.failedAttempts                        src/agent/stepRetry/stepRetryService.ts
 //     stepRetry.lastFailedDriverId                    src/agent/stepRetry/stepRetryService.ts
-//     dynamic_workflow                                           src/features/dynamic_workflow/dynamic_workflowOps.ts
 //     task                                            src/agent/task/taskOps.ts
 //     task.activeTaskReminderPending                  src/agent/task/taskService.ts
 //     task.deliveredNotificationKeys                  src/agent/task/taskService.ts
@@ -495,7 +495,7 @@ export interface SessionStateSnapshot {
       readonly parentAgentId?: string | null;
       readonly forkedFrom?: string;
       readonly labels?: Readonly<Record<string, string>>;
-      readonly dynamic_workflowItem?: string;
+      readonly dynamicWorkflowItem?: string;
     }>>;
     readonly custom?: Record<string, unknown>;
     readonly lastTurnReason?: 'completed' | 'cancelled' | 'failed';
@@ -1559,6 +1559,9 @@ export interface AgentStateSnapshot {
     readonly timeZone: string;
     readonly renderGeneration: number;
   } | undefined;
+  // src/features/dynamic_workflow/dynamicWorkflowOps.ts
+  // replayable · durable — folds: DynamicWorkflowModeEnter, DynamicWorkflowModeExit
+  'dynamic_workflow': 'task' | 'tool' | 'manual' | null;
   // src/features/plan/injection/planModeInjection.ts
   'plan.wasActive': boolean;
   // src/features/plan/planOps.ts
@@ -1568,9 +1571,6 @@ export interface AgentStateSnapshot {
     readonly id?: string;
     readonly revisionCount?: Readonly<Record<string, number>>;
   };
-  // src/features/dynamic_workflow/dynamic_workflowOps.ts
-  // replayable · durable — folds: DynamicWorkflowModeEnter, DynamicWorkflowModeExit
-  'dynamic_workflow': 'task' | 'tool' | 'manual' | null;
   // src/features/tower/towerOps.ts
   // replayable · durable — folds: TowerModeEnter, TowerModeExit
   'tower': boolean;

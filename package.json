@@ -40,6 +40,8 @@
     "@arethetypeswrong/cli": "0.18.3",
     "@changesets/changelog-github": "0.7.0",
     "@changesets/cli": "2.31.0",
+    "@iconify-json/ri": "^1.2.10",
+    "@iconify-json/tabler": "^1.2.35",
     "@microsoft/api-extractor": "7.58.9",
     "@types/node": "^26.1.2",
     "@typescript/native-preview": "7.0.0-dev.20260707.2",

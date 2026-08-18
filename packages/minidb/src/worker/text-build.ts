@@ -122,9 +122,10 @@ function spawnWorker(
   }
   return new Worker(entry.url, {
     workerData: spec,
-    // --experimental-transform-types runs the TS worker source directly in dev;
-    // silence its experimental warning so it does not bleed into the TUI.
-    execArgv: ['--experimental-transform-types', '--disable-warning=ExperimentalWarning'],
+    // tsx runs the TS worker source directly in dev (Node 26 removed the
+    // --experimental-transform-types flag and strip-only mode cannot run this
+    // source); silence experimental warnings so they do not bleed into the TUI.
+    execArgv: ['--disable-warning=ExperimentalWarning', '--import', import.meta.resolve('tsx')],
     resourceLimits,
   });
 }

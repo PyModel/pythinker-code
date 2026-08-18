@@ -6199,14 +6199,14 @@ command = "vim"
       sendQueued,
     );
 
-    const dynamic_workflowProgress = driver.state.transcriptContainer.children.find(
+    const dynamicWorkflowProgress = driver.state.transcriptContainer.children.find(
       (child): child is AgentDynamicWorkflowProgressComponent => child instanceof AgentDynamicWorkflowProgressComponent,
     );
-    if (dynamic_workflowProgress === undefined) throw new Error('expected AgentDynamicWorkflow progress');
+    if (dynamicWorkflowProgress === undefined) throw new Error('expected AgentDynamicWorkflow progress');
 
     const transcriptWidth = Math.max(1, terminalColumns - 2);
     const renderDynamicWorkflow = (): string =>
-      stripSgr(dynamic_workflowProgress.render(transcriptWidth).join('\n'));
+      stripSgr(dynamicWorkflowProgress.render(transcriptWidth).join('\n'));
 
     expect(renderDynamicWorkflow()).toContain('001 Queued...');
 
@@ -6225,7 +6225,7 @@ command = "vim"
 
     const transcriptChildren = driver.state.transcriptContainer.children;
     const dynamicWorkflowIndex = transcriptChildren.indexOf(
-      dynamic_workflowProgress as (typeof transcriptChildren)[number],
+      dynamicWorkflowProgress as (typeof transcriptChildren)[number],
     );
     expect(dynamicWorkflowIndex).toBeGreaterThanOrEqual(0);
 

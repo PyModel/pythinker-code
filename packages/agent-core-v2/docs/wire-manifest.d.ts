@@ -31,6 +31,8 @@
 //   context.apply_compaction           contextMemory, plan, task.notificationDelivery, todo                  src/agent/contextMemory/contextEvents.ts
 //   context.clear                      contextMemory, plan, task.notificationDelivery, todo                  src/agent/contextMemory/contextEvents.ts
 //   context.undo                       contextMemory, plan, task.notificationDelivery, todo                  src/agent/contextMemory/contextEvents.ts
+//   dynamic_workflow_mode.enter        dynamic_workflow                                                      src/features/dynamic_workflow/dynamicWorkflowOps.ts
+//   dynamic_workflow_mode.exit         contextMemory, dynamic_workflow                                       src/features/dynamic_workflow/dynamicWorkflowOps.ts
 //   forked                             goal, goalForkNotice                                                  src/agent/goal/goalOps.ts
 //   full_compaction.begin              fullCompaction                                                        src/agent/fullCompaction/compactionOps.ts
 //   full_compaction.cancel             fullCompaction                                                        src/agent/fullCompaction/compactionOps.ts
@@ -54,8 +56,6 @@
 //   profile.bind                       profile, profile.activeTools                                          src/agent/profile/profileOps.ts
 //   prompt.accepted                    promptAdmission                                                       src/agent/prompt/promptOps.ts
 //   runtime.set_binding                runtimeBinding                                                        src/agent/runtimeBinding/runtimeBindingOps.ts
-//   dynamic_workflow_mode.enter                   dynamic_workflow                                                                 src/features/dynamic_workflow/dynamic_workflowOps.ts
-//   dynamic_workflow_mode.exit                    contextMemory, dynamic_workflow                                                  src/features/dynamic_workflow/dynamic_workflowOps.ts
 //   task.started                       task                                                                  src/agent/task/taskOps.ts
 //   task.terminated                    task                                                                  src/agent/task/taskOps.ts
 //   token_counting.measured            tokenCounting                                                         src/agent/tokenCounting/tokenCountingOps.ts
@@ -164,6 +164,24 @@ interface ContextClearPayload {
 interface ContextUndoPayload {
   _name: 'context.undo';
   count: number;
+}
+
+/**
+ * states: dynamic_workflow
+ * owner: src/features/dynamic_workflow/dynamicWorkflowOps.ts
+ */
+interface DynamicWorkflowModeEnterPayload {
+  _name: 'dynamic_workflow_mode.enter';
+  /** DynamicWorkflowModeTrigger */
+  trigger: 'manual' | 'task' | 'tool';
+}
+
+/**
+ * states: contextMemory, dynamic_workflow · blobs: contextMemory
+ * owner: src/features/dynamic_workflow/dynamicWorkflowOps.ts
+ */
+interface DynamicWorkflowModeExitPayload {
+  _name: 'dynamic_workflow_mode.exit';
 }
 
 /**
@@ -457,24 +475,6 @@ interface RuntimeSetBindingPayload {
 }
 
 /**
- * states: dynamic_workflow
- * owner: src/features/dynamic_workflow/dynamic_workflowOps.ts
- */
-interface DynamicWorkflowModeEnterPayload {
-  _name: 'dynamic_workflow_mode.enter';
-  /** DynamicWorkflowModeTrigger */
-  trigger: 'manual' | 'task' | 'tool';
-}
-
-/**
- * states: contextMemory, dynamic_workflow · blobs: contextMemory
- * owner: src/features/dynamic_workflow/dynamic_workflowOps.ts
- */
-interface DynamicWorkflowModeExitPayload {
-  _name: 'dynamic_workflow_mode.exit';
-}
-
-/**
  * states: task
  * owner: src/agent/task/taskOps.ts
  */
@@ -705,6 +705,8 @@ interface WirePayloadMap {
   "context.apply_compaction": ContextApplyCompactionPayload;
   "context.clear": ContextClearPayload;
   "context.undo": ContextUndoPayload;
+  "dynamic_workflow_mode.enter": DynamicWorkflowModeEnterPayload;
+  "dynamic_workflow_mode.exit": DynamicWorkflowModeExitPayload;
   "forked": ForkedPayload;
   "full_compaction.begin": FullCompactionBeginPayload;
   "full_compaction.cancel": FullCompactionCancelPayload;
@@ -728,8 +730,6 @@ interface WirePayloadMap {
   "profile.bind": ProfileBindPayload;
   "prompt.accepted": PromptAcceptedPayload;
   "runtime.set_binding": RuntimeSetBindingPayload;
-  "dynamic_workflow_mode.enter": DynamicWorkflowModeEnterPayload;
-  "dynamic_workflow_mode.exit": DynamicWorkflowModeExitPayload;
   "task.started": TaskStartedPayload;
   "task.terminated": TaskTerminatedPayload;
   "token_counting.measured": TokenCountingMeasuredPayload;

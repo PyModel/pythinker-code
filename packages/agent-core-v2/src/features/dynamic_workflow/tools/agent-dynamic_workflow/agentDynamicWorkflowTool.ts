@@ -77,7 +77,7 @@ export class AgentDynamicWorkflowTool implements IAgentDynamicWorkflowTool {
   private readonly callerAgentId: string;
 
   constructor(
-    @ISessionDynamicWorkflowService private readonly dynamic_workflowService: ISessionDynamicWorkflowService,
+    @ISessionDynamicWorkflowService private readonly dynamicWorkflowService: ISessionDynamicWorkflowService,
     @IAgentScopeContext scopeContext: IAgentScopeContext,
     @IAgentDynamicWorkflowService private readonly dynamicWorkflowMode: IAgentDynamicWorkflowService,
     @IConfigService private readonly config: IConfigService,
@@ -168,7 +168,7 @@ export class AgentDynamicWorkflowTool implements IAgentDynamicWorkflowTool {
     }
     const timeoutMs = resolveSubagentTimeoutMs(this.config);
     const specs = await createAgentDynamicWorkflowSpecs(args, (agentId) =>
-      this.dynamic_workflowService.getDynamicWorkflowItem({ callerAgentId: this.callerAgentId, agentId }),
+      this.dynamicWorkflowService.getDynamicWorkflowItem({ callerAgentId: this.callerAgentId, agentId }),
     );
     const tasks: SessionDynamicWorkflowTask<AgentDynamicWorkflowSpec>[] = specs.map((spec) => {
       const descriptionName = spec.kind === 'resume' ? 'resume' : profileName;
@@ -180,7 +180,7 @@ export class AgentDynamicWorkflowTool implements IAgentDynamicWorkflowTool {
         description: childDescription(args.description, spec.index, descriptionName),
         dynamicWorkflowIndex: spec.index,
         runInBackground: false,
-        dynamic_workflowItem: spec.item,
+        dynamicWorkflowItem: spec.item,
         signal,
         timeout: timeoutMs,
       };
@@ -197,7 +197,7 @@ export class AgentDynamicWorkflowTool implements IAgentDynamicWorkflowTool {
         binding,
       };
     });
-    const results = await this.dynamic_workflowService.run({
+    const results = await this.dynamicWorkflowService.run({
       callerAgentId: this.callerAgentId,
       tasks,
     });
@@ -286,8 +286,8 @@ function hasMinimumAgentDynamicWorkflowInputs(itemCount: number, resumeCount: nu
   return resumeCount > 0 || itemCount >= 2;
 }
 
-function childDescription(dynamic_workflowDescription: string, index: number, profileName: string): string {
-  return `${dynamic_workflowDescription} #${String(index)} (${profileName})`;
+function childDescription(dynamicWorkflowDescription: string, index: number, profileName: string): string {
+  return `${dynamicWorkflowDescription} #${String(index)} (${profileName})`;
 }
 
 function renderDynamicWorkflowResults(results: readonly DynamicWorkflowRunResult[]): string {

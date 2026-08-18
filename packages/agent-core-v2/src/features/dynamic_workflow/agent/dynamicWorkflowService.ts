@@ -9,9 +9,9 @@ import { IEventBus } from '#/app/event/eventBus';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 
-import { DynamicWorkflowInjection } from './injection/dynamic_workflowInjection';
+import { DynamicWorkflowInjection } from './injection/dynamicWorkflowInjection';
 import { IAgentDynamicWorkflowService, type DynamicWorkflowModeTrigger } from './dynamic_workflow';
-import { DynamicWorkflowModeEnter, DynamicWorkflowModeExit, dynamic_workflowKey } from '../dynamic_workflowOps';
+import { DynamicWorkflowModeEnter, DynamicWorkflowModeExit, dynamicWorkflowKey } from '../dynamicWorkflowOps';
 
 export class AgentDynamicWorkflowService extends Service implements IAgentDynamicWorkflowService {
   declare readonly _serviceBrand: undefined;
@@ -26,10 +26,10 @@ export class AgentDynamicWorkflowService extends Service implements IAgentDynami
     @IAgentStateService private readonly agentState: IAgentStateService,
   ) {
     super();
-    this.agentState.contributeState(dynamic_workflowKey);
+    this.agentState.contributeState(dynamicWorkflowKey);
     this._register(
       instantiation.createInstance(DynamicWorkflowInjection, {
-        getTrigger: () => this.agentState.get(dynamic_workflowKey),
+        getTrigger: () => this.agentState.get(dynamicWorkflowKey),
       }),
     );
     this._register(
@@ -61,23 +61,23 @@ export class AgentDynamicWorkflowService extends Service implements IAgentDynami
   }
 
   enter(trigger: DynamicWorkflowModeTrigger): void {
-    if (this.agentState.get(dynamic_workflowKey) !== null) return;
+    if (this.agentState.get(dynamicWorkflowKey) !== null) return;
     void this.dispatcher.dispatch(new DynamicWorkflowModeEnter({ trigger }));
   }
 
   exit(): void {
-    if (this.agentState.get(dynamic_workflowKey) === null) return;
+    if (this.agentState.get(dynamicWorkflowKey) === null) return;
     const history = this.context.get();
     void this.dispatcher.dispatch(new DynamicWorkflowModeExit({}));
     this.context.publishTrailingRemoval(history);
   }
 
   get isActive(): boolean {
-    return this.agentState.get(dynamic_workflowKey) !== null;
+    return this.agentState.get(dynamicWorkflowKey) !== null;
   }
 
   private get shouldAutoExit(): boolean {
-    const trigger = this.agentState.get(dynamic_workflowKey);
+    const trigger = this.agentState.get(dynamicWorkflowKey);
     return trigger === 'task' || trigger === 'tool';
   }
 }

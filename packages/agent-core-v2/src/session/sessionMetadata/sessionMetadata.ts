@@ -7,7 +7,7 @@ export interface AgentMeta {
   readonly parentAgentId?: string | null;
   readonly forkedFrom?: string;
   readonly labels?: Readonly<Record<string, string>>;
-  readonly dynamic_workflowItem?: string;
+  readonly dynamicWorkflowItem?: string;
 }
 
 export const SESSION_META_VERSION = 2;

@@ -36,7 +36,7 @@ export function ContextTab({ sessionId, initialAgentId = 'main' }: ContextTabPro
   const permissionMode = ctx?.permission.mode ?? null;
   const planActive = ctx?.planMode.active ?? false;
   const goal = ctx?.goal ?? null;
-  const dynamic_workflowActive = ctx?.dynamic_workflow.active ?? false;
+  const dynamicWorkflowActive = ctx?.dynamic_workflow.active ?? false;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -115,7 +115,7 @@ export function ContextTab({ sessionId, initialAgentId = 'main' }: ContextTabPro
           {planActive ? (
             <Pill tone="info" variant="solid">plan mode</Pill>
           ) : null}
-          {dynamic_workflowActive ? (
+          {dynamicWorkflowActive ? (
             <Pill tone="subagent" variant="solid">dynamic_workflow mode</Pill>
           ) : null}
         </div>

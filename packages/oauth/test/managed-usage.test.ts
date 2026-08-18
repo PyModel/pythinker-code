@@ -40,7 +40,7 @@ describe('isManagedPythinkerCodeBaseUrl', () => {
   });
 
   it('is case-insensitive on the origin but strict on the path', () => {
-    expect(isManagedPythinkerCodeBaseUrl('https://API.PYTHINKER.COM/coding/v1')).toBe(true);
+    expect(isManagedPythinkerCodeBaseUrl('https://API.KIMI.COM/coding/v1')).toBe(true);
     expect(isManagedPythinkerCodeBaseUrl('https://api.kimi.com/CODING/v1')).toBe(false);
   });
 
