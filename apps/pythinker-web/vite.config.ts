@@ -176,4 +176,14 @@ export default defineConfig({
   worker: {
     format: 'es',
   },
+  test: {
+    environment: 'jsdom',
+    environmentOptions: {
+      jsdom: {
+        url: 'http://localhost/',
+      },
+    },
+    globals: true,
+    setupFiles: ['./test/setup.ts'],
+  },
 });

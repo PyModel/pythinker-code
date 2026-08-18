@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { AppSubagentPhase } from '../src/api/types';
-import type { DynamicWorkflowMember } from '../src/composables/dynamic_workflowGroups';
+import type { DynamicWorkflowMember } from '../src/composables/dynamicWorkflowGroups';
 import type { DynamicWorkflowResult } from '../src/lib/parseDynamicWorkflowResult';
-import { buildDynamicWorkflowCardRows, dynamic_workflowMemberActivity } from '../src/lib/dynamic_workflowCardRows';
+import { buildDynamicWorkflowCardRows, dynamicWorkflowMemberActivity } from '../src/lib/dynamicWorkflowCardRows';
 
 function member(
   id: string,
@@ -38,23 +38,23 @@ function result(subagents: DynamicWorkflowResult['subagents']): DynamicWorkflowR
   };
 }
 
-describe('dynamic_workflowMemberActivity', () => {
+describe('dynamicWorkflowMemberActivity', () => {
   it('prefers streamed subagent text over outputLines and summary', () => {
     const m = member('a', '子任务', {
       text: 'line 1\nline 2',
       outputLines: ['tool call output'],
       summary: 'final summary',
     });
-    expect(dynamic_workflowMemberActivity(m)).toBe('line 2');
+    expect(dynamicWorkflowMemberActivity(m)).toBe('line 2');
   });
 
   it('falls back to the last outputLines entry when no text is streaming', () => {
     const m = member('a', '子任务', { outputLines: ['one', 'two'], summary: 'summary' });
-    expect(dynamic_workflowMemberActivity(m)).toBe('two');
+    expect(dynamicWorkflowMemberActivity(m)).toBe('two');
   });
 
   it('falls back to summary', () => {
-    expect(dynamic_workflowMemberActivity(member('a', '子任务', { summary: 'sum' }))).toBe('sum');
+    expect(dynamicWorkflowMemberActivity(member('a', '子任务', { summary: 'sum' }))).toBe('sum');
   });
 });
 
