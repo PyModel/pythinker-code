@@ -16,9 +16,6 @@ export default {
     usage: 'Usage stats',
     experimental: 'Experimental',
   },
-  // Keys below back the settings pages kept from the pre-sync UI
-  // (SettingsPane and settings/pages/*). The adopted SettingsDialog uses the
-  // keys above; both sets stay until the pages are folded together.
   backToSessions: 'Back to sessions',
   groups: {
     basics: 'Basics',

@@ -18,6 +18,8 @@ import AddWorkspaceDialog from './components/dialogs/AddWorkspaceDialog.vue';
 import ConfirmDialogHost from './components/dialogs/ConfirmDialogHost.vue';
 import StatusPanel from './components/chat/StatusPanel.vue';
 import WarningToasts from './components/WarningToasts.vue';
+import UpdateToast from './components/UpdateToast.vue';
+import WindowControls from './components/WindowControls.vue';
 import MobileTopBar from './components/mobile/MobileTopBar.vue';
 import MobileSwitcherSheet from './components/mobile/MobileSwitcherSheet.vue';
 import MobileSettingsSheet from './components/mobile/MobileSettingsSheet.vue';
@@ -663,6 +665,7 @@ function openPr(url: string): void {
 
 <template>
   <div class="app-shell">
+    <WindowControls />
     <ServerAuthDialog v-if="showServerAuth" />
     <section v-if="showAuthGate" class="auth-page">
       <div class="auth-page-inner">
@@ -1036,6 +1039,7 @@ function openPr(url: string): void {
 
     <!-- Floating warnings / agent errors (e.g. a 403 from the model provider) -->
     <WarningToasts :warnings="client.warnings.value" @dismiss="client.dismissWarning" />
+    <UpdateToast />
 
     <!-- KAP/daemon debug panel (opt-in, ?debug=1) -->
     <DebugPanel v-if="debugEnabled" />

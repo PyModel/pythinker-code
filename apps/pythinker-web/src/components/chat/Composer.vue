@@ -32,6 +32,7 @@ import Icon from '../ui/Icon.vue';
 import ContextRing from '../ui/ContextRing.vue';
 import Tooltip from '../ui/Tooltip.vue';
 import AttachmentChip from './AttachmentChip.vue';
+import CapabilityMenu from '../CapabilityMenu.vue';
 
 // ---------------------------------------------------------------------------
 // Props & emits
@@ -958,6 +959,8 @@ function selectModel(modelId: string): void {
           >
             <Icon name="attachment" />
           </IconButton>
+
+          <CapabilityMenu :session-id="sessionId" />
 
           <!-- Permission pill — click to open dropdown -->
           <span
