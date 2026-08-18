@@ -52,6 +52,12 @@ export interface ColorPalette {
   warning: string;
   /** Error: error messages, failed tool output. */
   error: string;
+  /** Background tint for a running tool card. */
+  toolPendingBg: string;
+  /** Background tint for a successful tool card. */
+  toolSuccessBg: string;
+  /** Background tint for a failed tool card. */
+  toolErrorBg: string;
 
   // ── Diff (all consumed by components/media/diff-preview.ts) ──
   /** Added lines. */
@@ -94,6 +100,9 @@ export const darkColors: ColorPalette = {
   success: '#4EC87E',
   warning: '#E8A838',
   error: '#E85454',
+  toolPendingBg: '#1D2129',
+  toolSuccessBg: '#14171B',
+  toolErrorBg: '#291D1D',
 
   diffAdded: '#4EC87E',
   diffRemoved: '#E85454',
@@ -121,6 +130,9 @@ export const lightColors: ColorPalette = {
   success: '#0E7A38',
   warning: '#92660A',
   error: '#B91C1C',
+  toolPendingBg: '#E8EEF7',
+  toolSuccessBg: '#F1F3F5',
+  toolErrorBg: '#F9E9E9',
 
   diffAdded: '#0E7A38',
   diffRemoved: '#B91C1C',

@@ -173,3 +173,18 @@ describe('ColorPalette warning token', () => {
     expect(getBuiltInPalette('light')).toBe(lightColors);
   });
 });
+
+describe('ColorPalette tool card tokens', () => {
+  it('defines distinct state tints in both themes', () => {
+    expect([
+      darkColors.toolPendingBg,
+      darkColors.toolSuccessBg,
+      darkColors.toolErrorBg,
+    ]).toEqual(['#1D2129', '#14171B', '#291D1D']);
+    expect([
+      lightColors.toolPendingBg,
+      lightColors.toolSuccessBg,
+      lightColors.toolErrorBg,
+    ]).toEqual(['#E8EEF7', '#F1F3F5', '#F9E9E9']);
+  });
+});
