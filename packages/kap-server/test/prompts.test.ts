@@ -617,7 +617,7 @@ describe('server-v2 /api/v1 prompts', () => {
     });
   });
 
-  function avifBytes(): Buffer {
+  function avifBytes(): Buffer<ArrayBuffer> {
     const buf = Buffer.alloc(24);
     buf.writeUInt32BE(24, 0);
     buf.write('ftyp', 4, 'latin1');
@@ -700,7 +700,8 @@ describe('server-v2 /api/v1 prompts', () => {
     name: string,
   ): Promise<{ id: string; size: number }> {
     const form = new FormData();
-    form.set('file', new Blob([bytes], { type: mediaType }), name);
+    // `BlobPart` needs a non-shared backing buffer under @types/node 26.
+    form.set('file', new Blob([bytes as Buffer<ArrayBuffer>], { type: mediaType }), name);
     const uploadRes = await fetch(`${base}/api/v1/files`, {
       method: 'POST',
       headers: authHeaders(server as RunningServer),

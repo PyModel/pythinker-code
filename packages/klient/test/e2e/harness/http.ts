@@ -477,7 +477,10 @@ function blobFromInput(input: {
   mediaType?: string;
 }): Blob {
   if (input.data instanceof Blob) return input.data;
-  return new Blob([input.data], {
+  // `BlobPart` requires a non-shared backing buffer under @types/node 26;
+  // the assertion is safe because these bytes never come from a
+  // SharedArrayBuffer.
+  return new Blob([input.data as string | ArrayBuffer | Uint8Array<ArrayBuffer>], {
     type: input.mediaType ?? 'application/octet-stream',
   });
 }
