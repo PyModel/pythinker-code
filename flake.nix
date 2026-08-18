@@ -85,9 +85,6 @@
         ./apps/vis/server
         ./apps/vis/web
         ./apps/desktop
-        ./apps/dashboard
-        ./apps/dashboard/server
-        ./apps/dashboard/web
         ./docs
       ];
 
@@ -117,9 +114,6 @@
         "@pymodel/vis-server"
         "@pymodel/vis-web"
         "@pymodel/pythinker-desktop"
-        "@pymodel/dashboard"
-        "@pymodel/dashboard-server"
-        "@pymodel/dashboard-web"
         "pythinker-code-docs"
       ];
     in

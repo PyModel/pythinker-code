@@ -50,7 +50,7 @@ Adding an OpenAI-compatible provider requires **zero code changes** — just add
 | ------- | ----------- | ----- |
 | `apps/pythinker-code` | CLI / TUI app | Consumes `@pymodel/pythinker-code-sdk`; no `agent-core` dep. Use `write-tui` skill. |
 | `apps/pythinker-web` | Browser UI (Vue 3 + Vite + vue-i18n) | REST + WS `/api/v1`; no `agent-core` dep. See its `AGENTS.md`. |
-| `apps/dashboard` | Session dashboard & replay | `server/` + `web/` subdirs. |
+| `apps/vis` | Session replay & debugging visualizer | `server/` + `web/` subdirs. |
 | `packages/agent-core` | Agent engine | Agent, Session, profile, skills, tools, plan, permission, DI. |
 | `packages/node-sdk` | Public TS SDK & harness | |
 | `packages/kosong` | LLM provider abstraction | Wire types, catalog, capability registry. |

@@ -1,8 +1,6 @@
 packages:
   - packages/*
   - apps/*
-  - apps/dashboard/server
-  - apps/dashboard/web
   - apps/vis/server
   - apps/vis/web
   - docs
