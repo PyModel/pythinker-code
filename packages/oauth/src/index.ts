@@ -7,6 +7,35 @@ export {
   RetryableRefreshError,
 } from './errors';
 
+export { renderOpenAICodexOAuthSuccessPage } from './oauth-pages';
+
+export {
+  applyOpenAICodexOAuthConfig,
+  buildOpenAICodexAuthorizeUrl,
+  createOpenAICodexPkcePair,
+  exchangeOpenAICodexAuthorizationCode,
+  extractOpenAICodexAccountId,
+  fetchOpenAICodexModels,
+  OPENAI_CODEX_CLI_CLIENT_VERSION,
+  OPENAI_CODEX_OAUTH_PLATFORM_ID,
+  OPENAI_CODEX_PROVIDER_ID,
+  OPENAI_CODEX_REDIRECT_URI,
+  OpenAICodexApiError,
+  parseOpenAICodexAuthorizationInput,
+  runOpenAICodexOAuthFlow,
+  startOpenAICodexCallbackServer,
+} from './openai-codex-oauth';
+export type {
+  ApplyOpenAICodexOAuthResult,
+  FetchOpenAICodexModelsOptions,
+  OpenAICodexCallbackServer,
+  OpenAICodexConfigShape,
+  OpenAICodexModelInfo,
+  OpenAICodexPkcePair,
+  OpenAICodexTokenBundle,
+  RunOpenAICodexOAuthFlowOptions,
+} from './openai-codex-oauth';
+
 export type {
   DeviceAuthorization,
   DeviceHeaders,
