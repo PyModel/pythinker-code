@@ -12,9 +12,8 @@ import { TaskOutputViewer } from '@/tui/components/dialogs/task-output-viewer';
 import { SubagentActivityStore } from '@/tui/controllers/subagent-activity-store';
 import { TasksBrowserController } from '@/tui/controllers/tasks-browser';
 import { darkColors } from '@/tui/theme/colors';
-import { defaultKeybindings, parseKeybindingBlocks } from '#/tui/keybindings';
 
-const ANSI_SGR = /\u001B\[[0-9;]*m/g;
+const ANSI_SGR = /\[[0-9;]*m/g;
 function strip(text: string): string {
   return text.replaceAll(ANSI_SGR, '');
 }
@@ -344,49 +343,6 @@ describe('TasksBrowserApp — full-screen rendering', () => {
 });
 
 describe('TasksBrowserApp — input handling', () => {
-  it('deduplicates configured accept and cancel keys that match local aliases', () => {
-    const app = makeApp();
-    app.setKeybindings([
-      ...defaultKeybindings(),
-      ...parseKeybindingBlocks([
-        {
-          context: 'Select',
-          bindings: { enter: null, o: 'select:accept', escape: null, q: 'select:cancel' },
-        },
-      ]),
-    ]);
-
-    const footer = strip(app.render(120).at(-1) ?? '');
-    expect(footer).toContain('O output');
-    expect(footer).toContain('Q cancel');
-    expect(footer).not.toMatch(/o\/O/i);
-    expect(footer).not.toMatch(/Q\/q/i);
-  });
-
-  it('uses remapped Select navigation, honors an unbound Down key, and keeps confirmation input local', () => {
-    const onSelect = vi.fn();
-    const tasks = [
-      task({ taskId: 'bash-aaaaaaaa', startedAt: 1 }),
-      task({ taskId: 'bash-bbbbbbbb', startedAt: 2 }),
-    ];
-    const app = makeApp({ tasks, selectedTaskId: 'bash-aaaaaaaa', onSelect });
-    app.setKeybindings([
-      ...defaultKeybindings(),
-      ...parseKeybindingBlocks([{ context: 'Select', bindings: { 'alt+j': 'select:next', down: null } }]),
-    ]);
-
-    app.handleInput('\u001B[B');
-    expect(onSelect).not.toHaveBeenCalled();
-    app.handleInput('alt+j');
-    expect(onSelect).toHaveBeenLastCalledWith('bash-bbbbbbbb');
-
-    app.handleInput('s');
-    onSelect.mockClear();
-    app.handleInput('alt+j');
-    expect(onSelect).not.toHaveBeenCalled();
-    expect(strip(app.render(120).join('\n'))).not.toContain('Stop bash-bbbbbbbb?');
-  });
-
   it('Esc invokes onCancel', () => {
     const onCancel = vi.fn();
     const app = makeApp({ onCancel });
@@ -598,48 +554,6 @@ describe('TasksBrowserApp — setProps', () => {
         app.setProps(makeProps({ tasks, filter }));
       }).not.toThrow();
     }
-  });
-
-  it('reconciles a filtered-out selection with the visible task', () => {
-    const running = task({ taskId: 'bash-aaaaaaaa', status: 'running', startedAt: 1 });
-    const completed = task({ taskId: 'bash-bbbbbbbb', status: 'completed', startedAt: 2 });
-    const onSelect = vi.fn();
-    const app = makeApp({
-      tasks: [running, completed],
-      selectedTaskId: completed.taskId,
-    });
-
-    app.setProps(makeProps({
-      tasks: [running, completed],
-      filter: 'active',
-      selectedTaskId: completed.taskId,
-      tailOutput: 'stale completed output',
-      onSelect,
-    }));
-
-    expect(onSelect).toHaveBeenCalledOnce();
-    expect(onSelect).toHaveBeenCalledWith(running.taskId);
-    const output = strip(app.render(120).join('\n'));
-    expect(output).toContain(running.taskId);
-    expect(output).not.toContain(completed.taskId);
-  });
-
-  it('clears selection when the active filter has no visible tasks', () => {
-    const completed = task({ taskId: 'bash-bbbbbbbb', status: 'completed' });
-    const onSelect = vi.fn();
-    const app = makeApp({ tasks: [completed], selectedTaskId: completed.taskId });
-
-    app.setProps(makeProps({
-      tasks: [completed],
-      filter: 'active',
-      selectedTaskId: completed.taskId,
-      tailOutput: 'stale completed output',
-      onSelect,
-    }));
-
-    expect(onSelect).toHaveBeenCalledOnce();
-    expect(onSelect).toHaveBeenCalledWith(undefined);
-    expect(strip(app.render(120).join('\n'))).not.toContain('stale completed output');
   });
 });
 

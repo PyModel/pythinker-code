@@ -17,7 +17,7 @@ import {
 import type { Event, PythinkerHarness, Session } from '@pymodel/pythinker-code-sdk';
 
 import { AcpServer } from '../src/server';
-import { AUTHED } from './_helpers/harness-stubs';
+import { AUTHED_STATUS } from './_helpers/harness-stubs';
 import { toolResultToAcpContent } from '../src/convert';
 
 class CollectingClient implements Client {
@@ -147,7 +147,7 @@ describe('AcpServer tool.result → tool_call_update', () => {
       { type: 'turn.ended', sessionId, agentId: 'main', turnId, reason: 'completed' } as Event,
     ]);
     const harness = {
-      isAuthenticated: AUTHED,
+      auth: { status: async () => AUTHED_STATUS },
       createSession: async () => session,
     } as unknown as PythinkerHarness;
 
@@ -198,7 +198,7 @@ describe('AcpServer tool.result → tool_call_update', () => {
       { type: 'turn.ended', sessionId, agentId: 'main', turnId, reason: 'completed' } as Event,
     ]);
     const harness = {
-      isAuthenticated: AUTHED,
+      auth: { status: async () => AUTHED_STATUS },
       createSession: async () => session,
     } as unknown as PythinkerHarness;
 
@@ -245,7 +245,7 @@ describe('AcpServer tool.result → tool_call_update', () => {
       { type: 'turn.ended', sessionId, agentId: 'main', turnId, reason: 'completed' } as Event,
     ]);
     const harness = {
-      isAuthenticated: AUTHED,
+      auth: { status: async () => AUTHED_STATUS },
       createSession: async () => session,
     } as unknown as PythinkerHarness;
 
@@ -291,7 +291,7 @@ describe('AcpServer tool.call.started with diff display', () => {
       { type: 'turn.ended', sessionId, agentId: 'main', turnId, reason: 'completed' } as Event,
     ]);
     const harness = {
-      isAuthenticated: AUTHED,
+      auth: { status: async () => AUTHED_STATUS },
       createSession: async () => session,
     } as unknown as PythinkerHarness;
 
@@ -348,7 +348,7 @@ describe('AcpServer tool.call.started with diff display', () => {
       { type: 'turn.ended', sessionId, agentId: 'main', turnId, reason: 'completed' } as Event,
     ]);
     const harness = {
-      isAuthenticated: AUTHED,
+      auth: { status: async () => AUTHED_STATUS },
       createSession: async () => session,
     } as unknown as PythinkerHarness;
 
@@ -389,7 +389,7 @@ describe('AcpServer tool.call.started with diff display', () => {
       { type: 'turn.ended', sessionId, agentId: 'main', turnId, reason: 'completed' } as Event,
     ]);
     const harness = {
-      isAuthenticated: AUTHED,
+      auth: { status: async () => AUTHED_STATUS },
       createSession: async () => session,
     } as unknown as PythinkerHarness;
 

@@ -4,7 +4,7 @@
   "private": true,
   "description": "Shared telemetry infrastructure for Pythinker Code",
   "license": "MIT",
-  "author": "Pythoughts",
+  "author": "PyModel",
   "homepage": "https://github.com/PyModel/pythinker-code/tree/main/packages/telemetry#readme",
   "repository": {
     "type": "git",

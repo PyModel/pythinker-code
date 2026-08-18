@@ -7,11 +7,10 @@ import {
   type ProviderManagerOptions,
 } from '#/tui/components/dialogs/provider-manager';
 import { darkColors } from '#/tui/theme/colors';
-import { defaultKeybindings, parseKeybindingBlocks } from '#/tui/keybindings';
 
-// Truecolor SGR fragments for the darkColors tokens we assert on.
-// Forcing chalk.level below guarantees they appear.
-const primarySgr = (): string => chalk.hex(darkColors.primary)('x').split('x')[0]!;
+// Truecolor SGR fragments for the darkColors tokens we assert on
+// (see theme/colors.ts). Forcing chalk.level below guarantees they appear.
+const PRIMARY = '38;2;79;168;255'; // colors.primary  #4FA8FF
 const MUTED = '38;2;107;107;107'; // colors.textMuted #6B6B6B
 const BOLD = '[1m';
 const ESC = String.fromCodePoint(27);
@@ -46,26 +45,6 @@ describe('ProviderManagerComponent', () => {
     chalk.level = previousLevel;
   });
 
-  it('uses remapped Select navigation, honors an unbound Down key, and keeps confirmation input local', () => {
-    const component = makeComponent({
-      providers: { acme: { baseUrl: 'https://acme.test' } } as unknown as Record<string, ProviderConfig>,
-    });
-    component.setKeybindings([
-      ...defaultKeybindings(),
-      ...parseKeybindingBlocks([{ context: 'Select', bindings: { 'alt+j': 'select:next', down: null } }]),
-    ]);
-
-    component.handleInput(`${ESC}[B`);
-    expect(rendered(component)).toMatch(/❯\s+acme/);
-    component.handleInput('D');
-    component.handleInput('alt+j');
-    expect(rendered(component)).toContain('[y/N]');
-    expect(rendered(component)).toMatch(/❯\s+acme/);
-    component.handleInput('n');
-    component.handleInput('alt+j');
-    expect(rendered(component)).toMatch(/❯\s+\[ Add New Platform \]/);
-  });
-
   it('renders [ Add New Platform ] in the brand color, never muted, when not selected', () => {
     // A configured provider occupies row 0 (selected); the add row sits below
     // it and is therefore not the highlighted row.
@@ -77,7 +56,7 @@ describe('ProviderManagerComponent', () => {
     });
     const line = addRowLine(component);
     expect(line).toBeDefined();
-    expect(line).toContain(primarySgr());
+    expect(line).toContain(PRIMARY);
     expect(line).not.toContain(MUTED);
   });
 
@@ -88,7 +67,7 @@ describe('ProviderManagerComponent', () => {
     const line = addRowLine(component);
     expect(line).toBeDefined();
     expect(line).toContain(BOLD);
-    expect(line).toContain(primarySgr());
+    expect(line).toContain(PRIMARY);
   });
 
   it('marks the active provider with the shared "← current" marker, not a bullet', () => {
@@ -101,7 +80,7 @@ describe('ProviderManagerComponent', () => {
     const plain = component
       .render(120)
       .join('\n')
-      .replaceAll(/\u001B\[[0-9;]*m/g, '');
+      .replaceAll(/\[[0-9;]*m/g, '');
     expect(plain).toContain('← current');
     expect(plain).not.toContain('●');
   });

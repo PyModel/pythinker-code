@@ -113,14 +113,6 @@ export class AcpKaos implements Kaos {
     return this.inner.mkdir(path, options);
   }
 
-  unlink(path: string): Promise<void> {
-    return this.inner.unlink(path);
-  }
-
-  chmod(path: string, mode: number): Promise<void> {
-    return this.inner.chmod(path, mode);
-  }
-
   // ── reads: route through ACP `fs/readTextFile` ─────────────────────
 
   /**
@@ -138,8 +130,8 @@ export class AcpKaos implements Kaos {
     try {
       const resp = await this.conn.readTextFile({ sessionId: this.sessionId, path: rpcPath });
       return resp.content;
-    } catch (error) {
-      throw wrapKaosError(`acp: readTextFile failed for ${rpcPath}`, error);
+    } catch (err) {
+      throw wrapKaosError(`acp: readTextFile failed for ${rpcPath}`, err);
     }
   }
 
@@ -179,7 +171,7 @@ export class AcpKaos implements Kaos {
     if (text.length === 0) return;
     let start = 0;
     for (let i = 0; i < text.length; i++) {
-      if (text.codePointAt(i) === 0x0a /* \n */) {
+      if (text.charCodeAt(i) === 0x0a /* \n */) {
         yield text.slice(start, i + 1);
         start = i + 1;
       }
@@ -212,8 +204,8 @@ export class AcpKaos implements Kaos {
       let existing = '';
       try {
         existing = await this.readText(path);
-      } catch (error) {
-        if (!isNotFoundError(error)) throw error;
+      } catch (err) {
+        if (!isNotFoundError(err)) throw err;
         existing = '';
       }
       await this.acpWrite(path, existing + data);
@@ -237,8 +229,8 @@ export class AcpKaos implements Kaos {
     const rpcPath = this.toClientPath(path);
     try {
       await this.conn.writeTextFile({ sessionId: this.sessionId, path: rpcPath, content });
-    } catch (error) {
-      throw wrapKaosError(`acp: writeTextFile failed for ${rpcPath}`, error);
+    } catch (err) {
+      throw wrapKaosError(`acp: writeTextFile failed for ${rpcPath}`, err);
     }
   }
 

@@ -155,7 +155,6 @@ export interface RunnableToolExecution {
 export type ToolExecution = RunnableToolExecution | ExecutableToolErrorResult;
 
 export interface ExecutableTool<Input = unknown> extends Tool {
-  readonly aliases?: readonly string[] | undefined;
   resolveExecution(input: Input): ToolExecution | Promise<ToolExecution>;
 }
 
@@ -196,7 +195,6 @@ export interface PrepareToolExecutionResult extends AuthorizeToolExecutionResult
 
 export interface FinalizeToolResultContext extends ToolExecutionHookContext {
   readonly result: ExecutableToolResult;
-  readonly execution?: RunnableToolExecution;
 }
 
 export interface LoopAfterStepContext extends LoopStepHookContext {

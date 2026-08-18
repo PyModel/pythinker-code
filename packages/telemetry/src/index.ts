@@ -24,8 +24,6 @@ export function flushTelemetrySync(): void {
   flushSync();
 }
 
-export { disable as disableTelemetry } from './client';
-
 export async function shutdownTelemetry(
   options: { readonly timeoutMs?: number } = {},
 ): Promise<void> {

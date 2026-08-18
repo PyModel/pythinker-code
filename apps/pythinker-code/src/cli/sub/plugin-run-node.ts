@@ -17,7 +17,7 @@ export async function runPluginNodeEntry(entry: string, args: readonly string[])
   }
 
   process.argv = [process.argv[0] ?? process.execPath, entryReal, ...args];
-  await import(/* @vite-ignore */ pathToFileURL(entryReal).href);
+  await import(pathToFileURL(entryReal).href);
 }
 
 function isWithin(candidate: string, root: string): boolean {

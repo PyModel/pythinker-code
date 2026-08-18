@@ -12,8 +12,8 @@ import {
   HttpFetchError,
   type UrlFetcher,
 } from '../../src/tools/builtin/web/fetch-url';
-import { PythoughtsFetchURLProvider } from '../../src/tools/providers/pythoughts-fetch-url';
-import { createFakeKaos, toolContentString } from './fixtures/fake-kaos';
+import { PyModelFetchURLProvider } from '../../src/tools/providers/pymodel-fetch-url';
+import { toolContentString } from './fixtures/fake-kaos';
 import { executeTool } from './fixtures/execute-tool';
 
 const signal = new AbortController().signal;
@@ -53,10 +53,6 @@ describe('FetchURLTool', () => {
         url: { type: 'string' },
       },
     });
-  });
-
-  it('rejects invalid URLs at the schema boundary', () => {
-    expect(FetchURLInputSchema.safeParse({ url: 'not a URL' }).success).toBe(false);
   });
 
   it('does not expose a "format" parameter in its JSON Schema', () => {
@@ -107,42 +103,6 @@ describe('FetchURLTool', () => {
     const out = toolContentString(result);
     expect(out).toContain('The returned content is the full response body, returned verbatim.');
     expect(out).toContain('# Raw markdown');
-  });
-
-  it('saves binary responses to the Kaos tool-results directory', async () => {
-    const mkdir = vi.fn().mockResolvedValue(undefined);
-    const writeBytes = vi.fn().mockResolvedValue(12);
-    const tool = new FetchURLTool(
-      {
-        fetch: vi.fn().mockResolvedValue({
-          kind: 'binary',
-          data: Buffer.from('%PDF-binary'),
-          contentType: 'application/pdf',
-        }),
-      },
-      createFakeKaos({ mkdir, writeBytes }),
-    );
-
-    const result = await executeTool(tool, {
-      turnId: 't1',
-      toolCallId: 'c-binary',
-      args: { url: 'https://example.com/report.pdf' },
-      signal,
-    });
-
-    expect(result.isError).toBe(false);
-    expect(mkdir).toHaveBeenCalledWith('/home/test/.pythinker-code/tool-results', {
-      parents: true,
-      existOk: true,
-    });
-    expect(writeBytes).toHaveBeenCalledWith(
-      expect.stringMatching(
-        /^\/home\/test\/\.pythinker-code\/tool-results\/web-fetch-[0-9a-f-]+\.pdf$/u,
-      ),
-      Buffer.from('%PDF-binary'),
-    );
-    expect(toolContentString(result)).toContain('Binary content (application/pdf');
-    expect(toolContentString(result)).toContain('saved to');
   });
 
   it('returns empty message when fetcher returns empty string', async () => {
@@ -214,36 +174,9 @@ describe('FetchURLTool', () => {
       args: { url: 'https://example.com' },
       signal,
     });
-    expect(fetcher.fetch).toHaveBeenCalledWith(
-      'https://example.com',
-      expect.objectContaining({
-        toolCallId: 'c4',
-        signal,
-      }),
-    );
-  });
-
-  it('requires a new tool call before following a cross-host redirect', async () => {
-    const fetcher: UrlFetcher = {
-      fetch: vi.fn().mockResolvedValue({
-        kind: 'redirect',
-        originalUrl: 'https://example.com/start',
-        redirectUrl: 'https://other.example/final',
-        status: 302,
-      }),
-    };
-    const tool = new FetchURLTool(fetcher);
-
-    const result = await executeTool(tool, {
-      turnId: 't1',
-      toolCallId: 'c-redirect',
-      args: { url: 'https://example.com/start' },
-      signal,
+    expect(fetcher.fetch).toHaveBeenCalledWith('https://example.com', {
+      toolCallId: 'c4',
     });
-
-    expect(result.isError).toBe(false);
-    expect(toolContentString(result)).toContain('https://other.example/final');
-    expect(toolContentString(result)).toContain('use FetchURL again');
   });
 
   it('resolveExecution description truncates long URLs', () => {
@@ -255,16 +188,6 @@ describe('FetchURLTool', () => {
     const text = desc ?? '';
     expect(text.length).toBeLessThanOrEqual(65);
     expect(text).toContain('…');
-  });
-
-  it('scopes approval rules to the URL host', () => {
-    const tool = new FetchURLTool(fakeFetcher());
-    const execution = tool.resolveExecution({ url: 'https://example.com/docs/page' });
-    if (execution.isError === true) throw new Error('expected runnable execution');
-
-    expect(execution.approvalRule).toBe('FetchURL(example.com)');
-    expect(execution.matchesRule?.('example.com')).toBe(true);
-    expect(execution.matchesRule?.('other.example')).toBe(false);
   });
 
   it('description names URL fetching as the tool surface', () => {
@@ -369,14 +292,14 @@ describe('FetchURLTool', () => {
   });
 });
 
-describe('PythoughtsFetchURLProvider', () => {
+describe('PyModelFetchURLProvider', () => {
   it('does not force-refresh request auth after a 401 response', async () => {
     const getAccessToken = vi.fn().mockResolvedValue('fresh-token');
     const localFallback = fakeFetcher('fallback content');
     const fetchImpl = vi
       .fn<typeof fetch>()
       .mockResolvedValue(new Response('unauthorized', { status: 401 }));
-    const provider = new PythoughtsFetchURLProvider({
+    const provider = new PyModelFetchURLProvider({
       tokenProvider: { getAccessToken },
       baseUrl: 'https://fetch.example/v1',
       localFallback,

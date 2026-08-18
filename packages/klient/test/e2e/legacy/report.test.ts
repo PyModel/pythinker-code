@@ -5,7 +5,6 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 import { WebSocket as WsWebSocket } from 'ws';
-import { WS_PROTOCOL_VERSION } from '@pymodel/protocol';
 
 import {
   fetchWithReport,
@@ -24,7 +23,7 @@ const tmpDirs: string[] = [];
 
 afterEach(() => {
   for (const dir of tmpDirs.splice(0)) {
-    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 
@@ -247,23 +246,10 @@ describe('server-e2e report', () => {
     });
 
     await ws.open();
-    ws.send({
-      type: 'client_hello',
-      id: 'hello_1',
-      payload: { client_id: 'test', protocol_version: WS_PROTOCOL_VERSION, subscriptions: [] },
-    });
+    ws.send({ type: 'client_hello', id: 'hello_1', payload: { client_id: 'test' } });
     FakeWebSocket.instances[0]?.emit(
       'message',
-      JSON.stringify({
-        type: 'server_hello',
-        payload: {
-          ws_connection_id: 'ws_1',
-          protocol_version: WS_PROTOCOL_VERSION,
-          heartbeat_ms: 30_000,
-          max_event_buffer_size: 1_000,
-          capabilities: { event_batching: false, compression: false },
-        },
-      }),
+      JSON.stringify({ type: 'server_hello', payload: { heartbeat_ms: 30_000 } }),
     );
 
     const events = readReportEvents(reportDir).filter((event) => event.kind === 'ws');
@@ -277,22 +263,12 @@ describe('server-e2e report', () => {
         expect.objectContaining({
           caseName: 'client: ws handshake',
           direction: 'out',
-          frame: {
-            type: 'client_hello',
-            id: 'hello_1',
-            payload: { client_id: 'test', protocol_version: WS_PROTOCOL_VERSION, subscriptions: [] },
-          },
+          frame: { type: 'client_hello', id: 'hello_1', payload: { client_id: 'test' } },
         }),
         expect.objectContaining({
           caseName: 'client: ws handshake',
           direction: 'in',
-          frame: {
-            type: 'server_hello',
-            payload: expect.objectContaining({
-              heartbeat_ms: 30_000,
-              protocol_version: WS_PROTOCOL_VERSION,
-            }),
-          },
+          frame: { type: 'server_hello', payload: { heartbeat_ms: 30_000 } },
         }),
       ]),
     );
@@ -440,22 +416,13 @@ describe('server-e2e report', () => {
       'message',
       JSON.stringify({
         type: 'server_hello',
-        payload: {
-          heartbeat_ms: 30_000,
-          ws_connection_id: 'ws_1',
-          protocol_version: WS_PROTOCOL_VERSION,
-          max_event_buffer_size: 1_000,
-          capabilities: { event_batching: false, compression: false },
-        },
+        payload: { heartbeat_ms: 30_000, ws_connection_id: 'ws_1' },
       }),
     );
     await new Promise((resolve) => setTimeout(resolve, 0));
     const hello = ws?.sent.map((raw) => JSON.parse(raw) as { type: string; id?: string })
       .find((frame) => frame.type === 'client_hello');
     expect(hello?.id).toBeDefined();
-    expect((hello as { payload?: { protocol_version?: number } } | undefined)?.payload?.protocol_version).toBe(
-      WS_PROTOCOL_VERSION,
-    );
     ws?.emit(
       'message',
       JSON.stringify({ type: 'ack', id: hello?.id, code: 0, payload: {} }),
@@ -485,64 +452,6 @@ describe('server-e2e report', () => {
         }),
       ]),
     );
-  });
-
-  it('rejects an incompatible server hello without caching it for the next connect', async () => {
-    FakeWebSocket.instances = [];
-    const client = new DaemonClient({
-      baseUrl: 'http://server.example.test',
-      wsImpl: FakeWebSocket as unknown as typeof WsWebSocket,
-      logger: () => {},
-    });
-
-    const firstConnect = client.connect();
-    const firstConnectRejection = expect(firstConnect).rejects.toThrow('protocol version mismatch');
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    const firstSocket = FakeWebSocket.instances[0];
-    firstSocket?.emit(
-      'message',
-      JSON.stringify({
-        type: 'server_hello',
-        payload: {
-          ws_connection_id: 'ws_old',
-          protocol_version: WS_PROTOCOL_VERSION - 1,
-          heartbeat_ms: 30_000,
-          max_event_buffer_size: 1_000,
-          capabilities: { event_batching: false, compression: false },
-        },
-      }),
-    );
-    const firstHello = firstSocket?.sent
-      .map((raw) => JSON.parse(raw) as { type: string; id?: string })
-      .find((frame) => frame.type === 'client_hello');
-    expect(firstHello).toBeUndefined();
-    await firstConnectRejection;
-
-    const secondConnect = client.connect();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(FakeWebSocket.instances).toHaveLength(2);
-    const secondSocket = FakeWebSocket.instances[1];
-    secondSocket?.emit(
-      'message',
-      JSON.stringify({
-        type: 'server_hello',
-        payload: {
-          ws_connection_id: 'ws_current',
-          protocol_version: WS_PROTOCOL_VERSION,
-          heartbeat_ms: 30_000,
-          max_event_buffer_size: 1_000,
-          capabilities: { event_batching: false, compression: false },
-        },
-      }),
-    );
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    const secondHello = secondSocket?.sent
-      .map((raw) => JSON.parse(raw) as { type: string; id?: string; payload?: unknown })
-      .find((frame) => frame.type === 'client_hello');
-    expect(secondHello?.payload).toMatchObject({ protocol_version: WS_PROTOCOL_VERSION });
-    secondSocket?.emit('message', JSON.stringify({ type: 'ack', id: secondHello?.id, code: 0, payload: {} }));
-    await expect(secondConnect).resolves.toMatchObject({ protocol_version: WS_PROTOCOL_VERSION });
-    await client.close();
   });
 });
 

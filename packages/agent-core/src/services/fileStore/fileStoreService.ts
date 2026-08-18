@@ -71,7 +71,7 @@ export class FileStore extends Disposable implements IFileStore {
 
     try {
       await pipeline(source, writable);
-    } catch (error) {
+    } catch (err) {
 
       try {
         await fsp.unlink(blobPath);
@@ -79,7 +79,7 @@ export class FileStore extends Disposable implements IFileStore {
 
       }
       if (abortReason) throw abortReason;
-      throw error;
+      throw err;
     }
 
     const stat = await fsp.stat(blobPath);
@@ -134,11 +134,11 @@ export class FileStore extends Disposable implements IFileStore {
     this.indexCache!.delete(fileId);
     try {
       await fsp.unlink(blobPath);
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
       if (code !== 'ENOENT') {
 
-        throw error;
+        throw err;
       }
 
     }
@@ -159,21 +159,21 @@ export class FileStore extends Disposable implements IFileStore {
     let raw: string;
     try {
       raw = await fsp.readFile(this.indexPath, 'utf8');
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
       if (code === 'ENOENT') {
 
         this.indexCache = new Map();
         return;
       }
-      throw error;
+      throw err;
     }
     let parsed: IndexFile;
     try {
       parsed = JSON.parse(raw) as IndexFile;
-    } catch (error) {
+    } catch (err) {
       this.logger.warn(
-        { err: String(error) },
+        { err: String(err) },
         'file-store index.json malformed; starting empty',
       );
       this.indexCache = new Map();

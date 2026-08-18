@@ -8,7 +8,7 @@ import { createFakeProviderHarness, type FakeProviderHarness } from './fake-prov
 
 function createProvider(baseUrl: string): PythinkerChatProvider {
   return new PythinkerChatProvider({
-    model: 'pythinker-k2-turbo-preview',
+    model: 'kimi-k2-turbo-preview',
     apiKey: 'test-key',
     baseUrl,
     stream: true,
@@ -59,7 +59,7 @@ function makeChunk(
     id: opts?.id ?? 'chatcmpl-pythinker-1',
     object: 'chat.completion.chunk',
     created: 1234567890,
-    model: 'pythinker-k2-turbo-preview',
+    model: 'kimi-k2-turbo-preview',
     choices: [
       {
         index: 0,
@@ -82,7 +82,7 @@ function makeChunk(
 }
 
 describe('e2e: pythinker adapter', () => {
-  it('sends Pythoughts chat-completion requests, streams reasoning + tool-call deltas, and preserves usage', async () => {
+  it('sends PyModel chat-completion requests, streams reasoning + tool-call deltas, and preserves usage', async () => {
     await withHarness(async (harness) => {
       let capturedRequest: Record<string, unknown> | null = null;
 
@@ -146,7 +146,7 @@ describe('e2e: pythinker adapter', () => {
 
       const result = await collectStream(provider, 'You are helpful.', [LOOKUP_TOOL], history);
       expect(capturedRequest).toMatchObject({
-        model: 'pythinker-k2-turbo-preview',
+        model: 'kimi-k2-turbo-preview',
         stream: true,
         stream_options: { include_usage: true },
         thinking: { type: 'enabled' },
@@ -225,7 +225,7 @@ describe('e2e: pythinker adapter', () => {
         statusCode: 500,
       });
       expect(capturedRequest).toMatchObject({
-        model: 'pythinker-k2-turbo-preview',
+        model: 'kimi-k2-turbo-preview',
         stream: true,
         stream_options: { include_usage: true },
       });

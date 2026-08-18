@@ -25,77 +25,6 @@ afterEach(async () => {
 });
 
 describe('Session lifecycle hooks', () => {
-  it.each([
-    ['missing', undefined],
-    ['older', 1],
-    ['newer', 3],
-  ])('rejects %s state format before resuming persisted agents', async (_label, sessionFormatVersion) => {
-    const { sessionDir, workDir } = await hookFixture();
-    await writeFile(
-      join(sessionDir, 'state.json'),
-      JSON.stringify({
-        sessionFormatVersion,
-        createdAt: '2026-01-01T00:00:00.000Z',
-        updatedAt: '2026-01-01T00:00:00.000Z',
-        title: 'Incompatible Session',
-        isCustomTitle: false,
-        agents: {
-          '../outside': {
-            type: 'main',
-            parentAgentId: null,
-            homedir: '/tmp/outside',
-          },
-        },
-        custom: {},
-      }),
-      'utf-8',
-    );
-    const session = new Session({
-      kaos: testKaos.withCwd(workDir),
-      homedir: sessionDir,
-      rpc: createSessionRpc(),
-      initializeMainAgent: false,
-      skills: { explicitDirs: [join(workDir, 'missing-skills')] },
-    });
-
-    await expect(session.resume()).rejects.toMatchObject({ code: 'session.init_failed' });
-    expect(session.getReadyAgent('main')).toBeUndefined();
-  });
-
-  it('fires a requested maintenance Setup hook before SessionStart', async () => {
-    const { command, logPath, sessionDir, workDir } = await hookFixture();
-    const session = new Session({
-      kaos: testKaos.withCwd(workDir),
-      id: 'session-maintenance',
-      homedir: sessionDir,
-      rpc: createSessionRpc(),
-      skills: { explicitDirs: [join(workDir, 'missing-skills')] },
-      setupTrigger: 'maintenance',
-      hooks: [
-        { event: 'Setup', matcher: 'maintenance', command, timeout: 5 },
-        { event: 'SessionStart', matcher: 'startup', command, timeout: 5 },
-      ],
-    });
-
-    await session.createMain();
-    await session.close();
-
-    expect(await readHookPayloads(logPath)).toMatchObject([
-      {
-        hook_event_name: 'Setup',
-        session_id: 'session-maintenance',
-        cwd: workDir,
-        trigger: 'maintenance',
-      },
-      {
-        hook_event_name: 'SessionStart',
-        session_id: 'session-maintenance',
-        cwd: workDir,
-        source: 'startup',
-      },
-    ]);
-  });
-
   it('fires SessionStart on startup and SessionEnd on close', async () => {
     const { command, logPath, sessionDir, workDir } = await hookFixture();
     const session = new Session({
@@ -129,165 +58,11 @@ describe('Session lifecycle hooks', () => {
     ]);
   });
 
-  it('reports project instructions loaded into the main context', async () => {
-    const { command, logPath, sessionDir, workDir } = await hookFixture();
-    const instructionsPath = join(workDir, 'AGENTS.md');
-    await writeFile(instructionsPath, 'Use focused verification.', 'utf-8');
-    const session = new Session({
-      kaos: testKaos.withCwd(workDir),
-      id: 'session-instructions',
-      homedir: sessionDir,
-      rpc: createSessionRpc(),
-      skills: { explicitDirs: [join(workDir, 'missing-skills')] },
-      hooks: [
-        {
-          event: 'InstructionsLoaded',
-          matcher: 'session_start|compact',
-          command,
-          timeout: 5,
-        },
-      ],
-    });
-    const trigger = vi.spyOn(session.hookEngine, 'fireAndForgetTrigger');
-
-    await session.createMain();
-    await waitForFile(logPath);
-    await session.refreshInstructions();
-    await session.refreshInstructions('compact');
-    await vi.waitFor(() => {
-      expect(
-        trigger.mock.calls.filter(([event]) => event === 'InstructionsLoaded'),
-      ).toHaveLength(2);
-    });
-    await vi.waitFor(async () => {
-      expect(await readHookPayloads(logPath)).toHaveLength(2);
-    });
-    await session.close();
-
-    expect(
-      trigger.mock.calls.filter(([event]) => event === 'InstructionsLoaded'),
-    ).toHaveLength(2);
-    expect(await readHookPayloads(logPath)).toMatchObject([
-      {
-        hook_event_name: 'InstructionsLoaded',
-        session_id: 'session-instructions',
-        cwd: workDir,
-        agent_id: 'main',
-        file_path: instructionsPath,
-        memory_type: 'Project',
-        load_reason: 'session_start',
-      },
-      {
-        hook_event_name: 'InstructionsLoaded',
-        session_id: 'session-instructions',
-        cwd: workDir,
-        agent_id: 'main',
-        file_path: instructionsPath,
-        memory_type: 'Project',
-        load_reason: 'compact',
-      },
-    ]);
-  });
-
-  it('fires FileChanged for configured workspace files', async () => {
-    const { command, logPath, sessionDir, workDir } = await hookFixture();
-    const envPath = join(workDir, '.env');
-    await writeFile(envPath, 'MODE=before\n', 'utf-8');
-    const session = new Session({
-      kaos: testKaos.withCwd(workDir),
-      id: 'session-file-changed',
-      homedir: sessionDir,
-      rpc: createSessionRpc(),
-      skills: { explicitDirs: [join(workDir, 'missing-skills')] },
-      hooks: [{ event: 'FileChanged', matcher: '.env|.env.local', command, timeout: 30 }],
-    });
-
-    await session.createMain();
-    await writeFile(envPath, 'MODE=after\n', 'utf-8');
-    const expectedPayload = {
-      hook_event_name: 'FileChanged',
-      session_id: 'session-file-changed',
-      cwd: workDir,
-      file_path: envPath,
-      event: 'change',
-    };
-    const payloads = await waitForHookPayload(logPath, expectedPayload);
-    await session.close();
-
-    expect(payloads).toContainEqual(expect.objectContaining(expectedPayload));
-  }, 35_000);
-
-  it('reroots configured FileChanged paths when the hook cwd changes', async () => {
-    const { command, logPath, sessionDir, workDir } = await hookFixture();
-    const nextWorkDir = join(workDir, 'worktree');
-    const envPath = join(nextWorkDir, '.env');
-    await mkdir(nextWorkDir, { recursive: true });
-    await writeFile(envPath, 'MODE=before\n', 'utf-8');
-    const session = new Session({
-      kaos: testKaos.withCwd(workDir),
-      id: 'session-file-changed-cwd',
-      homedir: sessionDir,
-      rpc: createSessionRpc(),
-      skills: { explicitDirs: [join(workDir, 'missing-skills')] },
-      hooks: [{ event: 'FileChanged', matcher: '.env', command, timeout: 30 }],
-    });
-
-    await session.createMain();
-    await session.hookEngine.setCwd(nextWorkDir);
-    await writeFile(envPath, 'MODE=worktree\n', 'utf-8');
-    const expectedPayload = {
-      hook_event_name: 'FileChanged',
-      session_id: 'session-file-changed-cwd',
-      cwd: nextWorkDir,
-      file_path: envPath,
-      event: 'change',
-    };
-    const payloads = await waitForHookPayload(logPath, expectedPayload);
-    await session.close();
-
-    expect(payloads).toContainEqual(expect.objectContaining(expectedPayload));
-  }, 35_000);
-
-  it('watches absolute paths returned by SessionStart hooks', async () => {
-    const { command, logPath, sessionDir, workDir } = await hookFixture();
-    const dynamicPath = join(workDir, '.dynamic-env');
-    await writeFile(dynamicPath, 'MODE=before\n', 'utf-8');
-    const setupCommand = `node -e ${JSON.stringify(
-      `process.stdout.write(JSON.stringify({hookSpecificOutput:{watchPaths:[${JSON.stringify(dynamicPath)}]}}))`,
-    )}`;
-    const session = new Session({
-      kaos: testKaos.withCwd(workDir),
-      id: 'session-dynamic-file-changed',
-      homedir: sessionDir,
-      rpc: createSessionRpc(),
-      skills: { explicitDirs: [join(workDir, 'missing-skills')] },
-      hooks: [
-        { event: 'SessionStart', matcher: 'startup', command: setupCommand, timeout: 30 },
-        { event: 'FileChanged', command, timeout: 30 },
-      ],
-    });
-
-    await session.createMain();
-    await writeFile(dynamicPath, 'MODE=after\n', 'utf-8');
-    const expectedPayload = {
-      hook_event_name: 'FileChanged',
-      session_id: 'session-dynamic-file-changed',
-      cwd: workDir,
-      file_path: dynamicPath,
-      event: 'change',
-    };
-    const payloads = await waitForHookPayload(logPath, expectedPayload);
-    await session.close();
-
-    expect(payloads).toContainEqual(expect.objectContaining(expectedPayload));
-  }, 35_000);
-
   it('fires SessionStart with resume source after loading metadata', async () => {
     const { command, logPath, sessionDir, workDir } = await hookFixture();
     await writeFile(
       join(sessionDir, 'state.json'),
       JSON.stringify({
-        sessionFormatVersion: 2,
         createdAt: '2026-01-01T00:00:00.000Z',
         updatedAt: '2026-01-01T00:00:00.000Z',
         title: 'Resumed Session',
@@ -978,26 +753,9 @@ function createSessionRpc(overrides: Partial<SDKSessionRPC> = {}): SDKSessionRPC
   } as SDKSessionRPC;
 }
 
-// The hook log is written asynchronously after the watcher fires; poll until
-// the expected payload appears (bounded) instead of racing it with one read.
-async function waitForHookPayload(
-  path: string,
-  expected: Readonly<Record<string, unknown>>,
-): Promise<readonly Record<string, unknown>[]> {
-  let payloads: readonly Record<string, unknown>[] = [];
-  await vi.waitFor(
-    async () => {
-      payloads = await readHookPayloads(path);
-      expect(payloads).toContainEqual(expect.objectContaining(expected));
-    },
-    { timeout: 30_000, interval: 20 },
-  );
-  return payloads;
-}
-
 async function waitForFile(path: string): Promise<void> {
   let lastError: unknown;
-  for (let attempt = 0; attempt < 1000; attempt += 1) {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
     try {
       await readFile(path, 'utf-8');
       return;

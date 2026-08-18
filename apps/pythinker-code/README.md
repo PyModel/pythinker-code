@@ -2,15 +2,11 @@
 
 > The Starting Point for Next-Gen Agents
 
-[![npm](https://img.shields.io/npm/v/@pymodel/pythinker-code)](https://www.npmjs.com/package/@pymodel/pythinker-code) [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)  [![Docs](https://img.shields.io/badge/docs-online-blue)](https://pymodel.github.io/pythinker-code/)
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/PyModel/pythinker-code/main/docs/media/terminal-ui.webp" alt="Pythinker Code terminal demo" width="860">
-</p>
+[![npm](https://img.shields.io/npm/v/@pymodel/pythinker-code)](https://www.npmjs.com/package/@pymodel/pythinker-code) [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)  [![Docs](https://img.shields.io/badge/docs-online-blue)](https://code.pythinker.com/pythinker-code/en/)
 
 ## What is Pythinker Code CLI
 
-Pythinker Code CLI is an AI coding agent that runs in your terminal. It can read and edit code, run shell commands, search files, fetch web pages, and choose the next step based on the feedback it receives. It works out of the box with Pythoughts's Pythinker models and can also be configured to use other compatible providers.
+Pythinker Code CLI is an AI coding agent that runs in your terminal. It can read and edit code, run shell commands, search files, fetch web pages, and choose the next step based on the feedback it receives. It works out of the box with PyModel's Pythinker models and can also be configured to use other compatible providers.
 
 ## Install
 
@@ -19,13 +15,13 @@ The recommended install path is the official script. It does not require Node.js
 - **macOS / Linux**:
 
 ```sh
-curl -fsSL https://code.pythinker.com/pythinker-code/install.sh | bash
+curl -fsSL https://code.kimi.com/pythinker-code/install.sh | bash
 ```
 
 - **Windows (PowerShell)**:
 
 ```powershell
-irm https://code.pythinker.com/pythinker-code/install.ps1 | iex
+irm https://code.kimi.com/pythinker-code/install.ps1 | iex
 ```
 
 > On Windows, install [Git for Windows](https://gitforwindows.org/) before first launch because Pythinker Code CLI uses the bundled Git Bash as its shell environment. If Git Bash is installed in a custom location, set `PYTHINKER_SHELL_PATH` to the absolute path of `bash.exe`.
@@ -38,7 +34,7 @@ pythinker --version
 
 ### Alternative: npm
 
-If you prefer npm, use Node.js 26.4.0 or later:
+If you prefer npm, use Node.js 22.19.0 or later:
 
 ```sh
 npm install -g @pymodel/pythinker-code
@@ -50,7 +46,7 @@ Or with pnpm:
 pnpm add -g @pymodel/pythinker-code
 ```
 
-For upgrade and uninstall instructions, see the [Getting Started guide](https://pymodel.github.io/pythinker-code/guides/getting-started).
+For upgrade and uninstall instructions, see the [Getting Started guide](https://code.pythinker.com/pythinker-code/en/guides/getting-started).
 
 ## Quick Start
 
@@ -61,7 +57,7 @@ cd your-project
 pythinker
 ```
 
-On first launch, run `/login` inside Pythinker Code CLI and choose either Pythinker Code OAuth or a Pythinker Platform API key. After login, try a first task:
+On first launch, run `/login` inside Pythinker Code CLI and choose either Pythinker Code OAuth or a Kimi Platform API key. After login, try a first task:
 
 ```
 Take a look at this project and explain the main directories.
@@ -79,8 +75,9 @@ Take a look at this project and explain the main directories.
 
 ## Documentation
 
-- Full docs: https://pymodel.github.io/pythinker-code/
-- Getting Started: https://pymodel.github.io/pythinker-code/guides/getting-started
+- Full docs: https://code.pythinker.com/pythinker-code/en/
+- 中文文档: https://code.pythinker.com/pythinker-code/zh/
+- Getting Started: https://code.pythinker.com/pythinker-code/en/guides/getting-started
 
 ## Repository & Issues
 

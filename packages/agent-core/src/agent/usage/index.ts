@@ -1,10 +1,5 @@
 import type { UsageStatus } from '#/rpc';
-import {
-  addUsage,
-  calculateCost,
-  type ModelCostRates,
-  type TokenUsage,
-} from '@pymodel/kosong';
+import { addUsage, type TokenUsage } from '@pymodel/kosong';
 
 import type { Agent } from '..';
 
@@ -17,8 +12,6 @@ function copyUsage(usage: TokenUsage): TokenUsage {
 export class UsageRecorder {
   private readonly byModel: Record<string, TokenUsage> = {};
   private currentTurn: TokenUsage | undefined;
-  private totalCostUsd: number | undefined;
-  private totalCostUnknown = false;
 
   constructor(protected readonly agent?: Agent) {}
 
@@ -30,12 +23,7 @@ export class UsageRecorder {
     this.currentTurn = undefined;
   }
 
-  record(
-    model: string,
-    usage: TokenUsage,
-    scope: UsageRecordScope = 'session',
-    rates: ModelCostRates | undefined = this.resolveCostRates(model),
-  ): void {
+  record(model: string, usage: TokenUsage, scope: UsageRecordScope = 'session'): void {
     this.agent?.records.logRecord({
       type: 'usage.record',
       model,
@@ -49,12 +37,6 @@ export class UsageRecorder {
       this.currentTurn =
         this.currentTurn === undefined ? copyUsage(usage) : addUsage(this.currentTurn, usage);
     }
-    const costUsd = calculateCost(usage, rates);
-    if (costUsd !== undefined) {
-      this.totalCostUsd = (this.totalCostUsd ?? 0) + costUsd;
-    } else if (hasTokenUsage(usage)) {
-      this.totalCostUnknown = true;
-    }
     this.agent?.emitStatusUpdated();
   }
 
@@ -66,7 +48,6 @@ export class UsageRecorder {
       byModel: hasByModel ? byModel : undefined,
       total: hasByModel ? totalUsage(byModel) : undefined,
       currentTurn: currentTurn === undefined ? undefined : copyUsage(currentTurn),
-      totalCostUsd: this.totalCostUnknown ? undefined : this.totalCostUsd,
     };
   }
 
@@ -87,18 +68,6 @@ export class UsageRecorder {
       Object.entries(this.byModel).map(([model, usage]) => [model, copyUsage(usage)]),
     );
   }
-
-  private resolveCostRates(model: string): ModelCostRates | undefined {
-    try {
-      return this.agent?.modelProvider?.resolveProviderConfig(model).modelCapabilities.cost;
-    } catch {
-      return undefined;
-    }
-  }
-}
-
-function hasTokenUsage(usage: TokenUsage): boolean {
-  return Object.values(usage).some((tokens) => tokens > 0);
 }
 
 function totalUsage(byModel: Record<string, TokenUsage>): TokenUsage | undefined {

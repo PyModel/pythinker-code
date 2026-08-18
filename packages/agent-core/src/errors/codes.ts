@@ -33,7 +33,6 @@ export const ErrorCodes = {
 
   AGENT_NOT_FOUND: 'agent.not_found',
   TURN_AGENT_BUSY: 'turn.agent_busy',
-  QUESTION_EXPIRED: 'question.expired',
 
   GOAL_ALREADY_EXISTS: 'goal.already_exists',
   GOAL_NOT_FOUND: 'goal.not_found',
@@ -49,7 +48,6 @@ export const ErrorCodes = {
 
   CONTEXT_OVERFLOW: 'context.overflow',
   LOOP_MAX_STEPS_EXCEEDED: 'loop.max_steps_exceeded',
-  STRUCTURED_OUTPUT_MAX_RETRIES: 'structured_output.max_retries',
   PROVIDER_API_ERROR: 'provider.api_error',
   PROVIDER_FILTERED: 'provider.filtered',
   PROVIDER_RATE_LIMIT: 'provider.rate_limit',
@@ -231,12 +229,6 @@ export const PYTHINKER_ERROR_INFO = {
     public: true,
     action: 'Wait for the current turn to finish or steer it.',
   },
-  'question.expired': {
-    title: 'Question expired',
-    retryable: false,
-    public: true,
-    action: 'Ask the user again if you still need the answer.',
-  },
 
   'goal.already_exists': {
     title: 'A goal is already active',
@@ -311,12 +303,6 @@ export const PYTHINKER_ERROR_INFO = {
     retryable: false,
     public: true,
     action: 'Increase loop_control.max_steps_per_turn in config.toml or split the task.',
-  },
-  'structured_output.max_retries': {
-    title: 'Structured output retries exhausted',
-    retryable: false,
-    public: true,
-    action: 'Retry with a simpler JSON Schema or adjust the prompt.',
   },
   'provider.api_error': {
     title: 'Provider API error',

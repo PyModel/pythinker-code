@@ -25,7 +25,6 @@ import type {
   CoreRPC,
   SessionSummary,
 } from '../../src';
-import { ErrorCodes, PythinkerError } from '../../src';
 
 import {
   type ICoreProcessService,
@@ -340,15 +339,11 @@ describe('MessageService', () => {
     expect(resumeOrder!).toBeLessThan(getContextOrder!);
   });
 
-  it('propagates an incompatible resume instead of mapping it to SessionNotFoundError', async () => {
+  it('maps resumeSession failure to SessionNotFoundError (wire-compat 40401)', async () => {
     const sessions = [mkSummary()];
-    const incompatibility = new PythinkerError(
-      ErrorCodes.SESSION_INIT_FAILED,
-      'Unsupported persisted session',
-    );
     const rpc: Partial<CoreRPC> = {
       listSessions: vi.fn().mockResolvedValue(sessions),
-      resumeSession: vi.fn().mockRejectedValue(incompatibility),
+      resumeSession: vi.fn().mockRejectedValue(new Error('state.json corrupted')),
       getContext: vi.fn(),
     };
     const failingBridge: ICoreProcessService = {
@@ -358,7 +353,9 @@ describe('MessageService', () => {
       _serviceBrand: undefined,
     };
     const failingImpl = new MessageService(failingBridge);
-    await expect(failingImpl.list(SESSION_ID, {})).rejects.toBe(incompatibility);
+    await expect(failingImpl.list(SESSION_ID, {})).rejects.toBeInstanceOf(
+      SessionNotFoundError,
+    );
     failingImpl.dispose();
   });
 });

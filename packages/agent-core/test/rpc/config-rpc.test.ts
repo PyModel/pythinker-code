@@ -36,7 +36,7 @@ api_key = "sk-good"
 
 [models.k2]
 provider = "pythinker"
-model = "pythinker-for-coding"
+model = "kimi-for-coding"
 max_context_size = 128000
 `;
 

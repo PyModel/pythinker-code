@@ -195,7 +195,7 @@ describe('runPrompt headless goal mode', () => {
     await runPrompt(opts({ outputFormat: 'stream-json' }), 'test', {
       stdout,
       stderr,
-      process: { on: () => {}, off: () => {}, exit: () => undefined as never },
+      process: { once: () => {}, off: () => {}, exit: () => undefined as never },
     });
 
     expect(mocks.session.createGoal).toHaveBeenCalledWith(
@@ -212,7 +212,7 @@ describe('runPrompt headless goal mode', () => {
     await runPrompt(opts(), 'test', {
       stdout,
       stderr,
-      process: { on: () => {}, off: () => {}, exit: () => undefined as never },
+      process: { once: () => {}, off: () => {}, exit: () => undefined as never },
     });
     expect(process.exitCode).toBe(GOAL_EXIT_CODES.blocked);
   });
@@ -239,7 +239,7 @@ describe('runPrompt headless goal mode', () => {
     await runPrompt(opts({ outputFormat: 'stream-json' }), 'test', {
       stdout,
       stderr,
-      process: { on: () => {}, off: () => {}, exit: () => undefined as never },
+      process: { once: () => {}, off: () => {}, exit: () => undefined as never },
     });
 
     expect(stdout.text()).toContain('"status":"complete"');
@@ -254,12 +254,10 @@ describe('runPrompt headless goal mode', () => {
     await runPrompt(opts(), 'test', {
       stdout,
       stderr,
-      process: { on: () => {}, off: () => {}, exit: () => undefined as never },
+      process: { once: () => {}, off: () => {}, exit: () => undefined as never },
     });
     expect(mocks.session.createGoal).toHaveBeenCalled();
-    expect(mocks.session.prompt).toHaveBeenCalledWith('Ship feature X', {
-      outputSchema: undefined,
-    });
+    expect(mocks.session.prompt).toHaveBeenCalledWith('Ship feature X');
   });
 
   it('keeps listening across continuation turns until the goal is terminal', async () => {
@@ -379,7 +377,7 @@ describe('runPrompt headless goal mode', () => {
       runPrompt(opts({ session: 'ses_goal' }), 'test', {
         stdout,
         stderr,
-        process: { on: () => {}, off: () => {}, exit: () => undefined as never },
+        process: { once: () => {}, off: () => {}, exit: () => undefined as never },
       }),
     ).rejects.toThrow('No model configured');
 

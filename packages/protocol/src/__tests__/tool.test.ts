@@ -83,7 +83,6 @@ describe('mcpServerSchema', () => {
     transport: 'stdio',
     status: 'connected',
     tool_count: 7,
-    editable: false,
   };
 
   it('round-trips a healthy MCP server', () => {

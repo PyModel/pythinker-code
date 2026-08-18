@@ -16,7 +16,7 @@ import {
 import { PythinkerError, ErrorCodes, type Event, type PythinkerHarness, type Session } from '@pymodel/pythinker-code-sdk';
 
 import { AcpServer } from '../src/server';
-import { AUTHED, UNAUTHED, makeModelsMap } from './_helpers/harness-stubs';
+import { AUTHED_STATUS, UNAUTHED_STATUS, makeModelsMap } from './_helpers/harness-stubs';
 
 class CapturingClient implements Client {
   readonly updates: SessionNotification[] = [];
@@ -94,7 +94,9 @@ function makeHarness(
 ): PythinkerHarness {
   const authed = opts.hasUsableToken ?? true;
   return {
-    isAuthenticated: authed ? AUTHED : UNAUTHED,
+    auth: {
+      status: async () => (authed ? AUTHED_STATUS : UNAUTHED_STATUS),
+    },
     resumeSession: async (_input: { id: string }) => {
       if (opts.resumeError) throw opts.resumeError;
       if (!opts.session) throw new Error('test harness has no session configured');
@@ -304,11 +306,13 @@ describe('AcpServer session/load replay', () => {
     expect(modeOpt!.options).toHaveLength(4);
     const modeIds = modeOpt!.options.map((o) => 'value' in o ? o.value : '');
     expect(modeIds).toEqual(['default', 'plan', 'auto', 'yolo']);
-    for (const entry of modeOpt!.options.filter((candidate) => 'value' in candidate)) {
-      expect(typeof entry.name).toBe('string');
-      expect(entry.name.length).toBeGreaterThan(0);
-      expect(typeof entry.description).toBe('string');
-      expect((entry.description ?? '').length).toBeGreaterThan(0);
+    for (const entry of modeOpt!.options) {
+      if ('value' in entry) {
+        expect(typeof entry.name).toBe('string');
+        expect(entry.name.length).toBeGreaterThan(0);
+        expect(typeof entry.description).toBe('string');
+        expect((entry.description ?? '').length).toBeGreaterThan(0);
+      }
     }
 
     if (modelOpt!.type !== 'select') {

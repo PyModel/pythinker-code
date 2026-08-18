@@ -477,14 +477,7 @@ function blobFromInput(input: {
   mediaType?: string;
 }): Blob {
   if (input.data instanceof Blob) return input.data;
-  // Copy the payload into an ArrayBuffer-backed buffer: BlobPart requires
-  // Uint8Array<ArrayBuffer>, so a SharedArrayBuffer-backed view must not be
-  // passed through.
-  const part =
-    typeof input.data === 'string' || input.data instanceof ArrayBuffer
-      ? input.data
-      : new Uint8Array(input.data);
-  return new Blob([part], {
+  return new Blob([input.data], {
     type: input.mediaType ?? 'application/octet-stream',
   });
 }

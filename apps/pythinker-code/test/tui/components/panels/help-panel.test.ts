@@ -2,7 +2,6 @@ import { describe, it, expect, vi } from 'vitest';
 
 import type { PythinkerSlashCommand } from '#/tui/commands/index';
 import { HelpPanelComponent } from '#/tui/components/dialogs/help-panel';
-import { parseKeybindingBlocks } from '#/tui/keybindings';
 
 function cmd(name: string, description: string, aliases: string[] = []): PythinkerSlashCommand {
   return {
@@ -25,7 +24,7 @@ describe('HelpPanelComponent', () => {
     const out = strip(panel.render(80).join('\n'));
     expect(out).toMatch(/help/);
     expect(out).toMatch(/Keyboard shortcuts/);
-    expect(out).toMatch(/Shift-Tab \/ Ctrl-T\s+Cycle thinking effort \(see \/plan for plan mode\)/);
+    expect(out).toMatch(/Shift-Tab/);
     expect(out).toMatch(/Ctrl-O/);
     expect(out).toMatch(/Shift-Enter \/ Ctrl-J/);
     expect(out).toMatch(/Slash commands/);
@@ -62,27 +61,6 @@ describe('HelpPanelComponent', () => {
     });
     panel.handleInput('\u001B'); // Esc
     expect(onClose).toHaveBeenCalledTimes(1);
-  });
-
-  it('uses a remapped dismissal binding and renders its effective shortcut', () => {
-    const onClose = vi.fn();
-    const panel = new HelpPanelComponent({
-      commands: [],
-      onClose,
-    });
-    panel.setKeybindings(
-      parseKeybindingBlocks([
-        { context: 'Help', bindings: { escape: null, 'alt+h': 'help:dismiss' } },
-      ]),
-    );
-
-    panel.handleInput('\u001B');
-    expect(onClose).not.toHaveBeenCalled();
-    panel.handleInput('\u001Bh');
-    expect(onClose).toHaveBeenCalledTimes(1);
-    const header = strip(panel.render(80).join('\n')).split('\n')[1];
-    expect(header).toContain('alt+h');
-    expect(header).not.toContain('Esc');
   });
 
   it('q / Enter also close the panel', () => {

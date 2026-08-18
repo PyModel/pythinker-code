@@ -4,29 +4,19 @@
  * Container-based component with keyboard navigation.
  */
 
-import { stripVTControlCharacters } from 'node:util';
-
 import {
   Container,
   Input,
   matchesKey,
   Key,
-  parseKey,
+  decodeKittyPrintable,
   type Focusable,
   truncateToWidth,
   visibleWidth,
   wrapTextWithAnsi,
 } from '@pymodel/pi-tui';
 import { currentTheme } from '#/tui/theme';
-import { combinedBindingHint, formatBindingKeys } from '#/tui/components/dialogs/choice-picker';
 import { highlightLines, langFromPath } from '#/tui/components/media/code-highlight';
-import {
-  defaultKeybindings,
-  keybindingDisplayText,
-  KeybindingResolver,
-  type KeybindingHandlers,
-  type ParsedKeybinding,
-} from '#/tui/keybindings';
 import { renderDiffLinesClustered } from '#/tui/components/media/diff-preview';
 import type {
   ApprovalPanelChoice,
@@ -34,9 +24,7 @@ import type {
   DisplayBlock,
   FileContentDisplayBlock,
   PendingApproval,
-  WorkflowPlanDisplayBlock,
 } from '#/tui/reverse-rpc/types';
-import { printableChar } from '#/tui/utils/printable-key';
 
 export interface ApprovalPanelResponse {
   readonly response: 'approved' | 'approved_for_session' | 'rejected' | 'cancelled';
@@ -170,8 +158,6 @@ function renderDisplayBlock(
       }
       return lines;
     }
-    case 'workflow_plan':
-      return renderWorkflowPlanDisplayBlock(block, s);
     case 'brief':
       return block.text
         ? block.text.split('\n').map((line) => (line.length > 0 ? s.strong(line) : ''))
@@ -185,57 +171,6 @@ function renderDisplayBlock(
     default:
       return [];
   }
-}
-
-/**
- * A workflow can carry up to 128 items. Listing all of them would push the
- * buttons off the screen, so the panel shows enough to judge the shape of the
- * fan-out and says how many it held back.
- */
-const MAX_PREVIEW_ITEMS = 10;
-
-/**
- * The plan is the thing being approved, and every field in it came from the
- * model. Escape sequences would let that text repaint the panel it is being
- * judged in — hide a line, redraw the buttons, or reverse the reading order —
- * so they are removed rather than styled. `stripVTControlCharacters` takes the
- * CSI and OSC sequences; the class escape then takes the bare control and
- * format characters it leaves behind, which include the bidi overrides.
- */
-function sanitizePlanText(text: string): string {
-  return stripVTControlCharacters(text).replaceAll(/[\p{Cc}\p{Cf}]/gu, ' ');
-}
-
-function renderWorkflowPlanDisplayBlock(
-  block: WorkflowPlanDisplayBlock,
-  s: BlockStyles,
-): string[] {
-  const plural = block.agent_count === 1 ? 'subagent' : 'subagents';
-  const summary = [
-    `${String(block.agent_count)} ${plural}`,
-    `~${String(block.prompt_tokens)} prompt tokens`,
-  ];
-  if (block.model !== undefined && block.model.length > 0) {
-    summary.push(`model: ${sanitizePlanText(block.model)}`);
-  }
-  const lines = [s.strong(summary.join('  '))];
-
-  if (block.prompt_template !== undefined && block.prompt_template.length > 0) {
-    lines.push(
-      `${s.accent('prompt')} ${s.dim(truncateOneLine(sanitizePlanText(block.prompt_template), 200))}`,
-    );
-  }
-
-  for (const [index, item] of block.items.slice(0, MAX_PREVIEW_ITEMS).entries()) {
-    lines.push(
-      s.dim(`${String(index + 1).padStart(3)}. ${truncateOneLine(sanitizePlanText(item), 120)}`),
-    );
-  }
-  const hidden = block.items.length - MAX_PREVIEW_ITEMS;
-  if (hidden > 0) {
-    lines.push(s.dim(`     +${String(hidden)} more`));
-  }
-  return lines;
 }
 
 function normalizeApprovalText(text: string): string {
@@ -265,8 +200,6 @@ function headerFor(toolName: string): string {
       return 'Stop this task?';
     case 'ExitPlanMode':
       return 'Ready to build with this plan?';
-    case 'DynamicWorkflow':
-      return 'Run this Dynamic Workflow?';
     default:
       return `Approve ${toolName}?`;
   }
@@ -274,21 +207,6 @@ function headerFor(toolName: string): string {
 
 export class ApprovalPanelComponent extends Container implements Focusable {
   focused = false;
-  private bindings = defaultKeybindings();
-  private keybindings = new KeybindingResolver(
-    this.bindings.filter(
-      (binding) =>
-        binding.action === 'confirm:yes' ||
-        binding.action === 'confirm:no' ||
-        binding.action === 'confirm:previous' ||
-        binding.action === 'confirm:next' ||
-        binding.action === 'confirm:toggle' ||
-        binding.action === 'confirm:toggleExplanation',
-    ),
-  );
-  private feedbackKeybindings = new KeybindingResolver(
-    this.bindings.filter((binding) => binding.action === 'confirm:no'),
-  );
   private selectedIndex = 0;
   private feedbackMode = false;
   private readonly feedbackInput = new Input();
@@ -340,111 +258,63 @@ export class ApprovalPanelComponent extends Container implements Focusable {
     }
   }
 
-  setKeybindings(bindings: readonly ParsedKeybinding[]): void {
-    this.bindings = bindings;
-    const winners = new Map<string, ParsedKeybinding>();
-    for (const binding of bindings) {
-      winners.set(`${binding.context}\0${binding.chord.join(' ')}`, binding);
-    }
-    this.keybindings = new KeybindingResolver(
-      [...winners.values()].filter(
-        (binding) =>
-          binding.action === 'confirm:yes' ||
-          binding.action === 'confirm:no' ||
-          binding.action === 'confirm:previous' ||
-          binding.action === 'confirm:next' ||
-          binding.action === 'confirm:toggle' ||
-          binding.action === 'confirm:toggleExplanation',
-      ),
-    );
-    this.feedbackKeybindings = new KeybindingResolver(
-      [...winners.values()].filter((binding) => binding.action === 'confirm:no'),
-    );
-  }
-
   handleInput(data: string): void {
-    if (this.feedbackMode) {
-      this.handleFeedbackInput(data);
+    if (
+      matchesKey(data, Key.escape) ||
+      matchesKey(data, Key.ctrl('c')) ||
+      matchesKey(data, Key.ctrl('d'))
+    ) {
+      this.onResponse({ response: 'rejected' });
       return;
     }
 
-    const handlers = this.handlers();
-    const keyId = parseKey(data);
-    if (
-      (keyId ?? data) === Key.escape &&
-      keybindingDisplayText(this.bindings, 'Confirmation', 'confirm:no') === undefined
-    ) {
-      this.onResponse({ response: 'rejected' });
+    if (matchesKey(data, Key.ctrl('e'))) {
+      const previewable = this.findPreviewableBlock();
+      if (previewable !== undefined && this.onOpenPreview !== undefined) {
+        this.onOpenPreview(previewable);
+      }
       return;
     }
-    if (
-      keyId === undefined
-        ? this.keybindings.dispatchKeyId(data, ['Confirmation'], handlers)
-        : this.keybindings.dispatch(data, ['Confirmation'], handlers)
-    ) {
-      return;
-    }
-    if (matchesKey(data, Key.ctrl('c')) || matchesKey(data, Key.ctrl('d'))) {
-      this.onResponse({ response: 'rejected' });
-      return;
-    }
+
     if (matchesKey(data, Key.ctrl('o'))) {
       this.onToggleToolOutput?.();
       return;
     }
-    const printable = printableChar(data);
+
+    if (this.feedbackMode) {
+      if (matchesKey(data, Key.up)) {
+        this.feedbackMode = false;
+        this.selectedIndex = (this.selectedIndex - 1 + this.choiceCount()) % this.choiceCount();
+        return;
+      }
+      if (matchesKey(data, Key.down)) {
+        this.feedbackMode = false;
+        this.selectedIndex = (this.selectedIndex + 1) % this.choiceCount();
+        return;
+      }
+      this.feedbackInput.handleInput(data);
+      return;
+    }
+
+    if (this.choiceCount() === 0) return;
+    if (matchesKey(data, Key.up)) {
+      this.selectedIndex = (this.selectedIndex - 1 + this.choiceCount()) % this.choiceCount();
+      return;
+    }
+    if (matchesKey(data, Key.down)) {
+      this.selectedIndex = (this.selectedIndex + 1) % this.choiceCount();
+      return;
+    }
+    if (matchesKey(data, Key.enter)) {
+      this.selectAndSubmit(this.selectedIndex);
+      return;
+    }
+
+    const printable = decodeKittyPrintable(data) ?? data;
     const numericIndex = Number(printable) - 1;
     if (Number.isInteger(numericIndex) && numericIndex >= 0 && numericIndex < this.choiceCount()) {
       this.selectAndSubmit(numericIndex);
     }
-  }
-
-  private handleFeedbackInput(data: string): void {
-    const keyId = parseKey(data);
-    if (
-      (keyId ?? data) === Key.escape &&
-      keybindingDisplayText(this.bindings, 'Confirmation', 'confirm:no') === undefined
-    ) {
-      this.onResponse({ response: 'rejected' });
-      return;
-    }
-    const handlers: KeybindingHandlers = {
-      'confirm:no': () => this.onResponse({ response: 'rejected' }),
-    };
-    if (
-      keyId === undefined
-        ? this.feedbackKeybindings.dispatchKeyId(data, ['Confirmation'], handlers)
-        : this.feedbackKeybindings.dispatch(data, ['Confirmation'], handlers)
-    ) {
-      return;
-    }
-    if (matchesKey(data, Key.ctrl('c')) || matchesKey(data, Key.ctrl('d'))) {
-      this.onResponse({ response: 'rejected' });
-      return;
-    }
-    this.feedbackInput.handleInput(data);
-  }
-
-  private handlers(): KeybindingHandlers {
-    return {
-      'confirm:yes': () => this.selectAndSubmit(this.selectedIndex),
-      'confirm:no': () => this.onResponse({ response: 'rejected' }),
-      'confirm:previous': () => {
-        if (this.choiceCount() > 0) {
-          this.selectedIndex = (this.selectedIndex - 1 + this.choiceCount()) % this.choiceCount();
-        }
-      },
-      'confirm:next': () => {
-        if (this.choiceCount() > 0) this.selectedIndex = (this.selectedIndex + 1) % this.choiceCount();
-      },
-      'confirm:toggle': () => this.selectAndSubmit(this.selectedIndex),
-      'confirm:toggleExplanation': () => {
-        const previewable = this.findPreviewableBlock();
-        if (previewable !== undefined && this.onOpenPreview !== undefined) {
-          this.onOpenPreview(previewable);
-        }
-      },
-    };
   }
 
   override render(width: number): string[] {
@@ -525,38 +395,14 @@ export class ApprovalPanelComponent extends Container implements Focusable {
 
     lines.push('');
     if (this.feedbackMode) {
-      const cancel = keybindingDisplayText(this.bindings, 'Confirmation', 'confirm:no');
-      const hint = [
-        'Type feedback',
-        '↵ submit',
-        cancel === undefined ? undefined : `${formatBindingKeys(cancel)} reject`,
-      ]
-        .filter((part): part is string => part !== undefined)
-        .join(' · ');
-      lines.push(indent(dim(`${hint}.`)));
+      lines.push(indent(dim('Type feedback · ↵ submit.')));
     } else {
-      const navigation = combinedBindingHint(
-        keybindingDisplayText(this.bindings, 'Confirmation', 'confirm:previous'),
-        keybindingDisplayText(this.bindings, 'Confirmation', 'confirm:next'),
-        'select',
-      );
-      const confirm = keybindingDisplayText(this.bindings, 'Confirmation', 'confirm:yes');
-      const preview = keybindingDisplayText(
-        this.bindings,
-        'Confirmation',
-        'confirm:toggleExplanation',
-      );
-      const hint = [
-        navigation,
-        `${buildNumericHint(data.choices.length)} choose`,
-        confirm === undefined ? undefined : `${formatBindingKeys(confirm)} confirm`,
-        hasPreviewable && preview !== undefined ? `${formatBindingKeys(preview)} preview` : undefined,
-      ]
-        .filter((part): part is string => part !== undefined)
-        .join(' · ');
+      const expandHint = hasPreviewable ? ' · ctrl+e preview' : '';
       lines.push(
         indent(
-          dim(hint),
+          dim(
+            `↑/↓ select · ${buildNumericHint(data.choices.length)} choose · ↵ confirm${expandHint}`,
+          ),
         ),
       );
     }

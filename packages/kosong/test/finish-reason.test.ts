@@ -103,7 +103,7 @@ function makePythinkerChatClient(response: unknown) {
 
 function createPythinkerProvider(response: unknown, stream: boolean): PythinkerChatProvider {
   return new PythinkerChatProvider({
-    model: 'pythinker-k2-turbo-preview',
+    model: 'kimi-k2-turbo-preview',
     stream,
     clientFactory: () => makePythinkerChatClient(response) as never,
   });

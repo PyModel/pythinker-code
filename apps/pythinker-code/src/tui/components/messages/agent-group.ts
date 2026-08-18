@@ -18,8 +18,6 @@
 import type { TUI } from '@pymodel/pi-tui';
 import { Container, Spacer, Text } from '@pymodel/pi-tui';
 
-import { MarkdownPreviewComponent } from '#/tui/components/messages/markdown-preview';
-import { formatThinkingSpinnerLabel } from '#/tui/constant/rendering';
 import { STATUS_BULLET } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 import { formatTokenCount } from '#/utils/usage/usage-format';
@@ -45,16 +43,10 @@ interface PhaseCounts {
   readonly terminal: number;
 }
 
-interface ActivityPreview {
-  readonly isLast: boolean;
-  readonly component: MarkdownPreviewComponent;
-}
-
 export class AgentGroupComponent extends Container {
   private readonly entries: AgentEntry[] = [];
   private readonly headerText: Text;
   private readonly bodyContainer: Container;
-  private readonly activityPreviews = new Map<string, ActivityPreview>();
   private throttleTimer: ReturnType<typeof setTimeout> | null = null;
   private lastFlushPhases = new Map<string, ToolCallSubagentSnapshot['phase']>();
   private _invalidating = false;
@@ -193,7 +185,7 @@ export class AgentGroupComponent extends Container {
     const agentType = snap.agentName ?? 'agent';
     const desc = snap.toolCallDescription || '(no description)';
     const tail = formatLineTail(snap);
-    const namePart = currentTheme.fg('textStrong', agentType);
+    const namePart = currentTheme.fg('primary', agentType);
     const descPart = dim(`· ${desc}`);
     const stats = formatStats(snap);
     const line1 = `  ${branch1} ${namePart} ${descPart}${stats}${tail}`;
@@ -212,25 +204,9 @@ export class AgentGroupComponent extends Container {
       // Terminal states omit the second line.
       return;
     }
-    // Running or not-yet-started agents show the latest Markdown activity row.
+    // Running or not-yet-started agents show latest activity, with a fallback.
     const activity = snap.latestActivity ?? fallbackActivityForPhase(snap.phase);
-    let preview = this.activityPreviews.get(snap.toolCallId);
-    if (preview === undefined || preview.isLast !== isLast) {
-      const prefix = `  ${branch2}    `;
-      preview = {
-        isLast,
-        component: new MarkdownPreviewComponent(activity, {
-          firstPrefix: prefix,
-          continuationPrefix: prefix,
-          tailRows: 1,
-          appearance: 'dim',
-        }),
-      };
-      this.activityPreviews.set(snap.toolCallId, preview);
-    } else {
-      preview.component.setText(activity);
-    }
-    this.bodyContainer.addChild(preview.component);
+    this.bodyContainer.addChild(new Text(`  ${branch2}    ${dim(activity)}`, 0, 0));
   }
 
   /**
@@ -358,7 +334,7 @@ function fallbackActivityForPhase(phase: ToolCallSubagentSnapshot['phase']): str
     case 'queued':
       return 'Waiting to start…';
     case 'running':
-      return formatThinkingSpinnerLabel();
+      return 'Still working…';
     case 'spawning':
     case undefined:
       return 'Starting…';

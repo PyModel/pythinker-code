@@ -10,7 +10,7 @@ import type { ContextMessage, PromptOrigin } from '../context';
 import type { PermissionApprovalResultRecord, PermissionMode } from '../permission';
 import type { McpToolCollision, UserToolRegistration } from '../tool';
 import type { UsageRecordScope } from '../usage';
-import type { DynamicWorkflowModeTrigger } from '../dynamic-workflow';
+import type { DynamicWorkflowModeTrigger } from '../dynamic_workflow';
 
 /** One entry of a tools table as sent in a request's top-level `tools[]`. */
 export interface LlmRequestToolSchema {
@@ -99,12 +99,6 @@ export interface AgentRecordEvents {
 
   'dynamic_workflow_mode.enter': {
     trigger: DynamicWorkflowModeTrigger;
-    /**
-     * Origin of the prompt whose turn entered the mode, so a cron- or
-     * hook-originated fan-out is attributable after the fact. Absent when the
-     * mode was entered outside a turn (e.g. the explicit RPC toggle).
-     */
-    origin?: PromptOrigin;
   };
   'dynamic_workflow_mode.exit': {};
 

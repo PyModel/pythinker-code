@@ -1,12 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'pathe';
 
-import {
-  assertAgentRecord,
-  assertAgentWireProtocolVersion,
-  type AgentRecord,
-} from '../../agent/records';
-
 export interface SessionWireScan {
   readonly firstActivityMs?: number | undefined;
   readonly lastActivityMs?: number | undefined;
@@ -17,39 +11,48 @@ export interface SessionWireScan {
 export async function scanSessionWire(sessionDir: string): Promise<SessionWireScan> {
   let raw: string;
   try {
-    raw = await readFile(join(sessionDir, 'agents', 'main', 'wire.jsonl'), 'utf-8');
-  } catch (error) {
-    if (isFileNotFound(error)) return {};
-    throw error;
+    raw = await readFile(join(sessionDir, 'wire.jsonl'), 'utf-8');
+  } catch {
+    return {};
   }
 
   let firstActivityMs: number | undefined;
   let lastActivityMs: number | undefined;
   let lastUserMessageMs: number | undefined;
   let firstUserInput: string | undefined;
-  let first = true;
-  const lines = raw.split('\n');
 
-  for (let i = 0; i < lines.length; i++) {
-    let line = lines[i]!;
-    if (line.endsWith('\r')) line = line.slice(0, -1);
-    if (line.length === 0) continue;
-    let record: unknown;
+  for (const line of raw.split('\n')) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) continue;
+    let parsed: unknown;
     try {
-      record = JSON.parse(line);
-    } catch (error) {
-      if (i === lines.length - 1) break;
-      throw new Error(`wire.jsonl: corrupted line ${i + 1}: ${String(error)}`, { cause: error });
+      parsed = JSON.parse(trimmed) as unknown;
+    } catch {
+      continue;
     }
-    assertAgentRecord(record);
-    if (first) {
-      if (record.type !== 'metadata') {
-        throw new Error('wire.jsonl expected metadata as the first record');
+    if (typeof parsed !== 'object' || parsed === null) continue;
+    const record = parsed as {
+      type?: unknown;
+      time?: unknown;
+      userInput?: unknown;
+    };
+    const timeMs = typeof record.time === 'number' ? normalizeTimestampMs(record.time) : undefined;
+    if (timeMs !== undefined) {
+      firstActivityMs ??= timeMs;
+      lastActivityMs = timeMs;
+    }
+    if (record.type === 'turn_begin') {
+      if (timeMs !== undefined) {
+        lastUserMessageMs = timeMs;
       }
-      assertAgentWireProtocolVersion(record.protocol_version);
-      first = false;
+      if (
+        firstUserInput === undefined &&
+        typeof record.userInput === 'string' &&
+        record.userInput.trim().length > 0
+      ) {
+        firstUserInput = record.userInput;
+      }
     }
-    updateScan(record);
   }
 
   return {
@@ -58,36 +61,6 @@ export async function scanSessionWire(sessionDir: string): Promise<SessionWireSc
     lastUserMessageMs,
     firstUserInput,
   };
-
-  function updateScan(record: AgentRecord): void {
-    const timeMs = record.time === undefined ? undefined : normalizeTimestampMs(record.time);
-    if (timeMs !== undefined) {
-      firstActivityMs ??= timeMs;
-      lastActivityMs = timeMs;
-    }
-    if (record.type !== 'turn.prompt') return;
-    if (timeMs !== undefined) lastUserMessageMs = timeMs;
-    if (firstUserInput === undefined) {
-      firstUserInput = textInput(record);
-    }
-  }
-}
-
-function textInput(record: Extract<AgentRecord, { readonly type: 'turn.prompt' }>): string | undefined {
-  const text = record.input
-    .flatMap((part) => (part.type === 'text' ? [part.text] : []))
-    .join('')
-    .trim();
-  return text.length === 0 ? undefined : text;
-}
-
-function isFileNotFound(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    error.code === 'ENOENT'
-  );
 }
 
 export function normalizeTimestampMs(value: number): number | undefined {

@@ -92,8 +92,8 @@ function makeConn(): { conn: AgentSideConnection; raw: CapturingConn } {
 }
 
 const sampleQuestion: QuestionItem = {
-  question: 'Which flavor?',
-  options: [{ label: 'Vanilla' }, { label: 'Chocolate' }, { label: 'Matcha' }],
+  question: '哪个口味？',
+  options: [{ label: '香草' }, { label: '巧克力' }, { label: '抹茶' }],
 };
 
 function makeReq(overrides: Partial<QuestionRequest> = {}): QuestionRequest {
@@ -139,7 +139,7 @@ describe('AcpSession.handleQuestion', () => {
 
     const answer = await handle.invokeHandler(makeReq());
 
-    expect(answer).toEqual({ 'Which flavor?': 'Vanilla' } satisfies QuestionAnswers);
+    expect(answer).toEqual({ '哪个口味？': '香草' } satisfies QuestionAnswers);
     expect(raw.permissionRequests).toHaveLength(1);
     const req = raw.permissionRequests[0]!;
     expect(req.sessionId).toBe('s-q-happy');
@@ -161,7 +161,7 @@ describe('AcpSession.handleQuestion', () => {
     // currentTurnId is undefined in this test path, so raw toolCallId is used.
     expect(req.toolCall.toolCallId).toBe('tc-ask-1');
     expect(req.toolCall.content).toEqual([
-      { type: 'content', content: { type: 'text', text: 'Which flavor?' } },
+      { type: 'content', content: { type: 'text', text: '哪个口味？' } },
     ]);
     expect(trackCalls).toEqual([{ event: 'question_answered', properties: { answered: 1 } }]);
   });
@@ -202,7 +202,7 @@ describe('AcpSession.handleQuestion', () => {
       makeReq({ questions: [sampleQuestion, extra1, extra2] }),
     );
 
-    expect(answer).toEqual({ 'Which flavor?': 'Chocolate' });
+    expect(answer).toEqual({ '哪个口味？': '巧克力' });
     expect(raw.permissionRequests).toHaveLength(1);
     // Telemetry: degraded(multi_question) first, then answered.
     expect(trackCalls).toEqual([
@@ -267,7 +267,7 @@ describe('AcpSession.handleQuestion', () => {
 
     const answer = await handle.invokeHandler(makeReq());
 
-    expect(answer).toEqual({ 'Which flavor?': 'Vanilla' });
+    expect(answer).toEqual({ '哪个口味？': '香草' });
     expect(trackCalls).toEqual([]);
   });
 });

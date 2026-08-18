@@ -132,7 +132,7 @@ function jsonSchema(schema: z.ZodTypeAny): Record<string, unknown> {
 }
 
 function messageId(type: string): string {
-  return type.replaceAll(/[^A-Za-z0-9]+/g, '_').replaceAll(/^_+|_+$/g, '');
+  return type.replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
 }
 
 function titleFromName(name: string): string {

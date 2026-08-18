@@ -67,10 +67,6 @@ const METADATA_ALIASES: Readonly<Record<string, string>> = {
   when_to_use: 'whenToUse',
   'disable-model-invocation': 'disableModelInvocation',
   disable_model_invocation: 'disableModelInvocation',
-  'user-invocable': 'userInvocable',
-  user_invocable: 'userInvocable',
-  'argument-hint': 'argumentHint',
-  argument_hint: 'argumentHint',
 };
 
 export async function parseSkillFromFile(options: ParseSkillOptions): Promise<SkillDefinition> {
@@ -209,9 +205,7 @@ export function expandSkillParameters(
   const hasArgumentPlaceholder = content !== body;
   content = content
     .replaceAll('${PYTHINKER_SKILL_DIR}', context.skillDir)
-    .replaceAll('${PYTHINKER_SESSION_ID}', context.sessionId ?? '')
-    .replaceAll('${pythinker_SKILL_DIR}', context.skillDir)
-    .replaceAll('${pythinker_SESSION_ID}', context.sessionId ?? '');
+    .replaceAll('${PYTHINKER_SESSION_ID}', context.sessionId ?? '');
 
   if (!hasArgumentPlaceholder && rawArgs.length > 0) {
     return `${content}\n\nARGUMENTS: ${escapeXmlTags(rawArgs)}`;
@@ -243,14 +237,6 @@ function normalizeMetadata(raw: Record<string, unknown>): SkillMetadata {
 
   const description = nonEmptyString(out['description']);
   if (description !== undefined) out['description'] = description;
-
-  if (Object.hasOwn(out, 'disableModelInvocation')) {
-    out['disableModelInvocation'] =
-      out['disableModelInvocation'] === true || out['disableModelInvocation'] === 'true';
-  }
-  if (Object.hasOwn(out, 'userInvocable')) {
-    out['userInvocable'] = out['userInvocable'] === true || out['userInvocable'] === 'true';
-  }
 
   return out as SkillMetadata;
 }

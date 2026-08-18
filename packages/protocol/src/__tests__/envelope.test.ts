@@ -100,17 +100,13 @@ describe('error-codes', () => {
     expect(ErrorCodeReason[ErrorCode.GOAL_UNSUPPORTED_AGENT]).toBe('goal.unsupported_agent');
   });
 
-  it('allocates the protocol version mismatch code and preserves other reservations', () => {
+  it('reserved codes are not redefined (40101, 50002 absent)', () => {
     const allValues = Object.values(ErrorCode);
     expect(allValues).not.toContain(40101);
     expect(allValues).not.toContain(40102);
     expect(allValues).not.toContain(40103);
     expect(allValues).not.toContain(42901);
-    expect(ErrorCode.PROTOCOL_VERSION_MISMATCH).toBe(50002);
-    expect(ErrorCodeReason[ErrorCode.PROTOCOL_VERSION_MISMATCH]).toBe(
-      'protocol.version_mismatch',
-    );
-    expect(allValues).toContain(50002);
+    expect(allValues).not.toContain(50002);
   });
 
   it('ErrorCode type narrows to the literal union', () => {

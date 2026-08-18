@@ -105,7 +105,7 @@ function extractApprovalRule(execution: ToolExecution): string {
   }
   const rule = (execution as RunnableToolExecution).approvalRule;
   if (typeof rule !== 'string') {
-    throw new TypeError('expected approvalRule to be a string');
+    throw new Error('expected approvalRule to be a string');
   }
   return rule;
 }
@@ -293,10 +293,10 @@ describe('CronCreateTool', () => {
 
   it('rejects prompts above the 8 KiB byte budget (multi-byte input)', async () => {
     const { manager, tool, stub } = makeHarness();
-    // '€' is 3 bytes in UTF-8; 3000 repetitions = 9000 bytes > 8192.
+    // '汉' is 3 bytes in UTF-8; 3000 repetitions = 9000 bytes > 8192.
     // zod's `.max(8192)` is in code units and would accept this — the
     // byte check inside the tool catches it.
-    const prompt = '€'.repeat(3000);
+    const prompt = '汉'.repeat(3000);
     const msg = assertError(
       await runTool(tool, {
         cron: '*/5 * * * *',

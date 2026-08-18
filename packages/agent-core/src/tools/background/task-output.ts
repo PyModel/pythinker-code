@@ -79,7 +79,6 @@ function fullOutputHint(output: BackgroundTaskOutputSnapshot): string | undefine
 
 export class TaskOutputTool implements BuiltinTool<TaskOutputInput> {
   readonly name = 'TaskOutput' as const;
-  readonly aliases = ['AgentOutputTool', 'BashOutputTool'] as const;
   readonly description: string = TASK_OUTPUT_DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(TaskOutputInputSchema);
 

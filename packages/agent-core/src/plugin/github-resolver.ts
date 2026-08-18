@@ -35,13 +35,8 @@ export interface GithubSourceResolution {
  *         default branch tip without us needing to know its name.
  *      c. codeload 404 on HEAD → the repo itself does not exist.
  */
-// Bare-URL resolution performs up to two remote probes; bound the whole
-// sequence with a default timeout when the caller supplies no signal.
-const GITHUB_RESOLUTION_TIMEOUT_MS = 30_000;
-
 export async function resolveGithubSource(
   input: GithubSourceInput,
-  abortSignal?: AbortSignal,
 ): Promise<GithubSourceResolution> {
   const { owner, repo } = input;
 
@@ -53,8 +48,7 @@ export async function resolveGithubSource(
     };
   }
 
-  const signal = abortSignal ?? AbortSignal.timeout(GITHUB_RESOLUTION_TIMEOUT_MS);
-  const latestTag = await tryResolveLatestReleaseTag(owner, repo, signal);
+  const latestTag = await tryResolveLatestReleaseTag(owner, repo);
   if (latestTag !== undefined) {
     return {
       tarballUrl: codeloadUrl(owner, repo, { kind: 'tag', value: latestTag }),
@@ -66,7 +60,7 @@ export async function resolveGithubSource(
   // No release we could resolve. Fall back to the default branch via codeload.
   const headProbe = await fetch(
     `https://codeload.github.com/${owner}/${repo}/zip/HEAD`,
-    { method: 'HEAD', signal },
+    { method: 'HEAD' },
   );
   if (headProbe.status === 404) {
     throw new Error(`Repository \`${owner}/${repo}\` not found or not accessible.`);
@@ -98,10 +92,9 @@ export async function resolveGithubSource(
 async function tryResolveLatestReleaseTag(
   owner: string,
   repo: string,
-  signal: AbortSignal,
 ): Promise<string | undefined> {
   const url = `https://github.com/${owner}/${repo}/releases/latest`;
-  const resp = await fetch(url, { redirect: 'manual', signal });
+  const resp = await fetch(url, { redirect: 'manual' });
 
   // Definitive "no own latest release". Distinct from transient errors.
   if (resp.status === 404) return undefined;
@@ -158,11 +151,5 @@ function codeloadUrl(owner: string, repo: string, ref: GithubRef): string {
  * So: split on `/`, percent-encode each segment, and rejoin.
  */
 function encodeCodeloadRefPath(value: string): string {
-  const segments = value.split('/');
-  // Empty, "." and ".." segments would collapse or escape when the path is
-  // re-joined as a URL, silently resolving a different ref than requested.
-  if (segments.some((segment) => segment.length === 0 || segment === '.' || segment === '..')) {
-    throw new Error('GitHub ref must not contain empty, ".", or ".." path segments.');
-  }
-  return segments.map(encodeURIComponent).join('/');
+  return value.split('/').map(encodeURIComponent).join('/');
 }

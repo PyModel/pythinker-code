@@ -212,6 +212,8 @@ describe('ExitPlanMode option description optionality', () => {
     });
 
     expect(result.success).toBe(true);
-    expect(result).toMatchObject({ data: { options: [{ description: '' }] } });
+    if (result.success) {
+      expect(result.data.options?.[0]?.description).toBe('');
+    }
   });
 });

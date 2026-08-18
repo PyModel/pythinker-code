@@ -29,9 +29,8 @@ import {
 } from '@pymodel/acp-adapter';
 import { createPythinkerHarness, type Session, type SkillSummary } from '@pymodel/pythinker-code-sdk';
 
-import { drainWritable, isBrokenPipeError, writeAndDrain } from '#/cli/output';
-import { createPythinkerCodeHostIdentity, getVersion } from '#/cli/version';
 import { PYTHINKER_CODE_HOME_ENV } from '#/constant/app';
+import { createPythinkerCodeHostIdentity, getVersion } from '#/cli/version';
 import { buildSkillSlashCommands } from '#/tui/commands/skills';
 
 import { isLegacyEnabled } from '../experimental-v2';
@@ -116,46 +115,19 @@ export function registerAcpCommand(parent: Command): void {
           skillCommandMap: built.commandMap,
         };
       };
-      let hasFatalError = false;
-      let fatalError: unknown;
       try {
         await runAcpServer(harness, {
           agentInfo: { name: 'Pythinker Code CLI', version: getVersion() },
           slashCommands: resolveSlashCommands,
-          terminalAuthEnv,
-          terminalAuthLegacyCommand:
-            legacyCommand !== undefined && legacyCommand.length > 0 ? legacyCommand : undefined,
+          ...(terminalAuthEnv ? { terminalAuthEnv } : {}),
+          ...(legacyCommand !== undefined && legacyCommand.length > 0
+            ? { terminalAuthLegacyCommand: legacyCommand }
+            : {}),
         });
-        await Promise.all([drainWritable(process.stdout), drainWritable(process.stderr)]);
-        // A closed transport (EPIPE) means the client disconnected — a normal
-        // end of session, not a server failure. Anything else is fatal.
-      } catch (error) {
-        if (!isBrokenPipeError(error)) {
-          hasFatalError = true;
-          fatalError = error;
-        }
+        process.exit(0);
+      } catch (err) {
+        process.stderr.write(`acp server: fatal error: ${String(err)}\n`);
+        process.exit(1);
       }
-      if (hasFatalError) {
-        try {
-          await writeAndDrain(
-            process.stderr,
-            `acp server: fatal error: ${formatAcpFatalError(fatalError)}\n`,
-          );
-        } finally {
-          process.exit(1);
-        }
-      }
-      process.exit(0);
     });
-}
-
-/** Render an arbitrary rejection as a stable, printable message. */
-function formatAcpFatalError(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  if (typeof error === 'string') return error;
-  try {
-    return JSON.stringify(error) ?? 'Unknown error';
-  } catch {
-    return 'Unknown error';
-  }
 }

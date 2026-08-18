@@ -211,39 +211,6 @@ describe('AskUserQuestionTool', () => {
     expect(labelSchema.description).toContain("append '(Recommended)'");
   });
 
-  it('rejects duplicate questions and duplicate option labels before reverse RPC', async () => {
-    const { tool, requestQuestion } = makeTool();
-    const duplicateLabels = await executeTool(tool, {
-      turnId: '0',
-      toolCallId: 'call_duplicate_labels',
-      args: input({
-        options: [
-          { label: 'Postgres', description: 'First' },
-          { label: 'Postgres', description: 'Duplicate' },
-        ],
-      }),
-      signal,
-    });
-    const duplicateQuestions = await executeTool(tool, {
-      turnId: '0',
-      toolCallId: 'call_duplicate_questions',
-      args: {
-        questions: [input().questions[0]!, input().questions[0]!],
-      },
-      signal,
-    });
-
-    expect(duplicateLabels).toMatchObject({
-      isError: true,
-      output: expect.stringContaining('option labels must be unique'),
-    });
-    expect(duplicateQuestions).toMatchObject({
-      isError: true,
-      output: expect.stringContaining('Question texts must be unique'),
-    });
-    expect(requestQuestion).not.toHaveBeenCalled();
-  });
-
   it('always builds the background-question schema', () => {
     const agent = {
       rpc: { requestQuestion: vi.fn() },
@@ -265,17 +232,7 @@ describe('AskUserQuestionTool', () => {
       const result = await executeTool(tool, {
         turnId: '0',
         toolCallId: 'call_question',
-        args: input({
-          multi_select: true,
-          options: [
-            {
-              label: 'Postgres',
-              description: 'Relational storage',
-              preview: 'CREATE TABLE example (id integer);',
-            },
-            { label: 'SQLite', description: 'Embedded storage' },
-          ],
-        }),
+        args: input({ multi_select: true }),
         signal,
       });
 
@@ -290,15 +247,10 @@ describe('AskUserQuestionTool', () => {
               question: 'Which database?',
               header: 'Storage',
               options: [
-                {
-                  label: 'Postgres',
-                  description: 'Relational storage',
-                  preview: 'CREATE TABLE example (id integer);',
-                },
+                { label: 'Postgres', description: 'Relational storage' },
                 { label: 'SQLite', description: 'Embedded storage' },
               ],
               multiSelect: true,
-              otherLabel: 'Other',
             },
           ],
         },
@@ -330,62 +282,6 @@ describe('AskUserQuestionTool', () => {
     expect(telemetryTrack).toHaveBeenCalledWith('question_answered', {
       answered: 1,
       method: 'number_key',
-    });
-  });
-
-  it('returns selected preview and user notes with the answers', async () => {
-    const { tool } = makeTool({
-      requestQuestion: async () => ({
-        answers: { 'Which database?': 'SQLite' },
-        annotations: {
-          'Which database?': {
-            preview: 'const database = new Database("example.db");',
-            notes: 'Keep deployment simple.',
-          },
-        },
-      }),
-    });
-
-    const result = await executeTool(tool, {
-      turnId: '0',
-      toolCallId: 'call_question',
-      args: input(),
-      signal,
-    });
-
-    expect(result.output).toBe(JSON.stringify({
-      answers: { 'Which database?': 'SQLite' },
-      annotations: {
-        'Which database?': {
-          preview: 'const database = new Database("example.db");',
-          notes: 'Keep deployment simple.',
-        },
-      },
-    }));
-  });
-
-  it('accepts a source tag and includes it in answer telemetry', async () => {
-    const { tool, telemetryTrack } = makeTool({
-      requestQuestion: async () => ({
-        answers: { 'Which database?': 'SQLite' },
-      }),
-    });
-    const args: AskUserQuestionInput = {
-      ...input(),
-      metadata: { source: 'remember' },
-    };
-
-    expect(AskUserQuestionInputSchema.safeParse(args).success).toBe(true);
-    await executeTool(tool, {
-      turnId: '0',
-      toolCallId: 'call_question',
-      args,
-      signal,
-    });
-
-    expect(telemetryTrack).toHaveBeenCalledWith('question_answered', {
-      answered: 1,
-      source: 'remember',
     });
   });
 
@@ -509,7 +405,7 @@ describe('AskUserQuestionTool', () => {
     );
   });
 
-  it('returns an error when question rpc delivery fails', async () => {
+  it('resolves question rpc error responses as dismissed answers', async () => {
     const { tool } = makeTool({
       requestQuestion: async () => {
         throw new PythinkerError(ErrorCodes.INTERNAL, 'JSON-RPC question error response');
@@ -523,31 +419,15 @@ describe('AskUserQuestionTool', () => {
       signal,
     });
 
-    expect(result).toMatchObject({ isError: true });
-    expect(result.output).toContain('could not be delivered or answered');
-    expect(result.output).toContain('JSON-RPC question error response');
-    expect(result.output).not.toContain('dismissed');
-    expect(result.output).not.toContain('Do NOT call this tool again');
-  });
-
-  it('returns an expired question note without marking it dismissed', async () => {
-    const { tool, telemetryTrack } = makeTool({
-      requestQuestion: async () => {
-        throw new PythinkerError(ErrorCodes.QUESTION_EXPIRED, 'question expired');
-      },
-    });
-
-    const result = await executeTool(tool, {
-      turnId: '0',
-      toolCallId: 'call_question',
-      args: { ...input(), metadata: { source: 'test' } },
-      signal,
-    });
-
     expect(result).toMatchObject({ isError: false });
-    expect(result.output).toContain('expired');
-    expect(result.output).not.toContain('dismissed');
-    expect(telemetryTrack).toHaveBeenCalledWith('question_expired', { source: 'test' });
+    expect(result.output).toContain('dismissed');
+    expect(typeof result.output).toBe('string');
+    const output = typeof result.output === 'string' ? result.output : '';
+    expect(JSON.parse(output)).toEqual({
+      answers: {},
+      note: 'User dismissed the question without answering.',
+    });
+    expect(result.output).not.toContain('Do NOT call this tool again');
   });
 
   it('propagates aborts while waiting for question rpc', async () => {

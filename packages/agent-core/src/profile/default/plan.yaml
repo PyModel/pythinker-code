@@ -17,6 +17,5 @@ tools:
   - ReadMediaFile
   - Glob
   - Grep
-  - LSP
   - WebSearch
   - FetchURL

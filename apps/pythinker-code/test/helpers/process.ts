@@ -19,15 +19,8 @@ export function captureProcessWrite(stream: 'stdout' | 'stderr'): {
 } {
   const chunks: string[] = [];
   const target = process[stream];
-  const spy = vi.spyOn(target, 'write').mockImplementation(((
-    chunk: string | Uint8Array,
-    encodingOrCallback?: BufferEncoding | ((error?: Error | null) => void),
-    callback?: (error?: Error | null) => void,
-  ) => {
+  const spy = vi.spyOn(target, 'write').mockImplementation(((chunk: string | Uint8Array) => {
     chunks.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8'));
-    const complete =
-      typeof encodingOrCallback === 'function' ? encodingOrCallback : callback;
-    complete?.();
     return true;
   }) as never);
 

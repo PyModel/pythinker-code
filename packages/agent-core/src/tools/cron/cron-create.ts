@@ -55,7 +55,7 @@ export const MAX_CRON_JOBS_PER_SESSION = 50;
 /**
  * Hard ceiling on `prompt` byte length (UTF-8). The zod `.max(...)`
  * upstream is in code units, which underflows multi-byte input
- * (`'é'.length === 1` even though it is 3 bytes in UTF-8); we re-check using
+ * (`'汉'.length === 1` even though it is 3 bytes); we re-check using
  * `Buffer.byteLength` so the budget reflects the actual on-the-wire
  * size the model will eventually see.
  */
@@ -149,11 +149,11 @@ export class CronCreateTool implements BuiltinTool<CronCreateInput> {
     let parsed: ParsedCronExpression;
     try {
       parsed = parseCronExpression(normalizedCron);
-    } catch (error) {
+    } catch (err) {
       return {
         isError: true,
         output: `Invalid cron expression: ${
-          error instanceof Error ? error.message : String(error)
+          err instanceof Error ? err.message : String(err)
         }`,
       };
     }

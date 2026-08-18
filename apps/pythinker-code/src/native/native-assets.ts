@@ -440,15 +440,6 @@ export function getNativePackageRoot(
   return cacheRoot === null ? null : resolveAssetPath(cacheRoot, pkg.root);
 }
 
-export function getNativeAssetFilePath(
-  packageName: string,
-  packageRelativePath: string,
-  options: NativeAssetOptions = {},
-): string | null {
-  const packageRoot = getNativePackageRoot(packageName, options);
-  return packageRoot === null ? null : join(packageRoot, packageRelativePath);
-}
-
 export function hasNativePackage(packageName: string, manifest: NativeAssetManifest): boolean {
   return manifest.packages.some((pkg) => pkg.name === packageName);
 }
@@ -560,25 +551,4 @@ export function cleanupStaleNativeCacheForCurrent(
     target: manifest.target,
     currentRoot,
   });
-}
-
-/**
- * Windows native installs can't overwrite a running exe, so the updater
- * renames the old one aside to `pythinker.exe.old` before writing the
- * replacement. Best-effort cleanup at the next startup; the file may still
- * be locked (AV scan, slow parent exit) — ignore and retry next launch.
- */
-export function cleanupStaleUpdateBackup(
-  options: { readonly execPath?: string; readonly platform?: NodeJS.Platform; readonly isSea?: boolean } = {},
-): void {
-  const platform = options.platform ?? process.platform;
-  if (platform !== 'win32') return;
-  const isSea = options.isSea ?? getSeaAssetSource() !== null;
-  if (!isSea) return;
-  const execPath = options.execPath ?? process.execPath;
-  try {
-    rmSync(`${execPath}.old`, { force: true });
-  } catch {
-    // Locked or absent; the next startup retries.
-  }
 }

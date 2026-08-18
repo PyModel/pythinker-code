@@ -103,7 +103,7 @@ describe('Cron — session E2E (P1.9)', () => {
       recurring: true,
     });
     if (execution.isError === true) {
-      throw new TypeError(
+      throw new Error(
         `CronCreate unexpectedly errored: ${outputText(execution.output)}`,
       );
     }
@@ -165,7 +165,7 @@ describe('Cron — session E2E (P1.9)', () => {
       recurring: true,
     });
     if (createExec.isError === true) {
-      throw new TypeError(`CronCreate failed: ${outputText(createExec.output)}`);
+      throw new Error(`CronCreate failed: ${outputText(createExec.output)}`);
     }
     const createOut = await createExec.execute(ctxArgs);
     expect(createOut.isError ?? false).toBe(false);
@@ -176,7 +176,7 @@ describe('Cron — session E2E (P1.9)', () => {
     // 2. List — should show one record carrying the id we just got.
     const listExec = listTool.resolveExecution({});
     if (listExec.isError === true) {
-      throw new TypeError(`CronList failed: ${outputText(listExec.output)}`);
+      throw new Error(`CronList failed: ${outputText(listExec.output)}`);
     }
     const listOut = await listExec.execute(ctxArgs);
     expect(listOut.isError ?? false).toBe(false);
@@ -188,7 +188,7 @@ describe('Cron — session E2E (P1.9)', () => {
     // 3. Delete the task we just created.
     const deleteExec = deleteTool.resolveExecution({ id });
     if (deleteExec.isError === true) {
-      throw new TypeError(`CronDelete failed: ${outputText(deleteExec.output)}`);
+      throw new Error(`CronDelete failed: ${outputText(deleteExec.output)}`);
     }
     const deleteOut = await deleteExec.execute(ctxArgs);
     expect(deleteOut.isError ?? false).toBe(false);
@@ -197,7 +197,7 @@ describe('Cron — session E2E (P1.9)', () => {
     // 4. List again — empty.
     const listExec2 = listTool.resolveExecution({});
     if (listExec2.isError === true) {
-      throw new TypeError(`CronList failed: ${outputText(listExec2.output)}`);
+      throw new Error(`CronList failed: ${outputText(listExec2.output)}`);
     }
     const listOut2 = await listExec2.execute(ctxArgs);
     expect(listOut2.isError ?? false).toBe(false);

@@ -70,11 +70,8 @@ export interface AcpModelEntry {
  * `capabilities` declaration). Kept here because the list is
  * ACP-picker-specific UX — moving it into the kernel would bake an
  * adapter concern into a place that doesn't need to know about ACP.
- *
- * These are the model ids as served by the third-party Kimi coding-plan API —
- * they must match the service's real ids, not pythinker branding.
  */
-const TOGGLEABLE_THINKING_MODELS = new Set(['kimi-for-coding', 'kimi-code']);
+const TOGGLEABLE_THINKING_MODELS = new Set(['kimi-for-coding', 'pythinker-code']);
 
 export function deriveThinkingSupported(alias: ModelAlias, providerType?: ProviderType): boolean {
   const effective = effectiveModelAlias(alias, providerType);

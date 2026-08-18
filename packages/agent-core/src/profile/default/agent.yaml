@@ -9,21 +9,12 @@ tools:
   - Read
   - Write
   - Edit
-  - NotebookEdit
   - Grep
   - Glob
   - Bash
-  - PowerShell
-  - LSP
   - TaskList
   - TaskOutput
   - TaskStop
-  - TaskCreate
-  - TaskGet
-  - TaskUpdate
-  - TeamCreate
-  - TeamDelete
-  - SendMessage
   - CronCreate
   - CronList
   - CronDelete
@@ -32,20 +23,15 @@ tools:
   - Skill
   - WebSearch
   - Agent
-  - DynamicWorkflow
+  - AgentDynamicWorkflow
   - FetchURL
   - AskUserQuestion
-  - Config
   - EnterPlanMode
   - ExitPlanMode
-  - EnterWorktree
-  - ExitWorktree
   - CreateGoal
   - GetGoal
   - SetGoalBudget
   - UpdateGoal
-  - ListMcpResourcesTool
-  - ReadMcpResourceTool
   - mcp__*
 
 subagents:
@@ -55,5 +41,3 @@ subagents:
     description: Fast codebase exploration with prompt-enforced read-only behavior.
   plan:
     description: Read-only implementation planning and architecture design.
-  verification:
-    description: Adversarial read-only verification with command-backed verdicts.

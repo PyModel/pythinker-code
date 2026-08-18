@@ -25,13 +25,6 @@ import {
 import type { BackgroundTaskInfo, BackgroundTaskStatus } from '@pymodel/pythinker-code-sdk';
 
 import { SELECT_POINTER } from '@/tui/constant/symbols';
-import { combinedBindingHint, formatBindingKeys } from '#/tui/components/dialogs/choice-picker';
-import {
-  defaultKeybindings,
-  keybindingDisplayText,
-  KeybindingResolver,
-  type ParsedKeybinding,
-} from '#/tui/keybindings';
 import { currentTheme } from '#/tui/theme';
 import { printableChar } from '@/tui/utils/printable-key';
 import { sanitizeShellOutput } from '#/tui/utils/shell-output';
@@ -47,7 +40,7 @@ export interface TasksBrowserProps {
   readonly tailOutput: string | undefined;
   readonly tailLoading: boolean;
   readonly flashMessage: string | undefined;
-  readonly onSelect: (taskId: string | undefined) => void;
+  readonly onSelect: (taskId: string) => void;
   readonly onToggleFilter: () => void;
   readonly onRefresh: () => void;
   readonly onCancel: () => void;
@@ -192,8 +185,6 @@ export class TasksBrowserApp extends Container implements Focusable {
   private listScroll = 0;
   private pendingStopTaskId: string | undefined = undefined;
   private pendingStopTimer: NodeJS.Timeout | undefined = undefined;
-  private bindings = defaultKeybindings();
-  private keybindings = new KeybindingResolver(this.bindings);
 
   constructor(props: TasksBrowserProps, terminal: Terminal) {
     super();
@@ -206,40 +197,30 @@ export class TasksBrowserApp extends Container implements Focusable {
   setProps(next: TasksBrowserProps): void {
     this.props = next;
     this.sortedVisible = visibleTasks(next.tasks, next.filter).toSorted(compareTasks);
-    // Report the reconciled selection back so the controller can drop a
-    // filtered-out task id and stop loading its stale tail output.
-    const selectedTaskId = this.syncSelectionFromProps();
+    this.syncSelectionFromProps();
     if (this.pendingStopTaskId !== undefined) {
       const task = next.tasks.find((t) => t.taskId === this.pendingStopTaskId);
       if (task === undefined || isTerminal(task.status)) this.clearPendingStop();
     }
     this.invalidate();
-    if (selectedTaskId !== next.selectedTaskId) next.onSelect(selectedTaskId);
   }
 
-  setKeybindings(bindings: readonly ParsedKeybinding[]): void {
-    this.bindings = bindings;
-    this.keybindings = new KeybindingResolver(bindings);
-  }
-
-  /** Returns the task id the list settles on (undefined when nothing is visible). */
-  private syncSelectionFromProps(): string | undefined {
+  private syncSelectionFromProps(): void {
     if (this.sortedVisible.length === 0) {
       this.selectedIndex = 0;
       this.listScroll = 0;
-      return undefined;
+      return;
     }
     if (this.props.selectedTaskId !== undefined) {
       const idx = this.sortedVisible.findIndex((t) => t.taskId === this.props.selectedTaskId);
       if (idx !== -1) {
         this.selectedIndex = idx;
-        return this.props.selectedTaskId;
+        return;
       }
     }
     if (this.selectedIndex >= this.sortedVisible.length) {
       this.selectedIndex = this.sortedVisible.length - 1;
     }
-    return this.sortedVisible[this.selectedIndex]?.taskId;
   }
 
   private clearPendingStop(): void {
@@ -271,22 +252,22 @@ export class TasksBrowserApp extends Container implements Focusable {
       return;
     }
 
-    const handlers = {
-      'select:previous': () => this.moveSelection(-1),
-      'select:next': () => this.moveSelection(1),
-      'select:accept': () => {
-        const task = this.sortedVisible[this.selectedIndex];
-        if (task) this.props.onOpenOutput(task.taskId);
-      },
-      'select:cancel': () => this.props.onCancel(),
-    } as const;
-    if (
-      this.keybindings.dispatch(data, ['Select'], handlers) ||
-      this.keybindings.dispatchKeyId(data, ['Select'], handlers)
-    ) return;
-
-    if (k === 'q' || k === 'Q') {
+    if (matchesKey(data, Key.escape) || k === 'q' || k === 'Q') {
       this.props.onCancel();
+      return;
+    }
+    if (matchesKey(data, Key.up) || k === 'k') {
+      if (this.sortedVisible.length === 0) return;
+      this.selectedIndex = Math.max(0, this.selectedIndex - 1);
+      this.emitSelect();
+      this.invalidate();
+      return;
+    }
+    if (matchesKey(data, Key.down) || k === 'j') {
+      if (this.sortedVisible.length === 0) return;
+      this.selectedIndex = Math.min(this.sortedVisible.length - 1, this.selectedIndex + 1);
+      this.emitSelect();
+      this.invalidate();
       return;
     }
     if (matchesKey(data, Key.tab) || k === '\t') {
@@ -312,18 +293,11 @@ export class TasksBrowserApp extends Container implements Focusable {
       this.invalidate();
       return;
     }
-    if (k === 'o' || k === 'O') {
+    if (k === 'o' || k === 'O' || matchesKey(data, Key.enter)) {
       const task = this.sortedVisible[this.selectedIndex];
       if (task) this.props.onOpenOutput(task.taskId);
       return;
     }
-  }
-
-  private moveSelection(delta: -1 | 1): void {
-    if (this.sortedVisible.length === 0) return;
-    this.selectedIndex = Math.max(0, Math.min(this.sortedVisible.length - 1, this.selectedIndex + delta));
-    this.emitSelect();
-    this.invalidate();
   }
 
   /**
@@ -397,33 +371,14 @@ export class TasksBrowserApp extends Container implements Focusable {
       return fitExactly(line, width);
     }
 
-    const navigation = combinedBindingHint(
-      keybindingDisplayText(this.bindings, 'Select', 'select:previous'),
-      keybindingDisplayText(this.bindings, 'Select', 'select:next'),
-      'select',
-    );
-    const accept = keybindingDisplayText(this.bindings, 'Select', 'select:accept');
-    const cancel = keybindingDisplayText(this.bindings, 'Select', 'select:cancel');
-    const acceptKeys = [
-      ...(accept === undefined ? [] : formatBindingKeys(accept).split(' / ')).filter(
-        (binding) => binding.toLowerCase() !== 'o',
-      ),
-      'O',
-    ].join('/');
-    const cancelKeys = [
-      'Q',
-      ...(cancel === undefined ? [] : formatBindingKeys(cancel).split(' / ')).filter(
-        (binding) => binding.toLowerCase() !== 'q',
-      ),
-    ].join('/');
     const parts = [
-      navigation === undefined ? undefined : ` ${key(formatBindingKeys(navigation.split(' ')[0] ?? ''))} ${dim(navigation.slice(navigation.indexOf(' ') + 1))}`,
-      `${key(acceptKeys)} ${dim('output')}`,
+      ` ${key('↑↓')} ${dim('select')}`,
+      `${key('Enter/O')} ${dim('output')}`,
       `${key('S')} ${dim('stop')}`,
       `${key('R')} ${dim('refresh')}`,
       `${key('Tab')} ${dim('filter')}`,
-      `${key(cancelKeys)} ${dim('cancel')} `,
-    ].filter((part): part is string => part !== undefined);
+      `${key('Q/Esc')} ${dim('cancel')} `,
+    ];
     const left = parts.join('  ');
     const flash = this.props.flashMessage;
     if (flash !== undefined && flash.length > 0) {

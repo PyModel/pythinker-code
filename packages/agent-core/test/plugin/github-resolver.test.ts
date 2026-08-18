@@ -144,22 +144,6 @@ describe('resolveGithubSource', () => {
     );
   });
 
-  it.each(['feature//x', 'feature/./x', 'feature/../x'])(
-    'rejects unsafe ref path %s before making a request',
-    async (value) => {
-      const fetchSpy = vi.fn();
-      globalThis.fetch = fetchSpy as unknown as typeof fetch;
-
-      await expect(resolveGithubSource({
-        kind: 'github',
-        owner: 'owner',
-        repo: 'repo',
-        ref: { kind: 'branch', value },
-      })).rejects.toThrow(/GitHub ref must not contain empty/);
-      expect(fetchSpy).not.toHaveBeenCalled();
-    },
-  );
-
   it('bare URL: 302 with /releases/tag/X resolves to that tag', async () => {
     mockSequence([
       {
@@ -211,24 +195,6 @@ describe('resolveGithubSource', () => {
     );
     // Sanity: no fragment hijacking.
     expect(new URL(result.tarballUrl).hash).toBe('');
-  });
-
-  it('uses one abort signal for every bare-repository probe', async () => {
-    const controller = new AbortController();
-    const responses = [new Response(null, { status: 404 }), new Response(null, { status: 200 })];
-    globalThis.fetch = vi.fn(async (_input, init) => {
-      expect(init?.signal).toBe(controller.signal);
-      const response = responses.shift();
-      if (response === undefined) throw new Error('unexpected fetch');
-      return response;
-    }) as typeof fetch;
-
-    await resolveGithubSource(
-      { kind: 'github', owner: 'owner', repo: 'repo' },
-      controller.signal,
-    );
-
-    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
   });
 
   it('bare URL: 404 from /releases/latest falls back to codeload HEAD', async () => {

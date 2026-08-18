@@ -17,8 +17,6 @@ export interface ToolInfo {
   readonly description: string;
   readonly active: boolean;
   readonly source: ToolSource;
-  readonly mcpServerId?: string;
-  readonly inputSchema?: Record<string, unknown>;
 }
 
 export interface McpToolCollision {
@@ -26,9 +24,7 @@ export interface McpToolCollision {
   readonly toolName: string;
   readonly collidesWith:
     | { readonly kind: 'same_server'; readonly toolName: string }
-    | { readonly kind: 'other_server'; readonly serverName: string }
-    | { readonly kind: 'builtin' }
-    | { readonly kind: 'user' };
+    | { readonly kind: 'other_server'; readonly serverName: string };
 }
 
 export interface McpServerRegistrationResult {

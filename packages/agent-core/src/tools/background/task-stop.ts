@@ -17,18 +17,12 @@ import TASK_STOP_DESCRIPTION from './task-stop.md?raw';
 // ── Input schema ─────────────────────────────────────────────────────
 
 export const TaskStopInputSchema = z.object({
-  task_id: z.string().describe('The background task ID to stop.').optional(),
-  shell_id: z
-    .string()
-    .describe('Deprecated alias for task_id, retained for KillShell compatibility.')
-    .optional(),
+  task_id: z.string().describe('The background task ID to stop.'),
   reason: z
     .string()
     .default('Stopped by TaskStop')
     .describe('Short reason recorded when the task is stopped.')
     .optional(),
-}).refine((input) => input.task_id !== undefined || input.shell_id !== undefined, {
-  message: 'Missing required parameter: task_id',
 });
 
 export type TaskStopInput = z.Infer<typeof TaskStopInputSchema>;
@@ -37,28 +31,20 @@ export type TaskStopInput = z.Infer<typeof TaskStopInputSchema>;
 
 export class TaskStopTool implements BuiltinTool<TaskStopInput> {
   readonly name = 'TaskStop' as const;
-  readonly aliases = ['KillShell'] as const;
   readonly description = TASK_STOP_DESCRIPTION;
-  readonly parameters: Record<string, unknown> = {
-    ...toInputJsonSchema(TaskStopInputSchema),
-    anyOf: [{ required: ['task_id'] }, { required: ['shell_id'] }],
-  };
+  readonly parameters: Record<string, unknown> = toInputJsonSchema(TaskStopInputSchema);
 
   constructor(private readonly manager: BackgroundManager) {}
 
   resolveExecution(args: TaskStopInput): ToolExecution {
-    const taskId = args.task_id ?? args.shell_id;
-    if (taskId === undefined) {
-      return { isError: true, output: 'Missing required parameter: task_id' };
-    }
     return {
-      description: `Stopping task ${taskId}`,
+      description: `Stopping task ${args.task_id}`,
       approvalRule: this.name,
-      matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, taskId),
+      matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, args.task_id),
       execute: async () => {
-        const info = this.manager.getTask(taskId);
+        const info = this.manager.getTask(args.task_id);
         if (!info) {
-          return { isError: true, output: `Task not found: ${taskId}` };
+          return { isError: true, output: `Task not found: ${args.task_id}` };
         }
 
         // A blank or whitespace-only reason falls back to the default. `?? default`
@@ -83,10 +69,10 @@ export class TaskStopTool implements BuiltinTool<TaskStopInput> {
           };
         }
 
-        await this.manager.suppressTerminalNotification(taskId);
-        const result = await this.manager.stop(taskId, reason);
+        await this.manager.suppressTerminalNotification(args.task_id);
+        const result = await this.manager.stop(args.task_id, reason);
         if (!result) {
-          return { isError: true, output: `Failed to stop task: ${taskId}` };
+          return { isError: true, output: `Failed to stop task: ${args.task_id}` };
         }
 
         return {

@@ -113,16 +113,17 @@ describe('e2e: error recovery', () => {
         ]),
       ).rejects.toThrow(APIStatusError);
 
-      const caught = await step(provider, '', toolset, [
+      try {
+        await step(provider, '', toolset, [
           { role: 'user', content: [{ type: 'text', text: 'hi' }], toolCalls: [] },
-        ]).then(
-        () => undefined,
-        (error: unknown) => error,
-      );
-      expect(caught).toBeInstanceOf(APIStatusError);
-      const apiError = caught as APIStatusError;
-      expect(apiError.statusCode).toBe(429);
-      expect(apiError.requestId).toBe('req-123');
+        ]);
+        expect.unreachable('should have thrown');
+      } catch (error: unknown) {
+        expect(error).toBeInstanceOf(APIStatusError);
+        const apiError = error as APIStatusError;
+        expect(apiError.statusCode).toBe(429);
+        expect(apiError.requestId).toBe('req-123');
+      }
     });
 
     it('APIConnectionError propagates through step()', async () => {

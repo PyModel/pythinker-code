@@ -1,12 +1,6 @@
-import picomatch from 'picomatch';
 import { describe, expect, it } from 'vitest';
 
-import {
-  isMcpToolName,
-  mcpServerToolPattern,
-  qualifyMcpToolName,
-  sanitizeMcpNamePart,
-} from '../../src/mcp/tool-naming';
+import { isMcpToolName, qualifyMcpToolName, sanitizeMcpNamePart } from '../../src/mcp/tool-naming';
 
 describe('sanitizeMcpNamePart', () => {
   it('passes alphanumeric, underscore, and dash through unchanged', () => {
@@ -66,35 +60,5 @@ describe('isMcpToolName', () => {
     expect(isMcpToolName('mcp__github__list')).toBe(true);
     expect(isMcpToolName('Read')).toBe(false);
     expect(isMcpToolName('mcp_one_underscore__no')).toBe(false);
-  });
-});
-
-describe('mcpServerToolPattern', () => {
-  it.each(['My Search', 'files[*]'])('matches qualified tools for server %s', (serverName) => {
-    const pattern = mcpServerToolPattern(serverName);
-    expect(picomatch.isMatch(qualifyMcpToolName(serverName, 'lookup'), pattern)).toBe(true);
-    expect(pattern).not.toContain('[');
-    expect(pattern).not.toContain(']');
-  });
-
-  it('matches qualified tools when the server prefix is truncated', () => {
-    const serverName = 'long server '.repeat(8);
-    expect(
-      picomatch.isMatch(
-        qualifyMcpToolName(serverName, 'lookup'),
-        mcpServerToolPattern(serverName),
-      ),
-    ).toBe(true);
-  });
-
-  it('reserves exactly the underscore and eight hash characters at the boundary', () => {
-    const serverName = 's'.repeat(80);
-    const qualified = qualifyMcpToolName(serverName, 'lookup');
-    const pattern = mcpServerToolPattern(serverName);
-
-    expect(qualified).toHaveLength(64);
-    expect(qualified).toMatch(/_[\da-f]{8}$/u);
-    expect(pattern).toBe(`${qualified.slice(0, 55)}*`);
-    expect(picomatch.isMatch(qualified, pattern)).toBe(true);
   });
 });

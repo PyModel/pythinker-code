@@ -145,7 +145,8 @@ async function locateWindowsGitBash(deps: EnvironmentDeps): Promise<string> {
   ];
   const localAppData = deps.env['LOCALAPPDATA']?.trim();
   if (localAppData !== undefined && localAppData.length > 0) {
-    candidates.push(`${localAppData}\\Programs\\Git\\bin\\bash.exe`, `${localAppData}\\Programs\\Git\\usr\\bin\\bash.exe`);
+    candidates.push(`${localAppData}\\Programs\\Git\\bin\\bash.exe`);
+    candidates.push(`${localAppData}\\Programs\\Git\\usr\\bin\\bash.exe`);
   }
   for (const candidate of candidates) {
     checked.push(candidate);

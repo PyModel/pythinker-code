@@ -4,7 +4,7 @@
   "private": true,
   "description": "Execution environment abstraction for AI agent applications",
   "license": "MIT",
-  "author": "Pythoughts",
+  "author": "PyModel",
   "homepage": "https://github.com/PyModel/pythinker-code/tree/main/packages/kaos#readme",
   "repository": {
     "type": "git",

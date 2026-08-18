@@ -2,9 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { Agent } from '../../src/agent';
 import type { SkillActivationOrigin } from '../../src/agent/context';
-import { SkillManager } from '../../src/agent/skill';
 import type { SkillRegistry as AgentSkillRegistry } from '../../src/agent/skill';
-import { HookEngine } from '../../src/session/hooks';
 import { SessionSkillRegistry, type SkillDefinition } from '../../src/skill';
 import {
   MAX_SKILL_QUERY_DEPTH,
@@ -44,9 +42,7 @@ function registry(
 }
 
 interface SkillToolMethods {
-  readonly applySkillOverrides: (skill: SkillDefinition) => void;
   readonly recordSkillActivation: (origin: SkillActivationOrigin) => void;
-  readonly registerSkillHooks: (skill: SkillDefinition) => void;
   readonly recordSystemReminder: (content: string, origin: SkillActivationOrigin) => void;
   readonly recordUserMessage: (
     content: readonly [{ readonly type: 'text'; readonly text: string }],
@@ -56,9 +52,7 @@ interface SkillToolMethods {
 
 function skillToolMethods() {
   return {
-    applySkillOverrides: vi.fn<SkillToolMethods['applySkillOverrides']>(),
     recordSkillActivation: vi.fn<SkillToolMethods['recordSkillActivation']>(),
-    registerSkillHooks: vi.fn<SkillToolMethods['registerSkillHooks']>(),
     recordSystemReminder: vi.fn<SkillToolMethods['recordSystemReminder']>(),
     recordUserMessage: vi.fn<SkillToolMethods['recordUserMessage']>(),
   } satisfies SkillToolMethods;
@@ -68,13 +62,7 @@ function skillToolAgent(skills: AgentSkillRegistry, methods: SkillToolMethods): 
   return {
     skills: {
       registry: skills,
-      applyInlineOverrides: methods.applySkillOverrides,
       recordActivation: methods.recordSkillActivation,
-      registerHooks: methods.registerSkillHooks,
-      renderPrompt: (
-        skill: SkillDefinition,
-        args: string,
-      ) => Promise.resolve(skills.renderSkillPrompt(skill, args)),
     },
     context: {
       appendSystemReminder: methods.recordSystemReminder,
@@ -167,93 +155,6 @@ describe('SkillTool execution', () => {
     expect(methods.recordSkillActivation).not.toHaveBeenCalled();
   });
 
-  it('runs context-fork skills through a foreground subagent for model and user activation', async () => {
-    const spawn = vi.fn(async () => ({
-      agentId: 'agent-1',
-      profileName: 'explore',
-      resumed: false,
-      completion: Promise.resolve({ result: 'Forked review complete.' }),
-    }));
-    const skillRegistry = registry([
-      skill('review', {
-        context: 'fork',
-        agent: 'explore',
-        model: 'review-model',
-        effort: 'medium',
-        'allowed-tools': ['Read', 'Bash(git:*)'],
-      }),
-    ]);
-    const emitEvent = vi.fn();
-    const agent = {
-      context: {},
-      subagentHost: { spawn },
-      emitEvent,
-      telemetry: { track: vi.fn() },
-    } as unknown as Agent;
-    Object.assign(agent, { skills: new SkillManager(agent, skillRegistry) });
-    const tool = new SkillTool(agent);
-
-    const result = await execute(tool, { skill: 'review', args: 'current branch' });
-
-    expect(result).toEqual({
-      output:
-        'Skill "review" completed (forked execution).\n\nResult:\nForked review complete.',
-    });
-    expect(spawn).toHaveBeenCalledWith({
-      profileName: 'explore',
-      parentToolCallId: 'call_skill',
-      prompt: 'body of review\n\nARGUMENTS: current branch',
-      description: 'Execute skill review',
-      runInBackground: false,
-      signal,
-      modelAlias: 'review-model',
-      thinkingLevel: 'medium',
-      allowedTools: ['Read', 'Bash(git:*)'],
-    });
-    expect(emitEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: 'skill.activated',
-        skillName: 'review',
-        trigger: 'model-tool',
-      }),
-    );
-
-    const userResult = await agent.skills!.activate({
-      name: 'review',
-      args: 'user request',
-    });
-
-    expect(userResult).toEqual({
-      execution: 'fork',
-      result: 'Forked review complete.',
-    });
-    expect(spawn).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        parentToolCallId: expect.stringMatching(/^skill-/),
-        prompt: 'body of review\n\nARGUMENTS: user request',
-        runInBackground: false,
-      }),
-    );
-    expect(emitEvent).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        type: 'skill.activated',
-        skillName: 'review',
-        trigger: 'user-slash',
-      }),
-    );
-  });
-
-  it('reports context-fork skills as unavailable without a subagent host', async () => {
-    const tool = skillTool(registry([skill('review', { context: 'fork' })]));
-
-    const result = await execute(tool, { skill: 'review' });
-
-    expect(result).toEqual({
-      isError: true,
-      output: 'Skill "review" requires subagent execution, which is not available.',
-    });
-  });
-
   it('records inline skill content as a loaded skill message', async () => {
     const methods = skillToolMethods();
     const tool = skillTool(registry([skill('commit')]), methods);
@@ -263,9 +164,7 @@ describe('SkillTool execution', () => {
     expect(result.isError).toBeUndefined();
     expect(result.output).toContain('loaded inline');
     expect(result.output).not.toContain('body of commit');
-    expect(methods.applySkillOverrides).toHaveBeenCalledTimes(1);
     expect(methods.recordSkillActivation).toHaveBeenCalledTimes(1);
-    expect(methods.registerSkillHooks).toHaveBeenCalledTimes(1);
     expect(methods.recordUserMessage).toHaveBeenCalledTimes(1);
     expect(methods.recordUserMessage.mock.calls[0]?.[0][0]?.text).toBe(
       'Skill tool loaded instructions for this request. Follow them.\n\n' +
@@ -274,77 +173,6 @@ describe('SkillTool execution', () => {
     expect(methods.recordUserMessage.mock.calls[0]?.[0][0]?.text).not.toContain(
       '<system-reminder>',
     );
-  });
-
-  it('registers valid skill frontmatter hooks with the session hook engine', () => {
-    const engine = new HookEngine();
-    const item = skill('hooked', {
-      hooks: {
-        PostToolUse: [
-          {
-            matcher: 'Write',
-            hooks: [
-              {
-                type: 'command',
-                command: 'echo checked',
-                once: true,
-              },
-            ],
-          },
-        ],
-      },
-    });
-    const agent = { hooks: engine } as unknown as Agent;
-    const manager = new SkillManager(agent, registry([item]));
-
-    manager.registerHooks(item);
-
-    expect(engine.summary).toEqual({ PostToolUse: 1 });
-  });
-
-  it('scopes inline model, effort, and allowed-tool overrides to the active turn', async () => {
-    let finishTurn!: () => void;
-    const turnFinished = new Promise<void>((resolve) => {
-      finishTurn = resolve;
-    });
-    const config = {
-      modelAlias: 'base-model',
-      thinkingLevel: 'low',
-      update: vi.fn((changed: { modelAlias?: string; thinkingLevel?: string }) => {
-        if (changed.modelAlias !== undefined) config.modelAlias = changed.modelAlias;
-        if (changed.thinkingLevel !== undefined) config.thinkingLevel = changed.thinkingLevel;
-      }),
-    };
-    const removeRules = vi.fn();
-    const addTurnOverrideRules = vi.fn(() => removeRules);
-    const agent = {
-      config,
-      permission: { addTurnOverrideRules },
-      turn: {
-        currentId: 4,
-        hasActiveTurn: true,
-        waitForCurrentTurn: () => turnFinished,
-      },
-    } as unknown as Agent;
-    const item = skill('scoped', {
-      model: 'review-model',
-      effort: 'medium',
-      'allowed-tools': 'Read, Bash(git:*)',
-    });
-    const manager = new SkillManager(agent, registry([item]));
-
-    manager.applyInlineOverrides(item);
-
-    expect(config.modelAlias).toBe('review-model');
-    expect(config.thinkingLevel).toBe('medium');
-    expect(addTurnOverrideRules).toHaveBeenCalledWith(['Read', 'Bash(git:*)']);
-
-    finishTurn();
-    await vi.waitFor(() => {
-      expect(removeRules).toHaveBeenCalledTimes(1);
-    });
-    expect(config.modelAlias).toBe('base-model');
-    expect(config.thinkingLevel).toBe('low');
   });
 
   it('keeps plugin instructions adjacent to model-invoked skill content', async () => {

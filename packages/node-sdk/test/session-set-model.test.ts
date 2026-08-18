@@ -1,5 +1,6 @@
 import { join } from 'node:path';
 
+import { FileTokenStorage, type TokenInfo } from '@pymodel/pythinker-code-oauth';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { createPythinkerHarness, type PythinkerError, type PythinkerHarness } from '#/index';
@@ -8,6 +9,16 @@ import { TEST_IDENTITY } from './test-identity';
 
 const tempDirs: string[] = [];
 
+function freshToken(): TokenInfo {
+  return {
+    accessToken: 'oauth-access-token',
+    refreshToken: 'oauth-refresh-token',
+    expiresAt: Math.floor(Date.now() / 1000) + 3600,
+    scope: '',
+    tokenType: 'Bearer',
+    expiresIn: 3600,
+  };
+}
 
 afterEach(async () => {
   await removeTempDirs(tempDirs);
@@ -46,6 +57,62 @@ describe('Session.setModel', () => {
     }
   });
 
+  it('resolves managed OAuth aliases before updating the runtime provider', async () => {
+    const homeDir = await makeTempDir(tempDirs, 'pythinker-sdk-model-home-');
+    const workDir = await makeTempDir(tempDirs, 'pythinker-sdk-model-work-');
+    await new FileTokenStorage(join(homeDir, 'credentials')).save('pythinker-code', freshToken());
+    const harness = createPythinkerHarness({ homeDir, identity: TEST_IDENTITY });
+
+    try {
+      await harness.setConfig({
+        providers: {
+          'managed:pythinker-code': {
+            type: 'pythinker',
+            baseUrl: 'https://api.kimi.com/coding/v1',
+            apiKey: '',
+            oauth: { storage: 'file', key: 'oauth/pythinker-code' },
+          },
+        },
+        models: {
+          'pythinker-code/initial': {
+            provider: 'managed:pythinker-code',
+            model: 'pythinker-initial',
+            maxContextSize: 262144,
+          },
+          'pythinker-code/kimi-for-coding': {
+            provider: 'managed:pythinker-code',
+            model: 'kimi-for-coding',
+            maxContextSize: 262144,
+          },
+        },
+        defaultModel: 'pythinker-code/initial',
+      });
+      const session = await harness.createSession({
+        id: 'ses_model_oauth_wire',
+        workDir,
+        model: 'pythinker-code/initial',
+      });
+
+      await session.setModel('pythinker-code/kimi-for-coding');
+
+      await expect(session.getStatus()).resolves.toMatchObject({
+        model: 'pythinker-code/kimi-for-coding',
+      });
+      const configEvent = await waitForAgentWireEvent(
+        homeDir,
+        session.id,
+        'config.update',
+        (event) => event['modelAlias'] === 'pythinker-code/kimi-for-coding',
+      );
+      expect(configEvent).toMatchObject({
+        type: 'config.update',
+        modelAlias: 'pythinker-code/kimi-for-coding',
+      });
+      expect(configEvent).not.toHaveProperty('provider');
+    } finally {
+      await harness.close();
+    }
+  });
 
   it('rejects empty model names', async () => {
     const homeDir = await makeTempDir(tempDirs, 'pythinker-sdk-model-home-');

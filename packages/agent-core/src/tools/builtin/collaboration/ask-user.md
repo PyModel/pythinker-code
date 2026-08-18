@@ -14,7 +14,6 @@ Overusing this tool interrupts the user's flow. Only use it when the user's inpu
 - Users always have an "Other" option for custom input — don't create one yourself
 - Use multi_select to allow multiple answers to be selected for a question
 - Keep option labels concise (1-5 words), use descriptions for trade-offs and details
-- Use an optional multi-line Markdown `preview` when users need to compare concrete code, plans, or mockups; previews are single-select and replace the custom "Other" option
 - Each question should have 2-4 meaningful, distinct options
 - Question texts must be unique across the call, and option labels must be unique within each question
 - You can ask 1-4 questions at a time; group related questions to minimize interruptions

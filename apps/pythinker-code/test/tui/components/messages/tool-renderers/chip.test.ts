@@ -8,7 +8,7 @@ import {
 import type { ToolCallBlockData, ToolResultBlockData } from '#/tui/types';
 
 function strip(text: string): string {
-  return text.replaceAll(/\u001B\[[0-9;]*m/g, '');
+  return text.replaceAll(/\[[0-9;]*m/g, '');
 }
 
 function call(name: string, args: Record<string, unknown> = {}): ToolCallBlockData {
@@ -45,35 +45,12 @@ describe('chip registry', () => {
     );
   });
 
-  it('NotebookEdit chip shows one edited cell', () => {
-    expect(
-      chipFor(
-        'NotebookEdit',
-        { notebook_path: 'a.ipynb', cell_id: 'cell-0', new_source: 'print("ok")' },
-        result('Updated notebook cell cell-0'),
-      ),
-    ).toBe('1 cell');
-  });
-
   it('Read chip shows line count', () => {
     expect(chipFor('Read', { path: 'a.ts' }, result('1\tfoo\n2\tbar\n3\tbaz'))).toBe('3 lines');
   });
 
   it('Read chip handles single line as singular', () => {
     expect(chipFor('Read', { path: 'a.ts' }, result('1\tfoo'))).toBe('1 line');
-  });
-
-  it('Read chip shows notebook cell count for text and media results', () => {
-    const notebookText =
-      '<cell id="cell-0">a</cell id="cell-0">\n<cell id="cell-1">b</cell id="cell-1">';
-    expect(chipFor('Read', { path: 'a.ipynb' }, result(notebookText))).toBe('2 cells');
-    expect(
-      chipFor(
-        'Read',
-        { path: 'a.ipynb' },
-        result(JSON.stringify([{ type: 'text', text: notebookText }, { type: 'image_url' }])),
-      ),
-    ).toBe('2 cells');
   });
 
   it('Grep chip shows match count', () => {
@@ -97,99 +74,6 @@ describe('chip registry', () => {
     expect(chipFor('WebSearch', { query: 'pythinker' }, result('1. Alpha\n2. Beta\n3. Gamma'))).toBe(
       '3 results',
     );
-  });
-
-  it('MCP resource chips summarize list and read results', () => {
-    expect(
-      chipFor(
-        'ListMcpResourcesTool',
-        {},
-        result(JSON.stringify([{ uri: 'a' }, { uri: 'b' }])),
-      ),
-    ).toBe('2 resources');
-    expect(
-      chipFor(
-        'ReadMcpResourceTool',
-        {},
-        result(JSON.stringify({ contents: [{ text: 'a' }] })),
-      ),
-    ).toBe('1 content');
-  });
-
-  it('project task chips summarize task ids and list size', () => {
-    expect(
-      chipFor(
-        'TaskCreate',
-        { subject: 'Port task graph', description: 'Match project task behavior' },
-        result('Task #7 created successfully: Port task graph'),
-      ),
-    ).toBe('task #7');
-    expect(chipFor('TaskGet', { taskId: '7' }, result('Task #7: Port task graph'))).toBe(
-      'task #7',
-    );
-    expect(
-      chipFor('TaskUpdate', { taskId: '7', status: 'completed' }, result('Task #7 updated: status')),
-    ).toBe('task #7');
-    expect(
-      chipFor(
-        'TaskList',
-        {},
-        result('#1 [completed] Audit\n#7 [in_progress] Port task graph'),
-      ),
-    ).toBe('2 tasks');
-  });
-
-  it('team chips summarize the team and message destination', () => {
-    expect(
-      chipFor(
-        'TeamCreate',
-        { team_name: 'porters' },
-        result('{"team_name":"porters","lead_agent_id":"main"}'),
-      ),
-    ).toBe('porters');
-    expect(
-      chipFor(
-        'SendMessage',
-        { to: 'runtime', summary: 'Start task', message: 'Claim task #1.' },
-        result('{"success":true}'),
-      ),
-    ).toBe('@runtime');
-    expect(
-      chipFor(
-        'SendMessage',
-        { to: '*', summary: 'Status', message: 'Runtime is ready.' },
-        result('{"success":true,"recipients":["runtime","tests"]}'),
-      ),
-    ).toBe('2 teammates');
-    expect(
-      chipFor('TeamDelete', {}, result('{"success":true,"team_name":"porters"}')),
-    ).toBe('deleted');
-  });
-
-  it('worktree chips summarize enter and exit outcomes', () => {
-    expect(
-      chipFor(
-        'EnterWorktree',
-        { name: 'feature' },
-        result(
-          'Created worktree at /home/example/.pythinker-code/worktrees/example-feature on branch pythinker-worktree-feature.',
-        ),
-      ),
-    ).toBe('feature');
-    expect(
-      chipFor(
-        'ExitWorktree',
-        { action: 'keep' },
-        result('Exited worktree. Work is preserved at /tmp/example-feature.'),
-      ),
-    ).toBe('kept');
-    expect(
-      chipFor(
-        'ExitWorktree',
-        { action: 'remove' },
-        result('Exited and removed worktree at /tmp/example-feature.'),
-      ),
-    ).toBe('removed');
   });
 
   it('Think tool has no chip', () => {

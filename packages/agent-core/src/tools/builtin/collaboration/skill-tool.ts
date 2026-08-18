@@ -19,11 +19,7 @@ import type { Agent } from '../../../agent';
 import type { SkillActivationOrigin } from '../../../agent/context';
 import { renderModelToolSkillPrompt } from '../../../agent/skill/prompt';
 import type { BuiltinTool } from '../../../agent/tool';
-import type {
-  ExecutableToolContext,
-  ExecutableToolResult,
-  ToolExecution,
-} from '../../../loop/types';
+import type { ExecutableToolResult, ToolExecution } from '../../../loop/types';
 import { isInlineSkillType, type SkillDefinition } from '../../../skill';
 import { renderPrompt } from '../../../utils/render-prompt';
 import { toInputJsonSchema } from '../../support/input-schema';
@@ -94,7 +90,7 @@ export class SkillTool implements BuiltinTool<SkillToolInput> {
       display: { kind: 'skill_call', skill_name: args.skill, args: args.args },
       approvalRule: this.name,
       matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, args.skill),
-      execute: (context) => this.execution(args, context),
+      execute: () => this.execution(args),
     };
   }
 
@@ -105,10 +101,7 @@ export class SkillTool implements BuiltinTool<SkillToolInput> {
     });
   }
 
-  private async execution(
-    args: SkillToolInput,
-    context: ExecutableToolContext,
-  ): Promise<ExecutableToolResult> {
+  private async execution(args: SkillToolInput): Promise<ExecutableToolResult> {
     // Recursion hard cap. Once `currentDepth` has reached
     // MAX_SKILL_QUERY_DEPTH, firing another Skill call would push the
     // child to depth+1 which violates the invariant. Throw a structured
@@ -136,9 +129,6 @@ export class SkillTool implements BuiltinTool<SkillToolInput> {
     }
 
     const skillArgs = args.args ?? '';
-    if (skill.metadata.context === 'fork') {
-      return this.executeForkedSkill(skill, skillArgs, currentDepth, context);
-    }
     if (!isInlineSkillType(skill.metadata.type)) {
       return errorResult(
         `Skill "${skill.name}" is not an inline skill and cannot be invoked by the model in v1.`,
@@ -147,10 +137,8 @@ export class SkillTool implements BuiltinTool<SkillToolInput> {
 
     const origin = skillOrigin(skill, skillArgs, currentDepth);
     const promptTrigger = origin.trigger === 'nested-skill' ? 'nested-skill' : 'model-tool';
-    skills.applyInlineOverrides(skill);
-    skills.registerHooks(skill);
     skills.recordActivation(origin);
-    const skillContent = await skills.renderPrompt(skill, skillArgs, context.signal);
+    const skillContent = skills.registry.renderSkillPrompt(skill, skillArgs);
     this.agent.context.appendUserMessage(
       [
         {
@@ -169,28 +157,6 @@ export class SkillTool implements BuiltinTool<SkillToolInput> {
     );
     return {
       output: `Skill "${skill.name}" loaded inline. Follow its instructions.`,
-    };
-  }
-
-  private async executeForkedSkill(
-    skill: SkillDefinition,
-    skillArgs: string,
-    currentDepth: number,
-    context: ExecutableToolContext,
-  ): Promise<ExecutableToolResult> {
-    if (this.agent.subagentHost === undefined) {
-      return errorResult(
-        `Skill "${skill.name}" requires subagent execution, which is not available.`,
-      );
-    }
-
-    const result = await this.agent.skills!.executeForked(skill, skillArgs, {
-      parentToolCallId: context.toolCallId,
-      signal: context.signal,
-      trigger: currentDepth > 0 ? 'nested-skill' : 'model-tool',
-    });
-    return {
-      output: `Skill "${skill.name}" completed (forked execution).\n\nResult:\n${result}`,
     };
   }
 }

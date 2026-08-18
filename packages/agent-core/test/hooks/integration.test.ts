@@ -11,44 +11,12 @@ import { describe, expect, it } from 'vitest';
 const ENGINE_MODULE = '../../src/session/hooks/engine' as string;
 const CONFIG_MODULE = '../../src/config' as string;
 
-type HookDef =
-  | {
-      event: string;
-      matcher?: string;
-      if?: string;
-      statusMessage?: string;
-      type?: 'command';
-      command: string;
-      timeout?: number;
-      once?: boolean;
-      async?: boolean;
-      asyncRewake?: boolean;
-      shell?: 'bash' | 'powershell';
-    }
-  | {
-      event: string;
-      matcher?: string;
-      if?: string;
-      statusMessage?: string;
-      type: 'prompt' | 'agent';
-      prompt: string;
-      timeout?: number;
-      once?: boolean;
-      model?: string;
-    }
-  | {
-      event: string;
-      matcher?: string;
-      if?: string;
-      statusMessage?: string;
-      type: 'http';
-      url: string;
-      headers?: Record<string, string>;
-      allowedEnvVars?: string[];
-      timeout?: number;
-      once?: boolean;
-      async?: boolean;
-    };
+type HookDef = {
+  event: string;
+  matcher?: string;
+  command: string;
+  timeout?: number;
+};
 
 interface HookResult {
   action: 'allow' | 'block';
@@ -171,86 +139,25 @@ describe('HookEngine integration', () => {
 
   it('round-trips hook definitions through the TOML config loader', async () => {
     const config = (await import(CONFIG_MODULE)) as {
-      parseConfigString: (text: string, source?: string) => {
-        hooks?: HookDef[];
-        allowedHttpHookUrls?: string[];
-        httpHookAllowedEnvVars?: string[];
-      };
+      parseConfigString: (text: string, source?: string) => { hooks?: HookDef[] };
     };
     const toml = `
-allowed_http_hook_urls = ["https://hooks.example.test/*"]
-http_hook_allowed_env_vars = ["HOOK_TOKEN"]
-
 [[hooks]]
 event = "PreToolUse"
 matcher = "Shell"
 command = "echo ok"
-once = true
-async = true
-status_message = "Checking command"
 
 [[hooks]]
 event = "Notification"
 matcher = "permission_prompt"
 command = "notify-send Pythinker"
 timeout = 5
-async_rewake = true
-shell = "powershell"
-
-[[hooks]]
-event = "Stop"
-type = "http"
-url = "https://hooks.example.test/stop"
-headers = { Authorization = "Bearer $HOOK_TOKEN" }
-allowed_env_vars = ["HOOK_TOKEN"]
-
-[[hooks]]
-event = "Stop"
-type = "prompt"
-prompt = "Check $ARGUMENTS"
-model = "fast-model"
-if = "Bash(git *)"
-
-[[hooks]]
-event = "Stop"
-type = "agent"
-prompt = "Verify $ARGUMENTS"
 `;
     const parsed = config.parseConfigString(toml, 'hooks.toml');
-    expect(parsed.hooks).toHaveLength(5);
+    expect(parsed.hooks).toHaveLength(2);
     expect(parsed.hooks?.[0]?.event).toBe('PreToolUse');
-    expect(parsed.hooks?.[0]).toMatchObject({
-      once: true,
-      async: true,
-      statusMessage: 'Checking command',
-    });
     expect(parsed.hooks?.[1]?.event).toBe('Notification');
-    expect(parsed.hooks?.[1]).toMatchObject({
-      timeout: 5,
-      asyncRewake: true,
-      shell: 'powershell',
-    });
-    expect(parsed.hooks?.[2]).toEqual({
-      event: 'Stop',
-      type: 'http',
-      url: 'https://hooks.example.test/stop',
-      headers: { Authorization: 'Bearer $HOOK_TOKEN' },
-      allowedEnvVars: ['HOOK_TOKEN'],
-    });
-    expect(parsed.hooks?.[3]).toEqual({
-      event: 'Stop',
-      type: 'prompt',
-      prompt: 'Check $ARGUMENTS',
-      model: 'fast-model',
-      if: 'Bash(git *)',
-    });
-    expect(parsed.hooks?.[4]).toEqual({
-      event: 'Stop',
-      type: 'agent',
-      prompt: 'Verify $ARGUMENTS',
-    });
-    expect(parsed.allowedHttpHookUrls).toEqual(['https://hooks.example.test/*']);
-    expect(parsed.httpHookAllowedEnvVars).toEqual(['HOOK_TOKEN']);
+    expect(parsed.hooks?.[1]?.timeout).toBe(5);
   });
 
   it('exposes a summary map of event name to registered hook count', async () => {

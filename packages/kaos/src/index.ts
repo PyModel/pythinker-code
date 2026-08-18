@@ -17,7 +17,6 @@ export {
 export { LocalKaos } from './local';
 export {
   chdir,
-  chmod,
   exec,
   execWithEnv,
   getCurrentKaos,
@@ -34,7 +33,6 @@ export {
   runWithKaos,
   setCurrentKaos,
   stat,
-  unlink,
   writeBytes,
   writeText,
 } from './current';

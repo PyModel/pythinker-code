@@ -1,8 +1,5 @@
 import type { Agent } from '..';
 import type { PrepareToolExecutionResult } from '../../loop';
-import { createHookIfMatcher } from '../../session/hooks';
-import { matchesGlobRuleSubjects, modelRuleSubject } from '../../tools/support/rule-match';
-import { matchPermissionRule } from './matches-rule';
 import { createPermissionDecisionPolicies } from './policies';
 import type {
   ApprovalResponse,
@@ -59,40 +56,6 @@ export class PermissionManager {
     };
   }
 
-  /**
-   * Whether a deny rule forbids running a subagent on `modelAlias`, asked
-   * outside the tool-approval path.
-   *
-   * Deny rules with an argument pattern fire at approval only when their
-   * subject appears in the tool arguments. A model resolved after approval —
-   * a subagent profile's override, or a resume/retry that re-resolves it —
-   * never comes back through approval, so the spawn path re-checks it here
-   * against the same rules.
-   *
-   * Only rules whose argument pattern targets the `model:` namespace are
-   * consulted. Approval evaluates every rule against the call's full subject
-   * set (profile name, plan digest, model); this check sees only the model, so
-   * a rule keyed on another subject — `Agent(!reviewer)`, a workflow plan
-   * digest — must not be re-interpreted here: its negation would match any
-   * model-only subject list and strip an override approval already allowed.
-   */
-  deniesModelOverride(toolName: string, modelAlias: string): boolean {
-    const subjects = modelRuleSubject(modelAlias);
-    if (subjects.length === 0) return false;
-    return this.effectiveRules.some(
-      (rule) =>
-        rule.decision === 'deny' &&
-        matchPermissionRule({
-          rule,
-          toolName,
-          execution: {
-            matchesRule: (ruleArgs) =>
-              targetsModelSubject(ruleArgs) && matchesGlobRuleSubjects(ruleArgs, subjects),
-          },
-        })?.hasRuleArgs === true,
-    );
-  }
-
   setMode(mode: PermissionMode): void {
     this.agent.records.logRecord({
       type: 'permission.set_mode',
@@ -104,23 +67,6 @@ export class PermissionManager {
     });
     this.modeOverride = mode;
     this.agent.emitStatusUpdated();
-  }
-
-  addTurnOverrideRules(patterns: readonly string[]): () => void {
-    const rules = [...new Set(patterns.map((pattern) => pattern.trim()).filter(Boolean))].map(
-      (pattern): PermissionRule => ({
-        decision: 'allow',
-        scope: 'turn-override',
-        pattern,
-      }),
-    );
-    this.rules.push(...rules);
-    return () => {
-      for (const rule of rules) {
-        const index = this.rules.indexOf(rule);
-        if (index !== -1) this.rules.splice(index, 1);
-      }
-    };
   }
 
   recordApprovalResult(record: PermissionApprovalResultRecord): void {
@@ -190,9 +136,7 @@ export class PermissionManager {
       requestedApproval = true;
       void this.agent.hooks?.fireAndForgetTrigger?.('PermissionRequest', {
         matcherValue: name,
-        ifMatcher: createHookIfMatcher(name, context.execution),
         inputData: {
-          agentId: this.agent.agentId,
           turnId: Number(context.turnId),
           toolCallId: id,
           toolName: name,
@@ -227,7 +171,6 @@ export class PermissionManager {
         void this.agent.hooks?.fireAndForgetTrigger?.('PermissionResult', {
           matcherValue: name,
           inputData: {
-            agentId: this.agent.agentId,
             turnId: Number(context.turnId),
             toolCallId: id,
             toolName: name,
@@ -243,9 +186,7 @@ export class PermissionManager {
       }
     } else {
       response = {
-        decision: 'rejected',
-        feedback:
-          'Tool call requires approval, but this session has no approval channel (rpc.requestApproval is not configured). Configure an approval handler or run with permission mode "yolo" to allow unattended execution.',
+        decision: 'approved',
       };
     }
 
@@ -258,7 +199,6 @@ export class PermissionManager {
       void this.agent.hooks?.fireAndForgetTrigger?.('PermissionResult', {
         matcherValue: name,
         inputData: {
-          agentId: this.agent.agentId,
           turnId: Number(context.turnId),
           toolCallId: id,
           toolName: name,
@@ -303,7 +243,10 @@ export class PermissionManager {
       return undefined;
     }
 
-    return this.deny(context, this.formatApprovalRejectionMessage(name, response));
+    return {
+      block: true,
+      reason: this.formatApprovalRejectionMessage(name, response),
+    };
   }
 
   private async evaluatePolicies(
@@ -333,11 +276,10 @@ export class PermissionManager {
           ? undefined
           : { executionMetadata: result.executionMetadata };
       case 'deny':
-        return this.deny(
-          context,
-          result.message ?? this.formatPolicyDenyMessage(context.toolCall.name),
-          true,
-        );
+        return {
+          block: true,
+          reason: result.message ?? this.formatPolicyDenyMessage(context.toolCall.name),
+        };
       case 'ask':
         return this.requestToolApproval(context, result, policyName);
       case 'result': {
@@ -345,39 +287,6 @@ export class PermissionManager {
         return prepareResult;
       }
     }
-  }
-
-  private async deny(
-    context: PermissionPolicyContext,
-    reason: string,
-    allowRetryNotice = false,
-  ): Promise<PrepareToolExecutionResult> {
-    const toolName = context.toolCall.name;
-    const hookArgs = {
-      matcherValue: toolName,
-      ifMatcher: createHookIfMatcher(toolName, context.execution),
-      inputData: {
-        agentId: this.agent.agentId,
-        turnId: Number(context.turnId),
-        toolUseId: context.toolCall.id,
-        toolName,
-        toolInput: context.args,
-        reason,
-      },
-    };
-    if (!allowRetryNotice) {
-      void this.agent.hooks?.fireAndForgetTrigger?.('PermissionDenied', hookArgs);
-      return { block: true, reason };
-    }
-
-    const results = await this.agent.hooks?.trigger?.('PermissionDenied', hookArgs);
-    const retry = results?.some((result) => result.retry === true) === true;
-    return {
-      block: true,
-      reason: retry
-        ? `${reason} The PermissionDenied hook indicated this command is now approved. You may retry it if you would like.`
-        : reason,
-    };
   }
 
   protected formatApprovalRejectionMessage(
@@ -408,10 +317,4 @@ export class PermissionManager {
     }
     return prefix;
   }
-}
-
-/** Whether a rule argument pattern (optionally negated) targets the `model:` subject namespace. */
-function targetsModelSubject(ruleArgs: string): boolean {
-  const positive = ruleArgs.startsWith('!') ? ruleArgs.slice(1) : ruleArgs;
-  return positive.startsWith('model:');
 }

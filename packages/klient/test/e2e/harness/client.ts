@@ -12,7 +12,6 @@
  * **What it is NOT**: a server bootstrap helper. Connect to a server process
  * that's already running at `baseUrl` (default `http://127.0.0.1:58627`).
  */
-import { WS_PROTOCOL_VERSION } from '@pymodel/protocol';
 import type {
   ApprovalRequest,
   ApprovalResolveResult,
@@ -102,10 +101,10 @@ const DEFAULT_CONTROL_ACK_TIMEOUT_MS = 5_000;
  * they need.
  *
  * `model` matches what the existing server-e2e scenarios assume (the
- * default provider exposes `pythinker-code/pythinker-for-coding`).
+ * default provider exposes `pythinker-code/kimi-for-coding`).
  */
 export const DEFAULT_PROMPT_CONTROLS = {
-  model: 'pythinker-code/pythinker-for-coding',
+  model: 'pythinker-code/kimi-for-coding',
   thinking: 'off' as PromptThinking,
   permission_mode: 'manual' as PromptPermissionMode,
   plan_mode: false,
@@ -380,52 +379,32 @@ export class DaemonClient {
       reportDir: this._reportDir,
     });
     this._ws = ws;
-    try {
-      await ws.open();
+    await ws.open();
 
-      const helloFrame = await ws.waitForFrame(
-        (f) => f.type === 'server_hello',
-        this._controlAckTimeoutMs,
-      );
-      const helloPayload = helloFrame.payload as ServerHelloMessage['payload'];
-      if (helloPayload.protocol_version !== WS_PROTOCOL_VERSION) {
-        throw new Error(
-          `protocol version mismatch: server=${String(helloPayload.protocol_version)} client=${WS_PROTOCOL_VERSION}`,
-        );
-      }
+    const helloFrame = await ws.waitForFrame(
+      (f) => f.type === 'server_hello',
+      this._controlAckTimeoutMs,
+    );
+    const helloPayload = helloFrame.payload as ServerHelloMessage['payload'];
+    this._serverHello = helloPayload;
 
-      const helloId = `hello-${ulid()}`;
-      const ack = await ws.sendAndAwaitAck(
-        {
-          type: 'client_hello',
-          id: helloId,
-          payload: {
-            client_id: this.clientId,
-            protocol_version: WS_PROTOCOL_VERSION,
-            subscriptions: [],
-          },
-        },
-        this._controlAckTimeoutMs,
-      );
-      if (ack.code !== 0) {
-        throw new Error(`client_hello rejected (code=${ack.code}): ${ack.msg ?? 'no message'}`);
-      }
-      this._serverHello = helloPayload;
-      this._logger('debug', 'ws: handshake complete', {
-        wsConnectionId: helloPayload.ws_connection_id,
-        clientId: this.clientId,
-      });
-      return helloPayload;
-    } catch (error) {
-      if (this._ws === ws) this._ws = null;
-      this._serverHello = null;
-      this._subscribed.clear();
-      try {
-        await ws.close();
-      } catch {
-      }
-      throw error;
+    const helloId = `hello-${ulid()}`;
+    const ack = await ws.sendAndAwaitAck(
+      {
+        type: 'client_hello',
+        id: helloId,
+        payload: { client_id: this.clientId, subscriptions: [] },
+      },
+      this._controlAckTimeoutMs,
+    );
+    if (ack.code !== 0) {
+      throw new Error(`client_hello rejected (code=${ack.code}): ${ack.msg ?? 'no message'}`);
     }
+    this._logger('debug', 'ws: handshake complete', {
+      wsConnectionId: helloPayload.ws_connection_id,
+      clientId: this.clientId,
+    });
+    return helloPayload;
   }
 
   /** Send `subscribe` and await its ack. Tracks the session for `close()`. */

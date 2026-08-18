@@ -89,14 +89,4 @@ try {
   await rm(smokeHome, { recursive: true, force: true });
 }
 
-const openTuiOutput = await runPythinkerWithEnv([], {
-  PYTHINKER_CODE_HOME: smokeHome,
-  PYTHINKER_CODE_OPENTUI_SMOKE: '1',
-});
-assertIncludes(
-  openTuiOutput,
-  'OpenTUI reactive smoke passed: BEFORE -> AFTER',
-  'OpenTUI reactive smoke',
-);
-
 console.log(`Native smoke passed: ${executablePath}`);

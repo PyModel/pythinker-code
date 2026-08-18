@@ -17,7 +17,7 @@ import {
 import type { Event, PythinkerHarness, Session } from '@pymodel/pythinker-code-sdk';
 
 import { AcpServer } from '../src/server';
-import { AUTHED } from './_helpers/harness-stubs';
+import { AUTHED_STATUS } from './_helpers/harness-stubs';
 import {
   availableCommandsUpdateNotification,
   planFromDisplayBlock,
@@ -195,7 +195,7 @@ describe('Phase 9.3 e2e · newSession emits available_commands_update once', () 
     const sessionId = 'sess-cmds-new';
     const session = makeScriptedSession(sessionId, []);
     const harness = {
-      isAuthenticated: AUTHED,
+      auth: { status: async () => AUTHED_STATUS },
       createSession: async () => session,
     } as unknown as PythinkerHarness;
 
@@ -248,7 +248,7 @@ describe('Phase 9.3 e2e · loadSession emits available_commands_update once', ()
       }),
     } as unknown as Session;
     const harness = {
-      isAuthenticated: AUTHED,
+      auth: { status: async () => AUTHED_STATUS },
       resumeSession: async (_opts: { id: string }) => session,
     } as unknown as PythinkerHarness;
 
@@ -295,7 +295,7 @@ describe('Phase 9.3 e2e · todo_list display block becomes a plan session_update
       { type: 'turn.ended', sessionId, agentId: 'main', turnId, reason: 'completed' } as Event,
     ]);
     const harness = {
-      isAuthenticated: AUTHED,
+      auth: { status: async () => AUTHED_STATUS },
       createSession: async () => session,
     } as unknown as PythinkerHarness;
 
@@ -340,7 +340,7 @@ describe('Phase 9.3 e2e · todo_list display block becomes a plan session_update
       { type: 'turn.ended', sessionId, agentId: 'main', turnId, reason: 'completed' } as Event,
     ]);
     const harness = {
-      isAuthenticated: AUTHED,
+      auth: { status: async () => AUTHED_STATUS },
       createSession: async () => session,
     } as unknown as PythinkerHarness;
 

@@ -6,7 +6,6 @@ import {
   FeedbackInputDialogComponent,
   type FeedbackInputDialogResult,
 } from '#/tui/components/dialogs/feedback-input-dialog';
-import { defaultKeybindings, parseKeybindingBlocks } from '#/tui/keybindings';
 import { darkColors } from '#/tui/theme/colors';
 
 const ESC = String.fromCodePoint(27);
@@ -116,87 +115,5 @@ describe('FeedbackInputDialogComponent', () => {
     dialog.handleInput('\r');
     dialog.handleInput(ESC);
     expect(collected).toEqual([{ kind: 'ok', value: 'hi' }]);
-  });
-
-  it('lets feedback text own printable confirmation bindings and recovers Escape', () => {
-    const { dialog, collected } = makeDialog();
-    dialog.setKeybindings(
-      parseKeybindingBlocks([
-        { context: 'Confirmation', bindings: { x: 'confirm:next' } },
-      ]),
-    );
-    dialog.handleInput('x');
-    dialog.handleInput('\r');
-    expect(collected).toEqual([{ kind: 'ok', value: 'x' }]);
-
-    const recovery = makeDialog();
-    recovery.dialog.setKeybindings([
-      ...defaultKeybindings(),
-      ...parseKeybindingBlocks([
-        { context: 'Confirmation', bindings: { n: null, escape: null } },
-      ]),
-    ]);
-    recovery.dialog.handleInput(ESC);
-    expect(recovery.collected).toEqual([{ kind: 'cancel' }]);
-  });
-
-  it('uses an alternate cancel binding while bare Escape preserves feedback input', () => {
-    const bindings = parseKeybindingBlocks([
-      { context: 'Confirmation', bindings: { 'alt+x': 'confirm:no' } },
-    ]);
-    const preserved = makeDialog();
-    preserved.dialog.setKeybindings(bindings);
-    preserved.dialog.handleInput('d');
-    preserved.dialog.handleInput(ESC);
-    preserved.dialog.handleInput('\r');
-    expect(preserved.collected).toEqual([{ kind: 'ok', value: 'd' }]);
-
-    const cancelled = makeDialog();
-    cancelled.dialog.setKeybindings(bindings);
-    cancelled.dialog.handleInput('d');
-    cancelled.dialog.handleInput('\u001Bx');
-    expect(cancelled.collected).toEqual([{ kind: 'cancel' }]);
-  });
-
-  it('executes a semantic two-key cancel chord', () => {
-    const { dialog, collected } = makeDialog();
-    dialog.setKeybindings(
-      parseKeybindingBlocks([
-        {
-          context: 'Confirmation',
-          bindings: { 'ctrl+k ctrl+x': 'confirm:no' },
-        },
-      ]),
-    );
-    dialog.handleInput('d');
-    dialog.handleInput('ctrl+k');
-    dialog.handleInput('ctrl+x');
-    expect(collected).toEqual([{ kind: 'cancel' }]);
-  });
-
-  it('keeps unavailable printable chords intact in feedback input', () => {
-    const { dialog, collected } = makeDialog();
-    dialog.setKeybindings(
-      parseKeybindingBlocks([
-        { context: 'Confirmation', bindings: { 'x y': 'confirm:next' } },
-      ]),
-    );
-    dialog.handleInput('x');
-    dialog.handleInput('y');
-    dialog.handleInput('\r');
-    expect(collected).toEqual([{ kind: 'ok', value: 'xy' }]);
-  });
-
-  it('honors last-wins null removal before filtering nested candidates', () => {
-    const { dialog, collected } = makeDialog();
-    dialog.setKeybindings([
-      ...defaultKeybindings(),
-      ...parseKeybindingBlocks([
-        { context: 'Confirmation', bindings: { n: null, escape: null } },
-      ]),
-    ]);
-    dialog.handleInput('n');
-    dialog.handleInput('\r');
-    expect(collected).toEqual([{ kind: 'ok', value: 'n' }]);
   });
 });

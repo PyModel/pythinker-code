@@ -15,14 +15,14 @@ describe('buildCodesignArgs', () => {
 
   it('returns hardened-runtime args for Developer ID identity', () => {
     const args = buildCodesignArgs({
-      identity: 'Developer ID Application: Pythoughts (ABCD1234)',
+      identity: 'Developer ID Application: PyModel (ABCD1234)',
       executable: '/path/pythinker',
       entitlementsPath: '/path/entitlements.plist',
       keychainPath: '/tmp/sign.keychain-db',
     });
     expect(args).toEqual([
       '--sign',
-      'Developer ID Application: Pythoughts (ABCD1234)',
+      'Developer ID Application: PyModel (ABCD1234)',
       '--options',
       'runtime',
       '--entitlements',
@@ -37,7 +37,7 @@ describe('buildCodesignArgs', () => {
 
   it('omits --keychain when keychainPath is null but uses Developer ID otherwise', () => {
     const args = buildCodesignArgs({
-      identity: 'Developer ID Application: Pythoughts (ABCD1234)',
+      identity: 'Developer ID Application: PyModel (ABCD1234)',
       executable: '/path/pythinker',
       entitlementsPath: '/path/entitlements.plist',
       keychainPath: null,

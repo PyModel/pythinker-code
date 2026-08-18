@@ -6,7 +6,7 @@ export const ToolInputDisplaySchema = z.discriminatedUnion('kind', [
     command: z.string(),
     cwd: z.string().optional(),
     description: z.string().optional(),
-    language: z.enum(['bash', 'powershell']).optional(),
+    language: z.literal('bash').optional(),
   }),
   z.object({
     kind: z.literal('file_io'),
@@ -39,23 +39,6 @@ export const ToolInputDisplaySchema = z.discriminatedUnion('kind', [
     agent_name: z.string(),
     prompt: z.string(),
     background: z.boolean().optional(),
-    isolation: z.literal('worktree').optional(),
-    cwd: z.string().optional(),
-    /**
-     * Fan-out plan for a Dynamic Workflow call, so an approval can show what
-     * is about to launch instead of only how many. Absent for a single agent
-     * call. `prompt_tokens` is the summed estimate of the rendered prompts —
-     * an input-size figure, not a projected total cost.
-     */
-    workflow: z
-      .object({
-        agent_count: z.number(),
-        items: z.array(z.string()),
-        prompt_tokens: z.number(),
-        prompt_template: z.string().optional(),
-        model: z.string().optional(),
-      })
-      .optional(),
   }),
   z.object({
     kind: z.literal('skill_call'),

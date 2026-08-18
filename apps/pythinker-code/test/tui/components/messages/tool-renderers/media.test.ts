@@ -10,7 +10,7 @@ import { darkColors } from '#/tui/theme/colors';
 import type { ToolCallBlockData, ToolResultBlockData } from '#/tui/types';
 
 function strip(text: string): string {
-  return text.replaceAll(/\u001B\[[0-9;]*m/g, '');
+  return text.replaceAll(/\[[0-9;]*m/g, '');
 }
 
 function joinRender(components: Component[], width = 100): string {

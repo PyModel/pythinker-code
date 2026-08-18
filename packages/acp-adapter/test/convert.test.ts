@@ -157,11 +157,11 @@ describe('acpBlocksToPromptParts', () => {
   it('URL-decodes file:// paths (spaces, unicode)', () => {
     const out = acpBlocksToPromptParts([
       resourceLinkBlock('file:///Users/a%20b/foo.ts', 'foo.ts'),
-      resourceLinkBlock('file:///Users/caf%C3%A9/foo.ts', 'foo.ts'),
+      resourceLinkBlock('file:///Users/%E4%B8%AD%E6%96%87/foo.ts', 'foo.ts'),
     ]);
     expect(out).toEqual([
       { type: 'text', text: '/Users/a b/foo.ts' },
-      { type: 'text', text: '/Users/café/foo.ts' },
+      { type: 'text', text: '/Users/中文/foo.ts' },
     ]);
   });
 

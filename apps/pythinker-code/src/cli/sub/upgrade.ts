@@ -2,18 +2,8 @@ import { log, type Logger } from '@pymodel/pythinker-code-sdk';
 import { track as trackTelemetry, type TelemetryProperties } from '@pymodel/pythinker-telemetry';
 
 import { refreshUpdateCache } from '#/cli/update/refresh';
-import { tryAcquireUpdateInstallLock } from '#/cli/update/install-lock';
-import type { UpdateInstallLockHandle, UpdateInstallLockRequest } from '#/cli/update/install-lock';
-import {
-  emptyUpdateInstallState,
-  failureAttemptsFor,
-  hasFreshActiveInstall,
-  readUpdateInstallState,
-  writeUpdateInstallState,
-} from '#/cli/update/install-state';
-import { isTargetInstallable, selectUpdateTarget } from '#/cli/update/select';
+import { selectUpdateTarget } from '#/cli/update/select';
 import { detectInstallSource } from '#/cli/update/source';
-import type { InstallOutcome } from '#/cli/update/verify-install';
 import {
   canAutoInstall,
   installCommandFor,
@@ -30,8 +20,6 @@ import {
   NPM_PACKAGE_NAME,
   type InstallSource,
   type UpdateCache,
-  type UpdateInstallState,
-  type UpdateTarget,
 } from '#/cli/update/types';
 
 interface WritableLike {
@@ -48,15 +36,10 @@ export interface UpgradeDeps {
     source: InstallSource,
     version: string,
     platform: NodeJS.Platform,
-  ) => Promise<InstallOutcome>;
+  ) => Promise<void>;
   readonly promptForInstallChoice: (
     options: InstallPromptOptions,
   ) => Promise<InstallPromptChoiceValue>;
-  readonly readUpdateInstallState: () => Promise<UpdateInstallState>;
-  readonly writeUpdateInstallState: (state: UpdateInstallState) => Promise<void>;
-  readonly tryAcquireUpdateInstallLock: (
-    request: UpdateInstallLockRequest,
-  ) => Promise<UpdateInstallLockHandle | null>;
   readonly platform: NodeJS.Platform;
   readonly stdout: WritableLike;
   readonly stderr: WritableLike;
@@ -102,20 +85,6 @@ export async function handleUpgrade(
   }
 
   const source = await deps.detectInstallSource().catch(() => 'unsupported' as const);
-  // A native install consumes the manifest's platform artifact; without one
-  // the update cannot succeed, so take the same exit as being up to date.
-  if (!isTargetInstallable(source, cache.manifest)) {
-    trackUpgradeEvent(deps.track, 'upgrade_command_no_update', {
-      current_version: currentVersion,
-    });
-    logUpgradeInfo(deps.logger, 'manual upgrade no update', {
-      currentVersion,
-    });
-    deps.stdout.write(
-      `${formatDisplayVersion(target.version)} is published but has no build for this platform yet.\n`,
-    );
-    return 0;
-  }
   const installCommand = installCommandFor(source, target.version, deps.platform);
   if (!canAutoInstall(source, deps.platform) || !deps.isInteractive) {
     trackUpgradeEvent(deps.track, 'upgrade_command_manual_command', {
@@ -162,37 +131,13 @@ export async function handleUpgrade(
     return 0;
   }
 
-  // The foreground install holds the update-install lock for its whole run:
-  // another live installer (usually a detached background one) must never be
-  // raced by this path, which writes the same executable. A fresh active
-  // record or a held lock means an install is already in flight — refuse.
-  const installState = await deps.readUpdateInstallState().catch(() => emptyUpdateInstallState());
-  if (hasFreshActiveInstall(installState)) {
-    return refuseForegroundInstall(deps, currentVersion, target, source, installState.active?.version);
-  }
-  const lock = await deps.tryAcquireUpdateInstallLock({ version: target.version });
-  if (lock === null) {
-    return refuseForegroundInstall(deps, currentVersion, target, source, undefined);
-  }
-
   try {
     trackUpgradeEvent(deps.track, 'upgrade_command_install_selected', {
       current_version: currentVersion,
       target_version: target.version,
       source,
     });
-    const outcome = await deps.installUpdate(source, target.version, deps.platform);
-    await deps.writeUpdateInstallState({
-      ...installState,
-      active: null,
-      lastFailure: null,
-      lastSuccess: {
-        version: target.version,
-        installedAt: nowIso(),
-        notifiedAt: null,
-        unverified: outcome.unverified,
-      },
-    }).catch(() => {});
+    await deps.installUpdate(source, target.version, deps.platform);
     trackUpgradeEvent(deps.track, 'upgrade_command_succeeded', {
       current_version: currentVersion,
       target_version: target.version,
@@ -206,18 +151,6 @@ export async function handleUpgrade(
     deps.stdout.write(renderInstallSuccessMessage(target));
     return 0;
   } catch (error) {
-    const attempts = failureAttemptsFor(installState, target, 'install') + 1;
-    await deps.writeUpdateInstallState({
-      ...installState,
-      active: null,
-      lastFailure: {
-        version: target.version,
-        failedAt: nowIso(),
-        attempts,
-        operation: 'install',
-        message: formatErrorMessage(error),
-      },
-    }).catch(() => {});
     trackUpgradeEvent(deps.track, 'upgrade_command_failed', {
       current_version: currentVersion,
       target_version: target.version,
@@ -236,8 +169,6 @@ export async function handleUpgrade(
         `${formatErrorMessage(error)}\n`,
     );
     return 1;
-  } finally {
-    await lock.release().catch(() => {});
   }
 }
 
@@ -247,9 +178,6 @@ function createDefaultUpgradeDeps(overrides: Partial<UpgradeDeps>): UpgradeDeps 
     detectInstallSource: overrides.detectInstallSource ?? (() => detectInstallSource()),
     installUpdate: overrides.installUpdate ?? installUpdateForeground,
     promptForInstallChoice: overrides.promptForInstallChoice ?? promptForInstallChoice,
-    readUpdateInstallState: overrides.readUpdateInstallState ?? (() => readUpdateInstallState()),
-    writeUpdateInstallState: overrides.writeUpdateInstallState ?? writeUpdateInstallState,
-    tryAcquireUpdateInstallLock: overrides.tryAcquireUpdateInstallLock ?? tryAcquireUpdateInstallLock,
     platform: overrides.platform ?? process.platform,
     stdout: overrides.stdout ?? process.stdout,
     stderr: overrides.stderr ?? process.stderr,
@@ -261,39 +189,6 @@ function createDefaultUpgradeDeps(overrides: Partial<UpgradeDeps>): UpgradeDeps 
 
 function formatDisplayVersion(version: string): string {
   return version.startsWith('v') ? version : `v${version}`;
-}
-
-function nowIso(): string {
-  return new Date().toISOString();
-}
-
-/**
- * Refuse the foreground install because another install is already in
- * flight. The active-record case names the version being installed; the
- * lock-held case cannot know it, so the message stays generic.
- */
-function refuseForegroundInstall(
-  deps: UpgradeDeps,
-  currentVersion: string,
-  target: UpdateTarget,
-  source: InstallSource,
-  activeVersion: string | undefined,
-): number {
-  trackUpgradeEvent(deps.track, 'upgrade_command_failed', {
-    current_version: currentVersion,
-    target_version: target.version,
-    source,
-    stage: 'install',
-    reason: 'another update install is already in progress',
-  });
-  const suffix = activeVersion === undefined
-    ? ''
-    : ` (${formatDisplayVersion(activeVersion)})`;
-  deps.stderr.write(
-    `error: another update install is already in progress${suffix}; ` +
-      'try again once it finishes.\n',
-  );
-  return 1;
 }
 
 function formatErrorMessage(error: unknown): string {

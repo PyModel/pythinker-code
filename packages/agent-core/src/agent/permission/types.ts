@@ -71,10 +71,7 @@ export type PermissionPolicyResolution =
   | PermissionPolicyResult
   | ({ readonly kind: 'result' } & PrepareToolExecutionResult);
 
-export interface PermissionPolicyContext
-  extends Omit<ResolvedToolExecutionHookContext, 'llm'> {
-  readonly llm?: ResolvedToolExecutionHookContext['llm'];
-}
+export interface PermissionPolicyContext extends ResolvedToolExecutionHookContext {}
 
 export type PermissionPolicyResult =
   | {

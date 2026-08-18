@@ -2,7 +2,7 @@
  * `ToolService` + `McpService` (Chain 7 / P1.7, W9.1) unit tests.
  *
  * Hermetic: mocks `ICoreProcessService` with an in-memory `rpc` proxy. Exercises:
- *   - tool source mapping: 'builtin' / 'user'→'skill' / 'mcp' + explicit mcp_server_id
+ *   - tool source mapping: 'builtin' / 'user'→'skill' / 'mcp' + mcp_server_id parse
  *   - mcp server status mapping (all 5 agent-core literals → 4 wire literals)
  *   - transport pass-through
  *   - last_error surfaced via `error?`
@@ -70,27 +70,13 @@ function freshState(): FakeBridgeState {
   return { sessions: [], tools: [], mcpServers: [], reconnectCalls: [] };
 }
 
-function makeMcpService(state: FakeBridgeState): McpService {
-  return new McpService(makeFakeBridge(state), {
-    _serviceBrand: undefined,
-    homeDir: '/tmp/pythinker-mcp-service-test',
-    configPath: '/tmp/pythinker-mcp-service-test/config.toml',
-  });
-}
-
 // --- Adapter tests ----------------------------------------------------------
 
 describe('toProtocolTool adapter', () => {
-  it('maps builtin source and its input schema', () => {
-    const inputSchema = { type: 'object', properties: { command: { type: 'string' } } };
-    const out = toProtocolTool({
-      name: 'Bash',
-      description: 'd',
-      source: 'builtin',
-      inputSchema,
-    });
+  it("maps builtin source as-is and emits input_schema = null", () => {
+    const out = toProtocolTool({ name: 'Bash', description: 'd', source: 'builtin' });
     expect(out.source).toBe('builtin');
-    expect(out.input_schema).toEqual(inputSchema);
+    expect(out.input_schema).toBeNull();
     expect(out.mcp_server_id).toBeUndefined();
   });
 
@@ -99,20 +85,19 @@ describe('toProtocolTool adapter', () => {
     expect(out.source).toBe('skill');
   });
 
-  it('maps explicit mcpServerId for a qualified MCP tool', () => {
+  it("parses mcp_server_id from qualified mcp tool name 'mcp:lark:search'", () => {
     const out = toProtocolTool({
-      name: 'mcp__myserver__mytool',
+      name: 'mcp:lark:search',
       description: 'd',
       source: 'mcp',
-      mcpServerId: 'myserver',
     });
     expect(out.source).toBe('mcp');
-    expect(out.mcp_server_id).toBe('myserver');
+    expect(out.mcp_server_id).toBe('lark');
   });
 
-  it('omits mcp_server_id when metadata is absent', () => {
+  it('omits mcp_server_id when the mcp tool name lacks the conventional prefix', () => {
     const out = toProtocolTool({
-      name: 'mcp__unknown__tool',
+      name: 'oddly_named',
       description: 'd',
       source: 'mcp',
     });
@@ -173,15 +158,11 @@ describe('ToolService.list', () => {
 
   it('returns adapted tools using the most-recent session id', async () => {
     const state = freshState();
-    state.sessions.push(fakeSession('s_old', 1), fakeSession('s_new', 2));
+    state.sessions.push(fakeSession('s_old', 1));
+    state.sessions.push(fakeSession('s_new', 2));
     state.tools.push(
       { name: 'Bash', description: 'b', source: 'builtin' },
-      {
-        name: 'mcp__lark__search',
-        description: 'l',
-        source: 'mcp',
-        mcpServerId: 'lark',
-      },
+      { name: 'mcp:lark:search', description: 'l', source: 'mcp' },
     );
     const svc = new ToolService(makeFakeBridge(state));
     const out = await svc.list();
@@ -205,7 +186,7 @@ describe('ToolService.list', () => {
 
 describe('McpService.list', () => {
   it('returns [] when no sessions exist (registrar not reachable)', async () => {
-    const svc = makeMcpService(freshState());
+    const svc = new McpService(makeFakeBridge(freshState()));
     expect(await svc.list()).toEqual([]);
   });
 
@@ -218,7 +199,7 @@ describe('McpService.list', () => {
       status: 'connected',
       toolCount: 7,
     });
-    const svc = makeMcpService(state);
+    const svc = new McpService(makeFakeBridge(state));
     const out = await svc.list();
     expect(out).toHaveLength(1);
     expect(out[0]!.id).toBe('lark');
@@ -228,7 +209,7 @@ describe('McpService.list', () => {
 
 describe('McpService.restart', () => {
   it('throws McpServerNotFoundError when no sessions exist', async () => {
-    const svc = makeMcpService(freshState());
+    const svc = new McpService(makeFakeBridge(freshState()));
     await expect(svc.restart('lark')).rejects.toBeInstanceOf(McpServerNotFoundError);
   });
 
@@ -241,7 +222,7 @@ describe('McpService.restart', () => {
       status: 'connected',
       toolCount: 1,
     });
-    const svc = makeMcpService(state);
+    const svc = new McpService(makeFakeBridge(state));
     await expect(svc.restart('unknown')).rejects.toBeInstanceOf(McpServerNotFoundError);
   });
 
@@ -254,7 +235,7 @@ describe('McpService.restart', () => {
       status: 'connected',
       toolCount: 1,
     });
-    const svc = makeMcpService(state);
+    const svc = new McpService(makeFakeBridge(state));
     const result = await svc.restart('lark');
     expect(result).toEqual({ restarting: true });
     expect(state.reconnectCalls).toHaveLength(1);

@@ -125,12 +125,13 @@ describe('e2e: provider error handling (extended)', () => {
       const err = new APITimeoutError('request timed out after 30s');
       const provider = createThrowingProvider(err);
 
-      const error = await step(provider, '', new SimpleToolset(), []).then(
-        () => undefined,
-        (error: unknown) => error,
-      );
-      expect(error).toBeInstanceOf(APITimeoutError);
-      expect((error as Error).message).toBe('request timed out after 30s');
+      try {
+        await step(provider, '', new SimpleToolset(), []);
+        expect.unreachable('should have thrown');
+      } catch (error: unknown) {
+        expect(error).toBeInstanceOf(APITimeoutError);
+        expect((error as Error).message).toBe('request timed out after 30s');
+      }
     });
   });
 
@@ -153,15 +154,16 @@ describe('e2e: provider error handling (extended)', () => {
         const err = new APIStatusError(status, `HTTP ${status}`, requestId);
         const provider = createThrowingProvider(err);
 
-        const error = await step(provider, '', new SimpleToolset(), []).then(
-          () => undefined,
-          (error: unknown) => error,
-        );
-        expect(error).toBeInstanceOf(APIStatusError);
-        expect((error as APIStatusError).statusCode).toBe(status);
-        expect((error as APIStatusError).requestId).toBe(requestId);
-        // Base type chain must be intact.
-        expect(error).toBeInstanceOf(ChatProviderError);
+        try {
+          await step(provider, '', new SimpleToolset(), []);
+          expect.unreachable('should have thrown');
+        } catch (error: unknown) {
+          expect(error).toBeInstanceOf(APIStatusError);
+          expect((error as APIStatusError).statusCode).toBe(status);
+          expect((error as APIStatusError).requestId).toBe(requestId);
+          // Base type chain must be intact.
+          expect(error).toBeInstanceOf(ChatProviderError);
+        }
       });
     }
 

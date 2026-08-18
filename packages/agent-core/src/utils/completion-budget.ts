@@ -54,19 +54,14 @@ function parseEnvBudget(raw: string | undefined): EnvBudget {
 export function computeCompletionBudgetCap(args: {
   readonly budget: CompletionBudgetConfig;
   readonly capability: ModelCapability | undefined;
-  readonly usedContextTokens?: number;
 }): number {
   const maxCtx = args.capability?.max_context_tokens ?? 0;
-  // Start from the largest cap so thinking is not cut off before the model
-  // produces a summary, then shrink to the remaining context window when the
-  // used-token count is known so `input + max_tokens` stays within provider
-  // limits that validate the sum against the window.
-  let cap =
+  // The provider backend computes the safe request-specific value from the
+  // serialized prompt. Locally using the largest cap avoids cutting off
+  // thinking before the model produces a summary.
+  const cap =
     args.budget.hardCap ??
     (maxCtx > 0 ? maxCtx : args.budget.fallback ?? DEFAULT_UNKNOWN_CONTEXT_FALLBACK);
-  if (maxCtx > 0 && args.usedContextTokens !== undefined) {
-    cap = Math.min(cap, maxCtx - args.usedContextTokens);
-  }
   return Math.max(MIN_FLOOR, cap);
 }
 
@@ -91,7 +86,6 @@ export function applyCompletionBudget(args: {
   const cap = computeCompletionBudgetCap({
     budget: args.budget,
     capability: args.capability,
-    usedContextTokens: args.usedContextTokens,
   });
   return args.provider.withMaxCompletionTokens(cap, {
     usedContextTokens: args.usedContextTokens,

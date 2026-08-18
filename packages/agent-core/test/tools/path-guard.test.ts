@@ -48,22 +48,23 @@ describe('path access policy', () => {
   });
 
   it('does not duplicate outside-working-directory wording for search paths', () => {
-    let thrown: unknown;
     try {
       resolvePathAccess('../../outside.txt', '/workspace/project', WORKSPACE, {
         operation: 'search',
         policy: DEFAULT_WORKSPACE_ACCESS_POLICY,
       });
     } catch (error) {
-      thrown = error;
+      expect(error).toBeInstanceOf(PathSecurityError);
+      const message = (error as PathSecurityError).message;
+      const matches = message.match(/outside the working directory/g) ?? [];
+      expect(matches).toHaveLength(1);
+      expect(message).toBe(
+        '"../../outside.txt" is not an absolute path. You must provide an absolute path to search outside the working directory.',
+      );
+      return;
     }
-    expect(thrown).toBeInstanceOf(PathSecurityError);
-    const message = (thrown as PathSecurityError).message;
-    const matches = message.match(/outside the working directory/g) ?? [];
-    expect(matches).toHaveLength(1);
-    expect(message).toBe(
-      '"../../outside.txt" is not an absolute path. You must provide an absolute path to search outside the working directory.',
-    );
+
+    throw new Error('Expected resolvePathAccess to reject escaping relative search path');
   });
 
   it('disabled policy allows relative paths that escape workspace roots', () => {

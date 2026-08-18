@@ -166,7 +166,7 @@ describe('ascii header value sanitization', () => {
       const actual = await vi.importActual<typeof import('node:os')>('node:os');
       return {
         ...actual,
-        hostname: () => 'πππ',
+        hostname: () => '你好',
         release: () => '1.0.0',
         type: () => 'Linux',
         arch: () => 'x64',

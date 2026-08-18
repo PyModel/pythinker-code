@@ -85,47 +85,6 @@ describe('ApprovalPreviewViewer', () => {
     expect(scrolled).toMatch(/row-\d{2,}/);
   });
 
-  it.each([
-    ['legacy', '\u0006'],
-    ['Kitty CSI-u', '\u001B[102;5u'],
-  ])('%s ctrl+f pages down', (_encoding, key) => {
-    const lines = Array.from(
-      { length: 50 },
-      (_, i) => `row-${String(i + 1).padStart(3, '0')}`,
-    );
-    const viewer = makeViewer({
-      block: { type: 'file_content', path: 'src/big.ts', content: lines.join('\n') },
-      rows: 12,
-    });
-
-    viewer.handleInput(key);
-
-    const scrolled = strip(viewer.render(100).join('\n'));
-    expect(scrolled).toContain('row-008');
-    expect(scrolled).not.toContain('row-001');
-  });
-
-  it.each([
-    ['legacy', '\u0002'],
-    ['Kitty CSI-u', '\u001B[98;5u'],
-  ])('%s ctrl+b pages up', (_encoding, key) => {
-    const lines = Array.from(
-      { length: 50 },
-      (_, i) => `row-${String(i + 1).padStart(3, '0')}`,
-    );
-    const viewer = makeViewer({
-      block: { type: 'file_content', path: 'src/big.ts', content: lines.join('\n') },
-      rows: 12,
-    });
-    viewer.handleInput('\u001B[6~');
-
-    viewer.handleInput(key);
-
-    const scrolled = strip(viewer.render(100).join('\n'));
-    expect(scrolled).toContain('row-001');
-    expect(scrolled).not.toContain('row-009');
-  });
-
   it('scrolls to the end with G and back to the top with g', () => {
     const lines: string[] = [];
     for (let i = 1; i <= 100; i++) lines.push(`L${String(i)}`);

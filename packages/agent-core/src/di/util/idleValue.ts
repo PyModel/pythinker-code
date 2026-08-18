@@ -53,7 +53,7 @@ function runWhenGlobalIdle(
         safeGlobal.cancelIdleCallback(handle);
       },
     };
-  }
+  } else {
     // Polyfill for environments without requestIdleCallback (e.g. Node.js).
     let disposed = false;
     const handle = setTimeout(() => {
@@ -78,7 +78,7 @@ function runWhenGlobalIdle(
         clearTimeout(handle);
       },
     };
-  
+  }
 }
 
 /**
@@ -103,8 +103,8 @@ export class GlobalIdleValue<T> {
     this._executor = () => {
       try {
         this._value = executor();
-      } catch (error) {
-        this._error = error;
+      } catch (err) {
+        this._error = err;
       } finally {
         this._didRun = true;
       }

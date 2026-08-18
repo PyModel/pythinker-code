@@ -10,7 +10,6 @@ import OpenAIClient from 'openai';
 
 import { classifyPythinkerQuotaError } from './pythinker-errors';
 import { convertOpenAIError } from './openai-common';
-import { classifyPythinkerQuotaError } from './pythinker-errors';
 import {
   mergeRequestHeaders,
   requireProviderApiKey,
@@ -33,7 +32,7 @@ export interface PythinkerFilesOptions {
  * Pythinker-specific file upload client.
  *
  * Wraps the underlying OpenAI-compatible `files.create` API to upload videos
- * to Pythoughts's file service and return them as {@link VideoURLPart} values
+ * to PyModel's file service and return them as {@link VideoURLPart} values
  * suitable for use in chat messages.
  *
  * A `PythinkerFiles` instance is typically obtained from
@@ -62,15 +61,15 @@ export class PythinkerFiles {
   }
 
   /**
-   * Upload a video file to Pythinker/Pythoughts for use in chat messages.
+   * Upload a video file to Pythinker/PyModel for use in chat messages.
    *
    * Accepts either a local filesystem path or an in-memory
    * {@link VideoUploadInput}. Returns a {@link VideoURLPart} referencing the
-   * uploaded file by its Pythoughts file id.
+   * uploaded file by its PyModel file id.
    *
    * @param input - Local path string or `{ data, mimeType }` object.
    * @returns A `VideoURLPart` whose `url` references the uploaded file
-   *          by its Pythoughts file id (e.g. `ms://<file-id>`).
+   *          by its PyModel file id (e.g. `ms://<file-id>`).
    * @throws {ChatProviderError} if the input is not a video or the upload
    *         fails.
    */
@@ -115,10 +114,7 @@ export class PythinkerFiles {
       // `Blob` and `File` are available as globals in Node 20+. The cast via
       // `Uint8Array` satisfies `BlobPart` in both Node and DOM lib contexts.
       const bytes = input.data instanceof Uint8Array ? input.data : new Uint8Array(input.data);
-      // `BlobPart` requires a non-shared backing buffer under @types/node 26;
-      // the assertion is safe because these bytes never come from a
-      // SharedArrayBuffer.
-      const blob = new Blob([bytes as Uint8Array<ArrayBuffer>], { type: input.mimeType });
+      const blob = new Blob([bytes], { type: input.mimeType });
       file = new File([blob], filename, { type: input.mimeType });
     }
 

@@ -25,7 +25,7 @@ import {
 
 import { turnEndReasonToStopReason } from '../src/events-map';
 import { AcpServer } from '../src/server';
-import { AUTHED } from './_helpers/harness-stubs';
+import { AUTHED_STATUS } from './_helpers/harness-stubs';
 
 class StubClient implements Client {
   async requestPermission(_p: RequestPermissionRequest): Promise<RequestPermissionResponse> {
@@ -97,7 +97,7 @@ const textBlock = (text: string): ContentBlock => ({ type: 'text', text });
 
 function makeHarnessWithSession(session: Session): PythinkerHarness {
   return {
-    isAuthenticated: AUTHED,
+    auth: { status: async () => AUTHED_STATUS },
     createSession: async () => session,
   } as unknown as PythinkerHarness;
 }
@@ -228,8 +228,8 @@ describe('AcpServer error mapping', () => {
     let captured: unknown;
     try {
       await client.prompt({ sessionId, prompt: [textBlock('hi')] });
-    } catch (error) {
-      captured = error;
+    } catch (err) {
+      captured = err;
     }
     expect(captured).toMatchObject({ code: -32603 });
     // Privacy guarantee: the JSON-RPC error response carries only the

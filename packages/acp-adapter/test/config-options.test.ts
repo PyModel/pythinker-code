@@ -199,11 +199,13 @@ describe('buildModeOption', () => {
     expect(option.options).toHaveLength(4);
     const ids = option.options.map((o) => ('value' in o ? o.value : ''));
     expect(ids).toEqual(['default', 'plan', 'auto', 'yolo']);
-    for (const entry of option.options.filter((candidate) => 'value' in candidate)) {
-      expect(typeof entry.name).toBe('string');
-      expect(entry.name.length).toBeGreaterThan(0);
-      expect(typeof entry.description).toBe('string');
-      expect((entry.description ?? '').length).toBeGreaterThan(0);
+    for (const entry of option.options) {
+      if ('value' in entry) {
+        expect(typeof entry.name).toBe('string');
+        expect(entry.name.length).toBeGreaterThan(0);
+        expect(typeof entry.description).toBe('string');
+        expect((entry.description ?? '').length).toBeGreaterThan(0);
+      }
     }
   });
 });
@@ -222,15 +224,18 @@ describe('buildSessionConfigOptions', () => {
     expect(result).toHaveLength(3);
     expect(result.map((o) => o.id)).toEqual(['model', 'thinking', 'mode']);
 
-    if (result[0]!.type !== 'select') throw new Error('expected model select at index 0');
-    expect(result[0]!.currentValue).toBe('pythinker-coder');
-    if (result[1]!.type !== 'select' || result[1]!.id !== 'thinking') {
+    if (result[0]!.type === 'select') {
+      expect(result[0]!.currentValue).toBe('pythinker-coder');
+    }
+    if (result[1]!.type === 'select' && result[1]!.id === 'thinking') {
+      expect(result[1]!.currentValue).toBe('off');
+      expect(result[1]!.category).toBe('thought_level');
+    } else {
       throw new Error('expected thinking select at index 1');
     }
-    expect(result[1]!.currentValue).toBe('off');
-    expect(result[1]!.category).toBe('thought_level');
-    if (result[2]!.type !== 'select') throw new Error('expected mode select at index 2');
-    expect(result[2]!.currentValue).toBe('default');
+    if (result[2]!.type === 'select') {
+      expect(result[2]!.currentValue).toBe('default');
+    }
   });
 
   it('shows the thinking control for an unknown Claude-marked model using the Anthropic protocol', async () => {

@@ -94,7 +94,6 @@ class StubRpc extends SDKRpcClientBase {
       createdAt: 1,
       updatedAt: 1,
       sessionMetadata: {
-        sessionFormatVersion: 2,
         createdAt: '',
         updatedAt: '',
         title: '',
@@ -847,6 +846,7 @@ effort = "medium"
     const harness = new PythinkerHarness(rpc, {
       homeDir: '/tmp/home',
       configPath: '/tmp/config.toml',
+      auth: { status: async () => ({ providers: [] }) } as never,
       telemetry: recordingTelemetry(records),
       ensureConfigFile: async () => undefined,
       onClose: () => undefined,

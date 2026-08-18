@@ -14,21 +14,12 @@ import {
   Input,
   Key,
   matchesKey,
-  parseKey,
   truncateToWidth,
   visibleWidth,
   type Focusable,
 } from '@pymodel/pi-tui';
 
 import { currentTheme } from '#/tui/theme';
-import { combinedBindingHint, formatBindingKeys } from '#/tui/components/dialogs/choice-picker';
-import {
-  defaultKeybindings,
-  keybindingDisplayText,
-  KeybindingResolver,
-  type KeybindingHandlers,
-  type ParsedKeybinding,
-} from '#/tui/keybindings';
 
 export interface CustomRegistryImportValue {
   readonly url: string;
@@ -43,6 +34,9 @@ const TITLE = 'Import custom provider registry';
 const SUBTITLE_DEFAULT = 'Paste an api.json URL and its Bearer token.';
 const SUBTITLE_URL_EMPTY = 'Registry URL cannot be empty.';
 const SUBTITLE_TOKEN_EMPTY = 'Bearer token cannot be empty.';
+const FOOTER_NOT_LAST = 'Tab / ↑↓ to switch  ·  Enter for next field  ·  Esc to cancel';
+const FOOTER_LAST = 'Tab / ↑↓ to switch  ·  Enter to submit  ·  Esc to cancel';
+
 type FieldId = 'url' | 'token';
 
 function maskInputLine(raw: string): string {
@@ -79,15 +73,6 @@ export class CustomRegistryImportDialogComponent extends Container implements Fo
   private activeField: FieldId = 'url';
   private done = false;
   private hint: 'none' | 'url-empty' | 'token-empty' = 'none';
-  private bindings = defaultKeybindings();
-  private keybindings = new KeybindingResolver(
-    this.bindings.filter(
-      (binding) =>
-        binding.action === 'confirm:no' ||
-        binding.action === 'confirm:nextField' ||
-        binding.action === 'confirm:previousField',
-    ),
-  );
 
   constructor(
     onDone: (result: CustomRegistryImportResult) => void,
@@ -106,54 +91,27 @@ export class CustomRegistryImportDialogComponent extends Container implements Fo
     };
   }
 
-  setKeybindings(bindings: readonly ParsedKeybinding[]): void {
-    this.bindings = bindings;
-    const winners = new Map<string, ParsedKeybinding>();
-    for (const binding of bindings) {
-      winners.set(`${binding.context}\0${binding.chord.join(' ')}`, binding);
-    }
-    this.keybindings = new KeybindingResolver(
-      [...winners.values()].filter(
-        (binding) =>
-          binding.action === 'confirm:no' ||
-          binding.action === 'confirm:nextField' ||
-          binding.action === 'confirm:previousField',
-      ),
-    );
-  }
-
   handleInput(data: string): void {
     if (this.done) return;
-    const handlers: KeybindingHandlers = {
-      'confirm:no': () => this.cancel(),
-      'confirm:nextField': () => this.focusField('token'),
-      'confirm:previousField': () => this.focusField('url'),
-    };
-    const keyId = parseKey(data);
     if (
-      (keyId ?? data) === Key.escape &&
-      keybindingDisplayText(this.bindings, 'Confirmation', 'confirm:no') === undefined
+      matchesKey(data, Key.escape) ||
+      matchesKey(data, Key.ctrl('c')) ||
+      matchesKey(data, Key.ctrl('d'))
     ) {
       this.cancel();
       return;
     }
-    if (
-      keyId === undefined
-        ? this.keybindings.dispatchKeyId(data, ['Confirmation'], handlers)
-        : this.keybindings.dispatch(data, ['Confirmation'], handlers)
-    ) {
-      return;
-    }
-    if (matchesKey(data, Key.ctrl('c')) || matchesKey(data, Key.ctrl('d'))) {
-      this.cancel();
-      return;
-    }
-    if (matchesKey(data, Key.up)) {
-      this.focusField('url');
+
+    if (matchesKey(data, Key.tab) || matchesKey(data, Key.shift('tab'))) {
+      this.toggleField();
       return;
     }
     if (matchesKey(data, Key.down)) {
       this.focusField('token');
+      return;
+    }
+    if (matchesKey(data, Key.up)) {
+      this.focusField('url');
       return;
     }
 
@@ -193,20 +151,10 @@ export class CustomRegistryImportDialogComponent extends Container implements Fo
           ? SUBTITLE_TOKEN_EMPTY
           : SUBTITLE_DEFAULT;
     const subtitleStyled = currentTheme.fg('textDim', subtitleText);
-    const fieldSwitch = combinedBindingHint(
-      keybindingDisplayText(this.bindings, 'Confirmation', 'confirm:previousField'),
-      keybindingDisplayText(this.bindings, 'Confirmation', 'confirm:nextField'),
-      'switch',
+    const footerStyled = currentTheme.fg(
+      'textDim',
+      this.activeField === 'url' ? FOOTER_NOT_LAST : FOOTER_LAST,
     );
-    const cancel = keybindingDisplayText(this.bindings, 'Confirmation', 'confirm:no');
-    const footer = [
-      fieldSwitch,
-      this.activeField === 'url' ? 'Enter for next field' : 'Enter to submit',
-      cancel === undefined ? undefined : `${formatBindingKeys(cancel)} cancel`,
-    ]
-      .filter((part): part is string => part !== undefined)
-      .join(' · ');
-    const footerStyled = currentTheme.fg('textDim', footer);
 
     const urlLabelText = 'Registry URL';
     const tokenLabelText = 'Bearer token';
@@ -258,7 +206,9 @@ export class CustomRegistryImportDialogComponent extends Container implements Fo
       lines.push(border('│') + pad + content + ' '.repeat(rightPad) + border('│'));
     }
 
-    lines.push(border('│') + ' '.repeat(safeWidth - 2) + border('│'), border('╰' + '─'.repeat(safeWidth - 2) + '╯'), '');
+    lines.push(border('│') + ' '.repeat(safeWidth - 2) + border('│'));
+    lines.push(border('╰' + '─'.repeat(safeWidth - 2) + '╯'));
+    lines.push('');
 
     return lines.map((line) => truncateToWidth(line, safeWidth, '…'));
   }

@@ -256,18 +256,17 @@ describe('non-stream error propagation', () => {
     );
     (provider as any)._client.messages.create = vi.fn().mockRejectedValue(sdkError);
 
-    const error = await provider
-      .generate(
+    try {
+      await provider.generate(
         '',
         [],
         [{ role: 'user', content: [{ type: 'text', text: 'Hi' }], toolCalls: [] }],
-      )
-      .then(
-        () => undefined,
-        (error: unknown) => error,
       );
-    expect(error).toBeInstanceOf(APIProviderRateLimitError);
-    expect((error as APIProviderRateLimitError).statusCode).toBe(429);
+      expect.unreachable('Should have thrown');
+    } catch (error) {
+      expect(error).toBeInstanceOf(APIProviderRateLimitError);
+      expect((error as APIProviderRateLimitError).statusCode).toBe(429);
+    }
   });
 
   it('AuthenticationError during generate is converted to APIStatusError(401)', async () => {
@@ -280,18 +279,17 @@ describe('non-stream error propagation', () => {
     );
     (provider as any)._client.messages.create = vi.fn().mockRejectedValue(sdkError);
 
-    const error = await provider
-      .generate(
+    try {
+      await provider.generate(
         '',
         [],
         [{ role: 'user', content: [{ type: 'text', text: 'Hi' }], toolCalls: [] }],
-      )
-      .then(
-        () => undefined,
-        (error: unknown) => error,
       );
-    expect(error).toBeInstanceOf(APIStatusError);
-    expect((error as APIStatusError).statusCode).toBe(401);
+      expect.unreachable('Should have thrown');
+    } catch (error) {
+      expect(error).toBeInstanceOf(APIStatusError);
+      expect((error as APIStatusError).statusCode).toBe(401);
+    }
   });
 });
 describe('stream error propagation', () => {
@@ -402,16 +400,15 @@ describe('stream error propagation', () => {
       [],
       [{ role: 'user', content: [{ type: 'text', text: 'Hi' }], toolCalls: [] }],
     );
-    const error = await (async () => {
+    try {
       for await (const _ of result) {
         void _;
       }
-    })().then(
-      () => undefined,
-      (error: unknown) => error,
-    );
-    expect(error).toBeInstanceOf(APIProviderRateLimitError);
-    expect((error as APIProviderRateLimitError).statusCode).toBe(429);
+      expect.unreachable('Should have thrown');
+    } catch (error) {
+      expect(error).toBeInstanceOf(APIProviderRateLimitError);
+      expect((error as APIProviderRateLimitError).statusCode).toBe(429);
+    }
   });
 
   it('AuthenticationError during stream iteration is converted to APIStatusError(401)', async () => {
@@ -431,16 +428,15 @@ describe('stream error propagation', () => {
       [],
       [{ role: 'user', content: [{ type: 'text', text: 'Hi' }], toolCalls: [] }],
     );
-    const error = await (async () => {
+    try {
       for await (const _ of result) {
         void _;
       }
-    })().then(
-      () => undefined,
-      (error: unknown) => error,
-    );
-    expect(error).toBeInstanceOf(APIStatusError);
-    expect((error as APIStatusError).statusCode).toBe(401);
+      expect.unreachable('Should have thrown');
+    } catch (error) {
+      expect(error).toBeInstanceOf(APIStatusError);
+      expect((error as APIStatusError).statusCode).toBe(401);
+    }
   });
 
   it('undici TypeError("terminated") during stream iteration -> retryable APIConnectionError', async () => {

@@ -1,6 +1,6 @@
 import {
   Key,
-  parseKey,
+  matchesKey,
   truncateToWidth,
   visibleWidth,
   type Component,
@@ -8,14 +8,6 @@ import {
 } from '@pymodel/pi-tui';
 
 import { SELECT_POINTER } from '#/tui/constant/symbols';
-import { combinedBindingHint, formatBindingKeys } from '#/tui/components/dialogs/choice-picker';
-import {
-  defaultKeybindings,
-  keybindingDisplayText,
-  KeybindingResolver,
-  type KeybindingHandlers,
-  type ParsedKeybinding,
-} from '#/tui/keybindings';
 import { currentTheme } from '#/tui/theme';
 
 export type StartPermissionChoice = 'auto' | 'yolo' | 'manual' | 'cancel';
@@ -41,89 +33,35 @@ export class StartPermissionPromptComponent<TChoice extends StartPermissionChoic
 {
   focused = false;
   private selectedIndex = 0;
-  private bindings = defaultKeybindings();
-  private keybindings = new KeybindingResolver(
-    this.bindings.filter(
-      (binding) =>
-        binding.action === 'confirm:yes' ||
-        binding.action === 'confirm:no' ||
-        binding.action === 'confirm:previous' ||
-        binding.action === 'confirm:next' ||
-        binding.action === 'confirm:toggle',
-    ),
-  );
 
   constructor(private readonly opts: StartPermissionPromptOptions<TChoice>) {}
 
   invalidate(): void {}
 
-  setKeybindings(bindings: readonly ParsedKeybinding[]): void {
-    this.bindings = bindings;
-    const winners = new Map<string, ParsedKeybinding>();
-    for (const binding of bindings) {
-      winners.set(`${binding.context}\0${binding.chord.join(' ')}`, binding);
-    }
-    this.keybindings = new KeybindingResolver(
-      [...winners.values()].filter(
-        (binding) =>
-          binding.action === 'confirm:yes' ||
-          binding.action === 'confirm:no' ||
-          binding.action === 'confirm:previous' ||
-          binding.action === 'confirm:next' ||
-          binding.action === 'confirm:toggle',
-      ),
-    );
-  }
-
   handleInput(data: string): void {
-    const keyId = parseKey(data);
-    const handlers: KeybindingHandlers = {
-      'confirm:yes': () => this.opts.onSelect(this.opts.options[this.selectedIndex]!.value),
-      'confirm:no': this.opts.onCancel,
-      'confirm:previous': () => {
-        this.selectedIndex = Math.max(0, this.selectedIndex - 1);
-      },
-      'confirm:next': () => {
-        this.selectedIndex = Math.min(this.opts.options.length - 1, this.selectedIndex + 1);
-      },
-      'confirm:toggle': () => this.opts.onSelect(this.opts.options[this.selectedIndex]!.value),
-    };
-    if (
-      (keyId ?? data) === Key.escape &&
-      keybindingDisplayText(this.bindings, 'Confirmation', 'confirm:no') === undefined
-    ) {
+    if (matchesKey(data, Key.escape)) {
       this.opts.onCancel();
       return;
     }
-    if (
-      keyId === undefined
-        ? this.keybindings.dispatchKeyId(data, ['Confirmation'], handlers)
-        : this.keybindings.dispatch(data, ['Confirmation'], handlers)
-    ) {
+    if (matchesKey(data, Key.up)) {
+      this.selectedIndex = Math.max(0, this.selectedIndex - 1);
       return;
+    }
+    if (matchesKey(data, Key.down)) {
+      this.selectedIndex = Math.min(this.opts.options.length - 1, this.selectedIndex + 1);
+      return;
+    }
+    if (matchesKey(data, Key.enter) || matchesKey(data, Key.space)) {
+      this.opts.onSelect(this.opts.options[this.selectedIndex]!.value);
     }
   }
 
   render(width: number): string[] {
     const rule = currentTheme.fg('primary', '─'.repeat(width));
-    const navigation = combinedBindingHint(
-      keybindingDisplayText(this.bindings, 'Confirmation', 'confirm:previous'),
-      keybindingDisplayText(this.bindings, 'Confirmation', 'confirm:next'),
-      'navigate',
-    );
-    const select = keybindingDisplayText(this.bindings, 'Confirmation', 'confirm:yes');
-    const cancel = keybindingDisplayText(this.bindings, 'Confirmation', 'confirm:no');
-    const hint = [
-      navigation,
-      select === undefined ? undefined : `${formatBindingKeys(select)} select`,
-      cancel === undefined ? undefined : `${formatBindingKeys(cancel)} cancel`,
-    ]
-      .filter((part): part is string => part !== undefined)
-      .join(' · ');
     const lines = [
       rule,
       currentTheme.boldFg('primary', ` ${this.opts.title}`),
-      currentTheme.fg('textMuted', ` ${hint}`),
+      currentTheme.fg('textMuted', ' ↑↓ navigate · Enter select · Esc cancel'),
       '',
     ];
 

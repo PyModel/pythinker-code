@@ -14,7 +14,6 @@ import {
   createPythinkerHarness,
   createPythinkerHarnessV2,
   type Event,
-  type PluginInstallOptions,
   type PythinkerError,
   type SkillActivatedEvent,
   type SkillSummary,
@@ -177,8 +176,6 @@ describe('Session skills', () => {
       'name: review',
       'description: Review code',
       'disable_model_invocation: true',
-      'user-invocable: false',
-      'argument-hint: <target>',
       '---',
       '',
       'Review the requested file.',
@@ -196,8 +193,6 @@ describe('Session skills', () => {
         description: 'Review code',
         source: 'project',
         disableModelInvocation: true,
-        userInvocable: false,
-        argumentHint: '<target>',
       });
       expect(listed?.path.endsWith('/.pythinker-code/skills/review/SKILL.md')).toBe(true);
       expect(JSON.stringify(skills)).not.toContain('Review the requested file.');
@@ -391,33 +386,9 @@ describe('Session skills', () => {
     } satisfies Partial<PythinkerError>);
   });
 
-  it('forwards plugin install options through the SDK session', async () => {
-    const installPlugin = vi.fn(async () => ({ id: 'definition-only' }));
-    const options = {
-      repositorySubdirectory: 'plugins/demo',
-      definition: {
-        id: 'definition-only',
-        strict: false,
-        defaultEnabled: false,
-      },
-    } satisfies PluginInstallOptions;
-    const session = new Session({
-      id: 'ses_plugin_install',
-      workDir: '/tmp/work',
-      rpc: { installPlugin } as unknown as SDKRpcClientBase,
-    });
-
-    await session.installPlugin('https://github.com/example/plugin', options);
-
-    expect(installPlugin).toHaveBeenCalledWith('https://github.com/example/plugin', options);
-  });
-
   it('exposes public skill event and summary types', () => {
     expectTypeOf<SkillSummary['name']>().toEqualTypeOf<string>();
     expectTypeOf<SkillActivatedEvent['skillName']>().toEqualTypeOf<string>();
-    expectTypeOf<Parameters<InstanceType<typeof Session>['installPlugin']>[1]>().toEqualTypeOf<
-      PluginInstallOptions | undefined
-    >();
   });
 });
 

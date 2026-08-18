@@ -25,20 +25,6 @@ const InputHistoryEntrySchema: z.ZodType<InputHistoryEntry> = z.object({
   content: z.string(),
 });
 
-export function selectRecentInputHistory(
-  entries: readonly InputHistoryEntry[],
-): readonly string[] {
-  const selected: string[] = [];
-  const seen = new Set<string>();
-  for (let index = entries.length - 1; index >= 0 && selected.length < 100; index--) {
-    const content = entries[index]?.content.trim();
-    if (content === undefined || content.length === 0 || seen.has(content)) continue;
-    seen.add(content);
-    selected.push(content);
-  }
-  return selected;
-}
-
 export async function loadInputHistory(file: string): Promise<InputHistoryEntry[]> {
   return readJsonlFile(file, InputHistoryEntrySchema);
 }

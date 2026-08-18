@@ -57,10 +57,10 @@ describe('convertToolMessageContent', () => {
     const result = convertToolMessageContent(msg, null);
     expect(Array.isArray(result)).toBe(true);
     expect(result).toHaveLength(2);
-    expect(result).toMatchObject([
-      { type: 'text', text: 'hello' },
-      { type: 'text', text: 'world' },
-    ]);
+    if (Array.isArray(result)) {
+      expect(result[0]).toMatchObject({ type: 'text', text: 'hello' });
+      expect(result[1]).toMatchObject({ type: 'text', text: 'world' });
+    }
   });
 
   test('null conversion filters out ThinkPart (returns null from convertContentPart)', () => {
@@ -74,7 +74,9 @@ describe('convertToolMessageContent', () => {
       toolCallId: 'tc_005',
     };
     const result = convertToolMessageContent(msg, null);
-    expect(result).toHaveLength(1);
-    expect(result).toMatchObject([{ type: 'text', text: 'visible' }]);
+    if (Array.isArray(result)) {
+      expect(result).toHaveLength(1);
+      expect(result[0]).toMatchObject({ type: 'text', text: 'visible' });
+    }
   });
 });

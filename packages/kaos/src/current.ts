@@ -79,14 +79,6 @@ export function writeBytes(path: string, data: Buffer): Promise<number> {
   return getCurrentKaos().writeBytes(path, data);
 }
 
-export function unlink(path: string): Promise<void> {
-  return getCurrentKaos().unlink(path);
-}
-
-export function chmod(path: string, mode: number): Promise<void> {
-  return getCurrentKaos().chmod(path, mode);
-}
-
 export function stat(path: string, options?: { followSymlinks?: boolean }): Promise<StatResult> {
   return getCurrentKaos().stat(path, options);
 }

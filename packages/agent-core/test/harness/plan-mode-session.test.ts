@@ -7,16 +7,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createRPC, PythinkerCore, type CoreAPI, type SDKAPI } from '../../src';
 
 const BASE_CONFIG = `
-default_model = "pythinker-code/pythinker-for-coding"
+default_model = "pythinker-code/kimi-for-coding"
 
-[providers."managed:kimi-code"]
+[providers."managed:pythinker-code"]
 type = "pythinker"
 api_key = "test-key"
 base_url = "https://api.example/v1"
 
-[models."pythinker-code/pythinker-for-coding"]
-provider = "managed:kimi-code"
-model = "pythinker-for-coding"
+[models."pythinker-code/kimi-for-coding"]
+provider = "managed:pythinker-code"
+model = "kimi-for-coding"
 max_context_size = 1000000
 `;
 

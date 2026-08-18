@@ -2,7 +2,6 @@ import { visibleWidth } from '@pymodel/pi-tui';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { SessionPickerComponent } from '#/tui/components/dialogs/session-picker';
-import { defaultKeybindings, parseKeybindingBlocks } from '#/tui/keybindings';
 
 function stripAnsi(text: string): string {
   return text.replaceAll(/\[[0-?]*[ -/]*[@-~]/g, '');
@@ -18,32 +17,6 @@ const ESC = String.fromCodePoint(27);
 describe('SessionPickerComponent', () => {
   afterEach(() => {
     vi.restoreAllMocks();
-  });
-
-  it('uses remapped Select navigation and honors an unbound Down key', () => {
-    const onSelect = vi.fn();
-    const component = new SessionPickerComponent({
-      sessions: [
-        { id: 'ses_first', title: 'First', work_dir: '/tmp', updated_at: 1 },
-        { id: 'ses_second', title: 'Second', work_dir: '/tmp', updated_at: 2 },
-      ],
-      loading: false,
-      currentSessionId: '',
-      onSelect,
-      onCancel: vi.fn(),
-    });
-    component.setKeybindings([
-      ...defaultKeybindings(),
-      ...parseKeybindingBlocks([{ context: 'Select', bindings: { 'alt+j': 'select:next', down: null } }]),
-    ]);
-
-    component.handleInput('\u001B[B');
-    component.handleInput('\r');
-    expect(onSelect).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'ses_first' }));
-
-    component.handleInput('alt+j');
-    component.handleInput('\r');
-    expect(onSelect).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'ses_second' }));
   });
 
   it('forwards Ctrl-C and Ctrl-D to optional host shortcuts', () => {
@@ -126,36 +99,6 @@ describe('SessionPickerComponent', () => {
     expect(output).not.toMatch(/ses_01\S*…/);
     expect(output).toContain('/tmp/project');
     expect(output).toContain('please redesign the picker UI');
-  });
-
-  it('renders and searches session tags', () => {
-    const component = new SessionPickerComponent({
-      sessions: [
-        {
-          id: 'ses_tagged',
-          title: 'Tagged session',
-          work_dir: '/tmp/project',
-          updated_at: Date.now(),
-          metadata: { tag: 'review' },
-        },
-        {
-          id: 'ses_other',
-          title: 'Other session',
-          work_dir: '/tmp/project',
-          updated_at: Date.now(),
-        },
-      ],
-      loading: false,
-      currentSessionId: 'ses_current',
-      onSelect: vi.fn(),
-      onCancel: vi.fn(),
-    });
-
-    expect(renderPlain(component)).toContain('#review');
-    for (const key of 'review') component.handleInput(key);
-    const filtered = renderPlain(component);
-    expect(filtered).toContain('Tagged session');
-    expect(filtered).not.toContain('Other session');
   });
 
   it('omits the last-prompt row when last_prompt is missing', () => {
@@ -271,6 +214,39 @@ describe('SessionPickerComponent', () => {
     expect(headerLine).not.toMatch(/Short title\s{8,}/);
   });
 
+  it('prepends [imported] badge before the title for sessions migrated from pythinker-cli', () => {
+    const now = new Date('2026-05-11T12:00:00.000Z').getTime();
+    vi.spyOn(Date, 'now').mockReturnValue(now);
+
+    const component = new SessionPickerComponent({
+      sessions: [
+        {
+          id: 'ses_imported',
+          title: 'Migrated session',
+          work_dir: '/tmp/project',
+          updated_at: now - 60 * 1000,
+          metadata: { imported_from_pythinker_cli: true },
+        },
+        {
+          id: 'ses_native',
+          title: 'Fresh session',
+          work_dir: '/tmp/project',
+          updated_at: now - 60 * 1000,
+        },
+      ],
+      loading: false,
+      currentSessionId: 'ses_other',
+      onSelect: vi.fn(),
+      onCancel: vi.fn(),
+    });
+
+    const lines = component.render(120).map((line) => stripAnsi(line));
+    const importedLine = lines.find((line) => line.includes('Migrated session'));
+    const nativeLine = lines.find((line) => line.includes('Fresh session'));
+    expect(importedLine).toContain('[imported] Migrated session');
+    expect(nativeLine).not.toContain('[imported]');
+  });
+
   it('keeps every rendered line within the terminal width even for CJK content', () => {
     const now = new Date('2026-05-11T12:00:00.000Z').getTime();
     vi.spyOn(Date, 'now').mockReturnValue(now);
@@ -279,10 +255,10 @@ describe('SessionPickerComponent', () => {
       sessions: [
         {
           id: 'ses_cjk_long_session_id_value',
-          title: 'Now refactor the TUI sessions list to render several fields and improve the UI',
+          title: '现在要重构一下 TUI 的 sessions 列表，要渲染几个字段，让 UI 更好看',
           last_prompt:
-            'We need to render sessionid title lastPrompt, work directory, and modified time. Redesign the UI.',
-          work_dir: '/Users/someone/Desktop/i18n-folder/very-long-project-folder-name',
+            '我们要渲染几个：sessionid title lastPrompt。工作目录，修改时间。需要重新设计下 UI。',
+          work_dir: '/Users/someone/Desktop/中文目录/very-long-project-folder-name',
           updated_at: now - 5 * 60 * 1000,
         },
       ],
@@ -317,6 +293,7 @@ describe('SessionPickerComponent', () => {
           last_prompt: 'please redesign the picker UI to be much nicer than before',
           work_dir: '/Users/getlong/Development/cesiumdb',
           updated_at: now - 5 * 60 * 1000,
+          metadata: { imported_from_pythinker_cli: true },
         },
       ],
       loading: false,
@@ -476,32 +453,6 @@ describe('SessionPickerComponent', () => {
 
     expect(output).toContain('Session 0050');
     expect(output).toContain('Showing 49-52 of 100 loaded / 120 sessions');
-  });
-
-  it('keeps PageUp and PageDown local to the session list', () => {
-    const onToggleScope = vi.fn();
-    const component = new SessionPickerComponent({
-      sessions: Array.from({ length: 5 }, (_, index) => ({
-        id: `ses_${String(index)}`,
-        title: `Session ${String(index)}`,
-        work_dir: '/tmp',
-        updated_at: index,
-      })),
-      loading: false,
-      currentSessionId: '',
-      pageSize: 2,
-      onSelect: vi.fn(),
-      onCancel: vi.fn(),
-      onToggleScope,
-    });
-
-    component.handleInput(`${ESC}[6~`);
-    component.handleInput('\u0001');
-    expect(onToggleScope).toHaveBeenLastCalledWith('ses_2');
-
-    component.handleInput(`${ESC}[5~`);
-    component.handleInput('\u0001');
-    expect(onToggleScope).toHaveBeenLastCalledWith('ses_0');
   });
 
   it('keeps initial selected session id and loads enough pages for it', () => {

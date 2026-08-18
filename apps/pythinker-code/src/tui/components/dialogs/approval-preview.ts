@@ -96,11 +96,11 @@ export class ApprovalPreviewViewer extends Container implements Focusable {
       this.scrollBy(1);
       return;
     }
-    if (matchesKey(data, Key.pageUp) || k === ' ' || matchesKey(data, Key.ctrl('b'))) {
+    if (matchesKey(data, Key.pageUp) || k === ' ' || data === '\x02') {
       this.scrollBy(-Math.max(1, visible - 1));
       return;
     }
-    if (matchesKey(data, Key.pageDown) || matchesKey(data, Key.ctrl('f'))) {
+    if (matchesKey(data, Key.pageDown) || data === '\x06') {
       this.scrollBy(Math.max(1, visible - 1));
       return;
     }

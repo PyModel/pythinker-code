@@ -849,7 +849,6 @@ export class BackgroundManager {
     void this.agent.hooks?.fireAndForgetTrigger('Notification', {
       matcherValue: notification.type,
       inputData: {
-        agentId: this.agent.agentId,
         sink: 'context',
         notificationType: notification.type,
         title: notification.title,

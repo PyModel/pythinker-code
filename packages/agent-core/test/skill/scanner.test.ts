@@ -4,13 +4,7 @@ import path from 'pathe';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import {
-  discoverSkills,
-  listWorkspaceSkills,
-  resolveSkillRoots,
-  SessionSkillRegistry,
-  type SkillRoot,
-} from '../../src/skill';
+import { discoverSkills, resolveSkillRoots, SessionSkillRegistry, type SkillRoot } from '../../src/skill';
 
 // Mirror `resolveSkillRoots`' internal realpath (fs.realpath + forward-slash
 // normalization, see scanner.ts) so `root.path` comparisons hold on Windows,
@@ -1429,43 +1423,3 @@ async function writeSkill(
   await mkdir(path.dirname(target), { recursive: true });
   await writeFile(target, lines.join('\n'));
 }
-
-describe('listWorkspaceSkills', () => {
-  it('resolves a workspace catalog with no session, and projects summaries', async () => {
-    const { homeDir, repoDir, workDir } = await makeWorkspace();
-    await writeSkill(path.join(repoDir, '.pythinker-code', 'skills'), path.join('deploy', 'SKILL.md'), [
-      '---',
-      'name: deploy',
-      'description: Ship the service.',
-      '---',
-      '',
-      'Body.',
-    ]);
-
-    const skills = await listWorkspaceSkills({ workDir, userHomeDir: homeDir, brandHomeDir: homeDir });
-
-    const deploy = skills.find((skill) => skill.name === 'deploy');
-    expect(deploy).toBeDefined();
-    expect(deploy?.description).toBe('Ship the service.');
-    // Built-ins are registered too, so the catalog a panel shows is never just project skills.
-    expect(skills.length).toBeGreaterThan(1);
-  });
-
-  it('reports an unreadable skill through onWarning instead of throwing', async () => {
-    const { homeDir, repoDir, workDir } = await makeWorkspace();
-    await writeSkill(path.join(repoDir, '.pythinker-code', 'skills'), path.join('broken', 'SKILL.md'), [
-      'no frontmatter here',
-    ]);
-    const warnings: string[] = [];
-
-    const skills = await listWorkspaceSkills({
-      workDir,
-      userHomeDir: homeDir,
-      brandHomeDir: homeDir,
-      onWarning: (message) => warnings.push(message),
-    });
-
-    expect(skills.find((skill) => skill.name === 'broken')).toBeUndefined();
-    expect(warnings.length).toBeGreaterThan(0);
-  });
-});

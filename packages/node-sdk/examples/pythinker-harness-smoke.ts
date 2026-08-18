@@ -16,7 +16,7 @@ async function main(): Promise<void> {
   });
   try {
     const config = await harness.getConfig();
-    const model = config.defaultModel ?? 'pythinker-code/pythinker-for-coding';
+    const model = config.defaultModel ?? 'pythinker-code/kimi-for-coding';
 
     const session = await harness.createSession({ workDir, model });
     const created = (await harness.listSessions({ workDir })).find(

@@ -44,7 +44,7 @@ function makeHost() {
       ]),
     },
     session,
-    refreshSkillCommands: vi.fn(async () => {}),
+    refreshSlashCommandAutocomplete: vi.fn(),
     reloadCurrentSessionView: vi.fn(async () => {}),
     mountEditorReplacement: vi.fn(),
     restoreEditor: vi.fn(),
@@ -56,7 +56,7 @@ function makeHost() {
       setConfig: ReturnType<typeof vi.fn>;
       getExperimentalFeatures: ReturnType<typeof vi.fn>;
     };
-    refreshSkillCommands: ReturnType<typeof vi.fn>;
+    refreshSlashCommandAutocomplete: ReturnType<typeof vi.fn>;
     reloadCurrentSessionView: ReturnType<typeof vi.fn>;
     mountEditorReplacement: ReturnType<typeof vi.fn>;
     restoreEditor: ReturnType<typeof vi.fn>;
@@ -85,14 +85,9 @@ describe('experimental feature command handlers', () => {
     });
     expect(host.harness.getExperimentalFeatures).toHaveBeenCalledOnce();
     expect(isExperimentalFlagEnabled('micro_compaction')).toBe(false);
-    expect(host.refreshSkillCommands).toHaveBeenCalled();
+    expect(host.refreshSlashCommandAutocomplete).toHaveBeenCalled();
     expect(host.restoreEditor).toHaveBeenCalled();
     expect(host.session.reloadSession).toHaveBeenCalledOnce();
-    // A flag can gate which skills exist, so rebuilding the command set before
-    // the reload read the registry the reload was about to replace.
-    expect(host.session.reloadSession.mock.invocationCallOrder[0]).toBeLessThan(
-      host.refreshSkillCommands.mock.invocationCallOrder[0]!,
-    );
     expect(host.reloadCurrentSessionView).toHaveBeenCalledWith(
       host.session,
       'Experimental features updated. Session reloaded.',

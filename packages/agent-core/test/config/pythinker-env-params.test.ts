@@ -11,7 +11,7 @@ import {
 import { PythinkerError } from '../../src/errors';
 
 function pythinker(): PythinkerChatProvider {
-  return new PythinkerChatProvider({ model: 'pythinker-k2', apiKey: 'k' });
+  return new PythinkerChatProvider({ model: 'kimi-k2', apiKey: 'k' });
 }
 
 interface PythinkerGenerationState {
@@ -25,14 +25,14 @@ function genState(provider: ChatProvider): PythinkerGenerationState {
 }
 
 function expectConfigInvalid(fn: () => unknown): void {
-  let thrown: unknown;
   try {
     fn();
   } catch (error) {
-    thrown = error;
+    expect(error).toBeInstanceOf(PythinkerError);
+    expect((error as PythinkerError).code).toBe('config.invalid');
+    return;
   }
-  expect(thrown).toBeInstanceOf(PythinkerError);
-  expect((thrown as PythinkerError).code).toBe('config.invalid');
+  throw new Error('expected function to throw');
 }
 
 describe('applyPythinkerEnvSamplingParams', () => {
@@ -57,7 +57,6 @@ describe('applyPythinkerEnvSamplingParams', () => {
   });
 
   it('throws config.invalid for an invalid temperature', () => {
-    expect.hasAssertions();
     expectConfigInvalid(() =>
       applyPythinkerEnvSamplingParams(pythinker(), { PYTHINKER_MODEL_TEMPERATURE: 'abc' }),
     );

@@ -1,7 +1,6 @@
 import type { Agent } from '../..';
 import type { PermissionPolicy } from '../types';
-import { DynamicWorkflowExclusiveDenyPermissionPolicy } from './dynamic-workflow-exclusive-deny';
-import { DynamicWorkflowPlanAskPermissionPolicy } from './dynamic-workflow-plan-ask';
+import { AgentDynamicWorkflowExclusiveDenyPermissionPolicy } from './agent-dynamic-workflow-exclusive-deny';
 import { AutoModeApprovePermissionPolicy } from './auto-mode-approve';
 import { AutoModeAskUserQuestionDenyPermissionPolicy } from './auto-mode-ask-user-question-deny';
 import { DefaultToolApprovePermissionPolicy } from './default-tool-approve';
@@ -17,6 +16,7 @@ import { PlanModeGuardDenyPermissionPolicy } from './plan-mode-guard-deny';
 import { PlanModeToolApprovePermissionPolicy } from './plan-mode-tool-approve';
 import { PreToolCallHookPermissionPolicy } from './pre-tool-call-hook';
 import { SessionApprovalHistoryPermissionPolicy } from './session-approval-history';
+import { DynamicWorkflowModeAgentDynamicWorkflowApprovePermissionPolicy } from './dynamic-workflow-mode-agent-dynamic-workflow-approve';
 import {
   UserConfiguredAllowPermissionPolicy,
   UserConfiguredAskPermissionPolicy,
@@ -29,17 +29,14 @@ export function createPermissionDecisionPolicies(agent: Agent): PermissionPolicy
   return [
     // PreToolUse hook returned a block → deny.
     new PreToolCallHookPermissionPolicy(agent),
-    // DynamicWorkflow is batch-exclusive and must run alone, regardless of permission mode.
-    new DynamicWorkflowExclusiveDenyPermissionPolicy(),
+    // AgentDynamicWorkflow is batch-exclusive and must run alone, regardless of permission mode.
+    new AgentDynamicWorkflowExclusiveDenyPermissionPolicy(),
     // auto mode + AskUserQuestion → deny.
     new AutoModeAskUserQuestionDenyPermissionPolicy(agent),
     // plan mode: Write/Edit outside the plan file, or TaskStop → deny.
     new PlanModeGuardDenyPermissionPolicy(agent),
     // User-configured deny rule matches → deny.
     new UserConfiguredDenyPermissionPolicy(agent),
-    // auto mode + DynamicWorkflow → ask, so the plan preview still renders.
-    // Must sit above the auto approval below, which would otherwise swallow it.
-    new DynamicWorkflowPlanAskPermissionPolicy(agent),
     // auto mode → approve (any auto-mode block must be a deny rule above this).
     new AutoModeApprovePermissionPolicy(agent),
     // Approve-for-session memorized rule matches → approve. Runs before user-configured ask rules so an in-session grant beats a still-matching ask rule on later calls.
@@ -62,12 +59,8 @@ export function createPermissionDecisionPolicies(agent: Agent): PermissionPolicy
     new GitControlPathAccessAskPermissionPolicy(agent),
     // yolo mode → approve.
     new YoloModeApprovePermissionPolicy(agent),
-    // No Dynamic Workflow policy sits here. Dynamic Workflow mode used to
-    // approve every DynamicWorkflow call outright, which only ever fired in
-    // manual mode (auto approves above, yolo just above) and so made the plan
-    // preview unreachable for the one mode that asks for it. A DynamicWorkflow
-    // call in manual mode now falls through to the ask below and renders its
-    // plan; `session-approval-history` remembers the answer per description.
+    // DynamicWorkflow mode keeps AgentDynamicWorkflow available without making it a globally default-approved tool.
+    new DynamicWorkflowModeAgentDynamicWorkflowApprovePermissionPolicy(agent),
     // Tool is in the default-approve list (read-only / UI helpers) → approve.
     new DefaultToolApprovePermissionPolicy(),
     // Write/Edit on POSIX paths inside cwd inside a git work tree → approve.

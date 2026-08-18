@@ -17,7 +17,7 @@ import {
 import type { PythinkerHarness, Session } from '@pymodel/pythinker-code-sdk';
 
 import { AcpServer } from '../src/server';
-import { AUTHED, makeModelsMap } from './_helpers/harness-stubs';
+import { AUTHED_STATUS, makeModelsMap } from './_helpers/harness-stubs';
 
 class StubClient implements Client {
   async requestPermission(_p: RequestPermissionRequest): Promise<RequestPermissionResponse> {
@@ -72,7 +72,7 @@ function makeHarness(
           }),
   } as unknown as Session;
   const harness = {
-    isAuthenticated: AUTHED,
+    auth: { status: async () => AUTHED_STATUS },
     createSession: async (options: { id?: string; workDir: string }) => {
       captured.push({ options });
       return Object.assign({}, fakeSession, { id: options.id ?? sessionId }) as Session;
@@ -126,7 +126,7 @@ describe('AcpServer session/new', () => {
   it('returns a distinct sessionId per call (one createSession per request)', async () => {
     const captured: CapturedCall[] = [];
     const harness = {
-      isAuthenticated: AUTHED,
+      auth: { status: async () => AUTHED_STATUS },
       createSession: async (options: { id?: string; workDir: string }) => {
         captured.push({ options });
         return {
@@ -201,11 +201,13 @@ describe('AcpServer session/new', () => {
     expect(modeOpt!.options).toHaveLength(4);
     const modeIds = modeOpt!.options.map((o) => 'value' in o ? o.value : '');
     expect(modeIds).toEqual(['default', 'plan', 'auto', 'yolo']);
-    for (const entry of modeOpt!.options.filter((candidate) => 'value' in candidate)) {
-      expect(typeof entry.name).toBe('string');
-      expect(entry.name.length).toBeGreaterThan(0);
-      expect(typeof entry.description).toBe('string');
-      expect((entry.description ?? '').length).toBeGreaterThan(0);
+    for (const entry of modeOpt!.options) {
+      if ('value' in entry) {
+        expect(typeof entry.name).toBe('string');
+        expect(entry.name.length).toBeGreaterThan(0);
+        expect(typeof entry.description).toBe('string');
+        expect((entry.description ?? '').length).toBeGreaterThan(0);
+      }
     }
 
     // Model picker — Phase 15 removed `,thinking` variant rows: each

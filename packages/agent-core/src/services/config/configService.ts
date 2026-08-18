@@ -1,9 +1,5 @@
 import { Disposable, InstantiationType, registerSingleton } from '../../di';
-import {
-  resolveProviderApiKey,
-  type PythinkerConfig,
-  type ProviderConfig,
-} from '../../config';
+import type { PythinkerConfig, ProviderConfig } from '../../config';
 import type { ConfigResponse, PatchConfigRequest } from '@pymodel/protocol';
 
 import { ICoreProcessService } from '../coreProcess/coreProcess';
@@ -26,7 +22,7 @@ export class ConfigService extends Disposable implements IConfigService {
   }
 
   async set(patch: PatchConfigRequest): Promise<ConfigResponse> {
-    const camelPatch = convertPatchKeys(patch);
+    const camelPatch = convertKeysSnakeToCamel(patch) as Record<string, unknown>;
     const updated = await this.core.rpc.setPythinkerConfig(camelPatch);
     const response = toConfigResponse(updated);
 
@@ -67,7 +63,6 @@ function toConfigResponse(config: PythinkerConfig): ConfigResponse {
     hooks: config.hooks,
     services: config.services,
     merge_all_available_skills: config.mergeAllAvailableSkills,
-    disabled_skills: config.disabledSkills,
     extra_skill_dirs: config.extraSkillDirs,
     loop_control: config.loopControl,
     background: config.background,
@@ -78,31 +73,15 @@ function toConfigResponse(config: PythinkerConfig): ConfigResponse {
 }
 
 function hasProviderCredential(provider: ProviderConfig): boolean {
-  return resolveProviderApiKey(provider) !== undefined;
+  if (nonEmpty(provider.apiKey) !== undefined) return true;
+  if (provider.oauth !== undefined) return true;
+  return false;
 }
 
-/**
- * `providers` and `models` are keyed by ids the user chose. Camel-casing those
- * keys renames the provider while every reference to it (a model alias's
- * `provider`, `default_provider`) keeps the original spelling, so the alias can
- * no longer resolve. Convert the property names inside each entry only.
- */
-const KEY_PRESERVING_SECTIONS = ['providers', 'models'] as const;
-
-function convertPatchKeys(patch: PatchConfigRequest): Record<string, unknown> {
-  const result: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(patch)) {
-    if ((KEY_PRESERVING_SECTIONS as readonly string[]).includes(key) && value !== null && typeof value === 'object') {
-      const section: Record<string, unknown> = {};
-      for (const [id, entry] of Object.entries(value)) {
-        section[id] = convertKeysSnakeToCamel(entry);
-      }
-      result[snakeToCamel(key)] = section;
-      continue;
-    }
-    result[snakeToCamel(key)] = convertKeysSnakeToCamel(value);
-  }
-  return result;
+function nonEmpty(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  const trimmed = value.trim();
+  return trimmed.length === 0 ? undefined : trimmed;
 }
 
 function convertKeysSnakeToCamel(obj: unknown): unknown {

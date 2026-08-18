@@ -3,6 +3,10 @@ import { describe, expect, it } from 'vitest';
 import { SearchableList, type SearchableListOptions } from '#/tui/utils/searchable-list';
 
 const ESC = String.fromCodePoint(27);
+const UP = `${ESC}[A`;
+const DOWN = `${ESC}[B`;
+const PAGE_UP = `${ESC}[5~`;
+const PAGE_DOWN = `${ESC}[6~`;
 const BACKSPACE = String.fromCodePoint(127);
 
 const ITEMS = Array.from({ length: 10 }, (_, i) => `item${String(i).padStart(2, '0')}`);
@@ -54,7 +58,7 @@ describe('SearchableList', () => {
 
   it('filters on the query, resets the cursor, and clearQuery restores the list', () => {
     const list = make({ initialIndex: 5, searchable: true });
-    for (const ch of 'item09') list.handleSearchKey(ch);
+    for (const ch of 'item09') list.handleKey(ch);
 
     let v = list.view();
     expect(v.query).toBe('item09');
@@ -72,25 +76,25 @@ describe('SearchableList', () => {
 
   it('trims the query on Backspace', () => {
     const list = make({ searchable: true });
-    for (const ch of 'item0') list.handleSearchKey(ch);
+    for (const ch of 'item0') list.handleKey(ch);
     expect(list.view().query).toBe('item0');
-    list.handleSearchKey(BACKSPACE);
+    list.handleKey(BACKSPACE);
     expect(list.view().query).toBe('item');
   });
 
-  it('keeps navigation and search handling separate', () => {
+  it('handleKey always consumes navigation but only edits the query when searchable', () => {
     const nav = make({ searchable: false });
-    nav.moveDown();
-    nav.pageDown();
-    nav.pageUp();
-    nav.moveUp();
-    expect(nav.handleSearchKey('a')).toBe(false); // not searchable → printable ignored
-    expect(nav.handleSearchKey(BACKSPACE)).toBe(false);
+    expect(nav.handleKey(UP)).toBe(true);
+    expect(nav.handleKey(DOWN)).toBe(true);
+    expect(nav.handleKey(PAGE_UP)).toBe(true);
+    expect(nav.handleKey(PAGE_DOWN)).toBe(true);
+    expect(nav.handleKey('a')).toBe(false); // not searchable → printable ignored
+    expect(nav.handleKey(BACKSPACE)).toBe(false);
     expect(nav.view().query).toBe('');
 
     const search = make({ searchable: true });
-    expect(search.handleSearchKey('a')).toBe(true);
-    expect(search.handleSearchKey(BACKSPACE)).toBe(true);
+    expect(search.handleKey('a')).toBe(true);
+    expect(search.handleKey(BACKSPACE)).toBe(true);
     expect(search.view().query).toBe('');
   });
 

@@ -17,11 +17,12 @@ import {
   parsePattern,
   type PermissionRuleMatchExecution,
 } from '../../src/agent/permission/matches-rule';
-import { DynamicWorkflowExclusiveDenyPermissionPolicy } from '../../src/agent/permission/policies/dynamic-workflow-exclusive-deny';
+import { AgentDynamicWorkflowExclusiveDenyPermissionPolicy } from '../../src/agent/permission/policies/agent-dynamic-workflow-exclusive-deny';
 import { AutoModeApprovePermissionPolicy } from '../../src/agent/permission/policies/auto-mode-approve';
 import { AutoModeAskUserQuestionDenyPermissionPolicy } from '../../src/agent/permission/policies/auto-mode-ask-user-question-deny';
 import { FallbackAskPermissionPolicy } from '../../src/agent/permission/policies/fallback-ask';
 import { createPermissionDecisionPolicies } from '../../src/agent/permission/policies';
+import { DynamicWorkflowModeAgentDynamicWorkflowApprovePermissionPolicy } from '../../src/agent/permission/policies/dynamic-workflow-mode-agent-dynamic-workflow-approve';
 import { YoloModeApprovePermissionPolicy } from '../../src/agent/permission/policies/yolo-mode-approve';
 import { ToolAccesses } from '../../src/loop';
 import type { ToolInputDisplay } from '../../src/tools/display';
@@ -383,42 +384,6 @@ describe('Permission auto mode', () => {
       reason: 'Tool "Bash" was denied by permission rule. Reason: blocked by test',
     });
     expect(requestApproval).not.toHaveBeenCalled();
-  });
-
-  it('reports when a PermissionDenied hook allows a policy-denied call to be retried', async () => {
-    const trigger = vi.fn(async () => [{ action: 'allow' as const, retry: true }]);
-    const { manager } = makePermissionManager(
-      async () => ({ decision: 'approved' }),
-      {
-        hooks: {
-          trigger,
-          triggerBlock: vi.fn(async () => undefined),
-          fireAndForgetTrigger: vi.fn(async () => []),
-        } as unknown as Agent['hooks'],
-      },
-    );
-    manager.rules.push({
-      decision: 'deny',
-      scope: 'user',
-      pattern: 'Bash',
-      reason: 'blocked until reviewed',
-    });
-
-    await expect(
-      manager.beforeToolCall(hookContext({ id: 'call_retry_denied' })),
-    ).resolves.toMatchObject({
-      block: true,
-      reason: expect.stringContaining(
-        'The PermissionDenied hook indicated this command is now approved',
-      ),
-    });
-    expect(trigger).toHaveBeenCalledWith(
-      'PermissionDenied',
-      expect.objectContaining({
-        matcherValue: 'Bash',
-        inputData: expect.objectContaining({ toolUseId: 'call_retry_denied' }),
-      }),
-    );
   });
 
   it.each([
@@ -785,11 +750,10 @@ describe('Permission policy chain', () => {
   it('keeps built-in policies in document order', () => {
     expect(createPermissionDecisionPolicies({} as Agent).map((policy) => policy.name)).toEqual([
       'pre-tool-call-hook',
-      'dynamic-workflow-exclusive-deny',
+      'agent-dynamic-workflow-exclusive-deny',
       'auto-mode-ask-user-question-deny',
       'plan-mode-guard-deny',
       'user-configured-deny',
-      'dynamic-workflow-plan-ask',
       'auto-mode-approve',
       'session-approval-history',
       'user-configured-ask',
@@ -800,18 +764,19 @@ describe('Permission policy chain', () => {
       'sensitive-file-access-ask',
       'git-control-path-access-ask',
       'yolo-mode-approve',
+      'dynamic-workflow-mode-agent-dynamic-workflow-approve',
       'default-tool-approve',
       'git-cwd-write-approve',
       'fallback-ask',
     ]);
   });
 
-  it('denies invalid DynamicWorkflow batches before auto-mode approval', async () => {
+  it('denies invalid AgentDynamicWorkflow batches before auto-mode approval', async () => {
     const { manager, requestApproval, telemetryTrack } = makePermissionManager(async () => ({
       decision: 'approved',
     }));
     manager.mode = 'auto';
-    const dynamicWorkflowCall = toolCall('call_dynamic_workflow', 'DynamicWorkflow', {
+    const agentDynamicWorkflowCall = toolCall('call_agent_dynamic_workflow', 'AgentDynamicWorkflow', {
       description: 'Review files',
       prompt_template: 'Review {{item}}',
       items: ['src/a.ts', 'src/b.ts'],
@@ -821,124 +786,26 @@ describe('Permission policy chain', () => {
     await expect(
       manager.beforeToolCall(
         hookContext({
-          id: 'call_dynamic_workflow',
-          toolName: 'DynamicWorkflow',
-          toolCalls: [dynamicWorkflowCall, readCall],
+          id: 'call_agent_dynamic_workflow',
+          toolName: 'AgentDynamicWorkflow',
+          toolCalls: [agentDynamicWorkflowCall, readCall],
         }),
       ),
     ).resolves.toMatchObject({
       block: true,
-      reason: expect.stringContaining('DynamicWorkflow must be the only tool call'),
+      reason: expect.stringContaining('AgentDynamicWorkflow must be the only tool call'),
     });
 
     expect(requestApproval).not.toHaveBeenCalled();
     expect(telemetryTrack).toHaveBeenCalledWith(
       'permission_policy_decision',
       expect.objectContaining({
-        policy_name: 'dynamic-workflow-exclusive-deny',
-        tool_name: 'DynamicWorkflow',
+        policy_name: 'agent-dynamic-workflow-exclusive-deny',
+        tool_name: 'AgentDynamicWorkflow',
         permission_mode: 'auto',
         decision: 'deny',
       }),
     );
-  });
-
-  // Dynamic Workflow mode once approved every DynamicWorkflow call on its own.
-  // That policy only ever fired in manual mode, so the one mode whose whole
-  // point is to ask was the one mode that never saw the plan. Manual mode must
-  // reach `fallback-ask` so the approval can carry a preview of the fan-out.
-  it('asks before a DynamicWorkflow call in manual mode even with workflow mode active', async () => {
-    const { manager, requestApproval, telemetryTrack } = makePermissionManager(
-      async () => ({ decision: 'approved' }),
-      { dynamicWorkflowModeActive: true },
-    );
-    manager.mode = 'manual';
-
-    await manager.beforeToolCall(
-      hookContext({ id: 'call_dynamic_workflow', toolName: 'DynamicWorkflow' }),
-    );
-
-    expect(requestApproval).toHaveBeenCalledTimes(1);
-    expect(telemetryTrack).toHaveBeenCalledWith(
-      'permission_policy_decision',
-      expect.objectContaining({
-        policy_name: 'fallback-ask',
-        tool_name: 'DynamicWorkflow',
-        permission_mode: 'manual',
-        decision: 'ask',
-      }),
-    );
-  });
-
-  // The start prompt's default option is "Switch to Auto and start", so the
-  // easiest path through it used to hand back the plan preview without saying
-  // so. Auto still approves everything the subagents do; it no longer waives
-  // seeing what is about to be launched.
-  it('asks before a DynamicWorkflow call in auto mode so the plan still renders', async () => {
-    const { manager, requestApproval, telemetryTrack } = makePermissionManager(
-      async () => ({ decision: 'approved' }),
-      { dynamicWorkflowModeActive: true },
-    );
-    manager.mode = 'auto';
-
-    await manager.beforeToolCall(
-      hookContext({ id: 'call_dynamic_workflow_auto', toolName: 'DynamicWorkflow' }),
-    );
-
-    expect(requestApproval).toHaveBeenCalledTimes(1);
-    expect(telemetryTrack).toHaveBeenCalledWith(
-      'permission_policy_decision',
-      expect.objectContaining({
-        policy_name: 'dynamic-workflow-plan-ask',
-        tool_name: 'DynamicWorkflow',
-        permission_mode: 'auto',
-        decision: 'ask',
-      }),
-    );
-  });
-
-  // Auto mode is not turned into a nag: the ask is per distinct plan, and an
-  // explicit grant falls straight through to the auto approval below it.
-  it('does not re-ask in auto mode once the plan is approved for the session', async () => {
-    const { manager, requestApproval } = makePermissionManager(
-      async () => ({
-        decision: 'approved',
-        scope: 'session',
-        selectedLabel: 'Approve for this session',
-      }),
-      { dynamicWorkflowModeActive: true },
-    );
-    manager.mode = 'auto';
-    const args = {
-      description: 'Review files',
-      prompt_template: 'Review {{item}}',
-      items: ['src/a.ts', 'src/b.ts'],
-    };
-
-    await manager.beforeToolCall(
-      hookContext({ id: 'call_dw_1', toolName: 'DynamicWorkflow', args }),
-    );
-    await manager.beforeToolCall(
-      hookContext({ id: 'call_dw_2', toolName: 'DynamicWorkflow', args }),
-    );
-
-    expect(requestApproval).toHaveBeenCalledTimes(1);
-  });
-
-  // YOLO is chosen explicitly and its own label promises that everything is
-  // approved automatically, so it keeps waiving the preview.
-  it('still approves a DynamicWorkflow call without asking in yolo mode', async () => {
-    const { manager, requestApproval } = makePermissionManager(
-      async () => ({ decision: 'approved' }),
-      { dynamicWorkflowModeActive: true },
-    );
-    manager.mode = 'yolo';
-
-    await manager.beforeToolCall(
-      hookContext({ id: 'call_dynamic_workflow_yolo', toolName: 'DynamicWorkflow' }),
-    );
-
-    expect(requestApproval).not.toHaveBeenCalled();
   });
 });
 
@@ -995,9 +862,26 @@ describe('Simple permission policy direct behavior', () => {
     expect(policy.evaluate()).toEqual({ kind: 'approve' });
   });
 
-  it('denies DynamicWorkflow mixed with other tool calls in the same response', () => {
-    const policy = new DynamicWorkflowExclusiveDenyPermissionPolicy();
-    const dynamicWorkflowCall = toolCall('call_dynamic_workflow', 'DynamicWorkflow', {
+  it('approves only AgentDynamicWorkflow when dynamic_workflow mode is active', () => {
+    const dynamicWorkflowMode = { isActive: false };
+    const agent = { dynamicWorkflowMode } as unknown as Agent;
+    const policy = new DynamicWorkflowModeAgentDynamicWorkflowApprovePermissionPolicy(agent);
+
+    expect(
+      policy.evaluate(hookContext({ id: 'call_agent_dynamic_workflow_inactive', toolName: 'AgentDynamicWorkflow' })),
+    ).toBeUndefined();
+    Object.assign(dynamicWorkflowMode, { isActive: true });
+    expect(
+      policy.evaluate(hookContext({ id: 'call_agent_dynamic_workflow_active', toolName: 'AgentDynamicWorkflow' })),
+    ).toEqual({ kind: 'approve' });
+    expect(
+      policy.evaluate(hookContext({ id: 'call_agent_active', toolName: 'Agent' })),
+    ).toBeUndefined();
+  });
+
+  it('denies AgentDynamicWorkflow mixed with other tool calls in the same response', () => {
+    const policy = new AgentDynamicWorkflowExclusiveDenyPermissionPolicy();
+    const agentDynamicWorkflowCall = toolCall('call_agent_dynamic_workflow', 'AgentDynamicWorkflow', {
       description: 'Review files',
       prompt_template: 'Review {{item}}',
       items: ['src/a.ts', 'src/b.ts'],
@@ -1007,16 +891,16 @@ describe('Simple permission policy direct behavior', () => {
     expect(
       policy.evaluate(
         hookContext({
-          id: 'call_dynamic_workflow',
-          toolName: 'DynamicWorkflow',
-          toolCalls: [dynamicWorkflowCall, readCall],
+          id: 'call_agent_dynamic_workflow',
+          toolName: 'AgentDynamicWorkflow',
+          toolCalls: [agentDynamicWorkflowCall, readCall],
         }),
       ),
     ).toMatchObject({
       kind: 'deny',
-      message: expect.stringContaining('DynamicWorkflow must be the only tool call'),
+      message: expect.stringContaining('AgentDynamicWorkflow must be the only tool call'),
       reason: {
-        dynamic_workflow_tool_calls: 1,
+        agent_dynamic_workflow_tool_calls: 1,
         tool_calls: 2,
       },
     });
@@ -1026,20 +910,20 @@ describe('Simple permission policy direct behavior', () => {
           id: 'call_read',
           toolName: 'Read',
           args: { path: 'src/a.ts' },
-          toolCalls: [dynamicWorkflowCall, readCall],
+          toolCalls: [agentDynamicWorkflowCall, readCall],
         }),
       ),
     ).toMatchObject({ kind: 'deny' });
   });
 
-  it('denies multiple DynamicWorkflow calls with one-at-a-time guidance', () => {
-    const policy = new DynamicWorkflowExclusiveDenyPermissionPolicy();
-    const first = toolCall('call_dynamic_workflow_1', 'DynamicWorkflow', {
+  it('denies multiple AgentDynamicWorkflow calls with one-at-a-time guidance', () => {
+    const policy = new AgentDynamicWorkflowExclusiveDenyPermissionPolicy();
+    const first = toolCall('call_agent_dynamic_workflow_1', 'AgentDynamicWorkflow', {
       description: 'Review files',
       prompt_template: 'Review {{item}}',
       items: ['src/a.ts', 'src/b.ts'],
     });
-    const second = toolCall('call_dynamic_workflow_2', 'DynamicWorkflow', {
+    const second = toolCall('call_agent_dynamic_workflow_2', 'AgentDynamicWorkflow', {
       description: 'Review tests',
       prompt_template: 'Review {{item}}',
       items: ['test/a.ts', 'test/b.ts'],
@@ -1047,31 +931,31 @@ describe('Simple permission policy direct behavior', () => {
 
     const result = policy.evaluate(
       hookContext({
-        id: 'call_dynamic_workflow_1',
-        toolName: 'DynamicWorkflow',
+        id: 'call_agent_dynamic_workflow_1',
+        toolName: 'AgentDynamicWorkflow',
         toolCalls: [first, second],
       }),
     );
 
     expect(result).toMatchObject({
       kind: 'deny',
-      message: expect.stringContaining('Multiple DynamicWorkflow calls are not forbidden'),
+      message: expect.stringContaining('Multiple AgentDynamicWorkflow calls are not forbidden'),
       reason: {
-        dynamic_workflow_tool_calls: 2,
+        agent_dynamic_workflow_tool_calls: 2,
         tool_calls: 2,
       },
     });
     expect(result).toMatchObject({
-      message: expect.stringContaining('call one DynamicWorkflow, wait for its result'),
+      message: expect.stringContaining('call one AgentDynamicWorkflow, wait for its result'),
     });
     expect(result).toMatchObject({
-      message: expect.stringContaining('merge the work into a single DynamicWorkflow'),
+      message: expect.stringContaining('merge the work into a single AgentDynamicWorkflow'),
     });
   });
 
-  it('allows a single DynamicWorkflow call for later permission policies', () => {
-    const policy = new DynamicWorkflowExclusiveDenyPermissionPolicy();
-    const dynamicWorkflowCall = toolCall('call_dynamic_workflow', 'DynamicWorkflow', {
+  it('allows a single AgentDynamicWorkflow call for later permission policies', () => {
+    const policy = new AgentDynamicWorkflowExclusiveDenyPermissionPolicy();
+    const agentDynamicWorkflowCall = toolCall('call_agent_dynamic_workflow', 'AgentDynamicWorkflow', {
       description: 'Review files',
       prompt_template: 'Review {{item}}',
       items: ['src/a.ts', 'src/b.ts'],
@@ -1080,9 +964,9 @@ describe('Simple permission policy direct behavior', () => {
     expect(
       policy.evaluate(
         hookContext({
-          id: 'call_dynamic_workflow',
-          toolName: 'DynamicWorkflow',
-          toolCalls: [dynamicWorkflowCall],
+          id: 'call_agent_dynamic_workflow',
+          toolName: 'AgentDynamicWorkflow',
+          toolCalls: [agentDynamicWorkflowCall],
         }),
       ),
     ).toBeUndefined();
@@ -1116,9 +1000,7 @@ describe('PreToolUse permission policy', () => {
     expect(triggerBlock).toHaveBeenCalledWith('PreToolUse', {
       matcherValue: 'Bash',
       signal: expect.any(AbortSignal),
-      ifMatcher: expect.any(Function),
       inputData: {
-        agentId: undefined,
         toolName: 'Bash',
         toolInput: { command: 'printf first', timeout: 60 },
         toolCallId: 'call_hook_block',
@@ -1223,6 +1105,7 @@ describe('Default tool approve policy', () => {
     ['TaskList', {}],
     ['TaskOutput', { task_id: 'task_1' }],
     ['WebSearch', { query: 'pythinker code' }],
+    ['FetchURL', { url: 'https://example.com' }],
     ['Agent', { prompt: 'review this' }],
     ['AskUserQuestion', { questions: [] }],
     ['Skill', { name: 'test-skill' }],
@@ -1257,7 +1140,6 @@ describe('Default tool approve policy', () => {
     ['Bash', { command: 'printf first', timeout: 60 }],
     ['Write', { path: '/workspace/a.ts', content: 'x' }],
     ['Edit', { path: '/workspace/a.ts', old_string: 'a', new_string: 'b' }],
-    ['FetchURL', { url: 'https://example.com' }],
     ['Custom', { value: 1 }],
   ] as const)('does not default-approve %s', async (toolName, args) => {
     const { manager, requestApproval, telemetryTrack } = makePermissionManager(async () => ({
@@ -2660,43 +2542,6 @@ describe('Agent-local approve for session', () => {
 });
 
 describe('Approval telemetry', () => {
-  it('fires PermissionDenied hooks for rejected approvals', async () => {
-    const fireAndForgetTrigger = vi.fn(async () => []);
-    const { manager } = makePermissionManager(
-      async () => ({
-        decision: 'rejected',
-        feedback: 'Use a read-only command',
-      }),
-      {
-        hooks: {
-          triggerBlock: vi.fn(async () => undefined),
-          fireAndForgetTrigger,
-        } as unknown as Agent['hooks'],
-      },
-    );
-
-    await expect(
-      manager.beforeToolCall(hookContext({ id: 'call_permission_denied' })),
-    ).resolves.toMatchObject({
-      block: true,
-      reason: expect.stringContaining('Use a read-only command'),
-    });
-
-    expect(fireAndForgetTrigger).toHaveBeenCalledWith('PermissionDenied', {
-      matcherValue: 'Bash',
-      ifMatcher: expect.any(Function),
-      inputData: {
-        agentId: undefined,
-        turnId: 0,
-        toolUseId: 'call_permission_denied',
-        toolName: 'Bash',
-        toolInput: { command: 'printf first', timeout: 60 },
-        reason:
-          'Tool "Bash" was not run because the user rejected the approval request. Reason: Use a read-only command',
-      },
-    });
-  });
-
   it('fires observer hooks while waiting for user approval', async () => {
     const triggerBlock = vi.fn(async () => undefined);
     const fireAndForgetTrigger = vi.fn(async () => []);
@@ -2704,9 +2549,7 @@ describe('Approval telemetry', () => {
       async () => {
         expect(fireAndForgetTrigger).toHaveBeenCalledWith('PermissionRequest', {
           matcherValue: 'Bash',
-          ifMatcher: expect.any(Function),
           inputData: {
-            agentId: undefined,
             turnId: 0,
             toolCallId: 'call_approval_hooks',
             toolName: 'Bash',
@@ -2736,7 +2579,6 @@ describe('Approval telemetry', () => {
     expect(fireAndForgetTrigger).toHaveBeenCalledWith('PermissionResult', {
       matcherValue: 'Bash',
       inputData: {
-        agentId: undefined,
         turnId: 0,
         toolCallId: 'call_approval_hooks',
         toolName: 'Bash',
@@ -2762,12 +2604,8 @@ describe('Approval telemetry', () => {
       },
     );
 
-    await expect(
-      manager.beforeToolCall(hookContext({ id: 'call_no_approval_rpc' })),
-    ).resolves.toMatchObject({
-      block: true,
-      reason: expect.stringContaining('no approval channel'),
-    });
+    await expect(manager.beforeToolCall(hookContext({ id: 'call_no_approval_rpc' }))).resolves
+      .toBeUndefined();
 
     expect(requestApproval).not.toHaveBeenCalled();
     expect(fireAndForgetTrigger).not.toHaveBeenCalledWith(
@@ -2778,27 +2616,6 @@ describe('Approval telemetry', () => {
       'PermissionResult',
       expect.anything(),
     );
-  });
-
-  it('rejects manual-mode tool calls without an approval channel', async () => {
-    const { manager } = makePermissionManager(
-      async () => ({
-        decision: 'approved',
-      }),
-      { approvalRpc: false },
-    );
-
-    const result = await manager.beforeToolCall(
-      hookContext({ id: 'call_missing_approval_channel' }),
-    );
-
-    expect(result).toMatchObject({
-      block: true,
-      reason: expect.stringContaining(
-        'this session has no approval channel (rpc.requestApproval is not configured)',
-      ),
-    });
-    expect(result?.reason).toContain('permission mode "yolo"');
   });
 
   it('tracks cancelled approval requests', async () => {
@@ -4009,7 +3826,7 @@ describe('Permission rule helpers', () => {
         path: '/workspace/a.ts',
       }),
     ).toBe(false);
-    expect(ruleMatches(permissionRule('DynamicWorkflow(workflow)'), 'DynamicWorkflow', {})).toBe(false);
+    expect(ruleMatches(permissionRule('AgentDynamicWorkflow(dynamic_workflow)'), 'AgentDynamicWorkflow', {})).toBe(false);
   });
 
   it('treats empty arg patterns as tool-name-only matches', () => {

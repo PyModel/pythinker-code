@@ -333,7 +333,9 @@ describe('generate()', () => {
     // The two ThinkParts should be merged.
     const thinkParts = result.message.content.filter((p) => p.type === 'think');
     expect(thinkParts).toHaveLength(1);
-    expect(thinkParts[0]).toMatchObject({ type: 'think', think: 'part1 part2' });
+    if (thinkParts[0]!.type === 'think') {
+      expect(thinkParts[0]!.think).toBe('part1 part2');
+    }
   });
 
   it('flushes pending ToolCall when a new ToolCall arrives (parallel tool calls)', async () => {

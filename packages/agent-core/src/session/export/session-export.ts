@@ -3,7 +3,6 @@ import { resolve } from 'pathe';
 
 import { ErrorCodes, PythinkerError } from '#/errors';
 import { resolveGlobalLogPath } from '#/logging/logger';
-import { parseSessionMetadata } from '../index';
 import { buildExportManifest } from '#/session/export/manifest';
 import { scanSessionWire } from '#/session/export/wire-scan';
 import {
@@ -30,7 +29,6 @@ export async function exportSessionDirectory(input: {
     });
   }
 
-  await validateSessionState(sessionDir, input.summary.id);
   const sessionScan = await scanSessionWire(sessionDir);
   const hasSessionLog = sessionFiles.some((f) =>
     f.endsWith(`/${SESSION_LOG_REL}`) || f.endsWith(`\\${SESSION_LOG_REL.replaceAll('/', '\\')}`),
@@ -93,20 +91,5 @@ async function readOptionalFile(path: string): Promise<Buffer | undefined> {
     return await readFile(path);
   } catch {
     return undefined;
-  }
-}
-
-async function validateSessionState(sessionDir: string, sessionId: string): Promise<void> {
-  try {
-    parseSessionMetadata(JSON.parse(await readFile(resolve(sessionDir, 'state.json'), 'utf-8')));
-  } catch (error) {
-    if (error instanceof PythinkerError && error.code === ErrorCodes.SESSION_STATE_INVALID) {
-      throw error;
-    }
-    throw new PythinkerError(
-      ErrorCodes.SESSION_STATE_INVALID,
-      `Session "${sessionId}" state.json is invalid`,
-      { cause: error },
-    );
   }
 }

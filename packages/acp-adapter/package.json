@@ -4,7 +4,7 @@
   "private": true,
   "description": "Agent Client Protocol adapter for pythinker-code",
   "license": "MIT",
-  "author": "Pythoughts",
+  "author": "PyModel",
   "type": "module",
   "imports": {
     "#/*": "./src/*.ts"

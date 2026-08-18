@@ -1,6 +1,6 @@
 import { isRecord } from './utils';
 
-const DIRECT_ERROR_KEYS = ['error_description', 'message', 'detail', 'msg'] as const;
+const DIRECT_ERROR_KEYS = ['error_description', 'message', 'detail'] as const;
 const NESTED_ERROR_KEYS = ['message', 'error_description', 'detail', 'code', 'type'] as const;
 
 export function extractApiErrorMessage(value: unknown): string | undefined {

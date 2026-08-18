@@ -4,7 +4,7 @@
   "private": true,
   "description": "The LLM abstraction layer for modern AI agent applications",
   "license": "MIT",
-  "author": "Pythoughts",
+  "author": "PyModel",
   "homepage": "https://github.com/PyModel/pythinker-code/tree/main/packages/kosong#readme",
   "repository": {
     "type": "git",
@@ -43,14 +43,14 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.104.2",
-    "@google/genai": "^1.52.0",
-    "openai": "^6.49.0",
-    "zod": "^4.4.3",
+    "@anthropic-ai/sdk": "^0.95.2",
+    "@google/genai": "^1.49.0",
+    "openai": "^6.34.0",
+    "zod": "^4.3.6",
     "zod-to-json-schema": "^3.25.2"
   },
   "devDependencies": {
-    "ajv": "^8.20.0",
+    "ajv": "^8.18.0",
     "ajv-formats": "^3.0.1"
   }
 }

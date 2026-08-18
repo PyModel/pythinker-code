@@ -32,7 +32,7 @@ export function printableChar(data: string): string {
  * multi-codepoint escape sequence. Space is accepted.
  */
 export function isPrintableChar(ch: string): boolean {
-  if (Array.from(ch).length !== 1) return false;
+  if (ch.length !== 1) return false;
   const code = ch.codePointAt(0)!;
   return code >= 0x20 && code !== 0x7f;
 }

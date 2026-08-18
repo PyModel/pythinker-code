@@ -10,7 +10,7 @@ After the exploration, do a thorough summary of your findings and write it to th
 
 For your information, `AGENTS.md` is a file intended to be read by AI coding agents. Expect the reader of this file to know nothing about the project.
 
-You should compose this file according to the actual project content. Do not make any assumptions or generalizations. Ensure the information is accurate and useful. Write the file in English, regardless of languages found in existing comments or documentation.
+You should compose this file according to the actual project content. Do not make any assumptions or generalizations. Ensure the information is accurate and useful. You must use the natural language that is mainly used in the project's comments and documentation.
 
 Popular sections that people usually write in `AGENTS.md` are:
 

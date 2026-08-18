@@ -6,8 +6,6 @@ export const questionOptionSchema = z.object({
   id: z.string().min(1),
   label: z.string().min(1),
   description: z.string().optional(),
-  preview: z.string().optional(),
-  url: z.string().url().optional(),
 });
 export type QuestionOption = z.infer<typeof questionOptionSchema>;
 
@@ -16,7 +14,7 @@ export const questionItemSchema = z.object({
   question: z.string().min(1),
   header: z.string().optional(),
   body: z.string().optional(),
-  options: z.array(questionOptionSchema),
+  options: z.array(questionOptionSchema).min(2).max(4),
   multi_select: z.boolean().optional(),
   allow_other: z.boolean().optional(),
   other_label: z.string().optional(),
@@ -50,16 +48,9 @@ export type QuestionAnswer = z.infer<typeof questionAnswerSchema>;
 export const questionAnswerMethodSchema = z.enum(['enter', 'space', 'number_key', 'click']);
 export type QuestionAnswerMethod = z.infer<typeof questionAnswerMethodSchema>;
 
-export const questionAnnotationSchema = z.object({
-  preview: z.string().optional(),
-  notes: z.string().optional(),
-});
-export type QuestionAnnotation = z.infer<typeof questionAnnotationSchema>;
-
 export const questionResponseSchema = z.object({
   answers: z.record(z.string().min(1), questionAnswerSchema),
   method: questionAnswerMethodSchema.optional(),
   note: z.string().optional(),
-  annotations: z.record(z.string().min(1), questionAnnotationSchema).optional(),
 });
 export type QuestionResponse = z.infer<typeof questionResponseSchema>;

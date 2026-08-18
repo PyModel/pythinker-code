@@ -151,8 +151,8 @@ describe('@IFoo auto-injection (P1.1)', () => {
     let captured: unknown;
     try {
       ix.invokeFunction((a) => a.get(IA));
-    } catch (error) {
-      captured = error;
+    } catch (e) {
+      captured = e;
     }
     expect(captured).toBeInstanceOf(CyclicDependencyError);
     // Graph form: message comes from `findCycleSlow()`.

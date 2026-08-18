@@ -67,7 +67,7 @@ describe('createDecorator (P0.3)', () => {
     const deps = _util.getServiceDependencies(Target as unknown as _util.DI_TARGET_OBJ);
     // Order of insertion follows decorator evaluation order, not parameter
     // order; tests should sort by index before asserting.
-    const sorted = [...deps].toSorted((a, b) => a.index - b.index);
+    const sorted = [...deps].sort((a, b) => a.index - b.index);
     expect(sorted).toEqual([
       { id: IFoo, index: 0 },
       { id: IBar, index: 1 },

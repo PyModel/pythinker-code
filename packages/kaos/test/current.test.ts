@@ -5,7 +5,6 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
-  chmod,
   execWithEnv,
   getCurrentKaos,
   LocalKaos,
@@ -13,7 +12,6 @@ import {
   pathClass,
   readLines,
   readText,
-  unlink,
   writeText,
 } from '#/index';
 
@@ -64,21 +62,6 @@ describe('module-level proxy functions', () => {
       await writeText(filePath, 'hello-latin1', { encoding: 'latin1' });
       const contents = await readText(filePath, { encoding: 'latin1' });
       expect(contents).toBe('hello-latin1');
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('chmod and unlink proxy through the bound LocalKaos', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'kaos-current-mode-'));
-    const filePath = join(dir, 'file.txt');
-    try {
-      await writeText(filePath, 'content');
-      await chmod(filePath, 0o600);
-      expect((await getCurrentKaos().stat(filePath)).stMode & 0o777).toBe(0o600);
-
-      await unlink(filePath);
-      await expect(getCurrentKaos().stat(filePath)).rejects.toMatchObject({ code: 'ENOENT' });
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

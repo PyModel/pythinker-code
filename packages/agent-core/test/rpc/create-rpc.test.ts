@@ -2,8 +2,6 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { ErrorCodes, PythinkerError } from '../../src/errors';
 import { createRPC } from '../../src/rpc';
-import type { Session } from '../../src/session';
-import { SessionAPIImpl } from '../../src/session/rpc';
 
 interface CoreSide {
   getConfig(payload: { sessionId: string }): { model: string };
@@ -201,57 +199,5 @@ describe('createRPC', () => {
       message: 'not an error object',
     });
     await expect(remoteProxy.misbehave({})).rejects.toBeInstanceOf(PythinkerError);
-  });
-});
-
-describe('Session checkpoint RPC', () => {
-  it('normalizes checkpoint IDs and forwards session-scoped operations', async () => {
-    const listFileCheckpoints = vi.fn(async () => [{ id: 'checkpoint-1' }]);
-    const previewFileCheckpoint = vi.fn(async (checkpointId: string) => ({
-      checkpointId,
-      complete: true,
-      paths: [],
-      insertions: 0,
-      deletions: 0,
-      conversationAvailable: true,
-    }));
-    const restoreFileCheckpoint = vi.fn(async (checkpointId: string) => ({
-      checkpointId,
-      recoveryCheckpointId: 'recovery-1',
-      restoredPaths: [],
-      deletedPaths: [],
-    }));
-    const api = new SessionAPIImpl({
-      listFileCheckpoints,
-      previewFileCheckpoint,
-      restoreFileCheckpoint,
-    } as unknown as Session);
-
-    await expect(api.listFileCheckpoints({})).resolves.toEqual([
-      { id: 'checkpoint-1' },
-    ]);
-    await api.previewFileCheckpoint({ checkpointId: ' checkpoint-1 ' });
-    await api.restoreFileCheckpoint({ checkpointId: ' checkpoint-1 ' });
-
-    expect(previewFileCheckpoint).toHaveBeenCalledWith('checkpoint-1');
-    expect(restoreFileCheckpoint).toHaveBeenCalledWith('checkpoint-1');
-  });
-
-  it('rejects empty checkpoint IDs before calling the Session', async () => {
-    const previewFileCheckpoint = vi.fn();
-    const restoreFileCheckpoint = vi.fn();
-    const api = new SessionAPIImpl({
-      previewFileCheckpoint,
-      restoreFileCheckpoint,
-    } as unknown as Session);
-
-    await expect(
-      api.previewFileCheckpoint({ checkpointId: '   ' }),
-    ).rejects.toMatchObject({ code: ErrorCodes.REQUEST_INVALID });
-    await expect(
-      api.restoreFileCheckpoint({ checkpointId: '' }),
-    ).rejects.toMatchObject({ code: ErrorCodes.REQUEST_INVALID });
-    expect(previewFileCheckpoint).not.toHaveBeenCalled();
-    expect(restoreFileCheckpoint).not.toHaveBeenCalled();
   });
 });

@@ -3,9 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   emptySessionUsage,
   permissionRuleSchema,
-  sessionAgentConfigSchema,
   sessionCreateSchema,
-  sessionMetadataSchema,
   sessionSchema,
   sessionUpdateSchema,
   sessionUsageSchema,
@@ -58,7 +56,7 @@ describe('sessionSchema', () => {
     pending_interaction: 'approval',
     archived: false,
     metadata: { cwd: '/tmp/test' },
-    agent_config: { model: 'pythoughts-v1-128k' },
+    agent_config: { model: 'moonshot-v1-128k' },
     usage: emptySessionUsage(),
     permission_rules: [],
     message_count: 0,
@@ -118,34 +116,6 @@ describe('sessionSchema', () => {
   });
 });
 
-describe('sessionMetadataSchema', () => {
-  it('accepts general mode, rejects unknown modes, and allows an absent mode', () => {
-    expect(sessionMetadataSchema.parse({ cwd: '/tmp/test', mode: 'general' })).toEqual({
-      cwd: '/tmp/test',
-      mode: 'general',
-    });
-    expect(sessionMetadataSchema.safeParse({ cwd: '/tmp/test', mode: 'other' }).success).toBe(false);
-    expect(sessionMetadataSchema.parse({ cwd: '/tmp/test' })).toEqual({ cwd: '/tmp/test' });
-  });
-});
-
-describe('sessionAgentConfigSchema', () => {
-  it('accepts dynamic workflow mode and rejects the removed swarm mode', () => {
-    expect(
-      sessionAgentConfigSchema.parse({
-        model: 'pythoughts-v1-128k',
-        dynamic_workflow_mode: true,
-      }).dynamic_workflow_mode,
-    ).toBe(true);
-    expect(
-      sessionAgentConfigSchema.safeParse({
-        model: 'pythoughts-v1-128k',
-        swarm_mode: true,
-      }).success,
-    ).toBe(false);
-  });
-});
-
 describe('sessionCreateSchema', () => {
   it('parses a minimal create with metadata.cwd only', () => {
     expect(
@@ -176,10 +146,10 @@ describe('sessionCreateSchema', () => {
     const parsed = sessionCreateSchema.parse({
       title: 'My session',
       metadata: { cwd: '/tmp/test' },
-      agent_config: { model: 'pythoughts-v1-128k' },
+      agent_config: { model: 'moonshot-v1-128k' },
     });
     expect(parsed.title).toBe('My session');
-    expect(parsed.agent_config?.model).toBe('pythoughts-v1-128k');
+    expect(parsed.agent_config?.model).toBe('moonshot-v1-128k');
   });
 
   it('accepts an entirely empty body (route layer rejects when neither workspace_id nor metadata.cwd is present)', () => {
@@ -210,8 +180,8 @@ describe('sessionUpdateSchema', () => {
 
   it('parses a partial agent_config patch', () => {
     expect(
-      sessionUpdateSchema.parse({ agent_config: { model: 'pythoughts-v1-256k' } }),
-    ).toEqual({ agent_config: { model: 'pythoughts-v1-256k' } });
+      sessionUpdateSchema.parse({ agent_config: { model: 'moonshot-v1-256k' } }),
+    ).toEqual({ agent_config: { model: 'moonshot-v1-256k' } });
   });
 
   it('parses a runtime-controls patch (thinking + permission_mode + plan_mode)', () => {

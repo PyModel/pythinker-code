@@ -16,10 +16,9 @@ export const ENV_MODEL_ALIAS_KEY = '__pythinker_env_model__';
 const ALLOWED_TYPES: readonly ProviderType[] = ['pythinker', 'anthropic', 'openai'];
 
 const DEFAULT_BASE_URL: Partial<Record<ProviderType, string>> = {
+  pythinker: 'https://api.moonshot.ai/v1',
   openai: 'https://api.openai.com/v1',
   // anthropic: omitted -> let the Anthropic SDK pick its default
-  // pythinker: omitted -> no hosted service exists; the user must supply
-  // PYTHINKER_MODEL_BASE_URL (enforced below).
 };
 
 /** Default context window (256K) used when PYTHINKER_MODEL_MAX_CONTEXT_SIZE is unset. */
@@ -108,12 +107,6 @@ export function applyEnvModelConfig(config: PythinkerConfig, env: Env = process.
 
   const type = parseProviderType(trimmed(env['PYTHINKER_MODEL_PROVIDER_TYPE']));
   const baseUrl = trimmed(env['PYTHINKER_MODEL_BASE_URL']) ?? DEFAULT_BASE_URL[type];
-  if (type === 'pythinker' && baseUrl === undefined) {
-    fail(
-      'PYTHINKER_MODEL_PROVIDER_TYPE is "pythinker" but PYTHINKER_MODEL_BASE_URL is missing. ' +
-        'Pythinker has no hosted service — set PYTHINKER_MODEL_BASE_URL to your own OpenAI-compatible endpoint.',
-    );
-  }
 
   const provider: ProviderConfig = {
     type,

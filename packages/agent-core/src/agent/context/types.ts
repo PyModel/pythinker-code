@@ -3,11 +3,9 @@ import type { ContentPart, Message } from '@pymodel/kosong';
 import type { SkillSource } from '../../skill';
 import type { ToolInputDisplay } from '../../tools/display';
 import type { BackgroundTaskStatus } from '../background';
-import type { ToolSource } from '../tool';
 
 export interface UserPromptOrigin {
   readonly kind: 'user';
-  readonly checkpointId?: string;
 }
 
 export const USER_PROMPT_ORIGIN: UserPromptOrigin = { kind: 'user' };
@@ -16,7 +14,6 @@ export interface SkillActivationOrigin {
   readonly kind: 'skill_activation';
   readonly activationId: string;
   readonly skillName: string;
-  readonly checkpointId?: string;
   readonly skillArgs?: string | undefined;
   readonly trigger: 'user-slash' | 'model-tool' | 'nested-skill';
   readonly skillType?: string | undefined;
@@ -133,26 +130,4 @@ export interface SystemReminderRecord {
 export interface AgentContextData {
   history: readonly ContextMessage[];
   tokenCount: number;
-}
-
-export interface ContextUsageCategory {
-  readonly name: string;
-  readonly tokens: number;
-  readonly percentage: number;
-}
-
-export interface ContextUsageTool {
-  readonly name: string;
-  readonly source: ToolSource;
-  readonly tokens: number;
-}
-
-export interface ContextUsageReport {
-  readonly model?: string;
-  readonly estimatedTokens: number;
-  readonly maxTokens: number;
-  readonly percentage: number;
-  readonly messageCount: number;
-  readonly categories: readonly ContextUsageCategory[];
-  readonly tools: readonly ContextUsageTool[];
 }

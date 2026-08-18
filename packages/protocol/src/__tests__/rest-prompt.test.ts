@@ -21,21 +21,6 @@ describe('promptSubmissionSchema', () => {
     expect(parsed.plan_mode).toBeUndefined();
   });
 
-  it('accepts dynamic workflow mode and rejects the removed swarm mode', () => {
-    expect(
-      promptSubmissionSchema.parse({
-        content: [{ type: 'text', text: 'Review the TUI' }],
-        dynamic_workflow_mode: true,
-      }).dynamic_workflow_mode,
-    ).toBe(true);
-    expect(
-      promptSubmissionSchema.safeParse({
-        content: [{ type: 'text', text: 'Review the TUI' }],
-        swarm_mode: true,
-      }).success,
-    ).toBe(false);
-  });
-
   it('accepts metadata', () => {
     const parsed = promptSubmissionSchema.parse({
       content: [{ type: 'text', text: 'hi' }],
@@ -96,12 +81,12 @@ describe('promptSubmissionSchema', () => {
     const parsed = promptSubmissionSchema.parse({
       content: [{ type: 'text', text: 'hi' }],
       model: 'pythinker-code/k2',
-      thinking: 'minimal',
+      thinking: 'off',
       permission_mode: 'manual',
       plan_mode: false,
     });
     expect(parsed.model).toBe('pythinker-code/k2');
-    expect(parsed.thinking).toBe('minimal');
+    expect(parsed.thinking).toBe('off');
     expect(parsed.permission_mode).toBe('manual');
     expect(parsed.plan_mode).toBe(false);
   });

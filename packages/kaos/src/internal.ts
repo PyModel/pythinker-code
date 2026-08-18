@@ -206,7 +206,7 @@ export function globPatternToRegex(pattern: string, caseSensitive: boolean): Reg
           let charClass = pattern.slice(i + 1, end);
           // Escape backslashes inside the class so a trailing backslash
           // does not accidentally escape the closing `]`.
-          charClass = charClass.replaceAll('\\', '\\\\');
+          charClass = charClass.replace(/\\/g, '\\\\');
           if (charClass.startsWith('!')) {
             charClass = '^' + charClass.slice(1);
           } else if (charClass.startsWith('^')) {

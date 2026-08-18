@@ -16,15 +16,9 @@ describe('model catalog schemas', () => {
   const model: ModelCatalogItem = {
     provider: 'pythinker',
     model: 'k2',
-    display_name: 'Pythinker K2',
+    display_name: 'Kimi K2',
     max_context_size: 131072,
     capabilities: ['thinking'],
-  };
-
-  const modelWithThinking: ModelCatalogItem = {
-    ...model,
-    support_efforts: ['low', 'high', 'max'],
-    adaptive_thinking: true,
   };
 
   const provider: ProviderCatalogItem = {
@@ -38,14 +32,6 @@ describe('model catalog schemas', () => {
   };
 
   it('round-trips a model catalog item', () => {
-    expect(modelCatalogItemSchema.parse(model)).toEqual(model);
-  });
-
-  it('round-trips per-model thinking metadata', () => {
-    expect(modelCatalogItemSchema.parse(modelWithThinking)).toEqual(modelWithThinking);
-  });
-
-  it('accepts model catalog items without thinking metadata', () => {
     expect(modelCatalogItemSchema.parse(model)).toEqual(model);
   });
 

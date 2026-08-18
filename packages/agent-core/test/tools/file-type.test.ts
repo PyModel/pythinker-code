@@ -107,7 +107,7 @@ describe('sniffMediaFromMagic', () => {
     });
   });
 
-  it('recognises AVI via RIFF…AVI', () => {
+  it('recognises AVI via RIFF…AVI ', () => {
     const header = Buffer.concat([
       Buffer.from('RIFF'),
       Buffer.from([0, 0, 0, 0]),

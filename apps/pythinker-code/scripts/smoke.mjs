@@ -6,7 +6,7 @@ import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 const appRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const bundlePath = resolve(appRoot, 'dist', 'launcher.mjs');
+const bundlePath = resolve(appRoot, 'dist', 'main.mjs');
 const webIndexPath = resolve(appRoot, 'dist-web', 'index.html');
 const packageJson = JSON.parse(await readFile(resolve(appRoot, 'package.json'), 'utf-8'));
 const expectedVersion = packageJson.version;
@@ -32,17 +32,12 @@ async function ensureRuntimeAssetsExist() {
   }
 }
 
-async function runBundle(args, env) {
+async function runBundle(args) {
   try {
-    const { stdout, stderr } = await execFileAsync(
-      process.execPath,
-      ['--experimental-ffi', bundlePath, ...args],
-      {
-        cwd: appRoot,
-        env: { ...process.env, ...env },
-        maxBuffer: 1024 * 1024 * 16,
-      },
-    );
+    const { stdout, stderr } = await execFileAsync(process.execPath, [bundlePath, ...args], {
+      cwd: appRoot,
+      maxBuffer: 1024 * 1024 * 16,
+    });
     return `${stdout}${stderr}`;
   } catch (error) {
     const detail = [error.stdout?.trim(), error.stderr?.trim(), error.message]
@@ -72,7 +67,5 @@ assertIncludes(exportHelpOutput, 'Usage: pythinker export', 'export --help');
 
 const webHelpOutput = await runBundle(['web', '--help']);
 assertIncludes(webHelpOutput, 'Usage: pythinker web', 'web --help');
-
-await runBundle([], { PYTHINKER_CODE_OPENTUI_SMOKE: '1' });
 
 console.log(`Bundle smoke passed: ${bundlePath}`);

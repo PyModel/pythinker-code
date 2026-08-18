@@ -20,7 +20,6 @@ import {
   PYTHINKER_CODE_LOG_DIR_NAME,
   PYTHINKER_CODE_PLUGIN_UPDATE_NOTICE_STATE_FILE_NAME,
   PYTHINKER_CODE_UPDATE_INSTALL_LOCK_FILE_NAME,
-  PYTHINKER_CODE_UPDATE_INSTALL_LOG_FILE_NAME,
   PYTHINKER_CODE_UPDATE_INSTALL_STATE_FILE_NAME,
   PYTHINKER_CODE_UPDATE_DIR_NAME,
   PYTHINKER_CODE_UPDATE_ROLLOUT_LOG_FILE_NAME,
@@ -80,13 +79,6 @@ export function getUpdateInstallStateFile(): string {
  */
 export function getUpdateInstallLockFile(): string {
   return join(getDataDir(), PYTHINKER_CODE_UPDATE_DIR_NAME, PYTHINKER_CODE_UPDATE_INSTALL_LOCK_FILE_NAME);
-}
-
-/**
- * Return the update installer log: `<dataDir>/updates/install.log`.
- */
-export function getUpdateInstallLogFile(): string {
-  return join(getDataDir(), PYTHINKER_CODE_UPDATE_DIR_NAME, PYTHINKER_CODE_UPDATE_INSTALL_LOG_FILE_NAME);
 }
 
 /**

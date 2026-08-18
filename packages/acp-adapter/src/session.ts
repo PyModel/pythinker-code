@@ -312,7 +312,7 @@ export class AcpSession {
    * Forward an ACP `session/set_model` (`unstable_setSessionModel`)
    * request to the underlying SDK session.
    *
-   * ACP allows model identifiers like `"pythinker-k2,thinking"` where the
+   * ACP allows model identifiers like `"kimi-k2,thinking"` where the
    * `,thinking` suffix signals "always-thinking" mode (mirrors the
    * Python ref's `_ModelIDConv.from_acp_model_id` at
    * `pythinker-cli/src/pythinker_cli/acp/server.py:425-433`). Phase 15 decoupled
@@ -542,10 +542,10 @@ export class AcpSession {
         this.currentModeIdInternal,
       );
       await this.conn.sessionUpdate(configOptionUpdateNotification(this.id, snapshot));
-    } catch (error) {
+    } catch (err) {
       log.warn('acp: failed to emit config_option_update', {
         sessionId: this.id,
-        error: error instanceof Error ? error.message : String(error),
+        error: err instanceof Error ? err.message : String(err),
       });
     }
   }
@@ -626,11 +626,11 @@ export class AcpSession {
           },
           lookupToolCallTurnId: (toolCallId) => toolCallTurnIds.get(toolCallId),
         });
-      } catch (error) {
+      } catch (err) {
         log.warn('acp: replayHistory failed to emit a message; continuing', {
           sessionId,
           role: message.role,
-          error: error instanceof Error ? error.message : String(error),
+          error: err instanceof Error ? err.message : String(err),
         });
       }
     }
@@ -1077,10 +1077,10 @@ export class AcpSession {
           // failures rather than dropping them silently.
           conn
             .sessionUpdate(assistantDeltaToSessionUpdate(sessionId, event))
-            .catch((error) => {
+            .catch((err) => {
               log.warn('acp: failed to push agent_message_chunk', {
                 sessionId,
-                error: error instanceof Error ? error.message : String(error),
+                error: err instanceof Error ? err.message : String(err),
               });
             });
           return;
@@ -1089,10 +1089,10 @@ export class AcpSession {
           if (!isFromMainAgent(event)) return;
           conn
             .sessionUpdate(thinkingDeltaToSessionUpdate(sessionId, event))
-            .catch((error) => {
+            .catch((err) => {
               log.warn('acp: failed to push agent_thought_chunk', {
                 sessionId,
-                error: error instanceof Error ? error.message : String(error),
+                error: err instanceof Error ? err.message : String(err),
               });
             });
           return;
@@ -1117,22 +1117,22 @@ export class AcpSession {
           if (startedToolCalls.has(startedWireId)) {
             conn
               .sessionUpdate(toolCallStartedUpgradeToSessionUpdate(sessionId, event))
-              .catch((error) => {
+              .catch((err) => {
                 log.warn('acp: failed to push tool_call_update (start upgrade)', {
                   sessionId,
                   toolCallId: event.toolCallId,
-                  error: error instanceof Error ? error.message : String(error),
+                  error: err instanceof Error ? err.message : String(err),
                 });
               });
           } else {
             startedToolCalls.add(startedWireId);
             conn
               .sessionUpdate(toolCallStartToSessionUpdate(sessionId, event))
-              .catch((error) => {
+              .catch((err) => {
                 log.warn('acp: failed to push tool_call', {
                   sessionId,
                   toolCallId: event.toolCallId,
-                  error: error instanceof Error ? error.message : String(error),
+                  error: err instanceof Error ? err.message : String(err),
                 });
               });
           }
@@ -1146,10 +1146,10 @@ export class AcpSession {
           if (event.display) {
             const planNote = planFromDisplayBlock(sessionId, event.turnId, event.display);
             if (planNote !== null) {
-              conn.sessionUpdate(planNote).catch((error) => {
+              conn.sessionUpdate(planNote).catch((err) => {
                 log.warn('acp: failed to push plan', {
                   sessionId,
-                  error: error instanceof Error ? error.message : String(error),
+                  error: err instanceof Error ? err.message : String(err),
                 });
               });
             }
@@ -1172,11 +1172,11 @@ export class AcpSession {
             startedToolCalls.add(deltaWireId);
             conn
               .sessionUpdate(toolCallLazyCreateToSessionUpdate(sessionId, event))
-              .catch((error) => {
+              .catch((err) => {
                 log.warn('acp: failed to push tool_call (lazy create from delta)', {
                   sessionId,
                   toolCallId: event.toolCallId,
-                  error: error instanceof Error ? error.message : String(error),
+                  error: err instanceof Error ? err.message : String(err),
                 });
               });
             return;
@@ -1190,11 +1190,11 @@ export class AcpSession {
           }
           conn
             .sessionUpdate(toolCallDeltaToSessionUpdate(sessionId, event, acc))
-            .catch((error) => {
+            .catch((err) => {
               log.warn('acp: failed to push tool_call_update (delta)', {
                 sessionId,
                 toolCallId: event.toolCallId,
-                error: error instanceof Error ? error.message : String(error),
+                error: err instanceof Error ? err.message : String(err),
               });
             });
           return;
@@ -1203,11 +1203,11 @@ export class AcpSession {
           if (!isFromMainAgent(event)) return;
           const note = toolProgressToSessionUpdate(sessionId, event);
           if (note === null) return;
-          conn.sessionUpdate(note).catch((error) => {
+          conn.sessionUpdate(note).catch((err) => {
             log.warn('acp: failed to push tool_call_update (progress)', {
               sessionId,
               toolCallId: event.toolCallId,
-              error: error instanceof Error ? error.message : String(error),
+              error: err instanceof Error ? err.message : String(err),
             });
           });
           return;
@@ -1216,11 +1216,11 @@ export class AcpSession {
           if (!isFromMainAgent(event)) return;
           conn
             .sessionUpdate(toolResultToSessionUpdate(sessionId, event))
-            .catch((error) => {
+            .catch((err) => {
               log.warn('acp: failed to push tool_call_update (result)', {
                 sessionId,
                 toolCallId: event.toolCallId,
-                error: error instanceof Error ? error.message : String(error),
+                error: err instanceof Error ? err.message : String(err),
               });
             });
           return;
@@ -1273,11 +1273,11 @@ export class AcpSession {
         }
       });
 
-      kick().catch((error) => {
+      kick().catch((err) => {
         if (settled) return;
         settled = true;
         unsub();
-        reject(mapPromptError(error, sessionId));
+        reject(mapPromptError(err, sessionId));
       });
     });
   }
@@ -1336,12 +1336,12 @@ export class AcpSession {
         permissionResponseToApprovalResponse(req, response),
         options,
       );
-    } catch (error) {
+    } catch (err) {
       log.warn('acp: requestPermission failed; rejecting', {
         sessionId: this.id,
         toolCallId: req.toolCallId,
         toolName: req.toolName,
-        error: error instanceof Error ? error.message : String(error),
+        error: err instanceof Error ? err.message : String(err),
       });
       return { decision: 'rejected' };
     }
@@ -1420,11 +1420,11 @@ export class AcpSession {
         this.emitTelemetry('question_answered', { answered: Object.keys(answer).length });
       }
       return answer;
-    } catch (error) {
+    } catch (err) {
       log.warn('acp: requestPermission (question) failed; dismissing', {
         sessionId: this.id,
         toolCallId: req.toolCallId,
-        error: error instanceof Error ? error.message : String(error),
+        error: err instanceof Error ? err.message : String(err),
       });
       return null;
     }
@@ -1440,11 +1440,11 @@ export class AcpSession {
     if (typeof this.track !== 'function') return;
     try {
       this.track(event, properties);
-    } catch (error) {
+    } catch (err) {
       log.warn('acp: telemetry track failed', {
         sessionId: this.id,
         event,
-        error: error instanceof Error ? error.message : String(error),
+        error: err instanceof Error ? err.message : String(err),
       });
     }
   }
@@ -1630,7 +1630,7 @@ function authRequiredFromPayload(
 /**
  * Type-narrowing predicate for the codes the adapter treats as
  * "the client must re-authenticate before retrying". Currently:
- *  - `auth.login_required` — Pythinker Platform / OAuth login flow needed.
+ *  - `auth.login_required` — Kimi Platform / OAuth login flow needed.
  *  - `provider.auth_error` — the downstream provider rejected the
  *    request with a 401 (the node SDK lifts these into `PythinkerError`
  *    at `pythinker-code-model-provider.ts:99-103`).

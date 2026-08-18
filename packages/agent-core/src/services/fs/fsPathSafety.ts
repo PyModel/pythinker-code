@@ -91,11 +91,11 @@ async function realpathLongestExistingPrefix(target: string): Promise<string> {
 
       tailSegments.reverse();
       return tailSegments.length === 0 ? real : path.join(real, ...tailSegments);
-    } catch (error) {
+    } catch (err) {
 
-      const code = (error as NodeJS.ErrnoException).code;
+      const code = (err as NodeJS.ErrnoException).code;
       if (code !== 'ENOENT' && code !== 'ENOTDIR') {
-        throw error;
+        throw err;
       }
       const parent = path.dirname(current);
       if (parent === current) {

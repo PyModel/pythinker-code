@@ -22,29 +22,11 @@ if (!['local', 'release'].includes(profile)) {
   process.exit(1);
 }
 
-const MINIMUM_NODE_VERSION = [26, 4, 0];
-
-function isNodeVersionBelow(version, minimumVersion) {
-  const match = version.match(
-    /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/,
-  );
-  if (match === null) {
-    return true;
-  }
-
-  const parts = match.slice(1, 4).map(Number);
-  for (const [index, minimumPart] of minimumVersion.entries()) {
-    if (parts[index] !== minimumPart) {
-      return parts[index] < minimumPart;
-    }
-  }
-  return match[4] !== undefined;
-}
-
 function ensureNodeVersion() {
-  if (isNodeVersionBelow(process.versions.node, MINIMUM_NODE_VERSION)) {
+  const [major, minor] = process.versions.node.split('.').map(Number);
+  if (major < 24 || (major === 24 && minor < 15)) {
     console.error(
-      `Pythinker Code native SEA build requires Node.js >=26.4.0, current ${process.versions.node}.`,
+      `Pythinker Code native SEA build requires Node.js >=24.15.0, current ${process.versions.node}.`,
     );
     process.exit(1);
   }

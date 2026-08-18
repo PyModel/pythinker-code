@@ -22,7 +22,7 @@ import {
 import type { PythinkerConfig } from '../../../src/config';
 import type { ExecutableToolResult } from '../../../src/loop';
 import type { Logger } from '../../../src/logging';
-import { type ModelProvider, ProviderManager } from '../../../src/session/provider-manager';
+import { ProviderManager } from '../../../src/session/provider-manager';
 import type { QuestionResult, RPCCallOptions, SDKAgentRPC } from '../../../src/rpc';
 import type { AgentAPI } from '../../../src/rpc/core-api';
 import type { ToolServices } from '../../../src/tools/support/services';
@@ -91,7 +91,6 @@ interface ResumeStateSnapshot {
 export interface TestAgentOptions {
   readonly kaos?: Kaos | undefined;
   readonly runtime?: ToolServices | undefined;
-  readonly skills?: AgentOptions['skills'];
   readonly compactionStrategy?: CompactionStrategy | undefined;
   readonly microCompaction?: AgentOptions['microCompaction'];
   readonly generate?: GenerateFn | undefined;
@@ -99,7 +98,7 @@ export interface TestAgentOptions {
   readonly type?: AgentOptions['type'];
   readonly permission?: AgentOptions['permission'];
   readonly goal?: GoalMode;
-  readonly providerManager?: ModelProvider;
+  readonly providerManager?: ProviderManager;
   readonly initialConfig?: PythinkerConfig;
   readonly providerManagerOverrides?: Omit<ConstructorParameters<typeof ProviderManager>[0], 'config'>;
   readonly sessionId?: string;
@@ -110,8 +109,6 @@ export interface TestAgentOptions {
   readonly telemetry?: TelemetryClient | undefined;
   readonly log?: Logger;
   readonly experimentalFlags?: AgentOptions['experimentalFlags'];
-  readonly onAfterCompaction?: AgentOptions['onAfterCompaction'];
-  readonly fileCheckpoints?: AgentOptions['fileCheckpoints'];
 }
 
 interface ConfigureOptions {
@@ -185,7 +182,6 @@ export class AgentTestContext {
     this.agent = new Agent({
       kaos,
       toolServices,
-      skills: options.skills,
       config: this.pythinkerConfig,
       rpc: this.createRpcProxy(),
       homedir: options.homedir,
@@ -201,8 +197,6 @@ export class AgentTestContext {
       telemetry: options.telemetry,
       log: options.log,
       experimentalFlags: options.experimentalFlags,
-      onAfterCompaction: options.onAfterCompaction,
-      fileCheckpoints: options.fileCheckpoints,
     });
     if (options.goal !== undefined) {
       (this.agent as unknown as { goal: GoalMode }).goal = options.goal;
@@ -1002,8 +996,6 @@ function createResumeNoSideEffectKaos(
     readLines: () => fail('readLines'),
     writeBytes: () => fail('writeBytes'),
     writeText: () => fail('writeText'),
-    unlink: () => fail('unlink'),
-    chmod: () => fail('chmod'),
     mkdir: () => fail('mkdir'),
     exec: () => fail('exec'),
     execWithEnv: () => fail('execWithEnv'),

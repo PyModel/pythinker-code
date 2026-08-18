@@ -176,7 +176,9 @@ export class FsSearchService
     if (req.exclude_globs) {
       for (const g of req.exclude_globs) args.push('--glob', `!${g}`);
     }
-    args.push('--max-count', String(req.max_matches_per_file), req.pattern, '.');
+    args.push('--max-count', String(req.max_matches_per_file));
+    args.push(req.pattern);
+    args.push('.');
 
     const child = spawn(rgBinary, args, {
       cwd,
@@ -281,7 +283,7 @@ export class FsSearchService
           if (buf === undefined) continue;
 
           if (buf.matches.length > 0 && buf.pending.length > 0) {
-            const last = buf.matches.at(-1)!;
+            const last = buf.matches[buf.matches.length - 1]!;
             last.after = buf.pending.slice(0, req.context_lines);
           }
           if (buf.matches.length > 0) {
@@ -305,7 +307,7 @@ export class FsSearchService
 
     for (const [p, buf] of fileBuf) {
       if (buf.matches.length > 0 && buf.pending.length > 0) {
-        const last = buf.matches.at(-1)!;
+        const last = buf.matches[buf.matches.length - 1]!;
         last.after = buf.pending.slice(0, req.context_lines);
       }
       if (buf.matches.length > 0) {
@@ -567,7 +569,7 @@ function compileGrepPattern(req: FsGrepRequest): RegExp {
 }
 
 function escapeRegExp(s: string): string {
-  return s.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function stripTrailingNewline(s: string): string {

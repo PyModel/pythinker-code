@@ -1,10 +1,9 @@
-import { mkdtemp, readFile, stat } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
-import { crc32 } from 'node:zlib';
-
 import { describe, expect, it } from 'vitest';
+import { mkdtemp, readFile, stat } from 'node:fs/promises';
+import path from 'node:path';
+import { tmpdir } from 'node:os';
 import yazl from 'yazl';
+import { crc32 } from 'node:zlib';
 
 import { downloadZip, extractZip } from '../../src/plugin/archive';
 
@@ -185,37 +184,6 @@ describe('extractZip', () => {
     expect(root).toBe(path.join(destDir, 'outer'));
   });
 
-  it('selects a repository subdirectory beneath an archive wrapper', async () => {
-    const destDir = await mkdtemp(path.join(tmpdir(), 'archive-test-'));
-    const zipBuffer = await createZipBuffer([
-      {
-        name: 'repo-main/plugins/demo/.claude-plugin/plugin.json',
-        data: '{"name":"demo"}',
-      },
-      { name: 'repo-main/readme.md', data: '# Repository' },
-    ]);
-
-    const root = await extractZip(zipBuffer, destDir, {
-      repositorySubdirectory: 'plugins/demo',
-    });
-
-    expect(root).toBe(path.join(destDir, 'repo-main', 'plugins', 'demo'));
-  });
-
-  it.each(['../escape', '/absolute/escape', 'C:\\absolute\\escape'])(
-    'rejects escaping repository subdirectory %s',
-    async (repositorySubdirectory) => {
-      const destDir = await mkdtemp(path.join(tmpdir(), 'archive-test-'));
-      const zipBuffer = await createZipBuffer([
-        { name: 'repo-main/pythinker.plugin.json', data: '{"name":"demo"}' },
-      ]);
-
-      await expect(extractZip(zipBuffer, destDir, { repositorySubdirectory })).rejects.toThrow(
-        /relative|traversal|outside/i,
-      );
-    },
-  );
-
   it('ignores deep nested plugin manifests when there is no root or wrapper manifest', async () => {
     const destDir = await mkdtemp(path.join(tmpdir(), 'archive-test-'));
     const zipBuffer = await createZipBuffer([
@@ -239,22 +207,6 @@ describe('extractZip', () => {
     const root = await extractZip(zipBuffer, destDir);
     const executable = await stat(path.join(root, 'bin', 'server'));
     expect(executable.mode & 0o777).toBe(0o755);
-  });
-
-  it('rejects entries whose parent resolves through a symlink outside the destination', async () => {
-    if (process.platform === 'win32') return;
-
-    const { symlink } = await import('node:fs/promises');
-    const destDir = await mkdtemp(path.join(tmpdir(), 'archive-test-'));
-    const outside = await mkdtemp(path.join(tmpdir(), 'archive-outside-'));
-    const outsideFile = path.join(outside, 'escaped.txt');
-    await symlink(outside, path.join(destDir, 'linked'));
-    const zipBuffer = await createZipBuffer([
-      { name: 'linked/escaped.txt', data: 'bad' },
-    ]);
-
-    await expect(extractZip(zipBuffer, destDir)).rejects.toThrow(/outside|symlink/iu);
-    await expect(readFile(outsideFile, 'utf8')).rejects.toThrow(/ENOENT/u);
   });
 
   it('rejects entries with path traversal', async () => {

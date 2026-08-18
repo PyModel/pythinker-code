@@ -5,7 +5,6 @@ import {
   ExperimentsSelectorComponent,
   type ExperimentalFeatureDraftChange,
 } from '#/tui/components/dialogs/experiments-selector';
-import { defaultKeybindings, parseKeybindingBlocks } from '#/tui/keybindings';
 
 
 const ANSI = /\u001B\[[0-9;]*m/g;
@@ -37,35 +36,6 @@ function text(component: ExperimentsSelectorComponent, width = 120): string {
 }
 
 describe('ExperimentsSelectorComponent', () => {
-  it('uses remapped Select navigation and honors an unbound Down key', () => {
-    const onApply = vi.fn();
-    const selector = new ExperimentsSelectorComponent({
-      features: [
-        feature({ id: 'agent_memory' }),
-        feature({ id: 'vim_mode', title: 'Second feature' }),
-      ],
-      onApply,
-      onCancel: vi.fn(),
-    });
-    selector.setKeybindings([
-      ...defaultKeybindings(),
-      ...parseKeybindingBlocks([{ context: 'Select', bindings: { 'alt+j': 'select:next', down: null } }]),
-    ]);
-
-    selector.handleInput(`${ESC}[B`);
-    selector.handleInput(' ');
-    selector.handleInput(ENTER);
-    expect(onApply).toHaveBeenLastCalledWith([{ id: 'agent_memory', enabled: false }]);
-
-    selector.handleInput('alt+j');
-    selector.handleInput(' ');
-    selector.handleInput(ENTER);
-    expect(onApply).toHaveBeenLastCalledWith([
-      { id: 'agent_memory', enabled: false },
-      { id: 'vim_mode', enabled: false },
-    ]);
-  });
-
   it('renders searchable feature toggles with source details', () => {
     const selector = new ExperimentsSelectorComponent({
       features: [
@@ -149,39 +119,5 @@ describe('ExperimentsSelectorComponent', () => {
     expect(onCancel).not.toHaveBeenCalled();
     selector.handleInput(ESC);
     expect(onCancel).toHaveBeenCalledOnce();
-  });
-
-  it('keeps PageUp and PageDown local to the experiments list', () => {
-    const onApply = vi.fn();
-    const ids = [
-      'agent_fork_context',
-      'agent_memory',
-      'agent_teams',
-      'coordinator_mode',
-      'lsp',
-      'micro_compaction',
-      'powershell',
-      'task_graph',
-      'token_budget',
-      'vim_mode',
-    ] as const;
-    const selector = new ExperimentsSelectorComponent({
-      features: ids.map((id) => feature({ id, title: id })),
-      onApply,
-      onCancel: vi.fn(),
-    });
-
-    selector.handleInput(`${ESC}[6~`);
-    selector.handleInput(' ');
-    selector.handleInput(ENTER);
-    expect(onApply).toHaveBeenLastCalledWith([{ id: 'token_budget', enabled: false }]);
-
-    selector.handleInput(`${ESC}[5~`);
-    selector.handleInput(' ');
-    selector.handleInput(ENTER);
-    expect(onApply).toHaveBeenLastCalledWith([
-      { id: 'agent_fork_context', enabled: false },
-      { id: 'token_budget', enabled: false },
-    ]);
   });
 });

@@ -73,24 +73,6 @@ describe('skill parser', () => {
     expect(skills[0]?.description).toBe('From frontmatter');
   });
 
-  it('normalizes user-facing frontmatter', async () => {
-    const root = await makeSkillsRoot();
-    await writeFlat(root, 'hidden.md', [
-      '---',
-      'user-invocable: "false"',
-      'disable-model-invocation: "true"',
-      'argument-hint: <target>',
-      '---',
-      'Hidden command',
-    ]);
-
-    const skills = await discoverSkills({ roots: [userRoot(root)] });
-
-    expect(skills[0]?.metadata.userInvocable).toBe(false);
-    expect(skills[0]?.metadata.disableModelInvocation).toBe(true);
-    expect(skills[0]?.metadata.argumentHint).toBe('<target>');
-  });
-
   it('truncates body-fallback descriptions to 240 chars including trailing ellipsis', async () => {
     const root = await makeSkillsRoot();
     await writeFlat(root, 'long.md', ['a'.repeat(300)]);
@@ -158,7 +140,7 @@ describe('skill parser', () => {
 describe('skill parameter expansion', () => {
   it('expands raw, positional, named, and context placeholders', () => {
     const out = expandSkillParameters(
-      'raw=$ARGUMENTS zero=$0 one=$1 second=$ARGUMENTS[1] flag=$flag message=$message dir=${PYTHINKER_SKILL_DIR} session=${PYTHINKER_SESSION_ID} legacyDir=${pythinker_SKILL_DIR} legacySession=${pythinker_SESSION_ID}',
+      'raw=$ARGUMENTS zero=$0 one=$1 second=$ARGUMENTS[1] flag=$flag message=$message dir=${PYTHINKER_SKILL_DIR} session=${PYTHINKER_SESSION_ID}',
       '-m "fix login"',
       {
         skillDir: '/tmp/skills/commit',
@@ -168,7 +150,7 @@ describe('skill parameter expansion', () => {
     );
 
     expect(out).toBe(
-      'raw=-m "fix login" zero=-m one=fix login second=fix login flag=-m message=fix login dir=/tmp/skills/commit session=ses_1 legacyDir=/tmp/skills/commit legacySession=ses_1',
+      'raw=-m "fix login" zero=-m one=fix login second=fix login flag=-m message=fix login dir=/tmp/skills/commit session=ses_1',
     );
   });
 

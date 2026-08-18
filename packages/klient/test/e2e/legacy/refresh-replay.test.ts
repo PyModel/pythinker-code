@@ -3,22 +3,22 @@
  *
  * Models the page-refresh path a web client takes when the server is already
  * up: hit `/healthz`, `/meta`, `/auth`, then open a fresh WebSocket and replay
- * any missed events via `client_hello.cursors` before pulling REST history
+ * any missed events via `client_hello.cursors` BEFORE pulling REST history
  * (REST.md §3 + WS.md §3.2).
  *
  * What's asserted here (and NOT in `client.test.ts`):
  *   1. `/healthz` returns `{ok: true}`.
- *   2. `/meta` exposes a non-empty `server_id`. (Since the v3 sync protocol,
+ *   2. `/meta` exposes a non-empty `server_id`. (Since the v2 sync protocol,
  *      cursors carry a journal `epoch` and seq is durable across restarts —
  *      a stale cursor is detected server-side via `epoch_changed` instead of
  *      clients comparing `server_id`.)
  *   3. `/auth` returns the `AuthSummary` shape.
  *   4. After running one prompt to populate the journal, a fresh WS that
  *      passes `cursors: { [sid]: { seq: currentSeq } }` is acked with
- *      `accepted_subscriptions: []`, `resync_required: []`, and NO event
+ *      `accepted_subscriptions: [sid]`, `resync_required: []`, and NO event
  *      frames arrive between `server_hello` and the ack (caught-up replay).
  *   5. A fresh WS that passes `cursors: { [sid]: { seq: 0 } }` triggers
- *      replay of every durable event in order (seq 1..N) after the ack.
+ *      replay of every durable event in order (seq 1..N) BEFORE the ack.
  *      Volatile frames (deltas/progress/status) are never replayed.
  *   6. After reconnect, `GET /messages` reflects the persisted state from
  *      before the WS close.
@@ -28,7 +28,6 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { WebSocket as WsWebSocket } from 'ws';
-import { WS_PROTOCOL_VERSION } from '@pymodel/protocol';
 
 import { DaemonClient, WsClient, type AnyFrame } from '../harness/index.js';
 import { fetchWithReport } from '../harness/report.js';
@@ -98,14 +97,10 @@ async function openSocketWithHello(opts: {
 
   const serverHello = await ws.waitForFrame((f) => f.type === 'server_hello', HANDSHAKE_TIMEOUT_MS);
   opts.log?.('refresh ws server_hello', frameForLog(serverHello));
-  expect((serverHello.payload as { protocol_version?: unknown }).protocol_version).toBe(
-    WS_PROTOCOL_VERSION,
-  );
 
   const helloId = `hello-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const payload: Record<string, unknown> = {
     client_id: opts.clientId ?? `vitest-refresh-${process.pid}`,
-    protocol_version: WS_PROTOCOL_VERSION,
     subscriptions: [opts.sid],
   };
   if (opts.lastSeq !== undefined) {
@@ -119,13 +114,6 @@ async function openSocketWithHello(opts: {
     HANDSHAKE_TIMEOUT_MS,
   );
   opts.log?.('refresh ws ack', frameForLog(ack));
-
-  if (opts.lastSeq === 0) {
-    await ws.waitForFrame(
-      (f) => typeof f.seq === 'number' && f.session_id === opts.sid && f.seq > 0,
-      HANDSHAKE_TIMEOUT_MS,
-    );
-  }
 
   const replayed = arrivals.filter(
     (f) =>
@@ -203,6 +191,7 @@ describeLive('refresh-replay (live server required)', () => {
       ready: boolean;
       providers_count: number;
       default_model: string | null;
+      managed_provider: { name: string; status: string } | null;
     }>('/auth', log);
     log('data', auth);
     expect(typeof auth.ready).toBe('boolean');
@@ -210,7 +199,7 @@ describeLive('refresh-replay (live server required)', () => {
   });
 
   it(
-    'reconnect with caught-up last_seq → empty hello ack, no replay events',
+    'reconnect with caught-up last_seq → ack accepts subscription, no replay events',
     async () => {
       const log = createCaseLogger('refresh: caught-up replay');
       const client = new DaemonClient({ baseUrl: BASE_URL });
@@ -256,7 +245,7 @@ describeLive('refresh-replay (live server required)', () => {
         accepted_subscriptions?: string[];
         resync_required?: string[];
       };
-      expect(payload.accepted_subscriptions ?? []).toEqual([]);
+      expect(payload.accepted_subscriptions ?? []).toEqual([session.id]);
       expect(payload.resync_required ?? []).toEqual([]);
       expect(
         refreshed.replayed,
@@ -272,7 +261,7 @@ describeLive('refresh-replay (live server required)', () => {
   );
 
   it(
-    'reconnect with last_seq=0 → server replays buffered events in order after ack',
+    'reconnect with last_seq=0 → server replays buffered events in order before ack',
     async () => {
       const log = createCaseLogger('refresh: replay from zero');
       const client = new DaemonClient({ baseUrl: BASE_URL });
@@ -318,7 +307,7 @@ describeLive('refresh-replay (live server required)', () => {
         accepted_subscriptions?: string[];
         resync_required?: string[];
       };
-      expect(payload.accepted_subscriptions ?? []).toEqual([]);
+      expect(payload.accepted_subscriptions ?? []).toEqual([session.id]);
       // Buffer cap defaults to 1000; a single prompt emits <<1000 events, so
       // every event is still in the ring → no resync_required.
       expect(payload.resync_required ?? []).toEqual([]);

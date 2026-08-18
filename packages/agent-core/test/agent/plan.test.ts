@@ -335,28 +335,10 @@ describe('plan allows safe tool flow', () => {
         files.set(path, content);
         return content.length;
       });
-      const stat = vi.fn(async (path: string) => ({
-        stMode: path.endsWith('.md') ? 0o100644 : 0o040755,
-        stIno: 0,
-        stDev: 0,
-        stNlink: 1,
-        stUid: 0,
-        stGid: 0,
-        stSize: path.endsWith('.md') ? Buffer.byteLength(files.get(path) ?? '') : 0,
-        stAtime: 1,
-        stMtime: 1,
-        stCtime: 1,
-      }));
-      const readBytes = vi.fn(async (path: string, length: number) =>
-        Buffer.from(files.get(path) ?? '').subarray(0, length),
-      );
-      const readLines = vi.fn(async function* (path: string) {
-        yield* (files.get(path) ?? '').match(/[^\n]*\n|[^\n]+$/g) ?? [];
-      });
       const ctx = testAgent({
-        kaos: createPlanKaos({ readBytes, readLines, readText, stat, writeText }),
+        kaos: createPlanKaos({ readText, writeText }),
       });
-      ctx.configure({ tools: ['Read', toolName] });
+      ctx.configure({ tools: [toolName] });
       await ctx.agent.planMode.enter('test-plan', false);
 
       const planPath = ctx.agent.planMode.planFilePath;
@@ -375,21 +357,14 @@ describe('plan allows safe tool flow', () => {
         name: toolName,
           arguments: JSON.stringify(args),
       };
-      const readPlanCall: ToolCall = {
-        type: 'function',
-        id: `call_read_before_${toolName.toLowerCase()}_plan`,
-        name: 'Read',
-        arguments: JSON.stringify({ path: planPath }),
-      };
 
-      ctx.mockNextResponse({ type: 'text', text: 'I will read the plan file.' }, readPlanCall);
       ctx.mockNextResponse({ type: 'text', text: 'I will update the plan file.' }, writePlanCall);
       ctx.mockNextResponse({ type: 'text', text: 'Plan file updated.' });
       await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Update the plan file' }] });
 
       await ctx.untilTurnEnd();
 
-      expect(files.get(planPath), toolResultText(ctx.agent.context.history)).toBe(expectedContent);
+      expect(files.get(planPath)).toBe(expectedContent);
       expect(writeText).toHaveBeenCalledWith(planPath, expectedContent);
       expect(
         ctx.allEvents.some((event) => event.type === '[rpc]' && event.event === 'requestApproval'),
@@ -631,9 +606,7 @@ describe('plan mode injection cadence', () => {
 });
 
 function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function lastUserText(history: readonly { role: string; content: readonly unknown[] }[]): string {

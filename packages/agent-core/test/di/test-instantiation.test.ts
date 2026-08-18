@@ -106,7 +106,7 @@ describe('TestInstantiationService (P1.3)', () => {
 
     ix.get(ILogger).log('error');
 
-    expect(mock.verify()).toBe(true);
+    mock.verify();
   });
 
   it('`.stubPromise(id, method, value)` installs a sinon stub that resolves to the value', async () => {
@@ -155,7 +155,6 @@ describe('TestInstantiationService (P1.3)', () => {
     ix.get(ILogger).log('hello');
 
     sinon.assert.calledWith(spy, 'hello');
-    expect(spy.calledWith('hello')).toBe(true);
   });
 
   it('`.stubInstance(ctor, instance)` overrides createInstance and is inherited by children', () => {

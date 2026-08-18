@@ -25,8 +25,6 @@ export interface ApprovalRequest {
 export interface QuestionOption {
   readonly label: string;
   readonly description?: string;
-  readonly preview?: string;
-  readonly url?: string;
 }
 
 export interface QuestionItem {
@@ -35,7 +33,6 @@ export interface QuestionItem {
   readonly body?: string;
   readonly options: readonly QuestionOption[];
   readonly multiSelect?: boolean;
-  readonly allowOther?: boolean;
   readonly otherLabel?: string;
   readonly otherDescription?: string;
 }
@@ -48,17 +45,9 @@ export type QuestionAnswerMethod = 'enter' | 'space' | 'number_key';
  */
 export type QuestionAnswers = Record<string, string | true>;
 
-export interface QuestionAnnotation {
-  readonly preview?: string;
-  readonly notes?: string;
-}
-
-export type QuestionAnnotations = Record<string, QuestionAnnotation>;
-
 export interface QuestionResponse {
   readonly answers: QuestionAnswers;
   readonly method?: QuestionAnswerMethod | undefined;
-  readonly annotations?: QuestionAnnotations;
 }
 
 export type QuestionResult = null | QuestionAnswers | QuestionResponse;

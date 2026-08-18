@@ -57,8 +57,6 @@ export function createFakeKaos(
     readLines: () => notImplemented('readLines'),
     writeBytes: () => notImplemented('writeBytes'),
     writeText: () => notImplemented('writeText'),
-    unlink: () => notImplemented('unlink'),
-    chmod: () => notImplemented('chmod'),
     mkdir: () => notImplemented('mkdir'),
     exec: () => notImplemented('exec'),
     execWithEnv: (args, invocationEnv) => {

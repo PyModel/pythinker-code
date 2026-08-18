@@ -34,8 +34,6 @@ export interface AgentCoreToolInfoLike {
   readonly name: string;
   readonly description: string;
   readonly source: 'builtin' | 'user' | 'mcp';
-  readonly mcpServerId?: string;
-  readonly inputSchema?: Record<string, unknown>;
   /** agent-core may add fields like `active`; we ignore them. */
   readonly active?: boolean;
 }
@@ -51,17 +49,34 @@ function mapToolSource(s: AgentCoreToolInfoLike['source']): ToolSource {
   }
 }
 
+/**
+ * Parse the server id segment from an MCP tool name. Convention:
+ * `mcp:<server>:<tool>` (kosong's `mcpRegistrar.qualifiedName`). Returns
+ * `undefined` when the name does not match — caller omits `mcp_server_id`.
+ */
+function parseMcpServerIdFromToolName(name: string): string | undefined {
+  if (!name.startsWith('mcp:')) return undefined;
+  const rest = name.slice('mcp:'.length);
+  const sep = rest.indexOf(':');
+  if (sep <= 0) return undefined;
+  return rest.slice(0, sep);
+}
+
 export function toProtocolTool(info: AgentCoreToolInfoLike): ToolDescriptor {
   const source = mapToolSource(info.source);
   const base: ToolDescriptor = {
     name: info.name,
     description: info.description,
-    // Older ToolInfo producers may omit the schema; null keeps that wire value honest.
-    input_schema: info.inputSchema ?? null,
+    // agent-core's ToolInfo lacks a JSON schema today; emit null so the
+    // wire schema is honest about "unknown".
+    input_schema: null,
     source,
   };
-  if (source === 'mcp' && info.mcpServerId !== undefined) {
-    return { ...base, mcp_server_id: info.mcpServerId };
+  if (source === 'mcp') {
+    const serverId = parseMcpServerIdFromToolName(info.name);
+    if (serverId !== undefined) {
+      return { ...base, mcp_server_id: serverId };
+    }
   }
   return base;
 }

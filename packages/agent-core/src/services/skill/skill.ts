@@ -57,8 +57,6 @@ export function toProtocolSkill(info: AgentCoreSkillSummary): SkillDescriptor {
     ...(info.disableModelInvocation !== undefined
       ? { disable_model_invocation: info.disableModelInvocation }
       : {}),
-    ...(info.userInvocable !== undefined ? { user_invocable: info.userInvocable } : {}),
-    ...(info.argumentHint !== undefined ? { argument_hint: info.argumentHint } : {}),
   };
 }
 

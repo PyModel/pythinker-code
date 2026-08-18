@@ -1,6 +1,5 @@
 import type { Agent } from '../..';
 import { isPlainRecord } from '../../turn/canonical-args';
-import { createHookIfMatcher } from '../../../session/hooks';
 import type { PermissionPolicy, PermissionPolicyContext, PermissionPolicyResult } from '../types';
 
 export class PreToolCallHookPermissionPolicy implements PermissionPolicy {
@@ -12,9 +11,7 @@ export class PreToolCallHookPermissionPolicy implements PermissionPolicy {
     const hookResult = await this.agent.hooks?.triggerBlock('PreToolUse', {
       matcherValue: context.toolCall.name,
       signal: context.signal,
-      ifMatcher: createHookIfMatcher(context.toolCall.name, context.execution),
       inputData: {
-        agentId: this.agent.agentId,
         toolName: context.toolCall.name,
         toolInput: isPlainRecord(context.args) ? context.args : {},
         toolCallId: context.toolCall.id,

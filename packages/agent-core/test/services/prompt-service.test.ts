@@ -284,7 +284,7 @@ function makeAuth(opts: { ensureReadyError?: Error } = {}): IAuthSummaryService 
     get: vi.fn().mockResolvedValue({
       ready: true,
       providers_count: 1,
-      default_model: 'pythinker-k2',
+      default_model: 'kimi-k2',
       managed_provider: null,
     }),
     ensureReady: vi.fn().mockImplementation(async () => {

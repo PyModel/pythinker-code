@@ -256,7 +256,7 @@ export class TasksBrowserController {
   }
 
   private buildCallbacks(): {
-    onSelect: (taskId: string | undefined) => void;
+    onSelect: (taskId: string) => void;
     onToggleFilter: () => void;
     onRefresh: () => void;
     onCancel: () => void;
@@ -291,18 +291,15 @@ export class TasksBrowserController {
     };
   }
 
-  private handleSelect(taskId: string | undefined): void {
+  private handleSelect(taskId: string): void {
     const browser = this.host.state.tasksBrowser;
     if (browser === undefined) return;
     if (browser.selectedTaskId === taskId) return;
     browser.selectedTaskId = taskId;
     browser.tailOutput = undefined;
-    browser.tailLoading = taskId !== undefined;
-    // Deselection (no visible task under the active filter) invalidates any
-    // in-flight tail request by bumping its id.
-    if (taskId === undefined) browser.tailRequestId += 1;
+    browser.tailLoading = true;
     this.repaint();
-    if (taskId !== undefined) this.loadTail(taskId);
+    this.loadTail(taskId);
   }
 
   private handleToggleFilter(): void {

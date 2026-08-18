@@ -1,7 +1,7 @@
 /**
  * `IAuthSummaryService` — daemon-facing readiness probe.
  *
- * Single authoritative readiness signal source:
+ * Single権威 readiness signal source:
  *   - `get()` produces the `AuthSummary` payload for `GET /v1/auth`.
  *   - `ensureReady(modelOverride?)` is the synchronous gate invoked by entry
  *     points that can't proceed without provider credentials — currently

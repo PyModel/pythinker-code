@@ -68,19 +68,6 @@ export interface InvocationDisplayBlock {
   description?: string | undefined;
 }
 
-/**
- * The fan-out a Dynamic Workflow is about to launch. Shown at approval time so
- * the decision is made against the actual task list rather than a count.
- */
-export interface WorkflowPlanDisplayBlock {
-  type: 'workflow_plan';
-  agent_count: number;
-  items: string[];
-  prompt_tokens: number;
-  prompt_template?: string;
-  model?: string;
-}
-
 export interface TodoDisplayItem {
   title: string;
   status: 'pending' | 'in_progress' | 'done';
@@ -108,7 +95,6 @@ export type DisplayBlock =
   | UrlFetchDisplayBlock
   | SearchDisplayBlock
   | InvocationDisplayBlock
-  | WorkflowPlanDisplayBlock
   | TodoDisplayBlock
   | BackgroundTaskDisplayBlock;
 
@@ -139,15 +125,9 @@ export interface QuestionPanelItem {
   header?: string;
   body?: string;
   multi_select: boolean;
-  allow_other?: boolean;
   other_label?: string;
   other_description?: string;
-  options: Array<{
-    label: string;
-    description?: string;
-    preview?: string;
-    url?: string;
-  }>;
+  options: Array<{ label: string; description?: string }>;
 }
 
 export interface QuestionPanelData {
@@ -161,7 +141,6 @@ export type QuestionSubmissionMethod = QuestionAnswerMethod;
 export interface QuestionPanelResponse {
   readonly answers: string[];
   readonly method?: QuestionSubmissionMethod | undefined;
-  readonly annotations?: Record<string, { readonly preview?: string; readonly notes?: string }>;
 }
 
 // ── Pending state wrappers ───────────────────────────────────────────

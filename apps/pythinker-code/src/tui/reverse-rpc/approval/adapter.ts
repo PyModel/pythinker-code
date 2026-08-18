@@ -213,13 +213,6 @@ function describeApproval(display: ToolInputDisplay, action: string): string {
 
 const DANGER_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
   { pattern: /\brm\s+(-[a-zA-Z]*[rRfF][a-zA-Z]*|--recursive|--force)/i, label: 'recursive delete' },
-  { pattern: /\bgit\s+reset\s+--hard\b/i, label: 'discard uncommitted changes' },
-  { pattern: /\bgit\s+push\b[^;&|\n]*(--force|--force-with-lease|-f)\b/i, label: 'overwrite remote history' },
-  { pattern: /\bgit\s+clean\b[^;&|\n]*-[a-zA-Z]*f/i, label: 'delete untracked files' },
-  { pattern: /\bgit\s+stash\s+(drop|clear)\b/i, label: 'delete stashed changes' },
-  { pattern: /\bterraform\s+destroy\b/i, label: 'destroy infrastructure' },
-  { pattern: /\bkubectl\s+delete\b/i, label: 'delete Kubernetes resources' },
-  { pattern: /\b(DROP|TRUNCATE)\s+(TABLE|DATABASE|SCHEMA)\b/i, label: 'drop database objects' },
   { pattern: /\bsudo\b/i, label: 'sudo' },
   { pattern: /\b(curl|wget)\b[^|]*\|\s*(sh|bash|zsh)\b/i, label: 'pipe to shell' },
   { pattern: /\bdd\b[^|]*\bof=/i, label: 'dd write' },
@@ -303,8 +296,8 @@ function adaptDisplay(display: ToolInputDisplay): DisplayBlock[] {
           scope: display.scope,
         },
       ];
-    case 'agent_call': {
-      const blocks: DisplayBlock[] = [
+    case 'agent_call':
+      return [
         {
           type: 'invocation',
           kind: 'agent',
@@ -312,18 +305,6 @@ function adaptDisplay(display: ToolInputDisplay): DisplayBlock[] {
           description: display.prompt,
         },
       ];
-      if (display.workflow !== undefined) {
-        blocks.push({
-          type: 'workflow_plan',
-          agent_count: display.workflow.agent_count,
-          items: [...display.workflow.items],
-          prompt_tokens: display.workflow.prompt_tokens,
-          prompt_template: display.workflow.prompt_template,
-          model: display.workflow.model,
-        });
-      }
-      return blocks;
-    }
     case 'skill_call':
       return [
         {

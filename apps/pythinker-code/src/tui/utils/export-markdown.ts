@@ -239,7 +239,8 @@ export function buildExportMarkdown(input: BuildExportMarkdownInput): string {
   ];
 
   const turns = groupIntoTurns(history);
-  lines.push(buildOverview(history, turns), '');
+  lines.push(buildOverview(history, turns));
+  lines.push('');
 
   for (let i = 0; i < turns.length; i++) {
     lines.push(formatTurnMd(turns[i]!, i + 1));

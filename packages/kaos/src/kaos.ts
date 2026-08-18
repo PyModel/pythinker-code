@@ -85,10 +85,6 @@ export interface Kaos {
     data: string,
     options?: { mode?: 'w' | 'a'; encoding?: BufferEncoding },
   ): Promise<number>;
-  /** Delete the file at `path`. */
-  unlink(path: string): Promise<void>;
-  /** Change the file mode at `path`. */
-  chmod(path: string, mode: number): Promise<void>;
   /** Create a directory at `path`. */
   mkdir(path: string, options?: { parents?: boolean; existOk?: boolean }): Promise<void>;
 

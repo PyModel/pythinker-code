@@ -26,20 +26,6 @@ async function ensureBundleExists() {
   }
 }
 
-export function createSeaConfig(assets) {
-  return {
-    main: nativeJsBundlePath(),
-    mainFormat: 'module',
-    output: nativeBlobPath(),
-    assets,
-    disableExperimentalSEAWarning: true,
-    useCodeCache: false,
-    useSnapshot: false,
-    execArgv: ['--experimental-ffi'],
-    execArgvExtension: 'env',
-  };
-}
-
 async function writeSeaConfig(target) {
   await mkdir(nativeIntermediatesDir(), { recursive: true });
   const { manifest, manifestJson, assets } = await collectNativeAssets({
@@ -60,9 +46,16 @@ async function writeSeaConfig(target) {
     ...assets,
     ...web.assets,
   };
-  const config = createSeaConfig(
-    Object.fromEntries(Object.entries(seaAssets).sort(([a], [b]) => a.localeCompare(b))),
-  );
+  const config = {
+    main: nativeJsBundlePath(),
+    output: nativeBlobPath(),
+    assets: Object.fromEntries(
+      Object.entries(seaAssets).sort(([a], [b]) => a.localeCompare(b)),
+    ),
+    disableExperimentalSEAWarning: true,
+    useCodeCache: false,
+    useSnapshot: false,
+  };
   await writeFile(nativeSeaConfigPath(), `${JSON.stringify(config, null, 2)}\n`);
 
   console.log(`Collected native assets for ${manifest.target}:`);

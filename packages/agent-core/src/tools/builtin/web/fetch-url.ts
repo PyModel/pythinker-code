@@ -6,15 +6,11 @@
  * should not be registered (not exposed to the LLM).
  */
 
-import { randomUUID } from 'node:crypto';
-import { posix, win32 } from 'node:path';
-
-import type { Kaos } from '@pymodel/kaos';
 import { z } from 'zod';
+
 import type { BuiltinTool } from '../../../agent/tool';
 import { ToolAccesses } from '../../../loop/tool-access';
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '../../../loop/types';
-import { extensionForMimeType } from '../../support/file-type';
 import { toInputJsonSchema } from '../../support/input-schema';
 import { literalRulePattern, matchesGlobRuleSubject } from '../../support/rule-match';
 import { ToolResultBuilder } from '../../support/result-builder';
@@ -32,33 +28,15 @@ import DESCRIPTION from './fetch-url.md?raw';
  */
 export type UrlFetchKind = 'passthrough' | 'extracted';
 
-export interface UrlFetchContent {
+export interface UrlFetchResult {
   /** The text handed to the LLM. */
   content: string;
   /** Whether `content` is a verbatim passthrough or extracted main text. */
   kind: UrlFetchKind;
 }
 
-export interface UrlFetchRedirect {
-  readonly kind: 'redirect';
-  readonly originalUrl: string;
-  readonly redirectUrl: string;
-  readonly status: number;
-}
-
-export interface UrlFetchBinary {
-  readonly kind: 'binary';
-  readonly data: Buffer;
-  readonly contentType: string;
-}
-
-export type UrlFetchResult = UrlFetchContent | UrlFetchRedirect | UrlFetchBinary;
-
 export interface UrlFetcher {
-  fetch(
-    url: string,
-    options?: { toolCallId?: string; signal?: AbortSignal },
-  ): Promise<UrlFetchResult>;
+  fetch(url: string, options?: { toolCallId?: string }): Promise<UrlFetchResult>;
 }
 
 /**
@@ -78,11 +56,9 @@ export class HttpFetchError extends Error {
 
 // ── Input schema ─────────────────────────────────────────────────────
 
-export const FetchURLInputSchema = z
-  .object({
-    url: z.string().url().describe('The URL to fetch content from.'),
-  })
-  .strict();
+export const FetchURLInputSchema = z.object({
+  url: z.string().describe('The URL to fetch content from.'),
+});
 
 export type FetchURLInput = z.Infer<typeof FetchURLInputSchema>;
 
@@ -92,41 +68,28 @@ export class FetchURLTool implements BuiltinTool<FetchURLInput> {
   readonly name = 'FetchURL' as const;
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(FetchURLInputSchema);
-  constructor(
-    private readonly fetcher: UrlFetcher,
-    private readonly kaos?: Kaos,
-  ) {}
+  constructor(private readonly fetcher: UrlFetcher) {}
 
   resolveExecution(args: FetchURLInput): ToolExecution {
     const preview = args.url.length > 50 ? `${args.url.slice(0, 50)}…` : args.url;
-    const ruleSubject = urlHostname(args.url) ?? args.url;
     return {
       accesses: ToolAccesses.none(),
       description: `Fetching: ${preview}`,
       display: { kind: 'url_fetch', url: args.url },
-      approvalRule: literalRulePattern(this.name, ruleSubject),
-      matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, ruleSubject),
+      approvalRule: literalRulePattern(this.name, args.url),
+      matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, args.url),
       execute: (ctx) => this.execution(args, ctx),
     };
   }
 
   private async execution(
     args: FetchURLInput,
-    { signal, toolCallId }: ExecutableToolContext,
+    {
+    toolCallId,
+    }: ExecutableToolContext,
   ): Promise<ExecutableToolResult> {
     try {
-      const fetched = await this.fetcher.fetch(args.url, { signal, toolCallId });
-      if (fetched.kind === 'redirect') {
-        return new ToolResultBuilder().ok(
-          `REDIRECT DETECTED: ${fetched.originalUrl} redirects to ${fetched.redirectUrl} ` +
-            `(HTTP ${String(fetched.status)}). To approve the new host, use FetchURL again ` +
-            `with url: "${fetched.redirectUrl}".`,
-        );
-      }
-      if (fetched.kind === 'binary') {
-        return await this.saveBinary(fetched);
-      }
-      const { content, kind } = fetched;
+      const { content, kind } = await this.fetcher.fetch(args.url, { toolCallId });
 
       if (!content) {
         return {
@@ -165,41 +128,4 @@ export class FetchURLTool implements BuiltinTool<FetchURLInput> {
     }
   }
 
-  private async saveBinary(fetched: UrlFetchBinary): Promise<ExecutableToolResult> {
-    if (this.kaos === undefined) {
-      return {
-        isError: true,
-        output: 'Binary content could not be saved because no execution filesystem is available.',
-      };
-    }
-    const paths = this.kaos.pathClass() === 'win32' ? win32 : posix;
-    const directory = paths.join(this.kaos.gethome(), '.pythinker-code', 'tool-results');
-    const filepath = paths.join(
-      directory,
-      `web-fetch-${randomUUID()}.${extensionForMimeType(fetched.contentType)}`,
-    );
-    try {
-      await this.kaos.mkdir(directory, { parents: true, existOk: true });
-      await this.kaos.writeBytes(filepath, fetched.data);
-      return {
-        isError: false,
-        output: `Binary content (${fetched.contentType || 'unknown type'}, ${String(fetched.data.length)} bytes) saved to ${filepath}`,
-      };
-    } catch (error) {
-      return {
-        isError: true,
-        output: `Binary content could not be saved to disk: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      };
-    }
-  }
-}
-
-function urlHostname(url: string): string | undefined {
-  try {
-    return new URL(url).hostname;
-  } catch {
-    return undefined;
-  }
 }

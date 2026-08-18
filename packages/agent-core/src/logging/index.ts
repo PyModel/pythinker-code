@@ -13,7 +13,6 @@ export { LOG_LEVEL_RANK, levelEnabled } from './types';
 
 export {
   __resetRootLoggerForTest,
-  enableDiagnosticDebugLogging,
   flushDiagnosticLogs,
   flushDiagnosticLogsSync,
   getRootLogger,

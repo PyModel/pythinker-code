@@ -2,14 +2,12 @@ import type { ChildProcess, SpawnOptions } from 'node:child_process';
 import { spawn } from 'node:child_process';
 import {
   appendFile,
-  chmod as fsChmod,
   lstat,
   mkdir,
   open,
   readdir,
   readFile,
   stat,
-  unlink as fsUnlink,
   writeFile,
 } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -669,14 +667,6 @@ export class LocalKaos implements Kaos {
       await writeFile(resolved, data, encoding);
     }
     return data.length;
-  }
-
-  async unlink(path: string): Promise<void> {
-    await fsUnlink(this._resolvePath(path));
-  }
-
-  async chmod(path: string, mode: number): Promise<void> {
-    await fsChmod(this._resolvePath(path), mode);
   }
 
   async mkdir(path: string, options?: { parents?: boolean; existOk?: boolean }): Promise<void> {

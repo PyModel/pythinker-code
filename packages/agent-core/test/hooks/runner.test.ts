@@ -1,12 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
-
-// Delegates to the real `spawn` so every other test in this file keeps running
-// actual processes; the wrapper exists only so the PowerShell test can assert
-// which binary was launched instead of waiting on its output.
-vi.mock('node:child_process', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('node:child_process')>();
-  return { ...actual, spawn: vi.fn(actual.spawn) };
-});
+import { describe, expect, it } from 'vitest';
 
 import { buildHookSpawnOptions } from '../../src/session/hooks/runner';
 
@@ -15,23 +7,17 @@ const RUNNER_MODULE = '../../src/session/hooks/runner' as string;
 interface HookResult {
   action: 'allow' | 'block';
   message?: string;
-  retry?: boolean;
-  watchPaths?: readonly string[];
   reason?: string;
   stdout?: string;
   stderr?: string;
   timedOut?: boolean;
   structuredOutput?: boolean;
-  elicitationResponse?: {
-    readonly action: 'accept' | 'decline' | 'cancel';
-    readonly content?: Record<string, string | number | boolean | string[]>;
-  };
 }
 
 type RunHook = (
   command: string,
   input: Record<string, unknown>,
-  options: { timeout: number; cwd?: string; shell?: 'bash' | 'powershell' },
+  options: { timeout: number; cwd?: string },
 ) => Promise<HookResult>;
 
 async function importRunHook(): Promise<RunHook> {
@@ -53,42 +39,6 @@ describe('runHook process runner', () => {
     expect(result.action).toBe('allow');
     expect(result.message).toBe('hook says hi');
     expect(result.structuredOutput).toBe(true);
-  });
-
-  it('parses dynamic file watch paths from hook-specific output', async () => {
-    const runHook = await importRunHook();
-    const result = await runHook(
-      'echo \'{"hookSpecificOutput":{"watchPaths":["/tmp/.env","/tmp/.env.local"]}}\'',
-      {},
-      { timeout: 5 },
-    );
-
-    expect(result.watchPaths).toEqual(['/tmp/.env', '/tmp/.env.local']);
-  });
-
-  it('parses PermissionDenied retry guidance from hook-specific output', async () => {
-    const runHook = await importRunHook();
-    const result = await runHook(
-      'echo \'{"hookSpecificOutput":{"retry":true}}\'',
-      {},
-      { timeout: 5 },
-    );
-
-    expect(result.retry).toBe(true);
-  });
-
-  it('parses an MCP elicitation response from hook-specific output', async () => {
-    const runHook = await importRunHook();
-    const result = await runHook(
-      'echo \'{"hookSpecificOutput":{"action":"accept","content":{"name":"Ada","enabled":true}}}\'',
-      {},
-      { timeout: 5 },
-    );
-
-    expect(result.elicitationResponse).toEqual({
-      action: 'accept',
-      content: { name: 'Ada', enabled: true },
-    });
   });
 
   it('marks structured stdout JSON without message as empty hook output', async () => {
@@ -149,32 +99,6 @@ describe('runHook process runner', () => {
     const result = await runHook(cmd, { tool_name: 'WriteFile' }, { timeout: 5 });
     expect(result.stdout?.trim()).toBe('WriteFile');
   });
-
-  // Asserting on pwsh's own output would tie this test to PowerShell being installed
-  // and to its cold start fitting inside the hook budget -- on a loaded CI runner the
-  // budget expired, `runHook` returned allow with empty streams, and the assertion
-  // failed with a bare "expected false to be true". Widening it to accept the timeout
-  // would have made it vacuous: a runner that ignored `shell` entirely would pass.
-  // The contract worth asserting is the spawn itself, which is deterministic.
-  it('uses a non-interactive PowerShell process when requested', async () => {
-    const { spawn } = await import('node:child_process');
-    const spawnMock = vi.mocked(spawn);
-    spawnMock.mockClear();
-
-    const runHook = await importRunHook();
-    await runHook(`Write-Output 'ok'`, {}, { timeout: 5, shell: 'powershell' });
-
-    expect(spawnMock).toHaveBeenCalledTimes(1);
-    expect(spawnMock.mock.calls[0]?.[0]).toBe(
-      process.platform === 'win32' ? 'powershell.exe' : 'pwsh',
-    );
-    expect(spawnMock.mock.calls[0]?.[1]).toEqual([
-      '-NoProfile',
-      '-NonInteractive',
-      '-Command',
-      `Write-Output 'ok'`,
-    ]);
-  }, 30_000);
 });
 
 // Regression coverage for the "every hook flashes an empty console window on

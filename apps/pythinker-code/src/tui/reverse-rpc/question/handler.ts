@@ -7,20 +7,10 @@ import type {
 
 import type { QuestionController } from './controller';
 
-export function createQuestionAskHandler(
-  controller: QuestionController,
-  openUrl?: (url: string) => void,
-): QuestionHandler {
+export function createQuestionAskHandler(controller: QuestionController): QuestionHandler {
   return async (event): Promise<QuestionResult> => {
     try {
       const answers = await controller.show(adaptQuestionRequest(event));
-      for (let index = 0; index < event.questions.length; index++) {
-        const selected = answers.answers[index];
-        const option = event.questions[index]?.options.find(
-          (candidate) => candidate.label === selected,
-        );
-        if (option?.url !== undefined) openUrl?.(option.url);
-      }
       return adaptQuestionAnswers(event, answers);
     } catch {
       return null;
@@ -40,14 +30,11 @@ export function adaptQuestionRequest(event: QuestionRequest): QuestionPanelData 
       header: question.header,
       body: question.body,
       multi_select: question.multiSelect ?? false,
-      allow_other: question.allowOther,
       other_label: question.otherLabel,
       other_description: question.otherDescription,
       options: question.options.map((option) => ({
         label: option.label,
         description: option.description,
-        preview: option.preview,
-        url: option.url,
       })),
     })),
   };
@@ -65,10 +52,6 @@ export function adaptQuestionAnswers(
     result[question.question] = answer;
   }
   return Object.keys(result).length > 0
-    ? {
-        answers: result,
-        method: response.method,
-        annotations: response.annotations,
-      }
+    ? { answers: result, method: response.method }
     : null;
 }

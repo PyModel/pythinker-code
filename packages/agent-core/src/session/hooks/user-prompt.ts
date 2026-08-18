@@ -28,24 +28,6 @@ export function renderUserPromptHookResult(
   };
 }
 
-export function renderAsyncHookRewake(
-  event: string,
-  results: readonly HookResult[],
-): RenderedHookResult | undefined {
-  const messages = results
-    .map((result) =>
-      [result.message, result.reason, result.stderr, result.stdout].find(isNonEmptyString)?.trim(),
-    )
-    .filter(isNonEmptyString);
-  if (messages.length === 0) return undefined;
-  const message = messages.join('\n\n');
-  return {
-    event,
-    message,
-    text: messages.map((item) => renderHookResult(event, item)).join('\n'),
-  };
-}
-
 export function renderUserPromptHookBlockResult(
   results: readonly HookResult[] | undefined,
 ): RenderedHookResult | undefined {

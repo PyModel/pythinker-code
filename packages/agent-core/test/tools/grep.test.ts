@@ -204,7 +204,6 @@ describe('GrepTool', () => {
         '-A',
         '-B',
         '-C',
-        'context',
         'offset',
         'multiline',
         'include_ignored',
@@ -224,7 +223,7 @@ describe('GrepTool', () => {
       const params = tool.parameters as {
         properties: Record<string, { description?: string }>;
       };
-      for (const name of ['-A', '-B', '-C', 'context', '-n']) {
+      for (const name of ['-A', '-B', '-C', '-n']) {
         expect(params.properties[name]?.description).toContain('content');
       }
     });
@@ -554,32 +553,6 @@ describe('GrepTool', () => {
     );
   });
 
-  it('passes comma- and whitespace-separated glob filters as separate ripgrep arguments', async () => {
-    const exec = vi.fn().mockResolvedValue(processWithOutput('/workspace/src/a.ts\n'));
-    const tool = new GrepTool(createFakeKaos({ exec }), workspace);
-
-    await executeTool(
-      tool,
-      context({ pattern: 'hit', glob: '*.ts,*.tsx test/**/*.js' }),
-    );
-
-    expect(exec).toHaveBeenCalledWith(
-      '/mock/rg',
-      ...DEFAULT_RG_ARGS,
-      '-l',
-      '--glob',
-      '*.ts',
-      '--glob',
-      '*.tsx',
-      '--glob',
-      'test/**/*.js',
-      ...SENSITIVE_RG_ARGS,
-      '--',
-      'hit',
-      '/workspace',
-    );
-  });
-
   it('gives -C precedence over before and after context in content mode', async () => {
     const exec = vi.fn().mockResolvedValue(processWithOutput('/workspace/src/a.ts:2:hit\n'));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
@@ -595,36 +568,6 @@ describe('GrepTool', () => {
       '-n',
       '-C',
       '4',
-      ...SENSITIVE_RG_ARGS,
-      '--',
-      'hit',
-      '/workspace',
-    );
-  });
-
-  it('supports context as an alias for -C and gives it precedence', async () => {
-    const exec = vi.fn().mockResolvedValue(processWithOutput('/workspace/src/a.ts:2:hit\n'));
-    const tool = new GrepTool(createFakeKaos({ exec }), workspace);
-
-    await executeTool(
-      tool,
-      context({
-        pattern: 'hit',
-        output_mode: 'content',
-        '-A': 2,
-        '-B': 3,
-        '-C': 4,
-        context: 5,
-      }),
-    );
-
-    expect(exec).toHaveBeenCalledWith(
-      '/mock/rg',
-      ...CONTENT_RG_ARGS,
-      '--with-filename',
-      '-n',
-      '-C',
-      '5',
       ...SENSITIVE_RG_ARGS,
       '--',
       'hit',

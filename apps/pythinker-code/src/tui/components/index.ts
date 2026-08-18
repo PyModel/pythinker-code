@@ -1,6 +1,6 @@
 export * from './chrome/device-code-box';
 export * from './chrome/footer';
-export * from './chrome/activity-loader';
+export * from './chrome/moon-loader';
 export * from './chrome/todo-panel';
 export * from './chrome/welcome';
 export * from './dialogs/approval-panel';
@@ -29,7 +29,6 @@ export * from './messages/shell-execution';
 export * from './messages/skill-activation';
 export * from './messages/status-message';
 export * from './messages/dynamic-workflow-markers';
-export * from './messages/dynamic-workflow-mission-control';
 export * from './messages/thinking';
 export * from './messages/tool-call';
 export * from './messages/usage-panel';

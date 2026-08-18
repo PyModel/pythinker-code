@@ -2,12 +2,9 @@ import type { Kaos } from '@pymodel/kaos';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
-  FILE_UNCHANGED_STUB,
   MAX_BYTES,
   MAX_LINE_LENGTH,
   MAX_LINES,
-  MAX_NOTEBOOK_BYTES,
-  type FileReadState,
   type ReadInput,
   ReadInputSchema,
   ReadTool,
@@ -140,136 +137,6 @@ describe('ReadTool', () => {
         '2 lines read from file starting from line 1. Total lines in file: 2. End of file reached.',
       ),
     });
-  });
-
-  it('warns when an agent-memory topic file is older than one day', async () => {
-    const content = 'remembered claim';
-    const bytes = Buffer.from(content, 'utf8');
-    const tool = new ReadTool(
-      createFakeKaos({
-        stat: vi.fn<Kaos['stat']>().mockResolvedValue({
-          ...REGULAR_FILE_STAT,
-          stMtime: Date.now() / 1000 - 3 * 86_400,
-        }),
-        readBytes: vi.fn<Kaos['readBytes']>().mockResolvedValue(bytes),
-        readLines: vi.fn<Kaos['readLines']>().mockImplementation(readLinesFromContent(content)),
-      }),
-      PERMISSIVE_WORKSPACE,
-    );
-
-    const result = await executeTool(
-      tool,
-      context({ path: '/workspace/.pythinker-code/agent-memory/agent/topic.md' }),
-    );
-
-    expect(toolContentString(result)).toContain('This memory is 3 days old');
-    expect(toolContentString(result)).toContain('Verify against current code');
-  });
-
-  it('returns an unchanged stub for the same range when mtime is unchanged', async () => {
-    const state: FileReadState = new Map();
-    const readLines = vi
-      .fn<Kaos['readLines']>()
-      .mockImplementation(readLinesFromContent('alpha\nbeta\n'));
-    const tool = new ReadTool(
-      createFakeKaos({
-        stat: vi.fn<Kaos['stat']>().mockResolvedValue({
-          ...REGULAR_FILE_STAT,
-          stMtime: 123,
-        }),
-        readBytes: vi.fn<Kaos['readBytes']>().mockResolvedValue(Buffer.from('alpha')),
-        readLines,
-      }),
-      PERMISSIVE_WORKSPACE,
-      state,
-    );
-
-    await executeTool(tool, context({ path: '/tmp/a.txt', n_lines: 1 }));
-    const repeated = await executeTool(
-      tool,
-      context({ path: '/tmp/a.txt', n_lines: 1 }),
-    );
-
-    expect(repeated).toEqual({ output: FILE_UNCHANGED_STUB });
-    expect(state.get('/tmp/a.txt')).toEqual({
-      mtime: 123,
-      range: '1:1',
-      isPartialView: true,
-    });
-    expect(readLines).toHaveBeenCalledTimes(1);
-  });
-
-  it('renders Jupyter notebook cells, text outputs, and image outputs', async () => {
-    const notebook = JSON.stringify({
-      metadata: { language_info: { name: 'python' } },
-      cells: [
-        {
-          cell_type: 'code',
-          source: ['print("hello")\n'],
-          execution_count: 1,
-          outputs: [
-            {
-              output_type: 'display_data',
-              data: {
-                'text/plain': ['hello\n'],
-                'image/png': 'YWJj',
-              },
-            },
-          ],
-        },
-      ],
-    });
-    const tool = new ReadTool(
-      createFakeKaos({
-        stat: vi.fn<Kaos['stat']>().mockResolvedValue({
-          ...REGULAR_FILE_STAT,
-          stSize: Buffer.byteLength(notebook),
-        }),
-        readBytes: vi.fn<Kaos['readBytes']>().mockResolvedValue(Buffer.from(notebook)),
-        readText: vi.fn<Kaos['readText']>().mockResolvedValue(notebook),
-      }),
-      PERMISSIVE_WORKSPACE,
-    );
-
-    const result = await executeTool(tool, context({ path: '/tmp/demo.ipynb' }));
-
-    expect(result.isError).toBeFalsy();
-    expect(result.output).toEqual([
-      {
-        type: 'text',
-        text: expect.stringContaining(
-          '<cell id="cell-0">print("hello")\n</cell id="cell-0">',
-        ),
-      },
-      {
-        type: 'image_url',
-        imageUrl: { url: 'data:image/png;base64,YWJj' },
-      },
-    ]);
-    expect((result.output as Array<{ type: string; text?: string }>)[0]?.text).toContain(
-      'hello\n',
-    );
-  });
-
-  it('rejects oversized notebooks before loading the full JSON document', async () => {
-    const readText = vi.fn<Kaos['readText']>();
-    const tool = new ReadTool(
-      createFakeKaos({
-        stat: vi.fn<Kaos['stat']>().mockResolvedValue({
-          ...REGULAR_FILE_STAT,
-          stSize: MAX_NOTEBOOK_BYTES + 1,
-        }),
-        readBytes: vi.fn<Kaos['readBytes']>().mockResolvedValue(Buffer.from('{')),
-        readText,
-      }),
-      PERMISSIVE_WORKSPACE,
-    );
-
-    const result = await executeTool(tool, context({ path: '/tmp/large.ipynb' }));
-
-    expect(result.isError).toBe(true);
-    expect(toolContentString(result)).toContain('exceeds the notebook read limit');
-    expect(readText).not.toHaveBeenCalled();
   });
 
   it('normalizes pure CRLF files to the LF model view', async () => {
@@ -979,23 +846,29 @@ describe('ReadTool', () => {
   });
 
   it('reads unicode (CJK + emoji + accented Latin) without loss', async () => {
-    const tool = toolWithContent('Hello world 🌍\nUnicode test: café, naïve, résumé');
+    const tool = toolWithContent('Hello 世界 🌍\nUnicode test: café, naïve, résumé');
 
     const result = await executeTool(tool,context({ path: '/tmp/unicode.txt' }));
 
     expect(result.isError).toBeFalsy();
-    expect(result.output).toContain('1\tHello world 🌍');
+    expect(result.output).toContain('1\tHello 世界 🌍');
     expect(result.output).toContain('2\tUnicode test: café, naïve, résumé');
   });
 
   it('schema validation rejects n_lines=0 and n_lines=-1 with an n_lines-keyed error', () => {
     const zero = ReadInputSchema.safeParse({ path: '/tmp/a.txt', n_lines: 0 });
     expect(zero.success).toBe(false);
-    expect(JSON.stringify(zero)).toContain('n_lines');
+    if (!zero.success) {
+      const message = JSON.stringify(zero.error.issues);
+      expect(message).toContain('n_lines');
+    }
 
     const negative = ReadInputSchema.safeParse({ path: '/tmp/a.txt', n_lines: -1 });
     expect(negative.success).toBe(false);
-    expect(JSON.stringify(negative)).toContain('n_lines');
+    if (!negative.success) {
+      const message = JSON.stringify(negative.error.issues);
+      expect(message).toContain('n_lines');
+    }
   });
 
   it('schema validation accepts -1 and -MAX_LINES but rejects -(MAX_LINES + 1)', () => {

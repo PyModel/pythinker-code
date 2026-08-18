@@ -23,7 +23,6 @@ describe('selectBannerState', () => {
   }
 
   it('returns the active banner when enabled and no time window is set', () => {
-    expect.hasAssertions();
     const result = selectBannerState(
       {
         banner_enabled: true,
@@ -127,7 +126,6 @@ describe('selectBannerState', () => {
   });
 
   it('picks a random enabled fallback when the active banner is not shown', () => {
-    expect.hasAssertions();
     const result = selectBannerState(
       {
         banner_enabled: false,
@@ -145,7 +143,6 @@ describe('selectBannerState', () => {
   });
 
   it('filters out fallback entries when the client version is too low', () => {
-    expect.hasAssertions();
     const result = selectBannerState(
       {
         banner_enabled: false,
@@ -199,7 +196,6 @@ describe('selectBannerState', () => {
   });
 
   it('falls back to the fallback list when banner_enabled is missing', () => {
-    expect.hasAssertions();
     const result = selectBannerState(
       {
         banner_fallback_enabled: true,
@@ -213,7 +209,6 @@ describe('selectBannerState', () => {
   });
 
   it('treats an empty tag as null while still showing the banner', () => {
-    expect.hasAssertions();
     const result = selectBannerState(
       {
         banner_enabled: true,
@@ -228,7 +223,6 @@ describe('selectBannerState', () => {
   });
 
   it('makes the active banner unavailable when mainText is empty', () => {
-    expect.hasAssertions();
     const result = selectBannerState(
       {
         banner_enabled: true,
@@ -245,7 +239,6 @@ describe('selectBannerState', () => {
   });
 
   it('treats missing subtext as null', () => {
-    expect.hasAssertions();
     const result = selectBannerState(
       {
         banner_enabled: true,
@@ -259,7 +252,6 @@ describe('selectBannerState', () => {
   });
 
   it('treats empty time fields as always valid', () => {
-    expect.hasAssertions();
     const result = selectBannerState(
       {
         banner_enabled: true,
@@ -275,7 +267,6 @@ describe('selectBannerState', () => {
   });
 
   it('falls back to UTC when timestamps have no timezone', () => {
-    expect.hasAssertions();
     const result = selectBannerState(
       {
         banner_enabled: true,

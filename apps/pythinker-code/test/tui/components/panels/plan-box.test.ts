@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 import { PlanBoxComponent } from '#/tui/components/messages/plan-box';
 import { darkColors } from '#/tui/theme/colors';
-import { createPythinkerMarkdownTheme } from '#/tui/theme';
+import { createMarkdownTheme } from '#/tui/theme/pi-tui-theme';
 
 const ESC = String.fromCodePoint(0x1b);
 const BEL = String.fromCodePoint(0x07);
@@ -18,7 +18,7 @@ function strip(text: string): string {
     .replaceAll(new RegExp(`${ESC}\\]8;;[^${BEL}]*${BEL}`, 'g'), '');
 }
 
-const theme = createPythinkerMarkdownTheme();
+const theme = createMarkdownTheme();
 
 describe('PlanBoxComponent', () => {
   it('falls back to bare " plan " title when no path is provided', () => {

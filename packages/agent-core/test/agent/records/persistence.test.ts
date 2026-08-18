@@ -206,7 +206,7 @@ describe('FileSystemAgentRecordPersistence', () => {
         input: [{ type: 'text', text: 'second' }],
         origin: { kind: 'user' },
       });
-    }).toThrow(/EISDIR/);
+    }).toThrow();
     expect(() => {
       persistence.rewrite([
         {
@@ -215,7 +215,7 @@ describe('FileSystemAgentRecordPersistence', () => {
           origin: { kind: 'user' },
         },
       ]);
-    }).toThrow(/EISDIR/);
+    }).toThrow();
     await expect(persistence.flush()).rejects.toBeInstanceOf(Error);
   });
 

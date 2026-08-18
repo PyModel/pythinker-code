@@ -7,7 +7,6 @@ import {
   type GoalQueueManagerAction,
 } from '#/tui/components/dialogs/goal-queue-manager';
 import type { GoalQueueSnapshot, UpcomingGoal } from '#/tui/goal-queue-store';
-import { defaultKeybindings, parseKeybindingBlocks } from '#/tui/keybindings';
 
 const ANSI = /\u001B\[[0-9;]*m/g;
 const strip = (s: string): string => s.replaceAll(ANSI, '');
@@ -36,36 +35,6 @@ function text(component: GoalQueueManagerComponent | GoalQueueEditDialogComponen
 }
 
 describe('GoalQueueManagerComponent', () => {
-  it('uses remapped Select navigation, honors an unbound Down key, and leaves reorder input local', () => {
-    const onAction = vi.fn();
-    const manager = new GoalQueueManagerComponent({
-      goals: [goal('g1', 'First'), goal('g2', 'Second'), goal('g3', 'Third')],
-      onAction,
-      onCancel: vi.fn(),
-    });
-    manager.setKeybindings([
-      ...defaultKeybindings(),
-      ...parseKeybindingBlocks([{ context: 'Select', bindings: { 'alt+j': 'select:next', down: null } }]),
-    ]);
-
-    manager.handleInput(DOWN);
-    manager.handleInput('e');
-    expect(onAction).toHaveBeenLastCalledWith({ kind: 'edit', goalId: 'g1' });
-
-    manager.handleInput('alt+j');
-    manager.handleInput('e');
-    expect(onAction).toHaveBeenLastCalledWith({ kind: 'edit', goalId: 'g2' });
-
-    manager.handleInput(' ');
-    manager.handleInput('alt+j');
-    manager.handleInput('e');
-    expect(onAction).toHaveBeenLastCalledWith({ kind: 'edit', goalId: 'g2' });
-
-    manager.handleInput(DOWN);
-    expect(onAction).toHaveBeenLastCalledWith({ kind: 'move', goalId: 'g2', direction: 'down' });
-    expect(onAction).toHaveBeenCalledTimes(4);
-  });
-
   it('renders the upcoming goals and the management hint', () => {
     const manager = new GoalQueueManagerComponent({
       goals: [goal('g1', 'Ship queued goal')],
@@ -163,43 +132,6 @@ describe('GoalQueueManagerComponent', () => {
     manager.handleInput('e');
 
     expect(onAction).toHaveBeenCalledWith({ kind: 'edit', goalId: 'g1' });
-  });
-
-  it('keeps PageUp and PageDown local to the goal list', () => {
-    const onAction = vi.fn();
-    const manager = new GoalQueueManagerComponent({
-      goals: [goal('g1', 'First'), goal('g2', 'Second'), goal('g3', 'Third')],
-      pageSize: 2,
-      onAction,
-      onCancel: vi.fn(),
-    });
-
-    manager.handleInput(`${ESC}[6~`);
-    manager.handleInput('e');
-    expect(onAction).toHaveBeenLastCalledWith({ kind: 'edit', goalId: 'g3' });
-
-    manager.handleInput(`${ESC}[5~`);
-    manager.handleInput('e');
-    expect(onAction).toHaveBeenLastCalledWith({ kind: 'edit', goalId: 'g1' });
-  });
-
-  it('keeps PageUp and PageDown local while reorder mode owns input', () => {
-    const onAction = vi.fn();
-    const manager = new GoalQueueManagerComponent({
-      goals: [goal('g1', 'First'), goal('g2', 'Second'), goal('g3', 'Third')],
-      pageSize: 2,
-      onAction,
-      onCancel: vi.fn(),
-    });
-
-    manager.handleInput(' ');
-    manager.handleInput(`${ESC}[6~`);
-    manager.handleInput('e');
-    expect(onAction).toHaveBeenLastCalledWith({ kind: 'edit', goalId: 'g3' });
-
-    manager.handleInput(`${ESC}[5~`);
-    manager.handleInput('e');
-    expect(onAction).toHaveBeenLastCalledWith({ kind: 'edit', goalId: 'g1' });
   });
 
   it('cancels with Esc', () => {

@@ -469,14 +469,7 @@ async function defaultIsFile(p: string): Promise<boolean> {
   }
 }
 
-/**
- * Closest `.git` ancestor of `workDir`, or `workDir` itself when none exists.
- *
- * Exported because it defines where project-scoped artifacts live: anything
- * that writes into `<projectRoot>/.pythinker-code` (e.g. saved workflows) must
- * resolve the root the same way this scanner will later scan it.
- */
-export async function findProjectRoot(workDir: string): Promise<string> {
+async function findProjectRoot(workDir: string): Promise<string> {
   const start = path.resolve(workDir);
   let current = start;
   while (true) {

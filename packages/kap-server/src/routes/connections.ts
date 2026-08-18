@@ -36,7 +36,7 @@ export function registerConnectionsRoutes(
           has_client_hello: conn.hasClientHello,
           subscriptions: [...conn.subscriptionSessionIds],
         }))
-        .toSorted((a, b) => a.connected_at.localeCompare(b.connected_at));
+        .sort((a, b) => a.connected_at.localeCompare(b.connected_at));
       reply.send(okEnvelope({ connections }, req.id));
     },
   );

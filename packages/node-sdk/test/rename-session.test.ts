@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -36,41 +36,6 @@ async function readSessionState(sessionDir: string): Promise<Record<string, unkn
   return JSON.parse(raw) as Record<string, unknown>;
 }
 
-function currentState(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-  return {
-    sessionFormatVersion: 2,
-    createdAt: '2030-01-01T00:00:00.000Z',
-    updatedAt: '2030-01-01T00:00:00.000Z',
-    title: 'Stored session',
-    isCustomTitle: false,
-    agents: {
-      main: {
-        type: 'main',
-        parentAgentId: null,
-      },
-    },
-    custom: {},
-    ...overrides,
-  };
-}
-
-async function createStoredSession(
-  store: SessionStore,
-  input: { readonly id: string; readonly workDir: string },
-  state: Record<string, unknown> = currentState(),
-) {
-  return store.create(input, async (summary) => {
-    const mainDir = join(summary.sessionDir, 'agents', 'main');
-    await mkdir(mainDir, { recursive: true });
-    await writeSessionState(summary.sessionDir, state);
-    await writeFile(
-      join(mainDir, 'wire.jsonl'),
-      '{"type":"metadata","protocol_version":"2.0","created_at":1}\n',
-      'utf-8',
-    );
-  });
-}
-
 function findRenamedEvent(
   events: readonly Event[],
 ): Extract<Event, { readonly type: 'session.meta.updated' }> {
@@ -87,48 +52,44 @@ describe('SessionStore.rename', () => {
     const workDir = await makeTempDir();
     const store = new SessionStore(homeDir);
 
-    const summary = await createStoredSession(
-      store,
-      { id: 'ses_store_rename', workDir },
-      currentState({
-        title: 'Original Title',
-        custom: {
-          model: 'pythinker-for-coding',
-          nested: { enabled: true },
-        },
-      }),
-    );
+    const summary = await store.create({
+      id: 'ses_store_rename',
+      workDir,
+    });
+    await writeSessionState(summary.sessionDir, {
+      session_id: 'ses_store_rename',
+      title: 'Original Title',
+      updated_at: 1_000,
+      model: 'kimi-for-coding',
+      nested: { enabled: true },
+    });
 
     await store.rename('ses_store_rename', 'New Store Title');
 
     const state = await readSessionState(summary.sessionDir);
     expect(state).toMatchObject({
+      session_id: 'ses_store_rename',
       title: 'New Store Title',
+      updated_at: 1_000,
+      model: 'kimi-for-coding',
       isCustomTitle: true,
-      custom: {
-        model: 'pythinker-for-coding',
-        nested: { enabled: true },
-      },
+      nested: { enabled: true },
     });
 
     const renamed = await store.get('ses_store_rename');
     expect(renamed.title).toBe('New Store Title');
-    expect(renamed.metadata).toEqual({
-      model: 'pythinker-for-coding',
-      nested: { enabled: true },
-    });
+    expect(renamed.metadata).toBeUndefined();
   });
 
   it('rejects indexed sessions with missing state without creating state.json', async () => {
     const homeDir = await makeTempDir();
     const workDir = await makeTempDir();
     const store = new SessionStore(homeDir);
-    const summary = await createStoredSession(store, { id: 'ses_no_state_rename', workDir });
-    await rm(join(summary.sessionDir, 'state.json'));
+    const summary = await store.create({ id: 'ses_no_state_rename', workDir });
 
     await expect(store.rename(summary.id, 'Missing State')).rejects.toMatchObject({
       name: 'PythinkerError',
-      code: 'session.state_invalid',
+      code: 'session.state_not_found',
     } satisfies Partial<PythinkerError>);
     expect(existsSync(join(summary.sessionDir, 'state.json'))).toBe(false);
   });
@@ -137,7 +98,7 @@ describe('SessionStore.rename', () => {
     const homeDir = await makeTempDir();
     const workDir = await makeTempDir();
     const store = new SessionStore(homeDir);
-    const summary = await createStoredSession(store, { id: 'ses_bad_state_rename', workDir });
+    const summary = await store.create({ id: 'ses_bad_state_rename', workDir });
     await writeFile(join(summary.sessionDir, 'state.json'), '[]', 'utf-8');
 
     await expect(store.rename(summary.id, 'Bad State')).rejects.toMatchObject({
@@ -178,7 +139,8 @@ describe('PythinkerHarness.renameSession', () => {
         (item) => item.id === session.id,
       )!;
       await writeSessionState(summary.sessionDir, {
-        ...currentState({ title: 'Base Title' }),
+        session_id: session.id,
+        title: 'Base Title',
       });
       const events: Event[] = [];
       const unsubscribe = session.onEvent((event) => {
@@ -221,7 +183,8 @@ describe('PythinkerHarness.renameSession', () => {
         (item) => item.id === session.id,
       )!;
       await writeSessionState(summary.sessionDir, {
-        ...currentState({ title: 'Inactive Base' }),
+        session_id: session.id,
+        title: 'Inactive Base',
       });
       const events: Event[] = [];
       session.onEvent((event) => {

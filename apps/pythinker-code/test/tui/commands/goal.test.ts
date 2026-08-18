@@ -98,7 +98,7 @@ function makeHost(
     cancel: vi.fn(async () => {}),
   };
   const hasSession = overrides.hasSession ?? true;
-  const transcriptContainer = { addTranscriptChild: vi.fn() };
+  const transcriptContainer = { addChild: vi.fn() };
   const host = {
     state: {
       appState: {
@@ -552,8 +552,8 @@ describe('handleGoalCommand', () => {
     expect(host.showStatus).not.toHaveBeenCalledWith(
       'Upcoming goal added. It will start after the current goal is complete.',
     );
-    const addTranscriptChild = host.state.transcriptContainer.addTranscriptChild as ReturnType<typeof vi.fn>;
-    const message = addTranscriptChild.mock.calls[0]?.[0] as { render(width: number): string[] };
+    const addChild = host.state.transcriptContainer.addChild as ReturnType<typeof vi.fn>;
+    const message = addChild.mock.calls[0]?.[0] as { render(width: number): string[] };
     expect(stripAnsi(message.render(80).join('\n'))).toBe(
       '\n● Upcoming goal added. It will start after the current goal is complete.',
     );

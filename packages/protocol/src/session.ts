@@ -60,20 +60,16 @@ export const sessionAgentConfigSchema = z.object({
   dynamic_workflow_mode: z.boolean().optional(),
   goal_objective: z.string().optional(),
   goal_control: z.enum(['pause', 'resume', 'cancel']).optional(),
-}).strict();
+});
 
 export type SessionAgentConfig = z.infer<typeof sessionAgentConfigSchema>;
 
 export const sessionAgentConfigPartialSchema = sessionAgentConfigSchema.partial();
 export type SessionAgentConfigPartial = z.infer<typeof sessionAgentConfigPartialSchema>;
 
-export const sessionModeSchema = z.enum(['code', 'general']);
-export type SessionMode = z.infer<typeof sessionModeSchema>;
-
 export const sessionMetadataSchema = z
   .object({
     cwd: z.string().min(1),
-    mode: sessionModeSchema.optional(),
   })
   .catchall(z.unknown());
 

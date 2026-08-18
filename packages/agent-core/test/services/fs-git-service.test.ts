@@ -94,7 +94,7 @@ async function waitForSpawn(n: number): Promise<void> {
 }
 
 function finishLatest(out: string, code: number): void {
-  const child = spawned.at(-1);
+  const child = spawned[spawned.length - 1];
   if (child === undefined) throw new Error('no child to finish');
   child.finish(out, code);
 }
