@@ -39,11 +39,9 @@ export interface CoreProcessServiceOptions extends PythinkerCoreOptions {
   /**
    * Host identity (product name + version). When set and
    * `pythinkerRequestHeaders` is omitted, the adapter default-wires
-   * `createPythinkerDefaultHeaders({ homeDir, ...identity })` into PythinkerCore so
-   * upstream sees `User-Agent: <product>/<version>` + `X-Msh-Platform: …`.
-   * Without this, the managed Pythinker-for-Coding endpoint rejects requests
-   * with 40340 ("only available for Coding Agents") because the default
-   * fetch User-Agent doesn't match any known coding-agent product.
+   * `createPythinkerDefaultHeaders({ homeDir, ...identity })` into PythinkerCore
+   * so providers see `User-Agent: <product>/<version>`. This distribution does
+   * not attach managed-service `X-Msh-*` device headers.
    *
    * `identity.version` also feeds `appVersion` so session records carry
    * the host CLI version — same wiring `SDKRpcClient` does in node-sdk.

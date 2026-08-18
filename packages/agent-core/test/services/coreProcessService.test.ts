@@ -274,7 +274,7 @@ describe('CoreProcessService direct construction', () => {
     expect(typeof tokenProvider?.getAccessToken).toBe('function');
   });
 
-  it('threads identity into the default resolver so refreshes carry X-Msh-Platform', async () => {
+  it('threads identity into the default resolver without managed device headers', async () => {
     const credentialsDir = join(tmpHome, 'credentials');
     mkdirSync(credentialsDir, { recursive: true });
     writeFileSync(
@@ -311,7 +311,8 @@ describe('CoreProcessService direct construction', () => {
     const tokenProvider = resolver('managed:pythinker-code');
     await expect(tokenProvider?.getAccessToken()).resolves.toBe('rotated-access');
     expect(refreshHeaders).toHaveLength(1);
-    expect(refreshHeaders[0]?.['X-Msh-Platform']).toBe('test_platform');
+    expect(refreshHeaders[0]?.['User-Agent']).toMatch(/^test\/0\.0\.0-test/);
+    expect(Object.keys(refreshHeaders[0]!).some((name) => name.startsWith('X-Msh-'))).toBe(false);
   });
 
   it('default-wires pythinkerRequestHeaders from identity when caller omits headers', () => {
@@ -321,11 +322,7 @@ describe('CoreProcessService direct construction', () => {
     );
     expect(headers).toBeDefined();
     expect(headers!['User-Agent']).toMatch(/^pythinker-code-cli\/9\.9\.9/);
-    expect(headers!['X-Msh-Platform']).toBe('pythinker_code_cli');
-    expect(headers!['X-Msh-Version']).toBe('9.9.9');
-    expect(headers!['X-Msh-Device-Id']).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
-    );
+    expect(Object.keys(headers!)).toEqual(['User-Agent']);
   });
 
   it('returns undefined headers when no identity is provided (back-compat)', () => {
