@@ -16,6 +16,7 @@ vi.mock('electron-updater', () => ({
     autoUpdater: {
       on: vi.fn(),
       checkForUpdates: vi.fn(),
+      downloadUpdate: vi.fn(() => Promise.resolve([])),
       quitAndInstall: vi.fn(),
     },
   },
@@ -116,5 +117,35 @@ describe('packaged builds without update metadata', () => {
     })
     expect(autoUpdater.on).not.toHaveBeenCalled()
     expect(app.once).not.toHaveBeenCalled()
+  })
+})
+
+describe('installing an update', () => {
+  it('downloads an available update and installs it when the download completes', async () => {
+    vi.resetModules()
+    const directory = temporaryDirectory()
+    writeFileSync(join(directory, 'app-update.yml'), '', 'utf8')
+    const { app: localApp } = await import('electron')
+    const { default: localElectronUpdater } = await import('electron-updater')
+    const {
+      initUpdater: initLocalUpdater,
+      quitAndInstallNow,
+    } = await import('../src/updater')
+    const localAutoUpdater = localElectronUpdater.autoUpdater
+    vi.mocked(localApp.getPath).mockReturnValue(directory)
+    Object.defineProperty(localApp, 'isPackaged', { configurable: true, value: true })
+    Object.defineProperty(process, 'resourcesPath', { configurable: true, value: directory })
+
+    initLocalUpdater(() => undefined)
+    const available = vi.mocked(localAutoUpdater.on).mock.calls.find(([event]) => event === 'update-available')?.[1] as ((info: { version: string }) => void) | undefined
+    const downloaded = vi.mocked(localAutoUpdater.on).mock.calls.find(([event]) => event === 'update-downloaded')?.[1] as ((info: { version: string }) => void) | undefined
+    available?.({ version: '1.2.3' })
+
+    expect(quitAndInstallNow()).toMatchObject({ status: 'downloading' })
+    expect(localAutoUpdater.downloadUpdate).toHaveBeenCalledOnce()
+    expect(localAutoUpdater.quitAndInstall).not.toHaveBeenCalled()
+
+    downloaded?.({ version: '1.2.3' })
+    expect(localAutoUpdater.quitAndInstall).toHaveBeenCalledOnce()
   })
 })

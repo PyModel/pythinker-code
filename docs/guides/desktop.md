@@ -59,6 +59,10 @@ The desktop application updates itself. Open **Settings** in the application to 
 - **Check for updates** — check immediately.
 - **Restart to update** — appears when an update is downloaded and ready to install.
 
+When a new version is available, the application also shows an update prompt. Choose **Update** to
+download the version if needed, close the application, install it, and restart. Choose **Skip** to
+ignore that version.
+
 The update controls apply to installed builds only. A development build shows them as unavailable.
 
 ## The local Host port

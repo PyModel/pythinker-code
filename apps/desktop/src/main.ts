@@ -5,6 +5,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { isAbsolute, join, resolve } from 'node:path'
 import {
   app,
+  autoUpdater,
   BrowserWindow,
   dialog,
   ipcMain,
@@ -401,6 +402,8 @@ async function boot(): Promise<void> {
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
+  // Update-triggered quits close windows before app.before-quit, so start teardown here.
+  autoUpdater.on('before-quit-for-update', () => { void requestAppQuit() })
   app.on('second-instance', showWindowSafely)
   app.on('activate', showWindowSafely)
   app.on('window-all-closed', () => {

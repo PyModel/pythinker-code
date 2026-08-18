@@ -55,6 +55,7 @@ let initialCheckTimer: ReturnType<typeof setTimeout> | undefined
 let checkInterval: ReturnType<typeof setInterval> | undefined
 let listenersWired = false
 let initialized = false
+let installWhenDownloaded = false
 let updateTelemetryTrack: UpdateTelemetryTrack = () => {}
 
 export function trackUpdateTransition(
@@ -92,6 +93,7 @@ function emitUpdateTelemetry(previous: UpdateState, next: UpdateState): void {
 }
 
 function stateError(error: unknown): void {
+  installWhenDownloaded = false
   updateState({
     status: 'error',
     message: error instanceof Error ? error.message : String(error),
@@ -166,6 +168,7 @@ function wireUpdaterEvents(): void {
     })
     autoUpdater.on('update-downloaded', (info) => {
       updateState({ status: 'downloaded', version: info.version, percent: 100, message: undefined })
+      if (installWhenDownloaded) installDownloadedUpdate()
     })
     autoUpdater.on('error', stateError)
     listenersWired = true
@@ -278,10 +281,26 @@ export function quitAndInstallNow(): UpdateState {
   } catch {
     // Telemetry must never delay update installation.
   }
+  if (state.status === 'available') {
+    installWhenDownloaded = true
+    updateState({ status: 'downloading', percent: 0, message: undefined })
+    try {
+      void autoUpdater.downloadUpdate().catch(stateError)
+    } catch (error) {
+      stateError(error)
+    }
+    return state
+  }
+  if (state.status !== 'downloaded') return state
+  installDownloadedUpdate()
+  return state
+}
+
+function installDownloadedUpdate(): void {
+  installWhenDownloaded = false
   try {
     autoUpdater.quitAndInstall()
   } catch (error) {
     stateError(error)
   }
-  return state
 }
