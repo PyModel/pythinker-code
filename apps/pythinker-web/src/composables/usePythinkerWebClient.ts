@@ -2000,7 +2000,7 @@ const tasks = computed<TaskItem[]>(() => {
   return activeAppTasks.value.map(toUiTask);
 });
 
-const dynamic workflows = computed<DynamicWorkflowGroup[]>(() => buildDynamicWorkflowGroups(activeAppTasks.value));
+const dynamicWorkflows = computed<DynamicWorkflowGroup[]>(() => buildDynamicWorkflowGroups(activeAppTasks.value));
 // Foreground/background subagents keyed by their spawning tool call id — used by
 // the inline AgentDynamicWorkflow tool card to stream each subagent's live progress.
 const dynamic_workflowMembersByToolCallId = computed<Map<string, DynamicWorkflowMember[]>>(() =>
@@ -2075,7 +2075,7 @@ const goalMode = computed<boolean>(() => {
 });
 
 const activationBadges = computed<ActivationBadges>(() => {
-  const dynamic_workflowCounts = countDynamicWorkflowMembers(dynamic workflows.value);
+  const dynamic_workflowCounts = countDynamicWorkflowMembers(dynamicWorkflows.value);
   return {
     plan: planMode.value,
     goal: goal.value && goal.value.status !== 'complete'
@@ -2776,7 +2776,7 @@ export function usePythinkerWebClient() {
     activeAppTasks,
     todos,
     goal,
-    dynamic workflows,
+    dynamicWorkflows,
     dynamic_workflowMembersByToolCallId,
     activationBadges,
     compaction,

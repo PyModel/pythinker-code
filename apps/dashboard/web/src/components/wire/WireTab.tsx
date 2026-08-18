@@ -11,35 +11,27 @@ import { WireRow, type PairHint } from './WireRow';
 interface PairRecord {
   callLineNo: number | null;
   resultLineNo: number | null;
-  callTime: number | null;
-  resultTime: number | null;
 }
 
 /** Scan all entries and pair every `tool.call` with its `tool.result`
  *  by `toolCallId`. Used to render the inline "→ #N" / "← #N" cross-
- *  references, the call→result duration, and to drive the hover-pair
- *  highlight. */
+ *  references and to drive the hover-pair highlight. */
 function computePairMap(entries: readonly WireEntry[]): Map<string, PairRecord> {
   const map = new Map<string, PairRecord>();
   const ensure = (id: string): PairRecord => {
     const existing = map.get(id);
     if (existing) return existing;
-    const fresh: PairRecord = { callLineNo: null, resultLineNo: null, callTime: null, resultTime: null };
+    const fresh: PairRecord = { callLineNo: null, resultLineNo: null };
     map.set(id, fresh);
     return fresh;
   };
   for (const entry of entries) {
     if (entry.data.type !== 'context.append_loop_event') continue;
     const ev = entry.data.event;
-    const time = entry.data.time ?? null;
     if (ev.type === 'tool.call') {
-      const rec = ensure(ev.toolCallId);
-      rec.callLineNo = entry.lineNo;
-      rec.callTime = time;
+      ensure(ev.toolCallId).callLineNo = entry.lineNo;
     } else if (ev.type === 'tool.result') {
-      const rec = ensure(ev.toolCallId);
-      rec.resultLineNo = entry.lineNo;
-      rec.resultTime = time;
+      ensure(ev.toolCallId).resultLineNo = entry.lineNo;
     }
   }
   return map;
@@ -51,14 +43,11 @@ function pairInfoFor(record: AgentRecord, map: Map<string, PairRecord>): PairHin
   if (ev.type !== 'tool.call' && ev.type !== 'tool.result') return undefined;
   const entry = map.get(ev.toolCallId);
   if (entry === undefined) return undefined;
-  const durationMs =
-    entry.callTime !== null && entry.resultTime !== null ? entry.resultTime - entry.callTime : null;
   return {
     toolCallId: ev.toolCallId,
     kind: ev.type === 'tool.call' ? 'call' : 'result',
     callLineNo: entry.callLineNo,
     resultLineNo: entry.resultLineNo,
-    durationMs,
   };
 }
 
