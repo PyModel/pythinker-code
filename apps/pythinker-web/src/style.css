@@ -170,7 +170,7 @@ summary {
   --panel: #fafbfc;
   --panel2: #f3f5f8;
   --bg: #ffffff;
-  /* Brand blue = Pythinker KMBlue (#1783ff), matched to kimi.com's palette.
+  /* Brand blue = Pythinker KMBlue (#1783ff), aligned with the neutral UI palette.
      --blue2 is a darker press/hover shade; --soft/--bd/--bluebg/--blueln are
      the light-blue fills + borders derived from the same hue. */
   --blue: #1783ff;
