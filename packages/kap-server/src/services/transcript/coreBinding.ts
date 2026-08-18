@@ -34,7 +34,7 @@ export interface TranscriptBinding extends IDisposable {
    * resolve-time `approvalId` back-link. The service calls it after the
    * initial backfill for the main agent, and after each agent's on-demand
    * backfill for that agent's interactions — pass `agentId` to seed only the
-   * pendings routed to that agent (a subagent's pending must not be placed
+   * pending interactions routed to that agent (a subagent's pending must not be placed
    * before its own history is replayed).
    */
   seedPendingInteractions(agentId?: string): void;
