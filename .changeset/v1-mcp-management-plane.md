@@ -1,7 +1,6 @@
 ---
 "@pymodel/pythinker-code": patch
 "@pymodel/pythinker-code-sdk": minor
-"pythinker-code": patch
 ---
 
 On the legacy engine, plugin MCP server changes (install / enable / disable / remove / reload) now apply to open sessions immediately, and an MCP server OAuth sign-in or credential reset automatically refreshes the affected sessions instead of leaving them stuck until a manual reconnect; a connection that fails mid-session for auth reasons is now reported as needing sign-in rather than as a generic failure.
