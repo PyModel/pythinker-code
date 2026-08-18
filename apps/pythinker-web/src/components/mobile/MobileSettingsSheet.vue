@@ -94,7 +94,7 @@ const thinkingOptions = computed(() =>
   thinkingSegments.value.map((seg) => ({ value: seg, label: effortLabel(seg) })),
 );
 const planOn = computed<boolean>(() => props.planMode === true);
-const dynamic_workflowOn = computed<boolean>(() => props.dynamicWorkflowMode === true);
+const dynamicWorkflowOn = computed<boolean>(() => props.dynamicWorkflowMode === true);
 
 // Risk progression matches the Composer: yolo = warning, auto = danger.
 const permColor = computed<string>(() => {
@@ -295,7 +295,7 @@ watch(
         <span class="srow-label">{{ t('status.statusDynamicWorkflowMode') }}</span>
         <span class="srow-sub">{{ t('mobile.dynamicWorkflowModeSub') }}</span>
       </span>
-      <span class="toggle" :class="{ on: dynamic_workflowOn }" role="switch" :aria-checked="dynamic_workflowOn" />
+      <span class="toggle" :class="{ on: dynamicWorkflowOn }" role="switch" :aria-checked="dynamicWorkflowOn" />
     </button>
 
     <!-- Permission → cycle (sub-line + chevron) -->

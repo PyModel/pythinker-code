@@ -61,7 +61,7 @@ const permColor = computed(() => {
 });
 
 const planText = computed(() => (props.planMode ? t('status.planOn') : t('status.planOff')));
-const dynamic_workflowText = computed(() => (props.dynamicWorkflowMode ? t('status.dynamic_workflowOn') : t('status.dynamic_workflowOff')));
+const dynamicWorkflowText = computed(() => (props.dynamicWorkflowMode ? t('status.dynamicWorkflowOn') : t('status.dynamicWorkflowOff')));
 
 const showCost = computed(() => typeof props.costUsd === 'number' && props.costUsd > 0);
 const costText = computed(() =>
@@ -90,7 +90,7 @@ const costText = computed(() =>
       </div>
       <div class="row">
         <dt>{{ t('status.statusDynamicWorkflowMode') }}</dt>
-        <dd :class="{ 'dynamic-workflow-on': dynamicWorkflowMode }">{{ dynamic_workflowText }}</dd>
+        <dd :class="{ 'dynamic-workflow-on': dynamicWorkflowMode }">{{ dynamicWorkflowText }}</dd>
       </div>
       <div class="row">
         <dt>{{ t('status.statusContext') }}</dt>

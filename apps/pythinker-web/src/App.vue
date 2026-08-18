@@ -37,7 +37,7 @@ import { useFilePreview, type DetailTarget } from './composables/useFilePreview'
 import { useDetailPanel } from './composables/useDetailPanel';
 import { useIsMobile } from './composables/useIsMobile';
 import { openDialogCount } from './composables/dialogStack';
-import type { DynamicWorkflowMember } from './composables/dynamic_workflowGroups';
+import type { DynamicWorkflowMember } from './composables/dynamicWorkflowGroups';
 import ServerAuthDialog from './components/ServerAuthDialog.vue';
 import { initServerAuth, onAuthRequired } from './api/daemon/serverAuth';
 import type { AppConfig, ThinkingLevel } from './api/types';
@@ -72,7 +72,7 @@ provide('resolveImage', client.resolveImageUrl);
 // which buildDynamicWorkflowGroups filters out for the badge counter.
 provide(
   'resolveDynamicWorkflowMembers',
-  (toolCallId: string): DynamicWorkflowMember[] => client.dynamic_workflowMembersByToolCallId.value.get(toolCallId) ?? [],
+  (toolCallId: string): DynamicWorkflowMember[] => client.dynamicWorkflowMembersByToolCallId.value.get(toolCallId) ?? [],
 );
 const { t } = useI18n();
 const { confirm } = useConfirmDialog();

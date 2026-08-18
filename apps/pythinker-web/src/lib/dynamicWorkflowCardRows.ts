@@ -1,11 +1,11 @@
-// apps/pythinker-web/src/lib/dynamic_workflowCardRows.ts
+// apps/pythinker-web/src/lib/dynamicWorkflowCardRows.ts
 // Build the accordion row model for the AgentDynamicWorkflow inline tool card. Pure
 // function of live members (AppTask store, real-time phase) and the parsed
 // `<agent_dynamic_workflow_result>` payload (terminal result) — kept in plain TS so it can
 // be unit-tested without mounting the component.
 
 import type { AppSubagentPhase } from '../api/types';
-import type { DynamicWorkflowMember } from '../composables/dynamic_workflowGroups';
+import type { DynamicWorkflowMember } from '../composables/dynamicWorkflowGroups';
 import type { DynamicWorkflowResult, DynamicWorkflowResultSubagent } from './parseDynamicWorkflowResult';
 
 export interface DynamicWorkflowCardRow {
@@ -21,7 +21,7 @@ function lastNonEmptyLine(text: string | undefined): string {
   return text.split('\n').map((l) => l.trimEnd()).filter(Boolean).at(-1) ?? '';
 }
 
-export function dynamic_workflowMemberActivity(member: DynamicWorkflowMember): string {
+export function dynamicWorkflowMemberActivity(member: DynamicWorkflowMember): string {
   // Prefer streamed subagent text so a still-composing agent shows its latest
   // line instead of an empty / last-summary row.
   return (
@@ -33,7 +33,7 @@ export function dynamic_workflowMemberActivity(member: DynamicWorkflowMember): s
   );
 }
 
-function dynamic_workflowMemberBody(member: DynamicWorkflowMember): string {
+function dynamicWorkflowMemberBody(member: DynamicWorkflowMember): string {
   if (member.suspendedReason) return member.suspendedReason;
   if (member.text) return member.text;
   if (member.outputLines && member.outputLines.length > 0) return member.outputLines.join('\n');
@@ -82,9 +82,9 @@ export function buildDynamicWorkflowCardRows(members: DynamicWorkflowMember[], r
   const memberRows = members.map((m) => ({
     id: m.id,
     name: m.name,
-    activity: dynamic_workflowMemberActivity(m),
+    activity: dynamicWorkflowMemberActivity(m),
     phase: m.phase,
-    body: dynamic_workflowMemberBody(m),
+    body: dynamicWorkflowMemberBody(m),
   }));
   if (!result) return memberRows;
 

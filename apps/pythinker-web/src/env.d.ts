@@ -19,6 +19,33 @@ declare const __PYTHINKER_WEB_VERSION__: string;
 // Desktop app. Gates the internal-build banner (see InternalBuildBanner.vue).
 declare const __PYTHINKER_WEB_DESKTOP__: boolean;
 
+// Update state mirrored from the desktop app's auto-updater (electron-updater).
+type DesktopUpdateState = {
+  status: 'disabled' | 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'error';
+  version?: string;
+  percent?: number;
+  message?: string;
+  autoUpdate: boolean;
+};
+
+// Preload bridge exposed by the Pythinker Desktop app (apps/desktop).
+interface PythinkerDesktopBridge {
+  platform: string;
+  getUpdateState: () => Promise<DesktopUpdateState>;
+  setAutoUpdate: (enabled: boolean) => Promise<DesktopUpdateState>;
+  checkForUpdates: () => Promise<DesktopUpdateState>;
+  quitAndInstall: () => Promise<DesktopUpdateState>;
+  minimizeWindow: () => Promise<void>;
+  toggleMaximizeWindow: () => Promise<void>;
+  closeWindow: () => Promise<void>;
+  setThemeSource: (source: 'dark' | 'light' | 'system') => Promise<void>;
+  onUpdateState: (callback: (state: DesktopUpdateState) => void) => () => void;
+}
+
+interface Window {
+  pythinkerDesktop?: PythinkerDesktopBridge;
+}
+
 declare module '*.vue' {
   import type { DefineComponent } from 'vue';
 
