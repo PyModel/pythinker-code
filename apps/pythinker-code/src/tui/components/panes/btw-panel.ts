@@ -7,9 +7,10 @@ import {
 } from '@pymodel/pi-tui';
 import chalk from 'chalk';
 
-import { MarkdownPreviewComponent } from '#/tui/components/messages/markdown-preview';
-import { THINKING_PREVIEW_LINES } from '#/tui/constant/rendering';
-import { currentTheme } from '#/tui/theme';
+import { THINKING_PREVIEW_LINES } from '../../constant/rendering';
+import { currentTheme } from '../../theme';
+import type { InlineSkillActivation } from '../../types';
+import { createMarkdownOptions } from '../../utils/markdown-options';
 
 type BtwPanelPhase = 'running' | 'done' | 'failed';
 
@@ -19,7 +20,6 @@ interface BtwTurn {
   readonly prompt: string;
   answer: string;
   thinking: string;
-  readonly thinkingPreview: MarkdownPreviewComponent;
   error?: string | undefined;
   phase: BtwPanelPhase;
 }
@@ -32,7 +32,10 @@ interface BtwBodyRender {
 export interface BtwPanelOptions {
   readonly markdownTheme: MarkdownTheme;
   readonly canUseScrollKeys: () => boolean;
-  readonly onPrompt: (prompt: string) => void;
+  readonly onPrompt: (
+    prompt: string,
+    inlineSkillActivations?: readonly InlineSkillActivation[],
+  ) => void;
   readonly terminalRows: () => number;
 }
 
@@ -46,7 +49,7 @@ export class BtwPanelComponent implements Component {
 
   constructor(private readonly options: BtwPanelOptions) {}
 
-  submit(prompt: string): void {
+  submit(prompt: string, inlineSkillActivations?: readonly InlineSkillActivation[]): void {
     const normalized = prompt.trim();
     if (normalized.length === 0 || this.isRunning()) return;
     this.followTail = true;
@@ -56,15 +59,9 @@ export class BtwPanelComponent implements Component {
       prompt: normalized,
       answer: '',
       thinking: '',
-      thinkingPreview: new MarkdownPreviewComponent('', {
-        firstPrefix: '',
-        continuationPrefix: '',
-        tailRows: THINKING_PREVIEW_LINES,
-        appearance: 'thinking',
-      }),
       phase: 'running',
     });
-    this.options.onPrompt(normalized);
+    this.options.onPrompt(normalized, inlineSkillActivations);
   }
 
   addTransientNotice(message: string): void {
@@ -82,7 +79,6 @@ export class BtwPanelComponent implements Component {
     const turn = this.currentTurn();
     if (turn === undefined) return;
     turn.thinking += delta;
-    turn.thinkingPreview.setText(turn.thinking);
   }
 
   markDone(resultSummary?: string | undefined): void {
@@ -102,12 +98,6 @@ export class BtwPanelComponent implements Component {
         prompt: '',
         answer: '',
         thinking: '',
-        thinkingPreview: new MarkdownPreviewComponent('', {
-          firstPrefix: '',
-          continuationPrefix: '',
-          tailRows: THINKING_PREVIEW_LINES,
-          appearance: 'thinking',
-        }),
         error,
         phase: 'failed',
       });
@@ -119,11 +109,7 @@ export class BtwPanelComponent implements Component {
     turn.phase = 'failed';
   }
 
-  invalidate(): void {
-    for (const turn of this.turns) {
-      turn.thinkingPreview.invalidate();
-    }
-  }
+  invalidate(): void {}
 
   render(width: number): string[] {
     const safeWidth = Math.max(4, width);
@@ -214,9 +200,18 @@ export class BtwPanelComponent implements Component {
     const answer = turn.answer.trim();
     const thinking = turn.thinking.trim();
     if (answer.length > 0) {
-      lines.push(...new Markdown(answer, 0, 0, this.options.markdownTheme).render(width));
+      lines.push(
+        ...new Markdown(answer, 0, 0, this.options.markdownTheme, undefined, createMarkdownOptions()).render(width),
+      );
     } else if (thinking.length > 0) {
-      lines.push(...turn.thinkingPreview.render(width));
+      const thinkingLines = new Text(chalk.hex(currentTheme.palette.textDim)(thinking), 0, 0).render(
+        width,
+      );
+      const visibleThinking =
+        thinkingLines.length > THINKING_PREVIEW_LINES
+          ? thinkingLines.slice(thinkingLines.length - THINKING_PREVIEW_LINES)
+          : thinkingLines;
+      lines.push(...visibleThinking);
     } else if (turn.error === undefined) {
       lines.push(chalk.hex(currentTheme.palette.textDim)('Waiting for answer...'));
     }

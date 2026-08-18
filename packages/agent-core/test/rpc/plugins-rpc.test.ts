@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
+import { McpOAuthService } from '../../src/mcp/oauth/service';
 import { PythinkerCore } from '../../src/rpc/core-impl';
 
 describe('PythinkerCore plugin RPCs', () => {
@@ -32,32 +33,6 @@ describe('PythinkerCore plugin RPCs', () => {
 
     await core.removePlugin({ id: 'demo' });
     await expect(core.listPlugins({})).resolves.toEqual([]);
-  });
-
-  it('forwards install options to the plugin manager', async () => {
-    const home = await mkdtemp(path.join(tmpdir(), 'pythinker-home-'));
-    const pluginRoot = await mkdtemp(path.join(tmpdir(), 'plugin-'));
-    const core = new PythinkerCore(async () => ({}) as never, { homeDir: home });
-    await new Promise((resolve) => setImmediate(resolve));
-
-    const installed = await core.installPlugin({
-      source: pluginRoot,
-      options: {
-        definition: {
-          id: 'rpc-definition-only',
-          version: '1.0.0',
-          defaultEnabled: false,
-        },
-      },
-    });
-
-    expect(installed).toEqual(
-      expect.objectContaining({
-        id: 'rpc-definition-only',
-        version: '1.0.0',
-        enabled: false,
-      }),
-    );
   });
 
   it('installPlugin ignores forged marketplace context from public RPC callers', async () => {
@@ -109,6 +84,168 @@ describe('PythinkerCore plugin RPCs', () => {
     );
   });
 
+  it('inspects global and plugin MCP servers through the v1 app catalog', async () => {
+    const home = await mkdtemp(path.join(tmpdir(), 'pythinker-home-'));
+    const pluginRoot = await mkdtemp(path.join(tmpdir(), 'plugin-'));
+    await writeFile(
+      path.join(home, 'mcp.json'),
+      JSON.stringify({
+        mcpServers: {
+          global: { command: 'global-mcp', env: { GLOBAL_SECRET: 'global-secret-value' } },
+        },
+      }),
+      'utf8',
+    );
+    await writeFile(
+      path.join(pluginRoot, 'pythinker.plugin.json'),
+      JSON.stringify({
+        name: 'demo',
+        mcpServers: {
+          local: { command: 'local-mcp', env: { PLUGIN_SECRET: 'plugin-secret-value' } },
+          remote: {
+            transport: 'http',
+            url: 'https://mcp.example.test/service',
+            auth: 'oauth',
+          },
+        },
+      }),
+      'utf8',
+    );
+
+    const core = new PythinkerCore(async () => ({}) as never, { homeDir: home });
+    await core.installPlugin({ source: pluginRoot });
+    await core.setPluginMcpServerEnabled({ id: 'demo', server: 'remote', enabled: false });
+
+    const inspections = await core.inspectAppMcpServers({});
+    expect(inspections).toEqual([
+      expect.objectContaining({
+        serverId: 'global:global',
+        locator: { source: 'global', name: 'global' },
+        runtimeName: 'global',
+        origin: 'global',
+        editable: true,
+        authStatus: 'not-applicable',
+        config: expect.objectContaining({ envKeys: ['GLOBAL_SECRET'] }),
+      }),
+      expect.objectContaining({
+        serverId: 'plugin:demo:local',
+        locator: { source: 'plugin', pluginId: 'demo', serverName: 'local' },
+        runtimeName: 'plugin-demo:local',
+        origin: 'plugin',
+        editable: false,
+        enabled: true,
+        authStatus: 'not-applicable',
+        config: expect.objectContaining({ envKeys: expect.arrayContaining(['PLUGIN_SECRET']) }),
+      }),
+      expect.objectContaining({
+        serverId: 'plugin:demo:remote',
+        locator: { source: 'plugin', pluginId: 'demo', serverName: 'remote' },
+        runtimeName: 'plugin-demo:remote',
+        origin: 'plugin',
+        editable: false,
+        enabled: false,
+        authStatus: 'not-applicable',
+      }),
+    ]);
+    expect(JSON.stringify(inspections)).not.toContain('global-secret-value');
+    expect(JSON.stringify(inspections)).not.toContain('plugin-secret-value');
+
+    const oauth = new McpOAuthService({ pythinkerHomeDir: home });
+    await oauth
+      .getProvider('plugin-demo:remote', 'https://mcp.example.test/service')
+      .saveTokens({ access_token: 'plugin-test-token', token_type: 'Bearer' });
+    await core.resetMcpServerAuth({
+      locator: { source: 'plugin', pluginId: 'demo', serverName: 'remote' },
+    });
+    expect(oauth.hasTokens('plugin-demo:remote', 'https://mcp.example.test/service')).toBe(false);
+
+    await oauth
+      .getProvider('plugin-demo:remote', 'https://mcp.example.test/service')
+      .saveTokens({ access_token: 'plugin-test-token', token_type: 'Bearer' });
+    await core.setPluginMcpServerEnabled({ id: 'demo', server: 'remote', enabled: true });
+    // The management API rejects a user-level add that would shadow the
+    // plugin entry, so the colliding enabled server is written directly.
+    await writeFile(
+      path.join(home, 'mcp.json'),
+      JSON.stringify({
+        mcpServers: {
+          global: { command: 'global-mcp', env: { GLOBAL_SECRET: 'global-secret-value' } },
+          'plugin-demo:remote': {
+            transport: 'http',
+            url: 'https://global.example.test/service',
+            auth: 'oauth',
+          },
+        },
+      }),
+      'utf8',
+    );
+    const locator = { source: 'plugin', pluginId: 'demo', serverName: 'remote' } as const;
+    await expect(core.beginMcpServerAuth({ locator })).rejects.toThrow(
+      'is shared by multiple enabled servers',
+    );
+    await expect(core.resetMcpServerAuth({ locator })).rejects.toThrow(
+      'is shared by multiple enabled servers',
+    );
+    expect(oauth.hasTokens('plugin-demo:remote', 'https://mcp.example.test/service')).toBe(true);
+  });
+
+  it('injects persisted managed Pythinker Code environment into the datasource plugin MCP server', async () => {
+    const previousBaseUrl = process.env['PYTHINKER_CODE_BASE_URL'];
+    const previousCodeOAuthHost = process.env['PYTHINKER_CODE_OAUTH_HOST'];
+    const previousOAuthHost = process.env['PYTHINKER_OAUTH_HOST'];
+    delete process.env['PYTHINKER_CODE_BASE_URL'];
+    delete process.env['PYTHINKER_CODE_OAUTH_HOST'];
+    delete process.env['PYTHINKER_OAUTH_HOST'];
+
+    const home = await mkdtemp(path.join(tmpdir(), 'pythinker-home-'));
+    const pluginRoot = await mkdtemp(path.join(tmpdir(), 'plugin-'));
+    try {
+      await writeFile(
+        path.join(home, 'config.toml'),
+        `
+[providers."managed:pythinker-code"]
+type = "pythinker"
+base_url = "https://api.dev.example.test/coding/v1"
+api_key = ""
+oauth = { storage = "file", key = "oauth/pythinker-code-env-1234", oauth_host = "https://auth.dev.example.test" }
+`,
+        'utf8',
+      );
+      await writeFile(
+        path.join(pluginRoot, 'pythinker.plugin.json'),
+        JSON.stringify({
+          name: 'pythinker-datasource',
+          mcpServers: {
+            data: { command: 'node', args: ['./bin/pythinker-datasource.mjs'] },
+          },
+        }),
+        'utf8',
+      );
+
+      const core = new PythinkerCore(async () => ({}) as never, { homeDir: home });
+      await new Promise((r) => setImmediate(r));
+      await core.installPlugin({ source: pluginRoot });
+
+      const mcpConfig = (
+        core as unknown as {
+          mergePluginMcpConfig(base: undefined): {
+            servers: Record<string, { env?: Record<string, string> }>;
+          };
+        }
+      ).mergePluginMcpConfig(undefined);
+
+      expect(mcpConfig.servers['plugin-pythinker-datasource:data']?.env).toEqual(
+        expect.objectContaining({
+          PYTHINKER_CODE_BASE_URL: 'https://api.dev.example.test/coding/v1',
+          PYTHINKER_CODE_OAUTH_HOST: 'https://auth.dev.example.test',
+        }),
+      );
+    } finally {
+      restoreEnv('PYTHINKER_CODE_BASE_URL', previousBaseUrl);
+      restoreEnv('PYTHINKER_CODE_OAUTH_HOST', previousCodeOAuthHost);
+      restoreEnv('PYTHINKER_OAUTH_HOST', previousOAuthHost);
+    }
+  });
 
   it('throws PLUGIN_LOAD_FAILED on every RPC when installed.json is corrupt', async () => {
     const home = await mkdtemp(path.join(tmpdir(), 'pythinker-home-'));

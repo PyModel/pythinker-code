@@ -19,12 +19,32 @@ import type {
   SessionStatus,
   SessionSummary,
 } from "@pymodel/pythinker-code-sdk";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 type ThinkingEffort = string;
 
 import { Events } from "../shared/bridge";
 import { PythinkerRuntime, type OpenSessionOptions } from "../src/runtime/pythinker-runtime";
+
+const sdkFactories = vi.hoisted(() => {
+  const v1Harness = { homeDir: "/tmp/pythinker-runtime-v1-home", close: vi.fn(async () => undefined) };
+  const v2Harness = { homeDir: "/tmp/pythinker-runtime-v2-home", close: vi.fn(async () => undefined) };
+  return {
+    v1Harness,
+    v2Harness,
+    createPythinkerHarness: vi.fn(() => v1Harness),
+    createPythinkerHarnessV2: vi.fn(() => v2Harness),
+  };
+});
+
+vi.mock("@pymodel/pythinker-code-sdk", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@pymodel/pythinker-code-sdk")>();
+  return {
+    ...original,
+    createPythinkerHarness: sdkFactories.createPythinkerHarness,
+    createPythinkerHarnessV2: sdkFactories.createPythinkerHarnessV2,
+  };
+});
 
 interface FakeSessionBoundary {
   readonly session: Session;
@@ -251,6 +271,39 @@ function createRuntime(
 }
 
 describe("Pythinker runtime (owns shared SDK sessions for Webviews)", () => {
+  it("creates the v2 harness by default and the v1 harness for rollback", async () => {
+    const defaults = new PythinkerRuntime({
+      version: "0.6.0",
+      broadcast: () => undefined,
+      captureBaseline: () => undefined,
+      log: () => undefined,
+    });
+    expect(sdkFactories.createPythinkerHarnessV2).toHaveBeenCalledOnce();
+    expect(sdkFactories.createPythinkerHarnessV2).toHaveBeenCalledWith({
+      homeDir: undefined,
+      identity: {
+        productName: "pythinker-code-vscode",
+        version: "0.6.0",
+        platform: "pythinker_code_vscode",
+      },
+      uiMode: "vscode",
+    });
+    expect(sdkFactories.createPythinkerHarness).not.toHaveBeenCalled();
+    expect(defaults.harness).toBe(sdkFactories.v2Harness as unknown as PythinkerHarness);
+    await defaults.dispose();
+
+    const rollback = new PythinkerRuntime({
+      version: "0.6.0",
+      useAgentCoreV1: true,
+      broadcast: () => undefined,
+      captureBaseline: () => undefined,
+      log: () => undefined,
+    });
+    expect(sdkFactories.createPythinkerHarness).toHaveBeenCalledOnce();
+    expect(rollback.harness).toBe(sdkFactories.v1Harness as unknown as PythinkerHarness);
+    await rollback.dispose();
+  });
+
   it("forwards the requested settings when creating an SDK session", async () => {
     const { runtime, sdk } = createRuntime();
 

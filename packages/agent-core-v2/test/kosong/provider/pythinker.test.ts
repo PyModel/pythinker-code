@@ -1,31 +1,3 @@
-/**
- * `kosong/provider` Pythinker trait probes (probe 6) — every Pythinker deviation is a
- * declarative trait hook on one of two trait objects, tested directly
- * against a stub trait context:
- *
- *  - `pythinkerOpenAITrait.convertTool`: `$`-prefixed tools become
- *    `builtin_function`; regular tools get the Pythinker schema dialect
- *    normalization;
- *  - `pythinkerOpenAITrait.convertMessage`: empty-content assistant tool messages
- *    drop `content`; `tool_calls[].extras` round-trips; message-level
- *    `tools` embed;
- *  - reasoning: the trait does NOT pin a `reasoningKey` — the base
- *    auto-detects the endpoint's dialect, defaulting to `reasoning_content`;
- *    `preserveThinking` force-replays only `keep: 'all'` sessions with
- *    thinking not disabled;
- *  - `pythinkerOpenAITrait.extractUsage`: usage at the top level or
- *    `choices[0].usage`;
- *  - `pythinkerOpenAITrait` request params: endpoint chain, `max_tokens` →
- *    `max_completion_tokens` with `extra_body` expansion,
- *    `extra_body.thinking` encoding, no 128k ceiling, `prompt_cache_key`,
- *    and the `strictThinkingValidation` marker;
- *  - `pythinkerAnthropicTrait` (the `(pythinker, anthropic)` registration): thinking
- *    encoding and interleaved-thinking beta stripping;
- *  - `PythinkerFiles`: an upload failure classifies through
- *    `classifyPythinkerQuotaError`, so a PyModel quota 429 from the files API
- *    fails fast instead of converting to a retryable rate limit.
- */
-
 import { APIError as OpenAIAPIError } from 'openai';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -151,9 +123,6 @@ describe('pythinkerOpenAITrait.convertMessage', () => {
 
 describe('pythinkerOpenAITrait reasoning hooks', () => {
   it('does not pin a reasoning field — the base detects the endpoint dialect', () => {
-    // Detection defaults to `reasoning_content` (Pythinker's native field) and
-    // adapts to peers that speak `reasoning` (newer vLLM); a trait pin would
-    // disable that adaptation. Operator config `reasoning_key` still pins.
     expect(pythinkerOpenAITrait.reasoningKey).toBeUndefined();
   });
 
@@ -312,8 +281,6 @@ describe('trait objects are plain declarations', () => {
   });
 
   it('marks only the native-transport thinking trait as strict-validation (v1 parity)', () => {
-    // Pythinker's native API rejects unlisted efforts → strict; over the Anthropic
-    // transport the backend may accept them → lenient (warning + pass-through).
     expect(pythinkerOpenAITrait.strictThinkingValidation).toBe(true);
     expect(pythinkerAnthropicTrait.strictThinkingValidation).toBeUndefined();
   });

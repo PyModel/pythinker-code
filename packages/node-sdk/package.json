@@ -1,6 +1,6 @@
 {
   "name": "@pymodel/pythinker-code-sdk",
-  "version": "0.15.1",
+  "version": "0.18.0",
   "private": true,
   "description": "TypeScript SDK for the Pythinker Code Agent",
   "license": "MIT",

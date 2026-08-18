@@ -1,10 +1,10 @@
 {
   "name": "@pymodel/pythinker-code-oauth",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
-  "description": "Login platform layer: model listing, config provisioning, and OpenAI Codex OAuth",
+  "description": "Pythinker OAuth toolkit for managed Pythinker Code authentication",
   "license": "MIT",
-  "author": "Pythoughts",
+  "author": "PyModel",
   "homepage": "https://github.com/PyModel/pythinker-code/tree/main/packages/oauth#readme",
   "repository": {
     "type": "git",
@@ -33,9 +33,9 @@
       "types": "./src/index.ts",
       "default": "./src/index.ts"
     },
-    "./oauth-pages": {
-      "types": "./src/oauth-pages.ts",
-      "default": "./src/oauth-pages.ts"
+    "./device": {
+      "types": "./src/device.ts",
+      "default": "./src/device.ts"
     }
   },
   "scripts": {

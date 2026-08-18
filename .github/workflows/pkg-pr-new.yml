@@ -36,9 +36,6 @@ jobs:
       - name: Build package dependencies
         run: pnpm run build:packages
 
-      - name: Build Pythinker web assets
-        run: pnpm --filter @pymodel/pythinker-web run build
-
       - name: Generate Pythinker Code built-in catalog
         shell: bash
         run: |

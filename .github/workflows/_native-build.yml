@@ -98,11 +98,9 @@ jobs:
           echo "PYTHINKER_CODE_BUILT_IN_CATALOG_FILE=$CATALOG_FILE" >> "$GITHUB_ENV"
 
       - name: Build Pythinker web assets
-        # The SEA blob step embeds apps/pythinker-code/dist-web; build the web app
-        # and stage its assets before producing the native executable.
-        run: |
-          pnpm --filter @pymodel/pythinker-web run build
-          node apps/pythinker-code/scripts/copy-web-assets.mjs
+        # The SEA blob step embeds apps/pythinker-code/dist-web. The bundle is
+        # committed (synced from the code-app repo) — just verify it is in place.
+        run: node apps/pythinker-code/scripts/check-web-assets.mjs
 
       - name: Build native executable (release profile, macOS signed)
         if: runner.os == 'macOS' && env.APPLE_SIGNING_AVAILABLE == 'true'

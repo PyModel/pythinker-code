@@ -5,21 +5,31 @@ import { dirname, isAbsolute, join, normalize, resolve } from 'pathe';
 import { resolvePythinkerHome } from '#/config/path';
 import { McpServerConfigSchema, type McpServerConfig } from '#/config/schema';
 import { ErrorCodes, PythinkerError } from '#/errors';
-import { z } from 'zod';
 
-const McpJsonFileSchema = z.object({
-  mcpServers: z.record(z.string(), McpServerConfigSchema).default({}),
-});
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Parse the file's server map entry-by-entry instead of through a single
+ * `z.record()`: a record parse rebuilds its output with property assignment,
+ * which routes a literal `__proto__` server key through the prototype setter
+ * and silently drops it. Per-entry parsing over the JSON own-keys keeps every
+ * declared server.
+ */
+function parseMcpJsonServers(data: unknown): Record<string, McpServerConfig> {
+  if (!isRecord(data)) throw new Error('expected a JSON object');
+  const raw = data['mcpServers'] ?? {};
+  if (!isRecord(raw)) throw new Error('"mcpServers" must be an object');
+  return Object.fromEntries(
+    Object.entries(raw).map(([name, value]) => [name, McpServerConfigSchema.parse(value)]),
+  );
+}
 
 export interface McpJsonPaths {
   readonly user: string;
   readonly projectRoot: string;
   readonly project: string;
-}
-
-export interface McpJsonDocument {
-  readonly data: Record<string, unknown>;
-  readonly servers: Record<string, unknown>;
 }
 
 export interface ResolveMcpJsonPathsInput {
@@ -42,6 +52,13 @@ export interface LoadMcpServersInput {
   readonly homeDir?: string;
 }
 
+export interface LoadMcpServersDetailedResult {
+  /** Later layers override earlier ones with the same key. */
+  readonly servers: Record<string, McpServerConfig>;
+  /** The file each effective entry was last defined in. */
+  readonly origins: Record<string, string>;
+}
+
 /**
  * Load MCP server declarations from the user-global `~/.pythinker-code/mcp.json`,
  * the project-root `<project root>/.mcp.json`, and the project-local
@@ -56,13 +73,38 @@ export interface LoadMcpServersInput {
 export async function loadMcpServers(
   input: LoadMcpServersInput,
 ): Promise<Record<string, McpServerConfig>> {
+  return (await loadMcpServersDetailed(input)).servers;
+}
+
+/**
+ * {@link loadMcpServers} plus the defining-file origin of every effective
+ * entry, for management surfaces that show where a server came from.
+ */
+export async function loadMcpServersDetailed(
+  input: LoadMcpServersInput,
+): Promise<LoadMcpServersDetailedResult> {
   const paths = await resolveMcpJsonPaths({ cwd: input.cwd, homeDir: input.homeDir });
-  const [user, projectRoot, project] = await Promise.all([
-    readMcpJson(paths.user),
-    readMcpJson(paths.projectRoot, { stdioCwdBase: dirname(paths.projectRoot) }),
-    readMcpJson(paths.project),
-  ]);
-  return { ...user, ...projectRoot, ...project };
+  const layers: readonly [path: string, servers: Record<string, McpServerConfig>][] =
+    await Promise.all([
+      readMcpJson(paths.user),
+      readMcpJson(paths.projectRoot, { stdioCwdBase: dirname(paths.projectRoot) }),
+      readMcpJson(paths.project),
+    ]).then(([user, projectRoot, project]) => [
+      [paths.user, user],
+      [paths.projectRoot, projectRoot],
+      [paths.project, project],
+    ]);
+  // Null-prototype accumulators: a server literally named `__proto__` would
+  // otherwise hit the prototype setter and silently vanish from the merge.
+  const servers: Record<string, McpServerConfig> = Object.create(null);
+  const origins: Record<string, string> = Object.create(null);
+  for (const [path, layer] of layers) {
+    for (const [name, config] of Object.entries(layer)) {
+      servers[name] = config;
+      origins[name] = path;
+    }
+  }
+  return { servers, origins };
 }
 
 async function findProjectRoot(cwd: string): Promise<string> {
@@ -95,28 +137,17 @@ async function readMcpJson(
   filePath: string,
   options: ReadMcpJsonOptions = {},
 ): Promise<Record<string, McpServerConfig>> {
-  const document = await readMcpJsonDocument(filePath);
-  try {
-    return normalizeMcpServers(McpJsonFileSchema.parse(document.data).mcpServers, options);
-  } catch (error: unknown) {
-    throw new PythinkerError(ErrorCodes.CONFIG_INVALID, `Invalid MCP server config in ${filePath}: ${describeError(error)}`, {
-      cause: error,
-    });
-  }
-}
-
-export async function readMcpJsonDocument(filePath: string): Promise<McpJsonDocument> {
   let text: string;
   try {
     text = await readFile(filePath, 'utf-8');
   } catch (error: unknown) {
-    if (isFileNotFound(error)) return { data: { mcpServers: {} }, servers: {} };
+    if (isFileNotFound(error)) return {};
     throw new PythinkerError(ErrorCodes.CONFIG_INVALID, `Failed to read ${filePath}: ${describeError(error)}`, {
       cause: error,
     });
   }
 
-  if (text.trim().length === 0) return { data: { mcpServers: {} }, servers: {} };
+  if (text.trim().length === 0) return {};
 
   let data: unknown;
   try {
@@ -127,15 +158,13 @@ export async function readMcpJsonDocument(filePath: string): Promise<McpJsonDocu
     });
   }
 
-  if (!isRecord(data)) {
-    throw new PythinkerError(ErrorCodes.CONFIG_INVALID, `Invalid MCP server config in ${filePath}: expected an object`);
+  try {
+    return normalizeMcpServers(parseMcpJsonServers(data), options);
+  } catch (error: unknown) {
+    throw new PythinkerError(ErrorCodes.CONFIG_INVALID, `Invalid MCP server config in ${filePath}: ${describeError(error)}`, {
+      cause: error,
+    });
   }
-  const servers = data['mcpServers'];
-  if (servers === undefined) return { data, servers: {} };
-  if (!isRecord(servers)) {
-    throw new PythinkerError(ErrorCodes.CONFIG_INVALID, `Invalid MCP server config in ${filePath}: mcpServers must be an object`);
-  }
-  return { data, servers };
 }
 
 function normalizeMcpServers(
@@ -186,8 +215,4 @@ function getErrorCode(error: unknown): unknown {
 
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

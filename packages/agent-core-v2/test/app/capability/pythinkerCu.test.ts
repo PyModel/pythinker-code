@@ -1,11 +1,4 @@
-/**
- * `pythinker-cu` capability entry — permission-status parsing, app bundle
- * version reading, layered detect (plugin / app / service / permissions),
- * and platform gating. Host effects are faked (temp app bundle, scripted
- * host processes, fake plugins).
- */
-
-import { mkdir, mkdtemp, rm, writeFile, chmod } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Readable, Writable } from 'node:stream';
@@ -19,7 +12,10 @@ import {
   createPythinkerCuEntry,
   elevatedDittoScript,
   parsePermissionStatus,
+  parseWindowsDoctorOutput,
   readAppBundleVersion,
+  windowsPowerShellPath,
+  windowsPowerShell7Path,
 } from '#/app/capability/entries/pythinkerCu';
 
 function fakeProc(code: number, stdout = '', stderr = ''): IHostProcess {
@@ -62,7 +58,6 @@ function fakeHostProcess(
           }),
           stdout: Readable.from(['']),
           stderr: Readable.from(['']),
-          // Never settles — the caller's own timeout must fire.
           wait: () => new Promise<number>(() => {}),
           kill: () => Promise.resolve(),
           dispose: () => undefined,
@@ -76,6 +71,7 @@ function fakeHostProcess(
 
 function fakePlugins(
   installed: Array<{ id: string; enabled: boolean; state: string; version?: string; enabledMcp?: number }>,
+  onInstall?: () => void | Promise<void>,
 ): {
   service: IPluginService;
   installs: string[];
@@ -108,29 +104,29 @@ function fakePlugins(
       return Promise.resolve({
         mcpServers: [
           {
-            name: 'mac',
-            runtimeName: 'mac',
+            name: input.id === 'pythinker-cu-win' ? 'win' : 'mac',
+            runtimeName: input.id === 'pythinker-cu-win' ? 'win' : 'mac',
             enabled: (existing?.enabledMcp ?? 1) === 1,
             transport: 'stdio',
           },
         ],
       } as never);
     },
-    installPlugin: (input: { source: string }) => {
+    installPlugin: async (input: { source: string }) => {
       installs.push(input.source);
-      // Upsert semantics of the real manager: a new id installs enabled, an
-      // existing record keeps its (possibly disabled) enabled flag.
-      const existing = installed.find((p) => p.id === 'pythinker-cu');
+      await onInstall?.();
+      const id = input.source.includes('computer-use-windows') ? 'pythinker-cu-win' : 'pythinker-cu';
+      const existing = installed.find((p) => p.id === id);
       if (existing === undefined) {
-        installed.push({ id: 'pythinker-cu', enabled: true, state: 'ok' });
-        return Promise.resolve({ enabled: true, mcpServerCount: 1, enabledMcpServerCount: 1 } as never);
+        installed.push({ id, enabled: true, state: 'ok' });
+        return { enabled: true, mcpServerCount: 1, enabledMcpServerCount: 1 } as never;
       }
       existing.state = 'ok';
-      return Promise.resolve({
+      return {
         enabled: existing.enabled,
         mcpServerCount: 1,
         enabledMcpServerCount: existing.enabledMcp ?? 1,
-      } as never);
+      } as never;
     },
     setPluginEnabled: (input: { id: string; enabled: boolean }) => {
       enabledCalls.push(input);
@@ -167,10 +163,33 @@ describe('parsePermissionStatus', () => {
   });
 });
 
+describe('parseWindowsDoctorOutput', () => {
+  it('accepts only an MCP-capable embedded runtime', () => {
+    expect(
+      parseWindowsDoctorOutput(
+        'version=0.2.14\r\nmcp=true\r\nhelper=embedded\r\nagent=running\r\n',
+      ),
+    ).toEqual({ version: '0.2.14' });
+    expect(parseWindowsDoctorOutput('mcp=false\nhelper=embedded')).toBeUndefined();
+    expect(parseWindowsDoctorOutput('mcp=true\nhelper=external')).toBeUndefined();
+  });
+});
+
+describe('windowsPowerShellPath', () => {
+  it('always resolves the system Windows PowerShell executable absolutely', () => {
+    expect(windowsPowerShellPath('D:\\Windows')).toBe(
+      'D:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+    );
+    expect(path.win32.isAbsolute(windowsPowerShellPath('relative'))).toBe(true);
+    expect(windowsPowerShell7Path('D:\\Program Files')).toBe(
+      'D:\\Program Files\\PowerShell\\7\\pwsh.exe',
+    );
+    expect(path.win32.isAbsolute(windowsPowerShell7Path('relative'))).toBe(true);
+  });
+});
+
 describe('elevatedDittoScript', () => {
   it('shell-quotes both paths so spaces and metacharacters stay literal', () => {
-    // The elevated path runs the string through /bin/sh with administrator
-    // privileges: every path must be exactly one literal argument.
     expect(elevatedDittoScript('/tmp/pythinker cu/app', '/Applications/PythinkerCU.app')).toBe(
       "/usr/bin/ditto '/tmp/pythinker cu/app' '/Applications/PythinkerCU.app'",
     );
@@ -221,7 +240,6 @@ describe('pythinker-cu entry', () => {
     await mkdir(macosDir, { recursive: true });
     const appBin = path.join(macosDir, 'pythinker-cu');
     await writeFile(appBin, '#!/bin/sh\n');
-    // Real bundles are executable; anything less reads as a broken install.
     await chmod(appBin, 0o755);
     await writeFile(
       path.join(applicationsDir, 'PythinkerCU.app', 'Contents', 'Info.plist'),
@@ -242,10 +260,437 @@ describe('pythinker-cu entry', () => {
     };
   }
 
-  it('is supported only on macOS', () => {
+  it('supports macOS and Windows x64 under one capability id', () => {
     expect(createPythinkerCuEntry(makeCtx()).supported).toBe(true);
     expect(createPythinkerCuEntry(makeCtx({ platform: 'linux' })).supported).toBe(false);
-    expect(createPythinkerCuEntry(makeCtx({ platform: 'win32' })).supported).toBe(false);
+    expect(createPythinkerCuEntry(makeCtx({ platform: 'win32', arch: 'x64' }))).toMatchObject({
+      id: 'pythinker-cu',
+      pluginId: 'pythinker-cu-win',
+      supported: true,
+    });
+    expect(createPythinkerCuEntry(makeCtx({ platform: 'win32', arch: 'arm64' })).supported).toBe(
+      false,
+    );
+  });
+
+  it('labels the Windows capability consistently with its installed plugin', () => {
+    expect(createPythinkerCuEntry(makeCtx({ platform: 'win32', arch: 'x64' })).displayName).toBe(
+      'Pythinker Computer Use for Windows',
+    );
+  });
+
+  it('detects the Windows plugin and signed runtime through doctor', async () => {
+    const plugins = fakePlugins([
+      { id: 'pythinker-cu-win', enabled: true, state: 'ok', version: '0.2.14' },
+    ]);
+    const host = fakeHostProcess([
+      {
+        match: '-Command',
+        code: 0,
+        stdout: 'version=0.2.14\r\nmcp=true\r\nhelper=embedded\r\nagent=running\r\n',
+      },
+    ]);
+    const entry = createPythinkerCuEntry(
+      makeCtx({
+        platform: 'win32',
+        arch: 'x64',
+        plugins: plugins.service,
+        hostProcess: host.service,
+      }),
+    );
+
+    await expect(entry.detect()).resolves.toEqual({
+      version: '0.2.14',
+      steps: [
+        { id: 'plugin', state: 'ok', detail: '0.2.14' },
+        { id: 'runtime', state: 'ok', detail: '0.2.14' },
+      ],
+    });
+    expect(host.calls).toHaveLength(1);
+    expect(
+      host.calls[0]?.startsWith(
+        `${windowsPowerShellPath()} -NoProfile -NonInteractive -Command `,
+      ),
+    ).toBe(true);
+  });
+
+  it('installs Windows with the official setup script and shared plugin wiring', async () => {
+    const plugins = fakePlugins([]);
+    const calls: string[] = [];
+    const doctorResults = [
+      { code: 3, stdout: '', stderr: '' },
+      {
+        code: 0,
+        stdout: 'version=0.2.14\r\nmcp=true\r\nhelper=embedded\r\nagent=running\r\n',
+        stderr: '',
+      },
+    ];
+    const hostProcess = {
+      _serviceBrand: undefined,
+      spawn: (command: string, args: readonly string[] = []) => {
+        calls.push(`${command} ${args.join(' ')}`);
+        if (args.some((arg) => arg.includes('Get-FileHash'))) {
+          return Promise.resolve(fakeProc(0, 'PowerShell 5.1'));
+        }
+        if (args.some((arg) => arg.includes('setup_windows.ps1'))) {
+          return Promise.resolve(fakeProc(0));
+        }
+        if (args.includes('-Command')) {
+          const result = doctorResults.shift();
+          return Promise.resolve(
+            fakeProc(
+              result?.code ?? 1,
+              result?.stdout ?? '',
+              result?.stderr ?? 'unexpected doctor',
+            ),
+          );
+        }
+        return Promise.resolve(fakeProc(1));
+      },
+    } as IHostProcessService;
+    const fetchImpl = (() => {
+      const bytes = new TextEncoder().encode("Write-Host 'official setup'");
+      return Promise.resolve(
+        new Response(bytes, {
+          status: 200,
+          headers: { 'content-length': String(bytes.length) },
+        }),
+      );
+    }) as typeof fetch;
+    const entry = createPythinkerCuEntry(
+      makeCtx({
+        platform: 'win32',
+        arch: 'x64',
+        plugins: plugins.service,
+        hostProcess,
+        fetchImpl,
+      }),
+    );
+    const reports: Array<[string, number | undefined]> = [];
+
+    await entry.install((step, percent) => reports.push([step, percent]));
+
+    expect(plugins.installs).toEqual([
+      'https://cdn.kimi.com/pythinker-computer-use-windows/latest/pythinker-cu-win-plugin.zip',
+    ]);
+    expect(reports).toContainEqual(['plugin', undefined]);
+    expect(reports).toContainEqual(['download', 0]);
+    expect(reports).toContainEqual(['download', 100]);
+    expect(reports).toContainEqual(['runtime', undefined]);
+    expect(
+      calls.some(
+        (call) =>
+          call.includes('-ExecutionPolicy Bypass -Command') &&
+          call.includes('[Console]::OutputEncoding = $utf8') &&
+          call.includes('setup_windows.ps1'),
+      ),
+    ).toBe(true);
+    expect(calls.every((call) => call.startsWith(windowsPowerShellPath()))).toBe(true);
+    expect(doctorResults).toEqual([]);
+  });
+
+  it('uses trusted PowerShell 7 when system PowerShell cannot run the installer', async () => {
+    const plugins = fakePlugins([]);
+    const calls: string[] = [];
+    const doctorResults = [
+      { code: 3, stdout: '', stderr: '' },
+      {
+        code: 0,
+        stdout: 'version=0.2.14\r\nmcp=true\r\nhelper=embedded\r\nagent=running\r\n',
+        stderr: '',
+      },
+    ];
+    const hostProcess = {
+      _serviceBrand: undefined,
+      spawn: (command: string, args: readonly string[] = []) => {
+        calls.push(`${command} ${args.join(' ')}`);
+        if (args.some((arg) => arg.includes('Get-FileHash'))) {
+          return Promise.resolve(
+            command === windowsPowerShellPath()
+              ? fakeProc(2, '', 'missing commands: Get-FileHash')
+              : fakeProc(0, 'PowerShell 7.5.2'),
+          );
+        }
+        if (args.some((arg) => arg.includes('setup_windows.ps1'))) {
+          return Promise.resolve(fakeProc(0));
+        }
+        const result = doctorResults.shift();
+        return Promise.resolve(
+          fakeProc(result?.code ?? 1, result?.stdout ?? '', result?.stderr ?? 'unexpected doctor'),
+        );
+      },
+    } as IHostProcessService;
+    const entry = createPythinkerCuEntry(
+      makeCtx({
+        platform: 'win32',
+        arch: 'x64',
+        plugins: plugins.service,
+        hostProcess,
+        fetchImpl: (() =>
+          Promise.resolve(
+            new Response("Write-Host 'official setup'", {
+              headers: { 'content-length': '27' },
+            }),
+          )) as typeof fetch,
+      }),
+    );
+
+    await entry.install(() => undefined);
+
+    expect(
+      calls.some(
+        (call) =>
+          call.startsWith(windowsPowerShell7Path()) && call.includes('setup_windows.ps1'),
+      ),
+    ).toBe(true);
+    expect(plugins.installs).toEqual([
+      'https://cdn.kimi.com/pythinker-computer-use-windows/latest/pythinker-cu-win-plugin.zip',
+    ]);
+  });
+
+  it('keeps the Windows runtime detectable after installing through PowerShell 7', async () => {
+    const plugins = fakePlugins([]);
+    const calls: string[] = [];
+    let runtimeInstalled = false;
+    const hostProcess = {
+      _serviceBrand: undefined,
+      spawn: (command: string, args: readonly string[] = []) => {
+        calls.push(`${command} ${args.join(' ')}`);
+        if (command === windowsPowerShellPath()) {
+          return Promise.reject(new Error('Windows PowerShell cannot launch'));
+        }
+        if (args.some((arg) => arg.includes('Get-FileHash'))) {
+          return Promise.resolve(fakeProc(0, 'PowerShell 7.5.2'));
+        }
+        if (args.some((arg) => arg.includes('setup_windows.ps1'))) {
+          runtimeInstalled = true;
+          return Promise.resolve(fakeProc(0));
+        }
+        return Promise.resolve(
+          runtimeInstalled
+            ? fakeProc(
+                0,
+                'version=0.2.14\r\nmcp=true\r\nhelper=embedded\r\nagent=running\r\n',
+              )
+            : fakeProc(3),
+        );
+      },
+    } as IHostProcessService;
+    const entry = createPythinkerCuEntry(
+      makeCtx({
+        platform: 'win32',
+        arch: 'x64',
+        plugins: plugins.service,
+        hostProcess,
+        fetchImpl: (() =>
+          Promise.resolve(
+            new Response("Write-Host 'official setup'", {
+              headers: { 'content-length': '27' },
+            }),
+          )) as typeof fetch,
+      }),
+    );
+
+    await entry.install(() => undefined);
+
+    await expect(entry.detect()).resolves.toEqual({
+      version: '0.2.14',
+      steps: [
+        { id: 'plugin', state: 'ok' },
+        { id: 'runtime', state: 'ok', detail: '0.2.14' },
+      ],
+    });
+    expect(
+      calls.some(
+        (call) =>
+          call.startsWith(windowsPowerShell7Path()) && call.includes('setup_windows.ps1'),
+      ),
+    ).toBe(true);
+  });
+
+  it('leaves plugin wiring untouched when no PowerShell can run the installer', async () => {
+    const plugins = fakePlugins([]);
+    let downloads = 0;
+    const hostProcess = {
+      _serviceBrand: undefined,
+      spawn: (command: string, args: readonly string[] = []) => {
+        if (args.some((arg) => arg.includes('Get-FileHash'))) {
+          return Promise.resolve(
+            fakeProc(2, '', `${command}: missing commands: Get-FileHash, Expand-Archive`),
+          );
+        }
+        return Promise.resolve(fakeProc(3));
+      },
+    } as IHostProcessService;
+    const entry = createPythinkerCuEntry(
+      makeCtx({
+        platform: 'win32',
+        arch: 'x64',
+        plugins: plugins.service,
+        hostProcess,
+        fetchImpl: (() => {
+          downloads += 1;
+          return Promise.reject(new Error('download should not start'));
+        }) as typeof fetch,
+      }),
+    );
+
+    await expect(entry.install(() => undefined)).rejects.toThrow(
+      /requires Windows PowerShell 5\.1 or PowerShell 7.*Get-FileHash, Expand-Archive/,
+    );
+
+    expect(plugins.installs).toEqual([]);
+    expect(downloads).toBe(0);
+  });
+
+  it('repairs a missing Windows runtime without replacing a healthy plugin', async () => {
+    const plugins = fakePlugins([{ id: 'pythinker-cu-win', enabled: true, state: 'ok' }]);
+    const doctorResults = [
+      { code: 3, stdout: '', stderr: '' },
+      {
+        code: 0,
+        stdout: 'version=0.2.14\r\nmcp=true\r\nhelper=embedded\r\nagent=running\r\n',
+        stderr: '',
+      },
+    ];
+    const hostProcess = {
+      _serviceBrand: undefined,
+      spawn: (_command: string, args: readonly string[] = []) => {
+        if (args.some((arg) => arg.includes('Get-FileHash'))) {
+          return Promise.resolve(fakeProc(0, 'PowerShell 5.1'));
+        }
+        if (args.some((arg) => arg.includes('setup_windows.ps1'))) {
+          return Promise.resolve(fakeProc(0));
+        }
+        const result = doctorResults.shift();
+        return Promise.resolve(
+          fakeProc(result?.code ?? 1, result?.stdout ?? '', result?.stderr ?? 'unexpected doctor'),
+        );
+      },
+    } as IHostProcessService;
+    const entry = createPythinkerCuEntry(
+      makeCtx({
+        platform: 'win32',
+        arch: 'x64',
+        plugins: plugins.service,
+        hostProcess,
+        fetchImpl: (() =>
+          Promise.resolve(
+            new Response("Write-Host 'official setup'", {
+              headers: { 'content-length': '27' },
+            }),
+          )) as typeof fetch,
+      }),
+    );
+
+    await entry.install(() => undefined);
+
+    expect(plugins.installs).toEqual([]);
+    expect(doctorResults).toEqual([]);
+  });
+
+  it('refreshes the Windows plugin when installation starts fully ready', async () => {
+    const plugins = fakePlugins([{ id: 'pythinker-cu-win', enabled: true, state: 'ok' }]);
+    const doctorResults = [
+      {
+        code: 0,
+        stdout: 'version=0.2.14\r\nmcp=true\r\nhelper=embedded\r\nagent=running\r\n',
+        stderr: '',
+      },
+      {
+        code: 0,
+        stdout: 'version=0.2.14\r\nmcp=true\r\nhelper=embedded\r\nagent=running\r\n',
+        stderr: '',
+      },
+    ];
+    const hostProcess = {
+      _serviceBrand: undefined,
+      spawn: (_command: string, args: readonly string[] = []) => {
+        if (args.some((arg) => arg.includes('Get-FileHash'))) {
+          return Promise.resolve(fakeProc(0, 'PowerShell 5.1'));
+        }
+        if (args.some((arg) => arg.includes('setup_windows.ps1'))) {
+          return Promise.resolve(fakeProc(0));
+        }
+        const result = doctorResults.shift();
+        return Promise.resolve(
+          fakeProc(result?.code ?? 1, result?.stdout ?? '', result?.stderr ?? 'unexpected doctor'),
+        );
+      },
+    } as IHostProcessService;
+    const entry = createPythinkerCuEntry(
+      makeCtx({
+        platform: 'win32',
+        arch: 'x64',
+        plugins: plugins.service,
+        hostProcess,
+        fetchImpl: (() =>
+          Promise.resolve(
+            new Response("Write-Host 'official setup'", {
+              headers: { 'content-length': '27' },
+            }),
+          )) as typeof fetch,
+      }),
+    );
+
+    await entry.install(() => undefined);
+
+    expect(plugins.installs).toEqual([
+      'https://cdn.kimi.com/pythinker-computer-use-windows/latest/pythinker-cu-win-plugin.zip',
+    ]);
+    expect(doctorResults).toEqual([]);
+  });
+
+  it('explains how to recover when Windows plugin files are still in use', async () => {
+    const busy = Object.assign(new Error('resource busy or locked'), { code: 'EBUSY' });
+    const plugins = fakePlugins([], () => {
+      throw busy;
+    });
+    const host = fakeHostProcess([
+      {
+        match: '-Command',
+        code: 0,
+        stdout: 'version=0.2.14\nmcp=true\nhelper=embedded\nagent=running\n',
+      },
+    ]);
+    const entry = createPythinkerCuEntry(
+      makeCtx({
+        platform: 'win32',
+        arch: 'x64',
+        plugins: plugins.service,
+        hostProcess: host.service,
+      }),
+    );
+
+    await expect(entry.install(() => undefined)).rejects.toThrow(
+      'Pythinker Computer Use plugin files are still in use by the current Pythinker Code process. Restart Pythinker Code, then install again.',
+    );
+  });
+
+  it('does not reinstall a healthy Windows runtime when only the plugin is missing', async () => {
+    const plugins = fakePlugins([]);
+    const host = fakeHostProcess([
+      {
+        match: '-Command',
+        code: 0,
+        stdout: 'version=0.2.14\nmcp=true\nhelper=embedded\nagent=running\n',
+      },
+    ]);
+    const entry = createPythinkerCuEntry(
+      makeCtx({
+        platform: 'win32',
+        arch: 'x64',
+        plugins: plugins.service,
+        hostProcess: host.service,
+        fetchImpl: (() => Promise.reject(new Error('download should be skipped'))) as never,
+      }),
+    );
+    const reports: string[] = [];
+
+    await entry.install((step) => reports.push(step));
+
+    expect(reports).toEqual(['plugin']);
+    expect(host.calls).toHaveLength(1);
   });
 
   it('detects all four layers with details', async () => {
@@ -314,6 +759,119 @@ describe('pythinker-cu entry', () => {
     expect(host.calls.every((call) => call.includes('service-status') || call.includes('xpc-ping'))).toBe(true);
   });
 
+  it('migrates the exact legacy standalone MCP registration after installing the plugin', async () => {
+    const applicationsDir = await fakeAppBundle();
+    const appBin = path.join(applicationsDir, 'PythinkerCU.app', 'Contents', 'MacOS', 'pythinker-cu');
+    const pythinkerHomeDir = path.join(root, 'pythinker-home');
+    await mkdir(pythinkerHomeDir, { recursive: true });
+    await writeFile(
+      path.join(pythinkerHomeDir, 'mcp.json'),
+      `${JSON.stringify({
+        mcpServers: {
+          'pythinker-cu': { command: appBin, args: ['mcp', '-s', 'user'] },
+          custom: { command: 'custom-mcp', args: [] },
+        },
+      })}\n`,
+    );
+    const plugins = fakePlugins([]);
+    const host = fakeHostProcess([
+      { match: 'service-status', code: 0, stdout: 'SMAppService status=1' },
+      { match: 'xpc-ping', code: 0, stdout: 'permissionStatus: accessibility=true screenRecording=true' },
+    ]);
+    const entry = createPythinkerCuEntry(
+      makeCtx({
+        applicationsDir,
+        pythinkerHomeDir,
+        plugins: plugins.service,
+        hostProcess: host.service,
+      }),
+    );
+
+    expect((await entry.detect()).steps).toContainEqual({
+      id: 'legacy-mcp',
+      state: 'missing',
+      detail: 'duplicate standalone pythinker-cu MCP registration',
+      optional: true,
+    });
+    const reports: string[] = [];
+    await entry.install((step) => reports.push(step));
+
+    const migrated = JSON.parse(await readFile(path.join(pythinkerHomeDir, 'mcp.json'), 'utf8')) as {
+      mcpServers: Record<string, unknown>;
+    };
+    expect(migrated.mcpServers['pythinker-cu']).toBeUndefined();
+    expect(migrated.mcpServers['custom']).toEqual({ command: 'custom-mcp', args: [] });
+    expect(reports).toEqual(['plugin', 'mcp-config']);
+  });
+
+  it('leaves the legacy MCP config untouched when it changes during setup', async () => {
+    const applicationsDir = await fakeAppBundle();
+    const appBin = path.join(applicationsDir, 'PythinkerCU.app', 'Contents', 'MacOS', 'pythinker-cu');
+    const pythinkerHomeDir = path.join(root, 'pythinker-home');
+    await mkdir(pythinkerHomeDir, { recursive: true });
+    const configPath = path.join(pythinkerHomeDir, 'mcp.json');
+    const legacy = { command: appBin, args: ['mcp', '-s', 'user'] };
+    await writeFile(configPath, `${JSON.stringify({ mcpServers: { 'pythinker-cu': legacy } })}\n`);
+    const concurrentConfig = {
+      mcpServers: {
+        'pythinker-cu': legacy,
+        addedDuringSetup: { command: 'another-mcp', args: [] },
+      },
+    };
+    const plugins = fakePlugins([], async () => {
+      await writeFile(configPath, `${JSON.stringify(concurrentConfig, null, 2)}\n`);
+    });
+    const host = fakeHostProcess([
+      { match: 'service-status', code: 0, stdout: 'SMAppService status=1' },
+      { match: 'xpc-ping', code: 0, stdout: 'permissionStatus: accessibility=true screenRecording=true' },
+    ]);
+    const entry = createPythinkerCuEntry(
+      makeCtx({
+        applicationsDir,
+        pythinkerHomeDir,
+        plugins: plugins.service,
+        hostProcess: host.service,
+      }),
+    );
+    const reports: string[] = [];
+
+    await entry.install((step) => reports.push(step));
+
+    expect(JSON.parse(await readFile(configPath, 'utf8'))).toEqual(concurrentConfig);
+    expect(reports).toEqual(['plugin']);
+  });
+
+  it('does not migrate a customized standalone MCP registration', async () => {
+    const applicationsDir = await fakeAppBundle();
+    const appBin = path.join(applicationsDir, 'PythinkerCU.app', 'Contents', 'MacOS', 'pythinker-cu');
+    const pythinkerHomeDir = path.join(root, 'pythinker-home');
+    await mkdir(pythinkerHomeDir, { recursive: true });
+    const configPath = path.join(pythinkerHomeDir, 'mcp.json');
+    const custom = {
+      mcpServers: {
+        'pythinker-cu': { command: appBin, args: ['mcp', '-s', 'user'], env: { CUSTOM: '1' } },
+      },
+    };
+    await writeFile(configPath, `${JSON.stringify(custom)}\n`);
+    const plugins = fakePlugins([]);
+    const host = fakeHostProcess([
+      { match: 'service-status', code: 0, stdout: 'SMAppService status=1' },
+      { match: 'xpc-ping', code: 0, stdout: 'permissionStatus: accessibility=true screenRecording=true' },
+    ]);
+    const entry = createPythinkerCuEntry(
+      makeCtx({
+        applicationsDir,
+        pythinkerHomeDir,
+        plugins: plugins.service,
+        hostProcess: host.service,
+      }),
+    );
+
+    await entry.install(() => {});
+
+    expect(JSON.parse(await readFile(configPath, 'utf8'))).toEqual(custom);
+  });
+
   it('marks probe steps failed instead of throwing when the binary is wedged', async () => {
     const applicationsDir = await fakeAppBundle();
     const plugins = fakePlugins([]);
@@ -342,9 +900,6 @@ describe('pythinker-cu entry', () => {
       detail: expect.stringContaining('timed out'),
     });
 
-    // The install path uses the same detect — it must still repair the
-    // wiring layer instead of dying on the wedged probes. The service
-    // itself legitimately stays broken and reports the clean error.
     await expect(entry.install(() => {})).rejects.toThrow(/not running after install/);
     expect(plugins.installs).toHaveLength(1);
   });
@@ -360,19 +915,38 @@ describe('pythinker-cu entry', () => {
       makeCtx({ applicationsDir, plugins: plugins.service, hostProcess: host.service }),
     );
 
-    // Everything else ready, only the disabled wiring blocks readiness —
-    // setup must not strand the capability at partial by leaving it off.
     await entry.install(() => {});
     expect(plugins.enabledCalls).toEqual([{ id: 'pythinker-cu', enabled: true }]);
+  });
+
+  it('refreshes the wiring plugin when permissions are the only missing layer', async () => {
+    const applicationsDir = await fakeAppBundle();
+    const plugins = fakePlugins([
+      { id: 'pythinker-cu', enabled: true, state: 'ok', version: '0.5.4' },
+    ]);
+    const host = fakeHostProcess([
+      { match: 'service-status', code: 0, stdout: 'SMAppService status=1' },
+      {
+        match: 'xpc-ping',
+        code: 0,
+        stdout: 'permissionStatus: accessibility=true screenRecording=false',
+      },
+    ]);
+    const entry = createPythinkerCuEntry(
+      makeCtx({ applicationsDir, plugins: plugins.service, hostProcess: host.service }),
+    );
+
+    await entry.install(() => {});
+
+    expect(plugins.installs).toEqual([
+      'https://cdn.kimi.com/pythinker-computer-use/latest/pythinker-cu-plugin.zip',
+    ]);
   });
 
   it('continues the replacement when the old-binary cleanup hangs', async () => {
     const applicationsDir = await fakeAppBundle();
     const plugins = fakePlugins([{ id: 'pythinker-cu', enabled: true, state: 'ok', version: '0.5.4' }]);
     const host = fakeHostProcess([
-      // The wedged old binary makes `pythinker-cu uninstall` hang — cleanup must
-      // swallow the timeout (`|| true` semantics) instead of killing the
-      // reinstall before ditto can replace the app.
       { match: 'uninstall', code: 0, hang: true },
       { match: 'service-status', code: 0, stdout: 'SMAppService status=1' },
       { match: 'xpc-ping', code: 0, stdout: 'permissionStatus: accessibility=true screenRecording=true' },
@@ -384,9 +958,6 @@ describe('pythinker-cu entry', () => {
           headers: { 'content-length': '3' },
         }),
       )) as never;
-    // The fake ditto must materialize the copied binary: moveAppIntoPlace
-    // rm's the old bundle first, and the post-install service check probes
-    // the new one.
     const appBin = path.join(applicationsDir, 'PythinkerCU.app', 'Contents', 'MacOS', 'pythinker-cu');
     const hostProcess = {
       spawn: async (command: string, args: readonly string[] = []) => {
@@ -409,17 +980,16 @@ describe('pythinker-cu entry', () => {
       }),
     );
 
-    // Fully ready → explicit reinstall exercises the cleanup path.
     await entry.install(() => {});
     expect(host.calls.some((call) => call.includes('ditto'))).toBe(true);
+    expect(host.calls.some((call) => call.includes('pkill') && call.includes('+mcp'))).toBe(false);
+    expect(host.calls.some((call) => call.includes('pkill') && call.includes('+service'))).toBe(true);
   });
 
   it('reports the plugin layer missing when its MCP server is disabled', async () => {
     const plugins = fakePlugins([{ id: 'pythinker-cu', enabled: true, state: 'ok', version: '0.5.4', enabledMcp: 0 }]);
     const entry = createPythinkerCuEntry(makeCtx({ plugins: plugins.service }));
 
-    // The plugin toggle is on but the stdio MCP wrapper is off: readiness
-    // must not claim ready — new sessions would get no Computer Use tools.
     const detected = await entry.detect();
     expect(detected.steps.find((s) => s.id === 'plugin')).toEqual({
       id: 'plugin',
@@ -439,8 +1009,6 @@ describe('pythinker-cu entry', () => {
       makeCtx({ applicationsDir, plugins: plugins.service, hostProcess: host.service }),
     );
 
-    // Upsert preserves the per-server disabled state, so setup repairs it
-    // explicitly — the plugin toggle alone is not enough.
     await entry.install(() => {});
     expect(plugins.mcpEnabledCalls).toEqual([{ id: 'pythinker-cu', server: 'mac', enabled: true }]);
   });
@@ -466,8 +1034,6 @@ describe('pythinker-cu entry', () => {
       }),
     );
 
-    // A corrupt archive must fail before any teardown — a failed update
-    // never breaks a previously working setup.
     await expect(entry.install(() => {})).rejects.toThrow(/Failed to unzip/);
     expect(host.calls.some((call) => call.includes('uninstall'))).toBe(false);
     expect(host.calls.some((call) => call.includes('bootout'))).toBe(false);
@@ -476,7 +1042,6 @@ describe('pythinker-cu entry', () => {
 
   it('reads a bundle missing its Info.plist as a broken install', async () => {
     const applicationsDir = await fakeAppBundle();
-    // Executable binary but the bundle metadata is gone (partial copy).
     await rm(path.join(applicationsDir, 'PythinkerCU.app', 'Contents', 'Info.plist'));
     const entry = createPythinkerCuEntry(makeCtx({ applicationsDir }));
 
@@ -486,7 +1051,6 @@ describe('pythinker-cu entry', () => {
 
   it('reads a non-executable leftover app binary as a broken install', async () => {
     const applicationsDir = await fakeAppBundle();
-    // An interrupted ditto leaves the binary present but not executable.
     await chmod(path.join(applicationsDir, 'PythinkerCU.app', 'Contents', 'MacOS', 'pythinker-cu'), 0o644);
     const entry = createPythinkerCuEntry(makeCtx({ applicationsDir }));
 

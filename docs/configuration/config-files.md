@@ -40,7 +40,7 @@ model = "k3"
 max_context_size = 1048576
 capabilities = [ "thinking", "always_thinking", "image_in", "video_in", "tool_use" ]
 display_name = "K3"
-support_efforts = [ "max" ]
+support_efforts = [ "low", "high", "max" ]
 default_effort = "max"
 
 [models."pythinker-code/kimi-for-coding"]
@@ -103,7 +103,7 @@ Fields in the config file fall into two categories: **top-level scalars** that d
 | `merge_all_available_skills` | `boolean` | `true` | Whether to merge Agent Skills from all available directories |
 | `extra_skill_dirs` | `array<string>` | — | Extra skill search directories, layered on top of the default directories |
 | `extra_agent_dirs` | `array<string>` | — | Extra custom agent search directories, layered on top of the default directories |
-| `builtin_product_skills` | `boolean` | `true` | Whether the built-in skills that document Pythinker Code itself are offered to the model: `update-config`, `custom-theme`, `mcp-config`, `check-pythinker-code-docs`, and `import-from-cc-codex`. Turning them off trims their names and descriptions from the system prompt, at the cost of the guided flows for those tasks. Read by the `agent-core-v2` engine (`pythinker web` and the `PYTHINKER_CODE_EXPERIMENTAL_FLAG` paths); ignored on the default engine |
+| `builtin_product_skills` | `boolean` | `true` | Whether the built-in skills that document Pythinker Code itself are offered to the model: `update-config`, `custom-theme`, `mcp-config`, `check-pythinker-code-docs`, and `import-from-cc-codex`. Turning them off trims their names and descriptions from the system prompt, at the cost of the guided flows for those tasks. Read by the default `agent-core-v2` engine; ignored when `PYTHINKER_CODE_LEGACY_FLAG=1` selects the legacy engine |
 | `telemetry` | `boolean` | `true` | Whether anonymous telemetry is enabled; disabled only when explicitly set to `false` |
 | `providers` | `table` | `{}` | API provider table → [`providers`](#providers) |
 | `models` | `table` | — | Model alias table → [`models`](#models) |
@@ -192,34 +192,75 @@ You can also switch models temporarily without touching the config file — by s
 
 ## `secondary_model`
 
-The secondary model is a second model configuration alongside the main model — typically a cheaper one, for features that do not need the main model's capability. Its consumer today is subagent spawning: when set, newly spawned subagents (`Agent` / `AgentDynamicWorkflow`) bind to it by default instead of inheriting the main agent's model; when unset, subagents inherit the main agent's model.
+Subagents inherit the model the main agent is running by default. The `[secondary_model]` section makes this configurable: it offers subagents a pool of candidate models plus a default binding — typically a cheaper model for subtasks that do not need the main model's capability.
 
-This is a default binding, not a forced one. With the experiment enabled, the `Agent` / `AgentDynamicWorkflow` tools gain a `model` parameter (accepting only the symbolic values `"secondary"` / `"primary"`), and the tool description lists the available models with the default marked. A spawn resolves the subagent's model in this order: an explicit tool-call `model` → the profile's [`model_preference`](../customization/agents.md#agent-file-format) → the configured secondary model (the default). Here `"primary"` means the model the main agent is currently running, not necessarily `default_model` — for example after a mid-session `/model` switch.
+### Subagent model pool
 
-Because overriding the default is the main agent's own decision (the tool description merely suggests `"secondary"` for routine tasks and `"primary"` for hard, quality-sensitive ones), there is no per-spawn switch on the user side. To steer a specific subagent to the main model, ask the main agent in your prompt to pass `model: "primary"`, or set `model_preference: "primary"` in the corresponding profile.
+This feature is experimental and disabled by default. Enable it with `PYTHINKER_CODE_EXPERIMENTAL_SECONDARY_MODEL=1`, or the master `PYTHINKER_CODE_EXPERIMENTAL_FLAG=1`. It takes effect in every launch mode, including the interactive TUI. While the experiment is off, the pool keys stay inert: subagents inherit the caller's model and session startup skips the pool validation.
 
-This feature is experimental and disabled by default. Enable it with `PYTHINKER_CODE_EXPERIMENTAL_SECONDARY_MODEL=1`, or the master `PYTHINKER_CODE_EXPERIMENTAL_FLAG=1`. It takes effect in every launch mode, including the interactive TUI.
-
-In the interactive TUI, the [`/secondary_model`](../reference/slash-commands.md) command opens a model picker that writes this section and live-applies it to the current session, so newly spawned subagents bind the new secondary model right away.
-
-| Field | Type | Default | Description |
-| --- | --- | --- | --- |
-| `model` | `string` | — | The alias of a configured [`[models]`](#models) entry, e.g. `pythinker-code/kimi-k2.5` (any provider, not limited to Pythinker models) |
-| `default_effort` | `string` | — | Thinking effort applied when subagents bind to the secondary model. Unset, the effort resolves naturally (global `[thinking]` config → the bound model's default effort) instead of inheriting the main agent's effort. Follows the main model's thinking-effort semantics: models with strict effort validation (e.g. Pythinker models) fall back to their default effort for unsupported values; other providers receive the value as-is |
-| Other fields | — | — | Accepts every field of [`[models."<alias>".overrides]`](#models) (`max_context_size`, `max_output_size`, `support_efforts`, …) as a model patch applied only to subagents |
-
-Every field besides `model` forms a patch: when at least one patch field is set, the runtime synthesizes a derived model entry in memory (a copy of the pointed entry with the patch merged into its overrides, patch winning conflicts) and subagents bind that derived entry; with no patch fields, subagents bind the pointed entry directly. The derived entry lives only in memory (never written back to `config.toml`) and is hidden from model-selection lists.
+To simply point every subagent at one model by default, no models table is needed — a single `default_model` line is a pool with a single entry:
 
 ```toml
 [secondary_model]
-model = "pythinker-code/kimi-k2.5"
-default_effort = "low"
-max_output_size = 8192
+default_model = "pythinker-code/kimi-for-coding-highspeed"
 ```
 
-`model` / `default_effort` can be overridden by the `PYTHINKER_SECONDARY_MODEL` / `PYTHINKER_SECONDARY_EFFORT` environment variables, which take higher priority than `config.toml`.
+In the interactive TUI, the [`/secondary-model`](../reference/slash-commands.md) command (alias `/subagent-model`) opens a model selector for this: the choice is written to `default_model` (when a models table exists and the picked alias is not in it, an entry with an empty description is added), and newly spawned subagents pick up the new default immediately — no session restart needed.
 
-When the experiment is enabled, the configuration is validated as the session starts: an unresolvable `model`, or a `default_effort` not listed by the (patched) model, produces a startup warning (also returned by the session-warnings API). The check is advisory — a broken secondary model still fails at spawn time, with the same source hint attached to the spawn error.
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `default_model` | `string` | — | Default subagent model. Required when `[secondary_model.models]` is configured, and must be one of its keys; written on its own (without a models table) it is equivalent to a pool containing only that entry |
+| `models` | `table<string, string>` | — | Subagent model pool. Each key is the alias of a configured [`[models]`](#models) entry; each value is the description the main agent sees when picking a subagent model (Chinese or English; an empty string lists the alias with no hint) |
+| `force` | `boolean` | `false` | Pin every subagent to `default_model`: the `model` parameter is not advertised, so the main agent cannot pick another model or `"primary"`. Requires `default_model`; cannot be combined with `[secondary_model.models]` |
+
+A configured pool — an explicit `[secondary_model.models]` table or a lone `default_model` — enables model selection: the `Agent` / `AgentDynamicWorkflow` tools gain a `model` parameter, and the tool description lists the pool (the default marked `[default]`) so the main agent can choose per spawn (unless `force` is set — see below). The pool only references configured [`[models]`](#models) entries — the `pythinker-code/*` aliases below are provisioned by `/login` — and attaches the selection hints:
+
+```toml
+[secondary_model]
+default_model = "pythinker-code/kimi-for-coding-highspeed"
+[secondary_model.models]
+"pythinker-code/k3" = "Pick this for hard problems. Strong at complex reasoning, algorithm design, deep debugging, math, and systematic challenges."
+"pythinker-code/kimi-for-coding-highspeed" = "Fast but priced higher. Good for latency-sensitive tasks: daily refactoring, code explanation, small edits, and summaries."
+"pythinker-code/kimi-for-coding" = "A balanced coding workhorse. Good for most feature development and code-change tasks."
+```
+
+A spawn resolves the subagent's model in this order: an explicit tool-call `model` → `default_model`. The `model` parameter accepts any pool alias, or `"primary"` — the model the caller itself is running, always valid even when that model is not in the pool. When neither `default_model` nor `[secondary_model.models]` is configured, the parameter is not advertised and subagents inherit the caller's model. Binding a pool alias carries no explicit thinking effort — the subagent resolves it naturally (global `[thinking]` config → the bound model's default effort) instead of inheriting the caller's level, while `"primary"` inherits both the model and the level from the caller.
+
+To take the choice away from the main agent entirely — every subagent runs on one fixed model — add `force = true`:
+
+```toml
+[secondary_model]
+default_model = "pythinker-code/kimi-for-coding-highspeed"
+force = true
+```
+
+With `force` set, the `model` parameter is not advertised (just like when nothing is configured) and every spawn binds `default_model`; an explicit `model` argument, `"primary"` included, is rejected with an error. `force` requires `default_model` and cannot be combined with a `[secondary_model.models]` table — the table exists to offer a choice, and force removes it.
+
+Because natural resolution lands on the bound model's default effort, different pool entries can carry different thinking levels: register a second `[models]` entry as a "variant" of the same underlying model, override only its `default_effort` via [`[models."<alias>".overrides]`](#model-overrides), and list both aliases in the pool — the main agent picks the thinking level together with the alias. Two prerequisites: the underlying model must declare `support_efforts` (under `managed:pythinker-code` only the k3 family currently declares effort levels), and the variant is a standalone entry that does not inherit fields from the entry it points at — copy `capabilities`, `support_efforts`, and the other metadata over in full, otherwise `default_effort` has no effect (it must be a member of `support_efforts`):
+
+```toml
+# "pythinker-code/k3" is provisioned by /login (default: high); this registers
+# a max-effort variant of the same model
+[models.k3-max]
+provider = "managed:pythinker-code"
+model = "k3"
+max_context_size = 1048576
+capabilities = [ "thinking", "always_thinking", "image_in", "video_in", "tool_use" ]
+support_efforts = [ "low", "high", "max" ]
+
+[models.k3-max.overrides]
+default_effort = "max"
+
+[secondary_model]
+default_model = "pythinker-code/k3"
+[secondary_model.models]
+"pythinker-code/k3" = "Default high effort. Good for most implementation, analysis, and multi-turn interaction tasks."
+k3-max = "The same model at max thinking effort. Good for the hardest subtasks."
+```
+
+Note that `default_effort` stays a model-level default: once a global `[thinking].effort` is set, it wins for the main agent and subagents alike, and the variant's default only applies when no global effort is set. Value and fallback rules follow the [`[models]` entry's `default_effort`](#models).
+
+Configuration errors fail loudly instead of falling back silently: session creation, resume, and fork all fail at startup when `default_model` is missing, is not a pool key, or a pool key does not resolve to a configured `[models]` entry — and likewise when `force` is set without `default_model` or combined with a `[secondary_model.models]` table. The alias `primary` is reserved — it always binds the caller's own model — and is rejected as a pool key. A spawn whose `model` is neither a pool alias nor `"primary"` fails with an error listing the available choices.
 
 ## `thinking`
 
@@ -276,7 +317,7 @@ Retries only apply to transient failures — connection errors, timeouts, HTTP 4
 | `bash_auto_background_on_timeout` | `boolean` | `true` | When a foreground `Bash` command hits its timeout, move it to a background task instead of killing it — the agent is notified when it completes, and the backgrounded command is bounded by the `bash_task_timeout_s` default background timeout. Set to `false` to kill timed-out foreground commands instead |
 | `bash_task_timeout_s` | `integer` | `600` | Default timeout (seconds) for background `Bash` tasks when the call omits `timeout`; also used to re-arm foreground commands moved to the background on timeout. `0` means no timeout — the task runs until it exits or the model stops it. Explicit per-call `timeout` values are unaffected. In print mode (`pythinker -p`) the default is `0` unless explicitly set |
 | `print_background_mode` | `"exit" \| "drain" \| "steer"` | `"steer"` | Print mode (`pythinker -p`) only. Governs how pending background tasks are handled once the main agent's turn ends: `"exit"` exits immediately; `"drain"` waits for every background task to reach a terminal state before exiting (results are not fed back to the main agent); `"steer"` stays alive so a completing background task — like a background subagent — injects a synthetic user message that steers the main agent into a new turn, looping until a turn ends with no pending background tasks or a limit is hit. Takes precedence over the `keep_alive_on_exit` print fallback |
-| `print_wait_ceiling_s` | `integer` | `315360000` | In print mode (`pythinker -p`), the wall-clock ceiling (seconds) for the wait/steer loop when `print_background_mode` is `"drain"` or `"steer"` (the default is 10 years — effectively unbounded). Has no effect outside print mode or when it is `"exit"` |
+| `print_wait_ceiling_s` | `integer` | `2147483` | In print mode (`pythinker -p`), the wall-clock ceiling (seconds) for the wait/steer loop when `print_background_mode` is `"drain"` or `"steer"` (the default is ~24.8 days — effectively unbounded). Has no effect outside print mode or when it is `"exit"` |
 | `print_max_turns` | `integer` | `100000` | In print mode (`pythinker -p`) with `print_background_mode = "steer"`, the maximum number of new turns that may be triggered by background-task completions, to keep the steering loop bounded (the default is effectively unbounded) |
 
 `keep_alive_on_exit` can be overridden by the `PYTHINKER_CODE_BACKGROUND_KEEP_ALIVE_ON_EXIT` environment variable, and `max_running_tasks` by `PYTHINKER_CODE_BACKGROUND_MAX_RUNNING_TASKS`; both take higher priority than `config.toml`.
@@ -285,9 +326,12 @@ In print mode (`pythinker -p "<prompt>"`), Pythinker Code stays alive after the 
 
 ## `subagent`
 
+`subagent` controls how spawned subagents (`Agent` / `AgentDynamicWorkflow`) run.
+
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `timeout_ms` | `integer` | `7200000` (2 hours) | Maximum wall-clock time (milliseconds) a single subagent (`Agent` / `AgentDynamicWorkflow`) is allowed to run before it is settled as `timed_out`. `0` means no timeout — the subagent runs until it finishes or the model stops it. This is the background-task manager's per-task timeout for each subagent task, so it applies to both foreground and background subagents. In print mode (`pythinker -p`) the default is `0` unless explicitly set. Note: any value above `2147483647` (about 24.8 days) is clamped to roughly 24.8 days by the runtime |
+
 `timeout_ms` can be overridden by the `PYTHINKER_SUBAGENT_TIMEOUT_MS` environment variable, which takes higher priority than `config.toml`.
 
 ## `mcp`
@@ -320,7 +364,7 @@ A name that contains no ASCII letters or digits (for example a purely Chinese na
 
 The identity is resolved once at startup and holds for the life of the process — it is announced to MCP servers and providers when connections are made, so it cannot change midway. Edits to this section take effect on the next start, for new sessions: a resumed session keeps the system prompt it was recorded with, since its past turns already speak under that identity. Likewise, an MCP OAuth authorization keeps the client registration it was granted under; reset that server's authentication to register under the new identity.
 
-This section is read by the `agent-core-v2` engine, which currently backs `pythinker web` and the `PYTHINKER_CODE_EXPERIMENTAL_FLAG` paths. On the default `pythinker` / `pythinker -p` engine it is ignored.
+This section is read by the default `agent-core-v2` engine. It is ignored by the legacy `pythinker` / `pythinker -p` path selected with `PYTHINKER_CODE_LEGACY_FLAG=1`; `pythinker web` always uses `agent-core-v2`.
 
 ## `tools`
 
@@ -428,7 +472,9 @@ Alongside `config.toml`, the CLI keeps terminal-UI and client preferences in a c
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `theme` | `string` | `auto` | Color theme: `auto` (follow the terminal), `dark`, `light`, or the name of a [custom theme](../customization/themes.md) |
+| `render_latex` | `boolean` | `true` | Render LaTeX math expressions (`$…$`, `$$…$$`) in Markdown messages as Unicode text; `false` keeps the raw source |
 | `disable_paste_burst` | `boolean` | `false` | Disable the non-bracketed paste-burst fallback that keeps rapid multi-line pastes from submitting line by line |
+| `cache_expiry_hint` | `boolean` | `true` | Show a dialog when resuming a long-idle session or submitting after a long idle stretch, warning that the context cache has likely expired and offering to compact or start a new session (v2 engine only) |
 | `[editor].command` | `string` | `""` | External editor command for composing long input; empty falls back to `$VISUAL` / `$EDITOR` |
 | `[notifications].enabled` | `boolean` | `true` | Whether desktop notifications are sent |
 | `[notifications].notification_condition` | `string` | `unfocused` | When to notify: `unfocused` (only when the terminal is not focused) or `always` |
@@ -439,7 +485,9 @@ Alongside `config.toml`, the CLI keeps terminal-UI and client preferences in a c
 ```toml
 # ~/.pythinker-code/tui.toml
 theme = "auto" # "auto" | "dark" | "light" | custom theme name
+render_latex = true # false keeps LaTeX math in messages as raw source
 disable_paste_burst = false # true disables non-bracketed paste-burst fallback
+cache_expiry_hint = true # false disables the "cache expired" dialog on resume / idle submit
 
 [editor]
 command = "" # empty uses $VISUAL / $EDITOR

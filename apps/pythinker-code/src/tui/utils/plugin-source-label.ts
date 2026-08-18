@@ -87,7 +87,8 @@ function isOfficialPluginUrl(url: URL): boolean {
     (url.hostname === 'code.kimi.com' &&
       url.pathname.startsWith('/pythinker-code/plugins/official/')) ||
     (url.hostname === 'cdn.kimi.com' &&
-      url.pathname.startsWith('/pythinker-computer-use/'))
+      (url.pathname.startsWith('/pythinker-computer-use/') ||
+        url.pathname.startsWith('/pythinker-computer-use-windows/')))
   );
 }
 

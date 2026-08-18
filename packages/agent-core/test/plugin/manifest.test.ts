@@ -199,6 +199,7 @@ describe('parseManifest', () => {
     });
     const result = await parseManifest(root);
     expect(result.manifest?.skills).toEqual([root]);
+    expect(result.manifest?.rootSkillFallback).toBe(true);
   });
 
   it('resolves an explicit agents path', async () => {
@@ -252,6 +253,7 @@ describe('parseManifest', () => {
     );
     const result = await parseManifest(root);
     expect(result.manifest?.skills).toEqual([path.join(root, 'skills')]);
+    expect(result.manifest?.rootSkillFallback).toBeUndefined();
   });
 
   it('loads the standard agents directory plus explicit agent files', async () => {

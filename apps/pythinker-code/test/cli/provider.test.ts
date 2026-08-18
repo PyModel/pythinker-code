@@ -18,6 +18,30 @@ import {
   type ProviderDeps,
 } from '#/cli/sub/provider';
 
+// Spy on the SDK harness factories so the default-deps engine routing can be
+// asserted without booting a real engine. The real implementations stay in
+// place for everything else the handlers use.
+const harnessRouting = vi.hoisted(() => ({
+  pythinkerHarnessConstructor: vi.fn(),
+  pythinkerHarnessV2Constructor: vi.fn(),
+  harness: undefined as unknown,
+}));
+
+vi.mock('@pymodel/pythinker-code-sdk', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@pymodel/pythinker-code-sdk')>();
+  return {
+    ...actual,
+    createPythinkerHarness: (...args: unknown[]) => {
+      harnessRouting.pythinkerHarnessConstructor(...args);
+      return harnessRouting.harness;
+    },
+    createPythinkerHarnessV2: (...args: unknown[]) => {
+      harnessRouting.pythinkerHarnessV2Constructor(...args);
+      return harnessRouting.harness;
+    },
+  };
+});
+
 class ExitCalled extends Error {
   constructor(public readonly code: number) {
     super(`exit(${code})`);
@@ -29,6 +53,7 @@ interface FakeHarness {
   getConfig: () => Promise<PythinkerConfig>;
   setConfig: (patch: Partial<PythinkerConfig>) => Promise<PythinkerConfig>;
   removeProvider: (providerId: string) => Promise<PythinkerConfig>;
+  close: () => Promise<void>;
 }
 
 function makeHarness(initial: PythinkerConfig): {
@@ -80,6 +105,7 @@ function makeHarness(initial: PythinkerConfig): {
       if (removedDefault) persisted = { ...persisted, defaultModel: undefined };
       return structuredClone(persisted);
     },
+    close: async () => {},
   };
   return {
     harness,
@@ -1091,5 +1117,50 @@ describe('pythinker provider catalog add', () => {
       type: 'openai',
       baseUrl: 'https://res.example.test/openai/v1',
     });
+  });
+});
+
+describe('pythinker provider engine routing', () => {
+  beforeEach(() => {
+    harnessRouting.pythinkerHarnessConstructor.mockClear();
+    harnessRouting.pythinkerHarnessV2Constructor.mockClear();
+    harnessRouting.harness = makeHarness({ providers: {} } as PythinkerConfig).harness;
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  function registerWithDefaultHarness(program: Command): void {
+    registerProviderCommand(program, {
+      stdout: { write: () => true },
+      stderr: { write: () => true },
+      env: {},
+      exit: ((code: number) => {
+        throw new ExitCalled(code);
+      }) as ProviderDeps['exit'],
+    });
+  }
+
+  it('builds the v2 harness by default', async () => {
+    vi.stubEnv('PYTHINKER_CODE_LEGACY_FLAG', '');
+    const program = new Command('pythinker');
+    registerWithDefaultHarness(program);
+
+    await program.parseAsync(['node', 'pythinker', 'provider', 'list'], { from: 'node' });
+
+    expect(harnessRouting.pythinkerHarnessV2Constructor).toHaveBeenCalledTimes(1);
+    expect(harnessRouting.pythinkerHarnessConstructor).not.toHaveBeenCalled();
+  });
+
+  it('builds the legacy harness when the legacy flag is truthy', async () => {
+    vi.stubEnv('PYTHINKER_CODE_LEGACY_FLAG', '1');
+    const program = new Command('pythinker');
+    registerWithDefaultHarness(program);
+
+    await program.parseAsync(['node', 'pythinker', 'provider', 'list'], { from: 'node' });
+
+    expect(harnessRouting.pythinkerHarnessConstructor).toHaveBeenCalledTimes(1);
+    expect(harnessRouting.pythinkerHarnessV2Constructor).not.toHaveBeenCalled();
   });
 });

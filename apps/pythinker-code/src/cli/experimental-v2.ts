@@ -1,22 +1,17 @@
 /**
- * Experimental agent-core-v2 engine gate for the CLI surfaces.
+ * Agent engine routing gates for the CLI surfaces.
  *
- * When the master switch `PYTHINKER_CODE_EXPERIMENTAL_FLAG` is truthy, `pythinker -p`
- * (print mode) routes to the native agent-core-v2 runner (see
- * `run-prompt.ts`), the interactive TUI builds its harness through the
- * SDK's v2-backed client (see `run-shell.ts`), and `pythinker doctor` validates
- * config.toml against the v2 section registry (see `sub/doctor.ts` /
- * `v2/validate-config.ts`), all instead of the default v1 engine. The
- * master switch also enables every experimental feature flag in the engine. Read directly from the env (matching
- * `cli/update/rollout.ts`) because the CLI must not depend on the core flag
- * registry. Unset / any non-truthy value keeps the v1 path.
+ * `pythinker -p`, the interactive TUI, and `pythinker doctor` use the native
+ * agent-core-v2 path by default. A truthy `PYTHINKER_CODE_LEGACY_FLAG` selects the
+ * legacy agent-core-backed path instead. `PYTHINKER_CODE_EXPERIMENTAL_FLAG` remains
+ * the master switch for experimental features within either engine; it does
+ * not select the engine.
  *
  * Note: `pythinker web` always boots kap-server (the agent-core-v2 engine
  * server) — it does not consult this switch.
  */
 
-export const PYTHINKER_V2_ENV = 'PYTHINKER_CODE_EXPERIMENTAL_FLAG';
-export const PYTHINKER_ACP_V2_ENV = 'PYTHINKER_CODE_EXPERIMENTAL_ACP_V2';
+export const PYTHINKER_LEGACY_ENV = 'PYTHINKER_CODE_LEGACY_FLAG';
 
 const TRUTHY_VALUES = new Set(['1', 'true', 'yes', 'on']);
 
@@ -27,14 +22,14 @@ function isTruthyEnv(
   return TRUTHY_VALUES.has((env[key] ?? '').trim().toLowerCase());
 }
 
+export function isLegacyEnabled(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): boolean {
+  return isTruthyEnv(PYTHINKER_LEGACY_ENV, env);
+}
+
 export function isPythinkerV2Enabled(
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): boolean {
-  return isTruthyEnv(PYTHINKER_V2_ENV, env);
-}
-
-export function isAcpV2Enabled(
-  env: Readonly<Record<string, string | undefined>> = process.env,
-): boolean {
-  return isTruthyEnv(PYTHINKER_ACP_V2_ENV, env) || isPythinkerV2Enabled(env);
+  return !isLegacyEnabled(env);
 }

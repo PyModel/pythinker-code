@@ -1,10 +1,12 @@
 import chalk from 'chalk';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 
-import { highlightFirstSlashToken } from '#/tui/components/editor/custom-editor';
-import { currentTheme } from '#/tui/theme';
+import { highlightFirstSlashToken, highlightInlineSkillTokens } from '#/tui/components/editor/custom-editor';
 
 beforeAll(() => {
+  // Vitest runs without a TTY so chalk auto-detects colour support as
+  // 0 (no colours). Force full colour so the highlighter actually
+  // emits the SGR escapes we're asserting on.
   chalk.level = 3;
 });
 
@@ -12,83 +14,119 @@ function strip(s: string): string {
   return s.replaceAll(/\u001B\[[0-9;]*m/g, '');
 }
 
-function cursorLine(text: string, cursorCol: number): string {
-  const before = text.slice(0, cursorCol);
-  const after = text.slice(cursorCol);
-  if (after.length === 0) return `${before}\u001B[7m \u001B[0m`;
-  return `${before}\u001B[7m${after[0]}\u001B[0m${after.slice(1)}`;
+function expectHighlighted(out: string, token: string): void {
+  expect(out).toMatch(new RegExp(`\\u001B\\[[0-9;]*m${token}\\u001B\\[`));
 }
 
 describe('highlightFirstSlashToken', () => {
-  it('colours /cmd when the cursor is inside a leading slash token', () => {
-    const input = cursorLine('  /help rest of input', '  /he'.length);
-    const out = highlightFirstSlashToken(input, 'primary');
+  it('colours /cmd when line starts with a slash', () => {
+    const out = highlightFirstSlashToken('  /help rest of input', 'primary');
     expect(out).toBeDefined();
-    expect(strip(out!)).toBe(strip(input));
-    expect(out!).toContain('/he');
-  });
-
-  it('supports a text-strong white highlight for the active composer command', () => {
-    const input = cursorLine('/help', '/help'.length);
-    const out = highlightFirstSlashToken(input, 'textStrong');
-
-    expect(out).toContain(currentTheme.boldFg('textStrong', '/help'));
-  });
-
-  it('reapplies the text-strong highlight after an in-token cursor reset', () => {
-    const input = cursorLine('/help', 2);
-    const out = highlightFirstSlashToken(input, 'textStrong');
-
-    expect(out).toContain(`\u001B[0m${currentTheme.boldFg('textStrong', 'lp')}`);
-  });
-
-  it('colours slash commands in the middle of the prompt', () => {
-    const input = cursorLine('ship with /help later', 'ship with /he'.length);
-    const out = highlightFirstSlashToken(input, 'primary');
-    expect(out).toBeDefined();
-    expect(strip(out!)).toBe(strip(input));
-    expect(out!).toContain('/he');
+    // Visible text unchanged
+    expect(strip(out!)).toBe('  /help rest of input');
+    // SGR escapes surround /help
+    expectHighlighted(out!, '/help');
   });
 
   it('colours next in /goal next', () => {
-    const input = cursorLine('/goal next Ship feature X', '/goal next'.length);
-    const out = highlightFirstSlashToken(input, 'primary');
+    const out = highlightFirstSlashToken('/goal next Ship feature X', 'primary');
     expect(out).toBeDefined();
-    expect(strip(out!)).toBe(strip(input));
-    expect(out!).toContain('/goal');
-    expect(out!).toContain('next');
-    expect(strip(out!)).toContain(' Ship feature X');
+    expect(strip(out!)).toBe('/goal next Ship feature X');
+    expectHighlighted(out!, '/goal');
+    expectHighlighted(out!, 'next');
+    expect(out!).toContain(' Ship feature X');
   });
 
   it('colours manage in /goal next manage', () => {
-    const input = cursorLine('/goal next manage', '/goal next manage'.length);
-    const out = highlightFirstSlashToken(input, 'primary');
+    const out = highlightFirstSlashToken('/goal next manage', 'primary');
     expect(out).toBeDefined();
-    expect(strip(out!)).toBe(strip(input));
-    expect(out!).toContain('/goal');
-    expect(out!).toContain('next');
-    expect(out!).toContain('manage');
+    expect(strip(out!)).toBe('/goal next manage');
+    expectHighlighted(out!, '/goal');
+    expectHighlighted(out!, 'next');
+    expectHighlighted(out!, 'manage');
   });
 
   it('returns undefined when the line has no slash', () => {
-    expect(highlightFirstSlashToken(cursorLine('hello world', 5), 'primary')).toBeUndefined();
+    expect(highlightFirstSlashToken('hello world', 'primary')).toBeUndefined();
+  });
+
+  it('returns undefined when slash is not at the leading position', () => {
+    expect(highlightFirstSlashToken('  hello /not-cmd', 'primary')).toBeUndefined();
   });
 
   it('returns undefined for path-like slash tokens', () => {
-    expect(highlightFirstSlashToken(cursorLine('/user/desktop/ foo', 5), 'primary')).toBeUndefined();
+    expect(highlightFirstSlashToken('/user/desktop/ foo', 'primary')).toBeUndefined();
   });
 
   it('handles /token at end of line (no trailing whitespace)', () => {
-    const out = highlightFirstSlashToken(cursorLine('/exit', '/exit'.length), 'primary');
+    const out = highlightFirstSlashToken('/exit', 'primary');
     expect(out).toBeDefined();
-    expect(strip(out!)).toBe('/exit ');
+    expect(strip(out!)).toBe('/exit');
   });
 
   it('passes through pre-existing ANSI (e.g. cursor inverse) in the tail', () => {
-    const line = cursorLine('/help x', '/he'.length).replace('x', '\u001B[36mx\u001B[0m');
+    // Simulate pi-tui Editor inserting an inverse-video cursor marker
+    // somewhere after the slash token.
+    const line = '/help x\u001B[7m \u001B[0m';
     const out = highlightFirstSlashToken(line, 'primary');
     expect(out).toBeDefined();
+    // Stripped visible content unchanged
     expect(strip(out!)).toBe(strip(line));
-    expect(out!.includes('\u001B[36m')).toBe(true);
+    // Inverse cursor SGR is still present afterwards
+    expect(out!.includes('\u001B[7m')).toBe(true);
+  });
+
+  it('only paints the first token, not other slashes further along', () => {
+    const out = highlightFirstSlashToken('/a /b', 'primary');
+    expect(out).toBeDefined();
+    // Count the SGR opens — should be exactly one for /a.
+    const opens = (out!.match(/\u001B\[[0-9;]+m/g) ?? []).length;
+    expect(opens).toBeGreaterThanOrEqual(2); // chalk bold+fg open and reset(s)
+    // /b should remain plain — the substring " /b" exists verbatim.
+    expect(out!).toContain(' /b');
+  });
+});
+
+describe('highlightInlineSkillTokens', () => {
+  const SKILLS = new Set(['skill:review', 'skill:security', 'commit']);
+
+  it('colours known skill tokens anywhere in the line', () => {
+    const out = highlightInlineSkillTokens('please /skill:review this', SKILLS, null, 'primary');
+    expect(out).toBeDefined();
+    expect(strip(out!)).toBe('please /skill:review this');
+    expectHighlighted(out!, '/skill:review');
+  });
+
+  it('colours multiple skill tokens in one line', () => {
+    const out = highlightInlineSkillTokens(
+      '/skill:review then /skill:security',
+      SKILLS,
+      null,
+      'primary',
+    );
+    expect(out).toBeDefined();
+    expectHighlighted(out!, '/skill:review');
+    expectHighlighted(out!, '/skill:security');
+  });
+
+  it('skips the excluded leading command range', () => {
+    const visible = '/skill:review args';
+    const out = highlightInlineSkillTokens(
+      visible,
+      SKILLS,
+      { start: 0, end: 13 },
+      'primary',
+    );
+    expect(out).toBeUndefined();
+  });
+
+  it('ignores unknown tokens and plain slashes', () => {
+    expect(highlightInlineSkillTokens('and /not-a-skill or /tmp', SKILLS, null, 'primary')).toBeUndefined();
+  });
+
+  it('supports the skill: prefix fallback for bare names', () => {
+    const out = highlightInlineSkillTokens('please /review this', SKILLS, null, 'primary');
+    expect(out).toBeDefined();
+    expectHighlighted(out!, '/review');
   });
 });

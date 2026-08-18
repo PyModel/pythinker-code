@@ -10,33 +10,22 @@ import {
   Input,
   matchesKey,
   Key,
-  parseKey,
+  decodeKittyPrintable,
   type Focusable,
   truncateToWidth,
   visibleWidth,
   wrapTextWithAnsi,
 } from '@pymodel/pi-tui';
 
-import { combinedBindingHint, formatBindingKeys } from '#/tui/components/dialogs/choice-picker';
-import {
-  defaultKeybindings,
-  keybindingDisplayText,
-  KeybindingResolver,
-  type KeybindingHandlers,
-  type ParsedKeybinding,
-} from '#/tui/keybindings';
 import { currentTheme } from '#/tui/theme';
 import type {
   PendingQuestion,
   QuestionPanelResponse,
   QuestionSubmissionMethod,
 } from '#/tui/reverse-rpc/types';
-import { printableChar } from '#/tui/utils/printable-key';
 
 const NUMBER_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
 const MAX_BODY_LINES = 12;
-const MAX_PREVIEW_LINES = 20;
-const PREVIEW_SPLIT_MIN_WIDTH = 72;
 const DEFAULT_OTHER_LABEL = 'Other';
 const NOT_ANSWERED_LABEL = 'Not answered';
 const REVIEW_TITLE = 'Review your answer before submit';
@@ -47,7 +36,6 @@ const SUBMIT_ACTIONS = ['Submit', 'Cancel'] as const;
 interface DisplayOption {
   readonly label: string;
   readonly description?: string | undefined;
-  readonly preview?: string | undefined;
   readonly kind: 'preset' | 'other';
 }
 
@@ -81,51 +69,6 @@ function appendWrapped(
   }
 }
 
-function fitToWidth(line: string, width: number): string {
-  const fitted =
-    visibleWidth(line) > width ? truncateToWidth(line, width, '…') : line;
-  return fitted + ' '.repeat(Math.max(0, width - visibleWidth(fitted)));
-}
-
-function renderPreviewBox(content: string, width: number): string[] {
-  const boxWidth = Math.max(12, width);
-  const innerWidth = Math.max(1, boxWidth - 4);
-  const wrapped = content
-    .split('\n')
-    .flatMap((line) => {
-      const rows = wrapTextWithAnsi(line, innerWidth);
-      return rows.length === 0 ? [''] : rows;
-    });
-  const hidden = Math.max(0, wrapped.length - MAX_PREVIEW_LINES);
-  const visible = wrapped.slice(0, MAX_PREVIEW_LINES);
-  if (hidden > 0) {
-    visible[visible.length - 1] = `… ${String(hidden)} more lines`;
-  }
-
-  const top = `┌─ Preview ${'─'.repeat(Math.max(0, boxWidth - 12))}┐`;
-  const bottom = `└${'─'.repeat(Math.max(0, boxWidth - 2))}┘`;
-  const dim = (text: string) => currentTheme.fg('textDim', text);
-  return [
-    dim(top),
-    ...visible.map((line) => `${dim('│')} ${fitToWidth(line, innerWidth)} ${dim('│')}`),
-    dim(bottom),
-  ];
-}
-
-function joinColumns(
-  left: readonly string[],
-  right: readonly string[],
-  leftWidth: number,
-  rightWidth: number,
-): string[] {
-  const height = Math.max(left.length, right.length);
-  return Array.from({ length: height }, (_, index) => {
-    const leftLine = fitToWidth(left[index] ?? '', leftWidth);
-    const rightLine = fitToWidth(right[index] ?? '', rightWidth);
-    return `${leftLine}  ${rightLine}`;
-  });
-}
-
 export class QuestionDialogComponent extends Container implements Focusable {
   focused = false;
 
@@ -137,31 +80,8 @@ export class QuestionDialogComponent extends Container implements Focusable {
   private currentTab = 0;
   private submitActionIdx = 0;
   private editingOther = false;
-  private editingNotes = false;
   private reviewMessage: string | undefined;
   private lastAnswerMethod: QuestionSubmissionMethod | undefined;
-  private bindings = defaultKeybindings();
-  private keybindings = new KeybindingResolver(
-    this.bindings.filter(
-      (binding) =>
-        binding.action === 'confirm:yes' ||
-        binding.action === 'confirm:no' ||
-        binding.action === 'confirm:previous' ||
-        binding.action === 'confirm:next' ||
-        binding.action === 'confirm:nextField' ||
-        binding.action === 'confirm:previousField' ||
-        binding.action === 'confirm:toggle' ||
-        binding.action === 'confirm:toggleExplanation',
-    ),
-  );
-  private nestedKeybindings = new KeybindingResolver(
-    this.bindings.filter(
-      (binding) =>
-        binding.action === 'confirm:no' ||
-        binding.action === 'confirm:nextField' ||
-        binding.action === 'confirm:previousField',
-    ),
-  );
 
   /** Per-question cursor position. */
   private readonly cursors: number[];
@@ -173,8 +93,6 @@ export class QuestionDialogComponent extends Container implements Focusable {
   private readonly otherDrafts: string[];
   /** Per-question committed Other values. */
   private readonly committedOtherValues: (string | undefined)[];
-  /** Per-question notes for preview choices. */
-  private readonly noteDrafts: string[];
   /** Per-question derived answers used by tabs + review. */
   private readonly answers: (string | undefined)[];
 
@@ -191,10 +109,9 @@ export class QuestionDialogComponent extends Container implements Focusable {
     this.onAnswer = onAnswer;
     this.maxVisibleOptions = maxVisibleOptions;
     this.onToggleToolOutput = onToggleToolOutput;
-    this.otherInput.onSubmit = (value) =>
-      this.isEditingNotes()
-        ? this.commitNotesInput(value)
-        : this.commitOtherInput(value, 'enter');
+    this.otherInput.onSubmit = (value) => {
+      this.commitOtherInput(value, 'enter');
+    };
 
     const total = request.data.questions.length;
     this.cursors = Array.from({ length: total }, (): number => 0);
@@ -202,44 +119,14 @@ export class QuestionDialogComponent extends Container implements Focusable {
     this.multiSelections = Array.from({ length: total }, () => new Set<number>());
     this.otherDrafts = Array.from({ length: total }, (): string => '');
     this.committedOtherValues = Array.from({ length: total }, (): string | undefined => undefined);
-    this.noteDrafts = Array.from({ length: total }, (): string => '');
     this.answers = Array.from({ length: total }, (): string | undefined => undefined);
   }
 
   // ── Input ─────────────────────────────────────────────────────────
 
-  setKeybindings(bindings: readonly ParsedKeybinding[]): void {
-    this.bindings = bindings;
-    const winners = new Map<string, ParsedKeybinding>();
-    for (const binding of bindings) {
-      winners.set(`${binding.context}\0${binding.chord.join(' ')}`, binding);
-    }
-    this.keybindings = new KeybindingResolver(
-      [...winners.values()].filter(
-        (binding) =>
-          binding.action === 'confirm:yes' ||
-          binding.action === 'confirm:no' ||
-          binding.action === 'confirm:previous' ||
-          binding.action === 'confirm:next' ||
-          binding.action === 'confirm:nextField' ||
-          binding.action === 'confirm:previousField' ||
-          binding.action === 'confirm:toggle' ||
-          binding.action === 'confirm:toggleExplanation',
-      ),
-    );
-    this.nestedKeybindings = new KeybindingResolver(
-      [...winners.values()].filter(
-        (binding) =>
-          binding.action === 'confirm:no' ||
-          binding.action === 'confirm:nextField' ||
-          binding.action === 'confirm:previousField',
-      ),
-    );
-  }
-
   handleInput(data: string): void {
-    if (this.isEditingNotes()) {
-      this.handleNotesInput(data);
+    if (matchesKey(data, Key.escape)) {
+      this.onAnswer({ answers: [] });
       return;
     }
 
@@ -258,50 +145,8 @@ export class QuestionDialogComponent extends Container implements Focusable {
       return;
     }
 
-    const previewQuestionIdx = this.currentQuestionIndex();
-    const useLocalNotesFallback =
-      previewQuestionIdx !== undefined &&
-      printableChar(data) === 'n' &&
-      this.hasPreview(previewQuestionIdx);
-    const handlers: KeybindingHandlers = useLocalNotesFallback
-      ? { ...this.handlers(), 'confirm:no': () => false }
-      : this.handlers();
-    const keyId = parseKey(data);
-    if (
-      (keyId ?? data) === Key.escape &&
-      keybindingDisplayText(this.bindings, 'Confirmation', 'confirm:no') === undefined
-    ) {
-      this.onAnswer({ answers: [] });
-      return;
-    }
-    if (
-      keyId === undefined
-        ? this.keybindings.dispatchKeyId(data, ['Confirmation'], handlers)
-        : this.keybindings.dispatch(data, ['Confirmation'], handlers)
-    ) {
-      return;
-    }
-    if (useLocalNotesFallback) {
-      this.enterNotesInput(previewQuestionIdx);
-      return;
-    }
-    if (matchesKey(data, Key.left)) {
-      this.gotoTab(this.currentTab - 1);
-      return;
-    }
-    if (matchesKey(data, Key.right)) {
-      this.gotoTab(this.currentTab + 1);
-      return;
-    }
     if (this.isSubmitTab()) {
-      const printable = printableChar(data);
-      if (printable === '1') {
-        this.submitActionIdx = 0;
-        this.executeSubmitAction(0, 'number_key');
-      } else if (printable === '2') {
-        this.submitActionIdx = 1;
-        this.executeSubmitAction(1, 'number_key');
-      }
+      this.handleSubmitInput(data);
       return;
     }
 
@@ -313,7 +158,30 @@ export class QuestionDialogComponent extends Container implements Focusable {
     const optionCount = this.displayOptions(questionIdx).length;
     if (optionCount === 0) return;
 
-    const printable = printableChar(data);
+    if (matchesKey(data, Key.up)) {
+      this.moveQuestionCursor(-1);
+      return;
+    }
+    if (matchesKey(data, Key.down)) {
+      this.moveQuestionCursor(1);
+      return;
+    }
+
+    if (matchesKey(data, Key.left)) {
+      this.gotoTab(this.currentTab - 1);
+      return;
+    }
+    if (matchesKey(data, Key.right) || matchesKey(data, Key.tab)) {
+      this.gotoTab(this.currentTab + 1);
+      return;
+    }
+
+    if (matchesKey(data, Key.enter)) {
+      this.activateQuestionOption(this.currentCursor(), 'enter');
+      return;
+    }
+
+    const printable = decodeKittyPrintable(data) ?? data;
     const numIdx = NUMBER_KEYS.indexOf(printable);
     if (numIdx >= 0 && numIdx < optionCount) {
       this.cursors[questionIdx] = numIdx;
@@ -321,38 +189,19 @@ export class QuestionDialogComponent extends Container implements Focusable {
       return;
     }
 
+    if ((printable === ' ' || matchesKey(data, Key.space)) && question.multi_select) {
+      this.activateQuestionOption(this.currentCursor(), 'space');
+    }
   }
 
   private handleOtherInput(data: string): void {
     const questionIdx = this.currentQuestionIndex();
     if (questionIdx === undefined) return;
 
-    const handlers: KeybindingHandlers = {
-      'confirm:no': () => this.onAnswer({ answers: [] }),
-      'confirm:nextField': () => {
-        this.syncOtherDraft(questionIdx);
-        this.editingOther = false;
-        this.gotoTab(this.currentTab + 1);
-      },
-      'confirm:previousField': () => {
-        this.syncOtherDraft(questionIdx);
-        this.editingOther = false;
-        this.gotoTab(this.currentTab - 1);
-      },
-    };
-    const keyId = parseKey(data);
-    if (
-      (keyId ?? data) === Key.escape &&
-      keybindingDisplayText(this.bindings, 'Confirmation', 'confirm:no') === undefined
-    ) {
-      this.onAnswer({ answers: [] });
-      return;
-    }
-    if (
-      keyId === undefined
-        ? this.nestedKeybindings.dispatchKeyId(data, ['Confirmation'], handlers)
-        : this.nestedKeybindings.dispatch(data, ['Confirmation'], handlers)
-    ) {
+    if (matchesKey(data, Key.tab)) {
+      this.syncOtherDraft(questionIdx);
+      this.editingOther = false;
+      this.gotoTab(this.currentTab + 1);
       return;
     }
     if (matchesKey(data, Key.up)) {
@@ -367,98 +216,49 @@ export class QuestionDialogComponent extends Container implements Focusable {
       this.moveQuestionCursor(1);
       return;
     }
-    if (matchesKey(data, Key.ctrl('c')) || matchesKey(data, Key.ctrl('d'))) {
-      this.onAnswer({ answers: [] });
-      return;
-    }
 
     this.otherInput.handleInput(data);
     this.syncOtherDraft(questionIdx);
     this.reviewMessage = undefined;
   }
 
-  private handleNotesInput(data: string): void {
-    const questionIdx = this.currentQuestionIndex();
-    if (questionIdx === undefined) return;
-
-    const cancelNotes = (): void => {
-      this.syncNotesDraft(questionIdx);
-      this.editingNotes = false;
-    };
-    const handlers: KeybindingHandlers = {
-      'confirm:no': cancelNotes,
-      'confirm:nextField': () => {
-        this.syncNotesDraft(questionIdx);
-        this.editingNotes = false;
-        this.gotoTab(this.currentTab + 1);
-      },
-      'confirm:previousField': () => {
-        this.syncNotesDraft(questionIdx);
-        this.editingNotes = false;
-        this.gotoTab(this.currentTab - 1);
-      },
-    };
-    const keyId = parseKey(data);
-    if (
-      (keyId ?? data) === Key.escape &&
-      keybindingDisplayText(this.bindings, 'Confirmation', 'confirm:no') === undefined
-    ) {
-      cancelNotes();
+  private handleSubmitInput(data: string): void {
+    if (matchesKey(data, Key.up)) {
+      this.submitActionIdx =
+        (this.submitActionIdx - 1 + SUBMIT_ACTIONS.length) % SUBMIT_ACTIONS.length;
+      this.reviewMessage = undefined;
       return;
     }
-    if (
-      keyId === undefined
-        ? this.nestedKeybindings.dispatchKeyId(data, ['Confirmation'], handlers)
-        : this.nestedKeybindings.dispatch(data, ['Confirmation'], handlers)
-    ) {
-      return;
-    }
-    if (matchesKey(data, Key.ctrl('c')) || matchesKey(data, Key.ctrl('d'))) {
-      this.syncNotesDraft(questionIdx);
-      this.editingNotes = false;
+    if (matchesKey(data, Key.down)) {
+      this.submitActionIdx = (this.submitActionIdx + 1) % SUBMIT_ACTIONS.length;
+      this.reviewMessage = undefined;
       return;
     }
 
-    this.otherInput.handleInput(data);
-    this.syncNotesDraft(questionIdx);
-    this.reviewMessage = undefined;
-  }
+    if (matchesKey(data, Key.left)) {
+      this.gotoTab(this.currentTab - 1);
+      return;
+    }
+    if (matchesKey(data, Key.right) || matchesKey(data, Key.tab)) {
+      this.gotoTab(this.currentTab + 1);
+      return;
+    }
 
-  private handlers(): KeybindingHandlers {
-    return {
-      'confirm:yes': () => {
-        if (this.isSubmitTab()) this.executeSubmitAction(this.submitActionIdx, 'enter');
-        else this.activateQuestionOption(this.currentCursor(), 'enter');
-      },
-      'confirm:no': () => this.onAnswer({ answers: [] }),
-      'confirm:previous': () => {
-        if (this.isSubmitTab()) {
-          this.submitActionIdx =
-            (this.submitActionIdx - 1 + SUBMIT_ACTIONS.length) % SUBMIT_ACTIONS.length;
-          this.reviewMessage = undefined;
-        } else {
-          this.moveQuestionCursor(-1);
-        }
-      },
-      'confirm:next': () => {
-        if (this.isSubmitTab()) {
-          this.submitActionIdx = (this.submitActionIdx + 1) % SUBMIT_ACTIONS.length;
-          this.reviewMessage = undefined;
-        } else {
-          this.moveQuestionCursor(1);
-        }
-      },
-      'confirm:nextField': () => this.gotoTab(this.currentTab + 1),
-      'confirm:previousField': () => this.gotoTab(this.currentTab - 1),
-      'confirm:toggle': () => {
-        if (!this.isSubmitTab() && this.request.data.questions[this.currentTab]?.multi_select === true) {
-          this.activateQuestionOption(this.currentCursor(), 'space');
-        }
-      },
-      'confirm:toggleExplanation': () => {
-        if (!this.isSubmitTab() && this.hasPreview(this.currentTab)) this.enterNotesInput(this.currentTab);
-      },
-    };
+    if (matchesKey(data, Key.enter)) {
+      this.executeSubmitAction(this.submitActionIdx, 'enter');
+      return;
+    }
+
+    const printable = decodeKittyPrintable(data) ?? data;
+    if (printable === '1') {
+      this.submitActionIdx = 0;
+      this.executeSubmitAction(0, 'number_key');
+      return;
+    }
+    if (printable === '2') {
+      this.submitActionIdx = 1;
+      this.executeSubmitAction(1, 'number_key');
+    }
   }
 
   // ── State mutation ────────────────────────────────────────────────
@@ -472,7 +272,6 @@ export class QuestionDialogComponent extends Container implements Focusable {
 
     this.currentTab = wrapped;
     this.editingOther = false;
-    this.editingNotes = false;
     this.reviewMessage = undefined;
     if (this.isSubmitTab()) this.submitActionIdx = 0;
   }
@@ -500,11 +299,8 @@ export class QuestionDialogComponent extends Container implements Focusable {
     this.reviewMessage = undefined;
 
     if (this.isOtherOption(questionIdx, optionIdx)) {
-      // Toggling a committed "Other" answer deselects it (multi-select only);
-      // Enter always (re)opens the custom input.
-      const set = this.multiSelections[questionIdx];
-      if (question.multi_select && method !== 'enter' && set?.has(optionIdx) === true) {
-        set.delete(optionIdx);
+      if (question.multi_select && this.multiSelections[questionIdx]?.has(optionIdx)) {
+        this.multiSelections[questionIdx].delete(optionIdx);
         this.lastAnswerMethod = method;
         this.updateAnswer(questionIdx);
         return;
@@ -537,12 +333,6 @@ export class QuestionDialogComponent extends Container implements Focusable {
     this.reviewMessage = undefined;
   }
 
-  private enterNotesInput(questionIdx: number): void {
-    this.editingNotes = true;
-    this.otherInput.setValue(this.noteDrafts[questionIdx] ?? '');
-    this.reviewMessage = undefined;
-  }
-
   private commitOtherInput(rawValue: string | undefined, method: QuestionSubmissionMethod): void {
     const questionIdx = this.currentQuestionIndex();
     if (questionIdx === undefined) return;
@@ -569,14 +359,6 @@ export class QuestionDialogComponent extends Container implements Focusable {
     this.reviewMessage = undefined;
 
     if (!question.multi_select) this.advanceAfterSingleSelect(questionIdx);
-  }
-
-  private commitNotesInput(rawValue: string | undefined): void {
-    const questionIdx = this.currentQuestionIndex();
-    if (questionIdx === undefined) return;
-    this.noteDrafts[questionIdx] = rawValue ?? this.otherInput.getValue();
-    this.editingNotes = false;
-    this.reviewMessage = undefined;
   }
 
   private advanceAfterSingleSelect(questionIdx: number): void {
@@ -644,36 +426,17 @@ export class QuestionDialogComponent extends Container implements Focusable {
 
   private emitAnswers(method: QuestionSubmissionMethod): void {
     const out: string[] = [];
-    const annotations: Record<string, { preview?: string; notes?: string }> = {};
     for (let i = 0; i < this.answers.length; i++) {
       const answer = this.answers[i];
       if (answer !== undefined && answer.length > 0) out[i] = answer;
-
-      const question = this.request.data.questions[i];
-      if (question === undefined) continue;
-      const selection = this.singleSelections[i];
-      const preview =
-        selection === undefined ? undefined : question.options[selection]?.preview;
-      const notes = this.noteDrafts[i]?.trim();
-      if ((preview !== undefined && preview.length > 0) || (notes !== undefined && notes.length > 0)) {
-        annotations[question.question] = {
-          preview,
-          notes: notes?.length ? notes : undefined,
-        };
-      }
     }
-    this.onAnswer({
-      answers: out,
-      method: this.lastAnswerMethod ?? method,
-      annotations: Object.keys(annotations).length > 0 ? annotations : undefined,
-    });
+    this.onAnswer({ answers: out, method: this.lastAnswerMethod ?? method });
   }
 
   // ── Render ────────────────────────────────────────────────────────
 
   override render(width: number): string[] {
-    this.otherInput.focused =
-      this.focused && (this.isEditingOther() || this.isEditingNotes());
+    this.otherInput.focused = this.focused && this.isEditingOther();
     return this.isSubmitTab() ? this.renderSubmitTab(width) : this.renderQuestionTab(width);
   }
 
@@ -719,13 +482,6 @@ export class QuestionDialogComponent extends Container implements Focusable {
     const multiSet = this.multiSelections[questionIdx] ?? new Set<number>();
     const singleSelection = this.singleSelections[questionIdx];
 
-    const previewMode = this.hasPreview(questionIdx);
-    const splitPreview = previewMode && renderWidth >= PREVIEW_SPLIT_MIN_WIDTH;
-    const optionWidth = splitPreview
-      ? Math.max(24, Math.floor((renderWidth - 2) * 0.4))
-      : renderWidth;
-    const optionLines: string[] = [];
-
     for (let i = visibleStart; i < visibleEnd; i++) {
       const option = options[i];
       if (option === undefined) continue;
@@ -735,9 +491,7 @@ export class QuestionDialogComponent extends Container implements Focusable {
       const isSelected = question.multi_select ? multiSet.has(i) : singleSelection === i;
 
       if (this.isEditingOther() && isCursor && isOther) {
-        optionLines.push(
-          this.renderEditingOtherLine(optionWidth, questionIdx, option, num, isSelected),
-        );
+        lines.push(this.renderEditingOtherLine(renderWidth, questionIdx, option, num, isSelected));
         continue;
       }
 
@@ -763,71 +517,28 @@ export class QuestionDialogComponent extends Container implements Focusable {
         tone = dim;
       }
       const continuation = ' '.repeat(visibleWidth(prefix));
-      appendWrapped(optionLines, prefix, continuation, label, optionWidth, tone);
+      appendWrapped(lines, prefix, continuation, label, renderWidth, tone);
 
       if (
         option.description !== undefined &&
         option.description.length > 0 &&
         !(this.isEditingOther() && isCursor && isOther)
       ) {
-        appendWrapped(optionLines, '        ', '        ', option.description, optionWidth, dim);
+        appendWrapped(lines, '        ', '        ', option.description, renderWidth, dim);
       }
     }
 
     if (visibleEnd < options.length || visibleStart > 0) {
-      optionLines.push(
+      lines.push(
         dim(
           `   showing ${String(visibleStart + 1)}-${String(visibleEnd)} of ${String(options.length)}`,
         ),
       );
     }
 
-    if (previewMode) {
-      const content = options[cursor]?.preview?.trim() || 'No preview for this option.';
-      if (splitPreview) {
-        const previewWidth = renderWidth - optionWidth - 2;
-        lines.push(
-          ...joinColumns(
-            optionLines,
-            renderPreviewBox(content, previewWidth),
-            optionWidth,
-            previewWidth,
-          ),
-        );
-      } else {
-        lines.push(...optionLines, '', ...renderPreviewBox(content, renderWidth));
-      }
-    } else {
-      lines.push(...optionLines);
-    }
-
-    if (previewMode) {
-      const notes = this.noteDrafts[questionIdx] ?? '';
-      lines.push('');
-      if (this.isEditingNotes()) {
-        const inputLine = this.otherInput.render(Math.max(4, renderWidth - 10))[0] ?? '> ';
-        lines.push(`${accent(' Notes: ')}${inputLine.startsWith('> ') ? inputLine.slice(2) : inputLine}`);
-      } else if (notes.trim().length > 0) {
-        lines.push(`${accent(' Notes: ')}${notes.trim()}`);
-      } else {
-        const nAction = this.bindings.findLast(
-          (binding) =>
-            binding.context === 'Confirmation' &&
-            binding.chord.length === 1 &&
-            binding.chord[0] === 'n',
-        )?.action;
-        if (
-          nAction === undefined ||
-          nAction === null ||
-          nAction === 'confirm:no' ||
-          this.handlers()[nAction] === undefined
-        ) {
-          lines.push(`${accent(' Notes: ')}${dim('press n to add notes')}`);
-        }
-      }
-    }
-
-    lines.push('', this.buildQuestionHint(dim, questionIdx), accent('─'.repeat(renderWidth)));
+    lines.push('');
+    lines.push(this.buildQuestionHint(dim, questionIdx));
+    lines.push(accent('─'.repeat(renderWidth)));
 
     return lines.map((line) => truncateToWidth(line, width));
   }
@@ -841,7 +552,8 @@ export class QuestionDialogComponent extends Container implements Focusable {
     const renderWidth = Math.max(1, width);
     const lines: string[] = [accent('─'.repeat(renderWidth)), currentTheme.boldFg('primary', ' question'), ''];
     this.pushTabs(lines);
-    lines.push('', currentTheme.boldFg('text', ` ${REVIEW_TITLE}`));
+    lines.push('');
+    lines.push(currentTheme.boldFg('text', ` ${REVIEW_TITLE}`));
     const reviewWarning =
       this.reviewMessage ?? (this.hasUnansweredQuestions() ? UNANSWERED_WARNING : undefined);
     if (reviewWarning !== undefined) {
@@ -873,7 +585,9 @@ export class QuestionDialogComponent extends Container implements Focusable {
       }
     }
 
-    lines.push('', text(` ${SUBMIT_PROMPT}`), '');
+    lines.push('');
+    lines.push(text(` ${SUBMIT_PROMPT}`));
+    lines.push('');
 
     for (let i = 0; i < SUBMIT_ACTIONS.length; i++) {
       const label = SUBMIT_ACTIONS[i];
@@ -886,7 +600,9 @@ export class QuestionDialogComponent extends Container implements Focusable {
       }
     }
 
-    lines.push('', this.buildSubmitHint(dim), accent('─'.repeat(renderWidth)));
+    lines.push('');
+    lines.push(this.buildSubmitHint(dim));
+    lines.push(accent('─'.repeat(renderWidth)));
 
     return lines.map((line) => truncateToWidth(line, width));
   }
@@ -894,7 +610,7 @@ export class QuestionDialogComponent extends Container implements Focusable {
   private pushTabs(lines: string[]): void {
     const dim = (text: string) => currentTheme.fg('textDim', text);
     const active = (text: string) =>
-      currentTheme.bg('selectionBg', currentTheme.boldFg('inverseText', text));
+      currentTheme.bg('primary', currentTheme.boldFg('text', text));
 
     const tabs: string[] = [];
     for (let i = 0; i < this.request.data.questions.length; i++) {
@@ -917,35 +633,13 @@ export class QuestionDialogComponent extends Container implements Focusable {
   }
 
   private buildQuestionHint(dim: (s: string) => string, questionIdx: number): string {
-    if (this.isEditingNotes()) {
-      const field = combinedBindingHint(
-        keybindingDisplayText(this.bindings, 'Confirmation', 'confirm:previousField'),
-        keybindingDisplayText(this.bindings, 'Confirmation', 'confirm:nextField'),
-        'switch',
-      );
-      const cancel = keybindingDisplayText(this.bindings, 'Confirmation', 'confirm:no');
-      const parts = [
-        'type notes',
-        '↵ save',
-        this.totalTabs() > 1 ? field : undefined,
-        cancel === undefined ? undefined : `${formatBindingKeys(cancel)} return`,
-      ].filter((part): part is string => part !== undefined);
-      return dim(`  ${parts.join('  ')}`);
-    }
-
     if (this.isEditingOther()) {
-      const field = combinedBindingHint(
-        keybindingDisplayText(this.bindings, 'Confirmation', 'confirm:previousField'),
-        keybindingDisplayText(this.bindings, 'Confirmation', 'confirm:nextField'),
-        'switch',
-      );
-      const cancel = keybindingDisplayText(this.bindings, 'Confirmation', 'confirm:no');
-      const parts = [
+      const parts: string[] = [
         'type answer',
         '↵ save',
-        this.totalTabs() > 1 ? field : undefined,
-        cancel === undefined ? undefined : `${formatBindingKeys(cancel)} cancel`,
-      ].filter((part): part is string => part !== undefined);
+        ...(this.totalTabs() > 1 ? ['tab switch'] : []),
+        'esc cancel',
+      ];
       return dim(`  ${parts.join('  ')}`);
     }
 
@@ -954,55 +648,19 @@ export class QuestionDialogComponent extends Container implements Focusable {
     const question = this.request.data.questions[questionIdx];
     if (question === undefined) return dim('  esc cancel');
 
-    const navigation = combinedBindingHint(
-      keybindingDisplayText(this.bindings, 'Confirmation', 'confirm:previous'),
-      keybindingDisplayText(this.bindings, 'Confirmation', 'confirm:next'),
-      'select',
-    );
-    const confirm = keybindingDisplayText(this.bindings, 'Confirmation', 'confirm:yes');
-    const field = combinedBindingHint(
-      keybindingDisplayText(this.bindings, 'Confirmation', 'confirm:previousField'),
-      keybindingDisplayText(this.bindings, 'Confirmation', 'confirm:nextField'),
-      'switch',
-    );
-    const explain = keybindingDisplayText(
-      this.bindings,
-      'Confirmation',
-      'confirm:toggleExplanation',
-    );
-    const cancel = keybindingDisplayText(this.bindings, 'Confirmation', 'confirm:no');
-    const parts = [
-      navigation,
-      `${numberHint}${confirm === undefined ? '' : ` / ${formatBindingKeys(confirm)}`} ${question.multi_select ? 'toggle' : 'choose'}`,
-      this.totalTabs() > 1 ? field : undefined,
-      this.hasPreview(questionIdx) && explain !== undefined
-        ? `${formatBindingKeys(explain)} notes`
-        : undefined,
-      cancel === undefined ? undefined : `${formatBindingKeys(cancel)} cancel`,
-    ].filter((part): part is string => part !== undefined);
+    const parts: string[] = [
+      '↑↓ select',
+      `${numberHint} / ↵ ${question.multi_select ? 'toggle' : 'choose'}`,
+    ];
+    if (this.totalTabs() > 1) parts.push('←/→/tab switch');
+    parts.push('esc cancel');
     return dim(`  ${parts.join('  ')}`);
   }
 
   private buildSubmitHint(dim: (s: string) => string): string {
-    const navigation = combinedBindingHint(
-      keybindingDisplayText(this.bindings, 'Confirmation', 'confirm:previous'),
-      keybindingDisplayText(this.bindings, 'Confirmation', 'confirm:next'),
-      'select',
-    );
-    const confirm = keybindingDisplayText(this.bindings, 'Confirmation', 'confirm:yes');
-    const field = combinedBindingHint(
-      keybindingDisplayText(this.bindings, 'Confirmation', 'confirm:previousField'),
-      keybindingDisplayText(this.bindings, 'Confirmation', 'confirm:nextField'),
-      'switch',
-    );
-    const cancel = keybindingDisplayText(this.bindings, 'Confirmation', 'confirm:no');
-    const parts = [
-      navigation,
-      '1/2 choose',
-      confirm === undefined ? undefined : `${formatBindingKeys(confirm)} confirm`,
-      this.totalTabs() > 1 ? field : undefined,
-      cancel === undefined ? undefined : `${formatBindingKeys(cancel)} cancel`,
-    ].filter((part): part is string => part !== undefined);
+    const parts: string[] = ['↑↓ select', '1/2 choose', '↵ confirm'];
+    if (this.totalTabs() > 1) parts.push('←/→/tab switch');
+    parts.push('esc cancel');
     return dim(`  ${parts.join('  ')}`);
   }
 
@@ -1031,10 +689,6 @@ export class QuestionDialogComponent extends Container implements Focusable {
     return this.editingOther && !this.isSubmitTab();
   }
 
-  private isEditingNotes(): boolean {
-    return this.editingNotes && !this.isSubmitTab();
-  }
-
   private currentQuestionIndex(): number | undefined {
     return this.isSubmitTab() ? undefined : this.currentTab;
   }
@@ -1053,20 +707,13 @@ export class QuestionDialogComponent extends Container implements Focusable {
       ...question.options.map((option) => ({
         label: option.label,
         description: option.description,
-        preview: option.preview,
         kind: 'preset' as const,
       })),
-      ...(question.allow_other === false || this.hasPreview(questionIdx)
-        ? []
-        : [
-            {
-              label: question.other_label?.length ? question.other_label : DEFAULT_OTHER_LABEL,
-              description: question.other_description?.length
-                ? question.other_description
-                : undefined,
-              kind: 'other' as const,
-            },
-          ]),
+      {
+        label: question.other_label?.length ? question.other_label : DEFAULT_OTHER_LABEL,
+        description: question.other_description?.length ? question.other_description : undefined,
+        kind: 'other' as const,
+      },
     ];
   }
 
@@ -1126,16 +773,6 @@ export class QuestionDialogComponent extends Container implements Focusable {
 
   private syncOtherDraft(questionIdx: number): void {
     this.otherDrafts[questionIdx] = this.otherInput.getValue();
-  }
-
-  private syncNotesDraft(questionIdx: number): void {
-    this.noteDrafts[questionIdx] = this.otherInput.getValue();
-  }
-
-  private hasPreview(questionIdx: number): boolean {
-    return this.request.data.questions[questionIdx]?.options.some(
-      (option) => option.preview !== undefined && option.preview.trim().length > 0,
-    ) ?? false;
   }
 
   private isAnswered(questionIdx: number): boolean {

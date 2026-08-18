@@ -1,12 +1,11 @@
-import { chmod, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 import { Command } from 'commander';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
-  findPythinkerExecutables,
   handleDoctor,
   registerDoctorCommand,
   type DoctorDeps,
@@ -15,11 +14,13 @@ import {
 let dir: string;
 
 beforeEach(async () => {
+  vi.stubEnv('PYTHINKER_CODE_LEGACY_FLAG', '');
   dir = join(tmpdir(), `pythinker-doctor-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   await mkdir(dir, { recursive: true });
 });
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
   await rm(dir, { recursive: true, force: true });
 });
 
@@ -39,18 +40,6 @@ function makeDeps(): {
       defaultTuiConfigPath: () => join(dir, 'tui.toml'),
       stdout: { write: (chunk) => stdout.push(chunk) > 0 },
       stderr: { write: (chunk) => stderr.push(chunk) > 0 },
-      runtimeInfo: async () => ({
-        version: '1.2.3',
-        installSource: 'pnpm-global',
-        packageRoot: '/opt/pythinker',
-        executable: '/usr/local/bin/node',
-        update: {
-          latest: '1.3.0',
-          checkedAt: '2026-07-29T12:00:00.000Z',
-          autoUpdate: 'on' as const,
-          mode: 'background-install' as const,
-        },
-      }),
       exit: (code) => {
         exitCodes.push(code);
         throw new Error(`exit ${String(code)}`);
@@ -114,187 +103,25 @@ describe('pythinker doctor', () => {
     expect(out).toContain('built-in defaults will apply');
   });
 
-  it('reports the active runtime and installation source', async () => {
-    const { deps, stdout } = makeDeps();
-
-    const code = await handleDoctor(deps, {});
-
-    expect(code).toBe(0);
-    expect(stdout.join('')).toContain(
-      [
-        'Runtime',
-        '  Version: 1.2.3',
-        '  Install source: pnpm-global',
-        '  Package root: /opt/pythinker',
-        '  Executable: /usr/local/bin/node',
-        '  Update channel: CDN staged rollout',
-        '  Auto-update: on (installs in background)',
-        '  Latest cached version: 1.3.0 (checked 2026-07-29T12:00:00.000Z)',
-      ].join('\n'),
-    );
-  });
-
-  it('reports Homebrew preparation and restart activation accurately', async () => {
-    const { deps, stdout } = makeDeps();
-
-    const code = await handleDoctor({
-      ...deps,
-      runtimeInfo: async () => ({
-        version: '1.2.3',
-        installSource: 'homebrew',
-        packageRoot: '/opt/homebrew/Cellar/pythinker-code/1.2.3',
-        executable: '/opt/homebrew/bin/node',
-        update: {
-          latest: '1.3.0',
-          checkedAt: '2026-07-29T12:00:00.000Z',
-          autoUpdate: 'on',
-          mode: 'restart-install',
-          pendingVersion: '1.3.0',
-          pendingRequestedBy: 'automatic',
-          logPath: '/tmp/updates/install.log',
-        },
-      }),
-    }, {});
-
-    expect(code).toBe(0);
-    expect(stdout.join('')).toContain(
-      [
-        '  Auto-update: on (prepare in background; install on next launch)',
-        '  Latest cached version: 1.3.0 (checked 2026-07-29T12:00:00.000Z)',
-        '  Prepared update: 1.3.0 (installs on next launch)',
-        '  Update log: /tmp/updates/install.log',
-      ].join('\n'),
-    );
-  });
-
-  it('reports when automatic activation of a prepared update is paused', async () => {
-    const { deps, stdout } = makeDeps();
-
-    const code = await handleDoctor({
-      ...deps,
-      runtimeInfo: async () => ({
-        version: '1.2.3',
-        installSource: 'homebrew',
-        packageRoot: '/opt/homebrew/Cellar/pythinker-code/1.2.3',
-        executable: '/opt/homebrew/bin/node',
-        update: {
-          latest: '1.3.0',
-          checkedAt: '2026-07-29T12:00:00.000Z',
-          autoUpdate: 'off',
-          mode: 'restart-install',
-          pendingVersion: '1.3.0',
-          pendingRequestedBy: 'automatic',
-        },
-      }),
-    }, {});
-
-    expect(code).toBe(0);
-    expect(stdout.join('')).toContain(
-      'Prepared update: 1.3.0 (automatic activation paused until auto-update is enabled)',
-    );
-  });
-
-  it('reports the recorded update outcomes', async () => {
-    const { deps, stdout } = makeDeps();
+  it('uses the legacy validator when legacy wins over the experimental flag', async () => {
+    const configPath = join(dir, 'config.toml');
+    const text = '[providers.pythinker]\ntype = "pythinker"\n';
+    await writeFile(configPath, text, 'utf-8');
+    vi.stubEnv('PYTHINKER_CODE_LEGACY_FLAG', '1');
+    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_FLAG', '1');
+    const validateConfigToml = vi.fn(async () => undefined);
+    const { deps } = makeDeps();
 
     const code = await handleDoctor(
       {
         ...deps,
-        runtimeInfo: async () => ({
-          version: '0.12.0',
-          installSource: 'native',
-          executable: '/usr/local/bin/pythinker',
-          update: {
-            latest: '0.13.1',
-            checkedAt: '2026-08-08T12:00:00.000Z',
-            lastSuccess:
-              '0.13.1 (installed 2026-08-08T12:01:00.000Z) — unverified: probe timed out',
-            lastFailure: 'install 0.13.1 (attempt 1): still reports 0.12.0',
-          },
-        }),
+        configRpc: { validateConfigToml } as unknown as NonNullable<DoctorDeps['configRpc']>,
       },
-      {},
+      { target: 'config' },
     );
 
     expect(code).toBe(0);
-    const output = stdout.join('');
-    expect(output).toContain(
-      '  Last update success: 0.13.1 (installed 2026-08-08T12:01:00.000Z) — unverified: probe timed out',
-    );
-    expect(output).toContain('  Last update failure: install 0.13.1 (attempt 1): still reports 0.12.0');
-  });
-
-  // A packaged native binary ships no package.json. Reporting it used to
-  // crash the whole command with "Could not locate package.json near …".
-  it('reports a native install that has no package root', async () => {
-    const { deps, stdout } = makeDeps();
-
-    const code = await handleDoctor(
-      {
-        ...deps,
-        runtimeInfo: async () => ({
-          version: '1.2.3',
-          installSource: 'native',
-          executable: 'C:\\Programs\\Pythinker\\pythinker.exe',
-        }),
-      },
-      {},
-    );
-
-    expect(code).toBe(0);
-    const output = stdout.join('');
-    expect(output).toContain('  Install source: native');
-    expect(output).toContain('  Executable: C:\\Programs\\Pythinker\\pythinker.exe');
-    expect(output).not.toContain('Package root');
-  });
-
-  it('warns when multiple Pythinker executables are installed', async () => {
-    const { deps, stdout } = makeDeps();
-
-    const code = await handleDoctor(
-      {
-        ...deps,
-        runtimeInfo: async () => ({
-          version: '1.2.3',
-          installSource: 'pnpm-global',
-          packageRoot: '/opt/pythinker',
-          executable: '/usr/local/bin/node',
-          installations: ['/usr/local/bin/pythinker', '/opt/homebrew/bin/pythinker'],
-          ripgrep: { path: '/usr/local/bin/rg', source: 'system-path' },
-        }),
-      },
-      {},
-    );
-
-    expect(code).toBe(0);
-    expect(stdout.join('')).toContain(
-      [
-        '  Warning: Multiple Pythinker executables found on PATH:',
-        '    /usr/local/bin/pythinker',
-        '    /opt/homebrew/bin/pythinker',
-        '  Search: /usr/local/bin/rg (system-path)',
-      ].join('\n'),
-    );
-  });
-
-  it('finds distinct Pythinker executables on PATH', async () => {
-    const first = join(dir, 'first');
-    const second = join(dir, 'second');
-    await mkdir(first);
-    await mkdir(second);
-    await Promise.all([
-      writeFile(join(first, 'pythinker'), '#!/bin/sh\n'),
-      writeFile(join(second, 'pythinker'), '#!/bin/sh\n'),
-    ]);
-    await Promise.all([
-      chmod(join(first, 'pythinker'), 0o755),
-      chmod(join(second, 'pythinker'), 0o755),
-    ]);
-
-    await expect(findPythinkerExecutables(`${first}:${second}`, 'linux')).resolves.toEqual([
-      join(first, 'pythinker'),
-      join(second, 'pythinker'),
-    ]);
+    expect(validateConfigToml).toHaveBeenCalledWith({ text, filePath: configPath });
   });
 
   it('checks only config.toml when the config target is selected', async () => {
@@ -465,13 +292,8 @@ max_context_size = "large"
   });
 });
 
-describe('pythinker doctor (v2 config validation)', () => {
-  beforeEach(() => {
-    process.env['PYTHINKER_CODE_EXPERIMENTAL_FLAG'] = '1';
-  });
-
+describe('pythinker doctor (default v2 config validation)', () => {
   afterEach(() => {
-    delete process.env['PYTHINKER_CODE_EXPERIMENTAL_FLAG'];
     delete process.env['PYTHINKER_LOOP_MAX_RETRIES_PER_STEP'];
     delete process.env['PYTHINKER_LOOP_MAX_ATTEMPTS_PER_STEP'];
   });

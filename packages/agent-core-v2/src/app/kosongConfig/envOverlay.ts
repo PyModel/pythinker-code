@@ -1,22 +1,3 @@
-/**
- * `kosongConfig` domain — `PYTHINKER_MODEL_*` effective-config overlay.
- *
- * When `PYTHINKER_MODEL_NAME` is set, synthesizes one model id (bound to the
- * reserved `__pythinker_env__` provider whose schema kosong owns) from the
- * `PYTHINKER_MODEL_*` environment variables and overlays it onto the resolved
- * `effective` config: the reserved model entry, `defaultModel`, and the request
- * `modelOverrides`. The overlay is applied ONLY to the in-memory `effective`
- * view; its `strip` removes the synthesized values on the write path so they
- * never reach `config.toml`. Self-registered into `IConfigRegistry` at module
- * load, so the overlay takes effect even when the kosong registry services
- * are never instantiated.
- *
- * The env provider's default `baseUrl` is resolved through kosong's
- * provider-definition registry, not from a hardcoded vendor table — for Pythinker
- * that is the `PYTHINKER_BASE_URL` → `https://api.moonshot.ai/v1` chain declared
- * by the vendor's traits.
- */
-
 import { parseBooleanEnv } from '#/_base/utils/env';
 import { Error2 } from '#/_base/errors/errors';
 
