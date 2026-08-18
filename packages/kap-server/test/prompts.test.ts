@@ -700,7 +700,6 @@ describe('server-v2 /api/v1 prompts', () => {
     name: string,
   ): Promise<{ id: string; size: number }> {
     const form = new FormData();
-    // `BlobPart` needs a non-shared backing buffer under @types/node 26.
     form.set('file', new Blob([bytes as Buffer<ArrayBuffer>], { type: mediaType }), name);
     const uploadRes = await fetch(`${base}/api/v1/files`, {
       method: 'POST',

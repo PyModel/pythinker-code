@@ -77,9 +77,6 @@ export class PythinkerFiles {
       }
       const filename = input.filename ?? guessFilename(input.mimeType);
       const bytes = input.data instanceof Uint8Array ? input.data : new Uint8Array(input.data);
-      // `BlobPart` requires a non-shared backing buffer under @types/node 26;
-      // the assertion is safe because these bytes never come from a
-      // SharedArrayBuffer.
       const blob = new Blob([bytes as Uint8Array<ArrayBuffer>], { type: input.mimeType });
       file = new File([blob], filename, { type: input.mimeType });
     }
