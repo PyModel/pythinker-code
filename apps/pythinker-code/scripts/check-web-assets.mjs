@@ -1,10 +1,9 @@
-// Verify the prebuilt web bundle is present before packaging.
+// Verify the built web bundle is present before packaging.
 //
-// apps/pythinker-web no longer exists in this repo: the web UI is developed in the
-// code-app repo (apps/web) and the built bundle is synced here and committed
-// at apps/pythinker-code/dist-web (gitignored, force-added). This script replaces
-// the old copy-from-source step — it only checks that the committed bundle is
-// in place, so a packaging run never silently ships a CLI without the web UI.
+// This repo keeps the web UI source at apps/pythinker-web. The bundle is
+// staged at apps/pythinker-code/dist-web by scripts/copy-web-assets.mjs after
+// a web build. This check only asserts the staged bundle is in place, so a
+// packaging run never silently ships a CLI without the web UI.
 
 import { readdir, stat } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
@@ -21,12 +20,13 @@ async function assertWebAssets() {
     }
   } catch {
     throw new Error(
-      `未找到已提交的 web 产物 ${target}/index.html。web 产物由 code-app 仓同步（见根 AGENTS.md），` +
-        '请从该仓运行 `PYTHINKER_CODE_REPO=<此 checkout> pnpm run sync:web` 并提交 dist-web。',
+      `Web assets were not found at ${target}/index.html. Run ` +
+        '`pnpm --filter @pymodel/pythinker-web run build` and then ' +
+        '`node apps/pythinker-code/scripts/copy-web-assets.mjs`.',
     );
   }
 }
 
 await assertWebAssets();
 const files = await readdir(target, { recursive: true });
-console.log(`Web assets OK: ${target} (${files.length} entries, synced from code-app)`);
+console.log(`Web assets OK: ${target} (${files.length} entries)`);
