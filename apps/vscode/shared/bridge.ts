@@ -181,7 +181,6 @@ function validateParams(method: RpcMethod, params: unknown): boolean {
       return isPlainObject(params)
         && isNonEmptyString(params["providerId"])
         && isOptionalType(params["apiKey"], "string")
-        && isOptionalType(params["apiKeyEnvVar"], "string")
         && isOptionalType(params["defaultModel"], "string");
     case Methods.RemoveProvider:
       return hasNonEmptyString(params, "providerId");

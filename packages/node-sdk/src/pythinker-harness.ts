@@ -414,6 +414,31 @@ export class PythinkerHarness {
     return this.rpc.getConfig(options);
   }
 
+  async isAuthenticated(): Promise<boolean> {
+    const config = await this.getConfig({ reload: true });
+    return Object.values(config.providers ?? {}).some((provider) => {
+      if (provider.apiKey?.trim()) return true;
+      const env = provider.env ?? {};
+      switch (provider.type) {
+        case 'anthropic':
+          return Boolean(env['ANTHROPIC_API_KEY']?.trim());
+        case 'openai':
+        case 'openai_responses':
+          return Boolean(env['OPENAI_API_KEY']?.trim());
+        case 'pythinker':
+          return Boolean(env['PYTHINKER_API_KEY']?.trim());
+        case 'google-genai':
+          return Boolean(env['GOOGLE_API_KEY']?.trim());
+        case 'vertexai':
+          return (
+            Boolean(env['VERTEXAI_API_KEY']?.trim()) || Boolean(env['GOOGLE_API_KEY']?.trim())
+          );
+        default:
+          return false;
+      }
+    });
+  }
+
   /** Warnings from the most recent config.toml load; empty when the config is fully valid. */
   async getConfigDiagnostics(): Promise<ConfigDiagnostics> {
     return this.rpc.getConfigDiagnostics();

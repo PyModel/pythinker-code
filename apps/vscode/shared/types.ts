@@ -106,13 +106,11 @@ export interface CatalogProviderSummary {
   id: string;
   name: string;
   wire?: string;
-  apiKeyEnvVar?: string;
   models: CatalogModelSummary[];
 }
 
 export interface AddCatalogProviderRequest {
   providerId: string;
   apiKey?: string;
-  apiKeyEnvVar?: string;
   defaultModel?: string;
 }

@@ -27,6 +27,7 @@ const host = vi.hoisted(() => {
     close: vi.fn(async () => undefined),
     getConfig: vi.fn(),
     setConfig: vi.fn(async () => undefined),
+    replaceConfigSections: vi.fn(async () => undefined),
     ensureConfigFile: vi.fn(async () => undefined),
     removeProvider: vi.fn(async () => undefined),
     listSessions: vi.fn(async () => []),
@@ -151,7 +152,7 @@ vi.mock("vscode", () => ({
 
 vi.mock("@pymodel/pythinker-code-sdk", async (importOriginal) => {
   const original = await importOriginal<typeof import("@pymodel/pythinker-code-sdk")>();
-  return { ...original, createPythinkerHarness: () => host.harness };
+  return { ...original, createPythinkerHarnessV2: () => host.harness };
 });
 
 let bridge: BridgeHandler;
@@ -560,16 +561,16 @@ describe("Webview config saves (thinking effort persistence parity with the TUI)
     defaultEffort: "high",
   };
 
-  function mockConfig(thinking?: { mode?: string; effort?: string }) {
+  function mockConfig(thinking?: { enabled?: boolean; effort?: string }) {
     host.harness.getConfig.mockResolvedValue({
       defaultModel: "kimi/reasoning",
-      thinking: thinking ?? { mode: "on", effort: "high" },
+      thinking: thinking ?? { enabled: true, effort: "high" },
       models: { "kimi/reasoning": effortModel },
     } as never);
   }
 
   it("persists a non-top effort as the global default", async () => {
-    mockConfig({ mode: "off", effort: "low" });
+    mockConfig({ enabled: false, effort: "low" });
 
     const result = await bridge.handle(
       { id: "rpc-1", method: Methods.SaveConfig, params: { model: "kimi/reasoning", thinking: true, effort: "high" } },
@@ -579,12 +580,12 @@ describe("Webview config saves (thinking effort persistence parity with the TUI)
     expect(result).toEqual({ id: "rpc-1", result: { ok: true } });
     expect(host.harness.setConfig).toHaveBeenCalledWith({
       defaultModel: "kimi/reasoning",
-      thinking: { mode: "on", effort: "high" },
+      thinking: { enabled: true, effort: "high" },
     });
   });
 
   it("keeps the model's top declared tier session-only", async () => {
-    mockConfig({ mode: "off" });
+    mockConfig({ enabled: false });
 
     await bridge.handle(
       { id: "rpc-1", method: Methods.SaveConfig, params: { model: "kimi/reasoning", thinking: true, effort: "max" } },
@@ -593,7 +594,7 @@ describe("Webview config saves (thinking effort persistence parity with the TUI)
 
     expect(host.harness.setConfig).toHaveBeenCalledWith({
       defaultModel: "kimi/reasoning",
-      thinking: { mode: "on", effort: "max" },
+      thinking: { enabled: true, effort: "max" },
     });
   });
 
@@ -607,12 +608,12 @@ describe("Webview config saves (thinking effort persistence parity with the TUI)
 
     expect(host.harness.setConfig).toHaveBeenCalledWith({
       defaultModel: "custom/model",
-      thinking: { mode: "on", effort: "max" },
+      thinking: { enabled: true, effort: "max" },
     });
   });
 
   it("leaves the stored effort alone when the pick re-confirms the active effort", async () => {
-    mockConfig({ mode: "off", effort: "high" });
+    mockConfig({ enabled: false, effort: "high" });
 
     await bridge.handle(
       { id: "rpc-1", method: Methods.SaveConfig, params: { model: "kimi/reasoning", thinking: true, effort: "high", effortChanged: false } },
@@ -621,12 +622,12 @@ describe("Webview config saves (thinking effort persistence parity with the TUI)
 
     expect(host.harness.setConfig).toHaveBeenCalledWith({
       defaultModel: "kimi/reasoning",
-      thinking: { mode: "on" },
+      thinking: { enabled: true },
     });
   });
 
   it("skips the config write entirely when nothing changed", async () => {
-    mockConfig({ mode: "on", effort: "high" });
+    mockConfig({ enabled: true, effort: "high" });
 
     await bridge.handle(
       { id: "rpc-1", method: Methods.SaveConfig, params: { model: "kimi/reasoning", thinking: true, effort: "high" } },
@@ -683,8 +684,7 @@ function createResumedSession(id: string, workDir: string) {
     }),
     getStatus: async () => ({ permission: "manual" }),
     setPermission: async () => undefined,
-    getSessionMetadata: async () => ({ custom: {} }),
-    updateSessionMetadata: async () => undefined,
+    updateMetadata: async () => undefined,
     setApprovalHandler: () => undefined,
     setQuestionHandler: () => undefined,
     onEvent: () => () => undefined,
@@ -752,7 +752,7 @@ describe("Webview provider management (writes the same config.toml the CLI reads
     );
 
     expect((response as { error?: unknown }).error).toBeUndefined();
-    expect(host.harness.setConfig).toHaveBeenCalledWith(
+    expect(host.harness.replaceConfigSections).toHaveBeenCalledWith(
       expect.objectContaining({
         providers: expect.objectContaining({
           anthropic: expect.objectContaining({ apiKey: "sk-test" }),
@@ -771,7 +771,7 @@ describe("Webview provider management (writes the same config.toml the CLI reads
     );
 
     expect((response as { error?: string }).error).toMatch(/needs an API key/);
-    expect(host.harness.setConfig).not.toHaveBeenCalled();
+    expect(host.harness.replaceConfigSections).not.toHaveBeenCalled();
   });
 
   it("removes a provider through the harness", async () => {
@@ -865,7 +865,7 @@ describe("Webview login (multi-provider picker behind Methods.Login)", () => {
     // `claude-opus-4-7` declares reasoning and no `supportEfforts`, which is
     // the low/medium/high fallback plus the `off` toggle.
     expect(offeredEffortLevels).toEqual(["off", "low", "medium", "high"]);
-    expect(host.harness.setConfig).toHaveBeenCalledWith(
+    expect(host.harness.replaceConfigSections).toHaveBeenCalledWith(
       expect.objectContaining({
         providers: expect.objectContaining({
           anthropic: expect.objectContaining({ apiKey: "sk-typed-in" }),
@@ -873,8 +873,7 @@ describe("Webview login (multi-provider picker behind Methods.Login)", () => {
         defaultModel: "anthropic/claude-opus-4-7",
         // The picked level, not just the on/off bit: the patch used to omit
         // `thinking`, so every session reopened at the default effort.
-        defaultThinking: true,
-        thinking: expect.objectContaining({ effort: "medium" }),
+        thinking: expect.objectContaining({ enabled: true, effort: "medium" }),
       }),
     );
   });
@@ -1059,6 +1058,6 @@ describe("Webview login (multi-provider picker behind Methods.Login)", () => {
     // The refresh has to have been attempted — otherwise this asserts nothing
     // about a failure it never reached.
     expect(host.harness.isAuthenticated).toHaveBeenCalledTimes(1);
-    expect(host.harness.setConfig).toHaveBeenCalled();
+    expect(host.harness.replaceConfigSections).toHaveBeenCalled();
   });
 });

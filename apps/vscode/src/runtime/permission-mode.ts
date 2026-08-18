@@ -33,10 +33,7 @@ export async function persistPermissionMode(
   session: Session,
   mode: PermissionMode,
 ): Promise<void> {
-  const meta = await session.getSessionMetadata();
-  await session.updateSessionMetadata({
-    custom: { ...meta.custom, ...permissionModeMetadata(mode) },
-  });
+  await session.updateMetadata(permissionModeMetadata(mode));
 }
 
 /**

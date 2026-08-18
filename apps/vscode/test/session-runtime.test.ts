@@ -128,16 +128,13 @@ function createFakeSession(): FakeSessionBoundary {
       permission = mode;
       setPermissions.push(mode);
     },
-    async getSessionMetadata() {
-      return { custom: summary.metadata };
-    },
-    async updateSessionMetadata(patch: { custom?: JsonObject }) {
+    async updateMetadata(patch: JsonObject) {
       if (nextMetadataError !== undefined) {
         const error = nextMetadataError;
         nextMetadataError = undefined;
         throw error;
       }
-      metadataUpdates.push(patch.custom ?? {});
+      metadataUpdates.push(patch);
     },
     async close() {
       closes += 1;

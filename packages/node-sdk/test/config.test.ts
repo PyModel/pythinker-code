@@ -260,6 +260,31 @@ maxRunningTasks = 2
 });
 
 describe('PythinkerHarness config API', () => {
+  it('does not treat non-credential provider environment values as authentication', async () => {
+    const homeDir = await makeTempDir();
+    const configPath = join(homeDir, 'config.toml');
+    await writeFile(
+      configPath,
+      `
+[providers.vertex]
+type = "vertexai"
+
+[providers.vertex.env]
+GOOGLE_CLOUD_PROJECT = "project-1"
+GOOGLE_CLOUD_LOCATION = "us-east1"
+`,
+      'utf-8',
+    );
+    const harness = createPythinkerHarness({ homeDir, identity: TEST_IDENTITY });
+
+    await expect(harness.isAuthenticated()).resolves.toBe(false);
+    await harness.setConfig({
+      providers: { vertex: { env: { GOOGLE_API_KEY: 'key-fixture' } } },
+    });
+    await expect(harness.isAuthenticated()).resolves.toBe(true);
+    await harness.close();
+  });
+
   it('loads default config when missing and deep-merges setConfig patches from disk', async () => {
     const homeDir = await makeTempDir();
     const configPath = join(homeDir, 'config.toml');

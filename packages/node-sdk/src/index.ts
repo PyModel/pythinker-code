@@ -28,8 +28,10 @@ export {
   catalogModelToAlias,
   catalogProviderModels,
   CatalogFetchError,
+  CatalogProviderError,
   DEFAULT_CATALOG_URL,
   fetchCatalog,
+  importCatalogProvider,
   inferWireType,
   loadBuiltInCatalog,
   resolveCatalogImport,
@@ -42,7 +44,36 @@ export type {
   CatalogModel,
   CatalogProviderEntry,
   FetchCatalogOptions,
+  ImportCatalogProviderOptions,
+  ImportCatalogProviderResult,
 } from '#/catalog';
+
+export { buildSkillSlashCommands, isUserActivatableSkill } from '#/skill-commands';
+export type { SkillSlashCommand, SkillSlashCommands } from '#/skill-commands';
+
+export { formatErrorMessage, formatErrorPayload } from '#/error-format';
+export { buildPlatformOptions, resolvePlatformOption, type PlatformOption } from '#/login/platform-options';
+export {
+  CATALOG_PLATFORM_VALUE_PREFIX,
+  catalogProviderIdFromPlatformValue,
+} from '#/login/platform-values';
+export { connectCatalogProvider, runLogin } from '#/login/flows';
+export {
+  CANONICAL_EFFORT_ORDER,
+  coerceEffortForModel,
+  DEFAULT_SUPPORTED_EFFORTS,
+  effortLevelsForModel,
+  thinkingAvailability,
+  type ThinkingAvailability,
+} from '#/thinking-levels';
+export type {
+  ApiKeyPromptOptions,
+  LoginPlatformDefinition,
+  LoginPlatformModelInfo,
+  LoginProgressSpinnerHandle,
+  LoginUi,
+  PlatformSelection,
+} from '#/login/types';
 
 export {
   ErrorCodes,
