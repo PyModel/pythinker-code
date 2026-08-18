@@ -48,6 +48,17 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run test --shard=${{ matrix.shard }}/5
 
+  test-complete:
+    name: test
+    if: always()
+    needs: test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Verify all test shards passed
+        if: needs.test.result != 'success'
+        run: exit 1
+
   # pi-tui's suite runs on node:test (not vitest), so the root `pnpm run test`
   # does not execute it; it needs its own job.
   test-pi-tui:
