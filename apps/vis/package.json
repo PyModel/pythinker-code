@@ -1,0 +1,19 @@
+{
+  "name": "@pymodel/vis",
+  "version": "0.1.1",
+  "private": true,
+  "description": "Debug visualization tool for pythinker-code sessions",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build:deps": "pnpm --filter @pymodel/agent-core... build",
+    "predev": "pnpm run build:deps",
+    "dev": "node scripts/dev.mjs",
+    "build": "pnpm run build:deps && pnpm --filter @pymodel/vis-server build && pnpm --filter @pymodel/vis-web build && node scripts/copy-web-dist.mjs",
+    "prestart": "pnpm run build",
+    "start": "node server/dist/server.mjs"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

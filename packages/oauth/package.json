@@ -1,0 +1,51 @@
+{
+  "name": "@pymodel/pythinker-code-oauth",
+  "version": "0.2.2",
+  "private": true,
+  "description": "Pythinker OAuth toolkit for managed Pythinker Code authentication",
+  "license": "MIT",
+  "author": "PyModel",
+  "homepage": "https://github.com/PyModel/pythinker-code/tree/main/packages/oauth#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PyModel/pythinker-code.git",
+    "directory": "packages/oauth"
+  },
+  "bugs": {
+    "url": "https://github.com/PyModel/pythinker-code/issues"
+  },
+  "keywords": [
+    "pythinker",
+    "oauth",
+    "authentication",
+    "auth",
+    "cli"
+  ],
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "imports": {
+    "#/*": [
+      "./src/*.ts",
+      "./src/*/index.ts"
+    ]
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "proper-lockfile": "^4.1.2"
+  },
+  "devDependencies": {
+    "@types/proper-lockfile": "^4.1.4"
+  }
+}

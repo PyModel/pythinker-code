@@ -1,0 +1,116 @@
+{
+  "name": "@pymodel/pythinker-code",
+  "version": "0.17.1",
+  "description": "The Starting Point for Next-Gen Agents",
+  "license": "MIT",
+  "author": "PyModel",
+  "homepage": "https://github.com/PyModel/pythinker-code/tree/main/apps/pythinker-code#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PyModel/pythinker-code.git",
+    "directory": "apps/pythinker-code"
+  },
+  "bugs": {
+    "url": "https://github.com/PyModel/pythinker-code/issues"
+  },
+  "keywords": [
+    "pythinker",
+    "pythinker-code",
+    "cli",
+    "agent",
+    "coding-agent",
+    "ai",
+    "tui"
+  ],
+  "bin": {
+    "pythinker": "dist/main.mjs"
+  },
+  "files": [
+    "dist",
+    "dist-web",
+    "scripts/postinstall.mjs",
+    "scripts/postinstall",
+    "README.md"
+  ],
+  "type": "module",
+  "imports": {
+    "#/tui/theme": "./src/tui/theme/index.ts",
+    "#/cli/sub/server": "./src/cli/sub/server/index.ts",
+    "#/cli/sub/server/*": "./src/cli/sub/server/*.ts",
+    "#/*": [
+      "./src/*.ts",
+      "./src/*/index.ts",
+      "./src/*.d.ts"
+    ]
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "pnpm -C ../pythinker-web run build && tsdown && node scripts/copy-web-assets.mjs",
+    "prebuild": "node scripts/build-vis-asset.mjs",
+    "catalog:update": "node scripts/update-catalog.mjs --out dist/built-in-catalog.json",
+    "smoke": "node scripts/smoke.mjs",
+    "build:native:js": "node scripts/native/01-bundle.mjs",
+    "build:native:sea": "node scripts/native/build.mjs --profile=local",
+    "build:native:release": "node scripts/native/build.mjs --profile=release",
+    "package:native": "node scripts/native/package.mjs",
+    "produce:native:manifest": "node scripts/native/produce-manifest.mjs",
+    "release:native:resolve": "node scripts/native/resolve-release.mjs",
+    "test:native:smoke": "node scripts/native/smoke.mjs",
+    "dev": "node scripts/dev.mjs",
+    "dev:cli-only": "tsx --import ../../build/register-raw-text-loader.mjs ./src/main.ts",
+    "dev:server": "tsx --tsconfig ./tsconfig.dev.json --import ../../build/register-raw-text-loader.mjs ./src/main.ts server run --foreground",
+    "dev:server:restart": "node scripts/dev-server-restart.mjs",
+    "dev:plugin-marketplace": "node scripts/dev-plugin-marketplace-server.mjs",
+    "build:plugin-marketplace": "node scripts/build-plugin-marketplace-cdn.mjs",
+    "dev:prod": "node dist/main.mjs",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "pnpm -w run build:packages && vitest run",
+    "e2e": "pnpm -w run build:packages && PYTHINKER_E2E=1 vitest run test/e2e",
+    "e2e:real": "pnpm -w run build:packages && PYTHINKER_E2E_REAL=1 vitest run test/e2e/real-llm-smoke.e2e.test.ts",
+    "postinstall": "node scripts/postinstall.mjs"
+  },
+  "optionalDependencies": {
+    "@mariozechner/clipboard": "^0.3.2",
+    "chalk": "^5.4.1",
+    "cli-highlight": "^2.1.11",
+    "commander": "^13.1.0",
+    "koffi": "^2.16.0",
+    "node-pty": "^1.1.0",
+    "pathe": "^2.0.3",
+    "pino-pretty": "^13.0.0",
+    "semver": "^7.7.4",
+    "smol-toml": "^1.6.1",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-tui": "^0.74.0",
+    "@pymodel/acp-adapter": "workspace:^",
+    "@pymodel/pythinker-code-oauth": "workspace:^",
+    "@pymodel/pythinker-code-sdk": "workspace:^",
+    "@pymodel/pythinker-telemetry": "workspace:^",
+    "@pymodel/pythinker-web": "workspace:^",
+    "@pymodel/migration-legacy": "workspace:^",
+    "@pymodel/server": "workspace:^",
+    "@pymodel/vis-server": "workspace:^",
+    "@pymodel/vis-web": "workspace:*",
+    "@types/semver": "^7.7.0",
+    "@types/yazl": "^2.4.6",
+    "chalk": "^5.4.1",
+    "cli-highlight": "^2.1.11",
+    "commander": "^13.1.0",
+    "pathe": "^2.0.3",
+    "postject": "1.0.0-alpha.6",
+    "semver": "^7.7.4",
+    "smol-toml": "^1.6.1",
+    "tsx": "^4.21.0",
+    "yazl": "^3.3.1",
+    "zod": "^4.3.6"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  }
+}
