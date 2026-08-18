@@ -81,6 +81,9 @@
         ./apps/pythinker-code
         ./apps/pythinker-web
         ./apps/pythinker-inspect
+        ./apps/vis
+        ./apps/vis/server
+        ./apps/vis/web
         ./apps/desktop
         ./apps/dashboard
         ./apps/dashboard/server
@@ -110,6 +113,9 @@
         "@pymodel/pythinker-code"
         "@pymodel/pythinker-web"
         "@pymodel/pythinker-inspect"
+        "@pymodel/vis"
+        "@pymodel/vis-server"
+        "@pymodel/vis-web"
         "@pymodel/pythinker-desktop"
         "@pymodel/dashboard"
         "@pymodel/dashboard-server"
