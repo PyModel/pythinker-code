@@ -1,7 +1,7 @@
 /**
- * `@pymodel/server-e2e` — wire-level test client for the pythinker-code server.
+ * Wire-level E2E client for the pythinker-code server.
  *
- * Use this package from scenarios (`scenarios/*.ts`) and vitest e2e tests
+ * Use this harness from vitest E2E tests
  * to drive a real server process at `http://127.0.0.1:58627` (or any baseUrl
  * you pass via `DaemonClientOptions.baseUrl`).
  *
@@ -67,4 +67,3 @@ export { installReverseRpcHandler } from './reverse-rpc.js';
 export type { ReverseRpcOptions } from './reverse-rpc.js';
 
 export { DEFAULT_FRAME_TIMEOUT_MS, waitForFrame, waitForSessionBusy } from './wait.js';
-

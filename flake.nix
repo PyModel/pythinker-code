@@ -62,7 +62,6 @@
       workspacePaths = [
         ./packages/acp-adapter
         ./packages/agent-core
-        ./packages/server-e2e
         ./packages/kaos
         ./packages/acp-server
         ./packages/agent-core-v2
@@ -91,7 +90,6 @@
       workspaceNames = [
         "@pymodel/acp-adapter"
         "@pymodel/agent-core"
-        "@pymodel/server-e2e"
         "@pymodel/kaos"
         "@pymodel/acp-server"
         "@pymodel/agent-core-v2"

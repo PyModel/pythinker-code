@@ -58,7 +58,6 @@ Adding an OpenAI-compatible provider requires **zero code changes** — just add
 | `packages/oauth` | Auth utilities | |
 | `packages/telemetry` | Client-side telemetry | |
 | `packages/server` | Server | Hosts `agent-core` over REST + WS `/api/v1`. See its `AGENTS.md`. |
-| `packages/server-e2e` | E2E tests | `PYTHINKER_SERVER_URL` (default `http://127.0.0.1:58627`). See its `AGENTS.md`. |
 
 ## Environment
 
