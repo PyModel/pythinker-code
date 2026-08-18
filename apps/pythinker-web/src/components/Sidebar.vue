@@ -21,6 +21,7 @@ import {
 } from '../lib/storage';
 import { moveInOrder, type DropPosition, type WorkspaceSortMode } from '../lib/workspaceOrder';
 import type { Session, WorkspaceGroup as WorkspaceGroupType, WorkspaceView } from '../types';
+import PythinkerLogo from './PythinkerLogo.vue';
 import SearchSessionsDialog from './dialogs/SearchSessionsDialog.vue';
 import WorkspaceGroup from './WorkspaceGroup.vue';
 import { isMacosDesktop } from '../lib/desktopFlag';
@@ -33,11 +34,10 @@ import Pill from './ui/Pill.vue';
 
 const { t } = useI18n();
 
-// Dev-only affordance: when the page is served by the Vite dev server, the
-// logo turns yellow and a backend pill next to the brand shows the engine
+// Dev-only affordance: a backend pill next to the brand shows the engine
 // generation reported by /meta (v1 = older server binary, v2 = kap-server)
 // plus the endpoint the dev proxy forwards to — click it to switch presets
-// without restarting Vite. In production this is all inert.
+// without restarting Vite. In production this is inert.
 const isDev = import.meta.env.DEV;
 const devBackend = ref<DevBackendState | null>(isDev ? initialDevBackendState() : null);
 if (isDev) {
@@ -575,27 +575,11 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', closeBackendMenu);
 });
 
-// Logo easter-egg: clicking the Pythinker mark plays one quick blink. It's a one-shot
-// animation — force a reflow so rapid clicks restart it, then drop the class so
-// the idle look/blink loop resumes.
-const logoRef = ref<SVGSVGElement | null>(null);
-let blinkTimer: ReturnType<typeof setTimeout> | undefined;
-
 // Temporarily hide the new-workspace button while we evaluate the entry point.
 const showNewWorkspaceButton = false;
 
-function blinkOnce(): void {
-  const el = logoRef.value;
-  if (!el) return;
-  el.classList.remove('blink-now');
-  void el.getBoundingClientRect();
-  el.classList.add('blink-now');
-  clearTimeout(blinkTimer);
-  blinkTimer = setTimeout(() => el.classList.remove('blink-now'), 300);
-}
-
 // Logo long-press easter-egg: holding the Pythinker mark for 1 second opens the
-// design system as a full-screen overlay. A short click still just blinks.
+// design system as a full-screen overlay.
 // Pointer capture keeps the hold alive even if the pointer drifts off the mark.
 const DesignSystemView = defineAsyncComponent(
   () => import('../views/DesignSystemView.vue'),
@@ -603,14 +587,11 @@ const DesignSystemView = defineAsyncComponent(
 const showDesignSystem = ref(false);
 const EGG_HOLD_MS = 1000;
 let logoPressTimer: ReturnType<typeof setTimeout> | undefined;
-let logoLongPressed = false;
 
 function onLogoPointerDown(event: PointerEvent): void {
-  logoLongPressed = false;
   clearTimeout(logoPressTimer);
   (event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId);
   logoPressTimer = setTimeout(() => {
-    logoLongPressed = true;
     showDesignSystem.value = true;
   }, EGG_HOLD_MS);
 }
@@ -619,14 +600,6 @@ function onLogoPointerUp(event: PointerEvent): void {
   clearTimeout(logoPressTimer);
   const el = event.currentTarget as HTMLElement;
   if (el.hasPointerCapture?.(event.pointerId)) el.releasePointerCapture(event.pointerId);
-}
-
-function onLogoClick(): void {
-  if (logoLongPressed) {
-    logoLongPressed = false;
-    return;
-  }
-  blinkOnce();
 }
 
 onBeforeUnmount(() => {
@@ -650,18 +623,14 @@ onBeforeUnmount(() => {
       <div class="ch">
         <div class="ch-brand">
           <template v-if="!isMacosDesktop">
-            <svg ref="logoRef" class="ch-logo" :class="{ 'is-dev': isDev }" viewBox="0 0 32 22" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Pythinker Code" @click="onLogoClick" @pointerdown="onLogoPointerDown" @pointerup="onLogoPointerUp" @pointercancel="onLogoPointerUp">
-              <defs>
-                <mask id="pythinkerEyes" maskUnits="userSpaceOnUse">
-                  <rect x="0" y="0" width="32" height="22" fill="#fff" />
-                  <g class="ch-eyes" fill="#000">
-                    <rect class="ch-eye" x="11.8" y="7" width="2.8" height="8" rx="1.4" />
-                    <rect class="ch-eye" x="17.4" y="7" width="2.8" height="8" rx="1.4" />
-                  </g>
-                </mask>
-              </defs>
-              <rect x="1" y="1" width="30" height="20" rx="6" fill="var(--logo)" mask="url(#pythinkerEyes)" />
-            </svg>
+            <PythinkerLogo
+              class="ch-logo"
+              size="sm"
+              :animated="false"
+              @pointerdown="onLogoPointerDown"
+              @pointerup="onLogoPointerUp"
+              @pointercancel="onLogoPointerUp"
+            />
             <span class="ch-name">Pythinker Code</span>
             <Pill
               v-if="isDev"
@@ -967,8 +936,9 @@ onBeforeUnmount(() => {
   display: none;
 }
 .ch-logo {
-  height: 22px;
-  width: 32px;
+  height: 28px;
+  width: 28px;
+  object-fit: contain;
   flex: none;
   display: block;
   cursor: pointer;
@@ -978,12 +948,6 @@ onBeforeUnmount(() => {
 }
 .ch-logo:hover {
   transform: scale(1.08);
-}
-/* Dev-only: tint the mark yellow so a `pnpm dev:web` tab is obvious at a
-   glance. `--logo` is read by the mark's `fill`; overriding it on the svg
-   recolors just this instance. */
-.ch-logo.is-dev {
-  --logo: var(--color-logo-dev);
 }
 .ch-brand {
   display: flex;

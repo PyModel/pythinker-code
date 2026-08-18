@@ -453,11 +453,6 @@ html[data-color-scheme="dark"][data-accent="mono"] {
   --color-done-soft: #f3e8ff;
   --color-done-bd: #e0ccff;
   --color-info: var(--accent-primary);
-  /* Dev-only brand tint: recolors the logo mark golden-yellow so a `pnpm dev:web`
-     tab is visually distinct from production. Referenced by Sidebar's
-     `.ch-logo.is-dev` override of `--logo`. Scheme-independent on purpose. */
-  --color-logo-dev: #f5b301;
-
   /* -- spacing (4px grid) -------------------------------------------------- */
   --space-1: 4px;
   --space-2: 8px;
@@ -843,48 +838,6 @@ body {
     transition-duration: 0.001ms !important;
   }
 }
-/* ---- Pythinker Code logo (sidebar header): lively eyes — glance left/right + the
-   occasional blink. The two bars are mask cutouts, so animating them moves /
-   squishes the transparent holes (adapts to whatever's behind the logo). The
-   look (6s) and blink (5.4s) run on different periods so they drift in and out
-   of sync, which reads as more organic. ---- */
-.ch-eyes {
-  animation: pythinker-eye-look 16s ease-in-out infinite;
-}
-.ch-eye {
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: pythinker-eye-blink 11s ease-in-out infinite;
-}
-@keyframes pythinker-eye-look {
-  /* Rest centered most of the time; a quick glance right (~7.5s) then a glance
-     left (~13.5s), with long still holds between — calm, not busy. */
-  0%, 42% { transform: translateX(0); }
-  47%, 53% { transform: translateX(2px); }
-  58%, 80% { transform: translateX(0); }
-  84%, 90% { transform: translateX(-2px); }
-  95%, 100% { transform: translateX(0); }
-}
-@keyframes pythinker-eye-blink {
-  /* one quick blink per cycle (~10.6s) */
-  0%, 94%, 100% { transform: scaleY(1); }
-  96.5%, 98% { transform: scaleY(0.12); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .ch-eyes,
-  .ch-eye { animation: none; }
-}
-
-/* Click-to-blink: a single quick blink on click (overrides the idle 11s blink
-   while the .blink-now class is present, ~300ms). */
-.ch-logo.blink-now .ch-eye {
-  animation: pythinker-eye-blink-once 0.24s ease-in-out;
-}
-@keyframes pythinker-eye-blink-once {
-  0%, 100% { transform: scaleY(1); }
-  50% { transform: scaleY(0.1); }
-}
-
 /* Markdown images at natural size. markstream enforces a min-width/min-height
    floor (--ms-size-image-*, ~33px) that scales small inline images UP — README
    shields.io badges (78×20) were rendered at 128×33. Higher specificity than
