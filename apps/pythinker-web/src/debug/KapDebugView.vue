@@ -5,6 +5,8 @@
      Dev tooling: labels are intentionally not localized. -->
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
+import { copyTextToClipboard } from '../lib/clipboard';
+import Tooltip from '../components/ui/Tooltip.vue';
 import {
   clearTrace,
   downloadTraceLog,
@@ -121,13 +123,10 @@ function entryJson(e: TraceEntry): string {
 }
 
 async function copyEntry(e: TraceEntry): Promise<void> {
-  try {
-    await navigator.clipboard.writeText(entryJson(e));
-    copiedId.value = e.id;
-    setTimeout(() => { if (copiedId.value === e.id) copiedId.value = null; }, 1500);
-  } catch {
-    // clipboard unavailable
-  }
+  const ok = await copyTextToClipboard(entryJson(e));
+  if (!ok) return;
+  copiedId.value = e.id;
+  setTimeout(() => { if (copiedId.value === e.id) copiedId.value = null; }, 1500);
 }
 
 function exportJsonl(): void {
@@ -160,7 +159,9 @@ function badgeLabel(e: TraceEntry): string {
         </button>
         <button type="button" @click="clearTrace()">clear</button>
         <button type="button" @click="exportJsonl()">export jsonl</button>
-        <button type="button" title="Close window" @click="emit('close')">✕</button>
+        <Tooltip text="Close window">
+          <button type="button" @click="emit('close')">✕</button>
+        </Tooltip>
       </div>
     </header>
 
@@ -244,7 +245,7 @@ function badgeLabel(e: TraceEntry): string {
   background: var(--bg);
   font-family: var(--mono);
   font-size: calc(var(--ui-font-size) - 2.5px);
-  color: var(--ink);
+  color: var(--color-text);
 }
 
 .kap-head {
@@ -269,9 +270,9 @@ function badgeLabel(e: TraceEntry): string {
   cursor: pointer;
 }
 .kap-head-actions button:hover,
-.kap-view-toggle button:hover { color: var(--ink); }
+.kap-view-toggle button:hover { color: var(--color-text); }
 .kap-head-actions button.on,
-.kap-view-toggle button.on { color: var(--blue2); border-color: var(--bd); background: var(--soft); }
+.kap-view-toggle button.on { color: var(--color-accent-hover); border-color: var(--color-accent-bd); background: var(--color-accent-soft); }
 
 .kap-filters {
   flex: none;
@@ -288,7 +289,7 @@ function badgeLabel(e: TraceEntry): string {
   border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--bg);
-  color: var(--ink);
+  color: var(--color-text);
   font: inherit;
   min-width: 0;
 }
@@ -310,27 +311,27 @@ function badgeLabel(e: TraceEntry): string {
   border: none;
   border-bottom: 1px solid var(--line);
   background: transparent;
-  color: var(--ink);
+  color: var(--color-text);
   font: inherit;
   text-align: left;
   cursor: pointer;
 }
 .kap-row:hover { background: var(--panel2); }
-.kap-row.expanded { background: var(--soft); }
+.kap-row.expanded { background: var(--color-accent-soft); }
 .kap-ts { flex: none; color: var(--muted); }
 .kap-badge {
   flex: none;
   padding: 0 5px;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   font-size: max(9px, calc(var(--ui-font-size) - 4.5px));
-  font-weight: 700;
+  font-weight: 500;
   line-height: 1.7;
 }
-.b-rest { background: var(--soft); color: var(--blue2); }
-.b-in { background: var(--soft); color: var(--ok, #2da44e); }
-.b-out { background: var(--soft); color: var(--warn); }
+.b-rest { background: var(--color-accent-soft); color: var(--color-accent-hover); }
+.b-in { background: var(--color-accent-soft); color: var(--color-success); }
+.b-out { background: var(--color-accent-soft); color: var(--color-warning); }
 .b-life { background: var(--panel2); color: var(--muted); }
-.b-err { background: var(--warn); color: var(--bg); }
+.b-err { background: var(--color-warning); color: var(--bg); }
 .kap-label {
   flex: 1;
   min-width: 0;
@@ -354,7 +355,7 @@ function badgeLabel(e: TraceEntry): string {
   font: inherit;
   cursor: pointer;
 }
-.kap-detail-actions button:hover { color: var(--ink); }
+.kap-detail-actions button:hover { color: var(--color-text); }
 .kap-detail pre {
   margin: 0;
   max-height: 320px;
@@ -374,8 +375,8 @@ function badgeLabel(e: TraceEntry): string {
   text-align: left;
   vertical-align: top;
 }
-.kap-agg th { color: var(--muted); font-weight: 600; }
+.kap-agg th { color: var(--muted); font-weight: 500; }
 .kap-agg .num { text-align: right; }
-.kap-agg .err { color: var(--warn); font-weight: 700; }
+.kap-agg .err { color: var(--color-warning); font-weight: 500; }
 .kap-agg .mono { word-break: break-all; }
 </style>

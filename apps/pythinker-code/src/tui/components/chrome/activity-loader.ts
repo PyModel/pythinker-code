@@ -1,42 +1,46 @@
-import { Text } from '@earendil-works/pi-tui';
-import type { TUI } from '@earendil-works/pi-tui';
+import { Text, visibleWidth } from '@pymodel/pi-tui';
+import type { TUI } from '@pymodel/pi-tui';
 
 import {
   BRAILLE_SPINNER_FRAMES,
   BRAILLE_SPINNER_INTERVAL_MS,
-  formatThinkingSpinnerLabel,
+  MOON_SPINNER_FRAMES,
+  MOON_SPINNER_INTERVAL_MS,
 } from '#/tui/constant/rendering';
-import { shimmerText } from '#/tui/utils/shimmer';
+import { currentTheme } from '#/tui/theme';
 
-export interface ActivityLoaderOptions {
-  readonly verbLabels?: boolean;
-}
+export type SpinnerStyle = 'moon' | 'braille';
 
-export class ActivityLoader extends Text {
+export class MoonLoader extends Text {
   private currentFrame = 0;
-  private animationFrame = 0;
   private intervalId: ReturnType<typeof setInterval> | null = null;
   private ui: TUI;
   private frames: string[];
   private interval: number;
   private colorFn?: (s: string) => string;
   private label: string;
-  private useVerbLabels = false;
   private displayText = '';
+  // Inline text used when the spinner is embedded into another line (e.g. the
+  // agent-dynamic_workflow progress status line). It intentionally excludes the tip: the
+  // tip is only rendered when the loader sits on its own row in the activity
+  // pane, otherwise it would get squeezed against whatever follows the inline
+  // spinner (like the dynamic_workflow progress bar).
+  private inlineText = '';
+  private tip: string = '';
+  private availableWidth = 0;
 
   constructor(
     ui: TUI,
+    style: SpinnerStyle = 'moon',
     colorFn?: (s: string) => string,
     label: string = '',
-    options?: ActivityLoaderOptions,
   ) {
     super('', 1, 0);
     this.ui = ui;
-    this.frames = [...BRAILLE_SPINNER_FRAMES];
-    this.interval = BRAILLE_SPINNER_INTERVAL_MS;
+    this.frames = style === 'moon' ? [...MOON_SPINNER_FRAMES] : [...BRAILLE_SPINNER_FRAMES];
+    this.interval = style === 'moon' ? MOON_SPINNER_INTERVAL_MS : BRAILLE_SPINNER_INTERVAL_MS;
     this.colorFn = colorFn;
-    this.useVerbLabels = options?.verbLabels ?? false;
-    this.label = this.useVerbLabels ? formatThinkingSpinnerLabel() : label;
+    this.label = label;
     this.start();
   }
 
@@ -44,7 +48,6 @@ export class ActivityLoader extends Text {
     this.updateDisplay();
     this.intervalId = setInterval(() => {
       this.currentFrame = (this.currentFrame + 1) % this.frames.length;
-      this.animationFrame += 1;
       this.updateDisplay();
     }, this.interval);
   }
@@ -56,17 +59,12 @@ export class ActivityLoader extends Text {
     }
   }
 
-  setLabel(label: string): void {
-    this.useVerbLabels = false;
-    this.label = label;
-    this.updateDisplay();
+  dispose(): void {
+    this.stop();
   }
 
-  setVerbLabels(enabled: boolean): void {
-    this.useVerbLabels = enabled;
-    if (enabled) {
-      this.label = formatThinkingSpinnerLabel();
-    }
+  setLabel(label: string): void {
+    this.label = label;
     this.updateDisplay();
   }
 
@@ -75,23 +73,34 @@ export class ActivityLoader extends Text {
     this.updateDisplay();
   }
 
+  setTip(tip: string): void {
+    this.tip = tip;
+    this.updateDisplay();
+  }
+
+  setAvailableWidth(width: number): void {
+    if (this.availableWidth === width) return;
+    this.availableWidth = width;
+    this.updateDisplay();
+  }
+
   renderInline(): string {
-    return this.displayText;
+    return this.inlineText;
   }
 
   private updateDisplay(): void {
-    if (this.useVerbLabels) {
-      this.label = formatThinkingSpinnerLabel();
-    }
     const frame = this.frames[this.currentFrame]!;
     const coloredFrame = this.colorFn ? this.colorFn(frame) : frame;
-    const label = this.useVerbLabels
-      ? shimmerText(this.label, {
-          baseToken: 'primary',
-          shimmerToken: 'primaryShimmer',
-        })
-      : this.label;
-    this.displayText = label ? `${coloredFrame} ${label}` : coloredFrame;
+    const baseText = this.label ? `${coloredFrame} ${this.label}` : coloredFrame;
+    this.inlineText = baseText;
+    let text = baseText;
+    if (this.tip) {
+      const withTip = baseText + currentTheme.fg('textDim', this.tip);
+      if (this.availableWidth === 0 || visibleWidth(withTip) <= this.availableWidth) {
+        text = withTip;
+      }
+    }
+    this.displayText = text;
     this.setText(this.displayText);
     this.ui.requestRender();
   }

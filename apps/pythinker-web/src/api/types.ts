@@ -41,13 +41,6 @@ export type AppWarning = string | AppNotice;
 // Session
 // ---------------------------------------------------------------------------
 
-export type AppSessionStatus =
-  | 'idle'
-  | 'running'
-  | 'awaitingApproval'
-  | 'awaitingQuestion'
-  | 'aborted';
-
 export interface AppSessionUsage {
   inputTokens: number;
   outputTokens: number;
@@ -64,15 +57,25 @@ export interface AppSession {
   title: string;
   createdAt: string;
   updatedAt: string;
-  status: AppSessionStatus;
+  /** Any agent in the session holds an active turn or background lease.
+   *  Awaiting states ride the approval/question channels; turn outcomes ride
+   *  turn.ended. */
+  busy: boolean;
+  /** Whether the main agent has an active turn. Unlike busy, this excludes
+   *  background tasks and sub-agent work. */
+  mainTurnActive?: boolean;
+  /** List-level fallback for the action-required badge. */
+  pendingInteraction?: 'none' | 'approval' | 'question';
+  /** Outcome of the main agent's most recent turn (when the server reports
+   *  one). Presentation rule for the "aborted" tag:
+   *  `!busy && (cancelled | failed)`. */
+  lastTurnReason?: 'completed' | 'cancelled' | 'failed';
   archived: boolean;
   currentPromptId?: string;
+  /** Text of the most recent user prompt, for search/preview. */
+  lastPrompt?: string;
   cwd: string;
   model: string;
-  /** Exact tool names configured for this session, when explicitly set. */
-  tools?: string[];
-  /** MCP server ids configured for this session, when explicitly set. */
-  mcpServers?: string[];
   usage: AppSessionUsage;
   messageCount: number;
   lastSeq: number;
@@ -96,7 +99,7 @@ export interface AppSession {
 export interface AppSessionRuntimeStatus {
   /** Current model alias, or null if the daemon couldn't resolve it. */
   model: string | null;
-  thinkingLevel: string;
+  thinkingEffort: string;
   permission: string;
   planMode: boolean;
   dynamicWorkflowMode: boolean;
@@ -117,10 +120,6 @@ export interface AppWorkspace {
   root: string;
   /** Display name — defaults to basename(root), may be renamed on the daemon. */
   name: string;
-  /** Whether root is inside a git repository. */
-  isGitRepo: boolean;
-  /** Current branch, when known. */
-  branch?: string;
   /** ISO timestamp of when this workspace was last opened. */
   lastOpenedAt?: string;
   /** Number of sessions belonging to this workspace. */
@@ -132,8 +131,6 @@ export interface FsBrowseEntry {
   name: string;
   path: string;
   isDir: boolean;
-  isGitRepo: boolean;
-  branch?: string;
 }
 
 export interface FsBrowseResult {
@@ -159,7 +156,7 @@ export type AppMessageContent =
   | { type: 'unknown'; raw: unknown };
 
 export type ImageSource =
-  | { kind: 'url'; url: string }
+  | { kind: 'url'; url: string; id?: string }
   | { kind: 'base64'; mediaType: string; data: string }
   | { kind: 'file'; fileId: string };
 
@@ -195,7 +192,17 @@ export interface CompactionMarkerMetadata {
 // Prompt
 // ---------------------------------------------------------------------------
 
-export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+/**
+ * Runtime thinking level. 'off' disables extended thinking; 'on' is the
+ * enable signal for legacy boolean models (those without `support_efforts`);
+ * any other string is a model-declared effort level (e.g. 'low'/'high'/'max').
+ *
+ * `support_efforts` is the single source of truth for which concrete levels a
+ * model accepts; providers silently drop unknown efforts rather than erroring.
+ * Collapses to `string` at runtime — this is a semantic marker, not a closed
+ * enum. Mirrors kosong's `ThinkingEffort`.
+ */
+export type ThinkingLevel = 'off' | 'on' | (string & {});
 
 export interface PromptSubmission {
   content: AppMessageContent[];
@@ -204,6 +211,8 @@ export interface PromptSubmission {
   agentId?: string;
   /** The daemon requires these on every prompt (per-prompt, not session-level). */
   model?: string;
+  /** Omit to leave the session profile's thinking untouched — the daemon then
+   *  resolves the config/model default (same as an unset [thinking] in the TUI). */
   thinking?: ThinkingLevel;
   permissionMode?: 'manual' | 'auto' | 'yolo';
   planMode?: boolean;
@@ -253,7 +262,6 @@ export interface QuestionOption {
   id: string;
   label: string;
   description?: string;
-  preview?: string;
   recommended?: boolean;
 }
 
@@ -275,7 +283,6 @@ export interface AppQuestionRequest {
   turnId?: number;
   toolCallId?: string;
   questions: QuestionItem[];
-  expiresAt: string;
   createdAt: string;
 }
 
@@ -290,7 +297,6 @@ export interface QuestionResponse {
   answers: Record<string, QuestionAnswer>;
   method?: 'enter' | 'space' | 'number_key' | 'click';
   note?: string;
-  annotations?: Record<string, { preview?: string; notes?: string }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -313,11 +319,25 @@ export interface AppTask {
   outputPreview?: string;
   outputBytes?: number;
   outputLines?: string[]; // accumulated by eventReducer from task.progress chunks
+  /** The subagent's concatenated live output (assistant.delta), accumulated by
+   *  the event reducer from `taskProgress` chunks of kind `text`. Grows in the
+   *  right-side detail panel like a thinking block. */
+  text?: string;
   subagentPhase?: AppSubagentPhase;
   subagentType?: string;
   parentToolCallId?: string;
   suspendedReason?: string;
   dynamicWorkflowIndex?: number;
+  /** True only for subagents detached into the background task store. Drives
+   *  the dock: the dock lists background subagents, while foreground subagents
+   *  render inline in the message flow as the `Agent` tool card. */
+  runInBackground?: boolean;
+  /** The id this same subagent has in the server's background-task store
+   *  (REST `/tasks`), learned from the `task.started` registration event. The
+   *  WS event stream keys the agent by agent id while REST keys it by task id;
+   *  this links the two so the REST copy can be folded into this row and so
+   *  cancel can target the id REST actually knows. */
+  backgroundTaskId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -397,9 +417,16 @@ export type AppEvent =
   | { type: 'workspaceDeleted'; workspaceId: string; root: string }
   | { type: 'sessionUpdated'; session: AppSession; changedFields: string[] }
   | { type: 'sessionDeleted'; sessionId: string }
-  | { type: 'sessionStatusChanged'; sessionId: string; status: AppSessionStatus; previousStatus: AppSessionStatus; currentPromptId?: string }
-  | { type: 'sessionMetaUpdated'; sessionId: string; title: string }
-  | { type: 'sessionUsageUpdated'; sessionId: string; usage: AppSessionUsage; model?: string; dynamicWorkflowMode?: boolean; planMode?: boolean }
+  | {
+      type: 'sessionWorkChanged';
+      sessionId: string;
+      busy: boolean;
+      mainTurnActive?: boolean;
+      pendingInteraction?: 'none' | 'approval' | 'question';
+      lastTurnReason?: 'completed' | 'cancelled' | 'failed';
+    }
+  | { type: 'sessionMetaUpdated'; sessionId: string; title?: string; lastPrompt?: string }
+  | { type: 'sessionUsageUpdated'; sessionId: string; usage: AppSessionUsage; model?: string; dynamicWorkflowMode?: boolean; planMode?: boolean; thinking?: string }
   | { type: 'historyCompacted'; sessionId: string; beforeSeq: number; reason: string; summaryMessageId?: string }
   | { type: 'compactionStarted'; sessionId: string; trigger: 'manual' | 'auto'; instruction?: string }
   | { type: 'compactionCompleted'; sessionId: string; tokensBefore?: number; tokensAfter?: number; summary?: string }
@@ -419,12 +446,43 @@ export type AppEvent =
   | { type: 'questionRequested'; sessionId: string; question: AppQuestionRequest }
   | { type: 'questionAnswered'; sessionId: string; questionId: string; resolvedAt: string }
   | { type: 'questionDismissed'; sessionId: string; questionId: string; dismissedAt: string }
-  | { type: 'questionExpired'; sessionId: string; questionId: string }
   | { type: 'taskCreated'; sessionId: string; task: AppTask }
-  | { type: 'taskProgress'; sessionId: string; taskId: string; outputChunk: string; stream: 'stdout' | 'stderr' }
+  | {
+      type: 'taskProgress';
+      sessionId: string;
+      taskId: string;
+      outputChunk: string;
+      stream: 'stdout' | 'stderr';
+      /**
+       * `line` (default) appends a new progress line (tool-call / tool-progress).
+       * `text` concatenates onto the subagent's growing streamed output
+       * (`AppTask.text`), shown live in the detail panel like a thinking block.
+       */
+      kind?: 'line' | 'text';
+    }
   | { type: 'taskCompleted'; sessionId: string; taskId: string; status: AppTaskStatus; outputPreview?: string; outputBytes?: number }
+  // Prompt-level lifecycle (distinct from turn-level): a prompt that never
+  // produced a turn — blocked by a pre-submit hook, or aborted while queued —
+  // gets no turn.ended and no session status flip, so these are the web layer's
+  // only signal to clear the per-session in-flight state. A normal turn's
+  // prompt.completed is a no-op for state (the status_changed ahead of it
+  // already finished the prompt).
+  | { type: 'promptCompleted'; sessionId: string; promptId: string; reason: string }
+  | { type: 'promptAborted'; sessionId: string; promptId: string }
+  // The MAIN agent's turn boundary — the single source of truth for "the main
+  // conversation has a turn in flight" (half of the working moon, and the
+  // streaming reveal). Deliberately NOT derived from session status: a
+  // background subagent or BTW side chat keeps the session busy but must not
+  // light up the main conversation's moon. `reason` rides on deactivation.
+  | { type: 'turnActiveChanged'; sessionId: string; active: boolean; reason?: string }
   | { type: 'goalUpdated'; sessionId: string; goal: AppGoal | null }
   | { type: 'configChanged'; changedFields: string[]; config: AppConfig }
+  | {
+      type: 'modelCatalogChanged';
+      changed: { providerId: string; providerName: string; added: number; removed: number }[];
+      unchanged: string[];
+      failed: { provider: string; reason: string }[];
+    }
   | { type: 'unknown'; raw: unknown };
 
 // ---------------------------------------------------------------------------
@@ -468,17 +526,31 @@ export interface AppSessionSnapshot {
   messages: AppMessage[];
   hasMoreMessages: boolean;
   inFlightTurn: AppInFlightTurn | null;
+  /** Live subagent roster at the watermark — rebuilds dynamic_workflow cards on refresh. */
+  subagents: AppTask[];
   pendingApprovals: AppApprovalRequest[];
   pendingQuestions: AppQuestionRequest[];
 }
 
 export interface PythinkerEventHandlers {
-  onEvent(event: AppEvent, meta: { sessionId: string; seq: number }): void;
+  onEvent(event: AppEvent, meta: PythinkerEventMeta): void;
   onResync(sessionId: string, currentSeq: number, epoch?: string): void;
   onError(code: number, msg: string, fatal: boolean): void;
   onConnectionChange(connected: boolean): void;
   onTerminalOutput?(sessionId: string, terminalId: string, data: string, seq: number): void;
   onTerminalExit?(sessionId: string, terminalId: string, exitCode: number | null): void;
+}
+
+/** Raw stream coordinates are present only for kap-server assistant/thinking
+    deltas. They let the render queue merge chunks without guessing continuity. */
+export interface PythinkerEventMeta {
+  sessionId: string;
+  seq: number;
+  stream?: {
+    turnId: number;
+    offset: number;
+    kind: 'text' | 'thinking';
+  };
 }
 
 export interface PythinkerEventConnection {
@@ -509,6 +581,19 @@ export interface PythinkerEventConnection {
    * instead of dropping them like background subagents.
    */
   markSideChannelAgent(agentId: string): void;
+  /**
+   * Report the underlying socket's health. Used to detect a silent-half-open
+   * connection after the tab was frozen in the background: the browser still
+   * reports OPEN (so no auto-reconnect) yet no frames have arrived for a while.
+   */
+  health(): { connected: boolean; open: boolean; stale: boolean };
+  /**
+   * Force a clean reconnect of the underlying socket. Used to recover from a
+   * silent-half-open (background-tab freeze) where onclose never fires. The
+   * reconnect handshake re-subscribes at the last durable cursor. No-op after
+   * close().
+   */
+  reconnect(): void;
   close(): void;
 }
 
@@ -522,7 +607,7 @@ export interface AppModel {
   id: string;
   /** Provider id this model belongs to */
   provider: string;
-  /** Raw model name (e.g. "pythoughts-v1-128k") */
+  /** Raw model name (e.g. "moonshot-v1-128k") */
   model: string;
   /** Optional human-readable display name */
   displayName?: string;
@@ -530,16 +615,17 @@ export interface AppModel {
   maxContextSize: number;
   /** Optional capability tags (e.g. ["vision", "thinking"]) */
   capabilities?: string[];
-  /** Effort levels this model offers; absent means fall back to low/medium/high. */
-  supportEfforts?: string[];
-  /** Model reasons adaptively rather than via an explicit thinking capability tag. */
-  adaptiveThinking?: boolean;
+  /** Effort levels this model supports for extended thinking (e.g. ["low", "high", "max"]).
+      Sourced from the model catalog (managed) or config [models.<id>.overrides]. */
+  supportEfforts?: readonly string[];
+  /** Catalog-declared default effort for extended thinking. */
+  defaultEffort?: string;
 }
 
 export interface AppProvider {
   /** Provider id */
   id: string;
-  /** Provider type (e.g. "pythoughts", "anthropic", "openai", "custom") */
+  /** Provider type (e.g. "pymodel", "anthropic", "openai", "custom") */
   type: string;
   /** Optional custom base URL */
   baseUrl?: string;
@@ -551,22 +637,6 @@ export interface AppProvider {
   status: 'connected' | 'error' | 'unconfigured';
   /** Model ids available from this provider */
   models?: string[];
-}
-
-/** An OpenAI Codex sign-in in progress. Carries no token: the server keeps them. */
-export interface CodexLoginStart {
-  loginId: string;
-  authorizeUrl: string;
-  /** `false` when the callback port was taken, so the user must paste the redirect URL. */
-  loopback: boolean;
-  expiresAt: string;
-}
-
-export interface CodexLoginStatus {
-  loginId: string;
-  state: 'pending' | 'completed' | 'failed' | 'cancelled';
-  defaultModel?: string;
-  message?: string;
 }
 
 export interface ProviderRefreshResult {
@@ -592,18 +662,15 @@ export interface AppConfig {
   defaultProvider?: string;
   defaultModel?: string;
   models?: Record<string, unknown>;
-  thinking?: unknown;
+  thinking?: { enabled?: boolean; effort?: string };
   planMode?: boolean;
   yolo?: boolean;
-  defaultThinking?: boolean;
   defaultPermissionMode?: string;
   defaultPlanMode?: boolean;
   permission?: unknown;
-  hooks?: AppHook[];
+  hooks?: unknown[];
   services?: unknown;
   mergeAllAvailableSkills?: boolean;
-  /** Skill names the user turned off; they never reach the agent. */
-  disabledSkills?: string[];
   extraSkillDirs?: string[];
   loopControl?: unknown;
   background?: unknown;
@@ -618,100 +685,37 @@ export interface AppSkill {
   description: string;
   /** Skill source (e.g. 'builtin' | 'project' | 'plugin') for grouping/labels. */
   source: string;
-  /** Where the skill was loaded from; shown in settings, absent in the slash menu. */
-  path?: string;
-  /** Set when the skill is slash-only and the model must not invoke it. */
-  disableModelInvocation?: boolean;
-}
-
-/** One configured hook, as it appears in the daemon config. */
-export interface AppHook {
-  event: string;
-  type?: 'command' | 'http' | 'model';
-  matcher?: string;
-  command?: string;
-  url?: string;
-  statusMessage?: string;
-  timeout?: number;
-  once?: boolean;
-  async?: boolean;
-}
-
-/** One installed plugin. */
-export interface AppPlugin {
-  id: string;
-  displayName: string;
-  version?: string;
-  enabled: boolean;
-  state: string;
-  skillCount: number;
-  mcpServerCount: number;
-  hasErrors: boolean;
-  source: string;
-}
-
-/** One subagent profile the agent can dispatch work to. */
-export interface AppSubagent {
-  name: string;
-  description?: string;
-  source: 'built-in' | 'plugin' | 'user' | 'project';
-  tools: string[];
-  model?: string;
-  effort?: string;
-  whenToUse?: string;
-}
-
-/** A configured MCP server ("connector") and its live connection state. */
-export interface AppMcpServerDefinition {
-  transport: 'stdio' | 'http' | 'sse';
-  command?: string;
-  args?: string[];
-  env?: Record<string, string>;
-  url?: string;
-  headers?: Record<string, string>;
-}
-
-export interface AppMcpServerInput extends AppMcpServerDefinition {
-  name: string;
-}
-
-export interface AppConnector {
-  id: string;
-  name: string;
-  transport: 'stdio' | 'http' | 'sse';
-  status: 'connected' | 'connecting' | 'disconnected' | 'error';
-  toolCount: number;
-  lastError?: string;
-  editable: boolean;
-  definition?: AppMcpServerDefinition;
-}
-
-/** One tool available to the current session. */
-export interface AppTool {
-  name: string;
-  description: string;
-  inputSchema: unknown;
-  source: 'builtin' | 'skill' | 'mcp';
-  mcpServerId?: string;
 }
 
 // ---------------------------------------------------------------------------
 // PythinkerWebApi — the app-facing interface
 // ---------------------------------------------------------------------------
 
+export interface AppSessionWarning {
+  code: string;
+  message: string;
+  severity: 'info' | 'warning' | 'error';
+}
+
 export interface PythinkerWebApi {
   getHealth(): Promise<{ status: 'ok'; uptimeSec: number }>;
-  getMeta(): Promise<{ serverVersion: string; serverId: string; startedAt: string; capabilities: Record<string, boolean>; openInApps: string[] }>;
-  listSessions(input?: PageRequest & { status?: AppSessionStatus; workspaceId?: string; includeArchive?: boolean }): Promise<Page<AppSession>>;
+  getMeta(): Promise<{ serverVersion: string; serverId: string; startedAt: string; capabilities: Record<string, boolean>; openInApps: string[]; dangerousBypassAuth: boolean; backend: 'v1' | 'v2' }>;
+  listSessions(input?: PageRequest & { busy?: boolean; workspaceId?: string; includeArchive?: boolean; archivedOnly?: boolean; excludeEmpty?: boolean }): Promise<Page<AppSession>>;
   createSession(input: { title?: string; cwd?: string; model?: string; workspaceId?: string }): Promise<AppSession>;
   /** Fetch one session by id (deep links beyond the first listSessions page). */
   getSession(sessionId: string): Promise<AppSession>;
-  updateSession(sessionId: string, input: { title?: string; cwd?: string; model?: string; permissionMode?: string; planMode?: boolean; dynamicWorkflowMode?: boolean; goalObjective?: string; goalControl?: 'pause' | 'resume' | 'cancel'; thinking?: string; tools?: string[]; mcpServers?: string[] }): Promise<AppSession>;
+  updateSession(sessionId: string, input: { title?: string; cwd?: string; model?: string; permissionMode?: string; planMode?: boolean; dynamicWorkflowMode?: boolean; goalObjective?: string; goalControl?: 'pause' | 'resume' | 'cancel'; thinking?: string }): Promise<AppSession>;
   getSessionStatus(sessionId: string): Promise<AppSessionRuntimeStatus>;
+  /** Current goal snapshot, or null when the session has no active goal. */
+  getSessionGoal(sessionId: string): Promise<AppGoal | null>;
+  getSessionWarnings(sessionId: string): Promise<AppSessionWarning[]>;
   archiveSession(sessionId: string): Promise<{ archived: true }>;
+  restoreSession(sessionId: string): Promise<AppSession>;
   listMessages(sessionId: string, input?: PageRequest & { role?: AppMessageRole }): Promise<Page<AppMessage>>;
   /** v2 initial sync: atomic session state + `asOfSeq` watermark + epoch. */
   getSessionSnapshot(sessionId: string): Promise<AppSessionSnapshot>;
+  /** Export the session archive, optionally including the bounded Web JSONL log. */
+  exportSession(sessionId: string, webLog?: string): Promise<{ blob: Blob; fileName: string }>;
   submitPrompt(sessionId: string, input: PromptSubmission): Promise<PromptSubmitResult>;
   /** Steer daemon-queued prompts into the active turn (TUI ctrl+s). */
   steerPrompts(sessionId: string, promptIds: string[]): Promise<{ steered: boolean; promptIds: string[] }>;
@@ -731,24 +735,9 @@ export interface PythinkerWebApi {
   respondQuestion(sessionId: string, questionId: string, response: QuestionResponse): Promise<{ resolved: true; resolvedAt: string }>;
   dismissQuestion(sessionId: string, questionId: string): Promise<{ dismissed: true; dismissedAt: string }>;
   listSkills(sessionId: string): Promise<AppSkill[]>;
-  listTools(sessionId: string): Promise<AppTool[]>;
+  /** List skills for a workspace (no session required) — GET /workspaces/{id}/skills. */
+  listSkillsForWorkspace(workspaceId: string): Promise<AppSkill[]>;
   activateSkill(sessionId: string, skillName: string, args?: string): Promise<{ activated: true; skillName: string }>;
-  /** Configured MCP servers — GET /mcp/servers. */
-  listConnectors(): Promise<AppConnector[]>;
-  /** Create one user-global MCP server — POST /mcp/servers. */
-  createConnector(input: AppMcpServerInput): Promise<{ created: true }>;
-  /** Replace one user-global MCP server — PUT /mcp/servers/{id}. */
-  updateConnector(connectorId: string, input: AppMcpServerInput): Promise<{ updated: true }>;
-  /** Remove one user-global MCP server — DELETE /mcp/servers/{id}. */
-  removeConnector(connectorId: string): Promise<{ deleted: true }>;
-  /** Restart one MCP server — POST /mcp/servers/{id}:restart. */
-  restartConnector(connectorId: string): Promise<{ restarting: true }>;
-  /** Installed plugins — GET /plugins. */
-  listPlugins(): Promise<AppPlugin[]>;
-  /** Enable or disable a plugin — POST /plugins/{id}:set-enabled. */
-  setPluginEnabled(pluginId: string, enabled: boolean): Promise<{ id: string; enabled: boolean }>;
-  /** Subagent profiles for a working directory — GET /agent-profiles. */
-  listSubagents(workDir: string): Promise<AppSubagent[]>;
   listTasks(sessionId: string, status?: AppTaskStatus): Promise<AppTask[]>;
   getTask(sessionId: string, taskId: string, input?: { withOutput?: boolean; outputBytes?: number }): Promise<AppTask>;
   cancelTask(sessionId: string, taskId: string): Promise<{ cancelled: true }>;
@@ -758,7 +747,8 @@ export interface PythinkerWebApi {
   closeTerminal(sessionId: string, terminalId: string): Promise<{ closed: true }>;
   listDirectory(sessionId: string, input: { path?: string; depth?: number; includeGitStatus?: boolean }): Promise<{ items: FsEntry[]; childrenByPath?: Record<string, FsEntry[]>; truncated: boolean }>;
   readFile(sessionId: string, input: { path: string; offset?: number; length?: number }): Promise<{ path: string; content: string; encoding: 'utf-8' | 'base64'; size: number; truncated: boolean; etag: string; mime: string; languageId?: string; lineCount?: number; isBinary: boolean }>;
-  searchFiles(sessionId: string, input: { query: string; limit?: number }): Promise<{ items: Array<{ path: string; name: string; kind: FsKind; score: number; matchPositions: number[] }>; truncated: boolean }>;
+  /** Search files in a workspace (no session required) — POST /workspace/fs:search. `workspace` accepts a registered workspace id or an absolute root. */
+  searchFiles(workspace: string, input: { query: string; limit?: number }): Promise<{ items: Array<{ path: string; name: string; kind: FsKind; score: number; matchPositions: number[] }>; truncated: boolean }>;
   grepFiles(sessionId: string, input: { pattern: string; regex?: boolean; caseSensitive?: boolean }): Promise<{ files: Array<{ path: string; matches: Array<{ line: number; col: number; text: string; before: string[]; after: string[] }> }>; filesScanned: number; truncated: boolean; elapsedMs: number }>;
   getGitStatus(sessionId: string, paths?: string[]): Promise<{ branch: string; ahead: number; behind: number; entries: Record<string, string>; additions: number; deletions: number; pullRequest: { number: number; state: string; url: string } | null }>;
   getFileDiff(sessionId: string, path: string): Promise<{ path: string; diff: string }>;
@@ -769,10 +759,11 @@ export interface PythinkerWebApi {
   openInApp(sessionId: string, appId: string, path: string, line?: number): Promise<void>;
   connectEvents(handlers: PythinkerEventHandlers): PythinkerEventConnection;
 
-  // Workspaces + daemon folder browser
-  // PRESUMED — falls back until the daemon ships /workspaces, /fs:browse, /fs:home.
+  // Workspaces + daemon folder browser. /workspaces now ships and includes
+  // derived workspaces (cwds with sessions that were never explicitly registered).
   listWorkspaces(): Promise<AppWorkspace[]>;
   addWorkspace(input: { root: string; name?: string }): Promise<AppWorkspace>;
+  updateWorkspace(id: string, input: { name: string }): Promise<AppWorkspace>;
   deleteWorkspace(id: string): Promise<void>;
   browseFs(path?: string): Promise<FsBrowseResult>;
   getFsHome(): Promise<{ home: string; recentRoots: string[] }>;
@@ -782,16 +773,15 @@ export interface PythinkerWebApi {
   listProviders(): Promise<AppProvider[]>;
   addProvider(input: { type: string; apiKey?: string; baseUrl?: string; defaultModel?: string }): Promise<AppProvider>;
   deleteProvider(id: string): Promise<{ deleted: true }>;
-  refreshProvider(id: string): Promise<AppProvider>;
+  refreshProvider(id: string): Promise<ProviderRefreshResult>;
+  refreshAllProviders(): Promise<ProviderRefreshResult>;
   refreshOAuthProviderModels(): Promise<ProviderRefreshResult>;
-  startCodexLogin(): Promise<CodexLoginStart>;
-  getCodexLoginStatus(loginId: string): Promise<CodexLoginStatus>;
-  submitCodexLoginRedirect(loginId: string, redirectUrl: string): Promise<CodexLoginStatus>;
-  cancelCodexLogin(loginId: string): Promise<CodexLoginStatus>;
 
   // File upload / download
   uploadFile(input: { file: Blob; name?: string }): Promise<{ id: string; name: string; mediaType: string; size: number }>;
   getFileUrl(fileId: string): string;
+  /** Fetch a file's bytes with auth — feed the resulting Blob to a blob URL for <video>/<img> src. */
+  getFileBlob(fileId: string): Promise<Blob>;
 
   // Config — REAL endpoints
   getConfig(): Promise<AppConfig>;
@@ -802,5 +792,33 @@ export interface PythinkerWebApi {
     ready: boolean;
     providersCount: number;
     defaultModel: string | null;
+    managedProvider: { status: string } | null;
   }>;
+  startOAuthLogin(): Promise<OAuthLoginStartResult>;
+  pollOAuthLogin(): Promise<{
+    flowId: string;
+    status: 'pending' | 'authenticated' | 'expired' | 'cancelled';
+    resolvedAt?: string;
+  } | null>;
+  cancelOAuthLogin(): Promise<{ cancelled: boolean; status: string }>;
+  logout(): Promise<{ loggedOut: boolean }>;
 }
+
+/** Result of `startOAuthLogin()`, mirroring the wire discriminated union. */
+export type OAuthLoginStartResult =
+  | {
+      flowId: string;
+      provider: string;
+      status: 'pending';
+      verificationUri: string;
+      verificationUriComplete: string;
+      userCode: string;
+      expiresIn: number;
+      interval: number;
+      expiresAt: string;
+    }
+  | {
+      flowId: string;
+      provider: string;
+      status: 'authenticated';
+    };

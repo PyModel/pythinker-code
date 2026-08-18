@@ -11,16 +11,9 @@
 import type { ContentPart } from '@pymodel/kosong';
 import { describe, expect, it } from 'vitest';
 
-import { createLoopEventDispatcher, runTurn as runTurnImpl, ToolAccesses } from '../../src/loop';
-import { parseToolCallArguments } from '../../src/loop/tool-call';
+import { ToolAccesses } from '../../src/loop';
 import type { Logger } from '../../src/logging';
-import type {
-  ExecutableTool,
-  ExecutableToolResult,
-  LoopHooks,
-  ToolCall,
-  ToolExecution,
-} from '../../src/loop';
+import type { ExecutableTool, ExecutableToolResult, LoopHooks, ToolCall, ToolExecution } from '../../src/loop';
 import { PathSecurityError } from '../../src/tools/policies/path-access';
 import {
   makeEndTurnResponse,
@@ -29,11 +22,8 @@ import {
   makeThinkingParts,
   makeToolCall,
   makeToolUseResponse,
-  FakeLLM,
 } from './fixtures/fake-llm';
 import { runTurn } from './fixtures/helpers';
-import { CollectingSink } from './fixtures/collecting-sink';
-import { RecordingContext } from './fixtures/recording-context';
 import {
   ContentBlocksTool,
   EchoTool,
@@ -47,15 +37,6 @@ import {
 function expectTextOutput(output: unknown): string {
   expect(typeof output).toBe('string');
   return output as string;
-}
-
-function parseErrorMessage(raw: string): string {
-  try {
-    JSON.parse(raw);
-  } catch (error) {
-    return error instanceof Error ? error.message : String(error);
-  }
-  throw new Error(`expected ${raw} to fail JSON.parse`);
 }
 
 async function contentBlockOutput(output: ContentPart[]): Promise<ContentPart[]> {
@@ -78,41 +59,6 @@ function waitOneMacrotask(): Promise<void> {
   });
 }
 
-async function runToolIntentTurn(
-  toolIntentEnabled: boolean,
-  hooks?: LoopHooks,
-): Promise<{
-  strict: StrictArgsTool;
-  sink: CollectingSink;
-  context: RecordingContext;
-}> {
-  const strict = new StrictArgsTool();
-  const sink = new CollectingSink();
-  const context = new RecordingContext();
-  const llm = new FakeLLM({
-    responses: [
-      makeToolUseResponse([
-        makeToolCall('strict', { i: 'do the thing', value: 7 }, 'tc-intent'),
-      ]),
-      makeEndTurnResponse('done'),
-    ],
-  });
-  await runTurnImpl({
-    turnId: 'turn-intent',
-    signal: new AbortController().signal,
-    llm,
-    buildMessages: context.buildMessages,
-    dispatchEvent: createLoopEventDispatcher({
-      appendTranscriptRecord: context.appendTranscriptRecord,
-      emitLiveEvent: sink.emit,
-    }),
-    tools: [strict],
-    hooks,
-    toolIntentEnabled,
-  });
-  return { strict, sink, context };
-}
-
 function makeTestLogger(): {
   readonly log: Logger;
   readonly entries: Array<{ readonly level: string; readonly message: string; readonly payload: unknown }>;
@@ -128,111 +74,7 @@ function makeTestLogger(): {
   return { log, entries };
 }
 
-describe('parseToolCallArguments', () => {
-  it('repairs markdown-style escapes inside string values', () => {
-    const result = parseToolCallArguments('{"a":"bold \\*text\\* and \\_x"}');
-
-    expect(result).toEqual({ success: true, data: { a: 'bold \\*text\\* and \\_x' } });
-  });
-
-  it('leaves valid escapes unchanged', () => {
-    const raw = '{"a":"line\\nquote\\" uA slash\\\\/"}';
-
-    expect(parseToolCallArguments(raw)).toEqual({ success: true, data: JSON.parse(raw) });
-  });
-
-  it('repairs a bad unicode escape inside a string value', () => {
-    const result = parseToolCallArguments('{"a":"\\u12ZZ"}');
-
-    expect(result).toEqual({ success: true, data: { a: '\\u12ZZ' } });
-  });
-
-  it('repairs unescaped quotes inside items-array string values', () => {
-    const result = parseToolCallArguments(
-      '{"items":[{"prompt":"Review the "config" module carefully","i":"review config"}]}',
-    );
-
-    expect(result).toEqual({
-      success: true,
-      data: { items: [{ prompt: 'Review the "config" module carefully', i: 'review config' }] },
-    });
-  });
-
-  it('leaves a quote before a structural character unchanged', () => {
-    const raw = '{"a":"done","b":1}';
-
-    expect(parseToolCallArguments(raw)).toEqual({ success: true, data: JSON.parse(raw) });
-  });
-
-  it('repairs invalid escapes and unescaped quotes together', () => {
-    const result = parseToolCallArguments('{"a":"bold \\*x and a "quoted" word"}');
-
-    expect(result).toEqual({ success: true, data: { a: 'bold \\*x and a "quoted" word' } });
-  });
-
-  it('recognizes a string terminator separated from structure by whitespace', () => {
-    const result = parseToolCallArguments('{"a":"text" , "b":"x "y" z"}');
-
-    expect(result).toEqual({ success: true, data: { a: 'text', b: 'x "y" z' } });
-  });
-
-  it('returns the original parse error after quote repair still fails', () => {
-    const raw = String.raw`{"a":"bad \*","b":[}`;
-
-    expect(parseToolCallArguments(raw)).toEqual({ success: false, error: parseErrorMessage(raw) });
-  });
-
-  it('returns the original parse error for structurally broken input', () => {
-    const raw = '{"a":"truncated';
-
-    expect(parseToolCallArguments(raw)).toEqual({ success: false, error: parseErrorMessage(raw) });
-  });
-
-  it('does not repair a backslash outside a string', () => {
-    expect(parseToolCallArguments('{\\*"a":1}').success).toBe(false);
-  });
-});
-
 describe('runTurn — tool-call behaviour', () => {
-  it('strips enabled intent before hooks, validation, execution, and persistence', async () => {
-    const hookArgs: unknown[] = [];
-    const hooks: LoopHooks = {
-      prepareToolExecution: async (context) => {
-        hookArgs.push(context.args);
-        return undefined;
-      },
-      authorizeToolExecution: async (context) => {
-        hookArgs.push(context.args);
-        return undefined;
-      },
-    };
-
-    const { strict, sink, context } = await runToolIntentTurn(true, hooks);
-
-    expect(strict.calls[0]?.args).toEqual({ value: 7 });
-    expect(hookArgs).toEqual([{ value: 7 }, { value: 7 }]);
-    expect(sink.byType('tool.call')[0]).toMatchObject({
-      args: { value: 7 },
-      intent: 'do the thing',
-    });
-    expect(context.toolCalls()[0]).toMatchObject({
-      args: { value: 7 },
-      intent: 'do the thing',
-    });
-  });
-
-  it('keeps intent in args when the feature is disabled', async () => {
-    const { strict, sink } = await runToolIntentTurn(false);
-
-    expect(strict.calls).toHaveLength(0);
-    expect(sink.byType('tool.call')[0]).toMatchObject({
-      args: { i: 'do the thing', value: 7 },
-    });
-    expect(sink.byType('tool.call')[0]?.intent).toBeUndefined();
-    expect(sink.byType('tool.result')[0]?.result.isError).toBe(true);
-    expect(sink.byType('tool.result')[0]?.result.output).toContain('Invalid args');
-  });
-
   it('routes a successful tool call through execute and emits paired events', async () => {
     const echo = new EchoTool();
     const { sink, context } = await runTurn({
@@ -256,30 +98,56 @@ describe('runTurn — tool-call behaviour', () => {
     expect(trs[0]?.result.isError).toBeUndefined();
   });
 
-  it('executes a legacy alias through the canonical tool lifecycle', async () => {
-    const echo = Object.assign(new EchoTool(), {
-      aliases: ['legacy-echo'] as const,
+  it('preserves a tool result note through normalization into the recorded event', async () => {
+    const blocks = new ContentBlocksTool({
+      output: 'payload',
+      note: '<system>meta for the model</system>',
     });
-    let authorizedName: string | undefined;
-    const hooks: LoopHooks = {
-      authorizeToolExecution: async (context) => {
-        authorizedName = context.toolCall.name;
-        return undefined;
-      },
-    };
-    const { sink, context } = await runTurn({
-      tools: [echo],
-      hooks,
+    const { context } = await runTurn({
+      tools: [blocks],
       responses: [
-        makeToolUseResponse([makeToolCall('legacy-echo', { text: 'hi' }, 'tc-alias')]),
+        makeToolUseResponse([makeToolCall('blocks', {}, 'tc-note')]),
         makeEndTurnResponse('done'),
       ],
     });
 
-    expect(echo.calls).toHaveLength(1);
-    expect(authorizedName).toBe('echo');
-    expect(sink.byType('tool.call')[0]?.name).toBe('echo');
-    expect(context.toolResults()[0]?.result.output).toBe('hi');
+    const result = context.toolResults()[0]?.result;
+    expect(result?.output).toBe('payload');
+    // note is part of the persisted result contract (unlike stopTurn/message,
+    // which normalization drops before the record is written).
+    expect(result?.note).toBe('<system>meta for the model</system>');
+  });
+
+  it('enforces the note contract (string | undefined) at the normalization boundary', async () => {
+    // Tools are arbitrary JS: a malformed note (null, number, object, empty
+    // string) must never reach the record — everything downstream (history,
+    // projection, vis) trusts the contract instead of re-validating.
+    const malformed = [null, 42, { text: 'x' }, ''];
+    const tools = malformed.map(
+      (note, i) =>
+        new ContentBlocksTool({ output: `payload-${String(i)}`, note } as never),
+    );
+    for (const [i, tool] of tools.entries()) {
+      Object.defineProperty(tool, 'name', { value: `blocks${String(i)}` });
+    }
+
+    const { context } = await runTurn({
+      tools,
+      responses: [
+        makeToolUseResponse(
+          tools.map((tool, i) => makeToolCall(tool.name, {}, `tc-bad-${String(i)}`)),
+        ),
+        makeEndTurnResponse('done'),
+      ],
+    });
+
+    const results = context.toolResults();
+    expect(results).toHaveLength(malformed.length);
+    for (const [i, entry] of results.entries()) {
+      expect(entry.result.output).toBe(`payload-${String(i)}`);
+      expect(entry.result.isError).toBeUndefined();
+      expect('note' in entry.result).toBe(false);
+    }
   });
 
   it('skips side-effecting tools when usage recording stops the turn', async () => {
@@ -355,6 +223,7 @@ describe('runTurn — tool-call behaviour', () => {
     const tcRow = context.toolCalls();
     const trRow = context.toolResults();
     expect(tcRow.length).toBe(1);
+    expect(tcRow[0]?.args).toEqual({ x: 1 });
     expect(trRow.length).toBe(1);
     expect(trRow[0]?.result.isError).toBe(true);
   });
@@ -376,7 +245,7 @@ describe('runTurn — tool-call behaviour', () => {
     expect(expectTextOutput(results[0]?.result.output).toLowerCase()).toContain('invalid args');
   });
 
-  it('records an error tool.result when LLM-side args parsing already failed', async () => {
+  it('falls back to schema validation when LLM-side args parsing fails', async () => {
     const echo = new EchoTool();
     const { sink } = await runTurn({
       tools: [echo],
@@ -386,7 +255,7 @@ describe('runTurn — tool-call behaviour', () => {
             type: 'function',
             id: 'tc-1',
             name: 'echo',
-              arguments: '{',
+            arguments: '{}{',
           },
         ]),
         makeEndTurnResponse('done'),
@@ -397,7 +266,38 @@ describe('runTurn — tool-call behaviour', () => {
     const results = sink.byType('tool.result');
     expect(results.length).toBe(1);
     expect(results[0]?.result.isError).toBe(true);
-    expect(results[0]?.result.output).toContain('malformed JSON in arguments');
+    const output = expectTextOutput(results[0]?.result.output);
+    expect(output).toContain('Invalid args');
+    expect(output).toContain("must have required property 'text'");
+    expect(output).not.toContain('malformed JSON in arguments');
+    expect(output).not.toContain('Expected arguments schema:');
+  });
+
+  it('does not repair malformed tool args JSON', async () => {
+    const echo = new EchoTool();
+    const { sink } = await runTurn({
+      tools: [echo],
+      responses: [
+        makeToolUseResponse([
+          {
+            type: 'function',
+            id: 'tc-1',
+            name: 'echo',
+            arguments: '{"text":"hi",}',
+          },
+        ]),
+        makeEndTurnResponse('done'),
+      ],
+    });
+
+    expect(echo.calls).toHaveLength(0);
+
+    const results = sink.byType('tool.result');
+    expect(results.length).toBe(1);
+    expect(results[0]?.result.isError).toBe(true);
+    const output = expectTextOutput(results[0]?.result.output);
+    expect(output).toContain('Invalid args');
+    expect(output).toContain("must have required property 'text'");
   });
 
   it('captures tool execution failures as error results', async () => {
@@ -785,9 +685,11 @@ describe('runTurn — tool-call behaviour', () => {
     expect(payload).toBeDefined();
     // Media-bearing results are kept as a content-part array, not collapsed.
     expect(Array.isArray(payload?.output)).toBe(true);
-    const types = (payload?.output as Array<{ type: string }>).map((part) => part.type);
-    expect(types).toContain('text');
-    expect(types).toContain('image_url');
+    if (Array.isArray(payload?.output)) {
+      const types = payload.output.map((p) => (p as { type: string }).type);
+      expect(types).toContain('text');
+      expect(types).toContain('image_url');
+    }
     const eventOutput = sink.byType('tool.result')[0]?.result.output;
     expect(Array.isArray(eventOutput)).toBe(true);
   });
@@ -874,98 +776,6 @@ describe('runTurn — tool-call behaviour', () => {
       .toSorted();
     expect(callIds).toEqual(['tc-bad-args', 'tc-fail', 'tc-good', 'tc-missing']);
     expect(resultIds).toEqual(callIds);
-  });
-});
-
-describe('runTurn — unexecuted tool calls', () => {
-  it('records and closes a complete call when the step ends paused', async () => {
-    const echo = new EchoTool();
-    const { result, context, sink } = await runTurn({
-      tools: [echo],
-      responses: [
-        makeResponse(
-          makeThinkingParts('let me run a tool'),
-          [makeToolCall('echo', { text: 'hi' }, 'tc-1')],
-          'paused',
-        ),
-      ],
-    });
-
-    expect(echo.calls).toHaveLength(0);
-    expect(result.stopReason).toBe('paused');
-    expect(context.toolCalls().map((event) => [event.toolCallId, event.name, event.args])).toEqual([
-      ['tc-1', 'echo', { text: 'hi' }],
-    ]);
-    expect(context.toolResults().map((event) => event.toolCallId)).toEqual(['tc-1']);
-    expect(context.toolResults()[0]?.result.isError).toBe(true);
-    expect(expectTextOutput(context.toolResults()[0]?.result.output)).toContain('not executed');
-    expect(sink.byType('tool.call').map((event) => event.toolCallId)).toEqual(['tc-1']);
-    expect(sink.byType('tool.result').map((event) => event.toolCallId)).toEqual(['tc-1']);
-  });
-
-  it('sanitizes truncated arguments to an empty object', async () => {
-    const partialCall: ToolCall = {
-      type: 'function',
-      id: 'tc-partial',
-      name: 'echo',
-      arguments: '{"text":"unterminated',
-    };
-    const echo = new EchoTool();
-    const { context } = await runTurn({
-      tools: [echo],
-      responses: [
-        makeResponse(
-          [{ type: 'think', think: '', encrypted: 'sig' }],
-          [partialCall],
-          'paused',
-        ),
-      ],
-    });
-
-    expect(echo.calls).toHaveLength(0);
-    expect(context.toolCalls().map((event) => [event.toolCallId, event.args])).toEqual([
-      ['tc-partial', {}],
-    ]);
-    expect(context.toolResults()[0]?.result.isError).toBe(true);
-  });
-
-  it.each([
-    ['unknown', 'tc-overload'],
-    ['max_tokens', 'tc-max'],
-  ] as const)('records and closes a call when the step ends %s', async (stopReason, id) => {
-    const echo = new EchoTool();
-    const { result, context } = await runTurn({
-      tools: [echo],
-      responses: [
-        makeResponse(makeTextParts('partial'), [makeToolCall('echo', { text: 'hi' }, id)], stopReason),
-      ],
-    });
-
-    expect(echo.calls).toHaveLength(0);
-    expect(result.stopReason).toBe(stopReason);
-    expect(context.toolCalls().map((event) => event.toolCallId)).toEqual([id]);
-    expect(context.toolResults().map((event) => event.toolCallId)).toEqual([id]);
-  });
-
-  it('closes every unexecuted call in provider order', async () => {
-    const echo = new EchoTool();
-    const { context } = await runTurn({
-      tools: [echo],
-      responses: [
-        makeResponse(
-          makeThinkingParts('two calls'),
-          [
-            makeToolCall('echo', { text: 'a' }, 'tc-a'),
-            makeToolCall('echo', { text: 'b' }, 'tc-b'),
-          ],
-          'paused',
-        ),
-      ],
-    });
-
-    expect(echo.calls).toHaveLength(0);
-    expect(context.toolCalls().map((event) => event.toolCallId)).toEqual(['tc-a', 'tc-b']);
-    expect(context.toolResults().map((event) => event.toolCallId)).toEqual(['tc-a', 'tc-b']);
   });
 });
 
@@ -1069,3 +879,117 @@ class StopSuccessTool implements ExecutableTool<Record<string, unknown>> {
     };
   }
 }
+
+
+describe('runTurn — unexecuted tool calls (abnormal step end)', () => {
+  it('records and closes a complete tool call when the step ends paused', async () => {
+    const echo = new EchoTool();
+    const { result, context, sink } = await runTurn({
+      tools: [echo],
+      responses: [
+        makeResponse(makeThinkingParts('let me run a tool'), [makeToolCall('echo', { text: 'hi' }, 'tc-1')], 'paused'),
+      ],
+    });
+
+    // The call must not execute, but it is recorded and immediately closed
+    // with a synthetic interrupted result so the exchange stays wire-valid.
+    expect(echo.calls.length).toBe(0);
+    expect(result.stopReason).toBe('paused');
+    expect(context.toolCalls().map((e) => [e.toolCallId, e.name, e.args])).toEqual([
+      ['tc-1', 'echo', { text: 'hi' }],
+    ]);
+    const results = context.toolResults();
+    expect(results.map((e) => e.toolCallId)).toEqual(['tc-1']);
+    expect(results[0]?.result.isError).toBe(true);
+    expect(expectTextOutput(results[0]?.result.output)).toContain('not executed');
+    // Events pair up in the live stream too, and the step seals as paused.
+    expect(sink.byType('tool.call').map((e) => e.toolCallId)).toEqual(['tc-1']);
+    expect(sink.byType('tool.result').map((e) => e.toolCallId)).toEqual(['tc-1']);
+    expect(context.stepEnds()[0]?.finishReason).toBe('paused');
+  });
+
+  it('sanitizes truncated (unparseable) arguments to {} when recording the call', async () => {
+    // The provider stream was cut mid-arguments: id and name arrived, the JSON
+    // did not. The recorded call must carry sanitized args — the raw fragment
+    // would crash the next request's wire conversion.
+    const partialCall: ToolCall = {
+      type: 'function',
+      id: 'tc-partial',
+      name: 'echo',
+      arguments: '{"text":"unterminated',
+    };
+    const echo = new EchoTool();
+    const { context } = await runTurn({
+      tools: [echo],
+      responses: [
+        // The realistic poison shape: an empty signed thinking block plus the
+        // partial call (what a pause_turn response carries).
+        makeResponse([{ type: 'think', think: '', encrypted: 'sig' }], [partialCall], 'paused'),
+      ],
+    });
+
+    expect(echo.calls.length).toBe(0);
+    expect(context.toolCalls().map((e) => [e.toolCallId, e.args])).toEqual([['tc-partial', {}]]);
+    const results = context.toolResults();
+    expect(results.map((e) => e.toolCallId)).toEqual(['tc-partial']);
+    expect(results[0]?.result.isError).toBe(true);
+  });
+
+  it('records and closes tool calls when the stream fails overloaded (other finish)', async () => {
+    const echo = new EchoTool();
+    const { result, context } = await runTurn({
+      tools: [echo],
+      responses: [
+        makeResponse(makeTextParts(''), [makeToolCall('echo', { text: 'hi' }, 'tc-ovl')], 'unknown'),
+      ],
+    });
+
+    expect(echo.calls.length).toBe(0);
+    expect(result.stopReason).toBe('unknown');
+    expect(context.toolCalls().map((e) => e.toolCallId)).toEqual(['tc-ovl']);
+    expect(context.toolResults().map((e) => e.toolCallId)).toEqual(['tc-ovl']);
+    expect(context.toolResults()[0]?.result.isError).toBe(true);
+  });
+
+  it('records and closes a tool call cut off by max_tokens', async () => {
+    const echo = new EchoTool();
+    const { result, context } = await runTurn({
+      tools: [echo],
+      responses: [
+        makeResponse(makeTextParts('partial answer'), [makeToolCall('echo', { text: 'hi' }, 'tc-max')], 'max_tokens'),
+      ],
+    });
+
+    expect(echo.calls.length).toBe(0);
+    expect(result.stopReason).toBe('max_tokens');
+    expect(context.toolCalls().map((e) => e.toolCallId)).toEqual(['tc-max']);
+    expect(context.toolResults().map((e) => e.toolCallId)).toEqual(['tc-max']);
+    expect(context.toolResults()[0]?.result.isError).toBe(true);
+  });
+
+  it('closes every unexecuted call in provider order', async () => {
+    const echo = new EchoTool();
+    const { context } = await runTurn({
+      tools: [echo],
+      responses: [
+        makeResponse(
+          makeThinkingParts('two calls'),
+          [makeToolCall('echo', { text: 'a' }, 'tc-a'), makeToolCall('echo', { text: 'b' }, 'tc-b')],
+          'paused',
+        ),
+      ],
+    });
+
+    expect(echo.calls.length).toBe(0);
+    expect(context.toolCalls().map((e) => e.toolCallId)).toEqual(['tc-a', 'tc-b']);
+    expect(context.toolResults().map((e) => e.toolCallId)).toEqual(['tc-a', 'tc-b']);
+  });
+
+  it('does not record synthetic results for a normal end_turn without tool calls', async () => {
+    const { context } = await runTurn({
+      responses: [makeEndTurnResponse('done')],
+    });
+    expect(context.toolCalls()).toEqual([]);
+    expect(context.toolResults()).toEqual([]);
+  });
+});

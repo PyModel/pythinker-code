@@ -1,6 +1,6 @@
 
 
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 
 import { Disposable, InstantiationType, registerSingleton } from '../../di';
@@ -119,7 +119,7 @@ export class FsGitService extends Disposable implements IFsGitService {
 
     const res = await runCommand(
       'gh',
-      ['pr', 'view', '--json', 'number,url,state'],
+      ['pr', 'view', '--json', 'number,url,state,isDraft'],
       cwd,
       {
         timeoutMs: PR_SPAWN_TIMEOUT_MS,
@@ -248,7 +248,7 @@ async function runCommand(
     };
     if (options.timeoutMs !== undefined) {
       timer = setTimeout(() => {
-        child.kill();
+        killChild(child);
         finish({ exitCode: -1, stdout, stderr });
       }, options.timeoutMs);
       timer.unref?.();
@@ -270,6 +270,28 @@ async function runCommand(
   });
 }
 
+function killChild(child: ChildProcess): void {
+  // On Windows, `ChildProcess.kill()` only signals the direct child (e.g. the
+  // `cmd.exe` wrapper when `shell` is involved, or the `git`/`gh` parent),
+  // leaving grandchildren alive and holding the cwd. Terminate the whole
+  // process tree so the working directory is released promptly.
+  if (process.platform === 'win32' && child.pid !== undefined) {
+    try {
+      const killer = spawn('taskkill', ['/T', '/F', '/PID', String(child.pid)], {
+        stdio: 'ignore',
+        windowsHide: true,
+      });
+      killer.once('error', () => {});
+      return;
+    } catch {
+      // fall through to the direct kill below
+    }
+  }
+  try {
+    child.kill();
+  } catch {}
+}
+
 function parsePullRequest(stdout: string): FsPullRequest | null {
   let raw: unknown;
   try {
@@ -282,12 +304,20 @@ function parsePullRequest(stdout: string): FsPullRequest | null {
   const number = record['number'];
   const url = record['url'];
   const state = record['state'];
+  const isDraft = record['isDraft'];
   if (typeof number !== 'number' || !Number.isInteger(number) || number <= 0) return null;
   if (typeof url !== 'string' || !isSafeHttpUrl(url)) return null;
   if (typeof state !== 'string') return null;
   const normalized = state.toLowerCase();
-  if (normalized !== 'open' && normalized !== 'merged' && normalized !== 'closed') return null;
-  return { number, state: normalized, url };
+  let prState: FsPullRequest['state'];
+  if (normalized === 'open' || normalized === 'merged' || normalized === 'closed') {
+    // A draft PR reports state OPEN; surface it as its own 'draft' state so
+    // the UI can match GitHub's gray draft styling.
+    prState = isDraft === true && normalized === 'open' ? 'draft' : normalized;
+  } else {
+    return null;
+  }
+  return { number, state: prState, url };
 }
 
 function isSafeHttpUrl(value: string): boolean {

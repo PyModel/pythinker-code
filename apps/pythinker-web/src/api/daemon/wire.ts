@@ -66,9 +66,14 @@ export interface WireSession {
   title: string;
   created_at: string;
   updated_at: string;
-  status: WireSessionStatus;
+  busy: boolean;
+  main_turn_active?: boolean;
+  pending_interaction?: 'none' | 'approval' | 'question';
+  last_turn_reason?: 'completed' | 'cancelled' | 'failed';
   archived: boolean;
   current_prompt_id?: string;
+  /** Text of the most recent user prompt, for search/preview. */
+  last_prompt?: string;
   // PRESUMED — daemon adds this once it ships the workspace registry; until then
   // it is absent and the client maps sessions by metadata.cwd === workspace.root.
   workspace_id?: string;
@@ -108,6 +113,42 @@ export interface WireSessionRuntimeStatus {
   context_usage: number;
 }
 
+// GET /sessions/{id}/goal — camelCase, same shape as the `goal.updated` event
+// payload. The endpoint returns null when no goal is active.
+export interface WireGoalSnapshot {
+  goalId: string;
+  objective: string;
+  completionCriterion?: string;
+  status: 'active' | 'paused' | 'blocked' | 'complete';
+  turnsUsed: number;
+  tokensUsed: number;
+  wallClockMs: number;
+  terminalReason?: string;
+  budget: {
+    tokenBudget: number | null;
+    turnBudget: number | null;
+    wallClockBudgetMs: number | null;
+    remainingTokens: number | null;
+    remainingTurns: number | null;
+    remainingWallClockMs: number | null;
+    tokenBudgetReached: boolean;
+    turnBudgetReached: boolean;
+    wallClockBudgetReached: boolean;
+    overBudget: boolean;
+  };
+}
+
+// GET /sessions/{id}/warnings — session-level warnings (e.g. oversized AGENTS.md).
+export interface WireSessionWarning {
+  code: string;
+  message: string;
+  severity: 'info' | 'warning' | 'error';
+}
+
+export interface WireSessionWarningsResponse {
+  warnings: WireSessionWarning[];
+}
+
 // ---------------------------------------------------------------------------
 // Workspace + daemon folder browser wire DTOs
 // PRESUMED — not in the live daemon yet; isolated here, swap when backend ships.
@@ -117,8 +158,6 @@ export interface WireWorkspace {
   id: string;
   root: string;
   name: string;
-  is_git_repo: boolean;
-  branch: string | null;
   last_opened_at?: string;
   session_count: number;
 }
@@ -127,8 +166,6 @@ export interface WireFsBrowseEntry {
   name: string;
   path: string;
   is_dir: boolean;
-  is_git_repo: boolean;
-  branch?: string;
 }
 
 export interface WireFsBrowseResult {
@@ -156,7 +193,7 @@ export type WireMessageContent =
   | { type: 'thinking'; thinking: string; signature?: string };
 
 export type WireImageSource =
-  | { kind: 'url'; url: string }
+  | { kind: 'url'; url: string; id?: string }
   | { kind: 'base64'; media_type: string; data: string }
   | { kind: 'file'; file_id: string };
 
@@ -235,7 +272,6 @@ export interface WireQuestionOption {
   id: string;
   label: string;
   description?: string;
-  preview?: string;
   recommended?: boolean;
   is_recommended?: boolean;
 }
@@ -258,7 +294,6 @@ export interface WireQuestionRequest {
   turn_id?: number;
   tool_call_id?: string;
   questions: WireQuestionItem[];
-  expires_at: string;
   created_at: string;
 }
 
@@ -273,16 +308,15 @@ export interface WireQuestionResponse {
   answers: Record<string, WireQuestionAnswer>;
   method?: 'enter' | 'space' | 'number_key' | 'click';
   note?: string;
-  annotations?: Record<string, { preview?: string; notes?: string }>;
 }
 
 // ---------------------------------------------------------------------------
-// Background Task
+// Task
 // ---------------------------------------------------------------------------
 
 export type WireTaskStatus = 'running' | 'completed' | 'failed' | 'cancelled';
 
-export interface WireBackgroundTask {
+export interface WireTask {
   id: string;
   session_id: string;
   kind: 'subagent' | 'bash' | 'tool';
@@ -299,6 +333,7 @@ export interface WireBackgroundTask {
   parent_tool_call_id?: string;
   suspended_reason?: string;
   dynamic_workflow_index?: number;
+  run_in_background?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -334,21 +369,7 @@ export interface WireModel {
   max_context_size: number;
   capabilities?: string[];
   support_efforts?: string[];
-  adaptive_thinking?: boolean;
-}
-
-export interface WireCodexLoginStart {
-  login_id: string;
-  authorize_url: string;
-  loopback: boolean;
-  expires_at: string;
-}
-
-export interface WireCodexLoginStatus {
-  login_id: string;
-  state: 'pending' | 'completed' | 'failed' | 'cancelled';
-  default_model?: string;
-  message?: string;
+  default_effort?: string;
 }
 
 export interface WireProvider {
@@ -379,18 +400,6 @@ export interface WireConfigProvider {
   has_api_key: boolean;
 }
 
-export interface WireHook {
-  event: string;
-  type?: 'command' | 'http' | 'model';
-  matcher?: string;
-  command?: string;
-  url?: string;
-  statusMessage?: string;
-  timeout?: number;
-  once?: boolean;
-  async?: boolean;
-}
-
 export interface WireConfig {
   providers: Record<string, WireConfigProvider>;
   default_provider?: string;
@@ -399,14 +408,12 @@ export interface WireConfig {
   thinking?: unknown;
   plan_mode?: boolean;
   yolo?: boolean;
-  default_thinking?: boolean;
   default_permission_mode?: string;
   default_plan_mode?: boolean;
   permission?: unknown;
-  hooks?: WireHook[];
+  hooks?: unknown[];
   services?: unknown;
   merge_all_available_skills?: boolean;
-  disabled_skills?: string[];
   extra_skill_dirs?: string[];
   loop_control?: unknown;
   background?: unknown;
@@ -416,19 +423,64 @@ export interface WireConfig {
 }
 
 // ---------------------------------------------------------------------------
-// Auth wire DTOs — REAL endpoint (GET /api/v1/auth)
+// Auth wire DTOs — REAL endpoints (GET /api/v1/auth, POST/GET/DELETE /api/v1/oauth/login, POST /api/v1/oauth/logout)
 // ---------------------------------------------------------------------------
 
+export interface WireManagedProvider {
+  status: string;
+  [key: string]: unknown;
+}
 
 export interface WireAuthResult {
   ready: boolean;
   providers_count: number;
   default_model: string | null;
+  managed_provider: WireManagedProvider | null;
 }
 
+// `POST /oauth/login` returns one of two shapes, discriminated by `status`:
+//   - `pending`: a real device-code flow was started; all device fields are
+//     populated so the client can render the device-code step and poll.
+//   - `authenticated`: the toolkit already had a usable token and short-
+//     circuited via its `ensureFresh` fast path, so no device code was
+//     issued; the client can skip the device-code step and treat the login
+//     as already complete.
+interface WireOAuthLoginStartPending {
+  flow_id: string;
+  provider: string;
+  status: 'pending';
+  verification_uri: string;
+  verification_uri_complete: string;
+  user_code: string;
+  expires_in: number;
+  interval: number;
+  expires_at: string;
+}
 
+interface WireOAuthLoginStartAuthenticated {
+  flow_id: string;
+  provider: string;
+  status: 'authenticated';
+}
 
+export type WireOAuthLoginStartResult =
+  | WireOAuthLoginStartPending
+  | WireOAuthLoginStartAuthenticated;
 
+export interface WireOAuthLoginPollResult {
+  flow_id: string;
+  status: 'pending' | 'authenticated' | 'expired' | 'cancelled';
+  resolved_at?: string;
+}
+
+export interface WireOAuthCancelResult {
+  cancelled: boolean;
+  status: string;
+}
+
+export interface WireLogoutResult {
+  logged_out: boolean;
+}
 
 // ---------------------------------------------------------------------------
 // File upload wire DTOs
@@ -447,8 +499,6 @@ export interface WireFileMeta {
 // WS Server frames (S→C)
 // ---------------------------------------------------------------------------
 
-export const WIRE_WS_PROTOCOL_VERSION = 3;
-
 /** All typed server-to-client WS frames */
 export type WireServerFrame =
   | WireServerHello
@@ -462,9 +512,9 @@ export interface WireServerHello {
   type: 'server_hello';
   timestamp: string;
   payload: {
-    ws_connection_id: string;
-    protocol_version: number;
-    heartbeat_ms: number;
+    server_id: string;
+    /** Advisory only — kap-server omits this since it sends no heartbeat. */
+    heartbeat_ms?: number;
     max_event_buffer_size: number;
     capabilities: {
       event_batching: boolean;
@@ -537,6 +587,8 @@ export interface WireSessionSnapshot {
   session: WireSession;
   messages: { items: WireMessage[]; has_more: boolean };
   in_flight_turn: WireInFlightTurn | null;
+  /** Live subagent roster at the watermark (absent on older servers). */
+  subagents?: WireTask[];
   pending_approvals: WireApprovalRequest[];
   pending_questions: WireQuestionRequest[];
 }
@@ -573,7 +625,6 @@ export interface WireClientHello {
   id: string;
   payload: {
     client_id: string;
-    protocol_version: number;
     subscriptions: string[];
     cursors?: Record<string, WireSessionCursor>;
   };
@@ -625,6 +676,13 @@ interface WireEventBase<T extends string, P> {
 type WireEventSessionCreated = WireEventBase<'event.session.created', { session: WireSession }>;
 type WireEventSessionUpdated = WireEventBase<'event.session.updated', { session: WireSession; changed_fields: string[] }>;
 type WireEventSessionDeleted = WireEventBase<'event.session.deleted', { session_id: string }>;
+type WireEventSessionWorkChanged = WireEventBase<'event.session.work_changed', {
+  busy: boolean;
+  main_turn_active?: boolean;
+  pending_interaction?: 'none' | 'approval' | 'question';
+  last_turn_reason?: 'completed' | 'cancelled' | 'failed';
+}>;
+/** @deprecated Old journals may still carry this; mapped onto busy for replay. */
 type WireEventSessionStatusChanged = WireEventBase<'event.session.status_changed', {
   status: WireSessionStatus;
   previous_status: WireSessionStatus;
@@ -733,10 +791,8 @@ type WireEventQuestionDismissed = WireEventBase<'event.question.dismissed', {
   dismissed_by: string;
   dismissed_at: string;
 }>;
-type WireEventQuestionExpired = WireEventBase<'event.question.expired', { question_id: string }>;
-
-// Background tasks
-type WireEventTaskCreated = WireEventBase<'event.task.created', { task: WireBackgroundTask }>;
+// Tasks
+type WireEventTaskCreated = WireEventBase<'event.task.created', { task: WireTask }>;
 type WireEventTaskProgress = WireEventBase<'event.task.progress', {
   task_id: string;
   output_chunk: string;
@@ -754,6 +810,17 @@ type WireEventConfigChanged = WireEventBase<'event.config.changed', {
   config: WireConfig;
 }>;
 
+type WireEventModelCatalogChanged = WireEventBase<'event.model_catalog.changed', {
+  changed: Array<{
+    provider_id: string;
+    provider_name: string;
+    added: number;
+    removed: number;
+  }>;
+  unchanged: string[];
+  failed: Array<{ provider: string; reason: string }>;
+}>;
+
 /** Catch-all for unrecognised event frames — keeps lastSeq advancing without warnings */
 type WireEventUnknown = { type: string; seq: number; session_id: string; timestamp: string; payload: unknown };
 
@@ -767,6 +834,7 @@ export type WireEvent =
   | WireEventSessionCreated
   | WireEventSessionUpdated
   | WireEventSessionDeleted
+  | WireEventSessionWorkChanged
   | WireEventSessionStatusChanged
   | WireEventSessionUsageUpdated
   | WireEventSessionHistoryCompacted
@@ -796,12 +864,12 @@ export type WireEvent =
   | WireEventQuestionRequested
   | WireEventQuestionAnswered
   | WireEventQuestionDismissed
-  | WireEventQuestionExpired
-  // Background tasks
+  // Tasks
   | WireEventTaskCreated
   | WireEventTaskProgress
   | WireEventTaskCompleted
   // Config
   | WireEventConfigChanged
+  | WireEventModelCatalogChanged
   // Unknown / future events
   | WireEventUnknown;

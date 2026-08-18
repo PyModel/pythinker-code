@@ -1,24 +1,9 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
-
 import { describe, expect, it } from 'vitest';
 
-import { SessionSkillRegistry, registerBuiltinSkills } from '../../src/skill';
+import { SessionSkillRegistry } from '../../src/skill';
 import type { SkillDefinition, SkillSource } from '../../src/skill';
 
 describe('skill registry prompt rendering', () => {
-  it('registers the built-in loop workflow with recurring-task guidance', () => {
-    const registry = new SessionSkillRegistry();
-
-    registerBuiltinSkills(registry);
-
-    const loop = registry.getSkill('loop');
-    expect(loop?.metadata.argumentHint).toBe('[interval] <prompt>');
-    expect(loop?.content).toContain('CronCreate');
-    expect(loop?.content).toContain('CronDelete');
-    expect(loop?.content).toContain('immediately execute');
-  });
-
   it('groups skills by scope under canonical section headings', () => {
     const registry = makeRegistry([
       makeSkill('builtin-a', 'builtin'),
@@ -87,68 +72,10 @@ describe('skill registry prompt rendering', () => {
     expect(m).toBeLessThan(z);
   });
 
-  it('keeps non-user-invocable skills available to the model', () => {
-    const modelOnly = makeSkill('model-only', 'project');
-    const registry = makeRegistry([
-      {
-        ...modelOnly,
-        metadata: { ...modelOnly.metadata, userInvocable: false },
-      },
-    ]);
-
-    expect(registry.listInvocableSkills().map((skill) => skill.name)).toContain('model-only');
-  });
-
-  it('activates a conditional skill after a matching project path is touched', () => {
-    const conditional = makeSkill('typescript-only', 'project');
-    const registry = makeRegistry([
-      {
-        ...conditional,
-        metadata: {
-          ...conditional.metadata,
-          paths: 'src/*.{ts,tsx}, !src/generated/**',
-        },
-      },
-    ]);
-
-    expect(registry.getSkill('typescript-only')).toBeUndefined();
-    expect(registry.activateForPaths(['/workspace/src/generated/types.ts'], '/workspace')).toEqual(
-      [],
-    );
-
-    const activated = registry.activateForPaths(['/workspace/src/main.ts'], '/workspace');
-
-    expect(activated.map((skill) => skill.name)).toEqual(['typescript-only']);
-    expect(registry.getSkill('typescript-only')?.name).toBe('typescript-only');
-  });
-
-  it('does not load nested skills from a Git-ignored project directory', async () => {
-    const root = await mkdtemp(join(process.cwd(), '.ignored-nested-skill-'));
-    try {
-      const owner = join(root, 'generated');
-      const filePath = join(owner, 'main.ts');
-      const skillDir = join(owner, '.pythinker-code', 'skills', 'ignored');
-      await mkdir(skillDir, { recursive: true });
-      await writeFile(filePath, 'generated\n', 'utf8');
-      await writeFile(
-        join(skillDir, 'SKILL.md'),
-        '---\nname: ignored\ndescription: Ignored\n---\nIgnored.\n',
-        'utf8',
-      );
-      const registry = new SessionSkillRegistry({
-        isPathIgnored: async (candidate) => candidate === owner,
-      });
-
-      await registry.loadNestedForPaths([filePath], root);
-
-      expect(registry.getSkill('ignored')).toBeUndefined();
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
   it('end-to-end: a project skill that shadows other scopes renders once under Project', () => {
-    const registry = makeRegistry([makeSkill('foo', 'project', 'project version', '/tmp/proj/foo/SKILL.md')]);
+    const registry = makeRegistry([
+      makeSkill('foo', 'project', 'project version', '/tmp/proj/foo/SKILL.md'),
+    ]);
 
     const rendered = registry.getPythinkerSkillsDescription();
 
@@ -171,52 +98,36 @@ describe('skill registry prompt rendering', () => {
   });
 });
 
-describe('disabled skills', () => {
-  it('never registers a skill the user turned off', () => {
-    const registry = new SessionSkillRegistry({ disabledNames: ['user-a'] });
+describe('getModelSkillListing description truncation', () => {
+  it('keeps descriptions at or below the 250-char limit unchanged', () => {
+    const description = 'a'.repeat(250);
+    const rendered = makeRegistry([makeSkill('demo', 'user', description)]).getModelSkillListing();
 
-    registry.register(makeSkill('user-a', 'user'));
-    registry.register(makeSkill('user-b', 'user'));
-
-    expect(registry.getSkill('user-a')).toBeUndefined();
-    expect(registry.getSkill('user-b')).toBeDefined();
+    expect(rendered).toContain(`- demo: ${description}`);
+    expect(rendered).not.toContain('…');
   });
 
-  it('matches the disabled name regardless of case', () => {
-    const registry = new SessionSkillRegistry({ disabledNames: ['Gen-Changesets'] });
+  it('appends an ellipsis and stays within the limit when a description is truncated', () => {
+    const description = 'a'.repeat(300);
+    const rendered = makeRegistry([makeSkill('demo', 'user', description)]).getModelSkillListing();
 
-    registry.register(makeSkill('gen-changesets', 'project'));
-
-    expect(registry.getSkill('gen-changesets')).toBeUndefined();
+    expect(rendered).toContain(`- demo: ${'a'.repeat(249)}…`);
+    expect(rendered).not.toContain('a'.repeat(250));
   });
 
-  it('disables built-in skills too', () => {
-    const registry = new SessionSkillRegistry({ disabledNames: ['loop'] });
+  it('does not split a grapheme cluster at the truncation boundary', () => {
+    // The 250-char budget cuts at code-unit 249; the emoji spans 248-249, so a
+    // naive slice would leave a dangling surrogate. Grapheme-safe truncation
+    // must drop the whole emoji instead.
+    const description = `${'a'.repeat(248)}😀${'b'.repeat(100)}`;
+    const rendered = makeRegistry([makeSkill('demo', 'user', description)]).getModelSkillListing();
 
-    registerBuiltinSkills(registry);
-
-    expect(registry.getSkill('loop')).toBeUndefined();
-  });
-
-  it('never indexes a disabled plugin skill discovered from a root', async () => {
-    // Discovery indexes plugin skills before `register` runs, so a disabled one
-    // stays reachable through `getPluginSkill` unless the check repeats there.
-    const disabled = { ...makeSkill('deploy', 'extra'), plugin: { id: 'acme' } };
-    const kept = { ...makeSkill('rollback', 'extra'), plugin: { id: 'acme' } };
-    const registry = new SessionSkillRegistry({
-      disabledNames: ['Deploy'],
-      discover: async (options) => {
-        options.onDiscoveredSkill?.(disabled);
-        options.onDiscoveredSkill?.(kept);
-        return [disabled, kept];
-      },
-    });
-
-    await registry.loadRoots([{ path: '/tmp/plugins', source: 'extra' }]);
-
-    expect(registry.getPluginSkill('acme', 'deploy')).toBeUndefined();
-    expect(registry.getSkill('deploy')).toBeUndefined();
-    expect(registry.getPluginSkill('acme', 'rollback')).toBeDefined();
+    expect(rendered).toContain(`- demo: ${'a'.repeat(248)}…`);
+    expect(rendered).not.toContain('😀');
+    // no lone high or low surrogate should remain in the rendered output
+    expect(rendered).not.toMatch(
+      /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/,
+    );
   });
 });
 

@@ -6,7 +6,7 @@ import {
   type SelectItem,
   type SelectListLayoutOptions,
   type SelectListTheme,
-} from '@earendil-works/pi-tui';
+} from '@pymodel/pi-tui';
 
 import { SELECT_POINTER } from '#/tui/constant/symbols';
 

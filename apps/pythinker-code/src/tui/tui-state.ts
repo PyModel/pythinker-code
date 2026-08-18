@@ -2,20 +2,15 @@ import {
   Container,
   ProcessTerminal,
   TUI,
-} from '@earendil-works/pi-tui';
+} from '@pymodel/pi-tui';
 
 import { FooterComponent } from './components/chrome/footer';
-import { StatusBarComponent } from './components/chrome/status-bar';
 import { GutterContainer } from './components/chrome/gutter-container';
-import { TranscriptContainer } from './components/chrome/transcript-container';
-import type { ActivityLoader } from './components/chrome/activity-loader';
+import type { MoonLoader, SpinnerStyle } from './components/chrome/moon-loader';
 import { TodoPanelComponent } from './components/chrome/todo-panel';
-import { TranscriptViewport } from './components/chrome/transcript-viewport';
-import { ViewportLayoutRoot } from './components/chrome/viewport-layout';
 import type { SessionRow } from './components/dialogs/session-picker';
 import { CustomEditor } from './components/editor/custom-editor';
-import { createFooterState, type FooterState } from './runtime/footer/footer-model';
-import type { TuiLayout } from './config';
+import { DEFAULT_TUI_CONFIG } from './config';
 import { CHROME_GUTTER } from './constant/rendering';
 import type { TasksBrowserState } from './controllers/tasks-browser';
 import { currentTheme, type Theme } from './theme';
@@ -33,23 +28,14 @@ import {
 export interface TUIState {
   ui: TUI;
   terminal: ProcessTerminal;
-  layout: TuiLayout;
-  copyFullResponse: boolean;
-  transcriptContainer: TranscriptContainer;
-  transcriptViewport: TranscriptViewport;
-  layoutRoot: ViewportLayoutRoot;
-  footerWrap: GutterContainer;
+  transcriptContainer: Container;
   activityContainer: Container;
   todoPanelContainer: Container;
   todoPanel: TodoPanelComponent;
   queueContainer: Container;
   btwPanelContainer: Container;
-  mcpStatusContainer: Container;
-  statusBarContainer: Container;
-  statusBar: StatusBarComponent;
   editorContainer: Container;
   footer: FooterComponent;
-  footerState: FooterState;
   editor: CustomEditor;
   theme: Theme;
   appState: AppState;
@@ -57,22 +43,23 @@ export interface TUIState {
   livePane: LivePaneState;
   transcriptEntries: TranscriptEntry[];
   terminalState: TerminalState;
-  activitySpinner: { instance: ActivityLoader } | null;
+  activitySpinner: { instance: MoonLoader; style: SpinnerStyle } | null;
   toolOutputExpanded: boolean;
   sessions: SessionRow[];
   loadingSessions: boolean;
   sessionsScope: 'cwd' | 'all';
-  activeDialog: 'session-picker' | 'help' | null;
+  activeDialog: 'session-picker' | 'help' | 'trust-prompt' | null;
   tasksBrowser: TasksBrowserState | undefined;
   externalEditorRunning: boolean;
   queuedMessages: QueuedMessage[];
-  dynamicWorkflowModeEntry: 'manual' | 'task' | undefined;
   /**
-   * Arguments of the most recent DynamicWorkflow tool call, so `/workflow save`
-   * can turn a run that just worked into a reusable command. Overwritten as the
-   * call streams in; the last write is the complete one.
+   * True while a queued user message has been shifted out of
+   * {@link queuedMessages} but its deferred send has not run yet. The queue
+   * looks empty during this window, so queued-goal promotion must also check
+   * this flag to avoid starting a goal ahead of the user's earlier message.
    */
-  lastDynamicWorkflowArgs: Record<string, unknown> | undefined;
+  queuedMessageDispatchPending: boolean;
+  dynamicWorkflowModeEntry: 'manual' | 'task' | undefined;
 }
 
 export function createTUIState(options: PythinkerTUIOptions): TUIState {
@@ -81,67 +68,33 @@ export function createTUIState(options: PythinkerTUIOptions): TUIState {
 
   const terminal = new ProcessTerminal();
   const ui = new TUI(terminal);
-  // Gate rendering until the event loop starts: pi-tui paints on requestRender
-  // even before ui.start() (stopped defaults to false), so construction-time
-  // renders would anchor frames to the shell cursor. The field is private in
-  // pi-tui's types; ui.start() flips it back to false.
-  (ui as unknown as { stopped: boolean }).stopped = true;
 
-  const transcriptContainer = new TranscriptContainer(CHROME_GUTTER, CHROME_GUTTER);
+  const transcriptContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
   const activityContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
   const todoPanelContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
   const todoPanel = new TodoPanelComponent();
   const queueContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
   const btwPanelContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
-  const mcpStatusContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
-  const statusBarContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
-  const statusBar = new StatusBarComponent();
   const editorContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
-  const editor = new CustomEditor(ui);
+  const editor = new CustomEditor(ui, {
+    disablePasteBurst: initialAppState.disablePasteBurst ?? DEFAULT_TUI_CONFIG.disablePasteBurst,
+  });
   const footer = new FooterComponent({ ...initialAppState }, () => {
     ui.requestRender();
   });
 
-  const layout = options.layout;
-  const transcriptViewport = new TranscriptViewport(transcriptContainer);
-  const footerWrap = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
-  footerWrap.addChild(footer);
-  const layoutRoot = new ViewportLayoutRoot(
-    terminal,
-    transcriptViewport,
-    [
-      activityContainer,
-      todoPanelContainer,
-      queueContainer,
-      btwPanelContainer,
-      mcpStatusContainer,
-      editorContainer,
-      statusBarContainer,
-    ],
-    footerWrap,
-  );
-
   return {
     ui,
     terminal,
-    layout,
-    copyFullResponse: options.copyFullResponse ?? false,
     transcriptContainer,
-    transcriptViewport,
-    layoutRoot,
-    footerWrap,
     activityContainer,
     todoPanelContainer,
     todoPanel,
     queueContainer,
     btwPanelContainer,
-    mcpStatusContainer,
-    statusBarContainer,
-    statusBar,
     editorContainer,
     editor,
     footer,
-    footerState: createFooterState(),
     theme,
     appState: { ...initialAppState },
     startupState: 'pending',
@@ -157,7 +110,7 @@ export function createTUIState(options: PythinkerTUIOptions): TUIState {
     tasksBrowser: undefined,
     externalEditorRunning: false,
     queuedMessages: [],
+    queuedMessageDispatchPending: false,
     dynamicWorkflowModeEntry: undefined,
-    lastDynamicWorkflowArgs: undefined,
   };
 }

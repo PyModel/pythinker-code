@@ -7,8 +7,9 @@ export function smokeIdentityFromEnv(): PythinkerHostIdentity {
     throw new Error('PYTHINKER_CODE_SMOKE_VERSION is required for Pythinker SDK smoke examples.');
   }
   return {
-    userAgentProduct: 'pythinker-code-cli',
+    productName: 'pythinker-code-cli',
     version,
+    platform: 'pythinker_code_cli',
   };
 }
 

@@ -12,16 +12,16 @@ Some commands are only available in the idle state. Executing these commands whi
 
 | Command | Alias | Description | Always available |
 | --- | --- | --- | --- |
-| `/login` | — | Select an account or platform and log in: Pythinker Code uses OAuth device-code flow; Pythinker Platform uses API key login | No |
+| `/login` | — | Select an account or platform and log in: Pythinker Code uses OAuth device-code flow; Kimi Platform uses API key login | No |
 | `/logout` | — | Clear credentials for the currently selected account | No |
-| `/provider` | — | Open the interactive provider manager to view, add, and remove configured providers. See [Platforms & Models — `/provider` and provider management](../configuration/providers.md#provider-interactive-provider-management) | Yes |
-| `/model` | — | Switch the LLM model used in the current session. `/model <role>` locks a model alias to a model role (`small`, `implementer`, or `advisor`), `/model <role> clear` (or `/model <role> none`) removes the lock, and `/model roles` lists the current assignments. See [Model roles](../configuration/config-files.md#model_roles) | Yes |
+| `/provider` | — | Open the interactive provider manager to view, add, and remove configured providers. See [Platforms & Models — `/provider` and provider management](../configuration/providers.md#provider-—-interactive-provider-management) | Yes |
+| `/model` | — | Switch the LLM model used in the current session | Yes |
+| `/secondary_model` | — | Configure the secondary model that newly spawned subagents bind to by default (writes the [`[secondary_model]`](../configuration/config-files.md#secondary-model) section and applies to the current session immediately). Requires the `secondary-model` experiment | Yes |
 | `/settings` | `/config` | Open the settings panel inside the TUI | Yes |
 | `/experiments` | `/experimental` | Open the experimental feature panel | Yes |
 | `/permission` | — | Select a permission mode | Yes |
 | `/editor` | — | Configure the external editor launched by `Ctrl-G` | Yes |
 | `/theme` | — | Switch the terminal UI color theme | Yes |
-| `/colors [on\|off]` | — | Animate the TUI rainbow treatment. Without arguments, it runs briefly and turns off; `on` animates and then freezes the colors, while `off` disables them | Yes |
 
 ## Session Management
 
@@ -30,15 +30,18 @@ Some commands are only available in the idle state. Executing these commands whi
 | `/new` | `/clear` | Start a fresh session, discarding the current context | No |
 | `/sessions` | `/resume` | Browse historical sessions and switch to / restore one | No |
 | `/tasks` | `/task` | Browse the background task list | Yes |
-| `/fork` | — | Fork a new session from the current one, preserving the full conversation history | No |
+| `/fork` | — | Fork a new session from the current one, preserving the full conversation history; you stay in the current session | No |
 | `/title [<text>]` | `/rename` | Without arguments, display the current session title; with an argument, set a new title (max 200 characters) | Yes |
 | `/compact [<instruction>]` | — | Compact the current conversation context to free up token usage; an optional custom instruction can hint to the model what to preserve | No |
-| `/undo [<count>]` | — | Undo recent prompts from the active context. Without a count, opens a selector; with a count, undoes that many prompts. Prompts before the last compaction cannot be undone | No |
+| `/undo [<count>]` | — | Undo recent prompts from the active context. Without a count, opens a selector; with a count, undoes that many prompts. Prompts before the last compaction cannot be undone. Undoing also rolls back the todo list and plan mode state produced by those prompts (code changes are not reverted) | No |
 | `/reload` | — | Reload the current session and apply the latest `config.toml` settings (providers, models, etc.) and `tui.toml` UI preferences, without restarting the CLI | No |
 | `/reload-tui` | — | Reload only the `tui.toml` UI preferences (theme, editor, notifications, etc.) without rebuilding the session | Yes |
 | `/init` | — | Analyze the current codebase and generate `AGENTS.md` | No |
 | `/export-md [<path>]` | `/export` | Export the current session as a Markdown file | No |
 | `/export-debug-zip` | — | Export the current session as a debug ZIP archive (same behavior as [`pythinker export`](./pythinker-command.md#pythinker-export)) | No |
+| `/copy` | — | Copy the last assistant message to the clipboard | No |
+| `/add-dir [<path>]` | — | Add an extra workspace directory to the current session. Run without a path (or with `list`) to list configured directories. When adding, choose whether to remember the directory for the project in `.pythinker-code/local.toml` | No |
+| `/web` | — | Open the current session in the web UI: pick a running server to connect to, or start a new foreground server after the TUI exits. See [`pythinker web`](./pythinker-command.md#pythinker-web) | Yes |
 
 ## Modes & Run Control
 
@@ -48,16 +51,9 @@ Some commands are only available in the idle state. Executing these commands whi
 | `/auto [on\|off]` | — | Toggle auto permission mode. When enabled, tool approvals are handled automatically and the Agent will not ask the user questions | Yes |
 | `/plan [on\|off]` | — | Toggle Plan mode. Without arguments, flips the current state; explicitly passing `on`/`off` forces the setting. Simply toggling does not create an empty plan file | Yes |
 | `/plan clear` | — | Clear the current plan | No |
-| `/fast [on\|off\|status]` | — | Toggle provider-native Fast mode for the current session, or show its status. Without arguments, flips the current state | Status only |
-| `/workflow [on\|off]` | — | Toggle Dynamic Workflow mode without sending a prompt. Without arguments, flips the current state; explicitly passing `on`/`off` forces the setting. | No |
-| `/workflow <task>` | — | Turn Dynamic Workflow mode on, then send `<task>` as a normal prompt. If the turn completes normally, Dynamic Workflow mode turns off automatically. In `manual` permission mode, Pythinker Code asks whether to switch to `auto` or `yolo` before starting. | No |
-| `/workflow model [alias\|off]` | — | Ask Dynamic Workflow subagents to run on `alias` instead of the session model, so workers can use a cheaper or faster model than the agent orchestrating them. Without arguments, shows the current setting; `off` clears it. Lasts for the session. | No |
-| `/workflow save <name> [--personal]` | — | Save the last Dynamic Workflow that ran in this session as a skill, immediately invocable under its generated skill name — `Audit Routes` becomes `/audit-routes`. Saves into the project (`<repo root>/.pythinker-code/skills/`) by default; `--personal` saves into your home skills directory instead. | No |
+| `/dynamic_workflow on\|off` | — | Turn dynamic_workflow mode on or off without sending a prompt. | Yes |
+| `/dynamic_workflow <task>` | — | Turn dynamic_workflow mode on, then send `<task>` as a normal prompt. If the turn completes normally, dynamic_workflow mode turns off automatically. In `manual` permission mode, Pythinker Code asks whether to switch to `auto` or `yolo` before starting. | No |
 | `/goal [...]` | — | Start or manage an autonomous goal | See below |
-
-::: info
-Fast mode uses the provider's higher-speed processing tier without changing model quality. It is available for eligible OpenAI GPT-5.4–5.6 models, Codex models that advertise Fast support, Anthropic Claude Opus 5 and Opus 4.8 through the direct Claude API, and compatible gateways explicitly configured for it. Availability remains account- and region-dependent; Anthropic Fast mode also requires preview access. Fast requests can use credits or API tokens at premium rates, and a provider may downgrade or reject a request when capacity is unavailable. When model and mode status items are visible, the footer shows `↯ fast` while the session requests Fast mode. New sessions start with Fast mode off; resumed sessions restore it, and sub-Agents inherit it. See the provider documentation for [OpenAI Fast mode](https://developers.openai.com/api/docs/guides/fast-mode) and [Anthropic Fast mode](https://platform.claude.com/docs/en/build-with-claude/fast-mode).
-:::
 
 ::: warning
 `/yolo` skips approval for regular tool calls. Please make sure you understand the potential risks before enabling it. Plan mode exit approval is not bypassed by `/yolo`; `Bash` inside Plan mode is still subject to the regular `/yolo` allow rules.
@@ -101,19 +97,6 @@ pythinker -p "/goal Fix the failing checkout test"
 
 Prompt mode exits with code `0` when the goal completes, `3` when it blocks, and `6` when it pauses. Other `/goal` subcommands, including `next`, are TUI controls and are not handled by `pythinker -p`.
 
-## Session Advisor
-
-The session advisor runs reviewer agents in the background to check your work while the session progresses. It is configured through `WATCHDOG.md` or `WATCHDOG.yml` files in the user and project scopes. The `/advisor` command shows and controls it.
-
-| Command | Action | Availability |
-| --- | --- | --- |
-| `/advisor` | Show advisor status (same as `/advisor status`) | Idle only |
-| `/advisor status` | Show each configured advisor and its runtime status | Always available |
-| `/advisor on [advisor-id]` | Enable all advisors, or the named advisor | Idle only |
-| `/advisor off [advisor-id]` | Disable all advisors, or the named advisor | Idle only |
-| `/advisor toggle [advisor-id]` | Toggle all advisors, or the named advisor | Idle only |
-| `/advisor reload` | Reload the advisor configuration from disk | Idle only |
-
 ## Information & Status
 
 | Command | Alias | Description | Always available |
@@ -121,12 +104,11 @@ The session advisor runs reviewer agents in the background to check your work wh
 | `/help` | `/h`, `/?` | Show keyboard shortcuts and all available commands | Yes |
 | `/btw [question]` | — | Open a side conversation in a forked sub-Agent without affecting the current main Agent turn; without a question, opens the panel first to wait for input | Yes |
 | `/usage` | — | Show token usage, context consumption, and quota information | Yes |
-| `/cost` | — | Show accumulated session spend and the current model's token rates per 1 million tokens | Yes |
 | `/status` | — | Show the current session runtime state: version, model, working directory, permission mode, etc. | Yes |
 | `/mcp` | — | List MCP servers and their connection status in the current session | Yes |
 | `/plugins` | — | Open the interactive plugin manager | Yes |
 | `/version` | — | Display the Pythinker Code CLI version number | Yes |
-| `/feedback` | — | Submit feedback to help improve Pythinker Code CLI | Yes |
+| `/feedback` | `/bug` | Submit feedback with optional diagnostic logs and codebase context | Yes |
 
 ## Exit
 
@@ -143,6 +125,7 @@ Pythinker Code CLI ships with a set of built-in Skills that appear directly as `
 | `/mcp-config` | Configure MCP servers and handle MCP OAuth login. See [MCP](../customization/mcp.md) |
 | `/custom-theme [<text>]` | Create or edit a custom TUI color theme. See [Themes](../customization/themes.md) |
 | `/update-config` | Inspect or edit `config.toml` (model, provider, permission, hooks) and `tui.toml` (theme, editor, notifications, auto-update) |
+| `/check-pythinker-code-docs` | Answer Pythinker Code product questions (CLI usage, configuration, membership, error codes) against the official docs |
 | `/import-from-cc-codex` | Import Claude Code and Codex instructions, skills, and MCP settings into Pythinker Code |
 | `/sub-skill` | Discover and reorganize the local skill inventory into hierarchical sub-skill bundles. Includes `/sub-skill.review` (read-only proposal) and `/sub-skill.consolidate` (apply the reorganization) |
 

@@ -1,4 +1,4 @@
-import type { Component } from '@earendil-works/pi-tui';
+import type { Component } from '@pymodel/pi-tui';
 
 import type { TranscriptEntry } from '../types';
 

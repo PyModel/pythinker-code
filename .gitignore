@@ -40,3 +40,17 @@ plan/
 # local agent docs (machine-specific, never commit)
 AGENTS.local.md
 CLAUDE.md
+
+# merged from upstream sync 2026-08
+.contract-types-tmp/
+.local/
+.vite/
+.pythinker-code/local.toml
+.pythinker-sandbox/
+.vscode/
+!apps/vscode/.vscode/
+!apps/vscode/.vscode/*.json
+HANDOVER*.md
+HANDOFF*.md
+handoff.md
+handover.md

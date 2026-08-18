@@ -1,23 +1,27 @@
 import { CLI_COMMAND_NAME } from '#/constant/app';
-import { Command, Option } from 'commander';
+import { registerMigrateCommand } from '#/migration/index';
+import { Command, InvalidArgumentError, Option } from 'commander';
 
+import { isAcpV2Enabled } from './experimental-v2';
 import type { CLIOptions } from './options';
 import { registerAcpCommand } from './sub/acp';
+import { registerAcpV2Command } from './sub/acp-v2';
 import { registerDoctorCommand } from './sub/doctor';
 import { registerExportCommand } from './sub/export';
 import { registerLoginCommand } from './sub/login';
-import { registerMcpCommand } from './sub/mcp';
 import { registerProviderCommand } from './sub/provider';
-import { registerServerCommand } from './sub/server';
-import { registerDashboardCommand } from './sub/dashboard';
+import { registerVisCommand } from './sub/vis';
+import { registerWebCommand } from './sub/web';
 
 export type MainCommandHandler = (opts: CLIOptions) => void;
+export type MigrateCommandHandler = () => void;
 export type PluginNodeRunnerHandler = (entry: string, args: readonly string[]) => void;
 export type UpgradeCommandHandler = () => void | Promise<void>;
 
 export function createProgram(
   version: string,
   onMain: MainCommandHandler,
+  onMigrate: MigrateCommandHandler,
   onPluginNodeRunner: PluginNodeRunnerHandler = () => {},
   onUpgrade: UpgradeCommandHandler = () => {},
 ): Command {
@@ -28,7 +32,7 @@ export function createProgram(
     .configureHelp({ helpWidth: 100 })
     .helpOption('-h, --help', 'Show help.')
     .usage('[options] [command]')
-    .addHelpText('after', '\nDocumentation:        https://pymodel.github.io/pythinker-code/\n');
+    .addHelpText('after', '\nDocumentation:        https://code.pythinker.com/pythinker-code/\n');
 
   program
     .addOption(
@@ -42,13 +46,8 @@ export function createProgram(
         .hideHelp()
         .argParser((val: string | boolean) => (val === true ? '' : (val as string))),
     )
-    .option('-C, --continue', 'Continue the previous session for the working directory.', false)
-    .addOption(
-      new Option(
-        '--rewind-files <checkpoint-id>',
-        'Restore files to a persisted checkpoint.',
-      ).hideHelp(),
-    )
+    .option('-c, --continue', 'Continue the previous session for the working directory.', false)
+    .addOption(new Option('-C').hideHelp().default(false))
     .option('-y, --yolo', 'Auto-approve regular tool calls; the agent may still ask questions.', false)
     .option('--auto', 'Start in auto permission mode: fully autonomous, the agent will not ask questions.', false)
     .addOption(
@@ -67,13 +66,7 @@ export function createProgram(
       new Option(
         '--output-format <format>',
         'Output format for prompt mode. Defaults to text.',
-      ).choices(['text', 'json', 'stream-json']),
-    )
-    .addOption(
-      new Option(
-        '--json-schema <schema>',
-        'JSON Schema for structured output validation.',
-      ),
+      ).choices(['text', 'stream-json']),
     )
     .addOption(
       new Option(
@@ -85,25 +78,54 @@ export function createProgram(
     )
     .addOption(
       new Option(
-        '--add-dir <directories...>',
-        'Additional directories to allow file-tool access to.',
-      ).default([]),
+        '--agent <name>',
+        'Agent profile to start the new session with. Custom profiles are discovered from agent directories or loaded via --agent-file. Cannot be combined with --session/--continue.',
+      )
+        .argParser((value: string, previous: string | undefined) => {
+          if (previous !== undefined) {
+            throw new InvalidArgumentError('--agent may only be specified once.');
+          }
+          return value;
+        })
+        .conflicts('agentFile'),
+    )
+    .addOption(
+      new Option(
+        '--agent-file <path>',
+        'Load an agent definition from a Markdown file and select it for the new session. Cannot be combined with --session/--continue.',
+      )
+        .argParser((value: string, previous: string[] | undefined) => {
+          if ((previous?.length ?? 0) > 0) {
+            throw new InvalidArgumentError('--agent-file may only be specified once.');
+          }
+          return [value];
+        })
+        .conflicts('agent')
+        .default([]),
+    )
+    .addOption(
+      new Option(
+        '--add-dir <dir>',
+        'Add an additional workspace directory for this session. Can be repeated.',
+      )
+        .argParser((value: string, previous: string[] | undefined) => [...(previous ?? []), value])
+        .default([]),
     )
     .addOption(new Option('--yes').hideHelp().default(false))
     .addOption(new Option('--auto-approve').hideHelp().default(false))
-    .addOption(new Option('--init').hideHelp().default(false))
-    .addOption(new Option('--init-only').hideHelp().default(false))
-    .addOption(new Option('--maintenance').hideHelp().default(false))
     .option('--plan', 'Start in plan mode.', false);
 
   registerExportCommand(program);
   registerProviderCommand(program);
   registerAcpCommand(program);
-  registerMcpCommand(program);
-  registerServerCommand(program);
+  registerWebCommand(program);
+  if (isAcpV2Enabled()) {
+    registerAcpV2Command(program);
+  }
   registerLoginCommand(program);
   registerDoctorCommand(program);
-  registerDashboardCommand(program);
+  registerVisCommand(program);
+  registerMigrateCommand(program, onMigrate);
   program
     .command('upgrade')
     .alias('update')
@@ -126,11 +148,7 @@ export function createProgram(
       program.error(`unknown command '${args[0]}'. See '${CLI_COMMAND_NAME} --help'.`);
     }
 
-    // `--resume` is the legacy alias of `--session`; supplying both is a
-    // conflict the parser must surface instead of silently picking one.
     const raw = program.opts<Record<string, unknown>>();
-    const sessionSelectorConflict =
-      raw['session'] !== undefined && raw['resume'] !== undefined;
 
     const rawSession = raw['session'] ?? raw['resume'];
     const sessionValue = rawSession === true ? '' : (rawSession as string | undefined);
@@ -139,21 +157,17 @@ export function createProgram(
 
     const opts: CLIOptions = {
       session: sessionValue,
-      sessionSelectorConflict,
-      continue: raw['continue'] as boolean,
+      continue: raw['continue'] === true || raw['C'] === true,
       yolo: yoloValue,
       auto: autoValue,
-      init: raw['init'] as boolean,
-      initOnly: raw['initOnly'] as boolean,
-      maintenance: raw['maintenance'] as boolean,
       plan: raw['plan'] as boolean,
       model: raw['model'] as string | undefined,
       outputFormat: raw['outputFormat'] as CLIOptions['outputFormat'],
-      jsonSchema: raw['jsonSchema'] as string | undefined,
       prompt: raw['prompt'] as string | undefined,
-      rewindFiles: raw['rewindFiles'] as string | undefined,
       skillsDirs: raw['skillsDir'] as string[],
-      additionalDirs: raw['addDir'] as string[],
+      agent: raw['agent'] as string | undefined,
+      agentFiles: raw['agentFile'] as string[],
+      addDirs: raw['addDir'] as string[],
     };
 
     onMain(opts);

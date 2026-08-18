@@ -1,3 +1,9 @@
+/**
+ * Scenario: Node SDK sessions persist and list through the public harness.
+ * Responsibilities: workDir scoping, index recovery, fork metadata, and native path-safe listing.
+ * Wiring: real in-process harness/session storage; no remote provider calls.
+ * Run: pnpm exec vitest run test/list-sessions.test.ts
+ */
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -11,6 +17,7 @@ import type { PythinkerError } from '#/index';
 import {
   SessionStore,
   encodeWorkDirKey,
+  normalizeWorkDir,
   sessionIndexPath,
 } from '../../agent-core/src/session/store';
 import { TEST_IDENTITY } from './test-identity';
@@ -38,41 +45,6 @@ async function writeSessionState(
   return statePath;
 }
 
-function currentState(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-  return {
-    sessionFormatVersion: 2,
-    createdAt: '2030-01-01T00:00:00.000Z',
-    updatedAt: '2030-01-01T00:00:00.000Z',
-    title: 'Stored session',
-    isCustomTitle: false,
-    agents: {
-      main: {
-        type: 'main',
-        parentAgentId: null,
-      },
-    },
-    custom: {},
-    ...overrides,
-  };
-}
-
-async function createStoredSession(
-  store: SessionStore,
-  input: { readonly id: string; readonly workDir: string },
-  state: Record<string, unknown> = currentState(),
-) {
-  return store.create(input, async (summary) => {
-    const mainDir = join(summary.sessionDir, 'agents', 'main');
-    await mkdir(mainDir, { recursive: true });
-    await writeSessionState(summary.sessionDir, state);
-    await writeFile(
-      join(mainDir, 'wire.jsonl'),
-      '{"type":"metadata","protocol_version":"2.0","created_at":1}\n',
-      'utf-8',
-    );
-  });
-}
-
 describe('SessionStore.list', () => {
   it('returns an empty array when the workDir bucket does not exist', async () => {
     const homeDir = await makeTempDir();
@@ -87,24 +59,24 @@ describe('SessionStore.list', () => {
     const workDir = await makeTempDir();
     const store = new SessionStore(homeDir);
 
-    const summary = await createStoredSession(store, { id: 'ses_list_full', workDir });
+    const summary = await store.create({ id: 'ses_list_full', workDir });
 
     expect(summary).toMatchObject({
       id: 'ses_list_full',
-      workDir,
-      title: 'Stored session',
+      workDir: normalizeWorkDir(workDir),
+      title: undefined,
     });
     expect(summary.sessionDir).not.toBe(join(homeDir, 'sessions', 'ses_list_full'));
     expect(basename(summary.sessionDir)).toBe('ses_list_full');
     const workdirKey = basename(dirname(summary.sessionDir));
     expect(workdirKey).toBe(encodeWorkDirKey(workDir));
     expect(workdirKey.length).toBeLessThan(70);
-    expect(existsSync(join(summary.sessionDir, 'state.json'))).toBe(true);
+    expect(existsSync(join(summary.sessionDir, 'state.json'))).toBe(false);
 
     const indexRaw = await readFile(sessionIndexPath(homeDir), 'utf-8');
     expect(indexRaw).toContain('"sessionId":"ses_list_full"');
     expect(indexRaw).toContain(summary.sessionDir);
-    expect(indexRaw).toContain(`"workDir":"${workDir}"`);
+    expect(indexRaw).toContain(`"workDir":"${normalizeWorkDir(workDir)}"`);
   });
 
   it('forks a session directory, rewrites metadata, and drops reserved goal state', async () => {
@@ -112,54 +84,47 @@ describe('SessionStore.list', () => {
     const workDir = await makeTempDir();
     const store = new SessionStore(homeDir);
 
-    const source = await createStoredSession(
-      store,
-      { id: 'ses_fork_source', workDir },
-      currentState({
-        title: 'Source title',
-        isCustomTitle: true,
-        agents: {
-          main: {
-            type: 'main',
-            parentAgentId: null,
-          },
-          'agent-1': {
-            type: 'sub',
-            parentAgentId: 'main',
-          },
-        },
-        custom: {
-          source: true,
-          goal: {
-            goalId: 'source-goal',
-            objective: 'source objective',
-            status: 'active',
-            turnsUsed: 0,
-            tokensUsed: 0,
-            budgetLimits: {},
-          },
-        },
-      }),
-    );
+    const source = await store.create({ id: 'ses_fork_source', workDir });
     const sourceAgentDir = join(source.sessionDir, 'agents', 'main');
     const sourceSubagentDir = join(source.sessionDir, 'agents', 'agent-1');
     await mkdir(sourceAgentDir, { recursive: true });
     await mkdir(sourceSubagentDir, { recursive: true });
-    await writeFile(
-      join(sourceAgentDir, 'wire.jsonl'),
-      '{"type":"metadata","protocol_version":"2.0","created_at":1}\n{"type":"context.clear"}\n',
-      'utf-8',
-    );
-    await writeFile(
-      join(sourceSubagentDir, 'wire.jsonl'),
-      '{"type":"metadata","protocol_version":"2.0","created_at":1}\n{"type":"context.clear"}\n',
-      'utf-8',
-    );
+    await writeFile(join(sourceAgentDir, 'wire.jsonl'), '{"type":"context.clear"}\n', 'utf-8');
+    await writeFile(join(sourceSubagentDir, 'wire.jsonl'), '{"type":"context.clear"}\n', 'utf-8');
     await writeFile(
       join(source.sessionDir, 'upcoming-goals.json'),
       `${JSON.stringify({ version: 1, goals: [{ id: 'queued-1', objective: 'source queued goal' }] })}\n`,
       'utf-8',
     );
+    await writeSessionState(source.sessionDir, {
+      createdAt: '2030-01-01T00:00:00.000Z',
+      updatedAt: '2030-01-01T00:00:00.000Z',
+      title: 'Source title',
+      isCustomTitle: true,
+      agents: {
+        main: {
+          homedir: sourceAgentDir,
+          type: 'main',
+        },
+        'agent-1': {
+          homedir: sourceSubagentDir,
+          type: 'subagent',
+          parentAgentId: 'main',
+        },
+      },
+      custom: {
+        source: true,
+        goal: {
+          goalId: 'source-goal',
+          objective: 'source objective',
+          status: 'active',
+          turnsUsed: 0,
+          tokensUsed: 0,
+          budgetLimits: {},
+        },
+      },
+    });
+
     const fork = await store.fork({
       sourceId: source.id,
       targetId: 'ses_fork_child',
@@ -187,7 +152,9 @@ describe('SessionStore.list', () => {
     expect(forkState.title).toBe('Fork title');
     expect(forkState.isCustomTitle).toBe(true);
     expect(forkState.forkedFrom).toBe(source.id);
-    expect(forkState.agents?.main?.homedir).toBeUndefined();
+    expect(forkState.agents?.main?.homedir).toBe(
+      normalizeWorkDir(join(fork.sessionDir, 'agents', 'main')),
+    );
     expect(forkState.custom).toMatchObject({ source: true, child: true });
     expect(forkState.custom).not.toHaveProperty('goal');
     expect(existsSync(join(fork.sessionDir, 'upcoming-goals.json'))).toBe(false);
@@ -197,7 +164,6 @@ describe('SessionStore.list', () => {
       .trim()
       .split('\n')
       .map((line) => JSON.parse(line) as Record<string, unknown>)).toEqual([
-      { type: 'metadata', protocol_version: '2.0', created_at: 1 },
       { type: 'context.clear' },
       { type: 'forked', time: expect.any(Number) },
     ]);
@@ -209,7 +175,6 @@ describe('SessionStore.list', () => {
       .trim()
       .split('\n')
       .map((line) => JSON.parse(line) as Record<string, unknown>)).toEqual([
-      { type: 'metadata', protocol_version: '2.0', created_at: 1 },
       { type: 'context.clear' },
       { type: 'forked', time: expect.any(Number) },
     ]);
@@ -231,23 +196,23 @@ describe('SessionStore.list', () => {
     const otherWorkDir = await makeTempDir();
     const store = new SessionStore(homeDir);
 
-    await createStoredSession(store, { id: 'ses_list_a', workDir });
-    await createStoredSession(store, { id: 'ses_other_workdir', workDir: otherWorkDir });
+    await store.create({ id: 'ses_list_a', workDir });
+    await store.create({ id: 'ses_other_workdir', workDir: otherWorkDir });
 
     const sessions = await store.list({ workDir });
     expect(sessions.map((session) => session.id)).toEqual(['ses_list_a']);
   });
 
-  it('uses the session index instead of discovering an unindexed workDir session', async () => {
+  it('uses the workDir bucket before the session index when sessionId is provided', async () => {
     const homeDir = await makeTempDir();
     const workDir = await makeTempDir();
     const store = new SessionStore(homeDir);
 
-    const local = await createStoredSession(store, { id: 'ses_bucket_hit', workDir });
+    const local = await store.create({ id: 'ses_bucket_hit', workDir });
     await rm(sessionIndexPath(homeDir), { force: true });
 
     const sessions = await store.list({ workDir, sessionId: local.id });
-    expect(sessions).toEqual([]);
+    expect(sessions.map((session) => session.id)).toEqual([local.id]);
   });
 
   it('falls back to the session index when a workDir-scoped sessionId is not in that bucket', async () => {
@@ -256,14 +221,14 @@ describe('SessionStore.list', () => {
     const otherWorkDir = await makeTempDir();
     const store = new SessionStore(homeDir);
 
-    await createStoredSession(store, { id: 'ses_local', workDir });
-    const other = await createStoredSession(store, { id: 'ses_index_fallback', workDir: otherWorkDir });
+    await store.create({ id: 'ses_local', workDir });
+    const other = await store.create({ id: 'ses_index_fallback', workDir: otherWorkDir });
 
     const sessions = await store.list({ workDir, sessionId: other.id });
     expect(sessions).toHaveLength(1);
     expect(sessions[0]).toMatchObject({
       id: other.id,
-      workDir: otherWorkDir,
+      workDir: normalizeWorkDir(otherWorkDir),
     });
   });
 
@@ -273,8 +238,8 @@ describe('SessionStore.list', () => {
     const otherWorkDir = await makeTempDir();
     const store = new SessionStore(homeDir);
 
-    await createStoredSession(store, { id: 'ses_all_a', workDir });
-    await createStoredSession(store, { id: 'ses_all_b', workDir: otherWorkDir });
+    await store.create({ id: 'ses_all_a', workDir });
+    await store.create({ id: 'ses_all_b', workDir: otherWorkDir });
 
     const sessions = await store.list();
     expect(sessions.map((session) => session.id).toSorted()).toEqual([
@@ -290,36 +255,41 @@ describe('SessionStore.list', () => {
     await expect(store.list({ sessionId: 'ses_missing' })).resolves.toEqual([]);
   });
 
-  it('reads a title from strict current-format state', async () => {
+  it('reads title from customTitle before title', async () => {
     const homeDir = await makeTempDir();
     const workDir = await makeTempDir();
     const store = new SessionStore(homeDir);
 
-    const custom = await createStoredSession(
-      store,
-      { id: 'ses_custom_title', workDir },
-      currentState({ title: 'Custom Title', isCustomTitle: true }),
-    );
-    const fallback = await createStoredSession(
-      store,
-      { id: 'ses_fallback_title', workDir },
-      currentState({ title: 'Fallback Title' }),
-    );
+    const custom = await store.create({ id: 'ses_custom_title', workDir });
+    await writeSessionState(custom.sessionDir, {
+      title: 'Base Title',
+      customTitle: 'Custom Title',
+    });
+    const fallback = await store.create({ id: 'ses_fallback_title', workDir });
+    await writeSessionState(fallback.sessionDir, {
+      title: 'Fallback Title',
+    });
 
     const sessions = await store.list({ workDir });
     expect(sessions.find((session) => session.id === custom.id)?.title).toBe('Custom Title');
     expect(sessions.find((session) => session.id === fallback.id)?.title).toBe('Fallback Title');
   });
 
-  it('skips malformed indexed state instead of treating it as an incomplete summary', async () => {
+  it('keeps sessions visible when state.json is missing or malformed', async () => {
     const homeDir = await makeTempDir();
     const workDir = await makeTempDir();
     const store = new SessionStore(homeDir);
 
-    const malformed = await createStoredSession(store, { id: 'ses_bad_state', workDir });
+    await store.create({ id: 'ses_no_state', workDir });
+    const malformed = await store.create({ id: 'ses_bad_state', workDir });
     await writeFile(join(malformed.sessionDir, 'state.json'), '{bad json', 'utf-8');
 
-    await expect(store.list({ workDir })).resolves.toEqual([]);
+    const sessions = await store.list({ workDir });
+    expect(sessions.map((session) => session.id).toSorted()).toEqual([
+      'ses_bad_state',
+      'ses_no_state',
+    ]);
+    expect(sessions.every((session) => session.title === undefined)).toBe(true);
   });
 
   it('sorts by filesystem activity descending', async () => {
@@ -327,14 +297,14 @@ describe('SessionStore.list', () => {
     const workDir = await makeTempDir();
     const store = new SessionStore(homeDir);
 
-    const oldSession = await createStoredSession(store, { id: 'ses_old', workDir });
-    const newSession = await createStoredSession(store, { id: 'ses_new', workDir });
+    const oldSession = await store.create({ id: 'ses_old', workDir });
+    const newSession = await store.create({ id: 'ses_new', workDir });
     const oldTime = new Date('2030-04-18T12:00:00Z');
     const newTime = new Date('2030-04-18T12:00:10Z');
-    await writeFile(join(oldSession.sessionDir, 'agents', 'main', 'wire.jsonl'), '{}\n', 'utf-8');
-    await writeFile(join(newSession.sessionDir, 'agents', 'main', 'wire.jsonl'), '{}\n', 'utf-8');
-    await utimes(join(oldSession.sessionDir, 'agents', 'main', 'wire.jsonl'), oldTime, oldTime);
-    await utimes(join(newSession.sessionDir, 'agents', 'main', 'wire.jsonl'), newTime, newTime);
+    await writeFile(join(oldSession.sessionDir, 'wire.jsonl'), '{}\n', 'utf-8');
+    await writeFile(join(newSession.sessionDir, 'wire.jsonl'), '{}\n', 'utf-8');
+    await utimes(join(oldSession.sessionDir, 'wire.jsonl'), oldTime, oldTime);
+    await utimes(join(newSession.sessionDir, 'wire.jsonl'), newTime, newTime);
 
     const sessions = await store.list({ workDir });
     expect(sessions.map((session) => session.id)).toEqual(['ses_new', 'ses_old']);
@@ -395,6 +365,26 @@ describe('PythinkerHarness.listSessions', () => {
         'ses_harness_all_a',
         'ses_harness_all_b',
       ]);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('lists a session from a workDir containing spaces and non-ASCII characters', async () => {
+    const homeDir = await makeTempDir();
+    const root = await makeTempDir();
+    const workDir = join(root, 'Workspace With Spaces', '项目');
+    await mkdir(workDir, { recursive: true });
+    const harness = createPythinkerHarness({
+      identity: TEST_IDENTITY,
+      homeDir,
+    });
+
+    try {
+      const session = await harness.createSession({ id: 'ses_unicode_workdir', workDir });
+
+      const sessions = await harness.listSessions({ workDir });
+      expect(sessions.map((item) => item.id)).toEqual([session.id]);
     } finally {
       await harness.close();
     }

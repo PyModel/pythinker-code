@@ -33,7 +33,9 @@ const { width, dragging, onPointerDown } = useResizable({
   storageKey: props.storageKey,
   defaultWidth: props.defaultWidth,
   min: props.min,
-  max: props.max,
+  // Pass a getter so the cap stays reactive: a viewport-derived max can grow
+  // after the handle mounts and the next drag will use the new limit.
+  max: () => props.max,
   reverse: props.reverse,
 });
 
@@ -67,9 +69,9 @@ watch(dragging, (d) => emit('update:dragging', d));
   touch-action: none;
   /* sits over the 1px column border so the whole 4px strip is grabbable */
   margin: 0 -2px;
-  /* above pane-level sticky chrome (chat dock z-index: 10): its 2px overhang
-     into the neighbour pane must stay visible and grabbable */
-  z-index: 20;
+  /* above pane-level sticky chrome (chat dock, headers at --z-sticky): its 2px
+     overhang into the neighbour pane must stay visible and grabbable */
+  z-index: var(--z-dropdown);
 }
 .rh-bar {
   position: absolute;
@@ -79,6 +81,6 @@ watch(dragging, (d) => emit('update:dragging', d));
 }
 .rh:hover .rh-bar,
 .rh.dragging .rh-bar {
-  background: var(--blue);
+  background: var(--color-accent);
 }
 </style>

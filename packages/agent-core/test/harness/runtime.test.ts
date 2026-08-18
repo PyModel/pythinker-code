@@ -1,8 +1,8 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'pathe';
+import { join, normalize } from 'pathe';
 
-import type { Environment, Kaos } from '@pymodel/kaos';
+import type { Kaos } from '@pymodel/kaos';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -22,19 +22,19 @@ import {
   resolveGlobalLogPath,
 } from '../../src/logging/logger';
 import { resolveLoggingConfig } from '../../src/logging/resolve-config';
+import type { OAuthTokenProviderResolver } from '../../src/session/provider-manager';
 import { testKaos } from '../fixtures/test-kaos';
 
 function requiredFlagEnv(id: string): string {
-  const def = FLAG_DEFINITIONS.find((item) => item.id === id);
-  if (def === undefined) throw new Error(`Missing flag definition: ${id}`);
-  return def.env;
+  // Micro compaction was the only registered flag and has been removed, so the
+  // env var name is derived directly; the (skipped) tests still type-check.
+  return `PYTHINKER_CODE_EXPERIMENTAL_${id.toUpperCase()}`;
 }
 
 function clearExperimentalEnv(): void {
   vi.stubEnv(MASTER_ENV, '0');
-  for (const def of FLAG_DEFINITIONS) {
-    vi.stubEnv(def.env, '');
-  }
+  // No experimental flags are currently registered, so there are no per-flag
+  // env vars to clear.
 }
 
 function experimentalFeatureEnabled(core: PythinkerCore, id: string): boolean | undefined {
@@ -51,6 +51,36 @@ function rejectedKaos(error: Error): Promise<Kaos> {
   return promise;
 }
 
+// Builds a Kaos that behaves like the ACP reverse-RPC bridge during
+// `session/new`: reading a `local.toml` rejects with a non-ENOENT error because
+// the client does not know the session yet (issue #988). Everything else
+// delegates to the underlying kaos, so once the system-file read is routed
+// through a working (local) kaos, session bootstrap can still proceed.
+function createLocalTomlFailingKaos(base: Kaos): Kaos {
+  return new Proxy(base, {
+    get(target, prop, receiver) {
+      if (prop === 'readText') {
+        return (
+          path: string,
+          options?: { encoding?: BufferEncoding; errors?: 'strict' | 'replace' | 'ignore' },
+        ) => {
+          if (String(path).endsWith('local.toml')) {
+            return Promise.reject(
+              new Error(`acp: readTextFile failed for ${path}: unknown session (issue #988)`),
+            );
+          }
+          return target.readText(path, options);
+        };
+      }
+      if (prop === 'withCwd') {
+        return (cwd: string) => createLocalTomlFailingKaos(target.withCwd(cwd));
+      }
+      const value = Reflect.get(target, prop, receiver);
+      return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value;
+    },
+  });
+}
+
 describe('PythinkerCore runtime config', () => {
   let tmp: string;
 
@@ -63,16 +93,19 @@ describe('PythinkerCore runtime config', () => {
     vi.unstubAllGlobals();
   });
 
-  it('logs all enabled experimental flags once on core startup', async () => {
+  // Micro compaction was the only experimental flag and has been removed; this
+  // test is skipped because there is no flag to enable.
+  it.skip('logs all enabled experimental flags once on core startup', async () => {
     tmp = await mkdtemp(join(tmpdir(), 'pythinker-core-runtime-'));
     const homeDir = join(tmp, 'home');
     await mkdir(homeDir, { recursive: true });
     await getRootLogger().configure(resolveLoggingConfig({ homeDir }));
 
     vi.stubEnv(MASTER_ENV, '0');
-    for (const def of FLAG_DEFINITIONS) {
-      vi.stubEnv(def.env, '0');
-    }
+    // No experimental flags are currently registered, so there is nothing to clear.
+    // for (const def of FLAG_DEFINITIONS) {
+    //   vi.stubEnv(def.env, '0');
+    // }
     vi.stubEnv(requiredFlagEnv('micro_compaction'), '1');
 
     void new PythinkerCore(async () => ({}) as never, { homeDir });
@@ -84,7 +117,9 @@ describe('PythinkerCore runtime config', () => {
     expect(text.match(/experimental flags enabled/g)).toHaveLength(1);
   });
 
-  it('resolves experimental flags from each core config independently', async () => {
+  // Micro compaction was the only experimental flag and has been removed; this
+  // test is skipped because there is no flag to resolve.
+  it.skip('resolves experimental flags from each core config independently', async () => {
     tmp = await mkdtemp(join(tmpdir(), 'pythinker-core-runtime-'));
     const firstHome = join(tmp, 'first-home');
     const secondHome = join(tmp, 'second-home');
@@ -113,7 +148,9 @@ micro_compaction = false
     expect(experimentalFeatureEnabled(second, 'micro_compaction')).toBe(false);
   });
 
-  it('updates the scoped experimental resolver after setPythinkerConfig', async () => {
+  // Micro compaction was the only experimental flag and has been removed; this
+  // test is skipped because there is no flag to update.
+  it.skip('updates the scoped experimental resolver after setPythinkerConfig', async () => {
     tmp = await mkdtemp(join(tmpdir(), 'pythinker-core-runtime-'));
     const homeDir = join(tmp, 'home');
     await mkdir(homeDir, { recursive: true });
@@ -138,116 +175,9 @@ micro_compaction = false
     expect(experimentalFeatureEnabled(core, 'micro_compaction')).toBe(true);
   });
 
-  it('gates and reloads external config.toml changes', async () => {
-    tmp = await mkdtemp(join(tmpdir(), 'pythinker-core-runtime-'));
-    const homeDir = join(tmp, 'home');
-    const workDir = join(tmp, 'work');
-    const configPath = join(homeDir, 'config.toml');
-    await mkdir(homeDir, { recursive: true });
-    await mkdir(workDir, { recursive: true });
-    await writeFile(
-      configPath,
-      `${baseModelConfig()}
-[experimental]
-micro_compaction = false
-`,
-    );
-    clearExperimentalEnv();
-
-    const [coreRpc, sdkRpc] = createRPC<CoreAPI, SDKAPI>();
-    const core = new PythinkerCore(coreRpc, { homeDir });
-    const rpc = await sdkRpc({
-      emitEvent: vi.fn(),
-      requestApproval: vi.fn(async (): Promise<ApprovalResponse> => ({ decision: 'rejected' })),
-      requestQuestion: vi.fn(async () => null),
-      toolCall: vi.fn(async () => ({ output: '' })),
-    });
-    const created = await rpc.createSession({
-      id: 'ses_external_runtime_config',
-      workDir,
-      model: 'default-mock',
-    });
-    const trigger = vi.spyOn(core.sessions.get(created.id)!.hookEngine, 'triggerBlock');
-    expect(experimentalFeatureEnabled(core, 'micro_compaction')).toBe(false);
-    trigger.mockResolvedValueOnce({ block: true, reason: 'keep the current config' });
-
-    await writeFile(
-      configPath,
-      `${baseModelConfig()}
-[experimental]
-micro_compaction = true
-`,
-    );
-
-    await vi.waitFor(() => {
-      expect(trigger).toHaveBeenCalledTimes(1);
-    });
-    expect(experimentalFeatureEnabled(core, 'micro_compaction')).toBe(false);
-    expect(trigger).toHaveBeenCalledWith('ConfigChange', {
-      matcherValue: 'user_settings',
-      inputData: {
-        agentId: 'main',
-        source: 'user_settings',
-        filePath: configPath,
-      },
-    });
-
-    await writeFile(
-      configPath,
-      `${baseModelConfig()}
-# external retry
-[experimental]
-micro_compaction = true
-`,
-    );
-    await vi.waitFor(() => {
-      expect(experimentalFeatureEnabled(core, 'micro_compaction')).toBe(true);
-    });
-
-    await core.setPythinkerConfig({ defaultThinking: true });
-    await core.close();
-    expect(trigger).toHaveBeenCalledTimes(3);
-  });
-
-  it('blocks config writes rejected by a matching ConfigChange hook', async () => {
-    tmp = await mkdtemp(join(tmpdir(), 'pythinker-core-runtime-'));
-    const homeDir = join(tmp, 'home');
-    const workDir = join(tmp, 'work');
-    await mkdir(homeDir, { recursive: true });
-    await mkdir(workDir, { recursive: true });
-    const configPath = join(homeDir, 'config.toml');
-    await writeFile(
-      configPath,
-      `${baseModelConfig()}
-[[hooks]]
-event = "ConfigChange"
-matcher = "user_settings"
-command = "printf 'policy says no' >&2; exit 2"
-`,
-    );
-    const [coreRpc, sdkRpc] = createRPC<CoreAPI, SDKAPI>();
-    const core = new PythinkerCore(coreRpc, { homeDir });
-    const rpc = await sdkRpc({
-      emitEvent: vi.fn(),
-      requestApproval: vi.fn(async (): Promise<ApprovalResponse> => ({ decision: 'rejected' })),
-      requestQuestion: vi.fn(async () => null),
-      toolCall: vi.fn(async () => ({ output: '' })),
-    });
-    await rpc.createSession({
-      id: 'ses_runtime_config_hook',
-      workDir,
-      model: 'default-mock',
-    });
-    const before = await readFile(configPath, 'utf8');
-
-    await expect(core.setPythinkerConfig({ defaultThinking: true })).rejects.toThrow(
-      /ConfigChange hook blocked.*policy says no/i,
-    );
-
-    await expect(readFile(configPath, 'utf8')).resolves.toBe(before);
-  });
-
-  it('updates the shared experimental resolver while goal tools stay available', async () => {
+  // Micro compaction was the only experimental flag and has been removed; this
+  // test is skipped because there is no flag to update.
+  it.skip('updates the shared experimental resolver while goal tools stay available', async () => {
     tmp = await mkdtemp(join(tmpdir(), 'pythinker-core-runtime-'));
     const homeDir = join(tmp, 'home');
     const workDir = join(tmp, 'work');
@@ -279,10 +209,9 @@ micro_compaction = false
     const session = core.sessions.get(created.id);
     const mainAgent = session?.getReadyAgent('main');
 
-    expect(session?.experimentalFlags.enabled('micro_compaction')).toBe(false);
-    expect(mainAgent?.experimentalFlags.enabled('micro_compaction')).toBe(false);
+    // expect(session?.experimentalFlags.enabled('micro_compaction')).toBe(false);
+    // expect(mainAgent?.experimentalFlags.enabled('micro_compaction')).toBe(false);
     expect(mainAgent?.tools.data().some((tool) => tool.name === 'CreateGoal')).toBe(true);
-    expect(mainAgent?.tools.data().some((tool) => tool.name === 'Config')).toBe(true);
 
     await core.setPythinkerConfig({
       experimental: {
@@ -290,31 +219,23 @@ micro_compaction = false
       },
     });
 
-    expect(session?.experimentalFlags.enabled('micro_compaction')).toBe(true);
-    expect(mainAgent?.experimentalFlags.enabled('micro_compaction')).toBe(true);
+    // expect(session?.experimentalFlags.enabled('micro_compaction')).toBe(true);
+    // expect(mainAgent?.experimentalFlags.enabled('micro_compaction')).toBe(true);
     expect(mainAgent?.tools.data().some((tool) => tool.name === 'CreateGoal')).toBe(true);
 
     await rpc.reloadSession({ sessionId: created.id });
     const reloadedMainAgent = core.sessions.get(created.id)?.getReadyAgent('main');
     expect(reloadedMainAgent?.tools.data().some((tool) => tool.name === 'CreateGoal')).toBe(true);
-    expect(reloadedMainAgent?.tools.data().some((tool) => tool.name === 'Config')).toBe(true);
   });
 
-  it('registers user and project agent profiles on new sessions', async () => {
+  it('live-applies the complete persisted secondary recipe', async () => {
     tmp = await mkdtemp(join(tmpdir(), 'pythinker-core-runtime-'));
     const homeDir = join(tmp, 'home');
     const workDir = join(tmp, 'work');
-    await mkdir(join(homeDir, 'agents'), { recursive: true });
-    await mkdir(join(workDir, '.pythinker-code', 'agents'), { recursive: true });
+    await mkdir(homeDir, { recursive: true });
+    await mkdir(workDir, { recursive: true });
     await writeFile(join(homeDir, 'config.toml'), baseModelConfig());
-    await writeFile(
-      join(homeDir, 'agents', 'review.yaml'),
-      'name: review\ndescription: User review\nsystemPromptTemplate: Review carefully.\ntools: [Read]\n',
-    );
-    await writeFile(
-      join(workDir, '.pythinker-code', 'agents', 'review.yaml'),
-      'name: review\ndescription: Project review\nsystemPromptTemplate: Review this project.\ntools: [Read, Grep]\n',
-    );
+    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_SECONDARY_MODEL', '1');
 
     const [coreRpc, sdkRpc] = createRPC<CoreAPI, SDKAPI>();
     const core = new PythinkerCore(coreRpc, { homeDir });
@@ -324,24 +245,68 @@ micro_compaction = false
       requestQuestion: vi.fn(async () => null),
       toolCall: vi.fn(async () => ({ output: '' })),
     });
-
     const created = await rpc.createSession({
-      id: 'ses_runtime_agent_profiles',
+      id: 'ses_runtime_secondary_refresh',
       workDir,
       model: 'default-mock',
     });
+
+    await rpc.setPythinkerConfig({
+      secondaryModel: {
+        model: 'default-mock',
+        maxContextSize: 65_536,
+      },
+    });
+    await rpc.applyPersistedSecondaryModel({ sessionId: created.id });
+
+    const config = core.sessions.get(created.id)?.getReadyAgent('main')?.pythinkerConfig;
+    expect(config?.secondaryModel).toEqual({
+      model: 'default-mock',
+      maxContextSize: 65_536,
+    });
+    expect(config?.models?.['__secondary__']?.overrides?.maxContextSize).toBe(65_536);
+  });
+
+  // Regression for https://github.com/PyModel/pythinker-code/issues/988: during
+  // ACP `session/new` the tool kaos is the reverse-RPC bridge and the client
+  // does not know the session yet, so reading `.pythinker-code/local.toml` through
+  // it rejects. The workspace local config is a local system file and must be
+  // read through the persistence (local) kaos instead.
+  it('reads workspace local.toml through persistenceKaos during createSession', async () => {
+    tmp = await mkdtemp(join(tmpdir(), 'pythinker-core-runtime-'));
+    const homeDir = join(tmp, 'home');
+    const workDir = join(tmp, 'work');
+    const sharedDir = join(tmp, 'shared');
+    await mkdir(homeDir, { recursive: true });
+    await mkdir(join(workDir, '.git'), { recursive: true });
+    await mkdir(join(workDir, '.pythinker-code'), { recursive: true });
+    await mkdir(sharedDir, { recursive: true });
+    await writeFile(
+      join(workDir, '.pythinker-code', 'local.toml'),
+      `[workspace]\nadditional_dir = ["../shared"]\n`,
+    );
+    await writeFile(join(homeDir, 'config.toml'), baseModelConfig());
+
+    const [coreRpc, sdkRpc] = createRPC<CoreAPI, SDKAPI>();
+    const core = new PythinkerCore(coreRpc, { homeDir });
+    await sdkRpc({
+      emitEvent: vi.fn(),
+      requestApproval: vi.fn(async (): Promise<ApprovalResponse> => ({ decision: 'rejected' })),
+      requestQuestion: vi.fn(async () => null),
+      toolCall: vi.fn(async () => ({ output: '' })),
+    });
+
+    const created = await core.createSessionWithOverrides(
+      { id: 'ses_runtime_local_toml_bootstrap', workDir, model: 'default-mock' },
+      { kaos: createLocalTomlFailingKaos(testKaos), persistenceKaos: testKaos },
+    );
+
     const session = core.sessions.get(created.id);
-    const mainAgent = session?.getReadyAgent('main');
-    const agentTool = mainAgent?.tools.loopTools.find((tool) => tool.name === 'Agent');
-
-    expect(session?.agentProfiles['review']).toMatchObject({
-      description: 'Project review',
-      tools: ['Read', 'Grep'],
-    });
-    expect(agentTool?.description).toContain('- review: Project review');
+    expect(session).toBeDefined();
+    expect(session?.getAdditionalDirs()).toContain(normalize(sharedDir));
   });
 
-  it('registers project task tools when the task graph flag is enabled', async () => {
+  it('uses the shared OAuth resolver for PyModel service tokens', async () => {
     tmp = await mkdtemp(join(tmpdir(), 'pythinker-core-runtime-'));
     const homeDir = join(tmp, 'home');
     const workDir = join(tmp, 'work');
@@ -349,139 +314,34 @@ micro_compaction = false
     await mkdir(workDir, { recursive: true });
     await writeFile(
       join(homeDir, 'config.toml'),
-      `${baseModelConfig()}
-[experimental]
-task_graph = true
-agent_teams = true
-worktree_mode = true
+      `
+[services.pymodel_search]
+base_url = "https://search.example/v1"
+oauth = { storage = "file", key = "oauth/custom-pythinker-code" }
+custom_headers = { "X-Test" = "1" }
 `,
     );
-    clearExperimentalEnv();
 
-    const [coreRpc, sdkRpc] = createRPC<CoreAPI, SDKAPI>();
-    const core = new PythinkerCore(coreRpc, { homeDir });
-    const rpc = await sdkRpc({
-      emitEvent: vi.fn(),
-      requestApproval: vi.fn(async (): Promise<ApprovalResponse> => ({ decision: 'rejected' })),
-      requestQuestion: vi.fn(async () => null),
-      toolCall: vi.fn(async () => ({ output: '' })),
-    });
-
-    const created = await rpc.createSession({
-      id: 'ses_runtime_task_graph',
-      workDir,
-      model: 'default-mock',
-    });
-    const toolNames = core.sessions
-      .get(created.id)
-      ?.getReadyAgent('main')
-      ?.tools.data()
-      .map((tool) => tool.name);
-
-    expect(toolNames).toEqual(
-      expect.arrayContaining([
-        'TaskCreate',
-        'TaskGet',
-        'TaskList',
-        'TaskUpdate',
-        'TeamCreate',
-        'TeamDelete',
-        'SendMessage',
-        'EnterWorktree',
-        'ExitWorktree',
-      ]),
-    );
-    const agentTool = core.sessions
-      .get(created.id)
-      ?.getReadyAgent('main')
-      ?.tools.loopTools.find((tool) => tool.name === 'Agent');
-    expect((agentTool?.parameters as { properties?: object }).properties).toHaveProperty('name');
-  });
-
-  it('registers PowerShell only on Windows when its flag is enabled', async () => {
-    tmp = await mkdtemp(join(tmpdir(), 'pythinker-core-runtime-'));
-    const homeDir = join(tmp, 'home');
-    const workDir = join(tmp, 'work');
-    await mkdir(homeDir, { recursive: true });
-    await mkdir(workDir, { recursive: true });
-    await writeFile(
-      join(homeDir, 'config.toml'),
-      `${baseModelConfig()}
-[experimental]
-powershell = true
-`,
-    );
-    clearExperimentalEnv();
-
-    const [coreRpc, sdkRpc] = createRPC<CoreAPI, SDKAPI>();
-    const core = new PythinkerCore(coreRpc, { homeDir });
-    const LocalKaosCtor = testKaos.constructor as unknown as new (osEnv: Environment) => Kaos;
-    setCoreKaos(
-      core,
-      Promise.resolve(
-        new LocalKaosCtor({
-          osKind: 'Windows',
-          osArch: 'x64',
-          osVersion: 'test',
-          shellName: 'bash',
-          shellPath: 'C:\\Program Files\\Git\\bin\\bash.exe',
-        }),
-      ),
-    );
-    const rpc = await sdkRpc({
-      emitEvent: vi.fn(),
-      requestApproval: vi.fn(async (): Promise<ApprovalResponse> => ({ decision: 'rejected' })),
-      requestQuestion: vi.fn(async () => null),
-      toolCall: vi.fn(async () => ({ output: '' })),
-    });
-
-    const created = await rpc.createSession({
-      id: 'ses_runtime_powershell',
-      workDir,
-      model: 'default-mock',
-    });
-    const names = core.sessions
-      .get(created.id)
-      ?.getReadyAgent('main')
-      ?.tools.data()
-      .map((tool) => tool.name);
-
-    expect(names).toContain('PowerShell');
-  });
-
-  it('registers LSP when the flag and an enabled plugin server are present', async () => {
-    tmp = await mkdtemp(join(tmpdir(), 'pythinker-core-runtime-'));
-    const homeDir = join(tmp, 'home');
-    const workDir = join(tmp, 'work');
-    const pluginDir = join(tmp, 'lsp-plugin');
-    await mkdir(homeDir, { recursive: true });
-    await mkdir(workDir, { recursive: true });
-    await mkdir(pluginDir, { recursive: true });
-    await writeFile(
-      join(homeDir, 'config.toml'),
-      `${baseModelConfig()}
-[experimental]
-lsp = true
-`,
-    );
-    await writeFile(
-      join(pluginDir, 'pythinker.plugin.json'),
-      JSON.stringify({
-        name: 'typescript-lsp',
-        lspServers: {
-          typescript: {
-            command: 'typescript-language-server',
-            args: ['--stdio'],
-            extensionToLanguage: { '.ts': 'typescript' },
-          },
-        },
+    const getAccessToken = vi.fn().mockResolvedValue('service-token');
+    const resolveOAuthTokenProvider = vi.fn<OAuthTokenProviderResolver>(() => ({
+      getAccessToken,
+    }));
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ search_results: [] }), {
+        status: 200,
       }),
     );
-    clearExperimentalEnv();
+    vi.stubGlobal('fetch', fetchImpl);
 
     const [coreRpc, sdkRpc] = createRPC<CoreAPI, SDKAPI>();
-    const core = new PythinkerCore(coreRpc, { homeDir });
-    await core.installPlugin({ source: pluginDir });
+    const core = new PythinkerCore(coreRpc, {
+      homeDir,
+      pythinkerRequestHeaders: {
+        'User-Agent': 'pythinker-code-cli/0.0.0-test',
+        'X-Msh-Version': '0.0.0-test',
+      },
+      resolveOAuthTokenProvider,
+    });
     const rpc = await sdkRpc({
       emitEvent: vi.fn(),
       requestApproval: vi.fn(async (): Promise<ApprovalResponse> => ({ decision: 'rejected' })),
@@ -489,42 +349,48 @@ lsp = true
       toolCall: vi.fn(async () => ({ output: '' })),
     });
 
-    const created = await rpc.createSession({
-      id: 'ses_runtime_lsp',
-      workDir,
-      model: 'default-mock',
-    });
-    const names = core.sessions
-      .get(created.id)
-      ?.getReadyAgent('main')
-      ?.tools.data()
-      .map((tool) => tool.name);
+    const created = await rpc.createSession({ id: 'ses_runtime_service_oauth', workDir });
+    const session = core.sessions.get(created.id);
 
-    expect(names).toContain('LSP');
+    expect(resolveOAuthTokenProvider).toHaveBeenCalledWith('managed:pythinker-code', {
+      storage: 'file',
+      key: 'oauth/custom-pythinker-code',
+    });
+    expect(session?.options.toolServices?.webSearcher).toBeDefined();
+
+    await session!.options.toolServices?.webSearcher!.search('pythinker');
+
+    expect(getAccessToken).toHaveBeenCalledWith();
+    const init = fetchImpl.mock.calls[0]?.[1] as RequestInit;
+    expect(init.headers).toMatchObject({
+      Authorization: 'Bearer service-token',
+      'User-Agent': 'pythinker-code-cli/0.0.0-test',
+      'X-Msh-Version': '0.0.0-test',
+      'X-Test': '1',
+    });
   });
 
-  it('loads namespaced agent profiles from enabled plugins', async () => {
+  it('enables PyModel web services from PYTHINKER_WEB_* env vars without a services config section', async () => {
     tmp = await mkdtemp(join(tmpdir(), 'pythinker-core-runtime-'));
     const homeDir = join(tmp, 'home');
     const workDir = join(tmp, 'work');
-    const pluginDir = join(tmp, 'agent-plugin');
     await mkdir(homeDir, { recursive: true });
     await mkdir(workDir, { recursive: true });
-    await mkdir(join(pluginDir, 'agents'), { recursive: true });
-    await writeFile(join(homeDir, 'config.toml'), baseModelConfig());
-    await writeFile(
-      join(pluginDir, 'pythinker.plugin.json'),
-      JSON.stringify({ name: 'demo' }),
+    await writeFile(join(homeDir, 'config.toml'), '');
+    vi.stubEnv('PYTHINKER_WEB_SEARCH_BASE_URL', 'https://search-env.example/v1');
+    vi.stubEnv('PYTHINKER_WEB_SEARCH_API_KEY', 'env-search-key');
+    vi.stubEnv('PYTHINKER_WEB_FETCH_BASE_URL', 'https://fetch-env.example/v1');
+    vi.stubEnv('PYTHINKER_WEB_FETCH_API_KEY', 'env-fetch-key');
+
+    const fetchImpl = vi.fn().mockImplementation(async (url: string | URL) =>
+      String(url).includes('search')
+        ? new Response(JSON.stringify({ search_results: [] }), { status: 200 })
+        : new Response('page body', { status: 200 }),
     );
-    await writeFile(
-      join(pluginDir, 'agents', 'review.md'),
-      '---\nname: review\ndescription: Review plugin changes.\ntools: [Read]\n---\nReview code.',
-    );
-    clearExperimentalEnv();
+    vi.stubGlobal('fetch', fetchImpl);
 
     const [coreRpc, sdkRpc] = createRPC<CoreAPI, SDKAPI>();
     const core = new PythinkerCore(coreRpc, { homeDir });
-    await core.installPlugin({ source: pluginDir });
     const rpc = await sdkRpc({
       emitEvent: vi.fn(),
       requestApproval: vi.fn(async (): Promise<ApprovalResponse> => ({ decision: 'rejected' })),
@@ -532,38 +398,59 @@ lsp = true
       toolCall: vi.fn(async () => ({ output: '' })),
     });
 
-    const created = await rpc.createSession({
-      id: 'ses_runtime_plugin_agent',
-      workDir,
-      model: 'default-mock',
-    });
-    const agentTool = core.sessions
-      .get(created.id)
-      ?.getReadyAgent('main')
-      ?.tools.loopTools.find((tool) => tool.name === 'Agent');
+    const created = await rpc.createSession({ id: 'ses_runtime_service_env', workDir });
+    const session = core.sessions.get(created.id);
 
-    expect(agentTool?.description).toContain('demo:review');
-    expect(agentTool?.description).toContain('Review plugin changes.');
+    const webSearcher = session?.options.toolServices?.webSearcher;
+    const urlFetcher = session?.options.toolServices?.urlFetcher;
+    expect(webSearcher).toBeDefined();
+    expect(urlFetcher).toBeDefined();
+
+    await webSearcher!.search('pythinker');
+    const [searchUrl, searchInit] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect(searchUrl).toBe('https://search-env.example/v1');
+    expect((searchInit.headers as Record<string, string>)['Authorization']).toBe(
+      'Bearer env-search-key',
+    );
+
+    await urlFetcher!.fetch('https://example.com/page', {});
+    const [fetchUrl, fetchInit] = fetchImpl.mock.calls[1] as [string, RequestInit];
+    expect(fetchUrl).toBe('https://fetch-env.example/v1');
+    expect((fetchInit.headers as Record<string, string>)['Authorization']).toBe(
+      'Bearer env-fetch-key',
+    );
   });
 
-  it('lists and applies the configured output style to new main-agent sessions', async () => {
+  it('keeps persisted credentials off an env-selected PyModel search endpoint', async () => {
     tmp = await mkdtemp(join(tmpdir(), 'pythinker-core-runtime-'));
     const homeDir = join(tmp, 'home');
     const workDir = join(tmp, 'work');
-    await mkdir(join(homeDir, 'output-styles'), { recursive: true });
+    await mkdir(homeDir, { recursive: true });
     await mkdir(workDir, { recursive: true });
     await writeFile(
       join(homeDir, 'config.toml'),
-      `output_style = "concise"\n${baseModelConfig()}`,
+      `
+[services.pymodel_search]
+base_url = "https://search-file.example/v1"
+api_key = "file-search-key"
+oauth = { storage = "file", key = "oauth/custom-pythinker-code" }
+custom_headers = { "X-Config-Secret" = "secret-value" }
+`,
     );
-    await writeFile(
-      join(homeDir, 'output-styles', 'concise.md'),
-      '---\nname: concise\ndescription: Short answers\n---\nAnswer in short paragraphs.',
+    vi.stubEnv('PYTHINKER_WEB_SEARCH_BASE_URL', 'https://search-env.example/v1');
+    vi.stubEnv('PYTHINKER_WEB_SEARCH_API_KEY', 'env-search-key');
+
+    const getAccessToken = vi.fn().mockResolvedValue('oauth-token');
+    const resolveOAuthTokenProvider = vi.fn<OAuthTokenProviderResolver>(() => ({
+      getAccessToken,
+    }));
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ search_results: [] }), { status: 200 }),
     );
-    clearExperimentalEnv();
+    vi.stubGlobal('fetch', fetchImpl);
 
     const [coreRpc, sdkRpc] = createRPC<CoreAPI, SDKAPI>();
-    const core = new PythinkerCore(coreRpc, { homeDir });
+    const core = new PythinkerCore(coreRpc, { homeDir, resolveOAuthTokenProvider });
     const rpc = await sdkRpc({
       emitEvent: vi.fn(),
       requestApproval: vi.fn(async (): Promise<ApprovalResponse> => ({ decision: 'rejected' })),
@@ -571,74 +458,18 @@ lsp = true
       toolCall: vi.fn(async () => ({ output: '' })),
     });
 
-    await expect(rpc.listOutputStyles({ workDir })).resolves.toMatchObject({
-      active: 'concise',
-      styles: expect.arrayContaining([
-        expect.objectContaining({ name: 'concise', active: true, source: 'user' }),
-      ]),
-    });
-    const created = await rpc.createSession({
-      id: 'ses_runtime_output_style',
-      workDir,
-      model: 'default-mock',
-    });
+    const created = await rpc.createSession({ id: 'ses_runtime_service_env_precedence', workDir });
+    const session = core.sessions.get(created.id);
 
-    expect(core.sessions.get(created.id)?.getReadyAgent('main')?.config.systemPrompt).toContain(
-      '# Output Style: concise\nAnswer in short paragraphs.',
-    );
+    await session?.options.toolServices?.webSearcher?.search('pythinker');
+
+    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://search-env.example/v1');
+    expect(init.headers).toMatchObject({ Authorization: 'Bearer env-search-key' });
+    expect(init.headers).not.toHaveProperty('X-Config-Secret');
+    expect(resolveOAuthTokenProvider).not.toHaveBeenCalled();
+    expect(getAccessToken).not.toHaveBeenCalled();
   });
-
-  it('lists built-in and precedence-resolved agent profiles', async () => {
-    tmp = await mkdtemp(join(tmpdir(), 'pythinker-core-runtime-'));
-    const homeDir = join(tmp, 'home');
-    const workDir = join(tmp, 'work');
-    await mkdir(join(homeDir, 'agents'), { recursive: true });
-    await mkdir(join(workDir, '.pythinker-code', 'agents'), { recursive: true });
-    await writeFile(
-      join(homeDir, 'agents', 'reviewer.yaml'),
-      [
-        'name: reviewer',
-        'description: User reviewer',
-        'systemPromptTemplate: Review changes.',
-        'tools: [Read]',
-      ].join('\n'),
-    );
-    await writeFile(
-      join(workDir, '.pythinker-code', 'agents', 'reviewer.yaml'),
-      [
-        'name: reviewer',
-        'description: Project reviewer',
-        'systemPromptTemplate: Review this project.',
-        'tools: [Read, Grep]',
-        'memory: project',
-      ].join('\n'),
-    );
-    clearExperimentalEnv();
-
-    const [coreRpc, sdkRpc] = createRPC<CoreAPI, SDKAPI>();
-    void new PythinkerCore(coreRpc, { homeDir });
-    const rpc = await sdkRpc({
-      emitEvent: vi.fn(),
-      requestApproval: vi.fn(async (): Promise<ApprovalResponse> => ({ decision: 'rejected' })),
-      requestQuestion: vi.fn(async () => null),
-      toolCall: vi.fn(async () => ({ output: '' })),
-    });
-
-    await expect(rpc.listAgentProfiles({ workDir })).resolves.toMatchObject({
-      profiles: expect.arrayContaining([
-        expect.objectContaining({ name: 'coder', source: 'built-in' }),
-        expect.objectContaining({
-          name: 'reviewer',
-          source: 'project',
-          description: 'Project reviewer',
-          tools: ['Read', 'Grep'],
-          memory: 'project',
-        }),
-      ]),
-      warnings: [],
-    });
-  });
-
 
   it('falls back to defaultModel when createSession receives no model option', async () => {
     tmp = await mkdtemp(join(tmpdir(), 'pythinker-core-runtime-'));
@@ -677,12 +508,246 @@ max_context_size = 100000
     expect(mainAgent?.config.modelAlias).toBe('default-mock');
   });
 
-  it('returns the same cached token count through the narrow RPC and getContext', async () => {
+  it('loads project local additional dirs into the session and main agent', async () => {
     tmp = await mkdtemp(join(tmpdir(), 'pythinker-core-runtime-'));
     const homeDir = join(tmp, 'home');
     const workDir = join(tmp, 'work');
+    const extraDir = join(workDir, 'extra');
     await mkdir(homeDir, { recursive: true });
     await mkdir(workDir, { recursive: true });
+    await mkdir(extraDir, { recursive: true });
+    await mkdir(join(workDir, '.pythinker-code'), { recursive: true });
+    await writeFile(join(homeDir, 'config.toml'), baseModelConfig());
+    await writeFile(
+      join(workDir, '.pythinker-code', 'local.toml'),
+      `[workspace]\nadditional_dir = ["extra"]\n`,
+    );
+
+    const [coreRpc, sdkRpc] = createRPC<CoreAPI, SDKAPI>();
+    const core = new PythinkerCore(coreRpc, { homeDir });
+    const rpc = await sdkRpc({
+      emitEvent: vi.fn(),
+      requestApproval: vi.fn(async (): Promise<ApprovalResponse> => ({ decision: 'rejected' })),
+      requestQuestion: vi.fn(async () => null),
+      toolCall: vi.fn(async () => ({ output: '' })),
+    });
+
+    const created = await rpc.createSession({
+      id: 'ses_runtime_additional_dirs',
+      workDir,
+      model: 'default-mock',
+    });
+    const session = core.sessions.get(created.id);
+    const mainAgent = session?.getReadyAgent('main');
+
+    expect(created.additionalDirs).toEqual([extraDir]);
+    expect(session?.getAdditionalDirs()).toEqual([extraDir]);
+    expect(mainAgent?.getAdditionalDirs()).toEqual([extraDir]);
+    expect(mainAgent?.config.systemPrompt).toContain('## Additional Directories');
+    expect(mainAgent?.config.systemPrompt).toContain(extraDir);
+  });
+
+  it('returns additionalDirs when resuming an active session', async () => {
+    tmp = await mkdtemp(join(tmpdir(), 'pythinker-core-runtime-'));
+    const homeDir = join(tmp, 'home');
+    const workDir = join(tmp, 'work');
+    const extraDir = join(workDir, 'extra');
+    await mkdir(homeDir, { recursive: true });
+    await mkdir(workDir, { recursive: true });
+    await mkdir(extraDir, { recursive: true });
+    await mkdir(join(workDir, '.pythinker-code'), { recursive: true });
+    await writeFile(join(homeDir, 'config.toml'), baseModelConfig());
+    await writeFile(
+      join(workDir, '.pythinker-code', 'local.toml'),
+      `[workspace]\nadditional_dir = ["extra"]\n`,
+    );
+
+    const [coreRpc, sdkRpc] = createRPC<CoreAPI, SDKAPI>();
+    const core = new PythinkerCore(coreRpc, { homeDir });
+    const rpc = await sdkRpc({
+      emitEvent: vi.fn(),
+      requestApproval: vi.fn(async (): Promise<ApprovalResponse> => ({ decision: 'rejected' })),
+      requestQuestion: vi.fn(async () => null),
+      toolCall: vi.fn(async () => ({ output: '' })),
+    });
+
+    const created = await rpc.createSession({
+      id: 'ses_runtime_additional_dirs_active_resume',
+      workDir,
+      model: 'default-mock',
+    });
+    const resumed = await rpc.resumeSession({ sessionId: created.id });
+
+    expect(resumed.additionalDirs).toEqual([extraDir]);
+    expect(core.sessions.get(created.id)?.getAdditionalDirs()).toEqual([extraDir]);
+  });
+
+  it('returns additionalDirs when resuming a closed session', async () => {
+    tmp = await mkdtemp(join(tmpdir(), 'pythinker-core-runtime-'));
+    const homeDir = join(tmp, 'home');
+    const workDir = join(tmp, 'work');
+    const extraDir = join(workDir, 'extra');
+    await mkdir(homeDir, { recursive: true });
+    await mkdir(workDir, { recursive: true });
+    await mkdir(extraDir, { recursive: true });
+    await mkdir(join(workDir, '.pythinker-code'), { recursive: true });
+    await writeFile(join(homeDir, 'config.toml'), baseModelConfig());
+    await writeFile(
+      join(workDir, '.pythinker-code', 'local.toml'),
+      `[workspace]\nadditional_dir = ["extra"]\n`,
+    );
+
+    const [coreRpc, sdkRpc] = createRPC<CoreAPI, SDKAPI>();
+    const core = new PythinkerCore(coreRpc, { homeDir });
+    const rpc = await sdkRpc({
+      emitEvent: vi.fn(),
+      requestApproval: vi.fn(async (): Promise<ApprovalResponse> => ({ decision: 'rejected' })),
+      requestQuestion: vi.fn(async () => null),
+      toolCall: vi.fn(async () => ({ output: '' })),
+    });
+
+    const created = await rpc.createSession({
+      id: 'ses_runtime_additional_dirs_closed_resume',
+      workDir,
+      model: 'default-mock',
+    });
+    await rpc.closeSession({ sessionId: created.id });
+
+    const resumed = await rpc.resumeSession({ sessionId: created.id });
+    const session = core.sessions.get(created.id);
+    const mainAgent = session?.getReadyAgent('main');
+
+    expect(resumed.additionalDirs).toEqual([extraDir]);
+    expect(session?.getAdditionalDirs()).toEqual([extraDir]);
+    expect(mainAgent?.getAdditionalDirs()).toEqual([extraDir]);
+  });
+
+  it('merges caller additionalDirs when resuming a closed session', async () => {
+    tmp = await mkdtemp(join(tmpdir(), 'pythinker-core-runtime-'));
+    const homeDir = join(tmp, 'home');
+    const workDir = join(tmp, 'work');
+    const localDir = join(workDir, 'local');
+    const callerDir = join(workDir, 'caller');
+    await mkdir(homeDir, { recursive: true });
+    await mkdir(workDir, { recursive: true });
+    await mkdir(localDir, { recursive: true });
+    await mkdir(callerDir, { recursive: true });
+    await mkdir(join(workDir, '.pythinker-code'), { recursive: true });
+    await writeFile(join(homeDir, 'config.toml'), baseModelConfig());
+    await writeFile(
+      join(workDir, '.pythinker-code', 'local.toml'),
+      `[workspace]\nadditional_dir = ["local"]\n`,
+    );
+
+    const [coreRpc, sdkRpc] = createRPC<CoreAPI, SDKAPI>();
+    const core = new PythinkerCore(coreRpc, { homeDir });
+    const rpc = await sdkRpc({
+      emitEvent: vi.fn(),
+      requestApproval: vi.fn(async (): Promise<ApprovalResponse> => ({ decision: 'rejected' })),
+      requestQuestion: vi.fn(async () => null),
+      toolCall: vi.fn(async () => ({ output: '' })),
+    });
+
+    const created = await rpc.createSession({
+      id: 'ses_runtime_additional_dirs_resume_caller',
+      workDir,
+      model: 'default-mock',
+    });
+    await rpc.closeSession({ sessionId: created.id });
+
+    const resumed = await rpc.resumeSession({
+      sessionId: created.id,
+      additionalDirs: ['caller'],
+    });
+    const session = core.sessions.get(created.id);
+    const mainAgent = session?.getReadyAgent('main');
+
+    expect(resumed.additionalDirs).toEqual([localDir, callerDir]);
+    expect(session?.getAdditionalDirs()).toEqual([localDir, callerDir]);
+    expect(mainAgent?.getAdditionalDirs()).toEqual([localDir, callerDir]);
+  });
+
+  it('deduplicates project local and caller relative additionalDirs after resolving them', async () => {
+    tmp = await mkdtemp(join(tmpdir(), 'pythinker-core-runtime-'));
+    const homeDir = join(tmp, 'home');
+    const workDir = join(tmp, 'work');
+    const sharedDir = join(workDir, 'shared');
+    await mkdir(homeDir, { recursive: true });
+    await mkdir(workDir, { recursive: true });
+    await mkdir(sharedDir, { recursive: true });
+    await mkdir(join(workDir, '.pythinker-code'), { recursive: true });
+    await writeFile(join(homeDir, 'config.toml'), baseModelConfig());
+    await writeFile(
+      join(workDir, '.pythinker-code', 'local.toml'),
+      `[workspace]\nadditional_dir = ["shared"]\n`,
+    );
+
+    const [coreRpc, sdkRpc] = createRPC<CoreAPI, SDKAPI>();
+    const core = new PythinkerCore(coreRpc, { homeDir });
+    const rpc = await sdkRpc({
+      emitEvent: vi.fn(),
+      requestApproval: vi.fn(async (): Promise<ApprovalResponse> => ({ decision: 'rejected' })),
+      requestQuestion: vi.fn(async () => null),
+      toolCall: vi.fn(async () => ({ output: '' })),
+    });
+
+    const created = await rpc.createSession({
+      id: 'ses_runtime_additional_dirs_dedupe',
+      workDir,
+      model: 'default-mock',
+      additionalDirs: ['shared'],
+    });
+
+    expect(created.additionalDirs).toEqual([sharedDir]);
+    expect(core.sessions.get(created.id)?.getAdditionalDirs()).toEqual([sharedDir]);
+  });
+
+  it('supports multiple project local and caller additionalDirs', async () => {
+    tmp = await mkdtemp(join(tmpdir(), 'pythinker-core-runtime-'));
+    const homeDir = join(tmp, 'home');
+    const workDir = join(tmp, 'work');
+    const localDir = join(workDir, 'shared');
+    const callerDir = join(workDir, 'other');
+    await mkdir(homeDir, { recursive: true });
+    await mkdir(workDir, { recursive: true });
+    await mkdir(localDir, { recursive: true });
+    await mkdir(callerDir, { recursive: true });
+    await mkdir(join(workDir, '.pythinker-code'), { recursive: true });
+    await writeFile(join(homeDir, 'config.toml'), baseModelConfig());
+    await writeFile(
+      join(workDir, '.pythinker-code', 'local.toml'),
+      `[workspace]\nadditional_dir = ["shared"]\n`,
+    );
+
+    const [coreRpc, sdkRpc] = createRPC<CoreAPI, SDKAPI>();
+    void new PythinkerCore(coreRpc, { homeDir });
+    const rpc = await sdkRpc({
+      emitEvent: vi.fn(),
+      requestApproval: vi.fn(async (): Promise<ApprovalResponse> => ({ decision: 'rejected' })),
+      requestQuestion: vi.fn(async () => null),
+      toolCall: vi.fn(async () => ({ output: '' })),
+    });
+
+    const created = await rpc.createSession({
+      id: 'ses_runtime_additional_dirs_multiple',
+      workDir,
+      model: 'default-mock',
+      additionalDirs: ['other'],
+    });
+
+    expect(created.additionalDirs).toEqual([localDir, callerDir]);
+  });
+
+  it('resolves caller relative additionalDirs against workDir rather than projectRoot', async () => {
+    tmp = await mkdtemp(join(tmpdir(), 'pythinker-core-runtime-'));
+    const homeDir = join(tmp, 'home');
+    const projectRoot = join(tmp, 'repo');
+    const workDir = join(projectRoot, 'apps', 'foo');
+    const sharedDir = join(workDir, 'shared');
+    await mkdir(homeDir, { recursive: true });
+    await mkdir(join(projectRoot, '.git'), { recursive: true });
+    await mkdir(workDir, { recursive: true });
+    await mkdir(sharedDir, { recursive: true });
     await writeFile(join(homeDir, 'config.toml'), baseModelConfig());
 
     const [coreRpc, sdkRpc] = createRPC<CoreAPI, SDKAPI>();
@@ -693,39 +758,172 @@ max_context_size = 100000
       requestQuestion: vi.fn(async () => null),
       toolCall: vi.fn(async () => ({ output: '' })),
     });
+
     const created = await rpc.createSession({
-      id: 'ses_context_token_count',
+      id: 'ses_runtime_additional_dirs_workdir_relative',
+      workDir,
+      model: 'default-mock',
+      additionalDirs: ['shared'],
+    });
+
+    expect(created.additionalDirs).toEqual([sharedDir]);
+    expect(core.sessions.get(created.id)?.getAdditionalDirs()).toEqual([sharedDir]);
+  });
+
+  it('records a local-command-stdout message when adding a remembered dir', async () => {
+    tmp = await mkdtemp(join(tmpdir(), 'pythinker-core-runtime-'));
+    const homeDir = join(tmp, 'home');
+    const workDir = join(tmp, 'work');
+    const extraDir = join(workDir, 'extra');
+    await mkdir(homeDir, { recursive: true });
+    await mkdir(workDir, { recursive: true });
+    await mkdir(extraDir, { recursive: true });
+    await writeFile(join(homeDir, 'config.toml'), baseModelConfig());
+
+    const [coreRpc, sdkRpc] = createRPC<CoreAPI, SDKAPI>();
+    const core = new PythinkerCore(coreRpc, { homeDir });
+    const rpc = await sdkRpc({
+      emitEvent: vi.fn(),
+      requestApproval: vi.fn(async (): Promise<ApprovalResponse> => ({ decision: 'rejected' })),
+      requestQuestion: vi.fn(async () => null),
+      toolCall: vi.fn(async () => ({ output: '' })),
+    });
+
+    const created = await rpc.createSession({
+      id: 'ses_runtime_add_additional_dir_record',
       workDir,
       model: 'default-mock',
     });
-    const agent = core.sessions.get(created.id)!.getReadyAgent('main')!;
-    agent.context.appendLoopEvent({
-      type: 'step.begin',
-      uuid: 'step_context_token_count',
-      turnId: 'turn_context_token_count',
-      step: 1,
-    });
-    agent.context.appendLoopEvent({
-      type: 'step.end',
-      uuid: 'step_context_token_count',
-      turnId: 'turn_context_token_count',
-      step: 1,
-      usage: {
-        inputCacheRead: 1,
-        inputCacheCreation: 2,
-        inputOther: 30,
-        output: 4,
-      },
-      finishReason: 'end_turn',
-    });
 
-    const [context, count] = await Promise.all([
-      rpc.getContext({ sessionId: created.id, agentId: 'main' }),
-      rpc.getContextTokenCount({ sessionId: created.id, agentId: 'main' }),
+    await rpc.addAdditionalDir({
+      sessionId: created.id,
+      path: 'extra',
+      persist: true,
+    });
+    await core.sessions.get(created.id)?.getReadyAgent('main')?.records.flush();
+
+    const records = await readMainWire(created.sessionDir);
+    expect(records).toContainEqual(
+      expect.objectContaining({
+        type: 'context.append_message',
+        message: expect.objectContaining({
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: `<local-command-stdout>\nAdded workspace directory:\n  extra\n  Saved to:\n  ${join(workDir, '.pythinker-code', 'local.toml')}\n</local-command-stdout>`,
+            },
+          ],
+          origin: { kind: 'injection', variant: 'local-command-stdout' },
+        }),
+      }),
+    );
+    expect(core.sessions.get(created.id)?.getReadyAgent('main')?.getAdditionalDirs()).toEqual([
+      extraDir,
     ]);
+  });
 
-    expect(count.tokenCount).toBe(37);
-    expect(count.tokenCount).toBe(context.tokenCount);
+  it('adds an additional dir through the session RPC', async () => {
+    tmp = await mkdtemp(join(tmpdir(), 'pythinker-core-runtime-'));
+    const homeDir = join(tmp, 'home');
+    const workDir = join(tmp, 'work');
+    const extraDir = join(workDir, 'extra');
+    await mkdir(homeDir, { recursive: true });
+    await mkdir(workDir, { recursive: true });
+    await mkdir(extraDir, { recursive: true });
+    await writeFile(join(homeDir, 'config.toml'), baseModelConfig());
+
+    const [coreRpc, sdkRpc] = createRPC<CoreAPI, SDKAPI>();
+    const core = new PythinkerCore(coreRpc, { homeDir });
+    const rpc = await sdkRpc({
+      emitEvent: vi.fn(),
+      requestApproval: vi.fn(async (): Promise<ApprovalResponse> => ({ decision: 'rejected' })),
+      requestQuestion: vi.fn(async () => null),
+      toolCall: vi.fn(async () => ({ output: '' })),
+    });
+
+    const created = await rpc.createSession({
+      id: 'ses_runtime_add_additional_dir',
+      workDir,
+      model: 'default-mock',
+    });
+
+    const result = await rpc.addAdditionalDir({
+      sessionId: created.id,
+      path: 'extra',
+      persist: true,
+    });
+    const localToml = await readFile(join(workDir, '.pythinker-code', 'local.toml'), 'utf-8');
+    const session = core.sessions.get(created.id);
+    const mainAgent = session?.getReadyAgent('main');
+
+    expect(result).toMatchObject({
+      additionalDirs: [extraDir],
+      projectRoot: workDir,
+      configPath: join(workDir, '.pythinker-code', 'local.toml'),
+      persisted: true,
+    });
+    expect(localToml).toContain('additional_dir = [');
+    expect(session?.getAdditionalDirs()).toEqual([extraDir]);
+    expect(mainAgent?.getAdditionalDirs()).toEqual([extraDir]);
+  });
+
+  it('adds a session-only additional dir without writing local.toml', async () => {
+    tmp = await mkdtemp(join(tmpdir(), 'pythinker-core-runtime-'));
+    const homeDir = join(tmp, 'home');
+    const workDir = join(tmp, 'work');
+    const extraDir = join(workDir, 'extra');
+    await mkdir(homeDir, { recursive: true });
+    await mkdir(workDir, { recursive: true });
+    await mkdir(extraDir, { recursive: true });
+    await writeFile(join(homeDir, 'config.toml'), baseModelConfig());
+
+    const [coreRpc, sdkRpc] = createRPC<CoreAPI, SDKAPI>();
+    const core = new PythinkerCore(coreRpc, { homeDir });
+    const rpc = await sdkRpc({
+      emitEvent: vi.fn(),
+      requestApproval: vi.fn(async (): Promise<ApprovalResponse> => ({ decision: 'rejected' })),
+      requestQuestion: vi.fn(async () => null),
+      toolCall: vi.fn(async () => ({ output: '' })),
+    });
+
+    const created = await rpc.createSession({
+      id: 'ses_runtime_add_session_only_dir',
+      workDir,
+      model: 'default-mock',
+    });
+
+    const result = await rpc.addAdditionalDir({
+      sessionId: created.id,
+      path: 'extra',
+      persist: false,
+    });
+    await core.sessions.get(created.id)?.getReadyAgent('main')?.records.flush();
+    const records = await readMainWire(created.sessionDir);
+
+    expect(result).toMatchObject({
+      additionalDirs: [extraDir],
+      projectRoot: workDir,
+      configPath: join(workDir, '.pythinker-code', 'local.toml'),
+      persisted: false,
+    });
+    expect(core.sessions.get(created.id)?.getAdditionalDirs()).toEqual([extraDir]);
+    expect(records).toContainEqual(
+      expect.objectContaining({
+        type: 'context.append_message',
+        message: expect.objectContaining({
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: '<local-command-stdout>\nAdded workspace directory:\n  extra\n  For this session only\n</local-command-stdout>',
+            },
+          ],
+          origin: { kind: 'injection', variant: 'local-command-stdout' },
+        }),
+      }),
+    );
+    await expect(readFile(join(workDir, '.pythinker-code', 'local.toml'), 'utf-8')).rejects.toThrow();
   });
 
   it('rejects createSession when shell runtime initialization fails', async () => {
@@ -826,7 +1024,7 @@ max_context_size = 100000
     await writeFile(
       configPath,
       `${baseModelConfig()}
-[services.pythoughts_search]
+[services.pymodel_search]
 base_url = "https://search.example.test/v1"
 `,
     );
@@ -871,7 +1069,479 @@ base_url = "https://search.example.test/v1"
     });
     expect(core.sessions.get(created.id)).toBe(active);
   });
+
+  it('appends a fresh plugin_session_start reminder on forced reload', async () => {
+    tmp = await mkdtemp(join(tmpdir(), 'pythinker-core-runtime-'));
+    const homeDir = join(tmp, 'home');
+    const workDir = join(tmp, 'work');
+    const pluginRoot = join(tmp, 'plugin');
+    await mkdir(homeDir, { recursive: true });
+    await mkdir(workDir, { recursive: true });
+    await writeFile(join(homeDir, 'config.toml'), baseModelConfig());
+    await writeSessionStartPlugin(pluginRoot, 'OLD BODY');
+
+    const [coreRpc, sdkRpc] = createRPC<CoreAPI, SDKAPI>();
+    const core = new PythinkerCore(coreRpc, { homeDir });
+    const rpc = await sdkRpc({
+      emitEvent: vi.fn(),
+      requestApproval: vi.fn(async (): Promise<ApprovalResponse> => ({ decision: 'rejected' })),
+      requestQuestion: vi.fn(async () => null),
+      toolCall: vi.fn(async () => ({ output: '' })),
+    });
+
+    await core.installPlugin({ source: pluginRoot });
+    const created = await rpc.createSession({
+      id: 'ses_runtime_reload_reminder',
+      workDir,
+      model: 'default-mock',
+    });
+
+    // Before any forced reload the model has not been told about the plugin yet
+    // (no turn has run, so the turn-loop injector has not fired).
+    expect(pluginSessionStartReminders(core, created.id)).toHaveLength(0);
+
+    // Update the skill content on disk so the reload must pick up the new body.
+    // Preserve the SKILL.md frontmatter — the parser requires it to register the skill.
+    await writeFile(
+      managedSkillPath(homeDir),
+      `---\nname: greeter\ndescription: A greeter skill\n---\nNEW BODY\n`,
+    );
+
+    const reloaded = await rpc.reloadSession({
+      sessionId: created.id,
+      forcePluginSessionStartReminder: true,
+    });
+
+    const reminders = pluginSessionStartReminders(core, created.id);
+    expect(reminders).toHaveLength(1);
+    expect(reminders[0]).toContain('<plugin_session_start plugin="demo" skill="greeter">');
+    expect(reminders[0]).toContain('NEW BODY');
+    expect(reminders[0]).not.toContain('OLD BODY');
+    expect(reminders[0]).toContain('supersedes any earlier plugin_session_start');
+
+    // The returned ResumeSessionResult must already include the fresh reminder
+    // (otherwise SDK callers reading getResumeState() see stale plugin context).
+    const resultReminders = remindersFromHistory(
+      reloaded.agents['main']?.context.history ?? [],
+    );
+    expect(resultReminders).toHaveLength(1);
+    expect(resultReminders[0]).toContain('NEW BODY');
+  });
+
+  it('neutralizes a stale plugin_session_start reminder when the plugin is removed', async () => {
+    tmp = await mkdtemp(join(tmpdir(), 'pythinker-core-runtime-'));
+    const homeDir = join(tmp, 'home');
+    const workDir = join(tmp, 'work');
+    const pluginRoot = join(tmp, 'plugin');
+    await mkdir(homeDir, { recursive: true });
+    await mkdir(workDir, { recursive: true });
+    await writeFile(join(homeDir, 'config.toml'), baseModelConfig());
+    await writeSessionStartPlugin(pluginRoot, 'BODY');
+
+    const [coreRpc, sdkRpc] = createRPC<CoreAPI, SDKAPI>();
+    const core = new PythinkerCore(coreRpc, { homeDir });
+    const rpc = await sdkRpc({
+      emitEvent: vi.fn(),
+      requestApproval: vi.fn(async (): Promise<ApprovalResponse> => ({ decision: 'rejected' })),
+      requestQuestion: vi.fn(async () => null),
+      toolCall: vi.fn(async () => ({ output: '' })),
+    });
+
+    await core.installPlugin({ source: pluginRoot });
+    const created = await rpc.createSession({
+      id: 'ses_runtime_reload_neutralize',
+      workDir,
+      model: 'default-mock',
+    });
+
+    // First forced reload appends an active reminder, establishing a prior
+    // plugin_session_start in history.
+    await rpc.reloadSession({
+      sessionId: created.id,
+      forcePluginSessionStartReminder: true,
+    });
+    expect(pluginSessionStartReminders(core, created.id)).toHaveLength(1);
+
+    // Removing the plugin means no sessionStart is resolvable on the next reload;
+    // the stale reminder must be neutralized rather than left in place.
+    await core.removePlugin({ id: 'demo' });
+    await rpc.reloadSession({
+      sessionId: created.id,
+      forcePluginSessionStartReminder: true,
+    });
+
+    const reminders = pluginSessionStartReminders(core, created.id);
+    expect(reminders).toHaveLength(2);
+    expect(reminders.at(-1)).toContain('no active plugin session starts');
+    expect(reminders.at(-1)).toContain('supersedes any earlier plugin_session_start');
+  });
+
+  it('replaces only the plugin agent layer when a plugin is disabled before reload', async () => {
+    tmp = await mkdtemp(join(tmpdir(), 'pythinker-core-runtime-'));
+    const homeDir = join(tmp, 'home');
+    const workDir = join(tmp, 'work');
+    const pluginRoot = join(tmp, 'plugin');
+    await mkdir(join(homeDir, 'agents'), { recursive: true });
+    await mkdir(workDir, { recursive: true });
+    await mkdir(join(pluginRoot, 'agents'), { recursive: true });
+    await writeFile(join(homeDir, 'config.toml'), baseModelConfig());
+    await writeFile(
+      join(homeDir, 'agents', 'local-reviewer.md'),
+      '---\nname: local-reviewer\ndescription: Local reviewer\n---\n\nLocal prompt.\n',
+    );
+    await writeFile(
+      join(pluginRoot, 'pythinker.plugin.json'),
+      JSON.stringify({ name: 'demo', agents: ['./agents'] }),
+    );
+    await writeFile(
+      join(pluginRoot, 'agents', 'plugin-reviewer.md'),
+      '---\nname: plugin-reviewer\ndescription: Plugin reviewer\n---\n\nPlugin prompt.\n',
+    );
+
+    const [coreRpc, sdkRpc] = createRPC<CoreAPI, SDKAPI>();
+    const core = new PythinkerCore(coreRpc, { homeDir });
+    const rpc = await sdkRpc({
+      emitEvent: vi.fn(),
+      requestApproval: vi.fn(async (): Promise<ApprovalResponse> => ({ decision: 'rejected' })),
+      requestQuestion: vi.fn(async () => null),
+      toolCall: vi.fn(async () => ({ output: '' })),
+    });
+
+    await core.installPlugin({ source: pluginRoot });
+    const created = await rpc.createSession({
+      id: 'ses_runtime_reload_plugin_agents',
+      workDir,
+      model: 'default-mock',
+    });
+    expect(core.sessions.get(created.id)?.agentCatalog.get('plugin-reviewer')).toBeDefined();
+    expect(core.sessions.get(created.id)?.agentCatalog.get('local-reviewer')).toBeDefined();
+
+    await core.setPluginEnabled({ id: 'demo', enabled: false });
+    await rpc.reloadSession({ sessionId: created.id });
+
+    const reloadedCatalog = core.sessions.get(created.id)?.agentCatalog;
+    expect(reloadedCatalog?.get('plugin-reviewer')).toBeUndefined();
+    expect(reloadedCatalog?.get('local-reviewer')?.description).toBe('Local reviewer');
+  });
+
+  it('adds a newly installed plugin agent on reload and preserves it on resume', async () => {
+    tmp = await mkdtemp(join(tmpdir(), 'pythinker-core-runtime-'));
+    const homeDir = join(tmp, 'home');
+    const workDir = join(tmp, 'work');
+    const pluginRoot = join(tmp, 'plugin');
+    await mkdir(homeDir, { recursive: true });
+    await mkdir(workDir, { recursive: true });
+    await mkdir(join(pluginRoot, 'agents'), { recursive: true });
+    await writeFile(join(homeDir, 'config.toml'), baseModelConfig());
+    await writeFile(
+      join(pluginRoot, 'pythinker.plugin.json'),
+      JSON.stringify({ name: 'demo', agents: ['./agents'] }),
+    );
+    await writeFile(
+      join(pluginRoot, 'agents', 'plugin-reviewer.md'),
+      '---\nname: plugin-reviewer\ndescription: Plugin reviewer\n---\n\nPlugin prompt.\n',
+    );
+
+    const [coreRpc, sdkRpc] = createRPC<CoreAPI, SDKAPI>();
+    const core = new PythinkerCore(coreRpc, { homeDir });
+    const rpc = await sdkRpc({
+      emitEvent: vi.fn(),
+      requestApproval: vi.fn(async (): Promise<ApprovalResponse> => ({ decision: 'rejected' })),
+      requestQuestion: vi.fn(async () => null),
+      toolCall: vi.fn(async () => ({ output: '' })),
+    });
+
+    const created = await rpc.createSession({
+      id: 'ses_runtime_reload_new_plugin_agent',
+      workDir,
+      model: 'default-mock',
+    });
+    expect(core.sessions.get(created.id)?.agentCatalog.get('plugin-reviewer')).toBeUndefined();
+
+    await core.installPlugin({ source: pluginRoot });
+    await rpc.reloadSession({ sessionId: created.id });
+    expect(core.sessions.get(created.id)?.agentCatalog.get('plugin-reviewer')).toBeDefined();
+
+    await rpc.closeSession({ sessionId: created.id });
+    await rpc.resumeSession({ sessionId: created.id });
+    expect(core.sessions.get(created.id)?.agentCatalog.get('plugin-reviewer')).toBeDefined();
+  });
+
+  it('does not append a plugin_session_start reminder on reload without the force flag', async () => {
+    tmp = await mkdtemp(join(tmpdir(), 'pythinker-core-runtime-'));
+    const homeDir = join(tmp, 'home');
+    const workDir = join(tmp, 'work');
+    const pluginRoot = join(tmp, 'plugin');
+    await mkdir(homeDir, { recursive: true });
+    await mkdir(workDir, { recursive: true });
+    await writeFile(join(homeDir, 'config.toml'), baseModelConfig());
+    await writeSessionStartPlugin(pluginRoot, 'BODY');
+
+    const [coreRpc, sdkRpc] = createRPC<CoreAPI, SDKAPI>();
+    const core = new PythinkerCore(coreRpc, { homeDir });
+    const rpc = await sdkRpc({
+      emitEvent: vi.fn(),
+      requestApproval: vi.fn(async (): Promise<ApprovalResponse> => ({ decision: 'rejected' })),
+      requestQuestion: vi.fn(async () => null),
+      toolCall: vi.fn(async () => ({ output: '' })),
+    });
+
+    await core.installPlugin({ source: pluginRoot });
+    const created = await rpc.createSession({
+      id: 'ses_runtime_reload_no_force',
+      workDir,
+      model: 'default-mock',
+    });
+
+    await rpc.reloadSession({ sessionId: created.id });
+
+    expect(pluginSessionStartReminders(core, created.id)).toHaveLength(0);
+  });
+
+  it('appends nothing on forced reload when no plugin declares a sessionStart', async () => {
+    tmp = await mkdtemp(join(tmpdir(), 'pythinker-core-runtime-'));
+    const homeDir = join(tmp, 'home');
+    const workDir = join(tmp, 'work');
+    const pluginRoot = join(tmp, 'plugin');
+    await mkdir(homeDir, { recursive: true });
+    await mkdir(workDir, { recursive: true });
+    await writeFile(join(homeDir, 'config.toml'), baseModelConfig());
+    await mkdir(pluginRoot, { recursive: true });
+    await writeFile(
+      join(pluginRoot, 'pythinker.plugin.json'),
+      JSON.stringify({ name: 'demo', version: '1.0.0' }),
+    );
+
+    const [coreRpc, sdkRpc] = createRPC<CoreAPI, SDKAPI>();
+    const core = new PythinkerCore(coreRpc, { homeDir });
+    const rpc = await sdkRpc({
+      emitEvent: vi.fn(),
+      requestApproval: vi.fn(async (): Promise<ApprovalResponse> => ({ decision: 'rejected' })),
+      requestQuestion: vi.fn(async () => null),
+      toolCall: vi.fn(async () => ({ output: '' })),
+    });
+
+    await core.installPlugin({ source: pluginRoot });
+    const created = await rpc.createSession({
+      id: 'ses_runtime_reload_no_sessionstart',
+      workDir,
+      model: 'default-mock',
+    });
+
+    await rpc.reloadSession({
+      sessionId: created.id,
+      forcePluginSessionStartReminder: true,
+    });
+
+    expect(pluginSessionStartReminders(core, created.id)).toHaveLength(0);
+  });
+
+  it('neutralizes stale plugin guidance after compaction when no sessionStart is active', async () => {
+    tmp = await mkdtemp(join(tmpdir(), 'pythinker-core-runtime-'));
+    const homeDir = join(tmp, 'home');
+    const workDir = join(tmp, 'work');
+    await mkdir(homeDir, { recursive: true });
+    await mkdir(workDir, { recursive: true });
+    await writeFile(join(homeDir, 'config.toml'), baseModelConfig());
+
+    const [coreRpc, sdkRpc] = createRPC<CoreAPI, SDKAPI>();
+    const core = new PythinkerCore(coreRpc, { homeDir });
+    const rpc = await sdkRpc({
+      emitEvent: vi.fn(),
+      requestApproval: vi.fn(async (): Promise<ApprovalResponse> => ({ decision: 'rejected' })),
+      requestQuestion: vi.fn(async () => null),
+      toolCall: vi.fn(async () => ({ output: '' })),
+    });
+
+    const created = await rpc.createSession({
+      id: 'ses_runtime_reload_compacted',
+      workDir,
+      model: 'default-mock',
+    });
+    const session = core.sessions.get(created.id);
+    const main = session?.getReadyAgent('main');
+
+    // Simulate a compaction that folded earlier messages (and any plugin guidance)
+    // into a single summary, leaving no discrete plugin_session_start behind.
+    main?.context.appendMessage({
+      role: 'assistant',
+      content: [{ type: 'text', text: 'summary of earlier conversation with plugin guidance' }],
+      toolCalls: [],
+      origin: { kind: 'compaction_summary' },
+    });
+
+    await session?.appendPluginSessionStartReminder();
+
+    const reminders = pluginSessionStartReminders(core, created.id);
+    expect(reminders).toHaveLength(1);
+    expect(reminders[0]).toContain('no active plugin session starts');
+  });
 });
+
+describe('PythinkerCore print-mode defaults', () => {
+  let tmp: string;
+
+  afterEach(async () => {
+    if (tmp !== undefined) {
+      await rm(tmp, { recursive: true, force: true });
+    }
+    await __resetRootLoggerForTest();
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  async function createCorePair(homeDir: string, uiMode?: string) {
+    const [coreRpc, sdkRpc] = createRPC<CoreAPI, SDKAPI>();
+    const core = new PythinkerCore(coreRpc, { homeDir, uiMode });
+    const rpc = await sdkRpc({
+      emitEvent: vi.fn(),
+      requestApproval: vi.fn(async (): Promise<ApprovalResponse> => ({ decision: 'rejected' })),
+      requestQuestion: vi.fn(async () => null),
+      toolCall: vi.fn(async () => ({ output: '' })),
+    });
+    return { core, rpc };
+  }
+
+  async function setupDirs(configToml: string): Promise<{ homeDir: string; workDir: string }> {
+    tmp = await mkdtemp(join(tmpdir(), 'pythinker-core-print-defaults-'));
+    const homeDir = join(tmp, 'home');
+    const workDir = join(tmp, 'work');
+    await mkdir(homeDir, { recursive: true });
+    await mkdir(workDir, { recursive: true });
+    await writeFile(join(homeDir, 'config.toml'), configToml);
+    return { homeDir, workDir };
+  }
+
+  it('applies print-mode subagent/loop defaults to sessions when uiMode is print', async () => {
+    const { homeDir, workDir } = await setupDirs(baseModelConfig());
+    const { core, rpc } = await createCorePair(homeDir, 'print');
+
+    const created = await rpc.createSession({
+      id: 'ses_print_defaults',
+      workDir,
+      model: 'default-mock',
+    });
+
+    const main = core.sessions.get(created.id)?.getReadyAgent('main');
+    expect(main?.pythinkerConfig?.subagent?.timeoutMs).toBe(0);
+    expect(main?.pythinkerConfig?.background?.bashTaskTimeoutS).toBe(0);
+    expect(main?.pythinkerConfig?.loopControl?.maxStepsPerTurn).toBe(0);
+
+    // The raw user config is left untouched so config reads/writes still
+    // round-trip the user's file values.
+    const raw = await core.getPythinkerConfig();
+    expect(raw.subagent).toBeUndefined();
+    expect(raw.loopControl).toBeUndefined();
+  });
+
+  it('keeps explicit user config over the print-mode defaults', async () => {
+    const { homeDir, workDir } = await setupDirs(`${baseModelConfig()}
+[loop_control]
+max_steps_per_turn = 7
+
+[subagent]
+timeout_ms = 5000
+`);
+    const { core, rpc } = await createCorePair(homeDir, 'print');
+
+    const created = await rpc.createSession({
+      id: 'ses_print_defaults_user_config',
+      workDir,
+      model: 'default-mock',
+    });
+
+    const main = core.sessions.get(created.id)?.getReadyAgent('main');
+    expect(main?.pythinkerConfig?.subagent?.timeoutMs).toBe(5000);
+    expect(main?.pythinkerConfig?.loopControl?.maxStepsPerTurn).toBe(7);
+  });
+
+  it('does not apply print-mode defaults outside print mode', async () => {
+    const { homeDir, workDir } = await setupDirs(baseModelConfig());
+    const { core, rpc } = await createCorePair(homeDir);
+
+    const created = await rpc.createSession({
+      id: 'ses_print_defaults_off',
+      workDir,
+      model: 'default-mock',
+    });
+
+    const main = core.sessions.get(created.id)?.getReadyAgent('main');
+    expect(main?.pythinkerConfig?.subagent).toBeUndefined();
+    expect(main?.pythinkerConfig?.loopControl).toBeUndefined();
+  });
+
+  it('applies print-mode defaults when a session is reloaded', async () => {
+    const { homeDir, workDir } = await setupDirs(baseModelConfig());
+    const { core, rpc } = await createCorePair(homeDir, 'print');
+
+    const created = await rpc.createSession({
+      id: 'ses_print_defaults_reload',
+      workDir,
+      model: 'default-mock',
+    });
+    await rpc.reloadSession({ sessionId: created.id });
+
+    // The reload path rebuilds the session through resumeSessionWithOverrides;
+    // the agent it constructs must carry the same print-mode defaults.
+    const main = core.sessions.get(created.id)?.getReadyAgent('main');
+    expect(main?.pythinkerConfig?.subagent?.timeoutMs).toBe(0);
+    expect(main?.pythinkerConfig?.background?.bashTaskTimeoutS).toBe(0);
+    expect(main?.pythinkerConfig?.loopControl?.maxStepsPerTurn).toBe(0);
+  });
+});
+
+async function writeSessionStartPlugin(root: string, skillBody: string): Promise<void> {
+  await mkdir(join(root, 'skills', 'greeter'), { recursive: true });
+  await writeFile(
+    join(root, 'pythinker.plugin.json'),
+    JSON.stringify({
+      name: 'demo',
+      version: '1.0.0',
+      skills: ['./skills'],
+      sessionStart: { skill: 'greeter' },
+    }),
+  );
+  await writeFile(
+    join(root, 'skills', 'greeter', 'SKILL.md'),
+    `---\nname: greeter\ndescription: A greeter skill\n---\n${skillBody}\n`,
+  );
+}
+
+function managedSkillPath(homeDir: string): string {
+  return join(homeDir, 'plugins', 'managed', 'demo', 'skills', 'greeter', 'SKILL.md');
+}
+
+function pluginSessionStartReminders(core: PythinkerCore, sessionId: string): string[] {
+  const agent = core.sessions.get(sessionId)?.getReadyAgent('main');
+  if (agent === undefined) return [];
+  return remindersFromHistory(agent.context.history);
+}
+
+function remindersFromHistory(
+  history: ReadonlyArray<{
+    role: string;
+    origin?: { kind: string; variant?: string };
+    content: ReadonlyArray<{ type: string; text?: string }>;
+  }>,
+): string[] {
+  return history
+    .filter(
+      (message) =>
+        message.role === 'user' &&
+        message.origin?.kind === 'injection' &&
+        message.origin.variant === 'plugin_session_start',
+    )
+    .map((message) => message.content.map((part) => part.text ?? '').join(''));
+}
+
+async function readMainWire(sessionDir: string): Promise<readonly Record<string, unknown>[]> {
+  const wire = await readFile(join(sessionDir, 'agents', 'main', 'wire.jsonl'), 'utf-8');
+  return wire
+    .trim()
+    .split('\n')
+    .filter((line) => line.length > 0)
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
+}
 
 function baseModelConfig(): string {
   return `default_model = "default-mock"

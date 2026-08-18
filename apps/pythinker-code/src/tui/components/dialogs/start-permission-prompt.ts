@@ -5,7 +5,7 @@ import {
   visibleWidth,
   type Component,
   type Focusable,
-} from '@earendil-works/pi-tui';
+} from '@pymodel/pi-tui';
 
 import { SELECT_POINTER } from '#/tui/constant/symbols';
 import { combinedBindingHint, formatBindingKeys } from '#/tui/components/dialogs/choice-picker';

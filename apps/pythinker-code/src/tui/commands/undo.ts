@@ -1,27 +1,21 @@
-import type { Component } from '@earendil-works/pi-tui';
-import type {
-  ContextMessage,
-  FileCheckpointSummary,
-  PartialCompactionDirection,
-  RestoreFileCheckpointResult,
-  SessionFileCheckpointPreview,
-} from '@pymodel/pythinker-code-sdk';
+import type { Component } from '@pymodel/pi-tui';
+import type { ContextMessage } from '@pymodel/pythinker-code-sdk';
 import { isPythinkerError } from '@pymodel/pythinker-code-sdk';
 
 import { WelcomeComponent } from '../components/chrome/welcome';
-import { ChoicePickerComponent, type ChoiceOption } from '../components/dialogs/choice-picker';
 import { CompactionComponent } from '../components/dialogs/compaction';
 import {
   UndoSelectorComponent,
   type UndoChoice,
 } from '../components/dialogs/undo-selector';
 import { AgentGroupComponent } from '../components/messages/agent-group';
-import { DynamicWorkflowMissionControlComponent } from '../components/messages/dynamic-workflow-mission-control';
+import { AgentDynamicWorkflowProgressComponent } from '../components/messages/agent-dynamic-workflow-progress';
 import { AssistantMessageComponent } from '../components/messages/assistant-message';
 import { BackgroundAgentStatusComponent } from '../components/messages/background-agent-status';
 import { CronMessageComponent } from '../components/messages/cron-message';
 import { ReadGroupComponent } from '../components/messages/read-group';
 import { SkillActivationComponent } from '../components/messages/skill-activation';
+import { PluginCommandComponent } from '../components/messages/plugin-command';
 import { ThinkingComponent } from '../components/messages/thinking';
 import { ToolCallComponent } from '../components/messages/tool-call';
 import { UserMessageComponent } from '../components/messages/user-message';
@@ -83,21 +77,17 @@ export async function handleUndoCommand(
   await undoByCount(host, count);
 }
 
-async function undoByCount(
-  host: SlashCommandHost,
-  count: number,
-  reportFailure: boolean = true,
-): Promise<boolean> {
+async function undoByCount(host: SlashCommandHost, count: number): Promise<boolean> {
   const session = host.session;
   if (session === undefined) {
-    if (reportFailure) host.showError(NO_ACTIVE_SESSION_MESSAGE);
+    host.showError(NO_ACTIVE_SESSION_MESSAGE);
     return false;
   }
 
   const entries = host.state.transcriptEntries;
   const lastUserIndex = findUndoAnchorEntryIndex(entries, count);
   if (lastUserIndex === undefined) {
-    if (reportFailure) showUndoLimitStatus(host, 'Nothing to undo.');
+    showUndoLimitStatus(host, 'Nothing to undo.');
     return false;
   }
 
@@ -106,24 +96,19 @@ async function undoByCount(
   } catch (error) {
     const limit = undoLimitFromError(error);
     if (limit !== undefined) {
-      if (reportFailure) {
-        showUndoLimitStatus(host, formatUndoLimitMessage(limit.requestedCount, limit));
-      }
+      showUndoLimitStatus(host, formatUndoLimitMessage(limit.requestedCount, limit));
       return false;
     }
-    if (reportFailure) {
-      host.showError(`Failed to undo: ${formatErrorMessage(error)}`);
-    }
+    const message = formatErrorMessage(error);
+    host.showError(`Failed to undo: ${message}`);
     return false;
   }
-
-  // The undone turn's mission control must not survive, or late events for
-  // it would resurrect streaming UI for removed work.
-  host.clearDynamicWorkflowMissionControls();
 
   const children = host.state.transcriptContainer.children;
   const lastUserComponentIndex = findUndoAnchorComponentIndex(children, count);
   if (lastUserComponentIndex !== undefined) {
+    // Structural removal only: the container's ref-checked render cache
+    // detects the child-list change; no tree-wide invalidate needed.
     removeUndoContextComponents(children, lastUserComponentIndex);
   }
 
@@ -141,23 +126,13 @@ async function undoByCount(
 }
 
 async function showUndoSelector(host: SlashCommandHost): Promise<void> {
-  const session = host.session;
-  if (session === undefined) {
+  if (host.session === undefined) {
     host.showError(NO_ACTIVE_SESSION_MESSAGE);
-    return;
-  }
-
-  let checkpoints: readonly FileCheckpointSummary[];
-  try {
-    checkpoints = await session.listFileCheckpoints();
-  } catch (error) {
-    host.showError(`Failed to load checkpoints: ${formatErrorMessage(error)}`);
     return;
   }
 
   const availability = await resolveUndoAvailability(host);
   const choices = createUndoChoices(
-    checkpoints,
     host.state.transcriptEntries,
     host.state.transcriptContainer.children,
     availability.maxCount,
@@ -171,203 +146,19 @@ async function showUndoSelector(host: SlashCommandHost): Promise<void> {
     new UndoSelectorComponent({
       choices,
       onSelect: (choice) => {
-        void previewUndoChoice(host, choice);
-      },
-      onSummarize: (choice, direction) => {
-        void compactAtChoice(host, choice, direction);
-      },
-      onCancel: () => {
-        host.restoreEditor();
-      },
-    }),
-  );
-}
-
-async function previewUndoChoice(
-  host: SlashCommandHost,
-  choice: UndoChoice,
-): Promise<void> {
-  const session = host.session;
-  if (session === undefined) {
-    host.restoreEditor();
-    host.showError(NO_ACTIVE_SESSION_MESSAGE);
-    return;
-  }
-
-  let preview: SessionFileCheckpointPreview;
-  try {
-    preview = await session.previewFileCheckpoint(choice.id);
-  } catch (error) {
-    host.restoreEditor();
-    host.showError(`Failed to preview checkpoint: ${formatErrorMessage(error)}`);
-    return;
-  }
-
-  if (!preview.complete) {
-    host.restoreEditor();
-    host.showError('Cannot restore code because this checkpoint is incomplete.');
-    return;
-  }
-
-  const canUndoConversation =
-    choice.count !== undefined && preview.conversationAvailable;
-  if (preview.paths.length === 0) {
-    if (!canUndoConversation) {
-      host.restoreEditor();
-      host.showError('This checkpoint has no tracked file changes to restore.');
-      return;
-    }
-    const undone = await undoByCount(host, choice.count);
-    if (undone) {
-      host.restoreInputText(choice.input);
-    } else {
-      host.restoreEditor();
-    }
-    return;
-  }
-
-  showRestoreActions(host, choice, preview, canUndoConversation);
-}
-
-type RestoreAction = 'both' | 'conversation' | 'code';
-
-function showRestoreActions(
-  host: SlashCommandHost,
-  choice: UndoChoice,
-  preview: SessionFileCheckpointPreview,
-  canUndoConversation: boolean,
-): void {
-  const options: ChoiceOption[] = canUndoConversation
-    ? [
-        { value: 'both', label: 'Restore code and conversation' },
-        { value: 'conversation', label: 'Restore conversation only' },
-        { value: 'code', label: 'Restore code only' },
-        { value: 'cancel', label: 'Cancel' },
-      ]
-    : [
-        { value: 'code', label: 'Restore code only' },
-        { value: 'cancel', label: 'Cancel' },
-      ];
-  const fileLabel = `${String(preview.paths.length)} ${
-    preview.paths.length === 1 ? 'file' : 'files'
-  }`;
-  const notice =
-    `${fileLabel} · ${String(preview.insertions)} insertions · ` +
-    `${String(preview.deletions)} deletions. ` +
-    'Shell commands and manual edits are not tracked.';
-
-  host.mountEditorReplacement(
-    new ChoicePickerComponent({
-      title: 'Restore checkpoint',
-      notice,
-      noticeTone: 'warning',
-      options,
-      onSelect: (value) => {
-        if (value === 'cancel') {
+        void undoByCount(host, choice.count).then((undone) => {
+          if (undone) {
+            host.restoreInputText(choice.input);
+            return;
+          }
           host.restoreEditor();
-          return;
-        }
-        if (value !== 'both' && value !== 'conversation' && value !== 'code') return;
-        void performRestoreAction(host, choice, value);
+        });
       },
       onCancel: () => {
         host.restoreEditor();
       },
     }),
   );
-}
-
-async function performRestoreAction(
-  host: SlashCommandHost,
-  choice: UndoChoice,
-  action: RestoreAction,
-): Promise<void> {
-  const session = host.session;
-  if (session === undefined) {
-    host.restoreEditor();
-    host.showError(NO_ACTIVE_SESSION_MESSAGE);
-    return;
-  }
-  const conversationCount = choice.count;
-  if (
-    (action === 'both' || action === 'conversation') &&
-    conversationCount === undefined
-  ) {
-    host.restoreEditor();
-    host.showError('Conversation undo is unavailable for this checkpoint.');
-    return;
-  }
-
-  host.restoreEditor();
-  let restore: RestoreFileCheckpointResult | undefined;
-  if (action === 'both' || action === 'code') {
-    try {
-      restore = await session.restoreFileCheckpoint(choice.id);
-    } catch (error) {
-      host.showError(`Failed to restore code: ${formatErrorMessage(error)}`);
-      return;
-    }
-  }
-
-  if (action === 'both' || action === 'conversation') {
-    if (conversationCount === undefined) return;
-    const undone = await undoByCount(host, conversationCount, action === 'conversation');
-    if (!undone) {
-      if (restore !== undefined) {
-        host.showError(
-          'Files were restored, but conversation undo failed. ' +
-            `Recovery checkpoint: ${restore.recoveryCheckpointId}.`,
-        );
-      }
-      return;
-    }
-    host.restoreInputText(choice.input);
-  }
-
-  if (restore !== undefined) {
-    showRestoreSuccess(host, restore);
-  }
-}
-
-function showRestoreSuccess(
-  host: SlashCommandHost,
-  restore: RestoreFileCheckpointResult,
-): void {
-  host.showNotice(
-    'Files restored',
-    `Restored: ${String(restore.restoredPaths.length)}. ` +
-      `Deleted: ${String(restore.deletedPaths.length)}. ` +
-      `Recovery checkpoint: ${restore.recoveryCheckpointId}.`,
-  );
-}
-
-async function compactAtChoice(
-  host: SlashCommandHost,
-  choice: UndoChoice,
-  direction: PartialCompactionDirection,
-): Promise<void> {
-  const session = host.session;
-  if (session === undefined) {
-    host.restoreEditor();
-    host.showError(NO_ACTIVE_SESSION_MESSAGE);
-    return;
-  }
-  if (choice.count === undefined) return;
-  try {
-    await session.compact({
-      promptFromEnd: choice.count,
-      direction,
-    });
-  } catch (error) {
-    host.restoreEditor();
-    host.showError(`Failed to summarize: ${formatErrorMessage(error)}`);
-    return;
-  }
-  if (direction === 'from') {
-    host.restoreInputText(choice.input);
-  } else {
-    host.restoreEditor();
-  }
 }
 
 function parseUndoCount(args: string): number | undefined {
@@ -448,74 +239,25 @@ function isContextUndoAnchor(message: ContextMessage): boolean {
   if (origin.kind === 'skill_activation') {
     return origin.trigger === 'user-slash';
   }
+  if (origin.kind === 'plugin_command') {
+    return origin.trigger === 'user-slash';
+  }
   return false;
 }
 
 function createUndoChoices(
-  checkpoints: readonly FileCheckpointSummary[],
   entries: readonly TranscriptEntry[],
   children: readonly Component[],
   maxCount: number,
 ): readonly UndoChoice[] {
-  const activeAnchors = activeUndoAnchorEntries(entries, children).anchors;
-  const anchors = maxCount > 0 ? activeAnchors.slice(-maxCount) : [];
-  const counts = matchCheckpointCounts(checkpoints, anchors);
-  return checkpoints.map((checkpoint) => {
-    const input = checkpoint.prompt ?? '';
-    const title =
-      singleLine(input) ||
-      (checkpoint.kind === 'recovery' ? 'Recovery checkpoint' : 'User prompt');
-    const time = formatCheckpointTime(checkpoint.createdAt);
-    return {
-      id: checkpoint.id,
-      count: counts.get(checkpoint.id),
-      input,
-      label: time.length > 0 ? `${title} · ${time}` : title,
-    };
-  });
-}
-
-function matchCheckpointCounts(
-  checkpoints: readonly FileCheckpointSummary[],
-  anchors: readonly TranscriptEntry[],
-): ReadonlyMap<string, number> {
-  const userCheckpoints = checkpoints.filter((checkpoint) => checkpoint.kind === 'user');
-  const counts = new Map<string, number>();
-  let checkpointIndex = userCheckpoints.length - 1;
-
-  for (let anchorIndex = anchors.length - 1; anchorIndex >= 0; anchorIndex--) {
-    const anchor = anchors[anchorIndex];
-    if (anchor === undefined) continue;
-    let matchIndex = checkpointIndex;
-    if (anchor.checkpointId !== undefined) {
-      matchIndex = -1;
-      for (let index = checkpointIndex; index >= 0; index--) {
-        if (userCheckpoints[index]?.id === anchor.checkpointId) {
-          matchIndex = index;
-          break;
-        }
-      }
-      if (matchIndex < 0) continue;
-    }
-
-    const checkpoint = userCheckpoints[matchIndex];
-    if (checkpoint === undefined) break;
-    counts.set(checkpoint.id, anchors.length - anchorIndex);
-    checkpointIndex = matchIndex - 1;
-  }
-  return counts;
-}
-
-function formatCheckpointTime(createdAt: string): string {
-  const timestamp = Date.parse(createdAt);
-  if (!Number.isFinite(timestamp)) return '';
-  const seconds = Math.floor(Math.max(0, Date.now() - timestamp) / 1000);
-  if (seconds < 60) return 'just now';
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${String(minutes)}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${String(hours)}h ago`;
-  return `${String(Math.floor(hours / 24))}d ago`;
+  if (maxCount <= 0) return [];
+  const anchors = activeUndoAnchorEntries(entries, children).anchors.slice(-maxCount);
+  return anchors.map((entry, index) => ({
+    id: entry.id,
+    count: anchors.length - index,
+    input: formatUndoChoiceInput(entry),
+    label: formatUndoChoiceLabel(entry),
+  }));
 }
 
 function activeUndoAnchorEntries(
@@ -545,6 +287,52 @@ function activeUndoAnchorEntries(
     anchors: activeEntries.filter(isUndoAnchorEntry),
     stoppedAtCompaction: lastCompactionEntryIndex >= 0,
   };
+}
+
+function formatUndoChoiceLabel(
+  entry: TranscriptEntry,
+): string {
+  if (entry.kind === 'skill_activation') {
+    const name = singleLine(
+      entry.skillName ?? entry.content.replace(/^Activated skill:\s*/, ''),
+    );
+    const args = singleLine(entry.skillArgs ?? '');
+    if (name.length === 0) return 'Skill: unknown';
+    return args.length > 0 ? `/${name} ${args}` : `/${name}`;
+  }
+  if (entry.kind === 'plugin_command' && entry.pluginCommandData !== undefined) {
+    return formatPluginCommandSlash(entry.pluginCommandData) ?? 'User message';
+  }
+
+  const content = singleLine(entry.content);
+  const imageCount = entry.imageAttachmentIds?.length ?? 0;
+  if (content.length > 0) return content;
+  if (imageCount > 0) {
+    return `User message (${String(imageCount)} ${imageCount === 1 ? 'image' : 'images'})`;
+  }
+  return 'User message';
+}
+
+function formatUndoChoiceInput(entry: TranscriptEntry): string {
+  if (entry.kind === 'skill_activation') {
+    const name = singleLine(
+      entry.skillName ?? entry.content.replace(/^Activated skill:\s*/, ''),
+    );
+    const args = singleLine(entry.skillArgs ?? '');
+    if (name.length === 0) return '';
+    return args.length > 0 ? `/${name} ${args}` : `/${name}`;
+  }
+  if (entry.kind === 'plugin_command' && entry.pluginCommandData !== undefined) {
+    return formatPluginCommandSlash(entry.pluginCommandData) ?? entry.content;
+  }
+  return entry.content;
+}
+
+function formatPluginCommandSlash(data: NonNullable<TranscriptEntry['pluginCommandData']>): string | undefined {
+  const name = `${data.pluginId}:${data.commandName}`;
+  const args = singleLine(data.args ?? '');
+  if (name.length === 0) return undefined;
+  return args.length > 0 ? `/${name} ${args}` : `/${name}`;
 }
 
 function singleLine(text: string): string {
@@ -604,7 +392,8 @@ function undoLimitFromError(
 function isUndoAnchorEntry(entry: TranscriptEntry): boolean {
   return (
     entry.kind === 'user' ||
-    (entry.kind === 'skill_activation' && entry.skillTrigger === 'user-slash')
+    (entry.kind === 'skill_activation' && entry.skillTrigger === 'user-slash') ||
+    entry.kind === 'plugin_command'
   );
 }
 
@@ -630,6 +419,7 @@ function isUndoContextEntry(entry: TranscriptEntry): boolean {
     case 'tool_call':
     case 'thinking':
     case 'skill_activation':
+    case 'plugin_command':
     case 'cron':
       return true;
     case 'status':
@@ -670,7 +460,8 @@ function removeUndoContextComponents(
 function isUndoAnchorComponent(child: Component): boolean {
   return (
     child instanceof UserMessageComponent ||
-    (child instanceof SkillActivationComponent && child.trigger === 'user-slash')
+    (child instanceof SkillActivationComponent && child.trigger === 'user-slash') ||
+    child instanceof PluginCommandComponent
   );
 }
 
@@ -686,9 +477,10 @@ function isUndoContextComponent(child: Component): boolean {
     child instanceof ThinkingComponent ||
     child instanceof ToolCallComponent ||
     child instanceof AgentGroupComponent ||
-    child instanceof DynamicWorkflowMissionControlComponent ||
+    child instanceof AgentDynamicWorkflowProgressComponent ||
     child instanceof ReadGroupComponent ||
     child instanceof SkillActivationComponent ||
+    child instanceof PluginCommandComponent ||
     child instanceof BackgroundAgentStatusComponent ||
     child instanceof CronMessageComponent
   );
@@ -702,10 +494,7 @@ function renderWelcome(host: SlashCommandHost): void {
   ) {
     return;
   }
-  host.state.transcriptContainer.addTranscriptChild(
-    new WelcomeComponent(host.state.appState, () => {
-      host.state.ui.requestRender();
-    }),
-    { role: 'ephemeral', edgeBlankPolicy: 'preserve' },
+  host.state.transcriptContainer.addChild(
+    new WelcomeComponent(host.state.appState),
   );
 }

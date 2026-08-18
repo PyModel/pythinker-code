@@ -1,4 +1,4 @@
-import { visibleWidth, type TUI } from '@earendil-works/pi-tui';
+import { visibleWidth, type TUI } from '@pymodel/pi-tui';
 import chalk from 'chalk';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -49,102 +49,77 @@ describe('ToolCallComponent', () => {
     expect(out).not.toContain(`${String.fromCodePoint(0x23fa, 0xfe0e)} Used Read`);
   });
 
-  it('tints the tool card for pending, successful, and failed states', () => {
-    const previousLevel = chalk.level;
-    chalk.level = 3;
-    const component = new ToolCallComponent(
-      {
-        id: 'call_tint',
-        name: 'Read',
-        args: { path: 'foo.ts' },
-      },
-      undefined,
-    );
-    try {
-      const pending = component.render(40);
-      const pendingBody = pending.slice(1);
-      expect(pending[0]).not.toContain('\u001B[48;2;29;33;41m');
-      expect(pendingBody.length).toBeGreaterThan(0);
-      expect(pendingBody.every((line) => line.includes('\u001B[48;2;29;33;41m'))).toBe(true);
+  describe('detach hint for long-running foreground Bash/Agent', () => {
+    it('shows the Ctrl+B hint after 10s for a running Bash call', () => {
+      vi.useFakeTimers();
+      const component = new ToolCallComponent(
+        { id: 'call_bash_long', name: 'Bash', args: { command: 'sleep 30' } },
+        undefined,
+        stubTui(30),
+      );
 
-      component.setResult({ tool_call_id: 'call_tint', output: 'content', is_error: false });
-      const success = component.render(40);
-      const successBody = success.slice(1);
-      expect(successBody.length).toBeGreaterThan(0);
-      expect(successBody.every((line) => line.includes('\u001B[48;2;20;23;27m'))).toBe(true);
+      expect(strip(component.render(100).join('\n'))).not.toContain(
+        'Press Ctrl+B to run in background',
+      );
 
-      component.setResult({ tool_call_id: 'call_tint', output: 'failed', is_error: true });
-      const error = component.render(40);
-      const errorBody = error.slice(1);
-      expect(errorBody.length).toBeGreaterThan(0);
-      expect(errorBody.every((line) => line.includes('\u001B[48;2;41;29;29m'))).toBe(true);
-    } finally {
-      chalk.level = previousLevel;
-    }
-  });
+      vi.advanceTimersByTime(10_000);
+      expect(strip(component.render(100).join('\n'))).toContain(
+        'Press Ctrl+B to run in background',
+      );
 
-  it('does not tint a truncated tool call without a result', () => {
-    const previousLevel = chalk.level;
-    chalk.level = 3;
-    const component = new ToolCallComponent(
-      {
-        id: 'call_truncated_tint',
-        name: 'Read',
-        args: { path: 'foo.ts' },
-        truncated: true,
-      },
-      undefined,
-    );
-    try {
-      const backgrounds = [
-        '\u001B[48;2;29;33;41m',
-        '\u001B[48;2;20;23;27m',
-        '\u001B[48;2;41;29;29m',
-      ];
-      const lines = component.render(40);
-      expect(lines.length).toBeGreaterThan(0);
-      expect(
-        lines.every((line) => backgrounds.every((code) => !line.includes(code))),
-      ).toBe(true);
-    } finally {
-      chalk.level = previousLevel;
-    }
-  });
+      component.dispose();
+    });
 
-  it('renders MCP resource tools with friendly labels, context, and counts', () => {
-    const list = new ToolCallComponent(
-      {
-        id: 'call_list_mcp_resources',
-        name: 'ListMcpResourcesTool',
-        args: { server: 'docs' },
-      },
-      {
-        tool_call_id: 'call_list_mcp_resources',
-        output: JSON.stringify([{ server: 'docs', uri: 'docs://guide', name: 'guide' }]),
-        is_error: false,
-      },
-    );
-    const read = new ToolCallComponent(
-      {
-        id: 'call_read_mcp_resource',
-        name: 'ReadMcpResourceTool',
-        args: { server: 'docs', uri: 'docs://guide' },
-      },
-      {
-        tool_call_id: 'call_read_mcp_resource',
-        output: JSON.stringify({
-          contents: [{ uri: 'docs://guide', text: 'Guide' }],
-        }),
-        is_error: false,
-      },
-    );
+    it('shows the hint immediately for a running Agent call', () => {
+      vi.useFakeTimers();
+      const component = new ToolCallComponent(
+        { id: 'call_agent_long', name: 'Agent', args: { description: 'explore' } },
+        undefined,
+        stubTui(30),
+      );
 
-    expect(strip(list.render(100).join('\n'))).toContain(
-      'Used List MCP resources (docs) · 1 resource',
-    );
-    expect(strip(read.render(100).join('\n'))).toContain(
-      'Used Read MCP resource (docs://guide) · 1 content',
-    );
+      // No timer advancement — Agents advertise Ctrl+B immediately.
+      expect(strip(component.render(100).join('\n'))).toContain(
+        'Press Ctrl+B to run in background',
+      );
+
+      component.dispose();
+    });
+
+    it('does not show the hint for non-detachable tools', () => {
+      vi.useFakeTimers();
+      const component = new ToolCallComponent(
+        { id: 'call_read_long', name: 'Read', args: { path: 'foo.ts' } },
+        undefined,
+        stubTui(30),
+      );
+
+      vi.advanceTimersByTime(15_000);
+      expect(strip(component.render(100).join('\n'))).not.toContain(
+        'Press Ctrl+B to run in background',
+      );
+
+      component.dispose();
+    });
+
+    it('does not show the hint when the result lands before 10s', () => {
+      vi.useFakeTimers();
+      const component = new ToolCallComponent(
+        { id: 'call_bash_short', name: 'Bash', args: { command: 'echo hi' } },
+        undefined,
+        stubTui(30),
+      );
+
+      vi.advanceTimersByTime(5_000);
+      component.setResult({ tool_call_id: 'call_bash_short', output: 'hi', is_error: false });
+      vi.advanceTimersByTime(10_000);
+
+      expect(strip(component.render(100).join('\n'))).not.toContain(
+        'Press Ctrl+B to run in background',
+      );
+
+      component.dispose();
+    });
   });
 
   it('keeps collapsed tool-call lines within very narrow widths', () => {
@@ -165,111 +140,6 @@ describe('ToolCallComponent', () => {
       for (const line of component.render(width)) {
         expect(visibleWidth(line)).toBeLessThanOrEqual(width);
       }
-    }
-  });
-
-  it('keeps long tool headers on one terminal row', () => {
-    const component = new ToolCallComponent(
-      {
-        id: 'call_long_header',
-        name: 'Edit',
-        args: {
-          path: '/Users/example/projects/pythinker/packages/agent-core/src/tools/providers/local-fetch-url.ts',
-        },
-      },
-      undefined,
-    );
-
-    const nonBlank = component
-      .render(48)
-      .map(strip)
-      .filter((line) => line.trim().length > 0);
-
-    expect(nonBlank).toHaveLength(1);
-    expect(nonBlank[0]).toContain('Using Edit');
-  });
-
-  it('renders tool command names with textStrong instead of primary', () => {
-    const previousLevel = chalk.level;
-    chalk.level = 3;
-    try {
-      const bash = new ToolCallComponent(
-        {
-          id: 'call_bash_header_color',
-          name: 'Bash',
-          args: { command: 'printf output' },
-        },
-        undefined,
-      );
-
-      const subagent = new ToolCallComponent(
-        {
-          id: 'call_subagent_tool_color',
-          name: 'Agent',
-          args: { description: 'inspect file' },
-        },
-        undefined,
-      );
-      subagent.onSubagentSpawned({
-        agentId: 'sub_color',
-        agentName: 'explore',
-        runInBackground: false,
-      });
-      subagent.appendSubToolCall({
-        id: 'sub_color:read',
-        name: 'Read',
-        args: { path: 'foo.ts' },
-      });
-
-      const bashOut = bash.render(100).join('\n');
-      expect(bashOut).toContain(chalk.hex(darkColors.textStrong).bold('Bash'));
-      expect(bashOut).not.toContain(chalk.hex(darkColors.primary).bold('Bash'));
-
-      const subagentOut = subagent.render(100).join('\n');
-      expect(subagentOut).toContain(chalk.hex(darkColors.textStrong)('Read'));
-      expect(subagentOut).not.toContain(chalk.hex(darkColors.primary)('Read'));
-      expect(subagentOut).toContain(chalk.hex(darkColors.textStrong).bold('Explore Agent'));
-      expect(subagentOut).not.toContain(chalk.hex(darkColors.primary).bold('Explore Agent'));
-
-      subagent.onSubagentCompleted({ resultSummary: 'done' });
-      subagent.setResult({
-        tool_call_id: 'call_subagent_tool_color',
-        output: 'done',
-        is_error: false,
-      });
-      const completedOut = subagent.render(100).join('\n');
-      expect(completedOut).toContain(chalk.hex(darkColors.textStrong).bold('Explore Agent'));
-      expect(completedOut).not.toContain(chalk.hex(darkColors.success).bold('Explore Agent'));
-      expect(completedOut).toContain(chalk.hex(darkColors.success)('Completed'));
-    } finally {
-      chalk.level = previousLevel;
-    }
-  });
-
-  it('keeps Edit diff rows structural instead of wrapping their content', () => {
-    const oldText =
-      '// Successful responses are cached per URL in-process with insertion-order eviction.';
-    const newText =
-      '// Successful responses are cached per URL in-process with TTL + insertion-order eviction.';
-    const component = new ToolCallComponent(
-      {
-        id: 'call_long_edit',
-        name: 'Edit',
-        args: {
-          path: '/Users/example/projects/pythinker/packages/agent-core/src/tools/providers/local-fetch-url.ts',
-          old_string: oldText,
-          new_string: newText,
-        },
-      },
-      undefined,
-    );
-
-    const lines = component.render(48);
-
-    expect(lines).toHaveLength(5);
-    expect(lines.map(strip).some((line) => line.trimStart() === 'eviction.')).toBe(false);
-    for (const line of lines) {
-      expect(visibleWidth(line)).toBeLessThanOrEqual(48);
     }
   });
 
@@ -316,60 +186,9 @@ describe('ToolCallComponent', () => {
     component.appendLiveOutput('line2\n');
 
     const out = strip(component.render(100).join('\n'));
-    expect(out).toContain('Using Bash');
+    expect(out).toContain('Running a command');
     expect(out).toContain('line1');
     expect(out).toContain('line2');
-  });
-
-  it('slow-pulses the running Bash bullet and keeps the completed bullet green', () => {
-    vi.useFakeTimers();
-    const previousLevel = chalk.level;
-    chalk.level = 3;
-    const ui = { requestRender: vi.fn() };
-    const component = new ToolCallComponent(
-      {
-        id: 'call_shell_pulse',
-        name: 'Bash',
-        args: { command: 'sleep 2' },
-      },
-      undefined,
-      ui as never,
-    );
-
-    try {
-      expect(strip(component.render(100).join('\n'))).toContain(
-        `${STATUS_BULLET}Using Bash`,
-      );
-
-      vi.advanceTimersByTime(800);
-      const hidden = strip(component.render(100).join('\n'));
-      expect(hidden).toContain('  Using Bash');
-      expect(hidden).not.toContain(`${STATUS_BULLET}Using Bash`);
-      expect(ui.requestRender).toHaveBeenCalledOnce();
-
-      vi.advanceTimersByTime(800);
-      expect(strip(component.render(100).join('\n'))).toContain(
-        `${STATUS_BULLET}Using Bash`,
-      );
-
-      component.setResult({
-        tool_call_id: 'call_shell_pulse',
-        output: 'done',
-        is_error: false,
-      });
-      ui.requestRender.mockClear();
-      vi.advanceTimersByTime(1_600);
-
-      const completed = component.render(100).join('\n');
-      expect(completed).toContain(
-        chalk.hex(darkColors.success)(STATUS_BULLET),
-      );
-      expect(strip(completed)).toContain(`${STATUS_BULLET}Used Bash`);
-      expect(ui.requestRender).not.toHaveBeenCalled();
-    } finally {
-      component.dispose();
-      chalk.level = previousLevel;
-    }
   });
 
   it('clears live Bash output when the final result arrives', () => {
@@ -390,12 +209,81 @@ describe('ToolCallComponent', () => {
     });
 
     const out = strip(component.render(100).join('\n'));
-    expect(out).toContain('Used Bash');
+    expect(out).toContain('Ran a command');
     expect(out).toContain('final-only');
     expect(out).not.toContain('streamed-only');
   });
 
-  it('hides tool output bodies that start with a <system tag', () => {
+  describe('Bash command preview', () => {
+    const longCommand = Array.from({ length: 15 }, (_, i) => `echo step${String(i + 1)}`).join(
+      '\n',
+    );
+
+    it('shows the truncated command while running and reveals the rest when expanded', () => {
+      const component = new ToolCallComponent(
+        { id: 'call_bash_running', name: 'Bash', args: { command: longCommand } },
+        undefined,
+      );
+
+      const collapsed = strip(component.render(100).join('\n'));
+      expect(collapsed).toContain('Running a command');
+      expect(collapsed).toContain('echo step1');
+      expect(collapsed).toContain('echo step10');
+      expect(collapsed).not.toContain('echo step11');
+
+      component.setExpanded(true);
+
+      const expanded = strip(component.render(100).join('\n'));
+      expect(expanded).toContain('echo step11');
+      expect(expanded).toContain('echo step15');
+    });
+
+    it('keeps the command preview after the result lands to avoid a height collapse', () => {
+      const component = new ToolCallComponent(
+        { id: 'call_bash_done', name: 'Bash', args: { command: longCommand } },
+        undefined,
+      );
+
+      // Sanity: while running, the in-flight preview shows the command.
+      expect(strip(component.render(100).join('\n'))).toContain('$ echo step1');
+
+      component.setResult({ tool_call_id: 'call_bash_done', output: 'done', is_error: false });
+
+      // Collapsed result view still shows the command preview (capped at
+      // COMMAND_PREVIEW_LINES) so a multi-line command with short output does
+      // not collapse the card. The command is owned by buildCallPreview, so it
+      // must appear exactly once — the result renderer no longer renders it.
+      const out = strip(component.render(100).join('\n'));
+      expect(out).toContain('Ran a command');
+      expect(out).toContain('$ echo step1');
+      expect(out).toContain('echo step10');
+      expect(out).not.toContain('echo step11');
+      expect(out).toContain('done');
+      expect(out.split('$ echo step1').length - 1).toBe(1);
+
+      component.setExpanded(true);
+      const expanded = strip(component.render(100).join('\n'));
+      expect(expanded).toContain('echo step11');
+      expect(expanded).toContain('echo step15');
+    });
+
+    it('keeps the command preview when the command produces no output', () => {
+      const component = new ToolCallComponent(
+        { id: 'call_bash_empty', name: 'Bash', args: { command: 'mkdir -p a/b/c\necho done' } },
+        { tool_call_id: 'call_bash_empty', output: '', is_error: false },
+      );
+
+      // buildContent early-returns on empty output, but the command preview
+      // (owned by buildCallPreview) must still render so the card does not
+      // collapse to just the header.
+      const out = strip(component.render(100).join('\n'));
+      expect(out).toContain('Ran a command');
+      expect(out).toContain('$ mkdir -p a/b/c');
+      expect(out).toContain('echo done');
+    });
+  });
+
+  it('hides tool output bodies that start with a <system-reminder tag', () => {
     const reminderOutput =
       '<system-reminder>\nThe task tools have not been used recently.\n</system-reminder>';
     const component = new ToolCallComponent(
@@ -412,7 +300,7 @@ describe('ToolCallComponent', () => {
     );
 
     const collapsed = strip(component.render(100).join('\n'));
-    expect(collapsed).toContain(`${STATUS_BULLET}Used Bash`);
+    expect(collapsed).toContain(`${STATUS_BULLET}Ran a command`);
     expect(collapsed).not.toContain('system-reminder');
     expect(collapsed).not.toContain('task tools');
 
@@ -422,7 +310,7 @@ describe('ToolCallComponent', () => {
     expect(expanded).not.toContain('task tools');
   });
 
-  it('hides <system-prefixed output even when the tool result is an error', () => {
+  it('hides <system-reminder-prefixed output even when the tool result is an error', () => {
     const component = new ToolCallComponent(
       {
         id: 'call_hidden_err',
@@ -441,26 +329,49 @@ describe('ToolCallComponent', () => {
     expect(out).not.toContain('do not show');
   });
 
-  it('renders DynamicWorkflow results as a one-line summary without raw XML', () => {
+  it('renders output that merely starts with a literal <system> tag', () => {
+    // Tool metadata no longer travels inside `output` (it rides the result's
+    // `note` side channel), so real output starting with the literal tag —
+    // a file that contains it, an MCP tool's text — must stay visible.
+    const component = new ToolCallComponent(
+      {
+        id: 'call_literal',
+        name: 'Bash',
+        args: { command: 'cat notes.txt' },
+      },
+      {
+        tool_call_id: 'call_literal',
+        output: '<system>literal text from a user file</system>\nsecond line',
+        is_error: false,
+      },
+    );
+
+    component.setExpanded(true);
+    const out = strip(component.render(100).join('\n'));
+    expect(out).toContain('<system>literal text from a user file</system>');
+    expect(out).toContain('second line');
+  });
+
+  it('renders AgentDynamicWorkflow results as a one-line summary without raw XML', () => {
     const output = [
-      '<dynamic_workflow_result>',
+      '<agent_dynamic_workflow_result>',
       '<summary>completed: 1, failed: 1, aborted: 1</summary>',
       '<subagent index="1" outcome="completed">Reviewed src/a.ts.</subagent>',
       '<subagent index="2" outcome="failed">Agent timed out.</subagent>',
       '<subagent index="3" outcome="aborted">User aborted.</subagent>',
-      '</dynamic_workflow_result>',
+      '</agent_dynamic_workflow_result>',
     ].join('\n');
     const component = new ToolCallComponent(
       {
-        id: 'call_swarm',
-        name: 'DynamicWorkflow',
+        id: 'call_dynamic_workflow',
+        name: 'AgentDynamicWorkflow',
         args: {
           description: 'Review changed files',
           items: ['src/a.ts', 'src/b.ts', 'src/c.ts'],
         },
       },
       {
-        tool_call_id: 'call_swarm',
+        tool_call_id: 'call_dynamic_workflow',
         output,
         is_error: false,
       },
@@ -468,21 +379,21 @@ describe('ToolCallComponent', () => {
 
     const out = strip(component.render(120).join('\n'));
 
-    expect(out).toContain('Dynamic Workflow: ✓ 1 completed · ✗ 1 failed · ⊘ 1 aborted');
-    expect(out).not.toContain('<dynamic_workflow_result>');
+    expect(out).toContain('Agent dynamic_workflow: ✓ 1 completed · ✗ 1 failed · ⊘ 1 aborted');
+    expect(out).not.toContain('<agent_dynamic_workflow_result>');
     expect(out).not.toContain('Reviewed src/a.ts.');
     expect(out).not.toContain('Agent timed out.');
   });
 
-  it('keeps unstructured DynamicWorkflow output on the generic result path', () => {
+  it('renders an AgentDynamicWorkflow fallback summary when the result is not structured', () => {
     const component = new ToolCallComponent(
       {
-        id: 'call_swarm_failed',
-        name: 'DynamicWorkflow',
+        id: 'call_dynamic_workflow_failed',
+        name: 'AgentDynamicWorkflow',
         args: { description: 'Review changed files' },
       },
       {
-        tool_call_id: 'call_swarm_failed',
+        tool_call_id: 'call_dynamic_workflow_failed',
         output: 'provider request failed',
         is_error: true,
       },
@@ -490,34 +401,8 @@ describe('ToolCallComponent', () => {
 
     const out = strip(component.render(120).join('\n'));
 
-    expect(out).toContain('Used DynamicWorkflow');
-    expect(out).toContain('provider request failed');
-    expect(out).not.toContain('Dynamic Workflow:');
-  });
-
-  it.each([
-    ['AgentSwarm', '<agent_swarm_result><summary>completed: 1</summary></agent_swarm_result>'],
-    ['DynamicWorkflow', '<agent_swarm_result><summary>completed: 1</summary></agent_swarm_result>'],
-    ['DynamicWorkflow', 'agent_swarm: completed'],
-  ])('keeps %s and legacy workflow results generic', (name, output) => {
-    const component = new ToolCallComponent(
-      {
-        id: 'call_removed_swarm',
-        name,
-        args: { description: 'Review changed files' },
-      },
-      {
-        tool_call_id: 'call_removed_swarm',
-        output,
-        is_error: false,
-      },
-    );
-
-    const out = strip(component.render(120).join('\n'));
-
-    expect(out).toContain(`Used ${name}`);
-    expect(out).toContain(output);
-    expect(out).not.toContain('Dynamic Workflow:');
+    expect(out).toContain('Agent dynamic_workflow: ✗ Failed.');
+    expect(out).not.toContain('provider request failed');
   });
 
   it('still renders tool output when the body merely contains <system later on', () => {
@@ -685,6 +570,34 @@ describe('ToolCallComponent', () => {
     expect(header).toContain('Current plan · Approved: Pragmatic refactor');
   });
 
+  it('header chips Auto-approved when ExitPlanMode was auto-approved without user review', () => {
+    const component = new ToolCallComponent(
+      {
+        id: 'call_exit_auto',
+        name: 'ExitPlanMode',
+        args: {},
+      },
+      {
+        tool_call_id: 'call_exit_auto',
+        output:
+          'Exited plan mode. Plan mode deactivated. All tools are now available.\n' +
+          'Note: this plan was auto-approved without user review — the user has NOT explicitly approved it.\n' +
+          'Plan saved to: /tmp/plan.md\n\n' +
+          '## Plan (auto-approved, not user-reviewed):\n# Auto Plan\n\n1. Do the thing.',
+        is_error: false,
+      },
+    );
+
+    const out = strip(component.render(100).join('\n'));
+    const header = out.split('\n')[1] ?? '';
+    expect(header).toMatch(/Current plan · Auto-approved\s*$/);
+    // The plan body renders from the auto-approved marker; the engine-side
+    // note above the marker must not leak into the rendered plan box.
+    expect(out).toContain('Auto Plan');
+    expect(out).toContain('1. Do the thing.');
+    expect(out).not.toContain('Note: this plan was auto-approved');
+  });
+
   it('renders Rejected in the plan box title and keeps revise feedback visible', () => {
     const component = new ToolCallComponent(
       {
@@ -793,93 +706,10 @@ describe('ToolCallComponent', () => {
     );
 
     const out = strip(component.render(100).join('\n'));
-    expect(out).toContain('✓ Answered');
-    expect(out).toContain('┌ Q Favorite editor?');
-    expect(out).toContain('└ ✓ Vim');
-    expect(out).not.toContain('Collected your answers');
+    expect(out).toContain('Collected your answers');
+    expect(out).toContain('Favorite editor?');
+    expect(out).toContain('Vim');
     expect(out).not.toContain('AskUserQuestion');
-  });
-
-  it('renders multiple Markdown answers with hanging rails at narrow widths', () => {
-    const component = new ToolCallComponent(
-      {
-        id: 'call_question_markdown',
-        name: 'AskUserQuestion',
-        args: {},
-      },
-      {
-        tool_call_id: 'call_question_markdown',
-        output: JSON.stringify({
-          answers: {
-            '**Which approach** should we use for the extended migration plan?':
-              'Use **the safe path** with `checks` before release.',
-            'Retry count?': 3,
-            'Enabled flags?': ['alpha', 'beta'],
-          },
-        }),
-        is_error: false,
-      },
-    );
-
-    const lines = component.render(34);
-    const plainLines = lines.map((line) => strip(line).trimEnd());
-    const out = plainLines.join('\n');
-    expect(out).toContain('✓ Answered');
-    expect([...out.matchAll(/┌ Q/g)]).toHaveLength(3);
-    expect([...out.matchAll(/└ ✓/g)]).toHaveLength(3);
-    expect(out).toContain('Which approach');
-    expect(out).toContain('Use the safe path');
-    expect(out).toContain('3');
-    expect(out).toContain('["alpha","beta"]');
-    expect(out).not.toContain('**');
-    expect(out).not.toContain('`checks`');
-    expect(plainLines.some((line) => line.startsWith('  │   '))).toBe(true);
-    expect(plainLines.some((line) => line.startsWith('      ') && line.includes('release.'))).toBe(true);
-    for (const line of lines) {
-      expect(visibleWidth(line)).toBeLessThanOrEqual(34);
-    }
-  });
-
-  it('keeps dismissal, error, and malformed AskUserQuestion results visible', () => {
-    const dismissed = new ToolCallComponent(
-      { id: 'call_question_dismissed', name: 'AskUserQuestion', args: {} },
-      {
-        tool_call_id: 'call_question_dismissed',
-        output: JSON.stringify({ answers: {}, note: 'User dismissed the question.' }),
-        is_error: false,
-      },
-    );
-    const failed = new ToolCallComponent(
-      { id: 'call_question_failed', name: 'AskUserQuestion', args: {} },
-      {
-        tool_call_id: 'call_question_failed',
-        output: 'Question service unavailable',
-        is_error: true,
-      },
-    );
-    const malformed = new ToolCallComponent(
-      { id: 'call_question_malformed', name: 'AskUserQuestion', args: {} },
-      {
-        tool_call_id: 'call_question_malformed',
-        output: '{not valid JSON',
-        is_error: false,
-      },
-    );
-
-    const dismissedOut = strip(dismissed.render(100).join('\n'));
-    expect(dismissedOut).toContain('⊘ Dismissed');
-    expect(dismissedOut).not.toContain('✓ Answered');
-    expect(dismissedOut).toContain('User dismissed the question.');
-    expect(dismissedOut).not.toContain('┌ Q');
-
-    const failedOut = strip(failed.render(100).join('\n'));
-    expect(failedOut).toContain('Could not collect your input');
-    expect(failedOut).toContain('Question service unavailable');
-    expect(failedOut).not.toContain('✓ Answered');
-
-    const malformedOut = strip(malformed.render(100).join('\n'));
-    expect(malformedOut).toContain('✓ Answered');
-    expect(malformedOut).toContain('{not valid JSON');
   });
 
   it('renders background AskUserQuestion as a started task', () => {
@@ -903,7 +733,7 @@ describe('ToolCallComponent', () => {
     const out = strip(component.render(100).join('\n'));
     expect(out).toContain('Started background question');
     expect(out).toContain('question-aaaaaaaa');
-    expect(out).not.toContain('✓ Answered');
+    expect(out).not.toContain('Collected your answers');
   });
 
   it('renders GetGoal as a goal check without raw JSON', () => {
@@ -1101,9 +931,11 @@ describe('ToolCallComponent', () => {
     );
 
     const out = strip(component.render(100).join('\n'));
-    expect(out).toContain('Used Read (apps/pythinker-code/src/main.ts)');
+    const expectedReadPath =
+      process.platform === 'win32' ? 'apps\\pythinker-code\\src\\main.ts' : 'apps/pythinker-code/src/main.ts';
+    expect(out).toContain(`Used Read (${expectedReadPath})`);
     expect(out).not.toContain('/tmp/proj-a/apps');
-    expect(component.getReadSnapshot().filePath).toBe('apps/pythinker-code/src/main.ts');
+    expect(component.getReadSnapshot().filePath).toBe(expectedReadPath);
   });
 
   it('keeps Read paths outside the active workspace absolute', () => {
@@ -1173,14 +1005,15 @@ describe('ToolCallComponent', () => {
     out = strip(component.render(120).join('\n'));
     expect(out).toContain('Explore Agent Running (explore project xxx) · 1 tool · 10s');
     expect(out).toContain('Using Read (apps/pythinker-code/src/tui/utils/background-agent-status.ts)');
+    // Thinking and text are mutually exclusive in the active window: the most
+    // recently streamed (text) wins, so thinking is hidden entirely.
     expect(out).not.toContain('think1');
-    expect(out).toContain('think2');
-    expect(out).toContain('think3');
-    expect(out).toContain('◌ think2');
+    expect(out).not.toContain('think2');
+    expect(out).not.toContain('think3');
     expect(out).not.toContain('answer1');
-    expect(out).not.toContain('answer2');
+    expect(out).toContain('answer2');
     expect(out).toContain('answer3');
-    expect(out).toContain('└ answer3');
+    expect(out).toContain('│ answer3');
 
     vi.setSystemTime(22_000);
     component.onSubagentCompleted({ resultSummary: 'summary fallback' });
@@ -1194,55 +1027,85 @@ describe('ToolCallComponent', () => {
     out = strip(component.render(120).join('\n'));
     expect(out).toContain('Explore Agent Completed (explore project xxx) · 1 tool · 12s');
     expect(out).not.toContain('think3');
-    expect(out).toContain('└ answer3');
+    expect(out).toContain('│ answer3');
     expect(out).not.toContain('Used Agent');
     expect(out).not.toContain('parent duplicate result');
     expect(out).not.toContain('summary fallback');
   });
 
-  it('marks worktree-isolated subagents in the existing single-agent header', () => {
+  it('shows the bound model in the subagent header and group snapshot once reported', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(10_000);
     const component = new ToolCallComponent(
       {
-        id: 'call_agent_worktree',
+        id: 'call_agent_model',
         name: 'Agent',
-        args: { description: 'implement safely', isolation: 'worktree' },
+        args: { description: 'explore project' },
       },
       undefined,
     );
     component.onSubagentSpawned({
-      agentId: 'sub_worktree',
-      agentName: 'coder',
+      agentId: 'sub_model_1',
+      agentName: 'explore',
       runInBackground: false,
     });
 
-    const out = strip(component.render(120).join('\n'));
-    expect(out).toContain('Coder Agent Queued (implement safely) · worktree · 0 tools');
+    let out = strip(component.render(120).join('\n'));
+    expect(out).toContain('Explore Agent Queued (explore project) · 0 tools');
+    expect(out).not.toContain('Kimi K2.5');
+
+    component.updateSubagentMetrics({ modelDisplay: 'Kimi K2.5' });
+
+    out = strip(component.render(120).join('\n'));
+    expect(out).toContain('Explore Agent Queued (explore project) · Kimi K2.5 · 0 tools');
+    expect(component.getSubagentSnapshot().model).toBe('Kimi K2.5');
   });
 
-  it('uses a named teammate identity in the existing single-agent header', () => {
+  it('shows Backgrounded after a foreground subagent is detached, even after setResult', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
     const component = new ToolCallComponent(
       {
-        id: 'call_agent_teammate',
+        id: 'call_agent_detach',
         name: 'Agent',
-        args: {
-          description: 'port runtime',
-          name: 'runtime',
-          team_name: 'porters',
-        },
+        args: { description: 'long task' },
       },
       undefined,
+      stubTui(30),
     );
     component.onSubagentSpawned({
-      agentId: 'sub_runtime',
-      agentName: 'runtime',
-      runInBackground: true,
+      agentId: 'sub_detach_1',
+      agentName: 'explore',
+      runInBackground: false,
+    });
+    component.onSubagentStarted({
+      agentId: 'sub_detach_1',
+      agentName: 'explore',
+      runInBackground: false,
     });
 
-    const out = strip(component.render(120).join('\n'));
-    expect(out).toContain('Runtime Agent Backgrounded (port runtime)');
+    // Sanity: running before detach.
+    expect(strip(component.render(120).join('\n'))).toContain('Running');
+
+    component.markBackgrounded();
+    let out = strip(component.render(120).join('\n'));
+    expect(out).toContain('Backgrounded');
+    expect(out).not.toContain('Completed');
+
+    // The spawn-success ToolResult landing must NOT flip the card to Completed.
+    component.setResult({
+      tool_call_id: 'call_agent_detach',
+      output: 'agent_id: sub_detach_1\nactual_subagent_type: explore\n',
+      is_error: false,
+    });
+    out = strip(component.render(120).join('\n'));
+    expect(out).toContain('Backgrounded');
+    expect(out).not.toContain('Completed');
+
+    component.dispose();
   });
 
-  it('keeps the single subagent tool area to the latest four activities', () => {
+  it('summarizes subagent tools as a count plus the current tool', () => {
     vi.useFakeTimers();
     vi.setSystemTime(0);
     const component = new ToolCallComponent(
@@ -1272,16 +1135,17 @@ describe('ToolCallComponent', () => {
 
     const out = strip(component.render(120).join('\n'));
     expect(out).toContain('Explore Agent Running (inspect tools) · 5 tools · 0s');
-    expect(out).not.toContain('file1.ts');
-    expect(out).toContain('Used Read (file2.ts)');
-    expect(out).toContain('Used Read (file3.ts)');
-    expect(out).toContain('Used Read (file4.ts)');
-    expect(out).not.toContain('… Using Grep (auth)');
-    expect(out).toContain('• Using Grep (auth)');
+    // Only the current (most recent ongoing) tool appears in the summary line.
     expect(out).toContain('Using Grep (auth)');
+    // No per-tool activity rows are rendered.
+    expect(out).not.toContain('file1.ts');
+    expect(out).not.toContain('file2.ts');
+    expect(out).not.toContain('file3.ts');
+    expect(out).not.toContain('file4.ts');
+    expect(out).not.toContain('Used Read');
   });
 
-  it('keeps the single subagent tool window stable when older tools update', () => {
+  it('keeps the subagent tool summary pinned to the most recent tool', () => {
     vi.useFakeTimers();
     vi.setSystemTime(0);
     const component = new ToolCallComponent(
@@ -1317,14 +1181,16 @@ describe('ToolCallComponent', () => {
     });
 
     const out = strip(component.render(120).join('\n'));
+    // The updated/finished older tool must not surface in the summary.
     expect(out).not.toContain('file1-updated.ts');
-    expect(out).toContain('Using Read (file2.ts)');
-    expect(out).toContain('Using Read (file3.ts)');
-    expect(out).toContain('Using Read (file4.ts)');
+    expect(out).not.toContain('file2.ts');
+    expect(out).not.toContain('file3.ts');
+    expect(out).not.toContain('file4.ts');
+    // Only the most recent ongoing tool is shown.
     expect(out).toContain('Using Read (file5.ts)');
   });
 
-  it('wraps single subagent thinking and output with hanging indentation', () => {
+  it('wraps the single subagent active window with a hanging gutter', () => {
     vi.useFakeTimers();
     vi.setSystemTime(0);
     const component = new ToolCallComponent(
@@ -1341,45 +1207,16 @@ describe('ToolCallComponent', () => {
       runInBackground: false,
     });
     component.appendSubagentText(
-      'thinking words that should wrap with a clean hanging indent',
-      'thinking',
-    );
-    component.appendSubagentText(
       'output words that should also wrap with a clean hanging indent',
       'text',
     );
 
-    const lines = strip(component.render(34).join('\n')).split('\n');
-    // Thinking is scrolled to its last two display rows, so the head of the
-    // wrapped paragraph drops and the ◌ marker hangs on the first kept row.
-    expect(lines.some((l) => l.includes('◌ wrap with a clean hanging'))).toBe(true);
-    expect(lines.join('\n')).not.toContain('thinking words that should');
-    expect(lines).toContain('    indent                        ');
-    // Output keeps its full hanging-indent wrap (unchanged behavior).
-    expect(lines).toContain('  └ output words that should also ');
-    expect(lines).toContain('    wrap with a clean hanging     ');
-  });
-
-  it('renders single subagent thinking as Markdown', () => {
-    const component = new ToolCallComponent(
-      {
-        id: 'call_agent_markdown_thinking',
-        name: 'Agent',
-        args: { description: 'inspect Markdown' },
-      },
-      undefined,
-    );
-    component.onSubagentSpawned({
-      agentId: 'sub_markdown_thinking',
-      agentName: 'explore',
-      runInBackground: false,
-    });
-    component.appendSubagentText('Planning **the change** with `checks`', 'thinking');
-
-    const out = strip(component.render(80).join('\n'));
-    expect(out).toContain('Planning the change with checks');
-    expect(out).not.toContain('**');
-    expect(out).not.toContain('`checks`');
+    const joined = strip(component.render(34).join('\n'));
+    // The two-row window drops the head of the wrapped paragraph.
+    expect(joined).not.toContain('output words that should');
+    // Every kept row carries the `│` gutter as a hanging indent.
+    expect(joined).toContain('│ wrap with a clean hanging');
+    expect(joined).toContain('│ indent');
   });
 
   it('scrolls single subagent thinking to the last two display rows', () => {
@@ -1410,7 +1247,7 @@ describe('ToolCallComponent', () => {
     expect(lines.join('\n')).not.toContain('seg00');
   });
 
-  it('shows and truncates a single subagent Bash tool output', () => {
+  it('shows a two-row tail of an ongoing subagent Bash output', () => {
     vi.useFakeTimers();
     vi.setSystemTime(0);
     const component = new ToolCallComponent(
@@ -1432,25 +1269,25 @@ describe('ToolCallComponent', () => {
       args: { command: 'ls -la' },
     });
     const output = Array.from({ length: 10 }, (_, i) => `bash-line-${String(i)}`).join('\n');
-    component.finishSubToolCall({ tool_call_id: 'sub_bash:cmd', output, is_error: false });
+    component.appendSubToolLiveOutput('sub_bash:cmd', output);
 
     let out = strip(component.render(120).join('\n'));
-    expect(out).toContain('Used Bash (ls -la)');
-    expect(out).toContain('bash-line-0');
-    expect(out).toContain('bash-line-2');
-    expect(out).not.toContain('bash-line-3');
-    expect(out).toContain('... (7 more lines)');
-    // Subagent output is fixed-truncated: no ctrl+o promise.
+    expect(out).toContain('Using Bash (ls -la)');
+    // The active window keeps only the last two rows of live output.
+    expect(out).toContain('bash-line-8');
+    expect(out).toContain('bash-line-9');
+    expect(out).not.toContain('bash-line-7');
+    // No ctrl+o promise for the subagent window.
     expect(out).not.toContain('ctrl+o');
 
-    // The global ctrl+o expand toggle must NOT expand subagent output.
+    // The global ctrl+o expand toggle must NOT expand the window.
     component.setExpanded(true);
     out = strip(component.render(120).join('\n'));
-    expect(out).not.toContain('bash-line-9');
-    expect(out).toContain('... (7 more lines)');
+    expect(out).toContain('bash-line-9');
+    expect(out).not.toContain('bash-line-7');
   });
 
-  it('truncates unknown subagent tool output but leaves recognized tools as rows', () => {
+  it('shows live output for generic subagent tools but not for recognized ones', () => {
     vi.useFakeTimers();
     vi.setSystemTime(0);
     const component = new ToolCallComponent(
@@ -1466,6 +1303,7 @@ describe('ToolCallComponent', () => {
       agentName: 'explore',
       runInBackground: false,
     });
+    // A finished recognized tool: its output body never reaches the window.
     component.appendSubToolCall({
       id: 'sub_mixed:read',
       name: 'Read',
@@ -1476,23 +1314,22 @@ describe('ToolCallComponent', () => {
       output: 'recognized-read-body\nhidden-read-line',
       is_error: false,
     });
+    // An ongoing generic (MCP) tool: its live output is the active stream.
     component.appendSubToolCall({
       id: 'sub_mixed:mcp',
       name: 'mcp__server__do',
       args: {},
     });
     const mcpOut = Array.from({ length: 5 }, (_, i) => `mcp-line-${String(i)}`).join('\n');
-    component.finishSubToolCall({ tool_call_id: 'sub_mixed:mcp', output: mcpOut, is_error: false });
+    component.appendSubToolLiveOutput('sub_mixed:mcp', mcpOut);
 
     const out = strip(component.render(120).join('\n'));
-    // Recognized tool: activity row only, no output body.
-    expect(out).toContain('Used Read (foo.ts)');
+    // Recognized tool output never appears.
     expect(out).not.toContain('recognized-read-body');
-    // Unknown/MCP tool: truncated output body, no ctrl+o promise.
-    expect(out).toContain('mcp-line-0');
-    expect(out).toContain('mcp-line-2');
-    expect(out).not.toContain('mcp-line-3');
-    expect(out).toContain('... (2 more lines)');
+    // Generic tool output shows as the two-row active window tail.
+    expect(out).toContain('mcp-line-3');
+    expect(out).toContain('mcp-line-4');
+    expect(out).not.toContain('mcp-line-2');
     expect(out).not.toContain('ctrl+o');
   });
 
@@ -1518,9 +1355,38 @@ describe('ToolCallComponent', () => {
 
     const out = strip(component.render(120).join('\n'));
     expect(out).toContain('Explore Agent Failed (check failure) · 0 tools · 3s');
-    expect(out).toContain('└ subagent exceeded max_steps');
+    expect(out).toContain('│ subagent exceeded max_steps');
     expect(out).not.toContain('Using Agent');
     expect(out).not.toContain('Used Agent');
+  });
+
+  it('keeps the same card height between running and done', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const component = new ToolCallComponent(
+      {
+        id: 'call_agent_height',
+        name: 'Agent',
+        args: { description: 'height stable' },
+      },
+      undefined,
+    );
+    component.onSubagentSpawned({
+      agentId: 'sub_height',
+      agentName: 'explore',
+      runInBackground: false,
+    });
+    component.appendSubToolCall({ id: 'sub_height:read', name: 'Read', args: { path: 'a.ts' } });
+    component.appendSubagentText('short answer', 'text');
+
+    const runningLines = strip(component.render(120).join('\n')).split('\n').length;
+
+    component.onSubagentCompleted({ resultSummary: 'short answer' });
+    component.setResult({ tool_call_id: 'call_agent_height', output: 'done', is_error: false });
+
+    const doneLines = strip(component.render(120).join('\n')).split('\n').length;
+
+    expect(doneLines).toBe(runningLines);
   });
 
   describe('background agent terminal state vs spawn-success ToolResult', () => {

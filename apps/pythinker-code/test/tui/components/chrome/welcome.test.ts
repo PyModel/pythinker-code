@@ -1,13 +1,10 @@
-import { visibleWidth } from '@earendil-works/pi-tui';
+import { visibleWidth } from '@pymodel/pi-tui';
 import chalk from 'chalk';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { WelcomeComponent } from '#/tui/components/chrome/welcome';
-import { DEFAULT_STATUS_LINE_CONFIG } from '#/tui/config';
-import {
-  setRainbowColors,
-  type RainbowColorController,
-} from '#/tui/easter-eggs/rainbow-colors';
+import { setRainbowDance, type RainbowDanceController } from '#/tui/easter-eggs/dance';
+import { darkColors } from '#/tui/theme/colors';
 import type { AppState } from '#/tui/types';
 
 const TRUECOLOR_PATTERN = /\u001B\[38;2;(\d+);(\d+);(\d+)m/g;
@@ -15,11 +12,12 @@ const TRUECOLOR_PATTERN = /\u001B\[38;2;(\d+);(\d+);(\d+)m/g;
 const appState: AppState = {
   version: '1.2.3',
   workDir: '/tmp/project',
+  additionalDirs: [],
   sessionId: 'ses-1',
   sessionTitle: null,
-  model: 'pythinker-k2',
+  model: 'kimi-k2',
   permissionMode: 'manual',
-  thinkingLevel: 'off',
+  thinkingEffort: 'off',
   contextUsage: 0,
   contextTokens: 0,
   maxContextTokens: 0,
@@ -28,12 +26,12 @@ const appState: AppState = {
   streamingPhase: 'idle',
   streamingStartTime: 0,
   planMode: false,
+  inputMode: 'prompt',
   dynamicWorkflowMode: false,
   theme: 'dark',
   editorCommand: null,
   notifications: { enabled: true, condition: 'unfocused' },
   upgrade: { autoInstall: true },
-  statusLine: DEFAULT_STATUS_LINE_CONFIG,
   availableModels: {},
   availableProviders: {},
   mcpServersSummary: null,
@@ -47,60 +45,51 @@ function truecolorCodes(text: string): Set<string> {
   return codes;
 }
 
-/** Header rows that contain the logo or welcome title. */
+/** The two header rows (logo + title) of the rendered welcome box. */
 function headerOf(lines: string[]): string {
-  return lines
-    .filter(
-      (line) => line.includes('●') || line.includes('Welcome to Pythinker — think first, then code.'),
-    )
-    .join('\n');
+  return [lines[3], lines[4]].join('\n');
 }
 
-function setColorsView(colored: boolean, phase: number): void {
-  const colors: RainbowColorController = {
+function setDanceView(colored: boolean, phase: number): void {
+  const dance: RainbowDanceController = {
     colored,
     phase,
     start: () => {},
     stop: () => {},
     dispose: () => {},
   };
-  setRainbowColors(colors);
+  setRainbowDance(dance);
 }
 
 describe('WelcomeComponent', () => {
   const previousChalkLevel = chalk.level;
-  const previousTerm = process.env['TERM'];
 
   beforeEach(() => {
     chalk.level = 3;
-    process.env['TERM'] = 'xterm-256color';
   });
 
   afterEach(() => {
     chalk.level = previousChalkLevel;
-    if (previousTerm === undefined) delete process.env['TERM'];
-    else process.env['TERM'] = previousTerm;
-    setRainbowColors(undefined);
+    setRainbowDance(undefined);
   });
 
-  it('renders the banner with brand palette colors by default', () => {
+  it('renders the banner in a single brand color by default', () => {
     const codes = truecolorCodes(headerOf(new WelcomeComponent(appState).render(80)));
 
-    // Multi-color SVG palette on the logo, but no rainbow flow.
-    expect(codes.size).toBeGreaterThanOrEqual(3);
-    expect(codes.size).toBeLessThan(8);
+    // No rainbow by default — just the brand primary (plus the dim tagline).
+    expect(codes.size).toBeLessThanOrEqual(2);
   });
 
-  it('paints the banner in rainbow while colors are active', () => {
-    setColorsView(true, 0);
-    const codes = truecolorCodes(new WelcomeComponent(appState).render(80).join('\n'));
+  it('paints the banner in rainbow while colored', () => {
+    setDanceView(true, 0);
+    const codes = truecolorCodes(headerOf(new WelcomeComponent(appState).render(80)));
 
     expect(codes.size).toBeGreaterThanOrEqual(5);
   });
 
-  it('renders exactly the default banner when colors are inactive', () => {
+  it('renders exactly the default banner when not colored', () => {
     const base = headerOf(new WelcomeComponent(appState).render(80));
-    setColorsView(false, 5);
+    setDanceView(false, 5);
     const off = headerOf(new WelcomeComponent(appState).render(80));
 
     expect(off).toBe(base);

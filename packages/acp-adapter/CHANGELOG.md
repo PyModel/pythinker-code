@@ -1,5 +1,52 @@
 # @pymodel/acp-adapter
 
+## 0.3.6
+
+### Patch Changes
+
+- Updated dependencies [[`40172c7`](https://github.com/PyModel/pythinker-code/commit/40172c7ca96ca981b043b793588dd32e898979fa), [`40172c7`](https://github.com/PyModel/pythinker-code/commit/40172c7ca96ca981b043b793588dd32e898979fa)]:
+  - @pymodel/agent-core@0.15.7
+  - @pymodel/pythinker-code-sdk@0.15.0
+
+## 0.3.5
+
+### Patch Changes
+
+- Updated dependencies [[`ec88d35`](https://github.com/PyModel/pythinker-code/commit/ec88d352e8f4dc5e8ffd1212f016138458f69893), [`b5efba7`](https://github.com/PyModel/pythinker-code/commit/b5efba7abcaf4041f81ec520097a61e6546e8c50), [`37eda4e`](https://github.com/PyModel/pythinker-code/commit/37eda4e59aebc8ecafa91be3f43f971ed63963a3), [`71bcfba`](https://github.com/PyModel/pythinker-code/commit/71bcfba54a6836f4b6d4e26babde67576b293a64), [`ce0e3ce`](https://github.com/PyModel/pythinker-code/commit/ce0e3ceb04223bdaad8e8931bad46eff561055b6), [`e458323`](https://github.com/PyModel/pythinker-code/commit/e45832398d0d9cad98dbad1cbf1e5b103a20aace), [`b5efba7`](https://github.com/PyModel/pythinker-code/commit/b5efba7abcaf4041f81ec520097a61e6546e8c50)]:
+  - @pymodel/pythinker-code-sdk@0.14.0
+  - @pymodel/agent-core@0.15.6
+
+## 0.3.4
+
+### Patch Changes
+
+- Updated dependencies [[`f0896a5`](https://github.com/PyModel/pythinker-code/commit/f0896a53b01f7e5b9bf5b8f93d2cd7387d765f07)]:
+  - @pymodel/pythinker-code-sdk@0.13.0
+
+## 0.3.3
+
+### Patch Changes
+
+- Updated dependencies [[`b905dd4`](https://github.com/PyModel/pythinker-code/commit/b905dd49108c567d0fecd38a096808c121672795), [`bf35f63`](https://github.com/PyModel/pythinker-code/commit/bf35f63c5d9b53625f3bf04f50b9a0bb49ced2c9), [`ace7901`](https://github.com/PyModel/pythinker-code/commit/ace79010669d19ad175bc25443b6efb41ca2e2ac), [`e47ca10`](https://github.com/PyModel/pythinker-code/commit/e47ca10267e75d0b462f9f54e1ae6fc188521703)]:
+  - @pymodel/agent-core@0.15.0
+  - @pymodel/pythinker-code-sdk@0.12.0
+
+## 0.3.2
+
+### Patch Changes
+
+- Updated dependencies [[`a3f9cec`](https://github.com/PyModel/pythinker-code/commit/a3f9cec8a975f11e37e992e42f954789ed394207), [`108299b`](https://github.com/PyModel/pythinker-code/commit/108299be3cdffc31a23f64efd3ff5ba50976b412)]:
+  - @pymodel/agent-core@0.14.3
+  - @pymodel/pythinker-code-sdk@0.11.0
+
+## 0.3.1
+
+### Patch Changes
+
+- Updated dependencies [[`c0eeca2`](https://github.com/PyModel/pythinker-code/commit/c0eeca24692edd736eecd3c2541d7566bac9f80f), [`2730079`](https://github.com/PyModel/pythinker-code/commit/27300797f2149900219b05dda49dce65e71fa85a), [`ba64072`](https://github.com/PyModel/pythinker-code/commit/ba64072559c1e9bb3447ede39991ac2e8bdb7645)]:
+  - @pymodel/agent-core@0.14.0
+  - @pymodel/pythinker-code-sdk@0.10.0
+
 ## 0.3.0
 
 ### Minor Changes

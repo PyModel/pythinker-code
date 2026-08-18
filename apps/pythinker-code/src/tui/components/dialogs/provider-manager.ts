@@ -42,7 +42,7 @@ import {
   truncateToWidth,
   visibleWidth,
   type Focusable,
-} from '@earendil-works/pi-tui';
+} from '@pymodel/pi-tui';
 
 import { combinedBindingHint, formatBindingKeys } from '#/tui/components/dialogs/choice-picker';
 import { CURRENT_MARK, SELECT_POINTER } from '#/tui/constant/symbols';

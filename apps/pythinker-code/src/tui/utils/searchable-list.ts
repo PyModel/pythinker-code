@@ -6,7 +6,7 @@
  * paging, and search state.
  */
 
-import { fuzzyFilter, Key, matchesKey } from '@earendil-works/pi-tui';
+import { fuzzyFilter, Key, matchesKey } from '@pymodel/pi-tui';
 
 import { pageView, type PageView } from './paging';
 import { isPrintableChar, printableChar } from './printable-key';

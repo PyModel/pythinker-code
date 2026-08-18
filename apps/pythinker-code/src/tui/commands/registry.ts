@@ -1,4 +1,8 @@
-import type { AutocompleteItem } from '@earendil-works/pi-tui';
+import { readdirSync, statSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { basename, dirname, join, relative, resolve } from 'pathe';
+
+import type { AutocompleteItem } from '@pymodel/pi-tui';
 
 import { completeLeadingArg, type ArgCompletionSpec } from './complete-args';
 import type { PythinkerSlashCommand, SlashCommandAvailability } from './types';
@@ -18,45 +22,12 @@ const GOAL_NEXT_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
 ];
 
 const DYNAMIC_WORKFLOW_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
-  { value: 'on', description: 'Turn Dynamic Workflow mode on' },
-  { value: 'off', description: 'Turn Dynamic Workflow mode off' },
-  { value: 'model', description: 'Set the model Dynamic Workflow subagents run on' },
-  { value: 'save', description: 'Save the last Dynamic Workflow as a reusable command' },
+  { value: 'on', description: 'Turn dynamic_workflow mode on' },
+  { value: 'off', description: 'Turn dynamic_workflow mode off' },
 ];
 
-const FAST_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
-  { value: 'on', description: 'Turn Fast mode on' },
-  { value: 'off', description: 'Turn Fast mode off' },
-  { value: 'status', description: 'Show Fast mode status' },
-];
-const ADVISOR_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
-  { value: 'status', description: 'Show advisor status' },
-  { value: 'on', description: 'Enable the advisor' },
-  { value: 'off', description: 'Disable the advisor' },
-  { value: 'toggle', description: 'Toggle the advisor' },
-  { value: 'reload', description: 'Reload WATCHDOG configuration' },
-];
-
-const COLORS_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
-  { value: 'on', description: 'Keep rainbow colors on' },
-  { value: 'off', description: 'Turn rainbow colors off' },
-];
-
-const PLUGIN_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
-  { value: 'list', description: 'List installed plugins' },
-  { value: 'install', description: 'Install a plugin from a path or ZIP URL' },
-  { value: 'marketplace', description: 'Browse the plugin marketplace' },
-  { value: 'info', description: 'Show details for one plugin' },
-  { value: 'enable', description: 'Enable a plugin' },
-  { value: 'disable', description: 'Disable a plugin' },
-  { value: 'remove', description: 'Remove a plugin from the session' },
-  { value: 'reload', description: 'Reload plugins in the current session' },
-  { value: 'mcp', description: 'Manage plugin-declared MCP servers' },
-];
-
-const PLUGIN_MCP_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
-  { value: 'enable', description: 'Enable one plugin MCP server' },
-  { value: 'disable', description: 'Disable one plugin MCP server' },
+const ADD_DIR_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
+  { value: 'list', description: 'Show configured additional workspace directories' },
 ];
 
 /** Argument autocompletion for the `/goal` command (subcommands). */
@@ -73,60 +44,107 @@ export function goalArgumentCompletions(argumentPrefix: string): AutocompleteIte
   return completeLeadingArg(GOAL_ARG_COMPLETIONS, argumentPrefix);
 }
 
-/** Argument autocompletion for the `/workflow` command (subcommands). */
-export function dynamicWorkflowArgumentCompletions(argumentPrefix: string): AutocompleteItem[] | null {
+/** Argument autocompletion for the `/dynamic_workflow` command (subcommands). */
+export function dynamic_workflowArgumentCompletions(argumentPrefix: string): AutocompleteItem[] | null {
   return completeLeadingArg(DYNAMIC_WORKFLOW_ARG_COMPLETIONS, argumentPrefix);
 }
 
-/** Argument autocompletion for the `/fast` command. */
-export function fastArgumentCompletions(argumentPrefix: string): AutocompleteItem[] | null {
-  return completeLeadingArg(FAST_ARG_COMPLETIONS, argumentPrefix);
-}
-/** Argument autocompletion for the `/advisor` command. */
-export function advisorArgumentCompletions(argumentPrefix: string): AutocompleteItem[] | null {
-  return completeLeadingArg(ADVISOR_ARG_COMPLETIONS, argumentPrefix);
-}
-
-/** Argument autocompletion for the `/colors` command. */
-export function colorsArgumentCompletions(argumentPrefix: string): AutocompleteItem[] | null {
-  return completeLeadingArg(COLORS_ARG_COMPLETIONS, argumentPrefix);
-}
-
-/** Argument autocompletion for the `/plugins` command (subcommands). */
-export function pluginsArgumentCompletions(argumentPrefix: string): AutocompleteItem[] | null {
-  const mcpMatch = argumentPrefix.match(/^mcp\s+(\S*)$/i);
-  if (mcpMatch !== null) {
-    return (
-      completeLeadingArg(PLUGIN_MCP_ARG_COMPLETIONS, mcpMatch[1] ?? '')?.map((item) => ({
-        ...item,
-        value: `mcp ${item.value}`,
-      })) ?? null
-    );
+/** Argument autocompletion for the `/add-dir` command. */
+export function addDirArgumentCompletions(argumentPrefix: string): AutocompleteItem[] | null {
+  if (isPathLikeAddDirArgument(argumentPrefix)) {
+    return completeAddDirPath(argumentPrefix);
   }
-  return completeLeadingArg(PLUGIN_ARG_COMPLETIONS, argumentPrefix);
+  return completeLeadingArg(ADD_DIR_ARG_COMPLETIONS, argumentPrefix);
+}
+
+function isPathLikeAddDirArgument(argumentPrefix: string): boolean {
+  return argumentPrefix === '.' || argumentPrefix === '..' || argumentPrefix.startsWith('./') || argumentPrefix.startsWith('../') || argumentPrefix.startsWith('/') || argumentPrefix.startsWith('~');
+}
+
+function completeAddDirPath(argumentPrefix: string): AutocompleteItem[] | null {
+  const normalizedPrefix = argumentPrefix === '~' ? '~/' : argumentPrefix;
+  const expandedPrefix = expandHomePrefix(normalizedPrefix);
+  const parentInput = getDirectoryCompletionParentInput(normalizedPrefix, expandedPrefix);
+  const partialName = normalizedPrefix.endsWith('/') ? '' : basename(expandedPrefix);
+  const parentDir = resolveDirectoryCompletionParent(parentInput);
+  let entries;
+  try {
+    entries = readdirSync(parentDir, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+
+  const items: AutocompleteItem[] = [];
+  for (const entry of entries) {
+    if (entry.name === '.' || entry.name === '..' || entry.name.startsWith('.')) continue;
+    if (partialName.length > 0 && !entry.name.toLowerCase().startsWith(partialName.toLowerCase())) continue;
+    const absolutePath = join(parentDir, entry.name);
+    if (!isDirectoryPath(absolutePath, entry.isDirectory(), entry.isSymbolicLink())) continue;
+    const value = formatDirectoryCompletionValue(normalizedPrefix, parentInput, entry.name);
+    items.push({
+      value,
+      label: `${entry.name}/`,
+      description: absolutePath,
+    });
+  }
+
+  return items.length > 0 ? items : null;
+}
+
+function expandHomePrefix(argumentPrefix: string): string {
+  if (argumentPrefix === '~') return homedir();
+  if (argumentPrefix.startsWith('~/')) return join(homedir(), argumentPrefix.slice(2));
+  return argumentPrefix;
+}
+
+function getDirectoryCompletionParentInput(argumentPrefix: string, expandedPrefix: string): string {
+  if (argumentPrefix === '/') return '/';
+  if (argumentPrefix === '~/') return homedir();
+  if (argumentPrefix.endsWith('/')) return expandedPrefix.slice(0, -1);
+  return dirname(expandedPrefix);
+}
+
+function resolveDirectoryCompletionParent(parentInput: string): string {
+  if (parentInput === '~') return homedir();
+  if (parentInput.startsWith('~/')) return join(homedir(), parentInput.slice(2));
+  return resolve(parentInput);
+}
+
+function isDirectoryPath(path: string, isDirectory: boolean, isSymlink: boolean): boolean {
+  if (isDirectory) return true;
+  if (!isSymlink) return false;
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function formatDirectoryCompletionValue(argumentPrefix: string, parentInput: string, entryName: string): string {
+  if (argumentPrefix.startsWith('~/')) {
+    const home = homedir();
+    const homeRelative = relative(home, parentInput);
+    return `~${homeRelative.length > 0 ? `/${homeRelative}` : ''}/${entryName}/`;
+  }
+  if (argumentPrefix.startsWith('/')) {
+    return `${join(parentInput, entryName)}/`;
+  }
+  return `${join(parentInput, entryName)}/`;
 }
 
 export const BUILTIN_SLASH_COMMANDS = [
   {
-    name: 'colors',
-    aliases: [],
-    description: 'Animate or toggle rainbow colors',
-    priority: 100,
-    completeArgs: colorsArgumentCompletions,
-    availability: 'always',
-  },
-  {
     name: 'yolo',
     aliases: ['yes'],
     description: 'Toggle YOLO mode: auto-approve tool actions, but the agent may still ask questions.',
-    priority: 100,
+    priority: 101,
     availability: 'always',
   },
   {
     name: 'auto',
     aliases: [],
     description: 'Toggle Auto mode: fully autonomous, agent decides everything without asking.',
-    priority: 100,
+    priority: 99,
     availability: 'always',
   },
   {
@@ -137,23 +155,9 @@ export const BUILTIN_SLASH_COMMANDS = [
     availability: 'always',
   },
   {
-    name: 'permissions',
-    aliases: ['allowed-tools'],
-    description: 'Manage allow, ask, and deny permission rules',
-    priority: 100,
-    availability: 'idle-only',
-  },
-  {
     name: 'settings',
     aliases: ['config'],
     description: 'Open TUI settings',
-    priority: 100,
-    availability: 'always',
-  },
-  {
-    name: 'privacy-settings',
-    aliases: [],
-    description: 'View or update telemetry privacy settings',
     priority: 100,
     availability: 'always',
   },
@@ -165,45 +169,35 @@ export const BUILTIN_SLASH_COMMANDS = [
     availability: (args) => (args.trim().toLowerCase() === 'clear' ? 'idle-only' : 'always'),
   },
   {
-    name: 'workflow',
+    name: 'dynamic_workflow',
     aliases: [],
-    description: 'Toggle Dynamic Workflow, set its subagent model, or run a task in parallel',
+    description: 'Toggle dynamic_workflow mode or run one task in dynamic_workflow mode',
     priority: 100,
-    completeArgs: dynamicWorkflowArgumentCompletions,
+    argumentHint: '[on|off] | <task>',
+    completeArgs: dynamic_workflowArgumentCompletions,
     availability: 'idle-only',
   },
   {
     name: 'model',
     aliases: [],
-    description: 'Switch model; assign with /model <role>, clear it, or list /model roles',
+    description: 'Switch LLM model',
     priority: 100,
     availability: 'always',
+  },
+  {
+    name: 'secondary_model',
+    aliases: [],
+    description: 'Configure the secondary model for subagents',
+    priority: 90,
+    availability: 'always',
+    experimentalFlag: 'secondary-model',
   },
   {
     name: 'effort',
-    aliases: [],
-    description: 'Set thinking effort for the current model',
-    priority: 100,
-    availability: 'always',
-  },
-  {
-    name: 'fast',
-    aliases: [],
-    description: 'Toggle provider-native Fast mode',
-    priority: 100,
-    completeArgs: fastArgumentCompletions,
-    availability: (args) => args.trim().toLowerCase() === 'status' ? 'always' : 'idle-only',
-  },
-  {
-    name: 'advisor',
-    aliases: [],
-    description: 'Show or control the second-opinion advisor',
+    aliases: ['thinking'],
+    description: 'Switch thinking effort',
     priority: 95,
-    completeArgs: advisorArgumentCompletions,
-    availability: (args) => {
-      const verb = args.trim().toLowerCase();
-      return verb === '' || verb === 'status' ? 'always' : 'idle-only';
-    },
+    availability: 'always',
   },
   {
     name: 'provider',
@@ -228,19 +222,19 @@ export const BUILTIN_SLASH_COMMANDS = [
   },
   {
     name: 'new',
-    aliases: ['clear', 'reset'],
+    aliases: ['clear'],
     description: 'Start a fresh session in the current workspace',
     priority: 80,
   },
   {
     name: 'sessions',
-    aliases: ['resume', 'continue'],
+    aliases: ['resume'],
     description: 'Browse and resume sessions',
     priority: 80,
   },
   {
     name: 'tasks',
-    aliases: ['task', 'bashes'],
+    aliases: ['task'],
     description: 'Browse background tasks',
     priority: 80,
     availability: 'always',
@@ -253,75 +247,20 @@ export const BUILTIN_SLASH_COMMANDS = [
     availability: 'always',
   },
   {
-    name: 'files',
-    aliases: [],
-    description: 'List files currently loaded in context',
-    priority: 60,
-    availability: 'always',
-  },
-  {
-    name: 'hooks',
-    aliases: [],
-    description: 'View configured hooks',
-    priority: 60,
-    availability: 'always',
-  },
-  {
-    name: 'doctor',
-    aliases: [],
-    description: 'Check configuration and keybindings',
-    priority: 60,
-    availability: 'always',
-  },
-  {
-    name: 'update',
-    aliases: ['upgrade'],
-    description: 'Update Pythinker Code to the latest version',
-    priority: 60,
-    availability: 'always',
-  },
-  {
-    name: 'debug',
-    aliases: [],
-    description: 'Analyze the current session diagnostic log',
-    priority: 60,
-  },
-  {
-    name: 'heapdump',
-    aliases: [],
-    description: 'Dump the JavaScript heap to ~/Desktop',
-    priority: 60,
-    availability: 'always',
-    hidden: true,
-  },
-  {
     name: 'plugins',
-    aliases: ['plugin'],
+    aliases: [],
     description: 'Manage plugins',
     priority: 60,
-    completeArgs: pluginsArgumentCompletions,
     availability: 'always',
   },
   {
-    name: 'reload-plugins',
+    name: 'add-dir',
     aliases: [],
-    description: 'Activate plugin changes in the current session',
+    description: 'Add or list an additional workspace directory',
     priority: 60,
     availability: 'idle-only',
-  },
-  {
-    name: 'skills',
-    aliases: [],
-    description: 'List available skills',
-    priority: 60,
-    availability: 'always',
-  },
-  {
-    name: 'agents',
-    aliases: [],
-    description: 'Browse resolved agent profiles',
-    priority: 60,
-    availability: 'always',
+    argumentHint: '[list] | <path>',
+    completeArgs: addDirArgumentCompletions,
   },
   {
     name: 'experiments',
@@ -345,71 +284,18 @@ export const BUILTIN_SLASH_COMMANDS = [
     availability: 'always',
   },
   {
-    name: 'release-notes',
-    aliases: [],
-    description: 'View release notes',
-    priority: 60,
-    availability: 'always',
-  },
-  {
-    name: 'review',
-    aliases: [],
-    description: 'Review a pull request',
-    priority: 60,
-  },
-  {
-    name: 'security-review',
-    aliases: [],
-    description: 'Review branch changes for security vulnerabilities',
-    priority: 60,
-  },
-  {
-    name: 'pr-comments',
-    aliases: [],
-    description: 'Show GitHub pull request comments',
-    priority: 60,
-  },
-  {
-    name: 'commit',
-    aliases: [],
-    description: 'Create a git commit',
-    priority: 60,
-  },
-  {
-    name: 'commit-push-pr',
-    aliases: [],
-    description: 'Commit, push, and open a pull request',
-    priority: 60,
-  },
-  {
     name: 'compact',
     aliases: [],
     description: 'Compact the conversation context',
     priority: 80,
-  },
-  {
-    name: 'copy',
-    aliases: [],
-    description: 'Copy a recent assistant response or code block',
-    priority: 80,
-    availability: 'always',
-  },
-  {
-    name: 'add-dir',
-    aliases: [],
-    description: 'Add another working directory',
-    priority: 80,
-    availability: 'idle-only',
+    argumentHint: '<instruction>',
   },
   {
     name: 'goal',
     aliases: [],
     description: 'Start or manage an autonomous goal',
     priority: 80,
-    // No argumentHint: the menu description stays as short as every other
-    // command's. The subcommands (status/pause/resume/cancel/replace) surface in
-    // the argument autocomplete list once the user types `/goal ` (see
-    // completeArgs), so they don't need to be spelled out inline.
+    argumentHint: '[status|pause|resume|cancel|replace|next] | <objective>',
     completeArgs: goalArgumentCompletions,
     // status / pause / cancel are always available; creation, replacement, and
     // resume start (or restart) a turn and so are idle-only.
@@ -427,15 +313,9 @@ export const BUILTIN_SLASH_COMMANDS = [
     description: 'Analyze the codebase and generate AGENTS.md',
   },
   {
-    name: 'init-verifiers',
-    aliases: [],
-    description: 'Create functional verifier skills for this project',
-    priority: 60,
-  },
-  {
     name: 'fork',
-    aliases: ['branch'],
-    description: 'Fork the current session',
+    aliases: [],
+    description: 'Fork the current session into a copy without switching to it',
     priority: 80,
   },
   {
@@ -443,6 +323,7 @@ export const BUILTIN_SLASH_COMMANDS = [
     aliases: ['rename'],
     description: 'Set or show session title',
     priority: 60,
+    argumentHint: '<title>',
     availability: 'always',
   },
   {
@@ -453,44 +334,9 @@ export const BUILTIN_SLASH_COMMANDS = [
     availability: 'always',
   },
   {
-    name: 'cost',
-    aliases: [],
-    description: 'Show session spend and current model token rates',
-    priority: 60,
-    availability: 'always',
-  },
-  {
-    name: 'context',
-    aliases: [],
-    description: 'Show what is using the model context window',
-    priority: 60,
-    availability: 'always',
-  },
-  {
-    name: 'memory',
-    aliases: [],
-    description: 'Edit user or project memory',
-    priority: 60,
-    availability: 'always',
-  },
-  {
-    name: 'diff',
-    aliases: [],
-    description: 'Inspect uncommitted working-tree changes',
-    priority: 60,
-    availability: 'always',
-  },
-  {
     name: 'status',
     aliases: [],
     description: 'Show current session and runtime status',
-    priority: 60,
-    availability: 'always',
-  },
-  {
-    name: 'tag',
-    aliases: [],
-    description: 'Toggle a searchable tag on the current session',
     priority: 60,
     availability: 'always',
   },
@@ -503,7 +349,7 @@ export const BUILTIN_SLASH_COMMANDS = [
   },
   {
     name: 'undo',
-    aliases: ['rewind'],
+    aliases: [],
     description: 'Withdraw the last prompt from the transcript',
     priority: 80,
     availability: 'idle-only',
@@ -516,37 +362,9 @@ export const BUILTIN_SLASH_COMMANDS = [
     availability: 'always',
   },
   {
-    name: 'keybindings',
-    aliases: [],
-    description: 'Open or create the keybindings configuration',
-    priority: 60,
-    availability: 'always',
-  },
-  {
-    name: 'terminal-setup',
-    aliases: [],
-    description: 'Check multiline input support',
-    priority: 60,
-    availability: 'always',
-  },
-  {
     name: 'theme',
     aliases: [],
     description: 'Set the terminal UI theme',
-    priority: 60,
-    availability: 'always',
-  },
-  {
-    name: 'vim',
-    aliases: [],
-    description: 'Toggle between Vim and normal editing modes',
-    priority: 60,
-    availability: 'always',
-  },
-  {
-    name: 'output-style',
-    aliases: ['outputstyle'],
-    description: 'Set the response output style',
     priority: 60,
     availability: 'always',
   },
@@ -558,7 +376,7 @@ export const BUILTIN_SLASH_COMMANDS = [
   },
   {
     name: 'login',
-    aliases: ['connect'],
+    aliases: [],
     description: 'Select a platform and authenticate',
     priority: 40,
   },
@@ -575,9 +393,15 @@ export const BUILTIN_SLASH_COMMANDS = [
     priority: 40,
   },
   {
+    name: 'copy',
+    aliases: [],
+    description: 'Copy the last assistant message to the clipboard',
+    priority: 40,
+  },
+  {
     name: 'web',
     aliases: [],
-    description: 'Open the current session in the Web UI and exit the terminal',
+    description: 'Open the current session in the Web UI by starting a new server',
     priority: 40,
     availability: 'always',
   },

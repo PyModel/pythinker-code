@@ -1,6 +1,9 @@
 import { readApiErrorMessage } from './api-error';
+import { CUSTOM_REGISTRY_MODEL_FIELDS, mergeRefreshedModelAlias } from './model-alias-merge';
 import { isRecord } from './utils';
-import type { PlatformConfigShape } from './open-platform';
+import type { ManagedPythinkerConfigShape, ManagedPythinkerModelAlias } from './managed-pythinker-code';
+
+export type { ManagedPythinkerConfigShape };
 
 /**
  * Identifies where a custom-registry-managed provider came from. The same
@@ -15,6 +18,12 @@ export interface CustomRegistrySource {
   readonly apiKey: string;
 }
 
+export interface FetchCustomRegistryOptions {
+  readonly signal?: AbortSignal;
+  readonly fetchImpl?: typeof fetch;
+  readonly userAgent?: string;
+}
+
 /**
  * The kosong `ProviderConfig` union (`packages/kosong/src/providers/index.ts`)
  * mirrors these literal values. `pythinker` is included because the api.json schema
@@ -26,12 +35,6 @@ export type CustomRegistryProviderType =
   | 'openai_responses'
   | 'pythinker';
 
-/**
- * One model entry inside a custom-registry provider's `models` map. The alias
- * key in `config.models` is `${providerId}/${modelId}`; `limit.context` and
- * `limit.output` drive `maxContextSize`, and the optional rich fields map to
- * kosong capabilities.
- */
 export interface CustomRegistryModelEntry {
   readonly id: string;
   readonly name?: string;
@@ -42,13 +45,10 @@ export interface CustomRegistryModelEntry {
     input?: readonly string[];
     output?: readonly string[];
   };
+  readonly support_efforts?: readonly string[];
+  readonly default_effort?: string;
 }
 
-/**
- * One provider entry from an api.json document. `id` doubles as the provider
- * key in `config.providers`; `env` lists environment variable names the API
- * key may also be sourced from.
- */
 export interface CustomRegistryProviderEntry {
   readonly id: string;
   readonly name: string;
@@ -110,6 +110,8 @@ function toModelEntry(value: unknown): CustomRegistryModelEntry | undefined {
     tool_call?: boolean;
     reasoning?: boolean;
     modalities?: { input?: readonly string[]; output?: readonly string[] };
+    support_efforts?: readonly string[];
+    default_effort?: string;
   } = { id };
 
   const name = value['name'];
@@ -133,6 +135,13 @@ function toModelEntry(value: unknown): CustomRegistryModelEntry | undefined {
 
   if (typeof value['tool_call'] === 'boolean') entry.tool_call = value['tool_call'];
   if (typeof value['reasoning'] === 'boolean') entry.reasoning = value['reasoning'];
+
+  const supportEfforts = toStringArrayOrUndefined(value['support_efforts']);
+  if (supportEfforts !== undefined) entry.support_efforts = supportEfforts;
+  const defaultEffort = value['default_effort'];
+  if (typeof defaultEffort === 'string' && defaultEffort.length > 0) {
+    entry.default_effort = defaultEffort;
+  }
 
   const modalities = value['modalities'];
   if (isRecord(modalities)) {
@@ -186,15 +195,21 @@ function toProviderEntry(value: unknown): CustomRegistryProviderEntry | undefine
  * Fetches and validates an api.json document. The returned record is keyed by
  * the top-level provider key in the document (which may differ from
  * `entry.id`); callers should iterate `Object.values` to apply each entry.
+ *
+ * `userAgent` identifies the host product (e.g. `pythinker-code-cli/1.2.3`); when
+ * omitted the request falls back to the runtime default (`User-Agent: node`).
  */
 export async function fetchCustomRegistry(
   source: CustomRegistrySource,
-  fetchImpl: typeof fetch = fetch,
-  signal?: AbortSignal,
+  options: FetchCustomRegistryOptions = {},
 ): Promise<Record<string, CustomRegistryProviderEntry>> {
+  const { signal, fetchImpl = fetch, userAgent } = options;
   const headers: Record<string, string> = {
     Accept: 'application/json',
   };
+  if (userAgent !== undefined) {
+    headers['User-Agent'] = userAgent;
+  }
   if (source.apiKey.length > 0) {
     headers['Authorization'] = `Bearer ${source.apiKey}`;
   }
@@ -246,7 +261,11 @@ export async function fetchCustomRegistry(
 export function capabilitiesFromCustomEntry(model: CustomRegistryModelEntry): string[] {
   const caps = new Set<string>();
   if (model.tool_call === true) caps.add('tool_use');
-  if (model.reasoning === true) caps.add('thinking');
+  // Declaring concrete effort levels implies thinking support even when the
+  // legacy `reasoning` boolean is absent.
+  if (model.reasoning === true || (model.support_efforts?.length ?? 0) > 0) {
+    caps.add('thinking');
+  }
   if (model.modalities?.input?.includes('image') === true) caps.add('image_in');
   if (model.modalities?.input?.includes('video') === true) caps.add('video_in');
   if (model.modalities?.output?.includes('image') === true) caps.add('image_out');
@@ -258,7 +277,8 @@ function hasRichCapabilityHints(model: CustomRegistryModelEntry): boolean {
   return (
     typeof model.tool_call === 'boolean' ||
     typeof model.reasoning === 'boolean' ||
-    model.modalities !== undefined
+    model.modalities !== undefined ||
+    model.support_efforts !== undefined
   );
 }
 
@@ -286,11 +306,11 @@ function resolveCapabilities(model: CustomRegistryModelEntry): string[] {
  * Mirrors `applyOpenPlatformConfig`'s shape: provider goes to `config.providers`
  * keyed by `entry.id`, each model in `entry.models` becomes an alias under
  * `config.models[\`${entry.id}/${modelId}\`]`. The `source` blob is parked on the
- * provider object via `ManagedKimiProviderConfig`'s index signature so the
+ * provider object via `ManagedPythinkerProviderConfig`'s index signature so the
  * refresh dispatcher can rediscover it later.
  */
 export function applyCustomRegistryProvider(
-  config: PlatformConfigShape,
+  config: ManagedPythinkerConfigShape,
   entry: CustomRegistryProviderEntry,
   source: CustomRegistrySource,
 ): void {
@@ -304,10 +324,15 @@ export function applyCustomRegistryProvider(
   };
 
   const existingModels = config.models ?? {};
-  // Drop stale aliases for the same provider before re-populating, mirroring
-  // applyOpenPlatformConfig's refresh semantics.
+  // Selectively merge upstream models into the existing config so any fields
+  // the user added by hand (or that upstream does not declare) survive a
+  // refresh. Models that upstream no longer lists are removed; the rest are
+  // merged field-by-field.
+  const upstreamKeys = new Set(
+    Object.keys(entry.models).map((modelKey) => `${providerKey}/${modelKey}`),
+  );
   for (const [key, alias] of Object.entries(existingModels)) {
-    if (isRecord(alias) && alias['provider'] === providerKey) {
+    if (isRecord(alias) && alias['provider'] === providerKey && !upstreamKeys.has(key)) {
       delete existingModels[key];
     }
   }
@@ -318,14 +343,22 @@ export function applyCustomRegistryProvider(
     const capabilities = resolveCapabilities(model);
     const displayName =
       typeof model.name === 'string' && model.name.length > 0 ? model.name : model.id;
+    const existing = isRecord(existingModels[aliasKey]) ? existingModels[aliasKey] : {};
 
-    existingModels[aliasKey] = {
+    const remoteAlias: ManagedPythinkerModelAlias = {
       provider: providerKey,
       model: model.id,
       maxContextSize,
       capabilities,
       displayName,
+      ...(model.support_efforts !== undefined ? { supportEfforts: model.support_efforts } : {}),
+      ...(model.default_effort !== undefined ? { defaultEffort: model.default_effort } : {}),
     };
+    existingModels[aliasKey] = mergeRefreshedModelAlias(
+      existing,
+      remoteAlias,
+      CUSTOM_REGISTRY_MODEL_FIELDS,
+    );
   }
 
   config.models = existingModels;
@@ -337,7 +370,7 @@ export function applyCustomRegistryProvider(
  * `removeOpenPlatformConfig`.
  */
 export function removeCustomRegistryProvider(
-  config: PlatformConfigShape,
+  config: ManagedPythinkerConfigShape,
   providerId: string,
 ): void {
   delete config.providers[providerId];
@@ -381,12 +414,10 @@ export function removeCustomRegistryProvider(
  * registry".
  */
 export function applyCustomRegistryEntries(
-  config: PlatformConfigShape,
+  config: ManagedPythinkerConfigShape,
   entries: Record<string, CustomRegistryProviderEntry>,
   source: CustomRegistrySource,
 ): void {
-  const previousDefaultProvider = config['defaultProvider'];
-  const previousDefaultModel = config.defaultModel;
   const surviving = new Set(Object.values(entries).map((entry) => entry.id));
   for (const [providerId, provider] of Object.entries(config.providers)) {
     if (surviving.has(providerId)) continue;
@@ -407,17 +438,4 @@ export function applyCustomRegistryEntries(
     }
     applyCustomRegistryProvider(config, entry, source);
   }
-
-  // Re-importing a surviving provider clears defaultProvider/defaultModel via
-  // the remove step above, so restore both when their targets still exist;
-  // defaults pointing at removed providers stay cleared.
-  config['defaultProvider'] =
-    typeof previousDefaultProvider === 'string' &&
-    config.providers[previousDefaultProvider] !== undefined
-      ? previousDefaultProvider
-      : undefined;
-  config.defaultModel =
-    previousDefaultModel !== undefined && config.models?.[previousDefaultModel] !== undefined
-      ? previousDefaultModel
-      : undefined;
 }

@@ -9,18 +9,9 @@ import {
   truncateToWidth,
   visibleWidth,
   type Focusable,
-} from '@earendil-works/pi-tui';
+} from '@pymodel/pi-tui';
+import { formatSessionLabel } from '#/migration/index';
 import { CURRENT_MARK, SELECT_POINTER } from '#/tui/constant/symbols';
-import {
-  combinedBindingHint,
-  formatBindingKeys,
-} from '#/tui/components/dialogs/choice-picker';
-import {
-  defaultKeybindings,
-  keybindingDisplayText,
-  KeybindingResolver,
-  type ParsedKeybinding,
-} from '#/tui/keybindings';
 import { currentTheme } from '#/tui/theme';
 import { SearchableList } from '#/tui/utils/searchable-list';
 
@@ -84,14 +75,7 @@ function singleLine(text: string): string {
 }
 
 function sessionSearchText(session: SessionRow): string {
-  return singleLine(
-    `${(session.title ?? session.id).trim() || session.id} ${sessionTag(session) ?? ''}`,
-  );
-}
-
-function sessionTag(session: SessionRow): string | undefined {
-  const value = session.metadata?.['tag'];
-  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+  return singleLine((session.title ?? session.id).trim() || session.id);
 }
 
 export class SessionPickerComponent extends Container implements Focusable {
@@ -106,8 +90,6 @@ export class SessionPickerComponent extends Container implements Focusable {
   private scope: 'cwd' | 'all';
   private loading: boolean;
   private list: SearchableList<SessionRow>;
-  private bindings = defaultKeybindings();
-  private keybindings = new KeybindingResolver(this.bindings);
 
   focused = false;
 
@@ -158,11 +140,6 @@ export class SessionPickerComponent extends Container implements Focusable {
     return Math.max(index, 0);
   }
 
-  setKeybindings(bindings: readonly ParsedKeybinding[]): void {
-    this.bindings = bindings;
-    this.keybindings = new KeybindingResolver(bindings);
-  }
-
   private filteredSessions(): readonly SessionRow[] {
     return this.list.view().items;
   }
@@ -185,29 +162,6 @@ export class SessionPickerComponent extends Container implements Focusable {
   }
 
   handleInput(data: string): void {
-    const previousQuery = this.list.view().query;
-    const handlers = {
-      'select:previous': () => {
-        this.list.moveUp();
-        this.syncVisibleCount(previousQuery);
-      },
-      'select:next': () => {
-        this.list.moveDown();
-        this.syncVisibleCount(previousQuery);
-      },
-      'select:accept': () => {
-        const session = this.list.selected();
-        if (session) this.onSelect(session);
-      },
-      'select:cancel': () => {
-        if (this.list.clearQuery()) this.visibleCount = Math.min(this.filteredSessions().length, this.pageSize);
-        else this.onCancel();
-      },
-    } as const;
-    if (
-      this.keybindings.dispatch(data, ['Select'], handlers) ||
-      this.keybindings.dispatchKeyId(data, ['Select'], handlers)
-    ) return;
     if (matchesKey(data, Key.ctrl('c'))) {
       this.onCtrlC?.();
       return;
@@ -220,17 +174,22 @@ export class SessionPickerComponent extends Container implements Focusable {
       this.onToggleScope?.(this.list.selected()?.id ?? this.currentSessionId);
       return;
     }
-    if (matchesKey(data, Key.pageUp)) {
-      this.list.pageUp();
-      this.syncVisibleCount(previousQuery);
+    if (matchesKey(data, Key.escape)) {
+      if (this.list.clearQuery()) {
+        this.visibleCount = Math.min(this.filteredSessions().length, this.pageSize);
+        return;
+      }
+      this.onCancel();
       return;
     }
-    if (matchesKey(data, Key.pageDown)) {
-      this.list.pageDown();
-      this.syncVisibleCount(previousQuery);
+    if (matchesKey(data, Key.enter)) {
+      const session = this.list.selected();
+      if (session) this.onSelect(session);
       return;
     }
-    if (this.list.handleSearchKey(data)) {
+
+    const previousQuery = this.list.view().query;
+    if (this.list.handleKey(data)) {
       this.syncVisibleCount(previousQuery);
     }
   }
@@ -256,38 +215,44 @@ export class SessionPickerComponent extends Container implements Focusable {
           : 'Ctrl+A all';
 
     if (this.loading) {
-      lines.push(currentTheme.boldFg('primary', truncateToWidth(title, width, ELLIPSIS)), currentTheme.fg('textMuted', truncateToWidth('Loading sessions...', width, ELLIPSIS)), currentTheme.fg('primary', '─'.repeat(width)));
+      lines.push(currentTheme.boldFg('primary', truncateToWidth(title, width, ELLIPSIS)));
+      lines.push(
+        currentTheme.fg('textMuted', truncateToWidth('Loading sessions...', width, ELLIPSIS)),
+      );
+      lines.push(currentTheme.fg('primary', '─'.repeat(width)));
       return lines;
     }
 
     if (this.sessions.length === 0) {
-      const cancel = keybindingDisplayText(this.bindings, 'Select', 'select:cancel');
-      const hintParts = [scopeHint, cancel === undefined ? undefined : `${formatBindingKeys(cancel)} cancel`].filter(
+      const hintParts = [scopeHint, 'Esc cancel'].filter(
         (item): item is string => item !== undefined,
       );
-      lines.push(currentTheme.boldFg('primary', truncateToWidth(title, width, ELLIPSIS)), currentTheme.fg('textMuted', truncateToWidth(hintParts.join(' · '), width, ELLIPSIS)), '', currentTheme.fg('textMuted', truncateToWidth('No sessions found.', width, ELLIPSIS)), currentTheme.fg('primary', '─'.repeat(width)));
+      lines.push(currentTheme.boldFg('primary', truncateToWidth(title, width, ELLIPSIS)));
+      lines.push(
+        currentTheme.fg('textMuted', truncateToWidth(hintParts.join(' · '), width, ELLIPSIS)),
+      );
+      lines.push('');
+      lines.push(
+        currentTheme.fg('textMuted', truncateToWidth('No sessions found.', width, ELLIPSIS)),
+      );
+      lines.push(currentTheme.fg('primary', '─'.repeat(width)));
       return lines;
     }
 
     const view = this.list.view();
     const titleSuffix =
       view.query.length === 0 ? currentTheme.fg('textMuted', '  (type to search)') : '';
-    const navigation = combinedBindingHint(
-      keybindingDisplayText(this.bindings, 'Select', 'select:previous'),
-      keybindingDisplayText(this.bindings, 'Select', 'select:next'),
-      'navigate',
-    );
-    const accept = keybindingDisplayText(this.bindings, 'Select', 'select:accept');
-    const cancel = keybindingDisplayText(this.bindings, 'Select', 'select:cancel');
     const hintParts = [
       ...(view.query.length > 0 ? ['Backspace clear'] : []),
-      navigation,
+      '↑↓ navigate',
       scopeHint,
-      accept === undefined ? undefined : `${formatBindingKeys(accept)} select`,
-      cancel === undefined ? undefined : `${formatBindingKeys(cancel)} cancel`,
+      'Enter select',
+      'Esc cancel',
     ].filter((item): item is string => item !== undefined);
 
-    lines.push(currentTheme.boldFg('primary', title) + titleSuffix, currentTheme.fg('textMuted', hintParts.join(' · ')), '');
+    lines.push(currentTheme.boldFg('primary', title) + titleSuffix);
+    lines.push(currentTheme.fg('textMuted', hintParts.join(' · ')));
+    lines.push('');
 
     if (view.query.length > 0) {
       lines.push(currentTheme.fg('primary', 'Search: ') + currentTheme.fg('text', view.query));
@@ -295,7 +260,8 @@ export class SessionPickerComponent extends Container implements Focusable {
 
     const loadedSessions = this.loadedSessions(view.items);
     if (loadedSessions.length === 0) {
-      lines.push(currentTheme.fg('textMuted', truncateToWidth('No matches', width, ELLIPSIS)), currentTheme.fg('primary', '─'.repeat(width)));
+      lines.push(currentTheme.fg('textMuted', truncateToWidth('No matches', width, ELLIPSIS)));
+      lines.push(currentTheme.fg('primary', '─'.repeat(width)));
       return lines;
     }
     const selectedIndex = view.selectedIndex;
@@ -353,9 +319,7 @@ export class SessionPickerComponent extends Container implements Focusable {
     const time = formatRelativeTime(session.updated_at);
     const badge = isCurrent ? CURRENT_MARK : '';
     const rawTitle = (session.title ?? session.id).trim() || session.id;
-    const title = rawTitle;
-    const tag = sessionTag(session);
-    const titleSource = tag === undefined ? title : `${title} #${tag}`;
+    const titleSource = formatSessionLabel({ title: rawTitle, metadata: session.metadata });
 
     // Inline trailing parts after the title: "<title>  <time>  ← current".
     const trailingParts = [time, badge].filter((p) => p.length > 0);

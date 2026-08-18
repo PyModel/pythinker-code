@@ -22,64 +22,19 @@ export interface WebSearchResult {
   title: string;
   url: string;
   snippet: string;
-  date?: string | undefined;
-  content?: string | undefined;
+  date?: string;
+  siteName?: string;
 }
 
 export interface WebSearchProvider {
-  search(
-    query: string,
-    options?: {
-      limit?: number;
-      includeContent?: boolean;
-      toolCallId?: string;
-      allowedDomains?: string[];
-      blockedDomains?: string[];
-      signal?: AbortSignal;
-    },
-  ): Promise<WebSearchResult[]>;
+  search(query: string, options?: { toolCallId?: string }): Promise<WebSearchResult[]>;
 }
 
 // ── Input schema ─────────────────────────────────────────────────────
 
-export const WebSearchInputSchema = z
-  .object({
-    query: z.string().min(2).describe('The query text to search for.'),
-    limit: z
-      .number()
-      .int()
-      .min(1)
-      .max(20)
-      .default(5)
-      .describe(
-        'The number of results to return. Typically you do not need to set this value. When the results do not contain what you need, you probably want to give a more concrete query.',
-      )
-      .optional(),
-    include_content: z
-      .boolean()
-      .default(false)
-      .describe(
-        'Whether to include the content of the web pages in the results. It can consume a large amount of tokens when this is set to true. You should avoid enabling this when `limit` is set to a large value.',
-      )
-      .optional(),
-    allowed_domains: z
-      .array(z.string().min(1))
-      .optional()
-      .describe('Only include search results from these domains.'),
-    blocked_domains: z
-      .array(z.string().min(1))
-      .optional()
-      .describe('Never include search results from these domains.'),
-  })
-  .strict()
-  .refine(
-    (value) =>
-      value.allowed_domains?.length === undefined ||
-      value.allowed_domains.length === 0 ||
-      value.blocked_domains?.length === undefined ||
-      value.blocked_domains.length === 0,
-    { message: 'Cannot specify both allowed_domains and blocked_domains.' },
-  );
+export const WebSearchInputSchema = z.object({
+  query: z.string().describe('The query text to search for.'),
+});
 
 export type WebSearchInput = z.Infer<typeof WebSearchInputSchema>;
 
@@ -105,30 +60,13 @@ export class WebSearchTool implements BuiltinTool<WebSearchInput> {
 
   private async execution(
     args: WebSearchInput,
-    { toolCallId, signal, onUpdate }: ExecutableToolContext,
+    {
+    toolCallId,
+    }: ExecutableToolContext,
   ): Promise<ExecutableToolResult> {
     try {
-      const opts: {
-        limit?: number;
-        includeContent?: boolean;
-        toolCallId?: string;
-        allowedDomains?: string[];
-        blockedDomains?: string[];
-        signal?: AbortSignal;
-      } = {
-        toolCallId,
-        signal,
-      };
-      if (args.limit !== undefined) opts.limit = args.limit;
-      if (args.include_content !== undefined) opts.includeContent = args.include_content;
-      if (args.allowed_domains !== undefined) opts.allowedDomains = args.allowed_domains;
-      if (args.blocked_domains !== undefined) opts.blockedDomains = args.blocked_domains;
-      onUpdate?.({ kind: 'status', text: `Searching: ${args.query}` });
+      const opts: { toolCallId?: string } = { toolCallId };
       const results = await this.provider.search(args.query, opts);
-      onUpdate?.({
-        kind: 'status',
-        text: `Found ${String(results.length)} ${results.length === 1 ? 'result' : 'results'} for "${args.query}"`,
-      });
       const builder = new ToolResultBuilder({ maxLineLength: null });
 
       if (results.length === 0) {
@@ -142,15 +80,19 @@ export class WebSearchTool implements BuiltinTool<WebSearchInput> {
         first = false;
 
         builder.write(`Title: ${result.title}\n`);
+        if (result.siteName) builder.write(`Site: ${result.siteName}\n`);
         if (result.date) builder.write(`Date: ${result.date}\n`);
         builder.write(`URL: ${result.url}\n`);
         builder.write(`Snippet: ${result.snippet}\n\n`);
-        if (result.content) builder.write(`${result.content}\n\n`);
       }
 
+      // Keep the citation reminder next to the data (not just in the static tool
+      // description), so it is present on every search. Cite the page actually
+      // relied on — after a FetchURL follow-up, that is the fetched page.
       builder.write(
-        'REMINDER: You MUST cite relevant sources in your response using markdown links in the form [Title](URL).\n',
+        'When you rely on a result in your answer, cite it inline as a markdown link, e.g. [title](url).',
       );
+
       return builder.ok();
     } catch (error) {
       return {
@@ -159,6 +101,7 @@ export class WebSearchTool implements BuiltinTool<WebSearchInput> {
       };
     }
   }
+
 }
 
 // ── Error classification ─────────────────────────────────────────────

@@ -6,8 +6,7 @@ const PERMISSION_OPTIONS: readonly ChoiceOption[] = [
   {
     value: 'manual',
     label: 'Manual',
-    description:
-      'Ask before commands, edits, and other risky actions. Read/search tools run directly; session approval rules are respected.',
+    description: 'Approve every action yourself.',
   },
   {
     value: 'yolo',

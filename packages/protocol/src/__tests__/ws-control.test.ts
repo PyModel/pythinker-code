@@ -39,7 +39,6 @@ import {
   wsControlEnvelopeSchema,
   wsErrorMessageSchema,
   wsEventEnvelopeSchema,
-  WS_PROTOCOL_VERSION,
 } from '../ws-control';
 import { createAsyncApiDocument } from '../asyncapi';
 import { z } from 'zod';
@@ -162,8 +161,22 @@ describe('ws-control — §3.1 server_hello', () => {
       timestamp: TS,
       payload: {
         ws_connection_id: 'conn_local',
-        protocol_version: WS_PROTOCOL_VERSION,
+        protocol_version: 2,
         heartbeat_ms: 30000,
+        max_event_buffer_size: 1000,
+        capabilities: { event_batching: false, compression: false },
+      },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('parses a server_hello without heartbeat_ms (no server heartbeat)', () => {
+    const result = serverHelloMessageSchema.safeParse({
+      type: 'server_hello',
+      timestamp: TS,
+      payload: {
+        ws_connection_id: 'conn_local',
+        protocol_version: 2,
         max_event_buffer_size: 1000,
         capabilities: { event_batching: false, compression: false },
       },
@@ -191,7 +204,7 @@ describe('ws-control — §3.1 server_hello', () => {
       timestamp: TS,
       payload: {
         ws_connection_id: 'conn_local',
-        protocol_version: WS_PROTOCOL_VERSION,
+        protocol_version: 2,
         heartbeat_ms: 30000,
         max_event_buffer_size: 1000,
       },
@@ -201,36 +214,21 @@ describe('ws-control — §3.1 server_hello', () => {
 });
 
 describe('ws-control — §3.2 client_hello', () => {
-  it('requires protocol_version and negotiates protocol v3', () => {
-    expect(WS_PROTOCOL_VERSION).toBe(3);
-    expect(
-      clientHelloMessageSchema.safeParse({
-        type: 'client_hello',
-        id: 'hello-1',
-        payload: { client_id: 'client-1', subscriptions: [] },
-      }).success,
-    ).toBe(false);
-
-    expect(
-      clientHelloMessageSchema.parse({
-        type: 'client_hello',
-        id: 'hello-1',
-        payload: {
-          client_id: 'client-1',
-          protocol_version: WS_PROTOCOL_VERSION,
-          subscriptions: [],
-        },
-      }).payload.protocol_version,
-    ).toBe(WS_PROTOCOL_VERSION);
+  it('parses a handshake-only client_hello (just client_id)', () => {
+    const result = clientHelloMessageSchema.safeParse({
+      type: 'client_hello',
+      id: 'c1',
+      payload: { client_id: 'web_abc' },
+    });
+    expect(result.success).toBe(true);
   });
 
-  it('parses a canonical client_hello', () => {
+  it('parses a canonical client_hello with legacy inline subscriptions', () => {
     const result = clientHelloMessageSchema.safeParse({
       type: 'client_hello',
       id: 'c1',
       payload: {
         client_id: 'web_abc',
-        protocol_version: WS_PROTOCOL_VERSION,
         subscriptions: ['sess_1', 'sess_2'],
         cursors: { sess_1: { seq: 99, epoch: 'ep_01ABC' } },
       },
@@ -244,9 +242,24 @@ describe('ws-control — §3.2 client_hello', () => {
       id: 'c1',
       payload: {
         client_id: 'web_abc',
-        protocol_version: WS_PROTOCOL_VERSION,
         subscriptions: [],
         cursors: { sess_1: { seq: 0 } },
+      },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('client_hello accepts an agent_filter map', () => {
+    const result = clientHelloMessageSchema.safeParse({
+      type: 'client_hello',
+      id: 'c1',
+      payload: {
+        client_id: 'web_abc',
+        subscriptions: ['sess_1', 'sess_2'],
+        agent_filter: {
+          sess_1: ['main'],
+          sess_2: ['main', 'agent-0'],
+        },
       },
     });
     expect(result.success).toBe(true);
@@ -258,7 +271,6 @@ describe('ws-control — §3.2 client_hello', () => {
       id: 'c1',
       payload: {
         client_id: 'web_abc',
-        protocol_version: WS_PROTOCOL_VERSION,
         subscriptions: [],
         cursors: { sess_1: 99 },
       },
@@ -289,6 +301,42 @@ describe('ws-control — §3.3 subscribe / unsubscribe', () => {
       },
     });
     expect(result.success).toBe(true);
+  });
+
+  it('subscribe accepts an agent_filter map', () => {
+    const result = subscribeMessageSchema.safeParse({
+      type: 'subscribe',
+      id: 'c2',
+      payload: {
+        session_ids: ['sess_1', 'sess_2'],
+        agent_filter: {
+          sess_1: ['main'],
+          sess_2: ['main', 'agent-0'],
+        },
+      },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('subscribe accepts a missing agent_filter (legacy session-grained behavior)', () => {
+    const result = subscribeMessageSchema.safeParse({
+      type: 'subscribe',
+      id: 'c2',
+      payload: { session_ids: ['sess_1'] },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('subscribe rejects an empty agent_filter allowlist', () => {
+    const result = subscribeMessageSchema.safeParse({
+      type: 'subscribe',
+      id: 'c2',
+      payload: {
+        session_ids: ['sess_1'],
+        agent_filter: { sess_1: [] },
+      },
+    });
+    expect(result.success).toBe(false);
   });
 
   it('subscribe rejects missing session_ids', () => {
@@ -583,7 +631,9 @@ describe('ws-control — operation registry', () => {
     for (const op of clientControlOperations) {
       expect(op.direction).toBe('client_to_server');
       expect(op.messageSchema).toBeDefined();
-      expect(op.type === 'pong' || op.ackSchema !== undefined).toBe(true);
+      if (op.type !== 'pong') {
+        expect(op.ackSchema).toBeDefined();
+      }
     }
   });
 
@@ -710,122 +760,5 @@ describe('ws-control — operation registry', () => {
     ).toBe(true);
 
     expect(wsOperations.some((op) => op.type === 'session_event')).toBe(true);
-  });
-
-  it.each(['completed', 'failed'] as const)('accepts a journaled prompt.completed event with reason=%s', (reason) => {
-    expect(
-      sessionEventMessageSchema.safeParse({
-        type: 'prompt.completed',
-        seq: 558,
-        epoch: 'epoch_01M021XEM56WHDQGYSEDG7KPHK',
-        session_id: 'session_edcd0000000000000000000000',
-        timestamp: TS,
-        payload: {
-          type: 'prompt.completed',
-          agentId: 'main',
-          sessionId: 'session_edcd0000000000000000000000',
-          promptId: 'prompt_01M021XEM56WHDQGYSEDG7KPHK',
-          finishedAt: TS,
-          reason,
-        },
-      }).success,
-    ).toBe(true);
-  });
-
-  it('accepts a journaled prompt.aborted event', () => {
-    expect(
-      sessionEventMessageSchema.safeParse({
-        type: 'prompt.aborted',
-        seq: 559,
-        epoch: 'epoch_01M021XEM56WHDQGYSEDG7KPHK',
-        session_id: 'session_edcd0000000000000000000000',
-        timestamp: TS,
-        payload: {
-          type: 'prompt.aborted',
-          agentId: 'main',
-          sessionId: 'session_edcd0000000000000000000000',
-          promptId: 'prompt_01M021XEM56WHDQGYSEDG7KPHK',
-          abortedAt: TS,
-        },
-      }).success,
-    ).toBe(true);
-  });
-
-  it('accepts journaled question and approval events', () => {
-    const sessionId = 'session_test';
-    const epoch = 'epoch_test';
-    const message = (
-      type: string,
-      seq: number,
-      fields: Record<string, unknown>,
-    ) => ({
-      type,
-      seq,
-      epoch,
-      session_id: sessionId,
-      timestamp: TS,
-      payload: {
-        type,
-        agentId: 'main',
-        sessionId,
-        ...fields,
-      },
-    });
-    const approvalRequest = {
-      approval_id: 'approval_test',
-      session_id: sessionId,
-      turn_id: 1,
-      tool_call_id: 'tool_call_test',
-      tool_name: 'shell.run',
-      action: 'Run a command',
-      tool_input_display: { kind: 'generic', summary: 'test' },
-      created_at: TS,
-      expires_at: '2026-06-04T10:31:00.000Z',
-    };
-
-    const events = [
-      message('event.question.requested', 1, {
-        question_id: 'question_test',
-        session_id: sessionId,
-        questions: [{
-          id: 'q_0',
-          question: 'Which option?',
-          options: [{ id: 'opt_0_0', label: 'A', description: 'First option' }],
-          header: 'Choice',
-          allow_other: true,
-          other_label: 'Other',
-        }],
-        created_at: TS,
-        expires_at: '2026-06-04T10:31:00.000Z',
-      }),
-      message('event.question.answered', 2, {
-        question_id: 'question_test',
-        answers: { q_0: 'opt_0_0' },
-        resolved_at: TS,
-      }),
-      message('event.question.dismissed', 3, {
-        question_id: 'question_test',
-        dismissed_at: TS,
-      }),
-      message('event.question.expired', 4, {
-        question_id: 'question_test',
-      }),
-      message('event.approval.requested', 5, approvalRequest),
-      message('event.approval.resolved', 6, {
-        approval_id: 'approval_test',
-        decision: 'approved',
-        scope: 'session',
-        feedback: 'Proceed',
-        selected_label: 'Approve',
-        resolved_at: TS,
-      }),
-      message('event.approval.expired', 7, {
-        approval_id: 'approval_test',
-      }),
-    ];
-
-    for (const event of events) {
-      expect(sessionEventMessageSchema.safeParse(event).success).toBe(true);
-    }
   });
 });

@@ -18,6 +18,7 @@ import {
   PYTHINKER_CODE_HOME_ENV,
   PYTHINKER_CODE_INPUT_HISTORY_DIR_NAME,
   PYTHINKER_CODE_LOG_DIR_NAME,
+  PYTHINKER_CODE_PLUGIN_UPDATE_NOTICE_STATE_FILE_NAME,
   PYTHINKER_CODE_UPDATE_INSTALL_LOCK_FILE_NAME,
   PYTHINKER_CODE_UPDATE_INSTALL_LOG_FILE_NAME,
   PYTHINKER_CODE_UPDATE_INSTALL_STATE_FILE_NAME,
@@ -93,6 +94,17 @@ export function getUpdateInstallLogFile(): string {
  */
 export function getUpdateRolloutLogFile(): string {
   return join(getDataDir(), PYTHINKER_CODE_UPDATE_DIR_NAME, PYTHINKER_CODE_UPDATE_ROLLOUT_LOG_FILE_NAME);
+}
+
+/**
+ * Return the plugin update notice state file: `<dataDir>/updates/plugin-notices.json`.
+ */
+export function getPluginUpdateNoticeStateFile(): string {
+  return join(
+    getDataDir(),
+    PYTHINKER_CODE_UPDATE_DIR_NAME,
+    PYTHINKER_CODE_PLUGIN_UPDATE_NOTICE_STATE_FILE_NAME,
+  );
 }
 
 /**

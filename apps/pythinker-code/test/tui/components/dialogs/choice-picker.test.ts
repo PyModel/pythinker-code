@@ -1,13 +1,12 @@
-import { Key } from '@earendil-works/pi-tui';
 import { describe, expect, it, vi } from 'vitest';
 
-import { ChoicePickerComponent } from '#/tui/components/dialogs/choice-picker';
+import { ChoicePickerComponent, type ChoiceOption } from '#/tui/components/dialogs/choice-picker';
 import { EditorSelectorComponent } from '#/tui/components/dialogs/editor-selector';
 import { PermissionSelectorComponent } from '#/tui/components/dialogs/permission-selector';
 import { SettingsSelectorComponent } from '#/tui/components/dialogs/settings-selector';
 import { ThemeSelectorComponent } from '#/tui/components/dialogs/theme-selector';
 import { UpdatePreferenceSelectorComponent } from '#/tui/components/dialogs/update-preference-selector';
-import { defaultKeybindings, parseKeybindingBlocks } from '#/tui/keybindings';
+import { currentTheme } from '#/tui/theme';
 import { darkColors } from '#/tui/theme/colors';
 
 const ANSI_SGR = /\[[0-9;]*m/g;
@@ -17,43 +16,6 @@ function strip(text: string): string {
 }
 
 describe('ChoicePickerComponent', () => {
-  it('keeps configured Select hints authoritative over caller hints', () => {
-    const picker = new ChoicePickerComponent({
-      title: 'Pick one',
-      hint: '↑↓ navigate · Enter select · Esc cancel',
-      options: [
-        { value: 'first', label: 'First' },
-        { value: 'second', label: 'Second' },
-      ],
-      secondaryAction: {
-        key: 'w',
-        label: 'write to file',
-        onSelect: vi.fn(),
-      },
-      onSelect: vi.fn(),
-      onCancel: vi.fn(),
-    });
-    picker.setKeybindings(
-      [
-        ...defaultKeybindings(),
-        ...parseKeybindingBlocks([
-          { context: 'Select', bindings: { up: null, 'alt+k': 'select:previous' } },
-        ]),
-      ],
-    );
-
-    picker.handleInput(Key.down);
-    picker.handleInput(Key.up);
-    const afterOldKey = strip(picker.render(80).join('\n'));
-    expect(afterOldKey).toContain('❯ Second');
-    expect(afterOldKey).not.toContain('↑');
-    picker.handleInput('\u001Bk');
-    const output = strip(picker.render(160).join('\n'));
-    expect(output).toContain('❯ First');
-    expect(output).toContain('alt+k');
-    expect(output).toContain('W write to file');
-  });
-
   it('uses the model-dialog header vocabulary (capitalized keys, "type to search")', () => {
     const picker = new ChoicePickerComponent({
       title: 'Add provider',
@@ -142,8 +104,6 @@ describe('ChoicePickerComponent', () => {
     const settingsOutput = settings.render(120).map(strip);
     expect(settingsOutput).toContain('  ❯ Model');
     expect(settingsOutput).toContain('    Switch the active model and thinking mode.');
-    expect(settingsOutput).toContain('    Choose how Pythinker formats responses.');
-    expect(settingsOutput).toContain('    Choose whether /copy always uses the full response.');
     expect(settingsOutput).toContain('    Turn automatic CLI updates on or off.');
 
     const upgradePreference = new UpdatePreferenceSelectorComponent({
@@ -153,9 +113,7 @@ describe('ChoicePickerComponent', () => {
     });
     const upgradePreferenceOutput = upgradePreference.render(120).map(strip);
     expect(upgradePreferenceOutput).toContain('  ❯ On ← current');
-    expect(upgradePreferenceOutput).toContain(
-      '    Update automatically in the background.',
-    );
+    expect(upgradePreferenceOutput).toContain('    Install new versions in the background.');
   });
 
   it('routes Space into the query for searchable lists instead of selecting', () => {
@@ -188,25 +146,34 @@ describe('ChoicePickerComponent', () => {
     expect(onSelect).toHaveBeenCalledWith('a');
   });
 
-  it('routes an optional secondary action to the focused choice', () => {
-    const onSecondary = vi.fn();
-    const picker = new ChoicePickerComponent({
-      title: 'Copy response',
-      options: [
-        { value: 'full', label: 'Full response' },
-        { value: 'block:0', label: 'Code block' },
-      ],
-      secondaryAction: {
-        key: 'w',
-        label: 'write to file',
-        onSelect: onSecondary,
+  it('renders the selected option description in descriptionTone, others in textMuted', () => {
+    const options: ChoiceOption[] = [
+      { value: 'none', label: 'No attachment', description: 'Text feedback only' },
+      {
+        value: 'logs+codebase',
+        label: 'Logs + codebase',
+        description: 'Include your codebase for deeper diagnosis.',
+        descriptionTone: 'warning',
       },
-      onSelect: vi.fn(),
-      onCancel: vi.fn(),
-    });
+    ];
 
-    expect(picker.render(100).map(strip).join('\n')).toContain('W write to file');
-    picker.handleInput('w');
-    expect(onSecondary).toHaveBeenCalledWith('full');
+    const renderDescLine = (currentValue: string): string | undefined => {
+      const picker = new ChoicePickerComponent({
+        title: 'Share diagnostic info?',
+        options,
+        currentValue,
+        onSelect: vi.fn(),
+        onCancel: vi.fn(),
+      });
+      return picker.render(120).find((line) => strip(line).includes('Include your codebase'));
+    };
+
+    const warningLine = currentTheme.fg('warning', '    Include your codebase for deeper diagnosis.');
+    const mutedLine = currentTheme.fg('textMuted', '    Include your codebase for deeper diagnosis.');
+
+    // Selected option: description uses the configured tone.
+    expect(renderDescLine('logs+codebase')).toBe(warningLine);
+    // Unselected option: description falls back to textMuted.
+    expect(renderDescLine('none')).toBe(mutedLine);
   });
 });

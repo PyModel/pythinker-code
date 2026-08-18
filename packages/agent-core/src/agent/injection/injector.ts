@@ -9,14 +9,8 @@ export abstract class DynamicInjector {
     this.injectedAt = null;
   }
 
-  onContextCompacted(compactedCount: number, startIndex = 0): void {
-    if (this.injectedAt === null || this.injectedAt < startIndex) return;
-    const endIndex = startIndex + compactedCount;
-    if (this.injectedAt < endIndex) {
-      this.injectedAt = null;
-      return;
-    }
-    this.injectedAt -= compactedCount - 1;
+  onContextCompacted(): void {
+    this.injectedAt = null;
   }
 
   onContextMessageRemoved(index: number): void {

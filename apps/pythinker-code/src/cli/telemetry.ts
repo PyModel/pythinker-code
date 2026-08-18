@@ -1,12 +1,14 @@
-import { createPythinkerDeviceId } from '@pymodel/pythinker-code-oauth';
+import { createPythinkerDeviceId, PYTHINKER_CODE_PROVIDER_NAME } from '@pymodel/pythinker-code-oauth';
 import {
+  PythinkerAuthFacade,
   loadRuntimeConfigSafe,
   resolveConfigPath,
   resolvePythinkerHome,
   type PythinkerConfig,
-  type PythinkerHarness,
   type TelemetryClient,
 } from '@pymodel/pythinker-code-sdk';
+
+import type { PromptHarness } from './prompt-session';
 import {
   initializeTelemetry,
   setTelemetryContext,
@@ -16,6 +18,7 @@ import {
 
 import { CLI_USER_AGENT_PRODUCT, WEB_UI_MODE } from '#/constant/app';
 
+import { createPythinkerCodeHostIdentity } from './version';
 
 export interface CliTelemetryBootstrap {
   readonly homeDir: string;
@@ -24,12 +27,13 @@ export interface CliTelemetryBootstrap {
 }
 
 export interface InitializeCliTelemetryOptions {
-  readonly harness: PythinkerHarness;
+  readonly harness: PromptHarness;
   readonly bootstrap: CliTelemetryBootstrap;
   readonly config: Pick<PythinkerConfig, 'defaultModel' | 'telemetry'>;
   readonly version: string;
   readonly uiMode: string;
   readonly model?: string;
+  readonly sessionId?: string;
 }
 
 export function createCliTelemetryBootstrap(): CliTelemetryBootstrap {
@@ -52,6 +56,9 @@ export function initializeCliTelemetry(options: InitializeCliTelemetryOptions): 
     version: options.version,
     uiMode: options.uiMode,
     model: options.model ?? options.config.defaultModel,
+    sessionId: options.sessionId,
+    getAccessToken: async () =>
+      (await options.harness.auth.getCachedAccessToken(PYTHINKER_CODE_PROVIDER_NAME)) ?? null,
   });
   if (options.bootstrap.firstLaunch) {
     options.harness.track('first_launch');
@@ -63,7 +70,7 @@ export interface InitializeServerTelemetryOptions {
 }
 
 /**
- * Bootstrap telemetry for the `pythinker web` / `pythinker server run` host.
+ * Bootstrap telemetry for the `pythinker web` host.
  *
  * Mirrors {@link initializeCliTelemetry}: mints the device id, reads config to
  * honor the `telemetry` toggle and pick up the default model, attaches the
@@ -84,6 +91,11 @@ export function initializeServerTelemetry(
   const bootstrap = createCliTelemetryBootstrap();
   const configPath = resolveConfigPath({ homeDir: bootstrap.homeDir });
   const config = readServerTelemetryConfig(configPath);
+  const auth = new PythinkerAuthFacade({
+    homeDir: bootstrap.homeDir,
+    configPath,
+    identity: createPythinkerCodeHostIdentity(options.version),
+  });
 
   initializeTelemetry({
     homeDir: bootstrap.homeDir,
@@ -93,6 +105,7 @@ export function initializeServerTelemetry(
     version: options.version,
     uiMode: WEB_UI_MODE,
     model: config.defaultModel,
+    getAccessToken: async () => (await auth.getCachedAccessToken(PYTHINKER_CODE_PROVIDER_NAME)) ?? null,
   });
 
   return {

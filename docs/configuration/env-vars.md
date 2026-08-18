@@ -2,10 +2,10 @@
 
 Pythinker Code CLI uses environment variables to control a small number of runtime behaviors — relocating the data directory, turning off telemetry, and temporarily switching models without touching the config file.
 
-::: warning Important: API keys are explicitly referenced
-Credential variables such as `PYTHINKER_API_KEY`, `ANTHROPIC_API_KEY`, and `OPENAI_API_KEY` are not guessed automatically. A provider reads a shell credential only when `[providers.<name>].api_key_env_var` names it. Catalog import writes this reference for supported providers without writing the token itself.
+::: warning Important: API keys are not configured here
+Credential variables such as `PYTHINKER_API_KEY`, `ANTHROPIC_API_KEY`, and `OPENAI_API_KEY` are **not** read automatically from shell environment variables. Running `export PYTHINKER_API_KEY=xxx` in the terminal does not give any provider its key — they must be written in `config.toml` under `[providers.<name>]` or the `[providers.<name>.env]` sub-table.
 
-The `PYTHINKER_MODEL_*` family remains a separate explicit channel that synthesizes a temporary provider — see [Define a model from environment variables](#define-a-model-from-environment-variables-pythinker-model).
+The only exception is the `PYTHINKER_MODEL_*` family, which is an explicit channel that *does* read credentials from the shell — see [Define a model from environment variables](#define-a-model-from-environment-variables-pythinker-model).
 
 For background, see [Config overrides: provider credentials](./overrides.md#provider-credentials).
 :::
@@ -14,7 +14,7 @@ For background, see [Config overrides: provider credentials](./overrides.md#prov
 
 ### `PYTHINKER_CODE_HOME`
 
-Overrides the data root directory; the default is `~/.pythinker-code`. Once set, the config file, sessions, logs, credentials, and all other data land under the new path:
+Overrides the data root directory; the default is `~/.pythinker-code`. Once set, the config file, sessions, logs, OAuth credentials, and all other data land under the new path:
 
 ```sh
 export PYTHINKER_CODE_HOME="/path/to/custom/pythinker-code"
@@ -34,37 +34,26 @@ export PYTHINKER_DISABLE_TELEMETRY=1
 
 ### `PYTHINKER_MODEL_*` family
 
-Switch models temporarily without modifying `config.toml` — when `PYTHINKER_MODEL_NAME` is set, the CLI synthesizes a temporary provider in memory; the change does not persist after restart. See [Define a model from environment variables](#define-a-model-from-environment-variables-pythinker_model).
+Switch models temporarily without modifying `config.toml` — when `PYTHINKER_MODEL_NAME` is set, the CLI synthesizes a temporary provider in memory; the change does not persist after restart. See [Define a model from environment variables](#define-a-model-from-environment-variables-pythinker-model).
 
-## Provider credential environment references
+## Provider credential key names (written in config.toml)
 
-Use `api_key_env_var` when the secret should remain in the process environment:
+The key names below are not read directly from the shell — they are key names written inside the `[providers.<name>.env]` sub-table of `config.toml`, serving as fallback values for `api_key` / `base_url`. The CLI reads only from the config file, not from `process.env`.
 
-```toml
-[providers.anthropic]
-type = "anthropic"
-api_key_env_var = "ANTHROPIC_API_KEY"
-```
-
-```sh
-export ANTHROPIC_API_KEY=YOUR_API_KEY
-pythinker
-```
-
-The legacy `[providers.<name>.env]` sub-table remains a literal config-file fallback for `api_key` and `base_url`; it does not read or modify the shell environment:
+This design lets you keep familiar key name conventions while centralizing secret management in the config file:
 
 ```toml
 [providers.pythinker.env]
-PYTHINKER_API_KEY = "YOUR_API_KEY"
-PYTHINKER_BASE_URL = "https://api.example.com/v1"
+PYTHINKER_API_KEY = "sk-xxx"
+PYTHINKER_BASE_URL = "https://api.moonshot.ai/v1"
 ```
 
-Provider-conventional config-subtable keys:
+Key names per provider:
 
 | Key | Applicable provider | Default |
 | --- | --- | --- |
-| `PYTHINKER_API_KEY` | Pythinker / Pythoughts | None |
-| `PYTHINKER_BASE_URL` | Pythinker / Pythoughts | `https://api.pythoughts.ai/v1` |
+| `PYTHINKER_API_KEY` | Pythinker / PyModel | None |
+| `PYTHINKER_BASE_URL` | Pythinker / PyModel | `https://api.moonshot.ai/v1` |
 | `ANTHROPIC_API_KEY` | Anthropic | None |
 | `ANTHROPIC_BASE_URL` | Anthropic | Follows Anthropic SDK default |
 | `OPENAI_API_KEY` | OpenAI (`openai` and `openai_responses`) | None |
@@ -74,27 +63,32 @@ Provider-conventional config-subtable keys:
 | `GOOGLE_CLOUD_PROJECT` | Vertex AI | None |
 | `GOOGLE_CLOUD_LOCATION` | Vertex AI | None |
 
-Catalog entries can declare other credential names and persist them through `api_key_env_var`. The featured connections currently declare:
-
-| Catalog provider | Credential variable |
-| --- | --- |
-| DeepSeek (`deepseek`) | `DEEPSEEK_API_KEY` |
-| GLM Coding Plan (`zai-coding-plan`) | `ZHIPU_API_KEY` |
-| MiniMax Token Plan (`minimax-coding-plan`) | `MINIMAX_API_KEY` |
-| Kimi For Coding (`kimi-for-coding`) | `KIMI_API_KEY` |
-
 ::: warning
-`GOOGLE_APPLICATION_CREDENTIALS` (path to a service account JSON file) is read directly by the Google SDK through the standard ADC flow; `api_key_env_var` is not involved in that path.
+`GOOGLE_APPLICATION_CREDENTIALS` (path to a service account JSON file) is the only exception that goes through the system environment variable mechanism — it is read by the Google SDK directly via the standard ADC flow, and the CLI does not participate. All other key names must be placed in the `[providers.<name>.env]` sub-table to take effect.
 :::
 
 For the full provider type and field reference, see [Providers and models](./providers.md).
+
+## OAuth and managed services
+
+This group of variables redirects OAuth authentication and managed service endpoints to a self-hosted or test environment. They are not needed for everyday use.
+
+| Variable | Purpose | Default |
+| --- | --- | --- |
+| `PYTHINKER_CODE_OAUTH_HOST` | OAuth auth host; highest priority | Falls back to `PYTHINKER_OAUTH_HOST` when unset |
+| `PYTHINKER_OAUTH_HOST` | OAuth auth host; fallback for `PYTHINKER_CODE_OAUTH_HOST` | Falls back to `https://auth.kimi.com` when unset |
+| `PYTHINKER_CODE_BASE_URL` | Managed API base URL used after OAuth login | `https://api.kimi.com/coding/v1` |
+
+::: warning
+`PYTHINKER_CODE_BASE_URL` (OAuth-managed service, targeting `kimi.com`) and `PYTHINKER_BASE_URL` (direct API key connection, targeting `pymodel.ai`) are two distinct variables. Use each one in its appropriate context.
+:::
 
 ## Define a model from environment variables (`PYTHINKER_MODEL_*`)
 
 Want to switch models for testing without touching `config.toml`? When `PYTHINKER_MODEL_NAME` is set, the CLI synthesizes a temporary provider and model alias from the `PYTHINKER_MODEL_*` variables in memory — nothing is written back to the config file. These variables take priority over `default_model` in `config.toml`, but the `-m <alias>` option at startup still has the highest priority.
 
 ```sh
-export PYTHINKER_MODEL_NAME="pythinker-for-coding"
+export PYTHINKER_MODEL_NAME="kimi-for-coding"
 export PYTHINKER_MODEL_API_KEY="YOUR_API_KEY"
 export PYTHINKER_MODEL_BASE_URL="https://api.example.com/v1"
 export PYTHINKER_MODEL_MAX_CONTEXT_SIZE="262144"
@@ -113,10 +107,8 @@ Complete variable list:
 | `PYTHINKER_MODEL_MAX_CONTEXT_SIZE` | No | Maximum context length (tokens) | `262144` (256 K) |
 | `PYTHINKER_MODEL_CAPABILITIES` | No | Comma-separated capability tags, unioned with auto-detected capabilities | `image_in,thinking` |
 | `PYTHINKER_MODEL_DISPLAY_NAME` | No | Name shown in `/model` | Falls back to `PYTHINKER_MODEL_NAME` |
-| `PYTHINKER_MODEL_MAX_OUTPUT_SIZE` | No | Per-request output cap (`anthropic` only) | Model default |
+| `PYTHINKER_MODEL_MAX_OUTPUT_SIZE` | No | Per-request output cap (`anthropic` only); when set, overrides the built-in Claude ceiling | Model default |
 | `PYTHINKER_MODEL_REASONING_KEY` | No | Reasoning field name override (`openai` only) | Auto-detected |
-| `PYTHINKER_MODEL_DEFAULT_THINKING` | No | Default Thinking toggle for new sessions | Follows global default |
-| `PYTHINKER_MODEL_THINKING_MODE` | No | Thinking trigger policy: `auto`/`on`/`off` | — |
 | `PYTHINKER_MODEL_THINKING_EFFORT` | No | Thinking effort level: `low`/`medium`/`high`/`xhigh`/`max` | — |
 | `PYTHINKER_MODEL_ADAPTIVE_THINKING` | No | Force adaptive thinking on or off (`anthropic` only) | Inferred from model name |
 
@@ -130,19 +122,38 @@ Switches that control the behavior of subsystems such as telemetry, background t
 | --- | --- | --- |
 | `PYTHINKER_DISABLE_TELEMETRY` | Disable anonymous telemetry reporting | `1`, `true`, `yes`, `y` (case-insensitive) |
 | `PYTHINKER_CODE_BACKGROUND_KEEP_ALIVE_ON_EXIT` | Whether to keep background tasks when the session closes; takes higher priority than `config.toml`. The default is to stop them on exit | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off` |
-| `PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL` | Override the plugin marketplace JSON loaded by `/plugins` | URL or local path |
-| `PYTHINKER_CODE_DISABLE_WORKFLOWS` | Disable Dynamic Workflow: the `DynamicWorkflow` tool is not registered and `/workflow` is hidden; takes higher priority than `config.toml` | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off` |
-| `PYTHINKER_CODE_WORKFLOW_SIZE_GUIDELINE` | Override the advisory Dynamic Workflow size guideline injected into the tool guidance; takes higher priority than `config.toml` | `small`, `medium`, `large`, `unrestricted` |
-| `PYTHINKER_CODE_EXPERIMENTAL_FLAG` | Enable all registered experimental features for this process; `micro_compaction` is already enabled by default | `1`, `true`, `yes`, `on` |
-| `PYTHINKER_CODE_EXPERIMENTAL_MICRO_COMPACTION` | Override [`[experimental].micro_compaction`](./config-files.md#experimental) for this process | Truthy or falsy |
-| `PYTHINKER_CODE_EXPERIMENTAL_TOOL_INTENT` | Override [`[experimental].tool_intent`](./config-files.md#experimental) for this process. When on (the default), eligible tool calls whose input schema accepts the injected field carry a short model-written intent that the working indicator shows live; set a falsy value to turn it off | Truthy or falsy |
+| `PYTHINKER_CODE_BACKGROUND_MAX_RUNNING_TASKS` | Cap on concurrently running background tasks; takes higher priority than `[background] max_running_tasks` in `config.toml` (unset means no cap) | Positive integer; invalid values are ignored |
+| `PYTHINKER_IMAGE_MAX_EDGE_PX` | Longest-edge ceiling (px) for image compression; takes higher priority than `[image] max_edge_px` in `config.toml` (default `2000`) | Positive integer; invalid values are ignored |
+| `PYTHINKER_IMAGE_READ_BYTE_BUDGET` | Per-image byte budget for model-initiated image reads (`ReadMediaFile` default reads); takes higher priority than `[image] read_byte_budget` in `config.toml` (default `262144`, i.e. 256 KB) | Positive integer; invalid values are ignored |
+| `PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL` | Override the plugin marketplace JSON loaded by `/plugins`; useful for dev loopback servers, staging CDN files, or alternate marketplace directories | `https://code.kimi.com/pythinker-code/plugins/marketplace.json`; also accepts `http://`, `file://` URLs, and local paths |
+| `PYTHINKER_CODE_AGENT_DYNAMIC_WORKFLOW_MAX_CONCURRENCY` | Cap how many AgentDynamicWorkflow subagents run concurrently during the initial ramp; leave unset for no cap | Positive integer; invalid values fail fast |
+| `PYTHINKER_SUBAGENT_TIMEOUT_MS` | Maximum wall-clock time (ms) a single subagent (`Agent` / `AgentDynamicWorkflow`) may run; takes higher priority than `[subagent] timeout_ms` in `config.toml` (default `7200000`, i.e. 2 hours) | Positive integer; invalid values fall back to the config or default |
+| `PYTHINKER_CODE_IDENTITY_NAME` | Display name the agent calls itself in the system prompt; takes higher priority than `[identity] name` in `config.toml` and is never written back to it | Any non-empty string; blank values read as unset |
+| `PYTHINKER_CODE_IDENTITY_SLUG` | Protocol identifier for the `User-Agent` product token sent to third-party providers and the MCP client name; takes higher priority than `[identity] slug`. Derived from the name when unset | Any non-empty string; normalized to lowercase with non-alphanumeric runs folded to `-` |
+| `PYTHINKER_CODE_BUILTIN_PRODUCT_SKILLS` | Whether the built-in skills documenting Pythinker Code itself are offered to the model; takes higher priority than `builtin_product_skills` in `config.toml` (default enabled) | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off` |
+| `PYTHINKER_CODE_EXPERIMENTAL_SECONDARY_MODEL` | Enable the experimental secondary-model feature in every launch mode, including the interactive TUI; the master `PYTHINKER_CODE_EXPERIMENTAL_FLAG=1` also enables it | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off` |
+| `PYTHINKER_SECONDARY_MODEL` | Secondary model; takes higher priority than [`[secondary_model] model`](./config-files.md#secondary-model) in `config.toml`. When the secondary-model experiment is enabled, newly spawned subagents (`Agent` / `AgentDynamicWorkflow`) bind to it by default instead of inheriting the main agent's model | The alias of a configured `[models]` entry, e.g. `pythinker-code/kimi-k2.5`; blank values are ignored |
+| `PYTHINKER_SECONDARY_EFFORT` | Thinking effort for the secondary model; takes higher priority than `[secondary_model] default_effort` in `config.toml` and applies only when both the model and its experiment are enabled | An effort value, e.g. `low`; blank values are ignored |
+| `PYTHINKER_MCP_STARTUP_TIMEOUT_MS` | Global default connection timeout (ms) for all MCP servers; takes higher priority than `[mcp] startup_timeout_ms` in `config.toml`, but a per-server `startupTimeoutMs` in `mcp.json` still wins (default `30000`) | Integer from `1` to `2147483647`; invalid values are ignored |
+| `PYTHINKER_MCP_TOOL_TIMEOUT_MS` | Global default single tool-call timeout (ms) for all MCP servers; takes higher priority than `[mcp] tool_timeout_ms` in `config.toml`, but a per-server `toolTimeoutMs` in `mcp.json` still wins (default `60000`) | Integer from `1` to `2147483647`; invalid values are ignored |
+| `PYTHINKER_LOOP_MAX_STEPS_PER_TURN` | Maximum Agent steps per turn; takes higher priority than `[loop_control] max_steps_per_turn` in `config.toml` (unset or `0` means unlimited) | Non-negative integer; invalid values are ignored |
+| `PYTHINKER_LOOP_MAX_ATTEMPTS_PER_STEP` | Maximum total attempts for a failing step (including the initial attempt); takes higher priority than `[loop_control] max_attempts_per_step` in `config.toml` (default `10`). The deprecated `PYTHINKER_LOOP_MAX_RETRIES_PER_STEP` is still honored with a warning when this variable is unset | Non-negative integer; invalid values are ignored |
+| `PYTHINKER_TOKEN_COUNTING_STRATEGY` | Which context token count is reported externally (the context-size display); takes higher priority than `[token_counting] strategy` in `config.toml` (default `measured+estimated`) | `measured+estimated`, `measured`, `estimated` (case-insensitive); invalid values are ignored |
+| `PYTHINKER_WEB_SEARCH_BASE_URL` | API URL of the web search (`WebSearch`) service; takes higher priority than `[services.pymodel_search] base_url` in `config.toml`, and enables the service without that config section. Persisted credentials and custom headers are not forwarded to an env-selected endpoint | Non-blank string; blank values are ignored |
+| `PYTHINKER_WEB_SEARCH_API_KEY` | API key of the web search (`WebSearch`) service; replaces both the configured API key and OAuth credential when set | Non-blank string; blank values are ignored |
+| `PYTHINKER_WEB_FETCH_BASE_URL` | API URL of the web fetch (`FetchURL`) service; takes higher priority than `[services.pymodel_fetch] base_url`. Persisted credentials and custom headers are not forwarded to an env-selected endpoint. Without an env or config endpoint, signed-in users try the managed Pythinker OAuth fetch service before direct local requests | Non-blank string; blank values are ignored |
+| `PYTHINKER_WEB_FETCH_API_KEY` | API key of the web fetch (`FetchURL`) service; replaces both the configured API key and OAuth credential when set | Non-blank string; blank values are ignored |
+| `PYTHINKER_CODE_EXPERIMENTAL_FLAG` | Enable all registered experimental features for this process | `1`, `true`, `yes`, `on` |
 | `PYTHINKER_SHELL_PATH` | Override the Git Bash path on Windows (used when auto-detection fails) | Absolute path |
 | `PYTHINKER_MODEL_MAX_COMPLETION_TOKENS` | Hard cap on `max_completion_tokens` per LLM step; applies to the `pythinker` provider only | Positive integer; `0` or negative disables clamping |
 | `PYTHINKER_MODEL_TEMPERATURE` | Sampling temperature for every request; applies to the `pythinker` provider only (global — independent of `PYTHINKER_MODEL_NAME`) | Number, e.g. `0.3` |
 | `PYTHINKER_MODEL_TOP_P` | Nucleus-sampling `top_p` for every request; applies to the `pythinker` provider only (global) | Number, e.g. `0.95` |
-| `PYTHINKER_MODEL_THINKING_KEEP` | Pythoughts preserved-thinking passthrough (`thinking.keep`); applies to the `pythinker` provider only, and only while Thinking is on | A value the API accepts, e.g. `all` |
-| `PYTHINKER_CODE_NO_AUTO_UPDATE` | Disable automatic update checks, background preparation or installation, restart activation, and prompts. An explicit `/update` request is still completed; the legacy alias `PYTHINKER_CLI_NO_AUTO_UPDATE` is also honored | Truthy: `1`/`true`/`yes`/`on` |
+| `PYTHINKER_MODEL_THINKING_EFFORT` | Force a specific thinking effort on the wire (`thinking.effort`), bypassing the model's declared `support_efforts`; applies to the `pythinker` provider only, and only while Thinking is on | An effort value, e.g. `max` |
+| `PYTHINKER_MODEL_THINKING_KEEP` | Preserved-thinking passthrough; on `pythinker` sent as `thinking.keep`, on `anthropic` (Claude and Pythinker's Anthropic-compatible mode) sent as a `context_management` `clear_thinking_20251015` edit (enabling keep routes Anthropic requests to the beta Messages API); overrides `[thinking] keep` (which defaults to `"all"`); only injected while Thinking is on | A value the API accepts, e.g. `all`; an off-value (`false`/`0`/`no`/`off`/`none`/`null`) disables it |
+| `PYTHINKER_CODE_NO_AUTO_UPDATE` | Fully disable the update preflight — no check, background install, or prompt. Legacy alias `PYTHINKER_CLI_NO_AUTO_UPDATE` is also honored | Truthy: `1`/`true`/`yes`/`on` |
 | `PYTHINKER_DISABLE_CRON` | Disable the scheduled-task tool (`CronCreate` rejects new schedules; existing tasks do not fire) | `1` to disable |
+
+The three `PYTHINKER_CODE_IDENTITY_*` / `PYTHINKER_CODE_BUILTIN_PRODUCT_SKILLS` variables are read by the `agent-core-v2` engine, which currently backs `pythinker web` and the `PYTHINKER_CODE_EXPERIMENTAL_FLAG` paths; the default `pythinker` / `pythinker -p` engine ignores them.
 
 ## Diagnostic logs
 

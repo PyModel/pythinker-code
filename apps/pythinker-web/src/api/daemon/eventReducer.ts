@@ -28,6 +28,17 @@ import { i18n } from '../../i18n';
 
 const OPTIMISTIC_USER_MESSAGE_METADATA_KEY = 'pythinkerWeb.optimisticUserMessage';
 
+/** Tail cap for accumulated output of non-subagent (bash / background tool)
+ *  tasks, whose stdout can be noisy and unbounded. Subagent progress is kept
+ *  in full (small synthesized lines). */
+const MAX_BACKGROUND_OUTPUT_LINES = 40;
+
+/** Skeleton description used by `patchSubagent` in agentEventProjector.ts when
+ *  a lifecycle event re-projects a subagent the projector never saw spawn
+ *  (e.g. after a page refresh, where the snapshot roster — not the WS stream —
+ *  carried the real description). */
+const PLACEHOLDER_SUBAGENT_DESCRIPTION = 'Sub Agent';
+
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
@@ -45,10 +56,23 @@ export interface PythinkerClientState {
   activeSessionId?: string;
   messagesBySession: Record<string, AppMessage[]>;
   approvalsBySession: Record<string, AppApprovalRequest[]>;
+  /** Preserved `plan_review` displays keyed by toolCallId. Plan content survives
+   *  approval resolution so the ExitPlanMode tool card can keep rendering the
+   *  plan (approved / rejected / revised) instead of losing it. */
+  planReviewByToolCallId: Record<string, { plan: string; path?: string }>;
   questionsBySession: Record<string, AppQuestionRequest[]>;
   tasksBySession: Record<string, AppTask[]>;
   goalBySession: Record<string, AppGoal>;
+  /** Monotonic per-session counter bumped on EVERY `goalUpdated` event —
+   *  including delete/clear ones — so an async recovery read can detect that a
+   *  live event won the race even when the goal entry stayed absent. */
+  goalVersionBySession: Record<string, number>;
   lastSeqBySession: Record<string, number>;
+  /** MAIN-agent turn in flight, per session — set from the main agent's
+   *  turn.started/turn.ended boundary events and seeded from the snapshot's
+   *  (main-only) inFlightTurn. Half of the working moon; subagent turns never
+   *  reach the events that set this. */
+  turnActiveBySession: Record<string, boolean>;
   compactionBySession: Record<string, CompactionStatus>;
   config?: AppConfig | null;
   warnings: AppWarning[];
@@ -60,10 +84,13 @@ export function createInitialState(): PythinkerClientState {
     activeSessionId: undefined,
     messagesBySession: {},
     approvalsBySession: {},
+    planReviewByToolCallId: {},
     questionsBySession: {},
     tasksBySession: {},
     goalBySession: {},
+    goalVersionBySession: {},
     lastSeqBySession: {},
+    turnActiveBySession: {},
     compactionBySession: {},
     warnings: [],
   };
@@ -76,13 +103,22 @@ export function createInitialState(): PythinkerClientState {
 function cloneState(s: PythinkerClientState): PythinkerClientState {
   return {
     ...s,
-    sessions: [...s.sessions],
+    // Reuse the `sessions` array reference when an event does not touch it.
+    // Every session-mutating case below already builds its own array via
+    // `[...]` / `.map` / `.filter`, so sharing the reference is safe — and it
+    // keeps `rawState.sessions` stable for events that don't change sessions,
+    // so the sidebar computeds (sessionsForView / workspaceGroups /
+    // mergedWorkspaces) are not dirtied by unrelated events.
+    sessions: s.sessions,
     messagesBySession: { ...s.messagesBySession },
     approvalsBySession: { ...s.approvalsBySession },
+    planReviewByToolCallId: { ...s.planReviewByToolCallId },
     questionsBySession: { ...s.questionsBySession },
     tasksBySession: { ...s.tasksBySession },
     goalBySession: { ...s.goalBySession },
+    goalVersionBySession: { ...s.goalVersionBySession },
     lastSeqBySession: { ...s.lastSeqBySession },
+    turnActiveBySession: { ...s.turnActiveBySession },
     compactionBySession: { ...s.compactionBySession },
     warnings: [...s.warnings],
   };
@@ -102,6 +138,11 @@ function isOptimisticUserMessage(message: AppMessage): boolean {
     message.role === 'user' &&
     message.metadata?.[OPTIMISTIC_USER_MESSAGE_METADATA_KEY] === true
   );
+}
+
+function isCronOriginMessage(message: AppMessage): boolean {
+  const origin = message.metadata?.['origin'] as { kind?: string } | undefined;
+  return origin?.kind === 'cron_job' || origin?.kind === 'cron_missed';
 }
 
 function sameMessageContent(a: AppMessage, b: AppMessage): boolean {
@@ -125,12 +166,22 @@ function sameAssistantMessage(a: AppMessage, b: AppMessage): boolean {
     shape of a user message. The daemon's echo carries images as a resolved
     URL/base64 while our optimistic copy carries `{kind:'file',fileId}`, so the
     raw content never matches; comparing (text, image-count) does. */
+// Matches the self-contained media path tag the server substitutes for an
+// uploaded image/video/audio in a prompt (e.g. `<video path="/cache/f.mp4"></video>`).
+// A tag is its own text part, so anchoring keeps ordinary prose from matching.
+const MEDIA_PATH_TAG_SHAPE_RE = /^<(image|video|audio)\s+path="[^"]+"><\/\1>$/;
+
 function userMessageShape(m: AppMessage): { text: string; media: number } {
   let text = '';
   let media = 0;
   for (const c of m.content) {
-    if (c.type === 'text') text += c.text;
-    else if (c.type === 'image' || c.type === 'file') media += 1;
+    if (c.type === 'text') {
+      // A video/image upload reaches us (after the server resolves it) as a
+      // `<video path=…></video>` text tag, not a media part — count it as media
+      // and drop it from the text so the echo reconciles with our optimistic copy.
+      if (MEDIA_PATH_TAG_SHAPE_RE.test(c.text.trim())) media += 1;
+      else text += c.text;
+    } else if (c.type === 'image' || c.type === 'video' || c.type === 'file') media += 1;
   }
   return { text, media };
 }
@@ -258,6 +309,64 @@ function buildAgentErrorNotice(raw: AgentErrorRaw): AppNotice {
 // Reducer
 // ---------------------------------------------------------------------------
 
+/** Agent error code → semantic title key under `warnings.agentError`. Codes
+ *  come from the protocol error domain (agent-core-v2 `ProtocolErrors`);
+ *  anything unmapped falls back to the generic `title`. */
+const AGENT_ERROR_TITLE_KEYS: Readonly<Record<string, string>> = {
+  'provider.connection_error': 'connection',
+  'provider.auth_error': 'auth',
+  'provider.rate_limit': 'rateLimit',
+  'provider.overloaded': 'overloaded',
+  'provider.filtered': 'filtered',
+  'provider.api_error': 'api',
+  'context.overflow': 'contextOverflow',
+};
+
+interface AgentErrorRaw {
+  code?: string;
+  message?: string;
+  name?: string;
+  details?: Record<string, unknown>;
+}
+
+/**
+ * Build the structured error notice for a failed agent turn (typically a
+ * model-provider failure). The wire payload already carries the coded error —
+ * surface it in full so a rate-limit / auth / endpoint failure is diagnosable
+ * from the toast: semantic title, the provider's raw message as the body, and
+ * a diagnostics list (error code, HTTP status, request id, SDK error name,
+ * plus any extra detail fields such as finishReason).
+ */
+function buildAgentErrorNotice(raw: AgentErrorRaw): AppNotice {
+  const t = i18n.global.t;
+  const details: AppNoticeDetail[] = [];
+  const push = (label: string, value: unknown): void => {
+    if (typeof value === 'number' || typeof value === 'boolean') {
+      details.push({ label, value: String(value) });
+    } else if (typeof value === 'string' && value.length > 0) {
+      details.push({ label, value });
+    }
+  };
+  push(t('warnings.details.code'), raw.code);
+  const rawDetails = raw.details ?? {};
+  push(t('warnings.details.status'), rawDetails['statusCode']);
+  push(t('warnings.details.requestId'), rawDetails['requestId']);
+  push(t('warnings.details.errorName'), raw.name);
+  // Keep any remaining detail fields (finishReason, rawFinishReason, …) so no
+  // diagnostics the daemon sent are hidden.
+  for (const [key, value] of Object.entries(rawDetails)) {
+    if (key === 'statusCode' || key === 'requestId') continue;
+    push(key, value);
+  }
+  const titleKey = (raw.code !== undefined ? AGENT_ERROR_TITLE_KEYS[raw.code] : undefined) ?? 'title';
+  return {
+    severity: 'error',
+    title: t(`warnings.agentError.${titleKey}`),
+    message: raw.message,
+    details: details.length > 0 ? details : undefined,
+  };
+}
+
 /**
  * Apply a single AppEvent to the state, returning a new state object.
  * The event carries `_wireSeq` and `_wireSessionId` as hidden extras when
@@ -311,6 +420,7 @@ export function reduceAppEvent(
       delete next.approvalsBySession[id];
       delete next.questionsBySession[id];
       delete next.lastSeqBySession[id];
+      delete next.turnActiveBySession[id];
       if (next.activeSessionId === id) {
         next.activeSessionId = undefined;
       }
@@ -318,25 +428,40 @@ export function reduceAppEvent(
     }
 
     // -------------------------------------------------------------------------
-    case 'sessionStatusChanged': {
+    case 'sessionWorkChanged': {
       next.sessions = next.sessions.map((s) => {
         if (s.id !== event.sessionId) return s;
         return {
           ...s,
-          status: event.status,
-          currentPromptId: event.currentPromptId,
+          busy: event.busy,
+          mainTurnActive: event.mainTurnActive ?? (event.busy ? s.mainTurnActive : false),
+          pendingInteraction: event.pendingInteraction ?? s.pendingInteraction,
+          // Authoritative, not nullish-merge: an omitted last_turn_reason is
+          // how the server says "no current outcome" (a fresh turn cleared
+          // the previous one), so the stale value must not survive.
+          lastTurnReason: event.lastTurnReason,
         };
       });
+      if (event.mainTurnActive === true) {
+        next.turnActiveBySession[event.sessionId] = true;
+      } else if (event.mainTurnActive === false || !event.busy) {
+        delete next.turnActiveBySession[event.sessionId];
+      }
       break;
     }
 
     // -------------------------------------------------------------------------
     case 'sessionMetaUpdated': {
-      // Lightweight title patch — the daemon's auto-generated title (or a title
-      // changed by another client) arrives via session.meta.updated. We patch
-      // only the title field; the full session object stays as-is.
+      // Lightweight meta patch — the daemon's auto-generated title (or a title
+      // changed by another client) and the latest user prompt arrive via
+      // session.meta.updated. We keep prior values for any field the event does
+      // not carry; the full session object otherwise stays as-is. Keeping
+      // lastPrompt fresh lets sidebar search match the most recent prompt
+      // without a full reload.
       next.sessions = next.sessions.map((s) =>
-        s.id === event.sessionId ? { ...s, title: event.title } : s,
+        s.id === event.sessionId
+          ? { ...s, title: event.title ?? s.title, lastPrompt: event.lastPrompt ?? s.lastPrompt }
+          : s,
       );
       break;
     }
@@ -418,10 +543,23 @@ export function reduceAppEvent(
     // -------------------------------------------------------------------------
     case 'messageCreated': {
       const sid = event.message.sessionId;
+      // A new message is activity on the session: bump its recency so it floats
+      // to the top of its workspace group in the sidebar immediately. The daemon
+      // does not always broadcast a fresh `session.updated` for message activity,
+      // so we rely on the message's own timestamp (and never move it backwards).
+      const createdAt = event.message.createdAt;
+      next.sessions = next.sessions.map((s) =>
+        s.id === sid && createdAt > s.updatedAt ? { ...s, updatedAt: createdAt } : s,
+      );
       const msgs = next.messagesBySession[sid] ?? [];
       const exists = msgs.some((m) => m.id === event.message.id || sameAssistantMessage(m, event.message));
       if (!exists) {
-        if (event.message.role === 'user') {
+        // Cron-injected user messages (origin cron_job/cron_missed) carry the
+        // reminder's prompt as their text, which can coincide with a still-
+        // optimistic user message. They must append as their own turn rather
+        // than reconcile into (and replace) that optimistic echo — so skip the
+        // echo lookup entirely for them.
+        if (event.message.role === 'user' && !isCronOriginMessage(event.message)) {
           const optimisticIndex = findOptimisticUserEchoIndex(msgs, event.message);
           if (optimisticIndex !== -1) {
             const updated = [...msgs];
@@ -514,6 +652,21 @@ export function reduceAppEvent(
       if (!exists) {
         next.approvalsBySession[sid] = [...list, event.approval];
       }
+      // Preserve a plan_review display so the plan stays visible in the
+      // ExitPlanMode tool card after the approval resolves.
+      const display = event.approval.display as
+        | { kind?: unknown; plan?: unknown; path?: unknown }
+        | null
+        | undefined;
+      if (display?.kind === 'plan_review' && typeof display.plan === 'string' && display.plan.length > 0) {
+        next.planReviewByToolCallId = {
+          ...next.planReviewByToolCallId,
+          [event.approval.toolCallId]: {
+            plan: display.plan,
+            path: typeof display.path === 'string' ? display.path : undefined,
+          },
+        };
+      }
       break;
     }
 
@@ -540,8 +693,7 @@ export function reduceAppEvent(
 
     // -------------------------------------------------------------------------
     case 'questionAnswered':
-    case 'questionDismissed':
-    case 'questionExpired': {
+    case 'questionDismissed': {
       const sid = event.sessionId;
       const qid = event.questionId;
       const list = next.questionsBySession[sid] ?? [];
@@ -558,7 +710,29 @@ export function reduceAppEvent(
         next.tasksBySession[sid] = [...list, event.task];
       } else {
         const patched = [...list];
-        patched[idx] = event.task;
+        const previous = list[idx]!;
+        // The projected task does not carry reducer-owned accumulated progress;
+        // preserve it across the replacement so subagent output keeps growing.
+        // A resync also rebuilds skeleton tasks without their identity metadata,
+        // so keep the previous value when the projected task omits it.
+        patched[idx] = {
+          ...event.task,
+          outputLines: previous.outputLines,
+          text: previous.text,
+          // A post-refresh lifecycle event re-projects the task with skeleton
+          // metadata; don't let its placeholder clobber the roster-seeded
+          // description.
+          description:
+            event.task.description === PLACEHOLDER_SUBAGENT_DESCRIPTION &&
+            previous.description !== PLACEHOLDER_SUBAGENT_DESCRIPTION
+              ? previous.description
+              : event.task.description,
+          dynamicWorkflowIndex: event.task.dynamicWorkflowIndex ?? previous.dynamicWorkflowIndex,
+          parentToolCallId: event.task.parentToolCallId ?? previous.parentToolCallId,
+          subagentType: event.task.subagentType ?? previous.subagentType,
+          runInBackground: event.task.runInBackground ?? previous.runInBackground,
+          backgroundTaskId: event.task.backgroundTaskId ?? previous.backgroundTaskId,
+        };
         next.tasksBySession[sid] = patched;
       }
       break;
@@ -570,11 +744,21 @@ export function reduceAppEvent(
       const list = next.tasksBySession[sid] ?? [];
       next.tasksBySession[sid] = list.map((t) => {
         if (t.id !== event.taskId) return t;
+        // Subagent streamed output (assistant.delta) concatenates into a single
+        // growing text block rather than fragmenting each delta into its own
+        // line — the detail panel renders it like a thinking block.
+        if (t.kind === 'subagent' && event.kind === 'text') {
+          return { ...t, text: (t.text ?? '') + event.outputChunk };
+        }
         const outputLines = t.outputLines ?? [];
         if (outputLines.at(-1) === event.outputChunk) return t;
+        const lines = [...outputLines, event.outputChunk];
         return {
           ...t,
-          outputLines: [...outputLines, event.outputChunk].slice(-40),
+          // Keep subagent progress in full (small synthesized lines) so the
+          // panel shows the whole process; cap background bash/tool output,
+          // which can grow without bound.
+          outputLines: t.kind === 'subagent' ? lines : lines.slice(-MAX_BACKGROUND_OUTPUT_LINES),
         };
       });
       break;
@@ -599,6 +783,9 @@ export function reduceAppEvent(
     // -------------------------------------------------------------------------
     case 'goalUpdated': {
       const sid = event.sessionId;
+      // Bump on every goal event — including clears — so refreshSessionGoal's
+      // recovery read can detect any live event that landed mid-flight.
+      next.goalVersionBySession[sid] = (next.goalVersionBySession[sid] ?? 0) + 1;
       if (event.goal === null || event.goal.status === 'complete') {
         delete next.goalBySession[sid];
       } else {
@@ -614,11 +801,41 @@ export function reduceAppEvent(
     }
 
     // -------------------------------------------------------------------------
+    // Provider-model catalog refresh result. The daemon already persisted the
+    // new catalog; the web picks it up on the next explicit model/provider load
+    // (model picker, session switch). Advance seq silently.
+    case 'modelCatalogChanged':
+      break;
+
+    // -------------------------------------------------------------------------
     // Agent-scoped side-channel events (e.g. BTW side chat) are consumed by the
     // web layer, not the session reducer. Advance seq silently.
     case 'agentDelta':
     case 'agentTurnEnded':
       break;
+
+    // -------------------------------------------------------------------------
+    // Prompt-level lifecycle events drive the web layer's in-flight cleanup
+    // (see usePythinkerWebClient.processEvent), not reducer state. Advance seq
+    // silently.
+    case 'promptCompleted':
+    case 'promptAborted':
+      break;
+
+    // -------------------------------------------------------------------------
+    case 'turnActiveChanged': {
+      next.sessions = next.sessions.map((session) =>
+        session.id === event.sessionId
+          ? { ...session, mainTurnActive: event.active }
+          : session,
+      );
+      if (event.active) {
+        next.turnActiveBySession[event.sessionId] = true;
+      } else {
+        delete next.turnActiveBySession[event.sessionId];
+      }
+      break;
+    }
 
     case 'unknown': {
       // Distinguish no-op known events (sentinel _noop) from agent errors/warnings

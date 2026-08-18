@@ -22,12 +22,11 @@ All other workspace packages are private internal packages, are not published to
 - `@pymodel/pythinker-telemetry`
 - `@pymodel/pythinker-web`
 - `@pymodel/kosong`
+- `@pymodel/migration-legacy`
 - `@pymodel/protocol`
-- `@pymodel/server`
-- `@pymodel/server-e2e`
-- `@pymodel/dashboard`
-- `@pymodel/dashboard-server`
-- `@pymodel/dashboard-web`
+- `@pymodel/vis`
+- `@pymodel/vis-server`
+- `@pymodel/vis-web`
 
 Version impact from internal dependencies must be judged manually. The published artifacts for CLI and SDK bundle internal workspace packages into the artifact itself; runtime `dependencies` of published packages must not include any `@pymodel/*` internal workspace packages.
 

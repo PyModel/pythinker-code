@@ -15,7 +15,7 @@ import {
   truncateToWidth,
   visibleWidth,
   wrapTextWithAnsi,
-} from '@earendil-works/pi-tui';
+} from '@pymodel/pi-tui';
 
 import { combinedBindingHint, formatBindingKeys } from '#/tui/components/dialogs/choice-picker';
 import {

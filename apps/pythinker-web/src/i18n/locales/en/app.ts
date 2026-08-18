@@ -5,8 +5,6 @@ export default {
   authPageMessage: 'Connect your Pythinker Code account before starting or continuing conversations.',
   authPageLogin: 'Sign in',
   connecting: 'Connecting…',
-  comingSoon: 'Coming soon…',
-  minimizeWindow: 'Minimize',
-  maximizeWindow: 'Maximize',
-  closeWindow: 'Close',
+  connectRetrying: 'Cannot reach the server — retrying…',
+  internalBuildBanner: 'Internal testing only',
 } as const;

@@ -1,17 +1,43 @@
+import type { Dirent } from 'node:fs';
 import { cp, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'pathe';
+import * as nodePath from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'pathe';
+
+import { z } from 'zod';
 
 import { ErrorCodes, PythinkerError } from '#/errors';
-import { parseSessionMetadata, type SessionMeta } from '../index';
 import type { SessionIndexEntry } from '#/session/store/session-index';
-import { appendSessionIndexEntry, readSessionIndex } from '#/session/store/session-index';
+import {
+  appendSessionIndexDeletion,
+  appendSessionIndexEntry,
+  readSessionIndex,
+} from '#/session/store/session-index';
 import { encodeWorkDirKey, normalizeWorkDir } from '#/session/store/workdir-key';
+import {
+  promptMetadataTextFromPayload,
+  promptMetadataTextFromPluginCommand,
+  promptMetadataTextFromSkill,
+} from '#/session/prompt-metadata';
 import type { JsonObject, ListSessionsPayload, SessionSummary } from '#/rpc/core-api';
-import { FileSystemAgentRecordPersistence, type AgentRecordOf } from '../../agent/records';
+import {
+  FileSystemAgentRecordPersistence,
+  type AgentRecord,
+  type AgentRecordOf,
+} from '../../agent/records';
+
+const SessionSummaryStateSchema = z.object({
+  archived: z.boolean().optional(),
+  customTitle: z.string().optional(),
+  isCustomTitle: z.boolean().optional(),
+  lastPrompt: z.string().optional(),
+  title: z.string().optional(),
+  workDir: z.string().optional(),
+  custom: z.record(z.string(), z.unknown()).optional(),
+});
 
 const FORKED_SESSION_DROPPED_FILES = ['upcoming-goals.json'] as const;
-// Keep large homes from flooding the shared libuv filesystem threadpool.
-const FILESYSTEM_SCAN_CONCURRENCY = 8;
+
+type SessionSummaryState = z.infer<typeof SessionSummaryStateSchema>;
 
 export interface CreateSessionRecordInput {
   readonly id: string;
@@ -23,11 +49,20 @@ export interface ForkSessionRecordInput {
   readonly targetId: string;
   readonly title?: string;
   readonly metadata?: JsonObject;
+  readonly turnIndex?: number;
 }
 
-export interface SessionStoreOptions {
+export type SessionStoreOptions = {
+  /**
+   * Optional identity hook (wired by the services layer from the workspace
+   * registry): the already-registered workspace id for the same physical root
+   * as `workDir`, or undefined when no entry matches. Bucket derivation
+   * prefers it over minting a fresh `encodeWorkDirKey` hash, so a session
+   * created from a case/slash variant of a registered Windows root lands in
+   * the registered bucket instead of splitting into a second one.
+   */
   readonly resolveWorkspaceId?: (workDir: string) => Promise<string | undefined>;
-}
+};
 
 export class SessionStore {
   readonly sessionsDir: string;
@@ -46,6 +81,14 @@ export class SessionStore {
     return join(this.sessionsDir, encodeWorkDirKey(normalizeWorkDir(input.workDir)), input.id);
   }
 
+  /**
+   * Bucket key for a workDir: asks the workspace registry (when wired) for the
+   * registered id of the same physical root — see SessionStoreOptions — and
+   * prefers it over the freshly minted `encodeWorkDirKey` hash. Falls back to
+   * minting when the resolver is absent, errors, or returns an id that is not
+   * a safe bucket name (registry contents are user-editable state; minted ids
+   * always pass `isSafeSessionId`).
+   */
   private async bucketKeyFor(workDir: string): Promise<string> {
     let resolved: string | undefined;
     try {
@@ -58,6 +101,7 @@ export class SessionStore {
       : encodeWorkDirKey(normalizeWorkDir(workDir));
   }
 
+  /** Like `sessionDirFor`, but under the registry-resolved bucket. */
   private async resolvedSessionDirFor(input: {
     readonly id: string;
     readonly workDir: string;
@@ -66,14 +110,16 @@ export class SessionStore {
     return join(this.sessionsDir, await this.bucketKeyFor(input.workDir), input.id);
   }
 
-  async create(
-    input: CreateSessionRecordInput,
-    initialize: (summary: SessionSummary) => Promise<void>,
-  ): Promise<SessionSummary> {
+  /** Bucket directory for a workDir, registry-resolved when possible. */
+  private async bucketDirFor(workDir: string): Promise<string> {
+    return join(this.sessionsDir, await this.bucketKeyFor(workDir));
+  }
+
+  async create(input: CreateSessionRecordInput): Promise<SessionSummary> {
     assertSafeSessionId(input.id);
     const workDir = normalizeWorkDir(input.workDir);
     const indexed = await this.findSessionEntry(input.id);
-    if (indexed !== undefined) {
+    if (indexed !== undefined && (await isDirectory(indexed.sessionDir))) {
       throw new PythinkerError(ErrorCodes.SESSION_ALREADY_EXISTS, `Session "${input.id}" already exists`);
     }
 
@@ -82,30 +128,18 @@ export class SessionStore {
       throw new PythinkerError(ErrorCodes.SESSION_ALREADY_EXISTS, `Session "${input.id}" already exists`);
     }
 
-    let created = false;
-    try {
-      await mkdir(dirname(dir), { recursive: true, mode: 0o700 });
-      await mkdir(dir, { mode: 0o700 });
-      created = true;
-      await initialize(await this.unpublishedSummary(input.id, dir, workDir));
-      const summary = await this.summaryFromDir(input.id, dir, workDir);
-      await appendSessionIndexEntry(this.homeDir, {
-        sessionId: input.id,
-        sessionDir: dir,
-        workDir,
-      });
-      return summary;
-    } catch (error) {
-      if (created) {
-        await rm(dir, { recursive: true, force: true }).catch(() => {});
-      }
-      throw error;
-    }
+    await mkdir(dir, { recursive: true, mode: 0o700 });
+    await appendSessionIndexEntry(this.homeDir, {
+      sessionId: input.id,
+      sessionDir: dir,
+      workDir,
+    });
+    return this.summaryFromDir(input.id, dir, workDir);
   }
 
   async fork(input: ForkSessionRecordInput): Promise<SessionSummary> {
+    assertForkTurnIndex(input.turnIndex);
     const source = await this.findExistingSessionEntry(input.sourceId);
-    const sourceState = await readSessionState(source.sessionDir, input.sourceId);
     assertSafeSessionId(input.targetId);
     const indexed = await this.findSessionEntry(input.targetId);
     if (indexed !== undefined) {
@@ -125,8 +159,21 @@ export class SessionStore {
         errorOnExist: true,
       });
       await dropForkedSessionFiles(targetDir);
-      const forkedState = await writeForkedState(input, sourceState, targetDir);
-      await appendForkedMarkers(targetDir, forkedState);
+      const fullForkedState = await this.writeForkedState(
+        input,
+        source.sessionDir,
+        source.workDir,
+        targetDir,
+      );
+      const forkedState = input.turnIndex === undefined
+        ? fullForkedState
+        : await truncateForkedSessionAtTurn(
+            targetDir,
+            input.sourceId,
+            input.turnIndex,
+            fullForkedState,
+          );
+      await appendForkedMarkers(forkedState);
       const summary = await this.summaryFromDir(input.targetId, targetDir, source.workDir);
       await appendSessionIndexEntry(this.homeDir, {
         sessionId: input.targetId,
@@ -151,25 +198,54 @@ export class SessionStore {
       throw new PythinkerError(ErrorCodes.SESSION_TITLE_EMPTY, 'Session title cannot be empty');
     }
     const entry = await this.findExistingSessionEntry(id);
-    const state = await readSessionState(entry.sessionDir, id);
-    const next = parseSessionMetadata({
-      ...state,
+    const statePath = join(entry.sessionDir, 'state.json');
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(await readFile(statePath, 'utf-8')) as unknown;
+    } catch (error) {
+      throw new PythinkerError(ErrorCodes.SESSION_STATE_NOT_FOUND, `Session "${id}" state.json was not found`, {
+        cause: error,
+      });
+    }
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      throw new PythinkerError(ErrorCodes.SESSION_STATE_INVALID, `Session "${id}" state.json is invalid`);
+    }
+    const next: Record<string, unknown> = {
+      ...(parsed as Record<string, unknown>),
       title: normalized,
       isCustomTitle: true,
-    });
-    await writeState(entry.sessionDir, next);
+    };
+    await writeFile(statePath, `${JSON.stringify(next, null, 2)}\n`, 'utf-8');
   }
 
   async archive(id: string): Promise<SessionSummary> {
     const entry = await this.findExistingSessionEntry(id);
-    const state = await readSessionState(entry.sessionDir, id);
-    const next = parseSessionMetadata({
-      ...state,
+    const statePath = join(entry.sessionDir, 'state.json');
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(await readFile(statePath, 'utf-8')) as unknown;
+    } catch (error) {
+      throw new PythinkerError(ErrorCodes.SESSION_STATE_NOT_FOUND, `Session "${id}" state.json was not found`, {
+        cause: error,
+      });
+    }
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      throw new PythinkerError(ErrorCodes.SESSION_STATE_INVALID, `Session "${id}" state.json is invalid`);
+    }
+    const now = new Date().toISOString();
+    const next: Record<string, unknown> = {
+      ...(parsed as Record<string, unknown>),
       archived: true,
-      updatedAt: new Date().toISOString(),
-    });
-    await writeState(entry.sessionDir, next);
+      updatedAt: now,
+    };
+    await writeFile(statePath, `${JSON.stringify(next, null, 2)}\n`, 'utf-8');
     return this.summaryFromDir(id, entry.sessionDir, entry.workDir);
+  }
+
+  async delete(id: string): Promise<void> {
+    const entry = await this.findExistingSessionEntry(id);
+    await rm(entry.sessionDir, { recursive: true, force: true });
+    await appendSessionIndexDeletion(this.homeDir, id);
   }
 
   async list(options: ListSessionsPayload = {}): Promise<readonly SessionSummary[]> {
@@ -193,18 +269,143 @@ export class SessionStore {
     return this.listAll(includeArchive);
   }
 
+  /**
+   * Rebuild the global session index from the session directories on disk.
+   *
+   * The bucket directory name is a one-way hash of the workDir, so the workDir
+   * can only be recovered from each session's self-describing `state.json`
+   * (`workDir`, falling back to `custom.cwd` for older sessions). Sessions that
+   * record no workDir, or whose recorded workDir does not match the bucket they
+   * live in, are left untouched rather than writing a misleading entry.
+   *
+   * The index is append-only and `readSessionIndex` lets later lines override
+   * earlier ones for the same id, so appending a corrected line both adds
+   * missing entries and repairs stale ones. Best-effort: never throws.
+   */
+  async reindex(): Promise<{ scanned: number; added: number; repaired: number }> {
+    const index = await readSessionIndex(this.homeDir, this.sessionsDir);
+    let bucketEntries;
+    try {
+      bucketEntries = await readdir(this.sessionsDir, { withFileTypes: true });
+    } catch {
+      return { scanned: 0, added: 0, repaired: 0 };
+    }
+
+    let scanned = 0;
+    let added = 0;
+    let repaired = 0;
+
+    for (const bucket of bucketEntries) {
+      if (!bucket.isDirectory()) continue;
+      const bucketDir = join(this.sessionsDir, bucket.name);
+      let sessionEntries;
+      try {
+        sessionEntries = await readdir(bucketDir, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      for (const entry of sessionEntries) {
+        if (!entry.isDirectory()) continue;
+        const id = entry.name;
+        if (!isSafeSessionId(id)) continue;
+        const sessionDir = join(bucketDir, id);
+        const workDir = await this.recoverWorkDir(sessionDir);
+        if (workDir === undefined) continue;
+        scanned++;
+
+        let expectedDir: string;
+        try {
+          expectedDir = this.sessionDirFor({ id, workDir });
+        } catch {
+          continue;
+        }
+        // Refuse to index a session whose recorded workDir does not match the
+        // bucket it lives in (corrupt or foreign state). The registry-resolved
+        // bucket is accepted too: sessions created with a wired resolver live
+        // in the registered bucket even though their workDir mints elsewhere.
+        if (
+          !areSameFsPath(sessionDir, expectedDir) &&
+          !areSameFsPath(sessionDir, await this.resolvedSessionDirFor({ id, workDir }))
+        ) {
+          continue;
+        }
+
+        const existing = index.get(id);
+        if (
+          existing !== undefined &&
+          areSameFsPath(existing.sessionDir, sessionDir) &&
+          existing.workDir === workDir
+        ) {
+          continue;
+        }
+
+        await appendSessionIndexEntry(this.homeDir, { sessionId: id, sessionDir, workDir });
+        index.set(id, { sessionId: id, sessionDir, workDir });
+        if (existing === undefined) added++;
+        else repaired++;
+      }
+    }
+    return { scanned, added, repaired };
+  }
+
+  private async recoverWorkDir(sessionDir: string): Promise<string | undefined> {
+    const state = await readOptionalState(sessionDir);
+    if (state?.workDir !== undefined) {
+      try {
+        return normalizeWorkDir(state.workDir);
+      } catch {
+        return undefined;
+      }
+    }
+    const legacyCwd = state?.custom?.['cwd'];
+    if (typeof legacyCwd === 'string' && legacyCwd.length > 0) {
+      try {
+        return normalizeWorkDir(legacyCwd);
+      } catch {
+        return undefined;
+      }
+    }
+    return undefined;
+  }
+
   private async listWorkDir(
     workDir: string,
     includeArchive: boolean,
   ): Promise<readonly SessionSummary[]> {
-    const index = await readSessionIndex(this.homeDir, this.sessionsDir);
+    const bucketDir = await this.bucketDirFor(workDir);
+    let entries: Dirent[] = [];
+    try {
+      entries = await readdir(bucketDir, { withFileTypes: true });
+    } catch {
+      // The same Windows directory may have an older bucket whose drive/share
+      // casing differs. The index fallback below can still recover it.
+    }
+
     const sessions: SessionSummary[] = [];
-    for (const entry of index.values()) {
-      if (entry.workDir !== workDir || !(await isDirectory(entry.sessionDir))) continue;
-      const summary = await this.trySummaryFromDir(entry.sessionId, entry.sessionDir, entry.workDir);
-      if (summary === undefined) continue;
+    const seen = new Set<string>();
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const id = entry.name;
+      if (!isSafeSessionId(id)) continue;
+      const dir = join(bucketDir, id);
+      const summary = await this.summaryFromDir(id, dir, workDir);
       if (!includeArchive && summary.archived === true) continue;
       sessions.push(summary);
+      seen.add(id);
+    }
+
+    // Do not change the established bucket hash: that would hide every
+    // existing Windows session after an upgrade. Instead merge indexed
+    // sessions whose persisted workDir names the same case-insensitive drive
+    // or UNC location (for example TUI `C:/Work` vs VS Code `c:\\Work`).
+    const index = await readSessionIndex(this.homeDir, this.sessionsDir);
+    for (const entry of index.values()) {
+      if (seen.has(entry.sessionId) || !(await isDirectory(entry.sessionDir))) continue;
+      const summary = await this.summaryFromDir(entry.sessionId, entry.sessionDir, entry.workDir);
+      if (!areSameFsPath(summary.workDir, workDir)) continue;
+      if (!includeArchive && summary.archived === true) continue;
+      sessions.push(summary);
+      seen.add(entry.sessionId);
     }
     sessions.sort(compareSessionSummary);
     return sessions;
@@ -228,22 +429,13 @@ export class SessionStore {
 
   private async listAll(includeArchive: boolean): Promise<readonly SessionSummary[]> {
     const index = await readSessionIndex(this.homeDir, this.sessionsDir);
-    const summaries = await mapWithConcurrency(
-      [...index.values()],
-      FILESYSTEM_SCAN_CONCURRENCY,
-      async (entry) => {
-        if (!(await isDirectory(entry.sessionDir))) return undefined;
-        const summary = await this.trySummaryFromDir(
-          entry.sessionId,
-          entry.sessionDir,
-          entry.workDir,
-        );
-        if (summary === undefined) return undefined;
-        if (!includeArchive && summary.archived === true) return undefined;
-        return summary;
-      },
-    );
-    const sessions = summaries.filter((summary): summary is SessionSummary => summary !== undefined);
+    const sessions: SessionSummary[] = [];
+    for (const entry of index.values()) {
+      if (!(await isDirectory(entry.sessionDir))) continue;
+      const summary = await this.summaryFromDir(entry.sessionId, entry.sessionDir, entry.workDir);
+      if (!includeArchive && summary.archived === true) continue;
+      sessions.push(summary);
+    }
     sessions.sort(compareSessionSummary);
     return sessions;
   }
@@ -253,20 +445,16 @@ export class SessionStore {
     workDir: string,
     includeArchive: boolean,
   ): Promise<SessionSummary | undefined> {
-    const entry = await this.findSessionEntry(sessionId);
-    if (entry === undefined || entry.workDir !== workDir || !(await isDirectory(entry.sessionDir))) {
-      return undefined;
-    }
-    const summary = await this.trySummaryFromDir(sessionId, entry.sessionDir, entry.workDir);
-    if (summary === undefined) return undefined;
+    if (!isSafeSessionId(sessionId)) return undefined;
+    const sessionDir = await this.resolvedSessionDirFor({ id: sessionId, workDir });
+    if (!(await isDirectory(sessionDir))) return undefined;
+    const summary = await this.summaryFromDir(sessionId, sessionDir, workDir);
     if (!includeArchive && summary.archived === true) return undefined;
     return summary;
   }
 
   async assertDirectory(id: string): Promise<string> {
-    const entry = await this.findExistingSessionEntry(id);
-    await readSessionState(entry.sessionDir, id);
-    return entry.sessionDir;
+    return (await this.findExistingSessionEntry(id)).sessionDir;
   }
 
   private async findSessionEntry(id: string): Promise<SessionIndexEntry | undefined> {
@@ -283,35 +471,47 @@ export class SessionStore {
     });
   }
 
-  private async unpublishedSummary(
-    id: string,
-    sessionDir: string,
-    workDir: string,
-  ): Promise<SessionSummary> {
-    const dirStat = await stat(sessionDir);
-    const timestamp = timestampOrFallback(dirStat.birthtimeMs, dirStat.ctimeMs);
-    return {
-      id,
-      workDir,
-      sessionDir,
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    };
-  }
-
-  private async trySummaryFromDir(
-    id: string,
-    sessionDir: string,
-    workDir: string,
-  ): Promise<SessionSummary | undefined> {
+  private async writeForkedState(
+    input: ForkSessionRecordInput,
+    sourceDir: string,
+    sourceWorkDir: string,
+    targetDir: string,
+  ): Promise<Record<string, unknown>> {
+    const statePath = join(targetDir, 'state.json');
+    let parsed: unknown;
     try {
-      return await this.summaryFromDir(id, sessionDir, workDir);
+      parsed = JSON.parse(await readFile(statePath, 'utf-8')) as unknown;
     } catch (error) {
-      if (error instanceof PythinkerError && error.code === ErrorCodes.SESSION_STATE_INVALID) {
-        return undefined;
-      }
-      throw error;
+      throw new PythinkerError(
+        ErrorCodes.SESSION_STATE_NOT_FOUND,
+        `Session "${input.sourceId}" state.json was not found`,
+        {
+          cause: error,
+        },
+      );
     }
+    if (!isRecord(parsed)) {
+      throw new PythinkerError(
+        ErrorCodes.SESSION_STATE_INVALID,
+        `Session "${input.sourceId}" state.json is invalid`,
+      );
+    }
+
+    const title = normalizeForkTitle(input.title, parsed['title']);
+    const now = new Date().toISOString();
+    const next: Record<string, unknown> = {
+      ...parsed,
+      createdAt: now,
+      updatedAt: now,
+      workDir: sourceWorkDir,
+      title,
+      isCustomTitle: input.title === undefined ? parsed['isCustomTitle'] === true : true,
+      forkedFrom: input.sourceId,
+      agents: rewriteAgentHomedirs(parsed['agents'], sourceDir, targetDir),
+      custom: forkCustomMetadata(parsed['custom'], input.metadata),
+    };
+    await writeFile(statePath, `${JSON.stringify(next, null, 2)}\n`, 'utf-8');
+    return next;
   }
 
   private async summaryFromDir(
@@ -319,60 +519,35 @@ export class SessionStore {
     sessionDir: string,
     workDir: string,
   ): Promise<SessionSummary> {
-    const [dirStat, state, stateInfo, agentsWireMtime] = await Promise.all([
-      stat(sessionDir),
-      readSessionState(sessionDir, id),
-      stat(join(sessionDir, 'state.json')),
+    const dirStat = await stat(sessionDir);
+    const state = await readOptionalState(sessionDir);
+    const [stateInfo, wireInfo, agentsWireMtime] = await Promise.all([
+      statIfExists(join(sessionDir, 'state.json')),
+      statIfExists(join(sessionDir, 'wire.jsonl')),
       latestAgentWireMtime(sessionDir),
     ]);
     return {
       id,
-      workDir,
+      workDir: state?.workDir ?? workDir,
       sessionDir,
       createdAt: timestampOrFallback(dirStat.birthtimeMs, dirStat.ctimeMs),
-      updatedAt: Math.max(dirStat.mtimeMs, stateInfo.mtimeMs, agentsWireMtime ?? 0),
-      archived: state.archived === true,
-      title: state.title,
-      lastPrompt: state.lastPrompt,
-      metadata: state.custom as JsonObject,
+      updatedAt: Math.max(
+        dirStat.mtimeMs,
+        stateInfo?.mtimeMs ?? 0,
+        wireInfo?.mtimeMs ?? 0,
+        agentsWireMtime ?? 0,
+      ),
+      archived: state?.archived === true,
+      title: titleFromState(state),
+      lastPrompt: state?.lastPrompt,
+      metadata: metadataFromState(state),
     };
   }
 }
 
-async function readSessionState(sessionDir: string, id: string): Promise<SessionMeta> {
-  try {
-    return parseSessionMetadata(JSON.parse(await readFile(join(sessionDir, 'state.json'), 'utf-8')));
-  } catch (error) {
-    if (error instanceof PythinkerError && error.code === ErrorCodes.SESSION_STATE_INVALID) {
-      throw error;
-    }
-    throw new PythinkerError(ErrorCodes.SESSION_STATE_INVALID, `Session "${id}" state.json is invalid`, {
-      cause: error,
-    });
-  }
-}
-
-async function writeForkedState(
-  input: ForkSessionRecordInput,
-  source: SessionMeta,
-  targetDir: string,
-): Promise<SessionMeta> {
-  const now = new Date().toISOString();
-  const next = parseSessionMetadata({
-    ...source,
-    createdAt: now,
-    updatedAt: now,
-    title: normalizeForkTitle(input.title, source.title),
-    isCustomTitle: input.title === undefined ? source.isCustomTitle : true,
-    forkedFrom: input.sourceId,
-    custom: forkCustomMetadata(source.custom, input.metadata),
-  });
-  await writeState(targetDir, next);
-  return next;
-}
-
-async function writeState(sessionDir: string, state: SessionMeta): Promise<void> {
-  await writeFile(join(sessionDir, 'state.json'), `${JSON.stringify(state, null, 2)}\n`, 'utf-8');
+function metadataFromState(state: SessionSummaryState | undefined): JsonObject | undefined {
+  if (state === undefined || state.custom === undefined) return undefined;
+  return state.custom as JsonObject;
 }
 
 function forkCustomMetadata(source: unknown, metadata: JsonObject | undefined): Record<string, unknown> {
@@ -388,17 +563,335 @@ async function dropForkedSessionFiles(sessionDir: string): Promise<void> {
   );
 }
 
-async function appendForkedMarkers(sessionDir: string, state: SessionMeta): Promise<void> {
-  const record: AgentRecordOf<'forked'> = { type: 'forked', time: Date.now() };
-  await Promise.all(
-    Object.keys(state.agents).map(async (agentId) => {
-      const persistence = new FileSystemAgentRecordPersistence(
-        join(sessionDir, 'agents', agentId, 'wire.jsonl'),
-      );
-      persistence.append(record);
-      await persistence.flush();
-    }),
+interface MainTurnSlice {
+  readonly records: readonly AgentRecord[];
+  readonly cutoffTime?: number;
+  readonly lastPrompt?: string;
+}
+
+async function truncateForkedSessionAtTurn(
+  sessionDir: string,
+  sourceSessionId: string,
+  turnIndex: number,
+  state: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const agents = state['agents'];
+  if (!isRecord(agents) || !isRecord(agents['main'])) {
+    throw new PythinkerError(
+      ErrorCodes.SESSION_STATE_INVALID,
+      `Session "${sourceSessionId}" has no main agent metadata`,
+    );
+  }
+
+  const mainAgentDir = join(sessionDir, 'agents', 'main');
+  const mainPersistence = new FileSystemAgentRecordPersistence(
+    join(mainAgentDir, 'wire.jsonl'),
   );
+  const mainRecords = await readAgentRecords(mainPersistence);
+  const mainSlice = sliceMainRecordsAtTurn(mainRecords, sourceSessionId, turnIndex);
+  mainPersistence.rewrite(mainSlice.records);
+  await mainPersistence.flush();
+
+  const retainedAgents: Record<string, unknown> = {
+    main: withAgentHomedir(agents['main'], mainAgentDir),
+  };
+  for (const [agentId, agentMeta] of Object.entries(agents)) {
+    if (agentId === 'main') continue;
+    const agentDir = join(sessionDir, 'agents', agentId);
+    const retained = await truncateSubagentAtTime(agentDir, mainSlice.cutoffTime);
+    if (retained) {
+      retainedAgents[agentId] = withAgentHomedir(agentMeta, agentDir);
+      continue;
+    }
+    await rm(agentDir, { recursive: true, force: true });
+  }
+  dropAgentsWithMissingParents(retainedAgents);
+
+  for (const agentId of Object.keys(agents)) {
+    if (retainedAgents[agentId] !== undefined) continue;
+    await rm(join(sessionDir, 'agents', agentId), { recursive: true, force: true });
+  }
+
+  for (const agentId of Object.keys(retainedAgents)) {
+    const agentDir = join(sessionDir, 'agents', agentId);
+    await Promise.all([
+      rm(join(agentDir, 'tasks'), { recursive: true, force: true }),
+      rm(join(agentDir, 'cron'), { recursive: true, force: true }),
+    ]);
+  }
+
+  const next = {
+    ...state,
+    lastPrompt: mainSlice.lastPrompt,
+    agents: retainedAgents,
+  };
+  await writeFile(join(sessionDir, 'state.json'), `${JSON.stringify(next, null, 2)}\n`, 'utf-8');
+  return next;
+}
+
+function withAgentHomedir(agentMeta: unknown, homedir: string): unknown {
+  return isRecord(agentMeta) ? { ...agentMeta, homedir } : agentMeta;
+}
+
+async function readAgentRecords(
+  persistence: FileSystemAgentRecordPersistence,
+): Promise<readonly AgentRecord[]> {
+  const records: AgentRecord[] = [];
+  for await (const record of persistence.read()) {
+    records.push(record);
+  }
+  return records;
+}
+
+function sliceMainRecordsAtTurn(
+  records: readonly AgentRecord[],
+  sourceSessionId: string,
+  turnIndex: number,
+): MainTurnSlice {
+  const turnStarts: number[] = [];
+  for (let index = 0; index < records.length; index += 1) {
+    if (isUserVisibleTurnRecord(records[index]!)) turnStarts.push(index);
+  }
+  const start = turnStarts[turnIndex];
+  if (start === undefined) {
+    throw new PythinkerError(
+      ErrorCodes.REQUEST_INVALID,
+      `Turn ${String(turnIndex)} was not found in session "${sourceSessionId}"`,
+      { details: { turnIndex, availableTurns: turnStarts.length } },
+    );
+  }
+
+  const end = turnStarts[turnIndex + 1] ?? records.length;
+  const retainedTurnInputs = turnInputIndicesThrough(records, turnIndex);
+  const retained = records
+    .slice(0, end)
+    .filter(
+      (record, index) =>
+        !isUserVisibleTurnInputRecord(record) || retainedTurnInputs.has(index),
+    );
+  const cutoffTimes = retained
+    .map(recordTime)
+    .filter((time): time is number => time !== undefined);
+  const lastPrompt = promptMetadataFromTurnRecord(records[start]!);
+  return {
+    records: retained,
+    cutoffTime: cutoffTimes.length === 0 ? undefined : Math.max(...cutoffTimes),
+    lastPrompt,
+  };
+}
+
+async function truncateSubagentAtTime(
+  agentDir: string,
+  cutoffTime: number | undefined,
+): Promise<boolean> {
+  if (cutoffTime === undefined) return false;
+  const persistence = new FileSystemAgentRecordPersistence(join(agentDir, 'wire.jsonl'));
+  const records = await readAgentRecords(persistence);
+  let end = records.length;
+  for (let index = 0; index < records.length; index += 1) {
+    const time = recordTime(records[index]!);
+    if (time !== undefined && time > cutoffTime) {
+      end = index;
+      break;
+    }
+  }
+  const retained = records.slice(0, end);
+  if (retained.length === 0) return false;
+  persistence.rewrite(retained);
+  await persistence.flush();
+  return true;
+}
+
+function dropAgentsWithMissingParents(agents: Record<string, unknown>): void {
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const [agentId, agentMeta] of Object.entries(agents)) {
+      if (agentId === 'main' || !isRecord(agentMeta)) continue;
+      const parentAgentId = agentMeta['parentAgentId'];
+      if (
+        typeof parentAgentId === 'string' &&
+        parentAgentId !== 'main' &&
+        agents[parentAgentId] === undefined
+      ) {
+        delete agents[agentId];
+        changed = true;
+      }
+    }
+  }
+}
+
+function recordTime(record: AgentRecord): number | undefined {
+  if (typeof record.time === 'number' && Number.isFinite(record.time)) return record.time;
+  if (
+    record.type === 'metadata' &&
+    typeof record.created_at === 'number' &&
+    Number.isFinite(record.created_at)
+  ) {
+    return record.created_at;
+  }
+  return undefined;
+}
+
+function isUserVisibleTurnRecord(record: AgentRecord): boolean {
+  if (record.type !== 'context.append_message') return false;
+  const { message } = record;
+  if (message.role !== 'user') return false;
+  switch (message.origin?.kind) {
+    case undefined:
+    case 'user':
+      return true;
+    case 'skill_activation':
+    case 'plugin_command':
+      return message.origin.trigger === 'user-slash';
+    case 'shell_command':
+      return message.origin.phase === 'input';
+    case 'background_task':
+    case 'compaction_summary':
+    case 'cron_job':
+    case 'cron_missed':
+    case 'hook_result':
+    case 'injection':
+    case 'retry':
+    case 'system_trigger':
+      return false;
+  }
+}
+
+function isUserVisibleTurnInputRecord(record: AgentRecord): boolean {
+  if (record.type !== 'turn.prompt' && record.type !== 'turn.steer') return false;
+  switch (record.origin.kind) {
+    case 'user':
+      return true;
+    case 'skill_activation':
+    case 'plugin_command':
+      return record.origin.trigger === 'user-slash';
+    case 'shell_command':
+      return record.origin.phase === 'input';
+    case 'background_task':
+    case 'compaction_summary':
+    case 'cron_job':
+    case 'cron_missed':
+    case 'hook_result':
+    case 'injection':
+    case 'retry':
+    case 'system_trigger':
+      return false;
+  }
+}
+
+function turnInputIndicesThrough(
+  records: readonly AgentRecord[],
+  turnIndex: number,
+): ReadonlySet<number> {
+  const pending: number[] = [];
+  const retained = new Set<number>();
+  let visibleTurnIndex = 0;
+  for (let index = 0; index < records.length; index += 1) {
+    const record = records[index]!;
+    if (isUserVisibleTurnInputRecord(record)) {
+      pending.push(index);
+      continue;
+    }
+    if (!isUserVisibleTurnRecord(record)) continue;
+
+    const matchAt = findMatchingTurnInput(records, pending, record);
+    if (matchAt !== -1) {
+      const [inputIndex] = pending.splice(matchAt, 1);
+      if (visibleTurnIndex <= turnIndex && inputIndex !== undefined) {
+        retained.add(inputIndex);
+      }
+    }
+    visibleTurnIndex += 1;
+  }
+  return retained;
+}
+
+function findMatchingTurnInput(
+  records: readonly AgentRecord[],
+  pending: readonly number[],
+  turnRecord: AgentRecord,
+): number {
+  const exact = pending.findIndex((index) =>
+    turnInputMatchesRecord(records[index]!, turnRecord, true),
+  );
+  if (exact !== -1) return exact;
+  return pending.findIndex((index) =>
+    turnInputMatchesRecord(records[index]!, turnRecord, false),
+  );
+}
+
+function turnInputMatchesRecord(
+  inputRecord: AgentRecord,
+  turnRecord: AgentRecord,
+  compareContent: boolean,
+): boolean {
+  if (
+    (inputRecord.type !== 'turn.prompt' && inputRecord.type !== 'turn.steer') ||
+    turnRecord.type !== 'context.append_message' ||
+    turnRecord.message.role !== 'user'
+  ) {
+    return false;
+  }
+  if (!sameTurnOrigin(inputRecord.origin.kind, turnRecord.message.origin?.kind)) return false;
+  return !compareContent || JSON.stringify(inputRecord.input) === JSON.stringify(turnRecord.message.content);
+}
+
+function sameTurnOrigin(inputKind: string, messageKind: string | undefined): boolean {
+  if (inputKind === 'user') return messageKind === undefined || messageKind === 'user';
+  return inputKind === messageKind;
+}
+
+function promptMetadataFromTurnRecord(record: AgentRecord): string | undefined {
+  if (record.type !== 'context.append_message' || record.message.role !== 'user') {
+    return undefined;
+  }
+  const { message } = record;
+  if (message.origin?.kind === 'skill_activation') {
+    return promptMetadataTextFromSkill({
+      name: message.origin.skillName,
+      args: message.origin.skillArgs,
+    });
+  }
+  if (message.origin?.kind === 'plugin_command') {
+    return promptMetadataTextFromPluginCommand({
+      pluginId: message.origin.pluginId,
+      commandName: message.origin.commandName,
+      args: message.origin.commandArgs,
+    });
+  }
+  return promptMetadataTextFromPayload({ input: message.content });
+}
+
+function assertForkTurnIndex(turnIndex: number | undefined): void {
+  if (turnIndex === undefined) return;
+  if (Number.isSafeInteger(turnIndex) && turnIndex >= 0) return;
+  throw new PythinkerError(
+    ErrorCodes.REQUEST_INVALID,
+    'forkSession turnIndex must be a non-negative safe integer',
+    { details: { turnIndex } },
+  );
+}
+
+async function appendForkedMarkers(state: Record<string, unknown>): Promise<void> {
+  const record: AgentRecordOf<'forked'> = { type: 'forked', time: Date.now() };
+
+  const agents = state['agents'];
+  if (!isRecord(agents)) return;
+
+  const paths = new Set<string>();
+  for (const agentMeta of Object.values(agents)) {
+    if (!isRecord(agentMeta)) continue;
+    const homedir = agentMeta['homedir'];
+    if (typeof homedir !== 'string') continue;
+    paths.add(join(homedir, 'wire.jsonl'));
+  }
+
+  await Promise.all([...paths].map(async (path) => {
+    const persistence = new FileSystemAgentRecordPersistence(path);
+    persistence.append(record);
+    await persistence.flush();
+  }));
 }
 
 function customMetadataWithoutGoal(value: unknown): Record<string, unknown> {
@@ -420,38 +913,95 @@ async function latestAgentWireMtime(sessionDir: string): Promise<number | undefi
     return undefined;
   }
 
-  const mtimes = await mapWithConcurrency(entries, FILESYSTEM_SCAN_CONCURRENCY, async (entry) => {
-    if (!entry.isDirectory()) return 0;
-    return (await statIfExists(join(agentsDir, entry.name, 'wire.jsonl')))?.mtimeMs ?? 0;
-  });
-  const latest = mtimes.reduce((maximum, mtime) => Math.max(maximum, mtime), 0);
+  let latest = 0;
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const wireInfo = await statIfExists(join(agentsDir, entry.name, 'wire.jsonl'));
+    latest = Math.max(latest, wireInfo?.mtimeMs ?? 0);
+  }
   return latest > 0 ? latest : undefined;
 }
 
-async function mapWithConcurrency<T, U>(
-  items: readonly T[],
-  concurrency: number,
-  mapper: (item: T, index: number) => Promise<U>,
-): Promise<U[]> {
-  const results: U[] = [];
-  results.length = items.length;
-  let nextIndex = 0;
-  const workerCount = Math.min(concurrency, items.length);
-  await Promise.all(
-    Array.from({ length: workerCount }, async () => {
-      while (true) {
-        const index = nextIndex;
-        nextIndex += 1;
-        if (index >= items.length) return;
-        results[index] = await mapper(items[index] as T, index);
-      }
-    }),
-  );
-  return results;
+function titleFromState(state: SessionSummaryState | undefined): string | undefined {
+  if (state === undefined) return undefined;
+  if (typeof state.isCustomTitle === 'boolean' && typeof state.title === 'string') {
+    return state.title;
+  }
+  if (typeof state.customTitle === 'string') return state.customTitle;
+  return typeof state.title === 'string' ? state.title : undefined;
+}
+
+async function readOptionalState(sessionDir: string): Promise<SessionSummaryState | undefined> {
+  try {
+    const parsed = JSON.parse(await readFile(join(sessionDir, 'state.json'), 'utf-8')) as unknown;
+    const result = SessionSummaryStateSchema.safeParse(parsed);
+    return result.success ? result.data : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function normalizeRequiredWorkDir(workDir: string): string {
+  if (workDir.trim() === '') {
+    throw new PythinkerError(ErrorCodes.REQUEST_WORK_DIR_REQUIRED, 'listSessions requires workDir');
+  }
+  return normalizeWorkDir(workDir);
+}
+
+function normalizeOptionalSessionId(sessionId: string | undefined): string | undefined {
+  return sessionId === undefined ? undefined : sessionId.trim();
+}
+
+function normalizeForkTitle(title: string | undefined, fallback: unknown): string {
+  if (title !== undefined) {
+    const normalized = title.trim();
+    if (normalized.length === 0) {
+      throw new PythinkerError(ErrorCodes.SESSION_TITLE_EMPTY, 'Session title cannot be empty');
+    }
+    return normalized;
+  }
+  return typeof fallback === 'string' && fallback.trim().length > 0 ? fallback : 'New Session';
+}
+
+function rewriteAgentHomedirs(value: unknown, sourceDir: string, targetDir: string): unknown {
+  if (!isRecord(value)) return {};
+
+  const agents: Record<string, unknown> = {};
+  for (const [agentId, agentMeta] of Object.entries(value)) {
+    if (!isRecord(agentMeta)) {
+      agents[agentId] = agentMeta;
+      continue;
+    }
+    const homedir = agentMeta['homedir'];
+    agents[agentId] = {
+      ...agentMeta,
+      homedir:
+        typeof homedir === 'string' ? remapSessionPath(homedir, sourceDir, targetDir) : homedir,
+    };
+  }
+  return agents;
+}
+
+function remapSessionPath(value: string, sourceDir: string, targetDir: string): string {
+  const rel = relative(sourceDir, value);
+  if (rel === '') return targetDir;
+  if (rel.startsWith('..') || isAbsolute(rel)) return value;
+  return join(targetDir, rel);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function areSameFsPath(left: string, right: string): boolean {
+  if (isWindowsAbsolutePath(left) || isWindowsAbsolutePath(right)) {
+    return nodePath.win32.resolve(left).toLowerCase() === nodePath.win32.resolve(right).toLowerCase();
+  }
+  return resolve(left) === resolve(right);
+}
+
+function isWindowsAbsolutePath(value: string): boolean {
+  return /^[A-Za-z]:[\\/]/.test(value) || /^[\\/]{2}[^\\/]+[\\/][^\\/]+/.test(value);
 }
 
 async function statIfExists(path: string): Promise<{ readonly mtimeMs: number } | undefined> {
@@ -472,28 +1022,6 @@ async function isDirectory(path: string): Promise<boolean> {
 
 function timestampOrFallback(value: number, fallback: number): number {
   return Number.isFinite(value) && value > 0 ? value : fallback;
-}
-
-function normalizeRequiredWorkDir(workDir: string): string {
-  if (workDir.trim() === '') {
-    throw new PythinkerError(ErrorCodes.REQUEST_WORK_DIR_REQUIRED, 'listSessions requires workDir');
-  }
-  return normalizeWorkDir(workDir);
-}
-
-function normalizeOptionalSessionId(sessionId: string | undefined): string | undefined {
-  return sessionId === undefined ? undefined : sessionId.trim();
-}
-
-function normalizeForkTitle(title: string | undefined, fallback: string): string {
-  if (title !== undefined) {
-    const normalized = title.trim();
-    if (normalized.length === 0) {
-      throw new PythinkerError(ErrorCodes.SESSION_TITLE_EMPTY, 'Session title cannot be empty');
-    }
-    return normalized;
-  }
-  return fallback.trim().length > 0 ? fallback : 'New Session';
 }
 
 function assertSafeSessionId(id: string): void {

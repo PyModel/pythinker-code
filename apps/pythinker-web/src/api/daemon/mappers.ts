@@ -9,14 +9,12 @@ import type {
   AppGoal,
   AppModel,
   AppProvider,
-  CodexLoginStatus,
   FsEntry,
   AppMessage,
   AppMessageContent,
   AppMessageRole,
   AppQuestionRequest,
   AppSession,
-  AppSessionStatus,
   AppSessionUsage,
   AppTask,
   AppTaskStatus,
@@ -33,14 +31,13 @@ import type {
 import type {
   WireApprovalRequest,
   WireApprovalResponse,
-  WireBackgroundTask,
+  WireTask,
   WireFsEntry,
   WireImageSource,
   WireMessage,
   WireMessageContent,
   WireModel,
   WirePromptSubmission,
-  WireCodexLoginStatus,
   WireProvider,
   WireQuestionAnswer,
   WireQuestionItem,
@@ -48,7 +45,6 @@ import type {
   WireQuestionRequest,
   WireQuestionResponse,
   WireSession,
-  WireSessionStatus,
   WireSessionUsage,
   WireWorkspace,
   WireEvent,
@@ -72,24 +68,22 @@ export function toAppSessionUsage(wire: WireSessionUsage): AppSessionUsage {
   };
 }
 
-export function toAppSessionStatus(wire: WireSessionStatus): AppSessionStatus {
-  switch (wire) {
-    case 'idle': return 'idle';
-    case 'running': return 'running';
-    case 'awaiting_approval': return 'awaitingApproval';
-    case 'awaiting_question': return 'awaitingQuestion';
-    case 'aborted': return 'aborted';
-  }
-}
-
-export function toWireSessionStatus(status: AppSessionStatus): WireSessionStatus {
-  switch (status) {
-    case 'idle': return 'idle';
-    case 'running': return 'running';
-    case 'awaitingApproval': return 'awaiting_approval';
-    case 'awaitingQuestion': return 'awaiting_question';
-    case 'aborted': return 'aborted';
-  }
+/**
+ * True when a session usage object is the daemon's all-zero placeholder.
+ * Both engines return placeholders for the heavy session fields on the
+ * list/snapshot read paths; the live values arrive via GET /status and the
+ * WS `agent.status.updated` stream. Callers replacing a cached session with
+ * a wire record must keep the live usage when the incoming one is this
+ * placeholder, or the context ring drops to 0 until the next refresh.
+ */
+export function isPlaceholderSessionUsage(usage: AppSessionUsage): boolean {
+  return (
+    usage.contextTokens === 0 &&
+    usage.contextLimit === 0 &&
+    usage.inputTokens === 0 &&
+    usage.outputTokens === 0 &&
+    usage.turnCount === 0
+  );
 }
 
 export function toAppSession(wire: WireSession): AppSession {
@@ -98,13 +92,15 @@ export function toAppSession(wire: WireSession): AppSession {
     title: wire.title,
     createdAt: wire.created_at,
     updatedAt: wire.updated_at,
-    status: toAppSessionStatus(wire.status),
+    busy: wire.busy,
+    mainTurnActive: wire.main_turn_active,
+    pendingInteraction: wire.pending_interaction,
+    lastTurnReason: wire.last_turn_reason,
     archived: wire.archived ?? false,
     currentPromptId: wire.current_prompt_id,
+    lastPrompt: wire.last_prompt,
     cwd: wire.metadata.cwd,
     model: wire.agent_config.model,
-    tools: wire.agent_config.tools,
-    mcpServers: wire.agent_config.mcp_servers,
     usage: toAppSessionUsage(wire.usage),
     messageCount: wire.message_count,
     lastSeq: wire.last_seq,
@@ -121,8 +117,6 @@ export function toAppWorkspace(wire: WireWorkspace): AppWorkspace {
     id: wire.id,
     root: wire.root,
     name: wire.name,
-    isGitRepo: wire.is_git_repo,
-    branch: wire.branch ?? undefined,
     lastOpenedAt: wire.last_opened_at,
     sessionCount: wire.session_count,
   };
@@ -139,7 +133,7 @@ function toAppImageSource(src: WireImageSource): ImageSource {
   if (src.kind === 'file') {
     return { kind: 'file', fileId: src.file_id };
   }
-  return { kind: 'url', url: src.url };
+  return { kind: 'url', url: src.url, id: src.id };
 }
 
 export function toAppMessageContent(wire: WireMessageContent): AppMessageContent {
@@ -235,7 +229,7 @@ function toWireMessageContent(app: AppMessageContent): WireMessageContent {
       } else if (src.kind === 'file') {
         wireSrc = { kind: 'file', file_id: src.fileId };
       } else {
-        wireSrc = { kind: 'url', url: src.url };
+        wireSrc = { kind: 'url', url: src.url, id: src.id };
       }
       return { type: app.type, source: wireSrc };
     }
@@ -307,7 +301,6 @@ function toAppQuestionOption(wire: WireQuestionOption): QuestionOption {
     id: wire.id,
     label: wire.label,
     description: wire.description,
-    preview: wire.preview,
     recommended: wire.recommended === true || wire.is_recommended === true,
   };
 }
@@ -333,7 +326,6 @@ export function toAppQuestionRequest(wire: WireQuestionRequest): AppQuestionRequ
     turnId: wire.turn_id,
     toolCallId: wire.tool_call_id,
     questions: wire.questions.map(toAppQuestionItem),
-    expiresAt: wire.expires_at,
     createdAt: wire.created_at,
   };
 }
@@ -362,7 +354,6 @@ export function toWireQuestionResponse(input: QuestionResponse): WireQuestionRes
     answers: wireAnswers,
     method: input.method,
     note: input.note,
-    annotations: input.annotations,
   };
 }
 
@@ -370,7 +361,7 @@ export function toWireQuestionResponse(input: QuestionResponse): WireQuestionRes
 // Task mapper
 // ---------------------------------------------------------------------------
 
-export function toAppTask(wire: WireBackgroundTask): AppTask {
+export function toAppTask(wire: WireTask): AppTask {
   return {
     id: wire.id,
     sessionId: wire.session_id,
@@ -388,6 +379,11 @@ export function toAppTask(wire: WireBackgroundTask): AppTask {
     parentToolCallId: wire.parent_tool_call_id,
     suspendedReason: wire.suspended_reason,
     dynamicWorkflowIndex: wire.dynamic_workflow_index,
+    // The snapshot's subagent roster carries the explicit flag. REST `/tasks`
+    // does not, but its background-task store only holds detached tasks, so any
+    // subagent it returns is a background subagent (foreground ones never
+    // persist there) — hence the `?? true` fallback for that path.
+    runInBackground: wire.run_in_background ?? (wire.kind === 'subagent' ? true : undefined),
     // outputLines starts undefined; populated by eventReducer via task.progress events
   };
 }
@@ -432,7 +428,7 @@ function recordNullableNumber(source: Record<string, unknown>, key: string): num
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
-function toAppGoal(snapshot: unknown): AppGoal | null {
+export function toAppGoal(snapshot: unknown): AppGoal | null {
   if (!snapshot || typeof snapshot !== 'object') return null;
   const source = snapshot as Record<string, unknown>;
   const status = recordString(source, 'status');
@@ -513,13 +509,31 @@ export function toAppEvent(wire: WireEvent): AppEvent {
         root: w.payload.root,
       };
 
+    case 'event.session.work_changed':
+      return {
+        type: 'sessionWorkChanged',
+        sessionId: w.session_id,
+        busy: w.payload.busy,
+        mainTurnActive: w.payload.main_turn_active,
+        pendingInteraction: w.payload.pending_interaction,
+        lastTurnReason: w.payload.last_turn_reason,
+      };
+
+    // Deprecated: old journals may still carry status_changed; fold it onto
+    // the busy flag (awaiting/running were live work, aborted was not).
     case 'event.session.status_changed':
       return {
-        type: 'sessionStatusChanged',
+        type: 'sessionWorkChanged',
         sessionId: w.session_id,
-        status: toAppSessionStatus(w.payload.status),
-        previousStatus: toAppSessionStatus(w.payload.previous_status),
-        currentPromptId: w.payload.current_prompt_id,
+        busy: w.payload.status !== 'idle' && w.payload.status !== 'aborted',
+        mainTurnActive: w.payload.status !== 'idle' && w.payload.status !== 'aborted',
+        pendingInteraction:
+          w.payload.status === 'awaiting_approval'
+            ? 'approval'
+            : w.payload.status === 'awaiting_question'
+              ? 'question'
+              : 'none',
+        lastTurnReason: w.payload.status === 'aborted' ? 'cancelled' : undefined,
       };
 
     case 'event.session.usage_updated':
@@ -650,14 +664,7 @@ export function toAppEvent(wire: WireEvent): AppEvent {
         dismissedAt: w.payload.dismissed_at,
       };
 
-    case 'event.question.expired':
-      return {
-        type: 'questionExpired',
-        sessionId: w.session_id,
-        questionId: w.payload.question_id,
-      };
-
-    // ----- Background tasks -----
+    // ----- Tasks -----
     case 'event.task.created':
       return {
         type: 'taskCreated',
@@ -691,6 +698,21 @@ export function toAppEvent(wire: WireEvent): AppEvent {
         config: toAppConfig(w.payload.config),
       };
 
+    case 'event.model_catalog.changed':
+      return {
+        type: 'modelCatalogChanged',
+        changed: w.payload.changed.map(
+          (item: { provider_id: string; provider_name: string; added: number; removed: number }) => ({
+            providerId: item.provider_id,
+            providerName: item.provider_name,
+            added: item.added,
+            removed: item.removed,
+          }),
+        ),
+        unchanged: w.payload.unchanged,
+        failed: w.payload.failed,
+      };
+
     default: {
       // Truly unknown event — record warning
       return { type: 'unknown', raw: wire };
@@ -712,16 +734,7 @@ export function toAppModel(wire: WireModel): AppModel {
     maxContextSize: wire.max_context_size,
     capabilities: wire.capabilities,
     supportEfforts: wire.support_efforts,
-    adaptiveThinking: wire.adaptive_thinking,
-  };
-}
-
-export function toCodexLoginStatus(wire: WireCodexLoginStatus): CodexLoginStatus {
-  return {
-    loginId: wire.login_id,
-    state: wire.state,
-    defaultModel: wire.default_model,
-    message: wire.message,
+    defaultEffort: wire.default_effort,
   };
 }
 
@@ -752,17 +765,15 @@ export function toAppConfig(wire: WireConfig): AppConfig {
     defaultProvider: wire.default_provider,
     defaultModel: wire.default_model,
     models: wire.models,
-    thinking: wire.thinking,
+    thinking: wire.thinking as { enabled?: boolean; effort?: string } | undefined,
     planMode: wire.plan_mode,
     yolo: wire.yolo,
-    defaultThinking: wire.default_thinking,
     defaultPermissionMode: wire.default_permission_mode,
     defaultPlanMode: wire.default_plan_mode,
     permission: wire.permission,
     hooks: wire.hooks,
     services: wire.services,
     mergeAllAvailableSkills: wire.merge_all_available_skills,
-    disabledSkills: wire.disabled_skills,
     extraSkillDirs: wire.extra_skill_dirs,
     loopControl: wire.loop_control,
     background: wire.background,

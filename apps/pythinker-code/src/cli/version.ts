@@ -7,11 +7,10 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 
-import { createPythinkerDefaultHeaders, type PythinkerHostIdentity } from '@pymodel/pythinker-code-oauth';
+import { createPythinkerUserAgent, PYTHINKER_CODE_PLATFORM, type PythinkerHostIdentity } from '@pymodel/pythinker-code-oauth';
 
 import { CLI_USER_AGENT_PRODUCT } from '#/constant/app';
 
-import { getDataDir } from '../utils/paths';
 import { PYTHINKER_BUILD_INFO } from './build-info';
 
 const MODULE_DIR = import.meta.dirname;
@@ -72,14 +71,16 @@ export function getVersion(): string {
 
 export function createPythinkerCodeHostIdentity(version = getVersion()): PythinkerHostIdentity {
   return {
-    userAgentProduct: CLI_USER_AGENT_PRODUCT,
+    productName: CLI_USER_AGENT_PRODUCT,
     version,
+    platform: PYTHINKER_CODE_PLATFORM,
   };
 }
 
-export function buildPythinkerDefaultHeaders(version: string): Record<string, string> {
-  return createPythinkerDefaultHeaders({
-    homeDir: getDataDir(),
-    ...createPythinkerCodeHostIdentity(version),
-  });
+/**
+ * Product User-Agent (`pythinker-code-cli/<version>`) for ad-hoc outbound fetches
+ * that don't go through the provider pipeline (registry / catalog imports).
+ */
+export function createPythinkerCodeUserAgent(version = getVersion()): string {
+  return createPythinkerUserAgent(createPythinkerCodeHostIdentity(version));
 }

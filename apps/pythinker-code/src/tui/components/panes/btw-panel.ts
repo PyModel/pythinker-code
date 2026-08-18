@@ -1,10 +1,10 @@
-import type { Component, MarkdownTheme } from '@earendil-works/pi-tui';
+import type { Component, MarkdownTheme } from '@pymodel/pi-tui';
 import {
   Markdown,
   Text,
   truncateToWidth,
   visibleWidth,
-} from '@earendil-works/pi-tui';
+} from '@pymodel/pi-tui';
 import chalk from 'chalk';
 
 import { MarkdownPreviewComponent } from '#/tui/components/messages/markdown-preview';

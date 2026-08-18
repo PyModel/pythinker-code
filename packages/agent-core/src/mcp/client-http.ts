@@ -1,36 +1,24 @@
 import type { McpServerHttpConfig } from '#/config/schema';
-import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import type { OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
 import {
-  callClientTool,
-  createMcpSdkClient,
-  getClientPrompt,
-  listClientPrompts,
-  listClientResources,
+  buildRequestOptions,
   PYTHINKER_MCP_CLIENT_NAME,
   PYTHINKER_MCP_CLIENT_VERSION,
-  readClientResource,
   toMcpToolDefinition,
+  toMcpToolResult,
   type UnexpectedCloseListener,
   type UnexpectedCloseReason,
-  type McpElicitationHandler,
 } from './client-shared';
 import { buildMcpRemoteHeaders } from './client-remote';
-import type {
-  MCPClient,
-  MCPPromptDefinition,
-  MCPPromptMessage,
-  MCPResource,
-  MCPResourceContent,
-  MCPToolDefinition,
-  MCPToolResult,
-} from './types';
+import type { MCPClient, MCPToolDefinition, MCPToolResult } from './types';
 
 export interface HttpMcpClientOptions {
   readonly clientName?: string;
   readonly clientVersion?: string;
+  readonly startupTimeoutMs?: number;
   readonly toolCallTimeoutMs?: number;
   /**
    * Reads `process.env[name]` by default. Tests can inject a deterministic
@@ -48,8 +36,6 @@ export interface HttpMcpClientOptions {
    * this in and surfaces `UnauthorizedError` as a `needs-auth` status.
    */
   readonly oauthProvider?: OAuthClientProvider;
-  readonly elicitationHandler?: McpElicitationHandler;
-  readonly elicitationCompletionHandler?: (elicitationId: string) => void;
 }
 
 /**
@@ -60,6 +46,7 @@ export interface HttpMcpClientOptions {
 export class HttpMcpClient implements MCPClient {
   private readonly client: Client;
   private readonly transport: StreamableHTTPClientTransport;
+  private readonly startupTimeoutMs?: number;
   private readonly toolCallTimeoutMs?: number;
   private started = false;
   private closed = false;
@@ -87,12 +74,11 @@ export class HttpMcpClient implements MCPClient {
       fetch: options.fetch,
       authProvider: options.oauthProvider,
     });
-    this.client = createMcpSdkClient(
-      options.clientName ?? PYTHINKER_MCP_CLIENT_NAME,
-      options.clientVersion ?? PYTHINKER_MCP_CLIENT_VERSION,
-      options.elicitationHandler,
-      options.elicitationCompletionHandler,
-    );
+    this.client = new Client({
+      name: options.clientName ?? PYTHINKER_MCP_CLIENT_NAME,
+      version: options.clientVersion ?? PYTHINKER_MCP_CLIENT_VERSION,
+    });
+    this.startupTimeoutMs = options.startupTimeoutMs;
     this.toolCallTimeoutMs = options.toolCallTimeoutMs;
   }
 
@@ -105,7 +91,10 @@ export class HttpMcpClient implements MCPClient {
     // Install hooks BEFORE the SDK handshake; see StdioMcpClient.connect.
     this.installTransportHooks();
     try {
-      await this.client.connect(this.transport);
+      await this.client.connect(
+        this.transport,
+        buildRequestOptions(this.startupTimeoutMs, undefined),
+      );
     } catch (error) {
       await this.closeStartedClient();
       throw error;
@@ -139,7 +128,10 @@ export class HttpMcpClient implements MCPClient {
   }
 
   async listTools(): Promise<MCPToolDefinition[]> {
-    const result = await this.client.listTools();
+    const result = await this.client.listTools(
+      undefined,
+      buildRequestOptions(this.startupTimeoutMs, undefined),
+    );
     return result.tools.map(toMcpToolDefinition);
   }
 
@@ -148,35 +140,9 @@ export class HttpMcpClient implements MCPClient {
     args: Record<string, unknown>,
     signal?: AbortSignal,
   ): Promise<MCPToolResult> {
-    return callClientTool(this.client, name, args, this.toolCallTimeoutMs, signal);
-  }
-
-  listPrompts(signal?: AbortSignal): Promise<MCPPromptDefinition[]> {
-    return listClientPrompts(this.client, this.toolCallTimeoutMs, signal);
-  }
-
-  getPrompt(
-    name: string,
-    args: Record<string, string>,
-    signal?: AbortSignal,
-  ): Promise<MCPPromptMessage[]> {
-    return getClientPrompt(this.client, name, args, this.toolCallTimeoutMs, signal);
-  }
-
-  supportsPrompts(): boolean {
-    return this.client.getServerCapabilities()?.prompts !== undefined;
-  }
-
-  listResources(signal?: AbortSignal): Promise<MCPResource[]> {
-    return listClientResources(this.client, this.toolCallTimeoutMs, signal);
-  }
-
-  readResource(uri: string, signal?: AbortSignal): Promise<MCPResourceContent[]> {
-    return readClientResource(this.client, uri, this.toolCallTimeoutMs, signal);
-  }
-
-  supportsResources(): boolean {
-    return this.client.getServerCapabilities()?.resources !== undefined;
+    const requestOptions = buildRequestOptions(this.toolCallTimeoutMs, signal);
+    const result = await this.client.callTool({ name, arguments: args }, undefined, requestOptions);
+    return toMcpToolResult(result);
   }
 
   private async closeStartedClient(): Promise<void> {

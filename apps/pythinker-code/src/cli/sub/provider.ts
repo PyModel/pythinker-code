@@ -17,17 +17,15 @@ import {
   CustomRegistryApiError,
   fetchCustomRegistry,
   type CustomRegistrySource,
-  type PlatformConfigShape,
+  type ManagedPythinkerConfigShape,
 } from '@pymodel/pythinker-code-oauth';
 import {
-  catalogConnectionWire,
+  applyCatalogProvider,
   catalogProviderModels,
   CatalogFetchError,
   createPythinkerHarness,
   DEFAULT_CATALOG_URL,
-  fetchCatalog,
-  importCatalogProvider,
-  inferWireType,
+  resolveCatalogImport,
   type Catalog,
   type CatalogProviderEntry,
   type PythinkerConfig,
@@ -35,7 +33,8 @@ import {
 } from '@pymodel/pythinker-code-sdk';
 import type { Command } from 'commander';
 
-import { createPythinkerCodeHostIdentity } from '#/cli/version';
+import { createPythinkerCodeHostIdentity, createPythinkerCodeUserAgent } from '#/cli/version';
+import { fetchCatalogOrBuiltIn } from '#/utils/catalog-fetch';
 
 interface WritableLike {
   write(chunk: string): boolean;
@@ -65,9 +64,9 @@ interface CatalogListOptions {
 
 interface CatalogAddOptions {
   readonly apiKey?: string;
-  readonly apiKeyEnv?: string;
   readonly defaultModel?: string;
   readonly url?: string;
+  readonly baseUrl?: string;
 }
 
 export async function handleProviderAdd(
@@ -100,7 +99,7 @@ export async function handleProviderAdd(
 
   let entries: Awaited<ReturnType<typeof fetchCustomRegistry>>;
   try {
-    entries = await fetchCustomRegistry(source);
+    entries = await fetchCustomRegistry(source, { userAgent: createPythinkerCodeUserAgent() });
   } catch (error) {
     const suffix = error instanceof CustomRegistryApiError ? ` (HTTP ${String(error.status)})` : '';
     deps.stderr.write(`Failed to fetch registry${suffix}: ${errorMessage(error)}\n`);
@@ -118,14 +117,7 @@ export async function handleProviderAdd(
   // would discard providers we already applied in memory but have not yet
   // persisted. Drop every stale id up front in a single batch instead, then
   // apply against the resulting fresh config.
-  // Snapshot the defaults before `removeProvider`: the core clears
-  // `defaultProvider`/`defaultModel`/`defaultThinking` whenever the removed
-  // provider owns them, and the batch below must not wipe user defaults
-  // just because a registry entry is being re-imported.
   let config = await harness.getConfig();
-  const previousDefaultProvider = config.defaultProvider;
-  const previousDefaultModel = config.defaultModel;
-  const previousDefaultThinking = config.defaultThinking;
   const staleIds = entryList
     .filter((entry) => config.providers[entry.id] !== undefined)
     .map((entry) => entry.id);
@@ -141,24 +133,9 @@ export async function handleProviderAdd(
     modelCount += Object.keys(entry.models).length;
   }
 
-  // Restore the previous defaults only while they still resolve after the
-  // re-import; a stale id must be cleared rather than persisted.
-  config.defaultProvider =
-    previousDefaultProvider !== undefined && config.providers[previousDefaultProvider] !== undefined
-      ? previousDefaultProvider
-      : undefined;
-  config.defaultModel =
-    previousDefaultModel !== undefined && config.models?.[previousDefaultModel] !== undefined
-      ? previousDefaultModel
-      : undefined;
-  config.defaultThinking = previousDefaultThinking;
-
   await harness.setConfig({
     providers: config.providers,
     models: config.models,
-    defaultProvider: config.defaultProvider,
-    defaultModel: config.defaultModel,
-    defaultThinking: config.defaultThinking,
   });
 
   deps.stdout.write(
@@ -299,9 +276,15 @@ export async function handleCatalogList(
 
   for (const [id, entry] of entries) {
     const modelCount = entry.models === undefined ? 0 : Object.keys(entry.models).length;
-    const wire = inferWireType(entry) ?? '?';
+    const resolution = resolveCatalogImport(entry);
+    const wireLabel =
+      resolution.kind === 'invalid'
+        ? '?'
+        : resolution.guessed
+          ? `${resolution.wire} (guessed)`
+          : resolution.wire;
     deps.stdout.write(
-      `${id}  wire=${wire}  models=${String(modelCount)}  ${entry.name ?? ''}\n`,
+      `${id}  wire=${wireLabel}  models=${String(modelCount)}  ${entry.name ?? ''}\n`,
     );
   }
 }
@@ -316,6 +299,14 @@ export async function handleCatalogAdd(
   providerId: string,
   opts: CatalogAddOptions,
 ): Promise<void> {
+  const apiKey = resolveApiKey(opts.apiKey, deps.env);
+  if (apiKey === undefined) {
+    deps.stderr.write(
+      'Missing API key. Pass --api-key <key> or set PYTHINKER_REGISTRY_API_KEY.\n',
+    );
+    deps.exit(1);
+  }
+
   const url = opts.url ?? DEFAULT_CATALOG_URL;
   const catalog = await loadCatalogOrExit(deps, url);
 
@@ -325,31 +316,37 @@ export async function handleCatalogAdd(
     deps.exit(1);
   }
 
-  const wire = catalogConnectionWire(entry);
-  if (wire === undefined) {
-    deps.stderr.write(`Provider "${providerId}" cannot be configured with one API key.\n`);
+  const resolution = resolveCatalogImport(entry, opts.baseUrl);
+  if (resolution.kind === 'invalid') {
+    switch (resolution.reason) {
+      case 'unknown-explicit-type':
+        deps.stderr.write(
+          `Provider "${providerId}" declares protocol "${entry.type}" in the catalog, which this client version does not support.\n`,
+        );
+        break;
+      case 'proprietary-sdk':
+        deps.stderr.write(
+          `Provider "${providerId}" uses a proprietary SDK this client cannot speak (e.g. Amazon Bedrock or Cohere); it cannot be imported from the catalog.\n`,
+        );
+        break;
+      case 'empty-base-url':
+        deps.stderr.write('--base-url cannot be empty.\n');
+        break;
+      case 'placeholder-base-url':
+        deps.stderr.write(
+          `Base URL "${opts.baseUrl}" contains an env placeholder. Pass --base-url with the resolved value.\n`,
+        );
+        break;
+    }
     deps.exit(1);
   }
-
-  const literalApiKey = opts.apiKey?.trim();
-  const apiKeyEnvVar = (opts.apiKeyEnv ?? entry.env?.[0])?.trim();
-  let useEnvVar = false;
-  if (literalApiKey === undefined || literalApiKey.length === 0) {
-    if (apiKeyEnvVar === undefined || apiKeyEnvVar.length === 0) {
-      deps.stderr.write(
-        `Provider "${providerId}" does not declare an API key environment variable. Pass --api-key <key>.\n`,
-      );
-      deps.exit(1);
-    }
-    const envValue = deps.env[apiKeyEnvVar]?.trim();
-    if (envValue === undefined || envValue.length === 0) {
-      deps.stderr.write(
-        `Environment variable "${apiKeyEnvVar}" is not set or is empty. Set it or pass --api-key <key>.\n`,
-      );
-      deps.exit(1);
-    }
-    useEnvVar = true;
+  if (resolution.kind === 'needs-base-url') {
+    deps.stderr.write(
+      `The catalog does not declare an endpoint for "${providerId}". Pass --base-url <url> (e.g. the vendor's OpenAI-compatible base URL).\n`,
+    );
+    deps.exit(1);
   }
+  const { wire, baseUrl } = resolution;
 
   const models = catalogProviderModels(entry);
   if (models.length === 0) {
@@ -365,24 +362,71 @@ export async function handleCatalogAdd(
   }
 
   const harness = deps.getHarness();
-  try {
-    await importCatalogProvider(harness, {
-      providerId,
-      entry,
-      catalogUrl: url,
-      apiKey: useEnvVar ? undefined : literalApiKey,
-      apiKeyEnvVar: useEnvVar ? apiKeyEnvVar : undefined,
-      defaultModel: opts.defaultModel,
-    });
-  } catch (error) {
-    deps.stderr.write(`${errorMessage(error)}\n`);
-    deps.exit(1);
+  await harness.ensureConfigFile();
+
+  let config = await harness.getConfig();
+
+  // Capture defaults BEFORE `removeProvider`, because that call clears
+  // `defaultModel` when it points at one of this provider's aliases (see
+  // `core-impl.ts removePythinkerProvider`). Without this, re-importing an
+  // already-configured provider would lose the user's previously-set default
+  // even when `--default-model` is not supplied.
+  const previousDefaultModel = config.defaultModel;
+  const previousThinking = config.thinking;
+
+  if (config.providers[providerId] !== undefined) {
+    config = await harness.removeProvider(providerId);
   }
+
+  // `applyCatalogProvider` always overwrites both `defaultModel` and
+  // `[thinking]`. The values we pass here are temporary; we restore
+  // a consistent state in the post-apply block below.
+  applyCatalogProvider(config, {
+    providerId,
+    wire,
+    ...(baseUrl === undefined ? {} : { baseUrl }),
+    apiKey,
+    models,
+    selectedModelId: opts.defaultModel ?? '',
+    thinking: false,
+  });
+
+  // Resolve the final `defaultModel`:
+  //   - If the caller asked for one, `applyCatalogProvider` already set it.
+  //   - Else, restore the previous default ONLY when its alias still resolves
+  //     after the catalog refresh; the catalog may have dropped the old
+  //     model, in which case restoring would point default_model at a
+  //     non-existent alias and break the next session.
+  if (opts.defaultModel === undefined) {
+    const stillResolves =
+      previousDefaultModel !== undefined &&
+      config.models?.[previousDefaultModel] !== undefined;
+    config.defaultModel = stillResolves ? previousDefaultModel : undefined;
+  }
+
+  // Always restore `[thinking]` from what was there before — including
+  // `undefined`. Persisting `enabled: false` when the user never set it would
+  // make `resolveThinkingEffort` (agent-core/src/agent/config/thinking.ts) treat
+  // it as an explicit "off" request and silently disable thinking, even for
+  // thinking-capable models.
+  config.thinking = previousThinking;
+
+  await harness.setConfig({
+    providers: config.providers,
+    models: config.models,
+    defaultModel: config.defaultModel,
+    thinking: config.thinking,
+  });
 
   const displayName = entry.name ?? providerId;
   deps.stdout.write(
     `Imported ${displayName} (${providerId}) with ${String(models.length)} model${models.length === 1 ? '' : 's'} from ${url}.\n`,
   );
+  if (resolution.guessed) {
+    deps.stdout.write(
+      `Note: the catalog does not declare a protocol for "${providerId}"; guessed "openai". Edit "type" in config.toml if requests fail.\n`,
+    );
+  }
   if (opts.defaultModel !== undefined) {
     deps.stdout.write(`Default model set to ${providerId}/${opts.defaultModel}.\n`);
   }
@@ -390,7 +434,13 @@ export async function handleCatalogAdd(
 
 async function loadCatalogOrExit(deps: ProviderDeps, url: string): Promise<Catalog> {
   try {
-    return await fetchCatalog(url);
+    const loaded = await fetchCatalogOrBuiltIn(url, { userAgent: createPythinkerCodeUserAgent() });
+    if (loaded.fromBuiltIn) {
+      deps.stderr.write(
+        `Warning: failed to reach ${url}; using the built-in models.dev catalog snapshot.\n`,
+      );
+    }
+    return loaded.catalog;
   } catch (error) {
     const suffix = error instanceof CatalogFetchError ? ` (HTTP ${String(error.status)})` : '';
     deps.stderr.write(`Failed to fetch catalog from ${url}${suffix}: ${errorMessage(error)}\n`);
@@ -471,22 +521,25 @@ export function registerProviderCommand(parent: Command, deps?: Partial<Provider
   catalog
     .command('add <providerId>')
     .description('Import a known provider from the catalog by id.')
-    .option('--api-key <key>', 'Provider API key to store in config.toml (takes precedence over --api-key-env).')
-    .option('--api-key-env <name>', 'Environment variable containing the provider API key.')
+    .option('--api-key <key>', 'API key for the provider. Falls back to PYTHINKER_REGISTRY_API_KEY.')
     .option('--default-model <modelId>', 'Mark the imported model as default_model after import.')
+    .option(
+      '--base-url <url>',
+      'Override the catalog endpoint. Required when the catalog declares none (or an env placeholder).',
+    )
     .option('--url <url>', `Override catalog URL. Defaults to ${DEFAULT_CATALOG_URL}.`)
     .action(
       async (
         providerId: string,
-        options: { apiKey?: string; apiKeyEnv?: string; defaultModel?: string; url?: string },
+        options: { apiKey?: string; defaultModel?: string; url?: string; baseUrl?: string },
       ) => {
         const resolved = resolveDeps(deps);
         await runAction(resolved, () =>
           handleCatalogAdd(resolved, providerId, {
-            apiKey: options.apiKey,
-            apiKeyEnv: options.apiKeyEnv,
-            defaultModel: options.defaultModel,
-            url: options.url,
+            ...(options.apiKey === undefined ? {} : { apiKey: options.apiKey }),
+            ...(options.defaultModel === undefined ? {} : { defaultModel: options.defaultModel }),
+            ...(options.url === undefined ? {} : { url: options.url }),
+            ...(options.baseUrl === undefined ? {} : { baseUrl: options.baseUrl }),
           }),
         );
       },
@@ -517,8 +570,8 @@ function resolveApiKey(flag: string | undefined, env: NodeJS.ProcessEnv): string
   return undefined;
 }
 
-function asManaged(config: PythinkerConfig): PlatformConfigShape {
-  return config as unknown as PlatformConfigShape;
+function asManaged(config: PythinkerConfig): ManagedPythinkerConfigShape {
+  return config as unknown as ManagedPythinkerConfigShape;
 }
 
 function providerSourceLabel(provider: PythinkerConfig['providers'][string]): string {
@@ -527,10 +580,8 @@ function providerSourceLabel(provider: PythinkerConfig['providers'][string]): st
     if (source['kind'] === 'apiJson' && typeof source['url'] === 'string') {
       return `apiJson(${source['url']})`;
     }
-    if (source['kind'] === 'modelsDev' && typeof source['url'] === 'string') {
-      return `modelsDev(${source['url']})`;
-    }
   }
+  if (provider.oauth !== undefined) return 'oauth';
   return 'inline';
 }
 

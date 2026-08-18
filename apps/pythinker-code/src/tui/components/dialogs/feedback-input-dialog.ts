@@ -5,6 +5,10 @@
  * Geometry mirrors `DeviceCodeBox` so the chrome stays consistent with
  * the OAuth login flow. The box embeds a `pi-tui` Input for the actual
  * text entry; cursor visibility tracks the dialog's `focused` flag.
+ *
+ * This is stage 1 of the feedback flow: it collects the free-form text
+ * only. Whether to attach diagnostic logs / codebase is decided in a
+ * follow-up stage (see `promptFeedbackAttachment`).
  */
 
 import {
@@ -12,20 +16,11 @@ import {
   Input,
   Key,
   matchesKey,
-  parseKey,
   truncateToWidth,
   visibleWidth,
   type Focusable,
-} from '@earendil-works/pi-tui';
-import { formatBindingKeys } from '#/tui/components/dialogs/choice-picker';
+} from '@pymodel/pi-tui';
 import { currentTheme } from '#/tui/theme';
-import {
-  defaultKeybindings,
-  keybindingDisplayText,
-  KeybindingResolver,
-  type KeybindingHandlers,
-  type ParsedKeybinding,
-} from '#/tui/keybindings';
 
 export type FeedbackInputDialogResult =
   | { readonly kind: 'ok'; readonly value: string }
@@ -34,6 +29,8 @@ export type FeedbackInputDialogResult =
 const TITLE = 'Send feedback to Pythinker Code';
 const SUBTITLE_DEFAULT = "Tell us what's working or what's not.";
 const SUBTITLE_EMPTY = 'Feedback cannot be empty.';
+const FOOTER = 'Enter to submit  ·  Esc to cancel';
+
 export class FeedbackInputDialogComponent extends Container implements Focusable {
   focused = false;
 
@@ -41,10 +38,6 @@ export class FeedbackInputDialogComponent extends Container implements Focusable
   private readonly onDone: (result: FeedbackInputDialogResult) => void;
   private done = false;
   private emptyHinted = false;
-  private bindings = defaultKeybindings();
-  private keybindings = new KeybindingResolver(
-    this.bindings.filter((binding) => binding.action === 'confirm:no'),
-  );
 
   constructor(onDone: (result: FeedbackInputDialogResult) => void) {
     super();
@@ -54,36 +47,13 @@ export class FeedbackInputDialogComponent extends Container implements Focusable
     };
   }
 
-  setKeybindings(bindings: readonly ParsedKeybinding[]): void {
-    this.bindings = bindings;
-    const winners = new Map<string, ParsedKeybinding>();
-    for (const binding of bindings) {
-      winners.set(`${binding.context}\0${binding.chord.join(' ')}`, binding);
-    }
-    this.keybindings = new KeybindingResolver(
-      [...winners.values()].filter((binding) => binding.action === 'confirm:no'),
-    );
-  }
-
   handleInput(data: string): void {
     if (this.done) return;
-    const keyId = parseKey(data);
     if (
-      (keyId ?? data) === Key.escape &&
-      keybindingDisplayText(this.bindings, 'Confirmation', 'confirm:no') === undefined
+      matchesKey(data, Key.escape) ||
+      matchesKey(data, Key.ctrl('c')) ||
+      matchesKey(data, Key.ctrl('d'))
     ) {
-      this.cancel();
-      return;
-    }
-    const handlers: KeybindingHandlers = { 'confirm:no': () => this.cancel() };
-    if (
-      keyId === undefined
-        ? this.keybindings.dispatchKeyId(data, ['Confirmation'], handlers)
-        : this.keybindings.dispatch(data, ['Confirmation'], handlers)
-    ) {
-      return;
-    }
-    if (matchesKey(data, Key.ctrl('c')) || matchesKey(data, Key.ctrl('d'))) {
       this.cancel();
       return;
     }
@@ -110,21 +80,22 @@ export class FeedbackInputDialogComponent extends Container implements Focusable
     const titleStyled = currentTheme.boldFg('textStrong', TITLE);
     const subtitleText = this.emptyHinted ? SUBTITLE_EMPTY : SUBTITLE_DEFAULT;
     const subtitleStyled = currentTheme.fg('textDim', subtitleText);
-    const cancel = keybindingDisplayText(this.bindings, 'Confirmation', 'confirm:no');
-    const footer = [
-      'Enter to submit',
-      cancel === undefined ? undefined : `${formatBindingKeys(cancel)} to cancel`,
-    ]
-      .filter((part): part is string => part !== undefined)
-      .join('  ·  ');
-    const footerStyled = currentTheme.fg('textDim', footer);
+    const footerStyled = currentTheme.fg('textDim', FOOTER);
 
     const titleLine = truncateToWidth(titleStyled, innerWidth, '…');
     const subtitleLine = truncateToWidth(subtitleStyled, innerWidth, '…');
     const footerLine = truncateToWidth(footerStyled, innerWidth, '…');
     const inputLine = this.input.render(innerWidth)[0] ?? '> ';
 
-    const contentLines: string[] = [titleLine, '', subtitleLine, '', inputLine, '', footerLine];
+    const contentLines: string[] = [
+      titleLine,
+      '',
+      subtitleLine,
+      '',
+      inputLine,
+      '',
+      footerLine,
+    ];
 
     if (safeWidth < 4) {
       return ['', ...contentLines.map((line) => truncateToWidth(line, safeWidth, '…'))];
@@ -142,7 +113,9 @@ export class FeedbackInputDialogComponent extends Container implements Focusable
       lines.push(border('│') + pad + content + ' '.repeat(rightPad) + border('│'));
     }
 
-    lines.push(border('│') + ' '.repeat(safeWidth - 2) + border('│'), border('╰' + '─'.repeat(safeWidth - 2) + '╯'), '');
+    lines.push(border('│') + ' '.repeat(safeWidth - 2) + border('│'));
+    lines.push(border('╰' + '─'.repeat(safeWidth - 2) + '╯'));
+    lines.push('');
 
     return lines.map((line) => truncateToWidth(line, safeWidth, '…'));
   }

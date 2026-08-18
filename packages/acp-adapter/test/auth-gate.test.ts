@@ -14,7 +14,7 @@ import {
   type WriteTextFileRequest,
   type WriteTextFileResponse,
 } from '@agentclientprotocol/sdk';
-import type { PythinkerHarness } from '@pymodel/pythinker-code-sdk';
+import type { PythinkerConfig, PythinkerHarness, Session } from '@pymodel/pythinker-code-sdk';
 
 import { AcpServer } from '../src/server';
 import { AUTHED, UNAUTHED } from './_helpers/harness-stubs';
@@ -45,10 +45,54 @@ function makeInMemoryStreamPair(): {
   return { agentStream, clientStream };
 }
 
+function startAcpServer(
+  harness: PythinkerHarness,
+  agentStream: ReturnType<typeof ndJsonStream>,
+): AgentSideConnection {
+  return new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+}
+
 function makeHarnessWithToken(hasToken: boolean): PythinkerHarness {
   return {
     isAuthenticated: hasToken ? AUTHED : UNAUTHED,
   } as unknown as PythinkerHarness;
+}
+
+function configuredModelConfig(provider: PythinkerConfig['providers'][string]): PythinkerConfig {
+  return {
+    providers: { local: provider },
+    defaultModel: 'local/gpt',
+    models: {
+      'local/gpt': {
+        provider: 'local',
+        model: 'gpt-4o',
+        maxContextSize: 128000,
+      },
+    },
+  };
+}
+
+function makeHarnessWithConfig(config: PythinkerConfig, hasToken = false): {
+  harness: PythinkerHarness;
+  createCalls: Array<{ id?: string; workDir: string }>;
+} {
+  const createCalls: Array<{ id?: string; workDir: string }> = [];
+  const harness = {
+    auth: {
+      status: async () => (hasToken ? AUTHED_STATUS : UNAUTHED_STATUS),
+    },
+    getConfig: async () => config,
+    createSession: async (options: { id?: string; workDir: string }) => {
+      createCalls.push(options);
+      return {
+        id: options.id ?? 'session-fallback',
+        prompt: async () => undefined,
+        cancel: async () => undefined,
+        onEvent: () => () => undefined,
+      } as unknown as Session;
+    },
+  } as unknown as PythinkerHarness;
+  return { harness, createCalls };
 }
 
 describe('AcpServer auth gate', () => {
@@ -56,7 +100,7 @@ describe('AcpServer auth gate', () => {
     const harness = makeHarnessWithToken(false);
     const { agentStream, clientStream } = makeInMemoryStreamPair();
 
-    new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+    startAcpServer(harness, agentStream);
     const client = new ClientSideConnection((_a) => new StubClient(), clientStream);
 
     const request: NewSessionRequest = {
@@ -80,13 +124,151 @@ describe('AcpServer auth gate', () => {
     } as unknown as PythinkerHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
-    new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+    startAcpServer(harness, agentStream);
     const client = new ClientSideConnection((_a) => new StubClient(), clientStream);
 
     await expect(
       client.newSession({ cwd: '/tmp/x', mcpServers: [] }),
     ).rejects.toMatchObject({ code: -32000 });
     expect(createCalled).toBe(false);
+  });
+
+  it('accepts a configured default model with an api_key provider', async () => {
+    const { harness, createCalls } = makeHarnessWithConfig(
+      configuredModelConfig({ type: 'openai', apiKey: 'sk-test' }),
+    );
+
+    const { agentStream, clientStream } = makeInMemoryStreamPair();
+    startAcpServer(harness, agentStream);
+    const client = new ClientSideConnection((_a) => new StubClient(), clientStream);
+
+    const response = await client.newSession({ cwd: '/tmp/configured', mcpServers: [] });
+
+    expect(response.sessionId).toBeTruthy();
+    expect(createCalls).toHaveLength(1);
+    expect(createCalls[0]?.workDir).toBe('/tmp/configured');
+  });
+
+  it('accepts provider env-table credentials without an OAuth token', async () => {
+    const { harness, createCalls } = makeHarnessWithConfig(
+      configuredModelConfig({ type: 'openai', env: { OPENAI_API_KEY: 'sk-env' } }),
+    );
+
+    const { agentStream, clientStream } = makeInMemoryStreamPair();
+    startAcpServer(harness, agentStream);
+    const client = new ClientSideConnection((_a) => new StubClient(), clientStream);
+
+    await expect(client.newSession({ cwd: '/tmp/env', mcpServers: [] })).resolves.toMatchObject({
+      sessionId: expect.any(String),
+    });
+    expect(createCalls).toHaveLength(1);
+  });
+
+  it('rejects config credentials when no default model resolves to them', async () => {
+    const { harness, createCalls } = makeHarnessWithConfig({
+      providers: { local: { type: 'openai', apiKey: 'sk-test' } },
+      models: {},
+    });
+
+    const { agentStream, clientStream } = makeInMemoryStreamPair();
+    startAcpServer(harness, agentStream);
+    const client = new ClientSideConnection((_a) => new StubClient(), clientStream);
+
+    await expect(client.newSession({ cwd: '/tmp/no-model', mcpServers: [] })).rejects.toMatchObject({
+      code: -32000,
+    });
+    expect(createCalls).toHaveLength(0);
+  });
+
+  it('does not trim the configured default model before resolving it', async () => {
+    const { harness, createCalls } = makeHarnessWithConfig({
+      providers: { local: { type: 'openai', apiKey: 'sk-test' } },
+      defaultModel: ' local/gpt ',
+      models: {
+        'local/gpt': {
+          provider: 'local',
+          model: 'gpt-4o',
+          maxContextSize: 128000,
+        },
+      },
+    });
+
+    const { agentStream, clientStream } = makeInMemoryStreamPair();
+    startAcpServer(harness, agentStream);
+    const client = new ClientSideConnection((_a) => new StubClient(), clientStream);
+
+    await expect(client.newSession({ cwd: '/tmp/spaced-model', mcpServers: [] })).rejects.toMatchObject({
+      code: -32000,
+    });
+    expect(createCalls).toHaveLength(0);
+  });
+
+  it('rejects mixed api_key and OAuth provider config without a token', async () => {
+    const { harness, createCalls } = makeHarnessWithConfig(
+      configuredModelConfig({
+        type: 'pythinker',
+        apiKey: 'sk-test',
+        oauth: { storage: 'file', key: 'pythinker' },
+      }),
+    );
+
+    const { agentStream, clientStream } = makeInMemoryStreamPair();
+    startAcpServer(harness, agentStream);
+    const client = new ClientSideConnection((_a) => new StubClient(), clientStream);
+
+    await expect(client.newSession({ cwd: '/tmp/mixed-auth', mcpServers: [] })).rejects.toMatchObject({
+      code: -32000,
+    });
+    expect(createCalls).toHaveLength(0);
+  });
+
+  it('rejects Vertex AI service-account config without a resolvable location', async () => {
+    const { harness, createCalls } = makeHarnessWithConfig(
+      configuredModelConfig({
+        type: 'vertexai',
+        baseUrl: 'https://example.test/v1',
+        env: { GOOGLE_CLOUD_PROJECT: 'project' },
+      }),
+    );
+
+    const { agentStream, clientStream } = makeInMemoryStreamPair();
+    startAcpServer(harness, agentStream);
+    const client = new ClientSideConnection((_a) => new StubClient(), clientStream);
+
+    await expect(client.newSession({ cwd: '/tmp/vertexai', mcpServers: [] })).rejects.toMatchObject({
+      code: -32000,
+    });
+    expect(createCalls).toHaveLength(0);
+  });
+
+  it('keeps the OAuth token short-circuit even when config loading fails', async () => {
+    const createCalls: Array<{ id?: string; workDir: string }> = [];
+    const harness = {
+      auth: {
+        status: async () => AUTHED_STATUS,
+      },
+      getConfig: async () => {
+        throw new Error('config unavailable');
+      },
+      createSession: async (options: { id?: string; workDir: string }) => {
+        createCalls.push(options);
+        return {
+          id: options.id ?? 'session-fallback',
+          prompt: async () => undefined,
+          cancel: async () => undefined,
+          onEvent: () => () => undefined,
+        } as unknown as Session;
+      },
+    } as unknown as PythinkerHarness;
+
+    const { agentStream, clientStream } = makeInMemoryStreamPair();
+    startAcpServer(harness, agentStream);
+    const client = new ClientSideConnection((_a) => new StubClient(), clientStream);
+
+    await expect(client.newSession({ cwd: '/tmp/token', mcpServers: [] })).resolves.toMatchObject({
+      sessionId: expect.any(String),
+    });
+    expect(createCalls).toHaveLength(1);
   });
 });
 
@@ -95,7 +277,7 @@ describe('AcpServer.authenticate', () => {
     const harness = makeHarnessWithToken(true);
     const { agentStream, clientStream } = makeInMemoryStreamPair();
 
-    new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+    startAcpServer(harness, agentStream);
     const client = new ClientSideConnection((_a) => new StubClient(), clientStream);
 
     await expect(client.authenticate({ methodId: 'unknown' })).rejects.toMatchObject({
@@ -107,7 +289,7 @@ describe('AcpServer.authenticate', () => {
     const harness = makeHarnessWithToken(true);
     const { agentStream, clientStream } = makeInMemoryStreamPair();
 
-    new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+    startAcpServer(harness, agentStream);
     const client = new ClientSideConnection((_a) => new StubClient(), clientStream);
 
     const result = await client.authenticate({ methodId: 'login' });
@@ -120,11 +302,24 @@ describe('AcpServer.authenticate', () => {
     const harness = makeHarnessWithToken(false);
     const { agentStream, clientStream } = makeInMemoryStreamPair();
 
-    new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+    startAcpServer(harness, agentStream);
     const client = new ClientSideConnection((_a) => new StubClient(), clientStream);
 
     await expect(client.authenticate({ methodId: 'login' })).rejects.toMatchObject({
       code: -32000,
     });
+  });
+
+  it('returns void when config credentials are already usable', async () => {
+    const { harness } = makeHarnessWithConfig(
+      configuredModelConfig({ type: 'pythinker', apiKey: 'sk-pythinker' }),
+    );
+    const { agentStream, clientStream } = makeInMemoryStreamPair();
+
+    startAcpServer(harness, agentStream);
+    const client = new ClientSideConnection((_a) => new StubClient(), clientStream);
+
+    const result = await client.authenticate({ methodId: 'login' });
+    expect(result ?? {}).toEqual({});
   });
 });

@@ -1,6 +1,7 @@
 import { Disposable, IInstantiationService, InstantiationType, registerSingleton } from '../../di';
 import { Emitter } from '../../base/common/event';
 import { ErrorCodes, PythinkerError } from '../../errors';
+import { isRealUserInput } from '../../agent/compaction';
 import type { AgentContextData, ContextMessage } from '../../agent/context';
 import type { JsonObject, ListSessionsPayload, SessionSummary } from '../../rpc';
 import type { SessionMeta } from '../../session';
@@ -12,12 +13,13 @@ import {
   type Message,
   type PageResponse,
   type Session,
+  type SessionPendingInteraction,
   type SessionChildCreate,
   type SessionCreate,
   type SessionFork,
-  type SessionStatus,
   type SessionStatusResponse,
   type SessionUpdate,
+  type SessionWarning,
   type UndoSessionRequest,
   type UndoSessionResponse,
 } from '@pymodel/protocol';
@@ -44,7 +46,12 @@ const DEFAULT_UNDO_MESSAGE_PAGE_SIZE = 50;
 const MAX_UNDO_MESSAGE_PAGE_SIZE = 100;
 const CHILD_SESSION_KIND = 'child';
 
-type ToolSelectionPatch = NonNullable<SessionMeta['agentConfig']>;
+interface SessionWorkFacts {
+  readonly busy: boolean;
+  readonly mainTurnActive: boolean;
+  readonly pendingInteraction: SessionPendingInteraction;
+  readonly lastTurnReason?: 'completed' | 'cancelled' | 'failed';
+}
 
 function asJsonObject(value: Record<string, unknown>): JsonObject {
   return value as unknown as JsonObject;
@@ -62,19 +69,12 @@ function canUndoHistory(history: readonly ContextMessage[], count: number): bool
     if (message === undefined) continue;
     if (message.origin?.kind === 'injection') continue;
     if (message.origin?.kind === 'compaction_summary') return false;
-    if (isRealUserPrompt(message)) {
+    if (isRealUserInput(message)) {
       found++;
       if (found >= count) return true;
     }
   }
   return false;
-}
-
-function isRealUserPrompt(message: ContextMessage): boolean {
-  if (message.role !== 'user') return false;
-  const origin = message.origin;
-  if (origin === undefined || origin.kind === 'user') return true;
-  return origin.kind === 'skill_activation' && origin.trigger === 'user-slash';
 }
 
 function pageContextMessages(
@@ -105,9 +105,11 @@ export class SessionService extends Disposable implements ISessionService {
   private readonly _onDidClose = this._register(new Emitter<{ sessionId: string }>());
   readonly onDidClose = this._onDidClose.event;
 
-  private readonly _statusBySession = new Map<string, SessionStatus>();
+  private readonly _workFactsBySession = new Map<string, SessionWorkFacts>();
   private readonly _activeTurns = new Set<string>();
-  private readonly _abortedTurns = new Set<string>();
+  /** MAIN-agent latest turn outcome per session — an orthogonal wire fact
+   *  clients may present as an "aborted" tag (busy=false + cancelled/failed). */
+  private readonly _lastTurnReasonBySession = new Map<string, 'completed' | 'cancelled' | 'failed'>();
   private _promptService: IPromptService | undefined;
 
   constructor(
@@ -131,64 +133,64 @@ export class SessionService extends Disposable implements ISessionService {
   }
 
   /**
-   * Compute the session lifecycle status from live daemon state.
-   *
-   * Priority:
-   *   1. awaiting_approval — pending approvals exist
-   *   2. awaiting_question — pending questions exist
-   *   3. running           — active prompt or active turn
-   *   4. aborted           — last turn ended as cancelled/failed and no new work started
-   *   5. idle              — everything else
+   * Compute the orthogonal work and interaction facts projected onto the wire.
    */
-  private _computeStatus(sessionId: string): SessionStatus {
-    if (this.approvalService.listPending(sessionId).length > 0) {
-      return 'awaiting_approval';
-    }
-    if (this.questionService.listPending(sessionId).length > 0) {
-      return 'awaiting_question';
-    }
-    if (
+  private _computeWorkFacts(sessionId: string): SessionWorkFacts {
+    const hasPendingApproval = this.approvalService.listPending(sessionId).length > 0;
+    const hasPendingQuestion = this.questionService.listPending(sessionId).length > 0;
+    const mainTurnActive =
       this.promptService.getCurrentPromptId(sessionId) !== undefined ||
-      this._activeTurns.has(sessionId)
-    ) {
-      return 'running';
-    }
-    if (this._abortedTurns.has(sessionId)) {
-      return 'aborted';
-    }
-    return 'idle';
+      this._activeTurns.has(sessionId);
+    return {
+      busy: mainTurnActive || hasPendingApproval || hasPendingQuestion,
+      mainTurnActive,
+      pendingInteraction: hasPendingApproval
+        ? 'approval'
+        : hasPendingQuestion
+          ? 'question'
+          : 'none',
+      lastTurnReason: this._lastTurnReasonBySession.get(sessionId),
+    };
   }
 
   /**
-   * Overwrite the placeholder status on a protocol Session with the live value,
-   * and remember the last status we returned so status-change events can be
-   * emitted only when the live state actually moves.
+   * Overwrite the placeholders on a protocol Session with live facts and
+   * remember them so work-change events fire only on real transitions.
    */
   private _patchSessionStatus(session: Session): Session {
-    const status = this._computeStatus(session.id);
-    session.status = status;
-    this._statusBySession.set(session.id, status);
+    const facts = this._computeWorkFacts(session.id);
+    session.busy = facts.busy;
+    session.main_turn_active = facts.mainTurnActive;
+    session.pending_interaction = facts.pendingInteraction;
+    session.last_turn_reason = facts.lastTurnReason;
+    this._workFactsBySession.set(session.id, facts);
     return session;
   }
 
   /**
-   * Publish `event.session.status_changed` when the computed status for a
-   * session differs from the last one we announced. Called after every relevant
-   * lifecycle event so the session list stays in sync.
+   * Publish `event.session.work_changed` when any projected fact changes.
    */
   private _emitStatusChanged(sessionId: string): void {
-    const previous = this._statusBySession.get(sessionId) ?? 'idle';
-    const next = this._computeStatus(sessionId);
-    if (previous === next) return;
+    const previous = this._workFactsBySession.get(sessionId);
+    const next = this._computeWorkFacts(sessionId);
+    if (
+      previous?.busy === next.busy &&
+      previous.mainTurnActive === next.mainTurnActive &&
+      previous.pendingInteraction === next.pendingInteraction &&
+      previous.lastTurnReason === next.lastTurnReason
+    ) {
+      return;
+    }
 
-    this._statusBySession.set(sessionId, next);
+    this._workFactsBySession.set(sessionId, next);
     this.eventService.publish({
-      type: 'event.session.status_changed',
+      type: 'event.session.work_changed',
       agentId: 'main',
       sessionId,
-      status: next,
-      previous_status: previous,
-      current_prompt_id: this.promptService.getCurrentPromptId(sessionId),
+      busy: next.busy,
+      main_turn_active: next.mainTurnActive,
+      pending_interaction: next.pendingInteraction,
+      last_turn_reason: next.lastTurnReason,
     } as unknown as Event);
   }
 
@@ -200,26 +202,24 @@ export class SessionService extends Disposable implements ISessionService {
     switch (type) {
       case 'turn.started': {
         this._activeTurns.add(sessionId);
-        this._abortedTurns.delete(sessionId);
+        // A fresh turn means no current outcome — drop the previous turn's
+        // terminal reason so the running turn doesn't keep reporting it.
+        this._lastTurnReasonBySession.delete(sessionId);
         this._emitStatusChanged(sessionId);
         break;
       }
       case 'turn.ended': {
         this._activeTurns.delete(sessionId);
-        const reason = (event as { reason?: string }).reason;
-        if (reason === 'cancelled' || reason === 'failed') {
-          this._abortedTurns.add(sessionId);
-        } else {
-          this._abortedTurns.delete(sessionId);
+        const reason = (event as { reason?: unknown }).reason;
+        if (reason === 'blocked') {
+          this._lastTurnReasonBySession.set(sessionId, 'failed');
+        } else if (reason === 'completed' || reason === 'cancelled' || reason === 'failed') {
+          this._lastTurnReasonBySession.set(sessionId, reason);
         }
         this._emitStatusChanged(sessionId);
         break;
       }
-      case 'prompt.submitted': {
-        this._abortedTurns.delete(sessionId);
-        this._emitStatusChanged(sessionId);
-        break;
-      }
+      case 'prompt.submitted':
       case 'prompt.completed':
       case 'prompt.aborted':
       case 'event.approval.requested':
@@ -227,8 +227,7 @@ export class SessionService extends Disposable implements ISessionService {
       case 'event.approval.expired':
       case 'event.question.requested':
       case 'event.question.answered':
-      case 'event.question.dismissed':
-      case 'event.question.expired': {
+      case 'event.question.dismissed': {
         this._emitStatusChanged(sessionId);
         break;
       }
@@ -252,10 +251,6 @@ export class SessionService extends Disposable implements ISessionService {
       } catch {
       }
     }
-    const toolPatch = this.toToolPatch(input.agent_config);
-    if (toolPatch !== undefined) {
-      await this.persistToolSelection(summary.id, toolPatch);
-    }
     const meta = await this.tryGetMeta(summary.id);
     const session = this._patchSessionStatus(
       toProtocolSession(summary, meta, await this.tryResolveWorkspaceId(summary.workDir)),
@@ -267,21 +262,26 @@ export class SessionService extends Disposable implements ISessionService {
   async list(query: SessionListQuery): Promise<PageResponse<Session>> {
     const all = await this.listSummaries(query);
     const sorted = all.toSorted((a, b) => b.updatedAt - a.updatedAt);
+    // Hide sessions the user has never interacted with: a session is "empty" when
+    // it has no lastPrompt (the first prompt has not been sent yet). Filtered
+    // before cursor pagination so each returned page is filled with non-empty
+    // sessions and has_more reflects the filtered set.
+    const visible = query.excludeEmpty ? sorted.filter((s) => s.lastPrompt) : sorted;
 
     let pivotIndex = -1;
     if (query.before_id !== undefined) {
-      pivotIndex = sorted.findIndex((s) => s.id === query.before_id);
+      pivotIndex = visible.findIndex((s) => s.id === query.before_id);
     } else if (query.after_id !== undefined) {
-      pivotIndex = sorted.findIndex((s) => s.id === query.after_id);
+      pivotIndex = visible.findIndex((s) => s.id === query.after_id);
     }
 
-    let slice: typeof sorted;
+    let slice: typeof visible;
     if (query.before_id !== undefined && pivotIndex >= 0) {
-      slice = sorted.slice(pivotIndex + 1);
+      slice = visible.slice(pivotIndex + 1);
     } else if (query.after_id !== undefined && pivotIndex >= 0) {
-      slice = sorted.slice(0, pivotIndex);
+      slice = visible.slice(0, pivotIndex);
     } else {
-      slice = sorted;
+      slice = visible;
     }
 
     const requestedSize = query.page_size ?? DEFAULT_PAGE_SIZE;
@@ -298,7 +298,7 @@ export class SessionService extends Disposable implements ISessionService {
     );
 
     const filtered =
-      query.status !== undefined ? items.filter((s) => s.status === query.status) : items;
+      query.busy !== undefined ? items.filter((s) => s.busy === query.busy) : items;
 
     return { items: filtered, has_more: hasMore };
   }
@@ -321,7 +321,6 @@ export class SessionService extends Disposable implements ISessionService {
     if (summary === undefined) {
       throw new SessionNotFoundError(id);
     }
-    await this.core.rpc.resumeSession({ sessionId: id });
 
     if (input.title !== undefined) {
       await this.core.rpc.renameSession({ sessionId: id, title: input.title });
@@ -337,16 +336,12 @@ export class SessionService extends Disposable implements ISessionService {
 
     const ac = input.agent_config;
     if (ac !== undefined) {
-      const toolPatch = this.toToolPatch(ac);
-      if (toolPatch !== undefined) {
-        await this.persistToolSelection(id, toolPatch);
-      }
       const patch: AgentStatePatch = {};
       if (ac.model !== undefined && ac.model !== '') patch.model = ac.model;
       if (ac.thinking !== undefined) patch.thinking = ac.thinking;
       if (ac.permission_mode !== undefined) patch.permission_mode = ac.permission_mode;
       if (ac.plan_mode !== undefined) patch.plan_mode = ac.plan_mode;
-      if (ac.dynamic_workflow_mode !== undefined) patch.dynamicWorkflowMode = ac.dynamic_workflow_mode;
+      if (ac.dynamic_workflow_mode !== undefined) patch.dynamic_workflow_mode = ac.dynamic_workflow_mode;
       if (ac.goal_objective !== undefined) patch.goal_objective = ac.goal_objective;
       if (ac.goal_control !== undefined) patch.goal_control = ac.goal_control;
       if (
@@ -354,7 +349,7 @@ export class SessionService extends Disposable implements ISessionService {
         patch.thinking !== undefined ||
         patch.permission_mode !== undefined ||
         patch.plan_mode !== undefined ||
-        patch.dynamicWorkflowMode !== undefined ||
+        patch.dynamic_workflow_mode !== undefined ||
         patch.goal_objective !== undefined ||
         patch.goal_control !== undefined
       ) {
@@ -368,30 +363,6 @@ export class SessionService extends Disposable implements ISessionService {
     return this._patchSessionStatus(
       toProtocolSession(summaryAfter, meta, await this.tryResolveWorkspaceId(summaryAfter.workDir)),
     );
-  }
-
-  private toToolPatch(
-    agentConfig: SessionCreate['agent_config'],
-  ): ToolSelectionPatch | undefined {
-    if (agentConfig?.tools === undefined && agentConfig?.mcp_servers === undefined) {
-      return undefined;
-    }
-    return {
-      tools: agentConfig.tools,
-      mcpServers: agentConfig.mcp_servers,
-    };
-  }
-
-  private async persistToolSelection(id: string, patch: ToolSelectionPatch): Promise<void> {
-    await this.core.rpc.updateSessionMetadata({
-      sessionId: id,
-      metadata: {
-        agentConfig: {
-          tools: patch.tools,
-          mcpServers: patch.mcpServers,
-        },
-      },
-    });
   }
 
   async fork(id: string, input: SessionFork): Promise<Session> {
@@ -448,9 +419,7 @@ export class SessionService extends Disposable implements ISessionService {
       ),
     );
     const filtered =
-      query.status !== undefined
-        ? items.filter((session) => session.status === query.status)
-        : items;
+      query.busy !== undefined ? items.filter((session) => session.busy === query.busy) : items;
 
     return {
       items: filtered,
@@ -496,23 +465,24 @@ export class SessionService extends Disposable implements ISessionService {
       throw new SessionNotFoundError(id);
     }
 
-    const [config, contextTokenCount, permission, plan] = await Promise.all([
+    const [config, context, permission, plan] = await Promise.all([
       this.core.rpc.getConfig({ sessionId: id, agentId: 'main' }),
-      this.core.rpc.getContextTokenCount({ sessionId: id, agentId: 'main' }),
+      this.core.rpc.getContext({ sessionId: id, agentId: 'main' }),
       this.core.rpc.getPermission({ sessionId: id, agentId: 'main' }),
       this.core.rpc.getPlan({ sessionId: id, agentId: 'main' }),
     ]);
 
-    const maxContextTokens = config.modelCapabilities?.max_context_tokens ?? 0;
-    const contextTokens = contextTokenCount.tokenCount;
-    const contextUsage = maxContextTokens > 0 ? contextTokens / maxContextTokens : 0;
+    const capability = config.modelCapabilities;
+    const maxContextTokens = capability?.max_input_tokens ?? capability?.max_context_tokens ?? 0;
+    const contextTokens = context.tokenCount;
+    const contextUsage = maxContextTokens > 0 ? Math.min(1, contextTokens / maxContextTokens) : 0;
 
     const agentState = this.promptService.getAgentStateSnapshot(id);
 
     return {
-      status: this._computeStatus(id),
+      busy: this._computeWorkFacts(id).busy,
       model: config.modelAlias ?? config.provider?.model,
-      thinking_level: config.thinkingLevel,
+      thinking_level: config.thinkingEffort,
       permission: permission.mode,
       plan_mode: plan !== null,
       dynamic_workflow_mode: agentState?.dynamicWorkflowMode ?? false,
@@ -520,6 +490,23 @@ export class SessionService extends Disposable implements ISessionService {
       max_context_tokens: maxContextTokens,
       context_usage: contextUsage,
     };
+  }
+
+  async getSessionWarnings(id: string): Promise<readonly SessionWarning[]> {
+    const all = await this.core.rpc.listSessions({});
+    if (!all.some((s) => s.id === id)) {
+      throw new SessionNotFoundError(id);
+    }
+    try {
+      await this.core.rpc.resumeSession({ sessionId: id });
+    } catch {
+      // best-effort: the session may already be loaded in core memory.
+    }
+    try {
+      return await this.core.rpc.getSessionWarnings({ sessionId: id });
+    } catch {
+      return [];
+    }
   }
 
   async compact(id: string, input: CompactSessionRequest): Promise<CompactSessionResponse> {
@@ -579,9 +566,9 @@ export class SessionService extends Disposable implements ISessionService {
     }
     await this.core.rpc.archiveSession({ sessionId: id });
     this._onDidClose.fire({ sessionId: id });
-    this._statusBySession.delete(id);
+    this._workFactsBySession.delete(id);
     this._activeTurns.delete(id);
-    this._abortedTurns.delete(id);
+    this._lastTurnReasonBySession.delete(id);
     return { archived: true };
   }
 
@@ -603,6 +590,14 @@ export class SessionService extends Disposable implements ISessionService {
     }
   }
 
+  /**
+   * Summary universe for a list query. A workspace filter widens to every
+   * alias spelling of the same physical root: pre-resolver legacy splits
+   * parked sessions in parallel buckets that a single workDir query cannot
+   * reach — the store resolves a spelling of a registered root back onto the
+   * registered bucket, hiding the split one. The index-wide list is filtered
+   * by identity key instead. Read-only: buckets and the index stay untouched.
+   */
   private async listSummaries(query: SessionListQuery): Promise<readonly SessionSummary[]> {
     if (query.workspaceId === undefined) {
       const corePayload: ListSessionsPayload = {
@@ -618,6 +613,12 @@ export class SessionService extends Disposable implements ISessionService {
     return all.filter((summary) => aliasKeys.has(workspaceRootKey(summary.workDir)));
   }
 
+  /**
+   * Registered workspace id for the wire projection, when a registry entry
+   * identity-matches the session's workDir (case/slash variants of one
+   * Windows directory fold). Falls back to undefined — the projection then
+   * mints the key itself, the pre-resolver behavior.
+   */
   private async tryResolveWorkspaceId(workDir: string): Promise<string | undefined> {
     try {
       return await this.workspaceRegistry.findWorkspaceIdByRoot(workDir);

@@ -14,6 +14,7 @@ function resolve(
   return resolveSlashCommandInput({
     input,
     skillCommandMap: new Map<string, string>(),
+    pluginCommandMap: new Map<string, string>(),
     isStreaming: false,
     isCompacting: false,
     ...overrides,
@@ -34,17 +35,15 @@ describe('resolveSlashCommandInput', () => {
     expect(resolve('/q')).toMatchObject({ kind: 'builtin', name: 'exit', args: '' });
     expect(resolve('/clear')).toMatchObject({ kind: 'builtin', name: 'new', args: '' });
     expect(resolve('/fork')).toMatchObject({ kind: 'builtin', name: 'fork', args: '' });
-    expect(resolve('/branch')).toMatchObject({ kind: 'builtin', name: 'fork', args: '' });
-    expect(resolve('/rewind')).toMatchObject({ kind: 'builtin', name: 'undo', args: '' });
     expect(resolve('/title New title')).toMatchObject({
       kind: 'builtin',
       name: 'title',
       args: 'New title',
     });
-    expect(resolve('/rename New title')).toMatchObject({
+    expect(resolve('/add-dir list')).toMatchObject({
       kind: 'builtin',
-      name: 'title',
-      args: 'New title',
+      name: 'add-dir',
+      args: 'list',
     });
     expect(resolve('/init')).toMatchObject({ kind: 'builtin', name: 'init', args: '' });
     expect(resolve('/btw')).toMatchObject({
@@ -61,25 +60,6 @@ describe('resolveSlashCommandInput', () => {
       kind: 'builtin',
       name: 'experiments',
       args: '',
-    });
-    expect(resolve('/workflow')).toMatchObject({ kind: 'builtin', name: 'workflow' });
-    expect(resolve('/swarm')).toEqual({ kind: 'message', input: '/swarm' });
-  });
-
-  it('routes /colors as an always-available built-in and leaves /dance as a message', () => {
-    expect(resolve('/colors on', { isStreaming: true })).toMatchObject({
-      kind: 'builtin',
-      name: 'colors',
-      args: 'on',
-    });
-    expect(resolve('/colors off', { isCompacting: true })).toMatchObject({
-      kind: 'builtin',
-      name: 'colors',
-      args: 'off',
-    });
-    expect(resolve('/dance')).toEqual({
-      kind: 'message',
-      input: '/dance',
     });
   });
 
@@ -114,19 +94,24 @@ describe('resolveSlashCommandInput', () => {
       commandName: 'reload',
       reason: 'streaming',
     });
+    expect(resolve('/add-dir ../shared', { isStreaming: true })).toEqual({
+      kind: 'blocked',
+      commandName: 'add-dir',
+      reason: 'streaming',
+    });
     expect(resolve('/experiments', { isStreaming: true })).toEqual({
       kind: 'blocked',
       commandName: 'experiments',
       reason: 'streaming',
     });
-    expect(resolve('/workflow on', { isStreaming: true })).toEqual({
+    expect(resolve('/dynamic_workflow on', { isStreaming: true })).toEqual({
       kind: 'blocked',
-      commandName: 'workflow',
+      commandName: 'dynamic_workflow',
       reason: 'streaming',
     });
-    expect(resolve('/workflow off', { isStreaming: true })).toEqual({
+    expect(resolve('/dynamic_workflow off', { isStreaming: true })).toEqual({
       kind: 'blocked',
-      commandName: 'workflow',
+      commandName: 'dynamic_workflow',
       reason: 'streaming',
     });
   });
@@ -147,19 +132,24 @@ describe('resolveSlashCommandInput', () => {
       commandName: 'reload',
       reason: 'compacting',
     });
+    expect(resolve('/add-dir ../shared', { isCompacting: true })).toEqual({
+      kind: 'blocked',
+      commandName: 'add-dir',
+      reason: 'compacting',
+    });
     expect(resolve('/experiments', { isCompacting: true })).toEqual({
       kind: 'blocked',
       commandName: 'experiments',
       reason: 'compacting',
     });
-    expect(resolve('/workflow on', { isCompacting: true })).toEqual({
+    expect(resolve('/dynamic_workflow on', { isCompacting: true })).toEqual({
       kind: 'blocked',
-      commandName: 'workflow',
+      commandName: 'dynamic_workflow',
       reason: 'compacting',
     });
-    expect(resolve('/workflow off', { isCompacting: true })).toEqual({
+    expect(resolve('/dynamic_workflow off', { isCompacting: true })).toEqual({
       kind: 'blocked',
-      commandName: 'workflow',
+      commandName: 'dynamic_workflow',
       reason: 'compacting',
     });
   });
@@ -255,10 +245,11 @@ describe('resolveSlashCommandInput', () => {
     });
   });
 
-  it('routes /swarm as ordinary message text', () => {
-    expect(resolve('/swarm Ship feature X')).toEqual({
-      kind: 'message',
-      input: '/swarm Ship feature X',
+  it('resolves /dynamic_workflow without an experimental flag', () => {
+    expect(resolve('/dynamic_workflow Ship feature X')).toMatchObject({
+      kind: 'builtin',
+      name: 'dynamic_workflow',
+      args: 'Ship feature X',
     });
   });
 
@@ -316,5 +307,34 @@ describe('slash command busy helpers', () => {
     expect(slashCommandBusyReason({ isStreaming: false, isCompacting: true })).toBe('compacting');
     expect(slashBusyMessage('new', 'streaming')).toContain('Cannot /new while streaming');
     expect(slashBusyMessage('new', 'compacting')).toContain('Cannot /new while compacting');
+  });
+
+  it('resolves a namespaced plugin command to a plugin-command intent', () => {
+    const pluginCommandMap = new Map([['my-plugin:deploy', 'Deploy $ARGUMENTS']]);
+    expect(resolve('/my-plugin:deploy prod', { pluginCommandMap })).toEqual({
+      kind: 'plugin-command',
+      commandName: 'deploy',
+      pluginId: 'my-plugin',
+      args: 'prod',
+    });
+  });
+
+  it('resolves a nested plugin command whose name contains a slash', () => {
+    const pluginCommandMap = new Map([['my-plugin:frontend/component', 'body']]);
+    expect(resolve('/my-plugin:frontend/component spin', { pluginCommandMap })).toEqual({
+      kind: 'plugin-command',
+      commandName: 'frontend/component',
+      pluginId: 'my-plugin',
+      args: 'spin',
+    });
+  });
+
+  it('blocks a plugin command while streaming', () => {
+    const pluginCommandMap = new Map([['my-plugin:deploy', 'Deploy']]);
+    expect(resolve('/my-plugin:deploy', { pluginCommandMap, isStreaming: true })).toEqual({
+      kind: 'blocked',
+      commandName: 'my-plugin:deploy',
+      reason: 'streaming',
+    });
   });
 });

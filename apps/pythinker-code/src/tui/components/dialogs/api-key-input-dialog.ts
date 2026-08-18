@@ -3,26 +3,18 @@ import {
   Input,
   Key,
   matchesKey,
-  parseKey,
   truncateToWidth,
   visibleWidth,
   type Focusable,
-} from '@earendil-works/pi-tui';
+} from '@pymodel/pi-tui';
 
-import { formatBindingKeys } from '#/tui/components/dialogs/choice-picker';
 import { currentTheme } from '#/tui/theme';
-import {
-  defaultKeybindings,
-  keybindingDisplayText,
-  KeybindingResolver,
-  type KeybindingHandlers,
-  type ParsedKeybinding,
-} from '#/tui/keybindings';
-import { isPrintableChar, printableChar } from '#/tui/utils/printable-key';
 
 export type ApiKeyInputResult =
   | { readonly kind: 'ok'; readonly value: string }
   | { readonly kind: 'cancel' };
+
+const FOOTER = 'Enter to submit  ·  Esc to cancel';
 
 function maskInputLine(raw: string): string {
   const prefix = '> ';
@@ -49,30 +41,6 @@ function maskInputLine(raw: string): string {
   return prefix + maskedContent + padding;
 }
 
-export interface ApiKeyInputDialogOptions {
-  readonly title?: string | undefined;
-  readonly subtitleLines?: readonly string[] | undefined;
-  readonly secret?: boolean | undefined;
-  readonly emptyMessage?: string | undefined;
-}
-
-function textInputBindings(bindings: readonly ParsedKeybinding[]): ParsedKeybinding[] {
-  const winners = new Map<string, ParsedKeybinding>();
-  for (const binding of bindings) {
-    winners.set(`${binding.context}\0${binding.chord.join(' ')}`, binding);
-  }
-  return [...winners.values()].filter(
-    (binding) => binding.action !== 'confirm:no' || !startsWithPrintableKey(binding),
-  );
-}
-
-function startsWithPrintableKey(binding: ParsedKeybinding): boolean {
-  const first = binding.chord[0];
-  if (first === undefined) return false;
-  if (first === 'space' || isPrintableChar(first)) return true;
-  return first.startsWith('shift+') && isPrintableChar(first.slice('shift+'.length));
-}
-
 export class ApiKeyInputDialogComponent extends Container implements Focusable {
   focused = false;
 
@@ -80,67 +48,41 @@ export class ApiKeyInputDialogComponent extends Container implements Focusable {
   private readonly onDone: (result: ApiKeyInputResult) => void;
   private readonly title: string;
   private readonly subtitleLines: readonly string[];
-  private readonly secret: boolean;
-  private readonly emptyMessage: string;
+  private readonly mask: boolean;
+  private readonly emptyHint: string;
   private done = false;
   private emptyHinted = false;
-  private bindings = textInputBindings(defaultKeybindings());
-  private keybindings = new KeybindingResolver(
-    this.bindings.filter((binding) => binding.action === 'confirm:no'),
-  );
 
   constructor(
     platformName: string,
     subtitleLines: readonly string[],
     onDone: (result: ApiKeyInputResult) => void,
-    options: ApiKeyInputDialogOptions = {},
+    options?: { title?: string; mask?: boolean; emptyHint?: string },
   ) {
     super();
     this.onDone = onDone;
-    this.title = options.title ?? `Enter API key for ${platformName}`;
-    this.subtitleLines = options.subtitleLines ?? subtitleLines;
-    this.secret = options.secret ?? true;
-    this.emptyMessage = options.emptyMessage ?? 'API key cannot be empty.';
+    this.title = options?.title ?? `Enter API key for ${platformName}`;
+    this.subtitleLines = subtitleLines;
+    this.mask = options?.mask ?? true;
+    this.emptyHint = options?.emptyHint ?? 'API key cannot be empty.';
     this.input.onSubmit = (value) => {
       this.submit(value);
     };
   }
 
-  setKeybindings(bindings: readonly ParsedKeybinding[]): void {
-    this.bindings = textInputBindings(bindings);
-    this.keybindings = new KeybindingResolver(
-      this.bindings.filter((binding) => binding.action === 'confirm:no'),
-    );
-  }
-
   handleInput(data: string): void {
     if (this.done) return;
-    if (isPrintableChar(printableChar(data))) {
+    if (
+      matchesKey(data, Key.escape) ||
+      matchesKey(data, Key.ctrl('c')) ||
+      matchesKey(data, Key.ctrl('d'))
+    ) {
+      this.cancel();
+      return;
+    }
+    if (this.emptyHinted) {
       this.emptyHinted = false;
-      this.input.handleInput(data);
-      return;
     }
-    const keyId = parseKey(data);
-    if (
-      (keyId ?? data) === Key.escape &&
-      keybindingDisplayText(this.bindings, 'Confirmation', 'confirm:no') === undefined
-    ) {
-      this.cancel();
-      return;
-    }
-    const handlers: KeybindingHandlers = { 'confirm:no': () => this.cancel() };
-    if (
-      keyId === undefined
-        ? this.keybindings.dispatchKeyId(data, ['Confirmation'], handlers)
-        : this.keybindings.dispatch(data, ['Confirmation'], handlers)
-    ) {
-      return;
-    }
-    if (matchesKey(data, Key.ctrl('c')) || matchesKey(data, Key.ctrl('d'))) {
-      this.cancel();
-      return;
-    }
-    this.emptyHinted = false;
     this.input.handleInput(data);
   }
 
@@ -159,24 +101,17 @@ export class ApiKeyInputDialogComponent extends Container implements Focusable {
 
     const border = (s: string): string => currentTheme.fg('primary', s);
     const titleStyled = currentTheme.boldFg('textStrong', this.title);
-    const subtitleSource = this.emptyHinted ? [this.emptyMessage] : this.subtitleLines;
+    const subtitleSource = this.emptyHinted ? [this.emptyHint] : this.subtitleLines;
     const subtitleLines = subtitleSource.map((line) =>
       truncateToWidth(currentTheme.fg('textDim', line), innerWidth, '…'),
     );
-    const cancel = keybindingDisplayText(this.bindings, 'Confirmation', 'confirm:no');
-    const footer = [
-      'Enter to submit',
-      cancel === undefined ? undefined : `${formatBindingKeys(cancel)} to cancel`,
-    ]
-      .filter((part): part is string => part !== undefined)
-      .join('  ·  ');
-    const footerStyled = currentTheme.fg('textDim', footer);
+    const footerStyled = currentTheme.fg('textDim', FOOTER);
 
     const titleLine = truncateToWidth(titleStyled, innerWidth, '…');
     const footerLine = truncateToWidth(footerStyled, innerWidth, '…');
     const rawInputLine = this.input.render(innerWidth)[0] ?? '> ';
     const inputLine =
-      this.secret && this.input.getValue() !== '' ? maskInputLine(rawInputLine) : rawInputLine;
+      this.mask && this.input.getValue() !== '' ? maskInputLine(rawInputLine) : rawInputLine;
 
     const contentLines: string[] = [
       titleLine,
@@ -204,7 +139,9 @@ export class ApiKeyInputDialogComponent extends Container implements Focusable {
       lines.push(border('│') + pad + content + ' '.repeat(rightPad) + border('│'));
     }
 
-    lines.push(border('│') + ' '.repeat(safeWidth - 2) + border('│'), border('╰' + '─'.repeat(safeWidth - 2) + '╯'), '');
+    lines.push(border('│') + ' '.repeat(safeWidth - 2) + border('│'));
+    lines.push(border('╰' + '─'.repeat(safeWidth - 2) + '╯'));
+    lines.push('');
 
     return lines.map((line) => truncateToWidth(line, safeWidth, '…'));
   }

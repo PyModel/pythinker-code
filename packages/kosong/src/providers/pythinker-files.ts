@@ -8,6 +8,7 @@ import type { ProviderRequestAuth, VideoUploadInput } from '#/provider';
 import type OpenAI from 'openai';
 import OpenAIClient from 'openai';
 
+import { classifyPythinkerQuotaError } from './pythinker-errors';
 import { convertOpenAIError } from './openai-common';
 import { classifyPythinkerQuotaError } from './pythinker-errors';
 import {

@@ -1,4 +1,4 @@
-import type { ModelCapability, ModelCostRates } from './capability';
+import type { ModelCapability } from './capability';
 import type { ProviderType } from './providers';
 
 /**
@@ -10,29 +10,41 @@ export interface CatalogModelEntry {
   readonly id?: string;
   readonly name?: string;
   readonly family?: string;
-  readonly limit?: { readonly context?: number; readonly output?: number };
+  readonly limit?: { readonly context?: number; readonly input?: number; readonly output?: number };
   readonly tool_call?: boolean;
   readonly reasoning?: boolean;
-  readonly reasoning_options?:
-    | readonly {
-        readonly type?: string;
-        readonly values?: readonly unknown[];
-        readonly min?: number;
-        readonly max?: number;
-      }[]
-    | null;
+  /**
+   * models.dev reasoning declaration: `[{ type: 'toggle' }, ...]` entries.
+   * Only `{ type: 'effort', values: [...] }` maps onto concrete thinking
+   * effort levels; `toggle` is the boolean form and `budget_tokens` a token
+   * budget — neither yields an effort list.
+   */
+  readonly reasoning_options?: readonly CatalogReasoningOption[];
+  /** Lifecycle marker: `'deprecated'` models are dropped at import. */
+  readonly status?: string;
+  /**
+   * Per-model serving override on gateway providers (zenmux, opencode, …):
+   * the model speaks a different protocol (`npm`) and/or lives on a different
+   * endpoint (`api`) than the provider default.
+   */
+  readonly provider?: CatalogModelProviderOverride;
+  /** Accepts message-level tool declarations (`messages[].tools`). Defaults to false. */
+  readonly dynamically_loaded_tools?: boolean;
   readonly interleaved?: boolean | { readonly field?: string };
   readonly modalities?: {
     readonly input?: readonly string[];
     readonly output?: readonly string[];
   };
-  /** Raw models.dev rates in USD per 1,000,000 tokens. */
-  readonly cost?: {
-    readonly input?: number;
-    readonly output?: number;
-    readonly cache_read?: number;
-    readonly cache_write?: number;
-  };
+}
+
+export interface CatalogReasoningOption {
+  readonly type?: string;
+  readonly values?: unknown;
+}
+
+export interface CatalogModelProviderOverride {
+  readonly npm?: string;
+  readonly api?: string;
 }
 
 export interface CatalogProviderEntry {
@@ -58,10 +70,27 @@ export interface CatalogModel {
   readonly name?: string;
   readonly maxOutputSize?: number;
   readonly reasoningKey?: string;
+  /** Declared thinking effort levels from `reasoning_options`, when present. */
   readonly supportEfforts?: readonly string[];
+  /**
+   * The effort value that encodes "thinking off" for this model (models.dev
+   * declares it as the `'none'` entry in `reasoning_options`). Undefined when
+   * the model has no such value — then `off` simply sends no effort field.
+   */
+  readonly offEffort?: string;
+  /**
+   * True when the model declares effort levels without any way to disable
+   * thinking (no `toggle` entry and no `'none'` value) — it always reasons at
+   * some level, so the UI must not offer an off option.
+   */
   readonly alwaysThinking?: boolean;
-  readonly adaptiveThinking?: boolean;
-  readonly thinkingBudgets?: Readonly<Partial<Record<'high' | 'max', number>>>;
+  /**
+   * Per-model protocol override from the catalog entry's `provider` field
+   * (gateway providers serving this model over the Anthropic protocol).
+   */
+  readonly protocol?: 'anthropic';
+  /** Endpoint paired with {@link protocol}, adapted to the wire's SDK convention. */
+  readonly baseUrl?: string;
   readonly capability: ModelCapability;
 }
 
@@ -87,6 +116,11 @@ function hasEmbeddingMarker(value: string | undefined): boolean {
 function isUsableChatModel(model: CatalogModelEntry): boolean {
   const outputModalities = model.modalities?.output;
   if (outputModalities !== undefined && !outputModalities.includes('text')) return false;
+  // Deprecated models are shut down or scheduled for removal upstream, and
+  // alpha models are pre-release (the reference consumer hides both by
+  // default); do not offer them for new imports. Existing configs are
+  // cleaned up on refresh because the alias is no longer listed upstream.
+  if (model.status === 'deprecated' || model.status === 'alpha') return false;
   return (
     !hasEmbeddingMarker(model.family) &&
     !hasEmbeddingMarker(model.id) &&
@@ -94,12 +128,119 @@ function isUsableChatModel(model: CatalogModelEntry): boolean {
   );
 }
 
+/** Why a catalog import cannot proceed at all. */
+export type CatalogImportInvalidReason =
+  /** `type` is present but names a protocol this client version does not know. */
+  | 'unknown-explicit-type'
+  /** SDK known to be non-OpenAI proprietary (Amazon Bedrock, Cohere). */
+  | 'proprietary-sdk'
+  /** A base URL was supplied but is blank. */
+  | 'empty-base-url'
+  /** The endpoint contains an env placeholder (`${VAR}`) the config cannot express. */
+  | 'placeholder-base-url';
+
 /**
- * Resolves a catalog provider entry to a supported wire type. Honors an
- * explicit `type`, otherwise infers from `npm`/`id`. Unknown providers return
- * `undefined` so callers can omit them instead of writing an invalid config.
+ * The outcome of resolving a catalog provider for import — the single
+ * decision point for "which wire, which endpoint, or exactly why not".
+ * Pattern-match on {@link CatalogImportResolution.kind}:
+ *  - `ok`: persist `wire` (and `baseUrl` when present — absent means the
+ *    wire's official-SDK default endpoint applies); surface `guessed` so the
+ *    user knows the protocol came from the OpenAI-compatible fallback.
+ *  - `needs-base-url`: the catalog supplies no usable endpoint and the
+ *    wire's default would point at the wrong host — ask the user for one
+ *    (`--base-url` on the CLI, a prompt in the TUI), then re-resolve with it.
+ *  - `invalid`: refuse with the reason.
+ */
+export type CatalogImportResolution =
+  | {
+      readonly kind: 'ok';
+      readonly wire: ProviderType;
+      readonly guessed: boolean;
+      readonly baseUrl?: string;
+    }
+  | {
+      readonly kind: 'needs-base-url';
+      readonly wire: ProviderType;
+      readonly guessed: boolean;
+    }
+  | {
+      readonly kind: 'invalid';
+      readonly reason: CatalogImportInvalidReason;
+    };
+
+/**
+ * Resolves a catalog provider entry into an import decision.
+ *
+ * Wire: an explicit `type` is authoritative (honored when known, refused
+ * when not); otherwise `npm`/`id` heuristics; otherwise the
+ * OpenAI-compatible fallback (`guessed: true`) — except SDKs known to be
+ * non-OpenAI proprietary, which are refused outright.
+ *
+ * Endpoint: a user-supplied URL wins over the catalog's `api` (after trim;
+ * blank and `${VAR}` placeholders are rejected). Without one, the catalog
+ * `api` applies; with neither, only wires whose default endpoint belongs to
+ * the vendor's official SDK (`@ai-sdk/openai`, `@ai-sdk/anthropic`, or
+ * env-resolved vertex/google) resolve without asking — everything else is
+ * `needs-base-url`, because persisting no endpoint would silently send the
+ * key to the wrong host. URLs are adapted to the wire's SDK convention
+ * (trailing `/v1` stripped for Anthropic).
+ */
+export function resolveCatalogImport(
+  entry: CatalogProviderEntry,
+  userBaseUrl?: string,
+): CatalogImportResolution {
+  const wire = resolveCatalogWire(entry);
+  if (wire === undefined) {
+    return {
+      kind: 'invalid',
+      reason:
+        typeof entry.type === 'string' && entry.type.length > 0
+          ? 'unknown-explicit-type'
+          : 'proprietary-sdk',
+    };
+  }
+  const guessed = inferDeclaredWireType(entry) === undefined;
+
+  if (userBaseUrl !== undefined) {
+    const trimmed = userBaseUrl.trim();
+    if (trimmed.length === 0) return { kind: 'invalid', reason: 'empty-base-url' };
+    if (trimmed.includes('${')) return { kind: 'invalid', reason: 'placeholder-base-url' };
+    return { kind: 'ok', wire, guessed, baseUrl: adaptBaseUrlForWire(trimmed, wire) };
+  }
+
+  const catalogUrl = catalogBaseUrl(entry, wire);
+  if (catalogUrl !== undefined) return { kind: 'ok', wire, guessed, baseUrl: catalogUrl };
+  if (catalogEndpointRequired(entry, wire)) return { kind: 'needs-base-url', wire, guessed };
+  return { kind: 'ok', wire, guessed };
+}
+
+/**
+ * The wire part of {@link resolveCatalogImport}, also used when listing
+ * models (where import eligibility is not the question). `undefined` means
+ * the entry is not importable: an explicit type this client does not know,
+ * or a proprietary non-OpenAI SDK (Bedrock, Cohere).
+ */
+function resolveCatalogWire(entry: CatalogProviderEntry): ProviderType | undefined {
+  if (isWireType(entry.type)) return entry.type;
+  if (typeof entry.type === 'string' && entry.type.length > 0) return undefined;
+  const declared = inferDeclaredWireType(entry);
+  if (declared !== undefined) return declared;
+  const npm = (entry.npm ?? '').toLowerCase();
+  if (npm.includes('amazon-bedrock') || npm.includes('cohere')) return undefined;
+  return 'openai';
+}
+
+/**
+ * @deprecated Use {@link resolveCatalogImport}. This compatibility wrapper
+ * answers only the wire (`undefined` when the entry is not importable) and
+ * is kept until the next major release for downstream consumers of the
+ * previous public API.
  */
 export function inferWireType(entry: CatalogProviderEntry): ProviderType | undefined {
+  return resolveCatalogWire(entry);
+}
+
+function inferDeclaredWireType(entry: CatalogProviderEntry): ProviderType | undefined {
   if (isWireType(entry.type)) return entry.type;
   const npm = (entry.npm ?? '').toLowerCase();
   const id = (entry.id ?? '').toLowerCase();
@@ -114,34 +255,6 @@ export function inferWireType(entry: CatalogProviderEntry): ProviderType | undef
   return undefined;
 }
 
-/** Returns the wire only when this runtime can configure the catalog entry with one API key. */
-export function catalogConnectionWire(entry: CatalogProviderEntry): ProviderType | undefined {
-  const wire = inferWireType(entry);
-  const npm = entry.npm?.toLowerCase();
-  if (
-    (wire === 'openai' && npm !== '@ai-sdk/openai' && npm !== '@ai-sdk/openai-compatible') ||
-    (wire === 'anthropic' && npm !== '@ai-sdk/anthropic')
-  ) {
-    return undefined;
-  }
-  if (wire === 'google-genai') {
-    return npm === '@ai-sdk/google' && entry.api === undefined ? wire : undefined;
-  }
-  if (wire !== 'openai' && wire !== 'anthropic') return undefined;
-  if (entry.api === undefined) {
-    if (wire === 'openai' && entry.id === 'openai') return wire;
-    if (wire === 'anthropic' && entry.id === 'anthropic') return wire;
-    return undefined;
-  }
-  if (entry.api.includes('${') || !URL.canParse(entry.api)) return undefined;
-  const url = new URL(entry.api);
-  if (url.protocol !== 'https:' && url.protocol !== 'http:') return undefined;
-  const path = url.pathname.replace(/\/+$/, '');
-  if (wire === 'openai' && path.endsWith('/chat/completions')) return undefined;
-  if (wire === 'anthropic' && path.endsWith('/messages')) return undefined;
-  return wire;
-}
-
 /**
  * Resolves the base URL to store for a catalog provider, adapting the catalog's
  * `api` to the wire's SDK convention.
@@ -152,156 +265,142 @@ export function catalogConnectionWire(entry: CatalogProviderEntry): ProviderType
  * appends `/v1/messages` itself — so a catalog `api` ending in `/v1` would POST
  * to `/v1/v1/messages` (404). Strip the trailing `/v1` for anthropic. OpenAI
  * family SDKs append `/chat/completions` to a `/v1` base, so those pass through.
+ * URLs containing `${VAR}` are SDK-side env interpolations the config cannot
+ * express; they resolve to `undefined` so callers can ask for a URL instead.
  */
 export function catalogBaseUrl(
   entry: CatalogProviderEntry,
   wire: ProviderType,
 ): string | undefined {
   const api = entry.api;
-  if (typeof api !== 'string' || api.length === 0) return undefined;
-  if (wire === 'anthropic') return api.replace(/\/v1\/?$/, '');
-  return api;
+  if (typeof api !== 'string' || api.length === 0 || api.includes('${')) return undefined;
+  return adaptBaseUrlForWire(api, wire);
+}
+
+/**
+ * Adapts a base URL to the wire's SDK convention: the Anthropic SDK appends
+ * `/v1/messages` itself, so a trailing `/v1` is stripped (otherwise requests
+ * land on `/v1/v1/messages`); other wires pass through unchanged. Applied to
+ * catalog-declared and user-supplied URLs alike.
+ */
+export function adaptBaseUrlForWire(baseUrl: string, wire: ProviderType): string {
+  return wire === 'anthropic' ? baseUrl.replace(/\/v1\/?$/, '') : baseUrl;
+}
+
+/**
+ * True when a missing catalog endpoint cannot fall back to a built-in
+ * default: an explicitly declared endpoint the config cannot express (an
+ * env placeholder) always requires asking — silently defaulting would send
+ * the credential to the public vendor host instead of the declared one.
+ * Without any declaration, the wire's default endpoint only belongs to the
+ * vendor's official SDK package — for every other npm it would silently
+ * point at the wrong host (e.g. an xai key sent to api.openai.com, or a
+ * gateway's Anthropic-compatible key sent to api.anthropic.com).
+ * Vertex/google wires resolve their endpoint from env coordinates and
+ * official SDKs, so they never need the prompt.
+ */
+function catalogEndpointRequired(entry: CatalogProviderEntry, wire: ProviderType): boolean {
+  if (typeof entry.api === 'string' && entry.api.length > 0) return true;
+  const npm = (entry.npm ?? '').toLowerCase();
+  if (wire === 'openai' || wire === 'openai_responses') return npm !== '@ai-sdk/openai';
+  if (wire === 'anthropic') return npm !== '@ai-sdk/anthropic';
+  return false;
 }
 
 /** Normalizes one catalog model entry into a {@link CatalogModel}; skips invalid entries. */
-export function catalogModelToCapability(
-  model: CatalogModelEntry,
-  wire?: ProviderType,
-): CatalogModel | undefined {
+export function catalogModelToCapability(model: CatalogModelEntry): CatalogModel | undefined {
   if (typeof model.id !== 'string' || model.id.length === 0) return undefined;
   const context = model.limit?.context;
   if (typeof context !== 'number' || !Number.isInteger(context) || context <= 0) return undefined;
   if (!isUsableChatModel(model)) return undefined;
   const inputs = model.modalities?.input ?? [];
   const output = model.limit?.output;
-  const reasoning = catalogReasoningControls(model, wire);
+  const thinking = catalogThinkingOptions(model.reasoning_options);
+  // `limit.input` is the true prompt cap when declared (e.g. gpt-5: 400k
+  // context window but a 272k input limit); it is tracked separately from the
+  // total window so prompt-budget checks (compaction) use the cap while
+  // completion budgeting keeps the full window.
+  const input = model.limit?.input;
+  const maxInputTokens =
+    typeof input === 'number' && Number.isInteger(input) && input > 0
+      ? Math.min(input, context)
+      : undefined;
   return {
     id: model.id,
     name: typeof model.name === 'string' && model.name.length > 0 ? model.name : undefined,
     maxOutputSize: typeof output === 'number' && output > 0 ? output : undefined,
     reasoningKey: catalogReasoningKey(model.interleaved),
-    supportEfforts: reasoning?.supportEfforts,
-    alwaysThinking: reasoning?.alwaysThinking,
-    adaptiveThinking: reasoning?.adaptiveThinking,
-    thinkingBudgets: reasoning?.thinkingBudgets,
+    supportEfforts: thinking.efforts,
+    offEffort: thinking.offEffort,
+    alwaysThinking: thinking.alwaysThinking,
     capability: {
       image_in: inputs.includes('image'),
       video_in: inputs.includes('video'),
       audio_in: inputs.includes('audio'),
-      thinking: Boolean(model.reasoning),
+      // Declaring concrete effort levels (or a toggle) implies thinking
+      // support even when the `reasoning` boolean is absent (mirrors the
+      // api.json importer).
+      thinking:
+        Boolean(model.reasoning) || thinking.efforts !== undefined || thinking.hasToggle,
       tool_use: model.tool_call ?? true,
       max_context_tokens: context,
-      cost: catalogCostRates(model.cost),
+      max_input_tokens: maxInputTokens,
+      dynamically_loaded_tools: model.dynamically_loaded_tools === true,
     },
   };
 }
 
-function catalogCostRates(cost: CatalogModelEntry['cost']): ModelCostRates | undefined {
-  if (cost === undefined) return undefined;
-  const rates: ModelCostRates = {
-    input: finiteRate(cost.input),
-    output: finiteRate(cost.output),
-    cacheRead: finiteRate(cost.cache_read),
-    cacheWrite: finiteRate(cost.cache_write),
-  };
-  return Object.values(rates).some((rate) => rate !== undefined) ? rates : undefined;
-}
-
-function finiteRate(rate: number | undefined): number | undefined {
-  return typeof rate === 'number' && Number.isFinite(rate) && rate >= 0 ? rate : undefined;
-}
-
-const SUPPORTED_REASONING_EFFORTS = new Set([
-  'none',
-  'minimal',
-  'low',
-  'medium',
-  'high',
-  'xhigh',
-  'max',
-]);
-
-function catalogReasoningControls(
-  model: CatalogModelEntry,
-  wire: ProviderType | undefined,
-): Pick<
-  CatalogModel,
-  'supportEfforts' | 'alwaysThinking' | 'adaptiveThinking' | 'thinkingBudgets'
-> | undefined {
-  if (model.reasoning !== true || model.reasoning_options === undefined) return undefined;
-  const options = model.reasoning_options;
-  if (!Array.isArray(options)) return undefined;
-  if (options.length === 0) return { supportEfforts: [], alwaysThinking: true };
-
-  const effort = options.find((option) => option.type === 'effort');
-  if (effort !== undefined) {
-    const values: readonly unknown[] = Array.isArray(effort.values) ? effort.values : [];
-    const supportEfforts = [
-      ...new Set(
-        values
-          .map((value: unknown): string | undefined =>
-            value === null ? 'none' : typeof value === 'string' ? value : undefined,
-          )
-          .filter(
-            (value: string | undefined): value is string =>
-              value !== undefined && SUPPORTED_REASONING_EFFORTS.has(value),
-          ),
-      ),
-    ];
-    return { supportEfforts, alwaysThinking: !supportEfforts.includes('none') };
+/**
+ * Reads a `reasoning_options` list: the `{ type: 'effort', values: [...] }`
+ * levels, the `'none'` pseudo-level, and the `{ type: 'toggle' }` boolean
+ * form. `'none'` is not a selectable level — it is the wire encoding for
+ * disabling thinking (e.g. xai grok) and becomes {@link CatalogModel.offEffort};
+ * the UI keeps using its own `off` entry for it. A model that declares levels
+ * with neither a toggle nor `'none'` always reasons — it cannot be turned off.
+ */
+function catalogThinkingOptions(options: CatalogModelEntry['reasoning_options']): {
+  readonly efforts: readonly string[] | undefined;
+  readonly offEffort: string | undefined;
+  readonly hasToggle: boolean;
+  readonly alwaysThinking: boolean | undefined;
+} {
+  if (!Array.isArray(options)) {
+    return { efforts: undefined, offEffort: undefined, hasToggle: false, alwaysThinking: undefined };
   }
-
-  const budget = options.find((option) => option.type === 'budget_tokens');
-  if (budget !== undefined) {
-    const declaredMax =
-      typeof budget.max === 'number' && Number.isFinite(budget.max) ? budget.max : 31_999;
-    const output = model.limit?.output;
-    const outputMax =
-      typeof output === 'number' && Number.isFinite(output) ? output - 1 : 31_999;
-    const maximum = Math.floor(Math.min(declaredMax, outputMax, 31_999));
-    if (maximum <= 0) return { supportEfforts: [], alwaysThinking: true };
-    const declaredMin =
-      typeof budget.min === 'number' && Number.isFinite(budget.min)
-        ? Math.max(0, Math.ceil(budget.min))
-        : 0;
-    const high = Math.min(Math.max(declaredMin, Math.floor((maximum + 1) / 2)), maximum);
-    const thinkingBudgets = { high, max: maximum };
-    if (wire === 'anthropic') {
-      return {
-        supportEfforts: ['high', 'max'],
-        alwaysThinking: true,
-        adaptiveThinking: false,
-        thinkingBudgets,
-      };
+  let efforts: readonly string[] | undefined;
+  let offEffort: string | undefined;
+  let hasToggle = false;
+  for (const option of options) {
+    if (option?.type === 'toggle') {
+      hasToggle = true;
+      continue;
     }
-    if (wire === 'google-genai' || wire === 'vertexai') {
-      return { supportEfforts: ['high', 'max'], alwaysThinking: true, thinkingBudgets };
-    }
-    return { supportEfforts: [], alwaysThinking: true };
+    if (option?.type !== 'effort' || !Array.isArray(option.values)) continue;
+    // models.dev writes the disable tier either as the string 'none' or as
+    // JSON null (the TOML source spells it "null"); both encode the same
+    // wire value (`reasoning_effort: 'none'`).
+    const hasNullTier = (option.values as unknown[]).some((value) => value === null);
+    const levels = (option.values as unknown[]).filter(
+      (value: unknown): value is string => typeof value === 'string' && value.length > 0,
+    );
+    const off = levels.find((value) => value.toLowerCase() === 'none');
+    if (off !== undefined) offEffort = off;
+    else if (hasNullTier) offEffort = 'none';
+    const selectable = levels.filter((value) => value.toLowerCase() !== 'none');
+    if (selectable.length > 0) efforts = selectable;
   }
-
-  if (options.some((option) => option.type === 'toggle')) {
-    if (wire === 'anthropic') {
-      return {
-        supportEfforts: ['none', 'high'],
-        alwaysThinking: false,
-        adaptiveThinking: true,
-      };
-    }
-    if (wire === 'google-genai' || wire === 'vertexai') {
-      return { supportEfforts: ['none', 'high'], alwaysThinking: false };
-    }
-    return { supportEfforts: [], alwaysThinking: true };
-  }
-
-  return undefined;
+  const alwaysThinking =
+    efforts !== undefined && offEffort === undefined && !hasToggle ? true : undefined;
+  return { efforts, offEffort, hasToggle, alwaysThinking };
 }
 
 function catalogReasoningKey(interleaved: CatalogModelEntry['interleaved']): string | undefined {
-  // models.dev allows `interleaved: true` as "general support" — read it as
-  // the default `reasoning_content` field so providers without an explicit
-  // field name (e.g. some openai-compatible gateways) still round-trip.
-  if (interleaved === true) return 'reasoning_content';
+  // Only the object form carries a field name. `interleaved: true` is just
+  // "general support": the provider already defaults to scanning
+  // `reasoning_content` / `reasoning_details` / `reasoning` inbound and to
+  // `reasoning_content` outbound, so pinning a key here would only narrow the
+  // inbound scan to one field — strictly worse for gateways that answer with
+  // one of the other names.
   if (typeof interleaved !== 'object' || interleaved === null) return undefined;
   const field = interleaved.field?.trim();
   return field !== undefined && field.length > 0 ? field : undefined;
@@ -309,9 +408,102 @@ function catalogReasoningKey(interleaved: CatalogModelEntry['interleaved']): str
 
 /** Extracts the valid, normalized models from a catalog provider entry. */
 export function catalogProviderModels(entry: CatalogProviderEntry): CatalogModel[] {
-  const models = entry.models ?? {};
-  const wire = inferWireType(entry);
-  return Object.values(models)
-    .map((model) => catalogModelToCapability(model, wire))
-    .filter((model): model is CatalogModel => model !== undefined);
+  const providerWire = resolveCatalogWire(entry);
+  return Object.values(entry.models ?? {})
+    .map((raw) => applyModelProviderOverride(catalogModelToCapability(raw), raw, entry, providerWire))
+    .filter((model): model is CatalogModel => model !== undefined)
+    .map((model) => {
+      // The always-thinking inference ("effort levels, no toggle, no 'none'
+      // — reasoning cannot be turned off") must not fire where the wire has
+      // a true protocol-level disable the effort list can never show:
+      // Anthropic and Pythinker both encode off as `thinking: {type: 'disabled'}`,
+      // so marking those models always-on would hide a working off. On every
+      // other wire the same catalog shape is exactly the evidence the marker
+      // exists for — gpt-5-class models reject `reasoning_effort: 'none'`,
+      // and Gemini 3's floor is `thinkingLevel: 'MINIMAL'` (still reasoning,
+      // merely with thoughts hidden) — so there the marker keeps the UI from
+      // offering an off that does not exist.
+      const protocol = model.protocol ?? providerWire;
+      if (
+        model.alwaysThinking === true &&
+        (protocol === 'anthropic' || protocol === 'pythinker')
+      ) {
+        const { alwaysThinking: _dropped, ...rest } = model;
+        return rest as CatalogModel;
+      }
+      return model;
+    });
+}
+
+/**
+ * Gateway providers (zenmux, opencode, azure, …) may declare a per-model
+ * `provider` override when a model is served over a different protocol or
+ * endpoint than the provider default. Overrides targeting Anthropic with a
+ * usable endpoint are materialized into a per-model protocol + base URL;
+ * overrides pointing at a different wire that cannot be materialized cause
+ * the model to be skipped — importing it under the provider's wire would be
+ * the silently wrong protocol. Overrides on the provider's own wire keep the
+ * model but still carry their own endpoint when it differs from the
+ * provider's.
+ */
+function applyModelProviderOverride(
+  model: CatalogModel | undefined,
+  raw: CatalogModelEntry,
+  entry: CatalogProviderEntry,
+  providerWire: ProviderType | undefined,
+): CatalogModel | undefined {
+  if (model === undefined) return undefined;
+  const override = raw.provider;
+  if (override === undefined) return model;
+  // An api-only override keeps the provider's wire; an npm override points at
+  // a (possibly different) one. Known proprietary SDKs are refused like at
+  // top level; other unrecognized npm gets the same OpenAI-compatible
+  // fallback so a concretely declared endpoint is not silently dropped.
+  const overrideNpm = typeof override.npm === 'string' ? override.npm.toLowerCase() : undefined;
+  if (
+    overrideNpm !== undefined &&
+    (overrideNpm.includes('amazon-bedrock') || overrideNpm.includes('cohere'))
+  ) {
+    return undefined;
+  }
+  const overrideWire =
+    overrideNpm !== undefined ? (inferOverrideWire(overrideNpm) ?? 'openai') : providerWire;
+  if (overrideWire === undefined) return model;
+  const rawApi = override.api;
+  const api = rawApi ?? entry.api;
+  const usableApi =
+    typeof api === 'string' && api.length > 0 && !api.includes('${') ? api : undefined;
+
+  if (overrideWire === providerWire) {
+    // An explicitly declared endpoint the config cannot express (env
+    // placeholder): the model belongs elsewhere we cannot persist or prompt
+    // for — skip it rather than silently reroute to the provider endpoint.
+    if (typeof rawApi === 'string' && rawApi.includes('${')) return undefined;
+    // A distinct usable endpoint applies to this model specifically.
+    if (usableApi !== undefined && usableApi !== entry.api) {
+      return { ...model, baseUrl: adaptBaseUrlForWire(usableApi, overrideWire) };
+    }
+    return model;
+  }
+
+  // Only Anthropic-direction overrides are materializable (the alias schema
+  // cannot express other per-model protocols), and only with a usable
+  // endpoint. Anything else would be imported under the provider's wire —
+  // the silently wrong protocol — so the model is skipped instead. Examples:
+  // freemodel's gpt entries on an Anthropic provider, Claude models on
+  // google-vertex (whose wire here is Gemini-mode Vertex), or a google-genai
+  // override on an OpenAI gateway.
+  if (overrideWire === 'anthropic' && usableApi !== undefined) {
+    return { ...model, protocol: 'anthropic', baseUrl: adaptBaseUrlForWire(usableApi, 'anthropic') };
+  }
+  return undefined;
+}
+
+function inferOverrideWire(npm: string): ProviderType | undefined {
+  const normalized = npm.toLowerCase();
+  if (normalized.includes('anthropic')) return 'anthropic';
+  if (normalized.includes('vertex')) return 'vertexai';
+  if (normalized.includes('google')) return 'google-genai';
+  if (normalized.includes('openai')) return 'openai';
+  return undefined;
 }

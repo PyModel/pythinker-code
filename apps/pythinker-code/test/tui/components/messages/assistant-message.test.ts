@@ -1,13 +1,20 @@
-import { visibleWidth } from '@earendil-works/pi-tui';
-import { describe, expect, it } from 'vitest';
+import { Markdown, visibleWidth } from '@pymodel/pi-tui';
+import * as cliHighlight from 'cli-highlight';
+import { describe, expect, it, vi } from 'vitest';
 
 import { AssistantMessageComponent } from '#/tui/components/messages/assistant-message';
 import { STATUS_BULLET } from '#/tui/constant/symbols';
-import { createPythinkerMarkdownTheme } from '#/tui/theme';
+import { createMarkdownTheme } from '#/tui/theme/pi-tui-theme';
 
 import { captureProcessWrite } from '../../../helpers/process';
 
-const ESC = String.fromCodePoint(27);
+vi.mock('cli-highlight', async () => {
+  const actual = await vi.importActual<typeof import('cli-highlight')>('cli-highlight');
+  return {
+    ...actual,
+    highlight: vi.fn(actual.highlight),
+  };
+});
 
 function strip(text: string): string {
   return text.replaceAll(/\u001B\[[0-9;]*m/g, '');
@@ -43,21 +50,12 @@ describe('AssistantMessageComponent', () => {
   it('renders unknown markdown fence languages as plain text without stderr noise', () => {
     const stderr = captureProcessWrite('stderr');
     try {
-      const theme = createPythinkerMarkdownTheme();
+      const theme = createMarkdownTheme();
       expect(theme.highlightCode?.('hello\nworld', 'abcxyz')).toEqual(['hello', 'world']);
       expect(stderr.text()).not.toContain('Could not find the language');
     } finally {
       stderr.restore();
     }
-  });
-
-  it('does not use red syntax highlighting in markdown code blocks', () => {
-    const theme = createPythinkerMarkdownTheme();
-    const highlighted = theme
-      .highlightCode?.("const string = 'value';\nconst regexp = /value+/g;", 'javascript')
-      .join('\n');
-
-    expect(highlighted).not.toContain(`${ESC}[31m`);
   });
 
   it('preserves literal hook result XML in normal assistant text', () => {
@@ -70,5 +68,61 @@ describe('AssistantMessageComponent', () => {
     expect(text).toContain('{}');
     expect(text).toContain('</hook_result>');
     expect(text).not.toContain('UserPromptSubmit hook');
+  });
+
+  it('reuses the same Markdown child across streaming text updates', () => {
+    const component = new AssistantMessageComponent();
+
+    component.updateContent('hello');
+    const first = (component as any).contentContainer.children[0];
+    expect(first).toBeInstanceOf(Markdown);
+
+    component.updateContent('hello world');
+    const second = (component as any).contentContainer.children[0];
+
+    expect(second).toBe(first);
+    expect(strip(component.render(80).join('\n'))).toContain('hello world');
+  });
+
+  it('does not recreate the Markdown child when the text is unchanged', () => {
+    const component = new AssistantMessageComponent();
+
+    component.updateContent('hello');
+    const first = (component as any).contentContainer.children[0];
+    expect(first).toBeInstanceOf(Markdown);
+
+    component.updateContent('hello');
+    const second = (component as any).contentContainer.children[0];
+
+    expect(second).toBe(first);
+  });
+
+  it('rebuilds the Markdown child when transient changes so final render can highlight code', () => {
+    const component = new AssistantMessageComponent();
+    const code = '```ts\nconst x = 1\n```';
+
+    component.updateContent(code, { transient: true });
+    const streaming = (component as any).contentContainer.children[0];
+    expect(streaming).toBeInstanceOf(Markdown);
+
+    component.updateContent(code, { transient: false });
+    const finalized = (component as any).contentContainer.children[0];
+    expect(finalized).toBeInstanceOf(Markdown);
+
+    expect(finalized).not.toBe(streaming);
+  });
+
+  it('skips synchronous syntax highlighting in transient markdown themes', () => {
+    const highlightSpy = vi.mocked(cliHighlight.highlight);
+    highlightSpy.mockClear();
+    const streamingTheme = createMarkdownTheme({ transient: true });
+    const finalTheme = createMarkdownTheme();
+    const code = 'const x = 1';
+
+    expect(streamingTheme.highlightCode?.(code, 'typescript')).toEqual([code]);
+    expect(highlightSpy).not.toHaveBeenCalled();
+
+    finalTheme.highlightCode?.(code, 'typescript');
+    expect(highlightSpy).toHaveBeenCalled();
   });
 });

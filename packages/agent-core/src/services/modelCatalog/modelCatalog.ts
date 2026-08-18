@@ -1,11 +1,20 @@
-import { getModelCapability, isUnknownCapability } from '@pymodel/kosong';
 import { createDecorator } from '../../di';
-import type { PythinkerConfig, ModelAlias, ProviderConfig } from '../../config';
+import { effectiveModelAlias, type PythinkerConfig, type ModelAlias, type ProviderConfig, type ProviderType } from '../../config';
 import type {
   ModelCatalogItem,
   ProviderCatalogItem,
+  RefreshOAuthProviderModelsResponse,
+  RefreshProviderModelsResponse,
   SetDefaultModelResponse,
 } from '@pymodel/protocol';
+
+export type RefreshProviderModelsScope = 'all' | 'oauth';
+
+export interface RefreshProviderModelsOptions {
+  readonly scope?: RefreshProviderModelsScope;
+  /** Refresh only this provider id. When set, `scope` is ignored. */
+  readonly providerId?: string;
+}
 
 export interface IModelCatalogService {
   readonly _serviceBrand: undefined;
@@ -13,8 +22,11 @@ export interface IModelCatalogService {
   listModels(): Promise<readonly ModelCatalogItem[]>;
   listProviders(): Promise<readonly ProviderCatalogItem[]>;
   getProvider(providerId: string): Promise<ProviderCatalogItem>;
-  removeProvider(providerId: string): Promise<void>;
   setDefaultModel(modelId: string): Promise<SetDefaultModelResponse>;
+  refreshOAuthProviderModels(): Promise<RefreshOAuthProviderModelsResponse>;
+  refreshProviderModels(
+    options?: RefreshProviderModelsOptions,
+  ): Promise<RefreshProviderModelsResponse>;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
@@ -45,36 +57,18 @@ export class ModelNotFoundError extends Error {
 export function toProtocolModel(
   modelId: string,
   alias: ModelAlias,
-  provider?: ProviderConfig,
+  providerType?: ProviderType,
 ): ModelCatalogItem {
+  const effective = effectiveModelAlias(alias, providerType);
   return {
-    provider: alias.provider,
+    provider: effective.provider,
     model: modelId,
-    display_name: alias.displayName ?? alias.model,
-    max_context_size: alias.maxContextSize,
-    capabilities: alias.capabilities ?? derivedCapabilities(alias, provider),
-    support_efforts: alias.supportEfforts,
-    adaptive_thinking: alias.adaptiveThinking,
+    display_name: effective.displayName ?? effective.model,
+    max_context_size: effective.maxContextSize,
+    capabilities: effective.capabilities,
+    support_efforts: effective.supportEfforts,
+    default_effort: effective.defaultEffort,
   };
-}
-
-function derivedCapabilities(
-  alias: ModelAlias,
-  provider: ProviderConfig | undefined,
-): string[] | undefined {
-  if (provider === undefined) return undefined;
-  try {
-    const capability = getModelCapability(provider.type, alias.model);
-    if (isUnknownCapability(capability)) return undefined;
-    return Object.entries(capability)
-      .filter(
-        ([key, value]) =>
-          value === true && key !== 'max_context_tokens' && key !== 'cost',
-      )
-      .map(([key]) => key);
-  } catch {
-    return undefined;
-  }
 }
 
 export interface ProviderCredentialState {

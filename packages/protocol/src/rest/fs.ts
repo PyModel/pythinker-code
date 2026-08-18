@@ -27,6 +27,8 @@
  *     Body: FsSearchRequest   { query, limit?, include_globs?, exclude_globs?,
  *                               follow_gitignore? }
  *     Response data: FsSearchResponse  { items, truncated }
+ *     An empty query lists the workspace root's top-level entries (dirs
+ *     first) instead of fuzzy-matching.
  *     Errors: 40401, 41303, 41304
  *
  *   POST /v1/sessions/{sid}/fs:grep
@@ -221,7 +223,10 @@ export const fsStatManyResponseSchema = z.object({
 export type FsStatManyResponse = z.infer<typeof fsStatManyResponseSchema>;
 
 export const fsSearchRequestSchema = z.object({
-  query: z.string().min(1),
+  // An empty query is allowed: the server then lists the workspace root's
+  // top-level entries (dirs first) instead of fuzzy-matching — the starting
+  // set for @-mention style file pickers.
+  query: z.string(),
   limit: z.number().int().min(1).max(200).default(50),
   include_globs: z.array(z.string()).optional(),
   exclude_globs: z.array(z.string()).optional(),
@@ -264,7 +269,7 @@ export type FsGitStatusRequest = z.infer<typeof fsGitStatusRequestSchema>;
 
 export const fsPullRequestSchema = z.object({
   number: z.number().int().positive(),
-  state: z.enum(['open', 'merged', 'closed']),
+  state: z.enum(['open', 'merged', 'closed', 'draft']),
   url: z.string().url(),
 });
 export type FsPullRequest = z.infer<typeof fsPullRequestSchema>;

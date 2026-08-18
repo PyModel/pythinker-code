@@ -1,6 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 
-import chalk from 'chalk';
 import type {
   AgentReplayRecord,
   BackgroundTaskInfo,
@@ -14,15 +13,18 @@ import type {
 } from '@pymodel/pythinker-code-sdk';
 import { describe, expect, it, vi } from 'vitest';
 
-import { AgentGroupComponent } from '#/tui/components/messages/agent-group';
-import { ReadGroupComponent } from '#/tui/components/messages/read-group';
-import { DEFAULT_STATUS_LINE_CONFIG } from '#/tui/config';
+import { PythinkerTUI, type PythinkerTUIStartupInput, type TUIState } from '#/tui/pythinker-tui';
 import type { SessionEventHandler } from '#/tui/controllers/session-event-handler';
 import type { StreamingUIController } from '#/tui/controllers/streaming-ui';
-import { PythinkerTUI, type PythinkerTUIStartupInput, type TUIState } from '#/tui/pythinker-tui';
-import { darkColors } from '#/tui/theme/colors';
-import { REPLAY_TURN_LIMIT } from '#/tui/utils/message-replay';
-import { LEGACY_TEST_PATHS, PARITY_CASES } from './parity/feature-matrix';
+import { AgentGroupComponent } from '#/tui/components/messages/agent-group';
+import { AssistantMessageComponent } from '#/tui/components/messages/assistant-message';
+import { StepSummaryComponent } from '#/tui/components/messages/step-summary';
+import {
+  TRANSCRIPT_KEEP_RECENT_ASSISTANT_COMPLETED,
+  TRANSCRIPT_KEEP_RECENT_STEPS,
+} from '#/tui/utils/transcript-window';
+import { ToolCallComponent } from '#/tui/components/messages/tool-call';
+import { ReadGroupComponent } from '#/tui/components/messages/read-group';
 
 vi.mock('#/utils/open-url', () => ({ openUrl: vi.fn() }));
 
@@ -47,7 +49,6 @@ function makeStartupInput(): PythinkerTUIStartupInput {
     cliOptions: {
       session: undefined,
       continue: false,
-      rewindFiles: undefined,
       yolo: false,
       auto: false,
       plan: false,
@@ -55,15 +56,16 @@ function makeStartupInput(): PythinkerTUIStartupInput {
       outputFormat: undefined,
       prompt: undefined,
       skillsDirs: [],
+      agent: undefined,
+      agentFiles: [],
     },
     tuiConfig: {
       theme: 'dark',
-      layout: 'inline',
-      copyFullResponse: false,
+      disablePasteBurst: false,
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
       upgrade: { autoInstall: true },
-      statusLine: DEFAULT_STATUS_LINE_CONFIG,
+      statusLine: { items: null, command: null },
     },
     version: '0.0.0-test',
     workDir: '/tmp/proj-a',
@@ -159,7 +161,7 @@ function baseAgentState(
         tool_use: true,
         max_context_tokens: 100,
       },
-      thinkingLevel: 'off',
+      thinkingEffort: 'off',
       systemPrompt: '',
     },
     context: { history: [], tokenCount: 0 },
@@ -186,7 +188,7 @@ function makeSession(
     summary: { title: null },
     getStatus: vi.fn(async () => ({
       model: 'k2',
-      thinkingLevel: 'off',
+      thinkingEffort: 'off',
       permission: 'manual',
       planMode: false,
       contextTokens: 0,
@@ -216,7 +218,7 @@ function makeHarness(initialSession: Session) {
   return {
     getConfig: vi.fn(async () => ({
       models: {
-        k2: { model: 'pythoughts-v1', maxContextSize: 100 },
+        k2: { model: 'moonshot-v1', maxContextSize: 100 },
       },
     })),
     setConfig: vi.fn(async () => ({ providers: {} })),
@@ -239,7 +241,7 @@ function makeHarness(initialSession: Session) {
       login: vi.fn(),
       logout: vi.fn(),
       getManagedUsage: vi.fn(),
-      submitFeedback: vi.fn(async () => ({ kind: 'ok' })),
+      submitFeedback: vi.fn(async () => ({ kind: 'ok', feedbackId: 3 })),
     },
   };
 }
@@ -297,31 +299,6 @@ function backgroundTask(
 }
 
 describe('PythinkerTUI resume message replay', () => {
-  it('limits goal replay to the most recent continuation rounds', async () => {
-    const replay: AgentReplayRecord[] = [];
-    for (let index = 0; index < 25; index += 1) {
-      replay.push(
-        message(
-          'user',
-          [{ type: 'text', text: 'Continue working toward the active goal.' }],
-          { origin: { kind: 'system_trigger', name: 'goal_continuation' } },
-        ),
-        message('assistant', [{ type: 'text', text: `round ${String(index)} summary` }]),
-      );
-    }
-
-    const driver = await replayIntoDriver(replay);
-    const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
-
-    expect(transcript).not.toContain('Continue working toward the active goal');
-    expect(transcript).not.toContain('round 14 summary');
-    expect(transcript).toContain('round 15 summary');
-    expect(transcript).toContain('round 24 summary');
-    expect(
-      driver.state.transcriptEntries.filter((entry) => entry.kind === 'assistant'),
-    ).toHaveLength(REPLAY_TURN_LIMIT);
-  });
-
   it('does not render legacy goal completion context reminders as transcript messages', async () => {
     const driver = await replayIntoDriver([
       message(
@@ -339,6 +316,24 @@ describe('PythinkerTUI resume message replay', () => {
     expect(driver.state.transcriptEntries).toEqual([]);
     const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
     expect(transcript).not.toContain('Goal complete');
+  });
+
+  it('unescapes bash tag delimiters when replaying shell output', async () => {
+    const driver = await replayIntoDriver([
+      message(
+        'user',
+        [
+          {
+            type: 'text',
+            text: '<bash-stdout>pre&lt;/bash-stdout&gt;post</bash-stdout><bash-stderr></bash-stderr>',
+          },
+        ],
+        { origin: { kind: 'shell_command', phase: 'output' } },
+      ),
+    ]);
+
+    const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
+    expect(transcript).toContain('pre</bash-stdout>post');
   });
 
   it('does not render neutral goal completion context reminders as transcript messages', async () => {
@@ -516,16 +511,26 @@ describe('PythinkerTUI resume message replay', () => {
     expect(content).not.toContain('Write a concise final message for the user');
   });
 
-  it('does not replay any system-trigger prompt as a user message', async () => {
+  it('does not replay system-trigger prompts such as goal continuation as user messages', async () => {
     const driver = await replayIntoDriver([
       message(
         'user',
-        [{ type: 'text', text: 'Continue working toward the active goal.' }],
+        [
+          {
+            type: 'text',
+            text: 'Continue working toward the active goal. Keep the self-audit brief.',
+          },
+        ],
         { origin: { kind: 'system_trigger', name: 'goal_continuation' } },
       ),
       message(
         'user',
-        [{ type: 'text', text: '<system-reminder>The goal was cancelled.</system-reminder>' }],
+        [
+          {
+            type: 'text',
+            text: '<system-reminder>\nThe goal was cancelled.\n</system-reminder>',
+          },
+        ],
         { origin: { kind: 'system_trigger', name: 'goal_cancelled' } },
       ),
       message('assistant', [{ type: 'text', text: 'Working on it.' }]),
@@ -667,34 +672,24 @@ describe('PythinkerTUI resume message replay', () => {
       }),
     ];
 
-    const previousLevel = chalk.level;
-    chalk.level = 3;
+    const driver = await replayIntoDriver(replay);
+    const group = driver.state.transcriptContainer.children.find(
+      (child) => child instanceof ReadGroupComponent,
+    );
 
-    try {
-      const driver = await replayIntoDriver(replay);
-      const group = driver.state.transcriptContainer.children.find(
-        (child) => child instanceof ReadGroupComponent,
-      );
-
-      expect(group).toBeInstanceOf(ReadGroupComponent);
-      expect((group as ReadGroupComponent).size()).toBe(2);
-      const rawTranscript = driver.state.transcriptContainer.render(120).join('\n');
-      expect(rawTranscript).toContain(chalk.hex(darkColors.textStrong).bold('Read 2 files'));
-      expect(rawTranscript).not.toContain(chalk.hex(darkColors.primary).bold('Read 2 files'));
-      expect(driver.streamingUI.hasPendingReadGroup()).toBe(false);
-      expect(driver.streamingUI.getToolComponent('call_read_1')).toBeUndefined();
-      expect(driver.streamingUI.getToolComponent('call_read_2')).toBeUndefined();
-    } finally {
-      chalk.level = previousLevel;
-    }
+    expect(group).toBeInstanceOf(ReadGroupComponent);
+    expect((group as ReadGroupComponent).size()).toBe(2);
+    expect(driver.streamingUI.hasPendingReadGroup()).toBe(false);
+    expect(driver.streamingUI.getToolComponent('call_read_1')).toBeUndefined();
+    expect(driver.streamingUI.getToolComponent('call_read_2')).toBeUndefined();
   });
 
-  it('renders replayed DynamicWorkflow calls as compact result summaries', async () => {
+  it('renders replayed AgentDynamicWorkflow calls as compact result summaries', async () => {
     const replay: AgentReplayRecord[] = [
-      message('user', [{ type: 'text', text: 'review files with a swarm' }]),
+      message('user', [{ type: 'text', text: 'review files with a dynamic_workflow' }]),
       message('assistant', [], {
         toolCalls: [
-          toolCall('call_swarm', 'DynamicWorkflow', {
+          toolCall('call_dynamic_workflow', 'AgentDynamicWorkflow', {
             description: 'Review changed files',
             items: ['src/a.ts', 'src/b.ts'],
           }),
@@ -705,32 +700,32 @@ describe('PythinkerTUI resume message replay', () => {
         [{
           type: 'text',
           text: [
-            '<dynamic_workflow_result>',
+            '<agent_dynamic_workflow_result>',
             '<summary>completed: 1, failed: 1</summary>',
             '<subagent index="1" outcome="completed">Reviewed src/a.ts.</subagent>',
             '<subagent index="2" outcome="failed">Agent timed out.</subagent>',
-            '</dynamic_workflow_result>',
+            '</agent_dynamic_workflow_result>',
           ].join('\n'),
         }],
-        { toolCallId: 'call_swarm' },
+        { toolCallId: 'call_dynamic_workflow' },
       ),
     ];
 
     const driver = await replayIntoDriver(replay);
     const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
 
-    expect(transcript).toContain('Dynamic Workflow: ✓ 1 completed · ✗ 1 failed');
-    expect(transcript).not.toContain('<dynamic_workflow_result>');
+    expect(transcript).toContain('Agent dynamic_workflow: ✓ 1 completed · ✗ 1 failed');
+    expect(transcript).not.toContain('<agent_dynamic_workflow_result>');
     expect(transcript).not.toContain('Reviewed src/a.ts.');
     expect(transcript).not.toContain('Agent timed out.');
   });
 
-  it('does not show no-index replayed DynamicWorkflow failures as completed', async () => {
+  it('does not show no-index replayed AgentDynamicWorkflow failures as completed', async () => {
     const replay: AgentReplayRecord[] = [
-      message('user', [{ type: 'text', text: 'review files with a swarm' }]),
+      message('user', [{ type: 'text', text: 'review files with a dynamic_workflow' }]),
       message('assistant', [], {
         toolCalls: [
-          toolCall('call_swarm', 'DynamicWorkflow', {
+          toolCall('call_dynamic_workflow', 'AgentDynamicWorkflow', {
             description: 'Review changed files',
             items: ['src/a.ts', 'src/b.ts'],
           }),
@@ -741,52 +736,27 @@ describe('PythinkerTUI resume message replay', () => {
         [{
           type: 'text',
           text: [
-            '<dynamic_workflow_result>',
+            '<agent_dynamic_workflow_result>',
             '<summary>failed: 1, aborted: 1</summary>',
-            '<resume_hint>Call DynamicWorkflow with resume_agent_ids using the agent_id values ' +
+            '<resume_hint>Call AgentDynamicWorkflow with resume_agent_ids using the agent_id values ' +
               'in this result to continue unfinished work.</resume_hint>',
             '<subagent agent_id="agent-1" item="src/a.ts" outcome="failed">' +
               'Agent timed out.</subagent>',
             '<subagent agent_id="agent-2" item="src/b.ts" outcome="aborted">' +
               'User interrupted.</subagent>',
-            '</dynamic_workflow_result>',
+            '</agent_dynamic_workflow_result>',
           ].join('\n'),
         }],
-        { toolCallId: 'call_swarm' },
+        { toolCallId: 'call_dynamic_workflow' },
       ),
     ];
 
     const driver = await replayIntoDriver(replay);
     const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
 
-    expect(transcript).toContain('Dynamic Workflow: ✗ 1 failed · ⊘ 1 aborted');
-    expect(transcript).not.toContain('Dynamic Workflow: ✓ Completed.');
-    expect(transcript).not.toContain('<dynamic_workflow_result>');
-  });
-
-  it('keeps replayed AgentSwarm calls generic', async () => {
-    const replay: AgentReplayRecord[] = [
-      message('user', [{ type: 'text', text: 'review files with a legacy tool' }]),
-      message('assistant', [], {
-        toolCalls: [
-          toolCall('call_removed_swarm', 'AgentSwarm', {
-            description: 'Review changed files',
-          }),
-        ],
-      }),
-      message(
-        'tool',
-        [{ type: 'text', text: 'legacy AgentSwarm output' }],
-        { toolCallId: 'call_removed_swarm' },
-      ),
-    ];
-
-    const driver = await replayIntoDriver(replay);
-    const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
-
-    expect(transcript).toContain('Used AgentSwarm');
-    expect(transcript).toContain('legacy AgentSwarm output');
-    expect(transcript).not.toContain('Dynamic Workflow:');
+    expect(transcript).toContain('Agent dynamic_workflow: ✗ 1 failed · ⊘ 1 aborted');
+    expect(transcript).not.toContain('Agent dynamic_workflow: ✓ Completed.');
+    expect(transcript).not.toContain('<agent_dynamic_workflow_result>');
   });
 
   it('hydrates todo and background snapshot state from resumed main agent', async () => {
@@ -906,58 +876,6 @@ describe('PythinkerTUI resume message replay', () => {
     expect(
       driver.state.transcriptEntries.some(
         (entry) => entry.backgroundAgentStatus?.phase === 'failed',
-      ),
-    ).toBe(false);
-  });
-
-  it('rejects an ambiguous parentless terminal event after a resumed agent id is reused', async () => {
-    const driver = await replayIntoDriver([], {
-      background: [
-        {
-          taskId: 'task-bg-old',
-          kind: 'agent',
-          agentId: 'agent-bg-reused',
-          subagentType: 'coder',
-          description: 'Old resumed work',
-          status: 'running',
-          startedAt: 1,
-          endedAt: null,
-        },
-      ],
-    });
-
-    driver.sessionEventHandler.handleEvent(
-      {
-        type: 'subagent.spawned',
-        agentId: 'main',
-        sessionId: 'ses-replay',
-        subagentId: 'agent-bg-reused',
-        subagentName: 'coder',
-        parentToolCallId: 'call_fresh_background',
-        description: 'Fresh background work',
-        runInBackground: true,
-      },
-      () => {},
-    );
-    driver.sessionEventHandler.handleEvent(
-      {
-        type: 'subagent.completed',
-        agentId: 'main',
-        sessionId: 'ses-replay',
-        subagentId: 'agent-bg-reused',
-        resultSummary: 'Ambiguous terminal result',
-      },
-      () => {},
-    );
-
-    expect(
-      driver.sessionEventHandler.subAgentEventHandler.backgroundAgentMetadata.get(
-        'agent-bg-reused',
-      )?.parentToolCallId,
-    ).toBe('call_fresh_background');
-    expect(
-      driver.state.transcriptEntries.some(
-        (entry) => entry.backgroundAgentStatus?.phase === 'completed',
       ),
     ).toBe(false);
   });
@@ -1102,46 +1020,17 @@ describe('PythinkerTUI resume message replay', () => {
           skillName: 'review',
           skillArgs: 'src/app.ts',
           trigger: 'user-slash',
-          checkpointId: 'checkpoint-skill',
         },
       },
     );
 
-    const previousLevel = chalk.level;
-    chalk.level = 3;
+    const driver = await replayIntoDriver([activation, activation]);
+    const transcript = driver.state.transcriptContainer.render(120).join('\n');
 
-    try {
-      const driver = await replayIntoDriver([activation, activation]);
-      const rawTranscript = driver.state.transcriptContainer.render(120).join('\n');
-      const transcript = stripAnsi(rawTranscript);
-
-      expect(transcript).toContain('review');
-      expect(transcript).toContain('src/app.ts');
-      expect(transcript).not.toContain('Review the requested file');
-      expect(rawTranscript).toContain(chalk.hex(darkColors.textStrong).bold('▶ Activated skill: '));
-      expect(rawTranscript).toContain(chalk.hex(darkColors.textStrong).bold('review'));
-      expect(rawTranscript).not.toContain(chalk.hex(darkColors.primary).bold('▶ Activated skill: '));
-      expect(rawTranscript).not.toContain(chalk.hex(darkColors.roleUser).bold('review'));
-      expect(driver.sessionEventHandler.renderedSkillActivationIds.has('act-review')).toBe(true);
-      expect(
-        driver.state.transcriptEntries.find((entry) => entry.kind === 'skill_activation'),
-      ).toMatchObject({ checkpointId: 'checkpoint-skill' });
-    } finally {
-      chalk.level = previousLevel;
-    }
-  });
-
-  it('keeps persisted checkpoint IDs on replayed user prompts', async () => {
-    const driver = await replayIntoDriver([
-      message('user', [{ type: 'text', text: 'change files' }], {
-        origin: { kind: 'user', checkpointId: 'checkpoint-user' },
-      }),
-    ]);
-
-    expect(driver.state.transcriptEntries.find((entry) => entry.kind === 'user')).toMatchObject({
-      content: 'change files',
-      checkpointId: 'checkpoint-user',
-    });
+    expect(transcript).toContain('review');
+    expect(transcript).toContain('src/app.ts');
+    expect(transcript).not.toContain('Review the requested file');
+    expect(driver.sessionEventHandler.renderedSkillActivationIds.has('act-review')).toBe(true);
   });
 
   it('renders replayed hook results as assistant transcript entries', async () => {
@@ -1183,15 +1072,43 @@ describe('PythinkerTUI resume message replay', () => {
       (entry) => entry.compactionData !== undefined,
     );
     expect(compactionEntry?.compactionData).toEqual({
+      summary: 'Compacted transcript summary.',
       tokensBefore: 120,
       tokensAfter: 24,
       instruction: 'preserve implementation notes',
     });
+    const collapsed = stripAnsi(driver.state.transcriptContainer.render(120).join('\n'));
+    expect(collapsed).toContain('Compaction complete');
+    expect(collapsed).toContain('120 → 24 tokens');
+    expect(collapsed).toContain('preserve implementation notes');
+    expect(collapsed).not.toContain('Compacted transcript summary.');
+
+    driver.state.editor.onToggleToolExpand?.();
+    const expanded = stripAnsi(driver.state.transcriptContainer.render(120).join('\n'));
+    expect(expanded).toContain('Compacted transcript summary.');
+  });
+
+  it('initializes replayed compaction blocks as expanded when tool output is already expanded', async () => {
+    const initial = makeSession([]);
+    const resumed = makeSession([
+      {
+        time: REPLAY_TIME,
+        type: 'compaction',
+        result: {
+          summary: 'Compacted transcript summary.',
+          compactedCount: 4,
+          tokensBefore: 120,
+          tokensAfter: 24,
+        },
+      },
+    ]);
+    const driver = await makeDriver(initial);
+    driver.state.toolOutputExpanded = true;
+    await driver.switchToSession(resumed, 'Resumed session (ses-replay).');
+
     const transcript = stripAnsi(driver.state.transcriptContainer.render(120).join('\n'));
-    expect(transcript).toContain('Compacted');
-    expect(transcript).toContain('120 → 24 tokens');
-    expect(transcript).toContain('preserve implementation notes');
-    expect(transcript).not.toContain('Compacted transcript summary.');
+    expect(transcript).toContain('Compaction complete');
+    expect(transcript).toContain('Compacted transcript summary.');
   });
 
   it('renders replayed cancelled compaction records as cancelled compaction blocks', async () => {
@@ -1216,7 +1133,7 @@ describe('PythinkerTUI resume message replay', () => {
     const transcript = stripAnsi(driver.state.transcriptContainer.render(120).join('\n'));
     expect(transcript).toContain('Compaction cancelled');
     expect(transcript).toContain('preserve implementation notes');
-    expect(transcript).not.toContain('Compacted');
+    expect(transcript).not.toContain('Compaction complete');
   });
 
   it('renders plan permission and approval replay notices', async () => {
@@ -1311,16 +1228,87 @@ describe('PythinkerTUI resume message replay', () => {
     expect(transcript).not.toContain('Plan rejected by user.');
     expect(transcript).not.toContain('Plan mode: OFF');
   });
-});
 
-describe('message replay feature parity baseline', () => {
-  it('links live-versus-replay behavior to active parity scenarios', () => {
-    const linked = PARITY_CASES.filter(
-      ({ legacyTest }) => legacyTest === LEGACY_TEST_PATHS.replay,
-    );
-    expect(linked.length).toBeGreaterThan(0);
+  it('trims goal sessions to the most recent goal turns and hides continuation prompts', async () => {
+    const replay: AgentReplayRecord[] = [goalReplay(goalSnapshot(), { kind: 'created' })];
+    for (let i = 0; i < 25; i++) {
+      replay.push(
+        message('user', [{ type: 'text', text: 'Continue working toward the active goal.' }], {
+          origin: { kind: 'system_trigger', name: 'goal_continuation' },
+        }),
+        message('assistant', [{ type: 'text', text: `round ${i} summary` }], {
+          toolCalls: [toolCall(`call_${i}`, 'Bash', { command: 'ls' })],
+        }),
+        message('tool', [{ type: 'text', text: 'ok' }], { toolCallId: `call_${i}` }),
+      );
+    }
+
+    const driver = await replayIntoDriver(replay);
+    const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
+
+    // Continuation prompts are model-facing and never render as user bubbles.
+    expect(transcript).not.toContain('Continue working toward the active goal.');
+    // Only the most recent REPLAY_TURN_LIMIT goal turns are replayed.
+    expect(transcript).not.toContain('round 0 summary');
+    expect(transcript).not.toContain('round 14 summary');
+    expect(transcript).toContain('round 15 summary');
+    expect(transcript).toContain('round 24 summary');
     expect(
-      linked.every(({ status, scenarioId }) => status === 'active' && scenarioId.length > 0),
-    ).toBe(true);
+      driver.state.transcriptContainer.children.filter(
+        (child) => child instanceof ToolCallComponent,
+      ),
+    ).toHaveLength(10);
+  });
+
+  it('folds oversized goal rounds even though continuation boundaries are hidden', async () => {
+    const replay: AgentReplayRecord[] = [goalReplay(goalSnapshot(), { kind: 'created' })];
+    // Ten continuation rounds — exactly at the replay turn limit, so nothing
+    // is trimmed and only folding can bound the oversized final round.
+    for (let i = 0; i < 9; i++) {
+      replay.push(
+        message('user', [{ type: 'text', text: 'Continue working toward the active goal.' }], {
+          origin: { kind: 'system_trigger', name: 'goal_continuation' },
+        }),
+        message('assistant', [{ type: 'text', text: `round ${i} summary` }], {
+          toolCalls: [toolCall(`call_${i}`, 'Bash', { command: 'ls' })],
+        }),
+        message('tool', [{ type: 'text', text: 'ok' }], { toolCallId: `call_${i}` }),
+      );
+    }
+    // Final round: 40 tool calls and 5 assistant texts in one continuation turn.
+    replay.push(
+      message('user', [{ type: 'text', text: 'Continue working toward the active goal.' }], {
+        origin: { kind: 'system_trigger', name: 'goal_continuation' },
+      }),
+    );
+    for (let t = 0; t < 40; t++) {
+      replay.push(
+        message('assistant', t < 5 ? [{ type: 'text', text: `final text ${t}` }] : [], {
+          toolCalls: [toolCall(`final_${t}`, 'Bash', { command: 'ls' })],
+        }),
+        message('tool', [{ type: 'text', text: 'ok' }], { toolCallId: `final_${t}` }),
+      );
+    }
+
+    const driver = await replayIntoDriver(replay);
+    const children = driver.state.transcriptContainer.children;
+
+    // The oversized round folds to the per-turn caps even with no visible
+    // boundary component mounted for the continuation prompt.
+    const tools = children.filter((child) => child instanceof ToolCallComponent);
+    expect(tools).toHaveLength(9 + TRANSCRIPT_KEEP_RECENT_STEPS);
+    const assistants = children.filter((child) => child instanceof AssistantMessageComponent);
+    expect(assistants).toHaveLength(9 + TRANSCRIPT_KEEP_RECENT_ASSISTANT_COMPLETED);
+
+    const summaries = children.filter((child) => child instanceof StepSummaryComponent);
+    expect(summaries).toHaveLength(1);
+    const summaryText = stripAnsi(summaries[0]!.render(120).join('\n'));
+    expect(summaryText).toContain(`call ${40 - TRANSCRIPT_KEEP_RECENT_STEPS} tools`);
+    expect(summaryText).toContain(`${5 - TRANSCRIPT_KEEP_RECENT_ASSISTANT_COMPLETED} messages`);
+
+    // The folded content is gone from view; the latest work stays.
+    const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
+    expect(transcript).not.toContain('final text 0');
+    expect(transcript).toContain('final text 4');
   });
 });

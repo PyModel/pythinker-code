@@ -5,18 +5,17 @@
  * Supports expand/collapse via Ctrl+O (shared with tool output).
  */
 
-import { Markdown, type Component, type TUI } from '@earendil-works/pi-tui';
+import { Text, truncateToWidth, type Component, type TUI } from '@pymodel/pi-tui';
 
 import {
-  formatThinkingSpinnerLabel,
-  MESSAGE_INDENT,
   BRAILLE_SPINNER_FRAMES,
   BRAILLE_SPINNER_INTERVAL_MS,
+  MESSAGE_INDENT,
   THINKING_PREVIEW_LINES,
 } from '#/tui/constant/rendering';
 import { STATUS_BULLET } from '#/tui/constant/symbols';
-import { currentTheme, createPythinkerThinkingMarkdownTheme } from '#/tui/theme';
-import { shimmerText } from '#/tui/utils/shimmer';
+import { currentTheme } from '#/tui/theme';
+import { isRenderCacheEnabled } from '#/tui/utils/render-cache';
 
 export type ThinkingRenderMode = 'live' | 'finalized';
 
@@ -27,13 +26,14 @@ export class ThinkingComponent implements Component {
   private expanded = false;
   private readonly ui: TUI | undefined;
   private spinnerFrame = 0;
-  private animationFrame = 0;
   private spinnerInterval: ReturnType<typeof setInterval> | undefined;
-  // Hold a single Markdown instance so pi-tui's (text, width) → lines cache
+  // Hold a single Text instance so pi-tui's (text, width) → lines cache
   // actually survives across renders. Re-constructing per render destroys
   // the cache and forces full re-wrap on every frame, which dominates CPU
   // once the transcript accumulates many finalized thinking blocks.
-  private textComponent: Markdown;
+  private readonly textComponent: Text;
+
+  private renderCache: { width: number; lines: string[] } | undefined;
 
   constructor(
     text: string,
@@ -45,33 +45,35 @@ export class ThinkingComponent implements Component {
     this.showMarker = showMarker;
     this.mode = mode;
     this.ui = ui;
-    this.textComponent = this.createMarkdown(text);
+    this.textComponent = new Text(this.styled(text), 0, 0);
     if (mode === 'live') {
       this.startSpinner();
     }
   }
 
-  invalidate(): void {
-    // Markdown caches its default-style ANSI prefix on first render; rebuild
-    // the instance so a theme switch re-styles with the new palette.
-    this.textComponent = this.createMarkdown(this.text);
+  private markRenderDirty(): void {
+    this.renderCache = undefined;
   }
 
-  private createMarkdown(text: string): Markdown {
-    return new Markdown(text, 0, 0, createPythinkerThinkingMarkdownTheme(), {
-      color: (t) => currentTheme.fg('textDim', t),
-      italic: true,
-    });
+  invalidate(): void {
+    this.markRenderDirty();
+    this.textComponent.setText(this.styled(this.text));
   }
 
   setText(text: string): void {
     if (this.text === text) return;
     this.text = text;
-    this.textComponent.setText(text);
+    this.markRenderDirty();
+    this.textComponent.setText(this.styled(text));
+  }
+
+  private styled(text: string): string {
+    return currentTheme.italicFg('textDim', text);
   }
 
   finalize(): void {
     this.mode = 'finalized';
+    this.markRenderDirty();
     this.stopSpinner();
   }
 
@@ -82,53 +84,70 @@ export class ThinkingComponent implements Component {
   setExpanded(expanded: boolean): void {
     if (this.expanded === expanded) return;
     this.expanded = expanded;
+    this.markRenderDirty();
   }
 
   render(width: number): string[] {
-    // Collapsed thinking renders no body text: while live only the spinner
-    // header shows (it sits directly above the prompt as the newest entry),
-    // and a finalized block disappears from the transcript entirely.
-    // Ctrl+O (expand) opts back into the full text.
+    if (
+      isRenderCacheEnabled() &&
+      this.renderCache !== undefined &&
+      this.renderCache.width === width
+    ) {
+      return this.renderCache.lines;
+    }
+
+    const contentWidth = Math.max(1, width - MESSAGE_INDENT.length);
+    const contentLines = this.text.length > 0 ? this.textComponent.render(contentWidth) : [''];
+
+    let rendered: string[];
     if (this.mode === 'live') {
-      const spinner = currentTheme.fg(
-        'primary',
-        `${BRAILLE_SPINNER_FRAMES[this.spinnerFrame] ?? BRAILLE_SPINNER_FRAMES[0]} `,
-      );
-      const label = shimmerText(formatThinkingSpinnerLabel(), {
-        baseToken: 'primary',
-        shimmerToken: 'primaryShimmer',
-        bandHalfWidth: 4,
-      });
-      if (!this.expanded) return ['', spinner + label];
-      const contentLines = this.renderContent(width);
       const visibleLines =
         contentLines.length > THINKING_PREVIEW_LINES
           ? contentLines.slice(contentLines.length - THINKING_PREVIEW_LINES)
           : contentLines;
-      return ['', spinner + label, ...visibleLines.map((line) => MESSAGE_INDENT + line)];
+      const spinner = currentTheme.fg(
+        'textDim',
+        `${BRAILLE_SPINNER_FRAMES[this.spinnerFrame] ?? BRAILLE_SPINNER_FRAMES[0]} `,
+      );
+      rendered = [
+        '',
+        spinner + currentTheme.fg('textDim', 'thinking...'),
+        ...visibleLines.map((line) => MESSAGE_INDENT + line),
+      ];
+    } else {
+      const lines: string[] = [''];
+      for (let i = 0; i < contentLines.length; i++) {
+        const p = i === 0 && this.showMarker ? currentTheme.fg('textDim', STATUS_BULLET) : MESSAGE_INDENT;
+        lines.push(p + contentLines[i]);
+      }
+
+      if (this.expanded || contentLines.length <= THINKING_PREVIEW_LINES) {
+        rendered = lines;
+      } else {
+        // Leading blank + first PREVIEW_LINES content lines + hint line.
+        const truncated = lines.slice(0, 1 + THINKING_PREVIEW_LINES);
+        const remaining = contentLines.length - THINKING_PREVIEW_LINES;
+        const hint = `... (${String(remaining)} more lines, ctrl+o to expand)`;
+        const indentWidth = Math.min(MESSAGE_INDENT.length, Math.max(0, width));
+        const hintWidth = Math.max(0, width - indentWidth);
+        truncated.push(
+          ' '.repeat(indentWidth) + currentTheme.dim(truncateToWidth(hint, hintWidth, '…')),
+        );
+        rendered = truncated;
+      }
     }
 
-    if (!this.expanded) return [];
-
-    const contentLines = this.renderContent(width);
-    const rendered: string[] = [''];
-    for (let i = 0; i < contentLines.length; i++) {
-      const p = i === 0 && this.showMarker ? currentTheme.fg('textDim', STATUS_BULLET) : MESSAGE_INDENT;
-      rendered.push(p + contentLines[i]);
+    if (isRenderCacheEnabled()) {
+      this.renderCache = { width, lines: rendered };
     }
     return rendered;
-  }
-
-  private renderContent(width: number): string[] {
-    const contentWidth = Math.max(1, width - MESSAGE_INDENT.length);
-    return this.text.length > 0 ? this.textComponent.render(contentWidth) : [''];
   }
 
   private startSpinner(): void {
     if (this.ui === undefined || this.spinnerInterval !== undefined) return;
     this.spinnerInterval = setInterval(() => {
-      this.animationFrame += 1;
       this.spinnerFrame = (this.spinnerFrame + 1) % BRAILLE_SPINNER_FRAMES.length;
+      this.markRenderDirty();
       this.ui?.requestRender();
     }, BRAILLE_SPINNER_INTERVAL_MS);
   }

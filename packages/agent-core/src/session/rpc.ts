@@ -1,47 +1,48 @@
 import { ErrorCodes, PythinkerError } from '#/errors';
-import { convertMCPContentBlock } from '#/mcp/output';
-import { mcpServerToolPattern } from '#/mcp/tool-naming';
+import type { SessionWarning } from '@pymodel/protocol';
 import type {
   ActivateSkillPayload,
-  AdvisorStatus,
+  ActivatePluginCommandPayload,
+  AddAdditionalDirPayload,
+  AddAdditionalDirResult,
   AgentAPI,
   BeginCompactionPayload,
   CancelPayload,
   CancelPlanPayload,
+  CancelShellCommandPayload,
   CreateGoalPayload,
+  DetachBackgroundPayload,
   EmptyPayload,
   EnterDynamicWorkflowPayload,
-  FileCheckpointIdPayload,
   GetBackgroundOutputPayload,
   GetBackgroundPayload,
+  ImportContextPayload,
   McpServerInfo,
   McpStartupMetrics,
   PromptPayload,
+  RunShellCommandPayload,
   ReconnectMcpServerPayload,
   RenameSessionPayload,
   RegisterToolPayload,
   SessionAPI,
   SetActiveToolsPayload,
-  SetAdvisorEnabledPayload,
-  SetFastModePayload,
   SetModelPayload,
   SetPermissionPayload,
   SetThinkingPayload,
   SkillSummary,
+  PluginCommandDef,
   SteerPayload,
   StopBackgroundPayload,
   UndoHistoryPayload,
   UnregisterToolPayload,
   UpdateSessionMetadataPayload,
-  WorkspaceDirectory,
-  WorkspaceDirectoryPayload,
-  WorkingTreeDiffPayload,
 } from '#/rpc';
 import type { PromisableMethods } from '#/utils/types';
 
 import type { Session, SessionMeta } from '.';
 import {
   promptMetadataTextFromPayload,
+  promptMetadataTextFromPluginCommand,
   promptMetadataTextFromSkill,
   titleFromPromptMetadataText,
 } from './prompt-metadata';
@@ -66,74 +67,24 @@ export class SessionAPIImpl implements PromisableMethods<SessionAPI> {
   }
 
   async updateSessionMetadata(payload: UpdateSessionMetadataPayload): Promise<void> {
-    if (Object.prototype.hasOwnProperty.call(payload.metadata, 'sessionFormatVersion')) {
-      throw new PythinkerError(
-        ErrorCodes.SESSION_STATE_INVALID,
-        'sessionFormatVersion cannot be updated',
-      );
-    }
-    const incoming = payload.metadata.agentConfig;
-    const previous = this.session.metadata.agentConfig;
-    const agentConfig =
-      incoming === undefined
-        ? previous
-        : {
-            tools: incoming.tools ?? previous?.tools,
-            mcpServers: incoming.mcpServers ?? previous?.mcpServers,
-          };
     this.session.metadata = {
       ...this.session.metadata,
       ...payload.metadata,
-      agentConfig,
       agents: this.session.metadata.agents,
-      sessionFormatVersion: this.session.metadata.sessionFormatVersion,
     };
     await this.session.writeMetadata();
-    if (
-      incoming !== undefined &&
-      (incoming.tools !== undefined || incoming.mcpServers !== undefined)
-    ) {
-      const agent = await this.session.ensureAgentResumed('main');
-      agent.tools.patchActiveTools({
-        tools: incoming.tools,
-        mcpPatterns: incoming.mcpServers?.map(mcpServerToolPattern),
-      });
-    }
   }
 
   getSessionMetadata(_payload: EmptyPayload): SessionMeta {
     return this.session.metadata;
   }
 
-  listWorkspaceDirectories(_payload: EmptyPayload): readonly WorkspaceDirectory[] {
-    return this.session.listWorkspaceDirectories();
-  }
-
-  addWorkspaceDirectory(payload: WorkspaceDirectoryPayload): Promise<WorkspaceDirectory> {
-    return this.session.addWorkspaceDirectory(payload.path);
-  }
-
-  removeWorkspaceDirectory(payload: WorkspaceDirectoryPayload): Promise<void> {
-    return this.session.removeWorkspaceDirectory(payload.path);
-  }
-
   listSkills(_payload: EmptyPayload): Promise<readonly SkillSummary[]> {
     return this.session.listSkills();
   }
-  getAdvisorStatus(_payload: EmptyPayload): Promise<readonly AdvisorStatus[]> {
-    return this.session.advisor.status();
-  }
 
-  setAdvisorEnabled(payload: SetAdvisorEnabledPayload): Promise<readonly AdvisorStatus[]> {
-    return this.session.advisor.setEnabled(payload.enabled, payload.advisorId);
-  }
-
-  reloadAdvisor(_payload: EmptyPayload): Promise<readonly AdvisorStatus[]> {
-    return this.session.advisor.reload();
-  }
-
-  reloadSkills(_payload: EmptyPayload): Promise<void> {
-    return this.session.reloadSkills();
+  listPluginCommands(_payload: EmptyPayload): readonly PluginCommandDef[] {
+    return this.session.listPluginCommands();
   }
 
   listMcpServers(_payload: EmptyPayload): readonly McpServerInfo[] {
@@ -153,57 +104,45 @@ export class SessionAPIImpl implements PromisableMethods<SessionAPI> {
     return this.session.generateAgentsMd();
   }
 
-  refreshInstructions(_payload: EmptyPayload): Promise<void> {
-    return this.session.refreshInstructions();
+  getSessionWarnings(_payload: EmptyPayload): Promise<readonly SessionWarning[]> {
+    return this.session.getSessionWarnings();
   }
 
-  listWorkingTreeChanges(_payload: EmptyPayload) {
-    return this.session.listWorkingTreeChanges();
+  waitForBackgroundTasksOnPrint(_payload: EmptyPayload): Promise<void> {
+    return this.session.waitForBackgroundTasksOnPrint();
   }
 
-  getWorkingTreeDiff(payload: WorkingTreeDiffPayload) {
-    return this.session.getWorkingTreeDiff(payload.path);
+  handlePrintMainTurnCompleted(_payload: EmptyPayload): Promise<'finish' | 'continue'> {
+    return this.session.handlePrintMainTurnCompleted();
   }
 
-  listFileCheckpoints(_payload: EmptyPayload) {
-    return this.session.listFileCheckpoints();
+  addAdditionalDir(payload: AddAdditionalDirPayload): Promise<AddAdditionalDirResult> {
+    return this.session.addAdditionalDir(payload.path, payload.persist);
   }
-
-  async previewFileCheckpoint(payload: FileCheckpointIdPayload) {
-    return this.session.previewFileCheckpoint(normalizeCheckpointId(payload));
-  }
-
-  async restoreFileCheckpoint(payload: FileCheckpointIdPayload) {
-    return this.session.restoreFileCheckpoint(normalizeCheckpointId(payload));
-  }
-
 
   async prompt({ agentId, ...payload }: AgentScopedPayload<PromptPayload>) {
-    const prompt = promptMetadataTextFromPayload(payload);
     if (agentId === 'main') {
-      await this.updatePromptMetadata(prompt);
+      await this.updatePromptMetadata(promptMetadataTextFromPayload(payload));
     }
-    const agent = await this.session.ensureAgentResumed(agentId);
-    if (
-      agentId !== 'main' ||
-      agent.turn.hasActiveTurn ||
-      this.session.fileCheckpoints === undefined
-    ) {
-      return agent.rpcMethods.prompt(payload);
-    }
-    const checkpointId = await this.session.fileCheckpoints.beginUserCheckpoint(
-      prompt ?? 'User prompt',
-    );
-    agent.setFileCheckpointId(checkpointId);
-    agent.turn.prompt(
-      payload.input,
-      { kind: 'user', checkpointId },
-      payload.outputSchema,
-    );
+    return (await this.getAgent(agentId)).prompt(payload);
   }
 
   async steer({ agentId, ...payload }: AgentScopedPayload<SteerPayload>) {
+    if (agentId === 'main') {
+      // A steer is user input like a prompt — and can even launch the
+      // session's first turn (e.g. goal mode) — so keep title/lastPrompt in
+      // sync the same way.
+      await this.updatePromptMetadata(promptMetadataTextFromPayload(payload));
+    }
     return (await this.getAgent(agentId)).steer(payload);
+  }
+
+  async runShellCommand({ agentId, ...payload }: AgentScopedPayload<RunShellCommandPayload>) {
+    return (await this.getAgent(agentId)).runShellCommand(payload);
+  }
+
+  async cancelShellCommand({ agentId, ...payload }: AgentScopedPayload<CancelShellCommandPayload>) {
+    return (await this.getAgent(agentId)).cancelShellCommand(payload);
   }
 
   async cancel({ agentId, ...payload }: AgentScopedPayload<CancelPayload>) {
@@ -220,10 +159,6 @@ export class SessionAPIImpl implements PromisableMethods<SessionAPI> {
 
   async setThinking({ agentId, ...payload }: AgentScopedPayload<SetThinkingPayload>) {
     return (await this.getAgent(agentId)).setThinking(payload);
-  }
-
-  async setFastMode({ agentId, ...payload }: AgentScopedPayload<SetFastModePayload>) {
-    return (await this.getAgent(agentId)).setFastMode(payload);
   }
 
   async setPermission({ agentId, ...payload }: AgentScopedPayload<SetPermissionPayload>) {
@@ -282,71 +217,33 @@ export class SessionAPIImpl implements PromisableMethods<SessionAPI> {
     return (await this.getAgent(agentId)).stopBackground(payload);
   }
 
+  async detachBackground({ agentId, ...payload }: AgentScopedPayload<DetachBackgroundPayload>) {
+    return (await this.getAgent(agentId)).detachBackground(payload);
+  }
+
   async clearContext({ agentId, ...payload }: AgentScopedPayload<EmptyPayload>) {
     return (await this.getAgent(agentId)).clearContext(payload);
   }
 
+  async importContext({ agentId, ...payload }: AgentScopedPayload<ImportContextPayload>) {
+    return (await this.getAgent(agentId)).importContext(payload);
+  }
+
   async activateSkill({ agentId, ...payload }: AgentScopedPayload<ActivateSkillPayload>) {
-    const prompt = promptMetadataTextFromSkill(payload);
+    await (await this.getAgent(agentId)).activateSkill(payload);
     if (agentId === 'main') {
-      await this.updatePromptMetadata(prompt);
+      await this.updatePromptMetadata(promptMetadataTextFromSkill(payload));
     }
-    const agent = await this.session.ensureAgentResumed(agentId);
-    if (
-      agentId === 'main' &&
-      !agent.turn.hasActiveTurn &&
-      this.session.fileCheckpoints !== undefined
-    ) {
-      agent.setFileCheckpointId(
-        await this.session.fileCheckpoints.beginUserCheckpoint(
-          prompt ?? `/${payload.name}`,
-        ),
-      );
+  }
+
+  async activatePluginCommand({
+    agentId,
+    ...payload
+  }: AgentScopedPayload<ActivatePluginCommandPayload>) {
+    await (await this.getAgent(agentId)).activatePluginCommand(payload);
+    if (agentId === 'main') {
+      await this.updatePromptMetadata(promptMetadataTextFromPluginCommand(payload));
     }
-    const mcpPrompt = this.session.mcp.resolvePrompt(payload.name);
-    let result;
-    if (mcpPrompt === undefined) {
-      result = await agent.rpcMethods.activateSkill(payload);
-    } else {
-      if (mcpPrompt.client.getPrompt === undefined) {
-        throw new PythinkerError(
-          ErrorCodes.REQUEST_INVALID,
-          `MCP server "${mcpPrompt.serverName}" does not support prompts`,
-        );
-      }
-      const values = (payload.args ?? '').split(' ');
-      const args = Object.fromEntries(
-        (mcpPrompt.prompt.arguments ?? []).flatMap((argument, index) => {
-          const value = values[index];
-          return value === undefined ? [] : [[argument.name, value]];
-        }),
-      );
-      const messages = await mcpPrompt.client.getPrompt(
-        mcpPrompt.prompt.name,
-        args,
-      );
-      const content = messages
-        .map((message) => convertMCPContentBlock(message.content))
-        .filter((part) => part !== null);
-      if (content.length === 0) {
-        throw new PythinkerError(
-          ErrorCodes.REQUEST_INVALID,
-          `MCP prompt "${payload.name}" returned no supported content`,
-        );
-      }
-      if (agent.skills === null) {
-        throw new PythinkerError(
-          ErrorCodes.SKILL_NOT_FOUND,
-          `Skill "${payload.name}" was not found`,
-        );
-      }
-      result = agent.skills.activateMcpPrompt(
-        payload,
-        content,
-        `mcp://${mcpPrompt.serverName}/${mcpPrompt.prompt.name}`,
-      );
-    }
-    return result;
   }
 
   async startBtw({ agentId, ...payload }: AgentScopedPayload<EmptyPayload>): Promise<string> {
@@ -373,6 +270,10 @@ export class SessionAPIImpl implements PromisableMethods<SessionAPI> {
     return (await this.getAgent(agentId)).cancelGoal(payload);
   }
 
+  async getCronTasks({ agentId, ...payload }: AgentScopedPayload<EmptyPayload>) {
+    return (await this.getAgent(agentId)).getCronTasks(payload);
+  }
+
   async getBackgroundOutput({
     agentId,
     ...payload
@@ -382,10 +283,6 @@ export class SessionAPIImpl implements PromisableMethods<SessionAPI> {
 
   async getContext({ agentId, ...payload }: AgentScopedPayload<EmptyPayload>) {
     return (await this.getAgent(agentId)).getContext(payload);
-  }
-
-  async getContextUsage({ agentId, ...payload }: AgentScopedPayload<EmptyPayload>) {
-    return (await this.getAgent(agentId)).getContextUsage(payload);
   }
 
   async getConfig({ agentId, ...payload }: AgentScopedPayload<EmptyPayload>) {
@@ -406,10 +303,6 @@ export class SessionAPIImpl implements PromisableMethods<SessionAPI> {
 
   async getTools({ agentId, ...payload }: AgentScopedPayload<EmptyPayload>) {
     return (await this.getAgent(agentId)).getTools(payload);
-  }
-
-  async listContextFiles({ agentId, ...payload }: AgentScopedPayload<EmptyPayload>) {
-    return (await this.getAgent(agentId)).listContextFiles(payload);
   }
 
   async getBackground({ agentId, ...payload }: AgentScopedPayload<GetBackgroundPayload>) {
@@ -457,17 +350,6 @@ export class SessionAPIImpl implements PromisableMethods<SessionAPI> {
       },
     });
   }
-}
-
-function normalizeCheckpointId(payload: FileCheckpointIdPayload): string {
-  const checkpointId = payload.checkpointId.trim();
-  if (checkpointId.length === 0) {
-    throw new PythinkerError(
-      ErrorCodes.REQUEST_INVALID,
-      'Checkpoint ID cannot be empty.',
-    );
-  }
-  return checkpointId;
 }
 
 function isUntitled(title: unknown): boolean {

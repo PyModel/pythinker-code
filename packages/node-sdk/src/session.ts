@@ -2,54 +2,44 @@ import {
   ErrorCodes,
   PythinkerError,
   type AgentContextData,
-  type ContextUsageReport,
   type PythinkerErrorCode,
-  type SkillActivationResult,
   type DynamicWorkflowModeTrigger,
 } from '@pymodel/agent-core';
 
 import { type ApprovalHandler, type Event, type QuestionHandler } from '#/events';
 import type { SDKRpcClientBase } from '#/rpc';
 import type {
-  AdvisorStatusSnapshot,
+  AddAdditionalDirOptions,
+  AddAdditionalDirResult,
+  CapabilityStatus,
   BackgroundTaskInfo,
   CompactOptions,
   CreateGoalInput,
-  FileCheckpointSummary,
+  GetCronTasksResult,
   GoalSnapshot,
   GoalToolResult,
+  JsonObject,
   McpServerInfo,
   McpStartupMetrics,
   PermissionMode,
   PluginInfo,
-  PluginInstallOptions,
   PluginSummary,
-  PromptOptions,
   PromptInput,
+  ReloadSessionOptions,
   ReloadSummary,
-  RestoreFileCheckpointResult,
   ResumedSessionState,
   ResumedSessionSummary,
   SessionPlan,
-  SessionMeta,
-  SessionMetadataPatch,
-  SessionFileCheckpointPreview,
   SessionStatus,
   SessionSummary,
   SessionUsage,
   SkillSummary,
+  PluginCommandDef,
+  ThinkingEffort,
   Unsubscribe,
-  WorkspaceDirectory,
-  WorkingTreeChanges,
-  WorkingTreeFileDiff,
 } from '#/types';
-const MAIN_AGENT_ID = 'main';
 
-export interface SessionAdvisor {
-  status(): Promise<readonly AdvisorStatusSnapshot[]>;
-  setEnabled(enabled: boolean, advisorId?: string): Promise<readonly AdvisorStatusSnapshot[]>;
-  reload(): Promise<readonly AdvisorStatusSnapshot[]>;
-}
+const MAIN_AGENT_ID = 'main';
 
 export interface SessionOptions {
   readonly id: string;
@@ -58,6 +48,30 @@ export interface SessionOptions {
   readonly resumeState?: ResumedSessionState | undefined;
   readonly rpc: SDKRpcClientBase;
   readonly onClose?: (() => void | Promise<void>) | undefined;
+}
+
+/**
+ * The capability surface (built-in product capabilities: pythinker-cu,
+ * pythinker-webbridge) exists only on the v2 engine — v1 has no capability
+ * domain. Feature-detect structurally so a Session backed by v1 fails with
+ * a clear message instead of a confusing missing-method error.
+ */
+interface CapabilityRpcSurface {
+  listCapabilities(): Promise<readonly CapabilityStatus[]>;
+  getCapability(id: string): Promise<CapabilityStatus>;
+  installCapability(id: string): Promise<CapabilityStatus>;
+}
+
+function capabilityRpc(rpc: SDKRpcClientBase): CapabilityRpcSurface {
+  const candidate = rpc as Partial<CapabilityRpcSurface>;
+  if (
+    typeof candidate.listCapabilities !== 'function' ||
+    typeof candidate.getCapability !== 'function' ||
+    typeof candidate.installCapability !== 'function'
+  ) {
+    throw new TypeError('The capability surface is unavailable on this engine (requires v2).');
+  }
+  return candidate as CapabilityRpcSurface;
 }
 
 export class Session {
@@ -69,7 +83,6 @@ export class Session {
   private readonly rpc: SDKRpcClientBase;
   private readonly onClose?: (() => void | Promise<void>) | undefined;
   private closed = false;
-  readonly advisor: SessionAdvisor;
 
   constructor(options: SessionOptions) {
     this.id = options.id;
@@ -78,11 +91,6 @@ export class Session {
     this.resumeState = options.resumeState ?? resumeStateFromSummary(options.summary);
     this.rpc = options.rpc;
     this.onClose = options.onClose;
-    this.advisor = {
-      status: () => this.getAdvisorStatus(),
-      setEnabled: (enabled, advisorId) => this.setAdvisorEnabled(enabled, advisorId),
-      reload: () => this.reloadAdvisor(),
-    };
   }
 
   getResumeState(): ResumedSessionState | undefined {
@@ -90,43 +98,15 @@ export class Session {
     return this.resumeState;
   }
 
-  async reloadSession(): Promise<ResumedSessionSummary> {
+  async reloadSession(options?: ReloadSessionOptions): Promise<ResumedSessionSummary> {
     this.ensureOpen();
-    const summary = await this.rpc.reloadSession({ sessionId: this.id });
+    const summary = await this.rpc.reloadSession({
+      sessionId: this.id,
+      forcePluginSessionStartReminder: options?.forcePluginSessionStartReminder,
+    });
     this.summary = summary;
     this.resumeState = resumeStateFromSummary(summary);
     return summary;
-  }
-
-  async getSessionMetadata(): Promise<SessionMeta> {
-    this.ensureOpen();
-    return this.rpc.getSessionMetadata({ sessionId: this.id });
-  }
-  async getAdvisorStatus(): Promise<readonly AdvisorStatusSnapshot[]> {
-    this.ensureOpen();
-    return this.rpc.getAdvisorStatus({ sessionId: this.id });
-  }
-
-  async setAdvisorEnabled(
-    enabled: boolean,
-    advisorId?: string,
-  ): Promise<readonly AdvisorStatusSnapshot[]> {
-    this.ensureOpen();
-    return this.rpc.setAdvisorEnabled({
-      sessionId: this.id,
-      enabled,
-      advisorId,
-    });
-  }
-
-  async reloadAdvisor(): Promise<readonly AdvisorStatusSnapshot[]> {
-    this.ensureOpen();
-    return this.rpc.reloadAdvisor({ sessionId: this.id });
-  }
-
-  async updateSessionMetadata(metadata: SessionMetadataPatch): Promise<void> {
-    this.ensureOpen();
-    await this.rpc.updateSessionMetadata({ sessionId: this.id, metadata });
   }
 
   onEvent(listener: (event: Event) => void): Unsubscribe {
@@ -148,13 +128,33 @@ export class Session {
     this.rpc.setQuestionHandler(this.id, handler);
   }
 
-  async prompt(input: string | PromptInput, options: PromptOptions = {}): Promise<void> {
+  async prompt(input: string | PromptInput): Promise<void> {
     this.ensureOpen();
     await this.rpc.prompt({
       sessionId: this.id,
       input: normalizePromptInput(input),
-      outputSchema: options.outputSchema,
     });
+  }
+
+  /** Execute a user-initiated `!` shell command (silent — does not prompt the
+   *  model). Resolves with the command's stdout/stderr for immediate display.
+   *  Pass `commandId` to receive live `shell.output` events for this command. */
+  async runShellCommand(
+    command: string,
+    options?: { commandId?: string },
+  ): Promise<{ stdout: string; stderr: string; isError?: boolean; backgrounded?: boolean }> {
+    this.ensureOpen();
+    return this.rpc.runShellCommand({
+      sessionId: this.id,
+      command,
+      commandId: options?.commandId,
+    });
+  }
+
+  /** Cancel a running `!` shell command by its commandId (e.g. on Esc / Ctrl+C). */
+  async cancelShellCommand(commandId: string): Promise<void> {
+    this.ensureOpen();
+    return this.rpc.cancelShellCommand({ sessionId: this.id, commandId });
   }
 
   async steer(input: string | PromptInput): Promise<void> {
@@ -165,9 +165,9 @@ export class Session {
     });
   }
 
-  async dynamicWorkflow(input: string | PromptInput): Promise<void> {
+  async dynamic_workflow(input: string | PromptInput): Promise<void> {
     this.ensureOpen();
-    await this.rpc.dynamicWorkflow({
+    await this.rpc.dynamic_workflow({
       sessionId: this.id,
       input: normalizePromptInput(input),
     });
@@ -178,55 +178,28 @@ export class Session {
     await this.rpc.generateAgentsMd({ sessionId: this.id });
   }
 
-  async refreshInstructions(): Promise<void> {
+  async getSessionWarnings() {
     this.ensureOpen();
-    await this.rpc.refreshInstructions({ sessionId: this.id });
+    return this.rpc.getSessionWarnings({ sessionId: this.id });
   }
 
-  async listWorkingTreeChanges(): Promise<WorkingTreeChanges> {
+  async addAdditionalDir(
+    path: string,
+    options?: AddAdditionalDirOptions,
+  ): Promise<AddAdditionalDirResult> {
     this.ensureOpen();
-    return this.rpc.listWorkingTreeChanges({ sessionId: this.id });
-  }
-
-  async getWorkingTreeDiff(path: string): Promise<WorkingTreeFileDiff> {
-    this.ensureOpen();
-    return this.rpc.getWorkingTreeDiff({
-      sessionId: this.id,
-      path: normalizeRequiredString(
-        path,
-        'Working-tree path cannot be empty',
-        ErrorCodes.REQUEST_INVALID,
-      ),
+    const normalized = normalizeRequiredString(
+      path,
+      'Additional directory cannot be empty',
+      ErrorCodes.REQUEST_INVALID,
+    );
+    const result = await this.rpc.addAdditionalDir({
+      id: this.id,
+      path: normalized,
+      persist: options?.persist ?? true,
     });
-  }
-
-  async listFileCheckpoints(): Promise<readonly FileCheckpointSummary[]> {
-    this.ensureOpen();
-    return this.rpc.listFileCheckpoints({ sessionId: this.id });
-  }
-
-  async previewFileCheckpoint(checkpointId: string): Promise<SessionFileCheckpointPreview> {
-    this.ensureOpen();
-    return this.rpc.previewFileCheckpoint({
-      sessionId: this.id,
-      checkpointId: normalizeRequiredString(
-        checkpointId,
-        'Checkpoint ID cannot be empty',
-        ErrorCodes.REQUEST_INVALID,
-      ),
-    });
-  }
-
-  async restoreFileCheckpoint(checkpointId: string): Promise<RestoreFileCheckpointResult> {
-    this.ensureOpen();
-    return this.rpc.restoreFileCheckpoint({
-      sessionId: this.id,
-      checkpointId: normalizeRequiredString(
-        checkpointId,
-        'Checkpoint ID cannot be empty',
-        ErrorCodes.REQUEST_INVALID,
-      ),
-    });
+    this.summary = { ...this.requireSummary(), additionalDirs: result.additionalDirs };
+    return result;
   }
 
   async startBtw(): Promise<string> {
@@ -249,27 +222,26 @@ export class Session {
     await this.rpc.setModel({ sessionId: this.id, model: normalized });
   }
 
-  async setThinking(level: string): Promise<void> {
+  async setThinking(effort: ThinkingEffort): Promise<void> {
     this.ensureOpen();
     const normalized = normalizeRequiredString(
-      level,
-      'Session thinking level cannot be empty',
+      effort,
+      'Session thinking effort cannot be empty',
       ErrorCodes.SESSION_THINKING_EMPTY,
     );
-    await this.rpc.setThinking({ sessionId: this.id, level: normalized });
+    await this.rpc.setThinking({ sessionId: this.id, effort: normalized });
   }
 
-  /** Toggles Fast mode for this session; rejected when the active provider/model does not support it. */
-  async setFastMode(enabled: boolean): Promise<void> {
+  /**
+   * Live-apply the persisted `[secondary_model]` recipe to this session
+   * (subagent model binding). Persist the recipe via `PythinkerHarness.setConfig`
+   * first; this reloads the complete recipe and its synthesized derived entry
+   * before updating the session snapshot — mirroring the `/secondary_model`
+   * flow.
+   */
+  async applyPersistedSecondaryModel(): Promise<void> {
     this.ensureOpen();
-    // Runtime guard for JS callers; the type system already constrains TS callers to boolean.
-    if (typeof enabled !== 'boolean') {
-      throw new PythinkerError(
-        ErrorCodes.REQUEST_INVALID,
-        'Session Fast mode must be a boolean',
-      );
-    }
-    await this.rpc.setFastMode({ sessionId: this.id, enabled });
+    await this.rpc.applyPersistedSecondaryModel({ sessionId: this.id });
   }
 
   async setPermission(mode: PermissionMode): Promise<void> {
@@ -281,6 +253,30 @@ export class Session {
       );
     }
     await this.rpc.setPermission({ sessionId: this.id, mode });
+  }
+
+  /** Shallow-merge host-owned fields into this session's persisted custom metadata. */
+  async updateMetadata(patch: JsonObject): Promise<void> {
+    this.ensureOpen();
+    if (Object.hasOwn(patch, 'goal')) {
+      throw new PythinkerError(
+        ErrorCodes.GOAL_METADATA_RESERVED,
+        'Session metadata key "goal" is reserved for the goal lifecycle',
+      );
+    }
+    const summary = this.requireSummary();
+    await this.rpc.updateSessionMetadata({ sessionId: this.id, metadata: patch });
+    const metadata = { ...summary.metadata, ...patch };
+    this.summary = { ...summary, metadata };
+    if (this.resumeState !== undefined) {
+      this.resumeState = {
+        ...this.resumeState,
+        sessionMetadata: {
+          ...this.resumeState.sessionMetadata,
+          custom: { ...this.resumeState.sessionMetadata.custom, ...patch },
+        },
+      };
+    }
   }
 
   async setPlanMode(enabled: boolean): Promise<void> {
@@ -297,7 +293,10 @@ export class Session {
   async setDynamicWorkflowMode(enabled: boolean, trigger: DynamicWorkflowModeTrigger): Promise<void> {
     this.ensureOpen();
     if (typeof enabled !== 'boolean') {
-      throw new PythinkerError(ErrorCodes.REQUEST_INVALID, 'Session dynamic workflow mode must be a boolean');
+      throw new PythinkerError(
+        ErrorCodes.REQUEST_INVALID,
+        'Session dynamic_workflow mode must be a boolean',
+      );
     }
     if (enabled) {
       await this.rpc.setDynamicWorkflowMode({ sessionId: this.id, enabled: true, trigger });
@@ -319,28 +318,9 @@ export class Session {
   async compact(options: CompactOptions = {}): Promise<void> {
     this.ensureOpen();
     const instruction = normalizeOptionalString(options.instruction);
-    const hasPrompt = options.promptFromEnd !== undefined;
-    const hasDirection = options.direction !== undefined;
-    if (hasPrompt !== hasDirection) {
-      throw new PythinkerError(
-        ErrorCodes.REQUEST_INVALID,
-        'Selected compaction requires both promptFromEnd and direction.',
-      );
-    }
-    if (
-      options.promptFromEnd !== undefined &&
-      (!Number.isSafeInteger(options.promptFromEnd) || options.promptFromEnd <= 0)
-    ) {
-      throw new PythinkerError(
-        ErrorCodes.REQUEST_INVALID,
-        'promptFromEnd must be a positive integer.',
-      );
-    }
     await this.rpc.compact({
       sessionId: this.id,
-      instruction,
-      promptFromEnd: options.promptFromEnd,
-      direction: options.direction,
+      ...(instruction !== undefined ? { instruction } : {}),
     });
   }
 
@@ -354,14 +334,21 @@ export class Session {
     await this.rpc.undoHistory({ sessionId: this.id, count });
   }
 
+  /** Clear this session's model context without creating a new session. */
+  async clearContext(): Promise<void> {
+    this.ensureOpen();
+    await this.rpc.clearContext({ sessionId: this.id });
+  }
+
+  /** Append imported text to this session's context without prompting the model. */
+  async importContext(content: string, source: string): Promise<void> {
+    this.ensureOpen();
+    await this.rpc.importContext({ sessionId: this.id, content, source });
+  }
+
   async getContext(): Promise<AgentContextData> {
     this.ensureOpen();
     return this.rpc.getContext({ sessionId: this.id });
-  }
-
-  async getContextUsage(): Promise<ContextUsageReport> {
-    this.ensureOpen();
-    return this.rpc.getContextUsage({ sessionId: this.id });
   }
 
   async getUsage(): Promise<SessionUsage> {
@@ -379,44 +366,9 @@ export class Session {
     return this.rpc.listSkills({ sessionId: this.id });
   }
 
-  /** Re-discovers skills from disk; call after writing one into a skill root. */
-  async reloadSkills(): Promise<void> {
+  async listPluginCommands(): Promise<readonly PluginCommandDef[]> {
     this.ensureOpen();
-    await this.rpc.reloadSkills({ sessionId: this.id });
-  }
-
-  async listContextFiles(): Promise<readonly string[]> {
-    this.ensureOpen();
-    return this.rpc.listContextFiles({ sessionId: this.id });
-  }
-
-  async listWorkspaceDirectories(): Promise<readonly WorkspaceDirectory[]> {
-    this.ensureOpen();
-    return this.rpc.listWorkspaceDirectories({ sessionId: this.id });
-  }
-
-  async addWorkspaceDirectory(path: string): Promise<WorkspaceDirectory> {
-    this.ensureOpen();
-    return this.rpc.addWorkspaceDirectory({
-      sessionId: this.id,
-      path: normalizeRequiredString(
-        path,
-        'Workspace directory cannot be empty',
-        ErrorCodes.REQUEST_INVALID,
-      ),
-    });
-  }
-
-  async removeWorkspaceDirectory(path: string): Promise<void> {
-    this.ensureOpen();
-    await this.rpc.removeWorkspaceDirectory({
-      sessionId: this.id,
-      path: normalizeRequiredString(
-        path,
-        'Workspace directory cannot be empty',
-        ErrorCodes.REQUEST_INVALID,
-      ),
-    });
+    return this.rpc.listPluginCommands({ sessionId: this.id });
   }
 
   /**
@@ -442,7 +394,10 @@ export class Session {
    * `<sessionDir>/tasks/<taskId>/output.log`. `tail` caps the returned
    * string to that many trailing characters.
    */
-  async getBackgroundTaskOutput(taskId: string, options: { tail?: number } = {}): Promise<string> {
+  async getBackgroundTaskOutput(
+    taskId: string,
+    options: { tail?: number } = {},
+  ): Promise<string> {
     this.ensureOpen();
     const trimmedTaskId = normalizeRequiredString(
       taskId,
@@ -463,7 +418,10 @@ export class Session {
    * for unknown or already-terminal task ids are no-ops at the core
    * level — this method does not throw in those cases.
    */
-  async stopBackgroundTask(taskId: string, options: { reason?: string } = {}): Promise<void> {
+  async stopBackgroundTask(
+    taskId: string,
+    options: { reason?: string } = {},
+  ): Promise<void> {
     this.ensureOpen();
     const trimmedTaskId = normalizeRequiredString(
       taskId,
@@ -475,6 +433,49 @@ export class Session {
       taskId: trimmedTaskId,
       reason: options.reason,
     });
+  }
+
+  /**
+   * Detach a running foreground task so the current tool call can return while
+   * the task continues under background-task management.
+   */
+  async detachBackgroundTask(taskId: string): Promise<BackgroundTaskInfo | undefined> {
+    this.ensureOpen();
+    const trimmedTaskId = normalizeRequiredString(
+      taskId,
+      'Task id cannot be empty',
+      ErrorCodes.BACKGROUND_TASK_ID_EMPTY,
+    );
+    return this.rpc.detachBackgroundTask({
+      sessionId: this.id,
+      taskId: trimmedTaskId,
+    });
+  }
+
+  /**
+   * Block until every still-running background task (across all agents in this
+   * session) reaches a terminal state. Used by `pythinker -p` after the main agent's
+   * turn finishes when the resolved print background mode is `'drain'`
+   * (`print_background_mode = "drain"`, or the legacy `keep_alive_on_exit = true`
+   * fallback), so background subagents get a chance to complete before the process
+   * exits. No-op in other modes. Bounded by `background.print_wait_ceiling_s`.
+   */
+  async waitForBackgroundTasksOnPrint(): Promise<void> {
+    this.ensureOpen();
+    await this.rpc.waitForBackgroundTasksOnPrint({ sessionId: this.id });
+  }
+
+  /**
+   * Used by `pythinker -p` after the main agent's turn ends with `reason ===
+   * 'completed'`. Returns `'finish'` when the run may exit, or `'continue'` when
+   * the caller must keep the session alive so a background-task completion can
+   * steer the main agent into a new turn. Policy is selected by
+   * `background.print_background_mode` (`'exit' | 'drain' | 'steer'`); when unset
+   * it falls back to the legacy `keep_alive_on_exit` mapping (`true ⇒ 'drain'`).
+   */
+  async handlePrintMainTurnCompleted(): Promise<'finish' | 'continue'> {
+    this.ensureOpen();
+    return this.rpc.handlePrintMainTurnCompleted({ sessionId: this.id });
   }
 
   // --- Goal lifecycle ---------------------------------------------------
@@ -508,6 +509,16 @@ export class Session {
     return this.rpc.cancelGoal({ sessionId: this.id });
   }
 
+  /**
+   * Enumerate the cron tasks scheduled in this session. Hosts running a
+   * bounded session lifetime (e.g. `pythinker -p`) poll this to decide whether
+   * pending scheduled work still needs the process alive.
+   */
+  async getCronTasks(): Promise<GetCronTasksResult> {
+    this.ensureOpen();
+    return this.rpc.getCronTasks({ sessionId: this.id });
+  }
+
   async listMcpServers(): Promise<readonly McpServerInfo[]> {
     this.ensureOpen();
     return this.rpc.listMcpServers({ sessionId: this.id });
@@ -528,9 +539,9 @@ export class Session {
     return this.rpc.listPlugins();
   }
 
-  async installPlugin(source: string, options?: PluginInstallOptions): Promise<PluginSummary> {
+  async installPlugin(source: string): Promise<PluginSummary> {
     this.ensureOpen();
-    return this.rpc.installPlugin(source, options);
+    return this.rpc.installPlugin(source);
   }
 
   async setPluginEnabled(id: string, enabled: boolean): Promise<void> {
@@ -538,7 +549,32 @@ export class Session {
     await this.rpc.setPluginEnabled(id, enabled);
   }
 
-  async setPluginMcpServerEnabled(id: string, server: string, enabled: boolean): Promise<void> {
+  /** Built-in capabilities with layered readiness (v2 engine only). */
+  async listCapabilities(): Promise<readonly CapabilityStatus[]> {
+    this.ensureOpen();
+    return capabilityRpc(this.rpc).listCapabilities();
+  }
+
+  /** One capability's layered readiness + live install progress. */
+  async getCapability(id: string): Promise<CapabilityStatus> {
+    this.ensureOpen();
+    return capabilityRpc(this.rpc).getCapability(id);
+  }
+
+  /**
+   * Start an idempotent capability install (binary runtime + wiring) in the
+   * background; poll `getCapability` for progress.
+   */
+  async installCapability(id: string): Promise<CapabilityStatus> {
+    this.ensureOpen();
+    return capabilityRpc(this.rpc).installCapability(id);
+  }
+
+  async setPluginMcpServerEnabled(
+    id: string,
+    server: string,
+    enabled: boolean,
+  ): Promise<void> {
     this.ensureOpen();
     await this.rpc.setPluginMcpServerEnabled(id, server, enabled);
   }
@@ -558,7 +594,7 @@ export class Session {
     return this.rpc.getPluginInfo(id);
   }
 
-  async activateSkill(name: string, args?: string | undefined): Promise<SkillActivationResult> {
+  async activateSkill(name: string, args?: string | undefined): Promise<void> {
     this.ensureOpen();
     const skillName = normalizeRequiredString(
       name,
@@ -566,10 +602,33 @@ export class Session {
       ErrorCodes.SKILL_NAME_EMPTY,
     );
     const skillArgs = normalizeOptionalString(args);
-    return this.rpc.activateSkill({
+    await this.rpc.activateSkill({
       sessionId: this.id,
       name: skillName,
       ...(skillArgs !== undefined ? { args: skillArgs } : {}),
+    });
+  }
+
+  async activatePluginCommand(
+    pluginId: string,
+    commandName: string,
+    args?: string | undefined,
+  ): Promise<void> {
+    this.ensureOpen();
+    const normalizedPluginId = pluginId.trim();
+    const normalizedCommandName = commandName.trim();
+    if (normalizedPluginId.length === 0 || normalizedCommandName.length === 0) {
+      throw new PythinkerError(
+        ErrorCodes.REQUEST_INVALID,
+        'Plugin id and command name cannot be empty',
+      );
+    }
+    const commandArgs = normalizeOptionalString(args);
+    await this.rpc.activatePluginCommand({
+      sessionId: this.id,
+      pluginId: normalizedPluginId,
+      commandName: normalizedCommandName,
+      ...(commandArgs !== undefined ? { args: commandArgs } : {}),
     });
   }
 
@@ -604,15 +663,19 @@ export class Session {
       throw new PythinkerError(ErrorCodes.SESSION_CLOSED, 'Session is closed');
     }
   }
+
+  private requireSummary(): SessionSummary {
+    if (this.summary === undefined) {
+      throw new PythinkerError(ErrorCodes.SESSION_STATE_INVALID, 'Session summary is unavailable');
+    }
+    return this.summary;
+  }
 }
 
 function normalizePromptInput(input: string | PromptInput): PromptInput {
   if (typeof input === 'string') {
     if (input.trim().length === 0) {
-      throw new PythinkerError(
-        ErrorCodes.REQUEST_PROMPT_INPUT_EMPTY,
-        'Prompt input cannot be empty',
-      );
+      throw new PythinkerError(ErrorCodes.REQUEST_PROMPT_INPUT_EMPTY, 'Prompt input cannot be empty');
     }
     return [{ type: 'text', text: input }];
   }
@@ -652,7 +715,11 @@ function normalizePromptInput(input: string | PromptInput): PromptInput {
   return input;
 }
 
-function normalizeRequiredString(value: string, message: string, code: PythinkerErrorCode): string {
+function normalizeRequiredString(
+  value: string,
+  message: string,
+  code: PythinkerErrorCode,
+): string {
   const normalized = value.trim();
   if (normalized.length === 0) {
     throw new PythinkerError(code, message);
@@ -677,6 +744,7 @@ function resumeStateFromSummary(
   return {
     sessionMetadata: summary.sessionMetadata,
     agents: summary.agents,
+    warning: summary.warning,
   };
 }
 

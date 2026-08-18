@@ -18,7 +18,7 @@
  *        later abort can pass the correct numeric `turnId` to
  *        `core.rpc.cancel({turnId})`).
  *      - capture `turn.ended` for the prompt's top-level turn → SYNTHESIZE a
- *        `prompt.completed` (reason='completed' or 'failed') or
+ *        `prompt.completed` (reason='completed', 'failed', or 'blocked') or
  *        `prompt.aborted` (reason='cancelled') event. The event service then
  *        broadcasts these.
  *      VSCode-style accessors `onDidComplete: Event<...>` /
@@ -214,7 +214,7 @@ export interface IPromptService {
   /**
    * VSCode-style accessor for `prompt.completed` synthetic events. The
    * listener fires synchronously when a top-level `turn.ended`
-   * (reason='completed'|'failed') is synthesised into a prompt-lifecycle
+   * (reason='completed'|'failed'|'blocked') is synthesised into a prompt-lifecycle
    * event, BEFORE `bus.publish(synth)`.
    *
    * Returns an `IDisposable`. Owners stash it via
@@ -308,7 +308,7 @@ export interface SyntheticPromptCompletedEvent {
   readonly sessionId: string;
   readonly promptId: string;
   readonly finishedAt: string;
-  readonly reason: 'completed' | 'failed';
+  readonly reason: 'completed' | 'failed' | 'blocked';
 }
 
 /**

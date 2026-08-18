@@ -26,6 +26,7 @@ export * from './mcp-resources';
 export * from './lsp';
 export * from './planning/enter-plan-mode';
 export * from './planning/exit-plan-mode';
+export * from './select-tools';
 export * from './shell/bash';
 export * from './state/todo-list';
 export * from './structured-output';

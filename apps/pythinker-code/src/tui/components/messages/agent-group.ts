@@ -15,8 +15,8 @@
  * - Ungrouping is not implemented. Once formed, a group stays grouped.
  */
 
-import type { TUI } from '@earendil-works/pi-tui';
-import { Container, Spacer, Text } from '@earendil-works/pi-tui';
+import type { TUI } from '@pymodel/pi-tui';
+import { Container, Spacer, Text } from '@pymodel/pi-tui';
 
 import { MarkdownPreviewComponent } from '#/tui/components/messages/markdown-preview';
 import { formatThinkingSpinnerLabel } from '#/tui/constant/rendering';
@@ -27,6 +27,8 @@ import { formatTokenCount } from '#/utils/usage/usage-format';
 import type { ToolCallComponent, ToolCallSubagentSnapshot } from './tool-call';
 
 const THROTTLE_MS = 200;
+
+const DETACH_HINT_TEXT = 'Press Ctrl+B to run in background';
 
 interface AgentEntry {
   readonly toolCallId: string;
@@ -140,6 +142,9 @@ export class AgentGroupComponent extends Container {
       const isLast = idx === snapshots.length - 1;
       this.appendLines(snap, isLast);
     });
+    if (this.shouldShowDetachHint(snapshots)) {
+      this.bodyContainer.addChild(new Text(currentTheme.dim(DETACH_HINT_TEXT), 2, 0));
+    }
 
     this.lastFlushPhases.clear();
     this.entries.forEach((entry, i) => {
@@ -228,6 +233,21 @@ export class AgentGroupComponent extends Container {
     this.bodyContainer.addChild(preview.component);
   }
 
+  /**
+   * Show the Ctrl+B hint while at least one agent in the group is still
+   * running in the foreground (i.e. can be detached). Hide it once every
+   * agent is done, failed, or already backgrounded.
+   */
+  private shouldShowDetachHint(snapshots: readonly ToolCallSubagentSnapshot[]): boolean {
+    return snapshots.some(
+      (s) =>
+        s.phase === 'running' ||
+        s.phase === 'queued' ||
+        s.phase === 'spawning' ||
+        s.phase === undefined,
+    );
+  }
+
   /** Releases throttle timers so destroyed components cannot refresh later. */
   override invalidate(): void {
     if (this._invalidating) {
@@ -305,7 +325,9 @@ function formatBreakdownParts(counts: PhaseCounts): string[] {
 }
 
 function formatStats(snap: ToolCallSubagentSnapshot): string {
-  const parts = [`${String(snap.toolCount)} tool${snap.toolCount === 1 ? '' : 's'}`];
+  const parts: string[] = [];
+  if (snap.model !== undefined) parts.push(snap.model);
+  parts.push(`${String(snap.toolCount)} tool${snap.toolCount === 1 ? '' : 's'}`);
   if (snap.elapsedSeconds !== undefined) parts.push(formatElapsed(snap.elapsedSeconds));
   if (snap.tokens > 0) parts.push(formatTokens(snap.tokens));
   return currentTheme.dim(` · ${parts.join(' · ')}`);

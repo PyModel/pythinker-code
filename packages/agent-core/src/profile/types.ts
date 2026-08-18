@@ -2,8 +2,6 @@ import type { Environment } from '@pymodel/kaos';
 import { z } from 'zod';
 
 import type { SkillRegistry } from '../agent/skill/types';
-import { HookDefSchema, parseFrontmatterHooks } from '../config/schema';
-import type { HookDef } from '../session/hooks';
 
 export const RawSubagentProfileSchema = z.object({
   description: z.string().optional(),
@@ -11,8 +9,14 @@ export const RawSubagentProfileSchema = z.object({
 
 export type RawSubagentProfile = z.infer<typeof RawSubagentProfileSchema>;
 
-export const AgentMemoryScopeSchema = z.enum(['user', 'project', 'local']);
-export type AgentMemoryScope = z.infer<typeof AgentMemoryScopeSchema>;
+/**
+ * Symbolic model preference a profile declares for subagent spawning: the
+ * `Agent` / `AgentDynamicWorkflow` tools use it as the default for their `model`
+ * parameter when the call does not pass one explicitly.
+ */
+export const AgentModelPreferenceSchema = z.enum(['primary', 'secondary']);
+
+export type AgentModelPreference = z.infer<typeof AgentModelPreferenceSchema>;
 
 export const RawAgentProfileSchema = z.object({
   extends: z.string().optional(),
@@ -24,19 +28,9 @@ export const RawAgentProfileSchema = z.object({
   // Exact builtin/user tool names, plus optional MCP glob patterns
   // (`mcp__*`, `mcp__github__*`) that gate which MCP tools the profile sees.
   tools: z.array(z.string()).optional(),
-  skills: z.array(z.string().trim().min(1)).optional(),
-  disallowedTools: z.array(z.string()).optional(),
-  model: z.string().trim().min(1).optional(),
-  effort: z.string().trim().min(1).optional(),
-  permissionMode: z.enum(['manual', 'auto', 'yolo']).optional(),
-  initialPrompt: z.string().optional(),
-  background: z.boolean().optional(),
-  maxTurns: z.number().int().positive().optional(),
-  isolation: z.literal('worktree').optional(),
-  memory: AgentMemoryScopeSchema.optional(),
-  hooks: z.preprocess(parseFrontmatterHooks, z.array(HookDefSchema).optional()),
   whenToUse: z.string().optional(),
   subagents: z.record(z.string(), RawSubagentProfileSchema).optional(),
+  modelPreference: AgentModelPreferenceSchema.optional(),
 });
 
 export type RawAgentProfile = z.infer<typeof RawAgentProfileSchema>;
@@ -54,9 +48,9 @@ export interface SystemPromptContext {
   readonly cwd: string;
   readonly now?: string | Date;
   readonly cwdListing?: string;
-  readonly gitContext?: string;
   readonly agentsMd?: string;
   readonly skills?: SkillRegistry | string;
+  readonly pluginSections?: string;
   readonly additionalDirsInfo?: string;
   readonly roleAdditional?: string;
 }
@@ -68,16 +62,13 @@ export interface ResolvedAgentProfile {
   description?: string;
   systemPrompt: SystemPromptRenderer;
   tools: string[];
-  skills?: string[];
-  model?: string;
-  effort?: string;
-  permissionMode?: 'manual' | 'auto' | 'yolo';
-  initialPrompt?: string;
-  background?: boolean;
-  maxTurns?: number;
-  isolation?: 'worktree';
-  memory?: AgentMemoryScope;
-  hooks?: HookDef[];
+  /**
+   * Denylist with the same matching rules as `tools` (exact builtin/user
+   * names plus `mcp__…` glob patterns), applied on top of the `tools`
+   * allowlist when the profile takes effect.
+   */
+  disallowedTools?: string[];
   whenToUse?: string;
   subagents?: Record<string, ResolvedAgentProfile>;
+  modelPreference?: AgentModelPreference;
 }

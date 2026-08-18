@@ -3,7 +3,10 @@
  * agent from its `wire.jsonl` record log.
  *
  * Why: `ContextMemory.applyCompaction` rewrites the in-memory history as
- * `[compaction_summary, ...tail]`, so `getContext().history` only reflects the
+ * `[...keptUserMessages, compaction_summary]` (the kept real user prompts —
+ * oldest head plus most recent tail, verbatim within a token budget, with an
+ * elision marker between the segments when the pool overflowed — followed by
+ * a single user-role summary), so `getContext().history` only reflects the
  * model's CURRENT context. The wire log, however, keeps every record. The TUI
  * shows the full transcript on resume because `ReplayBuilder` captures every
  * `pushHistory` during record replay and is never folded by compaction. This
@@ -17,10 +20,14 @@
  *   - `context.append_message`      → append (deferred while a tool exchange is open)
  *   - `context.append_loop_event`   → step.begin/content.part/tool.call mutate the
  *                                     open assistant message; tool.result appends a
- *                                     tool message with the same `<system>` status
- *                                     wrapping as `toolResultOutputForModel`
- *   - `context.apply_compaction`    → keep the prefix, insert the summary message
- *                                     at the fold point (origin `compaction_summary`)
+ *                                     tool message with the raw output plus the
+ *                                     structured isError/note fields, exactly like
+ *                                     `ContextMemory` history
+ *   - `context.apply_compaction`    → keep the full history, append the
+ *                                     user-role summary marker (origin
+ *                                     `compaction_summary`), and recover
+ *                                     `foldedLength` from the recorded
+ *                                     kept-count fields
  *   - `context.undo`                → remove tail messages exactly like
  *                                     `ContextMemory.undo` (skip injections, stop at
  *                                     compaction summaries / `context.clear` floors)
@@ -31,9 +38,9 @@
  * rehydrated from `<agentDir>/blobs/<hash>` back into data URIs, mirroring
  * `BlobStore.rehydrateParts`.
  *
- * Callers must `resumeSession` before reading so incompatible persisted
- * sessions fail at the same boundary as every other reader. Reads of an
- * actively-running session can trail the in-memory
+ * Callers must `resumeSession` BEFORE reading: replay rewrites outdated wire
+ * protocol versions in place, so a post-resume read always sees the current
+ * record shapes. Reads of an actively-running session can trail the in-memory
  * history by the few records still in the persistence flush queue — compare
  * `foldedLength` with the live `getContext().history` length and append the
  * missing tail (see `MessageService`).
@@ -42,26 +49,23 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import {
-  assertAgentRecord,
-  assertAgentWireProtocolVersion,
-  type AgentRecord,
-} from '../../agent/records';
+import type { AgentRecord } from '../../agent/records';
 import type { ContextMessage } from '../../agent/context';
 import type { ExecutableToolResult, LoopRecordedEvent } from '../../loop';
+import {
+  COMPACT_USER_MESSAGE_MAX_TOKENS,
+  collectCompactableUserMessages,
+  isRealUserInput,
+  selectRecentUserMessages,
+} from '../../agent/compaction';
 
 type ContentPart = ContextMessage['content'][number];
 
 const BLOBREF_PROTOCOL = 'blobref:';
 const MISSING_MEDIA_PLACEHOLDER = '[media missing]';
 
-// Status strings must match agent-core's toolResultOutputForModel so the
-// transcript renders tool results byte-identically to getContext().history.
-const TOOL_ERROR_STATUS = '<system>ERROR: Tool execution failed.</system>';
-const TOOL_EMPTY_STATUS = '<system>Tool output is empty.</system>';
-const TOOL_EMPTY_ERROR_STATUS =
-  '<system>ERROR: Tool execution failed. Tool output is empty.</system>';
-const TOOL_OUTPUT_EMPTY_TEXT = 'Tool output is empty.';
+const TOOL_INTERRUPTED_ON_RESUME_OUTPUT =
+  'Tool execution was interrupted before its result was recorded. Do not assume the tool completed successfully.';
 
 export interface TranscriptEntry {
   readonly message: ContextMessage;
@@ -85,6 +89,7 @@ interface MutableMessage {
   toolCalls: { type: 'function'; id: string; name: string; arguments: string | null }[];
   toolCallId?: string;
   isError?: boolean | undefined;
+  note?: string | undefined;
   origin?: ContextMessage['origin'];
 }
 
@@ -120,6 +125,26 @@ export function reduceWireRecords(records: Iterable<AgentRecord>): {
     push(...deferred);
     deferred = [];
   };
+  // ContextMemory closes these during replay without persisting the synthetic
+  // result, so the reducer must reconstruct it to keep foldedLength aligned.
+  const closePendingToolResults = (time: number | undefined): void => {
+    if (pendingToolResultIds.size === 0) return;
+    const interruptedToolCallIds = [...pendingToolResultIds];
+    for (const toolCallId of interruptedToolCallIds) {
+      push({
+        message: {
+          role: 'tool',
+          content: [{ type: 'text', text: TOOL_INTERRUPTED_ON_RESUME_OUTPUT }],
+          toolCalls: [],
+          toolCallId,
+          isError: true,
+        },
+        time,
+      });
+      pendingToolResultIds.delete(toolCallId);
+    }
+    flushDeferredIfToolExchangeClosed();
+  };
   const resetOpenState = (): void => {
     openSteps.clear();
     pendingToolResultIds.clear();
@@ -129,6 +154,7 @@ export function reduceWireRecords(records: Iterable<AgentRecord>): {
   const applyLoopEvent = (event: LoopRecordedEvent, time: number | undefined): void => {
     switch (event.type) {
       case 'step.begin': {
+        closePendingToolResults(time);
         const entry: MutableEntry = {
           message: { role: 'assistant', content: [], toolCalls: [] },
           time,
@@ -161,13 +187,17 @@ export function reduceWireRecords(records: Iterable<AgentRecord>): {
         return;
       }
       case 'tool.result': {
+        // Drop a result for an id not awaiting one (already closed in place, or
+        // its call is gone) — mirrors ContextMemory.
+        if (!pendingToolResultIds.has(event.toolCallId)) return;
         push({
           message: {
             role: 'tool',
-            content: toolResultContent(event.result),
+            content: rawToolResultContent(event.result.output),
             toolCalls: [],
             toolCallId: event.toolCallId,
             isError: event.result.isError,
+            note: event.result.note,
           },
           time,
         });
@@ -187,7 +217,7 @@ export function reduceWireRecords(records: Iterable<AgentRecord>): {
       if (message.origin?.kind === 'compaction_summary') break;
       transcript.splice(i, 1);
       foldedLength = Math.max(0, foldedLength - 1);
-      if (isRealUserPrompt(message)) {
+      if (isRealUserInput(message)) {
         removedUserCount++;
         if (removedUserCount >= count) break;
       }
@@ -213,26 +243,63 @@ export function reduceWireRecords(records: Iterable<AgentRecord>): {
         applyLoopEvent(record.event, record.time);
         break;
       case 'context.apply_compaction': {
-        // ContextMemory replaces the selected folded range with the summary;
-        // the full transcript keeps the original range and inserts the summary
-        // at its fold point so scrollback shows both.
-        const startIndex = record.startIndex ?? 0;
-        const tailLength = Math.max(
-          0,
-          foldedLength - startIndex - record.compactedCount,
-        );
-        transcript.splice(Math.max(0, transcript.length - tailLength), 0, {
+        // Mirrors ContextMemory.applyCompaction: the live context becomes the
+        // kept user messages (head + tail, possibly separated by an elision
+        // marker) followed by a user-role summary. The transcript keeps the
+        // full history and appends the summary marker; foldedLength tracks the
+        // post-compaction live context length.
+        transcript.push({
           message: {
-            role: 'assistant',
+            role: 'user',
             content: [{ type: 'text', text: record.summary }],
             toolCalls: [],
             origin: { kind: 'compaction_summary' },
           },
           time: record.time,
         });
-        foldedLength = foldedLength - record.compactedCount + 1;
-        openSteps.clear();
-        flushDeferredIfToolExchangeClosed();
+        // Prefer the kept-user count recorded by the live
+        // ContextMemory.applyCompaction. Re-deriving it from the full
+        // transcript would diverge from the live context: the transcript still
+        // holds the untruncated originals of messages the live context may
+        // have truncated, and (after a clear) messages the live context no
+        // longer has. Only fall back to re-deriving for legacy wire records
+        // that predate the field.
+        if (record.keptUserMessageCount !== undefined) {
+          // +1 for the summary message; +1 more when the selection split into
+          // head + tail, because the live context then also holds an elision
+          // marker message between the two segments.
+          foldedLength =
+            record.keptUserMessageCount + (record.keptHeadUserMessageCount === undefined ? 1 : 2);
+        } else if (record.compactedCount < foldedLength) {
+          // Legacy record (predates keptUserMessageCount) that kept
+          // history.slice(compactedCount) verbatim. Mirror ContextMemory's
+          // legacy restore ([summary, ...tail]): `foldedLength` here still holds
+          // the pre-compaction live length, so the post-compaction length is the
+          // summary plus the tail kept after compactedCount. Re-deriving the
+          // kept-user count instead would diverge from the live context (and
+          // make MessageService mis-handle the messages endpoint for old sessions).
+          foldedLength = 1 + (foldedLength - record.compactedCount);
+        } else {
+          // Legacy record whose compactedCount covered the whole live history (no
+          // tail, matching live restore's `compactedCount < length` guard): fall
+          // back to the new kept-user + summary derivation. Derive only from
+          // entries at or after `clearFloor` — the live ContextMemory rebuilds
+          // `_history` from the post-`/clear` messages only, so counting pre-clear
+          // prompts here would overstate foldedLength and make MessageService skip
+          // unflushed live tail messages for old sessions compacted after a clear.
+          const keptUserMessages = selectRecentUserMessages(
+            collectCompactableUserMessages(
+              transcript.slice(clearFloor).map((entry) => entry.message),
+            ),
+            COMPACT_USER_MESSAGE_MAX_TOKENS,
+          );
+          foldedLength = keptUserMessages.length + 1;
+        }
+        // Drop any open tool exchange and deferred messages exactly like
+        // ContextMemory.applyCompaction: late tool results become orphans and
+        // deferred injections are not rebuilt, so pending ids must not strand
+        // later appends in `deferred`.
+        resetOpenState();
         break;
       }
       case 'context.undo':
@@ -251,66 +318,26 @@ export function reduceWireRecords(records: Iterable<AgentRecord>): {
   return { entries: transcript as TranscriptEntry[], foldedLength };
 }
 
-/** Mirrors agent-core's `isRealUserPrompt` (context undo accounting). */
-function isRealUserPrompt(message: MutableMessage): boolean {
-  if (message.role !== 'user') return false;
-  const origin = message.origin;
-  if (origin === undefined || origin.kind === 'user') return true;
-  if (origin.kind === 'skill_activation') {
-    return origin.trigger === 'user-slash';
-  }
-  return false;
-}
-
-/** Mirrors agent-core's `toolResultOutputForModel` + `createToolMessage`. */
-function toolResultContent(result: ExecutableToolResult): ContentPart[] {
-  const output = result.output;
-  if (typeof output === 'string') {
-    let text: string;
-    if (result.isError === true) {
-      if (output.length === 0) text = TOOL_EMPTY_ERROR_STATUS;
-      else if (output.trimStart().startsWith('<system>ERROR:')) text = output;
-      else text = `${TOOL_ERROR_STATUS}\n${output}`;
-    } else {
-      text =
-        output.length === 0 || output.trim() === TOOL_OUTPUT_EMPTY_TEXT
-          ? TOOL_EMPTY_STATUS
-          : output;
-    }
-    return [{ type: 'text', text }];
-  }
-  if (output.length === 0) {
-    return [
-      {
-        type: 'text',
-        text: result.isError === true ? TOOL_EMPTY_ERROR_STATUS : TOOL_EMPTY_STATUS,
-      },
-    ];
-  }
-  if (result.isError === true) {
-    return [{ type: 'text', text: TOOL_ERROR_STATUS }, ...output];
-  }
-  return [...output];
+/** Mirrors `createToolMessage`: raw output verbatim — status text is added only at LLM projection. */
+function rawToolResultContent(output: ExecutableToolResult['output']): ContentPart[] {
+  return typeof output === 'string' ? [{ type: 'text', text: output }] : [...output];
 }
 
 /**
  * Parse a `wire.jsonl` file. A torn FINAL line (crash mid-flush) is dropped,
- * matching `FileSystemAgentRecordPersistence.read`. Every parsed record is
- * validated, and the first non-empty record must be the exact protocol
- * metadata header.
+ * matching `FileSystemAgentRecordPersistence.read`; corruption anywhere else
+ * throws so the caller can fall back to the live context view.
  */
 export async function readWireRecords(wirePath: string): Promise<AgentRecord[]> {
   const raw = await readFile(wirePath, 'utf8');
   const lines = raw.split('\n');
   const records: AgentRecord[] = [];
-  let first = true;
   for (let i = 0; i < lines.length; i++) {
     let line = lines[i]!;
     if (line.endsWith('\r')) line = line.slice(0, -1);
     if (line.length === 0) continue;
-    let record: unknown;
     try {
-      record = JSON.parse(line);
+      records.push(JSON.parse(line) as AgentRecord);
     } catch (parseError) {
       if (i === lines.length - 1) break;
       throw new Error(
@@ -318,15 +345,6 @@ export async function readWireRecords(wirePath: string): Promise<AgentRecord[]> 
         { cause: parseError },
       );
     }
-    assertAgentRecord(record);
-    if (first) {
-      if (record.type !== 'metadata') {
-        throw new Error('wire.jsonl expected metadata as the first record');
-      }
-      assertAgentWireProtocolVersion(record.protocol_version);
-      first = false;
-    }
-    records.push(record);
   }
   return records;
 }

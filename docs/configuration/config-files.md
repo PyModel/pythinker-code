@@ -1,6 +1,6 @@
 # Configuration files
 
-Pythinker Code CLI writes all long-term preferences — which model to use, which API key to fill in, how many steps an Agent can run per turn — into TOML (a plain-text configuration format with a clear structure) files. Change them once and they take effect on every startup. Agent and runtime settings live in `config.toml`; terminal-UI and client preferences (theme, editor, notifications, status line, auto-update) live in a companion `tui.toml`.
+Pythinker Code CLI writes all long-term preferences — which model to use, which API key to fill in, how many steps an Agent can run per turn — into TOML (a plain-text configuration format with a clear structure) files. Change them once and they take effect on every startup. Agent and runtime settings live in `config.toml`; terminal-UI and client preferences (theme, editor, notifications, auto-update) live in a companion `tui.toml`.
 
 Default location: `~/.pythinker-code/config.toml`, created automatically on first run.
 
@@ -23,36 +23,58 @@ TOML field names always use snake_case, for example `default_model` and `max_con
 The following example covers the most commonly used configuration fields. You can copy it and adjust as needed:
 
 ```toml
-default_model = "moonshot-cn/kimi-k2"
-default_thinking = true
+default_model = "pythinker-code/k3"
 default_permission_mode = "manual"
 default_plan_mode = false
 merge_all_available_skills = true
 telemetry = true
 
-[providers."moonshot-cn"]
+[providers."managed:pythinker-code"]
 type = "pythinker"
-base_url = "https://api.moonshot.cn/v1"
-api_key_env_var = "KIMI_API_KEY"
+base_url = "https://api.kimi.com/coding/v1"
+api_key = ""
 
-[models."moonshot-cn/kimi-k2"]
-provider = "moonshot-cn"
-model = "kimi-k2"
+[models."pythinker-code/k3"]
+provider = "managed:pythinker-code"
+model = "k3"
+max_context_size = 1048576
+capabilities = [ "thinking", "always_thinking", "image_in", "video_in", "tool_use" ]
+display_name = "K3"
+support_efforts = [ "max" ]
+default_effort = "max"
+
+[models."pythinker-code/kimi-for-coding"]
+provider = "managed:pythinker-code"
+model = "kimi-for-coding"
 max_context_size = 262144
+capabilities = [ "thinking", "always_thinking", "image_in", "video_in", "tool_use" ]
+
+[models."pythinker-code/kimi-for-coding-highspeed"]
+provider = "managed:pythinker-code"
+model = "kimi-for-coding-highspeed"
+max_context_size = 262144
+capabilities = [ "thinking", "always_thinking", "image_in", "video_in", "tool_use" ]
 
 [thinking]
-mode = "auto"
+enabled = true
+effort = "high"
+keep = "all"
 
 [loop_control]
-max_retries_per_step = 10
+max_attempts_per_step = 10
 reserved_context_size = 50000
 
 [background]
 max_running_tasks = 4
 keep_alive_on_exit = false
 
-[experimental]
-micro_compaction = true
+[services.pymodel_search]
+base_url = "https://api.kimi.com/coding/v1/search"
+api_key = ""
+
+[services.pymodel_fetch]
+base_url = "https://api.kimi.com/coding/v1/fetch"
+api_key = ""
 
 [[permission.rules]]
 decision = "allow"
@@ -76,60 +98,49 @@ Fields in the config file fall into two categories: **top-level scalars** that d
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `default_model` | `string` | — | Default model alias; must be defined in `models` |
-| `default_thinking` | `boolean` | `false` | Whether new sessions enable Thinking (deep reasoning) mode by default; can be toggled from the model menu inside a session. Even when set to `true`, `[thinking].mode = "off"` will still force Thinking off |
-| `default_permission_mode` | `string` | `manual` | Default permission mode for new sessions; one of `manual` (prompt each time), `yolo` (auto-approve tool actions, but the agent may still ask questions), or `auto` (fully autonomous — the agent decides everything without asking, except a `DynamicWorkflow` call, which still shows its plan for approval) |
+| `default_permission_mode` | `string` | `manual` | Default permission mode for new sessions; one of `manual` (prompt each time), `yolo` (auto-approve tool actions, but the agent may still ask questions), or `auto` (fully autonomous — the agent decides everything without asking) |
 | `default_plan_mode` | `boolean` | `false` | Whether new sessions start in Plan mode (produce a plan before executing) by default |
 | `merge_all_available_skills` | `boolean` | `true` | Whether to merge Agent Skills from all available directories |
 | `extra_skill_dirs` | `array<string>` | — | Extra skill search directories, layered on top of the default directories |
+| `extra_agent_dirs` | `array<string>` | — | Extra custom agent search directories, layered on top of the default directories |
+| `builtin_product_skills` | `boolean` | `true` | Whether the built-in skills that document Pythinker Code itself are offered to the model: `update-config`, `custom-theme`, `mcp-config`, `check-pythinker-code-docs`, and `import-from-cc-codex`. Turning them off trims their names and descriptions from the system prompt, at the cost of the guided flows for those tasks. Read by the `agent-core-v2` engine (`pythinker web` and the `PYTHINKER_CODE_EXPERIMENTAL_FLAG` paths); ignored on the default engine |
 | `telemetry` | `boolean` | `true` | Whether anonymous telemetry is enabled; disabled only when explicitly set to `false` |
-| `disable_workflows` | `boolean` | `false` | Whether to remove the `DynamicWorkflow` tool and hide `/workflow`; the `PYTHINKER_CODE_DISABLE_WORKFLOWS` environment variable overrides it |
-| `workflow_size_guideline` | `string` | `medium` | Advisory subagent-count target for one Dynamic Workflow; one of `small` (about 5), `medium` (about 15), `large` (about 40), or `unrestricted` (no target). Exceeding it emits a warning rather than blocking the run; the `PYTHINKER_CODE_WORKFLOW_SIZE_GUIDELINE` environment variable overrides it |
 | `providers` | `table` | `{}` | API provider table → [`providers`](#providers) |
 | `models` | `table` | — | Model alias table → [`models`](#models) |
-| `model_roles` | `table` | — | Model role assignments → [`model_roles`](#model_roles) |
-| `advisor` | `table` | — | Second-opinion reviewer → [`advisor`](#advisor) |
 | `thinking` | `table` | — | Default parameters for Thinking mode → [`thinking`](#thinking) |
-| `loop_control` | `table` | — | Agent loop control parameters → [`loop_control`](#loop_control) |
+| `loop_control` | `table` | — | Agent loop control parameters → [`loop_control`](#loop-control) |
 | `background` | `table` | — | Background task runtime parameters → [`background`](#background) |
-| `experimental` | `table` | — | Experimental feature overrides → [`experimental`](#experimental) |
+| `tools` | `table` | — | Global tool switch → [`tools`](#tools) |
+| `image` | `table` | — | Image compression parameters → [`image`](#image) |
 | `services` | `table` | — | Built-in external service configuration → [`services`](#services) |
 | `permission` | `table` | — | Initial permission rules → [`permission`](#permission) |
 | `hooks` | `array<table>` | — | Lifecycle hooks; see [Hooks](../customization/hooks.md) |
+| `identity` | `table` | — | Custom agent identity → [`identity`](#identity) |
 
-The following sections cover each of the nested tables in turn: `providers`, `models`, `model_roles`, `advisor`, `thinking`, `loop_control`, `background`, `experimental`, `services`, and `permission`.
+The following sections cover each of the nested tables in turn: `providers`, `models`, `thinking`, `loop_control`, `background`, `tools`, `image`, `services`, and `permission`.
 
 ## `providers`
 
-Each entry in the `providers` table defines an API provider, keyed by a unique name. Shell credentials are not guessed automatically: set `api_key_env_var` to opt a provider into reading one named shell variable (see [Config overrides](./overrides.md#provider-credentials)).
+Each entry in the `providers` table defines an API provider, keyed by a unique name. The CLI reads credentials only from here — it does **not** fall back to shell environment variables automatically. Running `export PYTHINKER_API_KEY` in the terminal does not give any provider its key; you must write it explicitly in the config file (see [Config overrides](./overrides.md#provider-credentials)).
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `type` | `string` | Yes | Provider type: `pythinker`, `anthropic`, `openai`, `openai_responses`, `google-genai`, `vertexai` |
 | `api_key` | `string` | No | API key, written in plain text in the config file |
-| `api_key_env_var` | `string` | No | Name of a shell environment variable containing the API key; the name is persisted, not its value |
 | `base_url` | `string` | No | API base URL |
+| `oauth` | `table` | No | OAuth credential reference (`storage` and `key` fields); injected automatically by the login flow — normally no need to write this by hand |
 | `env` | `table<string, string>` | No | Fallback source for provider credentials; see below |
 | `custom_headers` | `table<string, string>` | No | Custom HTTP headers attached to each request |
-| `source` | `table` | No | Catalog or custom-registry refresh metadata written by provider commands; normally not edited by hand |
-
-**`api_key_env_var`**: The provider resolves this exact name from the process environment when it is used. Missing or blank values fail before a provider request, and redacted configuration APIs report only whether a value is available:
-
-```toml
-[providers.deepseek]
-type = "openai"
-base_url = "https://api.deepseek.com"
-api_key_env_var = "DEEPSEEK_API_KEY"
-```
 
 **`env` sub-table**: You can write provider-conventional key names (such as `PYTHINKER_API_KEY`) inside `[providers.<name>.env]` as a fallback source for `api_key` / `base_url`. This sub-table is **read only from the config file** and does not modify the shell environment:
 
 ```toml
 [providers.pythinker.env]
 PYTHINKER_API_KEY = "sk-xxx"
-PYTHINKER_BASE_URL = "https://api.pythoughts.ai/v1"
+PYTHINKER_BASE_URL = "https://api.moonshot.ai/v1"
 ```
 
-Priority: `api_key` field > shell value named by `api_key_env_var` > `env` sub-table key > if all are absent, startup fails with an error. `base_url` retains its existing priority: direct field, then the provider-conventional key in the `env` sub-table.
+Priority: `api_key` field > `env` sub-table key > if both are absent, startup fails with an error.
 
 ## `models`
 
@@ -140,8 +151,13 @@ Each entry in the `models` table defines a model alias (the name used in `defaul
 | `provider` | `string` | Yes | Name of the provider to use; must be defined in `providers` |
 | `model` | `string` | Yes | Model identifier sent to the server when calling the API |
 | `max_context_size` | `integer` | Yes | Maximum context length in tokens; must be at least 1 |
-| `max_output_size` | `integer` | No | Per-request output token cap (maps to `max_tokens`). Currently only the `anthropic` provider honors it; recognized Claude models are automatically clamped to the server-side maximum |
-| `capabilities` | `array<string>` | No | Capability tags to add explicitly: `thinking`, `image_in`, `video_in`, `audio_in`, `tool_use`, `fast_mode`. Unioned with the capabilities auto-detected by the provider — entries can only be added, never removed. Add `fast_mode` to a compatible custom gateway only when it implements the provider's native Fast request contract |
+| `max_input_size` | `integer` | No | Declared per-request input limit when it sits below the total window (e.g. gpt-5: 400k window, 272k input). Compaction, context-overflow checks, and usage ratios prefer it; completion budgeting keeps the total window. Resolution clamps it to `max_context_size` |
+| `max_output_size` | `integer` | No | Per-request output token cap (maps to `max_tokens`). Currently only the `anthropic` provider honors it. When set for a Claude model, this explicit value overrides the built-in server-side maximum |
+| `capabilities` | `array<string>` | No | Capability tags to add explicitly: `thinking`, `always_thinking`, `image_in`, `video_in`, `audio_in`, `tool_use`. Unioned with the capabilities auto-detected by the provider — entries can only be added, never removed |
+| `support_efforts` | `array<string>` | No | Thinking effort levels the model accepts. For `pythinker`, selecting another value at runtime fails; when model resolution carries an unsupported configured or previous value, the session falls back to the target model's `default_effort` and reports that effective value to the UI. A Thinking-capable Pythinker model without this field uses boolean `on` / `off`. Other providers pass concrete values unchanged when their protocol has a native effort field; protocols that expose only levels or token budgets perform the required format conversion. Managed and open-platform refreshes may rewrite this field; to pin it manually, set `[models."<alias>".overrides] support_efforts` instead |
+| `default_effort` | `string` | No | Default thinking effort for the model. Managed and open-platform refreshes may rewrite this field; to pin it manually, set `[models."<alias>".overrides] default_effort` instead |
+| `off_effort` | `string` | No | Effort value sent on the wire to disable thinking (e.g. `none` for xai grok). Only meaningful for models that declare such an encoding (catalog imports set it): turning thinking Off then sends this value instead of omitting the effort field — the only way to actually stop reasoning on models that reason by default |
+| `base_url` | `string` | No | Per-model endpoint override (written by catalog imports for gateway models served away from the provider default). Resolution prefers it over the provider's `base_url`; only takes effect together with `protocol` |
 | `display_name` | `string` | No | Name shown in the UI; falls back to `model` when unset |
 | `reasoning_key` | `string` | No | `openai` provider only. Override the field name used for reasoning content when the gateway returns it under a non-standard name; by default `reasoning_content`, `reasoning_details`, and `reasoning` are auto-detected |
 | `adaptive_thinking` | `boolean` | No | `anthropic` provider only. Force adaptive thinking on or off, overriding the version inference based on the model name. Omit to infer automatically (Claude ≥ 4.6 uses adaptive) |
@@ -155,66 +171,98 @@ model = "gpt-4.1"
 max_context_size = 1047576
 ```
 
-You can also switch models temporarily without touching the config file — by setting `PYTHINKER_MODEL_*` environment variables, the CLI synthesizes a temporary provider in memory that does not persist after restart. See [Define a model from environment variables](./env-vars.md#define-a-model-from-environment-variables-pythinker_model).
+### Model overrides
 
-## `model_roles`
-
-Each entry in the `model_roles` table locks a model alias to a named role. The built-in roles are `small`, `implementer`, and `advisor`; any other key except the reserved `default` defines a custom role. Values must be aliases defined in `models`; an empty string clears the role.
+Use `[models."<alias>".overrides]` for user overrides that must survive provider-model refreshes. Runtime consumers read the effective value: the override when present, otherwise the top-level field.
 
 ```toml
-[model_roles]
-small = "haiku"
-implementer = "worker-model"
-advisor = "reviewer-model"
+[models."pythinker-code/kimi-for-coding"]
+provider = "managed:pythinker-code"
+model = "kimi-for-coding"
+max_context_size = 262144
+
+[models."pythinker-code/kimi-for-coding".overrides]
+max_context_size = 131072
+display_name = "Pythinker for Coding (custom)"
 ```
 
-Roles take effect in two places:
+`[models."<alias>".overrides]` accepts ordinary model fields such as `max_context_size`, `max_input_size`, `max_output_size`, `capabilities`, `display_name`, `reasoning_key`, `adaptive_thinking`, `support_efforts`, `default_effort`, and `off_effort`. It does not accept identity / routing fields: `provider`, `model`, `protocol`, `beta_api`, and `base_url`.
 
-- Wherever a subagent model alias is accepted (the `Agent` and `DynamicWorkflow` tool `model` arguments, and agent profile frontmatter), a `@<role>` reference such as `@small` resolves to the locked alias. An unassigned or unresolvable role falls back to the parent agent's model.
-- When `implementer` is assigned, it becomes the default model for subagents that do not set an explicit or profile model. Subagents of those subagents inherit the same default.
+You can also switch models temporarily without touching the config file — by setting `PYTHINKER_MODEL_*` environment variables, the CLI synthesizes a temporary provider in memory that does not persist after restart. See [Define a model from environment variables](./env-vars.md#define-a-model-from-environment-variables-pythinker-model).
 
-Inside the TUI, `/model <role>` assigns a role from the model picker, `/model <role> clear` (or `/model <role> none`) removes it, and `/model roles` lists the current assignments. See [Slash commands](../reference/slash-commands.md).
+## `secondary_model`
 
-## `advisor`
+The secondary model is a second model configuration alongside the main model — typically a cheaper one, for features that do not need the main model's capability. Its consumer today is subagent spawning: when set, newly spawned subagents (`Agent` / `AgentDynamicWorkflow`) bind to it by default instead of inheriting the main agent's model; when unset, subagents inherit the main agent's model.
 
-`advisor` enables a second-opinion reviewer: after a completed user turn, a second model reviews the conversation and returns notes. Notes are delivered at the start of the next turn after the review finishes, so a review may lag a turn.
+This is a default binding, not a forced one. With the experiment enabled, the `Agent` / `AgentDynamicWorkflow` tools gain a `model` parameter (accepting only the symbolic values `"secondary"` / `"primary"`), and the tool description lists the available models with the default marked. A spawn resolves the subagent's model in this order: an explicit tool-call `model` → the profile's [`model_preference`](../customization/agents.md#agent-file-format) → the configured secondary model (the default). Here `"primary"` means the model the main agent is currently running, not necessarily `default_model` — for example after a mid-session `/model` switch.
+
+Because overriding the default is the main agent's own decision (the tool description merely suggests `"secondary"` for routine tasks and `"primary"` for hard, quality-sensitive ones), there is no per-spawn switch on the user side. To steer a specific subagent to the main model, ask the main agent in your prompt to pass `model: "primary"`, or set `model_preference: "primary"` in the corresponding profile.
+
+This feature is experimental and disabled by default. Enable it with `PYTHINKER_CODE_EXPERIMENTAL_SECONDARY_MODEL=1`, or the master `PYTHINKER_CODE_EXPERIMENTAL_FLAG=1`. It takes effect in every launch mode, including the interactive TUI.
+
+In the interactive TUI, the [`/secondary_model`](../reference/slash-commands.md) command opens a model picker that writes this section and live-applies it to the current session, so newly spawned subagents bind the new secondary model right away.
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `enabled` | `boolean` | `false` | Turn the advisor on. It also needs a model: set `model` here or lock one to the `advisor` role |
-| `model` | `string` | — | Model alias for the advisor; when unset, the `advisor` entry in `model_roles` is used |
-| `instructions` | `string` | — | Extra instructions appended to the advisor's system prompt |
+| `model` | `string` | — | The alias of a configured [`[models]`](#models) entry, e.g. `pythinker-code/kimi-k2.5` (any provider, not limited to Pythinker models) |
+| `default_effort` | `string` | — | Thinking effort applied when subagents bind to the secondary model. Unset, the effort resolves naturally (global `[thinking]` config → the bound model's default effort) instead of inheriting the main agent's effort. Follows the main model's thinking-effort semantics: models with strict effort validation (e.g. Pythinker models) fall back to their default effort for unsupported values; other providers receive the value as-is |
+| Other fields | — | — | Accepts every field of [`[models."<alias>".overrides]`](#models) (`max_context_size`, `max_output_size`, `support_efforts`, …) as a model patch applied only to subagents |
 
-The advisor sends the session conversation to the advisor model. As a safety default, it runs only when the advisor model uses the same provider entry as the session model; a cross-provider advisor stays inactive and logs one warning.
-
-Reviews run only for user-started turns, and a turn is skipped when a review is already running. The advisor's token usage is not yet included in usage reporting.
+Every field besides `model` forms a patch: when at least one patch field is set, the runtime synthesizes a derived model entry in memory (a copy of the pointed entry with the patch merged into its overrides, patch winning conflicts) and subagents bind that derived entry; with no patch fields, subagents bind the pointed entry directly. The derived entry lives only in memory (never written back to `config.toml`) and is hidden from model-selection lists.
 
 ```toml
-[advisor]
-enabled = true
-
-[model_roles]
-advisor = "reviewer-model"
+[secondary_model]
+model = "pythinker-code/kimi-k2.5"
+default_effort = "low"
+max_output_size = 8192
 ```
+
+`model` / `default_effort` can be overridden by the `PYTHINKER_SECONDARY_MODEL` / `PYTHINKER_SECONDARY_EFFORT` environment variables, which take higher priority than `config.toml`.
+
+When the experiment is enabled, the configuration is validated as the session starts: an unresolvable `model`, or a `default_effort` not listed by the (patched) model, produces a startup warning (also returned by the session-warnings API). The check is advisory — a broken secondary model still fails at spawn time, with the same source hint attached to the spawn error.
 
 ## `thinking`
 
-`thinking` sets the global default behavior for Thinking mode. `mode = "off"` forces Thinking off even when the top-level `default_thinking = true`.
+`thinking` sets the global default behavior for Thinking mode.
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `mode` | `string` | — | Trigger policy: `auto` (decided by the model), `on` (always on), `off` (force off) |
-| `effort` | `string` | `high` | Thinking effort level: `low`, `medium`, `high`, `xhigh`, `max`; the levels actually available depend on the provider |
+| `enabled` | `boolean` | `true` | Whether Thinking is enabled by default for new sessions; set to `false` to force Thinking off |
+| `effort` | `string` | — | Thinking effort level (for example `low`, `medium`, `high`, `xhigh`, `max`). Non-Pythinker providers do not remap concrete effort values when the upstream protocol accepts them; if the provider rejects the value, choose one that the model supports. Protocols that expose only levels or token budgets still require format conversion. Pythinker models with `support_efforts` fall back to their model default when this configured value is not listed; Pythinker models without that list treat every enabled value as boolean `on` |
+| `keep` | `string` | `"all"` | Preserved Thinking passthrough. On `pythinker` it is sent as `thinking.keep`; on `anthropic` (Claude and Pythinker's Anthropic-compatible mode) it is sent as a `context_management` `clear_thinking_20251015` edit (enabling keep routes Anthropic requests to the beta Messages API; an off-value disables keep and returns to the standard endpoint). `"all"` preserves prior turns' reasoning (`reasoning_content` / Anthropic thinking blocks); set to an off-value (`false`/`0`/`no`/`off`/`none`/`null`) to disable. Overridden by `PYTHINKER_MODEL_THINKING_KEEP`; only injected while Thinking is on |
+
+### Deprecated fields
+
+| Field | Deprecated in | Description |
+| --- | --- | --- |
+| `default_thinking` | 0.21.0 | Top-level boolean, replaced by `[thinking] enabled`. Migrate `default_thinking = true` to `enabled = true`, and `default_thinking = false` to `enabled = false`. |
+| `thinking.mode` | 0.21.0 | One of `auto` / `on` / `off`, replaced by `[thinking] enabled`. `mode = "off"` becomes `enabled = false`; `mode = "on"` and `mode = "auto"` are equivalent to `enabled = true` (the default) and can be removed. |
+| `loop_control.max_retries_per_step` | 0.32.0 | Replaced by `loop_control.max_attempts_per_step` (the value was always a total-attempt limit, including the first try). The old key is ignored and reports a warning on startup; rename it in `config.toml`. |
+| `loop_control.max_steps_per_run` | 0.32.0 | Replaced by `loop_control.max_steps_per_turn`. The old key is ignored and reports a warning on startup; rename it in `config.toml`. |
 
 ## `loop_control`
 
-`loop_control` governs the step count limit, per-step retry count, and the threshold that triggers automatic context compaction in the Agent execution loop.
+`loop_control` governs the step count limit, the per-step attempt limit, and the threshold that triggers automatic context compaction in the Agent execution loop.
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `max_steps_per_turn` | `integer` | — | Maximum steps per turn; unset or `0` means unlimited |
-| `max_retries_per_step` | `integer` | `10` | Maximum retries after a step failure |
+| `max_attempts_per_step` | `integer` | `10` | Maximum total attempts for a failing step, including the initial attempt |
 | `reserved_context_size` | `integer` | — | Number of tokens reserved for model output; automatic compaction is triggered when the remaining context window falls below this value |
+
+`max_steps_per_turn` can be overridden by the `PYTHINKER_LOOP_MAX_STEPS_PER_TURN` environment variable, and `max_attempts_per_step` by `PYTHINKER_LOOP_MAX_ATTEMPTS_PER_STEP`; both take higher priority than the config file. The former `PYTHINKER_LOOP_MAX_RETRIES_PER_STEP` variable is deprecated but still honored (with a startup warning) when the new one is unset.
+
+Retries only apply to transient failures — connection errors, timeouts, HTTP 429 rate limits, and 5xx server errors. A 429 caused by an exhausted quota or insufficient account balance is not retried and fails immediately, since it cannot succeed until the account is recharged.
+
+## `token_counting`
+
+`token_counting` selects which context token count is reported externally — the value behind the context-size display. Internal logic (automatic compaction triggers, budgets, and overflow backoff) always uses both provider-reported usage and estimates, regardless of this setting.
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `strategy` | `"measured+estimated" \| "measured" \| "estimated"` | `"measured+estimated"` | `measured+estimated` reports the live size — the provider-reported usage of each exchange plus an estimate of the not-yet-measured tail — floored by the last measured total; `measured` reports provider usage alone, so the display only moves when an exchange completes; `estimated` reports a pure estimate with provider usage ignored — the fallback for providers that do not report usage or report it unreliably |
+
+`strategy` can be overridden by the `PYTHINKER_TOKEN_COUNTING_STRATEGY` environment variable, which takes higher priority than `config.toml`.
 
 ## `background`
 
@@ -223,36 +271,118 @@ advisor = "reviewer-model"
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `max_running_tasks` | `integer` | — | Maximum number of background tasks running concurrently |
-| `keep_alive_on_exit` | `boolean` | `false` | Whether to keep still-running background tasks when the session closes. By default, Pythinker Code requests that all background tasks stop before the process exits; set this to `true` only when you want tasks to outlive the session |
+| `keep_alive_on_exit` | `boolean` | `false` | Whether to keep still-running background tasks when the session closes. By default, Pythinker Code requests that all background tasks stop before the process exits; set this to `true` only when you want tasks to outlive the session. In print mode (`pythinker -p`), this is only a legacy fallback used when `print_background_mode` is unset: `true` is equivalent to `print_background_mode = "drain"` |
+| `kill_grace_period_ms` | `integer` | `5000` | Grace period in milliseconds after session close, a manual stop, or a task timeout requests graceful termination. If a task is still running after this period, Pythinker Code attempts to force-stop it |
+| `bash_auto_background_on_timeout` | `boolean` | `true` | When a foreground `Bash` command hits its timeout, move it to a background task instead of killing it — the agent is notified when it completes, and the backgrounded command is bounded by the `bash_task_timeout_s` default background timeout. Set to `false` to kill timed-out foreground commands instead |
+| `bash_task_timeout_s` | `integer` | `600` | Default timeout (seconds) for background `Bash` tasks when the call omits `timeout`; also used to re-arm foreground commands moved to the background on timeout. `0` means no timeout — the task runs until it exits or the model stops it. Explicit per-call `timeout` values are unaffected. In print mode (`pythinker -p`) the default is `0` unless explicitly set |
+| `print_background_mode` | `"exit" \| "drain" \| "steer"` | `"steer"` | Print mode (`pythinker -p`) only. Governs how pending background tasks are handled once the main agent's turn ends: `"exit"` exits immediately; `"drain"` waits for every background task to reach a terminal state before exiting (results are not fed back to the main agent); `"steer"` stays alive so a completing background task — like a background subagent — injects a synthetic user message that steers the main agent into a new turn, looping until a turn ends with no pending background tasks or a limit is hit. Takes precedence over the `keep_alive_on_exit` print fallback |
+| `print_wait_ceiling_s` | `integer` | `315360000` | In print mode (`pythinker -p`), the wall-clock ceiling (seconds) for the wait/steer loop when `print_background_mode` is `"drain"` or `"steer"` (the default is 10 years — effectively unbounded). Has no effect outside print mode or when it is `"exit"` |
+| `print_max_turns` | `integer` | `100000` | In print mode (`pythinker -p`) with `print_background_mode = "steer"`, the maximum number of new turns that may be triggered by background-task completions, to keep the steering loop bounded (the default is effectively unbounded) |
 
-`keep_alive_on_exit` can be overridden by the `PYTHINKER_CODE_BACKGROUND_KEEP_ALIVE_ON_EXIT` environment variable, which takes higher priority than `config.toml`.
+`keep_alive_on_exit` can be overridden by the `PYTHINKER_CODE_BACKGROUND_KEEP_ALIVE_ON_EXIT` environment variable, and `max_running_tasks` by `PYTHINKER_CODE_BACKGROUND_MAX_RUNNING_TASKS`; both take higher priority than `config.toml`.
 
-## `experimental`
+In print mode (`pythinker -p "<prompt>"`), Pythinker Code stays alive after the main agent's turn as long as background tasks are still pending: each completion is fed back to the main agent as a synthetic user message, steering it into a new turn (`print_background_mode = "steer"` by default), and the run exits once a turn ends with nothing pending. The loop is bounded by `print_wait_ceiling_s` and `print_max_turns`, both effectively unbounded by default. Background work is never killed by a wall-clock cap in print mode either: background `Bash` tasks default to no timeout (`bash_task_timeout_s = 0`), and subagents run without a timeout (`[subagent] timeout_ms = 0`), so only the model itself stops a task. Set `print_background_mode` to `"drain"` to wait for tasks without feeding results back, or `"exit"` to end the run as soon as the main agent finishes.
 
-`experimental` stores persistent overrides for experimental-feature flags.
+## `subagent`
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `micro_compaction` | `boolean` | `true` | Trim older large tool results from context while preserving recent conversation |
-| `tool_intent` | `boolean` | `true` | Ask the model to state a concise intent with eligible tool calls whose input schema accepts the injected field and show it live in the working indicator; set `false` to return to the rotating label |
+| `timeout_ms` | `integer` | `7200000` (2 hours) | Maximum wall-clock time (milliseconds) a single subagent (`Agent` / `AgentDynamicWorkflow`) is allowed to run before it is settled as `timed_out`. `0` means no timeout — the subagent runs until it finishes or the model stops it. This is the background-task manager's per-task timeout for each subagent task, so it applies to both foreground and background subagents. In print mode (`pythinker -p`) the default is `0` unless explicitly set. Note: any value above `2147483647` (about 24.8 days) is clamped to roughly 24.8 days by the runtime |
+`timeout_ms` can be overridden by the `PYTHINKER_SUBAGENT_TIMEOUT_MS` environment variable, which takes higher priority than `config.toml`.
+
+## `mcp`
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `startup_timeout_ms` | `integer` | `30000` (30 seconds) | Global default connection (startup + tool discovery) timeout in milliseconds for all MCP servers. Accepts `1`–`2147483647`. A per-server `startupTimeoutMs` in `mcp.json` always wins over this section and the environment variable; when neither is set, the default applies |
+| `tool_timeout_ms` | `integer` | `60000` (60 seconds) | Global default single tool-call timeout in milliseconds for all MCP servers. Accepts `1`–`2147483647`. A per-server `toolTimeoutMs` in `mcp.json` always wins over this section and the environment variable; when neither is set, the client built-in default applies |
+
+`startup_timeout_ms` and `tool_timeout_ms` can be overridden by the `PYTHINKER_MCP_STARTUP_TIMEOUT_MS` and `PYTHINKER_MCP_TOOL_TIMEOUT_MS` environment variables respectively, which take higher priority than `config.toml`. See [MCP](../customization/mcp.md) for the full MCP server configuration.
+
+## `identity`
+
+Customizes how the agent identifies itself. Leave it unset and nothing changes.
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `name` | `string` | — | Display name the agent calls itself in the system prompt (fills the `${product_name}` slot, including in your own `SYSTEM.md` and agent files) |
+| `slug` | `string` | derived from `name` | Machine identifier used in protocol fields: the `User-Agent` product token sent to third-party providers, and the client name announced to MCP servers. Derived from `name` when omitted: lowercased, with every run of non-alphanumeric characters folded to `-` |
+
+```toml
+[identity]
+name = "Acme Dev Agent"
+slug = "acme-dev"        # optional
+```
+
+Both fields can be set through the `PYTHINKER_CODE_IDENTITY_NAME` and `PYTHINKER_CODE_IDENTITY_SLUG` environment variables, which take higher priority than `config.toml` and are never written back to it — convenient for containers and CI, where writing a config file is awkward.
+
+A name that contains no ASCII letters or digits (for example a purely Chinese name) leaves nothing to derive a slug from and falls back to `agent`; write `slug` explicitly if you need a specific protocol token.
+
+The identity is resolved once at startup and holds for the life of the process — it is announced to MCP servers and providers when connections are made, so it cannot change midway. Edits to this section take effect on the next start, for new sessions: a resumed session keeps the system prompt it was recorded with, since its past turns already speak under that identity. Likewise, an MCP OAuth authorization keeps the client registration it was granted under; reset that server's authentication to register under the new identity.
+
+This section is read by the `agent-core-v2` engine, which currently backs `pythinker web` and the `PYTHINKER_CODE_EXPERIMENTAL_FLAG` paths. On the default `pythinker` / `pythinker -p` engine it is ignored.
+
+## `tools`
+
+`tools` is the global tool switch: it applies to every agent in all sessions and intersects with each agent's own `tools` / `disallowedTools` policy.
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `enabled` | `array<string>` | — | Global allowlist: when non-empty, only the listed tools are available; omitting the field or setting an empty array imposes no constraint |
+| `disabled` | `array<string>` | — | Global denylist, applied after `enabled` |
+
+Name matching follows the same rules as the same-named fields in an agent file: built-in tools match by exact name (such as `Read`), and MCP tools match with globs (such as `mcp__github__*`). Three entry shapes never match anything and are reported with a warning: a wildcard outside an `mcp__` pattern (`enabled = ["*"]` disables every tool, `disabled = ["*"]` disables none), an `mcp__` literal missing the tool segment (`mcp__github` — use `mcp__github__*` for a whole server), and a name no registered or built-in tool has (matching is case-sensitive).
+
+```toml
+[tools]
+disabled = ["EnterPlanMode", "ExitPlanMode", "mcp__github__*"]
+```
+
+::: warning Note
+Like the `tools` / `disallowedTools` fields of an agent file, this section shapes the tools shown to the model and is enforced again before execution. [Permission rules](#permission) remain a separate control for operations that require approval.
+:::
+
+## `image`
+
+`image` controls how images are compressed before being sent to the model, across every ingestion point (pasted images, `ReadMediaFile` reads, images in MCP tool results, and so on).
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `max_edge_px` | `integer` | `2000` | Longest-edge ceiling in pixels. Larger images are scaled down proportionally to fit; raising it preserves more detail at the cost of larger request bodies |
+| `read_byte_budget` | `integer` | `262144` (256 KB) | Per-image byte budget for images the model reads for itself (`ReadMediaFile` default reads). It bounds the accumulated request-body size when the model keeps screenshotting and reading images; fine detail stays reachable through the `region` parameter, which reads a crop back at full fidelity (`region` and `full_resolution` are not subject to this budget) |
+
+`max_edge_px` can be overridden by the `PYTHINKER_IMAGE_MAX_EDGE_PX` environment variable and `read_byte_budget` by `PYTHINKER_IMAGE_READ_BYTE_BUDGET`; both take higher priority than `config.toml`.
+
+<!--
+## `experimental`
+
+`experimental` stores persistent overrides for experimental-feature flags. Currently, `micro_compaction` is the only user-facing entry and defaults to `false`; set it to `true` to enable automatic trimming of older large tool results.
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `micro_compaction` | `boolean` | `false` | Trim older large tool results from context while preserving recent conversation |
+-->
 
 ## `services`
 
-`services` configures two built-in services: web search (`pythoughts_search`) and web fetch (`pythoughts_fetch`). Only these two fixed keys are recognized; other keys are ignored. Both entries share the same fields:
+`services` configures two built-in services: web search (`pymodel_search`) and web fetch (`pymodel_fetch`). Only these two fixed keys are recognized; other keys are ignored. Both entries share the same fields:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `base_url` | `string` | No | Service API URL |
 | `api_key` | `string` | No | API key |
+| `oauth` | `table` | No | OAuth credential reference, same structure as `providers.*.oauth` |
 | `custom_headers` | `table<string, string>` | No | Custom HTTP headers attached to each request |
 
+`base_url` and `api_key` can also come from environment variables, which take priority over the config file: `PYTHINKER_WEB_SEARCH_BASE_URL` / `PYTHINKER_WEB_SEARCH_API_KEY` for `pymodel_search`, and `PYTHINKER_WEB_FETCH_BASE_URL` / `PYTHINKER_WEB_FETCH_API_KEY` for `pymodel_fetch`. An env base URL defines a separate service endpoint, so the persisted API key, OAuth reference, and custom headers are not forwarded to it; set the matching env API key when that endpoint requires authentication. An env API key without an env base URL keeps the configured endpoint and custom headers but replaces both configured credential forms. Setting the base URL and API key through env without any config section also enables the service.
+
 ```toml
-[services.pythoughts_search]
-base_url = "https://api.pythoughts.com/v1/search"
+[services.pymodel_search]
+base_url = "https://api.moonshot.cn/v1/search"
 api_key = "sk-xxx"
 
-[services.pythoughts_fetch]
-base_url = "https://api.pythoughts.com/v1/fetch"
+[services.pymodel_fetch]
+base_url = "https://api.moonshot.cn/v1/fetch"
 api_key = "sk-xxx"
 ```
 
@@ -267,7 +397,7 @@ api_key = "sk-xxx"
 | `pattern` | `string` | Yes | Match pattern in the form `ToolName` or `ToolName(arg-pattern)`, e.g. `Read` or `Bash(rm -rf*)` |
 | `reason` | `string` | No | Rule description for debugging and auditing |
 
-Built-in tool names are listed in [Built-in tools](../reference/tools.md). Most built-in tools that accept rule arguments define their own matching subject, such as `Bash(command-pattern)` or `Read(path-pattern)`. `DynamicWorkflow` matches on the plan it is about to run, or on `model:<alias>` for the model a call asks its subagents to use. `Agent` matches on the subagent type, or on `model:<alias>` the same way. MCP tools and custom tools can only be matched by tool name.
+Built-in tool names are listed in [Built-in tools](../reference/tools.md). Most built-in tools that accept rule arguments define their own matching subject, such as `Bash(command-pattern)` or `Read(path-pattern)`. `AgentDynamicWorkflow`, MCP tools, and custom tools can only be matched by tool name — argument patterns are not supported for them.
 
 ```toml
 [[permission.rules]]
@@ -293,30 +423,23 @@ MCP server declarations are configured in `~/.pythinker-code/mcp.json` or the pr
 
 ## `tui.toml`
 
-Alongside `config.toml`, the CLI keeps terminal-UI and client preferences, including status-line visibility, in a companion `tui.toml` in the same directory (`~/.pythinker-code/tui.toml`, or `$PYTHINKER_CODE_HOME/tui.toml` when overridden). It is created with defaults on first run, and the interactive commands `/config`, `/theme`, and `/editor` write to it for you — so you rarely need to edit it by hand. If the file is malformed, the CLI falls back to defaults and shows a notice instead of failing to start.
+Alongside `config.toml`, the CLI keeps terminal-UI and client preferences in a companion `tui.toml` in the same directory (`~/.pythinker-code/tui.toml`, or `$PYTHINKER_CODE_HOME/tui.toml` when overridden). It is created with defaults on first run, and the interactive commands `/config`, `/theme`, and `/editor` write to it for you — so you rarely need to edit it by hand. If the file is malformed, the CLI falls back to defaults and shows a notice instead of failing to start.
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `theme` | `string` | `auto` | Color theme: `auto` (follow the terminal), `dark`, `light`, or the name of a [custom theme](../customization/themes) |
-| `layout` | `string` | `fixed` | Screen layout: `fixed` (full-height screen with the input box pinned to the bottom; the mouse wheel scrolls the transcript and drag-selecting text copies it to the clipboard) or `inline` (legacy flow that grows with the terminal's native scrollback) |
+| `theme` | `string` | `auto` | Color theme: `auto` (follow the terminal), `dark`, `light`, or the name of a [custom theme](../customization/themes.md) |
+| `disable_paste_burst` | `boolean` | `false` | Disable the non-bracketed paste-burst fallback that keeps rapid multi-line pastes from submitting line by line |
 | `[editor].command` | `string` | `""` | External editor command for composing long input; empty falls back to `$VISUAL` / `$EDITOR` |
 | `[notifications].enabled` | `boolean` | `true` | Whether desktop notifications are sent |
 | `[notifications].notification_condition` | `string` | `unfocused` | When to notify: `unfocused` (only when the terminal is not focused) or `always` |
-| `[upgrade].auto_install` | `boolean` | `true` | Whether new versions update automatically. Homebrew downloads and verifies in the background, then installs on the next interactive launch. An explicit `/update` request still completes when this is `false` |
-| `[status_line].show_model` | `boolean` | `true` | Show the model name and session spend |
-| `[status_line].show_effort` | `boolean` | `true` | Show Thinking effort when `show_model` is also `true` |
-| `[status_line].show_token_speed` | `boolean` | `true` | Show live token speed when `show_model` is also `true` |
-| `[status_line].show_context_bar` | `boolean` | `true` | Show the context gauge, percentage, and token totals |
-| `[status_line].show_git` | `boolean` | `true` | Show the Git branch, changes, and pull request badge |
-| `[status_line].show_modes` | `boolean` | `true` | Show Dynamic Workflow, Auto, YOLO, and Plan mode indicators, plus the `↯ fast` suffix when the model is visible |
-| `[status_line].show_elapsed` | `boolean` | `true` | Show elapsed time while a request is active |
-| `[status_line].show_goal` | `boolean` | `true` | Show the goal badge and make it keyboard-focusable |
-| `[status_line].show_background_tasks` | `boolean` | `true` | Show both shell-task and background-agent badges and make them keyboard-focusable |
+| `[upgrade].auto_install` | `boolean` | `true` | Whether new versions are installed automatically |
+| `[status_line].items` | `string[]` | `[]` | Built-in slots to show on the first footer line and their order: `mode`, `goal`, `model`, `tasks`, `cwd`, `git`, `tips`. Unset keeps the default layout; unknown ids are skipped with a warning |
+| `[status_line].command` | `string` | `""` | Custom status line command. Its first stdout line replaces the first footer line, with a JSON snapshot (model, cwd, git branch, permission mode, plan mode, context usage, session id, version) passed on stdin. Runs are capped at 300ms and throttled to once per second; failures fall back to the built-in layout |
 
 ```toml
 # ~/.pythinker-code/tui.toml
 theme = "auto" # "auto" | "dark" | "light" | custom theme name
-layout = "fixed" # "fixed" | "inline"
+disable_paste_burst = false # true disables non-bracketed paste-burst fallback
 
 [editor]
 command = "" # empty uses $VISUAL / $EDITOR
@@ -328,23 +451,33 @@ notification_condition = "unfocused" # "unfocused" | "always"
 [upgrade]
 auto_install = true
 
-[status_line]
-show_model = true
-show_effort = true
-show_token_speed = true
-show_context_bar = true
-show_git = true
-show_modes = true
-show_elapsed = true
-show_goal = true
-show_background_tasks = true
+# [status_line]
+# items = ["mode", "goal", "model", "tasks", "cwd", "git", "tips"]
+# command = "~/.pythinker-code/statusline.sh"
 ```
 
-Every `[status_line]` field is optional and defaults to `true`. `show_effort` and `show_token_speed` take effect only while `show_model` is enabled, and `show_background_tasks` controls both shell-task and background-agent badges. `show_modes` also controls the dedicated red YOLO mode indicator; its `↯ fast` suffix appears only when `show_model` is enabled too.
-
-This table only hides items already present in the compact status row. It does not control transient hints, validation or activity rows, composer content, welcome-banner tips, working-directory text, or a clock.
-
 Changes apply on the next start, or immediately with `/reload-tui` (which reloads only `tui.toml`); `/reload` reloads both `config.toml` and `tui.toml`.
+
+## Project-local configuration
+
+In addition to the user-level files under `~/.pythinker-code`, Pythinker Code reads a project-local configuration file at `<project-root>/.pythinker-code/local.toml`. It holds settings that are specific to one project checkout and typically should not be shared with teammates.
+
+The file is created automatically when you add an extra workspace directory with [`/add-dir`](../reference/slash-commands.md) and choose to remember it for the project. You rarely need to edit it by hand.
+
+### `[workspace]`
+
+The `[workspace]` table groups project-level workspace settings:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `additional_dir` | `array<string>` | No | Additional workspace directories, stored as absolute paths. Written automatically when you confirm "remember this directory" in `/add-dir`; read back on startup so the directories are available in every session of this project |
+
+```toml
+[workspace]
+additional_dir = ["/absolute/path/to/shared"]
+```
+
+Because directories are stored as absolute paths, which are specific to your machine, we recommend adding `.pythinker-code/local.toml` to your project's `.gitignore` so it is not committed.
 
 ## Next steps
 

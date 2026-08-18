@@ -1,61 +1,368 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { DOUBLE_ESC_WINDOW_MS, NO_ACTIVE_SESSION_MESSAGE } from '#/tui/constant/pythinker-tui';
 import {
   EditorKeyboardController,
   type EditorKeyboardHost,
 } from '#/tui/controllers/editor-keyboard';
 import type { ImageAttachmentStore } from '#/tui/utils/image-attachment-store';
 
-function makeHost() {
-  const editor: Record<string, unknown> = {};
-  const setConfig = vi.fn(() => Promise.resolve());
-  const getConfig = vi.fn(() =>
-    Promise.resolve({ defaultModel: undefined, defaultThinking: undefined, thinking: undefined }),
-  );
+interface Harness {
+  readonly host: EditorKeyboardHost;
+  readonly editor: Record<string, ((...args: never[]) => unknown) | undefined>;
+  readonly openUndoSelector: ReturnType<typeof vi.fn>;
+  readonly cancelRunningShellCommand: ReturnType<typeof vi.fn>;
+  readonly cancelCompaction: ReturnType<typeof vi.fn>;
+  readonly btwCancelRunning: ReturnType<typeof vi.fn>;
+  readonly btwCloseOrCancel: ReturnType<typeof vi.fn>;
+}
+
+function createHarness(options: { streamingPhase?: string; isCompacting?: boolean } = {}): Harness {
+  const editor: Record<string, ((...args: never[]) => unknown) | undefined> = {
+    setHistoryFilter: vi.fn() as unknown as (...args: never[]) => unknown,
+    setInputMode: vi.fn() as unknown as (...args: never[]) => unknown,
+    getText: vi.fn(() => '') as unknown as (...args: never[]) => unknown,
+    setText: vi.fn() as unknown as (...args: never[]) => unknown,
+  };
+  const openUndoSelector = vi.fn();
+  const cancelRunningShellCommand = vi.fn();
+  const cancelCompaction = vi.fn(async () => {});
+  const btwCancelRunning = vi.fn(() => false);
+  const btwCloseOrCancel = vi.fn(() => false);
+  const session = { cancel: vi.fn(async () => {}), cancelCompaction };
+
   const host = {
     state: {
       editor,
-      ui: { addInputListener: vi.fn(() => () => {}), requestRender: vi.fn() },
+      activeDialog: null,
       appState: {
-        model: 'test/model',
-        thinkingLevel: 'low',
-        availableModels: {
-          'test/model': {
-            capabilities: ['thinking'],
-            supportEfforts: ['low', 'medium', 'high', 'max'],
-          },
-        },
+        streamingPhase: options.streamingPhase ?? 'idle',
+        isCompacting: options.isCompacting ?? false,
       },
+      footer: { setTransientHint: vi.fn() },
+      ui: { requestRender: vi.fn() },
     },
-    session: { setThinking: vi.fn(() => Promise.resolve()) },
-    harness: { getConfig, setConfig },
-    cancelInFlight: undefined,
-    setAppState: vi.fn(),
-    track: vi.fn(),
-    showError: vi.fn(),
-    showNotice: vi.fn(),
-    dispatchFooter: vi.fn(),
-    updateEditorBorderHighlight: vi.fn(),
-    updateQueueDisplay: vi.fn(),
+    session,
+    btwPanelController: { cancelRunning: btwCancelRunning, closeOrCancel: btwCloseOrCancel },
+    openUndoSelector,
+    cancelRunningShellCommand,
   } as unknown as EditorKeyboardHost;
-  return { host, editor, setConfig, getConfig };
+
+  const controller = new EditorKeyboardController(
+    host,
+    undefined as unknown as ImageAttachmentStore,
+  );
+  controller.install();
+
+  return {
+    host,
+    editor,
+    openUndoSelector,
+    cancelRunningShellCommand,
+    cancelCompaction,
+    btwCancelRunning,
+    btwCloseOrCancel,
+  };
 }
 
-describe('EditorKeyboardController thinking-effort cycling', () => {
-  it('persists the cycled effort as the startup default', async () => {
-    const { host, editor, setConfig } = makeHost();
-    const controller = new EditorKeyboardController(host, {} as unknown as ImageAttachmentStore);
-    controller.install();
+function pressEscape(editor: Harness['editor']): void {
+  const handler = editor['onEscape'];
+  if (handler === undefined) throw new Error('onEscape handler not installed');
+  (handler as () => void)();
+}
 
-    const onCycleEffort = editor['onCycleEffort'] as () => void;
-    expect(typeof onCycleEffort).toBe('function');
-    onCycleEffort();
-    await vi.waitFor(() => {
-      expect(setConfig).toHaveBeenCalledWith({
-        defaultModel: 'test/model',
-        defaultThinking: true,
-        thinking: { effort: 'medium', mode: 'on' },
-      });
+function pressCtrlC(editor: Harness['editor']): void {
+  const handler = editor['onCtrlC'];
+  if (handler === undefined) throw new Error('onCtrlC handler not installed');
+  (handler as () => void)();
+}
+
+function pressNonEscape(editor: Harness['editor']): void {
+  const handler = editor['onNonEscapeInput'];
+  if (handler === undefined) throw new Error('onNonEscapeInput handler not installed');
+  (handler as () => void)();
+}
+
+describe('EditorKeyboardController double-Esc undo', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('opens the undo selector when Esc is pressed twice within the window while idle', () => {
+    const { editor, openUndoSelector } = createHarness();
+
+    pressEscape(editor);
+    expect(openUndoSelector).not.toHaveBeenCalled();
+
+    pressEscape(editor);
+    expect(openUndoSelector).toHaveBeenCalledOnce();
+  });
+
+  it('does nothing for a single Esc while idle', () => {
+    const { editor, openUndoSelector } = createHarness();
+
+    pressEscape(editor);
+
+    expect(openUndoSelector).not.toHaveBeenCalled();
+  });
+
+  it('does not trigger when the second Esc arrives after the window expires', () => {
+    const { editor, openUndoSelector } = createHarness();
+
+    pressEscape(editor);
+    vi.advanceTimersByTime(DOUBLE_ESC_WINDOW_MS + 1);
+    pressEscape(editor);
+
+    expect(openUndoSelector).not.toHaveBeenCalled();
+  });
+
+  it('does not trigger when another key is pressed between the two Esc presses', () => {
+    const { editor, openUndoSelector } = createHarness();
+
+    pressEscape(editor);
+    pressNonEscape(editor);
+    pressEscape(editor);
+
+    expect(openUndoSelector).not.toHaveBeenCalled();
+  });
+
+  it('does not trigger undo while streaming; Esc cancels the stream instead', () => {
+    const { editor, host, openUndoSelector, cancelRunningShellCommand } = createHarness({
+      streamingPhase: 'waiting',
     });
+
+    pressEscape(editor);
+    pressEscape(editor);
+
+    expect(openUndoSelector).not.toHaveBeenCalled();
+    expect(cancelRunningShellCommand).toHaveBeenCalled();
+    const session = host.session as unknown as { cancel: ReturnType<typeof vi.fn> };
+    expect(session.cancel).toHaveBeenCalled();
+  });
+});
+
+describe('EditorKeyboardController btw panel priority', () => {
+  it('Esc closes the btw panel first while compacting, without cancelling compaction', () => {
+    const { editor, btwCloseOrCancel, cancelCompaction } = createHarness({ isCompacting: true });
+    btwCloseOrCancel.mockReturnValue(true);
+
+    pressEscape(editor);
+
+    expect(btwCloseOrCancel).toHaveBeenCalledOnce();
+    expect(cancelCompaction).not.toHaveBeenCalled();
+  });
+
+  it('Esc cancels compaction on the next press once the btw panel is gone', () => {
+    const { editor, btwCloseOrCancel, cancelCompaction } = createHarness({ isCompacting: true });
+    btwCloseOrCancel.mockReturnValueOnce(true);
+
+    pressEscape(editor);
+    expect(cancelCompaction).not.toHaveBeenCalled();
+
+    pressEscape(editor);
+    expect(cancelCompaction).toHaveBeenCalledOnce();
+  });
+
+  it('Esc cancels compaction directly when no btw panel is open', () => {
+    const { editor, btwCloseOrCancel, cancelCompaction } = createHarness({ isCompacting: true });
+
+    pressEscape(editor);
+
+    expect(btwCloseOrCancel).toHaveBeenCalledOnce();
+    expect(cancelCompaction).toHaveBeenCalledOnce();
+  });
+
+  it('Ctrl+C cancels a running btw question first while compacting', () => {
+    const { editor, btwCancelRunning, cancelCompaction } = createHarness({ isCompacting: true });
+    btwCancelRunning.mockReturnValue(true);
+
+    pressCtrlC(editor);
+
+    expect(btwCancelRunning).toHaveBeenCalledOnce();
+    expect(cancelCompaction).not.toHaveBeenCalled();
+  });
+
+  it('Ctrl+C closes an idle btw panel while compacting, without cancelling compaction', () => {
+    const { editor, btwCloseOrCancel, cancelCompaction } = createHarness({ isCompacting: true });
+    btwCloseOrCancel.mockReturnValue(true);
+
+    pressCtrlC(editor);
+
+    expect(btwCloseOrCancel).toHaveBeenCalledOnce();
+    expect(cancelCompaction).not.toHaveBeenCalled();
+  });
+
+  it('Ctrl+C cancels compaction when no btw panel is open', () => {
+    const { editor, btwCancelRunning, btwCloseOrCancel, cancelCompaction } = createHarness({
+      isCompacting: true,
+    });
+
+    pressCtrlC(editor);
+
+    expect(btwCancelRunning).toHaveBeenCalledOnce();
+    expect(btwCloseOrCancel).toHaveBeenCalledOnce();
+    expect(cancelCompaction).toHaveBeenCalledOnce();
+  });
+});
+
+describe('EditorKeyboardController shell history recall', () => {
+  type Recall = (entry: string, direction: 1 | -1) => string | undefined;
+  type Mock = ReturnType<typeof vi.fn>;
+
+  it('installs a filter that allows shell entries only in bash mode', () => {
+    const { editor } = createHarness();
+    const setHistoryFilter = editor['setHistoryFilter'] as unknown as Mock;
+    expect(setHistoryFilter).toHaveBeenCalledOnce();
+    const [filter] = setHistoryFilter.mock.calls[0] as [(entry: string) => boolean];
+
+    (editor as unknown as { inputMode: string }).inputMode = 'prompt';
+    expect(filter('!cmd')).toBe(true);
+    expect(filter('hello')).toBe(true);
+
+    (editor as unknown as { inputMode: string }).inputMode = 'bash';
+    expect(filter('!cmd')).toBe(true);
+    expect(filter('hello')).toBe(false);
+  });
+
+  it('locks the filter to the browse-entry mode once browsing starts', () => {
+    const { editor } = createHarness();
+    const setHistoryFilter = editor['setHistoryFilter'] as unknown as Mock;
+    const [filter] = setHistoryFilter.mock.calls[0] as [(entry: string) => boolean];
+    const save = editor['onHistoryDraftSave'] as unknown as () => unknown;
+
+    // Enter browse from prompt mode, then simulate landing on a shell entry
+    // (which flips inputMode to bash). The filter should stay locked to prompt
+    // and keep allowing plain entries.
+    (editor as unknown as { inputMode: string }).inputMode = 'prompt';
+    save();
+    (editor as unknown as { inputMode: string }).inputMode = 'bash';
+
+    expect(filter('hello')).toBe(true);
+    expect(filter('!cmd')).toBe(true);
+  });
+
+  it('strips the leading ! and switches to bash mode when recalling a shell entry', () => {
+    const { editor } = createHarness();
+    const onRecall = editor['onRecall'] as unknown as Recall;
+
+    const result = onRecall('!cmd', -1);
+
+    expect(result).toBe('cmd');
+    expect(editor['setInputMode'] as unknown as Mock).toHaveBeenCalledWith('bash');
+  });
+
+  it('keeps plain entries as-is and switches to prompt mode', () => {
+    const { editor } = createHarness();
+    const onRecall = editor['onRecall'] as unknown as Recall;
+
+    const result = onRecall('hello', -1);
+
+    expect(result).toBeUndefined();
+    expect(editor['setInputMode'] as unknown as Mock).toHaveBeenCalledWith('prompt');
+  });
+
+  it('saves the current input mode as the history draft host state', () => {
+    const { editor } = createHarness();
+    const save = editor['onHistoryDraftSave'] as unknown as () => unknown;
+
+    (editor as unknown as { inputMode: string }).inputMode = 'prompt';
+    expect(save()).toBe('prompt');
+
+    (editor as unknown as { inputMode: string }).inputMode = 'bash';
+    expect(save()).toBe('bash');
+  });
+
+  it('restores the input mode from the saved draft host state', () => {
+    const { editor } = createHarness();
+    const restore = editor['onHistoryDraftRestore'] as unknown as (state: unknown) => void;
+
+    restore('prompt');
+
+    expect(editor['setInputMode'] as unknown as Mock).toHaveBeenCalledWith('prompt');
+  });
+});
+
+describe('EditorKeyboardController Shift-Tab plan toggle', () => {
+  function createShiftTabHarness(options: { sessionless?: boolean; engineV2?: boolean } = {}) {
+    const editor: Record<string, ((...args: never[]) => unknown) | undefined> = {
+      setHistoryFilter: vi.fn() as unknown as (...args: never[]) => unknown,
+    };
+    const handlePlanToggle = vi.fn();
+    const track = vi.fn();
+    const showError = vi.fn();
+    const ensureSession = vi.fn(async (): Promise<{ id: string } | undefined> => ({ id: 'ses-lazy' }));
+    const host = {
+      state: {
+        editor,
+        activeDialog: null,
+        appState: { streamingPhase: 'idle', isCompacting: false, planMode: false },
+        footer: { setTransientHint: vi.fn() },
+        ui: { requestRender: vi.fn() },
+      },
+      session: options.sessionless ? undefined : { cancel: vi.fn(async () => {}) },
+      engineV2: options.engineV2 ?? false,
+      ensureSession,
+      handlePlanToggle,
+      track,
+      showError,
+      btwPanelController: { cancelRunning: vi.fn(), closeOrCancel: vi.fn() },
+    } as unknown as EditorKeyboardHost;
+
+    new EditorKeyboardController(host, undefined as unknown as ImageAttachmentStore).install();
+    const onShiftTab = editor['onShiftTab'] as unknown as () => void;
+    return { onShiftTab, handlePlanToggle, track, showError, ensureSession };
+  }
+
+  it('toggles plan mode directly with an active session', () => {
+    const { onShiftTab, handlePlanToggle, ensureSession } = createShiftTabHarness();
+
+    onShiftTab();
+
+    expect(ensureSession).not.toHaveBeenCalled();
+    expect(handlePlanToggle).toHaveBeenCalledWith(true);
+  });
+
+  it('reports no active session on v1 when session-less', () => {
+    const { onShiftTab, showError, handlePlanToggle } = createShiftTabHarness({
+      sessionless: true,
+    });
+
+    onShiftTab();
+
+    expect(showError).toHaveBeenCalledWith(NO_ACTIVE_SESSION_MESSAGE);
+    expect(handlePlanToggle).not.toHaveBeenCalled();
+  });
+
+  it('lazy-creates the session before toggling on v2 when session-less', async () => {
+    const { onShiftTab, ensureSession, handlePlanToggle, track } = createShiftTabHarness({
+      sessionless: true,
+      engineV2: true,
+    });
+
+    onShiftTab();
+    expect(handlePlanToggle).not.toHaveBeenCalled();
+
+    await vi.waitFor(() => {
+      expect(handlePlanToggle).toHaveBeenCalledWith(true);
+    });
+    expect(ensureSession).toHaveBeenCalledOnce();
+    expect(track).toHaveBeenCalledWith('shortcut_plan_toggle', { enabled: true });
+  });
+
+  it('does not toggle when the lazy creation fails on v2', async () => {
+    const { onShiftTab, ensureSession, handlePlanToggle } = createShiftTabHarness({
+      sessionless: true,
+      engineV2: true,
+    });
+    ensureSession.mockResolvedValue(undefined);
+
+    onShiftTab();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(handlePlanToggle).not.toHaveBeenCalled();
   });
 });

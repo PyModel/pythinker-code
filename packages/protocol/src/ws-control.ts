@@ -9,13 +9,13 @@ import { eventSchema } from './events';
 import { isoDateTimeSchema } from './time';
 
 /**
- * WS protocol version. v3 (breaking, dynamic workflow negotiation):
+ * WS protocol version. v2 (breaking, IM-style multi-device sync):
  *   - per-session cursors are `{ seq, epoch }` instead of a bare seq
  *   - `seq` is durable (journal offset, survives daemon restarts)
  *   - volatile events carry `volatile: true` and do not advance `seq`
  *   - `resync_required` gains the `epoch_changed` reason + `epoch` field
  */
-export const WS_PROTOCOL_VERSION = 3;
+export const WS_PROTOCOL_VERSION = 2;
 
 /**
  * Per-session sync cursor. `seq` is the last durable event seq the client
@@ -74,7 +74,12 @@ export const wsAckEnvelopeSchema = <T extends z.ZodTypeAny>(payload: T) =>
 export const serverHelloPayloadSchema = z.object({
   ws_connection_id: z.string(),
   protocol_version: z.number().int().positive(),
-  heartbeat_ms: z.number().int().positive(),
+  /**
+   * Legacy servers advertise their ping interval here. kap-server dropped the
+   * server-initiated heartbeat and omits this field — clients must treat it as
+   * advisory and not require it.
+   */
+  heartbeat_ms: z.number().int().positive().optional(),
   max_event_buffer_size: z.number().int().positive(),
   capabilities: z.object({
     event_batching: z.boolean(),
@@ -90,11 +95,33 @@ export const serverHelloMessageSchema = z.object({
 
 export type ServerHelloMessage = z.infer<typeof serverHelloMessageSchema>;
 
+/**
+ * Per-session agent allowlist for fine-grained v1 event subscriptions. Keys are
+ * session ids, values are the non-empty set of agent ids the client wants to
+ * receive events for within that session. Sessions absent from the map (or the
+ * whole field omitted) fall back to receiving every agent — the legacy
+ * session-grained behavior.
+ */
+export const agentFilterSchema = z.record(z.string(), z.array(z.string()).min(1));
+
+export type AgentFilter = z.infer<typeof agentFilterSchema>;
+
+/**
+ * `client_hello` is the handshake: only `client_id` is required. The
+ * subscription fields below are legacy compatibility — new clients send just
+ * `client_id` here and use `subscribe` frames (which carry the same
+ * per-session cursors / agent allowlist).
+ * @deprecated Inline subscriptions on `client_hello` are kept for older
+ * clients; prefer `subscribe`.
+ */
 export const clientHelloPayloadSchema = z.object({
   client_id: z.string(),
-  protocol_version: z.number().int().positive(),
-  subscriptions: z.array(z.string()),
+  /** @deprecated Legacy inline subscriptions — use `subscribe` instead. */
+  subscriptions: z.array(z.string()).optional(),
+  /** @deprecated Legacy inline replay cursors — use `subscribe` instead. */
   cursors: cursorsBySessionSchema.optional(),
+  /** @deprecated Legacy inline agent allowlist — use `subscribe` instead. */
+  agent_filter: agentFilterSchema.optional(),
 });
 
 export const clientHelloMessageSchema = z.object({
@@ -125,6 +152,7 @@ export const subscribePayloadSchema = z.object({
   session_ids: z.array(z.string()),
   cursors: cursorsBySessionSchema.optional(),
   watch_fs: z.record(z.string(), watchFsConfigSchema).optional(),
+  agent_filter: agentFilterSchema.optional(),
 });
 
 export const subscribeMessageSchema = z.object({

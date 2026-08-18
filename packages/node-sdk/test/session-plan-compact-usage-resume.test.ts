@@ -1,19 +1,17 @@
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
-import {
-  createPythinkerHarness,
-  ErrorCodes,
-  Session,
-  type Event,
-  type PythinkerError,
-  type SDKRpcClientBase,
-} from '#/index';
+import { createPythinkerHarness, type Event, type PythinkerError } from '#/index';
 
 import { makeTempDir, removeTempDirs } from './session-runtime-helpers';
 import { TEST_IDENTITY } from './test-identity';
+
+// node-sdk/agent-core normalize paths to forward slashes (pathe). Mirror that
+// in path assertions so they hold on Windows, where node:path produces
+// backslashes.
+const toPosix = (p: string): string => p.replaceAll('\\', '/');
 
 const tempDirs: string[] = [];
 
@@ -22,53 +20,6 @@ afterEach(async () => {
 });
 
 describe('Session plan, compact, usage, and resume APIs', () => {
-  it('forwards file checkpoint operations and validates checkpoint IDs', async () => {
-    const listFileCheckpoints = vi.fn(async () => []);
-    const previewFileCheckpoint = vi.fn(async (input) => ({
-      checkpointId: input.checkpointId,
-      complete: true,
-      paths: [],
-      insertions: 0,
-      deletions: 0,
-      conversationAvailable: true,
-    }));
-    const restoreFileCheckpoint = vi.fn(async (input) => ({
-      checkpointId: input.checkpointId,
-      recoveryCheckpointId: 'recovery-1',
-      restoredPaths: [],
-      deletedPaths: [],
-    }));
-    const session = new Session({
-      id: 'session-1',
-      workDir: '/tmp/work',
-      rpc: {
-        listFileCheckpoints,
-        previewFileCheckpoint,
-        restoreFileCheckpoint,
-      } as unknown as SDKRpcClientBase,
-    });
-
-    await expect(session.listFileCheckpoints()).resolves.toEqual([]);
-    await session.previewFileCheckpoint(' checkpoint-1 ');
-    await session.restoreFileCheckpoint(' checkpoint-1 ');
-
-    expect(listFileCheckpoints).toHaveBeenCalledWith({ sessionId: 'session-1' });
-    expect(previewFileCheckpoint).toHaveBeenCalledWith({
-      sessionId: 'session-1',
-      checkpointId: 'checkpoint-1',
-    });
-    expect(restoreFileCheckpoint).toHaveBeenCalledWith({
-      sessionId: 'session-1',
-      checkpointId: 'checkpoint-1',
-    });
-    await expect(session.previewFileCheckpoint('   ')).rejects.toMatchObject({
-      code: ErrorCodes.REQUEST_INVALID,
-    });
-    await expect(session.restoreFileCheckpoint('')).rejects.toMatchObject({
-      code: ErrorCodes.REQUEST_INVALID,
-    });
-  });
-
   it('sets plan mode through manualEnterPlan and clears the active plan file', async () => {
     const homeDir = await makeTempDir(tempDirs, 'pythinker-sdk-plan-home-');
     const workDir = await makeTempDir(tempDirs, 'pythinker-sdk-plan-work-');
@@ -154,26 +105,6 @@ describe('Session plan, compact, usage, and resume APIs', () => {
     }
   });
 
-  it('requires both selected-prompt compaction fields', async () => {
-    const homeDir = await makeTempDir(tempDirs, 'pythinker-sdk-partial-compact-home-');
-    const workDir = await makeTempDir(tempDirs, 'pythinker-sdk-partial-compact-work-');
-    await writeTestConfig(homeDir);
-    const harness = createPythinkerHarness({ homeDir, identity: TEST_IDENTITY });
-
-    try {
-      const session = await harness.createSession({ id: 'ses_partial_compact_runtime', workDir });
-
-      await expect(
-        session.compact({ promptFromEnd: 1 } as never),
-      ).rejects.toMatchObject({
-        name: 'PythinkerError',
-        code: 'request.invalid',
-      } satisfies Partial<PythinkerError>);
-    } finally {
-      await harness.close();
-    }
-  });
-
   it('returns current session usage totals', async () => {
     const homeDir = await makeTempDir(tempDirs, 'pythinker-sdk-usage-home-');
     const workDir = await makeTempDir(tempDirs, 'pythinker-sdk-usage-work-');
@@ -184,36 +115,6 @@ describe('Session plan, compact, usage, and resume APIs', () => {
       const session = await harness.createSession({ id: 'ses_usage_runtime', workDir });
 
       await expect(session.getUsage()).resolves.toEqual({});
-    } finally {
-      await harness.close();
-    }
-  });
-
-  it('reads and updates persisted session metadata', async () => {
-    const homeDir = await makeTempDir(tempDirs, 'pythinker-sdk-metadata-home-');
-    const workDir = await makeTempDir(tempDirs, 'pythinker-sdk-metadata-work-');
-    await writeTestConfig(homeDir);
-    const harness = createPythinkerHarness({ homeDir, identity: TEST_IDENTITY });
-
-    try {
-      const session = await harness.createSession({
-        id: 'ses_metadata_runtime',
-        workDir,
-        metadata: { source: 'test' },
-      });
-
-      await session.updateSessionMetadata({
-        custom: { source: 'test', tag: 'review' },
-      });
-
-      await expect(session.getSessionMetadata()).resolves.toMatchObject({
-        custom: { source: 'test', tag: 'review' },
-      });
-      await expect(harness.listSessions({ sessionId: session.id })).resolves.toEqual([
-        expect.objectContaining({
-          metadata: { source: 'test', tag: 'review' },
-        }),
-      ]);
     } finally {
       await harness.close();
     }
@@ -241,7 +142,7 @@ describe('Session plan, compact, usage, and resume APIs', () => {
       const resumed = await harness.resumeSession({ id: created.id });
 
       expect(resumed.id).toBe(created.id);
-      expect(resumed.workDir).toBe(workDir);
+      expect(resumed.workDir).toBe(toPosix(workDir));
       await expect(resumed.getStatus()).resolves.toMatchObject({
         model: 'test-model',
         planMode: true,
@@ -342,7 +243,7 @@ describe('Session plan, compact, usage, and resume APIs', () => {
       });
 
       expect(fork.id).toBe('ses_fork_runtime_child');
-      expect(fork.workDir).toBe(workDir);
+      expect(fork.workDir).toBe(toPosix(workDir));
       await expect(fork.getStatus()).resolves.toMatchObject({ model: 'test-model' });
       expect(harness.getSession(fork.id)).toBe(fork);
       await expect(fork.getUsage()).resolves.toEqual({});
@@ -353,7 +254,7 @@ describe('Session plan, compact, usage, and resume APIs', () => {
       expect(forkPlan).toEqual({
         id: sourcePlan.id,
         content: 'source plan',
-        path: join(forkSummary!.sessionDir, 'agents', 'main', 'plans', `${sourcePlan.id}.md`),
+        path: toPosix(join(forkSummary!.sessionDir, 'agents', 'main', 'plans', `${sourcePlan.id}.md`)),
       });
       expect(forkPlan?.path).not.toBe(sourcePlan.path);
       const forkWire = await readFile(
@@ -386,7 +287,9 @@ describe('Session plan, compact, usage, and resume APIs', () => {
       };
       expect(forkState.title).toBe('Forked runtime');
       expect(forkState.forkedFrom).toBe(source.id);
-      expect(forkState.agents?.main?.homedir).toBeUndefined();
+      expect(forkState.agents?.main?.homedir).toBe(
+        toPosix(join(forkSummary!.sessionDir, 'agents', 'main')),
+      );
       expect(forkState.custom).toMatchObject({ source: true, child: true });
       expect(forkState.custom).not.toHaveProperty('goal');
     } finally {

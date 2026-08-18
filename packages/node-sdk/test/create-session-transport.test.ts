@@ -1,5 +1,12 @@
+/**
+ * Scenario: PythinkerHarness session creation and resume transport behavior.
+ * Responsibilities: SDK options reach the in-process core and session identity remains stable.
+ * Wiring: the real SDK/core are used; model/network boundaries are configured but never called.
+ * Run: pnpm -C packages/node-sdk exec vitest run test/create-session-transport.test.ts
+ */
+
 import { existsSync } from 'node:fs';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -13,6 +20,11 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { waitForAgentWireEvent } from './session-runtime-helpers';
 import { recordingTelemetry, type TelemetryRecord } from './telemetry';
 import { TEST_IDENTITY } from './test-identity';
+
+// node-sdk/agent-core normalize paths to forward slashes (pathe). Mirror that
+// in path assertions so they hold on Windows, where node:path produces
+// backslashes.
+const toPosix = (p: string): string => p.replaceAll('\\', '/');
 
 const tempDirs: string[] = [];
 
@@ -42,6 +54,16 @@ provider = "local"
 model = "${modelName}"
 max_context_size = 1000
 `,
+    'utf-8',
+  );
+}
+
+async function writeReviewerAgent(workDir: string): Promise<void> {
+  const agentDir = join(workDir, '.pythinker-code', 'agents');
+  await mkdir(agentDir, { recursive: true });
+  await writeFile(
+    join(agentDir, 'reviewer.md'),
+    '---\nname: reviewer\ndescription: Reviews code.\nsubagents:\n  - explore\n---\n\nReview the requested change.\n',
     'utf-8',
   );
 }
@@ -107,6 +129,7 @@ describe('PythinkerHarness.createSession transport link', () => {
         event: 'session_started',
         sessionId: session.id,
         properties: {
+          client_id: null,
           client_name: 'pythinker-code-cli',
           client_version: '0.0.0-test',
           ui_mode: 'shell',
@@ -128,6 +151,7 @@ describe('PythinkerHarness.createSession transport link', () => {
         event: 'session_started',
         sessionId: session.id,
         properties: {
+          client_id: null,
           client_name: 'pythinker-code-cli',
           client_version: '0.0.0-test',
           ui_mode: 'shell',
@@ -165,10 +189,142 @@ describe('PythinkerHarness.createSession transport link', () => {
         event: 'session_started',
         sessionId: session.id,
         properties: {
+          client_id: null,
           client_name: 'pythinker-code-cli',
           client_version: '0.0.0-test',
           ui_mode: 'print',
           resumed: false,
+        },
+      });
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('merges process-level sessionStartedProperties into session_started', async () => {
+    const homeDir = await makeTempDir();
+    const workDir = await makeTempDir();
+    const records: TelemetryRecord[] = [];
+    const harness = createPythinkerHarness({
+      identity: TEST_IDENTITY,
+      homeDir,
+      telemetry: recordingTelemetry(records),
+      sessionStartedProperties: { yolo: true, plan: false },
+    });
+
+    try {
+      const session = await harness.createSession({
+        id: 'ses_process_props',
+        workDir,
+      });
+
+      expect(records).toContainEqual({
+        event: 'session_started',
+        sessionId: session.id,
+        properties: {
+          client_id: null,
+          client_name: 'pythinker-code-cli',
+          client_version: '0.0.0-test',
+          ui_mode: 'shell',
+          resumed: false,
+          yolo: true,
+          plan: false,
+        },
+      });
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('merges session-level sessionStartedProperties and overrides process-level ones', async () => {
+    const homeDir = await makeTempDir();
+    const workDir = await makeTempDir();
+    const records: TelemetryRecord[] = [];
+    const harness = createPythinkerHarness({
+      identity: TEST_IDENTITY,
+      homeDir,
+      telemetry: recordingTelemetry(records),
+      sessionStartedProperties: { mode: 'process', source: 'process' },
+    });
+
+    try {
+      const session = await harness.createSession({
+        id: 'ses_scoped_props',
+        workDir,
+        sessionStartedProperties: { mode: 'new' },
+      });
+
+      expect(records).toContainEqual({
+        event: 'session_started',
+        sessionId: session.id,
+        properties: {
+          client_id: null,
+          client_name: 'pythinker-code-cli',
+          client_version: '0.0.0-test',
+          ui_mode: 'shell',
+          resumed: false,
+          mode: 'new',
+          source: 'process',
+        },
+      });
+
+      await session.close();
+      await harness.resumeSession({
+        id: session.id,
+        sessionStartedProperties: { mode: 'load' },
+      });
+
+      expect(records).toContainEqual({
+        event: 'session_started',
+        sessionId: session.id,
+        properties: {
+          client_id: null,
+          client_name: 'pythinker-code-cli',
+          client_version: '0.0.0-test',
+          ui_mode: 'shell',
+          resumed: true,
+          mode: 'load',
+          source: 'process',
+        },
+      });
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('does not let sessionStartedProperties override canonical session_started fields', async () => {
+    const homeDir = await makeTempDir();
+    const workDir = await makeTempDir();
+    const records: TelemetryRecord[] = [];
+    const harness = createPythinkerHarness({
+      identity: TEST_IDENTITY,
+      homeDir,
+      telemetry: recordingTelemetry(records),
+    });
+
+    try {
+      const session = await harness.createSession({
+        id: 'ses_reserved_keys',
+        workDir,
+        sessionStartedProperties: {
+          client_name: 'evil',
+          client_version: 'evil',
+          ui_mode: 'evil',
+          resumed: true,
+          extra: 'kept',
+        },
+      });
+
+      expect(records).toContainEqual({
+        event: 'session_started',
+        sessionId: session.id,
+        properties: {
+          client_id: null,
+          client_name: 'pythinker-code-cli',
+          client_version: '0.0.0-test',
+          ui_mode: 'shell',
+          resumed: false,
+          extra: 'kept',
         },
       });
     } finally {
@@ -202,6 +358,7 @@ describe('PythinkerHarness.createSession transport link', () => {
         event: 'session_started',
         sessionId: forked.id,
         properties: {
+          client_id: null,
           client_name: 'pythinker-code-cli',
           client_version: '0.0.0-test',
           ui_mode: 'shell',
@@ -237,6 +394,7 @@ describe('PythinkerHarness.createSession transport link', () => {
         event: 'session_started',
         sessionId: session.id,
         properties: {
+          client_id: null,
           client_name: null,
           client_version: null,
           ui_mode: 'shell',
@@ -265,7 +423,7 @@ describe('PythinkerHarness.createSession transport link', () => {
       });
 
       expect(session.id).toBe('ses_transport_link');
-      expect(session.workDir).toBe(workDir);
+      expect(session.workDir).toBe(toPosix(workDir));
       await expect(session.getStatus()).resolves.toMatchObject({ model: 'pythinker-test-model' });
       expect(harness.sessions.get(session.id)).toBe(session);
       const configEvent = await waitForAgentWireEvent(
@@ -283,7 +441,7 @@ describe('PythinkerHarness.createSession transport link', () => {
       const summaries = await harness.listSessions({ workDir });
       const summary = summaries.find((item) => item.id === session.id);
       expect(summary?.sessionDir).not.toBe(join(homeDir, 'sessions', session.id));
-      expect(summary?.sessionDir).toContain(join(homeDir, 'sessions'));
+      expect(summary?.sessionDir).toContain(toPosix(join(homeDir, 'sessions')));
       expect(existsSync(join(summary!.sessionDir, 'state.json'))).toBe(true);
       expect(await readFile(join(homeDir, 'session_index.jsonl'), 'utf-8')).toContain(session.id);
 
@@ -291,7 +449,7 @@ describe('PythinkerHarness.createSession transport link', () => {
       expect(summariesById).toHaveLength(1);
       expect(summariesById[0]).toMatchObject({
         id: session.id,
-        workDir,
+        workDir: toPosix(workDir),
       });
       await expect(harness.listSessions({ sessionId: 'ses_missing' })).resolves.toEqual([]);
     } finally {
@@ -413,6 +571,82 @@ effort = "medium"
     }
   });
 
+  it('does not persist a session record when the requested agent profile is missing', async () => {
+    const homeDir = await makeTempDir();
+    const workDir = await makeTempDir();
+    const harness = createPythinkerHarness({
+      identity: TEST_IDENTITY,
+      homeDir,
+    });
+
+    try {
+      await expect(
+        harness.createSession({
+          id: 'ses_missing_agent_profile',
+          workDir,
+          agentProfile: 'missing-agent',
+        }),
+      ).rejects.toMatchObject({
+        name: 'PythinkerError',
+        code: 'agent.not_found',
+      });
+      expect(await harness.listSessions({ workDir })).toEqual([]);
+      expect(existsSync(join(homeDir, 'session_index.jsonl'))).toBe(false);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('allows the session ID to be reused after agent profile selection fails', async () => {
+    const homeDir = await makeTempDir();
+    const workDir = await makeTempDir();
+    const harness = createPythinkerHarness({
+      identity: TEST_IDENTITY,
+      homeDir,
+    });
+
+    try {
+      await expect(
+        harness.createSession({
+          id: 'ses_reusable_after_missing_profile',
+          workDir,
+          agentProfile: 'missing-agent',
+        }),
+      ).rejects.toMatchObject({ code: 'agent.not_found' });
+
+      await expect(
+        harness.createSession({
+          id: 'ses_reusable_after_missing_profile',
+          workDir,
+        }),
+      ).resolves.toMatchObject({ id: 'ses_reusable_after_missing_profile' });
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('does not persist a session record when an explicit agent file cannot be loaded', async () => {
+    const homeDir = await makeTempDir();
+    const workDir = await makeTempDir();
+    const harness = createPythinkerHarness({
+      identity: TEST_IDENTITY,
+      homeDir,
+    });
+
+    try {
+      await expect(
+        harness.createSession({
+          id: 'ses_missing_explicit_agent_file',
+          workDir,
+          agentFiles: [join(workDir, 'missing-agent.md')],
+        }),
+      ).rejects.toThrow(/missing-agent\.md/);
+      expect(await harness.listSessions({ workDir })).toEqual([]);
+    } finally {
+      await harness.close();
+    }
+  });
+
   it('closes active runtime handles through closeSession, session.close, and close', async () => {
     const homeDir = await makeTempDir();
     const workDir = await makeTempDir();
@@ -447,6 +681,84 @@ effort = "medium"
     expect(coreSessionIds(harness)).toEqual([]);
   });
 
+  it('permanently deletes an active session', async () => {
+    const homeDir = await makeTempDir();
+    const workDir = await makeTempDir();
+    const harness = createPythinkerHarness({
+      identity: TEST_IDENTITY,
+      homeDir,
+    });
+
+    try {
+      const session = await harness.createSession({ id: 'ses_delete_active', workDir });
+      const [summary] = await harness.listSessions({ sessionId: session.id });
+
+      await harness.deleteSession(session.id);
+
+      expect(harness.getSession(session.id)).toBeUndefined();
+      await expect(harness.listSessions({ sessionId: session.id })).resolves.toEqual([]);
+      expect(existsSync(summary!.sessionDir)).toBe(false);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('returns session.not_found when deleteSession targets a missing id', async () => {
+    const homeDir = await makeTempDir();
+    const harness = createPythinkerHarness({ identity: TEST_IDENTITY, homeDir });
+
+    try {
+      await expect(harness.deleteSession('ses_delete_missing')).rejects.toMatchObject({
+        name: 'PythinkerError',
+        code: 'session.not_found',
+      } satisfies Partial<PythinkerError>);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('allows a deleted session id to be created again', async () => {
+    const homeDir = await makeTempDir();
+    const workDir = await makeTempDir();
+    const harness = createPythinkerHarness({ identity: TEST_IDENTITY, homeDir });
+    const sessionId = 'ses_delete_recreate';
+
+    try {
+      await harness.createSession({ id: sessionId, workDir });
+      await harness.deleteSession(sessionId);
+
+      const recreated = await harness.createSession({ id: sessionId, workDir });
+
+      expect(recreated.id).toBe(sessionId);
+      await expect(harness.listSessions({ sessionId })).resolves.toHaveLength(1);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('preserves a legacy source directory referenced by session metadata', async () => {
+    const homeDir = await makeTempDir();
+    const workDir = await makeTempDir();
+    const legacySourceDir = await makeTempDir();
+    const markerPath = join(legacySourceDir, 'legacy-marker.txt');
+    await writeFile(markerPath, 'legacy source remains', 'utf-8');
+    const harness = createPythinkerHarness({ identity: TEST_IDENTITY, homeDir });
+
+    try {
+      const session = await harness.createSession({
+        id: 'ses_delete_migrated',
+        workDir,
+        metadata: { pythinker_cli_source_path: legacySourceDir },
+      });
+
+      await harness.deleteSession(session.id);
+
+      await expect(readFile(markerPath, 'utf-8')).resolves.toBe('legacy source remains');
+    } finally {
+      await harness.close();
+    }
+  });
+
   it('applies initial thinking and permission runtime options', async () => {
     const homeDir = await makeTempDir();
     const workDir = await makeTempDir();
@@ -468,11 +780,11 @@ effort = "medium"
           homeDir,
           session.id,
           'config.update',
-          (event) => event['thinkingLevel'] === 'low',
+          (event) => event['thinkingEffort'] === 'low',
         ),
       ).resolves.toMatchObject({
         type: 'config.update',
-        thinkingLevel: 'low',
+        thinkingEffort: 'low',
       });
       await expect(
         waitForAgentWireEvent(
@@ -552,6 +864,77 @@ effort = "medium"
       kaos,
       persistenceKaos: undefined,
     });
+  });
+
+  it('rejects an active session resume when the requested profile differs from its binding', async () => {
+    const homeDir = await makeTempDir();
+    const workDir = await makeTempDir();
+    await writeTestModelConfig(homeDir);
+    await writeReviewerAgent(workDir);
+    const harness = createPythinkerHarness({ identity: TEST_IDENTITY, homeDir });
+
+    try {
+      const session = await harness.createSession({
+        id: 'ses_active_profile_identity',
+        workDir,
+        agentProfile: 'reviewer',
+      });
+
+      await expect(
+        harness.resumeSession({ id: session.id, agentProfile: 'agent' }),
+      ).rejects.toThrow(
+        'agent is already bound to profile "reviewer"; cannot switch to "agent" in this session',
+      );
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('returns the active session when the requested profile matches its binding', async () => {
+    const homeDir = await makeTempDir();
+    const workDir = await makeTempDir();
+    await writeTestModelConfig(homeDir);
+    await writeReviewerAgent(workDir);
+    const harness = createPythinkerHarness({ identity: TEST_IDENTITY, homeDir });
+
+    try {
+      const session = await harness.createSession({
+        id: 'ses_matching_profile_identity',
+        workDir,
+        agentProfile: 'reviewer',
+      });
+
+      await expect(
+        harness.resumeSession({ id: session.id, agentProfile: 'reviewer' }),
+      ).resolves.toBe(session);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('rejects a persisted session resume when the requested profile differs from its binding', async () => {
+    const homeDir = await makeTempDir();
+    const workDir = await makeTempDir();
+    await writeTestModelConfig(homeDir);
+    await writeReviewerAgent(workDir);
+    const harness = createPythinkerHarness({ identity: TEST_IDENTITY, homeDir });
+
+    try {
+      const session = await harness.createSession({
+        id: 'ses_persisted_profile_identity',
+        workDir,
+        agentProfile: 'reviewer',
+      });
+      await session.close();
+
+      await expect(
+        harness.resumeSession({ id: session.id, agentProfile: 'agent' }),
+      ).rejects.toThrow(
+        'agent is already bound to profile "reviewer"; cannot switch to "agent" in this session',
+      );
+    } finally {
+      await harness.close();
+    }
   });
 });
 

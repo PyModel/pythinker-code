@@ -1,5 +1,5 @@
 /**
- * PythoughtsWebSearchProvider — host-side `WebSearchProvider`.
+ * PyModelWebSearchProvider — host-side `WebSearchProvider`.
  *
  * Auth uses a narrow bearer token provider per request. Host-specific
  * default headers are supplied by runtime and request-level overrides
@@ -12,7 +12,7 @@ export interface BearerTokenProvider {
   getAccessToken(options?: { readonly force?: boolean | undefined }): Promise<string>;
 }
 
-export interface PythoughtsWebSearchProviderOptions {
+export interface PyModelWebSearchProviderOptions {
   tokenProvider?: BearerTokenProvider;
   apiKey?: string;
   baseUrl: string;
@@ -21,7 +21,7 @@ export interface PythoughtsWebSearchProviderOptions {
   fetchImpl?: typeof fetch;
 }
 
-interface PythoughtsSearchResult {
+interface PyModelSearchResult {
   site_name?: string;
   title?: string;
   url?: string;
@@ -32,11 +32,11 @@ interface PythoughtsSearchResult {
   mime?: string;
 }
 
-interface PythoughtsSearchResponse {
-  search_results?: PythoughtsSearchResult[];
+interface PyModelSearchResponse {
+  search_results?: PyModelSearchResult[];
 }
 
-export class PythoughtsWebSearchProvider implements WebSearchProvider {
+export class PyModelWebSearchProvider implements WebSearchProvider {
   private readonly tokenProvider: BearerTokenProvider | undefined;
   private readonly apiKey: string | undefined;
   private readonly baseUrl: string;
@@ -44,7 +44,7 @@ export class PythoughtsWebSearchProvider implements WebSearchProvider {
   private readonly customHeaders: Record<string, string>;
   private readonly fetchImpl: typeof fetch;
 
-  constructor(options: PythoughtsWebSearchProviderOptions) {
+  constructor(options: PyModelWebSearchProviderOptions) {
     this.tokenProvider = options.tokenProvider;
     this.apiKey = options.apiKey;
     this.baseUrl = options.baseUrl;
@@ -55,43 +55,29 @@ export class PythoughtsWebSearchProvider implements WebSearchProvider {
 
   async search(
     query: string,
-    options?: {
-      limit?: number;
-      includeContent?: boolean;
-      toolCallId?: string;
-      allowedDomains?: string[];
-      blockedDomains?: string[];
-      signal?: AbortSignal;
-    },
+    options?: { toolCallId?: string },
   ): Promise<WebSearchResult[]> {
-    const body = {
-      text_query: query,
-      limit: options?.limit ?? 5,
-      enable_page_crawling: options?.includeContent ?? false,
-      timeout_seconds: 30,
-      allowed_domains: options?.allowedDomains,
-      blocked_domains: options?.blockedDomains,
-    };
+    const body = { text_query: query };
     const bodyJson = JSON.stringify(body);
 
     const toolCallId = options?.toolCallId;
-    const response = await this.post(bodyJson, toolCallId, options?.signal);
+    const response = await this.post(bodyJson, toolCallId);
 
     if (response.status === 401) {
       const detail = await safeReadText(response);
       throw new Error(
-        `Pythoughts search request failed: HTTP 401 (auth/unauthorized). ${detail}`.trim(),
+        `PyModel search request failed: HTTP 401 (auth/unauthorized). ${detail}`.trim(),
       );
     }
 
     if (response.status !== 200) {
       const detail = await safeReadText(response);
       throw new Error(
-        `Pythoughts search request failed: HTTP ${String(response.status)}. ${detail}`.trim(),
+        `PyModel search request failed: HTTP ${String(response.status)}. ${detail}`.trim(),
       );
     }
 
-    const json = (await response.json()) as PythoughtsSearchResponse;
+    const json = (await response.json()) as PyModelSearchResponse;
     const raw = Array.isArray(json.search_results) ? json.search_results : [];
 
     return raw.map((r): WebSearchResult => {
@@ -101,16 +87,12 @@ export class PythoughtsWebSearchProvider implements WebSearchProvider {
         snippet: r.snippet ?? '',
       };
       if (typeof r.date === 'string' && r.date.length > 0) out.date = r.date;
-      if (typeof r.content === 'string' && r.content.length > 0) out.content = r.content;
+      if (typeof r.site_name === 'string' && r.site_name.length > 0) out.siteName = r.site_name;
       return out;
     });
   }
 
-  private async post(
-    bodyJson: string,
-    toolCallId: string | undefined,
-    signal: AbortSignal | undefined,
-  ): Promise<Response> {
+  private async post(bodyJson: string, toolCallId: string | undefined): Promise<Response> {
     const accessToken = await this.resolveApiKey();
     return this.fetchImpl(this.baseUrl, {
       method: 'POST',
@@ -124,7 +106,6 @@ export class PythoughtsWebSearchProvider implements WebSearchProvider {
         ...this.customHeaders,
       },
       body: bodyJson,
-      signal,
     });
   }
 
@@ -143,7 +124,7 @@ export class PythoughtsWebSearchProvider implements WebSearchProvider {
       return this.apiKey;
     }
     throw new Error(
-      'Pythoughts search service is not configured: missing API key or token provider.',
+      'PyModel search service is not configured: missing API key or token provider.',
     );
   }
 }

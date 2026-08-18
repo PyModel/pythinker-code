@@ -92,7 +92,9 @@ show_elapsed = false
 
     await handleReloadCommand(host);
 
-    expect(session.reloadSession).toHaveBeenCalledOnce();
+    expect(session.reloadSession).toHaveBeenCalledWith({
+      forcePluginSessionStartReminder: true,
+    });
     expect(host.reloadCurrentSessionView).toHaveBeenCalledWith(
       session,
       'Session reloaded.',
@@ -136,6 +138,34 @@ show_elapsed = false
 
     expect(themeWhenTracked).toBe('auto');
   });
+
+  it('refreshes workspace commands and lazy defaults on a session-less v2 reload', async () => {
+    await writeTuiConfig('theme = "dark"\n');
+    const host = makeHost();
+    const refreshSkillCommands = vi.fn(async () => {});
+    const refreshPluginCommands = vi.fn(async () => {});
+    const hydrateLazyConfigDefaults = vi.fn(async () => {});
+    Object.assign(host, {
+      engineV2: true,
+      refreshSkillCommands,
+      refreshPluginCommands,
+      hydrateLazyConfigDefaults,
+    });
+
+    await handleReloadCommand(host);
+
+    expect(refreshSkillCommands).toHaveBeenCalledOnce();
+    expect(refreshPluginCommands).toHaveBeenCalledOnce();
+    expect(hydrateLazyConfigDefaults).toHaveBeenCalledOnce();
+    // Autocomplete must rebuild after the command maps are refreshed.
+    expect(refreshSkillCommands.mock.invocationCallOrder[0]).toBeLessThan(
+      host.refreshSlashCommandAutocomplete.mock.invocationCallOrder[0]!,
+    );
+    expect(host.showStatus).toHaveBeenCalledWith(
+      'Runtime and TUI config reloaded; no active session.',
+      'success',
+    );
+  });
 });
 
 async function writeTuiConfig(text: string): Promise<void> {
@@ -160,6 +190,9 @@ function makeHost({
       statusLine: DEFAULT_STATUS_LINE_CONFIG,
       availableModels: {},
       availableProviders: {},
+    },
+    editor: {
+      setDisablePasteBurst: vi.fn(),
     },
     theme: {
       palette: {

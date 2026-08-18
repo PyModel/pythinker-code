@@ -2,28 +2,12 @@ import type { AppModel, ThinkingLevel } from '../api/types';
 
 export type ThinkingAvailability = 'toggle' | 'always-on' | 'unsupported';
 
-export type ModelThinkingInfo = Pick<AppModel, 'capabilities'> & {
+export type ModelThinkingInfo = Pick<
+  AppModel,
+  'capabilities' | 'supportEfforts' | 'defaultEffort'
+> & {
   readonly adaptiveThinking?: boolean;
-  readonly supportEfforts?: readonly string[];
 };
-
-/**
- * Effort-level rules, mirrored from `packages/node-sdk/src/thinking-levels.ts`.
- * The web app has no dependency on the SDK or agent-core, so the rules are
- * duplicated here on purpose; keep both copies in step.
- */
-export const CANONICAL_EFFORT_ORDER: readonly ThinkingLevel[] = [
-  'off',
-  'minimal',
-  'low',
-  'medium',
-  'high',
-  'xhigh',
-  'max',
-];
-
-/** Fallback effort set for models without `supportEfforts` metadata. */
-const DEFAULT_SUPPORTED_EFFORTS: readonly ThinkingLevel[] = ['low', 'medium', 'high'];
 
 export function modelThinkingAvailability(
   model: ModelThinkingInfo | undefined,
@@ -35,43 +19,130 @@ export function modelThinkingAvailability(
   return 'unsupported';
 }
 
-/** Effort levels the model actually supports ('off' excluded), canonical order. */
-function baseEffortsForModel(model: ModelThinkingInfo | undefined): ThinkingLevel[] {
-  const supportEfforts = model?.supportEfforts;
-  if (supportEfforts?.length === 0) return ['high'];
-  const declared = new Set<string>(supportEfforts ?? []);
-  const ordered = CANONICAL_EFFORT_ORDER.filter(
-    (effort) => effort !== 'off' && declared.has(effort),
-  );
-  return ordered.length > 0 ? [...ordered] : [...DEFAULT_SUPPORTED_EFFORTS];
+function effortsOf(model: ModelThinkingInfo | undefined): readonly string[] {
+  return model?.supportEfforts ?? [];
 }
 
-/** Selectable levels for a model, in order. `['off']` when thinking is unsupported. */
-export function effortLevelsForModel(model: ModelThinkingInfo | undefined): ThinkingLevel[] {
-  const availability = modelThinkingAvailability(model);
-  if (availability === 'unsupported') return ['off'];
-  const base = baseEffortsForModel(model);
-  return availability === 'always-on' ? base : ['off', ...base];
+function middleOf(efforts: readonly string[]): string {
+  return efforts[Math.floor(efforts.length / 2)]!;
 }
 
 /**
- * Clamp a requested effort to what the model supports:
- * always-on + 'off' → first supported level; unsupported → 'off'; a level the
- * model lacks → nearest lower supported level (else the first selectable one).
+ * Default thinking level for a model:
+ *  - unsupported / no model → 'off'
+ *  - effort model          → defaultEffort, else the middle declared effort
+ *  - boolean model         → 'on'
  */
-export function coerceThinkingForModel(
+export function defaultThinkingLevelFor(
   model: ModelThinkingInfo | undefined,
-  requested: ThinkingLevel,
 ): ThinkingLevel {
+  if (modelThinkingAvailability(model) === 'unsupported') return 'off';
+  const efforts = effortsOf(model);
+  if (efforts.length > 0) return model?.defaultEffort ?? middleOf(efforts);
+  return 'on';
+}
+
+/**
+ * UI segments (left → right) for a model's thinking control:
+ *  - unsupported       → ['off']
+ *  - boolean toggle    → ['on', 'off']            (On on the left, legacy layout)
+ *  - boolean always-on → ['on']
+ *  - effort toggle     → ['off', ...efforts]      (Off on the left)
+ *  - effort always-on  → [...efforts]             (no Off segment)
+ */
+export function segmentsFor(model: ModelThinkingInfo | undefined): readonly string[] {
+  const efforts = effortsOf(model);
   const availability = modelThinkingAvailability(model);
-  if (availability === 'unsupported') return 'off';
-  const levels = effortLevelsForModel(model);
-  if (availability === 'always-on' && requested === 'off') return levels[0]!;
-  if (levels.includes(requested)) return requested;
-  const requestedIdx = CANONICAL_EFFORT_ORDER.indexOf(requested);
-  for (let i = requestedIdx - 1; i >= 0; i--) {
-    const candidate = CANONICAL_EFFORT_ORDER[i]!;
-    if (levels.includes(candidate)) return candidate;
+  if (efforts.length > 0) {
+    return availability === 'always-on' ? [...efforts] : ['off', ...efforts];
   }
-  return levels[0]!;
+  if (availability === 'always-on') return ['on'];
+  if (availability === 'unsupported') return ['off'];
+  return ['on', 'off'];
+}
+
+/** Display label for a level: capitalize the first letter (off→Off, max→Max). */
+export function effortLabel(effort: string): string {
+  return effort.length === 0 ? effort : effort.charAt(0).toUpperCase() + effort.slice(1);
+}
+
+export function isThinkingOn(level: ThinkingLevel): boolean {
+  return level !== 'off';
+}
+
+/** True when the level is selectable for the model (one of its UI segments). */
+export function levelDeclaredBy(
+  model: ModelThinkingInfo | undefined,
+  level: string,
+): boolean {
+  return segmentsFor(model).includes(level);
+}
+
+/**
+ * Normalize a UI draft before it crosses the component boundary. 'on' never
+ * leaks out of the control — it becomes the model's default level.
+ */
+export function commitLevel(
+  model: ModelThinkingInfo | undefined,
+  draft: string,
+): ThinkingLevel {
+  if (draft === 'off') return 'off';
+  if (draft === 'on') return defaultThinkingLevelFor(model);
+  return draft;
+}
+
+/**
+ * The level that effectively applies when the stored level is `undefined`
+ * (no explicit preference): the model's own default. Submitting a prompt with
+ * no thinking override lets the daemon resolve the same value, so this is what
+ * the UI displays and what `/thinking` cycles from.
+ */
+export function effectiveThinkingLevel(
+  model: ModelThinkingInfo | undefined,
+  level: ThinkingLevel | undefined,
+): ThinkingLevel {
+  return level ?? defaultThinkingLevelFor(model);
+}
+
+/**
+ * Project a thinking level onto the daemon's `[thinking]` config section —
+ * the same mapping the TUI persists (thinkingEffortToConfig): 'off' disables
+ * thinking, boolean 'on' records only `enabled` (boolean models resolve back
+ * to 'on' at runtime), and a concrete effort is recorded as the global
+ * default — EXCEPT the model's highest declared level (the last entry of
+ * `support_efforts`, ordered by strength), which is session-only and records
+ * just `enabled`, so the most expensive tier never becomes the global
+ * default for every new session. When the model's levels are unknown the
+ * concrete level is persisted as-is.
+ */
+export function thinkingLevelToConfig(
+  level: ThinkingLevel,
+  supportEfforts?: readonly string[],
+): {
+  enabled: boolean;
+  effort?: string;
+} {
+  if (level === 'off') return { enabled: false };
+  if (level === 'on') return { enabled: true };
+  const top = supportEfforts?.at(-1);
+  if (top !== undefined && level === top) return { enabled: true };
+  return { enabled: true, effort: level };
+}
+
+/**
+ * Thinking level to use when the user picks a model in the switcher.
+ * Mirrors the TUI model picker: re-selecting the current model keeps the live
+ * level untouched (including "no preference"). Switching onto a different model
+ * pre-selects that model's catalog default level. The carried-over level is
+ * never coerced onto the target model.
+ */
+export function thinkingLevelForModelSwitch(
+  model: ModelThinkingInfo | undefined,
+  currentLevel: ThinkingLevel | undefined,
+  isSwitch: boolean,
+): ThinkingLevel | undefined {
+  // Target model unknown (catalog not loaded yet): keep the current level
+  // as-is rather than guessing at capabilities.
+  if (!isSwitch || model === undefined) return currentLevel;
+  return defaultThinkingLevelFor(model);
 }

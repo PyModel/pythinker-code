@@ -42,7 +42,7 @@ async function main(): Promise<void> {
   const options = parseCliArgs();
   const resolvedHome = resolvePythinkerHome(options.homeDir);
   const harness = createPythinkerHarness({
-    identity: { userAgentProduct: 'pythinker-code-cli', version: 'log-marker' },
+    identity: { productName: 'pythinker-code-cli', version: 'log-marker', platform: 'pythinker_code_cli' },
     homeDir: options.homeDir,
   });
 

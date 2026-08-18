@@ -92,6 +92,7 @@ describe('update preference commands', () => {
       theme: 'auto',
       layout: 'inline',
       editorCommand: null,
+      disablePasteBurst: false,
       notifications: { enabled: true, condition: 'unfocused' },
       upgrade: { autoInstall: false },
       statusLine: DEFAULT_STATUS_LINE_CONFIG,

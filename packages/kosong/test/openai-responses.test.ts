@@ -12,6 +12,7 @@ import {
   OpenAIResponsesChatProvider,
   OpenAIResponsesStreamedMessage,
 } from '#/providers/openai-responses';
+import type { GenerateOptions } from '#/provider';
 import type { Tool } from '#/tool';
 import { describe, it, expect, vi } from 'vitest';
 
@@ -47,6 +48,7 @@ async function captureRequestBody(
   systemPrompt: string,
   tools: Tool[],
   history: Message[],
+  options?: GenerateOptions,
 ): Promise<Record<string, unknown>> {
   let capturedBody: Record<string, unknown> | undefined;
 
@@ -59,7 +61,7 @@ async function captureRequestBody(
       return Promise.resolve(makeResponsesAPIResponse());
     });
 
-  const stream = await provider.generate(systemPrompt, tools, history);
+  const stream = await provider.generate(systemPrompt, tools, history, options);
   for await (const part of stream) {
     void part;
   }
@@ -356,6 +358,25 @@ describe('OpenAIResponsesChatProvider', () => {
           { type: 'summary_text', text: 'second thought' },
           { type: 'summary_text', text: 'third thought' },
         ],
+      });
+    });
+
+    it('serializes an explicitly empty ThinkPart as an empty reasoning summary', async () => {
+      const provider = createProvider();
+      const history: Message[] = [
+        {
+          role: 'assistant',
+          content: [{ type: 'think', think: '' }],
+          toolCalls: [],
+        },
+      ];
+
+      const body = await captureRequestBody(provider, '', [], history);
+      const input = body['input'] as Array<Record<string, unknown>>;
+
+      expect(input.find((item) => item['type'] === 'reasoning')).toMatchObject({
+        type: 'reasoning',
+        summary: [{ type: 'summary_text', text: '' }],
       });
     });
 
@@ -885,142 +906,6 @@ describe('OpenAIResponsesChatProvider', () => {
     });
   });
 
-  describe('OpenAI Codex backend', () => {
-    function createCodexProvider(): OpenAIResponsesChatProvider {
-      return new OpenAIResponsesChatProvider({
-        model: 'gpt-5.5',
-        apiKey: 'test-key',
-        baseUrl: 'https://chatgpt.com/backend-api/codex',
-      });
-    }
-
-    it('sends tool_choice and parallel_tool_calls', async () => {
-      const provider = createCodexProvider();
-      const history: Message[] = [
-        { role: 'user', content: [{ type: 'text', text: 'Hi' }], toolCalls: [] },
-      ];
-      const body = await captureRequestBody(provider, '', [], history);
-
-      expect(body['tool_choice']).toBe('auto');
-      expect(body['parallel_tool_calls']).toBe(true);
-    });
-
-    it('strips unsupported params rejected by the Codex backend', async () => {
-      const provider = createCodexProvider().withGenerationKwargs({
-        temperature: 0.7,
-        top_p: 0.9,
-        max_output_tokens: 2048,
-      });
-      const history: Message[] = [
-        { role: 'user', content: [{ type: 'text', text: 'Hi' }], toolCalls: [] },
-      ];
-      const body = await captureRequestBody(provider, '', [], history);
-
-      expect(body['temperature']).toBeUndefined();
-      expect(body['top_p']).toBeUndefined();
-      expect(body['max_output_tokens']).toBeUndefined();
-    });
-
-    it('withMaxCompletionTokens does not send max_output_tokens to Codex', async () => {
-      const provider = createCodexProvider().withMaxCompletionTokens(1024);
-      const history: Message[] = [
-        { role: 'user', content: [{ type: 'text', text: 'Hi' }], toolCalls: [] },
-      ];
-      const body = await captureRequestBody(provider, '', [], history);
-
-      expect(body['max_output_tokens']).toBeUndefined();
-    });
-  });
-
-  describe('fast mode', () => {
-    it('maps Fast mode to the priority service tier without mutating the original provider', async () => {
-      const original = new OpenAIResponsesChatProvider({
-        model: 'gpt-5.6-sol',
-        apiKey: 'test-key',
-      });
-      const provider = original.withFastMode(true);
-      const history: Message[] = [
-        { role: 'user', content: [{ type: 'text', text: 'Hi' }], toolCalls: [] },
-      ];
-      const body = await captureRequestBody(provider, '', [], history);
-
-      expect(original.fastMode).toBe(false);
-      expect(provider.fastMode).toBe(true);
-      expect(provider.supportsFastMode).toBe(true);
-      expect(body['service_tier']).toBe('priority');
-    });
-
-    it('sends the priority service tier to the Codex backend', async () => {
-      const provider = new OpenAIResponsesChatProvider({
-        model: 'gpt-5.5',
-        apiKey: 'test-key',
-        baseUrl: 'https://chatgpt.com/backend-api/codex',
-        fastModeSupported: true,
-      }).withFastMode(true);
-      const body = await captureRequestBody(
-        provider,
-        '',
-        [],
-        [{ role: 'user', content: [{ type: 'text', text: 'Hi' }], toolCalls: [] }],
-      );
-
-      expect(provider.supportsFastMode).toBe(true);
-      expect(body['service_tier']).toBe('priority');
-    });
-
-    it('removes the requested service tier when Fast mode is turned off', async () => {
-      const provider = new OpenAIResponsesChatProvider({
-        model: 'gpt-5.4-codex',
-        apiKey: 'test-key',
-      })
-        .withFastMode(true)
-        .withFastMode(false);
-      const body = await captureRequestBody(
-        provider,
-        '',
-        [],
-        [{ role: 'user', content: [{ type: 'text', text: 'Hi' }], toolCalls: [] }],
-      );
-
-      expect(provider.fastMode).toBe(false);
-      expect(body['service_tier']).toBeUndefined();
-    });
-
-    it.each([
-      ['gpt-5.3-codex-spark', 'https://api.openai.com/v1'],
-      ['gpt-5.4-mini', 'https://api.openai.com/v1'],
-      ['gpt-5.5', 'https://chatgpt.com/backend-api/codex'],
-      ['gpt-5.6-sol', 'https://api.example.com/v1'],
-    ])('does not advertise Fast mode for unsupported model/endpoint %s', (model, baseUrl) => {
-      const provider = new OpenAIResponsesChatProvider({
-        model,
-        apiKey: 'test-key',
-        baseUrl,
-      });
-
-      expect(provider.supportsFastMode).toBe(false);
-      expect(provider.withFastMode(true).fastMode).toBe(false);
-    });
-
-    it('allows an explicitly declared compatible gateway', async () => {
-      const provider = new OpenAIResponsesChatProvider({
-        model: 'gateway-fast-model',
-        apiKey: 'test-key',
-        baseUrl: 'https://api.example.com/v1',
-        fastModeSupported: true,
-      }).withFastMode(true);
-      const body = await captureRequestBody(
-        provider,
-        '',
-        [],
-        [{ role: 'user', content: [{ type: 'text', text: 'Hi' }], toolCalls: [] }],
-      );
-
-      expect(provider.supportsFastMode).toBe(true);
-      expect(body['service_tier']).toBe('priority');
-    });
-  });
-
   describe('generation kwargs', () => {
     it('applies temperature and max_output_tokens', async () => {
       const provider = createProvider().withGenerationKwargs({
@@ -1036,6 +921,22 @@ describe('OpenAIResponsesChatProvider', () => {
       expect(body['max_output_tokens']).toBe(2048);
     });
 
+    it('passes constructor generationKwargs into the request body', async () => {
+      // The construction-time channel (session affinity): kwargs seeded via
+      // the options land on every request, no morph required.
+      const provider = new OpenAIResponsesChatProvider({
+        model: 'gpt-4.1',
+        apiKey: 'test-key',
+        generationKwargs: { prompt_cache_key: 'session-test' },
+      });
+      const history: Message[] = [
+        { role: 'user', content: [{ type: 'text', text: 'Hi' }], toolCalls: [] },
+      ];
+      const body = await captureRequestBody(provider, '', [], history);
+
+      expect(body['prompt_cache_key']).toBe('session-test');
+    });
+
     it('withMaxCompletionTokens sets max_output_tokens on the cloned provider', async () => {
       const original = createProvider();
       const provider = original.withMaxCompletionTokens(1024);
@@ -1046,6 +947,76 @@ describe('OpenAIResponsesChatProvider', () => {
 
       expect(provider).not.toBe(original);
       expect(body['max_output_tokens']).toBe(1024);
+      expect(provider.maxCompletionTokens).toBe(1024);
+    });
+
+    it('maps json_schema response format to text.format', async () => {
+      const provider = createProvider();
+      const history: Message[] = [
+        { role: 'user', content: [{ type: 'text', text: 'Extract contact' }], toolCalls: [] },
+      ];
+      const schema = {
+        type: 'object',
+        properties: { name: { type: 'string' } },
+        required: ['name'],
+        additionalProperties: false,
+      };
+      const body = await captureRequestBody(provider, '', [], history, {
+        responseFormat: {
+          type: 'json_schema',
+          jsonSchema: {
+            name: 'contact',
+            schema,
+            strict: true,
+          },
+        },
+      });
+
+      expect(body['text']).toEqual({
+        format: {
+          type: 'json_schema',
+          name: 'contact',
+          schema,
+          strict: true,
+          description: undefined,
+        },
+      });
+    });
+
+    it('preserves existing Responses text options when applying response format', async () => {
+      const provider = createProvider().withGenerationKwargs({
+        text: { verbosity: 'low' },
+      });
+      const history: Message[] = [
+        { role: 'user', content: [{ type: 'text', text: 'Extract contact' }], toolCalls: [] },
+      ];
+      const schema = {
+        type: 'object',
+        properties: { name: { type: 'string' } },
+        required: ['name'],
+        additionalProperties: false,
+      };
+      const body = await captureRequestBody(provider, '', [], history, {
+        responseFormat: {
+          type: 'json_schema',
+          jsonSchema: {
+            name: 'contact',
+            schema,
+            strict: true,
+          },
+        },
+      });
+
+      expect(body['text']).toEqual({
+        verbosity: 'low',
+        format: {
+          type: 'json_schema',
+          name: 'contact',
+          schema,
+          strict: true,
+          description: undefined,
+        },
+      });
     });
   });
 
@@ -1070,6 +1041,22 @@ describe('OpenAIResponsesChatProvider', () => {
 
       expect(body['reasoning']).toBeUndefined();
       expect(body['include']).toBeUndefined();
+    });
+
+    it('with_thinking("off") sends the configured offEffort for models that reason by default', async () => {
+      const provider = new OpenAIResponsesChatProvider({
+        model: 'grok-4',
+        apiKey: 'test-key',
+        offEffort: 'none',
+      }).withThinking('off');
+      const history: Message[] = [
+        { role: 'user', content: [{ type: 'text', text: 'Hi' }], toolCalls: [] },
+      ];
+      const body = await captureRequestBody(provider, '', [], history);
+
+      expect(body['reasoning']).toEqual({ effort: 'none', summary: 'auto' });
+      expect(body['include']).toEqual(['reasoning.encrypted_content']);
+      expect(provider.thinkingEffort).toBe('off');
     });
 
     it('with_thinking("low") sends reasoning with effort=low', async () => {
@@ -1107,11 +1094,10 @@ describe('OpenAIResponsesChatProvider', () => {
       expect(body['reasoning']).toEqual({ effort: 'xhigh', summary: 'auto' });
     });
 
-    it('with_thinking("max") passes max through when the model supports it', async () => {
+    it('with_thinking("max") passes max through to the wire', async () => {
       const provider = new OpenAIResponsesChatProvider({
-        model: 'gpt-5.6-sol',
+        model: 'gpt-5.1-codex-max',
         apiKey: 'test-key',
-        supportEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
       }).withThinking('max');
       const history: Message[] = [
         { role: 'user', content: [{ type: 'text', text: 'Think' }], toolCalls: [] },
@@ -1121,18 +1107,33 @@ describe('OpenAIResponsesChatProvider', () => {
       expect((body['reasoning'] as Record<string, unknown>)['effort']).toBe('max');
     });
 
-    it('clamps max to the highest declared supported effort', async () => {
+    it('passes concrete effort strings through verbatim', async () => {
       const provider = new OpenAIResponsesChatProvider({
-        model: 'gpt-5.4-mini',
+        model: 'kimi-for-coding',
         apiKey: 'test-key',
-        supportEfforts: ['low', 'medium', 'high'],
-      }).withThinking('max');
+      }).withThinking('extreme');
       const history: Message[] = [
         { role: 'user', content: [{ type: 'text', text: 'Think' }], toolCalls: [] },
       ];
       const body = await captureRequestBody(provider, '', [], history);
 
-      expect((body['reasoning'] as Record<string, unknown>)['effort']).toBe('high');
+      expect((body['reasoning'] as Record<string, unknown>)['effort']).toBe('extreme');
+      expect(provider.thinkingEffort).toBe('extreme');
+    });
+
+    it('does not filter concrete efforts through a client-side allow-list', async () => {
+      const provider = new OpenAIResponsesChatProvider({
+        model: 'kimi-for-coding',
+        apiKey: 'test-key',
+      });
+      const history: Message[] = [
+        { role: 'user', content: [{ type: 'text', text: 'Think' }], toolCalls: [] },
+      ];
+      const maxBody = await captureRequestBody(provider.withThinking('max'), '', [], history);
+      const xhighBody = await captureRequestBody(provider.withThinking('xhigh'), '', [], history);
+
+      expect((maxBody['reasoning'] as Record<string, unknown>)['effort']).toBe('max');
+      expect((xhighBody['reasoning'] as Record<string, unknown>)['effort']).toBe('xhigh');
     });
   });
 
@@ -1289,8 +1290,8 @@ describe('OpenAIResponsesChatProvider', () => {
               type: 'reasoning',
               encrypted_content: 'enc_token_abc',
               summary: [
-                { type: 'summary_text', text: '**Step 1**' },
-                { type: 'summary_text', text: '**Step 2**' },
+                { type: 'summary_text', text: 'Step 1' },
+                { type: 'summary_text', text: 'Step 2' },
               ],
             },
             {
@@ -1311,10 +1312,34 @@ describe('OpenAIResponsesChatProvider', () => {
       for await (const p of stream) parts.push(p);
 
       expect(parts).toEqual([
-        { type: 'think', think: '**Step 1**', encrypted: 'enc_token_abc' },
-        { type: 'think', think: '\n\n**Step 2**', encrypted: 'enc_token_abc' },
+        { type: 'think', think: 'Step 1', encrypted: 'enc_token_abc' },
+        { type: 'think', think: 'Step 2', encrypted: 'enc_token_abc' },
         { type: 'text', text: 'done' },
       ]);
+    });
+
+    it('yields an empty ThinkPart from a non-stream reasoning item with no summaries', async () => {
+      const provider = createProvider();
+      (provider as any)._stream = false;
+      ((provider as any)._client.responses as unknown as Record<string, unknown>)['create'] = vi
+        .fn()
+        .mockResolvedValue({
+          id: 'resp_empty_reasoning',
+          output: [
+            {
+              type: 'reasoning',
+              encrypted_content: 'enc_empty',
+              summary: [],
+            },
+          ],
+          usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+        });
+
+      const stream = await provider.generate('', [], []);
+      const parts: StreamedMessagePart[] = [];
+      for await (const part of stream) parts.push(part);
+
+      expect(parts).toEqual([{ type: 'think', think: '', encrypted: 'enc_empty' }]);
     });
 
     it('non-stream reasoning without encrypted_content yields ThinkPart without encrypted field', async () => {
@@ -1869,12 +1894,11 @@ describe('OpenAIResponsesChatProvider', () => {
       expect(parts).toEqual([{ type: 'think', think: '' }]);
     });
 
-    it('separates streamed reasoning summary parts without a leading separator', async () => {
+    it('yields ThinkPart from response.reasoning_summary_part.added and .delta events', async () => {
       const events = [
         { type: 'response.reasoning_summary_part.added' },
-        { type: 'response.reasoning_summary_text.delta', delta: '**First**' },
-        { type: 'response.reasoning_summary_part.added' },
-        { type: 'response.reasoning_summary_text.delta', delta: '**Second**' },
+        { type: 'response.reasoning_summary_text.delta', delta: 'Thinking about' },
+        { type: 'response.reasoning_summary_text.delta', delta: ' the answer' },
       ];
 
       const stream = new OpenAIResponsesStreamedMessage(makeAsyncIterable(events), true);
@@ -1883,9 +1907,8 @@ describe('OpenAIResponsesChatProvider', () => {
 
       expect(parts).toEqual([
         { type: 'think', think: '' },
-        { type: 'think', think: '**First**' },
-        { type: 'think', think: '\n\n' },
-        { type: 'think', think: '**Second**' },
+        { type: 'think', think: 'Thinking about' },
+        { type: 'think', think: ' the answer' },
       ]);
     });
 
@@ -1992,6 +2015,33 @@ describe('OpenAIResponsesChatProvider', () => {
       expect((caughtError as Error).message).not.toContain('stream event.type must be a string');
     });
 
+    it('promotes an embedded upstream status_code=429 to a retryable rate limit', async () => {
+      // llmproxy forwards the original provider 429 as text inside the message
+      // (`.../responses/<id>.json status_code=429`) while the Responses API
+      // `code` is not `rate_limit_exceeded`. It must still surface as an
+      // APIProviderRateLimitError so chatWithRetry recovers it.
+      const events = [
+        {
+          type: 'error',
+          code: 'upstream_error',
+          message: 'llmproxy/openai/responses/resp_abc.json status_code=429',
+          param: null,
+        },
+      ];
+      const stream = new OpenAIResponsesStreamedMessage(makeAsyncIterable(events), true);
+
+      let caughtError: unknown;
+      try {
+        await collectStreamParts(stream);
+      } catch (error) {
+        caughtError = error;
+      }
+
+      expect(caughtError).toBeInstanceOf(APIProviderRateLimitError);
+      expect((caughtError as APIProviderRateLimitError).statusCode).toBe(429);
+      expect((caughtError as Error).message).toContain('status_code=429');
+    });
+
     it('fails fast on response.failed with an insufficient_quota code', async () => {
       // Quota exhaustion arriving as a Responses stream event carries no HTTP
       // status; without the structured-code check it would fall through to the
@@ -2022,6 +2072,33 @@ describe('OpenAIResponsesChatProvider', () => {
       expect(caughtError).toBeInstanceOf(APIProviderQuotaExhaustedError);
       expect((caughtError as APIProviderQuotaExhaustedError).statusCode).toBe(429);
       expect(isRetryableGenerateError(caughtError)).toBe(false);
+    });
+
+    it('keeps an embedded status_code=429 with vendor billing wording a rate limit', async () => {
+      // Vendor billing wordings are no longer recognized by the base — quota
+      // classification for a vendor's own errors lives on that vendor's
+      // convertError hook, and no vendor rides this transport here.
+      const events = [
+        {
+          type: 'error',
+          code: 'upstream_error',
+          message:
+            'llmproxy/openai/responses/resp_q.json status_code=429 Your account is suspended due to insufficient balance, please recharge your account',
+          param: null,
+        },
+      ];
+      const stream = new OpenAIResponsesStreamedMessage(makeAsyncIterable(events), true);
+
+      let caughtError: unknown;
+      try {
+        await collectStreamParts(stream);
+      } catch (error) {
+        caughtError = error;
+      }
+
+      expect(caughtError).toBeInstanceOf(APIProviderRateLimitError);
+      expect(caughtError).not.toBeInstanceOf(APIProviderQuotaExhaustedError);
+      expect(isRetryableGenerateError(caughtError)).toBe(true);
     });
 
     it('rejects malformed stream events with a non-string type even when message is present', async () => {

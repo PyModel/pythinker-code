@@ -19,7 +19,7 @@ import {
   visibleWidth,
   wrapTextWithAnsi,
   type Component,
-} from '@earendil-works/pi-tui';
+} from '@pymodel/pi-tui';
 import type { GoalSnapshot, GoalStatus } from '@pymodel/pythinker-code-sdk';
 
 import { MESSAGE_INDENT } from '#/tui/constant/rendering';

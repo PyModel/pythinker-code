@@ -15,6 +15,7 @@ export {
   __resetRootLoggerForTest,
   enableDiagnosticDebugLogging,
   flushDiagnosticLogs,
+  flushDiagnosticLogsSync,
   getRootLogger,
   log,
   redact,

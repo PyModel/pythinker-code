@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { type WriteInput, WriteInputSchema, WriteTool } from '../../src/tools/builtin/file/write';
-import type { FileReadState } from '../../src/tools/builtin/file/read';
 import { createFakeKaos, PERMISSIVE_WORKSPACE, toolContentString } from './fixtures/fake-kaos';
 import { executeTool } from './fixtures/execute-tool';
 
@@ -24,6 +23,16 @@ describe('WriteTool', () => {
     // The prompt steers the agent toward Edit for partial changes to an
     // existing file. Pin the prohibition so accidental weakening is caught.
     expect(tool.description).toContain('Write is NOT ALLOWED for incremental changes');
+    // Spontaneous doc/README creation is a known anti-pattern; pin the guard.
+    expect(tool.description).toContain('documentation files');
+    expect(tool.description).toContain('README');
+    // ...but the plan-mode plan file is a `.md` the model is told to Write, so the
+    // ban must carve it out (plan/index.ts writes plans/<id>.md via Write).
+    expect(tool.description.toLowerCase()).toContain('plan-mode plan file');
+    // The guard targets UNSOLICITED docs, not every .md file, so an artifact a task or
+    // project instruction requires (e.g. a repo-mandated changeset) is not caught either.
+    expect(tool.description.toLowerCase()).toContain('unsolicited');
+    expect(tool.description.toLowerCase()).toContain('instruction requires it');
     expect(tool.parameters).toMatchObject({
       type: 'object',
       properties: {
@@ -113,100 +122,6 @@ describe('WriteTool', () => {
     expect(result.output).toContain('Wrote 5 bytes');
   });
 
-  it('captures the safe path immediately before writing', async () => {
-    const writeText = vi.fn().mockResolvedValue(5);
-    const beforeWrite = vi.fn(async (path: string) => {
-      expect(path).toBe('/tmp/new.txt');
-      expect(writeText).not.toHaveBeenCalled();
-    });
-    const tool = new WriteTool(
-      createFakeKaos({ writeText, stat: DIR_STAT }),
-      PERMISSIVE_WORKSPACE,
-      undefined,
-      beforeWrite,
-    );
-
-    await executeTool(tool, context({ path: '/tmp/new.txt', content: 'hello' }));
-
-    expect(beforeWrite).toHaveBeenCalledOnce();
-    expect(writeText).toHaveBeenCalledOnce();
-  });
-
-  it('requires a complete prior Read before overwriting an existing file', async () => {
-    const writeText = vi.fn();
-    const stat = vi.fn().mockImplementation(async (path: string) => {
-      return path === '/tmp'
-        ? { stMode: 0o040755 }
-        : { stMode: 0o100644, stMtime: 1 };
-    });
-    const tool = new WriteTool(
-      createFakeKaos({ stat, writeText }),
-      PERMISSIVE_WORKSPACE,
-      new Map(),
-    );
-
-    const result = await executeTool(
-      tool,
-      context({ path: '/tmp/existing.txt', content: 'replacement' }),
-    );
-
-    expect(result.isError).toBe(true);
-    expect(result.output).toContain('has not been read');
-    expect(writeText).not.toHaveBeenCalled();
-  });
-
-  it('rejects overwriting a file modified after Read', async () => {
-    const state: FileReadState = new Map([
-      ['/tmp/existing.txt', { mtime: 1, range: '1:1000' }],
-    ]);
-    const writeText = vi.fn();
-    const stat = vi.fn().mockImplementation(async (path: string) => {
-      return path === '/tmp'
-        ? { stMode: 0o040755 }
-        : { stMode: 0o100644, stMtime: 2 };
-    });
-    const tool = new WriteTool(
-      createFakeKaos({ stat, writeText }),
-      PERMISSIVE_WORKSPACE,
-      state,
-    );
-
-    const result = await executeTool(
-      tool,
-      context({ path: '/tmp/existing.txt', content: 'replacement' }),
-    );
-
-    expect(result.isError).toBe(true);
-    expect(result.output).toContain('modified since it was read');
-    expect(writeText).not.toHaveBeenCalled();
-  });
-
-  it('does not capture a stale overwrite', async () => {
-    const state: FileReadState = new Map([
-      ['/tmp/existing.txt', { mtime: 1, range: '1:1000' }],
-    ]);
-    const beforeWrite = vi.fn();
-    const tool = new WriteTool(
-      createFakeKaos({
-        stat: vi.fn().mockImplementation(async (path: string) =>
-          path === '/tmp'
-            ? { stMode: 0o040755 }
-            : { stMode: 0o100644, stMtime: 2 }),
-        writeText: vi.fn(),
-      }),
-      PERMISSIVE_WORKSPACE,
-      state,
-      beforeWrite,
-    );
-
-    await executeTool(
-      tool,
-      context({ path: '/tmp/existing.txt', content: 'replacement' }),
-    );
-
-    expect(beforeWrite).not.toHaveBeenCalled();
-  });
-
   it('expands leading tilde paths using the kaos home directory', async () => {
     const writeText = vi.fn().mockResolvedValue(5);
     const tool = new WriteTool(createFakeKaos({ writeText, stat: DIR_STAT }), PERMISSIVE_WORKSPACE);
@@ -230,21 +145,22 @@ describe('WriteTool', () => {
   });
 
   it('reports the real UTF-8 byte count for non-ASCII content', async () => {
-    // The accented character encodes to 2 UTF-8 bytes, so the byte count is
-    // larger than the JS string length.
-    const content = 'café';
+    // Six Japanese characters: each encodes to 3 UTF-8 bytes → 18 bytes total,
+    // even though the JS string length is 6. The reported count must reflect
+    // the bytes that land on disk, not the code-unit count.
+    const content = 'こんにちは。';
     const expectedBytes = Buffer.byteLength(content, 'utf8');
-    expect(expectedBytes).toBe(5);
+    expect(expectedBytes).toBe(18);
 
     // writeText's contract returns a character count; the tool must not rely
     // on it for the byte figure.
     const writeText = vi.fn().mockResolvedValue(content.length);
     const tool = new WriteTool(createFakeKaos({ writeText, stat: DIR_STAT }), PERMISSIVE_WORKSPACE);
 
-    const result = await executeTool(tool, context({ path: '/tmp/unicode.txt', content }));
+    const result = await executeTool(tool, context({ path: '/tmp/jp.txt', content }));
 
-    expect(result.output).toContain('Wrote 5 bytes');
-    expect(result.output).not.toContain('Wrote 4 bytes');
+    expect(result.output).toContain('Wrote 18 bytes');
+    expect(result.output).not.toContain('Wrote 6 bytes');
   });
 
   it('reports the real UTF-8 byte count for content with surrogate-pair emoji', async () => {
@@ -284,28 +200,39 @@ describe('WriteTool', () => {
     expect(result.output).toContain('Appended 5 bytes');
   });
 
-  it('creates missing parent directories before writing', async () => {
+  it('creates missing parent directories automatically before writing', async () => {
     const enoent = Object.assign(new Error('ENOENT: no such file or directory'), {
       code: 'ENOENT',
     });
     const stat = vi.fn().mockRejectedValue(enoent);
     const mkdir = vi.fn().mockResolvedValue(undefined);
     const writeText = vi.fn().mockResolvedValue(4);
-    const tool = new WriteTool(
-      createFakeKaos({ stat, mkdir, writeText }),
-      PERMISSIVE_WORKSPACE,
-    );
+    const tool = new WriteTool(createFakeKaos({ stat, mkdir, writeText }), PERMISSIVE_WORKSPACE);
 
     const result = await executeTool(tool,
       context({ path: '/tmp/missing-dir/file.txt', content: 'data' }),
     );
 
     expect(result.isError).toBeFalsy();
-    expect(mkdir).toHaveBeenCalledWith('/tmp/missing-dir', {
-      parents: true,
-      existOk: true,
-    });
+    expect(mkdir).toHaveBeenCalledWith('/tmp/missing-dir', { parents: true, existOk: true });
     expect(writeText).toHaveBeenCalledWith('/tmp/missing-dir/file.txt', 'data');
+  });
+
+  it('surfaces mkdir failures when a missing parent cannot be created', async () => {
+    const enoent = Object.assign(new Error('ENOENT: no such file or directory'), {
+      code: 'ENOENT',
+    });
+    const stat = vi.fn().mockRejectedValue(enoent);
+    const mkdir = vi.fn().mockRejectedValue(new Error('permission denied'));
+    const writeText = vi.fn().mockResolvedValue(4);
+    const tool = new WriteTool(createFakeKaos({ stat, mkdir, writeText }), PERMISSIVE_WORKSPACE);
+
+    const result = await executeTool(tool,
+      context({ path: '/tmp/missing-dir/file.txt', content: 'data' }),
+    );
+
+    expect(result).toMatchObject({ isError: true, output: 'permission denied' });
+    expect(writeText).not.toHaveBeenCalled();
   });
 
   it('rejects writing when the parent path is not a directory', async () => {
@@ -392,7 +319,7 @@ describe('WriteTool', () => {
   it('round-trips unicode content (CJK + emoji + accented Latin) through kaos.writeText', async () => {
     const writeText = vi.fn().mockResolvedValue(0);
     const tool = new WriteTool(createFakeKaos({ writeText }), PERMISSIVE_WORKSPACE);
-    const content = 'Hello world 🌍\nUnicode: café, naïve, résumé';
+    const content = 'Hello 世界 🌍\nUnicode: café, naïve, résumé';
 
     const result = await executeTool(tool,context({ path: '/tmp/unicode.txt', content }));
 
@@ -410,9 +337,12 @@ describe('WriteTool', () => {
     expect(writeText).toHaveBeenCalledWith('/tmp/empty.txt', '');
   });
 
-  it('reports a parent-directory-does-not-exist message when the directory is missing', async () => {
-    // py surfaces `parent directory does not exist` so the model can `mkdir`
-    // before retrying. TS currently forwards whatever the host throws.
+  it('still reports parent-directory ENOENT surfaced by writeText itself', async () => {
+    // When the proactive parent check is inconclusive (e.g. the environment
+    // has no `stat`) and the underlying write then fails with ENOENT — for
+    // example a parent directory removed between the check and the write —
+    // the tool still surfaces a clear "parent directory does not exist"
+    // message rather than a raw host error.
     const writeText = vi
       .fn()
       .mockRejectedValue(

@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { readFile, stat } from 'node:fs/promises';
+import { mkdir, readFile, rm, stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { promisify } from 'node:util';
 
@@ -73,11 +73,20 @@ assertIncludes(helpOutput, 'Usage: pythinker', '--help');
 const exportHelpOutput = await runPythinker(['export', '--help']);
 assertIncludes(exportHelpOutput, 'Usage: pythinker export', 'export --help');
 
-const nativeAssetOutput = await runPythinkerWithEnv(['--version'], {
-  PYTHINKER_CODE_HOME: smokeHome,
-  PYTHINKER_CODE_NATIVE_ASSET_SMOKE: '1',
-});
-assertIncludes(nativeAssetOutput, `Native asset smoke passed: ${target}`, 'native asset smoke');
+const smokeCache = resolve(smokeHome, 'cache');
+await rm(smokeHome, { recursive: true, force: true });
+await mkdir(smokeCache, { recursive: true });
+try {
+  const nativeAssetOutput = await runPythinkerWithEnv(['--version'], {
+    PYTHINKER_CODE_CACHE_DIR: smokeCache,
+    PYTHINKER_CODE_HOME: smokeHome,
+    PYTHINKER_CODE_NATIVE_ASSET_SMOKE: '1',
+  });
+  assertIncludes(nativeAssetOutput, `Native asset smoke passed: ${target}`, 'native asset smoke');
+  assertIncludes(nativeAssetOutput, 'MiniDb worker build passed', 'MiniDb worker smoke');
+} finally {
+  await rm(smokeHome, { recursive: true, force: true });
+}
 
 const openTuiOutput = await runPythinkerWithEnv([], {
   PYTHINKER_CODE_HOME: smokeHome,

@@ -33,15 +33,23 @@ export interface ReplayRenderContext {
   toolCalls: Map<string, ToolCallBlockData>;
   completedToolCallIds: Set<string>;
   skillActivationIds: Set<string>;
+  pluginCommandActivationIds: Set<string>;
   suppressNextPlanModeOffNotice: boolean;
 }
 
 export interface SkillActivationProjection {
   readonly activationId: string;
   readonly skillName: string;
-  readonly checkpointId?: string;
   readonly skillArgs?: string;
   readonly trigger: SkillActivationTrigger;
+}
+
+export interface PluginCommandProjection {
+  readonly activationId: string;
+  readonly pluginId: string;
+  readonly commandName: string;
+  readonly commandArgs?: string;
+  readonly trigger: 'user-slash';
 }
 
 export interface ReplayBackgroundProjection {
@@ -116,6 +124,7 @@ export function createReplayRenderContext(): ReplayRenderContext {
     toolCalls: new Map(),
     completedToolCallIds: new Set(),
     skillActivationIds: new Set(),
+    pluginCommandActivationIds: new Set(),
     suppressNextPlanModeOffNotice: false,
   };
 }
@@ -124,8 +133,9 @@ export function limitReplayRecordsByTurn(
   records: readonly AgentReplayRecord[],
   maxTurns: number,
 ): readonly AgentReplayRecord[] {
-  // Defensive local slice: resume callers already ask core to trim before the
-  // replay crosses the RPC boundary.
+  // Defensive slice — the core already trims the replay when the caller passes
+  // `replayTurnLimit` on resume; the boundary predicate lives in agent-core
+  // (`limitAgentReplayByTurns`) and is re-exported through the SDK.
   return limitAgentReplayByTurns(records, maxTurns);
 }
 
@@ -134,7 +144,7 @@ export function replayEntry(
   kind: TranscriptEntry['kind'],
   content: string,
   renderMode: TranscriptEntry['renderMode'],
-  extras: { detail?: string } = {},
+  extras: { detail?: string; bullet?: string } = {},
 ): TranscriptEntry {
   return {
     id: nextTranscriptId(),
@@ -143,6 +153,7 @@ export function replayEntry(
     renderMode,
     content,
     detail: extras.detail,
+    bullet: extras.bullet,
   };
 }
 
@@ -206,8 +217,20 @@ export function skillActivationFromOrigin(
   return {
     activationId: origin.activationId,
     skillName: origin.skillName,
-    checkpointId: origin.checkpointId,
     skillArgs: origin.skillArgs,
+    trigger: origin.trigger,
+  };
+}
+
+export function pluginCommandFromOrigin(
+  origin: PromptOrigin | undefined,
+): PluginCommandProjection | undefined {
+  if (origin?.kind !== 'plugin_command') return undefined;
+  return {
+    activationId: origin.activationId,
+    pluginId: origin.pluginId,
+    commandName: origin.commandName,
+    commandArgs: origin.commandArgs,
     trigger: origin.trigger,
   };
 }

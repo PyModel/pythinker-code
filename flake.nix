@@ -62,9 +62,17 @@
       workspacePaths = [
         ./packages/acp-adapter
         ./packages/agent-core
-        ./packages/server
         ./packages/server-e2e
         ./packages/kaos
+        ./packages/acp-server
+        ./packages/agent-core-v2
+        ./packages/kap-server
+        ./packages/klient
+        ./packages/migration-legacy
+        ./packages/minidb
+        ./packages/pi-tui
+        ./packages/transcript
+        ./packages/tree-sitter-bash
         ./packages/kosong
         ./packages/node-sdk
         ./packages/oauth
@@ -72,6 +80,7 @@
         ./packages/telemetry
         ./apps/pythinker-code
         ./apps/pythinker-web
+        ./apps/pythinker-inspect
         ./apps/desktop
         ./apps/dashboard
         ./apps/dashboard/server
@@ -82,9 +91,17 @@
       workspaceNames = [
         "@pymodel/acp-adapter"
         "@pymodel/agent-core"
-        "@pymodel/server"
         "@pymodel/server-e2e"
         "@pymodel/kaos"
+        "@pymodel/acp-server"
+        "@pymodel/agent-core-v2"
+        "@pymodel/kap-server"
+        "@pymodel/klient"
+        "@pymodel/migration-legacy"
+        "@pymodel/minidb"
+        "@pymodel/pi-tui"
+        "@pymodel/transcript"
+        "@pymodel/tree-sitter-bash"
         "@pymodel/kosong"
         "@pymodel/pythinker-code-sdk"
         "@pymodel/pythinker-code-oauth"
@@ -92,6 +109,7 @@
         "@pymodel/pythinker-telemetry"
         "@pymodel/pythinker-code"
         "@pymodel/pythinker-web"
+        "@pymodel/pythinker-inspect"
         "@pymodel/pythinker-desktop"
         "@pymodel/dashboard"
         "@pymodel/dashboard-server"

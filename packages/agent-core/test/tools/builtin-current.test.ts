@@ -8,23 +8,16 @@
 import { Readable, type Writable } from 'node:stream';
 
 import type { Kaos, KaosProcess } from '@pymodel/kaos';
-import type { WorkflowWarningEvent } from '@pymodel/protocol';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { Agent } from '../../src/agent';
-import type { DynamicWorkflowMode } from '../../src/agent/dynamic-workflow';
-import {
-  generateWorkflowRunId,
-  isWorkflowRunId,
-} from '../../src/agent/dynamic-workflow/run-id';
-import { resolveWorkflowSizeGuideline } from '../../src/agent/dynamic-workflow/size-guideline';
+import type { DynamicWorkflowMode } from '../../src/agent/dynamic_workflow';
 import { FLAG_DEFINITIONS, FlagResolver } from '../../src/flags';
-import { matchPermissionRule } from '../../src/agent/permission/matches-rule';
-import { estimateTokens } from '../../src/utils/tokens';
-import type {
-  QueuedSubagentRunResult,
-  QueuedSubagentTask,
-  SessionSubagentHost,
+import {
+  DEFAULT_SUBAGENT_TIMEOUT_MS,
+  type QueuedSubagentRunResult,
+  type QueuedSubagentTask,
+  type SessionSubagentHost,
 } from '../../src/session/subagent-host';
 import { SessionSkillRegistry } from '../../src/skill';
 import { TaskListInputSchema } from '../../src/tools/background/task-list';
@@ -47,11 +40,15 @@ import { createFakeKaos } from './fixtures/fake-kaos';
 import { executeTool } from './fixtures/execute-tool';
 import { createBackgroundManager } from '../agent/background/helpers';
 import {
-  DynamicWorkflowTool,
-  DynamicWorkflowToolInputSchema,
-  isDynamicWorkflowDisabled,
-  type DynamicWorkflowToolInput,
-} from '../../src/tools/builtin/collaboration/dynamic-workflow';
+  AgentDynamicWorkflowTool,
+  AgentDynamicWorkflowToolInputSchema,
+} from '../../src/tools/builtin/collaboration/agent-dynamic_workflow';
+
+vi.mock('../../src/tools/support/rg-locator', () => ({
+  ensureRgPath: vi.fn(async () => ({ path: '/mock/rg', source: 'system-path' })),
+  rgUnavailableMessage: (cause: unknown) =>
+    `rg unavailable: ${cause instanceof Error ? cause.message : String(cause)}`,
+}));
 
 const signal = new AbortController().signal;
 const workspace: WorkspaceConfig = { workspaceDir: '/workspace', additionalDirs: [] };
@@ -84,27 +81,17 @@ function mockSubagentHost<T extends Partial<SessionSubagentHost>>(
     resume: vi.fn(),
     runQueued: vi.fn(),
     getDynamicWorkflowItem: vi.fn(),
+    delegatableSubagents: vi.fn(() => ({})),
     ...host,
   } as unknown as T & SessionSubagentHost;
 }
 
-function mockDynamicWorkflowMode(): DynamicWorkflowMode {
-  return { enter: vi.fn() } as unknown as DynamicWorkflowMode;
+function agentTool(host: SessionSubagentHost): AgentTool {
+  return new AgentTool(host, createBackgroundManager().manager);
 }
 
-/**
- * `resolveExecution` narrowed to its runnable branch. The narrowing lives here
- * so the tests that need it stay free of the branch themselves.
- */
-function runnableExecution(
-  tool: DynamicWorkflowTool,
-  args: DynamicWorkflowToolInput,
-): Extract<ReturnType<DynamicWorkflowTool['resolveExecution']>, { execute: unknown }> {
-  const execution = tool.resolveExecution(args);
-  if (execution.isError === true) {
-    throw new TypeError('DynamicWorkflow resolveExecution returned an error');
-  }
-  return execution;
+function mockDynamicWorkflowMode(): DynamicWorkflowMode {
+  return { enter: vi.fn() } as unknown as DynamicWorkflowMode;
 }
 
 function processWithOutput(stdout: string, exitCode = 0): KaosProcess {
@@ -150,12 +137,9 @@ describe('current builtin file and shell tools', () => {
     });
 
     const result = await executeTool(tool, context({ path: '/workspace/a.txt' }));
-    expect(result.output).toBe(
-      [
-        '1\talpha',
-        '2\tbeta',
-        '<system>2 lines read from file starting from line 1. Total lines in file: 2. End of file reached.</system>',
-      ].join('\n'),
+    expect(result.output).toBe(['1\talpha', '2\tbeta'].join('\n'));
+    expect(result.note).toBe(
+      '<system>2 lines read from file starting from line 1. Total lines in file: 2. End of file reached.</system>',
     );
   });
 
@@ -207,18 +191,9 @@ describe('current builtin file and shell tools', () => {
   it('Glob exposes parameters and walks pure-wildcard patterns capped at MAX_MATCHES', async () => {
     // Pure wildcards used to be rejected up-front; now they walk like
     // any other pattern and the 100-match cap is the only safety.
-    const glob = vi.fn().mockReturnValue(
-      (async function* () {
-        yield '/workspace/a.ts';
-      })(),
-    );
-    const tool = new GlobTool(
-      createFakeKaos({
-        glob,
-        stat: vi.fn().mockResolvedValue({ stMtime: 1, stMode: 0o100000 }),
-      }),
-      workspace,
-    );
+    const exec = vi.fn().mockResolvedValue(processWithOutput('/workspace/a.ts\n'));
+    const stat = vi.fn().mockResolvedValue({ ...regularFileStat, stMode: 0o040000 });
+    const tool = new GlobTool(createFakeKaos({ exec, stat }), workspace);
 
     expect(GlobInputSchema.safeParse({ pattern: '*.ts' }).success).toBe(true);
     expect(tool.parameters).toMatchObject({
@@ -228,7 +203,8 @@ describe('current builtin file and shell tools', () => {
 
     const result = await executeTool(tool, context({ pattern: '**' }));
     expect(result.isError).toBeFalsy();
-    expect(glob).toHaveBeenCalledWith('/workspace', '**');
+    expect(exec).toHaveBeenCalled();
+    expect((exec.mock.calls[0] as string[]).at(-1)).toBe('.');
     expect(result.output).toContain('a.ts');
   });
 
@@ -261,6 +237,7 @@ describe('current builtin file and shell tools', () => {
         },
       }),
       '/workspace',
+      createBackgroundManager().manager,
     );
 
     expect(BashInputSchema.safeParse({ command: 'printf ok' }).success).toBe(true);
@@ -283,6 +260,7 @@ describe('current builtin collaboration tools', () => {
         requestQuestion: vi.fn(async () => ({ 'Which path?': 'A' })),
       },
       telemetry: { track: vi.fn() },
+      turn: { traceIdForTurn: () => undefined },
     } as unknown as Agent);
 
     const input = {
@@ -308,6 +286,15 @@ describe('current builtin collaboration tools', () => {
     expect(result.output).toBe(JSON.stringify({ answers: { 'Which path?': 'A' } }));
   });
 
+  it('AskUserQuestion documents the answers result shape and dismissal handling', () => {
+    // The result is JSON {answers}; a dismissal returns isError:false with empty
+    // answers + a note (ask-user.ts), so the description must teach the model to
+    // fall back rather than silently re-ask.
+    const description = new AskUserQuestionTool({} as unknown as Agent).description.toLowerCase();
+    expect(description).toContain('answers');
+    expect(description).toContain('dismiss');
+  });
+
   it('Agent exposes parameters and returns a foreground subagent summary', async () => {
     const host = mockSubagentHost({
       spawn: vi.fn().mockResolvedValue({
@@ -317,7 +304,7 @@ describe('current builtin collaboration tools', () => {
         completion: Promise.resolve({ result: 'child result' }),
       }),
     });
-    const tool = new AgentTool(host);
+    const tool = agentTool(host);
 
     const input = { prompt: 'Investigate', description: 'Find cause' };
     expect(AgentToolInputSchema.safeParse(input).success).toBe(true);
@@ -340,97 +327,7 @@ describe('current builtin collaboration tools', () => {
     expect(result.output).toContain('child result');
   });
 
-  it('DynamicWorkflow ignores empty items instead of rejecting the whole call', async () => {
-    // A model that emits a trailing empty string used to fail argument
-    // validation, which rejects the entire call before the tool ever runs and
-    // costs a full re-send of every prompt.
-    const input = {
-      description: 'Review files',
-      prompt_template: 'Review {{item}}',
-      items: ['src/a.ts', 'src/b.ts', ''],
-      subagent_type: 'explore',
-    };
-    expect(DynamicWorkflowToolInputSchema.safeParse(input).success).toBe(true);
-    expect(
-      DynamicWorkflowToolInputSchema.safeParse({ ...input, items: ['src/a.ts', '   '] }).success,
-    ).toBe(true);
-
-    const host = mockSubagentHost({
-      runQueued: vi.fn().mockResolvedValue([
-        {
-          task: {
-            kind: 'spawn',
-            data: { kind: 'spawn', index: 1, item: 'src/a.ts', prompt: 'Review src/a.ts' },
-            profileName: 'explore',
-            parentToolCallId: 'call_dynamic_workflow',
-            prompt: 'Review src/a.ts',
-            description: 'Review files #1 (explore)',
-            runInBackground: false,
-          },
-          agentId: 'agent-explore-1',
-          status: 'completed',
-          result: 'explore result a',
-        },
-        {
-          task: {
-            kind: 'spawn',
-            data: { kind: 'spawn', index: 2, item: 'src/b.ts', prompt: 'Review src/b.ts' },
-            profileName: 'explore',
-            parentToolCallId: 'call_dynamic_workflow',
-            prompt: 'Review src/b.ts',
-            description: 'Review files #2 (explore)',
-            runInBackground: false,
-          },
-          agentId: 'agent-explore-2',
-          status: 'completed',
-          result: 'explore result b',
-        },
-      ]),
-    });
-    const tool = new DynamicWorkflowTool(host, mockDynamicWorkflowMode());
-
-    // The panel must advertise the two subagents that will actually launch,
-    // not the three entries that were sent.
-    const execution = tool.resolveExecution(input as never);
-    if (execution.isError === true) throw new Error('expected runnable execution');
-    expect(execution.display).toMatchObject({
-      agent_name: 'Dynamic Workflow (2 subagents)',
-    });
-
-    const result = await executeTool(tool, context(input, 'call_dynamic_workflow'));
-
-    expect(result.isError).not.toBe(true);
-    const queued = host.runQueued.mock.calls[0]?.[0] as Array<{ prompt: string }>;
-    expect(queued.map((task) => task.prompt)).toEqual(['Review src/a.ts', 'Review src/b.ts']);
-    // A quietly shorter workflow must not read as one the model sized right.
-    expect(result.output).toContain('1 empty item was ignored');
-    // The note must not precede the envelope: consumers match the result
-    // document anchored at the start, so a prefix renders a successful run as
-    // an unsupported result.
-    const outputText = typeof result.output === 'string' ? result.output : '';
-    expect(outputText.trimStart().startsWith('<dynamic_workflow_result')).toBe(true);
-  });
-
-  it('DynamicWorkflow says items were dropped when too few survive', async () => {
-    const host = mockSubagentHost({ runQueued: vi.fn() });
-    const tool = new DynamicWorkflowTool(host, mockDynamicWorkflowMode());
-    const input = {
-      description: 'Review files',
-      items: ['src/a.ts', '', ''],
-      subagent_type: 'explore',
-    };
-
-    const result = await executeTool(tool, context(input, 'call_dynamic_workflow'));
-
-    expect(result.isError).toBe(true);
-    // Without the second half the caller reads "requires at least 2 items"
-    // while looking at a list that had three.
-    expect(result.output).toContain('requires at least 2 items');
-    expect(result.output).toContain('2 empty items were ignored');
-    expect(host.runQueued).not.toHaveBeenCalled();
-  });
-
-  it('DynamicWorkflow applies one subagent_type without automatic timeouts', async () => {
+  it('AgentDynamicWorkflow applies one subagent_type across templated subagents', async () => {
     const host = mockSubagentHost({
       runQueued: vi.fn().mockResolvedValue([
         {
@@ -464,7 +361,7 @@ describe('current builtin collaboration tools', () => {
       ]),
     });
     const dynamicWorkflowMode = mockDynamicWorkflowMode();
-    const tool = new DynamicWorkflowTool(host, dynamicWorkflowMode);
+    const tool = new AgentDynamicWorkflowTool(host, dynamicWorkflowMode);
     const input = {
       description: 'Review files',
       prompt_template: 'Review {{item}}',
@@ -472,48 +369,33 @@ describe('current builtin collaboration tools', () => {
       subagent_type: 'explore',
     };
 
-    expect(DynamicWorkflowToolInputSchema.safeParse(input).success).toBe(true);
+    expect(AgentDynamicWorkflowToolInputSchema.safeParse(input).success).toBe(true);
     expect(
-      DynamicWorkflowToolInputSchema.safeParse({
+      AgentDynamicWorkflowToolInputSchema.safeParse({
         ...input,
         items: Array.from({ length: 128 }, (_, index) => `src/${String(index + 1)}.ts`),
       }).success,
     ).toBe(true);
-    // Over the cap now passes argument validation and fails inside the tool
-    // with a readable message. Rejecting at the schema would discard the whole
-    // call -- including the 128 valid prompts -- over one surplus entry.
     expect(
-      DynamicWorkflowToolInputSchema.safeParse({
+      AgentDynamicWorkflowToolInputSchema.safeParse({
         ...input,
         items: Array.from({ length: 129 }, (_, index) => `src/${String(index + 1)}.ts`),
       }).success,
-    ).toBe(true);
+    ).toBe(false);
     expect(tool.parameters).toMatchObject({
       type: 'object',
       properties: {
         subagent_type: { type: 'string' },
       },
     });
-    expect(Object.keys(tool.parameters['properties'] as Record<string, unknown>)).toEqual([
-      'description',
-      'subagent_type',
-      'prompt_template',
-      'items',
+    expect(Object.keys(tool.parameters['properties'] as Record<string, unknown>).at(-1)).toBe(
       'resume_agent_ids',
-      'model',
-      'effort',
-      'output_schema',
-    ]);
+    );
 
     const result = await executeTool(tool, context(input, 'call_dynamic_workflow'));
 
     expect(dynamicWorkflowMode.enter).toHaveBeenCalledWith('tool');
     expect(host.runQueued).toHaveBeenCalledTimes(1);
-    const queuedTasks = vi.mocked(host.runQueued).mock.calls[0]![0];
-    const runId = queuedTasks[0]!.workflowRunId!;
-    expect(isWorkflowRunId(runId)).toBe(true);
-    expect(queuedTasks[1]!.workflowRunId).toBe(runId);
-    expect(queuedTasks.every((task: QueuedSubagentTask) => task.workflowName === 'Review files')).toBe(true);
     expect(host.runQueued).toHaveBeenCalledWith(
       [
         {
@@ -524,11 +406,10 @@ describe('current builtin collaboration tools', () => {
           prompt: 'Review src/a.ts',
           description: 'Review files #1 (explore)',
           dynamicWorkflowIndex: 1,
-          dynamicWorkflowItem: 'src/a.ts',
+          dynamic_workflowItem: 'src/a.ts',
           runInBackground: false,
-          workflowRunId: runId,
-          workflowName: 'Review files',
           signal,
+          timeout: DEFAULT_SUBAGENT_TIMEOUT_MS,
         },
         {
           kind: 'spawn',
@@ -538,502 +419,72 @@ describe('current builtin collaboration tools', () => {
           prompt: 'Review src/b.ts',
           description: 'Review files #2 (explore)',
           dynamicWorkflowIndex: 2,
-          dynamicWorkflowItem: 'src/b.ts',
+          dynamic_workflowItem: 'src/b.ts',
           runInBackground: false,
-          workflowRunId: runId,
-          workflowName: 'Review files',
           signal,
+          timeout: DEFAULT_SUBAGENT_TIMEOUT_MS,
         },
       ],
     );
     expect(result.output).toBe([
-      `<dynamic_workflow_result run_id="${runId}">`,
+      '<agent_dynamic_workflow_result>',
       '<summary>completed: 2</summary>',
       '<subagent agent_id="agent-explore-1" item="src/a.ts" outcome="completed">explore result a</subagent>',
       '<subagent agent_id="agent-explore-2" item="src/b.ts" outcome="completed">explore result b</subagent>',
-      '</dynamic_workflow_result>',
+      '</agent_dynamic_workflow_result>',
     ].join('\n'));
     expect(result.isError).toBeUndefined();
   });
 
-  it('DynamicWorkflow accepts output_schema and passes it to every queued task', async () => {
-    const outputSchema = {
-      type: 'object',
-      properties: { summary: { type: 'string' } },
-      required: ['summary'],
-    };
-    const runQueued = vi.fn(
-      async <T>(
-        tasks: readonly QueuedSubagentTask<T>[],
-      ): Promise<Array<QueuedSubagentRunResult<T>>> => {
-        return tasks.map((task) => ({
-          task,
-          agentId: 'agent-1',
-          status: 'completed' as const,
-          result: 'done',
-        }));
-      },
-    );
-    const host = mockSubagentHost({
-      runQueued: runQueued as unknown as SessionSubagentHost['runQueued'],
-    });
-    const tool = new DynamicWorkflowTool(host, mockDynamicWorkflowMode());
-    const input = {
+  it('AgentDynamicWorkflow does not expose permission rule argument matching', () => {
+    const tool = new AgentDynamicWorkflowTool(mockSubagentHost({}), mockDynamicWorkflowMode());
+    const execution = tool.resolveExecution({
       description: 'Review files',
       prompt_template: 'Review {{item}}',
       items: ['src/a.ts', 'src/b.ts'],
-      output_schema: outputSchema,
-    };
+    });
+    if (execution.isError === true) throw new Error('AgentDynamicWorkflow resolveExecution returned an error');
 
-    expect(DynamicWorkflowToolInputSchema.safeParse(input).success).toBe(true);
-    expect(
-      DynamicWorkflowToolInputSchema.safeParse({ ...input, output_schema: { type: 'string' } })
-        .success,
-    ).toBe(true);
-
-    const result = await executeTool(tool, context(input, 'call_dynamic_workflow'));
-
-    expect(result.isError).toBeUndefined();
-    expect(runQueued).toHaveBeenCalledTimes(1);
-    const queuedTasks = vi.mocked(runQueued).mock.calls[0]![0];
-    expect(queuedTasks).toHaveLength(2);
-    expect(queuedTasks.every((task) => task.outputSchema === outputSchema)).toBe(true);
+    expect(execution.approvalRule).toBe('AgentDynamicWorkflow');
+    expect(execution.matchesRule).toBeUndefined();
   });
 
-  it('DynamicWorkflow renders a schema_error child alongside the other outcomes', async () => {
-    const runQueued = vi.fn(
-      async <T>(
-        tasks: readonly QueuedSubagentTask<T>[],
-      ): Promise<Array<QueuedSubagentRunResult<T>>> => {
-        // One outcome per item, positionally: a schema miss, a clean run, and
-        // an ordinary failure — so the render covers all three side by side.
-        const outcomes = [
-          {
-            agentId: 'agent-schema-error',
-            status: 'schema_error' as const,
-            error:
-              '[structured_output.max_retries] Failed to provide valid structured output after the maximum number of retries.',
-          },
-          {
-            agentId: 'agent-clean',
-            status: 'completed' as const,
-            result: 'clean result',
-          },
-          {
-            agentId: 'agent-timed-out',
-            status: 'failed' as const,
-            error: 'Agent timed out after 30s.',
-          },
-        ];
-        return tasks.map((task, index) => ({ task, ...outcomes[index]! }));
-      },
-    );
-    const host = mockSubagentHost({
-      runQueued: runQueued as unknown as SessionSubagentHost['runQueued'],
-    });
-    const tool = new DynamicWorkflowTool(host, mockDynamicWorkflowMode());
-
-    const result = await executeTool(
-      tool,
-      context({
-        description: 'Review files',
-        items: ['src/a.ts', 'src/b.ts', 'src/c.ts'],
-      }),
-    );
-
-    expect(result.output).toContain(
-      '<subagent agent_id="agent-schema-error" item="src/a.ts" outcome="schema_error">[structured_output.max_retries] Failed to provide valid structured output after the maximum number of retries.</subagent>',
-    );
-    expect(result.output).toContain(
-      '<subagent agent_id="agent-clean" item="src/b.ts" outcome="completed">clean result</subagent>',
-    );
-    expect(result.output).toContain(
-      '<subagent agent_id="agent-timed-out" item="src/c.ts" outcome="failed">Agent timed out after 30s.</subagent>',
-    );
-    expect(result.output).toContain('<summary>completed: 1, failed: 1, schema_error: 1</summary>');
-    expect(result.isError).toBeUndefined();
+  it('AgentDynamicWorkflow description states the enforced input requirements', () => {
+    const description = new AgentDynamicWorkflowTool(mockSubagentHost({}), mockDynamicWorkflowMode()).description;
+    // Mirrors the throws in createAgentDynamicWorkflowSpecs (agent-dynamic_workflow.ts): min-2-unless-resume,
+    // prompt_template required + must contain {{item}}, distinct resulting prompts.
+    expect(description).toContain('at least 2');
+    expect(description).toContain('{{item}}');
+    expect(description.toLowerCase()).toContain('distinct');
   });
 
-  it('DynamicWorkflow emits exactly one workflow.warning above the size guideline and still runs', async () => {
-    const runQueued = vi.fn(
-      async <T>(
-        tasks: readonly QueuedSubagentTask<T>[],
-      ): Promise<Array<QueuedSubagentRunResult<T>>> => {
-        return tasks.map((task) => ({
-          task,
-          agentId: 'agent-1',
-          status: 'completed' as const,
-          result: 'done',
-        }));
-      },
-    );
-    const host = mockSubagentHost({
-      runQueued: runQueued as unknown as SessionSubagentHost['runQueued'],
-    });
-    const emitEvent = vi.fn<(event: WorkflowWarningEvent) => void>();
-    const tool = new DynamicWorkflowTool(host, mockDynamicWorkflowMode(), 'small', emitEvent);
+  it('AgentDynamicWorkflow strips the model parameter from the JSON schema by default', () => {
+    const tool = new AgentDynamicWorkflowTool(mockSubagentHost({}), mockDynamicWorkflowMode());
+    const properties = (tool.parameters as { properties: Record<string, unknown> }).properties;
 
-    const result = await executeTool(
-      tool,
-      context({
-        description: 'Review files',
-        items: Array.from({ length: 6 }, (_, index) => `src/${String(index + 1)}.ts`),
-      }),
-    );
-
-    expect(emitEvent).toHaveBeenCalledTimes(1);
-    expect(host.runQueued).toHaveBeenCalledTimes(1);
-    const warning = emitEvent.mock.calls[0]![0];
-    expect(isWorkflowRunId(warning.workflowRunId)).toBe(true);
-    expect(warning).toMatchObject({
-      type: 'workflow.warning',
-      parentToolCallId: 'call_1',
-      agentCount: 6,
-      threshold: 5,
-    });
-    expect(warning.message).toContain('6');
-    expect(warning.message).toContain('5');
-    expect(result.isError).toBeUndefined();
+    expect(properties).not.toHaveProperty('model');
+    expect(properties).toHaveProperty('prompt_template');
   });
 
-  it('DynamicWorkflow emits exactly one workflow.warning above the unrestricted fallback threshold', async () => {
-    const runQueued = vi.fn(
-      async <T>(
-        tasks: readonly QueuedSubagentTask<T>[],
-      ): Promise<Array<QueuedSubagentRunResult<T>>> => {
-        return tasks.map((task) => ({
-          task,
-          agentId: 'agent-1',
-          status: 'completed' as const,
-          result: 'done',
-        }));
-      },
+  it('AgentDynamicWorkflow exposes the model parameter in the JSON schema when the experiment is enabled', () => {
+    const tool = new AgentDynamicWorkflowTool(
+      mockSubagentHost({}),
+      mockDynamicWorkflowMode(),
+      undefined,
+      undefined,
+      true,
     );
-    const host = mockSubagentHost({
-      runQueued: runQueued as unknown as SessionSubagentHost['runQueued'],
-    });
-    const emitEvent = vi.fn<(event: WorkflowWarningEvent) => void>();
-    const tool = new DynamicWorkflowTool(host, mockDynamicWorkflowMode(), 'unrestricted', emitEvent);
+    const properties = (
+      tool.parameters as { properties: Record<string, { enum?: string[] }> }
+    ).properties;
 
-    const result = await executeTool(
-      tool,
-      context({
-        description: 'Review files',
-        items: Array.from({ length: 26 }, (_, index) => `src/${String(index + 1)}.ts`),
-      }),
-    );
-
-    expect(emitEvent).toHaveBeenCalledTimes(1);
-    expect(host.runQueued).toHaveBeenCalledTimes(1);
-    const warning = emitEvent.mock.calls[0]![0];
-    expect(isWorkflowRunId(warning.workflowRunId)).toBe(true);
-    expect(warning).toMatchObject({
-      type: 'workflow.warning',
-      parentToolCallId: 'call_1',
-      agentCount: 26,
-      threshold: 25,
-    });
-    expect(warning.message).toContain('26');
-    expect(warning.message).toContain('25');
-    expect(result.isError).toBeUndefined();
+    expect(properties['model']?.enum).toEqual(['primary', 'secondary']);
   });
 
-  it('DynamicWorkflow emits no warning at or below the size guideline', async () => {
-    const runQueued = vi.fn(
-      async <T>(
-        tasks: readonly QueuedSubagentTask<T>[],
-      ): Promise<Array<QueuedSubagentRunResult<T>>> => {
-        return tasks.map((task) => ({
-          task,
-          agentId: 'agent-1',
-          status: 'completed' as const,
-          result: 'done',
-        }));
-      },
-    );
-    const host = mockSubagentHost({
-      runQueued: runQueued as unknown as SessionSubagentHost['runQueued'],
-    });
-    const emitEvent = vi.fn<(event: WorkflowWarningEvent) => void>();
-    const tool = new DynamicWorkflowTool(host, mockDynamicWorkflowMode(), 'small', emitEvent);
-
-    const result = await executeTool(
-      tool,
-      context({
-        description: 'Review files',
-        items: Array.from({ length: 5 }, (_, index) => `src/${String(index + 1)}.ts`),
-      }),
-    );
-
-    expect(emitEvent).not.toHaveBeenCalled();
-    expect(host.runQueued).toHaveBeenCalledTimes(1);
-    expect(result.isError).toBeUndefined();
-  });
-
-  it('DynamicWorkflow above the size guideline without an emitter does not throw', async () => {
-    const runQueued = vi.fn(
-      async <T>(
-        tasks: readonly QueuedSubagentTask<T>[],
-      ): Promise<Array<QueuedSubagentRunResult<T>>> => {
-        return tasks.map((task) => ({
-          task,
-          agentId: 'agent-1',
-          status: 'completed' as const,
-          result: 'done',
-        }));
-      },
-    );
-    const host = mockSubagentHost({
-      runQueued: runQueued as unknown as SessionSubagentHost['runQueued'],
-    });
-    const tool = new DynamicWorkflowTool(host, mockDynamicWorkflowMode(), 'small');
-
-    const result = await executeTool(
-      tool,
-      context({
-        description: 'Review files',
-        items: Array.from({ length: 6 }, (_, index) => `src/${String(index + 1)}.ts`),
-      }),
-    );
-
-    expect(host.runQueued).toHaveBeenCalledTimes(1);
-    expect(result.isError).toBeUndefined();
-  });
-
-  it('DynamicWorkflow escapes XML-sensitive agent, item, and result text', async () => {
-    const runQueued = vi.fn(
-      async <T>(
-        tasks: readonly QueuedSubagentTask<T>[],
-      ): Promise<Array<QueuedSubagentRunResult<T>>> => {
-        return tasks.map((task, index) => ({
-          task,
-          agentId: index === 0 ? 'agent-&"<1>' : `agent-${String(index + 1)}`,
-          status: 'completed' as const,
-          result: index === 0
-            ? 'before </subagent> & after'
-            : 'quoted "result" <done>',
-        }));
-      },
-    );
-    const host = mockSubagentHost({
-      runQueued: runQueued as unknown as SessionSubagentHost['runQueued'],
-    });
-    const tool = new DynamicWorkflowTool(host, mockDynamicWorkflowMode());
-
-    const result = await executeTool(
-      tool,
-      context({
-        description: 'Review XML-sensitive values',
-        items: ['src/a&b.ts', 'src/c<d.ts'],
-      }),
-    );
-
-    expect(result.output).toContain(
-      'agent_id="agent-&amp;&quot;&lt;1&gt;" item="src/a&amp;b.ts" outcome="completed">before &lt;/subagent&gt; &amp; after</subagent>',
-    );
-    expect(result.output).toContain(
-      'item="src/c&lt;d.ts" outcome="completed">quoted &quot;result&quot; &lt;done&gt;</subagent>',
-    );
-  });
-
-  it('DynamicWorkflow treats items as complete prompts when prompt_template is omitted', async () => {
-    const runQueued = vi.fn(
-      async <T>(
-        tasks: readonly QueuedSubagentTask<T>[],
-      ): Promise<Array<QueuedSubagentRunResult<T>>> => {
-        return tasks.map((task, index) => ({
-          task,
-          agentId: `agent-${String(index + 1)}`,
-          status: 'completed' as const,
-          result: `result ${String(index + 1)}`,
-        }));
-      },
-    );
-    const host = mockSubagentHost({
-      runQueued: runQueued as unknown as SessionSubagentHost['runQueued'],
-    });
-    const tool = new DynamicWorkflowTool(host, mockDynamicWorkflowMode());
-
-    const result = await executeTool(
-      tool,
-      context({
-        description: 'Review areas',
-        items: ['Review core credentials', 'Review TUI credentials'],
-      }),
-    );
-
-    expect(runQueued).toHaveBeenCalledWith([
-      expect.objectContaining({ prompt: 'Review core credentials' }),
-      expect.objectContaining({ prompt: 'Review TUI credentials' }),
-    ]);
-    expect(result.isError).toBeUndefined();
-  });
-
-  // "Approve for this session" is scoped to the workflow that was approved, so
-  // agreeing to one 3-file review does not silently pre-approve a later 128-agent
-  // fan-out. The matcher must ship with the keyed rule: an arg-bearing rule with
-  // no `matchesRule` never matches, which would record the grant and then ignore
-  // it on every later call.
-  it('DynamicWorkflow matches a session approval only for the identical plan', () => {
-    const tool = new DynamicWorkflowTool(mockSubagentHost({}), mockDynamicWorkflowMode());
-    const subjectOf = (input: Parameters<DynamicWorkflowTool['resolveExecution']>[0]): string => {
-      // `Tool(subject)` — recover the subject the approval was recorded against.
-      return runnableExecution(tool, input).approvalRule.slice('DynamicWorkflow('.length, -1);
-    };
-
-    const base = {
-      description: 'Review files',
-      prompt_template: 'Review {{item}}',
-      items: ['src/a.ts', 'src/b.ts'],
-    };
-    const execution = runnableExecution(tool, base);
-
-    expect(execution.matchesRule?.(subjectOf(base))).toBe(true);
-
-    // The description is the obvious key and the wrong one: reusing it while
-    // swapping the item list is exactly how an unreviewed fan-out would ride in
-    // on an earlier approval.
-    expect(
-      execution.matchesRule?.(
-        subjectOf({ ...base, items: Array.from({ length: 128 }, (_, i) => `src/${String(i)}.ts`) }),
-      ),
-    ).toBe(false);
-    expect(execution.matchesRule?.(subjectOf({ ...base, model: 'other-model' }))).toBe(false);
-
-    // A rule may also name the model the call asked its subagents to run on, so
-    // `DynamicWorkflow(model:opus)` gates a fan-out that used to be bounded only
-    // by whether the provider could resolve the alias.
-    const onOpus = runnableExecution(tool, { ...base, model: 'opus' });
-    expect(onOpus.matchesRule?.('model:opus')).toBe(true);
-    expect(onOpus.matchesRule?.('model:sonnet')).toBe(false);
-    // No model requested → nothing for a model rule to match.
-    expect(execution.matchesRule?.('model:opus')).toBe(false);
-    // The model subject is namespaced, so a rule written for the plan subject
-    // never starts matching a model that happens to share its name.
-    expect(onOpus.matchesRule?.('opus')).toBe(false);
-    expect(execution.matchesRule?.(subjectOf({ ...base, subagent_type: 'shell' }))).toBe(false);
-    expect(
-      execution.matchesRule?.(subjectOf({ ...base, prompt_template: 'Rewrite {{item}}' })),
-    ).toBe(false);
-  });
-
-  // `matchesRule` alone is not proof: the recorded rule is `Tool(subject)`,
-  // which is parsed by splitting on the first paren and then glob matched. A
-  // subject carrying JSON punctuation fails both, so an approval would be
-  // stored and then never match again. Drive the real matcher, not the callback.
-  it('DynamicWorkflow session approval survives the permission rule DSL', () => {
-    const tool = new DynamicWorkflowTool(mockSubagentHost({}), mockDynamicWorkflowMode());
-    const args = {
-      // Punctuation the DSL cannot carry, plus a glob character.
-      description: 'Review (all) files: *.ts {urgent}',
-      prompt_template: 'Review {{item}}',
-      items: ['src/a.ts', 'src/b.ts'],
-    };
-    const execution = runnableExecution(tool, args);
-
-    const match = matchPermissionRule({
-      rule: {
-        decision: 'allow',
-        scope: 'session-runtime',
-        pattern: execution.approvalRule,
-        reason: 'approve for session',
-      },
-      toolName: 'DynamicWorkflow',
-      execution,
-    });
-
-    expect(match).toMatchObject({ strategy: 'matches_rule', hasRuleArgs: true });
-  });
-
-  it('DynamicWorkflow previews the fan-out for the approval panel', () => {
-    const tool = new DynamicWorkflowTool(mockSubagentHost({}), mockDynamicWorkflowMode());
-    const execution = runnableExecution(tool, {
-      description: 'Review files',
-      prompt_template: 'Review {{item}}',
-      items: ['src/a.ts', 'src/b.ts'],
-      model: 'deepseek-v4',
-    });
-
-    expect(execution.display).toMatchObject({
-      kind: 'agent_call',
-      agent_name: 'Dynamic Workflow (2 subagents)',
-      workflow: {
-        agent_count: 2,
-        items: ['src/a.ts', 'src/b.ts'],
-        prompt_template: 'Review {{item}}',
-        model: 'deepseek-v4',
-      },
-    });
-    // Both rendered prompts, not the template once.
-    const workflow = (execution.display as { workflow: { prompt_tokens: number } }).workflow;
-    expect(workflow.prompt_tokens).toBe(
-      estimateTokens('Review src/a.ts') + estimateTokens('Review src/b.ts'),
-    );
-  });
-
-  it('DynamicWorkflow counts resumed subagents in the preview', () => {
-    const tool = new DynamicWorkflowTool(mockSubagentHost({}), mockDynamicWorkflowMode());
-    const execution = runnableExecution(tool, {
-      description: 'Finish the sweep',
-      items: ['src/a.ts', 'src/b.ts'],
-      resume_agent_ids: { 'agent-7': 'Carry on' },
-    });
-
-    expect(execution.display).toMatchObject({
-      agent_name: 'Dynamic Workflow (3 subagents)',
-      workflow: {
-        agent_count: 3,
-        // The resume prompt is shown, not just the agent id: it is the
-        // instruction that subagent receives, and it feeds the approval digest.
-        items: ['resume agent-7: Carry on', 'src/a.ts', 'src/b.ts'],
-      },
-    });
-  });
-
-  // A resumed subagent's prompt is what it will actually be told to do. If the
-  // digest ignored it, a second call could keep the same agent ids, change
-  // their instructions, and ride in on the first call's session approval.
-  it('DynamicWorkflow will not reuse an approval when a resume prompt changes', () => {
-    const tool = new DynamicWorkflowTool(mockSubagentHost({}), mockDynamicWorkflowMode());
-    const base = {
-      description: 'Finish the sweep',
-      items: ['src/a.ts', 'src/b.ts'],
-      resume_agent_ids: { 'agent-7': 'Carry on' },
-    };
-    const execution = runnableExecution(tool, base);
-    const subjectOf = (input: DynamicWorkflowToolInput): string =>
-      runnableExecution(tool, input).approvalRule.slice('DynamicWorkflow('.length, -1);
-
-    expect(execution.matchesRule?.(subjectOf(base))).toBe(true);
-    expect(
-      execution.matchesRule?.(
-        subjectOf({ ...base, resume_agent_ids: { 'agent-7': 'Delete everything instead' } }),
-      ),
-    ).toBe(false);
-  });
-
-  it('DynamicWorkflow accepts a full item list carrying a blank entry', async () => {
-    // 128 real prompts plus one blank used to trip the schema's raw-length cap,
-    // which rejected the entire call -- the very hole the blank-item handling
-    // exists to close, reopened at the boundary.
-    const items = [...Array.from({ length: 128 }, (_, index) => `src/${String(index + 1)}.ts`), ''];
-    const input = { description: 'Review files', prompt_template: 'Review {{item}}', items };
-
-    expect(DynamicWorkflowToolInputSchema.safeParse(input).success).toBe(true);
-
-    const host = mockSubagentHost({ runQueued: vi.fn().mockResolvedValue([]) });
-    const tool = new DynamicWorkflowTool(host, mockDynamicWorkflowMode());
-    const result = await executeTool(tool, context(input, 'call_dynamic_workflow'));
-
-    expect(result.isError).not.toBe(true);
-    expect(host.runQueued).toHaveBeenCalledTimes(1);
-    expect((host.runQueued.mock.calls[0]?.[0] as unknown[]).length).toBe(128);
-  });
-
-  it('DynamicWorkflow rejects more than 128 subagents at execution time', async () => {
+  it('AgentDynamicWorkflow rejects more than 128 subagents at execution time', async () => {
     const host = mockSubagentHost({ runQueued: vi.fn() });
     const dynamicWorkflowMode = mockDynamicWorkflowMode();
-    const tool = new DynamicWorkflowTool(host, dynamicWorkflowMode);
+    const tool = new AgentDynamicWorkflowTool(host, dynamicWorkflowMode);
 
     const result = await executeTool(
       tool,
@@ -1044,7 +495,7 @@ describe('current builtin collaboration tools', () => {
       }),
     );
 
-    expect(result.output).toBe('DynamicWorkflow supports at most 128 subagents.');
+    expect(result.output).toBe('AgentDynamicWorkflow supports at most 128 subagents.');
     expect(result.isError).toBe(true);
     expect(host.runQueued).not.toHaveBeenCalled();
   });
@@ -1057,7 +508,15 @@ describe('current builtin collaboration tools', () => {
         prompt_template: 'Review {{item}}',
         items: ['src/only.ts'],
       },
-      output: 'DynamicWorkflow requires at least 2 items unless resume_agent_ids is provided.',
+      output: 'AgentDynamicWorkflow requires at least 2 items unless resume_agent_ids is provided.',
+    },
+    {
+      name: 'items without a prompt template',
+      input: {
+        description: 'Review files',
+        items: ['src/a.ts', 'src/b.ts'],
+      },
+      output: 'prompt_template is required when items are provided.',
     },
     {
       name: 'a prompt template without the item placeholder',
@@ -1068,19 +527,19 @@ describe('current builtin collaboration tools', () => {
       },
       output: 'prompt_template must include the {{item}} placeholder.',
     },
-  ])('DynamicWorkflow rejects $name before approval', ({ input, output }) => {
+  ])('AgentDynamicWorkflow rejects $name at execution time', async ({ input, output }) => {
     const host = mockSubagentHost({ runQueued: vi.fn() });
     const dynamicWorkflowMode = mockDynamicWorkflowMode();
-    const tool = new DynamicWorkflowTool(host, dynamicWorkflowMode);
+    const tool = new AgentDynamicWorkflowTool(host, dynamicWorkflowMode);
 
-    const result = tool.resolveExecution(input);
+    const result = await executeTool(tool, context(input));
 
-    expect(result).toEqual({ isError: true, output });
-    expect(dynamicWorkflowMode.enter).not.toHaveBeenCalled();
+    expect(result.output).toBe(output);
+    expect(result.isError).toBe(true);
     expect(host.runQueued).not.toHaveBeenCalled();
   });
 
-  it('DynamicWorkflow resumes mapped agents before spawning item subagents', async () => {
+  it('AgentDynamicWorkflow resumes mapped agents before spawning item subagents', async () => {
     const runQueued = vi.fn(
       async <T>(
         tasks: readonly QueuedSubagentTask<T>[],
@@ -1102,7 +561,7 @@ describe('current builtin collaboration tools', () => {
       runQueued: runQueued as unknown as SessionSubagentHost['runQueued'],
     });
     const dynamicWorkflowMode = mockDynamicWorkflowMode();
-    const tool = new DynamicWorkflowTool(host, dynamicWorkflowMode);
+    const tool = new AgentDynamicWorkflowTool(host, dynamicWorkflowMode);
     const input = {
       description: 'Finish review',
       subagent_type: 'explore',
@@ -1114,9 +573,9 @@ describe('current builtin collaboration tools', () => {
       },
     };
 
-    expect(DynamicWorkflowToolInputSchema.safeParse(input).success).toBe(true);
+    expect(AgentDynamicWorkflowToolInputSchema.safeParse(input).success).toBe(true);
     expect(
-      DynamicWorkflowToolInputSchema.safeParse({
+      AgentDynamicWorkflowToolInputSchema.safeParse({
         description: 'Resume two agents',
         resume_agent_ids: {
           'agent-old-1': 'Continue previous review A',
@@ -1125,7 +584,7 @@ describe('current builtin collaboration tools', () => {
       }).success,
     ).toBe(true);
     expect(
-      DynamicWorkflowToolInputSchema.safeParse({
+      AgentDynamicWorkflowToolInputSchema.safeParse({
         description: 'Resume one agent',
         resume_agent_ids: {
           'agent-old-1': 'Continue previous review A',
@@ -1134,8 +593,6 @@ describe('current builtin collaboration tools', () => {
     ).toBe(true);
 
     const result = await executeTool(tool, context(input, 'call_dynamic_workflow'));
-    const runId = vi.mocked(host.runQueued).mock.calls[0]![0]![0]!.workflowRunId!;
-    expect(isWorkflowRunId(runId)).toBe(true);
 
     expect(host.runQueued).toHaveBeenCalledTimes(1);
     expect(host.runQueued).toHaveBeenCalledWith(
@@ -1154,12 +611,11 @@ describe('current builtin collaboration tools', () => {
           prompt: 'Continue previous review A',
           description: 'Finish review #1 (resume)',
           dynamicWorkflowIndex: 1,
-          dynamicWorkflowItem: 'src/old-a.ts',
+          dynamic_workflowItem: 'src/old-a.ts',
           runInBackground: false,
-          workflowRunId: runId,
-          workflowName: 'Finish review',
           resumeAgentId: 'agent-old-1',
           signal,
+          timeout: DEFAULT_SUBAGENT_TIMEOUT_MS,
         },
         {
           kind: 'resume',
@@ -1175,12 +631,11 @@ describe('current builtin collaboration tools', () => {
           prompt: 'Continue previous review B',
           description: 'Finish review #2 (resume)',
           dynamicWorkflowIndex: 2,
-          dynamicWorkflowItem: 'src/old-b.ts',
+          dynamic_workflowItem: 'src/old-b.ts',
           runInBackground: false,
-          workflowRunId: runId,
-          workflowName: 'Finish review',
           resumeAgentId: 'agent-old-2',
           signal,
+          timeout: DEFAULT_SUBAGENT_TIMEOUT_MS,
         },
         {
           kind: 'spawn',
@@ -1195,26 +650,25 @@ describe('current builtin collaboration tools', () => {
           prompt: 'Review src/new.ts',
           description: 'Finish review #3 (explore)',
           dynamicWorkflowIndex: 3,
-          dynamicWorkflowItem: 'src/new.ts',
+          dynamic_workflowItem: 'src/new.ts',
           runInBackground: false,
-          workflowRunId: runId,
-          workflowName: 'Finish review',
           signal,
+          timeout: DEFAULT_SUBAGENT_TIMEOUT_MS,
         },
       ],
     );
     expect(result.output).toBe([
-      `<dynamic_workflow_result run_id="${runId}">`,
+      '<agent_dynamic_workflow_result>',
       '<summary>completed: 3</summary>',
       '<subagent mode="resume" agent_id="agent-old-1" item="src/old-a.ts" outcome="completed">result 1</subagent>',
       '<subagent mode="resume" agent_id="agent-old-2" item="src/old-b.ts" outcome="completed">result 2</subagent>',
       '<subagent agent_id="agent-new-3" item="src/new.ts" outcome="completed">result 3</subagent>',
-      '</dynamic_workflow_result>',
+      '</agent_dynamic_workflow_result>',
     ].join('\n'));
     expect(result.isError).toBeUndefined();
   });
 
-  it('DynamicWorkflow allows a single resumed subagent without item subagents', async () => {
+  it('AgentDynamicWorkflow allows a single resumed subagent without item subagents', async () => {
     const runQueued = vi.fn(
       async <T>(
         tasks: readonly QueuedSubagentTask<T>[],
@@ -1234,7 +688,7 @@ describe('current builtin collaboration tools', () => {
       runQueued: runQueued as unknown as SessionSubagentHost['runQueued'],
     });
     const dynamicWorkflowMode = mockDynamicWorkflowMode();
-    const tool = new DynamicWorkflowTool(host, dynamicWorkflowMode);
+    const tool = new AgentDynamicWorkflowTool(host, dynamicWorkflowMode);
     const input = {
       description: 'Resume review',
       resume_agent_ids: {
@@ -1242,11 +696,9 @@ describe('current builtin collaboration tools', () => {
       },
     };
 
-    expect(DynamicWorkflowToolInputSchema.safeParse(input).success).toBe(true);
+    expect(AgentDynamicWorkflowToolInputSchema.safeParse(input).success).toBe(true);
 
     const result = await executeTool(tool, context(input, 'call_dynamic_workflow'));
-    const runId = vi.mocked(host.runQueued).mock.calls[0]![0]![0]!.workflowRunId!;
-    expect(isWorkflowRunId(runId)).toBe(true);
 
     expect(host.runQueued).toHaveBeenCalledTimes(1);
     expect(host.runQueued).toHaveBeenCalledWith([
@@ -1264,24 +716,23 @@ describe('current builtin collaboration tools', () => {
         prompt: 'Continue previous review A',
         description: 'Resume review #1 (resume)',
         dynamicWorkflowIndex: 1,
-        dynamicWorkflowItem: 'src/old-a.ts',
+        dynamic_workflowItem: 'src/old-a.ts',
         runInBackground: false,
-        workflowRunId: runId,
-        workflowName: 'Resume review',
         resumeAgentId: 'agent-old-1',
         signal,
+        timeout: DEFAULT_SUBAGENT_TIMEOUT_MS,
       },
     ]);
     expect(result.output).toBe([
-      `<dynamic_workflow_result run_id="${runId}">`,
+      '<agent_dynamic_workflow_result>',
       '<summary>completed: 1</summary>',
       '<subagent mode="resume" agent_id="agent-old-1" item="src/old-a.ts" outcome="completed">resumed result</subagent>',
-      '</dynamic_workflow_result>',
+      '</agent_dynamic_workflow_result>',
     ].join('\n'));
     expect(result.isError).toBeUndefined();
   });
 
-  it('DynamicWorkflow reports failed subagents inside the XML result without failing the tool', async () => {
+  it('AgentDynamicWorkflow reports failed subagents inside the XML result without failing the tool', async () => {
     const host = mockSubagentHost({
       runQueued: vi.fn().mockResolvedValue([
         {
@@ -1315,7 +766,7 @@ describe('current builtin collaboration tools', () => {
       ]),
     });
     const dynamicWorkflowMode = mockDynamicWorkflowMode();
-    const tool = new DynamicWorkflowTool(host, dynamicWorkflowMode);
+    const tool = new AgentDynamicWorkflowTool(host, dynamicWorkflowMode);
 
     const result = await executeTool(
       tool,
@@ -1329,21 +780,19 @@ describe('current builtin collaboration tools', () => {
       ),
     );
 
-    const runId = vi.mocked(host.runQueued).mock.calls[0]![0]![0]!.workflowRunId!;
-    expect(isWorkflowRunId(runId)).toBe(true);
     expect(result.output).toBe([
-      `<dynamic_workflow_result run_id="${runId}">`,
+      '<agent_dynamic_workflow_result>',
       '<summary>completed: 1, failed: 1</summary>',
-      '<resume_hint>Call DynamicWorkflow with resume_agent_ids using the agent_id values in this result to continue unfinished work.</resume_hint>',
+      '<resume_hint>Call AgentDynamicWorkflow with resume_agent_ids using the agent_id values in this result to continue unfinished work.</resume_hint>',
       '<subagent agent_id="agent-coder-1" item="src/a.ts" outcome="completed">imports are stable</subagent>',
       '<subagent agent_id="agent-coder-2" item="src/b.ts" outcome="failed">Agent timed out after 30s.</subagent>',
-      '</dynamic_workflow_result>',
+      '</agent_dynamic_workflow_result>',
     ].join('\n'));
     expect(dynamicWorkflowMode.enter).toHaveBeenCalledWith('tool');
     expect(result.isError).toBeUndefined();
   });
 
-  it('DynamicWorkflow omits resume hint when incomplete subagents have no agent ids', async () => {
+  it('AgentDynamicWorkflow omits resume hint when incomplete subagents have no agent ids', async () => {
     const host = mockSubagentHost({
       runQueued: vi.fn().mockResolvedValue([
         {
@@ -1375,7 +824,7 @@ describe('current builtin collaboration tools', () => {
       ]),
     });
     const dynamicWorkflowMode = mockDynamicWorkflowMode();
-    const tool = new DynamicWorkflowTool(host, dynamicWorkflowMode);
+    const tool = new AgentDynamicWorkflowTool(host, dynamicWorkflowMode);
 
     const result = await executeTool(
       tool,
@@ -1389,73 +838,17 @@ describe('current builtin collaboration tools', () => {
       ),
     );
 
-    const runId = vi.mocked(host.runQueued).mock.calls[0]![0]![0]!.workflowRunId!;
-    expect(isWorkflowRunId(runId)).toBe(true);
     expect(result.output).toBe([
-      `<dynamic_workflow_result run_id="${runId}">`,
+      '<agent_dynamic_workflow_result>',
       '<summary>failed: 2</summary>',
       '<subagent item="src/a.ts" outcome="failed">Agent did not start.</subagent>',
       '<subagent item="src/b.ts" outcome="failed">Agent also did not start.</subagent>',
-      '</dynamic_workflow_result>',
+      '</agent_dynamic_workflow_result>',
     ].join('\n'));
     expect(result.isError).toBeUndefined();
   });
 
-  it('DynamicWorkflow does not combine completed and unfinished agents for resume hint', async () => {
-    const host = mockSubagentHost({
-      runQueued: vi.fn().mockResolvedValue([
-        {
-          task: {
-            kind: 'spawn',
-            data: { kind: 'spawn', index: 1, item: 'src/a.ts', prompt: 'Review src/a.ts' },
-            profileName: 'coder',
-            parentToolCallId: 'call_dynamic_workflow',
-            prompt: 'Review src/a.ts',
-            description: 'Review files #1 (coder)',
-            runInBackground: false,
-          },
-          agentId: 'agent-coder-1',
-          status: 'completed',
-          result: 'imports are stable',
-        },
-        {
-          task: {
-            kind: 'spawn',
-            data: { kind: 'spawn', index: 2, item: 'src/b.ts', prompt: 'Review src/b.ts' },
-            profileName: 'coder',
-            parentToolCallId: 'call_dynamic_workflow',
-            prompt: 'Review src/b.ts',
-            description: 'Review files #2 (coder)',
-            runInBackground: false,
-          },
-          status: 'failed',
-          error: 'Agent did not start.',
-        },
-      ]),
-    });
-    const tool = new DynamicWorkflowTool(host, mockDynamicWorkflowMode());
-
-    const result = await executeTool(
-      tool,
-      context({
-        description: 'Review files',
-        prompt_template: 'Review {{item}}',
-        items: ['src/a.ts', 'src/b.ts'],
-      }),
-    );
-
-    const runId = vi.mocked(host.runQueued).mock.calls[0]![0]![0]!.workflowRunId!;
-    expect(isWorkflowRunId(runId)).toBe(true);
-    expect(result.output).toBe([
-      `<dynamic_workflow_result run_id="${runId}">`,
-      '<summary>completed: 1, failed: 1</summary>',
-      '<subagent agent_id="agent-coder-1" item="src/a.ts" outcome="completed">imports are stable</subagent>',
-      '<subagent item="src/b.ts" outcome="failed">Agent did not start.</subagent>',
-      '</dynamic_workflow_result>',
-    ].join('\n'));
-  });
-
-  it('DynamicWorkflow reports partial aborted subagents inside the XML result', async () => {
+  it('AgentDynamicWorkflow reports partial aborted subagents inside the XML result', async () => {
     const host = mockSubagentHost({
       runQueued: vi.fn().mockResolvedValue([
         {
@@ -1504,7 +897,7 @@ describe('current builtin collaboration tools', () => {
       ]),
     });
     const dynamicWorkflowMode = mockDynamicWorkflowMode();
-    const tool = new DynamicWorkflowTool(host, dynamicWorkflowMode);
+    const tool = new AgentDynamicWorkflowTool(host, dynamicWorkflowMode);
 
     const result = await executeTool(
       tool,
@@ -1518,16 +911,14 @@ describe('current builtin collaboration tools', () => {
       ),
     );
 
-    const runId = vi.mocked(host.runQueued).mock.calls[0]![0]![0]!.workflowRunId!;
-    expect(isWorkflowRunId(runId)).toBe(true);
     expect(result.output).toBe([
-      `<dynamic_workflow_result run_id="${runId}">`,
+      '<agent_dynamic_workflow_result>',
       '<summary>completed: 1, aborted: 2</summary>',
-      '<resume_hint>Call DynamicWorkflow with resume_agent_ids using the agent_id values in this result to continue unfinished work.</resume_hint>',
+      '<resume_hint>Call AgentDynamicWorkflow with resume_agent_ids using the agent_id values in this result to continue unfinished work.</resume_hint>',
       '<subagent agent_id="agent-coder-1" item="src/a.ts" outcome="completed">imports are stable</subagent>',
       '<subagent agent_id="agent-coder-2" item="src/b.ts" state="started" outcome="aborted">The user manually interrupted this subagent batch before this subagent finished.</subagent>',
       '<subagent item="src/c.ts" state="not_started" outcome="aborted">The user manually interrupted this subagent batch before this subagent was started.</subagent>',
-      '</dynamic_workflow_result>',
+      '</agent_dynamic_workflow_result>',
     ].join('\n'));
     expect(result.isError).toBeUndefined();
   });
@@ -1555,85 +946,6 @@ describe('current builtin collaboration tools', () => {
   });
 });
 
-describe('isDynamicWorkflowDisabled', () => {
-  it('resolves the switch from config and env with env winning', () => {
-    expect(isDynamicWorkflowDisabled(undefined, {})).toBe(false);
-    expect(isDynamicWorkflowDisabled({ disableWorkflows: true }, {})).toBe(true);
-    expect(isDynamicWorkflowDisabled(undefined, { PYTHINKER_CODE_DISABLE_WORKFLOWS: '1' })).toBe(true);
-    expect(
-      isDynamicWorkflowDisabled({ disableWorkflows: true }, { PYTHINKER_CODE_DISABLE_WORKFLOWS: 'false' }),
-    ).toBe(false);
-    expect(
-      isDynamicWorkflowDisabled({ disableWorkflows: true }, { PYTHINKER_CODE_DISABLE_WORKFLOWS: 'maybe' }),
-    ).toBe(true);
-  });
-});
-
-describe('workflowSizeGuideline', () => {
-  it('resolves the guideline from config and env with env winning', () => {
-    expect(resolveWorkflowSizeGuideline(undefined, {})).toBe('medium');
-    expect(resolveWorkflowSizeGuideline({ workflowSizeGuideline: 'small' }, {})).toBe('small');
-    expect(
-      resolveWorkflowSizeGuideline(undefined, { PYTHINKER_CODE_WORKFLOW_SIZE_GUIDELINE: 'large' }),
-    ).toBe('large');
-    expect(
-      resolveWorkflowSizeGuideline(
-        { workflowSizeGuideline: 'small' },
-        { PYTHINKER_CODE_WORKFLOW_SIZE_GUIDELINE: 'LARGE' },
-      ),
-    ).toBe('large');
-    expect(
-      resolveWorkflowSizeGuideline(
-        { workflowSizeGuideline: 'small' },
-        { PYTHINKER_CODE_WORKFLOW_SIZE_GUIDELINE: 'huge' },
-      ),
-    ).toBe('small');
-  });
-
-  it('appends the advisory note to DynamicWorkflowTool descriptions unless unrestricted', () => {
-    const host = mockSubagentHost({});
-
-    const smallTool = new DynamicWorkflowTool(host, mockDynamicWorkflowMode(), 'small');
-    expect(smallTool.description).toContain('about 5 subagents');
-
-    const unrestrictedTool = new DynamicWorkflowTool(host, mockDynamicWorkflowMode(), 'unrestricted');
-    expect(unrestrictedTool.description).toContain('DynamicWorkflow supports up to 128 subagents');
-    expect(unrestrictedTool.description).toContain('at least two non-empty items');
-    expect(unrestrictedTool.description).not.toContain('Workflow size guideline:');
-  });
-});
-
-describe('workflow run ids', () => {
-  it('generates ids that satisfy the validator', () => {
-    expect(isWorkflowRunId(generateWorkflowRunId())).toBe(true);
-  });
-
-  it('generates distinct ids on consecutive calls', () => {
-    expect(generateWorkflowRunId()).not.toBe(generateWorkflowRunId());
-  });
-
-  it.each([
-    { name: 'an empty string', value: '' },
-    { name: 'a path traversal', value: 'wfr-../etc/passwd' },
-    { name: 'a value containing a slash', value: 'wfr-a/b-c' },
-    { name: 'uppercase letters', value: 'WFR-ABC-DEF' },
-    { name: 'a trailing space', value: 'wfr-abc-def ' },
-    { name: 'a plain string without the wfr- prefix', value: 'plain-string' },
-    { name: 'an overlong string', value: 'x'.repeat(500) },
-    // Structurally valid, so this reaches the component-length cap instead of
-    // failing earlier on a missing prefix.
-    { name: 'an overlong first component', value: `wfr-${'a'.repeat(33)}-def` },
-    { name: 'an overlong second component', value: `wfr-abc-${'a'.repeat(17)}` },
-    // A run id becomes a filename segment, so anything that could terminate or
-    // split a path has to be rejected outright rather than merely unexpected.
-    { name: 'a trailing newline', value: `wfr-abc-def${String.fromCodePoint(10)}` },
-    { name: 'an embedded NUL', value: `wfr-abc-def${String.fromCodePoint(0)}` },
-    { name: 'a NUL followed by traversal', value: `wfr-abc-def${String.fromCodePoint(0)}/../x` },
-  ])('rejects $name', ({ value }) => {
-    expect(isWorkflowRunId(value)).toBe(false);
-  });
-});
-
 describe('current builtin background tool schemas', () => {
   it('background task schemas and manager-backed tools are covered', () => {
     const manager = createBackgroundManager().manager;
@@ -1641,8 +953,6 @@ describe('current builtin background tool schemas', () => {
     expect(TaskListInputSchema.safeParse({ active_only: true }).success).toBe(true);
     expect(TaskOutputInputSchema.safeParse({ task_id: 'bash-1' }).success).toBe(true);
     expect(TaskStopInputSchema.safeParse({ task_id: 'bash-1' }).success).toBe(true);
-    expect(TaskStopInputSchema.safeParse({ shell_id: 'bash-1' }).success).toBe(true);
-    expect(TaskStopInputSchema.safeParse({}).success).toBe(false);
     expect(manager.list()).toEqual([]);
   });
 });

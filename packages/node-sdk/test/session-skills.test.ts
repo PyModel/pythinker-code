@@ -1,3 +1,9 @@
+/**
+ * Scenario: public SDK skill discovery and activation.
+ * Responsibilities: list workspace/session skills and activate a session skill through PythinkerHarness.
+ * Wiring: the in-process core and filesystem are real; only the remote model provider is stubbed.
+ * Run: pnpm exec vitest run packages/node-sdk/test/session-skills.test.ts
+ */
 import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
@@ -14,6 +20,7 @@ import {
 } from '#/index';
 import type { SDKRpcClientBase } from '#/rpc';
 
+import { normalizeWorkDir } from '../../agent-core/src/session/store';
 import {
   makeTempDir,
   removeTempDirs,
@@ -177,7 +184,7 @@ describe('Session skills', () => {
       expect(state['isCustomTitle']).toBe(false);
       expect(state['lastPrompt']).toBe('/review src/app.ts');
 
-      const skillDir = await realpath(join(workDir, '.pythinker-code', 'skills', 'review'));
+      const skillDir = normalizeWorkDir(await realpath(join(workDir, '.pythinker-code', 'skills', 'review')));
       await expect(
         waitForAgentWireEvent(
           homeDir,
@@ -323,6 +330,65 @@ describe('Session skills', () => {
     expectTypeOf<Parameters<InstanceType<typeof Session>['installPlugin']>[1]>().toEqualTypeOf<
       PluginInstallOptions | undefined
     >();
+  });
+});
+
+describe('PythinkerHarness workspace skills', () => {
+  it('returns project skills when no session exists', async () => {
+    const homeDir = await makeTempDir(tempDirs, 'pythinker-sdk-workspace-skills-home-');
+    const workDir = await makeTempDir(tempDirs, 'pythinker-sdk-workspace-skills-work-');
+    await writeSkill(workDir, 'workspace-review', [
+      '---',
+      'name: workspace-review',
+      'description: Review workspace changes',
+      '---',
+      '',
+      'Inspect every changed file.',
+    ]);
+    const harness = createPythinkerHarness({ homeDir, identity: TEST_IDENTITY });
+
+    try {
+      const skills = await harness.listWorkspaceSkills(workDir);
+
+      expect(skills.find((skill) => skill.name === 'workspace-review')).toMatchObject({
+        name: 'workspace-review',
+        description: 'Review workspace changes',
+        source: 'project',
+      });
+      expect(harness.sessions.size).toBe(0);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('preserves the core error when workDir is empty', async () => {
+    const homeDir = await makeTempDir(tempDirs, 'pythinker-sdk-workspace-skills-home-');
+    const harness = createPythinkerHarness({ homeDir, identity: TEST_IDENTITY });
+
+    try {
+      await expect(harness.listWorkspaceSkills('   ')).rejects.toMatchObject({
+        name: 'PythinkerError',
+        code: 'request.work_dir_required',
+        message: 'listWorkspaceSkills requires workDir',
+      } satisfies Partial<PythinkerError>);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('preserves the core error when workDir is not a string', async () => {
+    const homeDir = await makeTempDir(tempDirs, 'pythinker-sdk-workspace-skills-home-');
+    const harness = createPythinkerHarness({ homeDir, identity: TEST_IDENTITY });
+
+    try {
+      await expect(harness.listWorkspaceSkills(null as never)).rejects.toMatchObject({
+        name: 'PythinkerError',
+        code: 'request.work_dir_required',
+        message: 'listWorkspaceSkills requires workDir',
+      } satisfies Partial<PythinkerError>);
+    } finally {
+      await harness.close();
+    }
   });
 });
 

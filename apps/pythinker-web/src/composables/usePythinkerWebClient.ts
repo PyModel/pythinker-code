@@ -4,13 +4,59 @@
 
 import { computed, reactive, ref, watch } from 'vue';
 import { i18n } from '../i18n';
+import { traceClientEvent, traceKeyEvent } from '../debug/trace';
 import { getPythinkerWebApi } from '../api';
 import { isDaemonApiError, isDaemonNetworkError } from '../api/errors';
+import {
+  reconcileWorkspaceOrder,
+  sortByWorkspaceOrder,
+  sortWorkspacesByRecent,
+  type WorkspaceSortMode,
+} from '../lib/workspaceOrder';
+import { mergeWorkspaces } from '../lib/mergeWorkspaces';
+import { workspaceRootKey } from '../lib/rootKey';
+import { mergeSnapshotMessages } from '../lib/snapshotMessages';
+import { mergeSnapshotSubagents } from '../lib/taskMerge';
+import { createCoalescedAsyncRunner } from '../lib/snapshotSync';
+import {
+  loadUnread,
+  loadWorkspaceOrder,
+  loadWorkspaceSort,
+  safeGetString,
+  safeRemove,
+  safeSetString,
+  saveUnread,
+  saveWorkspaceOrder,
+  saveWorkspaceSort,
+  STORAGE_KEYS,
+} from '../lib/storage';
+import {
+  coalesceAppRenderEvents,
+  createEventBatcher,
+  isRenderEvent,
+  splitOversizedAppRenderEvent,
+  type PendingAppEvent,
+} from './client/eventBatcher';
+import { useAppearance } from './client/useAppearance';
+import { useNotification, shouldNotifyCompletion } from './client/useNotification';
+import { useSoundNotification } from './client/useSoundNotification';
+import { useTaskPoller } from './client/useTaskPoller';
+import { useModelProviderState } from './client/useModelProviderState';
+import { useSideChat } from './client/useSideChat';
+import {
+  forgetLocalTurnState,
+  SESSIONS_INITIAL_PAGE_SIZE,
+  useWorkspaceState,
+} from './client/useWorkspaceState';
+
+const appearance = useAppearance();
+const notification = useNotification();
+const sound = useSoundNotification();
 import type {
+  AppEvent,
   AppApprovalRequest,
   AppConfig,
   AppGoal,
-  AppMcpServerInput,
   AppNotice,
   AppNoticeDetail,
   AppMessage,
@@ -19,33 +65,22 @@ import type {
   AppQuestionRequest,
   AppSession,
   AppSessionRuntimeStatus,
-  AppConnector,
-  AppPlugin,
   AppSkill,
-  AppTool,
-  AppSubagent,
   AppTask,
   AppWarning,
   AppWorkspace,
   ApprovalDecision,
-  ApprovalResponse,
-  FsEntry,
   PythinkerEventConnection,
-  QuestionResponse,
+  PythinkerEventMeta,
   ThinkingLevel,
 } from '../api/types';
 import { createInitialState, reduceAppEvent, type CompactionStatus, type PythinkerClientState } from '../api/daemon/eventReducer';
-import { readSessionIdFromLocation, sessionUrl } from '../lib/sessionRoute';
-import { workspaceRootKey } from '../lib/rootKey';
-import type { SessionUrlMode } from '../lib/sessionRoute';
-import { toAppEvent } from '../api/daemon/mappers';
-import { parseDiff } from '../lib/parseDiff';
-import { coerceThinkingForModel } from '../lib/modelThinking';
-import { keepLiveSubagents } from '../lib/taskMerge';
+import { isPlaceholderSessionUsage, toAppEvent } from '../api/daemon/mappers';
+
 import { messagesToTurns } from './messagesToTurns';
 import { latestTodos } from './latestTodos';
-import { buildDynamicWorkflowGroups, countDynamicWorkflowMembers } from './dynamicWorkflowGroups';
-import type { DynamicWorkflowGroup } from './dynamicWorkflowGroups';
+import { buildDynamicWorkflowGroups, countDynamicWorkflowMembers, dynamic_workflowMembersByToolCall } from './dynamic_workflowGroups';
+import type { DynamicWorkflowGroup, DynamicWorkflowMember } from './dynamic_workflowGroups';
 import type {
   ActivityState,
   ActivationBadges,
@@ -71,112 +106,33 @@ import type {
 // Internal reactive state (plain object wrapped in reactive())
 // ---------------------------------------------------------------------------
 
-const PERMISSION_STORAGE_KEY = 'pythinker-web.permission';
-const ACTIVE_WORKSPACE_KEY = 'pythinker-active-workspace';
-const THINKING_STORAGE_KEY = 'pythinker-web.thinking';
-const PLAN_MODE_STORAGE_KEY = 'pythinker-web.plan-mode';
-const DYNAMIC_WORKFLOW_MODE_STORAGE_KEY = 'pythinker-web.dynamic-workflow-mode';
-const GOAL_MODE_STORAGE_KEY = 'pythinker-web.goal-mode';
-const THEME_STORAGE_KEY = 'pythinker-web.theme';
-const UI_FONT_SIZE_STORAGE_KEY = 'pythinker-web.ui-font-size';
-const STARRED_MODELS_STORAGE_KEY = 'pythinker-web.starred-models';
-const UNREAD_STORAGE_KEY = 'pythinker-web.unread';
-const UI_FONT_SIZE_DEFAULT = 15;
-const UI_FONT_SIZE_MIN = 12;
-const UI_FONT_SIZE_MAX = 20;
+const PERMISSION_STORAGE_KEY = STORAGE_KEYS.permission;
+const ACTIVE_WORKSPACE_KEY = STORAGE_KEYS.activeWorkspace;
+const PLAN_MODE_STORAGE_KEY = STORAGE_KEYS.planMode;
+const DYNAMIC_WORKFLOW_MODE_STORAGE_KEY = STORAGE_KEYS.dynamicWorkflowMode;
+const GOAL_MODE_STORAGE_KEY = STORAGE_KEYS.goalMode;
 const SESSION_NOT_FOUND_CODE = 40401;
-const SESSION_SNAPSHOT_RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000] as const;
-const PROMPT_NOT_FOUND_CODE = 40402;
-const ONBOARDED_STORAGE_KEY = 'pythinker-web.onboarded';
-const THINKING_LEVELS: readonly ThinkingLevel[] = [
-  'off',
-  'minimal',
-  'low',
-  'medium',
-  'high',
-  'xhigh',
-  'max',
-];
+const ONBOARDED_STORAGE_KEY = STORAGE_KEYS.onboarded;
 
-/** UI theme: 'terminal' = dense line look, 'modern' = bubbles everywhere,
-    'pythinker' = the official Pythinker design language (Quiet Utility: flat surfaces,
-    periwinkle interaction accent, PingFang/Geist type). */
-export type Theme = 'terminal' | 'modern' | 'pythinker';
-
-/** Color scheme: 'light', 'dark', or follow the OS preference ('system'). */
-export type ColorScheme = 'light' | 'dark' | 'system';
+// Appearance types + logic live in ./client/useAppearance; re-exported here so
+// existing `import type { ColorScheme, Accent } from './usePythinkerWebClient'`
+// callers keep working.
+export type { Accent, ColorScheme } from './client/useAppearance';
 
 // The code-font setting was removed with its UI (b8a9e83). Clear the old
 // persisted key so users who once picked a font aren't frozen on it forever.
-try {
-  localStorage.removeItem('pythinker-web.code-font');
-} catch {
-  // ignore
-}
-
-// Accent / colour scheme: 'blue' (periwinkle interaction accent, default) or
-// 'mono' (black/white, Vercel-style). Reflected onto <html data-accent>; style.css
-// remaps the accent tokens to grayscale for 'mono'. Orthogonal to the theme.
-export type Accent = 'blue' | 'mono';
-const ACCENT_STORAGE_KEY = 'pythinker-web.accent';
-const ACCENT_VALUES: ReadonlySet<string> = new Set(['blue', 'mono']);
-function loadAccentFromStorage(): Accent {
-  try {
-    const v = localStorage.getItem(ACCENT_STORAGE_KEY);
-    if (v && ACCENT_VALUES.has(v)) return v as Accent;
-  } catch {
-    // ignore
-  }
-  return 'blue';
-}
-function applyAccentToDocument(a: Accent): void {
-  if (typeof document === 'undefined' || !document.documentElement) return;
-  document.documentElement.dataset.accent = a;
-}
-
-const COLOR_SCHEME_STORAGE_KEY = 'pythinker-web.color-scheme';
-const COLOR_SCHEME_VALUES: ReadonlySet<string> = new Set(['light', 'dark', 'system']);
-
-function loadColorSchemeFromStorage(): ColorScheme {
-  try {
-    const v = localStorage.getItem(COLOR_SCHEME_STORAGE_KEY);
-    if (v && COLOR_SCHEME_VALUES.has(v)) return v as ColorScheme;
-  } catch {
-    // ignore
-  }
-  return 'system';
-}
-
-function saveColorSchemeToStorage(v: ColorScheme): void {
-  try {
-    localStorage.setItem(COLOR_SCHEME_STORAGE_KEY, v);
-  } catch {
-    // ignore
-  }
-}
-
-/** Reflect the chosen color scheme onto <html data-color-scheme>. jsdom-safe. */
-function applyColorSchemeToDocument(c: ColorScheme): void {
-  if (typeof document === 'undefined' || !document.documentElement) return;
-  document.documentElement.dataset.colorScheme = c;
-
-  // Mobile browser chrome (status/address bar) follows <meta name=theme-color>.
-  // The static tags in index.html only track the OS preference — when the user
-  // explicitly picks light/dark, pin both media variants to the app's colour
-  // so the chrome doesn't sit in the opposite scheme.
-  const metas = document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]');
-  if (metas.length === 0) return;
-  const pinned = c === 'dark' ? '#0d1117' : c === 'light' ? '#ffffff' : null;
-  metas.forEach((meta) => {
-    const media = meta.getAttribute('media') ?? '';
-    const systemValue = media.includes('dark') ? '#0d1117' : '#ffffff';
-    meta.setAttribute('content', pinned ?? systemValue);
-  });
-}
+safeRemove(STORAGE_KEYS.codeFont);
+// The UI theme (terminal / modern / pythinker) was retired in favor of a single
+// look. Clear the old persisted key so users who once picked one aren't frozen
+// on a value the UI no longer reads.
+safeRemove(STORAGE_KEYS.theme);
+// The per-model thinking pick store was dropped in favor of the daemon's
+// per-session thinking state — clear the old key so stale picks can't linger.
+safeRemove(STORAGE_KEYS.thinking);
 
 function loadPermissionFromStorage(): PermissionMode {
   try {
-    const v = localStorage.getItem(PERMISSION_STORAGE_KEY);
+    const v = safeGetString(PERMISSION_STORAGE_KEY);
     if (v === 'auto' || v === 'yolo' || v === 'manual') return v;
   } catch {
     // localStorage not available (e.g. jsdom without config)
@@ -186,88 +142,24 @@ function loadPermissionFromStorage(): PermissionMode {
 
 function savePermissionToStorage(mode: PermissionMode): void {
   try {
-    localStorage.setItem(PERMISSION_STORAGE_KEY, mode);
+    safeSetString(PERMISSION_STORAGE_KEY, mode);
   } catch {
     // ignore
   }
 }
 
-function loadThinkingFromStorage(): ThinkingLevel {
-  try {
-    const v = localStorage.getItem(THINKING_STORAGE_KEY);
-    if (v && (THINKING_LEVELS as readonly string[]).includes(v)) return v as ThinkingLevel;
-  } catch {
-    // ignore
-  }
-  return 'high';
-}
+// Plan / dynamic_workflow / goal modes are per-session. Each is persisted as a compact
+// JSON map of only the `true` entries (cleared sessions are dropped), keyed by
+// session id — mirroring the unread map. The legacy global format (a bare
+// 'true'/'false' string) is not an object and parses to an empty map, so it is
+// discarded on first load rather than misapplied to every session.
 
-function saveThinkingToStorage(v: ThinkingLevel): void {
+function loadModeMapFromStorage(key: string): Record<string, boolean> {
+  const raw = safeGetString(key);
+  if (!raw) return {};
   try {
-    localStorage.setItem(THINKING_STORAGE_KEY, v);
-  } catch {
-    // ignore
-  }
-}
-
-function loadPlanModeFromStorage(): boolean {
-  try {
-    return localStorage.getItem(PLAN_MODE_STORAGE_KEY) === 'true';
-  } catch {
-    return false;
-  }
-}
-
-function savePlanModeToStorage(v: boolean): void {
-  try {
-    localStorage.setItem(PLAN_MODE_STORAGE_KEY, v ? 'true' : 'false');
-  } catch {
-    // ignore
-  }
-}
-
-function loadDynamicWorkflowModeFromStorage(): boolean {
-  try {
-    return localStorage.getItem(DYNAMIC_WORKFLOW_MODE_STORAGE_KEY) === 'true';
-  } catch {
-    return false;
-  }
-}
-
-function saveDynamicWorkflowModeToStorage(v: boolean): void {
-  try {
-    localStorage.setItem(DYNAMIC_WORKFLOW_MODE_STORAGE_KEY, v ? 'true' : 'false');
-  } catch {
-    // ignore
-  }
-}
-
-function loadGoalModeFromStorage(): boolean {
-  try {
-    return localStorage.getItem(GOAL_MODE_STORAGE_KEY) === 'true';
-  } catch {
-    return false;
-  }
-}
-
-function saveGoalModeToStorage(v: boolean): void {
-  try {
-    localStorage.setItem(GOAL_MODE_STORAGE_KEY, v ? 'true' : 'false');
-  } catch {
-    // ignore
-  }
-}
-
-// Per-session unread flags are pure client state (set when a background turn
-// finishes, cleared on open). Persisting the `true` entries lets them survive a
-// page refresh — without this the sidebar's unread dots vanish on reload because
-// the in-memory map starts empty and there is no server-side read cursor.
-function loadUnreadFromStorage(): Record<string, boolean> {
-  try {
-    const raw = localStorage.getItem(UNREAD_STORAGE_KEY);
-    if (!raw) return {};
     const parsed = JSON.parse(raw) as unknown;
-    if (!parsed || typeof parsed !== 'object') return {};
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
     const out: Record<string, boolean> = {};
     for (const [id, value] of Object.entries(parsed as Record<string, unknown>)) {
       if (value === true) out[id] = true;
@@ -278,92 +170,33 @@ function loadUnreadFromStorage(): Record<string, boolean> {
   }
 }
 
-function saveUnreadToStorage(map: Record<string, boolean>): void {
+function saveModeMapToStorage(key: string, map: Record<string, boolean>): void {
   try {
-    // Store only the `true` entries so the key stays compact (cleared sessions
-    // write `false` and are dropped here).
-    const out: Record<string, boolean> = {};
+    const out: Record<string, true> = {};
     for (const [id, value] of Object.entries(map)) {
       if (value) out[id] = true;
     }
-    localStorage.setItem(UNREAD_STORAGE_KEY, JSON.stringify(out));
+    safeSetString(key, JSON.stringify(out));
   } catch {
-    // ignore
+    // storage unavailable (private mode, quota, etc.) — ignore
   }
 }
 
-function loadStarredModelsFromStorage(): string[] {
-  try {
-    const raw = localStorage.getItem(STARRED_MODELS_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed) && parsed.every((item) => typeof item === 'string')) {
-      return parsed as string[];
-    }
-  } catch {
-    // ignore (localStorage not available or malformed)
-  }
-  return [];
+function savePlanModeToStorage(): void {
+  saveModeMapToStorage(PLAN_MODE_STORAGE_KEY, rawState.planModeBySession);
 }
 
-function saveStarredModelsToStorage(v: string[]): void {
-  try {
-    localStorage.setItem(STARRED_MODELS_STORAGE_KEY, JSON.stringify(v));
-  } catch {
-    // ignore
-  }
+function saveDynamicWorkflowModeToStorage(): void {
+  saveModeMapToStorage(DYNAMIC_WORKFLOW_MODE_STORAGE_KEY, rawState.dynamicWorkflowModeBySession);
 }
 
-function loadThemeFromStorage(): Theme {
-  try {
-    const v = localStorage.getItem(THEME_STORAGE_KEY);
-    if (v === 'terminal' || v === 'modern' || v === 'pythinker') return v;
-  } catch {
-    // ignore
-  }
-  // Modern is the default for new users (no stored choice); the onboarding screen
-  // confirms/changes it. Existing users keep whatever they persisted.
-  return 'modern';
-}
-
-function saveThemeToStorage(v: Theme): void {
-  try {
-    localStorage.setItem(THEME_STORAGE_KEY, v);
-  } catch {
-    // ignore
-  }
-}
-
-function clampUiFontSize(value: number): number {
-  if (!Number.isFinite(value)) return UI_FONT_SIZE_DEFAULT;
-  return Math.min(UI_FONT_SIZE_MAX, Math.max(UI_FONT_SIZE_MIN, Math.round(value)));
-}
-
-function loadUiFontSizeFromStorage(): number {
-  try {
-    const v = localStorage.getItem(UI_FONT_SIZE_STORAGE_KEY);
-    return v === null ? UI_FONT_SIZE_DEFAULT : clampUiFontSize(Number(v));
-  } catch {
-    return UI_FONT_SIZE_DEFAULT;
-  }
-}
-
-function saveUiFontSizeToStorage(value: number): void {
-  try {
-    localStorage.setItem(UI_FONT_SIZE_STORAGE_KEY, String(clampUiFontSize(value)));
-  } catch {
-    // ignore
-  }
-}
-
-function applyUiFontSizeToDocument(value: number): void {
-  if (typeof document === 'undefined' || !document.documentElement) return;
-  document.documentElement.style.setProperty('--ui-font-size', `${clampUiFontSize(value)}px`);
+function saveGoalModeToStorage(): void {
+  saveModeMapToStorage(GOAL_MODE_STORAGE_KEY, rawState.goalModeBySession);
 }
 
 function loadActiveWorkspaceFromStorage(): string | null {
   try {
-    return localStorage.getItem(ACTIVE_WORKSPACE_KEY);
+    return safeGetString(ACTIVE_WORKSPACE_KEY);
   } catch {
     return null;
   }
@@ -374,11 +207,11 @@ function loadActiveWorkspaceFromStorage(): string | null {
 // and mergedWorkspaces would otherwise re-derive it from those sessions' cwds).
 // History is untouched — only the sidebar entry is hidden — so this is persisted
 // per browser, keyed by root path.
-const HIDDEN_WORKSPACES_KEY = 'pythinker-web.hidden-workspaces';
+const HIDDEN_WORKSPACES_KEY = STORAGE_KEYS.hiddenWorkspaces;
 
 function loadHiddenWorkspacesFromStorage(): string[] {
   try {
-    const v = localStorage.getItem(HIDDEN_WORKSPACES_KEY);
+    const v = safeGetString(HIDDEN_WORKSPACES_KEY);
     if (!v) return [];
     const parsed = JSON.parse(v);
     return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : [];
@@ -389,7 +222,7 @@ function loadHiddenWorkspacesFromStorage(): string[] {
 
 function saveHiddenWorkspacesToStorage(roots: string[]): void {
   try {
-    localStorage.setItem(HIDDEN_WORKSPACES_KEY, JSON.stringify(roots));
+    safeSetString(HIDDEN_WORKSPACES_KEY, JSON.stringify(roots));
   } catch {
     // ignore
   }
@@ -397,16 +230,10 @@ function saveHiddenWorkspacesToStorage(roots: string[]): void {
 
 function saveActiveWorkspaceToStorage(id: string): void {
   try {
-    localStorage.setItem(ACTIVE_WORKSPACE_KEY, id);
+    safeSetString(ACTIVE_WORKSPACE_KEY, id);
   } catch {
     // ignore
   }
-}
-
-/** basename of an absolute path (last non-empty segment), defaulting to the path. */
-function basename(path: string): string {
-  const parts = path.split('/').filter(Boolean);
-  return parts.length > 0 ? parts.at(-1)! : path;
 }
 
 /** Shorten a $HOME-prefixed absolute path to `~/…` for dim display. */
@@ -432,32 +259,65 @@ interface GitStatusEntry {
 }
 
 /** An uploaded attachment to send with a prompt. `kind` drives the content-block
-    type (image vs video) so a still and a clip resolve to the right wire shape. */
-type PromptAttachment = { fileId: string; kind: 'image' | 'video' };
-
-/** The prompt an undo removed, so a caller can edit or resend it unchanged. */
-export interface UndonePrompt {
-  text: string;
-  attachments: PromptAttachment[];
-}
+    type: images/videos become media parts; any other kind becomes a file part
+    the server materializes and hands to the model as a path reference.
+    name/mediaType/size feed the wire file shape (the server's file-store meta
+    stays authoritative, so a chip reloaded from history may omit them). */
+export type PromptAttachment = {
+  fileId: string;
+  kind: 'image' | 'video' | 'file';
+  name?: string;
+  mediaType?: string;
+  size?: number;
+};
 
 /** A prompt waiting for the session to go idle. Keeps the uploaded
-    fileIds so attachments survive queueing (not just the text). */
+    fileIds so attachments survive queueing (not just the text). The id keys
+    the per-entry flush failure budget locally (assigned at enqueue). */
 interface QueuedPrompt {
   text: string;
   attachments?: PromptAttachment[];
+  id?: string;
 }
 
-interface ExtendedState extends PythinkerClientState {
+export interface ExtendedState extends PythinkerClientState {
   connected: boolean;
   serverVersion: string;
+  /**
+   * True when the connected server reports `dangerous_bypass_auth` in `/meta`,
+   * meaning its bearer-token gate is disabled. The UI skips the server-token
+   * prompt and connects without a credential.
+   */
+  dangerousBypassAuth: boolean;
+  /**
+   * Engine generation of the connected server: `'v2'` = kap-server /
+   * agent-core-v2, `'v1'` = an older (legacy) server binary. Read from `/meta`
+   * (`backend` field; older servers omit it ⇒ v1). Drives the dev-mode
+   * backend badge in the Sidebar.
+   */
+  backend: 'v1' | 'v2';
   workspaceName: string;
   connection: ConnectionState;
   permission: PermissionMode;
-  thinking: ThinkingLevel;
-  planMode: boolean;
-  dynamicWorkflowMode: boolean;
-  goalMode: boolean;
+  /** The thinking level shown and submitted for the ACTIVE session. Resolved by
+   *  useModelProviderState: the session's own daemon-reported level
+   *  (`thinkingBySession`) when the model still declares it, else the model's
+   *  stored per-model pick, else its catalog default — undefined only
+   *  transiently before that, so display and submission always agree. */
+  thinking: ThinkingLevel | undefined;
+  /** The session's own thinking level as reported by the daemon (GET
+   *  /sessions/{id}/status `thinking_level` and WS `agent.status.updated`),
+   *  keyed by session id. Per-session state wins over the per-model
+   *  localStorage pick: a session keeps the level it actually ran with, so
+   *  switching sessions never leaks one session's pick into another. */
+  thinkingBySession: Record<string, ThinkingLevel>;
+  /** Plan-mode toggle per session. Bound to a session (not global) so toggling
+   *  it in one session does not affect another. */
+  planModeBySession: Record<string, boolean>;
+  /** DynamicWorkflow-mode toggle per session. */
+  dynamicWorkflowModeBySession: Record<string, boolean>;
+  /** Goal-mode (one-shot "next send creates a goal") toggle per session. */
+  goalModeBySession: Record<string, boolean>;
   loading: boolean;
   sessionLoading: boolean;
   queuedBySession: Record<string, QueuedPrompt[]>;
@@ -466,8 +326,13 @@ interface ExtendedState extends PythinkerClientState {
   // AUTHORITATIVE id for :abort — the event projector synthesizes a `pr_…` id
   // when turn.started races ahead of binding, which the daemon rejects.
   promptIdBySession: Record<string, string>;
-  // True while a prompt is in flight but the assistant reply hasn't started yet.
-  sendingBySession: Record<string, boolean>;
+  // A prompt this client submitted (or skill-activated) has not reached its
+  // terminal state yet — the OPTIMISTIC half of the working moon, covering the
+  // window before the turn.started round-trips (and the queue-drain re-arm).
+  // Set at every local turn entry point; cleared by finishPromptLocal, the
+  // entry points' own error paths, the authoritative-quiet fallback, or session
+  // forget. `turnActiveBySession` owns everything from turn.started on.
+  inFlightBySession: Record<string, boolean>;
   // True when a BACKGROUND session finished a turn the user hasn't opened since
   // (drives the unread blue dot in the sidebar). Set on idle for a non-active
   // session, cleared when the session is selected.
@@ -475,6 +340,7 @@ interface ExtendedState extends PythinkerClientState {
   // Auth state (real daemon)
   authReady: boolean;
   defaultModel: string | null;
+  managedProviderStatus: string | null;
   // Workspace state
   workspaces: AppWorkspace[];
   activeWorkspaceId: string | null;
@@ -492,28 +358,54 @@ interface ExtendedState extends PythinkerClientState {
   sideChatSendingByAgent: Record<string, boolean>;
   /** User message ids sent through BTW so they can be hidden from the main transcript. */
   sideChatUserMessageIdsBySession: Record<string, string[]>;
+  /** True when older messages are being fetched for a session (scroll-up lazy load). */
+  messagesLoadingMoreBySession: Record<string, boolean>;
+  /** Whether the server has more older messages than currently loaded per session. */
+  messagesHasMoreBySession: Record<string, boolean>;
+  /** True when the last older-message fetch failed for a session. */
+  messagesLoadMoreErrorBySession: Record<string, boolean>;
+  /** Whether the server has more sessions than currently loaded, per workspace. */
+  sessionsHasMoreByWorkspace: Record<string, boolean>;
+  /** True while the next page of sessions is being fetched for a workspace. */
+  sessionsLoadingMoreByWorkspace: Record<string, boolean>;
+  /** Paging cursor (`before_id`) for the next session page, per workspace. Tracks
+   *  the end of the last fetched page so a deep-linked older session appended
+   *  out of band does not shift the cursor and skip intervening sessions. */
+  sessionsCursorByWorkspace: Record<string, string | undefined>;
+  /** First-page capacity per workspace (sessions loaded on first paint, floored
+   *  at one full page). Drives the sidebar's in-group show-less collapse target. */
+  sessionsInitialCountByWorkspace: Record<string, number>;
+  /** True once every session has been loaded (after a search-triggered full drain). */
+  sessionsFullyLoaded: boolean;
 }
 
 const rawState: ExtendedState = reactive({
   ...createInitialState(),
   connected: false,
   serverVersion: '',
+  dangerousBypassAuth: false,
+  backend: 'v1',
   workspaceName: 'pythinker-web',
   connection: 'disconnected' as ConnectionState,
   permission: loadPermissionFromStorage(),
-  thinking: loadThinkingFromStorage(),
-  planMode: loadPlanModeFromStorage(),
-  dynamicWorkflowMode: loadDynamicWorkflowModeFromStorage(),
-  goalMode: loadGoalModeFromStorage(),
+  // Resolved per session/model once the catalog/session is known (loadModels
+  // and the active-session watcher in useModelProviderState) — the per-session
+  // map below starts empty and is fed by /status folds.
+  thinking: undefined,
+  thinkingBySession: {},
+  planModeBySession: loadModeMapFromStorage(PLAN_MODE_STORAGE_KEY),
+  dynamicWorkflowModeBySession: loadModeMapFromStorage(DYNAMIC_WORKFLOW_MODE_STORAGE_KEY),
+  goalModeBySession: loadModeMapFromStorage(GOAL_MODE_STORAGE_KEY),
   loading: false,
   sessionLoading: false,
   queuedBySession: {},
   gitStatusBySession: {},
   promptIdBySession: {},
-  sendingBySession: {},
-  unreadBySession: loadUnreadFromStorage(),
+  inFlightBySession: {},
+  unreadBySession: loadUnread(),
   authReady: false,
   defaultModel: null,
+  managedProviderStatus: null,
   workspaces: [],
   activeWorkspaceId: loadActiveWorkspaceFromStorage(),
   fsHome: null,
@@ -524,109 +416,232 @@ const rawState: ExtendedState = reactive({
   sideChatMessagesByAgent: {},
   sideChatSendingByAgent: {},
   sideChatUserMessageIdsBySession: {},
+  messagesLoadingMoreBySession: {},
+  messagesHasMoreBySession: {},
+  messagesLoadMoreErrorBySession: {},
+  sessionsHasMoreByWorkspace: {},
+  sessionsLoadingMoreByWorkspace: {},
+  sessionsCursorByWorkspace: {},
+  sessionsInitialCountByWorkspace: {},
+  sessionsFullyLoaded: false,
 });
 
-// Models + Providers reactive state (lazy-loaded, cached)
-const models = ref<AppModel[]>([]);
-const starredModelIds = ref<string[]>(loadStarredModelsFromStorage());
+// ---------------------------------------------------------------------------
+// Draft mode staging (no active session yet).
+// When the user toggles plan/dynamic_workflow/goal in the empty composer before the first
+// message is sent, there is no session to bind the toggle to. These staged
+// values are transferred into the new session's per-session entry when the
+// first prompt is sent (see startSessionAndSendPrompt), then cleared. Not
+// persisted — the draft is ephemeral.
+// ---------------------------------------------------------------------------
+const draftModes = reactive<{ planMode: boolean; dynamicWorkflowMode: boolean; goalMode: boolean }>({
+  planMode: false,
+  dynamicWorkflowMode: false,
+  goalMode: false,
+});
 
-// Session-scoped skills (slash-invocable). Loaded lazily per session; the active
-// session's list feeds the composer's `/` menu.
-const skillsBySession = ref<Record<string, AppSkill[]>>({});
-const skillsLoadingBySession = ref<Record<string, boolean>>({});
-const toolsBySession = ref<Record<string, AppTool[]>>({});
-const toolsLoadingBySession = ref<Record<string, boolean>>({});
-const providers = ref<AppProvider[]>([]);
+// ---------------------------------------------------------------------------
+// rawState.sessions — single mutation funnel.
+// Every change to the session list goes through one of these helpers, so
+// "where can sessions change?" has exactly one answer per intent. They are
+// injected into the workspace/model modules (via deps) so no module assigns
+// rawState.sessions directly.
+// ---------------------------------------------------------------------------
+function setSessions(next: AppSession[]): void {
+  rawState.sessions = next;
+}
+/** Replace one session in place (matched by id); no-op if it isn't loaded. */
+function updateSession(id: string, update: (session: AppSession) => AppSession): void {
+  rawState.sessions = rawState.sessions.map((s) => (s.id === id ? update(s) : s));
+}
+/** Add or move a session to the front (recency order), de-duped by id. */
+function upsertSessionFront(session: AppSession): void {
+  rawState.sessions = [session, ...rawState.sessions.filter((s) => s.id !== session.id)];
+}
+/** Append a session to the end (e.g. a deep-linked older session). */
+function appendSession(session: AppSession): void {
+  rawState.sessions = [...rawState.sessions, session];
+}
+/** Drop a session from the list by id. */
+function removeSession(id: string): void {
+  rawState.sessions = rawState.sessions.filter((s) => s.id !== id);
+}
 
-// CSS handles the spinner frames; this only flips the spinner between normal and
-// fast classes when the active session is visibly producing content quickly.
-const SPINNER_FAST_WINDOW_MS = 600;
-const SPINNER_FAST_MIN_ELAPSED_MS = 250;
-const SPINNER_FAST_CHECK_INTERVAL_MS = 250;
-const SPINNER_FAST_HOLD_MS = 1000;
-const SPINNER_FAST_CHARS_PER_SECOND = 160;
-
-type SpinnerSpeedSample = { time: number; chars: number };
-const fastSpinner = ref(false);
-let spinnerSpeedSamples: SpinnerSpeedSample[] = [];
-let spinnerFastResetTimer: ReturnType<typeof setTimeout> | null = null;
-let lastSpinnerFastCheckAt = -SPINNER_FAST_CHECK_INTERVAL_MS;
-
-// Background task output polling — mirrors TUI's 1-second refresh.
-const TASK_OUTPUT_POLL_INTERVAL_MS = 1000;
-const TASK_OUTPUT_POLL_BYTES = 4096;
-const TASK_OUTPUT_FINAL_BYTES = 32 * 1024;
-let taskOutputPollTimer: ReturnType<typeof setInterval> | null = null;
-let lastPolledSessionId: string | undefined;
-let fetchedTerminalTaskOutputIds = new Set<string>();
-
-function resetFastSpinner(): void {
-  spinnerSpeedSamples = [];
-  lastSpinnerFastCheckAt = -SPINNER_FAST_CHECK_INTERVAL_MS;
-  fastSpinner.value = false;
-  if (spinnerFastResetTimer !== null) {
-    clearTimeout(spinnerFastResetTimer);
-    spinnerFastResetTimer = null;
+// Cross-tab sync: when another tab writes the unread key, adopt its value so a
+// clear on one tab doesn't get overwritten by this tab's stale in-memory map.
+//
+// The session this tab is actively viewing is also cleared (only while visible):
+// its unread bit may have been set by a tab where it was in the background, and
+// we don't want the on-screen session to light up a dot. The same clear runs when
+// a hidden tab becomes visible again, so a dot that arrived while hidden is
+// dropped once the user is actually looking.
+function clearActiveUnread(): void {
+  const active = rawState.activeSessionId;
+  if (
+    active &&
+    rawState.unreadBySession[active] &&
+    typeof document !== 'undefined' &&
+    document.visibilityState === 'visible'
+  ) {
+    rawState.unreadBySession = { ...rawState.unreadBySession, [active]: false };
+    saveUnread({ [active]: false });
   }
 }
 
-function holdFastSpinner(): void {
-  fastSpinner.value = true;
-  if (spinnerFastResetTimer !== null) clearTimeout(spinnerFastResetTimer);
-  spinnerFastResetTimer = setTimeout(() => {
-    spinnerFastResetTimer = null;
-    spinnerSpeedSamples = [];
-    lastSpinnerFastCheckAt = -SPINNER_FAST_CHECK_INTERVAL_MS;
-    fastSpinner.value = false;
-  }, SPINNER_FAST_HOLD_MS);
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (event) => {
+    if (event.key === STORAGE_KEYS.unread) {
+      rawState.unreadBySession = loadUnread();
+      clearActiveUnread();
+    }
+  });
 }
 
-function recordSpinnerDelta(chars: number): void {
-  if (chars <= 0) return;
-  const now = Date.now();
-  spinnerSpeedSamples.push({ time: now, chars });
-  const cutoff = now - SPINNER_FAST_WINDOW_MS;
-  spinnerSpeedSamples = spinnerSpeedSamples.filter((s) => s.time >= cutoff);
-
-  if (now - lastSpinnerFastCheckAt < SPINNER_FAST_CHECK_INTERVAL_MS) return;
-  lastSpinnerFastCheckAt = now;
-
-  const oldest = spinnerSpeedSamples[0]?.time ?? now;
-  const elapsed = Math.max(now - oldest, SPINNER_FAST_MIN_ELAPSED_MS);
-  const totalChars = spinnerSpeedSamples.reduce((sum, s) => sum + s.chars, 0);
-  const charsPerSecond = (totalChars / elapsed) * 1000;
-  if (charsPerSecond >= SPINNER_FAST_CHARS_PER_SECOND) holdFastSpinner();
+/**
+ * When the tab returns to the foreground, the WebSocket may be a silent
+ * half-open: the browser still reports OPEN (so no auto-reconnect) yet no
+ * frames have arrived for a while (frozen background tab, dropped NAT mapping,
+ * daemon restart). On such a socket live streaming tokens freeze mid-turn with
+ * no recovery short of a full page reload.
+ *
+ * If the socket looks stale, force a clean reconnect — the handshake
+ * re-subscribes at the last durable cursor — then refresh the active session
+ * from its authoritative snapshot to re-seed the volatile streaming tokens lost
+ * during the gap.
+ */
+function recoverStaleConnection(): void {
+  if (eventConn === null) return;
+  if (!eventConn.health().stale) return;
+  traceKeyEvent('ws:stale-reconnect', {
+    sessionId: rawState.activeSessionId,
+    status: 'stale',
+  });
+  traceClientEvent('ws: stale socket on focus, reconnecting', {
+    activeSessionId: rawState.activeSessionId,
+  });
+  eventConn.reconnect();
+  const active = rawState.activeSessionId;
+  if (active) snapshotSyncRunner.request(active);
 }
 
-// Model picked while in the "new session draft" state (onboarding composer —
-// no backend session exists yet, so POST /profile has nothing to target).
-// Applied and cleared when the first prompt creates the session.
-const draftModel = ref<string | null>(null);
-
-function modelById(modelId: string | null | undefined): AppModel | undefined {
-  if (modelId === undefined || modelId === null || modelId.length === 0) return undefined;
-  return models.value.find((m) => m.id === modelId || m.model === modelId);
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      clearActiveUnread();
+      recoverStaleConnection();
+    }
+  });
+}
+if (typeof window !== 'undefined') {
+  window.addEventListener('focus', recoverStaleConnection);
+  window.addEventListener('online', recoverStaleConnection);
 }
 
-function activeThinkingModel(): AppModel | undefined {
-  const activeSession = rawState.activeSessionId
-    ? rawState.sessions.find((s) => s.id === rawState.activeSessionId)
-    : undefined;
-  return modelById(activeSession?.model ?? draftModel.value ?? rawState.defaultModel);
+// ---------------------------------------------------------------------------
+// rawState.activeSessionId — single mutation funnel.
+// ---------------------------------------------------------------------------
+/** Set the active session (or clear it with undefined). */
+function setActiveSessionId(id: string | undefined): void {
+  rawState.activeSessionId = id;
 }
 
-function applyThinkingLevel(level: ThinkingLevel): ThinkingLevel {
-  const next = coerceThinkingForModel(activeThinkingModel(), level);
-  rawState.thinking = next;
-  saveThinkingToStorage(next);
-  return next;
+// ---------------------------------------------------------------------------
+// rawState.messagesBySession — single mutation funnel.
+// ---------------------------------------------------------------------------
+/** Replace the whole messages map (e.g. from the reducer snapshot). */
+function setMessagesBySession(next: Record<string, AppMessage[]>): void {
+  rawState.messagesBySession = next;
 }
+/** Set one session's message list. */
+function setSessionMessages(sessionId: string, messages: AppMessage[]): void {
+  rawState.messagesBySession = { ...rawState.messagesBySession, [sessionId]: messages };
+}
+/** Update one session's message list via a function of the current list. */
+function updateSessionMessages(
+  sessionId: string,
+  update: (messages: AppMessage[]) => AppMessage[],
+): void {
+  rawState.messagesBySession = {
+    ...rawState.messagesBySession,
+    [sessionId]: update(rawState.messagesBySession[sessionId] ?? []),
+  };
+}
+/** Remove one session's message list. */
+function removeSessionMessages(sessionId: string): void {
+  const { [sessionId]: _removed, ...rest } = rawState.messagesBySession;
+  void _removed;
+  rawState.messagesBySession = rest;
+}
+
+// ---------------------------------------------------------------------------
+// Session teardown — single place that wipes a session and all its per-session
+// sidecar state. Both removal entry points (not-found + archive) go through
+// this, so adding a new per-session map only ever needs one new line here.
+// ---------------------------------------------------------------------------
+function forgetSession(sessionId: string): void {
+  // Stop receiving events for this session BEFORE clearing its state: a late or
+  // buffered event for this id would otherwise be reduced and recreate the very
+  // per-session maps we are about to delete.
+  eventConn?.unsubscribe(sessionId);
+  dropWsSubscription(sessionId);
+  // Drop this session's queued render AND control events. Flushing them here is
+  // unsafe: a delayed idle event can drain a queued prompt into the session
+  // after the archive request succeeded. Other sessions keep their own ordered
+  // backlog and scheduled continuation.
+  enqueueEvent.discard(({ meta }) => meta.sessionId === sessionId);
+  removeSession(sessionId);
+  removeSessionMessages(sessionId);
+  delete rawState.approvalsBySession[sessionId];
+  delete rawState.questionsBySession[sessionId];
+  delete rawState.tasksBySession[sessionId];
+  delete rawState.goalBySession[sessionId];
+  delete rawState.gitStatusBySession[sessionId];
+  delete rawState.lastSeqBySession[sessionId];
+  delete rawState.compactionBySession[sessionId];
+  delete rawState.messagesLoadingMoreBySession[sessionId];
+  delete rawState.messagesHasMoreBySession[sessionId];
+  delete rawState.messagesLoadMoreErrorBySession[sessionId];
+  delete epochBySession[sessionId];
+  sessionsRequiringSnapshot.delete(sessionId);
+  sessionsRetryingStaleSnapshot.delete(sessionId);
+  sessionsKnownEmpty.delete(sessionId);
+  // In-flight / queued prompt state: drop these too so a queued follow-up
+  // can't be submitted to a session that was just archived when its turn later
+  // ends (onMainTurnEnd drains queuedBySession[sid] without re-checking
+  // that the session still exists).
+  forgetLocalTurnState(sessionId);
+  delete rawState.queuedBySession[sessionId];
+  delete rawState.promptIdBySession[sessionId];
+  delete rawState.inFlightBySession[sessionId];
+  delete rawState.turnActiveBySession[sessionId];
+  // Drop per-session mode toggles and re-persist so a deleted session's entry
+  // doesn't linger in localStorage.
+  delete rawState.planModeBySession[sessionId];
+  delete rawState.dynamicWorkflowModeBySession[sessionId];
+  delete rawState.goalModeBySession[sessionId];
+  delete rawState.thinkingBySession[sessionId];
+  savePlanModeToStorage();
+  saveDynamicWorkflowModeToStorage();
+  saveGoalModeToStorage();
+}
+
+// Models + Providers reactive state and helpers live in
+// ./client/useModelProviderState. It is instantiated below (after the
+// `activity` computed it depends on) as `modelProvider`.
 
 // ~/diff line-by-line view: the file the user tapped + its parsed unified diff.
 // Loaded on demand via loadFileDiff(); cleared when the file list is shown.
 const selectedDiffPath = ref<string | null>(null);
 const fileDiffLines = ref<DiffViewLine[]>([]);
 const fileDiffLoading = ref(false);
+
+// False until the very first load() settles (success OR failure). Gates the
+// global connecting-splash so a page refresh doesn't flash a half-empty app.
+const initialized = ref(false);
+// Short diagnostic shown on the connecting splash while the first-load /auth
+// gate keeps retrying (e.g. the daemon's error message). Null when no attempt
+// has failed yet or the last attempt got through.
+const connectIssue = ref<string | null>(null);
 
 /**
  * Fetch GET /sessions/{id}/status and fold the live model + context usage back
@@ -641,25 +656,71 @@ async function refreshSessionStatus(sessionId: string): Promise<void> {
   } catch {
     return; // status endpoint missing/unreachable — keep what we have.
   }
-  rawState.sessions = rawState.sessions.map((s) =>
-    s.id === sessionId
-      ? {
-          ...s,
-          model: st.model || s.model,
-          usage: {
-            ...s.usage,
-            contextTokens: st.contextTokens,
-            contextLimit: st.maxContextTokens,
-          },
-        }
-      : s,
-  );
-  rawState.dynamicWorkflowMode = st.dynamicWorkflowMode;
-  rawState.planMode = st.planMode;
+  updateSession(sessionId, (s) => ({
+    ...s,
+    model: st.model || s.model,
+    usage: {
+      ...s.usage,
+      contextTokens: st.contextTokens,
+      contextLimit: st.maxContextTokens,
+    },
+  }));
+  rawState.dynamicWorkflowModeBySession = { ...rawState.dynamicWorkflowModeBySession, [sessionId]: st.dynamicWorkflowMode };
+  rawState.planModeBySession = { ...rawState.planModeBySession, [sessionId]: st.planMode };
+  // Fold the session's own thinking level too — per-session state wins over the
+  // per-model storage pick (see thinkingBySession on ExtendedState).
+  if (st.thinkingEffort.length > 0) {
+    rawState.thinkingBySession = {
+      ...rawState.thinkingBySession,
+      [sessionId]: st.thinkingEffort as ThinkingLevel,
+    };
+  }
 }
 
-/** Persist runtime controls to the active session via POST /profile, then
- *  re-read /status. Fire-and-forget: the UI already updated optimistically. */
+/**
+ * Fetch GET /sessions/{id}/goal and fold the result into goalBySession — the
+ * recovery channel for the goal card after a full-page reload (the snapshot +
+ * WS-replay path never carries the historical `goal.updated`, since its seq is
+ * ≤ the snapshot watermark). Never throws — an old daemon without the /goal
+ * endpoint keeps any live-event state.
+ */
+async function refreshSessionGoal(sessionId: string): Promise<void> {
+  // A live `goal.updated` arriving during the request is newer than whatever
+  // the server read when handling it — never let this recovery write override
+  // such an event (it would resurrect a finished goal until the next reload).
+  // Track the per-session goal event version, not the goal entry itself:
+  // clear/complete events DELETE the entry, which would leave an
+  // undefined === undefined comparison blind to exactly the race that matters.
+  const versionBefore = rawState.goalVersionBySession[sessionId] ?? 0;
+  let goal: AppGoal | null;
+  try {
+    goal = await getPythinkerWebApi().getSessionGoal(sessionId);
+  } catch {
+    return; // goal endpoint missing/unreachable — keep what we have.
+  }
+  if ((rawState.goalVersionBySession[sessionId] ?? 0) !== versionBefore) {
+    return; // a live goal event won the race
+  }
+  // Mirror the reducer's goalUpdated branch: null (or a completed goal) clears
+  // the card, anything else replaces it.
+  const nextGoals = { ...rawState.goalBySession };
+  if (goal === null || goal.status === 'complete') delete nextGoals[sessionId];
+  else nextGoals[sessionId] = goal;
+  rawState.goalBySession = nextGoals;
+}
+
+/** Persist runtime controls to a session via POST /profile, then re-read
+ *  /status. `sessionId` overrides the active session — used when creating a
+ *  session and immediately persisting its draft modes, so a concurrent session
+ *  switch can't write the patch to the wrong session.
+ *
+ *  Resolves false when the daemon did not apply the patch (also surfaced via
+ *  pushOperationFailure — the UI already updated optimistically, so the user
+ *  must be told); true on success. Most callers fire-and-forget via
+ *  `void persistSessionProfile(...)`; call sites that must order strictly
+ *  after the profile (e.g. a skill activation that can't carry its own modes)
+ *  await it and must NOT proceed on false — awaiting alone enforces nothing,
+ *  since the promise never rejects. */
 function persistSessionProfile(patch: {
   model?: string;
   permissionMode?: string;
@@ -668,225 +729,56 @@ function persistSessionProfile(patch: {
   goalObjective?: string;
   goalControl?: 'pause' | 'resume' | 'cancel';
   thinking?: string;
-}): void {
-  const sid = rawState.activeSessionId;
-  if (!sid) return;
+}, sessionId?: string): Promise<boolean> {
+  const sid = sessionId ?? rawState.activeSessionId;
+  if (!sid) return Promise.resolve(false);
   // Promise.resolve wrap: tolerate a sync/undefined return (e.g. test mocks).
-  void Promise.resolve(getPythinkerWebApi().updateSession(sid, patch))
+  return Promise.resolve(getPythinkerWebApi().updateSession(sid, patch))
     .then(() => refreshSessionStatus(sid))
-    .catch((error) => {
+    .then(() => true)
+    .catch((err) => {
       // Local state already reflects the change; tell the user (and the log)
       // that the daemon did not persist it.
-      pushOperationFailure('persistSessionProfile', error, { sessionId: sid });
+      pushOperationFailure('persistSessionProfile', err, { sessionId: sid });
+      return false;
     });
 }
 
-/** Persist the selected tools and MCP servers with optimistic local state. */
-async function updateCapabilities(input: {
-  tools?: string[];
-  mcpServers?: string[];
-}): Promise<void> {
-  const sid = rawState.activeSessionId;
-  if (!sid) return;
-  const previous = rawState.sessions.find((session) => session.id === sid);
-  if (!previous) return;
-
-  rawState.sessions = rawState.sessions.map((session) =>
-    session.id === sid
-      ? {
-          ...session,
-          tools: input.tools !== undefined ? input.tools : session.tools,
-          mcpServers: input.mcpServers !== undefined ? input.mcpServers : session.mcpServers,
-        }
-      : session,
-  );
-
+// ---------------------------------------------------------------------------
+// Conversation outline (TOC): proportional bubbles with a viewport indicator
+// and hover tooltip. On by default; users can turn it off in Settings.
+// Persisted per browser.
+// ---------------------------------------------------------------------------
+const CONVERSATION_TOC_STORAGE_KEY = STORAGE_KEYS.conversationToc;
+function loadConversationTocFromStorage(): boolean {
   try {
-    await getPythinkerWebApi().updateSession(sid, input);
-  } catch (error) {
-    rawState.sessions = rawState.sessions.map((session) =>
-      session.id === sid
-        ? { ...session, tools: previous.tools, mcpServers: previous.mcpServers }
-        : session,
-    );
-    pushOperationFailure('updateCapabilities', error, { sessionId: sid });
-    throw error;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Theme (Terminal default vs Modern bubbles). Persisted to localStorage and
-// mirrored onto <html data-theme> so fixed/teleported dialogs + sheets inherit.
-// ---------------------------------------------------------------------------
-const theme = ref<Theme>(loadThemeFromStorage());
-
-/** Reflect the active theme onto <html data-theme>. jsdom-safe. */
-function applyThemeToDocument(t: Theme): void {
-  if (typeof document === 'undefined' || !document.documentElement) return;
-  document.documentElement.dataset.theme = t;
-}
-
-// Sync on every change AND immediately (so the very first paint is themed).
-watch(theme, applyThemeToDocument, { immediate: true });
-
-/** Set the active theme and persist it. */
-function setTheme(t: Theme): void {
-  if (t !== 'terminal' && t !== 'modern' && t !== 'pythinker') return;
-  theme.value = t;
-  saveThemeToStorage(t);
-}
-
-/** Flip Terminal ↔ Modern. */
-function toggleTheme(): void {
-  setTheme(theme.value === 'modern' ? 'terminal' : 'modern');
-}
-
-const uiFontSize = ref<number>(loadUiFontSizeFromStorage());
-watch(uiFontSize, applyUiFontSizeToDocument, { immediate: true });
-
-function setUiFontSize(value: number): void {
-  const next = clampUiFontSize(value);
-  uiFontSize.value = next;
-  saveUiFontSizeToStorage(next);
-}
-
-// ---------------------------------------------------------------------------
-// Beta: prompt anchor rail — one tick per user prompt, with a hover tooltip.
-// Default on; persisted per browser.
-// ---------------------------------------------------------------------------
-const BETA_TOC_STORAGE_KEY = 'pythinker-web.beta-toc';
-function loadBetaTocFromStorage(): boolean {
-  try {
-    return localStorage.getItem(BETA_TOC_STORAGE_KEY) !== 'false';
-  } catch {
-    return false;
-  }
-}
-function saveBetaTocToStorage(v: boolean): void {
-  try {
-    localStorage.setItem(BETA_TOC_STORAGE_KEY, v ? 'true' : 'false');
-  } catch {
-    // ignore
-  }
-}
-const betaToc = ref<boolean>(loadBetaTocFromStorage());
-function setBetaToc(v: boolean): void {
-  betaToc.value = v;
-  saveBetaTocToStorage(v);
-}
-
-// ---------------------------------------------------------------------------
-// Color scheme (light / dark / system). Persisted and mirrored onto
-// <html data-color-scheme> so CSS can switch variables.
-// ---------------------------------------------------------------------------
-const colorScheme = ref<ColorScheme>(loadColorSchemeFromStorage());
-
-watch(colorScheme, applyColorSchemeToDocument, { immediate: true });
-
-function setColorScheme(c: ColorScheme): void {
-  if (!COLOR_SCHEME_VALUES.has(c)) return;
-  colorScheme.value = c;
-  saveColorSchemeToStorage(c);
-}
-
-const accent = ref<Accent>(loadAccentFromStorage());
-watch(accent, applyAccentToDocument, { immediate: true });
-function setAccent(a: Accent): void {
-  if (!ACCENT_VALUES.has(a)) return;
-  accent.value = a;
-  try {
-    localStorage.setItem(ACCENT_STORAGE_KEY, a);
-  } catch {
-    // ignore
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Browser system notification on turn completion. Default on; the preference
-// is persisted per browser, and allowing notifications requires OS permission.
-// ---------------------------------------------------------------------------
-const NOTIFY_STORAGE_KEY = 'pythinker-web.notify-on-complete';
-function loadNotifyFromStorage(): boolean {
-  try {
-    const v = localStorage.getItem(NOTIFY_STORAGE_KEY);
-    return v === null ? true : v === '1';
+    const raw = safeGetString(CONVERSATION_TOC_STORAGE_KEY);
+    return raw === null ? true : raw === 'true';
   } catch {
     return true;
   }
 }
-const notifyOnComplete = ref(loadNotifyFromStorage());
-const notifyPermission = ref<string>(
-  typeof Notification !== 'undefined' ? Notification.permission : 'denied',
-);
-
-/** Enable/disable completion notifications. Enabling requests OS permission;
-    if the user blocks it the preference stays off. */
-async function setNotifyOnComplete(on: boolean): Promise<void> {
-  if (!on) {
-    notifyOnComplete.value = false;
-    try { localStorage.setItem(NOTIFY_STORAGE_KEY, '0'); } catch { /* ignore */ }
-    return;
-  }
-  if (typeof Notification === 'undefined') return;
-  let perm = Notification.permission;
-  if (perm === 'default') {
-    try { perm = await Notification.requestPermission(); } catch { /* ignore */ }
-  }
-  notifyPermission.value = perm;
-  if (perm !== 'granted') return; // blocked — leave the toggle off
-  notifyOnComplete.value = true;
-  try { localStorage.setItem(NOTIFY_STORAGE_KEY, '1'); } catch { /* ignore */ }
-}
-
-/** Fire a completion notification for a finished session, but only when the
-    user isn't already looking at it (page hidden, or a different session). */
-function maybeNotifyCompletion(sid: string): void {
-  if (!notifyOnComplete.value) return;
-  if (typeof Notification === 'undefined') return;
-  const perm = Notification.permission;
-  if (perm === 'denied') return;
-  if (perm === 'default') {
-    // Request permission asynchronously; if granted, fire the notification.
-    void Notification.requestPermission().then((p) => {
-      notifyPermission.value = p;
-      if (p === 'granted') fireCompletionNotification(sid);
-    });
-    return;
-  }
-  fireCompletionNotification(sid);
-}
-
-function fireCompletionNotification(sid: string): void {
-  const isActiveAndVisible =
-    sid === rawState.activeSessionId &&
-    typeof document !== 'undefined' &&
-    document.visibilityState === 'visible';
-  if (isActiveAndVisible) return;
-  const session = rawState.sessions.find((s) => s.id === sid);
-  const title = session?.title?.trim() || 'Pythinker Code';
+function saveConversationTocToStorage(v: boolean): void {
   try {
-    const n = new Notification(title, {
-      body: i18n.global.t('settings.notifyBody'),
-      tag: `pythinker-complete-${sid}`,
-    });
-    n.onclick = () => {
-      try { window.focus(); } catch { /* ignore */ }
-      void selectSession(sid);
-      n.close();
-    };
+    safeSetString(CONVERSATION_TOC_STORAGE_KEY, v ? 'true' : 'false');
   } catch {
-    // Notification construction can throw on some platforms — ignore.
+    // ignore
   }
+}
+const conversationToc = ref<boolean>(loadConversationTocFromStorage());
+function setConversationToc(v: boolean): void {
+  conversationToc.value = v;
+  saveConversationTocToStorage(v);
 }
 
 // ---------------------------------------------------------------------------
 // Onboarding: a "has the user been onboarded" flag that gates the first-run
-// onboarding screen (preferences: language + theme). Persisted; can be reset to
-// re-open the screen from the settings popover.
+// onboarding screen (preference: language). Persisted; can be reset to re-open
+// the screen from the settings popover.
 // ---------------------------------------------------------------------------
 function loadStringFromStorage(key: string): string {
   try {
-    return localStorage.getItem(key) ?? '';
+    return safeGetString(key) ?? '';
   } catch {
     return '';
   }
@@ -895,7 +787,7 @@ const onboarded = ref<boolean>(loadStringFromStorage(ONBOARDED_STORAGE_KEY) === 
 function setOnboarded(done: boolean): void {
   onboarded.value = done;
   try {
-    localStorage.setItem(ONBOARDED_STORAGE_KEY, done ? '1' : '0');
+    safeSetString(ONBOARDED_STORAGE_KEY, done ? '1' : '0');
   } catch {
     /* ignore */
   }
@@ -915,13 +807,6 @@ function nextOptimisticMsgId(): string {
   return `msg_opt_${Date.now().toString(36)}_${optimisticMsgSeq}`;
 }
 
-// Per-session "a prompt is in flight" flag. Flipped SYNCHRONOUSLY the moment we
-// decide to submit (before any await), and cleared when the session returns to
-// idle. This gates concurrent prompts: `activity` only turns 'running' after the
-// WS turn.started round-trips, so a fast second sendPrompt would otherwise race
-// past the queue check and clobber promptIdBySession (breaking abort).
-const inFlightPromptSessions = new Set<string>();
-
 // Helper: mutate rawState by applying a reducer on a snapshot then re-assigning fields
 function applyEvent(event: ReturnType<typeof toAppEvent>, sessionId: string, seq: number): void {
   const snapshot: PythinkerClientState = {
@@ -929,24 +814,30 @@ function applyEvent(event: ReturnType<typeof toAppEvent>, sessionId: string, seq
     activeSessionId: rawState.activeSessionId,
     messagesBySession: rawState.messagesBySession,
     approvalsBySession: rawState.approvalsBySession,
+    planReviewByToolCallId: rawState.planReviewByToolCallId,
     questionsBySession: rawState.questionsBySession,
     tasksBySession: rawState.tasksBySession,
     goalBySession: rawState.goalBySession,
+    goalVersionBySession: rawState.goalVersionBySession,
     lastSeqBySession: rawState.lastSeqBySession,
+    turnActiveBySession: rawState.turnActiveBySession,
     compactionBySession: rawState.compactionBySession,
     config: rawState.config,
     warnings: rawState.warnings,
   };
   const next = reduceAppEvent(snapshot, event, { sessionId, seq });
   // Assign back to the reactive proxy
-  rawState.sessions = next.sessions;
-  rawState.activeSessionId = next.activeSessionId;
-  rawState.messagesBySession = next.messagesBySession;
+  setSessions(next.sessions);
+  setActiveSessionId(next.activeSessionId);
+  setMessagesBySession(next.messagesBySession);
   rawState.approvalsBySession = next.approvalsBySession;
+  rawState.planReviewByToolCallId = next.planReviewByToolCallId;
   rawState.questionsBySession = next.questionsBySession;
   rawState.tasksBySession = next.tasksBySession;
   rawState.goalBySession = next.goalBySession;
+  rawState.goalVersionBySession = next.goalVersionBySession;
   rawState.lastSeqBySession = next.lastSeqBySession;
+  rawState.turnActiveBySession = next.turnActiveBySession;
   rawState.compactionBySession = next.compactionBySession;
   rawState.config = next.config ?? null;
   rawState.warnings = next.warnings;
@@ -955,15 +846,169 @@ function applyEvent(event: ReturnType<typeof toAppEvent>, sessionId: string, seq
     rawState.defaultModel = event.config.defaultModel ?? null;
   }
 
-  if (event.type === 'sessionUsageUpdated' && event.sessionId === rawState.activeSessionId && event.dynamicWorkflowMode !== undefined) {
-    rawState.dynamicWorkflowMode = event.dynamicWorkflowMode;
+  if (event.type === 'modelCatalogChanged') {
+    void modelProvider.loadModels();
+    void modelProvider.loadProviders();
   }
-  // Reflect the agent's live plan-mode state (e.g. it auto-entered plan mode)
-  // in the composer toggle.
-  if (event.type === 'sessionUsageUpdated' && event.sessionId === rawState.activeSessionId && event.planMode !== undefined) {
-    rawState.planMode = event.planMode;
+
+  // Reflect the agent's live plan/dynamic_workflow state per session (e.g. it auto-entered
+  // plan mode). Applied to the event's own session — not gated on the active
+  // session — so a background session keeps its own independent toggle state.
+  if (event.type === 'sessionUsageUpdated') {
+    if (event.dynamicWorkflowMode !== undefined) {
+      rawState.dynamicWorkflowModeBySession = { ...rawState.dynamicWorkflowModeBySession, [event.sessionId]: event.dynamicWorkflowMode };
+    }
+    if (event.planMode !== undefined) {
+      rawState.planModeBySession = { ...rawState.planModeBySession, [event.sessionId]: event.planMode };
+    }
+    if (event.thinking !== undefined) {
+      rawState.thinkingBySession = {
+        ...rawState.thinkingBySession,
+        [event.sessionId]: event.thinking as ThinkingLevel,
+      };
+    }
   }
 }
+
+// ---------------------------------------------------------------------------
+// Streaming event batching
+// ---------------------------------------------------------------------------
+//
+// High-frequency "append a chunk" events (assistant/agent deltas, tool/task
+// output) can arrive dozens to hundreds of times per second. Applying each one
+// synchronously triggers a full Vue re-render per event, which saturates the
+// main thread and makes the stream look janky (see messagesToTurns / Markdown).
+//
+// Adjacent, offset-contiguous assistant/thinking deltas are merged before they
+// reach the reducer. The remaining ordered groups are processed with a fixed
+// per-frame budget and a task fallback, so a hidden tab cannot turn the entire
+// backlog into one unbounded rAF drain. Lifecycle / control-flow events remain
+// strict ordering barriers and are never dropped or merged.
+
+function processEvent(appEvent: AppEvent, meta: PythinkerEventMeta): void {
+  // Capture BEFORE applyEvent advances lastSeqBySession: turn-end side
+  // effects below only run when this event actually moves the durable cursor
+  // forward. A late duplicate idle (e.g. replayed after a snapshot already
+  // advanced past it) must not drain a second queued message.
+  const prevSeq = rawState.lastSeqBySession[meta.sessionId] ?? 0;
+  const wasMainTurnActive = rawState.turnActiveBySession[meta.sessionId] ?? false;
+  // meta carries wire-level seq/sessionId so the reducer can advance
+  // lastSeqBySession[sessionId] = seq. Compaction completion appends a
+  // persistent divider marker in the reducer (TUI parity: the scrollback
+  // is kept, only a marker line records the compaction).
+  applyEvent(appEvent, meta.sessionId, meta.seq);
+
+  const sideTarget = sideChat.sideChatTargetBySession.value[meta.sessionId];
+  if (sideTarget) {
+    const { agentId } = sideTarget;
+    const parentId = meta.sessionId;
+    if (appEvent.type === 'agentDelta' && appEvent.agentId === agentId) {
+      if (appEvent.delta.text) {
+        sideChat.appendSideChatAssistantText(agentId, parentId, appEvent.delta.text);
+      }
+    } else if (appEvent.type === 'agentTurnEnded' && appEvent.agentId === agentId) {
+      sideChat.finishSideChatAgent(agentId, parentId);
+    } else if (appEvent.type === 'taskProgress' && appEvent.taskId === agentId) {
+      sideChat.appendSideChatAssistantText(agentId, parentId, appEvent.outputChunk);
+    } else if (appEvent.type === 'taskCompleted' && appEvent.taskId === agentId) {
+      sideChat.finishSideChatAgent(agentId, parentId, appEvent.outputPreview);
+    }
+  }
+
+  // The daemon's prompt.submitted event is projected as a user messageCreated
+  // carrying the real prompt_id. When the HTTP submit response is lost
+  // (timeout / network error) this is the fallback that lets Stop work.
+  if (
+    appEvent.type === 'messageCreated' &&
+    appEvent.message.role === 'user' &&
+    appEvent.message.promptId !== undefined
+  ) {
+    const sid = appEvent.message.sessionId;
+    if (rawState.promptIdBySession[sid] !== appEvent.message.promptId) {
+      rawState.promptIdBySession = {
+        ...rawState.promptIdBySession,
+        [sid]: appEvent.message.promptId,
+      };
+    }
+  }
+
+  if (appEvent.type === 'assistantDelta' && meta.sessionId === rawState.activeSessionId) {
+    appearance.recordMoonDelta((appEvent.delta.text?.length ?? 0) + (appEvent.delta.thinking?.length ?? 0));
+  }
+
+  // Prompt-end cleanup. The MAIN agent's turn boundary is the authoritative
+  // "the prompt is done" signal: it drives the in-flight/moon cleanup, the
+  // queued-message drain, and the completion side effects. The session may
+  // stay busy afterwards (background subagents / BTW) — that must NOT hold
+  // any of these. The session's idle/aborted status is only a fallback quiet
+  // signal (a turn.ended can be lost on abrupt agent disposal): it clears the
+  // boolean liveness flags, but drain/notify stay single-owned by the
+  // turn-boundary path. Both are gated on the durable cursor advancing so a
+  // late duplicate cannot fire twice.
+  if (
+    appEvent.type === 'turnActiveChanged' &&
+    !appEvent.active &&
+    meta.seq > prevSeq
+  ) {
+    const reason = appEvent.reason;
+    // wasMainTurnActive was captured BEFORE the reducer consumed this event
+    // (the reducer clears turnActiveBySession on turn end), so it is the only
+    // remaining signal that this client witnessed a live turn — pass it down
+    // so finishPromptLocal may drain queued prompts behind a turn the user
+    // actually watched (including one started by another client).
+    onMainTurnEnd(
+      appEvent.sessionId,
+      reason === 'cancelled' || reason === 'failed' || reason === 'blocked' ? 'aborted' : 'idle',
+      wasMainTurnActive,
+    );
+  }
+
+  if (
+    appEvent.type === 'sessionWorkChanged' &&
+    ((appEvent.mainTurnActive === false && wasMainTurnActive) ||
+      (appEvent.mainTurnActive === undefined && !appEvent.busy)) &&
+    meta.seq > prevSeq
+  ) {
+    clearWorkingFlags(appEvent.sessionId);
+  }
+
+  // A prompt that never produced a turn gets no turn.ended and no session
+  // status flip: a QUEUED prompt aborted before launch (prompt.aborted), or a
+  // prompt blocked by a pre-submit hook (prompt.completed with reason
+  // 'blocked'). Without this the local in-flight flag — and the working moon —
+  // would stick forever. Keyed on the promptId captured at submit: a normal
+  // turn's prompt.completed/aborted arrives AFTER its status_changed (which
+  // already cleared the id), so it no-ops; another client's prompt never
+  // matches. Only fires when the event moves the durable cursor forward, same
+  // as the status path above.
+  if (
+    (appEvent.type === 'promptAborted' ||
+      (appEvent.type === 'promptCompleted' && appEvent.reason === 'blocked')) &&
+    meta.seq > prevSeq &&
+    rawState.promptIdBySession[appEvent.sessionId] === appEvent.promptId
+  ) {
+    workspaceState.finishPromptLocal(appEvent.sessionId);
+  }
+
+  // The agent asked a question and is waiting for an answer — surface it so
+  // the user comes back. Hooked on the request event (fires once per new
+  // question, and not for questions restored from a snapshot) rather than the
+  // awaitingQuestion status flip, which can arrive in any order relative to it.
+  if (appEvent.type === 'questionRequested') {
+    onQuestionRequested(appEvent.sessionId, appEvent.question);
+  }
+
+  // The agent needs approval for a tool call — surface it so the user comes back.
+  if (appEvent.type === 'approvalRequested') {
+    onApprovalRequested(appEvent.sessionId, appEvent.approval);
+  }
+}
+
+const enqueueEvent = createEventBatcher<PendingAppEvent>(
+  ({ appEvent, meta }) => processEvent(appEvent, meta),
+  ({ appEvent }) => isRenderEvent(appEvent),
+  { coalesce: coalesceAppRenderEvents },
+);
 
 // ---------------------------------------------------------------------------
 // WS subscription (lazy, only when a session is selected)
@@ -974,6 +1019,7 @@ function connectEventsIfNeeded(): void {
   // Guard: jsdom and some environments have no WebSocket
   if (typeof WebSocket === 'undefined') return;
 
+  traceKeyEvent('ws:connection', { status: 'connecting' });
   rawState.connection = 'connecting';
 
   const api = getPythinkerWebApi();
@@ -988,89 +1034,45 @@ function connectEventsIfNeeded(): void {
         appEvent.type === 'workspaceUpdated' ||
         appEvent.type === 'workspaceDeleted'
       ) {
-        applyWorkspaceEvent(appEvent);
+        workspaceState.applyWorkspaceEvent(appEvent);
         return;
       }
 
-      // meta carries wire-level seq/sessionId so the reducer can advance
-      // lastSeqBySession[sessionId] = seq. Compaction completion appends a
-      // persistent divider marker in the reducer (TUI parity: the scrollback
-      // is kept, only a marker line records the compaction).
-      applyEvent(appEvent, meta.sessionId, meta.seq);
-
-      const sideTarget = sideChatTargetBySession.value[meta.sessionId];
-      if (sideTarget) {
-        const { agentId } = sideTarget;
-        const parentId = meta.sessionId;
-        if (appEvent.type === 'agentDelta' && appEvent.agentId === agentId) {
-          if (appEvent.delta.text) {
-            appendSideChatAssistantText(agentId, parentId, appEvent.delta.text);
-          }
-        } else if (appEvent.type === 'agentTurnEnded' && appEvent.agentId === agentId) {
-          finishSideChatAgent(agentId, parentId);
-        } else if (appEvent.type === 'taskProgress' && appEvent.taskId === agentId) {
-          appendSideChatAssistantText(agentId, parentId, appEvent.outputChunk);
-        } else if (appEvent.type === 'taskCompleted' && appEvent.taskId === agentId) {
-          finishSideChatAgent(agentId, parentId, appEvent.outputPreview);
-        }
-      }
-
-      // The daemon's prompt.submitted event is projected as a user messageCreated
-      // carrying the real prompt_id. When the HTTP submit response is lost
-      // (timeout / network error) this is the fallback that lets Stop work.
-      if (
-        appEvent.type === 'messageCreated' &&
-        appEvent.message.role === 'user' &&
-        appEvent.message.promptId !== undefined
-      ) {
-        const sid = appEvent.message.sessionId;
-        if (rawState.promptIdBySession[sid] !== appEvent.message.promptId) {
-          rawState.promptIdBySession = {
-            ...rawState.promptIdBySession,
-            [sid]: appEvent.message.promptId,
-          };
-        }
-      }
-
-      if (appEvent.type === 'assistantDelta' && meta.sessionId === rawState.activeSessionId) {
-        recordSpinnerDelta((appEvent.delta.text?.length ?? 0) + (appEvent.delta.thinking?.length ?? 0));
-      }
-
-      // Turn-end cleanup for the session the event belongs to — including
-      // sessions running in the background (see onSessionIdle).
-      // Turn-end: both 'idle' and 'aborted' mean the prompt is no longer in
-      // flight, so both must flush in-flight/queued state. (Awaiting-* is still
-      // in flight — it's waiting on the user — and must NOT flush.)
-      if (
-        appEvent.type === 'sessionStatusChanged' &&
-        (appEvent.status === 'idle' || appEvent.status === 'aborted')
-      ) {
-        onSessionIdle(appEvent.sessionId);
-      }
-
-      // Permission auto-approve: CLIENT-SIDE POLICY until the daemon exposes a
-      // permission endpoint. When permission is 'auto' or 'yolo' and an approval
-      // request arrives, immediately respond with 'approved'.
-      if (appEvent.type === 'approvalRequested') {
-        const perm = rawState.permission;
-        if (perm === 'auto' || perm === 'yolo') {
-          void respondApproval(appEvent.approval.approvalId, {
-            decision: 'approved',
-            scope: perm === 'yolo' ? 'session' : undefined,
-          });
-        }
+      // Merge safe streaming chunks, then process the ordered queue in bounded
+      // slices. See createEventBatcher / processEvent above.
+      for (const pendingEvent of splitOversizedAppRenderEvent({ appEvent, meta })) {
+        enqueueEvent(pendingEvent);
       }
     },
 
     onResync(sessionId: string, currentSeq: number, epoch?: string) {
-      // The server-announced cursor is only a hint; the snapshot fetch
-      // returns the authoritative {asOfSeq, epoch} and re-subscribes.
-      if (epoch !== undefined) epochBySession[sessionId] = epoch;
+      traceKeyEvent('ws:resync', {
+        sessionId,
+        status: 'required',
+        seq: currentSeq,
+      });
+      // Flush streaming deltas already queued so they render on the
+      // pre-snapshot state (the snapshot is authoritative and will overwrite
+      // them). Stragglers that arrive during the snapshot fetch are drained
+      // again right before the snapshot write inside syncSessionFromSnapshot,
+      // so they are applied to the pre-snapshot array too rather than on top
+      // of the fresh snapshot (which would duplicate text / tool output).
+      enqueueEvent.flush();
+      // The server-announced cursor is only a hint; keep the previous epoch
+      // until the snapshot arrives so seq values from two epochs are never
+      // compared with each other.
       void currentSeq;
-      void syncSessionFromSnapshot(sessionId);
+      void epoch;
+      sessionsRequiringSnapshot.add(sessionId);
+      snapshotSyncRunner.request(sessionId);
     },
 
-    onError(_code: number, msg: string, _fatal: boolean) {
+    onError(code: number, msg: string, fatal: boolean) {
+      traceKeyEvent('ws:error', {
+        status: 'failed',
+        errorCode: code,
+        fatal,
+      });
       pushWarning({
         severity: 'error',
         title: i18n.global.t('warnings.wsTitle'),
@@ -1082,8 +1084,23 @@ function connectEventsIfNeeded(): void {
     },
 
     onConnectionChange(connected: boolean) {
+      traceKeyEvent('ws:connection', {
+        status: connected ? 'connected' : 'disconnected',
+      });
       rawState.connected = connected;
       rawState.connection = connected ? 'connected' : 'disconnected';
+      // The data channel is healthy again (server_hello received). Clear any
+      // stale "Realtime connection error" toast instead of relying on its
+      // auto-dismiss timer: iOS Safari freezes timers while a tab is
+      // backgrounded, so the toast would otherwise linger until a manual
+      // refresh even though the reconnect already succeeded.
+      if (connected) {
+        dismissWsError();
+        // A (re)connect can mean the backend was restarted — or switched, when
+        // the dev proxy was moved to the other engine. Re-read /meta so
+        // serverVersion / backend never go stale.
+        void workspaceState.refreshServerMeta();
+      }
     },
   });
 }
@@ -1091,6 +1108,12 @@ function connectEventsIfNeeded(): void {
 // Journal epoch per session, learned from snapshots / resync frames. Not
 // reactive — only consulted when building the subscribe cursor.
 const epochBySession: Record<string, string> = {};
+// onResync resets the event projector, so that path must apply a snapshot even
+// if a newer global event advances the local cursor while the GET is in flight.
+const sessionsRequiringSnapshot = new Set<string>();
+// A normal foreground refresh may race one newer event. Retry once with a
+// fresh snapshot so volatile text missed during sleep is still restored.
+const sessionsRetryingStaleSnapshot = new Set<string>();
 
 // Sessions created locally in this client instance are known to be empty until
 // they receive their first message. This is more reliable than the daemon's
@@ -1105,8 +1128,6 @@ const sessionsKnownEmpty = new Set<string>();
  * the REST snapshot to the event stream — no gap, no duplication.
  */
 type SyncSessionResult = 'ok' | 'not-found' | 'failed';
-
-const sessionSnapshotSyncs = new Map<string, Promise<SyncSessionResult>>();
 
 function isSessionNotFoundError(err: unknown): boolean {
   if (isDaemonApiError(err) && err.code === SESSION_NOT_FOUND_CODE) return true;
@@ -1124,6 +1145,9 @@ function warningDetail(labelKey: string, value: unknown): AppNoticeDetail | unde
 
 function formatDetailValue(value: unknown): string {
   if (value instanceof Error) {
+    // A stack already starts with "Name: message" and carries the frames the
+    // plain name/message would throw away, so prefer it when present.
+    if (typeof value.stack === 'string' && value.stack) return value.stack;
     return value.message ? `${value.name}: ${value.message}` : value.name;
   }
   if (typeof value === 'string') return value;
@@ -1153,14 +1177,40 @@ function errorMessage(err: unknown): string | undefined {
       : undefined;
 }
 
+function errorStack(err: unknown): string | undefined {
+  return err instanceof Error && typeof err.stack === 'string' && err.stack ? err.stack : undefined;
+}
+
+function formatTimestamp(ms: number | undefined): string | undefined {
+  if (typeof ms !== 'number' || !Number.isFinite(ms)) return undefined;
+  return new Date(ms).toISOString();
+}
+
+function formatDuration(ms: number | undefined): string | undefined {
+  if (typeof ms !== 'number' || !Number.isFinite(ms)) return undefined;
+  return `${Math.round(ms)}ms`;
+}
+
 function errorDetails(operation: string, err: unknown, sessionId?: string): AppNoticeDetail[] {
+  const network = isDaemonNetworkError(err);
+  const api = isDaemonApiError(err);
+  // Daemon errors carry the failure moment + round-trip time captured in the
+  // HTTP layer; fall back to "now" for client-side errors that have neither.
+  const timestamp = network || api ? err.timestamp : undefined;
+  const durationMs = network || api ? err.durationMs : undefined;
+
   const details: Array<AppNoticeDetail | undefined> = [
     warningDetail('operation', operation),
-    warningDetail('sessionId', sessionId),
+    // Many call sites don't pass a session id; the active session is the best
+    // guess and is what the user was looking at when the failure happened.
+    warningDetail('sessionId', sessionId ?? rawState.activeSessionId),
+    warningDetail('connection', rawState.connection),
+    warningDetail('timestamp', formatTimestamp(timestamp ?? Date.now())),
   ];
 
-  if (isDaemonNetworkError(err)) {
+  if (network) {
     details.push(
+      warningDetail('duration', formatDuration(durationMs)),
       warningDetail('request', `${err.method} ${err.path}`),
       warningDetail('endpoint', err.url),
       warningDetail('requestId', err.requestId),
@@ -1171,8 +1221,9 @@ function errorDetails(operation: string, err: unknown, sessionId?: string): AppN
       warningDetail('responsePreview', err.bodyPreview),
       warningDetail('cause', err.cause),
     );
-  } else if (isDaemonApiError(err)) {
+  } else if (api) {
     details.push(
+      warningDetail('duration', formatDuration(durationMs)),
       warningDetail('code', err.code),
       warningDetail('requestId', err.requestId),
       warningDetail('message', err.message),
@@ -1182,6 +1233,7 @@ function errorDetails(operation: string, err: unknown, sessionId?: string): AppN
     details.push(
       warningDetail('errorName', errorName(err)),
       warningDetail('message', errorMessage(err) ?? formatDetailValue(err)),
+      warningDetail('stack', errorStack(err)),
     );
   }
 
@@ -1221,14 +1273,39 @@ function pushWarning(warning: AppWarning): void {
   rawState.warnings = [...rawState.warnings, warning];
 }
 
+// Drop every "Realtime connection error" notice pushed by the WS onError
+// handler. Matched by severity + the localized wsTitle (the same i18n instance
+// used to push it), so other errors are left untouched.
+function dismissWsError(): void {
+  const title = i18n.global.t('warnings.wsTitle');
+  const next = rawState.warnings.filter(
+    (w) => !(typeof w === 'object' && w !== null && w.severity === 'error' && w.title === title),
+  );
+  if (next.length !== rawState.warnings.length) {
+    rawState.warnings = next;
+  }
+}
+
 function pushOperationFailure(
   operation: string,
   err: unknown,
   opts?: { title?: string; message?: string; sessionId?: string },
 ): void {
-  // Always-on logging: a surfaced failure must be diagnosable from the console,
-  // not just from the toast.
+  // Always-on logging: a surfaced failure must be diagnosable from the console
+  // and from the exported web log (session export), not just from the toast.
   console.error(`[pythinker-web] operation failed: ${operation}`, err);
+  const api = isDaemonApiError(err);
+  const network = isDaemonNetworkError(err);
+  traceKeyEvent('operation:failed', {
+    sessionId: opts?.sessionId,
+    status: 'failed',
+    operation,
+    errorName: err instanceof Error ? err.name : typeof err,
+    errorCode: api ? err.code : undefined,
+    requestId: api || network ? err.requestId : undefined,
+    phase: network ? err.phase : undefined,
+    httpStatus: network ? err.status : undefined,
+  });
   pushWarning(operationFailureNotice(operation, err, opts));
 }
 
@@ -1250,500 +1327,296 @@ function goalErrorMessage(err: unknown): string | undefined {
 }
 
 async function handleSessionNotFound(sessionId: string): Promise<void> {
-  rawState.sessions = rawState.sessions.filter((s) => s.id !== sessionId);
-  delete rawState.messagesBySession[sessionId];
-  delete rawState.approvalsBySession[sessionId];
-  delete rawState.questionsBySession[sessionId];
-  delete rawState.tasksBySession[sessionId];
-  delete rawState.goalBySession[sessionId];
-  delete rawState.gitStatusBySession[sessionId];
-  delete rawState.lastSeqBySession[sessionId];
-  delete rawState.compactionBySession[sessionId];
-  delete epochBySession[sessionId];
-  sessionsKnownEmpty.delete(sessionId);
+  forgetSession(sessionId);
 
   if (rawState.activeSessionId !== sessionId) return;
 
   const next = rawState.sessions[0];
   if (next) {
-    await selectSession(next.id, { urlMode: 'replace' });
+    await workspaceState.selectSession(next.id, { urlMode: 'replace' });
   } else {
-    rawState.activeSessionId = undefined;
+    setActiveSessionId(undefined);
     rawState.sessionLoading = false;
-    writeSessionUrl(undefined, 'replace');
+    workspaceState.writeSessionUrl(undefined, 'replace');
   }
 }
 
-function waitForSnapshotRetry(delayMs: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, delayMs);
-  });
-}
+const sessionWarningsPulled = new Set<string>();
 
-function hasSession(sessionId: string): boolean {
-  return rawState.sessions.some((session) => session.id === sessionId);
-}
-
-async function runSessionSnapshotSync(sessionId: string): Promise<SyncSessionResult> {
-  let lastError: unknown;
-  // Only abandon the chain for a session the list already knows about. A first
-  // open (notification click, deep link) can legitimately run ahead of the
-  // session landing in `rawState.sessions`, and bailing there would drop the
-  // snapshot that open is waiting for.
-  const tracked = hasSession(sessionId);
-  const gone = (): boolean => tracked && !hasSession(sessionId);
-
-  for (const delayMs of [0, ...SESSION_SNAPSHOT_RETRY_DELAYS_MS]) {
-    if (delayMs > 0) await waitForSnapshotRetry(delayMs);
-    if (gone()) return 'not-found';
-
-    try {
-      const api = getPythinkerWebApi();
-      const snap = await api.getSessionSnapshot(sessionId);
-      if (gone()) return 'not-found';
-
-      rawState.sessions = rawState.sessions.map((s) =>
-        s.id === sessionId
-          ? {
-              ...snap.session,
-              model:
-                snap.session.model && snap.session.model.length > 0
-                  ? snap.session.model
-                  : s.model,
-            }
-          : s,
-      );
-      rawState.messagesBySession = {
-        ...rawState.messagesBySession,
-        [sessionId]: snap.messages,
-      };
-      rawState.approvalsBySession = {
-        ...rawState.approvalsBySession,
-        [sessionId]: snap.pendingApprovals,
-      };
-      rawState.questionsBySession = {
-        ...rawState.questionsBySession,
-        [sessionId]: snap.pendingQuestions,
-      };
-      rawState.lastSeqBySession = {
-        ...rawState.lastSeqBySession,
-        [sessionId]: snap.asOfSeq,
-      };
-      epochBySession[sessionId] = snap.epoch;
-
-      connectEventsIfNeeded();
-      if (eventConn) {
-        // Seed BEFORE subscribing: the in-flight assistant message must exist
-        // before live deltas (aligned by wire offset) start appending to it.
-        eventConn.seedSnapshot(sessionId, snap);
-        eventConn.subscribe(sessionId, { seq: snap.asOfSeq, epoch: snap.epoch });
-      }
-      return 'ok';
-    } catch (error) {
-      if (isSessionNotFoundError(error)) {
-        await handleSessionNotFound(sessionId);
-        return 'not-found';
-      }
-      if (gone()) return 'not-found';
-      lastError = error;
+async function pullSessionWarnings(sessionId: string): Promise<void> {
+  if (sessionWarningsPulled.has(sessionId)) return;
+  sessionWarningsPulled.add(sessionId);
+  try {
+    const warnings = await getPythinkerWebApi().getSessionWarnings(sessionId);
+    const label = i18n.global.t('warnings.noteLabel');
+    for (const warning of warnings) {
+      pushWarning(`${label}: ${warning.message}`);
     }
+  } catch {
+    // best-effort: never block session sync on warning retrieval.
   }
-
-  pushOperationFailure('getSessionSnapshot', lastError, {
-    title: i18n.global.t('warnings.sessionSnapshotTitle'),
-    message: i18n.global.t('warnings.sessionSnapshotMessage'),
-    sessionId,
-  });
-  return 'failed';
 }
 
 async function syncSessionFromSnapshot(sessionId: string): Promise<SyncSessionResult> {
-  const existing = sessionSnapshotSyncs.get(sessionId);
-  if (existing) return existing;
-
-  const sync = runSessionSnapshotSync(sessionId);
-  sessionSnapshotSyncs.set(sessionId, sync);
-  try {
-    return await sync;
-  } finally {
-    if (sessionSnapshotSyncs.get(sessionId) === sync) {
-      sessionSnapshotSyncs.delete(sessionId);
-    }
-  }
-}
-
-async function loadTasksForSession(sessionId: string): Promise<void> {
+  // A snapshot that races a local turn start must not overwrite that turn.
+  const turnStartAtRequest = workspaceState.localTurnStartState(sessionId);
   try {
     const api = getPythinkerWebApi();
-    const taskList = await api.listTasks(sessionId);
+    const snap = await api.getSessionSnapshot(sessionId);
+    if (!rawState.sessions.some((session) => session.id === sessionId)) return 'ok';
+
+    // Drain any queued streaming deltas before the snapshot replaces
+    // messagesBySession[sessionId]. The snapshot is authoritative (it already
+    // contains everything up to asOfSeq); applying stale queued deltas on top
+    // of it would duplicate text / tool output. Flushing here applies them to
+    // the pre-snapshot array, which the snapshot then overwrites.
+    enqueueEvent.flush();
+
+    // Do not let an old snapshot overwrite state that moved forward while the
+    // request was in flight. Retry once to recover volatile text at a fresh
+    // cursor; resync/LRU rebuilds must always apply because their projector or
+    // subscription was deliberately reset.
+    const currentSeq = rawState.lastSeqBySession[sessionId] ?? 0;
+    const knownEpoch = epochBySession[sessionId];
+    const mustApplySnapshot =
+      sessionsRequiringSnapshot.has(sessionId) || sessionsWithStaleCursor.has(sessionId);
+    if (
+      !mustApplySnapshot &&
+      knownEpoch !== undefined &&
+      knownEpoch === snap.epoch &&
+      currentSeq > snap.asOfSeq
+    ) {
+      if (sessionsRetryingStaleSnapshot.delete(sessionId)) return 'ok';
+      sessionsRetryingStaleSnapshot.add(sessionId);
+      snapshotSyncRunner.request(sessionId);
+      return 'ok';
+    }
+    if (!workspaceState.isLocalTurnSnapshotCurrent(sessionId, turnStartAtRequest)) {
+      workspaceState.afterLocalTurnStartsSettle(sessionId, () => {
+        snapshotSyncRunner.request(sessionId);
+      });
+      return 'ok';
+    }
+
+    const snapUsagePlaceholder = isPlaceholderSessionUsage(snap.session.usage);
+    updateSession(sessionId, (s) => ({
+      ...snap.session,
+      model:
+        snap.session.model && snap.session.model.length > 0
+          ? snap.session.model
+          : s.model,
+      // The wire session's usage is a placeholder (both engines return zeros
+      // for the heavy fields); keep the live usage folded in from /status and
+      // the WS status stream instead of zeroing it on every snapshot sync.
+      usage: snapUsagePlaceholder ? s.usage : snap.session.usage,
+    }));
+    // The snapshot only carries the most recent page; keep any older pages the
+    // user already loaded so reopening does not reset scrollback.
+    setSessionMessages(
+      sessionId,
+      mergeSnapshotMessages(rawState.messagesBySession[sessionId] ?? [], snap.messages),
+    );
+    // Seed the live subagent roster so dynamic_workflow cards survive a page refresh
+    // (their member rows otherwise only exist from non-replayed WS events).
+    // loadTasksForSession's keepLiveSubagents preserves these across REST
+    // reloads; the roster stays authoritative until then.
     rawState.tasksBySession = {
       ...rawState.tasksBySession,
-      // Keep WS-delivered dynamic workflow subagents that REST /tasks omits (see keepLiveSubagents).
-      [sessionId]: keepLiveSubagents(taskList, rawState.tasksBySession[sessionId] ?? []),
+      [sessionId]: mergeSnapshotSubagents(
+        snap.subagents,
+        rawState.tasksBySession[sessionId] ?? [],
+      ),
     };
-    // Completed tasks may have real terminal output that never streamed over
-    // WS. Fetch it once now so the rows are expandable when the session opens.
-    await fetchTerminalTaskOutputs(sessionId, taskList);
-  } catch (error) {
-    // Tasks are side data, so report the failure without blocking messages.
-    pushOperationFailure('listTasks', error, { sessionId });
-  }
-}
-
-/**
- * Fetch the final output snapshot for terminal tasks that lack real streamed
- * outputLines. Called once after loading the task list so already-completed
- * tasks are clickable immediately.
- */
-async function fetchTerminalTaskOutputs(sessionId: string, taskList?: AppTask[]): Promise<void> {
-  if (rawState.activeSessionId !== sessionId) return;
-
-  const tasks = taskList ?? rawState.tasksBySession[sessionId] ?? [];
-  const api = getPythinkerWebApi();
-  const outputByTaskId = new Map<string, { preview: string; bytes?: number }>();
-
-  await Promise.all(
-    tasks.map(async (task) => {
-      const isTerminal =
-        task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled';
-      if (!isTerminal) return;
-      if (fetchedTerminalTaskOutputIds.has(task.id)) return;
-      if ((task.outputLines?.length ?? 0) > 0) return;
-
-      try {
-        const withOutput = await api.getTask(sessionId, task.id, {
-          withOutput: true,
-          outputBytes: TASK_OUTPUT_FINAL_BYTES,
-        });
-        if (withOutput.outputPreview !== undefined) {
-          outputByTaskId.set(task.id, {
-            preview: withOutput.outputPreview,
-            bytes: withOutput.outputBytes,
-          });
-        }
-      } catch {
-        // Task may have finished between listTasks and getTask; ignore.
-      } finally {
-        fetchedTerminalTaskOutputIds.add(task.id);
-      }
-    }),
-  );
-
-  if (outputByTaskId.size === 0) return;
-
-  const existing = rawState.tasksBySession[sessionId] ?? [];
-  rawState.tasksBySession = {
-    ...rawState.tasksBySession,
-    [sessionId]: existing.map((t) => {
-      const polled = outputByTaskId.get(t.id);
-      if (!polled) return t;
-      return { ...t, outputPreview: polled.preview, outputBytes: polled.bytes };
-    }),
-  };
-}
-
-/**
- * Poll background task output for a session. Mirrors the TUI's 1-second refresh:
- * refresh the task list, then fetch tail output for running tasks and a final
- * snapshot for terminal tasks that haven't received output yet.
- */
-async function pollTaskOutputForSession(sessionId: string): Promise<void> {
-  if (rawState.activeSessionId !== sessionId) return;
-
-  const api = getPythinkerWebApi();
-  let taskList: AppTask[];
-  try {
-    taskList = await api.listTasks(sessionId);
-  } catch {
-    return;
-  }
-
-  const outputByTaskId = new Map<string, { preview: string; bytes?: number }>();
-
-  await Promise.all(
-    taskList.map(async (task) => {
-      const isRunning = task.status === 'running';
-      const isTerminal = task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled';
-      if (!isRunning && !isTerminal) return;
-
-      // Running tasks: poll tail continuously. Terminal tasks: fetch a final
-      // snapshot once if we have not already received real streamed output.
-      // outputPreview may be a placeholder (`$ <command>`) or a partial tail,
-      // so we intentionally do not skip terminal tasks just because outputPreview
-      // is present.
-      if (isTerminal) {
-        if (fetchedTerminalTaskOutputIds.has(task.id)) return;
-        if ((task.outputLines?.length ?? 0) > 0) return;
-      }
-
-      try {
-        const withOutput = await api.getTask(sessionId, task.id, {
-          withOutput: true,
-          outputBytes: isRunning ? TASK_OUTPUT_POLL_BYTES : TASK_OUTPUT_FINAL_BYTES,
-        });
-        if (withOutput.outputPreview !== undefined) {
-          outputByTaskId.set(task.id, {
-            preview: withOutput.outputPreview,
-            bytes: withOutput.outputBytes,
-          });
-        }
-      } catch {
-        // Task may have finished between listTasks and getTask; ignore.
-      } finally {
-        if (isTerminal) {
-          fetchedTerminalTaskOutputIds.add(task.id);
-        }
-      }
-    }),
-  );
-
-  const existing = rawState.tasksBySession[sessionId] ?? [];
-  const existingById = new Map(existing.map((t) => [t.id, t] as const));
-
-  const refreshed: AppTask[] = taskList.map((fresh) => {
-    const old = existingById.get(fresh.id);
-    const polled = outputByTaskId.get(fresh.id);
-    return {
-      ...fresh,
-      // Preserve any WS-driven outputLines (future taskProgress events).
-      outputLines: old?.outputLines,
-      outputPreview: polled?.preview ?? old?.outputPreview,
-      outputBytes: polled?.bytes ?? old?.outputBytes,
+    rawState.messagesHasMoreBySession = {
+      ...rawState.messagesHasMoreBySession,
+      [sessionId]: snap.hasMoreMessages,
     };
-  });
-
-  rawState.tasksBySession = {
-    ...rawState.tasksBySession,
-    // Keep WS-delivered dynamic workflow subagents that REST /tasks omits (see keepLiveSubagents).
-    [sessionId]: keepLiveSubagents(refreshed, existing),
-  };
-}
-
-function startTaskOutputPolling(sessionId: string): void {
-  if (taskOutputPollTimer !== null && lastPolledSessionId === sessionId) {
-    return;
-  }
-  stopTaskOutputPolling();
-  lastPolledSessionId = sessionId;
-  void pollTaskOutputForSession(sessionId);
-  taskOutputPollTimer = setInterval(() => {
-    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
-      return;
+    rawState.approvalsBySession = {
+      ...rawState.approvalsBySession,
+      [sessionId]: snap.pendingApprovals,
+    };
+    // Preserve plan_review paths from the snapshot so the ExitPlanMode tool
+    // card can link to the plan file even after a reload.
+    for (const a of snap.pendingApprovals) {
+      const display = a.display as { kind?: unknown; plan?: unknown; path?: unknown } | null | undefined;
+      if (display?.kind === 'plan_review' && typeof display.plan === 'string' && display.plan.length > 0) {
+        rawState.planReviewByToolCallId = {
+          ...rawState.planReviewByToolCallId,
+          [a.toolCallId]: {
+            plan: display.plan,
+            path: typeof display.path === 'string' ? display.path : undefined,
+          },
+        };
+      }
     }
-    if (rawState.activeSessionId === sessionId) {
-      void pollTaskOutputForSession(sessionId);
-    } else {
-      stopTaskOutputPolling();
+    rawState.questionsBySession = {
+      ...rawState.questionsBySession,
+      [sessionId]: snap.pendingQuestions,
+    };
+    rawState.lastSeqBySession = {
+      ...rawState.lastSeqBySession,
+      [sessionId]: snap.asOfSeq,
+    };
+    epochBySession[sessionId] = snap.epoch;
+    sessionsRequiringSnapshot.delete(sessionId);
+    sessionsRetryingStaleSnapshot.delete(sessionId);
+
+    // Resync replaces the missed event stream, so a terminal snapshot must
+    // also clear the local in-flight flag that normally ends with the turn.
+    workspaceState.handleSessionSnapshot(
+      sessionId,
+      { inFlightTurn: snap.inFlightTurn, busy: snap.session.busy },
+    );
+
+    // The snapshot's inFlightTurn is main-agent-only — seed the moon's
+    // liveness flag from it (the projector was reset by the resync, so no
+    // turn.ended may ever arrive for a turn that was live before it). Gated
+    // on the snapshot's busy fact: the live tracker can hold a stale turn
+    // whose turn.ended was lost (abrupt agent disposal) — the server-side
+    // busy read is the reconciler, so a dead turn never relights the moon.
+    {
+      const next = { ...rawState.turnActiveBySession };
+      const mainTurnActive =
+        snap.session.mainTurnActive ?? (snap.inFlightTurn !== null && snap.session.busy);
+      if (mainTurnActive) next[sessionId] = true;
+      else delete next[sessionId];
+      rawState.turnActiveBySession = next;
     }
-  }, TASK_OUTPUT_POLL_INTERVAL_MS);
-}
 
-function stopTaskOutputPolling(): void {
-  if (taskOutputPollTimer !== null) {
-    clearInterval(taskOutputPollTimer);
-    taskOutputPollTimer = null;
-  }
-  lastPolledSessionId = undefined;
-  fetchedTerminalTaskOutputIds.clear();
-}
-
-async function loadSkillsForSession(sessionId: string): Promise<void> {
-  skillsLoadingBySession.value = { ...skillsLoadingBySession.value, [sessionId]: true };
-  try {
-    const api = getPythinkerWebApi();
-    const list = await api.listSkills(sessionId);
-    skillsBySession.value = { ...skillsBySession.value, [sessionId]: list };
-  } catch {
-    // Skills are side data; an older daemon without /skills just yields no
-    // slash-skills, the built-in commands still work.
-  } finally {
-    skillsLoadingBySession.value = { ...skillsLoadingBySession.value, [sessionId]: false };
-  }
-}
-
-async function loadToolsForSession(sessionId: string): Promise<void> {
-  toolsLoadingBySession.value = { ...toolsLoadingBySession.value, [sessionId]: true };
-  try {
-    const list = await getPythinkerWebApi().listTools(sessionId);
-    toolsBySession.value = { ...toolsBySession.value, [sessionId]: list };
-  } catch {
-    toolsBySession.value = { ...toolsBySession.value, [sessionId]: [] };
-  } finally {
-    toolsLoadingBySession.value = { ...toolsLoadingBySession.value, [sessionId]: false };
-  }
-}
-
-// Configured MCP servers. Global, not session-scoped, and loaded on demand by
-// the settings dialog — nothing else in the app needs them.
-const connectors = ref<AppConnector[]>([]);
-const connectorsLoading = ref(false);
-const connectorsError = ref<string>();
-
-async function loadConnectors(): Promise<void> {
-  connectorsLoading.value = true;
-  try {
-    connectors.value = await getPythinkerWebApi().listConnectors();
-  } catch {
-    // An older daemon has no /mcp/servers; an empty list is the honest answer.
-    connectors.value = [];
-  } finally {
-    connectorsLoading.value = false;
-  }
-}
-
-const plugins = ref<AppPlugin[]>([]);
-const pluginsLoading = ref(false);
-const subagents = ref<AppSubagent[]>([]);
-
-async function loadPlugins(): Promise<void> {
-  pluginsLoading.value = true;
-  try {
-    plugins.value = await getPythinkerWebApi().listPlugins();
-  } catch {
-    // An older daemon has no /plugins; an empty list is the honest answer.
-    plugins.value = [];
-  } finally {
-    pluginsLoading.value = false;
-  }
-}
-
-async function setPluginEnabled(pluginId: string, enabled: boolean): Promise<void> {
-  const previous = plugins.value.find((plugin) => plugin.id === pluginId)?.enabled;
-  plugins.value = plugins.value.map((plugin) =>
-    plugin.id === pluginId ? { ...plugin, enabled } : plugin,
-  );
-  try {
-    await getPythinkerWebApi().setPluginEnabled(pluginId, enabled);
-  } catch (error) {
-    if (previous !== undefined) {
-      plugins.value = plugins.value.map((plugin) =>
-        plugin.id === pluginId ? { ...plugin, enabled: previous } : plugin,
-      );
+    connectEventsIfNeeded();
+    if (eventConn) {
+      // Seed BEFORE subscribing: the in-flight assistant message must exist
+      // before live deltas (aligned by wire offset) start appending to it.
+      eventConn.seedSnapshot(sessionId, snap);
+      eventConn.subscribe(sessionId, { seq: snap.asOfSeq, epoch: snap.epoch });
+      retainWsSubscription(sessionId);
     }
-    pushOperationFailure('setPluginEnabled', error);
-    return;
-  }
-  await loadPlugins();
-}
-
-async function loadCapabilityData(sessionId: string): Promise<void> {
-  await Promise.all([
-    loadToolsForSession(sessionId),
-    loadSkillsForSession(sessionId),
-    loadConnectors(),
-    loadPlugins(),
-  ]);
-}
-
-async function loadSubagents(): Promise<void> {
-  const workDir = rawState.sessions.find((s) => s.id === rawState.activeSessionId)?.cwd;
-  if (workDir === undefined || workDir === '') {
-    subagents.value = [];
-    return;
-  }
-  try {
-    subagents.value = await getPythinkerWebApi().listSubagents(workDir);
-  } catch {
-    subagents.value = [];
+    sessionsWithStaleCursor.delete(sessionId);
+    // The snapshot carries placeholder usage, so a preserved cached value may
+    // itself be stale — resync / stale-socket recovery reach here without
+    // selectSession's sidecar refresh, and the volatile status frames that
+    // would update it were exactly what the resync replaced. Re-read /status
+    // so the ring converges on the live value.
+    if (snapUsagePlaceholder) void refreshSessionStatus(sessionId);
+    void pullSessionWarnings(sessionId);
+    return 'ok';
+  } catch (err) {
+    if (isSessionNotFoundError(err)) {
+      await handleSessionNotFound(sessionId);
+      return 'not-found';
+    }
+    pushOperationFailure('getSessionSnapshot', err, {
+      title: i18n.global.t('warnings.sessionSnapshotTitle'),
+      message: i18n.global.t('warnings.sessionSnapshotMessage'),
+      sessionId,
+    });
+    return 'failed';
   }
 }
 
-async function restartConnector(connectorId: string): Promise<void> {
-  try {
-    await getPythinkerWebApi().restartConnector(connectorId);
-  } catch {
-    // The reload below reports whatever state the server ended up in.
-  }
-  await loadConnectors();
-}
-
-async function createConnector(input: AppMcpServerInput): Promise<void> {
-  connectorsError.value = undefined;
-  try {
-    await getPythinkerWebApi().createConnector(input);
-    await loadConnectors();
-  } catch (error) {
-    connectorsError.value = error instanceof Error ? error.message : String(error);
-    pushOperationFailure('createConnector', error);
-  }
-}
-
-async function updateConnector(connectorId: string, input: AppMcpServerInput): Promise<void> {
-  connectorsError.value = undefined;
-  try {
-    await getPythinkerWebApi().updateConnector(connectorId, input);
-    await loadConnectors();
-  } catch (error) {
-    connectorsError.value = error instanceof Error ? error.message : String(error);
-    pushOperationFailure('updateConnector', error);
-  }
-}
-
-async function removeConnector(connectorId: string): Promise<void> {
-  connectorsError.value = undefined;
-  try {
-    await getPythinkerWebApi().removeConnector(connectorId);
-    await loadConnectors();
-  } catch (error) {
-    connectorsError.value = error instanceof Error ? error.message : String(error);
-    pushOperationFailure('removeConnector', error);
-  }
-}
+const snapshotSyncRunner = createCoalescedAsyncRunner(syncSessionFromSnapshot);
 
 function hasLoadedMessages(sessionId: string): boolean {
   return Object.prototype.hasOwnProperty.call(rawState.messagesBySession, sessionId);
 }
 
-function subscribeToSessionEvents(sessionId: string): void {
-  connectEventsIfNeeded();
-  if (eventConn) {
-    const seq = rawState.lastSeqBySession[sessionId] ?? 0;
-    const epoch = epochBySession[sessionId];
-    eventConn.subscribe(sessionId, { seq, epoch });
+// ---------------------------------------------------------------------------
+// WS subscription cap (LRU eviction)
+// ---------------------------------------------------------------------------
+//
+// Every opened session subscribes to its WS event stream, and the socket keeps
+// subscriptions across reconnects (re-sending them in `client_hello`). Without
+// a cap, a user who has opened hundreds of sessions stays subscribed to all of
+// them: every background session's status/meta/usage event then flows through
+// the reducer and dirties the sidebar computeds — the root cause of "the UI
+// gets sluggish once I have a lot of sessions".
+//
+// Keep only the most-recently-opened sessions subscribed (MRU order, index 0 =
+// newest). The active session is always retained.
+//
+// Eviction drops the live WS subscription but keeps the session's cursor so a
+// quick re-open can resume cheaply. However, a cursor kept across an eviction
+// can go stale: some session events (`event.session.status_changed`,
+// `session.meta.updated`, ...) are broadcast to EVERY connection (see
+// `isGlobalSessionEvent` on the server) and still advance `lastSeqBySession`
+// for an unsubscribed session. If a session emits per-session durable events
+// while evicted and then a global event, the cursor jumps past the missed
+// events. Evicted sessions are therefore tracked in `sessionsWithStaleCursor`;
+// when one is re-opened we rebuild from a snapshot (see `reopenSession`) rather
+// than resume from a cursor that may have skipped events.
+const MAX_WS_SUBSCRIPTIONS = 4;
+const wsSubscriptionOrder: string[] = [];
+const sessionsWithStaleCursor = new Set<string>();
+
+function retainWsSubscription(sessionId: string): void {
+  const idx = wsSubscriptionOrder.indexOf(sessionId);
+  if (idx !== -1) wsSubscriptionOrder.splice(idx, 1);
+  wsSubscriptionOrder.unshift(sessionId);
+  // Evict the oldest entries past the cap, skipping the active session. The
+  // active session is NOT guaranteed to sit at the front: first-time opens only
+  // retain after an awaited snapshot, so rapid clicks can complete out of order
+  // and leave the active session at the tail. Skipping it (rather than breaking
+  // when the tail is active) keeps the cap effective.
+  while (wsSubscriptionOrder.length > MAX_WS_SUBSCRIPTIONS) {
+    let victimIdx = -1;
+    for (let i = wsSubscriptionOrder.length - 1; i >= 0; i--) {
+      if (wsSubscriptionOrder[i] !== rawState.activeSessionId) {
+        victimIdx = i;
+        break;
+      }
+    }
+    if (victimIdx === -1) break;
+    const [victim] = wsSubscriptionOrder.splice(victimIdx, 1);
+    if (victim === undefined) break;
+    eventConn?.unsubscribe(victim);
+    sessionsWithStaleCursor.add(victim);
   }
 }
 
-function refreshSessionSidecars(sessionId: string): void {
-  void loadTasksForSession(sessionId);
-  void loadGitStatus(sessionId);
-  void refreshSessionStatus(sessionId);
-  if (!Object.prototype.hasOwnProperty.call(skillsBySession.value, sessionId)) {
-    void loadSkillsForSession(sessionId);
-  }
+function dropWsSubscription(sessionId: string): void {
+  const idx = wsSubscriptionOrder.indexOf(sessionId);
+  if (idx !== -1) wsSubscriptionOrder.splice(idx, 1);
+  sessionsWithStaleCursor.delete(sessionId);
+}
+
+/** Re-open an already-loaded session: always rebuild from a fresh snapshot.
+ *
+ *  Volatile `assistant.delta` frames are never journaled or replayed: if a
+ *  transport hiccup covered the tail of a turn while the user was away, the
+ *  local transcript silently lost the model's final text, and a cursor
+ *  resubscribe has nothing to recover it with. Always fetching the authoritative
+ *  snapshot keeps the logic trivially correct (no freshness heuristics, no
+ *  races to reason about); the snapshot is cheap server-side (LRU on the wire
+ *  file). Trade-off: a snapshot GET in flight during a steep local send can
+ *  momentarily overwrite that optimistic message — the user notices immediately
+ *  and the next re-open (or a refresh) reconciles. */
+async function reopenSession(sessionId: string): Promise<SyncSessionResult> {
+  return syncSessionFromSnapshot(sessionId);
 }
 
 // ---------------------------------------------------------------------------
 // View-model mappers
 // ---------------------------------------------------------------------------
 
-/** Whether the session should show the "working" spinner. Only a `running`
-    session qualifies — `awaiting*` is waiting on the user (not working) and
-    `aborted` is finished, so neither spins. Additionally, a session whose only
-    running task is its BTW side-channel agent should not look busy. When tasks
-    have not been loaded yet — e.g. right after a page refresh — we trust the
-    daemon-reported `running` status rather than hiding the spinner. */
-function isSessionEffectivelyRunning(sessionId: string): boolean {
-  const session = rawState.sessions.find((s) => s.id === sessionId);
-  if (!session) return false;
-  if (session.status !== 'running') return false;
-  const hiddenBtwAgentId = sideChatTargetBySession.value[sessionId]?.agentId;
-  const tasks = rawState.tasksBySession[sessionId] ?? [];
-  const runningTasks = tasks.filter((t) => t.status === 'running');
-  if (runningTasks.length === 0) {
-    // No task list yet (fresh refresh) — trust the daemon-reported session status,
-    // unless the only active work is a BTW side-chat agent. In that window the
-    // side chat is sending and its task hasn't been loaded, so suppress the main
-    // session spinner so the main composer stays usable.
-    if (hiddenBtwAgentId && rawState.sideChatSendingByAgent[hiddenBtwAgentId]) {
-      return false;
-    }
-    return true;
-  }
-  return runningTasks.some((t) => t.id !== hiddenBtwAgentId);
+/** Whether the session should show a "working" indicator (sidebar spinner,
+    row badge gating). ONE unified condition, shared with the working moon and
+    the Stop button: the main conversation has unfinished work — a prompt
+    submitted but not yet terminated (`inFlightBySession`) or a main turn in
+    flight (`turnActiveBySession`). Background tasks and subagent turns do NOT
+    light it; an approval/question pause does NOT dim it (the turn is still
+    open). */
+function isMainTurnActive(sessionId: string, listed?: boolean): boolean {
+  return (
+    (rawState.inFlightBySession[sessionId] ?? false) ||
+    (rawState.turnActiveBySession[sessionId] ?? false) ||
+    (listed ??
+      rawState.sessions.find((session) => session.id === sessionId)?.mainTurnActive ??
+      false)
+  );
 }
 
 /** Format createdAt/updatedAt into a short display string */
-function formatTime(iso: string, _status: string): string {
+function formatTime(iso: string): string {
   try {
     const d = new Date(iso);
     const now = Date.now();
@@ -1752,12 +1625,11 @@ function formatTime(iso: string, _status: string): string {
     if (diffMs < 60000) return i18n.global.t('sessions.justNow');
     if (diffH < 1) return `${Math.round(diffMs / 60000)}m`;
     if (diffH < 24) return `${Math.round(diffH)}h`;
-    return d.toLocaleDateString(i18n.global.locale.value, {
-      month: 'numeric',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
+    const diffD = diffMs / 86400000;
+    if (diffD < 7) return `${Math.round(diffD)}d`;
+    if (diffD < 30) return `${Math.round(diffD / 7)}w`;
+    if (diffD < 365) return `${Math.round(diffD / 30)}mo`;
+    return `${Math.round(diffD / 365)}y`;
   } catch {
     return iso;
   }
@@ -1782,7 +1654,10 @@ function stopSessionTimeClock(): void {
 }
 
 if (import.meta.hot) {
-  import.meta.hot.dispose(stopSessionTimeClock);
+  import.meta.hot.dispose(() => {
+    stopSessionTimeClock();
+    enqueueEvent.dispose();
+  });
 }
 
 /** Build DiffLine[] from old_text/new_text strings */
@@ -1876,6 +1751,23 @@ function buildApprovalBlock(a: AppApprovalRequest): ApprovalBlock {
     return { kind: 'todo', items };
   }
 
+  // plan_review — finalised plan presented at plan-mode exit
+  if (kind === 'plan_review') {
+    const plan = typeof d.plan === 'string' ? d.plan : '';
+    const path = typeof d.path === 'string' ? d.path : undefined;
+    const rawOptions = Array.isArray(d.options) ? d.options : [];
+    const options = rawOptions
+      .map((item: unknown): { label: string; description?: string } | null => {
+        const it = (item ?? {}) as Record<string, unknown>;
+        const label = typeof it.label === 'string' ? it.label : '';
+        if (!label) return null;
+        const description = typeof it.description === 'string' ? it.description : undefined;
+        return { label, description };
+      })
+      .filter((o): o is { label: string; description?: string } => o !== null);
+    return { kind: 'plan_review', plan, path, options: options.length > 0 ? options : undefined };
+  }
+
   // Unknown daemon display.kind → 'generic' with summary = action
   return { kind: 'generic', summary: a.action };
 }
@@ -1885,7 +1777,6 @@ function toUiQuestion(q: AppQuestionRequest): UIQuestion {
   return {
     questionId: q.questionId,
     sessionId: q.sessionId,
-    expiresAt: q.expiresAt,
     questions: q.questions.map((qi) => ({
       id: qi.id,
       question: qi.question,
@@ -1895,7 +1786,6 @@ function toUiQuestion(q: AppQuestionRequest): UIQuestion {
         id: o.id,
         label: o.label,
         description: o.description,
-        preview: o.preview,
         recommended: o.recommended,
       })),
       multiSelect: qi.multiSelect,
@@ -1998,6 +1888,8 @@ function toUiTask(task: AppTask): TaskItem {
     timing,
     meta,
     output,
+    runInBackground: task.runInBackground,
+    parentToolCallId: task.parentToolCallId,
   };
 }
 
@@ -2021,41 +1913,53 @@ const sessions = computed<Session[]>(() => {
     .map((s) => ({
       id: s.id,
       title: s.title,
-      time: formatTime(s.updatedAt, s.status),
-      status: s.status,
-      busy: isSessionEffectivelyRunning(s.id),
+      time: formatTime(s.updatedAt),
+      busy: isMainTurnActive(s.id, s.mainTurnActive),
+      pendingInteraction: s.pendingInteraction,
+      lastTurnReason: s.lastTurnReason,
     }));
 });
 
 const activeSessionId = computed<string>(() => rawState.activeSessionId ?? '');
 
-const activeSessionCapabilities = computed(() => {
-  const session = rawState.sessions.find((candidate) => candidate.id === rawState.activeSessionId);
-  return {
-    tools: session?.tools,
-    mcpServers: session?.mcpServers,
-  };
-});
-
-/** Slash-invocable skills for the active session (feeds the composer `/` menu). */
+/** Slash-invocable skills for the composer `/` menu — the active session's skills,
+ *  or, before a session exists, the active workspace's skills. */
 const skills = computed<AppSkill[]>(() => {
   const sid = rawState.activeSessionId;
-  if (!sid) return [];
-  return skillsBySession.value[sid] ?? [];
+  if (sid) return modelProvider.skillsBySession.value[sid] ?? [];
+  const wid = activeWorkspaceId.value;
+  return wid ? (modelProvider.skillsByWorkspace.value[wid] ?? []) : [];
 });
 
-const isSending = computed<boolean>(() => {
+const inFlight = computed<boolean>(() => {
   const sid = rawState.activeSessionId;
   if (!sid) return false;
-  return rawState.sendingBySession[sid] ?? false;
+  return rawState.inFlightBySession[sid] ?? false;
+});
+
+// True while the empty-composer first prompt for the active workspace is being
+// created + submitted (before the session id exists). Drives the empty-session
+// "starting conversation…" loading state in ConversationPane / Composer.
+const isStartingFirstPrompt = computed<boolean>(() => workspaceState.isStartingFirstPrompt());
+
+const sideChat = useSideChat(rawState, {
+  pushOperationFailure,
+  nextOptimisticMsgId,
+  connectEventsIfNeeded,
+  getEventConn: () => eventConn,
+  // modelProvider is defined further below; deferred like eventConn above.
+  resolveThinkingForPrompt: (sessionId, modelId) =>
+    modelProvider.resolveThinkingForPrompt(sessionId, modelId),
 });
 
 const activeAppTasks = computed<AppTask[]>(() => {
   const sid = rawState.activeSessionId;
   if (!sid) return [];
-  const hiddenBtwAgentId = sideChatTargetBySession.value[sid]?.agentId;
+  const hiddenBtwAgentId = sideChat.sideChatTargetBySession.value[sid]?.agentId;
   return (rawState.tasksBySession[sid] ?? []).filter((task) => task.id !== hiddenBtwAgentId);
 });
+
+const taskPoller = useTaskPoller(rawState, activeAppTasks);
 
 const turns = computed<ChatTurn[]>(() => {
   const sid = rawState.activeSessionId;
@@ -2067,270 +1971,41 @@ const turns = computed<ChatTurn[]>(() => {
     messages,
     approvals,
     (fileId) => getPythinkerWebApi().getFileUrl(fileId),
-    activity.value !== 'idle',
-    activeAppTasks.value,
+    turnActive.value,
+    rawState.planReviewByToolCallId,
   );
 });
 
-// ---------------------------------------------------------------------------
-// Side chat ("BTW") — a TUI-style forked agent rendered as a session tab.
-// It is not a child session and never appears in the sidebar. Each session can
-// have its own side chat; state is keyed by session id, while messages are
-// keyed by agent id so they survive session switches.
-// ---------------------------------------------------------------------------
-const sideChatTargetBySession = ref<Record<string, { agentId: string }>>({});
-
-const activeSideChatTarget = computed<{ parentId: string; agentId: string } | null>(() => {
+/** The MAIN agent of the active session has a turn in flight — the working
+ *  moon's authoritative half (the optimistic `inFlight` window covers the gap
+ *  before the turn.started round-trips). Background agents and BTW side chats
+ *  do NOT set this; the session-busy status lives on `activity`. */
+const turnActive = computed<boolean>(() => {
   const sid = rawState.activeSessionId;
-  if (!sid) return null;
-  const target = sideChatTargetBySession.value[sid];
-  return target ? { parentId: sid, agentId: target.agentId } : null;
-});
-
-const sideChatSessionId = computed<string | null>(
-  () => activeSideChatTarget.value?.parentId ?? null,
-);
-const sideChatVisible = computed<boolean>(() => activeSideChatTarget.value !== null);
-
-const sideChatSending = computed<boolean>(() => {
-  const target = activeSideChatTarget.value;
-  return target ? Boolean(rawState.sideChatSendingByAgent[target.agentId]) : false;
-});
-
-const sideChatRunning = computed<boolean>(() => {
-  const target = activeSideChatTarget.value;
-  if (!target) return false;
-  if (rawState.sideChatSendingByAgent[target.agentId]) return true;
-  return (rawState.tasksBySession[target.parentId] ?? []).some(
-    (task) => task.id === target.agentId && task.status === 'running',
+  if (!sid) return false;
+  return (
+    (rawState.turnActiveBySession[sid] ?? false) ||
+    (rawState.sessions.find((session) => session.id === sid)?.mainTurnActive ?? false)
   );
 });
 
-const sideChatTurns = computed<ChatTurn[]>(() => {
-  const target = activeSideChatTarget.value;
-  if (!target) return [];
-  const messages = rawState.sideChatMessagesByAgent[target.agentId] ?? [];
-  return messagesToTurns(
-    messages,
-    [],
-    (fileId) => getPythinkerWebApi().getFileUrl(fileId),
-    sideChatRunning.value,
-    [],
-  );
-});
-
-function updateSideChatMessages(agentId: string, update: (messages: AppMessage[]) => AppMessage[]): void {
-  rawState.sideChatMessagesByAgent = {
-    ...rawState.sideChatMessagesByAgent,
-    [agentId]: update(rawState.sideChatMessagesByAgent[agentId] ?? []),
-  };
-}
-
-function appendSideChatMessage(agentId: string, message: AppMessage): void {
-  updateSideChatMessages(agentId, (messages) => [...messages, message]);
-}
-
-function removeLastSideChatUserMessage(agentId: string): void {
-  updateSideChatMessages(agentId, (messages) => {
-    const idx = [...messages].toReversed().findIndex((message) => message.role === 'user');
-    if (idx === -1) return messages;
-    const removeIndex = messages.length - 1 - idx;
-    return messages.filter((_, index) => index !== removeIndex);
-  });
-}
-
-function stampLastSideChatUserPrompt(agentId: string, promptId: string): void {
-  updateSideChatMessages(agentId, (messages) => {
-    const next = [...messages];
-    for (let i = next.length - 1; i >= 0; i -= 1) {
-      const message = next[i]!;
-      if (message.role !== 'user') continue;
-      next[i] = { ...message, promptId: message.promptId ?? promptId };
-      return next;
-    }
-    return messages;
-  });
-}
-
-function appendSideChatAssistantText(agentId: string, sessionId: string, chunk: string): void {
-  if (!chunk) return;
-  updateSideChatMessages(agentId, (messages) => {
-    const last = messages.at(-1);
-    if (last?.role === 'assistant') {
-      const first = last.content[0];
-      const text = first?.type === 'text' ? first.text : '';
-      return [
-        ...messages.slice(0, -1),
-        {
-          ...last,
-          content: [{ type: 'text', text: `${text}${chunk}` }],
-        },
-      ];
-    }
-    return [
-      ...messages,
-      {
-        id: nextOptimisticMsgId(),
-        sessionId,
-        role: 'assistant',
-        content: [{ type: 'text', text: chunk }],
-        createdAt: new Date().toISOString(),
-      },
-    ];
-  });
-}
-
-function finishSideChatAgent(agentId: string, sessionId: string, outputPreview?: string): void {
-  rawState.sideChatSendingByAgent = { ...rawState.sideChatSendingByAgent, [agentId]: false };
-  if (!outputPreview) return;
-  const messages = rawState.sideChatMessagesByAgent[agentId] ?? [];
-  const last = messages.at(-1);
-  const lastText = last?.role === 'assistant' && last.content[0]?.type === 'text'
-    ? last.content[0].text
-    : '';
-  if (lastText.trim().length > 0) return;
-  appendSideChatAssistantText(agentId, sessionId, outputPreview);
-}
-
-/** Open (creating if needed) the side chat for the active session; optionally send a first prompt. */
-async function openSideChat(initialPrompt?: string): Promise<void> {
-  const parent = rawState.activeSessionId;
-  if (!parent) return;
-  // Reuse the existing side chat for this session if it already exists.
-  if (!sideChatTargetBySession.value[parent]) {
-    let agentId: string;
-    try {
-      ({ agentId } = await getPythinkerWebApi().startBtw(parent));
-    } catch (error) {
-      pushOperationFailure('openSideChat', error, { sessionId: parent });
-      return;
-    }
-    rawState.sideChatMessagesByAgent = {
-      ...rawState.sideChatMessagesByAgent,
-      [agentId]: rawState.sideChatMessagesByAgent[agentId] ?? [],
-    };
-    sideChatTargetBySession.value = {
-      ...sideChatTargetBySession.value,
-      [parent]: { agentId },
-    };
-    connectEventsIfNeeded();
-    eventConn?.markSideChannelAgent(agentId);
-  }
-  if (initialPrompt && initialPrompt.trim()) {
-    await sendSideChatPrompt(initialPrompt.trim());
-  }
-}
-
-function closeSideChat(): void {
-  const sid = rawState.activeSessionId;
-  if (!sid) return;
-  const { [sid]: _removed, ...rest } = sideChatTargetBySession.value;
-  void _removed;
-  sideChatTargetBySession.value = rest;
-}
-
-/** Send a plain prompt to the side-chat child (no plan, workflow, or goal modes). */
-async function sendSideChatPrompt(text: string): Promise<void> {
-  const target = activeSideChatTarget.value;
-  const trimmed = text.trim();
-  if (!target || !trimmed) return;
-  const sid = target.parentId;
-  const agentId = target.agentId;
-  rawState.sideChatSendingByAgent = { ...rawState.sideChatSendingByAgent, [agentId]: true };
-  const userMsg: AppMessage = {
-    id: nextOptimisticMsgId(),
-    sessionId: sid,
-    role: 'user',
-    content: [{ type: 'text', text: trimmed }],
-    createdAt: new Date().toISOString(),
-    metadata: { 'pythinkerWeb.optimisticUserMessage': true },
-  };
-  appendSideChatMessage(agentId, userMsg);
-  try {
-    const result = await getPythinkerWebApi().submitPrompt(sid, {
-      content: [{ type: 'text', text: trimmed }],
-      agentId,
-    });
-    stampLastSideChatUserPrompt(agentId, result.promptId);
-    rawState.sideChatUserMessageIdsBySession = {
-      ...rawState.sideChatUserMessageIdsBySession,
-      [sid]: [...(rawState.sideChatUserMessageIdsBySession[sid] ?? []), result.userMessageId],
-    };
-  } catch (error) {
-    pushOperationFailure('sendSideChatPrompt', error, { sessionId: sid });
-    removeLastSideChatUserMessage(agentId);
-    rawState.sideChatSendingByAgent = { ...rawState.sideChatSendingByAgent, [agentId]: false };
-  }
-}
-
-// When a session is deleted, drop its side-chat target so it cannot leak into a
-// later session that happens to reuse the same id.
-function clearSideChatForSession(sessionId: string): void {
-  if (!sideChatTargetBySession.value[sessionId]) return;
-  const { [sessionId]: _removed, ...rest } = sideChatTargetBySession.value;
-  void _removed;
-  sideChatTargetBySession.value = rest;
-}
-
-// A 1-second clock that only ticks while a task is running, so a running task's
-// elapsed-time label keeps counting up. toUiTask reads Date.now() once per
-// evaluation; without this the `tasks` computed only re-ran when tasksBySession
-// changed, freezing the timer at whatever it read on the first render.
-const taskClock = ref(0);
-let taskClockTimer: ReturnType<typeof setInterval> | null = null;
-watch(
-  () => activeAppTasks.value.some((tk) => tk.status === 'running'),
-  (hasRunning) => {
-    if (hasRunning && taskClockTimer === null) {
-      taskClockTimer = setInterval(() => {
-        taskClock.value = (taskClock.value + 1) % Number.MAX_SAFE_INTEGER;
-      }, 1000);
-    } else if (!hasRunning && taskClockTimer !== null) {
-      clearInterval(taskClockTimer);
-      taskClockTimer = null;
-    }
-  },
-  { immediate: true },
-);
-
-// Start/stop task output polling based on whether the active session has
-// running background tasks. This mirrors the TUI's 1-second refresh.
-watch(
-  () => {
-    const sid = rawState.activeSessionId;
-    if (!sid) return { sid: undefined as string | undefined, hasRunning: false };
-    const tasks = rawState.tasksBySession[sid] ?? [];
-    return { sid, hasRunning: tasks.some((t) => t.status === 'running') };
-  },
-  ({ sid, hasRunning }, _prev, onCleanup) => {
-    let cleanupTimer: ReturnType<typeof setTimeout> | undefined;
-    if (hasRunning && sid !== undefined) {
-      startTaskOutputPolling(sid);
-    } else if (sid !== undefined) {
-      // All tasks finished — wait a beat to catch final output, then stop.
-      cleanupTimer = setTimeout(() => {
-        const tasks = rawState.tasksBySession[sid] ?? [];
-        if (!tasks.some((t) => t.status === 'running')) {
-          stopTaskOutputPolling();
-        }
-      }, 1500);
-    } else {
-      stopTaskOutputPolling();
-    }
-    onCleanup(() => {
-      if (cleanupTimer !== undefined) clearTimeout(cleanupTimer);
-    });
-  },
-  { deep: true, immediate: true },
-);
+/** The working moon: the main conversation has an unfinished prompt — either
+ *  submitted-but-not-terminated (`inFlight`) or a main turn in flight
+ *  (`turnActive`). */
+const working = computed<boolean>(() => inFlight.value || turnActive.value);
 
 const tasks = computed<TaskItem[]>(() => {
   // Touch the clock so a running task's elapsed time recomputes each tick.
-  void taskClock.value;
+  void taskPoller.taskClock.value;
   return activeAppTasks.value.map(toUiTask);
 });
 
-const dynamicWorkflows = computed<DynamicWorkflowGroup[]>(() => buildDynamicWorkflowGroups(activeAppTasks.value));
+const dynamic workflows = computed<DynamicWorkflowGroup[]>(() => buildDynamicWorkflowGroups(activeAppTasks.value));
+// Foreground/background subagents keyed by their spawning tool call id — used by
+// the inline AgentDynamicWorkflow tool card to stream each subagent's live progress.
+const dynamic_workflowMembersByToolCallId = computed<Map<string, DynamicWorkflowMember[]>>(() =>
+  dynamic_workflowMembersByToolCall(activeAppTasks.value),
+);
 
 const goal = computed<AppGoal | null>(() => {
   const sid = rawState.activeSessionId;
@@ -2356,17 +2031,53 @@ const connection = computed<ConnectionState>(() => rawState.connection);
 
 const loading = computed<boolean>(() => rawState.loading);
 const sessionLoading = computed<boolean>(() => rawState.sessionLoading);
+const loadingMoreMessages = computed<boolean>(() => {
+  const sid = rawState.activeSessionId;
+  return sid ? rawState.messagesLoadingMoreBySession[sid] ?? false : false;
+});
+const hasMoreMessages = computed<boolean>(() => {
+  const sid = rawState.activeSessionId;
+  return sid ? rawState.messagesHasMoreBySession[sid] ?? false : false;
+});
+const loadMoreMessagesError = computed<boolean>(() => {
+  const sid = rawState.activeSessionId;
+  return sid ? rawState.messagesLoadMoreErrorBySession[sid] ?? false : false;
+});
+const serverVersion = computed<string>(() => rawState.serverVersion);
+const backend = computed<'v1' | 'v2'>(() => rawState.backend);
+const dangerousBypassAuth = computed<boolean>(() => rawState.dangerousBypassAuth);
+
+/**
+ * Drop the cached `dangerous_bypass_auth` value read from `/meta`. Called when
+ * the server demands authentication (HTTP 401) so a stale "bypass" value from
+ * a previous server mode does not keep hiding the token prompt after the same
+ * origin is restarted without `--dangerous-bypass-auth`.
+ */
+function clearDangerousBypassAuth(): void {
+  rawState.dangerousBypassAuth = false;
+}
 
 const permission = computed<PermissionMode>(() => rawState.permission);
-const thinking = computed<ThinkingLevel>(() => rawState.thinking);
-const planMode = computed<boolean>(() => rawState.planMode);
-const dynamicWorkflowMode = computed<boolean>(() => rawState.dynamicWorkflowMode);
-const goalMode = computed<boolean>(() => rawState.goalMode);
+const thinking = computed<ThinkingLevel | undefined>(() => rawState.thinking);
+// Mode toggles reflect the ACTIVE session (or the draft when no session is
+// open). Each session keeps its own value in the *BySession maps above.
+const planMode = computed<boolean>(() => {
+  const sid = rawState.activeSessionId;
+  return sid ? (rawState.planModeBySession[sid] ?? false) : draftModes.planMode;
+});
+const dynamicWorkflowMode = computed<boolean>(() => {
+  const sid = rawState.activeSessionId;
+  return sid ? (rawState.dynamicWorkflowModeBySession[sid] ?? false) : draftModes.dynamicWorkflowMode;
+});
+const goalMode = computed<boolean>(() => {
+  const sid = rawState.activeSessionId;
+  return sid ? (rawState.goalModeBySession[sid] ?? false) : draftModes.goalMode;
+});
 
 const activationBadges = computed<ActivationBadges>(() => {
-  const dynamicWorkflowCounts = countDynamicWorkflowMembers(dynamicWorkflows.value);
+  const dynamic_workflowCounts = countDynamicWorkflowMembers(dynamic workflows.value);
   return {
-    plan: rawState.planMode,
+    plan: planMode.value,
     goal: goal.value && goal.value.status !== 'complete'
       ? {
           status: goal.value.status,
@@ -2374,19 +2085,26 @@ const activationBadges = computed<ActivationBadges>(() => {
           elapsedMs: goal.value.wallClockMs,
         }
       : null,
-    dynamicWorkflow: dynamicWorkflowCounts.total > 0 ? dynamicWorkflowCounts : null,
+    dynamic_workflow: dynamic_workflowCounts.total > 0 ? dynamic_workflowCounts : null,
   };
 });
 
-/** Queued messages for the active session (text + attachment count for the
-    composer strip — an image-only prompt would otherwise render as an empty
-    string). */
+/** Queued messages for the active session, rendered inline at the tail of the
+    transcript. Carries attachment thumbnails (resolved via getFileUrl) so image
+    prompts don't render as empty bubbles. */
 const queued = computed<QueuedPromptView[]>(() => {
   const sid = rawState.activeSessionId;
   if (!sid) return [];
+  const api = getPythinkerWebApi();
   return (rawState.queuedBySession[sid] ?? []).map((q) => ({
     text: q.text,
     attachmentCount: q.attachments?.length ?? 0,
+    attachments: q.attachments?.map((a) => ({
+      fileId: a.fileId,
+      kind: a.kind,
+      url: api.getFileUrl(a.fileId),
+      name: a.name,
+    })),
   }));
 });
 
@@ -2420,6 +2138,13 @@ const pendingApprovals = computed<
 /**
  * Activity state for the active session.
  * Priority: awaiting-approval > awaiting-question > running > idle
+ *
+ * `running` is main-conversation liveness — the same condition as the working
+ * moon (the optimistic submit window or an in-flight main turn). The wire
+ * `busy` fact deliberately includes background tasks, but everything driven
+ * by `activity` (Stop button, composer/page-title spinners, send-vs-queue
+ * gating) follows the main conversation only: a session left with only
+ * background tasks is idle here, exactly like the retired turn-scoped status.
  */
 const activity = computed<ActivityState>(() => {
   const sid = rawState.activeSessionId;
@@ -2431,11 +2156,20 @@ const activity = computed<ActivityState>(() => {
   const questionList = rawState.questionsBySession[sid] ?? [];
   if (questionList.length > 0) return 'awaiting-question';
 
-  if (isSessionEffectivelyRunning(sid)) {
+  if (inFlight.value || turnActive.value) {
     return 'running';
   }
 
   return 'idle';
+});
+
+const modelProvider = useModelProviderState(rawState, {
+  pushOperationFailure,
+  refreshSessionStatus,
+  persistSessionProfile,
+  activity,
+  updateSession,
+  updateSessionMessages,
 });
 
 /** Git info for the active session from the daemon's fs:git_status response */
@@ -2463,7 +2197,7 @@ const changes = computed<{ path: string; status: string }[]>(() => {
   if (!gs) return [];
   return Object.entries(gs.entries)
     .map(([path, status]) => ({ path, status }))
-    .toSorted((a, b) => a.path.localeCompare(b.path));
+    .sort((a, b) => a.path.localeCompare(b.path));
 });
 
 /** Aggregate working-tree line stats (vs HEAD) for the active session's header
@@ -2486,15 +2220,19 @@ const status = computed<ConversationStatus>(() => {
   // agent.status.updated event during a turn; fall back to the daemon default.
   // In the draft state (no active session) the user's draft pick wins, so the
   // composer dropdown reflects the selection before the session exists.
-  const draftPick = activeSession === undefined ? draftModel.value : null;
+  const draftPick = activeSession === undefined ? modelProvider.draftModel.value : null;
   const rawModel =
     (activeSession?.model && activeSession.model.length > 0
       ? activeSession.model
       : draftPick ?? rawState.defaultModel) ?? '—';
 
   // Use the friendly displayName from the models list; fall back to stripping
-  // the provider prefix (e.g. "pythoughts/pythoughts-v1-128k" → "pythoughts-v1-128k").
-  const matched = models.value.find((m) => m.id === rawModel || m.model === rawModel);
+  // the provider prefix (e.g. "pymodel/moonshot-v1-128k" → "moonshot-v1-128k").
+  // Prefer the exact id — model names can collide across providers, so a
+  // name-only match may resolve to the wrong provider's entry.
+  const matched =
+    modelProvider.models.value.find((m) => m.id === rawModel) ??
+    modelProvider.models.value.find((m) => m.model === rawModel);
   const displayModel =
     matched?.displayName ||
     matched?.model ||
@@ -2524,6 +2262,7 @@ const sessionCost = computed<number>(() => {
 
 const authReady = computed<boolean>(() => rawState.authReady);
 const defaultModel = computed<string | null>(() => rawState.defaultModel);
+const managedProviderStatus = computed<string | null>(() => rawState.managedProviderStatus);
 const config = computed<AppConfig | null>(() => rawState.config);
 
 /** path → status map for quick badge lookup in the file tree */
@@ -2540,13 +2279,19 @@ const changesByPath = computed<Record<string, string>>(() => {
 // ---------------------------------------------------------------------------
 
 /**
- * The workspace id a session belongs to: prefer the daemon-provided
- * session.workspaceId; otherwise map by cwd (in derived/fallback mode the
- * workspace id IS the cwd).
+ * The workspace id a session belongs to: the first registered workspace whose
+ * root identity-matches the session cwd (folds Windows case/slash variants —
+ * keeps grouping consistent with `mergeWorkspaces` so a session never falls
+ * out of the group the merge rendered); otherwise the daemon-provided
+ * session.workspaceId; otherwise the cwd itself (derived/fallback mode).
  */
 function workspaceIdForSession(s: { workspaceId?: string; cwd: string }): string {
   const cwdKey = workspaceRootKey(s.cwd);
-  return rawState.workspaces.find((w) => workspaceRootKey(w.root) === cwdKey)?.id ?? s.workspaceId ?? s.cwd;
+  return (
+    rawState.workspaces.find((w) => workspaceRootKey(w.root) === cwdKey)?.id ??
+    s.workspaceId ??
+    s.cwd
+  );
 }
 
 /**
@@ -2555,84 +2300,110 @@ function workspaceIdForSession(s: { workspaceId?: string; cwd: string }): string
  * derived workspace (id = root = cwd). This makes the switcher + grouping work
  * immediately off existing sessions until /workspaces ships.
  */
-const mergedWorkspaces = computed<AppWorkspace[]>(() => {
-  const hidden = new Set(rawState.hiddenWorkspaceRoots.map(workspaceRootKey));
-  const byRoot = new Map<string, AppWorkspace>();
-  // Real workspaces win on root (unless the user removed them from the sidebar).
-  for (const w of rawState.workspaces) {
-    const key = workspaceRootKey(w.root);
-    if (hidden.has(key)) continue;
-    if (!byRoot.has(key)) byRoot.set(key, { ...w });
-  }
-  // Derive from sessions for any cwd without a real workspace.
-  for (const s of rawState.sessions) {
-    const root = s.cwd;
-    if (!root) continue;
-    const key = workspaceRootKey(root);
-    if (hidden.has(key)) continue;
-    if (!byRoot.has(key)) {
-      byRoot.set(key, {
-        // Use the session's REAL daemon workspace_id (wd_<slug>_<hash>) so
-        // createSession({ workspaceId }) is accepted; fall back to cwd only
-        // when the daemon hasn't tagged the session yet.
-        id: s.workspaceId ?? root,
-        root,
-        name: basename(root),
-        isGitRepo: false,
-        sessionCount: 0,
-      });
-    }
-  }
-  // Compute live session counts + a branch hint from the active session's git.
-  const counts = new Map<string, number>();
-  for (const s of rawState.sessions) {
-    const wid = workspaceIdForSession(s);
-    counts.set(wid, (counts.get(wid) ?? 0) + 1);
-  }
-  const activeGit = gitInfo.value;
-  const activeRoot = rawState.sessions.find((s) => s.id === rawState.activeSessionId)?.cwd;
+const mergedWorkspaces = computed<AppWorkspace[]>(() =>
+  mergeWorkspaces({
+    workspaces: rawState.workspaces,
+    sessions: rawState.sessions,
+    hiddenWorkspaceRoots: rawState.hiddenWorkspaceRoots,
+    sessionsHasMoreByWorkspace: rawState.sessionsHasMoreByWorkspace,
+  }),
+);
 
-  // Order: real workspaces in listWorkspaces order, then derived workspaces
-  // sorted by root path so the order is stable (not tied to session activity).
-  const realRoots: string[] = [];
-  for (const workspace of rawState.workspaces) {
-    const key = workspaceRootKey(workspace.root);
-    if (!hidden.has(key) && !realRoots.includes(key)) realRoots.push(key);
-  }
-  const derivedRoots = [...byRoot.keys()].filter((key) => !realRoots.includes(key));
-  derivedRoots.sort((a, b) => byRoot.get(a)!.root.localeCompare(byRoot.get(b)!.root));
+/**
+ * User-defined display order of workspace ids, persisted to localStorage. The
+ * sidebar stops following the daemon's recency-based order: once a workspace is
+ * known, its position is fixed until the user drags it elsewhere.
+ */
+const workspaceOrder = ref<string[]>(loadWorkspaceOrder());
 
-  const result: AppWorkspace[] = [];
-  for (const rootKey of [...realRoots, ...derivedRoots]) {
-    const w = byRoot.get(rootKey)!;
-    // Match count by either id or root (derived id === root).
-    const count = counts.get(w.id) ?? counts.get(w.root) ?? w.sessionCount;
-    let branch = w.branch;
-    if (!branch && activeGit && activeRoot === w.root) branch = activeGit.branch;
-    result.push({ ...w, sessionCount: count, branch });
-  }
-  return result;
-});
+/**
+ * Sidebar workspace sort mode. `recent` (default) re-sorts by each workspace's
+ * most recent session activity and stays live as sessions update; `manual` keeps
+ * the persisted/dragged order. Persisted so the choice survives a refresh.
+ */
+const workspaceSortMode = ref<WorkspaceSortMode>(
+  loadWorkspaceSort() === 'manual' ? 'manual' : 'recent',
+);
 
-/** Sidebar-facing workspace list. */
-const workspacesView = computed<WorkspaceView[]>(() =>
-  mergedWorkspaces.value.map((w) => ({
+// Reconcile the persisted order with the set of currently-known workspaces:
+// drop ids that no longer exist, and prepend newly-seen ids (newest first,
+// matching "createdAt desc" — the closest signal we have without a real
+// workspace creation timestamp). Watched on the id *set* (joined) so a pure
+// daemon reorder of the same workspaces does not rewrite the user's order, and
+// a drag reorder (which also writes `workspaceOrder` but keeps the same id set)
+// does not re-trigger it.
+//
+// The watch also tracks `loading` and bails out while a load is in progress.
+// During `load()`, sessions (and thus derived workspaces) are set *before* the
+// real workspaces arrive, so a real workspace with no sessions is momentarily
+// absent from `mergedWorkspaces`. Without the loading guard the reconciler would
+// drop it as "deleted" and then, when it appears a tick later, re-add it at the
+// top — undoing the user's drag on refresh. Waiting until the load settles
+// means we always reconcile against the complete set.
+watch(
+  () => [mergedWorkspaces.value.map((w) => w.id).join('\0'), rawState.loading] as const,
+  ([idsKey, loading]) => {
+    if (loading) return;
+    const current = idsKey ? idsKey.split('\0') : [];
+    const next = reconcileWorkspaceOrder(current, workspaceOrder.value);
+    if (next === null) return;
+    workspaceOrder.value = next;
+    saveWorkspaceOrder(next);
+  },
+);
+
+/** Sidebar-facing workspace list. Order follows `workspaceSortMode`: the
+ *  persisted/dragged order in `manual` mode, or most-recent-session-first in
+ *  `recent` mode. The recent map is only built (and `rawState.sessions` only
+ *  read) in the recent branch, so manual mode does not re-sort on every session
+ *  update. */
+const workspacesView = computed<WorkspaceView[]>(() => {
+  const views = mergedWorkspaces.value.map((w) => ({
     id: w.id,
     name: w.name,
     root: w.root,
     shortPath: shortenHome(w.root, rawState.fsHome),
-    branch: w.branch,
     sessionCount: w.sessionCount,
-  })),
-);
+  }));
+  if (workspaceSortMode.value === 'recent') {
+    const lastEditedAt = new Map<string, number>();
+    for (const s of rawState.sessions) {
+      if (s.parentSessionId) continue;
+      const wid = workspaceIdForSession(s);
+      const t = new Date(s.updatedAt).getTime();
+      if (t > (lastEditedAt.get(wid) ?? Number.NEGATIVE_INFINITY)) {
+        lastEditedAt.set(wid, t);
+      }
+    }
+    return sortWorkspacesByRecent(views, lastEditedAt);
+  }
+  return sortByWorkspaceOrder(views, workspaceOrder.value);
+});
 
 /** The active workspace id, falling back to the first available workspace. */
 const activeWorkspaceId = computed<string | null>(() => {
   const id = rawState.activeWorkspaceId;
-  const list = mergedWorkspaces.value;
+  // Use the reordered list (not the raw daemon order) so the default/fallback
+  // workspace matches the first group the user actually sees in the sidebar.
+  const list = workspacesView.value;
   if (id && list.some((w) => w.id === id)) return id;
   return list[0]?.id ?? null;
 });
+
+// Pre-warm workspace-scoped skills so the onboarding composer's `/` menu is
+// populated before a session exists. Loaded once per workspace (guard mirrors
+// the per-session guard in refreshSessionSidecars); session skills take over
+// via refreshSessionSidecars once a session is created.
+watch(
+  activeWorkspaceId,
+  (id) => {
+    if (!id) return;
+    if (!Object.prototype.hasOwnProperty.call(modelProvider.skillsByWorkspace.value, id)) {
+      void modelProvider.loadSkillsForWorkspace(id);
+    }
+  },
+  { immediate: true },
+);
 
 /** The active workspace as a sidebar view (or null when none). */
 const visibleWorkspace = computed<WorkspaceView | null>(() => {
@@ -2646,17 +2417,31 @@ const visibleWorkspace = computed<WorkspaceView | null>(() => {
  */
 const sessionsForView = computed<Session[]>(() => {
   void sessionTimeClock.value;
+  const visibleWorkspaceIds = new Set(workspacesView.value.map((w) => w.id));
+  // Join each session to its workspace name so the search dialog can show which
+  // workspace a hit belongs to. Built once per recompute (O(n+m)) instead of a
+  // per-session find.
+  const nameByWorkspaceId = new Map(workspacesView.value.map((w) => [w.id, w.name]));
   // Child ("side chat") sessions never appear in the main list — they live in
-  // the side-chat panel only.
+  // the side-chat panel only. Sessions under a removed (hidden) workspace are
+  // excluded too, so this flat list matches what the grouped sidebar renders
+  // and sidebar search can't resurrect sessions from a removed workspace.
   return rawState.sessions
-    .filter((s) => !s.parentSessionId)
-    .map((s) => ({
-      id: s.id,
-      title: s.title,
-      time: formatTime(s.updatedAt, s.status),
-      status: s.status,
-      busy: isSessionEffectivelyRunning(s.id),
-    }));
+    .filter((s) => !s.parentSessionId && visibleWorkspaceIds.has(workspaceIdForSession(s)))
+    .map((s) => {
+      const workspaceId = workspaceIdForSession(s);
+      return {
+        id: s.id,
+        title: s.title,
+        time: formatTime(s.updatedAt),
+        busy: isMainTurnActive(s.id, s.mainTurnActive),
+        pendingInteraction: s.pendingInteraction,
+        lastTurnReason: s.lastTurnReason,
+        lastPrompt: s.lastPrompt,
+        workspaceId,
+        workspaceName: nameByWorkspaceId.get(workspaceId),
+      };
+    });
 });
 
 /** Per-workspace groups for the 'all workspaces' scope. */
@@ -2671,9 +2456,10 @@ const workspaceGroups = computed<WorkspaceGroup[]>(() => {
     const view: Session = {
       id: s.id,
       title: s.title,
-      time: formatTime(s.updatedAt, s.status),
-      status: s.status,
-      busy: isSessionEffectivelyRunning(s.id),
+      time: formatTime(s.updatedAt),
+      busy: isMainTurnActive(s.id, s.mainTurnActive),
+      pendingInteraction: s.pendingInteraction,
+      lastTurnReason: s.lastTurnReason,
       updatedAt: s.updatedAt,
     };
     const list = byId.get(wid) ?? [];
@@ -2683,14 +2469,40 @@ const workspaceGroups = computed<WorkspaceGroup[]>(() => {
   return workspacesView.value.map((w) => ({
     workspace: w,
     sessions: byId.get(w.id) ?? [],
+    hasMore: rawState.sessionsHasMoreByWorkspace[w.id] ?? false,
+    loadingMore: rawState.sessionsLoadingMoreByWorkspace[w.id] ?? false,
+    initialCount: rawState.sessionsInitialCountByWorkspace[w.id] ?? SESSIONS_INITIAL_PAGE_SIZE,
   }));
 });
 
 /**
+ * Replace the workspace display order (e.g. after a drag reorder in the
+ * sidebar) and persist it. The id set is unchanged, so the reconciliation
+ * watcher above will not fire — only the sort in `workspacesView` reacts.
+ */
+function reorderWorkspaces(ids: string[]): void {
+  workspaceOrder.value = ids;
+  saveWorkspaceOrder(ids);
+  // A drag is an explicit manual ordering, so drop out of `recent` mode — the
+  // dragged order would otherwise be overwritten by the live recency sort.
+  if (workspaceSortMode.value !== 'manual') {
+    workspaceSortMode.value = 'manual';
+    saveWorkspaceSort('manual');
+  }
+}
+
+/** Switch the sidebar workspace sort mode and persist the choice. */
+function setWorkspaceSortMode(mode: WorkspaceSortMode): void {
+  if (workspaceSortMode.value === mode) return;
+  workspaceSortMode.value = mode;
+  saveWorkspaceSort(mode);
+}
+
+/**
  * Per-session pending-attention count = pending approvals + pending questions.
  * For the active session this is live (driven by WS events). Other sessions
- * light up once the daemon ships Session.pending_attention; until then their
- * counts are derived from whatever approvals/questions we've already seen.
+ * are derived from whatever approvals/questions we've already seen; the row's
+ * list-level pendingInteraction fact supplies the pre-status badge fallback.
  */
 const attentionBySession = computed<Record<string, number>>(() => {
   const out: Record<string, number> = {};
@@ -2748,1701 +2560,187 @@ const attentionByWorkspace = computed<Record<string, number>>(() => {
 /** Recently-used roots for the add-workspace quick-pick (from /fs:home). */
 const recentRoots = computed<string[]>(() => rawState.recentRoots);
 
-/** Distinct cwd values from loaded sessions, most-recent first, deduped, max 8 */
-const recentCwds = computed<string[]>(() => {
-  const seen = new Set<string>();
-  const result: string[] = [];
-  for (const s of rawState.sessions) {
-    const cwd = s.cwd;
-    if (cwd && !seen.has(cwd)) {
-      seen.add(cwd);
-      result.push(cwd);
-      if (result.length >= 8) break;
-    }
-  }
-  return result;
-});
-
 /** Installed external apps the "Open in app" menu may offer for this host. */
 const availableOpenInApps = computed<string[]>(() => rawState.availableOpenInApps);
 
 // ---------------------------------------------------------------------------
 // Per-session turn-end cleanup + queue auto-flush.
-// Driven by the daemon's sessionStatusChanged → idle event (wired in
+// Driven by the main agent's turn.ended boundary (wired in
 // connectEventsIfNeeded), NOT by the active-session `activity` computed: a
 // watcher on `activity` only ever saw the ACTIVE session, so a session that
 // finished in the background kept its in-flight flag forever — every later
-// prompt to it was silently enqueued and never flushed.
+// prompt to it was silently enqueued and never flushed. The session-busy
+// status stream is deliberately NOT the trigger: background agents keep it
+// non-idle past the main turn's end, which would hold the moon and the queue.
 // ---------------------------------------------------------------------------
 
-function onSessionIdle(sid: string): void {
-  // The turn finished — this session no longer has a prompt in flight.
-  inFlightPromptSessions.delete(sid);
-  rawState.sendingBySession = { ...rawState.sendingBySession, [sid]: false };
-  // Drop any cached prompt_id so a later skill activation (which has no
-  // prompt_id) doesn't accidentally reuse this stale id for :abort.
-  if (rawState.promptIdBySession[sid] !== undefined) {
-    const next = { ...rawState.promptIdBySession };
+const workspaceState = useWorkspaceState(rawState, {
+  taskPoller,
+  sideChat,
+  modelProvider,
+  pushOperationFailure,
+  activity,
+  sessionsKnownEmpty,
+  setSessions,
+  updateSession,
+  upsertSessionFront,
+  appendSession,
+  forgetSession,
+  setActiveSessionId,
+  updateSessionMessages,
+  nextOptimisticMsgId,
+  getEventConn: () => eventConn,
+  syncSessionFromSnapshot,
+  reopenSession,
+  hasLoadedMessages,
+  refreshSessionStatus,
+  refreshSessionGoal,
+  persistSessionProfile,
+  mergedWorkspaces,
+  workspacesView,
+  status,
+  workspaceIdForSession,
+  savePermissionToStorage,
+  savePlanModeToStorage,
+  saveDynamicWorkflowModeToStorage,
+  saveGoalModeToStorage,
+  draftModes,
+  saveUnread,
+  saveActiveWorkspaceToStorage,
+  saveHiddenWorkspacesToStorage,
+  goalErrorMessage,
+  resetFastMoon: appearance.resetFastMoon,
+  initialized,
+  connectIssue,
+  selectedDiffPath,
+  fileDiffLines,
+  fileDiffLoading,
+});
+
+/** True when the user is actually watching this session: it is the active
+    session, the page is visible, and the window has focus. Focus matters on
+    top of visibility: a window that lost focus to another app often stays
+    (partially) visible on screen, but the user is working elsewhere and would
+    miss the moment without a notification. */
+function isUserWatching(sid: string): boolean {
+  return (
+    sid === rawState.activeSessionId &&
+    typeof document !== 'undefined' &&
+    document.visibilityState === 'visible' &&
+    document.hasFocus()
+  );
+}
+
+/**
+ * Authoritative-quiet escape hatch. The session's idle/aborted status means no
+ * main turn can still be in flight (an awaiting interaction would report
+ * awaiting_*, not idle), so both working-moon flags are cleared even when the
+ * turn.ended that owned them never arrived (e.g. abrupt agent disposal). This
+ * is the ONLY writer of `turnActiveBySession` outside the reducer /
+ * snapshot seed, and the ONLY clearer of `inFlightBySession` outside
+ * finishPromptLocal / the entry points' error paths. Drain and completion
+ * side effects are NOT run here — they stay single-owned by the turn.ended
+ * path (onMainTurnEnd).
+ */
+function clearWorkingFlags(sid: string): void {
+  if (rawState.turnActiveBySession[sid]) {
+    const next = { ...rawState.turnActiveBySession };
     delete next[sid];
-    rawState.promptIdBySession = next;
+    rawState.turnActiveBySession = next;
   }
+  if (rawState.inFlightBySession[sid]) {
+    rawState.inFlightBySession = { ...rawState.inFlightBySession, [sid]: false };
+  }
+}
+
+function onMainTurnEnd(sid: string, status: 'idle' | 'aborted', turnWasActive: boolean): void {
+  // Capture before finishPromptLocal drops it — it keys the completion
+  // notification's dedup tag so each finished turn alerts once.
+  const finishedPromptId = rawState.promptIdBySession[sid];
+  // Shared finish cleanup: clears in-flight/prompt-id and drains one
+  // queued message. The notification/sound/unread side effects below stay
+  // WS-event-only — the snapshot path (handleSessionSnapshot) must not cry
+  // wolf when opening a historical session.
+  workspaceState.finishPromptLocal(sid, { turnWasActive });
 
   // For the session on screen, refresh git status (edits the agent just made)
   // and runtime status (model/context usage may have changed this turn).
   if (sid === rawState.activeSessionId) {
-    resetFastSpinner();
-    void loadGitStatus(sid);
+    void workspaceState.loadGitStatus(sid);
     void refreshSessionStatus(sid);
-  } else {
-    // A background session just finished a turn the user hasn't seen — light up
-    // its unread dot until they open it.
+  } else if (status === 'idle') {
+    // A background session finished a turn the user hasn't seen — light up its
+    // unread dot until they open it. Aborted (cancelled/failed) turns are
+    // excluded on purpose: there is no fresh result to read, and counting them
+    // is what made the sidebar fill with stale unreads after a refresh.
     rawState.unreadBySession = { ...rawState.unreadBySession, [sid]: true };
-    saveUnreadToStorage(rawState.unreadBySession);
+    saveUnread({ [sid]: true });
   }
 
   // Browser notification when the user isn't watching this session.
-  maybeNotifyCompletion(sid);
-
-  const queue = rawState.queuedBySession[sid] ?? [];
-  if (queue.length === 0) return;
-
-  const [next, ...rest] = queue;
-  rawState.queuedBySession = { ...rawState.queuedBySession, [sid]: rest };
-  // Flush the first queued message; on failure put it back at the head so a
-  // transient error doesn't silently drop the prompt.
-  if (next !== undefined) {
-    void submitPromptInternal(sid, next.text, next.attachments).then((ok) => {
-      if (!ok) {
-        const current = rawState.queuedBySession[sid] ?? [];
-        rawState.queuedBySession = {
-          ...rawState.queuedBySession,
-          [sid]: [next, ...current],
-        };
-      }
-    });
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Actions
-// ---------------------------------------------------------------------------
-
-/**
- * Load + parse the unified diff for one changed file in the active session,
- * storing the result for the ~/diff line-by-line view. Defensive: on error
- * (or no active session) it leaves the diff empty but still records the path
- * so the panel opens with an empty state instead of silently doing nothing.
- */
-async function loadFileDiff(path: string): Promise<void> {
-  const sid = rawState.activeSessionId;
-  if (!sid) return;
-  selectedDiffPath.value = path;
-  fileDiffLines.value = [];
-  fileDiffLoading.value = true;
-  try {
-    const api = getPythinkerWebApi();
-    const result = await api.getFileDiff(sid, path);
-    // Guard against a stale response when the user tapped another file.
-    if (selectedDiffPath.value !== path) return;
-    fileDiffLines.value = parseDiff(result.diff);
-  } catch (error) {
-    // A single file's diff failing (a new/untracked/binary/deleted file the
-    // daemon can't diff) is LOCAL to this pane, not a session-level fault — the
-    // DiffView already shows a graceful "no diff" state when the lines are
-    // empty. Surfacing it as a global "pythinker server api" error toast on a routine
-    // file click is disproportionate, so log it for the trace export instead.
-    if (selectedDiffPath.value === path) fileDiffLines.value = [];
-    console.warn('[loadFileDiff] diff unavailable for', path, error);
-  } finally {
-    if (selectedDiffPath.value === path) fileDiffLoading.value = false;
-  }
-}
-
-/** Close the ~/diff line-by-line view and return to the changed-file list. */
-function clearFileDiff(): void {
-  selectedDiffPath.value = null;
-  fileDiffLines.value = [];
-  fileDiffLoading.value = false;
-}
-
-/** Load git status for a session — defensive, never throws */
-async function loadGitStatus(sessionId: string): Promise<void> {
-  try {
-    const api = getPythinkerWebApi();
-    const result = await api.getGitStatus(sessionId);
-    rawState.gitStatusBySession = {
-      ...rawState.gitStatusBySession,
-      [sessionId]: result,
-    };
-  } catch {
-    // Stale/old sessions may 404 — leave undefined, no crash
-  }
-}
-
-/** Fetch auth readiness from GET /api/v1/auth. Defensive — never throws. */
-async function checkAuth(): Promise<void> {
-  try {
-    const api = getPythinkerWebApi();
-    const result = await api.getAuth();
-    rawState.authReady = result.ready;
-    rawState.defaultModel = result.defaultModel;
-  } catch {
-    // Daemon may not have this endpoint yet; leave defaults (authReady: false)
-  }
-}
-
-/** Fetch global config from GET /api/v1/config. Defensive — never throws. */
-async function loadConfig(): Promise<void> {
-  try {
-    const api = getPythinkerWebApi();
-    rawState.config = await api.getConfig();
-  } catch {
-    // Daemon may not have this endpoint yet; leave null
-  }
-}
-
-/** Update global config via POST /api/v1/config. */
-async function updateConfig(patch: Partial<AppConfig>): Promise<boolean> {
-  try {
-    const api = getPythinkerWebApi();
-    const next = await api.setConfig(patch);
-    rawState.config = next;
-    rawState.defaultModel = next.defaultModel ?? null;
-    return true;
-  } catch (error) {
-    pushOperationFailure('setConfig', error);
-    return false;
-  }
-}
-
-// False until the very first load() settles (success OR failure). Gates the
-// global connecting-splash so a page refresh doesn't flash a half-empty app.
-const initialized = ref(false);
-
-async function load(): Promise<void> {
-  rawState.loading = true;
-  try {
-    const api = getPythinkerWebApi();
-    // Parallel: health + meta + sessions + models
-    const [, , sessionsPage] = await Promise.all([
-      api.getHealth().catch(() => null),
-      api.getMeta().then((m) => {
-        rawState.serverVersion = m.serverVersion;
-        rawState.availableOpenInApps = m.openInApps;
-      }).catch(() => null),
-      api.listSessions({ pageSize: 20 }).catch(() => ({ items: [], hasMore: false })),
-      loadModels(),
-    ]);
-
-    // Check auth readiness and global config (separate calls — defensive)
-    await checkAuth();
-    await loadConfig();
-
-    rawState.sessions = sessionsPage.items;
-
-    // Load workspaces (real if available, else derived from session cwds).
-    await loadWorkspaces();
-
-    // First load: pick the workspace of the most-recent session, unless the
-    // user already has a persisted active workspace that still exists.
-    const mostRecent = sessionsPage.items[0];
-    const persisted = rawState.activeWorkspaceId;
-    const persistedStillExists =
-      persisted !== null && mergedWorkspaces.value.some((w) => w.id === persisted);
-    if (!persistedStillExists && mostRecent) {
-      selectWorkspace(workspaceIdForSession(mostRecent));
-    }
-
-    // URL deep link (/sessions/<id>) takes priority over auto-select. The
-    // session may live beyond the first listSessions page — fetch it then.
-    // selectSession syncs the active workspace off the (now present) entry.
-    bindSessionRoute();
-    const urlSessionId =
-      typeof window !== 'undefined' ? readSessionIdFromLocation(window.location) : undefined;
-    if (!rawState.activeSessionId && urlSessionId !== undefined) {
-      const available =
-        rawState.sessions.some((s) => s.id === urlSessionId) ||
-        (await fetchSessionIntoList(urlSessionId));
-      if (available) {
-        await selectSession(urlSessionId, { urlMode: 'replace' });
-      }
-    }
-
-    // Auto-select first session if none selected (also the fallback for a dead
-    // deep link — 'replace' rewrites the URL to the session actually shown).
-    if (!rawState.activeSessionId && sessionsPage.items.length > 0) {
-      await selectSession(sessionsPage.items[0]!.id, { urlMode: 'replace' });
-    }
-  } catch (error) {
-    pushOperationFailure('load', error);
-    // Do not re-throw — app stays mounted with empty sessions
-  } finally {
-    rawState.loading = false;
-    initialized.value = true;
-  }
-}
-
-/** Load workspaces from the daemon (falls back to derived in mergedWorkspaces). */
-async function loadWorkspaces(): Promise<void> {
-  try {
-    const api = getPythinkerWebApi();
-    const [list, home] = await Promise.all([
-      api.listWorkspaces().catch(() => [] as AppWorkspace[]),
-      api.getFsHome().catch(() => ({ home: '', recentRoots: [] })),
-    ]);
-    rawState.workspaces = list;
-    rawState.fsHome = home.home || null;
-    rawState.recentRoots = home.recentRoots;
-  } catch {
-    // Defensive — derived workspaces still work off the loaded sessions.
-  }
-}
-
-/** Set the active workspace and persist it. */
-function selectWorkspace(id: string): void {
-  rawState.activeWorkspaceId = id;
-  saveActiveWorkspaceToStorage(id);
-}
-
-/** Open a workspace in the main pane: clear the active session when the
- *  workspace is empty so the centred composer is shown; otherwise activate
- *  the most recent session in that workspace. */
-function openWorkspace(id: string): void {
-  selectWorkspace(id);
-  const sessionsInWs = rawState.sessions.filter((s) => workspaceIdForSession(s) === id);
-  if (sessionsInWs.length > 0) {
-    const mostRecent = sessionsInWs[0];
-    if (mostRecent && mostRecent.id !== rawState.activeSessionId) {
-      // One user action (clicking the workspace) = one history entry.
-      void selectSession(mostRecent.id);
-    }
-  } else {
-    rawState.activeSessionId = undefined;
-    writeSessionUrl(undefined, 'push');
-  }
-}
-
-/** Upsert a workspace: preserve existing order when updating; prepend only
- *  for truly new workspaces. */
-function upsertWorkspacePreserveOrder(workspace: AppWorkspace): void {
-  const rootKey = workspaceRootKey(workspace.root);
-  if (rawState.hiddenWorkspaceRoots.some((root) => workspaceRootKey(root) === rootKey)) {
-    rawState.hiddenWorkspaceRoots = rawState.hiddenWorkspaceRoots.filter(
-      (root) => workspaceRootKey(root) !== rootKey,
-    );
-    saveHiddenWorkspacesToStorage(rawState.hiddenWorkspaceRoots);
-  }
-  const index = rawState.workspaces.findIndex(
-    (w) => w.id === workspace.id || workspaceRootKey(w.root) === rootKey,
-  );
-  if (index === -1) {
-    rawState.workspaces = [workspace, ...rawState.workspaces];
-    return;
-  }
-  const next = [...rawState.workspaces];
-  next[index] = workspace;
-  rawState.workspaces = next;
-}
-
-type WorkspaceLifecycleEvent =
-  | { type: 'workspaceCreated'; workspace: AppWorkspace }
-  | { type: 'workspaceUpdated'; workspace: AppWorkspace }
-  | { type: 'workspaceDeleted'; workspaceId: string; root: string };
-
-/** Apply a workspace lifecycle event broadcast by the daemon (multi-client sync).
- *  Workspaces live outside the reducer in rawState, so these events are handled
- *  here instead of in reduceAppEvent. */
-function applyWorkspaceEvent(event: WorkspaceLifecycleEvent): void {
-  if (event.type === 'workspaceCreated' || event.type === 'workspaceUpdated') {
-    upsertWorkspacePreserveOrder(event.workspace);
-    return;
-  }
-  // workspaceDeleted — mirror the local deleteWorkspace so a removal initiated
-  // by another client stays hidden even though its surviving sessions would
-  // otherwise re-derive it in mergedWorkspaces.
-  const root =
-    rawState.workspaces.find((w) => w.id === event.workspaceId)?.root ?? event.root;
-  if (
-    root &&
-    !rawState.hiddenWorkspaceRoots.some(
-      (hiddenRoot) => workspaceRootKey(hiddenRoot) === workspaceRootKey(root),
-    )
-  ) {
-    rawState.hiddenWorkspaceRoots = [...rawState.hiddenWorkspaceRoots, root];
-    saveHiddenWorkspacesToStorage(rawState.hiddenWorkspaceRoots);
-  }
-  const deletedRootKey = workspaceRootKey(root);
-  rawState.workspaces = rawState.workspaces.filter(
-    (w) => w.id !== event.workspaceId && workspaceRootKey(w.root) !== deletedRootKey,
-  );
-  const removingActiveWorkspace =
-    rawState.activeWorkspaceId === event.workspaceId || rawState.activeWorkspaceId === root;
-  if (removingActiveWorkspace) {
-    const nextWorkspace = mergedWorkspaces.value[0]?.id ?? null;
-    rawState.activeWorkspaceId = nextWorkspace;
-    if (nextWorkspace) saveActiveWorkspaceToStorage(nextWorkspace);
-    else {
-      try {
-        localStorage.removeItem(ACTIVE_WORKSPACE_KEY);
-      } catch {
-        // ignore
-      }
-    }
-    rawState.activeSessionId = undefined;
-    rawState.sessionLoading = false;
-    clearFileDiff();
-    writeSessionUrl(undefined, 'replace');
-  }
-}
-
-/** Clear the active session without creating a new one. */
-function clearActiveSession(): void {
-  rawState.activeSessionId = undefined;
-  writeSessionUrl(undefined, 'push');
-}
-
-/** Enter the "new session draft" state for a workspace: select it, clear the
- *  active session, and show the onboarding composer. No backend session is
- *  created until the user sends the first message. */
-function openWorkspaceDraft(workspaceId: string): void {
-  selectWorkspace(workspaceId);
-  clearActiveSession();
-  clearFileDiff();
-}
-
-/**
- * Create a session in a workspace — the one-click path (no cwd typing).
- * Register/touch the workspace first when the daemon supports it; if that
- * fails, fall back to the legacy cwd-only create path.
- */
-async function createSessionInWorkspace(workspaceId: string): Promise<AppSession | undefined> {
-  const ws = mergedWorkspaces.value.find((w) => w.id === workspaceId);
-  if (!ws) return undefined;
-  try {
-    const api = getPythinkerWebApi();
-    let workspaceIdForCreate: string | undefined;
-    let cwdForCreate = ws.root;
-    try {
-      const registered = await api.addWorkspace({ root: ws.root });
-      workspaceIdForCreate = registered.id;
-      cwdForCreate = registered.root;
-      upsertWorkspacePreserveOrder(registered);
-    } catch {
-      // Older daemons may not have /workspaces. In that mode, sending a local
-      // path-like workspace id as workspace_id would fail validation, so use
-      // metadata.cwd only.
-    }
-    const session = await api.createSession({ workspaceId: workspaceIdForCreate, cwd: cwdForCreate });
-    rawState.sessions = [session, ...rawState.sessions.filter((s) => s.id !== session.id)];
-    selectWorkspace(session.workspaceId ?? workspaceIdForCreate ?? workspaceId);
-    // Locally created sessions start empty; trust that so the empty-composer
-    // renders immediately instead of flashing a loading state.
-    sessionsKnownEmpty.add(session.id);
-    await selectSession(session.id);
-    return session;
-  } catch (error) {
-    pushOperationFailure('createSessionInWorkspace', error);
-    return undefined;
-  }
-}
-
-/**
- * Create a session and immediately submit the first prompt.
- * This is the unified path when there is no active session (e.g. after
- * clicking "+" or in an empty workspace).
- */
-async function startSessionAndSendPrompt(
-  workspaceId: string,
-  text: string,
-  attachments?: PromptAttachment[],
-): Promise<void> {
-  const ws = mergedWorkspaces.value.find((w) => w.id === workspaceId);
-  if (!ws) return;
-  try {
-    const api = getPythinkerWebApi();
-    let workspaceIdForCreate: string | undefined;
-    let cwdForCreate = ws.root;
-    try {
-      const registered = await api.addWorkspace({ root: ws.root });
-      workspaceIdForCreate = registered.id;
-      cwdForCreate = registered.root;
-      upsertWorkspacePreserveOrder(registered);
-    } catch {
-      // Older daemons may not have /workspaces.
-    }
-    const draftPick = draftModel.value ?? undefined;
-    const session = await api.createSession({
-      workspaceId: workspaceIdForCreate,
-      cwd: cwdForCreate,
-      model: draftPick,
-    });
-    draftModel.value = null; // applied — the next draft starts from the default
-    // The create echo may return model as '' (same daemon quirk as /profile);
-    // keep the user's pick so the status line doesn't snap back to the default.
-    const created =
-      draftPick !== undefined && (!session.model || session.model.length === 0)
-        ? { ...session, model: draftPick }
-        : session;
-    rawState.sessions = [created, ...rawState.sessions.filter((s) => s.id !== session.id)];
-    selectWorkspace(session.workspaceId ?? workspaceIdForCreate ?? workspaceId);
-    // NOTE: do NOT mark this session known-empty. Unlike "open a new empty
-    // session" (createSession), here we immediately send a prompt: keeping
-    // sessionLoading=true through the snapshot avoids flashing the empty-session
-    // composer before the optimistic user message lands. selectSession resolves,
-    // then submitPromptInternal adds the user turn synchronously (no await in
-    // between), so the view goes loading → message with no empty-composer frame.
-    await selectSession(session.id);
-    await submitPromptInternal(session.id, text, attachments);
-  } catch (error) {
-    pushOperationFailure('startSessionAndSendPrompt', error);
-  }
-}
-
-/**
- * Add a workspace by folder path. Tries the daemon registry; on failure (or in
- * fallback mode) creates a locally-derived workspace from the path and
- * remembers it, then selects it.
- */
-async function addWorkspaceByPath(root: string): Promise<void> {
-  const trimmed = root.trim();
-  if (!trimmed) return;
-  const api = getPythinkerWebApi();
-  try {
-    const ws = await api.addWorkspace({ root: trimmed });
-    upsertWorkspacePreserveOrder(ws);
-    openWorkspaceDraft(ws.id);
-  } catch (error) {
-    console.warn('[pythinker-web] addWorkspaceByPath failed for', trimmed, error);
-    // Fallback: remember a derived workspace locally (id = root = path).
-    const existing = rawState.workspaces.find((w) => w.root === trimmed);
-    if (!existing) {
-      rawState.workspaces = [
-        {
-          id: trimmed,
-          root: trimmed,
-          name: basename(trimmed),
-          isGitRepo: false,
-          sessionCount: 0,
-        },
-        ...rawState.workspaces,
-      ];
-    }
-    openWorkspaceDraft(trimmed);
-  }
-}
-
-/**
- * Browse subdirectories under `path` (defaults to the daemon $HOME). Used by the
- * add-workspace folder browser. Defensive: returns an empty path on error so
- * the dialog can fall back to the paste-path field.
- */
-async function browseFs(path?: string): Promise<import('../api/types').FsBrowseResult> {
-  try {
-    const api = getPythinkerWebApi();
-    return await api.browseFs(path);
-  } catch {
-    return { path: '', parent: null, entries: [] };
-  }
-}
-
-/** Start directory + recently-used roots for the folder browser. */
-async function getFsHome(): Promise<{ home: string; recentRoots: string[] }> {
-  try {
-    const api = getPythinkerWebApi();
-    return await api.getFsHome();
-  } catch {
-    return { home: '', recentRoots: [] };
-  }
-}
-
-// ---------------------------------------------------------------------------
-// URL ↔ session binding (no router): '/' ↔ /sessions/<id>
-// urlMode semantics: 'push' = user navigation (new history entry); 'replace' =
-// programmatic/auto selection (first load, fallback after delete); 'none' =
-// popstate-driven (the URL is already correct — writing it again would loop).
-// ---------------------------------------------------------------------------
-
-function writeSessionUrl(sessionId: string | undefined, mode: SessionUrlMode): void {
-  if (mode === 'none') return;
-  if (typeof window === 'undefined' || !window.history) return;
-  const target = sessionUrl(sessionId);
-  if (window.location.pathname === target) return;
-  try {
-    if (mode === 'push') window.history.pushState(null, '', target);
-    else window.history.replaceState(null, '', target);
-  } catch {
-    // history API unavailable (e.g. sandboxed iframe) — URL sync is best-effort
-  }
-}
-
-/** Fetch a session that is not in the loaded list (deep link beyond the first
-    page) and append it. Returns false when the daemon doesn't know it. */
-async function fetchSessionIntoList(sessionId: string): Promise<boolean> {
-  try {
-    const session = await getPythinkerWebApi().getSession(sessionId);
-    if (!rawState.sessions.some((s) => s.id === session.id)) {
-      // Append, not prepend: the list is recency-ordered and a deep-linked old
-      // session shouldn't displace the most-recent ones at the top.
-      rawState.sessions = [...rawState.sessions, session];
-    }
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function onSessionRoutePopState(): void {
-  const id = readSessionIdFromLocation(window.location);
-  if (id === undefined) {
-    // Back/forward landed on '/' — no active session.
-    rawState.activeSessionId = undefined;
-    return;
-  }
-  if (id === rawState.activeSessionId) return;
-  if (rawState.sessions.some((s) => s.id === id)) {
-    void selectSession(id, { urlMode: 'none' });
-    return;
-  }
-  // A history entry can point at a session that has since been deleted (or one
-  // outside the loaded page): try to fetch it; on failure fall back to the most
-  // recent session and FIX the URL so the bad entry doesn't stick around.
-  void (async () => {
-    if (await fetchSessionIntoList(id)) {
-      await selectSession(id, { urlMode: 'none' });
-      return;
-    }
-    const next = rawState.sessions[0];
-    if (next) {
-      await selectSession(next.id, { urlMode: 'replace' });
-    } else {
-      rawState.activeSessionId = undefined;
-      writeSessionUrl(undefined, 'replace');
-    }
-  })();
-}
-
-let sessionRouteBound = false;
-function bindSessionRoute(): void {
-  if (sessionRouteBound || typeof window === 'undefined') return;
-  sessionRouteBound = true;
-  window.addEventListener('popstate', onSessionRoutePopState);
-}
-
-async function selectSession(
-  sessionId: string,
-  opts?: { urlMode?: SessionUrlMode },
-): Promise<void> {
-  const messagesLoaded = hasLoadedMessages(sessionId);
-  // Only sessions created locally in this client are trusted to be empty.
-  // The daemon-reported messageCount can be stale for old sessions, so relying
-  // on it causes the empty-composer to flash before the real snapshot arrives.
-  // A locally created session has no history to load: show the empty composer
-  // immediately by skipping the `sessionLoading` flag (no flash), while the
-  // snapshot still loads in the background like any other first open.
-  const knownEmpty = !messagesLoaded && sessionsKnownEmpty.has(sessionId);
-  // Single-use: after this select resolves the session is no longer "known empty".
-  sessionsKnownEmpty.delete(sessionId);
-  try {
-    // Write the URL synchronously (before any await) so rapid clicks lay down
-    // history entries in click order.
-    writeSessionUrl(sessionId, opts?.urlMode ?? 'push');
-    rawState.sessionLoading = !messagesLoaded && !knownEmpty;
-    rawState.activeSessionId = sessionId;
-    resetFastSpinner();
-    // Opening a session clears its unread dot.
-    if (rawState.unreadBySession[sessionId]) {
-      rawState.unreadBySession = { ...rawState.unreadBySession, [sessionId]: false };
-      saveUnreadToStorage(rawState.unreadBySession);
-    }
-    // A diff belongs to the session it was loaded from — drop it on switch.
-    clearFileDiff();
-
-    // NOTE: persisted sessions are directly promptable on the current daemon —
-    // selecting one and sending a message just works, no re-activation needed.
-
-    // Keep the active workspace in sync with the selected session.
-    const selected = rawState.sessions.find((s) => s.id === sessionId);
-    if (selected) {
-      const wid = workspaceIdForSession(selected);
-      if (rawState.activeWorkspaceId !== wid) selectWorkspace(wid);
-    }
-
-    if (!messagesLoaded) {
-      // First open: full snapshot → seed → subscribe(asOfSeq).
-      const result = await syncSessionFromSnapshot(sessionId);
-      if (result === 'not-found') return;
-    } else {
-      // Re-open: resume from the tracked cursor; the daemon replays any
-      // missed durable events (or answers resync_required → snapshot).
-      subscribeToSessionEvents(sessionId);
-    }
-
-    // Refresh sidecars AFTER the snapshot settles so status/usage updates
-    // aren't overwritten by syncSessionFromSnapshot.
-    refreshSessionSidecars(sessionId);
-  } catch (error) {
-    pushOperationFailure('selectSession', error, { sessionId });
-  } finally {
-    if (rawState.activeSessionId === sessionId) {
-      rawState.sessionLoading = false;
-    }
-  }
-}
-
-async function createSession(cwd: string, opts?: { title?: string; model?: string }): Promise<void> {
-  try {
-    const api = getPythinkerWebApi();
-    const session = await api.createSession({ cwd, title: opts?.title, model: opts?.model });
-    rawState.sessions = [session, ...rawState.sessions.filter((s) => s.id !== session.id)];
-    // Locally created sessions start empty; trust that so the empty-composer
-    // renders immediately instead of flashing a loading state.
-    sessionsKnownEmpty.add(session.id);
-    await selectSession(session.id);
-  } catch (error) {
-    pushOperationFailure('createSession', error);
-  }
-}
-
-/** Internal: submit a prompt to a specific session, bypassing the queue check.
-    Returns true when the daemon accepted the prompt. */
-async function submitPromptInternal(sid: string, text: string, attachments?: PromptAttachment[]): Promise<boolean> {
-  // Mark this session as having a prompt in flight BEFORE any await, so a racing
-  // sendPrompt sees it and enqueues. Cleared when activity returns to idle.
-  inFlightPromptSessions.add(sid);
-  rawState.sendingBySession = { ...rawState.sendingBySession, [sid]: true };
-  const tempId = nextOptimisticMsgId();
-  try {
-    const api = getPythinkerWebApi();
-    const content: import('../api/types').AppMessageContent[] = [];
-    if (text) content.push({ type: 'text', text });
-    for (const att of attachments ?? []) {
-      if (att.kind === 'video') content.push({ type: 'video', source: { kind: 'file', fileId: att.fileId } });
-      else content.push({ type: 'image', source: { kind: 'file', fileId: att.fileId } });
-    }
-    if (content.length === 0) {
-      inFlightPromptSessions.delete(sid);
-      rawState.sendingBySession = { ...rawState.sendingBySession, [sid]: false };
-      return false;
-    }
-
-    // OPTIMISTICALLY add the user message to local state BEFORE awaiting the
-    // submit.  The real daemon does NOT emit a user-message event over WS, so
-    // without this the user's own text never appears in the transcript.
-    const optimisticMsg: AppMessage = {
-      id: tempId,
-      sessionId: sid,
-      role: 'user',
-      content,
-      createdAt: new Date().toISOString(),
-      metadata: { 'pythinkerWeb.optimisticUserMessage': true },
-    };
-    const existingMessages = rawState.messagesBySession[sid] ?? [];
-    rawState.messagesBySession = {
-      ...rawState.messagesBySession,
-      [sid]: [...existingMessages, optimisticMsg],
-    };
-
-    // The daemon now requires `model` + `thinking` on every prompt. Resolve the
-    // model from the session (falls back to the daemon's default_model) and the
-    // thinking level from the user's setting.
-    const promptSession = rawState.sessions.find((s) => s.id === sid);
-    const model =
-      (promptSession?.model && promptSession.model.length > 0
-        ? promptSession.model
-        : rawState.defaultModel) ?? undefined;
-
-    if (rawState.goalMode && text) {
-      try {
-        await api.updateSession(sid, { goalObjective: text.trim() });
-      } catch (error) {
-        pushOperationFailure('createGoal', error, { sessionId: sid });
-        inFlightPromptSessions.delete(sid);
-        rawState.sendingBySession = { ...rawState.sendingBySession, [sid]: false };
-        const msgs = rawState.messagesBySession[sid] ?? [];
-        if (msgs.some((m) => m.id === tempId)) {
-          rawState.messagesBySession = {
-            ...rawState.messagesBySession,
-            [sid]: msgs.filter((m) => m.id !== tempId),
-          };
-        }
-        return false;
-      }
-    }
-
-    const result = await api.submitPrompt(sid, {
-      content,
-      model,
-      thinking: rawState.thinking,
-      permissionMode: rawState.permission,
-      planMode: rawState.planMode,
-      dynamicWorkflowMode: rawState.dynamicWorkflowMode,
-    });
-
-    if (rawState.goalMode) {
-      rawState.goalMode = false;
-      saveGoalModeToStorage(false);
-    }
-
-    // Authoritative prompt_id for :abort — race-free (the projector binding can
-    // lose to a fast turn.started and synthesize a `pr_…` id the daemon rejects).
-    rawState.promptIdBySession = { ...rawState.promptIdBySession, [sid]: result.promptId };
-
-    // Reconcile without changing the id: ChatPane keys user turns by message id,
-    // so replacing msg_opt_* with userMessageId remounts the bubble and flickers.
-    // If a daemon/stub later echoes the user message, the reducer merges it into
-    // this optimistic entry instead of appending a duplicate.
-    const msgs = rawState.messagesBySession[sid] ?? [];
-    const idx = msgs.findIndex((m) => m.id === tempId);
-    if (idx !== -1) {
-      const updated = [...msgs];
-      updated[idx] = { ...updated[idx]!, promptId: updated[idx]!.promptId ?? result.promptId };
-      rawState.messagesBySession = { ...rawState.messagesBySession, [sid]: updated };
-    }
-
-    // Bind the real daemon prompt_id into the event projector so the upcoming
-    // turn.started uses it (instead of synthesizing a random one). This is what
-    // makes Stop work on the real daemon: session.currentPromptId then matches
-    // the prompt_id the REST :abort endpoint expects.
-    eventConn?.bindNextPromptId(sid, result.promptId);
-
-    // NOTE: we no longer set a local auto-title here. The daemon generates a
-    // smarter title from the first prompt and announces it via
-    // session.meta.updated (projected to sessionMetaUpdated). PATCHing a title
-    // locally would mark the session isCustomTitle=true and SUPPRESS the
-    // daemon's auto-title, so we let the daemon own it.
-    return true;
-  } catch (error) {
-    // Submit failed — clear the in-flight flag so the next prompt isn't stuck
-    // queued forever (turn.ended will never arrive), and roll back the
-    // optimistic user message so the transcript doesn't show a delivered-
-    // looking message the daemon never received.
-    inFlightPromptSessions.delete(sid);
-    rawState.sendingBySession = { ...rawState.sendingBySession, [sid]: false };
-    const msgs = rawState.messagesBySession[sid] ?? [];
-    if (msgs.some((m) => m.id === tempId)) {
-      rawState.messagesBySession = {
-        ...rawState.messagesBySession,
-        [sid]: msgs.filter((m) => m.id !== tempId),
-      };
-    }
-    pushOperationFailure('sendPrompt', error, { sessionId: sid });
-    return false;
-  }
-}
-
-async function sendPrompt(text: string, attachments?: PromptAttachment[]): Promise<void> {
-  const sid = rawState.activeSessionId;
-  if (!sid) return;
-
-  // If the session is not idle OR a prompt is already in flight (submitted but
-  // the WS turn.started hasn't flipped activity to 'running' yet), enqueue
-  // instead of submitting directly. Gating on inFlightPromptSessions closes the
-  // window where two rapid prompts would both submit and race.
-  if (activity.value !== 'idle' || inFlightPromptSessions.has(sid)) {
-    enqueue(text, attachments);
-    return;
-  }
-
-  await submitPromptInternal(sid, text, attachments);
-}
-
-/**
- * steerPrompt() — TUI ctrl+s parity: merge any locally queued prompts with the
- * live composer text and inject the result into the RUNNING turn instead of
- * waiting for it to finish. Two-step against the daemon: submit (parks the
- * prompt behind the active one) then POST /prompts:steer. Falls back to a
- * normal send when the session is idle.
- */
-async function steerPrompt(text: string, attachments?: PromptAttachment[]): Promise<void> {
-  const sid = rawState.activeSessionId;
-  if (!sid) return;
-
-  // Merge queued texts (oldest first) + the live text, like the TUI does.
-  const queue = rawState.queuedBySession[sid] ?? [];
-  const parts: string[] = [];
-  const mergedAttachments: PromptAttachment[] = [];
-  for (const q of queue) {
-    const trimmed = q.text.trim();
-    if (trimmed) parts.push(trimmed);
-    if (q.attachments?.length) mergedAttachments.push(...q.attachments);
-  }
-  const live = text.trim();
-  if (live) parts.push(live);
-  if (attachments?.length) mergedAttachments.push(...attachments);
-  if (parts.length === 0 && mergedAttachments.length === 0) return;
-  if (queue.length > 0) {
-    rawState.queuedBySession = { ...rawState.queuedBySession, [sid]: [] };
-  }
-  const merged = parts.join('\n\n');
-
-  // Idle and nothing in flight — there is no turn to steer into; normal send.
-  if (activity.value === 'idle' && !inFlightPromptSessions.has(sid)) {
-    await submitPromptInternal(sid, merged, mergedAttachments);
-    return;
-  }
-
-  // Optimistic transcript echo (the daemon emits no user-message WS event).
-  const content: import('../api/types').AppMessageContent[] = [];
-  if (merged) content.push({ type: 'text', text: merged });
-  for (const att of mergedAttachments) {
-    if (att.kind === 'video') content.push({ type: 'video', source: { kind: 'file', fileId: att.fileId } });
-    else content.push({ type: 'image', source: { kind: 'file', fileId: att.fileId } });
-  }
-  const tempId = nextOptimisticMsgId();
-  const optimisticMsg: AppMessage = {
-    id: tempId,
-    sessionId: sid,
-    role: 'user',
-    content,
-    createdAt: new Date().toISOString(),
-    metadata: { 'pythinkerWeb.optimisticUserMessage': true },
-  };
-  rawState.messagesBySession = {
-    ...rawState.messagesBySession,
-    [sid]: [...(rawState.messagesBySession[sid] ?? []), optimisticMsg],
-  };
-
-  try {
-    const api = getPythinkerWebApi();
-    const promptSession = rawState.sessions.find((s) => s.id === sid);
-    const model =
-      (promptSession?.model && promptSession.model.length > 0
-        ? promptSession.model
-        : rawState.defaultModel) ?? undefined;
-    const result = await api.submitPrompt(sid, {
-      content,
-      model,
-      thinking: rawState.thinking,
-      permissionMode: rawState.permission,
-      planMode: rawState.planMode,
-      dynamicWorkflowMode: rawState.dynamicWorkflowMode,
-    });
-
-    // Stamp the real prompt_id onto the optimistic echo. Unlike a normal send,
-    // a steered prompt IS echoed back by the daemon as a messageCreated user
-    // event; matching that echo by prompt_id (instead of content) is what keeps
-    // an image steer from rendering two user bubbles.
-    const echoMsgs = rawState.messagesBySession[sid] ?? [];
-    const echoIdx = echoMsgs.findIndex((m) => m.id === tempId);
-    if (echoIdx !== -1) {
-      const updated = [...echoMsgs];
-      updated[echoIdx] = { ...updated[echoIdx]!, promptId: updated[echoIdx]!.promptId ?? result.promptId };
-      rawState.messagesBySession = { ...rawState.messagesBySession, [sid]: updated };
-    }
-
-    if (result.status !== 'queued') {
-      // The turn ended while the user was typing — the prompt started a turn
-      // of its own. Wire it up like a regular send so :abort keeps working.
-      rawState.promptIdBySession = { ...rawState.promptIdBySession, [sid]: result.promptId };
-      eventConn?.bindNextPromptId(sid, result.promptId);
-      return;
-    }
-
-    try {
-      await api.steerPrompts(sid, [result.promptId]);
-    } catch {
-      // The active turn finished between submit and steer — the daemon starts
-      // the parked prompt as its own turn. Nothing to roll back.
-    }
-  } catch (error) {
-    // Submit failed: drop the optimistic echo so the transcript doesn't show
-    // a delivered-looking message the daemon never received.
-    const msgs = rawState.messagesBySession[sid] ?? [];
-    rawState.messagesBySession = {
-      ...rawState.messagesBySession,
-      [sid]: msgs.filter((m) => m.id !== tempId),
-    };
-    pushOperationFailure('steer', error, { sessionId: sid });
-  }
-}
-
-/**
- * Upload an image file to the daemon's /api/v1/files endpoint.
- * Returns { fileId, name, mediaType } on success, or null on error (warning added to state).
- */
-async function uploadImage(file: Blob, name?: string): Promise<{ fileId: string; name: string; mediaType: string } | null> {
-  try {
-    const api = getPythinkerWebApi();
-    const result = await api.uploadFile({ file, name });
-    return { fileId: result.id, name: result.name, mediaType: result.mediaType };
-  } catch (error) {
-    pushOperationFailure('uploadImage', error);
-    return null;
-  }
-}
-
-/** Enqueue a message for the active session; flushed when activity returns to idle */
-function enqueue(text: string, attachments?: PromptAttachment[]): void {
-  const sid = rawState.activeSessionId;
-  if (!sid) return;
-  const current = rawState.queuedBySession[sid] ?? [];
-  rawState.queuedBySession = {
-    ...rawState.queuedBySession,
-    [sid]: [...current, { text, attachments }],
-  };
-}
-
-async function abortCurrentPrompt(): Promise<void> {
-  const sid = rawState.activeSessionId;
-  if (!sid) return;
-  const session = rawState.sessions.find((s) => s.id === sid);
-
-  // 1. Authoritative id captured at submit time.
-  let promptId = rawState.promptIdBySession[sid];
-
-  // 2. Fallback to projector-derived id only when it is a real daemon prompt_id
-  //    (synthetic `pr_...` ids are rejected by the daemon).
-  if (promptId === undefined) {
-    const candidate = session?.currentPromptId;
-    if (candidate?.startsWith('prompt_')) {
-      promptId = candidate;
-    }
-  }
-
-  const api = getPythinkerWebApi();
-
-  // 3. If we have a real id, try the per-prompt abort first. On 40402 fall back
-  //    to session-level abort (the daemon may have restarted or the id is stale).
-  if (promptId !== undefined) {
-    try {
-      await api.abortPrompt(sid, promptId);
-      return;
-    } catch (error) {
-      if (isDaemonApiError(error) && error.code === PROMPT_NOT_FOUND_CODE) {
-        // Stale id — try the session-level fallback below.
-      } else {
-        pushOperationFailure('abortCurrentPrompt', error, { sessionId: sid });
-        return;
-      }
-    }
-  }
-
-  // 4. No real id, or the prompt id is no longer recognized: cancel whatever
-  //    is running in the session (including skill activations).
-  try {
-    await api.abortSession(sid);
-  } catch (error) {
-    pushOperationFailure('abortCurrentPrompt', error, { sessionId: sid });
-  }
-}
-
-async function respondApproval(
-  approvalId: string,
-  response: { decision: ApprovalDecision; scope?: 'session'; feedback?: string },
-): Promise<void> {
-  const sid = rawState.activeSessionId;
-  if (!sid) return;
-  try {
-    const api = getPythinkerWebApi();
-    const fullResponse: ApprovalResponse = {
-      decision: response.decision,
-      scope: response.scope,
-      feedback: response.feedback,
-    };
-    await api.respondApproval(sid, approvalId, fullResponse);
-    // Remove from local approvals immediately (WS event will confirm)
-    const list = rawState.approvalsBySession[sid] ?? [];
-    rawState.approvalsBySession = {
-      ...rawState.approvalsBySession,
-      [sid]: list.filter((a) => a.approvalId !== approvalId),
-    };
-  } catch (error) {
-    pushOperationFailure('respondApproval', error, { sessionId: sid });
-  }
-}
-
-async function respondQuestion(
-  questionId: string,
-  response: QuestionResponse,
-): Promise<void> {
-  const sid = rawState.activeSessionId;
-  if (!sid) return;
-  try {
-    const api = getPythinkerWebApi();
-    await api.respondQuestion(sid, questionId, response);
-    const list = rawState.questionsBySession[sid] ?? [];
-    rawState.questionsBySession = {
-      ...rawState.questionsBySession,
-      [sid]: list.filter((q) => q.questionId !== questionId),
-    };
-  } catch (error) {
-    pushOperationFailure('respondQuestion', error, { sessionId: sid });
-  }
-}
-
-async function dismissQuestion(questionId: string): Promise<void> {
-  const sid = rawState.activeSessionId;
-  if (!sid) return;
-  try {
-    const api = getPythinkerWebApi();
-    await api.dismissQuestion(sid, questionId);
-    const list = rawState.questionsBySession[sid] ?? [];
-    rawState.questionsBySession = {
-      ...rawState.questionsBySession,
-      [sid]: list.filter((q) => q.questionId !== questionId),
-    };
-  } catch (error) {
-    pushOperationFailure('dismissQuestion', error, { sessionId: sid });
-  }
-}
-
-async function cancelTask(taskId: string): Promise<void> {
-  const sid = rawState.activeSessionId;
-  if (!sid) return;
-  try {
-    const api = getPythinkerWebApi();
-    await api.cancelTask(sid, taskId);
-    // Update task status locally
-    const list = rawState.tasksBySession[sid] ?? [];
-    rawState.tasksBySession = {
-      ...rawState.tasksBySession,
-      [sid]: list.map((t) =>
-        t.id === taskId ? { ...t, status: 'cancelled' as const } : t,
-      ),
-    };
-  } catch (error) {
-    pushOperationFailure('cancelTask', error, { sessionId: sid });
-  }
-}
-
-/** Persist and apply a new extended-thinking level (also pushed to the active
- *  session profile so the daemon's /status reflects it; still sent per-prompt). */
-function setThinking(level: ThinkingLevel): void {
-  const next = applyThinkingLevel(level);
-  persistSessionProfile({ thinking: next });
-}
-
-/** Persist and apply plan mode (pushed to the session profile + sent per-prompt). */
-function setPlanMode(on: boolean): void {
-  rawState.planMode = on;
-  savePlanModeToStorage(on);
-  persistSessionProfile({ planMode: on });
-}
-
-/** Flip plan mode on/off. */
-function togglePlanMode(): void {
-  setPlanMode(!rawState.planMode);
-}
-
-/** Persist and apply Dynamic Workflow mode (pushed to the session profile + sent per-prompt). */
-function setDynamicWorkflowMode(on: boolean): void {
-  rawState.dynamicWorkflowMode = on;
-  saveDynamicWorkflowModeToStorage(on);
-  persistSessionProfile({ dynamicWorkflowMode: on });
-}
-
-/** Flip Dynamic Workflow mode on/off. In manual permission mode, ask before enabling. */
-function toggleDynamicWorkflowMode(): void {
-  const on = !rawState.dynamicWorkflowMode;
-  if (on && rawState.permission === 'manual') {
-    const ok = confirm('Enable Dynamic Workflow mode? The agent will run multiple subagents in parallel.');
-    if (!ok) return;
-  }
-  setDynamicWorkflowMode(on);
-}
-
-/** Persist goal mode locally. Unlike plan or workflow, this is a one-shot flag consumed on send. */
-function setGoalMode(on: boolean): void {
-  rawState.goalMode = on;
-  saveGoalModeToStorage(on);
-}
-
-/** Flip goal mode on/off. */
-function toggleGoalMode(): void {
-  setGoalMode(!rawState.goalMode);
-}
-
-/** Create a goal by sending its objective to the session profile, then submit it as a prompt. */
-async function createGoal(objective: string): Promise<void> {
-  const trimmed = objective.trim();
-  if (!trimmed) return;
-  if (rawState.permission === 'manual') {
-    const ok = confirm(`Start goal: "${trimmed}"? The agent will run autonomously toward this objective.`);
-    if (!ok) return;
-  }
-  const sid = rawState.activeSessionId;
-  if (!sid) return;
-  try {
-    await getPythinkerWebApi().updateSession(sid, { goalObjective: trimmed });
-  } catch (error) {
-    pushOperationFailure('createGoal', error, { sessionId: sid, message: goalErrorMessage(error) });
-    return;
-  }
-  await sendPrompt(trimmed);
-}
-
-/** Send a one-shot goal control action (pause/resume/cancel). */
-function controlGoal(action: 'pause' | 'resume' | 'cancel'): void {
-  const sid = rawState.activeSessionId;
-  if (!sid) return;
-  void Promise.resolve(getPythinkerWebApi().updateSession(sid, { goalControl: action }))
-    .catch((error) => {
-      pushOperationFailure('controlGoal', error, { sessionId: sid, message: goalErrorMessage(error) });
-    });
-}
-
-/** Persist and apply a new permission mode; auto-approve pending approvals if switching to auto/yolo */
-function setPermission(mode: PermissionMode): void {
-  rawState.permission = mode;
-  savePermissionToStorage(mode);
-  persistSessionProfile({ permissionMode: mode });
-
-  // If switching to auto/yolo, auto-approve any currently-pending approvals for the active session
-  if (mode === 'auto' || mode === 'yolo') {
-    const sid = rawState.activeSessionId;
-    if (sid) {
-      const approvals = [...(rawState.approvalsBySession[sid] ?? [])];
-      for (const a of approvals) {
-        void respondApproval(a.approvalId, {
-          decision: 'approved',
-          scope: mode === 'yolo' ? 'session' : undefined,
-        });
-      }
-    }
-  }
-}
-
-/** Dismiss a warning by index */
-function dismissWarning(index: number): void {
-  const list = [...rawState.warnings];
-  list.splice(index, 1);
-  rawState.warnings = list;
-}
-
-/** Rename a session — calls API and updates local state */
-async function renameSession(id: string, title: string): Promise<void> {
-  try {
-    const api = getPythinkerWebApi();
-    await api.updateSession(id, { title });
-    rawState.sessions = rawState.sessions.map((s) =>
-      s.id === id ? { ...s, title } : s,
-    );
-  } catch (error) {
-    pushOperationFailure('renameSession', error, { sessionId: id });
-  }
-}
-
-/** Rename a workspace — local-only until the daemon ships a workspace update API. */
-function renameWorkspace(id: string, name: string): void {
-  rawState.workspaces = rawState.workspaces.map((w) =>
-    w.id === id ? { ...w, name } : w,
-  );
-}
-
-/** Delete a workspace — calls API, removes locally */
-async function deleteWorkspace(id: string): Promise<void> {
-  // "Remove workspace" only hides the sidebar entry — it never deletes sessions
-  // or history. The daemon DELETE is registry-only and mergedWorkspaces would
-  // otherwise re-derive the workspace from any session cwd still pointing at it,
-  // so it would pop right back. To make remove actually stick (even when the
-  // workspace has sessions), record its ROOT in the persisted hidden set; the
-  // merge then skips it. Re-adding the same path un-hides it (see addWorkspace).
-  const root =
-    rawState.workspaces.find((w) => w.id === id)?.root ??
-    mergedWorkspaces.value.find((w) => w.id === id)?.root ??
-    id; // derived workspaces use the cwd as their id
-  const activeSession = rawState.activeSessionId
-    ? rawState.sessions.find((s) => s.id === rawState.activeSessionId)
-    : undefined;
-  const removingActiveWorkspace = rawState.activeWorkspaceId === id || rawState.activeWorkspaceId === root;
-  const activeSessionInRemovedWorkspace = Boolean(
-    activeSession &&
-      (activeSession.cwd === root ||
-        activeSession.workspaceId === id ||
-        workspaceIdForSession(activeSession) === id),
-  );
-  if (
-    root &&
-    !rawState.hiddenWorkspaceRoots.some(
-      (hiddenRoot) => workspaceRootKey(hiddenRoot) === workspaceRootKey(root),
-    )
-  ) {
-    rawState.hiddenWorkspaceRoots = [...rawState.hiddenWorkspaceRoots, root];
-    saveHiddenWorkspacesToStorage(rawState.hiddenWorkspaceRoots);
-  }
-  // Best-effort registry cleanup; ignore failures (the hide already took effect).
-  try {
-    await getPythinkerWebApi().deleteWorkspace(id);
-  } catch (error) {
-    // registry delete is optional — the sidebar hide is what the user sees.
-    console.warn('[pythinker-web] deleteWorkspace registry cleanup failed for', id, error);
-  }
-  const removedRootKey = workspaceRootKey(root);
-  rawState.workspaces = rawState.workspaces.filter(
-    (w) => w.id !== id && workspaceRootKey(w.root) !== removedRootKey,
-  );
-  if (removingActiveWorkspace || activeSessionInRemovedWorkspace) {
-    const nextWorkspace = mergedWorkspaces.value[0]?.id ?? null;
-    rawState.activeWorkspaceId = nextWorkspace;
-    if (nextWorkspace) saveActiveWorkspaceToStorage(nextWorkspace);
-    else {
-      try { localStorage.removeItem(ACTIVE_WORKSPACE_KEY); } catch { /* ignore */ }
-    }
-  }
-  if (removingActiveWorkspace || activeSessionInRemovedWorkspace) {
-    rawState.activeSessionId = undefined;
-    rawState.sessionLoading = false;
-    clearFileDiff();
-    writeSessionUrl(undefined, 'replace');
-  }
-}
-
-/** Archive a session — calls API, persists the archive flag, removes locally, picks another active session or none */
-async function archiveSession(id: string): Promise<void> {
-  try {
-    const api = getPythinkerWebApi();
-    await api.archiveSession(id);
-    rawState.sessions = rawState.sessions.filter((s) => s.id !== id);
-    clearSideChatForSession(id);
-    const { [id]: _removedIds, ...restIds } = rawState.sideChatUserMessageIdsBySession;
-    void _removedIds;
-    rawState.sideChatUserMessageIdsBySession = restIds;
-
-    // If archived session was active, pick another. 'replace' so the address
-    // bar doesn't keep pointing at (and back doesn't return to) a dead session.
-    if (rawState.activeSessionId === id) {
-      const next = rawState.sessions[0];
-      if (next) {
-        await selectSession(next.id, { urlMode: 'replace' });
-      } else {
-        rawState.activeSessionId = undefined;
-        writeSessionUrl(undefined, 'replace');
-      }
-    }
-  } catch (error) {
-    pushOperationFailure('archiveSession', error, { sessionId: id });
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Model + Provider actions
-// ---------------------------------------------------------------------------
-
-/** Load models (cached — call again to force refresh) */
-async function loadModels(): Promise<void> {
-  try {
-    const api = getPythinkerWebApi();
-    models.value = await api.listModels();
-    applyThinkingLevel(rawState.thinking);
-  } catch (error) {
-    pushOperationFailure('loadModels', error);
-  }
-}
-
-async function refreshOAuthProviderModels(): Promise<void> {
-  try {
-    const result = await getPythinkerWebApi().refreshOAuthProviderModels();
-    for (const failure of result.failed) {
-      pushOperationFailure('refreshOAuthProviderModels', new Error(failure.reason), {
-        message: failure.provider,
-      });
-    }
-  } catch {
-    // Older daemons may not expose this endpoint; model listing still works.
-  }
-}
-
-/** Load providers */
-async function loadProviders(): Promise<void> {
-  try {
-    const api = getPythinkerWebApi();
-    providers.value = await api.listProviders();
-  } catch (error) {
-    pushOperationFailure('loadProviders', error);
-  }
-}
-
-/**
- * Switch model for the active session via POST /sessions/{id}/profile (the
- * daemon dispatches agent_config.model to core.rpc.setModel). The profile echo
- * can return model '', so the authoritative current model comes from
- * GET /sessions/{id}/status, which we re-read right after. Optimistically show
- * the chosen id meanwhile. Never crashes.
- */
-async function setModel(modelId: string): Promise<void> {
-  const sid = rawState.activeSessionId;
-  const nextThinking = coerceThinkingForModel(modelById(modelId), rawState.thinking);
-  const prevThinking = rawState.thinking;
-  if (!sid) {
-    // New-session draft (onboarding composer): no backend session to update.
-    // Remember the pick — startSessionAndSendPrompt applies it at create time.
-    draftModel.value = modelId;
-    applyThinkingLevel(nextThinking);
-    return;
-  }
-  // Optimistic: show the chosen model immediately, but remember the previous
-  // one so we can roll back if the switch never reaches the daemon.
-  const prevModel = rawState.sessions.find((s) => s.id === sid)?.model;
-  rawState.sessions = rawState.sessions.map((s) => (s.id === sid ? { ...s, model: modelId } : s));
-  if (nextThinking !== prevThinking) {
-    rawState.thinking = nextThinking;
-    saveThinkingToStorage(nextThinking);
-  }
-  try {
-    await getPythinkerWebApi().updateSession(sid, {
-      model: modelId,
-      thinking: nextThinking !== prevThinking ? nextThinking : undefined,
-    });
-  } catch (error) {
-    // The model change rides HTTP, not the WS, so a dropped socket alone does
-    // not fail it — but when the daemon is unreachable the request throws here.
-    // Roll the picker back to the real model so the UI can't keep showing the
-    // new one as if the switch succeeded, then surface the failure.
-    rawState.sessions = rawState.sessions.map((s) =>
-      s.id === sid ? { ...s, model: prevModel ?? s.model } : s,
-    );
-    if (nextThinking !== prevThinking) {
-      rawState.thinking = prevThinking;
-      saveThinkingToStorage(prevThinking);
-    }
-    pushOperationFailure('setModel', error, { sessionId: sid });
-    return;
-  }
-  // refreshSessionStatus folds the authoritative current model from /status
-  // back into the session (the profile echo can return ''). Best-effort: a
-  // failure here does not mean the switch failed, so it must not roll back.
-  await refreshSessionStatus(sid);
-}
-
-/** Toggle whether a model is starred (favorited) in the model picker. */
-function toggleStarModel(modelId: string): void {
-  const set = new Set(starredModelIds.value);
-  if (set.has(modelId)) {
-    set.delete(modelId);
-  } else {
-    set.add(modelId);
-  }
-  starredModelIds.value = Array.from(set);
-  saveStarredModelsToStorage(starredModelIds.value);
-}
-
-/**
- * Activate a session skill (the web analogue of typing `/<skill> <args>` in the
- * TUI). The daemon starts a turn with a `skill_activation` origin; progress
- * arrives over the WS stream like any other turn. Never crashes the caller.
- */
-async function activateSkill(skillName: string, args?: string): Promise<void> {
-  const sid = rawState.activeSessionId;
-  if (!sid) return;
-  const guarded = activity.value === 'idle' && !inFlightPromptSessions.has(sid);
-  const tempId = `msg_skill_opt_${Date.now().toString(36)}`;
-
-  if (guarded) {
-    inFlightPromptSessions.add(sid);
-    rawState.sendingBySession = { ...rawState.sendingBySession, [sid]: true };
-    const optimisticMsg: AppMessage = {
-      id: tempId,
-      sessionId: sid,
-      role: 'user',
-      content: [{ type: 'text', text: `/${skillName}${args ? ` ${args}` : ''}` }],
-      createdAt: new Date().toISOString(),
-      metadata: {
-        'pythinkerWeb.optimisticUserMessage': true,
-        origin: {
-          kind: 'skill_activation',
-          trigger: 'user-slash',
-          skillName,
-          skillArgs: args,
-        },
+  // Only real completions notify; aborted turns and turns that ended up
+  // blocked on approval/question do not fire the generic "Turn finished" alert.
+  const hasPendingApproval = (rawState.approvalsBySession[sid] ?? []).length > 0;
+  const hasPendingQuestion = (rawState.questionsBySession[sid] ?? []).length > 0;
+  if (shouldNotifyCompletion(status, hasPendingApproval, hasPendingQuestion)) {
+    notification.maybeNotifyCompletion(sid, {
+      isUserWatching: isUserWatching(sid),
+      sessionTitle: rawState.sessions.find((s) => s.id === sid)?.title ?? '',
+      promptId: finishedPromptId,
+      onClick: () => {
+        void workspaceState.selectSession(sid);
       },
-    };
-    rawState.messagesBySession = {
-      ...rawState.messagesBySession,
-      [sid]: [...(rawState.messagesBySession[sid] ?? []), optimisticMsg],
-    };
-  }
-
-  try {
-    await getPythinkerWebApi().activateSkill(sid, skillName, args);
-  } catch (error) {
-    if (guarded) {
-      inFlightPromptSessions.delete(sid);
-      rawState.sendingBySession = { ...rawState.sendingBySession, [sid]: false };
-      const msgs = rawState.messagesBySession[sid] ?? [];
-      rawState.messagesBySession = {
-        ...rawState.messagesBySession,
-        [sid]: msgs.filter((m) => m.id !== tempId),
-      };
-    }
-    pushOperationFailure('activateSkill', error, { sessionId: sid });
-  }
-}
-
-/** Add a provider, then reload providers + models */
-async function addProvider(input: {
-  type: string;
-  apiKey?: string;
-  baseUrl?: string;
-  defaultModel?: string;
-}): Promise<void> {
-  try {
-    const api = getPythinkerWebApi();
-    await api.addProvider(input);
-    await Promise.all([loadProviders(), loadModels()]);
-  } catch (error) {
-    pushOperationFailure('addProvider', error);
-  }
-}
-
-/** Delete a provider, then reload providers + models */
-async function deleteProvider(id: string): Promise<void> {
-  try {
-    const api = getPythinkerWebApi();
-    await api.deleteProvider(id);
-    await Promise.all([loadProviders(), loadModels()]);
-  } catch (error) {
-    pushOperationFailure('deleteProvider', error);
-  }
-}
-
-/** Refresh a provider status */
-async function refreshProvider(id: string): Promise<void> {
-  try {
-    const api = getPythinkerWebApi();
-    const updated = await api.refreshProvider(id);
-    providers.value = providers.value.map((p) => (p.id === id ? updated : p));
-  } catch (error) {
-    pushOperationFailure('refreshProvider', error);
-  }
-}
-
-
-/**
- * compact() — request history compaction via POST /sessions/{id}:compact.
- * Progress arrives asynchronously through the WS compaction.* events (running
- * notice → divider marker), so we just fire the request. An optional
- * instruction (from `/compact <text>`) steers what the summary focuses on.
- */
-function compact(instruction?: string): void {
-  const sid = rawState.activeSessionId;
-  if (!sid) return;
-  void getPythinkerWebApi()
-    .compactSession(sid, instruction)
-    .catch((error) => {
-      pushOperationFailure('compact', error, { sessionId: sid });
     });
-}
+  }
 
-/**
- * forkSession() — fork the active session into a new child session via
- * POST /sessions/{id}:fork, then add it to the list and select it.
- */
-async function forkSession(sessionId?: string): Promise<void> {
-  const sid = sessionId ?? rawState.activeSessionId;
-  if (!sid) return;
-  try {
-    const forked = await getPythinkerWebApi().forkSession(sid);
-    rawState.sessions = [forked, ...rawState.sessions.filter((s) => s.id !== forked.id)];
-    await selectSession(forked.id);
-  } catch (error) {
-    pushOperationFailure('fork', error, { sessionId: sid });
+  // Completion sound — only for real completions (aborted/cancelled turns stay
+  // silent). Plays regardless of visibility so it also reaches a backgrounded tab.
+  if (status === 'idle') {
+    sound.maybePlayCompletionSound();
   }
 }
 
-/**
- * Undo the last `count` turns of the active session (daemon :undo), then re-sync
- * the snapshot so the local transcript matches the daemon's post-undo history.
- * Returns the text of the most-recent user message that was undone, so the UI
- * can offer "edit + resend" (load it back into the composer).
- */
-async function undo(count = 1): Promise<UndonePrompt | null> {
-  const sid = rawState.activeSessionId;
-  if (!sid) return null;
-  // Capture the last user prompt BEFORE the undo removes it. The attachments
-  // come along so a retry resends the same images and clips: undo only trims
-  // the history, so the uploaded fileIds stay valid.
-  const lastUserPrompt = ((): UndonePrompt | null => {
-    const msgs = rawState.messagesBySession[sid] ?? [];
-    for (let i = msgs.length - 1; i >= 0; i--) {
-      const m = msgs[i]!;
-      if (m.role !== 'user') continue;
-      if (m.metadata?.['origin'] && (m.metadata['origin'] as { kind?: string }).kind !== 'user') continue;
-      const text = m.content
-        .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
-        .map((c) => c.text)
-        .join('\n');
-      const attachments = m.content.flatMap<PromptAttachment>((c) =>
-        (c.type === 'image' || c.type === 'video') && c.source.kind === 'file'
-          ? [{ fileId: c.source.fileId, kind: c.type }]
-          : [],
-      );
-      return { text, attachments };
-    }
-    return null;
-  })();
-  try {
-    await getPythinkerWebApi().undoSession(sid, count);
-    await syncSessionFromSnapshot(sid);
-    return lastUserPrompt;
-  } catch (error) {
-    pushOperationFailure('undo', error, { sessionId: sid });
-    return null;
-  }
+function onQuestionRequested(sid: string, question: AppQuestionRequest): void {
+  const first = question.questions[0];
+  // Lead with the actionable question text; keep the short header as context
+  // when both are present so the desktop notification actually says what is
+  // being asked (e.g. "Storage: Which database?").
+  const header = first?.header?.trim() ?? '';
+  const questionText = first?.question?.trim() ?? '';
+  const preview =
+    header && questionText ? `${header}: ${questionText}` : questionText || header;
+
+  // Browser notification when the user isn't watching this session.
+  notification.maybeNotifyQuestion({
+    isUserWatching: isUserWatching(sid),
+    sessionTitle: rawState.sessions.find((s) => s.id === sid)?.title ?? '',
+    questionPreview: preview,
+    questionId: question.questionId,
+    onClick: () => {
+      void workspaceState.selectSession(sid);
+    },
+  });
+
+  // Attention sound — plays regardless of visibility so it also reaches a
+  // backgrounded tab (same as the completion sound).
+  sound.maybePlayQuestionSound();
 }
 
-/**
- * Remove a queued message for the active session by index.
- * Defensive: no-op if index out of range or no active session.
- */
-function unqueue(index: number): void {
-  const sid = rawState.activeSessionId;
-  if (!sid) return;
-  const current = rawState.queuedBySession[sid] ?? [];
-  if (index < 0 || index >= current.length) return;
-  const next = [...current];
-  next.splice(index, 1);
-  rawState.queuedBySession = { ...rawState.queuedBySession, [sid]: next };
-}
+function onApprovalRequested(sid: string, approval: AppApprovalRequest): void {
+  // Browser notification when the user isn't watching this session.
+  notification.maybeNotifyApproval({
+    isUserWatching: isUserWatching(sid),
+    sessionTitle: rawState.sessions.find((s) => s.id === sid)?.title ?? '',
+    toolName: approval.toolName,
+    approvalId: approval.approvalId,
+    onClick: () => {
+      void workspaceState.selectSession(sid);
+    },
+  });
 
-/**
- * List directory contents for the active session.
- * Returns FsEntry[] — defensive, returns [] on error or no active session.
- */
-async function listDir(path: string): Promise<FsEntry[]> {
-  const sid = rawState.activeSessionId;
-  if (!sid) return [];
-  try {
-    const api = getPythinkerWebApi();
-    const result = await api.listDirectory(sid, { path, includeGitStatus: true });
-    return result.items;
-  } catch {
-    return [];
-  }
-}
-
-/**
- * Read file content for the active session.
- * Returns the file metadata + content (including path), or null on error or no active session.
- */
-async function readFileContent(path: string): Promise<{
-  path: string;
-  content: string;
-  encoding: 'utf-8' | 'base64';
-  mime: string;
-  languageId?: string;
-  isBinary: boolean;
-  size: number;
-  lineCount?: number;
-} | null> {
-  const sid = rawState.activeSessionId;
-  if (!sid) return null;
-  try {
-    const api = getPythinkerWebApi();
-    const result = await api.readFile(sid, { path });
-    return {
-      path: result.path,
-      content: result.content,
-      encoding: result.encoding,
-      mime: result.mime,
-      languageId: result.languageId,
-      isBinary: result.isBinary,
-      size: result.size,
-      lineCount: result.lineCount,
-    };
-  } catch (error) {
-    console.warn('[pythinker-web] readFileContent failed for', path, error);
-    return null;
-  }
-}
-
-// Matches the daemon's FS_READ_MAX_BYTES. Without an explicit length the
-// protocol defaults to 1MiB and silently truncates — half a PNG decodes as a
-// broken image, which is worse than falling back to the original src.
-const IMAGE_READ_MAX_BYTES = 10_485_760;
-
-function getFileDownloadUrl(path: string): string | null {
-  const sid = rawState.activeSessionId;
-  if (!sid) return null;
-  return getPythinkerWebApi().getFileDownloadUrl(sid, path);
-}
-
-async function openWorkspaceFile(path: string, line?: number): Promise<boolean> {
-  const sid = rawState.activeSessionId;
-  if (!sid) return false;
-  try {
-    await getPythinkerWebApi().openFile(sid, { path, line });
-    return true;
-  } catch (error) {
-    pushOperationFailure('openFile', error, { sessionId: sid });
-    return false;
-  }
-}
-
-/** Open the current workspace in an external application (Finder, Cursor, etc.). */
-async function openInApp(appId: string): Promise<void> {
-  const sid = rawState.activeSessionId;
-  if (!sid) return;
-  const path = status.value.cwd || '.';
-  try {
-    await getPythinkerWebApi().openInApp(sid, appId, path);
-  } catch (error) {
-    pushOperationFailure('openInApp', error, { sessionId: sid });
-  }
-}
-
-async function revealWorkspaceFile(path: string): Promise<boolean> {
-  const sid = rawState.activeSessionId;
-  if (!sid) return false;
-  try {
-    await getPythinkerWebApi().revealFile(sid, { path });
-    return true;
-  } catch (error) {
-    pushOperationFailure('revealFile', error, { sessionId: sid });
-    return false;
-  }
-}
-
-/**
- * Resolve a local image path to a displayable data URL.
- * Non-local URLs (http/https/data) pass through unchanged.
- * Local paths are read via the daemon's readFile endpoint and returned as
- * data:{mime};base64,{content} URLs so they render in the browser. Absolute
- * paths are made cwd-relative first (the daemon rejects absolute paths), and
- * truncated/non-binary reads fall back to the original src.
- */
-async function resolveImageUrl(src: string): Promise<string> {
-  // Pass through already-addressable URLs
-  if (/^(https?:|data:|blob:)/i.test(src)) return src;
-  const sid = rawState.activeSessionId;
-  if (!sid) return src;
-
-  // The daemon's path resolution only accepts session-relative paths, but the
-  // model usually references images by absolute path. Strip the session cwd.
-  let path = src;
-  if (path.startsWith('/')) {
-    const cwd = rawState.sessions.find((s) => s.id === sid)?.cwd;
-    if (cwd && (path === cwd || path.startsWith(cwd.endsWith('/') ? cwd : `${cwd}/`))) {
-      path = path.slice(cwd.length).replace(/^\//, '');
-      if (!path) return src;
-    } else {
-      return src; // absolute path outside the workspace — unreadable
-    }
-  }
-
-  try {
-    const api = getPythinkerWebApi();
-    const result = await api.readFile(sid, { path, length: IMAGE_READ_MAX_BYTES });
-    if (!result.isBinary || result.encoding !== 'base64' || result.truncated) return src;
-    return `data:${result.mime};base64,${result.content}`;
-  } catch {
-    return src;
-  }
-}
-
-/**
- * Search files in the active session using the daemon searchFiles endpoint.
- * Returns {path, name}[] — defensive, returns [] on error or no active session.
- */
-async function searchFiles(query: string): Promise<Array<{ path: string; name: string }>> {
-  const sid = rawState.activeSessionId;
-  if (!sid) return [];
-  try {
-    const api = getPythinkerWebApi();
-    const result = await api.searchFiles(sid, { query, limit: 20 });
-    return result.items.map((item) => ({ path: item.path, name: item.name }));
-  } catch {
-    return [];
-  }
+  // Attention sound — plays regardless of visibility so it also reaches a
+  // backgrounded tab (same as the completion sound).
+  sound.maybePlayApprovalSound();
 }
 
 // ---------------------------------------------------------------------------
@@ -4457,10 +2755,10 @@ export function usePythinkerWebClient() {
     workspace,
     sessions,
     activeSessionId,
-    activeSessionCapabilities,
 
     // Workspace view props
     workspacesView,
+    workspaceSortMode,
     visibleWorkspace,
     activeWorkspaceId,
     sessionsForView,
@@ -4473,9 +2771,13 @@ export function usePythinkerWebClient() {
 
     turns,
     tasks,
+    /** Live `AppTask[]` for the active session — the subagent detail panel
+     *  sources a subagent's streaming `outputLines` from here. */
+    activeAppTasks,
     todos,
     goal,
-    dynamicWorkflows,
+    dynamic workflows,
+    dynamic_workflowMembersByToolCallId,
     activationBadges,
     compaction,
     status,
@@ -4489,14 +2791,21 @@ export function usePythinkerWebClient() {
     activePullRequest,
     changesByPath,
     pendingApprovals,
-    recentCwds,
     availableOpenInApps,
 
     // New Phase 1 computed
     connection,
     loading,
     sessionLoading,
+    loadingMoreMessages,
+    hasMoreMessages,
+    loadMoreMessagesError,
+    serverVersion,
+    backend,
+    dangerousBypassAuth,
+    clearDangerousBypassAuth,
     initialized,
+    connectIssue,
     permission,
     thinking,
     planMode,
@@ -4506,152 +2815,152 @@ export function usePythinkerWebClient() {
     warnings,
     questions,
     activity,
-    isSending,
-    fastSpinner,
+    turnActive,
+    inFlight,
+    working,
+    isStartingFirstPrompt,
+    fastMoon: appearance.fastMoon,
 
     // Model + Provider reactive state
-    models,
-    starredModelIds,
-    providers,
+    models: modelProvider.models,
+    starredModelIds: modelProvider.starredModelIds,
+    providers: modelProvider.providers,
 
-    // Theme
-    theme,
-    setTheme,
-    toggleTheme,
-    uiFontSize,
-    setUiFontSize,
+    uiFontSize: appearance.uiFontSize,
+    setUiFontSize: appearance.setUiFontSize,
 
-    // Beta features
-    betaToc,
-    setBetaToc,
+    // Conversation outline (TOC)
+    conversationToc,
+    setConversationToc,
 
     // Color scheme
-    colorScheme,
-    setColorScheme,
+    colorScheme: appearance.colorScheme,
+    setColorScheme: appearance.setColorScheme,
 
-    accent,
-    setAccent,
-    notifyOnComplete,
-    notifyPermission,
-    setNotifyOnComplete,
+    accent: appearance.accent,
+    setAccent: appearance.setAccent,
+    notifyOnComplete: notification.notifyOnComplete,
+    notifyOnQuestion: notification.notifyOnQuestion,
+    notifyOnApproval: notification.notifyOnApproval,
+    notifyPermission: notification.notifyPermission,
+    setNotifyOnComplete: notification.setNotifyOnComplete,
+    setNotifyOnQuestion: notification.setNotifyOnQuestion,
+    setNotifyOnApproval: notification.setNotifyOnApproval,
+    soundOnComplete: sound.soundOnComplete,
+    setSoundOnComplete: sound.setSoundOnComplete,
     onboarded,
     setOnboarded,
 
     // Actions
-    load,
-    selectSession,
-    createSession,
+    load: workspaceState.load,
+    selectSession: workspaceState.selectSession,
+    clearActiveSession: workspaceState.clearActiveSession,
+    loadOlderMessages: workspaceState.loadOlderMessages,
 
     // Workspace actions
-    loadWorkspaces,
-    selectWorkspace,
-    openWorkspace,
-    openWorkspaceDraft,
-    createSessionInWorkspace,
-    startSessionAndSendPrompt,
-    addWorkspaceByPath,
-    browseFs,
-    getFsHome,
+    loadWorkspaces: workspaceState.loadWorkspaces,
+    loadMoreSessions: workspaceState.loadMoreSessions,
+    loadAllSessions: workspaceState.loadAllSessions,
+    selectWorkspace: workspaceState.selectWorkspace,
+    openWorkspace: workspaceState.openWorkspace,
+    openWorkspaceDraft: workspaceState.openWorkspaceDraft,
+    startSessionAndSendPrompt: workspaceState.startSessionAndSendPrompt,
+    startSessionAndActivateSkill: workspaceState.startSessionAndActivateSkill,
+    startSessionAndOpenSideChat: workspaceState.startSessionAndOpenSideChat,
+    addWorkspaceByPath: workspaceState.addWorkspaceByPath,
+    browseFs: workspaceState.browseFs,
+    getFsHome: workspaceState.getFsHome,
 
-    sendPrompt,
-    steerPrompt,
+    sendPrompt: workspaceState.sendPrompt,
+    steerPrompt: workspaceState.steerPrompt,
     // Side chat (BTW side-channel agent)
-    sideChatVisible,
-    sideChatSessionId,
-    sideChatTurns,
-    sideChatRunning,
-    sideChatSending,
-    openSideChat,
-    closeSideChat,
-    sendSideChatPrompt,
-    uploadImage,
-    abortCurrentPrompt,
-    respondApproval,
-    respondQuestion,
-    dismissQuestion,
-    cancelTask,
+    sideChatVisible: sideChat.sideChatVisible,
+    sideChatSessionId: sideChat.sideChatSessionId,
+    sideChatTurns: sideChat.sideChatTurns,
+    sideChatRunning: sideChat.sideChatRunning,
+    sideChatSending: sideChat.sideChatSending,
+    openSideChat: sideChat.openSideChat,
+    closeSideChat: sideChat.closeSideChat,
+    sendSideChatPrompt: sideChat.sendSideChatPrompt,
+    uploadImage: workspaceState.uploadImage,
+    abortCurrentPrompt: workspaceState.abortCurrentPrompt,
+    respondApproval: workspaceState.respondApproval,
+    respondQuestion: workspaceState.respondQuestion,
+    dismissQuestion: workspaceState.dismissQuestion,
+    pendingQuestionActions: workspaceState.pendingQuestionActions,
+    pendingApprovalActions: workspaceState.pendingApprovalActions,
+    cancelTask: workspaceState.cancelTask,
 
     // New Phase 1 actions
-    setPermission,
-    setThinking,
-    setPlanMode,
-    togglePlanMode,
-    setDynamicWorkflowMode,
-    toggleDynamicWorkflowMode,
-    setGoalMode,
-    toggleGoalMode,
-    createGoal,
-    controlGoal,
-    enqueue,
-    dismissWarning,
-    renameSession,
-    renameWorkspace,
-    deleteWorkspace,
-    archiveSession,
-    compact,
-    forkSession,
-    undo,
+    setPermission: workspaceState.setPermission,
+    setThinking: modelProvider.setThinking,
+    setPlanMode: workspaceState.setPlanMode,
+    togglePlanMode: workspaceState.togglePlanMode,
+    setDynamicWorkflowMode: workspaceState.setDynamicWorkflowMode,
+    toggleDynamicWorkflowMode: workspaceState.toggleDynamicWorkflowMode,
+    setGoalMode: workspaceState.setGoalMode,
+    toggleGoalMode: workspaceState.toggleGoalMode,
+    createGoal: workspaceState.createGoal,
+    controlGoal: workspaceState.controlGoal,
+    enqueue: workspaceState.enqueue,
+    dismissWarning: workspaceState.dismissWarning,
+    renameSession: workspaceState.renameSession,
+    renameWorkspace: workspaceState.renameWorkspace,
+    deleteWorkspace: workspaceState.deleteWorkspace,
+    reorderWorkspaces,
+    setWorkspaceSortMode,
+    archiveSession: workspaceState.archiveSession,
+    exportSession: workspaceState.exportSession,
+    restoreSession: workspaceState.restoreSession,
+    loadArchivedSessions: workspaceState.loadArchivedSessions,
+    compact: workspaceState.compact,
+    forkSession: workspaceState.forkSession,
+    undo: workspaceState.undo,
 
     // New Phase 4 actions
-    unqueue,
-    searchFiles,
-    loadGitStatus,
-    loadFileDiff,
-    clearFileDiff,
+    unqueue: workspaceState.unqueue,
+    reorderQueue: workspaceState.reorderQueue,
+    searchFiles: workspaceState.searchFiles,
+    loadGitStatus: workspaceState.loadGitStatus,
+    loadFileDiff: workspaceState.loadFileDiff,
+    clearFileDiff: workspaceState.clearFileDiff,
 
     // File system actions
-    listDir,
-    readFileContent,
-    getFileDownloadUrl,
-    openWorkspaceFile,
-    openInApp,
-    revealWorkspaceFile,
-    resolveImageUrl,
+    listDir: workspaceState.listDir,
+    readFileContent: workspaceState.readFileContent,
+    getFileDownloadUrl: workspaceState.getFileDownloadUrl,
+    openWorkspaceFile: workspaceState.openWorkspaceFile,
+    openInApp: workspaceState.openInApp,
+    revealWorkspaceFile: workspaceState.revealWorkspaceFile,
+    resolveImageUrl: workspaceState.resolveImageUrl,
 
     // Model + Provider actions
-    refreshOAuthProviderModels,
-    loadModels,
-    loadProviders,
+    loadModels: modelProvider.loadModels,
+    loadProviders: modelProvider.loadProviders,
     skills,
-    skillsLoadingBySession,
-    toolsBySession,
-    toolsLoadingBySession,
-    loadCapabilityData,
-    updateCapabilities,
-    activateSkill,
-    connectors,
-    connectorsLoading,
-    connectorsError,
-    plugins,
-    pluginsLoading,
-    loadPlugins,
-    setPluginEnabled,
-    subagents,
-    loadSubagents,
-    /** Raw sessions with their usage totals — the settings usage page reads these. */
-    sessionsWithUsage: computed<AppSession[]>(() => rawState.sessions),
-    loadConnectors,
-    createConnector,
-    updateConnector,
-    removeConnector,
-    restartConnector,
-    setModel,
-    toggleStarModel,
-    addProvider,
-    deleteProvider,
-    refreshProvider,
+    activateSkill: modelProvider.activateSkill,
+    setModel: modelProvider.setModel,
+    toggleStarModel: modelProvider.toggleStarModel,
+    addProvider: modelProvider.addProvider,
+    deleteProvider: modelProvider.deleteProvider,
+    refreshProvider: modelProvider.refreshProvider,
+    refreshAllProviders: modelProvider.refreshAllProviders,
 
     // Auth state
     authReady,
     defaultModel,
+    managedProviderStatus,
 
     // Config state + actions
     config,
-    loadConfig,
-    updateConfig,
+    updateConfig: workspaceState.updateConfig,
 
     // Auth actions
-    checkAuth,
+    checkAuth: workspaceState.checkAuth,
+    startOAuthLogin: modelProvider.startOAuthLogin,
+    pollOAuthLogin: modelProvider.pollOAuthLogin,
+    cancelOAuthLogin: modelProvider.cancelOAuthLogin,
+    logout: workspaceState.logout,
   };
 }
 

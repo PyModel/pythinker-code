@@ -12,12 +12,42 @@ import type { FlagDefinitionInput } from './types';
  * not equal the master switch 'PYTHINKER_CODE_EXPERIMENTAL_FLAG'; `id` must not be 'flag'.
  */
 export const FLAG_DEFINITIONS = [
+  // Micro compaction has been disabled and removed: the capability cannot be
+  // enabled via env, config, or the master experimental switch. The entry is
+  // kept here commented out so it can be restored if the feature is revived.
+  // {
+  //   id: 'micro_compaction',
+  //   title: 'Micro compaction',
+  //   description: 'Trim older large tool results from context while keeping recent conversation intact.',
+  //   env: 'PYTHINKER_CODE_EXPERIMENTAL_MICRO_COMPACTION',
+  //   default: false,
+  //   surface: 'core',
+  // },
   {
-    id: 'micro_compaction',
-    title: 'Micro compaction',
-    description: 'Trim older large tool results from context while keeping recent conversation intact.',
-    env: 'PYTHINKER_CODE_EXPERIMENTAL_MICRO_COMPACTION',
-    default: true,
+    id: 'tool-select',
+    title: 'Tool select (progressive tool disclosure)',
+    description:
+      'Keep MCP tool schemas out of the immutable top-level tools[]; the model loads them on demand via the select_tools tool. Only takes effect on models whose capability catalog declares dynamically loaded tools.',
+    env: 'PYTHINKER_CODE_EXPERIMENTAL_TOOL_SELECT',
+    default: false,
+    surface: 'core',
+  },
+  {
+    id: 'secondary-model',
+    title: 'Secondary model for subagents',
+    description:
+      'Let newly spawned subagents use a separately configured secondary model by default, with an explicit primary-model override for quality-sensitive tasks.',
+    env: 'PYTHINKER_CODE_EXPERIMENTAL_SECONDARY_MODEL',
+    default: false,
+    surface: 'core',
+  },
+  {
+    id: 'acp-v2',
+    title: 'ACP server v2 (agent-core-v2 engine)',
+    description:
+      'Expose the `pythinker acp-v2` sub-command that runs the Agent Client Protocol server over the experimental agent-core-v2 engine.',
+    env: 'PYTHINKER_CODE_EXPERIMENTAL_ACP_V2',
+    default: false,
     surface: 'core',
   },
   {

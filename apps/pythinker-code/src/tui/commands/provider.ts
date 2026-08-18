@@ -2,15 +2,20 @@ import {
   applyCustomRegistryEntries,
   fetchCustomRegistry,
   type CustomRegistrySource,
-  type PlatformConfigShape,
+  type ManagedPythinkerConfigShape,
 } from '@pymodel/pythinker-code-oauth';
 import {
+  applyCatalogProvider,
+  catalogProviderModels,
   CatalogFetchError,
   DEFAULT_CATALOG_URL,
-  fetchCatalog,
+  resolveCatalogImport,
   type Catalog,
+  type ThinkingEffort,
 } from '@pymodel/pythinker-code-sdk';
 
+import { createPythinkerCodeUserAgent } from '#/cli/version';
+import { fetchCatalogOrBuiltIn } from '#/utils/catalog-fetch';
 import { ChoicePickerComponent } from '../components/dialogs/choice-picker';
 import {
   CustomRegistryImportDialogComponent,
@@ -21,9 +26,15 @@ import {
   type ProviderManagerOptions,
 } from '../components/dialogs/provider-manager';
 import { TabbedModelSelectorComponent } from '../components/dialogs/tabbed-model-selector';
+import { DEFAULT_OAUTH_PROVIDER_NAME } from '../constant/pythinker-tui';
 import { formatErrorMessage } from '../utils/event-payload';
-import { connectCatalogProvider } from './auth';
-import { promptCatalogProviderSelection } from './prompts';
+import { thinkingEffortToConfig } from '../utils/thinking-config';
+import { effectiveModelForHost } from './config';
+import {
+  promptApiKey,
+  promptBaseUrl,
+  promptCatalogProviderSelection,
+} from './prompts';
 import type { SlashCommandHost } from './dispatch';
 
 // ---------------------------------------------------------------------------
@@ -74,6 +85,13 @@ async function handleProviderManagerDeleteSource(
 }
 
 async function handleProviderDelete(host: SlashCommandHost, providerId: string): Promise<void> {
+  if (providerId === DEFAULT_OAUTH_PROVIDER_NAME) {
+    await host.harness.auth.logout(DEFAULT_OAUTH_PROVIDER_NAME);
+    await host.authFlow.refreshConfigAfterLogout();
+    await host.authFlow.clearActiveSessionAfterLogout();
+    return;
+  }
+
   const activeProvider =
     host.state.appState.availableModels[host.state.appState.model]?.provider;
   const config = await host.harness.removeProvider(providerId);
@@ -144,8 +162,17 @@ async function handleCatalogProviderAdd(host: SlashCommandHost): Promise<void> {
   const spinner = host.showLoginProgressSpinner(`Fetching catalog from ${DEFAULT_CATALOG_URL}`);
   let catalog: Catalog | undefined;
   try {
-    catalog = await fetchCatalog(DEFAULT_CATALOG_URL, controller.signal);
-    spinner.stop({ ok: true, label: 'Catalog loaded.' });
+    const loaded = await fetchCatalogOrBuiltIn(DEFAULT_CATALOG_URL, {
+      signal: controller.signal,
+      userAgent: createPythinkerCodeUserAgent(),
+    });
+    catalog = loaded.catalog;
+    spinner.stop({
+      ok: true,
+      label: loaded.fromBuiltIn
+        ? 'Catalog loaded from built-in snapshot (models.dev unreachable).'
+        : 'Catalog loaded.',
+    });
   } catch (error) {
     if (controller.signal.aborted) {
       spinner.stop({ ok: false, label: 'Aborted.' });
@@ -164,18 +191,116 @@ async function handleCatalogProviderAdd(host: SlashCommandHost): Promise<void> {
   if (providerId === undefined) return;
   const entry = catalog[providerId];
   if (entry === undefined) return;
-  await connectCatalogProvider(host, providerId, entry);
+
+  const models = catalogProviderModels(entry);
+  if (models.length === 0) {
+    host.showError(`Provider "${providerId}" has no usable models in this catalog.`);
+    return;
+  }
+
+  let resolution = resolveCatalogImport(entry);
+  if (resolution.kind === 'needs-base-url') {
+    const entered = await promptBaseUrl(host, entry.name ?? providerId);
+    if (entered === undefined) return;
+    resolution = resolveCatalogImport(entry, entered);
+  }
+  if (resolution.kind !== 'ok') {
+    if (resolution.kind === 'invalid') {
+      if (resolution.reason === 'unknown-explicit-type') {
+        host.showError(
+          `Provider "${providerId}" declares protocol "${entry.type}" in the catalog, which this client version does not support.`,
+        );
+      } else if (resolution.reason === 'proprietary-sdk') {
+        host.showError(
+          `Provider "${providerId}" uses a proprietary SDK this client cannot speak (e.g. Amazon Bedrock or Cohere); it cannot be imported from the catalog.`,
+        );
+      } else {
+        host.showError(
+          `Base URL contains an env placeholder or is empty. Enter the resolved URL instead.`,
+        );
+      }
+    }
+    return;
+  }
+  const { wire, baseUrl } = resolution;
+
+  const apiKey = await promptApiKey(host, entry.name ?? providerId);
+  if (apiKey === undefined) return;
+
+  // Persist the provider and all its models immediately after the api key is
+  // entered. The model selector that follows is just a convenience to pick the
+  // default model; ESC leaves the provider in place without a default selection.
+  const existingConfig = await host.harness.getConfig();
+  if (existingConfig.providers[providerId] !== undefined) {
+    await host.harness.removeProvider(providerId);
+  }
+
+  const config = await host.harness.getConfig();
+  applyCatalogProvider(config, {
+    providerId,
+    wire,
+    baseUrl,
+    apiKey,
+    models,
+    selectedModelId: '', // no default yet; user picks in the model selector
+    thinking: false,    // will be resolved by the model selector
+  });
+
+  await host.harness.setConfig({
+    providers: config.providers,
+    models: config.models,
+  });
+
+  await host.authFlow.refreshConfigAfterLogin();
+  host.track('connect', { provider: providerId, method: 'catalog' });
+  host.showStatus(`Provider added: ${entry.name ?? providerId}`);
+  if (resolution.guessed) {
+    host.showStatus(
+      `Protocol guessed as "openai" for ${providerId} — edit "type" in config.toml if requests fail.`,
+    );
+  }
+
+  // Build a merged model dictionary that includes existing models plus the
+  // newly-persisted provider's models, so the tabbed selector shows every
+  // provider's tab (the new provider's tab starts active via initialTabId).
+  const stateModels = await host.harness.getConfig().then((c) => c.models ?? {});
+  const mergedModels = { ...stateModels };
+
+  const selector = new TabbedModelSelectorComponent({
+    models: mergedModels,
+    currentValue: host.state.appState.model,
+    selectedValue: Object.keys(mergedModels).find((a) => a.startsWith(`${providerId}/`)),
+    currentThinkingEffort: host.state.appState.thinkingEffort,
+    initialTabId: providerId,
+    onSelect: ({ alias, thinking }) => {
+      host.restoreEditor();
+      void setDefaultModel(host, alias, thinking).catch((error: unknown) => {
+        host.showError(`Set default model failed: ${formatErrorMessage(error)}`);
+      });
+    },
+    onCancel: () => {
+      host.restoreEditor();
+    },
+  });
+  host.mountEditorReplacement(selector);
 }
 
 async function setDefaultModel(
   host: SlashCommandHost,
   alias: string,
-  effort: string,
+  effort: ThinkingEffort,
 ): Promise<void> {
+  // Resolve efforts the same way the /model path does (effectiveModelForHost
+  // applies overrides and the protocol-profile inference): catalog entries for
+  // e.g. Anthropic models declare no support_efforts on the alias, and without
+  // the inference a top-tier pick would slip through as a persisted effort.
+  const model = host.state.appState.availableModels[alias];
   await host.harness.setConfig({
     defaultModel: alias,
-    defaultThinking: effort !== 'off',
-    thinking: { effort },
+    thinking: thinkingEffortToConfig(
+      effort,
+      model === undefined ? undefined : effectiveModelForHost(host, model).supportEfforts,
+    ),
   });
   await host.authFlow.refreshConfigAfterLogin();
   host.track('model_switch', { model: alias });
@@ -194,7 +319,7 @@ async function handleCustomRegistryAddViaDialog(host: SlashCommandHost): Promise
 
   let entries: Awaited<ReturnType<typeof fetchCustomRegistry>>;
   try {
-    entries = await fetchCustomRegistry(source);
+    entries = await fetchCustomRegistry(source, { userAgent: createPythinkerCodeUserAgent() });
   } catch (error) {
     host.showError(`Failed to import registry: ${formatErrorMessage(error)}`);
     return false;
@@ -204,7 +329,7 @@ async function handleCustomRegistryAddViaDialog(host: SlashCommandHost): Promise
   try {
     const config = await host.harness.getConfig();
     applyCustomRegistryEntries(
-      config as unknown as PlatformConfigShape,
+      config as unknown as ManagedPythinkerConfigShape,
       entries,
       source,
     );
@@ -243,11 +368,11 @@ async function handleCustomRegistryAddViaDialog(host: SlashCommandHost): Promise
     models: stateModels,
     currentValue: host.state.appState.model,
     selectedValue: firstNewAlias,
-    currentEffort: host.state.appState.thinkingLevel,
+    currentThinkingEffort: host.state.appState.thinkingEffort,
     initialTabId: firstNewProvider,
-    onSelect: ({ alias, effort }) => {
+    onSelect: ({ alias, thinking }) => {
       host.restoreEditor();
-      void setDefaultModel(host, alias, effort).catch((error: unknown) => {
+      void setDefaultModel(host, alias, thinking).catch((error: unknown) => {
         host.showError(`Set default model failed: ${formatErrorMessage(error)}`);
       });
     },

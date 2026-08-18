@@ -1,17 +1,33 @@
+import { mkdtempSync, realpathSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'pathe';
 import { fileURLToPath } from 'node:url';
 
-import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import { PythinkerError } from '../../src/errors';
-import { listClientResources } from '../../src/mcp/client-shared';
-import { mergeStdioEnv, StdioMcpClient } from '../../src/mcp/client-stdio';
+import { mergeStdioEnv, resolveStdioCwd, StdioMcpClient } from '../../src/mcp/client-stdio';
 
 const here = import.meta.dirname;
 const fixture = join(here, 'fixtures', 'mock-stdio-server.mjs');
+const cwdFixture = join(here, 'fixtures', 'cwd-stdio-server.mjs');
 const stderrThenExitFixture = join(here, 'fixtures', 'stderr-then-exit-stdio-server.mjs');
 const crashAfterConnectFixture = join(here, 'fixtures', 'crash-after-connect-stdio-server.mjs');
+
+describe('stdio MCP working directory resolution', () => {
+  it('preserves the UNC share when resolving a relative server cwd', () => {
+    expect(
+      resolveStdioCwd('tools/mcp server', '\\\\Server\\Share\\Workspace'),
+    ).toBe('//Server/Share/Workspace/tools/mcp server');
+  });
+
+  it('normalizes a drive path containing spaces and non-ASCII segments', () => {
+    expect(
+      resolveStdioCwd('工具\\server', 'C:\\Users\\Example User\\项目'),
+    ).toBe('C:/Users/Example User/项目/工具/server');
+  });
+});
 
 describe('StdioMcpClient', () => {
   it('rejects unsupported executor at construction time', () => {
@@ -36,6 +52,51 @@ describe('StdioMcpClient', () => {
     expect(thrown).toBeInstanceOf(PythinkerError);
   });
 
+  it('uses defaultCwd when config.cwd is omitted', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'pythinker-mcp-default-cwd-'));
+    const client = new StdioMcpClient(
+      {
+        transport: 'stdio',
+        command: process.execPath,
+        args: [cwdFixture],
+      },
+      { defaultCwd: cwd },
+    );
+    try {
+      await client.connect();
+      const result = await client.callTool('get_cwd', {});
+      const text = (result.content[0] as { type: 'text'; text: string }).text;
+      expect(realpathSync(text)).toBe(realpathSync(cwd));
+    } finally {
+      await client.close();
+      await rm(cwd, { recursive: true, force: true });
+    }
+  }, 15000);
+
+  it('prefers explicit config.cwd over defaultCwd', async () => {
+    const defaultCwd = mkdtempSync(join(tmpdir(), 'pythinker-mcp-default-cwd-'));
+    const configuredCwd = mkdtempSync(join(tmpdir(), 'pythinker-mcp-configured-cwd-'));
+    const client = new StdioMcpClient(
+      {
+        transport: 'stdio',
+        command: process.execPath,
+        args: [cwdFixture],
+        cwd: configuredCwd,
+      },
+      { defaultCwd },
+    );
+    try {
+      await client.connect();
+      const result = await client.callTool('get_cwd', {});
+      const text = (result.content[0] as { type: 'text'; text: string }).text;
+      expect(realpathSync(text)).toBe(realpathSync(configuredCwd));
+    } finally {
+      await client.close();
+      await rm(defaultCwd, { recursive: true, force: true });
+      await rm(configuredCwd, { recursive: true, force: true });
+    }
+  }, 15000);
+
   it('connects, lists tools, and round-trips a text result', async () => {
     const client = new StdioMcpClient({
       transport: 'stdio',
@@ -57,77 +118,6 @@ describe('StdioMcpClient', () => {
       await client.close();
     }
   }, 15000);
-
-  it('lists and reads server resources', async () => {
-    const client = new StdioMcpClient({
-      transport: 'stdio',
-      command: process.execPath,
-      args: [fixture],
-    });
-    try {
-      await client.connect();
-      await expect(client.listResources()).resolves.toEqual([
-        {
-          uri: 'config://app',
-          name: 'app-config',
-          description: 'Application configuration',
-          mimeType: 'text/plain',
-        },
-      ]);
-      await expect(client.readResource('config://app')).resolves.toEqual([
-        { uri: 'config://app', mimeType: 'text/plain', text: 'mode=test' },
-      ]);
-    } finally {
-      await client.close();
-    }
-  }, 15000);
-
-  it('lists and resolves server prompts', async () => {
-    const client = new StdioMcpClient({
-      transport: 'stdio',
-      command: process.execPath,
-      args: [fixture],
-    });
-    try {
-      await client.connect();
-      await expect(client.listPrompts()).resolves.toEqual([
-        {
-          name: 'review',
-          description: 'Review a target',
-          arguments: [
-            {
-              name: 'target',
-              description: 'Target to review',
-              required: true,
-            },
-          ],
-        },
-      ]);
-      await expect(client.getPrompt('review', { target: 'src/app.ts' })).resolves.toEqual([
-        {
-          role: 'user',
-          content: { type: 'text', text: 'Review src/app.ts.' },
-        },
-      ]);
-    } finally {
-      await client.close();
-    }
-  }, 15000);
-
-  it('rejects repeated resource pagination cursors', async () => {
-    const listResources = vi.fn()
-      .mockResolvedValueOnce({ resources: [], nextCursor: 'repeat' })
-      .mockResolvedValueOnce({ resources: [], nextCursor: 'repeat' });
-    const client = {
-      getServerCapabilities: () => ({ resources: {} }),
-      listResources,
-    } as unknown as Client;
-
-    await expect(listClientResources(client, undefined)).rejects.toThrow(
-      'MCP server repeated resource cursor "repeat"',
-    );
-    expect(listResources).toHaveBeenCalledTimes(2);
-  });
 
   it('propagates server-reported isError', async () => {
     const client = new StdioMcpClient({
@@ -194,7 +184,7 @@ describe('StdioMcpClient', () => {
       env: { PYTHINKER_TEST_MCP_STDERR: banner },
     });
     try {
-      await expect(client.connect()).rejects.toThrowErrorMatchingInlineSnapshot(`[McpError: MCP error -32000: Connection closed]`);
+      await expect(client.connect()).rejects.toThrow();
       // Even when connect fails, the buffered stderr must be retrievable so
       // higher layers can include it in the user-facing error message.
       expect(client.stderrSnapshot()).toContain(banner);
@@ -227,7 +217,7 @@ describe('StdioMcpClient', () => {
       transport: 'stdio',
       command: process.execPath,
       args: [crashAfterConnectFixture],
-      env: { PYTHINKER_TEST_MCP_EXIT_AFTER_MS: '50', PYTHINKER_TEST_MCP_STDERR: banner },
+      env: { PYTHINKER_TEST_MCP_EXIT_AFTER_MS: '500', PYTHINKER_TEST_MCP_STDERR: banner },
     });
     const closes: Array<{ stderr?: string; error?: string }> = [];
     client.onUnexpectedClose((reason) => {

@@ -35,18 +35,25 @@ export type { ExtraBody, GenerationKwargs, PythinkerOptions, ThinkingConfig } fr
 export { classifyPythinkerQuotaError } from './providers/pythinker-errors';
 
 // Model capability matrix
-export { UNKNOWN_CAPABILITY, isUnknownCapability } from './capability';
-export type { ModelCapability, ModelCostRates } from './capability';
+export { isUnknownCapability, UNKNOWN_CAPABILITY } from './capability';
+export type { ModelCapability } from './capability';
 
 // Model catalog (models.dev-style) metadata
 export {
   catalogBaseUrl,
-  catalogConnectionWire,
   catalogModelToCapability,
   catalogProviderModels,
   inferWireType,
+  resolveCatalogImport,
 } from './catalog';
-export type { Catalog, CatalogModel, CatalogModelEntry, CatalogProviderEntry } from './catalog';
+export type {
+  Catalog,
+  CatalogModel,
+  CatalogModelEntry,
+  CatalogProviderEntry,
+  CatalogImportInvalidReason,
+  CatalogImportResolution,
+} from './catalog';
 
 // Core functions
 export { generate } from './generate';
@@ -56,7 +63,7 @@ export type { GenerateCallbacks, GenerateResult } from './generate';
 export type { Tool } from './tool';
 
 // Token usage
-export { addUsage, calculateCost, emptyUsage, grandTotal, inputTotal } from './usage';
+export { addUsage, emptyUsage, grandTotal, inputTotal } from './usage';
 export type { TokenUsage } from './usage';
 
 // Errors
@@ -66,12 +73,20 @@ export {
   APIEmptyResponseError,
   APIProviderQuotaExhaustedError,
   APIProviderRateLimitError,
+  APIRequestTooLargeError,
   APIStatusError,
   APITimeoutError,
   ChatProviderError,
+  createAbortError,
+  isAbortError,
   isContextOverflowStatusError,
+  isImageFormatError,
   isProviderRateLimitError,
+  isRecoverableRequestStructureError,
+  isRequestTooLargeStatusError,
   isRetryableGenerateError,
+  isToolExchangeAdjacencyError,
+  throwIfAbortError,
 } from './errors';
 
 /**

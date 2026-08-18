@@ -1,3 +1,6 @@
+import { realpathSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+
 import { describe, expect, it, vi } from 'vitest';
 import type { ContentPart } from '@pymodel/kosong';
 
@@ -5,54 +8,20 @@ import type { ContentPart } from '@pymodel/kosong';
 // without forcing TS module resolution to find a file that doesn't exist yet.
 const ENGINE_MODULE = '../../src/session/hooks/engine' as string;
 
-type CommandHookDef = {
+type HookDef = {
   event: string;
   matcher?: string;
-  if?: string;
-  statusMessage?: string;
-  type?: 'command';
   command: string;
   timeout?: number;
-  once?: boolean;
-  async?: boolean;
-  asyncRewake?: boolean;
+  cwd?: string;
+  env?: Readonly<Record<string, string>>;
 };
-
-type HttpHookDef = {
-  event: string;
-  matcher?: string;
-  if?: string;
-  statusMessage?: string;
-  type: 'http';
-  url: string;
-  headers?: Record<string, string>;
-  allowedEnvVars?: string[];
-  timeout?: number;
-  once?: boolean;
-  async?: boolean;
-};
-
-type ModelHookDef = {
-  event: string;
-  matcher?: string;
-  if?: string;
-  statusMessage?: string;
-  type: 'prompt' | 'agent';
-  prompt: string;
-  timeout?: number;
-  once?: boolean;
-  model?: string;
-};
-
-type HookDef = CommandHookDef | HttpHookDef | ModelHookDef;
 
 interface HookResult {
   action: 'allow' | 'block';
-  message?: string;
   reason?: string;
   stdout?: string;
   stderr?: string;
-  exitCode?: number;
   timedOut?: boolean;
 }
 
@@ -77,36 +46,14 @@ interface HookEngineCtor {
         reason: string | undefined,
         durationMs: number,
       ) => void;
-      allowedHttpHookUrls?: readonly string[];
-      httpHookAllowedEnvVars?: readonly string[];
-      fetchImpl?: typeof fetch;
-      onAsyncRewake?: (event: string, results: readonly HookResult[]) => void | Promise<void>;
-      onStatus?: (
-        event: string,
-        statusId: string,
-        content: string,
-        active: boolean,
-        agentId?: string,
-      ) => void;
-      runModelHook?: (
-        hook: ModelHookDef,
-        event: string,
-        input: Record<string, unknown>,
-        signal?: AbortSignal,
-      ) => Promise<HookResult>;
     },
   ): {
-    register: (
-      hooks: HookDef[],
-      options?: { readonly agentId?: string },
-    ) => () => void;
     trigger: (
       event: string,
       args?: {
         matcherValue?: HookMatcherValue;
         inputData?: Record<string, unknown>;
         signal?: AbortSignal;
-        ifMatcher?: (condition: string) => boolean;
       },
     ) => Promise<HookResult[]>;
     triggerBlock: (
@@ -115,7 +62,6 @@ interface HookEngineCtor {
         matcherValue?: HookMatcherValue;
         inputData?: Record<string, unknown>;
         signal?: AbortSignal;
-        ifMatcher?: (condition: string) => boolean;
       },
     ) => Promise<HookBlockDecision | undefined>;
     fireAndForgetTrigger: (
@@ -124,7 +70,6 @@ interface HookEngineCtor {
         matcherValue?: HookMatcherValue;
         inputData?: Record<string, unknown>;
         signal?: AbortSignal;
-        ifMatcher?: (condition: string) => boolean;
       },
     ) => Promise<HookResult[]>;
     summary: Record<string, number>;
@@ -133,10 +78,6 @@ interface HookEngineCtor {
 
 interface EngineModule {
   HookEngine: HookEngineCtor;
-  createHookIfMatcher: (
-    toolName: string,
-    execution: { matchesRule?: (ruleArgs: string) => boolean },
-  ) => (condition: string) => boolean;
 }
 
 async function importEngine(): Promise<EngineModule> {
@@ -191,7 +132,7 @@ describe('HookEngine', () => {
       {
         event: 'PreToolUse',
         matcher: 'ReadFile',
-        command: "echo 'blocked' >&2; exit 2",
+        command: 'node -e "process.stderr.write(\'blocked\'); process.exit(2)"',
         timeout: 5,
       },
     ]);
@@ -328,29 +269,6 @@ describe('HookEngine', () => {
     expect(results).toHaveLength(0);
   });
 
-  it('scopes dynamically registered hooks to one agent and removes them on cleanup', async () => {
-    const { HookEngine } = await importEngine();
-    const runModelHook = vi.fn(async () => ({ action: 'allow' as const }));
-    const engine = new HookEngine([], { runModelHook });
-    const unregister = engine.register(
-      [{ event: 'Stop', type: 'prompt', prompt: 'Check the child result' }],
-      { agentId: 'agent-1' },
-    );
-
-    await expect(
-      engine.trigger('Stop', { inputData: { agentId: 'main' } }),
-    ).resolves.toEqual([]);
-    await expect(
-      engine.trigger('Stop', { inputData: { agentId: 'agent-1' } }),
-    ).resolves.toHaveLength(1);
-
-    unregister();
-    await expect(
-      engine.trigger('Stop', { inputData: { agentId: 'agent-1' } }),
-    ).resolves.toEqual([]);
-    expect(runModelHook).toHaveBeenCalledOnce();
-  });
-
   it('dedupes hooks with identical command strings so they only fire once', async () => {
     const { HookEngine } = await importEngine();
     const engine = new HookEngine([
@@ -359,206 +277,6 @@ describe('HookEngine', () => {
     ]);
     const results = await engine.trigger('Stop', { inputData: {} });
     expect(results).toHaveLength(1);
-  });
-
-  it('removes a once hook after its first matching execution', async () => {
-    const { HookEngine } = await importEngine();
-    const engine = new HookEngine([
-      { event: 'Notification', command: 'echo once', once: true },
-    ]);
-
-    await expect(engine.trigger('Notification')).resolves.toHaveLength(1);
-    await expect(engine.trigger('Notification')).resolves.toEqual([]);
-    expect(engine.summary).toEqual({});
-  });
-
-  it('starts an async hook without delaying the trigger result', async () => {
-    const { HookEngine } = await importEngine();
-    let resolveResponse!: (response: Response) => void;
-    const onAsyncRewake = vi.fn();
-    const fetchImpl = vi.fn(
-      () =>
-        new Promise<Response>((resolve) => {
-          resolveResponse = resolve;
-        }),
-    );
-    const engine = new HookEngine(
-      [
-        {
-          event: 'Notification',
-          type: 'http',
-          url: 'https://93.184.216.34/hooks/async',
-          async: true,
-          once: true,
-        },
-      ],
-      { fetchImpl, onAsyncRewake },
-    );
-
-    await expect(engine.trigger('Notification')).resolves.toEqual([]);
-    expect(fetchImpl).toHaveBeenCalledOnce();
-
-    resolveResponse(new Response('{}'));
-    await vi.waitFor(() => {
-      expect(engine.summary).toEqual({});
-    });
-    expect(onAsyncRewake).not.toHaveBeenCalled();
-  });
-
-  it('reports exit-code-2 asyncRewake results without delaying the trigger', async () => {
-    const { HookEngine } = await importEngine();
-    const onAsyncRewake = vi.fn();
-    const engine = new HookEngine(
-      [
-        {
-          event: 'Notification',
-          command: `node -e "process.stderr.write('fix required'); process.exit(2)"`,
-          asyncRewake: true,
-        },
-      ],
-      { onAsyncRewake },
-    );
-
-    await expect(engine.trigger('Notification')).resolves.toEqual([]);
-    await vi.waitFor(() => {
-      expect(onAsyncRewake).toHaveBeenCalledWith(
-        'Notification',
-        expect.arrayContaining([
-          expect.objectContaining({
-            action: 'block',
-            message: 'fix required',
-            exitCode: 2,
-          }),
-        ]),
-      );
-    });
-  });
-
-  it('delegates prompt and agent hooks to the configured model runner', async () => {
-    const { HookEngine } = await importEngine();
-    const runModelHook = vi
-      .fn()
-      .mockResolvedValueOnce({ action: 'allow', message: 'prompt passed' })
-      .mockResolvedValueOnce({ action: 'block', reason: 'verification failed' });
-    const engine = new HookEngine(
-      [
-        { event: 'Stop', type: 'prompt', prompt: 'Check $ARGUMENTS' },
-        { event: 'Notification', type: 'agent', prompt: 'Verify $ARGUMENTS' },
-      ],
-      { runModelHook },
-    );
-
-    await expect(engine.trigger('Stop', { inputData: { done: true } })).resolves.toEqual([
-      expect.objectContaining({ action: 'allow', message: 'prompt passed' }),
-    ]);
-    await expect(
-      engine.triggerBlock('Notification', { inputData: { task: 'tests' } }),
-    ).resolves.toEqual({ block: true, reason: 'verification failed' });
-    expect(runModelHook).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({ type: 'prompt', prompt: 'Check $ARGUMENTS' }),
-      'Stop',
-      expect.objectContaining({ done: true }),
-      undefined,
-    );
-    expect(runModelHook).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({ type: 'agent', prompt: 'Verify $ARGUMENTS' }),
-      'Notification',
-      expect.objectContaining({ task: 'tests' }),
-      undefined,
-    );
-  });
-
-  it('reports a configured status message only while hooks are running', async () => {
-    const { HookEngine } = await importEngine();
-    let resolveHook!: (result: HookResult) => void;
-    const onStatus = vi.fn();
-    const engine = new HookEngine(
-      [
-        {
-          event: 'Stop',
-          type: 'prompt',
-          prompt: 'Check the result',
-          statusMessage: 'Checking the result',
-        },
-      ],
-      {
-        onStatus,
-        runModelHook: () =>
-          new Promise<HookResult>((resolve) => {
-            resolveHook = resolve;
-          }),
-      },
-    );
-
-    const trigger = engine.trigger('Stop', { inputData: { agentId: 'reviewer' } });
-    expect(onStatus).toHaveBeenCalledWith(
-      'Stop',
-      expect.any(String),
-      'Checking the result',
-      true,
-      'reviewer',
-    );
-
-    resolveHook({ action: 'allow' });
-    await expect(trigger).resolves.toEqual([{ action: 'allow' }]);
-    expect(onStatus).toHaveBeenLastCalledWith(
-      'Stop',
-      expect.any(String),
-      'Checking the result',
-      false,
-      'reviewer',
-    );
-    expect(onStatus.mock.calls[0]?.[1]).toBe(onStatus.mock.calls[1]?.[1]);
-  });
-
-  it('runs hooks with distinct if conditions only when the tool permission rule matches', async () => {
-    const { HookEngine } = await importEngine();
-    const runModelHook = vi.fn(async () => ({ action: 'allow' as const }));
-    const engine = new HookEngine(
-      [
-        { event: 'PreToolUse', type: 'prompt', prompt: 'Check command', if: 'Bash(git *)' },
-        { event: 'PreToolUse', type: 'prompt', prompt: 'Check command', if: 'Bash(rm *)' },
-      ],
-      { runModelHook },
-    );
-
-    await engine.trigger('PreToolUse', {
-      matcherValue: 'Bash',
-      ifMatcher: (condition) => condition === 'Bash(git *)',
-    });
-
-    expect(runModelHook).toHaveBeenCalledOnce();
-    expect(runModelHook).toHaveBeenCalledWith(
-      expect.objectContaining({ if: 'Bash(git *)' }),
-      'PreToolUse',
-      expect.any(Object),
-      undefined,
-    );
-  });
-
-  it('uses the existing permission-rule matcher for hook if conditions', async () => {
-    const { createHookIfMatcher } = await importEngine();
-    const matcher = createHookIfMatcher('Bash', {
-      matchesRule: (ruleArgs) => ruleArgs === 'git *',
-    });
-
-    expect(matcher('Bash(git *)')).toBe(true);
-    expect(matcher('Bash(rm *)')).toBe(false);
-    expect(matcher('Read')).toBe(false);
-  });
-
-  it('skips an if-conditioned hook when the event has no tool matcher', async () => {
-    const { HookEngine } = await importEngine();
-    const runModelHook = vi.fn(async () => ({ action: 'allow' as const }));
-    const engine = new HookEngine(
-      [{ event: 'Stop', type: 'prompt', prompt: 'Check command', if: 'Bash(git *)' }],
-      { runModelHook },
-    );
-
-    await expect(engine.trigger('Stop')).resolves.toEqual([]);
-    expect(runModelHook).not.toHaveBeenCalled();
   });
 
   it('silently skips hooks whose matcher is not a valid regex', async () => {
@@ -637,106 +355,45 @@ describe('HookEngine', () => {
     }
   });
 
-  it('posts hook input to an HTTP hook and applies its structured block response', async () => {
+  it('runs a hook with HookDef.cwd as the working directory', async () => {
     const { HookEngine } = await importEngine();
-    const fetchImpl = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
-      expect(init?.method).toBe('POST');
-      expect(init?.body).toBe(
-        JSON.stringify({
-          hook_event_name: 'PreToolUse',
-          session_id: 'ses_123',
-          cwd: '/work',
-          tool_name: 'Shell',
-        }),
-      );
-      expect(new Headers(init?.headers).get('authorization')).toBe('Bearer secret-token');
-      return new Response(
-        JSON.stringify({
-          hookSpecificOutput: {
-            permissionDecision: 'deny',
-            permissionDecisionReason: 'blocked by HTTP hook',
-          },
-        }),
-      );
-    });
-    vi.stubEnv('HOOK_TOKEN', 'secret-token');
+    const pluginCwd = tmpdir();
     const engine = new HookEngine(
       [
         {
           event: 'PreToolUse',
-          matcher: 'Shell',
-          type: 'http',
-          url: 'https://93.184.216.34/hooks/pre-tool',
-          headers: { Authorization: 'Bearer $HOOK_TOKEN' },
-          allowedEnvVars: ['HOOK_TOKEN'],
+          command: 'node -e "process.stdout.write(process.cwd())"',
           timeout: 5,
+          cwd: pluginCwd,
         },
       ],
-      {
-        cwd: '/work',
-        sessionId: 'ses_123',
-        allowedHttpHookUrls: ['https://93.184.216.34/hooks/*'],
-        httpHookAllowedEnvVars: ['HOOK_TOKEN'],
-        fetchImpl,
-      },
+      { cwd: process.cwd() },
     );
-
-    await expect(
-      engine.triggerBlock('PreToolUse', {
-        matcherValue: 'Shell',
-        inputData: { toolName: 'Shell' },
-      }),
-    ).resolves.toEqual({ block: true, reason: 'blocked by HTTP hook' });
-    expect(fetchImpl).toHaveBeenCalledOnce();
+    const results = await engine.trigger('PreToolUse', { inputData: {} });
+    expect(results[0]?.stdout).toBe(realpathSync(pluginCwd));
   });
 
-  it('blocks HTTP hooks outside the configured URL allowlist before network I/O', async () => {
+  it('passes HookDef.env into the hook process environment', async () => {
     const { HookEngine } = await importEngine();
-    const fetchImpl = vi.fn<typeof fetch>();
-    const engine = new HookEngine(
-      [
-        {
-          event: 'Notification',
-          type: 'http',
-          url: 'https://93.184.216.34/hooks/notify',
-        },
-      ],
+    const engine = new HookEngine([
       {
-        allowedHttpHookUrls: [],
-        fetchImpl,
+        event: 'PreToolUse',
+        command: 'node -e "process.stdout.write(process.env.PYTHINKER_PLUGIN_TEST ?? \'missing\')"',
+        timeout: 5,
+        env: { PYTHINKER_PLUGIN_TEST: 'plugin-value' },
       },
-    );
-
-    const results = await engine.trigger('Notification');
-
-    expect(results).toHaveLength(1);
-    expect(results[0]?.action).toBe('allow');
-    expect(results[0]?.stderr).toContain('does not match allowed_http_hook_urls');
-    expect(fetchImpl).not.toHaveBeenCalled();
+    ]);
+    const results = await engine.trigger('PreToolUse', { inputData: {} });
+    expect(results[0]?.stdout).toBe('plugin-value');
   });
 
-  it('rejects private HTTP hook targets even when the URL policy allows them', async () => {
+  it('does not dedupe hooks that share a command but have different cwd', async () => {
     const { HookEngine } = await importEngine();
-    const fetchImpl = vi.fn<typeof fetch>();
-    const engine = new HookEngine(
-      [
-        {
-          event: 'Notification',
-          type: 'http',
-          url: 'http://169.254.169.254/latest/meta-data',
-        },
-      ],
-      {
-        allowedHttpHookUrls: ['http://169.254.169.254/*'],
-        fetchImpl,
-      },
-    );
-
-    const results = await engine.trigger('Notification');
-
-    expect(results).toHaveLength(1);
-    expect(results[0]?.action).toBe('allow');
-    expect(results[0]?.stderr).toContain('private address');
-    expect(fetchImpl).not.toHaveBeenCalled();
+    const engine = new HookEngine([
+      { event: 'Stop', command: 'echo same', timeout: 5, cwd: process.cwd() },
+      { event: 'Stop', command: 'echo same', timeout: 5, cwd: tmpdir() },
+    ]);
+    const results = await engine.trigger('Stop', { inputData: {} });
+    expect(results).toHaveLength(2);
   });
 });

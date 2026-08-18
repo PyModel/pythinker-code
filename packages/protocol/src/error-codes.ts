@@ -1,140 +1,140 @@
 /**
  * Integer namespaces:
  *   - 0          success
- *   - 4xxxx      client errors (HTTP-4xx analog)
- *   - 5xxxx      daemon internal errors
- *   - 6xxxx      tool runtime
- *   - 7xxxx      LLM provider passthrough (msg = original upstream text)
- *   - 8xxxx      MCP server passthrough (msg = original upstream text)
- *   - 9xxxx      reserved
+ *   - 4xxxx      客户端错误 (HTTP-4xx analog)
+ *   - 5xxxx      daemon 内部错误
+ *   - 6xxxx      工具运行时
+ *   - 7xxxx      LLM provider 透传 (msg = original upstream text)
+ *   - 8xxxx      MCP server 透传 (msg = original upstream text)
+ *   - 9xxxx      预留
  */
 
 export const ErrorCode = {
-  /** Success */
+  /** 成功 */
   SUCCESS: 0,
 
-  /** Zod validation failed; `details` contains field path list */
+  /** Zod 校验失败，`details` 含字段路径列表 */
   VALIDATION_FAILED: 40001,
-  /** JSON parse failure or wrong field type */
+  /** JSON 解析失败、字段类型错 */
   REQUEST_MALFORMED: 40002,
 
-  /** Daemon has no provider configured */
+  /** daemon 没有任何 provider 配置 */
   AUTH_PROVISIONING_REQUIRED: 40110,
-  /** Provider exists but token / api_key is missing */
+  /** provider 存在但 token / api_key 缺失 */
   AUTH_TOKEN_MISSING: 40111,
-  /** Token refresh received 401 (user revoked authorization) */
+  /** 刷新 token 收到 401（用户撤销了授权） */
   AUTH_TOKEN_UNAUTHORIZED: 40112,
-  /** Default or requested model cannot be resolved to a provider */
+  /** 默认 / 请求的 model 解析不到 provider */
   AUTH_MODEL_NOT_RESOLVED: 40113,
 
-  /** session_id does not exist */
+  /** session_id 不存在 */
   SESSION_NOT_FOUND: 40401,
-  /** prompt_id does not exist */
+  /** prompt_id 不存在 */
   PROMPT_NOT_FOUND: 40402,
-  /** message_id does not exist */
+  /** message_id 不存在 */
   MESSAGE_NOT_FOUND: 40403,
-  /** approval_id does not exist */
+  /** approval_id 不存在 */
   APPROVAL_NOT_FOUND: 40404,
-  /** question_id does not exist */
+  /** question_id 不存在 */
   QUESTION_NOT_FOUND: 40405,
-  /** task_id does not exist */
+  /** task_id 不存在 */
   TASK_NOT_FOUND: 40406,
-  /** file_id does not exist */
+  /** file_id 不存在 */
   FILE_NOT_FOUND: 40407,
-  /** mcp_server_id does not exist */
+  /** mcp_server_id 不存在 */
   MCP_SERVER_NOT_FOUND: 40408,
-  /** fs path does not exist */
+  /** fs path 不存在 */
   FS_PATH_NOT_FOUND: 40409,
-  /** workspace_id does not exist */
+  /** workspace_id 不存在 */
   WORKSPACE_NOT_FOUND: 40410,
-  /** fs path exists but current process lacks read permission */
+  /** fs 路径存在但当前进程无权限读取 */
   FS_PERMISSION_DENIED: 40411,
-  /** provider_id does not exist */
+  /** provider_id 不存在 */
   PROVIDER_NOT_FOUND: 40412,
-  /** model_id does not exist */
+  /** model_id 不存在 */
   MODEL_NOT_FOUND: 40413,
-  /** terminal_id does not exist */
+  /** terminal_id 不存在 */
   TERMINAL_NOT_FOUND: 40414,
-  /** skill_name does not exist */
+  /** skill_name 不存在 */
   SKILL_NOT_FOUND: 40415,
-  /** codex login_id does not exist, or its attempt was already discarded */
-  CODEX_LOGIN_NOT_FOUND: 40416,
+  /** tool_call_id 不存在，或该调用没有对应的 plan（非 ExitPlanMode） */
+  TOOL_CALL_NOT_FOUND: 40416,
 
-  /** Session has an in-flight prompt; new request rejected */
+  /** session 有正在进行的 prompt，拒绝新请求 */
   SESSION_BUSY: 40901,
-  /** Approval already answered by another client */
+  /** approval 已被其他 client 应答 */
   APPROVAL_ALREADY_RESOLVED: 40902,
-  /** Prompt already finished (abort is idempotent and returns 0) */
+  /** prompt 已结束（abort 幂等返回 0） */
   PROMPT_ALREADY_COMPLETED: 40903,
-  /** Task already finished; cannot cancel */
+  /** task 已完结，无法取消 */
   TASK_ALREADY_FINISHED: 40904,
-  /** MCP restart while already connecting/connected */
+  /** mcp restart 时若已在 connecting/connected */
   MCP_ALREADY_CONNECTED: 40905,
-  /** fs.read requested a file but path is a directory */
+  /** fs.read 请求 file，但 path 是目录 */
   FS_IS_DIRECTORY: 40906,
-  /** fs.read requested utf-8 but path is binary; client should use `:download` */
+  /** fs.read 请求 utf-8，但 path 是二进制；client 改走 `:download` */
   FS_IS_BINARY: 40907,
-  /** fs.git_status but session.cwd is not a git repo */
+  /** fs.git_status 但 session.cwd 不是 git repo */
   FS_GIT_UNAVAILABLE: 40908,
-  /** User ESC / closed panel to dismiss the group (client calls `:dismiss`) */
+  /** 用户 ESC / 关闭面板放弃整组（client 调 `:dismiss`） */
   QUESTION_DISMISSED: 40909,
-  /** Current history has no prefix eligible for compaction */
+  /** 当前历史没有可 compact 的前缀 */
   COMPACTION_UNABLE: 40910,
-  /** Current history has insufficient user prompts to undo */
+  /** 当前历史没有足够的用户提示词可撤回 */
   SESSION_UNDO_UNAVAILABLE: 40911,
-  /** Skill exists but type does not support user activation (e.g. reference) */
+  /** skill 存在但类型不支持用户激活（如 reference 类型） */
   SKILL_NOT_ACTIVATABLE: 40912,
 
-  /** Active goal already exists in current session */
+  /** 当前会话已存在活跃 goal */
   GOAL_ALREADY_EXISTS: 40913,
-  /** Goal does not exist */
+  /** 目标不存在 */
   GOAL_NOT_FOUND: 40914,
-  /** Goal status does not allow this operation */
+  /** goal 状态不允许该操作 */
   GOAL_STATUS_INVALID: 40915,
-  /** Goal current status is not resumable */
+  /** goal 当前状态不可恢复 */
   GOAL_NOT_RESUMABLE: 40916,
-  /** Goal objective is empty */
+  /** goal objective 为空 */
   GOAL_OBJECTIVE_EMPTY: 40917,
-  /** Goal objective exceeds length limit */
+  /** goal objective 超过长度限制 */
   GOAL_OBJECTIVE_TOO_LONG: 40918,
-  /** fs.mkdir target path already exists (file or directory) */
+  /** fs.mkdir 目标路径已存在（文件或目录） */
   FS_ALREADY_EXISTS: 40919,
+  /** goal 只允许主 agent 使用 */
+  GOAL_UNSUPPORTED_AGENT: 40920,
 
-  /** Approval timed out after 60s */
+  /** approval 60s 超时 */
   APPROVAL_EXPIRED: 41001,
-  /** Question timed out after 60s */
+  /** question 60s 超时 */
   QUESTION_EXPIRED: 41002,
-  /** Temporary file expired */
+  /** 临时文件已过期 */
   FILE_EXPIRED: 41003,
 
-  /** Upload exceeds 50MB */
+  /** 文件过大（如 session 导出超限；/files 上传不设上限） */
   FILE_TOO_LARGE: 41301,
-  /** fs.read exceeds 10MB */
+  /** fs.read 超 10MB */
   FS_TOO_LARGE: 41302,
-  /** fs.list / fs.search / fs.grep hit result cap */
+  /** fs.list / fs.search / fs.grep 命中超上限 */
   FS_TOO_MANY_RESULTS: 41303,
-  /** Path escapes session cwd boundary */
+  /** path 越出 session cwd 边界 */
   FS_PATH_ESCAPES_SESSION: 41304,
-  /** fs.grep execution exceeded 30s */
+  /** fs.grep 执行 >30s */
   FS_GREP_TIMEOUT: 41305,
 
-  /** WS single connection watch_paths > 100 */
+  /** WS 单连接 watch_paths > 100 */
   FS_WATCH_LIMIT_EXCEEDED: 42902,
 
-  /** Fallback internal error */
+  /** 兜底 */
   INTERNAL_ERROR: 50001,
-  /** Client and server WebSocket protocol versions do not match */
-  PROTOCOL_VERSION_MISMATCH: 50002,
-  /** Session persistence write failed */
+  /** 写入 session 持久化失败 */
   PERSISTENCE_FAILURE: 50003,
 
-  /** Tool execution threw */
+  /** tool 执行抛错 */
   TOOL_EXECUTION_FAILED: 60001,
-  /** Tool not enabled for this session */
+  /** tool 在此 session 未启用 */
   TOOL_NOT_AVAILABLE: 60002,
 
-  /** provider.* — provider original code semantics preserved; `msg` passes upstream error text. */
-  /** mcp.* — MCP server original code semantics preserved; `msg` passes upstream error text. */
+  /** provider.* — provider 原 code 含义保留；`msg` 字段透传上游错误文本。 */
+  /** mcp.* — mcp server 原 code 含义保留；`msg` 字段透传上游错误文本。 */
 } as const;
 
 /**
@@ -143,6 +143,7 @@ export const ErrorCode = {
  *   - 40102 auth.missing_token        (daemon's own token; future)
  *   - 40103 auth.forbidden_origin     (daemon's own token; future)
  *   - 42901 rate.limited
+ *   - 50002 protocol.version_mismatch
  */
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];
@@ -173,7 +174,7 @@ export const ErrorCodeReason: Readonly<Record<ErrorCode, string>> = {
   [ErrorCode.MODEL_NOT_FOUND]: 'model.not_found',
   [ErrorCode.TERMINAL_NOT_FOUND]: 'terminal.not_found',
   [ErrorCode.SKILL_NOT_FOUND]: 'skill.not_found',
-  [ErrorCode.CODEX_LOGIN_NOT_FOUND]: 'codex_login.not_found',
+  [ErrorCode.TOOL_CALL_NOT_FOUND]: 'tool_call.not_found',
 
   [ErrorCode.SESSION_BUSY]: 'session.busy',
   [ErrorCode.APPROVAL_ALREADY_RESOLVED]: 'approval.already_resolved',
@@ -195,6 +196,7 @@ export const ErrorCodeReason: Readonly<Record<ErrorCode, string>> = {
   [ErrorCode.GOAL_OBJECTIVE_EMPTY]: 'goal.objective_empty',
   [ErrorCode.GOAL_OBJECTIVE_TOO_LONG]: 'goal.objective_too_long',
   [ErrorCode.FS_ALREADY_EXISTS]: 'fs.already_exists',
+  [ErrorCode.GOAL_UNSUPPORTED_AGENT]: 'goal.unsupported_agent',
 
   [ErrorCode.APPROVAL_EXPIRED]: 'approval.expired',
   [ErrorCode.QUESTION_EXPIRED]: 'question.expired',
@@ -209,7 +211,6 @@ export const ErrorCodeReason: Readonly<Record<ErrorCode, string>> = {
   [ErrorCode.FS_WATCH_LIMIT_EXCEEDED]: 'fs.watch_limit_exceeded',
 
   [ErrorCode.INTERNAL_ERROR]: 'internal.error',
-  [ErrorCode.PROTOCOL_VERSION_MISMATCH]: 'protocol.version_mismatch',
   [ErrorCode.PERSISTENCE_FAILURE]: 'persistence.failure',
 
   [ErrorCode.TOOL_EXECUTION_FAILED]: 'tool.execution_failed',

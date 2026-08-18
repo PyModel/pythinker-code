@@ -80,6 +80,7 @@ vi.mock('@pymodel/pythinker-code-oauth', async () => {
   return {
     ...actual,
     createPythinkerDeviceId: mocks.createPythinkerDeviceId,
+    PYTHINKER_CODE_PROVIDER_NAME: 'pythinker-code',
   };
 });
 
@@ -126,7 +127,7 @@ function makeResult(id: string, zipPath: string): ExportSessionResult {
     sessionId: id,
     exportedAt: '2026-04-18T12:00:00.000Z',
     pythinkerCodeVersion: '1.27.0',
-    wireProtocolVersion: '2.0',
+    wireProtocolVersion: '1.0',
     os: 'test',
     nodejsVersion: '22.0.0',
     workspaceDir: tmp,
@@ -381,6 +382,7 @@ describe('pythinker export', () => {
       exit: ((code: number) => {
         throw new ExitCalled(code);
       }) as ExportDeps['exit'],
+      getShellEnv: () => ({ term: 'xterm-256color', shell: '/bin/zsh' }),
     });
 
     await program.parseAsync(['node', 'pythinker', 'export', 'ses_telemetry', '--output', output], {
@@ -410,6 +412,8 @@ describe('pythinker export', () => {
       version: expect.any(String),
       uiMode: 'shell',
       model: 'k2',
+      sessionId: undefined,
+      getAccessToken: expect.any(Function),
     });
     expect(mocks.initializeTelemetry.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.harnessExportSession.mock.invocationCallOrder[0]!,

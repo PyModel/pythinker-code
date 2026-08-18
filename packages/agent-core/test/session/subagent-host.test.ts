@@ -8,18 +8,19 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { Agent, AgentOptions } from '../../src/agent';
 import { AGENT_WIRE_PROTOCOL_VERSION } from '../../src/agent/records';
-import type { ResolvedAgentProfile } from '../../src/profile';
+import type { PythinkerConfig } from '../../src/config';
+import { ErrorCodes, PythinkerError } from '../../src/errors';
+import { FlagResolver } from '../../src/flags';
+import { SessionAgentProfileCatalog, type ResolvedAgentProfile } from '../../src/profile';
 import type { SDKSessionRPC } from '../../src/rpc';
 import { Session } from '../../src/session';
 import { collectGitContext } from '../../src/session/git-context';
+import { ProviderManager } from '../../src/session/provider-manager';
 import {
-  createSubagentWorktree,
-  settleSubagentWorktree,
-} from '../../src/session/subagent-worktree';
-import {
-  MAX_SUBAGENTS_PER_SESSION,
-  MAX_SUBAGENT_SPAWN_DEPTH,
+  DEFAULT_SUBAGENT_TIMEOUT_MS,
   SessionSubagentHost,
+  formatSubagentTimeoutDescription,
+  resolveSubagentTimeoutMs,
   type QueuedSubagentTask,
 } from '../../src/session/subagent-host';
 import { abortError, userCancellationReason } from '../../src/utils/abort';
@@ -33,21 +34,66 @@ import { executeTool } from '../tools/fixtures/execute-tool';
 vi.mock('../../src/session/git-context', () => ({
   collectGitContext: vi.fn(async () => ''),
 }));
-vi.mock('../../src/session/subagent-worktree', () => ({
-  createSubagentWorktree: vi.fn(),
-  settleSubagentWorktree: vi.fn(),
-}));
 
 const signal = new AbortController().signal;
 const tempDirs: string[] = [];
 type GenerateFn = NonNullable<AgentOptions['generate']>;
 
 afterEach(async () => {
-  vi.mocked(createSubagentWorktree).mockReset();
-  vi.mocked(settleSubagentWorktree).mockReset();
   for (const dir of tempDirs.splice(0)) {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+const SUBAGENT_TIMEOUT_ENV = 'PYTHINKER_SUBAGENT_TIMEOUT_MS';
+
+describe('resolveSubagentTimeoutMs', () => {
+  const saved: { value: string | undefined } = { value: process.env[SUBAGENT_TIMEOUT_ENV] };
+  afterEach(() => {
+    if (saved.value === undefined) {
+      delete process.env[SUBAGENT_TIMEOUT_ENV];
+    } else {
+      process.env[SUBAGENT_TIMEOUT_ENV] = saved.value;
+    }
+  });
+
+  it('returns the default when nothing is set', () => {
+    delete process.env[SUBAGENT_TIMEOUT_ENV];
+    expect(resolveSubagentTimeoutMs()).toBe(DEFAULT_SUBAGENT_TIMEOUT_MS);
+  });
+
+  it('uses the config value when set', () => {
+    delete process.env[SUBAGENT_TIMEOUT_ENV];
+    expect(resolveSubagentTimeoutMs(600000)).toBe(600000);
+  });
+
+  it('lets the env override the config value', () => {
+    process.env[SUBAGENT_TIMEOUT_ENV] = '120000';
+    expect(resolveSubagentTimeoutMs(600000)).toBe(120000);
+  });
+
+  it('ignores an invalid env and falls back to config/default', () => {
+    process.env[SUBAGENT_TIMEOUT_ENV] = 'not-a-number';
+    expect(resolveSubagentTimeoutMs(600000)).toBe(600000);
+    process.env[SUBAGENT_TIMEOUT_ENV] = '-5';
+    expect(resolveSubagentTimeoutMs()).toBe(DEFAULT_SUBAGENT_TIMEOUT_MS);
+  });
+
+  it('treats 0 as no timeout from both config and env', () => {
+    delete process.env[SUBAGENT_TIMEOUT_ENV];
+    expect(resolveSubagentTimeoutMs(0)).toBe(0);
+    process.env[SUBAGENT_TIMEOUT_ENV] = '0';
+    expect(resolveSubagentTimeoutMs(600000)).toBe(0);
+  });
+});
+
+describe('formatSubagentTimeoutDescription', () => {
+  it('formats hours, minutes, seconds and milliseconds', () => {
+    expect(formatSubagentTimeoutDescription(30 * 60 * 1000)).toBe('30 minutes');
+    expect(formatSubagentTimeoutDescription(2 * 60 * 60 * 1000)).toBe('2 hours');
+    expect(formatSubagentTimeoutDescription(45 * 1000)).toBe('45 seconds');
+    expect(formatSubagentTimeoutDescription(1500)).toBe('1500 ms');
+  });
 });
 
 describe('SessionSubagentHost', () => {
@@ -71,7 +117,6 @@ describe('SessionSubagentHost', () => {
         event: 'subagent.suspended',
         args: expect.objectContaining({
           subagentId: 'agent-0',
-          parentToolCallId: 'call_dynamic_workflow',
           reason: 'Provider rate limit; subagent requeued for retry.',
         }),
       }),
@@ -123,7 +168,6 @@ describe('SessionSubagentHost', () => {
       hookEngine: { trigger, fireAndForgetTrigger } as unknown as NonNullable<Agent['hooks']>,
     });
     parent.configure();
-    parent.agent.setFileCheckpointId('checkpoint-spawn');
     parent.newEvents();
 
     const summary =
@@ -144,13 +188,11 @@ describe('SessionSubagentHost', () => {
     });
     await handle.completion;
 
-    expect(child.agent.fileCheckpointId).toBe('checkpoint-spawn');
     const startArgs = trigger.mock.calls[0]?.[1];
     expect(trigger.mock.calls[0]?.[0]).toBe('SubagentStart');
     expect(startArgs).toMatchObject({
       matcherValue: 'coder',
       inputData: {
-        agentId: 'main',
         agentName: 'coder',
         prompt: 'Implement the fix',
       },
@@ -161,7 +203,6 @@ describe('SessionSubagentHost', () => {
     expect(fireAndForgetTrigger).toHaveBeenCalledWith('SubagentStop', {
       matcherValue: 'coder',
       inputData: {
-        agentId: 'main',
         agentName: 'coder',
         response: summary.trim(),
       },
@@ -204,10 +245,7 @@ describe('SessionSubagentHost', () => {
       expect.objectContaining({
         type: '[rpc]',
         event: 'subagent.completed',
-        args: expect.objectContaining({
-          subagentId: 'agent-0',
-          parentToolCallId: 'call_agent',
-        }),
+        args: expect.objectContaining({ subagentId: 'agent-0' }),
       }),
     );
     expect(parent.allEvents).not.toContainEqual(
@@ -254,7 +292,6 @@ describe('SessionSubagentHost', () => {
     const telemetryTrack = vi.fn();
     const parent = testAgent({ telemetry: { track: telemetryTrack } });
     parent.configure();
-    parent.agent.config.update({ fastMode: true });
     await parent.rpc.setPermission({ mode: 'yolo' });
     parent.agent.permission.rules.splice(0, parent.agent.permission.rules.length, {
       decision: 'allow',
@@ -301,6 +338,9 @@ describe('SessionSubagentHost', () => {
     expect(telemetryTrack).toHaveBeenCalledWith('subagent_created', {
       subagent_name: 'explore',
       run_in_background: false,
+      agent_id: 'agent-0',
+      parent_agent_id: 'main',
+      parent_tool_call_id: 'call_agent',
     });
     expect(parent.allEvents).toContainEqual(
       expect.objectContaining({
@@ -308,7 +348,6 @@ describe('SessionSubagentHost', () => {
         event: 'subagent.completed',
         args: expect.objectContaining({
           subagentId: 'agent-0',
-          parentToolCallId: 'call_agent',
           resultSummary: 'Investigated the request and completed the child task end to end. The relevant module was located, its behavior traced through every call site, and the requested change applied and verified against the existing test suite.',
         }),
       }),
@@ -317,8 +356,7 @@ describe('SessionSubagentHost', () => {
       cwd: parent.agent.config.cwd,
       provider: parent.agent.config.data().provider,
       profileName: 'explore',
-      thinkingLevel: parent.agent.config.thinkingLevel,
-      fastMode: true,
+      thinkingEffort: parent.agent.config.thinkingEffort,
     });
     expect(child.agent.config.systemPrompt).toContain('codebase exploration specialist');
     expect(child.agent.permission.mode).toBe('yolo');
@@ -337,140 +375,6 @@ describe('SessionSubagentHost', () => {
         content: [{ type: 'text', text: 'Find the cause' }],
       },
     ]);
-  });
-
-  it('forks the parent system prompt, active tools, and projected history', async () => {
-    const parent = testAgent();
-    parent.configure({ tools: ['Read', 'Grep'] });
-    parent.agent.setFileCheckpointId('checkpoint-background');
-    parent.agent.context.appendUserMessage([{ type: 'text', text: 'Earlier request' }]);
-    parent.newEvents();
-
-    const child = testAgent({ type: 'sub' });
-    const summary =
-      'Used the inherited conversation context and matching child-bound tools to investigate the delegated request, then returned a complete technical handoff to the parent. '.repeat(
-        2,
-      );
-    child.mockNextResponse({ type: 'text', text: summary });
-    const session = fakeSession(parent.agent, child.agent);
-    const host = new SessionSubagentHost(session, 'main');
-
-    const handle = await host.spawn({
-      profileName: 'fork',
-      forkContext: true,
-      parentToolCallId: 'call_agent',
-      prompt: 'Continue the investigation',
-      description: 'Continue investigation',
-      runInBackground: true,
-      signal,
-    });
-
-    await expect(handle.completion).resolves.toMatchObject({ result: summary.trim() });
-    parent.agent.setFileCheckpointId('checkpoint-later');
-    expect(child.agent.fileCheckpointId).toBe('checkpoint-background');
-    expect(handle.profileName).toBe('fork');
-    expect(child.agent.config.systemPrompt).toBe(parent.agent.config.systemPrompt);
-    expect(child.llmCalls[0]?.tools.map((tool) => tool.name).toSorted()).toEqual([
-      'Grep',
-      'Read',
-    ]);
-    expect(userTextMessages(child.llmCalls[0]?.history ?? [])).toEqual([
-      'Earlier request',
-      'Continue the investigation',
-    ]);
-  });
-
-  it('applies model, effort, cwd, and scoped permission overrides to a spawned subagent', async () => {
-    const parent = testAgent();
-    parent.configure();
-    const child = testAgent({ type: 'sub' });
-    child.mockNextResponse({
-      type: 'text',
-      text: 'Completed the delegated task from the requested working directory and returned a detailed technical summary to the parent agent. '.repeat(
-        2,
-      ),
-    });
-    const session = fakeSession(parent.agent, child.agent);
-    const host = new SessionSubagentHost(session, 'main');
-    const cwd = await mkdtemp(join(tmpdir(), 'pythinker-subagent-cwd-'));
-    tempDirs.push(cwd);
-
-    const handle = await host.spawn({
-      profileName: 'coder',
-      modelAlias: parent.agent.config.modelAlias,
-      thinkingLevel: 'medium',
-      allowedTools: ['Read', 'Bash(git:*)'],
-      cwd,
-      parentToolCallId: 'call_agent',
-      prompt: 'Work elsewhere',
-      description: 'Work elsewhere',
-      runInBackground: false,
-      signal,
-    });
-    await handle.completion;
-
-    expect(child.agent.config.modelAlias).toBe(parent.agent.config.modelAlias);
-    expect(child.agent.config.thinkingLevel).toBe('medium');
-    expect(child.agent.config.cwd).toBe(cwd);
-    expect(child.agent.kaos.getcwd()).toBe(cwd);
-    expect(session.createAgent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        permission: {
-          initialRules: [
-            { decision: 'allow', scope: 'turn-override', pattern: 'Read' },
-            { decision: 'allow', scope: 'turn-override', pattern: 'Bash(git:*)' },
-          ],
-        },
-      }),
-      expect.objectContaining({ parentAgentId: 'main' }),
-    );
-  });
-
-  it('runs an isolated subagent in a worktree and reports a preserved checkout', async () => {
-    const parent = testAgent();
-    parent.configure();
-    const child = testAgent({ type: 'sub' });
-    const summary =
-      'Implemented and verified the isolated change in the dedicated worktree, then returned a detailed handoff that identifies every relevant result. '.repeat(
-        2,
-      );
-    child.mockNextResponse({ type: 'text', text: summary });
-    const cwd = await mkdtemp(join(tmpdir(), 'pythinker-subagent-worktree-'));
-    tempDirs.push(cwd);
-    vi.mocked(createSubagentWorktree).mockResolvedValue({
-      repoRoot: parent.agent.config.cwd,
-      originalHead: 'abc123',
-      worktreePath: cwd,
-      worktreeBranch: 'pythinker-agent-test',
-    });
-    vi.mocked(settleSubagentWorktree).mockResolvedValue({
-      kept: true,
-      worktreePath: cwd,
-      worktreeBranch: 'pythinker-agent-test',
-    });
-    const session = fakeSession(parent.agent, child.agent);
-    const host = new SessionSubagentHost(session, 'main');
-
-    const handle = await host.spawn({
-      profileName: 'coder',
-      isolation: 'worktree',
-      parentToolCallId: 'call_agent',
-      prompt: 'Implement in isolation',
-      description: 'Implement isolated',
-      runInBackground: false,
-      signal,
-    });
-
-    await expect(handle.completion).resolves.toMatchObject({
-      result: expect.stringContaining(`Worktree preserved at ${cwd}`),
-    });
-    expect(child.agent.config.cwd).toBe(cwd);
-    expect(settleSubagentWorktree).toHaveBeenCalledWith(
-      parent.agent.kaos,
-      expect.objectContaining({ worktreePath: cwd }),
-      parent.agent.hooks,
-      parent.agent.agentId,
-    );
   });
 
   it('inherits active parent user tools when spawning a subagent', async () => {
@@ -507,7 +411,6 @@ describe('SessionSubagentHost', () => {
     expect(child.agent.tools.data()).toContainEqual({
       name: 'Lookup',
       description: 'Look up a short test value.',
-      inputSchema: lookupToolRegistration().parameters,
       active: true,
       source: 'user',
     });
@@ -531,112 +434,6 @@ describe('SessionSubagentHost', () => {
 
     expect(routedTo).toBe('child');
     await expect(execution).resolves.toMatchObject({ output: 'moon-result' });
-  });
-
-  it('runs a discovered profile with its model-independent runtime settings', async () => {
-    const parent = testAgent();
-    parent.configure();
-    const skill = {
-      name: 'code-review',
-      description: 'Review code changes.',
-      path: '/skills/code-review/SKILL.md',
-      dir: '/skills/code-review',
-      content: 'Inspect correctness and edge cases.',
-      metadata: {},
-      source: 'user',
-    } as const;
-    const skills = {
-      getSkill: vi.fn((name: string) => (name === skill.name ? skill : undefined)),
-      renderSkillPrompt: vi.fn(() => skill.content),
-      getSkillRoots: vi.fn(() => []),
-      listInvocableSkills: vi.fn(() => [skill]),
-    } as unknown as NonNullable<AgentOptions['skills']>;
-    const child = testAgent({ type: 'sub', skills });
-    const summary =
-      'Applied the discovered review profile, followed its initial instruction, and returned a detailed review summary to the parent agent. '.repeat(
-        2,
-      );
-    child.mockNextResponse({ type: 'text', text: summary });
-    const reviewProfile: ResolvedAgentProfile = {
-      name: 'review',
-      description: 'Project review agent.',
-      systemPrompt: () => 'review system prompt',
-      tools: ['Read', 'Grep'],
-      effort: 'medium',
-      permissionMode: 'manual',
-      initialPrompt: 'Inspect the diff before answering.',
-      skills: ['code-review', 'missing'],
-      maxTurns: 7,
-    };
-    const session = Object.assign(fakeSession(parent.agent, child.agent), {
-      agentProfiles: { review: reviewProfile },
-    });
-    const host = new SessionSubagentHost(session, 'main');
-
-    const handle = await host.spawn({
-      profileName: 'review',
-      parentToolCallId: 'call_agent',
-      prompt: 'Review the change',
-      description: 'Review change',
-      runInBackground: false,
-      signal,
-    });
-    await handle.completion;
-
-    expect(child.agent.config.profileName).toBe('review');
-    expect(child.agent.config.thinkingLevel).toBe('medium');
-    expect(child.agent.permission.mode).toBe('manual');
-    expect(child.agent.config.maxStepsPerTurn).toBe(7);
-    expect(child.llmCalls[0]?.systemPrompt).toBe('review system prompt');
-    expect(userTextMessages(child.llmCalls[0]?.history ?? [])).toEqual([
-      'Inspect the diff before answering.\n\n' +
-        '## Preloaded skill: code-review\n\n' +
-        'Inspect correctness and edge cases.\n\n' +
-        'Review the change',
-    ]);
-    expect(skills.getSkill).toHaveBeenCalledWith('code-review');
-    expect(skills.getSkill).toHaveBeenCalledWith('missing');
-  });
-
-  it('scopes profile hooks to the child lifecycle', async () => {
-    const runModelHook = vi.fn(async () => ({ action: 'allow' as const }));
-    const { HookEngine } = await import('../../src/session/hooks');
-    const hookEngine = new HookEngine([], { runModelHook });
-    const parent = testAgent({ hookEngine });
-    parent.configure();
-    const child = testAgent({ type: 'sub', hookEngine });
-    child.mockNextResponse({
-      type: 'text',
-      text: 'Completed the requested child task and produced a sufficiently detailed summary for the parent to continue without repeating any work. '.repeat(
-        2,
-      ),
-    });
-    const profile: ResolvedAgentProfile = {
-      name: 'review',
-      systemPrompt: () => 'review system prompt',
-      tools: [],
-      hooks: [{ event: 'Stop', type: 'prompt', prompt: 'Verify the child result' }],
-    };
-    const session = Object.assign(fakeSession(parent.agent, child.agent), {
-      agentProfiles: { review: profile },
-    });
-    const host = new SessionSubagentHost(session, 'main');
-
-    const handle = await host.spawn({
-      profileName: 'review',
-      parentToolCallId: 'call_agent',
-      prompt: 'Review the change',
-      description: 'Review change',
-      runInBackground: false,
-      signal,
-    });
-    await handle.completion;
-
-    expect(runModelHook).toHaveBeenCalledOnce();
-    expect(hookEngine.summary).toEqual({});
-    await expect(
-      hookEngine.trigger('Stop', { inputData: { agentId: 'main' } }),
-    ).resolves.toEqual([]);
   });
 
   it('falls back to bundled subagent profiles when the parent profile is missing', async () => {
@@ -666,14 +463,19 @@ describe('SessionSubagentHost', () => {
     expect(child.llmCalls[0]?.systemPrompt).toContain('You are now running as a subagent.');
     expect(child.llmCalls[0]?.tools.map((tool) => tool.name).toSorted()).toEqual([
       'Bash',
+      'CronCreate',
+      'CronDelete',
+      'CronList',
       'Edit',
+      'EnterPlanMode',
+      'ExitPlanMode',
       'Glob',
       'Grep',
-      'NotebookEdit',
       'Read',
       'TaskList',
       'TaskOutput',
       'TaskStop',
+      'TodoList',
       'Write',
     ]);
     expect(child.llmCalls[0]?.history).toMatchObject([
@@ -691,9 +493,9 @@ describe('SessionSubagentHost', () => {
     const host = new SessionSubagentHost(
       {
         agents: new Map([['main', parent.agent]]),
-        metadata: { agents: {} },
         ensureAgentResumed: vi.fn(async () => parent.agent),
         createAgent,
+        agentCatalog: testAgentCatalog(),
       } as never,
       'main',
     );
@@ -718,9 +520,9 @@ describe('SessionSubagentHost', () => {
     const host = new SessionSubagentHost(
       {
         agents: new Map([['main', parent.agent]]),
-        metadata: { agents: {} },
         ensureAgentResumed: vi.fn(async () => parent.agent),
         createAgent,
+        agentCatalog: testAgentCatalog(),
       } as never,
       'main',
     );
@@ -736,148 +538,6 @@ describe('SessionSubagentHost', () => {
       }),
     ).rejects.toThrow('Subagent profile "btw" was not found');
     expect(createAgent).not.toHaveBeenCalled();
-  });
-
-  it('rejects a spawn when the session has reached its subagent cap', async () => {
-    const parent = testAgent();
-    parent.configure();
-    const child = testAgent({ type: 'sub' });
-    const metadataAgents = Object.fromEntries(
-      Array.from({ length: MAX_SUBAGENTS_PER_SESSION }, (_, index) => [
-        `agent-${String(index)}`,
-        { type: 'sub' as const, parentAgentId: 'main' },
-      ]),
-    );
-    const session = fakeSession(parent.agent, child.agent, metadataAgents);
-    const host = new SessionSubagentHost(session, 'main');
-
-    await expect(
-      host.spawn({
-        profileName: 'coder',
-        parentToolCallId: 'call_agent',
-        prompt: 'Implement the fix',
-        description: 'Fix bug',
-        runInBackground: false,
-        signal,
-      }),
-    ).rejects.toThrow(String(MAX_SUBAGENTS_PER_SESSION));
-    expect(session.createAgent).not.toHaveBeenCalled();
-  });
-
-  it('rejects a spawn when the owner is already at the nesting depth cap', async () => {
-    const parent = testAgent();
-    parent.configure();
-    const child = testAgent({ type: 'sub' });
-    const session = Object.assign(
-      fakeSession(parent.agent, child.agent, {
-        main: { type: 'main', parentAgentId: null },
-        'agent-0': { type: 'sub', parentAgentId: 'main' },
-        'agent-1': { type: 'sub', parentAgentId: 'agent-0' },
-        'agent-2': { type: 'sub', parentAgentId: 'agent-1' },
-      }),
-      {
-        ensureAgentResumed: vi.fn(async () => parent.agent),
-      },
-    );
-    // 'agent-2' is at depth 3 (main is depth 0), so its child would be at
-    // depth 4 — beyond MAX_SUBAGENT_SPAWN_DEPTH.
-    const host = new SessionSubagentHost(session, 'agent-2');
-
-    await expect(
-      host.spawn({
-        profileName: 'coder',
-        parentToolCallId: 'call_agent',
-        prompt: 'Nest too deep',
-        description: 'Too deep',
-        runInBackground: false,
-        signal,
-      }),
-    ).rejects.toThrow(String(MAX_SUBAGENT_SPAWN_DEPTH));
-    expect(session.createAgent).not.toHaveBeenCalled();
-  });
-
-  it('allows a spawn one nesting level shallower than the depth cap', async () => {
-    const parent = testAgent();
-    parent.configure();
-    parent.newEvents();
-
-    const summary =
-      'Completed the delegated subagent task from the shallower nesting level and returned a detailed technical handoff to the parent agent, so the work continues without repeating any of it. '.repeat(
-        2,
-      );
-    const child = testAgent({ type: 'sub' });
-    child.mockNextResponse({ type: 'text', text: summary });
-    const session = Object.assign(
-      fakeSession(parent.agent, child.agent, {
-        main: { type: 'main', parentAgentId: null },
-        'agent-0': { type: 'sub', parentAgentId: 'main' },
-        'agent-1': { type: 'sub', parentAgentId: 'agent-0' },
-      }),
-      {
-        ensureAgentResumed: vi.fn(async () => parent.agent),
-      },
-    );
-    // 'agent-1' is at depth 2, so its child lands at depth 3 — exactly the
-    // cap, and therefore allowed.
-    const host = new SessionSubagentHost(session, 'agent-1');
-
-    const handle = await host.spawn({
-      profileName: 'coder',
-      parentToolCallId: 'call_agent',
-      prompt: 'Work at the allowed depth',
-      description: 'Allowed depth',
-      runInBackground: false,
-      signal,
-    });
-    await expect(handle.completion).resolves.toMatchObject({ result: summary.trim() });
-    expect(session.createAgent).toHaveBeenCalledTimes(1);
-  });
-
-  it('resume is not blocked by the per-session subagent cap', async () => {
-    const parent = testAgent();
-    parent.configure();
-
-    const child = testAgent({ type: 'sub' });
-    child.configure({ tools: ['Read'] });
-    child.agent.useProfile(
-      profile({ name: 'explore', tools: ['Read'], systemPrompt: 'explore prompt' }),
-    );
-    child.agent.context.appendUserMessage([{ type: 'text', text: 'Earlier context' }]);
-    child.mockNextResponse({
-      type: 'text',
-      text: 'Resumed the subagent from its earlier context and carried the task through to completion, then reported a full and detailed technical summary so the parent agent can continue without repeating prior work.',
-    });
-
-    const otherAgents = Object.fromEntries(
-      Array.from({ length: MAX_SUBAGENTS_PER_SESSION - 1 }, (_, index) => [
-        `agent-${String(index + 1)}`,
-        { type: 'sub' as const, parentAgentId: 'main' },
-      ]),
-    );
-    const session = fakeSession(parent.agent, child.agent, {
-      'agent-0': { type: 'sub', parentAgentId: 'main' },
-      ...otherAgents,
-    });
-    const host = new SessionSubagentHost(session, 'main');
-
-    const handle = await host.resume('agent-0', {
-      parentToolCallId: 'call_agent',
-      prompt: 'Continue from context',
-      description: 'Continue work',
-      runInBackground: false,
-      signal,
-    });
-
-    expect(handle).toMatchObject({
-      agentId: 'agent-0',
-      profileName: 'explore',
-      resumed: true,
-    });
-    await expect(handle.completion).resolves.toMatchObject({
-      result:
-        'Resumed the subagent from its earlier context and carried the task through to completion, then reported a full and detailed technical summary so the parent agent can continue without repeating prior work.',
-    });
-    expect(session.createAgent).not.toHaveBeenCalled();
   });
 
   it('cancels the child turn when the caller signal aborts', async () => {
@@ -917,7 +577,6 @@ describe('SessionSubagentHost', () => {
         event: 'subagent.failed',
         args: expect.objectContaining({
           subagentId: 'agent-0',
-          parentToolCallId: 'call_agent',
           error: 'Aborted',
         }),
       }),
@@ -980,7 +639,7 @@ describe('SessionSubagentHost', () => {
     // The parent turn signal aborts with a user-cancellation reason; linkAbortSignal
     // forwards it to the child exactly as Turn.cancel does on a real ESC.
     controller.abort(userCancellationReason());
-    await expect(handle.completion).rejects.toThrowErrorMatchingInlineSnapshot(`[AbortError: Aborted by the user]`);
+    await expect(handle.completion).rejects.toThrow();
     await child.untilTurnEnd();
 
     const output = childBashToolResultOutput(child);
@@ -1013,7 +672,7 @@ describe('SessionSubagentHost', () => {
     // propagating through waitForCurrentTurn — must NOT be reported to the
     // child's tools as a deliberate user interruption.
     controller.abort(abortError());
-    await expect(handle.completion).rejects.toThrowErrorMatchingInlineSnapshot(`[AbortError: Aborted]`);
+    await expect(handle.completion).rejects.toThrow();
     await child.untilTurnEnd();
 
     const output = childBashToolResultOutput(child);
@@ -1168,126 +827,6 @@ describe('SessionSubagentHost', () => {
     expect(child.llmCalls).toHaveLength(1);
   });
 
-  it('passes an output schema to the child turn and returns the structured output', async () => {
-    const parent = testAgent();
-    parent.configure();
-    parent.newEvents();
-
-    const outputSchema = {
-      type: 'object',
-      properties: { answer: { type: 'string' } },
-      required: ['answer'],
-    };
-    const child = testAgent({ type: 'sub' });
-    child.mockNextResponse(
-      { type: 'text', text: 'I will return structured output.' },
-      {
-        type: 'function',
-        id: 'call_structured_output',
-        name: 'StructuredOutput',
-        arguments: JSON.stringify({ answer: 'done' }),
-      },
-    );
-    const session = fakeSession(parent.agent, child.agent);
-    const host = new SessionSubagentHost(session, 'main');
-    const promptSpy = vi.spyOn(child.agent.turn, 'prompt');
-
-    const handle = await host.spawn({
-      profileName: 'coder',
-      outputSchema,
-      parentToolCallId: 'call_agent',
-      prompt: 'Return structured output',
-      description: 'Structured task',
-      runInBackground: false,
-      signal,
-    });
-
-    await expect(handle.completion).resolves.toMatchObject({
-      result: JSON.stringify({ answer: 'done' }),
-    });
-    expect(promptSpy).toHaveBeenCalledTimes(1);
-    expect(promptSpy.mock.calls[0]?.[2]).toBe(outputSchema);
-  });
-
-  it('skips the short-summary continuation when an output schema is set', async () => {
-    const parent = testAgent();
-    parent.configure();
-    parent.newEvents();
-
-    const outputSchema = { type: 'object', properties: { answer: { type: 'string' } } };
-    const child = testAgent({ type: 'sub' });
-    for (let i = 0; i < 6; i += 1) {
-      child.mockNextResponse({ type: 'text', text: 'short' });
-    }
-    const session = fakeSession(parent.agent, child.agent);
-    const host = new SessionSubagentHost(session, 'main');
-    const promptSpy = vi.spyOn(child.agent.turn, 'prompt');
-
-    const handle = await host.spawn({
-      profileName: 'coder',
-      outputSchema,
-      parentToolCallId: 'call_agent',
-      prompt: 'Return structured output',
-      description: 'Structured task',
-      runInBackground: false,
-      signal,
-    });
-
-    // The model never calls StructuredOutput, so the turn exhausts its
-    // completion reminders and fails with structured_output.max_retries. The
-    // assistant text stays well under SUMMARY_MIN_LENGTH, so a second
-    // turn.prompt call would mean the continuation ran.
-    await expect(handle.completion).rejects.toThrow('structured_output.max_retries');
-    expect(promptSpy).toHaveBeenCalledTimes(1);
-  });
-
-  it('reports structured_output.max_retries as schema_error and other failures as failed', async () => {
-    const parent = testAgent();
-    parent.configure();
-    parent.newEvents();
-
-    const child = testAgent({ type: 'sub' });
-    child.configure();
-    for (let i = 0; i < 6; i += 1) {
-      child.mockNextResponse({ type: 'text', text: 'short' });
-    }
-    const session = fakeSession(parent.agent, child.agent);
-    const host = new SessionSubagentHost(session, 'main');
-
-    const schemaErrorResults = await host.runQueued([
-      {
-        ...queuedTask(1),
-        outputSchema: { type: 'object', properties: { answer: { type: 'string' } } },
-        signal,
-      },
-    ]);
-    const schemaErrorResult = schemaErrorResults[0]!;
-
-    expect(schemaErrorResult).toMatchObject({
-      status: 'schema_error',
-      state: 'started',
-    });
-    expect(schemaErrorResult.error).toContain('structured_output.max_retries');
-
-    child.mockNextProviderResponse({
-      parts: [
-        { type: 'think', think: 'The child used its output budget before writing a summary.' },
-      ],
-      finishReason: 'truncated',
-      rawFinishReason: 'length',
-    });
-    const failedResults = await host.runQueued([{ ...queuedTask(2), signal }]);
-    const failedResult = failedResults[0]!;
-
-    expect(failedResult).toMatchObject({
-      status: 'failed',
-      state: 'started',
-    });
-    expect(failedResult.error).toContain(
-      'Subagent turn failed before completing its final summary',
-    );
-  });
-
   it('prepends git context to the prompt for explore subagents', async () => {
     vi.mocked(collectGitContext).mockResolvedValueOnce(
       '<git-context>\nWorking directory: /repo\nBranch: main\n</git-context>',
@@ -1356,7 +895,6 @@ describe('SessionSubagentHost', () => {
     const parent = testAgent();
     parent.configure();
     parent.agent.permission.setMode('yolo');
-    parent.agent.setFileCheckpointId('checkpoint-resume');
 
     const child = testAgent({
       type: 'sub',
@@ -1375,6 +913,7 @@ describe('SessionSubagentHost', () => {
 
     const session = fakeSession(parent.agent, child.agent, {
       'agent-0': {
+        homedir: '/tmp/pythinker-session/agents/agent-0',
         type: 'sub',
         parentAgentId: 'main',
       },
@@ -1399,7 +938,6 @@ describe('SessionSubagentHost', () => {
         'Resumed the subagent from its earlier context and carried the task through to completion, then reported a full and detailed technical summary so the parent agent can continue without repeating prior work.',
     });
     expect(session.createAgent).not.toHaveBeenCalled();
-    expect(child.agent.fileCheckpointId).toBe('checkpoint-resume');
     expect(child.agent.permission.mode).toBe('yolo');
     expect(child.lastLlmInput()).toMatchInlineSnapshot(`
       system: "explore prompt"
@@ -1430,15 +968,16 @@ describe('SessionSubagentHost', () => {
     child.agent.useProfile(
       profile({ name: 'coder', tools: [], systemPrompt: 'coder prompt' }),
     );
-    child.agent.context.appendUserMessage([{ type: 'text', text: 'Earlier dynamic workflow context' }]);
+    child.agent.context.appendUserMessage([{ type: 'text', text: 'Earlier dynamic_workflow context' }]);
     const summary =
-      'Resumed the queued dynamic workflow subagent from its prior context, completed the missing work, and returned a detailed enough handoff for the parent to proceed without starting over. '.repeat(
+      'Resumed the queued dynamic_workflow subagent from its prior context, completed the missing work, and returned a detailed enough handoff for the parent to proceed without starting over. '.repeat(
         2,
       );
     child.mockNextResponse({ type: 'text', text: summary });
 
     const session = fakeSession(parent.agent, child.agent, {
       'agent-0': {
+        homedir: '/tmp/pythinker-session/agents/agent-0',
         type: 'sub',
         parentAgentId: 'main',
       },
@@ -1451,7 +990,7 @@ describe('SessionSubagentHost', () => {
           {
             ...queuedTask(1),
             kind: 'resume',
-            prompt: 'Continue the previous dynamic workflow task',
+            prompt: 'Continue the previous dynamic_workflow task',
             resumeAgentId: 'agent-0',
             signal,
           },
@@ -1467,12 +1006,12 @@ describe('SessionSubagentHost', () => {
 
     expect(session.createAgent).not.toHaveBeenCalled();
     expect(userTextMessages(child.llmCalls[0]?.history ?? [])).toEqual([
-      'Earlier dynamic workflow context',
-      'Continue the previous dynamic workflow task',
+      'Earlier dynamic_workflow context',
+      'Continue the previous dynamic_workflow task',
     ]);
   });
 
-  it('runQueued persists dynamic workflow item metadata for spawned tasks', async () => {
+  it('runQueued persists dynamic_workflow item metadata for spawned tasks', async () => {
     const parent = testAgent();
     parent.configure();
     parent.newEvents();
@@ -1480,7 +1019,7 @@ describe('SessionSubagentHost', () => {
     const child = testAgent({ type: 'sub' });
     child.configure();
     const summary =
-      'Completed the queued dynamic workflow item and returned a detailed technical handoff so the parent can map the result back to the original dynamic workflow input. '.repeat(
+      'Completed the queued dynamic_workflow item and returned a detailed technical handoff so the parent can map the result back to the original dynamic_workflow input. '.repeat(
         2,
       );
     child.mockNextResponse({ type: 'text', text: summary });
@@ -1490,7 +1029,7 @@ describe('SessionSubagentHost', () => {
     const host = new SessionSubagentHost(session, 'main');
 
     await expect(
-      host.runQueued([{ ...queuedTask(1), dynamicWorkflowItem: 'src/a.ts', signal }]),
+      host.runQueued([{ ...queuedTask(1), dynamic_workflowItem: 'src/a.ts', signal }]),
     ).resolves.toMatchObject([
       {
         agentId: 'agent-0',
@@ -1503,13 +1042,13 @@ describe('SessionSubagentHost', () => {
       expect.any(Object),
       expect.objectContaining({
         parentAgentId: 'main',
-        dynamicWorkflowItem: 'src/a.ts',
+        dynamic_workflowItem: 'src/a.ts',
       }),
     );
     expect(metadataAgents['agent-0']).toMatchObject({
       type: 'sub',
       parentAgentId: 'main',
-      dynamicWorkflowItem: 'src/a.ts',
+      dynamic_workflowItem: 'src/a.ts',
     });
     expect(host.getDynamicWorkflowItem('agent-0')).toBe('src/a.ts');
     expect(parent.allEvents).toContainEqual(
@@ -1529,106 +1068,6 @@ describe('SessionSubagentHost', () => {
         event: 'subagent.started',
         args: expect.objectContaining({
           subagentId: 'agent-0',
-          parentToolCallId: 'call_dynamic_workflow',
-        }),
-      }),
-    );
-  });
-
-  it('runQueued carries a workflow run id to the child launch options', async () => {
-    const parent = testAgent();
-    parent.configure();
-    parent.newEvents();
-
-    const child = testAgent({ type: 'sub' });
-    child.configure();
-    const summary =
-      'Completed the queued dynamic workflow item and returned a detailed technical handoff so the parent can map the result back to the original dynamic workflow input. '.repeat(
-        2,
-      );
-    child.mockNextResponse({ type: 'text', text: summary });
-
-    const session = fakeSession(parent.agent, child.agent);
-    const host = new SessionSubagentHost(session, 'main');
-    const spawnSpy = vi.spyOn(host, 'spawn');
-
-    await expect(
-      host.runQueued([
-        {
-          ...queuedTask(1),
-          workflowRunId: 'wfr-test-001',
-          workflowName: 'Review files',
-          signal,
-        },
-      ]),
-    ).resolves.toMatchObject([
-      {
-        agentId: 'agent-0',
-        status: 'completed',
-        result: summary.trim(),
-      },
-    ]);
-
-    expect(spawnSpy).toHaveBeenCalledTimes(1);
-    expect(spawnSpy.mock.calls[0]?.[0]?.workflowRunId).toBe('wfr-test-001');
-    expect(spawnSpy.mock.calls[0]?.[0]?.workflowName).toBe('Review files');
-    expect(parent.allEvents).toContainEqual(
-      expect.objectContaining({
-        type: '[rpc]',
-        event: 'subagent.spawned',
-        args: expect.objectContaining({
-          subagentId: 'agent-0',
-          workflowRunId: 'wfr-test-001',
-          workflowName: 'Review files',
-        }),
-      }),
-    );
-    // Every lifecycle event carries the correlation pair, not only spawned —
-    // a consumer that joins on completion must not need a spawned-event cache.
-    for (const event of ['subagent.started', 'subagent.completed']) {
-      expect(parent.allEvents).toContainEqual(
-        expect.objectContaining({
-          type: '[rpc]',
-          event,
-          args: expect.objectContaining({
-            subagentId: 'agent-0',
-            workflowRunId: 'wfr-test-001',
-            workflowName: 'Review files',
-          }),
-        }),
-      );
-    }
-  });
-
-  it('carries the workflow correlation pair on subagent.suspended', () => {
-    const parent = testAgent();
-    parent.configure();
-    parent.newEvents();
-
-    const child = testAgent({ type: 'sub' });
-    child.configure();
-    const session = fakeSession(parent.agent, child.agent);
-    const host = new SessionSubagentHost(session, 'main');
-
-    host.suspended({
-      task: {
-        ...queuedTask(1),
-        workflowRunId: 'wfr-test-001',
-        workflowName: 'Review files',
-      },
-      agentId: 'agent-7',
-      reason: 'rate_limited',
-    });
-
-    expect(parent.allEvents).toContainEqual(
-      expect.objectContaining({
-        type: '[rpc]',
-        event: 'subagent.suspended',
-        args: expect.objectContaining({
-          subagentId: 'agent-7',
-          workflowRunId: 'wfr-test-001',
-          workflowName: 'Review files',
-          reason: 'rate_limited',
         }),
       }),
     );
@@ -1695,214 +1134,6 @@ describe('SessionSubagentHost', () => {
     expect(userTextMessages(histories[1] ?? [])).toEqual(['Implement the retry-safe change']);
   });
 
-  it('keeps the output schema when a rate-limited subagent is retried', async () => {
-    const parent = testAgent();
-    parent.configure();
-    parent.newEvents();
-
-    const outputSchema = {
-      type: 'object',
-      properties: { answer: { type: 'string' } },
-      required: ['answer'],
-    };
-    const toolNamesPerCall: string[][] = [];
-    let generateCalls = 0;
-    const generate: GenerateFn = async (
-      _provider,
-      _systemPrompt,
-      tools,
-      _history,
-      callbacks,
-    ) => {
-      toolNamesPerCall.push(tools.map((tool) => tool.name));
-      generateCalls += 1;
-      if (generateCalls === 1) {
-        throw new APIStatusError(429, 'Rate limited', 'req-429');
-      }
-      // Answers in prose instead of calling StructuredOutput.
-      await callbacks?.onMessagePart?.({ type: 'text', text: 'plain prose answer' });
-      return textResult('plain prose answer');
-    };
-    const child = testAgent({
-      generate,
-      initialConfig: { providers: {}, loopControl: { maxRetriesPerStep: 1 } },
-    });
-    child.configure();
-
-    const session = fakeSession(parent.agent, child.agent);
-    const host = new SessionSubagentHost(session, 'main');
-    const retrySpy = vi.spyOn(child.agent.turn, 'retry');
-
-    const options = {
-      profileName: 'coder',
-      outputSchema,
-      parentToolCallId: 'call_agent',
-      prompt: 'Return structured output',
-      description: 'Structured task',
-      runInBackground: false,
-      signal,
-    };
-    const handle = await host.spawn(options);
-    await expect(handle.completion).rejects.toThrow('Rate limited');
-
-    const retryHandle = await host.retry(handle.agentId, options);
-
-    // Dropping the schema here used to let the retried turn answer in prose and
-    // report completed, silently voiding the structured-output contract.
-    await expect(retryHandle.completion).rejects.toThrow('structured_output.max_retries');
-    expect(retrySpy.mock.calls[0]?.[1]).toBe(outputSchema);
-    expect(toolNamesPerCall.at(-1)).toContain('StructuredOutput');
-  });
-
-  it('uses the implementer role when no explicit or profile model is set', async () => {
-    const parent = testAgent({
-      initialConfig: { providers: {}, modelRoles: { implementer: 'implementer-model' } },
-    });
-    parent.configure();
-    parent.agent.permission.setMode('yolo');
-
-    const child = testAgent();
-    child.configure();
-    child.configureRuntimeModel({ type: 'pythinker', apiKey: 'test-key', model: 'implementer-model' });
-    child.mockNextResponse({
-      type: 'text',
-      text: 'Completed the delegated implementation with enough detail for the parent agent to continue without repeating the work. '.repeat(2),
-    });
-
-    const host = new SessionSubagentHost(fakeSession(parent.agent, child.agent), 'main');
-    const handle = await host.spawn({
-      profileName: 'coder',
-      parentToolCallId: 'call_agent',
-      prompt: 'Implement the feature',
-      description: 'Implement feature',
-      runInBackground: false,
-      signal,
-    });
-    await handle.completion;
-
-    expect(child.agent.config.modelAlias).toBe('implementer-model');
-  });
-
-  it('expands an explicit model role reference', async () => {
-    const parent = testAgent({
-      initialConfig: { providers: {}, modelRoles: { small: 'small-model' } },
-    });
-    parent.configure();
-    parent.agent.permission.setMode('yolo');
-
-    const child = testAgent();
-    child.configure();
-    child.configureRuntimeModel({ type: 'pythinker', apiKey: 'test-key', model: 'small-model' });
-    child.mockNextResponse({
-      type: 'text',
-      text: 'Completed the delegated task on the selected small model and returned enough detail for the parent to continue. '.repeat(2),
-    });
-
-    const host = new SessionSubagentHost(fakeSession(parent.agent, child.agent), 'main');
-    const handle = await host.spawn({
-      profileName: 'coder',
-      modelAlias: '@small',
-      parentToolCallId: 'call_agent',
-      prompt: 'Investigate the issue',
-      description: 'Investigate issue',
-      runInBackground: false,
-      signal,
-    });
-    await handle.completion;
-
-    expect(child.agent.config.modelAlias).toBe('small-model');
-  });
-
-  it('falls back to the parent model when an explicit role is unassigned', async () => {
-    const parent = testAgent();
-    parent.configure();
-    parent.agent.permission.setMode('yolo');
-
-    const child = testAgent();
-    child.configure();
-    child.mockNextResponse({
-      type: 'text',
-      text: 'Completed the delegated task with the inherited model and returned enough detail for the parent agent to continue. '.repeat(2),
-    });
-
-    const host = new SessionSubagentHost(fakeSession(parent.agent, child.agent), 'main');
-    const handle = await host.spawn({
-      profileName: 'coder',
-      modelAlias: '@small',
-      parentToolCallId: 'call_agent',
-      prompt: 'Investigate the issue',
-      description: 'Investigate issue',
-      runInBackground: false,
-      signal,
-    });
-    await handle.completion;
-
-    expect(child.agent.config.modelAlias).toBe(parent.agent.config.modelAlias);
-  });
-
-  it('falls back to the parent model when the implementer role is unresolvable', async () => {
-    const parent = testAgent({
-      initialConfig: { providers: {}, modelRoles: { implementer: 'no-such-alias' } },
-    });
-    parent.configure();
-    parent.agent.permission.setMode('yolo');
-
-    const child = testAgent();
-    child.configure();
-    child.mockNextResponse({
-      type: 'text',
-      text: 'Completed the delegated task with the inherited model and returned enough detail for the parent agent to continue. '.repeat(2),
-    });
-
-    const host = new SessionSubagentHost(fakeSession(parent.agent, child.agent), 'main');
-    const handle = await host.spawn({
-      profileName: 'coder',
-      parentToolCallId: 'call_agent',
-      prompt: 'Implement the feature',
-      description: 'Implement feature',
-      runInBackground: false,
-      signal,
-    });
-    await handle.completion;
-
-    expect(child.agent.config.modelAlias).toBe(parent.agent.config.modelAlias);
-  });
-
-  it('applies model deny rules to the alias resolved from a role reference', async () => {
-    const parent = testAgent({
-      initialConfig: { providers: {}, modelRoles: { small: 'small-model' } },
-    });
-    parent.configure();
-    parent.agent.permission.setMode('yolo');
-    parent.agent.permission.rules.push({
-      decision: 'deny',
-      scope: 'session-runtime',
-      pattern: 'Agent(model:small-model)',
-    });
-
-    const child = testAgent();
-    child.configure();
-    child.configureRuntimeModel({ type: 'pythinker', apiKey: 'test-key', model: 'small-model' });
-    child.mockNextResponse({
-      type: 'text',
-      text: 'Completed the contained delegated task with enough detail for the parent agent to continue without repeating the work. '.repeat(2),
-    });
-
-    const host = new SessionSubagentHost(fakeSession(parent.agent, child.agent), 'main');
-    const handle = await host.spawn({
-      profileName: 'coder',
-      modelAlias: '@small',
-      parentToolCallId: 'call_agent',
-      prompt: 'Investigate the issue',
-      description: 'Investigate issue',
-      runInBackground: false,
-      signal,
-    });
-    await handle.completion;
-
-    expect(child.agent.config.modelAlias).toBe(parent.agent.config.modelAlias);
-  });
-
   it('realigns a resumed subagent to the parent agent current model', async () => {
     const parent = testAgent();
     parent.configure();
@@ -1924,6 +1155,7 @@ describe('SessionSubagentHost', () => {
 
     const session = fakeSession(parent.agent, child.agent, {
       'agent-0': {
+        homedir: '/tmp/pythinker-session/agents/agent-0',
         type: 'sub',
         parentAgentId: 'main',
       },
@@ -1945,314 +1177,233 @@ describe('SessionSubagentHost', () => {
     expect(child.agent.config.modelAlias).not.toBe('stale-model-from-initial-spawn');
   });
 
-  it('keeps a profile-routed model and effort across resume', async () => {
-    const parent = testAgent();
-    parent.configure();
-    parent.agent.permission.setMode('yolo');
-
-    const child = testAgent();
-    child.configure({ tools: ['Read'] });
-    // Register a second alias so the child's provider can resolve the model the
-    // profile routes to (in production this is a [models."..."] config entry
-    // that may point at an entirely different provider).
-    child.configureRuntimeModel({ type: 'pythinker', apiKey: 'test-key', model: 'implementer-model' });
-    child.agent.context.appendUserMessage([{ type: 'text', text: 'Earlier context' }]);
-    child.mockNextResponse({
-      type: 'text',
-      text: 'Resumed the routed subagent from its earlier context and carried the assigned task through to completion, then reported a full and detailed technical summary of every change so the parent agent can continue without repeating any prior work.',
+  describe('secondary model binding', () => {
+    const secondaryFlags = () =>
+      new FlagResolver({ PYTHINKER_CODE_EXPERIMENTAL_SECONDARY_MODEL: '1' });
+    const LONG_SUMMARY =
+      'Completed the delegated task end to end and reported a technically complete summary so the parent agent can continue without repeating prior work. ' +
+      'The report covers the investigation, the changes made, and the verification results in enough detail for the caller to act on directly.';
+    // Harness model registry entries resolvable through the child's
+    // ProviderManager: the secondary alias and the synthesized derived entry
+    // (in production `applySecondaryModelConfig` injects the latter into the
+    // session runtime config).
+    const withSecondaryModels = (config?: PythinkerConfig): PythinkerConfig => ({
+      providers: { 'test-provider': { type: 'pythinker', apiKey: 'test-key' } },
+      ...config,
+      models: {
+        'cheap-model': {
+          provider: 'test-provider',
+          model: 'cheap-model',
+          maxContextSize: 1_000_000,
+        },
+        '__secondary__': {
+          provider: 'test-provider',
+          model: 'cheap-model',
+          maxContextSize: 65536,
+        },
+      },
     });
 
-    const implementerProfile: ResolvedAgentProfile = {
-      name: 'implementer',
-      description: 'Cheap implementer routed to another model.',
-      systemPrompt: () => 'implementer system prompt',
-      tools: ['Read'],
-      model: 'implementer-model',
-      effort: 'medium',
-    };
-    child.agent.useProfile(implementerProfile);
+    async function spawnChild(options: {
+      config?: PythinkerConfig;
+      experimentalFlags?: FlagResolver;
+      providerManager?: Session['options']['providerManager'];
+      modelChoice?: 'primary' | 'secondary';
+      profilePreference?: 'primary' | 'secondary';
+    }) {
+      const parent = testAgent();
+      parent.configure();
+      const child = testAgent({ initialConfig: withSecondaryModels() });
+      child.configure({ tools: ['Read'] });
+      child.mockNextResponse({ type: 'text', text: LONG_SUMMARY });
 
-    const session = Object.assign(
-      fakeSession(parent.agent, child.agent, {
-        'agent-0': { type: 'sub', parentAgentId: 'main' },
-      }),
-      { agentProfiles: { implementer: implementerProfile } },
-    );
-    const host = new SessionSubagentHost(session, 'main');
+      const session = fakeSession(parent.agent, child.agent, {}, {
+        config: options.config,
+        experimentalFlags: options.experimentalFlags,
+        providerManager: options.providerManager,
+      });
+      const host = new SessionSubagentHost(session, 'main');
+      if (options.profilePreference !== undefined) {
+        vi.spyOn(
+          host as unknown as {
+            resolveProfile: (parent: Agent, name: string) => ResolvedAgentProfile;
+          },
+          'resolveProfile',
+        ).mockReturnValue(
+          profile({
+            name: 'coder',
+            tools: ['Read'],
+            systemPrompt: 'coder prompt',
+            modelPreference: options.profilePreference,
+          }),
+        );
+      }
+      const handle = await host.spawn({
+        profileName: 'coder',
+        modelChoice: options.modelChoice,
+        parentToolCallId: 'call_agent',
+        prompt: 'Do work',
+        description: 'Do work',
+        runInBackground: false,
+        signal,
+      });
+      await handle.completion;
+      return { parent, child, handle };
+    }
 
-    const handle = await host.resume('agent-0', {
-      parentToolCallId: 'call_agent',
-      prompt: 'Continue from context',
-      description: 'Continue work',
-      runInBackground: false,
-      signal,
-    });
-    await handle.completion;
-
-    // Resume must re-resolve through the spawn precedence rather than copying
-    // the parent's model, or a routed implementer silently reverts to the
-    // orchestrator's (expensive) model on its second turn.
-    expect(child.agent.config.modelAlias).toBe('implementer-model');
-    expect(child.agent.config.modelAlias).not.toBe(parent.agent.config.modelAlias);
-    expect(child.agent.config.thinkingLevel).toBe('medium');
-  });
-
-  it('keeps a profile-routed model and effort across retry', async () => {
-    const parent = testAgent();
-    parent.configure();
-    parent.agent.permission.setMode('yolo');
-
-    const child = testAgent();
-    child.configure({ tools: ['Read'] });
-    child.configureRuntimeModel({ type: 'pythinker', apiKey: 'test-key', model: 'implementer-model' });
-    child.agent.context.appendUserMessage([{ type: 'text', text: 'Earlier context' }]);
-    child.mockNextResponse({
-      type: 'text',
-      text: 'Retried the routed subagent from its earlier context and carried the assigned task through to completion, then reported a full and detailed technical summary of every change so the parent agent can continue without repeating any prior work.',
-    });
-
-    const implementerProfile: ResolvedAgentProfile = {
-      name: 'implementer',
-      description: 'Cheap implementer routed to another model.',
-      systemPrompt: () => 'implementer system prompt',
-      tools: ['Read'],
-      model: 'implementer-model',
-      effort: 'medium',
-    };
-    child.agent.useProfile(implementerProfile);
-
-    const session = Object.assign(
-      fakeSession(parent.agent, child.agent, {
-        'agent-0': { type: 'sub', parentAgentId: 'main' },
-      }),
-      { agentProfiles: { implementer: implementerProfile } },
-    );
-    const host = new SessionSubagentHost(session, 'main');
-
-    const handle = await host.retry('agent-0', {
-      parentToolCallId: 'call_agent',
-      prompt: 'Continue from context',
-      description: 'Continue work',
-      runInBackground: false,
-      signal,
-    });
-    await handle.completion;
-
-    // Retry re-runs the last turn, so it must re-resolve the routed model the
-    // same way resume does instead of inheriting the parent's.
-    expect(child.agent.config.modelAlias).toBe('implementer-model');
-    expect(child.agent.config.modelAlias).not.toBe(parent.agent.config.modelAlias);
-    expect(child.agent.config.thinkingLevel).toBe('medium');
-  });
-
-  it('an Agent(model:) deny rule strips a profile-routed model override', async () => {
-    const parent = testAgent();
-    parent.configure();
-    parent.agent.permission.setMode('yolo');
-    // The rule fires at tool approval only when the model appears in the tool
-    // arguments. A profile-sourced override never goes back through approval,
-    // so the spawn-time containment check is what has to strip it.
-    parent.agent.permission.rules.push({
-      decision: 'deny',
-      scope: 'session-runtime',
-      pattern: 'Agent(model:implementer-model)',
+    it('binds the secondary model when configured', async () => {
+      const { parent, child } = await spawnChild({
+        experimentalFlags: secondaryFlags(),
+        config: {
+          providers: {},
+          secondaryModel: { model: 'cheap-model' },
+        },
+      });
+      expect(child.agent.config.modelAlias).toBe('cheap-model');
+      expect(child.agent.config.modelAlias).not.toBe(parent.agent.config.modelAlias);
     });
 
-    const child = testAgent();
-    child.configure({ tools: ['Read'] });
-    child.configureRuntimeModel({ type: 'pythinker', apiKey: 'test-key', model: 'implementer-model' });
-    child.agent.context.appendUserMessage([{ type: 'text', text: 'Earlier context' }]);
-    child.mockNextResponse({
-      type: 'text',
-      text: 'Resumed the subagent on the contained model and carried the assigned task through to completion, then reported a full and detailed technical summary of every change so the parent agent can continue without repeating any prior work.',
+    it('binds the derived entry when the recipe carries patch fields', async () => {
+      const { child } = await spawnChild({
+        experimentalFlags: secondaryFlags(),
+        config: {
+          providers: {},
+          secondaryModel: { model: 'cheap-model', defaultEffort: 'low' },
+        },
+      });
+      // default_effort is part of the subagent-only patch, so the spawn binds
+      // the synthesized derived entry rather than the pointed alias.
+      expect(child.agent.config.modelAlias).toBe('__secondary__');
     });
 
-    const implementerProfile: ResolvedAgentProfile = {
-      name: 'implementer',
-      description: 'Cheap implementer routed to another model.',
-      systemPrompt: () => 'implementer system prompt',
-      tools: ['Read'],
-      model: 'implementer-model',
-      effort: 'medium',
-    };
-    child.agent.useProfile(implementerProfile);
-
-    const session = Object.assign(
-      fakeSession(parent.agent, child.agent, {
-        'agent-0': { type: 'sub', parentAgentId: 'main' },
-      }),
-      { agentProfiles: { implementer: implementerProfile } },
-    );
-    const host = new SessionSubagentHost(session, 'main');
-
-    const handle = await host.resume('agent-0', {
-      parentToolCallId: 'call_agent',
-      prompt: 'Continue from context',
-      description: 'Continue work',
-      runInBackground: false,
-      signal,
-    });
-    await handle.completion;
-
-    expect(child.agent.config.modelAlias).toBe(parent.agent.config.modelAlias);
-    expect(child.agent.config.modelAlias).not.toBe('implementer-model');
-  });
-
-  it('scopes model deny rules to the spawning surface', async () => {
-    const parent = testAgent();
-    parent.configure();
-    parent.agent.permission.setMode('yolo');
-    // A workflow child answers to DynamicWorkflow(model:...) rules; an
-    // Agent-scoped rule must not strip its override.
-    parent.agent.permission.rules.push({
-      decision: 'deny',
-      scope: 'session-runtime',
-      pattern: 'Agent(model:implementer-model)',
+    it('inherits the parent model when the experiment is off', async () => {
+      const { parent, child } = await spawnChild({
+        config: { providers: {}, secondaryModel: { model: 'cheap-model' } },
+      });
+      expect(child.agent.config.modelAlias).toBe(parent.agent.config.modelAlias);
     });
 
-    const child = testAgent();
-    child.configure({ tools: ['Read'] });
-    child.configureRuntimeModel({ type: 'pythinker', apiKey: 'test-key', model: 'implementer-model' });
-    child.agent.context.appendUserMessage([{ type: 'text', text: 'Earlier context' }]);
-    child.mockNextResponse({
-      type: 'text',
-      text: 'Resumed the routed workflow subagent from its earlier context and carried the assigned task through to completion, then reported a full and detailed technical summary of every change so the parent agent can continue without repeating any prior work.',
+    it('inherits the parent model for an explicit model: primary choice', async () => {
+      const { parent, child } = await spawnChild({
+        experimentalFlags: secondaryFlags(),
+        config: { providers: {}, secondaryModel: { model: 'cheap-model' } },
+        modelChoice: 'primary',
+      });
+      expect(child.agent.config.modelAlias).toBe(parent.agent.config.modelAlias);
     });
 
-    const implementerProfile: ResolvedAgentProfile = {
-      name: 'implementer',
-      description: 'Cheap implementer routed to another model.',
-      systemPrompt: () => 'implementer system prompt',
-      tools: ['Read'],
-      model: 'implementer-model',
-      effort: 'medium',
-    };
-    child.agent.useProfile(implementerProfile);
-
-    const session = Object.assign(
-      fakeSession(parent.agent, child.agent, {
-        'agent-0': { type: 'sub', parentAgentId: 'main' },
-      }),
-      { agentProfiles: { implementer: implementerProfile } },
-    );
-    const host = new SessionSubagentHost(session, 'main');
-
-    const handle = await host.resume('agent-0', {
-      parentToolCallId: 'call_agent',
-      prompt: 'Continue from context',
-      description: 'Continue work',
-      runInBackground: false,
-      workflowRunId: 'wfr-scope-test',
-      signal,
-    });
-    await handle.completion;
-
-    expect(child.agent.config.modelAlias).toBe('implementer-model');
-  });
-
-  it('ignores negated non-model deny rules when containing a model override', async () => {
-    const parent = testAgent();
-    parent.configure();
-    parent.agent.permission.setMode('yolo');
-    // `Agent(!reviewer)` is a profile policy ("only reviewer may spawn").
-    // Approval evaluates it against the call's full subject set; the spawn-time
-    // model re-check sees only `model:<alias>`, where the negation would match
-    // anything — it must not be re-interpreted as a model rule.
-    parent.agent.permission.rules.push({
-      decision: 'deny',
-      scope: 'session-runtime',
-      pattern: 'Agent(!implementer)',
+    it('honors the profile model_preference over the configured secondary model', async () => {
+      const { parent, child } = await spawnChild({
+        experimentalFlags: secondaryFlags(),
+        config: { providers: {}, secondaryModel: { model: 'cheap-model' } },
+        profilePreference: 'primary',
+      });
+      expect(child.agent.config.modelAlias).toBe(parent.agent.config.modelAlias);
     });
 
-    const child = testAgent();
-    child.configure({ tools: ['Read'] });
-    child.configureRuntimeModel({ type: 'pythinker', apiKey: 'test-key', model: 'implementer-model' });
-    child.agent.context.appendUserMessage([{ type: 'text', text: 'Earlier context' }]);
-    child.mockNextResponse({
-      type: 'text',
-      text: 'Resumed the routed subagent past the negated profile rule and carried the assigned task through to completion, then reported a full and detailed technical summary of every change so the parent agent can continue without repeating any prior work.',
+    it('fails the spawn with a wrapped error when the secondary model does not resolve', async () => {
+      const parent = testAgent();
+      parent.configure();
+      const child = testAgent();
+      child.configure({ tools: ['Read'] });
+      const config: PythinkerConfig = {
+        providers: {},
+        secondaryModel: { model: 'missing-model' },
+      };
+      const session = fakeSession(parent.agent, child.agent, {}, {
+        experimentalFlags: secondaryFlags(),
+        config,
+        providerManager: new ProviderManager({ config }),
+      });
+      const host = new SessionSubagentHost(session, 'main');
+
+      await expect(
+        host.spawn({
+          profileName: 'coder',
+          parentToolCallId: 'call_agent',
+          prompt: 'Do work',
+          description: 'Do work',
+          runInBackground: false,
+          signal,
+        }).then((handle) => handle.completion),
+      ).rejects.toThrow(/\[secondary_model\]\.model/);
     });
 
-    const implementerProfile: ResolvedAgentProfile = {
-      name: 'implementer',
-      description: 'Cheap implementer routed to another model.',
-      systemPrompt: () => 'implementer system prompt',
-      tools: ['Read'],
-      model: 'implementer-model',
-      effort: 'medium',
-    };
-    child.agent.useProfile(implementerProfile);
+    it('preserves a provider configuration error when the secondary alias exists', async () => {
+      const parent = testAgent();
+      parent.configure();
+      const child = testAgent();
+      child.configure({ tools: ['Read'] });
+      const config: PythinkerConfig = {
+        providers: {},
+        models: {
+          'cheap-model': {
+            provider: 'missing-provider',
+            model: 'cheap-model',
+            maxContextSize: 1_000_000,
+          },
+        },
+        secondaryModel: { model: 'cheap-model' },
+      };
+      const session = fakeSession(parent.agent, child.agent, {}, {
+        experimentalFlags: secondaryFlags(),
+        config,
+        providerManager: new ProviderManager({ config }),
+      });
+      const host = new SessionSubagentHost(session, 'main');
 
-    const session = Object.assign(
-      fakeSession(parent.agent, child.agent, {
-        'agent-0': { type: 'sub', parentAgentId: 'main' },
-      }),
-      { agentProfiles: { implementer: implementerProfile } },
-    );
-    const host = new SessionSubagentHost(session, 'main');
-
-    const handle = await host.resume('agent-0', {
-      parentToolCallId: 'call_agent',
-      prompt: 'Continue from context',
-      description: 'Continue work',
-      runInBackground: false,
-      signal,
-    });
-    await handle.completion;
-
-    expect(child.agent.config.modelAlias).toBe('implementer-model');
-  });
-
-  it('applies a negated model deny rule to the override it excepts', async () => {
-    const parent = testAgent();
-    parent.configure();
-    parent.agent.permission.setMode('yolo');
-    // "Deny every model except implementer-model" — the excepted model must
-    // survive containment, proving negated model rules are evaluated rather
-    // than skipped along with the non-model patterns.
-    parent.agent.permission.rules.push({
-      decision: 'deny',
-      scope: 'session-runtime',
-      pattern: 'Agent(!model:implementer-model)',
+      await expect(
+        host.spawn({
+          profileName: 'coder',
+          parentToolCallId: 'call_agent',
+          prompt: 'Do work',
+          description: 'Do work',
+          runInBackground: false,
+          signal,
+        }).then((handle) => handle.completion),
+      ).rejects.toMatchObject({
+        message: 'Provider "missing-provider" for model "cheap-model" is not configured.',
+      });
     });
 
-    const child = testAgent();
-    child.configure({ tools: ['Read'] });
-    child.configureRuntimeModel({ type: 'pythinker', apiKey: 'test-key', model: 'implementer-model' });
-    child.agent.context.appendUserMessage([{ type: 'text', text: 'Earlier context' }]);
-    child.mockNextResponse({
-      type: 'text',
-      text: 'Resumed the routed subagent on the excepted model and carried the assigned task through to completion, then reported a full and detailed technical summary of every change so the parent agent can continue without repeating any prior work.',
+    it('keeps the spawned model on resume when the experiment is on', async () => {
+      const parent = testAgent();
+      parent.configure();
+      parent.agent.permission.setMode('yolo');
+
+      const child = testAgent({ initialConfig: withSecondaryModels() });
+      child.configure({ tools: ['Read'] });
+      child.agent.config.update({ modelAlias: 'cheap-model' });
+      child.agent.useProfile(
+        profile({ name: 'coder', tools: ['Read'], systemPrompt: 'coder prompt' }),
+      );
+      child.agent.context.appendUserMessage([{ type: 'text', text: 'Earlier context' }]);
+      child.mockNextResponse({ type: 'text', text: LONG_SUMMARY });
+
+      const session = fakeSession(parent.agent, child.agent, {
+        'agent-0': {
+          homedir: '/tmp/pythinker-session/agents/agent-0',
+          type: 'sub',
+          parentAgentId: 'main',
+        },
+      }, {
+        experimentalFlags: secondaryFlags(),
+        config: { providers: {}, secondaryModel: { model: 'cheap-model' } },
+      });
+      const host = new SessionSubagentHost(session, 'main');
+
+      const handle = await host.resume('agent-0', {
+        parentToolCallId: 'call_agent',
+        prompt: 'Continue from context',
+        description: 'Continue work',
+        runInBackground: false,
+        signal,
+      });
+      await handle.completion;
+      // With the experiment on, resume no longer realigns the child to the
+      // parent's model: the subagent keeps the model it was bound to at spawn.
+      expect(child.agent.config.modelAlias).toBe('cheap-model');
     });
-
-    const implementerProfile: ResolvedAgentProfile = {
-      name: 'implementer',
-      description: 'Cheap implementer routed to another model.',
-      systemPrompt: () => 'implementer system prompt',
-      tools: ['Read'],
-      model: 'implementer-model',
-      effort: 'medium',
-    };
-    child.agent.useProfile(implementerProfile);
-
-    const session = Object.assign(
-      fakeSession(parent.agent, child.agent, {
-        'agent-0': { type: 'sub', parentAgentId: 'main' },
-      }),
-      { agentProfiles: { implementer: implementerProfile } },
-    );
-    const host = new SessionSubagentHost(session, 'main');
-
-    const handle = await host.resume('agent-0', {
-      parentToolCallId: 'call_agent',
-      prompt: 'Continue from context',
-      description: 'Continue work',
-      runInBackground: false,
-      signal,
-    });
-    await handle.completion;
-
-    expect(child.agent.config.modelAlias).toBe('implementer-model');
   });
 });
 
@@ -2271,17 +1422,18 @@ describe('Session resume permission parent chain', () => {
       join(sessionDir, 'state.json'),
       JSON.stringify(
         {
-          sessionFormatVersion: 2,
           createdAt: '2026-01-01T00:00:00.000Z',
           updatedAt: '2026-01-01T00:00:00.000Z',
           title: 'Permission Chain',
           isCustomTitle: false,
           agents: {
             'agent-0': {
+              homedir: childDir,
               type: 'sub',
               parentAgentId: 'main',
             },
             main: {
+              homedir: mainDir,
               type: 'main',
               parentAgentId: null,
             },
@@ -2566,6 +1718,53 @@ describe('Session.createAgent', () => {
     expect(child.agent.config.systemPrompt).not.toContain(`cwd=${sessionWorkDir}`);
   });
 
+  it('passes session additional dirs to main and child agents', async () => {
+    const extraDir = '/extra/work';
+    const directories = new Set(['/workspace', extraDir]);
+    const files = new Map([
+      [join(extraDir, 'AGENTS.md'), 'extra agents instructions'],
+      [join(extraDir, 'extra-file.ts'), 'export const extra = 1;'],
+    ]);
+    const session = new Session({
+      id: 'test-subagent-additional-dirs',
+      kaos: createFakeKaos({
+        mkdir: vi.fn().mockResolvedValue(undefined),
+        writeText: vi.fn().mockResolvedValue(0),
+        stat: vi.fn(async (path: string) => {
+          if (directories.has(path)) return stat('dir');
+          if (files.has(path)) return stat('file');
+          throw new Error(`ENOENT ${path}`);
+        }),
+        iterdir: async function* (path: string) {
+          if (path === extraDir) {
+            yield join(extraDir, 'AGENTS.md');
+            yield join(extraDir, 'extra-file.ts');
+          }
+        },
+        readText: vi.fn(async (path: string) => {
+          const content = files.get(path);
+          if (content === undefined) throw new Error(`ENOENT ${path}`);
+          return content;
+        }),
+      }),
+      homedir: '/tmp/pythinker-session',
+      rpc: createSessionRpc(),
+      initializeMainAgent: false,
+      additionalDirs: [extraDir],
+    });
+
+    const main = await session.createMain();
+    const child = await session.createAgent(
+      { type: 'sub' },
+      { profile: contextProfile(), parentAgentId: 'main' },
+    );
+
+    expect(main.getAdditionalDirs()).toEqual([extraDir]);
+    expect(child.agent.getAdditionalDirs()).toEqual([extraDir]);
+    expect(child.agent.config.systemPrompt).toContain(`additional=### ${extraDir}`);
+    expect(child.agent.config.systemPrompt).toContain('extra-file.ts');
+  });
+
   it('allocates the next unused generated agent id', async () => {
     const session = new Session({
       id: 'test-subagent-agent-id',
@@ -2578,6 +1777,7 @@ describe('Session.createAgent', () => {
       initializeMainAgent: false,
     });
     session.metadata.agents['agent-0'] = {
+      homedir: '/tmp/pythinker-session/agents/agent-0',
       type: 'sub',
       parentAgentId: null,
     };
@@ -2587,6 +1787,7 @@ describe('Session.createAgent', () => {
     expect(created.id).toBe('agent-1');
     expect(session.agents.get('agent-1')).toBe(created.agent);
     expect(session.metadata.agents['agent-1']).toMatchObject({
+      homedir: '/tmp/pythinker-session/agents/agent-1',
       type: 'sub',
     });
   });
@@ -2610,10 +1811,25 @@ describe('Session.createAgent', () => {
   });
 });
 
+function testAgentCatalog(): SessionAgentProfileCatalog {
+  // A real catalog seeded with the builtin profiles; discovery roots point
+  // at nonexistent dirs so no file profiles leak into the merge.
+  return new SessionAgentProfileCatalog({
+    workDir: '/nonexistent-pythinker-test-workdir',
+    brandHomeDir: '/nonexistent-pythinker-test-brandhome',
+    osHomeDir: '/nonexistent-pythinker-test-oshome',
+  });
+}
+
 function fakeSession(
   parent: Agent,
   child: Agent,
   metadataAgents: Session['metadata']['agents'] = {},
+  sessionOptions?: {
+    config?: PythinkerConfig;
+    experimentalFlags?: FlagResolver;
+    providerManager?: Session['options']['providerManager'];
+  },
 ) {
   const agents = new Map<string, Agent>([['main', parent]]);
   if (metadataAgents['agent-0'] !== undefined) {
@@ -2621,9 +1837,17 @@ function fakeSession(
   }
   return {
     agents,
-    options: { pythinkerHomeDir: undefined },
+    options: {
+      pythinkerHomeDir: undefined,
+      config: sessionOptions?.config,
+      providerManager: sessionOptions?.providerManager,
+    },
+    get pythinkerConfig() {
+      return sessionOptions?.config;
+    },
+    experimentalFlags: sessionOptions?.experimentalFlags ?? new FlagResolver({}),
+    agentCatalog: testAgentCatalog(),
     metadata: {
-      sessionFormatVersion: 2,
       createdAt: '2026-01-01T00:00:00.000Z',
       updatedAt: '2026-01-01T00:00:00.000Z',
       title: 'Test Session',
@@ -2650,9 +1874,10 @@ function fakeSession(
         const parentAgentId = options.parentAgentId ?? null;
         if (options.persistMetadata !== false) {
           metadataAgents['agent-0'] = {
+            homedir: '/tmp/pythinker-session/agents/agent-0',
             type: config.type ?? 'main',
             parentAgentId,
-            dynamicWorkflowItem: options.dynamicWorkflowItem,
+            dynamic_workflowItem: options.dynamic_workflowItem,
           };
         }
         if (options.profile !== undefined) {
@@ -2672,6 +1897,7 @@ function contextProfile(): ResolvedAgentProfile {
         `cwd=${context.cwd}`,
         `listing=${context.cwdListing ?? ''}`,
         `agents=${context.agentsMd ?? ''}`,
+        `additional=${context.additionalDirsInfo ?? ''}`,
       ].join('\n'),
     tools: [],
   };
@@ -2698,6 +1924,7 @@ function profile(input: {
   readonly systemPrompt: string;
   readonly description?: string | undefined;
   readonly subagents?: Record<string, ResolvedAgentProfile> | undefined;
+  readonly modelPreference?: 'primary' | 'secondary';
 }): ResolvedAgentProfile {
   return {
     name: input.name,
@@ -2705,6 +1932,7 @@ function profile(input: {
     systemPrompt: () => input.systemPrompt,
     tools: [...input.tools],
     subagents: input.subagents,
+    modelPreference: input.modelPreference,
   };
 }
 

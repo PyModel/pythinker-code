@@ -6,12 +6,13 @@ import {
   isContextOverflowErrorCode,
 } from '#/errors';
 import type { ContentPart, Message, StreamedMessagePart, ToolCall } from '#/message';
-import { extractText } from '#/message';
+import { extractText, isToolDeclarationOnlyMessage } from '#/message';
 import type {
   ChatProvider,
   FinishReason,
   GenerateOptions,
   ProviderRequestAuth,
+  ResponseFormat,
   StreamedMessage,
   ThinkingEffort,
 } from '#/provider';
@@ -19,10 +20,7 @@ import type { Tool } from '#/tool';
 import type { TokenUsage } from '#/usage';
 import OpenAI from 'openai';
 
-import {
-  supportsOpenAIFastModeModel,
-  usesOpenAIResponsesDeveloperRole,
-} from './capability-registry';
+import { usesOpenAIResponsesDeveloperRole } from './capability-registry';
 import {
   convertOpenAIError,
   isMediaPart,
@@ -30,8 +28,6 @@ import {
   TOOL_RESULT_MEDIA_PLACEHOLDER,
   TOOL_RESULT_MEDIA_PROMPT,
   type ToolMessageConversion,
-  reasoningEffortToThinkingEffort,
-  resolveOpenAIReasoningEffort,
 } from './openai-common';
 import {
   mergeRequestHeaders,
@@ -239,6 +235,13 @@ function formatResponsesErrorEvent(
   return `${codeText}: ${message}${paramText}`;
 }
 
+const EMBEDDED_STATUS_CODE_RE = /\bstatus_code\s*[:=]\s*(\d{3})\b/;
+
+function readEmbeddedStatusCode(message: string): number | undefined {
+  const match = EMBEDDED_STATUS_CODE_RE.exec(message);
+  return match === null ? undefined : Number(match[1]);
+}
+
 function errorFromOpenAIResponsesEvent(
   prefix: string,
   code: string | null,
@@ -252,12 +255,13 @@ function errorFromOpenAIResponsesEvent(
   }
   // Quota/balance exhaustion first — otherwise an `insufficient_quota` event
   // falls through to the base ChatProviderError (whose unclassified fallback
-  // is retryable). Only OpenAI's own documented code is recognized here;
-  // vendor-specific quota signals live with their vendor.
+  // is retryable), and a quota message with an embedded status_code=429 would
+  // classify as a retryable rate limit. Only OpenAI's own documented code is
+  // recognized here; vendor-specific quota signals live with their vendor.
   if (isOpenAIInsufficientQuotaCode(code)) {
     return new APIProviderQuotaExhaustedError(fullMessage);
   }
-  if (code === 'rate_limit_exceeded') {
+  if (code === 'rate_limit_exceeded' || readEmbeddedStatusCode(message) === 429) {
     return new APIProviderRateLimitError(fullMessage);
   }
   return new ChatProviderError(fullMessage);
@@ -350,13 +354,24 @@ export interface OpenAIResponsesOptions {
   baseUrl?: string | undefined;
   model: string;
   maxOutputTokens?: number | undefined;
+  /**
+   * The effort value that encodes "thinking off" on this wire (e.g. `'none'`
+   * for xai grok). When set, `withThinking('off')` sends it as
+   * `reasoning_effort` instead of omitting the field — required by models
+   * whose default is to reason.
+   */
+  offEffort?: string | undefined;
   httpClient?: unknown;
   defaultHeaders?: Record<string, string>;
   toolMessageConversion?: ToolMessageConversion | undefined;
-  supportEfforts?: readonly string[] | undefined;
-  /** Explicit capability declaration for a compatible non-OpenAI gateway. */
-  fastModeSupported?: boolean | undefined;
   clientFactory?: (auth: ProviderRequestAuth) => OpenAI;
+  /**
+   * Construction-time free-form request kwargs (e.g. `prompt_cache_key` for
+   * session affinity), merged into every request at generate time. Explicit
+   * first-class options (`maxOutputTokens`) win on conflict; the
+   * `withGenerationKwargs` morph layers on top of both.
+   */
+  generationKwargs?: OpenAIResponsesGenerationKwargs | undefined;
 }
 
 export interface OpenAIResponsesGenerationKwargs {
@@ -364,7 +379,6 @@ export interface OpenAIResponsesGenerationKwargs {
   temperature?: number | undefined;
   top_p?: number | undefined;
   reasoning_effort?: string | undefined;
-  service_tier?: 'fast' | 'priority' | 'default' | 'flex' | undefined;
   [key: string]: unknown;
 }
 interface ResponseInputItem {
@@ -378,6 +392,22 @@ interface ResponseToolParam {
   parameters: Record<string, unknown>;
   strict: boolean;
 }
+
+function responseFormatToResponsesText(format: ResponseFormat): Record<string, unknown> {
+  if (format.type === 'json_object') {
+    return { format: { type: 'json_object' } };
+  }
+  return {
+    format: {
+      type: 'json_schema',
+      name: format.jsonSchema.name,
+      schema: format.jsonSchema.schema,
+      strict: format.jsonSchema.strict,
+      description: format.jsonSchema.description,
+    },
+  };
+}
+
 // The Responses API has no input type for video, and only mp3/wav audio can
 // be inlined as input_file data. Degrade such parts to placeholder text so
 // the model still learns an attachment existed instead of silently losing it.
@@ -554,14 +584,14 @@ function convertMessage(
         flushPendingParts();
         // Aggregate consecutive ThinkParts with the same `encrypted` value
         const encryptedValue = part.encrypted;
-        const summaries: unknown[] = [{ type: 'summary_text', text: part.think || '' }];
+        const summaries: unknown[] = [{ type: 'summary_text', text: part.think }];
         i += 1;
         while (i < n) {
           const nextPart = message.content[i];
           if (nextPart === undefined) break;
           if (nextPart.type !== 'think') break;
           if (nextPart.encrypted !== encryptedValue) break;
-          summaries.push({ type: 'summary_text', text: nextPart.think || '' });
+          summaries.push({ type: 'summary_text', text: nextPart.think });
           i += 1;
         }
         result.push({
@@ -602,49 +632,6 @@ function convertTool(tool: Tool): ResponseToolParam {
   };
 }
 
-const OPENAI_CODEX_BACKEND_PATH = '/backend-api/codex';
-const OPENAI_API_ORIGIN = 'https://api.openai.com';
-// `priority` is OpenAI's paid premium service tier, requested for Fast mode.
-const OPENAI_FAST_SERVICE_TIER = 'priority';
-
-/** Responses API params the ChatGPT Codex backend rejects with HTTP 400. */
-const OPENAI_CODEX_UNSUPPORTED_RESPONSE_PARAMS = new Set([
-  'background',
-  'conversation',
-  'max_output_tokens',
-  'metadata',
-  'previous_response_id',
-  'prompt',
-  'prompt_cache_retention',
-  'safety_identifier',
-  'stream_options',
-  'temperature',
-  'top_p',
-  'truncation',
-  'user',
-]);
-
-function isOpenAICodexBackend(baseUrl: string | undefined): boolean {
-  return baseUrl?.includes(OPENAI_CODEX_BACKEND_PATH) ?? false;
-}
-
-function isOfficialOpenAIFastModeEndpoint(baseUrl: string | undefined): boolean {
-  try {
-    const url = new URL(baseUrl ?? `${OPENAI_API_ORIGIN}/v1`);
-    const pathname = url.pathname.replace(/\/+$/, '');
-    return url.origin === OPENAI_API_ORIGIN && pathname === '/v1';
-  } catch {
-    return false;
-  }
-}
-
-function stripOpenAICodexUnsupportedParams(kwargs: Record<string, unknown>): void {
-  for (const key of OPENAI_CODEX_UNSUPPORTED_RESPONSE_PARAMS) {
-    // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
-    delete kwargs[key];
-  }
-}
-
 /**
  * Convert the history, buffering tool-result media when `extract_text`
  * flattens tool outputs to plain strings. The buffered media items are
@@ -673,6 +660,10 @@ function convertHistoryMessages(
   };
 
   for (const msg of history) {
+    // Message-level tool declarations are a Pythinker wire feature; skipped here
+    // because the leftover content-free message item is rejected by the
+    // Responses API. See isToolDeclarationOnlyMessage.
+    if (isToolDeclarationOnlyMessage(msg)) continue;
     if (msg.role !== 'tool') {
       flushPendingMedia();
     }
@@ -757,7 +748,6 @@ export class OpenAIResponsesStreamedMessage implements StreamedMessage {
     const output = readObjectArrayField(response, 'output');
     if (output === undefined) return;
 
-    let hasReasoningSummaryPart = false;
     for (const item of output) {
       const outputItem = readResponseOutputItem(item, 'response.output item');
 
@@ -778,14 +768,22 @@ export class OpenAIResponsesStreamedMessage implements StreamedMessage {
           arguments: outputItem.arguments ?? null,
         } satisfies ToolCall;
       } else if (outputItem.type === 'reasoning') {
+        let hasReasoningSummary = false;
         for (const summary of outputItem.summary) {
           const text = readStringField(summary, 'text');
           if (text === undefined) continue;
+          hasReasoningSummary = true;
           const thinkPart: StreamedMessagePart = {
             type: 'think',
-            think: `${hasReasoningSummaryPart ? '\n\n' : ''}${text}`,
+            think: text,
           };
-          hasReasoningSummaryPart = true;
+          if (outputItem.encryptedContent !== undefined) {
+            (thinkPart as { encrypted: string }).encrypted = outputItem.encryptedContent;
+          }
+          yield thinkPart;
+        }
+        if (!hasReasoningSummary) {
+          const thinkPart: StreamedMessagePart = { type: 'think', think: '' };
           if (outputItem.encryptedContent !== undefined) {
             (thinkPart as { encrypted: string }).encrypted = outputItem.encryptedContent;
           }
@@ -800,7 +798,6 @@ export class OpenAIResponsesStreamedMessage implements StreamedMessage {
   ): AsyncGenerator<StreamedMessagePart> {
     const functionCallArgumentsByIndex = new Map<number | string, string>();
     let unindexedFunctionCallArguments: string | undefined;
-    let hasReasoningSummaryPart = false;
 
     const hasFunctionCallArguments = (streamIndex: number | string | undefined): boolean =>
       streamIndex === undefined
@@ -982,11 +979,9 @@ export class OpenAIResponsesStreamedMessage implements StreamedMessage {
             yield* yieldFinalArgumentsSuffix(streamIndex, functionArguments, type);
             break;
           }
-          case 'response.reasoning_summary_part.added': {
-            yield { type: 'think', think: hasReasoningSummaryPart ? '\n\n' : '' };
-            hasReasoningSummaryPart = true;
+          case 'response.reasoning_summary_part.added':
+            yield { type: 'think', think: '' };
             break;
-          }
           case 'response.reasoning_summary_text.delta':
             yield { type: 'think', think: requireStringField(chunk, 'delta', type) };
             break;
@@ -1043,15 +1038,19 @@ export class OpenAIResponsesStreamedMessage implements StreamedMessage {
 export class OpenAIResponsesChatProvider implements ChatProvider {
   readonly name: string = 'openai-responses';
 
+  /** See {@link ChatProvider.maxCompletionTokens}. */
+  get maxCompletionTokens(): number | undefined {
+    return this._generationKwargs.max_output_tokens;
+  }
+
   private _model: string;
   private _stream: boolean;
   private _apiKey: string | undefined;
   private _baseUrl: string | undefined;
   private _defaultHeaders: Record<string, string> | undefined;
   private _generationKwargs: OpenAIResponsesGenerationKwargs;
+  private _offEffort: string | undefined;
   private _toolMessageConversion: ToolMessageConversion;
-  private readonly _supportEfforts: readonly string[] | undefined;
-  private readonly _fastModeSupported: boolean | undefined;
   private _client: OpenAI | undefined;
   private _httpClient: unknown;
   private _clientFactory: ((auth: ProviderRequestAuth) => OpenAI) | undefined;
@@ -1063,10 +1062,9 @@ export class OpenAIResponsesChatProvider implements ChatProvider {
     this._defaultHeaders = options.defaultHeaders;
     this._model = options.model;
     this._stream = true; // Responses API always supports streaming
-    this._generationKwargs = {};
+    this._generationKwargs = { ...options.generationKwargs };
+    this._offEffort = options.offEffort;
     this._toolMessageConversion = options.toolMessageConversion ?? null;
-    this._supportEfforts = options.supportEfforts;
-    this._fastModeSupported = options.fastModeSupported;
     this._httpClient = options.httpClient;
     this._clientFactory = options.clientFactory;
 
@@ -1082,20 +1080,9 @@ export class OpenAIResponsesChatProvider implements ChatProvider {
   }
 
   get thinkingEffort(): ThinkingEffort | null {
-    return reasoningEffortToThinkingEffort(this._generationKwargs.reasoning_effort);
-  }
-
-  get supportsFastMode(): boolean {
-    return (
-      this._fastModeSupported === true ||
-      (isOfficialOpenAIFastModeEndpoint(this._baseUrl) &&
-        supportsOpenAIFastModeModel(this._model))
-    );
-  }
-
-  get fastMode(): boolean {
-    const tier = this._generationKwargs.service_tier;
-    return this.supportsFastMode && (tier === 'fast' || tier === OPENAI_FAST_SERVICE_TIER);
+    const effort = this._generationKwargs.reasoning_effort;
+    if (effort === undefined) return null;
+    return effort === 'none' ? 'off' : effort;
   }
 
   get modelParameters(): Record<string, unknown> {
@@ -1142,11 +1129,6 @@ export class OpenAIResponsesChatProvider implements ChatProvider {
       }
     }
 
-    const codexBackend = isOpenAICodexBackend(this._baseUrl);
-    if (codexBackend) {
-      stripOpenAICodexUnsupportedParams(kwargs);
-    }
-
     try {
       const client = this._createClient(options?.auth);
       const createParams: Record<string, unknown> = {
@@ -1157,12 +1139,14 @@ export class OpenAIResponsesChatProvider implements ChatProvider {
         stream: this._stream,
         ...kwargs,
       };
-      if (codexBackend) {
-        createParams['tool_choice'] = 'auto';
-        createParams['parallel_tool_calls'] = true;
-      }
       if (systemPrompt) {
         createParams['instructions'] = systemPrompt;
+      }
+      if (options?.responseFormat !== undefined) {
+        createParams['text'] = {
+          ...asRawObject(createParams['text']),
+          ...responseFormatToResponsesText(options.responseFormat),
+        };
       }
 
       if (
@@ -1174,6 +1158,7 @@ export class OpenAIResponsesChatProvider implements ChatProvider {
         );
       }
 
+      options?.onRequestSent?.();
       const response = await (
         client.responses as {
           create(params: unknown, opts?: unknown): Promise<unknown>;
@@ -1186,7 +1171,10 @@ export class OpenAIResponsesChatProvider implements ChatProvider {
   }
 
   withThinking(effort: ThinkingEffort): OpenAIResponsesChatProvider {
-    const reasoningEffort = resolveOpenAIReasoningEffort(effort, this._supportEfforts);
+    // 'on' sends no effort field; 'off' sends the model's declared off value
+    // (e.g. 'none') when one is configured, and omits the field otherwise.
+    const reasoningEffort =
+      effort === 'off' ? this._offEffort : effort === 'on' ? undefined : effort;
     const clone = this._clone();
     clone._generationKwargs = {
       ...clone._generationKwargs,
@@ -1198,16 +1186,6 @@ export class OpenAIResponsesChatProvider implements ChatProvider {
   withGenerationKwargs(kwargs: OpenAIResponsesGenerationKwargs): OpenAIResponsesChatProvider {
     const clone = this._clone();
     clone._generationKwargs = { ...clone._generationKwargs, ...kwargs };
-    return clone;
-  }
-
-  withFastMode(enabled: boolean): OpenAIResponsesChatProvider {
-    const clone = this._clone();
-    if (enabled && clone.supportsFastMode) {
-      clone._generationKwargs.service_tier = OPENAI_FAST_SERVICE_TIER;
-    } else {
-      delete clone._generationKwargs.service_tier;
-    }
     return clone;
   }
 

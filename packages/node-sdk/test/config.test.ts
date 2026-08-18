@@ -13,6 +13,11 @@ import {
 } from '../../agent-core/src/config';
 import { TEST_IDENTITY } from './test-identity';
 
+// node-sdk/agent-core normalize paths to forward slashes (pathe). Mirror that
+// in path assertions so they hold on Windows, where node:path produces
+// backslashes.
+const toPosix = (p: string): string => p.replaceAll('\\', '/');
+
 const tempDirs: string[] = [];
 
 afterEach(async () => {
@@ -29,8 +34,7 @@ async function makeTempDir(): Promise<string> {
 }
 
 const COMPLETE_TOML = `
-default_model = "pythinker-for-coding"
-default_thinking = false
+default_model = "kimi-for-coding"
 default_permission_mode = "auto"
 skip_afk_prompt_injection = false
 default_plan_mode = false
@@ -40,18 +44,18 @@ show_thinking_stream = true
 merge_all_available_skills = true
 extra_skill_dirs = ["~/team-skills", ".agents/team-skills"]
 
-[providers.pythinker-for-coding]
+[providers.kimi-for-coding]
 type = "pythinker"
-base_url = "https://api.pythinker.com/coding/v1"
+base_url = "https://api.kimi.com/coding/v1"
 api_key = "sk-xxx"
 custom_headers = { "X-Custom-Header" = "value" }
 
-[providers.pythinker-for-coding.env]
+[providers.kimi-for-coding.env]
 GOOGLE_CLOUD_PROJECT = "project-1"
 
-[models.pythinker-for-coding]
-provider = "pythinker-for-coding"
-model = "pythinker-for-coding"
+[models.kimi-for-coding]
+provider = "kimi-for-coding"
+model = "kimi-for-coding"
 max_context_size = 262144
 capabilities = ["image_in", "thinking", "video_in"]
 display_name = "Pythinker for Coding"
@@ -68,17 +72,21 @@ keep_alive_on_exit = false
 kill_grace_period_ms = 2000
 print_wait_ceiling_s = 3600
 
-[services.pythoughts_search]
-base_url = "https://api.pythinker.com/coding/v1/search"
+[services.pymodel_search]
+base_url = "https://api.kimi.com/coding/v1/search"
 api_key = "sk-search"
 custom_headers = { "X-Search" = "1" }
 
-[services.pythoughts_fetch]
-base_url = "https://api.pythinker.com/coding/v1/fetch"
+[services.pymodel_fetch]
+base_url = "https://api.kimi.com/coding/v1/fetch"
 api_key = "sk-fetch"
 
 [notifications]
 claim_stale_after_ms = 15000
+
+[thinking]
+enabled = true
+effort = "high"
 `;
 
 describe('SDK config TOML', () => {
@@ -86,7 +94,7 @@ describe('SDK config TOML', () => {
     const dir = await makeTempDir();
     const rpc = createPythinkerConfigRpc();
 
-    await expect(rpc.resolveConfigPath({ homeDir: dir })).resolves.toBe(join(dir, 'config.toml'));
+    await expect(rpc.resolveConfigPath({ homeDir: dir })).resolves.toBe(toPosix(join(dir, 'config.toml')));
   });
 
   it('returns structured validation issues through the config RPC wrapper', async () => {
@@ -119,25 +127,26 @@ max_context_size = "large"
   it('parses the documented config shape and keeps TUI-only fields in raw', () => {
     const config = parseConfigString(COMPLETE_TOML, 'complete.toml');
 
-    expect(config.defaultModel).toBe('pythinker-for-coding');
-    expect(config.defaultThinking).toBe(false);
+    expect(config.defaultModel).toBe('kimi-for-coding');
+    expect(config.thinking?.enabled).toBe(true);
+    expect(config.thinking?.effort).toBe('high');
     expect(config.defaultPermissionMode).toBe('auto');
     expect(config.defaultPlanMode).toBe(false);
     expect(config.mergeAllAvailableSkills).toBe(true);
     expect(config.extraSkillDirs).toEqual(['~/team-skills', '.agents/team-skills']);
 
-    const provider = config.providers['pythinker-for-coding'];
+    const provider = config.providers['kimi-for-coding'];
     expect(provider).toMatchObject({
       type: 'pythinker',
-      baseUrl: 'https://api.pythinker.com/coding/v1',
+      baseUrl: 'https://api.kimi.com/coding/v1',
       apiKey: 'sk-xxx',
       customHeaders: { 'X-Custom-Header': 'value' },
       env: { GOOGLE_CLOUD_PROJECT: 'project-1' },
     });
 
-    expect(config.models?.['pythinker-for-coding']).toMatchObject({
-      provider: 'pythinker-for-coding',
-      model: 'pythinker-for-coding',
+    expect(config.models?.['kimi-for-coding']).toMatchObject({
+      provider: 'kimi-for-coding',
+      model: 'kimi-for-coding',
       maxContextSize: 262144,
       capabilities: ['image_in', 'thinking', 'video_in'],
       displayName: 'Pythinker for Coding',
@@ -155,8 +164,8 @@ max_context_size = "large"
       killGracePeriodMs: 2000,
       printWaitCeilingS: 3600,
     });
-    expect(config.services?.pythoughtsSearch?.customHeaders).toEqual({ 'X-Search': '1' });
-    expect(config.services?.pythoughtsFetch?.apiKey).toBe('sk-fetch');
+    expect(config.services?.pymodelSearch?.customHeaders).toEqual({ 'X-Search': '1' });
+    expect(config.services?.pymodelFetch?.apiKey).toBe('sk-fetch');
 
     expect('theme' in config).toBe(false);
     expect(config.raw?.['theme']).toBe('dark');
@@ -172,7 +181,7 @@ max_context_size = "large"
 
     await writeConfigFile(configPath, {
       ...config,
-      defaultModel: 'pythinker-for-coding',
+      defaultModel: 'kimi-for-coding',
       loopControl: {
         ...config.loopControl,
         maxStepsPerTurn: 42,
@@ -180,7 +189,7 @@ max_context_size = "large"
     });
 
     const text = await readFile(configPath, 'utf-8');
-    expect(text).toContain('default_model = "pythinker-for-coding"');
+    expect(text).toContain('default_model = "kimi-for-coding"');
     expect(text).toContain('default_permission_mode = "auto"');
     expect(text).toContain('extra_skill_dirs = [ "~/team-skills", ".agents/team-skills" ]');
     expect(text).not.toContain('default_yolo');
@@ -212,7 +221,7 @@ maxContextSize = 128000
 displayName = "Camel Model"
 custom_model_field = "raw-only"
 
-[services.pythoughtsSearch]
+[services.pymodelSearch]
 baseUrl = "https://example.test/search"
 apiKey = "sk-search"
 
@@ -233,7 +242,7 @@ maxRunningTasks = 2
       maxContextSize: 128000,
       displayName: 'Camel Model',
     });
-    expect(config.services?.pythoughtsSearch).toMatchObject({
+    expect(config.services?.pymodelSearch).toMatchObject({
       baseUrl: 'https://example.test/search',
       apiKey: 'sk-search',
     });
@@ -260,66 +269,31 @@ describe('PythinkerHarness config API', () => {
 
     await harness.setConfig({
       providers: {
-        'pythinker-for-coding': {
+        'kimi-for-coding': {
           apiKey: 'sk-updated',
         },
       },
       services: {
-        pythoughtsSearch: {
+        pymodelSearch: {
           apiKey: 'sk-search-updated',
         },
       },
     });
 
     const config = await harness.getConfig({ reload: true });
-    expect(config.providers['pythinker-for-coding']).toMatchObject({
+    expect(config.providers['kimi-for-coding']).toMatchObject({
       type: 'pythinker',
-      baseUrl: 'https://api.pythinker.com/coding/v1',
+      baseUrl: 'https://api.kimi.com/coding/v1',
       apiKey: 'sk-updated',
       env: { GOOGLE_CLOUD_PROJECT: 'project-1' },
     });
-    expect(config.services?.pythoughtsSearch?.apiKey).toBe('sk-search-updated');
+    expect(config.services?.pymodelSearch?.apiKey).toBe('sk-search-updated');
     expect(config.raw?.['theme']).toBe('dark');
 
     const text = await readFile(configPath, 'utf-8');
     expect(text).toContain('theme = "dark"');
     expect(text).toContain('GOOGLE_CLOUD_PROJECT = "project-1"');
     expect(text).toContain('claim_stale_after_ms = 15000');
-  });
-
-  it('validates and fully replaces config so deletions survive close and reload', async () => {
-    const homeDir = await makeTempDir();
-    const configPath = join(homeDir, 'config.toml');
-    await writeFile(configPath, COMPLETE_TOML, 'utf-8');
-
-    const harness = createPythinkerHarness({ homeDir, identity: TEST_IDENTITY });
-    const next = structuredClone(await harness.getConfig({ reload: true }));
-    delete next.providers['pythinker-for-coding'];
-    delete next.models?.['pythinker-for-coding'];
-    next.defaultModel = undefined;
-    next.defaultThinking = undefined;
-
-    await harness.replaceConfig(next);
-    await harness.close();
-
-    const reopened = createPythinkerHarness({ homeDir, identity: TEST_IDENTITY });
-    const persisted = await reopened.getConfig({ reload: true });
-    expect(persisted.providers['pythinker-for-coding']).toBeUndefined();
-    expect(persisted.models?.['pythinker-for-coding']).toBeUndefined();
-    expect(persisted.defaultModel).toBeUndefined();
-    expect(persisted.defaultThinking).toBeUndefined();
-    expect(persisted.services?.pythoughtsSearch?.apiKey).toBe('sk-search');
-    expect(persisted.raw?.['theme']).toBe('dark');
-    expect(persisted.raw?.['notifications']).toEqual({ claim_stale_after_ms: 15000 });
-
-    const beforeInvalidReplace = await readFile(configPath, 'utf-8');
-    const invalidReplace = reopened.replaceConfig({
-      ...persisted,
-      providers: { bad: { type: 'not-a-provider' } },
-    } as never);
-    await expect(invalidReplace).rejects.toMatchObject({ code: 'config.invalid' });
-    await expect(readFile(configPath, 'utf-8')).resolves.toBe(beforeInvalidReplace);
-    await reopened.close();
   });
 
   it('does not write invalid config patches', async () => {
@@ -355,35 +329,45 @@ describe('PythinkerHarness config API', () => {
 
   it('returns experimental feature metadata through the harness', async () => {
     vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_FLAG', '0');
-    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_MICRO_COMPACTION', '');
     const homeDir = await makeTempDir();
-    await writeFile(
-      join(homeDir, 'config.toml'),
-      `
-[experimental]
-micro_compaction = false
-`,
-      'utf-8',
-    );
     const harness = createPythinkerHarness({ homeDir, identity: TEST_IDENTITY });
 
     const features = await harness.getExperimentalFeatures();
-    const microCompaction = features.find((feature) => feature.id === 'micro_compaction');
-
-    expect(microCompaction).toMatchObject({
-      id: 'micro_compaction',
-      title: 'Micro compaction',
-      enabled: false,
-      source: 'config',
-      configValue: false,
-      env: 'PYTHINKER_CODE_EXPERIMENTAL_MICRO_COMPACTION',
-    });
-    expect(features).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ id: 'micro_compaction', enabled: false }),
-        expect.objectContaining({ id: 'vim_mode', enabled: false }),
-      ]),
-    );
+    expect(features).toEqual([
+      {
+        id: 'tool-select',
+        title: 'Tool select (progressive tool disclosure)',
+        description:
+          'Keep MCP tool schemas out of the immutable top-level tools[]; the model loads them on demand via the select_tools tool. Only takes effect on models whose capability catalog declares dynamically loaded tools.',
+        surface: 'core',
+        env: 'PYTHINKER_CODE_EXPERIMENTAL_TOOL_SELECT',
+        defaultEnabled: false,
+        enabled: false,
+        source: 'default',
+      },
+      {
+        id: 'secondary-model',
+        title: 'Secondary model for subagents',
+        description:
+          'Let newly spawned subagents use a separately configured secondary model by default, with an explicit primary-model override for quality-sensitive tasks.',
+        surface: 'core',
+        env: 'PYTHINKER_CODE_EXPERIMENTAL_SECONDARY_MODEL',
+        defaultEnabled: false,
+        enabled: false,
+        source: 'default',
+      },
+      {
+        id: 'acp-v2',
+        title: 'ACP server v2 (agent-core-v2 engine)',
+        description:
+          'Expose the `pythinker acp-v2` sub-command that runs the Agent Client Protocol server over the experimental agent-core-v2 engine.',
+        surface: 'core',
+        env: 'PYTHINKER_CODE_EXPERIMENTAL_ACP_V2',
+        defaultEnabled: false,
+        enabled: false,
+        source: 'default',
+      },
+    ]);
   });
 
   it('can create the default config scaffold without selecting a model', async () => {
@@ -401,7 +385,7 @@ micro_compaction = false
     const config = await harness.getConfig({ reload: true });
     expect(config.providers).toEqual({});
     expect(config.defaultModel).toBeUndefined();
-    expect(config.defaultThinking).toBeUndefined();
+    expect(config.thinking?.enabled).toBeUndefined();
   });
 
   it('reloads an active session without closing the SDK session wrapper', async () => {
@@ -413,7 +397,7 @@ micro_compaction = false
     const session = await harness.createSession({
       id: 'session-sdk-reload',
       workDir,
-      model: 'pythinker-for-coding',
+      model: 'kimi-for-coding',
     });
 
     expect(session.getResumeState()).toBeUndefined();
@@ -423,6 +407,25 @@ micro_compaction = false
     expect(reloaded).toBe(session);
     expect(harness.getSession(session.id)).toBe(session);
     expect(session.getResumeState()?.agents['main']).toBeDefined();
-    await expect(session.getStatus()).resolves.toMatchObject({ model: 'pythinker-for-coding' });
+    await expect(session.getStatus()).resolves.toMatchObject({ model: 'kimi-for-coding' });
+  });
+
+  it('forwards forcePluginSessionStartReminder to the active session reload', async () => {
+    const homeDir = await makeTempDir();
+    const workDir = join(homeDir, 'work');
+    const configPath = join(homeDir, 'config.toml');
+    await writeFile(configPath, COMPLETE_TOML, 'utf-8');
+    const harness = createPythinkerHarness({ homeDir, identity: TEST_IDENTITY });
+    const session = await harness.createSession({
+      id: 'session-sdk-reload-forward',
+      workDir,
+      model: 'kimi-for-coding',
+    });
+
+    const reloadSpy = vi.spyOn(session, 'reloadSession').mockResolvedValue({} as never);
+
+    await harness.reloadSession({ id: session.id, forcePluginSessionStartReminder: true });
+
+    expect(reloadSpy).toHaveBeenCalledWith({ forcePluginSessionStartReminder: true });
   });
 });

@@ -2,6 +2,8 @@ export default {
   openSwitcher: 'Switch session / workspace',
   openSettings: 'Session settings',
   settingsTitle: 'Session settings',
+  groupSession: 'Current session',
+  groupApp: 'App preferences',
   sheetLabel: 'Sheet',
   closeSheet: 'Close',
   tapToCycle: 'tap to cycle',
@@ -13,5 +15,8 @@ export default {
   permAutoSub: 'fully autonomous, never asks',
   permYoloSub: 'auto-approve tools, may still ask',
   planModeSub: 'Plan mode',
-  dynamicWorkflowModeSub: 'Dynamic Workflow mode',
+  dynamicWorkflowModeSub: 'DynamicWorkflow mode',
+  archivedSessions: 'Archived sessions',
+  archivedSessionsSub: 'Browse and restore archived sessions',
+  archivedBack: 'Back',
 } as const;

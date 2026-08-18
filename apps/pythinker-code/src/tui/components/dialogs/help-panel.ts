@@ -15,16 +15,8 @@ import {
   decodeKittyPrintable,
   type Focusable,
   truncateToWidth,
-} from '@earendil-works/pi-tui';
-import {
-  defaultKeybindings,
-  keybindingDisplayText,
-  KeybindingResolver,
-  type ParsedKeybinding,
-} from '#/tui/keybindings';
+} from '@pymodel/pi-tui';
 import { currentTheme } from '#/tui/theme';
-
-import { formatBindingKeys } from './choice-picker';
 
 export interface KeyboardShortcut {
   readonly keys: string;
@@ -39,12 +31,10 @@ export interface HelpPanelCommand {
 
 /** Static list — keep in sync with the global editor bindings. */
 export const DEFAULT_KEYBOARD_SHORTCUTS: readonly KeyboardShortcut[] = [
+  { keys: 'Shift-Tab', description: 'Toggle plan mode' },
   { keys: 'Ctrl-G', description: 'Edit in external editor ($VISUAL / $EDITOR)' },
-  { keys: 'Ctrl-O', description: 'Toggle tool output expansion' },
-  {
-    keys: 'Shift-Tab / Ctrl-T',
-    description: 'Cycle thinking effort (see /plan for plan mode)',
-  },
+  { keys: 'Ctrl-O', description: 'Toggle tool output / compaction summary expansion' },
+  { keys: 'Ctrl-T', description: 'Expand / collapse the todo list (when truncated)' },
   { keys: 'Ctrl-S', description: 'Steer — inject a follow-up during streaming' },
   { keys: 'Shift-Enter / Ctrl-J', description: 'Insert newline' },
   { keys: 'Ctrl-C', description: 'Interrupt stream / clear input' },
@@ -66,31 +56,20 @@ export class HelpPanelComponent extends Container implements Focusable {
   focused = false;
   private readonly opts: HelpPanelOptions;
   private scrollTop = 0;
-  private bindings = defaultKeybindings();
-  private keybindings = new KeybindingResolver(this.bindings);
 
   constructor(opts: HelpPanelOptions) {
     super();
     this.opts = opts;
   }
 
-  setKeybindings(bindings: readonly ParsedKeybinding[]): void {
-    this.bindings = bindings;
-    this.keybindings = new KeybindingResolver(bindings);
-  }
-
   handleInput(data: string): void {
-    const handlers = {
-      'help:dismiss': () => this.opts.onClose(),
-    } as const;
-    if (
-      this.keybindings.dispatch(data, ['Help'], handlers) ||
-      this.keybindings.dispatchKeyId(data, ['Help'], handlers)
-    ) {
-      return;
-    }
     const printable = decodeKittyPrintable(data) ?? data;
-    if (matchesKey(data, Key.enter) || printable === 'q' || printable === 'Q') {
+    if (
+      matchesKey(data, Key.escape) ||
+      matchesKey(data, Key.enter) ||
+      printable === 'q' ||
+      printable === 'Q'
+    ) {
       this.opts.onClose();
       return;
     }
@@ -126,16 +105,9 @@ export class HelpPanelComponent extends Container implements Focusable {
       return `/${c.name}${aliases}`;
     });
     const cmdWidth = Math.max(12, ...cmdLabels.map((l) => l.length));
-    const configuredDismiss = keybindingDisplayText(this.bindings, 'Help', 'help:dismiss');
-    const dismissKeys = [
-      configuredDismiss === undefined ? undefined : formatBindingKeys(configuredDismiss),
-      'Enter',
-      'q',
-    ].filter((key): key is string => key !== undefined);
     const lines: string[] = [
       accent('─'.repeat(width)),
-      currentTheme.boldFg('primary', ' help ') +
-        muted(`· ${dismissKeys.join(' / ')} to cancel · ↑↓ scroll`),
+      currentTheme.boldFg('primary', ' help ') + muted('· Esc / Enter / q to cancel · ↑↓ scroll'),
       '',
       // Greeting
       `  ${dim('Sure, Pythinker is ready to help! Just send a message to get started.')}`,

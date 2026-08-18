@@ -16,5 +16,7 @@ Overusing this tool interrupts the user's flow. Only use it when the user's inpu
 - Keep option labels concise (1-5 words), use descriptions for trade-offs and details
 - Use an optional multi-line Markdown `preview` when users need to compare concrete code, plans, or mockups; previews are single-select and replace the custom "Other" option
 - Each question should have 2-4 meaningful, distinct options
+- Question texts must be unique across the call, and option labels must be unique within each question
 - You can ask 1-4 questions at a time; group related questions to minimize interruptions
 - If you recommend a specific option, list it first and append "(Recommended)" to its label
+- The result is JSON with an `answers` object keyed by question text; each value is the chosen option's label (comma-separated labels for multi_select, or the user's own words if they picked "Other"); if `answers` is empty and a `note` says the user dismissed it, they chose not to answer — do not treat this as selecting the recommended option; decide based on context and do not re-ask the same question

@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import { DEFAULT_AGENT_PROFILES, loadAgentProfilesFromSources } from '../../src/profile';
+import {
+  ADDITIONAL_DIRS_SECTION_PROSE,
+  SKILLS_SECTION_PROSE,
+  WINDOWS_NOTES,
+} from '../../src/profile/prompt-sections';
 
 const promptContext = {
   osEnv: {
@@ -14,7 +19,6 @@ const promptContext = {
   now: '2026-05-09T00:00:00.000Z',
   cwdListing: 'LISTING_SNAPSHOT',
   agentsMd: 'AGENTS_MD_BODY',
-  gitContext: '<git-context>\nBranch: feature/test\nDirty files (1):\n  M src/a.ts\n</git-context>',
   skills: '- test-skill: does things\n  Path: /skills/test/SKILL.md',
 } as const;
 
@@ -41,80 +45,32 @@ describe('default agent profiles', () => {
     );
   });
 
-  it('includes the startup Git snapshot in the main system prompt', () => {
-    const prompt = DEFAULT_AGENT_PROFILES['agent']!.systemPrompt(promptContext);
-
-    expect(prompt).toContain('Git Repository Snapshot');
-    expect(prompt).toContain('<git-context>\nBranch: feature/test');
-    expect(prompt.indexOf('Git Repository Snapshot')).toBeLessThan(
-      prompt.indexOf('<git-context>'),
-    );
-  });
-
-  it('defaults reasoning and replies to English', () => {
-    const prompt = DEFAULT_AGENT_PROFILES['agent']?.systemPrompt(promptContext) ?? '';
-
-    expect(prompt).toContain('Use English for reasoning');
-    expect(prompt).toContain('Only use another language when the user explicitly asks');
-    expect(prompt).not.toMatch(/same language as the user/iu);
-  });
-
-  it('allows authorized security work while rejecting destructive abuse', () => {
-    const prompt = DEFAULT_AGENT_PROFILES['agent']?.systemPrompt(promptContext) ?? '';
-
-    expect(prompt).toContain('authorized security testing');
-    expect(prompt).toContain('Refuse requests for destructive techniques');
+  it('renders the environment prose sections from the shared prompt-sections source', () => {
+    // system.md must render the shared constants (never re-inlined copies), so
+    // the builtin default prompt and the agent-file renderer cannot drift.
+    const prompt =
+      DEFAULT_AGENT_PROFILES['agent']?.systemPrompt({
+        ...promptContext,
+        osEnv: { ...promptContext.osEnv, osKind: 'Windows' },
+        additionalDirsInfo: 'EXTRA_DIR_1',
+      }) ?? '';
+    expect(prompt).toContain(WINDOWS_NOTES);
+    expect(prompt).toContain(ADDITIONAL_DIRS_SECTION_PROSE);
+    expect(prompt).toContain(SKILLS_SECTION_PROSE);
   });
 
   it('lists the goal tools on the agent profile but not on subagent profiles', () => {
     const agentTools = DEFAULT_AGENT_PROFILES['agent']?.tools ?? [];
-    expect(agentTools).toEqual(expect.arrayContaining(['CreateGoal', 'GetGoal']));
+    expect(agentTools).toEqual(
+      expect.arrayContaining(['CreateGoal', 'GetGoal', 'SetGoalBudget', 'UpdateGoal']),
+    );
     for (const name of ['coder', 'explore', 'plan']) {
       const tools = DEFAULT_AGENT_PROFILES[name]?.tools ?? [];
       expect(tools).not.toContain('CreateGoal');
       expect(tools).not.toContain('GetGoal');
+      expect(tools).not.toContain('SetGoalBudget');
+      expect(tools).not.toContain('UpdateGoal');
     }
-  });
-
-  it('provides a read-only verification subagent with an evidence verdict contract', () => {
-    const verification = DEFAULT_AGENT_PROFILES['agent']?.subagents?.['verification'];
-
-    expect(verification).toBe(DEFAULT_AGENT_PROFILES['verification']);
-    expect(verification).toMatchObject({
-      background: true,
-      tools: expect.arrayContaining(['Bash', 'Read', 'Grep', 'Skill']),
-    });
-    expect(verification?.tools).not.toEqual(
-      expect.arrayContaining(['Write', 'Edit', 'NotebookEdit', 'Agent']),
-    );
-    const prompt = verification?.systemPrompt(promptContext) ?? '';
-    expect(prompt).toContain('verification specialist');
-    expect(prompt).toContain('Do not modify the project');
-    expect(prompt).toContain('project verifier skills');
-    expect(prompt).toContain('VERDICT: PASS');
-    expect(prompt).toContain('VERDICT: FAIL');
-    expect(prompt).toContain('VERDICT: PARTIAL');
-  });
-
-  it('provides a coordinator main profile with the default worker catalog', () => {
-    const coordinator = DEFAULT_AGENT_PROFILES['coordinator'];
-    const prompt = coordinator?.systemPrompt(promptContext) ?? '';
-
-    expect(coordinator?.tools).toEqual(DEFAULT_AGENT_PROFILES['agent']?.tools);
-    expect(coordinator?.subagents).toEqual(DEFAULT_AGENT_PROFILES['agent']?.subagents);
-    expect(prompt).toContain('coordinator');
-    expect(prompt).toContain('Delegate independent, non-trivial work');
-    expect(prompt).toContain('Synthesize worker results');
-  });
-
-  it('exposes MCP resource tools wherever dynamic MCP tools are enabled', () => {
-    const expected = expect.arrayContaining([
-      'ListMcpResourcesTool',
-      'ReadMcpResourceTool',
-      'mcp__*',
-    ]);
-    expect(DEFAULT_AGENT_PROFILES['agent']?.tools).toEqual(expected);
-    expect(DEFAULT_AGENT_PROFILES['coder']?.tools).toEqual(expected);
   });
 
   it('fails loudly when an embedded system prompt source is missing', () => {
@@ -123,5 +79,83 @@ describe('default agent profiles', () => {
         'profile/default/agent.yaml': 'name: agent\nsystemPromptPath: ./missing.md\n',
       }),
     ).toThrow(/Embedded agent profile source missing: profile\/default\/missing\.md/);
+  });
+
+  it('omits the Skills section only for profiles that lack the Skill tool', () => {
+    // The root agent and coder have the Skill tool, so the Skills section and
+    // listing render in their prompts.
+    for (const name of ['agent', 'coder']) {
+      expect(DEFAULT_AGENT_PROFILES[name]?.tools).toContain('Skill');
+      const prompt = DEFAULT_AGENT_PROFILES[name]?.systemPrompt(promptContext) ?? '';
+      expect(prompt).toContain('# Skills');
+      expect(prompt).toContain('- test-skill: does things');
+    }
+
+    // explore/plan lack the Skill tool, so neither the section heading nor the
+    // skill listing should appear in their prompts.
+    for (const name of ['explore', 'plan']) {
+      const tools = DEFAULT_AGENT_PROFILES[name]?.tools ?? [];
+      expect(tools).not.toContain('Skill');
+      const prompt = DEFAULT_AGENT_PROFILES[name]?.systemPrompt(promptContext) ?? '';
+      expect(prompt).not.toContain('# Skills');
+      expect(prompt).not.toContain('- test-skill: does things');
+    }
+  });
+
+  it('renders the Plugin Instructions section only when plugin sections exist', () => {
+    const pluginSections = '<!-- From: plugin demo -->\nAlways cite sources.';
+    for (const name of ['agent', 'coder', 'explore', 'plan']) {
+      const prompt =
+        DEFAULT_AGENT_PROFILES[name]?.systemPrompt({ ...promptContext, pluginSections }) ?? '';
+      expect(prompt).toContain('# Plugin Instructions');
+      expect(prompt).toContain('<!-- From: plugin demo -->');
+      expect(prompt).toContain('Always cite sources.');
+    }
+
+    const prompt = DEFAULT_AGENT_PROFILES['agent']?.systemPrompt(promptContext) ?? '';
+    expect(prompt).not.toContain('# Plugin Instructions');
+  });
+
+  it('keeps optional-tool guidance out of the shared system prompt entirely', () => {
+    // Tool-coupled guidance now lives in each tool's own description, which the schema
+    // layer ships ONLY when the tool is registered — that is the availability gate, for
+    // free. So the shared system.md must not name optional tools at all (no per-tool
+    // {% if %} reconstruction of availability). This holds for the root `agent` too, not
+    // just subagents. The cross-tool secret-file guard — built on the always-present
+    // Read/Grep/Glob — stays shared.
+    for (const name of ['agent', 'coder', 'explore', 'plan']) {
+      const prompt = DEFAULT_AGENT_PROFILES[name]?.systemPrompt(promptContext) ?? '';
+      expect(prompt).not.toContain('Launch multiple explore agents concurrently'); // Agent → agent.md + explore whenToUse
+      expect(prompt).not.toContain('long-running shell commands as background tasks'); // background → bash.md
+      expect(prompt).not.toContain('maintain a `TodoList`'); // TodoList → todo-list.md
+      expect(prompt).not.toContain('prefer entering plan mode first'); // EnterPlanMode → enter-plan-mode.md
+      expect(prompt).not.toContain('call `TaskList` to re-enumerate'); // compaction recovery → task-list.md
+      // The dedicated-tool routing must name only universally-present tools (Read/Glob/Grep).
+      // Write/Edit/Bash are absent from read-only profiles (plan has no Bash/Write/Edit;
+      // explore no Write/Edit), so naming them in the shared routing sentence would dangle —
+      // that routing lives in bash.md (echo>file→Write, sed→Edit, etc.), which ships with Bash.
+      expect(prompt).not.toContain('`Write` / `Edit` to change files');
+      expect(prompt).not.toContain('Keep `Bash` for genuine shell work');
+      expect(prompt).toContain('`Glob` to find files by name'); // universal routing stays
+      expect(prompt).toContain('refuse a fixed set of well-known secret files'); // shared guard stays
+    }
+  });
+
+  it('renders blast-radius and concrete-example guidance for root and subagents alike', () => {
+    // These additions live in shared, ungated sections, so the root agent AND every
+    // subagent that renders the coding guidelines must carry them verbatim.
+    for (const name of ['agent', 'coder', 'explore', 'plan']) {
+      const prompt = DEFAULT_AGENT_PROFILES[name]?.systemPrompt(promptContext) ?? '';
+      // Reversibility / blast-radius principle generalized beyond the git rule.
+      expect(prompt).toContain('reversibility and blast radius');
+      expect(prompt).toContain('A one-time approval covers that one action');
+      // The "do local work freely" clause is role-scoped: read-only subagents (explore/plan)
+      // render this same paragraph, so it must not tell them editing files is free.
+      expect(prompt).toContain('Local, reversible work your role permits');
+      // Concrete one-line examples anchoring high-frequency abstract rules.
+      expect(prompt).toContain('locate the method in the code'); // ambiguous instruction -> edit code, not echo text
+      expect(prompt).toContain('update the related tests'); // preamble phrasing example
+      expect(prompt).toContain('premature abstraction'); // MINIMAL-changes counterexample
+    }
   });
 });

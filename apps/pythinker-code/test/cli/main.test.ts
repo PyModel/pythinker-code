@@ -1,15 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ErrorCodes, PythinkerError } from '@pymodel/pythinker-code-sdk';
 
-import { OptionConflictError, validateOptions } from '#/cli/options';
+import { validateOptions } from '#/cli/options';
 import type { CLIOptions } from '#/cli/options';
 import type * as OptionsModule from '#/cli/options';
 import { runPrompt } from '#/cli/run-prompt';
 import { runShell } from '#/cli/run-shell';
 import { formatStartupError } from '#/cli/startup-error';
-import { activatePendingUpdate } from '#/cli/update/activation';
 import { runUpdatePreflight } from '#/cli/update/preflight';
-import { dispatchUpdateHelperIfRequested } from '#/cli/update/update-helper';
 import { handleMainCommand, handleUpgradeCommand, main } from '#/main';
 
 const mocks = vi.hoisted(() => {
@@ -20,10 +18,6 @@ const mocks = vi.hoisted(() => {
     getVersion: vi.fn(() => '0.0.1-alpha.2'),
     validateOptions: vi.fn(),
     runUpdatePreflight: vi.fn(),
-    activatePendingUpdate: vi.fn(),
-    isAutoUpdateDisabledByEnv: vi.fn(),
-    shouldAutoInstallUpdates: vi.fn(),
-    dispatchUpdateHelperIfRequested: vi.fn(),
     runShell: vi.fn(),
     runPrompt: vi.fn(),
     installCrashHandlers: vi.fn(),
@@ -38,6 +32,8 @@ const mocks = vi.hoisted(() => {
     })),
     initializeCliTelemetry: vi.fn(),
     handleUpgrade: vi.fn(),
+    flushDiagnosticLogs: vi.fn(),
+    finalizeHeadlessRun: vi.fn(),
     log: {
       info: vi.fn(),
       warn: vi.fn(),
@@ -85,6 +81,7 @@ vi.mock('@pymodel/pythinker-code-sdk', async () => {
       mocks.createPythinkerHarness(...args);
       return mocks.harness;
     },
+    flushDiagnosticLogs: mocks.flushDiagnosticLogs,
     PythinkerHarness: MockPythinkerHarness,
     log: mocks.log,
   };
@@ -123,16 +120,6 @@ vi.mock('../../src/cli/options', async () => {
 
 vi.mock('../../src/cli/update/preflight', () => ({
   runUpdatePreflight: mocks.runUpdatePreflight,
-  isAutoUpdateDisabledByEnv: mocks.isAutoUpdateDisabledByEnv,
-  shouldAutoInstallUpdates: mocks.shouldAutoInstallUpdates,
-}));
-
-vi.mock('../../src/cli/update/activation', () => ({
-  activatePendingUpdate: mocks.activatePendingUpdate,
-}));
-
-vi.mock('../../src/cli/update/update-helper', () => ({
-  dispatchUpdateHelperIfRequested: mocks.dispatchUpdateHelperIfRequested,
 }));
 
 vi.mock('../../src/cli/run-shell', () => ({
@@ -141,6 +128,10 @@ vi.mock('../../src/cli/run-shell', () => ({
 
 vi.mock('../../src/cli/run-prompt', () => ({
   runPrompt: mocks.runPrompt,
+}));
+
+vi.mock('../../src/cli/headless-exit', () => ({
+  finalizeHeadlessRun: mocks.finalizeHeadlessRun,
 }));
 
 class ExitCalled extends Error {
@@ -153,7 +144,6 @@ function defaultOpts(): CLIOptions {
   return {
     session: undefined,
     continue: false,
-    rewindFiles: undefined,
     yolo: false,
     auto: false,
     plan: false,
@@ -161,7 +151,23 @@ function defaultOpts(): CLIOptions {
     outputFormat: undefined,
     prompt: undefined,
     skillsDirs: [],
+    agent: undefined,
+    agentFiles: [],
   };
+}
+
+async function waitForAssertion(assertion: () => void): Promise<void> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    try {
+      assertion();
+      return;
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+  }
+  throw lastError;
 }
 
 async function runHandleMainCommand(opts: CLIOptions): Promise<number | null> {
@@ -207,53 +213,13 @@ describe('main entry command handling', () => {
     vi.clearAllMocks();
     mocks.harness.ensureConfigFile.mockResolvedValue(undefined);
     mocks.harness.getConfig.mockResolvedValue({
-      defaultModel: 'pythinker-k2',
+      defaultModel: 'kimi-k2',
       telemetry: true,
     });
     mocks.harness.close.mockResolvedValue(undefined);
     mocks.shutdownTelemetry.mockResolvedValue(undefined);
     mocks.handleUpgrade.mockResolvedValue(0);
-    mocks.activatePendingUpdate.mockResolvedValue({ status: 'none' });
-    mocks.isAutoUpdateDisabledByEnv.mockReturnValue(false);
-    mocks.shouldAutoInstallUpdates.mockResolvedValue(true);
-    mocks.dispatchUpdateHelperIfRequested.mockReturnValue(false);
-  });
-
-  it('flushes a parsed option conflict before exiting', async () => {
-    const opts = { ...defaultOpts(), sessionSelectorConflict: true };
-    mocks.validateOptions.mockImplementation(() => {
-      throw new OptionConflictError('Cannot combine --session with --resume.');
-    });
-    let completeWrite: ((error?: Error | null) => void) | undefined;
-    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(((
-      _chunk: string | Uint8Array,
-      encodingOrCallback?: BufferEncoding | ((error?: Error | null) => void),
-      callback?: (error?: Error | null) => void,
-    ) => {
-      completeWrite =
-        typeof encodingOrCallback === 'function' ? encodingOrCallback : callback;
-      return true;
-    }) as never);
-
-    try {
-      let settled = false;
-      const pending = runHandleMainCommand(opts).then((code) => {
-        settled = true;
-        return code;
-      });
-      await vi.waitFor(() => {
-        expect(stderrSpy).toHaveBeenCalledWith(
-          'error: Cannot combine --session with --resume.\n',
-          expect.any(Function),
-        );
-      });
-      expect(settled).toBe(false);
-
-      completeWrite?.();
-      await expect(pending).resolves.toBe(1);
-    } finally {
-      stderrSpy.mockRestore();
-    }
+    mocks.flushDiagnosticLogs.mockResolvedValue(undefined);
   });
 
   it('runs update preflight before starting the shell', async () => {
@@ -271,79 +237,6 @@ describe('main entry command handling', () => {
       mocks.runShell.mock.invocationCallOrder[0]!,
     );
     expect(runShell).toHaveBeenCalledWith(opts, '0.0.1-alpha.2');
-  });
-
-  it('activates a prepared update and re-execs the new Homebrew launcher before preflight', async () => {
-    const opts = defaultOpts();
-    mocks.validateOptions.mockReturnValue({ options: opts, uiMode: 'shell' });
-    mocks.activatePendingUpdate.mockResolvedValue({
-      status: 'activated',
-      version: '0.5.0',
-      executable: '/opt/homebrew/opt/pythinker-code/bin/pythinker',
-    });
-    const stdinDescriptor = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
-    const stdoutDescriptor = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
-    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: true });
-    Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: true });
-    const execve = vi.spyOn(process, 'execve').mockImplementation(() => {
-      throw new Error('re-exec');
-    });
-
-    try {
-      await expect(handleMainCommand(opts, '0.4.0')).rejects.toThrow('re-exec');
-      expect(activatePendingUpdate).toHaveBeenCalledWith('0.4.0', {
-        enabled: true,
-        automaticEnabled: true,
-      });
-      expect(execve).toHaveBeenCalledWith(
-        '/opt/homebrew/opt/pythinker-code/bin/pythinker',
-        ['/opt/homebrew/opt/pythinker-code/bin/pythinker', ...process.argv.slice(2)],
-        process.env,
-      );
-      expect(runUpdatePreflight).not.toHaveBeenCalled();
-      expect(runShell).not.toHaveBeenCalled();
-    } finally {
-      execve.mockRestore();
-      if (stdinDescriptor === undefined) {
-        delete (process.stdin as { isTTY?: boolean }).isTTY;
-      } else {
-        Object.defineProperty(process.stdin, 'isTTY', stdinDescriptor);
-      }
-      if (stdoutDescriptor === undefined) {
-        delete (process.stdout as { isTTY?: boolean }).isTTY;
-      } else {
-        Object.defineProperty(process.stdout, 'isTTY', stdoutDescriptor);
-      }
-    }
-  });
-
-  it('does not block normal startup when pending-update state processing fails', async () => {
-    const opts = defaultOpts();
-    mocks.validateOptions.mockReturnValue({ options: opts, uiMode: 'shell' });
-    mocks.activatePendingUpdate.mockRejectedValue(new Error('install state is read-only'));
-    mocks.runUpdatePreflight.mockResolvedValue('continue');
-    mocks.runShell.mockResolvedValue(undefined);
-    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(((
-      _chunk: string | Uint8Array,
-      encodingOrCallback?: BufferEncoding | ((error?: Error | null) => void),
-      callback?: (error?: Error | null) => void,
-    ) => {
-      const complete = typeof encodingOrCallback === 'function' ? encodingOrCallback : callback;
-      complete?.();
-      return true;
-    }) as never);
-
-    try {
-      await expect(runHandleMainCommand(opts)).resolves.toBeNull();
-      expect(runUpdatePreflight).toHaveBeenCalledOnce();
-      expect(runShell).toHaveBeenCalledOnce();
-      expect(stderrSpy).toHaveBeenCalledWith(
-        'warning: unable to process a pending Pythinker Code update: install state is read-only\n',
-        expect.any(Function),
-      );
-    } finally {
-      stderrSpy.mockRestore();
-    }
   });
 
   it('runs prompt mode without interactive update preflight', async () => {
@@ -366,24 +259,79 @@ describe('main entry command handling', () => {
     expect(runShell).not.toHaveBeenCalled();
   });
 
-  it('runs init-only without mounting prompt mode', async () => {
-    const opts: CLIOptions = {
-      ...defaultOpts(),
-      initOnly: true,
-    };
+  it('does not force-exit from the reusable handler in print mode', async () => {
+    const opts: CLIOptions = { ...defaultOpts(), prompt: 'explain the repo' };
+    mocks.validateOptions.mockReturnValue({ options: opts, uiMode: 'print' });
+    mocks.runUpdatePreflight.mockResolvedValue('continue');
+    mocks.runPrompt.mockResolvedValue(void 0);
+
+    const outcome = await handleMainCommand(opts, '0.0.1-alpha.2');
+
+    // Process disposition belongs to the entrypoint, never to this reusable,
+    // unit-tested handler: arming a process.exit here would kill the test runner
+    // or any embedding host. The handler only reports what ran.
+    expect(mocks.finalizeHeadlessRun).not.toHaveBeenCalled();
+    expect(outcome).toEqual({ headlessCompleted: true });
+  });
+
+  it('reports no headless completion for interactive (shell) mode', async () => {
+    const opts = defaultOpts();
     mocks.validateOptions.mockReturnValue({ options: opts, uiMode: 'shell' });
     mocks.runUpdatePreflight.mockResolvedValue('continue');
     mocks.runShell.mockResolvedValue(void 0);
 
-    const exitCode = await runHandleMainCommand(opts);
+    const outcome = await handleMainCommand(opts, '0.0.1-alpha.2');
 
-    expect(exitCode).toBeNull();
-    expect(runUpdatePreflight).toHaveBeenCalledWith('0.0.1-alpha.2', {
-      track: expect.any(Function),
-      isTTY: false,
+    expect(outcome).toEqual({ headlessCompleted: false });
+    expect(mocks.finalizeHeadlessRun).not.toHaveBeenCalled();
+  });
+
+  it('arms the force-exit fallback at the entrypoint after a completed headless run', async () => {
+    const opts: CLIOptions = { ...defaultOpts(), prompt: 'explain the repo' };
+    mocks.validateOptions.mockReturnValue({ options: opts, uiMode: 'print' });
+    mocks.runUpdatePreflight.mockResolvedValue('continue');
+    mocks.runPrompt.mockResolvedValue(void 0);
+    mocks.finalizeHeadlessRun.mockResolvedValue(void 0);
+
+    main();
+    const programArgs = mocks.createProgram.mock.calls[0] as unknown as unknown[];
+    const mainAction = programArgs[1] as (opts: CLIOptions) => void;
+    mainAction(opts);
+
+    await waitForAssertion(() => {
+      expect(mocks.finalizeHeadlessRun).toHaveBeenCalledTimes(1);
     });
-    expect(runShell).toHaveBeenCalledWith(opts, '0.0.1-alpha.2');
-    expect(runPrompt).not.toHaveBeenCalled();
+    // The exit code is resolved lazily so a goal turn that sets process.exitCode wins.
+    const forceExitArgs = mocks.finalizeHeadlessRun.mock.calls[0] as unknown as unknown[];
+    expect(typeof forceExitArgs[2]).toBe('function');
+  });
+
+  it('sets the failure exit code before awaiting startup failure logging', async () => {
+    const originalExitCode = process.exitCode;
+    const opts: CLIOptions = { ...defaultOpts(), prompt: 'explain the repo' };
+    mocks.validateOptions.mockReturnValue({ options: opts, uiMode: 'print' });
+    mocks.runUpdatePreflight.mockResolvedValue('continue');
+    mocks.runPrompt.mockRejectedValue(new Error('provider failed'));
+    mocks.flushDiagnosticLogs.mockImplementation(() => new Promise(() => {}));
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((code?: string | number | null) => {
+      throw new ExitCalled(Number(code ?? 0));
+    });
+
+    try {
+      main();
+      const programArgs = mocks.createProgram.mock.calls[0] as unknown as unknown[];
+      const mainAction = programArgs[1] as (opts: CLIOptions) => void;
+      mainAction(opts);
+
+      await waitForAssertion(() => {
+        expect(mocks.flushDiagnosticLogs).toHaveBeenCalledTimes(1);
+      });
+      expect(process.exitCode).toBe(1);
+      expect(exitSpy).not.toHaveBeenCalled();
+    } finally {
+      exitSpy.mockRestore();
+      process.exitCode = originalExitCode;
+    }
   });
 
   it('keeps shell mode update preflight interactive by default', async () => {
@@ -409,15 +357,6 @@ describe('main entry command handling', () => {
       mocks.createProgram.mock.invocationCallOrder[0]!,
     );
     expect(mocks.parse).toHaveBeenCalledWith(process.argv);
-  });
-
-  it('routes the internal update helper without parsing normal commands', () => {
-    mocks.dispatchUpdateHelperIfRequested.mockReturnValue(true);
-
-    main();
-
-    expect(dispatchUpdateHelperIfRequested).toHaveBeenCalledOnce();
-    expect(mocks.parse).not.toHaveBeenCalled();
   });
 
   it('sets the process title during startup', () => {
@@ -468,7 +407,7 @@ describe('main entry command handling', () => {
         firstLaunch: false,
       },
       config: {
-        defaultModel: 'pythinker-k2',
+        defaultModel: 'kimi-k2',
         telemetry: true,
       },
       version: '0.0.1-alpha.2',

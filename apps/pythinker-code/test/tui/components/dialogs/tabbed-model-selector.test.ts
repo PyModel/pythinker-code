@@ -3,19 +3,16 @@ import chalk from 'chalk';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { TabbedModelSelectorComponent } from '#/tui/components/dialogs/tabbed-model-selector';
-import { parseKeybindingBlocks } from '#/tui/keybindings';
-import { darkColors } from '#/tui/theme/colors';
+import { currentTheme } from '#/tui/theme';
+import { darkColors, lightColors } from '#/tui/theme/colors';
 
 const ESC = String.fromCodePoint(27);
 const SGR = new RegExp(`${ESC}\\[[0-9;]*m`, 'g');
 const strip = (s: string): string => s.replaceAll(SGR, '');
 const TAB = '\t';
-const SHIFT_TAB = `${ESC}[Z`;
 const RIGHT = `${ESC}[C`;
-const selectionBackgroundSgr = (): string =>
-  chalk.bgHex(darkColors.selectionBg)('x').split('x')[0]!;
-const inverseTextSgr = (): string =>
-  chalk.hex(darkColors.inverseText)('x').split('x')[0]!;
+// chalk.bgHex(colors.primary) → background truecolor for #4FA8FF.
+const PRIMARY_BG = '48;2;79;168;255';
 
 function model(displayName: string, provider: string): ModelAlias {
   return {
@@ -34,11 +31,11 @@ function make(): {
   const onSelect = vi.fn();
   const component = new TabbedModelSelectorComponent({
     models: {
-      k2: model('Kimi K2', 'moonshot-cn'),
+      k2: model('Kimi K2', 'managed:pythinker-code'),
       gpt: model('GPT-5', 'openai'),
     },
     currentValue: 'k2',
-    currentEffort: 'off',
+    currentThinkingEffort: 'off',
     onSelect,
     onCancel: vi.fn(),
   });
@@ -48,98 +45,72 @@ function make(): {
 
 describe('TabbedModelSelectorComponent', () => {
   let previousLevel: typeof chalk.level;
+  const previousPalette = currentTheme.palette;
   beforeAll(() => {
     previousLevel = chalk.level;
     chalk.level = 3;
+    currentTheme.setPalette(darkColors);
   });
   afterAll(() => {
     chalk.level = previousLevel;
+    currentTheme.setPalette(previousPalette);
   });
 
   it('renders an "All" + per-provider tab strip', () => {
     const out = strip(make().component.render(120).join('\n'));
     expect(out).toContain('All');
-    expect(out).toContain('moonshot-cn');
+    expect(out).toContain('Pythinker Code');
     expect(out).toContain('openai');
   });
 
-  it('highlights the active tab with the contrast-safe selection pair', () => {
+  it('highlights the active tab with a filled background (AskUserQuestion style)', () => {
+    // currentValue k2 → the active tab is "Pythinker Code"; its cell carries the
+    // primary background SGR.
     const raw = make().component.render(120).join('\n');
-    expect(raw).toContain(selectionBackgroundSgr());
-    expect(raw).toContain(inverseTextSgr());
+    expect(raw).toContain(PRIMARY_BG);
   });
 
-  it('opens on the current model provider by default', () => {
+  it('repaints the tab strip from the current theme palette without remounting', () => {
     const { component } = make();
-    const out = strip(component.render(120).join('\n'));
-    expect(component.activeTabId()).toBe('moonshot-cn');
+    const stripLine = (lines: string[]): string =>
+      lines.find((l) => l.includes('All') && l.includes('openai')) ?? '';
+    const previous = currentTheme.palette;
+    try {
+      currentTheme.setPalette(darkColors);
+      const darkStrip = stripLine(component.render(120));
+      currentTheme.setPalette(lightColors);
+      const lightStrip = stripLine(component.render(120));
+      // The strip is drawn from currentTheme.palette at render time; a
+      // construction-time palette snapshot would render the same strip after
+      // the switch.
+      expect(darkStrip).not.toBe(lightStrip);
+    } finally {
+      currentTheme.setPalette(previous);
+    }
+  });
+
+  it('opens on the All tab by default (showing every provider\'s models)', () => {
+    const out = strip(make().component.render(120).join('\n'));
     expect(out).toContain('Kimi K2');
-    expect(out).not.toContain('GPT-5');
-    expect(out).toMatch(/❯ Kimi K2\s+moonshot-cn ← current/u);
+    expect(out).toContain('GPT-5');
   });
 
-  it('opens the matching provider when the current canonical alias is stale', () => {
-    const component = new TabbedModelSelectorComponent({
-      models: {
-        minimax: model('MiniMax M3', 'minimax-anthropic'),
-        sol: model('GPT-5.6-Sol', 'openai-codex'),
-      },
-      currentValue: 'openai-codex/codex-auto-review',
-      currentEffort: 'max',
-      onSelect: vi.fn(),
-      onCancel: vi.fn(),
-    });
-
-    const out = strip(component.render(120).join('\n'));
-    expect(component.activeTabId()).toBe('openai-codex');
-    expect(out).toContain('GPT-5.6-Sol');
-    expect(out).not.toContain('MiniMax M3');
-    expect(out).not.toContain('← current');
-  });
-
-  it('cycles provider tabs with Tab and Shift-Tab', () => {
+  it('cycles provider tabs with Tab', () => {
     const { component } = make();
-    // tabs = [All, Pythinker Code, openai]; active starts on Pythinker Code.
-    // One Tab → openai, whose list shows GPT-5 and not Kimi K2.
+    // tabs = [All, Pythinker Code, openai]; active starts on All.
+    // Two Tabs → openai, whose list shows GPT-5 and not Kimi K2.
     component.handleInput(TAB);
-    let out = strip(component.render(120).join('\n'));
+    component.handleInput(TAB);
+    const out = strip(component.render(120).join('\n'));
     expect(out).toContain('GPT-5');
     expect(out).not.toContain('Kimi K2');
-
-    component.handleInput(SHIFT_TAB);
-    out = strip(component.render(120).join('\n'));
-    expect(out).toContain('Kimi K2');
-    expect(out).not.toContain('GPT-5');
   });
 
-  it('uses remapped tab switching and renders the effective shortcut', () => {
-    const { component } = make();
-    component.setKeybindings(
-      parseKeybindingBlocks([
-        { context: 'Tabs', bindings: { tab: null, 'alt+l': 'tabs:next' } },
-      ]),
-    );
-
-    component.handleInput(TAB);
-    expect(strip(component.render(120).join('\n'))).toContain('Kimi K2');
-    component.handleInput('\u001Bl');
-    const output = strip(component.render(120).join('\n'));
-    expect(output).toContain('GPT-5');
-    expect(output).not.toContain('Kimi K2');
-    expect(output).toContain('alt+l');
-    expect(output).not.toContain('Tab toggle provider');
-  });
-
-  it('lets the active selector consume Left/Right before tab navigation', () => {
+  it('forwards thinking toggle (←/→) and selection (Enter) to the active tab', () => {
     const { component, onSelect } = make();
-
-    component.handleInput(RIGHT); // off -> low for k2
-    const output = strip(component.render(120).join('\n'));
-    expect(component.activeTabId()).toBe('moonshot-cn');
-    expect(output).toContain('Kimi K2');
-
+    component.handleInput(RIGHT); // toggle thinking on for k2
     component.handleInput('\r');
-    expect(onSelect).toHaveBeenCalledWith({ alias: 'k2', effort: 'low' });
+    expect(onSelect).toHaveBeenCalledWith({ alias: 'k2', thinking: 'on' });
   });
 
   it('frames the tab strip with a blank line above and below it', () => {
@@ -161,35 +132,41 @@ describe('TabbedModelSelectorComponent', () => {
     expect(hint!.indexOf('Tab toggle provider')).toBeLessThan(hint!.indexOf('↑↓ navigate'));
   });
 
-  it('deduplicates the same underlying model in both the All tab and provider tab', () => {
-    const onSelect = vi.fn();
-    const terra = model('Terra 13B', 'terra');
-    const component = new TabbedModelSelectorComponent({
-      models: {
-        'terra/custom': terra,
-        'terra/terra-13b': terra,
-        gpt: model('GPT-5', 'openai'),
-      },
-      currentValue: 'terra/custom',
-      selectedValue: 'terra/custom',
-      currentEffort: 'medium',
-      onSelect,
+  it('renders the default title, and a custom title when provided', () => {
+    expect(strip(make().component.render(120).join('\n'))).toContain('Select a model');
+
+    const titled = new TabbedModelSelectorComponent({
+      models: { k2: model('Kimi K2', 'managed:pythinker-code') },
+      currentValue: 'k2',
+      currentThinkingEffort: 'off',
+      title: ' Select a secondary model (subagents)',
+      onSelect: vi.fn(),
       onCancel: vi.fn(),
     });
-    component.focused = true;
+    const out = strip(titled.render(120).join('\n'));
+    expect(out).toContain('Select a secondary model (subagents)');
+    expect(out).not.toContain('Select a model ');
+  });
 
-    const providerLines = strip(component.render(120).join('\n'))
-      .split('\n')
-      .filter((line) => line.includes('Terra 13B'));
-    expect(providerLines).toHaveLength(1);
-
-    component.handleInput(SHIFT_TAB);
-    const allLines = strip(component.render(120).join('\n'))
-      .split('\n')
-      .filter((line) => line.includes('Terra 13B'));
-    expect(allLines).toHaveLength(1);
-
-    component.handleInput('\r');
-    expect(onSelect).toHaveBeenCalledWith({ alias: 'terra/terra-13b', effort: 'medium' });
+  it('keeps the tab strip between hint and list when a warning line is present', () => {
+    const component = new TabbedModelSelectorComponent({
+      models: {
+        k2: model('Kimi K2', 'managed:pythinker-code'),
+        gpt: model('GPT-5', 'openai'),
+      },
+      currentValue: 'k2',
+      currentThinkingEffort: 'off',
+      warning: 'Switching may increase token usage.',
+      onSelect: vi.fn(),
+      onCancel: vi.fn(),
+    });
+    const lines = component.render(120).map(strip);
+    const hintIdx = lines.findIndex((l) => l.includes('navigate') && l.includes('Esc cancel'));
+    expect(lines[hintIdx + 1]).toContain('Switching may increase token usage.');
+    expect(lines[hintIdx + 2]).toBe(''); // blank between warning and tabs
+    const stripIdx = lines.findIndex((l) => l.includes('All') && l.includes('openai'));
+    expect(stripIdx).toBe(hintIdx + 3);
+    expect(lines[stripIdx + 1]).toBe(''); // blank between tabs and list
+    expect(lines.findIndex((l) => l.includes('Kimi K2'))).toBeGreaterThan(stripIdx);
   });
 });

@@ -5,7 +5,7 @@ const workDir = process.argv[2]!;
 const homeDir = process.argv[3]!;
 const sessionId = process.argv[4]!;
 
-const identity: any = { userAgentProduct: 'pythinker-code-cli', version: '0.0.1-test' };
+const identity: any = { productName: 'pythinker-code-cli', version: '0.0.1-test', platform: 'pythinker_code_cli' };
 const harnessA = createPythinkerHarness({ identity, homeDir });
 const harnessB = createPythinkerHarness({ identity, homeDir });
 

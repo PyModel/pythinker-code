@@ -4,8 +4,8 @@
  * cron cadence (`recurring: true`, the default).
  *
  * Tasks live in `SessionCronStore` and are mirrored to
- * `<sessionDir>/cron/<id>.json` via `CronManager.addTask`, so a
- * `pythinker resume` of the same session reloads them and the scheduler
+ * `<sessionDir>/cron/<id>.json` via `CronManager.addTask`, so resuming
+ * the same session reloads them and the scheduler
  * picks up where it left off (fires that fell during downtime are
  * collapsed into a single delivery with `coalescedCount`). Tasks do
  * NOT carry over into a brand-new session.
@@ -83,13 +83,13 @@ export const CronCreateInputSchema = z.object({
   cron: z
     .string()
     .describe(
-      '5-field cron expression in local time: "M H DoM Mon DoW" (e.g. "*/5 * * * *" = every 5 minutes, "30 14 28 2 *" = Feb 28 at 2:30pm local once).',
+      '5-field cron expression in local time: "M H DoM Mon DoW" (e.g. "*/5 * * * *" = every 5 minutes; "30 14 28 2 *" = Feb 28 at 2:30pm local — a pinned date like this repeats yearly unless you also pass recurring: false).',
     ),
   prompt: z
     .string()
     .min(1)
     .max(MAX_PROMPT_BYTES)
-    .describe('The prompt to enqueue at each fire time.'),
+    .describe('The prompt to enqueue at each fire time. Limited to 8 KiB (UTF-8).'),
   recurring: z
     .boolean()
     .optional()

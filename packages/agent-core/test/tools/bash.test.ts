@@ -1,16 +1,14 @@
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { PassThrough, Readable, type Writable } from 'node:stream';
 
 import type { Environment, KaosProcess } from '@pymodel/kaos';
 import { describe, expect, it, vi } from 'vitest';
 
-import {
-  type BashInput,
-  BashInputSchema,
-  BashTool,
-  PowerShellTool,
-} from '../../src/tools/builtin/shell/bash';
+import { type BashInput, BashInputSchema, BashTool } from '../../src/tools/builtin/shell/bash';
 import { createBackgroundManager, registerProcess } from '../agent/background/helpers';
-import { createFakeKaos, toolContentString } from './fixtures/fake-kaos';
+import { createFakeKaos } from './fixtures/fake-kaos';
 import { executeTool } from './fixtures/execute-tool';
 
 const posixEnv: Environment = {
@@ -31,11 +29,11 @@ const windowsBashEnv: Environment = {
 
 function processWithOutput(
   options: {
-    readonly stdout?: string | Buffer;
-    readonly stderr?: string | Buffer;
-    readonly exitCode?: number;
-    readonly wait?: () => Promise<number>;
-    readonly kill?: (signal?: NodeJS.Signals) => Promise<void>;
+  readonly stdout?: string | Buffer;
+  readonly stderr?: string | Buffer;
+  readonly exitCode?: number | null;
+  readonly wait?: () => Promise<number>;
+  readonly kill?: (signal?: NodeJS.Signals) => Promise<void>;
   } = {},
 ): KaosProcess {
   const exitCode = options.exitCode ?? 0;
@@ -96,6 +94,43 @@ function processWithInterleavedOutput(
   };
 }
 
+function pendingProcess(): {
+  readonly proc: KaosProcess;
+  readonly finish: (exitCode?: number) => void;
+} {
+  const stdout = new PassThrough();
+  const stderr = new PassThrough();
+  let resolveWait: (exitCode: number) => void = () => {};
+  let currentExitCode: number | null = null;
+  const waitPromise = new Promise<number>((resolve) => {
+    resolveWait = resolve;
+  });
+  const finish = (exitCode = 0): void => {
+    if (currentExitCode !== null) return;
+    currentExitCode = exitCode;
+    stdout.end();
+    stderr.end();
+    resolveWait(exitCode);
+  };
+  return {
+    proc: {
+      stdin: { end: vi.fn(), write: vi.fn() } as unknown as Writable,
+      stdout,
+      stderr,
+      pid: 125,
+      get exitCode(): number | null {
+        return currentExitCode;
+      },
+      wait: vi.fn(async () => waitPromise),
+      kill: vi.fn(async () => {
+        finish(143);
+      }) as KaosProcess['kill'],
+      dispose: vi.fn(async () => {}),
+    },
+    finish,
+  };
+}
+
 function processWithVisibleExitBeforeWait(exitCode = 0): {
   proc: KaosProcess;
   finishWait: () => void;
@@ -148,6 +183,41 @@ function processThatNeverExits(): KaosProcess {
   };
 }
 
+function processWithStreamError(options: {
+  readonly stdoutError?: Error;
+  readonly stderrError?: Error;
+  readonly exitCode?: number;
+} = {}): KaosProcess {
+  const exitCode = options.exitCode ?? 0;
+  const stdout = new PassThrough();
+  const stderr = new PassThrough();
+  const waitPromise = new Promise<number>((resolve) => {
+    setTimeout(() => {
+      if (options.stdoutError !== undefined) {
+        stdout.emit('error', options.stdoutError);
+      } else {
+        stdout.end();
+      }
+      if (options.stderrError !== undefined) {
+        stderr.emit('error', options.stderrError);
+      } else {
+        stderr.end();
+      }
+      resolve(exitCode);
+    }, 1);
+  });
+  return {
+    stdin: { end: vi.fn(), write: vi.fn() } as unknown as Writable,
+    stdout,
+    stderr,
+    pid: 128,
+    exitCode,
+    wait: vi.fn(async () => waitPromise),
+    kill: vi.fn(async () => {}),
+    dispose: vi.fn(async () => {}),
+  };
+}
+
 function processWithOpenStreamsThatExitOnKill(): KaosProcess {
   let currentExitCode: number | null = null;
   let resolveWait: (code: number) => void = () => {};
@@ -181,9 +251,18 @@ function context(args: BashInput, signal = new AbortController().signal) {
   return { turnId: '0', toolCallId: 'call_bash', args, signal };
 }
 
+function bashTool(
+  kaos: ConstructorParameters<typeof BashTool>[0],
+  cwd = '/workspace',
+  manager = createBackgroundManager().manager,
+  options?: ConstructorParameters<typeof BashTool>[3],
+): BashTool {
+  return new BashTool(kaos, cwd, manager, options);
+}
+
 describe('BashTool', () => {
   it('exposes current metadata and schema', () => {
-    const tool = new BashTool(createFakeKaos({ osEnv: posixEnv }), '/workspace');
+    const tool = bashTool(createFakeKaos({ osEnv: posixEnv }), '/workspace');
 
     expect(tool.name).toBe('Bash');
     expect(tool.parameters).toMatchObject({
@@ -232,7 +311,7 @@ describe('BashTool', () => {
   });
 
   it('describes the cwd, command, run_in_background, description, and disable_timeout parameters', () => {
-    const tool = new BashTool(createFakeKaos({ osEnv: posixEnv }), '/workspace');
+    const tool = bashTool(createFakeKaos({ osEnv: posixEnv }), '/workspace');
     const properties = (tool.parameters as { properties: Record<string, { description?: string }> })
       .properties;
 
@@ -250,7 +329,7 @@ describe('BashTool', () => {
   });
 
   it('exposes a default timeout in the JSON Schema', () => {
-    const tool = new BashTool(createFakeKaos({ osEnv: posixEnv }), '/workspace');
+    const tool = bashTool(createFakeKaos({ osEnv: posixEnv }), '/workspace');
     const properties = (tool.parameters as { properties: Record<string, { default?: number }> })
       .properties;
 
@@ -270,7 +349,7 @@ describe('BashTool', () => {
           resolveWait(143);
         },
       });
-      const tool = new BashTool(
+      const tool = bashTool(
         createFakeKaos({ execWithEnv: vi.fn().mockResolvedValue(proc), osEnv: posixEnv }),
         '/workspace',
       );
@@ -282,15 +361,22 @@ describe('BashTool', () => {
       await vi.advanceTimersByTimeAsync(1);
       const result = await running;
 
-      expect(proc.kill).toHaveBeenCalled();
-      expect(result.output).toContain('Command killed by timeout (2s)');
+      // The 2s deadline is interpreted as seconds — and instead of killing,
+      // the command moves to the background (auto-background is on by default).
+      expect(proc.kill).not.toHaveBeenCalled();
+      expect(result).toMatchObject({
+        isError: false,
+        message: expect.stringContaining('timed out and moved to background'),
+      });
+      expect(result.output).toContain('task_id: bash-');
+      resolveWait(0);
     } finally {
       vi.useRealTimers();
     }
   });
 
   it('renders the available commands section and the /tasks hint', () => {
-    const tool = new BashTool(
+    const tool = bashTool(
       createFakeKaos({ osEnv: posixEnv }),
       '/workspace',
       createBackgroundManager().manager,
@@ -300,10 +386,56 @@ describe('BashTool', () => {
     expect(tool.description).toContain('/tasks');
   });
 
+  it('points at the cwd argument instead of relying on cross-call cd', () => {
+    const tool = bashTool(
+      createFakeKaos({ osEnv: posixEnv }),
+      '/workspace',
+      createBackgroundManager().manager,
+    );
+
+    // Each call is a fresh shell (cwd not preserved), and there is a first-class
+    // cwd param — the description must steer toward it rather than cross-call cd.
+    expect(tool.description).toContain('cwd');
+    expect(tool.description).toContain('absolute paths');
+    // The failure trailer is non-zero-exit-specific; timeout/interrupt differ.
+    expect(tool.description).toContain('exits non-zero');
+  });
+
+  it('describes timeout behavior according to the auto-background option', () => {
+    const autoBg = bashTool(
+      createFakeKaos({ osEnv: posixEnv }),
+      '/workspace',
+      createBackgroundManager().manager,
+    );
+    expect(autoBg.description).toContain('moved to the background instead of being killed');
+
+    const killOnTimeout = bashTool(
+      createFakeKaos({ osEnv: posixEnv }),
+      '/workspace',
+      createBackgroundManager().manager,
+      { autoBackgroundOnTimeout: false },
+    );
+    expect(killOnTimeout.description).not.toContain('moved to the background instead of being killed');
+    expect(killOnTimeout.description).toContain('hits its timeout is killed');
+
+    const noBackground = bashTool(
+      createFakeKaos({ osEnv: posixEnv }),
+      '/workspace',
+      createBackgroundManager().manager,
+      { allowBackground: false },
+    );
+    expect(noBackground.description).not.toContain('moved to the background instead of being killed');
+    expect(noBackground.description).toContain('hits its timeout is killed');
+  });
+
   it('runs through execWithEnv, injects cwd, noninteractive env, and closes stdin', async () => {
     const proc = processWithOutput({ stdout: 'ok\n' });
     const execWithEnv = vi.fn().mockResolvedValue(proc);
-    const tool = new BashTool(createFakeKaos({ execWithEnv, osEnv: posixEnv }), '/workspace');
+    const tool = bashTool(
+      createFakeKaos({ execWithEnv, osEnv: posixEnv }),
+      '/workspace',
+      createBackgroundManager().manager,
+    );
 
     const result = await executeTool(tool, context({ command: 'printf ok', timeout: 60 }));
 
@@ -324,7 +456,11 @@ describe('BashTool', () => {
 
   it('uses args.cwd when provided', async () => {
     const execWithEnv = vi.fn().mockResolvedValue(processWithOutput({ stdout: 'sub\n' }));
-    const tool = new BashTool(createFakeKaos({ execWithEnv, osEnv: posixEnv }), '/workspace');
+    const tool = bashTool(
+      createFakeKaos({ execWithEnv, osEnv: posixEnv }),
+      '/workspace',
+      createBackgroundManager().manager,
+    );
 
     await executeTool(tool, context({ command: 'pwd', cwd: '/tmp/project', timeout: 60 }));
 
@@ -334,7 +470,7 @@ describe('BashTool', () => {
   it('uses Git Bash semantics on Windows', async () => {
     const proc = processWithOutput({ stdout: 'ok\n' });
     const execWithEnv = vi.fn().mockResolvedValue(proc);
-    const tool = new BashTool(
+    const tool = bashTool(
       createFakeKaos({ execWithEnv, osEnv: windowsBashEnv }),
       'C:\\Users\\me\\project',
     );
@@ -357,7 +493,7 @@ describe('BashTool', () => {
   });
 
   it('returns stderr and marks non-zero exit codes as tool errors', async () => {
-    const tool = new BashTool(
+    const tool = bashTool(
       createFakeKaos({
         execWithEnv: vi
           .fn()
@@ -378,49 +514,8 @@ describe('BashTool', () => {
     expect(result.output).toContain('Command failed with exit code: 2.');
   });
 
-  it('treats grep-style exit code 1 as a successful no-match result', async () => {
-    const tool = new BashTool(
-      createFakeKaos({
-        execWithEnv: vi.fn().mockResolvedValue(processWithOutput({ exitCode: 1 })),
-        osEnv: posixEnv,
-      }),
-      '/workspace',
-    );
-
-    const result = await executeTool(
-      tool,
-      context({ command: 'rg missing src', timeout: 60 }),
-    );
-
-    expect(result).toMatchObject({
-      isError: false,
-      output: 'No matches found.',
-    });
-  });
-
-  it('treats diff exit code 1 as a successful difference result', async () => {
-    const tool = new BashTool(
-      createFakeKaos({
-        execWithEnv: vi
-          .fn()
-          .mockResolvedValue(processWithOutput({ stdout: '1c1\n< old\n---\n> new\n', exitCode: 1 })),
-        osEnv: posixEnv,
-      }),
-      '/workspace',
-    );
-
-    const result = await executeTool(
-      tool,
-      context({ command: 'diff old.txt new.txt', timeout: 60 }),
-    );
-
-    expect(result.isError).toBe(false);
-    expect(result.output).toContain('< old');
-    expect(result.output).not.toContain('Command failed');
-  });
-
   it('returns both stdout and stderr when a command succeeds', async () => {
-    const tool = new BashTool(
+    const tool = bashTool(
       createFakeKaos({
         execWithEnv: vi
           .fn()
@@ -440,7 +535,7 @@ describe('BashTool', () => {
   });
 
   it('returns both stdout and stderr when a command fails', async () => {
-    const tool = new BashTool(
+    const tool = bashTool(
       createFakeKaos({
         execWithEnv: vi.fn().mockResolvedValue(
           processWithOutput({
@@ -465,6 +560,34 @@ describe('BashTool', () => {
     expect(result.output).toContain('Command failed with exit code: 2.');
   });
 
+  it('returns the manager failure reason when foreground process wait rejects', async () => {
+    const tool = bashTool(
+      createFakeKaos({
+        execWithEnv: vi.fn().mockResolvedValue(
+          processWithOutput({
+            stdout: 'partial output\n',
+            exitCode: null,
+            wait: async () => {
+              throw new Error('wait failed');
+            },
+          }),
+        ),
+        osEnv: posixEnv,
+      }),
+      '/workspace',
+    );
+
+    const result = await executeTool(tool, context({ command: 'wait fails', timeout: 60 }));
+
+    expect(result).toMatchObject({
+      isError: true,
+      message: 'wait failed',
+      brief: 'wait failed',
+    });
+    expect(result.output).toContain('partial output\nwait failed');
+    expect(result.output).not.toContain('exit code: null');
+  });
+
   it('preserves foreground stdout and stderr arrival order', async () => {
     vi.useFakeTimers();
     try {
@@ -473,7 +596,7 @@ describe('BashTool', () => {
         { stream: 'stdout', text: 'out-second\n', delayMs: 5 },
         { stream: 'stderr', text: 'err-third\n', delayMs: 10 },
       ]);
-      const tool = new BashTool(
+      const tool = bashTool(
         createFakeKaos({
           execWithEnv: vi.fn().mockResolvedValue(proc),
           osEnv: posixEnv,
@@ -495,11 +618,187 @@ describe('BashTool', () => {
     }
   });
 
+  it('can detach a foreground command through the background manager', async () => {
+    const { proc, finish } = pendingProcess();
+    const manager = createBackgroundManager().manager;
+    const tool = bashTool(
+      createFakeKaos({
+        execWithEnv: vi.fn().mockResolvedValue(proc),
+        osEnv: posixEnv,
+      }),
+      '/workspace',
+      manager,
+    );
+
+    const running = executeTool(tool, context({ command: 'sleep 10', timeout: 60 }));
+    await vi.waitFor(() => {
+      expect(manager.list(false)).toHaveLength(1);
+    });
+    const task = manager.list(false)[0]!;
+    await vi.waitFor(() => {
+      expect((proc.stdout as PassThrough).listenerCount('data')).toBeGreaterThanOrEqual(1);
+    });
+    (proc.stdout as PassThrough).write('before detach\n');
+
+    expect(task).toMatchObject({
+      kind: 'process',
+      detached: false,
+      command: 'sleep 10',
+    });
+
+    manager.detach(task.taskId);
+    const result = await running;
+    (proc.stdout as PassThrough).write('after detach\n');
+
+    expect(result).toMatchObject({ isError: false });
+    expect(result.output).toContain('before detach\n');
+    expect(result.output).not.toContain('after detach\n');
+    expect(result.output).toContain(`task_id: ${task.taskId}`);
+    expect(result.output).toContain('automatic_notification: true');
+    // Detach must steer the model away from blocking on the task it just
+    // backgrounded — otherwise the whole point of detaching is defeated.
+    expect(result.output).toContain('do NOT wait, poll, or call TaskOutput');
+    expect(manager.getTask(task.taskId)).toMatchObject({ detached: true });
+    await vi.waitFor(async () => {
+      await expect(manager.readOutput(task.taskId)).resolves.toContain('after detach\n');
+    });
+
+    finish();
+    await expect(manager.wait(task.taskId)).resolves.toMatchObject({
+      status: 'completed',
+    });
+  });
+
+  it('moves a timed-out foreground command to the background instead of killing it', async () => {
+    vi.useFakeTimers();
+    try {
+      const { proc, finish } = pendingProcess();
+      const manager = createBackgroundManager().manager;
+      const tool = bashTool(
+        createFakeKaos({
+          execWithEnv: vi.fn().mockResolvedValue(proc),
+          osEnv: posixEnv,
+        }),
+        '/workspace',
+        manager,
+      );
+
+      const running = executeTool(tool, context({ command: 'sleep 30', timeout: 1 }));
+      await vi.advanceTimersByTimeAsync(1_000);
+      const result = await running;
+
+      expect(proc.kill).not.toHaveBeenCalled();
+      expect(result).toMatchObject({
+        isError: false,
+        message: expect.stringContaining('timed out and moved to background'),
+        brief: expect.stringContaining('after timeout'),
+      });
+      const taskId = /^task_id: (\S+)/m.exec(result.output as string)?.[1];
+      expect(taskId).toBeDefined();
+      expect(manager.getTask(taskId!)).toMatchObject({ status: 'running', detached: true });
+
+      // The backgrounded command keeps streaming output and settles through
+      // the manager like any other background task.
+      (proc.stdout as PassThrough).write('after timeout\n');
+      finish(0);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(manager.getTask(taskId!)).toMatchObject({ status: 'completed' });
+      await expect(manager.readOutput(taskId!)).resolves.toContain('after timeout\n');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not recommend disabled task tools when a foreground command is detached', async () => {
+    const { proc, finish } = pendingProcess();
+    const manager = createBackgroundManager().manager;
+    const tool = bashTool(
+      createFakeKaos({
+        execWithEnv: vi.fn().mockResolvedValue(proc),
+        osEnv: posixEnv,
+      }),
+      '/workspace',
+      manager,
+      { allowBackground: false },
+    );
+
+    const running = executeTool(tool, context({ command: 'sleep 10', timeout: 60 }));
+    await vi.waitFor(() => {
+      expect(manager.list(false)).toHaveLength(1);
+    });
+    const task = manager.list(false)[0]!;
+
+    manager.detach(task.taskId);
+    const result = await running;
+
+    expect(result.output).toContain(`task_id: ${task.taskId}`);
+    expect(result.output).toContain('You will be automatically notified when it completes');
+    expect(result.output).toContain('do NOT wait or poll');
+    expect(result.output).not.toContain('TaskOutput');
+    expect(result.output).not.toContain('TaskStop');
+
+    finish();
+    await expect(manager.wait(task.taskId)).resolves.toMatchObject({
+      status: 'completed',
+    });
+  });
+
+  it('keeps task metadata independent when noisy foreground output is capped before detach', async () => {
+    const { proc, finish } = pendingProcess();
+    const manager = createBackgroundManager().manager;
+    const tool = bashTool(
+      createFakeKaos({
+        execWithEnv: vi.fn().mockResolvedValue(proc),
+        osEnv: posixEnv,
+      }),
+      '/workspace',
+      manager,
+    );
+
+    const running = executeTool(tool, context({ command: 'yes noisy', timeout: 60 }));
+    await vi.waitFor(() => {
+      expect(manager.list(false)).toHaveLength(1);
+    });
+    const task = manager.list(false)[0]!;
+    await vi.waitFor(() => {
+      expect((proc.stdout as PassThrough).listenerCount('data')).toBeGreaterThanOrEqual(1);
+    });
+
+    (proc.stdout as PassThrough).write(
+      Array.from({ length: 6000 }, (_, index) => `noisy output line ${String(index)}\n`).join(''),
+    );
+    manager.detach(task.taskId);
+    const result = await running;
+
+    expect(result).toMatchObject({ isError: false });
+    expect(typeof result.output).toBe('string');
+    const output = result.output as string;
+    expect(output).toContain(`task_id: ${task.taskId}`);
+    expect(output).toContain('automatic_notification: true');
+    expect(output).toContain('foreground_output:');
+    expect(output).toContain('noisy output line 0');
+    expect(output).toContain('[...truncated]');
+    expect(output).toContain('Output is truncated to fit in the message.');
+    expect(output.indexOf(`task_id: ${task.taskId}`)).toBeLessThan(
+      output.indexOf('foreground_output:'),
+    );
+
+    finish();
+    await expect(manager.wait(task.taskId)).resolves.toMatchObject({
+      status: 'completed',
+      detached: true,
+    });
+  });
+
   it('does not spawn when the signal is already aborted', async () => {
     const controller = new AbortController();
     controller.abort();
     const execWithEnv = vi.fn();
-    const tool = new BashTool(createFakeKaos({ execWithEnv, osEnv: posixEnv }), '/workspace');
+    const tool = bashTool(
+      createFakeKaos({ execWithEnv, osEnv: posixEnv }),
+      '/workspace',
+      createBackgroundManager().manager,
+    );
 
     const result = await executeTool(tool, context({ command: 'echo nope' }, controller.signal));
 
@@ -520,7 +819,7 @@ describe('BashTool', () => {
     });
     const execWithEnv = vi.fn().mockResolvedValue(proc);
     const controller = new AbortController();
-    const tool = new BashTool(createFakeKaos({ execWithEnv, osEnv: posixEnv }), '/workspace');
+    const tool = bashTool(createFakeKaos({ execWithEnv, osEnv: posixEnv }), '/workspace');
 
     const running = executeTool(tool, context({ command: 'sleep 10' }, controller.signal));
     await vi.waitFor(() => {
@@ -534,12 +833,17 @@ describe('BashTool', () => {
     expect(result.output).toContain('Interrupted by user');
   });
 
-  it('requires a background manager and description for background commands', async () => {
+  it('requires background tools to be enabled and description for background commands', async () => {
     const proc = processWithOutput();
     const execWithEnv = vi.fn().mockResolvedValue(proc);
-    const withoutManager = new BashTool(createFakeKaos({ execWithEnv, osEnv: posixEnv }), '/workspace');
+    const backgroundDisabled = bashTool(
+      createFakeKaos({ execWithEnv, osEnv: posixEnv }),
+      '/workspace',
+      createBackgroundManager().manager,
+      { allowBackground: false },
+    );
 
-    const unavailable = await executeTool(withoutManager,
+    const unavailable = await executeTool(backgroundDisabled,
       context({ command: 'sleep 10', run_in_background: true, description: 'watch' }),
     );
     expect(unavailable).toMatchObject({ isError: true });
@@ -547,7 +851,7 @@ describe('BashTool', () => {
     expect(execWithEnv).not.toHaveBeenCalled();
 
     const manager = createBackgroundManager().manager;
-    const withManager = new BashTool(
+    const withManager = bashTool(
       createFakeKaos({ execWithEnv, osEnv: posixEnv }),
       '/workspace',
       manager,
@@ -565,7 +869,7 @@ describe('BashTool', () => {
     const proc = processWithOutput();
     const execWithEnv = vi.fn().mockResolvedValue(proc);
     const manager = createBackgroundManager().manager;
-    const tool = new BashTool(createFakeKaos({ execWithEnv, osEnv: posixEnv }), '/workspace', manager);
+    const tool = bashTool(createFakeKaos({ execWithEnv, osEnv: posixEnv }), '/workspace', manager);
 
     const result = await executeTool(tool,
       context({ command: 'sleep 10', run_in_background: true, description: 'long running task' }),
@@ -573,20 +877,119 @@ describe('BashTool', () => {
 
     expect(result.output).toMatch(/task_id: bash-[0-9a-z]{8}/);
     expect(result.output).toContain('automatic_notification: true');
+    // The launch message must steer away from waiting, not invite a TaskOutput peek.
+    expect(result.output).toContain('do NOT wait, poll, or call TaskOutput on it');
+    expect(result.output).not.toContain('block=false');
     expect(manager.list(false)).toHaveLength(1);
+  });
+
+  describe('background timeout default (backgroundTimeoutS)', () => {
+    async function launchBackground(
+      manager: ReturnType<typeof createBackgroundManager>['manager'],
+      options?: ConstructorParameters<typeof BashTool>[3],
+      args?: Partial<BashInput>,
+    ) {
+      const registerSpy = vi.spyOn(manager, 'registerTask');
+      const execWithEnv = vi.fn().mockResolvedValue(processWithOutput());
+      const tool = bashTool(createFakeKaos({ execWithEnv, osEnv: posixEnv }), '/workspace', manager, options);
+      const result = await executeTool(tool,
+        context({ command: 'sleep 10', run_in_background: true, description: 'task', ...args }),
+      );
+      expect(result.isError).not.toBe(true);
+      return registerSpy.mock.calls[0]?.[1];
+    }
+
+    it('defaults to a 600s deadline and detach re-arm when no config is provided', async () => {
+      const manager = createBackgroundManager().manager;
+      const options = await launchBackground(manager);
+      expect(options).toMatchObject({ timeoutMs: 600_000, detachTimeoutMs: 600_000 });
+    });
+
+    it('arms no timer when backgroundTimeoutS is 0', async () => {
+      const manager = createBackgroundManager().manager;
+      const options = await launchBackground(manager, { backgroundTimeoutS: 0 });
+      // detachTimeoutMs must be `0` (clear-on-detach), not `undefined`
+      // (which would keep the armed foreground deadline).
+      expect(options).toMatchObject({ timeoutMs: undefined, detachTimeoutMs: 0 });
+    });
+
+    it('uses the configured seconds as the default deadline and detach re-arm', async () => {
+      const manager = createBackgroundManager().manager;
+      const options = await launchBackground(manager, { backgroundTimeoutS: 30 });
+      expect(options).toMatchObject({ timeoutMs: 30_000, detachTimeoutMs: 30_000 });
+    });
+
+    it('honors an explicit per-call timeout even when the default is disabled', async () => {
+      const manager = createBackgroundManager().manager;
+      const options = await launchBackground(manager, { backgroundTimeoutS: 0 }, { timeout: 42 });
+      expect(options?.timeoutMs).toBe(42_000);
+    });
+
+    it('keeps disable_timeout authoritative regardless of the configured default', async () => {
+      const manager = createBackgroundManager().manager;
+      const options = await launchBackground(manager, { backgroundTimeoutS: 30 }, { disable_timeout: true });
+      expect(options?.timeoutMs).toBeUndefined();
+    });
+
+    it('keeps a manually detached foreground command alive when backgroundTimeoutS is 0', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      try {
+        const manager = createBackgroundManager().manager;
+        const { proc, finish } = pendingProcess();
+        const execWithEnv = vi.fn().mockResolvedValue(proc);
+        const tool = bashTool(
+          createFakeKaos({ execWithEnv, osEnv: posixEnv }),
+          '/workspace',
+          manager,
+          { backgroundTimeoutS: 0 },
+        );
+        let foregroundTaskId: string | undefined;
+        const run = executeTool(tool, {
+          ...context({ command: 'sleep 10', timeout: 1 }),
+          onForegroundTaskStart: (taskId: string) => {
+            foregroundTaskId = taskId;
+          },
+        });
+        // Flush the async spawn + registration, then detach before the 1s
+        // foreground deadline fires.
+        await vi.advanceTimersByTimeAsync(0);
+        expect(foregroundTaskId).toBeDefined();
+        manager.detach(foregroundTaskId!);
+        const released = await run;
+        expect(released.output).toContain(foregroundTaskId);
+        // Without the clear-on-detach fix, the original 1s deadline would
+        // still fire here and settle the task as timed_out.
+        await vi.advanceTimersByTimeAsync(2_000);
+        expect(manager.getTask(foregroundTaskId!)?.status).toBe('running');
+        finish();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('tells the model there is no default timeout when backgroundTimeoutS is 0', () => {
+      const tool = bashTool(
+        createFakeKaos({ osEnv: posixEnv }),
+        '/workspace',
+        createBackgroundManager().manager,
+        { backgroundTimeoutS: 0 },
+      );
+      expect(tool.description).toContain('Background commands have no timeout by default');
+      expect(tool.description).not.toContain('default to a 600s timeout');
+      const timeoutParam = (
+        tool.parameters as { properties: { timeout: { description?: string } } }
+      ).properties.timeout;
+      expect(timeoutParam.description).toContain('Background default no timeout');
+      expect(timeoutParam.description).not.toContain('Background default 600s');
+    });
   });
 
   it('kills a spawned background command when the task limit is reached', async () => {
     const manager = createBackgroundManager({ maxRunningTasks: 1 }).manager;
-    registerProcess(
-      manager,
-      processWithOutput({ wait: () => new Promise(() => {}) }),
-      'sleep 10',
-      'existing task',
-    );
+    registerProcess(manager, processWithOutput(), 'sleep 10', 'existing task');
     const rejectedProc = processWithOutput();
     const execWithEnv = vi.fn().mockResolvedValue(rejectedProc);
-    const tool = new BashTool(createFakeKaos({ execWithEnv, osEnv: posixEnv }), '/workspace', manager);
+    const tool = bashTool(createFakeKaos({ execWithEnv, osEnv: posixEnv }), '/workspace', manager);
 
     const result = await executeTool(tool,
       context({ command: 'sleep 10', run_in_background: true, description: 'second task' }),
@@ -610,7 +1013,7 @@ describe('BashTool', () => {
       .fn()
       .mockResolvedValueOnce(firstProc)
       .mockResolvedValueOnce(secondProc);
-    const tool = new BashTool(createFakeKaos({ execWithEnv, osEnv: posixEnv }), '/workspace', manager);
+    const tool = bashTool(createFakeKaos({ execWithEnv, osEnv: posixEnv }), '/workspace', manager);
 
     const first = executeTool(tool,
       context({ command: 'sleep 10', run_in_background: true, description: 'first task' }),
@@ -642,7 +1045,7 @@ describe('BashTool', () => {
       .fn()
       .mockResolvedValueOnce(firstProc)
       .mockResolvedValueOnce(secondProc);
-    const tool = new BashTool(
+    const tool = bashTool(
       createFakeKaos({ execWithEnv, osEnv: windowsBashEnv }),
       'C:\\Users\\me\\project',
       manager,
@@ -683,13 +1086,13 @@ describe('BashTool', () => {
     );
   });
 
-  it('does not timeout-stop a background task whose exit is visible before wait settles', async () => {
+  it('timeout-stops a background task that has not settled even if process exit is visible', async () => {
     vi.useFakeTimers();
     try {
       const { proc, finishWait, markExited } = processWithVisibleExitBeforeWait(0);
       const execWithEnv = vi.fn().mockResolvedValue(proc);
       const manager = createBackgroundManager().manager;
-      const tool = new BashTool(createFakeKaos({ execWithEnv, osEnv: posixEnv }), '/workspace', manager);
+      const tool = bashTool(createFakeKaos({ execWithEnv, osEnv: posixEnv }), '/workspace', manager);
 
       const result = await executeTool(tool,
         context({
@@ -707,13 +1110,12 @@ describe('BashTool', () => {
       markExited();
       await vi.advanceTimersByTimeAsync(1_000);
 
-      expect(proc.kill).not.toHaveBeenCalled();
+      expect(proc.kill).toHaveBeenCalledWith('SIGTERM');
 
       finishWait();
       await vi.runAllTimersAsync();
 
-      expect(manager.getTask(taskId!)?.status).toBe('completed');
-      expect(proc.kill).not.toHaveBeenCalled();
+      expect(manager.getTask(taskId!)?.status).toBe('timed_out');
     } finally {
       vi.useRealTimers();
     }
@@ -725,7 +1127,7 @@ describe('BashTool', () => {
       const proc = processThatNeverExits();
       const execWithEnv = vi.fn().mockResolvedValue(proc);
       const manager = createBackgroundManager().manager;
-      const tool = new BashTool(createFakeKaos({ execWithEnv, osEnv: posixEnv }), '/workspace', manager);
+      const tool = bashTool(createFakeKaos({ execWithEnv, osEnv: posixEnv }), '/workspace', manager);
 
       const result = await executeTool(tool,
         context({
@@ -750,7 +1152,7 @@ describe('BashTool', () => {
       const proc = processThatNeverExits();
       const execWithEnv = vi.fn().mockResolvedValue(proc);
       const manager = createBackgroundManager().manager;
-      const tool = new BashTool(createFakeKaos({ execWithEnv, osEnv: posixEnv }), '/workspace', manager);
+      const tool = bashTool(createFakeKaos({ execWithEnv, osEnv: posixEnv }), '/workspace', manager);
 
       const result = await executeTool(tool,
         context({
@@ -772,7 +1174,7 @@ describe('BashTool', () => {
 
   it('adds a truncation note when stdout exceeds the cap', async () => {
     const huge = Buffer.alloc(10 * 1024 * 1024 + 1, 'x');
-    const tool = new BashTool(
+    const tool = bashTool(
       createFakeKaos({
         execWithEnv: vi.fn().mockResolvedValue(processWithOutput({ stdout: huge })),
         osEnv: posixEnv,
@@ -787,41 +1189,36 @@ describe('BashTool', () => {
     expect((result as { message?: string }).message).toContain('Output is truncated');
   });
 
-  it('persists full output when the inline result is truncated', async () => {
-    const stdout = 'x'.repeat(60_000);
-    const mkdir = vi.fn().mockResolvedValue(undefined);
-    const writeText = vi.fn().mockResolvedValue(stdout.length);
-    const tool = new BashTool(
-      createFakeKaos({
-        execWithEnv: vi.fn().mockResolvedValue(processWithOutput({ stdout })),
-        mkdir,
-        writeText,
-        osEnv: posixEnv,
-      }),
-      '/workspace',
-    );
+  it('saves full foreground output when the inline result is truncated', async () => {
+    const sessionDir = mkdtempSync(join(tmpdir(), 'bash-truncated-'));
+    try {
+      const fullOutput = `${'short line\n'.repeat(6_000)}tail survives\n`;
+      const { manager } = createBackgroundManager({ sessionDir });
+      const tool = bashTool(
+        createFakeKaos({
+          execWithEnv: vi.fn().mockResolvedValue(processWithOutput({ stdout: fullOutput })),
+          osEnv: posixEnv,
+        }),
+        '/workspace',
+        manager,
+      );
 
-    const result = await executeTool(
-      tool,
-      context({ command: 'generate-large-output', timeout: 60 }),
-    );
+      const result = await executeTool(tool, context({ command: 'flood', timeout: 60 }));
+      const output = result.output as string;
+      const outputPath = /^output_path: (.+)$/m.exec(output)?.[1];
 
-    expect(result.output).toContain('Full output saved to:');
-    expect(mkdir).toHaveBeenCalledWith('/home/test/.pythinker-code/tool-results', {
-      parents: true,
-      existOk: true,
-    });
-    expect(writeText).toHaveBeenCalledWith(
-      expect.stringMatching(
-        /^\/home\/test\/\.pythinker-code\/tool-results\/bash-[0-9a-f-]+\.log$/u,
-      ),
-      stdout,
-    );
+      expect(output).toContain('[...truncated]');
+      expect(output).toContain('task_id: bash-');
+      expect(outputPath).toBeTruthy();
+      expect(readFileSync(outputPath!, 'utf8')).toBe(fullOutput);
+    } finally {
+      rmSync(sessionDir, { recursive: true, force: true });
+    }
   });
 
   it('marks the truncated output buffer with a "[...truncated]" sentinel at the cut point', async () => {
     const huge = Buffer.alloc(10 * 1024 * 1024 + 1, 'x');
-    const tool = new BashTool(
+    const tool = bashTool(
       createFakeKaos({
         execWithEnv: vi.fn().mockResolvedValue(processWithOutput({ stdout: huge })),
         osEnv: posixEnv,
@@ -838,7 +1235,7 @@ describe('BashTool', () => {
 
   it('truncates output with the sentinel even when the command fails', async () => {
     const huge = Buffer.alloc(10 * 1024 * 1024 + 1, 'E');
-    const tool = new BashTool(
+    const tool = bashTool(
       createFakeKaos({
         execWithEnv: vi
           .fn()
@@ -857,7 +1254,7 @@ describe('BashTool', () => {
     expect(output).toContain('Output is truncated');
   });
 
-  it('reports a timed-out command with both message and brief lines', async () => {
+  it('reports a timed-out command with both message and brief lines when auto-background is disabled', async () => {
     vi.useFakeTimers();
     try {
       let resolveWait: (code: number) => void = () => {};
@@ -870,13 +1267,16 @@ describe('BashTool', () => {
           resolveWait(143);
         },
       });
-      const tool = new BashTool(
+      const tool = bashTool(
         createFakeKaos({ execWithEnv: vi.fn().mockResolvedValue(proc), osEnv: posixEnv }),
         '/workspace',
+        undefined,
+        { autoBackgroundOnTimeout: false },
       );
 
       const running = executeTool(tool, context({ command: 'sleep 2', timeout: 1 }));
       await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(250);
       const result = await running;
 
       expect(result).toMatchObject({
@@ -893,13 +1293,16 @@ describe('BashTool', () => {
     vi.useFakeTimers();
     try {
       const proc = processWithOpenStreamsThatExitOnKill();
-      const tool = new BashTool(
+      const tool = bashTool(
         createFakeKaos({ execWithEnv: vi.fn().mockResolvedValue(proc), osEnv: posixEnv }),
         '/workspace',
+        undefined,
+        { autoBackgroundOnTimeout: false },
       );
 
       const running = executeTool(tool, context({ command: 'sleep 2', timeout: 1 }));
       await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(250);
       const result = await running;
 
       expect(proc.kill).toHaveBeenCalledWith('SIGTERM');
@@ -914,6 +1317,22 @@ describe('BashTool', () => {
     }
   });
 
+  it('reports a stream read error as a tool error even when the process exits with code 0', async () => {
+    const proc = processWithStreamError({
+      stdoutError: new Error('SSH channel read failed'),
+      exitCode: 0,
+    });
+    const tool = bashTool(
+      createFakeKaos({ execWithEnv: vi.fn().mockResolvedValue(proc), osEnv: posixEnv }),
+      '/workspace',
+    );
+
+    const result = await executeTool(tool, context({ command: 'remote-cmd', timeout: 60 }));
+
+    expect(result).toMatchObject({ isError: true });
+    expect(result.output).toContain('SSH channel read failed');
+  });
+
   it('rejects empty-string commands at the schema layer', () => {
     expect(BashInputSchema.safeParse({ command: '' }).success).toBe(false);
   });
@@ -923,7 +1342,7 @@ describe('BashTool', () => {
     delete process.env['GIT_SSH_COMMAND'];
     try {
       const execWithEnv = vi.fn().mockResolvedValue(processWithOutput({ stdout: 'ok\n' }));
-      const tool = new BashTool(createFakeKaos({ execWithEnv, osEnv: posixEnv }), '/workspace');
+      const tool = bashTool(createFakeKaos({ execWithEnv, osEnv: posixEnv }), '/workspace');
 
       await executeTool(tool, context({ command: 'true', timeout: 60 }));
 
@@ -938,7 +1357,7 @@ describe('BashTool', () => {
     const proc = processWithOutput();
     const execWithEnv = vi.fn().mockResolvedValue(proc);
     const manager = createBackgroundManager().manager;
-    const tool = new BashTool(createFakeKaos({ execWithEnv, osEnv: posixEnv }), '/workspace', manager);
+    const tool = bashTool(createFakeKaos({ execWithEnv, osEnv: posixEnv }), '/workspace', manager);
 
     const result = await executeTool(
       tool,
@@ -957,7 +1376,7 @@ describe('BashTool', () => {
   it('rejects background command without description (description-required guard)', async () => {
     const manager = createBackgroundManager().manager;
     const execWithEnv = vi.fn().mockResolvedValue(processWithOutput());
-    const tool = new BashTool(createFakeKaos({ execWithEnv, osEnv: posixEnv }), '/workspace', manager);
+    const tool = bashTool(createFakeKaos({ execWithEnv, osEnv: posixEnv }), '/workspace', manager);
 
     const result = await executeTool(
       tool,
@@ -971,7 +1390,7 @@ describe('BashTool', () => {
 
   it('rewrites nul-redirect on Windows so the spawned argv has /dev/null', async () => {
     const execWithEnv = vi.fn().mockResolvedValue(processWithOutput({ stdout: '' }));
-    const tool = new BashTool(
+    const tool = bashTool(
       createFakeKaos({ execWithEnv, osEnv: windowsBashEnv }),
       'C:\\Users\\me\\project',
     );
@@ -984,7 +1403,7 @@ describe('BashTool', () => {
 
   it('passes nul-redirect through unchanged on Linux so the argv keeps the literal file target', async () => {
     const execWithEnv = vi.fn().mockResolvedValue(processWithOutput({ stdout: '' }));
-    const tool = new BashTool(createFakeKaos({ execWithEnv, osEnv: posixEnv }), '/workspace');
+    const tool = bashTool(createFakeKaos({ execWithEnv, osEnv: posixEnv }), '/workspace');
 
     await executeTool(tool, context({ command: 'ls 2>nul', timeout: 60 }));
 
@@ -993,7 +1412,7 @@ describe('BashTool', () => {
   });
 
   it('exposes a shell description that documents /bin/bash, TaskOutput/TaskStop, safety and efficiency sections, and background semantics', () => {
-    const tool = new BashTool(
+    const tool = bashTool(
       createFakeKaos({ osEnv: posixEnv }),
       '/workspace',
       createBackgroundManager().manager,
@@ -1007,107 +1426,9 @@ describe('BashTool', () => {
     expect(description).toContain('**Guidelines for efficiency:**');
     expect(description).toContain('run_in_background=true');
     expect(description).toContain('automatically notified');
-  });
-});
-
-describe('PowerShellTool', () => {
-  it('uses native non-interactive PowerShell with the requested cwd', async () => {
-    const proc = processWithOutput({ stdout: 'ok\n' });
-    const execWithEnv = vi.fn().mockResolvedValue(proc);
-    const kaos = createFakeKaos({ execWithEnv, osEnv: windowsBashEnv });
-    const withCwd = vi.spyOn(kaos, 'withCwd').mockReturnValue(kaos);
-    const tool = new PowerShellTool(kaos, 'C:\\Users\\me\\project');
-
-    const execution = tool.resolveExecution({ command: 'Write-Output ok' });
-    const result = await executeTool(
-      tool,
-      context({ command: 'Write-Output ok', cwd: 'C:\\work' }),
-    );
-
-    expect(tool.name).toBe('PowerShell');
-    expect(tool.description).toContain('PowerShell');
-    expect(execution).toMatchObject({ display: { language: 'powershell' } });
-    expect(withCwd).toHaveBeenCalledWith('C:\\work');
-    expect(execWithEnv.mock.calls[0]?.[0]?.slice(0, 4)).toEqual([
-      'pwsh.exe',
-      '-NoProfile',
-      '-NonInteractive',
-      '-Command',
-    ]);
-    expect(execWithEnv.mock.calls[0]?.[0]?.[4]).toContain('Write-Output ok');
-    expect(execWithEnv.mock.calls[0]?.[0]?.[4]).toContain('$LASTEXITCODE');
-    expect(proc.stdin.end).toHaveBeenCalledTimes(1);
-    expect(result).toMatchObject({
-      output: 'ok\n',
-      isError: false,
-      message: 'Command executed successfully.',
-    });
-  });
-
-  it('falls back to Windows PowerShell when PowerShell 7 is unavailable', async () => {
-    const proc = processWithOutput({ stdout: 'fallback\n' });
-    const execWithEnv = vi
-      .fn()
-      .mockRejectedValueOnce(Object.assign(new Error('spawn pwsh.exe ENOENT'), { code: 'ENOENT' }))
-      .mockResolvedValueOnce(proc);
-    const tool = new PowerShellTool(
-      createFakeKaos({ execWithEnv, osEnv: windowsBashEnv }),
-      'C:\\workspace',
-    );
-
-    const result = await executeTool(tool, context({ command: 'Write-Output fallback' }));
-
-    expect(execWithEnv.mock.calls.map((call) => call[0]?.[0])).toEqual([
-      'pwsh.exe',
-      'powershell.exe',
-    ]);
-    expect(result).toMatchObject({ output: 'fallback\n', isError: false });
-  });
-
-  it('uses a PowerShell task id for background commands', async () => {
-    const registered = createBackgroundManager();
-    const proc = processWithOpenStreamsThatExitOnKill();
-    const tool = new PowerShellTool(
-      createFakeKaos({
-        execWithEnv: vi.fn().mockResolvedValue(proc),
-        osEnv: windowsBashEnv,
-      }),
-      'C:\\workspace',
-      registered.manager,
-    );
-
-    const result = await executeTool(
-      tool,
-      context({
-        command: 'Start-Sleep 5',
-        description: 'Wait for completion',
-        run_in_background: true,
-      }),
-    );
-
-    const output = toolContentString(result);
-    expect(output).toMatch(/^task_id: powershell-/);
-    await registered.manager.stop(
-      output.match(/^task_id: (powershell-\w+)/)?.[1] ?? '',
-      'test cleanup',
-    );
-  });
-
-  it.each([
-    ['findstr.exe needle file.txt', 1, 'No matches found.'],
-    ['robocopy.exe source destination', 3, 'Files copied successfully.'],
-  ])('interprets informational Windows exit codes for %s', async (command, exitCode, message) => {
-    const tool = new PowerShellTool(
-      createFakeKaos({
-        execWithEnv: vi.fn().mockResolvedValue(processWithOutput({ exitCode })),
-        osEnv: windowsBashEnv,
-      }),
-      'C:\\workspace',
-    );
-
-    const result = await executeTool(tool, context({ command }));
-
-    expect(result).toMatchObject({ isError: false, message });
+    // Moved here from system.md: the "don't block on a background task" nudge belongs in
+    // the background-enabled Bash description, the only place that documents it.
+    expect(description).toContain('returning control to the user');
   });
 });
 
@@ -1118,7 +1439,7 @@ describe('BashTool prompt / runtime consistency', () => {
     // The set of background tools the prompt actually introduces — taken from
     // the background-enabled prompt, which is the only variant that documents
     // any Task* tool.
-    const enabledTool = new BashTool(
+    const enabledTool = bashTool(
       createFakeKaos({ execWithEnv, osEnv: posixEnv }),
       '/workspace',
       createBackgroundManager().manager,
@@ -1127,7 +1448,12 @@ describe('BashTool prompt / runtime consistency', () => {
       [...enabledTool.description.matchAll(/`(Task[A-Za-z]+)`/g)].map((match) => match[1]),
     );
 
-    const tool = new BashTool(createFakeKaos({ execWithEnv, osEnv: posixEnv }), '/workspace');
+    const tool = bashTool(
+      createFakeKaos({ execWithEnv, osEnv: posixEnv }),
+      '/workspace',
+      createBackgroundManager().manager,
+      { allowBackground: false },
+    );
     const result = await executeTool(tool,
       context({ command: 'sleep 10', run_in_background: true, description: 'watch' }),
     );
@@ -1148,7 +1474,7 @@ describe('BashTool prompt / runtime consistency', () => {
   });
 
   it('does not claim failure exit codes appear in a system tag', () => {
-    const tool = new BashTool(createFakeKaos({ osEnv: posixEnv }), '/workspace');
+    const tool = bashTool(createFakeKaos({ osEnv: posixEnv }), '/workspace');
 
     // The implementation reports failures as plain text inside the output
     // (`Command failed with exit code: N`), never via a system tag.

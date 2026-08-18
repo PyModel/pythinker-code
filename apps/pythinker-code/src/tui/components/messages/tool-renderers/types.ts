@@ -1,4 +1,4 @@
-import type { Component } from '@earendil-works/pi-tui';
+import type { Component } from '@pymodel/pi-tui';
 
 import { RESULT_PREVIEW_LINES } from '#/tui/constant/rendering';
 import type { ToolCallBlockData, ToolResultBlockData } from '#/tui/types';

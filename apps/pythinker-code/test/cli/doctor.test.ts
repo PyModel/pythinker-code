@@ -464,3 +464,142 @@ max_context_size = "large"
     expect(err).toContain('models.pythinker.max_context_size:');
   });
 });
+
+describe('pythinker doctor (v2 config validation)', () => {
+  beforeEach(() => {
+    process.env['PYTHINKER_CODE_EXPERIMENTAL_FLAG'] = '1';
+  });
+
+  afterEach(() => {
+    delete process.env['PYTHINKER_CODE_EXPERIMENTAL_FLAG'];
+    delete process.env['PYTHINKER_LOOP_MAX_RETRIES_PER_STEP'];
+    delete process.env['PYTHINKER_LOOP_MAX_ATTEMPTS_PER_STEP'];
+  });
+
+  it('accepts a config valid for the v2 engine, including schema-less keys', async () => {
+    await writeFile(
+      join(dir, 'config.toml'),
+      `
+default_model = "pythinker"
+
+[providers.pythinker]
+type = "pythinker"
+base_url = "https://api.example.com/v1"
+api_key = "YOUR_API_KEY"
+
+[models.pythinker]
+provider = "pythinker"
+model = "pythinker"
+max_context_size = 262144
+`,
+      'utf-8',
+    );
+    const { deps, stdout, stderr } = makeDeps();
+
+    const code = await handleDoctor(deps, { target: 'config' });
+
+    expect(code).toBe(0);
+    expect(stderr.join('')).toBe('');
+    expect(stdout.join('')).toContain(`OK config.toml  ${join(dir, 'config.toml')}`);
+  });
+
+  it('reports schema-invalid sections with TOML-style field paths', async () => {
+    await writeFile(
+      join(dir, 'config.toml'),
+      `
+[models.pythinker]
+provider = "pythinker"
+model = "pythinker"
+max_context_size = "large"
+`,
+      'utf-8',
+    );
+    const { deps, stderr } = makeDeps();
+
+    const code = await handleDoctor(deps, { target: 'config' });
+
+    expect(code).toBe(1);
+    const err = stderr.join('');
+    expect(err).toContain('Validation issues:');
+    expect(err).toContain('models.pythinker.max_context_size:');
+  });
+
+  it('warns about unknown top-level keys without failing', async () => {
+    await writeFile(
+      join(dir, 'config.toml'),
+      `
+[providrs.pythinker]
+type = "pythinker"
+`,
+      'utf-8',
+    );
+    const { deps, stdout, stderr } = makeDeps();
+
+    const code = await handleDoctor(deps, { target: 'config' });
+
+    expect(code).toBe(0);
+    expect(stderr.join('')).toBe('');
+    const out = stdout.join('');
+    expect(out).toContain(`OK config.toml  ${join(dir, 'config.toml')}`);
+    expect(out).toContain('Unknown top-level key ignored by the v2 engine: providrs.');
+  });
+
+  it('reports TOML syntax errors with line and column', async () => {
+    await writeFile(join(dir, 'config.toml'), '[providers.pythinker\ntype = "pythinker"\n', 'utf-8');
+    const { deps, stderr } = makeDeps();
+
+    const code = await handleDoctor(deps, { target: 'config' });
+
+    expect(code).toBe(1);
+    const err = stderr.join('');
+    expect(err).toContain('Invalid TOML in');
+    expect(err).toMatch(/\(line \d+, column \d+\)/);
+  });
+
+  it('warns about deprecated config keys without failing', async () => {
+    await writeFile(
+      join(dir, 'config.toml'),
+      `
+[loop_control]
+max_retries_per_step = 3
+`,
+      'utf-8',
+    );
+    const { deps, stdout, stderr } = makeDeps();
+
+    const code = await handleDoctor(deps, { target: 'config' });
+
+    expect(code).toBe(0);
+    expect(stderr.join('')).toBe('');
+    const out = stdout.join('');
+    expect(out).toContain(`OK config.toml  ${join(dir, 'config.toml')}`);
+    expect(out).toContain("'max_retries_per_step' is deprecated");
+    expect(out).toContain("rename it to 'max_attempts_per_step'");
+  });
+
+  it('warns about a deprecated env var that supplies a value', async () => {
+    await writeFile(join(dir, 'config.toml'), '[loop_control]\n', 'utf-8');
+    process.env['PYTHINKER_LOOP_MAX_RETRIES_PER_STEP'] = '5';
+    const { deps, stdout, stderr } = makeDeps();
+
+    const code = await handleDoctor(deps, { target: 'config' });
+
+    expect(code).toBe(0);
+    expect(stderr.join('')).toBe('');
+    expect(stdout.join('')).toContain(
+      'Environment variable PYTHINKER_LOOP_MAX_RETRIES_PER_STEP is deprecated; use PYTHINKER_LOOP_MAX_ATTEMPTS_PER_STEP instead.',
+    );
+  });
+
+  it('does not warn about the deprecated env var when the primary one is set', async () => {
+    await writeFile(join(dir, 'config.toml'), '[loop_control]\n', 'utf-8');
+    process.env['PYTHINKER_LOOP_MAX_RETRIES_PER_STEP'] = '5';
+    process.env['PYTHINKER_LOOP_MAX_ATTEMPTS_PER_STEP'] = '5';
+    const { deps, stdout } = makeDeps();
+
+    const code = await handleDoctor(deps, { target: 'config' });
+
+    expect(code).toBe(0);
+    expect(stdout.join('')).not.toContain('PYTHINKER_LOOP_MAX_RETRIES_PER_STEP');
+  });
+});

@@ -10,16 +10,21 @@ import type {
 } from '@pymodel/pythinker-code-sdk';
 
 import { ToolCallComponent } from '../components/messages/tool-call';
+import { ReplayTurnBoundaryComponent } from '../components/messages/user-message';
+import { currentTheme } from '../theme';
+import type { TodoItem } from '../components/chrome/todo-panel';
 import type {
   AppState,
   BackgroundAgentMetadata,
   ToolResultBlockData,
   TranscriptEntry,
 } from '../types';
-import { formatErrorMessage, normalizeTodoList } from '../utils/event-payload';
+import { formatErrorMessage, isTodoItemShape } from '../utils/event-payload';
 import { formatBackgroundAgentTranscript } from '../utils/background-agent-status';
 import { formatBackgroundTaskTranscript } from '../utils/background-task-status';
 import { buildGoalCompletionMessage } from '../utils/goal-completion';
+import { formatBashOutputForDisplay } from '../utils/shell-output';
+import { markTranscriptComponent } from '../utils/transcript-component-metadata';
 import {
   appStateFromResumeAgent,
   backgroundOrigin,
@@ -34,15 +39,16 @@ import {
   replayBackgroundProjection,
   replayEntry,
   skillActivationFromOrigin,
+  pluginCommandFromOrigin,
   toolCallFromReplayMessage,
   toolResultOutput,
   type ReplayRenderContext,
   type SkillActivationProjection,
+  type PluginCommandProjection,
 } from '../utils/message-replay';
 import type { StreamingUIController } from './streaming-ui';
 import type { SessionEventHandler } from './session-event-handler';
 import type { TUIState } from '../tui-state';
-import type { FooterEvent } from '../runtime/footer/footer-model';
 
 type GoalReplayRecord = Extract<AgentReplayRecord, { type: 'goal_updated' }>;
 type CompactionReplayRecord = Extract<AgentReplayRecord, { type: 'compaction' }>;
@@ -53,9 +59,25 @@ export interface SessionReplayHost {
   readonly streamingUI: StreamingUIController;
   readonly sessionEventHandler: SessionEventHandler;
   setAppState(patch: Partial<AppState>): void;
-  dispatchFooter(event: FooterEvent): void;
   showError(msg: string): void;
   appendTranscriptEntry(entry: TranscriptEntry): void;
+  mergeAllTurnSteps(): void;
+}
+
+function extractBashTag(
+  text: string,
+  tag: 'bash-input' | 'bash-stdout' | 'bash-stderr',
+): string | undefined {
+  const match = new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`).exec(text);
+  return match?.[1] === undefined ? undefined : unescapeBashXml(match[1]);
+}
+
+function unescapeBashXml(text: string): string {
+  return text
+    .replaceAll('&lt;', '<')
+    .replaceAll('&gt;', '>')
+    .replaceAll('&quot;', '"')
+    .replaceAll('&amp;', '&');
 }
 
 export class SessionReplayRenderer {
@@ -73,6 +95,7 @@ export class SessionReplayRenderer {
       this.hydrateSnapshot(main);
       this.renderRecords(main);
       this.applyTerminalBackgroundAgentStatuses(main);
+      this.host.mergeAllTurnSteps();
       return true;
     } catch (error) {
       const message = formatErrorMessage(error);
@@ -100,7 +123,15 @@ export class SessionReplayRenderer {
       return;
     }
 
-    this.host.streamingUI.setTodoList(normalizeTodoList(rawTodos));
+    const todos = rawTodos
+      .filter((todo): todo is TodoItem => isTodoItemShape(todo))
+      .map((todo) => ({ title: todo.title, status: todo.status }));
+    if (todos.length > 0 && todos.every((todo) => todo.status === 'done')) {
+      this.host.streamingUI.setTodoList([]);
+      return;
+    }
+
+    this.host.streamingUI.setTodoList(todos);
   }
 
   /**
@@ -137,7 +168,7 @@ export class SessionReplayRenderer {
   private hydrateBackgroundState(agent: ResumedAgentState): void {
     const { state, sessionEventHandler } = this.host;
     const projection = replayBackgroundProjection(agent.background);
-    sessionEventHandler.subAgentEventHandler.hydrateBackgroundAgentMetadata(
+    sessionEventHandler.subAgentEventHandler.backgroundAgentMetadata = new Map(
       projection.backgroundAgentMetadata,
     );
     sessionEventHandler.backgroundTasks.clear();
@@ -150,10 +181,7 @@ export class SessionReplayRenderer {
         sessionEventHandler.backgroundTaskTranscriptedTerminal.add(info.taskId);
       }
     }
-    this.host.dispatchFooter({
-      type: 'background-counts.updated',
-      counts: countActiveBackgroundTasks(sessionEventHandler.backgroundTasks),
-    });
+    state.footer.setBackgroundCounts(countActiveBackgroundTasks(sessionEventHandler.backgroundTasks));
     state.ui.requestRender();
   }
 
@@ -245,6 +273,28 @@ export class SessionReplayRenderer {
     if (message.origin?.kind === 'injection') {
       return;
     }
+    if (message.origin?.kind === 'shell_command') {
+      // A `!` command, replayed from records. Unwrap the XML tags back into the
+      // same `$ cmd` + output view the live editor produced. (Must NOT fall into
+      // the `injection` branch above — that returns without rendering.)
+      this.flushAssistant(context);
+      const text = contentPartsToText(message.content);
+      if (message.origin.phase === 'input') {
+        const cmd = (extractBashTag(text, 'bash-input') ?? text).trim();
+        this.advanceTurn(context);
+        this.host.appendTranscriptEntry(
+          replayEntry(context, 'user', currentTheme.fg('shellMode', `$ ${cmd}`), 'plain', {
+            bullet: '',
+          }),
+        );
+      } else {
+        const stdout = (extractBashTag(text, 'bash-stdout') ?? '').trim();
+        const stderr = (extractBashTag(text, 'bash-stderr') ?? '').trim();
+        const out = formatBashOutputForDisplay(stdout, stderr, message.origin.isError);
+        this.host.appendTranscriptEntry(replayEntry(context, 'status', out, 'plain'));
+      }
+      return;
+    }
     if (message.origin?.kind === 'cron_job') {
       this.renderCronJob(context, message);
       return;
@@ -253,12 +303,19 @@ export class SessionReplayRenderer {
       this.renderCronMissed(context, message);
       return;
     }
-    // System-trigger messages are model-facing only. The live event stream and
-    // markdown exporter hide them, so resume replay must do the same.
+    // System-trigger messages (goal continuation prompts, goal outcome
+    // reminders, stop-hook reasons, …) are model-facing only: the live event
+    // stream never renders them, so replay must not leak them either.
     if (message.origin?.kind === 'system_trigger') {
       if (message.origin.name === 'goal_continuation') {
-        this.flushAssistant(context);
+        // The goal driver's synthetic "continue" prompt starts a new replay
+        // turn even though nothing visible is mounted: advance the turn and
+        // mark an invisible boundary so each goal round groups under its own
+        // turn and step/assistant folding can find the turn edges.
         this.advanceTurn(context);
+        const boundary = new ReplayTurnBoundaryComponent();
+        markTranscriptComponent(boundary, replayEntry(context, 'user', '', 'plain'));
+        this.host.state.transcriptContainer.addChild(boundary);
       }
       return;
     }
@@ -272,12 +329,19 @@ export class SessionReplayRenderer {
       }
       return;
     }
+    const pluginCommand = pluginCommandFromOrigin(message.origin);
+    if (pluginCommand !== undefined) {
+      this.renderPluginCommand(context, pluginCommand);
+      if (message.origin?.kind === 'plugin_command' && message.origin.trigger === 'user-slash') {
+        this.advanceTurn(context);
+      }
+      return;
+    }
 
     this.advanceTurn(context);
-    this.host.appendTranscriptEntry({
-      ...replayEntry(context, 'user', contentPartsToText(message.content), 'plain'),
-      checkpointId: message.origin?.kind === 'user' ? message.origin.checkpointId : undefined,
-    });
+    this.host.appendTranscriptEntry(
+      replayEntry(context, 'user', contentPartsToText(message.content), 'plain'),
+    );
   }
 
   private renderToolCalls(context: ReplayRenderContext, toolCalls: readonly ToolCall[]): void {
@@ -363,11 +427,36 @@ export class SessionReplayRenderer {
     sessionEventHandler.renderedSkillActivationIds.add(skill.activationId);
     this.host.appendTranscriptEntry({
       ...replayEntry(context, 'skill_activation', `Activated skill: ${skill.skillName}`, 'plain'),
-      checkpointId: skill.checkpointId,
       skillActivationId: skill.activationId,
       skillName: skill.skillName,
       skillArgs: skill.skillArgs,
       skillTrigger: skill.trigger,
+    });
+  }
+
+  private renderPluginCommand(
+    context: ReplayRenderContext,
+    command: PluginCommandProjection,
+  ): void {
+    const { sessionEventHandler } = this.host;
+    if (context.pluginCommandActivationIds.has(command.activationId)) return;
+    if (sessionEventHandler.renderedPluginCommandActivationIds.has(command.activationId)) return;
+    context.pluginCommandActivationIds.add(command.activationId);
+    sessionEventHandler.renderedPluginCommandActivationIds.add(command.activationId);
+    this.host.appendTranscriptEntry({
+      ...replayEntry(
+        context,
+        'plugin_command',
+        `/${command.pluginId}:${command.commandName}`,
+        'plain',
+      ),
+      pluginCommandData: {
+        activationId: command.activationId,
+        pluginId: command.pluginId,
+        commandName: command.commandName,
+        args: command.commandArgs,
+        trigger: command.trigger,
+      },
     });
   }
 
@@ -388,6 +477,7 @@ export class SessionReplayRenderer {
     this.host.appendTranscriptEntry({
       ...replayEntry(context, 'status', 'Compaction complete', 'plain'),
       compactionData: {
+        summary: record.result.summary,
         tokensBefore: record.result.tokensBefore,
         tokensAfter: record.result.tokensAfter,
         instruction: record.instruction,
@@ -569,6 +659,8 @@ export class SessionReplayRenderer {
       (child) => child instanceof ToolCallComponent && child.toolCallView.id === toolCallId,
     );
     if (childIndex >= 0) {
+      // Structural removal only: the container's ref-checked render cache
+      // detects the child-list change; no tree-wide invalidate needed.
       children.splice(childIndex, 1);
     }
   }

@@ -2,17 +2,21 @@ import { z } from 'zod';
 
 import { ToolInputDisplaySchema, type ToolInputDisplay } from './display';
 import { messageContentSchema, type MessageContent } from './message';
-import { sessionSchema, sessionStatusSchema, type Session, type SessionStatus } from './session';
+import {
+  sessionPendingInteractionSchema,
+  sessionSchema,
+  type Session,
+  type SessionPendingInteraction,
+} from './session';
 import { isoDateTimeSchema } from './time';
 import { configResponseSchema, type ConfigResponse } from './rest/config';
-import { workspaceSchema, type Workspace } from './workspace';
 import {
-  approvalRequestSchema,
-  approvalResponseSchema,
-  type ApprovalRequest,
-  type ApprovalResponse,
-} from './approval';
-import { questionRequestSchema, type QuestionRequest } from './question';
+  providerRefreshChangeSchema,
+  providerRefreshFailureSchema,
+  type ProviderRefreshChange,
+  type ProviderRefreshFailure,
+} from './modelCatalog';
+import { workspaceSchema, type Workspace } from './workspace';
 
 export interface TokenUsage {
   readonly inputOther: number;
@@ -33,14 +37,6 @@ export interface UsageStatus {
   readonly byModel?: Record<string, TokenUsage>;
   readonly currentTurn?: TokenUsage;
   readonly total?: TokenUsage;
-  readonly totalCostUsd?: number;
-}
-
-export interface ModelCostRates {
-  readonly input?: number;
-  readonly output?: number;
-  readonly cacheRead?: number;
-  readonly cacheWrite?: number;
 }
 
 export type PermissionMode = 'manual' | 'yolo' | 'auto';
@@ -49,14 +45,12 @@ export type SkillSource = 'project' | 'user' | 'extra' | 'builtin';
 
 export interface UserPromptOrigin {
   readonly kind: 'user';
-  readonly checkpointId?: string;
 }
 
 export interface SkillActivationOrigin {
   readonly kind: 'skill_activation';
   readonly activationId: string;
   readonly skillName: string;
-  readonly checkpointId?: string;
   readonly skillArgs?: string;
   readonly trigger: 'user-slash' | 'model-tool' | 'nested-skill';
   readonly skillType?: string;
@@ -64,9 +58,26 @@ export interface SkillActivationOrigin {
   readonly skillSource?: SkillSource;
 }
 
+export interface PluginCommandOrigin {
+  readonly kind: 'plugin_command';
+  readonly activationId: string;
+  readonly pluginId: string;
+  readonly commandName: string;
+  readonly commandArgs?: string;
+  readonly trigger: 'user-slash';
+}
+
 export interface InjectionOrigin {
   readonly kind: 'injection';
   readonly variant: string;
+}
+
+export interface ShellCommandOrigin {
+  readonly kind: 'shell_command';
+  readonly phase: 'input' | 'output';
+  /** Only present on `phase: 'output'` — whether the command failed, so replay
+   *  can colour stderr red only for actual failures (not warnings). */
+  readonly isError?: boolean;
 }
 
 export interface CompactionSummaryOrigin {
@@ -78,7 +89,7 @@ export interface SystemTriggerOrigin {
   readonly name: string;
 }
 
-export type AgentCoreBackgroundTaskStatus =
+export type TaskLifecycleStatus =
   | 'running'
   | 'completed'
   | 'failed'
@@ -86,10 +97,23 @@ export type AgentCoreBackgroundTaskStatus =
   | 'killed'
   | 'lost';
 
+export interface TaskOrigin {
+  readonly kind: 'task';
+  readonly taskId: string;
+  readonly status: TaskLifecycleStatus;
+  readonly notificationId: string;
+}
+
+/**
+ * Legacy spelling of `TaskOrigin` emitted by the pre-v2 agent core, which
+ * identifies background-task notifications with `kind: 'background_task'`.
+ * Retained so the wire `PromptOrigin` accepts turns steered by the legacy
+ * engine; new code should emit `TaskOrigin` (`kind: 'task'`).
+ */
 export interface BackgroundTaskOrigin {
   readonly kind: 'background_task';
   readonly taskId: string;
-  readonly status: AgentCoreBackgroundTaskStatus;
+  readonly status: TaskLifecycleStatus;
   readonly notificationId: string;
 }
 
@@ -121,9 +145,12 @@ export interface RetryOrigin {
 export type PromptOrigin =
   | UserPromptOrigin
   | SkillActivationOrigin
+  | PluginCommandOrigin
   | InjectionOrigin
+  | ShellCommandOrigin
   | CompactionSummaryOrigin
   | SystemTriggerOrigin
+  | TaskOrigin
   | BackgroundTaskOrigin
   | CronJobOrigin
   | CronMissedOrigin
@@ -195,8 +222,11 @@ export type PythinkerErrorCode =
   | 'session.state_not_found'
   | 'session.state_invalid'
   | 'session.fork_active_turn'
+  | 'session.undo_unavailable'
   | 'session.export_not_found'
   | 'session.export_missing_version'
+  | 'session.export_output_conflict'
+  | 'session.export_too_large'
   | 'session.closed'
   | 'session.permission_mode_invalid'
   | 'session.thinking_empty'
@@ -206,8 +236,13 @@ export type PythinkerErrorCode =
   | 'session.question_handler_error'
   | 'session.init_failed'
   | 'agent.not_found'
+  | 'agent.already_exists'
+  | 'agent.already_running'
+  | 'agent.not_a_subagent'
+  | 'agent.not_owned'
+  | 'agent.type_not_allowed'
+  | 'agent.max_tokens_exceeded'
   | 'turn.agent_busy'
-  | 'question.expired'
   | 'goal.already_exists'
   | 'goal.not_found'
   | 'goal.objective_empty'
@@ -215,33 +250,94 @@ export type PythinkerErrorCode =
   | 'goal.status_invalid'
   | 'goal.metadata_reserved'
   | 'goal.not_resumable'
+  | 'goal.unsupported_agent'
   | 'model.not_configured'
   | 'model.config_invalid'
+  | 'profile.thinking_alias_conflict'
+  | 'profile.unknown'
+  | 'profile.already_bound'
+  | 'profile.not_bound'
+  | 'model.not_found'
   | 'auth.login_required'
+  | 'auth.provisioning_required'
+  | 'auth.token_missing'
+  | 'auth.token_unauthorized'
+  | 'auth.model_not_resolved'
   | 'context.overflow'
   | 'loop.max_steps_exceeded'
-  | 'structured_output.max_retries'
   | 'provider.api_error'
+  | 'provider.filtered'
   | 'provider.rate_limit'
   | 'provider.auth_error'
   | 'provider.connection_error'
+  | 'provider.overloaded'
+  | 'provider.not_found'
   | 'skill.not_found'
   | 'skill.type_unsupported'
   | 'skill.name_empty'
+  | 'skill.parse_failed'
+  | 'skill.nested_too_deep'
   | 'records.write_failed'
   | 'compaction.failed'
   | 'compaction.unable'
-  | 'background.task_id_empty'
+  | 'task.task_id_empty'
+  | 'task.limit_exceeded'
+  | 'usage.turn_id_conflict'
   | 'mcp.server_not_found'
   | 'mcp.server_disabled'
   | 'mcp.startup_failed'
   | 'mcp.tool_name_collision'
+  | 'mcp.oauth_failed'
+  | 'message.not_found'
   | 'plugin.not_found'
   | 'plugin.load_failed'
   | 'request.invalid'
   | 'request.work_dir_required'
   | 'request.prompt_input_empty'
+  | 'prompt.not_found'
+  | 'prompt.already_completed'
+  | 'session.busy'
   | 'shell.git_bash_not_found'
+  | 'workspace.not_found'
+  | 'terminal.not_found'
+  | 'file.not_found'
+  | 'file.too_large'
+  | 'fs.path_not_found'
+  | 'fs.permission_denied'
+  | 'fs.path_escapes'
+  | 'fs.is_directory'
+  | 'fs.is_binary'
+  | 'fs.too_large'
+  | 'fs.already_exists'
+  | 'fs.too_many_results'
+  | 'fs.grep_timeout'
+  | 'fs.git_unavailable'
+  | 'os.fs.not_found'
+  | 'os.fs.is_directory'
+  | 'os.fs.not_directory'
+  | 'os.fs.already_exists'
+  | 'os.fs.permission_denied'
+  | 'os.fs.not_empty'
+  | 'os.fs.unavailable'
+  | 'os.fs.unknown'
+  | 'os.process.spawn_failed'
+  | 'os.process.kill_failed'
+  | 'storage.not_found'
+  | 'storage.decode_failed'
+  | 'storage.corrupted'
+  | 'storage.io_failed'
+  | 'storage.locked'
+  | 'storage.permission_denied'
+  | 'storage.disk_full'
+  | 'wire.duplicate_op'
+  | 'wire.cycle'
+  | 'wire.unknown_record'
+  | 'wire.migration_missing'
+  | 'cron.expression_invalid'
+  | 'web.invalid_url'
+  | 'web.private_address'
+  | 'web.fetch_failed'
+  | 'validation.failed'
   | 'not_implemented'
   | 'internal';
 
@@ -251,12 +347,14 @@ export interface PythinkerErrorPayload {
   readonly name?: string;
   readonly details?: Record<string, unknown>;
   readonly retryable: boolean;
+  readonly cause?: PythinkerErrorPayload;
 }
 
-export interface BackgroundTaskInfoBase {
+export interface TaskInfoBase {
   readonly taskId: string;
   readonly description: string;
-  readonly status: AgentCoreBackgroundTaskStatus;
+  readonly status: TaskLifecycleStatus;
+  readonly detached?: boolean;
   readonly startedAt: number;
   readonly endedAt: number | null;
   readonly stopReason?: string;
@@ -264,35 +362,59 @@ export interface BackgroundTaskInfoBase {
   readonly timeoutMs?: number;
 }
 
-export interface ProcessBackgroundTaskInfo extends BackgroundTaskInfoBase {
+export interface ProcessTaskInfo extends TaskInfoBase {
   readonly kind: 'process';
   readonly command: string;
   readonly pid: number;
   readonly exitCode: number | null;
 }
 
-export interface AgentBackgroundTaskInfo extends BackgroundTaskInfoBase {
+export interface AgentTaskInfo extends TaskInfoBase {
   readonly kind: 'agent';
   readonly agentId?: string;
   readonly subagentType?: string;
 }
 
-export interface QuestionBackgroundTaskInfo extends BackgroundTaskInfoBase {
+export interface QuestionTaskInfo extends TaskInfoBase {
   readonly kind: 'question';
   readonly questionCount: number;
   readonly toolCallId?: string;
 }
 
-export type BackgroundTaskInfo =
-  | ProcessBackgroundTaskInfo
-  | AgentBackgroundTaskInfo
-  | QuestionBackgroundTaskInfo;
+export type TaskInfo =
+  | ProcessTaskInfo
+  | AgentTaskInfo
+  | QuestionTaskInfo;
 
 export interface CompactionResult {
   readonly summary: string;
   readonly compactedCount: number;
   readonly tokensBefore: number;
   readonly tokensAfter: number;
+  /**
+   * Number of real user messages kept verbatim ahead of the summary in the
+   * post-compaction live context. Recorded so the wire-transcript reducer can
+   * reproduce the live folded length without re-deriving it from the full
+   * transcript (which still holds the untruncated originals of messages the
+   * live context may have truncated, so the two would otherwise diverge).
+   * Optional for backward compatibility with older wire records.
+   */
+  readonly keptUserMessageCount?: number;
+  /**
+   * Of `keptUserMessageCount`, how many messages form the head segment (the
+   * oldest user input kept when the pool overflowed the budget). Present iff
+   * the selection split into head + tail, in which case the live context also
+   * holds one elision-marker message between the segments. Optional for
+   * backward compatibility with older wire records.
+   */
+  readonly keptHeadUserMessageCount?: number;
+  /**
+   * Oldest messages trimmed from the summarizer input when the compaction
+   * request overflowed the model window; not covered by the produced summary.
+   * Mirrors agent-core's `CompactionResult.droppedCount`; optional for backward
+   * compatibility.
+   */
+  readonly droppedCount?: number;
 }
 
 export interface ToolUpdate {
@@ -308,25 +430,91 @@ export const MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE = 'mcp.oauth.authorization_
 export interface McpOAuthAuthorizationUrlUpdateData {
   readonly serverName: string;
   readonly authorizationUrl: string;
+  /**
+   * Epoch-ms instant when the engine stops waiting for the OAuth callback.
+   * Hosts derive countdowns and expiry states from this value instead of
+   * mirroring the engine-side timeout constant.
+   */
+  readonly expiresAt?: number;
 }
 
-export type TurnEndReason = 'completed' | 'cancelled' | 'failed';
+export type TurnEndReason = 'completed' | 'cancelled' | 'failed' | 'blocked';
+
+export type AgentPhase =
+  | { readonly kind: 'idle' }
+  | {
+      readonly kind: 'running';
+      readonly turnId: number;
+      readonly step: number;
+      readonly stepId: string;
+      readonly since: number;
+    }
+  | {
+      readonly kind: 'streaming';
+      readonly turnId: number;
+      readonly step: number;
+      readonly stepId: string;
+      readonly stream: 'assistant' | 'thinking' | 'tool_call';
+      readonly toolCallId?: string;
+      readonly toolName?: string;
+      readonly since: number;
+    }
+  | {
+      readonly kind: 'tool_call';
+      readonly turnId: number;
+      readonly step: number;
+      readonly toolCallId: string;
+      readonly name: string;
+      readonly since: number;
+    }
+  | {
+      readonly kind: 'retrying';
+      readonly turnId: number;
+      readonly step: number;
+      readonly stepId: string;
+      readonly failedAttempt: number;
+      readonly nextAttempt: number;
+      readonly maxAttempts: number;
+      readonly delayMs: number;
+      readonly errorName?: string;
+      readonly statusCode?: number;
+      readonly since: number;
+    }
+  | {
+      readonly kind: 'awaiting_approval';
+      readonly turnId: number;
+      readonly step?: number;
+      readonly approval?: unknown;
+      readonly since: number;
+    }
+  | {
+      readonly kind: 'interrupted';
+      readonly turnId: number;
+      readonly step?: number;
+      readonly reason: 'aborted' | 'max_steps' | 'error';
+      readonly message?: string;
+      readonly at: number;
+    }
+  | {
+      readonly kind: 'ended';
+      readonly turnId: number;
+      readonly reason: TurnEndReason;
+      readonly durationMs?: number;
+      readonly at: number;
+    };
 
 export interface AgentStatusUpdatedEvent {
   readonly type: 'agent.status.updated';
   readonly model?: string;
+  readonly thinkingEffort?: string;
   readonly contextTokens?: number;
   readonly maxContextTokens?: number;
   readonly contextUsage?: number;
   readonly planMode?: boolean;
   readonly dynamicWorkflowMode?: boolean;
-  /** Whether the agent is currently running with provider-native fast mode enabled. */
-  readonly fastMode?: boolean;
-  /** Whether the active provider/model supports fast mode at all. */
-  readonly fastModeSupported?: boolean;
   readonly permission?: PermissionMode;
   readonly usage?: UsageStatus;
-  readonly modelCostRates?: ModelCostRates;
+  readonly phase?: AgentPhase;
 }
 
 export interface SessionMetaUpdatedEvent {
@@ -356,54 +544,47 @@ export interface WorkspaceDeletedEvent {
   readonly root: string;
 }
 
+export interface SessionWorkChangedEvent {
+  readonly type: 'event.session.work_changed';
+  readonly busy: boolean;
+  /** Main-agent turn liveness, excluding background and sub-agent work. */
+  readonly main_turn_active?: boolean;
+  /** Highest-priority pending interaction for clients without a session subscription. */
+  readonly pending_interaction?: SessionPendingInteraction;
+  /** Outcome of the MAIN agent's most recent turn, when one has ended since
+   *  activation (see `Session.last_turn_reason`). */
+  readonly last_turn_reason?: 'completed' | 'cancelled' | 'failed';
+}
+
+/**
+ * @deprecated Replaced by {@link SessionWorkChangedEvent}: awaiting states
+ * ride the approval/question channels and outcomes ride turn.ended. Kept so
+ * pre-change journals still parse during replay.
+ */
 export interface SessionStatusChangedEvent {
   readonly type: 'event.session.status_changed';
-  readonly status: SessionStatus;
-  readonly previous_status: SessionStatus;
+  readonly status: 'idle' | 'running' | 'awaiting_approval' | 'awaiting_question' | 'aborted';
+  readonly previous_status: 'idle' | 'running' | 'awaiting_approval' | 'awaiting_question' | 'aborted';
   readonly current_prompt_id?: string;
-}
-
-export interface QuestionRequestedEvent extends QuestionRequest {
-  readonly type: 'event.question.requested';
-}
-
-export interface QuestionAnsweredEvent {
-  readonly type: 'event.question.answered';
-  readonly question_id: string;
-  readonly answers: unknown;
-  readonly resolved_at: string;
-}
-
-export interface QuestionDismissedEvent {
-  readonly type: 'event.question.dismissed';
-  readonly question_id: string;
-  readonly dismissed_at: string;
-}
-
-export interface QuestionExpiredEvent {
-  readonly type: 'event.question.expired';
-  readonly question_id: string;
-}
-
-export interface ApprovalRequestedEvent extends ApprovalRequest {
-  readonly type: 'event.approval.requested';
-}
-
-export interface ApprovalResolvedEvent extends ApprovalResponse {
-  readonly type: 'event.approval.resolved';
-  readonly approval_id: string;
-  readonly resolved_at: string;
-}
-
-export interface ApprovalExpiredEvent {
-  readonly type: 'event.approval.expired';
-  readonly approval_id: string;
 }
 
 export interface ConfigChangedEvent {
   readonly type: 'event.config.changed';
   readonly changedFields: string[];
   readonly config: ConfigResponse;
+}
+
+/**
+ * Pushed when the daemon refreshes provider model metadata (manual or
+ * scheduled) and the effective catalog changed. Carries the per-provider
+ * diff so clients can both refresh their model/provider caches and surface a
+ * summary ("3 models added") without re-diffing the whole config.
+ */
+export interface ModelCatalogChangedEvent {
+  readonly type: 'event.model_catalog.changed';
+  readonly changed: readonly ProviderRefreshChange[];
+  readonly unchanged: readonly string[];
+  readonly failed: readonly ProviderRefreshFailure[];
 }
 
 export interface GoalUpdatedEvent {
@@ -416,11 +597,19 @@ export interface SkillActivatedEvent {
   readonly type: 'skill.activated';
   readonly activationId: string;
   readonly skillName: string;
-  readonly checkpointId?: string;
   readonly skillArgs?: string;
   readonly trigger: 'user-slash' | 'model-tool' | 'nested-skill';
   readonly skillPath?: string;
   readonly skillSource?: SkillSource;
+}
+
+export interface PluginCommandActivatedEvent {
+  readonly type: 'plugin_command.activated';
+  readonly activationId: string;
+  readonly pluginId: string;
+  readonly commandName: string;
+  readonly commandArgs?: string;
+  readonly trigger: 'user-slash';
 }
 
 export interface ErrorEvent extends PythinkerErrorPayload {
@@ -437,6 +626,7 @@ export interface TurnStartedEvent {
   readonly type: 'turn.started';
   readonly turnId: number;
   readonly origin: PromptOrigin;
+  readonly prompt?: string;
 }
 
 export interface TurnEndedEvent {
@@ -445,7 +635,6 @@ export interface TurnEndedEvent {
   readonly reason: TurnEndReason;
   readonly error?: PythinkerErrorPayload;
   readonly durationMs?: number;
-  readonly structuredOutput?: unknown;
 }
 
 export interface TurnStepStartedEvent {
@@ -464,6 +653,20 @@ export interface TurnStepCompletedEvent {
   readonly finishReason?: string;
   readonly llmFirstTokenLatencyMs?: number;
   readonly llmStreamDurationMs?: number;
+  /**
+   * Split of `llmFirstTokenLatencyMs`: in-process request-building time on the
+   * client vs. network + API-server time to the first token. Both omitted when
+   * the provider does not report the client/server boundary.
+   */
+  readonly llmRequestBuildMs?: number;
+  readonly llmServerFirstTokenMs?: number;
+  /**
+   * Split of `llmStreamDurationMs` (the decode window): time awaiting parts from
+   * the provider vs. time processing parts in-process. Both omitted when the
+   * provider stream did not report decode accounting.
+   */
+  readonly llmServerDecodeMs?: number;
+  readonly llmClientConsumeMs?: number;
   readonly providerFinishReason?: FinishReason;
   readonly rawFinishReason?: string;
 }
@@ -499,29 +702,11 @@ export interface AssistantDeltaEvent {
 
 export interface HookResultEvent {
   readonly type: 'hook.result';
-  readonly turnId: number;
+  readonly turnId?: number;
   readonly hookEvent: string;
   readonly content: string;
   readonly blocked?: boolean;
 }
-
-export interface HookStatusEvent {
-  readonly type: 'hook.status';
-  readonly statusId: string;
-  readonly hookEvent: string;
-  readonly content: string;
-  readonly active: boolean;
-}
-export interface AdvisorStatusEvent {
-  readonly type: 'advisor.status';
-  readonly advisorId: string;
-  readonly name: string;
-  readonly status: 'running' | 'paused' | 'quota_exhausted' | 'error' | 'no_model';
-  readonly enabled: boolean;
-  readonly model?: string;
-  readonly message?: string;
-}
-
 
 export interface ThinkingDeltaEvent {
   readonly type: 'thinking.delta';
@@ -543,7 +728,6 @@ export interface ToolCallStartedEvent {
   readonly toolCallId: string;
   readonly name: string;
   readonly args: unknown;
-  readonly intent?: string;
   readonly description?: string;
   readonly display?: ToolInputDisplay;
 }
@@ -553,6 +737,41 @@ export interface ToolProgressEvent {
   readonly turnId: number;
   readonly toolCallId: string;
   readonly update: ToolUpdate;
+}
+
+/**
+ * Live stdout/stderr chunk from a user-initiated `!` shell command. Transient
+ * (never persisted, never replayed) — the final output is still recorded once
+ * via `context.append_message` on completion. `commandId` lets the TUI route
+ * chunks to the matching live entry and drop stale events from a prior run.
+ */
+export interface ShellOutputEvent {
+  readonly type: 'shell.output';
+  readonly commandId: string;
+  readonly update: ToolUpdate;
+  readonly taskId?: string;
+}
+
+/**
+ * Fired once when a `!` shell command's foreground process task is registered,
+ * carrying the task id so the client can detach (ctrl+b) it. Transient.
+ */
+export interface ShellStartedEvent {
+  readonly type: 'shell.started';
+  readonly commandId: string;
+  readonly taskId: string;
+}
+
+/**
+ * Fired once when a foreground `!` shell command settles (success or
+ * failure). Runs detached to background do NOT fire it — they report through
+ * the task lifecycle instead. Transient, like the other `shell.*` events.
+ */
+export interface ShellCompletedEvent {
+  readonly type: 'shell.completed';
+  readonly commandId: string;
+  readonly isError: boolean;
+  readonly taskId?: string;
 }
 
 export interface ToolResultEvent {
@@ -571,47 +790,26 @@ export interface SubagentSpawnedEvent {
   readonly parentToolCallId: string;
   readonly parentToolCallUuid?: string;
   readonly parentAgentId?: string;
+  readonly callerAgentId?: string;
   readonly description?: string;
   readonly dynamicWorkflowIndex?: number;
-  /** Identifies the Dynamic Workflow run this subagent belongs to; absent outside a workflow. */
-  readonly workflowRunId?: string;
-  /** The workflow's user-facing description, repeated on each subagent for correlation. */
-  readonly workflowName?: string;
   readonly runInBackground: boolean;
 }
 
 export interface SubagentStartedEvent {
   readonly type: 'subagent.started';
   readonly subagentId: string;
-  /** Tool call in the parent agent that spawned the subagent; absent when spawned outside a tool call. */
-  readonly parentToolCallId?: string;
-  /** Identifies the Dynamic Workflow run this subagent belongs to; absent outside a workflow. */
-  readonly workflowRunId?: string;
-  /** The workflow's user-facing description, repeated on each subagent for correlation. */
-  readonly workflowName?: string;
 }
 
 export interface SubagentSuspendedEvent {
   readonly type: 'subagent.suspended';
   readonly subagentId: string;
-  /** Tool call in the parent agent that spawned the subagent; absent when spawned outside a tool call. */
-  readonly parentToolCallId?: string;
-  /** Identifies the Dynamic Workflow run this subagent belongs to; absent outside a workflow. */
-  readonly workflowRunId?: string;
-  /** The workflow's user-facing description, repeated on each subagent for correlation. */
-  readonly workflowName?: string;
   readonly reason: string;
 }
 
 export interface SubagentCompletedEvent {
   readonly type: 'subagent.completed';
   readonly subagentId: string;
-  /** Tool call in the parent agent that spawned the subagent; absent when spawned outside a tool call. */
-  readonly parentToolCallId?: string;
-  /** Identifies the Dynamic Workflow run this subagent belongs to; absent outside a workflow. */
-  readonly workflowRunId?: string;
-  /** The workflow's user-facing description, repeated on each subagent for correlation. */
-  readonly workflowName?: string;
   readonly resultSummary: string;
   readonly usage?: TokenUsage;
   readonly contextTokens?: number;
@@ -620,25 +818,7 @@ export interface SubagentCompletedEvent {
 export interface SubagentFailedEvent {
   readonly type: 'subagent.failed';
   readonly subagentId: string;
-  /** Tool call in the parent agent that spawned the subagent; absent when spawned outside a tool call. */
-  readonly parentToolCallId?: string;
-  /** Identifies the Dynamic Workflow run this subagent belongs to; absent outside a workflow. */
-  readonly workflowRunId?: string;
-  /** The workflow's user-facing description, repeated on each subagent for correlation. */
-  readonly workflowName?: string;
   readonly error: string;
-}
-
-export interface WorkflowWarningEvent {
-  readonly type: 'workflow.warning';
-  readonly workflowRunId: string;
-  /** Tool call in the parent agent that launched this workflow. */
-  readonly parentToolCallId: string;
-  /** Number of subagents this run will launch. */
-  readonly agentCount: number;
-  /** The advisory ceiling that was exceeded. */
-  readonly threshold: number;
-  readonly message: string;
 }
 
 export interface CompactionStartedEvent {
@@ -661,14 +841,30 @@ export interface CompactionCompletedEvent {
   readonly result: CompactionResult;
 }
 
+export interface TaskStartedEvent {
+  readonly type: 'task.started';
+  readonly info: TaskInfo;
+}
+
+export interface TaskTerminatedEvent {
+  readonly type: 'task.terminated';
+  readonly info: TaskInfo;
+}
+
+/**
+ * Legacy background-task lifecycle events emitted by the pre-v2 agent core
+ * (`background.task.started` / `background.task.terminated`). The v2 engine
+ * emits `task.started` / `task.terminated` instead; both spellings are kept in
+ * the union so clients see a consistent event stream across engines.
+ */
 export interface BackgroundTaskStartedEvent {
   readonly type: 'background.task.started';
-  readonly info: BackgroundTaskInfo;
+  readonly info: TaskInfo;
 }
 
 export interface BackgroundTaskTerminatedEvent {
   readonly type: 'background.task.terminated';
-  readonly info: BackgroundTaskInfo;
+  readonly info: TaskInfo;
 }
 
 export interface CronFiredEvent {
@@ -681,7 +877,7 @@ export interface PromptSubmittedEvent {
   readonly type: 'prompt.submitted';
   readonly promptId: string;
   readonly userMessageId: string;
-  readonly status: 'running' | 'queued';
+  readonly status: 'running' | 'queued' | 'blocked';
   readonly content: readonly MessageContent[];
   readonly createdAt: string;
 }
@@ -690,7 +886,7 @@ export interface PromptCompletedEvent {
   readonly type: 'prompt.completed';
   readonly promptId: string;
   readonly finishedAt: string;
-  readonly reason: 'completed' | 'failed';
+  readonly reason?: 'completed' | 'failed' | 'blocked';
 }
 
 export interface PromptAbortedEvent {
@@ -737,17 +933,13 @@ export type AgentEvent =
   | WorkspaceCreatedEvent
   | WorkspaceUpdatedEvent
   | WorkspaceDeletedEvent
+  | SessionWorkChangedEvent
   | SessionStatusChangedEvent
-  | QuestionRequestedEvent
-  | QuestionAnsweredEvent
-  | QuestionDismissedEvent
-  | QuestionExpiredEvent
-  | ApprovalRequestedEvent
-  | ApprovalResolvedEvent
-  | ApprovalExpiredEvent
   | ConfigChangedEvent
+  | ModelCatalogChangedEvent
   | GoalUpdatedEvent
   | SkillActivatedEvent
+  | PluginCommandActivatedEvent
   | TurnStartedEvent
   | TurnEndedEvent
   | TurnStepStartedEvent
@@ -756,12 +948,13 @@ export type AgentEvent =
   | TurnStepInterruptedEvent
   | AssistantDeltaEvent
   | HookResultEvent
-  | HookStatusEvent
-  | AdvisorStatusEvent
   | ThinkingDeltaEvent
   | ToolCallDeltaEvent
   | ToolCallStartedEvent
   | ToolProgressEvent
+  | ShellOutputEvent
+  | ShellStartedEvent
+  | ShellCompletedEvent
   | ToolResultEvent
   | ToolListUpdatedEvent
   | McpServerStatusEvent
@@ -770,11 +963,12 @@ export type AgentEvent =
   | SubagentSuspendedEvent
   | SubagentCompletedEvent
   | SubagentFailedEvent
-  | WorkflowWarningEvent
   | CompactionStartedEvent
   | CompactionBlockedEvent
   | CompactionCancelledEvent
   | CompactionCompletedEvent
+  | TaskStartedEvent
+  | TaskTerminatedEvent
   | BackgroundTaskStartedEvent
   | BackgroundTaskTerminatedEvent
   | CronFiredEvent
@@ -805,15 +999,7 @@ export const usageStatusSchema = z.object({
   byModel: z.record(z.string(), tokenUsageSchema).optional(),
   currentTurn: tokenUsageSchema.optional(),
   total: tokenUsageSchema.optional(),
-  totalCostUsd: z.number().nonnegative().optional(),
 }) satisfies z.ZodType<UsageStatus>;
-
-export const modelCostRatesSchema = z.object({
-  input: z.number().nonnegative().optional(),
-  output: z.number().nonnegative().optional(),
-  cacheRead: z.number().nonnegative().optional(),
-  cacheWrite: z.number().nonnegative().optional(),
-}) satisfies z.ZodType<ModelCostRates>;
 
 export const permissionModeSchema = z.enum(['manual', 'yolo', 'auto']) satisfies z.ZodType<PermissionMode>;
 
@@ -821,14 +1007,12 @@ export const skillSourceSchema = z.enum(['project', 'user', 'extra', 'builtin'])
 
 export const userPromptOriginSchema = z.object({
   kind: z.literal('user'),
-  checkpointId: z.string().optional(),
 }) satisfies z.ZodType<UserPromptOrigin>;
 
 export const skillActivationOriginSchema = z.object({
   kind: z.literal('skill_activation'),
   activationId: z.string(),
   skillName: z.string(),
-  checkpointId: z.string().optional(),
   skillArgs: z.string().optional(),
   trigger: z.enum(['user-slash', 'model-tool', 'nested-skill']),
   skillType: z.string().optional(),
@@ -836,10 +1020,25 @@ export const skillActivationOriginSchema = z.object({
   skillSource: skillSourceSchema.optional(),
 }) satisfies z.ZodType<SkillActivationOrigin>;
 
+export const pluginCommandOriginSchema = z.object({
+  kind: z.literal('plugin_command'),
+  activationId: z.string(),
+  pluginId: z.string(),
+  commandName: z.string(),
+  commandArgs: z.string().optional(),
+  trigger: z.literal('user-slash'),
+}) satisfies z.ZodType<PluginCommandOrigin>;
+
 export const injectionOriginSchema = z.object({
   kind: z.literal('injection'),
   variant: z.string(),
 }) satisfies z.ZodType<InjectionOrigin>;
+
+export const shellCommandOriginSchema = z.object({
+  kind: z.literal('shell_command'),
+  phase: z.enum(['input', 'output']),
+  isError: z.boolean().optional(),
+}) satisfies z.ZodType<ShellCommandOrigin>;
 
 export const compactionSummaryOriginSchema = z.object({
   kind: z.literal('compaction_summary'),
@@ -850,19 +1049,26 @@ export const systemTriggerOriginSchema = z.object({
   name: z.string(),
 }) satisfies z.ZodType<SystemTriggerOrigin>;
 
-export const agentCoreBackgroundTaskStatusSchema = z.enum([
+export const taskLifecycleStatusSchema = z.enum([
   'running',
   'completed',
   'failed',
   'timed_out',
   'killed',
   'lost',
-]) satisfies z.ZodType<AgentCoreBackgroundTaskStatus>;
+]) satisfies z.ZodType<TaskLifecycleStatus>;
+
+export const taskOriginSchema = z.object({
+  kind: z.literal('task'),
+  taskId: z.string(),
+  status: taskLifecycleStatusSchema,
+  notificationId: z.string(),
+}) satisfies z.ZodType<TaskOrigin>;
 
 export const backgroundTaskOriginSchema = z.object({
   kind: z.literal('background_task'),
   taskId: z.string(),
-  status: agentCoreBackgroundTaskStatusSchema,
+  status: taskLifecycleStatusSchema,
   notificationId: z.string(),
 }) satisfies z.ZodType<BackgroundTaskOrigin>;
 
@@ -894,9 +1100,12 @@ export const retryOriginSchema = z.object({
 export const promptOriginSchema = z.discriminatedUnion('kind', [
   userPromptOriginSchema,
   skillActivationOriginSchema,
+  pluginCommandOriginSchema,
   injectionOriginSchema,
+  shellCommandOriginSchema,
   compactionSummaryOriginSchema,
   systemTriggerOriginSchema,
+  taskOriginSchema,
   backgroundTaskOriginSchema,
   cronJobOriginSchema,
   cronMissedOriginSchema,
@@ -970,8 +1179,11 @@ export const pythinkerErrorCodeSchema = z.enum([
   'session.state_not_found',
   'session.state_invalid',
   'session.fork_active_turn',
+  'session.undo_unavailable',
   'session.export_not_found',
   'session.export_missing_version',
+  'session.export_output_conflict',
+  'session.export_too_large',
   'session.closed',
   'session.permission_mode_invalid',
   'session.thinking_empty',
@@ -981,6 +1193,12 @@ export const pythinkerErrorCodeSchema = z.enum([
   'session.question_handler_error',
   'session.init_failed',
   'agent.not_found',
+  'agent.already_exists',
+  'agent.already_running',
+  'agent.not_a_subagent',
+  'agent.not_owned',
+  'agent.type_not_allowed',
+  'agent.max_tokens_exceeded',
   'turn.agent_busy',
   'goal.already_exists',
   'goal.not_found',
@@ -989,85 +1207,156 @@ export const pythinkerErrorCodeSchema = z.enum([
   'goal.status_invalid',
   'goal.metadata_reserved',
   'goal.not_resumable',
+  'goal.unsupported_agent',
   'model.not_configured',
   'model.config_invalid',
+  'profile.thinking_alias_conflict',
+  'profile.unknown',
+  'profile.already_bound',
+  'profile.not_bound',
+  'model.not_found',
   'auth.login_required',
+  'auth.provisioning_required',
+  'auth.token_missing',
+  'auth.token_unauthorized',
+  'auth.model_not_resolved',
   'context.overflow',
   'loop.max_steps_exceeded',
   'provider.api_error',
+  'provider.filtered',
   'provider.rate_limit',
   'provider.auth_error',
   'provider.connection_error',
+  'provider.overloaded',
+  'provider.not_found',
   'skill.not_found',
   'skill.type_unsupported',
   'skill.name_empty',
+  'skill.parse_failed',
+  'skill.nested_too_deep',
   'records.write_failed',
   'compaction.failed',
   'compaction.unable',
-  'background.task_id_empty',
+  'task.task_id_empty',
+  'task.limit_exceeded',
+  'usage.turn_id_conflict',
   'mcp.server_not_found',
   'mcp.server_disabled',
   'mcp.startup_failed',
   'mcp.tool_name_collision',
+  'mcp.oauth_failed',
+  'message.not_found',
   'plugin.not_found',
   'plugin.load_failed',
   'request.invalid',
   'request.work_dir_required',
   'request.prompt_input_empty',
+  'prompt.not_found',
+  'prompt.already_completed',
+  'session.busy',
   'shell.git_bash_not_found',
+  'workspace.not_found',
+  'terminal.not_found',
+  'file.not_found',
+  'file.too_large',
+  'fs.path_not_found',
+  'fs.permission_denied',
+  'fs.path_escapes',
+  'fs.is_directory',
+  'fs.is_binary',
+  'fs.too_large',
+  'fs.already_exists',
+  'fs.too_many_results',
+  'fs.grep_timeout',
+  'fs.git_unavailable',
+  'os.fs.not_found',
+  'os.fs.is_directory',
+  'os.fs.not_directory',
+  'os.fs.already_exists',
+  'os.fs.permission_denied',
+  'os.fs.not_empty',
+  'os.fs.unavailable',
+  'os.fs.unknown',
+  'os.process.spawn_failed',
+  'os.process.kill_failed',
+  'storage.not_found',
+  'storage.decode_failed',
+  'storage.corrupted',
+  'storage.io_failed',
+  'storage.locked',
+  'storage.permission_denied',
+  'storage.disk_full',
+  'wire.duplicate_op',
+  'wire.cycle',
+  'wire.unknown_record',
+  'wire.migration_missing',
+  'cron.expression_invalid',
+  'web.invalid_url',
+  'web.private_address',
+  'web.fetch_failed',
+  'validation.failed',
   'not_implemented',
   'internal',
 ]) satisfies z.ZodType<PythinkerErrorCode>;
 
-export const pythinkerErrorPayloadSchema = z.object({
+export const pythinkerErrorPayloadSchema: z.ZodType<PythinkerErrorPayload> = z.lazy(
+  () => pythinkerErrorPayloadObjectSchema,
+);
+
+const pythinkerErrorPayloadObjectSchema = z.object({
   code: pythinkerErrorCodeSchema,
   message: z.string(),
   name: z.string().optional(),
   details: z.record(z.string(), z.unknown()).optional(),
   retryable: z.boolean(),
+  cause: pythinkerErrorPayloadSchema.optional(),
 }) satisfies z.ZodType<PythinkerErrorPayload>;
 
-export const backgroundTaskInfoBaseSchema = z.object({
+export const taskInfoBaseSchema = z.object({
   taskId: z.string(),
   description: z.string(),
-  status: agentCoreBackgroundTaskStatusSchema,
+  status: taskLifecycleStatusSchema,
+  detached: z.boolean().optional(),
   startedAt: z.number(),
   endedAt: z.number().nullable(),
   stopReason: z.string().optional(),
   terminalNotificationSuppressed: z.boolean().optional(),
   timeoutMs: z.number().optional(),
-}) satisfies z.ZodType<BackgroundTaskInfoBase>;
+}) satisfies z.ZodType<TaskInfoBase>;
 
-export const processBackgroundTaskInfoSchema = backgroundTaskInfoBaseSchema.extend({
+export const processTaskInfoSchema = taskInfoBaseSchema.extend({
   kind: z.literal('process'),
   command: z.string(),
   pid: z.number(),
   exitCode: z.number().nullable(),
-}) satisfies z.ZodType<ProcessBackgroundTaskInfo>;
+}) satisfies z.ZodType<ProcessTaskInfo>;
 
-export const agentBackgroundTaskInfoSchema = backgroundTaskInfoBaseSchema.extend({
+export const agentTaskInfoSchema = taskInfoBaseSchema.extend({
   kind: z.literal('agent'),
   agentId: z.string().optional(),
   subagentType: z.string().optional(),
-}) satisfies z.ZodType<AgentBackgroundTaskInfo>;
+}) satisfies z.ZodType<AgentTaskInfo>;
 
-export const questionBackgroundTaskInfoSchema = backgroundTaskInfoBaseSchema.extend({
+export const questionTaskInfoSchema = taskInfoBaseSchema.extend({
   kind: z.literal('question'),
   questionCount: z.number(),
   toolCallId: z.string().optional(),
-}) satisfies z.ZodType<QuestionBackgroundTaskInfo>;
+}) satisfies z.ZodType<QuestionTaskInfo>;
 
-export const backgroundTaskInfoSchema = z.discriminatedUnion('kind', [
-  processBackgroundTaskInfoSchema,
-  agentBackgroundTaskInfoSchema,
-  questionBackgroundTaskInfoSchema,
-]) satisfies z.ZodType<BackgroundTaskInfo>;
+export const taskInfoSchema = z.discriminatedUnion('kind', [
+  processTaskInfoSchema,
+  agentTaskInfoSchema,
+  questionTaskInfoSchema,
+]) satisfies z.ZodType<TaskInfo>;
 
 export const compactionResultSchema = z.object({
   summary: z.string(),
   compactedCount: z.number(),
   tokensBefore: z.number(),
   tokensAfter: z.number(),
+  keptUserMessageCount: z.number().optional(),
+  keptHeadUserMessageCount: z.number().optional(),
+  droppedCount: z.number().optional(),
 }) satisfies z.ZodType<CompactionResult>;
 
 export const toolUpdateSchema = z.object({
@@ -1081,24 +1370,88 @@ export const toolUpdateSchema = z.object({
 export const mcpOAuthAuthorizationUrlUpdateDataSchema = z.object({
   serverName: z.string(),
   authorizationUrl: z.string(),
+  expiresAt: z.number().optional(),
 }) satisfies z.ZodType<McpOAuthAuthorizationUrlUpdateData>;
 
-export const turnEndReasonSchema = z.enum(['completed', 'cancelled', 'failed']) satisfies z.ZodType<TurnEndReason>;
+export const turnEndReasonSchema = z.enum(['completed', 'cancelled', 'failed', 'blocked']) satisfies z.ZodType<TurnEndReason>;
+
+export const agentPhaseSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('idle') }),
+  z.object({
+    kind: z.literal('running'),
+    turnId: z.number(),
+    step: z.number(),
+    stepId: z.string(),
+    since: z.number(),
+  }),
+  z.object({
+    kind: z.literal('streaming'),
+    turnId: z.number(),
+    step: z.number(),
+    stepId: z.string(),
+    stream: z.enum(['assistant', 'thinking', 'tool_call']),
+    toolCallId: z.string().optional(),
+    toolName: z.string().optional(),
+    since: z.number(),
+  }),
+  z.object({
+    kind: z.literal('tool_call'),
+    turnId: z.number(),
+    step: z.number(),
+    toolCallId: z.string(),
+    name: z.string(),
+    since: z.number(),
+  }),
+  z.object({
+    kind: z.literal('retrying'),
+    turnId: z.number(),
+    step: z.number(),
+    stepId: z.string(),
+    failedAttempt: z.number(),
+    nextAttempt: z.number(),
+    maxAttempts: z.number(),
+    delayMs: z.number(),
+    errorName: z.string().optional(),
+    statusCode: z.number().optional(),
+    since: z.number(),
+  }),
+  z.object({
+    kind: z.literal('awaiting_approval'),
+    turnId: z.number(),
+    step: z.number().optional(),
+    approval: z.unknown().optional(),
+    since: z.number(),
+  }),
+  z.object({
+    kind: z.literal('interrupted'),
+    turnId: z.number(),
+    step: z.number().optional(),
+    reason: z.enum(['aborted', 'max_steps', 'error']),
+    message: z.string().optional(),
+    at: z.number(),
+  }),
+  z.object({
+    kind: z.literal('ended'),
+    turnId: z.number(),
+    reason: turnEndReasonSchema,
+    durationMs: z.number().optional(),
+    at: z.number(),
+  }),
+]) satisfies z.ZodType<AgentPhase>;
 
 export const agentStatusUpdatedEventSchema = z.object({
   type: z.literal('agent.status.updated'),
   model: z.string().optional(),
+  thinkingEffort: z.string().optional(),
   contextTokens: z.number().optional(),
   maxContextTokens: z.number().optional(),
   contextUsage: z.number().optional(),
   planMode: z.boolean().optional(),
   dynamicWorkflowMode: z.boolean().optional(),
-  fastMode: z.boolean().optional(),
-  fastModeSupported: z.boolean().optional(),
   permission: permissionModeSchema.optional(),
   usage: usageStatusSchema.optional(),
-  modelCostRates: modelCostRatesSchema.optional(),
-}).strict() satisfies z.ZodType<AgentStatusUpdatedEvent>;
+  phase: agentPhaseSchema.optional(),
+}) satisfies z.ZodType<AgentStatusUpdatedEvent>;
 
 export const sessionMetaUpdatedEventSchema = z.object({
   type: z.literal('session.meta.updated'),
@@ -1127,55 +1480,34 @@ export const workspaceDeletedEventSchema = z.object({
   root: z.string().min(1),
 }) satisfies z.ZodType<WorkspaceDeletedEvent>;
 
+export const sessionWorkChangedEventSchema = z.object({
+  type: z.literal('event.session.work_changed'),
+  busy: z.boolean(),
+  main_turn_active: z.boolean().optional(),
+  pending_interaction: sessionPendingInteractionSchema.optional(),
+  last_turn_reason: z.enum(['completed', 'cancelled', 'failed']).optional(),
+}) satisfies z.ZodType<SessionWorkChangedEvent>;
+
+/** @deprecated See {@link SessionStatusChangedEvent}. */
 export const sessionStatusChangedEventSchema = z.object({
   type: z.literal('event.session.status_changed'),
-  status: sessionStatusSchema,
-  previous_status: sessionStatusSchema,
+  status: z.enum(['idle', 'running', 'awaiting_approval', 'awaiting_question', 'aborted']),
+  previous_status: z.enum(['idle', 'running', 'awaiting_approval', 'awaiting_question', 'aborted']),
   current_prompt_id: z.string().min(1).optional(),
 }) satisfies z.ZodType<SessionStatusChangedEvent>;
-
-export const questionRequestedEventSchema = questionRequestSchema.extend({
-  type: z.literal('event.question.requested'),
-}) satisfies z.ZodType<QuestionRequestedEvent>;
-
-export const questionAnsweredEventSchema = z.object({
-  type: z.literal('event.question.answered'),
-  question_id: z.string().min(1),
-  answers: z.unknown().nullable(),
-  resolved_at: isoDateTimeSchema,
-}) satisfies z.ZodType<QuestionAnsweredEvent>;
-
-export const questionDismissedEventSchema = z.object({
-  type: z.literal('event.question.dismissed'),
-  question_id: z.string().min(1),
-  dismissed_at: isoDateTimeSchema,
-}) satisfies z.ZodType<QuestionDismissedEvent>;
-
-export const questionExpiredEventSchema = z.object({
-  type: z.literal('event.question.expired'),
-  question_id: z.string().min(1),
-}) satisfies z.ZodType<QuestionExpiredEvent>;
-
-export const approvalRequestedEventSchema = approvalRequestSchema.extend({
-  type: z.literal('event.approval.requested'),
-}) satisfies z.ZodType<ApprovalRequestedEvent>;
-
-export const approvalResolvedEventSchema = approvalResponseSchema.extend({
-  type: z.literal('event.approval.resolved'),
-  approval_id: z.string().min(1),
-  resolved_at: isoDateTimeSchema,
-}) satisfies z.ZodType<ApprovalResolvedEvent>;
-
-export const approvalExpiredEventSchema = z.object({
-  type: z.literal('event.approval.expired'),
-  approval_id: z.string().min(1),
-}) satisfies z.ZodType<ApprovalExpiredEvent>;
 
 export const configChangedEventSchema = z.object({
   type: z.literal('event.config.changed'),
   changedFields: z.array(z.string()),
   config: configResponseSchema,
 }) satisfies z.ZodType<ConfigChangedEvent>;
+
+export const modelCatalogChangedEventSchema = z.object({
+  type: z.literal('event.model_catalog.changed'),
+  changed: z.array(providerRefreshChangeSchema),
+  unchanged: z.array(z.string().min(1)),
+  failed: z.array(providerRefreshFailureSchema),
+}) satisfies z.ZodType<ModelCatalogChangedEvent>;
 
 export const goalUpdatedEventSchema = z.object({
   type: z.literal('goal.updated'),
@@ -1187,14 +1519,22 @@ export const skillActivatedEventSchema = z.object({
   type: z.literal('skill.activated'),
   activationId: z.string(),
   skillName: z.string(),
-  checkpointId: z.string().optional(),
   skillArgs: z.string().optional(),
   trigger: z.enum(['user-slash', 'model-tool', 'nested-skill']),
   skillPath: z.string().optional(),
   skillSource: skillSourceSchema.optional(),
 }) satisfies z.ZodType<SkillActivatedEvent>;
 
-export const errorEventSchema = pythinkerErrorPayloadSchema.extend({
+export const pluginCommandActivatedEventSchema = z.object({
+  type: z.literal('plugin_command.activated'),
+  activationId: z.string(),
+  pluginId: z.string(),
+  commandName: z.string(),
+  commandArgs: z.string().optional(),
+  trigger: z.literal('user-slash'),
+}) satisfies z.ZodType<PluginCommandActivatedEvent>;
+
+export const errorEventSchema = pythinkerErrorPayloadObjectSchema.extend({
   type: z.literal('error'),
 }) satisfies z.ZodType<ErrorEvent>;
 
@@ -1208,6 +1548,7 @@ export const turnStartedEventSchema = z.object({
   type: z.literal('turn.started'),
   turnId: z.number(),
   origin: promptOriginSchema,
+  prompt: z.string().optional(),
 }) satisfies z.ZodType<TurnStartedEvent>;
 
 export const turnEndedEventSchema = z.object({
@@ -1216,7 +1557,6 @@ export const turnEndedEventSchema = z.object({
   reason: turnEndReasonSchema,
   error: pythinkerErrorPayloadSchema.optional(),
   durationMs: z.number().optional(),
-  structuredOutput: z.unknown().optional(),
 }) satisfies z.ZodType<TurnEndedEvent>;
 
 export const turnStepStartedEventSchema = z.object({
@@ -1235,6 +1575,10 @@ export const turnStepCompletedEventSchema = z.object({
   finishReason: z.string().optional(),
   llmFirstTokenLatencyMs: z.number().optional(),
   llmStreamDurationMs: z.number().optional(),
+  llmRequestBuildMs: z.number().optional(),
+  llmServerFirstTokenMs: z.number().optional(),
+  llmServerDecodeMs: z.number().optional(),
+  llmClientConsumeMs: z.number().optional(),
   providerFinishReason: finishReasonSchema.optional(),
   rawFinishReason: z.string().optional(),
 }) satisfies z.ZodType<TurnStepCompletedEvent>;
@@ -1270,28 +1614,11 @@ export const assistantDeltaEventSchema = z.object({
 
 export const hookResultEventSchema = z.object({
   type: z.literal('hook.result'),
-  turnId: z.number(),
+  turnId: z.number().optional(),
   hookEvent: z.string(),
   content: z.string(),
   blocked: z.boolean().optional(),
 }) satisfies z.ZodType<HookResultEvent>;
-
-export const hookStatusEventSchema = z.object({
-  type: z.literal('hook.status'),
-  statusId: z.string(),
-  hookEvent: z.string(),
-  content: z.string(),
-  active: z.boolean(),
-}) satisfies z.ZodType<HookStatusEvent>;
-export const advisorStatusEventSchema = z.object({
-  type: z.literal('advisor.status'),
-  advisorId: z.string(),
-  name: z.string(),
-  status: z.enum(['running', 'paused', 'quota_exhausted', 'error', 'no_model']),
-  enabled: z.boolean(),
-  model: z.string().optional(),
-  message: z.string().optional(),
-}) satisfies z.ZodType<AdvisorStatusEvent>;
 
 export const thinkingDeltaEventSchema = z.object({
   type: z.literal('thinking.delta'),
@@ -1313,7 +1640,6 @@ export const toolCallStartedEventSchema = z.object({
   toolCallId: z.string(),
   name: z.string(),
   args: z.unknown(),
-  intent: z.string().optional(),
   description: z.string().optional(),
   display: ToolInputDisplaySchema.optional(),
 }) satisfies z.ZodType<ToolCallStartedEvent>;
@@ -1324,6 +1650,26 @@ export const toolProgressEventSchema = z.object({
   toolCallId: z.string(),
   update: toolUpdateSchema,
 }) satisfies z.ZodType<ToolProgressEvent>;
+
+export const shellOutputEventSchema = z.object({
+  type: z.literal('shell.output'),
+  commandId: z.string(),
+  update: toolUpdateSchema,
+  taskId: z.string().optional(),
+}) satisfies z.ZodType<ShellOutputEvent>;
+
+export const shellStartedEventSchema = z.object({
+  type: z.literal('shell.started'),
+  commandId: z.string(),
+  taskId: z.string(),
+}) satisfies z.ZodType<ShellStartedEvent>;
+
+export const shellCompletedEventSchema = z.object({
+  type: z.literal('shell.completed'),
+  commandId: z.string(),
+  isError: z.boolean(),
+  taskId: z.string().optional(),
+}) satisfies z.ZodType<ShellCompletedEvent>;
 
 export const toolResultEventSchema = z.object({
   type: z.literal('tool.result'),
@@ -1341,36 +1687,26 @@ export const subagentSpawnedEventSchema = z.object({
   parentToolCallId: z.string(),
   parentToolCallUuid: z.string().optional(),
   parentAgentId: z.string().optional(),
+  callerAgentId: z.string().optional(),
   description: z.string().optional(),
   dynamicWorkflowIndex: z.number().optional(),
-  workflowRunId: z.string().optional(),
-  workflowName: z.string().optional(),
   runInBackground: z.boolean(),
-}).strict() satisfies z.ZodType<SubagentSpawnedEvent>;
+}) satisfies z.ZodType<SubagentSpawnedEvent>;
 
 export const subagentStartedEventSchema = z.object({
   type: z.literal('subagent.started'),
   subagentId: z.string(),
-  parentToolCallId: z.string().optional(),
-  workflowRunId: z.string().optional(),
-  workflowName: z.string().optional(),
 }) satisfies z.ZodType<SubagentStartedEvent>;
 
 export const subagentSuspendedEventSchema = z.object({
   type: z.literal('subagent.suspended'),
   subagentId: z.string(),
-  parentToolCallId: z.string().optional(),
-  workflowRunId: z.string().optional(),
-  workflowName: z.string().optional(),
   reason: z.string(),
 }) satisfies z.ZodType<SubagentSuspendedEvent>;
 
 export const subagentCompletedEventSchema = z.object({
   type: z.literal('subagent.completed'),
   subagentId: z.string(),
-  parentToolCallId: z.string().optional(),
-  workflowRunId: z.string().optional(),
-  workflowName: z.string().optional(),
   resultSummary: z.string(),
   usage: tokenUsageSchema.optional(),
   contextTokens: z.number().optional(),
@@ -1379,20 +1715,8 @@ export const subagentCompletedEventSchema = z.object({
 export const subagentFailedEventSchema = z.object({
   type: z.literal('subagent.failed'),
   subagentId: z.string(),
-  parentToolCallId: z.string().optional(),
-  workflowRunId: z.string().optional(),
-  workflowName: z.string().optional(),
   error: z.string(),
 }) satisfies z.ZodType<SubagentFailedEvent>;
-
-export const workflowWarningEventSchema = z.object({
-  type: z.literal('workflow.warning'),
-  workflowRunId: z.string(),
-  parentToolCallId: z.string(),
-  agentCount: z.number(),
-  threshold: z.number(),
-  message: z.string(),
-}) satisfies z.ZodType<WorkflowWarningEvent>;
 
 export const compactionStartedEventSchema = z.object({
   type: z.literal('compaction.started'),
@@ -1414,14 +1738,24 @@ export const compactionCompletedEventSchema = z.object({
   result: compactionResultSchema,
 }) satisfies z.ZodType<CompactionCompletedEvent>;
 
+export const taskStartedEventSchema = z.object({
+  type: z.literal('task.started'),
+  info: taskInfoSchema,
+}) satisfies z.ZodType<TaskStartedEvent>;
+
+export const taskTerminatedEventSchema = z.object({
+  type: z.literal('task.terminated'),
+  info: taskInfoSchema,
+}) satisfies z.ZodType<TaskTerminatedEvent>;
+
 export const backgroundTaskStartedEventSchema = z.object({
   type: z.literal('background.task.started'),
-  info: backgroundTaskInfoSchema,
+  info: taskInfoSchema,
 }) satisfies z.ZodType<BackgroundTaskStartedEvent>;
 
 export const backgroundTaskTerminatedEventSchema = z.object({
   type: z.literal('background.task.terminated'),
-  info: backgroundTaskInfoSchema,
+  info: taskInfoSchema,
 }) satisfies z.ZodType<BackgroundTaskTerminatedEvent>;
 
 export const cronFiredEventSchema = z.object({
@@ -1434,7 +1768,7 @@ export const promptSubmittedEventSchema = z.object({
   type: z.literal('prompt.submitted'),
   promptId: z.string(),
   userMessageId: z.string(),
-  status: z.enum(['running', 'queued']),
+  status: z.enum(['running', 'queued', 'blocked']),
   content: z.array(messageContentSchema),
   createdAt: isoDateTimeSchema,
 }) satisfies z.ZodType<PromptSubmittedEvent>;
@@ -1443,7 +1777,7 @@ export const promptCompletedEventSchema = z.object({
   type: z.literal('prompt.completed'),
   promptId: z.string(),
   finishedAt: isoDateTimeSchema,
-  reason: z.enum(['completed', 'failed']),
+  reason: z.enum(['completed', 'failed', 'blocked']).optional(),
 }) satisfies z.ZodType<PromptCompletedEvent>;
 
 export const promptAbortedEventSchema = z.object({
@@ -1494,17 +1828,12 @@ export const agentEventSchema = z.discriminatedUnion('type', [
   workspaceCreatedEventSchema,
   workspaceUpdatedEventSchema,
   workspaceDeletedEventSchema,
+  sessionWorkChangedEventSchema,
   sessionStatusChangedEventSchema,
-  questionRequestedEventSchema,
-  questionAnsweredEventSchema,
-  questionDismissedEventSchema,
-  questionExpiredEventSchema,
-  approvalRequestedEventSchema,
-  approvalResolvedEventSchema,
-  approvalExpiredEventSchema,
+  modelCatalogChangedEventSchema,
   goalUpdatedEventSchema,
   skillActivatedEventSchema,
-  advisorStatusEventSchema,
+  pluginCommandActivatedEventSchema,
   turnStartedEventSchema,
   turnEndedEventSchema,
   turnStepStartedEventSchema,
@@ -1513,11 +1842,13 @@ export const agentEventSchema = z.discriminatedUnion('type', [
   turnStepInterruptedEventSchema,
   assistantDeltaEventSchema,
   hookResultEventSchema,
-  hookStatusEventSchema,
   thinkingDeltaEventSchema,
   toolCallDeltaEventSchema,
   toolCallStartedEventSchema,
   toolProgressEventSchema,
+  shellOutputEventSchema,
+  shellStartedEventSchema,
+  shellCompletedEventSchema,
   toolResultEventSchema,
   toolListUpdatedEventSchema,
   mcpServerStatusEventSchema,
@@ -1526,11 +1857,12 @@ export const agentEventSchema = z.discriminatedUnion('type', [
   subagentSuspendedEventSchema,
   subagentCompletedEventSchema,
   subagentFailedEventSchema,
-  workflowWarningEventSchema,
   compactionStartedEventSchema,
   compactionBlockedEventSchema,
   compactionCancelledEventSchema,
   compactionCompletedEventSchema,
+  taskStartedEventSchema,
+  taskTerminatedEventSchema,
   backgroundTaskStartedEventSchema,
   backgroundTaskTerminatedEventSchema,
   cronFiredEventSchema,
@@ -1540,24 +1872,11 @@ export const agentEventSchema = z.discriminatedUnion('type', [
   promptSteeredEventSchema,
 ]) satisfies z.ZodType<AgentEvent>;
 
-const eventEnvelopeSchema = z
-  .object({
+export const eventSchema = agentEventSchema.and(
+  z.object({
     agentId: z.string(),
     sessionId: z.string(),
-  })
-  .passthrough();
-
-export const eventSchema = (
-  eventEnvelopeSchema
-    .transform(({ agentId, sessionId, ...event }) => ({ event, agentId, sessionId }))
-    .pipe(
-      z.object({
-        event: agentEventSchema,
-        agentId: z.string(),
-        sessionId: z.string(),
-      }),
-    )
-    .transform(({ event, agentId, sessionId }) => ({ ...event, agentId, sessionId }))
+  }),
 ) satisfies z.ZodType<Event>;
 
 /**
@@ -1571,20 +1890,35 @@ export const eventSchema = (
  * other REST surfaces instead of delta replay.
  *
  * Everything not listed here is durable: journaled, seq-bearing, replayable.
+ *
+ * @deprecated Use the server-side `isVolatileSignal`
+ * (`packages/kap-server/src/transport/ws/v1/sessionEventBroadcaster.ts`) instead,
+ * which owns volatile-vs-durable classification for the `wire` emission path.
+ * The legacy `IAgentRecordService` (`record.on`) transport path still consumes
+ * this until Phase 4 removes it; do not add new consumers.
  */
 export const VOLATILE_EVENT_TYPES = [
   'assistant.delta',
   'thinking.delta',
   'tool.call.delta',
   'tool.progress',
+  'shell.output',
+  'shell.started',
+  'shell.completed',
   'agent.status.updated',
-  'hook.status',
 ] as const satisfies readonly AgentEvent['type'][];
 
 export type VolatileEventType = (typeof VOLATILE_EVENT_TYPES)[number];
 
 const volatileEventTypeSet: ReadonlySet<string> = new Set(VOLATILE_EVENT_TYPES);
 
+/**
+ * @deprecated Use the server-side `isVolatileSignal`
+ * (`packages/kap-server/src/transport/ws/v1/sessionEventBroadcaster.ts`) instead,
+ * which owns volatile-vs-durable classification for the `wire` emission path.
+ * Retained only for the legacy `IAgentRecordService` (`record.on`) transport
+ * path until Phase 4 removes it; do not add new consumers.
+ */
 export function isVolatileEventType(type: string): type is VolatileEventType {
   return volatileEventTypeSet.has(type);
 }

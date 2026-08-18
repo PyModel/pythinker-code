@@ -13,8 +13,6 @@ describe('Event public types', () => {
     expectTypeOf<EventByType<'hook.result'>['hookEvent']>().toEqualTypeOf<string>();
     expectTypeOf<EventByType<'hook.result'>['content']>().toEqualTypeOf<string>();
     expectTypeOf<EventByType<'hook.result'>['blocked']>().toEqualTypeOf<boolean | undefined>();
-    expectTypeOf<EventByType<'hook.status'>['statusId']>().toEqualTypeOf<string>();
-    expectTypeOf<EventByType<'hook.status'>['active']>().toEqualTypeOf<boolean>();
   });
 
   it('narrows tool calls by type', () => {
@@ -30,23 +28,23 @@ describe('Event public types', () => {
     expectTypeOf<EventByType<'turn.step.completed'>['llmStreamDurationMs']>().toEqualTypeOf<
       number | undefined
     >();
+    expectTypeOf<EventByType<'turn.step.completed'>['llmRequestBuildMs']>().toEqualTypeOf<
+      number | undefined
+    >();
+    expectTypeOf<EventByType<'turn.step.completed'>['llmServerFirstTokenMs']>().toEqualTypeOf<
+      number | undefined
+    >();
+    expectTypeOf<EventByType<'turn.step.completed'>['llmServerDecodeMs']>().toEqualTypeOf<
+      number | undefined
+    >();
+    expectTypeOf<EventByType<'turn.step.completed'>['llmClientConsumeMs']>().toEqualTypeOf<
+      number | undefined
+    >();
   });
 
   it('narrows subagent lifecycle events by type', () => {
     expectTypeOf<EventByType<'subagent.spawned'>['subagentId']>().toEqualTypeOf<string>();
     expectTypeOf<EventByType<'subagent.spawned'>['runInBackground']>().toEqualTypeOf<boolean>();
-    expectTypeOf<EventByType<'subagent.started'>['parentToolCallId']>().toEqualTypeOf<
-      string | undefined
-    >();
-    expectTypeOf<EventByType<'subagent.suspended'>['parentToolCallId']>().toEqualTypeOf<
-      string | undefined
-    >();
-    expectTypeOf<EventByType<'subagent.completed'>['parentToolCallId']>().toEqualTypeOf<
-      string | undefined
-    >();
-    expectTypeOf<EventByType<'subagent.failed'>['parentToolCallId']>().toEqualTypeOf<
-      string | undefined
-    >();
     expectTypeOf<EventByType<'subagent.suspended'>['reason']>().toEqualTypeOf<string>();
   });
 
@@ -72,19 +70,15 @@ describe('Event public types', () => {
         case 'session.meta.updated':
         case 'event.session.created':
         case 'event.session.status_changed':
+        case 'event.session.work_changed':
         case 'event.workspace.created':
         case 'event.workspace.updated':
         case 'event.workspace.deleted':
         case 'event.config.changed':
-        case 'event.question.requested':
-        case 'event.question.answered':
-        case 'event.question.dismissed':
-        case 'event.question.expired':
-        case 'event.approval.requested':
-        case 'event.approval.resolved':
-        case 'event.approval.expired':
+        case 'event.model_catalog.changed':
         case 'goal.updated':
         case 'skill.activated':
+        case 'plugin_command.activated':
         case 'error':
         case 'warning':
         case 'turn.started':
@@ -93,14 +87,15 @@ describe('Event public types', () => {
         case 'turn.step.completed':
         case 'turn.step.retrying':
         case 'turn.step.interrupted':
-        case 'advisor.status':
         case 'assistant.delta':
         case 'hook.result':
-        case 'hook.status':
         case 'thinking.delta':
         case 'tool.call.delta':
         case 'tool.call.started':
         case 'tool.progress':
+        case 'shell.output':
+        case 'shell.started':
+        case 'shell.completed':
         case 'tool.result':
         case 'tool.list.updated':
         case 'mcp.server.status':
@@ -109,11 +104,12 @@ describe('Event public types', () => {
         case 'subagent.suspended':
         case 'subagent.completed':
         case 'subagent.failed':
-        case 'workflow.warning':
         case 'compaction.started':
         case 'compaction.blocked':
         case 'compaction.cancelled':
         case 'compaction.completed':
+        case 'task.started':
+        case 'task.terminated':
         case 'background.task.started':
         case 'background.task.terminated':
         case 'cron.fired':

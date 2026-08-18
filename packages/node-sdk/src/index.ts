@@ -1,8 +1,13 @@
 export { PythinkerHarness } from '#/pythinker-harness';
 export type { PythinkerHarnessRuntimeOptions } from '#/pythinker-harness';
-export { Session, type SessionAdvisor } from '#/session';
+export { Session } from '#/session';
+export { PythinkerAuthFacade } from '#/auth';
 export { createPythinkerHarness, SDKRpcClient, type SDKRpcClientOptions } from '#/sdk-rpc-client';
-export { runPythinkerMcpServer, type PythinkerMcpServerOptions } from '#/mcp-server';
+export {
+  createPythinkerHarnessV2,
+  SDKRpcClientV2,
+  type SDKRpcClientV2Options,
+} from '#/sdk-rpc-client-v2';
 export {
   createPythinkerConfigRpc,
   PythinkerConfigRpcClient,
@@ -12,76 +17,32 @@ export {
   type ResolvePythinkerConfigPathInput,
   type ValidatePythinkerConfigTomlInput,
 } from '#/config-rpc';
-export {
-  SDKRpcClientBase,
-  type SetSessionAdvisorEnabledRpcInput,
-  type SetSessionDynamicWorkflowModeRpcInput,
-  type SetSessionFastModeRpcInput,
-} from '#/rpc';
+export { SDKRpcClientBase } from '#/rpc';
+export { PythinkerForCodingProvider } from '#/pythinker-code-model-provider';
+export type { PythinkerForCodingProviderOptions } from '#/pythinker-code-model-provider';
+export { removeProviderFromConfig } from '#/v2/config-mapper';
 
 export {
   applyCatalogProvider,
   catalogBaseUrl,
-  catalogConnectionWire,
   catalogModelToAlias,
   catalogProviderModels,
   CatalogFetchError,
-  CatalogProviderError,
   DEFAULT_CATALOG_URL,
   fetchCatalog,
-  importCatalogProvider,
   inferWireType,
   loadBuiltInCatalog,
+  resolveCatalogImport,
 } from '#/catalog';
 export type {
   ApplyCatalogProviderOptions,
   Catalog,
+  CatalogImportInvalidReason,
+  CatalogImportResolution,
   CatalogModel,
   CatalogProviderEntry,
-  CatalogProviderStore,
-  ImportCatalogProviderOptions,
-  ImportCatalogProviderResult,
+  FetchCatalogOptions,
 } from '#/catalog';
-
-export {
-  renderSavedWorkflowSkill,
-  resolveWorkflowSizeGuideline,
-  savedWorkflowSkillDir,
-  savedWorkflowSkillName,
-  writeSavedWorkflowSkill,
-} from '@pymodel/agent-core';
-export type { SavedWorkflow, SavedWorkflowScope, WorkflowSizeGuideline } from '@pymodel/agent-core';
-export { buildSkillSlashCommands, isUserActivatableSkill } from '#/skill-commands';
-export type { SkillSlashCommand, SkillSlashCommands } from '#/skill-commands';
-
-// Multi-provider login flows behind the LoginUi port, shared by every surface
-// (CLI, TUI, VS Code extension).
-export { formatErrorMessage, formatErrorPayload } from '#/error-format';
-export {
-  buildPlatformOptions,
-  resolvePlatformOption,
-  type PlatformOption,
-} from '#/login/platform-options';
-export {
-  CATALOG_PLATFORM_VALUE_PREFIX,
-  catalogProviderIdFromPlatformValue,
-} from '#/login/platform-values';
-export { connectCatalogProvider, runLogin } from '#/login/flows';
-export { managedModelToAlias } from '#/login/model-alias';
-export {
-  CANONICAL_EFFORT_ORDER,
-  coerceEffortForModel,
-  DEFAULT_SUPPORTED_EFFORTS,
-  effortLevelsForModel,
-  thinkingAvailability,
-  type ThinkingAvailability,
-} from '#/thinking-levels';
-export type {
-  ApiKeyPromptOptions,
-  LoginProgressSpinnerHandle,
-  LoginUi,
-  PlatformSelection,
-} from '#/login/types';
 
 export {
   ErrorCodes,
@@ -99,8 +60,8 @@ export {
 // Diagnostic logging — public surface only.
 // RootLogger / getRootLogger / LoggingConfig stay inside agent-core.
 export {
-  enableDiagnosticDebugLogging,
   flushDiagnosticLogs,
+  flushDiagnosticLogsSync,
   log,
   redact,
   resolveGlobalLogPath,
@@ -111,13 +72,45 @@ export type { LogContext, LogLevel, LogPayload, Logger } from '@pymodel/agent-co
 // Host-side config helpers — safe config reader + config path resolution, used
 // by hosts (e.g. the CLI's server telemetry bootstrap) that need to inspect
 // config without spinning up a full PythinkerCore.
-export { loadRuntimeConfigSafe, resolveConfigPath } from '@pymodel/agent-core';
+export { effectiveModelAlias, loadRuntimeConfigSafe, resolveConfigPath } from '@pymodel/agent-core';
+export { limitAgentReplayByTurns } from '@pymodel/agent-core';
+export { parseAgentFileText, resolveAgentPath } from '@pymodel/agent-core';
+// The synthesized `[models]` alias a `[secondary_model]` recipe with patch
+// fields materializes at runtime — hosts filter it out of model pickers.
+export { SECONDARY_DERIVED_MODEL_ALIAS } from '@pymodel/agent-core';
 
 // Process-wide HTTP proxy bootstrap — installed once at CLI startup so all
 // outbound fetch honors HTTP_PROXY / HTTPS_PROXY / NO_PROXY.
 export { installGlobalProxyDispatcher } from '@pymodel/agent-core';
-export { findExistingRg, type RgResolution } from '@pymodel/agent-core';
-export { limitAgentReplayByTurns } from '@pymodel/agent-core';
+
+// Image compression — ingestion sites (e.g. the CLI's clipboard paste, the ACP
+// adapter) shrink oversized images while constructing the content part, before
+// it enters a prompt. Best effort: returns the original on any failure.
+// Compression is never silent: buildImageCompressionCaption renders the note
+// placed next to a compressed image, and persistOriginalImage keeps the
+// pre-compression bytes readable (ReadMediaFile + region) for detail.
+export {
+  buildImageCompressionCaption,
+  buildUnsupportedImageNotice,
+  compressImageForModel,
+  compressBase64ForModel,
+  gateImageFormatParts,
+  isModelAcceptedImageMime,
+  normalizeImageMime,
+  parseImageDataUrl,
+  persistOriginalImage,
+  sessionMediaOriginalsDir,
+  IMAGE_BYTE_BUDGET,
+  MAX_IMAGE_EDGE_PX,
+} from '@pymodel/agent-core';
+export { ImageLimits } from '@pymodel/agent-core';
+export type {
+  CompressImageOptions,
+  CompressImageResult,
+  CompressBase64Result,
+  ImageCompressionCaptionInput,
+  ImageCompressionTelemetry,
+} from '@pymodel/agent-core';
 
 // Experimental feature flags — types only. Resolved values come from
 // `PythinkerHarness.getExperimentalFeatures()` over RPC, not from a re-exported runtime value.
@@ -131,6 +124,17 @@ export type {
   FlagSurface,
 } from '@pymodel/agent-core';
 
+export type {
+  PythinkerAuthCompleteFeedbackUploadInput,
+  PythinkerAuthCompleteFeedbackUploadPart,
+  PythinkerAuthCreateFeedbackUploadUrlInput,
+  PythinkerAuthCreateFeedbackUploadUrlOk,
+  PythinkerAuthCreateFeedbackUploadUrlResult,
+  PythinkerAuthFeedbackUploadPart,
+  PythinkerAuthLoginResult,
+  PythinkerAuthLogoutResult,
+  PythinkerAuthSubmitFeedbackInput,
+} from '#/auth';
 
 export * from '#/events';
 export type * from '#/types';

@@ -5,9 +5,14 @@
 import { ErrorCodes, PythinkerError, isPythinkerError } from '#/errors';
 
 export function createMaxStepsExceededError(maxSteps: number, message?: string): PythinkerError {
-  return new PythinkerError(ErrorCodes.LOOP_MAX_STEPS_EXCEEDED, message ?? `Turn exceeded maxSteps=${maxSteps}`, {
-    details: { maxSteps },
-  });
+  return new PythinkerError(
+    ErrorCodes.LOOP_MAX_STEPS_EXCEEDED,
+    message ??
+      `Turn exceeded maxSteps=${maxSteps}. If max_steps_per_turn is too small, raise it in config.toml (loop_control.max_steps_per_turn), or run "/update-config" to update it, then "/reload".`,
+    {
+      details: { maxSteps },
+    },
+  );
 }
 
 export function isMaxStepsExceededError(error: unknown): boolean {

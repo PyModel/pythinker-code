@@ -1,6 +1,11 @@
 import { renderPrompt } from '../utils/render-prompt';
-import type { HookDef } from '../session/hooks';
+import {
+  ADDITIONAL_DIRS_SECTION_PROSE,
+  SKILLS_SECTION_PROSE,
+  WINDOWS_NOTES,
+} from './prompt-sections';
 import type {
+  AgentModelPreference,
   RawAgentProfile,
   RawSubagentProfile,
   ResolvedAgentProfile,
@@ -14,19 +19,9 @@ interface MergedAgentProfile {
   readonly systemPromptTemplate: string;
   readonly promptVars: Record<string, string>;
   readonly tools: string[];
-  readonly skills: string[];
-  readonly disallowedTools: string[];
-  readonly model?: string | undefined;
-  readonly effort?: string | undefined;
-  readonly permissionMode?: 'manual' | 'auto' | 'yolo' | undefined;
-  readonly initialPrompt?: string | undefined;
-  readonly background?: boolean | undefined;
-  readonly maxTurns?: number | undefined;
-  readonly isolation?: 'worktree' | undefined;
-  readonly memory?: 'user' | 'project' | 'local' | undefined;
-  readonly hooks: HookDef[];
   readonly whenToUse?: string | undefined;
   readonly subagents?: Record<string, RawSubagentProfile> | undefined;
+  readonly modelPreference?: AgentModelPreference;
 }
 
 /**
@@ -110,22 +105,9 @@ function resolveMergedProfile(
       ...profile.promptVars,
     },
     tools: profile.tools !== undefined ? [...profile.tools] : [...(parent?.tools ?? [])],
-    skills: profile.skills !== undefined ? [...profile.skills] : [...(parent?.skills ?? [])],
-    disallowedTools:
-      profile.disallowedTools !== undefined
-        ? [...profile.disallowedTools]
-        : [...(parent?.disallowedTools ?? [])],
-    model: profile.model ?? parent?.model,
-    effort: profile.effort ?? parent?.effort,
-    permissionMode: profile.permissionMode ?? parent?.permissionMode,
-    initialPrompt: profile.initialPrompt ?? parent?.initialPrompt,
-    background: profile.background ?? parent?.background,
-    maxTurns: profile.maxTurns ?? parent?.maxTurns,
-    isolation: profile.isolation ?? parent?.isolation,
-    memory: profile.memory ?? parent?.memory,
-    hooks: profile.hooks !== undefined ? [...profile.hooks] : [...(parent?.hooks ?? [])],
     whenToUse: profile.whenToUse ?? parent?.whenToUse,
     subagents: cloneSubagents(profile.subagents),
+    modelPreference: profile.modelPreference ?? parent?.modelPreference,
   };
 
   cache.set(profile.name, merged);
@@ -137,18 +119,9 @@ function toResolvedProfile(merged: MergedAgentProfile): ResolvedAgentProfile {
     name: merged.name,
     description: merged.description,
     systemPrompt: createSystemPromptRenderer(merged),
-    tools: merged.tools.filter((tool) => !merged.disallowedTools.includes(tool)),
-    skills: merged.skills,
-    model: merged.model,
-    effort: merged.effort,
-    permissionMode: merged.permissionMode,
-    initialPrompt: merged.initialPrompt,
-    background: merged.background,
-    maxTurns: merged.maxTurns,
-    isolation: merged.isolation,
-    memory: merged.memory,
-    hooks: merged.hooks,
+    tools: [...merged.tools],
     whenToUse: merged.whenToUse,
+    modelPreference: merged.modelPreference,
   };
 }
 
@@ -159,7 +132,7 @@ function toResolvedProfile(merged: MergedAgentProfile): ResolvedAgentProfile {
  */
 function createSystemPromptRenderer(merged: MergedAgentProfile): SystemPromptRenderer {
   return (context: SystemPromptContext): string => {
-    const vars = buildTemplateVars(context, merged.promptVars);
+    const vars = buildTemplateVars(context, merged.promptVars, merged.tools);
     try {
       return renderPrompt(merged.systemPromptTemplate, vars);
     } catch (error) {
@@ -176,6 +149,7 @@ function createSystemPromptRenderer(merged: MergedAgentProfile): SystemPromptRen
 function buildTemplateVars(
   context: SystemPromptContext,
   promptVars: Record<string, string>,
+  tools: readonly string[],
 ): Record<string, string> {
   const skills =
     typeof context.skills === 'string'
@@ -193,10 +167,15 @@ function buildTemplateVars(
     PYTHINKER_NOW: now,
     PYTHINKER_WORK_DIR: context.cwd,
     PYTHINKER_WORK_DIR_LS: context.cwdListing ?? '',
-    PYTHINKER_GIT_CONTEXT: context.gitContext ?? '',
     PYTHINKER_AGENTS_MD: context.agentsMd ?? '',
-    PYTHINKER_SKILLS: skills,
+    PYTHINKER_SKILLS: tools.includes('Skill') ? skills : '',
+    PYTHINKER_PLUGIN_SECTIONS: context.pluginSections ?? '',
     PYTHINKER_ADDITIONAL_DIRS_INFO: context.additionalDirsInfo ?? '',
+    // Shared prose sections (single source: profile/prompt-sections.ts) so the
+    // builtin template and the agent-file renderer can never drift apart.
+    PYTHINKER_WINDOWS_NOTES: WINDOWS_NOTES,
+    PYTHINKER_ADDITIONAL_DIRS_SECTION_PROSE: ADDITIONAL_DIRS_SECTION_PROSE,
+    PYTHINKER_SKILLS_SECTION_PROSE: SKILLS_SECTION_PROSE,
     ROLE_ADDITIONAL:
       context.roleAdditional ?? promptVars['ROLE_ADDITIONAL'] ?? promptVars['roleAdditional'] ?? '',
   };

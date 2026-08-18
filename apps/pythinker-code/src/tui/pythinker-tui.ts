@@ -1,10 +1,8 @@
-import {
-  deleteAllKittyImages,
-  type Component,
-  type Focusable,
-  getCapabilities,
-  Spacer,
-} from '@earendil-works/pi-tui';
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+import type { DeviceAuthorization } from '@pymodel/pythinker-code-oauth';
+import { effectiveModelAlias, log } from '@pymodel/pythinker-code-sdk';
 import type {
   ApprovalRequest,
   ApprovalResponse,
@@ -12,51 +10,51 @@ import type {
   CreateSessionOptions,
   PythinkerHarness,
   PermissionMode,
+  PluginCommandDef,
   PromptPart,
   Session,
+  SkillSummary,
+  WorkspaceTrustInfo,
 } from '@pymodel/pythinker-code-sdk';
+import type { MigrationPlan } from '@pymodel/migration-legacy';
+import {
+  deleteAllKittyImages,
+  type Component,
+  type Focusable,
+  getCapabilities,
+  Spacer,
+} from '@pymodel/pi-tui';
 import { resolve } from 'pathe';
 
 import type { CLIOptions } from '#/cli/options';
-import { readUpdateCache } from '#/cli/update/cache';
-import { readUpdateInstallState } from '#/cli/update/install-state';
-import { detectInstallSource } from '#/cli/update/source';
-import type { InstallSource } from '#/cli/update/types';
+import { MigrationScreenComponent, type MigrationScreenResult } from '#/migration/index';
 import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
-import {
-  appendInputHistory,
-  loadInputHistory,
-  selectRecentInputHistory,
-} from '#/utils/history/input-history';
+import { appendInputHistory, loadInputHistory } from '#/utils/history/input-history';
 import { openUrl } from '#/utils/open-url';
 import { getInputHistoryFile } from '#/utils/paths';
 import { detectFdPath, ensureFdPath } from '#/utils/process/fd-detect';
 import { quoteShellArg } from '#/utils/shell-quote';
+import { restoreTerminalModes } from '#/utils/terminal-restore';
 
 import { BannerProvider } from './banner/banner-provider';
 import { readBannerDisplayState, writeBannerDisplayState } from './banner/state';
 import {
   BUILTIN_SLASH_COMMANDS,
+  buildPluginSlashCommands,
   buildSkillSlashCommands,
+  isExperimentalFlagEnabled,
+  setExperimentalFeatures,
   sortSlashCommands,
   type PythinkerSlashCommand,
   type SkillListSession,
-  type SkillSlashCommands,
 } from './commands';
-import {
-  isExperimentalFlagEnabled,
-  onExperimentalFeaturesChanged,
-  setExperimentalFeatures,
-} from './commands/experimental-flags';
-import {
-  isDynamicWorkflowDisabled,
-  setDynamicWorkflowDisabled,
-  setWorkflowSizeGuideline,
-} from './commands/workflow-availability';
 import * as slashCommands from './commands/dispatch';
 import { BannerComponent } from './components/chrome/banner';
-import { ActivityLoader } from './components/chrome/activity-loader';
+import { DeviceCodeBoxComponent } from './components/chrome/device-code-box';
+import { GutterContainer } from './components/chrome/gutter-container';
+import { MoonLoader, type SpinnerStyle } from './components/chrome/moon-loader';
 import { WelcomeComponent } from './components/chrome/welcome';
+import { pickRandomWorkingTip } from './components/chrome/working-tips';
 import {
   ApprovalPanelComponent,
   type ApprovalPanelResponse,
@@ -66,18 +64,15 @@ import {
   type ApprovalPreviewBlock,
 } from './components/dialogs/approval-preview';
 import { CompactionComponent } from './components/dialogs/compaction';
-import { ChoicePickerComponent } from './components/dialogs/choice-picker';
-import {
-  HelpPanelComponent,
-  type KeyboardShortcut,
-} from './components/dialogs/help-panel';
+import { HelpPanelComponent } from './components/dialogs/help-panel';
+import { defaultThinkingEffortFor } from './components/dialogs/model-selector';
 import { QuestionDialogComponent } from './components/dialogs/question-dialog';
 import { SessionPickerComponent, type SessionRow } from './components/dialogs/session-picker';
+import { TrustPromptComponent, type TrustPromptChoice } from './components/dialogs/trust-prompt';
 import {
   FileMentionProvider,
   type SlashAutocompleteCommand,
 } from './components/editor/file-mention-provider';
-import { findSlashAutocompleteContext } from './components/editor/slash-autocomplete-context';
 import { AssistantMessageComponent } from './components/messages/assistant-message';
 import { BackgroundAgentStatusComponent } from './components/messages/background-agent-status';
 import { CronMessageComponent } from './components/messages/cron-message';
@@ -86,14 +81,20 @@ import {
   GoalCompletionMessageComponent,
   GoalSetMessageComponent,
 } from './components/messages/goal-panel';
+import { PluginCommandComponent } from './components/messages/plugin-command';
+import { ShellRunComponent } from './components/messages/shell-run';
 import { SkillActivationComponent } from './components/messages/skill-activation';
 import {
   NoticeMessageComponent,
   StatusMessageComponent,
 } from './components/messages/status-message';
+import { StepSummaryComponent } from './components/messages/step-summary';
 import { ThinkingComponent } from './components/messages/thinking';
 import { ToolCallComponent } from './components/messages/tool-call';
-import { UserMessageComponent } from './components/messages/user-message';
+import {
+  ReplayTurnBoundaryComponent,
+  UserMessageComponent,
+} from './components/messages/user-message';
 import { ActivityPaneComponent, type ActivityPaneMode } from './components/panes/activity-pane';
 import { QueuePaneComponent } from './components/panes/queue-pane';
 import type { TuiConfig } from './config';
@@ -102,28 +103,19 @@ import {
   MAIN_AGENT_ID,
   NO_ACTIVE_SESSION_MESSAGE,
   PRODUCT_NAME,
+  SESSIONLESS_STARTUP_NOTICE,
 } from './constant/pythinker-tui';
+import { CHROME_GUTTER } from './constant/rendering';
 import { MAX_TERMINAL_TITLE_LENGTH } from './constant/terminal';
 import { AuthFlowController } from './controllers/auth-flow';
 import { BtwPanelController } from './controllers/btw-panel';
+import { ClipboardImageHintController } from './controllers/clipboard-image-hint';
 import { EditorKeyboardController } from './controllers/editor-keyboard';
-import {
-  footerStatusFromAppState,
-  type FooterActionId,
-} from '#/tui/components/chrome/footer';
-import { MouseController } from './controllers/mouse-controller';
 import { SessionEventHandler } from './controllers/session-event-handler';
 import { SessionReplayRenderer } from './controllers/session-replay';
 import { StreamingUIController } from './controllers/streaming-ui';
 import { TasksBrowserController } from './controllers/tasks-browser';
-import { installRainbowColors } from './easter-eggs/rainbow-colors';
-import {
-  defaultKeybindings,
-  editorShortcutHelp,
-  isKeybindingAware,
-  loadKeybindings,
-  watchKeybindings,
-} from './keybindings';
+import { installRainbowDance } from './easter-eggs/dance';
 import { adaptPanelResponse } from './reverse-rpc/approval/adapter';
 import { ApprovalController } from './reverse-rpc/approval/controller';
 import { createApprovalRequestHandler } from './reverse-rpc/approval/handler';
@@ -131,19 +123,6 @@ import { registerReverseRPCHandlers } from './reverse-rpc/index';
 import { QuestionController } from './reverse-rpc/question/controller';
 import { createQuestionAskHandler } from './reverse-rpc/question/handler';
 import type { ApprovalPanelData, QuestionPanelData } from './reverse-rpc/types';
-import type { TuiPresentation } from './runtime/contracts';
-import {
-  foldFooterEvents,
-  selectFooterViewModel,
-  selectStatusBarExtras,
-  selectStatusItemParts,
-  type FooterActivity,
-  type FooterEvent,
-  type FooterGoal,
-  type FooterUpdate,
-} from './runtime/footer/footer-model';
-import { footerUpdateFromState } from './runtime/footer/update-status';
-import { LegacyPiPresentation } from './runtime/legacy-pi-presentation';
 import { currentTheme, getColorPalette, getBuiltInPalette, isBuiltInTheme } from './theme';
 import type { ColorToken, ResolvedTheme, ThemeName } from './theme';
 import { createTUIState, type TUIState } from './tui-state';
@@ -154,24 +133,45 @@ import {
   type LivePaneState,
   type LoginProgressSpinnerHandle,
   type QueuedMessage,
+  type SteerInputItem,
   type TranscriptEntry,
+  type TUIStartupOptions,
+  type TUIStartupState,
 } from './types';
-import { isExpandable } from './utils/component-capabilities';
+import { hasDispose, isExpandable } from './utils/component-capabilities';
 import { isDeadTerminalError } from './utils/dead-terminal';
 import { formatErrorMessage } from './utils/event-payload';
+import { pickForegroundTasks } from './utils/foreground-task';
 import { ImageAttachmentStore, type ImageAttachment } from './utils/image-attachment-store';
-import { extractMediaAttachments } from './utils/image-placeholder';
+import { extractMediaAttachments, rewriteMediaPlaceholders } from './utils/image-placeholder';
+import { installInputLatencyProbe } from './utils/input-latency';
+import { startupTrace } from '#/utils/startup-trace';
 import { REPLAY_TURN_LIMIT } from './utils/message-replay';
 import { hasPatchChanges } from './utils/object-patch';
 import { sessionRowsForPicker } from './utils/session-picker-rows';
+import { formatBashOutputForDisplay } from './utils/shell-output';
+import { thinkingEffortFromConfig } from './utils/thinking-config';
 import { combineStartupNotice, isOAuthLoginRequiredError } from './utils/startup';
 import { installTerminalFocusTracking } from './utils/terminal-focus';
 import { notifyTerminalOnce } from './utils/terminal-notification';
-import { waitForTerminalSize } from './utils/terminal-size';
 import { installTerminalThemeTracking } from './utils/terminal-theme';
 import { detectTmuxKeyboardWarning } from './utils/tmux-keyboard';
-import { markTranscriptComponent } from './utils/transcript-component-metadata';
+import {
+  getTranscriptComponentEntry,
+  markTranscriptComponent,
+} from './utils/transcript-component-metadata';
 import { nextTranscriptId } from './utils/transcript-id';
+import {
+  TRANSCRIPT_EXPAND_TURNS,
+  TRANSCRIPT_HYSTERESIS,
+  TRANSCRIPT_KEEP_RECENT_ASSISTANT,
+  TRANSCRIPT_KEEP_RECENT_ASSISTANT_COMPLETED,
+  TRANSCRIPT_KEEP_RECENT_STEPS,
+  TRANSCRIPT_MAX_TURNS,
+  TRANSCRIPT_WINDOW_ENABLED,
+  groupTurns,
+  turnsToTrim,
+} from './utils/transcript-window';
 
 export type { TUIState } from './tui-state';
 export { createTUIState } from './tui-state';
@@ -184,20 +184,36 @@ export type {
 
 export interface PythinkerTUIStartupInput {
   readonly cliOptions: CLIOptions;
+  /** Profile name resolved from cliOptions --agent/--agent-file (see resolveAgentProfileSelection). */
+  readonly agentProfile?: string;
+  readonly additionalDirs?: readonly string[];
   readonly tuiConfig: TuiConfig;
   readonly version: string;
   readonly workDir: string;
   readonly startupNotice?: string;
+  readonly migrationPlan?: MigrationPlan | null;
+  /** When true, run only the migration screen, then exit (the `pythinker migrate` command). */
+  readonly migrateOnly?: boolean;
+  /** agent-core-v2 engine (PYTHINKER_CODE_EXPERIMENTAL_FLAG); enables the startup workspace-trust prompt. */
+  readonly engineV2?: boolean;
 }
 
 type EffectiveActivityPaneMode = ActivityPaneMode | 'idle' | 'session';
+type LoadingTipKind = 'moon' | 'composing';
 
-/** Poll cadence for the update cache and install state files. */
-const UPDATE_STATUS_POLL_INTERVAL_MS = 2_000;
-
-function footerUpdateEquals(a: FooterUpdate, b: FooterUpdate): boolean {
-  return a.version === b.version && a.state === b.state && a.percent === b.percent;
+function loadingTipKind(mode: EffectiveActivityPaneMode): LoadingTipKind | undefined {
+  if (mode === 'waiting' || mode === 'tool') return 'moon';
+  if (mode === 'composing') return 'composing';
+  return undefined;
 }
+
+function sameStringArrays(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((value, index) => value === b[index]);
+}
+
+type MutableCreateSessionOptions = {
+  -readonly [P in keyof CreateSessionOptions]: CreateSessionOptions[P];
+};
 
 function createInitialAppState(input: PythinkerTUIStartupInput): AppState {
   const startupPermission: PermissionMode = input.cliOptions.auto
@@ -208,13 +224,13 @@ function createInitialAppState(input: PythinkerTUIStartupInput): AppState {
   return {
     model: '',
     workDir: input.workDir,
+    additionalDirs: [...(input.additionalDirs ?? [])],
     sessionId: '',
     permissionMode: startupPermission,
     planMode: input.cliOptions.plan,
+    inputMode: 'prompt',
     dynamicWorkflowMode: false,
-    fastMode: false,
-    fastModeSupported: false,
-    thinkingLevel: 'off',
+    thinkingEffort: 'off',
     contextUsage: 0,
     contextTokens: 0,
     maxContextTokens: 0,
@@ -225,6 +241,7 @@ function createInitialAppState(input: PythinkerTUIStartupInput): AppState {
     theme: input.tuiConfig.theme,
     version: input.version,
     editorCommand: input.tuiConfig.editorCommand,
+    disablePasteBurst: input.tuiConfig.disablePasteBurst,
     notifications: input.tuiConfig.notifications,
     upgrade: input.tuiConfig.upgrade,
     statusLine: input.tuiConfig.statusLine,
@@ -243,21 +260,67 @@ interface SendMessageOptions {
   readonly hasMedia?: boolean;
 }
 
+/**
+ * Flatten steer items into the payload `session.steer` expects: the
+ * historical `'\n\n'`-joined string when nothing carries media, or a
+ * merged part list when any item has extracted media parts (queued image
+ * messages, or the editor draft after placeholder extraction).
+ *
+ * Items are separated by the historical `'\n\n'`, which merges into the
+ * adjacent text part. The one exception is two touching media parts: a
+ * standalone `{type:'text',text:'\n\n'}` between them would be rejected
+ * by `normalizePromptInput` as an empty text part, so the separator is
+ * dropped there (media parts are self-delimiting anyway).
+ */
+function combineSteerInput(items: readonly SteerInputItem[]): string | PromptPart[] {
+  const hasMedia = items.some((item) => item.parts !== undefined && item.parts.length > 0);
+  if (!hasMedia) return items.map((item) => item.text).join('\n\n');
+  const parts: PromptPart[] = [];
+  for (const item of items) {
+    const startsWithMedia =
+      item.parts !== undefined && item.parts.length > 0 && item.parts[0]?.type !== 'text';
+    const lastIsMedia = parts.length > 0 && parts.at(-1)?.type !== 'text';
+    if (parts.length > 0 && !(lastIsMedia && startsWithMedia)) {
+      appendSteerText(parts, '\n\n');
+    }
+    if (item.parts !== undefined && item.parts.length > 0) {
+      for (const part of item.parts) {
+        if (part.type === 'text') appendSteerText(parts, part.text);
+        else parts.push(part);
+      }
+    } else {
+      appendSteerText(parts, item.text);
+    }
+  }
+  return parts;
+}
+
+function appendSteerText(parts: PromptPart[], text: string): void {
+  const last = parts.at(-1);
+  if (last?.type === 'text') {
+    parts[parts.length - 1] = { type: 'text', text: last.text + text };
+    return;
+  }
+  parts.push({ type: 'text', text });
+}
+
+/** How long the one-shot "moved to background" footer hint stays visible. */
+const DETACH_HINT_DISPLAY_MS = 4_000;
+
 export class PythinkerTUI {
   readonly harness: PythinkerHarness;
   readonly options: PythinkerTUIOptions;
   session: Session | undefined;
   state: TUIState;
-  readonly presentation: TuiPresentation;
+  /** In-flight lazy session creation (v2 engine), shared by concurrent first-use triggers. */
+  private ensureSessionPromise: Promise<Session | undefined> | null = null;
   private readonly approvalController = new ApprovalController();
   private readonly questionController = new QuestionController();
   private readonly reverseRpcDisposers: Array<() => void> = [];
   private skillCommands: readonly PythinkerSlashCommand[] = [];
   readonly skillCommandMap = new Map<string, string>();
-  /** Bumped per refresh so a slow one cannot apply over a newer one. */
-  private skillCommandRefresh = 0;
-  /** The session whose skills the commands on screen were built from. */
-  private skillCommandSession: SkillListSession | undefined;
+  private pluginCommands: readonly PythinkerSlashCommand[] = [];
+  readonly pluginCommandMap = new Map<string, string>();
   private readonly imageStore = new ImageAttachmentStore();
   private fdPath: string | null = detectFdPath();
   private fdDownloadStarted = false;
@@ -267,18 +330,28 @@ export class PythinkerTUI {
   aborted = false;
   private terminalFocusTrackingDispose: (() => void) | undefined;
   private terminalThemeTrackingDispose: (() => void) | undefined;
-  private uninstallRainbowColors: () => void;
+  private clipboardImageHintController: ClipboardImageHintController | undefined;
+  private uninstallRainbowDance: () => void;
   private signalCleanupHandlers: Array<() => void> = [];
   private isShuttingDown = false;
+  private backgroundRefreshPromise: Promise<void> | undefined;
+  private readonly migrationPlan: MigrationPlan | null;
+  private readonly migrateOnly: boolean;
+  /** Whether the harness runs on the agent-core-v2 engine (lazy session creation). */
+  readonly engineV2: boolean;
   private startupNotice: string | undefined;
-  private keyboardShortcuts: readonly KeyboardShortcut[] = [];
-  private keybindings = defaultKeybindings();
-  private hasInstalledKeybindings = false;
-  private mountedEditorReplacement: (Component & Focusable) | undefined;
   private lastActivityMode: string | undefined;
+  private currentLoadingTip: { kind: LoadingTipKind; tip: string | undefined } | undefined =
+    undefined;
   private lastHistoryContent: string | undefined;
-  private footerGoalSnapshotKey: string | null = null;
-  private footerGoalObservedAtMs = Date.now();
+  // Live `!` shell output entries, keyed by commandId so concurrent commands
+  // each update their own card and stale events are dropped. Mutated in place
+  // as `shell.output` events arrive; removed when the command completes.
+  // `taskId` (from `shell.started`) lets ctrl+b detach the exact task.
+  private readonly shellOutputStreams = new Map<
+    string,
+    { entry: TranscriptEntry; component: ShellRunComponent; taskId?: string }
+  >();
   readonly streamingUI: StreamingUIController;
   readonly authFlow: AuthFlowController;
   readonly btwPanelController: BtwPanelController;
@@ -286,7 +359,9 @@ export class PythinkerTUI {
   readonly sessionReplay: SessionReplayRenderer;
   readonly tasksBrowserController: TasksBrowserController;
   readonly editorKeyboard: EditorKeyboardController;
-  readonly mouseController: MouseController;
+
+  /** Timer that auto-clears the one-shot "moved to background" footer hint. */
+  private detachHintClearTimer: ReturnType<typeof setTimeout> | undefined;
 
   // The currently-mounted approval panel, if any. Kept so the full-screen
   // preview viewer can restore focus to the exact same instance (and its
@@ -301,29 +376,24 @@ export class PythinkerTUI {
         panel: ApprovalPanelComponent;
       }
     | undefined;
-  private stopKeybindingsWatcher: (() => void) | undefined;
-  private updateStatusSource: InstallSource | null = null;
-  private updateStatusTimer: ReturnType<typeof setInterval> | undefined;
-  private lastDispatchedUpdate: FooterUpdate = {
-    version: null,
-    state: null,
-    percent: null,
-  };
 
   public onExit?: (exitCode?: number) => Promise<void>;
 
   /** URL opened in the browser just before exit (e.g. by `/web`); printed by onExit. */
   public exitOpenUrl: string | undefined;
 
+  /**
+   * Task that takes over the process after the TUI shuts down, instead of
+   * exiting (`/web` starting a new server: the server keeps this terminal
+   * attached until Ctrl+C). Set via {@link setExitForegroundTask}.
+   */
+  public exitForegroundTask: ((exitCode: number) => Promise<void>) | undefined;
+
   track(event: string, properties?: Parameters<PythinkerHarness['track']>[1]): void {
     this.harness.track(event, properties);
   }
 
-  constructor(
-    harness: PythinkerHarness,
-    startupInput: PythinkerTUIStartupInput,
-    presentation?: TuiPresentation,
-  ) {
+  constructor(harness: PythinkerHarness, startupInput: PythinkerTUIStartupInput) {
     this.harness = harness;
     const tuiOptions: PythinkerTUIOptions = {
       initialAppState: createInitialAppState(startupInput),
@@ -332,33 +402,20 @@ export class PythinkerTUI {
         continueLast: startupInput.cliOptions.continue,
         yolo: startupInput.cliOptions.yolo,
         auto: startupInput.cliOptions.auto,
-        init: startupInput.cliOptions.init,
-        maintenance: startupInput.cliOptions.maintenance,
         plan: startupInput.cliOptions.plan,
         model: startupInput.cliOptions.model,
-        additionalDirs: startupInput.cliOptions.additionalDirs ?? [],
+        agentProfile: startupInput.agentProfile,
+        agentFiles: startupInput.cliOptions.agentFiles,
         startupNotice: startupInput.startupNotice,
       },
-      layout: startupInput.tuiConfig.layout,
-      copyFullResponse: startupInput.tuiConfig.copyFullResponse,
     };
     this.options = tuiOptions;
+    this.migrationPlan = startupInput.migrationPlan ?? null;
+    this.migrateOnly = startupInput.migrateOnly ?? false;
+    this.engineV2 = startupInput.engineV2 ?? false;
     this.startupNotice = startupInput.startupNotice;
     this.state = createTUIState(tuiOptions);
-    const keybindingWarnings = this.reloadKeybindings();
-    if (keybindingWarnings.length > 0) {
-      this.startupNotice = combineStartupNotice(
-        this.startupNotice,
-        `Keybindings: ${keybindingWarnings.join(' ')}`,
-      );
-    }
-    onExperimentalFeaturesChanged(() => {
-      this.state.editor.setVimMode(isExperimentalFlagEnabled('vim_mode'));
-    });
-    this.presentation = presentation ?? new LegacyPiPresentation(this.state);
-    this.state.footer.setRefreshHandler(() => this.refreshFooter());
-    this.syncFooterState();
-    this.uninstallRainbowColors = installRainbowColors(() => {
+    this.uninstallRainbowDance = installRainbowDance(() => {
       this.state.ui.requestRender();
     });
 
@@ -385,9 +442,7 @@ export class PythinkerTUI {
     this.sessionReplay = new SessionReplayRenderer(this);
     this.tasksBrowserController = new TasksBrowserController(this);
     this.editorKeyboard = new EditorKeyboardController(this, this.imageStore);
-    this.editorKeyboard.setKeybindings(this.keybindings);
     this.editorKeyboard.install();
-    this.mouseController = new MouseController(this);
     this.buildLayout();
   }
 
@@ -396,13 +451,10 @@ export class PythinkerTUI {
   // =========================================================================
 
   private getSlashCommands(): readonly PythinkerSlashCommand[] {
-    const builtins = sortSlashCommands(BUILTIN_SLASH_COMMANDS).filter(
-      (command) =>
-        command.hidden !== true &&
-        (command.name !== 'workflow' || !isDynamicWorkflowDisabled()) &&
-        isExperimentalFlagEnabled(command.experimentalFlag),
+    const builtins = sortSlashCommands(BUILTIN_SLASH_COMMANDS).filter((command) =>
+      isExperimentalFlagEnabled(command.experimentalFlag),
     );
-    return [...builtins, ...this.skillCommands];
+    return [...builtins, ...this.skillCommands, ...this.pluginCommands];
   }
 
   private setupAutocomplete(): void {
@@ -422,54 +474,99 @@ export class PythinkerTUI {
       slashCommands,
       this.state.appState.workDir,
       this.fdPath,
+      this.state.appState.additionalDirs,
+      () => this.state.appState.inputMode,
     );
     this.state.editor.setAutocompleteProvider(provider);
+
+    const argumentHints = new Map<string, string>();
+    for (const cmd of slashCommands) {
+      if (cmd.argumentHint === undefined) continue;
+      argumentHints.set(cmd.name, cmd.argumentHint);
+      for (const alias of cmd.aliases ?? []) {
+        argumentHints.set(alias, cmd.argumentHint);
+      }
+    }
+    this.state.editor.setArgumentHints(argumentHints);
   }
 
-  /**
-   * The one way to refresh the slash-command set. Every caller that can change
-   * it — session switch, login/logout, experimental flags, `/reload`, saving a
-   * workflow — goes through here, so autocomplete and `skillCommandMap` are
-   * never rebuilt from a skill list that has moved on.
-   */
+  refreshSlashCommandAutocomplete(): void {
+    this.setupAutocomplete();
+  }
+
   async refreshSkillCommands(session?: SkillListSession): Promise<void> {
-    const refresh = (this.skillCommandRefresh += 1);
     if (session === undefined) {
-      this.skillCommandSession = undefined;
+      // v2 engine: skills live on the workspace handler, not the session, so
+      // they are available before the first (lazy) session is created — the
+      // workspace catalog is the same merged view a session would serve.
+      if (this.engineV2) {
+        try {
+          const skills = await this.harness.listWorkspaceSkills(this.state.appState.workDir);
+          this.applySkillCommands(skills);
+          return;
+        } catch {
+          return;
+        }
+      }
       this.skillCommands = [];
       this.skillCommandMap.clear();
       this.setupAutocomplete();
       return;
     }
 
-    let built: SkillSlashCommands | undefined;
+    let skills;
     try {
-      built = buildSkillSlashCommands(await session.listSkills());
+      skills = await session.listSkills();
     } catch {
-      // What to do about a failure depends on which session the commands on
-      // screen came from, and that is only decided after the await below.
+      return;
     }
+    this.applySkillCommands(skills);
+  }
 
-    // A refresh that started later has already applied. Several callers start
-    // this without awaiting it, so a slow list for the session the user just
-    // left would otherwise land on top of the one they switched to.
-    if (refresh !== this.skillCommandRefresh) return;
+  private applySkillCommands(skills: readonly SkillSummary[]): void {
+    const skillCommands = buildSkillSlashCommands(skills);
+    this.skillCommands = skillCommands.commands;
+    this.skillCommandMap.clear();
+    for (const [commandName, skillName] of skillCommands.commandMap) {
+      this.skillCommandMap.set(commandName, skillName);
+    }
+    this.setupAutocomplete();
+  }
 
-    if (built === undefined && this.skillCommandSession === session) {
-      // A transient failure for the session already on screen: its commands are
-      // still the right ones, so keep them. The builtin command set may still
-      // have changed, so the autocomplete provider is rebuilt either way.
+  async refreshPluginCommands(session?: Session): Promise<void> {
+    if (session === undefined) {
+      // v2 engine: the enabled plugin commands are an app-global live view,
+      // available before the first (lazy) session is created.
+      if (this.engineV2) {
+        try {
+          const defs = await this.harness.listPluginCommands();
+          this.applyPluginCommands(defs);
+          return;
+        } catch {
+          return;
+        }
+      }
+      this.pluginCommands = [];
+      this.pluginCommandMap.clear();
       this.setupAutocomplete();
       return;
     }
 
-    // Either it listed, or it failed for a session whose skills were never on
-    // screen — keeping another session's commands would be worse than none.
-    this.skillCommandSession = built === undefined ? undefined : session;
-    this.skillCommands = built?.commands ?? [];
-    this.skillCommandMap.clear();
-    for (const [commandName, skillName] of built?.commandMap ?? []) {
-      this.skillCommandMap.set(commandName, skillName);
+    let defs;
+    try {
+      defs = await session.listPluginCommands();
+    } catch {
+      return;
+    }
+    this.applyPluginCommands(defs);
+  }
+
+  private applyPluginCommands(defs: readonly PluginCommandDef[]): void {
+    const pluginSlashCommands = buildPluginSlashCommands(defs);
+    this.pluginCommands = pluginSlashCommands.commands;
+    this.pluginCommandMap.clear();
+    for (const [commandName, body] of pluginSlashCommands.commandMap) {
+      this.pluginCommandMap.set(commandName, body);
     }
     this.setupAutocomplete();
   }
@@ -479,24 +576,56 @@ export class PythinkerTUI {
   // =========================================================================
 
   async start(): Promise<void> {
+    startupTrace('tui:start');
     // Signal handlers must be installed before raw mode to avoid EIO loops.
     this.registerSignalHandlers();
     // Outer try rolls back signal listeners on startup failure.
     try {
-      // Start the loop before mounting anything: pi-tui paints on invalidate
-      // even before ui.start(), so mounting first anchors early frames to the
-      // shell cursor and startEventLoop's scroll-to-home would push the live
-      // frame's top rows into scrollback for good.
-      this.startEventLoop();
+      if (this.migrationPlan !== null) {
+        // Migration needs the event loop running first (pi-tui component).
+        this.startEventLoop();
+        try {
+          const migrationResult = await this.runMigrationScreen(this.migrationPlan);
+          if (this.migrateOnly) {
+            const failed = migrationResult.decision === 'now' && migrationResult.migrated === false;
+            this.disposeTerminalTracking();
+            this.state.ui.stop();
+            await this.onExit?.(failed ? 1 : 0);
+            return;
+          }
+          const shouldReplayHistory = await this.initMainTui();
+          this.startBackgroundFdAutocomplete();
+          await this.finishStartup(shouldReplayHistory);
+        } catch (error) {
+          this.disposeTerminalTracking();
+          this.state.ui.stop();
+          throw error;
+        }
+        return;
+      }
+
+      startupTrace('trustPrompt:begin');
+      const trustPromptStartedLoop = await this.maybeRunWorkspaceTrustPrompt();
+      startupTrace('trustPrompt:end');
+      startupTrace('initMainTui:begin');
+      const shouldReplayHistory = await this.initMainTui();
+      startupTrace('initMainTui:end');
+      // Debug-only input→render latency overlay (PYTHINKER_TUI_INPUT_LATENCY=1).
+      if (process.env['PYTHINKER_TUI_INPUT_LATENCY']) installInputLatencyProbe(this.state.ui);
+      // When the trust prompt already started the event loop, starting it
+      // again would re-run pi-tui's terminal.start() — stacking a second
+      // Kitty keyboard-protocol push (leaking CSI-u mode past exit) and
+      // duplicate stdin listeners.
+      if (!trustPromptStartedLoop) this.startEventLoop();
+      startupTrace('eventLoop:started');
       try {
-        const shouldReplayHistory = await this.initMainTui();
         this.startBackgroundFdAutocomplete();
+        startupTrace('finishStartup:begin');
         await this.finishStartup(shouldReplayHistory);
-        this.startKeybindingsWatcher();
+        startupTrace('finishStartup:end');
       } catch (error) {
-        this.mouseController.stop();
         this.disposeTerminalTracking();
-        this.presentation.stop();
+        this.state.ui.stop();
         throw error;
       }
     } catch (error) {
@@ -545,15 +674,9 @@ export class PythinkerTUI {
     );
     const banner = new BannerComponent(this.state.appState.banner);
     if (welcomeIndex >= 0) {
-      this.state.transcriptContainer.addTranscriptChildAt(welcomeIndex + 1, banner, {
-        role: 'ephemeral',
-        edgeBlankPolicy: 'preserve',
-      });
+      this.state.transcriptContainer.children.splice(welcomeIndex + 1, 0, banner);
     } else {
-      this.state.transcriptContainer.addTranscriptChildAt(0, banner, {
-        role: 'ephemeral',
-        edgeBlankPolicy: 'preserve',
-      });
+      this.state.transcriptContainer.children.unshift(banner);
     }
     this.state.transcriptContainer.invalidate();
   }
@@ -569,36 +692,30 @@ export class PythinkerTUI {
     void this.loadPersistedInputHistory();
     this.state.editorContainer.clear();
     this.state.editorContainer.addChild(this.state.editor);
-    this.presentation.focusComposer();
+    this.state.ui.setFocus(this.state.editor);
     return shouldReplayHistory;
   }
 
   private startEventLoop(): void {
-    const start = (): void => {
-      // The fixed layout emits exactly `terminal.rows` lines per frame, and
-      // pi-tui's first render assumes a clean screen. Any shell output already
-      // on screen would scroll the frame's top rows (panel border included)
-      // out of view for good, so scroll the history up first and start at home.
-      if (this.state.layout === 'fixed') {
-        const rows = this.state.terminal.rows;
-        this.presentation.writeTerminalControl('\n'.repeat(Math.max(1, rows)) + '\u001B[H');
-      }
-      this.presentation.start(() => {
-        this.refreshFooter();
-        this.state.ui.requestRender();
-      });
-      this.terminalFocusTrackingDispose = installTerminalFocusTracking(this.state);
-      this.refreshTerminalThemeTracking();
-      if (this.state.layout === 'fixed') {
-        this.mouseController.start();
-      }
-    };
+    // Dispose any previous focus/clipboard/theme tracking so re-entering the
+    // event loop (e.g. a future TUI reconnect) can't stack duplicate listeners.
+    this.disposeTerminalTracking();
+    this.state.ui.start();
+    this.startClipboardImageHintController();
+    this.terminalFocusTrackingDispose = installTerminalFocusTracking(this.state);
+    this.refreshTerminalThemeTracking();
+  }
 
-    if (typeof process.stdout.columns === 'number' && process.stdout.columns > 0) {
-      start();
-      return;
-    }
-    void waitForTerminalSize(process.stdout).then(start);
+  private startClipboardImageHintController(): void {
+    this.clipboardImageHintController = new ClipboardImageHintController({
+      ui: this.state.ui,
+      footer: this.state.footer,
+      getModelSupportsImage: () => this.supportsCurrentModelCapability('image_in'),
+      requestRender: () => {
+        this.state.ui.requestRender();
+      },
+    });
+    this.clipboardImageHintController.start();
   }
 
   private startBackgroundFdAutocomplete(): void {
@@ -614,57 +731,6 @@ export class PythinkerTUI {
       .catch(() => {
         // Best-effort background bootstrap: autocomplete keeps using the filesystem fallback.
       });
-  }
-
-  // Update availability + install progress poll. The install source is
-  // resolved once — it cannot change mid-session and detecting it repeatedly
-  // costs a subprocess. Both state files are read off the render path, and a
-  // quiet session repaints only when the computed update changes.
-  private startUpdateStatusPolling(): void {
-    void (async () => {
-      let source: InstallSource = 'unsupported';
-      try {
-        source = await detectInstallSource();
-      } catch {
-        // Detection failure means the update flow treats this install as unsupported.
-      }
-      this.updateStatusSource = source;
-      if (this.isShuttingDown) return;
-      await this.pollUpdateStatus();
-      if (this.isShuttingDown) return;
-      this.updateStatusTimer = setInterval(() => {
-        void this.pollUpdateStatus();
-      }, UPDATE_STATUS_POLL_INTERVAL_MS);
-      // A cosmetic poll must never be the reason the process refuses to exit.
-      this.updateStatusTimer.unref();
-    })();
-  }
-
-  private async pollUpdateStatus(): Promise<void> {
-    if (this.isShuttingDown || this.updateStatusSource === null) return;
-    try {
-      const [cache, installState] = await Promise.all([
-        readUpdateCache(),
-        readUpdateInstallState(),
-      ]);
-      const update = footerUpdateFromState(
-        this.state.appState.version,
-        this.updateStatusSource,
-        cache,
-        installState,
-      );
-      if (footerUpdateEquals(this.lastDispatchedUpdate, update)) return;
-      this.lastDispatchedUpdate = update;
-      this.dispatchFooter({ type: 'update.updated', update });
-    } catch {
-      // An unreadable update state file means "no update to show", never a crash.
-    }
-  }
-
-  private stopUpdateStatusPolling(): void {
-    if (this.updateStatusTimer === undefined) return;
-    clearInterval(this.updateStatusTimer);
-    this.updateStatusTimer = undefined;
   }
 
   private async refreshProviderModelsInBackground(): Promise<void> {
@@ -683,12 +749,15 @@ export class PythinkerTUI {
   }
 
   private async finishStartup(shouldReplayHistory: boolean): Promise<void> {
-    this.startUpdateStatusPolling();
     if (this.startupNotice !== undefined) {
       this.showStatus(this.startupNotice);
       this.startupNotice = undefined;
     }
     void this.showTmuxKeyboardWarningIfNeeded();
+    // Config diagnostics (deprecated keys/env vars, invalid sections) in
+    // warning yellow at boot; `run-prompt`/`run-v2-print` print them to
+    // stderr for non-interactive runs.
+    void this.showConfigWarningsIfAny();
     if (this.state.startupState === 'picker') {
       void this.bootstrapFromPicker();
       return;
@@ -697,14 +766,33 @@ export class PythinkerTUI {
       await this.sessionReplay.hydrateFromReplay(this.requireSession());
       this.applyStartupPermissionAndPlanToAppState();
     }
+    const resumeState = this.session?.getResumeState();
+    if (resumeState?.warning !== undefined) {
+      this.showStatus(`Warning: ${resumeState.warning}`, 'warning');
+    }
     if (this.session !== undefined) {
       this.sessionEventHandler.startSubscription();
+      void this.showSessionWarnings(this.session);
     }
     void this.fetchSessions();
     if (this.session !== undefined) {
       this.updateTerminalTitle();
     }
     void this.refreshSkillCommands(this.session);
+    void this.refreshPluginCommands(this.session);
+  }
+
+  private async showSessionWarnings(session: Session): Promise<void> {
+    try {
+      const warnings = await session.getSessionWarnings();
+      if (this.session !== session) return;
+      for (const warning of warnings) {
+        const severity = warning.severity === 'error' ? 'error' : 'warning';
+        this.showStatus(`Warning: ${warning.message}`, severity);
+      }
+    } catch {
+      // Best-effort: startup must not block on warning retrieval.
+    }
   }
 
   private async showTmuxKeyboardWarningIfNeeded(): Promise<void> {
@@ -715,24 +803,27 @@ export class PythinkerTUI {
 
   private async init(): Promise<boolean> {
     setExperimentalFeatures(await this.harness.getExperimentalFeatures());
-    const pythinkerConfig = await this.harness.getConfig();
-    setDynamicWorkflowDisabled(pythinkerConfig.disableWorkflows);
-    setWorkflowSizeGuideline(pythinkerConfig.workflowSizeGuideline);
     await this.authFlow.refreshAvailableModels();
-    void this.refreshProviderModelsInBackground();
+    this.backgroundRefreshPromise = this.refreshProviderModelsInBackground();
 
     const { startup } = this.options;
     const { workDir } = this.state.appState;
     let session: Session | undefined;
     let shouldReplayHistory = false;
     const isResumeStartup = startup.sessionFlag !== undefined || startup.continueLast;
-    const createSessionOptions: CreateSessionOptions = {
+    const createSessionOptions: MutableCreateSessionOptions = {
       workDir,
       model: startup.model,
       permission: startup.auto ? 'auto' : startup.yolo ? 'yolo' : undefined,
-      setupTrigger: startup.init ? 'init' : startup.maintenance ? 'maintenance' : undefined,
       planMode: startup.plan ? true : undefined,
+      // --agent/--agent-file bind the startup session only; sessions created
+      // later in this process fall back to the default profile.
+      agentProfile: startup.agentProfile,
+      agentFiles: startup.agentFiles?.length ? [...startup.agentFiles] : undefined,
     };
+    if (this.state.appState.additionalDirs.length > 0) {
+      createSessionOptions.additionalDirs = [...this.state.appState.additionalDirs];
+    }
 
     try {
       if (isResumeStartup) {
@@ -751,7 +842,7 @@ export class PythinkerTUI {
             throw new Error(`Session "${startup.sessionFlag}" not found.`);
           }
           if (resolve(target.workDir) !== resolve(workDir)) {
-            this.presentation.stop();
+            this.state.ui.stop();
             process.stderr.write(
               `${currentTheme.fg(
                 'warning',
@@ -765,7 +856,7 @@ export class PythinkerTUI {
           }
           session = await this.harness.resumeSession({
             id: startup.sessionFlag,
-            setupTrigger: startup.init ? 'init' : startup.maintenance ? 'maintenance' : undefined,
+            additionalDirs: createSessionOptions.additionalDirs,
             replayTurnLimit: REPLAY_TURN_LIMIT,
           });
           shouldReplayHistory = true;
@@ -775,7 +866,7 @@ export class PythinkerTUI {
           if (target !== undefined) {
             session = await this.harness.resumeSession({
               id: target.id,
-              setupTrigger: startup.init ? 'init' : startup.maintenance ? 'maintenance' : undefined,
+              additionalDirs: createSessionOptions.additionalDirs,
               replayTurnLimit: REPLAY_TURN_LIMIT,
             });
             shouldReplayHistory = true;
@@ -787,6 +878,14 @@ export class PythinkerTUI {
             );
           }
         }
+      } else if (this.engineV2) {
+        // Lazy session creation (v2 engine): start session-less and create the
+        // session on the first message. Startup flags are carried in appState
+        // and applied when that session is created; until then the footer
+        // shows the config defaults the engine would apply at createSession
+        // time (model, permission, plan mode, thinking effort, context cap).
+        await this.hydrateLazyConfigDefaults();
+        this.appendStartupNotice(SESSIONLESS_STARTUP_NOTICE);
       } else {
         session = await this.harness.createSession(createSessionOptions);
       }
@@ -802,21 +901,13 @@ export class PythinkerTUI {
       return false;
     }
 
-    if (session === undefined) {
+    if (!this.engineV2 && session === undefined) {
       throw new Error('Startup session was not initialized.');
     }
-    for (const directory of startup.additionalDirs ?? []) {
-      try {
-        await session.addWorkspaceDirectory(directory);
-      } catch (error) {
-        this.startupNotice = combineStartupNotice(
-          this.startupNotice,
-          `Could not add working directory "${directory}": ${formatErrorMessage(error)}`,
-        );
-      }
+    if (session !== undefined) {
+      await this.setSession(session);
+      await this.syncRuntimeState(session);
     }
-    await this.setSession(session);
-    await this.syncRuntimeState(session);
     this.applyStartupPermissionAndPlanToAppState();
     this.state.startupState = 'ready';
     return shouldReplayHistory;
@@ -826,24 +917,54 @@ export class PythinkerTUI {
     if (this.isShuttingDown) return;
     this.isShuttingDown = true;
     this.unregisterSignalHandlers();
-    this.mouseController.stop();
     this.aborted = true;
+    // Give the startup provider-model refresh a brief chance to finish before
+    // the harness closes (and the process exits): its config writes are each
+    // atomic, so draining can only ever leave a complete file behind. Bounded
+    // so a slow network never delays the exit.
+    if (this.backgroundRefreshPromise !== undefined) {
+      await Promise.race([
+        this.backgroundRefreshPromise,
+        new Promise((resolve) => setTimeout(resolve, 1500)),
+      ]);
+    }
     this.streamingUI.discardPending();
-    this.editorKeyboard.clearPendingExit();
-    this.stopKeybindingsWatcher?.();
-    this.stopKeybindingsWatcher = undefined;
-    this.stopUpdateStatusPolling();
+    // Stop background polling, streaming intervals, and per-component timers
+    // before tearing the UI down, so they can't keep firing requestRender after
+    // stop() returns (or leak when stop() runs without process.exit).
+    this.tasksBrowserController.close();
+    this.btwPanelController.clear();
+    this.stopActivitySpinner();
+    this.streamingUI.disposeActiveCompactionBlock();
+    this.streamingUI.resetToolUi();
+    this.disposeTranscriptChildren();
+    this.editorKeyboard.dispose();
+    this.state.footer.dispose();
     for (const dispose of this.reverseRpcDisposers) {
       dispose();
     }
     this.reverseRpcDisposers.length = 0;
     this.disposeTerminalTracking();
-    await this.closeSession('shutting down');
-    await this.harness.close();
-    this.sessionEventHandler.disposeMcpServerStatusRows();
-    this.uninstallRainbowColors();
-    await this.presentation.drainInput();
-    this.presentation.stop();
+    // Restore the terminal even if closing the session / harness throws — a
+    // SIGTERM during a network or MCP shutdown must not leave the user stuck in
+    // raw mode with a hidden cursor.
+    try {
+      await this.closeSession('shutting down');
+      await this.harness.close();
+    } finally {
+      this.sessionEventHandler.stopAllMcpServerStatusSpinners();
+      this.uninstallRainbowDance();
+      try {
+        await this.state.terminal.drainInput();
+      } catch {
+        // best effort — the terminal may already be dead (SIGHUP / EIO).
+      }
+      try {
+        this.state.ui.stop();
+      } catch {
+        // best effort terminal restore.
+      }
+    }
     if (this.onExit) {
       await this.onExit(exitCode);
     }
@@ -891,7 +1012,8 @@ export class PythinkerTUI {
     process.stderr.on('error', terminalErrorHandler);
     this.signalCleanupHandlers.push(() => {
       process.stdout.off('error', terminalErrorHandler);
-    }, () => {
+    });
+    this.signalCleanupHandlers.push(() => {
       process.stderr.off('error', terminalErrorHandler);
     });
   }
@@ -906,12 +1028,17 @@ export class PythinkerTUI {
   private emergencyTerminalExit(exitCode = 129): never {
     this.isShuttingDown = true;
     this.unregisterSignalHandlers();
-    this.mouseController.stop();
+    // Best-effort terminal restore: stop() may not have run (SIGHUP) or may
+    // have thrown (SIGTERM cleanup failure), so recover raw mode / cursor /
+    // bracketed paste before exiting instead of leaving the user's shell broken.
+    restoreTerminalModes();
     process.exit(exitCode);
   }
 
   private disposeTerminalTracking(): void {
     this.stopTerminalThemeTracking();
+    this.clipboardImageHintController?.stop();
+    this.clipboardImageHintController = undefined;
     this.terminalFocusTrackingDispose?.();
     this.terminalFocusTrackingDispose = undefined;
   }
@@ -919,21 +1046,12 @@ export class PythinkerTUI {
   private buildLayout(): void {
     const { ui } = this.state;
     ui.clear();
-    if (this.state.layout === 'fixed') {
-      // Full-height root: transcript viewport + chrome + footer fill the
-      // screen; the editor stays pinned to the bottom (mountFooter toggles
-      // the footer slot once init succeeds).
-      ui.addChild(this.state.layoutRoot);
-      return;
-    }
     ui.addChild(this.state.transcriptContainer);
     ui.addChild(this.state.activityContainer);
     ui.addChild(this.state.todoPanelContainer);
     ui.addChild(this.state.queueContainer);
     ui.addChild(this.state.btwPanelContainer);
-    ui.addChild(this.state.mcpStatusContainer);
     ui.addChild(this.state.editorContainer);
-    ui.addChild(this.state.statusBarContainer);
     // Footer is mounted later (mountFooter), not here.
   }
 
@@ -943,41 +1061,212 @@ export class PythinkerTUI {
   // only once init() succeeds. FooterComponent isn't a Container, so wrap it to
   // pick up the same outer gutter as the panels above.
   private mountFooter(): void {
-    this.state.statusBarContainer.clear();
-    this.state.statusBarContainer.addChild(this.state.statusBar);
-    if (this.state.layout === 'fixed') {
-      this.state.layoutRoot.setFooterMounted(true);
-      return;
-    }
-    this.state.ui.addChild(this.state.footerWrap);
+    const footerWrap = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
+    footerWrap.addChild(this.state.footer);
+    this.state.ui.addChild(footerWrap);
   }
 
   // =========================================================================
   // Input Dispatch
   // =========================================================================
 
+  handlePlanToggle(next: boolean): void {
+    void slashCommands.handlePlanCommand(this, next ? 'on' : 'off');
+  }
+
+  handleInputModeChange(mode: 'prompt' | 'bash'): void {
+    this.setAppState({ inputMode: mode });
+    this.updateEditorBorderHighlight();
+  }
+
   handleUserInput(text: string): void {
+    const wasBashMode = this.state.appState.inputMode === 'bash';
+    if (wasBashMode) {
+      // A submit always exits bash mode (the `!` is consumed by this command).
+      this.state.editor.inputMode = 'prompt';
+      this.handleInputModeChange('prompt');
+    }
     if (text.trim().length === 0) return;
     if (this.state.appState.isReplaying) {
       this.showError('Cannot send input while session history is replaying.');
       return;
     }
-    void this.persistInputHistory(text);
+    // Shell commands are stored with a leading `!` so ↑ recall can tell them
+    // apart from prompts and restore bash mode (see CustomEditor's mode-aware
+    // history navigation). The `!` is stripped again when the entry is recalled.
+    const historyText = wasBashMode ? `!${text}` : text;
+    void this.persistInputHistory(historyText);
+    if (wasBashMode) {
+      // Only one foreground action at a time: queue the shell command while
+      // another shell command is running or an agent turn is in progress.
+      if (this.state.appState.streamingPhase !== 'idle') {
+        this.enqueueMessage(text, undefined, 'bash');
+        this.updateQueueDisplay();
+        this.state.ui.requestRender();
+        return;
+      }
+      void this.runShellCommandFromInput(text);
+      return;
+    }
     slashCommands.dispatchInput(this, text);
   }
 
-  sendNormalUserInput(text: string): void {
+  private async runShellCommandFromInput(command: string): Promise<void> {
+    let session = this.session;
+    if (session === undefined) {
+      if (!this.engineV2) {
+        this.showError('No active session for shell command.');
+        return;
+      }
+      session = await this.ensureSession();
+      if (session === undefined) return;
+      // A concurrent first message may have started a prompt while this lazy
+      // creation was in flight (both inputs share the same creation promise);
+      // honor the busy gate here, like handleUserInput does before the await,
+      // instead of running the shell command concurrently with an agent turn.
+      if (this.state.appState.streamingPhase !== 'idle') {
+        this.enqueueMessage(command, undefined, 'bash');
+        this.updateQueueDisplay();
+        this.state.ui.requestRender();
+        return;
+      }
+    }
+    // Echo the command locally (bash-input) with a `$` prompt. The agent also
+    // records it for resume; this is the live view.
+    this.appendTranscriptEntry({
+      id: nextTranscriptId(),
+      kind: 'user',
+      turnId: undefined,
+      renderMode: 'plain',
+      content: currentTheme.fg('shellMode', `$ ${command}`),
+      bullet: '',
+    });
+    // Create the live output entry up front. ShellRunComponent owns its own
+    // rendering (running card → final view) and is mutated in place as output
+    // streams in and on completion.
+    const commandId = nextTranscriptId();
+    const outputEntry: TranscriptEntry = {
+      id: commandId,
+      kind: 'status',
+      turnId: undefined,
+      renderMode: 'plain',
+      content: '',
+    };
+    const outputComponent = new ShellRunComponent(() => this.state.ui.requestRender());
+    this.shellOutputStreams.set(commandId, { entry: outputEntry, component: outputComponent });
+    this.state.transcriptEntries.push(outputEntry);
+    markTranscriptComponent(outputComponent, outputEntry);
+    this.state.transcriptContainer.addChild(outputComponent);
+    // Treat command execution as a streaming phase so input queues, the activity
+    // pane shows the moon spinner, and ctrl+b is enabled while it runs.
+    this.setAppState({ streamingPhase: 'shell' });
+    this.state.ui.requestRender();
+
+    this.track('shell_command');
+
+    void session.runShellCommand(command, { commandId }).then(
+      ({ stdout, stderr, isError, backgrounded }) => {
+        this.finishShellOutput(commandId, stdout, stderr, isError, backgrounded);
+      },
+      (error: unknown) => {
+        const message = formatErrorMessage(error);
+        this.finishShellOutput(commandId, '', message, true);
+        this.showError(`Shell command failed: ${message}`);
+      },
+    );
+  }
+
+  handleShellOutput(event: { commandId: string; update: { kind: string; text?: string } }): void {
+    const stream = this.shellOutputStreams.get(event.commandId);
+    if (stream === undefined) return;
+    const text = event.update.text ?? '';
+    if (text.length === 0) return;
+    stream.component.append(text);
+  }
+
+  handleShellStarted(event: { commandId: string; taskId: string }): void {
+    const stream = this.shellOutputStreams.get(event.commandId);
+    if (stream === undefined) return;
+    stream.taskId = event.taskId;
+  }
+
+  cancelRunningShellCommand(): void {
+    const session = this.session;
+    if (session === undefined) return;
+    for (const commandId of this.shellOutputStreams.keys()) {
+      void session.cancelShellCommand(commandId).catch((error: unknown) => {
+        this.showError(`Failed to cancel shell command: ${formatErrorMessage(error)}`);
+      });
+    }
+  }
+
+  private finishShellOutput(
+    commandId: string,
+    stdout: string,
+    stderr: string,
+    isError?: boolean,
+    backgrounded?: boolean,
+  ): void {
+    const stream = this.shellOutputStreams.get(commandId);
+    if (stream === undefined) return;
+    if (backgrounded === true) {
+      // The command was moved to the background; detachRunningShellCommand owns
+      // the UI and the model notification, so there is nothing to render here.
+      return;
+    }
+    stream.component.finish(stdout, stderr, isError);
+    // Keep the transcript entry's metadata in sync for anything that reads it
+    // (export / copy). The component renders itself.
+    stream.entry.content = formatBashOutputForDisplay(stdout, stderr, isError);
+    this.shellOutputStreams.delete(commandId);
+    // When the last shell command finishes, leave the shell streaming phase,
+    // release one queued message (if any), and refresh the activity pane.
+    if (this.shellOutputStreams.size === 0) {
+      this.setAppState({ streamingPhase: 'idle' });
+      this.drainOneQueuedMessage();
+    }
+  }
+
+  private drainOneQueuedMessage(): void {
+    const item = this.shiftQueuedMessage();
+    if (item === undefined) return;
+    const session = this.session;
+    if (session === undefined) return;
+    if (item.mode === 'bash') {
+      void this.runShellCommandFromInput(item.text);
+    } else {
+      this.sendQueuedMessage(session, item);
+    }
+    this.updateQueueDisplay();
+  }
+
+  async sendNormalUserInput(text: string): Promise<void> {
     if (this.btwPanelController.sendUserInput(text)) return;
     if (this.state.appState.model.trim().length === 0) {
       this.showError(LLM_NOT_SET_MESSAGE);
       return;
     }
-    const extraction = extractMediaAttachments(text, this.imageStore);
-    if (!this.validateMediaCapabilities(extraction)) return;
-    const session = this.session;
-    if (session === undefined) {
-      this.showError(LLM_NOT_SET_MESSAGE);
+    let extraction: ReturnType<typeof extractMediaAttachments>;
+    try {
+      // Pasted videos are copied into the cache and expand to a `file://`
+      // `video_url` part; the engine resolves (uploads or degrades) them
+      // inside the turn, so submission stays fully synchronous.
+      extraction = extractMediaAttachments(text, this.imageStore);
+    } catch (error) {
+      // A video cache copy failed (unwritable cache dir, vanished source…);
+      // nothing was dispatched.
+      this.showError(`Failed to prepare media attachment: ${formatErrorMessage(error)}`);
       return;
+    }
+    if (!this.validateMediaCapabilities(extraction)) return;
+    let session = this.session;
+    if (session === undefined) {
+      if (!this.engineV2) {
+        this.showError(LLM_NOT_SET_MESSAGE);
+        return;
+      }
+      session = await this.ensureSession();
+      if (session === undefined) return;
     }
     if (extraction.hasMedia) {
       this.sendMessage(session, text, {
@@ -992,9 +1281,11 @@ export class PythinkerTUI {
     this.state.ui.requestRender();
   }
 
-  private validateMediaCapabilities(
-    extraction: ReturnType<typeof extractMediaAttachments>,
-  ): boolean {
+  validateMediaCapabilities(extraction: {
+    hasMedia: boolean;
+    imageAttachmentIds: readonly number[];
+    videoAttachmentIds: readonly number[];
+  }): boolean {
     if (!extraction.hasMedia) return true;
     if (
       extraction.imageAttachmentIds.length > 0 &&
@@ -1025,7 +1316,7 @@ export class PythinkerTUI {
       const file = getInputHistoryFile(this.state.appState.workDir);
       const entries = await loadInputHistory(file);
       for (const entry of entries) {
-        this.presentation.addComposerHistory(entry.content);
+        this.state.editor.addToHistory(entry.content);
       }
       this.lastHistoryContent = entries.at(-1)?.content;
     } catch {
@@ -1037,7 +1328,7 @@ export class PythinkerTUI {
     const trimmed = text.trim();
     if (trimmed.length === 0) return;
     if (trimmed === this.lastHistoryContent) return;
-    this.presentation.addComposerHistory(trimmed);
+    this.state.editor.addToHistory(trimmed);
     try {
       const file = getInputHistoryFile(this.state.appState.workDir);
       const written = await appendInputHistory(file, trimmed, this.lastHistoryContent);
@@ -1047,18 +1338,22 @@ export class PythinkerTUI {
     }
   }
 
-  recallLastQueued(): string | undefined {
+  recallLastQueued(): QueuedMessage | undefined {
     if (this.state.queuedMessages.length === 0) return undefined;
     const last = this.state.queuedMessages.at(-1)!;
     this.state.queuedMessages = this.state.queuedMessages.slice(0, -1);
-    return last.text;
+    return last;
   }
 
   // =========================================================================
   // Session Requests / Queues
   // =========================================================================
 
-  private enqueueMessage(text: string, options?: SendMessageOptions): void {
+  private enqueueMessage(
+    text: string,
+    options?: SendMessageOptions,
+    mode?: 'prompt' | 'bash',
+  ): void {
     this.state.queuedMessages.push({
       text,
       agentId: this.harness.interactiveAgentId,
@@ -1067,6 +1362,7 @@ export class PythinkerTUI {
         options?.imageAttachmentIds !== undefined && options.imageAttachmentIds.length > 0
           ? options.imageAttachmentIds
           : undefined,
+      mode,
     });
     this.track('input_queue');
   }
@@ -1095,6 +1391,10 @@ export class PythinkerTUI {
   }
 
   sendQueuedMessage(session: Session, item: QueuedMessage): void {
+    if (item.mode === 'bash') {
+      void this.runShellCommandFromInput(item.text);
+      return;
+    }
     this.harness.withInteractiveAgent(item.agentId ?? MAIN_AGENT_ID, () => {
       this.sendMessageInternal(session, item.text, {
         parts: item.parts,
@@ -1105,11 +1405,6 @@ export class PythinkerTUI {
 
   requestQueuedGoalPromotion(): void {
     this.sessionEventHandler.requestQueuedGoalPromotion();
-  }
-
-  /** Retires all live Dynamic Workflow mission controls (undo / turn cleanup). */
-  clearDynamicWorkflowMissionControls(): void {
-    this.sessionEventHandler.clearDynamicWorkflowMissionControls();
   }
 
   private sendMessageInternal(session: Session, input: string, options?: SendMessageOptions): void {
@@ -1129,6 +1424,22 @@ export class PythinkerTUI {
     this.beginSessionRequest();
 
     const sdkInput = options?.parts ?? input;
+    // While a goal is being pursued the engine holds its active turn across the
+    // whole continuation loop, so a fresh prompt races the goal driver at every
+    // continuation boundary and is rejected with `turn.agent_busy`, dropping
+    // the message. Steer instead: the engine buffers it into the running goal
+    // turn, or launches a turn of its own if the loop just ended.
+    if (this.state.appState.goal?.status === 'active') {
+      void session.steer(sdkInput).catch((error: unknown) => {
+        const message = formatErrorMessage(error);
+        // Same reset as the prompt path: beginSessionRequest already moved the
+        // TUI to the waiting phase, and no turn events may follow a failed
+        // steer (e.g. the session is gone), which would leave the UI stuck
+        // queueing input behind a request that never completes.
+        this.failSessionRequest(`Failed to steer: ${message}`);
+      });
+      return;
+    }
     void session.prompt(sdkInput).catch((error: unknown) => {
       const message = formatErrorMessage(error);
       this.failSessionRequest(`Failed to send: ${message}`);
@@ -1136,17 +1447,50 @@ export class PythinkerTUI {
   }
 
   sendSkillActivation(session: Session, skillName: string, skillArgs: string): void {
+    // Args are a plain-text channel, so pasted media can't ride along as
+    // inline parts. Skill args are XML-escaped on render (renderSkillAttributes
+    // + expandSkillParameters), so rewrite placeholders into escape-proof
+    // plain-text file references the model can open with ReadMediaFile.
+    let rewrite: ReturnType<typeof rewriteMediaPlaceholders>;
+    try {
+      rewrite = rewriteMediaPlaceholders(skillArgs, this.imageStore, 'plain');
+    } catch (error) {
+      // Cache copy failed (unwritable cache dir, vanished video source…);
+      // nothing has been dispatched yet, so just report and keep the input.
+      this.showError(`Failed to prepare media attachment: ${formatErrorMessage(error)}`);
+      return;
+    }
+    if (!this.validateMediaCapabilities(rewrite)) return;
+    this.beginSessionRequest();
+    void session.activateSkill(skillName, rewrite.text).catch((error: unknown) => {
+      const message = formatErrorMessage(error);
+      this.failSessionRequest(`Skill "${skillName}" failed: ${message}`);
+    });
+  }
+
+  activatePluginCommand(
+    session: Session,
+    pluginId: string,
+    commandName: string,
+    args: string,
+  ): void {
+    // Plugin command args are expanded verbatim (no XML escaping), so the
+    // standard <image|video path> tag convention works — see
+    // sendSkillActivation for the escaped-channel variant.
+    let rewrite: ReturnType<typeof rewriteMediaPlaceholders>;
+    try {
+      rewrite = rewriteMediaPlaceholders(args, this.imageStore, 'tag');
+    } catch (error) {
+      this.showError(`Failed to prepare media attachment: ${formatErrorMessage(error)}`);
+      return;
+    }
+    if (!this.validateMediaCapabilities(rewrite)) return;
     this.beginSessionRequest();
     void session
-      .activateSkill(skillName, skillArgs)
-      .then((result) => {
-        if (result.execution === 'fork') {
-          this.streamingUI.finalizeTurn((item) => this.sendQueuedMessage(session, item));
-        }
-      })
+      .activatePluginCommand(pluginId, commandName, rewrite.text)
       .catch((error: unknown) => {
         const message = formatErrorMessage(error);
-        this.failSessionRequest(`Skill "${skillName}" failed: ${message}`);
+        this.failSessionRequest(`Command "${pluginId}:${commandName}" failed: ${message}`);
       });
   }
 
@@ -1162,31 +1506,35 @@ export class PythinkerTUI {
     this.sendMessageInternal(session, input, options);
   }
 
-  steerMessage(session: Session, input: string[]): void {
+  steerMessage(session: Session, input: readonly SteerInputItem[]): void {
     if (this.deferUserMessages || this.state.appState.isCompacting) {
-      for (const part of input) {
-        this.enqueueMessage(part);
+      for (const item of input) {
+        this.enqueueMessage(item.text, item);
       }
       return;
     }
     if (this.state.appState.streamingPhase === 'idle') {
-      for (const part of input) {
-        this.sendMessageInternal(session, part);
+      for (const item of input) {
+        this.sendMessageInternal(session, item.text, item);
       }
       return;
     }
 
-    for (const part of input) {
+    for (const item of input) {
       this.appendTranscriptEntry({
         id: nextTranscriptId(),
         kind: 'user',
         turnId: this.streamingUI.getTurnContext().turnId,
         renderMode: 'plain',
-        content: part,
+        content: item.text,
+        imageAttachmentIds:
+          item.imageAttachmentIds !== undefined && item.imageAttachmentIds.length > 0
+            ? item.imageAttachmentIds
+            : undefined,
       });
     }
 
-    void session.steer(input.join('\n\n')).catch((error: unknown) => {
+    void session.steer(combineSteerInput(input)).catch((error: unknown) => {
       const message = formatErrorMessage(error);
       this.showError(`Failed to steer: ${message}`);
     });
@@ -1219,54 +1567,8 @@ export class PythinkerTUI {
     this.state.externalEditorRunning = running;
   }
 
-  reloadKeybindings(): readonly string[] {
-    const loaded = loadKeybindings(this.harness.homeDir);
-    if (loaded.valid || !this.hasInstalledKeybindings) {
-      this.keybindings = loaded.bindings;
-      this.hasInstalledKeybindings = true;
-      for (const component of [
-        this.state.editor,
-        this.state.footer,
-        this.mountedEditorReplacement,
-      ]) {
-        if (isKeybindingAware(component)) component.setKeybindings(this.keybindings);
-      }
-      this.editorKeyboard?.setKeybindings(this.keybindings);
-      this.keyboardShortcuts = editorShortcutHelp(this.keybindings);
-    }
-    return loaded.warnings;
-  }
-
-  private startKeybindingsWatcher(): void {
-    this.stopKeybindingsWatcher ??= watchKeybindings(this.harness.homeDir, () => {
-      const warnings = this.reloadKeybindings();
-      if (warnings.length === 0) return;
-      this.showStatus(`Keybindings reloaded with warnings: ${warnings.join(' ')}`, 'warning');
-    });
-  }
-
   setTasksBrowser(value: TUIState['tasksBrowser']): void {
     this.state.tasksBrowser = value;
-  }
-
-  openFooterAction(id: FooterActionId): void {
-    if (id === 'goal') {
-      this.handleUserInput('/goal status');
-      return;
-    }
-    void this.tasksBrowserController.show();
-  }
-
-  canFocusFooter(): boolean {
-    return (
-      this.state.footer.actionItems().length > 0 &&
-      !this.state.editor.isShowingAutocomplete() &&
-      this.mountedEditorReplacement === undefined &&
-      this.state.tasksBrowser === undefined &&
-      this.state.btwPanelContainer.children.length === 0 &&
-      !this.state.appState.isCompacting &&
-      !this.state.ui.hasOverlay()
-    );
   }
 
   appendStartupNotice(extra: string): void {
@@ -1289,6 +1591,10 @@ export class PythinkerTUI {
     this.exitOpenUrl = url;
   }
 
+  setExitForegroundTask(task: (exitCode: number) => Promise<void>): void {
+    this.exitForegroundTask = task;
+  }
+
   async getStartupMcpMs(): Promise<number> {
     const session = this.session;
     if (session === undefined) return 0;
@@ -1302,112 +1608,20 @@ export class PythinkerTUI {
 
   setAppState(patch: Partial<AppState>): void {
     if (!hasPatchChanges(this.state.appState, patch)) return;
+    const additionalDirsChanged =
+      'additionalDirs' in patch &&
+      !sameStringArrays(this.state.appState.additionalDirs, patch.additionalDirs ?? []);
     const busyChanged = 'streamingPhase' in patch || 'isCompacting' in patch;
     Object.assign(this.state.appState, patch);
-    if ('planMode' in patch || 'permissionMode' in patch) this.updateEditorBorderHighlight();
-    this.state.footer.syncAppState(this.state.appState);
-    this.syncFooterState();
+    if ('planMode' in patch) this.updateEditorBorderHighlight();
+    this.state.footer.setState(this.state.appState);
     this.updateActivityPane();
     if (busyChanged) {
       this.updateQueueDisplay();
       this.sessionEventHandler.retryQueuedGoalPromotion();
     }
-    if (patch.streamingPhase === 'idle') {
-      this.presentation.notifyIdle();
-    } else {
-      this.state.ui.requestRender();
-    }
-  }
-
-  dispatchFooter(event: FooterEvent): void {
-    this.dispatchFooterEvents([event]);
-  }
-
-  private syncFooterState(): void {
-    this.dispatchFooterEvents([
-      {
-        type: 'status.updated',
-        changes: footerStatusFromAppState(
-          this.state.appState,
-          this.state.footer.getGitStatus(),
-        ),
-      },
-      { type: 'goal.updated', goal: this.footerGoal() },
-    ]);
-  }
-
-  private refreshFooter(): void {
-    this.dispatchFooterEvents([
-      {
-        type: 'status.updated',
-        changes: footerStatusFromAppState(
-          this.state.appState,
-          this.state.footer.getGitStatus(),
-        ),
-      },
-    ]);
-  }
-
-  private dispatchFooterEvents(events: readonly FooterEvent[]): void {
-    for (const event of events) {
-      if (event.type === 'background-counts.updated') {
-        this.state.footer.syncActionCounts(event.counts);
-      }
-    }
-    this.state.footerState = foldFooterEvents(this.state.footerState, events);
-    this.presentation.updateFooter(
-      selectFooterViewModel(
-        this.state.footerState,
-        Date.now(),
-        this.state.appState.statusLine,
-      ),
-    );
-    const statusParts = selectStatusItemParts(
-      this.state.footerState,
-      Date.now(),
-      this.state.appState.statusLine,
-    );
-    this.state.statusBar.update({
-      ...this.state.footerState.status,
-      extras: selectStatusBarExtras(
-        this.state.footerState,
-        Date.now(),
-        this.state.appState.statusLine,
-      ),
-      updateExtra: statusParts.update ?? undefined,
-      sessionKey:
-        this.state.appState.sessionTitle?.trim() ||
-        this.state.appState.sessionId ||
-        this.state.appState.workDir,
-      statusLine: this.state.appState.statusLine,
-    });
-  }
-
-  private footerGoal(): FooterGoal | null {
-    const goal = this.state.appState.goal;
-    if (goal === null || goal === undefined) {
-      this.footerGoalSnapshotKey = null;
-      return null;
-    }
-    const snapshotKey = [
-      goal.goalId,
-      goal.status,
-      String(goal.turnsUsed),
-      String(goal.tokensUsed),
-      String(goal.wallClockMs),
-      String(goal.budget.turnBudget),
-    ].join('\u0000');
-    if (snapshotKey !== this.footerGoalSnapshotKey) {
-      this.footerGoalSnapshotKey = snapshotKey;
-      this.footerGoalObservedAtMs = Date.now();
-    }
-    return {
-      status: goal.status,
-      turnsUsed: goal.turnsUsed,
-      turnBudget: goal.budget.turnBudget,
-      wallClockMs: goal.wallClockMs,
-      observedAtMs: this.footerGoalObservedAtMs,
-    };
+    if (additionalDirsChanged) this.setupAutocomplete();
+    this.state.ui.requestRender();
   }
 
   patchLivePane(patch: Partial<LivePaneState>): void {
@@ -1423,6 +1637,12 @@ export class PythinkerTUI {
     this.state.ui.requestRender();
   }
 
+  private syncAdditionalDirs(session: Session): void {
+    const additionalDirs = session.summary?.additionalDirs ?? [];
+    if (sameStringArrays(this.state.appState.additionalDirs, additionalDirs)) return;
+    this.setAppState({ additionalDirs: [...additionalDirs] });
+  }
+
   // =========================================================================
   // Session Runtime
   // =========================================================================
@@ -1434,19 +1654,179 @@ export class PythinkerTUI {
     return this.session;
   }
 
-  private async createSessionFromCurrentState(): Promise<Session> {
+  /**
+   * Seed appState with the config defaults the v2 engine would apply at
+   * createSession time (model, permission, plan mode, thinking effort,
+   * context cap), so the footer and the lazy create path reflect them while
+   * no session exists. Runs at session-less startup and again on /reload
+   * while still session-less, so externally edited defaults take effect
+   * before the first lazy-created session.
+   */
+  async hydrateLazyConfigDefaults(): Promise<void> {
+    const { startup } = this.options;
+    const config = await this.harness.getConfig({ reload: true });
+    const patch: Partial<AppState> = {};
+    const startupModel = startup.model ?? config.defaultModel;
+    if (startupModel !== undefined) {
+      patch.model = startupModel;
+      const selected = config.models?.[startupModel];
+      if (selected?.maxContextSize !== undefined) {
+        patch.maxContextTokens = selected.maxContextSize;
+      }
+    } else {
+      // The default disappeared from config (edited externally): clear the
+      // previously hydrated value instead of passing a stale explicit model
+      // to the first lazy-created session.
+      patch.model = '';
+      patch.maxContextTokens = 0;
+    }
+    // CLI --auto/--yolo/--plan win over config defaults; the flags are
+    // re-applied by applyStartupPermissionAndPlanToAppState at startup.
+    if (!startup.auto && !startup.yolo) {
+      // Reset to manual when the default was removed from config — a stale
+      // elevated mode must not be passed to the first lazy-created session.
+      patch.permissionMode = config.defaultPermissionMode ?? 'manual';
+    }
+    // Track the config default itself (vs an explicit CLI --plan) so the lazy
+    // create path can tell which one would activate plan mode; a removed
+    // default also clears the hydrated footer value.
+    patch.configDefaultPlanMode = config.defaultPlanMode === true;
+    if (!startup.plan) {
+      patch.planMode = config.defaultPlanMode === true;
+    }
+    const effort = thinkingEffortFromConfig(config.thinking);
+    if (effort !== undefined) {
+      patch.thinkingEffort = effort;
+    } else if (startupModel !== undefined) {
+      // No concrete effort configured: mirror the engine, which resolves the
+      // model's default effort at createSession time.
+      const raw = config.models?.[startupModel];
+      if (raw !== undefined) {
+        const providerType = config.providers?.[raw.provider]?.type;
+        patch.thinkingEffort = defaultThinkingEffortFor(
+          effectiveModelAlias(raw, providerType ?? raw.protocol),
+        );
+      }
+    }
+    if (startup.agentProfile !== undefined || startup.agentFiles !== undefined) {
+      patch.agentProfile = startup.agentProfile;
+      patch.agentFiles = startup.agentFiles?.length ? [...startup.agentFiles] : undefined;
+    }
+    this.setAppState(patch);
+  }
+
+  private async createSessionFromCurrentState(bindStartupAgent = false): Promise<Session> {
     const model = this.state.appState.model.trim();
     if (model.length === 0) {
       throw new Error(LLM_NOT_SET_MESSAGE);
     }
-    return this.harness.createSession({
+    // With an active session, carry the live plan state. Session-less (lazy
+    // creation / `/new` before the first session) on v2, pass only the
+    // explicit CLI --plan intent — and only when the engine is not already
+    // applying `defaultPlanMode` at create time (sessionLifecycleService),
+    // since re-entering an active plan mode throws. On v1 (which never
+    // pre-fills plan mode from config), keep the historical appState value.
+    const explicitPlanMode =
+      this.session !== undefined || !this.engineV2
+        ? this.state.appState.planMode
+        : this.options.startup.plan && this.state.appState.configDefaultPlanMode !== true;
+    const options: MutableCreateSessionOptions = {
       workDir: this.state.appState.workDir,
       model,
+      // With an active session, carry the live effort. Session-less (lazy
+      // creation / `/new` before the first session), carry the session-only
+      // thinking override chosen via Alt+S if any — never the initial 'off'
+      // default, which would force thinking off where the engine's config or
+      // model default would apply.
       thinking:
-        this.session === undefined ? undefined : this.state.appState.thinkingLevel,
+        this.session === undefined
+          ? this.state.appState.lazySessionThinking
+          : this.state.appState.thinkingEffort,
       permission: this.state.appState.permissionMode,
-      planMode: this.state.appState.planMode ? true : undefined,
+      planMode: explicitPlanMode ? true : undefined,
+    };
+    if (this.state.appState.additionalDirs.length > 0) {
+      options.additionalDirs = [...this.state.appState.additionalDirs];
+    }
+    if (bindStartupAgent) {
+      // The --agent/--agent-file startup binding is consumed by the first
+      // lazy-created session; `/new` sessions fall back to the default profile.
+      if (this.state.appState.agentProfile !== undefined) {
+        options.agentProfile = this.state.appState.agentProfile;
+      }
+      if (this.state.appState.agentFiles !== undefined) {
+        options.agentFiles = [...this.state.appState.agentFiles];
+      }
+    }
+    return this.harness.createSession(options);
+  }
+
+  /**
+   * Lazy-create the session on first use (v2 engine, session-less startup).
+   * Returns the existing session, or creates one from the current state and
+   * runs the same assembly `createNewSession` performs. Returns undefined and
+   * shows the error when creation fails; callers must still guard on
+   * `appState.model`.
+   *
+   * Concurrent first-use triggers (a double Enter, or a slash command right
+   * after a prompt) both observe `session === undefined`, so the first caller
+   * owns the creation and the rest share the in-flight promise — otherwise
+   * two sessions would be created and the later `setSession` would close the
+   * first one mid-dispatch.
+   */
+  async ensureSession(): Promise<Session | undefined> {
+    // Even when a session is already assigned, a previous lazy creation may
+    // still be finishing its assembly (runtime sync, command refresh,
+    // subscription). Wait for it so callers never dispatch against a
+    // partially initialized session.
+    if (this.ensureSessionPromise !== null) return this.ensureSessionPromise;
+    if (this.session !== undefined) return this.session;
+    this.ensureSessionPromise = this.lazyCreateSession().finally(() => {
+      this.ensureSessionPromise = null;
     });
+    return this.ensureSessionPromise;
+  }
+
+  /** Await the in-flight lazy session creation, if any (v2); no-op otherwise. */
+  async waitForLazyCreation(): Promise<void> {
+    await this.ensureSessionPromise;
+  }
+
+  private async lazyCreateSession(): Promise<Session | undefined> {
+    let session: Session;
+    try {
+      session = await this.createSessionFromCurrentState(true);
+    } catch (error) {
+      const msg = formatErrorMessage(error);
+      this.showError(`Failed to start a session: ${msg}`);
+      return undefined;
+    }
+    this.resetSessionRuntime();
+    await this.setSession(session);
+    this.setAppState({ sessionId: session.id });
+    try {
+      await this.activateRuntime();
+      await this.syncRuntimeState(session);
+    } catch (error) {
+      this.sessionEventHandler.startSubscription();
+      const msg = formatErrorMessage(error);
+      this.showError(`Post-create setup failed: ${msg}`);
+      return undefined;
+    }
+    try {
+      await this.refreshSkillCommands(session);
+      await this.refreshPluginCommands(session);
+    } catch {
+      /* keep the new session usable even if dynamic skills fail */
+    }
+    this.sessionEventHandler.startSubscription();
+    void this.showSessionWarnings(session);
+    // The session-only thinking override was consumed by this session; the
+    // runtime status now owns the displayed effort.
+    if (this.state.appState.lazySessionThinking !== undefined) {
+      this.setAppState({ lazySessionThinking: undefined });
+    }
+    return session;
   }
 
   async setSession(session: Session): Promise<void> {
@@ -1455,6 +1835,7 @@ export class PythinkerTUI {
     this.session = session;
     this.harness.setTelemetryContext({ sessionId: session.id });
     this.registerSessionHandlers(session);
+    this.syncAdditionalDirs(session);
   }
 
   async syncRuntimeState(session: Session = this.requireSession()): Promise<void> {
@@ -1462,20 +1843,17 @@ export class PythinkerTUI {
     this.setAppState({
       sessionId: session.id,
       model: status.model ?? '',
-      modelCostRates: status.modelCostRates,
-      totalCostUsd: status.usage?.totalCostUsd,
-      thinkingLevel: status.thinkingLevel,
+      thinkingEffort: status.thinkingEffort,
       permissionMode: status.permission,
       planMode: status.planMode,
       dynamicWorkflowMode: status.dynamicWorkflowMode ?? false,
-      fastMode: status.fastMode ?? false,
-      fastModeSupported: status.fastModeSupported ?? false,
       contextTokens: status.contextTokens,
       maxContextTokens: status.maxContextTokens,
       contextUsage: status.contextUsage,
       sessionTitle: session.summary?.title ?? null,
       goal: goalResult.goal,
     });
+    this.syncAdditionalDirs(session);
   }
 
   // Apply --auto/--yolo/--plan startup flags to a resumed session. The resumed
@@ -1544,6 +1922,7 @@ export class PythinkerTUI {
     for (const dispose of this.reverseRpcDisposers) {
       dispose();
     }
+    this.reverseRpcDisposers.length = 0;
   }
 
   private registerSessionHandlers(session: Session): void {
@@ -1552,7 +1931,7 @@ export class PythinkerTUI {
         this.appendApprovalTranscriptEntry(request, response);
       }),
     );
-    session.setQuestionHandler(createQuestionAskHandler(this.questionController, openUrl));
+    session.setQuestionHandler(createQuestionAskHandler(this.questionController));
   }
 
   async fetchSessions(scope: 'cwd' | 'all' = this.state.sessionsScope): Promise<void> {
@@ -1568,8 +1947,11 @@ export class PythinkerTUI {
         this.state.appState.sessionId,
         this.hasSessionContent(),
       );
-    } catch {
-      /* silently ignore */
+    } catch (error) {
+      // The picker must keep working (it renders the empty state), but a
+      // swallowed failure surfaces as a misleading "No sessions found." —
+      // keep a log trail so the real error stays discoverable.
+      log.warn('failed to fetch sessions for picker', { error: String(error) });
     } finally {
       this.state.loadingSessions = false;
     }
@@ -1578,7 +1960,7 @@ export class PythinkerTUI {
   updateTerminalTitle(): void {
     const trimmed = this.state.appState.sessionTitle?.trim() ?? '';
     const label = trimmed.length > 0 ? trimmed.slice(0, MAX_TERMINAL_TITLE_LENGTH) : PRODUCT_NAME;
-    this.presentation.setTerminalTitle(label);
+    this.state.terminal.setTitle(label);
   }
 
   resetSessionRuntime(): void {
@@ -1591,10 +1973,7 @@ export class PythinkerTUI {
     this.sessionEventHandler.resetRuntimeState();
     this.tasksBrowserController.close();
     this.btwPanelController.clear();
-    this.dispatchFooter({
-      type: 'background-counts.updated',
-      counts: { bashTasks: 0, agentTasks: 0 },
-    });
+    this.state.footer.setBackgroundCounts({ bashTasks: 0, agentTasks: 0 });
     this.streamingUI.setTodoList([]);
     this.streamingUI.setTurnId(undefined);
     this.setAppState({ mcpServersSummary: null });
@@ -1616,6 +1995,10 @@ export class PythinkerTUI {
   }
 
   private async resumeSession(targetSessionId: string): Promise<boolean> {
+    // A first-use lazy creation may still be in flight: wait it out so the
+    // checks below see settled state — the pending prompt would otherwise
+    // replace the resumed session when creation completes.
+    await this.waitForLazyCreation();
     if (targetSessionId === this.state.appState.sessionId) {
       this.showStatus('Already on this session.');
       return true;
@@ -1652,6 +2035,7 @@ export class PythinkerTUI {
     this.updateTerminalTitle();
     try {
       await this.refreshSkillCommands(this.session);
+      await this.refreshPluginCommands(this.session);
     } catch {
       /* keep the switched session usable even if dynamic skills fail */
     }
@@ -1664,7 +2048,12 @@ export class PythinkerTUI {
     } finally {
       this.sessionEventHandler.startSubscription();
     }
+    const resumeState = session.getResumeState();
+    if (resumeState?.warning !== undefined) {
+      this.showStatus(`Warning: ${resumeState.warning}`, 'warning');
+    }
     this.showStatus(statusMessage);
+    void this.showSessionWarnings(session);
   }
 
   async reloadCurrentSessionView(session: Session, statusMessage: string): Promise<void> {
@@ -1684,11 +2073,17 @@ export class PythinkerTUI {
     this.updateTerminalTitle();
     try {
       await this.refreshSkillCommands(session);
+      await this.refreshPluginCommands(session);
     } catch {
       /* keep the reloaded session usable even if dynamic skills fail */
     }
     this.sessionEventHandler.startSubscription();
+    const resumeState = session.getResumeState();
+    if (resumeState?.warning !== undefined) {
+      this.showStatus(`Warning: ${resumeState.warning}`, 'warning');
+    }
     this.showStatus(statusMessage);
+    void this.showSessionWarnings(session);
   }
 
   async createNewSession(): Promise<void> {
@@ -1720,12 +2115,14 @@ export class PythinkerTUI {
     }
     try {
       await this.refreshSkillCommands(this.session);
+      await this.refreshPluginCommands(this.session);
     } catch {
       /* keep the new session usable even if dynamic skills fail */
     }
     this.sessionEventHandler.startSubscription();
     this.clearTranscriptAndRedraw();
     this.showStatus(`Started a new session (${session.id}).`);
+    void this.showSessionWarnings(session);
     void this.showConfigWarningsIfAny();
   }
 
@@ -1752,7 +2149,10 @@ export class PythinkerTUI {
       if (data.result === 'cancelled') {
         block.markCanceled();
       } else {
-        block.markDone(data.tokensBefore, data.tokensAfter);
+        block.markDone(data.tokensBefore, data.tokensAfter, data.summary);
+        if (this.state.toolOutputExpanded) {
+          block.setExpanded(true);
+        }
       }
       return block;
     }
@@ -1762,7 +2162,7 @@ export class PythinkerTUI {
         const images = entry.imageAttachmentIds
           ?.map((id) => this.imageStore.get(id))
           .filter((a): a is ImageAttachment => a?.kind === 'image');
-        return new UserMessageComponent(entry.content, images);
+        return new UserMessageComponent(entry.content, images, entry.bullet);
       }
       case 'skill_activation':
         return new SkillActivationComponent(
@@ -1770,6 +2170,11 @@ export class PythinkerTUI {
           entry.skillArgs,
           entry.skillTrigger,
         );
+      case 'plugin_command': {
+        const data = entry.pluginCommandData;
+        if (data === undefined) return null;
+        return new PluginCommandComponent(data.pluginId, data.commandName, data.args);
+      }
       case 'cron':
         return new CronMessageComponent(entry.content, entry.cronData ?? {});
       case 'goal':
@@ -1829,10 +2234,11 @@ export class PythinkerTUI {
     const component = this.createTranscriptComponent(entry);
     if (component) {
       markTranscriptComponent(component, entry);
-      this.state.transcriptContainer.addTranscriptChild(component, {
-        role: 'durable',
-        edgeBlankPolicy: 'trim-plain',
-      });
+      this.state.transcriptContainer.addChild(component);
+    }
+    const trimmed = this.trimTranscriptWindow();
+    const merged = this.mergeCurrentTurnSteps();
+    if (component || trimmed || merged) {
       this.state.ui.requestRender();
     }
   }
@@ -1841,7 +2247,12 @@ export class PythinkerTUI {
     request: ApprovalRequest,
     response: ApprovalResponse,
   ): void {
-    if (request.toolName === 'ExitPlanMode' || request.display.kind === 'plan_review') return;
+    if (
+      request.toolName === 'ExitPlanMode' ||
+      request.display.kind === 'plan_review' ||
+      request.display.kind === 'goal_start'
+    )
+      return;
     const parts: string[] = [];
     switch (response.decision) {
       case 'approved':
@@ -1873,18 +2284,23 @@ export class PythinkerTUI {
     ) {
       return;
     }
-    const welcome = new WelcomeComponent(this.state.appState, () => {
-      this.state.ui.requestRender();
-    });
-    this.state.transcriptContainer.addTranscriptChild(welcome, {
-      role: 'ephemeral',
-      edgeBlankPolicy: 'preserve',
-    });
+    const welcome = new WelcomeComponent(this.state.appState);
+    this.state.transcriptContainer.addChild(welcome);
   }
 
   private clearTerminalInlineImages(): void {
     if (getCapabilities().images !== 'kitty') return;
-    this.presentation.writeTerminalControl(deleteAllKittyImages());
+    this.state.terminal.write(deleteAllKittyImages());
+  }
+
+  private disposeTranscriptChildren(): void {
+    // Dispose disposable children (e.g. ShellRunComponent's 1s timer,
+    // ThinkingComponent's spinner) before dropping them, so a /clear, session
+    // switch, or shutdown can't leak intervals that keep firing requestRender
+    // on a removed component.
+    for (const child of this.state.transcriptContainer.children) {
+      if (hasDispose(child)) child.dispose();
+    }
   }
 
   private clearTranscriptAndRedraw(): void {
@@ -1893,30 +2309,302 @@ export class PythinkerTUI {
     this.streamingUI.disposeActiveCompactionBlock();
     this.streamingUI.resetLiveText();
     this.streamingUI.resetToolUi();
-    this.sessionEventHandler.disposeMcpServerStatusRows();
+    this.sessionEventHandler.stopAllMcpServerStatusSpinners();
+    this.disposeTranscriptChildren();
     this.state.transcriptContainer.clear();
-    this.state.transcriptViewport.scrollToBottom();
-    this.state.transcriptViewport.clearSelection();
     this.btwPanelController.clear();
     this.clearTerminalInlineImages();
     this.state.todoPanel.clear();
     this.state.todoPanelContainer.clear();
     this.imageStore.clear();
     this.renderWelcome();
+    // No forced full render on session reset: let the differential renderer
+    // converge on its own (a mass change above the viewport still makes the
+    // engine repaint everything, but nothing is forced destructively here).
+    this.state.ui.requestRender();
   }
-  showStatus(message: string, color?: ColorToken): void {
-    this.state.transcriptContainer.addTranscriptChild(
-      new StatusMessageComponent(message, color),
-      { role: 'ephemeral', edgeBlankPolicy: 'preserve' },
+
+  private isTurnBoundaryComponent(child: Component): boolean {
+    if (
+      !(child instanceof UserMessageComponent) &&
+      !(child instanceof SkillActivationComponent) &&
+      !(child instanceof PluginCommandComponent) &&
+      !(child instanceof ReplayTurnBoundaryComponent)
+    ) {
+      return false;
+    }
+    const entry = getTranscriptComponentEntry(child);
+    if (entry === undefined) return false;
+    // Live user messages / slash activations have an undefined turnId; replayed
+    // ones get a `replay:N` turnId. Both start a new turn. Steer messages carry
+    // a defined non-replay turnId and are not boundaries.
+    return entry.turnId === undefined || entry.turnId.startsWith('replay:');
+  }
+
+  private trimTranscriptWindow(): boolean {
+    if (!TRANSCRIPT_WINDOW_ENABLED || TRANSCRIPT_MAX_TURNS <= 0) return false;
+    // Session replay already caps history to its own turn limit; trimming during
+    // replay would shrink it further and fight that limit.
+    if (this.state.appState.isReplaying) return false;
+
+    const children = this.state.transcriptContainer.children;
+
+    // Trim whole turns by *position* in the child list rather than by entry
+    // lookup — otherwise only the (registered) user message would be removed and
+    // the rest of the turn would be left behind.
+    const boundaries: number[] = [];
+    for (let i = 0; i < children.length; i++) {
+      if (this.isTurnBoundaryComponent(children[i]!)) boundaries.push(i);
+    }
+
+    const turns = groupTurns(this.state.transcriptEntries);
+
+    const toRemove = turnsToTrim(turns, TRANSCRIPT_MAX_TURNS, TRANSCRIPT_HYSTERESIS);
+    if (toRemove.size === 0) return false;
+
+    // Reclaim image bytes referenced by trimmed user messages. The transcript
+    // renders historical thumbnails via imageStore.get(id), so an attachment can
+    // only be dropped once its owning user message leaves the transcript.
+    for (const entry of toRemove) {
+      if (entry.kind === 'user' && entry.imageAttachmentIds !== undefined) {
+        this.imageStore.removeMany(entry.imageAttachmentIds);
+      }
+    }
+
+    let boundariesToRemove = 0;
+    for (const entry of toRemove) {
+      if (
+        (entry.kind === 'user' ||
+          entry.kind === 'skill_activation' ||
+          entry.kind === 'plugin_command') &&
+        entry.turnId === undefined
+      ) {
+        boundariesToRemove++;
+      }
+    }
+    if (boundariesToRemove === 0) {
+      this.state.transcriptEntries = this.state.transcriptEntries.filter((e) => !toRemove.has(e));
+      return true;
+    }
+
+    let boundariesSeen = 0;
+    let cutoff = 0;
+    for (let i = 0; i < children.length; i++) {
+      if (this.isTurnBoundaryComponent(children[i]!)) {
+        if (boundariesSeen === boundariesToRemove) {
+          cutoff = i;
+          break;
+        }
+        boundariesSeen++;
+      }
+    }
+
+    const componentsToRemove: Component[] = [];
+    for (let i = 0; i < cutoff; i++) {
+      const child = children[i]!;
+      if (child instanceof WelcomeComponent) continue;
+      componentsToRemove.push(child);
+    }
+    for (const child of componentsToRemove) {
+      // pi-tui Container.removeChild (not a DOM node); `child.remove()` does not exist.
+      // oxlint-disable-next-line unicorn/prefer-dom-node-remove
+      this.state.transcriptContainer.removeChild(child);
+      if (hasDispose(child)) child.dispose();
+    }
+
+    this.state.transcriptEntries = this.state.transcriptEntries.filter((e) => !toRemove.has(e));
+    return true;
+  }
+
+  mergeCurrentTurnSteps(): boolean {
+    return this.foldCurrentTurnContent(
+      TRANSCRIPT_KEEP_RECENT_STEPS,
+      TRANSCRIPT_KEEP_RECENT_ASSISTANT,
     );
+  }
+
+  /**
+   * Fold the just-finished turn's assistant messages down to the completed-turn
+   * cap: while a turn is live it may keep TRANSCRIPT_KEEP_RECENT_ASSISTANT
+   * messages mounted, but once it ends only the conclusion-bearing tail stays.
+   * Called when a turn finishes; the finished turn is still the current one at
+   * that point (no newer boundary exists yet).
+   */
+  mergeCompletedTurnAssistants(): boolean {
+    return this.foldCurrentTurnContent(
+      TRANSCRIPT_KEEP_RECENT_STEPS,
+      TRANSCRIPT_KEEP_RECENT_ASSISTANT_COMPLETED,
+    );
+  }
+
+  private foldCurrentTurnContent(keepSteps: number, keepAssistants: number): boolean {
+    if (keepSteps <= 0 && keepAssistants <= 0) return false;
+    const children = this.state.transcriptContainer.children;
+
+    // Find the start of the current turn (last turn-starting user message).
+    let turnStart = -1;
+    for (let i = children.length - 1; i >= 0; i--) {
+      if (this.isTurnBoundaryComponent(children[i]!)) {
+        turnStart = i;
+        break;
+      }
+    }
+    if (turnStart < 0) return false;
+
+    // Locate an existing summary, the assistant messages, and the mergeable steps.
+    let summaryIndex = -1;
+    const stepIndices: number[] = [];
+    const assistantIndices: number[] = [];
+    for (let i = turnStart + 1; i < children.length; i++) {
+      const child = children[i]!;
+      if (child instanceof StepSummaryComponent) {
+        summaryIndex = i;
+        continue;
+      }
+      if (child instanceof AssistantMessageComponent) {
+        assistantIndices.push(i);
+        continue;
+      }
+      stepIndices.push(i);
+    }
+
+    // Fold the oldest steps / assistant messages beyond their respective caps;
+    // the most recent ones stay mounted. Children are chronological, so the
+    // oldest of each kind sit at the front of their index lists.
+    const stepMergeCount = keepSteps > 0 ? Math.max(0, stepIndices.length - keepSteps) : 0;
+    const assistantMergeCount =
+      keepAssistants > 0 ? Math.max(0, assistantIndices.length - keepAssistants) : 0;
+    if (stepMergeCount === 0 && assistantMergeCount === 0) return false;
+    const toMergeIndices = [
+      ...stepIndices.slice(0, stepMergeCount),
+      ...assistantIndices.slice(0, assistantMergeCount),
+    ];
+
+    let thinkingCount = 0;
+    let toolCount = 0;
+    for (const idx of toMergeIndices) {
+      const child = children[idx]!;
+      if (child instanceof ThinkingComponent) thinkingCount++;
+      else if (child instanceof ToolCallComponent) toolCount++;
+    }
+    if (thinkingCount === 0 && toolCount === 0 && assistantMergeCount === 0) return false;
+
+    let summary: StepSummaryComponent;
+    if (summaryIndex >= 0) {
+      summary = children[summaryIndex] as StepSummaryComponent;
+      summary.addCounts(thinkingCount, toolCount, assistantMergeCount);
+    } else {
+      summary = new StepSummaryComponent();
+      summary.addCounts(thinkingCount, toolCount, assistantMergeCount);
+    }
+
+    // Rebuild children: keep everything except the merged steps, with the summary
+    // sitting right after the user message.
+    const toMergeSet = new Set(toMergeIndices);
+    const newChildren: Component[] = [];
+    for (let i = 0; i <= turnStart; i++) newChildren.push(children[i]!);
+    newChildren.push(summary);
+    for (let i = turnStart + 1; i < children.length; i++) {
+      if (i === summaryIndex) continue;
+      if (toMergeSet.has(i)) continue;
+      newChildren.push(children[i]!);
+    }
+
+    for (const idx of toMergeIndices) {
+      const child = children[idx]!;
+      if (hasDispose(child)) child.dispose();
+    }
+
+    children.splice(0, children.length, ...newChildren);
+    return true;
+  }
+
+  mergeAllTurnSteps(): void {
+    if (TRANSCRIPT_KEEP_RECENT_STEPS <= 0 && TRANSCRIPT_KEEP_RECENT_ASSISTANT_COMPLETED <= 0)
+      return;
+    const children = this.state.transcriptContainer.children;
+
+    const boundaries: number[] = [];
+    for (let i = 0; i < children.length; i++) {
+      if (this.isTurnBoundaryComponent(children[i]!)) boundaries.push(i);
+    }
+    if (boundaries.length === 0) return;
+
+    const newChildren: Component[] = [];
+    const toDispose: Component[] = [];
+    for (let i = 0; i < boundaries[0]!; i++) newChildren.push(children[i]!);
+
+    for (let t = 0; t < boundaries.length; t++) {
+      const turnStart = boundaries[t]!;
+      const turnEnd = t + 1 < boundaries.length ? boundaries[t + 1]! : children.length;
+      newChildren.push(children[turnStart]!);
+
+      let summaryIndex = -1;
+      const stepIndices: number[] = [];
+      const assistantIndices: number[] = [];
+      for (let i = turnStart + 1; i < turnEnd; i++) {
+        const child = children[i]!;
+        if (child instanceof StepSummaryComponent) summaryIndex = i;
+        else if (child instanceof AssistantMessageComponent) assistantIndices.push(i);
+        else stepIndices.push(i);
+      }
+
+      const stepMergeCount =
+        TRANSCRIPT_KEEP_RECENT_STEPS > 0
+          ? Math.max(0, stepIndices.length - TRANSCRIPT_KEEP_RECENT_STEPS)
+          : 0;
+      // Replayed turns are all completed turns, so the stricter completed-turn
+      // assistant cap applies (matching what live turns fold to on turn end).
+      const assistantMergeCount =
+        TRANSCRIPT_KEEP_RECENT_ASSISTANT_COMPLETED > 0
+          ? Math.max(0, assistantIndices.length - TRANSCRIPT_KEEP_RECENT_ASSISTANT_COMPLETED)
+          : 0;
+      if (stepMergeCount > 0 || assistantMergeCount > 0) {
+        const toMergeIndices = [
+          ...stepIndices.slice(0, stepMergeCount),
+          ...assistantIndices.slice(0, assistantMergeCount),
+        ];
+        let thinkingCount = 0;
+        let toolCount = 0;
+        for (const idx of toMergeIndices) {
+          const child = children[idx]!;
+          if (child instanceof ThinkingComponent) thinkingCount++;
+          else if (child instanceof ToolCallComponent) toolCount++;
+        }
+        let summary: StepSummaryComponent;
+        if (summaryIndex >= 0) {
+          summary = children[summaryIndex] as StepSummaryComponent;
+          summary.addCounts(thinkingCount, toolCount, assistantMergeCount);
+        } else {
+          summary = new StepSummaryComponent();
+          summary.addCounts(thinkingCount, toolCount, assistantMergeCount);
+        }
+        newChildren.push(summary);
+        for (const idx of toMergeIndices) toDispose.push(children[idx]!);
+        const toMergeSet = new Set(toMergeIndices);
+        for (let i = turnStart + 1; i < turnEnd; i++) {
+          if (i === summaryIndex) continue;
+          if (toMergeSet.has(i)) continue;
+          newChildren.push(children[i]!);
+        }
+      } else {
+        for (let i = turnStart + 1; i < turnEnd; i++) newChildren.push(children[i]!);
+      }
+    }
+
+    for (const child of toDispose) {
+      if (hasDispose(child)) child.dispose();
+    }
+    children.splice(0, children.length, ...newChildren);
+  }
+
+  showStatus(message: string, color?: ColorToken): void {
+    this.state.transcriptContainer.addChild(new StatusMessageComponent(message, color));
     this.state.ui.requestRender();
   }
 
   showNotice(title: string, detail?: string): void {
-    this.state.transcriptContainer.addTranscriptChild(
-      new NoticeMessageComponent(title, detail),
-      { role: 'ephemeral', edgeBlankPolicy: 'preserve' },
-    );
+    this.state.transcriptContainer.addChild(new NoticeMessageComponent(title, detail));
     this.state.ui.requestRender();
   }
 
@@ -1930,15 +2618,9 @@ export class PythinkerTUI {
 
   showProgressSpinner(label: string): LoginProgressSpinnerHandle {
     const tint = (s: string): string => currentTheme.fg('primary', s);
-    const spinner = new ActivityLoader(this.state.ui, tint, label);
-    this.state.transcriptContainer.addTranscriptChild(new Spacer(1), {
-      role: 'ephemeral',
-      edgeBlankPolicy: 'preserve',
-    });
-    this.state.transcriptContainer.addTranscriptChild(spinner, {
-      role: 'ephemeral',
-      edgeBlankPolicy: 'preserve',
-    });
+    const spinner = new MoonLoader(this.state.ui, 'braille', tint, label);
+    this.state.transcriptContainer.addChild(new Spacer(1));
+    this.state.transcriptContainer.addChild(spinner);
     this.state.ui.requestRender();
     return {
       stop: ({ ok, label: finalLabel }) => {
@@ -1948,9 +2630,25 @@ export class PythinkerTUI {
         spinner.setText(currentTheme.fg(tone, `${symbol} ${finalLabel}`));
         this.state.ui.requestRender();
       },
+      setLabel: (nextLabel) => {
+        spinner.setLabel(nextLabel);
+      },
     };
   }
 
+  showLoginAuthorizationPrompt(auth: DeviceAuthorization): LoginProgressSpinnerHandle {
+    openUrl(auth.verificationUriComplete);
+    this.state.transcriptContainer.addChild(
+      new DeviceCodeBoxComponent({
+        title: 'Sign in to Pythinker Code',
+        url: auth.verificationUriComplete,
+        code: auth.userCode,
+        hint: 'Press Ctrl-C to cancel',
+      }),
+    );
+    this.state.ui.requestRender();
+    return this.showLoginProgressSpinner('Waiting for authorization…');
+  }
 
   // =========================================================================
   // Panes / Presentation State
@@ -1958,42 +2656,33 @@ export class PythinkerTUI {
 
   updateActivityPane(): void {
     const effectiveMode = this.resolveActivityPaneMode();
-    this.syncTerminalProgress(this.shouldShowTerminalProgress(effectiveMode));
-    const placeSpinnerInDynamicWorkflow = this.shouldPlaceActivitySpinnerInDynamicWorkflow(effectiveMode);
-    let footerActivityPhase: FooterActivity['phase'] = 'hidden';
-    let footerSpinnerActive = false;
-    if (!placeSpinnerInDynamicWorkflow) {
-      switch (effectiveMode) {
-        case 'waiting':
-        case 'thinking':
-        case 'composing':
-        case 'tool':
-          footerActivityPhase = effectiveMode;
-          footerSpinnerActive = effectiveMode !== 'thinking';
-          break;
-        case 'hidden':
-        case 'idle':
-        case 'session':
-          break;
-      }
+    const tipKind = loadingTipKind(effectiveMode);
+    // Pick a fresh loading tip when the loading kind changes. The same kind
+    // covers waiting/tool (both moon spinners) and any intermediate thinking
+    // phase, so a continuous burst of tool calls does not flip tips. Clear the
+    // cache only when there is no loading UI at all.
+    if (effectiveMode === 'idle' || effectiveMode === 'session' || effectiveMode === 'hidden') {
+      this.currentLoadingTip = undefined;
+    } else if (
+      tipKind !== undefined &&
+      (this.currentLoadingTip === undefined || this.currentLoadingTip.kind !== tipKind)
+    ) {
+      const previousTip = this.currentLoadingTip?.tip;
+      this.currentLoadingTip = {
+        kind: tipKind,
+        tip: pickRandomWorkingTip(previousTip)?.text,
+      };
     }
-    this.dispatchFooter({
-      type: 'activity.updated',
-      activity: {
-        phase: footerActivityPhase,
-        label: null,
-        spinnerActive: footerSpinnerActive,
-        spinnerFrame: '⠋',
-      },
-    });
-    const activityModeKey = `${effectiveMode}:${placeSpinnerInDynamicWorkflow ? 'dynamic-workflow' : 'pane'}`;
+    this.syncTerminalProgress(this.shouldShowTerminalProgress(effectiveMode));
+    const placeSpinnerInAgentDynamicWorkflow = this.shouldPlaceActivitySpinnerInAgentDynamicWorkflow(effectiveMode);
+    const activityModeKey = `${effectiveMode}:${placeSpinnerInAgentDynamicWorkflow ? 'dynamic_workflow' : 'pane'}`;
 
     if (
       activityModeKey === this.lastActivityMode &&
       (effectiveMode === 'waiting' || effectiveMode === 'thinking' || effectiveMode === 'tool')
     ) {
-      if (placeSpinnerInDynamicWorkflow) {
-        this.syncDynamicWorkflowActivitySpinner(this.state.activitySpinner?.instance);
+      if (placeSpinnerInAgentDynamicWorkflow) {
+        this.syncAgentDynamicWorkflowActivitySpinner(this.state.activitySpinner?.instance);
       }
       return;
     }
@@ -2004,56 +2693,50 @@ export class PythinkerTUI {
     switch (effectiveMode) {
       case 'hidden':
         this.stopActivitySpinner();
-        this.syncDynamicWorkflowActivitySpinner(undefined);
+        this.syncAgentDynamicWorkflowActivitySpinner(undefined);
         this.state.ui.requestRender();
         return;
       case 'waiting': {
-        const spinner = this.ensureActivitySpinner(
-          undefined,
-          (s) => currentTheme.fg('primary', s),
-          !placeSpinnerInDynamicWorkflow,
-        );
-        this.syncDynamicWorkflowActivitySpinner(placeSpinnerInDynamicWorkflow ? spinner : undefined);
-        if (placeSpinnerInDynamicWorkflow) break;
+        const spinner = this.ensureActivitySpinner('moon');
+        this.syncAgentDynamicWorkflowActivitySpinner(placeSpinnerInAgentDynamicWorkflow ? spinner : undefined);
+        if (placeSpinnerInAgentDynamicWorkflow) break;
         this.state.activityContainer.addChild(
           new ActivityPaneComponent({
             mode: 'waiting',
             spinner,
+            tip: this.currentLoadingTip?.tip,
           }),
         );
         break;
       }
       case 'thinking': {
         this.stopActivitySpinner();
-        this.syncDynamicWorkflowActivitySpinner(undefined);
+        this.syncAgentDynamicWorkflowActivitySpinner(undefined);
         break;
       }
       case 'composing': {
-        const spinner = this.ensureActivitySpinner(undefined, (s) =>
+        const spinner = this.ensureActivitySpinner('braille', 'working...', (s) =>
           currentTheme.fg('primary', s),
-          true,
         );
-        this.syncDynamicWorkflowActivitySpinner(undefined);
+        this.syncAgentDynamicWorkflowActivitySpinner(undefined);
         this.state.activityContainer.addChild(
           new ActivityPaneComponent({
             mode: 'composing',
             spinner,
+            tip: this.currentLoadingTip?.tip,
           }),
         );
         break;
       }
       case 'tool': {
-        const spinner = this.ensureActivitySpinner(
-          undefined,
-          (s) => currentTheme.fg('primary', s),
-          !placeSpinnerInDynamicWorkflow,
-        );
-        this.syncDynamicWorkflowActivitySpinner(placeSpinnerInDynamicWorkflow ? spinner : undefined);
-        if (placeSpinnerInDynamicWorkflow) break;
+        const spinner = this.ensureActivitySpinner('moon');
+        this.syncAgentDynamicWorkflowActivitySpinner(placeSpinnerInAgentDynamicWorkflow ? spinner : undefined);
+        if (placeSpinnerInAgentDynamicWorkflow) break;
         this.state.activityContainer.addChild(
           new ActivityPaneComponent({
             mode: 'tool',
             spinner,
+            tip: this.currentLoadingTip?.tip,
           }),
         );
         break;
@@ -2061,7 +2744,11 @@ export class PythinkerTUI {
       case 'idle':
       case 'session': {
         this.stopActivitySpinner();
-        this.syncDynamicWorkflowActivitySpinner(undefined);
+        this.syncAgentDynamicWorkflowActivitySpinner(undefined);
+        // Keep a placeholder row so the activity area does not fully shrink
+        // when the spinner is removed at the end of streaming; combined with
+        // pi-tui's clamp, this avoids a destructive full redraw (viewport jump).
+        this.state.activityContainer.addChild(new Spacer(1));
         break;
       }
     }
@@ -2075,6 +2762,11 @@ export class PythinkerTUI {
     if (this.state.livePane.pendingQuestion !== null) return 'hidden';
 
     const streamingPhase = this.state.appState.streamingPhase;
+
+    // A running `!` shell command shows the moon spinner (same as `waiting`)
+    // until it finishes, signalling that input is busy / queued.
+    if (streamingPhase === 'shell') return 'waiting';
+
     if (this.state.livePane.mode === 'idle') {
       if (streamingPhase === 'thinking' || streamingPhase === 'composing') {
         return streamingPhase;
@@ -2101,32 +2793,155 @@ export class PythinkerTUI {
 
   toggleToolOutputExpansion(): void {
     this.state.toolOutputExpanded = !this.state.toolOutputExpanded;
-    for (const container of [
-      this.state.transcriptContainer,
-      this.state.activityContainer,
-    ]) {
-      for (const child of container.children) {
-        if (isExpandable(child)) {
-          child.setExpanded(this.state.toolOutputExpanded);
-        }
+    const children = this.state.transcriptContainer.children;
+
+    // A component is expandable only if it sits at or after the start of the
+    // (totalTurns - expandTurns)-th turn — i.e. it belongs to one of the most
+    // recent `expandTurns` turns. Position-based so it also covers streaming
+    // components that have no entry in the metadata map.
+    const boundaries: number[] = [];
+    for (let i = 0; i < children.length; i++) {
+      if (this.isTurnBoundaryComponent(children[i]!)) boundaries.push(i);
+    }
+    const expandCutoff =
+      TRANSCRIPT_EXPAND_TURNS <= 0
+        ? children.length
+        : boundaries.length > TRANSCRIPT_EXPAND_TURNS
+          ? boundaries[boundaries.length - TRANSCRIPT_EXPAND_TURNS]!
+          : 0;
+
+    for (let i = 0; i < children.length; i++) {
+      const child = children[i]!;
+      if (!isExpandable(child)) continue;
+      child.setExpanded(this.state.toolOutputExpanded && i >= expandCutoff);
+    }
+    // Differential render only — no destructive full redraw on expand/collapse.
+    // (When the expanded region reaches above the viewport, the engine's own
+    // fallback may still do a full render; that path is not forced from here.)
+    this.state.ui.requestRender();
+  }
+
+  toggleTodoPanelExpansion(): void {
+    this.state.todoPanel.toggleExpanded();
+    this.state.ui.requestRender();
+  }
+
+  private async detachRunningShellCommand(): Promise<void> {
+    // Only one `!` command runs at a time (input is queued while busy).
+    const next = this.shellOutputStreams.entries().next();
+    if (next.done) {
+      this.showDetachHint('No shell command running.');
+      return;
+    }
+    const [commandId, stream] = next.value;
+    if (stream.taskId === undefined) {
+      this.showDetachHint('Command is still starting — try again.');
+      return;
+    }
+    const session = this.session;
+    if (session === undefined) return;
+    try {
+      const info = await session.detachBackgroundTask(stream.taskId);
+      if (info === undefined) {
+        this.showDetachHint('Command already finished.');
+        return;
+      }
+    } catch (error) {
+      this.showError(`Failed to move to background: ${formatErrorMessage(error)}`);
+      return;
+    }
+    // Finalize the card as backgrounded and drop the stream so the eventual
+    // runShellCommand resolution (which carries background metadata) is a no-op
+    // instead of overwriting this view.
+    stream.component.finishBackgrounded();
+    stream.entry.content = 'Moved to background.';
+    this.shellOutputStreams.delete(commandId);
+    // The backgrounded command's notification turn (started by agent-core via
+    // appendSystemReminderAndNotify) owns the streaming phase and drains the
+    // queue when it completes, so we intentionally leave both untouched here.
+    this.showDetachHint('Moved to background. /tasks to view.');
+  }
+
+  async detachCurrentForegroundTask(): Promise<void> {
+    // A running `!` shell command takes priority over agent foreground tasks.
+    if (this.shellOutputStreams.size > 0) {
+      await this.detachRunningShellCommand();
+      return;
+    }
+
+    const session = this.session;
+    if (session === undefined) {
+      this.showError(NO_ACTIVE_SESSION_MESSAGE);
+      return;
+    }
+
+    let tasks: readonly BackgroundTaskInfo[];
+    try {
+      // activeOnly defaults to true; foreground running tasks are non-terminal
+      // and therefore included. We filter to `detached === false` ourselves.
+      tasks = await session.listBackgroundTasks();
+    } catch (error) {
+      this.showError(`Failed to list tasks: ${formatErrorMessage(error)}`);
+      return;
+    }
+
+    const targets = pickForegroundTasks(tasks);
+    if (targets.length === 0) {
+      this.showDetachHint('No foreground task running.');
+      return;
+    }
+
+    let detached = 0;
+    let alreadyFinished = 0;
+    for (const target of targets) {
+      try {
+        const info = await session.detachBackgroundTask(target.taskId);
+        if (info === undefined) alreadyFinished++;
+        else detached++;
+      } catch (error) {
+        this.showError(`Failed to detach ${target.taskId}: ${formatErrorMessage(error)}`);
       }
     }
+
+    let hint: string;
+    if (detached === 0 && alreadyFinished > 0) {
+      hint = alreadyFinished === 1 ? 'Task already finished.' : 'Tasks already finished.';
+    } else if (detached === targets.length) {
+      hint =
+        detached === 1 ? 'Moved 1 task to background.' : `Moved ${detached} tasks to background.`;
+    } else {
+      hint = `Moved ${detached} of ${targets.length} tasks to background.`;
+    }
+    if (detached > 0) hint = `${hint} /tasks to view.`;
+    this.showDetachHint(hint);
+  }
+
+  /** Show a one-shot footer hint that auto-clears after DETACH_HINT_DISPLAY_MS. */
+  private showDetachHint(hint: string): void {
+    if (this.detachHintClearTimer !== undefined) {
+      clearTimeout(this.detachHintClearTimer);
+      this.detachHintClearTimer = undefined;
+    }
+    this.state.footer.setTransientHint(hint);
+    this.detachHintClearTimer = setTimeout(() => {
+      this.detachHintClearTimer = undefined;
+      // Don't clobber a newer transient hint (e.g. the exit-confirmation
+      // prompt) that took over while this timer was pending.
+      if (this.state.footer.getTransientHint() !== hint) return;
+      this.state.footer.setTransientHint(null);
+      this.state.ui.requestRender();
+    }, DETACH_HINT_DISPLAY_MS);
     this.state.ui.requestRender();
   }
 
   updateEditorBorderHighlight(text?: string): void {
-    const { line, col } = this.state.editor.getCursor();
-    const currentLine =
-      this.state.editor.getLines()[line] ??
-      (text ?? this.presentation.getComposerText()).split('\n')[line] ??
-      '';
-    const highlighted =
-      this.state.appState.planMode || findSlashAutocompleteContext(currentLine, col) !== null;
+    const trimmed = (text ?? this.state.editor.getText()).trimStart();
+    const isBash = this.state.appState.inputMode === 'bash';
+    const highlighted = this.state.appState.planMode || isBash || trimmed.startsWith('/');
     this.state.editor.borderHighlighted = highlighted;
-    this.state.editor.borderColor = (s: string) => {
-      if (highlighted) return currentTheme.fg('primary', s);
-      return currentTheme.fg('border', s);
-    };
+    // Shell mode gets its own hue; plan-mode and slash context stay primary.
+    const borderToken = isBash ? 'shellMode' : highlighted ? 'primary' : 'border';
+    this.state.editor.borderColor = (s: string) => currentTheme.fg(borderToken, s);
     this.state.ui.requestRender();
   }
 
@@ -2177,47 +2992,46 @@ export class PythinkerTUI {
     );
   }
 
-  private shouldPlaceActivitySpinnerInDynamicWorkflow(
+  private shouldPlaceActivitySpinnerInAgentDynamicWorkflow(
     effectiveMode: EffectiveActivityPaneMode,
   ): boolean {
     return (
-      this.sessionEventHandler.hasActiveDynamicWorkflowToolCall() &&
+      this.sessionEventHandler.hasActiveAgentDynamicWorkflowToolCall() &&
       (effectiveMode === 'waiting' || effectiveMode === 'tool')
     );
   }
 
-  private syncDynamicWorkflowActivitySpinner(spinner: ActivityLoader | undefined): void {
-    this.sessionEventHandler.syncDynamicWorkflowActivitySpinner(spinner);
+  private syncAgentDynamicWorkflowActivitySpinner(spinner: MoonLoader | undefined): void {
+    this.sessionEventHandler.syncAgentDynamicWorkflowActivitySpinner(spinner);
   }
 
   private syncTerminalProgress(active: boolean): void {
     if (!this.state.terminalState.supportsProgress) return;
     if (this.state.terminalState.progressActive === active) return;
-    this.presentation.setTerminalProgress(active);
+    this.state.terminal.setProgress(active);
     this.state.terminalState.progressActive = active;
   }
 
   private ensureActivitySpinner(
-    label?: string,
+    style: SpinnerStyle,
+    label = '',
     colorFn?: (s: string) => string,
-    verbLabels = false,
-  ): ActivityLoader {
+  ): MoonLoader {
+    if (this.state.activitySpinner?.style !== style) {
+      this.stopActivitySpinner();
+    }
+
     if (this.state.activitySpinner === null) {
-      const instance = new ActivityLoader(this.state.ui, colorFn, label ?? '', { verbLabels });
-      this.state.activitySpinner = { instance };
+      const instance = new MoonLoader(this.state.ui, style, colorFn, label);
+      this.state.activitySpinner = { instance, style };
       return instance;
     }
 
-    const spinner = this.state.activitySpinner.instance;
-    if (verbLabels) {
-      spinner.setVerbLabels(true);
-    } else {
-      spinner.setLabel(label ?? '');
-    }
+    this.state.activitySpinner.instance.setLabel(label);
     if (colorFn !== undefined) {
-      spinner.setColorFn(colorFn);
+      this.state.activitySpinner.instance.setColorFn(colorFn);
     }
-    return spinner;
+    return this.state.activitySpinner.instance;
   }
 
   private stopActivitySpinner(): void {
@@ -2234,8 +3048,6 @@ export class PythinkerTUI {
   mountEditorReplacement(panel: Component & Focusable): void {
     this.state.editorContainer.clear();
     this.state.editorContainer.addChild(panel);
-    this.mountedEditorReplacement = panel;
-    if (isKeybindingAware(panel)) panel.setKeybindings(this.keybindings);
     this.state.ui.setFocus(panel);
     this.state.ui.requestRender();
   }
@@ -2243,57 +3055,98 @@ export class PythinkerTUI {
   restoreEditor(): void {
     this.state.editorContainer.clear();
     this.state.editorContainer.addChild(this.state.editor);
-    this.mountedEditorReplacement = undefined;
-    this.presentation.focusComposer();
+    this.state.ui.setFocus(this.state.editor);
+    // Differential render only: closing a tall panel leaves the editor a few
+    // rows above the bottom (blank tail) until the next append, but avoids a
+    // destructive full redraw on every dialog close.
     this.state.ui.requestRender();
   }
 
   restoreInputText(text: string): void {
     this.restoreEditor();
-    this.presentation.setComposerText(text);
+    this.state.editor.setText(text);
     this.updateEditorBorderHighlight(text);
     this.state.ui.requestRender();
   }
 
-  showMessageActions(): void {
-    slashCommands.showMessageActions(this);
+  private async runMigrationScreen(plan: MigrationPlan): Promise<MigrationScreenResult> {
+    const result = await new Promise<MigrationScreenResult>((resolve) => {
+      const screen = new MigrationScreenComponent({
+        plan,
+        sourceHome: plan.sourceHome,
+        targetHome: this.harness.homeDir,
+        skipDecisionStep: this.migrateOnly,
+        requestRender: () => {
+          this.state.ui.requestRender();
+        },
+        onComplete: (r) => {
+          resolve(r);
+        },
+      });
+      this.mountEditorReplacement(screen);
+    });
+    this.restoreEditor();
+    if (result.decision === 'never') {
+      // Persist the skip marker `detectPendingMigration` checks, so "Never ask
+      // again" actually stops the prompt from reappearing every launch.
+      try {
+        writeFileSync(join(this.harness.homeDir, '.skip-migration-from-pythinker-cli'), '', 'utf-8');
+      } catch {
+        // Non-blocking: a failed marker write must never crash startup.
+      }
+    }
+    return result;
   }
 
-  async showInputHistoryPicker(): Promise<void> {
-    let entries;
+  /**
+   * agent-core-v2 startup gate: before any session is created, ask whether to
+   * trust this folder when the workspace is not trusted yet (project-level MCP
+   * servers stay disabled while untrusted). Best-effort throughout — a failed
+   * check or trust write never blocks startup. Choosing "don't trust" (or Esc)
+   * exits the program before any session is created; the prompt reappears on
+   * the next launch: the engine's untrusted state is indistinguishable from
+   * never-trusted. Returns true when the prompt started the event loop (the
+   * caller must not start it again).
+   */
+  private async maybeRunWorkspaceTrustPrompt(): Promise<boolean> {
+    if (!this.engineV2) return false;
+    const workDir = this.state.appState.workDir;
+    let info: WorkspaceTrustInfo;
     try {
-      entries = await loadInputHistory(getInputHistoryFile(this.state.appState.workDir));
-    } catch (error) {
-      this.showError(`Failed to load input history: ${formatErrorMessage(error)}`);
-      return;
+      info = await this.harness.getWorkspaceTrustInfo(workDir);
+    } catch {
+      return false;
     }
-    const history = selectRecentInputHistory(entries);
-    if (history.length === 0) {
-      this.showNotice('No input history');
-      return;
+    if (info.trusted) return false;
+    this.startEventLoop();
+    const choice = await new Promise<TrustPromptChoice>((resolve) => {
+      this.state.activeDialog = 'trust-prompt';
+      this.mountEditorReplacement(
+        new TrustPromptComponent({
+          workDir,
+          gatedMcpServers: info.gatedMcpServers,
+          onSelect: (c) => {
+            resolve(c);
+          },
+        }),
+      );
+    });
+    this.state.activeDialog = null;
+    if (choice !== 'trust') {
+      // Declining trust exits the program (Claude Code's "No, exit" semantics):
+      // stop() runs the standard shutdown path and ends in process.exit. The
+      // editor is NOT restored first — its frame would linger as an orphaned
+      // input box above the exit message; the prompt stays as the last frame.
+      await this.stop();
+      return true;
     }
-    this.mountEditorReplacement(
-      new ChoicePickerComponent({
-        title: 'Prompt history',
-        options: history.map((content) => ({
-          value: content,
-          label: content.replaceAll(/\s+/gu, ' '),
-        })),
-        searchable: true,
-        pageSize: 8,
-        keybindingContext: 'HistorySearch',
-        onSelect: (content) => {
-          this.restoreInputText(content);
-        },
-        onExecute: (content) => {
-          this.restoreEditor();
-          this.handleUserInput(content);
-        },
-        onCancel: () => {
-          this.restoreEditor();
-        },
-      }),
-    );
+    this.restoreEditor();
+    try {
+      await this.harness.trustWorkspace(workDir);
+    } catch {
+      // A failed write leaves the workspace untrusted (re-asked next launch).
+    }
+    return true;
   }
 
   showHelpPanel(): void {
@@ -2301,7 +3154,6 @@ export class PythinkerTUI {
     this.mountEditorReplacement(
       new HelpPanelComponent({
         commands: this.getSlashCommands(),
-        shortcuts: this.keyboardShortcuts,
         onClose: () => {
           this.hideHelpPanel();
         },
@@ -2398,6 +3250,10 @@ export class PythinkerTUI {
     this.editorKeyboard.clearPendingExit();
     this.state.activeDialog = null;
     this.restoreEditor();
+  }
+
+  openUndoSelector(): void {
+    void slashCommands.handleUndoCommand(this, '');
   }
 
   private mountSessionPicker(options: {

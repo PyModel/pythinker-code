@@ -91,10 +91,10 @@ To run a single instruction without entering the interactive UI, use `-p`:
 pythinker -p "Take a look at this project's directory structure"
 ```
 
-To resume the previous session, add `-C`:
+To resume the previous session, add `-c`:
 
 ```sh
-pythinker -C
+pythinker -c
 ```
 
 On first launch you need to configure an API source. In the interactive UI, enter `/login` to begin the login flow:
@@ -148,7 +148,7 @@ For a first-time user, the following is all you need to know:
 | `/sessions` | Browse session history and choose one to resume |
 | `/model` | Switch the current model |
 | `/compact` | Manually compress the context to free up tokens |
-| `/fork` | Fork the current session, keeping history but continuing independently |
+| `/fork` | Fork the current session into an independent copy with full history (you stay in the current session) |
 
 **Most-used keyboard shortcuts**
 
@@ -158,7 +158,7 @@ For a first-time user, the following is all you need to know:
 | `Ctrl-C` | Interrupt output; press twice while idle to exit |
 | `Shift-Tab` | Cycle thinking effort for the current model |
 | `Ctrl-S` | Inject a message mid-stream without waiting for the current response to finish |
-| `Ctrl-O` | Collapse / expand tool output |
+| `Ctrl-O` | Collapse / expand tool output and compaction summaries |
 
 For the full list, type `/help` or visit [Slash commands reference](../reference/slash-commands.md) and [Keyboard shortcuts](../reference/keyboard.md).
 

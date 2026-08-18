@@ -74,6 +74,24 @@ describe('promptSubmissionSchema', () => {
     expect(parsed.thinking).toBeUndefined();
   });
 
+  it('accepts an agent profile selection', () => {
+    const parsed = promptSubmissionSchema.parse({
+      content: [{ type: 'text', text: 'hi' }],
+      profile: 'reviewer',
+      model: 'pythinker-code/k2',
+    });
+    expect(parsed.profile).toBe('reviewer');
+  });
+
+  it('rejects an empty profile string', () => {
+    expect(() =>
+      promptSubmissionSchema.parse({
+        content: [{ type: 'text', text: 'hi' }],
+        profile: '',
+      }),
+    ).toThrow();
+  });
+
   it('accepts the full bundle of controls when supplied', () => {
     const parsed = promptSubmissionSchema.parse({
       content: [{ type: 'text', text: 'hi' }],
@@ -100,11 +118,20 @@ describe('promptSubmissionSchema', () => {
     expect(promptSubmissionSchema.safeParse({} as unknown).success).toBe(false);
   });
 
-  it('rejects unknown thinking level', () => {
+  it('accepts any non-empty thinking effort (provider normalizes)', () => {
     expect(
       promptSubmissionSchema.safeParse({
         content: [{ type: 'text', text: 'hi' }],
         thinking: 'mega' as unknown,
+      }).success,
+    ).toBe(true);
+  });
+
+  it('rejects empty thinking effort', () => {
+    expect(
+      promptSubmissionSchema.safeParse({
+        content: [{ type: 'text', text: 'hi' }],
+        thinking: '' as unknown,
       }).success,
     ).toBe(false);
   });
@@ -139,6 +166,18 @@ describe('promptSubmitResultSchema', () => {
     });
     expect(parsed.prompt_id).toBe('prompt_01HZ');
     expect(parsed.status).toBe('running');
+  });
+
+  it('parses a blocked prompt result shape', () => {
+    const parsed = promptSubmitResultSchema.parse({
+      prompt_id: 'prompt_blocked',
+      user_message_id: 'msg_blocked',
+      status: 'blocked',
+      content: [{ type: 'text', text: 'blocked' }],
+      created_at: '2026-06-09T00:00:00.000Z',
+    });
+
+    expect(parsed.status).toBe('blocked');
   });
 
   it('rejects empty prompt_id', () => {

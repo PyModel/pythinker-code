@@ -26,8 +26,15 @@ export interface DeviceHeaders {
 }
 
 export interface PythinkerHostIdentity {
-  readonly userAgentProduct: string;
+  readonly productName: string;
   readonly version: string;
+  /**
+   * `X-Msh-Platform` value reported to the OAuth host and managed endpoints
+   * (e.g. `pythinker_code_cli`, `pythinker_code_desktop`). Every host must state its own
+   * explicitly — `PYTHINKER_CODE_PLATFORM` is the CLI's value, not a default to
+   * inherit silently.
+   */
+  readonly platform: string;
   readonly userAgentSuffix?: string | undefined;
 }
 
@@ -78,9 +85,12 @@ export function createPythinkerDeviceId(
 export function createPythinkerDeviceHeaders(options: {
   readonly homeDir: string;
   readonly version: string;
+  /** Required and validated like the version: non-empty ASCII, no fallback —
+      a blank or fabricated platform would silently misreport the host. */
+  readonly platform: string;
 }): DeviceHeaders {
   return {
-    'X-Msh-Platform': PYTHINKER_CODE_PLATFORM,
+    'X-Msh-Platform': requiredAsciiHeader(options.platform, 'Pythinker identity platform'),
     'X-Msh-Version': requiredAsciiHeader(options.version, 'Pythinker identity version'),
     'X-Msh-Device-Name': asciiHeader(hostname()),
     'X-Msh-Device-Model': asciiHeader(deviceModel()),
@@ -90,11 +100,11 @@ export function createPythinkerDeviceHeaders(options: {
 }
 
 export function createPythinkerUserAgent(options: {
-  readonly userAgentProduct: string;
+  readonly productName: string;
   readonly version: string;
   readonly userAgentSuffix?: string | undefined;
 }): string {
-  const product = requiredAsciiHeader(options.userAgentProduct, 'Pythinker identity product');
+  const product = requiredAsciiHeader(options.productName, 'Pythinker identity product');
   const version = requiredAsciiHeader(options.version, 'Pythinker identity version');
   const suffix =
     options.userAgentSuffix === undefined ? undefined : asciiHeader(options.userAgentSuffix, '');
@@ -103,21 +113,74 @@ export function createPythinkerUserAgent(options: {
     : `${product}/${version} (${suffix})`;
 }
 
+/**
+ * Swap the product token of a User-Agent produced by
+ * {@link createPythinkerUserAgent}, keeping the version and optional suffix intact
+ * (`pythinker-code-cli/1.2.3 (web)` → `acme/1.2.3 (web)`).
+ *
+ * Lives next to the builder on purpose: the format knowledge — product token,
+ * `/`, version, parenthesized suffix — must exist in exactly one place, so a
+ * change to the builder cannot silently desynchronize the rewriter. Callers
+ * pass an already-normalized ASCII token; a blank or non-ASCII product still
+ * throws rather than emitting an invalid header.
+ *
+ * A value that does not carry a `/` is treated as a bare product token and
+ * replaced wholesale.
+ */
+export function replaceUserAgentProduct(userAgent: string, product: string): string {
+  const cleaned = requiredAsciiHeader(product, 'Pythinker identity product');
+  const separator = userAgent.indexOf('/');
+  return separator < 0 ? cleaned : `${cleaned}${userAgent.slice(separator)}`;
+}
+
 export function createPythinkerDefaultHeaders(options: PythinkerIdentityOptions): Record<string, string> {
   return {
     'User-Agent': createPythinkerUserAgent(options),
     ...createPythinkerDeviceHeaders({
       homeDir: options.homeDir,
       version: options.version,
+      platform: options.platform,
     }),
   };
+}
+
+/**
+ * Env var carrying extra headers applied to every outbound provider request
+ * (LLM chat and `/models` listing). Mirrors `ANTHROPIC_CUSTOM_HEADERS`:
+ * newline-separated `Name: Value` lines; lines without a colon are skipped;
+ * names and values are trimmed.
+ *
+ * These headers form the lowest-precedence layer — the Pythinker identity headers
+ * (User-Agent, X-Msh-*), per-provider `customHeaders`, and request auth
+ * (Authorization) all override them.
+ *
+ * Unlike the device identity headers above, this is intentionally
+ * environment-derived and stateless (re-read on every call) so callers can
+ * apply it uniformly without plumbing the value through every host layer.
+ */
+export const PYTHINKER_CODE_CUSTOM_HEADERS_ENV = 'PYTHINKER_CODE_CUSTOM_HEADERS';
+
+export function parsePythinkerCodeCustomHeaders(
+  env: NodeJS.ProcessEnv = process.env,
+): Record<string, string> {
+  const raw = env[PYTHINKER_CODE_CUSTOM_HEADERS_ENV]?.trim();
+  if (raw === undefined || raw.length === 0) return {};
+  const headers: Record<string, string> = {};
+  for (const line of raw.split('\n')) {
+    const colon = line.indexOf(':');
+    if (colon < 0) continue;
+    const name = line.slice(0, colon).trim();
+    if (name.length === 0) continue;
+    headers[name] = line.slice(colon + 1).trim();
+  }
+  return headers;
 }
 
 export function assertPythinkerHostIdentity(identity: PythinkerHostIdentity | undefined): PythinkerHostIdentity {
   if (identity === undefined) {
     throw new Error('Pythinker host identity is required. Pass the host product name and version.');
   }
-  requiredAsciiHeader(identity.userAgentProduct, 'Pythinker identity product');
+  requiredAsciiHeader(identity.productName, 'Pythinker identity product');
   requiredAsciiHeader(identity.version, 'Pythinker identity version');
   return identity;
 }

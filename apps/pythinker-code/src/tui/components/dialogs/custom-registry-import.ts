@@ -18,7 +18,7 @@ import {
   truncateToWidth,
   visibleWidth,
   type Focusable,
-} from '@earendil-works/pi-tui';
+} from '@pymodel/pi-tui';
 
 import { currentTheme } from '#/tui/theme';
 import { combinedBindingHint, formatBindingKeys } from '#/tui/components/dialogs/choice-picker';

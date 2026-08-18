@@ -8,28 +8,32 @@
  * `max_context_tokens: 0` means "unknown"; callers that do not gate on
  * context length can ignore the field.
  */
-/** Model token rates in USD per 1,000,000 tokens. */
-export interface ModelCostRates {
-  readonly input?: number;
-  readonly output?: number;
-  readonly cacheRead?: number;
-  readonly cacheWrite?: number;
-}
-
 export interface ModelCapability {
   readonly image_in: boolean;
   readonly video_in: boolean;
   readonly audio_in: boolean;
   readonly thinking: boolean;
   readonly tool_use: boolean;
-  /** Whether the model advertises a provider-native premium Fast tier. */
-  readonly fast_mode?: boolean;
+  /** Total context window (input + output), used for completion budgeting. */
   readonly max_context_tokens: number;
-  /** Token rates in USD per 1,000,000 tokens, when known. */
-  readonly cost?: ModelCostRates;
+  /**
+   * Maximum prompt/input tokens when the model declares one below the total
+   * window (e.g. gpt-5: 400k window, 272k input cap). Compaction and other
+   * prompt-budget checks use this in preference to the total window; absent
+   * means the total window is the only known ceiling.
+   */
+  readonly max_input_tokens?: number;
+  /**
+   * Model accepts message-level tool declarations (`messages[].tools`) — the
+   * "dynamically loaded tools" wire feature that clients can drive with
+   * progressive tool disclosure. Absent means unsupported: only models
+   * explicitly catalogued or declared with this capability may ever receive a
+   * message carrying `tools`.
+   */
+  readonly dynamically_loaded_tools?: boolean;
 }
 
-const UNKNOWN_CAPABILITY_MARKER = Symbol.for('pythoughts.kosong.UNKNOWN_CAPABILITY');
+const UNKNOWN_CAPABILITY_MARKER = Symbol.for('moonshot-ai.kosong.UNKNOWN_CAPABILITY');
 
 /**
  * Shared read-only default returned when a provider has not catalogued a
@@ -44,19 +48,14 @@ export const UNKNOWN_CAPABILITY: ModelCapability = Object.freeze(
       audio_in: false,
       thinking: false,
       tool_use: false,
-      fast_mode: false,
       max_context_tokens: 0,
+      dynamically_loaded_tools: false,
     },
     UNKNOWN_CAPABILITY_MARKER,
     { value: true },
   ),
 );
 
-/**
- * True when `capability` is unknown: the {@link UNKNOWN_CAPABILITY} singleton
- * (detected via its marker symbol) or any value whose fields all match the
- * unknown defaults, such as a copy that lost the marker.
- */
 export function isUnknownCapability(capability: ModelCapability): boolean {
   if (capability === UNKNOWN_CAPABILITY) return true;
   const marked =
@@ -68,7 +67,7 @@ export function isUnknownCapability(capability: ModelCapability): boolean {
     !capability.audio_in &&
     !capability.thinking &&
     !capability.tool_use &&
-    capability.fast_mode !== true &&
+    capability.dynamically_loaded_tools !== true &&
     capability.max_context_tokens === 0
   );
 }

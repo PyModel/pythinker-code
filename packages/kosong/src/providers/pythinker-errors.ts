@@ -1,16 +1,18 @@
-import { APIProviderQuotaExhaustedError } from '#/errors';
+import { APIProviderQuotaExhaustedError, parseRetryAfterMs, parseTraceId } from '#/errors';
 
-// Pythinker is a CLI only — it does not provide a hosted service, models, or
-// an API of its own. These are the structured error `type`/`code` values that
-// OpenAI-compatible providers a user configures may send on a 429 when the
-// account's quota or balance is exhausted (as opposed to a transient rate
-// limit).
+// Structured error `type`/`code` value that means the PyModel account's
+// quota or balance is exhausted (as opposed to a transient rate limit): the
+// backend sets `exceeded_current_quota_error` as the body `error.type`.
 const PYTHINKER_QUOTA_EXHAUSTED_ERROR_CODES = new Set(['exceeded_current_quota_error']);
 
 // Message fallback for gateways that flatten the body to text, matched
 // against the lowercased message of a 429. Every pattern is anchored to
 // billing wording — deliberately no bare /quota/ or /balance/, which would
 // also match transient throttle messages like "token quota per minute".
+// Grounded in observed PyModel bodies: "You exceeded your current token
+// quota: ... please check your account balance" and "Your account ... is
+// suspended due to insufficient balance, please recharge your account or
+// check your plan and billing details".
 const PYTHINKER_QUOTA_EXHAUSTED_MESSAGE_PATTERNS = [
   /exceeded your current (?:token )?quota/,
   /check your account balance/,
@@ -31,8 +33,10 @@ function readErrorObjectProp(value: object): object | undefined {
 
 // Collect every candidate `code`/`type` string the SDK error may carry. The
 // OpenAI SDK hoists the body's `error.code`/`error.type` to the top level and
-// keeps the inner error object on `.error`. Walking `error` → `.error` →
-// `.error.error` covers nested gateway shapes without SDK imports.
+// keeps the inner error object on `.error`; the Anthropic SDK keeps the FULL
+// body on `.error` (`{type: 'error', error: {type, message}}`), so the quota
+// type sits two levels deep. Walking `error` → `.error` → `.error.error`
+// covers both shapes without SDK imports.
 function collectErrorCodes(error: object): string[] {
   const codes: string[] = [];
   let current: object | undefined = error;
@@ -47,13 +51,13 @@ function collectErrorCodes(error: object): string[] {
 }
 
 /**
- * Classify a raw provider failure as a quota/balance-exhausted 429, or answer
- * `undefined` to keep the base classification. This quota-error knowledge is
- * kept out of the shared OpenAI conversion: the Pythinker provider passes it
- * to `convertOpenAIError` as the
- * vendor hook, consulted after the abort guard with the raw SDK error — the
- * base conversion would otherwise drop the SDK-parsed body
- * `error.type`/`error.code` this reads.
+ * Classify a raw provider failure as PyModel's quota/balance-exhausted 429,
+ * or answer `undefined` to keep the base classification. This is the Pythinker
+ * vendor's error knowledge, kept out of the shared OpenAI conversion: the
+ * Pythinker provider (and the Pythinker files client) passes it to
+ * `convertOpenAIError` as the vendor hook, consulted after the abort guard
+ * with the raw SDK error — the base conversion would otherwise drop the
+ * SDK-parsed body `error.type`/`error.code` this reads.
  */
 export function classifyPythinkerQuotaError(
   error: unknown,
@@ -73,5 +77,11 @@ export function classifyPythinkerQuotaError(
   if (!structuredHit && !wordingHit) return undefined;
 
   const requestId = readStringProp(error, 'requestID') ?? null;
-  return new APIProviderQuotaExhaustedError(message, requestId);
+  const headers = (error as Record<string, unknown>)['headers'];
+  return new APIProviderQuotaExhaustedError(
+    message,
+    requestId,
+    parseRetryAfterMs(headers),
+    parseTraceId(headers),
+  );
 }

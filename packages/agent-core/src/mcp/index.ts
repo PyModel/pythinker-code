@@ -1,5 +1,5 @@
 export * from './connection-manager';
-export * from './elicitation';
+export * from './global-config';
 export * from './oauth';
 export * from './session-config';
 export * from './tool-naming';

@@ -1,21 +1,30 @@
 import { Disposable, InstantiationType, registerSingleton } from '../../di';
-import {
-  resolveProviderApiKey,
-  type PythinkerConfig,
-  type ProviderConfig,
-} from '../../config';
+import type { PythinkerConfig, ModelAlias, ProviderConfig, ProviderType } from '../../config';
 import type {
   ModelCatalogItem,
   ProviderCatalogItem,
+  RefreshOAuthProviderModelsResponse,
+  RefreshProviderModelsResponse,
   SetDefaultModelResponse,
 } from '@pymodel/protocol';
+import {
+  refreshProviderModels,
+  type ManagedPythinkerOAuthRef,
+  type RefreshProviderHost,
+  type RefreshResult,
+} from '@pymodel/pythinker-code-oauth';
+
+import { createManagedAuthFacade, type ServicesAuthFacade } from '../auth/managedAuth';
 import { ICoreProcessService } from '../coreProcess/coreProcess';
+import { IEnvironmentService } from '../environment/environment';
+import { IEventService } from '../event/event';
 import {
   IModelCatalogService,
   ModelNotFoundError,
   ProviderNotFoundError,
   toProtocolModel,
   toProtocolProvider,
+  type RefreshProviderModelsOptions,
 } from './modelCatalog';
 
 export class ModelCatalogService
@@ -23,14 +32,36 @@ export class ModelCatalogService
   implements IModelCatalogService {
   readonly _serviceBrand: undefined;
 
-  constructor(@ICoreProcessService private readonly core: ICoreProcessService) {
+  private _authFacade: ServicesAuthFacade;
+
+  /** Serializes refresh runs so a scheduled refresh and a manual one (or two
+   *  manual ones with different options) never race on writing config.toml. */
+  private _refreshChain: Promise<unknown> = Promise.resolve();
+
+  constructor(
+    @IEnvironmentService env: IEnvironmentService,
+    @ICoreProcessService private readonly core: ICoreProcessService,
+    @IEventService private readonly eventService: IEventService,
+  ) {
     super();
+    this._authFacade = createManagedAuthFacade(env, env.identity);
+  }
+
+  static _createForTest(
+    env: IEnvironmentService,
+    core: ICoreProcessService,
+    authFacade: ServicesAuthFacade,
+    eventService: IEventService = noopEventService,
+  ): ModelCatalogService {
+    const service = new ModelCatalogService(env, core, eventService);
+    service._authFacade = authFacade;
+    return service;
   }
 
   async listModels(): Promise<readonly ModelCatalogItem[]> {
     const config = await this._readConfig();
     return Object.entries(config.models ?? {}).map(([modelId, alias]) =>
-      toProtocolModel(modelId, alias, config.providers[alias.provider]),
+      toProtocolModel(modelId, alias, this._providerTypeOf(config, alias)),
     );
   }
 
@@ -52,14 +83,6 @@ export class ModelCatalogService
     return this._provider(config, providerId, provider);
   }
 
-  async removeProvider(providerId: string): Promise<void> {
-    const config = await this._readConfig();
-    if (config.providers?.[providerId] === undefined) {
-      throw new ProviderNotFoundError(providerId);
-    }
-    await this.core.rpc.removePythinkerProvider({ providerId });
-  }
-
   async setDefaultModel(modelId: string): Promise<SetDefaultModelResponse> {
     const config = await this._readConfig();
     const alias = config.models?.[modelId];
@@ -71,10 +94,85 @@ export class ModelCatalogService
     const updatedAlias = updated.models?.[modelId] ?? alias;
     return {
       default_model: modelId,
-      model: toProtocolModel(modelId, updatedAlias, updated.providers[updatedAlias.provider]),
+      model: toProtocolModel(
+        modelId,
+        updatedAlias,
+        this._providerTypeOf(updated, updatedAlias),
+      ),
     };
   }
 
+  private _providerTypeOf(config: PythinkerConfig, alias: ModelAlias): ProviderType | undefined {
+    const providerId = alias.provider ?? config.defaultProvider;
+    return config.providers[providerId ?? '']?.type;
+  }
+
+  async refreshOAuthProviderModels(): Promise<RefreshOAuthProviderModelsResponse> {
+    return this.refreshProviderModels({ scope: 'oauth' });
+  }
+
+  refreshProviderModels(
+    options: RefreshProviderModelsOptions = {},
+  ): Promise<RefreshProviderModelsResponse> {
+    const run = this._refreshChain.then(() => this._doRefreshProviderModels(options));
+    this._refreshChain = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
+  private async _doRefreshProviderModels(
+    options: RefreshProviderModelsOptions,
+  ): Promise<RefreshProviderModelsResponse> {
+    if (options.providerId !== undefined) {
+      const config = await this._readConfig();
+      if (config.providers?.[options.providerId] === undefined) {
+        throw new ProviderNotFoundError(options.providerId);
+      }
+    }
+
+    const result = await refreshProviderModels(this._buildRefreshHost(), {
+      scope: options.scope,
+      providerId: options.providerId,
+    });
+    const response = mapRefreshResult(result);
+
+    if (response.changed.length > 0) {
+      this.eventService.publish({
+        type: 'event.model_catalog.changed',
+        agentId: 'main',
+        sessionId: '__global__',
+        changed: response.changed,
+        unchanged: response.unchanged,
+        failed: response.failed,
+      });
+    }
+
+    return response;
+  }
+
+  private _buildRefreshHost(): RefreshProviderHost {
+    return {
+      getConfig: () => this._readConfig(),
+      removeProvider: (providerId) => this.core.rpc.removePythinkerProvider({ providerId }),
+      setConfig: (patch) => this.core.rpc.setPythinkerConfig(patch as Record<string, unknown>),
+      resolveOAuthToken: (providerName, oauthRef) =>
+        this._resolveOAuthToken(providerName, oauthRef),
+      userAgent: this.core.pythinkerRequestHeaders?.['User-Agent'],
+    };
+  }
+
+  private async _resolveOAuthToken(
+    providerName: string,
+    oauthRef?: ManagedPythinkerOAuthRef,
+  ): Promise<string> {
+    const tokenProvider = this._authFacade.resolveOAuthTokenProvider(providerName, oauthRef);
+    if (tokenProvider === undefined) {
+      throw new Error('OAuth token provider is not configured.');
+    }
+    return tokenProvider.getAccessToken();
+  }
 
   private async _readConfig(): Promise<PythinkerConfig> {
     return this.core.rpc.getPythinkerConfig({ reload: true });
@@ -85,25 +183,78 @@ export class ModelCatalogService
     providerId: string,
     provider: ProviderConfig,
   ): Promise<ProviderCatalogItem> {
-    const hasApiKey = resolveProviderApiKey(provider) !== undefined;
+    const hasApiKey = hasConfiguredApiKey(provider);
+    const hasOAuthToken = await this._hasCachedToken(providerId, provider);
     return toProtocolProvider(providerId, provider, config, {
       hasApiKey,
-      hasOAuthToken: false,
+      hasOAuthToken,
     });
   }
 
+  private async _hasCachedToken(
+    providerId: string,
+    provider: ProviderConfig,
+  ): Promise<boolean> {
+    if (provider.oauth === undefined) return false;
+    try {
+      const token = await this._authFacade.getCachedAccessToken(
+        providerId,
+        provider.oauth,
+      );
+      return nonEmpty(token) !== undefined;
+    } catch {
+      return false;
+    }
+  }
 }
 
+function mapRefreshResult(result: RefreshResult): RefreshProviderModelsResponse {
+  return {
+    changed: result.changed.map((change) => ({
+      provider_id: change.providerId,
+      provider_name: change.providerName,
+      added: change.added,
+      removed: change.removed,
+    })),
+    unchanged: [...result.unchanged],
+    failed: result.failed.map((failure) => ({
+      provider: failure.provider,
+      reason: failure.reason,
+    })),
+  };
+}
 
+function hasConfiguredApiKey(provider: ProviderConfig): boolean {
+  if (nonEmpty(provider.apiKey) !== undefined) return true;
+  switch (provider.type) {
+    case 'anthropic':
+      return nonEmpty(provider.env?.['ANTHROPIC_API_KEY']) !== undefined;
+    case 'openai':
+    case 'openai_responses':
+      return nonEmpty(provider.env?.['OPENAI_API_KEY']) !== undefined;
+    case 'pythinker':
+      return nonEmpty(provider.env?.['PYTHINKER_API_KEY']) !== undefined;
+    case 'google-genai':
+      return nonEmpty(provider.env?.['GOOGLE_API_KEY']) !== undefined;
+    case 'vertexai':
+      return (
+        nonEmpty(provider.env?.['VERTEXAI_API_KEY']) !== undefined ||
+        nonEmpty(provider.env?.['GOOGLE_API_KEY']) !== undefined
+      );
+  }
+  return false;
+}
 
+function nonEmpty(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  const trimmed = value.trim();
+  return trimmed.length === 0 ? undefined : trimmed;
+}
 
-
-
-
-
-
-
-
-
+const noopEventService: IEventService = {
+  _serviceBrand: undefined,
+  onDidPublish: () => ({ dispose: () => undefined }),
+  publish: () => undefined,
+};
 
 registerSingleton(IModelCatalogService, ModelCatalogService, InstantiationType.Delayed);

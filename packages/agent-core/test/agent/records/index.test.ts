@@ -64,18 +64,6 @@ describe('AgentRecords persistence metadata', () => {
     );
   });
 
-  it('rejects replaying a non-empty stream with metadata missing protocol_version', async () => {
-    const persistence = new InMemoryAgentRecordPersistence([
-      { type: 'metadata', created_at: 1 } as unknown as AgentRecord,
-      { type: 'dynamic_workflow_mode.enter', trigger: 'manual', time: 2 },
-    ]);
-    const records = testAgent({ persistence }).agent.records;
-
-    await expect(records.replay()).rejects.toThrow(
-      'Unsupported agent wire protocol version undefined; expected 2.0',
-    );
-  });
-
   it('does not duplicate metadata after replaying existing records', async () => {
     const persistence = new InMemoryAgentRecordPersistence([
       {
@@ -127,42 +115,251 @@ describe('AgentRecords persistence metadata', () => {
     expect(persistence.rewrites).toEqual([]);
   });
 
-  it.each(['1.4', '3.0'])(
-    'rejects unsupported agent wire version %s before replay',
-    async (protocolVersion) => {
-      const persistence = new InMemoryAgentRecordPersistence([
-        { type: 'metadata', protocol_version: protocolVersion, created_at: 1 },
-        { type: 'dynamic_workflow_mode.enter', trigger: 'manual', time: 2 },
-      ]);
-      const records = testAgent({ persistence }).agent.records;
-
-      await expect(records.replay()).rejects.toThrow(
-        `Unsupported agent wire protocol version ${protocolVersion}; expected 2.0`,
-      );
-    },
-  );
-
-  it('replays exact current dynamic workflow records', async () => {
-    const persistence = new InMemoryAgentRecordPersistence([
-      { type: 'metadata', protocol_version: '2.0', created_at: 1 },
-      { type: 'dynamic_workflow_mode.enter', trigger: 'manual', time: 2 },
-      { type: 'dynamic_workflow_mode.exit', time: 3 },
-    ]);
-    const { agent } = testAgent({ persistence });
-
-    await expect(agent.records.replay()).resolves.toBeUndefined();
-
-    expect(agent.dynamicWorkflowMode.isActive).toBe(false);
-  });
-
-  it('rejects an unknown current-version record instead of ignoring it', async () => {
-    const persistence = new InMemoryAgentRecordPersistence([
-      { type: 'metadata', protocol_version: '2.0', created_at: 1 },
-      { type: 'swarm_mode.enter', trigger: 'manual', time: 2 } as unknown as AgentRecord,
+  it('rewrites migrated records to the current wire version after replay', async () => {
+    const persistence = new RecordingInMemoryAgentRecordPersistence([
+      {
+        type: 'metadata',
+        protocol_version: '1.0',
+        created_at: 1,
+      },
+      {
+        type: 'context.append_message',
+        message: {
+          role: 'assistant',
+          content: [],
+          toolCalls: [
+            {
+              type: 'function',
+              id: 'call_legacy_bash',
+              function: {
+                name: 'Bash',
+                arguments: '{"command":"pwd"}',
+              },
+            },
+          ],
+        },
+      } as unknown as AgentRecord,
     ]);
     const records = testAgent({ persistence }).agent.records;
 
-    await expect(records.replay()).rejects.toThrow('Unsupported agent record type swarm_mode.enter');
+    await records.replay();
+
+    expect(persistence.rewrites).toHaveLength(1);
+    expect(persistence.records[0]).toMatchObject({
+      type: 'metadata',
+      protocol_version: AGENT_WIRE_PROTOCOL_VERSION,
+    });
+    const migrated = persistence.records[1] as unknown as {
+      readonly message: {
+        readonly toolCalls: readonly Record<string, unknown>[];
+      };
+    };
+    expect(migrated.message.toolCalls[0]).toMatchObject({
+      name: 'Bash',
+      arguments: '{"command":"pwd"}',
+    });
+    expect(migrated.message.toolCalls[0]?.['function']).toBeUndefined();
+  });
+
+  it('replays legacy tool-baked <system> metadata verbatim without migration', async () => {
+    // Pre-note records carry tool metadata inline in the output. They are
+    // intentionally NOT migrated: the model view stays byte-identical to
+    // what the model originally saw, and UIs show the legacy text as-is.
+    const summary =
+      '<system>Read image file. Mime type: image/png. Size: 70 bytes. ' +
+      'Original dimensions: 4x2 pixels.</system>';
+    const legacyOutput = [
+      { type: 'text', text: summary },
+      { type: 'text', text: '<image path="/tmp/a.png">' },
+      { type: 'image_url', imageUrl: { url: 'data:image/png;base64,A' } },
+      { type: 'text', text: '</image>' },
+    ];
+    const persistence = new RecordingInMemoryAgentRecordPersistence([
+      {
+        type: 'metadata',
+        protocol_version: AGENT_WIRE_PROTOCOL_VERSION,
+        created_at: 1,
+      },
+      {
+        type: 'context.append_loop_event',
+        event: { type: 'step.begin', uuid: 's1', turnId: 't', step: 1 },
+      } as unknown as AgentRecord,
+      {
+        type: 'context.append_loop_event',
+        event: {
+          type: 'tool.call',
+          uuid: 'call_media',
+          turnId: 't',
+          step: 1,
+          stepUuid: 's1',
+          toolCallId: 'call_media',
+          name: 'ReadMediaFile',
+          args: {},
+        },
+      } as unknown as AgentRecord,
+      {
+        type: 'context.append_loop_event',
+        event: {
+          type: 'tool.result',
+          parentUuid: 'call_media',
+          toolCallId: 'call_media',
+          result: { output: legacyOutput },
+        },
+      } as unknown as AgentRecord,
+    ]);
+    const agent = testAgent({ persistence }).agent;
+
+    await agent.records.replay();
+
+    expect(persistence.rewrites).toEqual([]);
+    const stored = agent.context.history.find((m) => m.toolCallId === 'call_media')!;
+    expect(stored.note).toBeUndefined();
+    expect(stored.content).toEqual(legacyOutput);
+
+    // Projection passes the legacy content through untouched — the model
+    // sees exactly the bytes it saw before the note side channel existed.
+    const projected = agent.context.messages.find((m) => m.toolCallId === 'call_media')!;
+    expect(projected.content).toEqual(legacyOutput);
+  });
+
+  it('warns but continues when replaying records from a newer wire version', async () => {
+    const persistence = new InMemoryAgentRecordPersistence([
+      {
+        type: 'metadata',
+        protocol_version: '9.9',
+        created_at: 1,
+      },
+    ]);
+    const records = testAgent({ persistence }).agent.records;
+
+    const result = await records.replay();
+    expect(result.warning).toContain('9.9');
+    expect(result.warning).toContain(AGENT_WIRE_PROTOCOL_VERSION);
+  });
+
+  it('rejects replaying records without a registered migration path', async () => {
+    const persistence = new InMemoryAgentRecordPersistence([
+      {
+        type: 'metadata',
+        protocol_version: '0.9',
+        created_at: 1,
+      },
+    ]);
+    const records = testAgent({ persistence }).agent.records;
+
+    await expect(records.replay()).rejects.toThrow('Missing wire migration for version 0.9');
+  });
+
+  it('replays a tools.set_active_tools record without names without crashing', async () => {
+    const persistence = new InMemoryAgentRecordPersistence([
+      { type: 'metadata', protocol_version: AGENT_WIRE_PROTOCOL_VERSION, created_at: 1 },
+      // v2-engine wires may omit `names` (= every tool active); replaying
+      // such a record must not throw.
+      { type: 'tools.set_active_tools' } as unknown as AgentRecord,
+      { type: 'goal.create', goalId: 'g1', objective: 'do work' } as AgentRecord,
+    ]);
+    const { agent } = testAgent({ persistence });
+
+    await expect(agent.records.replay()).resolves.toEqual({ warning: undefined });
+    // Replay continued past the names-less record.
+    expect(agent.goal.getGoal().goal?.goalId).toBe('g1');
+  });
+
+  it('replays the deny list of a tools.set_active_tools record', async () => {
+    const persistence = new InMemoryAgentRecordPersistence([
+      { type: 'metadata', protocol_version: AGENT_WIRE_PROTOCOL_VERSION, created_at: 1 },
+      {
+        type: 'tools.set_active_tools',
+        names: ['Read', 'Write', 'Bash'],
+        disallowedNames: ['Write'],
+      } as AgentRecord,
+    ]);
+    const { agent } = testAgent({ persistence });
+    agent.config.update({ modelAlias: 'mock-model' });
+
+    await agent.records.replay();
+
+    const names = agent.tools.loopTools.map((tool) => tool.name);
+    expect(names).toContain('Read');
+    expect(names).toContain('Bash');
+    expect(names).not.toContain('Write');
+  });
+
+  it('replays a v2 profile.bind record as config.update + tools.set_active_tools', async () => {
+    const persistence = new InMemoryAgentRecordPersistence([
+      // v2-engine wires are stamped with protocol 1.5.
+      { type: 'metadata', protocol_version: '1.5', created_at: 1 },
+      {
+        type: 'profile.bind',
+        modelAlias: 'mock-model',
+        profileName: 'coding',
+        thinkingEffort: 'off',
+        systemPrompt: 'You are a v2 coding agent.',
+        activeToolNames: ['Read', 'Write', 'Bash'],
+        disallowedTools: ['Write'],
+        subagents: ['explore'],
+      } as AgentRecord,
+    ]);
+    const { agent } = testAgent({ persistence });
+
+    await agent.records.replay();
+
+    expect(agent.config.modelAlias).toBe('mock-model');
+    expect(agent.config.profileName).toBe('coding');
+    expect(agent.config.systemPrompt).toBe('You are a v2 coding agent.');
+    expect(agent.config.subagentNames).toEqual(['explore']);
+    expect(agent.replayBuilder.buildResult().map((record) => record.type)).not.toContain(
+      'config_updated',
+    );
+    const names = agent.tools.loopTools.map((tool) => tool.name);
+    expect(names).toContain('Read');
+    expect(names).toContain('Bash');
+    expect(names).not.toContain('Write');
+  });
+
+  it('skips a profile.bind record without activeToolNames so the profile fallback still fires', async () => {
+    const persistence = new InMemoryAgentRecordPersistence([
+      { type: 'metadata', protocol_version: '1.5', created_at: 1 },
+      // v2's "every tool active" binding: no allowlist to restore. The record
+      // must be ignored wholesale so the session-level default-profile
+      // fallback (gated on an empty replayed system prompt) keeps firing.
+      {
+        type: 'profile.bind',
+        modelAlias: 'mock-model',
+        systemPrompt: 'You are a v2 agent.',
+      } as AgentRecord,
+      { type: 'goal.create', goalId: 'g1', objective: 'do work' } as AgentRecord,
+    ]);
+    const { agent } = testAgent({ persistence });
+
+    await agent.records.replay();
+
+    expect(agent.config.systemPrompt).toBe('');
+    // Replay continued past the skipped record.
+    expect(agent.goal.getGoal().goal?.goalId).toBe('g1');
+  });
+
+  it('replays a v2 tools.reset_active_tools record as a no-op', async () => {
+    const persistence = new InMemoryAgentRecordPersistence([
+      { type: 'metadata', protocol_version: '1.5', created_at: 1 },
+      {
+        type: 'tools.set_active_tools',
+        names: ['Read'],
+      } as AgentRecord,
+      { type: 'tools.reset_active_tools' } as AgentRecord,
+      { type: 'goal.create', goalId: 'g1', objective: 'do work' } as AgentRecord,
+    ]);
+    const { agent } = testAgent({ persistence });
+    agent.config.update({ modelAlias: 'mock-model' });
+
+    await agent.records.replay();
+
+    // v1 has no "all tools" state to restore; the earlier restriction stays
+    // (fails closed) and replay continues past the record.
+    const names = agent.tools.loopTools.map((tool) => tool.name);
+    expect(names).toContain('Read');
+    expect(names).not.toContain('Write');
+    expect(agent.goal.getGoal().goal?.goalId).toBe('g1');
   });
 
   it('restores goal.* records during replay', async () => {
@@ -181,7 +378,7 @@ describe('AgentRecords persistence metadata', () => {
     ]);
     const { agent } = testAgent({ persistence });
 
-    await expect(agent.records.replay()).resolves.toBeUndefined();
+    await expect(agent.records.replay()).resolves.toEqual({ warning: undefined });
     expect(agent.context.history).toHaveLength(0);
     expect(agent.goal.getGoal().goal).toMatchObject({
       goalId: 'g1',
@@ -228,7 +425,7 @@ describe('AgentRecords persistence metadata', () => {
     ]);
     const { agent } = testAgent({ persistence });
 
-    await expect(agent.records.replay()).resolves.toBeUndefined();
+    await expect(agent.records.replay()).resolves.toEqual({ warning: undefined });
 
     expect(agent.goal.getGoal().goal).toBeNull();
     expect(persistence.records.map((record) => record.type)).toEqual([
@@ -258,7 +455,7 @@ describe('AgentRecords persistence metadata', () => {
     ]);
     const { agent } = testAgent({ persistence });
 
-    await expect(agent.records.replay()).resolves.toBeUndefined();
+    await expect(agent.records.replay()).resolves.toEqual({ warning: undefined });
 
     expect(agent.goal.getGoal().goal).toMatchObject({
       goalId: 'fork-goal',
@@ -277,7 +474,7 @@ describe('AgentRecords persistence metadata', () => {
     ]);
     const { agent } = testAgent({ persistence });
 
-    await expect(agent.records.replay()).resolves.toBeUndefined();
+    await expect(agent.records.replay()).resolves.toEqual({ warning: undefined });
 
     expect(agent.goal.getGoal().goal).toBeNull();
     expect(agent.context.history).toHaveLength(0);
@@ -313,7 +510,7 @@ describe('agent replay range build', () => {
       {
         type: 'config.update',
         cwd: process.cwd(),
-        thinkingLevel: 'off',
+        thinkingEffort: 'off',
       },
       {
         type: 'usage.record',
@@ -401,23 +598,25 @@ describe('agent replay range build', () => {
         instruction: 'keep facts',
         result: {
           summary: 'Compacted summary.',
+          contextSummary: 'Compacted summary.',
           compactedCount: 0,
           tokensBefore: 10,
           tokensAfter: 3,
+          keptUserMessageCount: 0,
         },
       }),
     ]);
   });
 
-  it('rejects incompatible wire records while projecting', async () => {
+  it('does not rewrite migrated wire records while projecting', async () => {
     const persistence = new RecordingInMemoryAgentRecordPersistence([
-      { type: 'metadata', protocol_version: '1.4', created_at: 1 },
+      { type: 'metadata', protocol_version: '1.0', created_at: 1 },
       { type: 'permission.set_mode', mode: 'auto' },
     ]);
 
-    await expect(buildReplay(persistence, { start: 0, count: 1 })).rejects.toThrow(
-      'Unsupported agent wire protocol version 1.4; expected 2.0',
-    );
+    await expect(buildReplay(persistence, { start: 0, count: 1 })).resolves.toEqual([
+      expect.objectContaining({ type: 'permission_updated', mode: 'auto' }),
+    ]);
     expect(persistence.rewrites).toEqual([]);
   });
 

@@ -22,7 +22,7 @@
     "lint": "oxlint --type-aware",
     "lint:fix": "pnpm run lint --fix",
     "lint:pkg": "pnpm --filter @pymodel/pythinker-code exec publint && npm_config_cache=${TMPDIR:-/tmp}/pythinker-code-npm-cache pnpm --filter @pymodel/pythinker-code exec attw --pack . --profile node16",
-    "sherif": "sherif --ignore-package ./apps/vscode",
+    "sherif": "sherif --ignore-package ./apps/vscode -i @agentclientprotocol/sdk",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
@@ -31,7 +31,10 @@
     "version": "changeset version",
     "version:release": "changeset version",
     "publish": "pnpm run typecheck && pnpm run lint && pnpm run sherif && pnpm run test && pnpm run build && pnpm run lint:pkg && changeset publish",
-    "prepare": "simple-git-hooks"
+    "prepare": "simple-git-hooks",
+    "dev:cli:v2": "PYTHINKER_CODE_EXPERIMENTAL_FLAG=1 pnpm -C apps/pythinker-code run dev",
+    "dev:kap-server": "pnpm -C apps/pythinker-code run dev:kap-server",
+    "dev:v2": "pnpm -C apps/pythinker-code run dev:kap-server:multi"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "0.18.3",
@@ -71,5 +74,11 @@
   },
   "dependencies": {
     "@earendil-works/pi-tui": "^0.83.0"
+  },
+  "lint-staged": {
+    "*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}": [
+      "oxlint --fix --quiet",
+      "oxlint --type-aware --quiet"
+    ]
   }
 }

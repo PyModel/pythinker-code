@@ -23,6 +23,7 @@ function makeAgent(
     readonly plan?: string | null | undefined;
     readonly path?: string | undefined;
     readonly planFilePath?: string | null | undefined;
+    readonly mode?: 'manual' | 'yolo' | 'auto' | undefined;
     readonly emit?: ((event: unknown) => void) | undefined;
   } = {},
 ): { agent: Agent; requestApproval: ReturnType<typeof vi.fn>; emit: ReturnType<typeof vi.fn> } {
@@ -51,6 +52,7 @@ function makeAgent(
         emit({ type: 'plan_mode.exit' });
       },
     },
+    permission: { mode: input.mode ?? 'auto' },
     rpc: { requestApproval },
     telemetry: { track: vi.fn() },
     emit,
@@ -162,6 +164,33 @@ describe('ExitPlanMode option output', () => {
     expect(result.output).toContain('Exited plan mode');
   });
 
+  it('marks the direct-execution output as auto-approved, not user-reviewed, in auto mode', async () => {
+    const { agent } = makeAgent({ plan: '# Plan', mode: 'auto' });
+
+    const result = await execute(new ExitPlanModeTool(agent), {});
+
+    expect(result.isError).toBeFalsy();
+    // In auto permission mode no interactive review can happen, so the
+    // output must not read as if the user had approved the plan.
+    expect(result.output).toContain('## Plan (auto-approved, not user-reviewed):');
+    expect(result.output).not.toContain('## Approved Plan:');
+    expect(result.output).toContain('the user has NOT explicitly approved it');
+    expect(result.output).toContain('# Plan');
+  });
+
+  it('keeps the user-approved output when a rule lets the call through outside auto mode', async () => {
+    const { agent } = makeAgent({ plan: '# Plan', mode: 'manual' });
+
+    const result = await execute(new ExitPlanModeTool(agent), {});
+
+    expect(result.isError).toBeFalsy();
+    // Outside auto mode the direct-execution path means a configured or
+    // session allow/ask rule approved the call — an explicit user decision,
+    // so the output keeps the user-approved wording.
+    expect(result.output).toContain('## Approved Plan:');
+    expect(result.output).not.toContain('auto-approved');
+  });
+
   it('does not use inline plan fallback for option approval when no plan file exists', async () => {
     const { agent, requestApproval, emit } = makeAgent({
       plan: null,
@@ -250,9 +279,13 @@ describe('ExitPlanMode options documentation consistency', () => {
     expect(optionsParamDescription()).not.toMatch(/2-3 options/);
   });
 
-  it('documents that a single option is equivalent to a plain plan approval', () => {
-    expect(DESCRIPTION).toMatch(/single option/i);
-    expect(DESCRIPTION).toMatch(/plain plan approval/i);
+  it('keeps single-option / plain-approval semantics in the options param only, not duplicated in the .md', () => {
+    // Field mechanics are the options param describe's job (single source of
+    // truth). The tool description routes to the param instead of repeating
+    // them, so the two surfaces cannot drift.
     expect(optionsParamDescription()).toMatch(/single option/i);
+    expect(optionsParamDescription()).toMatch(/plain plan approval/i);
+    expect(DESCRIPTION).not.toMatch(/single option/i);
+    expect(DESCRIPTION).toMatch(/pass them via the .?options.? parameter/i);
   });
 });

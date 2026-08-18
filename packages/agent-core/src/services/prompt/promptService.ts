@@ -56,7 +56,7 @@ function hasAnyAgentStateField(patch: AgentStatePatch): boolean {
     patch.thinking !== undefined ||
     patch.permission_mode !== undefined ||
     patch.plan_mode !== undefined ||
-    patch.dynamicWorkflowMode !== undefined ||
+    patch.dynamic_workflow_mode !== undefined ||
     patch.goal_objective !== undefined ||
     patch.goal_control !== undefined
   );
@@ -74,7 +74,7 @@ function pickAgentStatePatch(body: PromptSubmission): AgentStatePatch | undefine
   if (body.thinking !== undefined) patch.thinking = body.thinking;
   if (body.permission_mode !== undefined) patch.permission_mode = body.permission_mode;
   if (body.plan_mode !== undefined) patch.plan_mode = body.plan_mode;
-  if (body.dynamic_workflow_mode !== undefined) patch.dynamicWorkflowMode = body.dynamic_workflow_mode;
+  if (body.dynamic_workflow_mode !== undefined) patch.dynamic_workflow_mode = body.dynamic_workflow_mode;
   if (body.goal_objective !== undefined) patch.goal_objective = body.goal_objective;
   if (body.goal_control !== undefined) patch.goal_control = body.goal_control;
   return hasAnyAgentStateField(patch) ? patch : undefined;
@@ -97,7 +97,7 @@ interface PromptState {
   body: PromptSubmission;
   createdAt: string;
   turnId: number | null;
-  /** Set on `turn.ended` for the top-level turn (reason='completed'|'failed'). */
+  /** Set on `turn.ended` for the top-level turn (reason='completed'|'failed'|'blocked'). */
   completed: boolean;
   /** Set on `turn.ended` with reason='cancelled' or after a successful abort RPC. */
   aborted: boolean;
@@ -205,7 +205,7 @@ function isTurnStarted(e: Event): e is Event & { type: 'turn.started'; turnId: n
 function isTurnEnded(e: Event): e is Event & {
   type: 'turn.ended';
   turnId: number;
-  reason: 'completed' | 'cancelled' | 'failed';
+  reason: 'completed' | 'cancelled' | 'failed' | 'blocked';
 } {
   return (e as { type?: string }).type === 'turn.ended';
 }
@@ -213,7 +213,7 @@ function isTurnEnded(e: Event): e is Event & {
 /**
  * Type guard for `agent.status.updated` agent-core events. Carries the
  * subset of fields we mirror into the per-session shadow on every live
- * change (model / permission / planMode). `thinkingLevel` is NOT on this
+ * change (model / permission / planMode). `thinkingEffort` is NOT on this
  * event — bootstrap seeds it from `getConfig` and per-request diff dispatch
  * keeps it in sync from there.
  */
@@ -411,7 +411,7 @@ export class PromptService
       content: selected.flatMap((state) => state.body.content),
       steeredAt: new Date().toISOString(),
     };
-    this.eventService.publish(event);
+    this.eventService.publish(event as unknown as Event);
     return { steered: true, prompt_ids: [...promptIds] };
   }
 
@@ -489,7 +489,7 @@ export class PromptService
     // must still trigger the typed event THEN call publish() for the synthetic
     // event.
     this._onDidAbort.fire(ev);
-    this.eventService.publish(ev);
+    this.eventService.publish(ev as unknown as Event);
   }
 
   async abort(sid: string, pid: string): Promise<PromptAbortResult> {
@@ -609,11 +609,11 @@ export class PromptService
     ]);
     const snapshot: AgentStateSnapshot = {};
     if (config.modelAlias !== undefined) snapshot.model = config.modelAlias;
-    // `AgentConfigData.thinkingLevel` is typed `string` but in practice
-    // takes one of the `PromptThinking` literals (`off|minimal|low|...|max`); the
+    // `AgentConfigData.thinkingEffort` is typed `string` but in practice
+    // takes one of the `PromptThinking` literals (`off|low|...|max`); the
     // narrow cast lets diff comparisons stay typed without forcing
     // protocol to import from agent-core.
-    snapshot.thinking = config.thinkingLevel as PromptThinking;
+    snapshot.thinking = config.thinkingEffort as PromptThinking;
     snapshot.permissionMode = permission.mode;
     snapshot.planMode = plan !== null;
     snapshot.dynamicWorkflowMode = dynamicWorkflowMode;
@@ -654,7 +654,7 @@ export class PromptService
       this._recordDispatch(sid, 'setModel', payload, promptId, source);
     }
     if (patch.thinking !== undefined && patch.thinking !== shadow.thinking) {
-      const payload = { sessionId: sid, agentId, level: patch.thinking as PromptThinking };
+      const payload = { sessionId: sid, agentId, effort: patch.thinking as PromptThinking };
       await this.core.rpc.setThinking(payload);
       shadow.thinking = patch.thinking;
       this._recordDispatch(sid, 'setThinking', payload, promptId, source);
@@ -687,12 +687,12 @@ export class PromptService
       shadow.planMode = patch.plan_mode;
     }
 
-    // Dynamic Workflow mode toggle. enter/exit are idempotent no-throw on
+    // DynamicWorkflow mode toggle. enterDynamicWorkflow/exitDynamicWorkflow are idempotent no-throw on
     // the agent side; we still guard with the shadow to avoid redundant
     // dispatch-log entries.
-    if (patch.dynamicWorkflowMode !== undefined && patch.dynamicWorkflowMode !== shadow.dynamicWorkflowMode) {
+    if (patch.dynamic_workflow_mode !== undefined && patch.dynamic_workflow_mode !== shadow.dynamicWorkflowMode) {
       const payload = { sessionId: sid, agentId };
-      if (patch.dynamicWorkflowMode) {
+      if (patch.dynamic_workflow_mode) {
         const enterPayload = { ...payload, trigger: 'manual' as const };
         await this.core.rpc.enterDynamicWorkflow(enterPayload);
         this._recordDispatch(sid, 'enterDynamicWorkflow', enterPayload, promptId, source);
@@ -700,7 +700,7 @@ export class PromptService
         await this.core.rpc.exitDynamicWorkflow(payload);
         this._recordDispatch(sid, 'exitDynamicWorkflow', payload, promptId, source);
       }
-      shadow.dynamicWorkflowMode = patch.dynamicWorkflowMode;
+      shadow.dynamicWorkflowMode = patch.dynamic_workflow_mode;
     }
 
     // Goal creation. createGoal throws PythinkerError on invalid input
@@ -841,7 +841,7 @@ export class PromptService
         this._active.delete(key);
         // Fire typed listeners BEFORE publishing the synth event.
         this._onDidAbort.fire(synth);
-        this.eventService.publish(synth);
+        this.eventService.publish(synth as unknown as Event);
         void this._startNextQueued(sid, state.agentId);
         return;
       }
@@ -853,12 +853,12 @@ export class PromptService
         sessionId: sid,
         promptId: state.promptId,
         finishedAt: new Date().toISOString(),
-        reason: reason === 'failed' ? 'failed' : 'completed',
+        reason: reason === 'failed' || reason === 'blocked' ? reason : 'completed',
       };
       this._active.delete(key);
       // Fire typed listeners BEFORE publishing the synth event.
       this._onDidComplete.fire(synth);
-      this.eventService.publish(synth);
+      this.eventService.publish(synth as unknown as Event);
       void this._startNextQueued(sid, state.agentId);
     }
   }
@@ -984,8 +984,8 @@ export class PromptService
   }
 
   private async _requireSession(sid: string): Promise<void> {
-    const all = await this.core.rpc.listSessions({});
-    if (!all.some((s) => s.id === sid)) {
+    const matches = await this.core.rpc.listSessions({ sessionId: sid });
+    if (matches.length === 0) {
       throw new SessionNotFoundError(sid);
     }
   }

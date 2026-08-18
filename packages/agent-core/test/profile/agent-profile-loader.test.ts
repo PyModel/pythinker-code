@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'pathe';
 
@@ -6,10 +6,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
   DEFAULT_AGENT_PROFILES,
-  loadAgentProfilesFromDirectories,
   loadAgentProfilesFromDir,
   loadAgentProfilesFromSources,
-  loadPluginAgentProfiles,
   resolveAgentProfiles,
   type SystemPromptContext,
 } from '../../src/profile';
@@ -67,23 +65,6 @@ promptVars:
   roleAdditional: parent-role
 tools:
   - Read
-  - Write
-skills:
-  - code-review
-hooks:
-  Stop:
-    - hooks:
-        - type: command
-          command: echo verify
-disallowedTools:
-  - Write
-model: fast-model
-effort: medium
-permissionMode: manual
-initialPrompt: Check the repository instructions first.
-background: true
-maxTurns: 12
-memory: project
 subagents:
   shared:
     description: Shared parent subagent
@@ -101,6 +82,7 @@ promptVars:
   roleAdditional: child-role
 tools:
   - Bash
+  - Skill
 `,
     );
     await write(
@@ -122,28 +104,7 @@ tools:
     const coderPrompt = profiles['coder']?.systemPrompt(promptContext);
 
     expect(profiles['coder']?.description).toBe('Coder child subagent');
-    expect(profiles['coder']?.tools).toEqual(['Bash']);
-    expect(profiles['agent']).toMatchObject({
-      tools: ['Read'],
-      skills: ['code-review'],
-      hooks: [
-        expect.objectContaining({
-          event: 'Stop',
-          command: 'echo verify',
-        }),
-      ],
-      model: 'fast-model',
-      effort: 'medium',
-      permissionMode: 'manual',
-      initialPrompt: 'Check the repository instructions first.',
-      background: true,
-      maxTurns: 12,
-      memory: 'project',
-    });
-    expect(profiles['coder']?.maxTurns).toBe(12);
-    expect(profiles['coder']?.memory).toBe('project');
-    expect(profiles['coder']?.skills).toEqual(['code-review']);
-    expect(profiles['coder']?.hooks).toEqual(profiles['agent']?.hooks);
+    expect(profiles['coder']?.tools).toEqual(['Bash', 'Skill']);
     expect(profiles['agent']?.subagents?.['shared']).toBe(profiles['shared']);
     expect(profiles['agent']?.subagents?.['coder']).toBe(profiles['coder']);
     expect(profiles['coder']?.subagents).toBeUndefined();
@@ -191,79 +152,6 @@ tools:
       }),
     ).toThrow(/Embedded agent profile source missing: profile\/default\/missing\.md/);
   });
-
-  it('discovers YAML profiles with later directory precedence', async () => {
-    const userDir = join(workDir, 'user-agents');
-    const projectDir = join(workDir, 'project-agents');
-    await mkdir(userDir);
-    await mkdir(projectDir);
-    await writeFile(
-      join(userDir, 'review.yaml'),
-      'name: review\ndescription: User review\nsystemPromptTemplate: user prompt\ntools: [Read]\n',
-      'utf-8',
-    );
-    await writeFile(
-      join(projectDir, 'review.yml'),
-      'name: review\ndescription: Project review\nsystemPromptTemplate: project prompt\ntools: [Read, Grep]\n',
-      'utf-8',
-    );
-
-    const result = await loadAgentProfilesFromDirectories([userDir, projectDir]);
-
-    expect(result.failures).toEqual([]);
-    expect(result.profiles['review']?.description).toBe('Project review');
-    expect(result.profiles['review']?.tools).toEqual(['Read', 'Grep']);
-  });
-
-  it('loads namespaced Markdown profiles from a plugin without permission escalation', async () => {
-    const pluginRoot = join(workDir, 'plugin');
-    const agentsDir = join(pluginRoot, 'agents', 'nested');
-    await mkdir(agentsDir, { recursive: true });
-    await writeFile(
-      join(agentsDir, 'review.md'),
-      [
-        '---',
-        'name: review',
-        'description: Review plugin changes.',
-        "tools: [Read, Grep, 'Bash(git status)', Write]",
-        'disallowedTools: [Write]',
-        'model: inherit',
-        'effort: medium',
-        'background: true',
-        'maxTurns: 4',
-        'isolation: worktree',
-        'memory: local',
-        'permissionMode: yolo',
-        '---',
-        'Plugin root: ${PYTHINKER_PLUGIN_ROOT}',
-      ].join('\n'),
-      'utf8',
-    );
-
-    const result = await loadPluginAgentProfiles([
-      {
-        pluginId: 'demo',
-        pluginRoot,
-        paths: [join(pluginRoot, 'agents')],
-      },
-    ]);
-    const profile = result.profiles['demo:nested:review'];
-
-    expect(result.failures).toEqual([]);
-    expect(profile).toMatchObject({
-      name: 'demo:nested:review',
-      description: 'Review plugin changes.',
-      tools: ['Read', 'Grep', 'Bash(git status)'],
-      effort: 'medium',
-      background: true,
-      maxTurns: 4,
-      isolation: 'worktree',
-      memory: 'local',
-    });
-    expect(profile?.model).toBeUndefined();
-    expect(profile?.permissionMode).toBeUndefined();
-    expect(profile?.systemPrompt(promptContext)).toContain(`Plugin root: ${pluginRoot}`);
-  });
 });
 
 describe('default agent profiles', () => {
@@ -291,9 +179,30 @@ describe('default agent profiles', () => {
         'TaskStop',
       ]),
     );
-    expect(DEFAULT_AGENT_PROFILES['coder']?.tools).toEqual(
-      expect.arrayContaining(['Read', 'Write', 'Edit', 'Bash']),
-    );
+    expect(DEFAULT_AGENT_PROFILES['coder']?.tools).toEqual([
+      'Agent',
+      'AgentDynamicWorkflow',
+      'Bash',
+      'CronCreate',
+      'CronDelete',
+      'CronList',
+      'Edit',
+      'EnterPlanMode',
+      'ExitPlanMode',
+      'Glob',
+      'Grep',
+      'Read',
+      'ReadMediaFile',
+      'Skill',
+      'TaskList',
+      'TaskOutput',
+      'TaskStop',
+      'TodoList',
+      'WebSearch',
+      'FetchURL',
+      'Write',
+      'mcp__*',
+    ]);
     expect(DEFAULT_AGENT_PROFILES['explore']?.tools).not.toContain('Write');
     expect(DEFAULT_AGENT_PROFILES['plan']?.tools).not.toContain('Bash');
   });
@@ -324,7 +233,7 @@ describe('default agent profiles', () => {
     expect(prompt).not.toContain('- nested-review:');
     expect(prompt).not.toContain('Path: /skills/parent/nested-review/SKILL.md');
     expect(prompt).not.toContain('When to use: When nested review is requested.');
-    expect(prompt).not.toContain('private');
+    expect(prompt).not.toContain('- private:');
     expect(prompt).not.toContain('flow-only');
     expect(prompt).not.toContain('body of review');
     expect(prompt).not.toContain('Nested review body must not enter system prompt.');

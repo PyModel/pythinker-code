@@ -1,5 +1,5 @@
 /**
- * Pythinker theme adapters — MarkdownTheme and EditorTheme backed by the
+ * Pi-tui theme adapters — MarkdownTheme and EditorTheme backed by the
  * global `currentTheme` singleton.
  *
  * All colour lookups route through `currentTheme.color(token)` so that
@@ -8,7 +8,7 @@
  * instances reads the *current* palette via the singleton.
  */
 
-import type { MarkdownTheme, EditorTheme } from '@earendil-works/pi-tui';
+import type { MarkdownTheme, EditorTheme } from '@pymodel/pi-tui';
 import chalk from 'chalk';
 import { highlight, supportsLanguage } from 'cli-highlight';
 
@@ -23,7 +23,8 @@ import { codeHighlightTheme } from './highlight-theme';
 // eslint-disable-next-line no-control-regex -- intentionally matches the ESC byte that opens ANSI SGR sequences.
 const HEADING_HASH_PREFIX = /^((?:\u001B\[[0-9;]*m)*)#{1,6}[ \t]+/;
 
-export function createPythinkerMarkdownTheme(): MarkdownTheme {
+export function createMarkdownTheme(options?: { transient?: boolean }): MarkdownTheme {
+  const transient = options?.transient === true;
   const stripHash = (text: string): string => text.replace(HEADING_HASH_PREFIX, '$1');
 
   return {
@@ -45,15 +46,13 @@ export function createPythinkerMarkdownTheme(): MarkdownTheme {
     strikethrough: (text) => chalk.strikethrough(text),
     underline: (text) => chalk.underline(text),
     highlightCode: (code: string, lang?: string) => {
+      if (transient) return code.split('\n');
+
       const normalizedLang = lang?.trim().toLowerCase();
       const language =
         normalizedLang !== undefined && supportsLanguage(normalizedLang) ? normalizedLang : 'text';
       try {
-        const highlighted = highlight(code, {
-          language,
-          ignoreIllegals: true,
-          theme: codeHighlightTheme,
-        });
+        const highlighted = highlight(code, { language, ignoreIllegals: true, theme: codeHighlightTheme });
         return highlighted.split('\n');
       } catch {
         return code.split('\n');
@@ -62,29 +61,7 @@ export function createPythinkerMarkdownTheme(): MarkdownTheme {
   };
 }
 
-export function createPythinkerThinkingMarkdownTheme(): MarkdownTheme {
-  const stripHash = (text: string): string => text.replace(HEADING_HASH_PREFIX, '$1');
-  const dim = (text: string): string => chalk.italic.hex(currentTheme.color('textDim'))(text);
-
-  return {
-    heading: (text) => chalk.bold.italic.hex(currentTheme.color('textDim'))(stripHash(text)),
-    link: dim,
-    linkUrl: dim,
-    code: dim,
-    codeBlock: dim,
-    codeBlockBorder: dim,
-    quote: dim,
-    quoteBorder: dim,
-    hr: dim,
-    listBullet: (text) => dim(text.replace(/^-/, '•')),
-    bold: (text) => chalk.bold(text),
-    italic: (text) => chalk.italic(text),
-    strikethrough: (text) => chalk.strikethrough(text),
-    underline: (text) => chalk.underline(text),
-  };
-}
-
-export function createPythinkerEditorTheme(): EditorTheme {
+export function createEditorTheme(): EditorTheme {
   return {
     borderColor: (s) => chalk.hex(currentTheme.color('border'))(s),
     selectList: {

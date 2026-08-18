@@ -4,21 +4,26 @@ import { dirname } from 'pathe';
 
 import { ErrorCodes, PythinkerError } from '#/errors';
 import { applyEnvModelConfig, stripEnvModelConfig } from './env-model';
+import { applySecondaryModelConfig, stripSecondaryModelConfig } from './secondary-model';
 import {
   PythinkerConfigSchema,
   formatConfigValidationError,
   getDefaultConfig,
-  type AdvisorConfig,
   type BackgroundConfig,
   type ExperimentalConfig,
   type HookDefConfig,
+  type ImageConfig,
   type PythinkerConfig,
   type LoopControl,
+  type McpConfig,
   type ModelAlias,
-  type PythoughtsServiceConfig,
+  type PyModelServiceConfig,
+  type OAuthRef,
   type PermissionConfig,
   type ProviderConfig,
+  type SecondaryModelConfig,
   type ServicesConfig,
+  type SubagentConfig,
   type ThinkingConfig,
   validateConfig,
 } from '#/config/schema';
@@ -101,7 +106,7 @@ export function loadRuntimeConfig(
   filePath: string,
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): PythinkerConfig {
-  return applyEnvModelConfig(readConfigFile(filePath), env);
+  return applySecondaryModelConfig(applyEnvModelConfig(readConfigFile(filePath), env), env);
 }
 
 export interface RuntimeConfigLoadResult {
@@ -196,12 +201,14 @@ export function loadRuntimeConfigSafe(
       `Ignoring PYTHINKER_MODEL_* environment overrides: ${describeUnknownError(error)}`,
     );
   }
+  // Never throws: the secondary overlay only copies already-validated entries.
+  config = applySecondaryModelConfig(config, env);
 
   return { config, fileWarnings, envWarnings, fileError };
 }
 
 /** Sections keyed by user-chosen names where single entries can be dropped. */
-const ENTRY_KEYED_SECTIONS = new Set(['providers', 'models', 'modelRoles']);
+const ENTRY_KEYED_SECTIONS = new Set(['providers', 'models']);
 
 interface SalvageResult {
   readonly config: PythinkerConfig | undefined;
@@ -304,24 +311,24 @@ export function transformTomlData(data: Record<string, unknown>): Record<string,
       result[targetKey] = transformRecord(value, transformModelData);
     } else if (targetKey === 'thinking' && isPlainObject(value)) {
       result[targetKey] = transformPlainObject(value);
-    } else if (targetKey === 'advisor' && isPlainObject(value)) {
-      result[targetKey] = transformPlainObject(value);
     } else if (targetKey === 'permission' && isPlainObject(value)) {
       result[targetKey] = transformPermissionData(value);
-    } else if (targetKey === 'hooks' && Array.isArray(value)) {
-      result[targetKey] = value.map((hook) =>
-        isPlainObject(hook) ? transformHookData(hook) : hook,
-      );
     } else if (targetKey === 'services' && isPlainObject(value)) {
       result[targetKey] = transformRecord(value, transformServiceData, snakeToCamel);
     } else if (targetKey === 'loopControl' && isPlainObject(value)) {
       result[targetKey] = transformLoopControlData(value);
     } else if (targetKey === 'background' && isPlainObject(value)) {
       result[targetKey] = transformPlainObject(value);
+    } else if (targetKey === 'image' && isPlainObject(value)) {
+      result[targetKey] = transformPlainObject(value);
     } else if (targetKey === 'experimental' && isPlainObject(value)) {
       result[targetKey] = cloneRecord(value);
-    } else if (targetKey === 'modelRoles' && isPlainObject(value)) {
-      result[targetKey] = cloneRecord(value);
+    } else if (targetKey === 'subagent' && isPlainObject(value)) {
+      result[targetKey] = transformPlainObject(value);
+    } else if (targetKey === 'secondaryModel' && isPlainObject(value)) {
+      result[targetKey] = transformPlainObject(value);
+    } else if (targetKey === 'mcp' && isPlainObject(value)) {
+      result[targetKey] = transformPlainObject(value);
     } else if (!isPlainObject(value)) {
       result[targetKey] = value;
     }
@@ -355,7 +362,9 @@ function transformProviderData(data: Record<string, unknown>): Record<string, un
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(data)) {
     const targetKey = snakeToCamel(key);
-    if (targetKey === 'env' || targetKey === 'customHeaders') {
+    if (targetKey === 'oauth') {
+      out[targetKey] = isPlainObject(value) ? transformPlainObject(value) : value;
+    } else if (targetKey === 'env' || targetKey === 'customHeaders') {
       out[targetKey] = cloneObjectValue(value);
     } else {
       out[targetKey] = value;
@@ -364,14 +373,12 @@ function transformProviderData(data: Record<string, unknown>): Record<string, un
   return out;
 }
 
-function transformHookData(data: Record<string, unknown>): Record<string, unknown> {
-  const out = transformPlainObject(data);
-  if ('headers' in data) out['headers'] = cloneObjectValue(data['headers']);
-  return out;
-}
-
 function transformModelData(data: Record<string, unknown>): Record<string, unknown> {
-  return transformPlainObject(data);
+  const out = transformPlainObject(data);
+  if (isPlainObject(out['overrides'])) {
+    out['overrides'] = transformPlainObject(out['overrides']);
+  }
+  return out;
 }
 
 function transformPermissionData(data: Record<string, unknown>): Record<string, unknown> {
@@ -432,7 +439,9 @@ function transformServiceData(data: Record<string, unknown>): Record<string, unk
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(data)) {
     const targetKey = snakeToCamel(key);
-    if (targetKey === 'customHeaders') {
+    if (targetKey === 'oauth') {
+      out[targetKey] = isPlainObject(value) ? transformPlainObject(value) : value;
+    } else if (targetKey === 'customHeaders') {
       out[targetKey] = cloneObjectValue(value);
     } else {
       out[targetKey] = value;
@@ -455,10 +464,11 @@ function transformLoopControlData(data: Record<string, unknown>): Record<string,
 /* ------------------------------------------------------------------ */
 
 export async function writeConfigFile(filePath: string, config: PythinkerConfig): Promise<void> {
-  // Final guard: never persist the env-synthesized model/provider to disk,
-  // even if a caller passes back the runtime config as a patch (see
-  // stripEnvModelConfig / the getConfig -> setConfig round-trip).
-  const validated = validateConfig(stripEnvModelConfig(config));
+  // Final guard: never persist the env-synthesized model/provider or the
+  // secondary-model runtime view to disk, even if a caller passes back the
+  // runtime config as a patch (see stripEnvModelConfig /
+  // stripSecondaryModelConfig / the getConfig -> setConfig round-trip).
+  const validated = validateConfig(stripSecondaryModelConfig(stripEnvModelConfig(config)));
   await mkdir(dirname(filePath), { recursive: true, mode: 0o700 });
   await atomicWrite(filePath, `${stringifyToml(configToTomlData(validated))}\n`);
 }
@@ -470,6 +480,8 @@ export function configToTomlData(config: PythinkerConfig): Record<string, unknow
   delete out['default_yolo'];
   delete out['defaultYolo'];
   delete out['defaultPermissionMode'];
+  delete out['default_thinking'];
+  delete out['defaultThinking'];
 
   // Top-level scalar fields
   const scalarFields: (keyof PythinkerConfig)[] = [
@@ -477,18 +489,12 @@ export function configToTomlData(config: PythinkerConfig): Record<string, unknow
     'defaultModel',
     'planMode',
     'yolo',
-    'defaultThinking',
     'defaultPermissionMode',
     'defaultPlanMode',
     'mergeAllAvailableSkills',
-    'disabledSkills',
     'extraSkillDirs',
-    'additionalDirs',
-    'allowedHttpHookUrls',
-    'httpHookAllowedEnvVars',
+    'extraAgentDirs',
     'telemetry',
-    'disableWorkflows',
-    'workflowSizeGuideline',
   ];
   for (const key of scalarFields) {
     setDefined(out, camelToSnake(key), config[key]);
@@ -496,16 +502,14 @@ export function configToTomlData(config: PythinkerConfig): Record<string, unknow
 
   setRecordSection(out, 'providers', config.providers, providerToToml);
   setRecordSection(out, 'models', config.models, modelToToml);
-  if (config.modelRoles === undefined) {
-    delete out['model_roles'];
-  } else {
-    out['model_roles'] = cloneUnknown(config.modelRoles);
-  }
   setSection(out, 'thinking', config.thinking, thinkingToToml);
-  setSection(out, 'advisor', config.advisor, advisorToToml);
   setSection(out, 'services', config.services, servicesToToml);
   setSection(out, 'loop_control', config.loopControl, loopControlToToml);
   setSection(out, 'background', config.background, backgroundToToml);
+  setSection(out, 'subagent', config.subagent, subagentToToml);
+  setSection(out, 'secondary_model', config.secondaryModel, secondaryModelToToml);
+  setSection(out, 'mcp', config.mcp, mcpToToml);
+  setSection(out, 'image', config.image, imageToToml);
   setSection(out, 'experimental', config.experimental, experimentalToToml);
   setSection(out, 'permission', config.permission, permissionToToml);
   setHooks(out, config.hooks);
@@ -559,7 +563,9 @@ function setSection<T>(
 function providerToToml(provider: ProviderConfig, rawProvider: unknown): Record<string, unknown> {
   const out = cloneRecord(rawProvider);
   for (const [key, value] of Object.entries(provider)) {
-    if ((key === 'env' || key === 'customHeaders') && value !== undefined) {
+    if (key === 'oauth' && value !== undefined) {
+      out[camelToSnake(key)] = oauthToToml(value as OAuthRef);
+    } else if ((key === 'env' || key === 'customHeaders') && value !== undefined) {
       out[camelToSnake(key)] = cloneUnknown(value);
     } else {
       setDefined(out, camelToSnake(key), value);
@@ -573,6 +579,24 @@ function modelToToml(model: ModelAlias, rawModel: unknown): Record<string, unkno
   for (const [key, value] of Object.entries(model)) {
     if (key === 'capabilities' && Array.isArray(value)) {
       out[camelToSnake(key)] = [...value];
+    } else if (key === 'overrides' && isPlainObject(value)) {
+      const rawOverrides = isPlainObject(rawModel) ? rawModel['overrides'] : undefined;
+      out['overrides'] = modelOverridesToToml(value, rawOverrides);
+    } else {
+      setDefined(out, camelToSnake(key), value);
+    }
+  }
+  return out;
+}
+
+function modelOverridesToToml(
+  overrides: Record<string, unknown>,
+  rawOverrides: unknown,
+): Record<string, unknown> {
+  const out = cloneRecord(rawOverrides);
+  for (const [key, value] of Object.entries(overrides)) {
+    if (key === 'capabilities' && Array.isArray(value)) {
+      out[camelToSnake(key)] = [...value];
     } else {
       setDefined(out, camelToSnake(key), value);
     }
@@ -582,15 +606,8 @@ function modelToToml(model: ModelAlias, rawModel: unknown): Record<string, unkno
 
 function thinkingToToml(thinking: ThinkingConfig, rawThinking: unknown): Record<string, unknown> {
   const out = cloneRecord(rawThinking);
+  delete out['mode'];
   for (const [key, value] of Object.entries(thinking)) {
-    setDefined(out, camelToSnake(key), value);
-  }
-  return out;
-}
-
-function advisorToToml(advisor: AdvisorConfig, rawAdvisor: unknown): Record<string, unknown> {
-  const out = cloneRecord(rawAdvisor);
-  for (const [key, value] of Object.entries(advisor)) {
     setDefined(out, camelToSnake(key), value);
   }
   return out;
@@ -625,23 +642,25 @@ function permissionRuleToToml(
 
 function servicesToToml(services: ServicesConfig, rawServices: unknown): Record<string, unknown> {
   const out = cloneRecord(rawServices);
-  if (services.pythoughtsSearch !== undefined) {
-    out['pythoughts_search'] = serviceToToml(services.pythoughtsSearch);
+  if (services.pymodelSearch !== undefined) {
+    out['pymodel_search'] = serviceToToml(services.pymodelSearch);
   } else {
-    delete out['pythoughts_search'];
+    delete out['pymodel_search'];
   }
-  if (services.pythoughtsFetch !== undefined) {
-    out['pythoughts_fetch'] = serviceToToml(services.pythoughtsFetch);
+  if (services.pymodelFetch !== undefined) {
+    out['pymodel_fetch'] = serviceToToml(services.pymodelFetch);
   } else {
-    delete out['pythoughts_fetch'];
+    delete out['pymodel_fetch'];
   }
   return out;
 }
 
-function serviceToToml(service: PythoughtsServiceConfig): Record<string, unknown> {
+function serviceToToml(service: PyModelServiceConfig): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(service)) {
-    if (key === 'customHeaders' && value !== undefined) {
+    if (key === 'oauth' && value !== undefined) {
+      out[camelToSnake(key)] = oauthToToml(value as OAuthRef);
+    } else if (key === 'customHeaders' && value !== undefined) {
       out[camelToSnake(key)] = cloneUnknown(value);
     } else {
       setDefined(out, camelToSnake(key), value);
@@ -667,6 +686,45 @@ function backgroundToToml(
 ): Record<string, unknown> {
   const out = cloneRecord(rawBackground);
   for (const [key, value] of Object.entries(background)) {
+    setDefined(out, camelToSnake(key), value);
+  }
+  return out;
+}
+
+function subagentToToml(subagent: SubagentConfig, rawSubagent: unknown): Record<string, unknown> {
+  const out = cloneRecord(rawSubagent);
+  for (const [key, value] of Object.entries(subagent)) {
+    setDefined(out, camelToSnake(key), value);
+  }
+  return out;
+}
+
+function secondaryModelToToml(
+  secondaryModel: SecondaryModelConfig,
+  rawSecondaryModel: unknown,
+): Record<string, unknown> {
+  const out = cloneRecord(rawSecondaryModel);
+  for (const [key, value] of Object.entries(secondaryModel)) {
+    if (key === 'capabilities' && Array.isArray(value)) {
+      out[camelToSnake(key)] = [...value];
+    } else {
+      setDefined(out, camelToSnake(key), value);
+    }
+  }
+  return out;
+}
+
+function mcpToToml(mcp: McpConfig, rawMcp: unknown): Record<string, unknown> {
+  const out = cloneRecord(rawMcp);
+  for (const [key, value] of Object.entries(mcp)) {
+    setDefined(out, camelToSnake(key), value);
+  }
+  return out;
+}
+
+function imageToToml(image: ImageConfig, rawImage: unknown): Record<string, unknown> {
+  const out = cloneRecord(rawImage);
+  for (const [key, value] of Object.entries(image)) {
     setDefined(out, camelToSnake(key), value);
   }
   return out;
@@ -699,6 +757,13 @@ function hookToToml(hook: HookDefConfig): Record<string, unknown> {
   return out;
 }
 
+function oauthToToml(oauth: OAuthRef): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(oauth)) {
+    setDefined(out, camelToSnake(key), value);
+  }
+  return out;
+}
 
 /* ------------------------------------------------------------------ */
 /*  Utilities                                                          */

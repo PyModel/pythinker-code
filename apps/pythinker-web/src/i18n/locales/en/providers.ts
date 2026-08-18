@@ -19,8 +19,6 @@ export default {
   keyNotSet: 'key not set',
   modelCount: '{count} models',
   confirmDelete: 'Confirm delete?',
-  confirm: 'Confirm',
-  cancel: 'Cancel',
   refresh: 'Refresh',
   delete: 'Delete',
   refreshTitle: 'Refresh {type}',

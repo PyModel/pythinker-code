@@ -5,7 +5,13 @@
  * separate from the TUI orchestration layer.
  */
 
-import type { ModelAlias, PermissionMode, SessionStatus } from '@pymodel/pythinker-code-sdk';
+import {
+  effectiveModelAlias,
+  type ModelAlias,
+  type PermissionMode,
+  type SessionStatus,
+  type ThinkingEffort,
+} from '@pymodel/pythinker-code-sdk';
 
 import { PRODUCT_NAME } from '#/constant/app';
 import { currentTheme } from '#/tui/theme';
@@ -17,7 +23,11 @@ import {
   usagePercent,
 } from '#/utils/usage/usage-format';
 
-import { buildManagedUsageReportLines, type ManagedUsageReport } from './usage-panel';
+import {
+  buildExtraUsageSection,
+  buildManagedUsageReportLines,
+  type ManagedUsageReport,
+} from './usage-panel';
 
 interface FieldRow {
   readonly label: string;
@@ -31,11 +41,7 @@ export interface StatusReportOptions {
   readonly workDir: string;
   readonly sessionId: string;
   readonly sessionTitle: string | null;
-  readonly thinkingLevel: string;
-  /** Fast-mode request; `fastModeSupported` must be true for the row to show on/off. */
-  readonly fastMode?: boolean;
-  /** Whether the active model supports fast mode; gates the Fast mode row. */
-  readonly fastModeSupported?: boolean;
+  readonly thinkingEffort: ThinkingEffort;
   readonly permissionMode: PermissionMode;
   readonly planMode: boolean;
   readonly contextUsage: number;
@@ -52,15 +58,16 @@ type Colorize = (text: string) => string;
 
 function displayModelName(alias: string, models: Record<string, ModelAlias>): string {
   const model = models[alias];
-  return model?.displayName ?? model?.model ?? alias;
+  const effective = model === undefined ? undefined : effectiveModelAlias(model);
+  return effective?.displayName ?? effective?.model ?? alias;
 }
 
 function formatModelStatus(options: StatusReportOptions): string {
   const model = options.status?.model ?? options.model;
   if (model.trim().length === 0) return 'not set';
 
-  const thinking = options.status?.thinkingLevel ?? options.thinkingLevel;
-  return `${displayModelName(model, options.availableModels)} (thinking ${thinking})`;
+  const effort = options.status?.thinkingEffort ?? options.thinkingEffort;
+  return `${displayModelName(model, options.availableModels)} (thinking ${effort})`;
 }
 
 function addFieldRows(
@@ -99,20 +106,12 @@ export function buildStatusReportLines(options: StatusReportOptions): string[] {
 
   const permission = options.status?.permission ?? options.permissionMode;
   const planMode = options.status?.planMode ?? options.planMode;
-  const fastMode = options.status?.fastMode ?? options.fastMode ?? false;
-  const fastModeSupported =
-    options.status?.fastModeSupported ?? options.fastModeSupported ?? false;
   const sessionId = options.sessionId.trim().length > 0 ? options.sessionId : 'none';
   const rows: FieldRow[] = [
     { label: 'Model', value: formatModelStatus(options) },
     { label: 'Directory', value: options.workDir },
     { label: 'Permissions', value: permission },
     { label: 'Plan mode', value: planMode ? 'on' : 'off' },
-    // "unavailable" when the active model cannot use fast mode; otherwise on/off.
-    {
-      label: 'Fast mode',
-      value: fastModeSupported ? (fastMode ? 'on' : 'off') : 'unavailable',
-    },
     { label: 'Session', value: sessionId },
   ];
   const title = options.sessionTitle?.trim();
@@ -128,7 +127,8 @@ export function buildStatusReportLines(options: StatusReportOptions): string[] {
   addFieldRows(lines, rows, muted, value, errorStyle);
 
   const { ratio, tokens, maxTokens } = contextValues(options);
-  lines.push('', accent('Context window'));
+  lines.push('');
+  lines.push(accent('Context window'));
   if (maxTokens > 0) {
     const safeRatio = safeUsageRatio(ratio);
     const bar = renderProgressBar(safeRatio, 20);
@@ -146,7 +146,19 @@ export function buildStatusReportLines(options: StatusReportOptions): string[] {
     managedUsageError: options.managedUsageError,
   });
   if (managedSection.length > 0) {
-    lines.push('', ...managedSection);
+    lines.push('');
+    lines.push(...managedSection);
+  }
+
+  const extraSection = buildExtraUsageSection(
+    options.managedUsage?.extraUsage,
+    accent,
+    value,
+    muted,
+  );
+  if (extraSection.length > 0) {
+    lines.push('');
+    lines.push(...extraSection);
   }
 
   return lines;

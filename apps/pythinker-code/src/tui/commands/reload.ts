@@ -6,32 +6,44 @@ import type { SlashCommandHost } from './dispatch';
 import { setExperimentalFeatures } from './experimental-flags';
 
 export async function handleReloadTuiCommand(host: SlashCommandHost): Promise<void> {
-  const tuiConfig = await loadTuiConfig();
-  await applyReloadedTuiConfig(host, tuiConfig);
-  const warnings = host.reloadKeybindings?.() ?? [];
-  host.showStatus(
-    warnings.length === 0 ? 'TUI config reloaded.' : warnings.join(' '),
-    warnings.length === 0 ? 'success' : 'warning',
+  const tuiConfig = await loadTuiConfig(undefined, (message) =>
+    host.showStatus(message, 'warning'),
   );
+  await applyReloadedTuiConfig(host, tuiConfig);
+  host.showStatus('TUI config reloaded.', 'success');
 }
 
 export async function handleReloadCommand(host: SlashCommandHost): Promise<void> {
-  const tuiConfig = await loadTuiConfig();
+  const tuiConfig = await loadTuiConfig(undefined, (message) =>
+    host.showStatus(message, 'warning'),
+  );
   const session = host.session;
 
   if (session !== undefined) {
-    await session.reloadSession();
+    await session.reloadSession({ forcePluginSessionStartReminder: true });
     await host.reloadCurrentSessionView(session, 'Session reloaded.');
   }
 
   const config = await host.harness.getConfig({ reload: true });
   setExperimentalFeatures(await host.harness.getExperimentalFeatures());
-  await host.refreshSkillCommands(session);
+  const sessionlessV2 = session === undefined && host.engineV2;
+  if (sessionlessV2) {
+    // Session-less v2: rebuild the workspace-level dynamic commands too, so
+    // skill/plugin changes apply before the first session exists.
+    await host.refreshSkillCommands();
+    await host.refreshPluginCommands();
+  }
+  host.refreshSlashCommandAutocomplete();
   applyRuntimeConfig(host, config);
   await applyReloadedTuiConfig(host, tuiConfig);
-  host.reloadKeybindings?.();
 
   if (session === undefined) {
+    // Still session-less on the v2 engine: refresh the lazy defaults too, so
+    // defaults edited externally (config.toml, a newly added default model)
+    // reach the first lazy-created session instead of staying stale.
+    if (sessionlessV2) {
+      await host.hydrateLazyConfigDefaults();
+    }
     host.showStatus(
       'Runtime and TUI config reloaded; no active session.',
       'success',
@@ -50,11 +62,12 @@ export async function applyReloadedTuiConfig(
   host.refreshTerminalThemeTracking();
   host.setAppState({
     editorCommand: config.editorCommand,
+    disablePasteBurst: config.disablePasteBurst,
     notifications: config.notifications,
     upgrade: config.upgrade,
     statusLine: config.statusLine,
   });
-  host.state.copyFullResponse = config.copyFullResponse;
+  host.state.editor.setDisablePasteBurst(config.disablePasteBurst);
 }
 
 function applyRuntimeConfig(host: SlashCommandHost, config: PythinkerConfig): void {

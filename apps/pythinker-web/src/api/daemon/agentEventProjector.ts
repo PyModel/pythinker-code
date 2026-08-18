@@ -26,6 +26,7 @@ import type {
   AppTask,
 } from '../types';
 import { i18n } from '../../i18n';
+import { toolLabel, toolSummary } from '../../lib/toolMeta';
 import { toAppMessageContent } from './mappers';
 import type { WireMessageContent } from './wire';
 
@@ -35,9 +36,10 @@ import type { WireMessageContent } from './wire';
 // parent transcript — doing so created empty "skeleton" assistant bubbles (a
 // subagent turn.step.started opens a parent assistant message that never gets
 // the main agent's text) and fragmented snippets (subagent deltas appended to
-// the parent). The subagent's progress is surfaced separately via the
-// subagent.* → task → AgentCard path. This mirrors the server's
-// InFlightTurnTracker, which likewise tracks only main-agent activity.
+// the parent). The subagent's live progress is surfaced separately via the
+// subagent.* → task → right-side detail panel path (the spawning `Agent` tool
+// itself renders as a normal tool card in the transcript). This mirrors the
+// server's InFlightTurnTracker, which likewise tracks only main-agent activity.
 const MAIN_AGENT_ID = 'main';
 const MAIN_AGENT_TRANSCRIPT_FRAMES = new Set<string>([
   'turn.started',
@@ -55,6 +57,8 @@ const MAIN_AGENT_TRANSCRIPT_FRAMES = new Set<string>([
   'tool.result',
   'agent.status.updated',
   'prompt.completed',
+  'prompt.aborted',
+  'error',
 ]);
 
 // ---------------------------------------------------------------------------
@@ -98,9 +102,9 @@ interface SessionState {
   // Assistant message tracking
   currentAssistantMsgId: string | undefined;
 
-  // Per-turn accumulated stream lengths — aligned against the wire `offset`
-  // on volatile delta frames (v2 sync protocol) to skip duplicates and
-  // detect gaps after a snapshot seed.
+  // Per-step accumulated stream lengths — aligned against the (step-relative)
+  // wire `offset` on volatile delta frames (v2 sync protocol) to skip
+  // duplicates and detect gaps after a snapshot seed.
   turnTextLen: number;
   turnThinkLen: number;
 
@@ -123,6 +127,10 @@ interface SessionState {
   // Subagent lifecycle deltas after spawned only carry subagentId. Keep the
   // spawned metadata here so later updates can replace the full AppTask.
   subagentMeta: Map<string, AppTask>;
+
+  // Bubble cleared by turn.step.retrying, to be reused by the retried
+  // step.started (same turn) instead of stacking a new bubble.
+  retryReuseMsgId: string | undefined;
 }
 
 function createSessionState(): SessionState {
@@ -143,6 +151,7 @@ function createSessionState(): SessionState {
     model: '',
     messages: [],
     subagentMeta: new Map(),
+    retryReuseMsgId: undefined,
   };
 }
 
@@ -212,39 +221,52 @@ function patchSubagent(
   return next;
 }
 
-function shortJson(value: unknown): string {
-  if (value === undefined || value === null) return '';
-  try {
-    const text = typeof value === 'string' ? value : JSON.stringify(value);
-    return text.length > 120 ? `${text.slice(0, 117)}...` : text;
-  } catch {
-    return '';
-  }
-}
-
-function subagentProgressText(rawType: string, payload: Record<string, unknown>): string | null {
-  if (rawType === 'turn.step.started') return 'Started a step';
+export function subagentProgressText(rawType: string, payload: Record<string, unknown>): string | null {
+  // "Started a step" fires on every step and adds no information — the phase
+  // badge already shows the subagent is working, so skip it to cut the noise.
+  if (rawType === 'turn.step.started') return null;
   if (rawType === 'tool.use' || rawType === 'tool.call.started') {
     const name = stringField(payload, 'name') ?? stringField(payload, 'toolName') ?? 'tool';
-    const args = shortJson(payload['args'] ?? payload['input']);
-    return args ? `Calling ${name}: ${args}` : `Calling ${name}`;
+    const label = toolLabel(cleanToolName(name));
+    const summary = toolArgSummary(name, payload['args'] ?? payload['input']);
+    return summary ? `Calling ${label}: ${summary}` : `Calling ${label}`;
   }
   if (rawType === 'tool.progress') {
     const update = payload['update'];
     if (update && typeof update === 'object') {
       const text = stringField(update as Record<string, unknown>, 'text');
-      if (text) return text;
+      if (text) return capProgressText(text);
       const message = stringField(update as Record<string, unknown>, 'message');
-      if (message) return message;
+      if (message) return capProgressText(message);
     }
     const message = stringField(payload, 'message');
-    if (message) return message;
+    if (message) return capProgressText(message);
   }
-  if (rawType === 'tool.result') {
-    const name = stringField(payload, 'name') ?? stringField(payload, 'toolName') ?? stringField(payload, 'toolCallId') ?? 'tool';
-    return `Finished ${name}`;
-  }
+  // tool.result lines ("Finished X") add noise without much information — the
+  // next call or the final summary already implies completion — so skip them.
+  if (rawType === 'tool.result') return null;
   return null;
+}
+
+/** Strip a trailing `_N` index that some subagents append to tool names in
+ *  `tool.result` events (e.g. `Read_0` → `Read`) so the label resolves. */
+function cleanToolName(name: string): string {
+  return name.replace(/_\d+$/, '');
+}
+
+/** Cap a progress text chunk so a single huge tool output (e.g. a big command
+ *  result) cannot dominate the panel. */
+const MAX_PROGRESS_TEXT = 2000;
+function capProgressText(text: string): string {
+  return text.length > MAX_PROGRESS_TEXT ? `${text.slice(0, MAX_PROGRESS_TEXT)}…` : text;
+}
+
+/** A concise, human-readable summary of a tool call's arguments for progress
+ *  lines (e.g. a file path or shell command), instead of the full JSON blob. */
+function toolArgSummary(name: string, args: unknown): string {
+  if (args === undefined || args === null) return '';
+  const arg = typeof args === 'string' ? args : JSON.stringify(args);
+  return toolSummary(name, arg);
 }
 
 function projectSubagentProgress(
@@ -259,6 +281,38 @@ function projectSubagentProgress(
   // agentDelta events; don't pollute the main task output with generic step
   // placeholders like "Started a step".
   if (sideChannelAgents.has(subagentId) && rawType === 'turn.step.started') return [];
+
+  // The subagent's own streamed text: forward each delta as a `text`-kind
+  // progress chunk so the reducer concatenates it into `AppTask.text`, letting
+  // the right-side detail panel show the subagent's output growing live (like
+  // a thinking block) instead of staying blank until the first tool call.
+  if (rawType === 'assistant.delta') {
+    const delta = stringField(payload, 'delta');
+    if (!delta) return [];
+    // Ensure the subagent task exists before forwarding the text delta. A client
+    // that subscribed from a snapshot after `subagent.spawned` already fired
+    // never received the lifecycle taskCreated, and the reducer only applies
+    // taskProgress to existing tasks — without this, the deltas are dropped and
+    // the live detail stays blank until a non-text frame recreates the task.
+    const previous = state.subagentMeta.get(subagentId);
+    const task = patchSubagent(state, sessionId, subagentId, {
+      status: 'running',
+      subagentPhase: 'working',
+      startedAt: previous?.startedAt ?? new Date().toISOString(),
+    });
+    const out: AppEvent[] = [];
+    if (task) out.push({ type: 'taskCreated', sessionId, task });
+    out.push({
+      type: 'taskProgress',
+      sessionId,
+      taskId: subagentId,
+      outputChunk: delta,
+      stream: 'stdout',
+      kind: 'text',
+    });
+    return out;
+  }
+
   const text = subagentProgressText(rawType, payload);
   if (text === null || text.length === 0) return [];
   const previous = state.subagentMeta.get(subagentId);
@@ -445,17 +499,19 @@ export interface AgentProjector {
   /** Project a single raw agent-core event into zero or more AppEvents. Never throws. */
   project(rawType: string, payload: unknown, sessionId: string, meta?: ProjectMeta): AppEvent[];
   /**
-   * Bind an externally-known promptId to the next turn.started for this session.
+   * Bind an externally-known promptId to the next turn.startd for this session.
    * Call this right after submitPrompt() returns, before the first turn.started arrives.
    */
   bindNextPromptId(sessionId: string, promptId: string): void;
   /**
    * Seed mid-turn state from a session snapshot's `in_flight_turn` (v2 sync):
    * resets per-session state, builds the partially-streamed assistant message
-   * (thinking + text + running tool_use parts), and returns the AppEvents
-   * (sessionStatusChanged + messageCreated) to apply to the reducer. Live
-   * deltas continue appending; their wire `offset` aligns against the seeded
-   * text so the overlap window around snapshot/subscribe is exact.
+   * (thinking + text + running tool_use parts — the current step only; earlier
+   * steps arrive via the transcript), and returns the messageCreated AppEvent
+   * to apply to the reducer. Live deltas continue appending; their wire
+   * `offset` aligns against the seeded text so the overlap window around
+   * snapshot/subscribe is exact. Session status is NOT seeded here — the REST
+   * snapshot's `session.status` is the authoritative value.
    */
   seedInFlight(sessionId: string, turn: AppInFlightTurn): AppEvent[];
   /** Reset all per-session state (call on re-subscribe / resync). */
@@ -524,19 +580,11 @@ export function createAgentProjector(): AgentProjector {
       s.toolStartTimes.set(tool.toolCallId, Date.now());
     }
     s.currentAssistantMsgId = msg.id;
+    // Seeded step-relative lengths; the next turn.step.started resets both.
     s.turnTextLen = turn.assistantText.length;
     s.turnThinkLen = turn.thinkingText.length;
 
-    return [
-      {
-        type: 'sessionStatusChanged',
-        sessionId,
-        status: 'running',
-        previousStatus: 'idle',
-        currentPromptId: promptId,
-      },
-      { type: 'messageCreated', message: cloneMessage(msg) },
-    ];
+    return [{ type: 'messageCreated', message: cloneMessage(msg) }];
   }
 
   function project(
@@ -616,12 +664,17 @@ export function createAgentProjector(): AgentProjector {
       // -----------------------------------------------------------------------
       case 'session.meta.updated': {
         // The daemon auto-generates a title from the first prompt (and other
-        // clients can rename a session). It announces both via this event. We
+        // clients can rename a session); it also reports the latest user prompt
+        // via patch.lastPrompt. It announces all of these via this event. We
         // don't have the full AppSession here, so emit a lightweight
-        // sessionMetaUpdated that patches only the title field.
+        // sessionMetaUpdated that patches only the changed meta fields.
         const title: string | undefined = p?.patch?.title ?? p?.title;
-        if (typeof title === 'string' && title.length > 0) {
-          out.push({ type: 'sessionMetaUpdated', sessionId, title });
+        const lastPrompt: string | undefined = p?.patch?.lastPrompt;
+        const patch: { title?: string; lastPrompt?: string } = {};
+        if (typeof title === 'string' && title.length > 0) patch.title = title;
+        if (typeof lastPrompt === 'string') patch.lastPrompt = lastPrompt;
+        if (patch.title !== undefined || patch.lastPrompt !== undefined) {
+          out.push({ type: 'sessionMetaUpdated', sessionId, ...patch });
         }
         break;
       }
@@ -649,23 +702,23 @@ export function createAgentProjector(): AgentProjector {
       // -----------------------------------------------------------------------
       case 'turn.started': {
         // Bind turnId → promptId. Generate a synthetic one if none was pre-bound.
+        // Session busy is intentionally NOT projected here — the daemon's
+        // `event.session.work_changed` is the single source of the busy fact
+        // (it re-reads the authoritative drain registry and dedupes per real
+        // transition); projecting a second busy flip per turn from the raw
+        // stream made every turn-end consumer fire twice.
         const turnId: number = p?.turnId;
         const existingPromptId = s.currentPromptId ?? ulid('pr_');
         s.currentPromptId = existingPromptId;
         if (turnId !== undefined) {
           s.turnPromptId.set(turnId, existingPromptId);
         }
-        // Fresh turn → fresh per-turn stream offsets.
+        // Fresh turn → fresh step stream offsets.
         s.turnTextLen = 0;
         s.turnThinkLen = 0;
-
-        out.push({
-          type: 'sessionStatusChanged',
-          sessionId,
-          status: 'running',
-          previousStatus: 'idle',
-          currentPromptId: existingPromptId,
-        });
+        // Main-conversation liveness (the moon) keys off the main agent's turn
+        // boundary directly — only main-agent frames reach this switch arm.
+        out.push({ type: 'turnActiveChanged', sessionId, active: true });
         break;
       }
 
@@ -680,6 +733,23 @@ export function createAgentProjector(): AgentProjector {
           promptId = ulid('pr_');
           s.currentPromptId = promptId;
           if (turnId !== undefined) s.turnPromptId.set(turnId, promptId);
+        }
+
+        // Fresh step → fresh stream offsets: the server's delta `offset` is
+        // step-relative, so without this reset every delta from step 2 on is
+        // silently skipped or misread as a gap.
+        s.turnTextLen = 0;
+        s.turnThinkLen = 0;
+
+        // A retry continuation: refill the bubble turn.step.retrying cleared,
+        // instead of creating a second bubble with the same step's content.
+        if (s.retryReuseMsgId !== undefined) {
+          const reuseId = s.retryReuseMsgId;
+          s.retryReuseMsgId = undefined;
+          if (getMsgById(s, reuseId) !== undefined) {
+            s.currentAssistantMsgId = reuseId;
+            break;
+          }
         }
 
         // Create a new pending assistant message
@@ -892,6 +962,12 @@ export function createAgentProjector(): AgentProjector {
           // for a "make a plan" prompt). Carry it so the composer's plan toggle
           // reflects the agent's real state, not just the user's manual choice.
           planMode: p?.planMode === true ? true : p?.planMode === false ? false : undefined,
+          // The session's own thinking level, so per-session state stays in sync
+          // across clients (same treatment as plan/dynamic_workflow above).
+          thinking:
+            typeof p?.thinkingEffort === 'string' && p.thinkingEffort.length > 0
+              ? p.thinkingEffort
+              : undefined,
         });
         break;
       }
@@ -902,6 +978,16 @@ export function createAgentProjector(): AgentProjector {
         const reason: string = p?.reason ?? 'completed';
         const durationMs = numberField(p ?? {}, 'durationMs');
 
+        // Main-conversation liveness: the prompt this turn served is done.
+        // This — not the session-busy status — is what ends the working moon.
+        // It MUST be emitted first in this arm: the onMainTurnEnd side effect
+        // gates on `seq > lastSeqBySession`, and sibling events in this arm
+        // advance that cursor — emitted after them, this event would compare
+        // equal and the prompt-finish cleanup (moon, queue drain) would never
+        // fire (observed: moon stuck when a turn ends with background tasks
+        // still running, where no work_changed(busy:false) fallback exists).
+        out.push({ type: 'turnActiveChanged', sessionId, active: false, reason: p?.reason });
+
         if (msgId) {
           finishAssistantMessage(s, msgId);
           const msg = getMsgById(s, msgId);
@@ -911,7 +997,7 @@ export function createAgentProjector(): AgentProjector {
               sessionId,
               messageId: msgId,
               content: msg.content.map((c) => ({ ...c })),
-              status: reason === 'failed' ? 'error' : 'completed',
+              status: reason === 'failed' || reason === 'blocked' ? 'error' : 'completed',
               durationMs,
             });
           }
@@ -921,35 +1007,86 @@ export function createAgentProjector(): AgentProjector {
         const usageSnapshot = buildUsageSnapshot(s);
         out.push({ type: 'sessionUsageUpdated', sessionId, usage: usageSnapshot });
 
-        const newStatus = reason === 'cancelled' ? 'aborted' : reason === 'failed' ? 'aborted' : 'idle';
-        out.push({
-          type: 'sessionStatusChanged',
-          sessionId,
-          status: newStatus,
-          previousStatus: 'running',
-        });
+        // No busy projection here — see turn.started. The daemon's
+        // `event.session.work_changed` flips the session busy fact.
 
         // Clear per-turn state. Reset the stream offsets too so a stale length
         // from this turn can't wedge the next turn's delta alignment into a
-        // silent skip if its turn.started is missed across a reconnect.
+        // silent skip if its turn.started is missed across a reconnect. The
+        // retry reuse target is per-turn as well: if the turn died between
+        // turn.step.retrying and the retried step.started, the next prompt
+        // must open a fresh bubble, not refill this turn's emptied one.
         s.currentAssistantMsgId = undefined;
         s.currentPromptId = undefined;
         s.turnTextLen = 0;
         s.turnThinkLen = 0;
+        s.retryReuseMsgId = undefined;
         break;
       }
 
       // -----------------------------------------------------------------------
       case 'prompt.completed': {
-        // No-op at AppEvent level — turn.ended already handles the transition to idle
+        // No state change at AppEvent level — turn.ended / the session
+        // status_changed ahead of this event already finished the prompt. The
+        // event rides along so the web layer can spot the one case that has no
+        // turn-level signal: a prompt blocked before any turn started (reason
+        // 'blocked'), which would otherwise pin the in-flight state forever.
+        const promptId: string | undefined = p?.promptId;
+        if (typeof promptId === 'string' && promptId.length > 0) {
+          out.push({ type: 'promptCompleted', sessionId, promptId, reason: p?.reason ?? 'completed' });
+        }
         break;
       }
 
       // -----------------------------------------------------------------------
-      case 'turn.step.retrying':
+      case 'prompt.aborted': {
+        // Fires both for an active-turn abort (a turn.ended + status_changed
+        // precede it — the prompt is already finished) and for a QUEUED prompt
+        // that never started a turn (no turn events, no status flip). The web
+        // layer keys on promptId to clear the in-flight state in the latter case.
+        const promptId: string | undefined = p?.promptId;
+        if (typeof promptId === 'string' && promptId.length > 0) {
+          out.push({ type: 'promptAborted', sessionId, promptId });
+        }
+        break;
+      }
+
+      // -----------------------------------------------------------------------
+      case 'turn.step.retrying': {
+        // The step's stream restarts from offset 0. Reuse the abandoned
+        // bubble instead of stacking a new one: strip its streamed parts and
+        // keep the id in retryReuseMsgId so the retried step.started refills
+        // it in place. Otherwise the failed attempt's partial bubble stays
+        // rendered next to the retry's full stream — the "text/tool shown
+        // twice" duplication (far more visible since the retry budget grew).
+        const msgId = s.currentAssistantMsgId;
+        if (msgId !== undefined) {
+          const msg = getMsgById(s, msgId);
+          if (msg !== undefined) {
+            msg.content = msg.content.filter(
+              (c) => c.type !== 'text' && c.type !== 'thinking' && c.type !== 'toolUse',
+            );
+            out.push({
+              type: 'messageUpdated',
+              sessionId,
+              messageId: msgId,
+              content: msg.content.map((c) => ({ ...c })),
+              status: 'pending',
+            });
+            s.retryReuseMsgId = msgId;
+          }
+        }
+        s.turnTextLen = 0;
+        s.turnThinkLen = 0;
+        s.toolStartTimes.clear();
+        break;
+      }
+
       case 'turn.step.interrupted': {
-        // Discard current assistant message; next step.started will create a new one
+        // Discard current assistant message; next step.started will create a
+        // new one. Drop any pending retry reuse target for the same reason.
         s.currentAssistantMsgId = undefined;
+        s.retryReuseMsgId = undefined;
         break;
       }
 
@@ -967,6 +1104,7 @@ export function createAgentProjector(): AgentProjector {
           subagentType: typeof p?.subagentName === 'string' ? p.subagentName : undefined,
           parentToolCallId: typeof p?.parentToolCallId === 'string' ? p.parentToolCallId : undefined,
           dynamicWorkflowIndex: typeof p?.dynamicWorkflowIndex === 'number' ? p.dynamicWorkflowIndex : undefined,
+          runInBackground: p?.runInBackground === true,
         };
         s.subagentMeta.set(task.id, task);
         out.push({
@@ -1063,19 +1201,11 @@ export function createAgentProjector(): AgentProjector {
         break;
       }
 
-      case 'workflow.warning': {
-        out.push({
-          type: 'unknown',
-          raw: { _agentWarning: true, message: p?.message },
-        });
-        break;
-      }
-
       // -----------------------------------------------------------------------
-      // Background tasks (e.g. a backgrounded Bash command). Real daemon shape:
+      // Tasks (e.g. a detached Bash command). Real daemon shape:
       // payload.info = { taskId, description, status, startedAt(ms), endedAt,
       // kind:'process', command, pid, exitCode }.
-      case 'background.task.started': {
+      case 'task.started': {
         const info = (p?.info ?? {}) as Record<string, unknown>;
         const startedAt =
           typeof info.startedAt === 'number' ? new Date(info.startedAt).toISOString() : undefined;
@@ -1091,6 +1221,48 @@ export function createAgentProjector(): AgentProjector {
             : typeof info.command === 'string'
               ? info.command
               : i18n.global.t('tasks.defaultDescription');
+        // A background subagent registers into the background-task store under
+        // a fresh task id that differs from its agent id. Record the task id on
+        // the existing WS-owned row (keyed by agent id) instead of adding a
+        // second row — REST `/tasks` returns the same agent keyed by task id,
+        // and keepLiveSubagents folds that copy into this row.
+        if (info.kind === 'agent') {
+          const agentId =
+            typeof info.agentId === 'string' && info.agentId.length > 0
+              ? info.agentId
+              : undefined;
+          if (agentId !== undefined) {
+            // Key by agent id even when the spawn event never reached this
+            // client (subscribed late): later agent-scoped progress frames are
+            // routed by agent id, and seeding subagentMeta here keeps them on
+            // this one row instead of synthesizing a second one.
+            const task = patchSubagent(s, sessionId, agentId, {
+              description,
+              backgroundTaskId: taskId,
+              runInBackground: true,
+            });
+            if (task) out.push({ type: 'taskCreated', sessionId, task });
+          } else {
+            // No agent id — nothing to link; key the row by the background
+            // task id so the REST poll dedupes it.
+            out.push({
+              type: 'taskCreated',
+              sessionId,
+              task: {
+                id: taskId,
+                sessionId,
+                kind: 'subagent',
+                description,
+                status: 'running',
+                createdAt: startedAt ?? new Date().toISOString(),
+                startedAt,
+                subagentPhase: 'queued',
+                runInBackground: true,
+              },
+            });
+          }
+          break;
+        }
         const command = typeof info.command === 'string' ? info.command : undefined;
         out.push({
           type: 'taskCreated',
@@ -1109,7 +1281,7 @@ export function createAgentProjector(): AgentProjector {
         });
         break;
       }
-      case 'background.task.terminated': {
+      case 'task.terminated': {
         const info = (p?.info ?? {}) as Record<string, unknown>;
         const failed =
           info.status === 'failed' ||
@@ -1146,7 +1318,8 @@ export function createAgentProjector(): AgentProjector {
           tokensBefore: typeof result.tokensBefore === 'number' ? result.tokensBefore : undefined,
           tokensAfter: typeof result.tokensAfter === 'number' ? result.tokensAfter : undefined,
           summary: typeof result.summary === 'string' ? result.summary : undefined,
-        }, {
+        });
+        out.push({
           type: 'historyCompacted',
           sessionId,
           beforeSeq: 0,
@@ -1181,11 +1354,44 @@ export function createAgentProjector(): AgentProjector {
       }
 
       // -----------------------------------------------------------------------
+      case 'cron.fired': {
+        // A scheduled reminder fired into the session. agent-core persists the
+        // injected user message (so a refresh renders it via messagesToTurns),
+        // but turn.steer() does NOT broadcast a prompt.submitted / message.created
+        // for it — synthesize one here so the notice shows up live too. A later
+        // snapshot reload replaces the message log wholesale, so this synthesized
+        // copy never duplicates the persisted one. The promptId is intentionally
+        // omitted: the web client caches every user message's promptId into
+        // promptIdBySession for Stop/abort, and a synthetic id the daemon would
+        // reject would clobber the real active promptId. The reducer already skips
+        // optimistic-echo reconciliation for cron-origin messages, so no promptId
+        // is needed for de-dup either.
+        const origin = p?.origin;
+        const promptText = stringField(p ?? {}, 'prompt');
+        if (
+          origin &&
+          typeof origin === 'object' &&
+          (origin as Record<string, unknown>)['kind'] === 'cron_job' &&
+          promptText
+        ) {
+          const msg: AppMessage = {
+            id: ulid('cron_'),
+            sessionId,
+            role: 'user',
+            content: [{ type: 'text', text: promptText }],
+            createdAt: new Date().toISOString(),
+            metadata: { origin: origin as Record<string, unknown> },
+          };
+          s.messages.push(msg);
+          out.push({ type: 'messageCreated', message: cloneMessage(msg) });
+        }
+        break;
+      }
+
+      // -----------------------------------------------------------------------
       // Explicitly known but not projected
       case 'compaction.blocked':
-      case 'cron.fired':
       case 'hook.result':
-      case 'hook.status':
       case 'mcp.server.status':
       case 'skill.activated':
       case 'tool.list.updated':
@@ -1251,6 +1457,7 @@ const KNOWN_AGENT_CORE_TYPES = new Set([
   'agent.status.updated',
   'prompt.submitted',
   'prompt.completed',
+  'prompt.aborted',
   'session.meta.updated',
   'compaction.started',
   'compaction.completed',
@@ -1263,9 +1470,11 @@ const KNOWN_AGENT_CORE_TYPES = new Set([
   'subagent.suspended',
   'subagent.completed',
   'subagent.failed',
-  'workflow.warning',
+  'task.started',
+  'task.terminated',
   'background.task.started',
   'background.task.terminated',
+  'cron.fired',
 ]);
 
 /**
@@ -1293,7 +1502,6 @@ const PROTOCOL_EVENT_NAMES = new Set([
   'question.requested',
   'question.answered',
   'question.dismissed',
-  'question.expired',
   // Background tasks (projected)
   'task.created',
   'task.progress',
