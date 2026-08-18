@@ -189,6 +189,14 @@ summary {
   --err: #c0392b;
   /* Subtle hover wash for icon buttons (toast close, etc.). */
   --hover: rgba(0, 0, 0, 0.05);
+  /* Aliases for names referenced across components but never defined —
+     without these the declarations are invalid at computed-value time and
+     silently fall back (see test/css-custom-properties.test.ts). They point
+     at the v2 token layer, so light/dark both resolve. */
+  --ink: var(--color-text);
+  --fg: var(--color-text);
+  --color-fg: var(--color-text);
+  --border: var(--color-line);
   /* Legacy radius aliases (kept for one version cycle, design-system §02).
      Byte-for-byte identical to the old 6 / 8 / 12 / 16 scale, now expressed
      against the canonical --radius-* scale below so the two cannot drift.

@@ -737,6 +737,7 @@ export function toAppModel(wire: WireModel): AppModel {
     capabilities: wire.capabilities,
     supportEfforts: wire.support_efforts,
     defaultEffort: wire.default_effort,
+    adaptiveThinking: wire.adaptive_thinking,
   };
 }
 

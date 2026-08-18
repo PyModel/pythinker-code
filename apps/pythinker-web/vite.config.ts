@@ -149,6 +149,10 @@ export default defineConfig({
   server: {
     port: webPort,
     strictPort: false,
+    // Vitest only: Vite 6.4+ runs an fs-access check on `?raw` ids, which
+    // denies unplugin-icons' virtual `~icons/*?raw` modules under the test
+    // server (they resolve to no real file). The dev server keeps strict fs.
+    fs: process.env.VITEST ? { strict: false } : undefined,
     // Same-origin dev: the browser calls Vite, Vite forwards to the server.
     // No CORS anywhere. The real server serves REST + WS all under /api/v1.
     proxy: {

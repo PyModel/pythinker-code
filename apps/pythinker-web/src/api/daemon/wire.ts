@@ -370,6 +370,7 @@ export interface WireModel {
   capabilities?: string[];
   support_efforts?: string[];
   default_effort?: string;
+  adaptive_thinking?: boolean;
 }
 
 export interface WireCodexLoginStart {

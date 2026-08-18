@@ -620,6 +620,8 @@ export interface AppModel {
   supportEfforts?: readonly string[];
   /** Catalog-declared default effort for extended thinking. */
   defaultEffort?: string;
+  /** Whether the model decides its own thinking budget (adaptive reasoning). */
+  adaptiveThinking?: boolean;
 }
 
 export interface AppProvider {
