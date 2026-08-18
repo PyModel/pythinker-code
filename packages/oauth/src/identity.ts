@@ -125,14 +125,15 @@ export function replaceUserAgentProduct(userAgent: string, product: string): str
   return separator < 0 ? cleaned : `${cleaned}${userAgent.slice(separator)}`;
 }
 
+/**
+ * Default outbound identity headers. Only the User-Agent: this distribution
+ * runs no managed service, so the X-Msh-* device headers (device id, device
+ * name, OS version) that upstream reports to its managed endpoints are never
+ * attached to provider requests.
+ */
 export function createPythinkerDefaultHeaders(options: PythinkerIdentityOptions): Record<string, string> {
   return {
     'User-Agent': createPythinkerUserAgent(options),
-    ...createPythinkerDeviceHeaders({
-      homeDir: options.homeDir,
-      version: options.version,
-      platform: options.platform,
-    }),
   };
 }
 

@@ -125,7 +125,7 @@ export interface RunSubagentOptions {
 
 export interface SpawnSubagentOptions extends RunSubagentOptions {
   readonly profileName: string;
-  readonly dynamic_workflowItem?: string;
+  readonly dynamicWorkflowItem?: string;
   /**
    * Explicit per-spawn model choice from the tool call. The profile's own
    * `modelPreference` applies when this is omitted; both only take effect
@@ -170,7 +170,7 @@ export class SessionSubagentHost {
     const profile = this.resolveProfile(parent, options.profileName);
     const { id, agent } = await this.session.createAgent(
       { type: 'sub', generate: parent.rawGenerate },
-      { parentAgentId: this.ownerAgentId, dynamic_workflowItem: options.dynamic_workflowItem },
+      { parentAgentId: this.ownerAgentId, dynamicWorkflowItem: options.dynamicWorkflowItem },
     );
     const completion = this.runWithActiveChild(id, options, async (runOptions) => {
       this.emitSubagentSpawned(parent, id, profile.name, runOptions);
@@ -318,7 +318,7 @@ export class SessionSubagentHost {
     if (metadata?.type !== 'sub' || metadata.parentAgentId !== this.ownerAgentId) {
       return undefined;
     }
-    return metadata.dynamic_workflowItem;
+    return metadata.dynamicWorkflowItem;
   }
 
   private resolveProfile(parent: Agent, profileName: string): ResolvedAgentProfile {

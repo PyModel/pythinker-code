@@ -6199,14 +6199,14 @@ command = "vim"
       sendQueued,
     );
 
-    const dynamic_workflowProgress = driver.state.transcriptContainer.children.find(
+    const dynamicWorkflowProgress = driver.state.transcriptContainer.children.find(
       (child): child is AgentDynamicWorkflowProgressComponent => child instanceof AgentDynamicWorkflowProgressComponent,
     );
-    if (dynamic_workflowProgress === undefined) throw new Error('expected AgentDynamicWorkflow progress');
+    if (dynamicWorkflowProgress === undefined) throw new Error('expected AgentDynamicWorkflow progress');
 
     const transcriptWidth = Math.max(1, terminalColumns - 2);
     const renderDynamicWorkflow = (): string =>
-      stripSgr(dynamic_workflowProgress.render(transcriptWidth).join('\n'));
+      stripSgr(dynamicWorkflowProgress.render(transcriptWidth).join('\n'));
 
     expect(renderDynamicWorkflow()).toContain('001 Queued...');
 
@@ -6225,7 +6225,7 @@ command = "vim"
 
     const transcriptChildren = driver.state.transcriptContainer.children;
     const dynamicWorkflowIndex = transcriptChildren.indexOf(
-      dynamic_workflowProgress as (typeof transcriptChildren)[number],
+      dynamicWorkflowProgress as (typeof transcriptChildren)[number],
     );
     expect(dynamicWorkflowIndex).toBeGreaterThanOrEqual(0);
 
@@ -7228,20 +7228,19 @@ command = "vim"
     expect(filteredOutput).toContain('Search: tu');
     expect(filteredOutput).toContain('Pythinker Turbo');
     expect(filteredOutput).not.toContain('Kimi K2');
-    // Turbo is a thinking-capable model that is not the active one, so it
-    // defaults to thinking on — selecting it applies thinking without a toggle.
+    // Turbo keeps the live Off effort instead of resetting the saved preference.
     (picker as TabbedModelSelectorComponent).handleInput('\r');
 
     await vi.waitFor(() => {
       expect(session.setModel).toHaveBeenCalledWith('turbo');
-      expect(session.setThinking).toHaveBeenCalledWith('on');
       expect(setConfig).toHaveBeenCalledWith({
         defaultModel: 'turbo',
-        thinking: { enabled: true },
+        thinking: { enabled: false },
       });
     });
+    expect(session.setThinking).not.toHaveBeenCalled();
     expect(driver.state.appState.model).toBe('turbo');
-    expect(driver.state.appState.thinkingEffort).toBe('on');
+    expect(driver.state.appState.thinkingEffort).toBe('off');
   });
 
   it('applies /model selection to the session only on Alt+S without persisting', async () => {
@@ -7282,11 +7281,11 @@ command = "vim"
 
     await vi.waitFor(() => {
       expect(session.setModel).toHaveBeenCalledWith('turbo');
-      expect(session.setThinking).toHaveBeenCalledWith('on');
+      expect(driver.state.appState.model).toBe('turbo');
     });
+    expect(session.setThinking).not.toHaveBeenCalled();
     expect(setConfig).not.toHaveBeenCalled();
-    expect(driver.state.appState.model).toBe('turbo');
-    expect(driver.state.appState.thinkingEffort).toBe('on');
+    expect(driver.state.appState.thinkingEffort).toBe('off');
   });
 
   it('uses the effective effort returned after a model-switch fallback', async () => {
@@ -7868,7 +7867,7 @@ command = "vim"
 
     expect(driver.state.appState.streamingPhase).toBe('thinking');
     expect(driver.streamingUI.hasActiveThinkingComponent()).toBe(true);
-    expect(stripSgr(renderTranscript(driver))).toContain('actual reasoning');
+    expect(stripSgr(renderTranscript(driver))).not.toContain('actual reasoning');
   });
 
   it('does not create a thinking component for whitespace-only thinking on session replay', async () => {
@@ -7887,11 +7886,16 @@ command = "vim"
       ),
     ).toHaveLength(0);
 
-    // Real stored thinking still replays normally.
+    // Real stored thinking still creates a component, but stays collapsed.
     driver.streamingUI.onThinkingUpdate('visible reasoning');
     driver.streamingUI.onThinkingEnd();
 
-    expect(stripSgr(renderTranscript(driver))).toContain('visible reasoning');
+    expect(
+      driver.state.transcriptContainer.children.filter(
+        (child) => child instanceof ThinkingComponent,
+      ),
+    ).toHaveLength(1);
+    expect(stripSgr(renderTranscript(driver))).not.toContain('visible reasoning');
   });
 
   it('keeps the waiting moon spinner while reasoning streams only empty (encrypted) thinking deltas', async () => {
@@ -8089,11 +8093,11 @@ describe('/model status displayName override', () => {
     await vi.waitFor(() => {
       expect(setConfig).toHaveBeenCalledWith({
         defaultModel: 'turbo',
-        thinking: { enabled: true },
+        thinking: { enabled: false },
       });
     });
 
-    expect(renderTranscript(driver)).toContain('Switched to Custom Turbo with thinking on.');
+    expect(renderTranscript(driver)).toContain('Switched to Custom Turbo with thinking off.');
     expect(renderTranscript(driver)).not.toContain('Remote Turbo');
   });
 });

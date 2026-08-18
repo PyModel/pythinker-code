@@ -40,7 +40,7 @@ const SLASH_COMMANDS: SlashCommandInfo[] = [
 
 const saveConfig: Handler<SessionConfig, { ok: boolean }> = async (params, ctx) => {
   const effort = normalizeEffort(params.effort ?? (params.thinking === true ? "on" : "off"));
-  const full = { mode: params.thinking === false ? "off" : "on", effort };
+  const full = { enabled: params.thinking !== false, effort };
 
   const config = await ctx.harness.getConfig({ reload: true });
   const currentEffort = (config.thinking as any)?.effort;
@@ -48,10 +48,10 @@ const saveConfig: Handler<SessionConfig, { ok: boolean }> = async (params, ctx) 
   // If the user modified only the model dropdown, update only defaultModel +
   // thinking.enabled to match the release behavior (tested by the
   // persistModelSelection rule).
-  const patch = effortChanged ? full : { mode: full.mode };
+  const patch = effortChanged ? full : { enabled: full.enabled };
   if (
     config.defaultModel !== params.model
-    || (config.thinking as any)?.mode !== patch.mode
+    || config.thinking?.enabled !== patch.enabled
     || (effortChanged && (config.thinking as any)?.effort !== (patch as any).effort)
   ) {
     await ctx.harness.setConfig({
@@ -64,7 +64,7 @@ const saveConfig: Handler<SessionConfig, { ok: boolean }> = async (params, ctx) 
   if (runtime !== undefined) {
     const status = await runtime.session.getStatus();
     if (status.model !== params.model) await runtime.session.setModel(params.model);
-    if (status.thinkingLevel !== effort) await runtime.session.setThinking(effort);
+    if (status.thinkingEffort !== effort) await runtime.session.setThinking(effort);
   }
   return { ok: true };
 };
@@ -185,4 +185,3 @@ function toWebviewModel(id: string, model: any): ModelConfig {
     default_effort: model.defaultEffort,
   };
 }
-

@@ -28,8 +28,8 @@ import {
   fetchCatalog,
   formatErrorMessage,
   loadBuiltInCatalog,
-  managedModelToAlias,
   type ApiKeyPromptOptions,
+  type LoginPlatformModelInfo,
   type LoginProgressSpinnerHandle,
   type LoginUi,
 } from "@pymodel/pythinker-code-sdk";
@@ -152,7 +152,12 @@ export function createVscodeLoginUi(
         // is a working fallback, so time the fetch out rather than wait.
         catalog = await fetchCatalog(
           DEFAULT_CATALOG_URL,
-          AbortSignal.any([controller.signal, AbortSignal.timeout(CATALOG_FETCH_TIMEOUT_MS)]),
+          {
+            signal: AbortSignal.any([
+              controller.signal,
+              AbortSignal.timeout(CATALOG_FETCH_TIMEOUT_MS),
+            ]),
+          },
         );
         catalogSpinner.stop({ ok: true, label: "Provider catalog loaded." });
       } catch (error) {
@@ -214,7 +219,7 @@ export function createVscodeLoginUi(
       );
       if (selected === undefined) return undefined;
       const effort = await promptEffortLevel(
-        effortLevelsForModel(managedModelToAlias(platform.id, selected.model)),
+        effortLevelsForPlatformModel(platform.id, selected.model),
         token,
       );
       if (effort === undefined) return undefined;
@@ -252,4 +257,30 @@ export function createVscodeLoginUi(
     },
   };
   return ui;
+}
+
+function effortLevelsForPlatformModel(
+  platformId: string,
+  model: LoginPlatformModelInfo,
+): string[] {
+  const supportEfforts =
+    'supportedReasoningEfforts' in model
+      ? model.supportedReasoningEfforts
+      : 'supportEfforts' in model
+        ? model.supportEfforts
+        : undefined;
+  const alwaysThinking = model.supportsThinkingType === 'only';
+  const supportsThinking =
+    alwaysThinking || model.supportsThinkingType === 'both' || model.supportsReasoning;
+  return effortLevelsForModel({
+    provider: platformId,
+    model: model.id,
+    maxContextSize: model.contextLength,
+    capabilities: alwaysThinking
+      ? ['always_thinking']
+      : supportsThinking
+        ? ['thinking']
+        : undefined,
+    supportEfforts: supportEfforts === undefined ? undefined : [...supportEfforts],
+  });
 }

@@ -98,12 +98,8 @@ export class CoreProcessService extends Disposable implements ICoreProcessServic
         options.identity,
       );
 
-    // Default-wire the Pythinker request headers (User-Agent + X-Msh-* device
-    // identity). Without this, PythinkerCore's outbound fetch carries the
-    // default Node fetch User-Agent and the managed Pythinker-for-Coding
-    // endpoint rejects with 40340 ("only available for Coding Agents
-    // such as Pythinker CLI, Claude Code, …"). Mirrors what `SDKRpcClient`
-    // does for the in-process TUI path (node-sdk's sdk-rpc-client.ts).
+    // Default-wire the product User-Agent without managed-service X-Msh-*
+    // device headers. Mirrors the in-process TUI path in SDKRpcClient.
     // Caller-supplied `pythinkerRequestHeaders` always wins; absent that, we
     // synthesize from `options.identity`. Hosts that pass neither
     // (no identity, no headers) still construct — but their requests will
@@ -198,9 +194,7 @@ export class CoreProcessService extends Disposable implements ICoreProcessServic
           return rpcPromise.then((methods) => {
             const fn = (methods as unknown as Record<string, unknown>)[prop];
             if (typeof fn !== 'function') {
-              return Promise.reject(
-                new Error(`CoreProcessService.rpc.${prop} is not a function`),
-              );
+              throw new Error(`CoreProcessService.rpc.${prop} is not a function`);
             }
             return (fn as (...args: unknown[]) => unknown)(...args);
           });
@@ -216,8 +210,8 @@ export class CoreProcessService extends Disposable implements ICoreProcessServic
    * runtimes share OAuth credentials when both run against the same
    * `~/.pythinker-code`.
    *
-   * `identity` is forwarded to the managed auth facade so token refreshes
-   * carry the same `X-Msh-*` device headers as `_defaultPythinkerRequestHeaders`.
+   * `identity` is forwarded to the auth facade so token refreshes carry the
+   * same product User-Agent as `_defaultPythinkerRequestHeaders`.
    *
    * Exposed as `static` so tests can assert the wiring without exercising the
    * full agent-core turn loop.
@@ -233,18 +227,14 @@ export class CoreProcessService extends Disposable implements ICoreProcessServic
 
   /**
    * Build the default `pythinkerRequestHeaders` from `options.identity` so the
-   * outbound `User-Agent` + device-identity headers identify this process
-   * as a real Coding Agent host (e.g. `pythinker-code-cli/<ver>`). Without
-   * these, the managed Pythinker-for-Coding endpoint rejects with 40340.
+   * outbound User-Agent identifies this process (for example,
+   * `pythinker-code-cli/<ver>`). Managed-service X-Msh-* device headers stay
+   * absent.
    *
    * Returns `undefined` when no identity is provided — preserves the
    * pre-fix contract for hosts that pass headers explicitly via
    * `options.pythinkerRequestHeaders` (or for legacy callers / tests that
    * don't talk to the managed endpoint at all).
-   *
-   * `homeDir` resolution matches PythinkerCore's so the per-device id (minted
-   * + cached at `<homeDir>/device_id` on first call) lives in the same
-   * root as everything else PythinkerCore touches.
    *
    * Exposed as `static` so tests can assert the wiring without booting
    * the service.

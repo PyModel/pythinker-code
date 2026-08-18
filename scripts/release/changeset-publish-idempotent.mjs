@@ -29,7 +29,7 @@ function* workspacePackageJsons() {
       const nested = join(group, entry.name);
       const p = join(nested, 'package.json');
       if (existsSync(p)) yield p;
-      // one extra level (e.g. apps/dashboard/{web,server})
+      // one extra level (e.g. apps/vis/{web,server})
       for (const sub of readdirSync(nested, { withFileTypes: true })) {
         if (sub.isDirectory() && existsSync(join(nested, sub.name, 'package.json'))) {
           yield join(nested, sub.name, 'package.json');

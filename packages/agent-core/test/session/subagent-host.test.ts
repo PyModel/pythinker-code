@@ -1029,7 +1029,7 @@ describe('SessionSubagentHost', () => {
     const host = new SessionSubagentHost(session, 'main');
 
     await expect(
-      host.runQueued([{ ...queuedTask(1), dynamic_workflowItem: 'src/a.ts', signal }]),
+      host.runQueued([{ ...queuedTask(1), dynamicWorkflowItem: 'src/a.ts', signal }]),
     ).resolves.toMatchObject([
       {
         agentId: 'agent-0',
@@ -1042,13 +1042,13 @@ describe('SessionSubagentHost', () => {
       expect.any(Object),
       expect.objectContaining({
         parentAgentId: 'main',
-        dynamic_workflowItem: 'src/a.ts',
+        dynamicWorkflowItem: 'src/a.ts',
       }),
     );
     expect(metadataAgents['agent-0']).toMatchObject({
       type: 'sub',
       parentAgentId: 'main',
-      dynamic_workflowItem: 'src/a.ts',
+      dynamicWorkflowItem: 'src/a.ts',
     });
     expect(host.getDynamicWorkflowItem('agent-0')).toBe('src/a.ts');
     expect(parent.allEvents).toContainEqual(
@@ -1877,7 +1877,7 @@ function fakeSession(
             homedir: '/tmp/pythinker-session/agents/agent-0',
             type: config.type ?? 'main',
             parentAgentId,
-            dynamic_workflowItem: options.dynamic_workflowItem,
+            dynamicWorkflowItem: options.dynamicWorkflowItem,
           };
         }
         if (options.profile !== undefined) {

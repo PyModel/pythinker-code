@@ -120,7 +120,7 @@ describe('Pythinker identity factories', () => {
     expect(headers['X-Msh-Platform']).toBe('pythinker_code_');
   });
 
-  it('merges User-Agent and device headers into default headers', () => {
+  it('keeps default headers to the User-Agent — no device identity headers', () => {
     const headers = createPythinkerDefaultHeaders({
       homeDir: tempHome(),
       productName: 'pythinker-code-cli',
@@ -129,21 +129,7 @@ describe('Pythinker identity factories', () => {
     });
 
     expect(headers['User-Agent']).toBe('pythinker-code-cli/1.2.3');
-    expect(headers['X-Msh-Platform']).toBe('pythinker_code_cli');
-    expect(headers['X-Msh-Version']).toBe('1.2.3');
-    expect(headers['X-Msh-Device-Id']).toMatch(/^[0-9a-f-]+$/);
-  });
-
-  it('threads the identity platform into default headers', () => {
-    const headers = createPythinkerDefaultHeaders({
-      homeDir: tempHome(),
-      productName: 'pythinker-code-desktop',
-      version: '0.0.13',
-      platform: 'pythinker_code_desktop',
-    });
-
-    expect(headers['User-Agent']).toBe('pythinker-code-desktop/0.0.13');
-    expect(headers['X-Msh-Platform']).toBe('pythinker_code_desktop');
+    expect(Object.keys(headers)).toEqual(['User-Agent']);
   });
 });
 

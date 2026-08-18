@@ -13,12 +13,13 @@ import SideChatPanel from './components/chat/SideChatPanel.vue';
 import DiffView from './components/chat/DiffView.vue';
 import ModelPicker from './components/settings/ModelPicker.vue';
 import ProviderManager from './components/settings/ProviderManager.vue';
-import LoginDialog from './components/dialogs/LoginDialog.vue';
 import SettingsDialog from './components/settings/SettingsDialog.vue';
 import AddWorkspaceDialog from './components/dialogs/AddWorkspaceDialog.vue';
 import ConfirmDialogHost from './components/dialogs/ConfirmDialogHost.vue';
 import StatusPanel from './components/chat/StatusPanel.vue';
 import WarningToasts from './components/WarningToasts.vue';
+import UpdateToast from './components/UpdateToast.vue';
+import WindowControls from './components/WindowControls.vue';
 import MobileTopBar from './components/mobile/MobileTopBar.vue';
 import MobileSwitcherSheet from './components/mobile/MobileSwitcherSheet.vue';
 import MobileSettingsSheet from './components/mobile/MobileSettingsSheet.vue';
@@ -37,7 +38,7 @@ import { useFilePreview, type DetailTarget } from './composables/useFilePreview'
 import { useDetailPanel } from './composables/useDetailPanel';
 import { useIsMobile } from './composables/useIsMobile';
 import { openDialogCount } from './composables/dialogStack';
-import type { DynamicWorkflowMember } from './composables/dynamic_workflowGroups';
+import type { DynamicWorkflowMember } from './composables/dynamicWorkflowGroups';
 import ServerAuthDialog from './components/ServerAuthDialog.vue';
 import { initServerAuth, onAuthRequired } from './api/daemon/serverAuth';
 import type { AppConfig, ThinkingLevel } from './api/types';
@@ -72,7 +73,7 @@ provide('resolveImage', client.resolveImageUrl);
 // which buildDynamicWorkflowGroups filters out for the badge counter.
 provide(
   'resolveDynamicWorkflowMembers',
-  (toolCallId: string): DynamicWorkflowMember[] => client.dynamic_workflowMembersByToolCallId.value.get(toolCallId) ?? [],
+  (toolCallId: string): DynamicWorkflowMember[] => client.dynamicWorkflowMembersByToolCallId.value.get(toolCallId) ?? [],
 );
 const { t } = useI18n();
 const { confirm } = useConfirmDialog();
@@ -315,7 +316,6 @@ const conversationPaneRef = ref<InstanceType<typeof ConversationPane> | null>(nu
 const showModelPicker = ref(false);
 const showProviders = ref(false);
 
-const showLogin = ref(false);
 const showAddWorkspace = ref(false);
 const showStatusPanel = ref(false);
 const showSettings = ref(false);
@@ -339,7 +339,6 @@ const anyOverlayOpen = computed<boolean>(
     openDialogCount.value > 0 ||
     showModelPicker.value ||
     showProviders.value ||
-    showLogin.value ||
     showAddWorkspace.value ||
     showStatusPanel.value ||
     showSettings.value ||
@@ -385,7 +384,9 @@ async function openProviders(): Promise<void> {
 }
 
 function openLogin(): void {
-  showLogin.value = true;
+  // No managed-account sign-in in this distribution: "log in" means adding a
+  // model provider (API key or provider OAuth) through the provider manager.
+  void openProviders();
 }
 
 async function handleSelectModel(modelId: string): Promise<void> {
@@ -464,26 +465,6 @@ async function handleUpdateConfig(patch: Partial<AppConfig>): Promise<void> {
   } finally {
     configSaving.value = false;
   }
-}
-
-// LoginDialog callbacks — delegates to composable
-async function handleStartOAuthLogin() {
-  return client.startOAuthLogin();
-}
-
-async function handlePollOAuthLogin() {
-  return client.pollOAuthLogin();
-}
-
-async function handleCancelOAuthLogin() {
-  return client.cancelOAuthLogin();
-}
-
-async function handleLoginSuccess(): Promise<void> {
-  showLogin.value = false;
-  // Re-check auth state and reload sessions now that we're authenticated
-  await client.checkAuth();
-  await client.load();
 }
 
 // Edit + resend the last user message: undo the latest exchange on the daemon,
@@ -684,6 +665,7 @@ function openPr(url: string): void {
 
 <template>
   <div class="app-shell">
+    <WindowControls />
     <ServerAuthDialog v-if="showServerAuth" />
     <section v-if="showAuthGate" class="auth-page">
       <div class="auth-page-inner">
@@ -1019,19 +1001,6 @@ function openPr(url: string): void {
       @close="showSettings = false"
     />
 
-    <!-- Provider Manager overlay -->
-    <ProviderManager
-      v-if="showProviders"
-      :providers="client.providers.value"
-      :loading="providersLoading"
-      :unavailable="providersUnavailable"
-      @add="handleAddProvider($event)"
-      @refresh="handleRefreshProvider($event)"
-      @delete="confirmDeleteProvider($event)"
-      @open-login="() => { showProviders = false; openLogin(); }"
-      @close="showProviders = false"
-    />
-
     <!-- Status panel overlay (/status) — renders current client state, no daemon call -->
     <StatusPanel
       v-if="showStatusPanel"
@@ -1070,6 +1039,7 @@ function openPr(url: string): void {
 
     <!-- Floating warnings / agent errors (e.g. a 403 from the model provider) -->
     <WarningToasts :warnings="client.warnings.value" @dismiss="client.dismissWarning" />
+    <UpdateToast />
 
     <!-- KAP/daemon debug panel (opt-in, ?debug=1) -->
     <DebugPanel v-if="debugEnabled" />
@@ -1123,15 +1093,19 @@ function openPr(url: string): void {
       @logout="client.logout"
     />
     </div>
-    <!-- Login Dialog overlay. It is outside `.app` so `/login` can open it too. -->
-    <LoginDialog
-      v-if="showLogin"
-      :on-start-o-auth-login="handleStartOAuthLogin"
-      :on-poll-o-auth-login="handlePollOAuthLogin"
-      :on-cancel-o-auth-login="handleCancelOAuthLogin"
-      @success="handleLoginSuccess"
-      @close="showLogin = false"
+    <!-- Provider Manager overlay. Outside `.app` so the auth-gate page and
+         `/login` can open it too. -->
+    <ProviderManager
+      v-if="showProviders"
+      :providers="client.providers.value"
+      :loading="providersLoading"
+      :unavailable="providersUnavailable"
+      @add="handleAddProvider($event)"
+      @refresh="handleRefreshProvider($event)"
+      @delete="confirmDeleteProvider($event)"
+      @close="showProviders = false"
     />
+
   </div>
 </template>
 

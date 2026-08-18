@@ -158,7 +158,7 @@ export interface AgentMeta {
   readonly homedir?: string;
   readonly type: AgentType;
   readonly parentAgentId?: string | null;
-  readonly dynamic_workflowItem?: string;
+  readonly dynamicWorkflowItem?: string;
 }
 
 interface ResumedAgent {
@@ -171,7 +171,7 @@ type AgentEntry = Agent | Promise<ResumedAgent>;
 export interface CreateAgentOptions {
   readonly profile?: ResolvedAgentProfile;
   readonly parentAgentId?: string;
-  readonly dynamic_workflowItem?: string;
+  readonly dynamicWorkflowItem?: string;
   readonly persistMetadata?: boolean;
 }
 
@@ -824,7 +824,7 @@ export class Session {
         homedir,
         type,
         parentAgentId,
-        dynamic_workflowItem: options.dynamic_workflowItem,
+        dynamicWorkflowItem: options.dynamicWorkflowItem,
       };
       void this.writeMetadata();
     }

@@ -152,10 +152,10 @@ export interface AgentInfo {
   wireRecordCount: number;
   wireProtocolVersion: string | null;
   /** Per-item dynamic_workflow work label persisted by agent-core for dynamic-workflow-spawned
-   *  sub-agents (`AgentMeta.dynamic_workflowItem`). `null` when the agent is not a
+   *  sub-agents (`AgentMeta.dynamicWorkflowItem`). `null` when the agent is not a
    *  dynamic_workflow item or when the value cannot be recovered (e.g. disk-only
    *  inventory of a session with a corrupt `state.json`). */
-  dynamic_workflowItem: string | null;
+  dynamicWorkflowItem: string | null;
 }
 
 export interface SessionDetail {

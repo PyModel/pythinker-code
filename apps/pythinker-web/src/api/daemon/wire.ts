@@ -370,6 +370,21 @@ export interface WireModel {
   capabilities?: string[];
   support_efforts?: string[];
   default_effort?: string;
+  adaptive_thinking?: boolean;
+}
+
+export interface WireCodexLoginStart {
+  login_id: string;
+  authorize_url: string;
+  loopback: boolean;
+  expires_at: string;
+}
+
+export interface WireCodexLoginStatus {
+  login_id: string;
+  state: 'pending' | 'completed' | 'failed' | 'cancelled';
+  default_model?: string;
+  message?: string;
 }
 
 export interface WireProvider {
@@ -400,6 +415,18 @@ export interface WireConfigProvider {
   has_api_key: boolean;
 }
 
+export interface WireHook {
+  event: string;
+  type?: 'command' | 'http' | 'model';
+  matcher?: string;
+  command?: string;
+  url?: string;
+  statusMessage?: string;
+  timeout?: number;
+  once?: boolean;
+  async?: boolean;
+}
+
 export interface WireConfig {
   providers: Record<string, WireConfigProvider>;
   default_provider?: string;
@@ -408,10 +435,12 @@ export interface WireConfig {
   thinking?: unknown;
   plan_mode?: boolean;
   yolo?: boolean;
+  default_thinking?: boolean;
   default_permission_mode?: string;
   default_plan_mode?: boolean;
   permission?: unknown;
-  hooks?: unknown[];
+  hooks?: WireHook[];
+  disabled_skills?: string[];
   services?: unknown;
   merge_all_available_skills?: boolean;
   extra_skill_dirs?: string[];

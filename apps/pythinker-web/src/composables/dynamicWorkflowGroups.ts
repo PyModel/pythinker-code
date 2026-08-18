@@ -99,7 +99,7 @@ export function countDynamicWorkflowMembers(groups: DynamicWorkflowGroup[]): { d
  * structured result arrives. Also includes subagents without a dynamicWorkflowIndex so a
  * late-synced task still appears (sorted last).
  */
-export function dynamic_workflowMembersByToolCall(tasks: AppTask[]): Map<string, DynamicWorkflowMember[]> {
+export function dynamicWorkflowMembersByToolCall(tasks: AppTask[]): Map<string, DynamicWorkflowMember[]> {
   const buckets = new Map<string, DynamicWorkflowMember[]>();
   for (const task of tasks) {
     if (task.kind !== 'subagent' || !task.parentToolCallId) continue;

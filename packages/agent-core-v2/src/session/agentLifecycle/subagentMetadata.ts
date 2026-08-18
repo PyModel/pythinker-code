@@ -2,11 +2,11 @@ import type { AgentMeta } from '#/session/sessionMetadata/sessionMetadata';
 
 export function subagentLabels(
   parentAgentId: string,
-  options: { readonly dynamic_workflowItem?: string } = {},
+  options: { readonly dynamicWorkflowItem?: string } = {},
 ): Readonly<Record<string, string>> {
   const labels: Record<string, string> = { parentAgentId };
-  if (options.dynamic_workflowItem !== undefined) {
-    labels['dynamic_workflowItem'] = options.dynamic_workflowItem;
+  if (options.dynamicWorkflowItem !== undefined) {
+    labels['dynamicWorkflowItem'] = options.dynamicWorkflowItem;
   }
   return labels;
 }
@@ -19,9 +19,9 @@ export function labelsFromAgentMeta(
   if (parentAgentId !== undefined) {
     labels['parentAgentId'] = parentAgentId;
   }
-  const dynamic_workflowItem = subagentDynamicWorkflowItem(meta);
-  if (dynamic_workflowItem !== undefined) {
-    labels['dynamic_workflowItem'] = dynamic_workflowItem;
+  const dynamicWorkflowItem = subagentDynamicWorkflowItem(meta);
+  if (dynamicWorkflowItem !== undefined) {
+    labels['dynamicWorkflowItem'] = dynamicWorkflowItem;
   }
   return Object.keys(labels).length > 0 ? labels : undefined;
 }
@@ -39,7 +39,7 @@ export function subagentParentAgentId(meta: AgentMeta | undefined): string | und
 
 export function subagentDynamicWorkflowItem(meta: AgentMeta | undefined): string | undefined {
   if (meta === undefined) return undefined;
-  return firstNonEmpty(meta.labels?.['dynamic_workflowItem'], meta.dynamic_workflowItem);
+  return firstNonEmpty(meta.labels?.['dynamicWorkflowItem'], meta.dynamicWorkflowItem);
 }
 
 function firstNonEmpty(...values: readonly (string | undefined)[]): string | undefined {

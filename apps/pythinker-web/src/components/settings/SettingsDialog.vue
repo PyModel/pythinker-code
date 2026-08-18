@@ -452,16 +452,17 @@ function archiveTime(iso: string): string {
         <section v-show="activeTab === 'account'" class="panel">
           <section class="sec">
             <h3 class="sec-title">{{ t('settings.account') }}</h3>
+            <!-- No managed account in this distribution: the account tab shows
+                 provider readiness and routes to the provider manager. -->
             <div class="row">
-              <span class="rlabel">{{ authReady ? 'managed:pythinker-code' : t('sidebar.notSignedIn') }}</span>
+              <span class="rlabel">{{ authReady ? t('settings.providers') : t('sidebar.notSignedIn') }}</span>
               <Tooltip :text="accountModel">
                 <span v-if="authReady && accountModel" class="rvalue">{{ accountModel }}</span>
               </Tooltip>
             </div>
             <div class="actions">
               <Button variant="secondary" size="sm" @click="emit('openOnboarding'); emit('close')">{{ t('onboarding.reopen') }}</Button>
-              <Button v-if="authReady" variant="danger-soft" size="sm" @click="emit('logout')">{{ t('sidebar.signOut') }}</Button>
-              <Button v-else variant="primary" size="sm" @click="emit('login')">{{ t('sidebar.signIn') }}</Button>
+              <Button variant="primary" size="sm" @click="emit('login')">{{ t('settings.manageProviders') }}</Button>
             </div>
           </section>
         </section>

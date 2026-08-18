@@ -24,7 +24,7 @@ import { tokenCountingKey } from '#/agent/tokenCounting/tokenCountingOps';
 import { usageKey } from '#/agent/usage/usageOps';
 import { userToolKey } from '#/agent/userTool/userToolOps';
 import { planKey } from '#/features/plan/planOps';
-import { dynamic_workflowKey } from '#/features/dynamic_workflow/dynamic_workflowOps';
+import { dynamicWorkflowKey } from '#/features/dynamic_workflow/dynamicWorkflowOps';
 import { towerKey } from '#/features/tower/towerOps';
 import { cronKey } from '#/session/cron/cronOps';
 import { interactionKey } from '#/session/interaction/interactionOps';
@@ -54,7 +54,7 @@ export const BUILTIN_REPLAYABLE_STATE_KEYS: readonly ReplayableStateKey<any>[] =
   usageKey,
   userToolKey,
   planKey,
-  dynamic_workflowKey,
+  dynamicWorkflowKey,
   towerKey,
   cronKey,
   interactionKey,

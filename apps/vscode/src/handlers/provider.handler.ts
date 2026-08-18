@@ -1,10 +1,10 @@
 import {
   CatalogProviderError,
   DEFAULT_CATALOG_URL,
-  catalogConnectionWire,
   catalogProviderModels,
   fetchCatalog,
   importCatalogProvider,
+  resolveCatalogImport,
   type Catalog,
 } from "@pymodel/pythinker-code-sdk";
 
@@ -56,10 +56,10 @@ function toConfiguredProvider(id: string, provider: any, config: any): Configure
         ? "oauth"
         : typeof provider.apiKey === "string" && provider.apiKey.length > 0
           ? "config"
-          : typeof provider.apiKeyEnvVar === "string" && provider.apiKeyEnvVar.length > 0
+          : providerEnvKey(provider) !== undefined
             ? "env"
             : "none",
-    apiKeyEnvVar: provider.apiKeyEnvVar,
+    apiKeyEnvVar: providerEnvKey(provider),
     catalogUrl: provider.source?.kind === "modelsDev" ? provider.source.url : undefined,
     models: models.toSorted((left, right) => left.localeCompare(right)),
   };
@@ -92,8 +92,7 @@ export const providerHandlers: Record<string, Handler<any, any>> = {
         providerId: params.providerId,
         entry,
         catalogUrl: DEFAULT_CATALOG_URL,
-        apiKey: params.apiKey,
-        apiKeyEnvVar: params.apiKeyEnvVar,
+        apiKey: params.apiKey ?? "",
         defaultModel: params.defaultModel,
       });
     } catch (error) {
@@ -127,12 +126,12 @@ function hostOf(baseUrl: unknown): string | undefined {
 }
 
 function toCatalogSummary(id: string, entry: any): CatalogProviderSummary {
-  const wire = catalogConnectionWire(entry);
+  const resolution = resolveCatalogImport(entry);
+  const wire = resolution.kind === "ok" ? resolution.wire : undefined;
   return {
     id,
     name: entry.name ?? id,
     wire,
-    apiKeyEnvVar: entry.env?.[0],
     models: catalogProviderModels(entry).map((model) => ({
       id: model.id,
       name: model.name ?? model.id,
@@ -140,4 +139,11 @@ function toCatalogSummary(id: string, entry: any): CatalogProviderSummary {
       thinking: model.capability?.thinking === true,
     })),
   };
+}
+
+function providerEnvKey(provider: any): string | undefined {
+  if (typeof provider.env !== "object" || provider.env === null) return undefined;
+  return Object.entries(provider.env).find(
+    ([, value]) => typeof value === "string" && value.length > 0,
+  )?.[0];
 }

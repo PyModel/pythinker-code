@@ -11,6 +11,14 @@ import type {
   AppMessageRole,
   AppModel,
   AppProvider,
+  AppConnector,
+  AppMcpServerDefinition,
+  AppMcpServerInput,
+  AppPlugin,
+  AppSubagent,
+  AppTool,
+  CodexLoginStart,
+  CodexLoginStatus,
   ProviderRefreshResult,
   AppSession,
   AppSkill,
@@ -45,6 +53,7 @@ import {
   toAppMessage,
   toAppModel,
   toAppProvider,
+  toCodexLoginStatus,
   toAppQuestionRequest,
   toAppSession,
   toAppTask,
@@ -73,6 +82,8 @@ import type {
   WirePage,
   WirePromptSubmitResult,
   WirePromptSteerResult,
+  WireCodexLoginStart,
+  WireCodexLoginStatus,
   WireProvider,
   WireProviderRefreshResult,
   WireSession,
@@ -184,6 +195,78 @@ interface WireSkillDescriptor {
   source: string;
   type?: string;
   disable_model_invocation?: boolean;
+}
+
+interface WireToolDescriptor {
+  name: string;
+  description: string;
+  input_schema: unknown;
+  source: 'builtin' | 'skill' | 'mcp';
+  mcp_server_id?: string;
+}
+
+interface WireMcpServer {
+  id: string;
+  name: string;
+  transport: 'stdio' | 'http' | 'sse';
+  status: 'connected' | 'connecting' | 'disconnected' | 'error';
+  tool_count: number;
+  last_error?: string;
+  editable: boolean;
+  definition?: WireMcpServerDefinition;
+}
+
+interface WireMcpServerDefinition {
+  transport: 'stdio' | 'http' | 'sse';
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
+}
+
+interface WirePlugin {
+  id: string;
+  display_name: string;
+  version?: string;
+  enabled: boolean;
+  state: string;
+  skill_count: number;
+  mcp_server_count: number;
+  has_errors: boolean;
+  source: string;
+}
+
+interface WireAgentProfile {
+  name: string;
+  description?: string;
+  source: 'built-in' | 'plugin' | 'user' | 'project';
+  tools: string[];
+  model?: string;
+  effort?: string;
+  when_to_use?: string;
+}
+
+function toAppMcpDefinition(definition: WireMcpServerDefinition): AppMcpServerDefinition {
+  return {
+    transport: definition.transport,
+    command: definition.command,
+    args: definition.args,
+    env: definition.env,
+    url: definition.url,
+    headers: definition.headers,
+  };
+}
+
+function toWireMcpDefinition(input: AppMcpServerInput): WireMcpServerDefinition {
+  return {
+    transport: input.transport,
+    command: input.command,
+    args: input.args,
+    env: input.env,
+    url: input.url,
+    headers: input.headers,
+  };
 }
 
 interface WireArchiveResult {
@@ -419,6 +502,8 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
       goalObjective?: string;
       goalControl?: 'pause' | 'resume' | 'cancel';
       thinking?: string;
+      tools?: string[];
+      mcpServers?: string[];
     },
   ): Promise<AppSession> {
     const body: Record<string, unknown> = {};
@@ -432,6 +517,8 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
     if (input.goalObjective !== undefined) agentConfig['goal_objective'] = input.goalObjective;
     if (input.goalControl !== undefined) agentConfig['goal_control'] = input.goalControl;
     if (input.thinking !== undefined) agentConfig['thinking'] = input.thinking;
+    if (input.tools !== undefined) agentConfig['tools'] = input.tools;
+    if (input.mcpServers !== undefined) agentConfig['mcp_servers'] = input.mcpServers;
     if (Object.keys(agentConfig).length > 0) body['agent_config'] = agentConfig;
     const data = await this.http.post<WireSession>(
       `/sessions/${encodeURIComponent(sessionId)}/profile`,
@@ -873,6 +960,8 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
       name: s.name,
       description: s.description,
       source: s.source,
+      path: s.path,
+      disableModelInvocation: s.disable_model_invocation,
     }));
   }
 
@@ -884,6 +973,105 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
       name: s.name,
       description: s.description,
       source: s.source,
+      path: s.path,
+      disableModelInvocation: s.disable_model_invocation,
+    }));
+  }
+
+  async listTools(sessionId: string): Promise<AppTool[]> {
+    const data = await this.http.get<{ tools: WireToolDescriptor[] }>('/tools', {
+      session_id: sessionId,
+    });
+    return (data.tools ?? []).map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      inputSchema: tool.input_schema,
+      source: tool.source,
+      mcpServerId: tool.mcp_server_id,
+    }));
+  }
+
+  async listConnectors(): Promise<AppConnector[]> {
+    const data = await this.http.get<{ servers: WireMcpServer[] }>('/mcp/servers');
+    return (data.servers ?? []).map((server) => ({
+      id: server.id,
+      name: server.name,
+      transport: server.transport,
+      status: server.status,
+      toolCount: server.tool_count,
+      lastError: server.last_error,
+      editable: server.editable,
+      definition: server.definition === undefined ? undefined : toAppMcpDefinition(server.definition),
+    }));
+  }
+
+  async createConnector(input: AppMcpServerInput): Promise<{ created: true }> {
+    return this.http.post<{ created: true }>('/mcp/servers', {
+      mcp_server_id: input.name,
+      config: toWireMcpDefinition(input),
+    });
+  }
+
+  async updateConnector(
+    connectorId: string,
+    input: AppMcpServerInput,
+  ): Promise<{ updated: true }> {
+    return this.http.put<{ updated: true }>(
+      `/mcp/servers/${encodeURIComponent(connectorId)}`,
+      { config: toWireMcpDefinition(input) },
+    );
+  }
+
+  async removeConnector(connectorId: string): Promise<{ deleted: true }> {
+    return this.http.delete<{ deleted: true }>(
+      `/mcp/servers/${encodeURIComponent(connectorId)}`,
+    );
+  }
+
+  async restartConnector(connectorId: string): Promise<{ restarting: true }> {
+    return this.http.post<{ restarting: true }>(
+      `/mcp/servers/${encodeURIComponent(connectorId)}:restart`,
+      {},
+    );
+  }
+
+  async listPlugins(): Promise<AppPlugin[]> {
+    const data = await this.http.get<{ plugins: WirePlugin[] }>('/plugins');
+    return (data.plugins ?? []).map((plugin) => ({
+      id: plugin.id,
+      displayName: plugin.display_name,
+      version: plugin.version,
+      enabled: plugin.enabled,
+      state: plugin.state,
+      skillCount: plugin.skill_count,
+      mcpServerCount: plugin.mcp_server_count,
+      hasErrors: plugin.has_errors,
+      source: plugin.source,
+    }));
+  }
+
+  async setPluginEnabled(
+    pluginId: string,
+    enabled: boolean,
+  ): Promise<{ id: string; enabled: boolean }> {
+    return this.http.post<{ id: string; enabled: boolean }>(
+      `/plugins/${encodeURIComponent(pluginId)}:set-enabled`,
+      { enabled },
+    );
+  }
+
+  async listSubagents(workDir: string): Promise<AppSubagent[]> {
+    const data = await this.http.get<{ profiles: WireAgentProfile[] }>('/agent-profiles', {
+      work_dir: workDir,
+    });
+    return (data.profiles ?? []).map((profile) => ({
+      name: profile.name,
+      description: profile.description,
+      source: profile.source,
+      tools: profile.tools,
+      model: profile.model,
+      effort: profile.effort,
+      whenToUse: profile.when_to_use,
     }));
   }
 
@@ -1249,6 +1437,41 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
     return toProviderRefreshResult(data);
   }
 
+  async startCodexLogin(): Promise<CodexLoginStart> {
+    const data = await this.http.post<WireCodexLoginStart>('/auth/codex:start');
+    return {
+      loginId: data.login_id,
+      authorizeUrl: data.authorize_url,
+      loopback: data.loopback,
+      expiresAt: data.expires_at,
+    };
+  }
+
+  async getCodexLoginStatus(loginId: string): Promise<CodexLoginStatus> {
+    const data = await this.http.get<WireCodexLoginStatus>(
+      `/auth/codex/${encodeURIComponent(loginId)}`,
+    );
+    return toCodexLoginStatus(data);
+  }
+
+  async submitCodexLoginRedirect(
+    loginId: string,
+    redirectUrl: string,
+  ): Promise<CodexLoginStatus> {
+    const data = await this.http.post<WireCodexLoginStatus>(
+      `/auth/codex/${encodeURIComponent(loginId)}:submit_code`,
+      { redirect_url: redirectUrl },
+    );
+    return toCodexLoginStatus(data);
+  }
+
+  async cancelCodexLogin(loginId: string): Promise<CodexLoginStatus> {
+    const data = await this.http.post<WireCodexLoginStatus>(
+      `/auth/codex/${encodeURIComponent(loginId)}:cancel`,
+    );
+    return toCodexLoginStatus(data);
+  }
+
   // -------------------------------------------------------------------------
   // Config — REAL endpoints
   // -------------------------------------------------------------------------
@@ -1268,10 +1491,12 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
       thinking: 'thinking',
       planMode: 'plan_mode',
       yolo: 'yolo',
+      defaultThinking: 'default_thinking',
       defaultPermissionMode: 'default_permission_mode',
       defaultPlanMode: 'default_plan_mode',
       permission: 'permission',
       hooks: 'hooks',
+      disabledSkills: 'disabled_skills',
       services: 'services',
       mergeAllAvailableSkills: 'merge_all_available_skills',
       extraSkillDirs: 'extra_skill_dirs',

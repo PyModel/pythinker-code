@@ -104,49 +104,6 @@ describe('WebFetchService', () => {
     expect(fetcher()).toBeInstanceOf(LocalFetchURLProvider);
   });
 
-  it('builds a PyModel fetcher from the managed provider oauth ref', () => {
-    providers = {
-      [OAUTH_PROVIDER]: {
-        type: 'pythinker',
-        baseUrl: 'https://api.example.com/v1',
-        oauth: { storage: 'file', key: 'oauth/pythinker-code' },
-      },
-    };
-    expect(fetcher()).toBeInstanceOf(PyModelFetchURLProvider);
-    expect(resolveTokenProvider).toHaveBeenCalledWith(OAUTH_PROVIDER, {
-      storage: 'file',
-      key: 'oauth/pythinker-code',
-    });
-  });
-
-  it('fetches against /fetch with the OAuth access token, host identity headers, and custom headers', async () => {
-    providers = {
-      [OAUTH_PROVIDER]: {
-        type: 'pythinker',
-        baseUrl: 'https://api.example.com/v1/',
-        oauth: { storage: 'file', key: 'oauth/pythinker-code' },
-        customHeaders: { 'X-Custom': 'yes' },
-      },
-    };
-    const fetchMock = vi.fn().mockResolvedValue({
-      status: 200,
-      text: async () => 'page body',
-    });
-    vi.stubGlobal('fetch', fetchMock);
-
-    const result = await fetcher().fetch('https://example.com/page');
-
-    expect(result).toEqual({ content: 'page body', kind: 'extracted' });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe('https://api.example.com/v1/fetch');
-    const headers = init.headers as Record<string, string>;
-    expect(headers['Authorization']).toBe('Bearer access-token');
-    expect(headers['User-Agent']).toBe('pythinker-code-cli/test');
-    expect(headers['X-Msh-Device-Id']).toBe('device-test');
-    expect(headers['X-Custom']).toBe('yes');
-  });
-
   it('builds a PyModel fetcher from the services.pymodel_fetch api_key config', async () => {
     servicesConfig = {
       pymodelFetch: {
@@ -188,23 +145,6 @@ describe('WebFetchService', () => {
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     const headers = init.headers as Record<string, string>;
     expect(headers['User-Agent']).toBe('acme/test');
-  });
-
-  it('keeps the host token on the managed oauth endpoint under a custom identity', async () => {
-    identitySlug = 'acme';
-    providers[OAUTH_PROVIDER] = {
-      type: 'pythinker',
-      baseUrl: 'https://api.example.com/v1',
-      oauth: { storage: 'file', key: 'oauth/pythinker-code' },
-    };
-    const fetchMock = vi.fn().mockResolvedValue({ status: 200, text: async () => 'page body' });
-    vi.stubGlobal('fetch', fetchMock);
-
-    await fetcher().fetch('https://example.com/page');
-
-    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    const headers = init.headers as Record<string, string>;
-    expect(headers['User-Agent']).toBe('pythinker-code-cli/test');
   });
 
   it('prefers the services.pymodel_fetch config over the managed oauth provider', () => {

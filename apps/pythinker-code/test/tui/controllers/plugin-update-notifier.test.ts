@@ -181,8 +181,8 @@ describe('PluginUpdateNotifier', () => {
   it('resolves plugin tools whose qualified name core truncated before the separator', async () => {
     // Server part exactly 50 chars: the 64-char truncation cuts the whole
     // `__` separator and tool name, leaving `mcp__<server>_<hash>`.
-    const serverName = `plugin-pythinker-datasource:${'s'.repeat(27)}`;
-    const sanitized = `plugin-pythinker-datasource_${'s'.repeat(27)}`;
+    const serverName = `plugin-pythinker-datasource:${'s'.repeat(22)}`;
+    const sanitized = `plugin-pythinker-datasource_${'s'.repeat(22)}`;
     expect(`mcp__${sanitized}`.length).toBe(55);
     const truncatedToolName = `mcp__${sanitized}_a1b2c3d4`;
 

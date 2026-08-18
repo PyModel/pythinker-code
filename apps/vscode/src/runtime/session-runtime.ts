@@ -170,7 +170,7 @@ export class SessionRuntime {
         type: "StatusUpdate",
         payload: {
           model: status.model,
-          thinking_effort: status.thinkingLevel,
+          thinking_effort: status.thinkingEffort,
           plan_mode: status.planMode,
           permission: status.permission,
         },

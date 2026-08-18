@@ -218,7 +218,6 @@ function AddProviderPanel({
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<CatalogProviderSummary | undefined>();
   const [apiKey, setApiKey] = useState("");
-  const [useEnvVar, setUseEnvVar] = useState(false);
   const [defaultModel, setDefaultModel] = useState<string | undefined>();
   const [saving, setSaving] = useState(false);
 
@@ -246,8 +245,7 @@ function AddProviderPanel({
       onAdded(
         await bridge.addCatalogProvider({
           providerId: selected.id,
-          apiKey: useEnvVar ? undefined : apiKey.trim(),
-          apiKeyEnvVar: useEnvVar ? selected.apiKeyEnvVar : undefined,
+          apiKey: apiKey.trim(),
           defaultModel,
         }),
       );
@@ -258,7 +256,7 @@ function AddProviderPanel({
     }
   };
 
-  const canSubmit = selected !== undefined && (useEnvVar ? selected.apiKeyEnvVar !== undefined : apiKey.trim().length > 0);
+  const canSubmit = selected !== undefined && apiKey.trim().length > 0;
 
   return (
     <div className="space-y-3">
@@ -300,7 +298,6 @@ function AddProviderPanel({
                     key={entry.id}
                     onClick={() => {
                       setSelected(entry);
-                      setUseEnvVar(false);
                       setDefaultModel(undefined);
                       // A key typed for one provider must not be submittable
                       // under another provider's id.
@@ -324,36 +321,17 @@ function AddProviderPanel({
           <>
             <div className="space-y-1.5">
               <Label className="text-[10px] text-muted-foreground">API key</Label>
-              {useEnvVar ? (
-                <p className="text-xs">
-                  Read at connection time from{" "}
-                  <code className="text-brand">{selected.apiKeyEnvVar}</code>. The key is never written to disk.
-                </p>
-              ) : (
-                <Input
-                  autoFocus
-                  type="password"
-                  value={apiKey}
-                  onChange={(event) => setApiKey(event.target.value)}
-                  placeholder="sk-…"
-                  className="h-7 text-xs font-mono"
-                />
-              )}
-              {selected.apiKeyEnvVar !== undefined && (
-                <button
-                  onClick={() => setUseEnvVar(!useEnvVar)}
-                  className="text-[10px] text-muted-foreground hover:text-foreground"
-                >
-                  {useEnvVar
-                    ? "Paste a key instead"
-                    : `Use the ${selected.apiKeyEnvVar} environment variable instead`}
-                </button>
-              )}
-              {!useEnvVar && (
-                <p className="text-[10px] text-muted-foreground">
-                  Stored in config.toml in plain text, as the CLI does.
-                </p>
-              )}
+              <Input
+                autoFocus
+                type="password"
+                value={apiKey}
+                onChange={(event) => setApiKey(event.target.value)}
+                placeholder="sk-…"
+                className="h-7 text-xs font-mono"
+              />
+              <p className="text-[10px] text-muted-foreground">
+                Stored in config.toml in plain text, as the CLI does.
+              </p>
             </div>
 
             <div className="space-y-1">

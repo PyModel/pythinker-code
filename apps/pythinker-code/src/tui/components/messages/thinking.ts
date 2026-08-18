@@ -5,7 +5,7 @@
  * Supports expand/collapse via Ctrl+O (shared with tool output).
  */
 
-import { Text, truncateToWidth, type Component, type TUI } from '@pymodel/pi-tui';
+import { Text, type Component, type TUI } from '@pymodel/pi-tui';
 
 import {
   BRAILLE_SPINNER_FRAMES,
@@ -96,51 +96,42 @@ export class ThinkingComponent implements Component {
       return this.renderCache.lines;
     }
 
-    const contentWidth = Math.max(1, width - MESSAGE_INDENT.length);
-    const contentLines = this.text.length > 0 ? this.textComponent.render(contentWidth) : [''];
-
     let rendered: string[];
     if (this.mode === 'live') {
-      const visibleLines =
-        contentLines.length > THINKING_PREVIEW_LINES
-          ? contentLines.slice(contentLines.length - THINKING_PREVIEW_LINES)
-          : contentLines;
       const spinner = currentTheme.fg(
         'textDim',
         `${BRAILLE_SPINNER_FRAMES[this.spinnerFrame] ?? BRAILLE_SPINNER_FRAMES[0]} `,
       );
-      rendered = [
-        '',
-        spinner + currentTheme.fg('textDim', 'thinking...'),
-        ...visibleLines.map((line) => MESSAGE_INDENT + line),
-      ];
+      rendered = ['', spinner + currentTheme.fg('textDim', 'thinking...')];
+      if (this.expanded) {
+        const contentLines = this.renderContent(width);
+        const visibleLines =
+          contentLines.length > THINKING_PREVIEW_LINES
+            ? contentLines.slice(contentLines.length - THINKING_PREVIEW_LINES)
+            : contentLines;
+        rendered.push(...visibleLines.map((line) => MESSAGE_INDENT + line));
+      }
+    } else if (!this.expanded) {
+      rendered = [];
     } else {
+      const contentLines = this.renderContent(width);
       const lines: string[] = [''];
       for (let i = 0; i < contentLines.length; i++) {
         const p = i === 0 && this.showMarker ? currentTheme.fg('textDim', STATUS_BULLET) : MESSAGE_INDENT;
         lines.push(p + contentLines[i]);
       }
-
-      if (this.expanded || contentLines.length <= THINKING_PREVIEW_LINES) {
-        rendered = lines;
-      } else {
-        // Leading blank + first PREVIEW_LINES content lines + hint line.
-        const truncated = lines.slice(0, 1 + THINKING_PREVIEW_LINES);
-        const remaining = contentLines.length - THINKING_PREVIEW_LINES;
-        const hint = `... (${String(remaining)} more lines, ctrl+o to expand)`;
-        const indentWidth = Math.min(MESSAGE_INDENT.length, Math.max(0, width));
-        const hintWidth = Math.max(0, width - indentWidth);
-        truncated.push(
-          ' '.repeat(indentWidth) + currentTheme.dim(truncateToWidth(hint, hintWidth, '…')),
-        );
-        rendered = truncated;
-      }
+      rendered = lines;
     }
 
     if (isRenderCacheEnabled()) {
       this.renderCache = { width, lines: rendered };
     }
     return rendered;
+  }
+
+  private renderContent(width: number): string[] {
+    if (this.text.length === 0) return [''];
+    return this.textComponent.render(Math.max(1, width - MESSAGE_INDENT.length));
   }
 
   private startSpinner(): void {

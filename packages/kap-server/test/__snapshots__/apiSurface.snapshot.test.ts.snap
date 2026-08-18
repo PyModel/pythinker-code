@@ -42,6 +42,10 @@ exports[`API surface snapshot > matches the documented v2 route table and meta e
     ],
     [
       "GET",
+      "/api/v1/auth/codex/{login_id}",
+    ],
+    [
+      "GET",
       "/api/v1/capabilities",
     ],
     [
@@ -139,14 +143,6 @@ exports[`API surface snapshot > matches the documented v2 route table and meta e
     [
       "GET",
       "/api/v1/oauth/login",
-    ],
-    [
-      "GET",
-      "/api/v1/oauth/usage",
-    ],
-    [
-      "GET",
-      "/api/v1/oauth/userinfo",
     ],
     [
       "GET",
@@ -295,6 +291,14 @@ exports[`API surface snapshot > matches the documented v2 route table and meta e
     [
       "PATCH",
       "/api/v1/workspaces/{workspace_id}",
+    ],
+    [
+      "POST",
+      "/api/v1/auth/codex:start",
+    ],
+    [
+      "POST",
+      "/api/v1/auth/codex/{tail}",
     ],
     [
       "POST",

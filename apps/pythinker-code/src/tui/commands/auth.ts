@@ -1,25 +1,30 @@
 import {
+  applyOpenAICodexOAuthConfig,
   applyOpenPlatformConfig,
+  fetchOpenAICodexModels,
   fetchOpenPlatformModels,
   filterModelsByPrefix,
   getOpenPlatformById,
   OpenPlatformApiError,
+  OPENAI_CODEX_OAUTH_PLATFORM_ID,
+  OPENAI_CODEX_PROVIDER_ID,
+  runOpenAICodexOAuthFlow,
   type ManagedPythinkerCodeModelInfo,
   type ManagedPythinkerConfigShape,
   type OpenPlatformDefinition,
 } from '@pymodel/pythinker-code-oauth';
-import { log } from '@pymodel/pythinker-code-sdk';
 
 import type { ChoiceOption } from '../components/dialogs/choice-picker';
 import { DEFAULT_OAUTH_PROVIDER_NAME, PRODUCT_NAME } from '../constant/pythinker-tui';
 import { formatErrorMessage } from '../utils/event-payload';
-import type { LoginProgressSpinnerHandle } from '../types';
 import {
   promptApiKey,
   promptLogoutProviderSelection,
+  promptModelSelectionForCodex,
   promptModelSelectionForOpenPlatform,
   promptPlatformSelection,
 } from './prompts';
+import { openUrl } from '#/utils/open-url';
 import type { SlashCommandHost } from './dispatch';
 
 // ---------------------------------------------------------------------------
@@ -30,8 +35,8 @@ export async function handleLoginCommand(host: SlashCommandHost): Promise<void> 
   const platformId = await promptPlatformSelection(host);
   if (platformId === undefined) return;
 
-  if (platformId === 'pythinker-code') {
-    await handlePythinkerCodeOAuthLogin(host);
+  if (platformId === OPENAI_CODEX_OAUTH_PLATFORM_ID) {
+    await handleOpenAICodexLogin(host);
     return;
   }
 
@@ -40,62 +45,79 @@ export async function handleLoginCommand(host: SlashCommandHost): Promise<void> 
   await handleOpenPlatformLogin(host, platform);
 }
 
-async function handlePythinkerCodeOAuthLogin(host: SlashCommandHost): Promise<void> {
-  const status = await host.harness.auth.status(DEFAULT_OAUTH_PROVIDER_NAME);
-  const alreadyLoggedIn = status.providers.some(
-    (provider) => provider.providerName === DEFAULT_OAUTH_PROVIDER_NAME && provider.hasToken,
-  );
-
-  let spinner: LoginProgressSpinnerHandle | undefined;
+async function handleOpenAICodexLogin(host: SlashCommandHost): Promise<void> {
   const controller = new AbortController();
+  let committing = false;
   const cancelLogin = (): void => {
-    controller.abort();
+    if (!committing) controller.abort();
   };
   host.cancelInFlight = cancelLogin;
+
   try {
-    await host.harness.auth.login(DEFAULT_OAUTH_PROVIDER_NAME, {
+    const tokens = await runOpenAICodexOAuthFlow({
       signal: controller.signal,
-      onDeviceCode: (data) => {
-        spinner = host.showLoginAuthorizationPrompt(data);
-      },
+      openBrowser: openUrl,
+      onManualInput: () =>
+        promptApiKey(
+          host,
+          'OpenAI Codex',
+          ['Paste the redirected localhost URL from your browser.'],
+          {
+            title: 'Paste OpenAI Codex redirect URL',
+            mask: false,
+            emptyHint: 'Redirect URL cannot be empty.',
+          },
+        ),
     });
-    spinner?.stop({ ok: true, label: 'Logged in.' });
-    spinner = undefined;
-    try {
-      await host.authFlow.refreshConfigAfterLogin();
-    } catch (refreshError) {
-      const message = formatErrorMessage(refreshError);
-      host.showError(`Authentication successful, but failed to refresh config: ${message}`);
+    const models = await fetchOpenAICodexModels({
+      accessToken: tokens.accessToken,
+      accountId: tokens.accountId,
+      signal: controller.signal,
+    });
+    if (models.length === 0) {
+      host.showError('No models available for OpenAI Codex.');
       return;
     }
-    host.track('login', {
-      provider: DEFAULT_OAUTH_PROVIDER_NAME,
-      method: 'oauth',
-      already_logged_in: alreadyLoggedIn,
+
+    const selection = await promptModelSelectionForCodex(host, models);
+    if (selection === undefined) return;
+
+    controller.signal.throwIfAborted();
+    const current = await host.harness.getConfig({ reload: true });
+    controller.signal.throwIfAborted();
+    const next = {
+      ...current,
+      providers: { ...current.providers },
+      models: { ...current.models },
+    };
+    applyOpenAICodexOAuthConfig(next, {
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      accountId: tokens.accountId,
+      models,
+      selectedModel: selection.model,
+      thinking: selection.thinking !== 'off',
+      effort:
+        selection.thinking !== 'off' && selection.thinking !== 'on'
+          ? selection.thinking
+          : undefined,
     });
-    if (alreadyLoggedIn) {
-      host.showStatus('Already logged in. Model configuration refreshed.', 'success');
-    }
+    committing = true;
+    await host.harness.replaceConfigSections({
+      providers: next.providers,
+      models: next.models,
+      defaultModel: next.defaultModel,
+      thinking: next.thinking,
+    });
+    await host.authFlow.refreshConfigAfterLogin();
+    host.track('login', { provider: OPENAI_CODEX_PROVIDER_ID, method: 'oauth' });
+    host.showStatus(`Setup complete: OpenAI Codex · ${selection.model.id}`);
   } catch (error) {
-    const cancelled = controller.signal.aborted;
-    spinner?.stop({
-      ok: false,
-      label: cancelled ? 'Login cancelled.' : 'Login failed.',
-    });
-    spinner = undefined;
-    if (cancelled) return;
-    log.warn('login failed', {
-      providerName: DEFAULT_OAUTH_PROVIDER_NAME,
-      alreadyLoggedIn,
-      sessionId: host.session?.id,
-      error,
-    });
-    const message = formatErrorMessage(error);
-    host.showError(`Login failed: ${message}`);
-  } finally {
-    if (host.cancelInFlight === cancelLogin) {
-      host.cancelInFlight = undefined;
+    if (!controller.signal.aborted) {
+      host.showError(`OpenAI Codex login failed: ${formatErrorMessage(error)}`);
     }
+  } finally {
+    if (host.cancelInFlight === cancelLogin) host.cancelInFlight = undefined;
   }
 }
 

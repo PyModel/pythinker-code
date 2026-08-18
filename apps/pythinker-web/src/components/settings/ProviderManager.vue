@@ -32,8 +32,6 @@ const emit = defineEmits<{
   add: [input: { type: string; apiKey?: string; baseUrl?: string; defaultModel?: string }];
   refresh: [id: string];
   delete: [id: string];
-  /** Open the login dialog for the given platform (OAuth flow) */
-  openLogin: [platform: string];
   close: [];
 }>();
 
@@ -173,15 +171,8 @@ function statusLabel(status: AppProvider['status']): string {
       <div v-if="!unavailable" class="add-section">
         <template v-if="!showAddForm">
           <div class="add-btns">
-            <!-- OAuth login shortcuts for common platforms -->
-            <Button variant="secondary" size="sm" @click="emit('openLogin', 'pymodel')">
-              <Icon name="user" size="sm" />
-              {{ t('providers.loginPythinker') }}
-            </Button>
-            <Button variant="secondary" size="sm" @click="emit('openLogin', 'anthropic')">
-              <Icon name="user" size="sm" />
-              {{ t('providers.loginAnthropic') }}
-            </Button>
+            <!-- No managed-account OAuth shortcuts: this distribution has no
+                 managed service. Providers are added with API keys. -->
             <Button variant="primary" size="sm" @click="openAdd">
               <Icon name="plus" size="sm" />
               {{ t('providers.enterApiKey') }}

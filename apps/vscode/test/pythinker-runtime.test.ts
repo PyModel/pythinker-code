@@ -27,12 +27,9 @@ import { Events } from "../shared/bridge";
 import { PythinkerRuntime, type OpenSessionOptions } from "../src/runtime/pythinker-runtime";
 
 const sdkFactories = vi.hoisted(() => {
-  const v1Harness = { homeDir: "/tmp/pythinker-runtime-v1-home", close: vi.fn(async () => undefined) };
   const v2Harness = { homeDir: "/tmp/pythinker-runtime-v2-home", close: vi.fn(async () => undefined) };
   return {
-    v1Harness,
     v2Harness,
-    createPythinkerHarness: vi.fn(() => v1Harness),
     createPythinkerHarnessV2: vi.fn(() => v2Harness),
   };
 });
@@ -41,7 +38,6 @@ vi.mock("@pymodel/pythinker-code-sdk", async (importOriginal) => {
   const original = await importOriginal<typeof import("@pymodel/pythinker-code-sdk")>();
   return {
     ...original,
-    createPythinkerHarness: sdkFactories.createPythinkerHarness,
     createPythinkerHarnessV2: sdkFactories.createPythinkerHarnessV2,
   };
 });
@@ -76,7 +72,7 @@ function createFakeSession(
   let promptImpl: (input: string | PromptInput) => Promise<void> = async () => {};
   let status: SessionStatus = {
     model: initial.model ?? "kimi-test",
-    thinkingLevel: initial.thinkingLevel ?? "off",
+    thinkingEffort: initial.thinkingEffort ?? "off",
     permission: initial.permission ?? "manual",
     planMode: initial.planMode ?? false,
     dynamicWorkflowMode: false,
@@ -127,18 +123,15 @@ function createFakeSession(
     },
     async setThinking(effort: ThinkingEffort) {
       setThinkingEfforts.push(effort);
-      status = { ...status, thinkingLevel: effort };
+      status = { ...status, thinkingEffort: effort };
     },
     async setPermission(permission: PermissionMode) {
       setPermissions.push(permission);
       status = { ...status, permission };
     },
-    async getSessionMetadata() {
-      return { custom: summary.metadata };
-    },
-    async updateSessionMetadata(patch: { custom?: JsonObject }) {
-      metadataUpdates.push(patch.custom ?? {});
-      summary = { ...summary, metadata: patch.custom };
+    async updateMetadata(patch: JsonObject) {
+      metadataUpdates.push(patch);
+      summary = { ...summary, metadata: { ...summary.metadata, ...patch } };
     },
     async close() {
       closes += 1;
@@ -210,7 +203,7 @@ function createFakeHarness(
         normalizeCreatedWorkDir(options.workDir),
         {
           model: options.model,
-          thinkingLevel: options.thinking ?? "off",
+          thinkingEffort: options.thinking ?? "off",
           permission: options.permission,
         },
         options.metadata,
@@ -271,7 +264,7 @@ function createRuntime(
 }
 
 describe("Pythinker runtime (owns shared SDK sessions for Webviews)", () => {
-  it("creates the v2 harness by default and the v1 harness for rollback", async () => {
+  it("creates the v2 harness", async () => {
     const defaults = new PythinkerRuntime({
       version: "0.6.0",
       broadcast: () => undefined,
@@ -288,20 +281,8 @@ describe("Pythinker runtime (owns shared SDK sessions for Webviews)", () => {
       },
       uiMode: "vscode",
     });
-    expect(sdkFactories.createPythinkerHarness).not.toHaveBeenCalled();
     expect(defaults.harness).toBe(sdkFactories.v2Harness as unknown as PythinkerHarness);
     await defaults.dispose();
-
-    const rollback = new PythinkerRuntime({
-      version: "0.6.0",
-      useAgentCoreV1: true,
-      broadcast: () => undefined,
-      captureBaseline: () => undefined,
-      log: () => undefined,
-    });
-    expect(sdkFactories.createPythinkerHarness).toHaveBeenCalledOnce();
-    expect(rollback.harness).toBe(sdkFactories.v1Harness as unknown as PythinkerHarness);
-    await rollback.dispose();
   });
 
   it("forwards the requested settings when creating an SDK session", async () => {
@@ -413,12 +394,12 @@ describe("Pythinker runtime (owns shared SDK sessions for Webviews)", () => {
 
   it("preserves the resumed session's thinking effort instead of reapplying the configured default", async () => {
     const { runtime, sdk } = createRuntime();
-    const session = sdk.addSession("saved-1", "/workspace", { thinkingLevel: "max" });
+    const session = sdk.addSession("saved-1", "/workspace", { thinkingEffort: "max" });
 
     const opened = await runtime.openSession(openOptions({ sessionId: "saved-1", effort: "medium" }));
 
     expect(session.setThinkingEfforts).toEqual([]);
-    await expect(opened.session.getStatus()).resolves.toMatchObject({ thinkingLevel: "max" });
+    await expect(opened.session.getStatus()).resolves.toMatchObject({ thinkingEffort: "max" });
   });
 
   it("announces the session's actual status to the attaching view so the display matches it", async () => {
@@ -435,7 +416,7 @@ describe("Pythinker runtime (owns shared SDK sessions for Webviews)", () => {
     });
     sdk.addSession("saved-1", "/workspace", {
       model: "kimi-test",
-      thinkingLevel: "max",
+      thinkingEffort: "max",
       planMode: true,
     });
 

@@ -40,6 +40,8 @@ const PROTECT = [
   'api.moonshot.cn',
   'api.moonshot.ai',
   'api.kimi.com',
+  'API.KIMI.COM',
+  "'kimi-k'",
   'platform.kimi.com',
   'platform.kimi.ai',
   'www.kimi.com',
@@ -107,7 +109,7 @@ function transformText(text) {
   });
   // camelCase continuations (swarmItem, swarmMembers, ...) must stay camel:
   // handle them before the bare snake_case fallback rule below.
-  out = out.replace(/swarm(?=[A-Z])/g, 'dynamicWorkflow');
+  out = out.replaceAll(/swarm(?=[A-Z])/g, 'dynamicWorkflow');
   for (const [from, to] of RENAME) out = out.split(from).join(to);
   PROTECT.forEach((s, i) => {
     out = out.split(`\u0000P${i}\u0000`).join(s);

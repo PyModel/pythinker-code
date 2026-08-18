@@ -28,7 +28,7 @@ interface StateJson {
   // Agent metadata comes from an untrusted state.json (a corrupt or imported
   // bundle may hold non-object entries like `{ "main": null }`), so the value
   // type allows null and inventoryAgents skips anything that isn't an object.
-  agents?: Record<string, { type: 'main' | 'sub' | 'independent'; parentAgentId?: string | null; dynamic_workflowItem?: string } | null>;
+  agents?: Record<string, { type: 'main' | 'sub' | 'independent'; parentAgentId?: string | null; dynamicWorkflowItem?: string } | null>;
   custom?: Record<string, unknown>;
 }
 
@@ -148,12 +148,12 @@ async function discoverAgentsFromDisk(sessionDir: string): Promise<AgentInfo[]> 
       wireExists: readable,
       wireRecordCount: info.count,
       wireProtocolVersion: info.protocolVersion,
-      // dynamic_workflowItem is persisted in state.json, which is unavailable on this
+      // dynamicWorkflowItem is persisted in state.json, which is unavailable on this
       // disk-only fallback path, so it cannot be recovered here.
-      dynamic_workflowItem: null,
+      dynamicWorkflowItem: null,
     });
   }
-  return out.sort((a, b) => compareAgentIds(a.agentId, b.agentId));
+  return out.toSorted((a, b) => compareAgentIds(a.agentId, b.agentId));
 }
 
 async function tryReadSummary(
@@ -285,10 +285,10 @@ async function inventoryAgents(sessionDir: string, state: StateJson): Promise<Ag
       wireExists: readable,
       wireRecordCount: info.count,
       wireProtocolVersion: info.protocolVersion,
-      dynamic_workflowItem: meta.dynamic_workflowItem ?? null,
+      dynamicWorkflowItem: meta.dynamicWorkflowItem ?? null,
     });
   }
-  return result.sort((a, b) => compareAgentIds(a.agentId, b.agentId));
+  return result.toSorted((a, b) => compareAgentIds(a.agentId, b.agentId));
 }
 
 async function readState(sessionDir: string): Promise<StateJson | null> {

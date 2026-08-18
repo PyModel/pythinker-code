@@ -212,16 +212,16 @@ describe('ModelSelectorComponent', () => {
       onCancel: vi.fn(),
     });
 
-    picker.handleInput(DOWN); // -> thinking model (defaults On)
-    picker.handleInput(RIGHT); // toggle -> Off
+    picker.handleInput(DOWN); // -> thinking model (keeps live Off)
+    picker.handleInput(RIGHT); // toggle -> On
     picker.handleInput(UP); // -> plain
-    picker.handleInput(DOWN); // -> thinking (the Off override persists)
+    picker.handleInput(DOWN); // -> thinking (the On override persists)
     picker.handleInput('\r');
 
-    expect(onSelect).toHaveBeenCalledWith({ alias: 'thinking', thinking: 'off' });
+    expect(onSelect).toHaveBeenCalledWith({ alias: 'thinking', thinking: 'on' });
   });
 
-  it('defaults a thinking-capable model to On but keeps the current model state', () => {
+  it('keeps the live Off state when switching to another thinking-capable model', () => {
     const onSelect = vi.fn();
     const picker = new ModelSelectorComponent({
       models: {
@@ -237,10 +237,10 @@ describe('ModelSelectorComponent', () => {
     // The active model reflects its live (off) state.
     expect(text(picker)).toContain('[ Off ]');
     picker.handleInput(DOWN); // -> the other thinking-capable model
-    // A capable, non-active model defaults to On without any toggle.
-    expect(text(picker)).toContain('[ On ]');
+    // A capable, non-active model keeps the live effort.
+    expect(text(picker)).toContain('[ Off ]');
     picker.handleInput('\r');
-    expect(onSelect).toHaveBeenCalledWith({ alias: 'other', thinking: 'on' });
+    expect(onSelect).toHaveBeenCalledWith({ alias: 'other', thinking: 'off' });
   });
 
   it('fuzzy-filters by typing and reports a match count', () => {
@@ -470,38 +470,36 @@ describe('ModelSelectorComponent', () => {
     expect(onSelect).toHaveBeenLastCalledWith({ alias: 'pythinker', thinking: 'max' });
   });
 
-  it('defaults an effort model without a current level to its defaultEffort', () => {
+  it('keeps the live effort when switching effort-capable models', () => {
     const onSelect = vi.fn();
     const picker = new ModelSelectorComponent({
       models: {
         other: effortModel('Pythinker Other', ['low', 'high', 'max'], 'max'),
       },
       currentValue: 'current',
-      currentThinkingEffort: 'off',
+      currentThinkingEffort: 'max',
       onSelect,
       onCancel: vi.fn(),
     });
 
-    // Non-current effort model falls back to its declared defaultEffort.
+    // The live effort survives the model switch.
     expect(text(picker)).toContain('[ Max ]');
     picker.handleInput('\r');
     expect(onSelect).toHaveBeenCalledWith({ alias: 'other', thinking: 'max' });
   });
 
-  it('falls back to the middle effort when an effort model has no defaultEffort', () => {
+  it('coerces the live effort to the nearest supported level on model switch', () => {
     const picker = new ModelSelectorComponent({
       models: {
-        other: effortModel('Pythinker Other', ['low', 'medium', 'high']),
+        other: effortModel('Pythinker Other', ['low', 'high']),
       },
       currentValue: 'current',
-      currentThinkingEffort: 'off',
+      currentThinkingEffort: 'max',
       onSelect: vi.fn(),
       onCancel: vi.fn(),
     });
 
-    // support_efforts present but default_effort absent -> default to the
-    // middle entry (medium), not a hardcoded level.
-    expect(text(picker)).toContain('[ Medium ]');
+    expect(text(picker)).toContain('[ High ]');
   });
 
   it('renders the warning line directly below the key-hint line when provided', () => {

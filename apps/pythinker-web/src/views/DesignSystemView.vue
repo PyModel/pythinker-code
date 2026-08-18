@@ -331,7 +331,7 @@ onUnmounted(() => {
               </template>
             </div>
 
-            <p>Do not use emoji as functional icons (the sole exception is the moon phases 🌑…🌘, used only in the "waiting for the Agent to respond" chat state). The Pythinker brand mark (the 32×22 eye logo) is a brand asset and is not part of this icon system.</p>
+            <p>Do not use emoji as functional icons (the sole exception is the moon phases 🌑…🌘, used only in the "waiting for the Agent to respond" chat state). The Pythinker robot mascot is a brand asset and is not part of this icon system.</p>
             <p>A few <b>special graphics</b> are not in the registry; each has a dedicated component maintained in one place, and must not be copied by hand: <code>&lt;ContextRing :pct /&gt;</code> (the Composer context progress ring, data-driven), <code>&lt;AuthStateIcon kind /&gt;</code> (the success / expired / error colored illustrations in the login flow), <code>&lt;Spinner /&gt;</code> (loading state). Status dots (such as in the Provider list) always use CSS dots (<code>border-radius:50%</code>), not SVG. The <code>scripts/check-style.mjs</code> <code>icon-from-registry</code> rule exempts the above and the brand mark; all other hand-written <code>&lt;svg&gt;</code> is flagged.</p>
 
             <h3 class="sub">Spacing</h3>
@@ -975,7 +975,7 @@ onUnmounted(() => {
               <div class="stage p col">
                 <div class="p-cmdbar" style="max-width:620px">
                   <button class="p-btn primary">Install Pythinker Code ▾</button>
-                  <span class="p-cmd"><span class="cmd-text">curl -fsSL https://code.kimi.com/install.sh | bash</span><button class="cmd-copy"><svg class="p-ic" viewBox="0 0 24 24" fill="currentColor"><path fill="currentColor" d="M7 6V3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-3v3c0 .552-.45 1-1.007 1H4.007A1 1 0 0 1 3 21l.003-14c0-.552.45-1 1.006-1zM5.002 8L5 20h10V8zM9 6h8v10h2V4H9z"/></svg></button></span>
+                  <span class="p-cmd"><span class="cmd-text">curl -fsSL https://code.pythinker.com/pythinker-code/install.sh | bash</span><button class="cmd-copy"><svg class="p-ic" viewBox="0 0 24 24" fill="currentColor"><path fill="currentColor" d="M7 6V3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-3v3c0 .552-.45 1-1.007 1H4.007A1 1 0 0 1 3 21l.003-14c0-.552.45-1 1.006-1zM5.002 8L5 20h10V8zM9 6h8v10h2V4H9z"/></svg></button></span>
                 </div>
               </div>
             </div>
@@ -1396,7 +1396,7 @@ onUnmounted(() => {
             <table class="dt">
               <thead><tr><th>Block</th><th>Use</th><th>Note</th></tr></thead>
               <tbody>
-                <tr><td>Brand header</td><td>logo + name + collapse IconButton (right-aligned)</td><td>on Windows / web the brand is left and the collapse IconButton sm is right-aligned inside the header; the logo is animated (a blinking eye). On macOS desktop the header is a bare drag strip (brand hidden, traffic lights + resident floating toggle over it)</td></tr>
+                <tr><td>Brand header</td><td>robot mascot + name + collapse IconButton (right-aligned)</td><td>on Windows / web the brand is left and the collapse IconButton sm is right-aligned inside the header. On macOS desktop the header is a bare drag strip (brand hidden, traffic lights + resident floating toggle over it)</td></tr>
                 <tr><td>New chat</td><td>full-width left-aligned button (custom)</td><td>same rhythm as the session rows in the list (left-aligned, hover = <code>--sb-hover</code>). <b>Do not</b> use Button (centered, breaks the rhythm)</td></tr>
                 <tr><td>Search</td><td>bare search row (custom)</td><td>no border, hover/focus shows a sunken background; icon + label, with the <code>Kbd</code> keycaps (⌘K / Ctrl K) pushed to the trailing edge — label and shortcut are justified apart. <b>Do not</b> use Input (the 38px bordered version is too heavy). Last fixed row above the list — its wrapper carries the scroll-linked seam</td></tr>
                 <tr><td>Section label</td><td><code>.p-section-label</code></td><td>uppercase muted small titles like "Workspaces"</td></tr>

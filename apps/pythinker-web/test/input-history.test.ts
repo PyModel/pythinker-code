@@ -26,6 +26,12 @@ function setup(initialText = '', caret = 0, sessionId: string | null = 'test-ses
   return { text, textarea, history };
 }
 
+// The jsdom test environment provides a working localStorage, so persisted
+// history under the shared 'test-session' key would leak between tests.
+beforeEach(() => {
+  localStorage.clear();
+});
+
 describe('useInputHistory — push', () => {
   it('ignores empty or whitespace-only entries', () => {
     const { history } = setup();

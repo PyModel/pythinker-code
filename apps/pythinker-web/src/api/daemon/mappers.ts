@@ -9,6 +9,7 @@ import type {
   AppGoal,
   AppModel,
   AppProvider,
+  CodexLoginStatus,
   FsEntry,
   AppMessage,
   AppMessageContent,
@@ -38,6 +39,7 @@ import type {
   WireMessageContent,
   WireModel,
   WirePromptSubmission,
+  WireCodexLoginStatus,
   WireProvider,
   WireQuestionAnswer,
   WireQuestionItem,
@@ -735,6 +737,16 @@ export function toAppModel(wire: WireModel): AppModel {
     capabilities: wire.capabilities,
     supportEfforts: wire.support_efforts,
     defaultEffort: wire.default_effort,
+    adaptiveThinking: wire.adaptive_thinking,
+  };
+}
+
+export function toCodexLoginStatus(wire: WireCodexLoginStatus): CodexLoginStatus {
+  return {
+    loginId: wire.login_id,
+    state: wire.state,
+    defaultModel: wire.default_model,
+    message: wire.message,
   };
 }
 
@@ -768,10 +780,12 @@ export function toAppConfig(wire: WireConfig): AppConfig {
     thinking: wire.thinking as { enabled?: boolean; effort?: string } | undefined,
     planMode: wire.plan_mode,
     yolo: wire.yolo,
+    defaultThinking: wire.default_thinking,
     defaultPermissionMode: wire.default_permission_mode,
     defaultPlanMode: wire.default_plan_mode,
     permission: wire.permission,
     hooks: wire.hooks,
+    disabledSkills: wire.disabled_skills,
     services: wire.services,
     mergeAllAvailableSkills: wire.merge_all_available_skills,
     extraSkillDirs: wire.extra_skill_dirs,

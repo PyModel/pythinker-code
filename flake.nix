@@ -62,7 +62,6 @@
       workspacePaths = [
         ./packages/acp-adapter
         ./packages/agent-core
-        ./packages/server-e2e
         ./packages/kaos
         ./packages/acp-server
         ./packages/agent-core-v2
@@ -85,16 +84,12 @@
         ./apps/vis/server
         ./apps/vis/web
         ./apps/desktop
-        ./apps/dashboard
-        ./apps/dashboard/server
-        ./apps/dashboard/web
         ./docs
       ];
 
       workspaceNames = [
         "@pymodel/acp-adapter"
         "@pymodel/agent-core"
-        "@pymodel/server-e2e"
         "@pymodel/kaos"
         "@pymodel/acp-server"
         "@pymodel/agent-core-v2"
@@ -117,9 +112,6 @@
         "@pymodel/vis-server"
         "@pymodel/vis-web"
         "@pymodel/pythinker-desktop"
-        "@pymodel/dashboard"
-        "@pymodel/dashboard-server"
-        "@pymodel/dashboard-web"
         "pythinker-code-docs"
       ];
     in

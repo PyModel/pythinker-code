@@ -1,4 +1,9 @@
-import { effectiveModelAlias, type ModelAlias, type ThinkingEffort } from '@pymodel/pythinker-code-sdk';
+import {
+  coerceEffortForModel,
+  effectiveModelAlias,
+  type ModelAlias,
+  type ThinkingEffort,
+} from '@pymodel/pythinker-code-sdk';
 import {
   Container,
   Key,
@@ -169,7 +174,7 @@ export class ModelSelectorComponent extends Container implements Focusable {
   focused = false;
   private readonly opts: ModelSelectorOptions;
   private readonly list: SearchableList<ModelChoice>;
-  /** Per-model thinking-effort override set by ←/→; absent → the default. */
+  /** Per-model thinking-effort override set by ←/→; absent → the live effort. */
   private readonly thinkingOverrides = new Map<string, string>();
 
   constructor(opts: ModelSelectorOptions) {
@@ -189,22 +194,12 @@ export class ModelSelectorComponent extends Container implements Focusable {
 
   /**
    * Thinking effort for a model: an explicit ←/→ override when set, otherwise
-   * the live effort for the active model, otherwise the model's default effort
-   * (effort-capable) or 'on' (other thinking-capable models).
+   * the live effort coerced to the selected model's supported efforts.
    */
   private draftFor(choice: ModelChoice): string {
     const override = this.thinkingOverrides.get(choice.alias);
     if (override !== undefined) return override;
-    if (choice.alias === this.opts.currentValue) return this.opts.currentThinkingEffort;
-    const efforts = effortsOf(choice.model);
-    if (efforts.length > 0) {
-      // A model with support_efforts but no default_effort defaults to the
-      // middle entry of its supported efforts.
-      const def = choice.model.defaultEffort ?? efforts[Math.floor(efforts.length / 2)];
-      if (def !== undefined && efforts.includes(def)) return def;
-      return efforts[0]!;
-    }
-    return thinkingAvailability(choice.model) !== 'unsupported' ? 'on' : 'off';
+    return coerceEffortForModel(choice.model, this.opts.currentThinkingEffort);
   }
 
   /** Draft coerced onto the model's segment list so rendering/selection never

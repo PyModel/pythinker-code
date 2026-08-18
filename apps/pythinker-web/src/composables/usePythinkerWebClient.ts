@@ -61,6 +61,8 @@ import type {
   AppNoticeDetail,
   AppMessage,
   AppModel,
+  AppConnector,
+  AppPlugin,
   AppProvider,
   AppQuestionRequest,
   AppSession,
@@ -79,8 +81,8 @@ import { isPlaceholderSessionUsage, toAppEvent } from '../api/daemon/mappers';
 
 import { messagesToTurns } from './messagesToTurns';
 import { latestTodos } from './latestTodos';
-import { buildDynamicWorkflowGroups, countDynamicWorkflowMembers, dynamic_workflowMembersByToolCall } from './dynamic_workflowGroups';
-import type { DynamicWorkflowGroup, DynamicWorkflowMember } from './dynamic_workflowGroups';
+import { buildDynamicWorkflowGroups, countDynamicWorkflowMembers, dynamicWorkflowMembersByToolCall } from './dynamicWorkflowGroups';
+import type { DynamicWorkflowGroup, DynamicWorkflowMember } from './dynamicWorkflowGroups';
 import type {
   ActivityState,
   ActivationBadges,
@@ -118,6 +120,9 @@ const ONBOARDED_STORAGE_KEY = STORAGE_KEYS.onboarded;
 // existing `import type { ColorScheme, Accent } from './usePythinkerWebClient'`
 // callers keep working.
 export type { Accent, ColorScheme } from './client/useAppearance';
+// Legacy UI theme kept only so the (currently unmounted) settings pane compiles;
+// the adopted design ships a single look and the picker returns in Phase 5 or dies.
+export type Theme = 'terminal' | 'modern' | 'pythinker';
 
 // The code-font setting was removed with its UI (b8a9e83). Clear the old
 // persisted key so users who once picked a font aren't frozen on it forever.
@@ -1931,6 +1936,103 @@ const skills = computed<AppSkill[]>(() => {
   return wid ? (modelProvider.skillsByWorkspace.value[wid] ?? []) : [];
 });
 
+// ---------------------------------------------------------------------------
+// Capability data (capability menu + settings): per-session skill spinner,
+// configured MCP servers ("connectors"), and installed plugins. Global lists
+// load on demand — only the settings surfaces need them.
+// ---------------------------------------------------------------------------
+
+const skillsLoadingBySession = ref<Record<string, boolean>>({});
+const connectors = ref<AppConnector[]>([]);
+const connectorsLoading = ref(false);
+const plugins = ref<AppPlugin[]>([]);
+const pluginsLoading = ref(false);
+// Optimistic per-session tools / MCP-server selection; the daemon is the
+// source of truth, this only bridges the write round-trip.
+const capabilitiesBySession = ref<Record<string, { tools?: string[]; mcpServers?: string[] }>>({});
+
+const activeSessionCapabilities = computed<{ tools?: string[]; mcpServers?: string[] }>(() => {
+  const sid = rawState.activeSessionId;
+  return sid ? (capabilitiesBySession.value[sid] ?? {}) : {};
+});
+
+async function loadSkillsWithSpinner(sessionId: string): Promise<void> {
+  skillsLoadingBySession.value = { ...skillsLoadingBySession.value, [sessionId]: true };
+  try {
+    await modelProvider.loadSkillsForSession(sessionId);
+  } finally {
+    skillsLoadingBySession.value = { ...skillsLoadingBySession.value, [sessionId]: false };
+  }
+}
+
+async function loadConnectors(): Promise<void> {
+  connectorsLoading.value = true;
+  try {
+    connectors.value = await getPythinkerWebApi().listConnectors();
+  } catch {
+    // An older daemon has no /mcp/servers; an empty list is the honest answer.
+    connectors.value = [];
+  } finally {
+    connectorsLoading.value = false;
+  }
+}
+
+async function loadPlugins(): Promise<void> {
+  pluginsLoading.value = true;
+  try {
+    plugins.value = await getPythinkerWebApi().listPlugins();
+  } catch {
+    // An older daemon has no /plugins; an empty list is the honest answer.
+    plugins.value = [];
+  } finally {
+    pluginsLoading.value = false;
+  }
+}
+
+async function setPluginEnabled(pluginId: string, enabled: boolean): Promise<void> {
+  const previous = plugins.value.find((plugin) => plugin.id === pluginId)?.enabled;
+  plugins.value = plugins.value.map((plugin) =>
+    plugin.id === pluginId ? { ...plugin, enabled } : plugin,
+  );
+  try {
+    await getPythinkerWebApi().setPluginEnabled(pluginId, enabled);
+  } catch (error) {
+    if (previous !== undefined) {
+      plugins.value = plugins.value.map((plugin) =>
+        plugin.id === pluginId ? { ...plugin, enabled: previous } : plugin,
+      );
+    }
+    pushOperationFailure('setPluginEnabled', error);
+    return;
+  }
+  await loadPlugins();
+}
+
+async function loadCapabilityData(sessionId: string): Promise<void> {
+  await Promise.all([loadSkillsWithSpinner(sessionId), loadConnectors(), loadPlugins()]);
+}
+
+/** Persist the selected tools and MCP servers with optimistic local state. */
+async function updateCapabilities(input: {
+  tools?: string[];
+  mcpServers?: string[];
+}): Promise<void> {
+  const sid = rawState.activeSessionId;
+  if (!sid) return;
+  const previous = capabilitiesBySession.value[sid] ?? {};
+  capabilitiesBySession.value = {
+    ...capabilitiesBySession.value,
+    [sid]: { ...previous, ...input },
+  };
+  try {
+    await getPythinkerWebApi().updateSession(sid, input);
+  } catch (error) {
+    capabilitiesBySession.value = { ...capabilitiesBySession.value, [sid]: previous };
+    pushOperationFailure('updateCapabilities', error, { sessionId: sid });
+    throw error;
+  }
+}
+
 const inFlight = computed<boolean>(() => {
   const sid = rawState.activeSessionId;
   if (!sid) return false;
@@ -2003,8 +2105,8 @@ const tasks = computed<TaskItem[]>(() => {
 const dynamicWorkflows = computed<DynamicWorkflowGroup[]>(() => buildDynamicWorkflowGroups(activeAppTasks.value));
 // Foreground/background subagents keyed by their spawning tool call id — used by
 // the inline AgentDynamicWorkflow tool card to stream each subagent's live progress.
-const dynamic_workflowMembersByToolCallId = computed<Map<string, DynamicWorkflowMember[]>>(() =>
-  dynamic_workflowMembersByToolCall(activeAppTasks.value),
+const dynamicWorkflowMembersByToolCallId = computed<Map<string, DynamicWorkflowMember[]>>(() =>
+  dynamicWorkflowMembersByToolCall(activeAppTasks.value),
 );
 
 const goal = computed<AppGoal | null>(() => {
@@ -2075,7 +2177,7 @@ const goalMode = computed<boolean>(() => {
 });
 
 const activationBadges = computed<ActivationBadges>(() => {
-  const dynamic_workflowCounts = countDynamicWorkflowMembers(dynamicWorkflows.value);
+  const dynamicWorkflowCounts = countDynamicWorkflowMembers(dynamicWorkflows.value);
   return {
     plan: planMode.value,
     goal: goal.value && goal.value.status !== 'complete'
@@ -2085,7 +2187,7 @@ const activationBadges = computed<ActivationBadges>(() => {
           elapsedMs: goal.value.wallClockMs,
         }
       : null,
-    dynamic_workflow: dynamic_workflowCounts.total > 0 ? dynamic_workflowCounts : null,
+    dynamicWorkflow: dynamicWorkflowCounts.total > 0 ? dynamicWorkflowCounts : null,
   };
 });
 
@@ -2777,7 +2879,7 @@ export function usePythinkerWebClient() {
     todos,
     goal,
     dynamicWorkflows,
-    dynamic_workflowMembersByToolCallId,
+    dynamicWorkflowMembersByToolCallId,
     activationBadges,
     compaction,
     status,
@@ -2938,6 +3040,15 @@ export function usePythinkerWebClient() {
     loadModels: modelProvider.loadModels,
     loadProviders: modelProvider.loadProviders,
     skills,
+    skillsLoadingBySession,
+    connectors,
+    connectorsLoading,
+    plugins,
+    pluginsLoading,
+    activeSessionCapabilities,
+    loadCapabilityData,
+    updateCapabilities,
+    setPluginEnabled,
     activateSkill: modelProvider.activateSkill,
     setModel: modelProvider.setModel,
     toggleStarModel: modelProvider.toggleStarModel,

@@ -701,10 +701,29 @@ export class ToolCallComponent extends Container {
     for (const lines of childLines) {
       for (const line of lines) out.push(line);
     }
+    const background =
+      this.result === undefined
+        ? this.toolCall.truncated === true
+          ? undefined
+          : 'toolPendingBg'
+        : this.result.is_error === true
+          ? 'toolErrorBg'
+          : 'toolSuccessBg';
+    const rendered =
+      background === undefined
+        ? out
+        : out.map((line, index) =>
+            index === 0
+              ? line
+              : currentTheme.bg(
+                  background,
+                  `${line}${' '.repeat(Math.max(0, width - visibleWidth(line)))}`,
+                ),
+          );
     if (isRenderCacheEnabled()) {
-      this.renderCache = { width, lines: out, childRefs, childLines };
+      this.renderCache = { width, lines: rendered, childRefs, childLines };
     }
-    return out;
+    return rendered;
   }
 
   override invalidate(): void {

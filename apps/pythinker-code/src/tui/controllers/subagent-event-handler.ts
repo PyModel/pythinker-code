@@ -88,9 +88,9 @@ export class SubAgentEventHandler {
     if (info === undefined || info.parentToolCallId.length === 0) return true;
 
     const { parentToolCallId } = info;
-    const dynamic_workflowProgress = this.agentDynamicWorkflowProgress.get(parentToolCallId);
-    if (dynamic_workflowProgress !== undefined) {
-      this.applySubagentEventToDynamicWorkflowProgress(dynamic_workflowProgress, event, childAgentId);
+    const dynamicWorkflowProgress = this.agentDynamicWorkflowProgress.get(parentToolCallId);
+    if (dynamicWorkflowProgress !== undefined) {
+      this.applySubagentEventToDynamicWorkflowProgress(dynamicWorkflowProgress, event, childAgentId);
       this.requestRender();
       return true;
     }

@@ -205,18 +205,17 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
     }
   }, 15_000);
 
-  it('seeds the host request headers (User-Agent + X-Msh-*) into the engine', async () => {
+  it('seeds the host request headers (User-Agent, no device headers) into the engine', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-'));
     tempDirs.push(homeDir);
     const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
     try {
-      // Without this seed the managed vendors go out with the SDK's default
-      // User-Agent and no X-Msh-* — the interactive-v2 path's identity bug.
+      // Without this seed the providers go out with the SDK's default
+      // User-Agent — the interactive-v2 path's identity bug.
       const headers = client.engineAccessor.get(IHostRequestHeaders).headers;
       expect(headers['User-Agent']).toBe(`pythinker-code-cli/${TEST_IDENTITY.version}`);
-      expect(headers['X-Msh-Platform']).toBe('pythinker_code_cli');
-      expect(headers['X-Msh-Version']).toBe(TEST_IDENTITY.version);
-      expect(headers['X-Msh-Device-Id']).toBeTruthy();
+      expect(headers['X-Msh-Platform']).toBeUndefined();
+      expect(headers['X-Msh-Device-Id']).toBeUndefined();
     } finally {
       await client.close();
     }
@@ -579,7 +578,7 @@ key = "${titleOAuthRef.key}"
       ]);
 
       const outcomes = [first, second].map((result) => result.status);
-      expect(outcomes.sort()).toEqual(['fulfilled', 'rejected']);
+      expect(outcomes.toSorted()).toEqual(['fulfilled', 'rejected']);
       const rejection = [first, second].find((result) => result.status === 'rejected');
       expect((rejection as PromiseRejectedResult).reason).toMatchObject({
         code: 'session.already_exists',

@@ -253,7 +253,7 @@ export function bindSessionTranscript(
 
 export function descriptorFromMeta(agentId: string, meta: AgentMeta | undefined): AgentDescriptor {
   const parentFromLabels = meta?.labels?.['parentAgentId'];
-  const dynamic_workflowItem = meta?.labels?.['dynamic_workflowItem'] ?? meta?.dynamic_workflowItem;
+  const dynamicWorkflowItem = meta?.labels?.['dynamicWorkflowItem'] ?? meta?.dynamicWorkflowItem;
   return {
     agentId,
     type: meta?.type ?? (agentId === MAIN_AGENT_ID ? 'main' : 'sub'),
@@ -261,6 +261,6 @@ export function descriptorFromMeta(agentId: string, meta: AgentMeta | undefined)
       parentFromLabels !== undefined && parentFromLabels.length > 0
         ? parentFromLabels
         : (meta?.parentAgentId ?? undefined),
-    label: dynamic_workflowItem !== undefined && dynamic_workflowItem.length > 0 ? dynamic_workflowItem : undefined,
+    label: dynamicWorkflowItem !== undefined && dynamicWorkflowItem.length > 0 ? dynamicWorkflowItem : undefined,
   };
 }

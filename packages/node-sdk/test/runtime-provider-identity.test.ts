@@ -58,14 +58,13 @@ describe('runtime provider identity headers', () => {
     try {
       expect(core.pythinkerRequestHeaders).toMatchObject({
         'User-Agent': 'pythinker-code-cli/0.0.0-test (web-runtime)',
-        'X-Msh-Version': '0.0.0-test',
       });
     } finally {
       await client.close();
     }
   });
 
-  it('adds pythinker-code-cli User-Agent and complete X-Msh headers to the default Pythinker provider', async () => {
+  it('adds the pythinker-code-cli User-Agent to the default Pythinker provider without device headers', async () => {
     const homeDir = await makeTempDir();
     const pythinkerRequestHeaders = createPythinkerDefaultHeaders({ homeDir, ...TEST_IDENTITY });
     const resolved = resolveRuntimeProvider({
@@ -92,14 +91,13 @@ describe('runtime provider identity headers', () => {
       type: 'pythinker',
       defaultHeaders: expect.objectContaining({
         'User-Agent': 'pythinker-code-cli/0.0.0-test',
-        'X-Msh-Platform': PYTHINKER_CODE_PLATFORM,
-        'X-Msh-Version': '0.0.0-test',
-        'X-Msh-Device-Name': expect.any(String),
-        'X-Msh-Device-Model': expect.any(String),
-        'X-Msh-Os-Version': expect.any(String),
-        'X-Msh-Device-Id': expect.stringMatching(/^[0-9a-f-]+$/),
       }),
     });
+    expect(
+      Object.keys((resolved.provider as { defaultHeaders?: Record<string, string> }).defaultHeaders ?? {}).filter(
+        (name) => name.startsWith('X-Msh-'),
+      ),
+    ).toEqual([]);
   });
 
   it('lets Pythinker provider customHeaders override default identity headers', async () => {
@@ -137,7 +135,6 @@ describe('runtime provider identity headers', () => {
       defaultHeaders: expect.objectContaining({
         'User-Agent': 'Custom/1',
         'X-Msh-Version': 'override-version',
-        'X-Msh-Platform': PYTHINKER_CODE_PLATFORM,
       }),
     });
   });

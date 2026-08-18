@@ -10,6 +10,7 @@ import type { TranscriptService } from '../services/transcript/transcriptService
 import { registerApprovalsRoutes } from './approvals';
 import { registerAuthRoute } from './auth';
 import { registerCapabilitiesRoutes } from './capabilities';
+import { registerCodexLoginRoutes } from './codex';
 import { registerConfigRoutes } from './config';
 import { registerConnectionsRoutes } from './connections';
 import { registerFilesRoutes } from './files';
@@ -114,6 +115,10 @@ export async function registerApiV1Routes(
 
       registerAuthRoute(apiV1 as unknown as Parameters<typeof registerAuthRoute>[0], core);
       registerOAuthRoutes(apiV1 as unknown as Parameters<typeof registerOAuthRoutes>[0], core);
+      registerCodexLoginRoutes(
+        apiV1 as unknown as Parameters<typeof registerCodexLoginRoutes>[0],
+        core,
+      );
       registerConfigRoutes(apiV1 as unknown as Parameters<typeof registerConfigRoutes>[0], core);
       registerModelCatalogRoutes(
         apiV1 as unknown as Parameters<typeof registerModelCatalogRoutes>[0],

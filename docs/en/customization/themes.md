@@ -19,6 +19,9 @@ Custom themes can override the tokens below. The `dark` and `light` columns show
 | `success` | `#4EC87E` | `#0E7A38` | Success state. `✓`, "enabled", completed |
 | `warning` | `#E8A838` | `#92660A` | Warning state. auto/yolo badges, stale markers, Plan mode hint |
 | `error` | `#E85454` | `#B91C1C` | Error state. Error messages, failed tool output |
+| `toolPendingBg` | `#1D2129` | `#E8EEF7` | Background tint for a running tool card |
+| `toolSuccessBg` | `#14171B` | `#F1F3F5` | Background tint for a successful tool card |
+| `toolErrorBg` | `#291D1D` | `#F9E9E9` | Background tint for a failed tool card |
 | `diffAdded` | `#4EC87E` | `#0E7A38` | Diff added lines |
 | `diffRemoved` | `#E85454` | `#B91C1C` | Diff removed lines |
 | `diffAddedStrong` | `#7AD99B` | `#0E7A38` | Diff intra-line changed words, added and bold |

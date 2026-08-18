@@ -5,7 +5,7 @@ import {
   resolveSlashCommandAvailability,
   addDirArgumentCompletions,
   sortSlashCommands,
-  dynamic_workflowArgumentCompletions,
+  dynamicWorkflowArgumentCompletions,
   type PythinkerSlashCommand,
 } from '#/tui/commands/index';
 import { describe, expect, it } from 'vitest';
@@ -61,13 +61,13 @@ describe('built-in slash command registry', () => {
 
   it('offers dynamic_workflow subcommand argument completions', () => {
     const values = (prefix: string): string[] | null => {
-      const items = dynamic_workflowArgumentCompletions(prefix);
+      const items = dynamicWorkflowArgumentCompletions(prefix);
       return items === null ? null : items.map((item) => item.value);
     };
 
     expect(values('')).toEqual(['on', 'off']);
     expect(values('O')).toEqual(['on', 'off']);
-    expect(dynamic_workflowArgumentCompletions('of')).toEqual([
+    expect(dynamicWorkflowArgumentCompletions('of')).toEqual([
       { value: 'off', label: 'off', description: 'Turn dynamic_workflow mode off' },
     ]);
     expect(values('on')).toBeNull();

@@ -8,7 +8,7 @@ import { useI18n } from 'vue-i18n';
 
 const { t } = useI18n();
 
-const isWindows = computed(() => document.documentElement.dataset['desktopPlatform'] === 'win32');
+const isWindows = computed(() => window.pythinkerDesktop?.platform === 'win32');
 
 function minimize(): void {
   void window.pythinkerDesktop?.minimizeWindow();

@@ -169,7 +169,7 @@ export class AgentDynamicWorkflowTool implements BuiltinTool<AgentDynamicWorkflo
         description: childDescription(args.description, spec.index, descriptionName),
         dynamicWorkflowIndex: spec.index,
         runInBackground: false,
-        dynamic_workflowItem: spec.item,
+        dynamicWorkflowItem: spec.item,
         signal,
         timeout: this.subagentTimeoutMs ?? DEFAULT_SUBAGENT_TIMEOUT_MS,
         modelChoice: args.model,
@@ -256,8 +256,8 @@ function hasMinimumAgentDynamicWorkflowInputs(itemCount: number, resumeCount: nu
   return resumeCount > 0 || itemCount >= 2;
 }
 
-function childDescription(dynamic_workflowDescription: string, index: number, profileName: string): string {
-  return `${dynamic_workflowDescription} #${String(index)} (${profileName})`;
+function childDescription(dynamicWorkflowDescription: string, index: number, profileName: string): string {
+  return `${dynamicWorkflowDescription} #${String(index)} (${profileName})`;
 }
 
 function renderDynamicWorkflowResults(results: readonly DynamicWorkflowRunResult[]): string {

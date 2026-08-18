@@ -93,12 +93,14 @@ export function catalogModelToAlias(providerId: string, model: CatalogModel): Mo
 
 export interface ApplyCatalogProviderOptions {
   readonly providerId: string;
+  readonly catalogUrl?: string;
   readonly wire: ProviderType;
   readonly baseUrl?: string;
   readonly apiKey: string;
   readonly models: readonly CatalogModel[];
   readonly selectedModelId: string;
-  readonly thinking: boolean;
+  readonly thinking?: boolean;
+  readonly effort?: string;
 }
 
 /**
@@ -135,6 +137,7 @@ export function applyCatalogProvider(
     type: options.wire,
     baseUrl: options.baseUrl,
     apiKey: options.apiKey,
+    source: { kind: 'modelsDev', url: options.catalogUrl ?? DEFAULT_CATALOG_URL },
   };
 
   const models = config.models ?? {};
@@ -148,6 +151,93 @@ export function applyCatalogProvider(
 
   const defaultModel = `${options.providerId}/${options.selectedModelId}`;
   config.defaultModel = defaultModel;
-  config.thinking = { ...config.thinking, enabled: options.thinking };
+  if (options.thinking !== undefined || options.effort !== undefined) {
+    config.thinking = {
+      ...config.thinking,
+      ...(options.thinking === undefined ? {} : { enabled: options.thinking }),
+      ...(options.effort === undefined ? {} : { effort: options.effort }),
+    };
+  }
   return { defaultModel };
+}
+
+export interface CatalogProviderStore {
+  ensureConfigFile(): Promise<void>;
+  getConfig(options?: { readonly reload?: boolean }): Promise<PythinkerConfig>;
+  replaceConfigSections(sections: Record<string, unknown>): Promise<void>;
+}
+
+export interface ImportCatalogProviderOptions {
+  readonly providerId: string;
+  readonly entry: CatalogProviderEntry;
+  readonly catalogUrl?: string;
+  readonly apiKey: string;
+  readonly defaultModel?: string;
+  readonly thinking?: boolean;
+  readonly effort?: string;
+}
+
+export interface ImportCatalogProviderResult {
+  readonly models: readonly CatalogModel[];
+  readonly defaultModel: string | undefined;
+}
+
+export class CatalogProviderError extends Error {}
+
+export async function importCatalogProvider(
+  store: CatalogProviderStore,
+  options: ImportCatalogProviderOptions,
+): Promise<ImportCatalogProviderResult> {
+  const providerId = options.providerId.trim();
+  const apiKey = options.apiKey.trim();
+  if (providerId.length === 0) throw new CatalogProviderError('Provider id cannot be empty.');
+  if (apiKey.length === 0) {
+    throw new CatalogProviderError(`Provider "${providerId}" needs an API key.`);
+  }
+
+  const resolution = resolveCatalogImport(options.entry);
+  if (resolution.kind !== 'ok') {
+    throw new CatalogProviderError(`Provider "${providerId}" is not available for direct import.`);
+  }
+  const models = catalogProviderModels(options.entry);
+  if (models.length === 0) {
+    throw new CatalogProviderError(`Provider "${providerId}" lists no usable models.`);
+  }
+  if (
+    options.defaultModel !== undefined &&
+    !models.some((model) => model.id === options.defaultModel)
+  ) {
+    throw new CatalogProviderError(
+      `Model "${options.defaultModel}" is not offered by provider "${providerId}".`,
+    );
+  }
+
+  await store.ensureConfigFile();
+  const current = await store.getConfig({ reload: true });
+  const next: PythinkerConfig = {
+    ...current,
+    providers: { ...current.providers },
+    models: { ...current.models },
+  };
+  const selectedModelId = options.defaultModel ?? models[0]!.id;
+  applyCatalogProvider(next, {
+    providerId,
+    catalogUrl: options.catalogUrl,
+    wire: resolution.wire,
+    baseUrl: resolution.baseUrl,
+    apiKey,
+    models,
+    selectedModelId,
+    thinking: options.thinking,
+    effort: options.effort,
+  });
+  if (options.defaultModel === undefined) next.defaultModel = current.defaultModel;
+
+  await store.replaceConfigSections({
+    providers: next.providers,
+    models: next.models,
+    defaultModel: next.defaultModel,
+    ...(next.thinking === undefined ? {} : { thinking: next.thinking }),
+  });
+  return { models, defaultModel: next.defaultModel };
 }

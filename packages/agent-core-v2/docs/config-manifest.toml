@@ -8,7 +8,8 @@
 # commented "# field: type" lines describe the remaining schema fields.
 # Values resolve as: default -> config.toml -> env overlay -> memory.
 
-# Index (25 sections · 2 overlay(s))
+# Index (26 sections · 2 overlay(s))
+#   advisor                  src/session/advisor/configSection.ts
 #   background               src/agent/task/configSection.ts
 #   builtinProductSkills     src/app/skillCatalog/configSection.ts
 #   cron                     src/app/cron/configSection.ts
@@ -36,6 +37,17 @@
 #   tools                    src/agent/toolPolicy/configSection.ts
 #   (overlay) servicesCredentialEnvOverlay  src/app/auth/configSection.ts
 #   (overlay) pythinkerModelEnvOverlay  src/app/kosongConfig/envOverlay.ts
+
+# ##########################################################################
+# advisor
+#   owner: src/session/advisor/configSection.ts
+#   scope: core
+# ##########################################################################
+
+[advisor]
+enabled = false
+# model: string
+# instructions: string
 
 # ##########################################################################
 # background

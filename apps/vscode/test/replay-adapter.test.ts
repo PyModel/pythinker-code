@@ -70,7 +70,7 @@ function resumedAgent(
         tool_use: true,
         max_context_tokens: 128_000,
       },
-      thinkingLevel: options.thinkingEffort ?? "off",
+      thinkingEffort: options.thinkingEffort ?? "off",
       systemPrompt: "",
     },
     context: { history: [], tokenCount: options.contextTokenCount ?? 0 },
@@ -535,7 +535,6 @@ describe("replay adapter (renders the public SDK resume state for the Webview)",
     ], { type: "sub" });
     const state: ResumedSessionState = {
       sessionMetadata: {
-        sessionFormatVersion: 2,
         createdAt: "",
         updatedAt: "",
         title: "",

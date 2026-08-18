@@ -1,3 +1,4 @@
+// @vitest-environment node
 // apps/pythinker-web/test/index-html.test.ts
 // CSP regression guard: kap-server serves the built bundle with
 // `Content-Security-Policy: default-src 'self'; …` (see securityHeaders.ts),

@@ -3,8 +3,8 @@ import type { AppTask } from '../src/api/types';
 import {
   buildDynamicWorkflowGroups,
   countDynamicWorkflowMembers,
-  dynamic_workflowMembersByToolCall,
-} from '../src/composables/dynamic_workflowGroups';
+  dynamicWorkflowMembersByToolCall,
+} from '../src/composables/dynamicWorkflowGroups';
 
 function subagentTask(
   id: string,
@@ -80,14 +80,14 @@ describe('countDynamicWorkflowMembers', () => {
   });
 });
 
-describe('dynamic_workflowMembersByToolCall', () => {
+describe('dynamicWorkflowMembersByToolCall', () => {
   it('keeps single-member dynamic workflows so a resume-only AgentDynamicWorkflow gets live progress', () => {
-    const map = dynamic_workflowMembersByToolCall([subagentTask('a', 'dynamic-workflow-1', { dynamicWorkflowIndex: 1 })]);
+    const map = dynamicWorkflowMembersByToolCall([subagentTask('a', 'dynamic-workflow-1', { dynamicWorkflowIndex: 1 })]);
     expect(map.get('dynamic-workflow-1')?.map((m) => m.id)).toEqual(['a']);
   });
 
   it('groups every subagent with the same parentToolCallId, ignoring dynamicWorkflowIndex', () => {
-    const map = dynamic_workflowMembersByToolCall([
+    const map = dynamicWorkflowMembersByToolCall([
       subagentTask('b', 'dynamic-workflow-1'),
       subagentTask('a', 'dynamic-workflow-1'),
       subagentTask('c', 'dynamic-workflow-2'),
@@ -97,7 +97,7 @@ describe('dynamic_workflowMembersByToolCall', () => {
   });
 
   it('ignores non-subagent tasks and subagents without a parentToolCallId', () => {
-    const map = dynamic_workflowMembersByToolCall([
+    const map = dynamicWorkflowMembersByToolCall([
       bashTask('b-1'),
       subagentTask('orphan', undefined),
       subagentTask('a', 'dynamic-workflow-1'),
@@ -106,7 +106,7 @@ describe('dynamic_workflowMembersByToolCall', () => {
   });
 
   it('carries task.text so live rows can show still-composing subagent output', () => {
-    const map = dynamic_workflowMembersByToolCall([
+    const map = dynamicWorkflowMembersByToolCall([
       subagentTask('a', 'dynamic-workflow-1', { text: 'Hello, world!' }),
       subagentTask('b', 'dynamic-workflow-1', { outputLines: ['tool line'] }),
     ]);

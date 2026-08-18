@@ -48,7 +48,7 @@ type BaseQueuedSubagentTask<T> = {
   readonly prompt: string;
   readonly description: string;
   readonly dynamicWorkflowIndex?: number;
-  readonly dynamic_workflowItem?: string;
+  readonly dynamicWorkflowItem?: string;
   readonly runInBackground: boolean;
   readonly timeout?: number;
   readonly signal?: AbortSignal;
@@ -325,7 +325,7 @@ export class SubagentBatch<T> {
       } else {
         const spawnOptions: SpawnSubagentOptions = {
           profileName: task.profileName,
-          dynamic_workflowItem: task.dynamic_workflowItem,
+          dynamicWorkflowItem: task.dynamicWorkflowItem,
           modelChoice: task.modelChoice,
           ...runOptions,
         };

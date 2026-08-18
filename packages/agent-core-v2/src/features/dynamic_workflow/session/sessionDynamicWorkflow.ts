@@ -10,7 +10,7 @@ type SessionDynamicWorkflowTaskBase<T> = {
   readonly prompt: string;
   readonly description: string;
   readonly dynamicWorkflowIndex?: number;
-  readonly dynamic_workflowItem?: string;
+  readonly dynamicWorkflowItem?: string;
   readonly runInBackground: boolean;
   readonly timeout?: number;
   readonly signal?: AbortSignal;
