@@ -39,4 +39,8 @@ describe('MoonLoader', () => {
     const row = loader.render(80).join('\n');
     expect(row).toContain('Tip: ctrl+s: steer mid-turn');
   });
+
+  it('uses the shared Braille mark for the waiting state', () => {
+    expect(createLoader().renderInline()).toBe('⣷');
+  });
 });

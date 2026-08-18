@@ -629,13 +629,13 @@ describe('AgentDynamicWorkflowProgressComponent', () => {
 
     registerSubagents(component, 1);
     startSubagents(component, 1);
-    component.setActivitySpinnerText(() => '🌗');
+    component.setActivitySpinnerText(() => '⣷');
 
     const statusLine = renderLines(component, 80)
       .find((line) => line.includes('Working...'));
 
     expect(statusLine).toBeDefined();
-    expect(statusLine?.startsWith(' 🌗 Working...')).toBe(true);
+    expect(statusLine?.startsWith(' ⣷ Working...')).toBe(true);
   });
 
   it('keeps a two-cell placeholder after the AgentDynamicWorkflow tool call ends', () => {
@@ -643,17 +643,17 @@ describe('AgentDynamicWorkflowProgressComponent', () => {
 
     registerSubagents(component, 1);
     startSubagents(component, 1);
-    component.setActivitySpinnerText(() => '🌗');
+    component.setActivitySpinnerText(() => '⣷');
     component.markToolCallEnded();
-    component.setActivitySpinnerText(() => '🌘');
+    component.setActivitySpinnerText(() => '⣯');
 
     const statusLine = renderLines(component, 80)
       .find((line) => line.includes('Working...'));
 
     expect(statusLine).toBeDefined();
     expect(statusLine?.startsWith('    Working...')).toBe(true);
-    expect(statusLine).not.toContain('🌗');
-    expect(statusLine).not.toContain('🌘');
+    expect(statusLine).not.toContain('⣷');
+    expect(statusLine).not.toContain('⣯');
   });
 
   it('renders terminal total status lines after the tool call ends', () => {

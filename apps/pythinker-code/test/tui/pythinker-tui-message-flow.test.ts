@@ -7927,8 +7927,8 @@ command = "vim"
       );
     }
 
-    // The moon must stay up: still waiting, no orphan thinking component, and
-    // the activity pane still renders a moon frame (no blank, spinner-less gap).
+    // The indicator must stay up: still waiting, no orphan thinking component,
+    // and the activity pane still renders it (no blank, spinner-less gap).
     expect(driver.state.appState.streamingPhase).toBe('waiting');
     expect(driver.state.livePane.mode).toBe('waiting');
     expect(driver.streamingUI.hasActiveThinkingComponent()).toBe(false);

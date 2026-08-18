@@ -15,9 +15,9 @@ describe('ThinkingComponent', () => {
     const component = new ThinkingComponent('working it out', true, 'live');
     const out = strip(component.render(80).join('\n'));
 
-    expect(out).toContain('⠋ thinking...');
-    expect(out).not.toContain('  ⠋ thinking...');
-    expect(out).not.toContain(`${STATUS_BULLET}⠋`);
+    expect(out).toContain('⣷ thinking...');
+    expect(out).not.toContain('  ⣷ thinking...');
+    expect(out).not.toContain(`${STATUS_BULLET}⣷`);
     expect(out).not.toContain('working it out');
   });
 
@@ -34,18 +34,18 @@ describe('ThinkingComponent', () => {
     expect(out).not.toContain('ctrl+o to expand');
   });
 
-  it('animates the live spinner and stops on finalize', () => {
+  it('refreshes the live indicator and stops on finalize', () => {
     vi.useFakeTimers();
     const requestRender = vi.fn();
     const component = new ThinkingComponent('step', true, 'live', {
       requestRender,
     } as unknown as TUI);
 
-    expect(strip(component.render(80).join('\n'))).toContain('⠋ thinking...');
+    expect(strip(component.render(80).join('\n'))).toContain('⣷ thinking...');
 
     vi.advanceTimersByTime(80);
     expect(requestRender).toHaveBeenCalled();
-    expect(strip(component.render(80).join('\n'))).toContain('⠙ thinking...');
+    expect(strip(component.render(80).join('\n'))).toContain('⣷ thinking...');
 
     component.finalize();
     requestRender.mockClear();

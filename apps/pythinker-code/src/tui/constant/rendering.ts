@@ -26,7 +26,7 @@ export const COMMAND_PREVIEW_LINES = 10;
 // the activity pane.
 export const RETRY_DETAIL_MAX_CHARS = 160;
 // Left indent (cells) for the detail line under the waiting spinner, aligning
-// it with the label text: 1 (the spinner Text's own paddingX) + 2 (moon
+// it with the label text: 1 (the spinner Text's own paddingX) + 2 (Braille
 // frame) + 1 (space between frame and label).
 export const ACTIVITY_DETAIL_INDENT = 4;
 
@@ -42,9 +42,9 @@ export const SUBAGENT_TOOL_OUTPUT_MAX_CHARS = 8000;
 // beyond the cap.
 export const SUBAGENT_ARG_STRING_MAX_CHARS = 16 * 1024;
 
-// Animation frames are shared by the login/update loaders and live thinking.
-export const BRAILLE_SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+// The Braille mark is shared by login/update loaders and live thinking.
+export const BRAILLE_SPINNER_FRAMES = ['⣷'];
 export const BRAILLE_SPINNER_INTERVAL_MS = 80;
 
-export const MOON_SPINNER_FRAMES = ['🌑', '🌒', '🌓', '🌔', '🌕', '🌖', '🌗', '🌘'];
+export const MOON_SPINNER_FRAMES = ['⣷'];
 export const MOON_SPINNER_INTERVAL_MS = 120;
