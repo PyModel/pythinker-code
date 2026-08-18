@@ -1,23 +1,5 @@
-/**
- * `pythinker-webbridge` capability entry (macOS / Linux / Windows).
- *
- * Layers: daemon binary (`~/.pythinker-webbridge/bin/`, local HTTP daemon on
- * 127.0.0.1:10086) + agent wiring (the official `pythinker-webbridge` plugin —
- * skills only, installed through `IPluginService`) + browser extension
- * (soft gate, user installs from the webstore or the manual zip).
- *
- * A running daemon is left untouched (start-if-down only, Pythinker Work
- * coexistence). Reinstall replaces the on-disk binary from the latest
- * channel, which takes effect the next time the daemon starts. Installs
- * are detect-first and idempotent: only unsatisfied layers are redone,
- * setup re-enables a previously disabled wiring plugin, the binary step
- * requires the executable bit on POSIX (an interrupted install reads as
- * missing and re-downloads), and user-source skill shadows are reported
- * as an optional step for manual cleanup instead of being deleted.
- */
-
 import { constants } from 'node:fs';
-import { access, chmod, mkdir, rename, rm } from 'node:fs/promises';
+import { access, chmod, mkdir, mkdtemp, rename, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -67,10 +49,23 @@ export function createPythinkerWebbridgeEntry(ctx: CapabilityEntryContext): Capa
   const binName = ctx.platform === 'win32' ? 'pythinker-webbridge.exe' : 'pythinker-webbridge';
   const binPath = path.join(binDir, binName);
   const userSourceSkillDirs = [
-    path.join(ctx.pythinkerHomeDir, 'skills', 'pythinker-webbridge'),
-    path.join(ctx.userHomeDir, '.agents', 'skills', 'pythinker-webbridge'),
+    {
+      label: 'pythinker-code',
+      path: path.join(ctx.pythinkerHomeDir, 'skills', 'pythinker-webbridge'),
+    },
+    {
+      label: 'agents',
+      path: path.join(ctx.userHomeDir, '.agents', 'skills', 'pythinker-webbridge'),
+    },
   ];
+  const standaloneSkillBackupDir = path.join(
+    ctx.pythinkerHomeDir,
+    'backups',
+    'pythinker-webbridge-skills',
+  );
   const supported = binaryAssetName(ctx.platform, ctx.arch) !== undefined;
+  let standaloneSkillBackupPath: string | undefined;
+  let standaloneSkillMigrationError: string | undefined;
 
   async function exists(p: string): Promise<boolean> {
     return access(p).then(
@@ -97,6 +92,24 @@ export function createPythinkerWebbridgeEntry(ctx: CapabilityEntryContext): Capa
     } catch {
       return undefined;
     }
+  }
+
+  async function standaloneSkillDirs(): Promise<readonly (typeof userSourceSkillDirs)[number][]> {
+    const checked = await Promise.all(
+      userSourceSkillDirs.map(async (entry) => ({ ...entry, present: await exists(entry.path) })),
+    );
+    return checked.filter((entry) => entry.present);
+  }
+
+  async function migrateStandaloneSkills(): Promise<string | undefined> {
+    const skills = await standaloneSkillDirs();
+    if (skills.length === 0) return undefined;
+    await mkdir(standaloneSkillBackupDir, { recursive: true });
+    const backupRoot = await mkdtemp(path.join(standaloneSkillBackupDir, 'migration-'));
+    for (const skill of skills) {
+      await rename(skill.path, path.join(backupRoot, skill.label));
+    }
+    return backupRoot;
   }
 
   async function detect(): Promise<CapabilityDetectResult> {
@@ -136,16 +149,20 @@ export function createPythinkerWebbridgeEntry(ctx: CapabilityEntryContext): Capa
       detail: mcpGap ?? plugin?.version,
     });
 
-    const skillShadows = (
-      await Promise.all(
-        userSourceSkillDirs.map(async (dir) => ({ dir, present: await exists(dir) })),
-      )
-    ).filter((item) => item.present);
-    if (skillShadows.length > 0) {
+    const standaloneSkills = await standaloneSkillDirs();
+    if (standaloneSkills.length > 0) {
       steps.push({
-        id: 'skill-shadow',
-        state: 'failed',
-        detail: skillShadows.map((item) => item.dir).join(', '),
+        id: 'standalone-skill-migration',
+        state: 'missing',
+        detail:
+          standaloneSkillMigrationError ?? standaloneSkills.map((item) => item.path).join(', '),
+        optional: true,
+      });
+    } else if (await exists(standaloneSkillBackupDir)) {
+      steps.push({
+        id: 'standalone-skill-migration',
+        state: 'ok',
+        detail: standaloneSkillBackupPath ?? standaloneSkillBackupDir,
         optional: true,
       });
     }
@@ -170,7 +187,7 @@ export function createPythinkerWebbridgeEntry(ctx: CapabilityEntryContext): Capa
     throw new Error(`WebBridge daemon did not come up on ${baseUrl} — check ~/.pythinker-webbridge/logs`);
   }
 
-  async function install(report: CapabilityInstallReporter): Promise<void> {
+  async function install(report: CapabilityInstallReporter): Promise<string | undefined> {
     const asset = binaryAssetName(ctx.platform, ctx.arch);
     if (asset === undefined) {
       throw new Error(`pythinker-webbridge is not supported on ${ctx.platform}/${ctx.arch}`);
@@ -181,6 +198,8 @@ export function createPythinkerWebbridgeEntry(ctx: CapabilityEntryContext): Capa
     const readyBefore = before.steps
       .filter((step) => step.optional !== true)
       .every((step) => step.state === 'ok');
+    const standaloneSkillMigrationPending =
+      stepStates.get('standalone-skill-migration') === 'missing';
     if (stepStates.get('daemon-binary') !== 'ok' || readyBefore) {
       await installBinary(report, asset);
     }
@@ -197,13 +216,25 @@ export function createPythinkerWebbridgeEntry(ctx: CapabilityEntryContext): Capa
       await waitForDaemon();
     }
 
-    if (stepStates.get('skill') !== 'ok' || readyBefore) {
-      report('skill');
-      const summary = await ctx.plugins.installPlugin({ source: PLUGIN_ZIP_URL });
-      if (!summary.enabled) {
-        await ctx.plugins.setPluginEnabled({ id: PLUGIN_ID, enabled: true });
+    report('skill');
+    const summary = await ctx.plugins.installPlugin({ source: PLUGIN_ZIP_URL });
+    if (!summary.enabled) {
+      await ctx.plugins.setPluginEnabled({ id: PLUGIN_ID, enabled: true });
+    }
+
+    if (standaloneSkillMigrationPending) {
+      report('standalone-skill-migration');
+      try {
+        standaloneSkillBackupPath = await migrateStandaloneSkills();
+        standaloneSkillMigrationError = undefined;
+      } catch (error) {
+        standaloneSkillMigrationError =
+          `Could not back up the standalone pythinker-webbridge skill: ${error instanceof Error ? error.message : String(error)}`;
       }
     }
+    return standaloneSkillMigrationPending && standaloneSkillMigrationError === undefined
+      ? 'user-skill-migrated'
+      : undefined;
   }
 
   async function installBinary(
@@ -238,6 +269,7 @@ export function createPythinkerWebbridgeEntry(ctx: CapabilityEntryContext): Capa
 
   return {
     id: 'pythinker-webbridge',
+    pluginId: PLUGIN_ID,
     displayName: 'Pythinker WebBridge',
     description:
       'Control your real browser (with your login sessions) — navigate, click, type, read pages, and screenshot any website.',

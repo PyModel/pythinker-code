@@ -123,7 +123,7 @@ export class Agent {
   /**
    * The session config snapshot this agent reads (loop control, subagent
    * binding descriptions, ...). Mutable via {@link updatePythinkerConfig} so the
-   * session can push live config updates (e.g. a `/secondary_model` switch)
+   * session can push live config updates (e.g. a `/secondary-model` switch)
    * to already-instantiated agents.
    */
   pythinkerConfig?: PythinkerConfig;

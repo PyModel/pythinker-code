@@ -1,24 +1,3 @@
-/**
- * `kosong/model` thinking tests — effort/keep resolution and the
- * registry-driven vendor verdicts:
- *
- *  - `drivesThinkingThroughTraits` answers through the definition registry:
- *    true once the pythinker definitions are registered (their traits declare
- *    `withThinking`), false for the endpoint-only canonical vendors and for
- *    unregistered ones;
- *  - `usesTraitDrivenThinking` answers through the adapter registry's one
- *    resolution point — true for pythinker on its native transport AND for pythinker
- *    over anthropic (the `(pythinker, anthropic)` pair registration), false for
- *    plain openai and for pairs pythinker never registered;
- *  - `requiresStrictThinkingValidation` narrows that verdict to the strict
- *    effort-validation gate (v1 `provider.type === 'pythinker'` parity): true only
- *    when the pair's thinking driver marks `strictThinkingValidation`, false
- *    for pythinker over anthropic;
- *  - effort resolution folds request/config/model metadata with the
- *    trait-driven normalization rules; keep resolution honors off-values and
- *    precedence.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import { ProtocolAdapterRegistry } from '#/kosong/provider/protocolAdapterRegistry';
@@ -52,16 +31,10 @@ describe('registry-driven vendor verdicts', () => {
     expect(usesTraitDrivenThinking(registry, 'openai', 'openai')).toBe(false);
     expect(usesTraitDrivenThinking(registry, 'openai', undefined)).toBe(false);
     expect(usesTraitDrivenThinking(registry, 'anthropic', 'anthropic')).toBe(false);
-    // Pythinker registers no google-genai definition — the pair contributes nothing.
     expect(usesTraitDrivenThinking(registry, 'google-genai', 'pythinker')).toBe(false);
   });
 
   it('requiresStrictThinkingValidation: only the strict-validation thinking driver', () => {
-    // The strict effort gate (v1 `provider.type === 'pythinker'` parity): pythinker on
-    // its native openai transport qualifies (pythinkerOpenAITrait marks
-    // `strictThinkingValidation`); pythinker over anthropic does NOT — the foreign
-    // backend may accept unlisted efforts, so the profile stays lenient there
-    // and warns instead of rejecting.
     expect(requiresStrictThinkingValidation(registry, 'openai', 'pythinker')).toBe(true);
     expect(requiresStrictThinkingValidation(registry, 'anthropic', 'pythinker')).toBe(false);
     expect(requiresStrictThinkingValidation(registry, 'openai', 'openai')).toBe(false);

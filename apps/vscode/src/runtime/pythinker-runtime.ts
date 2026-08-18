@@ -1,5 +1,6 @@
 import {
   createPythinkerHarness,
+  createPythinkerHarnessV2,
   type PythinkerHarness,
   type Session,
   type SessionSummary,
@@ -29,6 +30,12 @@ export interface PythinkerRuntimeOptions {
   readonly log: (message: string, error?: unknown) => void;
   readonly homeDir?: string;
   readonly harness?: PythinkerHarness;
+  /**
+   * Engine rollback: create the legacy v1 harness instead of the default v2
+   * one. The decision is made once in `config/vscode-settings.ts`; a change
+   * applies on the next window reload, when the runtime is rebuilt.
+   */
+  readonly useAgentCoreV1?: boolean;
 }
 
 export interface OpenSessionOptions {
@@ -55,10 +62,11 @@ export class PythinkerRuntime {
     this.broadcast = options.broadcast;
     this.captureBaseline = options.captureBaseline;
     this.log = options.log;
+    const createHarness = options.useAgentCoreV1 ? createPythinkerHarness : createPythinkerHarnessV2;
     this.harness =
       options.harness ??
-      createPythinkerHarness({
-        ...(options.homeDir === undefined ? {} : { homeDir: options.homeDir }),
+      createHarness({
+        homeDir: options.homeDir,
         identity: {
           productName: "pythinker-code-vscode",
           version: options.version,

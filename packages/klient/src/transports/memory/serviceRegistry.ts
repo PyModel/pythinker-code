@@ -22,17 +22,26 @@ import { IPluginService } from '@pymodel/agent-core-v2/app/plugin/plugin';
 import { ICapabilityService } from '@pymodel/agent-core-v2/app/capability/capability';
 import { IBootstrapService } from '@pymodel/agent-core-v2/app/bootstrap/bootstrap';
 import { IEventService } from '@pymodel/agent-core-v2/app/event/event';
+import { IFileService } from '@pymodel/agent-core-v2/app/file/fileService';
 import { IHostFolderBrowser } from '@pymodel/agent-core-v2/app/hostFolderBrowser/hostFolderBrowser';
-import { IWorkspaceLifecycleService } from '@pymodel/agent-core-v2/app/workspaceLifecycle/workspaceLifecycle';
-import { ISessionLifecycleService } from '@pymodel/agent-core-v2/workspace/sessionLifecycle/sessionLifecycle';
+import { IWorkspaceInstanceManager } from '@pymodel/agent-core-v2/workspace/workspaceInstance/workspaceInstanceManager';
+import { ISessionManager } from '@pymodel/agent-core-v2/app/sessionManager/sessionManager';
 import { ISessionMetadata } from '@pymodel/agent-core-v2/session/sessionMetadata/sessionMetadata';
 import { ISessionInteractionService } from '@pymodel/agent-core-v2/session/interaction/interaction';
 import { ISessionApprovalService } from '@pymodel/agent-core-v2/session/approval/approval';
 import { ISessionQuestionService } from '@pymodel/agent-core-v2/session/question/question';
 import { ISessionSkillCatalog } from '@pymodel/agent-core-v2/session/sessionSkillCatalog/skillCatalog';
-import { IAgentRPCService } from '@pymodel/agent-core-v2/agent/rpc/rpc';
+import { ISessionTitleService } from '@pymodel/agent-core-v2/session/sessionTitle/sessionTitle';
+import { IAgentPromptService } from '@pymodel/agent-core-v2/agent/prompt/prompt';
+import { IAgentSkillService } from '@pymodel/agent-core-v2/agent/skill/skill';
+import { IAgentLoopService } from '@pymodel/agent-core-v2/agent/loop/loop';
+import { IAgentPermissionModeService } from '@pymodel/agent-core-v2/agent/permissionMode/permissionMode';
+import { IAgentCommandService } from '@pymodel/agent-core-v2/agent/command/agentCommand';
+import { IAgentRuntimeBindingService } from '@pymodel/agent-core-v2/agent/runtimeBinding/runtimeBinding';
+import { IAgentContextMemoryService } from '@pymodel/agent-core-v2/agent/contextMemory/contextMemory';
+import { IAgentTokenCountingService } from '@pymodel/agent-core-v2/agent/tokenCounting/tokenCounting';
 import { IAgentActivityView } from '@pymodel/agent-core-v2/agent/activityView/activityView';
-import { IAgentPlanService } from '@pymodel/agent-core-v2/agent/plan/plan';
+import { IAgentPlanService } from '@pymodel/agent-core-v2/features/plan/plan';
 import { IAgentProfileService } from '@pymodel/agent-core-v2/agent/profile/profile';
 import { IAgentShellCommandService } from '@pymodel/agent-core-v2/agent/shellCommand/shellCommand';
 import { IAgentTaskService } from '@pymodel/agent-core-v2/agent/task/task';
@@ -56,14 +65,23 @@ export const serviceTokens: Readonly<Record<string, ServiceIdentifier<unknown>>>
   capabilityService: ICapabilityService,
   hostFolderBrowser: IHostFolderBrowser,
   bootstrapService: IBootstrapService,
-  workspaceLifecycleService: IWorkspaceLifecycleService,
-  sessionLifecycleService: ISessionLifecycleService,
+  fileService: IFileService,
+  workspaceInstanceManager: IWorkspaceInstanceManager,
+  sessionManager: ISessionManager,
   sessionMetadata: ISessionMetadata,
   sessionInteractionService: ISessionInteractionService,
   sessionApprovalService: ISessionApprovalService,
   sessionQuestionService: ISessionQuestionService,
   sessionSkillCatalog: ISessionSkillCatalog,
-  agentRPCService: IAgentRPCService,
+  sessionTitleService: ISessionTitleService,
+  agentPromptService: IAgentPromptService,
+  agentSkillService: IAgentSkillService,
+  agentLoopService: IAgentLoopService,
+  agentPermissionModeService: IAgentPermissionModeService,
+  agentCommandService: IAgentCommandService,
+  agentRuntimeBindingService: IAgentRuntimeBindingService,
+  agentContextMemoryService: IAgentContextMemoryService,
+  agentTokenCountingService: IAgentTokenCountingService,
   agentActivityView: IAgentActivityView,
   agentShellCommandService: IAgentShellCommandService,
   agentProfileService: IAgentProfileService,

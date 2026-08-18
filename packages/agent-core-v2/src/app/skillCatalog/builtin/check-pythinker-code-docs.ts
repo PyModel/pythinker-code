@@ -1,7 +1,3 @@
-/**
- * `skillCatalog` domain — builtin `check-pythinker-code-docs` skill definition.
- */
-
 import type { SkillDefinition } from '#/app/skillCatalog/types';
 import { parseSkillText } from '#/app/skillCatalog/parser';
 import CHECK_PYTHINKER_CODE_DOCS_BODY from './check-pythinker-code-docs.md?raw';

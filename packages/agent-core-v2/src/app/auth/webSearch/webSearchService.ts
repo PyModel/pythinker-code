@@ -1,33 +1,10 @@
-/**
- * `auth` domain (cross-cutting) — `IWebSearchProviderService` implementation.
- *
- * Resolves the `WebSearch` backend from two sources, in precedence order:
- * (1) an explicit `[services.pymodel_search]` config section (read through
- * `config`) — built with its `apiKey` and/or an `oauth` ref resolved
- * through `IOAuthService.resolveTokenProvider(...)`; and (2) the managed Pythinker
- * OAuth provider (`managed:pythinker-code`) when it carries an `oauth` ref (the
- * state after a successful Pythinker login), whose bearer token comes from
- * `IOAuthService.resolveTokenProvider(...)` and whose base URL is derived from
- * the provider's `baseUrl`. The explicit config wins over the managed
- * derivation. When neither source is configured it yields `undefined`.
- * Tests and hosts that need a custom backend bind `IWebSearchProviderService`
- * directly. Bound at App scope.
- *
- * Default headers split by who chose the endpoint: a `[services]` entry names
- * its own, so that path sends `agentIdentity`'s frozen `requestHeaders` — the
- * host header set with the `User-Agent` product token rewritten to the
- * configured identity — while the managed OAuth path sends the host's own
- * headers (`IBootstrapService.args.requestHeaders`) verbatim, being the
- * endpoint the session authenticated against.
- */
-
 import {
   PYTHINKER_CODE_PROVIDER_NAME,
   pythinkerCodeBaseUrl,
   type BearerTokenProvider,
 } from '@pymodel/pythinker-code-oauth';
-
-import { LifecycleScope, ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { LifecycleScope } from '#/app/scopes';
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { IOAuthService } from '#/app/auth/auth';
 import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';

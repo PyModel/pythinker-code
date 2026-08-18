@@ -55,6 +55,8 @@ const host = vi.hoisted(() => {
     Uri,
     watcher,
     harness,
+    createPythinkerHarness: vi.fn(() => harness),
+    createPythinkerHarnessV2: vi.fn(() => harness),
     showWarningMessage,
     workspaceFolders: [] as Array<{ uri: Uri }>,
   };
@@ -75,7 +77,11 @@ vi.mock("vscode", () => ({
 
 vi.mock("@pymodel/pythinker-code-sdk", async (importOriginal) => {
   const original = await importOriginal<typeof import("@pymodel/pythinker-code-sdk")>();
-  return { ...original, createPythinkerHarness: () => host.harness };
+  return {
+    ...original,
+    createPythinkerHarness: () => host.createPythinkerHarness(),
+    createPythinkerHarnessV2: () => host.createPythinkerHarnessV2(),
+  };
 });
 
 let bridge: BridgeHandler;
@@ -92,6 +98,8 @@ beforeEach(async () => {
   host.harness.resumeSession.mockReset();
   host.harness.getConfig.mockReset();
   host.harness.getConfig.mockResolvedValue({ models: {} });
+  host.createPythinkerHarness.mockImplementation(() => host.harness);
+  host.createPythinkerHarnessV2.mockImplementation(() => host.harness);
   host.showWarningMessage.mockReset();
   host.showWarningMessage.mockResolvedValue(undefined);
   workspaceState = { get: vi.fn((_key, fallback) => fallback), update: vi.fn() };
@@ -108,7 +116,42 @@ beforeEach(async () => {
 afterEach(async () => {
   await bridge.dispose();
   vi.clearAllMocks();
+  vi.unstubAllEnvs();
   await rm(root, { recursive: true, force: true });
+});
+
+describe("Engine startup", () => {
+  function constructBridge(): void {
+    new BridgeHandler(
+      vi.fn(),
+      workspaceState as unknown as vscode.Memento,
+      join(root, "global-storage-2"),
+      vi.fn(),
+      showLogs,
+      writeLog,
+    );
+  }
+
+  it("reports the rollback setting when the default engine cannot start", () => {
+    // Keep v2 the default even when the suite itself runs under the legacy flag.
+    vi.stubEnv("PYTHINKER_CODE_LEGACY_FLAG", "");
+    host.createPythinkerHarnessV2.mockImplementationOnce(() => {
+      throw new Error("engine boom");
+    });
+
+    expect(constructBridge).toThrow(
+      /Failed to start the Pythinker engine: engine boom\..*pythinker\.useAgentCoreV1/s,
+    );
+  });
+
+  it("reports no rollback hint when the legacy engine itself cannot start", () => {
+    vi.stubEnv("PYTHINKER_CODE_LEGACY_FLAG", "1");
+    host.createPythinkerHarness.mockImplementationOnce(() => {
+      throw new Error("legacy boom");
+    });
+
+    expect(constructBridge).toThrow(/^Failed to start the Pythinker engine: legacy boom\.$/);
+  });
 });
 
 describe("Webview RPC boundary (validates requests before host dispatch)", () => {

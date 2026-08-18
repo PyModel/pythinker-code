@@ -21,10 +21,9 @@ import { IAgentGoalService } from '@pymodel/agent-core-v2/agent/goal/goal';
 import { IAgentMcpService } from '@pymodel/agent-core-v2/agent/mcp/mcp';
 import { IAgentPermissionModeService } from '@pymodel/agent-core-v2/agent/permissionMode/permissionMode';
 import { IAgentPermissionRulesService } from '@pymodel/agent-core-v2/agent/permissionRules/permissionRules';
-import { IAgentPlanService } from '@pymodel/agent-core-v2/agent/plan/plan';
+import { IAgentPlanService } from '@pymodel/agent-core-v2/features/plan/plan';
 import { IAgentProfileService } from '@pymodel/agent-core-v2/agent/profile/profile';
-import { IAgentRPCService } from '@pymodel/agent-core-v2/agent/rpc/rpc';
-import { IAgentDynamicWorkflowService } from '@pymodel/agent-core-v2/agent/dynamic_workflow/dynamic_workflow';
+import { IAgentDynamicWorkflowService } from '@pymodel/agent-core-v2/features/dynamic_workflow/agent/dynamic_workflow';
 import { IAgentTaskService } from '@pymodel/agent-core-v2/agent/task/task';
 import { IAgentTokenCountingService } from '@pymodel/agent-core-v2/agent/tokenCounting/tokenCounting';
 import { IAgentToolRegistryService } from '@pymodel/agent-core-v2/agent/toolRegistry/toolRegistry';
@@ -36,7 +35,7 @@ import { IProviderService } from '@pymodel/agent-core-v2/kosong/provider/provide
 import { ISessionApprovalService } from '@pymodel/agent-core-v2/session/approval/approval';
 import { ISessionInteractionService } from '@pymodel/agent-core-v2/session/interaction/interaction';
 import { ISessionQuestionService } from '@pymodel/agent-core-v2/session/question/question';
-import { ISessionInitService } from '@pymodel/agent-core-v2/session/sessionInit/sessionInit';
+import { ISessionInitService } from '@pymodel/agent-core-v2/features/sessionInit/sessionInit';
 import { ISessionMetadata } from '@pymodel/agent-core-v2/session/sessionMetadata/sessionMetadata';
 import { ISessionWorkspaceContext } from '@pymodel/agent-core-v2/session/workspaceContext/workspaceContext';
 
@@ -267,19 +266,6 @@ export const AGENT_PANELS: readonly ServicePanelDef[] = [
     actions: [
       { label: 'enter (manual)', run: (svc) => call(svc, 'enter', 'manual') },
       { label: 'exit', run: (svc) => call(svc, 'exit') },
-    ],
-  },
-  {
-    id: String(IAgentRPCService),
-    label: 'AgentRPCService',
-    scope: 'agent',
-    actions: [
-      { label: 'cancel turn', run: (svc) => call(svc, 'cancel', {}) },
-      {
-        label: 'undoHistory',
-        input: 'Steps',
-        run: (svc, n) => call(svc, 'undoHistory', { count: Number(n) }),
-      },
     ],
   },
 ];

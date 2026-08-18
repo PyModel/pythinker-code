@@ -1,8 +1,3 @@
-/**
- * `@pymodel/kap-server` public surface — the Pythinker Code server backed by the
- * DI × Scope agent engine (`@pymodel/agent-core-v2`).
- */
-
 export { startServer } from './start';
 export type { ServerHostIdentity, ServerStartOptions, RunningServer } from './start';
 export { okEnvelope, errEnvelope } from './envelope';

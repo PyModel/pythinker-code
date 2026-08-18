@@ -45,6 +45,22 @@ export type SkillSource = 'project' | 'user' | 'extra' | 'builtin';
 
 export interface UserPromptOrigin {
   readonly kind: 'user';
+  /**
+   * Skill activations bundled into this prompt: the rendered skill blocks
+   * precede the caller's parts in the message content, and every activation
+   * is listed here so resume / replay can rebuild the per-skill view from
+   * the single bundled message.
+   */
+  readonly skillActivations?: readonly BundledSkillActivation[];
+}
+
+export interface BundledSkillActivation {
+  readonly activationId: string;
+  readonly skillName: string;
+  readonly skillArgs?: string;
+  readonly skillType?: string;
+  readonly skillPath?: string;
+  readonly skillSource?: SkillSource;
 }
 
 export interface SkillActivationOrigin {
@@ -294,6 +310,7 @@ export type PythinkerErrorCode =
   | 'request.invalid'
   | 'request.work_dir_required'
   | 'request.prompt_input_empty'
+  | 'prompt.id_conflict'
   | 'prompt.not_found'
   | 'prompt.already_completed'
   | 'session.busy'
@@ -373,6 +390,10 @@ export interface AgentTaskInfo extends TaskInfoBase {
   readonly kind: 'agent';
   readonly agentId?: string;
   readonly subagentType?: string;
+  /** Display-normalized bound model alias (populated by the v2 engine). */
+  readonly model?: string;
+  /** The subagent's effective thinking effort at spawn (v2 engine). */
+  readonly thinkingEffort?: string;
 }
 
 export interface QuestionTaskInfo extends TaskInfoBase {
@@ -439,6 +460,14 @@ export interface McpOAuthAuthorizationUrlUpdateData {
 }
 
 export type TurnEndReason = 'completed' | 'cancelled' | 'failed' | 'blocked';
+
+export type TurnInterruptReason =
+  | 'user_cancelled'
+  | 'aborted'
+  | 'max_steps'
+  | 'error'
+  | 'filtered'
+  | 'blocked';
 
 export type AgentPhase =
   | { readonly kind: 'idle' }
@@ -587,6 +616,30 @@ export interface ModelCatalogChangedEvent {
   readonly failed: readonly ProviderRefreshFailure[];
 }
 
+/**
+ * Plugin set mutation (install / enable / disable / remove from any client).
+ * Bare global fan-out — clients re-read the plugins REST surface.
+ */
+export interface PluginChangedEvent {
+  readonly type: 'event.plugin.changed';
+}
+
+/**
+ * Capability install progress transition, fanned out globally. Clients update
+ * the row live and re-read the capability once it settles (`running: false`).
+ */
+export interface CapabilityChangedEvent {
+  readonly type: 'event.capability.changed';
+  readonly capability_id: string;
+  readonly install: {
+    readonly running: boolean;
+    readonly step?: string;
+    readonly percent?: number;
+    readonly error?: string;
+    readonly note?: string;
+  };
+}
+
 export interface GoalUpdatedEvent {
   readonly type: 'goal.updated';
   readonly snapshot: GoalSnapshot | null;
@@ -627,14 +680,18 @@ export interface TurnStartedEvent {
   readonly turnId: number;
   readonly origin: PromptOrigin;
   readonly prompt?: string;
+  /** The prompt record id when the turn was opened by a prompt submission. */
+  readonly promptId?: string;
 }
 
 export interface TurnEndedEvent {
   readonly type: 'turn.ended';
+  readonly time?: number;
   readonly turnId: number;
   readonly reason: TurnEndReason;
   readonly error?: PythinkerErrorPayload;
   readonly durationMs?: number;
+  readonly interruptReason?: TurnInterruptReason;
 }
 
 export interface TurnStepStartedEvent {
@@ -794,6 +851,13 @@ export interface SubagentSpawnedEvent {
   readonly description?: string;
   readonly dynamicWorkflowIndex?: number;
   readonly runInBackground: boolean;
+  /** Model alias the child is bound to, display-normalized (the derived
+   *  `__secondary__` entry resolves to its base alias). Optional so older
+   *  producers/consumers stay wire-compatible. */
+  readonly model?: string;
+  /** The child's effective thinking effort at spawn (same vocabulary as
+   *  `agent.status.updated`). Optional for cross-version tolerance. */
+  readonly thinkingEffort?: string;
 }
 
 export interface SubagentStartedEvent {
@@ -919,7 +983,7 @@ export interface McpServerStatusEvent {
 export interface McpServerStatusPayload {
   readonly name: string;
   readonly transport: 'stdio' | 'http' | 'sse';
-  readonly status: 'pending' | 'connected' | 'failed' | 'disabled' | 'needs-auth';
+  readonly status: 'pending' | 'connected' | 'failed' | 'disabled' | 'needs-auth' | 'removed';
   readonly toolCount: number;
   readonly error?: string;
 }
@@ -937,6 +1001,8 @@ export type AgentEvent =
   | SessionStatusChangedEvent
   | ConfigChangedEvent
   | ModelCatalogChangedEvent
+  | PluginChangedEvent
+  | CapabilityChangedEvent
   | GoalUpdatedEvent
   | SkillActivatedEvent
   | PluginCommandActivatedEvent
@@ -1005,8 +1071,18 @@ export const permissionModeSchema = z.enum(['manual', 'yolo', 'auto']) satisfies
 
 export const skillSourceSchema = z.enum(['project', 'user', 'extra', 'builtin']) satisfies z.ZodType<SkillSource>;
 
+export const bundledSkillActivationSchema = z.object({
+  activationId: z.string(),
+  skillName: z.string(),
+  skillArgs: z.string().optional(),
+  skillType: z.string().optional(),
+  skillPath: z.string().optional(),
+  skillSource: skillSourceSchema.optional(),
+}) satisfies z.ZodType<BundledSkillActivation>;
+
 export const userPromptOriginSchema = z.object({
   kind: z.literal('user'),
+  skillActivations: z.array(bundledSkillActivationSchema).optional(),
 }) satisfies z.ZodType<UserPromptOrigin>;
 
 export const skillActivationOriginSchema = z.object({
@@ -1251,6 +1327,7 @@ export const pythinkerErrorCodeSchema = z.enum([
   'request.invalid',
   'request.work_dir_required',
   'request.prompt_input_empty',
+  'prompt.id_conflict',
   'prompt.not_found',
   'prompt.already_completed',
   'session.busy',
@@ -1335,6 +1412,8 @@ export const agentTaskInfoSchema = taskInfoBaseSchema.extend({
   kind: z.literal('agent'),
   agentId: z.string().optional(),
   subagentType: z.string().optional(),
+  model: z.string().optional(),
+  thinkingEffort: z.string().optional(),
 }) satisfies z.ZodType<AgentTaskInfo>;
 
 export const questionTaskInfoSchema = taskInfoBaseSchema.extend({
@@ -1374,6 +1453,8 @@ export const mcpOAuthAuthorizationUrlUpdateDataSchema = z.object({
 }) satisfies z.ZodType<McpOAuthAuthorizationUrlUpdateData>;
 
 export const turnEndReasonSchema = z.enum(['completed', 'cancelled', 'failed', 'blocked']) satisfies z.ZodType<TurnEndReason>;
+
+export const turnInterruptReasonSchema = z.enum(['user_cancelled', 'aborted', 'max_steps', 'error', 'filtered', 'blocked']) satisfies z.ZodType<TurnInterruptReason>;
 
 export const agentPhaseSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('idle') }),
@@ -1509,6 +1590,22 @@ export const modelCatalogChangedEventSchema = z.object({
   failed: z.array(providerRefreshFailureSchema),
 }) satisfies z.ZodType<ModelCatalogChangedEvent>;
 
+export const pluginChangedEventSchema = z.object({
+  type: z.literal('event.plugin.changed'),
+}) satisfies z.ZodType<PluginChangedEvent>;
+
+export const capabilityChangedEventSchema = z.object({
+  type: z.literal('event.capability.changed'),
+  capability_id: z.string().min(1),
+  install: z.object({
+    running: z.boolean(),
+    step: z.string().optional(),
+    percent: z.number().optional(),
+    error: z.string().optional(),
+    note: z.string().optional(),
+  }),
+}) satisfies z.ZodType<CapabilityChangedEvent>;
+
 export const goalUpdatedEventSchema = z.object({
   type: z.literal('goal.updated'),
   snapshot: goalSnapshotSchema.nullable(),
@@ -1549,14 +1646,17 @@ export const turnStartedEventSchema = z.object({
   turnId: z.number(),
   origin: promptOriginSchema,
   prompt: z.string().optional(),
+  promptId: z.string().optional(),
 }) satisfies z.ZodType<TurnStartedEvent>;
 
 export const turnEndedEventSchema = z.object({
   type: z.literal('turn.ended'),
+  time: z.number().optional(),
   turnId: z.number(),
   reason: turnEndReasonSchema,
   error: pythinkerErrorPayloadSchema.optional(),
   durationMs: z.number().optional(),
+  interruptReason: turnInterruptReasonSchema.optional(),
 }) satisfies z.ZodType<TurnEndedEvent>;
 
 export const turnStepStartedEventSchema = z.object({
@@ -1691,6 +1791,8 @@ export const subagentSpawnedEventSchema = z.object({
   description: z.string().optional(),
   dynamicWorkflowIndex: z.number().optional(),
   runInBackground: z.boolean(),
+  model: z.string().optional(),
+  thinkingEffort: z.string().optional(),
 }) satisfies z.ZodType<SubagentSpawnedEvent>;
 
 export const subagentStartedEventSchema = z.object({
@@ -1809,7 +1911,7 @@ export const toolListUpdatedEventSchema = z.object({
 export const mcpServerStatusPayloadSchema = z.object({
   name: z.string(),
   transport: z.enum(['stdio', 'http']),
-  status: z.enum(['pending', 'connected', 'failed', 'disabled', 'needs-auth']),
+  status: z.enum(['pending', 'connected', 'failed', 'disabled', 'needs-auth', 'removed']),
   toolCount: z.number(),
   error: z.string().optional(),
 }) satisfies z.ZodType<McpServerStatusPayload>;
@@ -1831,6 +1933,8 @@ export const agentEventSchema = z.discriminatedUnion('type', [
   sessionWorkChangedEventSchema,
   sessionStatusChangedEventSchema,
   modelCatalogChangedEventSchema,
+  pluginChangedEventSchema,
+  capabilityChangedEventSchema,
   goalUpdatedEventSchema,
   skillActivatedEventSchema,
   pluginCommandActivatedEventSchema,
@@ -1906,6 +2010,10 @@ export const VOLATILE_EVENT_TYPES = [
   'shell.started',
   'shell.completed',
   'agent.status.updated',
+  // Live-only capability install progress (per-chunk ticks); kap-server
+  // classifies it volatile (never journaled), so shared-protocol clients must
+  // not treat it as durable/replayable either.
+  'event.capability.changed',
 ] as const satisfies readonly AgentEvent['type'][];
 
 export type VolatileEventType = (typeof VOLATILE_EVENT_TYPES)[number];

@@ -14,7 +14,7 @@
  */
 
 import type { Component, Terminal } from '@pymodel/pi-tui';
-import { TUI } from '@pymodel/pi-tui';
+import { TuiMainScreen } from '@pymodel/pi-tui';
 import { bench, describe } from 'vitest';
 
 const WIDTH = 120;
@@ -72,7 +72,7 @@ class SpinnerComponent implements Component {
 
 describe('TUI steady-state frame', () => {
   const terminal = new StubTerminal();
-  const tui = new TUI(terminal);
+  const tui = new TuiMainScreen(terminal);
   const spinner = new SpinnerComponent();
   tui.addChild(
     new StaticTranscript(

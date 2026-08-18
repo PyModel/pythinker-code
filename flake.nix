@@ -82,7 +82,6 @@
         ./apps/pythinker-code
         ./apps/vscode
         ./apps/pythinker-inspect
-        ./apps/pythinker-web
         ./apps/vis
         ./apps/vis/server
         ./apps/vis/web
@@ -110,7 +109,6 @@
         "@pymodel/pythinker-code"
         "pythinker-code"
         "@pymodel/pythinker-inspect"
-        "@pymodel/pythinker-web"
         "@pymodel/vis"
         "@pymodel/vis-server"
         "@pymodel/vis-web"
@@ -164,7 +162,7 @@
               inherit (finalAttrs) pname version src pnpmWorkspaces;
               inherit pnpm;
               fetcherVersion = 3;
-              hash = "sha256-dRVe0stYIorD8H/SyAIAJof6JinpT/3E/I0lyllbFWg=";
+              hash = "sha256-P450+LKDYkRyk7OZ2mSOX0/RwtbivwR5ZksN8FM6+TU=";
             };
 
             nativeBuildInputs = [
@@ -203,10 +201,10 @@
               ''}
               # The SEA blob step (scripts/native/02-sea-blob.mjs) embeds the
               # Pythinker web assets from apps/pythinker-code/dist-web and fails if that
-              # directory is missing. Build the web app and stage its assets
-              # before producing the native executable.
-              pnpm --filter=@pymodel/pythinker-web run build
-              node apps/pythinker-code/scripts/copy-web-assets.mjs
+              # directory is missing. The bundle is committed (synced from the
+              # code-app repo) — verify it is in place before producing the
+              # native executable.
+              node apps/pythinker-code/scripts/check-web-assets.mjs
               pnpm --filter=@pymodel/pythinker-code run build:native:sea
               runHook postBuild
             '';

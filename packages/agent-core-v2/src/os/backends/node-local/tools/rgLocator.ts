@@ -1,13 +1,3 @@
-/**
- * `fileTools` domain — shared ripgrep (`rg`) binary locator.
- *
- * Resolves the `rg` command, preferring a file found on
- * PATH, then the vendor hook, then the app cache, and finally bootstrapping a
- * pinned ripgrep archive into `<PYTHINKER_CODE_HOME|~/.pythinker-code>/bin` when the
- * caller permits it. File lookup intentionally avoids spawning `rg --version`
- * so tool resolution has the same observable shape as v1.
- */
-
 import { createHash } from 'node:crypto';
 import { createWriteStream, existsSync } from 'node:fs';
 import { chmod, copyFile, mkdir, mkdtemp, readFile, rename, rm, stat } from 'node:fs/promises';

@@ -1,6 +1,6 @@
 {
   "name": "@pymodel/pythinker-code-oauth",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "Pythinker OAuth toolkit for managed Pythinker Code authentication",
   "license": "MIT",
@@ -32,6 +32,10 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./src/index.ts"
+    },
+    "./device": {
+      "types": "./src/device.ts",
+      "default": "./src/device.ts"
     }
   },
   "scripts": {

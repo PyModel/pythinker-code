@@ -99,6 +99,39 @@ describe('ModelSelectorComponent', () => {
     expect(text(picker)).toContain('Thinking  (←→ to switch)');
   });
 
+  it('hides the Thinking footer when thinkingControl is false', () => {
+    const picker = new ModelSelectorComponent({
+      models: { pythinker: model('Kimi K2', ['thinking']) },
+      currentValue: 'pythinker',
+      currentThinkingEffort: 'on',
+      thinkingControl: false,
+      onSelect: vi.fn(),
+      onCancel: vi.fn(),
+    });
+
+    expect(text(picker)).not.toContain('Thinking');
+  });
+
+  it('ignores Left/Right when thinkingControl is false', () => {
+    const onSelect = vi.fn();
+    const picker = new ModelSelectorComponent({
+      models: { pythinker: model('Kimi K2', ['thinking']) },
+      currentValue: 'pythinker',
+      currentThinkingEffort: 'on',
+      thinkingControl: false,
+      onSelect,
+      onCancel: vi.fn(),
+    });
+
+    // Same setup as the toggle test above: either arrow would flip 'on' to 'off'.
+    picker.handleInput(LEFT);
+    picker.handleInput('\r');
+    expect(onSelect).toHaveBeenLastCalledWith({ alias: 'pythinker', thinking: 'on' });
+    picker.handleInput(RIGHT);
+    picker.handleInput('\r');
+    expect(onSelect).toHaveBeenLastCalledWith({ alias: 'pythinker', thinking: 'on' });
+  });
+
   it('forces always-thinking models on and unsupported models off', () => {
     const onSelect = vi.fn();
     const picker = new ModelSelectorComponent({

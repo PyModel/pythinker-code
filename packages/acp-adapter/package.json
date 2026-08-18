@@ -1,6 +1,6 @@
 {
   "name": "@pymodel/acp-adapter",
-  "version": "0.3.6",
+  "version": "0.3.9",
   "private": true,
   "description": "Agent Client Protocol adapter for pythinker-code",
   "license": "MIT",

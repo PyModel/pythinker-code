@@ -20,7 +20,6 @@ All other workspace packages are private internal packages, are not published to
 - `@pymodel/kaos`
 - `@pymodel/pythinker-code-oauth`
 - `@pymodel/pythinker-telemetry`
-- `@pymodel/pythinker-web`
 - `@pymodel/kosong`
 - `@pymodel/migration-legacy`
 - `@pymodel/protocol`

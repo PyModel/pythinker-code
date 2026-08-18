@@ -30,6 +30,7 @@ describe('pythinker acp', () => {
   let stderrSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
+    vi.stubEnv('PYTHINKER_CODE_LEGACY_FLAG', '1');
     vi.mocked(runAcpServer).mockClear();
     exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number | string | null) => {
       throw new ExitCalled(code);
@@ -40,6 +41,7 @@ describe('pythinker acp', () => {
   afterEach(() => {
     exitSpy.mockRestore();
     stderrSpy.mockRestore();
+    vi.unstubAllEnvs();
   });
 
   it('registers an `acp` subcommand on the program', () => {
