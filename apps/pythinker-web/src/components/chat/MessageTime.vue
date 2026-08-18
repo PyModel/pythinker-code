@@ -1,7 +1,7 @@
 <!-- apps/pythinker-web/src/components/chat/MessageTime.vue -->
 <!-- Click-to-expand timestamp shown under a message bubble (a real user
      message or a cron-fired message). Collapsed: a compact form via
-     formatMessageTime (today "HH:MM", yesterday "昨天 HH:MM", this year
+     formatMessageTime (today "HH:MM", yesterday "Yesterday HH:MM", this year
      "MM-DD HH:MM", older "YYYY-MM-DD HH:MM"). Expanded on click: the full
      "YYYY-MM-DD HH:MM". One component so the time under a user message and a
      cron notice stays identical. -->

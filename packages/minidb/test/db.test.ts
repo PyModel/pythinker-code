@@ -527,10 +527,10 @@ for (const valueMode of ['memory', 'disk'] as const) {
       await db.createTextIndex('ft', { fields: ['text'] });
       await db.createIndex('byKind', { field: 'kind' });
       for (let i = 0; i < 300; i++) {
-        await db.set(`k${i}`, { kind: `t${i % 5}`, score: i, text: `hello world doc ${i} 异步 读取 ${i % 7}` }, { dt: { ts: 1700000000000 + i } });
+        await db.set(`k${i}`, { kind: `t${i % 5}`, score: i, text: `hello world doc ${i} \u5F02\u6B65 \u8BFB\u53D6 ${i % 7}` }, { dt: { ts: 1700000000000 + i } });
       }
       await db.del('k0');
-      await db.set('k1', { kind: 't1', score: 999, text: 'replaced 替换' });
+      await db.set('k1', { kind: 't1', score: 999, text: 'replaced \u66FF\u6362' });
 
       // getAsync vs get
       assert.deepEqual(await db.getAsync('k1'), db.get('k1'));
@@ -539,7 +539,7 @@ for (const valueMode of ['memory', 'disk'] as const) {
       assert.equal(await db.getAsync('missing'), undefined);
 
       // searchBoundedAsync / searchAsync vs search
-      for (const q of ['hello', '异步', 'hello world', 'replaced']) {
+      for (const q of ['hello', '\u5F02\u6B65', 'hello world', 'replaced']) {
         const syncRes = db.searchBounded('ft', q, { limit: 20 });
         const asyncRes = await db.searchBoundedAsync('ft', q, { limit: 20 });
         assert.deepEqual(asyncRes, syncRes, `searchBoundedAsync(${q})`);

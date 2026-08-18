@@ -7,8 +7,8 @@ import type { SystemPromptRenderResult } from '#/app/agentProfileCatalog/agentPr
 
 const FULL_FILE = `---
 name: code-reviewer
-description: 严格的代码审查 agent
-whenToUse: 代码评审、PR 检查
+description: \u4E25\u683C\u7684\u4EE3\u7801\u5BA1\u67E5 agent
+whenToUse: \u4EE3\u7801\u8BC4\u5BA1、PR \u68C0\u67E5
 override: true
 tools:
   - Read
@@ -22,7 +22,7 @@ subagents:
 unknownField: tolerated
 ---
 
-你是严格的代码审查者。
+\u4F60\u662F\u4E25\u683C\u7684\u4EE3\u7801\u5BA1\u67E5\u8005。
 `;
 
 function parse(text: string): AgentFileDefinition {
@@ -34,13 +34,13 @@ describe('parseAgentFileText', () => {
     const def = parse(FULL_FILE);
 
     expect(def.name).toBe('code-reviewer');
-    expect(def.description).toBe('严格的代码审查 agent');
-    expect(def.whenToUse).toBe('代码评审、PR 检查');
+    expect(def.description).toBe('\u4E25\u683C\u7684\u4EE3\u7801\u5BA1\u67E5 agent');
+    expect(def.whenToUse).toBe('\u4EE3\u7801\u8BC4\u5BA1、PR \u68C0\u67E5');
     expect(def.override).toBe(true);
     expect(def.tools).toEqual(['Read', 'Grep', 'mcp__github__*']);
     expect(def.disallowedTools).toEqual(['Bash']);
     expect(def.subagents).toEqual(['explore', 'plan']);
-    expect(def.prompt).toBe('你是严格的代码审查者。');
+    expect(def.prompt).toBe('\u4F60\u662F\u4E25\u683C\u7684\u4EE3\u7801\u5BA1\u67E5\u8005。');
     expect(def.source).toBe('project');
   });
 

@@ -255,10 +255,10 @@ describe('SessionPickerComponent', () => {
       sessions: [
         {
           id: 'ses_cjk_long_session_id_value',
-          title: '现在要重构一下 TUI 的 sessions 列表，要渲染几个字段，让 UI 更好看',
+          title: '\u73B0\u5728\u8981\u91CD\u6784\u4E00\u4E0B TUI \u7684 sessions \u5217\u8868，\u8981\u6E32\u67D3\u51E0\u4E2A\u5B57\u6BB5，\u8BA9 UI \u66F4\u597D\u770B',
           last_prompt:
-            '我们要渲染几个：sessionid title lastPrompt。工作目录，修改时间。需要重新设计下 UI。',
-          work_dir: '/Users/someone/Desktop/中文目录/very-long-project-folder-name',
+            '\u6211\u4EEC\u8981\u6E32\u67D3\u51E0\u4E2A：sessionid title lastPrompt。\u5DE5\u4F5C\u76EE\u5F55，\u4FEE\u6539\u65F6\u95F4。\u9700\u8981\u91CD\u65B0\u8BBE\u8BA1\u4E0B UI。',
+          work_dir: '/Users/someone/Desktop/\u4E2D\u6587\u76EE\u5F55/very-long-project-folder-name',
           updated_at: now - 5 * 60 * 1000,
         },
       ],

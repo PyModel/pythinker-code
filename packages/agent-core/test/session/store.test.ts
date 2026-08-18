@@ -80,19 +80,19 @@ describe('SessionStore', () => {
     it('returns a canonical drive workDir when Windows separators are used', async () => {
       const summary = await store.create({
         id: 'session_windows_drive',
-        workDir: 'C:\\Users\\Example User\\项目',
+        workDir: 'C:\\Users\\Example User\\\u9879\u76EE',
       });
 
-      expect(summary.workDir).toBe('C:/Users/Example User/项目');
+      expect(summary.workDir).toBe('C:/Users/Example User/\u9879\u76EE');
     });
 
     it('preserves the share root when an UNC workDir is used', async () => {
       const summary = await store.create({
         id: 'session_windows_unc',
-        workDir: '\\\\Server\\Share\\Workspace\\项目',
+        workDir: '\\\\Server\\Share\\Workspace\\\u9879\u76EE',
       });
 
-      expect(summary.workDir).toBe('//Server/Share/Workspace/项目');
+      expect(summary.workDir).toBe('//Server/Share/Workspace/\u9879\u76EE');
     });
   });
 
@@ -114,10 +114,10 @@ describe('SessionStore', () => {
 
   describe('list by Windows workDir', () => {
     it('merges drive buckets when only workDir casing differs', async () => {
-      await store.create({ id: 'session_drive_upper', workDir: 'C:\\Workspace\\项目' });
-      await store.create({ id: 'session_drive_lower', workDir: 'c:\\workspace\\项目' });
+      await store.create({ id: 'session_drive_upper', workDir: 'C:\\Workspace\\\u9879\u76EE' });
+      await store.create({ id: 'session_drive_lower', workDir: 'c:\\workspace\\\u9879\u76EE' });
 
-      const sessions = await store.list({ workDir: 'C:/WORKSPACE/项目' });
+      const sessions = await store.list({ workDir: 'C:/WORKSPACE/\u9879\u76EE' });
 
       expect(sessions.map((session) => session.id).toSorted()).toEqual([
         'session_drive_lower',

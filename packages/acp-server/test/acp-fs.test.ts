@@ -111,9 +111,9 @@ describe('AcpHostFileSystem', () => {
       },
     });
 
-    await fs.writeBytes('/buffer.txt', new TextEncoder().encode('你好'));
+    await fs.writeBytes('/buffer.txt', new TextEncoder().encode('\u4F60\u597D'));
 
-    expect(writes).toEqual(['你好']);
+    expect(writes).toEqual(['\u4F60\u597D']);
   });
 
   it('keeps invalid UTF-8 writeBytes on the local binary backend', async () => {

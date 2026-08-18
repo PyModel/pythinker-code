@@ -11,7 +11,7 @@
 // types wrapped in parens, plus a leading `hasError:` line. Both sides use
 // UTF-16 code unit offsets directly: web-tree-sitter (wasm) reports UTF-16
 // offsets for string input, same as this parser (verified: for
-// "echo 你好 && ls" the reference reports the root as [0,13] and `&&` as
+// "echo \u4F60\u597D && ls" the reference reports the root as [0,13] and `&&` as
 // [8,10] — UTF-16 code units, not UTF-8 bytes).
 
 import path from 'node:path';

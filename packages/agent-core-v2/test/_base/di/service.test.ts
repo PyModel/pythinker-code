@@ -127,7 +127,7 @@ describe('Service — kernel construction protocol (L3)', () => {
     ix.dispose();
   });
 
-  it('withdraws a unit-provided token when the provider is retired (连坐)', () => {
+  it('withdraws a unit-provided token when the provider is retired (\u8FDE\u5750)', () => {
     class Provider extends Service {
       constructor() {
         super();

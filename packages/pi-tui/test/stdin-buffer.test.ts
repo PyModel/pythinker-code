@@ -46,8 +46,8 @@ describe("StdinBuffer", () => {
 		});
 
 		it("should handle unicode characters", () => {
-			processInput("hello 世界");
-			assert.deepStrictEqual(emittedSequences, ["h", "e", "l", "l", "o", " ", "世", "界"]);
+			processInput("hello \u4E16\u754C");
+			assert.deepStrictEqual(emittedSequences, ["h", "e", "l", "l", "o", " ", "\u4E16", "\u754C"]);
 		});
 	});
 
@@ -496,9 +496,9 @@ describe("StdinBuffer", () => {
 		});
 
 		it("should handle paste with unicode", () => {
-			processInput("\x1b[200~Hello 世界 🎉\x1b[201~");
+			processInput("\x1b[200~Hello \u4E16\u754C 🎉\x1b[201~");
 
-			assert.deepStrictEqual(emittedPaste, ["Hello 世界 🎉"]);
+			assert.deepStrictEqual(emittedPaste, ["Hello \u4E16\u754C 🎉"]);
 			assert.deepStrictEqual(emittedSequences, []);
 		});
 	});

@@ -4,7 +4,7 @@ import { asciiVisibleWidth, normalizeTerminalOutput, truncateToWidth, visibleWid
 
 describe("truncateToWidth", () => {
 	it("keeps output within width for very large unicode input", () => {
-		const text = "🙂界".repeat(100_000);
+		const text = "🙂\u754C".repeat(100_000);
 		const truncated = truncateToWidth(text, 40, "…");
 
 		assert.ok(visibleWidth(truncated) <= 40);
@@ -43,11 +43,11 @@ describe("truncateToWidth", () => {
 
 	it("returns the original text when it already fits even if ellipsis is too wide", () => {
 		assert.strictEqual(truncateToWidth("a", 2, "🙂"), "a");
-		assert.strictEqual(truncateToWidth("界", 2, "🙂"), "界");
+		assert.strictEqual(truncateToWidth("\u754C", 2, "🙂"), "\u754C");
 	});
 
 	it("pads truncated output to requested width", () => {
-		const truncated = truncateToWidth("🙂界🙂界🙂界", 8, "…", true);
+		const truncated = truncateToWidth("🙂\u754C🙂\u754C🙂\u754C", 8, "…", true);
 		assert.strictEqual(visibleWidth(truncated), 8);
 	});
 
@@ -58,14 +58,14 @@ describe("truncateToWidth", () => {
 	});
 
 	it("keeps a contiguous prefix instead of skipping a wide grapheme and resuming later", () => {
-		const truncated = truncateToWidth("🙂\t界 \x1b_abc\x07", 7, "…", true);
+		const truncated = truncateToWidth("🙂\t\u754C \x1b_abc\x07", 7, "…", true);
 		assert.strictEqual(truncated, "🙂\t\x1b[0m…\x1b[0m ");
 	});
 });
 
 describe("visibleWidth", () => {
 	it("counts tabs inline and skips ANSI inline", () => {
-		assert.strictEqual(visibleWidth("\t\x1b[31m界\x1b[0m"), 5);
+		assert.strictEqual(visibleWidth("\t\x1b[31m\u754C\x1b[0m"), 5);
 	});
 
 	it("counts Indic conjunct spacing code points within grapheme clusters", () => {
@@ -91,7 +91,7 @@ describe("visibleWidth", () => {
 	});
 
 	it("keeps CJK and Japanese width accounting unchanged", () => {
-		assert.strictEqual(visibleWidth("网络"), 4);
+		assert.strictEqual(visibleWidth("\u7F51\u7EDC"), 4);
 		assert.strictEqual(visibleWidth("ネットワーク"), 12);
 		assert.strictEqual(visibleWidth("が"), 2);
 		assert.strictEqual(visibleWidth("か\u3099"), 2);
@@ -133,7 +133,7 @@ describe("asciiVisibleWidth", () => {
 	});
 
 	it("returns undefined for non-ASCII, control chars, or lone ESC", () => {
-		assert.strictEqual(asciiVisibleWidth("你好", 80), undefined);
+		assert.strictEqual(asciiVisibleWidth("\u4F60\u597D", 80), undefined);
 		assert.strictEqual(asciiVisibleWidth("a\tb", 80), undefined);
 		assert.strictEqual(asciiVisibleWidth("a\x1b", 80), undefined);
 	});

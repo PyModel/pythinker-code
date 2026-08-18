@@ -49,7 +49,7 @@ async function seedTextDb(db: MiniDb<Record<string, unknown>>, n: number): Promi
         return {
           op: 'set' as const,
           key: `k${k}`,
-          value: { kind: `t${k % 7}`, score: k % 100, text: `hello world doc ${k} 持久化 索引 ${k % 13} token${k % 97}` },
+          value: { kind: `t${k % 7}`, score: k % 100, text: `hello world doc ${k} \u6301\u4E45\u5316 \u7D22\u5F15 ${k % 13} token${k % 97}` },
         };
       }),
     );
@@ -67,7 +67,7 @@ async function seedDataOnly(db: MiniDb<Record<string, unknown>>, n: number): Pro
         return {
           op: 'set' as const,
           key: `k${k}`,
-          value: { kind: `t${k % 7}`, score: k % 100, text: `hello world doc ${k} 持久化 索引 ${k % 13} token${k % 97}` },
+          value: { kind: `t${k % 7}`, score: k % 100, text: `hello world doc ${k} \u6301\u4E45\u5316 \u7D22\u5F15 ${k % 13} token${k % 97}` },
         };
       }),
     );
@@ -495,7 +495,7 @@ describe('MiniDb worker build integration', () => {
     // working off the OLD base + live delta.
     let ops = 0;
     while (!settled && ops < 400) {
-      await db.set(`c${ops}`, { kind: 'concurrent', score: ops, text: `concurrent write ${ops} 并发` });
+      await db.set(`c${ops}`, { kind: 'concurrent', score: ops, text: `concurrent write ${ops} \u5E76\u53D1` });
       expect(db.get('k42')).toMatchObject({ score: 42 });
       expect(db.search('ft', 'hello').length).toBeGreaterThan(0);
       ops++;
@@ -537,7 +537,7 @@ describe('MiniDb worker build integration', () => {
       await db.batch(
         Array.from({ length: BATCH }, (_, i) => {
           const k = base + i;
-          return { op: 'set' as const, key: `k${k}`, value: { text: `hello world doc ${k} 持久化 索引` } };
+          return { op: 'set' as const, key: `k${k}`, value: { text: `hello world doc ${k} \u6301\u4E45\u5316 \u7D22\u5F15` } };
         }),
       );
     }
@@ -554,7 +554,7 @@ describe('MiniDb worker build integration', () => {
     await seedTextDb(db, 5000);
     await db.rebuildGeneration();
     expect(db.stats.textWorkerBuilds).toBeGreaterThanOrEqual(1);
-    expect(db.search('ft', '持久化').length).toBeGreaterThan(0);
+    expect(db.search('ft', '\u6301\u4E45\u5316').length).toBeGreaterThan(0);
     expect(await db.getAsync('k42')).toMatchObject({ score: 42 });
     await db.close();
     db = await MiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json', valueMode: 'disk' });
@@ -656,7 +656,7 @@ describe('MiniDb worker build integration', () => {
 
     // A write landing while the reader's base is building is captured by the
     // rebase queue (via WAL catch-up) and replayed at commit.
-    await writer.set('mid', { kind: 't1', score: 1, text: 'mid build write 中途' });
+    await writer.set('mid', { kind: 't1', score: 1, text: 'mid build write \u4E2D\u9014' });
     const walEnd = (await fs.stat(path.join(dir, 'db.wal'))).size;
     expect(await reader.catchUpFromWal(reader.recoveryInfo!.walScanEnd)).not.toBeNull();
     expect(walEnd).toBeGreaterThan(reader.recoveryInfo!.walScanEnd);
@@ -665,7 +665,7 @@ describe('MiniDb worker build integration', () => {
     expect(reader.search('ft', 'hello').length).toBe(50);
     expect(reader.search('tri', 'hello world').length).toBeGreaterThan(0);
     // The queued mid-build write is searchable on the committed base.
-    expect(reader.search('ft', '中途').map((h) => h.key)).toEqual(['mid']);
+    expect(reader.search('ft', '\u4E2D\u9014').map((h) => h.key)).toEqual(['mid']);
     // The writer's directory is untouched: the reader's base postings live in
     // its private scratch dir NEXT TO the db dir.
     expect((await fs.readdir(dir)).sort()).toEqual(filesBefore);
@@ -800,7 +800,7 @@ describe('bounded createTextIndex (data-first corpus)', () => {
     // new base at commit time.
     let ops = 0;
     while (!settled && ops < 200) {
-      await db.set(`c${ops}`, { kind: 'concurrent', text: `concurrent write ${ops} 并发 hello` });
+      await db.set(`c${ops}`, { kind: 'concurrent', text: `concurrent write ${ops} \u5E76\u53D1 hello` });
       ops++;
     }
     await createP;
@@ -809,7 +809,7 @@ describe('bounded createTextIndex (data-first corpus)', () => {
     expect(db.stats.textWorkerBuilds).toBe(2);
     expect(db.stats.textWorkerFallbacks).toBe(0);
     expect(db.search('ft', 'hello').length).toBeGreaterThan(0);
-    expect(db.search('ft', '持久化').length).toBeGreaterThan(0);
+    expect(db.search('ft', '\u6301\u4E45\u5316').length).toBeGreaterThan(0);
     expect(db.search('tri', 'hello world').length).toBeGreaterThan(0);
     if (ops > 0) expect(db.search('ft', 'concurrent').length).toBeGreaterThan(0);
     await db.close();
@@ -855,7 +855,7 @@ describe('bounded open-time rebuild (generation loader)', () => {
     expect(db.stats.textWorkerBuilds).toBe(1);
     // The rebuilt index and the attached one both serve correctly.
     expect(db.search('ft', 'hello').length).toBeGreaterThan(0);
-    expect(db.search('ft', '持久化').length).toBeGreaterThan(0);
+    expect(db.search('ft', '\u6301\u4E45\u5316').length).toBeGreaterThan(0);
     expect(db.search('tri', 'hello world').length).toBeGreaterThan(0);
     await db.close();
   }, 60000);
@@ -885,7 +885,7 @@ describe('single-file deployment (worker entry absent)', () => {
 
       // The maintenance path (generation rebuild) takes the same inline
       // bounded engine instead of the old staged aggregation.
-      await db.set('dirty-1', { text: 'walrus 持久化' });
+      await db.set('dirty-1', { text: 'walrus \u6301\u4E45\u5316' });
       await db.rebuildGeneration();
       expect(db.stats.generationBuildErrors).toBe(0);
       expect(db.stats.textWorkerBuilds).toBe(0);

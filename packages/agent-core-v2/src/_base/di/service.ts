@@ -117,7 +117,7 @@ export abstract class Service extends Disposable implements Fiber, UnitInternals
     if (this.__unitRuntime === undefined) {
       if (this.__unitBuffer !== null) {
         throw new FiberProtocolError(
-          `unit '${this.name}': get/ref/provide reads are not available during construction — declare dependencies as constructor parameters (构造期只写不读)`,
+          `unit '${this.name}': get/ref/provide reads are not available during construction — declare dependencies as constructor parameters`,
         );
       }
       throw new FiberProtocolError(

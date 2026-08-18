@@ -1607,7 +1607,7 @@ bar`,
 		it("should not absorb CJK punctuation after bare URLs into the link", () => {
 			setCapabilities({ images: null, trueColor: false, hyperlinks: true });
 			const markdown = new Markdown(
-				"PR 已开：https://example.com/app/pull/232（本地 main 已退回 origin/main 保持干净）。",
+				"PR \u5DF2\u5F00：https://example.com/app/pull/232（\u672C\u5730 main \u5DF2\u9000\u56DE origin/main \u4FDD\u6301\u5E72\u51C0）。",
 				0,
 				0,
 				defaultMarkdownTheme,
@@ -1629,14 +1629,14 @@ bar`,
 				line.replace(/\x1b\]8;;[^\x1b]*\x1b\\/g, "").replace(/\x1b\[[0-9;]*m/g, ""),
 			);
 			assert.ok(
-				rawPlain.join("").includes("https://example.com/app/pull/232（本地 main 已退回"),
+				rawPlain.join("").includes("https://example.com/app/pull/232（\u672C\u5730 main \u5DF2\u9000\u56DE"),
 				"URL and following CJK text should both render",
 			);
 		});
 
 		it("should strip a trailing full-width parenthesis after a bare URL", () => {
 			setCapabilities({ images: null, trueColor: false, hyperlinks: true });
-			const markdown = new Markdown("看这个（https://example.com/page）就知道", 0, 0, defaultMarkdownTheme);
+			const markdown = new Markdown("\u770B\u8FD9\u4E2A（https://example.com/page）\u5C31\u77E5\u9053", 0, 0, defaultMarkdownTheme);
 
 			const lines = markdown.render(80);
 			const joined = lines.join("");
@@ -1649,13 +1649,13 @@ bar`,
 
 		it("should keep CJK characters inside the URL path", () => {
 			setCapabilities({ images: null, trueColor: false, hyperlinks: true });
-			const markdown = new Markdown("见 https://example.com/wiki/测试页面 的说明", 0, 0, defaultMarkdownTheme);
+			const markdown = new Markdown("\u89C1 https://example.com/wiki/\u6D4B\u8BD5\u9875\u9762 \u7684\u8BF4\u660E", 0, 0, defaultMarkdownTheme);
 
 			const lines = markdown.render(80);
 			const joined = lines.join("");
 
 			assert.ok(
-				joined.includes("\x1b]8;;https://example.com/wiki/测试页面\x1b\\"),
+				joined.includes("\x1b]8;;https://example.com/wiki/\u6D4B\u8BD5\u9875\u9762\x1b\\"),
 				"CJK path characters remain part of the hyperlink target",
 			);
 		});
@@ -1663,7 +1663,7 @@ bar`,
 		it("should keep balanced full-width parentheses inside the URL path", () => {
 			setCapabilities({ images: null, trueColor: false, hyperlinks: true });
 			const markdown = new Markdown(
-				"见 https://example.com/wiki/中华人民共和国（1949年） 的说明",
+				"\u89C1 https://example.com/wiki/\u4E2D\u534E\u4EBA\u6C11\u5171\u548C\u56FD（1949\u5E74） \u7684\u8BF4\u660E",
 				0,
 				0,
 				defaultMarkdownTheme,
@@ -1673,7 +1673,7 @@ bar`,
 			const joined = lines.join("");
 
 			assert.ok(
-				joined.includes("\x1b]8;;https://example.com/wiki/中华人民共和国（1949年）\x1b\\"),
+				joined.includes("\x1b]8;;https://example.com/wiki/\u4E2D\u534E\u4EBA\u6C11\u5171\u548C\u56FD（1949\u5E74）\x1b\\"),
 				"Balanced full-width parens remain part of the hyperlink target",
 			);
 		});
@@ -1681,7 +1681,7 @@ bar`,
 		it("should keep CJK punctuation inside balanced full-width parentheses", () => {
 			setCapabilities({ images: null, trueColor: false, hyperlinks: true });
 			const markdown = new Markdown(
-				"见 https://example.com/wiki/中华人民共和国（北京，1949年） 的说明",
+				"\u89C1 https://example.com/wiki/\u4E2D\u534E\u4EBA\u6C11\u5171\u548C\u56FD（\u5317\u4EAC，1949\u5E74） \u7684\u8BF4\u660E",
 				0,
 				0,
 				defaultMarkdownTheme,
@@ -1691,7 +1691,7 @@ bar`,
 			const joined = lines.join("");
 
 			assert.ok(
-				joined.includes("\x1b]8;;https://example.com/wiki/中华人民共和国（北京，1949年）\x1b\\"),
+				joined.includes("\x1b]8;;https://example.com/wiki/\u4E2D\u534E\u4EBA\u6C11\u5171\u548C\u56FD（\u5317\u4EAC，1949\u5E74）\x1b\\"),
 				"Punctuation inside balanced full-width parens remains part of the hyperlink target",
 			);
 		});

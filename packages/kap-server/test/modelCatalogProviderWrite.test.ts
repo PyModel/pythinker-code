@@ -346,16 +346,16 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
     await boot();
     const { status, body } = await postJson<{ id: string }>('/api/v1/providers', {
       ...CREATE_BODY,
-      id: '测试 Pythinker',
+      id: '\u6D4B\u8BD5 Pythinker',
     });
     expect(status).toBe(201);
     expect(body.code).toBe(0);
-    expect(body.data.id).toBe('测试 Pythinker');
+    expect(body.data.id).toBe('\u6D4B\u8BD5 Pythinker');
 
     const onDisk = await readConfigToml();
-    expect(onDisk['providers']).toMatchObject({ '测试 Pythinker': { type: 'openai' } });
+    expect(onDisk['providers']).toMatchObject({ '\u6D4B\u8BD5 Pythinker': { type: 'openai' } });
     expect(onDisk['models']).toMatchObject({
-      '测试 Pythinker/gpt-4.1': { provider: '测试 Pythinker', model: 'gpt-4.1' },
+      '\u6D4B\u8BD5 Pythinker/gpt-4.1': { provider: '\u6D4B\u8BD5 Pythinker', model: 'gpt-4.1' },
     });
   });
 

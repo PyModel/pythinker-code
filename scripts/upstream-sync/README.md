@@ -82,17 +82,32 @@ Run these checks in order.
    rg -in 'kimi|moonshot'
    ```
 
-4. Verify that upstream did not restore the removed managed service.
+4. Require English-only source outside isolated Chinese localization and test fixtures.
+
+   ```sh
+   if rg --pcre2 '\p{Unified_Ideograph}' apps packages plugins scripts \
+     --glob '*.{ts,tsx,vue,js,mjs,cjs,sh,ps1}' \
+     --glob '!**/dist*/**' \
+     --glob '!**/src/i18n/locales/zh/**' \
+     --glob '!**/fixtures/**'; then
+     echo 'Literal Han ideographs found outside localized content.' >&2
+     exit 1
+   fi
+   ```
+
+5. Verify that upstream did not restore the removed managed service.
 
    ```sh
    node scripts/upstream-sync/check-managed.mjs
    ```
 
-5. Run the full gates separately and record each exit status.
+6. Run the full gates separately and record each exit status.
 
    ```sh
+   pnpm run build
    pnpm run typecheck
    pnpm run lint
+   pnpm run sherif
    pnpm test
    pnpm -C apps/vscode run typecheck
    pnpm -C apps/vscode test

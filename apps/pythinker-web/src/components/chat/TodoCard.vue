@@ -1,7 +1,7 @@
 <!-- apps/pythinker-web/src/components/chat/TodoCard.vue -->
 <!-- Read-only todo list driven by the model's TodoList tool (latest full-list
      write wins). Rendered inside the dock panel, which owns the card shell
-     and the "待办 · N/M" header — this is just the rows + empty state.
+     and the "Todo · N/M" header; this is only the rows and empty state.
      Rows share StatusGlyph with the background bash/subagent task list so the
      two stay visually identical. -->
 <script setup lang="ts">

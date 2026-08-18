@@ -172,7 +172,7 @@ async function main() {
   console.log(`  heap used      : ${mib(process.memoryUsage().heapUsed)}`);
 
   // ---- naive full-text searches ----
-  const queries = ['lark-approval', 'database compaction', '北京', 'Redis 持久化', 'worktree init', 'nonexistentxyz123'];
+  const queries = ['lark-approval', 'database compaction', '\u5317\u4eac', 'Redis \u6301\u4e45\u5316', 'worktree init', 'nonexistentxyz123'];
   console.log(`\n=== naive full-text search (full scan, median of 7) ===`);
   for (const q of queries) {
     const { value: res, ms } = med(() => naiveTextSearch(docs, q, 5));

@@ -380,7 +380,7 @@ describe('PythinkerHarness.listSessions', () => {
   it('lists a session from a workDir containing spaces and non-ASCII characters', async () => {
     const homeDir = await makeTempDir();
     const root = await makeTempDir();
-    const workDir = join(root, 'Workspace With Spaces', '项目');
+    const workDir = join(root, 'Workspace With Spaces', '\u9879\u76EE');
     await mkdir(workDir, { recursive: true });
     const harness = createPythinkerHarness({
       identity: TEST_IDENTITY,

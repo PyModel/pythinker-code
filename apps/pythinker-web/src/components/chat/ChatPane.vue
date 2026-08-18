@@ -511,7 +511,7 @@ function isStreamingRenderBlock(turn: ChatTurn, block: { sourceIndex: number }):
   return block.sourceIndex === turnBlocks(turn).length - 1;
 }
 
-// NOTE: the turn-summary line ("已调用 N 个工具…") was removed in f9417af. If it
+// NOTE: the turn-summary line ("Called N tools...") was removed in f9417af. If it
 // comes back, rebuild it from turnBlocks() with i18n strings — the old
 // implementation lives in git history at f9417af^.
 </script>

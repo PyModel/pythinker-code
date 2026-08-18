@@ -293,10 +293,10 @@ describe('CronCreateTool', () => {
 
   it('rejects prompts above the 8 KiB byte budget (multi-byte input)', async () => {
     const { manager, tool, stub } = makeHarness();
-    // '汉' is 3 bytes in UTF-8; 3000 repetitions = 9000 bytes > 8192.
+    // '\u6C49' is 3 bytes in UTF-8; 3000 repetitions = 9000 bytes > 8192.
     // zod's `.max(8192)` is in code units and would accept this — the
     // byte check inside the tool catches it.
-    const prompt = '汉'.repeat(3000);
+    const prompt = '\u6C49'.repeat(3000);
     const msg = assertError(
       await runTool(tool, {
         cron: '*/5 * * * *',

@@ -322,18 +322,18 @@ describe('EditTool', () => {
     const writeText = vi.fn().mockResolvedValue(0);
     const tool = new EditTool(
       createFakeKaos({
-        readText: vi.fn().mockResolvedValue('Hello 世界! café'),
+        readText: vi.fn().mockResolvedValue('Hello \u4E16\u754C! café'),
         writeText,
       }),
       PERMISSIVE_WORKSPACE,
     );
 
     const result = await executeTool(tool,
-      context({ path: '/tmp/u.txt', old_string: '世界', new_string: '地球' }),
+      context({ path: '/tmp/u.txt', old_string: '\u4E16\u754C', new_string: '\u5730\u7403' }),
     );
 
     expect(result.output).toContain('Replaced 1 occurrence');
-    expect(writeText).toHaveBeenCalledWith('/tmp/u.txt', 'Hello 地球! café');
+    expect(writeText).toHaveBeenCalledWith('/tmp/u.txt', 'Hello \u5730\u7403! café');
   });
 
   it('leaves the file byte-identical when old_string is not present', async () => {

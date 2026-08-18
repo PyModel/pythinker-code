@@ -23,7 +23,7 @@ describe('computeWorkdirBucket', () => {
   });
 
   it('handles unicode basename by replacing with a stable safe form', () => {
-    const bucket = computeWorkdirBucket('/Users/me/项目');
+    const bucket = computeWorkdirBucket('/Users/me/\u9879\u76EE');
     // We don't require any specific slug, but we require it's bucket-safe
     expect(bucket).toMatch(/^wd_[a-z0-9-]+_[0-9a-f]{12}$/i);
   });

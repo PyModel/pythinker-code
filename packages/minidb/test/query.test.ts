@@ -180,16 +180,16 @@ test('full-text search: latin + CJK', async () => {
     const db = await MiniDb.open({ dir, valueCodec: 'json' });
     await db.createTextIndex('bio', { fields: ['bio'] });
     await db.set('a', { bio: 'hello world from London' });
-    await db.set('b', { bio: '我住在北京，喜欢编程' });
-    await db.set('c', { bio: '我在上海写代码' });
+    await db.set('b', { bio: '\u6211\u4F4F\u5728\u5317\u4EAC，\u559C\u6B22\u7F16\u7A0B' });
+    await db.set('c', { bio: '\u6211\u5728\u4E0A\u6D77\u5199\u4EE3\u7801' });
 
     const latin = db.search('bio', 'hello').map((r) => r.key);
     assert.deepEqual(latin, ['a']);
 
-    const cjk = db.search('bio', '北京').map((r) => r.key);
+    const cjk = db.search('bio', '\u5317\u4EAC').map((r) => r.key);
     assert.deepEqual(cjk, ['b']);
 
-    const or = db.search('bio', '北京 上海', { op: 'OR' }).map((r) => r.key).sort();
+    const or = db.search('bio', '\u5317\u4EAC \u4E0A\u6D77', { op: 'OR' }).map((r) => r.key).sort();
     assert.deepEqual(or, ['b', 'c']);
     await db.close();
   } finally {
@@ -202,12 +202,12 @@ test('text index persists + rebuilds across reopen', async () => {
   try {
     let db = await MiniDb.open({ dir, valueCodec: 'json' });
     await db.createTextIndex('bio', { fields: ['bio'] });
-    await db.set('a', { bio: '我爱北京天安门' });
-    await db.set('b', { bio: '今天天气不错' });
+    await db.set('a', { bio: '\u6211\u7231\u5317\u4EAC\u5929\u5B89\u95E8' });
+    await db.set('b', { bio: '\u4ECA\u5929\u5929\u6C14\u4E0D\u9519' });
     await db.close();
 
     db = await MiniDb.open({ dir, valueCodec: 'json' });
-    assert.deepEqual(db.search('bio', '北京').map((r) => r.key), ['a']);
+    assert.deepEqual(db.search('bio', '\u5317\u4EAC').map((r) => r.key), ['a']);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -219,9 +219,9 @@ test('query composes key prefix + text + filter', async () => {
   try {
     const db = await MiniDb.open({ dir, valueCodec: 'json' });
     await db.createTextIndex('body');
-    await db.set('post:1', { title: 'Redis 持久化详解', tag: 'db' });
-    await db.set('post:2', { title: 'Node 事件循环', tag: 'js' });
-    await db.set('note:1', { title: 'Redis 笔记', tag: 'db' });
+    await db.set('post:1', { title: 'Redis \u6301\u4E45\u5316\u8BE6\u89E3', tag: 'db' });
+    await db.set('post:2', { title: 'Node \u4E8B\u4EF6\u5FAA\u73AF', tag: 'js' });
+    await db.set('note:1', { title: 'Redis \u7B14\u8BB0', tag: 'db' });
 
     const res = db.query({
       key: { prefix: 'post:' },

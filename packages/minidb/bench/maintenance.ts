@@ -43,7 +43,18 @@ const LATIN_VOCAB =
   'wal sync snapshot compaction recovery index query cache buffer frame codec store delta merge rotate flush token parse schema server client socket thread worker queue stream ledger journal cursor segment batch commit'.split(
     ' ',
   );
-const CJK_VOCAB = ['持久化', '快照', '索引', '恢复', '压缩', '查询', '缓存', '日志', '事务', '复制'];
+const CJK_VOCAB = [
+  '\u6301\u4e45\u5316',
+  '\u5feb\u7167',
+  '\u7d22\u5f15',
+  '\u6062\u590d',
+  '\u538b\u7f29',
+  '\u67e5\u8be2',
+  '\u7f13\u5b58',
+  '\u65e5\u5fd7',
+  '\u4e8b\u52a1',
+  '\u590d\u5236',
+];
 
 function makeMessages(count, seed) {
   const rng = mulberry32(seed);
@@ -54,7 +65,7 @@ function makeMessages(count, seed) {
     const n = 20 + ((rng() * 15) | 0);
     for (let w = 0; w < n; w++) words.push(rng() < 0.15 ? pick(CJK_VOCAB) : pick(LATIN_VOCAB));
     if (i % 97 === 0) words.push('walrus');
-    if (i % 131 === 0) words.push('持久化');
+    if (i % 131 === 0) words.push('\u6301\u4e45\u5316');
     docs.push({ key: `m${i}`, body: words.join(' '), ts: 1_700_000_000_000 + i * 1000 });
   }
   return docs;
@@ -186,7 +197,7 @@ async function driveLoad(db, shouldStop, { writeEvery = 200 } = {}) {
   while (!shouldStop()) {
     await timed(db.searchBoundedAsync('word', 'walrus', SEARCH_BUDGET));
     await timed(db.searchBoundedAsync('ngram', 'walru', SEARCH_BUDGET));
-    await timed(db.searchBoundedAsync('word', '持久化', SEARCH_BUDGET));
+    await timed(db.searchBoundedAsync('word', '\u6301\u4e45\u5316', SEARCH_BUDGET));
     for (let k = 0; k < 5; k++) await timed(db.getAsync(`m${(i * 7 + k * 9973) % LOAD_KEY_SPACE}`));
     if (++i % writeEvery === 0) {
       writes++;
@@ -245,7 +256,7 @@ async function populate(dir, docs, { tail = 0.05 } = {}) {
   }
   if (reusable) {
     console.log('  (reusing the populated corpus)');
-    await db.set(`bench-dirty-${Date.now()}`, { body: 'walrus 持久化', ts: Date.now() });
+    await db.set(`bench-dirty-${Date.now()}`, { body: 'walrus \u6301\u4e45\u5316', ts: Date.now() });
     return db;
   }
   const CHUNK = 1000;

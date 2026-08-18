@@ -643,7 +643,7 @@ key = "${titleOAuthRef.key}"
 
     try {
       const session = await harness.createSession({ id: 'ses_title_kind', workDir });
-      await harness.renameSession({ id: session.id, title: '我的标题' });
+      await harness.renameSession({ id: session.id, title: '\u6211\u7684\u6807\u9898' });
 
       // The resumed summary is read off the live metadata document, so it
       // carries the canonical title state; the list path (index projection)

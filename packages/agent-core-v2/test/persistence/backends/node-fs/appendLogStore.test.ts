@@ -615,9 +615,9 @@ describe('AppendLogStore', () => {
 
   it('does not leak decoder state into a later read when an earlier read returns early', async () => {
     const line1 = `${JSON.stringify({ type: 'metadata', protocol_version: '1.4' })}\n`;
-    const line2 = `${JSON.stringify({ type: 'context.append_message', s: '中文中文中文' })}\n`;
+    const line2 = `${JSON.stringify({ type: 'context.append_message', s: '\u4E2D\u6587\u4E2D\u6587\u4E2D\u6587' })}\n`;
     const bytes = enc.encode(line1 + line2);
-    const cut = bytes.indexOf(enc.encode('中')[0]!) + 1;
+    const cut = bytes.indexOf(enc.encode('\u4E2D')[0]!) + 1;
     const chunks = [bytes.slice(0, cut), bytes.slice(cut)];
     const localIx = disposables.add(new TestInstantiationService());
     localIx.stub(IFileSystemStorageService, chunkedStorage(chunks));
@@ -635,12 +635,12 @@ describe('AppendLogStore', () => {
     for await (const r of log.read<{ type: string; s?: string }>(SCOPE, KEY)) out.push(r);
     expect(out).toEqual([
       { type: 'metadata', protocol_version: '1.4' },
-      { type: 'context.append_message', s: '中文中文中文' },
+      { type: 'context.append_message', s: '\u4E2D\u6587\u4E2D\u6587\u4E2D\u6587' },
     ]);
   });
 
   it('isolates decoder state between concurrent reads', async () => {
-    const content = `${JSON.stringify({ s: '中文日本語' })}\n`;
+    const content = `${JSON.stringify({ s: '\u4E2D\u6587\u65E5\u672C\u8A9E' })}\n`;
     const bytes = enc.encode(content);
     const chunks = Array.from(bytes, (b) => new Uint8Array([b]));
     const localIx = disposables.add(new TestInstantiationService());
@@ -654,12 +654,12 @@ describe('AppendLogStore', () => {
       return out;
     };
     const [a, b] = await Promise.all([readAll(), readAll()]);
-    expect(a).toEqual([{ s: '中文日本語' }]);
-    expect(b).toEqual([{ s: '中文日本語' }]);
+    expect(a).toEqual([{ s: '\u4E2D\u6587\u65E5\u672C\u8A9E' }]);
+    expect(b).toEqual([{ s: '\u4E2D\u6587\u65E5\u672C\u8A9E' }]);
   });
 
   it('reads across chunk boundaries with multi-byte UTF-8 split', async () => {
-    const full = `${JSON.stringify({ n: 1, s: '中文' })}\n${JSON.stringify({ n: 2, s: '日本語' })}\n`;
+    const full = `${JSON.stringify({ n: 1, s: '\u4E2D\u6587' })}\n${JSON.stringify({ n: 2, s: '\u65E5\u672C\u8A9E' })}\n`;
     const bytes = enc.encode(full);
     const chunks = Array.from(bytes, (b) => new Uint8Array([b]));
     const localIx = disposables.add(new TestInstantiationService());
@@ -670,8 +670,8 @@ describe('AppendLogStore', () => {
     const out: Array<Rec & { s?: string }> = [];
     for await (const r of log.read<Rec & { s?: string }>(SCOPE, KEY)) out.push(r);
     expect(out).toEqual([
-      { n: 1, s: '中文' },
-      { n: 2, s: '日本語' },
+      { n: 1, s: '\u4E2D\u6587' },
+      { n: 2, s: '\u65E5\u672C\u8A9E' },
     ]);
   });
 });

@@ -30,9 +30,9 @@ describe('detectTextEncoding', () => {
   });
 
   it('trusts the BOM even when the sample carries no zero bytes (CJK-only)', () => {
-    const le = Buffer.concat([Buffer.from([0xff, 0xfe]), utf16Le('你好世界')]);
+    const le = Buffer.concat([Buffer.from([0xff, 0xfe]), utf16Le('\u4F60\u597D\u4E16\u754C')]);
     expect(detectTextEncoding(le)).toEqual({ encoding: 'utf-16le', seemsBinary: false });
-    const be = Buffer.concat([Buffer.from([0xfe, 0xff]), utf16Be('你好世界')]);
+    const be = Buffer.concat([Buffer.from([0xfe, 0xff]), utf16Be('\u4F60\u597D\u4E16\u754C')]);
     expect(detectTextEncoding(be)).toEqual({ encoding: 'utf-16be', seemsBinary: false });
   });
 
@@ -42,12 +42,12 @@ describe('detectTextEncoding', () => {
   });
 
   it('tolerates CJK characters in BOM-less UTF-16 (their units carry no zero byte)', () => {
-    expect(detectTextEncoding(utf16Le('hello 你好\nsecond line')).encoding).toBe('utf-16le');
-    expect(detectTextEncoding(utf16Be('hello 你好\nsecond line')).encoding).toBe('utf-16be');
+    expect(detectTextEncoding(utf16Le('hello \u4F60\u597D\nsecond line')).encoding).toBe('utf-16le');
+    expect(detectTextEncoding(utf16Be('hello \u4F60\u597D\nsecond line')).encoding).toBe('utf-16be');
   });
 
   it('reports BOM-less UTF-16 with no zero bytes at all as utf-8 (known limitation)', () => {
-    expect(detectTextEncoding(utf16Le('你好世界')).encoding).toBe('utf-8');
+    expect(detectTextEncoding(utf16Le('\u4F60\u597D\u4E16\u754C')).encoding).toBe('utf-8');
   });
 
   it('treats an isolated zero byte as binary (too ambiguous)', () => {
@@ -70,7 +70,7 @@ describe('detectTextEncoding', () => {
   it('treats plain ASCII / UTF-8 and empty samples as utf-8 text', () => {
     expect(detectTextEncoding(new Uint8Array())).toEqual({ encoding: 'utf-8', seemsBinary: false });
     expect(detectTextEncoding(Buffer.from('plain ascii\n')).seemsBinary).toBe(false);
-    expect(detectTextEncoding(Buffer.from('中文内容\n', 'utf8'))).toEqual({
+    expect(detectTextEncoding(Buffer.from('\u4E2D\u6587\u5185\u5BB9\n', 'utf8'))).toEqual({
       encoding: 'utf-8',
       seemsBinary: false,
     });
@@ -79,7 +79,7 @@ describe('detectTextEncoding', () => {
 
 describe('classifyTextSample', () => {
   it('classifies UTF-8 multibyte text (CJK, emoji) as utf-8 text', () => {
-    const sample = Buffer.from('2026-08-16 INFO 启动完成 ✅\n处理请求 🚀 成功\n'.repeat(20), 'utf8');
+    const sample = Buffer.from('2026-08-16 INFO \u542F\u52A8\u5B8C\u6210 ✅\n\u5904\u7406\u8BF7\u6C42 🚀 \u6210\u529F\n'.repeat(20), 'utf8');
     expect(classifyTextSample(sample)).toEqual({ isBinary: false, encoding: 'utf-8' });
   });
 
@@ -101,7 +101,7 @@ describe('classifyTextSample', () => {
 
   it('keeps ANSI-colored log lines under the control-char threshold as text', () => {
     const esc = String.fromCodePoint(0x1b);
-    const sample = Buffer.from(`${esc}[32mINFO${esc}[0m 启动完成 ✅\n`.repeat(10), 'utf8');
+    const sample = Buffer.from(`${esc}[32mINFO${esc}[0m \u542F\u52A8\u5B8C\u6210 ✅\n`.repeat(10), 'utf8');
     expect(classifyTextSample(sample)).toEqual({ isBinary: false, encoding: 'utf-8' });
   });
 
@@ -113,7 +113,7 @@ describe('classifyTextSample', () => {
   });
 
   it('tolerates a multi-byte sequence truncated at the sample tail', () => {
-    const sample = Buffer.concat([Buffer.from('日志记录\n', 'utf8'), Buffer.from([0xe4, 0xb8])]);
+    const sample = Buffer.concat([Buffer.from('\u65E5\u5FD7\u8BB0\u5F55\n', 'utf8'), Buffer.from([0xe4, 0xb8])]);
     expect(classifyTextSample(sample)).toEqual({ isBinary: false, encoding: 'utf-8' });
   });
 
@@ -137,7 +137,7 @@ describe('classifyTextSample', () => {
   });
 
   it('classifies UTF-16 BOM and zero-byte parity samples as text with the right encoding', () => {
-    const le = Buffer.concat([Buffer.from([0xff, 0xfe]), utf16Le('hello 你好')]);
+    const le = Buffer.concat([Buffer.from([0xff, 0xfe]), utf16Le('hello \u4F60\u597D')]);
     expect(classifyTextSample(le)).toEqual({ isBinary: false, encoding: 'utf-16le' });
     expect(classifyTextSample(utf16Be('hello world, plain ascii'))).toEqual({
       isBinary: false,
@@ -148,10 +148,10 @@ describe('classifyTextSample', () => {
 
 describe('decodeUtfText', () => {
   it('decodes UTF-16 LE/BE and strips the BOM', () => {
-    const le = Buffer.concat([Buffer.from([0xff, 0xfe]), utf16Le('你好\nworld')]);
-    expect(decodeUtfText(le, 'utf-16le')).toBe('你好\nworld');
-    const be = Buffer.concat([Buffer.from([0xfe, 0xff]), utf16Be('你好\nworld')]);
-    expect(decodeUtfText(be, 'utf-16be')).toBe('你好\nworld');
+    const le = Buffer.concat([Buffer.from([0xff, 0xfe]), utf16Le('\u4F60\u597D\nworld')]);
+    expect(decodeUtfText(le, 'utf-16le')).toBe('\u4F60\u597D\nworld');
+    const be = Buffer.concat([Buffer.from([0xfe, 0xff]), utf16Be('\u4F60\u597D\nworld')]);
+    expect(decodeUtfText(be, 'utf-16be')).toBe('\u4F60\u597D\nworld');
   });
 
   it('decodes UTF-8 and strips the BOM', () => {

@@ -43,7 +43,7 @@ it('smoke: a compressed-image prompt reaches the model with the caption as a sys
   // shape from the bug report.
   await ctx.rpc.prompt({
     input: [
-      { type: 'text', text: `能展示但是没有快捷键提示${CAPTION}` },
+      { type: 'text', text: `\u80FD\u5C55\u793A\u4F46\u662F\u6CA1\u6709\u5FEB\u6377\u952E\u63D0\u793A${CAPTION}` },
       { type: 'image_url', imageUrl: { url: IMAGE_URL } },
     ],
   });
@@ -55,7 +55,7 @@ it('smoke: a compressed-image prompt reaches the model with the caption as a sys
   expect(llmInput).toContain('Image compressed to fit model limits');
   expect(llmInput).toContain('/tmp/originals/shot.png');
   expect(llmInput).not.toContain('<system>');
-  expect(llmInput).toContain('能展示但是没有快捷键提示');
+  expect(llmInput).toContain('\u80FD\u5C55\u793A\u4F46\u662F\u6CA1\u6709\u5FEB\u6377\u952E\u63D0\u793A');
 
   // What the UI renders from: the reminder is a separate injection-origin
   // message; the user message holds only what the user actually submitted.
@@ -68,7 +68,7 @@ it('smoke: a compressed-image prompt reaches the model with the caption as a sys
   const userText = history[1]!.content
     .map((part) => (part.type === 'text' ? part.text : ''))
     .join('');
-  expect(userText).toBe('能展示但是没有快捷键提示');
+  expect(userText).toBe('\u80FD\u5C55\u793A\u4F46\u662F\u6CA1\u6709\u5FEB\u6377\u952E\u63D0\u793A');
   expect(history[1]!.content.some((part) => part.type === 'image_url')).toBe(true);
 
   // The recorded wire log is what session resume replays into the TUI: the
@@ -96,7 +96,7 @@ it('smoke: multiple compressed images in one prompt each announce via their own 
       { type: 'image_url', imageUrl: { url: IMAGE_URL } },
       { type: 'text', text: SECOND_CAPTION },
       { type: 'image_url', imageUrl: { url: IMAGE_URL } },
-      { type: 'text', text: '对比一下这两张截图' },
+      { type: 'text', text: '\u5BF9\u6BD4\u4E00\u4E0B\u8FD9\u4E24\u5F20\u622A\u56FE' },
     ],
   });
   await ctx.untilTurnEnd();
@@ -118,7 +118,7 @@ it('smoke: multiple compressed images in one prompt each announce via their own 
   const userText = userMessage.content
     .map((part) => (part.type === 'text' ? part.text : ''))
     .join('');
-  expect(userText).toBe('对比一下这两张截图');
+  expect(userText).toBe('\u5BF9\u6BD4\u4E00\u4E0B\u8FD9\u4E24\u5F20\u622A\u56FE');
 
   await ctx.expectResumeMatches();
 });
@@ -130,7 +130,7 @@ it('smoke: a steered prompt with a caption is split the same way', async () => {
   ctx.mockNextResponse({ type: 'text', text: 'Steered.' });
   await ctx.rpc.steer({
     input: [
-      { type: 'text', text: `看这张${CAPTION}` },
+      { type: 'text', text: `\u770B\u8FD9\u5F20${CAPTION}` },
       { type: 'image_url', imageUrl: { url: IMAGE_URL } },
     ],
   });
@@ -145,7 +145,7 @@ it('smoke: a steered prompt with a caption is split the same way', async () => {
   const userText = history[1]!.content
     .map((part) => (part.type === 'text' ? part.text : ''))
     .join('');
-  expect(userText).toBe('看这张');
+  expect(userText).toBe('\u770B\u8FD9\u5F20');
 
   await ctx.expectResumeMatches();
 });

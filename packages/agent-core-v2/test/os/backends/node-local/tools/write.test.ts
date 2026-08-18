@@ -373,7 +373,7 @@ describe('WriteTool', () => {
 
   it('round-trips unicode content (CJK + emoji + accented Latin) through fs.writeText', async () => {
     const { tool, writeText } = makeTool();
-    const content = 'Hello 世界 🌍\nUnicode: café, naïve, résumé';
+    const content = 'Hello \u4E16\u754C 🌍\nUnicode: café, naïve, résumé';
 
     const result = await execute(tool, { path: '/tmp/unicode.txt', content });
 

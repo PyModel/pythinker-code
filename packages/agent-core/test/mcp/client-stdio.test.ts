@@ -24,8 +24,8 @@ describe('stdio MCP working directory resolution', () => {
 
   it('normalizes a drive path containing spaces and non-ASCII segments', () => {
     expect(
-      resolveStdioCwd('工具\\server', 'C:\\Users\\Example User\\项目'),
-    ).toBe('C:/Users/Example User/项目/工具/server');
+      resolveStdioCwd('\u5DE5\u5177\\server', 'C:\\Users\\Example User\\\u9879\u76EE'),
+    ).toBe('C:/Users/Example User/\u9879\u76EE/\u5DE5\u5177/server');
   });
 });
 

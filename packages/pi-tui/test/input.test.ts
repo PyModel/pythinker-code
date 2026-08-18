@@ -39,8 +39,8 @@ describe("Input component", () => {
 			const width = 93;
 			const cases = [
 				"가나다라마바사아자차카타파하 한글 텍스트가 터미널 너비를 초과하면 크래시가 발생합니다 이것은 재현용 테스트입니다",
-				"これはテスト文章です。日本語のテキストが正しく表示されるかどうかを確認するためのサンプルテキストです。あいうえお",
-				"这是一段测试文本，用于验证中文字符在终端中的显示宽度是否被正确计算，如果不正确就会导致用户界面崩溃的问题",
+				"これはテスト\u6587\u7AE0です。\u65E5\u672C\u8A9Eのテキストが\u6B63しく\u8868\u793Aされるかどうかを\u78BA\u8A8Dするためのサンプルテキストです。あいうえお",
+				"\u8FD9\u662F\u4E00\u6BB5\u6D4B\u8BD5\u6587\u672C，\u7528\u4E8E\u9A8C\u8BC1\u4E2D\u6587\u5B57\u7B26\u5728\u7EC8\u7AEF\u4E2D\u7684\u663E\u793A\u5BBD\u5EA6\u662F\u5426\u88AB\u6B63\u786E\u8BA1\u7B97，\u5982\u679C\u4E0D\u6B63\u786E\u5C31\u4F1A\u5BFC\u81F4\u7528\u6237\u754C\u9762\u5D29\u6E83\u7684\u95EE\u9898",
 				"ＡＢＣＤＥＦＧＨＩＪＫＬＭＮＯＰＱＲＳＴＵＶＷＸＹＺ０１２３４５６７８９ａｂｃｄｅｆｇｈｉｊｋｌｍ",
 			];
 			const cursorPositions = [
@@ -117,20 +117,20 @@ describe("Input component", () => {
 		it("Ctrl+W handles Unicode word boundaries", () => {
 			const input = new Input();
 
-			// "你好世界。你好，世界" segments as: 你好|世界|。|你好|，|世界
-			input.setValue("你好世界。你好，世界");
+			// "\u4F60\u597D\u4E16\u754C。\u4F60\u597D，\u4E16\u754C" segments as: \u4F60\u597D|\u4E16\u754C|。|\u4F60\u597D|，|\u4E16\u754C
+			input.setValue("\u4F60\u597D\u4E16\u754C。\u4F60\u597D，\u4E16\u754C");
 			input.handleInput("\x05"); // Ctrl+E
-			input.handleInput("\x17"); // Ctrl+W - deletes "世界"
-			assert.strictEqual(input.getValue(), "你好世界。你好，");
+			input.handleInput("\x17"); // Ctrl+W - deletes "\u4E16\u754C"
+			assert.strictEqual(input.getValue(), "\u4F60\u597D\u4E16\u754C。\u4F60\u597D，");
 			input.handleInput("\x17"); // Ctrl+W - deletes "，"
-			assert.strictEqual(input.getValue(), "你好世界。你好");
-			input.handleInput("\x17"); // Ctrl+W - deletes "你好"
-			assert.strictEqual(input.getValue(), "你好世界。");
+			assert.strictEqual(input.getValue(), "\u4F60\u597D\u4E16\u754C。\u4F60\u597D");
+			input.handleInput("\x17"); // Ctrl+W - deletes "\u4F60\u597D"
+			assert.strictEqual(input.getValue(), "\u4F60\u597D\u4E16\u754C。");
 			input.handleInput("\x17"); // Ctrl+W - deletes "。"
-			assert.strictEqual(input.getValue(), "你好世界");
-			input.handleInput("\x17"); // Ctrl+W - deletes "世界"
-			assert.strictEqual(input.getValue(), "你好");
-			input.handleInput("\x17"); // Ctrl+W - deletes "你好"
+			assert.strictEqual(input.getValue(), "\u4F60\u597D\u4E16\u754C");
+			input.handleInput("\x17"); // Ctrl+W - deletes "\u4E16\u754C"
+			assert.strictEqual(input.getValue(), "\u4F60\u597D");
+			input.handleInput("\x17"); // Ctrl+W - deletes "\u4F60\u597D"
 			assert.strictEqual(input.getValue(), "");
 		});
 
@@ -363,20 +363,20 @@ describe("Input component", () => {
 		it("Alt+D handles Unicode word boundaries", () => {
 			const input = new Input();
 
-			// "你好世界。你好，世界" segments as: 你好|世界|。|你好|，|世界
-			input.setValue("你好世界。你好，世界");
+			// "\u4F60\u597D\u4E16\u754C。\u4F60\u597D，\u4E16\u754C" segments as: \u4F60\u597D|\u4E16\u754C|。|\u4F60\u597D|，|\u4E16\u754C
+			input.setValue("\u4F60\u597D\u4E16\u754C。\u4F60\u597D，\u4E16\u754C");
 			input.handleInput("\x01"); // Ctrl+A
-			input.handleInput("\x1bd"); // Alt+D - deletes "你好"
-			assert.strictEqual(input.getValue(), "世界。你好，世界");
-			input.handleInput("\x1bd"); // Alt+D - deletes "世界"
-			assert.strictEqual(input.getValue(), "。你好，世界");
+			input.handleInput("\x1bd"); // Alt+D - deletes "\u4F60\u597D"
+			assert.strictEqual(input.getValue(), "\u4E16\u754C。\u4F60\u597D，\u4E16\u754C");
+			input.handleInput("\x1bd"); // Alt+D - deletes "\u4E16\u754C"
+			assert.strictEqual(input.getValue(), "。\u4F60\u597D，\u4E16\u754C");
 			input.handleInput("\x1bd"); // Alt+D - deletes "。"
-			assert.strictEqual(input.getValue(), "你好，世界");
-			input.handleInput("\x1bd"); // Alt+D - deletes "你好"
-			assert.strictEqual(input.getValue(), "，世界");
+			assert.strictEqual(input.getValue(), "\u4F60\u597D，\u4E16\u754C");
+			input.handleInput("\x1bd"); // Alt+D - deletes "\u4F60\u597D"
+			assert.strictEqual(input.getValue(), "，\u4E16\u754C");
 			input.handleInput("\x1bd"); // Alt+D - deletes "，"
-			assert.strictEqual(input.getValue(), "世界");
-			input.handleInput("\x1bd"); // Alt+D - deletes "世界"
+			assert.strictEqual(input.getValue(), "\u4E16\u754C");
+			input.handleInput("\x1bd"); // Alt+D - deletes "\u4E16\u754C"
 			assert.strictEqual(input.getValue(), "");
 		});
 

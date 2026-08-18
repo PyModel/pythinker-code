@@ -99,7 +99,7 @@ async function seedIndexedDb(db: MiniDb<Record<string, unknown>>, n = 2000): Pro
   for (let i = 0; i < n; i++) {
     await db.set(
       `k${i}`,
-      { kind: `t${i % 7}`, score: i % 100, ts: 1700000000000 + i, text: `hello world doc ${i} 持久化 索引 ${i % 13}` },
+      { kind: `t${i % 7}`, score: i % 100, ts: 1700000000000 + i, text: `hello world doc ${i} \u6301\u4E45\u5316 \u7D22\u5F15 ${i % 13}` },
       { dt: { ts: 1700000000000 + i } },
     );
   }
@@ -118,7 +118,7 @@ function assertSeededDb(db: MiniDb<Record<string, unknown>>, n = 2000, size = n,
   expect(db.findRange('byScore', { min: 42, max: 42 }).length).toBe(Math.floor(n / 100) + (n % 100 > 42 ? 1 : 0));
   expect(db.compoundRange('byKindTime', 't2', { limit: 5 }).length).toBe(5);
   expect(db.dtRange('ts', { gte: 1700000000000 + n - 10 }).length).toBe(dtTail);
-  expect(db.search('ft', '持久化').length).toBeGreaterThan(0);
+  expect(db.search('ft', '\u6301\u4E45\u5316').length).toBeGreaterThan(0);
   expect(db.search('tri', 'hello world').length).toBeGreaterThan(0);
 }
 
@@ -206,7 +206,7 @@ describe('gen-codec', () => {
       { kstr: 'a', ref: { kind: 'memory', value: Buffer.from('v1') }, expireAt: 0, dt: null },
       { kstr: 'b', ref: { kind: 'disk', loc: { file: 'snapshot', off: 123, len: 45 } }, expireAt: 9999999999999, dt: { ts: 7 } },
       { kstr: 'c', ref: { kind: 'disk', loc: { file: 'wal', off: 9999999999, len: 1 } }, expireAt: 0, dt: null },
-      { kstr: kstr('é-key-键'), ref: { kind: 'memory', value: Buffer.from('utf8 value ✓') }, expireAt: 0, dt: null },
+      { kstr: kstr('é-key-\u952E'), ref: { kind: 'memory', value: Buffer.from('utf8 value ✓') }, expireAt: 0, dt: null },
     ];
     const info = await writeStoreImage(path.join(dir, 'store'), records);
     const buf = await fs.readFile(path.join(dir, 'store'));
@@ -222,7 +222,7 @@ describe('gen-codec', () => {
     expect(out[1]!.dt).toEqual({ ts: 7 });
     expect(out[2]!.ref).toEqual(records[2]!.ref);
     expect((out[3]!.ref as { value: Buffer }).value.toString('utf8')).toBe('utf8 value ✓');
-    expect(Buffer.from(out[3]!.kstr, 'binary').toString('utf8')).toBe('é-key-键');
+    expect(Buffer.from(out[3]!.kstr, 'binary').toString('utf8')).toBe('é-key-\u952E');
   });
 
   test('a single-byte flip anywhere makes the crc check fail', async () => {
@@ -499,7 +499,7 @@ describe('sliced open-path variants', () => {
     const asyncTi = new TextIndex({ name: 'ft', fields: ['text'] });
     try {
       const corpus = [];
-      for (let i = 0; i < 300; i++) corpus.push({ key: `k${i}`, value: { text: `hello world ${i} 持久化 ${i % 7}` } });
+      for (let i = 0; i < 300; i++) corpus.push({ key: `k${i}`, value: { text: `hello world ${i} \u6301\u4E45\u5316 ${i % 7}` } });
       await src.build(corpus);
       src.add('late1', { text: 'late write walrus' }); // lands in the delta
       src.remove('k5'); // tombstone
@@ -523,7 +523,7 @@ describe('sliced open-path variants', () => {
       expect(asyncTi.exportImageState()).toEqual(syncTi.exportImageState());
       expect(asyncTi.N).toBe(syncTi.N);
       expect(asyncTi.search('walrus').length).toBe(syncTi.search('walrus').length);
-      expect(asyncTi.search('持久化').length).toBeGreaterThan(0);
+      expect(asyncTi.search('\u6301\u4E45\u5316').length).toBeGreaterThan(0);
     } finally {
       src.close();
       syncTi.close();
@@ -548,7 +548,7 @@ describe('generation build + load', () => {
     expect(fsSync.existsSync(path.join(dir, 'generations', gen!.id, 'manifest.json'))).toBe(true);
     // WAL delta after the checkpoint.
     for (let i = 2000; i < 2100; i++) {
-      await db.set(`k${i}`, { kind: 't1', score: 1, ts: 1700000000000 + i, text: `delta ${i} 增量` }, { dt: { ts: 1700000000000 + i } });
+      await db.set(`k${i}`, { kind: 't1', score: 1, ts: 1700000000000 + i, text: `delta ${i} \u589E\u91CF` }, { dt: { ts: 1700000000000 + i } });
     }
     await db.del('k0');
     await db.close();
@@ -564,7 +564,7 @@ describe('generation build + load', () => {
     // The WAL delta landed too.
     expect(db.get('k0')).toBeUndefined();
     expect(db.get('k2099')).toMatchObject({ kind: 't1' });
-    expect(db.search('ft', '增量').length).toBe(50);
+    expect(db.search('ft', '\u589E\u91CF').length).toBe(50);
     await db.close();
   });
 
@@ -690,7 +690,7 @@ describe('generation build + load', () => {
     expect(db.findEq('byNew', 't3').length).toBe([...Array(1000)].filter((_, i) => i % 7 === 3).length);
     expect(db.findRange('byScore', { min: 42, max: 42 }).length).toBe(10);
     // Text + dt + compound came from the generation (no corpus re-decode for them).
-    expect(db.search('ft', '持久化').length).toBeGreaterThan(0);
+    expect(db.search('ft', '\u6301\u4E45\u5316').length).toBeGreaterThan(0);
     await db.close();
   });
 

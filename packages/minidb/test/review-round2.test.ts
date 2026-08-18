@@ -155,7 +155,7 @@ test('RESP GET returns correct UTF-8 bulk for non-ASCII values', async () => {
       const chunks: Buffer[] = [];
       sock.on('data', (c) => chunks.push(c));
       sock.on('connect', () => {
-        const v = Buffer.from('北京', 'utf8');
+        const v = Buffer.from('\u5317\u4EAC', 'utf8');
         const set = `*3\r\n$3\r\nSET\r\n$1\r\nk\r\n$${v.length}\r\n`;
         sock.write(Buffer.concat([Buffer.from(set, 'binary'), v, Buffer.from('\r\n')]));
         setTimeout(() => sock.write('GET k\r\n'), 50);
@@ -164,7 +164,7 @@ test('RESP GET returns correct UTF-8 bulk for non-ASCII values', async () => {
       sock.on('end', () => resolve(Buffer.concat(chunks)));
       sock.on('error', reject);
     });
-    const expected = Buffer.concat([Buffer.from('$6\r\n', 'binary'), Buffer.from('北京', 'utf8'), Buffer.from('\r\n', 'binary')]);
+    const expected = Buffer.concat([Buffer.from('$6\r\n', 'binary'), Buffer.from('\u5317\u4EAC', 'utf8'), Buffer.from('\r\n', 'binary')]);
     assert.ok(raw.includes(expected), `expected bulk reply, got ${JSON.stringify(raw.toString('binary'))}`);
   } finally {
     await close();

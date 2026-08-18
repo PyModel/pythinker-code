@@ -17,8 +17,8 @@ describe('makeSnippet', () => {
   });
 
   it('matches CJK terms', () => {
-    const snippet = makeSnippet('我们需要重构全局搜索模块以支持中文', '搜索');
-    expect(snippet).toContain('搜索');
+    const snippet = makeSnippet('\u6211\u4EEC\u9700\u8981\u91CD\u6784\u5168\u5C40\u641C\u7D22\u6A21\u5757\u4EE5\u652F\u6301\u4E2D\u6587', '\u641C\u7D22');
+    expect(snippet).toContain('\u641C\u7D22');
   });
 
   it('uses the earliest occurrence across multiple terms', () => {

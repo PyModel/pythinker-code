@@ -12,7 +12,7 @@ import { mulberry32, randInt, pick } from './helpers/prng.js';
 import { tmpDir, rmrf } from './helpers/tmp.js';
 
 const CITIES = ['Paris', 'London', 'Tokyo', 'Beijing'];
-const BIOS = ['hello world', 'foo bar baz', '我住在北京 喜欢编程', 'database engine rocks', 'lark approval skill'];
+const BIOS = ['hello world', 'foo bar baz', '\u6211\u4F4F\u5728\u5317\u4EAC \u559C\u6B22\u7F16\u7A0B', 'database engine rocks', 'lark approval skill'];
 
 function randomDoc(rng) {
   return {
@@ -77,10 +77,10 @@ test('index-consistency: indexes stay consistent with the store under random ops
     assert.deepEqual(db.dtRange('created', { gte: 0 }).map((r) => r.key).sort(), expectedKeys, 'dt created all');
 
     // 5) text index: search results == docs whose bio contains the term
-    const term = '北京';
+    const term = '\u5317\u4EAC';
     const hits = db.search('body', term, { limit: 1000 }).map((r) => r.key).sort();
     const expectedHits = [...live.entries()].filter(([, d]) => d.bio.includes(term)).map(([k]) => k).sort();
-    assert.deepEqual(hits, expectedHits, 'text search 北京');
+    assert.deepEqual(hits, expectedHits, 'text search \u5317\u4EAC');
 
     // 5b) second text index over the city field
     const cityHits = db.search('cityText', 'Paris', { limit: 1000 }).map((r) => r.key).sort();
@@ -112,7 +112,7 @@ test('index-consistency: indexes stay consistent with the store under random ops
     assert.deepEqual(
       db.search('body', term, { limit: 1000 }).map((r) => r.key).sort(),
       expectedHits,
-      'text search 北京 after rebuild',
+      'text search \u5317\u4EAC after rebuild',
     );
     assert.deepEqual(db.compoundRange('byCityAge', 'Paris').map((r) => r.key), expectedParis, 'compound Paris after rebuild');
     assert.deepEqual(db.dtRange('created', { gte: 0 }).map((r) => r.key).sort(), expectedKeys, 'dt after rebuild');

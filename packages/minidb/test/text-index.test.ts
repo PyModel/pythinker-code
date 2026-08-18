@@ -80,7 +80,7 @@ test('PostingsFile: rebuild + positioned read', async () => {
         ],
       },
       {
-        term: '北京',
+        term: '\u5317\u4EAC',
         entries: [
           [1, 3],
           [2, 1],
@@ -97,7 +97,7 @@ test('PostingsFile: rebuild + positioned read', async () => {
       [5, 2],
       [9, 1],
     ]);
-    assert.deepEqual(pf.read(dict.get('北京')!), [
+    assert.deepEqual(pf.read(dict.get('\u5317\u4EAC')!), [
       [1, 3],
       [2, 1],
     ]);
@@ -140,14 +140,14 @@ test('TextIndex: add + search (AND/OR) disk-backed', async () => {
   try {
     const ti = new TextIndex({ postingsPath: path.join(dir, 't.postings') });
     ti.add('a', { bio: 'hello world from London' });
-    ti.add('b', { bio: '我住在北京，喜欢编程' });
-    ti.add('c', { bio: '我在上海写代码' });
+    ti.add('b', { bio: '\u6211\u4F4F\u5728\u5317\u4EAC，\u559C\u6B22\u7F16\u7A0B' });
+    ti.add('c', { bio: '\u6211\u5728\u4E0A\u6D77\u5199\u4EE3\u7801' });
 
     assert.deepEqual(ti.search('hello').map((h) => h.key), ['a']);
-    assert.deepEqual(ti.search('北京').map((h) => h.key), ['b']);
-    assert.deepEqual(ti.search('北京 上海', { op: 'OR' }).map((h) => h.key).sort(), ['b', 'c']);
+    assert.deepEqual(ti.search('\u5317\u4EAC').map((h) => h.key), ['b']);
+    assert.deepEqual(ti.search('\u5317\u4EAC \u4E0A\u6D77', { op: 'OR' }).map((h) => h.key).sort(), ['b', 'c']);
     // AND across two terms only present together in 'b'
-    assert.deepEqual(ti.search('北京 编程').map((h) => h.key), ['b']);
+    assert.deepEqual(ti.search('\u5317\u4EAC \u7F16\u7A0B').map((h) => h.key), ['b']);
     ti.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -193,7 +193,7 @@ test('TextIndex: build persists to disk + merges delta after build', async () =>
     const ti = new TextIndex({ postingsPath: p });
     await ti.build([
       { key: 'a', value: { bio: 'hello world' } },
-      { key: 'b', value: { bio: '我住在北京' } },
+      { key: 'b', value: { bio: '\u6211\u4F4F\u5728\u5317\u4EAC' } },
     ]);
     assert.ok(fssync.existsSync(p), 'postings file should exist after build');
     assert.deepEqual(ti.search('hello').map((h) => h.key), ['a']);
@@ -209,7 +209,7 @@ test('TextIndex: build persists to disk + merges delta after build', async () =>
     // rebuild base from the file's perspective by re-reading the same entries
     await ti2.build([
       { key: 'a', value: { bio: 'hello world' } },
-      { key: 'b', value: { bio: '我住在北京' } },
+      { key: 'b', value: { bio: '\u6211\u4F4F\u5728\u5317\u4EAC' } },
     ]);
     assert.deepEqual(ti2.search('hello').map((h) => h.key), ['a']);
     ti2.close();
@@ -257,9 +257,9 @@ test('TextIndex: writes landing mid-build are replayed onto the new base', async
 test('TextIndex: memory-only mode (no postingsPath)', () => {
   const ti = new TextIndex(); // memory base
   ti.add('a', { bio: 'hello world' });
-  ti.add('b', { bio: '北京天安门' });
+  ti.add('b', { bio: '\u5317\u4EAC\u5929\u5B89\u95E8' });
   assert.deepEqual(ti.search('hello').map((h) => h.key), ['a']);
-  assert.deepEqual(ti.search('北京').map((h) => h.key), ['b']);
+  assert.deepEqual(ti.search('\u5317\u4EAC').map((h) => h.key), ['b']);
   assert.equal(ti.termCount() > 0, true);
   ti.close();
 });
@@ -271,20 +271,20 @@ test('MiniDb: text postings written to disk, search survives reopen', async () =
   try {
     let db = await MiniDb.open({ dir, valueCodec: 'json' });
     await db.createTextIndex('bio', { fields: ['bio'] });
-    await db.set('a', { bio: '我爱北京天安门' });
-    await db.set('b', { bio: '今天天气不错' });
+    await db.set('a', { bio: '\u6211\u7231\u5317\u4EAC\u5929\u5B89\u95E8' });
+    await db.set('b', { bio: '\u4ECA\u5929\u5929\u6C14\u4E0D\u9519' });
     await db.close();
 
     assert.ok(fssync.existsSync(path.join(dir, 'db.text-bio.postings')), 'postings file exists');
 
     db = await MiniDb.open({ dir, valueCodec: 'json' });
-    assert.deepEqual(db.search('bio', '北京').map((r) => r.key), ['a']);
+    assert.deepEqual(db.search('bio', '\u5317\u4EAC').map((r) => r.key), ['a']);
     // overwrite then reopen -> tombstone must not resurrect old text
-    await db.set('a', { bio: '我爱上海' });
+    await db.set('a', { bio: '\u6211\u7231\u4E0A\u6D77' });
     await db.close();
     db = await MiniDb.open({ dir, valueCodec: 'json' });
-    assert.deepEqual(db.search('bio', '北京').map((r) => r.key), []);
-    assert.deepEqual(db.search('bio', '上海').map((r) => r.key), ['a']);
+    assert.deepEqual(db.search('bio', '\u5317\u4EAC').map((r) => r.key), []);
+    assert.deepEqual(db.search('bio', '\u4E0A\u6D77').map((r) => r.key), ['a']);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -482,7 +482,7 @@ test('trigram: query of exactly 3 code points emits its single 3-gram', () => {
   const q = createNgramTokenizer({ forQuery: true });
   // the boundary where the query side switches from 2-grams to 3-grams
   assert.deepEqual(q('abc'), [ngramTerm('abc')]);
-  assert.deepEqual(q('已通过'), [ngramTerm('已通过')]);
+  assert.deepEqual(q('\u5DF2\u901A\u8FC7'), [ngramTerm('\u5DF2\u901A\u8FC7')]);
   // the index side of a 3-char text still emits both widths
   assert.deepEqual(
     createNgramTokenizer()('abc').sort(),
@@ -503,7 +503,7 @@ test('TextIndex: injected n-gram tokenizer matches symbol substrings', async () 
     ti.add('cpp', { text: 'modern C++ patterns' });
     ti.add('arrow', { text: 'rewrite a->b safely' });
     ti.add('dash', { text: 'a-b is not an arrow' }); // shares 'a-' but has no '->'
-    ti.add('done', { text: '检查项 **已通过** 审核' });
+    ti.add('done', { text: '\u68C0\u67E5\u9879 **\u5DF2\u901A\u8FC7** \u5BA1\u6838' });
     ti.add('latex', { text: 'inline math $\\frac{a}{b}$ here' });
     ti.add('emoji', { text: 'launch 🚀🎉 today' });
 
@@ -511,7 +511,7 @@ test('TextIndex: injected n-gram tokenizer matches symbol substrings', async () 
     assert.deepEqual(ti.search('c++').map((h) => h.key), ['cpp']); // case-insensitive
     assert.deepEqual(ti.search('->').map((h) => h.key), ['arrow']); // 2-char query via 2-gram
     assert.deepEqual(ti.search('a->b').map((h) => h.key), ['arrow']); // distractor 'a-b' excluded
-    assert.deepEqual(ti.search('已通过').map((h) => h.key), ['done']);
+    assert.deepEqual(ti.search('\u5DF2\u901A\u8FC7').map((h) => h.key), ['done']);
     assert.deepEqual(ti.search('\\frac{a}{b}').map((h) => h.key), ['latex']);
     assert.deepEqual(ti.search('🚀🎉').map((h) => h.key), ['emoji']);
     // single character yields no terms, hence no hits
@@ -1063,9 +1063,9 @@ test('TextIndex: a throwing tokenizer leaves the live view, delta and buildQueue
 test('TextIndex: an overlong custom-tokenizer term is rejected before any mutation (review #27)', async () => {
   const dir = await tmpDir();
   try {
-    const ti = new TextIndex({ postingsPath: path.join(dir, 't.postings'), tokenizer: () => ['你'.repeat(30000)] });
+    const ti = new TextIndex({ postingsPath: path.join(dir, 't.postings'), tokenizer: () => ['\u4F60'.repeat(30000)] });
     const priv = ti as unknown as TiPrivates;
-    // '你'.repeat(30000) is 90000 utf8 bytes > 0xffff — it would have made
+    // '\u4F60'.repeat(30000) is 90000 utf8 bytes > 0xffff — it would have made
     // every postings rebuild throw RangeError, permanently poisoning the index.
     assert.throws(() => {
       ti.add('k', { bio: 'x' });
@@ -1140,7 +1140,7 @@ test('MiniDb: an overlong tokenizer term rejects set/batch; the postings rebuild
     // Simulate a custom tokenizer (the MiniDb definition only ever wires
     // default/ngram): the length validation only guards custom output.
     ti.customTokenizer = true;
-    ti.tokenizer = () => ['你'.repeat(30000)];
+    ti.tokenizer = () => ['\u4F60'.repeat(30000)];
 
     await assert.rejects(db.set('bad', { t: 'x' }), /longer than 65535 utf8 bytes/);
     await assert.rejects(db.batch([{ op: 'set', key: 'bad2', value: { t: 'x' } }]), /longer than 65535 utf8 bytes/);
@@ -1195,8 +1195,8 @@ test('searchBoundedAsync matches searchBounded on a disk-backed index', async ()
   try {
     const postingsPath = path.join(dir, 'p.postings');
     const ti = new TextIndex({ postingsPath });
-    await ti.build([...Array(500)].map((_, i) => ({ key: `k${i}`, value: { text: `hello world doc ${i} 异步 ${i % 11}` } })));
-    for (const q of ['hello', '异步', 'hello world', 'missing-term']) {
+    await ti.build([...Array(500)].map((_, i) => ({ key: `k${i}`, value: { text: `hello world doc ${i} \u5F02\u6B65 ${i % 11}` } })));
+    for (const q of ['hello', '\u5F02\u6B65', 'hello world', 'missing-term']) {
       assert.deepEqual(await ti.searchBoundedAsync(q, { limit: 25 }), ti.searchBounded(q, { limit: 25 }), q);
     }
     // With a visit budget too (capped decodes must match as well).

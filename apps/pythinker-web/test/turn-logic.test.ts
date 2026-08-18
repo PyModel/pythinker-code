@@ -268,7 +268,7 @@ describe('messagesToTurns', () => {
         message('u1', 'user', [
           { type: 'text', text: 'check these' },
           { type: 'file', fileId: 'f_yaml', name: 'api-spec.yaml', mediaType: 'application/yaml', size: 18432 },
-          { type: 'file', fileId: 'f_pdf', name: '设计文档.pdf', mediaType: 'application/pdf', size: 2516582 },
+          { type: 'file', fileId: 'f_pdf', name: '\u8BBE\u8BA1\u6587\u6863.pdf', mediaType: 'application/pdf', size: 2516582 },
         ]),
       ],
       [],
@@ -290,7 +290,7 @@ describe('messagesToTurns', () => {
         kind: 'file',
         url: '/api/v1/files/f_pdf',
         fileId: 'f_pdf',
-        name: '设计文档.pdf',
+        name: '\u8BBE\u8BA1\u6587\u6863.pdf',
         mediaType: 'application/pdf',
         size: 2516582,
       },

@@ -46,8 +46,8 @@ describe('estimateTokens', () => {
   });
 
   it('estimates non-ASCII at one token per character', () => {
-    expect(estimateTokens('你好')).toBe(2);
-    expect(estimateTokens('ab你')).toBe(2);
+    expect(estimateTokens('\u4F60\u597D')).toBe(2);
+    expect(estimateTokens('ab\u4F60')).toBe(2);
   });
 });
 

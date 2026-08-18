@@ -145,7 +145,7 @@ describe('AssistantMessageComponent', () => {
     const component = new AssistantMessageComponent();
     try {
       setMarkdownRenderLatex(true);
-      component.updateContent('能量公式 $E = mc^2$');
+      component.updateContent('\u80FD\u91CF\u516C\u5F0F $E = mc^2$');
       expect(strip(component.render(80).join('\n'))).toContain('E = mc²');
 
       setMarkdownRenderLatex(false);

@@ -1233,11 +1233,11 @@ describe("TuiAltScreen", () => {
 	it("snaps mouse selection to CJK, emoji, and combining grapheme boundaries", async () => {
 		const terminal = new RecordingTerminal(20, 2);
 		const tui = new TuiAltScreen(terminal);
-		tui.addChild(new Text("A界🙂éZ", 0, 0));
+		tui.addChild(new Text("A\u754C🙂éZ", 0, 0));
 		tui.start();
 		await terminal.waitForRender();
 
-		const wideSelection = `\x1b]52;c;${Buffer.from("界🙂").toString("base64")}\x07`;
+		const wideSelection = `\x1b]52;c;${Buffer.from("\u754C🙂").toString("base64")}\x07`;
 		terminal.sendInput("\x1b[<0;3;1M");
 		terminal.sendInput("\x1b[<32;4;1M");
 		terminal.sendInput("\x1b[<0;4;1m");

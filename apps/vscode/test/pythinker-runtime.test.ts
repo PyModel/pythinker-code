@@ -308,19 +308,19 @@ describe("Pythinker runtime (owns shared SDK sessions for Webviews)", () => {
     const { runtime } = createRuntime((workDir) => workDir.replaceAll("\\", "/"));
 
     const opened = await runtime.openSession(openOptions({
-      workDir: "C:\\Users\\Example User\\项目",
+      workDir: "C:\\Users\\Example User\\\u9879\u76EE",
     }));
 
-    expect(opened.session.workDir).toBe("C:/Users/Example User/项目");
+    expect(opened.session.workDir).toBe("C:/Users/Example User/\u9879\u76EE");
   });
 
   it("resumes a Windows session when only separators and casing differ", async () => {
     const { runtime, sdk } = createRuntime();
-    sdk.addSession("saved-win", "C:/Users/Example User/项目");
+    sdk.addSession("saved-win", "C:/Users/Example User/\u9879\u76EE");
 
     const opened = await runtime.openSession(openOptions({
       sessionId: "saved-win",
-      workDir: "c:\\users\\example user\\项目",
+      workDir: "c:\\users\\example user\\\u9879\u76EE",
     }));
 
     expect(opened.id).toBe("saved-win");

@@ -575,14 +575,14 @@ describe('ReadTool', () => {
   });
 
   it('reads a BOM-marked UTF-16 file whose content has no zero bytes (CJK-only)', async () => {
-    const bytes = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('你好世界', 'utf16le')]);
+    const bytes = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('\u4F60\u597D\u4E16\u754C', 'utf16le')]);
     const { fs } = createSpiedMapFs({ '/tmp/cjk.txt': { bytes } });
     const tool = createReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
 
     const result = await execute(tool, { path: '/tmp/cjk.txt' });
 
     expect(result.isError).not.toBe(true);
-    expect(result.output).toContain('1\t你好世界');
+    expect(result.output).toContain('1\t\u4F60\u597D\u4E16\u754C');
     expect(result.note).toContain('Detected file encoding: UTF-16 LE');
   });
 
@@ -794,12 +794,12 @@ describe('ReadTool', () => {
   });
 
   it('reads unicode (CJK + emoji + accented Latin) without loss', async () => {
-    const tool = toolWithContent('Hello 世界 🌍\nUnicode test: café, naïve, résumé');
+    const tool = toolWithContent('Hello \u4E16\u754C 🌍\nUnicode test: café, naïve, résumé');
 
     const result = await execute(tool, { path: '/tmp/unicode.txt' });
 
     expect(result.isError).toBeFalsy();
-    expect(result.output).toContain('1\tHello 世界 🌍');
+    expect(result.output).toContain('1\tHello \u4E16\u754C 🌍');
     expect(result.output).toContain('2\tUnicode test: café, naïve, résumé');
   });
 

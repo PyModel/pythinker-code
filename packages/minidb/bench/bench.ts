@@ -42,11 +42,22 @@ const LATIN_VOCAB =
   'wal sync snapshot compaction recovery index query cache buffer frame codec store delta merge rotate flush token parse schema server client socket thread worker queue stream ledger journal cursor segment batch commit'.split(
     ' ',
   );
-const CJK_VOCAB = ['持久化', '快照', '索引', '恢复', '压缩', '查询', '缓存', '日志', '事务', '复制'];
+const CJK_VOCAB = [
+  '\u6301\u4e45\u5316',
+  '\u5feb\u7167',
+  '\u7d22\u5f15',
+  '\u6062\u590d',
+  '\u538b\u7f29',
+  '\u67e5\u8be2',
+  '\u7f13\u5b58',
+  '\u65e5\u5fd7',
+  '\u4e8b\u52a1',
+  '\u590d\u5236',
+];
 // Needles planted at deterministic intervals so query hit counts are stable.
 const NEEDLES = [
   { term: 'walrus', every: 97 },
-  { term: '持久化', every: 131 },
+  { term: '\u6301\u4e45\u5316', every: 131 },
   { term: 'checkpoint', every: 257 },
 ];
 
@@ -336,8 +347,8 @@ async function coldOpenScenarios({ sizes, VALUE }) {
 
 /** Word (default tokenizer) and n-gram searches over the seeded message corpus. */
 async function searchScenarios({ sizes, seed }) {
-  const WORD_QUERIES = ['walrus', '持久化', 'wal snapshot', 'nonexistentxyz123'];
-  const NGRAM_QUERIES = ['walru', '持久', 'heckpo'];
+  const WORD_QUERIES = ['walrus', '\u6301\u4e45\u5316', 'wal snapshot', 'nonexistentxyz123'];
+  const NGRAM_QUERIES = ['walru', '\u6301\u4e45', 'heckpo'];
   const RUNS = 7;
   for (const count of sizes) {
     const dir = await tmpDir();

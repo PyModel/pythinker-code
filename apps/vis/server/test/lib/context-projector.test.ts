@@ -613,7 +613,7 @@ describe('context-projector', () => {
     // gate → NOT blanked, the bug). agent-core counts each non-ASCII char as a
     // full token → ~150 tokens (>= gate → blanked). Assert it IS blanked, so a
     // Chinese-heavy tool result diverges from agent-core no longer.
-    const cjk = '中'.repeat(150);
+    const cjk = '\u4E2D'.repeat(150);
     const entries = [
       { lineNo: 1, data: { type: 'context.append_message' as const, message: {
           role: 'tool' as const, toolCallId: 'c0', toolCalls: [],

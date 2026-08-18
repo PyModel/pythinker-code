@@ -121,7 +121,7 @@ describe('Agent context', () => {
     // The TUI merges the caption into the preceding text segment; the server
     // route emits it as a standalone part. Cover the merged (harder) shape.
     ctx.agent.context.appendUserMessage([
-      { type: 'text', text: `能展示但是没有快捷键提示${caption}` },
+      { type: 'text', text: `\u80FD\u5C55\u793A\u4F46\u662F\u6CA1\u6709\u5FEB\u6377\u952E\u63D0\u793A${caption}` },
       { type: 'image_url', imageUrl: { url: 'data:image/png;base64,AAAA' } },
     ]);
 
@@ -137,7 +137,7 @@ describe('Agent context', () => {
     expect(textOf(reminder!)).toContain('Image compressed to fit model limits');
     expect(textOf(reminder!)).toContain('/tmp/originals/shot.png');
     expect(textOf(reminder!)).not.toContain('<system>');
-    expect(textOf(userMessage!)).toBe('能展示但是没有快捷键提示');
+    expect(textOf(userMessage!)).toBe('\u80FD\u5C55\u793A\u4F46\u662F\u6CA1\u6709\u5FEB\u6377\u952E\u63D0\u793A');
     expect(userMessage!.content.some((part) => part.type === 'image_url')).toBe(true);
   });
 

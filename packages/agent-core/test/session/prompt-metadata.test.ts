@@ -58,11 +58,11 @@ describe('promptMetadataTextFromPayload', () => {
   it('strips a caption merged into the user text and keeps the rest', () => {
     const text = promptMetadataTextFromPayload({
       input: [
-        { type: 'text', text: `能展示但是没有快捷键提示${CAPTION}` },
+        { type: 'text', text: `\u80FD\u5C55\u793A\u4F46\u662F\u6CA1\u6709\u5FEB\u6377\u952E\u63D0\u793A${CAPTION}` },
         { type: 'image_url', imageUrl: { url: 'data:image/png;base64,AAAA' } },
       ],
     });
-    expect(text).toBe('能展示但是没有快捷键提示 [image]');
+    expect(text).toBe('\u80FD\u5C55\u793A\u4F46\u662F\u6CA1\u6709\u5FEB\u6377\u952E\u63D0\u793A [image]');
     expect(text).not.toContain('<system>');
     expect(text).not.toContain('Image compressed');
   });

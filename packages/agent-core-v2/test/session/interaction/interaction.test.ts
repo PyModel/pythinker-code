@@ -183,7 +183,7 @@ describe('SessionInteractionService', () => {
     expect(count).toBe(0);
   });
 
-  it('cancelPendingForTurn clears pending interactions whose turn has ended (矛盾 c)', () => {
+  it('cancelPendingForTurn clears pending interactions whose turn has ended (\u77DB\u76FE c)', () => {
     const svc = ix.get(ISessionInteractionService);
 
     svc.enqueue({ id: 'a1', kind: 'approval', payload: {}, origin: { agentId: 'main', turnId: 3 } });

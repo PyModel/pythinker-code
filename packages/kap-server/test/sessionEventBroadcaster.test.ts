@@ -1025,8 +1025,8 @@ describe('SessionEventBroadcaster', () => {
       payload: {
         agentId: 'main',
         sessionId: 's1',
-        title: '测试',
-        patch: { title: '测试', isCustomTitle: false, lastPrompt: '测试' },
+        title: '\u6D4B\u8BD5',
+        patch: { title: '\u6D4B\u8BD5', isCustomTitle: false, lastPrompt: '\u6D4B\u8BD5' },
       },
     });
 
@@ -1040,8 +1040,8 @@ describe('SessionEventBroadcaster', () => {
         type: 'session.meta.updated',
         agentId: 'main',
         sessionId: 's1',
-        title: '测试',
-        patch: { title: '测试', lastPrompt: '测试' },
+        title: '\u6D4B\u8BD5',
+        patch: { title: '\u6D4B\u8BD5', lastPrompt: '\u6D4B\u8BD5' },
       },
     });
     expect(s1View.envelopes[0]!.session_id).not.toBe('__global__');
@@ -1840,8 +1840,8 @@ describe('SessionEventBroadcaster', () => {
       payload: {
         agentId: 'main',
         sessionId: 's1',
-        title: '测试',
-        patch: { title: '测试' },
+        title: '\u6D4B\u8BD5',
+        patch: { title: '\u6D4B\u8BD5' },
       },
     });
 

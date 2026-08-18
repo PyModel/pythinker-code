@@ -476,19 +476,19 @@ describe('EditTool', () => {
   it('replaces unicode strings (CJK) and round-trips the surrounding text', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     const { fs } = createSpiedEditFs({
-      readText: vi.fn().mockResolvedValue('Hello 世界! café'),
+      readText: vi.fn().mockResolvedValue('Hello \u4E16\u754C! café'),
       writeText,
     });
     const tool = buildTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
 
     const result = await execute(tool, {
       path: '/tmp/u.txt',
-      old_string: '世界',
-      new_string: '地球',
+      old_string: '\u4E16\u754C',
+      new_string: '\u5730\u7403',
     });
 
     expect(result.output).toContain('Replaced 1 occurrence');
-    expect(writeText).toHaveBeenCalledWith('/tmp/u.txt', 'Hello 地球! café');
+    expect(writeText).toHaveBeenCalledWith('/tmp/u.txt', 'Hello \u5730\u7403! café');
   });
 
   it('leaves the file byte-identical when old_string is not present', async () => {

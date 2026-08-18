@@ -54,7 +54,7 @@ async function main() {
   }
 
   // 4. fuzzy search
-  for (const q of ['database compaction', 'lark-approval', 'Redis 持久化']) {
+  for (const q of ['database compaction', 'lark-approval', 'Redis \u6301\u4e45\u5316']) {
     t = performance.now();
     const hits = store.search(q, { limit: 3 });
     console.log(`\n[4] search("${q}") -> ${hits.length} in ${ms(performance.now() - t)}`);

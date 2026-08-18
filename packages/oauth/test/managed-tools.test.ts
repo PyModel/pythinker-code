@@ -30,7 +30,7 @@ describe('fetchChatTitle', () => {
   it('POSTs the chat_title method with bearer auth and returns the title on 200', async () => {
     const fetchMock = vi.fn(
       async () =>
-        new Response(JSON.stringify({ title: 'Go nil pointer 错误排查' }), {
+        new Response(JSON.stringify({ title: 'Go nil pointer \u9519\u8BEF\u6392\u67E5' }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         }),
@@ -40,10 +40,10 @@ describe('fetchChatTitle', () => {
     const result = await fetchChatTitle(
       'https://api.example/tools',
       'access-token',
-      'user: nil pointer 报错',
+      'user: nil pointer \u62A5\u9519',
     );
 
-    expect(result).toEqual({ kind: 'ok', title: 'Go nil pointer 错误排查' });
+    expect(result).toEqual({ kind: 'ok', title: 'Go nil pointer \u9519\u8BEF\u6392\u67E5' });
 
     const calls = fetchMock.mock.calls as unknown as [string, RequestInit?][];
     const [calledUrl, init] = calls[0]!;
@@ -56,14 +56,14 @@ describe('fetchChatTitle', () => {
 
     expect(JSON.parse(init?.body as string)).toEqual({
       method: 'chat_title',
-      params: { chat_content: 'user: nil pointer 报错' },
+      params: { chat_content: 'user: nil pointer \u62A5\u9519' },
     });
   });
 
   it('keeps protocol headers authoritative when custom header casing differs', async () => {
     const fetchMock = vi.fn(
       async () =>
-        new Response(JSON.stringify({ title: '标题' }), {
+        new Response(JSON.stringify({ title: '\u6807\u9898' }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         }),
@@ -92,7 +92,7 @@ describe('fetchChatTitle', () => {
       'fetch',
       vi.fn(
         async () =>
-          new Response(JSON.stringify({ title: '  标题  \n' }), {
+          new Response(JSON.stringify({ title: '  \u6807\u9898  \n' }), {
             status: 200,
             headers: { 'Content-Type': 'application/json' },
           }),
@@ -101,7 +101,7 @@ describe('fetchChatTitle', () => {
 
     const result = await fetchChatTitle('https://api.example/tools', 'tok', 'user: hi');
 
-    expect(result).toEqual({ kind: 'ok', title: '标题' });
+    expect(result).toEqual({ kind: 'ok', title: '\u6807\u9898' });
   });
 
   it('returns an error when the server omits the title', async () => {
@@ -251,7 +251,7 @@ describe('fetchChatTitle', () => {
       'fetch',
       vi.fn(
         async () =>
-          new Response(JSON.stringify({ title: '标题' }), {
+          new Response(JSON.stringify({ title: '\u6807\u9898' }), {
             status: 200,
             headers: { 'Content-Type': 'application/json' },
           }),

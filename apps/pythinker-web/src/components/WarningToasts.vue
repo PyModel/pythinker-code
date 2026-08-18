@@ -30,7 +30,7 @@ function toastDetails(warning: AppWarning): AppNotice['details'] {
 
 function isError(warning: AppWarning): boolean {
   if (isNotice(warning)) return warning.severity === 'error';
-  return warning.startsWith(`${t('warnings.errorLabel')}:`) || /\b4\d\d\b|error|失败|failed/i.test(warning);
+  return warning.startsWith(`${t('warnings.errorLabel')}:`) || /\b4\d\d\b|error|failed/i.test(warning);
 }
 
 function warningKey(warning: AppWarning): string {

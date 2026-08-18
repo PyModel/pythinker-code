@@ -254,7 +254,7 @@ async function main() {
         {
           age: 18 + (i % 60),
           city: ['Paris', 'London', 'Tokyo', 'Beijing'][i % 4],
-          bio: i % 3 === 0 ? '我住在北京，喜欢编程和数据库' : 'hello world from nodejs database engine',
+          bio: i % 3 === 0 ? '\u5317\u4eac \u6570\u636e\u5e93' : 'hello world from nodejs database engine',
         },
         { dt: { created: base + i * 1000 } },
       ),
@@ -282,8 +282,8 @@ async function main() {
   r = await bench('text search latin', () => db.search('body', 'hello'), ITERS);
   console.log(`  text search "hello"`.padEnd(42), `${r.ms.toFixed(1)} ms total`, `-> ${ops(ITERS, r.ms)}`, `(~${r.r.length} rows)`);
 
-  r = await bench('text search cjk', () => db.search('body', '北京'), ITERS);
-  console.log(`  text search "北京"`.padEnd(42), `${r.ms.toFixed(1)} ms total`, `-> ${ops(ITERS, r.ms)}`, `(~${r.r.length} rows)`);
+  r = await bench('text search cjk', () => db.search('body', '\u5317\u4eac'), ITERS);
+  console.log(`  text search "CJK term"`.padEnd(42), `${r.ms.toFixed(1)} ms total`, `-> ${ops(ITERS, r.ms)}`, `(~${r.r.length} rows)`);
 
   // composed query
   r = await bench(
