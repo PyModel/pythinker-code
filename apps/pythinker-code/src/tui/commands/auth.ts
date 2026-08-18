@@ -8,12 +8,10 @@ import {
   type ManagedPythinkerConfigShape,
   type OpenPlatformDefinition,
 } from '@pymodel/pythinker-code-oauth';
-import { log } from '@pymodel/pythinker-code-sdk';
 
 import type { ChoiceOption } from '../components/dialogs/choice-picker';
 import { DEFAULT_OAUTH_PROVIDER_NAME, PRODUCT_NAME } from '../constant/pythinker-tui';
 import { formatErrorMessage } from '../utils/event-payload';
-import type { LoginProgressSpinnerHandle } from '../types';
 import {
   promptApiKey,
   promptLogoutProviderSelection,
@@ -30,73 +28,9 @@ export async function handleLoginCommand(host: SlashCommandHost): Promise<void> 
   const platformId = await promptPlatformSelection(host);
   if (platformId === undefined) return;
 
-  if (platformId === 'pythinker-code') {
-    await handlePythinkerCodeOAuthLogin(host);
-    return;
-  }
-
   const platform = getOpenPlatformById(platformId);
   if (platform === undefined) return;
   await handleOpenPlatformLogin(host, platform);
-}
-
-async function handlePythinkerCodeOAuthLogin(host: SlashCommandHost): Promise<void> {
-  const status = await host.harness.auth.status(DEFAULT_OAUTH_PROVIDER_NAME);
-  const alreadyLoggedIn = status.providers.some(
-    (provider) => provider.providerName === DEFAULT_OAUTH_PROVIDER_NAME && provider.hasToken,
-  );
-
-  let spinner: LoginProgressSpinnerHandle | undefined;
-  const controller = new AbortController();
-  const cancelLogin = (): void => {
-    controller.abort();
-  };
-  host.cancelInFlight = cancelLogin;
-  try {
-    await host.harness.auth.login(DEFAULT_OAUTH_PROVIDER_NAME, {
-      signal: controller.signal,
-      onDeviceCode: (data) => {
-        spinner = host.showLoginAuthorizationPrompt(data);
-      },
-    });
-    spinner?.stop({ ok: true, label: 'Logged in.' });
-    spinner = undefined;
-    try {
-      await host.authFlow.refreshConfigAfterLogin();
-    } catch (refreshError) {
-      const message = formatErrorMessage(refreshError);
-      host.showError(`Authentication successful, but failed to refresh config: ${message}`);
-      return;
-    }
-    host.track('login', {
-      provider: DEFAULT_OAUTH_PROVIDER_NAME,
-      method: 'oauth',
-      already_logged_in: alreadyLoggedIn,
-    });
-    if (alreadyLoggedIn) {
-      host.showStatus('Already logged in. Model configuration refreshed.', 'success');
-    }
-  } catch (error) {
-    const cancelled = controller.signal.aborted;
-    spinner?.stop({
-      ok: false,
-      label: cancelled ? 'Login cancelled.' : 'Login failed.',
-    });
-    spinner = undefined;
-    if (cancelled) return;
-    log.warn('login failed', {
-      providerName: DEFAULT_OAUTH_PROVIDER_NAME,
-      alreadyLoggedIn,
-      sessionId: host.session?.id,
-      error,
-    });
-    const message = formatErrorMessage(error);
-    host.showError(`Login failed: ${message}`);
-  } finally {
-    if (host.cancelInFlight === cancelLogin) {
-      host.cancelInFlight = undefined;
-    }
-  }
 }
 
 async function handleOpenPlatformLogin(

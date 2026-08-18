@@ -64,7 +64,6 @@ const emit = defineEmits<{
   setUiFontSize: [size: number];
   setConversationToc: [on: boolean];
   login: [];
-  logout: [];
 }>();
 
 function onColorScheme(v: string): void {
@@ -138,11 +137,6 @@ function onPickModel(): void {
 
 function onLogin(): void {
   emit('login');
-  emit('update:modelValue', false);
-}
-
-function onLogout(): void {
-  emit('logout');
   emit('update:modelValue', false);
 }
 
@@ -379,15 +373,11 @@ watch(
       <span class="toggle" :class="{ on: conversationToc }" role="switch" :aria-checked="conversationToc" />
     </button>
 
-    <!-- Account: sign in / out -->
-    <button v-if="authReady" type="button" class="srow acct out" @click="onLogout">
+    <!-- Providers: no managed account in this distribution — the row opens
+         the provider manager instead of an account sign-in. -->
+    <button type="button" class="srow acct in" @click="onLogin">
       <span class="srow-main">
-        <span class="srow-label">{{ t('sidebar.signOut') }}</span>
-      </span>
-    </button>
-    <button v-else type="button" class="srow acct in" @click="onLogin">
-      <span class="srow-main">
-        <span class="srow-label">{{ t('sidebar.signIn') }}</span>
+        <span class="srow-label">{{ t('settings.manageProviders') }}</span>
       </span>
     </button>
 

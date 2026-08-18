@@ -133,8 +133,8 @@ describe('server-v2 boot', () => {
     });
     const defaults = server.core.accessor.get(IHostRequestHeaders);
     expect(defaults.headers['User-Agent']).toBe('test-host/0.0.0-test');
-    expect(defaults.headers['X-Msh-Version']).toBe('0.0.0-test');
-    expect(defaults.headers['X-Msh-Platform']).toBe('test_platform');
+    expect(defaults.headers['X-Msh-Version']).toBeUndefined();
+    expect(defaults.headers['X-Msh-Platform']).toBeUndefined();
 
     await server.close();
     server = undefined;

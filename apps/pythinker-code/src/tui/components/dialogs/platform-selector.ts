@@ -2,10 +2,12 @@ import { OPEN_PLATFORMS } from '@pymodel/pythinker-code-oauth';
 
 import { ChoicePickerComponent, type ChoiceOption } from './choice-picker';
 
-const PLATFORM_OPTIONS: readonly ChoiceOption[] = [
-  { value: 'pythinker-code', label: 'Pythinker Code (OAuth)' },
-  ...OPEN_PLATFORMS.map((platform) => ({ value: platform.id, label: platform.name })),
-];
+// No managed-account OAuth entry: this distribution runs no managed service.
+// Login offers the open-platform API-key flows only.
+const PLATFORM_OPTIONS: readonly ChoiceOption[] = OPEN_PLATFORMS.map((platform) => ({
+  value: platform.id,
+  label: platform.name,
+}));
 
 export interface PlatformSelectorOptions {
   readonly onSelect: (platformId: string) => void;

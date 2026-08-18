@@ -863,74 +863,6 @@ describe('WebSearchProviderService', () => {
     expect(resolveTokenProvider).not.toHaveBeenCalled();
   });
 
-  it('returns undefined when the managed provider is not an OAuth pythinker provider', () => {
-    providers = { [OAUTH_PROVIDER]: { type: 'pythinker', apiKey: 'sk-test' } };
-    expect(createService().getWebSearchProvider()).toBeUndefined();
-    expect(resolveTokenProvider).not.toHaveBeenCalled();
-  });
-
-  it('returns undefined when the oauth service yields no token provider', () => {
-    providers = {
-      [OAUTH_PROVIDER]: {
-        type: 'pythinker',
-        baseUrl: 'https://api.example.com',
-        oauth: { storage: 'file', key: 'oauth/pythinker-code' },
-      },
-    };
-    resolveTokenProvider.mockReturnValue(undefined);
-    expect(createService().getWebSearchProvider()).toBeUndefined();
-  });
-
-  it('builds a search provider from the managed provider oauth ref', () => {
-    providers = {
-      [OAUTH_PROVIDER]: {
-        type: 'pythinker',
-        baseUrl: 'https://api.example.com/v1',
-        oauth: { storage: 'file', key: 'oauth/pythinker-code' },
-      },
-    };
-    expect(createService().getWebSearchProvider()).not.toBeUndefined();
-    expect(resolveTokenProvider).toHaveBeenCalledWith(OAUTH_PROVIDER, {
-      storage: 'file',
-      key: 'oauth/pythinker-code',
-    });
-  });
-
-  it('searches against /search with the OAuth access token, host identity headers, and custom headers', async () => {
-    providers = {
-      [OAUTH_PROVIDER]: {
-        type: 'pythinker',
-        baseUrl: 'https://api.example.com/v1/',
-        oauth: { storage: 'file', key: 'oauth/pythinker-code' },
-        customHeaders: { 'X-Custom': 'yes' },
-      },
-    };
-    const fetchMock = vi.fn().mockResolvedValue({
-      status: 200,
-      json: async () => ({
-        search_results: [{ title: 'Title', url: 'https://example.com', snippet: 'Snippet' }],
-      }),
-    });
-    vi.stubGlobal('fetch', fetchMock);
-
-    const provider = createService().getWebSearchProvider();
-    expect(provider).not.toBeUndefined();
-    const results = await provider!.search('hello');
-
-    expect(results).toEqual([
-      { title: 'Title', url: 'https://example.com', snippet: 'Snippet' },
-    ]);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe('https://api.example.com/v1/search');
-    const headers = init.headers as Record<string, string>;
-    expect(headers['Authorization']).toBe('Bearer access-token');
-    expect(headers['User-Agent']).toBe('pythinker-code-cli/test');
-    expect(headers['X-Msh-Device-Id']).toBe('device-test');
-    expect(headers['X-Custom']).toBe('yes');
-    expect(JSON.parse(init.body as string)).toEqual({ text_query: 'hello' });
-  });
-
   it('builds a search provider from the services.pymodel_search api_key config', async () => {
     servicesConfig = {
       pymodelSearch: {
@@ -962,34 +894,6 @@ describe('WebSearchProviderService', () => {
     expect(headers['User-Agent']).toBe('pythinker-code-cli/test');
     expect(headers['X-Msh-Device-Id']).toBe('device-test');
     expect(headers['X-Custom']).toBe('yes');
-  });
-
-  it('prefers the services.pymodel_search config over the managed oauth provider', async () => {
-    servicesConfig = {
-      pymodelSearch: { baseUrl: 'https://config.example.com/search', apiKey: 'config-key' },
-    };
-    providers = {
-      [OAUTH_PROVIDER]: {
-        type: 'pythinker',
-        baseUrl: 'https://managed.example.com/v1',
-        oauth: { storage: 'file', key: 'oauth/pythinker-code' },
-      },
-    };
-    const fetchMock = vi.fn().mockResolvedValue({
-      status: 200,
-      json: async () => ({ search_results: [] }),
-    });
-    vi.stubGlobal('fetch', fetchMock);
-
-    const provider = createService().getWebSearchProvider();
-    expect(provider).not.toBeUndefined();
-    await provider!.search('hello');
-
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe('https://config.example.com/search');
-    const headers = init.headers as Record<string, string>;
-    expect(headers['Authorization']).toBe('Bearer config-key');
-    expect(resolveTokenProvider).not.toHaveBeenCalled();
   });
 
   it('builds a search provider from the services.pymodel_search oauth ref', async () => {
@@ -1035,12 +939,10 @@ describe('WebSearchProviderService', () => {
       pymodelSearch: { baseUrl: 'https://search.example.com/search', apiKey: 'k' },
     };
     const svc = new WebSearchProviderService(
-      { get: ((name: string) => providers[name]) as IProviderService['get'] } as IProviderService,
       {
         resolveTokenProvider:
           resolveTokenProvider as unknown as IOAuthService['resolveTokenProvider'],
       } as IOAuthService,
-      { args: { requestHeaders: {} } } as unknown as IBootstrapService,
       {
         get: ((domain: string) =>
           domain === SERVICES_SECTION ? servicesConfig : undefined) as IConfigService['get'],
@@ -1054,15 +956,6 @@ describe('WebSearchProviderService', () => {
     servicesConfig = undefined;
     providers = {};
     expect(svc.hasWebSearchProvider()).toBe(false);
-
-    providers = {
-      [OAUTH_PROVIDER]: {
-        type: 'pythinker',
-        baseUrl: 'https://api.example.com/v1',
-        oauth: { storage: 'file', key: 'oauth/pythinker-code' },
-      },
-    };
-    expect(svc.hasWebSearchProvider()).toBe(true);
   });
 });
 

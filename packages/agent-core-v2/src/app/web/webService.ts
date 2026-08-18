@@ -1,16 +1,10 @@
-import {
-  PYTHINKER_CODE_PROVIDER_NAME,
-  pythinkerCodeBaseUrl,
-} from '@pymodel/pythinker-code-oauth';
+import { PYTHINKER_CODE_PROVIDER_NAME } from '@pymodel/pythinker-code-oauth';
 import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { IOAuthService } from '#/app/auth/auth';
 import { SERVICES_SECTION, type ServicesConfig } from '#/app/auth/configSection';
 import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
-import { IProviderService } from '#/kosong/provider/provider';
-import { isOAuthCatalogVendor } from '#/kosong/provider/providerDefinition';
 
 import { LocalFetchURLProvider } from './providers/local-fetch-url';
 import { PyModelFetchURLProvider } from './providers/pymodel-fetch-url';
@@ -22,9 +16,7 @@ export class WebFetchService implements IWebFetchService {
   private readonly localFetcher: UrlFetcher;
 
   constructor(
-    @IProviderService private readonly providers: IProviderService,
     @IOAuthService private readonly oauth: IOAuthService,
-    @IBootstrapService private readonly bootstrap: IBootstrapService,
     @IConfigService private readonly config: IConfigService,
     @IAgentIdentity private readonly identity: IAgentIdentity,
   ) {
@@ -32,7 +24,7 @@ export class WebFetchService implements IWebFetchService {
   }
 
   getUrlFetcher(): UrlFetcher {
-    return this.fromServicesConfig() ?? this.fromManagedOAuth() ?? this.localFetcher;
+    return this.fromServicesConfig() ?? this.localFetcher;
   }
 
   private fromServicesConfig(): UrlFetcher | undefined {
@@ -54,27 +46,6 @@ export class WebFetchService implements IWebFetchService {
     });
   }
 
-  private fromManagedOAuth(): UrlFetcher | undefined {
-    const provider = this.providers.get(PYTHINKER_CODE_PROVIDER_NAME);
-    if (provider === undefined || !isOAuthCatalogVendor(provider.type) || provider.oauth === undefined) {
-      return undefined;
-    }
-    const tokenProvider = this.oauth.resolveTokenProvider(
-      PYTHINKER_CODE_PROVIDER_NAME,
-      provider.oauth,
-    );
-    if (tokenProvider === undefined) {
-      return undefined;
-    }
-    const baseUrl = `${(provider.baseUrl ?? pythinkerCodeBaseUrl()).replace(/\/+$/, '')}/fetch`;
-    return new PyModelFetchURLProvider({
-      baseUrl,
-      tokenProvider,
-      defaultHeaders: { ...this.bootstrap.args.requestHeaders },
-      customHeaders: provider.customHeaders,
-      localFallback: this.localFetcher,
-    });
-  }
 }
 
 function nonEmptyString(value: string | undefined): string | undefined {

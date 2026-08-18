@@ -461,8 +461,10 @@ describe('PythinkerTUI startup', () => {
       planMode: false,
     });
 
-    vi.mocked(promptPlatformSelection).mockResolvedValue('pythinker-code');
-    await handleLoginCommand(driver as any);
+    // Simulate a completed provider login (the managed OAuth entry is gone;
+    // any login path ends in refreshConfigAfterLogin).
+    loggedIn = true;
+    await driver.authFlow.refreshConfigAfterLogin();
 
     // Login must not create a session on v2, but the refreshed config
     // defaults must reach the first lazy-created session.
@@ -500,8 +502,8 @@ describe('PythinkerTUI startup', () => {
 
     await expect(driver.init()).resolves.toBe(false);
 
-    vi.mocked(promptPlatformSelection).mockResolvedValue('pythinker-code');
-    await handleLoginCommand(driver as any);
+    loggedIn = true;
+    await driver.authFlow.refreshConfigAfterLogin();
 
     expect(harness.createSession).not.toHaveBeenCalled();
     expect(driver.state.appState).toMatchObject({
@@ -1686,8 +1688,7 @@ describe('PythinkerTUI startup', () => {
       planMode: true,
     });
 
-    vi.mocked(promptPlatformSelection).mockResolvedValue('pythinker-code');
-    await handleLoginCommand(driver as any);
+    await driver.authFlow.refreshConfigAfterLogin();
 
     expect(createSession).toHaveBeenNthCalledWith(1, {
       workDir: '/tmp/proj-a',
@@ -1732,8 +1733,7 @@ describe('PythinkerTUI startup', () => {
 
     await expect(driver.init()).resolves.toBe(false);
 
-    vi.mocked(promptPlatformSelection).mockResolvedValue('pythinker-code');
-    await handleLoginCommand(driver as any);
+    await driver.authFlow.refreshConfigAfterLogin();
 
     expect(createSession).toHaveBeenNthCalledWith(2, {
       workDir: '/tmp/proj-a',
@@ -1775,8 +1775,7 @@ describe('PythinkerTUI startup', () => {
     const driver = makeDriver(harness, makeStartupInput());
 
     await expect(driver.init()).resolves.toBe(false);
-    vi.mocked(promptPlatformSelection).mockResolvedValue('pythinker-code');
-    await handleLoginCommand(driver as any);
+    await driver.authFlow.refreshConfigAfterLogin();
 
     expect(createSession).toHaveBeenNthCalledWith(2, {
       workDir: '/tmp/proj-a',
@@ -1806,8 +1805,7 @@ describe('PythinkerTUI startup', () => {
     await expect(driver.init()).resolves.toBe(false);
     expect(driver.state.appState.thinkingEffort).toBe('off');
 
-    vi.mocked(promptPlatformSelection).mockResolvedValue('pythinker-code');
-    await handleLoginCommand(driver as any);
+    await driver.authFlow.refreshConfigAfterLogin();
 
     expect(session.setModel).toHaveBeenCalledWith('k2');
     // `thinking.enabled === true` means "leave the session's current thinking
@@ -1818,90 +1816,6 @@ describe('PythinkerTUI startup', () => {
       thinkingEffort: 'off',
       maxContextTokens: 100,
     });
-    expect(harness.track).toHaveBeenCalledWith('login', {
-      provider: 'managed:pythinker-code',
-      method: 'oauth',
-      already_logged_in: false,
-    });
-  });
-
-  it('tracks login with already_logged_in when a token already exists', async () => {
-    const session = makeSession();
-    const harness = makeHarness(session, {
-      auth: {
-        status: vi.fn(async () => ({
-          providers: [{ providerName: 'managed:pythinker-code', hasToken: true }],
-        })),
-        login: vi.fn(async () => {}),
-        logout: vi.fn(),
-        getManagedUsage: vi.fn(),
-      },
-    });
-    const driver = makeDriver(harness, makeStartupInput());
-
-    await expect(driver.init()).resolves.toBe(false);
-    harness.track.mockClear();
-
-    vi.mocked(promptPlatformSelection).mockResolvedValue('pythinker-code');
-    await handleLoginCommand(driver as any);
-
-    expect(harness.auth.login).toHaveBeenCalledWith(
-      'managed:pythinker-code',
-      expect.objectContaining({
-        signal: expect.any(AbortSignal),
-        onDeviceCode: expect.any(Function),
-      }),
-    );
-    expect(harness.track).toHaveBeenCalledWith('login', {
-      provider: 'managed:pythinker-code',
-      method: 'oauth',
-      already_logged_in: true,
-    });
-  });
-
-  it('logs login failures with session context', async () => {
-    const warn = vi.spyOn(log, 'warn').mockImplementation(() => {});
-    const session = makeSession();
-    const loginError = new Error('Failed to list Pythinker Code models (HTTP 402).');
-    const harness = makeHarness(session, {
-      auth: {
-        status: vi.fn(async () => ({ providers: [] })),
-        login: vi.fn(async () => {
-          throw loginError;
-        }),
-        logout: vi.fn(),
-        getManagedUsage: vi.fn(),
-      },
-    });
-    const driver = makeDriver(harness, makeStartupInput());
-
-    try {
-      await expect(driver.init()).resolves.toBe(false);
-
-      vi.mocked(promptPlatformSelection).mockResolvedValue('pythinker-code');
-      await handleLoginCommand(driver as any);
-
-      expect(harness.auth.login).toHaveBeenCalledWith(
-        'managed:pythinker-code',
-        expect.objectContaining({
-          signal: expect.any(AbortSignal),
-          onDeviceCode: expect.any(Function),
-        }),
-      );
-      expect(warn).toHaveBeenCalledWith(
-        'login failed',
-        expect.objectContaining({
-          providerName: 'managed:pythinker-code',
-          alreadyLoggedIn: false,
-          sessionId: 'ses-1',
-          error: expect.objectContaining({
-            message: 'Failed to list Pythinker Code models (HTTP 402).',
-          }),
-        }),
-      );
-    } finally {
-      warn.mockRestore();
-    }
   });
 
   it('tracks logout after managed credentials and session state are cleared', async () => {

@@ -251,11 +251,10 @@ describe('Session.prompt events', () => {
       expect(fakeProviderState.providerConfigs[0]).toMatchObject({
         type: 'pythinker',
         defaultHeaders: expect.objectContaining({
-          'X-Msh-Platform': PYTHINKER_CODE_PLATFORM,
           'User-Agent': 'pythinker-code-cli/0.0.0-test',
         }),
       });
-      expect(existsSync(join(homeDir, 'device_id'))).toBe(true);
+      expect(existsSync(join(homeDir, 'device_id'))).toBe(false);
     } finally {
       await harness.close();
     }
