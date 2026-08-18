@@ -73,7 +73,7 @@ Run these checks in order.
 2. Require zero camel-case rename residue.
 
    ```sh
-   rg 'dynamic_workflow[A-Z]'
+   rg 'dynamic_workflow[A-Z]' --glob '!scripts/upstream-sync/README.md'
    ```
 
 3. Audit every brand match. Only the provider values listed in [Brand boundary](#brand-boundary) can remain.
