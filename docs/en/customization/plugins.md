@@ -1,6 +1,6 @@
 # Plugins
 
-Plugins package reusable Pythinker Code CLI capabilities into installable units — they can add [Agent Skills](./skills.md), custom [agents](./agents.md), automatically load a specified Skill at session start, contribute system-prompt instructions, and declare MCP servers to provide real tool capabilities. They are ideal for sharing workflows with a team, connecting to external services, or installing extensions from the [official plugins](#official-plugins).
+Plugins package reusable Pythinker Code CLI capabilities into installable units — they can add [Agent Skills](../../customization/skills.md), custom [agents](../../customization/agents.md), automatically load a specified Skill at session start, contribute system-prompt instructions, and declare MCP servers to provide real tool capabilities. They are ideal for sharing workflows with a team, connecting to external services, or installing extensions from the [official plugins](#official-plugins).
 
 ## Installation and Management
 
@@ -60,7 +60,7 @@ Network requests only go through `github.com` redirects and `codeload.github.com
 
 ### Custom marketplace JSON
 
-Pass a custom marketplace JSON path or URL to `/plugins marketplace <source>`, or set [`PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL`](../configuration/env-vars.md) to override the default catalog. Each entry in the `plugins` array needs an `id` and a `source` (local path, zip URL, or GitHub URL):
+Pass a custom marketplace JSON path or URL to `/plugins marketplace <source>`, or set [`PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL`](../../configuration/env-vars.md) to override the default catalog. Each entry in the `plugins` array needs an `id` and a `source` (local path, zip URL, or GitHub URL):
 
 ```json
 {
@@ -253,7 +253,7 @@ Supported fields:
 | `version`, `description`, `keywords`, `author`, `homepage`, `license` | Display metadata |
 | `interface` | Fields shown in `/plugins`: `displayName`, `shortDescription`, `longDescription`, `developerName`, `websiteURL` |
 | `skills` | One or more `./` paths; must be within the plugin root directory. When omitted, the `SKILL.md` in the root directory is treated as a single Skill root |
-| `agents` | One or more `./` paths; must be within the plugin root directory and point to directories containing [agent files](./agents.md#custom-agents). When omitted, the `agents/` directory under the plugin root (if present) is picked up automatically |
+| `agents` | One or more `./` paths; must be within the plugin root directory and point to directories containing [agent files](../../customization/agents.md#custom-agents). When omitted, the `agents/` directory under the plugin root (if present) is picked up automatically |
 | `sessionStart.skill` | Loads the specified plugin Skill into the main Agent when a new or resumed session starts |
 | `skillInstructions` | Additional instructions appended whenever a Skill from this plugin is loaded |
 | `systemPrompt` | Inline instructions contributed to the agent's system prompt while the plugin is enabled |
@@ -281,7 +281,7 @@ Each field — the inline `systemPrompt` and the `systemPromptPath` file — is 
 
 New sessions and newly created agents read the contributions from the plugins currently enabled. An in-flight request keeps its existing system prompt. `/plugins reload` refreshes the plugin skill list and requests prompt rebuilds for live agents; use it when you need the change to converge deliberately before the next turn. On the v2 engine, installing, enabling, disabling, or removing a plugin updates the catalog immediately and a later prompt rebuild — for example after compaction or a tool-policy change — may pick up the new sections. The legacy engine keeps each live session's plugin snapshot until `/plugins reload` or a new session. A resumed session starts from its persisted prompt, and later rebuilds follow the engine-specific behavior above. Toggling a plugin's MCP server does not change system-prompt sections.
 
-The built-in agent prompt includes instructions from enabled plugins automatically. A custom `SYSTEM.md` or agent file owns its template, so include `${plugin_sections}` where plugin-contributed instructions should appear. If the custom template includes `${base_prompt}` and that effective default already contains the plugin block, do not add `${plugin_sections}` again. See [Custom agents and SYSTEM.md](./agents.md#overriding-the-main-agent-s-system-prompt-with-system-md) for the complete variable table.
+The built-in agent prompt includes instructions from enabled plugins automatically. A custom `SYSTEM.md` or agent file owns its template, so include `${plugin_sections}` where plugin-contributed instructions should appear. If the custom template includes `${base_prompt}` and that effective default already contains the plugin block, do not add `${plugin_sections}` again. See [Custom agents and SYSTEM.md](../../customization/agents.md#overriding-the-main-agent-s-system-prompt-with-system-md) for the complete variable table.
 
 ## Plugin Slash Commands
 
@@ -347,7 +347,7 @@ Whatever you type after the command replaces `$ARGUMENTS` in the body (above, `T
 
 ## Skills and Session Start
 
-Plugin Skills use the same `SKILL.md` format as ordinary [Agent Skills](./skills.md). A typical directory structure:
+Plugin Skills use the same `SKILL.md` format as ordinary [Agent Skills](../../customization/skills.md). A typical directory structure:
 
 ```text
 my-plugin/
@@ -365,7 +365,7 @@ Regardless of how a Skill is loaded (`sessionStart.skill`, `/skill:<name>`, or a
 
 ## Plugin Agents
 
-A plugin can ship custom agents: declare one or more `./` directories in the manifest's `agents` field (or simply place an `agents/` directory under the plugin root). The agent files inside use the same format as [custom agents](./agents.md#custom-agents) and, while the plugin is enabled, are discovered automatically and can be delegated to as sub-agents by the main Agent.
+A plugin can ship custom agents: declare one or more `./` directories in the manifest's `agents` field (or simply place an `agents/` directory under the plugin root). The agent files inside use the same format as [custom agents](../../customization/agents.md#custom-agents) and, while the plugin is enabled, are discovered automatically and can be delegated to as sub-agents by the main Agent.
 
 ```text
 my-plugin/
@@ -378,7 +378,7 @@ Plugin agents rank below every other file source: on a name collision, user-leve
 
 ## MCP Servers in Plugins
 
-When a plugin needs real tool capabilities, it can declare `mcpServers` in its manifest, reusing the [MCP](./mcp.md) schema.
+When a plugin needs real tool capabilities, it can declare `mcpServers` in its manifest, reusing the [MCP](../../customization/mcp.md) schema.
 
 Stdio server (local command):
 
@@ -419,7 +419,7 @@ Plugin MCP servers start after `/reload` or in new sessions. To enable or disabl
 
 ## Hooks in Plugins
 
-A plugin can declare hook rules in its manifest that run on lifecycle events while the plugin is enabled. Each entry uses the same fields as a [`[[hooks]]` rule in `config.toml`](./hooks.md#configuration) (`event`, `matcher`, `command`, `timeout`):
+A plugin can declare hook rules in its manifest that run on lifecycle events while the plugin is enabled. Each entry uses the same fields as a [`[[hooks]]` rule in `config.toml`](../../customization/hooks.md#configuration) (`event`, `matcher`, `command`, `timeout`):
 
 ```json
 {
@@ -434,7 +434,7 @@ A plugin can declare hook rules in its manifest that run on lifecycle events whi
 }
 ```
 
-Plugin hooks reuse the same mechanism as global hooks — see [Hooks](./hooks.md) for the event list, the stdin JSON payload, and how exit codes and return values affect the main flow. The differences are:
+Plugin hooks reuse the same mechanism as global hooks — see [Hooks](../../customization/hooks.md) for the event list, the stdin JSON payload, and how exit codes and return values affect the main flow. The differences are:
 
 - A plugin's hooks are active only while the plugin is **enabled**; disabling the plugin stops its hooks.
 - Each hook runs with its working directory set to the plugin root, so `command` can use `./` paths inside the plugin.

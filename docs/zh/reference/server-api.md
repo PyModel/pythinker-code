@@ -1,6 +1,6 @@
 # 服务 API
 
-`pythinker web` 启动的本地服务暴露两组程序化接口：REST API（`/api/v1`，另有 `/api/v2/sessions`）和 WebSocket 事件流（`/api/v1/ws`）。本页是这两组接口的协议参考；服务的启动方式与命令行选项见 [pythinker 命令](./pythinker-command.md#pythinker-web)，端到端的上手流程见[本地服务与 API](../guides/server.md)。
+`pythinker web` 启动的本地服务暴露两组程序化接口：REST API（`/api/v1`，另有 `/api/v2/sessions`）和 WebSocket 事件流（`/api/v1/ws`）。本页是这两组接口的协议参考；服务的启动方式与命令行选项见 [pythinker 命令](../../reference/pythinker-command.md#pythinker-web)，端到端的上手流程见[本地服务与 API](../guides/server.md)。
 
 每个端点的完整请求 / 响应 schema 以服务自描述的规范文档为准：`GET /openapi.json`（OpenAPI）与 `GET /asyncapi.json`（AsyncAPI），两者都需要鉴权。
 
@@ -341,4 +341,4 @@ PTY 终端接口，仅 loopback 绑定时挂载。
 ## 下一步
 
 - [本地服务与 API](../guides/server.md) — 启动、鉴权与端到端调用流程
-- [pythinker 命令](./pythinker-command.md#pythinker-web) — `pythinker web` 的全部命令行选项
+- [pythinker 命令](../../reference/pythinker-command.md#pythinker-web) — `pythinker web` 的全部命令行选项

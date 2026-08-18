@@ -62,9 +62,9 @@
     "@pymodel/agent-core": "workspace:^",
     "@pymodel/agent-core-v2": "workspace:^",
     "@pymodel/kaos": "workspace:^",
-    "@pymodel/pythinker-code-oauth": "workspace:^",
     "@pymodel/klient": "workspace:^",
     "@pymodel/kosong": "workspace:^",
+    "@pymodel/pythinker-code-oauth": "workspace:^",
     "@types/yazl": "^2.4.6",
     "jimp": "^1.6.1"
   }

@@ -53,6 +53,6 @@
     "clean": "rm -rf dist"
   },
   "devDependencies": {
-    "tsx": "^4.21.0"
+    "tsx": "^4.23.5"
   }
 }
