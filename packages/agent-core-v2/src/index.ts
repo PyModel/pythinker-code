@@ -423,6 +423,9 @@ import '#/session/agentLifecycle/profile/profiles';
 export * from '#/session/agentLifecycle/agentLifecycle';
 export * from '#/session/agentLifecycle/agentLifecycleService';
 export * from '#/session/agentLifecycle/mainAgent';
+export * from '#/session/advisor/advisor';
+export * from '#/session/advisor/advisorService';
+export * from '#/session/advisor/configSection';
 export * from '#/session/mcp/sessionMcpHandle';
 import '#/app/mcpConfig/configSection';
 export {

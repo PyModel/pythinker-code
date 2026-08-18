@@ -107,6 +107,7 @@ Fields in the config file fall into two categories: **top-level scalars** that d
 | `telemetry` | `boolean` | `true` | Whether anonymous telemetry is enabled; disabled only when explicitly set to `false` |
 | `providers` | `table` | `{}` | API provider table → [`providers`](#providers) |
 | `models` | `table` | — | Model alias table → [`models`](#models) |
+| `advisor` | `table` | — | Optional second-model review after user turns → [`advisor`](#advisor) |
 | `thinking` | `table` | — | Default parameters for Thinking mode → [`thinking`](#thinking) |
 | `loop_control` | `table` | — | Agent loop control parameters → [`loop_control`](#loop-control) |
 | `background` | `table` | — | Background task runtime parameters → [`background`](#background) |
@@ -117,7 +118,7 @@ Fields in the config file fall into two categories: **top-level scalars** that d
 | `hooks` | `array<table>` | — | Lifecycle hooks; see [Hooks](../customization/hooks.md) |
 | `identity` | `table` | — | Custom agent identity → [`identity`](#identity) |
 
-The following sections cover each of the nested tables in turn: `providers`, `models`, `thinking`, `loop_control`, `background`, `tools`, `image`, `services`, and `permission`.
+The following sections cover each of the nested tables in turn: `providers`, `models`, `advisor`, `thinking`, `loop_control`, `background`, `tools`, `image`, `services`, and `permission`.
 
 ## `providers`
 
@@ -189,6 +190,25 @@ display_name = "Pythinker for Coding (custom)"
 `[models."<alias>".overrides]` accepts ordinary model fields such as `max_context_size`, `max_input_size`, `max_output_size`, `capabilities`, `display_name`, `reasoning_key`, `adaptive_thinking`, `support_efforts`, `default_effort`, and `off_effort`. It does not accept identity / routing fields: `provider`, `model`, `protocol`, `beta_api`, and `base_url`.
 
 You can also switch models temporarily without touching the config file — by setting `PYTHINKER_MODEL_*` environment variables, the CLI synthesizes a temporary provider in memory that does not persist after restart. See [Define a model from environment variables](./env-vars.md#define-a-model-from-environment-variables-pythinker-model).
+
+## `advisor`
+
+The optional advisor asks a second model to review each completed user turn. It does not start another main-agent turn. Its notes become non-authoritative user-context data at the start of the next user turn.
+
+```toml
+[advisor]
+enabled = true
+model = "reviewer"
+instructions = "Focus on security and data-loss risks."
+```
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `enabled` | `boolean` | `false` | Enable advisor reviews |
+| `model` | `string` | — | Model alias from [`models`](#models); required when `enabled = true` |
+| `instructions` | `string` | — | Extra review instructions, limited to 10,000 characters |
+
+The advisor runs only when its model uses the same configured provider, protocol, endpoint, and model-level credential provenance as the main model. This prevents the session transcript from crossing provider or account boundaries. The request has no tools, stops after 120 seconds, and returns at most 10 notes of 500 characters each. Three consecutive failures disable the advisor for the rest of the session.
 
 ## `secondary_model`
 
