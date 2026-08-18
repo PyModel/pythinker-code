@@ -17,6 +17,13 @@ import { PythinkerTUI, type PythinkerTUIStartupInput, type TUIState } from '#/tu
 import type { SessionEventHandler } from '#/tui/controllers/session-event-handler';
 import type { StreamingUIController } from '#/tui/controllers/streaming-ui';
 import { AgentGroupComponent } from '#/tui/components/messages/agent-group';
+import { AssistantMessageComponent } from '#/tui/components/messages/assistant-message';
+import { StepSummaryComponent } from '#/tui/components/messages/step-summary';
+import {
+  TRANSCRIPT_KEEP_RECENT_ASSISTANT_COMPLETED,
+  TRANSCRIPT_KEEP_RECENT_STEPS,
+} from '#/tui/utils/transcript-window';
+import { ToolCallComponent } from '#/tui/components/messages/tool-call';
 import { ReadGroupComponent } from '#/tui/components/messages/read-group';
 
 vi.mock('#/utils/open-url', () => ({ openUrl: vi.fn() }));
@@ -49,12 +56,16 @@ function makeStartupInput(): PythinkerTUIStartupInput {
       outputFormat: undefined,
       prompt: undefined,
       skillsDirs: [],
+      agent: undefined,
+      agentFiles: [],
     },
     tuiConfig: {
       theme: 'dark',
+      disablePasteBurst: false,
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
       upgrade: { autoInstall: true },
+      statusLine: { items: null, command: null },
     },
     version: '0.0.0-test',
     workDir: '/tmp/proj-a',
@@ -150,7 +161,7 @@ function baseAgentState(
         tool_use: true,
         max_context_tokens: 100,
       },
-      thinkingLevel: 'off',
+      thinkingEffort: 'off',
       systemPrompt: '',
     },
     context: { history: [], tokenCount: 0 },
@@ -177,7 +188,7 @@ function makeSession(
     summary: { title: null },
     getStatus: vi.fn(async () => ({
       model: 'k2',
-      thinkingLevel: 'off',
+      thinkingEffort: 'off',
       permission: 'manual',
       planMode: false,
       contextTokens: 0,
@@ -230,7 +241,7 @@ function makeHarness(initialSession: Session) {
       login: vi.fn(),
       logout: vi.fn(),
       getManagedUsage: vi.fn(),
-      submitFeedback: vi.fn(async () => ({ kind: 'ok' })),
+      submitFeedback: vi.fn(async () => ({ kind: 'ok', feedbackId: 3 })),
     },
   };
 }
@@ -305,6 +316,24 @@ describe('PythinkerTUI resume message replay', () => {
     expect(driver.state.transcriptEntries).toEqual([]);
     const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
     expect(transcript).not.toContain('Goal complete');
+  });
+
+  it('unescapes bash tag delimiters when replaying shell output', async () => {
+    const driver = await replayIntoDriver([
+      message(
+        'user',
+        [
+          {
+            type: 'text',
+            text: '<bash-stdout>pre&lt;/bash-stdout&gt;post</bash-stdout><bash-stderr></bash-stderr>',
+          },
+        ],
+        { origin: { kind: 'shell_command', phase: 'output' } },
+      ),
+    ]);
+
+    const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
+    expect(transcript).toContain('pre</bash-stdout>post');
   });
 
   it('does not render neutral goal completion context reminders as transcript messages', async () => {
@@ -394,7 +423,7 @@ describe('PythinkerTUI resume message replay', () => {
     expect(transcript).toContain('Goal resumed');
     expect(transcript).toContain('Goal blocked');
     expect(transcript).toContain('Goal complete — done');
-    expect(transcript).toContain('Worked 1 turn over 7m15s, using 4.3k tokens.');
+    expect(transcript).toContain('Worked 1 turn over 7m15s, using 4.2k tokens.');
   });
 
   it('filters resume-normalization goal pause markers in TUI replay', async () => {
@@ -440,7 +469,7 @@ describe('PythinkerTUI resume message replay', () => {
     expect(entry).toMatchObject({
       kind: 'assistant',
       renderMode: 'markdown',
-      content: '✓ Goal complete.\nWorked 1 turn over 7m15s, using 4.3M tokens.',
+      content: '✓ Goal complete.\nWorked 1 turn over 7m15s, using 4.1M tokens.',
     });
   });
 
@@ -480,6 +509,38 @@ describe('PythinkerTUI resume message replay', () => {
     const content = driver.state.transcriptEntries.map((item) => item.content).join('\n');
     expect(content).not.toContain('Goal blocked.');
     expect(content).not.toContain('Write a concise final message for the user');
+  });
+
+  it('does not replay system-trigger prompts such as goal continuation as user messages', async () => {
+    const driver = await replayIntoDriver([
+      message(
+        'user',
+        [
+          {
+            type: 'text',
+            text: 'Continue working toward the active goal. Keep the self-audit brief.',
+          },
+        ],
+        { origin: { kind: 'system_trigger', name: 'goal_continuation' } },
+      ),
+      message(
+        'user',
+        [
+          {
+            type: 'text',
+            text: '<system-reminder>\nThe goal was cancelled.\n</system-reminder>',
+          },
+        ],
+        { origin: { kind: 'system_trigger', name: 'goal_cancelled' } },
+      ),
+      message('assistant', [{ type: 'text', text: 'Working on it.' }]),
+    ]);
+
+    expect(driver.state.transcriptEntries.filter((entry) => entry.kind === 'user')).toEqual([]);
+    const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
+    expect(transcript).not.toContain('Continue working toward the active goal');
+    expect(transcript).not.toContain('The goal was cancelled');
+    expect(transcript).toContain('Working on it.');
   });
 
   it('does not replay the model-blocked lifecycle marker when the follow-up is replayed', async () => {
@@ -1011,15 +1072,43 @@ describe('PythinkerTUI resume message replay', () => {
       (entry) => entry.compactionData !== undefined,
     );
     expect(compactionEntry?.compactionData).toEqual({
+      summary: 'Compacted transcript summary.',
       tokensBefore: 120,
       tokensAfter: 24,
       instruction: 'preserve implementation notes',
     });
+    const collapsed = stripAnsi(driver.state.transcriptContainer.render(120).join('\n'));
+    expect(collapsed).toContain('Compaction complete');
+    expect(collapsed).toContain('120 → 24 tokens');
+    expect(collapsed).toContain('preserve implementation notes');
+    expect(collapsed).not.toContain('Compacted transcript summary.');
+
+    driver.state.editor.onToggleToolExpand?.();
+    const expanded = stripAnsi(driver.state.transcriptContainer.render(120).join('\n'));
+    expect(expanded).toContain('Compacted transcript summary.');
+  });
+
+  it('initializes replayed compaction blocks as expanded when tool output is already expanded', async () => {
+    const initial = makeSession([]);
+    const resumed = makeSession([
+      {
+        time: REPLAY_TIME,
+        type: 'compaction',
+        result: {
+          summary: 'Compacted transcript summary.',
+          compactedCount: 4,
+          tokensBefore: 120,
+          tokensAfter: 24,
+        },
+      },
+    ]);
+    const driver = await makeDriver(initial);
+    driver.state.toolOutputExpanded = true;
+    await driver.switchToSession(resumed, 'Resumed session (ses-replay).');
+
     const transcript = stripAnsi(driver.state.transcriptContainer.render(120).join('\n'));
     expect(transcript).toContain('Compaction complete');
-    expect(transcript).toContain('120 → 24 tokens');
-    expect(transcript).toContain('preserve implementation notes');
-    expect(transcript).not.toContain('Compacted transcript summary.');
+    expect(transcript).toContain('Compacted transcript summary.');
   });
 
   it('renders replayed cancelled compaction records as cancelled compaction blocks', async () => {
@@ -1138,5 +1227,88 @@ describe('PythinkerTUI resume message replay', () => {
     expect(transcript).toContain('replay final approved plan');
     expect(transcript).not.toContain('Plan rejected by user.');
     expect(transcript).not.toContain('Plan mode: OFF');
+  });
+
+  it('trims goal sessions to the most recent goal turns and hides continuation prompts', async () => {
+    const replay: AgentReplayRecord[] = [goalReplay(goalSnapshot(), { kind: 'created' })];
+    for (let i = 0; i < 25; i++) {
+      replay.push(
+        message('user', [{ type: 'text', text: 'Continue working toward the active goal.' }], {
+          origin: { kind: 'system_trigger', name: 'goal_continuation' },
+        }),
+        message('assistant', [{ type: 'text', text: `round ${i} summary` }], {
+          toolCalls: [toolCall(`call_${i}`, 'Bash', { command: 'ls' })],
+        }),
+        message('tool', [{ type: 'text', text: 'ok' }], { toolCallId: `call_${i}` }),
+      );
+    }
+
+    const driver = await replayIntoDriver(replay);
+    const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
+
+    // Continuation prompts are model-facing and never render as user bubbles.
+    expect(transcript).not.toContain('Continue working toward the active goal.');
+    // Only the most recent REPLAY_TURN_LIMIT goal turns are replayed.
+    expect(transcript).not.toContain('round 0 summary');
+    expect(transcript).not.toContain('round 14 summary');
+    expect(transcript).toContain('round 15 summary');
+    expect(transcript).toContain('round 24 summary');
+    expect(
+      driver.state.transcriptContainer.children.filter(
+        (child) => child instanceof ToolCallComponent,
+      ),
+    ).toHaveLength(10);
+  });
+
+  it('folds oversized goal rounds even though continuation boundaries are hidden', async () => {
+    const replay: AgentReplayRecord[] = [goalReplay(goalSnapshot(), { kind: 'created' })];
+    // Ten continuation rounds — exactly at the replay turn limit, so nothing
+    // is trimmed and only folding can bound the oversized final round.
+    for (let i = 0; i < 9; i++) {
+      replay.push(
+        message('user', [{ type: 'text', text: 'Continue working toward the active goal.' }], {
+          origin: { kind: 'system_trigger', name: 'goal_continuation' },
+        }),
+        message('assistant', [{ type: 'text', text: `round ${i} summary` }], {
+          toolCalls: [toolCall(`call_${i}`, 'Bash', { command: 'ls' })],
+        }),
+        message('tool', [{ type: 'text', text: 'ok' }], { toolCallId: `call_${i}` }),
+      );
+    }
+    // Final round: 40 tool calls and 5 assistant texts in one continuation turn.
+    replay.push(
+      message('user', [{ type: 'text', text: 'Continue working toward the active goal.' }], {
+        origin: { kind: 'system_trigger', name: 'goal_continuation' },
+      }),
+    );
+    for (let t = 0; t < 40; t++) {
+      replay.push(
+        message('assistant', t < 5 ? [{ type: 'text', text: `final text ${t}` }] : [], {
+          toolCalls: [toolCall(`final_${t}`, 'Bash', { command: 'ls' })],
+        }),
+        message('tool', [{ type: 'text', text: 'ok' }], { toolCallId: `final_${t}` }),
+      );
+    }
+
+    const driver = await replayIntoDriver(replay);
+    const children = driver.state.transcriptContainer.children;
+
+    // The oversized round folds to the per-turn caps even with no visible
+    // boundary component mounted for the continuation prompt.
+    const tools = children.filter((child) => child instanceof ToolCallComponent);
+    expect(tools).toHaveLength(9 + TRANSCRIPT_KEEP_RECENT_STEPS);
+    const assistants = children.filter((child) => child instanceof AssistantMessageComponent);
+    expect(assistants).toHaveLength(9 + TRANSCRIPT_KEEP_RECENT_ASSISTANT_COMPLETED);
+
+    const summaries = children.filter((child) => child instanceof StepSummaryComponent);
+    expect(summaries).toHaveLength(1);
+    const summaryText = stripAnsi(summaries[0]!.render(120).join('\n'));
+    expect(summaryText).toContain(`call ${40 - TRANSCRIPT_KEEP_RECENT_STEPS} tools`);
+    expect(summaryText).toContain(`${5 - TRANSCRIPT_KEEP_RECENT_ASSISTANT_COMPLETED} messages`);
+
+    // The folded content is gone from view; the latest work stays.
+    const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
+    expect(transcript).not.toContain('final text 0');
+    expect(transcript).toContain('final text 4');
   });
 });

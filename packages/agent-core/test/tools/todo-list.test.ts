@@ -54,6 +54,11 @@ describe('TodoListTool', () => {
     expect(TODO_STORE_KEY).toBe('todo');
     expect(tool.name).toBe(TODO_LIST_TOOL_NAME);
     expect(tool.description.length).toBeGreaterThan(0);
+    // Plan-mode planning goes to the plan file, not the TodoList — the description
+    // must not present TodoList as the plan-mode mechanism.
+    expect(tool.description).toContain('plan file');
+    // Query mode triggers on `args.todos === undefined`, not on zero args.
+    expect(tool.description).toContain('no `todos` argument');
     expect(TodoListInputSchema.safeParse({}).success).toBe(true);
     expect(
       TodoListInputSchema.safeParse({ todos: [{ title: 'x', status: 'wip' }] }).success,
@@ -106,6 +111,18 @@ describe('TodoListTool', () => {
     expect(result.output).toContain('Current todo list');
     expect(result.output).toContain('[in_progress] existing');
     expect(getTodos()).toEqual([{ title: 'existing', status: 'in_progress' }]);
+  });
+
+  it('exposes the visible todo items in the tool-call display', () => {
+    const { tool } = makeTool([{ title: 'existing', status: 'in_progress' }]);
+
+    const execution = tool.resolveExecution({});
+
+    if (execution.isError === true) throw new TypeError('expected runnable execution');
+    expect(execution.display).toEqual({
+      kind: 'todo_list',
+      items: [{ title: 'existing', status: 'in_progress' }],
+    });
   });
 
   it('write mode replaces the list and defensively copies todos into the store', async () => {

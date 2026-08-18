@@ -161,6 +161,7 @@ function installState(overrides: Partial<UpdateInstallState> = {}): UpdateInstal
 function tuiConfig(overrides: Partial<TuiConfig> = {}): TuiConfig {
   return {
     theme: 'auto',
+    disablePasteBurst: false,
     editorCommand: null,
     notifications: { enabled: true, condition: 'unfocused' },
     upgrade: { autoInstall: true },
@@ -226,6 +227,10 @@ async function flushBackgroundInstall(): Promise<void> {
 
 describe('runUpdatePreflight', () => {
   beforeEach(() => {
+    // Pin the experimental flag off so rollout gating is deterministic
+    // regardless of the host environment (the flag bypasses batch holds).
+    // Tests that exercise the bypass opt back in with `vi.stubEnv(..., '1')`.
+    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_FLAG', '');
     mocks.readUpdateInstallState.mockResolvedValue(emptyUpdateInstallState());
     mocks.writeUpdateInstallState.mockResolvedValue(undefined);
     mocks.loadTuiConfig.mockResolvedValue(tuiConfig());
@@ -419,6 +424,28 @@ describe('runUpdatePreflight', () => {
     );
   });
 
+  it('pnpm-global on win32: spawns pnpm.cmd through a shell', async () => {
+    disableAutoInstall();
+    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.detectInstallSource.mockResolvedValue('pnpm-global');
+    mocks.promptForInstallChoice.mockResolvedValue('install');
+    mockSpawnExit(0);
+    const originalPlatform = process.platform;
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    try {
+      const { options } = captureOutput();
+      await runUpdatePreflight('0.4.0', options);
+      expect(mocks.spawn).toHaveBeenCalledWith(
+        'pnpm.cmd',
+        ['add', '-g', '@pymodel/pythinker-code@0.5.0'],
+        { stdio: 'inherit', shell: true },
+      );
+    } finally {
+      Object.defineProperty(process, 'platform', { value: originalPlatform });
+    }
+  });
+
   it('yarn-global: spawns yarn global add', async () => {
     disableAutoInstall();
     mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
@@ -458,6 +485,8 @@ describe('runUpdatePreflight', () => {
     const { stdout, options } = captureOutput();
     await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
     expect(stdout.join('')).toContain('brew upgrade pythinker-code');
+    expect(stdout.join('')).toContain('Third-party sources may lag behind the official release.');
+    expect(stdout.join('')).toContain('https://www.kimi.com/code');
     expect(promptForInstallChoice).not.toHaveBeenCalled();
     expect(mocks.spawn).not.toHaveBeenCalled();
   });
@@ -576,6 +605,27 @@ describe('runUpdatePreflight', () => {
         notifiedAt: null,
       }),
     }));
+  });
+
+  it('win32 background auto-update hides the console window', async () => {
+    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.readUpdateInstallState.mockResolvedValue(installState());
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.detectInstallSource.mockResolvedValue('npm-global');
+    mockSpawnExit(0);
+    const originalPlatform = process.platform;
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    try {
+      const { options } = captureOutput();
+      await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
+      expect(mocks.spawn).toHaveBeenCalledWith(
+        'npm.cmd',
+        ['install', '-g', '@pymodel/pythinker-code@0.5.0'],
+        { detached: true, stdio: 'ignore', shell: true, windowsHide: true },
+      );
+    } finally {
+      Object.defineProperty(process, 'platform', { value: originalPlatform });
+    }
   });
 
   it('tracks and logs successful background update installs', async () => {
@@ -828,8 +878,8 @@ describe('runUpdatePreflight', () => {
     const track = vi.fn();
     await runUpdatePreflight('0.4.0', { ...options, track });
     expect(track).toHaveBeenCalledWith('update_prompted', expect.objectContaining({
-      current: '0.4.0',
-      latest: '0.5.0',
+      current_version: '0.4.0',
+      target_version: '0.5.0',
       decision: 'prompt-install',
       source: 'npm-global',
     }));
@@ -915,7 +965,7 @@ describe('runUpdatePreflight', () => {
         expect.objectContaining({ target: { version: '0.5.0' } }),
       );
       expect(track).toHaveBeenCalledWith('update_prompted', expect.objectContaining({
-        latest: '0.5.0',
+        target_version: '0.5.0',
         rollout_bucket: expect.any(Number),
         rollout_delay_seconds: 0,
         rollout_from_manifest: true,
@@ -945,7 +995,7 @@ describe('runUpdatePreflight', () => {
         expect.objectContaining({ target: { version: '0.7.0' } }),
       );
       expect(track).toHaveBeenCalledWith('update_prompted', expect.objectContaining({
-        latest: '0.7.0',
+        target_version: '0.7.0',
         rollout_bucket: expect.any(Number),
         rollout_delay_seconds: 43_200,
         rollout_from_manifest: true,

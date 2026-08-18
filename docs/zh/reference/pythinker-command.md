@@ -16,7 +16,7 @@ pythinker <subcommand> [options]
 | `--version` | `-V` | 打印版本号并退出 |
 | `--help` | `-h` | 显示帮助信息并退出 |
 | `--session [id]` | `-S` | 恢复一个会话。带 ID 时直接打开指定会话；不带 ID 时进入交互式选择器 |
-| `--continue` | `-C` | 继续当前工作目录下最近一次的会话，无需手动指定 ID |
+| `--continue` | `-c` | 继续当前工作目录下最近一次的会话，无需手动指定 ID |
 | `--model <model>` | `-m` | 为本次启动指定模型别名。省略时新会话使用配置文件中的 `default_model` |
 | `--prompt <prompt>` | `-p` | 非交互执行单次 prompt，并把 Assistant 输出流式写到 stdout。该模式不会打开 TUI |
 | `--output-format <format>` | | 设置非交互输出格式，支持 `text` 与 `stream-json`。仅可与 `--prompt` 一起使用，默认 `text` |
@@ -24,6 +24,9 @@ pythinker <subcommand> [options]
 | `--auto` | | 以 auto 权限模式启动；工具审批自动处理，Agent 不会向用户提问 |
 | `--plan` | | 以 Plan 模式启动新会话，AI 会优先使用只读工具进行探索和规划 |
 | `--skills-dir <dir>` | | 从指定目录加载 Skills，替换自动发现的用户和项目目录。可重复传入 |
+| `--agent <name>` | | 以指定 Agent 作为主 Agent 启动新会话。不能与 `--session`/`--continue` 同时使用 |
+| `--agent-file <path>` | | 从 Markdown 文件加载自定义 Agent 并为新会话选中它。不可重复传入，也不能与 `--agent`、`--session` 或 `--continue` 同时使用 |
+| `--add-dir <dir>` | | 为本次会话添加额外的工作目录。相对路径按当前工作目录解析。可重复传入 |
 
 `-r` / `--resume` 是 `--session` 的隐藏别名；`--yes` 和 `--auto-approve` 是 `--yolo` 的隐藏别名，在帮助信息中不显示。
 
@@ -93,6 +96,17 @@ pythinker --plan
 
 - **`extra_skill_dirs`**（`config.toml`）：**叠加**到自动发现的目录之上，长期生效，适合配置团队共享 Skills。详见 [Agent Skills](../customization/skills.md)。
 
+### 自定义 Agent
+
+`--agent` 和 `--agent-file` 用于选择驱动新会话的 Agent，在 print 模式（`pythinker -p`）和交互式 TUI 中均可使用：
+
+```sh
+pythinker --agent reviewer
+pythinker -p --agent reviewer "审查这个分支上的改动"
+```
+
+`--agent-file` 以最高优先级注册单个 Agent 文件（仅本次启动）并选中它；该 flag 不可重复传入，`--agent` 与 `--agent-file` 互斥。两个 flag 都仅在新建会话时有效——都不能与 `--session`/`--continue` 组合，因为 Agent 在会话创建时绑定，恢复会话时会自动还原已绑定的 Agent。选择在会话首次绑定后即固定，之后不可切换；在 TUI 中，这些 flag 只绑定启动时的会话，之后在同一进程内新建的会话（例如通过 `/new`）使用默认 Agent。Agent 文件格式与发现目录详见 [Agent 与子 Agent](../customization/agents.md#自定义-agent)。
+
 ## 非交互执行
 
 在脚本或 CI 中运行单次 prompt 时，使用 `-p`：
@@ -119,7 +133,7 @@ pythinker -p "List changed files" --output-format stream-json
 
 ## 子命令
 
-`pythinker` 提供以下子命令：`login`（非交互式登录）、`acp`（ACP IDE 模式）、`server`（运行并管理本地 REST/WebSocket/web 服务）、`web`（`pythinker server run --open` 的别名）、`doctor`（校验配置文件）、`export`（导出会话）、`migrate`（迁移旧版数据）、`upgrade`（检查更新）、`provider`（管理供应商）。
+`pythinker` 提供以下子命令：`login`（非交互式登录）、`acp`（ACP IDE 模式）、`web`（前台运行本地 REST/WebSocket/web 服务并打开 web UI）、`doctor`（校验配置文件）、`export`（导出会话）、`migrate`（迁移旧版数据）、`upgrade`（检查更新）、`provider`（管理供应商）。
 
 ### `pythinker login`
 
@@ -139,69 +153,47 @@ pythinker login
 pythinker acp
 ```
 
-### `pythinker server`
+### `pythinker web`
 
-运行并管理本地 Pythinker 服务 —— 同一个进程同时挂载 REST + WebSocket API 与 web UI。父命令拆成按需入口 (`run`) 与 OS 级生命周期管理 (`install`、`uninstall`、`start`、`stop`、`restart`、`status`)。`pythinker server run` 会确保一个后台守护进程在运行、健康后返回；如需把服务挂在当前终端，请加 `--foreground`。
+在当前终端前台运行本地 Pythinker 服务 —— 同一个进程同时挂载 REST + WebSocket API 与 web UI —— 并在服务就绪后用默认浏览器打开 web UI。命令会一直挂在终端，直到收到 `SIGINT` / `SIGTERM`（如 `Ctrl-C`）时干净退出。
 
 服务运行时，`GET /openapi.json` 会返回 REST OpenAPI 文档，`GET /asyncapi.json` 会返回本地 WebSocket 协议的 AsyncAPI 文档。
 
 ```sh
-pythinker server run                # 启动或复用一个后台守护进程
-pythinker server run --foreground   # 挂在当前终端前台运行
-pythinker server install            # 注册到 launchd / systemd / schtasks
-pythinker server start              # 启动 OS 管理的服务
-pythinker server status             # 查看安装与运行状态
+pythinker web                 # 前台运行服务并打开浏览器
+pythinker web --no-open       # 不打开浏览器
+pythinker web --port 58628    # 指定绑定端口
 ```
 
-#### `pythinker server run`
+同一 home 目录下可以同时运行多个实例：每个实例注册到 `~/.pythinker-code/server/instances/`，端口被占用时自动 +1 重试（58628、58629……）。
 
 | 选项 | 说明 |
 | --- | --- |
-| `--port <port>` | 绑定端口；默认 `58627` |
+| `--port <port>` | 绑定端口；默认 `58627`；被占用时自动 +1 重试 |
+| `--host [host]` | 绑定地址；缺省 `127.0.0.1`（仅本机），裸 `--host` 绑 `0.0.0.0`（所有网卡） |
+| `--allowed-host <host...>` | DNS 重绑定检查额外允许的 Host 头，可重复或逗号分隔 |
 | `--log-level <level>` | 按所选级别开启服务日志；默认不输出 |
 | `--debug-endpoints` | 挂载 `/api/v1/debug/*` 调试路由（默认关闭） |
-| `--foreground` | 前台运行，不 spawn 后台守护进程 |
-| `--open` | 服务健康后用默认浏览器打开 web UI |
+| `--dangerous-bypass-auth` | 关闭所有 REST 与 WebSocket 路由的 bearer token 鉴权，使 web UI 无需 token 即可连接；仅用于可信网络或自有鉴权代理之后 |
+| `--no-open` | 就绪后不自动打开浏览器 |
 
-`pythinker server run` 只绑定本机 loopback 地址。默认会 spawn 一个后台守护进程（多次运行会复用同一个），健康后即退出；守护进程在最后一个 web 客户端断开后自行关闭。加 `--foreground` 则在当前进程中运行——保持挂在终端，在 `SIGINT` / `SIGTERM` 时干净退出。
+`pythinker web` 默认只绑定本机 loopback 地址，并在启动横幅中打印 bearer token；web UI 通过 URL 的 `#token=` 片段自动完成鉴权。
 
-#### `pythinker server install`
+::: info 提示
+`pythinker server` 命令树已废弃：任何 `pythinker server …` 调用（含全部旧子命令）只会打印弃用提示并以退出码 1 结束，请改用 `pythinker web`。唯一的例外是 `pythinker server kill`，它仍然可用，仅用于停止 0.28.0 之前版本启动的服务。该提示将在 Pythinker Code 下个大版本移除。
+:::
 
-把服务注册成 OS 管理的进程，开机自启、崩溃后自动重启。根据当前平台选择对应后端：
+::: danger 警告
+`--dangerous-bypass-auth` 会彻底关闭鉴权。任何能访问该端口的人都能完全控制你的会话、文件系统和 shell。请仅在可信网络或自有鉴权反向代理之后使用，用完后按 `Ctrl+C` 停止服务。
+:::
 
-- **macOS**：写 LaunchAgent plist 到 `~/Library/LaunchAgents/ai.pymodel.pythinker-server.plist`，并通过 `launchctl bootstrap gui/<uid>` 启动。
-- **Linux**：写 `--user` systemd unit 到 `~/.config/systemd/user/pythinker-server.service`，并执行 `systemctl --user enable --now`。
-- **Windows**：通过 `schtasks /Create /XML` 注册名为 `PythinkerServer` 的计划任务。
+#### `pythinker server kill`
 
-| 选项 | 说明 |
-| --- | --- |
-| `--port <port>` | 被托管的服务绑定端口；默认 `58627` |
-| `--log-level <level>` | 写入生成 unit 的日志级别 |
-| `--force` | 已安装时强制覆盖 |
-| `--json` | 用 JSON 替代人类可读输出 |
+已废弃——仅用于停止 0.28.0 之前的 Pythinker Code 版本启动的服务。那些版本可能在后台遗留服务进程，记录在 legacy 单实例锁文件 `~/.pythinker-code/server/lock` 中；该命令先请求 `POST /api/v1/shutdown` 优雅退出，再对锁中记录的 pid 发 SIGTERM、必要时升级为 SIGKILL，并在确认进程退出后删除锁文件。`pythinker web` 启动的服务在前台运行，直接用 `Ctrl+C` 停止即可。
 
-本机地址、选定的端口和日志级别会写入 `~/.pythinker-code/server/install.json`，即便服务停掉 `pythinker server status` 也能读到。
+#### `pythinker web rotate-token`
 
-#### 生命周期子命令
-
-| 命令 | 说明 |
-| --- | --- |
-| `pythinker server uninstall` | 停止并移除 OS 服务定义。幂等。 |
-| `pythinker server start` | 启动 OS 管理的服务。未安装时会报错。 |
-| `pythinker server stop` | 停止 OS 管理的服务。 |
-| `pythinker server restart` | 重启 OS 管理的服务。 |
-| `pythinker server status` | 打印 installed / running / pid / port / log-path；`--json` 用于脚本。 |
-
-#### `pythinker web`
-
-`pythinker server run --open` 的别名：前台跑服务，健康后立即用默认浏览器打开 web UI。加 `--no-open` 等价于纯 `pythinker server run`。
-
-```sh
-pythinker web                        # 前台 + 自动打开浏览器
-pythinker web --no-open              # 等价于 `pythinker server run`
-```
-
-`--port`、`--log-level`、`--debug-endpoints` 与 `pythinker server run` 完全一致。
+生成新的持久化 bearer token（写入 `~/.pythinker-code/server.token`），旧 token 立即失效。token 是整个 home 目录共享的，所有运行中的实例会在下一次鉴权校验时自动换用新 token，无需重启。
 
 ### `pythinker doctor`
 
@@ -270,7 +262,7 @@ pythinker migrate
 
 ### `pythinker upgrade`
 
-立即检查最新版本并展示更新提示，选择操作后退出。
+立即检查最新版本并展示更新提示，选择操作后退出。也可以使用别名 `pythinker update`。
 
 ```sh
 pythinker upgrade
@@ -351,7 +343,7 @@ pythinker provider list --json | jq '.providers | keys'
 
 #### `pythinker provider catalog list [providerId]`
 
-在不修改任何配置的情况下浏览公开的 [models.dev](https://models.dev/) 模型目录。不传参数时列出所有供应商及协议类型和模型数量；传 `providerId` 时列出该供应商下所有模型的上下文窗口和能力。
+在不修改任何配置的情况下浏览公开的 [models.dev](https://models.dev/) 模型目录。不传参数时列出所有供应商及协议类型和模型数量；传 `providerId` 时列出该供应商下所有模型的上下文窗口和能力。目录地址不可达时会使用内置目录快照。
 
 | 参数 / 选项 | 说明 |
 | --- | --- |
@@ -368,13 +360,14 @@ pythinker provider catalog list anthropic
 
 #### `pythinker provider catalog add <providerId>`
 
-按 id 从 catalog 直接导入一个已知供应商，协议类型、base URL、模型信息均由 catalog 提供，只需提供 API key。
+按 id 从 catalog 直接导入一个已知供应商，协议类型、base URL、模型信息均由 catalog 提供，只需提供 API key。catalog 未声明协议的供应商（如 xai、openrouter 这类厂商专用 SDK）按 OpenAI 兼容协议导入，并在输出中标注 "guessed"；catalog 未提供可用端点时需用 `--base-url` 显式指定。专有协议（如 Amazon Bedrock）无法导入。公共目录不可达时会回退到内置目录快照，离线或网络受限环境下也能导入。
 
 | 参数 / 选项 | 说明 |
 | --- | --- |
 | `<providerId>` | catalog 中的供应商 id，如 `anthropic`、`openai` |
 | `--api-key <key>` | 供应商 API key。未传时回退到 `PYTHINKER_REGISTRY_API_KEY`，必填 |
 | `--default-model <modelId>` | 可选，导入后把 `default_model` 设为 `<providerId>/<modelId>` |
+| `--base-url <url>` | 覆盖 catalog 声明的端点；catalog 未提供端点（或仅有环境变量占位符）时必填 |
 | `--url <url>` | 覆盖 catalog 地址，默认 `https://models.dev/api.json` |
 
 ```sh
@@ -387,3 +380,4 @@ pythinker provider catalog add anthropic --api-key sk-ant-... --default-model cl
 - [斜杠命令](./slash-commands.md) — 交互式 TUI 内的控制命令速查
 - [配置文件](../configuration/config-files.md) — `default_model`、权限模式等启动参数的持久化配置
 - [Agent Skills](../customization/skills.md) — `--skills-dir` 加载的 Skill 文件格式
+- [Agent 与子 Agent](../customization/agents.md) — 内置子 Agent、自定义 Agent 文件与通过 `--agent` 选择主 Agent

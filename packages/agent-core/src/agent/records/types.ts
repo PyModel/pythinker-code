@@ -1,20 +1,38 @@
-import type { ContentPart, TokenUsage } from '@pymodel/kosong';
+import type { ContentPart, ThinkingEffort, TokenUsage } from '@pymodel/kosong';
 
 import type { LoopRecordedEvent } from '../../loop';
 import type { GoalActor, GoalBudgetLimits, GoalStatus } from '../goal';
+import type { MCPToolDefinition } from '../../mcp/types';
 import type { ToolStoreUpdate } from '../../tools/store';
 import type { CompactionBeginData, CompactionResult } from '../compaction';
 import type { AgentConfigUpdateData } from '../config';
 import type { ContextMessage, PromptOrigin } from '../context';
 import type { PermissionApprovalResultRecord, PermissionMode } from '../permission';
-import type { UserToolRegistration } from '../tool';
+import type { McpToolCollision, UserToolRegistration } from '../tool';
 import type { UsageRecordScope } from '../usage';
 import type { DynamicWorkflowModeTrigger } from '../dynamic_workflow';
 
+/** One entry of a tools table as sent in a request's top-level `tools[]`. */
+export interface LlmRequestToolSchema {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+}
+
 // Agent records are the ordered event log used to rebuild agent state on resume.
 // Use records, not state.json, when correctness depends on the order in which
-// state transitions happened. Each persisted record type must have explicit
-// resume semantics in restoreAgentRecord; a write-only record is not persistence.
+// state transitions happened.
+//
+// Two record classes exist, and being persisted is not the same as being
+// replayed:
+//   - State records (the default): each type must have explicit state-rebuild
+//     semantics in restoreAgentRecord; a write-only state record is not
+//     persistence.
+//   - Observability records (`llm.tools_snapshot`, `llm.request`,
+//     `mcp.tools_discovered`): a durable trace of the data sent to the model,
+//     for debugging and trajectory replay. They never feed state rebuild;
+//     their only resume semantics is restoring the write-dedup cursors so a
+//     resumed session does not re-log snapshots it already persisted.
 export interface AgentRecordEvents {
   metadata: {
     protocol_version: string;
@@ -34,6 +52,33 @@ export interface AgentRecordEvents {
   'turn.cancel': { turnId?: number };
 
   'config.update': AgentConfigUpdateData;
+
+  /**
+   * v2-engine profile binding (wire protocol 1.5). v1 never writes this
+   * record; the type exists so replay can map a v2 session's profile binding
+   * onto the v1 equivalents (`config.update` + `tools.set_active_tools`).
+   * Field shapes follow the v2 payload: live v2 records carry
+   * `thinkingEffort`, legacy ones may carry `thinkingLevel` instead.
+   */
+  'profile.bind': {
+    modelAlias?: string;
+    profileName?: string;
+    thinkingEffort?: string;
+    thinkingLevel?: string;
+    systemPrompt?: string;
+    /** v2 tool allowlist; absent means "every tool active". */
+    activeToolNames?: readonly string[];
+    /** v2 profile denylist, applied on top of `activeToolNames`. */
+    disallowedTools?: readonly string[];
+    subagents?: readonly string[];
+  };
+
+  /**
+   * v2-engine transition back to the unrestricted default (every tool
+   * active). v1 has no corresponding state to rebuild; replay treats it as a
+   * no-op so the session-level profile fallback keeps its behavior.
+   */
+  'tools.reset_active_tools': {};
 
   'permission.set_mode': {
     mode: PermissionMode;
@@ -63,6 +108,12 @@ export interface AgentRecordEvents {
   };
   'tools.set_active_tools': {
     names: readonly string[];
+    /**
+     * Profile denylist applied on top of `names` (agentfile
+     * `disallowedTools`). Optional for backwards compatibility: wires written
+     * before deny support (and v2-engine wires) carry no deny state.
+     */
+    disallowedNames?: readonly string[];
   };
 
   'usage.record': {
@@ -77,6 +128,7 @@ export interface AgentRecordEvents {
 
   'context.append_message': { message: ContextMessage };
   'context.append_loop_event': { event: LoopRecordedEvent };
+  'context.update_token_count': { tokenCount: number };
   'context.clear': {};
   'context.apply_compaction': CompactionResult;
   'context.undo': { count: number };
@@ -98,6 +150,86 @@ export interface AgentRecordEvents {
     actor?: GoalActor;
   };
   'goal.clear': {};
+
+  // Observability records (see the header note): request-trace data, not
+  // state. Resume only restores the write-dedup cursors.
+
+  /**
+   * Content-addressed snapshot of a request's top-level `tools[]` (after the
+   * `deferred` strip — exactly what the provider receives). Written once per
+   * unique table; `llm.request.toolsHash` points here.
+   */
+  'llm.tools_snapshot': {
+    hash: string;
+    tools: readonly LlmRequestToolSchema[];
+  };
+
+  /**
+   * One record per outbound model request (every retry attempt, strict
+   * resend, and compaction round included). Together with `config.update`
+   * (system prompt full text), context records (messages), and
+   * `llm.tools_snapshot` (tool schemas), this makes each request
+   * reconstructable from the wire log at the logical-request level.
+   */
+  'llm.request': {
+    kind: 'loop' | 'compaction';
+    provider: string;
+    model: string;
+    modelAlias?: string;
+    /**
+     * Provider-effective thinking effort — for Pythinker providers this is derived
+     * from the request body's thinking payload, so env overrides
+     * (`PYTHINKER_MODEL_THINKING_EFFORT`) are already reflected.
+     */
+    thinkingEffort?: ThinkingEffort;
+    /**
+     * Pythinker preserved-thinking passthrough (`thinking.keep`) in effect for
+     * this request — resolved from env, config, and the default, none of
+     * which are otherwise recorded.
+     */
+    thinkingKeep?: string;
+    /** Effective env-driven sampling overrides (Pythinker provider only). */
+    temperature?: number;
+    topP?: number;
+    /**
+     * Effective completion-token cap the provider sends on the wire — read
+     * from the effective provider, so provider-side clamping (remaining
+     * context window, transport ceilings) and provider-level defaults (e.g.
+     * Anthropic's required `max_tokens`) are included.
+     */
+    maxTokens?: number;
+    betaApi?: boolean;
+    /** Progressive tool disclosure in effect (env flag × model capability). */
+    toolSelect: boolean;
+    systemPromptHash: string;
+    /**
+     * Inlined only when the request's system prompt differs from the current
+     * `config.update` value (no such caller today; defensive for future ones).
+     */
+    systemPrompt?: string;
+    toolsHash: string;
+    messageCount: number;
+    turnStep?: string;
+    attempt?: string;
+    /** Set when this request is a fallback resend (strict rebuild,
+     * media-degraded rebuild, or media-stripped rebuild). */
+    projection?: 'strict' | 'media-degraded' | 'media-stripped';
+    /** Compaction only: messages dropped so far by overflow/empty shrinking. */
+    droppedCount?: number;
+  };
+
+  /**
+   * Raw MCP `tools/list` result as advertised by the server, plus how this
+   * agent gated it (allow-list, name collisions). Written on registration,
+   * deduplicated per server by content hash.
+   */
+  'mcp.tools_discovered': {
+    serverName: string;
+    hash: string;
+    tools: readonly MCPToolDefinition[];
+    enabledNames: readonly string[];
+    collisions?: readonly McpToolCollision[];
+  };
 }
 
 export type AgentRecord = {

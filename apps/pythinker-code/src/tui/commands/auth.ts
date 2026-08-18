@@ -70,10 +70,11 @@ async function handlePythinkerCodeOAuthLogin(host: SlashCommandHost): Promise<vo
     }
     host.track('login', {
       provider: DEFAULT_OAUTH_PROVIDER_NAME,
+      method: 'oauth',
       already_logged_in: alreadyLoggedIn,
     });
     if (alreadyLoggedIn) {
-      host.showStatus('Already logged in. Model configuration refreshed.');
+      host.showStatus('Already logged in. Model configuration refreshed.', 'success');
     }
   } catch (error) {
     const cancelled = controller.signal.aborted;
@@ -158,7 +159,11 @@ async function handleOpenPlatformLogin(
     platform,
     models,
     selectedModel: selection.model,
-    thinking: selection.thinking,
+    thinking: selection.thinking !== 'off',
+    effort:
+      selection.thinking !== 'off' && selection.thinking !== 'on'
+        ? selection.thinking
+        : undefined,
     apiKey,
   });
 
@@ -166,7 +171,7 @@ async function handleOpenPlatformLogin(
     providers: config.providers,
     models: config.models,
     defaultModel: config.defaultModel,
-    defaultThinking: config.defaultThinking,
+    thinking: config.thinking,
   });
 
   await host.authFlow.refreshConfigAfterLogin();

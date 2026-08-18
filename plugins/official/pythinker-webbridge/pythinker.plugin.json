@@ -1,0 +1,24 @@
+{
+  "$schema": "https://kimi.com/schemas/pythinker.plugin.schema.json",
+  "name": "pythinker-webbridge",
+  "version": "1.11.3",
+  "description": "Control your real browser (with your login sessions) from Pythinker Code via the local Pythinker WebBridge daemon — navigate, click, type, read pages, and screenshot any website.",
+  "keywords": [
+    "browser",
+    "webbridge",
+    "cdp",
+    "automation",
+    "web",
+    "scraping"
+  ],
+  "author": "PyModel",
+  "license": "Proprietary",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Pythinker WebBridge",
+    "shortDescription": "Control your real browser from Pythinker Code — navigate, click, type, and screenshot",
+    "longDescription": "Pythinker WebBridge lets AI control the user's real browser — navigate, click, type, read, screenshot, and interact with any website using the user's actual login sessions. The skill talks to the local WebBridge daemon (http://127.0.0.1:10086), which drives Chrome/Edge through a browser extension over CDP. Everything runs locally; login state and page content never leave the device.\n\nRequires the Pythinker WebBridge daemon and browser extension: https://www.kimi.com/features/webbridge",
+    "developerName": "PyModel",
+    "websiteURL": "https://www.kimi.com/features/webbridge"
+  }
+}

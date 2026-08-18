@@ -1,0 +1,82 @@
+/**
+ * `toolRegistry` domain — `IAgentToolRegistryService` implementation.
+ *
+ * The per-agent tool table (`tools`) stays a plain instance field: its values
+ * hold `ExecutableTool` class instances, not plain data, so it is not
+ * registered into `agentState` (`IAgentStateService`). Bound at Agent scope.
+ */
+
+import { toDisposable, type IDisposable } from "#/_base/di/lifecycle";
+import { LifecycleScope, ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import type {
+  ExecutableTool,
+  ToolDisclosure,
+  ToolInfo,
+  ToolSource,
+} from '#/tool/toolContract';
+import {
+  IAgentToolRegistryService,
+  type ToolReference,
+  type ToolRegistrationOptions,
+} from './toolRegistry';
+
+interface ToolEntry {
+  readonly tool: ExecutableTool;
+  readonly source: ToolSource;
+  readonly disclosure?: ToolDisclosure;
+}
+
+export class AgentToolRegistryService implements IAgentToolRegistryService {
+  declare readonly _serviceBrand: undefined;
+  private readonly tools = new Map<string, ToolEntry>();
+
+  register(tool: ExecutableTool, options: ToolRegistrationOptions = {}): IDisposable {
+    const source = options.source ?? 'builtin';
+    const entry: ToolEntry = { tool, source, disclosure: options.disclosure };
+    this.unregisterTool(tool.name);
+    this.tools.set(tool.name, entry);
+
+    return toDisposable(() => {
+      const current = this.tools.get(tool.name);
+      if (current !== entry) return;
+      this.unregisterTool(tool.name);
+    });
+  }
+
+  list(): readonly ToolInfo[] {
+    return [...this.tools.values()]
+      .map(({ tool, source, disclosure }) => ({
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.parameters,
+        source,
+        disclosure,
+      }))
+      .toSorted((a, b) => a.name.localeCompare(b.name));
+  }
+
+  listReferences(): readonly ToolReference[] {
+    return [...this.tools.entries()]
+      .map(([name, { source }]) => ({ name, source }))
+      .toSorted((a, b) => a.name.localeCompare(b.name));
+  }
+
+  resolve(name: string): ExecutableTool | undefined {
+    return this.tools.get(name)?.tool;
+  }
+
+  private unregisterTool(name: string): ToolEntry | undefined {
+    const entry = this.tools.get(name);
+    if (entry === undefined) return undefined;
+    this.tools.delete(name);
+    return entry;
+  }
+}
+
+registerScopedService(
+  LifecycleScope.Agent,
+  IAgentToolRegistryService,
+  AgentToolRegistryService,
+  ScopeActivation.OnScopeCreated,
+  'toolRegistry',
+);

@@ -132,23 +132,13 @@ describe('applyEnvModelConfig', () => {
     );
   });
 
-  it('maps the thinking variables', () => {
+  it('maps the thinking effort variable', () => {
     const config = apply({
       ...MIN,
-      PYTHINKER_MODEL_DEFAULT_THINKING: 'true',
-      PYTHINKER_MODEL_THINKING_MODE: 'on',
       PYTHINKER_MODEL_THINKING_EFFORT: 'high',
     });
-    expect(config.defaultThinking).toBe(true);
-    expect(config.thinking).toMatchObject({ mode: 'on', effort: 'high' });
-    expect(apply({ ...MIN, PYTHINKER_MODEL_DEFAULT_THINKING: '0' }).defaultThinking)
-      .toBe(false);
-  });
-
-  it('rejects an invalid thinking mode', () => {
-    expectConfigInvalid(() =>
-      apply({ ...MIN, PYTHINKER_MODEL_THINKING_MODE: 'bogus' }),
-    );
+    expect(config.thinking).toMatchObject({ effort: 'high' });
+    expect(config.thinking?.enabled).toBeUndefined();
   });
 
   it('maps PYTHINKER_MODEL_ADAPTIVE_THINKING onto the alias', () => {
@@ -238,20 +228,18 @@ describe('writeConfigFile never persists the env model', () => {
     const path = join(dir, 'config.toml');
     writeFileSync(
       path,
-      'default_model = "x"\ndefault_thinking = false\n[thinking]\nmode = "auto"\n[providers.x]\ntype = "pythinker"\napi_key = "k"\n[models.x]\nprovider = "x"\nmodel = "x"\nmax_context_size = 1000\n',
+      'default_model = "x"\n[thinking]\neffort = "medium"\n[providers.x]\ntype = "pythinker"\napi_key = "k"\n[models.x]\nprovider = "x"\nmodel = "x"\nmax_context_size = 1000\n',
     );
     try {
       // Reproduces the /login round-trip: a runtime config carrying the env
       // model AND env thinking overrides is written back and must persist none.
       const runtime = loadRuntimeConfig(path, {
         ...MIN,
-        PYTHINKER_MODEL_THINKING_MODE: 'on',
-        PYTHINKER_MODEL_DEFAULT_THINKING: 'true',
+        PYTHINKER_MODEL_THINKING_EFFORT: 'high',
       });
       // Sanity: env overrides are active at runtime.
       expect(runtime.providers[ENV_MODEL_PROVIDER_KEY]).toBeDefined();
-      expect(runtime.thinking?.mode).toBe('on');
-      expect(runtime.defaultThinking).toBe(true);
+      expect(runtime.thinking?.effort).toBe('high');
 
       await writeConfigFile(path, runtime);
       const onDisk = readConfigFile(path);
@@ -262,8 +250,7 @@ describe('writeConfigFile never persists the env model', () => {
       expect(onDisk.models?.['x']).toBeDefined();
       expect(onDisk.defaultModel).toBe('x');
       // Thinking is restored to the on-disk original, not the env override.
-      expect(onDisk.thinking?.mode).toBe('auto');
-      expect(onDisk.defaultThinking).toBe(false);
+      expect(onDisk.thinking?.effort).toBe('medium');
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -280,7 +267,6 @@ describe('writeConfigFile never persists the env model', () => {
       const runtime = loadRuntimeConfig(path, {
         ...MIN,
         PYTHINKER_MODEL_THINKING_EFFORT: 'low',
-        PYTHINKER_MODEL_DEFAULT_THINKING: 'true',
       });
       await writeConfigFile(path, runtime);
       const text = readFileSync(path, 'utf-8');
@@ -293,14 +279,3 @@ describe('writeConfigFile never persists the env model', () => {
   });
 });
 
-describe('PYTHINKER_MODEL_DEFAULT_THINKING validation', () => {
-  it('rejects a non-empty unparseable value', () => {
-    expectConfigInvalid(() => apply({ ...MIN, PYTHINKER_MODEL_DEFAULT_THINKING: 'flase' }));
-  });
-
-  it('accepts valid values and ignores when unset', () => {
-    expect(apply({ ...MIN, PYTHINKER_MODEL_DEFAULT_THINKING: 'true' }).defaultThinking).toBe(true);
-    expect(apply({ ...MIN, PYTHINKER_MODEL_DEFAULT_THINKING: '0' }).defaultThinking).toBe(false);
-    expect(apply({ ...MIN }).defaultThinking).toBeUndefined();
-  });
-});

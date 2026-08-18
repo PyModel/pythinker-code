@@ -32,14 +32,18 @@ export {
   createPythinkerDeviceHeaders,
   createPythinkerDeviceId,
   createPythinkerUserAgent,
+  PYTHINKER_CODE_CUSTOM_HEADERS_ENV,
   PYTHINKER_CODE_PLATFORM,
+  parsePythinkerCodeCustomHeaders,
   readPythinkerDeviceId,
+  replaceUserAgentProduct,
 } from './identity';
 export type { PythinkerHostIdentity, PythinkerIdentityOptions } from './identity';
 
 export { PYTHINKER_CODE_FLOW_CONFIG } from './constants';
 
 export {
+  applyManagedApiKeyProviderModels,
   applyManagedPythinkerCodeLogoutConfig,
   applyManagedPythinkerCodeConfig,
   clearManagedPythinkerCodeConfig,
@@ -55,11 +59,13 @@ export {
   resolvePythinkerCodeOAuthKey,
   resolvePythinkerCodeOAuthRef,
   resolvePythinkerCodeRuntimeAuth,
+  toManagedModelAlias,
 } from './managed-pythinker-code';
 export type {
   FetchManagedPythinkerCodeModelsOptions,
   ManagedPythinkerCodeApplyResult,
   ManagedPythinkerCodeCleanupResult,
+  ManagedPythinkerCodeProtocol,
   ManagedPythinkerEnv,
   ManagedPythinkerLoginAuth,
   ManagedPythinkerCodeModelInfo,
@@ -73,10 +79,26 @@ export type {
 } from './managed-pythinker-code';
 
 export {
+  fetchManagedUserInfo,
+  pythinkerCodeUserInfoUrl,
+  managedUserInfoPhoneSchema,
+  managedUserInfoResultSchema,
+  managedUserInfoSchema,
+  parseManagedUserInfoPayload,
+} from './managed-userinfo';
+export type {
+  FetchManagedUserInfoError,
+  FetchManagedUserInfoResult,
+  ManagedUserInfo,
+  ManagedUserInfoPhone,
+  ManagedUserInfoResult,
+} from './managed-userinfo';
+
+export {
   fetchManagedUsage,
   formatDuration,
-  formatResetTime,
   isManagedPythinkerCode,
+  isManagedPythinkerCodeBaseUrl,
   pythinkerCodeBaseUrl,
   pythinkerCodeUsageUrl,
   parseManagedUsagePayload,
@@ -86,6 +108,7 @@ export type {
   FetchManagedUsageResult,
   ParsedManagedUsage,
   UsageRow,
+  UsageWindow,
 } from './managed-usage';
 
 export { fetchSubmitFeedback, pythinkerCodeFeedbackUrl } from './managed-feedback';
@@ -95,6 +118,21 @@ export type {
   FetchSubmitFeedbackResult,
   SubmitFeedbackBody,
 } from './managed-feedback';
+
+export {
+  fetchCompleteFeedbackUpload,
+  fetchCreateFeedbackUploadUrl,
+  pythinkerCodeFeedbackUploadCompleteUrl,
+  pythinkerCodeFeedbackUploadUrl,
+} from './managed-feedback-upload';
+export type {
+  CompleteFeedbackUploadBody,
+  CreateFeedbackUploadUrlBody,
+  CreateFeedbackUploadUrlResponse,
+  FetchCompleteFeedbackUploadResult,
+  FetchCreateFeedbackUploadUrlResult,
+  FetchFeedbackUploadError,
+} from './managed-feedback-upload';
 
 export {
   applyOpenPlatformConfig,
@@ -127,10 +165,12 @@ export type {
   CustomRegistryProviderEntry,
   CustomRegistryProviderType,
   CustomRegistrySource,
+  FetchCustomRegistryOptions,
 } from './custom-registry';
 
 export { PythinkerOAuthToolkit, resolvePythinkerTokenStorageName } from './toolkit';
 export type {
+  AuthManagedUserInfoResult,
   AuthManagedUsageResult,
   AuthProviderStatus,
   AuthStatus,
@@ -141,3 +181,12 @@ export type {
   PythinkerOAuthTokenRef,
   PythinkerOAuthToolkitOptions,
 } from './toolkit';
+
+export { refreshProviderModels } from './refreshProviderModels';
+export type {
+  ProviderChange,
+  RefreshProviderHost,
+  RefreshProviderOptions,
+  RefreshProviderScope,
+  RefreshResult,
+} from './refreshProviderModels';

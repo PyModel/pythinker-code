@@ -59,7 +59,7 @@ interface FakeSessionHandle {
   setThinkingCalls: string[];
 }
 
-function makeFakeSession(sessionId: string): FakeSessionHandle {
+function makeFakeSession(sessionId: string, statusEffort?: string): FakeSessionHandle {
   const planModeCalls: boolean[] = [];
   const setPermissionCalls: PermissionMode[] = [];
   const setModelCalls: string[] = [];
@@ -79,9 +79,15 @@ function makeFakeSession(sessionId: string): FakeSessionHandle {
     setModel: async (model: string) => {
       setModelCalls.push(model);
     },
-    setThinking: async (level: string) => {
-      setThinkingCalls.push(level);
+    setThinking: async (effort: string) => {
+      setThinkingCalls.push(effort);
     },
+    // Present only when the test exercises the status-reconciliation path;
+    // `typeof === 'function'` guards elsewhere treat `undefined` as absent.
+    getStatus:
+      statusEffort === undefined
+        ? undefined
+        : async () => ({ thinkingEffort: statusEffort }),
   } as unknown as Session;
   return { session, planModeCalls, setPermissionCalls, setModelCalls, setThinkingCalls };
 }
@@ -152,7 +158,7 @@ describe('AcpServer session/set_config_option', () => {
     }
   });
 
-  it('configId="model" + `${id},thinking` → SDK gets stripped id + setThinking("high") + snapshot shows base id with thinking toggle on', async () => {
+  it('configId="model" + `${id},thinking` → SDK gets stripped id + setThinking(<model default>) + snapshot shows base id with thinking toggle on', async () => {
     const handle = makeFakeSession('sess-model-thinking');
     const harness = makeHarness(handle);
     const { client, capturing, sessionId } = await openSession(harness);
@@ -165,7 +171,7 @@ describe('AcpServer session/set_config_option', () => {
     });
 
     expect(handle.setModelCalls).toEqual(['pythinker-coder']);
-    expect(handle.setThinkingCalls).toEqual(['high']);
+    expect(handle.setThinkingCalls).toEqual(['on']);
     const respModel = response.configOptions.find((o) => o.id === 'model');
     if (respModel && respModel.type === 'select') {
       // Snapshot now carries the bare model id; thinking lives on a separate axis.
@@ -179,7 +185,7 @@ describe('AcpServer session/set_config_option', () => {
     expect(respThinking.category).toBe('thought_level');
   });
 
-  it('configId="thinking" + "on" → setThinking("high") + 1 config_option_update with currentValue="on"', async () => {
+  it('configId="thinking" + "on" → setThinking(<model default>) + 1 config_option_update with currentValue="on"', async () => {
     const handle = makeFakeSession('sess-thinking-on');
     const harness = makeHarness(handle);
     const { client, capturing, sessionId } = await openSession(harness);
@@ -191,7 +197,7 @@ describe('AcpServer session/set_config_option', () => {
       value: 'on',
     });
 
-    expect(handle.setThinkingCalls).toEqual(['high']);
+    expect(handle.setThinkingCalls).toEqual(['on']);
     expect(handle.setModelCalls).toEqual([]);
     const updates = capturing.notifications.filter(
       (n) => n.sessionId === sessionId && n.update.sessionUpdate === 'config_option_update',
@@ -226,7 +232,7 @@ describe('AcpServer session/set_config_option', () => {
     expect(respToggle.currentValue).toBe('off');
   });
 
-  it('configId="thinking" + "off" on an always-thinking model → no SDK call, toggle stays locked on', async () => {
+  it('configId="thinking" + "off" on an always-thinking model → forwards setThinking("off"); snapshot stays locked on', async () => {
     const handle = makeFakeSession('sess-thinking-locked');
     const harness = {
       auth: { status: async () => AUTHED_STATUS },
@@ -248,9 +254,10 @@ describe('AcpServer session/set_config_option', () => {
       value: 'off',
     });
 
-    // The off request is silently ignored — the runtime cannot disable
-    // thinking on this model, so no SDK call is forwarded.
-    expect(handle.setThinkingCalls).toEqual([]);
+    // The adapter forwards the off request to the SDK; the always_thinking
+    // constraint is enforced downstream by agent-core's resolve (which clamps
+    // it back to the model default). The snapshot still renders locked-on.
+    expect(handle.setThinkingCalls).toEqual(['off']);
     const respToggle = response.configOptions.find((o) => o.id === 'thinking');
     if (!respToggle || respToggle.type !== 'select') throw new Error('expected select toggle');
     expect(respToggle.currentValue).toBe('on');
@@ -261,6 +268,167 @@ describe('AcpServer session/set_config_option', () => {
       (n) => n.sessionId === sessionId && n.update.sessionUpdate === 'config_option_update',
     );
     expect(updates).toHaveLength(1);
+  });
+
+  it('configId="thinking" + a declared effort level → setThinking(level) + snapshot carries per-level rows', async () => {
+    const handle = makeFakeSession('sess-thinking-level');
+    const harness = {
+      auth: { status: async () => AUTHED_STATUS },
+      createSession: async () => handle.session,
+      getConfig: async () => ({
+        providers: {},
+        defaultModel: 'kimi-k2',
+        models: makeModelsMap([
+          {
+            id: 'kimi-k2',
+            name: 'Kimi K2',
+            thinkingSupported: true,
+            efforts: ['low', 'medium', 'high'],
+            defaultEffort: 'medium',
+          },
+        ]),
+      }),
+    } as unknown as PythinkerHarness;
+    const { client, capturing, sessionId } = await openSession(harness);
+    capturing.notifications.length = 0;
+
+    const response = await client.setSessionConfigOption({
+      sessionId,
+      configId: 'thinking',
+      value: 'high',
+    });
+
+    expect(handle.setThinkingCalls).toEqual(['high']);
+    const respPicker = response.configOptions.find((o) => o.id === 'thinking');
+    if (!respPicker || respPicker.type !== 'select') throw new Error('expected select picker');
+    expect(respPicker.currentValue).toBe('high');
+    expect(respPicker.options.map((o) => ('value' in o ? o.value : ''))).toEqual([
+      'off',
+      'low',
+      'medium',
+      'high',
+    ]);
+
+    // The notification snapshot matches the response snapshot.
+    const updates = capturing.notifications.filter(
+      (n) => n.sessionId === sessionId && n.update.sessionUpdate === 'config_option_update',
+    );
+    expect(updates).toHaveLength(1);
+    const update = updates[0]!.update;
+    if (update.sessionUpdate !== 'config_option_update') throw new Error('unreachable');
+    const notifyPicker = update.configOptions.find((o) => o.id === 'thinking');
+    if (!notifyPicker || notifyPicker.type !== 'select') throw new Error('expected select picker');
+    expect(notifyPicker.currentValue).toBe('high');
+  });
+
+  it('configId="thinking" + "on" maps to the model default effort for effort-capable models', async () => {
+    const handle = makeFakeSession('sess-thinking-default');
+    const harness = {
+      auth: { status: async () => AUTHED_STATUS },
+      createSession: async () => handle.session,
+      getConfig: async () => ({
+        providers: {},
+        defaultModel: 'kimi-k2',
+        models: makeModelsMap([
+          {
+            id: 'kimi-k2',
+            name: 'Kimi K2',
+            thinkingSupported: true,
+            efforts: ['low', 'medium', 'high'],
+            defaultEffort: 'high',
+          },
+        ]),
+      }),
+    } as unknown as PythinkerHarness;
+    const { client, capturing, sessionId } = await openSession(harness);
+    capturing.notifications.length = 0;
+
+    const response = await client.setSessionConfigOption({
+      sessionId,
+      configId: 'thinking',
+      value: 'on',
+    });
+
+    expect(handle.setThinkingCalls).toEqual(['high']);
+    const respPicker = response.configOptions.find((o) => o.id === 'thinking');
+    if (!respPicker || respPicker.type !== 'select') throw new Error('expected select picker');
+    expect(respPicker.currentValue).toBe('high');
+  });
+
+  it('configId="thinking" + an undeclared level → invalid_params (-32602) BEFORE any SDK call', async () => {
+    const handle = makeFakeSession('sess-thinking-bogus');
+    const harness = {
+      auth: { status: async () => AUTHED_STATUS },
+      createSession: async () => handle.session,
+      getConfig: async () => ({
+        providers: {},
+        defaultModel: 'kimi-k2',
+        models: makeModelsMap([
+          {
+            id: 'kimi-k2',
+            name: 'Kimi K2',
+            thinkingSupported: true,
+            efforts: ['low', 'medium', 'high'],
+          },
+        ]),
+      }),
+    } as unknown as PythinkerHarness;
+    const { client, capturing, sessionId } = await openSession(harness);
+    capturing.notifications.length = 0;
+
+    await expect(
+      client.setSessionConfigOption({ sessionId, configId: 'thinking', value: 'xhigh' }),
+    ).rejects.toMatchObject({ code: -32602 });
+
+    expect(handle.setThinkingCalls).toEqual([]);
+    const updates = capturing.notifications.filter(
+      (n) => n.update.sessionUpdate === 'config_option_update',
+    );
+    expect(updates).toEqual([]);
+  });
+
+  it('snapshot reconciles with the engine-normalized effort read back from session status', async () => {
+    // Always-thinking effort model: the client asks for `off`, the engine
+    // clamps it back to the default level — the status channel is the
+    // source of truth for what the snapshot renders.
+    const handle = makeFakeSession('sess-thinking-clamped', 'high');
+    const harness = {
+      auth: { status: async () => AUTHED_STATUS },
+      createSession: async () => handle.session,
+      getConfig: async () => ({
+        providers: {},
+        defaultModel: 'pythinker-deep',
+        models: makeModelsMap([
+          {
+            id: 'pythinker-deep',
+            name: 'Pythinker Deep',
+            thinkingSupported: true,
+            alwaysThinking: true,
+            efforts: ['low', 'medium', 'high'],
+            defaultEffort: 'high',
+          },
+        ]),
+      }),
+    } as unknown as PythinkerHarness;
+    const { client, capturing, sessionId } = await openSession(harness);
+    capturing.notifications.length = 0;
+
+    const response = await client.setSessionConfigOption({
+      sessionId,
+      configId: 'thinking',
+      value: 'off',
+    });
+
+    expect(handle.setThinkingCalls).toEqual(['off']);
+    const respPicker = response.configOptions.find((o) => o.id === 'thinking');
+    if (!respPicker || respPicker.type !== 'select') throw new Error('expected select picker');
+    // Engine clamped `off` → 'high'; no `off` row for always-thinking models.
+    expect(respPicker.currentValue).toBe('high');
+    expect(respPicker.options.map((o) => ('value' in o ? o.value : ''))).toEqual([
+      'low',
+      'medium',
+      'high',
+    ]);
   });
 
   const MODE_CASES: ReadonlyArray<{

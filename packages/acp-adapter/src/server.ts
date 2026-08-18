@@ -44,7 +44,14 @@ import {
   type SetSessionModelResponse,
   type Stream,
 } from '@agentclientprotocol/sdk';
-import type { PythinkerHarness, Session, SessionSummary } from '@pymodel/pythinker-code-sdk';
+import type {
+  PythinkerConfig,
+  PythinkerHarness,
+  ModelAlias,
+  ProviderConfig,
+  Session,
+  SessionSummary,
+} from '@pymodel/pythinker-code-sdk';
 import { log } from '@pymodel/pythinker-code-sdk';
 import { LocalKaos, type Kaos } from '@pymodel/kaos';
 
@@ -107,12 +114,96 @@ function toResolvedSlashCommands(
 /**
  * Inline auth gate — moved out of `PythinkerAuthFacade.hasUsableToken()` so
  * the SDK doesn't have to carry an ACP-specific convenience method.
- * Mirrors the original semantics exactly: any provider with `hasToken`
- * set counts as authed.
+ * OAuth tokens still count as authed, but ACP can also start when the
+ * active model resolves to a provider with config-file credentials.
  */
 async function harnessIsAuthed(harness: PythinkerHarness): Promise<boolean> {
   const status = await harness.auth.status();
-  return status.providers.some((entry) => entry.hasToken === true);
+  if (status.providers.some((entry) => entry.hasToken)) return true;
+  return hasUsableConfiguredDefaultModel(harness);
+}
+
+async function hasUsableConfiguredDefaultModel(harness: PythinkerHarness): Promise<boolean> {
+  if (typeof harness.getConfig !== 'function') return false;
+  let config: PythinkerConfig;
+  try {
+    config = await harness.getConfig();
+  } catch (error) {
+    log.warn('acp: harness.getConfig threw during auth gate; requiring terminal auth', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return false;
+  }
+
+  if (config.defaultModel === undefined) return false;
+  const alias = config.models?.[config.defaultModel];
+  if (alias === undefined) return false;
+
+  const provider = providerForAlias(config, alias);
+  return provider !== undefined && providerHasNonOAuthCredentials(provider);
+}
+
+function providerForAlias(config: PythinkerConfig, alias: ModelAlias): ProviderConfig | undefined {
+  const providerName = alias.provider ?? config.defaultProvider;
+  return providerName === undefined ? undefined : config.providers[providerName];
+}
+
+function providerHasNonOAuthCredentials(provider: ProviderConfig): boolean {
+  if (provider.oauth !== undefined) return false;
+  switch (provider.type) {
+    case 'anthropic':
+      return hasProviderValue(provider, 'ANTHROPIC_API_KEY');
+    case 'openai':
+    case 'openai_responses':
+      return hasProviderValue(provider, 'OPENAI_API_KEY');
+    case 'pythinker':
+      return hasProviderValue(provider, 'PYTHINKER_API_KEY');
+    case 'google-genai':
+      return hasProviderValue(provider, 'GOOGLE_API_KEY');
+    case 'vertexai':
+      return (
+        hasProviderValue(provider, 'VERTEXAI_API_KEY') ||
+        hasEnvValue(provider, 'GOOGLE_API_KEY') ||
+        (hasEnvValue(provider, 'GOOGLE_CLOUD_PROJECT') &&
+          (hasEnvValue(provider, 'GOOGLE_CLOUD_LOCATION') ||
+            vertexAILocationFromBaseUrl(provider.baseUrl) !== undefined))
+      );
+    default: {
+      const exhaustive: never = provider.type;
+      return exhaustive;
+    }
+  }
+}
+
+function hasProviderValue(provider: ProviderConfig, envKey: string): boolean {
+  return nonEmptyString(provider.apiKey) !== undefined || hasEnvValue(provider, envKey);
+}
+
+function hasEnvValue(provider: ProviderConfig, envKey: string): boolean {
+  return nonEmptyString(provider.env?.[envKey]) !== undefined;
+}
+
+function vertexAILocationFromBaseUrl(baseUrl: string | undefined): string | undefined {
+  const url = nonEmptyString(baseUrl);
+  if (url === undefined) return undefined;
+  try {
+    const host = new URL(url).hostname;
+    const suffix = '-aiplatform.googleapis.com';
+    return host.endsWith(suffix) ? nonEmptyString(host.slice(0, -suffix.length)) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function nonEmptyString(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed === undefined || trimmed.length === 0 ? undefined : trimmed;
+}
+
+function effortStringOrUndefined(effort: unknown): string | undefined {
+  if (typeof effort !== 'string') return undefined;
+  const trimmed = effort.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 }
 
 /**
@@ -265,6 +356,11 @@ export class AcpServer implements Agent {
     // record verbatim. The `@ts-expect-error` documents this contract;
     // if the SDK ever switches from spread-passthrough to explicit field
     // copy, this line breaks and we revisit the boundary.
+    // NOTE (workspace-domain consolidation): the passthrough reaches the
+    // v1 kernel only. The v2 engine has NO caller `mcpServers` channel on
+    // session create/resume (its MCP manager is per-workspace-handler, fed
+    // by config files and plugins only) — how ACP-supplied servers should
+    // reach the v2 engine is left to a future ACP-specific design.
     const mcpServers = acpMcpServersToConfigs(params.mcpServers);
     if (!this.conn) {
       // Defensive: every code path that constructs `AcpServer` (the
@@ -288,13 +384,14 @@ export class AcpServer implements Agent {
       workDir: params.cwd,
       kaos: acpKaos,
       persistenceKaos,
+      sessionStartedProperties: { mode: 'new' },
       // @ts-expect-error — `mcpServers` is a kernel-side extension
       // (agent-core `CreateSessionPayload`) the SDK transparently
       // forwards via spread. See block comment above.
       mcpServers,
     });
     const currentModelId = await this.resolveCurrentModelId();
-    const currentThinkingEnabled = await this.resolveCurrentThinkingEnabled();
+    const currentThinkingEffort = await this.resolveCurrentThinkingEffort(session);
     const acpSession = new AcpSession(
       this.conn,
       session,
@@ -302,14 +399,9 @@ export class AcpServer implements Agent {
       this.makeTelemetryTrack(),
       currentModelId,
       this.harness,
-      currentThinkingEnabled,
+      currentThinkingEffort,
     );
     this.sessions.set(session.id, acpSession);
-    // Telemetry breadcrumb so we can observe ACP adoption (number of
-    // sessions started via this surface, vs. TUI / SDK direct). The
-    // property set is deliberately minimal: `mode` distinguishes
-    // `newSession` from `loadSession`; no user content / PII.
-    this.trackSessionStarted(session.id, 'new');
     // Phase 14 (PLAN D11) advertises both the model and mode pickers as
     // a unified `configOptions: SessionConfigOption[]` surface. The
     // dedicated Phase 12 `modes:` field is gone — see
@@ -318,14 +410,14 @@ export class AcpServer implements Agent {
     // `default` (PLAN D9); `currentModelId` is resolved from the harness
     // config (`defaultModel` if set, else the first listed alias) so
     // the dropdown's "current" highlight matches the session the SDK
-    // just constructed. Phase 15 adds the `thinking` toggle when the
-    // current model's catalog row advertises `thinkingSupported`;
-    // Phase 16 reshaped that toggle from `boolean` to a 2-entry
-    // `select` so Zed actually renders it.
+    // just constructed. The `thinking` picker is added when the
+    // current model's catalog row advertises `thinkingSupported` — one
+    // row per declared effort level (plus `off`), or the legacy
+    // `off` / `on` pair for boolean models.
     const configOptions = await buildSessionConfigOptions(
       this.harness,
       currentModelId,
-      currentThinkingEnabled,
+      currentThinkingEffort,
       DEFAULT_MODE_ID,
     );
     this.scheduleAvailableCommandsUpdate(session.id);
@@ -363,10 +455,8 @@ export class AcpServer implements Agent {
       cwd: params.cwd,
       sessionId: params.sessionId,
       mcpServers: params.mcpServers,
+      mode: 'load',
     });
-    // Same telemetry breadcrumb as `newSession`, but `mode: 'load'`
-    // so we can distinguish session creation from resumption. No PII.
-    this.trackSessionStarted(session.id, 'load');
     // Synchronously replay history — the response must not settle
     // until every historical `session/update` has been pushed,
     // otherwise the client would race the load completion against
@@ -401,11 +491,8 @@ export class AcpServer implements Agent {
       cwd: params.cwd,
       sessionId: params.sessionId,
       mcpServers: params.mcpServers,
+      mode: 'resume',
     });
-    // Telemetry breadcrumb — distinguishes resume from new/load so we
-    // can observe which clients adopt the lighter-weight resume
-    // surface vs the history-replaying load surface. No PII.
-    this.trackSessionStarted(session.id, 'resume');
     this.scheduleAvailableCommandsUpdate(session.id);
     return { configOptions };
   }
@@ -437,6 +524,7 @@ export class AcpServer implements Agent {
     cwd: string;
     sessionId: string;
     mcpServers?: ReadonlyArray<McpServer>;
+    mode: 'load' | 'resume';
   }): Promise<{
     session: Session;
     acpSession: AcpSession;
@@ -466,6 +554,7 @@ export class AcpServer implements Agent {
         id: params.sessionId,
         kaos: acpKaos,
         persistenceKaos,
+        sessionStartedProperties: { mode: params.mode },
         // @ts-expect-error — see block comment above; mcpServers is a
         // kernel-only field that the SDK forwards via spread.
         mcpServers,
@@ -496,17 +585,17 @@ export class AcpServer implements Agent {
       typeof resumedModelAlias === 'string' && resumedModelAlias.length > 0
         ? resumedModelAlias
         : await this.resolveCurrentModelId();
-    // Phase 15 reads the resumed thinking level off the main-agent
-    // config and projects it onto the binary toggle: any non-`'off'`
-    // effort level reads as "thinking on" because the ACP surface only
-    // exposes the boolean axis. Falls back to the harness-level default
-    // when the resume state lacks the field.
-    const resumedThinkingLevel = resumeState?.agents?.['main']?.config?.thinkingLevel;
-    const currentThinkingEnabled =
-      typeof resumedThinkingLevel === 'string'
-        ? resumedThinkingLevel.trim().toLowerCase() !== 'off' &&
-          resumedThinkingLevel.trim().length > 0
-        : await this.resolveCurrentThinkingEnabled();
+    // The resumed thinking effort is read off the main-agent config and
+    // carried through as-is — it is the engine-resolved value
+    // (`'off'`, `'on'`, or a declared level), which the thinking picker
+    // projects onto its row set. Falls back to the live session status,
+    // then the harness-level default, when the resume state lacks the
+    // field.
+    const resumedThinkingEffort = resumeState?.agents?.['main']?.config?.thinkingEffort;
+    const currentThinkingEffort = await this.resolveCurrentThinkingEffort(
+      session,
+      resumedThinkingEffort,
+    );
     const acpSession = new AcpSession(
       this.conn,
       session,
@@ -514,13 +603,13 @@ export class AcpServer implements Agent {
       this.makeTelemetryTrack(),
       currentModelId,
       this.harness,
-      currentThinkingEnabled,
+      currentThinkingEffort,
     );
     this.sessions.set(session.id, acpSession);
     const configOptions = await buildSessionConfigOptions(
       this.harness,
       currentModelId,
-      currentThinkingEnabled,
+      currentThinkingEffort,
       DEFAULT_MODE_ID,
     );
     return { session, acpSession, configOptions };
@@ -658,6 +747,9 @@ export class AcpServer implements Agent {
    *    {@link unstable_setSessionModel}).
    *  - `'mode'`  → {@link AcpSession.setMode} (same path as
    *    {@link setSessionMode}).
+   *  - `'thinking'` → {@link AcpSession.setThinking} — `'off'`, the
+   *    legacy `'on'` alias, or a declared effort level of the current
+   *    model.
    *  - anything else → JSON-RPC `invalid_params` (-32602) BEFORE any
    *    SDK call, so the client sees a structured rejection rather
    *    than a half-applied state change.
@@ -690,13 +782,14 @@ export class AcpServer implements Agent {
         await acpSession.setMode(String(value));
         break;
       case 'thinking': {
-        // Phase 16 changed the wire shape from boolean to a 2-entry
-        // `select` (`'on'` / `'off'`) for Zed UI compatibility. Strict
-        // equality with `'on'` keeps the parse deterministic — any
-        // other string (including a stale `true` / `false` boolean
-        // sent by a pre-Phase-16 client) reads as "off" rather than
-        // silently flipping based on truthiness.
-        await acpSession.setThinking(value === 'on');
+        // The accepted values mirror the picker's advertised rows:
+        // `'off'`, the legacy `'on'` alias (mapped to the model's
+        // default effort), or one of the current model's declared
+        // effort levels (`'low' | 'medium' | …`). AcpSession validates
+        // the level against the catalog and rejects unknown values with
+        // `invalid_params` BEFORE any SDK call, so a stale or
+        // hand-crafted value can never half-apply.
+        await acpSession.setThinking(String(value));
         break;
       }
       default:
@@ -709,7 +802,7 @@ export class AcpServer implements Agent {
       configOptions: await buildSessionConfigOptions(
         this.harness,
         acpSession.currentModelId,
-        acpSession.currentThinkingEnabled,
+        acpSession.currentThinkingEffort,
         acpSession.currentModeId,
       ),
     };
@@ -786,8 +879,7 @@ export class AcpServer implements Agent {
    * throwing) — adapter-level unit tests routinely construct minimal
    * `PythinkerHarness` shapes that only stub `auth.status` + `createSession`.
    * Production callers always supply a real harness with both methods;
-   * the swallow-and-fallback path exists purely for test ergonomics
-   * (matches the `track?.bind(...)` pattern at `trackSessionStarted`).
+   * the swallow-and-fallback path exists purely for test ergonomics.
    *
    * Logged at `warn` when a fallback fires so a dev who forgot to set
    * `default_model = ...` sees a breadcrumb in the agent log.
@@ -832,34 +924,51 @@ export class AcpServer implements Agent {
   }
 
   /**
-   * Compute the initial value for the `thinking` toggle when
-   * a session is created (or loaded with no persisted thinking state).
-   * Reads the harness's `getConfig().defaultThinking` flag if exposed —
-   * the same source `Session.createSession` would consult for new
-   * sessions. Returns `false` when the harness has no opinion, so the
-   * toggle starts off.
+   * Compute the initial value for the `thinking` picker's current effort
+   * from the session's effective effort. A persisted resume-state effort
+   * wins; otherwise the live session status is authoritative. The harness
+   * config remains a best-effort fallback for partial SDK stubs and
+   * status-read failures (`enabled = true` with no effort collapses to
+   * the legacy `'on'` alias, which the picker projects onto the model's
+   * default level).
    *
-   * Tolerant to partial-stub harnesses for the same reason
-   * {@link resolveCurrentModelId} is — adapter-level unit tests
-   * routinely omit `getConfig`. The swallow-and-fallback path keeps
-   * the test ergonomics symmetric.
+   * Tolerant to partial SDK/session stubs for the same reason
+   * {@link resolveCurrentModelId} is — adapter-level unit tests routinely
+   * omit `getStatus` or `getConfig`. The swallow-and-fallback path keeps the
+   * test ergonomics symmetric.
    */
-  private async resolveCurrentThinkingEnabled(): Promise<boolean> {
-    if (typeof this.harness.getConfig !== 'function') return false;
+  private async resolveCurrentThinkingEffort(
+    session: Session,
+    resumedThinkingEffort?: unknown,
+  ): Promise<string> {
+    const resumed = effortStringOrUndefined(resumedThinkingEffort);
+    if (resumed !== undefined) return resumed;
+
+    if (typeof session.getStatus === 'function') {
+      try {
+        const current = effortStringOrUndefined((await session.getStatus()).thinkingEffort);
+        if (current !== undefined) return current;
+      } catch (error) {
+        log.warn('acp: session.getStatus threw during thinking effort resolution; falling back', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    if (typeof this.harness.getConfig !== 'function') return 'off';
     try {
       const config = await this.harness.getConfig();
-      const declared = (config as { defaultThinking?: unknown }).defaultThinking;
-      if (typeof declared === 'boolean') return declared;
-      if (typeof declared === 'string') {
-        const normalized = declared.trim().toLowerCase();
-        return normalized !== 'off' && normalized.length > 0;
-      }
-      return false;
+      const thinking = (config as { thinking?: { enabled?: unknown; effort?: unknown } })
+        .thinking;
+      if (thinking?.enabled === false) return 'off';
+      const configured = effortStringOrUndefined(thinking?.effort);
+      if (configured !== undefined) return configured;
+      return thinking?.enabled === true ? 'on' : 'off';
     } catch (err) {
-      log.warn('acp: harness.getConfig threw during thinking toggle resolution; defaulting to off', {
+      log.warn('acp: harness.getConfig threw during thinking effort resolution; defaulting to off', {
         error: err instanceof Error ? err.message : String(err),
       });
-      return false;
+      return 'off';
     }
   }
 
@@ -867,7 +976,7 @@ export class AcpServer implements Agent {
    * Build a {@link TelemetryTrackFn} wrapper bound to the underlying
    * harness so the {@link AcpSession} (and its reverse-RPC bridges in
    * Phase 13) can emit PII-free breadcrumbs through the same
-   * `harness.track` channel `trackSessionStarted` uses. The wrapper
+   * `harness.track` channel. The wrapper
    * shape is required by the broader `Record<string, unknown>` properties
    * type {@link TelemetryTrackFn} uses — the harness's own `track` is
    * typed against the narrower `TelemetryProperties` (a
@@ -928,31 +1037,6 @@ export class AcpServer implements Agent {
     }
   }
 
-  /**
-   * Emit the single ACP-adapter telemetry event.
-   *
-   * Wraps {@link PythinkerHarness.track} so a partial harness stub
-   * (common in unit tests — see `auth-gate.test.ts`, `session-new.test.ts`)
-   * cannot crash the request path. Production callers always supply a
-   * real harness with `.track`; the swallow-and-log fallback exists
-   * purely for test ergonomics.
-   *
-   * Property set is deliberately minimal: `sessionId` + `mode`. No
-   * user content, no IDE identity, no client capabilities — keeping
-   * the breadcrumb PII-free.
-   */
-  private trackSessionStarted(sessionId: string, mode: 'new' | 'load' | 'resume'): void {
-    const track = this.harness.track?.bind(this.harness);
-    if (typeof track !== 'function') return;
-    try {
-      track('acp_session_started', { sessionId, mode });
-    } catch (err) {
-      log.warn('acp: telemetry track failed', {
-        sessionId,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }
 }
 
 /**

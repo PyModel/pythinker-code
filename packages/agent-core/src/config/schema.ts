@@ -37,25 +37,82 @@ export const ProviderConfigSchema = z.object({
 
 export type ProviderConfig = z.infer<typeof ProviderConfigSchema>;
 
-export const ModelAliasSchema = z.object({
+const ModelAliasBaseSchema = z.object({
   provider: z.string(),
   model: z.string(),
   maxContextSize: z.number().int().min(1),
+  // Declared prompt/input cap when below the total window (e.g. gpt-5: 400k
+  // window, 272k input). Compaction and other prompt-budget checks prefer it
+  // over max_context_size; completion budgeting keeps the total window.
+  maxInputSize: z.number().int().min(1).optional(),
   maxOutputSize: z.number().int().min(1).optional(),
   capabilities: z.array(z.string()).optional(),
   displayName: z.string().optional(),
   reasoningKey: z.string().optional(),
+  protocol: z.literal('anthropic').optional(),
   // Explicitly declare adaptive-thinking support, overriding the kosong
   // model-name version inference. Needed for custom-named Anthropic endpoints
   // whose model name does not encode a parseable Claude version.
   adaptiveThinking: z.boolean().optional(),
+  // Efforts (e.g. ["low", "high", "max"]) the model supports for
+  // extended thinking, plus the catalog default. Generic to any provider:
+  // managed models fill these from the catalog, others can be set by hand in
+  // config.toml. The user's chosen effort is stored globally in thinking.effort.
+  supportEfforts: z.array(z.string()).optional(),
+  defaultEffort: z.string().optional(),
+  // The effort value that encodes "thinking off" on the wire for this model
+  // (models.dev declares it as the "none" entry, e.g. xai grok). When set,
+  // turning thinking off sends this value instead of omitting the effort
+  // field — required by models whose default is to reason.
+  offEffort: z.string().optional(),
+  // Route the Anthropic transport through the beta Messages API
+  // (`POST /v1/messages?beta=true`) instead of the standard endpoint. Used by
+  // managed Pythinker Code models that declare `protocol: 'anthropic'`.
+  betaApi: z.boolean().optional(),
+  // Per-model endpoint override, paired with `protocol`. Catalog imports set
+  // it when a gateway provider serves this model over a different endpoint
+  // than the provider default.
+  baseUrl: z.string().optional(),
+});
+
+export const ModelAliasOverrideSchema = ModelAliasBaseSchema.omit({
+  provider: true,
+  model: true,
+  protocol: true,
+  betaApi: true,
+  baseUrl: true,
+}).partial();
+
+export type ModelAliasOverrides = z.infer<typeof ModelAliasOverrideSchema>;
+
+export const ModelAliasSchema = ModelAliasBaseSchema.extend({
+  // User overrides for a model alias. These win over the top-level fields at
+  // runtime and are preserved by provider-model refreshes.
+  overrides: ModelAliasOverrideSchema.optional(),
 });
 
 export type ModelAlias = z.infer<typeof ModelAliasSchema>;
 
+/**
+ * The secondary-model recipe (`[secondary_model]` on disk): `model` points at
+ * a `[models]` entry and every remaining field is a subagent-only patch,
+ * materialized into a synthesized derived model entry at runtime (see
+ * `config/secondary-model.ts`). `default_effort` doubles as the subagent
+ * thinking effort.
+ */
+export const SecondaryModelConfigSchema = ModelAliasOverrideSchema.extend({
+  model: z.string().min(1).optional(),
+});
+
+export type SecondaryModelConfig = z.infer<typeof SecondaryModelConfigSchema>;
+
 export const ThinkingConfigSchema = z.object({
-  mode: z.enum(['auto', 'on', 'off']).optional(),
+  enabled: z.boolean().optional(),
   effort: z.string().optional(),
+  // PyModel Preserved Thinking passthrough (`thinking.keep`). The value is
+  // forwarded verbatim to the wire; "all" enables it, an off-value
+  // (false/0/no/off/none/null) disables it. Defaults to "all" when unset.
+  keep: z.string().optional(),
 });
 
 export type ThinkingConfig = z.infer<typeof ThinkingConfigSchema>;
@@ -98,11 +155,85 @@ export type LoopControl = z.infer<typeof LoopControlSchema>;
 export const BackgroundConfigSchema = z.object({
   maxRunningTasks: z.number().int().min(1).optional(),
   keepAliveOnExit: z.boolean().optional(),
+  /**
+   * When a foreground Bash command times out, move it to the background
+   * instead of killing it. Defaults to true when unset.
+   */
+  bashAutoBackgroundOnTimeout: z.boolean().optional(),
+  /**
+   * Default timeout (seconds) for background Bash tasks when the call omits
+   * `timeout`, also used to re-arm foreground commands moved to the
+   * background. `0` means no timeout. Explicit per-call `timeout` values are
+   * unaffected. Defaults to the Bash tool's built-in 600s when unset.
+   */
+  bashTaskTimeoutS: z.number().int().min(0).optional(),
   killGracePeriodMs: z.number().int().min(0).optional(),
   printWaitCeilingS: z.number().int().min(1).optional(),
+  printBackgroundMode: z.enum(['exit', 'drain', 'steer']).optional(),
+  printMaxTurns: z.number().int().min(1).optional(),
 });
 
 export type BackgroundConfig = z.infer<typeof BackgroundConfigSchema>;
+
+export const SubagentConfigSchema = z.object({
+  /**
+   * Per-subagent (`Agent` / `AgentDynamicWorkflow`, foreground and background) timeout
+   * in milliseconds. `0` means no timeout. Defaults to 2 hours when unset.
+   */
+  timeoutMs: z.number().int().min(0).optional(),
+});
+
+export type SubagentConfig = z.infer<typeof SubagentConfigSchema>;
+
+export const MAX_MCP_TIMEOUT_MS = 2_147_483_647;
+const McpTimeoutMsSchema = z.number().int().min(1).max(MAX_MCP_TIMEOUT_MS);
+
+export const McpConfigSchema = z.object({
+  /**
+   * Global default MCP server startup (connect + tool discovery) timeout in
+   * milliseconds. A per-server `startupTimeoutMs` in `mcp.json` and the
+   * PYTHINKER_MCP_STARTUP_TIMEOUT_MS env var both win over this value. Defaults
+   * to 30s when unset.
+   */
+  startupTimeoutMs: McpTimeoutMsSchema.optional(),
+  /**
+   * Global default single MCP tool-call timeout in milliseconds. A
+   * per-server `toolTimeoutMs` in `mcp.json` and the
+   * PYTHINKER_MCP_TOOL_TIMEOUT_MS env var both win over this value. Falls back to
+   * the client built-in default when unset.
+   */
+  toolTimeoutMs: McpTimeoutMsSchema.optional(),
+});
+
+export type McpConfig = z.infer<typeof McpConfigSchema>;
+
+export const ImageConfigSchema = z.object({
+  /**
+   * Longest-edge ceiling (px) applied when compressing images for the model.
+   * Overrides the built-in default; the PYTHINKER_IMAGE_MAX_EDGE_PX env var wins
+   * over this value.
+   */
+  maxEdgePx: z.number().int().min(1).optional(),
+  /**
+   * Raw-byte budget for images the model reads for itself (ReadMediaFile's
+   * default path). Overrides the built-in default; the
+   * PYTHINKER_IMAGE_READ_BYTE_BUDGET env var wins over this value. Explicit
+   * region / full_resolution reads use the provider-scale per-image limit
+   * instead.
+   */
+  readByteBudget: z.number().int().min(1).optional(),
+});
+
+export type ImageConfig = z.infer<typeof ImageConfigSchema>;
+
+export const ModelCatalogConfigSchema = z.object({
+  /** Interval (ms) between automatic provider-model refreshes. `0` disables. */
+  refreshIntervalMs: z.number().int().min(0).optional(),
+  /** Refresh once shortly after the daemon starts. */
+  refreshOnStart: z.boolean().optional(),
+});
+
+export type ModelCatalogConfig = z.infer<typeof ModelCatalogConfigSchema>;
 
 export const ExperimentalConfigSchema = z.record(z.string(), z.boolean());
 
@@ -137,8 +268,8 @@ export type ServicesConfig = z.infer<typeof ServicesConfigSchema>;
 
 const McpServerCommonFields = {
   enabled: z.boolean().optional(),
-  startupTimeoutMs: z.number().int().min(1).optional(),
-  toolTimeoutMs: z.number().int().min(1).optional(),
+  startupTimeoutMs: McpTimeoutMsSchema.optional(),
+  toolTimeoutMs: McpTimeoutMsSchema.optional(),
   enabledTools: z.array(z.string()).optional(),
   disabledTools: z.array(z.string()).optional(),
 } as const;
@@ -161,6 +292,10 @@ export const McpServerHttpConfigSchema = z.object({
   transport: z.literal('http'),
   url: z.string().url(),
   headers: StringRecordSchema.optional(),
+  // Backward-compatible UI marker. OAuth is still discovered from a remote
+  // server's 401 response; this flag only records that the user explicitly
+  // chose OAuth and lets hosts expose login/reset controls before connecting.
+  auth: z.literal('oauth').optional(),
   // Indirect secret reference: the bearer token is looked up from
   // `process.env[bearerTokenEnvVar]` at connection time, never committed.
   bearerTokenEnvVar: z.string().min(1).optional(),
@@ -173,6 +308,7 @@ export const McpServerSseConfigSchema = z.object({
   transport: z.literal('sse'),
   url: z.string().url(),
   headers: StringRecordSchema.optional(),
+  auth: z.literal('oauth').optional(),
   // Indirect secret reference: the bearer token is looked up from
   // `process.env[bearerTokenEnvVar]` at connection time, never committed.
   bearerTokenEnvVar: z.string().min(1).optional(),
@@ -208,7 +344,6 @@ export const PythinkerConfigSchema = z.object({
   thinking: ThinkingConfigSchema.optional(),
   planMode: z.boolean().optional(),
   yolo: z.boolean().optional(),
-  defaultThinking: z.boolean().optional(),
   defaultPermissionMode: PermissionModeSchema.optional(),
   defaultPlanMode: z.boolean().optional(),
   permission: PermissionConfigSchema.optional(),
@@ -216,8 +351,14 @@ export const PythinkerConfigSchema = z.object({
   services: ServicesConfigSchema.optional(),
   mergeAllAvailableSkills: z.boolean().optional(),
   extraSkillDirs: z.array(z.string()).optional(),
+  extraAgentDirs: z.array(z.string()).optional(),
   loopControl: LoopControlSchema.optional(),
   background: BackgroundConfigSchema.optional(),
+  subagent: SubagentConfigSchema.optional(),
+  secondaryModel: SecondaryModelConfigSchema.optional(),
+  mcp: McpConfigSchema.optional(),
+  image: ImageConfigSchema.optional(),
+  modelCatalog: ModelCatalogConfigSchema.optional(),
   experimental: ExperimentalConfigSchema.optional(),
   telemetry: z.boolean().optional(),
   raw: z.record(z.string(), z.unknown()).optional(),
@@ -231,6 +372,11 @@ const ThinkingConfigPatchSchema = ThinkingConfigSchema.partial();
 const PermissionConfigPatchSchema = PermissionConfigSchema.partial();
 const LoopControlPatchSchema = LoopControlSchema.partial();
 const BackgroundConfigPatchSchema = BackgroundConfigSchema.partial();
+const SubagentConfigPatchSchema = SubagentConfigSchema.partial();
+const SecondaryModelConfigPatchSchema = SecondaryModelConfigSchema.partial();
+const McpConfigPatchSchema = McpConfigSchema.partial();
+const ImageConfigPatchSchema = ImageConfigSchema.partial();
+const ModelCatalogConfigPatchSchema = ModelCatalogConfigSchema.partial();
 const ExperimentalConfigPatchSchema = ExperimentalConfigSchema;
 const PyModelServiceConfigPatchSchema = PyModelServiceConfigSchema.partial();
 const ServicesConfigPatchSchema = z.object({
@@ -247,7 +393,6 @@ export const PythinkerConfigPatchSchema = z
     thinking: ThinkingConfigPatchSchema.optional(),
     planMode: z.boolean().optional(),
     yolo: z.boolean().optional(),
-    defaultThinking: z.boolean().optional(),
     defaultPermissionMode: PermissionModeSchema.optional(),
     defaultPlanMode: z.boolean().optional(),
     permission: PermissionConfigPatchSchema.optional(),
@@ -255,8 +400,14 @@ export const PythinkerConfigPatchSchema = z
     services: ServicesConfigPatchSchema.optional(),
     mergeAllAvailableSkills: z.boolean().optional(),
     extraSkillDirs: z.array(z.string()).optional(),
+    extraAgentDirs: z.array(z.string()).optional(),
     loopControl: LoopControlPatchSchema.optional(),
     background: BackgroundConfigPatchSchema.optional(),
+    subagent: SubagentConfigPatchSchema.optional(),
+    secondaryModel: SecondaryModelConfigPatchSchema.optional(),
+    mcp: McpConfigPatchSchema.optional(),
+    image: ImageConfigPatchSchema.optional(),
+    modelCatalog: ModelCatalogConfigPatchSchema.optional(),
     experimental: ExperimentalConfigPatchSchema.optional(),
     telemetry: z.boolean().optional(),
   })

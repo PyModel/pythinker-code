@@ -1,6 +1,6 @@
 {
   "name": "@pymodel/migration-legacy",
-  "version": "0.1.13",
+  "version": "0.1.16",
   "description": "Migrate pythinker-cli (~/.pythinker/) data into pythinker-code (~/.pythinker-code/).",
   "license": "MIT",
   "type": "module",
@@ -9,10 +9,7 @@
     "dist"
   ],
   "imports": {
-    "#/*": [
-      "./src/*.ts",
-      "./src/*/index.ts"
-    ]
+    "#/*": "./src/*.ts"
   },
   "exports": {
     ".": {

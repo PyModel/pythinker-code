@@ -63,18 +63,25 @@
       # -------------------------------------------------------------------
       workspacePaths = [
         ./packages/acp-adapter
+        ./packages/acp-server
         ./packages/agent-core
-        ./packages/server
-        ./packages/server-e2e
+        ./packages/agent-core-v2
+        ./packages/kap-server
         ./packages/kaos
-        ./packages/pythinker-migration-legacy
+        ./packages/klient
         ./packages/kosong
         ./packages/migration-legacy
+        ./packages/minidb
         ./packages/node-sdk
         ./packages/oauth
+        ./packages/pi-tui
         ./packages/protocol
         ./packages/telemetry
+        ./packages/transcript
+        ./packages/tree-sitter-bash
         ./apps/pythinker-code
+        ./apps/vscode
+        ./apps/pythinker-inspect
         ./apps/pythinker-web
         ./apps/vis
         ./apps/vis/server
@@ -84,23 +91,30 @@
 
       workspaceNames = [
         "@pymodel/acp-adapter"
+        "@pymodel/acp-server"
         "@pymodel/agent-core"
-        "@pymodel/server"
-        "@pymodel/server-e2e"
+        "@pymodel/agent-core-v2"
+        "@pymodel/kap-server"
         "@pymodel/kaos"
         "@pymodel/kosong"
         "@pymodel/migration-legacy"
+        "@pymodel/minidb"
         "@pymodel/pythinker-code-sdk"
         "@pymodel/pythinker-code-oauth"
+        "@pymodel/klient"
+        "@pymodel/pi-tui"
         "@pymodel/protocol"
         "@pymodel/pythinker-telemetry"
+        "@pymodel/transcript"
+        "@pymodel/tree-sitter-bash"
         "@pymodel/pythinker-code"
+        "pythinker-code"
+        "@pymodel/pythinker-inspect"
         "@pymodel/pythinker-web"
         "@pymodel/vis"
         "@pymodel/vis-server"
         "@pymodel/vis-web"
         "pythinker-code-docs"
-        "pythinker-migration-legacy"
       ];
     in
     {
@@ -150,7 +164,7 @@
               inherit (finalAttrs) pname version src pnpmWorkspaces;
               inherit pnpm;
               fetcherVersion = 3;
-              hash = "sha256-u+u5Vm6UgrMW/SwiBoSz2WhKp8GOehk4p6euwlinwFI=";
+              hash = "sha256-dRVe0stYIorD8H/SyAIAJof6JinpT/3E/I0lyllbFWg=";
             };
 
             nativeBuildInputs = [

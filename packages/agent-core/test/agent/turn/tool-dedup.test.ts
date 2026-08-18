@@ -116,8 +116,8 @@ describe('ToolCallDeduplicator', () => {
         dedup.endStep();
       }
       expect(last!.output as string).toContain('<system-reminder>');
-      expect(last!.output as string).toContain('repeating the exact same tool call');
-      expect(last!.output as string).not.toContain('repeated_times');
+      expect(last!.output as string).toContain('what new information you expect');
+      expect(last!.output as string).not.toContain('Choose exactly one');
     });
 
     it('keeps injecting reminder1 at 4 consecutive', async () => {
@@ -129,7 +129,7 @@ describe('ToolCallDeduplicator', () => {
         dedup.endStep();
       }
       expect(last!.output as string).toContain('<system-reminder>');
-      expect(last!.output as string).toContain('repeating the exact same tool call');
+      expect(last!.output as string).toContain('what new information you expect');
     });
 
     it('injects reminder2 at exactly 5 consecutive', async () => {
@@ -141,9 +141,9 @@ describe('ToolCallDeduplicator', () => {
         dedup.endStep();
       }
       expect(last!.output as string).toContain('<system-reminder>');
-      expect(last!.output as string).toContain('repeated_times: 5');
-      expect(last!.output as string).toContain('tool: Read');
-      expect(last!.output as string).toContain('arguments:');
+      expect(last!.output as string).toContain('issued 5 times in a row');
+      expect(last!.output as string).toContain('Choose exactly one of the following');
+      expect(last!.output as string).toContain('Falsification check');
     });
 
     it.each([6, 7])('keeps injecting reminder2 at %i consecutive', async (streak) => {
@@ -155,8 +155,8 @@ describe('ToolCallDeduplicator', () => {
         dedup.endStep();
       }
       expect(last!.output as string).toContain('<system-reminder>');
-      expect(last!.output as string).toContain(`repeated_times: ${String(streak)}`);
-      expect(last!.output as string).toContain('tool: Read');
+      expect(last!.output as string).toContain(`issued ${String(streak)} times in a row`);
+      expect(last!.output as string).toContain('Choose exactly one of the following');
     });
 
     it('injects the dead-end reminder at exactly 8 consecutive', async () => {
@@ -168,7 +168,7 @@ describe('ToolCallDeduplicator', () => {
         dedup.endStep();
       }
       expect(last!.output as string).toContain('<system-reminder>');
-      expect(last!.output as string).toContain('stuck in a dead end');
+      expect(last!.output as string).toContain('without any further tool calls');
     });
 
     it('resets streak when a different call is interleaved', async () => {
@@ -214,9 +214,9 @@ describe('ToolCallDeduplicator', () => {
       dedup.endStep();
 
       expect(original.output as string).toContain('<system-reminder>');
-      expect(original.output as string).toContain('repeating the exact same tool call');
+      expect(original.output as string).toContain('what new information you expect');
       expect(finalDup.output as string).toContain('<system-reminder>');
-      expect(finalDup.output as string).toContain('repeating the exact same tool call');
+      expect(finalDup.output as string).toContain('what new information you expect');
     });
 
     it('same-step spam alone does not trigger reminder', async () => {
@@ -273,7 +273,7 @@ describe('ToolCallDeduplicator', () => {
       const arr = final.output as Array<{ type: string; text: string }>;
       expect(arr).toHaveLength(1);
       expect(arr[0]!.type).toBe('text');
-      expect(arr[0]!.text).toBe('hello' + makeReminderText2('X', 5, { a: 1 }));
+      expect(arr[0]!.text).toBe('hello' + makeReminderText2(5));
     });
 
     it('pushes a new text part when trailing part is non-text', async () => {
@@ -408,8 +408,8 @@ describe('ToolCallDeduplicator', () => {
       const dedup = new ToolCallDeduplicator();
       const last = await runStreak(dedup, 8);
       expect(last.output as string).toContain('<system-reminder>');
-      expect(last.output as string).toContain('stuck in a dead end');
-      expect(last.output as string).toContain('Stop all function calls immediately');
+      expect(last.output as string).toContain('Write your final response now');
+      expect(last.output as string).toContain('without any further tool calls');
       // 8 is the reminder threshold, not yet force-stop.
       expect(last.isError).toBeUndefined();
       expect(stopTurnOf(last)).toBeUndefined();
@@ -420,7 +420,7 @@ describe('ToolCallDeduplicator', () => {
       async (streak) => {
         const dedup = new ToolCallDeduplicator();
         const last = await runStreak(dedup, streak);
-        expect(last.output as string).toContain('stuck in a dead end');
+        expect(last.output as string).toContain('Write your final response now');
         expect(last.isError).toBeUndefined();
         expect(stopTurnOf(last)).toBeUndefined();
       },
@@ -429,7 +429,7 @@ describe('ToolCallDeduplicator', () => {
     it('force-stops the turn at exactly 12 consecutive without marking the tool failed', async () => {
       const dedup = new ToolCallDeduplicator();
       const last = await runStreak(dedup, 12);
-      expect(last.output as string).toContain('stuck in a dead end');
+      expect(last.output as string).toContain('Write your final response now');
       // The underlying tool succeeded — force-stop must not flip it to error.
       expect(last.isError).toBeUndefined();
       expect(stopTurnOf(last)).toBe(true);
@@ -459,7 +459,7 @@ describe('ToolCallDeduplicator', () => {
       // The underlying tool was an error — that must survive force-stop.
       expect(last!.isError).toBe(true);
       expect(stopTurnOf(last!)).toBe(true);
-      expect(last!.output as string).toContain('stuck in a dead end');
+      expect(last!.output as string).toContain('Write your final response now');
     });
   });
 
@@ -484,6 +484,18 @@ describe('ToolCallDeduplicator', () => {
       await runOriginal(dedup, 'c0', 'Read', { p: 1 }, okResult('R'));
       dedup.endStep();
       expect(events.filter((e) => e.event === 'tool_call_repeat')).toHaveLength(0);
+    });
+
+    it('attaches the injected trace id to tool_call_repeat', async () => {
+      const { client, events } = makeRecordingTelemetry();
+      const dedup = new ToolCallDeduplicator({ telemetry: client });
+      for (let i = 0; i < 2; i += 1) {
+        dedup.beginStep({ traceId: 'trace-repeat-1' });
+        await runOriginal(dedup, `c${String(i)}`, 'Read', { p: 1 }, okResult('R'));
+        dedup.endStep();
+      }
+      const repeat = events.find((e) => e.event === 'tool_call_repeat');
+      expect(repeat?.properties?.['trace_id']).toBe('trace-repeat-1');
     });
 
     it('labels the action as r1/r2/r3 according to the reminder tier from streak 3 through 11', async () => {
@@ -559,6 +571,80 @@ describe('ToolCallDeduplicator', () => {
       }
       // Exercises the optional telemetry path; should complete silently.
       expect(true).toBe(true);
+    });
+  });
+
+  describe('skipped registration (calls rejected before prepareToolExecution)', () => {
+    // Calls rejected in preflight (e.g. invalid args) never reach
+    // prepareToolExecution/checkSameStep; the loop registers them late via
+    // registerSkipped at finalize time so the breaker still counts them.
+    async function runRejected(
+      dedup: ToolCallDeduplicator,
+      callId: string,
+      result: ExecutableToolResult,
+    ): Promise<ExecutableToolResult> {
+      dedup.registerSkipped(callId, 'Bash', { timeout: 60 });
+      return dedup.finalizeResult(callId, 'Bash', { timeout: 60 }, result);
+    }
+
+    it('counts skipped calls toward the streak and force-stops at 12, keeping the error flag', async () => {
+      const dedup = new ToolCallDeduplicator();
+      let last: ExecutableToolResult | undefined;
+      for (let i = 0; i < 12; i += 1) {
+        dedup.beginStep();
+        last = await runRejected(dedup, `c${String(i)}`, errResult('Invalid args'));
+        dedup.endStep();
+      }
+      expect(last!.isError).toBe(true);
+      expect(last!.stopTurn).toBe(true);
+      expect(last!.output as string).toContain(REMINDER_TEXT_3.trim());
+    });
+
+    it('does not double-register a call that already went through checkSameStep', async () => {
+      const { client, events } = makeRecordingTelemetry();
+      const dedup = new ToolCallDeduplicator({ telemetry: client });
+      for (let i = 0; i < 2; i += 1) {
+        dedup.beginStep();
+        const callId = `c${String(i)}`;
+        expect(dedup.checkSameStep(callId, 'Read', { p: 1 })).toBeNull();
+        dedup.registerSkipped(callId, 'Read', { p: 1 });
+        await dedup.finalizeResult(callId, 'Read', { p: 1 }, okResult('R'));
+        dedup.endStep();
+      }
+      // Exactly one repeat at count 2 — a double registration would inflate
+      // the streak and fire the reminder one occurrence early.
+      const repeats = events.filter((e) => e.event === 'tool_call_repeat');
+      expect(repeats.map((e) => e.properties?.['repeat_count'])).toEqual([2]);
+    });
+
+    it('counts identical malformed argument texts as repeats', async () => {
+      const { client, events } = makeRecordingTelemetry();
+      const dedup = new ToolCallDeduplicator({ telemetry: client });
+      for (let i = 0; i < 2; i += 1) {
+        dedup.beginStep();
+        const callId = `c${String(i)}`;
+        dedup.registerSkipped(callId, 'Bash', {}, '{"command":');
+        await dedup.finalizeResult(callId, 'Bash', {}, errResult('Invalid args'));
+        dedup.endStep();
+      }
+      const repeats = events.filter((e) => e.event === 'tool_call_repeat');
+      expect(repeats.map((e) => e.properties?.['repeat_count'])).toEqual([2]);
+    });
+
+    it('does not treat different malformed argument texts as the same call', async () => {
+      const { client, events } = makeRecordingTelemetry();
+      const dedup = new ToolCallDeduplicator({ telemetry: client });
+      const raws = ['{"command":', '{"comand":', '{"command": "ls"'];
+      for (let i = 0; i < 3; i += 1) {
+        dedup.beginStep();
+        const callId = `c${String(i)}`;
+        dedup.registerSkipped(callId, 'Bash', {}, raws[i]);
+        await dedup.finalizeResult(callId, 'Bash', {}, errResult('Invalid args'));
+        dedup.endStep();
+      }
+      // All three normalize to {} on parse failure, but the raw texts differ,
+      // so no repeat streak may form.
+      expect(events.filter((e) => e.event === 'tool_call_repeat')).toHaveLength(0);
     });
   });
 });

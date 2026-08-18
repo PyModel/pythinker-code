@@ -13,7 +13,9 @@ import { promptPlatformSelection, promptLogoutProviderSelection } from '#/tui/co
 import { BannerComponent } from '#/tui/components/chrome/banner';
 import { WelcomeComponent } from '#/tui/components/chrome/welcome';
 import { PythinkerTUI, type PythinkerTUIStartupInput, type TUIState } from '#/tui/pythinker-tui';
+import { REPLAY_TURN_LIMIT } from '#/tui/utils/message-replay';
 import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
+import { quoteShellArg } from '#/utils/shell-quote';
 import {
   DISABLE_TERMINAL_THEME_REPORTING,
   ENABLE_TERMINAL_THEME_REPORTING,
@@ -83,13 +85,17 @@ function makeStartupInput(
       outputFormat: undefined,
       prompt: undefined,
       skillsDirs: [],
+      agent: undefined,
+      agentFiles: [],
       ...cliOptions,
     },
     tuiConfig: {
       theme: 'dark',
+      disablePasteBurst: false,
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
       upgrade: { autoInstall: true },
+      statusLine: { items: null, command: null },
       ...tuiConfig,
     },
     version: '0.0.0-test',
@@ -104,7 +110,7 @@ function makeSession(overrides: Record<string, unknown> = {}) {
     summary: { title: 'Session title' },
     getStatus: vi.fn(async () => ({
       model: 'k2',
-      thinkingLevel: 'off',
+      thinkingEffort: 'off',
       permission: 'manual',
       planMode: false,
       contextTokens: 10,
@@ -164,7 +170,7 @@ function createResumeState(overrides: { permissionMode?: string; planMode?: bool
         config: {
           cwd: '/tmp/proj-a',
           modelCapabilities: { max_context_tokens: 100 },
-          thinkingLevel: 'off',
+          thinkingEffort: 'off',
           systemPrompt: '',
         },
         context: { history: [], tokenCount: 10 },
@@ -200,6 +206,7 @@ function makeHarness(session = makeSession(), overrides: Record<string, unknown>
     track: vi.fn(),
     setTelemetryContext: vi.fn(),
     getExperimentalFeatures: vi.fn(async () => []),
+    supportsAtomicSectionReplace: vi.fn(() => false),
     auth: {
       status: vi.fn(async () => ({ providers: [] })),
       login: vi.fn(async () => {}),
@@ -240,7 +247,7 @@ describe('PythinkerTUI startup', () => {
     const session = makeSession({
       getStatus: vi.fn(async () => ({
         model: 'k2',
-        thinkingLevel: 'off',
+        thinkingEffort: 'off',
         permission: 'yolo',
         planMode: true,
         contextTokens: 25,
@@ -275,6 +282,238 @@ describe('PythinkerTUI startup', () => {
     });
   });
 
+  it('starts session-less on the v2 engine and carries startup flags to appState', async () => {
+    const harness = makeHarness(makeSession(), {
+      getConfig: vi.fn(async () => ({
+        models: {
+          k2: { model: 'moonshot-v1', maxContextSize: 200 },
+        },
+        defaultModel: 'k2',
+        // CLI --yolo must win over the config default.
+        defaultPermissionMode: 'auto',
+      })),
+    });
+    const driver = makeDriver(
+      harness,
+      { ...makeStartupInput({ model: 'k2', yolo: true }), engineV2: true },
+    );
+
+    await expect(driver.init()).resolves.toBe(false);
+
+    expect(harness.createSession).not.toHaveBeenCalled();
+    expect(driver.state.startupState).toBe('ready');
+    expect(driver.state.appState).toMatchObject({
+      sessionId: '',
+      model: 'k2',
+      permissionMode: 'yolo',
+    });
+  });
+
+  it('shows a session-less notice on v2 startup', async () => {
+    const harness = makeHarness(makeSession());
+    const driver = makeDriver(harness, { ...makeStartupInput(), engineV2: true });
+
+    await expect(driver.init()).resolves.toBe(false);
+    await (
+      driver as unknown as { finishStartup(shouldReplayHistory: boolean): Promise<void> }
+    ).finishStartup(false);
+
+    const transcript = driver.state.transcriptContainer.render(160).join('\n');
+    expect(transcript).toContain('No session yet — one will be created on your first message.');
+  });
+
+  it('shows config defaults in appState before the lazy session exists (v2)', async () => {
+    const harness = makeHarness(makeSession(), {
+      getConfig: vi.fn(async () => ({
+        models: {
+          k2: { model: 'moonshot-v1', maxContextSize: 200 },
+        },
+        defaultModel: 'k2',
+        defaultPermissionMode: 'auto',
+        defaultPlanMode: true,
+        thinking: { enabled: true, effort: 'high' },
+      })),
+    });
+    const driver = makeDriver(harness, { ...makeStartupInput(), engineV2: true });
+
+    await expect(driver.init()).resolves.toBe(false);
+
+    expect(harness.createSession).not.toHaveBeenCalled();
+    expect(driver.state.appState).toMatchObject({
+      sessionId: '',
+      model: 'k2',
+      maxContextTokens: 200,
+      permissionMode: 'auto',
+      planMode: true,
+      thinkingEffort: 'high',
+    });
+  });
+
+  it('hydrates the model default effort when thinking is enabled without an effort (v2)', async () => {
+    const harness = makeHarness(makeSession(), {
+      getConfig: vi.fn(async () => ({
+        models: {
+          k2: {
+            model: 'moonshot-v1',
+            maxContextSize: 200,
+            capabilities: ['thinking'],
+            supportEfforts: ['low', 'medium', 'high'],
+            defaultEffort: 'high',
+          },
+        },
+        defaultModel: 'k2',
+        thinking: { enabled: true },
+      })),
+    });
+    const driver = makeDriver(harness, { ...makeStartupInput(), engineV2: true });
+
+    await expect(driver.init()).resolves.toBe(false);
+
+    expect(harness.createSession).not.toHaveBeenCalled();
+    expect(driver.state.appState.thinkingEffort).toBe('high');
+  });
+
+  it('hydrates the model default effort when no [thinking] section exists (v2)', async () => {
+    const harness = makeHarness(makeSession(), {
+      getConfig: vi.fn(async () => ({
+        models: {
+          k2: {
+            model: 'moonshot-v1',
+            maxContextSize: 200,
+            capabilities: ['thinking'],
+            supportEfforts: ['low', 'medium', 'high'],
+          },
+        },
+        defaultModel: 'k2',
+      })),
+    });
+    const driver = makeDriver(harness, { ...makeStartupInput(), engineV2: true });
+
+    await expect(driver.init()).resolves.toBe(false);
+
+    expect(driver.state.appState.thinkingEffort).toBe('medium');
+  });
+
+  it('hydrates permission/plan defaults after a session-less v2 login', async () => {
+    let loggedIn = false;
+    const harness = makeHarness(makeSession(), {
+      getConfig: vi.fn(async () =>
+        loggedIn
+          ? {
+              models: { k2: { model: 'moonshot-v1', maxContextSize: 100 } },
+              defaultModel: 'k2',
+              defaultPermissionMode: 'auto',
+              defaultPlanMode: true,
+            }
+          : { models: {} },
+      ),
+      auth: {
+        status: vi.fn(async () => ({ providers: [] })),
+        login: vi.fn(async () => {
+          loggedIn = true;
+        }),
+        logout: vi.fn(),
+        getManagedUsage: vi.fn(),
+      },
+    });
+    const driver = makeDriver(harness, { ...makeStartupInput(), engineV2: true });
+
+    await expect(driver.init()).resolves.toBe(false);
+    expect(driver.state.appState).toMatchObject({
+      sessionId: '',
+      model: '',
+      permissionMode: 'manual',
+      planMode: false,
+    });
+
+    vi.mocked(promptPlatformSelection).mockResolvedValue('pythinker-code');
+    await handleLoginCommand(driver as any);
+
+    // Login must not create a session on v2, but the refreshed config
+    // defaults must reach the first lazy-created session.
+    expect(harness.createSession).not.toHaveBeenCalled();
+    expect(driver.state.appState).toMatchObject({
+      sessionId: '',
+      model: 'k2',
+      permissionMode: 'auto',
+      planMode: true,
+      configDefaultPlanMode: true,
+    });
+  });
+
+  it('hydrates permission defaults after a session-less v2 login without a default model', async () => {
+    let loggedIn = false;
+    const harness = makeHarness(makeSession(), {
+      getConfig: vi.fn(async () =>
+        loggedIn
+          ? {
+              models: { k2: { model: 'moonshot-v1', maxContextSize: 100 } },
+              defaultPermissionMode: 'auto',
+            }
+          : { models: {} },
+      ),
+      auth: {
+        status: vi.fn(async () => ({ providers: [] })),
+        login: vi.fn(async () => {
+          loggedIn = true;
+        }),
+        logout: vi.fn(),
+        getManagedUsage: vi.fn(),
+      },
+    });
+    const driver = makeDriver(harness, { ...makeStartupInput(), engineV2: true });
+
+    await expect(driver.init()).resolves.toBe(false);
+
+    vi.mocked(promptPlatformSelection).mockResolvedValue('pythinker-code');
+    await handleLoginCommand(driver as any);
+
+    expect(harness.createSession).not.toHaveBeenCalled();
+    expect(driver.state.appState).toMatchObject({
+      sessionId: '',
+      model: '',
+      permissionMode: 'auto',
+    });
+  });
+
+  it('carries the --agent/--agent-file binding for the lazy-created first session (v2)', async () => {
+    const harness = makeHarness(makeSession());
+    const driver = makeDriver(
+      harness,
+      {
+        ...makeStartupInput({ model: 'k2', agentFiles: ['agent.md'] }),
+        engineV2: true,
+        agentProfile: 'reviewer',
+      },
+    );
+
+    await expect(driver.init()).resolves.toBe(false);
+
+    expect(harness.createSession).not.toHaveBeenCalled();
+    expect(driver.state.appState).toMatchObject({
+      agentProfile: 'reviewer',
+      agentFiles: ['agent.md'],
+    });
+  });
+
+  it('binds the resolved agent profile and agent files to the startup session', async () => {
+    const session = makeSession();
+    const harness = makeHarness(session);
+    const driver = makeDriver(harness, {
+      ...makeStartupInput({ agent: 'reviewer', agentFiles: ['reviewer.md'] }),
+      agentProfile: 'reviewer',
+    });
+
+    await expect(driver.init()).resolves.toBe(false);
+
+    expect(harness.createSession).toHaveBeenCalledWith({
+      workDir: '/tmp/proj-a',
+      agentProfile: 'reviewer',
+      agentFiles: ['reviewer.md'],
+    });
+    expect(driver.state.startupState).toBe('ready');
+  });
+
   it('resumes the latest session for --continue and marks history for replay', async () => {
     const session = makeSession({ id: 'ses-latest' });
     const harness = makeHarness(session, {
@@ -284,7 +523,10 @@ describe('PythinkerTUI startup', () => {
 
     await expect(driver.init()).resolves.toBe(true);
 
-    expect(harness.resumeSession).toHaveBeenCalledWith({ id: 'ses-latest' });
+    expect(harness.resumeSession).toHaveBeenCalledWith({
+      id: 'ses-latest',
+      replayTurnLimit: REPLAY_TURN_LIMIT,
+    });
     expect(harness.createSession).not.toHaveBeenCalled();
     expect(driver.state.startupState).toBe('ready');
     expect(driver.state.appState.sessionId).toBe('ses-latest');
@@ -296,7 +538,7 @@ describe('PythinkerTUI startup', () => {
       id: 'ses-latest',
       getStatus: vi.fn(async () => ({
         model: 'k2',
-        thinkingLevel: 'off',
+        thinkingEffort: 'off',
         permission,
         planMode: false,
         contextTokens: 10,
@@ -324,7 +566,7 @@ describe('PythinkerTUI startup', () => {
       id: 'ses-latest',
       getStatus: vi.fn(async () => ({
         model: 'k2',
-        thinkingLevel: 'off',
+        thinkingEffort: 'off',
         permission,
         planMode: false,
         contextTokens: 10,
@@ -352,7 +594,7 @@ describe('PythinkerTUI startup', () => {
       id: 'ses-latest',
       getStatus: vi.fn(async () => ({
         model: 'k2',
-        thinkingLevel: 'off',
+        thinkingEffort: 'off',
         permission: 'manual',
         planMode,
         contextTokens: 10,
@@ -379,7 +621,7 @@ describe('PythinkerTUI startup', () => {
       id: 'ses-latest',
       getStatus: vi.fn(async () => ({
         model: 'k2',
-        thinkingLevel: 'off',
+        thinkingEffort: 'off',
         permission: 'manual',
         planMode: true,
         contextTokens: 10,
@@ -406,7 +648,7 @@ describe('PythinkerTUI startup', () => {
       id: 'ses-latest',
       getStatus: vi.fn(async () => ({
         model: 'k2',
-        thinkingLevel: 'off',
+        thinkingEffort: 'off',
         permission: 'manual',
         planMode: false,
         contextTokens: 10,
@@ -431,7 +673,7 @@ describe('PythinkerTUI startup', () => {
       id: 'ses-latest',
       getStatus: vi.fn(async () => ({
         model: 'k2',
-        thinkingLevel: 'off',
+        thinkingEffort: 'off',
         permission: 'manual',
         planMode: false,
         contextTokens: 10,
@@ -497,7 +739,7 @@ describe('PythinkerTUI startup', () => {
       id: 'ses-target',
       getStatus: vi.fn(async () => ({
         model: 'k2',
-        thinkingLevel: 'off',
+        thinkingEffort: 'off',
         permission,
         planMode: false,
         contextTokens: 10,
@@ -591,7 +833,7 @@ describe('PythinkerTUI startup', () => {
       }),
       getStatus: vi.fn(async () => ({
         model,
-        thinkingLevel: 'off',
+        thinkingEffort: 'off',
         permission: 'manual',
         planMode: false,
         contextTokens: 10,
@@ -630,7 +872,7 @@ describe('PythinkerTUI startup', () => {
       id: 'ses-picked',
       getStatus: vi.fn(async () => ({
         model: 'k2',
-        thinkingLevel: 'off',
+        thinkingEffort: 'off',
         permission,
         planMode: false,
         contextTokens: 10,
@@ -670,7 +912,7 @@ describe('PythinkerTUI startup', () => {
       id: 'ses-picked',
       getStatus: vi.fn(async () => ({
         model: 'k2',
-        thinkingLevel: 'off',
+        thinkingEffort: 'off',
         permission: 'manual',
         planMode: true,
         contextTokens: 10,
@@ -891,17 +1133,12 @@ describe('PythinkerTUI startup', () => {
 
     expect(resumeSession).not.toHaveBeenCalled();
     expect(driver.state.activeDialog).toBeNull();
-    expect(copyTextToClipboardMock).toHaveBeenCalledWith(
-      "cd '/tmp/proj-b' && pythinker --resume 'ses-other-cwd'",
-    );
+    const expectedResumeCmd = `cd ${quoteShellArg('/tmp/proj-b')} && pythinker --resume ${quoteShellArg('ses-other-cwd')}`;
+    expect(copyTextToClipboardMock).toHaveBeenCalledWith(expectedResumeCmd);
     const transcript = driver.state.transcriptContainer.render(160).join('\n');
     expect(transcript).toContain('Current session is in a different working directory.');
-    expect(transcript).toContain(
-      "To resume, run: cd '/tmp/proj-b' && pythinker --resume 'ses-other-cwd'",
-    );
-    expect(transcript).toContain(
-      "To resume, run: cd '/tmp/proj-b' && pythinker --resume 'ses-other-cwd'",
-    );
+    expect(transcript).toContain(`To resume, run: ${expectedResumeCmd}`);
+    expect(transcript).toContain(`To resume, run: ${expectedResumeCmd}`);
     expect(transcript).toContain('Command copied to clipboard');
   });
 
@@ -934,13 +1171,10 @@ describe('PythinkerTUI startup', () => {
     await new Promise((resolve) => setImmediate(resolve));
 
     expect(resumeSession).not.toHaveBeenCalled();
-    expect(copyTextToClipboardMock).toHaveBeenCalledWith(
-      "cd '/tmp/proj$(touch /tmp/pwned)' && pythinker --resume 'ses-other-cwd'",
-    );
+    const expectedResumeCmd = `cd ${quoteShellArg('/tmp/proj$(touch /tmp/pwned)')} && pythinker --resume ${quoteShellArg('ses-other-cwd')}`;
+    expect(copyTextToClipboardMock).toHaveBeenCalledWith(expectedResumeCmd);
     const transcript = driver.state.transcriptContainer.render(160).join('\n');
-    expect(transcript).toContain(
-      "To resume, run: cd '/tmp/proj$(touch /tmp/pwned)' && pythinker --resume 'ses-other-cwd'",
-    );
+    expect(transcript).toContain(`To resume, run: ${expectedResumeCmd}`);
   });
 
   it('exits after picking another cwd from the startup picker', async () => {
@@ -974,9 +1208,8 @@ describe('PythinkerTUI startup', () => {
     await new Promise((resolve) => setImmediate(resolve));
 
     expect(resumeSession).not.toHaveBeenCalled();
-    expect(copyTextToClipboardMock).toHaveBeenCalledWith(
-      "cd '/tmp/proj-b' && pythinker --resume 'ses-other-cwd'",
-    );
+    const expectedResumeCmd = `cd ${quoteShellArg('/tmp/proj-b')} && pythinker --resume ${quoteShellArg('ses-other-cwd')}`;
+    expect(copyTextToClipboardMock).toHaveBeenCalledWith(expectedResumeCmd);
     expect(stop).toHaveBeenCalledOnce();
     expect(stop).toHaveBeenCalledWith(0);
   });
@@ -1122,6 +1355,121 @@ describe('PythinkerTUI startup', () => {
     expect(showStatus).toHaveBeenCalledWith("New Models · +2 models.");
   });
 
+  it("stages provider-refresh removals and persists one atomic write on atomic-capable harnesses", async () => {
+    const registryUrl = "https://registry.example.test/v1/models/api.json";
+    const source = { kind: "apiJson", url: registryUrl, apiKey: "sk-test-token" };
+    const replaceConfigSections = vi.fn(async (_sections: Record<string, unknown>) => {});
+    const removeProvider = vi.fn(async () => ({}));
+    const setConfig = vi.fn(async () => ({}));
+    const harness = makeHarness(makeSession(), {
+      supportsAtomicSectionReplace: vi.fn(() => true),
+      replaceConfigSections,
+      removeProvider,
+      setConfig,
+      getConfig: vi.fn(async () => ({
+        providers: {
+          a: { type: "openai", baseUrl: "https://a.example.test/v1", apiKey: "sk-test-token", source },
+          b: { type: "openai", baseUrl: "https://b.example.test/v1", apiKey: "sk-test-token", source },
+        },
+        models: {
+          "a/m1": { provider: "a", model: "m1", maxContextSize: 100, capabilities: ["tool_use"] },
+          "b/m1": { provider: "b", model: "m1", maxContextSize: 100, capabilities: ["tool_use"] },
+        },
+        defaultModel: "b/m1",
+        thinking: { enabled: true },
+      })),
+    });
+    const driver = makeDriver(harness, makeStartupInput());
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            a: {
+              id: "a",
+              name: "Provider A",
+              api: "https://a.example.test/v1",
+              type: "openai",
+              models: { m1: { id: "m1" } },
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      ),
+    );
+    try {
+      const result = await (driver as any).authFlow.refreshProviderModels();
+
+      expect(result.failed).toEqual([]);
+      expect(result.changed).toContainEqual({ providerId: "b", providerName: "b", added: 0, removed: 1 });
+      // The removal was staged in memory: no destructive pre-write, exactly
+      // one atomic section replace carrying the complete records — with the
+      // dangling default model / thinking expressed as cleared sections.
+      expect(removeProvider).not.toHaveBeenCalled();
+      expect(setConfig).not.toHaveBeenCalled();
+      expect(replaceConfigSections).toHaveBeenCalledTimes(1);
+      const sections = replaceConfigSections.mock.calls[0]?.[0] as Record<string, unknown>;
+      expect(Object.keys(sections["providers"] as object)).toEqual(["a"]);
+      expect(sections["models"]).not.toHaveProperty("b/m1");
+      expect(sections["defaultModel"]).toBeUndefined();
+      expect(sections["thinking"]).toBeUndefined();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps the two-phase removeProvider/setConfig host on harnesses without atomic replace", async () => {
+    const registryUrl = "https://registry.example.test/v1/models/api.json";
+    const source = { kind: "apiJson", url: registryUrl, apiKey: "sk-test-token" };
+    const replaceConfigSections = vi.fn(async () => {});
+    const removeProvider = vi.fn(async () => ({}));
+    const setConfig = vi.fn(async (patch: Record<string, unknown>) => patch);
+    const harness = makeHarness(makeSession(), {
+      replaceConfigSections,
+      removeProvider,
+      setConfig,
+      getConfig: vi.fn(async () => ({
+        providers: {
+          a: { type: "openai", baseUrl: "https://a.example.test/v1", apiKey: "sk-test-token", source },
+          b: { type: "openai", baseUrl: "https://b.example.test/v1", apiKey: "sk-test-token", source },
+        },
+        models: {
+          "a/m1": { provider: "a", model: "m1", maxContextSize: 100, capabilities: ["tool_use"] },
+          "b/m1": { provider: "b", model: "m1", maxContextSize: 100, capabilities: ["tool_use"] },
+        },
+        defaultModel: "b/m1",
+      })),
+    });
+    const driver = makeDriver(harness, makeStartupInput());
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            a: {
+              id: "a",
+              name: "Provider A",
+              api: "https://a.example.test/v1",
+              type: "openai",
+              models: { m1: { id: "m1" } },
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      ),
+    );
+    try {
+      const result = await (driver as any).authFlow.refreshProviderModels();
+
+      expect(result.failed).toEqual([]);
+      expect(removeProvider).toHaveBeenCalledWith("b");
+      expect(setConfig).toHaveBeenCalledTimes(1);
+      expect(replaceConfigSections).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("starts TUI without a session when fresh startup needs OAuth login", async () => {
     const harness = makeHarness(makeSession(), {
       createSession: vi.fn(async () => {
@@ -1137,7 +1485,7 @@ describe('PythinkerTUI startup', () => {
     expect(driver.state.appState).toMatchObject({
       sessionId: '',
       model: '',
-      thinking: false,
+      thinkingEffort: 'off',
       contextTokens: 0,
       maxContextTokens: 0,
       contextUsage: 0,
@@ -1149,7 +1497,7 @@ describe('PythinkerTUI startup', () => {
     const session = makeSession({
       getStatus: vi.fn(async () => ({
         model: 'k2',
-        thinkingLevel: 'off',
+        thinkingEffort: 'off',
         permission: 'yolo',
         planMode: true,
         contextTokens: 10,
@@ -1164,7 +1512,7 @@ describe('PythinkerTUI startup', () => {
     const harness = makeHarness(session, {
       getConfig: vi.fn(async () => ({
         defaultModel: 'k2',
-        defaultThinking: false,
+        thinking: { enabled: false },
         models: {
           k2: { model: 'moonshot-v1', maxContextSize: 100 },
         },
@@ -1205,11 +1553,48 @@ describe('PythinkerTUI startup', () => {
     });
   });
 
+  it('carries the agent binding into the post-login startup session', async () => {
+    const session = makeSession();
+    const createSession = vi
+      .fn()
+      .mockRejectedValueOnce(loginRequiredError())
+      .mockResolvedValueOnce(session);
+    const harness = makeHarness(session, {
+      getConfig: vi.fn(async () => ({
+        defaultModel: 'k2',
+        thinking: { enabled: false },
+        models: {
+          k2: { model: 'moonshot-v1', maxContextSize: 100 },
+        },
+      })),
+      createSession,
+    });
+    const driver = makeDriver(harness, {
+      ...makeStartupInput({ agent: 'reviewer', agentFiles: ['reviewer.md'] }),
+      agentProfile: 'reviewer',
+    });
+
+    await expect(driver.init()).resolves.toBe(false);
+
+    vi.mocked(promptPlatformSelection).mockResolvedValue('pythinker-code');
+    await handleLoginCommand(driver as any);
+
+    expect(createSession).toHaveBeenNthCalledWith(2, {
+      workDir: '/tmp/proj-a',
+      model: 'k2',
+      thinking: 'off',
+      permission: undefined,
+      planMode: undefined,
+      agentProfile: 'reviewer',
+      agentFiles: ['reviewer.md'],
+    });
+  });
+
   it('does not force manual permission after OAuth login without --yolo', async () => {
     const session = makeSession({
       getStatus: vi.fn(async () => ({
         model: 'k2',
-        thinkingLevel: 'off',
+        thinkingEffort: 'off',
         permission: 'auto',
         planMode: false,
         contextTokens: 10,
@@ -1224,7 +1609,7 @@ describe('PythinkerTUI startup', () => {
     const harness = makeHarness(session, {
       getConfig: vi.fn(async () => ({
         defaultModel: 'k2',
-        defaultThinking: false,
+        thinking: { enabled: false },
         models: {
           k2: { model: 'moonshot-v1', maxContextSize: 100 },
         },
@@ -1249,12 +1634,12 @@ describe('PythinkerTUI startup', () => {
     });
   });
 
-  it('syncs configured thinking after OAuth login refreshes an active session', async () => {
+  it('does not override active session thinking when configured thinking is enabled after OAuth login', async () => {
     const session = makeSession();
     const harness = makeHarness(session, {
       getConfig: vi.fn(async () => ({
         defaultModel: 'k2',
-        defaultThinking: true,
+        thinking: { enabled: true },
         models: {
           k2: { model: 'moonshot-v1', maxContextSize: 100 },
         },
@@ -1263,20 +1648,23 @@ describe('PythinkerTUI startup', () => {
     const driver = makeDriver(harness, makeStartupInput());
 
     await expect(driver.init()).resolves.toBe(false);
-    expect(driver.state.appState.thinking).toBe(false);
+    expect(driver.state.appState.thinkingEffort).toBe('off');
 
     vi.mocked(promptPlatformSelection).mockResolvedValue('pythinker-code');
     await handleLoginCommand(driver as any);
 
     expect(session.setModel).toHaveBeenCalledWith('k2');
-    expect(session.setThinking).toHaveBeenCalledWith('on');
+    // `thinking.enabled === true` means "leave the session's current thinking
+    // level alone" — only an explicit `enabled === false` forces `'off'`.
+    expect(session.setThinking).not.toHaveBeenCalled();
     expect(driver.state.appState).toMatchObject({
       model: 'k2',
-      thinking: true,
+      thinkingEffort: 'off',
       maxContextTokens: 100,
     });
     expect(harness.track).toHaveBeenCalledWith('login', {
       provider: 'managed:pythinker-code',
+      method: 'oauth',
       already_logged_in: false,
     });
   });
@@ -1310,6 +1698,7 @@ describe('PythinkerTUI startup', () => {
     );
     expect(harness.track).toHaveBeenCalledWith('login', {
       provider: 'managed:pythinker-code',
+      method: 'oauth',
       already_logged_in: true,
     });
   });
@@ -1477,7 +1866,10 @@ describe('PythinkerTUI startup', () => {
 
     await expect(driver.init()).resolves.toBe(false);
 
-    expect(harness.resumeSession).toHaveBeenCalledWith({ id: 'ses-latest' });
+    expect(harness.resumeSession).toHaveBeenCalledWith({
+      id: 'ses-latest',
+      replayTurnLimit: REPLAY_TURN_LIMIT,
+    });
     expect(harness.createSession).not.toHaveBeenCalled();
     expect(driver.state.startupState).toBe('ready');
     expect(driver.state.appState.sessionId).toBe('');
@@ -1494,7 +1886,10 @@ describe('PythinkerTUI startup', () => {
 
     await expect(driver.init()).resolves.toBe(false);
 
-    expect(harness.resumeSession).toHaveBeenCalledWith({ id: 'ses-target' });
+    expect(harness.resumeSession).toHaveBeenCalledWith({
+      id: 'ses-target',
+      replayTurnLimit: REPLAY_TURN_LIMIT,
+    });
     expect(driver.state.startupState).toBe('ready');
     expect(driver.state.appState.sessionId).toBe('');
   });
@@ -1663,6 +2058,16 @@ describe('PythinkerTUI startup', () => {
         ).toBe(true);
       });
 
+      // writeBannerDisplayState runs after renderBanner; on Windows the atomic
+      // write can lag behind the render, so wait for the state to land before
+      // asserting it.
+      await vi.waitFor(
+        async () => {
+          const state = await readBannerDisplayState();
+          expect(state.shown['once-banner']?.lastShownAt).toBeDefined();
+        },
+        { timeout: 5000 },
+      );
       await expect(readBannerDisplayState()).resolves.toMatchObject({
         version: 1,
         shown: {
@@ -1738,7 +2143,10 @@ describe('PythinkerTUI startup', () => {
       sessionId: 'ses-target',
       workDir: String.raw`C:\Users\pythinker\project`,
     });
-    expect(harness.resumeSession).toHaveBeenCalledWith({ id: 'ses-target' });
+    expect(harness.resumeSession).toHaveBeenCalledWith({
+      id: 'ses-target',
+      replayTurnLimit: REPLAY_TURN_LIMIT,
+    });
     expect(driver.state.appState.sessionId).toBe('ses-target');
   });
 });

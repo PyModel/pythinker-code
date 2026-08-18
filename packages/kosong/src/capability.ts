@@ -14,7 +14,23 @@ export interface ModelCapability {
   readonly audio_in: boolean;
   readonly thinking: boolean;
   readonly tool_use: boolean;
+  /** Total context window (input + output), used for completion budgeting. */
   readonly max_context_tokens: number;
+  /**
+   * Maximum prompt/input tokens when the model declares one below the total
+   * window (e.g. gpt-5: 400k window, 272k input cap). Compaction and other
+   * prompt-budget checks use this in preference to the total window; absent
+   * means the total window is the only known ceiling.
+   */
+  readonly max_input_tokens?: number;
+  /**
+   * Model accepts message-level tool declarations (`messages[].tools`) — the
+   * "dynamically loaded tools" wire feature that clients can drive with
+   * progressive tool disclosure. Absent means unsupported: only models
+   * explicitly catalogued or declared with this capability may ever receive a
+   * message carrying `tools`.
+   */
+  readonly dynamically_loaded_tools?: boolean;
 }
 
 const UNKNOWN_CAPABILITY_MARKER = Symbol.for('moonshot-ai.kosong.UNKNOWN_CAPABILITY');
@@ -33,6 +49,7 @@ export const UNKNOWN_CAPABILITY: ModelCapability = Object.freeze(
       thinking: false,
       tool_use: false,
       max_context_tokens: 0,
+      dynamically_loaded_tools: false,
     },
     UNKNOWN_CAPABILITY_MARKER,
     { value: true },
@@ -50,6 +67,7 @@ export function isUnknownCapability(capability: ModelCapability): boolean {
     !capability.audio_in &&
     !capability.thinking &&
     !capability.tool_use &&
+    capability.dynamically_loaded_tools !== true &&
     capability.max_context_tokens === 0
   );
 }

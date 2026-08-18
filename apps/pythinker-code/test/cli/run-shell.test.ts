@@ -31,6 +31,7 @@ const mocks = vi.hoisted(() => {
     loadTuiConfig: vi.fn(),
     detectTerminalTheme: vi.fn(),
     pythinkerHarnessConstructor: vi.fn(),
+    pythinkerHarnessV2Constructor: vi.fn(),
     harnessEnsureConfigFile: vi.fn(),
     harnessGetConfig: vi.fn(async () => ({
       providers: {},
@@ -58,6 +59,7 @@ const mocks = vi.hoisted(() => {
       track: lifecycleTrack,
     })),
     resolvePythinkerHome: vi.fn((homeDir?: string) => homeDir ?? '/tmp/pythinker-code-test-home'),
+    flushDiagnosticLogsSync: vi.fn(),
     harnessCreatesDeviceIdOnConstruction: false,
     execSync: vi.fn(),
     TuiConfigParseError,
@@ -66,9 +68,25 @@ const mocks = vi.hoisted(() => {
 
 vi.mock('@pymodel/pythinker-code-sdk', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@pymodel/pythinker-code-sdk')>();
+  const makeHarnessStub = (args: unknown[]) => {
+    const options = args[0] as { readonly homeDir?: string } | undefined;
+    const homeDir = options?.homeDir ?? '/tmp/pythinker-code-test-home';
+    return {
+      homeDir,
+      auth: {
+        getCachedAccessToken: mocks.harnessGetCachedAccessToken,
+      },
+      ensureConfigFile: mocks.harnessEnsureConfigFile,
+      getConfig: mocks.harnessGetConfig,
+      getConfigDiagnostics: mocks.harnessGetConfigDiagnostics,
+      close: mocks.harnessClose,
+      track: mocks.harnessTrack,
+    };
+  };
   return {
     ...actual,
     resolvePythinkerHome: mocks.resolvePythinkerHome,
+    flushDiagnosticLogsSync: mocks.flushDiagnosticLogsSync,
     createPythinkerHarness: (...args: unknown[]) => {
       const options = args[0] as { readonly homeDir?: string } | undefined;
       const homeDir = options?.homeDir ?? '/tmp/pythinker-code-test-home';
@@ -76,17 +94,11 @@ vi.mock('@pymodel/pythinker-code-sdk', async (importOriginal) => {
         mocks.createPythinkerDeviceId(homeDir);
       }
       mocks.pythinkerHarnessConstructor(...args);
-      return {
-        homeDir,
-        auth: {
-          getCachedAccessToken: mocks.harnessGetCachedAccessToken,
-        },
-        ensureConfigFile: mocks.harnessEnsureConfigFile,
-        getConfig: mocks.harnessGetConfig,
-        getConfigDiagnostics: mocks.harnessGetConfigDiagnostics,
-        close: mocks.harnessClose,
-        track: mocks.harnessTrack,
-      };
+      return makeHarnessStub(args);
+    },
+    createPythinkerHarnessV2: (...args: unknown[]) => {
+      mocks.pythinkerHarnessV2Constructor(...args);
+      return makeHarnessStub(args);
     },
   };
 });
@@ -161,6 +173,70 @@ describe('runShell', () => {
     mocks.harnessCreatesDeviceIdOnConstruction = false;
   });
 
+  const minimalCliOptions = {
+    session: undefined,
+    continue: false,
+    yolo: false,
+    auto: false,
+    plan: false,
+    model: undefined,
+    outputFormat: undefined,
+    prompt: undefined,
+    skillsDirs: [],
+    agent: undefined,
+    agentFiles: [],
+  };
+
+  function stubTuiStartup(): void {
+    mocks.loadTuiConfig.mockResolvedValue({
+      theme: 'dark',
+      editorCommand: null,
+      notifications: { enabled: true, condition: 'unfocused' },
+    });
+    mocks.tuiStart.mockResolvedValue(undefined);
+  }
+
+  function withEnv(patch: Record<string, string | undefined>, fn: () => Promise<void>): Promise<void> {
+    const saved: Record<string, string | undefined> = {};
+    for (const key of Object.keys(patch)) {
+      saved[key] = process.env[key];
+      const value = patch[key];
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    return fn().finally(() => {
+      for (const key of Object.keys(patch)) {
+        const value = saved[key];
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
+      }
+    });
+  }
+
+  it('builds the v2 harness when the master experimental flag is set', async () => {
+    stubTuiStartup();
+    await withEnv({ PYTHINKER_CODE_EXPERIMENTAL_FLAG: '1' }, async () => {
+      await runShell(minimalCliOptions, '1.2.3-test');
+    });
+    expect(mocks.pythinkerHarnessV2Constructor).toHaveBeenCalledTimes(1);
+    expect(mocks.pythinkerHarnessConstructor).not.toHaveBeenCalled();
+  });
+
+  it('keeps the v1 harness when the master experimental flag is unset', async () => {
+    stubTuiStartup();
+    await withEnv({ PYTHINKER_CODE_EXPERIMENTAL_FLAG: undefined }, async () => {
+      await runShell(minimalCliOptions, '1.2.3-test');
+    });
+    expect(mocks.pythinkerHarnessConstructor).toHaveBeenCalledTimes(1);
+    expect(mocks.pythinkerHarnessV2Constructor).not.toHaveBeenCalled();
+  });
+
   it('constructs PythinkerHarness and PythinkerTUI with startup input', async () => {
     mocks.loadTuiConfig.mockResolvedValue({
       theme: 'dark',
@@ -181,6 +257,9 @@ describe('runShell', () => {
       outputFormat: undefined,
       prompt: undefined,
       skillsDirs: [],
+      agent: undefined,
+      agentFiles: [],
+      addDirs: ['../shared', '/tmp/extra'],
     };
 
     await runShell(cliOptions, '1.2.3-test');
@@ -188,16 +267,17 @@ describe('runShell', () => {
     expect(mocks.pythinkerHarnessConstructor).toHaveBeenCalledWith(
       expect.objectContaining({
         identity: expect.objectContaining({
-          userAgentProduct: 'pythinker-code-cli',
+          productName: 'pythinker-code-cli',
           version: '1.2.3-test',
         }),
+        sessionStartedProperties: { yolo: true, auto: false, plan: true, afk: false },
       }),
     );
     expect(mocks.harnessEnsureConfigFile).toHaveBeenCalledOnce();
     expect(mocks.harnessEnsureConfigFile.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.harnessGetConfig.mock.invocationCallOrder[0]!,
     );
-    expect(execSync).toHaveBeenCalledWith('stty -ixon', { stdio: 'ignore' });
+    expect(execSync).toHaveBeenCalledWith('stty -ixon', { stdio: ['inherit', 'ignore', 'ignore'] });
     expect(mocks.pythinkerTuiConstructor).toHaveBeenCalledTimes(1);
     expect(mocks.createPythinkerDeviceId).toHaveBeenCalledWith(
       '/tmp/pythinker-code-test-home',
@@ -211,6 +291,7 @@ describe('runShell', () => {
       version: '1.2.3-test',
       uiMode: 'shell',
       model: 'k2',
+      sessionId: undefined,
       getAccessToken: expect.any(Function),
     });
     expect(mocks.setCrashPhase).toHaveBeenCalledWith('runtime');
@@ -219,6 +300,7 @@ describe('runShell', () => {
     expect(harness).toBeTypeOf('object');
     expect(startupInput).toMatchObject({
       cliOptions,
+      additionalDirs: ['../shared', '/tmp/extra'],
       tuiConfig: {
         theme: 'dark',
         editorCommand: null,
@@ -228,21 +310,72 @@ describe('runShell', () => {
       workDir: process.cwd(),
     });
     expect(mocks.tuiStart).toHaveBeenCalledOnce();
-    expect(mocks.harnessTrack).not.toHaveBeenCalledWith('started', expect.anything());
     expect(mocks.withTelemetryContext).toHaveBeenCalledWith({ sessionId: 'ses-startup' });
-    expect(mocks.lifecycleTrack).toHaveBeenCalledWith('started', {
-      resumed: false,
-      yolo: true,
-      auto: false,
-      plan: true,
-      afk: false,
-    });
     expect(mocks.lifecycleTrack).toHaveBeenCalledWith('startup_perf', {
       duration_ms: expect.any(Number),
       config_ms: expect.any(Number),
       init_ms: expect.any(Number),
       mcp_ms: 47,
     });
+  });
+
+  it('resolves the --agent profile into the TUI startup input', async () => {
+    mocks.loadTuiConfig.mockResolvedValue({
+      theme: 'dark',
+      editorCommand: null,
+      notifications: { enabled: true, condition: 'unfocused' },
+    });
+    mocks.tuiStart.mockResolvedValue(undefined);
+
+    await runShell(
+      {
+        session: undefined,
+        continue: false,
+        yolo: false,
+        auto: false,
+        plan: false,
+        model: undefined,
+        outputFormat: undefined,
+        prompt: undefined,
+        skillsDirs: [],
+        agent: 'reviewer',
+        agentFiles: [],
+      },
+      '1.2.3-test',
+    );
+
+    const [, , startupInput] = mocks.pythinkerTuiConstructor.mock.calls[0]!;
+    expect(startupInput).toMatchObject({ agentProfile: 'reviewer' });
+  });
+
+  it('forwards skillsDirs from CLI options to the harness', async () => {
+    mocks.loadTuiConfig.mockResolvedValue({
+      theme: 'dark',
+      editorCommand: null,
+      notifications: { enabled: true, condition: 'unfocused' },
+    });
+    mocks.tuiStart.mockResolvedValue(undefined);
+
+    await runShell(
+      {
+        session: undefined,
+        continue: false,
+        yolo: false,
+        auto: false,
+        plan: false,
+        model: undefined,
+        outputFormat: undefined,
+        prompt: undefined,
+        skillsDirs: ['/skills'],
+        agent: undefined,
+        agentFiles: [],
+      },
+      '1.2.3-test',
+    );
+
+    expect(mocks.pythinkerHarnessConstructor).toHaveBeenCalledWith(
+      expect.objectContaining({ skillDirs: ['/skills'] }),
+    );
   });
 
   it('tracks first launch when device id creation reports first launch', async () => {
@@ -269,6 +402,8 @@ describe('runShell', () => {
         outputFormat: undefined,
         prompt: undefined,
         skillsDirs: [],
+        agent: undefined,
+        agentFiles: [],
       },
       '1.2.3-test',
     );
@@ -309,6 +444,8 @@ describe('runShell', () => {
         outputFormat: undefined,
         prompt: undefined,
         skillsDirs: [],
+        agent: undefined,
+        agentFiles: [],
       },
       '1.2.3-test',
     );
@@ -325,39 +462,6 @@ describe('runShell', () => {
       expect.objectContaining({ homeDir: '/tmp/pythinker-code-test-home' }),
     );
     expect(mocks.harnessTrack).toHaveBeenCalledWith('first_launch');
-  });
-
-  it('marks resumed lifecycle starts from session flags', async () => {
-    mocks.loadTuiConfig.mockResolvedValue({
-      theme: 'dark',
-      editorCommand: null,
-      notifications: { enabled: true, condition: 'unfocused' },
-    });
-    mocks.tuiStart.mockResolvedValue(undefined);
-    mocks.tuiGetCurrentSessionId.mockReturnValue('ses-1');
-
-    await runShell(
-      {
-        session: 'ses-1',
-        continue: false,
-        yolo: false,
-        auto: false,
-        plan: false,
-        model: undefined,
-        outputFormat: undefined,
-        prompt: undefined,
-        skillsDirs: [],
-      },
-      '1.2.3-test',
-    );
-
-    expect(mocks.lifecycleTrack).toHaveBeenCalledWith('started', {
-      resumed: true,
-      yolo: false,
-      auto: false,
-      plan: false,
-      afk: false,
-    });
   });
 
   it('binds startup_perf to the session captured before MCP metrics resolve', async () => {
@@ -385,13 +489,15 @@ describe('runShell', () => {
         outputFormat: undefined,
         prompt: undefined,
         skillsDirs: [],
+        agent: undefined,
+        agentFiles: [],
       },
       '1.2.3-test',
     );
 
-    expect(mocks.withTelemetryContext).toHaveBeenNthCalledWith(1, { sessionId: 'ses-startup' });
-    expect(mocks.withTelemetryContext).toHaveBeenNthCalledWith(2, { sessionId: 'ses-startup' });
-    expect(mocks.lifecycleTrack).toHaveBeenNthCalledWith(2, 'startup_perf', {
+    expect(mocks.withTelemetryContext).toHaveBeenCalledWith({ sessionId: 'ses-startup' });
+    expect(mocks.withTelemetryContext).not.toHaveBeenCalledWith({ sessionId: 'ses-later' });
+    expect(mocks.lifecycleTrack).toHaveBeenCalledWith('startup_perf', {
       duration_ms: expect.any(Number),
       config_ms: expect.any(Number),
       init_ms: expect.any(Number),
@@ -418,6 +524,8 @@ describe('runShell', () => {
         outputFormat: undefined,
         prompt: undefined,
         skillsDirs: [],
+        agent: undefined,
+        agentFiles: [],
       },
       '1.2.3-test',
     );
@@ -436,13 +544,13 @@ describe('runShell', () => {
     harnessOptions.onOAuthRefresh({ success: false, reason: 'unauthorized' });
     harnessOptions.onOAuthRefresh({ success: false, reason: 'network_or_other' });
 
-    expect(mocks.telemetryTrack).toHaveBeenCalledWith('oauth_refresh', { success: true });
+    expect(mocks.telemetryTrack).toHaveBeenCalledWith('oauth_refresh', { outcome: 'success' });
     expect(mocks.telemetryTrack).toHaveBeenCalledWith('oauth_refresh', {
-      success: false,
+      outcome: 'error',
       reason: 'unauthorized',
     });
     expect(mocks.telemetryTrack).toHaveBeenCalledWith('oauth_refresh', {
-      success: false,
+      outcome: 'error',
       reason: 'network_or_other',
     });
   });
@@ -469,6 +577,8 @@ describe('runShell', () => {
         outputFormat: undefined,
         prompt: undefined,
         skillsDirs: [],
+        agent: undefined,
+        agentFiles: [],
       },
       '1.2.3-test',
     );
@@ -485,7 +595,7 @@ describe('runShell', () => {
     });
   });
 
-  it('forwards config.toml diagnostics as startup notices', async () => {
+  it('leaves config.toml diagnostics to the TUI instead of the startup notice', async () => {
     mocks.loadTuiConfig.mockResolvedValue({
       theme: 'dark',
       editorCommand: null,
@@ -507,14 +617,118 @@ describe('runShell', () => {
         outputFormat: undefined,
         prompt: undefined,
         skillsDirs: [],
+        agent: undefined,
+        agentFiles: [],
       },
       '1.2.3-test',
     );
 
+    // Diagnostics render in warning yellow via `showConfigWarningsIfAny` at
+    // `finishStartup`; the (dim) startup notice stays reserved for things like
+    // tui.toml parse errors, so the same warning is not shown twice.
     const [, , startupInput] = mocks.pythinkerTuiConstructor.mock.calls[0]!;
     expect(startupInput).toMatchObject({
-      startupNotice: 'Ignored invalid config in config.toml: loop_control.',
+      startupNotice: undefined,
     });
+  });
+
+  it('flushes diagnostic logs synchronously before exiting on a runtime crash', async () => {
+    mocks.loadTuiConfig.mockResolvedValue({
+      theme: 'dark',
+      editorCommand: null,
+      notifications: { enabled: true, condition: 'unfocused' },
+    });
+    mocks.tuiStart.mockResolvedValue(undefined);
+
+    const processOnSpy = vi.spyOn(process, 'on');
+    const stdout = captureProcessWrite('stdout');
+    const exitSpy = mockProcessExit();
+
+    try {
+      await runShell(
+        {
+          session: undefined,
+          continue: false,
+          yolo: false,
+          auto: false,
+          plan: false,
+          model: undefined,
+          outputFormat: undefined,
+          prompt: undefined,
+          skillsDirs: [],
+          agent: undefined,
+          agentFiles: [],
+        },
+        '1.2.3-test',
+      );
+
+      const handler = processOnSpy.mock.calls.find(
+        ([event]) => event === 'uncaughtException',
+      )?.[1] as ((error: unknown) => void) | undefined;
+      expect(handler).toBeDefined();
+
+      // The async log sink cannot flush before process.exit() runs, so the
+      // crash handler must force a synchronous flush or the crash reason is
+      // lost (regression: uncaughtException logs never reached disk).
+      expect(() => handler?.(new Error('boom'))).toThrow(ExitCalled);
+      expect(mocks.flushDiagnosticLogsSync).toHaveBeenCalledOnce();
+      expect(exitSpy).toHaveBeenCalledWith(1);
+      expect(mocks.flushDiagnosticLogsSync.mock.invocationCallOrder[0]!).toBeLessThan(
+        exitSpy.mock.invocationCallOrder[0]!,
+      );
+    } finally {
+      processOnSpy.mockRestore();
+      exitSpy.mockRestore();
+      stdout.restore();
+    }
+  });
+
+  it('flushes diagnostic logs synchronously before exiting on an unhandled rejection', async () => {
+    mocks.loadTuiConfig.mockResolvedValue({
+      theme: 'dark',
+      editorCommand: null,
+      notifications: { enabled: true, condition: 'unfocused' },
+    });
+    mocks.tuiStart.mockResolvedValue(undefined);
+
+    const processOnSpy = vi.spyOn(process, 'on');
+    const stdout = captureProcessWrite('stdout');
+    const exitSpy = mockProcessExit();
+
+    try {
+      await runShell(
+        {
+          session: undefined,
+          continue: false,
+          yolo: false,
+          auto: false,
+          plan: false,
+          model: undefined,
+          outputFormat: undefined,
+          prompt: undefined,
+          skillsDirs: [],
+          agent: undefined,
+          agentFiles: [],
+        },
+        '1.2.3-test',
+      );
+
+      const handler = processOnSpy.mock.calls.find(
+        ([event]) => event === 'unhandledRejection',
+      )?.[1] as ((reason: unknown) => void) | undefined;
+      expect(handler).toBeDefined();
+
+      expect(() => handler?.(new Error('boom'))).toThrow(ExitCalled);
+      expect(mocks.flushDiagnosticLogsSync).toHaveBeenCalledOnce();
+      expect(exitSpy).toHaveBeenCalledWith(1);
+      expect(mocks.flushDiagnosticLogsSync.mock.invocationCallOrder[0]!).toBeLessThan(
+        exitSpy.mock.invocationCallOrder[0]!,
+      );
+    } finally {
+      processOnSpy.mockRestore();
+      exitSpy.mockRestore();
+      stdout.restore();
+    }
   });
 
   it('closes the harness when TUI startup fails', async () => {
@@ -537,13 +751,15 @@ describe('runShell', () => {
           outputFormat: undefined,
           prompt: undefined,
           skillsDirs: [],
+          agent: undefined,
+          agentFiles: [],
         },
         '1.2.3-test',
       ),
     ).rejects.toThrow('boom');
 
     expect(mocks.setCrashPhase).toHaveBeenCalledWith('shutdown');
-    expect(mocks.harnessTrack).toHaveBeenCalledWith('exit', { duration_s: expect.any(Number) });
+    expect(mocks.harnessTrack).toHaveBeenCalledWith('exit', { duration_ms: expect.any(Number) });
     expect(mocks.shutdownTelemetry).toHaveBeenCalledOnce();
     expect(mocks.harnessClose).toHaveBeenCalledOnce();
   });
@@ -574,6 +790,8 @@ describe('runShell', () => {
           outputFormat: undefined,
           prompt: undefined,
           skillsDirs: [],
+          agent: undefined,
+          agentFiles: [],
         },
         '1.2.3-test',
       );
@@ -589,7 +807,7 @@ describe('runShell', () => {
       expect(mocks.setCrashPhase).toHaveBeenCalledWith('shutdown');
       expect(mocks.withTelemetryContext).toHaveBeenCalledWith({ sessionId: 'ses-1' });
       expect(mocks.lifecycleTrack).toHaveBeenCalledWith('exit', {
-        duration_s: expect.any(Number),
+        duration_ms: expect.any(Number),
       });
       expect(mocks.harnessTrack).not.toHaveBeenCalledWith('exit', expect.anything());
       expect(mocks.shutdownTelemetry).toHaveBeenCalledOnce();
@@ -628,11 +846,13 @@ describe('runShell', () => {
           outputFormat: undefined,
           prompt: undefined,
           skillsDirs: [],
+          agent: undefined,
+          agentFiles: [],
         },
         '1.2.3-test',
       );
       const [tui] = mocks.pythinkerTuiConstructor.mock.calls[0]!;
-      const openedUrl = 'http://127.0.0.1:58627/sessions/ses-1';
+      const openedUrl = 'http://127.0.0.1:58627/sessions/ses-1#token=tok-1';
       (tui as { exitOpenUrl?: string }).exitOpenUrl = openedUrl;
 
       await expect((tui as { onExit: () => Promise<void> }).onExit()).rejects.toBeInstanceOf(
@@ -674,6 +894,8 @@ describe('runShell', () => {
           outputFormat: undefined,
           prompt: undefined,
           skillsDirs: [],
+          agent: undefined,
+          agentFiles: [],
         },
         '1.2.3-test',
         { migrateOnly: true },

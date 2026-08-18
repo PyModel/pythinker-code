@@ -33,6 +33,9 @@ base_url = "https://api.example/v1"
 provider = "managed:pythinker-code"
 model = "kimi-for-coding"
 max_context_size = 1000000
+capabilities = ["thinking"]
+support_efforts = ["low", "medium", "high"]
+default_effort = "high"
 `;
 
 describe('HarnessAPI session model aliases', () => {
@@ -54,6 +57,34 @@ describe('HarnessAPI session model aliases', () => {
     await __resetRootLoggerForTest();
     await rm(tmp, { recursive: true, force: true });
   });
+
+  const compatibleConfig = (supportEfforts: string, defaultEffort: string) => `
+default_model = "compatible/model"
+
+[providers.compatible]
+type = "pythinker"
+api_key = "test-key"
+base_url = "https://api.example.test"
+
+[models."compatible/model"]
+provider = "compatible"
+model = "compatible-model"
+protocol = "anthropic"
+max_context_size = 128000
+capabilities = ["thinking"]
+support_efforts = [${supportEfforts}]
+default_effort = "${defaultEffort}"
+`;
+
+  async function createEffortReplaySession(): Promise<string> {
+    await writeFile(configPath, compatibleConfig('"high", "max"', 'high'));
+    const rpc = await createTestRpc();
+    const created = await rpc.createSession({ workDir, model: 'compatible/model' });
+    await rpc.setThinking({ sessionId: created.id, agentId: 'main', effort: 'max' });
+    await rpc.closeSession({ sessionId: created.id });
+    await writeFile(configPath, compatibleConfig('"max"', 'max'));
+    return created.id;
+  }
 
   it('keeps the configured alias separate from the provider model across create, setModel, and resume', async () => {
     const rpc = await createTestRpc();
@@ -83,6 +114,100 @@ describe('HarnessAPI session model aliases', () => {
     expect(await freshRpc.getModel({ sessionId: created.id, agentId: 'main' })).toBe(
       'pythinker-code/kimi-for-coding',
     );
+  });
+
+  it('resolves the initial effort with provider context for an Anthropic-typed provider', async () => {
+    // The model name is unknown to the Anthropic profile matrix but still
+    // carries a Claude marker, and the alias declares no protocol/capabilities
+    // itself; the provider's `type = "anthropic"` must still route the
+    // default resolution through the inferred profile (default effort
+    // "high"), not fall back to "off".
+    await writeFile(
+      configPath,
+      `
+default_model = "compat/custom"
+
+[providers.compat]
+type = "anthropic"
+api_key = "test-key"
+base_url = "https://api.example.test"
+
+[models."compat/custom"]
+provider = "compat"
+model = "joint-claude-0714-vibe"
+max_context_size = 200000
+`,
+    );
+    const rpc = await createTestRpc();
+    const created = await rpc.createSession({ workDir });
+
+    const config = await rpc.getConfig({ sessionId: created.id, agentId: 'main' });
+    expect(config.thinkingEffort).toBe('high');
+
+    // The recorded bootstrap effort must survive resume unchanged.
+    await rpc.closeSession({ sessionId: created.id });
+    const freshRpc = await createTestRpc();
+    await freshRpc.resumeSession({ sessionId: created.id });
+    const restored = await freshRpc.getConfig({ sessionId: created.id, agentId: 'main' });
+    expect(restored.thinkingEffort).toBe('high');
+  });
+
+  it('honors an explicit session effort for an Anthropic-typed provider', async () => {
+    await writeFile(
+      configPath,
+      `
+default_model = "compat/custom"
+
+[providers.compat]
+type = "anthropic"
+api_key = "test-key"
+base_url = "https://api.example.test"
+
+[models."compat/custom"]
+provider = "compat"
+model = "joint-model-0714-vibe"
+max_context_size = 200000
+`,
+    );
+    const rpc = await createTestRpc();
+    const created = await rpc.createSession({ workDir, thinking: 'low' });
+
+    const config = await rpc.getConfig({ sessionId: created.id, agentId: 'main' });
+    expect(config.thinkingEffort).toBe('low');
+  });
+
+  it('restores the final effort after replaying an earlier unlisted Anthropic effort', async () => {
+    const sessionId = await createEffortReplaySession();
+
+    // The current catalog no longer lists the earlier `high` state. Replay
+    // must continue to the following `max` record instead of validating and
+    // aborting at the transient state.
+    const events: Array<Parameters<SDKAPI['emitEvent']>[0]> = [];
+    const freshRpc = await createTestRpc({ emitEvent: (event) => events.push(event) });
+
+    await expect(freshRpc.resumeSession({ sessionId })).resolves.toBeDefined();
+    expect(events).toContainEqual({
+      sessionId,
+      agentId: 'main',
+      type: 'warning',
+      code: 'anthropic-thinking-effort-not-listed',
+      message:
+        'Thinking effort "high" is not listed for model "compatible-model" (known: max). The configured value will be sent unchanged to the Anthropic-compatible backend.',
+    });
+    const restored = await freshRpc.getConfig({ sessionId, agentId: 'main' });
+    expect(restored.modelAlias).toBe('compatible/model');
+    expect(restored.thinkingEffort).toBe('max');
+  });
+
+  it('does not block resume when the warning sink fails', async () => {
+    const sessionId = await createEffortReplaySession();
+
+    const throwingRpc = await createTestRpc({
+      emitEvent: () => {
+        throw new Error('warning sink failed');
+      },
+    });
+    await expect(throwingRpc.resumeSession({ sessionId })).resolves.toBeDefined();
   });
 
   it('re-bootstraps profile and model when resuming a session whose wire has no config.update', async () => {
@@ -340,7 +465,7 @@ max_context_size = 1000000
     expect(createRecords).toContainEqual({
       event: 'yolo_toggle',
       sessionId: created.id,
-      properties: { enabled: true },
+      properties: { enabled: true, agent_id: 'main' },
     });
 
     await createRpc.setPermission({ sessionId: created.id, agentId: 'main', mode: 'auto' });
@@ -348,7 +473,7 @@ max_context_size = 1000000
     expect(createRecords).toContainEqual({
       event: 'afk_toggle',
       sessionId: created.id,
-      properties: { enabled: true },
+      properties: { enabled: true, agent_id: 'main' },
     });
 
     await createRpc.setPythinkerConfig({
@@ -377,18 +502,18 @@ max_context_size = 1000000
     expect(createRecords).toContainEqual({
       event: 'model_switch',
       sessionId: created.id,
-      properties: { model: 'gpt-alias' },
+      properties: { model: 'gpt-alias', agent_id: 'main' },
     });
 
     const resumeRecords: TelemetryContextRecord[] = [];
     const resumeRpc = await createTestRpc({ telemetry: recordingContextTelemetry(resumeRecords) });
     await resumeRpc.resumeSession({ sessionId: created.id });
-    await resumeRpc.setThinking({ sessionId: created.id, agentId: 'main', level: 'off' });
+    await resumeRpc.setThinking({ sessionId: created.id, agentId: 'main', effort: 'off' });
 
     expect(resumeRecords).toContainEqual({
       event: 'thinking_toggle',
       sessionId: created.id,
-      properties: { enabled: false },
+      properties: { enabled: false, effort: 'off', from: 'high', agent_id: 'main' },
     });
   });
 
@@ -444,6 +569,7 @@ max_context_size = 1000000
         client_version: '0.1.1',
         ui_mode: 'web',
         enabled: true,
+        agent_id: 'main',
       },
     });
   });
@@ -451,7 +577,7 @@ max_context_size = 1000000
   async function findWireFile(root: string): Promise<string> {
     const suffix = join('agents', 'main', 'wire.jsonl');
     const entries = await readdir(root, { recursive: true });
-    const match = entries.find((entry) => entry.endsWith(suffix));
+    const match = entries.find((entry) => entry.replaceAll('\\', '/').endsWith(suffix));
     if (match === undefined) {
       throw new Error('wire.jsonl not found under session home');
     }
@@ -461,6 +587,7 @@ max_context_size = 1000000
   async function createTestRpc(
     options: {
       readonly appVersion?: string;
+      readonly emitEvent?: (event: Parameters<SDKAPI['emitEvent']>[0]) => void;
       readonly telemetry?: TelemetryClient;
     } = {},
   ) {
@@ -472,7 +599,7 @@ max_context_size = 1000000
       telemetry: options.telemetry,
     });
     return sdkRpc({
-      emitEvent: vi.fn(),
+      emitEvent: options.emitEvent ?? vi.fn(),
       requestApproval: vi.fn(async () => ({ decision: 'rejected' as const })),
       requestQuestion: vi.fn(async () => null),
       toolCall: vi.fn(async () => ({ output: '' })),

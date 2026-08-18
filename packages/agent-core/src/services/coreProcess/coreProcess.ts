@@ -31,7 +31,9 @@
 
 import { createDecorator } from '../../di';
 import type { CoreRPC, PythinkerCoreOptions } from '../../rpc';
+import type { TelemetryClient } from '../../telemetry';
 import { type PythinkerHostIdentity } from '@pymodel/pythinker-code-oauth';
+import type { ImageLimits } from '#/tools/support/image-limits';
 
 export interface CoreProcessServiceOptions extends PythinkerCoreOptions {
   /**
@@ -57,6 +59,21 @@ export interface ICoreProcessService {
 
   /** The core RPC methods. Service impls call e.g. `core.rpc.createSession(...)`. */
   readonly rpc: CoreRPC;
+
+  readonly pythinkerRequestHeaders?: Record<string, string> | undefined;
+
+  /**
+   * The telemetry client the host wired into `PythinkerCore` (noop when the host
+   * supplied none), so daemon-side code — e.g. prompt-ingestion image
+   * compression — reports through the same sink as core events.
+   */
+  readonly telemetry?: TelemetryClient | undefined;
+
+  /**
+   * The core's owner-scoped [image] limits, so daemon-side prompt-ingestion
+   * compression uses the same settings (and reloads) as the core's own tools.
+   */
+  readonly imageLimits?: ImageLimits | undefined;
 
   /**
    * Resolves once `PythinkerCore` is fully constructed and the SDK side of the

@@ -19,12 +19,6 @@ Install with the official script. No Node.js required.
 curl -fsSL https://code.kimi.com/pythinker-code/install.sh | bash
 ```
 
-- **Homebrew (macOS/Linux)**:
-
-```sh
-brew install pythinker-code
-```
-
 - **Windows (PowerShell)**:
 
 ```powershell

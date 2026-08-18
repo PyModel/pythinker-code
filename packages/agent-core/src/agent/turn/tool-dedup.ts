@@ -1,38 +1,36 @@
 import type { ContentPart } from '@pymodel/kosong';
 
 import type { TelemetryClient } from '../../telemetry';
+import type { LLMRequestTrace } from '../../loop/llm';
+import { parseToolCallArguments } from '../../loop/tool-args-parse';
 import type { ExecutableToolResult } from '../../loop/types';
 
 import { canonicalTelemetryArgs } from './canonical-args';
 
 const REMINDER_TEXT_1 =
   '\n\n<system-reminder>\n' +
-  'You are repeating the exact same tool call with identical parameters.' +
-  ' Please carefully analyze the previous result. If the task is not yet complete,' +
-  ' try a different method or parameters instead of repeating the same call.' +
+  'The same tool call has been repeated several times in a row. ' +
+  'Before making your next call, write one sentence stating what new information you expect it to produce. ' +
+  'Then act on that sentence: if it names something this result does not already give you, choose the action that best provides it; otherwise, continue with the evidence you already have.' +
   '\n</system-reminder>';
 
-function makeReminderText2(toolName: string, repeatCount: number, args: unknown): string {
-  const argsStr = canonicalTelemetryArgs(args);
+function makeReminderText2(repeatCount: number): string {
   return (
     '\n\n<system-reminder>\n' +
-    'You have repeatedly called the same tool with identical parameters many times.\n' +
-    'Repeated tool call detected:\n' +
-    `- tool: ${toolName}\n` +
-    `- repeated_times: ${String(repeatCount)}\n` +
-    `- arguments: ${argsStr}\n` +
-    'The previous repeated calls did not make progress. Do not call this exact same tool with the exact same arguments again.\n' +
-    'Carefully inspect the latest tool result and choose a different next action, different parameters, or finish the task if enough evidence has been gathered.' +
+    `The same tool call has now been issued ${String(repeatCount)} times in a row. ` +
+    'Choose exactly one of the following and state your choice before acting:\n' +
+    '(1) Falsification check: run the cheapest test that could conclusively disprove your current approach, if such a test exists.\n' +
+    '(2) Missing input: tell the user precisely what information or decision you need to proceed, and ask for it.\n' +
+    '(3) Conclude: deliver your best result based on the evidence already gathered, listing anything that remains uncertain.' +
     '\n</system-reminder>'
   );
 }
 
 const REMINDER_TEXT_3 =
   '\n\n<system-reminder>\n' +
-  'You are stuck in a dead end and have repeatedly made the same function call without progress.\n' +
-  'Stop all function calls immediately. Do not call any tool in your next response.\n' +
-  'In analysis, review the current execution state and identify why progress is blocked.\n' +
-  'Then return a text-only summary to the user that reports the current problem, what has already been tried, and what information or decision is needed next.' +
+  'Write your final response now, without any further tool calls. ' +
+  'Cover: the current blocker, each approach you have tried and what it established, and the specific information or decision you need from the user to unblock progress. ' +
+  'Text only.' +
   '\n</system-reminder>';
 
 const REPEAT_REMINDER_1_START = 3;
@@ -105,8 +103,8 @@ const DEDUP_PLACEHOLDER_RESULT: ExecutableToolResult = { output: '' };
  * - Cross-step dedup: when the exact same call is repeated consecutively
  *   across steps, the result returned to the model is suffixed with a system
  *   reminder once the streak hits 3. The reminder escalates as the streak
- *   grows: r1 (gentle nudge) from streak 3, r2 (concrete repeat report) from
- *   streak 5, r3 (dead-end stop instruction) from streak 8. From streak 12
+ *   grows: r1 (expectation-setting nudge) from streak 3, r2 (forced decision
+ *   menu) from streak 5, r3 (final hand-off instruction) from streak 8. From streak 12
  *   onward the turn is force-stopped via `{ stopTurn: true }` so the loop
  *   cannot keep spinning on the same call. Force-stop does not flip a
  *   successful tool result into an error — the underlying tool's `isError`
@@ -133,12 +131,16 @@ export class ToolCallDeduplicator {
   private consecutiveKey: string | null = null;
   private consecutiveCount = 0;
   private readonly telemetry: TelemetryClient | undefined;
+  private requestTrace: LLMRequestTrace | undefined;
 
-  constructor(options?: { readonly telemetry?: TelemetryClient | undefined }) {
+  constructor(options?: {
+    readonly telemetry?: TelemetryClient | undefined;
+  }) {
     this.telemetry = options?.telemetry;
   }
 
-  beginStep(): void {
+  beginStep(trace?: LLMRequestTrace): void {
+    this.requestTrace = trace;
     for (const deferred of this.stepDeferreds.values()) {
       deferred.resolve({
         output: 'Tool call deduplicated but original result was lost',
@@ -187,6 +189,35 @@ export class ToolCallDeduplicator {
     this.stepDeferreds.set(key, makeDeferred<ExecutableToolResult>());
     this.originalCallIndex.set(toolCallId, index);
     return null;
+  }
+
+  /**
+   * Register a call that bypassed `prepareToolExecution` — e.g. args
+   * validation rejected it in preflight, so the prepare hook never ran. Must
+   * be called before `finalizeResult` for such calls, otherwise the repeat
+   * circuit breaker never counts rejected calls and the model can re-issue
+   * the same invalid call without ever tripping the streak. No-op when the
+   * call was already registered through the normal prepare path.
+   *
+   * `rawArguments` is the provider's raw arguments string. Args that failed
+   * JSON parsing were normalized to `{}` by the loop, which would key every
+   * malformed-but-different attempt identically; those are keyed on the raw
+   * text so only true re-issues count as repeats.
+   */
+  registerSkipped(
+    toolCallId: string,
+    toolName: string,
+    args: unknown,
+    rawArguments?: string | null,
+  ): void {
+    if (this.callKeyByCallId.has(toolCallId)) return;
+    const keyArgs =
+      rawArguments !== undefined &&
+      rawArguments !== null &&
+      parseToolCallArguments(rawArguments).parseFailed
+        ? rawArguments
+        : args;
+    this.checkSameStep(toolCallId, toolName, keyArgs);
   }
 
   /**
@@ -239,7 +270,7 @@ export class ToolCallDeduplicator {
       finalResult = appendReminder(result, REMINDER_TEXT_3);
       action = 'r3';
     } else if (streak >= REPEAT_REMINDER_2_START) {
-      finalResult = appendReminder(result, makeReminderText2(toolName, streak, args));
+      finalResult = appendReminder(result, makeReminderText2(streak));
       action = 'r2';
     } else if (streak >= REPEAT_REMINDER_1_START) {
       finalResult = appendReminder(result, REMINDER_TEXT_1);
@@ -251,6 +282,7 @@ export class ToolCallDeduplicator {
         tool_name: toolName,
         repeat_count: streak,
         action,
+        trace_id: this.requestTrace?.traceId,
       });
     }
 

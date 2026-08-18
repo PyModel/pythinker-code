@@ -22,12 +22,6 @@ Pythinker Code CLI 是一个运行在终端里的 AI 编程 agent，可以帮你
 curl -fsSL https://code.kimi.com/pythinker-code/install.sh | bash
 ```
 
-- **Homebrew（macOS / Linux）**：
-
-```sh
-brew install pythinker-code
-```
-
 - **Windows（PowerShell）**：
 
 ```powershell

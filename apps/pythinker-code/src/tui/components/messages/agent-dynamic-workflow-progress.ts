@@ -1,4 +1,4 @@
-import { truncateToWidth, visibleWidth, type Component } from '@earendil-works/pi-tui';
+import { truncateToWidth, visibleWidth, type Component } from '@pymodel/pi-tui';
 import chalk from 'chalk';
 
 import {
@@ -190,6 +190,7 @@ export class AgentDynamicWorkflowProgressComponent implements Component {
   private description: string;
   private readonly requestRender: (() => void) | undefined;
   private readonly availableGridHeight: (() => number | undefined) | undefined;
+  private modelDisplay = '';
   private inputComplete = false;
   private failed = false;
   private aborted = false;
@@ -222,6 +223,16 @@ export class AgentDynamicWorkflowProgressComponent implements Component {
   setActivitySpinnerText(provider: (() => string) | undefined): void {
     if (!this.toolCallActive) return;
     this.activitySpinnerText = provider;
+  }
+
+  /**
+   * Show the bound model once in the header. Every dynamic_workflow member binds to the
+   * same model, so the first child status update wins and later ones (e.g.
+   * from resumed agents that kept a different binding) do not churn it.
+   */
+  setModelDisplay(modelDisplay: string): void {
+    if (this.modelDisplay.length > 0 || modelDisplay.length === 0) return;
+    this.modelDisplay = modelDisplay;
   }
 
   markToolCallEnded(): void {
@@ -481,9 +492,13 @@ export class AgentDynamicWorkflowProgressComponent implements Component {
       this.description.length > 0
         ? chalk.hex(this.colors.primary)(' ─ ') + chalk.hex(this.colors.text)(this.description)
         : '';
+    const model =
+      this.modelDisplay.length > 0
+        ? chalk.hex(this.colors.primary)(' ─ ') + chalk.hex(this.colors.textDim)(this.modelDisplay)
+        : '';
     const prefixText = '─ ';
     const labelWidth = Math.max(1, width - visibleWidth(prefixText) - 1);
-    const label = truncateToWidth(title + description, labelWidth);
+    const label = truncateToWidth(title + description + model, labelWidth);
     const suffixWidth = Math.max(0, width - visibleWidth(prefixText) - visibleWidth(label));
     const suffix = suffixWidth === 0 ? '' : ` ${'─'.repeat(Math.max(0, suffixWidth - 1))}`;
     return chalk.hex(this.colors.primary)(prefixText) + label + chalk.hex(this.colors.primary)(suffix);

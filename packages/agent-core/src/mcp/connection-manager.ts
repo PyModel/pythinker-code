@@ -1,5 +1,5 @@
 import { ErrorCodes, PythinkerError } from '#/errors';
-import type { McpServerConfig } from '#/config/schema';
+import { MAX_MCP_TIMEOUT_MS, type McpServerConfig } from '#/config/schema';
 import { log as defaultLog } from '#/logging/logger';
 import type { Logger } from '#/logging/types';
 import type { Tool } from '@pymodel/kosong';
@@ -11,7 +11,7 @@ import { SseMcpClient } from './client-sse';
 import type { UnexpectedCloseReason } from './client-shared';
 import { StdioMcpClient } from './client-stdio';
 import type { McpOAuthService } from './oauth';
-import { assertMcpInputSchema, type MCPClient } from './types';
+import { assertMcpInputSchema, type MCPClient, type MCPToolDefinition } from './types';
 
 export type McpServerStatus = 'pending' | 'connected' | 'failed' | 'disabled' | 'needs-auth';
 
@@ -29,6 +29,8 @@ interface InternalEntry {
   attemptId: number;
   status: McpServerStatus;
   tools?: readonly Tool[];
+  /** Verbatim `tools/list` result the converted {@link tools} came from. */
+  rawTools?: readonly MCPToolDefinition[];
   enabledNames?: ReadonlySet<string>;
   error?: string;
   client?: RuntimeMcpClient;
@@ -38,10 +40,54 @@ export type McpStatusListener = (entry: McpServerEntry) => void;
 
 const DEFAULT_STARTUP_TIMEOUT_MS = 30_000;
 
+export const MCP_STARTUP_TIMEOUT_ENV = 'PYTHINKER_MCP_STARTUP_TIMEOUT_MS';
+export const MCP_TOOL_TIMEOUT_ENV = 'PYTHINKER_MCP_TOOL_TIMEOUT_MS';
+
+/** Parse an env override; anything but an integer from 1 to MAX_MCP_TIMEOUT_MS is ignored. */
+function parseTimeoutMsEnv(raw: string): number | undefined {
+  const parsed = Number(raw);
+  return Number.isInteger(parsed) && parsed >= 1 && parsed <= MAX_MCP_TIMEOUT_MS
+    ? parsed
+    : undefined;
+}
+
+/**
+ * Resolve the global default MCP server startup (connect + tool discovery)
+ * timeout. Precedence: `PYTHINKER_MCP_STARTUP_TIMEOUT_MS` (integer ms) →
+ * `configMs` (`[mcp] startup_timeout_ms`) → `undefined` (the manager's
+ * built-in default applies). A per-server `startupTimeoutMs` in `mcp.json`
+ * always wins over the resolved value.
+ */
+export function resolveMcpStartupTimeoutMs(configMs?: number): number | undefined {
+  const raw = process.env[MCP_STARTUP_TIMEOUT_ENV];
+  if (raw !== undefined) {
+    const parsed = parseTimeoutMsEnv(raw);
+    if (parsed !== undefined) return parsed;
+  }
+  return configMs;
+}
+
+/**
+ * Resolve the global default single MCP tool-call timeout. Precedence:
+ * `PYTHINKER_MCP_TOOL_TIMEOUT_MS` (integer ms) → `configMs`
+ * (`[mcp] tool_timeout_ms`) → `undefined` (the client built-in default
+ * applies). A per-server `toolTimeoutMs` in `mcp.json` always wins over the
+ * resolved value.
+ */
+export function resolveMcpToolTimeoutMs(configMs?: number): number | undefined {
+  const raw = process.env[MCP_TOOL_TIMEOUT_ENV];
+  if (raw !== undefined) {
+    const parsed = parseTimeoutMsEnv(raw);
+    if (parsed !== undefined) return parsed;
+  }
+  return configMs;
+}
+
 type RuntimeMcpClient = StdioMcpClient | HttpMcpClient | SseMcpClient;
 
 export interface McpConnectionManagerOptions {
   readonly envLookup?: (name: string) => string | undefined;
+  readonly stdioCwd?: string;
   /**
    * Optional OAuth orchestrator. When provided, remote servers without a
    * static bearer token participate in the OAuth-via-synthetic-tool flow:
@@ -57,6 +103,18 @@ export interface McpConnectionManagerOptions {
    * `session.log` so MCP events land in the session log too.
    */
   readonly log?: Logger;
+  /**
+   * Global default startup (connect + tool discovery) timeout applied when a
+   * server entry does not set its own `startupTimeoutMs`. Falls back to the
+   * built-in default when unset.
+   */
+  readonly defaultStartupTimeoutMs?: number;
+  /**
+   * Global default single tool-call timeout applied when a server entry does
+   * not set its own `toolTimeoutMs`. Falls back to the client built-in when
+   * unset.
+   */
+  readonly defaultToolTimeoutMs?: number;
 }
 
 /**
@@ -135,12 +193,18 @@ export class McpConnectionManager {
   resolved(
     name: string,
   ):
-    | { client: MCPClient; tools: readonly Tool[]; enabledNames: ReadonlySet<string> }
+    | {
+        client: MCPClient;
+        tools: readonly Tool[];
+        rawTools: readonly MCPToolDefinition[];
+        enabledNames: ReadonlySet<string>;
+      }
     | undefined {
     const entry = this.entries.get(name);
     if (
       entry?.status !== 'connected' ||
       entry.tools === undefined ||
+      entry.rawTools === undefined ||
       entry.client === undefined
     ) {
       return undefined;
@@ -148,6 +212,7 @@ export class McpConnectionManager {
     return {
       client: entry.client,
       tools: entry.tools,
+      rawTools: entry.rawTools,
       enabledNames: entry.enabledNames ?? new Set(entry.tools.map((t) => t.name)),
     };
   }
@@ -190,6 +255,7 @@ export class McpConnectionManager {
     await this.closeClient(entry);
     entry.status = 'disabled';
     entry.tools = undefined;
+    entry.rawTools = undefined;
     entry.enabledNames = undefined;
     entry.error = undefined;
     this.emit(entry);
@@ -241,6 +307,7 @@ export class McpConnectionManager {
     if (!this.isCurrent(entry, attemptId)) return;
     entry.status = 'pending';
     entry.tools = undefined;
+    entry.rawTools = undefined;
     entry.enabledNames = undefined;
     entry.error = undefined;
     this.emit(entry);
@@ -255,14 +322,17 @@ export class McpConnectionManager {
   }
 
   private async connectOne(entry: InternalEntry, attemptId: number): Promise<void> {
-    const timeoutMs = entry.config.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS;
+    const timeoutMs =
+      entry.config.startupTimeoutMs ??
+      this.options.defaultStartupTimeoutMs ??
+      DEFAULT_STARTUP_TIMEOUT_MS;
 
     let client: RuntimeMcpClient | undefined;
     try {
-      const startupClient = this.createClient(entry.config, entry.name);
+      const startupClient = this.createClient(entry.config, entry.name, timeoutMs);
       client = startupClient;
       entry.client = startupClient;
-      const tools = await withTimeout(
+      const discovered = await withTimeout(
         this.connectAndDiscoverTools(startupClient),
         timeoutMs,
         () => {
@@ -274,8 +344,9 @@ export class McpConnectionManager {
         await this.closeRuntimeClient(startupClient);
         return;
       }
-      entry.tools = tools;
-      entry.enabledNames = computeEnabledNames(entry.config, tools);
+      entry.tools = discovered.tools;
+      entry.rawTools = discovered.rawTools;
+      entry.enabledNames = computeEnabledNames(entry.config, discovered.tools);
       entry.status = 'connected';
       this.watchForUnexpectedClose(entry, startupClient, attemptId);
     } catch (error) {
@@ -293,6 +364,7 @@ export class McpConnectionManager {
         entry.error = formatStartupError(error, client);
       }
       entry.tools = undefined;
+      entry.rawTools = undefined;
       entry.enabledNames = undefined;
       // Drop the client reference so a later reconnect builds a fresh one.
       await this.closeClient(entry);
@@ -314,6 +386,7 @@ export class McpConnectionManager {
       entry.status = 'failed';
       entry.error = formatUnexpectedCloseError(entry.name, reason);
       entry.tools = undefined;
+      entry.rawTools = undefined;
       entry.enabledNames = undefined;
       entry.client = undefined;
       // Best-effort close; the transport is already gone, but this lets the
@@ -328,19 +401,29 @@ export class McpConnectionManager {
     return entry.attemptId;
   }
 
-  private createClient(config: McpServerConfig, name: string): RuntimeMcpClient {
-    const toolCallTimeoutMs = config.toolTimeoutMs;
+  private createClient(
+    config: McpServerConfig,
+    name: string,
+    startupTimeoutMs: number,
+  ): RuntimeMcpClient {
+    const toolCallTimeoutMs = config.toolTimeoutMs ?? this.options.defaultToolTimeoutMs;
     if (config.transport === 'stdio') {
-      return new StdioMcpClient(config, { toolCallTimeoutMs });
+      return new StdioMcpClient(config, {
+        startupTimeoutMs,
+        toolCallTimeoutMs,
+        defaultCwd: this.options.stdioCwd,
+      });
     }
     if (config.transport === 'sse') {
       return new SseMcpClient(config, {
+        startupTimeoutMs,
         toolCallTimeoutMs,
         envLookup: this.options.envLookup,
         oauthProvider: this.resolveOAuthProvider(config, name),
       });
     }
     return new HttpMcpClient(config, {
+      startupTimeoutMs,
       toolCallTimeoutMs,
       envLookup: this.options.envLookup,
       oauthProvider: this.resolveOAuthProvider(config, name),
@@ -371,18 +454,23 @@ export class McpConnectionManager {
     // rather than hijacking them into the OAuth flow — the real error is more
     // actionable than "run /mcp-config login" for a server that doesn't speak
     // OAuth.
-    if (entry.config.headers !== undefined) return false;
+    if (entry.config.headers !== undefined && entry.config.auth !== 'oauth') return false;
     return isUnauthorizedLikeError(error);
   }
 
-  private async connectAndDiscoverTools(client: RuntimeMcpClient): Promise<Tool[]> {
+  private async connectAndDiscoverTools(
+    client: RuntimeMcpClient,
+  ): Promise<{ tools: Tool[]; rawTools: MCPToolDefinition[] }> {
     await client.connect();
     const mcpTools = await client.listTools();
-    return mcpTools.map((mcpTool) => ({
-      name: mcpTool.name,
-      description: mcpTool.description,
-      parameters: assertMcpInputSchema(mcpTool.name, mcpTool.inputSchema),
-    }));
+    return {
+      rawTools: mcpTools,
+      tools: mcpTools.map((mcpTool) => ({
+        name: mcpTool.name,
+        description: mcpTool.description,
+        parameters: assertMcpInputSchema(mcpTool.name, mcpTool.inputSchema),
+      })),
+    };
   }
 
   private async closeClient(entry: InternalEntry): Promise<void> {

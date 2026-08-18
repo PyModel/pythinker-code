@@ -1,15 +1,17 @@
 import { CLI_COMMAND_NAME } from '#/constant/app';
 import { registerMigrateCommand } from '#/migration/index';
-import { Command, Option } from 'commander';
+import { Command, InvalidArgumentError, Option } from 'commander';
 
+import { isAcpV2Enabled } from './experimental-v2';
 import type { CLIOptions } from './options';
 import { registerAcpCommand } from './sub/acp';
+import { registerAcpV2Command } from './sub/acp-v2';
 import { registerDoctorCommand } from './sub/doctor';
 import { registerExportCommand } from './sub/export';
 import { registerLoginCommand } from './sub/login';
 import { registerProviderCommand } from './sub/provider';
-import { registerServerCommand } from './sub/server';
 import { registerVisCommand } from './sub/vis';
+import { registerWebCommand } from './sub/web';
 
 export type MainCommandHandler = (opts: CLIOptions) => void;
 export type MigrateCommandHandler = () => void;
@@ -44,9 +46,10 @@ export function createProgram(
         .hideHelp()
         .argParser((val: string | boolean) => (val === true ? '' : (val as string))),
     )
-    .option('-C, --continue', 'Continue the previous session for the working directory.', false)
-    .option('-y, --yolo', 'Automatically approve all actions.', false)
-    .option('--auto', 'Start in auto permission mode.', false)
+    .option('-c, --continue', 'Continue the previous session for the working directory.', false)
+    .addOption(new Option('-C').hideHelp().default(false))
+    .option('-y, --yolo', 'Auto-approve regular tool calls; the agent may still ask questions.', false)
+    .option('--auto', 'Start in auto permission mode: fully autonomous, the agent will not ask questions.', false)
     .addOption(
       new Option(
         '-m, --model <model>',
@@ -73,6 +76,41 @@ export function createProgram(
         .argParser((value: string, previous: string[] | undefined) => [...(previous ?? []), value])
         .default([]),
     )
+    .addOption(
+      new Option(
+        '--agent <name>',
+        'Agent profile to start the new session with. Custom profiles are discovered from agent directories or loaded via --agent-file. Cannot be combined with --session/--continue.',
+      )
+        .argParser((value: string, previous: string | undefined) => {
+          if (previous !== undefined) {
+            throw new InvalidArgumentError('--agent may only be specified once.');
+          }
+          return value;
+        })
+        .conflicts('agentFile'),
+    )
+    .addOption(
+      new Option(
+        '--agent-file <path>',
+        'Load an agent definition from a Markdown file and select it for the new session. Cannot be combined with --session/--continue.',
+      )
+        .argParser((value: string, previous: string[] | undefined) => {
+          if ((previous?.length ?? 0) > 0) {
+            throw new InvalidArgumentError('--agent-file may only be specified once.');
+          }
+          return [value];
+        })
+        .conflicts('agent')
+        .default([]),
+    )
+    .addOption(
+      new Option(
+        '--add-dir <dir>',
+        'Add an additional workspace directory for this session. Can be repeated.',
+      )
+        .argParser((value: string, previous: string[] | undefined) => [...(previous ?? []), value])
+        .default([]),
+    )
     .addOption(new Option('--yes').hideHelp().default(false))
     .addOption(new Option('--auto-approve').hideHelp().default(false))
     .option('--plan', 'Start in plan mode.', false);
@@ -80,13 +118,17 @@ export function createProgram(
   registerExportCommand(program);
   registerProviderCommand(program);
   registerAcpCommand(program);
-  registerServerCommand(program);
+  registerWebCommand(program);
+  if (isAcpV2Enabled()) {
+    registerAcpV2Command(program);
+  }
   registerLoginCommand(program);
   registerDoctorCommand(program);
   registerVisCommand(program);
   registerMigrateCommand(program, onMigrate);
   program
     .command('upgrade')
+    .alias('update')
     .description('Upgrade Pythinker Code to the latest version.')
     .action(async () => {
       await onUpgrade();
@@ -115,7 +157,7 @@ export function createProgram(
 
     const opts: CLIOptions = {
       session: sessionValue,
-      continue: raw['continue'] as boolean,
+      continue: raw['continue'] === true || raw['C'] === true,
       yolo: yoloValue,
       auto: autoValue,
       plan: raw['plan'] as boolean,
@@ -123,6 +165,9 @@ export function createProgram(
       outputFormat: raw['outputFormat'] as CLIOptions['outputFormat'],
       prompt: raw['prompt'] as string | undefined,
       skillsDirs: raw['skillsDir'] as string[],
+      agent: raw['agent'] as string | undefined,
+      agentFiles: raw['agentFile'] as string[],
+      addDirs: raw['addDir'] as string[],
     };
 
     onMain(opts);

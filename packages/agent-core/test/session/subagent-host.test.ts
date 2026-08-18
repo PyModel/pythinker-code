@@ -8,12 +8,19 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { Agent, AgentOptions } from '../../src/agent';
 import { AGENT_WIRE_PROTOCOL_VERSION } from '../../src/agent/records';
-import type { ResolvedAgentProfile } from '../../src/profile';
+import type { PythinkerConfig } from '../../src/config';
+import { ErrorCodes, PythinkerError } from '../../src/errors';
+import { FlagResolver } from '../../src/flags';
+import { SessionAgentProfileCatalog, type ResolvedAgentProfile } from '../../src/profile';
 import type { SDKSessionRPC } from '../../src/rpc';
 import { Session } from '../../src/session';
 import { collectGitContext } from '../../src/session/git-context';
+import { ProviderManager } from '../../src/session/provider-manager';
 import {
+  DEFAULT_SUBAGENT_TIMEOUT_MS,
   SessionSubagentHost,
+  formatSubagentTimeoutDescription,
+  resolveSubagentTimeoutMs,
   type QueuedSubagentTask,
 } from '../../src/session/subagent-host';
 import { abortError, userCancellationReason } from '../../src/utils/abort';
@@ -36,6 +43,57 @@ afterEach(async () => {
   for (const dir of tempDirs.splice(0)) {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+const SUBAGENT_TIMEOUT_ENV = 'PYTHINKER_SUBAGENT_TIMEOUT_MS';
+
+describe('resolveSubagentTimeoutMs', () => {
+  const saved: { value: string | undefined } = { value: process.env[SUBAGENT_TIMEOUT_ENV] };
+  afterEach(() => {
+    if (saved.value === undefined) {
+      delete process.env[SUBAGENT_TIMEOUT_ENV];
+    } else {
+      process.env[SUBAGENT_TIMEOUT_ENV] = saved.value;
+    }
+  });
+
+  it('returns the default when nothing is set', () => {
+    delete process.env[SUBAGENT_TIMEOUT_ENV];
+    expect(resolveSubagentTimeoutMs()).toBe(DEFAULT_SUBAGENT_TIMEOUT_MS);
+  });
+
+  it('uses the config value when set', () => {
+    delete process.env[SUBAGENT_TIMEOUT_ENV];
+    expect(resolveSubagentTimeoutMs(600000)).toBe(600000);
+  });
+
+  it('lets the env override the config value', () => {
+    process.env[SUBAGENT_TIMEOUT_ENV] = '120000';
+    expect(resolveSubagentTimeoutMs(600000)).toBe(120000);
+  });
+
+  it('ignores an invalid env and falls back to config/default', () => {
+    process.env[SUBAGENT_TIMEOUT_ENV] = 'not-a-number';
+    expect(resolveSubagentTimeoutMs(600000)).toBe(600000);
+    process.env[SUBAGENT_TIMEOUT_ENV] = '-5';
+    expect(resolveSubagentTimeoutMs()).toBe(DEFAULT_SUBAGENT_TIMEOUT_MS);
+  });
+
+  it('treats 0 as no timeout from both config and env', () => {
+    delete process.env[SUBAGENT_TIMEOUT_ENV];
+    expect(resolveSubagentTimeoutMs(0)).toBe(0);
+    process.env[SUBAGENT_TIMEOUT_ENV] = '0';
+    expect(resolveSubagentTimeoutMs(600000)).toBe(0);
+  });
+});
+
+describe('formatSubagentTimeoutDescription', () => {
+  it('formats hours, minutes, seconds and milliseconds', () => {
+    expect(formatSubagentTimeoutDescription(30 * 60 * 1000)).toBe('30 minutes');
+    expect(formatSubagentTimeoutDescription(2 * 60 * 60 * 1000)).toBe('2 hours');
+    expect(formatSubagentTimeoutDescription(45 * 1000)).toBe('45 seconds');
+    expect(formatSubagentTimeoutDescription(1500)).toBe('1500 ms');
+  });
 });
 
 describe('SessionSubagentHost', () => {
@@ -280,6 +338,9 @@ describe('SessionSubagentHost', () => {
     expect(telemetryTrack).toHaveBeenCalledWith('subagent_created', {
       subagent_name: 'explore',
       run_in_background: false,
+      agent_id: 'agent-0',
+      parent_agent_id: 'main',
+      parent_tool_call_id: 'call_agent',
     });
     expect(parent.allEvents).toContainEqual(
       expect.objectContaining({
@@ -295,7 +356,7 @@ describe('SessionSubagentHost', () => {
       cwd: parent.agent.config.cwd,
       provider: parent.agent.config.data().provider,
       profileName: 'explore',
-      thinkingLevel: parent.agent.config.thinkingLevel,
+      thinkingEffort: parent.agent.config.thinkingEffort,
     });
     expect(child.agent.config.systemPrompt).toContain('codebase exploration specialist');
     expect(child.agent.permission.mode).toBe('yolo');
@@ -402,10 +463,19 @@ describe('SessionSubagentHost', () => {
     expect(child.llmCalls[0]?.systemPrompt).toContain('You are now running as a subagent.');
     expect(child.llmCalls[0]?.tools.map((tool) => tool.name).toSorted()).toEqual([
       'Bash',
+      'CronCreate',
+      'CronDelete',
+      'CronList',
       'Edit',
+      'EnterPlanMode',
+      'ExitPlanMode',
       'Glob',
       'Grep',
       'Read',
+      'TaskList',
+      'TaskOutput',
+      'TaskStop',
+      'TodoList',
       'Write',
     ]);
     expect(child.llmCalls[0]?.history).toMatchObject([
@@ -425,6 +495,7 @@ describe('SessionSubagentHost', () => {
         agents: new Map([['main', parent.agent]]),
         ensureAgentResumed: vi.fn(async () => parent.agent),
         createAgent,
+        agentCatalog: testAgentCatalog(),
       } as never,
       'main',
     );
@@ -451,6 +522,7 @@ describe('SessionSubagentHost', () => {
         agents: new Map([['main', parent.agent]]),
         ensureAgentResumed: vi.fn(async () => parent.agent),
         createAgent,
+        agentCatalog: testAgentCatalog(),
       } as never,
       'main',
     );
@@ -1104,6 +1176,235 @@ describe('SessionSubagentHost', () => {
     expect(child.agent.config.modelAlias).toBe(parent.agent.config.modelAlias);
     expect(child.agent.config.modelAlias).not.toBe('stale-model-from-initial-spawn');
   });
+
+  describe('secondary model binding', () => {
+    const secondaryFlags = () =>
+      new FlagResolver({ PYTHINKER_CODE_EXPERIMENTAL_SECONDARY_MODEL: '1' });
+    const LONG_SUMMARY =
+      'Completed the delegated task end to end and reported a technically complete summary so the parent agent can continue without repeating prior work. ' +
+      'The report covers the investigation, the changes made, and the verification results in enough detail for the caller to act on directly.';
+    // Harness model registry entries resolvable through the child's
+    // ProviderManager: the secondary alias and the synthesized derived entry
+    // (in production `applySecondaryModelConfig` injects the latter into the
+    // session runtime config).
+    const withSecondaryModels = (config?: PythinkerConfig): PythinkerConfig => ({
+      providers: { 'test-provider': { type: 'pythinker', apiKey: 'test-key' } },
+      ...config,
+      models: {
+        'cheap-model': {
+          provider: 'test-provider',
+          model: 'cheap-model',
+          maxContextSize: 1_000_000,
+        },
+        '__secondary__': {
+          provider: 'test-provider',
+          model: 'cheap-model',
+          maxContextSize: 65536,
+        },
+      },
+    });
+
+    async function spawnChild(options: {
+      config?: PythinkerConfig;
+      experimentalFlags?: FlagResolver;
+      providerManager?: Session['options']['providerManager'];
+      modelChoice?: 'primary' | 'secondary';
+      profilePreference?: 'primary' | 'secondary';
+    }) {
+      const parent = testAgent();
+      parent.configure();
+      const child = testAgent({ initialConfig: withSecondaryModels() });
+      child.configure({ tools: ['Read'] });
+      child.mockNextResponse({ type: 'text', text: LONG_SUMMARY });
+
+      const session = fakeSession(parent.agent, child.agent, {}, {
+        config: options.config,
+        experimentalFlags: options.experimentalFlags,
+        providerManager: options.providerManager,
+      });
+      const host = new SessionSubagentHost(session, 'main');
+      if (options.profilePreference !== undefined) {
+        vi.spyOn(
+          host as unknown as {
+            resolveProfile: (parent: Agent, name: string) => ResolvedAgentProfile;
+          },
+          'resolveProfile',
+        ).mockReturnValue(
+          profile({
+            name: 'coder',
+            tools: ['Read'],
+            systemPrompt: 'coder prompt',
+            modelPreference: options.profilePreference,
+          }),
+        );
+      }
+      const handle = await host.spawn({
+        profileName: 'coder',
+        modelChoice: options.modelChoice,
+        parentToolCallId: 'call_agent',
+        prompt: 'Do work',
+        description: 'Do work',
+        runInBackground: false,
+        signal,
+      });
+      await handle.completion;
+      return { parent, child, handle };
+    }
+
+    it('binds the secondary model when configured', async () => {
+      const { parent, child } = await spawnChild({
+        experimentalFlags: secondaryFlags(),
+        config: {
+          providers: {},
+          secondaryModel: { model: 'cheap-model' },
+        },
+      });
+      expect(child.agent.config.modelAlias).toBe('cheap-model');
+      expect(child.agent.config.modelAlias).not.toBe(parent.agent.config.modelAlias);
+    });
+
+    it('binds the derived entry when the recipe carries patch fields', async () => {
+      const { child } = await spawnChild({
+        experimentalFlags: secondaryFlags(),
+        config: {
+          providers: {},
+          secondaryModel: { model: 'cheap-model', defaultEffort: 'low' },
+        },
+      });
+      // default_effort is part of the subagent-only patch, so the spawn binds
+      // the synthesized derived entry rather than the pointed alias.
+      expect(child.agent.config.modelAlias).toBe('__secondary__');
+    });
+
+    it('inherits the parent model when the experiment is off', async () => {
+      const { parent, child } = await spawnChild({
+        config: { providers: {}, secondaryModel: { model: 'cheap-model' } },
+      });
+      expect(child.agent.config.modelAlias).toBe(parent.agent.config.modelAlias);
+    });
+
+    it('inherits the parent model for an explicit model: primary choice', async () => {
+      const { parent, child } = await spawnChild({
+        experimentalFlags: secondaryFlags(),
+        config: { providers: {}, secondaryModel: { model: 'cheap-model' } },
+        modelChoice: 'primary',
+      });
+      expect(child.agent.config.modelAlias).toBe(parent.agent.config.modelAlias);
+    });
+
+    it('honors the profile model_preference over the configured secondary model', async () => {
+      const { parent, child } = await spawnChild({
+        experimentalFlags: secondaryFlags(),
+        config: { providers: {}, secondaryModel: { model: 'cheap-model' } },
+        profilePreference: 'primary',
+      });
+      expect(child.agent.config.modelAlias).toBe(parent.agent.config.modelAlias);
+    });
+
+    it('fails the spawn with a wrapped error when the secondary model does not resolve', async () => {
+      const parent = testAgent();
+      parent.configure();
+      const child = testAgent();
+      child.configure({ tools: ['Read'] });
+      const config: PythinkerConfig = {
+        providers: {},
+        secondaryModel: { model: 'missing-model' },
+      };
+      const session = fakeSession(parent.agent, child.agent, {}, {
+        experimentalFlags: secondaryFlags(),
+        config,
+        providerManager: new ProviderManager({ config }),
+      });
+      const host = new SessionSubagentHost(session, 'main');
+
+      await expect(
+        host.spawn({
+          profileName: 'coder',
+          parentToolCallId: 'call_agent',
+          prompt: 'Do work',
+          description: 'Do work',
+          runInBackground: false,
+          signal,
+        }).then((handle) => handle.completion),
+      ).rejects.toThrow(/\[secondary_model\]\.model/);
+    });
+
+    it('preserves a provider configuration error when the secondary alias exists', async () => {
+      const parent = testAgent();
+      parent.configure();
+      const child = testAgent();
+      child.configure({ tools: ['Read'] });
+      const config: PythinkerConfig = {
+        providers: {},
+        models: {
+          'cheap-model': {
+            provider: 'missing-provider',
+            model: 'cheap-model',
+            maxContextSize: 1_000_000,
+          },
+        },
+        secondaryModel: { model: 'cheap-model' },
+      };
+      const session = fakeSession(parent.agent, child.agent, {}, {
+        experimentalFlags: secondaryFlags(),
+        config,
+        providerManager: new ProviderManager({ config }),
+      });
+      const host = new SessionSubagentHost(session, 'main');
+
+      await expect(
+        host.spawn({
+          profileName: 'coder',
+          parentToolCallId: 'call_agent',
+          prompt: 'Do work',
+          description: 'Do work',
+          runInBackground: false,
+          signal,
+        }).then((handle) => handle.completion),
+      ).rejects.toMatchObject({
+        message: 'Provider "missing-provider" for model "cheap-model" is not configured.',
+      });
+    });
+
+    it('keeps the spawned model on resume when the experiment is on', async () => {
+      const parent = testAgent();
+      parent.configure();
+      parent.agent.permission.setMode('yolo');
+
+      const child = testAgent({ initialConfig: withSecondaryModels() });
+      child.configure({ tools: ['Read'] });
+      child.agent.config.update({ modelAlias: 'cheap-model' });
+      child.agent.useProfile(
+        profile({ name: 'coder', tools: ['Read'], systemPrompt: 'coder prompt' }),
+      );
+      child.agent.context.appendUserMessage([{ type: 'text', text: 'Earlier context' }]);
+      child.mockNextResponse({ type: 'text', text: LONG_SUMMARY });
+
+      const session = fakeSession(parent.agent, child.agent, {
+        'agent-0': {
+          homedir: '/tmp/pythinker-session/agents/agent-0',
+          type: 'sub',
+          parentAgentId: 'main',
+        },
+      }, {
+        experimentalFlags: secondaryFlags(),
+        config: { providers: {}, secondaryModel: { model: 'cheap-model' } },
+      });
+      const host = new SessionSubagentHost(session, 'main');
+
+      const handle = await host.resume('agent-0', {
+        parentToolCallId: 'call_agent',
+        prompt: 'Continue from context',
+        description: 'Continue work',
+        runInBackground: false,
+        signal,
+      });
+      await handle.completion;
+      // With the experiment on, resume no longer realigns the child to the
+      // parent's model: the subagent keeps the model it was bound to at spawn.
+      expect(child.agent.config.modelAlias).toBe('cheap-model');
+    });
+  });
 });
 
 describe('Session resume permission parent chain', () => {
@@ -1417,6 +1718,53 @@ describe('Session.createAgent', () => {
     expect(child.agent.config.systemPrompt).not.toContain(`cwd=${sessionWorkDir}`);
   });
 
+  it('passes session additional dirs to main and child agents', async () => {
+    const extraDir = '/extra/work';
+    const directories = new Set(['/workspace', extraDir]);
+    const files = new Map([
+      [join(extraDir, 'AGENTS.md'), 'extra agents instructions'],
+      [join(extraDir, 'extra-file.ts'), 'export const extra = 1;'],
+    ]);
+    const session = new Session({
+      id: 'test-subagent-additional-dirs',
+      kaos: createFakeKaos({
+        mkdir: vi.fn().mockResolvedValue(undefined),
+        writeText: vi.fn().mockResolvedValue(0),
+        stat: vi.fn(async (path: string) => {
+          if (directories.has(path)) return stat('dir');
+          if (files.has(path)) return stat('file');
+          throw new Error(`ENOENT ${path}`);
+        }),
+        iterdir: async function* (path: string) {
+          if (path === extraDir) {
+            yield join(extraDir, 'AGENTS.md');
+            yield join(extraDir, 'extra-file.ts');
+          }
+        },
+        readText: vi.fn(async (path: string) => {
+          const content = files.get(path);
+          if (content === undefined) throw new Error(`ENOENT ${path}`);
+          return content;
+        }),
+      }),
+      homedir: '/tmp/pythinker-session',
+      rpc: createSessionRpc(),
+      initializeMainAgent: false,
+      additionalDirs: [extraDir],
+    });
+
+    const main = await session.createMain();
+    const child = await session.createAgent(
+      { type: 'sub' },
+      { profile: contextProfile(), parentAgentId: 'main' },
+    );
+
+    expect(main.getAdditionalDirs()).toEqual([extraDir]);
+    expect(child.agent.getAdditionalDirs()).toEqual([extraDir]);
+    expect(child.agent.config.systemPrompt).toContain(`additional=### ${extraDir}`);
+    expect(child.agent.config.systemPrompt).toContain('extra-file.ts');
+  });
+
   it('allocates the next unused generated agent id', async () => {
     const session = new Session({
       id: 'test-subagent-agent-id',
@@ -1463,10 +1811,25 @@ describe('Session.createAgent', () => {
   });
 });
 
+function testAgentCatalog(): SessionAgentProfileCatalog {
+  // A real catalog seeded with the builtin profiles; discovery roots point
+  // at nonexistent dirs so no file profiles leak into the merge.
+  return new SessionAgentProfileCatalog({
+    workDir: '/nonexistent-pythinker-test-workdir',
+    brandHomeDir: '/nonexistent-pythinker-test-brandhome',
+    osHomeDir: '/nonexistent-pythinker-test-oshome',
+  });
+}
+
 function fakeSession(
   parent: Agent,
   child: Agent,
   metadataAgents: Session['metadata']['agents'] = {},
+  sessionOptions?: {
+    config?: PythinkerConfig;
+    experimentalFlags?: FlagResolver;
+    providerManager?: Session['options']['providerManager'];
+  },
 ) {
   const agents = new Map<string, Agent>([['main', parent]]);
   if (metadataAgents['agent-0'] !== undefined) {
@@ -1474,7 +1837,16 @@ function fakeSession(
   }
   return {
     agents,
-    options: { pythinkerHomeDir: undefined },
+    options: {
+      pythinkerHomeDir: undefined,
+      config: sessionOptions?.config,
+      providerManager: sessionOptions?.providerManager,
+    },
+    get pythinkerConfig() {
+      return sessionOptions?.config;
+    },
+    experimentalFlags: sessionOptions?.experimentalFlags ?? new FlagResolver({}),
+    agentCatalog: testAgentCatalog(),
     metadata: {
       createdAt: '2026-01-01T00:00:00.000Z',
       updatedAt: '2026-01-01T00:00:00.000Z',
@@ -1525,6 +1897,7 @@ function contextProfile(): ResolvedAgentProfile {
         `cwd=${context.cwd}`,
         `listing=${context.cwdListing ?? ''}`,
         `agents=${context.agentsMd ?? ''}`,
+        `additional=${context.additionalDirsInfo ?? ''}`,
       ].join('\n'),
     tools: [],
   };
@@ -1551,6 +1924,7 @@ function profile(input: {
   readonly systemPrompt: string;
   readonly description?: string | undefined;
   readonly subagents?: Record<string, ResolvedAgentProfile> | undefined;
+  readonly modelPreference?: 'primary' | 'secondary';
 }): ResolvedAgentProfile {
   return {
     name: input.name,
@@ -1558,6 +1932,7 @@ function profile(input: {
     systemPrompt: () => input.systemPrompt,
     tools: [...input.tools],
     subagents: input.subagents,
+    modelPreference: input.modelPreference,
   };
 }
 

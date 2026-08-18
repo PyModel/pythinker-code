@@ -1,16 +1,13 @@
 {
   "name": "@pymodel/acp-adapter",
-  "version": "0.3.0",
+  "version": "0.3.6",
   "private": true,
   "description": "Agent Client Protocol adapter for pythinker-code",
   "license": "MIT",
   "author": "PyModel",
   "type": "module",
   "imports": {
-    "#/*": [
-      "./src/*.ts",
-      "./src/*/index.ts"
-    ]
+    "#/*": "./src/*.ts"
   },
   "exports": {
     ".": {
@@ -44,5 +41,8 @@
     "@pymodel/agent-core": "workspace:^",
     "@pymodel/kaos": "workspace:^",
     "@pymodel/pythinker-code-sdk": "workspace:^"
+  },
+  "devDependencies": {
+    "jimp": "^1.6.1"
   }
 }

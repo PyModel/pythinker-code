@@ -1,10 +1,10 @@
 import { readFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
 import {
-  buildPythinkerDefaultHeaders,
+  createPythinkerCodeUserAgent,
   getHostPackageJsonPath,
   getHostPackageRoot,
   getVersion,
@@ -15,14 +15,12 @@ describe('cli version helpers', () => {
     const pkgPath = getHostPackageJsonPath();
     const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as { version: string };
 
-    expect(pkgPath.endsWith('/apps/pythinker-code/package.json')).toBe(true);
+    expect(pkgPath.endsWith(join('apps', 'pythinker-code', 'package.json'))).toBe(true);
     expect(getHostPackageRoot()).toBe(dirname(pkgPath));
     expect(getVersion()).toBe(pkg.version);
   });
 
-  it('builds default headers with the pythinker-code-cli user-agent', () => {
-    const headers = buildPythinkerDefaultHeaders('1.2.3');
-
-    expect(headers['User-Agent']).toBe('pythinker-code-cli/1.2.3');
+  it('builds the product user-agent for ad-hoc fetches', () => {
+    expect(createPythinkerCodeUserAgent('1.2.3')).toBe('pythinker-code-cli/1.2.3');
   });
 });

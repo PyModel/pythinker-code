@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { parseManifest } from '../../src/plugin/manifest';
+import { parseManifest, PLUGIN_SYSTEM_PROMPT_MAX_BYTES } from '../../src/plugin/manifest';
 
 async function makePlugin(
   files: Record<string, string>,
@@ -201,6 +201,47 @@ describe('parseManifest', () => {
     expect(result.manifest?.skills).toEqual([root]);
   });
 
+  it('resolves an explicit agents path', async () => {
+    const root = await makePlugin(
+      { 'pythinker.plugin.json': JSON.stringify({ name: 'demo', agents: './agents/' }) },
+      { dirs: ['agents'] },
+    );
+    const result = await parseManifest(root);
+    expect(result.manifest?.agents).toEqual([path.join(root, 'agents')]);
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  it('falls back to the agents directory when agents field is absent', async () => {
+    const root = await makePlugin(
+      { 'pythinker.plugin.json': JSON.stringify({ name: 'demo' }) },
+      { dirs: ['agents'] },
+    );
+    const result = await parseManifest(root);
+    expect(result.manifest?.agents).toEqual([path.join(root, 'agents')]);
+  });
+
+  it('keeps agents empty when the field is absent and no agents directory exists', async () => {
+    const root = await makePlugin({
+      'pythinker.plugin.json': JSON.stringify({ name: 'demo' }),
+    });
+    const result = await parseManifest(root);
+    expect(result.manifest?.agents).toEqual([]);
+  });
+
+  it('rejects an agents path not prefixed with ./', async () => {
+    const root = await makePlugin({
+      'pythinker.plugin.json': JSON.stringify({ name: 'demo', agents: 'agents/' }),
+    });
+    const result = await parseManifest(root);
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({
+        severity: 'error',
+        message: expect.stringContaining('"agents" path must start with "./"'),
+      }),
+    );
+    expect(result.manifest?.agents).toEqual([]);
+  });
+
   it('does not fall back to root SKILL.md when skills field is present', async () => {
     const root = await makePlugin(
       {
@@ -218,12 +259,10 @@ describe('parseManifest', () => {
       'pythinker.plugin.json': JSON.stringify({
         name: 'demo',
         tools: { foo: { description: 'x' } },
-        commands: ['x'],
         configFile: 'cfg.json',
         config_file: 'legacy-cfg.json',
         inject: { foo: 'bar' },
         bootstrap: { skill: 'using-demo' },
-        hooks: { sessionStart: { skill: 'using-demo' } },
         apps: './apps',
       }),
     });
@@ -231,12 +270,10 @@ describe('parseManifest', () => {
     expect(result.manifest).toEqual(expect.objectContaining({ name: 'demo' }));
     for (const field of [
       'tools',
-      'commands',
       'configFile',
       'config_file',
       'inject',
       'bootstrap',
-      'hooks',
       'apps',
     ]) {
       expect(result.diagnostics).toContainEqual(
@@ -365,5 +402,325 @@ describe('parseManifest', () => {
     const result = await parseManifest(root);
     expect(result.manifest?.interface?.displayName).toBe('Demo');
     expect(result.manifest?.interface?.shortDescription).toBe('A demo.');
+  });
+
+  it('parses a flat hooks array from the manifest', async () => {
+    const root = await makePlugin({
+      'pythinker.plugin.json': JSON.stringify({
+        name: 'demo',
+        hooks: [
+          { event: 'PreToolUse', matcher: 'Bash', command: './hooks/guard.sh', timeout: 10 },
+          { event: 'UserPromptSubmit', command: 'node ./hooks/log.js' },
+        ],
+      }),
+    });
+    const result = await parseManifest(root);
+    expect(result.diagnostics).toEqual([]);
+    expect(result.manifest?.hooks).toEqual([
+      { event: 'PreToolUse', matcher: 'Bash', command: './hooks/guard.sh', timeout: 10 },
+      { event: 'UserPromptSubmit', command: 'node ./hooks/log.js' },
+    ]);
+  });
+
+  it('warns and skips a hook entry that is missing required fields', async () => {
+    const root = await makePlugin({
+      'pythinker.plugin.json': JSON.stringify({
+        name: 'demo',
+        hooks: [{ event: 'PreToolUse' }],
+      }),
+    });
+    const result = await parseManifest(root);
+    expect(result.manifest?.hooks).toBeUndefined();
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({ severity: 'warn', message: expect.stringContaining('index 0') }),
+    );
+  });
+
+  it('warns when hooks is not an array', async () => {
+    const root = await makePlugin({
+      'pythinker.plugin.json': JSON.stringify({ name: 'demo', hooks: { event: 'Stop', command: 'x' } }),
+    });
+    const result = await parseManifest(root);
+    expect(result.manifest?.hooks).toBeUndefined();
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({ severity: 'warn', message: '"hooks" must be an array' }),
+    );
+  });
+
+  it('rejects a hook entry that sets cwd/env (strict schema)', async () => {
+    const root = await makePlugin({
+      'pythinker.plugin.json': JSON.stringify({
+        name: 'demo',
+        hooks: [{ event: 'PreToolUse', command: './x.sh', cwd: '/tmp' }],
+      }),
+    });
+    const result = await parseManifest(root);
+    expect(result.manifest?.hooks).toBeUndefined();
+    expect(result.diagnostics).toContainEqual(expect.objectContaining({ severity: 'warn' }));
+  });
+
+  it('resolves a commands directory to its .md files', async () => {
+    const root = await makePlugin(
+      {
+        'pythinker.plugin.json': JSON.stringify({ name: 'demo', commands: ['./commands'] }),
+        'commands/deploy.md': '---\ndescription: Deploy\n---\nbody',
+        'commands/env.md': '---\ndescription: Env\n---\nbody',
+        'commands/notes.txt': 'ignored',
+      },
+      { dirs: ['commands'] },
+    );
+    const result = await parseManifest(root);
+    expect(result.diagnostics).toEqual([]);
+    expect(result.manifest?.commands).toEqual([
+      { path: path.join(root, 'commands/deploy.md'), name: 'deploy' },
+      { path: path.join(root, 'commands/env.md'), name: 'env' },
+    ]);
+  });
+
+  it('recurses into nested command directories and preserves the namespace', async () => {
+    const root = await makePlugin(
+      {
+        'pythinker.plugin.json': JSON.stringify({ name: 'demo', commands: ['./commands'] }),
+        'commands/deploy.md': '---\ndescription: Deploy\n---\nbody',
+        'commands/frontend/component.md': '---\ndescription: Component\n---\nbody',
+        'commands/frontend/deep/nested.md': '---\ndescription: Nested\n---\nbody',
+      },
+      { dirs: ['commands', 'commands/frontend', 'commands/frontend/deep'] },
+    );
+    const result = await parseManifest(root);
+    expect(result.diagnostics).toEqual([]);
+    expect(result.manifest?.commands).toEqual([
+      { path: path.join(root, 'commands/deploy.md'), name: 'deploy' },
+      { path: path.join(root, 'commands/frontend/component.md'), name: 'frontend/component' },
+      { path: path.join(root, 'commands/frontend/deep/nested.md'), name: 'frontend/deep/nested' },
+    ]);
+  });
+
+  it('accepts a single command .md file', async () => {
+    const root = await makePlugin({
+      'pythinker.plugin.json': JSON.stringify({ name: 'demo', commands: ['./deploy.md'] }),
+      'deploy.md': '---\ndescription: Deploy\n---\nbody',
+    });
+    const result = await parseManifest(root);
+    expect(result.manifest?.commands).toEqual([
+      { path: path.join(root, 'deploy.md'), name: 'deploy' },
+    ]);
+  });
+
+  it('warns when commands is not a string or string[]', async () => {
+    const root = await makePlugin({
+      'pythinker.plugin.json': JSON.stringify({ name: 'demo', commands: { nope: true } }),
+    });
+    const result = await parseManifest(root);
+    expect(result.manifest?.commands).toBeUndefined();
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({
+        severity: 'warn',
+        message: '"commands" must be a string or string[]',
+      }),
+    );
+  });
+
+  it('warns when a commands entry resolves outside the plugin', async () => {
+    const root = await makePlugin({
+      'pythinker.plugin.json': JSON.stringify({ name: 'demo', commands: ['../outside.md'] }),
+    });
+    const result = await parseManifest(root);
+    expect(result.manifest?.commands).toBeUndefined();
+    expect(result.diagnostics).toContainEqual(expect.objectContaining({ severity: 'warn' }));
+  });
+
+  it('reads the systemPrompt field, trimming surrounding whitespace', async () => {
+    const root = await makePlugin({
+      'pythinker.plugin.json': JSON.stringify({ name: 'demo', systemPrompt: '\nAlways cite sources.\n' }),
+    });
+    const result = await parseManifest(root);
+    expect(result.manifest?.systemPrompt).toBe('Always cite sources.');
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  it('treats a missing, blank, or non-string systemPrompt as absent', async () => {
+    const blank = await makePlugin({
+      'pythinker.plugin.json': JSON.stringify({ name: 'demo', systemPrompt: '   ' }),
+    });
+    const blankResult = await parseManifest(blank);
+    expect(blankResult.manifest?.systemPrompt).toBeUndefined();
+
+    const nonString = await makePlugin({
+      'pythinker.plugin.json': JSON.stringify({ name: 'demo', systemPrompt: 42 }),
+    });
+    const nonStringResult = await parseManifest(nonString);
+    expect(nonStringResult.manifest?.systemPrompt).toBeUndefined();
+    expect(nonStringResult.diagnostics).toContainEqual(
+      expect.objectContaining({ severity: 'warn', message: '"systemPrompt" must be a string' }),
+    );
+  });
+
+  it('strips a UTF-8 BOM from the systemPromptPath file before trimming', async () => {
+    const root = await makePlugin({
+      'pythinker.plugin.json': JSON.stringify({ name: 'demo', systemPromptPath: './PROMPT.md' }),
+      'PROMPT.md': '\uFEFFAlways cite sources.\n',
+    });
+    const result = await parseManifest(root);
+    expect(result.manifest?.systemPrompt).toBe('Always cite sources.');
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  it('reads the systemPromptPath file, trimming surrounding whitespace', async () => {
+    const root = await makePlugin({
+      'pythinker.plugin.json': JSON.stringify({ name: 'demo', systemPromptPath: './PROMPT.md' }),
+      'PROMPT.md': '\nAlways cite sources.\n',
+    });
+    const result = await parseManifest(root);
+    expect(result.manifest?.systemPrompt).toBe('Always cite sources.');
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  it('combines systemPrompt and systemPromptPath, inline first', async () => {
+    const root = await makePlugin({
+      'pythinker.plugin.json': JSON.stringify({
+        name: 'demo',
+        systemPrompt: 'Inline.',
+        systemPromptPath: './PROMPT.md',
+      }),
+      'PROMPT.md': 'From file.',
+    });
+    const result = await parseManifest(root);
+    expect(result.manifest?.systemPrompt).toBe('Inline.\n\nFrom file.');
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  it('warns on invalid systemPromptPath and keeps the inline systemPrompt', async () => {
+    const nonString = await makePlugin({
+      'pythinker.plugin.json': JSON.stringify({ name: 'demo', systemPrompt: 'Inline.', systemPromptPath: 42 }),
+    });
+    const nonStringResult = await parseManifest(nonString);
+    expect(nonStringResult.manifest?.systemPrompt).toBe('Inline.');
+    expect(nonStringResult.diagnostics).toContainEqual(
+      expect.objectContaining({ severity: 'warn', message: '"systemPromptPath" must be a string' }),
+    );
+
+    const noPrefix = await makePlugin({
+      'pythinker.plugin.json': JSON.stringify({
+        name: 'demo',
+        systemPrompt: 'Inline.',
+        systemPromptPath: 'PROMPT.md',
+      }),
+    });
+    const noPrefixResult = await parseManifest(noPrefix);
+    expect(noPrefixResult.manifest?.systemPrompt).toBe('Inline.');
+    expect(noPrefixResult.diagnostics).toContainEqual(
+      expect.objectContaining({
+        severity: 'warn',
+        message: '"systemPromptPath" path must start with "./" (got "PROMPT.md")',
+      }),
+    );
+
+    const notAFile = await makePlugin(
+      {
+        'pythinker.plugin.json': JSON.stringify({
+          name: 'demo',
+          systemPrompt: 'Inline.',
+          systemPromptPath: './docs',
+        }),
+      },
+      { dirs: ['docs'] },
+    );
+    const notAFileResult = await parseManifest(notAFile);
+    expect(notAFileResult.manifest?.systemPrompt).toBe('Inline.');
+    expect(notAFileResult.diagnostics).toContainEqual(
+      expect.objectContaining({
+        severity: 'warn',
+        message: '"systemPromptPath" is not a file (./docs)',
+      }),
+    );
+  });
+
+  it('warns on a blank systemPromptPath', async () => {
+    const root = await makePlugin({
+      'pythinker.plugin.json': JSON.stringify({
+        name: 'demo',
+        systemPrompt: 'Inline.',
+        systemPromptPath: '   ',
+      }),
+    });
+    const result = await parseManifest(root);
+    expect(result.manifest?.systemPrompt).toBe('Inline.');
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({ severity: 'warn', message: '"systemPromptPath" must not be blank' }),
+    );
+  });
+
+  it('rejects systemPromptPath values that escape the plugin root', async () => {
+    const traversal = await makePlugin({
+      'pythinker.plugin.json': JSON.stringify({ name: 'demo', systemPromptPath: './../outside.md' }),
+    });
+    const traversalResult = await parseManifest(traversal);
+    expect(traversalResult.manifest?.systemPrompt).toBeUndefined();
+    expect(traversalResult.diagnostics).toContainEqual(
+      expect.objectContaining({
+        severity: 'warn',
+        message: '"systemPromptPath" path resolves outside the plugin (./../outside.md)',
+      }),
+    );
+
+    const root = await makePlugin({
+      'pythinker.plugin.json': JSON.stringify({ name: 'demo', systemPromptPath: './linked.md' }),
+    });
+    const outsideDir = await mkdtemp(path.join(tmpdir(), 'plugin-outside-'));
+    await writeFile(path.join(outsideDir, 'secret.md'), 'outside content', 'utf8');
+    await symlink(path.join(outsideDir, 'secret.md'), path.join(root, 'linked.md'));
+    const linkedResult = await parseManifest(root);
+    expect(linkedResult.manifest?.systemPrompt).toBeUndefined();
+    expect(linkedResult.diagnostics).toContainEqual(
+      expect.objectContaining({
+        severity: 'warn',
+        message: '"systemPromptPath" path resolves outside the plugin (./linked.md)',
+      }),
+    );
+  });
+
+  it('ignores an oversized inline systemPrompt with a warning', async () => {
+    const oversized = 'x'.repeat(PLUGIN_SYSTEM_PROMPT_MAX_BYTES + 1);
+    const root = await makePlugin({
+      'pythinker.plugin.json': JSON.stringify({ name: 'demo', systemPrompt: oversized }),
+    });
+    const result = await parseManifest(root);
+    expect(result.manifest?.systemPrompt).toBeUndefined();
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({
+        severity: 'warn',
+        message: `"systemPrompt" is ${PLUGIN_SYSTEM_PROMPT_MAX_BYTES + 1} bytes, exceeding the 32 KB limit; the field is ignored`,
+      }),
+    );
+  });
+
+  it('ignores an oversized systemPromptPath file with a warning and keeps the inline field', async () => {
+    const root = await makePlugin({
+      'pythinker.plugin.json': JSON.stringify({
+        name: 'demo',
+        systemPrompt: 'Inline.',
+        systemPromptPath: './PROMPT.md',
+      }),
+      'PROMPT.md': 'x'.repeat(PLUGIN_SYSTEM_PROMPT_MAX_BYTES + 1),
+    });
+    const result = await parseManifest(root);
+    expect(result.manifest?.systemPrompt).toBe('Inline.');
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({
+        severity: 'warn',
+        message: `"systemPromptPath" is ${PLUGIN_SYSTEM_PROMPT_MAX_BYTES + 1} bytes, exceeding the 32 KB limit; the file is ignored (./PROMPT.md)`,
+      }),
+    );
+  });
+
+  it('accepts system-prompt content exactly at the byte limit', async () => {
+    const root = await makePlugin({
+      'pythinker.plugin.json': JSON.stringify({ name: 'demo', systemPromptPath: './PROMPT.md' }),
+      'PROMPT.md': 'x'.repeat(PLUGIN_SYSTEM_PROMPT_MAX_BYTES),
+    });
+    const result = await parseManifest(root);
+    expect(result.manifest?.systemPrompt).toBe('x'.repeat(PLUGIN_SYSTEM_PROMPT_MAX_BYTES));
+    expect(result.diagnostics).toEqual([]);
   });
 });

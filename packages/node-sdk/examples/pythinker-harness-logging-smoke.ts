@@ -73,7 +73,7 @@ async function main(): Promise<void> {
   const longEntry = `SMOKE_LONG_TRUNCATED_${runId}`;
   const finalEntry = `SMOKE_FINAL_AFTER_ROTATION_SHOULD_APPEAR_${runId}`;
   const harness = createPythinkerHarness({
-    identity: { userAgentProduct: 'pythinker-code-cli', version: '0.1.1' },
+    identity: { productName: 'pythinker-code-cli', version: '0.1.1', platform: 'pythinker_code_cli' },
     homeDir: TEST_HOME,
   });
 

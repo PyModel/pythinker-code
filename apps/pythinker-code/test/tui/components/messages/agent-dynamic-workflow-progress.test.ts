@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { visibleWidth } from '@earendil-works/pi-tui';
+import { visibleWidth } from '@pymodel/pi-tui';
 import chalk from 'chalk';
 
 import {
@@ -165,6 +165,30 @@ describe('AgentDynamicWorkflowProgressComponent', () => {
     expect(output).toContain('Review changed files');
     expect(output).toContain('Orchestrating...');
     expect(output).not.toContain('01');
+  });
+
+  it('shows the bound model display name in the header', () => {
+    const component = createComponent();
+
+    component.setModelDisplay('kimi-k2-thinking');
+    const lines = renderLines(component);
+    const headerLine = lines.find((line) => line.includes('Agent DynamicWorkflow'));
+
+    expect(headerLine).toBeDefined();
+    expect(headerLine).toContain('Review changed files ─ kimi-k2-thinking');
+  });
+
+  it('keeps the first reported model when later status updates differ', () => {
+    const component = createComponent();
+
+    component.setModelDisplay('kimi-k2-thinking');
+    component.setModelDisplay('other-model');
+    component.setModelDisplay('');
+
+    const output = renderText(component);
+
+    expect(output).toContain('kimi-k2-thinking');
+    expect(output).not.toContain('other-model');
   });
 
   it('repaints from the active palette when the theme changes', () => {

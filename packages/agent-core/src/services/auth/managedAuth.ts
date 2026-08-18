@@ -9,6 +9,7 @@ import {
   resolvePythinkerCodeLoginAuth,
   resolvePythinkerCodeRuntimeAuth,
   type BearerTokenProvider,
+  type PythinkerHostIdentity,
   type PythinkerOAuthLoginOptions,
   type ManagedPythinkerConfigShape,
 } from '@pymodel/pythinker-code-oauth';
@@ -50,9 +51,11 @@ class ServicesManagedAuthFacade implements ServicesAuthFacade {
 
   constructor(
     private readonly options: Pick<IEnvironmentService, 'homeDir' | 'configPath'>,
+    identity?: PythinkerHostIdentity,
   ) {
     this.toolkit = new PythinkerOAuthToolkit<ServicesManagedConfig>({
       homeDir: options.homeDir,
+      identity,
       configAdapter: {
         configPath: options.configPath,
         read: () => readConfigFile(options.configPath) as ServicesManagedConfig,
@@ -169,6 +172,7 @@ class ServicesManagedAuthFacade implements ServicesAuthFacade {
 
 export function createManagedAuthFacade(
   env: Pick<IEnvironmentService, 'homeDir' | 'configPath'>,
+  identity?: PythinkerHostIdentity,
 ): ServicesAuthFacade {
-  return new ServicesManagedAuthFacade(env);
+  return new ServicesManagedAuthFacade(env, identity);
 }

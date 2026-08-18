@@ -1,4 +1,4 @@
-import { visibleWidth } from '@earendil-works/pi-tui';
+import { visibleWidth } from '@pymodel/pi-tui';
 import { describe, expect, it } from 'vitest';
 
 import { DynamicWorkflowModeMarkerComponent } from '#/tui/components/messages/dynamic-workflow-markers';

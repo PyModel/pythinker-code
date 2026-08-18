@@ -1,0 +1,35 @@
+{
+  "name": "@pymodel/transcript",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Isomorphic transcript rendering data layer: agent-granular L1 store, idempotent L2 operations, granularity-gated L3 subscriptions, framework-free L4 view registry.",
+  "license": "MIT",
+  "author": "PyModel",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PyModel/pythinker-code.git",
+    "directory": "packages/transcript"
+  },
+  "bugs": {
+    "url": "https://github.com/PyModel/pythinker-code/issues"
+  },
+  "type": "module",
+  "imports": {
+    "#/*": "./src/*.ts"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "zod": "catalog:"
+  }
+}

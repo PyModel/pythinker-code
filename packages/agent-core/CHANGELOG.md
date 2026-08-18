@@ -1,5 +1,130 @@
 # @pymodel/agent-core
 
+## 0.15.7
+
+### Patch Changes
+
+- [#2382](https://github.com/PyModel/pythinker-code/pull/2382) [`40172c7`](https://github.com/PyModel/pythinker-code/commit/40172c7ca96ca981b043b793588dd32e898979fa) Thanks [@liruifengv](https://github.com/liruifengv)! - Thread the host identity through the managed auth facades so OAuth token refreshes from inside the core carry the `X-Msh-*` device headers.
+
+- Updated dependencies [[`40172c7`](https://github.com/PyModel/pythinker-code/commit/40172c7ca96ca981b043b793588dd32e898979fa)]:
+  - @pymodel/pythinker-code-oauth@0.3.0
+
+## 0.15.6
+
+### Patch Changes
+
+- [#2030](https://github.com/PyModel/pythinker-code/pull/2030) [`ec88d35`](https://github.com/PyModel/pythinker-code/commit/ec88d352e8f4dc5e8ffd1212f016138458f69893) Thanks [@RealKai42](https://github.com/RealKai42)! - Fix catalog-imported Claude models being wrongly locked into always-on thinking, and stop offering a misleading thinking Off option for models that cannot truly disable reasoning (such as Gemini 3). Also normalizes configured thinking effort values and unifies context-usage reporting.
+
+- [#1993](https://github.com/PyModel/pythinker-code/pull/1993) [`37eda4e`](https://github.com/PyModel/pythinker-code/commit/37eda4e59aebc8ecafa91be3f43f971ed63963a3) Thanks [@RealKai42](https://github.com/RealKai42)! - Add environment variable overrides for agent loop and background task limits. Set PYTHINKER_LOOP_MAX_STEPS_PER_TURN, PYTHINKER_LOOP_MAX_RETRIES_PER_STEP, or PYTHINKER_CODE_BACKGROUND_MAX_RUNNING_TASKS to take priority over the [loop_control] and [background] config.
+
+- [#1968](https://github.com/PyModel/pythinker-code/pull/1968) [`71bcfba`](https://github.com/PyModel/pythinker-code/commit/71bcfba54a6836f4b6d4e26babde67576b293a64) Thanks [@RealKai42](https://github.com/RealKai42)! - Fix sessions getting stuck on every turn with a provider "message must not be empty" error after a content-filtered response.
+
+- [#1735](https://github.com/PyModel/pythinker-code/pull/1735) [`ce0e3ce`](https://github.com/PyModel/pythinker-code/commit/ce0e3ceb04223bdaad8e8931bad46eff561055b6) Thanks [@7Sageer](https://github.com/7Sageer)! - Add global tool gating to constrain which tools agents may use, with a per-session override (v2 engine only).
+
+- [#1976](https://github.com/PyModel/pythinker-code/pull/1976) [`e458323`](https://github.com/PyModel/pythinker-code/commit/e45832398d0d9cad98dbad1cbf1e5b103a20aace) Thanks [@liruifengv](https://github.com/liruifengv)! - Improve TUI performance and resume speed for long-running sessions.
+
+- [#2015](https://github.com/PyModel/pythinker-code/pull/2015) [`b5efba7`](https://github.com/PyModel/pythinker-code/commit/b5efba7abcaf4041f81ec520097a61e6546e8c50) Thanks [@RealKai42](https://github.com/RealKai42)! - Fix thinking levels being offered for models that do not support them (e.g. phantom levels on Kimi K3): levels now come from each model's declared capabilities. Models that cannot disable reasoning (e.g. gpt-5) no longer offer an Off option, and turning thinking Off on models that support it (e.g. xai grok) now truly disables reasoning.
+
+- Updated dependencies [[`ec88d35`](https://github.com/PyModel/pythinker-code/commit/ec88d352e8f4dc5e8ffd1212f016138458f69893), [`b5efba7`](https://github.com/PyModel/pythinker-code/commit/b5efba7abcaf4041f81ec520097a61e6546e8c50), [`ce0e3ce`](https://github.com/PyModel/pythinker-code/commit/ce0e3ceb04223bdaad8e8931bad46eff561055b6), [`71bcfba`](https://github.com/PyModel/pythinker-code/commit/71bcfba54a6836f4b6d4e26babde67576b293a64), [`ce0e3ce`](https://github.com/PyModel/pythinker-code/commit/ce0e3ceb04223bdaad8e8931bad46eff561055b6), [`b5efba7`](https://github.com/PyModel/pythinker-code/commit/b5efba7abcaf4041f81ec520097a61e6546e8c50), [`a3699dd`](https://github.com/PyModel/pythinker-code/commit/a3699dd6aa7b41efd3129a117007d195282379fd)]:
+  - @pymodel/kosong@0.5.5
+  - @pymodel/protocol@0.5.0
+
+## 0.15.5
+
+### Patch Changes
+
+- [#1769](https://github.com/PyModel/pythinker-code/pull/1769) [`d1ca65e`](https://github.com/PyModel/pythinker-code/commit/d1ca65e1de189617e9edbc54010e62d472a1de3d) Thanks [@wbxl2000](https://github.com/wbxl2000)! - Support in-process editor hosts with session lifecycle, context, MCP configuration, and cross-platform session storage APIs.
+
+## 0.15.4
+
+### Patch Changes
+
+- [#1638](https://github.com/PyModel/pythinker-code/pull/1638) [`7c889f3`](https://github.com/PyModel/pythinker-code/commit/7c889f3a960482cc9382203bda55d972b6fb6acd) Thanks [@RealKai42](https://github.com/RealKai42)! - In auto permission mode, plan exits are now marked as auto-approved (not user-reviewed) in both the tool result and the transcript, so the agent no longer treats automatic plan approval as a user signal to start executing.
+
+- Updated dependencies [[`ceb158d`](https://github.com/PyModel/pythinker-code/commit/ceb158dc54586f254819edbc83c27e21dca1ecf6), [`0303b82`](https://github.com/PyModel/pythinker-code/commit/0303b82c3e691836163ecf906febfb6324c81d74)]:
+  - @pymodel/protocol@0.4.0
+
+## 0.15.3
+
+### Patch Changes
+
+- [#1372](https://github.com/PyModel/pythinker-code/pull/1372) [`d111c02`](https://github.com/PyModel/pythinker-code/commit/d111c02ea08ee32b4c61225d29acd69ea3f256e8) - Apply the 16 MiB output cap to background shell commands too, so a runaway background command can no longer fill the disk or crash the process; it is now terminated with the same guidance to redirect large output to a file.
+
+## 0.15.2
+
+### Patch Changes
+
+- [#1349](https://github.com/PyModel/pythinker-code/pull/1349) [`e9db9ca`](https://github.com/PyModel/pythinker-code/commit/e9db9cafcf7a0d26122b2cac247d866d7724fd7a) - Record model response ids in session wire logs to make individual model requests easier to trace.
+
+## 0.15.1
+
+### Patch Changes
+
+- [#1285](https://github.com/PyModel/pythinker-code/pull/1285) [`c434b4c`](https://github.com/PyModel/pythinker-code/commit/c434b4c3e658b686e5f0d0d7d3a2b4cfbfbcaffa) - Cap the output a single foreground shell command may stream so a runaway command can no longer crash the process. A command that produces a very large or unbounded amount of output (e.g. `b3sum --length 18446744073709551615`) previously grew the live-output buffer until Node aborted with a JavaScript heap out-of-memory error; it is now gracefully terminated once its output exceeds 16 MiB, and the result explains how to redirect large output to a file instead. The per-task output ring buffer is also maintained in O(1) per chunk rather than O(n²). Background tasks are unaffected.
+
+- [#1308](https://github.com/PyModel/pythinker-code/pull/1308) [`4dd926b`](https://github.com/PyModel/pythinker-code/commit/4dd926b0ac8f901030b012827a418274cd7434ae) - Drop orphan tool results at the projection boundary so a malformed history cannot brick a session. A `tool` result whose assistant `tool_call` is nowhere in the history (e.g. an older session whose compaction cut fell inside a tool exchange, restored via the legacy path) is now removed from every projected request, not only on the post-400 strict resend. The stored history is left faithful to the wire records — so consumers that model it, like the transcript fold length, stay in sync — while a strict provider (OpenAI / DeepSeek) always receives a valid request. The drop is surfaced via the projection-repair log rather than done silently.
+
+- [#1296](https://github.com/PyModel/pythinker-code/pull/1296) [`021de54`](https://github.com/PyModel/pythinker-code/commit/021de5433b43bf944ae77637e74581bf509d5d14) - Align model-facing prompts with actual tool behavior. Fix descriptions that drifted from the implementation (Grep `glob` matching against absolute paths, Glob accepting relative `path`, FetchURL extraction modes, files-only Glob results, cron pinned-date recurrence), disclose enforced-but-silent behavior (idle-only cron delivery, the 5-year no-fire rejection, VCS directories always excluded, sensitive-file exemptions, image downsampling, the subagent summary-length floor, background rejection before launch), resolve cross-surface contradictions (AskUserQuestion background polling guidance, AgentDynamicWorkflow resume typing, `&&` chaining vs parallel calls, dangling optional-tool names in the shared system prompt), and add missing guidance (denied-call handling for the root agent, read-only role statement for the plan subagent, coder handoff requirements, web/`gh` routing, a dual-use content-safety boundary, scope discipline, and dependency-verification norms).
+
+- Updated dependencies [[`93ec6cb`](https://github.com/PyModel/pythinker-code/commit/93ec6cb6526021156a951f8c513c45f138bf5dbb), [`4dd926b`](https://github.com/PyModel/pythinker-code/commit/4dd926b0ac8f901030b012827a418274cd7434ae)]:
+  - @pymodel/kosong@0.5.2
+
+## 0.15.0
+
+### Minor Changes
+
+- [#1260](https://github.com/PyModel/pythinker-code/pull/1260) [`e47ca10`](https://github.com/PyModel/pythinker-code/commit/e47ca10267e75d0b462f9f54e1ae6fc188521703) - WebSearch now sends only the query and returns lightweight result summaries (title, source site, date, URL, snippet) instead of inlined page content; fetch a result's full page content on demand with FetchURL. Both tools now include a citation reminder in their results.
+
+### Patch Changes
+
+- [#1258](https://github.com/PyModel/pythinker-code/pull/1258) [`b905dd4`](https://github.com/PyModel/pythinker-code/commit/b905dd49108c567d0fecd38a096808c121672795) - Show draft pull requests with a distinct draft status instead of displaying them as open.
+
+- [#1269](https://github.com/PyModel/pythinker-code/pull/1269) [`bf35f63`](https://github.com/PyModel/pythinker-code/commit/bf35f63c5d9b53625f3bf04f50b9a0bb49ced2c9) - Honor `base_url` for the `google-genai` and `vertexai` providers. A configured base URL was previously ignored and requests always went to `generativelanguage.googleapis.com`; it is now forwarded to the Google GenAI SDK (with `GOOGLE_GEMINI_BASE_URL` / `GOOGLE_VERTEX_BASE_URL` env fallbacks), so Gemini-compatible proxies and gateways can be used. Give the host root only — the SDK appends the API version segment itself.
+
+- Updated dependencies [[`b905dd4`](https://github.com/PyModel/pythinker-code/commit/b905dd49108c567d0fecd38a096808c121672795), [`bf35f63`](https://github.com/PyModel/pythinker-code/commit/bf35f63c5d9b53625f3bf04f50b9a0bb49ced2c9), [`074bb9b`](https://github.com/PyModel/pythinker-code/commit/074bb9ba1359dd3ea2a55eff81986f2bb4772793)]:
+  - @pymodel/protocol@0.3.2
+  - @pymodel/kosong@0.5.1
+
+## 0.14.3
+
+### Patch Changes
+
+- [#1221](https://github.com/PyModel/pythinker-code/pull/1221) [`a3f9cec`](https://github.com/PyModel/pythinker-code/commit/a3f9cec8a975f11e37e992e42f954789ed394207) - Fix duplicate workspaces showing in the web sidebar when the same folder is registered more than once.
+
+- Updated dependencies [[`ceb27f5`](https://github.com/PyModel/pythinker-code/commit/ceb27f5e449e177493f320d90e292487a8fc3410)]:
+  - @pymodel/protocol@0.3.1
+
+## 0.14.2
+
+### Patch Changes
+
+- [#1068](https://github.com/PyModel/pythinker-code/pull/1068) [`c82dcf9`](https://github.com/PyModel/pythinker-code/commit/c82dcf9cd8276eddf6acbf1030d1712b83a38083) - Glob now uses ripgrep, so it respects .gitignore by default, supports brace patterns, returns only files, and keeps partial results with a warning when some directories are unreadable.
+
+- [#1209](https://github.com/PyModel/pythinker-code/pull/1209) [`0635387`](https://github.com/PyModel/pythinker-code/commit/063538744f64a1bd3da6f37ebd0643d10bfc068f) - Align malformed tool call argument handling with schema validation fallback.
+
+## 0.14.1
+
+### Patch Changes
+
+- [#1131](https://github.com/PyModel/pythinker-code/pull/1131) [`76c643b`](https://github.com/PyModel/pythinker-code/commit/76c643bcb6da447c8c47728b4f58512a7a11cfa6) - Cap completion tokens to the remaining context window for chat-completions providers, avoiding context-overflow and invalid max_tokens errors.
+
+- Updated dependencies [[`76c643b`](https://github.com/PyModel/pythinker-code/commit/76c643bcb6da447c8c47728b4f58512a7a11cfa6)]:
+  - @pymodel/kosong@0.5.0
+
+## 0.14.0
+
+### Minor Changes
+
+- [#812](https://github.com/PyModel/pythinker-code/pull/812) [`c0eeca2`](https://github.com/PyModel/pythinker-code/commit/c0eeca24692edd736eecd3c2541d7566bac9f80f) - Added the ability to add extra workspace directories:
+
+  - Use the `/add-dir <path>` command to add extra working directories to the current session, or remember them for the project.
+  - Use `pythinker --add-dir <path>` to add them on startup.
+  - Project-level local config is now managed in `.pythinker-code/local.toml`; we recommend adding it to your `.gitignore`.
+
+### Patch Changes
+
+- [#970](https://github.com/PyModel/pythinker-code/pull/970) [`2730079`](https://github.com/PyModel/pythinker-code/commit/27300797f2149900219b05dda49dce65e71fa85a) - Detect the real image format from file contents when reading media, so a mismatched filename extension no longer produces a data URL the model API rejects.
+
 ## 0.13.1
 
 ### Patch Changes

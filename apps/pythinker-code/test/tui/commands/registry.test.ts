@@ -3,6 +3,7 @@ import {
   findBuiltInSlashCommand,
   parseSlashInput,
   resolveSlashCommandAvailability,
+  addDirArgumentCompletions,
   sortSlashCommands,
   dynamic_workflowArgumentCompletions,
   type PythinkerSlashCommand,
@@ -33,6 +34,7 @@ describe('built-in slash command registry', () => {
     expect(findBuiltInSlashCommand('quit')?.name).toBe('exit');
     expect(findBuiltInSlashCommand('q')?.name).toBe('exit');
     expect(findBuiltInSlashCommand('clear')?.name).toBe('new');
+    expect(findBuiltInSlashCommand('bug')?.name).toBe('feedback');
     expect(findBuiltInSlashCommand('btw')?.name).toBe('btw');
     expect(findBuiltInSlashCommand('mcp')?.name).toBe('mcp');
     expect(findBuiltInSlashCommand('status')?.name).toBe('status');
@@ -71,6 +73,27 @@ describe('built-in slash command registry', () => {
     expect(values('on')).toBeNull();
     expect(values('off')).toBeNull();
     expect(values('Ship feature X')).toBeNull();
+  });
+
+  it('offers add-dir list and directory argument completions', () => {
+    const values = (prefix: string): string[] | null => {
+      const items = addDirArgumentCompletions(prefix);
+      return items === null ? null : items.map((item) => item.value);
+    };
+
+    expect(values('')).toEqual(['list']);
+    expect(values('L')).toEqual(['list']);
+    expect(values('list')).toBeNull();
+    const directoryCompletions = values('/') ?? [];
+    expect(directoryCompletions.length).toBeGreaterThan(0);
+    expect(directoryCompletions.every((value) => value.startsWith('/') && value.endsWith('/'))).toBe(true);
+    expect(directoryCompletions.some((value) => value.startsWith('/.'))).toBe(false);
+    expect(values('/.')).toBeNull();
+    const homeCompletions = values('~/') ?? [];
+    expect(homeCompletions.length).toBeGreaterThan(0);
+    expect(homeCompletions.every((value) => value.startsWith('~/') && value.endsWith('/'))).toBe(true);
+    expect(homeCompletions.some((value) => value.startsWith('~/.'))).toBe(false);
+    expect(homeCompletions.some((value) => value.startsWith('~/sers/'))).toBe(false);
   });
 
   it('defaults commands without explicit availability to idle-only', () => {
@@ -126,6 +149,7 @@ describe('built-in slash command registry', () => {
     expect(new Set(names).size).toBe(names.length);
     expect(names).toEqual(
       expect.arrayContaining([
+        'add-dir',
         'compact',
         'btw',
         'editor',
@@ -143,6 +167,7 @@ describe('built-in slash command registry', () => {
         'plan',
         'reload',
         'reload-tui',
+        'secondary_model',
         'sessions',
         'settings',
         'status',
@@ -164,5 +189,12 @@ describe('built-in slash command registry', () => {
     expect(reloadTui).toBeDefined();
     expect(resolveSlashCommandAvailability(reload!, '')).toBe('idle-only');
     expect(resolveSlashCommandAvailability(reloadTui!, '')).toBe('always');
+  });
+
+  it('gates secondary_model behind the secondary-model experiment, always available', () => {
+    const command = findBuiltInSlashCommand('secondary_model');
+    expect(command).toBeDefined();
+    expect((command as PythinkerSlashCommand).experimentalFlag).toBe('secondary-model');
+    expect(resolveSlashCommandAvailability(command!, '')).toBe('always');
   });
 });

@@ -1,7 +1,20 @@
 import type { Logger } from '#/logging/types';
 import type { ProviderConfig as KosongProviderConfig, ModelCapability, ProviderRequestAuth } from '@pymodel/kosong';
-import { APIStatusError, getModelCapability, UNKNOWN_CAPABILITY } from '@pymodel/kosong';
-import type { PythinkerConfig, ModelAlias, OAuthRef, ProviderConfig } from '../config';
+import {
+  APIStatusError,
+  classifyPythinkerQuotaError,
+  getModelCapability,
+  UNKNOWN_CAPABILITY,
+} from '@pymodel/kosong';
+import { parsePythinkerCodeCustomHeaders } from '@pymodel/pythinker-code-oauth';
+import {
+  effectiveModelAlias,
+  type PythinkerConfig,
+  type ModelAlias,
+  type OAuthRef,
+  type ProviderConfig,
+  type ProviderType,
+} from '../config';
 import { ErrorCodes, isPythinkerError, PythinkerError } from '../errors';
 
 export interface BearerTokenProvider {
@@ -19,7 +32,13 @@ export interface ResolvedRuntimeProvider {
   readonly modelCapabilities: ModelCapability;
   /** Declared 'always_thinking' capability — the model cannot disable thinking. */
   readonly alwaysThinking?: boolean;
+  readonly supportEfforts?: readonly string[];
+  readonly defaultEffort?: string;
   readonly maxOutputSize?: number;
+  /** Configured provider wire type (`provider.type`), before any model-level protocol override. */
+  readonly type: ProviderType;
+  /** Model-level protocol override (`alias.protocol`); when set, takes precedence over `type` for transport selection. */
+  readonly protocol: ModelAlias['protocol'];
 }
 
 interface ProviderManagerOptions {
@@ -60,6 +79,8 @@ export class SingleModelProvider implements ModelProvider {
       modelCapabilities: this.modelCapabilities,
       providerName: 'single-model-provider',
       provider: this.providerConfig,
+      type: this.providerConfig.type,
+      protocol: undefined,
     };
   }
 }
@@ -78,6 +99,7 @@ export class ProviderManager implements ModelProvider {
       throw new PythinkerError(
         ErrorCodes.CONFIG_INVALID,
         `Model "${model}" is not configured in config.toml. Add a [models."${model}"] entry with max_context_size.`,
+        { details: { model } },
       );
     }
 
@@ -97,7 +119,9 @@ export class ProviderManager implements ModelProvider {
       );
     }
 
-    if (!Number.isInteger(alias.maxContextSize) || alias.maxContextSize <= 0) {
+    const effectiveAlias = effectiveModelAlias(alias, providerConfig.type);
+
+    if (!Number.isInteger(effectiveAlias.maxContextSize) || effectiveAlias.maxContextSize <= 0) {
       throw new PythinkerError(
         ErrorCodes.CONFIG_INVALID,
         `Model "${model}" must define a positive max_context_size in config.toml.`,
@@ -107,21 +131,30 @@ export class ProviderManager implements ModelProvider {
     const provider = toKosongProviderConfig(
       providerConfig,
       alias.model,
+      alias.protocol,
+      alias.baseUrl,
       this.options.pythinkerRequestHeaders,
-      alias.maxOutputSize,
-      alias.reasoningKey,
+      effectiveAlias.maxOutputSize,
+      effectiveAlias.reasoningKey,
       this.options.promptCacheKey,
-      alias.adaptiveThinking,
+      effectiveAlias.supportEfforts,
+      effectiveAlias.offEffort,
+      effectiveAlias.adaptiveThinking,
+      alias.betaApi,
     );
 
     return {
       providerName,
       provider,
-      modelCapabilities: resolveModelCapabilities(alias, provider),
-      alwaysThinking: (alias.capabilities ?? []).some(
+      modelCapabilities: resolveModelCapabilities(effectiveAlias, provider),
+      alwaysThinking: (effectiveAlias.capabilities ?? []).some(
         (c) => c.trim().toLowerCase() === 'always_thinking',
       ),
-      maxOutputSize: alias.maxOutputSize,
+      supportEfforts: effectiveAlias.supportEfforts,
+      defaultEffort: effectiveAlias.defaultEffort,
+      maxOutputSize: effectiveAlias.maxOutputSize,
+      type: providerConfig.type,
+      protocol: alias.protocol,
     };
   }
 
@@ -183,9 +216,10 @@ export class ProviderManager implements ModelProvider {
         } catch (error) {
           if (!(error instanceof APIStatusError) || error.statusCode !== 401) throw error;
           if (refreshed) {
+            const reason = error.message.replaceAll('\r', '');
             throw new PythinkerError(
-              ErrorCodes.AUTH_LOGIN_REQUIRED,
-              'OAuth provider credentials were rejected. Send /login to login.',
+              ErrorCodes.PROVIDER_AUTH_ERROR,
+              reason.length > 0 ? reason : 'OAuth provider credentials were rejected.',
               {
                 cause: error,
                 details: { statusCode: error.statusCode, requestId: error.requestId },
@@ -213,74 +247,164 @@ function resolveModelCapabilities(
     thinking: declared.has('thinking') || declared.has('always_thinking') || detected.thinking,
     tool_use: declared.has('tool_use') || detected.tool_use,
     max_context_tokens: alias.maxContextSize,
+    max_input_tokens: alias.maxInputSize,
+    // Message-level tool declarations ("dynamically loaded tools"). Every
+    // field here must be merged explicitly — a capability registered in
+    // kosong that is not forwarded here never reaches the agent.
+    dynamically_loaded_tools:
+      declared.has('dynamically_loaded_tools') ||
+      detected.dynamically_loaded_tools === true,
   };
 }
 
 function toKosongProviderConfig(
   provider: ProviderConfig,
   model: string,
+  modelProtocol: ModelAlias['protocol'],
+  modelBaseUrl: string | undefined,
   pythinkerRequestHeaders: Record<string, string> | undefined,
   maxOutputSize: number | undefined,
   reasoningKey: string | undefined,
   promptCacheKey: string | undefined,
+  supportEfforts: readonly string[] | undefined,
+  offEffort: string | undefined,
   adaptiveThinking: boolean | undefined,
+  betaApi: boolean | undefined,
 ): KosongProviderConfig {
-  switch (provider.type) {
-    case 'anthropic':
+  const effectiveType = modelProtocol === 'anthropic' ? 'anthropic' : provider.type;
+  const envCustomHeaders = parsePythinkerCodeCustomHeaders();
+  switch (effectiveType) {
+    case 'anthropic': {
+      // A per-model endpoint (catalog gateway override) wins over the
+      // provider-level base URL; it is already adapted to the wire convention.
+      const baseUrl =
+        modelBaseUrl ?? providerValue(provider.baseUrl, provider.env, 'ANTHROPIC_BASE_URL');
       return {
         type: 'anthropic',
         model,
-        baseUrl: providerValue(provider.baseUrl, provider.env, 'ANTHROPIC_BASE_URL'),
+        baseUrl:
+          modelProtocol === 'anthropic' && baseUrl !== undefined
+            ? baseUrl.replace(/\/v1\/?$/, '')
+            : baseUrl,
         apiKey: providerApiKey(provider),
         ...(maxOutputSize !== undefined ? { defaultMaxTokens: maxOutputSize } : {}),
+        supportEfforts,
         ...(adaptiveThinking !== undefined ? { adaptiveThinking } : {}),
-        ...defaultHeadersField(provider.customHeaders),
+        // Pythinker routed over the Anthropic transport keeps its vendor error
+        // classification: a PyModel quota-exhausted 429 must fail fast here
+        // exactly as it does on the Pythinker OpenAI transport.
+        ...(provider.type === 'pythinker'
+          ? { pythinkerThinking: true, convertError: classifyPythinkerQuotaError }
+          : {}),
+        ...(betaApi !== undefined ? { betaApi } : {}),
+        // Session affinity: Anthropic's analog of OpenAI `prompt_cache_key` is
+        // `metadata.user_id` on the Messages API (cache-affinity / end-user id).
+        ...(promptCacheKey !== undefined ? { metadata: { user_id: promptCacheKey } } : {}),
+        // When a Pythinker provider is routed through the Anthropic transport
+        // (`protocol: 'anthropic'`), upstream is the managed Pythinker endpoint,
+        // so align its full outbound identity headers (User-Agent + X-Msh-*)
+        // with the Pythinker OpenAI transport. Plain Anthropic providers only
+        // receive the unified `User-Agent` (no `X-Msh-*` device identity),
+        // matching the other non-Pythinker transports. Provider `customHeaders`
+        // still win on conflict.
+        ...defaultHeadersField(
+          provider.type === 'pythinker' && modelProtocol === 'anthropic'
+            ? { ...envCustomHeaders, ...pythinkerRequestHeaders, ...provider.customHeaders }
+            : { ...envCustomHeaders, ...pythinkerUserAgentHeader(pythinkerRequestHeaders), ...provider.customHeaders },
+        ),
       };
+    }
     case 'openai':
       return {
         type: 'openai',
         model,
-        baseUrl: providerValue(provider.baseUrl, provider.env, 'OPENAI_BASE_URL'),
+        // A per-model endpoint (catalog gateway override) wins over the
+        // provider-level base URL, same as the Anthropic branch.
+        baseUrl:
+          modelBaseUrl ?? providerValue(provider.baseUrl, provider.env, 'OPENAI_BASE_URL'),
         apiKey: providerApiKey(provider),
         reasoningKey,
-        ...defaultHeadersField(provider.customHeaders),
+        offEffort,
+        // Session affinity: route every request of this session through the
+        // same provider-side prompt cache (the OpenAI analog of Anthropic
+        // `metadata.user_id` above). Undefined values are stripped at
+        // generate time, matching the `pythinker` branch below.
+        generationKwargs: { prompt_cache_key: promptCacheKey },
+        ...defaultHeadersField({
+          ...envCustomHeaders,
+          ...pythinkerUserAgentHeader(pythinkerRequestHeaders),
+          ...provider.customHeaders,
+        }),
       };
     case 'pythinker':
       return {
         type: 'pythinker',
         model,
-        baseUrl: providerValue(provider.baseUrl, provider.env, 'PYTHINKER_BASE_URL'),
+        baseUrl: modelBaseUrl ?? providerValue(provider.baseUrl, provider.env, 'PYTHINKER_BASE_URL'),
         apiKey: providerApiKey(provider),
         generationKwargs: { prompt_cache_key: promptCacheKey },
-        ...defaultHeadersField({ ...pythinkerRequestHeaders, ...provider.customHeaders }),
+        ...defaultHeadersField({
+          ...envCustomHeaders,
+          ...pythinkerRequestHeaders,
+          ...provider.customHeaders,
+        }),
       };
     case 'google-genai':
       return {
         type: 'google-genai',
         model,
+        baseUrl:
+          modelBaseUrl ?? providerValue(provider.baseUrl, provider.env, 'GOOGLE_GEMINI_BASE_URL'),
         apiKey: providerApiKey(provider),
+        ...defaultHeadersField({
+          ...envCustomHeaders,
+          ...pythinkerUserAgentHeader(pythinkerRequestHeaders),
+          ...provider.customHeaders,
+        }),
       };
     case 'openai_responses':
       return {
         type: 'openai_responses',
         model,
-        baseUrl: providerValue(provider.baseUrl, provider.env, 'OPENAI_BASE_URL'),
+        baseUrl:
+          modelBaseUrl ?? providerValue(provider.baseUrl, provider.env, 'OPENAI_BASE_URL'),
         apiKey: providerApiKey(provider),
-        ...defaultHeadersField(provider.customHeaders),
+        offEffort,
+        // Session affinity: same `prompt_cache_key` intent as the `openai`
+        // branch; the Responses API accepts it as a top-level request field.
+        generationKwargs: { prompt_cache_key: promptCacheKey },
+        ...defaultHeadersField({
+          ...envCustomHeaders,
+          ...pythinkerUserAgentHeader(pythinkerRequestHeaders),
+          ...provider.customHeaders,
+        }),
       };
     case 'vertexai': {
-      const useServiceAccount = hasVertexAIServiceEnv(provider);
+      // Resolve the effective endpoint once (config `base_url` or the
+      // GOOGLE_VERTEX_BASE_URL env fallback) and use it for BOTH forwarding and
+      // location detection, so the env fallback behaves exactly like
+      // `base_url` — including deriving the region from an
+      // `*-aiplatform.googleapis.com` host for the service-account path.
+      const baseUrl =
+        modelBaseUrl ?? providerValue(provider.baseUrl, provider.env, 'GOOGLE_VERTEX_BASE_URL');
+      const useServiceAccount = hasVertexAIServiceEnv(provider, baseUrl);
       return {
         type: 'vertexai',
         model,
         vertexai: useServiceAccount,
+        baseUrl,
         apiKey: useServiceAccount ? undefined : providerApiKey(provider),
         project: vertexAIProject(provider),
-        location: vertexAILocation(provider),
+        location: vertexAILocation(provider, baseUrl),
+        ...defaultHeadersField({
+          ...envCustomHeaders,
+          ...pythinkerUserAgentHeader(pythinkerRequestHeaders),
+          ...provider.customHeaders,
+        }),
       };
     }
     default: {
-      const exhaustive: never = provider.type;
+      const exhaustive: never = effectiveType;
       throw new PythinkerError(
         ErrorCodes.MODEL_CONFIG_INVALID,
         `Unsupported provider type: ${String(exhaustive)}`,
@@ -297,6 +421,19 @@ function defaultHeadersField(
 ): { defaultHeaders?: Record<string, string> } {
   if (headers === undefined || Object.keys(headers).length === 0) return {};
   return { defaultHeaders: { ...headers } };
+}
+
+// Extract just the `User-Agent` from the Pythinker identity headers so non-Pythinker
+// providers (OpenAI, Anthropic, Google, Vertex) also identify as
+// `pythinker-code-cli/<version>` without leaking the `X-Msh-*` device identity
+// headers to third-party endpoints. The full `pythinkerRequestHeaders` set stays
+// reserved for the Pythinker transport (and the Pythinker-routed Anthropic transport),
+// where upstream is the managed Pythinker endpoint.
+function pythinkerUserAgentHeader(
+  pythinkerRequestHeaders: Record<string, string> | undefined,
+): Record<string, string> {
+  const userAgent = pythinkerRequestHeaders?.['User-Agent'];
+  return userAgent === undefined ? {} : { 'User-Agent': userAgent };
 }
 
 function providerApiKey(provider: ProviderConfig): string | undefined {
@@ -326,19 +463,19 @@ function providerApiKey(provider: ProviderConfig): string | undefined {
   }
 }
 
-function hasVertexAIServiceEnv(provider: ProviderConfig): boolean {
-  return vertexAIProject(provider) !== undefined && vertexAILocation(provider) !== undefined;
+function hasVertexAIServiceEnv(provider: ProviderConfig, baseUrl: string | undefined): boolean {
+  return vertexAIProject(provider) !== undefined && vertexAILocation(provider, baseUrl) !== undefined;
 }
 
 function vertexAIProject(provider: ProviderConfig): string | undefined {
   return envValue(provider.env, 'GOOGLE_CLOUD_PROJECT');
 }
 
-function vertexAILocation(provider: ProviderConfig): string | undefined {
-  return (
-    envValue(provider.env, 'GOOGLE_CLOUD_LOCATION') ??
-    locationFromVertexAIBaseUrl(provider.baseUrl)
-  );
+function vertexAILocation(
+  provider: ProviderConfig,
+  baseUrl: string | undefined,
+): string | undefined {
+  return envValue(provider.env, 'GOOGLE_CLOUD_LOCATION') ?? locationFromVertexAIBaseUrl(baseUrl);
 }
 
 function providerValue(

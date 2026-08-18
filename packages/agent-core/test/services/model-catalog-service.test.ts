@@ -19,6 +19,8 @@ import {
   toProtocolProvider,
 } from '../../src/services';
 import type { ServicesAuthFacade } from '../../src/services/auth/managedAuth';
+import type { IEventService } from '../../src/services/event/event';
+import type { Event as ProtocolEvent } from '@pymodel/protocol';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -57,7 +59,7 @@ function makeCore(configRef: { current: PythinkerConfig }): {
         next.models = payload.models as PythinkerConfig['models'];
       }
       if (payload.defaultModel !== undefined) next.defaultModel = payload.defaultModel;
-      if (payload.defaultThinking !== undefined) next.defaultThinking = payload.defaultThinking;
+      if (payload.thinking !== undefined) next.thinking = payload.thinking;
       configRef.current = next;
       return configRef.current;
     }),
@@ -99,6 +101,18 @@ function authFacade(accessToken = 'token-test'): ServicesAuthFacade {
       getAccessToken: vi.fn(async () => accessToken),
     })),
   };
+}
+
+function makeEventService(): { svc: IEventService; published: ProtocolEvent[] } {
+  const published: ProtocolEvent[] = [];
+  const svc: IEventService = {
+    _serviceBrand: undefined,
+    onDidPublish: () => ({ dispose: () => undefined }),
+    publish: (event) => {
+      published.push(event);
+    },
+  };
+  return { svc, published };
 }
 
 function catalogConfig(): PythinkerConfig {
@@ -151,6 +165,20 @@ describe('model catalog adapters', () => {
     expect(toProtocolModel('turbo', alias).display_name).toBe('pythinker-turbo');
   });
 
+  it('projects official Anthropic effort metadata inferred from the model name', () => {
+    expect(
+      toProtocolModel('opus', {
+        provider: 'anthropic',
+        model: 'claude-opus-4-6',
+        maxContextSize: 200000,
+      }),
+    ).toMatchObject({
+      capabilities: ['thinking'],
+      support_efforts: ['low', 'medium', 'high', 'max'],
+      default_effort: 'high',
+    });
+  });
+
   it('maps provider model ids and global default', () => {
     const config = catalogConfig();
     expect(
@@ -174,17 +202,74 @@ describe('ModelCatalogService', () => {
   it('lists models and providers from live config', async () => {
     const configRef = { current: catalogConfig() };
     const { core, getCalls } = makeCore(configRef);
-    const svc = new ModelCatalogService(makeEnv(), core);
+    const svc = new ModelCatalogService(makeEnv(), core, makeEventService().svc);
 
     expect(await svc.listModels()).toHaveLength(3);
     expect(await svc.listProviders()).toHaveLength(2);
     expect(getCalls).toEqual([{ reload: true }, { reload: true }]);
   });
 
+  it('projects latest Opus efforts for unknown Claude-marked Anthropic-compatible models', async () => {
+    const configRef = { current: catalogConfig() };
+    configRef.current.providers['custom'] = { type: 'anthropic' };
+    configRef.current.models!['compatible'] = {
+      provider: 'custom',
+      model: 'custom-claude-model',
+      maxContextSize: 128000,
+    };
+    const { core } = makeCore(configRef);
+    const svc = new ModelCatalogService(makeEnv(), core, makeEventService().svc);
+
+    const compatible = (await svc.listModels()).find((model) => model.model === 'compatible');
+    expect(compatible).toMatchObject({
+      capabilities: ['thinking'],
+      support_efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+      default_effort: 'high',
+    });
+  });
+
+  it('does not project fallback efforts for clearly non-Claude Anthropic-compatible models', async () => {
+    const configRef = { current: catalogConfig() };
+    configRef.current.providers['custom'] = { type: 'anthropic' };
+    configRef.current.models!['compatible'] = {
+      provider: 'custom',
+      model: 'compatible-model',
+      maxContextSize: 128000,
+    };
+    const { core } = makeCore(configRef);
+    const svc = new ModelCatalogService(makeEnv(), core, makeEventService().svc);
+
+    const compatible = (await svc.listModels()).find((model) => model.model === 'compatible');
+    expect(compatible?.capabilities).toBeUndefined();
+    expect(compatible?.support_efforts).toBeUndefined();
+    expect(compatible?.default_effort).toBeUndefined();
+  });
+
+  it('does not project fallback efforts for a Pythinker provider routed through the Anthropic protocol', async () => {
+    const configRef = { current: catalogConfig() };
+    configRef.current.models!['compatible'] = {
+      provider: 'pythinker',
+      protocol: 'anthropic',
+      model: 'compatible-model',
+      maxContextSize: 128000,
+    };
+    const { core } = makeCore(configRef);
+    const svc = new ModelCatalogService(makeEnv(), core, makeEventService().svc);
+
+    const compatible = (await svc.listModels()).find((model) => model.model === 'compatible');
+    expect(compatible).toMatchObject({
+      provider: 'pythinker',
+      model: 'compatible',
+    });
+    expect(compatible?.capabilities).toBeUndefined();
+    expect(compatible?.support_efforts).toBeUndefined();
+    expect(compatible?.default_effort).toBeUndefined();
+  });
+
   it('gets one provider or throws ProviderNotFoundError', async () => {
     const configRef = { current: catalogConfig() };
     const { core } = makeCore(configRef);
-    const svc = new ModelCatalogService(makeEnv(), core);
+    const svc = new ModelCatalogService(makeEnv(), core, makeEventService().svc);
 
     await expect(svc.getProvider('pythinker')).resolves.toMatchObject({ id: 'pythinker' });
     await expect(svc.getProvider('missing')).rejects.toBeInstanceOf(
@@ -195,7 +280,7 @@ describe('ModelCatalogService', () => {
   it('sets defaultModel through core config patch', async () => {
     const configRef = { current: catalogConfig() };
     const { core, setCalls } = makeCore(configRef);
-    const svc = new ModelCatalogService(makeEnv(), core);
+    const svc = new ModelCatalogService(makeEnv(), core, makeEventService().svc);
 
     await expect(svc.setDefaultModel('turbo')).resolves.toEqual({
       default_model: 'turbo',
@@ -212,7 +297,7 @@ describe('ModelCatalogService', () => {
   it('rejects unknown model ids', async () => {
     const configRef = { current: catalogConfig() };
     const { core } = makeCore(configRef);
-    const svc = new ModelCatalogService(makeEnv(), core);
+    const svc = new ModelCatalogService(makeEnv(), core, makeEventService().svc);
 
     await expect(svc.setDefaultModel('missing')).rejects.toBeInstanceOf(
       ModelNotFoundError,
@@ -231,7 +316,7 @@ describe('ModelCatalogService', () => {
           },
         },
         defaultModel: 'pythinker-code/kimi-for-coding',
-        defaultThinking: false,
+        thinking: { enabled: false },
         models: {
           'pythinker-code/kimi-for-coding': {
             provider: PYTHINKER_CODE_PROVIDER_NAME,
@@ -266,7 +351,7 @@ describe('ModelCatalogService', () => {
     expect(removeCalls).toEqual([PYTHINKER_CODE_PROVIDER_NAME]);
     expect(setCalls.at(-1)).toMatchObject({
       defaultModel: 'pythinker-code/kimi-for-coding',
-      defaultThinking: true,
+      thinking: { enabled: true },
       models: {
         'pythinker-code/kimi-for-coding': {
           capabilities: ['thinking', 'always_thinking', 'tool_use'],
@@ -274,5 +359,203 @@ describe('ModelCatalogService', () => {
         },
       },
     });
+  });
+
+  it('keeps the pythinker-code provider on the REST base and records the model protocol when anthropic', async () => {
+    const configRef: { current: PythinkerConfig } = {
+      current: {
+        providers: {
+          [PYTHINKER_CODE_PROVIDER_NAME]: {
+            type: 'pythinker',
+            apiKey: '',
+            baseUrl: 'https://api.example.test/coding/v1',
+            oauth: { storage: 'file', key: 'oauth/pythinker-code' },
+          },
+        },
+        defaultModel: 'pythinker-code/kimi-for-coding',
+        models: {
+          'pythinker-code/kimi-for-coding': {
+            provider: PYTHINKER_CODE_PROVIDER_NAME,
+            model: 'kimi-for-coding',
+            maxContextSize: 200_000,
+          },
+        },
+      },
+    };
+    const { core, setCalls } = makeCore(configRef);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: 'kimi-for-coding',
+                context_length: 200_000,
+                protocol: 'anthropic',
+              },
+            ],
+          }),
+        ),
+      ),
+    );
+    const svc = ModelCatalogService._createForTest(makeEnv(), core, authFacade());
+
+    await svc.refreshOAuthProviderModels();
+
+    const last = setCalls.at(-1) as Record<string, unknown>;
+    const providers = last['providers'] as Record<string, { type: string; baseUrl: string }>;
+    const models = last['models'] as Record<string, { provider: string; protocol?: string }>;
+    // Provider type/baseUrl stay on the pythinker wire + REST base; the anthropic
+    // transport is carried on the model alias for per-model resolution.
+    expect(providers[PYTHINKER_CODE_PROVIDER_NAME]?.type).toBe('pythinker');
+    expect(providers[PYTHINKER_CODE_PROVIDER_NAME]?.baseUrl).toBe('https://api.example.test/coding/v1');
+    expect(models['pythinker-code/kimi-for-coding']?.provider).toBe(PYTHINKER_CODE_PROVIDER_NAME);
+    expect(models['pythinker-code/kimi-for-coding']?.protocol).toBe('anthropic');
+  });
+
+  it('publishes event.model_catalog.changed when a broad refresh changes the catalog', async () => {
+    const configRef: { current: PythinkerConfig } = {
+      current: {
+        providers: {
+          [PYTHINKER_CODE_PROVIDER_NAME]: {
+            type: 'pythinker',
+            apiKey: '',
+            baseUrl: 'https://api.example.test/coding/v1',
+            oauth: { storage: 'file', key: 'oauth/pythinker-code' },
+          },
+        },
+        defaultModel: 'pythinker-code/kimi-for-coding',
+        models: {
+          'pythinker-code/kimi-for-coding': {
+            provider: PYTHINKER_CODE_PROVIDER_NAME,
+            model: 'kimi-for-coding',
+            maxContextSize: 131_072,
+            capabilities: ['thinking'],
+          },
+        },
+      },
+    };
+    const { core } = makeCore(configRef);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              data: [{ id: 'kimi-for-coding', context_length: 262_144, supports_reasoning: true }],
+            }),
+          ),
+      ),
+    );
+    const { svc: eventService, published } = makeEventService();
+    const svc = ModelCatalogService._createForTest(makeEnv(), core, authFacade(), eventService);
+
+    const result = await svc.refreshProviderModels();
+
+    expect(result.changed).toEqual([
+      { provider_id: PYTHINKER_CODE_PROVIDER_NAME, provider_name: 'Pythinker Code', added: 0, removed: 0 },
+    ]);
+    expect(published).toEqual([
+      {
+        type: 'event.model_catalog.changed',
+        agentId: 'main',
+        sessionId: '__global__',
+        changed: result.changed,
+        unchanged: result.unchanged,
+        failed: [],
+      },
+    ]);
+  });
+
+  it('does not publish an event when the refresh is a no-op', async () => {
+    const configRef: { current: PythinkerConfig } = {
+      current: {
+        providers: {
+          [PYTHINKER_CODE_PROVIDER_NAME]: {
+            type: 'pythinker',
+            apiKey: '',
+            baseUrl: 'https://api.example.test/coding/v1',
+            oauth: { storage: 'file', key: 'oauth/pythinker-code' },
+          },
+        },
+        models: {
+          'pythinker-code/kimi-for-coding': {
+            provider: PYTHINKER_CODE_PROVIDER_NAME,
+            model: 'kimi-for-coding',
+            maxContextSize: 262_144,
+            capabilities: ['thinking', 'tool_use'],
+          },
+        },
+      },
+    };
+    const { core } = makeCore(configRef);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              data: [{ id: 'kimi-for-coding', context_length: 262_144, supports_reasoning: true }],
+            }),
+          ),
+      ),
+    );
+    const { svc: eventService, published } = makeEventService();
+    const svc = ModelCatalogService._createForTest(makeEnv(), core, authFacade(), eventService);
+
+    const result = await svc.refreshProviderModels();
+
+    expect(result.changed).toEqual([]);
+    expect(result.unchanged).toEqual([PYTHINKER_CODE_PROVIDER_NAME]);
+    expect(published).toEqual([]);
+  });
+
+  it('sends the host User-Agent on custom-registry fetches', async () => {
+    const configRef: { current: PythinkerConfig } = {
+      current: {
+        providers: {
+          acme: {
+            type: 'openai',
+            apiKey: 'sk-acme',
+            source: {
+              kind: 'apiJson',
+              url: 'https://registry.example.test/api.json',
+              apiKey: 'sk-registry',
+            },
+          },
+        },
+        models: {},
+      },
+    };
+    const { core } = makeCore(configRef);
+    (core as { pythinkerRequestHeaders?: Record<string, string> }).pythinkerRequestHeaders = {
+      'User-Agent': 'pythinker-code-cli/test',
+    };
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            acme: {
+              id: 'acme',
+              name: 'Acme',
+              api: 'https://acme.example.test/v1',
+              type: 'openai',
+              models: { m1: { id: 'm1', name: 'M1' } },
+            },
+          }),
+        ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const svc = ModelCatalogService._createForTest(makeEnv(), core, authFacade());
+
+    await svc.refreshProviderModels();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://registry.example.test/api.json',
+      expect.objectContaining({
+        headers: expect.objectContaining({ 'User-Agent': 'pythinker-code-cli/test' }),
+      }),
+    );
   });
 });

@@ -10,6 +10,8 @@ import type {
 } from '@pymodel/pythinker-code-sdk';
 
 import { ToolCallComponent } from '../components/messages/tool-call';
+import { ReplayTurnBoundaryComponent } from '../components/messages/user-message';
+import { currentTheme } from '../theme';
 import type { TodoItem } from '../components/chrome/todo-panel';
 import type {
   AppState,
@@ -21,6 +23,8 @@ import { formatErrorMessage, isTodoItemShape } from '../utils/event-payload';
 import { formatBackgroundAgentTranscript } from '../utils/background-agent-status';
 import { formatBackgroundTaskTranscript } from '../utils/background-task-status';
 import { buildGoalCompletionMessage } from '../utils/goal-completion';
+import { formatBashOutputForDisplay } from '../utils/shell-output';
+import { markTranscriptComponent } from '../utils/transcript-component-metadata';
 import {
   appStateFromResumeAgent,
   backgroundOrigin,
@@ -35,10 +39,12 @@ import {
   replayBackgroundProjection,
   replayEntry,
   skillActivationFromOrigin,
+  pluginCommandFromOrigin,
   toolCallFromReplayMessage,
   toolResultOutput,
   type ReplayRenderContext,
   type SkillActivationProjection,
+  type PluginCommandProjection,
 } from '../utils/message-replay';
 import type { StreamingUIController } from './streaming-ui';
 import type { SessionEventHandler } from './session-event-handler';
@@ -55,6 +61,23 @@ export interface SessionReplayHost {
   setAppState(patch: Partial<AppState>): void;
   showError(msg: string): void;
   appendTranscriptEntry(entry: TranscriptEntry): void;
+  mergeAllTurnSteps(): void;
+}
+
+function extractBashTag(
+  text: string,
+  tag: 'bash-input' | 'bash-stdout' | 'bash-stderr',
+): string | undefined {
+  const match = new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`).exec(text);
+  return match?.[1] === undefined ? undefined : unescapeBashXml(match[1]);
+}
+
+function unescapeBashXml(text: string): string {
+  return text
+    .replaceAll('&lt;', '<')
+    .replaceAll('&gt;', '>')
+    .replaceAll('&quot;', '"')
+    .replaceAll('&amp;', '&');
 }
 
 export class SessionReplayRenderer {
@@ -72,6 +95,7 @@ export class SessionReplayRenderer {
       this.hydrateSnapshot(main);
       this.renderRecords(main);
       this.applyTerminalBackgroundAgentStatuses(main);
+      this.host.mergeAllTurnSteps();
       return true;
     } catch (error) {
       const message = formatErrorMessage(error);
@@ -249,6 +273,28 @@ export class SessionReplayRenderer {
     if (message.origin?.kind === 'injection') {
       return;
     }
+    if (message.origin?.kind === 'shell_command') {
+      // A `!` command, replayed from records. Unwrap the XML tags back into the
+      // same `$ cmd` + output view the live editor produced. (Must NOT fall into
+      // the `injection` branch above — that returns without rendering.)
+      this.flushAssistant(context);
+      const text = contentPartsToText(message.content);
+      if (message.origin.phase === 'input') {
+        const cmd = (extractBashTag(text, 'bash-input') ?? text).trim();
+        this.advanceTurn(context);
+        this.host.appendTranscriptEntry(
+          replayEntry(context, 'user', currentTheme.fg('shellMode', `$ ${cmd}`), 'plain', {
+            bullet: '',
+          }),
+        );
+      } else {
+        const stdout = (extractBashTag(text, 'bash-stdout') ?? '').trim();
+        const stderr = (extractBashTag(text, 'bash-stderr') ?? '').trim();
+        const out = formatBashOutputForDisplay(stdout, stderr, message.origin.isError);
+        this.host.appendTranscriptEntry(replayEntry(context, 'status', out, 'plain'));
+      }
+      return;
+    }
     if (message.origin?.kind === 'cron_job') {
       this.renderCronJob(context, message);
       return;
@@ -257,16 +303,19 @@ export class SessionReplayRenderer {
       this.renderCronMissed(context, message);
       return;
     }
-    if (isGoalForkClearedSystemReminder(message)) {
-      return;
-    }
-    const goalReminder = goalOutcomeReminderFromSystemMessage(message);
-    if (goalReminder !== null) {
-      if (goalReminder !== undefined) {
-        this.flushAssistant(context);
-        this.host.appendTranscriptEntry(
-          replayEntry(context, 'assistant', goalReminder, 'markdown'),
-        );
+    // System-trigger messages (goal continuation prompts, goal outcome
+    // reminders, stop-hook reasons, …) are model-facing only: the live event
+    // stream never renders them, so replay must not leak them either.
+    if (message.origin?.kind === 'system_trigger') {
+      if (message.origin.name === 'goal_continuation') {
+        // The goal driver's synthetic "continue" prompt starts a new replay
+        // turn even though nothing visible is mounted: advance the turn and
+        // mark an invisible boundary so each goal round groups under its own
+        // turn and step/assistant folding can find the turn edges.
+        this.advanceTurn(context);
+        const boundary = new ReplayTurnBoundaryComponent();
+        markTranscriptComponent(boundary, replayEntry(context, 'user', '', 'plain'));
+        this.host.state.transcriptContainer.addChild(boundary);
       }
       return;
     }
@@ -276,6 +325,14 @@ export class SessionReplayRenderer {
     if (skill !== undefined) {
       this.renderSkillActivation(context, skill);
       if (message.origin?.kind === 'skill_activation' && message.origin.trigger === 'user-slash') {
+        this.advanceTurn(context);
+      }
+      return;
+    }
+    const pluginCommand = pluginCommandFromOrigin(message.origin);
+    if (pluginCommand !== undefined) {
+      this.renderPluginCommand(context, pluginCommand);
+      if (message.origin?.kind === 'plugin_command' && message.origin.trigger === 'user-slash') {
         this.advanceTurn(context);
       }
       return;
@@ -377,6 +434,32 @@ export class SessionReplayRenderer {
     });
   }
 
+  private renderPluginCommand(
+    context: ReplayRenderContext,
+    command: PluginCommandProjection,
+  ): void {
+    const { sessionEventHandler } = this.host;
+    if (context.pluginCommandActivationIds.has(command.activationId)) return;
+    if (sessionEventHandler.renderedPluginCommandActivationIds.has(command.activationId)) return;
+    context.pluginCommandActivationIds.add(command.activationId);
+    sessionEventHandler.renderedPluginCommandActivationIds.add(command.activationId);
+    this.host.appendTranscriptEntry({
+      ...replayEntry(
+        context,
+        'plugin_command',
+        `/${command.pluginId}:${command.commandName}`,
+        'plain',
+      ),
+      pluginCommandData: {
+        activationId: command.activationId,
+        pluginId: command.pluginId,
+        commandName: command.commandName,
+        args: command.commandArgs,
+        trigger: command.trigger,
+      },
+    });
+  }
+
   private renderCompaction(context: ReplayRenderContext, record: CompactionReplayRecord): void {
     this.flushAssistant(context);
     if (record.result === undefined) return;
@@ -394,6 +477,7 @@ export class SessionReplayRenderer {
     this.host.appendTranscriptEntry({
       ...replayEntry(context, 'status', 'Compaction complete', 'plain'),
       compactionData: {
+        summary: record.result.summary,
         tokensBefore: record.result.tokensBefore,
         tokensAfter: record.result.tokensAfter,
         instruction: record.instruction,
@@ -490,7 +574,7 @@ export class SessionReplayRenderer {
     if (mode === 'yolo') {
       this.host.appendTranscriptEntry(
         replayEntry(context, 'status', 'YOLO mode: ON', 'notice', {
-          detail: 'All actions will be approved automatically. Use with caution.',
+          detail: 'Tool actions auto-approved; the agent may still ask you questions.',
         }),
       );
       return;
@@ -575,8 +659,9 @@ export class SessionReplayRenderer {
       (child) => child instanceof ToolCallComponent && child.toolCallView.id === toolCallId,
     );
     if (childIndex >= 0) {
+      // Structural removal only: the container's ref-checked render cache
+      // detects the child-list change; no tree-wide invalidate needed.
       children.splice(childIndex, 1);
-      state.transcriptContainer.invalidate();
     }
   }
 
@@ -660,18 +745,6 @@ function goalLifecycleReplayContent(change: GoalReplayLifecycleChange): string {
 
 function isModelBlockedGoalLifecycle(change: GoalReplayLifecycleChange): boolean {
   return change.status === 'blocked' && change.actor === 'model';
-}
-
-function goalOutcomeReminderFromSystemMessage(message: ContextMessage): string | undefined | null {
-  if (message.origin?.kind !== 'system_trigger') return null;
-  if (message.origin.name !== 'goal_completion' && message.origin.name !== 'goal_blocked') {
-    return null;
-  }
-  return undefined;
-}
-
-function isGoalForkClearedSystemReminder(message: ContextMessage): boolean {
-  return message.origin?.kind === 'system_trigger' && message.origin.name === 'goal_fork_cleared';
 }
 
 function extractCronPrompt(text: string): string {

@@ -20,9 +20,13 @@ async function makePlugin(
   options: {
     skills?: boolean;
     skillNames?: readonly string[];
+    agents?: boolean;
     version?: string;
     sessionStartSkill?: string;
+    systemPrompt?: string;
     mcpServers?: Record<string, unknown>;
+    hooks?: readonly unknown[];
+    commands?: Record<string, string>;
   } = {},
 ): Promise<string> {
   const root = await mkdtemp(path.join(tmpdir(), `plugin-${name}-`));
@@ -43,11 +47,35 @@ async function makePlugin(
       );
     }
   }
+  if (options.agents === true) {
+    manifest['agents'] = './agents/';
+    await mkdir(path.join(root, 'agents'), { recursive: true });
+    await writeFile(
+      path.join(root, 'agents', 'demo-agent.md'),
+      '---\nname: demo-agent\ndescription: A demo agent\n---\nbody',
+      'utf8',
+    );
+  }
   if (options.sessionStartSkill !== undefined) {
     manifest['sessionStart'] = { skill: options.sessionStartSkill };
   }
+  if (options.systemPrompt !== undefined) {
+    manifest['systemPrompt'] = options.systemPrompt;
+  }
   if (options.mcpServers !== undefined) {
     manifest['mcpServers'] = options.mcpServers;
+  }
+  if (options.hooks !== undefined) {
+    manifest['hooks'] = options.hooks;
+  }
+  if (options.commands !== undefined) {
+    manifest['commands'] = ['./commands'];
+    await mkdir(path.join(root, 'commands'), { recursive: true });
+    for (const [file, body] of Object.entries(options.commands)) {
+      const filePath = path.join(root, 'commands', file);
+      await mkdir(path.dirname(filePath), { recursive: true });
+      await writeFile(filePath, body, 'utf8');
+    }
   }
   await writeFile(
     path.join(root, 'pythinker.plugin.json'),
@@ -188,6 +216,27 @@ describe('PluginManager', () => {
     });
   });
 
+  it('pluginAgentRoots() returns only enabled plugins agents paths', async () => {
+    const home = await makePythinkerHome();
+    const a = await makePlugin('a', { agents: true });
+    const b = await makePlugin('b', { agents: true });
+    const manager = new PluginManager({ pythinkerHomeDir: home });
+    await manager.load();
+    await manager.install(a);
+    await manager.install(b);
+    await manager.setEnabled('b', false);
+    const managedA = await managedPluginRoot(home, 'a');
+    const managedB = await managedPluginRoot(home, 'b');
+    expect(manager.pluginAgentRoots()).toContainEqual({
+      path: path.join(managedA, 'agents'),
+      source: 'plugin',
+    });
+    expect(manager.pluginAgentRoots()).not.toContainEqual({
+      path: path.join(managedB, 'agents'),
+      source: 'plugin',
+    });
+  });
+
   it('summaries count discovered skills inside plugin skill roots', async () => {
     const home = await makePythinkerHome();
     const root = await makePlugin('superpowers', {
@@ -316,6 +365,22 @@ describe('PluginManager', () => {
 
     await manager.setEnabled('demo', false);
     expect(manager.enabledSessionStarts()).toEqual([]);
+  });
+
+  it('enabledSystemPrompts() returns only enabled plugin systemPrompt declarations', async () => {
+    const home = await makePythinkerHome();
+    const withPrompt = await makePlugin('prompted', { systemPrompt: 'Always cite sources.' });
+    const withoutPrompt = await makePlugin('plain', { skills: true });
+    const manager = new PluginManager({ pythinkerHomeDir: home });
+    await manager.load();
+    await manager.install(withPrompt);
+    await manager.install(withoutPrompt);
+    expect(manager.enabledSystemPrompts()).toEqual([
+      { pluginId: 'prompted', content: 'Always cite sources.' },
+    ]);
+
+    await manager.setEnabled('prompted', false);
+    expect(manager.enabledSystemPrompts()).toEqual([]);
   });
 
   it('maps manifest skillInstructions to record skillInstructions', async () => {
@@ -852,6 +917,114 @@ describe('PluginManager', () => {
     expect(updated.originalSource).toBe('https://github.com/wbxl2000/superpowers');
     expect(updated.github?.ref).toEqual({ kind: 'tag', value: 'v5.1.0' });
     expect(manager.list()).toHaveLength(1);
+  });
+
+  it('enabledHooks() returns hooks from enabled plugins with cwd and env injected', async () => {
+    const home = await makePythinkerHome();
+    const root = await makePlugin('demo', {
+      hooks: [{ event: 'PreToolUse', command: './hooks/guard.sh', timeout: 10 }],
+    });
+    const manager = new PluginManager({ pythinkerHomeDir: home });
+    await manager.load();
+    await manager.install(root);
+    const installedRoot = await managedPluginRoot(home, 'demo');
+    expect(manager.enabledHooks()).toEqual([
+      {
+        event: 'PreToolUse',
+        command: './hooks/guard.sh',
+        timeout: 10,
+        cwd: installedRoot,
+        env: { PYTHINKER_CODE_HOME: home, PYTHINKER_PLUGIN_ROOT: installedRoot },
+      },
+    ]);
+  });
+
+  it('enabledHooks() excludes disabled plugins', async () => {
+    const home = await makePythinkerHome();
+    const root = await makePlugin('demo', {
+      hooks: [{ event: 'PreToolUse', command: './x.sh' }],
+    });
+    const manager = new PluginManager({ pythinkerHomeDir: home });
+    await manager.load();
+    await manager.install(root);
+    await manager.setEnabled('demo', false);
+    expect(manager.enabledHooks()).toEqual([]);
+  });
+
+  it('summaries() include hookCount', async () => {
+    const home = await makePythinkerHome();
+    const root = await makePlugin('demo', {
+      hooks: [
+        { event: 'PreToolUse', command: './a.sh' },
+        { event: 'Stop', command: './b.sh' },
+      ],
+    });
+    const manager = new PluginManager({ pythinkerHomeDir: home });
+    await manager.load();
+    await manager.install(root);
+    expect(manager.summaries()[0]?.hookCount).toBe(2);
+  });
+
+  it('enabledCommands() returns parsed commands from enabled plugins', async () => {
+    const home = await makePythinkerHome();
+    const root = await makePlugin('demo', {
+      commands: {
+        'deploy.md': '---\ndescription: Deploy\n---\nDeploy with $ARGUMENTS',
+        'env.md': '---\ndescription: Env\n---\nManage env',
+      },
+    });
+    const manager = new PluginManager({ pythinkerHomeDir: home });
+    await manager.load();
+    await manager.install(root);
+    const commands = await manager.enabledCommands();
+    expect(commands.map((c) => ({ pluginId: c.pluginId, name: c.name, description: c.description }))).toEqual(
+      expect.arrayContaining([
+        { pluginId: 'demo', name: 'deploy', description: 'Deploy' },
+        { pluginId: 'demo', name: 'env', description: 'Env' },
+      ]),
+    );
+    expect(commands.find((c) => c.name === 'deploy')?.body).toBe('Deploy with $ARGUMENTS');
+  });
+
+  it('enabledCommands() preserves the relative-path namespace for nested commands', async () => {
+    const home = await makePythinkerHome();
+    const root = await makePlugin('demo', {
+      commands: {
+        'deploy.md': '---\ndescription: Deploy\n---\nbody',
+        'frontend/component.md': '---\ndescription: Component\n---\nbody',
+      },
+    });
+    const manager = new PluginManager({ pythinkerHomeDir: home });
+    await manager.load();
+    await manager.install(root);
+    const commands = await manager.enabledCommands();
+    expect(commands.map((c) => c.name).toSorted()).toEqual(['deploy', 'frontend/component']);
+  });
+
+  it('enabledCommands() excludes disabled plugins', async () => {
+    const home = await makePythinkerHome();
+    const root = await makePlugin('demo', {
+      commands: { 'deploy.md': '---\ndescription: Deploy\n---\nbody' },
+    });
+    const manager = new PluginManager({ pythinkerHomeDir: home });
+    await manager.load();
+    await manager.install(root);
+    await manager.setEnabled('demo', false);
+    expect(await manager.enabledCommands()).toEqual([]);
+  });
+
+  it('summaries() include commandCount', async () => {
+    const home = await makePythinkerHome();
+    const root = await makePlugin('demo', {
+      commands: {
+        'a.md': '---\ndescription: A\n---\nbody',
+        'b.md': '---\ndescription: B\n---\nbody',
+      },
+    });
+    const manager = new PluginManager({ pythinkerHomeDir: home });
+    await manager.load();
+    await manager.install(root);
+    expect(manager.summaries()[0]?.commandCount).toBe(2);
   });
 });
 

@@ -88,10 +88,10 @@ pythinker
 pythinker -p "帮我看一下这个项目的目录结构"
 ```
 
-继续上一次会话加 `-C`：
+继续上一次会话加 `-c`：
 
 ```sh
-pythinker -C
+pythinker -c
 ```
 
 首次启动时需要配置 API 来源。在交互界面中输入 `/login` 进入登录流程：
@@ -145,7 +145,7 @@ Pythinker Code CLI 会规划步骤、修改代码、运行测试，并在每一�
 | `/sessions` | 浏览历史会话，选择恢复 |
 | `/model` | 切换当前使用的模型 |
 | `/compact` | 手动压缩上下文，释放 token |
-| `/fork` | 派生当前会话，保留历史独立继续 |
+| `/fork` | 派生当前会话为保留完整历史的独立副本（仍停留在当前会话） |
 
 **最常用快捷键**
 
@@ -155,7 +155,7 @@ Pythinker Code CLI 会规划步骤、修改代码、运行测试，并在每一�
 | `Ctrl-C` | 中断输出；空闲时连按两次退出 |
 | `Shift-Tab` | 切换 Plan 模式 |
 | `Ctrl-S` | 输出中途插入消息，无需等待结束 |
-| `Ctrl-O` | 折叠 / 展开工具输出 |
+| `Ctrl-O` | 折叠 / 展开工具输出和压缩摘要 |
 
 想看完整列表，输入 `/help` 或访问[斜杠命令参考](../reference/slash-commands.md)和[键盘快捷键](../reference/keyboard.md)。
 

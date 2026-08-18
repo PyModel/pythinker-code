@@ -5,7 +5,12 @@ import { createRequire } from 'node:module';
 import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { NATIVE_ASSET_MANIFEST_VERSION, buildManifestKey } from './manifest.mjs';
+import {
+  MINIDB_TEXT_BUILD_WORKER_ASSET,
+  NATIVE_ASSET_MANIFEST_VERSION,
+  buildManifestKey,
+  buildRuntimeAssetKey,
+} from './manifest.mjs';
 import { resolveTargetDeps, SUPPORTED_TARGETS } from './native-deps.mjs';
 
 export { NATIVE_ASSET_MANIFEST_VERSION };
@@ -17,9 +22,7 @@ export const NATIVE_TARGETS = Object.freeze(
     SUPPORTED_TARGETS.map((t) => {
       const deps = resolveTargetDeps(t);
       const clipboardTarget = deps.find((d) => d.id === 'clipboard-target')?.resolvedName;
-      const koffiNativeFile = deps.find((d) => d.id === 'koffi')?.nativeFileRelatives?.[0];
-      const koffiTriplet = koffiNativeFile?.match(/koffi\/([^/]+)\/koffi\.node$/)?.[1] ?? null;
-      return [t, { clipboardPackage: clipboardTarget, koffiTriplet }];
+      return [t, { clipboardPackage: clipboardTarget }];
     }),
   ),
 );
@@ -161,16 +164,19 @@ async function collectPackageFiles({
   packageName,
   packageRoot,
   includeNativeFiles,
+  includeEntryJs = true,
   nativeFileRelatives = [],
 }) {
   const packageJsonPath = join(packageRoot, 'package.json');
   const packageJson = await readJson(packageJsonPath);
   const selected = new Set([packageJsonPath]);
 
-  const entry = resolvePackageEntry(packageRoot, packageJson);
-  if (entry !== null) {
-    selected.add(entry);
-    await addRuntimeDependencyFiles(packageRoot, entry, selected);
+  if (includeEntryJs) {
+    const entry = resolvePackageEntry(packageRoot, packageJson);
+    if (entry !== null) {
+      selected.add(entry);
+      await addRuntimeDependencyFiles(packageRoot, entry, selected);
+    }
   }
 
   for (const nativeFileRelative of nativeFileRelatives) {
@@ -228,7 +234,10 @@ async function packageManifestEntries({ packageName, packageRoot, files, target 
 export const nativeAssetManifestKey = buildManifestKey;
 
 export function nativeAssetSummary(manifest) {
-  return manifest.packages.map((pkg) => `${pkg.name}: ${pkg.files.length} files`);
+  return [
+    ...manifest.packages.map((pkg) => `${pkg.name}: ${pkg.files.length} files`),
+    `runtime: ${manifest.runtimeFiles.length} files`,
+  ];
 }
 
 export async function collectNativeAssets({ appRoot, target }) {
@@ -250,6 +259,7 @@ export async function collectNativeAssets({ appRoot, target }) {
       packageName: dep.resolvedName,
       packageRoot,
       includeNativeFiles: dep.collect === 'native-files',
+      includeEntryJs: dep.collect !== 'native-file-only',
       nativeFileRelatives: dep.nativeFileRelatives,
     });
     const result = await packageManifestEntries({
@@ -262,10 +272,25 @@ export async function collectNativeAssets({ appRoot, target }) {
     Object.assign(assets, result.assets);
   }
 
+  const workerSource = resolve(appRoot, 'dist-native', 'intermediates', 'text-build-worker.mjs');
+  const workerBytes = await readFile(workerSource);
+  const workerAssetKey = buildRuntimeAssetKey(target, MINIDB_TEXT_BUILD_WORKER_ASSET.key);
+  const runtimeFiles = [
+    {
+      key: MINIDB_TEXT_BUILD_WORKER_ASSET.key,
+      assetKey: workerAssetKey,
+      relativePath: MINIDB_TEXT_BUILD_WORKER_ASSET.relativePath,
+      sha256: sha256(workerBytes),
+      mode: MINIDB_TEXT_BUILD_WORKER_ASSET.mode,
+    },
+  ];
+  assets[workerAssetKey] = workerSource;
+
   const manifest = {
     version: NATIVE_ASSET_MANIFEST_VERSION,
     target,
     packages: manifestPackages,
+    runtimeFiles,
   };
 
   return {

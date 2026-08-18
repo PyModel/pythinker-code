@@ -40,6 +40,9 @@
  * **Synthesizing stable ids** (SDK has no per-item / per-option `id`):
  *   - `QuestionItem.id`     ← `q_<index>` (e.g. `q_0`, `q_1`, ...)
  *   - `QuestionOption.id`   ← `opt_<parent_idx>_<option_idx>` (e.g. `opt_0_0`)
+ *   Ids are a wire-only concern: clients answer with them, and
+ *   `toAgentCoreResponse` translates them back to question text / option
+ *   labels so the flattened record the model sees is self-explanatory.
  *
  * **Anti-corruption**: this is the ONLY place protocol↔SDK shape translation
  * happens for question.
@@ -66,7 +69,10 @@ export interface IQuestionService {
    * Resolves with the in-process `QuestionResult` (null = no handler / fully
    * dismissed). Concrete impls own timeout policy.
    */
-  request(req: InProcessQuestionRequest & { sessionId: string; agentId: string }): Promise<QuestionResult>;
+  request(
+    req: InProcessQuestionRequest & { sessionId: string; agentId: string },
+    options?: { signal?: AbortSignal },
+  ): Promise<QuestionResult>;
 
   /**
    * Called by the answer-side (REST handler / TUI / mock) to settle a pending
@@ -104,8 +110,6 @@ export interface QuestionToBrokerRequestParams {
   readonly sessionId: string;
   /** `createdAt` ISO string; broker passes `new Date().toISOString()`. */
   readonly createdAt: string;
-  /** `expiresAt` ISO string; broker computes `createdAt + 60s`. */
-  readonly expiresAt: string;
 }
 
 /**
@@ -142,14 +146,8 @@ function buildItem(
   if (item.header !== undefined) out.header = item.header;
   if (item.body !== undefined) out.body = item.body;
   if (item.multiSelect !== undefined) out.multi_select = item.multiSelect;
-  // SDK has no `allowOther` field — `otherLabel` / `otherDescription` exist
-  // and we expose them on the wire alongside an inferred `allow_other: true`
-  // when either tag is set. (SDK semantics: presence of `otherLabel` enables
-  // the "Other" affordance; we surface that explicitly on the wire so client
-  // renderers don't have to infer.)
-  const hasOtherAffordance =
-    item.otherLabel !== undefined || item.otherDescription !== undefined;
-  if (hasOtherAffordance) out.allow_other = true;
+  // SDK has no allowOther field; always advertise the free-text Other option on the wire.
+  out.allow_other = true;
   if (item.otherLabel !== undefined) out.other_label = item.otherLabel;
   if (item.otherDescription !== undefined) out.other_description = item.otherDescription;
   return out;
@@ -167,7 +165,6 @@ export function toBrokerRequest(
     session_id: params.sessionId,
     questions: req.questions.map((q, i) => buildItem(q, i)),
     created_at: params.createdAt,
-    expires_at: params.expiresAt,
   };
   if (req.turnId !== undefined) out.turn_id = req.turnId;
   if (req.toolCallId !== undefined) out.tool_call_id = req.toolCallId;
@@ -178,33 +175,61 @@ export function toBrokerRequest(
  * Protocol REST response body → in-process SDK `QuestionResponse` (with
  * `answers` flattened to `Record<string, string | true>`).
  *
- * Normalization rules from SCHEMAS §6.4:
- *   - single            → option_id
- *   - multi             → option_ids.join(',')
+ * The wire keeps synthesized ids (`q_<idx>` / `opt_<q>_<o>`) so clients can
+ * answer unambiguously, but the flattened record is what the ask-user tool
+ * feeds back to the model — so ids are translated back to text here using
+ * the original broker `request`:
+ *   - key               → the question's text (falls back to the raw qid
+ *                         when the request is unavailable or the qid is
+ *                         unknown — stale client, defensive)
+ *   - single            → option label
+ *   - multi             → labels.join(', ')
  *   - other             → text
- *   - multi_with_other  → [...option_ids, other_text].join(',')
+ *   - multi_with_other  → [...labels, other_text].join(', ')
  *   - skipped           → OMIT entry
+ *
+ * Multi-select joins use `', '` to match what the TUI reverse-RPC path
+ * already emits, so the model sees one format regardless of which client
+ * answered.
+ *
+ * Unknown qids and option ids — including ids that belong to a DIFFERENT
+ * question than the one being answered — are kept verbatim rather than
+ * resolved or dropped: translating a cross-question id would hand the model
+ * a plausible-looking label that was never offered for that question, while
+ * the raw id stays diagnosable.
  */
 export function toAgentCoreResponse(
   resp: ProtocolQuestionResponse,
+  request?: ProtocolQuestionRequest,
 ): InProcessQuestionResponse {
+  const itemsById = new Map<string, ProtocolQuestionItem>();
+  for (const item of request?.questions ?? []) {
+    itemsById.set(item.id, item);
+  }
+
   const flattened: InProcessQuestionAnswers = {};
   for (const [qid, ans] of Object.entries(resp.answers)) {
+    const item = itemsById.get(qid);
+    const key = item?.question ?? qid;
+    // Resolve option ids only within the answered question's own options
+    // (at most 4, so a linear scan is fine).
+    const optionText = (id: string): string =>
+      item?.options.find((o) => o.id === id)?.label ?? id;
     switch (ans.kind) {
       case 'single':
-        flattened[qid] = ans.option_id;
+        flattened[key] = optionText(ans.option_id);
         break;
       case 'multi':
-        flattened[qid] = ans.option_ids.join(',');
+        flattened[key] = ans.option_ids.map(optionText).join(', ');
         break;
       case 'other':
-        flattened[qid] = ans.text;
+        flattened[key] = ans.text;
         break;
       case 'multi_with_other':
-        flattened[qid] = [...ans.option_ids, ans.other_text].join(',');
+        flattened[key] = [...ans.option_ids.map(optionText), ans.other_text].join(', ');
         break;
       case 'skipped':
-        // Omitted from the record — matches SCHEMAS §6.4 ("if skipped continue").
+        // Omitted from the record — skipped questions carry no answer.
         break;
       default: {
         // Defensive: never-reached if Zod schema is the SOT, but TS narrowing

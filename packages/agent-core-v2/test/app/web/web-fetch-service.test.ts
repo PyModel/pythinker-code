@@ -1,0 +1,257 @@
+/**
+ * `web` domain tests — `WebFetchService` backend selection.
+ *
+ * Locks in the precedence chain: an explicit `[services.pymodel_fetch]`
+ * config section wins over the managed Pythinker OAuth provider, and the built-in
+ * local fetcher is the fallback so `FetchURL` keeps working without either.
+ */
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { DisposableStore } from '#/_base/di/lifecycle';
+import { createServices, type TestInstantiationService } from '#/_base/di/test';
+import { IOAuthService } from '#/app/auth/auth';
+import { SERVICES_SECTION, type ServicesConfig } from '#/app/auth/configSection';
+import {
+  buildAgentIdentitySnapshot,
+  IAgentIdentity,
+  type AgentIdentitySnapshot,
+} from '#/app/agentIdentity/agentIdentity';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { IConfigService } from '#/app/config/config';
+import { IProviderService, type ProviderConfig } from '#/kosong/provider/provider';
+import { LocalFetchURLProvider } from '#/app/web/providers/local-fetch-url';
+import { PyModelFetchURLProvider } from '#/app/web/providers/pymodel-fetch-url';
+import { IWebFetchService } from '#/app/web/web';
+import { WebFetchService } from '#/app/web/webService';
+import '#/kosong/provider/providers/pythinker/pythinker.contrib';
+
+import { stubAgentIdentity } from '../agentIdentity/stubs';
+
+const OAUTH_PROVIDER = 'managed:pythinker-code';
+const NON_OAUTH_PROVIDER = 'openai-main';
+const HOST_HEADERS = {
+  'User-Agent': 'pythinker-code-cli/test',
+  'X-Msh-Device-Id': 'device-test',
+};
+
+describe('WebFetchService', () => {
+  let disposables: DisposableStore;
+  let ix: TestInstantiationService;
+  let providers: Record<string, ProviderConfig>;
+  let servicesConfig: ServicesConfig | undefined;
+  let identitySlug: string | undefined;
+  let resolveTokenProvider: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    disposables = new DisposableStore();
+    providers = {};
+    servicesConfig = undefined;
+    identitySlug = undefined;
+    resolveTokenProvider = vi
+      .fn()
+      .mockReturnValue({ getAccessToken: async () => 'access-token' });
+    ix = createServices(disposables, {
+      additionalServices: (reg) => {
+        reg.definePartialInstance(IProviderService, {
+          get: ((name: string) => providers[name]) as IProviderService['get'],
+        });
+        reg.definePartialInstance(IOAuthService, {
+          resolveTokenProvider:
+            resolveTokenProvider as unknown as IOAuthService['resolveTokenProvider'],
+        });
+        // Built per call so each test's `identitySlug` assignment lands in the
+        // snapshot the service reads.
+        const snapshot = (): AgentIdentitySnapshot =>
+          buildAgentIdentitySnapshot({ slug: identitySlug, hostRequestHeaders: HOST_HEADERS });
+        reg.defineInstance(IAgentIdentity, {
+          _serviceBrand: undefined,
+          resolved: () => Promise.resolve(snapshot()),
+          current: snapshot,
+        });
+        reg.definePartialInstance(IBootstrapService, {
+          args: { requestHeaders: HOST_HEADERS },
+        });
+        reg.definePartialInstance(IConfigService, {
+          get: ((domain: string) =>
+            domain === SERVICES_SECTION ? servicesConfig : undefined) as IConfigService['get'],
+        });
+        reg.define(IWebFetchService, WebFetchService);
+      },
+    });
+  });
+
+  afterEach(() => {
+    disposables.dispose();
+    vi.unstubAllGlobals();
+  });
+
+  function fetcher(): ReturnType<IWebFetchService['getUrlFetcher']> {
+    return ix.get(IWebFetchService).getUrlFetcher();
+  }
+
+  it('yields the local fetcher when the managed provider is not configured', () => {
+    providers = { [NON_OAUTH_PROVIDER]: { type: 'openai', apiKey: 'sk-test' } };
+    expect(fetcher()).toBeInstanceOf(LocalFetchURLProvider);
+    expect(resolveTokenProvider).not.toHaveBeenCalled();
+  });
+
+  it('yields the local fetcher when the managed provider is not an OAuth pythinker provider', () => {
+    providers = { [OAUTH_PROVIDER]: { type: 'pythinker', apiKey: 'sk-test' } };
+    expect(fetcher()).toBeInstanceOf(LocalFetchURLProvider);
+    expect(resolveTokenProvider).not.toHaveBeenCalled();
+  });
+
+  it('yields the local fetcher when the oauth service yields no token provider', () => {
+    providers = {
+      [OAUTH_PROVIDER]: {
+        type: 'pythinker',
+        baseUrl: 'https://api.example.com',
+        oauth: { storage: 'file', key: 'oauth/pythinker-code' },
+      },
+    };
+    resolveTokenProvider.mockReturnValue(undefined);
+    expect(fetcher()).toBeInstanceOf(LocalFetchURLProvider);
+  });
+
+  it('builds a PyModel fetcher from the managed provider oauth ref', () => {
+    providers = {
+      [OAUTH_PROVIDER]: {
+        type: 'pythinker',
+        baseUrl: 'https://api.example.com/v1',
+        oauth: { storage: 'file', key: 'oauth/pythinker-code' },
+      },
+    };
+    expect(fetcher()).toBeInstanceOf(PyModelFetchURLProvider);
+    expect(resolveTokenProvider).toHaveBeenCalledWith(OAUTH_PROVIDER, {
+      storage: 'file',
+      key: 'oauth/pythinker-code',
+    });
+  });
+
+  it('fetches against /fetch with the OAuth access token, host identity headers, and custom headers', async () => {
+    providers = {
+      [OAUTH_PROVIDER]: {
+        type: 'pythinker',
+        baseUrl: 'https://api.example.com/v1/',
+        oauth: { storage: 'file', key: 'oauth/pythinker-code' },
+        customHeaders: { 'X-Custom': 'yes' },
+      },
+    };
+    const fetchMock = vi.fn().mockResolvedValue({
+      status: 200,
+      text: async () => 'page body',
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await fetcher().fetch('https://example.com/page');
+
+    expect(result).toEqual({ content: 'page body', kind: 'extracted' });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://api.example.com/v1/fetch');
+    const headers = init.headers as Record<string, string>;
+    expect(headers['Authorization']).toBe('Bearer access-token');
+    expect(headers['User-Agent']).toBe('pythinker-code-cli/test');
+    expect(headers['X-Msh-Device-Id']).toBe('device-test');
+    expect(headers['X-Custom']).toBe('yes');
+  });
+
+  it('builds a PyModel fetcher from the services.pymodel_fetch api_key config', async () => {
+    servicesConfig = {
+      pymodelFetch: {
+        baseUrl: 'https://fetch.example.com/fetch',
+        apiKey: 'fetch-key',
+        customHeaders: { 'X-Config': '1' },
+      },
+    };
+    const fetchMock = vi.fn().mockResolvedValue({
+      status: 200,
+      text: async () => 'page body',
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    expect(fetcher()).toBeInstanceOf(PyModelFetchURLProvider);
+    expect(resolveTokenProvider).not.toHaveBeenCalled();
+    const result = await fetcher().fetch('https://example.com/page');
+
+    expect(result).toEqual({ content: 'page body', kind: 'extracted' });
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://fetch.example.com/fetch');
+    const headers = init.headers as Record<string, string>;
+    expect(headers['Authorization']).toBe('Bearer fetch-key');
+    expect(headers['User-Agent']).toBe('pythinker-code-cli/test');
+    expect(headers['X-Msh-Device-Id']).toBe('device-test');
+    expect(headers['X-Config']).toBe('1');
+  });
+
+  // A `[services]` entry names its own endpoint, so the identity applies there;
+  // the managed OAuth endpoint is the one the session authenticated against and
+  // keeps the host's own token.
+  it('sends the configured identity to a services-config endpoint', async () => {
+    identitySlug = 'acme';
+    servicesConfig = {
+      pymodelFetch: { baseUrl: 'https://fetch.example.com/fetch', apiKey: 'fetch-key' },
+    };
+    const fetchMock = vi.fn().mockResolvedValue({ status: 200, text: async () => 'page body' });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await fetcher().fetch('https://example.com/page');
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const headers = init.headers as Record<string, string>;
+    expect(headers['User-Agent']).toBe('acme/test');
+  });
+
+  it('keeps the host token on the managed oauth endpoint under a custom identity', async () => {
+    identitySlug = 'acme';
+    providers[OAUTH_PROVIDER] = {
+      type: 'pythinker',
+      baseUrl: 'https://api.example.com/v1',
+      oauth: { storage: 'file', key: 'oauth/pythinker-code' },
+    };
+    const fetchMock = vi.fn().mockResolvedValue({ status: 200, text: async () => 'page body' });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await fetcher().fetch('https://example.com/page');
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const headers = init.headers as Record<string, string>;
+    expect(headers['User-Agent']).toBe('pythinker-code-cli/test');
+  });
+
+  it('prefers the services.pymodel_fetch config over the managed oauth provider', () => {
+    servicesConfig = {
+      pymodelFetch: { baseUrl: 'https://config.example.com/fetch', apiKey: 'config-key' },
+    };
+    providers = {
+      [OAUTH_PROVIDER]: {
+        type: 'pythinker',
+        baseUrl: 'https://managed.example.com/v1',
+        oauth: { storage: 'file', key: 'oauth/pythinker-code' },
+      },
+    };
+    expect(fetcher()).toBeInstanceOf(PyModelFetchURLProvider);
+    expect(resolveTokenProvider).not.toHaveBeenCalled();
+  });
+
+  it('builds a PyModel fetcher from the services.pymodel_fetch oauth ref', () => {
+    servicesConfig = {
+      pymodelFetch: {
+        baseUrl: 'https://fetch.example.com/fetch',
+        oauth: { storage: 'file', key: 'oauth/pythinker-code' },
+      },
+    };
+    expect(fetcher()).toBeInstanceOf(PyModelFetchURLProvider);
+    expect(resolveTokenProvider).toHaveBeenCalledWith(OAUTH_PROVIDER, {
+      storage: 'file',
+      key: 'oauth/pythinker-code',
+    });
+  });
+
+  it('yields the local fetcher when services.pymodel_fetch has no baseUrl and no managed oauth', () => {
+    servicesConfig = { pymodelFetch: { apiKey: 'fetch-key' } };
+    expect(fetcher()).toBeInstanceOf(LocalFetchURLProvider);
+    expect(resolveTokenProvider).not.toHaveBeenCalled();
+  });
+});

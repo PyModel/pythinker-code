@@ -7,6 +7,7 @@ import {
   type QueuedSubagentTask,
   type SessionSubagentHost,
 } from '../../../session/subagent-host';
+import { stripSubagentModelParameter } from '../../../session/subagent-binding';
 import { ToolAccesses } from '../../../loop/tool-access';
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '../../../loop/types';
 import { toInputJsonSchema } from '../../support/input-schema';
@@ -29,7 +30,13 @@ export const AgentDynamicWorkflowToolInputSchema = z
       .min(1)
       .optional()
       .describe(
-        'Subagent type used for every spawned subagent. Defaults to coder when omitted.',
+        'Subagent type used for every new subagent spawned from items; defaults to coder when omitted. Resumed subagents always keep their original type, so passing subagent_type together with resume_agent_ids is allowed — it only affects the item-based spawns.',
+      ),
+    model: z
+      .enum(['primary', 'secondary'])
+      .optional()
+      .describe(
+        'Model for every new subagent spawned from items: "secondary" uses the configured secondary model (the default when one is set), "primary" uses the model you are running on. Resumed subagents keep their bound model.',
       ),
     prompt_template: z
       .string()
@@ -83,15 +90,34 @@ interface DynamicWorkflowRunResult {
   readonly error?: string;
 }
 
+const AGENT_DYNAMIC_WORKFLOW_PARAMETERS = toInputJsonSchema(AgentDynamicWorkflowToolInputSchema);
+const AGENT_DYNAMIC_WORKFLOW_PARAMETERS_NO_MODEL = stripSubagentModelParameter(AGENT_DYNAMIC_WORKFLOW_PARAMETERS);
+
 export class AgentDynamicWorkflowTool implements BuiltinTool<AgentDynamicWorkflowToolInput> {
   readonly name = 'AgentDynamicWorkflow' as const;
-  readonly description = AGENT_DYNAMIC_WORKFLOW_DESCRIPTION;
-  readonly parameters: Record<string, unknown> = toInputJsonSchema(AgentDynamicWorkflowToolInputSchema);
+  readonly description: string;
+  readonly parameters: Record<string, unknown>;
 
   constructor(
     private readonly subagentHost: SessionSubagentHost,
     private readonly dynamicWorkflowMode: DynamicWorkflowMode,
-  ) {}
+    // `0` = no timeout, preserved on purpose (`0 ?? DEFAULT` stays `0`);
+    // SubagentBatch arms no timer for non-positive timeouts.
+    private readonly subagentTimeoutMs?: number,
+    subagentModelDescription?: string,
+    // Mirrors the `secondary-model` experiment: off (the default), the no-op
+    // `model` parameter is stripped from the advertised schema so the
+    // secondary-model concept never enters the prompt.
+    modelChoiceEnabled = false,
+  ) {
+    this.description =
+      subagentModelDescription === undefined
+        ? AGENT_DYNAMIC_WORKFLOW_DESCRIPTION
+        : `${AGENT_DYNAMIC_WORKFLOW_DESCRIPTION}\n\n${subagentModelDescription}`;
+    this.parameters = modelChoiceEnabled
+      ? AGENT_DYNAMIC_WORKFLOW_PARAMETERS
+      : AGENT_DYNAMIC_WORKFLOW_PARAMETERS_NO_MODEL;
+  }
 
   resolveExecution(args: AgentDynamicWorkflowToolInput): ToolExecution {
     const agentCount = (args.items?.length ?? 0) + Object.keys(args.resume_agent_ids ?? {}).length;
@@ -145,7 +171,8 @@ export class AgentDynamicWorkflowTool implements BuiltinTool<AgentDynamicWorkflo
         runInBackground: false,
         dynamic_workflowItem: spec.item,
         signal,
-        timeout: DEFAULT_SUBAGENT_TIMEOUT_MS,
+        timeout: this.subagentTimeoutMs ?? DEFAULT_SUBAGENT_TIMEOUT_MS,
+        modelChoice: args.model,
       };
       if (spec.kind === 'resume') {
         return {

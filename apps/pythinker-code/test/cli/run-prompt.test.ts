@@ -1,7 +1,19 @@
+/**
+ * Scenario: print-mode session startup and resume routing.
+ * Responsibilities: CLI options are translated into the SDK session contract and output is rendered.
+ * Wiring: the SDK/telemetry/process boundaries are mocked; the print driver is real.
+ * Run: pnpm -C apps/pythinker-code exec vitest run test/cli/run-prompt.test.ts
+ */
+
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import type { createPythinkerDeviceId as createPythinkerDeviceIdFn } from '@pymodel/pythinker-code-oauth';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { runPrompt } from '#/cli/run-prompt';
+import { PROMPT_CLEANUP_TIMEOUT_MS } from '#/constant/app';
 
 type CreatePythinkerDeviceId = typeof createPythinkerDeviceIdFn;
 
@@ -38,6 +50,10 @@ const mocks = vi.hoisted(() => {
         handler(mainEvent({ type: 'turn.ended', turnId: 1, reason: 'completed' }));
       }
     }),
+    waitForBackgroundTasksOnPrint: vi.fn(async () => {}),
+    getGoal: vi.fn(async () => ({ goal: null })),
+    getCronTasks: vi.fn(async () => ({ tasks: [] })),
+    handlePrintMainTurnCompleted: vi.fn(async (): Promise<'finish' | 'continue'> => 'finish'),
   };
 
   return {
@@ -62,6 +78,42 @@ const mocks = vi.hoisted(() => {
     harnessClose: vi.fn(),
     harnessTrack: vi.fn(),
     harnessGetCachedAccessToken: vi.fn(),
+    runV2Print: vi.fn(
+      async (
+        opts: { readonly outputFormat?: string },
+        version: string,
+        io?: {
+          readonly stdout?: { write(chunk: string): boolean };
+          readonly stderr?: { write(chunk: string): boolean };
+        },
+      ) => {
+        // Mirror the native runner's output protocol so the version-banner
+        // assertions stay meaningful: version first, then the assistant
+        // message, then the resume hint — in the active output format.
+        const stdout = io?.stdout ?? process.stdout;
+        const stderr = io?.stderr ?? process.stderr;
+        const outputFormat = opts?.outputFormat ?? 'text';
+        if (outputFormat === 'stream-json') {
+          stdout.write(
+            `${JSON.stringify({ role: 'meta', type: 'system.version', version })}\n`,
+          );
+          stdout.write(`${JSON.stringify({ role: 'assistant', content: 'hello world' })}\n`);
+          stdout.write(
+            `${JSON.stringify({
+              role: 'meta',
+              type: 'session.resume_hint',
+              session_id: 'ses_prompt',
+              command: 'pythinker -r ses_prompt',
+              content: 'To resume this session: pythinker -r ses_prompt',
+            })}\n`,
+          );
+          return;
+        }
+        stderr.write(`pythinker version ${version}\n`);
+        stdout.write('• hello world\n\n');
+        stderr.write('To resume this session: pythinker -r ses_prompt\n');
+      },
+    ),
     initializeTelemetry: vi.fn(),
     setCrashPhase: vi.fn(),
     shutdownTelemetry: vi.fn(),
@@ -124,6 +176,14 @@ vi.mock('@pymodel/pythinker-telemetry', () => ({
   withTelemetryContext: mocks.withTelemetryContext,
 }));
 
+// The experimental v2 engine is loaded via a dynamic import from run-prompt.ts
+// when PYTHINKER_CODE_EXPERIMENTAL_FLAG is set. Mock the native v2 runner so tests
+// that flip that flag can exercise the dispatch without pulling in the real
+// agent-core-v2 graph.
+vi.mock('../../src/cli/v2/run-v2-print', () => ({
+  runV2Print: mocks.runV2Print,
+}));
+
 function opts(overrides: Partial<Parameters<typeof runPrompt>[0]> = {}) {
   return {
     session: undefined,
@@ -135,6 +195,9 @@ function opts(overrides: Partial<Parameters<typeof runPrompt>[0]> = {}) {
     outputFormat: undefined,
     prompt: 'say hello',
     skillsDirs: [],
+    agent: undefined,
+    agentFiles: [],
+    addDirs: [],
     ...overrides,
   };
 }
@@ -182,8 +245,17 @@ async function waitForAssertion(assertion: () => void): Promise<void> {
 }
 
 describe('runPrompt', () => {
+  beforeEach(() => {
+    // Pin the experimental engine flag off so the default v1 path is
+    // deterministic regardless of the host environment. Tests that exercise the
+    // experimental path opt back in explicitly with `vi.stubEnv(..., '1')`.
+    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_FLAG', '');
+    vi.stubEnv('PYTHINKER_MODEL_OUTPUT_FORMAT', '');
+  });
+
   afterEach(() => {
     vi.clearAllMocks();
+    vi.unstubAllEnvs();
     mocks.eventHandlers.clear();
     mocks.createPythinkerDeviceId.mockImplementation(() => 'device-1');
     mocks.resolvePythinkerHome.mockImplementation(
@@ -205,6 +277,8 @@ describe('runPrompt', () => {
       workDir: process.cwd(),
       model: 'k2',
       permission: 'auto',
+      additionalDirs: undefined,
+      drainAgentTasksOnStop: true,
     });
     expect(mocks.session.setPermission).not.toHaveBeenCalled();
     expect(mocks.session.setApprovalHandler).toHaveBeenCalledWith(expect.any(Function));
@@ -212,8 +286,124 @@ describe('runPrompt', () => {
     expect(mocks.session.prompt).toHaveBeenCalledWith('say hello');
     expect(stdout.text()).toBe('• hello world\n\n');
     expect(stderr.text()).toBe('To resume this session: pythinker -r ses_prompt\n');
+    expect(mocks.initializeTelemetry).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: 'ses_prompt' }),
+    );
     expect(mocks.shutdownTelemetry).toHaveBeenCalled();
     expect(mocks.harnessClose).toHaveBeenCalled();
+  });
+
+  it('selects the profile declared by an explicit agent file for a fresh v1 session', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'pythinker-run-prompt-agent-'));
+    const agentFile = join(dir, 'reviewer.md');
+    await writeFile(
+      agentFile,
+      '---\nname: reviewer\ndescription: Reviews code.\n---\n\nReview the requested change.\n',
+      'utf-8',
+    );
+
+    try {
+      await runPrompt(opts({ agentFiles: [agentFile] }), '1.2.3-test', {
+        stdout: writer(),
+        stderr: writer(),
+      });
+
+      expect(mocks.harnessCreateSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agentProfile: 'reviewer',
+          agentFiles: [agentFile],
+        }),
+      );
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('completes even if harness.close() never resolves (cleanup is time-bounded)', async () => {
+    vi.useFakeTimers();
+    try {
+      const stdout = writer();
+      const stderr = writer();
+      // Simulate a shutdown step that hangs (e.g. a wedged SessionEnd hook or a
+      // blackholed connection in a firewalled sandbox). A completed headless run
+      // must not stay alive forever waiting on cleanup.
+      mocks.harnessClose.mockReturnValueOnce(new Promise<void>(() => {}));
+
+      let settled = false;
+      const done = runPrompt(opts(), '1.2.3-test', {
+        stdout,
+        stderr,
+        process: fakeProcess(),
+      }).then(() => {
+        settled = true;
+      });
+
+      await vi.advanceTimersByTimeAsync(PROMPT_CLEANUP_TIMEOUT_MS + 100);
+      await done;
+
+      expect(settled).toBe(true);
+      expect(mocks.harnessClose).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('propagates a cleanup failure that settles before the timeout', async () => {
+    const stdout = writer();
+    const stderr = writer();
+    // A cleanup step that fails fast (e.g. a permission restore or harness close
+    // hitting a persistence error) must surface — not be silently swallowed by
+    // the timeout guard — otherwise the run reports success while shutdown
+    // actually failed (e.g. a resumed session left in `auto`).
+    mocks.harnessClose.mockRejectedValueOnce(new Error('close failed'));
+
+    await expect(
+      runPrompt(opts(), '1.2.3-test', { stdout, stderr, process: fakeProcess() }),
+    ).rejects.toThrow('close failed');
+  });
+
+  it('ignores a cleanup rejection that lands after the timeout', async () => {
+    vi.useFakeTimers();
+    try {
+      const stdout = writer();
+      const stderr = writer();
+      // Cleanup overruns the bound and only rejects later. The run already gave
+      // up waiting and resolved; that late rejection must not flip it to a
+      // failure (nor surface as an unhandled rejection).
+      mocks.harnessClose.mockReturnValueOnce(
+        new Promise<void>((_, reject) => {
+          const timer = setTimeout(
+            () => reject(new Error('late close')),
+            PROMPT_CLEANUP_TIMEOUT_MS + 5000,
+          );
+          timer.unref?.();
+        }),
+      );
+
+      let settled: 'resolved' | 'rejected' | undefined;
+      const done = runPrompt(opts(), '1.2.3-test', {
+        stdout,
+        stderr,
+        process: fakeProcess(),
+      }).then(
+        () => {
+          settled = 'resolved';
+        },
+        () => {
+          settled = 'rejected';
+        },
+      );
+
+      await vi.advanceTimersByTimeAsync(PROMPT_CLEANUP_TIMEOUT_MS + 100);
+      await done;
+      expect(settled).toBe('resolved');
+
+      await vi.advanceTimersByTimeAsync(5000);
+      await Promise.resolve();
+      expect(settled).toBe('resolved');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('stops prompt startup when session creation fails', async () => {
@@ -242,10 +432,27 @@ describe('runPrompt', () => {
       workDir: process.cwd(),
       model: 'pythinker-code/k2.5',
       permission: 'auto',
+      additionalDirs: undefined,
+      drainAgentTasksOnStop: true,
     });
     expect(mocks.initializeTelemetry).toHaveBeenCalledWith(
       expect.objectContaining({ model: 'pythinker-code/k2.5' }),
     );
+  });
+
+  it('passes the CLI additional directory when creating a fresh prompt session', async () => {
+    await runPrompt(opts({ addDirs: ['../shared', '/tmp/extra'] }), '1.2.3-test', {
+      stdout: { write: vi.fn(() => true) },
+      stderr: { write: vi.fn(() => true) },
+    });
+
+    expect(mocks.harnessCreateSession).toHaveBeenCalledWith({
+      workDir: process.cwd(),
+      model: 'k2',
+      permission: 'auto',
+      additionalDirs: ['../shared', '/tmp/extra'],
+      drainAgentTasksOnStop: true,
+    });
   });
 
   it('tracks first launch in prompt mode before harness construction can create the device id', async () => {
@@ -442,6 +649,34 @@ describe('runPrompt', () => {
     expect(mocks.session.setPermission).toHaveBeenNthCalledWith(2, 'manual');
   });
 
+  it('passes the CLI additional directories when resuming a concrete session', async () => {
+    await runPrompt(
+      opts({ session: 'ses_existing', addDirs: ['../shared', '/tmp/extra'] }),
+      '1.2.3-test',
+      {
+        stdout: { write: vi.fn(() => true) },
+        stderr: { write: vi.fn(() => true) },
+      },
+    );
+
+    expect(mocks.harnessResumeSession).toHaveBeenCalledWith({
+      id: 'ses_existing',
+      additionalDirs: ['../shared', '/tmp/extra'],
+    });
+    expect(mocks.harnessCreateSession).not.toHaveBeenCalled();
+  });
+
+  it('does not forward an agent profile when resuming a concrete v1 session', async () => {
+    // validateOptions rejects --agent with --session; runPrompt must not
+    // forward a profile to resume even if a caller hands one over.
+    await runPrompt(opts({ session: 'ses_existing', agent: 'reviewer' }), '1.2.3-test', {
+      stdout: writer(),
+      stderr: writer(),
+    });
+
+    expect(mocks.harnessResumeSession).toHaveBeenCalledWith({ id: 'ses_existing' });
+  });
+
   it('allows resuming a concrete session when Windows workdir uses backslashes', async () => {
     const cwd = vi.spyOn(process, 'cwd').mockReturnValue(String.raw`C:\Users\pythinker\project`);
     mocks.harnessListSessions.mockResolvedValueOnce([
@@ -537,6 +772,140 @@ describe('runPrompt', () => {
     );
   });
 
+  it('emits a stream-json meta line on retry and discards the failed attempt output', async () => {
+    mocks.session.prompt.mockImplementationOnce(async () => {
+      for (const handler of mocks.eventHandlers) {
+        handler(mocks.mainEvent({ type: 'turn.started', turnId: 10, origin: { kind: 'user' } }));
+        handler(mocks.mainEvent({ type: 'assistant.delta', turnId: 10, delta: 'partial attempt' }));
+        handler(
+          mocks.mainEvent({
+            type: 'turn.step.retrying',
+            turnId: 10,
+            step: 1,
+            stepId: 'step-uuid',
+            failedAttempt: 1,
+            nextAttempt: 2,
+            maxAttempts: 3,
+            delayMs: 300,
+            errorName: 'APIProviderRateLimitError',
+            errorMessage: 'llmproxy/openai/responses/resp_abc.json status_code=429',
+            statusCode: 429,
+          }),
+        );
+        handler(mocks.mainEvent({ type: 'assistant.delta', turnId: 10, delta: 'final answer' }));
+        handler(mocks.mainEvent({ type: 'turn.ended', turnId: 10, reason: 'completed' }));
+      }
+    });
+    const stdout = writer();
+    const stderr = writer();
+
+    await runPrompt(opts({ outputFormat: 'stream-json' }), '1.2.3-test', { stdout, stderr });
+
+    const retryMeta = JSON.stringify({
+      role: 'meta',
+      type: 'turn.step.retrying',
+      failed_attempt: 1,
+      next_attempt: 2,
+      max_attempts: 3,
+      delay_ms: 300,
+      error_name: 'APIProviderRateLimitError',
+      error_message: 'llmproxy/openai/responses/resp_abc.json status_code=429',
+      status_code: 429,
+    });
+    expect(stdout.text()).toBe(
+      [
+        retryMeta,
+        '{"role":"assistant","content":"final answer"}',
+        '{"role":"meta","type":"session.resume_hint","session_id":"ses_prompt","command":"pythinker -r ses_prompt","content":"To resume this session: pythinker -r ses_prompt"}',
+        '',
+      ].join('\n'),
+    );
+    // The failed attempt's partial text must not leak as an assistant line.
+    expect(stdout.text()).not.toContain('partial attempt');
+    expect(stderr.text()).toBe('');
+  });
+
+  it('flushes stream-json assistant output before waiting for background tasks', async () => {
+    let releaseWait: () => void = () => {};
+    const waitGate = new Promise<void>((resolve) => {
+      releaseWait = resolve;
+    });
+    mocks.session.waitForBackgroundTasksOnPrint.mockImplementationOnce(async () => waitGate);
+
+    mocks.session.prompt.mockImplementationOnce(async () => {
+      for (const handler of mocks.eventHandlers) {
+        handler(mocks.mainEvent({ type: 'turn.started', turnId: 9, origin: { kind: 'user' } }));
+        handler(mocks.mainEvent({ type: 'assistant.delta', turnId: 9, delta: 'final answer' }));
+        handler(mocks.mainEvent({ type: 'turn.ended', turnId: 9, reason: 'completed' }));
+      }
+    });
+
+    const stdout = writer();
+    const stderr = writer();
+    const runPromise = runPrompt(opts({ outputFormat: 'stream-json' }), '1.2.3-test', {
+      stdout,
+      stderr,
+    });
+
+    // The assistant message must be flushed even while the background wait is pending.
+    await waitForAssertion(() => {
+      expect(stdout.text()).toContain('{"role":"assistant","content":"final answer"}');
+    });
+
+    releaseWait();
+    await runPromise;
+  });
+
+  it('follows a background-steered second main turn before finishing in steer mode', async () => {
+    // First end-of-turn: stay alive (a background task is still pending).
+    // Second end-of-turn: finish.
+    mocks.session.handlePrintMainTurnCompleted
+      .mockResolvedValueOnce('continue')
+      .mockResolvedValueOnce('finish');
+
+    mocks.session.prompt.mockImplementationOnce(async () => {
+      for (const handler of mocks.eventHandlers) {
+        handler(mocks.mainEvent({ type: 'turn.started', turnId: 10, origin: { kind: 'user' } }));
+        handler(mocks.mainEvent({ type: 'assistant.delta', turnId: 10, delta: 'first' }));
+        handler(mocks.mainEvent({ type: 'turn.ended', turnId: 10, reason: 'completed' }));
+      }
+    });
+
+    const stdout = writer();
+    const stderr = writer();
+    const runPromise = runPrompt(opts({ outputFormat: 'stream-json' }), '1.2.3-test', {
+      stdout,
+      stderr,
+    });
+
+    // The first turn's assistant message must be flushed and the end-of-turn
+    // policy consulted, while the run stays alive (action === 'continue').
+    await waitForAssertion(() => {
+      expect(mocks.session.handlePrintMainTurnCompleted).toHaveBeenCalledTimes(1);
+      expect(stdout.text()).toContain('{"role":"assistant","content":"first"}');
+    });
+
+    // Simulate a background-task completion steering the main agent into a new
+    // turn (the runtime does this via turn.steer; here we drive the events
+    // directly to verify the driver follows and finishes only after it).
+    for (const handler of mocks.eventHandlers) {
+      handler(
+        mocks.mainEvent({
+          type: 'turn.started',
+          turnId: 11,
+          origin: { kind: 'background_task' },
+        }),
+      );
+      handler(mocks.mainEvent({ type: 'assistant.delta', turnId: 11, delta: 'second' }));
+      handler(mocks.mainEvent({ type: 'turn.ended', turnId: 11, reason: 'completed' }));
+    }
+
+    await runPromise;
+
+    expect(mocks.session.handlePrintMainTurnCompleted).toHaveBeenCalledTimes(2);
+    expect(stdout.text()).toContain('{"role":"assistant","content":"second"}');
+  });
+
   it('resumes a concrete session without a configured default model', async () => {
     mocks.harnessGetConfig.mockResolvedValueOnce({ providers: {}, telemetry: true });
     mocks.session.getStatus.mockResolvedValueOnce({ permission: 'manual', model: 'saved-model' });
@@ -565,6 +934,30 @@ describe('runPrompt', () => {
     expect(mocks.harnessResumeSession).toHaveBeenCalledWith({ id: 'ses_previous' });
     expect(mocks.session.setPermission).toHaveBeenNthCalledWith(1, 'auto');
     expect(mocks.session.setPermission).toHaveBeenNthCalledWith(2, 'manual');
+  });
+
+  it('passes the CLI additional directories when continuing the previous session', async () => {
+    await runPrompt(opts({ continue: true, addDirs: ['../shared', '/tmp/extra'] }), '1.2.3-test', {
+      stdout: { write: vi.fn(() => true) },
+      stderr: { write: vi.fn(() => true) },
+    });
+
+    expect(mocks.harnessResumeSession).toHaveBeenCalledWith({
+      id: 'ses_previous',
+      additionalDirs: ['../shared', '/tmp/extra'],
+    });
+    expect(mocks.harnessCreateSession).not.toHaveBeenCalled();
+  });
+
+  it('does not forward an agent profile when continuing a previous v1 session', async () => {
+    // validateOptions rejects --agent with --continue; runPrompt must not
+    // forward a profile to resume even if a caller hands one over.
+    await runPrompt(opts({ continue: true, agent: 'reviewer' }), '1.2.3-test', {
+      stdout: writer(),
+      stderr: writer(),
+    });
+
+    expect(mocks.harnessResumeSession).toHaveBeenCalledWith({ id: 'ses_previous' });
   });
 
   it('continues a previous session without a configured default model', async () => {
@@ -807,6 +1200,37 @@ describe('runPrompt', () => {
     expect(mocks.harnessClose).toHaveBeenCalled();
   });
 
+  it('rejects with a friendly message when the provider filters the response', async () => {
+    mocks.session.prompt.mockImplementationOnce(async () => {
+      for (const handler of mocks.eventHandlers) {
+        handler(mocks.mainEvent({ type: 'turn.started', turnId: 2, origin: { kind: 'user' } }));
+        handler(
+          mocks.mainEvent({
+            type: 'turn.ended',
+            turnId: 2,
+            reason: 'failed',
+            error: {
+              code: 'provider.filtered',
+              message: 'Provider safety policy blocked the response.',
+              name: 'ProviderFilteredError',
+              retryable: false,
+            },
+          }),
+        );
+      }
+    });
+
+    await expect(
+      runPrompt(opts(), '1.2.3-test', {
+        stdout: { write: vi.fn(() => true) },
+        stderr: { write: vi.fn(() => true) },
+      }),
+    ).rejects.toThrow('Provider safety policy blocked the response.');
+
+    expect(mocks.shutdownTelemetry).toHaveBeenCalled();
+    expect(mocks.harnessClose).toHaveBeenCalled();
+  });
+
   it('approval fallback approves if an unexpected approval request reaches SDK', async () => {
     await runPrompt(opts(), '1.2.3-test', {
       stdout: { write: vi.fn(() => true) },
@@ -825,5 +1249,214 @@ describe('runPrompt', () => {
 
     const handler = mocks.session.setQuestionHandler.mock.calls[0]![0] as () => unknown;
     expect(handler()).toBeNull();
+  });
+
+  it('emits the version first in text mode when the experimental flag is enabled', async () => {
+    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_FLAG', '1');
+    const stdout = writer();
+    const stderr = writer();
+
+    await runPrompt(opts(), '1.2.3-test', { stdout, stderr });
+
+    // The experimental engine is selected and the version banner is the very
+    // first write, ahead of any assistant output or the resume hint.
+    expect(mocks.runV2Print).toHaveBeenCalled();
+    expect(mocks.pythinkerHarnessConstructor).not.toHaveBeenCalled();
+    expect(stderr.write).toHaveBeenNthCalledWith(1, 'pythinker version 1.2.3-test\n');
+    expect(stderr.text().startsWith('pythinker version 1.2.3-test\n')).toBe(true);
+    expect(stdout.text()).toBe('• hello world\n\n');
+  });
+
+  it('emits the version first in stream-json mode when the experimental flag is enabled', async () => {
+    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_FLAG', '1');
+    const stdout = writer();
+    const stderr = writer();
+
+    await runPrompt(opts({ outputFormat: 'stream-json' }), '1.2.3-test', {
+      stdout,
+      stderr,
+    });
+
+    expect(mocks.runV2Print).toHaveBeenCalled();
+    expect(mocks.pythinkerHarnessConstructor).not.toHaveBeenCalled();
+    const lines = stdout.text().split('\n');
+    expect(lines[0]).toBe(
+      '{"role":"meta","type":"system.version","version":"1.2.3-test"}',
+    );
+    expect(stderr.text()).toBe('');
+  });
+
+  it('does not emit the version when the experimental flag is disabled', async () => {
+    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_FLAG', '0');
+    const stdout = writer();
+    const stderr = writer();
+
+    await runPrompt(opts(), '1.2.3-test', { stdout, stderr });
+
+    expect(mocks.runV2Print).not.toHaveBeenCalled();
+    expect(mocks.pythinkerHarnessConstructor).toHaveBeenCalled();
+    expect(stderr.text()).not.toContain('pythinker version');
+  });
+
+  it('does not settle on end_turn while a goal is still active', async () => {
+    mocks.session.prompt.mockImplementationOnce(async () => {
+      for (const handler of mocks.eventHandlers) {
+        handler(mocks.mainEvent({ type: 'turn.started', turnId: 1, origin: { kind: 'user' } }));
+        handler(mocks.mainEvent({ type: 'assistant.delta', turnId: 1, delta: 'created a goal' }));
+        handler(mocks.mainEvent({ type: 'turn.ended', turnId: 1, reason: 'completed' }));
+      }
+    });
+    // First evaluation (after turn 1) sees an active goal; the continuation
+    // turn's evaluation sees the goal gone (completed → record cleared).
+    mocks.session.getGoal.mockResolvedValueOnce({ goal: { status: 'active' } } as never);
+
+    const stdout = writer();
+    const stderr = writer();
+    let settled = false;
+    const run = runPrompt(opts(), '1.2.3-test', { stdout, stderr }).then(() => {
+      settled = true;
+    });
+
+    await waitForAssertion(() => {
+      expect(mocks.session.getGoal).toHaveBeenCalledTimes(1);
+    });
+    expect(settled).toBe(false);
+
+    // The goal driver launches the continuation turn on its own; the run
+    // streams it and settles only once no goal is active anymore.
+    for (const handler of mocks.eventHandlers) {
+      handler(
+        mocks.mainEvent({
+          type: 'turn.started',
+          turnId: 2,
+          origin: { kind: 'system_trigger' },
+        }),
+      );
+      handler(mocks.mainEvent({ type: 'assistant.delta', turnId: 2, delta: 'goal work' }));
+      handler(mocks.mainEvent({ type: 'turn.ended', turnId: 2, reason: 'completed' }));
+    }
+
+    await run;
+    expect(settled).toBe(true);
+    expect(stdout.text()).toContain('goal work');
+  });
+
+  it('settles when the goal reaches a terminal state between turns with no trailing turn.ended', async () => {
+    mocks.session.prompt.mockImplementationOnce(async () => {
+      for (const handler of mocks.eventHandlers) {
+        handler(mocks.mainEvent({ type: 'turn.started', turnId: 1, origin: { kind: 'user' } }));
+        handler(mocks.mainEvent({ type: 'assistant.delta', turnId: 1, delta: 'working' }));
+        handler(mocks.mainEvent({ type: 'turn.ended', turnId: 1, reason: 'completed' }));
+      }
+    });
+    // Turn 1's evaluation sees the goal still active; the terminal
+    // goal.updated (e.g. the driver blocked it on a hard budget) arrives with
+    // no further turn.ended and must settle the run itself.
+    mocks.session.getGoal
+      .mockResolvedValueOnce({ goal: { status: 'active' } } as never)
+      .mockResolvedValue({ goal: { status: 'blocked' } } as never);
+
+    const stdout = writer();
+    const stderr = writer();
+    let settled = false;
+    const run = runPrompt(opts(), '1.2.3-test', { stdout, stderr }).then(() => {
+      settled = true;
+    });
+
+    await waitForAssertion(() => {
+      expect(mocks.session.getGoal).toHaveBeenCalledTimes(1);
+    });
+    expect(settled).toBe(false);
+
+    for (const handler of mocks.eventHandlers) {
+      handler(
+        mocks.mainEvent({
+          type: 'goal.updated',
+          snapshot: { status: 'blocked' },
+          change: { kind: 'blocked' },
+        }),
+      );
+    }
+
+    await run;
+    expect(settled).toBe(true);
+  });
+
+  it('does not settle on end_turn while a cron task is pending, then lets the fire drive a turn', async () => {
+    mocks.session.prompt.mockImplementationOnce(async () => {
+      for (const handler of mocks.eventHandlers) {
+        handler(mocks.mainEvent({ type: 'turn.started', turnId: 1, origin: { kind: 'user' } }));
+        handler(mocks.mainEvent({ type: 'assistant.delta', turnId: 1, delta: 'scheduled a reminder' }));
+        handler(mocks.mainEvent({ type: 'turn.ended', turnId: 1, reason: 'completed' }));
+      }
+    });
+    // Turn 1 leaves a pending one-shot cron task; its fire steers turn 2, and
+    // by turn 2's evaluation the task has fired and been removed.
+    mocks.session.getCronTasks
+      .mockResolvedValueOnce({
+        tasks: [
+          {
+            id: '3f9a1c2e',
+            cron: '*/5 * * * *',
+            recurring: false,
+            createdAt: 1,
+            lastFiredAt: undefined,
+            nextFireAt: Date.now() + 60_000,
+          },
+        ],
+      } as never)
+      .mockResolvedValue({ tasks: [] } as never);
+
+    const stdout = writer();
+    const stderr = writer();
+    let settled = false;
+    const run = runPrompt(opts(), '1.2.3-test', { stdout, stderr }).then(() => {
+      settled = true;
+    });
+
+    await waitForAssertion(() => {
+      expect(mocks.session.getCronTasks).toHaveBeenCalledTimes(1);
+    });
+    expect(settled).toBe(false);
+
+    // The cron fire steers a fresh turn; the run streams it and settles once
+    // no pending tasks remain.
+    for (const handler of mocks.eventHandlers) {
+      handler(
+        mocks.mainEvent({
+          type: 'turn.started',
+          turnId: 2,
+          origin: { kind: 'cron_job' },
+        }),
+      );
+      handler(mocks.mainEvent({ type: 'assistant.delta', turnId: 2, delta: 'cron ran' }));
+      handler(mocks.mainEvent({ type: 'turn.ended', turnId: 2, reason: 'completed' }));
+    }
+
+    await run;
+    expect(settled).toBe(true);
+    expect(stdout.text()).toContain('cron ran');
+  });
+
+  it('does not wait for cron tasks whose expression has no future fire', async () => {
+    mocks.session.getCronTasks.mockResolvedValue({
+      tasks: [
+        {
+          id: '3f9a1c2e',
+          cron: '0 0 31 2 *',
+          recurring: true,
+          createdAt: 1,
+          lastFiredAt: undefined,
+          nextFireAt: null,
+        },
+      ],
+    } as never);
+
+    const stdout = writer();
+    const stderr = writer();
+    await runPrompt(opts(), '1.2.3-test', { stdout, stderr });
+
+    expect(stdout.text()).toBe('• hello world\n\n');
+    expect(mocks.harnessClose).toHaveBeenCalled();
   });
 });

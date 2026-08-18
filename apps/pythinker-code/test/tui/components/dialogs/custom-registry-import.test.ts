@@ -1,4 +1,4 @@
-import { visibleWidth } from '@earendil-works/pi-tui';
+import { visibleWidth } from '@pymodel/pi-tui';
 import { describe, expect, it, vi } from 'vitest';
 
 import {

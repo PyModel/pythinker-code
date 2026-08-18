@@ -1,11 +1,14 @@
-import { execSync } from 'node:child_process';
+import { execSync, spawnSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 import {
   createPythinkerHarness,
+  createPythinkerHarnessV2,
+  flushDiagnosticLogsSync,
   log,
   type PythinkerHarness,
+  type PythinkerHarnessOptions,
   type TelemetryClient,
 } from '@pymodel/pythinker-code-sdk';
 import {
@@ -22,11 +25,14 @@ import type { TuiConfig } from '#/tui/config';
 import { loadTuiConfig, TuiConfigParseError } from '#/tui/config';
 import { CHROME_GUTTER } from '#/tui/constant/rendering';
 import { PythinkerTUI } from '#/tui/index';
+import { startupTrace } from '#/utils/startup-trace';
 import { currentTheme, getColorPalette } from '#/tui/theme';
-import { combineStartupNotice } from '#/tui/utils/startup';
 import { toTerminalHyperlink } from '#/utils/terminal-hyperlink';
+import { restoreTerminalModes } from '#/utils/terminal-restore';
 
 import type { CLIOptions } from './options';
+import { resolveAgentProfileSelection } from './agent-selection';
+import { isPythinkerV2Enabled } from './experimental-v2';
 import { createCliTelemetryBootstrap, initializeCliTelemetry } from './telemetry';
 import { createPythinkerCodeHostIdentity } from './version';
 
@@ -58,21 +64,31 @@ export async function runShell(
     withContext: withTelemetryContext,
     setContext: setTelemetryContext,
   };
-  const harness = createPythinkerHarness({
+  const harnessOptions: PythinkerHarnessOptions = {
     homeDir: telemetryBootstrap.homeDir,
     identity: createPythinkerCodeHostIdentity(version),
+    skillDirs: opts.skillsDirs,
     telemetry: telemetryClient,
     onOAuthRefresh: (outcome) => {
       if (outcome.success) {
-        track('oauth_refresh', { success: true });
+        track('oauth_refresh', { outcome: 'success' });
         return;
       }
       track('oauth_refresh', {
-        success: false,
+        outcome: 'error',
         reason: outcome.reason,
       });
     },
-  });
+    sessionStartedProperties: { yolo: opts.yolo, auto: opts.auto, plan: opts.plan, afk: false },
+  };
+  // Experimental agent-core-v2 route (same master switch as `pythinker -p`): the
+  // harness is the SDK's v2-backed client, so the whole TUI runs on the
+  // agent-core-v2 engine.
+  const engineV2 = isPythinkerV2Enabled();
+  const harness = engineV2
+    ? createPythinkerHarnessV2(harnessOptions)
+    : createPythinkerHarness(harnessOptions);
+  startupTrace('harness:created');
   log.info('pythinker-code starting', {
     version,
     uiMode: CLI_UI_MODE,
@@ -93,18 +109,25 @@ export async function runShell(
     return;
   }
   const config = await harness.getConfig();
-  for (const warning of (await harness.getConfigDiagnostics()).warnings) {
-    configWarning = combineStartupNotice(configWarning, warning);
-  }
+  startupTrace('config:loaded');
+  // Config diagnostics (deprecated keys, invalid sections, ...) are surfaced
+  // by the TUI itself at `finishStartup` via `showConfigWarningsIfAny` —
+  // folded into the dim startup notice they were too easy to miss.
   const configMs = Date.now() - configStartedAt;
+  // Resolve --agent/--agent-file once for the startup session; validateOptions
+  // has already rejected them alongside --session/--continue.
+  const agentProfile = await resolveAgentProfileSelection(opts, workDir);
   const tui = new PythinkerTUI(harness, {
     cliOptions: opts,
+    agentProfile,
+    additionalDirs: opts.addDirs?.length ? opts.addDirs : undefined,
     tuiConfig,
     version,
     workDir,
     startupNotice: configWarning,
     migrationPlan,
     migrateOnly: runOptions.migrateOnly,
+    engineV2,
   });
 
   initializeCliTelemetry({
@@ -116,7 +139,6 @@ export async function runShell(
   });
   setCrashPhase('runtime');
 
-  const resumed = opts.continue || opts.session !== undefined;
   const trackLifecycleForSession = (
     sessionId: string,
     event: string,
@@ -132,11 +154,72 @@ export async function runShell(
     trackLifecycleForSession(tui.getCurrentSessionId(), event, properties);
   };
 
+  let savedStty: string | undefined;
+  try {
+    // stty operates on the terminal behind stdin, so stdin must be the TTY —
+    // piping /dev/null (ignore) makes stty fail with "not a tty".
+    const saved = execSync('stty -g', {
+      encoding: 'utf8',
+      stdio: ['inherit', 'pipe', 'ignore'],
+    });
+    savedStty = typeof saved === 'string' ? saved.trim() : undefined;
+    execSync('stty -ixon', { stdio: ['inherit', 'ignore', 'ignore'] });
+  } catch {
+    /* ignore */
+  }
+  const restoreStty = (): void => {
+    if (savedStty === undefined) return;
+    const args = savedStty.split(/\s+/).filter((arg) => arg.length > 0);
+    if (args.length === 0) return;
+    spawnSync('stty', args, { stdio: ['inherit', 'ignore', 'ignore'] });
+  };
+
+  // If we crash without going through PythinkerTUI.stop(), the terminal is left in
+  // raw mode with a hidden cursor and XON/XOFF flow control disabled. Restore
+  // both before exiting so the user's shell is usable afterwards.
+  const emergencyExit = (exitCode: number): void => {
+    // The crash log above is only enqueued into the async sink; flush it
+    // synchronously or the `process.exit()` below would drop the one line that
+    // explains why we crashed. Best-effort: an exit path must never throw.
+    try {
+      flushDiagnosticLogsSync();
+    } catch {
+      /* ignore */
+    }
+    restoreTerminalModes();
+    restoreStty();
+    process.exit(exitCode);
+  };
+  const onUncaughtException = (error: unknown): void => {
+    try {
+      log.error('uncaughtException, restoring terminal and exiting', { error: String(error) });
+    } catch {
+      /* ignore */
+    }
+    emergencyExit(1);
+  };
+  const onUnhandledRejection = (reason: unknown): void => {
+    try {
+      log.error('unhandledRejection, restoring terminal and exiting', { reason: String(reason) });
+    } catch {
+      /* ignore */
+    }
+    emergencyExit(1);
+  };
+  process.on('uncaughtException', onUncaughtException);
+  process.on('unhandledRejection', onUnhandledRejection);
+  // Remove the crash handlers once the TUI exits cleanly so repeated runShell()
+  // calls in the same process (e.g. tests) don't accumulate process listeners.
+  const removeCrashHandlers = (): void => {
+    process.off('uncaughtException', onUncaughtException);
+    process.off('unhandledRejection', onUnhandledRejection);
+  };
+
   tui.onExit = async (exitCode = 0) => {
     const sessionId = tui.getCurrentSessionId();
     const hasContent = tui.hasSessionContent();
     setCrashPhase('shutdown');
-    trackLifecycle('exit', { duration_s: (Date.now() - startedAt) / 1000 });
+    trackLifecycle('exit', { duration_ms: Date.now() - startedAt });
     await shutdownTelemetry({ timeoutMs: CLI_SHUTDOWN_TIMEOUT_MS });
     const gutter = ' '.repeat(CHROME_GUTTER);
     process.stdout.write(`${gutter}Bye!\n`);
@@ -150,24 +233,23 @@ export async function runShell(
     if (hints.length > 0) {
       process.stderr.write(`\n${hints.join('\n')}\n`);
     }
+    removeCrashHandlers();
+    restoreStty();
+    if (tui.exitForegroundTask !== undefined) {
+      // `/web` starting a new server: the TUI has shut down cleanly; hand the
+      // terminal to the foreground server instead of exiting. The task runs
+      // until the server stops (Ctrl+C), then this process exits.
+      await tui.exitForegroundTask(exitCode);
+      return;
+    }
     process.exit(exitCode);
   };
   try {
-    execSync('stty -ixon', { stdio: 'ignore' });
-  } catch {
-    /* ignore */
-  }
-  try {
     const initStartedAt = Date.now();
+    startupTrace('tui.start:begin');
     await tui.start();
+    startupTrace('tui.start:end');
     const initMs = Date.now() - initStartedAt;
-    trackLifecycle('started', {
-      resumed,
-      yolo: opts.yolo,
-      auto: opts.auto,
-      plan: opts.plan,
-      afk: false,
-    });
     const startupSessionId = tui.getCurrentSessionId();
     const mcpMs = await tui.getStartupMcpMs();
     trackLifecycleForSession(startupSessionId, 'startup_perf', {
@@ -177,8 +259,9 @@ export async function runShell(
       mcp_ms: mcpMs,
     });
   } catch (error) {
+    removeCrashHandlers();
     setCrashPhase('shutdown');
-    trackLifecycle('exit', { duration_s: (Date.now() - startedAt) / 1000 });
+    trackLifecycle('exit', { duration_ms: Date.now() - startedAt });
     await shutdownTelemetry({ timeoutMs: CLI_SHUTDOWN_TIMEOUT_MS });
     await harness.close();
     throw error;

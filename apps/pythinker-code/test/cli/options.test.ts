@@ -1,8 +1,15 @@
+/**
+ * Scenario: top-level CLI option parsing, validation, and help discovery.
+ * Responsibilities: accepted arguments map to CLIOptions and invalid combinations fail early.
+ * Wiring: Commander is real; command handlers and output sinks are local test boundaries.
+ * Run: pnpm -C apps/pythinker-code exec vitest run test/cli/options.test.ts
+ */
+
 import { describe, expect, it } from 'vitest';
 
 import { createProgram } from '#/cli/commands';
 import type { CLIOptions } from '#/cli/options';
-import { OptionConflictError, validateOptions } from '#/cli/options';
+import { OptionConflictError, OUTPUT_FORMAT_ENV, resolveOutputFormat, validateOptions } from '#/cli/options';
 
 function parse(argv: string[]): CLIOptions {
   let captured: CLIOptions | undefined;
@@ -41,6 +48,9 @@ describe('CLI options parsing', () => {
       expect(opts.outputFormat).toBeUndefined();
       expect(opts.prompt).toBeUndefined();
       expect(opts.skillsDirs).toEqual([]);
+      expect(opts.agent).toBeUndefined();
+      expect(opts.agentFiles).toEqual([]);
+      expect(opts.addDirs).toEqual([]);
     });
   });
 
@@ -152,6 +162,10 @@ describe('CLI options parsing', () => {
 
     it('-C sets continue', () => {
       expect(parse(['-C']).continue).toBe(true);
+    });
+
+    it('-c is an alias for --continue', () => {
+      expect(parse(['-c']).continue).toBe(true);
     });
 
     it('--continue and --session combined raises a conflict', () => {
@@ -298,12 +312,213 @@ describe('CLI options parsing', () => {
     });
   });
 
+  describe('PYTHINKER_MODEL_OUTPUT_FORMAT', () => {
+    it('defaults to text when unset in prompt mode', () => {
+      expect(resolveOutputFormat({ prompt: 'run this', outputFormat: undefined }, {})).toBe('text');
+    });
+
+    it('uses stream-json from the env in prompt mode', () => {
+      expect(
+        resolveOutputFormat(
+          { prompt: 'run this', outputFormat: undefined },
+          { [OUTPUT_FORMAT_ENV]: 'stream-json' },
+        ),
+      ).toBe('stream-json');
+    });
+
+    it('uses text from the env in prompt mode', () => {
+      expect(
+        resolveOutputFormat(
+          { prompt: 'run this', outputFormat: undefined },
+          { [OUTPUT_FORMAT_ENV]: 'text' },
+        ),
+      ).toBe('text');
+    });
+
+    it('trims surrounding whitespace from the env value', () => {
+      expect(
+        resolveOutputFormat(
+          { prompt: 'run this', outputFormat: undefined },
+          { [OUTPUT_FORMAT_ENV]: '  stream-json  ' },
+        ),
+      ).toBe('stream-json');
+    });
+
+    it('lets the --output-format flag override the env', () => {
+      expect(
+        resolveOutputFormat(
+          { prompt: 'run this', outputFormat: 'text' },
+          { [OUTPUT_FORMAT_ENV]: 'stream-json' },
+        ),
+      ).toBe('text');
+    });
+
+    it('ignores the env outside prompt mode', () => {
+      expect(
+        resolveOutputFormat(
+          { prompt: undefined, outputFormat: undefined },
+          { [OUTPUT_FORMAT_ENV]: 'stream-json' },
+        ),
+      ).toBe('text');
+    });
+
+    it('rejects an invalid env value', () => {
+      expect(() =>
+        resolveOutputFormat(
+          { prompt: 'run this', outputFormat: undefined },
+          { [OUTPUT_FORMAT_ENV]: 'json' },
+        ),
+      ).toThrow(OptionConflictError);
+      expect(() =>
+        resolveOutputFormat(
+          { prompt: 'run this', outputFormat: undefined },
+          { [OUTPUT_FORMAT_ENV]: 'json' },
+        ),
+      ).toThrow('Invalid PYTHINKER_MODEL_OUTPUT_FORMAT value "json"');
+    });
+
+    it('fails validation fast for an invalid env value in prompt mode', () => {
+      const opts = parse(['-p', 'run this']);
+      expect(() => validateOptions(opts, { [OUTPUT_FORMAT_ENV]: 'json' })).toThrow(
+        OptionConflictError,
+      );
+    });
+
+    it('does not validate the env outside prompt mode', () => {
+      const opts = parse([]);
+      expect(() => validateOptions(opts, { [OUTPUT_FORMAT_ENV]: 'json' })).not.toThrow();
+    });
+  });
+
   describe('--skills-dir', () => {
     it('collects repeated skill directories', () => {
       expect(parse(['--skills-dir', '/one', '--skills-dir=/two']).skillsDirs).toEqual([
         '/one',
         '/two',
       ]);
+    });
+  });
+
+  describe('--agent / --agent-file', () => {
+    it('describes agent selectors as new-session-only', () => {
+      const help = createProgram('0.1.0-test', () => {}, () => {}).helpInformation();
+      const normalizedHelp = help.replaceAll(/\s+/g, ' ');
+
+      expect(normalizedHelp).toContain('Agent profile to start the new session with.');
+      expect(normalizedHelp).not.toContain('print-mode invocation');
+    });
+
+    it('parses a single --agent', () => {
+      const opts = parse(['-p', 'hi', '--agent', 'reviewer']);
+      expect(opts.agent).toBe('reviewer');
+      expect(opts.agentFiles).toEqual([]);
+    });
+
+    it('parses a single --agent-file', () => {
+      const opts = parse(['-p', 'hi', '--agent-file', 'a.md']);
+      expect(opts.agent).toBeUndefined();
+      expect(opts.agentFiles).toEqual(['a.md']);
+    });
+
+    it('rejects repeated --agent', () => {
+      expect(() => parse(['-p', 'hi', '--agent', 'reviewer', '--agent', 'writer'])).toThrow(
+        '--agent may only be specified once.',
+      );
+    });
+
+    it('rejects repeated --agent-file', () => {
+      expect(() =>
+        parse(['-p', 'hi', '--agent-file', 'a.md', '--agent-file', 'b.md']),
+      ).toThrow('--agent-file may only be specified once.');
+    });
+
+    it('rejects combining --agent with --agent-file', () => {
+      expect(() =>
+        parse(['-p', 'hi', '--agent', 'reviewer', '--agent-file', 'reviewer.md']),
+      ).toThrow("option '--agent <name>' cannot be used with option '--agent-file <path>'");
+    });
+
+    it('rejects multiple agent files passed directly to validation', () => {
+      const opts = parse(['-p', 'hi', '--agent-file', 'a.md']);
+      expect(() => validateOptions({ ...opts, agentFiles: ['a.md', 'b.md'] })).toThrow(
+        '--agent-file may only be specified once.',
+      );
+    });
+
+    it('rejects mixed agent selectors passed directly to validation', () => {
+      const opts = parse(['-p', 'hi', '--agent', 'reviewer']);
+      expect(() => validateOptions({ ...opts, agentFiles: ['reviewer.md'] })).toThrow(
+        'Cannot combine --agent with --agent-file.',
+      );
+    });
+
+    it('rejects --agent-file with --session', () => {
+      const opts = parse(['-p', 'hi', '--agent-file', 'a.md', '--session', 'ses_123']);
+      expect(() => validateOptions(opts)).toThrow(OptionConflictError);
+      expect(() => validateOptions(opts)).toThrow(
+        'Cannot combine --agent/--agent-file with --session/--continue',
+      );
+    });
+
+    it('rejects --agent-file with --continue', () => {
+      const opts = parse(['-p', 'hi', '--agent-file', 'a.md', '--continue']);
+      expect(() => validateOptions(opts)).toThrow(OptionConflictError);
+      expect(() => validateOptions(opts)).toThrow(
+        'Cannot combine --agent/--agent-file with --session/--continue',
+      );
+    });
+
+    it('rejects --agent with --session', () => {
+      const opts = parse(['-p', 'hi', '--agent', 'reviewer', '--session', 'ses_123']);
+      expect(() => validateOptions(opts)).toThrow(OptionConflictError);
+      expect(() => validateOptions(opts)).toThrow(
+        'Cannot combine --agent/--agent-file with --session/--continue',
+      );
+    });
+
+    it('rejects --agent with --continue in shell mode', () => {
+      const opts = parse(['--agent', 'reviewer', '--continue']);
+      expect(() => validateOptions(opts)).toThrow(OptionConflictError);
+      expect(() => validateOptions(opts)).toThrow(
+        'Cannot combine --agent/--agent-file with --session/--continue',
+      );
+    });
+
+    it('rejects empty agent values', () => {
+      const opts = parse(['-p', 'hi', '--agent', '   ']);
+      expect(() => validateOptions(opts)).toThrow(OptionConflictError);
+      expect(() => validateOptions(opts)).toThrow('Agent cannot be empty.');
+    });
+
+    it('rejects empty agent file values', () => {
+      const opts = parse(['-p', 'hi', '--agent-file', '   ']);
+      expect(() => validateOptions(opts)).toThrow(OptionConflictError);
+      expect(() => validateOptions(opts)).toThrow('Agent file path cannot be empty.');
+    });
+
+    it('accepts the flags in shell mode', () => {
+      expect(validateOptions(parse(['--agent', 'reviewer']), {}).uiMode).toBe('shell');
+      expect(validateOptions(parse(['--agent-file', 'a.md']), {}).uiMode).toBe('shell');
+    });
+
+    it('accepts the flags in prompt mode without the v2 engine flag', () => {
+      const opts = parse(['-p', 'hi', '--agent-file', 'a.md']);
+      expect(validateOptions(opts, {}).uiMode).toBe('print');
+    });
+
+    it('accepts the flags in prompt mode with the v2 engine flag', () => {
+      const opts = parse(['-p', 'hi', '--agent', 'reviewer']);
+      expect(validateOptions(opts, { PYTHINKER_CODE_EXPERIMENTAL_FLAG: '1' }).uiMode).toBe('print');
+    });
+  });
+
+  describe('--add-dir', () => {
+    it('parses one additional workspace directory', () => {
+      expect(parse(['--add-dir', '/shared']).addDirs).toEqual(['/shared']);
+    });
+
+    it('parses repeated additional workspace directories', () => {
+      expect(parse(['--add-dir', '/one', '--add-dir=/two']).addDirs).toEqual(['/one', '/two']);
     });
   });
 
@@ -332,6 +547,30 @@ describe('CLI options parsing', () => {
       expect(upgradeCalls).toBe(1);
     });
 
+    it('routes update alias to the upgrade handler', () => {
+      let upgradeCalls = 0;
+      const program = createProgram(
+        '0.0.0',
+        () => {
+          throw new Error('main action should not run');
+        },
+        () => {},
+        () => {},
+        () => {
+          upgradeCalls += 1;
+        },
+      );
+      program.exitOverride();
+      program.configureOutput({
+        writeOut: () => {},
+        writeErr: () => {},
+      });
+
+      program.parse(['node', 'pythinker', 'update']);
+
+      expect(upgradeCalls).toBe(1);
+    });
+
     it('registers the visible sub-commands', () => {
       const program = createProgram(
         '0.0.0',
@@ -345,14 +584,36 @@ describe('CLI options parsing', () => {
         'export',
         'provider',
         'acp',
-        'server',
         'web',
+        'server',
         'login',
         'doctor',
         'vis',
         'migrate',
         'upgrade',
       ]);
+    });
+
+    it('registers acp-v2 when the experimental flag is enabled', () => {
+      const original = process.env['PYTHINKER_CODE_EXPERIMENTAL_ACP_V2'];
+      process.env['PYTHINKER_CODE_EXPERIMENTAL_ACP_V2'] = '1';
+      try {
+        const program = createProgram(
+          '0.0.0',
+          () => {},
+          () => {},
+        );
+        const commandNames: string[] = program.commands
+          .filter((command) => !command.name().startsWith('__'))
+          .map((command) => command.name());
+        expect(commandNames).toContain('acp-v2');
+      } finally {
+        if (original === undefined) {
+          delete process.env['PYTHINKER_CODE_EXPERIMENTAL_ACP_V2'];
+        } else {
+          process.env['PYTHINKER_CODE_EXPERIMENTAL_ACP_V2'] = original;
+        }
+      }
     });
   });
 
@@ -366,14 +627,11 @@ describe('CLI options parsing', () => {
         '--thinking',
         '--print',
         '--wire',
-        '--agent=default',
-        '--add-dir=/',
         '--raw-model',
         '--config-file=x',
         '--quiet',
         '--final-message-only',
         '--input-format=text',
-        '--agent-file=x',
         '--mcp-config={}',
         '--mcp-config-file=/',
       ]) {

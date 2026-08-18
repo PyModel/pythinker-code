@@ -4,6 +4,7 @@ import { log, type Logger } from '@pymodel/pythinker-code-sdk';
 import type { TelemetryProperties } from '@pymodel/pythinker-telemetry';
 
 import {
+  PYTHINKER_CODE_OFFICIAL_INSTALL_URL,
   NATIVE_INSTALL_COMMAND_UNIX,
   NATIVE_INSTALL_COMMAND_WIN,
 } from '#/constant/app';
@@ -141,6 +142,10 @@ function formatErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+const THIRD_PARTY_SOURCE_NOTE =
+  '\nNote: Third-party sources may lag behind the official release.\n' +
+  `For the latest updates, use the official installer: ${PYTHINKER_CODE_OFFICIAL_INSTALL_URL}\n`;
+
 export function renderManualUpdateMessage(
   currentVersion: string,
   target: UpdateTarget,
@@ -169,7 +174,8 @@ export function renderManualUpdateMessage(
     `A newer version of ${NPM_PACKAGE_NAME} is available ` +
     `(${currentVersion} -> ${target.version}).\n` +
     `Detected install source: ${sourceDesc}\n` +
-    `To update manually, run: ${installCommand}\n`
+    `To update manually, run: ${installCommand}\n` +
+    (source === 'homebrew' ? THIRD_PARTY_SOURCE_NOTE : '')
   );
 }
 
@@ -430,8 +436,6 @@ function trackUpdatePrompted(
   rolloutTelemetry: RolloutTelemetry,
 ): void {
   trackUpdateEvent(track, 'update_prompted', {
-    current: currentVersion,
-    latest: target.version,
     current_version: currentVersion,
     target_version: target.version,
     source,
@@ -490,7 +494,14 @@ export async function installUpdate(
 ): Promise<void> {
   const { cmd, args } = spawnForSource(source, version, platform);
   await new Promise<void>((resolve, reject) => {
-    const child = spawn(cmd, [...args], { stdio: 'inherit' });
+    // Windows package managers (npm/pnpm/yarn) are .cmd shims. Since the
+    // CVE-2024-27980 fix, Node throws EINVAL when spawning a .cmd/.bat without
+    // a shell, so run through the shell on win32. The version is a validated
+    // semver and the package name is a constant, so args are shell-safe.
+    const child = spawn(cmd, [...args], {
+      stdio: 'inherit',
+      shell: platform === 'win32' ? true : undefined,
+    });
     child.once('error', reject);
     child.once('exit', (code, signal) => {
       if (code === 0) {
@@ -598,7 +609,15 @@ async function startBackgroundInstall(
       });
     };
 
-    const child = spawn(cmd, [...args], { detached: true, stdio: 'ignore' });
+    const child = spawn(cmd, [...args], {
+      detached: true,
+      stdio: 'ignore',
+      shell: platform === 'win32' ? true : undefined,
+      // On Windows a detached child gets its own console window; with shell:true
+      // that window would flash during a passive background update. Hide it so
+      // the silent updater stays silent.
+      windowsHide: platform === 'win32' ? true : undefined,
+    });
     child.once('error', () => { finish(false); });
     child.once('exit', (code) => { finish(code === 0); });
     child.unref();

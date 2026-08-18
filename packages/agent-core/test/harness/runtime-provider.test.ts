@@ -1,9 +1,10 @@
+import { classifyPythinkerQuotaError } from '@pymodel/kosong';
 import { describe, expect, it } from 'vitest';
 
-import type { PythinkerConfig } from '../../src/config';
+import type { PythinkerConfig, ModelAlias } from '../../src/config';
 import { ErrorCodes, PythinkerError } from '../../src/errors';
 import { ProviderManager } from '../../src/session/provider-manager';
-import { resolveThinkingLevel } from '../../src/agent/config/thinking';
+import { resolveThinkingEffort } from '../../src/agent/config/thinking';
 
 // Thin wrapper that adapts the legacy `resolveRuntimeProvider(input)` shape to
 // the current ProviderManager API. Kept local so the existing test bodies do
@@ -283,6 +284,227 @@ describe('resolveRuntimeProvider maxOutputSize forwarding', () => {
     });
   });
 
+  it('forwards alias.offEffort to the openai and openai_responses provider configs', () => {
+    const config = {
+      ...BASE_CONFIG,
+      providers: {
+        ...BASE_CONFIG.providers,
+        gateway: { type: 'openai', apiKey: 'sk-gateway' } as const,
+        responses: { type: 'openai_responses', apiKey: 'sk-responses' } as const,
+      },
+      models: {
+        ...BASE_CONFIG.models!,
+        'gateway/grok': {
+          provider: 'gateway',
+          model: 'grok-4',
+          maxContextSize: 256000,
+          supportEfforts: ['low', 'medium', 'high'],
+          offEffort: 'none',
+        },
+        'responses/grok': {
+          provider: 'responses',
+          model: 'grok-4',
+          maxContextSize: 256000,
+          offEffort: 'none',
+        },
+      },
+    } as PythinkerConfig;
+
+    expect(resolveRuntimeProvider({ config, model: 'gateway/grok' }).provider).toMatchObject({
+      type: 'openai',
+      offEffort: 'none',
+    });
+    expect(resolveRuntimeProvider({ config, model: 'responses/grok' }).provider).toMatchObject({
+      type: 'openai_responses',
+      offEffort: 'none',
+    });
+  });
+
+  it('maps alias.maxInputSize onto the resolved capability while keeping the total window', () => {
+    const resolved = resolveRuntimeProvider({
+      config: {
+        ...BASE_CONFIG,
+        providers: {
+          ...BASE_CONFIG.providers,
+          gateway: { type: 'openai', apiKey: 'sk-gateway' } as const,
+        },
+        models: {
+          ...BASE_CONFIG.models!,
+          'gateway/gpt5': {
+            provider: 'gateway',
+            model: 'gpt-5',
+            maxContextSize: 400000,
+            maxInputSize: 272000,
+          },
+        },
+      },
+      model: 'gateway/gpt5',
+    });
+
+    expect(resolved.modelCapabilities).toMatchObject({
+      max_context_tokens: 400000,
+      max_input_tokens: 272000,
+    });
+  });
+
+  it('prefers alias.baseUrl over the provider base URL for the openai wire', () => {
+    // Catalog gateway shape: a model whose same-wire override endpoint
+    // differs from the provider's default.
+    const config = {
+      ...BASE_CONFIG,
+      providers: {
+        ...BASE_CONFIG.providers,
+        gateway: {
+          type: 'openai',
+          apiKey: 'sk-gateway',
+          baseUrl: 'https://gateway.example.test/api/v1',
+        } as const,
+      },
+      models: {
+        ...BASE_CONFIG.models!,
+        'gateway/tenant-model': {
+          provider: 'gateway',
+          model: 'vendor/tenant-model',
+          maxContextSize: 1000,
+          baseUrl: 'https://tenant.example.test/v1',
+        },
+        'gateway/shared-model': {
+          provider: 'gateway',
+          model: 'vendor/shared-model',
+          maxContextSize: 1000,
+        },
+      },
+    } as PythinkerConfig;
+
+    expect(resolveRuntimeProvider({ config, model: 'gateway/tenant-model' }).provider).toMatchObject(
+      { type: 'openai', baseUrl: 'https://tenant.example.test/v1' },
+    );
+    expect(resolveRuntimeProvider({ config, model: 'gateway/shared-model' }).provider).toMatchObject(
+      { type: 'openai', baseUrl: 'https://gateway.example.test/api/v1' },
+    );
+  });
+
+  it('prefers alias.baseUrl over the provider base URL on the pythinker, google-genai, and openai_responses wires', () => {
+    const config = {
+      ...BASE_CONFIG,
+      providers: {
+        ...BASE_CONFIG.providers,
+        pythinker: { type: 'pythinker', apiKey: 'sk-pythinker', baseUrl: 'https://pythinker.example.test/v1' } as const,
+        google: {
+          type: 'google-genai',
+          apiKey: 'sk-google',
+          baseUrl: 'https://google.example.test',
+        } as const,
+        responses: { type: 'openai_responses', apiKey: 'sk-responses' } as const,
+      },
+      models: {
+        ...BASE_CONFIG.models!,
+        'pythinker/tenant': {
+          provider: 'pythinker',
+          model: 'kimi-k2',
+          maxContextSize: 1000,
+          baseUrl: 'https://tenant.example.test/v1',
+        },
+        'google/tenant': {
+          provider: 'google',
+          model: 'gemini-2.5-flash',
+          maxContextSize: 1000,
+          baseUrl: 'https://tenant.example.test/v1',
+        },
+        'responses/tenant': {
+          provider: 'responses',
+          model: 'gpt-5.5',
+          maxContextSize: 1000,
+          baseUrl: 'https://tenant.example.test/v1',
+        },
+      },
+    } as PythinkerConfig;
+
+    expect(resolveRuntimeProvider({ config, model: 'pythinker/tenant' }).provider).toMatchObject({
+      type: 'pythinker',
+      baseUrl: 'https://tenant.example.test/v1',
+    });
+    expect(resolveRuntimeProvider({ config, model: 'google/tenant' }).provider).toMatchObject({
+      type: 'google-genai',
+      baseUrl: 'https://tenant.example.test/v1',
+    });
+    expect(resolveRuntimeProvider({ config, model: 'responses/tenant' }).provider).toMatchObject({
+      type: 'openai_responses',
+      baseUrl: 'https://tenant.example.test/v1',
+    });
+  });
+
+  it('prefers alias.baseUrl over the provider base URL for the anthropic wire', () => {
+    // Catalog gateway shape: provider default is the OpenAI wire, one model
+    // carries an Anthropic protocol + endpoint override.
+    const resolved = resolveRuntimeProvider({
+      config: {
+        ...BASE_CONFIG,
+        providers: {
+          ...BASE_CONFIG.providers,
+          gateway: {
+            type: 'openai',
+            apiKey: 'sk-gateway',
+            baseUrl: 'https://gateway.example.test/api/v1',
+          },
+        },
+        models: {
+          ...BASE_CONFIG.models!,
+          'gateway/claude-model': {
+            provider: 'gateway',
+            model: 'vendor/claude-model',
+            maxContextSize: 200000,
+            protocol: 'anthropic',
+            baseUrl: 'https://gateway.example.test/api/anthropic',
+          },
+          'gateway/plain-model': {
+            provider: 'gateway',
+            model: 'vendor/plain-model',
+            maxContextSize: 1000,
+            protocol: 'anthropic',
+          },
+        },
+      },
+      model: 'gateway/claude-model',
+    });
+
+    expect(resolved.provider).toMatchObject({
+      type: 'anthropic',
+      baseUrl: 'https://gateway.example.test/api/anthropic',
+    });
+
+    const fallback = resolveRuntimeProvider({
+      config: {
+        ...BASE_CONFIG,
+        providers: {
+          ...BASE_CONFIG.providers,
+          gateway: {
+            type: 'openai',
+            apiKey: 'sk-gateway',
+            baseUrl: 'https://gateway.example.test/api/v1',
+          },
+        },
+        models: {
+          ...BASE_CONFIG.models!,
+          'gateway/plain-model': {
+            provider: 'gateway',
+            model: 'vendor/plain-model',
+            maxContextSize: 1000,
+            protocol: 'anthropic',
+          },
+        },
+      },
+      model: 'gateway/plain-model',
+    });
+
+    // Without an alias endpoint the provider base URL applies (stripped of
+    // the trailing /v1 for the Anthropic SDK, as before).
+    expect(fallback.provider).toMatchObject({
+      type: 'anthropic',
+      baseUrl: 'https://gateway.example.test/api',
+    });
+  });
+
   it('omits defaultMaxTokens when alias.maxOutputSize is unset', () => {
     const resolved = resolveRuntimeProvider({
       config: {
@@ -335,6 +557,63 @@ describe('resolveRuntimeProvider maxOutputSize forwarding', () => {
       type: 'anthropic',
       model: 'coding-model-okapi-0527-vibe',
       adaptiveThinking: true,
+    });
+  });
+
+  it('forwards alias.supportEfforts to the anthropic provider config', () => {
+    const resolved = resolveRuntimeProvider({
+      config: {
+        ...BASE_CONFIG,
+        providers: {
+          ...BASE_CONFIG.providers,
+          anthropic: { type: 'anthropic', apiKey: 'sk-anthropic' },
+        },
+        models: {
+          ...BASE_CONFIG.models!,
+          'compatible-alias': {
+            provider: 'anthropic',
+            model: 'compatible-model',
+            maxContextSize: 200000,
+            supportEfforts: ['low', 'high', 'max'],
+          },
+        },
+      },
+      model: 'compatible-alias',
+    });
+
+    expect(resolved.provider).toMatchObject({
+      type: 'anthropic',
+      model: 'compatible-model',
+      supportEfforts: ['low', 'high', 'max'],
+    });
+  });
+
+  it('forwards alias.betaApi to the anthropic provider config', () => {
+    const resolved = resolveRuntimeProvider({
+      config: {
+        ...BASE_CONFIG,
+        providers: {
+          ...BASE_CONFIG.providers,
+          anthropic: { type: 'anthropic', apiKey: 'sk-anthropic' },
+        },
+        models: {
+          ...BASE_CONFIG.models!,
+          'pythinker-alias': {
+            provider: 'anthropic',
+            model: 'kimi-for-coding',
+            maxContextSize: 200000,
+            protocol: 'anthropic',
+            betaApi: true,
+          },
+        },
+      },
+      model: 'pythinker-alias',
+    });
+
+    expect(resolved.provider).toMatchObject({
+      type: 'anthropic',
+      model: 'kimi-for-coding',
+      betaApi: true,
     });
   });
 
@@ -453,7 +732,7 @@ describe('resolveRuntimeProvider Pythinker request headers', () => {
     });
   });
 
-  it('does not apply pythinkerRequestHeaders to non-Pythinker providers', () => {
+  it('applies only the User-Agent from pythinkerRequestHeaders to non-Pythinker providers', () => {
     const resolved = resolveRuntimeProvider({
       config: {
         defaultModel: 'gpt-alias',
@@ -479,9 +758,16 @@ describe('resolveRuntimeProvider Pythinker request headers', () => {
       type: 'openai',
       model: 'gpt-runtime',
       apiKey: 'sk-openai',
+      defaultHeaders: {
+        'User-Agent': TEST_PYTHINKER_HEADERS['User-Agent'],
+      },
     });
-    expect('defaultHeaders' in resolved.provider).toBe(false);
-    expect('generationKwargs' in resolved.provider).toBe(false);
+    // Device identity headers (`X-Msh-*`) stay Pythinker-only — they must not leak
+    // to third-party providers.
+    const headers = (resolved.provider as { defaultHeaders?: Record<string, string> })
+      .defaultHeaders;
+    expect(headers).toBeDefined();
+    expect('X-Msh-Platform' in headers!).toBe(false);
   });
 });
 
@@ -507,6 +793,49 @@ describe('resolveRuntimeProvider customHeaders propagation', () => {
       type: 'anthropic',
       defaultHeaders: { 'X-Custom': 'value' },
     });
+  });
+
+  it('passes the prompt cache key to Anthropic metadata.user_id', () => {
+    const resolved = resolveRuntimeProvider({
+      config: {
+        defaultModel: 'claude-alias',
+        providers: {
+          anthropic: {
+            type: 'anthropic',
+            apiKey: 'sk-anthropic',
+          },
+        },
+        models: {
+          'claude-alias': { provider: 'anthropic', model: 'claude-runtime', maxContextSize: 200000 },
+        },
+      },
+      promptCacheKey: 'session-test',
+    });
+
+    expect(resolved.provider).toMatchObject({
+      type: 'anthropic',
+      metadata: { user_id: 'session-test' },
+    });
+  });
+
+  it('omits Anthropic metadata when no prompt cache key is set', () => {
+    const resolved = resolveRuntimeProvider({
+      config: {
+        defaultModel: 'claude-alias',
+        providers: {
+          anthropic: {
+            type: 'anthropic',
+            apiKey: 'sk-anthropic',
+          },
+        },
+        models: {
+          'claude-alias': { provider: 'anthropic', model: 'claude-runtime', maxContextSize: 200000 },
+        },
+      },
+    });
+
+    expect(resolved.provider).toMatchObject({ type: 'anthropic' });
+    expect('metadata' in resolved.provider).toBe(false);
   });
 
   it('forwards customHeaders to an openai provider', () => {
@@ -605,33 +934,39 @@ describe('ProviderManager prompt cache key', () => {
     });
   });
 
-  it('does not add generation kwargs to non-Pythinker providers', () => {
-    const manager = new ProviderManager({
-      promptCacheKey: 'session-test',
-      config: {
-        defaultModel: 'gpt-alias',
-        providers: {
-          openai: {
-            type: 'openai',
-            apiKey: 'sk-openai',
+  it('applies a prompt cache key to OpenAI providers (chat completions + responses)', () => {
+    for (const type of ['openai', 'openai_responses'] as const) {
+      const manager = new ProviderManager({
+        promptCacheKey: 'session-test',
+        config: {
+          defaultModel: 'gpt-alias',
+          providers: {
+            openai: {
+              type,
+              apiKey: 'sk-openai',
+            },
+          },
+          models: {
+            'gpt-alias': {
+              provider: 'openai',
+              model: 'gpt-runtime',
+              maxContextSize: 200000,
+            },
           },
         },
-        models: {
-          'gpt-alias': {
-            provider: 'openai',
-            model: 'gpt-runtime',
-            maxContextSize: 200000,
-          },
-        },
-      },
-    });
-    const resolved = manager.resolveProviderConfig('gpt-alias');
+      });
+      const resolved = manager.resolveProviderConfig('gpt-alias');
 
-    expect(resolved.provider).toMatchObject({
-      type: 'openai',
-      model: 'gpt-runtime',
-    });
-    expect('generationKwargs' in resolved.provider).toBe(false);
+      // Same session-affinity intent as the Pythinker branch above: every request
+      // of the session routes through the same provider-side prompt cache.
+      expect(resolved.provider).toMatchObject({
+        type,
+        model: 'gpt-runtime',
+        generationKwargs: {
+          prompt_cache_key: 'session-test',
+        },
+      });
+    }
   });
 
   it('reads the current config when constructed with a function', () => {
@@ -704,90 +1039,291 @@ describe('ProviderManager OAuth auth', () => {
   });
 });
 
-describe('resolveThinkingLevel', () => {
-  it('normalizes requested thinking into a concrete effort', () => {
-    expect(
-      resolveThinkingLevel('on', {
-        defaultThinking: false,
-        thinking: { effort: 'medium', mode: 'auto' },
-      }),
-    ).toBe('medium');
-    expect(
-      resolveThinkingLevel('off', {
-        defaultThinking: false,
-        thinking: { effort: 'medium', mode: 'auto' },
-      }),
-    ).toBe('off');
-    expect(
-      resolveThinkingLevel('low', {
-        defaultThinking: false,
-        thinking: { effort: 'medium', mode: 'auto' },
-      }),
-    ).toBe('low');
-    expect(
-      resolveThinkingLevel(undefined, {
-        defaultThinking: false,
-        thinking: { effort: 'medium', mode: 'auto' },
-      }),
-    ).toBe('off');
-    expect(
-      resolveThinkingLevel('', {
-        defaultThinking: false,
-        thinking: { effort: 'medium', mode: 'auto' },
-      }),
-    ).toBe('off');
-    expect(
-      resolveThinkingLevel('   ', {
-        defaultThinking: false,
-        thinking: { effort: 'medium', mode: 'auto' },
-      }),
-    ).toBe('off');
+describe('resolveThinkingEffort', () => {
+  const booleanModel: ModelAlias = {
+    provider: 'p',
+    model: 'm',
+    maxContextSize: 1,
+    capabilities: ['thinking'],
+  };
+  const effortModel: ModelAlias = {
+    provider: 'p',
+    model: 'm',
+    maxContextSize: 1,
+    capabilities: ['thinking'],
+    supportEfforts: ['low', 'medium', 'high'],
+  };
+  const alwaysThinkingModel: ModelAlias = {
+    provider: 'p',
+    model: 'm',
+    maxContextSize: 1,
+    capabilities: ['thinking', 'always_thinking'],
+  };
 
-    expect(
-      resolveThinkingLevel(undefined, {
-        defaultThinking: true,
-        thinking: { effort: 'medium', mode: 'auto' },
-      }),
-    ).toBe('medium');
-    expect(
-      resolveThinkingLevel('   ', {
-        defaultThinking: true,
-        thinking: { effort: 'medium', mode: 'auto' },
-      }),
-    ).toBe('medium');
+  it('returns the requested effort (normalized) when one is provided', () => {
+    expect(resolveThinkingEffort('on', { effort: 'medium' }, booleanModel)).toBe('on');
+    expect(resolveThinkingEffort('off', { effort: 'medium' }, booleanModel)).toBe('off');
+    expect(resolveThinkingEffort('low', { effort: 'medium' }, booleanModel)).toBe('low');
+    expect(resolveThinkingEffort(' Off ', { effort: 'medium' }, booleanModel)).toBe('off');
+    // Empty / whitespace requests read as absent and fall through to config.
+    expect(resolveThinkingEffort('', { enabled: false, effort: 'medium' }, booleanModel)).toBe(
+      'off',
+    );
+    expect(resolveThinkingEffort('   ', { enabled: false, effort: 'medium' }, booleanModel)).toBe(
+      'off',
+    );
+  });
 
+  it('treats config.enabled=false as off when no effort is requested', () => {
     expect(
-      resolveThinkingLevel('on', {
-        defaultThinking: true,
-        thinking: { mode: 'auto' },
-      }),
-    ).toBe('high');
-    expect(
-      resolveThinkingLevel(undefined, {
-        defaultThinking: true,
-        thinking: { mode: 'auto' },
-      }),
-    ).toBe('high');
-
-    expect(
-      resolveThinkingLevel(undefined, {
-        thinking: { mode: 'off' },
-      }),
+      resolveThinkingEffort(undefined, { enabled: false, effort: 'medium' }, booleanModel),
     ).toBe('off');
+    expect(resolveThinkingEffort(undefined, { enabled: false }, booleanModel)).toBe('off');
+  });
 
-    expect(
-      resolveThinkingLevel(undefined, {
-        defaultThinking: true,
-        thinking: { effort: 'medium', mode: 'off' },
-      }),
-    ).toBe('off');
-    expect(
-      resolveThinkingLevel('   ', {
-        defaultThinking: true,
-        thinking: { effort: 'medium', mode: 'off' },
-      }),
-    ).toBe('off');
+  it('uses config.effort as the default effort when enabled', () => {
+    expect(resolveThinkingEffort(undefined, { effort: 'medium' }, booleanModel)).toBe('medium');
+    expect(resolveThinkingEffort(undefined, { enabled: true, effort: 'medium' }, booleanModel)).toBe(
+      'medium',
+    );
+  });
 
-    expect(resolveThinkingLevel(undefined, {})).toBe('high');
+  it('falls back to the model default effort when no effort is set', () => {
+    // boolean thinking model -> 'on'
+    expect(resolveThinkingEffort(undefined, {}, booleanModel)).toBe('on');
+    // effort-capable model -> middle supportEfforts entry
+    expect(resolveThinkingEffort(undefined, {}, effortModel)).toBe('medium');
+    // no / non-thinking model -> 'off'
+    expect(resolveThinkingEffort(undefined, {}, undefined)).toBe('off');
+  });
+
+  it('forces always-thinking models back on even when off is requested', () => {
+    expect(resolveThinkingEffort('off', { enabled: false }, alwaysThinkingModel, true)).toBe('on');
+    expect(resolveThinkingEffort(undefined, { enabled: false }, alwaysThinkingModel, true)).toBe(
+      'on',
+    );
+  });
+});
+
+describe('google base URL forwarding', () => {
+  it('forwards base_url to the google-genai provider config', () => {
+    const resolved = resolveRuntimeProvider({
+      config: {
+        defaultModel: 'gemini',
+        providers: {
+          gemini: {
+            type: 'google-genai',
+            apiKey: 'g-key',
+            baseUrl: 'https://qianxun.example/v1beta',
+          },
+        },
+        models: {
+          gemini: { provider: 'gemini', model: 'gemini-2.5-pro', maxContextSize: 1_000_000 },
+        },
+      },
+    });
+
+    expect(resolved.provider).toMatchObject({
+      type: 'google-genai',
+      model: 'gemini-2.5-pro',
+      baseUrl: 'https://qianxun.example/v1beta',
+    });
+  });
+
+  it('reads GOOGLE_GEMINI_BASE_URL from provider env as a fallback', () => {
+    const resolved = resolveRuntimeProvider({
+      config: {
+        defaultModel: 'gemini',
+        providers: {
+          gemini: {
+            type: 'google-genai',
+            apiKey: 'g-key',
+            env: { GOOGLE_GEMINI_BASE_URL: 'https://env.example/v1beta' },
+          },
+        },
+        models: {
+          gemini: { provider: 'gemini', model: 'gemini-2.5-pro', maxContextSize: 1_000_000 },
+        },
+      },
+    });
+
+    expect(resolved.provider).toMatchObject({
+      type: 'google-genai',
+      baseUrl: 'https://env.example/v1beta',
+    });
+  });
+
+  it('forwards a custom proxy base_url to the vertexai provider config', () => {
+    const resolved = resolveRuntimeProvider({
+      config: {
+        defaultModel: 'gemini',
+        providers: {
+          vertex: {
+            type: 'vertexai',
+            apiKey: 'v-key',
+            baseUrl: 'https://qianxun.example/vertex',
+          },
+        },
+        models: {
+          gemini: { provider: 'vertex', model: 'gemini-1.5-pro', maxContextSize: 1_000_000 },
+        },
+      },
+    });
+
+    expect(resolved.provider).toMatchObject({
+      type: 'vertexai',
+      model: 'gemini-1.5-pro',
+      baseUrl: 'https://qianxun.example/vertex',
+    });
+  });
+
+  it('forwards base_url to vertexai while still deriving location from an aiplatform host', () => {
+    // Backward compatibility: an aiplatform host must keep populating `location`
+    // (existing GCP behavior) while the base URL is now also forwarded so the
+    // SDK targets the configured endpoint verbatim.
+    const resolved = resolveRuntimeProvider({
+      config: {
+        defaultModel: 'gemini',
+        providers: {
+          vertex: {
+            type: 'vertexai',
+            apiKey: 'v-key',
+            baseUrl: 'https://us-central1-aiplatform.googleapis.com',
+          },
+        },
+        models: {
+          gemini: { provider: 'vertex', model: 'gemini-1.5-pro', maxContextSize: 1_000_000 },
+        },
+      },
+    });
+
+    expect(resolved.provider).toMatchObject({
+      type: 'vertexai',
+      baseUrl: 'https://us-central1-aiplatform.googleapis.com',
+      location: 'us-central1',
+    });
+  });
+
+  it('derives vertex location from the GOOGLE_VERTEX_BASE_URL env fallback so ADC mode is selected', () => {
+    // The env fallback must behave exactly like config `base_url`: when the
+    // regional endpoint is supplied via GOOGLE_VERTEX_BASE_URL (with a project
+    // but no explicit GOOGLE_CLOUD_LOCATION), location derivation must still see
+    // it, so the provider resolves to service-account (ADC) mode rather than
+    // silently downgrading to API-key Gemini routing.
+    const resolved = resolveRuntimeProvider({
+      config: {
+        defaultModel: 'gemini',
+        providers: {
+          vertex: {
+            type: 'vertexai',
+            env: {
+              GOOGLE_CLOUD_PROJECT: 'my-proj',
+              GOOGLE_VERTEX_BASE_URL: 'https://us-central1-aiplatform.googleapis.com',
+            },
+          },
+        },
+        models: {
+          gemini: { provider: 'vertex', model: 'gemini-1.5-pro', maxContextSize: 1_000_000 },
+        },
+      },
+    });
+
+    expect(resolved.provider).toMatchObject({
+      type: 'vertexai',
+      vertexai: true,
+      baseUrl: 'https://us-central1-aiplatform.googleapis.com',
+      project: 'my-proj',
+      location: 'us-central1',
+    });
+  });
+});
+
+describe('per-model protocol routing', () => {
+  it('routes a protocol:anthropic model on a pythinker provider through the anthropic transport with the REST base stripped of /v1', () => {
+    const resolved = resolveRuntimeProvider({
+      config: {
+        ...BASE_CONFIG,
+        models: {
+          'pythinker-code/kimi-for-coding': {
+            ...BASE_CONFIG.models!['pythinker-code/kimi-for-coding']!,
+            protocol: 'anthropic',
+          },
+        },
+      },
+    });
+
+    expect(resolved.providerName).toBe('managed:pythinker-code');
+    expect(resolved.provider).toMatchObject({
+      type: 'anthropic',
+      model: 'kimi-for-coding',
+      baseUrl: 'https://api.example',
+    });
+    // Pythinker over the Anthropic transport keeps its vendor error classifier —
+    // a PyModel quota 429 must fail fast on this route too.
+    expect(
+      (resolved.provider as { convertError?: (error: unknown) => unknown }).convertError,
+    ).toBe(classifyPythinkerQuotaError);
+  });
+
+  it('keeps a model without protocol on the provider wire type and leaves the REST base intact', () => {
+    const resolved = resolveRuntimeProvider({ config: BASE_CONFIG });
+
+    expect(resolved.provider).toMatchObject({
+      type: 'pythinker',
+      model: 'kimi-for-coding',
+      baseUrl: 'https://api.example/v1',
+    });
+  });
+
+  it('does not strip the baseUrl of a provider that is itself typed anthropic', () => {
+    const resolved = resolveRuntimeProvider({
+      config: {
+        defaultModel: 'claude',
+        providers: {
+          anthropic: {
+            type: 'anthropic',
+            apiKey: 'sk-anthropic',
+            baseUrl: 'https://api.anthropic.example/v1',
+          },
+        },
+        models: {
+          claude: {
+            provider: 'anthropic',
+            model: 'claude-sonnet-4-5',
+            maxContextSize: 200_000,
+          },
+        },
+      },
+    });
+
+    expect(resolved.provider).toMatchObject({
+      type: 'anthropic',
+      model: 'claude-sonnet-4-5',
+      baseUrl: 'https://api.anthropic.example/v1',
+    });
+    // A plain anthropic provider carries no Pythinker vendor classifier.
+    expect(
+      (resolved.provider as { convertError?: (error: unknown) => unknown }).convertError,
+    ).toBeUndefined();
+  });
+});
+
+describe('resolveRuntimeProvider model overrides', () => {
+  it('keeps supportEfforts out of the pythinker provider config', () => {
+    const resolved = resolveRuntimeProvider({
+      config: {
+        ...BASE_CONFIG,
+        models: {
+          'pythinker-code/kimi-for-coding': {
+            ...BASE_CONFIG.models!['pythinker-code/kimi-for-coding']!,
+            supportEfforts: ['low', 'high', 'max'],
+            overrides: { supportEfforts: ['low', 'high'] },
+          },
+        },
+      },
+    });
+
+    expect(resolved.provider).toMatchObject({ type: 'pythinker' });
+    expect(resolved.provider).not.toHaveProperty('supportEfforts');
   });
 });

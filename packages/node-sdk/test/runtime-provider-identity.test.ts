@@ -142,7 +142,7 @@ describe('runtime provider identity headers', () => {
     });
   });
 
-  it('does not add Pythinker identity headers to non-Pythinker providers', async () => {
+  it('applies only the User-Agent (no device identity headers) to non-Pythinker providers', async () => {
     const homeDir = await makeTempDir();
     const pythinkerRequestHeaders = createPythinkerDefaultHeaders({ homeDir, ...TEST_IDENTITY });
     const config: PythinkerConfig = {
@@ -172,7 +172,15 @@ describe('runtime provider identity headers', () => {
     expect(resolved.provider).toMatchObject({
       type: 'openai',
       model: 'gpt-test',
+      defaultHeaders: {
+        'User-Agent': `pythinker-code-cli/${TEST_IDENTITY.version}`,
+      },
     });
-    expect(resolved.provider).not.toHaveProperty('defaultHeaders');
+    // Device identity headers (`X-Msh-*`) stay Pythinker-only — must not leak to
+    // third-party providers.
+    const headers = (resolved.provider as { defaultHeaders?: Record<string, string> })
+      .defaultHeaders;
+    expect(headers).toBeDefined();
+    expect(headers).not.toHaveProperty('X-Msh-Platform');
   });
 });

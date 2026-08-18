@@ -1,6 +1,7 @@
 import { homedir } from 'node:os';
 import { join } from 'pathe';
 import type { Kaos } from '@pymodel/kaos';
+import type { SessionWarning } from '@pymodel/protocol';
 
 import { ErrorCodes, PythinkerError } from '#/errors';
 import { getRootLogger, log } from '#/logging/logger';
@@ -9,25 +10,51 @@ import type { PythinkerConfig, SDKSessionRPC } from '#/rpc';
 import { proxyWithExtraPayload } from '#/rpc/types';
 
 import { Agent, type AgentOptions, type AgentType } from '../agent';
+import { renderPluginSessionStartReminder } from '../agent/injection/plugin-session-start';
 import { HookEngine, type HookDef } from './hooks';
 import type { PermissionManagerOptions, PermissionRule } from '../agent/permission';
-import { parseBooleanEnv, resolveConfigValue, type BackgroundConfig } from '../config';
+import {
+  appendWorkspaceAdditionalDir,
+  normalizeAdditionalDirs,
+  parseBooleanEnv,
+  PRINT_MAX_TURNS_DEFAULT,
+  PRINT_WAIT_CEILING_S_DEFAULT,
+  readWorkspaceAdditionalDirs,
+  resolveWorkspaceAdditionalDirs,
+  resolveConfigValue,
+  type BackgroundConfig,
+  type WorkspaceAdditionalDirsLoadResult,
+} from '../config';
 import { makeErrorPayload } from '../errors';
 import {
   McpConnectionManager,
   McpOAuthService,
+  resolveMcpStartupTimeoutMs,
+  resolveMcpToolTimeoutMs,
   type McpServerEntry,
   type SessionMcpConfig,
 } from '../mcp';
-import type { EnabledPluginSessionStart } from '../plugin';
+import type { EnabledPluginSessionStart, EnabledPluginSystemPrompt, PluginCommandDef } from '../plugin';
 import {
-  DEFAULT_AGENT_PROFILES,
+  AgentProfileCatalogSnapshotSchema,
+  DEFAULT_AGENT_PROFILE_NAME,
   DEFAULT_INIT_PROMPT,
+  SessionAgentProfileCatalog,
   loadAgentsMd,
   prepareSystemPromptContext,
+  type AgentFileRoot,
+  type AgentProfileCatalogSnapshot,
   type ResolvedAgentProfile,
 } from '../profile';
 import type { ProviderManager } from './provider-manager';
+import {
+  resolveSecondaryModel,
+  wrapSubagentModelError,
+} from './subagent-binding';
+import {
+  SECONDARY_DERIVED_MODEL_ALIAS,
+  secondaryModelPatch,
+} from '../config/secondary-model';
 import {
   registerBuiltinSkills,
   SessionSkillRegistry,
@@ -36,11 +63,14 @@ import {
   type SkillRoot,
   type SkillSummary,
 } from '../skill';
-import { noopTelemetryClient, type TelemetryClient } from '../telemetry';
+import { noopTelemetryClient, type TelemetryClient, withTelemetryProperties } from '../telemetry';
 import { SessionSubagentHost } from './subagent-host';
+import { sessionMediaOriginalsDir } from '../tools/support/image-originals';
 import type { ToolServices } from '../tools/support/services';
 import { FlagResolver, type ExperimentalFlagResolver } from '../flags';
+import { ImageLimits } from '../tools/support/image-limits';
 import { abortError } from '../utils/abort';
+import { resolveMainAgentProfile } from './main-agent-profile';
 
 export interface SessionOptions {
   readonly kaos: Kaos;
@@ -57,11 +87,23 @@ export interface SessionOptions {
   readonly hooks?: readonly HookDef[];
   readonly permissionRules?: readonly PermissionRule[];
   readonly skills?: SessionSkillConfig;
+  readonly agents?: SessionAgentCatalogConfig;
   readonly mcpConfig?: SessionMcpConfig;
   readonly telemetry?: TelemetryClient | undefined;
   readonly pluginSessionStarts?: readonly EnabledPluginSessionStart[];
+  readonly pluginCommands?: readonly PluginCommandDef[];
+  readonly pluginSystemPrompts?: readonly EnabledPluginSystemPrompt[];
   readonly appVersion?: string;
   readonly experimentalFlags?: ExperimentalFlagResolver;
+  /** Owner-scoped [image] limits, threaded from the owning core into every agent. */
+  readonly imageLimits?: ImageLimits;
+  readonly additionalDirs?: readonly string[];
+  /**
+   * Print-mode (`pythinker -p`) only: hold the main turn open while background
+   * subagents (`kind === 'agent'`) are still running, idle-waiting until they
+   * finish before the run exits. Set via the SDK `createSession` option.
+   */
+  readonly drainAgentTasksOnStop?: boolean;
 }
 
 export interface SessionSkillConfig {
@@ -75,10 +117,30 @@ export interface SessionSkillConfig {
   readonly builtinDir?: string;
 }
 
+/**
+ * File-defined agent (agentfile) discovery for a session. Mirrors the skill
+ * discovery layout: user brand dir `<pythinkerHomeDir>/agents` and
+ * `~/.agents/agents`, project `.pythinker-code/agents` and `.agents/agents`, plus
+ * configured extra dirs and explicit single files (`--agent-file`, fatal
+ * when invalid). `profileName` selects the main agent's profile (`--agent`).
+ */
+export interface SessionAgentCatalogConfig {
+  readonly userHomeDir?: string;
+  readonly explicitFiles?: readonly string[];
+  readonly extraDirs?: readonly string[];
+  readonly profileName?: string;
+  /** Agent directories contributed by enabled plugins (lowest file priority). */
+  readonly pluginRoots?: readonly AgentFileRoot[];
+  /** Refresh only the plugin contribution when restoring the persisted catalog. */
+  readonly refreshPluginAgents?: boolean;
+  /** Already-loaded catalog prepared before a persistent session is created. */
+  readonly catalog?: SessionAgentProfileCatalog;
+}
+
 export interface AgentMeta {
-  readonly homedir: string;
+  readonly homedir?: string;
   readonly type: AgentType;
-  readonly parentAgentId: string | null;
+  readonly parentAgentId?: string | null;
   readonly dynamic_workflowItem?: string;
 }
 
@@ -103,8 +165,21 @@ export interface SessionMeta {
   isCustomTitle: boolean;
   lastPrompt?: string;
   forkedFrom?: string;
+  /** Absolute working directory the session was created in. Persisted so the
+   *  session directory is self-describing and the global session index does not
+   *  have to be trusted for the (one-way-hashed) workDir. */
+  workDir?: string;
+  /** Directories added for this session only. Unlike workspace local config,
+   *  these follow the session across close/resume without affecting any other
+   *  session opened in the same workspace. */
+  additionalDirs?: string[];
   agents: Record<string, AgentMeta>;
   custom: Record<string, any>;
+}
+
+interface PersistedSessionState extends SessionMeta {
+  /** Internal catalog binding; deliberately excluded from public SessionMeta. */
+  readonly agentProfileCatalog?: unknown;
 }
 
 const BACKGROUND_KEEP_ALIVE_ON_EXIT_ENV = 'PYTHINKER_CODE_BACKGROUND_KEEP_ALIVE_ON_EXIT';
@@ -145,8 +220,14 @@ export class Session {
   private readonly logHandle: SessionLogHandle | undefined;
   readonly hookEngine: HookEngine;
   readonly experimentalFlags: ExperimentalFlagResolver;
+  readonly imageLimits: ImageLimits;
+  readonly agentCatalog: SessionAgentProfileCatalog;
   private toolKaos: Kaos;
   private persistenceKaos: Kaos;
+  private additionalDirs: readonly string[];
+  private sessionAdditionalDirs: readonly string[] = [];
+  private readonly pluginCommands: readonly PluginCommandDef[];
+  private pluginSystemPrompts: readonly EnabledPluginSystemPrompt[];
   private agentIdCounter = 0;
   private readonly skillsReady: Promise<void>;
   metadata: SessionMeta = {
@@ -158,8 +239,25 @@ export class Session {
     custom: {},
   };
   private writeMetadataPromise = Promise.resolve();
+  private agentProfileSnapshot: AgentProfileCatalogSnapshot | undefined;
+  private agentsMdWarning: string | undefined;
+  private printSteerDeadline: number | undefined;
+  private printSteerTurns = 0;
+  /**
+   * The session's live config snapshot. Initialized from `options.config`;
+   * updated in place by {@link setSecondaryModelConfig} so mid-session secondary-model
+   * switches reach the spawn-binding and tool-description readers without
+   * recreating the session.
+   */
+  private runtimeConfig: PythinkerConfig | undefined;
+
+  /** The session's current config snapshot (see {@link Session.runtimeConfig}). */
+  get pythinkerConfig(): PythinkerConfig | undefined {
+    return this.runtimeConfig;
+  }
 
   constructor(public readonly options: SessionOptions) {
+    this.runtimeConfig = options.config;
     // Attach the per-session log sink up front so the constructor's
     // fire-and-forget `loadSkills` / `loadMcpServers` failures (and
     // anything else that races) land in the session log, not just global.
@@ -175,6 +273,7 @@ export class Session {
       (options.id === undefined ? log : log.createChild({ sessionId: options.id }));
     this.rpc = options.rpc;
     this.experimentalFlags = options.experimentalFlags ?? new FlagResolver();
+    this.imageLimits = options.imageLimits ?? new ImageLimits();
     this.hookEngine = new HookEngine(options.hooks, {
       cwd: options.kaos.getcwd(),
       sessionId: options.id,
@@ -182,20 +281,44 @@ export class Session {
     this.telemetry = options.telemetry ?? noopTelemetryClient;
     this.toolKaos = options.kaos;
     this.persistenceKaos = options.persistenceKaos ?? options.kaos;
+    this.additionalDirs = normalizeAdditionalDirs(options.additionalDirs ?? []);
+    this.pluginCommands = options.pluginCommands ?? [];
+    this.pluginSystemPrompts = options.pluginSystemPrompts ?? [];
     this.skills = new SessionSkillRegistry({
       sessionId: options.id,
     });
     this.mcp = new McpConnectionManager({
       oauthService: new McpOAuthService({ pythinkerHomeDir: options.pythinkerHomeDir }),
       log: this.log,
+      stdioCwd: options.kaos.getcwd(),
+      defaultStartupTimeoutMs: resolveMcpStartupTimeoutMs(options.config?.mcp?.startupTimeoutMs),
+      defaultToolTimeoutMs: resolveMcpToolTimeoutMs(options.config?.mcp?.toolTimeoutMs),
     });
     this.mcp.onStatusChange((entry) => {
       this.onMcpServerStatusChange(entry);
     });
+    this.agentCatalog =
+      options.agents?.catalog ??
+      new SessionAgentProfileCatalog({
+        workDir: options.kaos.getcwd(),
+        brandHomeDir: options.pythinkerHomeDir ?? join(homedir(), '.pythinker-code'),
+        osHomeDir: options.agents?.userHomeDir ?? homedir(),
+        extraDirs: options.agents?.extraDirs ?? options.config?.extraAgentDirs,
+        explicitFiles: options.agents?.explicitFiles,
+        pluginRoots: options.agents?.pluginRoots,
+        warn: (message, error) => {
+          this.log.warn(message, error === undefined ? undefined : { error });
+        },
+      });
     this.skillsReady = this.loadSkills()
       .catch((error: unknown) => {
         this.log.error('skills load failed', error);
       })
+      // Agentfile discovery rides the same readiness gate: every createAgent
+      // caller already awaits it, so profile binding and the Agent tool's
+      // subagent list always see the fully merged catalog. A fatal source
+      // (an invalid --agent-file) rejects here and fails session creation.
+      .then(() => this.agentCatalog.ready)
       .then(() => {
         this.refreshAgentBuiltinTools();
       });
@@ -213,6 +336,71 @@ export class Session {
     this.refreshAgentBuiltinTools();
   }
 
+  getAdditionalDirs(): readonly string[] {
+    return this.additionalDirs;
+  }
+
+  async setAdditionalDirs(additionalDirs: readonly string[]): Promise<void> {
+    this.additionalDirs = normalizeAdditionalDirs(additionalDirs);
+    for (const agent of this.readyAgents()) {
+      agent.setAdditionalDirs(this.additionalDirs);
+    }
+  }
+
+  async setBaseAdditionalDirs(additionalDirs: readonly string[]): Promise<void> {
+    await this.setAdditionalDirs([...additionalDirs, ...this.sessionAdditionalDirs]);
+  }
+
+  async addAdditionalDir(
+    path: string,
+    persist = true,
+  ): Promise<WorkspaceAdditionalDirsLoadResult & { readonly persisted: boolean }> {
+    const cwd = this.toolKaos.getcwd();
+    const systemKaos = this.systemContextKaos(cwd);
+    if (persist) {
+      const result = await appendWorkspaceAdditionalDir(systemKaos, cwd, path, this.additionalDirs);
+      const additionalDirs = normalizeAdditionalDirs([...this.additionalDirs, ...result.additionalDirs]);
+      await this.setAdditionalDirs(additionalDirs);
+      this.notifyAdditionalDirAdded(path, true, result.configPath);
+      return { ...result, additionalDirs, persisted: true };
+    }
+
+    const workspace = await readWorkspaceAdditionalDirs(systemKaos, cwd);
+    const additionalDirs = await resolveWorkspaceAdditionalDirs(systemKaos, cwd, [path]);
+    const nextAdditionalDirs = normalizeAdditionalDirs([...this.additionalDirs, ...additionalDirs]);
+    const nextSessionAdditionalDirs = normalizeAdditionalDirs([
+      ...this.sessionAdditionalDirs,
+      ...additionalDirs,
+    ]);
+    const previousMetadata = this.metadata;
+    this.metadata = {
+      ...this.metadata,
+      additionalDirs: nextSessionAdditionalDirs,
+    };
+    try {
+      await this.writeMetadata();
+    } catch (error) {
+      this.metadata = previousMetadata;
+      throw error;
+    }
+    this.sessionAdditionalDirs = nextSessionAdditionalDirs;
+    await this.setAdditionalDirs(nextAdditionalDirs);
+    this.notifyAdditionalDirAdded(path, false, workspace.configPath);
+    return {
+      projectRoot: workspace.projectRoot,
+      configPath: workspace.configPath,
+      additionalDirs: nextAdditionalDirs,
+      persisted: false,
+    };
+  }
+
+  private notifyAdditionalDirAdded(path: string, persisted: boolean, configPath: string): void {
+    const message = persisted
+      ? `Added workspace directory:\n  ${path}\n  Saved to:\n  ${configPath}`
+      : `Added workspace directory:\n  ${path}\n  For this session only`;
+    this.requireMainAgent().context.appendLocalCommandStdout(message);
+  }
+
   /**
    * Kaos used by session-internal bootstrap (AGENTS.md context, cwd listing)
    * and metadata persistence. Always backed by the persistence sink (typically
@@ -225,9 +413,28 @@ export class Session {
   }
 
   async createMain() {
+    // Await the catalog (chained into skillsReady) before resolving the
+    // profile so a fatal agentfile source surfaces here, and so `--agent`
+    // sees file-defined profiles.
+    await this.skillsReady;
+    this.agentProfileSnapshot = this.agentCatalog.snapshot();
+    const profile = resolveMainAgentProfile(
+      this.agentCatalog,
+      this.options.agents?.profileName,
+    );
     const { agent } = await this.createAgent({ type: 'main' }, {
-      profile: DEFAULT_AGENT_PROFILES['agent'],
+      profile,
     });
+    if (this.options.drainAgentTasksOnStop) {
+      agent.printDrainAgentTasksOnStop = true;
+    }
+    for (const warning of this.computeSecondaryModelWarnings()) {
+      agent.emitEvent({
+        type: 'warning',
+        message: warning.message,
+        code: warning.code,
+      });
+    }
     await this.triggerSessionStart('startup');
     return agent;
   }
@@ -235,7 +442,14 @@ export class Session {
   async resume(): Promise<{ warning?: string }> {
     await this.skillsReady;
     this.log.info('session resume', { app_version: this.options.appVersion });
-    const { agents } = await this.readMetadata();
+    const { agents, additionalDirs = [] } = await this.readMetadata();
+    const cwd = this.toolKaos.getcwd();
+    this.sessionAdditionalDirs = await resolveWorkspaceAdditionalDirs(
+      this.systemContextKaos(cwd),
+      cwd,
+      additionalDirs,
+    );
+    await this.setBaseAdditionalDirs(this.additionalDirs);
     this.agents.clear();
     // Only the main agent is needed to reopen the session; subagents replay
     // lazily when an RPC or Agent(resume=...) call asks for their state.
@@ -247,12 +461,23 @@ export class Session {
     // default profile so the resumed session is usable. Native sessions always
     // replay a non-empty system prompt and never enter this branch.
     const main = this.getReadyAgent('main');
-    const profile = DEFAULT_AGENT_PROFILES['agent'];
-    if (main !== undefined && profile !== undefined && main.config.systemPrompt === '') {
+    const profile = this.agentCatalog.getDefault();
+    if (main !== undefined && main.config.systemPrompt === '') {
       await this.bootstrapAgentProfile(main, profile);
     }
     await this.triggerSessionStart('resume');
     return { warning };
+  }
+
+  async assertMainProfileSelection(requestedProfileName: string | undefined): Promise<void> {
+    if (requestedProfileName === undefined) return;
+    const main = await this.ensureAgentResumed('main');
+    const currentProfileName = main.config.profileName ?? DEFAULT_AGENT_PROFILE_NAME;
+    if (currentProfileName === requestedProfileName) return;
+    throw new PythinkerError(
+      ErrorCodes.REQUEST_INVALID,
+      `agent is already bound to profile "${currentProfileName}"; cannot switch to "${requestedProfileName}" in this session`,
+    );
   }
 
   async close(): Promise<void> {
@@ -302,7 +527,7 @@ export class Session {
     const agentIds = new Set<string>();
     for (const agent of this.readyAgents()) {
       for (const task of agent.background.list(true)) {
-        if (task.kind === 'agent' && task.agentId !== undefined) {
+        if (task.kind === 'agent' && task.agentId !== undefined && task.detached !== false) {
           agentIds.add(task.agentId);
         }
       }
@@ -358,6 +583,149 @@ export class Session {
     );
   }
 
+  /**
+   * Wait for all still-running background tasks (across every agent) to reach a
+   * terminal state before a `pythinker -p` (print) run exits.
+   *
+   * Only runs when the resolved print background mode is `'drain'` (see
+   * `resolvePrintBackgroundMode`): `print_background_mode = "drain"`, or the
+   * legacy `keep_alive_on_exit = true` fallback. In every other mode it returns
+   * immediately. The wait is bounded by `background.print_wait_ceiling_s`
+   * (default `PRINT_WAIT_CEILING_S_DEFAULT`, effectively unbounded) so a wedged
+   * task can still be given up on eventually.
+   *
+   * Terminal notifications are suppressed for each task while we wait, so a task
+   * completing cannot `turn.steer` the (already finished) main agent into launching
+   * a new turn. (This is exactly what `'steer'` mode avoids by never calling here.)
+   */
+  async waitForBackgroundTasksOnPrint(): Promise<void> {
+    if (this.resolvePrintBackgroundMode() !== 'drain') return;
+
+    const ceilingS = this.options.background?.printWaitCeilingS ?? PRINT_WAIT_CEILING_S_DEFAULT;
+    const timeoutMs = ceilingS * 1000;
+    const deadline = Date.now() + timeoutMs;
+
+    // Re-enumerate active background tasks across every agent until none remain
+    // (or the ceiling expires). A subagent may fan out new background tasks
+    // after a previous enumeration, so a single pass could return while those
+    // later tasks are still running — breaking the "every background task"
+    // guarantee. Each round waits for the newly discovered tasks, then rescans
+    // to catch anything spawned in the meantime.
+    const seen = new Set<string>();
+    const allWaiters: Promise<unknown>[] = [];
+    while (Date.now() < deadline) {
+      const batch: Promise<unknown>[] = [];
+      const suppressions: Promise<void>[] = [];
+      let activeCount = 0;
+      for (const agent of this.readyAgents()) {
+        for (const task of agent.background.list(true)) {
+          activeCount++;
+          if (seen.has(task.taskId)) continue;
+          seen.add(task.taskId);
+          // suppressTerminalNotification sets the suppressed flag synchronously
+          // when called; defer awaiting the persist until after the whole
+          // enumeration so no task can complete and fire a notification while
+          // another task's persist write is pending.
+          suppressions.push(agent.background.suppressTerminalNotification(task.taskId));
+          const remaining = Math.max(1, deadline - Date.now());
+          const waiter = agent.background.wait(task.taskId, remaining);
+          batch.push(waiter);
+          allWaiters.push(waiter);
+        }
+      }
+      if (suppressions.length > 0) {
+        await Promise.all(suppressions);
+      }
+      if (activeCount === 0 || batch.length === 0) break;
+      this.log.info('waiting for background tasks before print exit', {
+        active: activeCount,
+        new: batch.length,
+        timeoutMs,
+      });
+      await Promise.all(batch);
+    }
+    if (allWaiters.length > 0) {
+      await Promise.all(allWaiters);
+      this.log.info('background tasks settled before print exit', {
+        count: seen.size,
+        timeoutMs,
+      });
+    }
+  }
+
+  /**
+   * Resolve the effective print-mode (`pythinker -p`) background-task policy.
+   *
+   * `background.print_background_mode` is authoritative when set. Otherwise we
+   * fall back to the legacy `background.keep_alive_on_exit` mapping so existing
+   * configs keep their behavior: `keep_alive_on_exit = true` ⇒ `'drain'`
+   * (suppress + drain background tasks before exit). When neither is set the
+   * mode defaults to `'steer'`: a headless run stays alive while background
+   * tasks are pending so their completions can steer new main turns.
+   */
+  private resolvePrintBackgroundMode(): 'exit' | 'drain' | 'steer' {
+    const configured = this.options.background?.printBackgroundMode;
+    if (configured !== undefined) return configured;
+    const keepAliveOnExit = resolveConfigValue({
+      env: process.env,
+      envKey: BACKGROUND_KEEP_ALIVE_ON_EXIT_ENV,
+      configValue: this.options.background?.keepAliveOnExit,
+      defaultValue: false,
+      parseEnv: parseBooleanEnv,
+    });
+    return keepAliveOnExit ? 'drain' : 'steer';
+  }
+
+  private countActiveBackgroundTasks(): number {
+    let count = 0;
+    for (const agent of this.readyAgents()) {
+      count += agent.background.list(true).length;
+    }
+    return count;
+  }
+
+  /**
+   * Decide what the `pythinker -p` driver should do after the main agent's turn ends
+   * with `reason === 'completed'`. Returns `'finish'` when the run may exit, or
+   * `'continue'` when the driver must stay alive so a background-task completion
+   * can `turn.steer` the main agent into a new turn.
+   *
+   *  - 'exit'  : finish immediately.
+   *  - 'drain' : suppress + drain background tasks, then finish (legacy
+   *              `keep_alive_on_exit = true` behavior).
+   *  - 'steer' : while background tasks are still pending, return 'continue' so
+   *              completions steer new main turns; finish once quiescent, or when
+   *              the wall-clock ceiling (`print_wait_ceiling_s`) or the turn cap
+   *              (`print_max_turns`) is reached. This is the default mode.
+   */
+  async handlePrintMainTurnCompleted(): Promise<'finish' | 'continue'> {
+    const mode = this.resolvePrintBackgroundMode();
+    if (mode === 'exit') return 'finish';
+    if (mode === 'drain') {
+      await this.waitForBackgroundTasksOnPrint();
+      return 'finish';
+    }
+
+    // 'steer'
+    const ceilingS = this.options.background?.printWaitCeilingS ?? PRINT_WAIT_CEILING_S_DEFAULT;
+    const maxTurns = this.options.background?.printMaxTurns ?? PRINT_MAX_TURNS_DEFAULT;
+    const now = Date.now();
+    this.printSteerDeadline ??= now + ceilingS * 1000;
+    this.printSteerTurns += 1;
+    if (now >= this.printSteerDeadline) {
+      this.log.warn('print steer ceiling reached, finishing', { ceilingS });
+      return 'finish';
+    }
+    if (this.printSteerTurns > maxTurns) {
+      this.log.warn('print steer max turns reached, finishing', { maxTurns });
+      return 'finish';
+    }
+    if (this.countActiveBackgroundTasks() > 0) {
+      return 'continue';
+    }
+    return 'finish';
+  }
+
   async createAgent(
     config: Partial<AgentOptions>,
     options: CreateAgentOptions = {},
@@ -407,8 +775,152 @@ export class Session {
     const context = await prepareSystemPromptContext(
       this.systemContextKaos(agent.kaos.getcwd()),
       this.options.pythinkerHomeDir,
+      { additionalDirs: this.additionalDirs },
     );
-    agent.useProfile(profile, context);
+    const subagentNames = Object.keys(this.agentCatalog.delegatableSubagents(profile.name));
+    agent.useProfile(profile, context, this.options.pythinkerHomeDir, subagentNames);
+    const { agentsMdWarning } = context;
+    if (agentsMdWarning !== undefined) {
+      this.agentsMdWarning = agentsMdWarning;
+      log.warn('AGENTS.md exceeds recommended size', { message: agentsMdWarning });
+      agent.emitEvent({
+        type: 'warning',
+        message: agentsMdWarning,
+        code: 'agents-md-oversized',
+      });
+    }
+  }
+
+  async getSessionWarnings(): Promise<readonly SessionWarning[]> {
+    const warnings: SessionWarning[] = [];
+    const agentsMdWarning = await this.computeAgentsMdWarning();
+    if (agentsMdWarning !== undefined) {
+      warnings.push({
+        code: 'agents-md-oversized',
+        message: agentsMdWarning,
+        severity: 'warning',
+      });
+    }
+    warnings.push(...this.computeSecondaryModelWarnings());
+    return warnings;
+  }
+
+  /**
+   * Live-apply the core's fully resolved secondary-model config after a
+   * `[secondary_model]` change: the spawn
+   * binding (`subagent-host`), the startup-warning computation, and every live
+   * agent's `pythinkerConfig` (tool descriptions, loop control) all read the
+   * session snapshot, so a mid-session `/secondary_model` switch takes effect
+   * for the next subagent spawn without recreating the session. The core owns
+   * config reload, environment overlays, and derived-model synthesis. Copying
+   * that complete recipe and its model entries keeps spawn binding and provider
+   * resolution aligned without live-applying unrelated session settings.
+   */
+  setSecondaryModelConfig(config: PythinkerConfig): void {
+    const base = this.runtimeConfig;
+    if (base === undefined) {
+      throw new PythinkerError(
+        ErrorCodes.CONFIG_INVALID,
+        'Cannot set the secondary model: the session has no config.',
+      );
+    }
+    const secondary = config.secondaryModel;
+    if (secondary?.model === undefined) {
+      throw new PythinkerError(
+        ErrorCodes.CONFIG_INVALID,
+        'Cannot set the secondary model: persist its recipe before applying it to a session.',
+      );
+    }
+    try {
+      this.options.providerManager?.resolveProviderConfig(secondary.model);
+    } catch (error) {
+      throw wrapSubagentModelError(error, secondary.model, undefined);
+    }
+    const models = { ...base.models };
+    delete models[SECONDARY_DERIVED_MODEL_ALIAS];
+    const pointedModel = config.models?.[secondary.model];
+    if (pointedModel !== undefined) models[secondary.model] = pointedModel;
+    const derivedModel = config.models?.[SECONDARY_DERIVED_MODEL_ALIAS];
+    if (derivedModel !== undefined) models[SECONDARY_DERIVED_MODEL_ALIAS] = derivedModel;
+    const next = { ...base, models, secondaryModel: secondary };
+    this.runtimeConfig = next;
+    this.secondaryModelWarnings = undefined;
+    for (const [, entry] of this.agents) {
+      if (entry instanceof Agent) {
+        entry.updatePythinkerConfig(next);
+      } else {
+        // Resume in flight: push the update once the agent materializes (the
+        // rejection is owned by the resume caller, not by this tap).
+        void entry.then(({ agent }) => agent.updatePythinkerConfig(next)).catch(() => {});
+      }
+    }
+  }
+
+  private secondaryModelWarnings: SessionWarning[] | undefined;
+
+  /**
+   * Upfront validation of the `[secondary_model]` recipe, mirroring the v2
+   * warning service: the pointer is otherwise only validated lazily at spawn
+   * time, where a typo becomes a mid-conversation tool failure dumped on the
+   * parent model. Advisory only — spawn-time resolution (with the wrapped
+   * error) remains the backstop. Computed once per session.
+   */
+  private computeSecondaryModelWarnings(): SessionWarning[] {
+    if (this.secondaryModelWarnings !== undefined) return [...this.secondaryModelWarnings];
+    const warnings: SessionWarning[] = [];
+    const secondary = resolveSecondaryModel(this.pythinkerConfig, this.experimentalFlags);
+    if (secondary?.model !== undefined) {
+      const boundAlias =
+        secondaryModelPatch(secondary) === undefined
+          ? secondary.model
+          : SECONDARY_DERIVED_MODEL_ALIAS;
+      try {
+        const resolved = this.options.providerManager?.resolveProviderConfig(boundAlias);
+        const supported = resolved?.supportEfforts ?? [];
+        if (
+          secondary.defaultEffort !== undefined &&
+          supported.length > 0 &&
+          !supported.includes(secondary.defaultEffort)
+        ) {
+          warnings.push({
+            code: 'secondary-model-effort-not-listed',
+            message:
+              `Secondary model default_effort "${secondary.defaultEffort}" is not in the resolved model's ` +
+              `support_efforts (${supported.join(', ')}). Subagents will resolve thinking without it.`,
+            severity: 'warning',
+          });
+        }
+      } catch (error) {
+        const wrapped = wrapSubagentModelError(error, boundAlias, undefined);
+        warnings.push({
+          code: 'secondary-model-invalid',
+          message: `${wrapped instanceof Error ? wrapped.message : String(wrapped)} Subagent spawns will fail until this is fixed.`,
+          severity: 'warning',
+        });
+      }
+    }
+    this.secondaryModelWarnings = warnings;
+    return [...warnings];
+  }
+
+  private async computeAgentsMdWarning(): Promise<string | undefined> {
+    if (this.agentsMdWarning !== undefined) {
+      return this.agentsMdWarning;
+    }
+    // Resumed sessions skip bootstrap when their system prompt is already set, so
+    // the cached value may be missing; recompute on demand so the warning still
+    // surfaces for long-lived sessions.
+    try {
+      const context = await prepareSystemPromptContext(
+        this.systemContextKaos(this.toolKaos.getcwd()),
+        this.options.pythinkerHomeDir,
+        { additionalDirs: this.additionalDirs },
+      );
+      this.agentsMdWarning = context.agentsMdWarning;
+    } catch (error) {
+      log.warn('failed to compute AGENTS.md warning', { error });
+    }
+    return this.agentsMdWarning;
   }
 
   async generateAgentsMd(): Promise<void> {
@@ -441,6 +953,56 @@ export class Session {
     }
   }
 
+  /**
+   * Appends a fresh `<plugin_session_start>` system reminder to the main agent
+   * using the currently enabled plugins, then flushes records so the reminder is
+   * persisted and visible on the wire. Used by the explicit `/reload` flow after
+   * the session has been re-resumed with reloaded plugin state.
+   *
+   * When no plugin session start is currently resolvable but an earlier
+   * When no plugin session start is currently resolvable but the context may still
+   * carry stale plugin guidance — either an earlier `<plugin_session_start>`
+   * reminder, or a compaction summary that may have folded one in — appends a
+   * neutralizing reminder instead, so the model does not keep following stale
+   * plugin instructions and the turn-loop injector does not dedup against them.
+   */
+  async appendPluginSessionStartReminder(): Promise<void> {
+    await this.skillsReady;
+    const mainAgent = this.requireMainAgent();
+    const reminder = renderPluginSessionStartReminder({
+      sessionStarts: mainAgent.pluginSessionStarts,
+      registry: mainAgent.skills?.registry,
+      log: mainAgent.log,
+    });
+    if (reminder !== undefined) {
+      mainAgent.context.appendSystemReminder(
+        `${reminder}\n\nThis supersedes any earlier plugin_session_start reminder in this session.`,
+        { kind: 'injection', variant: 'plugin_session_start' },
+      );
+    } else if (this.shouldNeutralizePluginSessionStart(mainAgent)) {
+      mainAgent.context.appendSystemReminder(
+        'There are currently no active plugin session starts. This supersedes any earlier plugin_session_start reminder in this session.',
+        { kind: 'injection', variant: 'plugin_session_start' },
+      );
+    } else {
+      return;
+    }
+    await mainAgent.records.flush();
+  }
+
+  private shouldNeutralizePluginSessionStart(mainAgent: Agent): boolean {
+    return mainAgent.context.history.some((message) => {
+      const kind = message.origin?.kind;
+      if (kind === 'injection') {
+        return message.origin?.variant === 'plugin_session_start';
+      }
+      // A compaction summary replaces earlier messages (including any plugin
+      // session-start reminder) with a single summary that may still carry stale
+      // plugin guidance, so the origin-only check above is not sufficient.
+      return kind === 'compaction_summary';
+    });
+  }
+
   get hasActiveTurn(): boolean {
     for (const agent of this.readyAgents()) {
       if (agent.turn.hasActiveTurn) return true;
@@ -453,7 +1015,14 @@ export class Session {
   }
 
   writeMetadata() {
-    const text = JSON.stringify(this.metadata, null, 2);
+    const text = JSON.stringify(
+      {
+        ...this.metadata,
+        agentProfileCatalog: this.agentProfileSnapshot,
+      },
+      null,
+      2,
+    );
     const write = async () => {
       await this.persistenceKaos.mkdir(this.options.homedir, { parents: true, existOk: true });
       await this.persistenceKaos.writeText(this.metadataPath, text);
@@ -464,7 +1033,34 @@ export class Session {
 
   async readMetadata() {
     const text = await this.persistenceKaos.readText(this.metadataPath);
-    this.metadata = JSON.parse(text);
+    const persisted = JSON.parse(text) as PersistedSessionState;
+    const { agentProfileCatalog, ...metadata } = persisted;
+    this.metadata = metadata;
+    if (agentProfileCatalog === undefined) {
+      if (this.options.agents?.refreshPluginAgents === true) {
+        this.agentProfileSnapshot = this.agentCatalog.snapshot();
+      }
+    } else {
+      const parsed = AgentProfileCatalogSnapshotSchema.safeParse(agentProfileCatalog);
+      if (parsed.success) {
+        if (this.options.agents?.refreshPluginAgents === true) {
+          await this.agentCatalog.restoreSnapshotRefreshingPlugins(
+            parsed.data,
+            this.options.agents.pluginRoots ?? [],
+          );
+        } else {
+          this.agentCatalog.restoreSnapshot(parsed.data);
+        }
+        this.agentProfileSnapshot = this.agentCatalog.snapshot();
+      } else {
+        this.log.warn('stored agent profile catalog is invalid; using discovered profiles', {
+          error: parsed.error.message,
+        });
+        if (this.options.agents?.refreshPluginAgents === true) {
+          this.agentProfileSnapshot = this.agentCatalog.snapshot();
+        }
+      }
+    }
     return this.metadata;
   }
 
@@ -477,6 +1073,10 @@ export class Session {
   async listSkills(): Promise<readonly SkillSummary[]> {
     await this.skillsReady;
     return this.skills.listSkills().map(summarizeSkill);
+  }
+
+  listPluginCommands(): readonly PluginCommandDef[] {
+    return this.pluginCommands;
   }
 
   private async loadSkills(): Promise<void> {
@@ -554,6 +1154,24 @@ export class Session {
     }
   }
 
+  /**
+   * Replace the enabled plugins' system-prompt contributions on every ready
+   * agent and re-render prompts. The owning core calls this after an explicit
+   * plugin reload — installing, enabling, disabling, or removing a plugin
+   * without a reload deliberately leaves live prompts unchanged.
+   */
+  async setPluginSystemPrompts(sections: readonly EnabledPluginSystemPrompt[]): Promise<void> {
+    this.pluginSystemPrompts = sections;
+    for (const agent of this.readyAgents()) {
+      agent.setPluginSystemPrompts(sections);
+      try {
+        await agent.refreshSystemPrompt();
+      } catch (error) {
+        this.log.warn('failed to refresh system prompt after plugin reload', { error });
+      }
+    }
+  }
+
   private instantiateAgent(
     id: string,
     homedir: string,
@@ -563,25 +1181,42 @@ export class Session {
   ): Agent {
     const parentAgent = parentAgentId !== null ? this.getReadyAgent(parentAgentId) : undefined;
     const cwd = parentAgent?.config.cwd ?? this.toolKaos.getcwd();
-    return new Agent({
+    let agent!: Agent;
+    const subagentHost =
+      config.subagentHost ?? new SessionSubagentHost(this, id, () => agent);
+    agent = new Agent({
       ...config,
       type,
       kaos: this.toolKaos.withCwd(cwd),
       toolServices: this.options.toolServices,
-      config: this.options.config,
+      config: this.pythinkerConfig,
       homedir,
+      // Session-level, shared across agents: originals persisted for
+      // compression captions live with the session, not the agent.
+      mediaOriginalsDir: sessionMediaOriginalsDir(this.options.homedir),
       skills: this.skills,
       rpc: proxyWithExtraPayload(this.rpc, { agentId: id }),
       modelProvider: this.options.providerManager,
       hookEngine: config.hookEngine ?? this.hookEngine,
-      subagentHost: config.subagentHost ?? new SessionSubagentHost(this, id),
+      subagentHost,
       mcp: this.mcp,
       permission: this.permissionOptions(parentAgentId, config.permission),
-      telemetry: this.telemetry,
+      telemetry: withTelemetryProperties(this.telemetry, { agent_id: id }),
       log: this.log.createChild({ agentId: id }),
       pluginSessionStarts: type === 'main' ? this.options.pluginSessionStarts : undefined,
+      pluginCommands: type === 'main' ? this.options.pluginCommands : undefined,
+      pluginSystemPrompts: this.pluginSystemPrompts,
       experimentalFlags: this.experimentalFlags,
+      imageLimits: this.imageLimits,
+      additionalDirs: parentAgent?.getAdditionalDirs() ?? this.additionalDirs,
+      systemPromptContextProvider: () =>
+        prepareSystemPromptContext(
+          this.systemContextKaos(agent.kaos.getcwd()),
+          this.options.pythinkerHomeDir,
+          { additionalDirs: agent.getAdditionalDirs() },
+        ),
     });
+    return agent;
   }
 
   private permissionOptions(
@@ -652,8 +1287,15 @@ export class Session {
         : await this.resumeAgent(parentAgentId, [...stack, id]);
 
     try {
-      const agent = this.instantiateAgent(id, meta.homedir, meta.type, {}, parentAgentId);
+      const agent = this.instantiateAgent(
+        id,
+        join(this.options.homedir, 'agents', id),
+        meta.type,
+        {},
+        parentAgentId,
+      );
       const result = await agent.resume();
+      this.restoreAgentProfileHandle(agent, meta, parent?.agent);
       this.agents.set(id, agent);
       return { agent, warning: parent?.warning ?? result.warning };
     } catch (error) {
@@ -663,6 +1305,32 @@ export class Session {
       }
       throw error;
     }
+  }
+
+  private restoreAgentProfileHandle(
+    agent: Agent,
+    meta: AgentMeta,
+    parentAgent: Agent | undefined,
+  ): void {
+    if (agent.config.systemPrompt === '') return;
+    const profile = this.resolvePersistedProfile(agent, meta, parentAgent);
+    if (profile === undefined) return;
+    agent.setActiveProfile(profile, this.options.pythinkerHomeDir);
+  }
+
+  private resolvePersistedProfile(
+    agent: Agent,
+    meta: AgentMeta,
+    parentAgent: Agent | undefined,
+  ): ResolvedAgentProfile | undefined {
+    const profileName = agent.config.profileName;
+    if (profileName === undefined) return undefined;
+    if (meta.type === 'sub') {
+      return this.agentCatalog.delegatableSubagents(parentAgent?.config.profileName ?? 'agent')[
+        profileName
+      ];
+    }
+    return this.agentCatalog.get(profileName);
   }
 
   private nextGeneratedAgentId(): string {
@@ -698,6 +1366,8 @@ export class Session {
 }
 
 export * from './subagent-host';
+export * from './subagent-binding';
+export * from './store';
 
 function initCompletionReminder(agentsMd: string): string {
   const latest =

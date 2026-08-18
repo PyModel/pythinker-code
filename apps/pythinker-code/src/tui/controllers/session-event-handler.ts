@@ -1,4 +1,4 @@
-import type { Component, Focusable } from '@earendil-works/pi-tui';
+import type { Component, Focusable } from '@pymodel/pi-tui';
 import type {
   AgentStatusUpdatedEvent,
   AssistantDeltaEvent,
@@ -17,6 +17,7 @@ import type {
   Session,
   SessionMetaUpdatedEvent,
   SkillActivatedEvent,
+  PluginCommandActivatedEvent,
   ThinkingDeltaEvent,
   ToolCallDeltaEvent,
   ToolCallStartedEvent,
@@ -72,6 +73,7 @@ import { errorReportHintLine } from '../constant/feedback';
 import { formatStepDebugTiming } from '#/utils/usage/debug-timing';
 import { nextTranscriptId } from '../utils/transcript-id';
 import type { BtwPanelController } from './btw-panel';
+import { isPluginMcpToolName, PluginUpdateNotifier } from './plugin-update-notifier';
 import type { StreamingUIController } from './streaming-ui';
 import type { TasksBrowserController } from './tasks-browser';
 import { SubAgentEventHandler } from './subagent-event-handler';
@@ -106,6 +108,8 @@ export interface SessionEventHost {
   restoreEditor(): void;
   restoreInputText(text: string): void;
   appendTranscriptEntry(entry: TranscriptEntry): void;
+  handleShellOutput(event: { commandId: string; update: { kind: string; text?: string } }): void;
+  handleShellStarted(event: { commandId: string; taskId: string }): void;
   sendNormalUserInput(text: string): void;
   updateTerminalTitle(): void;
   sendQueuedMessage(session: Session, item: QueuedMessage): void;
@@ -116,8 +120,12 @@ export interface SessionEventHost {
 
 export class SessionEventHandler {
   readonly subAgentEventHandler: SubAgentEventHandler;
+  private readonly pluginUpdateNotifier: PluginUpdateNotifier;
 
-  constructor(private readonly host: SessionEventHost) {
+  constructor(
+    private readonly host: SessionEventHost,
+    pluginUpdateNotifier?: PluginUpdateNotifier,
+  ) {
     this.subAgentEventHandler = new SubAgentEventHandler(host, {
       backgroundTasks: this.backgroundTasks,
       backgroundTaskTranscriptedTerminal: this.backgroundTaskTranscriptedTerminal,
@@ -125,6 +133,15 @@ export class SessionEventHandler {
         this.syncBackgroundTaskBadge();
       },
     });
+    this.pluginUpdateNotifier =
+      pluginUpdateNotifier ??
+      new PluginUpdateNotifier({
+        getSession: () => this.host.session,
+        workDir: host.state.appState.workDir,
+        notify: (message) => {
+          this.host.showStatus(message, 'warning');
+        },
+      });
   }
 
   // Runtime state – owned by this handler, reset between sessions.
@@ -132,12 +149,15 @@ export class SessionEventHandler {
   backgroundTaskTranscriptedTerminal: Set<string> = new Set();
 
   renderedSkillActivationIds: Set<string> = new Set();
+  renderedPluginCommandActivationIds: Set<string> = new Set();
   renderedMcpServerStatusKeys: Map<string, string> = new Map();
   mcpServerStatusSpinners: Map<string, MoonLoader> = new Map();
   mcpServers: Map<string, McpServerStatusSnapshot> = new Map();
   private goalCompletionAwaitingClear = false;
   private goalCompletionTurnEnded = false;
   private currentTurnHasAssistantText = false;
+  private pluginCommandTurns: Map<string, string> = new Map();
+  private pluginMcpToolsUsedInTurn: Set<string> = new Set();
   private pendingModelBlockedFallback: GoalChange | undefined;
   private queuedGoalPromotionPending = false;
   private queuedGoalPromotionInFlight = false;
@@ -148,11 +168,14 @@ export class SessionEventHandler {
     this.backgroundTaskTranscriptedTerminal.clear();
     this.subAgentEventHandler.resetRuntimeState();
     this.renderedSkillActivationIds.clear();
+    this.renderedPluginCommandActivationIds.clear();
     this.renderedMcpServerStatusKeys.clear();
     this.mcpServers.clear();
     this.goalCompletionAwaitingClear = false;
     this.goalCompletionTurnEnded = false;
     this.currentTurnHasAssistantText = false;
+    this.pluginCommandTurns.clear();
+    this.pluginMcpToolsUsedInTurn.clear();
     this.pendingModelBlockedFallback = undefined;
     this.queuedGoalPromotionPending = false;
     this.queuedGoalPromotionInFlight = false;
@@ -242,6 +265,8 @@ export class SessionEventHandler {
       case 'turn.step.completed': this.handleStepCompleted(event); break;
       case 'turn.step.retrying': break;
       case 'tool.progress': this.handleToolProgress(event); break;
+      case 'shell.output': this.host.handleShellOutput(event); break;
+      case 'shell.started': this.host.handleShellStarted(event); break;
       case 'assistant.delta': this.handleAssistantDelta(event); break;
       case 'hook.result': this.handleHookResult(event); break;
       case 'thinking.delta': this.handleThinkingDelta(event); break;
@@ -252,6 +277,7 @@ export class SessionEventHandler {
       case 'session.meta.updated': this.handleSessionMetaChanged(event); break;
       case 'goal.updated': this.handleGoalUpdated(event); break;
       case 'skill.activated': this.handleSkillActivated(event); break;
+      case 'plugin_command.activated': this.handlePluginCommandActivated(event); break;
       case 'error': this.handleSessionError(event); break;
       case 'warning': this.handleSessionWarning(event); break;
       case 'compaction.started': this.handleCompactionBegin(event); break;
@@ -285,9 +311,11 @@ export class SessionEventHandler {
   // Private handlers
   // ---------------------------------------------------------------------------
 
-  private handleTurnBegin(_event: TurnStartedEvent): void {
-    void _event;
+  private handleTurnBegin(event: TurnStartedEvent): void {
     this.currentTurnHasAssistantText = false;
+    if (event.origin?.kind === 'plugin_command') {
+      this.pluginCommandTurns.set(String(event.turnId), event.origin.pluginId);
+    }
     this.clearAgentDynamicWorkflowProgress();
     this.host.streamingUI.resetToolUi();
     this.host.streamingUI.setStep(0);
@@ -325,6 +353,12 @@ export class SessionEventHandler {
     if (event.reason === 'cancelled') {
       this.markActiveAgentDynamicWorkflowsCancelled();
     }
+    if (event.reason === 'failed' && event.error?.code === 'provider.filtered') {
+      this.host.showStatus('Turn stopped: provider safety policy blocked the response.', 'error');
+    }
+    if (event.reason === 'blocked') {
+      this.host.showStatus('Turn stopped: prompt hook blocked the request.', 'error');
+    }
     const todos = this.host.state.todoPanel.getTodos();
     if (todos.length > 0 && todos.every((t) => t.status === 'done')) {
       this.host.streamingUI.setTodoList([]);
@@ -334,6 +368,22 @@ export class SessionEventHandler {
     this.renderPendingModelBlockedFallback();
     this.currentTurnHasAssistantText = false;
     this.goalCompletionTurnEnded = true;
+    // Plugin usage is reported once the whole turn's output has ended — but a
+    // cancelled turn cut the output short, so skip the notice there.
+    const reportPluginUsage = event.reason !== 'cancelled';
+    const pluginCommandPluginId = this.pluginCommandTurns.get(String(event.turnId));
+    if (pluginCommandPluginId !== undefined) {
+      this.pluginCommandTurns.delete(String(event.turnId));
+      if (reportPluginUsage) {
+        void this.pluginUpdateNotifier.handlePluginCommandCompleted(pluginCommandPluginId);
+      }
+    }
+    if (reportPluginUsage) {
+      for (const toolName of this.pluginMcpToolsUsedInTurn) {
+        void this.pluginUpdateNotifier.handleMcpToolCompleted(toolName);
+      }
+    }
+    this.pluginMcpToolsUsedInTurn.clear();
     this.scheduleQueuedGoalPromotion();
   }
 
@@ -356,6 +406,15 @@ export class SessionEventHandler {
   private handleStepCompleted(event: TurnStepCompletedEvent): void {
     this.host.streamingUI.flushNow();
     this.maybeShowDebugTiming(event);
+
+    if (event.providerFinishReason === 'filtered') {
+      this.host.showNotice(
+        'Provider safety policy blocked the response.',
+        `The model output was filtered (${event.rawFinishReason ?? 'content_filter'}).`,
+      );
+      return;
+    }
+
     if (event.finishReason !== 'max_tokens') return;
 
     const truncatedCount = this.host.streamingUI.markStepTruncated(
@@ -376,7 +435,14 @@ export class SessionEventHandler {
   private maybeShowDebugTiming(event: TurnStepCompletedEvent): void {
     if (process.env['PYTHINKER_CODE_DEBUG'] !== '1') return;
     const text = formatStepDebugTiming(event);
-    if (text !== undefined) this.host.showStatus(text);
+    if (text === undefined) return;
+    this.host.appendTranscriptEntry({
+      id: nextTranscriptId(),
+      kind: 'status',
+      turnId: String(event.turnId),
+      renderMode: 'plain',
+      content: text,
+    });
   }
 
   private markActiveAgentDynamicWorkflowsCancelled(): void {
@@ -385,9 +451,10 @@ export class SessionEventHandler {
 
   private isAnthropicSessionActive(): boolean {
     const { state } = this.host;
-    const providerKey = state.appState.availableModels[state.appState.model]?.provider;
-    if (providerKey === undefined) return false;
-    return state.appState.availableProviders[providerKey]?.type === 'anthropic';
+    const model = state.appState.availableModels[state.appState.model];
+    if (model === undefined) return false;
+    if (model.protocol === 'anthropic') return true;
+    return state.appState.availableProviders[model.provider]?.type === 'anthropic';
   }
 
   private handleStepInterrupted(event: TurnStepInterruptedEvent): void {
@@ -398,7 +465,11 @@ export class SessionEventHandler {
     if (reason === 'error') return;
     if (reason === 'aborted' || reason === undefined || reason === '') {
       this.markActiveAgentDynamicWorkflowsCancelled();
-      this.host.showStatus('Interrupted by user', 'error');
+      if (event.message === undefined || event.message === '') {
+        this.host.showStatus('Interrupted by user', 'error');
+      } else {
+        this.host.showError(event.message);
+      }
       return;
     }
     this.host.showError(
@@ -410,6 +481,15 @@ export class SessionEventHandler {
 
   private handleThinkingDelta(event: ThinkingDeltaEvent): void {
     const { state, streamingUI } = this.host;
+    // Encrypted / redacted reasoning (e.g. Pythinker over the Anthropic-compatible
+    // protocol) streams thinking deltas whose visible text is empty — only an
+    // opaque signature rides along. Models also occasionally stream whitespace-
+    // only thinking (e.g. a single space). Such deltas carry nothing to render,
+    // so switching into the `thinking` pane mode here would stop the "waiting"
+    // moon spinner while no ThinkingComponent is ever created (it needs visible
+    // text), leaving a blank, spinner-less gap until the first real text/tool
+    // token arrives. Keep the moon up until actual thinking text shows up.
+    if (event.delta.trim().length === 0 && !streamingUI.hasThinkingDraft()) return;
     streamingUI.appendThinkingDelta(event.delta);
     this.host.patchLivePane({ mode: 'idle' });
     if (state.appState.streamingPhase !== 'thinking') {
@@ -538,6 +618,11 @@ export class SessionEventHandler {
       synthetic: event.synthetic,
     };
     const matchedCall = streamingUI.completeToolResult(event.toolCallId, resultData);
+    if (matchedCall !== undefined && isPluginMcpToolName(matchedCall.name)) {
+      // Buffer plugin MCP usage for the turn; the update notice fires once the
+      // whole turn's output has ended (see handleTurnEnd).
+      this.pluginMcpToolsUsedInTurn.add(matchedCall.name);
+    }
     this.subAgentEventHandler.handleAgentDynamicWorkflowToolResult(
       event.toolCallId,
       resultData,
@@ -572,6 +657,7 @@ export class SessionEventHandler {
       patch.permissionMode = event.permission;
     }
     if (event.model !== undefined) patch.model = event.model;
+    if (event.thinkingEffort !== undefined) patch.thinkingEffort = event.thinkingEffort;
     if (Object.keys(patch).length > 0) this.host.setAppState(patch);
     if (event.dynamicWorkflowMode === false) {
       this.host.state.dynamicWorkflowModeEntry = undefined;
@@ -702,7 +788,8 @@ export class SessionEventHandler {
       (session === undefined || this.host.session === session) &&
       !this.host.aborted &&
       this.host.state.appState.streamingPhase === 'idle' &&
-      this.host.state.queuedMessages.length === 0
+      this.host.state.queuedMessages.length === 0 &&
+      !this.host.state.queuedMessageDispatchPending
     );
   }
 
@@ -890,8 +977,9 @@ export class SessionEventHandler {
     const children = state.transcriptContainer.children;
     const idx = children.indexOf(spinner);
     if (idx >= 0) {
+      // In-place replacement is picked up by the container's ref-checked
+      // render cache; a tree-wide invalidate is unnecessary (and costly).
       children[idx] = status;
-      state.transcriptContainer.invalidate();
     } else {
       state.transcriptContainer.addChild(status);
     }
@@ -915,6 +1003,25 @@ export class SessionEventHandler {
     });
   }
 
+  private handlePluginCommandActivated(event: PluginCommandActivatedEvent): void {
+    if (this.renderedPluginCommandActivationIds.has(event.activationId)) return;
+    this.renderedPluginCommandActivationIds.add(event.activationId);
+    this.host.appendTranscriptEntry({
+      id: nextTranscriptId(),
+      kind: 'plugin_command',
+      turnId: undefined,
+      renderMode: 'plain',
+      content: `/${event.pluginId}:${event.commandName}`,
+      pluginCommandData: {
+        activationId: event.activationId,
+        pluginId: event.pluginId,
+        commandName: event.commandName,
+        args: event.commandArgs,
+        trigger: event.trigger,
+      },
+    });
+  }
+
   private handleCompactionBegin(event: CompactionStartedEvent): void {
     this.host.streamingUI.finalizeLiveTextBuffers('waiting');
     this.host.setAppState({
@@ -929,7 +1036,11 @@ export class SessionEventHandler {
     event: CompactionCompletedEvent,
     sendQueued: (item: QueuedMessage) => void,
   ): void {
-    this.host.streamingUI.endCompaction(event.result.tokensBefore, event.result.tokensAfter);
+    this.host.streamingUI.endCompaction(
+      event.result.tokensBefore,
+      event.result.tokensAfter,
+      event.result.summary,
+    );
     this.finishCompaction(sendQueued);
   }
 
@@ -944,14 +1055,18 @@ export class SessionEventHandler {
   private finishCompaction(sendQueued: (item: QueuedMessage) => void): void {
     const hasActiveTurn = this.host.streamingUI.hasActiveTurn();
     if (!hasActiveTurn) {
+      const next = this.host.shiftQueuedMessage();
+      if (next !== undefined) {
+        this.host.state.queuedMessageDispatchPending = true;
+      }
       this.host.setAppState({
         isCompacting: false,
         streamingPhase: 'idle',
       });
       this.host.resetLivePane();
-      const next = this.host.shiftQueuedMessage();
       if (next !== undefined) {
         setTimeout(() => {
+          this.host.state.queuedMessageDispatchPending = false;
           sendQueued(next);
         }, 0);
       }
@@ -986,6 +1101,9 @@ export class SessionEventHandler {
 
     if (event.type === 'background.task.started') {
       if (info.kind === 'agent') {
+        // A foreground subagent detached via Ctrl+B: flip its card to
+        // `◐ backgrounded` so it doesn't look like it completed.
+        this.host.streamingUI.markSubagentBackgrounded(info.agentId);
         this.syncBackgroundTaskBadge();
         this.host.tasksBrowserController.repaint();
         return;

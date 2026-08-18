@@ -1,6 +1,7 @@
 import type { AgentConfigData } from '#/agent/config';
 import type { AgentContextData } from '#/agent/context';
 import type { BackgroundTaskInfo } from '#/agent/background';
+import type { CronTaskSnapshot } from '#/agent/cron';
 import type {
   GoalBudgetLimits,
   GoalBudgetReport,
@@ -13,16 +14,20 @@ import type {
 import type { PermissionData, PermissionMode } from '#/agent/permission';
 import type { PlanData } from '#/agent/plan';
 import type { DynamicWorkflowModeTrigger } from '#/agent/dynamic_workflow';
-import type { ToolInfo } from '#/agent/tool';
+import type { ToolDisclosure, ToolInfo } from '#/agent/tool';
 import type { PythinkerConfig, PythinkerConfigPatch, McpServerConfig } from '#/config';
 import type { ExperimentalFeatureState } from '#/flags';
 import type { ResumeSessionResult } from '#/rpc/resumed';
 import type { SessionMeta } from '#/session';
+import type { GlobalMcpServerConfig } from '#/mcp/global-config';
 import type { ContentPart } from '@pymodel/kosong';
+import type { SessionWarning } from '@pymodel/protocol';
 
-import type { PluginInfo, PluginSummary, ReloadSummary } from '#/plugin';
+import type { PluginCommandDef, PluginInfo, PluginSummary, ReloadSummary } from '#/plugin';
 import type { UsageStatus } from './events';
 import type { WithAgentId, WithSessionId } from './types';
+
+export type { PluginCommandDef } from '#/plugin';
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { readonly [key: string]: JsonValue };
@@ -38,7 +43,7 @@ export type PromptPart = Extract<ContentPart, { type: 'text' | 'image_url' | 'vi
 export type PromptInput = readonly PromptPart[];
 
 export type EmptyPayload = {};
-export type SessionMetadataPatch = Partial<Omit<SessionMeta, 'agents'>>;
+export type SessionMetadataPatch = Partial<Omit<SessionMeta, 'agents' | 'additionalDirs'>>;
 
 export interface ClientTelemetryInfo {
   readonly id?: string | undefined;
@@ -55,7 +60,13 @@ export interface CreateSessionPayload {
   readonly permission?: PermissionMode | undefined;
   readonly metadata?: JsonObject | undefined;
   readonly mcpServers?: Readonly<Record<string, McpServerConfig>>;
+  readonly additionalDirs?: readonly string[];
   readonly client?: ClientTelemetryInfo | undefined;
+  readonly drainAgentTasksOnStop?: boolean;
+  /** Main-agent profile name (`--agent`): a builtin or agentfile-defined profile. */
+  readonly agentProfile?: string;
+  /** Explicit agentfiles (`--agent-file`); an invalid file fails session creation. */
+  readonly agentFiles?: readonly string[];
 }
 
 export interface CloseSessionPayload {
@@ -66,13 +77,35 @@ export interface ArchiveSessionPayload {
   readonly sessionId: string;
 }
 
+export interface DeleteSessionPayload {
+  readonly sessionId: string;
+}
+
 export interface ResumeSessionPayload {
   readonly sessionId: string;
   readonly mcpServers?: Readonly<Record<string, McpServerConfig>>;
+  readonly additionalDirs?: readonly string[];
+  /** Re-select the session's already-bound main profile; a different name fails. */
+  readonly agentProfile?: string;
+  /** Include persisted subagent states in the returned replay snapshot. */
+  readonly includeSubagents?: boolean;
+  /**
+   * Limit each returned agent replay to the most recent N user turns. Omit to
+   * return the full replay. Lets UI callers that only render the tail avoid
+   * serializing the entire history over the RPC boundary.
+   */
+  readonly replayTurnLimit?: number;
 }
 
 export interface ReloadSessionPayload {
   readonly sessionId: string;
+  /**
+   * When true, append a fresh `<plugin_session_start>` system reminder to the
+   * main agent after the session is reloaded, reflecting the currently enabled
+   * plugins. Used by the explicit `/reload` command so the model sees plugin
+   * changes without starting a new session. Defaults to false.
+   */
+  readonly forcePluginSessionStartReminder?: boolean;
 }
 
 export interface ForkSessionPayload {
@@ -80,6 +113,11 @@ export interface ForkSessionPayload {
   readonly id?: string;
   readonly title?: string;
   readonly metadata?: JsonObject;
+  /**
+   * Zero-based index of the user-visible turn to retain through. When omitted,
+   * the complete session is copied (the existing fork behavior).
+   */
+  readonly turnIndex?: number;
 }
 
 export interface ShellEnvironment {
@@ -153,10 +191,42 @@ export interface SessionSummary {
   readonly updatedAt: number;
   readonly archived?: boolean | undefined;
   readonly metadata?: JsonObject | undefined;
+  readonly additionalDirs?: readonly string[];
 }
 
 export interface PromptPayload {
   readonly input: readonly ContentPart[];
+  /**
+   * Client-managed session denylist, applied via
+   * `IAgentProfileService.setSessionDisabledTools` before the prompt is
+   * enqueued: full-replace semantics, the profile's own `disallowedTools`
+   * always survive. Omit to keep the persisted value; `[]` clears the client
+   * portion. Ignored by engines without profile support.
+   */
+  readonly disabledTools?: readonly string[];
+}
+export interface RunShellCommandPayload {
+  readonly command: string;
+  /**
+   * TUI-generated correlation id echoed back on every `shell.output` live event
+   * so the client can route chunks to the matching entry and drop stale events
+   * from a prior run. Optional for callers that don't stream.
+   */
+  readonly commandId?: string;
+}
+export interface ShellCommandResult {
+  readonly stdout: string;
+  readonly stderr: string;
+  /** True when the command failed (non-zero exit / timeout / killed) — used by
+   *  the TUI to render stderr in red only for actual failures, not warnings. */
+  readonly isError?: boolean;
+  /** True when the command was detached to the background (ctrl+b) instead of
+   *  completing in the foreground. The TUI uses this to skip the normal final
+   *  render (the backgrounding path owns the UI + model notification). */
+  readonly backgrounded?: boolean;
+}
+export interface CancelShellCommandPayload {
+  readonly commandId: string;
 }
 export interface SteerPayload {
   readonly input: readonly ContentPart[];
@@ -165,7 +235,7 @@ export interface CancelPayload {
   readonly turnId?: number;
 }
 export interface SetThinkingPayload {
-  readonly level: string;
+  readonly effort: string;
 }
 export interface SetPermissionPayload {
   readonly mode: PermissionMode;
@@ -189,10 +259,17 @@ export interface BeginCompactionPayload {
 export interface UndoHistoryPayload {
   readonly count: number;
 }
+export interface ImportContextPayload {
+  /** Raw text supplied by the host. Core does not perform file I/O. */
+  readonly content: string;
+  /** User-facing description of the source, for example `file 'notes.md'`. */
+  readonly source: string;
+}
 export interface RegisterToolPayload {
   readonly name: string;
   readonly description: string;
   readonly parameters: Record<string, unknown>;
+  readonly disclosure?: ToolDisclosure;
 }
 export interface UnregisterToolPayload {
   readonly name: string;
@@ -204,6 +281,9 @@ export interface StopBackgroundPayload {
   readonly taskId: string;
   /** Free-form human-readable reason persisted with the task record. */
   readonly reason?: string;
+}
+export interface DetachBackgroundPayload {
+  readonly taskId: string;
 }
 export interface GetBackgroundOutputPayload {
   readonly taskId: string;
@@ -234,6 +314,16 @@ export interface ActivateSkillPayload {
   readonly args?: string | undefined;
 }
 
+export interface ListWorkspaceSkillsPayload {
+  readonly workDir: string;
+}
+
+export interface ActivatePluginCommandPayload {
+  readonly pluginId: string;
+  readonly commandName: string;
+  readonly args?: string | undefined;
+}
+
 export interface McpServerInfo {
   readonly name: string;
   readonly transport: 'stdio' | 'http' | 'sse';
@@ -248,6 +338,43 @@ export interface McpStartupMetrics {
 
 export interface ReconnectMcpServerPayload {
   readonly name: string;
+}
+
+export type { GlobalMcpServerConfig } from '#/mcp/global-config';
+
+export interface PutGlobalMcpServerPayload {
+  readonly server: GlobalMcpServerConfig;
+}
+
+export interface GlobalMcpServerNamePayload {
+  readonly name: string;
+}
+
+export type BeginGlobalMcpServerAuthResult =
+  | { readonly status: 'already-authorized' }
+  | {
+      readonly status: 'authorization-required';
+      readonly flowId: string;
+      readonly authorizationUrl: string;
+    };
+
+export interface CompleteGlobalMcpServerAuthPayload {
+  readonly flowId: string;
+  readonly timeoutMs?: number;
+}
+
+export interface CancelGlobalMcpServerAuthPayload {
+  readonly flowId: string;
+}
+
+export interface TestGlobalMcpServerPayload {
+  readonly name: string;
+  readonly cwd?: string;
+}
+
+export interface GlobalMcpServerTestResult {
+  readonly success: boolean;
+  readonly output: string;
 }
 
 export interface InstallPluginPayload {
@@ -275,6 +402,18 @@ export interface GetPluginInfoPayload {
 
 export type ReloadPluginsResult = ReloadSummary;
 export type { PluginSummary, PluginInfo };
+
+export interface AddAdditionalDirPayload {
+  readonly path: string;
+  readonly persist: boolean;
+}
+
+export interface AddAdditionalDirResult {
+  readonly additionalDirs: readonly string[];
+  readonly projectRoot: string;
+  readonly configPath: string;
+  readonly persisted: boolean;
+}
 
 export interface RenameSessionPayload {
   readonly title: string;
@@ -318,8 +457,14 @@ export interface RemovePythinkerProviderPayload {
   readonly providerId: string;
 }
 
+export interface GetCronTasksResult {
+  readonly tasks: readonly CronTaskSnapshot[];
+}
+
 export interface AgentAPI {
   prompt: (payload: PromptPayload) => void;
+  runShellCommand: (payload: RunShellCommandPayload) => Promise<ShellCommandResult>;
+  cancelShellCommand: (payload: CancelShellCommandPayload) => void;
   steer: (payload: SteerPayload) => void;
   cancel: (payload: CancelPayload) => void;
   undoHistory: (payload: UndoHistoryPayload) => void;
@@ -339,14 +484,18 @@ export interface AgentAPI {
   unregisterTool: (payload: UnregisterToolPayload) => void;
   setActiveTools: (payload: SetActiveToolsPayload) => void;
   stopBackground: (payload: StopBackgroundPayload) => void;
+  detachBackground: (payload: DetachBackgroundPayload) => BackgroundTaskInfo | undefined;
   clearContext: (payload: EmptyPayload) => void;
+  importContext: (payload: ImportContextPayload) => void;
   activateSkill: (payload: ActivateSkillPayload) => void;
+  activatePluginCommand: (payload: ActivatePluginCommandPayload) => void;
   startBtw: (payload: EmptyPayload) => string;
   createGoal: (payload: CreateGoalPayload) => GoalSnapshot;
   getGoal: (payload: EmptyPayload) => GoalToolResult;
   pauseGoal: (payload: EmptyPayload) => GoalSnapshot;
   resumeGoal: (payload: EmptyPayload) => GoalSnapshot;
   cancelGoal: (payload: EmptyPayload) => GoalSnapshot;
+  getCronTasks: (payload: EmptyPayload) => GetCronTasksResult;
   getBackgroundOutput: (payload: GetBackgroundOutputPayload) => string;
   getContext: (payload: EmptyPayload) => AgentContextData;
   getConfig: (payload: EmptyPayload) => AgentConfigData;
@@ -364,29 +513,48 @@ export interface SessionAPI extends AgentAPIWithId {
   updateSessionMetadata: (payload: UpdateSessionMetadataPayload) => void;
   getSessionMetadata: (payload: EmptyPayload) => SessionMeta;
   listSkills: (payload: EmptyPayload) => readonly SkillSummary[];
+  listPluginCommands: (payload: EmptyPayload) => readonly PluginCommandDef[];
   listMcpServers: (payload: EmptyPayload) => readonly McpServerInfo[];
   getMcpStartupMetrics: (payload: EmptyPayload) => McpStartupMetrics;
   reconnectMcpServer: (payload: ReconnectMcpServerPayload) => void;
   generateAgentsMd: (payload: EmptyPayload) => void;
+  getSessionWarnings: (payload: EmptyPayload) => readonly SessionWarning[];
+  waitForBackgroundTasksOnPrint: (payload: EmptyPayload) => void;
+  handlePrintMainTurnCompleted: (payload: EmptyPayload) => 'finish' | 'continue';
+  addAdditionalDir: (payload: AddAdditionalDirPayload) => AddAdditionalDirResult;
 }
 
 type SessionAPIWithId = WithSessionId<SessionAPI>;
 
 export interface CoreAPI extends SessionAPIWithId {
+  applyPersistedSecondaryModel: (payload: EmptyPayload & { readonly sessionId: string }) => void;
   getCoreInfo: (payload: EmptyPayload) => CoreInfo;
   getExperimentalFeatures: (payload: EmptyPayload) => readonly ExperimentalFeatureState[];
   getPythinkerConfig: (payload: GetPythinkerConfigPayload) => PythinkerConfig;
   getConfigDiagnostics: (payload: EmptyPayload) => ConfigDiagnostics;
   setPythinkerConfig: (payload: SetPythinkerConfigPayload) => PythinkerConfig;
   removePythinkerProvider: (payload: RemovePythinkerProviderPayload) => PythinkerConfig;
+  listGlobalMcpServers: (payload: EmptyPayload) => readonly GlobalMcpServerConfig[];
+  addGlobalMcpServer: (payload: PutGlobalMcpServerPayload) => readonly GlobalMcpServerConfig[];
+  updateGlobalMcpServer: (payload: PutGlobalMcpServerPayload) => readonly GlobalMcpServerConfig[];
+  removeGlobalMcpServer: (payload: GlobalMcpServerNamePayload) => readonly GlobalMcpServerConfig[];
+  beginGlobalMcpServerAuth: (
+    payload: GlobalMcpServerNamePayload,
+  ) => BeginGlobalMcpServerAuthResult;
+  completeGlobalMcpServerAuth: (payload: CompleteGlobalMcpServerAuthPayload) => void;
+  cancelGlobalMcpServerAuth: (payload: CancelGlobalMcpServerAuthPayload) => void;
+  resetGlobalMcpServerAuth: (payload: GlobalMcpServerNamePayload) => void;
+  testGlobalMcpServer: (payload: TestGlobalMcpServerPayload) => GlobalMcpServerTestResult;
   createSession: (payload: CreateSessionPayload) => SessionSummary;
   closeSession: (payload: CloseSessionPayload) => void;
   archiveSession: (payload: ArchiveSessionPayload) => void;
+  deleteSession: (payload: DeleteSessionPayload) => void;
   resumeSession: (payload: ResumeSessionPayload) => ResumeSessionResult;
   reloadSession: (payload: ReloadSessionPayload) => ResumeSessionResult;
   forkSession: (payload: ForkSessionPayload) => ResumeSessionResult;
   listSessions: (payload: ListSessionsPayload) => readonly SessionSummary[];
   exportSession: (payload: ExportSessionPayload) => ExportSessionResult;
+  listWorkspaceSkills: (payload: ListWorkspaceSkillsPayload) => Promise<readonly SkillSummary[]>;
   listPlugins: (payload: EmptyPayload) => readonly PluginSummary[];
   installPlugin: (payload: InstallPluginPayload) => PluginSummary;
   setPluginEnabled: (payload: SetPluginEnabledPayload) => void;

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  applyManagedApiKeyProviderModels,
   applyManagedPythinkerCodeLogoutConfig,
   applyManagedPythinkerCodeConfig,
   clearManagedPythinkerCodeConfig,
@@ -13,6 +14,7 @@ import {
   resolvePythinkerCodeOAuthKey,
   resolvePythinkerCodeOAuthRef,
   resolvePythinkerCodeRuntimeAuth,
+  type ManagedPythinkerCodeModelInfo,
   type ManagedPythinkerConfigShape,
 } from '../src/managed-pythinker-code';
 import { OAuthUnauthorizedError } from '../src/errors';
@@ -356,7 +358,7 @@ describe('provisionManagedPythinkerCodeConfig', () => {
         },
       },
       defaultModel: 'custom-default',
-      defaultThinking: false,
+      thinking: { enabled: false },
       models: {
         'custom-default': {
           provider: 'custom',
@@ -385,7 +387,7 @@ describe('provisionManagedPythinkerCodeConfig', () => {
     expect(result.defaultModel).toBe('custom-default');
     expect(result.defaultThinking).toBe(false);
     expect(config.defaultModel).toBe('custom-default');
-    expect(config.defaultThinking).toBe(false);
+    expect(config.thinking?.enabled).toBe(false);
     expect(config.models?.['pythinker-code/stale']).toBeUndefined();
     expect(config.models?.['pythinker-code/kimi-for-coding']?.displayName).toBe('Pythinker for Coding');
   });
@@ -422,7 +424,7 @@ describe('provisionManagedPythinkerCodeConfig', () => {
 
     expect(result.defaultModel).toBe('pythinker-code/kimi-for-coding');
     expect(result.defaultThinking).toBe(true);
-    expect(config.defaultThinking).toBe(true);
+    expect(config.thinking?.enabled).toBe(true);
   });
 
   it('preserves explicit default_thinking when preserving a custom default without capabilities', async () => {
@@ -434,7 +436,7 @@ describe('provisionManagedPythinkerCodeConfig', () => {
         },
       },
       defaultModel: 'custom-default',
-      defaultThinking: true,
+      thinking: { enabled: true },
       models: {
         'custom-default': {
           provider: 'custom',
@@ -457,7 +459,7 @@ describe('provisionManagedPythinkerCodeConfig', () => {
 
     expect(result.defaultModel).toBe('custom-default');
     expect(result.defaultThinking).toBe(true);
-    expect(config.defaultThinking).toBe(true);
+    expect(config.thinking?.enabled).toBe(true);
   });
 
   it('defaults default_thinking to false when a preserved custom default has no signal', async () => {
@@ -491,7 +493,7 @@ describe('provisionManagedPythinkerCodeConfig', () => {
 
     expect(result.defaultModel).toBe('custom-default');
     expect(result.defaultThinking).toBe(false);
-    expect(config.defaultThinking).toBe(false);
+    expect(config.thinking?.enabled).toBe(false);
   });
 
   it('does not infer default_thinking from preserved custom default capabilities', async () => {
@@ -526,7 +528,7 @@ describe('provisionManagedPythinkerCodeConfig', () => {
 
     expect(result.defaultModel).toBe('custom-default');
     expect(result.defaultThinking).toBe(false);
-    expect(config.defaultThinking).toBe(false);
+    expect(config.thinking?.enabled).toBe(false);
   });
 
   it('keeps default_thinking off even when preserved custom default has thinking capability', async () => {
@@ -561,7 +563,7 @@ describe('provisionManagedPythinkerCodeConfig', () => {
 
     expect(result.defaultModel).toBe('custom-default');
     expect(result.defaultThinking).toBe(false);
-    expect(config.defaultThinking).toBe(false);
+    expect(config.thinking?.enabled).toBe(false);
   });
 
   it('falls back to the first fetched model when the preserved default was removed', async () => {
@@ -573,7 +575,7 @@ describe('provisionManagedPythinkerCodeConfig', () => {
         },
       },
       defaultModel: 'pythinker-code/stale',
-      defaultThinking: false,
+      thinking: { enabled: false },
       models: {
         'pythinker-code/stale': {
           provider: PYTHINKER_CODE_PROVIDER_NAME,
@@ -597,7 +599,7 @@ describe('provisionManagedPythinkerCodeConfig', () => {
     expect(result.defaultModel).toBe('pythinker-code/kimi-for-coding');
     expect(result.defaultThinking).toBe(false);
     expect(config.defaultModel).toBe('pythinker-code/kimi-for-coding');
-    expect(config.defaultThinking).toBe(false);
+    expect(config.thinking?.enabled).toBe(false);
   });
 
   it('removes managed provider, models, services, and default model on logout', () => {
@@ -613,7 +615,7 @@ describe('provisionManagedPythinkerCodeConfig', () => {
         },
       },
       defaultModel: 'pythinker-code/kimi-for-coding',
-      defaultThinking: true,
+      thinking: { enabled: true },
       models: {
         'pythinker-code/kimi-for-coding': {
           provider: PYTHINKER_CODE_PROVIDER_NAME,
@@ -944,7 +946,7 @@ describe('supports_thinking_type', () => {
   });
 
   it('forces default thinking on when the selected default model is thinking-only', async () => {
-    const config: ManagedPythinkerConfigShape = { providers: {}, defaultThinking: false };
+    const config: ManagedPythinkerConfigShape = { providers: {}, thinking: { enabled: false } };
 
     const result = await provisionManagedPythinkerCodeConfig({
       accessToken: 'oauth-access-token',
@@ -958,7 +960,7 @@ describe('supports_thinking_type', () => {
 
     expect(result.defaultModel).toBe('pythinker-code/kimi-for-coding');
     expect(result.defaultThinking).toBe(true);
-    expect(config.defaultThinking).toBe(true);
+    expect(config.thinking?.enabled).toBe(true);
   });
 
   it('forces default thinking on when preserving a thinking-only managed default', async () => {
@@ -970,7 +972,7 @@ describe('supports_thinking_type', () => {
         },
       },
       defaultModel: 'pythinker-code/kimi-for-coding',
-      defaultThinking: false,
+      thinking: { enabled: false },
       models: {
         'pythinker-code/kimi-for-coding': {
           provider: PYTHINKER_CODE_PROVIDER_NAME,
@@ -994,7 +996,7 @@ describe('supports_thinking_type', () => {
 
     expect(result.defaultModel).toBe('pythinker-code/kimi-for-coding');
     expect(result.defaultThinking).toBe(true);
-    expect(config.defaultThinking).toBe(true);
+    expect(config.thinking?.enabled).toBe(true);
   });
 
   it('forces default thinking off when preserving a no-thinking managed default', async () => {
@@ -1006,7 +1008,7 @@ describe('supports_thinking_type', () => {
         },
       },
       defaultModel: 'pythinker-code/pythinker-plain',
-      defaultThinking: true,
+      thinking: { enabled: true },
       models: {
         'pythinker-code/pythinker-plain': {
           provider: PYTHINKER_CODE_PROVIDER_NAME,
@@ -1030,7 +1032,7 @@ describe('supports_thinking_type', () => {
 
     expect(result.defaultModel).toBe('pythinker-code/pythinker-plain');
     expect(result.defaultThinking).toBe(false);
-    expect(config.defaultThinking).toBe(false);
+    expect(config.thinking?.enabled).toBe(false);
   });
 
   it('keeps a preserved non-managed default thinking selection untouched', async () => {
@@ -1042,7 +1044,7 @@ describe('supports_thinking_type', () => {
         },
       },
       defaultModel: 'custom-default',
-      defaultThinking: false,
+      thinking: { enabled: false },
       models: {
         'custom-default': {
           provider: 'custom',
@@ -1065,6 +1067,418 @@ describe('supports_thinking_type', () => {
 
     expect(result.defaultModel).toBe('custom-default');
     expect(result.defaultThinking).toBe(false);
-    expect(config.defaultThinking).toBe(false);
+    expect(config.thinking?.enabled).toBe(false);
+  });
+});
+
+describe('support_efforts / default_effort', () => {
+  function makeEffortModelsResponse(): Response {
+    return new Response(
+      JSON.stringify({
+        data: [
+          {
+            id: 'kimi-for-coding',
+            context_length: 262144,
+            supports_reasoning: true,
+            supports_thinking_type: 'both',
+            think_efforts: {
+              support: true,
+              valid_efforts: ['low', 'high', 'max'],
+              default_effort: 'high',
+            },
+            display_name: 'Pythinker For Coding',
+          },
+          {
+            // Empty / non-string entries are filtered; absent fields stay undefined.
+            id: 'pythinker-plain',
+            context_length: 128000,
+            supports_reasoning: true,
+            think_efforts: { support: true, valid_efforts: ['low', '', 42] },
+          },
+        ],
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    );
+  }
+
+  it('parses think_efforts from the models endpoint', async () => {
+    const models = await fetchManagedPythinkerCodeModels({
+      accessToken: 'oauth-access-token',
+      fetchImpl: vi.fn(async () => makeEffortModelsResponse()) as unknown as typeof fetch,
+    });
+
+    expect(models[0]?.supportEfforts).toEqual(['low', 'high', 'max']);
+    expect(models[0]?.defaultEffort).toBe('high');
+    // The empty string and number are filtered out of valid_efforts.
+    expect(models[1]?.supportEfforts).toEqual(['low']);
+    expect(models[1]?.defaultEffort).toBeUndefined();
+  });
+
+  it('ignores think_efforts entirely when support is not true', async () => {
+    const models = await fetchManagedPythinkerCodeModels({
+      accessToken: 'oauth-access-token',
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: 'pythinker-no-effort',
+                context_length: 128000,
+                supports_reasoning: true,
+                think_efforts: {
+                  support: false,
+                  valid_efforts: ['low', 'high'],
+                  default_effort: 'high',
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+    });
+
+    // support !== true gates the whole object — valid_efforts / default_effort
+    // are ignored.
+    expect(models[0]?.supportEfforts).toBeUndefined();
+    expect(models[0]?.defaultEffort).toBeUndefined();
+  });
+
+  it('ignores legacy flat fields even when think_efforts is absent', async () => {
+    // The legacy support_efforts / default_effort fields are no longer read;
+    // only the nested think_efforts object is honored.
+    const models = await fetchManagedPythinkerCodeModels({
+      accessToken: 'oauth-access-token',
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: 'kimi-k2',
+                context_length: 128000,
+                supports_reasoning: true,
+                support_efforts: ['low', 'high'],
+                default_effort: 'high',
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+    });
+
+    expect(models[0]?.supportEfforts).toBeUndefined();
+    expect(models[0]?.defaultEffort).toBeUndefined();
+  });
+
+  it('writes supportEfforts and defaultEffort onto the provisioned model entry', async () => {
+    const config: ManagedPythinkerConfigShape = { providers: {} };
+
+    await provisionManagedPythinkerCodeConfig({
+      accessToken: 'oauth-access-token',
+      fetchImpl: vi.fn(async () => makeEffortModelsResponse()) as unknown as typeof fetch,
+      adapter: {
+        read: () => config,
+        write: vi.fn(),
+        apply: applyManagedPythinkerCodeConfig,
+      },
+    });
+
+    const alias = config.models?.['pythinker-code/kimi-for-coding'];
+    expect(alias?.['supportEfforts']).toEqual(['low', 'high', 'max']);
+    expect(alias?.['defaultEffort']).toBe('high');
+  });
+});
+
+describe('selective merge', () => {
+  const baseOptions = {
+    baseUrl: 'https://api.example.test/coding/v1',
+    oauthKey: 'test-key',
+  };
+
+  it('preserves non-managed user fields but drops stale managed fields', () => {
+    const config: ManagedPythinkerConfigShape = {
+      providers: {},
+      models: {
+        'pythinker-code/kimi-k2': {
+          provider: 'pythinker-code',
+          model: 'kimi-k2',
+          maxContextSize: 262144,
+          capabilities: ['thinking'],
+          maxOutputSize: 4096,
+          supportEfforts: ['low', 'high', 'max'],
+        } as Record<string, unknown>,
+      },
+    };
+
+    applyManagedPythinkerCodeConfig(config, {
+      ...baseOptions,
+      models: [
+        {
+          id: 'kimi-k2',
+          contextLength: 262144,
+          supportsReasoning: true,
+          supportsImageIn: false,
+          supportsVideoIn: false,
+          supportsThinkingType: 'both',
+        },
+      ],
+    });
+
+    const alias = config.models?.['pythinker-code/kimi-k2'];
+    expect(alias?.['maxOutputSize']).toBe(4096);
+    expect(alias?.['supportEfforts']).toBeUndefined();
+    expect(alias?.['maxContextSize']).toBe(262144);
+  });
+
+  it('preserves overrides when upstream declares managed fields', () => {
+    const config: ManagedPythinkerConfigShape = {
+      providers: {},
+      models: {
+        'pythinker-code/kimi-k2': {
+          provider: 'pythinker-code',
+          model: 'kimi-k2',
+          maxContextSize: 262144,
+          overrides: { supportEfforts: ['low'] },
+        } as Record<string, unknown>,
+      },
+    };
+
+    applyManagedPythinkerCodeConfig(config, {
+      ...baseOptions,
+      models: [
+        {
+          id: 'kimi-k2',
+          contextLength: 262144,
+          supportsReasoning: true,
+          supportsImageIn: false,
+          supportsVideoIn: false,
+          supportEfforts: ['low', 'high', 'max'],
+          defaultEffort: 'high',
+        },
+      ],
+    });
+
+    const alias = config.models?.['pythinker-code/kimi-k2'];
+    expect(alias?.['supportEfforts']).toEqual(['low', 'high', 'max']);
+    expect(alias?.['defaultEffort']).toBe('high');
+    expect(alias?.['overrides']).toEqual({ supportEfforts: ['low'] });
+  });
+
+  it('removes managed models that upstream no longer lists', () => {
+    const config: ManagedPythinkerConfigShape = {
+      providers: {},
+      models: {
+        'pythinker-code/kimi-k2': {
+          provider: PYTHINKER_CODE_PROVIDER_NAME,
+          model: 'kimi-k2',
+          maxContextSize: 262144,
+        },
+        'pythinker-code/removed': {
+          provider: PYTHINKER_CODE_PROVIDER_NAME,
+          model: 'removed',
+          maxContextSize: 128000,
+        },
+      },
+    };
+
+    applyManagedPythinkerCodeConfig(config, {
+      ...baseOptions,
+      models: [
+        {
+          id: 'kimi-k2',
+          contextLength: 262144,
+          supportsReasoning: true,
+          supportsImageIn: false,
+          supportsVideoIn: false,
+        },
+      ],
+    });
+
+    expect(config.models?.['pythinker-code/kimi-k2']).toBeDefined();
+    expect(config.models?.['pythinker-code/removed']).toBeUndefined();
+  });
+});
+
+describe('applyManagedApiKeyProviderModels', () => {
+  it('merges upstream models without touching provider, services, or defaults', () => {
+    const config: ManagedPythinkerConfigShape = {
+      providers: {
+        'my-pythinker': {
+          type: 'pythinker',
+          baseUrl: 'https://api.example.test/coding/v1',
+          apiKey: 'sk-distributed-key',
+        },
+      },
+      models: {
+        'my-pythinker/kimi-k2': {
+          provider: 'my-pythinker',
+          model: 'kimi-k2',
+          maxContextSize: 262144,
+          displayName: 'Old K2',
+          maxOutputSize: 4096,
+        } as Record<string, unknown>,
+        'my-pythinker/pythinker-old': {
+          provider: 'my-pythinker',
+          model: 'pythinker-old',
+          maxContextSize: 128000,
+        },
+        'other/m1': {
+          provider: 'other',
+          model: 'm1',
+          maxContextSize: 128000,
+        },
+      },
+      defaultModel: 'my-pythinker/kimi-k2',
+      thinking: { enabled: false },
+    };
+
+    applyManagedApiKeyProviderModels(
+      config,
+      'my-pythinker',
+      [makeModelInfo('kimi-k2', { displayName: 'Fresh K2' }), makeModelInfo('kimi-k2.5')],
+      'my-pythinker/',
+    );
+
+    // The provider record is user-owned: no rewrite, no oauth, no apiKey reset.
+    expect(config.providers['my-pythinker']).toEqual({
+      type: 'pythinker',
+      baseUrl: 'https://api.example.test/coding/v1',
+      apiKey: 'sk-distributed-key',
+    });
+    // Defaults and services are the orchestrator's / OAuth branch's business.
+    expect(config.defaultModel).toBe('my-pythinker/kimi-k2');
+    expect(config.thinking).toEqual({ enabled: false });
+    expect(config.services).toBeUndefined();
+    // Upstream-owned fields merge; hand-written extras survive.
+    const alias = config.models?.['my-pythinker/kimi-k2'];
+    expect(alias?.['displayName']).toBe('Fresh K2');
+    expect(alias?.['maxOutputSize']).toBe(4096);
+    // New upstream model added; dropped one removed; other providers untouched.
+    expect(config.models?.['my-pythinker/kimi-k2.5']).toBeDefined();
+    expect(config.models?.['my-pythinker/pythinker-old']).toBeUndefined();
+    expect(config.models?.['other/m1']).toBeDefined();
+  });
+
+  it('writes protocol routing fields for anthropic-protocol models', () => {
+    const config: ManagedPythinkerConfigShape = { providers: {}, models: {} };
+
+    applyManagedApiKeyProviderModels(
+      config,
+      'my-pythinker',
+      [makeModelInfo('kimi-for-coding', { protocol: 'anthropic', supportsReasoning: true })],
+      'my-pythinker/',
+    );
+
+    const alias = config.models?.['my-pythinker/kimi-for-coding'];
+    expect(alias?.['provider']).toBe('my-pythinker');
+    expect(alias?.['protocol']).toBe('anthropic');
+    expect(alias?.['betaApi']).toBe(true);
+    expect(alias?.['adaptiveThinking']).toBe(true);
+    expect(alias?.['capabilities']).toEqual(['thinking', 'tool_use']);
+  });
+
+  it('rejects models without a positive context length', () => {
+    const config: ManagedPythinkerConfigShape = { providers: {}, models: {} };
+
+    expect(() => {
+      applyManagedApiKeyProviderModels(
+        config,
+        'my-pythinker',
+        [makeModelInfo('bad', { contextLength: 0 })],
+        'my-pythinker/',
+      );
+    }).toThrow('context_length');
+  });
+});
+
+function makeModelInfo(
+  id: string,
+  overrides: Partial<ManagedPythinkerCodeModelInfo> = {},
+): ManagedPythinkerCodeModelInfo {
+  return {
+    id,
+    contextLength: 200000,
+    supportsReasoning: false,
+    supportsImageIn: false,
+    supportsVideoIn: false,
+    ...overrides,
+  };
+}
+
+const PYTHINKER_BASE_URL = 'https://api.kimi.com/coding/v1';
+
+describe('managed protocol routing', () => {
+  it('reads protocol from the /models response', async () => {
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            data: [{ id: 'kimi-for-coding', context_length: 262144, protocol: 'anthropic' }],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+    ) as unknown as typeof fetch;
+
+    const models = await fetchManagedPythinkerCodeModels({ accessToken: 't', fetchImpl });
+    expect(models).toHaveLength(1);
+    expect(models[0]?.protocol).toBe('anthropic');
+  });
+
+  it('keeps the provider on the pythinker REST base and records the model protocol when anthropic', () => {
+    const config: ManagedPythinkerConfigShape = { providers: {} };
+    applyManagedPythinkerCodeConfig(config, {
+      baseUrl: PYTHINKER_BASE_URL,
+      models: [makeModelInfo('kimi-for-coding', { protocol: 'anthropic' })],
+    });
+
+    // The provider stays on the pythinker wire + REST base; the anthropic transport
+    // is resolved per-model at runtime, not baked into the provider config, so
+    // the REST base keeps flowing to OAuth key derivation and plugin env.
+    expect(config.providers[PYTHINKER_CODE_PROVIDER_NAME]).toMatchObject({
+      type: 'pythinker',
+      baseUrl: PYTHINKER_BASE_URL,
+      apiKey: '',
+    });
+    expect(config.models?.['pythinker-code/kimi-for-coding']).toMatchObject({
+      provider: PYTHINKER_CODE_PROVIDER_NAME,
+      protocol: 'anthropic',
+      betaApi: true,
+    });
+  });
+
+  it('keeps the pythinker protocol and baseUrl when the model has no anthropic protocol', () => {
+    const config: ManagedPythinkerConfigShape = { providers: {} };
+    applyManagedPythinkerCodeConfig(config, {
+      baseUrl: PYTHINKER_BASE_URL,
+      models: [makeModelInfo('kimi-for-coding')],
+    });
+
+    expect(config.providers[PYTHINKER_CODE_PROVIDER_NAME]).toMatchObject({
+      type: 'pythinker',
+      baseUrl: PYTHINKER_BASE_URL,
+      apiKey: '',
+    });
+    expect(config.models?.['pythinker-code/kimi-for-coding']?.provider).toBe(PYTHINKER_CODE_PROVIDER_NAME);
+    expect(config.models?.['pythinker-code/kimi-for-coding']?.protocol).toBeUndefined();
+  });
+
+  it('drops the model protocol on refresh when the server stops declaring anthropic', () => {
+    const config: ManagedPythinkerConfigShape = { providers: {} };
+    applyManagedPythinkerCodeConfig(config, {
+      baseUrl: PYTHINKER_BASE_URL,
+      models: [makeModelInfo('kimi-for-coding', { protocol: 'anthropic' })],
+    });
+    expect(config.models?.['pythinker-code/kimi-for-coding']?.protocol).toBe('anthropic');
+
+    applyManagedPythinkerCodeConfig(config, {
+      baseUrl: PYTHINKER_BASE_URL,
+      models: [makeModelInfo('kimi-for-coding')],
+    });
+    // The provider never leaves the pythinker wire / REST base across refreshes —
+    // only the per-model protocol annotation changes.
+    expect(config.providers[PYTHINKER_CODE_PROVIDER_NAME]).toMatchObject({
+      type: 'pythinker',
+      baseUrl: PYTHINKER_BASE_URL,
+    });
+    expect(config.models?.['pythinker-code/kimi-for-coding']?.protocol).toBeUndefined();
   });
 });

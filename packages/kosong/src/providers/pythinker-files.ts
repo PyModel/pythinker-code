@@ -8,6 +8,7 @@ import type { ProviderRequestAuth, VideoUploadInput } from '#/provider';
 import type OpenAI from 'openai';
 import OpenAIClient from 'openai';
 
+import { classifyPythinkerQuotaError } from './pythinker-errors';
 import { convertOpenAIError } from './openai-common';
 import {
   mergeRequestHeaders,
@@ -128,7 +129,7 @@ export class PythinkerFiles {
         options?.signal ? { signal: options.signal } : undefined,
       )) as unknown as { id: string };
     } catch (error: unknown) {
-      throw convertOpenAIError(error);
+      throw convertOpenAIError(error, classifyPythinkerQuotaError);
     }
 
     return {

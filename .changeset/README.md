@@ -24,12 +24,9 @@ All other workspace packages are private internal packages, are not published to
 - `@pymodel/kosong`
 - `@pymodel/migration-legacy`
 - `@pymodel/protocol`
-- `@pymodel/server`
-- `@pymodel/server-e2e`
 - `@pymodel/vis`
 - `@pymodel/vis-server`
 - `@pymodel/vis-web`
-- `pythinker-migration-legacy`
 
 Version impact from internal dependencies must be judged manually. The published artifacts for CLI and SDK bundle internal workspace packages into the artifact itself; runtime `dependencies` of published packages must not include any `@pymodel/*` internal workspace packages.
 

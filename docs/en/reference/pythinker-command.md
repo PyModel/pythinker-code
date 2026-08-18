@@ -16,7 +16,7 @@ All flags are optional — run `pythinker` directly to enter an interactive sess
 | `--version` | `-V` | Print the version number and exit |
 | `--help` | `-h` | Show help information and exit |
 | `--session [id]` | `-S` | Resume a session. With an ID, opens that session directly; without an ID, enters an interactive selector |
-| `--continue` | `-C` | Continue the most recent session in the current working directory, without specifying an ID manually |
+| `--continue` | `-c` | Continue the most recent session in the current working directory, without specifying an ID manually |
 | `--model <model>` | `-m` | Specify a model alias for this launch. When omitted, new sessions use `default_model` from the config file |
 | `--prompt <prompt>` | `-p` | Run a single prompt non-interactively and stream the Assistant output to stdout. This mode does not open the TUI |
 | `--output-format <format>` | | Set the non-interactive output format; supports `text` and `stream-json`. Can only be used with `--prompt`; defaults to `text` |
@@ -24,6 +24,9 @@ All flags are optional — run `pythinker` directly to enter an interactive sess
 | `--auto` | | Start with auto permission mode; tool approvals are handled automatically and the Agent will not ask the user questions |
 | `--plan` | | Start a new session in Plan mode — the AI will prioritize read-only tools for exploration and planning |
 | `--skills-dir <dir>` | | Load Skills from the specified directory, replacing the automatically discovered user and project directories. Can be repeated |
+| `--agent <name>` | | Start a new session with the specified agent as the main Agent. Cannot be combined with `--session`/`--continue` |
+| `--agent-file <path>` | | Load a custom agent from a Markdown file for the new session and select it. Cannot be repeated or combined with `--agent`, `--session`, or `--continue` |
+| `--add-dir <dir>` | | Add an extra workspace directory for this session. Relative paths resolve against the current working directory. Can be repeated |
 
 `-r` / `--resume` is a hidden alias for `--session`; `--yes` and `--auto-approve` are hidden aliases for `--yolo` and are not shown in help output.
 
@@ -93,6 +96,17 @@ There are two ways to specify Skills directories, with different semantics:
 
 - **`extra_skill_dirs`** (`config.toml`): **Adds** directories on top of the automatically discovered ones, taking effect permanently. Suitable for configuring team-shared Skills. See [Agent Skills](../customization/skills.md).
 
+### Custom Agents
+
+`--agent` and `--agent-file` select which agent drives a new session, in both print mode (`pythinker -p`) and the interactive TUI:
+
+```sh
+pythinker --agent reviewer
+pythinker -p --agent reviewer "Review the changes on this branch"
+```
+
+`--agent-file` registers a single agent file at the highest priority for this launch only and selects it; the flag cannot be repeated, and `--agent` and `--agent-file` are mutually exclusive. Both flags only apply when starting a new session — neither can be combined with `--session`/`--continue`, because the agent is bound at session creation and resuming restores the bound agent automatically. The selection is fixed at the session's first bind and cannot be switched later; in the TUI the flags bind only the startup session, and a session created later in the same process (for example via `/new`) starts with the default agent. See [Agents and Sub-Agents](../customization/agents.md#custom-agents) for the agent file format and discovery directories.
+
 ## Non-Interactive Execution
 
 When running a single prompt in a script or CI environment, use `-p`:
@@ -119,7 +133,7 @@ In `stream-json` mode, regular replies produce an Assistant message; when the mo
 
 ## Subcommands
 
-`pythinker` provides the following subcommands: `login` (non-interactive login), `acp` (ACP IDE mode), `server` (run and manage the local REST/WebSocket/web service), `web` (alias for `pythinker server run --open`), `doctor` (validate configuration files), `export` (export a session), `migrate` (migrate legacy data), `upgrade` (check for updates), and `provider` (manage providers).
+`pythinker` provides the following subcommands: `login` (non-interactive login), `acp` (ACP IDE mode), `web` (run the local REST/WebSocket/web service in the foreground and open the web UI), `doctor` (validate configuration files), `export` (export a session), `migrate` (migrate legacy data), `upgrade` (check for updates), and `provider` (manage providers).
 
 ### `pythinker login`
 
@@ -139,69 +153,47 @@ Switch Pythinker Code CLI to ACP (Agent Client Protocol) mode, communicating wit
 pythinker acp
 ```
 
-### `pythinker server`
+### `pythinker web`
 
-Run, install, and manage the local Pythinker server — a single process that exposes the REST + WebSocket API and serves the web UI from the same origin. The parent command is split into an on-demand entrypoint (`run`) and an OS-managed service lifecycle (`install`, `uninstall`, `start`, `stop`, `restart`, `status`). `pythinker server run` ensures a single background daemon is running and returns once it is healthy; pass `--foreground` to keep the server attached to the current terminal instead.
+Run the local Pythinker server in the foreground of the current terminal — a single process that exposes the REST + WebSocket API and serves the web UI from the same origin — and open the web UI in the default browser once it is ready. The command stays attached to the terminal and shuts down cleanly on `SIGINT` / `SIGTERM` (e.g. `Ctrl-C`).
 
 When the server is running, `GET /openapi.json` returns the REST OpenAPI document and `GET /asyncapi.json` returns the local WebSocket AsyncAPI document.
 
 ```sh
-pythinker server run                # start or reuse a background daemon
-pythinker server run --foreground   # run attached to the current terminal
-pythinker server install            # register with launchd / systemd / schtasks
-pythinker server start              # start the OS-managed service
-pythinker server status             # snapshot of installed/running state
+pythinker web                 # run the server in the foreground and open the browser
+pythinker web --no-open       # don't open the browser
+pythinker web --port 58628    # pick a specific bind port
 ```
 
-#### `pythinker server run`
+Multiple instances can share one home directory: each registers itself under `~/.pythinker-code/server/instances/`, and a busy port is retried with `port + 1` (58628, 58629, …).
 
 | Option | Description |
 | --- | --- |
-| `--port <port>` | Bind port; defaults to `58627` |
+| `--port <port>` | Bind port; defaults to `58627`; a busy port is retried with `+1` |
+| `--host [host]` | Bind host; omit for `127.0.0.1` (this machine only), pass a bare `--host` for `0.0.0.0` (all interfaces) |
+| `--allowed-host <host...>` | Extra Host header values allowed through the DNS-rebinding check; repeatable or comma-separated |
 | `--log-level <level>` | Enable server logs at the selected level; omitted by default |
 | `--debug-endpoints` | Mount `/api/v1/debug/*` routes (off by default) |
-| `--foreground` | Run in the foreground instead of spawning a background daemon |
-| `--open` | Open the web UI in the default browser once the server is healthy |
+| `--dangerous-bypass-auth` | Disable bearer-token auth on all REST and WebSocket routes so the web UI connects without a token; only for trusted networks or behind an authenticating proxy |
+| `--no-open` | Do not open the browser once the server is ready |
 
-`pythinker server run` binds to local loopback only. By default it spawns a single background daemon (reused across runs) and exits once the daemon is healthy; the daemon shuts itself down after the last web client disconnects. Pass `--foreground` to run the server in the current process instead — it then stays attached to the terminal and shuts down cleanly on `SIGINT` / `SIGTERM`.
+`pythinker web` binds to local loopback only by default and prints the bearer token in the startup banner; the web UI authenticates automatically via the `#token=` URL fragment.
 
-#### `pythinker server install`
+::: info
+The `pythinker server` command tree is deprecated: any `pythinker server …` invocation (including all legacy subcommands) only prints a deprecation notice and exits with code 1 — use `pythinker web` instead. The one exception is `pythinker server kill`, which stays functional for stopping servers started by a version before 0.28.0. The notice will be removed in the next major version of Pythinker Code.
+:::
 
-Register the server as an OS-managed service so it starts at login and restarts after a crash. The backend picks itself based on the running platform:
+::: danger
+`--dangerous-bypass-auth` disables authentication entirely. Anyone who can reach the port gets full access to your sessions, filesystem, and shell. Only use it on a trusted network or behind your own authenticating reverse proxy, and stop the server with `Ctrl+C` when you are done.
+:::
 
-- **macOS**: writes a LaunchAgent plist to `~/Library/LaunchAgents/ai.pymodel.pythinker-server.plist` and bootstraps it via `launchctl bootstrap gui/<uid>`.
-- **Linux**: writes a `--user` systemd unit to `~/.config/systemd/user/pythinker-server.service` and runs `systemctl --user enable --now`.
-- **Windows**: registers a scheduled task named `PythinkerServer` via `schtasks /Create /XML`.
+#### `pythinker server kill`
 
-| Option | Description |
-| --- | --- |
-| `--port <port>` | Bind port the supervised server uses; defaults to `58627` |
-| `--log-level <level>` | Log level recorded in the generated unit |
-| `--force` | Replace an existing install instead of failing |
-| `--json` | Output JSON instead of a human-readable line |
+Deprecated — only stops a server started by a version before 0.28.0. Those versions could leave a background server behind, recorded in the legacy single-instance lock at `~/.pythinker-code/server/lock`; the command first tries `POST /api/v1/shutdown` for a graceful exit, then signals the recorded pid with SIGTERM, escalating to SIGKILL when needed, and removes the lock file once the process is confirmed dead. Servers started by `pythinker web` run in the foreground — stop them with `Ctrl+C` instead.
 
-The loopback host, chosen port, and log level are recorded to `~/.pythinker-code/server/install.json` so `pythinker server status` can report them even when the service is stopped.
+#### `pythinker web rotate-token`
 
-#### Lifecycle subcommands
-
-| Command | Description |
-| --- | --- |
-| `pythinker server uninstall` | Stop and remove the OS service definition. Idempotent. |
-| `pythinker server start` | Start the OS-managed service. Errors if not installed. |
-| `pythinker server stop` | Stop the OS-managed service. |
-| `pythinker server restart` | Restart the OS-managed service. |
-| `pythinker server status` | Print installed / running / pid / port / log-path. `--json` for automation. |
-
-#### `pythinker web`
-
-Alias for `pythinker server run` with `--open` defaulted to `true` — runs the server in the foreground and opens the web UI in the default browser once it is healthy. Use `--no-open` to skip the browser launch (effectively turning it back into `pythinker server run`).
-
-```sh
-pythinker web                        # foreground + open browser
-pythinker web --no-open              # equivalent to `pythinker server run`
-```
-
-The same `--port`, `--log-level`, and `--debug-endpoints` flags work as on `pythinker server run`.
+Generate a new persistent bearer token (written to `~/.pythinker-code/server.token`); the previous token stops working immediately. The token is shared by the whole home directory, so every running instance picks the new one up on its next auth check — no restart needed.
 
 ### `pythinker doctor`
 
@@ -270,7 +262,7 @@ For full migration instructions, see [Migrating from pythinker-cli](../guides/mi
 
 ### `pythinker upgrade`
 
-Immediately check for the latest version and display an update prompt; exits after you make a selection.
+Immediately check for the latest version and display an update prompt; exits after you make a selection. `pythinker update` is an alias for this command.
 
 ```sh
 pythinker upgrade
@@ -351,7 +343,7 @@ pythinker provider list --json | jq '.providers | keys'
 
 #### `pythinker provider catalog list [providerId]`
 
-Browse the public [models.dev](https://models.dev/) model catalog without modifying any configuration. Without an argument, lists all providers along with their protocol type and model count; with a `providerId`, lists all models under that provider along with their context window and capabilities.
+Browse the public [models.dev](https://models.dev/) model catalog without modifying any configuration. Without an argument, lists all providers along with their protocol type and model count; with a `providerId`, lists all models under that provider along with their context window and capabilities. If the catalog URL cannot be reached, a built-in snapshot of the catalog is used instead.
 
 | Parameter / Option | Description |
 | --- | --- |
@@ -368,13 +360,14 @@ pythinker provider catalog list anthropic
 
 #### `pythinker provider catalog add <providerId>`
 
-Import a known provider directly from the catalog by ID. The protocol type, base URL, and model information are all supplied by the catalog — only an API key is required.
+Import a known provider directly from the catalog by ID. The protocol type, base URL, and model information are all supplied by the catalog — only an API key is required. Vendors whose protocol the catalog does not declare (e.g. xai, openrouter, and other vendor-specific SDKs) are imported as OpenAI-compatible and the output notes the guess; when the catalog provides no usable endpoint, `--base-url` is required. Proprietary protocols (e.g. Amazon Bedrock) cannot be imported. When the public catalog is unreachable, the import uses the built-in snapshot, so it still works offline or in blocked networks.
 
 | Parameter / Option | Description |
 | --- | --- |
 | `<providerId>` | Provider ID in the catalog, e.g., `anthropic`, `openai` |
 | `--api-key <key>` | Provider API key. Falls back to `PYTHINKER_REGISTRY_API_KEY` if not provided; required |
 | `--default-model <modelId>` | Optional — set `default_model` to `<providerId>/<modelId>` after import |
+| `--base-url <url>` | Override the catalog endpoint; required when the catalog declares none (or only an env placeholder) |
 | `--url <url>` | Override the catalog URL; defaults to `https://models.dev/api.json` |
 
 ```sh
@@ -387,3 +380,4 @@ pythinker provider catalog add anthropic --api-key sk-ant-... --default-model cl
 - [Slash Commands](./slash-commands.md) — Quick reference for control commands in the interactive TUI
 - [Configuration Files](../configuration/config-files.md) — Persistent configuration for `default_model`, permission mode, and other startup parameters
 - [Agent Skills](../customization/skills.md) — Skill file format for directories loaded via `--skills-dir`
+- [Agents and Sub-Agents](../customization/agents.md) — Built-in sub-agents, custom agent files, and main Agent selection via `--agent`

@@ -668,7 +668,7 @@ describe('pythinker provider catalog add', () => {
         },
       },
       defaultModel: 'other/main',
-      defaultThinking: true,
+      thinking: { enabled: true },
     } as unknown as PythinkerConfig;
     const { harness, current, setConfigCalls } = makeHarness(initial);
     const { deps, stdout, exitCodes } = makeDeps(harness);
@@ -692,7 +692,7 @@ describe('pythinker provider catalog add', () => {
     // The unrelated provider's model survives, and remains the default.
     expect(finalConfig.models?.['other/main']).toBeDefined();
     expect(finalConfig.defaultModel).toBe('other/main');
-    expect(finalConfig.defaultThinking).toBe(true);
+    expect(finalConfig.thinking?.enabled).toBe(true);
     // The patch sent over `setConfig` must explicitly carry the preserved default.
     expect(setConfigCalls[0]?.defaultModel).toBe('other/main');
     expect(stdout.join('')).toContain('Imported Anthropic (anthropic)');
@@ -760,7 +760,7 @@ describe('pythinker provider catalog add', () => {
         },
       },
       defaultModel: 'anthropic/claude-opus-4-7',
-      defaultThinking: true,
+      thinking: { enabled: true },
     } as unknown as PythinkerConfig;
     const { harness, current } = makeHarness(initial);
     const { deps, exitCodes } = makeDeps(harness);
@@ -773,19 +773,19 @@ describe('pythinker provider catalog add', () => {
     expect(current().providers['anthropic']?.apiKey).toBe('sk-rotated');
     // Previous default and thinking flag must survive the re-import.
     expect(current().defaultModel).toBe('anthropic/claude-opus-4-7');
-    expect(current().defaultThinking).toBe(true);
+    expect(current().thinking?.enabled).toBe(true);
   });
 
-  it('preserves default_thinking when --default-model is supplied to a thinking-capable model', async () => {
+  it('preserves thinking.enabled when --default-model is supplied to a thinking-capable model', async () => {
     // Regression test for the codex P2: `applyCatalogProvider` always
-    // assigns `defaultThinking` from `options.thinking`. Hardcoding `false`
+    // assigns `thinking.enabled` from `options.thinking`. Hardcoding `false`
     // silently disabled thinking even when the user previously had it on
     // and is just importing a known provider. The handler now threads the
     // previous value through.
     mockRegistryFetch(CATALOG_BODY);
     const initial: PythinkerConfig = {
       providers: {},
-      defaultThinking: true,
+      thinking: { enabled: true },
     } as unknown as PythinkerConfig;
     const { harness, current, setConfigCalls } = makeHarness(initial);
     const { deps, exitCodes } = makeDeps(harness);
@@ -799,20 +799,20 @@ describe('pythinker provider catalog add', () => {
 
     expect(exitCodes).toEqual([]);
     expect(current().defaultModel).toBe('anthropic/claude-opus-4-7');
-    expect(current().defaultThinking).toBe(true);
-    expect(setConfigCalls[0]?.defaultThinking).toBe(true);
+    expect(current().thinking?.enabled).toBe(true);
+    expect(setConfigCalls[0]?.thinking?.enabled).toBe(true);
   });
 
-  it('does not persist default_thinking=false for first-time setup with --default-model', async () => {
+  it('does not persist thinking.enabled=false for first-time setup with --default-model', async () => {
     // Regression test for codex P2 follow-up: previously the handler fell
-    // back to `false` when `defaultThinking` was unset, but
-    // `resolveThinkingLevel` treats `defaultThinking === false` as an
+    // back to `false` when `thinking.enabled` was unset, but
+    // `resolveThinkingEffort` treats `thinking.enabled === false` as an
     // explicit "off" request. A fresh `pythinker provider catalog add
     // anthropic --default-model claude-opus-4-7` must NOT silently disable
-    // thinking — it should leave `defaultThinking` unset so the runtime
+    // thinking — it should leave `thinking.enabled` unset so the runtime
     // uses the per-model default.
     mockRegistryFetch(CATALOG_BODY);
-    // Note: `defaultThinking` is omitted on purpose to model a fresh user.
+    // Note: `thinking.enabled` is omitted on purpose to model a fresh user.
     const { harness, current, setConfigCalls } = makeHarness({
       providers: {},
     } as PythinkerConfig);
@@ -829,8 +829,8 @@ describe('pythinker provider catalog add', () => {
     expect(current().defaultModel).toBe('anthropic/claude-opus-4-7');
     // Must NOT be `false`. `undefined` lets the runtime resolver pick the
     // per-model default; `false` would force `'off'`.
-    expect(current().defaultThinking).toBeUndefined();
-    expect(setConfigCalls[0]?.defaultThinking).toBeUndefined();
+    expect(current().thinking?.enabled).toBeUndefined();
+    expect(setConfigCalls[0]?.thinking?.enabled).toBeUndefined();
   });
 
   it('drops a stale default_model when the catalog refresh no longer contains it', async () => {
@@ -888,6 +888,93 @@ describe('pythinker provider catalog add', () => {
     expect(current().providers['openai']).toMatchObject({ apiKey: 'sk-env' });
   });
 
+  it('lets --base-url override the catalog-declared endpoint', async () => {
+    mockRegistryFetch(CATALOG_BODY);
+    const { harness, current } = makeHarness({ providers: {} } as PythinkerConfig);
+    const { deps, exitCodes } = makeDeps(harness);
+
+    await tryRun(() =>
+      handleCatalogAdd(deps, 'openai', {
+        apiKey: 'sk-o',
+        baseUrl: 'https://proxy.example.test/v1',
+      }),
+    );
+
+    expect(exitCodes).toEqual([]);
+    expect(current().providers['openai']).toMatchObject({
+      type: 'openai',
+      baseUrl: 'https://proxy.example.test/v1',
+    });
+  });
+
+  it('strips a trailing /v1 from --base-url for Anthropic-wire imports', async () => {
+    mockRegistryFetch({
+      'claude-gateway': {
+        id: 'claude-gateway',
+        name: 'Claude Gateway',
+        npm: '@custom/claude-gateway',
+        models: { 'claude-x': { id: 'claude-x', limit: { context: 1000 } } },
+      },
+    });
+    const { harness, current } = makeHarness({ providers: {} } as PythinkerConfig);
+    const { deps, exitCodes } = makeDeps(harness);
+
+    await tryRun(() =>
+      handleCatalogAdd(deps, 'claude-gateway', {
+        apiKey: 'sk-gw',
+        baseUrl: 'https://claude-gateway.example.test/v1',
+      }),
+    );
+
+    expect(exitCodes).toEqual([]);
+    expect(current().providers['claude-gateway']).toMatchObject({
+      type: 'anthropic',
+      // The Anthropic SDK appends /v1/messages itself — persisting the /v1
+      // would double it (/v1/v1/messages).
+      baseUrl: 'https://claude-gateway.example.test',
+    });
+  });
+
+  it('rejects an empty --base-url instead of persisting a blank endpoint', async () => {
+    mockRegistryFetch(CATALOG_BODY);
+    const { harness } = makeHarness({ providers: {} } as PythinkerConfig);
+    const { deps, stderr, exitCodes } = makeDeps(harness);
+
+    await tryRun(() => handleCatalogAdd(deps, 'openai', { apiKey: 'sk-o', baseUrl: '   ' }));
+
+    expect(exitCodes).toEqual([1]);
+    expect(stderr.join('')).toContain('--base-url cannot be empty');
+    await expect(harness.getConfig().then((c) => c.providers['openai'])).resolves.toBeUndefined();
+  });
+
+  it('requires --base-url for a non-official Anthropic-compatible vendor without one', async () => {
+    mockRegistryFetch({
+      'claude-gateway': {
+        id: 'claude-gateway',
+        name: 'Claude Gateway',
+        npm: '@custom/claude-gateway',
+        models: { 'claude-x': { id: 'claude-x', limit: { context: 1000 } } },
+      },
+    });
+    const { harness, current } = makeHarness({ providers: {} } as PythinkerConfig);
+    const { deps, stderr, exitCodes } = makeDeps(harness);
+
+    await tryRun(() => handleCatalogAdd(deps, 'claude-gateway', { apiKey: 'sk-gw' }));
+    expect(exitCodes).toEqual([1]);
+    expect(stderr.join('')).toContain('--base-url');
+
+    await tryRun(() =>
+      handleCatalogAdd(deps, 'claude-gateway', {
+        apiKey: 'sk-gw',
+        baseUrl: 'https://claude-gateway.example.test',
+      }),
+    );
+    expect(current().providers['claude-gateway']).toMatchObject({
+      type: 'anthropic',
+      baseUrl: 'https://claude-gateway.example.test',
+    });
+  });
+
   it('exits 1 when the api key is missing and skips the network', async () => {
     const fetchMock = mockRegistryFetch(CATALOG_BODY);
     const { harness } = makeHarness({ providers: {} } as PythinkerConfig);
@@ -911,5 +998,98 @@ describe('pythinker provider catalog add', () => {
 
     expect(exitCodes).toEqual([1]);
     expect(stderr.join('')).toContain('Provider "no-such-id" not found in catalog');
+  });
+
+  const GUESS_CATALOG_BODY = {
+    xai: {
+      id: 'xai',
+      name: 'xAI',
+      npm: '@ai-sdk/xai',
+      env: ['XAI_API_KEY'],
+      models: {
+        'grok-4': {
+          id: 'grok-4',
+          limit: { context: 256_000 },
+          reasoning: true,
+          reasoning_options: [{ type: 'effort', values: ['none', 'low', 'medium', 'high'] }],
+        },
+      },
+    },
+    bedrock: {
+      id: 'amazon-bedrock',
+      name: 'Amazon Bedrock',
+      npm: '@ai-sdk/amazon-bedrock',
+      models: { 'claude-x': { id: 'claude-x', limit: { context: 1000 } } },
+    },
+    azure: {
+      id: 'azure',
+      name: 'Azure',
+      npm: '@ai-sdk/azure',
+      env: ['AZURE_API_KEY'],
+      models: { 'gpt-x': { id: 'gpt-x', limit: { context: 1000 } } },
+    },
+  };
+
+  it('guesses openai for a vendor-specific SDK and requires --base-url', async () => {
+    mockRegistryFetch(GUESS_CATALOG_BODY);
+    const { harness } = makeHarness({ providers: {} } as PythinkerConfig);
+    const { deps, stderr, exitCodes } = makeDeps(harness);
+
+    await tryRun(() => handleCatalogAdd(deps, 'xai', { apiKey: 'sk-xai' }));
+
+    expect(exitCodes).toEqual([1]);
+    expect(stderr.join('')).toContain('--base-url');
+    await expect(harness.getConfig().then((c) => c.providers['xai'])).resolves.toBeUndefined();
+  });
+
+  it('imports a guessed vendor with --base-url, carrying off_effort and a guess note', async () => {
+    mockRegistryFetch(GUESS_CATALOG_BODY);
+    const { harness, current } = makeHarness({ providers: {} } as PythinkerConfig);
+    const { deps, stdout, exitCodes } = makeDeps(harness);
+
+    await tryRun(() =>
+      handleCatalogAdd(deps, 'xai', { apiKey: 'sk-xai', baseUrl: 'https://api.x.ai/v1' }),
+    );
+
+    expect(exitCodes).toEqual([]);
+    expect(current().providers['xai']).toMatchObject({
+      type: 'openai',
+      baseUrl: 'https://api.x.ai/v1',
+      apiKey: 'sk-xai',
+    });
+    expect(current().models?.['xai/grok-4']).toMatchObject({
+      supportEfforts: ['low', 'medium', 'high'],
+      offEffort: 'none',
+    });
+    expect(stdout.join('')).toContain('guessed "openai"');
+  });
+
+  it('refuses a proprietary SDK (bedrock) instead of guessing', async () => {
+    mockRegistryFetch(GUESS_CATALOG_BODY);
+    const { harness } = makeHarness({ providers: {} } as PythinkerConfig);
+    const { deps, stderr, exitCodes } = makeDeps(harness);
+
+    await tryRun(() => handleCatalogAdd(deps, 'bedrock', { apiKey: 'sk-x' }));
+
+    expect(exitCodes).toEqual([1]);
+    expect(stderr.join('')).toContain('proprietary');
+  });
+
+  it('requires --base-url for a vendor with no catalog endpoint (azure shape)', async () => {
+    mockRegistryFetch(GUESS_CATALOG_BODY);
+    const { harness, current } = makeHarness({ providers: {} } as PythinkerConfig);
+    const { deps, stderr, exitCodes } = makeDeps(harness);
+
+    await tryRun(() => handleCatalogAdd(deps, 'azure', { apiKey: 'sk-az' }));
+    expect(exitCodes).toEqual([1]);
+    expect(stderr.join('')).toContain('--base-url');
+
+    await tryRun(() =>
+      handleCatalogAdd(deps, 'azure', { apiKey: 'sk-az', baseUrl: 'https://res.example.test/openai/v1' }),
+    );
+    expect(current().providers['azure']).toMatchObject({
+      type: 'openai',
+      baseUrl: 'https://res.example.test/openai/v1',
+    });
   });
 });

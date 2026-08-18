@@ -3,13 +3,21 @@ import { createHash } from 'node:crypto';
 import { readApiErrorMessage } from './api-error';
 import { DEFAULT_PYTHINKER_CODE_OAUTH_HOST } from './constants';
 import { OAuthUnauthorizedError } from './errors';
+import { parsePythinkerCodeCustomHeaders } from './identity';
 import { DEFAULT_PYTHINKER_CODE_BASE_URL, pythinkerCodeBaseUrl } from './managed-usage';
+import { MANAGED_PYTHINKER_MODEL_FIELDS, mergeRefreshedModelAlias } from './model-alias-merge';
 import { isRecord } from './utils';
 
 export const PYTHINKER_CODE_PLATFORM_ID = 'pythinker-code';
 export const PYTHINKER_CODE_PROVIDER_NAME = 'managed:pythinker-code';
 export const PYTHINKER_CODE_OAUTH_KEY = 'oauth/pythinker-code';
 const PYTHINKER_CODE_SCOPED_OAUTH_KEY_PREFIX = 'oauth/pythinker-code-env-';
+
+export type ManagedPythinkerCodeProtocol = 'pythinker' | 'anthropic';
+
+export function parseModelProtocol(value: unknown): ManagedPythinkerCodeProtocol | undefined {
+  return value === 'anthropic' ? 'anthropic' : undefined;
+}
 
 /**
  * Server-declared thinking toggle support from `/models`:
@@ -28,7 +36,10 @@ export interface ManagedPythinkerCodeModelInfo {
   readonly supportsVideoIn: boolean;
   readonly supportsToolUse?: boolean;
   readonly supportsThinkingType?: SupportsThinkingType;
+  readonly supportEfforts?: readonly string[];
+  readonly defaultEffort?: string;
   readonly displayName?: string | undefined;
+  readonly protocol?: ManagedPythinkerCodeProtocol | undefined;
 }
 
 export interface ManagedPythinkerCodeProvisionResult {
@@ -43,6 +54,14 @@ export interface FetchManagedPythinkerCodeModelsOptions {
   readonly accessToken: string;
   readonly baseUrl?: string | undefined;
   readonly fetchImpl?: typeof fetch | undefined;
+  readonly headers?: Record<string, string> | undefined;
+  /**
+   * What `accessToken` actually is; only affects auth-error wording. Defaults
+   * to 'oauth' (the managed login flow); api-key providers refreshed against
+   * the managed endpoint pass 'apiKey' so a 401 doesn't tell the user their
+   * "OAuth credentials" were rejected.
+   */
+  readonly credentialKind?: 'oauth' | 'apiKey' | undefined;
 }
 
 export interface ManagedPythinkerCodeApplyResult {
@@ -95,9 +114,12 @@ export class ManagedPythinkerCodeModelsAuthError extends OAuthUnauthorizedError 
     readonly status: number;
     readonly baseUrl: string;
     readonly message: string;
+    readonly credentialKind?: 'oauth' | 'apiKey' | undefined;
   }) {
     super(
-      `Pythinker Code models endpoint ${options.baseUrl} rejected OAuth credentials: ${options.message}`,
+      `Pythinker Code models endpoint ${options.baseUrl} rejected ${
+        options.credentialKind === 'apiKey' ? 'the API key' : 'OAuth credentials'
+      }: ${options.message}`,
     );
     this.name = 'ManagedPythinkerCodeModelsAuthError';
     this.status = options.status;
@@ -106,10 +128,22 @@ export class ManagedPythinkerCodeModelsAuthError extends OAuthUnauthorizedError 
 }
 
 export interface ManagedPythinkerProviderConfig {
-  type: 'pythinker';
+  type: ManagedPythinkerCodeProtocol;
   baseUrl?: string | undefined;
   apiKey?: string | undefined;
   oauth?: ManagedPythinkerOAuthRef | undefined;
+  readonly [key: string]: unknown;
+}
+
+export interface ManagedPythinkerModelAliasOverrides {
+  maxContextSize?: number | undefined;
+  maxOutputSize?: number | undefined;
+  capabilities?: string[] | undefined;
+  displayName?: string | undefined;
+  reasoningKey?: string | undefined;
+  adaptiveThinking?: boolean | undefined;
+  supportEfforts?: readonly string[] | undefined;
+  defaultEffort?: string | undefined;
   readonly [key: string]: unknown;
 }
 
@@ -118,7 +152,13 @@ export interface ManagedPythinkerModelAlias {
   model: string;
   maxContextSize: number;
   capabilities?: string[] | undefined;
+  supportEfforts?: readonly string[] | undefined;
+  defaultEffort?: string | undefined;
   displayName?: string | undefined;
+  protocol?: ManagedPythinkerCodeProtocol;
+  betaApi?: boolean;
+  adaptiveThinking?: boolean | undefined;
+  overrides?: ManagedPythinkerModelAliasOverrides | undefined;
   readonly [key: string]: unknown;
 }
 
@@ -134,11 +174,17 @@ export interface ManagedPythinkerServicesConfig {
   readonly [key: string]: unknown;
 }
 
+export interface ManagedPythinkerThinkingShape {
+  enabled?: boolean | undefined;
+  effort?: string | undefined;
+  [key: string]: unknown;
+}
+
 export interface ManagedPythinkerConfigShape {
   providers: Record<string, ManagedPythinkerProviderConfig | Record<string, unknown>>;
   models?: Record<string, ManagedPythinkerModelAlias | Record<string, unknown>> | undefined;
   defaultModel?: string | undefined;
-  defaultThinking?: boolean | undefined;
+  thinking?: ManagedPythinkerThinkingShape | undefined;
   services?: ManagedPythinkerServicesConfig | undefined;
   [key: string]: unknown;
 }
@@ -168,6 +214,7 @@ export interface ProvisionManagedPythinkerCodeConfigOptions<TConfig> {
   readonly oauthHost?: string | undefined;
   readonly preserveDefaultModel?: boolean | undefined;
   readonly fetchImpl?: typeof fetch | undefined;
+  readonly headers?: Record<string, string> | undefined;
 }
 
 function managedModelKey(modelId: string): string {
@@ -264,6 +311,11 @@ export function pythinkerCodeEnvOAuthHost(env: ManagedPythinkerEnv = process.env
   return env.PYTHINKER_CODE_OAUTH_HOST ?? env.PYTHINKER_OAUTH_HOST;
 }
 
+// Base URLs that share the default `oauth/pythinker-code` credential slot.
+const SHARED_DEFAULT_BASE_URLS: readonly string[] = [
+  normalizeEndpoint(DEFAULT_PYTHINKER_CODE_BASE_URL),
+];
+
 export function resolvePythinkerCodeOAuthKey(options: {
   readonly oauthHost?: string | undefined;
   readonly baseUrl?: string | undefined;
@@ -271,9 +323,8 @@ export function resolvePythinkerCodeOAuthKey(options: {
   const oauthHost = normalizeEndpoint(options.oauthHost ?? DEFAULT_PYTHINKER_CODE_OAUTH_HOST);
   const baseUrl = defaultBaseUrl(options.baseUrl);
   const defaultOauthHost = normalizeEndpoint(DEFAULT_PYTHINKER_CODE_OAUTH_HOST);
-  const defaultApiBaseUrl = normalizeEndpoint(DEFAULT_PYTHINKER_CODE_BASE_URL);
 
-  if (oauthHost === defaultOauthHost && baseUrl === defaultApiBaseUrl) {
+  if (oauthHost === defaultOauthHost && SHARED_DEFAULT_BASE_URLS.includes(baseUrl)) {
     return PYTHINKER_CODE_OAUTH_KEY;
   }
 
@@ -375,6 +426,9 @@ function toModelInfo(item: unknown): ManagedPythinkerCodeModelInfo | undefined {
   const supportsToolUse = Object.hasOwn(item, 'supports_tool_use')
     ? Boolean(item['supports_tool_use'])
     : true;
+  // Effort levels come from the nested `think_efforts` object
+  // ({ support, valid_efforts, default_effort }) returned by /models.
+  const thinkEfforts = parseThinkEfforts(item['think_efforts']);
   return {
     id: item['id'],
     contextLength,
@@ -383,14 +437,51 @@ function toModelInfo(item: unknown): ManagedPythinkerCodeModelInfo | undefined {
     supportsVideoIn: Boolean(item['supports_video_in']),
     supportsToolUse,
     supportsThinkingType: parseSupportsThinkingType(item['supports_thinking_type']),
+    supportEfforts: thinkEfforts.supportEfforts,
+    defaultEffort: thinkEfforts.defaultEffort,
     displayName: normalizedDisplayName,
+    protocol: parseModelProtocol(item['protocol']),
   };
+}
+
+export function parseStringArray(value: unknown): readonly string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const out = value.filter((v): v is string => typeof v === 'string' && v.length > 0);
+  return out.length > 0 ? out : undefined;
 }
 
 // Unknown or missing values resolve to undefined so callers fall back to the
 // legacy supports_reasoning boolean instead of guessing.
 export function parseSupportsThinkingType(value: unknown): SupportsThinkingType | undefined {
   return value === 'only' || value === 'no' || value === 'both' ? value : undefined;
+}
+
+/**
+ * Parse the nested `think_efforts` object from `/models`:
+ *   { "support": true, "valid_efforts": ["low", "high", "max"], "default_effort": "high" }
+ * Returns the effort list and default effort, or undefineds when absent so
+ * callers can fall back to the legacy flat `support_efforts` / `default_effort`
+ * fields on older servers.
+ */
+export function parseThinkEfforts(value: unknown): {
+  supportEfforts: readonly string[] | undefined;
+  defaultEffort: string | undefined;
+} {
+  if (value === null || typeof value !== 'object') {
+    return { supportEfforts: undefined, defaultEffort: undefined };
+  }
+  const record = value as Record<string, unknown>;
+  // `support` gates the whole object: when it is not true, ignore
+  // valid_efforts / default_effort entirely.
+  if (record['support'] !== true) {
+    return { supportEfforts: undefined, defaultEffort: undefined };
+  }
+  const rawDefault = record['default_effort'];
+  return {
+    supportEfforts: parseStringArray(record['valid_efforts']),
+    defaultEffort:
+      typeof rawDefault === 'string' && rawDefault.length > 0 ? rawDefault : undefined,
+  };
 }
 
 export async function fetchManagedPythinkerCodeModels(
@@ -400,6 +491,8 @@ export async function fetchManagedPythinkerCodeModels(
   const baseUrl = defaultBaseUrl(options.baseUrl);
   const response = await fetchImpl(`${baseUrl}/models`, {
     headers: {
+      ...parsePythinkerCodeCustomHeaders(),
+      ...options.headers,
       Authorization: `Bearer ${options.accessToken}`,
       Accept: 'application/json',
     },
@@ -414,6 +507,7 @@ export async function fetchManagedPythinkerCodeModels(
         status: response.status,
         baseUrl,
         message,
+        credentialKind: options.credentialKind,
       });
     }
     throw new Error(message);
@@ -425,6 +519,45 @@ export async function fetchManagedPythinkerCodeModels(
   return payload['data']
     .map((item) => toModelInfo(item))
     .filter((item): item is ManagedPythinkerCodeModelInfo => item !== undefined);
+}
+
+/**
+ * Builds the upstream-owned alias record for one `/models` entry. Shared by
+ * `applyManagedPythinkerCodeConfig` (OAuth provisioning/refresh) and
+ * `applyManagedApiKeyProviderModels` (api-key provider refresh) so both write
+ * identical upstream-owned fields for the same model payload.
+ */
+export function toManagedModelAlias(
+  providerId: string,
+  model: ManagedPythinkerCodeModelInfo,
+): ManagedPythinkerModelAlias {
+  const capabilities = capabilitiesForModel(model);
+  // Pythinker's Anthropic-compatible endpoint only accepts adaptive thinking
+  // (`thinking: { type: 'adaptive' }`); the kosong adapter otherwise infers
+  // budget-based thinking from the model name, which fails for Pythinker model ids.
+  // Restrict the override to thinking-capable models: the UI treats
+  // `adaptiveThinking === true` as "supports a thinking toggle", so marking a
+  // non-thinking model would misrepresent it.
+  const supportsAdaptiveThinking =
+    model.protocol === 'anthropic' &&
+    (capabilities?.includes('thinking') === true ||
+      capabilities?.includes('always_thinking') === true);
+  return {
+    provider: providerId,
+    model: model.id,
+    maxContextSize: model.contextLength,
+    capabilities,
+    ...(model.displayName !== undefined ? { displayName: model.displayName } : {}),
+    ...(model.supportEfforts !== undefined ? { supportEfforts: model.supportEfforts } : {}),
+    ...(model.defaultEffort !== undefined ? { defaultEffort: model.defaultEffort } : {}),
+    protocol: model.protocol,
+    // Pythinker's anthropic-compatible endpoint is served behind the beta Messages
+    // API (`/v1/messages?beta=true`), so route anthropic-protocol models
+    // through `client.beta.messages.create`. Cleared on refresh when the
+    // server stops declaring anthropic so stale routing never lingers.
+    betaApi: model.protocol === 'anthropic' ? true : undefined,
+    adaptiveThinking: supportsAdaptiveThinking ? true : undefined,
+  };
 }
 
 export function applyManagedPythinkerCodeConfig(
@@ -461,25 +594,34 @@ export function applyManagedPythinkerCodeConfig(
     oauth,
   };
 
+  // Selectively merge upstream models into the existing config so any fields
+  // the user added by hand (or that upstream does not declare) survive a
+  // refresh. Managed models that upstream no longer lists are removed; the
+  // rest are merged field-by-field — upstream-owned fields are overwritten,
+  // everything else is preserved.
+  const upstreamKeys = new Set(options.models.map((m) => managedModelKey(m.id)));
   for (const [key, model] of Object.entries(existingModels)) {
-    if (isRecord(model) && model['provider'] === PYTHINKER_CODE_PROVIDER_NAME) {
+    if (
+      isRecord(model) &&
+      model['provider'] === PYTHINKER_CODE_PROVIDER_NAME &&
+      !upstreamKeys.has(key)
+    ) {
       delete existingModels[key];
     }
   }
   for (const model of options.models) {
-    const capabilities = capabilitiesForModel(model);
-    existingModels[managedModelKey(model.id)] = {
-      provider: PYTHINKER_CODE_PROVIDER_NAME,
-      model: model.id,
-      maxContextSize: model.contextLength,
-      capabilities,
-      displayName: model.displayName,
-    };
+    const key = managedModelKey(model.id);
+    const existing = isRecord(existingModels[key]) ? existingModels[key] : {};
+    existingModels[key] = mergeRefreshedModelAlias(
+      existing,
+      toManagedModelAlias(PYTHINKER_CODE_PROVIDER_NAME, model),
+      MANAGED_PYTHINKER_MODEL_FIELDS,
+    );
   }
 
   config.models = existingModels;
   config.defaultModel = selectedDefault.modelKey;
-  config.defaultThinking = selectedDefault.thinking;
+  config.thinking = { ...config.thinking, enabled: selectedDefault.thinking };
   config.services = {
     pymodelSearch: {
       baseUrl: `${baseUrl}/search`,
@@ -497,6 +639,54 @@ export function applyManagedPythinkerCodeConfig(
     defaultModel: selectedDefault.modelKey,
     defaultThinking: selectedDefault.thinking,
   };
+}
+
+/**
+ * Merge refreshed `/models` entries into the aliases of an api-key provider
+ * pointing at the managed Pythinker Code endpoint (a hand-configured provider using
+ * a distributed API key instead of OAuth). Unlike `applyManagedPythinkerCodeConfig`
+ * this touches ONLY `config.models`: the provider record (type / baseUrl /
+ * apiKey and any hand-written extras), `services`, `defaultModel`, and
+ * `thinking` are all left untouched — the provider is user-owned, only its
+ * model catalog is upstream-owned.
+ *
+ * `aliasPrefix` scopes which aliases count as refresh-generated:
+ * `${providerId}/` for ordinary providers, `pythinker-code/` for a hand-written
+ * `managed:pythinker-code` entry so its aliases line up with the OAuth provisioned
+ * shape. Aliases outside the prefix are the caller's responsibility (the
+ * refresh orchestrator preserves them via `preserveUserProviderAliases`).
+ */
+export function applyManagedApiKeyProviderModels(
+  config: ManagedPythinkerConfigShape,
+  providerId: string,
+  models: readonly ManagedPythinkerCodeModelInfo[],
+  aliasPrefix: string,
+): void {
+  for (const model of models) {
+    assertPositiveContextLength(model);
+  }
+
+  const existingModels = config.models ?? {};
+  // Same merge contract as `applyManagedPythinkerCodeConfig`: upstream-owned fields
+  // are overwritten, hand-written extras survive, and aliases upstream no
+  // longer lists are removed (the orchestrator restores non-prefix ones).
+  const upstreamKeys = new Set(models.map((m) => `${aliasPrefix}${m.id}`));
+  for (const [key, model] of Object.entries(existingModels)) {
+    if (isRecord(model) && model['provider'] === providerId && !upstreamKeys.has(key)) {
+      delete existingModels[key];
+    }
+  }
+  for (const model of models) {
+    const key = `${aliasPrefix}${model.id}`;
+    const existing = isRecord(existingModels[key]) ? existingModels[key] : {};
+    existingModels[key] = mergeRefreshedModelAlias(
+      existing,
+      toManagedModelAlias(providerId, model),
+      MANAGED_PYTHINKER_MODEL_FIELDS,
+    );
+  }
+
+  config.models = existingModels;
 }
 
 export function applyManagedPythinkerCodeLogoutConfig(config: ManagedPythinkerConfigShape): void {
@@ -528,7 +718,7 @@ export function applyManagedPythinkerCodeLogoutConfig(config: ManagedPythinkerCo
   }
 }
 
-// The server's three-state declaration overrides any stale defaultThinking
+// The server's three-state declaration overrides any stale thinking.enabled
 // being preserved from an earlier config: an always-thinking model ('only')
 // must never end up with thinking off, and a non-thinking model ('no') must
 // never end up with thinking on.
@@ -568,14 +758,14 @@ function selectDefaultModel(
       modelKey: currentDefault,
       thinking: forcedThinking(
         preservedModel,
-        config.defaultThinking ?? preservedModel?.supportsReasoning ?? false,
+        config.thinking?.enabled ?? preservedModel?.supportsReasoning ?? false,
       ),
     };
   }
 
   return {
     modelKey: managedModelKey(firstModel.id),
-    thinking: forcedThinking(firstModel, config.defaultThinking ?? firstModel.supportsReasoning),
+    thinking: forcedThinking(firstModel, config.thinking?.enabled ?? firstModel.supportsReasoning),
   };
 }
 

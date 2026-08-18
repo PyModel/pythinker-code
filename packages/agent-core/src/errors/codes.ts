@@ -49,6 +49,7 @@ export const ErrorCodes = {
   CONTEXT_OVERFLOW: 'context.overflow',
   LOOP_MAX_STEPS_EXCEEDED: 'loop.max_steps_exceeded',
   PROVIDER_API_ERROR: 'provider.api_error',
+  PROVIDER_FILTERED: 'provider.filtered',
   PROVIDER_RATE_LIMIT: 'provider.rate_limit',
   PROVIDER_AUTH_ERROR: 'provider.auth_error',
   PROVIDER_CONNECTION_ERROR: 'provider.connection_error',
@@ -61,7 +62,7 @@ export const ErrorCodes = {
   COMPACTION_FAILED: 'compaction.failed',
   COMPACTION_UNABLE: 'compaction.unable',
 
-  BACKGROUND_TASK_ID_EMPTY: 'background.task_id_empty',
+  BACKGROUND_TASK_ID_EMPTY: 'task.task_id_empty',
   MCP_SERVER_NOT_FOUND: 'mcp.server_not_found',
   MCP_SERVER_DISABLED: 'mcp.server_disabled',
   MCP_STARTUP_FAILED: 'mcp.startup_failed',
@@ -301,13 +302,19 @@ export const PYTHINKER_ERROR_INFO = {
     title: 'Turn exceeded max steps',
     retryable: false,
     public: true,
-    action: 'Increase loop_control.max_steps_per_turn or split the task.',
+    action: 'Increase loop_control.max_steps_per_turn in config.toml or split the task.',
   },
   'provider.api_error': {
     title: 'Provider API error',
     retryable: false,
     public: true,
     action: 'Inspect details.statusCode / details.requestId; check provider status.',
+  },
+  'provider.filtered': {
+    title: 'Provider filtered response',
+    retryable: false,
+    public: true,
+    action: 'Revise the prompt or model configuration to avoid provider safety filtering.',
   },
   'provider.rate_limit': {
     title: 'Provider rate limit',
@@ -366,7 +373,7 @@ export const PYTHINKER_ERROR_INFO = {
     action: 'The current history has no prefix that can be compacted (e.g. only a pending user message). Start a new turn or session instead.',
   },
 
-  'background.task_id_empty': {
+  'task.task_id_empty': {
     title: 'Background task id is empty',
     retryable: false,
     public: true,

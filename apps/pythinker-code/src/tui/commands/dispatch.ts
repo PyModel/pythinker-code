@@ -1,4 +1,4 @@
-import type { Component, Focusable } from '@earendil-works/pi-tui';
+import type { Component, Focusable } from '@pymodel/pi-tui';
 import type { DeviceAuthorization } from '@pymodel/pythinker-code-oauth';
 import type { PythinkerHarness, Session } from '@pymodel/pythinker-code-sdk';
 
@@ -21,12 +21,15 @@ import type {
 import { formatErrorMessage } from '../utils/event-payload';
 import { handleLoginCommand, handleLogoutCommand } from './auth';
 import { handleBtwCommand } from './btw';
+import { handleCopyCommand } from './copy';
 import {
   handleAutoCommand,
   handleCompactCommand,
   handleEditorCommand,
+  handleEffortCommand,
   handleModelCommand,
   handlePlanCommand,
+  handleSecondaryModelCommand,
   handleThemeCommand,
   handleYoloCommand,
   showExperimentsPanel,
@@ -36,12 +39,22 @@ import {
 } from './config';
 import { handleGoalCommand } from './goal';
 import { handleFeedbackCommand, showMcpServers, showStatusReport, showUsage } from './info';
+import { handleAddDirCommand } from './add-dir';
 import { parseSlashInput } from './parse';
 import { handlePluginsCommand } from './plugins';
 import { handleProviderCommand } from './provider';
-import type { BuiltinSlashCommandName } from './registry';
+import {
+  findBuiltInSlashCommand,
+  resolveSlashCommandAvailability,
+  type BuiltinSlashCommandName,
+} from './registry';
 import { handleReloadCommand, handleReloadTuiCommand } from './reload';
-import { resolveSlashCommandInput, slashBusyMessage } from './resolve';
+import type { SkillListSession } from './skills';
+import {
+  resolveSlashCommandInput,
+  slashBusyMessage,
+  slashCommandBusyReason,
+} from './resolve';
 import {
   handleExportDebugZipCommand,
   handleExportMdCommand,
@@ -59,12 +72,16 @@ import { handleWebCommand } from './web';
 
 export { handleLoginCommand, handleLogoutCommand } from './auth';
 export { handleBtwCommand } from './btw';
+export { handleCopyCommand } from './copy';
+export { handleAddDirCommand } from './add-dir';
 export {
   handleAutoCommand,
   handleCompactCommand,
   handleEditorCommand,
+  handleEffortCommand,
   handleModelCommand,
   handlePlanCommand,
+  handleSecondaryModelCommand,
   handleThemeCommand,
   handleYoloCommand,
   showModelPicker,
@@ -95,6 +112,8 @@ export interface SlashCommandHost {
   state: TUIState;
   session: Session | undefined;
   readonly harness: PythinkerHarness;
+  /** agent-core-v2 engine (PYTHINKER_CODE_EXPERIMENTAL_FLAG); enables lazy session creation. */
+  readonly engineV2: boolean;
   cancelInFlight: (() => void) | undefined;
   deferUserMessages: boolean;
 
@@ -109,9 +128,35 @@ export interface SlashCommandHost {
   restoreEditor(): void;
   restoreInputText(text: string): void;
   refreshSlashCommandAutocomplete(): void;
+  /**
+   * Rebuild the plugin slash-command list. With no session (v2 session-less
+   * startup) this reads the app-global plugin commands instead, so `/plugins`
+   * mutations apply before the first session exists.
+   */
+  refreshPluginCommands(session?: Session): Promise<void>;
+  /**
+   * Rebuild the skill slash-command list. With no session (v2 session-less
+   * startup) this reads the workspace skills instead.
+   */
+  refreshSkillCommands(session?: SkillListSession): Promise<void>;
+  /**
+   * Seed appState with the config defaults the v2 engine would apply at
+   * createSession time (model, permission, plan mode, thinking effort,
+   * context cap). No-op semantics on a live session path: only /reload calls
+   * it while still session-less.
+   */
+  hydrateLazyConfigDefaults(): Promise<void>;
 
   // Session
   requireSession(): Session;
+  /**
+   * Lazy-create the session on first use (v2 engine). Returns the existing
+   * session, or undefined (with the error already surfaced) when creation
+   * fails.
+   */
+  ensureSession(): Promise<Session | undefined>;
+  /** Await the in-flight lazy session creation, if any (v2); no-op otherwise. */
+  waitForLazyCreation(): Promise<void>;
   switchToSession(session: Session, message: string): Promise<void>;
   reloadCurrentSessionView(session: Session, message: string): Promise<void>;
   beginSessionRequest(): void;
@@ -131,12 +176,26 @@ export interface SlashCommandHost {
   // Dispatch
   stop(exitCode?: number): Promise<void>;
   setExitOpenUrl(url: string): void;
+  /**
+   * Register a task that takes over the process after the TUI has shut down
+   * (instead of exiting): the runner awaits it and only exits when it returns.
+   * Used by `/web` to keep a freshly started server attached to this terminal
+   * until Ctrl+C.
+   */
+  setExitForegroundTask(task: (exitCode: number) => Promise<void>): void;
   showHelpPanel(): void;
   createNewSession(): Promise<void>;
   showSessionPicker(): Promise<void>;
   sendNormalUserInput(text: string): void;
   sendSkillActivation(session: Session, skillName: string, skillArgs: string): void;
+  activatePluginCommand(
+    session: Session,
+    pluginId: string,
+    commandName: string,
+    args: string,
+  ): void;
   readonly skillCommandMap: Map<string, string>;
+  readonly pluginCommandMap: Map<string, string>;
 
   // Controller refs
   readonly streamingUI: StreamingUIController;
@@ -162,6 +221,7 @@ async function executeSlashCommand(host: SlashCommandHost, input: string): Promi
   const intent = resolveSlashCommandInput({
     input,
     skillCommandMap: host.skillCommandMap,
+    pluginCommandMap: host.pluginCommandMap,
     isStreaming: host.state.appState.streamingPhase !== 'idle',
     isCompacting: host.state.appState.isCompacting,
   });
@@ -181,16 +241,55 @@ async function executeSlashCommand(host: SlashCommandHost, input: string): Promi
       host.showError(`Invalid slash command: /${intent.commandName}`);
       return;
     case 'skill': {
-      const session = host.session;
-      if (host.state.appState.model.trim().length === 0 || session === undefined) {
+      if (host.state.appState.model.trim().length === 0) {
         host.showError(LLM_NOT_SET_MESSAGE);
         return;
+      }
+      let session = host.session;
+      if (session === undefined) {
+        session = await ensureSessionForCommand(host);
+        if (session === undefined) return;
+        // A first prompt may have started a turn while the session was being
+        // created; skill commands are always busy-gated, so re-check the gate
+        // resolved before the await.
+        const busyReason = slashCommandBusyReason({
+          isStreaming: host.state.appState.streamingPhase !== 'idle',
+          isCompacting: host.state.appState.isCompacting,
+        });
+        if (busyReason !== undefined) {
+          host.showError(slashBusyMessage(intent.commandName, busyReason));
+          return;
+        }
       }
       host.track('input_command', {
         command: intent.commandName,
         skill_name: intent.skillName,
       });
       host.sendSkillActivation(session, intent.skillName, intent.args);
+      return;
+    }
+    case 'plugin-command': {
+      if (host.state.appState.model.trim().length === 0) {
+        host.showError(LLM_NOT_SET_MESSAGE);
+        return;
+      }
+      let session = host.session;
+      if (session === undefined) {
+        session = await ensureSessionForCommand(host);
+        if (session === undefined) return;
+        // Same busy re-check as the skill path: plugin commands are always
+        // busy-gated too.
+        const busyReason = slashCommandBusyReason({
+          isStreaming: host.state.appState.streamingPhase !== 'idle',
+          isCompacting: host.state.appState.isCompacting,
+        });
+        if (busyReason !== undefined) {
+          host.showError(slashBusyMessage(intent.commandName, busyReason));
+          return;
+        }
+      }
+      host.track('input_command', { command: `${intent.pluginId}:${intent.commandName}` });
+      host.activatePluginCommand(session, intent.pluginId, intent.commandName, intent.args);
       return;
     }
     case 'message':
@@ -216,11 +315,60 @@ async function executeSlashCommand(host: SlashCommandHost, input: string): Promi
   }
 }
 
+/**
+ * Lazy-create the session for a slash command that needs one (v2 engine).
+ * v1 keeps the historical "no active session" error; on v2 a missing session
+ * means the TUI started session-less, so commands create it on first use.
+ * Returns undefined (error already shown) when creation fails.
+ */
+async function ensureSessionForCommand(host: SlashCommandHost): Promise<Session | undefined> {
+  if (!host.engineV2) {
+    host.showError(LLM_NOT_SET_MESSAGE);
+    return undefined;
+  }
+  return host.ensureSession();
+}
+
+/** Builtin commands that need an active session; lazy-created on the v2 engine. */
+const SESSION_REQUIRING_COMMANDS: ReadonlySet<BuiltinSlashCommandName> = new Set([
+  'btw',
+  'compact',
+  'export-debug-zip',
+  'export-md',
+  'fork',
+  'goal',
+  'init',
+  'plan',
+  'dynamic_workflow',
+  'undo',
+  'web',
+]);
+
 async function handleBuiltInSlashCommand(
   host: SlashCommandHost,
   name: BuiltinSlashCommandName,
   args: string,
 ): Promise<void> {
+  if (host.session === undefined && SESSION_REQUIRING_COMMANDS.has(name)) {
+    const session = await ensureSessionForCommand(host);
+    if (session === undefined) return;
+    // A first prompt may have started a turn while the session was being
+    // created; re-check the availability gate that was resolved before the
+    // await (idle-only commands are blocked while a turn is active).
+    const command = findBuiltInSlashCommand(name);
+    const busyReason = slashCommandBusyReason({
+      isStreaming: host.state.appState.streamingPhase !== 'idle',
+      isCompacting: host.state.appState.isCompacting,
+    });
+    if (
+      busyReason !== undefined &&
+      command !== undefined &&
+      resolveSlashCommandAvailability(command, args) === 'idle-only'
+    ) {
+      host.showError(slashBusyMessage(name, busyReason));
+      return;
+    }
+  }
   switch (name) {
     case 'exit':
       void host.stop();
@@ -231,10 +379,24 @@ async function handleBuiltInSlashCommand(
     case 'version':
       host.showStatus(`Pythinker Code v${host.state.appState.version}`);
       return;
-    case 'new':
+    case 'new': {
+      // A first-use lazy creation may still be in flight: wait it out so /new
+      // never races a second createSession against the pending prompt.
+      await host.waitForLazyCreation();
+      // The waited-out prompt may have started a turn meanwhile; /new is
+      // idle-only, so re-run the busy gate resolved before the await.
+      const busyReason = slashCommandBusyReason({
+        isStreaming: host.state.appState.streamingPhase !== 'idle',
+        isCompacting: host.state.appState.isCompacting,
+      });
+      if (busyReason !== undefined) {
+        host.showError(slashBusyMessage(name, busyReason));
+        return;
+      }
       await host.createNewSession();
       host.state.ui.requestRender();
       return;
+    }
     case 'sessions':
       void host.showSessionPicker();
       return;
@@ -245,7 +407,17 @@ async function handleBuiltInSlashCommand(
       void showMcpServers(host);
       return;
     case 'plugins':
-      void handlePluginsCommand(host, args);
+      // `handlePluginsCommand` throws when no session is active (its own
+      // requireSession), so catch here instead of letting the `void` call
+      // reject unhandled.
+      try {
+        await handlePluginsCommand(host, args);
+      } catch (error) {
+        host.showError(formatErrorMessage(error));
+      }
+      return;
+    case 'add-dir':
+      await handleAddDirCommand(host, args);
       return;
     case 'experiments':
       await showExperimentsPanel(host);
@@ -264,6 +436,12 @@ async function handleBuiltInSlashCommand(
       return;
     case 'model':
       await handleModelCommand(host, args);
+      return;
+    case 'secondary_model':
+      await handleSecondaryModelCommand(host, args);
+      return;
+    case 'effort':
+      await handleEffortCommand(host, args);
       return;
     case 'provider':
       await handleProviderCommand(host);
@@ -318,6 +496,9 @@ async function handleBuiltInSlashCommand(
       return;
     case 'export-debug-zip':
       await handleExportDebugZipCommand(host);
+      return;
+    case 'copy':
+      await handleCopyCommand(host);
       return;
     case 'login':
       await handleLoginCommand(host);

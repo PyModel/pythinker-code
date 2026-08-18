@@ -5,7 +5,7 @@ import {
   truncateToWidth,
   visibleWidth,
   type Focusable,
-} from '@earendil-works/pi-tui';
+} from '@pymodel/pi-tui';
 import type { ExperimentalFeatureState } from '@pymodel/pythinker-code-sdk';
 
 import { SELECT_POINTER } from '#/tui/constant/symbols';

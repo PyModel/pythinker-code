@@ -1,10 +1,13 @@
 import { normalizePythinkerToolSchema } from './pythinker-schema';
+import { parseTraceId } from '#/errors';
 import type { ContentPart, Message, StreamedMessagePart, ToolCall } from '#/message';
 import type {
   ChatProvider,
   FinishReason,
   GenerateOptions,
+  MaxCompletionTokensOptions,
   ProviderRequestAuth,
+  ResponseFormat,
   StreamedMessage,
   ThinkingEffort,
   VideoUploadInput,
@@ -13,6 +16,7 @@ import type { Tool } from '#/tool';
 import type { TokenUsage } from '#/usage';
 import OpenAI from 'openai';
 
+import { classifyPythinkerQuotaError } from './pythinker-errors';
 import { PythinkerFiles } from './pythinker-files';
 import {
   convertChatCompletionStreamToolCall,
@@ -26,9 +30,9 @@ import {
   normalizeOpenAIFinishReason,
   type OpenAIContentPart,
   type OpenAIToolParam,
-  reasoningEffortToThinkingEffort,
   toolToOpenAI,
 } from './openai-common';
+import { ReasoningKeyDialect, type ReasoningKey } from './reasoning-key';
 import {
   mergeRequestHeaders,
   requireProviderApiKey,
@@ -66,13 +70,13 @@ export interface GenerationKwargs {
   presence_penalty?: number | undefined;
   frequency_penalty?: number | undefined;
   stop?: string | string[] | undefined;
-  reasoning_effort?: string | undefined;
   prompt_cache_key?: string | undefined;
   extra_body?: ExtraBody;
 }
 
 export interface ThinkingConfig {
   type?: 'enabled' | 'disabled';
+  effort?: string;
   keep?: unknown;
   [key: string]: unknown;
 }
@@ -92,6 +96,10 @@ interface OpenAIMessage {
   tool_call_id?: string | undefined;
   name?: string | undefined;
   reasoning_content?: string | undefined;
+  reasoning_details?: string | undefined;
+  reasoning?: string | undefined;
+  /** Message-level tool declarations (`messages[].tools`), see convertMessage. */
+  tools?: OpenAIToolParam[] | undefined;
 }
 
 interface OpenAIToolCallOut {
@@ -109,12 +117,18 @@ function isEffectivelyEmptyContent(parts: ContentPart[]): boolean {
   return true;
 }
 
-function convertMessage(message: Message): OpenAIMessage {
+function convertMessage(
+  message: Message,
+  preservedThinkingEnabled: boolean,
+  reasoningKey: ReasoningKey,
+): OpenAIMessage {
   let reasoningContent = '';
+  let hasReasoningPart = false;
   const nonThinkParts: ContentPart[] = [];
 
   for (const part of message.content) {
     if (part.type === 'think') {
+      hasReasoningPart = true;
       reasoningContent += part.think;
     } else {
       nonThinkParts.push(part);
@@ -161,8 +175,21 @@ function convertMessage(message: Message): OpenAIMessage {
     result.tool_call_id = message.toolCallId;
   }
 
-  if (reasoningContent) {
-    result.reasoning_content = reasoningContent;
+  if (hasReasoningPart || (preservedThinkingEnabled && message.role === 'assistant')) {
+    // Echo thinking back under the dialect the endpoint spoke (detected from
+    // inbound responses; defaults to `reasoning_content`). Newer vLLM dropped
+    // `reasoning_content` on its request side and only honors `reasoning`.
+    result[reasoningKey] = reasoningContent;
+  }
+
+  // Message-level tool declarations: a system message carrying `tools` loads
+  // those definitions mid-conversation (`messages[].tools` in the Pythinker
+  // contract; each entry is a full OpenAI-compatible tool param). Reusing
+  // convertTool keeps schema normalization and the `$` builtin_function
+  // branch identical to the top-level `tools[]` path. Such a message carries
+  // no `content` — the empty-content branch above already omits the field.
+  if (message.tools !== undefined && message.tools.length > 0) {
+    result.tools = message.tools.map((tool) => convertTool(tool));
   }
 
   return result;
@@ -181,6 +208,21 @@ function convertTool(tool: Tool): OpenAIToolParam {
     function: {
       ...converted.function,
       parameters: normalizePythinkerToolSchema(tool.parameters),
+    },
+  };
+}
+
+function responseFormatToOpenAI(format: ResponseFormat): Record<string, unknown> {
+  if (format.type === 'json_object') {
+    return { type: 'json_object' };
+  }
+  return {
+    type: 'json_schema',
+    json_schema: {
+      name: format.jsonSchema.name,
+      schema: format.jsonSchema.schema,
+      strict: format.jsonSchema.strict,
+      description: format.jsonSchema.description,
     },
   };
 }
@@ -225,6 +267,8 @@ class PythinkerStreamedMessage implements StreamedMessage {
   constructor(
     response: OpenAI.Chat.ChatCompletion | AsyncIterable<OpenAI.Chat.ChatCompletionChunk>,
     isStream: boolean,
+    private readonly _traceId: string | null,
+    private readonly _reasoningKeyDialect: ReasoningKeyDialect,
   ) {
     if (isStream) {
       this._iter = this._convertStreamResponse(
@@ -251,6 +295,10 @@ class PythinkerStreamedMessage implements StreamedMessage {
     return this._rawFinishReason;
   }
 
+  get traceId(): string | null {
+    return this._traceId;
+  }
+
   async *[Symbol.asyncIterator](): AsyncIterator<StreamedMessagePart> {
     yield* this._iter;
   }
@@ -273,10 +321,12 @@ class PythinkerStreamedMessage implements StreamedMessage {
     const message = response.choices[0]?.message;
     if (!message) return;
 
-    // reasoning_content (PyModel proprietary)
-    const rc = (message as unknown as Record<string, unknown>)['reasoning_content'];
-    if (typeof rc === 'string' && rc) {
-      yield { type: 'think', think: rc } satisfies StreamedMessagePart;
+    // Reasoning dialect: accept any known wire key and remember which one the
+    // endpoint used, so the next request echoes thinking back under the same
+    // field (newer vLLM renamed `reasoning_content` to `reasoning`).
+    const reasoning = this._reasoningKeyDialect.observe(message);
+    if (reasoning !== undefined) {
+      yield { type: 'think', think: reasoning } satisfies StreamedMessagePart;
     }
 
     if (message.content) {
@@ -331,10 +381,10 @@ class PythinkerStreamedMessage implements StreamedMessage {
 
         const delta = choice.delta;
 
-        // reasoning_content (PyModel proprietary)
-        const rc = (delta as unknown as Record<string, unknown>)['reasoning_content'];
-        if (typeof rc === 'string' && rc) {
-          yield { type: 'think', think: rc } satisfies StreamedMessagePart;
+        // Reasoning dialect: same detection as the non-stream path.
+        const reasoning = this._reasoningKeyDialect.observe(delta);
+        if (reasoning !== undefined) {
+          yield { type: 'think', think: reasoning } satisfies StreamedMessagePart;
         }
 
         // text content
@@ -351,12 +401,21 @@ class PythinkerStreamedMessage implements StreamedMessage {
         }
       }
     } catch (error: unknown) {
-      throw convertOpenAIError(error);
+      throw convertOpenAIError(error, classifyPythinkerQuotaError);
     }
   }
 }
 export class PythinkerChatProvider implements ChatProvider {
   readonly name: string = 'pythinker';
+
+  /**
+   * See {@link ChatProvider.maxCompletionTokens}. Mirrors the request-time
+   * normalization: `max_completion_tokens` wins over the legacy `max_tokens`
+   * alias.
+   */
+  get maxCompletionTokens(): number | undefined {
+    return this._generationKwargs.max_completion_tokens ?? this._generationKwargs.max_tokens;
+  }
 
   private _model: string;
   private _stream: boolean;
@@ -367,6 +426,7 @@ export class PythinkerChatProvider implements ChatProvider {
   private _client: OpenAI | undefined;
   private _clientFactory: ((auth: ProviderRequestAuth) => OpenAI) | undefined;
   private _files: PythinkerFiles | undefined;
+  private _reasoningKeyDialect: ReasoningKeyDialect;
 
   constructor(options: PythinkerOptions) {
     const apiKey = options.apiKey ?? process.env['PYTHINKER_API_KEY'];
@@ -385,6 +445,7 @@ export class PythinkerChatProvider implements ChatProvider {
             baseURL: this._baseUrl,
             defaultHeaders: this._defaultHeaders,
           });
+    this._reasoningKeyDialect = new ReasoningKeyDialect();
   }
 
   get modelName(): string {
@@ -413,7 +474,11 @@ export class PythinkerChatProvider implements ChatProvider {
   }
 
   get thinkingEffort(): ThinkingEffort | null {
-    return reasoningEffortToThinkingEffort(this._generationKwargs.reasoning_effort);
+    const thinking = this._generationKwargs.extra_body?.thinking;
+    if (thinking === undefined) return null;
+    if (thinking.type === 'disabled') return 'off';
+    // A model that enables thinking without an effort is treated as boolean ("on").
+    return thinking.effort ?? 'on';
   }
 
   get modelParameters(): Record<string, unknown> {
@@ -434,9 +499,15 @@ export class PythinkerChatProvider implements ChatProvider {
     if (systemPrompt) {
       messages.push({ role: 'system', content: systemPrompt });
     }
+    const thinking = this._generationKwargs.extra_body?.thinking;
+    const preservedThinkingEnabled =
+      thinking?.keep === 'all' && thinking.type !== 'disabled';
+    // The pythinker provider never pins an explicit reasoning key, so the dialect
+    // always resolves to one of the known wire keys.
+    const reasoningKey = this._reasoningKeyDialect.outboundKey() as ReasoningKey;
     const normalizedHistory = normalizeToolCallIdsForProvider(history, PYTHINKER_TOOL_CALL_ID_POLICY);
     for (const msg of normalizedHistory) {
-      messages.push(convertMessage(msg));
+      messages.push(convertMessage(msg, preservedThinkingEnabled, reasoningKey));
     }
 
     const kwargs: Record<string, unknown> = {
@@ -474,6 +545,9 @@ export class PythinkerChatProvider implements ChatProvider {
       ...requestKwargs,
       ...(extraBody as Record<string, unknown> | undefined),
     };
+    if (options?.responseFormat !== undefined) {
+      createParams['response_format'] = responseFormatToOpenAI(options.responseFormat);
+    }
 
     if (tools.length > 0) {
       createParams['tools'] = tools.map((t) => convertTool(t));
@@ -485,41 +559,50 @@ export class PythinkerChatProvider implements ChatProvider {
 
     try {
       const client = this._createClient(options?.auth);
-      // Use type assertion via unknown because we pass PyModel-proprietary fields
-      // (reasoning_effort, thinking) that don't exist in the OpenAI type definitions.
-      const response = (await client.chat.completions.create(
-        createParams as unknown as OpenAI.Chat.ChatCompletionCreateParamsNonStreaming,
-        options?.signal ? { signal: options.signal } : undefined,
-      )) as unknown as OpenAI.Chat.ChatCompletion | AsyncIterable<OpenAI.Chat.ChatCompletionChunk>;
-      return new PythinkerStreamedMessage(response, this._stream);
+      // Use type assertion via unknown because we pass the PyModel-proprietary
+      // `thinking` field (via extra_body) that doesn't exist in the OpenAI type definitions.
+      options?.onRequestSent?.();
+      // `withResponse()` resolves as soon as the response headers arrive
+      // (before the stream body), so the KFC `x-trace-id` header is available
+      // even for a stream the caller later cancels mid-flight.
+      const { data, response } = await client.chat.completions
+        .create(
+          createParams as unknown as OpenAI.Chat.ChatCompletionCreateParamsNonStreaming,
+          options?.signal ? { signal: options.signal } : undefined,
+        )
+        .withResponse();
+      return new PythinkerStreamedMessage(
+        data as unknown as
+          | OpenAI.Chat.ChatCompletion
+          | AsyncIterable<OpenAI.Chat.ChatCompletionChunk>,
+        this._stream,
+        parseTraceId(response.headers),
+        this._reasoningKeyDialect,
+      );
     } catch (error: unknown) {
-      throw convertOpenAIError(error);
+      throw convertOpenAIError(error, classifyPythinkerQuotaError);
     }
   }
 
   withThinking(effort: ThinkingEffort): PythinkerChatProvider {
-    const thinking: ThinkingConfig = {
-      type: effort === 'off' ? 'disabled' : 'enabled',
-    };
-    let reasoningEffort: string | undefined;
-    switch (effort) {
-      case 'off':
-        reasoningEffort = undefined;
-        break;
-      case 'low':
-        reasoningEffort = 'low';
-        break;
-      case 'medium':
-        reasoningEffort = 'medium';
-        break;
-      case 'high':
-      case 'xhigh':
-      case 'max':
-        reasoningEffort = 'high';
-        break;
+    let thinking: ThinkingConfig;
+    if (effort === 'off') {
+      thinking = { type: 'disabled' };
+    } else {
+      thinking = effort === 'on' ? { type: 'enabled' } : { type: 'enabled', effort };
     }
-    return this._withGenerationKwargs({ reasoning_effort: reasoningEffort }).withExtraBody({
-      thinking,
+    // Replace extra_body.thinking wholesale so a stale `effort` from a previous
+    // withThinking call can never linger on a disabled or non-effort thinking
+    // object — but carry over a `keep` set earlier via withExtraBody (the
+    // PYTHINKER_MODEL_THINKING_KEEP path applies keep after withThinking and merges
+    // on top, so it is unaffected either way).
+    const oldExtra = this._generationKwargs.extra_body ?? {};
+    const keep = oldExtra.thinking?.keep;
+    if (keep !== undefined) {
+      thinking = { ...thinking, keep };
+    }
+    return this._withGenerationKwargs({
+      extra_body: { ...oldExtra, thinking },
     });
   }
 
@@ -527,8 +610,19 @@ export class PythinkerChatProvider implements ChatProvider {
     return this._withGenerationKwargs(kwargs);
   }
 
-  withMaxCompletionTokens(maxCompletionTokens: number): PythinkerChatProvider {
-    return this._withGenerationKwargs({ max_completion_tokens: maxCompletionTokens });
+  withMaxCompletionTokens(
+    maxCompletionTokens: number,
+    options?: MaxCompletionTokensOptions,
+  ): PythinkerChatProvider {
+    let cap = maxCompletionTokens;
+    if (
+      options?.usedContextTokens !== undefined &&
+      options?.maxContextTokens !== undefined &&
+      options.maxContextTokens > 0
+    ) {
+      cap = Math.min(cap, options.maxContextTokens - options.usedContextTokens);
+    }
+    return this._withGenerationKwargs({ max_completion_tokens: Math.max(1, cap) });
   }
 
   withExtraBody(extraBody: ExtraBody): PythinkerChatProvider {
@@ -580,6 +674,9 @@ export class PythinkerChatProvider implements ChatProvider {
     // a closed socket. Keep `_client` shared and never mutate it after
     // construction; instead build a new PythinkerChatProvider when a real new
     // client is required.
+    // `_reasoningKeyDialect` is shared for the same reason: the dialect
+    // learned from a response on any per-step clone must steer the next
+    // request's outbound reasoning key.
     return clone;
   }
 }

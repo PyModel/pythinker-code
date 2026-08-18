@@ -2,13 +2,14 @@ import type {
   BackgroundTaskInfo,
   Event,
 } from '@pymodel/pythinker-code-sdk';
-import type { Component } from '@earendil-works/pi-tui';
+import type { Component } from '@pymodel/pi-tui';
 
 import {
   AgentDynamicWorkflowProgressComponent,
   agentDynamicWorkflowDescriptionFromArgs,
   agentDynamicWorkflowGridHeightForTerminalRows,
 } from '../components/messages/agent-dynamic-workflow-progress';
+import { modelDisplayName } from '../components/dialogs/model-selector';
 import { MAIN_AGENT_ID } from '../constant/pythinker-tui';
 import type {
   BackgroundAgentMetadata,
@@ -125,6 +126,14 @@ export class SubAgentEventHandler {
       toolCall.updateSubagentMetrics({
         contextTokens: event.contextTokens,
         usage: totalUsage,
+        // The bound model alias rides every child status update (emitted right
+        // after spawn); surface it on the subagent card. `modelDisplayName`
+        // falls back to the alias itself when the entry is unknown (e.g. the
+        // synthesized `__secondary__` derived entry is missing).
+        modelDisplay:
+          event.model === undefined
+            ? undefined
+            : modelDisplayName(event.model, this.host.state.appState.availableModels[event.model]),
       });
     }
     return true;
@@ -502,6 +511,15 @@ export class SubAgentEventHandler {
       progress.appendModelDelta({ agentId: subagentId, delta: event.delta });
     } else if (event.type === 'tool.call.started') {
       progress.recordToolCall({ agentId: subagentId, toolCallId: event.toolCallId });
+    } else if (event.type === 'agent.status.updated' && event.model !== undefined) {
+      // The bound model alias rides every child status update (emitted right
+      // after spawn). DynamicWorkflow members share one binding, so the panel shows it
+      // once in the header instead of per cell. `modelDisplayName` falls back
+      // to the alias itself when the entry is unknown (e.g. the synthesized
+      // `__secondary__` derived entry is missing).
+      progress.setModelDisplay(
+        modelDisplayName(event.model, this.host.state.appState.availableModels[event.model]),
+      );
     }
   }
 
@@ -552,8 +570,9 @@ export class SubAgentEventHandler {
     const children = this.host.state.transcriptContainer.children;
     const index = children.indexOf(progress);
     if (index >= 0) {
+      // Structural removal only: GutterContainer's ref-checked render cache
+      // detects the child-list change; no tree-wide invalidate needed.
       children.splice(index, 1);
-      this.host.state.transcriptContainer.invalidate();
     }
     this.host.updateActivityPane();
   }

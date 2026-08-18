@@ -23,6 +23,8 @@ import {
 } from '@pymodel/pythinker-telemetry';
 
 import { createProgram } from './cli/commands';
+import { finalizeHeadlessRun } from './cli/headless-exit';
+import { startupTrace } from './utils/startup-trace';
 import type { CLIOptions } from './cli/options';
 import { OptionConflictError, validateOptions } from './cli/options';
 import { runPrompt } from './cli/run-prompt';
@@ -35,11 +37,28 @@ import { runUpdatePreflight } from './cli/update/preflight';
 import { createPythinkerCodeHostIdentity, getVersion } from './cli/version';
 import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_UI_MODE, PROCESS_NAME } from './constant/app';
 import { cleanupStaleNativeCacheForCurrent } from './native/native-assets';
+import { installMinidbTextBuildWorker } from './native/minidb-worker';
 import { installNativeModuleHook } from './native/module-hook';
 import { runNativeAssetSmokeIfRequested } from './native/smoke';
 
-export async function handleMainCommand(opts: CLIOptions, version: string): Promise<void> {
+/**
+ * Outcome of a CLI command run, reported back to the process entrypoint.
+ *
+ * `handleMainCommand` is a reusable, unit-tested handler — it must not terminate
+ * the process itself. It reports here whether a headless (`pythinker -p`) run
+ * completed so the entrypoint (the only place that owns the process) can arm the
+ * force-exit fallback.
+ */
+export interface MainCommandOutcome {
+  readonly headlessCompleted: boolean;
+}
+
+export async function handleMainCommand(
+  opts: CLIOptions,
+  version: string,
+): Promise<MainCommandOutcome> {
   let validated: ReturnType<typeof validateOptions>;
+  startupTrace('main:enter');
   try {
     validated = validateOptions(opts);
   } catch (error) {
@@ -50,20 +69,24 @@ export async function handleMainCommand(opts: CLIOptions, version: string): Prom
     throw error;
   }
 
+  startupTrace('preflight:begin');
   const preflightResult = await runUpdatePreflight(
     version,
     validated.uiMode === 'print' ? { track, isTTY: false } : { track },
   );
+  startupTrace('preflight:end');
   if (preflightResult === 'exit') {
     process.exit(0);
   }
 
   if (validated.uiMode === 'print') {
     await runPrompt(validated.options, version);
-    return;
+    return { headlessCompleted: true };
   }
 
+  startupTrace('runShell:begin');
   await runShell(validated.options, version);
+  return { headlessCompleted: false };
 }
 
 /** `pythinker migrate`: launch the migration screen only, then exit. */
@@ -113,6 +136,8 @@ const MIGRATE_CLI_OPTIONS: CLIOptions = {
   outputFormat: undefined,
   prompt: undefined,
   skillsDirs: [],
+  agent: undefined,
+  agentFiles: [],
 };
 
 export function main(): void {
@@ -123,6 +148,16 @@ export function main(): void {
   // invalid proxy URL is reported and ignored rather than aborting startup.
   installGlobalProxyDispatcher();
   installNativeModuleHook();
+  // Best-effort SEA worker installation. Diagnostics are trace-only and avoid
+  // exposing the user's cache path; failure keeps MiniDb's bounded inline mode.
+  const workerInstall = installMinidbTextBuildWorker();
+  startupTrace(
+    workerInstall.status === 'installed'
+      ? `minidb-worker:installed basename=${workerInstall.basename} sha256=${workerInstall.assetSha256}`
+      : workerInstall.status === 'failed'
+        ? `minidb-worker:failed code=${workerInstall.errorCode} sha256=${workerInstall.assetSha256 ?? 'unknown'}`
+        : `minidb-worker:${workerInstall.status}`,
+  );
   if (runNativeAssetSmokeIfRequested()) return;
 
   // Start the background cleanup of stale native cache. Fire-and-forget; must not block startup or throw.
@@ -139,17 +174,42 @@ export function main(): void {
   const program = createProgram(
     version,
     (opts) => {
-      void handleMainCommand(opts, version).catch(async (error: unknown) => {
-        const operation = opts.prompt !== undefined ? 'run prompt' : 'start shell';
-        await logStartupFailure(operation, error);
-        process.stderr.write(
-          formatStartupError(error, {
-            operation,
-          }),
-        );
-        process.stderr.write(`See log: ${resolveGlobalLogPath(resolvePythinkerHome())}\n`);
-        process.exit(1);
-      });
+      void handleMainCommand(opts, version)
+        .then(async (outcome) => {
+          // Only the process entrypoint disposes of the process. Print mode
+          // relies on the event loop draining to exit; flush any buffered output
+          // and then arm an unref'd fallback so a stray ref'd handle left over
+          // from the run can't wedge a completed `pythinker -p` until an external
+          // timeout. A healthy run drains and exits before the fallback fires.
+          if (outcome.headlessCompleted) {
+            await finalizeHeadlessRun(
+              process,
+              [process.stdout, process.stderr],
+              () => Number(process.exitCode) || 0,
+            );
+          }
+        })
+        .catch(async (error: unknown) => {
+          // Set the failure exit code synchronously, before any `await`. The
+          // terminal `process.exit(1)` below is our intended exit, but it sits
+          // behind `await logStartupFailure(...)`; by the time we reach that
+          // await, the failed run's `finally` cleanup has already torn down its
+          // ref'd handles (sockets, timers, background tasks). If the event loop
+          // drains during the await, Node exits on its own with the DEFAULT code
+          // 0 and `process.exit(1)` never runs — headless (`pythinker -p`) failures
+          // would then exit 0 nondeterministically. Setting `process.exitCode`
+          // up front makes that drain-exit report failure too.
+          process.exitCode = 1;
+          const operation = opts.prompt !== undefined ? 'run prompt' : 'start shell';
+          await logStartupFailure(operation, error);
+          process.stderr.write(
+            formatStartupError(error, {
+              operation,
+            }),
+          );
+          process.stderr.write(`See log: ${resolveGlobalLogPath(resolvePythinkerHome())}\n`);
+          process.exit(1);
+        });
     },
     () => {
       void handleMigrateCommand(version).catch(async (error: unknown) => {

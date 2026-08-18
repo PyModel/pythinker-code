@@ -8,11 +8,19 @@
  *  2. Wrap media-only outputs in `<mcp_tool_result name="…">` tags so the
  *     model can attribute binary output when several tools return media.
  *     Mirrors the in-tree `ReadMediaFile` convention.
- *  3. Apply size limits: text/think share a 100K character budget; binary
- *     parts (image/audio/video URLs) each carry an independent 10 MB cap and
- *     collapse to a notice when oversize, so a single screenshot cannot
- *     evict every text part.
- *  4. Collapse a single-text-part result to a plain string output; otherwise
+ *  3. Apply the 100K text/think character budget to the tool's own text.
+ *     This runs BEFORE captions exist, so a chatty tool (page text + a
+ *     screenshot) can never evict or slice the compression caption — that
+ *     would silently reintroduce the very degradation the caption reports.
+ *  4. Compress oversized inline images, announcing each compression with a
+ *     caption (original vs. sent size, readback path to the persisted
+ *     original) so downsampling is never silent. The captions come back
+ *     from the compressor as data and ride the result's `note` side
+ *     channel — rendered to the model at projection time, never to UIs.
+ *  5. Apply the per-part 10 MB binary cap: oversized binary parts
+ *     (image/audio/video URLs) collapse to a notice, so a single
+ *     screenshot cannot evict every text part.
+ *  6. Collapse a single-text-part result to a plain string output; otherwise
  *     emit the `ContentPart[]` as-is.
  *
  * `mcpResultToExecutableOutput` is the single entry point; the per-step
@@ -21,7 +29,28 @@
 
 import type { ContentPart } from '@pymodel/kosong';
 
+import type { TelemetryClient } from '#/telemetry';
+
+import { compressImageContentParts } from '../tools/support/image-compress';
+import {
+  buildUnsupportedImageNotice,
+  isModelAcceptedImageMime,
+} from '../tools/support/image-format-policy';
+import { persistOriginalImage } from '../tools/support/image-originals';
 import type { MCPContentBlock, MCPToolResult } from './types';
+
+export interface McpOutputOptions {
+  /**
+   * Session-owned directory for pre-compression originals (typically
+   * `sessionMediaOriginalsDir(sessionDir)` threaded down from the agent).
+   * Falls back to the shared temp-dir cache when absent.
+   */
+  readonly originalsDir?: string | undefined;
+  /** Report an `image_compress` event per compressed tool-result image. */
+  readonly telemetry?: TelemetryClient | undefined;
+  /** Owner-resolved longest-edge ceiling (px) for tool-result images. */
+  readonly maxImageEdgePx?: number | undefined;
+}
 
 // MCP servers can produce arbitrarily large outputs; cap what we feed back to
 // the model so a single chatty server does not blow up the context window. The
@@ -108,6 +137,15 @@ export function convertMCPContentBlock(block: MCPContentBlock): ContentPart | nu
   if (block.type === 'resource_link' && typeof block.uri === 'string') {
     const mimeType = block.mimeType ?? 'application/octet-stream';
     if (mimeType.startsWith('image/')) {
+      // The declared MIME is the only format signal for a remote image: an
+      // extensionless or signed URL gives the extension gate nothing to work
+      // with, and the provider fetches it server-side. When the server
+      // honestly declares a format providers reject (e.g. an image search
+      // tool returning AVIF links), drop the image for a notice that keeps
+      // the URL — the model can still fetch and convert it.
+      if (!isModelAcceptedImageMime(mimeType)) {
+        return { type: 'text', text: buildUnsupportedImageNotice(mimeType, block.uri) };
+      }
       return { type: 'image_url', imageUrl: { url: block.uri } };
     }
     if (mimeType.startsWith('audio/')) {
@@ -130,10 +168,16 @@ export function convertMCPContentBlock(block: MCPContentBlock): ContentPart | nu
  * `mcp__github__create_pr`) — embedded into the `<mcp_tool_result name="…">`
  * wrap when the result is media-only, so the model can attribute binary parts.
  */
-export function mcpResultToExecutableOutput(
+export async function mcpResultToExecutableOutput(
   result: MCPToolResult,
   qualifiedToolName: string,
-): { output: string | ContentPart[]; isError: boolean } {
+  options: McpOutputOptions = {},
+): Promise<{
+  output: string | ContentPart[];
+  isError: boolean;
+  note?: string;
+  truncated?: true;
+}> {
   const converted: ContentPart[] = [];
   for (const block of result.content) {
     const part = convertMCPContentBlock(block);
@@ -143,9 +187,117 @@ export function mcpResultToExecutableOutput(
   }
 
   const wrapped = wrapMediaOnly(converted, qualifiedToolName);
-  const limited = applyOutputLimits(wrapped);
-  const output = collapseSingleText(limited);
-  return { output, isError: result.isError };
+  // Structured payloads (structuredContent per MCP spec, plus server metadata
+  // in _meta) carry machine-readable contracts such as browser-handoff URLs.
+  // Appended AFTER the media wrap so a media-only result keeps its
+  // <mcp_tool_result> attribution, and BEFORE the text budget so oversized
+  // payloads stay bounded. Literal closing tags inside the serialized
+  // payload are stripped so server data cannot fake an early end of the
+  // block. Protocol-reserved _meta keys are dropped first: those carry
+  // host/protocol plumbing, not model-facing data.
+  const structuredExtras: Record<string, unknown> = {};
+  if (result.structuredContent !== undefined) {
+    structuredExtras['structuredContent'] = result.structuredContent;
+  }
+  if (result._meta !== undefined) {
+    const meta = stripReservedMetaKeys(result._meta);
+    if (meta !== undefined) {
+      structuredExtras['_meta'] = meta;
+    }
+  }
+  if (Object.keys(structuredExtras).length > 0) {
+    try {
+      const serialized = JSON.stringify(structuredExtras).replaceAll(
+        '</mcp-structured-result>',
+        '',
+      );
+      wrapped.push({
+        type: 'text',
+        text: `\n<mcp-structured-result>\n${serialized}\n</mcp-structured-result>`,
+      });
+    } catch {
+      // Non-serialisable payloads are dropped rather than failing the call.
+    }
+  }
+
+  // Text budget FIRST, on the tool's own text only: captions produced by the
+  // compression step below ride the `note` side channel and never compete
+  // with a chatty tool's text for the budget — an evicted or mid-string-
+  // sliced caption would silently reintroduce the downsampling this pipeline
+  // promises to announce.
+  const budgeted = applyTextBudget(wrapped);
+  // Shrink oversized images BEFORE the per-part byte cap, so a large but
+  // compressible screenshot is downsampled and kept rather than dropped to a
+  // text notice. Compression is never silent: each re-encoded image yields a
+  // caption stating what the original was, and the original bytes are
+  // persisted (best effort, into the session's media-originals dir when
+  // known) so the model can read detail back via ReadMediaFile + region.
+  // Parts that cannot be compressed pass through. The captions come back as
+  // DATA (never inserted into the parts), so tool output that merely quotes
+  // a caption can never be mistaken for a generated one.
+  const compressed = await compressImageContentParts(budgeted.parts, {
+    maxEdge: options.maxImageEdgePx,
+    telemetry:
+      options.telemetry === undefined
+        ? undefined
+        : { client: options.telemetry, source: 'mcp_tool_result' },
+    annotate: {
+      persistOriginal: (bytes, mimeType) =>
+        persistOriginalImage(
+          bytes,
+          mimeType,
+          options.originalsDir === undefined ? {} : { dir: options.originalsDir },
+        ),
+    },
+  });
+  const capped = applyBinaryPartCap(compressed.parts);
+  const truncated = budgeted.truncated || capped.truncated;
+  const output = collapseSingleText(capped.parts);
+  return {
+    output,
+    isError: result.isError,
+    note: compressed.captions.length > 0 ? compressed.captions.join('\n') : undefined,
+    truncated: truncated ? true : undefined,
+  };
+}
+
+/**
+ * Drop protocol-reserved `_meta` keys before the payload reaches the model.
+ *
+ * Per the MCP spec's `_meta` key-name rules, a key may carry a dot-separated
+ * label prefix terminated by `/`; a prefix is reserved for protocol use when
+ * a `modelcontextprotocol` or `mcp` label is followed by at least one more
+ * label (e.g. `modelcontextprotocol.io/…`, `tools.mcp.com/…` — but not a
+ * vendor namespace like `com.example.mcp/…`). Reserved entries carry
+ * host/protocol plumbing — progress and task wiring, UI component payloads —
+ * that servers do not address to the model, so forwarding them would leak
+ * side-channel data into the conversation. Unprefixed and vendor-prefixed
+ * keys pass through untouched: their semantics belong to the server, and the
+ * host cannot know which of them the model is meant to see.
+ *
+ * Returns `undefined` when nothing survives, so callers can omit the `_meta`
+ * section entirely.
+ */
+function stripReservedMetaKeys(
+  meta: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(meta)) {
+    if (!isReservedMetaKey(key)) {
+      out[key] = value;
+    }
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+function isReservedMetaKey(key: string): boolean {
+  const slash = key.indexOf('/');
+  if (slash <= 0) return false;
+  const labels = key.slice(0, slash).split('.');
+  return labels.some(
+    (label, i) =>
+      (label === 'modelcontextprotocol' || label === 'mcp') && i < labels.length - 1,
+  );
 }
 
 /**
@@ -167,27 +319,33 @@ function wrapMediaOnly(parts: readonly ContentPart[], qualifiedToolName: string)
 }
 
 /**
- * Apply the 100K text/think budget and the per-part 10 MB binary cap.
+ * Apply the 100K text/think budget. Runs before image compression, so only
+ * the tool's own text is charged — compression captions inserted afterwards
+ * are exempt by construction. Binary parts pass through untouched (their
+ * independent per-part cap is {@link applyBinaryPartCap}).
  *
  * When text/think parts get truncated, the truncation notice is appended to
  * the last surviving text part — this keeps the single-text-part collapse
  * working when the entire (oversized) input is a single text block.
  */
-function applyOutputLimits(parts: readonly ContentPart[]): ContentPart[] {
+function applyTextBudget(parts: readonly ContentPart[]): {
+  readonly parts: ContentPart[];
+  readonly truncated: boolean;
+} {
   let remaining = MCP_MAX_OUTPUT_CHARS;
-  let textTruncated = false;
+  let truncated = false;
   const out: ContentPart[] = [];
 
   for (const part of parts) {
     if (part.type === 'text') {
       if (remaining <= 0) {
-        textTruncated = true;
+        truncated = true;
         continue;
       }
       if (part.text.length > remaining) {
         out.push({ type: 'text', text: part.text.slice(0, remaining) });
         remaining = 0;
-        textTruncated = true;
+        truncated = true;
       } else {
         out.push(part);
         remaining -= part.text.length;
@@ -198,13 +356,13 @@ function applyOutputLimits(parts: readonly ContentPart[]): ContentPart[] {
     if (part.type === 'think') {
       const size = part.think.length + (part.encrypted?.length ?? 0);
       if (remaining <= 0) {
-        textTruncated = true;
+        truncated = true;
         continue;
       }
       if (size > remaining) {
         out.push({ type: 'think', think: part.think.slice(0, remaining) });
         remaining = 0;
-        textTruncated = true;
+        truncated = true;
       } else {
         out.push(part);
         remaining -= size;
@@ -212,9 +370,35 @@ function applyOutputLimits(parts: readonly ContentPart[]): ContentPart[] {
       continue;
     }
 
-    // image_url / audio_url / video_url: per-part byte cap, independent of the
-    // text character budget. Oversized parts collapse into a per-part notice so
-    // the model can pick a smaller resource instead of silently losing the blob.
+    out.push(part);
+  }
+
+  if (truncated) {
+    appendTruncationNotice(out);
+  }
+  return { parts: out, truncated };
+}
+
+/**
+ * Apply the per-part 10 MB binary cap, independent of the text character
+ * budget. Oversized parts collapse into a per-part notice so the model can
+ * pick a smaller resource instead of silently losing the blob. Runs after
+ * image compression, so a large but compressible image has already been
+ * shrunk under the cap.
+ */
+function applyBinaryPartCap(parts: readonly ContentPart[]): {
+  readonly parts: ContentPart[];
+  readonly truncated: boolean;
+} {
+  let truncated = false;
+  const out: ContentPart[] = [];
+
+  for (const part of parts) {
+    if (part.type === 'text' || part.type === 'think') {
+      out.push(part);
+      continue;
+    }
+
     const url =
       part.type === 'image_url'
         ? part.imageUrl.url
@@ -225,15 +409,13 @@ function applyOutputLimits(parts: readonly ContentPart[]): ContentPart[] {
       const kind =
         part.type === 'image_url' ? 'image' : part.type === 'audio_url' ? 'audio' : 'video';
       out.push({ type: 'text', text: binaryPartTooLargeNotice(kind, url.length) });
+      truncated = true;
       continue;
     }
     out.push(part);
   }
 
-  if (textTruncated) {
-    appendTruncationNotice(out);
-  }
-  return out;
+  return { parts: out, truncated };
 }
 
 function appendTruncationNotice(out: ContentPart[]): void {

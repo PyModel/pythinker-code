@@ -1,18 +1,26 @@
 import { ErrorCodes, PythinkerError } from '#/errors';
+import type { SessionWarning } from '@pymodel/protocol';
 import type {
   ActivateSkillPayload,
+  ActivatePluginCommandPayload,
+  AddAdditionalDirPayload,
+  AddAdditionalDirResult,
   AgentAPI,
   BeginCompactionPayload,
   CancelPayload,
   CancelPlanPayload,
+  CancelShellCommandPayload,
   CreateGoalPayload,
+  DetachBackgroundPayload,
   EmptyPayload,
   EnterDynamicWorkflowPayload,
   GetBackgroundOutputPayload,
   GetBackgroundPayload,
+  ImportContextPayload,
   McpServerInfo,
   McpStartupMetrics,
   PromptPayload,
+  RunShellCommandPayload,
   ReconnectMcpServerPayload,
   RenameSessionPayload,
   RegisterToolPayload,
@@ -22,6 +30,7 @@ import type {
   SetPermissionPayload,
   SetThinkingPayload,
   SkillSummary,
+  PluginCommandDef,
   SteerPayload,
   StopBackgroundPayload,
   UndoHistoryPayload,
@@ -33,6 +42,7 @@ import type { PromisableMethods } from '#/utils/types';
 import type { Session, SessionMeta } from '.';
 import {
   promptMetadataTextFromPayload,
+  promptMetadataTextFromPluginCommand,
   promptMetadataTextFromSkill,
   titleFromPromptMetadataText,
 } from './prompt-metadata';
@@ -73,6 +83,10 @@ export class SessionAPIImpl implements PromisableMethods<SessionAPI> {
     return this.session.listSkills();
   }
 
+  listPluginCommands(_payload: EmptyPayload): readonly PluginCommandDef[] {
+    return this.session.listPluginCommands();
+  }
+
   listMcpServers(_payload: EmptyPayload): readonly McpServerInfo[] {
     return this.session.mcp.list();
   }
@@ -90,6 +104,21 @@ export class SessionAPIImpl implements PromisableMethods<SessionAPI> {
     return this.session.generateAgentsMd();
   }
 
+  getSessionWarnings(_payload: EmptyPayload): Promise<readonly SessionWarning[]> {
+    return this.session.getSessionWarnings();
+  }
+
+  waitForBackgroundTasksOnPrint(_payload: EmptyPayload): Promise<void> {
+    return this.session.waitForBackgroundTasksOnPrint();
+  }
+
+  handlePrintMainTurnCompleted(_payload: EmptyPayload): Promise<'finish' | 'continue'> {
+    return this.session.handlePrintMainTurnCompleted();
+  }
+
+  addAdditionalDir(payload: AddAdditionalDirPayload): Promise<AddAdditionalDirResult> {
+    return this.session.addAdditionalDir(payload.path, payload.persist);
+  }
 
   async prompt({ agentId, ...payload }: AgentScopedPayload<PromptPayload>) {
     if (agentId === 'main') {
@@ -99,7 +128,21 @@ export class SessionAPIImpl implements PromisableMethods<SessionAPI> {
   }
 
   async steer({ agentId, ...payload }: AgentScopedPayload<SteerPayload>) {
+    if (agentId === 'main') {
+      // A steer is user input like a prompt — and can even launch the
+      // session's first turn (e.g. goal mode) — so keep title/lastPrompt in
+      // sync the same way.
+      await this.updatePromptMetadata(promptMetadataTextFromPayload(payload));
+    }
     return (await this.getAgent(agentId)).steer(payload);
+  }
+
+  async runShellCommand({ agentId, ...payload }: AgentScopedPayload<RunShellCommandPayload>) {
+    return (await this.getAgent(agentId)).runShellCommand(payload);
+  }
+
+  async cancelShellCommand({ agentId, ...payload }: AgentScopedPayload<CancelShellCommandPayload>) {
+    return (await this.getAgent(agentId)).cancelShellCommand(payload);
   }
 
   async cancel({ agentId, ...payload }: AgentScopedPayload<CancelPayload>) {
@@ -174,14 +217,32 @@ export class SessionAPIImpl implements PromisableMethods<SessionAPI> {
     return (await this.getAgent(agentId)).stopBackground(payload);
   }
 
+  async detachBackground({ agentId, ...payload }: AgentScopedPayload<DetachBackgroundPayload>) {
+    return (await this.getAgent(agentId)).detachBackground(payload);
+  }
+
   async clearContext({ agentId, ...payload }: AgentScopedPayload<EmptyPayload>) {
     return (await this.getAgent(agentId)).clearContext(payload);
+  }
+
+  async importContext({ agentId, ...payload }: AgentScopedPayload<ImportContextPayload>) {
+    return (await this.getAgent(agentId)).importContext(payload);
   }
 
   async activateSkill({ agentId, ...payload }: AgentScopedPayload<ActivateSkillPayload>) {
     await (await this.getAgent(agentId)).activateSkill(payload);
     if (agentId === 'main') {
       await this.updatePromptMetadata(promptMetadataTextFromSkill(payload));
+    }
+  }
+
+  async activatePluginCommand({
+    agentId,
+    ...payload
+  }: AgentScopedPayload<ActivatePluginCommandPayload>) {
+    await (await this.getAgent(agentId)).activatePluginCommand(payload);
+    if (agentId === 'main') {
+      await this.updatePromptMetadata(promptMetadataTextFromPluginCommand(payload));
     }
   }
 
@@ -207,6 +268,10 @@ export class SessionAPIImpl implements PromisableMethods<SessionAPI> {
 
   async cancelGoal({ agentId, ...payload }: AgentScopedPayload<EmptyPayload>) {
     return (await this.getAgent(agentId)).cancelGoal(payload);
+  }
+
+  async getCronTasks({ agentId, ...payload }: AgentScopedPayload<EmptyPayload>) {
+    return (await this.getAgent(agentId)).getCronTasks(payload);
   }
 
   async getBackgroundOutput({

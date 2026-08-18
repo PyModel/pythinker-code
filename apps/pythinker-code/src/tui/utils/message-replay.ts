@@ -7,6 +7,7 @@ import type {
   ResumedAgentState,
   ToolCall,
 } from '@pymodel/pythinker-code-sdk';
+import { limitAgentReplayByTurns } from '@pymodel/pythinker-code-sdk';
 
 import type {
   AppState,
@@ -32,6 +33,7 @@ export interface ReplayRenderContext {
   toolCalls: Map<string, ToolCallBlockData>;
   completedToolCallIds: Set<string>;
   skillActivationIds: Set<string>;
+  pluginCommandActivationIds: Set<string>;
   suppressNextPlanModeOffNotice: boolean;
 }
 
@@ -40,6 +42,14 @@ export interface SkillActivationProjection {
   readonly skillName: string;
   readonly skillArgs?: string;
   readonly trigger: SkillActivationTrigger;
+}
+
+export interface PluginCommandProjection {
+  readonly activationId: string;
+  readonly pluginId: string;
+  readonly commandName: string;
+  readonly commandArgs?: string;
+  readonly trigger: 'user-slash';
 }
 
 export interface ReplayBackgroundProjection {
@@ -114,6 +124,7 @@ export function createReplayRenderContext(): ReplayRenderContext {
     toolCalls: new Map(),
     completedToolCallIds: new Set(),
     skillActivationIds: new Set(),
+    pluginCommandActivationIds: new Set(),
     suppressNextPlanModeOffNotice: false,
   };
 }
@@ -122,12 +133,10 @@ export function limitReplayRecordsByTurn(
   records: readonly AgentReplayRecord[],
   maxTurns: number,
 ): readonly AgentReplayRecord[] {
-  if (maxTurns <= 0) return [];
-  const turnStarts = records.flatMap((record, index) =>
-    isReplayUserTurnRecord(record) ? [index] : [],
-  );
-  if (turnStarts.length <= maxTurns) return records;
-  return records.slice(turnStarts[turnStarts.length - maxTurns]);
+  // Defensive slice — the core already trims the replay when the caller passes
+  // `replayTurnLimit` on resume; the boundary predicate lives in agent-core
+  // (`limitAgentReplayByTurns`) and is re-exported through the SDK.
+  return limitAgentReplayByTurns(records, maxTurns);
 }
 
 export function replayEntry(
@@ -135,7 +144,7 @@ export function replayEntry(
   kind: TranscriptEntry['kind'],
   content: string,
   renderMode: TranscriptEntry['renderMode'],
-  extras: { detail?: string } = {},
+  extras: { detail?: string; bullet?: string } = {},
 ): TranscriptEntry {
   return {
     id: nextTranscriptId(),
@@ -144,6 +153,7 @@ export function replayEntry(
     renderMode,
     content,
     detail: extras.detail,
+    bullet: extras.bullet,
   };
 }
 
@@ -212,6 +222,19 @@ export function skillActivationFromOrigin(
   };
 }
 
+export function pluginCommandFromOrigin(
+  origin: PromptOrigin | undefined,
+): PluginCommandProjection | undefined {
+  if (origin?.kind !== 'plugin_command') return undefined;
+  return {
+    activationId: origin.activationId,
+    pluginId: origin.pluginId,
+    commandName: origin.commandName,
+    commandArgs: origin.commandArgs,
+    trigger: origin.trigger,
+  };
+}
+
 export function formatHookResultMessageForTranscript(
   text: string,
   fallbackEvent: string,
@@ -238,28 +261,6 @@ export function formatHookResultMessageForTranscript(
   }
 
   return results.map(({ event, body }) => formatHookResultBlock(event, body, blocked)).join('\n\n');
-}
-
-function isReplayUserTurnRecord(record: AgentReplayRecord): boolean {
-  if (record.type !== 'message') return false;
-  const { message } = record;
-  if (message.role !== 'user') return false;
-  switch (message.origin?.kind) {
-    case undefined:
-    case 'user':
-      return true;
-    case 'skill_activation':
-      return message.origin.trigger === 'user-slash';
-    case 'background_task':
-    case 'compaction_summary':
-    case 'cron_job':
-    case 'cron_missed':
-    case 'hook_result':
-    case 'injection':
-    case 'retry':
-    case 'system_trigger':
-      return false;
-  }
 }
 
 function parseReplayToolArguments(value: string | null): Record<string, unknown> {

@@ -119,7 +119,7 @@ interface RpcRecord {
 
 interface BridgeStubOptions {
   /** Initial bootstrap values returned by getConfig/getPermission/getPlan. */
-  config?: { modelAlias?: string; thinkingLevel?: string };
+  config?: { modelAlias?: string; thinkingEffort?: string };
   permission?: { mode: 'manual' | 'yolo' | 'auto' };
   plan?: null | { id: string; content: string; path: string };
   sessions?: SessionSummary[];
@@ -153,7 +153,7 @@ function makeBridge(
   const config = {
     cwd: '/tmp/ws',
     modelCapabilities: {} as unknown,
-    thinkingLevel: opts.config?.thinkingLevel ?? 'off',
+    thinkingEffort: opts.config?.thinkingEffort ?? 'off',
     systemPrompt: '',
     modelAlias: opts.config?.modelAlias ?? 'pythinker-code/k2',
   };
@@ -162,7 +162,13 @@ function makeBridge(
   const sessions = opts.sessions ?? [mkSummary()];
 
   const rpc: Partial<CoreRPC> = {
-    listSessions: vi.fn().mockImplementation(async () => sessions),
+    listSessions: vi.fn().mockImplementation(async (payload) => {
+      // Mirror the store's `sessionId` filter: a filtered lookup returns
+      // only the matching summary (or [] when unknown), which is what
+      // `_requireSession` now relies on for its existence check.
+      const id = (payload as { sessionId?: string } | undefined)?.sessionId;
+      return id === undefined ? sessions : sessions.filter((s) => s.id === id);
+    }),
     resumeSession: vi.fn().mockResolvedValue(undefined as unknown as never),
     prompt: vi.fn().mockImplementation(async (payload) => {
       record.promptCalls.push(payload);
@@ -309,6 +315,7 @@ function makeSessionService(): {
     listChildren: vi.fn() as unknown as ISessionService['listChildren'],
     createChild: vi.fn() as unknown as ISessionService['createChild'],
     getStatus: vi.fn() as unknown as ISessionService['getStatus'],
+    getSessionWarnings: vi.fn() as unknown as ISessionService['getSessionWarnings'],
     compact: vi.fn() as unknown as ISessionService['compact'],
     undo: vi.fn() as unknown as ISessionService['undo'],
     archive: vi.fn() as unknown as ISessionService['archive'],
@@ -694,6 +701,38 @@ describe('PromptService lifecycle synthesis (via IEventService.onDidPublish)', (
     expect(impl._activeForTest(SID)).toBeUndefined();
   });
 
+  it('preserves blocked reason when synthesizing prompt.completed', async () => {
+    const { bridge } = makeBridge();
+    const { bus, events, triggerSubscribers } = makeBus();
+    const impl = newSvc(bridge, bus);
+    const submit = await impl.submit(SID, mkBody());
+    triggerSubscribers({
+      type: 'turn.started',
+      turnId: 7,
+      origin: { kind: 'user' },
+      sessionId: SID,
+      agentId: 'main',
+    } as unknown as Event);
+    events.length = 0;
+    triggerSubscribers({
+      type: 'turn.ended',
+      turnId: 7,
+      reason: 'blocked',
+      sessionId: SID,
+      agentId: 'main',
+    } as unknown as Event);
+    expect(events).toHaveLength(1);
+    const synth = events[0] as unknown as {
+      type: string;
+      promptId: string;
+      reason: string;
+    };
+    expect(synth.type).toBe('prompt.completed');
+    expect(synth.promptId).toBe(submit.prompt_id);
+    expect(synth.reason).toBe('blocked');
+    expect(impl._activeForTest(SID)).toBeUndefined();
+  });
+
   it('fires onDidComplete listener before bus.publish', async () => {
     const { bridge } = makeBridge();
     const { bus, events, triggerSubscribers } = makeBus();
@@ -1042,7 +1081,7 @@ describe('PromptService queue steer', () => {
 describe('PromptService stateless controls — bootstrap + shadow', () => {
   it('bootstraps shadow from getConfig/getPermission/getPlan on first submit', async () => {
     const { bridge, record } = makeBridge({
-      config: { modelAlias: 'pythinker-code/k2', thinkingLevel: 'medium' },
+      config: { modelAlias: 'pythinker-code/k2', thinkingEffort: 'medium' },
       permission: { mode: 'yolo' },
       plan: { id: 'plan_abc', content: '', path: '/tmp/p' },
     });
@@ -1160,8 +1199,8 @@ describe('PromptService stateless controls — diff dispatch', () => {
     expect(impl._agentStateForTest(SID)?.model).toBe('pythinker-code/k1');
   });
 
-  it('issues setThinking only when the body level differs from the shadow', async () => {
-    const { bridge, record } = makeBridge({ config: { thinkingLevel: 'off' } });
+  it('issues setThinking only when the body effort differs from the shadow', async () => {
+    const { bridge, record } = makeBridge({ config: { thinkingEffort: 'off' } });
     const { bus, triggerSubscribers } = makeBus();
     const impl = newSvc(bridge, bus);
     await impl.submit(SID, mkBody({ thinking: 'off' }));
@@ -1184,7 +1223,7 @@ describe('PromptService stateless controls — diff dispatch', () => {
 
     await impl.submit(SID, mkBody({ thinking: 'high' }));
     expect(record.setThinkingCalls).toEqual([
-      { sessionId: SID, agentId: 'main', level: 'high' },
+      { sessionId: SID, agentId: 'main', effort: 'high' },
     ]);
     expect(impl._agentStateForTest(SID)?.thinking).toBe('high');
   });
@@ -1359,7 +1398,7 @@ describe('PromptService stateless controls — dispatch log', () => {
 
   it('appends one entry per setter dispatched, in the order setModel/setThinking/setPermission/(enter|cancel)Plan', async () => {
     const { bridge } = makeBridge({
-      config: { modelAlias: 'pythinker-code/k2', thinkingLevel: 'off' },
+      config: { modelAlias: 'pythinker-code/k2', thinkingEffort: 'off' },
       permission: { mode: 'manual' },
       plan: null,
     });
@@ -1433,7 +1472,7 @@ describe('PromptService stateless controls — dispatch log', () => {
 
   it('bootstraps dynamicWorkflowMode from getDynamicWorkflowMode', async () => {
     const { bridge, record } = makeBridge({
-      config: { modelAlias: 'pythinker-code/k2', thinkingLevel: 'off' },
+      config: { modelAlias: 'pythinker-code/k2', thinkingEffort: 'off' },
       permission: { mode: 'manual' },
       plan: null,
     });
@@ -1445,7 +1484,7 @@ describe('PromptService stateless controls — dispatch log', () => {
 
   it('dispatches enterDynamicWorkflow/exitDynamicWorkflow and records them in the log', async () => {
     const { bridge, record } = makeBridge({
-      config: { modelAlias: 'pythinker-code/k2', thinkingLevel: 'off' },
+      config: { modelAlias: 'pythinker-code/k2', thinkingEffort: 'off' },
       permission: { mode: 'manual' },
       plan: null,
     });
@@ -1486,7 +1525,7 @@ describe('PromptService stateless controls — dispatch log', () => {
 
   it('does not re-dispatch dynamic_workflow_mode when it matches the shadow', async () => {
     const { bridge, record } = makeBridge({
-      config: { modelAlias: 'pythinker-code/k2', thinkingLevel: 'off' },
+      config: { modelAlias: 'pythinker-code/k2', thinkingEffort: 'off' },
       permission: { mode: 'manual' },
       plan: null,
     });
@@ -1516,7 +1555,7 @@ describe('PromptService stateless controls — dispatch log', () => {
 
   it('dispatches createGoal and records it in the log', async () => {
     const { bridge, record } = makeBridge({
-      config: { modelAlias: 'pythinker-code/k2', thinkingLevel: 'off' },
+      config: { modelAlias: 'pythinker-code/k2', thinkingEffort: 'off' },
       permission: { mode: 'manual' },
       plan: null,
     });
@@ -1536,7 +1575,7 @@ describe('PromptService stateless controls — dispatch log', () => {
 
   it('dispatches goal control actions and records them in the log', async () => {
     const { bridge, record } = makeBridge({
-      config: { modelAlias: 'pythinker-code/k2', thinkingLevel: 'off' },
+      config: { modelAlias: 'pythinker-code/k2', thinkingEffort: 'off' },
       permission: { mode: 'manual' },
       plan: null,
     });
@@ -1630,12 +1669,12 @@ describe('PromptService.applyAgentState (POST /sessions/{sid}/profile path)', ()
   });
 
   it('dispatches setThinking and records source="meta" when patch differs from shadow', async () => {
-    const { bridge, record } = makeBridge({ config: { thinkingLevel: 'off' } });
+    const { bridge, record } = makeBridge({ config: { thinkingEffort: 'off' } });
     const { bus } = makeBus();
     const impl = newSvc(bridge, bus);
     await impl.applyAgentState(SID, { thinking: 'high' }, 'meta');
     expect(record.setThinkingCalls).toEqual([
-      { sessionId: SID, agentId: 'main', level: 'high' },
+      { sessionId: SID, agentId: 'main', effort: 'high' },
     ]);
     expect(impl._agentStateForTest(SID)?.thinking).toBe('high');
     const log = impl._dispatchLogForTest(SID);
@@ -1647,7 +1686,7 @@ describe('PromptService.applyAgentState (POST /sessions/{sid}/profile path)', ()
 
   it('subsequent content-only submit observes the shadow set via /profile and dispatches nothing', async () => {
     const { bridge, record } = makeBridge({
-      config: { thinkingLevel: 'off' },
+      config: { thinkingEffort: 'off' },
       permission: { mode: 'manual' },
     });
     const { bus } = makeBus();

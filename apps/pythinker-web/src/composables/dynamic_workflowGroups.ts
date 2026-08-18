@@ -7,6 +7,9 @@ export interface DynamicWorkflowMember {
   phase: AppSubagentPhase;
   summary?: string;
   outputLines?: string[];
+  /** Accumulated streaming text (text-kind taskProgress) — preferred over
+   *  outputLines/summary when rendering the live dynamic_workflow row activity/body. */
+  text?: string;
   suspendedReason?: string;
   dynamicWorkflowIndex: number;
 }
@@ -19,10 +22,13 @@ export interface DynamicWorkflowGroup {
 
 const PHASES: readonly AppSubagentPhase[] = ['queued', 'working', 'suspended', 'completed', 'failed'];
 
-function phaseForTask(task: AppTask): AppSubagentPhase {
-  if (task.subagentPhase) return task.subagentPhase;
+export function phaseForTask(task: AppTask): AppSubagentPhase {
+  // Terminal statuses are authoritative over a possibly-stale subagentPhase: a
+  // cancelled task keeps whatever phase it last had (e.g. 'working'), which
+  // would otherwise keep it "live" and suppress the finished dynamic_workflow card forever.
   if (task.status === 'completed') return 'completed';
-  if (task.status === 'failed') return 'failed';
+  if (task.status === 'failed' || task.status === 'cancelled') return 'failed';
+  if (task.subagentPhase) return task.subagentPhase;
   return 'working';
 }
 
@@ -50,6 +56,7 @@ export function buildDynamicWorkflowGroups(tasks: AppTask[]): DynamicWorkflowGro
       phase: phaseForTask(task),
       summary: task.outputPreview,
       outputLines: task.outputLines,
+      text: task.text,
       suspendedReason: task.suspendedReason,
       dynamicWorkflowIndex: task.dynamicWorkflowIndex,
     });
@@ -82,4 +89,39 @@ export function countDynamicWorkflowMembers(groups: DynamicWorkflowGroup[]): { d
     }
   }
   return { done, total };
+}
+
+/**
+ * Bucket foreground/background subagent tasks by their spawning tool call and
+ * return one member list per AgentDynamicWorkflow call. Unlike buildDynamicWorkflowGroups this keeps
+ * single-member "dynamic workflows" (e.g. AgentDynamicWorkflow used with one resume_agent_ids entry),
+ * so the inline card can show a resumed subagent's live progress before the
+ * structured result arrives. Also includes subagents without a dynamicWorkflowIndex so a
+ * late-synced task still appears (sorted last).
+ */
+export function dynamic_workflowMembersByToolCall(tasks: AppTask[]): Map<string, DynamicWorkflowMember[]> {
+  const buckets = new Map<string, DynamicWorkflowMember[]>();
+  for (const task of tasks) {
+    if (task.kind !== 'subagent' || !task.parentToolCallId) continue;
+    const list = buckets.get(task.parentToolCallId) ?? [];
+    list.push({
+      id: task.id,
+      name: task.description,
+      subagentType: task.subagentType,
+      phase: phaseForTask(task),
+      summary: task.outputPreview,
+      outputLines: task.outputLines,
+      text: task.text,
+      suspendedReason: task.suspendedReason,
+      dynamicWorkflowIndex: task.dynamicWorkflowIndex ?? Number.MAX_SAFE_INTEGER,
+    });
+    buckets.set(task.parentToolCallId, list);
+  }
+  for (const [key, members] of buckets) {
+    buckets.set(
+      key,
+      members.toSorted((a, b) => a.dynamicWorkflowIndex - b.dynamicWorkflowIndex || a.id.localeCompare(b.id)),
+    );
+  }
+  return buckets;
 }

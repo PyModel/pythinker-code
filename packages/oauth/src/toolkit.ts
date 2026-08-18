@@ -3,13 +3,25 @@ import { join } from 'node:path';
 
 import { PYTHINKER_CODE_FLOW_CONFIG } from './constants';
 import { OAuthUnauthorizedError } from './errors';
-import { assertPythinkerHostIdentity, createPythinkerDeviceHeaders, type PythinkerHostIdentity } from './identity';
+import {
+  assertPythinkerHostIdentity,
+  createPythinkerDefaultHeaders,
+  type PythinkerHostIdentity,
+} from './identity';
 import {
   fetchSubmitFeedback,
   pythinkerCodeFeedbackUrl,
   type FetchSubmitFeedbackResult,
   type SubmitFeedbackBody,
 } from './managed-feedback';
+import {
+  fetchCompleteFeedbackUpload,
+  fetchCreateFeedbackUploadUrl,
+  type CompleteFeedbackUploadBody,
+  type CreateFeedbackUploadUrlBody,
+  type FetchCompleteFeedbackUploadResult,
+  type FetchCreateFeedbackUploadUrlResult,
+} from './managed-feedback-upload';
 import {
   PYTHINKER_CODE_OAUTH_KEY,
   PYTHINKER_CODE_PROVIDER_NAME,
@@ -18,6 +30,11 @@ import {
   type ManagedPythinkerCodeProvisionResult,
   type ManagedPythinkerConfigAdapter,
 } from './managed-pythinker-code';
+import {
+  fetchManagedUserInfo,
+  pythinkerCodeUserInfoUrl,
+  type ManagedUserInfoResult,
+} from './managed-userinfo';
 import {
   fetchManagedUsage,
   pythinkerCodeUsageUrl,
@@ -84,8 +101,11 @@ export type AuthManagedUsageResult =
       readonly kind: 'ok';
       readonly summary: ParsedManagedUsage['summary'];
       readonly limits: ParsedManagedUsage['limits'];
+      readonly extraUsage: ParsedManagedUsage['extraUsage'];
     }
   | FetchManagedUsageError;
+
+export type AuthManagedUserInfoResult = ManagedUserInfoResult;
 
 export class PythinkerOAuthToolkit<TConfig = unknown> {
   private readonly homeDir: string;
@@ -99,6 +119,7 @@ export class PythinkerOAuthToolkit<TConfig = unknown> {
     'now' | 'sleep' | 'deviceCodeTimeoutMs' | 'refreshThreshold' | 'onRefresh'
   >;
   private readonly managers = new Map<string, OAuthManager>();
+  private _identityHeaders: Record<string, string> | undefined;
 
   constructor(options: PythinkerOAuthToolkitOptions<TConfig>) {
     this.identity =
@@ -179,6 +200,7 @@ export class PythinkerOAuthToolkit<TConfig = unknown> {
           oauthHost,
           preserveDefaultModel: hadToken,
           fetchImpl: this.fetchImpl,
+          headers: this.identityHeaders(),
         });
       try {
         provision = await provisionWithToken(accessToken);
@@ -276,7 +298,31 @@ export class PythinkerOAuthToolkit<TConfig = unknown> {
         kind: 'ok',
         summary: result.parsed.summary,
         limits: result.parsed.limits,
+        extraUsage: result.parsed.extraUsage,
       };
+    } catch (error) {
+      return {
+        kind: 'error',
+        message: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  async getManagedUserInfo(
+    providerName?: string | undefined,
+    options: {
+      readonly oauthRef?: PythinkerOAuthTokenRef | undefined;
+      readonly baseUrl?: string | undefined;
+    } = {},
+  ): Promise<AuthManagedUserInfoResult> {
+    const name = providerName ?? PYTHINKER_CODE_PROVIDER_NAME;
+    try {
+      const accessToken = await this.ensureFresh(name, {
+        oauthRef: options.oauthRef ?? this.defaultOAuthRef(options.baseUrl),
+      });
+      const result = await fetchManagedUserInfo(managedUserInfoUrl(options.baseUrl), accessToken);
+      if (result.kind === 'error') return result;
+      return { kind: 'ok', userInfo: result.userInfo };
     } catch (error) {
       return {
         kind: 'error',
@@ -293,18 +339,63 @@ export class PythinkerOAuthToolkit<TConfig = unknown> {
       readonly baseUrl?: string | undefined;
     } = {},
   ): Promise<FetchSubmitFeedbackResult> {
+    return this.withAccessToken(
+      providerName,
+      options,
+      (accessToken) => fetchSubmitFeedback(managedFeedbackUrl(options.baseUrl), accessToken, body),
+    );
+  }
+
+  private async withAccessToken<T>(
+    providerName: string | undefined,
+    options: {
+      readonly oauthRef?: PythinkerOAuthTokenRef | undefined;
+      readonly baseUrl?: string | undefined;
+    },
+    run: (accessToken: string) => Promise<T>,
+  ): Promise<T | { readonly kind: 'error'; readonly message: string }> {
     const name = providerName ?? PYTHINKER_CODE_PROVIDER_NAME;
     try {
       const accessToken = await this.ensureFresh(name, {
         oauthRef: options.oauthRef ?? this.defaultOAuthRef(options.baseUrl),
       });
-      return await fetchSubmitFeedback(managedFeedbackUrl(options.baseUrl), accessToken, body);
+      return await run(accessToken);
     } catch (error) {
       return {
         kind: 'error',
         message: error instanceof Error ? error.message : String(error),
       };
     }
+  }
+
+  async createFeedbackUploadUrl(
+    body: CreateFeedbackUploadUrlBody,
+    providerName?: string | undefined,
+    options: {
+      readonly oauthRef?: PythinkerOAuthTokenRef | undefined;
+      readonly baseUrl?: string | undefined;
+    } = {},
+  ): Promise<FetchCreateFeedbackUploadUrlResult> {
+    return this.withAccessToken(
+      providerName,
+      options,
+      (accessToken) => fetchCreateFeedbackUploadUrl(accessToken, body, { baseUrl: options.baseUrl }),
+    );
+  }
+
+  async completeFeedbackUpload(
+    body: CompleteFeedbackUploadBody,
+    providerName?: string | undefined,
+    options: {
+      readonly oauthRef?: PythinkerOAuthTokenRef | undefined;
+      readonly baseUrl?: string | undefined;
+    } = {},
+  ): Promise<FetchCompleteFeedbackUploadResult> {
+    return this.withAccessToken(
+      providerName,
+      options,
+      (accessToken) => fetchCompleteFeedbackUpload(accessToken, body, { baseUrl: options.baseUrl }),
+    );
   }
 
   managerFor(
@@ -331,9 +422,12 @@ export class PythinkerOAuthToolkit<TConfig = unknown> {
         identity === undefined
           ? undefined
           : () =>
-              createPythinkerDeviceHeaders({
+              // Full identity headers (User-Agent + X-Msh-*): the OAuth host
+              // reads the platform for the client family and the UA (suffix)
+              // for the runtime surface, e.g. pythinker web's `(web)`.
+              createPythinkerDefaultHeaders({
                 homeDir: this.homeDir,
-                version: identity.version,
+                ...identity,
               }),
       ...this.managerOptions,
     });
@@ -364,17 +458,21 @@ export class PythinkerOAuthToolkit<TConfig = unknown> {
   ): string {
     return oauthRef?.oauthHost ?? oauthHost ?? this.flowConfig.oauthHost;
   }
+
+  private identityHeaders(): Record<string, string> | undefined {
+    if (this.identity === undefined) return undefined;
+    this._identityHeaders ??= createPythinkerDefaultHeaders({
+      homeDir: this.homeDir,
+      ...this.identity,
+    });
+    return this._identityHeaders;
+  }
 }
 
 export function resolvePythinkerTokenStorageName(input: {
   readonly providerName?: string | undefined;
   readonly oauthKey?: string | undefined;
 }): string {
-  const providerName = input.providerName ?? PYTHINKER_CODE_PROVIDER_NAME;
-  if (providerName !== PYTHINKER_CODE_PROVIDER_NAME) {
-    throw new Error(`No OAuth manager configured for provider "${providerName}".`);
-  }
-
   const key = input.oauthKey ?? PYTHINKER_CODE_OAUTH_KEY;
   if (key === 'pythinker-code' || key === PYTHINKER_CODE_OAUTH_KEY) return 'pythinker-code';
 
@@ -398,9 +496,13 @@ function managedUsageUrl(baseUrl: string | undefined): string {
   return `${baseUrl.replace(/\/+$/, '')}/usages`;
 }
 
+function managedUserInfoUrl(baseUrl: string | undefined): string {
+  if (baseUrl === undefined) return pythinkerCodeUserInfoUrl();
+  return `${baseUrl.replace(/\/+$/, '')}/me`;
+}
+
 function managedFeedbackUrl(baseUrl: string | undefined): string {
-  if (baseUrl === undefined) return pythinkerCodeFeedbackUrl();
-  return `${baseUrl.replace(/\/+$/, '')}/feedback`;
+  return pythinkerCodeFeedbackUrl(baseUrl);
 }
 
 function normalizeOAuthHost(oauthHost: string): string {

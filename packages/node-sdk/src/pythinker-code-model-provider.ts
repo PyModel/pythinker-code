@@ -12,6 +12,7 @@ import {
   PYTHINKER_CODE_PROVIDER_NAME,
   PythinkerOAuthToolkit,
   pythinkerCodeBaseUrl,
+  parsePythinkerCodeCustomHeaders,
   resolvePythinkerCodeOAuthRef,
   type PythinkerHostIdentity,
   type ManagedPythinkerOAuthRef,
@@ -49,8 +50,9 @@ export class PythinkerForCodingProvider implements ModelProvider {
     this.defaultHeaders = options.defaultHeaders;
     this.homeDir = resolvePythinkerHome(options.homeDir);
     this.identity = {
-      userAgentProduct: options.userAgentProduct,
+      productName: options.productName,
       version: options.version,
+      platform: options.platform,
       userAgentSuffix: options.userAgentSuffix,
     };
     this.oauthRef = resolvePythinkerCodeOAuthRef({
@@ -83,6 +85,7 @@ export class PythinkerForCodingProvider implements ModelProvider {
         ? { prompt_cache_key: this.promptCacheKey }
         : undefined,
       defaultHeaders: {
+        ...parsePythinkerCodeCustomHeaders(),
         ...createPythinkerDefaultHeaders({
           homeDir: this.homeDir,
           ...this.identity,
@@ -95,6 +98,8 @@ export class PythinkerForCodingProvider implements ModelProvider {
       providerName: 'kimi-for-coding',
       provider,
       modelCapabilities: UNKNOWN_CAPABILITY,
+      type: 'pythinker',
+      protocol: undefined,
     };
   }
 

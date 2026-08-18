@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, resolve, basename, dirname } from 'node:path';
 import * as zlib from 'node:zlib';
 
 import { afterEach, describe, expect, it } from 'vitest';
@@ -18,6 +18,11 @@ import {
 } from '../../agent-core/src/session/export';
 import { recordingTelemetry, type TelemetryRecord } from './telemetry';
 import { TEST_IDENTITY } from './test-identity';
+
+// agent-core/node-sdk normalize paths to forward slashes (pathe). Mirror that
+// in path assertions so they hold on Windows, where node:path produces
+// backslashes.
+const toPosix = (p: string): string => p.replaceAll('\\', '/');
 
 const tempDirs: string[] = [];
 
@@ -129,7 +134,7 @@ describe('exportSessionDirectory', () => {
       }),
     });
 
-    expect(result.zipPath).toBe(outputPath);
+    expect(result.zipPath).toBe(toPosix(outputPath));
     expect(result.sessionDir).toBe(sessionDir);
     expect(result.entries).toEqual([
       'manifest.json',
@@ -164,7 +169,7 @@ describe('exportSessionDirectory', () => {
     expect(manifest.workspaceDir).toBe(workDir);
   });
 
-  it('uses the default output path when outputPath is omitted', async () => {
+  it('uses a timestamped default output path when outputPath is omitted', async () => {
     const tmp = await makeTempDir();
     const sid = 'session_default_output';
     const sessionDir = join(tmp, 'sessions', sid);
@@ -176,10 +181,39 @@ describe('exportSessionDirectory', () => {
       summary: makeSummary({ id: sid, sessionDir, workDir: tmp }),
     });
 
-    const expectedPath = resolve(`${sid}.zip`);
-    expect(result.zipPath).toBe(expectedPath);
+    expect(dirname(result.zipPath)).toBe(toPosix(resolve('.')));
+    expect(basename(result.zipPath)).toMatch(/^pythinker-debug-session_-\d{8}-\d{6}\.zip$/);
     expect(existsSync(result.zipPath)).toBe(true);
-    await rm(expectedPath, { force: true });
+    await rm(result.zipPath, { force: true });
+  });
+
+  it('does not overwrite a previous default-path export when run again', async () => {
+    const tmp = await makeTempDir();
+    const sid = 'session_repeated_export';
+    const sessionDir = join(tmp, 'sessions', sid);
+    await mkdir(sessionDir, { recursive: true });
+    await writeFile(join(sessionDir, 'state.json'), '{}', 'utf-8');
+    const summary = makeSummary({ id: sid, sessionDir, workDir: tmp });
+
+    const first = await exportSessionDirectory({
+      request: { sessionId: sid, version: '1.0.0-test' },
+      summary,
+    });
+    // Cross the next second boundary so the second export gets a distinct timestamp.
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 1100 - (Date.now() % 1000)));
+    const second = await exportSessionDirectory({
+      request: { sessionId: sid, version: '1.0.0-test' },
+      summary,
+    });
+
+    try {
+      expect(second.zipPath).not.toBe(first.zipPath);
+      expect(existsSync(first.zipPath)).toBe(true);
+      expect(existsSync(second.zipPath)).toBe(true);
+    } finally {
+      await rm(first.zipPath, { force: true });
+      await rm(second.zipPath, { force: true });
+    }
   });
 
   it('omits global log manifest path when the global log cannot be bundled', async () => {
@@ -222,7 +256,7 @@ describe('exportSessionDirectory', () => {
       summary: makeSummary({ id: sid, sessionDir, workDir: tmp }),
     });
 
-    expect(result.zipPath).toBe(outputPath);
+    expect(result.zipPath).toBe(toPosix(outputPath));
     expect(existsSync(result.zipPath)).toBe(true);
   });
 
@@ -240,7 +274,7 @@ describe('exportSessionDirectory', () => {
 
     expect(result.manifest.sessionFirstActivity).toBeUndefined();
     expect(result.manifest.sessionLastActivity).toBeUndefined();
-    await rm(resolve(`${sid}.zip`), { force: true });
+    await rm(result.zipPath, { force: true });
   });
 
   it('rejects empty or missing session directories', async () => {
@@ -286,7 +320,7 @@ describe('PythinkerHarness.exportSession', () => {
     const outputPath = join(workDir, 'export.zip');
     const result = await harness.exportSession({ id: session.id, outputPath, version: '1.0.0-test' });
 
-    expect(result.zipPath).toBe(outputPath);
+    expect(result.zipPath).toBe(toPosix(outputPath));
     expect(result.entries).toContain('manifest.json');
     expect(result.entries).toContain('state.json');
     expect(result.entries).toContain('wire.jsonl');
