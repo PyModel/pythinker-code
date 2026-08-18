@@ -36,6 +36,7 @@ const copyTextToClipboardMock = vi.mocked(copyTextToClipboard);
 
 interface StartupDriver {
   state: TUIState;
+  authFlow: PythinkerTUI['authFlow'];
   init(): Promise<boolean>;
   handleLoginCommand(): Promise<void>;
   handleLogoutCommand(): Promise<void>;

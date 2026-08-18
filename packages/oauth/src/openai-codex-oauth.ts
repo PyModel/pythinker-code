@@ -14,6 +14,7 @@ const CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
 const AUTHORIZE_URL = 'https://auth.openai.com/oauth/authorize';
 const TOKEN_URL = 'https://auth.openai.com/oauth/token';
 export const OPENAI_CODEX_REDIRECT_URI = 'http://localhost:1455/auth/callback';
+export const OPENAI_CODEX_AUTH_INPUT_MAX_LENGTH = 16_384;
 const CALLBACK_PORT = 1455;
 const CALLBACK_PATH = '/auth/callback';
 const SCOPE =
@@ -112,6 +113,9 @@ export function parseOpenAICodexAuthorizationInput(input: string): {
   readonly code?: string;
   readonly state?: string;
 } {
+  if (input.length > OPENAI_CODEX_AUTH_INPUT_MAX_LENGTH) {
+    throw new Error('OpenAI Codex authorization input is too long.');
+  }
   const value = input.trim();
   if (value.length === 0) return {};
 

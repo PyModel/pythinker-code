@@ -8,6 +8,7 @@ import {
   createOpenAICodexPkcePair,
   extractOpenAICodexAccountId,
   fetchOpenAICodexModels,
+  OPENAI_CODEX_AUTH_INPUT_MAX_LENGTH,
   parseOpenAICodexAuthorizationInput,
   startOpenAICodexCallbackServer,
   type OpenAICodexConfigShape,
@@ -92,6 +93,14 @@ describe('openai-codex-oauth', () => {
         'http://localhost:1455/auth/callback?code=abc123&state=deadbeef',
       ),
     ).toEqual({ code: 'abc123', state: 'deadbeef' });
+  });
+
+  it('rejects oversized authorization input', () => {
+    expect(() =>
+      parseOpenAICodexAuthorizationInput(
+        'x'.repeat(OPENAI_CODEX_AUTH_INPUT_MAX_LENGTH + 1),
+      ),
+    ).toThrow('authorization input is too long');
   });
 
   it('extracts chatgpt account id from access token claims', () => {

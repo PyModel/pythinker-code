@@ -1,9 +1,14 @@
 import {
+  applyOpenAICodexOAuthConfig,
   applyOpenPlatformConfig,
+  fetchOpenAICodexModels,
   fetchOpenPlatformModels,
   filterModelsByPrefix,
   getOpenPlatformById,
   OpenPlatformApiError,
+  OPENAI_CODEX_OAUTH_PLATFORM_ID,
+  OPENAI_CODEX_PROVIDER_ID,
+  runOpenAICodexOAuthFlow,
   type ManagedPythinkerCodeModelInfo,
   type ManagedPythinkerConfigShape,
   type OpenPlatformDefinition,
@@ -15,9 +20,11 @@ import { formatErrorMessage } from '../utils/event-payload';
 import {
   promptApiKey,
   promptLogoutProviderSelection,
+  promptModelSelectionForCodex,
   promptModelSelectionForOpenPlatform,
   promptPlatformSelection,
 } from './prompts';
+import { openUrl } from '#/utils/open-url';
 import type { SlashCommandHost } from './dispatch';
 
 // ---------------------------------------------------------------------------
@@ -28,9 +35,90 @@ export async function handleLoginCommand(host: SlashCommandHost): Promise<void> 
   const platformId = await promptPlatformSelection(host);
   if (platformId === undefined) return;
 
+  if (platformId === OPENAI_CODEX_OAUTH_PLATFORM_ID) {
+    await handleOpenAICodexLogin(host);
+    return;
+  }
+
   const platform = getOpenPlatformById(platformId);
   if (platform === undefined) return;
   await handleOpenPlatformLogin(host, platform);
+}
+
+async function handleOpenAICodexLogin(host: SlashCommandHost): Promise<void> {
+  const controller = new AbortController();
+  let committing = false;
+  const cancelLogin = (): void => {
+    if (!committing) controller.abort();
+  };
+  host.cancelInFlight = cancelLogin;
+
+  try {
+    const tokens = await runOpenAICodexOAuthFlow({
+      signal: controller.signal,
+      openBrowser: openUrl,
+      onManualInput: () =>
+        promptApiKey(
+          host,
+          'OpenAI Codex',
+          ['Paste the redirected localhost URL from your browser.'],
+          {
+            title: 'Paste OpenAI Codex redirect URL',
+            mask: false,
+            emptyHint: 'Redirect URL cannot be empty.',
+          },
+        ),
+    });
+    const models = await fetchOpenAICodexModels({
+      accessToken: tokens.accessToken,
+      accountId: tokens.accountId,
+      signal: controller.signal,
+    });
+    if (models.length === 0) {
+      host.showError('No models available for OpenAI Codex.');
+      return;
+    }
+
+    const selection = await promptModelSelectionForCodex(host, models);
+    if (selection === undefined) return;
+
+    controller.signal.throwIfAborted();
+    const current = await host.harness.getConfig({ reload: true });
+    controller.signal.throwIfAborted();
+    const next = {
+      ...current,
+      providers: { ...current.providers },
+      models: { ...current.models },
+    };
+    applyOpenAICodexOAuthConfig(next, {
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      accountId: tokens.accountId,
+      models,
+      selectedModel: selection.model,
+      thinking: selection.thinking !== 'off',
+      effort:
+        selection.thinking !== 'off' && selection.thinking !== 'on'
+          ? selection.thinking
+          : undefined,
+    });
+    committing = true;
+    await host.harness.replaceConfigSections({
+      providers: next.providers,
+      models: next.models,
+      defaultModel: next.defaultModel,
+      thinking: next.thinking,
+    });
+    await host.authFlow.refreshConfigAfterLogin();
+    host.track('login', { provider: OPENAI_CODEX_PROVIDER_ID, method: 'oauth' });
+    host.showStatus(`Setup complete: OpenAI Codex · ${selection.model.id}`);
+  } catch (error) {
+    if (!controller.signal.aborted) {
+      host.showError(`OpenAI Codex login failed: ${formatErrorMessage(error)}`);
+    }
+  } finally {
+    if (host.cancelInFlight === cancelLogin) host.cancelInFlight = undefined;
+  }
 }
 
 async function handleOpenPlatformLogin(

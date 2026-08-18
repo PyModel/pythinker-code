@@ -14,6 +14,12 @@ export type ApiKeyInputResult =
   | { readonly kind: 'ok'; readonly value: string }
   | { readonly kind: 'cancel' };
 
+export interface ApiKeyInputDialogOptions {
+  readonly title?: string;
+  readonly mask?: boolean;
+  readonly emptyHint?: string;
+}
+
 const FOOTER = 'Enter to submit  ·  Esc to cancel';
 
 function maskInputLine(raw: string): string {
@@ -57,7 +63,7 @@ export class ApiKeyInputDialogComponent extends Container implements Focusable {
     platformName: string,
     subtitleLines: readonly string[],
     onDone: (result: ApiKeyInputResult) => void,
-    options?: { title?: string; mask?: boolean; emptyHint?: string },
+    options?: ApiKeyInputDialogOptions,
   ) {
     super();
     this.onDone = onDone;

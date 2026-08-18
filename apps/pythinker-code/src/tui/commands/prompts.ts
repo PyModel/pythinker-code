@@ -6,13 +6,19 @@ import {
   type ModelAlias,
   type ThinkingEffort,
 } from '@pymodel/pythinker-code-sdk';
-import { capabilitiesForModel } from '@pymodel/pythinker-code-oauth';
-import type {
-  ManagedPythinkerCodeModelInfo,
-  OpenPlatformDefinition,
+import {
+  capabilitiesForModel,
+  OPENAI_CODEX_PROVIDER_ID,
+  type ManagedPythinkerCodeModelInfo,
+  type OpenAICodexModelInfo,
+  type OpenPlatformDefinition,
 } from '@pymodel/pythinker-code-oauth';
 
-import { ApiKeyInputDialogComponent, type ApiKeyInputResult } from '../components/dialogs/api-key-input-dialog';
+import {
+  ApiKeyInputDialogComponent,
+  type ApiKeyInputDialogOptions,
+  type ApiKeyInputResult,
+} from '../components/dialogs/api-key-input-dialog';
 import { ChoicePickerComponent, type ChoiceOption } from '../components/dialogs/choice-picker';
 import { FeedbackInputDialogComponent, type FeedbackInputDialogResult } from '../components/dialogs/feedback-input-dialog';
 import { ModelSelectorComponent } from '../components/dialogs/model-selector';
@@ -114,6 +120,7 @@ export function promptApiKey(
   host: SlashCommandHost,
   platformName: string,
   subtitleLines: readonly string[] = ['Your key will be saved to ~/.pythinker-code/config.toml'],
+  options: ApiKeyInputDialogOptions = {},
 ): Promise<string | undefined> {
   return new Promise((resolve) => {
     const dialog = new ApiKeyInputDialogComponent(
@@ -123,6 +130,7 @@ export function promptApiKey(
         host.restoreEditor();
         resolve(result.kind === 'ok' ? result.value : undefined);
       },
+      options,
     );
     host.mountEditorReplacement(dialog);
   });
@@ -207,6 +215,33 @@ export async function promptModelSelectionForOpenPlatform(
   if (selection === undefined) return undefined;
   const model = models.find((m) => `${platform.id}/${m.id}` === selection.alias);
   return model ? { model, thinking: selection.thinking } : undefined;
+}
+
+export async function promptModelSelectionForCodex(
+  host: SlashCommandHost,
+  models: OpenAICodexModelInfo[],
+): Promise<{ model: OpenAICodexModelInfo; thinking: ThinkingEffort } | undefined> {
+  const modelDict: Record<string, ModelAlias> = {};
+  for (const model of models) {
+    const capabilities = capabilitiesForModel(model) ?? [];
+    modelDict[`${OPENAI_CODEX_PROVIDER_ID}/${model.id}`] = {
+      provider: OPENAI_CODEX_PROVIDER_ID,
+      model: model.id,
+      maxContextSize: model.contextLength,
+      capabilities: model.supportsFastMode === true ? [...capabilities, 'fast_mode'] : capabilities,
+      supportEfforts:
+        model.supportedReasoningEfforts === undefined
+          ? undefined
+          : [...model.supportedReasoningEfforts],
+      displayName: model.displayName,
+    };
+  }
+  const selection = await runModelSelector(host, modelDict);
+  if (selection === undefined) return undefined;
+  const model = models.find(
+    (candidate) => `${OPENAI_CODEX_PROVIDER_ID}/${candidate.id}` === selection.alias,
+  );
+  return model === undefined ? undefined : { model, thinking: selection.thinking };
 }
 
 export async function promptModelSelectionForCatalog(

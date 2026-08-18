@@ -37,6 +37,7 @@ export {
   promptFeedbackInput,
   promptLogoutProviderSelection,
   promptModelSelectionForCatalog,
+  promptModelSelectionForCodex,
   promptModelSelectionForOpenPlatform,
   promptPlatformSelection,
   runModelSelector,
