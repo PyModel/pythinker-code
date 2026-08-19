@@ -259,7 +259,7 @@
 
 - [#569](https://github.com/PyModel/pythinker-code/pull/569) [`d7407b0`](https://github.com/PyModel/pythinker-code/commit/d7407b0ecfc87a3840e26ddaddb69e7f52383699) - Make goals, background questions, and sub-skill discovery available without experimental opt-ins.
 
-- [#424](https://github.com/PyModel/pythinker-code/pull/424) [`72c4b0a`](https://github.com/PyModel/pythinker-code/commit/72c4b0adaa6ae0466875cd8e4066c42456195f21) - Add the `/dynamic_workflow` command for running agent dynamic workflows with live progress and rate-limit-aware retries.
+- [#424](https://github.com/PyModel/pythinker-code/pull/424) [`72c4b0a`](https://github.com/PyModel/pythinker-code/commit/72c4b0adaa6ae0466875cd8e4066c42456195f21) - Add the `/dynamic_workflow` command for running agent dynamicWorkflows with live progress and rate-limit-aware retries.
 
 ### Patch Changes
 

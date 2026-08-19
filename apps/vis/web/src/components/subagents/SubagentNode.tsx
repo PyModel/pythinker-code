@@ -33,9 +33,9 @@ export function SubagentNode({ node, sessionId }: Props) {
               {node.type}
             </Pill>
             <span className="font-mono text-[12px] text-fg-0">{node.agentId}</span>
-            {node.dynamic_workflowItem ? (
-              <Pill tone="subagent" variant="outline" title={node.dynamic_workflowItem}>
-                {node.dynamic_workflowItem}
+            {node.dynamicWorkflowItem ? (
+              <Pill tone="subagent" variant="outline" title={node.dynamicWorkflowItem}>
+                {node.dynamicWorkflowItem}
               </Pill>
             ) : null}
             {node.parentAgentId !== null ? (

@@ -539,10 +539,10 @@ describe('SessionMetadata', () => {
 
     await Promise.all([
       meta.registerAgent('agent-0', {
-        labels: { dynamic_workflowItem: 'src/a.ts' },
+        labels: { dynamicWorkflowItem: 'src/a.ts' },
       }),
       meta.registerAgent('agent-1', {
-        labels: { dynamic_workflowItem: 'src/b.ts' },
+        labels: { dynamicWorkflowItem: 'src/b.ts' },
       }),
     ]);
 
@@ -623,11 +623,11 @@ describe('SessionMetadata', () => {
     await meta.registerAgent('main', {
       homedir: '/tmp/sessions/wd_test/s1/agents/main',
       type: 'main',
-      labels: { dynamic_workflowItem: 'src/a.ts' },
+      labels: { dynamicWorkflowItem: 'src/a.ts' },
     });
 
     const next = await meta.read();
-    expect(next.agents?.['main']?.labels).toEqual({ dynamic_workflowItem: 'src/a.ts' });
+    expect(next.agents?.['main']?.labels).toEqual({ dynamicWorkflowItem: 'src/a.ts' });
     expect(next.updatedAt).toBe(before);
   });
 

@@ -25,7 +25,7 @@ export {
   sessionService,
   sessionServices,
   skillServices,
-  dynamic_workflowServices,
+  dynamicWorkflowServices,
   telemetryServices,
   testAgent,
   wireRecordPersistenceServices,

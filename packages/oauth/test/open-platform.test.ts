@@ -50,13 +50,13 @@ describe('OPEN_PLATFORMS', () => {
       name: 'Kimi Platform (API key · platform.kimi.com)',
       baseUrl: 'https://api.moonshot.cn/v1',
       consoleUrl: 'https://platform.kimi.com',
-      allowedPrefixes: ['pythinker-k'],
+      allowedPrefixes: ['kimi-k'],
     });
     expect(getOpenPlatformById('moonshot-ai')).toMatchObject({
       name: 'Kimi Platform (API key · platform.kimi.ai)',
       baseUrl: 'https://api.moonshot.ai/v1',
       consoleUrl: 'https://platform.kimi.ai',
-      allowedPrefixes: ['pythinker-k'],
+      allowedPrefixes: ['kimi-k'],
     });
     expect(getOpenPlatformById('unknown')).toBeUndefined();
   });

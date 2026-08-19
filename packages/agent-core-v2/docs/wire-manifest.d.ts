@@ -54,8 +54,8 @@
 //   profile.bind                       profile, profile.activeTools                                          src/agent/profile/profileOps.ts
 //   prompt.accepted                    promptAdmission                                                       src/agent/prompt/promptOps.ts
 //   runtime.set_binding                runtimeBinding                                                        src/agent/runtimeBinding/runtimeBindingOps.ts
-//   dynamic_workflow_mode.enter                   dynamic_workflow                                                                 src/features/dynamic_workflow/dynamic_workflowOps.ts
-//   dynamic_workflow_mode.exit                    contextMemory, dynamic_workflow                                                  src/features/dynamic_workflow/dynamic_workflowOps.ts
+//   dynamic_workflow_mode.enter                   dynamic_workflow                                                                 src/features/dynamic_workflow/dynamicWorkflowOps.ts
+//   dynamic_workflow_mode.exit                    contextMemory, dynamic_workflow                                                  src/features/dynamic_workflow/dynamicWorkflowOps.ts
 //   task.started                       task                                                                  src/agent/task/taskOps.ts
 //   task.terminated                    task                                                                  src/agent/task/taskOps.ts
 //   token_counting.measured            tokenCounting                                                         src/agent/tokenCounting/tokenCountingOps.ts
@@ -458,7 +458,7 @@ interface RuntimeSetBindingPayload {
 
 /**
  * states: dynamic_workflow
- * owner: src/features/dynamic_workflow/dynamic_workflowOps.ts
+ * owner: src/features/dynamic_workflow/dynamicWorkflowOps.ts
  */
 interface DynamicWorkflowModeEnterPayload {
   _name: 'dynamic_workflow_mode.enter';
@@ -468,7 +468,7 @@ interface DynamicWorkflowModeEnterPayload {
 
 /**
  * states: contextMemory, dynamic_workflow · blobs: contextMemory
- * owner: src/features/dynamic_workflow/dynamic_workflowOps.ts
+ * owner: src/features/dynamic_workflow/dynamicWorkflowOps.ts
  */
 interface DynamicWorkflowModeExitPayload {
   _name: 'dynamic_workflow_mode.exit';

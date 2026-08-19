@@ -836,7 +836,7 @@ describe('AgentRunBatch dynamic_workflow item forwarding', () => {
     return { launcher, spawned };
   }
 
-  function spawnTask(dynamic_workflowItem?: string): QueuedAgentRunTask {
+  function spawnTask(dynamicWorkflowItem?: string): QueuedAgentRunTask {
     return {
       kind: 'spawn',
       data: {},
@@ -844,12 +844,12 @@ describe('AgentRunBatch dynamic_workflow item forwarding', () => {
       parentToolCallId: 'call_dynamic_workflow',
       prompt: 'Review the file',
       description: 'Review #1 (subagent)',
-      dynamic_workflowItem,
+      dynamicWorkflowItem,
       runInBackground: false,
     };
   }
 
-  it('forwards dynamic_workflowItem from a spawn task to launcher.spawn', async () => {
+  it('forwards dynamicWorkflowItem from a spawn task to launcher.spawn', async () => {
     const { launcher, spawned } = recordingLauncher();
 
     const results = await new AgentRunBatch(launcher, [spawnTask('src/a.ts')]).run();
@@ -857,18 +857,18 @@ describe('AgentRunBatch dynamic_workflow item forwarding', () => {
     expect(launcher.spawn).toHaveBeenCalledOnce();
     expect(spawned[0]).toMatchObject({
       profileName: 'subagent',
-      dynamic_workflowItem: 'src/a.ts',
+      dynamicWorkflowItem: 'src/a.ts',
     });
     expect(results).toMatchObject([{ status: 'completed', agentId: 'agent-1' }]);
   });
 
-  it('leaves dynamic_workflowItem undefined for spawn tasks without one', async () => {
+  it('leaves dynamicWorkflowItem undefined for spawn tasks without one', async () => {
     const { launcher, spawned } = recordingLauncher();
 
     await new AgentRunBatch(launcher, [spawnTask()]).run();
 
     expect(launcher.spawn).toHaveBeenCalledOnce();
-    expect(spawned[0]?.dynamic_workflowItem).toBeUndefined();
+    expect(spawned[0]?.dynamicWorkflowItem).toBeUndefined();
   });
 });
 
@@ -977,15 +977,15 @@ describe('SessionDynamicWorkflowService metadata compatibility', () => {
 
   it('reads dynamic_workflow items from caller-owned v2 labels and legacy v1 metadata', async () => {
     agents['v2-child'] = {
-      labels: { parentAgentId: 'main', dynamic_workflowItem: 'src/a.ts' },
+      labels: { parentAgentId: 'main', dynamicWorkflowItem: 'src/a.ts' },
     };
     agents['legacy-child'] = {
       type: 'sub',
       parentAgentId: 'main',
-      dynamic_workflowItem: 'src/legacy.ts',
+      dynamicWorkflowItem: 'src/legacy.ts',
     };
     agents['other-child'] = {
-      labels: { parentAgentId: 'other', dynamic_workflowItem: 'src/other.ts' },
+      labels: { parentAgentId: 'other', dynamicWorkflowItem: 'src/other.ts' },
     };
 
     const service = ix.get(ISessionDynamicWorkflowService);
@@ -1006,10 +1006,10 @@ describe('SessionDynamicWorkflowService metadata compatibility', () => {
 
   it('prefers labels over legacy metadata fields when both are present', async () => {
     agents['mixed-child'] = {
-      labels: { parentAgentId: 'main', dynamic_workflowItem: 'src/labels.ts' },
+      labels: { parentAgentId: 'main', dynamicWorkflowItem: 'src/labels.ts' },
       type: 'sub',
       parentAgentId: 'other',
-      dynamic_workflowItem: 'src/legacy.ts',
+      dynamicWorkflowItem: 'src/legacy.ts',
     };
 
     const service = ix.get(ISessionDynamicWorkflowService);
@@ -1027,17 +1027,17 @@ describe('SessionDynamicWorkflowService metadata compatibility', () => {
       labelsFromAgentMeta({
         type: 'sub',
         parentAgentId: 'main',
-        dynamic_workflowItem: 'src/legacy.ts',
+        dynamicWorkflowItem: 'src/legacy.ts',
       }),
-    ).toEqual({ parentAgentId: 'main', dynamic_workflowItem: 'src/legacy.ts' });
+    ).toEqual({ parentAgentId: 'main', dynamicWorkflowItem: 'src/legacy.ts' });
     expect(
       labelsFromAgentMeta({
-        labels: { parentAgentId: 'main', dynamic_workflowItem: 'src/labels.ts', custom: 'kept' },
+        labels: { parentAgentId: 'main', dynamicWorkflowItem: 'src/labels.ts', custom: 'kept' },
         type: 'sub',
         parentAgentId: 'other',
-        dynamic_workflowItem: 'src/legacy.ts',
+        dynamicWorkflowItem: 'src/legacy.ts',
       }),
-    ).toEqual({ parentAgentId: 'main', dynamic_workflowItem: 'src/labels.ts', custom: 'kept' });
+    ).toEqual({ parentAgentId: 'main', dynamicWorkflowItem: 'src/labels.ts', custom: 'kept' });
   });
 
   it('persists caller ownership and dynamic_workflow item labels on spawned children', async () => {
@@ -1063,7 +1063,7 @@ describe('SessionDynamicWorkflowService metadata compatibility', () => {
           model: 'pythinker-test',
           thinking: 'medium',
         },
-        labels: { parentAgentId: 'main', dynamic_workflowItem: 'src/a.ts' },
+        labels: { parentAgentId: 'main', dynamicWorkflowItem: 'src/a.ts' },
       }),
     );
   });
@@ -1133,7 +1133,7 @@ describe('SessionDynamicWorkflowService metadata compatibility', () => {
 
   it('keeps v1 resume ownership errors inside the per-subagent result', async () => {
     agents['other-child'] = {
-      labels: { parentAgentId: 'other', dynamic_workflowItem: 'src/other.ts' },
+      labels: { parentAgentId: 'other', dynamicWorkflowItem: 'src/other.ts' },
     };
     handles.set('other-child', agentHandle('other-child', lifecycle, eventBusStub()));
     const service = ix.get(ISessionDynamicWorkflowService);
@@ -1342,7 +1342,7 @@ describe('SessionDynamicWorkflowService metadata compatibility', () => {
   });
 });
 
-function spawnSessionTask(dynamic_workflowItem?: string): SessionDynamicWorkflowSpawnTask {
+function spawnSessionTask(dynamicWorkflowItem?: string): SessionDynamicWorkflowSpawnTask {
   return {
     kind: 'spawn',
     data: {},
@@ -1351,7 +1351,7 @@ function spawnSessionTask(dynamic_workflowItem?: string): SessionDynamicWorkflow
     prompt: 'Review the file',
     description: 'Review #1 (coder)',
     dynamicWorkflowIndex: 1,
-    dynamic_workflowItem,
+    dynamicWorkflowItem,
     runInBackground: false,
   };
 }

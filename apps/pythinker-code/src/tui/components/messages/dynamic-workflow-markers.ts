@@ -16,12 +16,12 @@ export class DynamicWorkflowModeMarkerComponent implements Component {
 
     const token = this.state === 'inactive' ? 'textDim' : 'success';
     const marker = currentTheme.boldFg(token, STATUS_BULLET);
-    const label = currentTheme.boldFg(token, dynamic_workflowMarkerLabel(this.state));
+    const label = currentTheme.boldFg(token, dynamicWorkflowMarkerLabel(this.state));
     return ['', truncateToWidth(marker + label, safeWidth, '…')];
   }
 }
 
-function dynamic_workflowMarkerLabel(state: DynamicWorkflowModeMarkerState): string {
+function dynamicWorkflowMarkerLabel(state: DynamicWorkflowModeMarkerState): string {
   switch (state) {
     case 'active':
       return 'DynamicWorkflow activated';

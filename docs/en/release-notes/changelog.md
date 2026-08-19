@@ -6,6 +6,38 @@ outline: 2
 
 This page documents the changes in each Pythinker Code CLI release.
 
+## 0.37.1 (2026-08-18)
+
+### Bug Fixes
+
+- Fix pasted images and videos failing to reach the model.
+
+## 0.37.0 (2026-08-18)
+
+### Features
+
+- Activate multiple skills in a single prompt. Type `/` after whitespace to insert a skill token.
+- The Windows native (single-binary) CLI now supports automatic updates.
+- web: The sidebar gains Open / Done / Workspaces tabs, and sessions can be marked as done.
+- web: Add a session management page.
+
+### Polish
+
+- Queue slash skill commands entered while the agent is busy instead of rejecting them.
+- web: @-mentioned files, folders, and skills in chat messages now render as icon pills.
+- web: The browser tab title now shows the current workspace directory name.
+- web: The search dialog now finds workspaces too, and picking a workspace or session result expands the sidebar and scrolls the item into view.
+- web: Renamed the Subagent panel to "Background Agent".
+- Warn when a typed `/goal` objective exceeds the 4000-character limit, and keep the input if it is rejected.
+
+### Bug Fixes
+
+- Fix Gemini tool-calling sessions failing on follow-up requests.
+- web: Fix Ctrl+K in the composer opening session search on macOS — session search now only answers to Cmd+K.
+- web: Fix the Background Agent panel showing incorrect task counts and statuses.
+- web: Fix pasting a copied folder into the composer failing the upload with a connection error — folders are now skipped instead.
+- Fix several known issues and make various refinements. See the [changelog on GitHub](https://github.com/PyModel/pythinker-code/blob/main/apps/pythinker-code/CHANGELOG.md) for more technical entries.
+
 ## 0.36.1 (2026-08-14)
 
 ### Features
@@ -954,7 +986,7 @@ This page documents the changes in each Pythinker Code CLI release.
 
 - Add session filtering to the web sidebar, filtering by title and the last user prompt.
 - Add scroll-up lazy loading for older messages in the web chat session view.
-- Add an environment variable to cap AgentDynamicWorkflow concurrency during the initial ramp, so large dynamic workflows do not trip provider rate limits as easily.
+- Add an environment variable to cap AgentDynamicWorkflow concurrency during the initial ramp, so large dynamicWorkflows do not trip provider rate limits as easily.
 
 ### Bug Fixes
 
@@ -1154,7 +1186,7 @@ This page documents the changes in each Pythinker Code CLI release.
 
 ### Features
 
-- Add the `/dynamic_workflow` command for running agent dynamic workflows with live progress and rate-limit-aware retries.
+- Add the `/dynamic_workflow` command for running agent dynamicWorkflows with live progress and rate-limit-aware retries.
 - Make goals, background questions, and sub-skill discovery available without experimental opt-ins.
 - Honor the standard `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` / `NO_PROXY` environment variables, including SOCKS proxies, for all outbound traffic.
 - Support Homebrew installations.

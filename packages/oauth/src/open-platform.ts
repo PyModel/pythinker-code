@@ -25,14 +25,14 @@ export const OPEN_PLATFORMS: readonly OpenPlatformDefinition[] = [
     name: 'Kimi Platform (API key · platform.kimi.com)',
     baseUrl: 'https://api.moonshot.cn/v1',
     consoleUrl: 'https://platform.kimi.com',
-    allowedPrefixes: ['pythinker-k'],
+    allowedPrefixes: ['kimi-k'],
   },
   {
     id: 'moonshot-ai',
     name: 'Kimi Platform (API key · platform.kimi.ai)',
     baseUrl: 'https://api.moonshot.ai/v1',
     consoleUrl: 'https://platform.kimi.ai',
-    allowedPrefixes: ['pythinker-k'],
+    allowedPrefixes: ['kimi-k'],
   },
 ];
 

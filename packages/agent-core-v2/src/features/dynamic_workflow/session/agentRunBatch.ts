@@ -21,7 +21,7 @@ export interface AgentRunAttemptOptions {
 
 export interface AgentSpawnAttemptOptions extends AgentRunAttemptOptions {
   readonly profileName: string;
-  readonly dynamic_workflowItem?: string;
+  readonly dynamicWorkflowItem?: string;
   readonly binding?: { readonly model: string; readonly thinking?: string };
 }
 
@@ -291,7 +291,7 @@ export class AgentRunBatch<T> {
       } else {
         const spawnOptions: AgentSpawnAttemptOptions = {
           profileName: task.profileName,
-          dynamic_workflowItem: task.dynamic_workflowItem,
+          dynamicWorkflowItem: task.dynamicWorkflowItem,
           binding: task.binding,
           ...runOptions,
         };

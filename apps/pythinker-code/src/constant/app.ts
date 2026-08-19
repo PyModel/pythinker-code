@@ -53,6 +53,12 @@ export const PYTHINKER_CODE_UPDATE_INSTALL_STATE_FILE_NAME = 'install.json';
 export const PYTHINKER_CODE_UPDATE_INSTALL_LOCK_FILE_NAME = 'install.lock';
 export const PYTHINKER_CODE_UPDATE_ROLLOUT_LOG_FILE_NAME = 'rollout.log';
 export const PYTHINKER_CODE_PLUGIN_UPDATE_NOTICE_STATE_FILE_NAME = 'plugin-notices.json';
+// Native staged update: the staged binary + metadata live next to the running
+// executable (`<exe dir>/.staging/`); the re-exec guard env breaks the
+// swap → re-exec → swap loop.
+export const PYTHINKER_CODE_NATIVE_STAGING_DIR_NAME = '.staging';
+export const PYTHINKER_CODE_NATIVE_STAGED_STATE_FILE_NAME = 'staged.json';
+export const PYTHINKER_CODE_UPDATE_REEXEC_ENV = 'PYTHINKER_CODE_UPDATE_REEXEC';
 export const PYTHINKER_CODE_INPUT_HISTORY_DIR_NAME = 'user-history';
 export const PYTHINKER_CODE_BANNER_DIR_NAME = 'banner';
 export const PYTHINKER_CODE_BANNER_STATE_FILE_NAME = 'state.json';
@@ -84,6 +90,10 @@ export const PYTHINKER_CODE_CDN_LATEST_URL = `${PYTHINKER_CODE_CDN_BASE}/latest`
 // stays unchanged forever — already-shipped clients hard-fail on non-semver
 // bodies, and the CDN install scripts read it for fresh installs.
 export const PYTHINKER_CODE_CDN_LATEST_JSON_URL = `${PYTHINKER_CODE_CDN_BASE}/latest.json`;
+// Per-release native artifacts: `/binaries/<version>/manifest.json` +
+// `/binaries/<version>/pythinker-code-<target>[.exe]` — the bare platform binary
+// (same layout install.ps1 consumes).
+export const PYTHINKER_CODE_CDN_BINARIES_BASE = `${PYTHINKER_CODE_CDN_BASE}/binaries`;
 export const PYTHINKER_CODE_TIPS_BANNER_URL = 'https://cdn.kimi.com/pythinker-code-tips/tips.json';
 // The marketplace catalog location constants live in the shared
 // agent-core-v2 plugin domain (kap-server consumes them from there).

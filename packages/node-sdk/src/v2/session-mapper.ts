@@ -90,7 +90,7 @@ function v2AgentsToV1(agents: Readonly<Record<string, V2AgentMeta>>): Record<str
       // v1 persists an explicit null for a parentless agent where v2 leaves
       // the field unset.
       parentAgentId: agent.parentAgentId ?? null,
-      dynamic_workflowItem: agent.dynamic_workflowItem,
+      dynamicWorkflowItem: agent.dynamicWorkflowItem,
     };
   }
   return mapped;

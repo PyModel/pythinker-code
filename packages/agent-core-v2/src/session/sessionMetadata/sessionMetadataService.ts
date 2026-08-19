@@ -215,7 +215,7 @@ function agentMetaEquals(a: AgentMeta, b: AgentMeta): boolean {
     a.type === b.type &&
     (a.parentAgentId ?? null) === (b.parentAgentId ?? null) &&
     a.forkedFrom === b.forkedFrom &&
-    a.dynamic_workflowItem === b.dynamic_workflowItem &&
+    a.dynamicWorkflowItem === b.dynamicWorkflowItem &&
     recordEquals(a.labels, b.labels)
   );
 }
@@ -292,7 +292,7 @@ function isSessionTitleKind(value: unknown): value is SessionTitleKind {
 
 type PersistedSessionMeta = SessionMeta & { readonly isCustomTitle: boolean };
 
-function encodeSessionMeta(meta: SessionMeta): PersistedSessionMeta {
+export function encodeSessionMeta(meta: SessionMeta): PersistedSessionMeta {
   return { ...meta, isCustomTitle: meta.titleKind === 'custom' };
 }
 
