@@ -5,6 +5,7 @@ import { join } from 'pathe';
 import { describe, expect, it } from 'vitest';
 
 import { Error2 } from '#/errors';
+import { isMcpConnectionClosedError } from '#/mcpCore/client-shared';
 import { mergeStdioEnv, StdioMcpClient, type StdioMcpClientOptions } from '#/mcpCore/client-stdio';
 import type { McpServerStdioConfig } from '#/mcpCore/config-schema';
 import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
@@ -324,9 +325,14 @@ describe('StdioMcpClient', () => {
       while (Date.now() < drainDeadline) {
         try {
           await client.callTool('echo', { text: 'probe' });
-        } catch {
-          transportConfirmedDead = true;
-          break;
+        } catch (error) {
+          if (
+            isMcpConnectionClosedError(error) ||
+            (error instanceof Error && error.message === 'Not connected')
+          ) {
+            transportConfirmedDead = true;
+            break;
+          }
         }
         await new Promise((r) => setTimeout(r, 10));
       }
