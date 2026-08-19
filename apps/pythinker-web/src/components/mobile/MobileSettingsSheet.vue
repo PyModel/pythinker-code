@@ -3,7 +3,7 @@
 <!-- controls as big tappable rows — model (opens ModelPicker), thinking level -->
 <!-- (inline cycle picker), plan mode (toggle), permission (cycle), and a -->
 <!-- read-only context-usage meter — plus the desktop settings-popover prefs -->
-<!-- (theme / color scheme / language) and the sign-in/out entry, which previously -->
+<!-- (theme / color scheme) and the sign-in/out entry, which previously -->
 <!-- had no mobile counterpart. -->
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
@@ -13,6 +13,11 @@ import type { AppModel, AppSession, ThinkingLevel } from '../../api/types';
 import type { ColorScheme } from '../../composables/usePythinkerWebClient';
 import { usePythinkerWebClient } from '../../composables/usePythinkerWebClient';
 import {
+  uiFontScaleForSize,
+  uiFontScaleOptions,
+  uiFontSizeForScale,
+} from '../../composables/client/useAppearance';
+import {
   commitLevel,
   effectiveThinkingLevel,
   effortLabel,
@@ -20,7 +25,6 @@ import {
   segmentsFor,
 } from '../../lib/modelThinking';
 import BottomSheet from '../dialogs/BottomSheet.vue';
-import LanguageSwitcher from '../settings/LanguageSwitcher.vue';
 import { formatTokens } from '../../lib/formatTokens';
 import Button from '../ui/Button.vue';
 import Input from '../ui/Input.vue';
@@ -34,7 +38,6 @@ const props = withDefaults(
     status: ConversationStatus;
     thinking?: ThinkingLevel;
     planMode?: boolean;
-    dynamicWorkflowMode?: boolean;
     colorScheme?: ColorScheme;
     uiFontSize?: number;
     authReady?: boolean;
@@ -58,7 +61,6 @@ const emit = defineEmits<{
   pickModel: [];
   setThinking: [level: ThinkingLevel];
   togglePlan: [];
-  toggleDynamicWorkflow: [];
   setPermission: [mode: PermissionMode];
   setColorScheme: [colorScheme: ColorScheme];
   setUiFontSize: [size: number];
@@ -93,7 +95,12 @@ const thinkingOptions = computed(() =>
   thinkingSegments.value.map((seg) => ({ value: seg, label: effortLabel(seg) })),
 );
 const planOn = computed<boolean>(() => props.planMode === true);
-const dynamicWorkflowOn = computed<boolean>(() => props.dynamicWorkflowMode === true);
+const fontScale = computed(() => uiFontScaleForSize(props.uiFontSize));
+
+function setFontScale(scale: string): void {
+  const size = uiFontSizeForScale(scale);
+  if (size !== undefined) emit('setUiFontSize', size);
+}
 
 // Risk progression matches the Composer: yolo = warning, auto = danger.
 const permColor = computed<string>(() => {
@@ -283,15 +290,6 @@ watch(
       <span class="toggle" :class="{ on: planOn }" role="switch" :aria-checked="planOn" />
     </button>
 
-    <!-- DynamicWorkflow mode → real toggle switch -->
-    <button type="button" class="srow" @click="emit('toggleDynamicWorkflow')">
-      <span class="srow-main">
-        <span class="srow-label">{{ t('status.statusDynamicWorkflowMode') }}</span>
-        <span class="srow-sub">{{ t('mobile.dynamicWorkflowModeSub') }}</span>
-      </span>
-      <span class="toggle" :class="{ on: dynamicWorkflowOn }" role="switch" :aria-checked="dynamicWorkflowOn" />
-    </button>
-
     <!-- Permission → cycle (sub-line + chevron) -->
     <button type="button" class="srow" @click="cyclePermission">
       <span class="srow-main">
@@ -341,28 +339,14 @@ watch(
 
     <div class="srow read-only pref">
       <span class="srow-main">
-        <span class="srow-label">{{ t('sidebar.language') }}</span>
-      </span>
-      <LanguageSwitcher />
-    </div>
-
-    <div class="srow read-only pref">
-      <span class="srow-main">
         <span class="srow-label">{{ t('settings.uiFontSize') }}</span>
       </span>
-      <label class="num-field">
-        <input
-          class="num-input"
-          type="number"
-          min="12"
-          max="20"
-          step="1"
-          :value="uiFontSize"
-          :aria-label="t('settings.uiFontSize')"
-          @input="emit('setUiFontSize', Number(($event.target as HTMLInputElement).value))"
-        />
-        <span class="num-unit">px</span>
-      </label>
+      <SegmentedControl
+        :model-value="fontScale"
+        :options="uiFontScaleOptions"
+        :aria-label="t('settings.uiFontSize')"
+        @update:model-value="setFontScale"
+      />
     </div>
 
     <button type="button" class="srow" @click="emit('setConversationToc', !conversationToc)">
@@ -537,35 +521,8 @@ watch(
 }
 .toggle.on::after { left: 21px; }
 
-/* App preference rows: segmented theme/color-scheme toggles + language switcher. */
+/* App preference rows: segmented theme and font-size controls. */
 .srow.pref { cursor: default; }
-
-.num-field {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex: none;
-  height: 34px;
-  padding: 0 9px;
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius-md);
-  background: var(--color-bg);
-}
-.num-input {
-  width: 50px;
-  border: none;
-  outline: none;
-  background: transparent;
-  color: var(--color-text);
-  font-family: var(--font-mono);
-  font-size: var(--ui-font-size);
-  text-align: right;
-}
-.num-unit {
-  color: var(--color-text-muted);
-  font-family: var(--font-mono);
-  font-size: var(--ui-font-size-xs);
-}
 
 /* Account rows */
 .srow.acct.in .srow-label { color: var(--color-accent-hover); font-weight: 500; }
@@ -613,9 +570,6 @@ watch(
   }
   .srow.pref .srow-main {
     flex: 1 0 100%;
-  }
-  .num-field {
-    margin-left: auto;
   }
   .srow-val,
   .chev,

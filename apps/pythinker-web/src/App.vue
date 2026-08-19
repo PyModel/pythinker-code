@@ -137,7 +137,7 @@ const statusPanelThinking = computed<ThinkingLevel>(() => {
   return effectiveThinkingLevel(model, client.thinking.value);
 });
 
-// First-run onboarding (language + welcome greeting). Shown until the user
+// First-run onboarding. Shown until the user
 // finishes it once; re-openable from the settings popover.
 const showOnboarding = ref(!client.onboarded.value);
 function completeOnboarding(): void {
@@ -774,7 +774,6 @@ function openPr(url: string): void {
       :status="client.status.value"
       :thinking="client.thinking.value"
       :plan-mode="client.planMode.value"
-      :dynamic-workflow-mode="client.dynamicWorkflowMode.value"
       :goal-mode="client.goalMode.value"
       :models="client.models.value"
       :starred-ids="client.starredModelIds.value"
@@ -823,7 +822,6 @@ function openPr(url: string): void {
       @set-permission="client.setPermission($event)"
       @set-thinking="client.setThinking($event)"
       @toggle-plan="client.togglePlanMode()"
-      @toggle-dynamic_workflow="client.toggleDynamicWorkflowMode()"
       @toggle-goal="client.toggleGoalMode()"
       @create-goal="client.createGoal($event)"
       @control-goal="client.controlGoal($event)"
@@ -1007,7 +1005,6 @@ function openPr(url: string): void {
       :status="client.status.value"
       :thinking="statusPanelThinking"
       :plan-mode="client.planMode.value"
-      :dynamic-workflow-mode="client.dynamicWorkflowMode.value"
       :cost-usd="client.sessionCost.value"
       @close="showStatusPanel = false"
     />
@@ -1028,7 +1025,7 @@ function openPr(url: string): void {
       <GlobalLoading v-if="!client.initialized.value" :issue="client.connectIssue.value" />
     </Transition>
 
-    <!-- First-run onboarding overlay (language + welcome greeting). Held back
+    <!-- First-run onboarding overlay. Held back
          until the first load settled so it can't cover the connecting splash
          (it teleports to <body> and would float above the retry error). -->
     <Onboarding
@@ -1075,7 +1072,6 @@ function openPr(url: string): void {
       :thinking="client.thinking.value"
       :models="client.models.value"
       :plan-mode="client.planMode.value"
-      :dynamic-workflow-mode="client.dynamicWorkflowMode.value"
       :color-scheme="client.colorScheme.value"
       :ui-font-size="client.uiFontSize.value"
       :auth-ready="client.authReady.value"
@@ -1084,7 +1080,6 @@ function openPr(url: string): void {
       @pick-model="openModelPicker()"
       @set-thinking="client.setThinking($event)"
       @toggle-plan="client.togglePlanMode()"
-      @toggle-dynamic_workflow="client.toggleDynamicWorkflowMode()"
       @set-permission="client.setPermission($event)"
       @set-color-scheme="client.setColorScheme($event)"
       @set-ui-font-size="client.setUiFontSize($event)"

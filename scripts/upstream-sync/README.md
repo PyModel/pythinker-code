@@ -82,15 +82,13 @@ Run these checks in order.
    rg -in 'kimi|moonshot'
    ```
 
-4. Require English-only source outside isolated Chinese localization and test fixtures.
+4. Require English-only source. Pythinker does not ship Chinese localization.
 
    ```sh
    if rg --pcre2 '\p{Unified_Ideograph}' apps packages plugins scripts \
      --glob '*.{ts,tsx,vue,js,mjs,cjs,sh,ps1}' \
-     --glob '!**/dist*/**' \
-     --glob '!**/src/i18n/locales/zh/**' \
-     --glob '!**/fixtures/**'; then
-     echo 'Literal Han ideographs found outside localized content.' >&2
+     --glob '!**/dist*/**'; then
+     echo 'Literal Han ideographs found in source.' >&2
      exit 1
    fi
    ```

@@ -16,12 +16,10 @@ export default {
   planOn: 'on',
   planOff: 'off',
   planTooltip: 'Toggle plan mode (research before editing)',
-  // Mode selector (Plan / Goal / DynamicWorkflow)
+  // Mode selector
   modesLabel: 'Mode',
   goalLabel: 'Goal',
   goalDesc: 'Track one objective until it is complete',
-  dynamicWorkflowLabel: 'DynamicWorkflow',
-  dynamicWorkflowDesc: 'Run parallel agents for broader exploration',
   modeOff: 'Off',
   goalPlaceholder: 'What should the agent achieve?',
   goalStart: 'Start',
@@ -52,9 +50,6 @@ export default {
   statusThinking: 'Thinking',
   statusPermission: 'Permission',
   statusPlanMode: 'Plan mode',
-  statusDynamicWorkflowMode: 'DynamicWorkflow mode',
-  dynamicWorkflowOn: 'on',
-  dynamicWorkflowOff: 'off',
   statusContext: 'Context',
   statusCost: 'Cost',
   statusContextValue: '{used} / {max} ({pct}%)',

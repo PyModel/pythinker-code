@@ -778,7 +778,7 @@ function setConversationToc(v: boolean): void {
 
 // ---------------------------------------------------------------------------
 // Onboarding: a "has the user been onboarded" flag that gates the first-run
-// onboarding screen (preference: language). Persisted; can be reset to re-open
+// onboarding screen. Persisted; can be reset to re-open
 // the screen from the settings popover.
 // ---------------------------------------------------------------------------
 function loadStringFromStorage(key: string): string {

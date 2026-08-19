@@ -32,7 +32,6 @@ const props = defineProps<{
   status: ConversationStatus;
   thinking?: ThinkingLevel;
   planMode?: boolean;
-  dynamicWorkflowMode?: boolean;
   goalMode?: boolean;
   questions?: UIQuestion[];
   /** Question ids with an in-flight respond/dismiss (drives the card loading
@@ -112,7 +111,6 @@ const emit = defineEmits<{
   setPermission: [mode: PermissionMode];
   setThinking: [level: ThinkingLevel];
   togglePlan: [];
-  toggleDynamicWorkflow: [];
   toggleGoal: [];
   createGoal: [objective: string];
   controlGoal: [action: 'pause' | 'resume' | 'cancel'];
@@ -1377,7 +1375,6 @@ defineExpose({ loadComposerForEdit, focusComposer });
               :status="status"
               :thinking="thinking"
               :plan-mode="planMode"
-              :dynamic-workflow-mode="dynamicWorkflowMode"
               :goal-mode="goalMode"
               :goal="goal"
               :activation-badges="activationBadges"
@@ -1395,7 +1392,6 @@ defineExpose({ loadComposerForEdit, focusComposer });
               @set-permission="emit('setPermission', $event)"
               @set-thinking="emit('setThinking', $event)"
               @toggle-plan="emit('togglePlan')"
-              @toggle-dynamic_workflow="emit('toggleDynamicWorkflow')"
               @toggle-goal="emit('toggleGoal')"
               @open-btw="emit('command', '/btw')"
               @create-goal="emit('createGoal', $event)"
@@ -1453,7 +1449,6 @@ defineExpose({ loadComposerForEdit, focusComposer });
         :status="status"
         :thinking="thinking"
         :plan-mode="planMode"
-        :dynamic-workflow-mode="dynamicWorkflowMode"
         :goal-mode="goalMode"
         :activation-badges="activationBadges"
         :models="models"
@@ -1489,7 +1484,6 @@ defineExpose({ loadComposerForEdit, focusComposer });
         @set-permission="emit('setPermission', $event)"
         @set-thinking="emit('setThinking', $event)"
         @toggle-plan="emit('togglePlan')"
-        @toggle-dynamic_workflow="emit('toggleDynamicWorkflow')"
         @toggle-goal="emit('toggleGoal')"
           @open-btw="emit('command', '/btw')"
           @create-goal="emit('createGoal', $event)"

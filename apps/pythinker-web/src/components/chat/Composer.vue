@@ -53,7 +53,6 @@ const props = withDefaults(defineProps<{
   status?: ConversationStatus;
   thinking?: ThinkingLevel;
   planMode?: boolean;
-  dynamicWorkflowMode?: boolean;
   goalMode?: boolean;
   goal?: AppGoal | null;
   activationBadges?: ActivationBadges;
@@ -96,13 +95,11 @@ const emit = defineEmits<{
   setPermission: [mode: PermissionMode];
   setThinking: [level: ThinkingLevel];
   togglePlan: [];
-  toggleDynamicWorkflow: [];
   toggleGoal: [];
   openBtw: [];
   createGoal: [objective: string];
   controlGoal: [action: 'pause' | 'resume' | 'cancel'];
   focusGoal: [];
-  focusDynamicWorkflow: [];
   compact: [];
   pickModel: [];
   selectModel: [modelId: string];
@@ -669,23 +666,20 @@ function thinkingSegmentLabel(segment: string): string {
 
 // Plan toggle
 const planOn = computed(() => props.planMode === true);
-const dynamicWorkflowOn = computed(() => props.dynamicWorkflowMode === true);
 const goalStatus = computed(() => props.goal?.status ?? props.activationBadges?.goal?.status ?? null);
 const goalActive = computed(() => goalStatus.value !== null && goalStatus.value !== 'complete');
 const goalArmed = computed(() => goalActive.value || props.goalMode === true);
 const goalCanPause = computed(() => goalStatus.value === 'active');
 const goalCanResume = computed(() => goalStatus.value === 'paused' || goalStatus.value === 'blocked');
 
-// Modes selector (plan / goal / dynamic_workflow) — the popover that replaces the bare
-// "plan" pill. Plan/DynamicWorkflow are real client toggles; goal reflects agent-driven
-// state and focuses its card when active.
+// Modes selector for plan and goal state.
 const modesOpen = ref(false);
 const modesRef = ref<HTMLElement | null>(null);
 const modesMenuRef = ref<HTMLElement | null>(null);
 // The menu is position:fixed (so no composer stacking context can paint over
 // it); these coords anchor it just above the pill, computed on open.
 const modesMenuStyle = ref<Record<string, string>>({});
-const anyModeActive = computed(() => planOn.value || dynamicWorkflowOn.value || goalArmed.value);
+const anyModeActive = computed(() => planOn.value || goalArmed.value);
 function closeModes(): void {
   modesOpen.value = false;
   document.removeEventListener('mousedown', onModesDocClick);
@@ -719,7 +713,7 @@ const PERM_MODES: { mode: PermissionMode; color: string; labelKey: string; descK
   { mode: 'yolo', color: 'var(--color-warning)', labelKey: 'status.permissionYolo', descKey: 'status.permissionYoloDesc' },
   { mode: 'auto', color: 'var(--color-danger)', labelKey: 'status.permissionAuto', descKey: 'status.permissionAutoDesc' },
 ];
-const MODE_DESC_KEYS = ['status.planDesc', 'status.dynamicWorkflowDesc', 'status.goalDesc'] as const;
+const MODE_DESC_KEYS = ['status.planDesc', 'status.goalDesc'] as const;
 
 const menuMeasureRef = ref<HTMLElement | null>(null);
 const permissionDescriptionWidth = ref('');
@@ -998,7 +992,7 @@ function selectModel(modelId: string): void {
             </button>
           </div>
 
-          <!-- Modes selector (plan / goal / dynamic_workflow) — replaces the plan pill. -->
+          <!-- Modes selector for plan and goal state. -->
           <div v-if="status" ref="modesRef" class="modes">
             <button
               type="button"
@@ -1008,7 +1002,6 @@ function selectModel(modelId: string): void {
             >
               <span class="mode-label">{{ t('status.modesLabel') }}</span>
               <span v-if="planOn" class="mode-tag">{{ t('status.planLabel') }}</span>
-              <span v-if="dynamicWorkflowOn" class="mode-tag">{{ t('status.dynamicWorkflowLabel') }}</span>
               <span v-if="goalArmed" class="mode-tag">{{ t('status.goalLabel') }}</span>
             </button>
 
@@ -1021,15 +1014,6 @@ function selectModel(modelId: string): void {
                   <span class="mode-row-desc">{{ t('status.planDesc') }}</span>
                 </span>
                 <span class="mode-switch" :class="{ on: planOn }"><span class="mode-knob" /></span>
-              </button>
-              <!-- DynamicWorkflow — functional client toggle -->
-              <button type="button" class="mode-row" :class="{ on: dynamicWorkflowOn }" role="menuitem" @click="emit('toggleDynamicWorkflow')">
-                <span class="mode-row-icon"><Icon name="sparkles" size="sm" /></span>
-                <span class="mode-row-info">
-                  <span class="mode-row-name">{{ t('status.dynamicWorkflowLabel') }}</span>
-                  <span class="mode-row-desc">{{ t('status.dynamicWorkflowDesc') }}</span>
-                </span>
-                <span class="mode-switch" :class="{ on: dynamicWorkflowOn }"><span class="mode-knob" /></span>
               </button>
               <!-- Goal — lifecycle controls when active; switch is on when active or armed. -->
               <div class="mode-row mode-row-goal" :class="{ on: goalActive || props.goalMode }">
@@ -1902,7 +1886,7 @@ function selectModel(modelId: string): void {
 }
 
 /* Toggle pills (Thinking / Plan) */
-/* Modes selector (plan / goal / dynamic_workflow) — replaces the old plan pill + badges.
+/* Modes selector for plan and goal state.
    z-index lifts the whole control (incl. its upward-opening menu) above the
    composer input row, which otherwise paints over the menu. */
 .modes { position: relative; display: inline-flex; z-index: var(--z-sticky); }

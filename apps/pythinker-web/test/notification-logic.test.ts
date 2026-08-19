@@ -146,26 +146,6 @@ describe('notification copy', () => {
     });
   });
 
-  it('localizes approval notification copy', () => {
-    i18n.global.locale.value = 'zh';
-    expect(approvalNotificationCopy('', '')).toEqual({
-      title: 'Pythinker Code · \u7B49\u5F85\u5BA1\u6279',
-      body: '\u6709\u5DE5\u5177\u7B49\u5F85\u4F60\u5BA1\u6279',
-    });
-  });
-
-  it('localizes the notification copy', () => {
-    i18n.global.locale.value = 'zh';
-
-    expect(completionNotificationCopy('')).toEqual({
-      title: 'Pythinker Code · \u56DE\u5408\u5B8C\u6210',
-      body: '\u70B9\u51FB\u67E5\u770B\u7ED3\u679C',
-    });
-    expect(questionNotificationCopy('', '')).toEqual({
-      title: 'Pythinker Code · \u5F85\u56DE\u7B54',
-      body: '\u6709\u63D0\u95EE\u7B49\u5F85\u4F60\u56DE\u7B54',
-    });
-  });
 });
 
 describe('shouldNotifyCompletion', () => {

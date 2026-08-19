@@ -31,30 +31,6 @@ import en_tools from './en/tools';
 import en_update from './en/update';
 import en_warnings from './en/warnings';
 import en_workspace from './en/workspace';
-import zh_app from './zh/app';
-import zh_approval from './zh/approval';
-import zh_commands from './zh/commands';
-import zh_common from './zh/common';
-import zh_composer from './zh/composer';
-import zh_conversation from './zh/conversation';
-import zh_diff from './zh/diff';
-import zh_filePreview from './zh/filePreview';
-import zh_header from './zh/header';
-import zh_login from './zh/login';
-import zh_mobile from './zh/mobile';
-import zh_model from './zh/model';
-import zh_onboarding from './zh/onboarding';
-import zh_providers from './zh/providers';
-import zh_question from './zh/question';
-import zh_sessions from './zh/sessions';
-import zh_settings from './zh/settings';
-import zh_sidebar from './zh/sidebar';
-import zh_status from './zh/status';
-import zh_tasks from './zh/tasks';
-import zh_theme from './zh/theme';
-import zh_tools from './zh/tools';
-import zh_warnings from './zh/warnings';
-import zh_workspace from './zh/workspace';
 
 export const messages = {
   en: {
@@ -91,32 +67,6 @@ export const messages = {
     update: en_update,
     warnings: en_warnings,
     workspace: en_workspace,
-  },
-  zh: {
-    app: zh_app,
-    approval: zh_approval,
-    commands: zh_commands,
-    common: zh_common,
-    composer: zh_composer,
-    conversation: zh_conversation,
-    diff: zh_diff,
-    filePreview: zh_filePreview,
-    header: zh_header,
-    login: zh_login,
-    mobile: zh_mobile,
-    model: zh_model,
-    onboarding: zh_onboarding,
-    providers: zh_providers,
-    question: zh_question,
-    sessions: zh_sessions,
-    settings: zh_settings,
-    sidebar: zh_sidebar,
-    status: zh_status,
-    tasks: zh_tasks,
-    theme: zh_theme,
-    tools: zh_tools,
-    warnings: zh_warnings,
-    workspace: zh_workspace,
   },
 } as const;
 
