@@ -8,14 +8,16 @@
  *   POST    /v1/sessions/{id}:btw         -                     data: StartBtwSession
  *   GET     /v1/sessions/{id}/children    query: ListSessions   data: Page<Session>
  *   POST    /v1/sessions/{id}/children    body: SessionChild    data: Session
- *   GET     /v1/sessions/{id}/status      -                     data: SessionStatus
+ *   GET     /v1/sessions/{id}/status      -                     data: SessionStatusResponse
  *   POST    /v1/sessions/{id}:compact     body: CompactSession  data: {}
  *   POST    /v1/sessions/{id}:undo        body: UndoSession     data: UndoSession
  *   POST    /v1/sessions/{id}:archive     -                     data: { archived: true }
+ *   POST    /v1/sessions/{id}:restore     -                     data: Session
  */
 
 import { z } from 'zod';
 
+import { goalSnapshotSchema } from '../events';
 import { messageSchema } from '../message';
 import { cursorQuerySchema, pageResponseSchema } from '../pagination';
 import {
@@ -23,7 +25,6 @@ import {
   sessionCreateSchema,
   sessionForkSchema,
   sessionSchema,
-  sessionStatusSchema,
   sessionUpdateSchema,
 } from '../session';
 
@@ -44,8 +45,10 @@ const booleanQueryParam = z.preprocess(
 
 export const listSessionsQuerySchema = cursorQuerySchema.and(
   z.object({
-    status: sessionStatusSchema.optional(),
+    busy: booleanQueryParam,
     include_archive: booleanQueryParam,
+    archived_only: booleanQueryParam,
+    exclude_empty: booleanQueryParam,
   }),
 );
 export type ListSessionsQuery = z.infer<typeof listSessionsQuerySchema>;
@@ -55,6 +58,29 @@ export type GetSessionResponse = z.infer<typeof getSessionResponseSchema>;
 
 export const getSessionProfileResponseSchema = sessionSchema;
 export type GetSessionProfileResponse = z.infer<typeof getSessionProfileResponseSchema>;
+
+export const MAX_SESSION_EXPORT_WEB_LOG_BYTES = 256 * 1024;
+
+export const exportSessionParamsSchema = z.object({
+  session_id: z.string().min(1),
+});
+export type ExportSessionParams = z.infer<typeof exportSessionParamsSchema>;
+
+export const exportSessionRequestSchema = z
+  .object({
+    web_log: z
+      .string()
+      .refine((value) => fitsUtf8ByteLimit(value, MAX_SESSION_EXPORT_WEB_LOG_BYTES), {
+        message: `web_log must not exceed ${MAX_SESSION_EXPORT_WEB_LOG_BYTES} UTF-8 bytes`,
+      })
+      .optional(),
+    // Desktop hosts set this to bundle the on-disk desktop app log
+    // (`<home>/logs/pythinker-code-desktop.log`) into the archive; the server reads
+    // the file itself, so no log content crosses the request.
+    desktop: z.boolean().optional(),
+  })
+  .strict();
+export type ExportSessionRequest = z.infer<typeof exportSessionRequestSchema>;
 
 export const updateSessionProfileRequestSchema = sessionUpdateSchema;
 export type UpdateSessionProfileRequest = z.infer<typeof updateSessionProfileRequestSchema>;
@@ -85,7 +111,14 @@ export const startBtwSessionResponseSchema = z.object({
 });
 export type StartBtwSessionResponse = z.infer<typeof startBtwSessionResponseSchema>;
 
-export const listSessionChildrenQuerySchema = listSessionsQuerySchema;
+// Child lists intentionally omit exclude_empty: the /sessions/{id}/children route
+// does not filter by it, so advertising it would mislead generated clients.
+export const listSessionChildrenQuerySchema = cursorQuerySchema.and(
+  z.object({
+    busy: booleanQueryParam,
+    include_archive: booleanQueryParam,
+  }),
+);
 export type ListSessionChildrenQuery = z.infer<typeof listSessionChildrenQuerySchema>;
 
 export const listSessionChildrenResponseSchema = pageResponseSchema(sessionSchema);
@@ -98,17 +131,39 @@ export const createSessionChildResponseSchema = sessionSchema;
 export type CreateSessionChildResponse = z.infer<typeof createSessionChildResponseSchema>;
 
 export const sessionStatusResponseSchema = z.object({
-  status: sessionStatusSchema,
+  /** Any agent in the session holds an active turn. Replaces the derived
+   *  status enum; awaiting states ride the approval/question channels. */
+  busy: z.boolean(),
   model: z.string().optional(),
   thinking_level: z.string(),
   permission: z.string(),
   plan_mode: z.boolean(),
   dynamic_workflow_mode: z.boolean(),
   context_tokens: z.number().int().nonnegative(),
-  max_context_tokens: z.number().int().nonnegative(),
+  /** Omitted when the context limit is unknown — 0 is the engine's "unknown"
+   *  marker, never a real limit. */
+  max_context_tokens: z.number().int().nonnegative().optional(),
   context_usage: z.number().min(0).max(1),
-}).strict();
+});
 export type SessionStatusResponse = z.infer<typeof sessionStatusResponseSchema>;
+
+// GET /sessions/{id}/goal — the session's current goal snapshot (camelCase,
+// same shape as the `goal.updated` WS event payload), or null when none is
+// active.
+export const getSessionGoalResponseSchema = goalSnapshotSchema.nullable();
+export type GetSessionGoalResponse = z.infer<typeof getSessionGoalResponseSchema>;
+
+export const sessionWarningSchema = z.object({
+  code: z.string(),
+  message: z.string(),
+  severity: z.enum(['info', 'warning', 'error']),
+});
+export type SessionWarning = z.infer<typeof sessionWarningSchema>;
+
+export const sessionWarningsResponseSchema = z.object({
+  warnings: z.array(sessionWarningSchema),
+});
+export type SessionWarningsResponse = z.infer<typeof sessionWarningsResponseSchema>;
 
 export const compactSessionRequestSchema = z.preprocess(
   (value) => value === undefined ? {} : value,
@@ -141,6 +196,9 @@ export const archiveSessionResponseSchema = z.object({
 });
 export type ArchiveSessionResponse = z.infer<typeof archiveSessionResponseSchema>;
 
+export const restoreSessionResponseSchema = sessionSchema;
+export type RestoreSessionResponse = z.infer<typeof restoreSessionResponseSchema>;
+
 /** @deprecated kept as an alias for backward compatibility; prefer archiveSessionResponseSchema. */
 export const deleteSessionResponseSchema = archiveSessionResponseSchema;
 /** @deprecated kept as an alias for backward compatibility; prefer ArchiveSessionResponse. */
@@ -150,3 +208,22 @@ export const sessionAbortResponseSchema = z.object({
   aborted: z.boolean(),
 });
 export type SessionAbortResponse = z.infer<typeof sessionAbortResponseSchema>;
+
+function fitsUtf8ByteLimit(value: string, limit: number): boolean {
+  let bytes = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const codePoint = value.codePointAt(index)!;
+    if (codePoint < 0x80) {
+      bytes += 1;
+    } else if (codePoint < 0x800) {
+      bytes += 2;
+    } else if (codePoint > 0xffff) {
+      bytes += 4;
+      index += 1;
+    } else {
+      bytes += 3;
+    }
+    if (bytes > limit) return false;
+  }
+  return true;
+}

@@ -43,23 +43,6 @@ describe('DefaultToolApprovePermissionPolicy', () => {
     expect(policy.evaluate(policyContext('CronList', {}))).toEqual({ kind: 'approve' });
   });
 
-  it('auto-approves StructuredOutput', () => {
-    expect(policy.evaluate(policyContext('StructuredOutput', { result: 'done' }))).toEqual({
-      kind: 'approve',
-    });
-  });
-
-  it('auto-approves Config reads but not writes', () => {
-    expect(policy.evaluate(policyContext('Config', { setting: 'model' }))).toEqual({
-      kind: 'approve',
-    });
-    expect(
-      policy.evaluate(
-        policyContext('Config', { setting: 'model', value: 'example-model' }),
-      ),
-    ).toBeUndefined();
-  });
-
   it('does not approve CronCreate', () => {
     expect(
       policy.evaluate(policyContext('CronCreate', { cron: '*/5 * * * *', prompt: 'ping' })),
@@ -70,21 +53,15 @@ describe('DefaultToolApprovePermissionPolicy', () => {
     expect(policy.evaluate(policyContext('CronDelete', { id: 'job_1' }))).toBeUndefined();
   });
 
-  it('does not approve DynamicWorkflow', () => {
+  it('does not approve AgentDynamicWorkflow', () => {
     expect(
       policy.evaluate(
-        policyContext('DynamicWorkflow', {
+        policyContext('AgentDynamicWorkflow', {
           description: 'Check files',
           prompt_template: 'Check {{item}}',
           items: ['a.ts', 'b.ts'],
         }),
       ),
-    ).toBeUndefined();
-  });
-
-  it('does not auto-approve URL fetching', () => {
-    expect(
-      policy.evaluate(policyContext('FetchURL', { url: 'https://example.com' })),
     ).toBeUndefined();
   });
 });

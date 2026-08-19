@@ -15,15 +15,14 @@
  * history length WOULD be from the file's records; anything beyond it in the
  * real `getContext().history` is the unflushed tail and gets appended.
  *
- * Fallback: only a missing wire file degrades to the live context history.
- * Corrupt or incompatible persisted data must surface to the caller.
+ * Fallback: any transcript read/parse failure degrades to the previous
+ * behavior (live context history) instead of failing the endpoint.
  */
 
 import { stat } from 'node:fs/promises';
 import path from 'node:path';
 
 import { Disposable, InstantiationType, registerSingleton } from '../../di';
-import { ErrorCodes, PythinkerError } from '../../errors';
 import type { SessionSummary } from '../../rpc';
 import type {
   Message,
@@ -69,8 +68,8 @@ export class MessageService extends Disposable implements IMessageService {
 
   async list(sid: string, query: MessageListQuery): Promise<PageResponse<Message>> {
     const all = await this._getProtocolMessages(sid);
-    // SCHEMAS §1.3: default returns the latest N messages (created_at desc) — newest first.
-    const desc = [...all].toReversed();
+    // SCHEMAS section 1.3: return the latest N items by default, newest first.
+    const desc = [...all].reverse();
 
     let pivotIndex = -1;
     if (query.before_id !== undefined) {
@@ -178,18 +177,15 @@ export class MessageService extends Disposable implements IMessageService {
   private async _resumeSession(sid: string): Promise<void> {
     try {
       await this.core.rpc.resumeSession({ sessionId: sid });
-    } catch (error) {
-      if (error instanceof PythinkerError && error.code === ErrorCodes.SESSION_NOT_FOUND) {
-        throw new SessionNotFoundError(sid);
-      }
-      throw error;
+    } catch {
+      throw new SessionNotFoundError(sid);
     }
   }
 
   /**
    * Read + reduce the wire log, cached on `(size, mtimeMs)` so repeated
    * pagination calls do not re-parse an unchanged file. Returns `undefined`
-   * only when the file is missing (caller falls back to the live view).
+   * when the file is missing or unreadable (caller falls back to live view).
    */
   private async _readTranscriptCached(
     sid: string,
@@ -214,20 +210,10 @@ export class MessageService extends Disposable implements IMessageService {
         this.transcriptCache.delete(oldest);
       }
       return transcript;
-    } catch (error) {
-      if (isFileNotFound(error)) return undefined;
-      throw error;
+    } catch {
+      return undefined;
     }
   }
-}
-
-function isFileNotFound(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    error.code === 'ENOENT'
-  );
 }
 
 // Self-register under the global singleton registry. All ctor deps are

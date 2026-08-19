@@ -6,7 +6,11 @@ import { join } from 'pathe';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { ErrorCodes, PythinkerError } from '../../src/errors';
-import { loadMcpServers, resolveMcpJsonPaths } from '../../src/mcp/config-loader';
+import {
+  loadMcpServers,
+  loadMcpServersDetailed,
+  resolveMcpJsonPaths,
+} from '../../src/mcp/config-loader';
 
 const tempDirs: string[] = [];
 
@@ -90,6 +94,33 @@ describe('loadMcpServers', () => {
       transport: 'http',
       url: 'http://localhost:8080/mcp',
     });
+  });
+
+  it('keeps a server named __proto__ as an own key across layers', async () => {
+    const home = makeTempDir();
+    const cwd = makeTempDir();
+
+    // Raw JSON text: a `{ __proto__: ... }` object literal would set the
+    // prototype instead of owning the key, and the test would never write it.
+    await mkdir(join(cwd, '.pythinker-code'), { recursive: true });
+    await writeFile(
+      join(home, 'mcp.json'),
+      '{"mcpServers":{"__proto__":{"transport":"stdio","command":"user-proto"}}}',
+      'utf-8',
+    );
+    await writeFile(
+      join(cwd, '.pythinker-code', 'mcp.json'),
+      '{"mcpServers":{"__proto__":{"transport":"stdio","command":"project-proto"}}}',
+      'utf-8',
+    );
+
+    const detailed = await loadMcpServersDetailed({ cwd, homeDir: home });
+    expect(Object.keys(detailed.servers)).toEqual(['__proto__']);
+    expect(detailed.servers['__proto__']).toEqual({
+      transport: 'stdio',
+      command: 'project-proto',
+    });
+    expect(detailed.origins['__proto__']).toBe(join(cwd, '.pythinker-code', 'mcp.json'));
   });
 
   it('loads root .mcp.json from the repo root and lets project-local .pythinker-code/mcp.json override it', async () => {
@@ -180,6 +211,28 @@ describe('loadMcpServers', () => {
     });
   });
 
+  it('preserves an UNC-style project root when resolving a relative stdio cwd', async () => {
+    const home = makeTempDir();
+    const repoRoot = makeTempDir();
+    const cwd = join(repoRoot, 'packages', 'agent-core');
+    await mkdir(join(repoRoot, '.git'), { recursive: true });
+    await mkdir(cwd, { recursive: true });
+    await writeJson(join(repoRoot, '.mcp.json'), {
+      mcpServers: {
+        local: { command: 'node.exe', cwd: 'tools/mcp server' },
+      },
+    });
+    const uncStyleCwd = `/${cwd}`;
+
+    const servers = await loadMcpServers({ cwd: uncStyleCwd, homeDir: home });
+
+    expect(servers['local']).toEqual({
+      transport: 'stdio',
+      command: 'node.exe',
+      cwd: `/${join(repoRoot, 'tools', 'mcp server')}`,
+    });
+  });
+
   it('throws PythinkerError(config.invalid) on invalid JSON', async () => {
     const home = makeTempDir();
     const cwd = makeTempDir();
@@ -240,6 +293,24 @@ describe('loadMcpServers', () => {
     expect(servers['remote']).toEqual({
       transport: 'http',
       url: 'https://mcp.example.com/sse',
+    });
+  });
+
+  it('preserves the OAuth marker on a remote server entry', async () => {
+    const home = makeTempDir();
+    const cwd = makeTempDir();
+    await writeJson(join(home, 'mcp.json'), {
+      mcpServers: {
+        remote: { url: 'https://mcp.example.com/mcp', auth: 'oauth' },
+      },
+    });
+
+    const servers = await loadMcpServers({ cwd, homeDir: home });
+
+    expect(servers['remote']).toEqual({
+      transport: 'http',
+      url: 'https://mcp.example.com/mcp',
+      auth: 'oauth',
     });
   });
 

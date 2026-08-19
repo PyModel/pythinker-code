@@ -42,7 +42,7 @@ import {
 import type { Event, PythinkerHarness, Session } from '@pymodel/pythinker-code-sdk';
 
 import { AcpServer } from '../src/server';
-import { AUTHED, makeModelsMap } from './_helpers/harness-stubs';
+import { AUTHED_STATUS, makeModelsMap } from './_helpers/harness-stubs';
 
 class CollectingClient implements Client {
   readonly updates: SessionNotification[] = [];
@@ -121,7 +121,7 @@ function makeScriptedSession(
 
 function makeHarness(session: Session): PythinkerHarness {
   return {
-    isAuthenticated: AUTHED,
+    auth: { status: async () => AUTHED_STATUS },
     createSession: async () => session,
     // Phase 14: server.newSession reads these for configOptions.
     getConfig: async () => ({
@@ -140,7 +140,7 @@ describe('AcpServer end-to-end happy path', () => {
     // handshake to lock the capability surface. `createSession` would
     // throw if it were ever called.
     const harness = {
-      isAuthenticated: AUTHED,
+      auth: { status: async () => AUTHED_STATUS },
       createSession: async () => {
         throw new Error('createSession should not be called from initialize-only test');
       },

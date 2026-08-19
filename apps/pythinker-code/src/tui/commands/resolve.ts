@@ -6,6 +6,7 @@ import {
 } from './registry';
 import { isExperimentalFlagEnabled } from './experimental-flags';
 import { parseSlashInput } from './parse';
+import type { TUIState } from '../tui-state';
 import type {
   PythinkerSlashCommand,
   SlashCommandBusyReason,
@@ -26,6 +27,12 @@ export type SlashCommandIntent =
       readonly skillName: string;
       readonly args: string;
     }
+  | {
+      readonly kind: 'plugin-command';
+      readonly commandName: string;
+      readonly pluginId: string;
+      readonly args: string;
+    }
   | { readonly kind: 'message'; readonly input: string }
   | {
       readonly kind: 'blocked';
@@ -41,6 +48,7 @@ export type SlashCommandIntent =
 export interface ResolveSlashCommandInput {
   readonly input: string;
   readonly skillCommandMap: ReadonlyMap<string, string>;
+  readonly pluginCommandMap: ReadonlyMap<string, string>;
   readonly isStreaming: boolean;
   readonly isCompacting: boolean;
 }
@@ -76,6 +84,19 @@ export function resolveSlashCommandInput(options: ResolveSlashCommandInput): Sla
 
   const skillName = resolveSkillCommand(options.skillCommandMap, parsed.name);
   if (skillName !== undefined) {
+    // Skill activations are never blocked by a busy session: the TUI queues
+    // them behind the running turn exactly like normal messages (see
+    // sendSkillActivation), and Ctrl-S steers them as real activations, so
+    // commands like /tower can be issued any time.
+    return {
+      kind: 'skill',
+      commandName: parsed.name,
+      skillName,
+      args: parsed.args.trim(),
+    };
+  }
+
+  if (options.pluginCommandMap.has(parsed.name)) {
     const busyReason = slashCommandBusyReason(options);
     if (busyReason !== undefined) {
       return {
@@ -84,10 +105,13 @@ export function resolveSlashCommandInput(options: ResolveSlashCommandInput): Sla
         reason: busyReason,
       };
     }
+    const separator = parsed.name.indexOf(':');
+    const pluginId = separator === -1 ? parsed.name : parsed.name.slice(0, separator);
+    const commandName = separator === -1 ? '' : parsed.name.slice(separator + 1);
     return {
-      kind: 'skill',
-      commandName: parsed.name,
-      skillName,
+      kind: 'plugin-command',
+      commandName,
+      pluginId,
       args: parsed.args.trim(),
     };
   }
@@ -121,4 +145,13 @@ export function slashBusyMessage(
     return `Cannot /${commandName} while streaming — press Esc or Ctrl-C first.`;
   }
   return `Cannot /${commandName} while compacting — wait for compaction to finish first.`;
+}
+
+/**
+ * Whether a delayed input restore is still safe: the editor must be empty
+ * (no newer draft) and still mounted (no editor-replacement panel opened
+ * meanwhile). Restores that run synchronously with submit do not need this.
+ */
+export function canRestoreSubmittedInput(host: { state: TUIState }): boolean {
+  return host.state.editor.getText().length === 0 && !host.state.editorReplacementMounted;
 }

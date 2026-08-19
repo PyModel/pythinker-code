@@ -1,8 +1,7 @@
-import { CURSOR_MARKER } from '@earendil-works/pi-tui';
+import { CURSOR_MARKER } from '@pymodel/pi-tui';
 import { describe, expect, it } from 'vitest';
 
 import { ApprovalPanelComponent } from '#/tui/components/dialogs/approval-panel';
-import { defaultKeybindings, parseKeybindingBlocks } from '#/tui/keybindings';
 import type {
   DiffDisplayBlock,
   FileContentDisplayBlock,
@@ -62,6 +61,33 @@ describe('ApprovalPanelComponent', () => {
     expect(out).not.toContain('y/a/n/f');
   });
 
+  it('renders choice descriptions beneath the label when present', () => {
+    const pending: PendingApproval = {
+      data: {
+        id: 'approval_goal',
+        tool_call_id: 'tool_goal',
+        tool_name: 'CreateGoal',
+        action: 'Creating a goal',
+        description: '',
+        display: [],
+        choices: [
+          {
+            label: 'Switch to Auto and start',
+            response: 'approved',
+            selected_label: 'auto',
+            description: 'Tools are approved automatically, and questions are skipped.',
+          },
+          { label: 'Do not start', response: 'cancelled', selected_label: 'cancel' },
+        ],
+      },
+    };
+    const out = strip(new ApprovalPanelComponent(pending, () => {}).render(80).join('\n'));
+    expect(out).toContain('1. Switch to Auto and start');
+    expect(out).toContain('Tools are approved automatically, and questions are skipped.');
+    // A choice without a description stays label-only — no stray blank helper line.
+    expect(out).toContain('2. Do not start');
+  });
+
   it('renders dangerous shell warnings with simple copy and no icon', () => {
     const pending: PendingApproval = {
       data: {
@@ -87,115 +113,6 @@ describe('ApprovalPanelComponent', () => {
     expect(out).toContain('Dangerous: recursive delete');
     expect(out).not.toContain('potentially destructive');
     expect(out).not.toContain('⚠');
-  });
-
-  // The whole point of asking before a Dynamic Workflow is that the operator
-  // sees the fan-out. A block that reaches the panel and paints nothing would
-  // still typecheck, so assert the painted lines rather than the payload.
-  it('paints the Dynamic Workflow plan: counts, prompt size, template and items', () => {
-    const pending: PendingApproval = {
-      data: {
-        id: 'approval_workflow',
-        tool_call_id: 'tool_workflow',
-        tool_name: 'DynamicWorkflow',
-        action: 'run',
-        description: 'Review the diff',
-        display: [
-          {
-            type: 'workflow_plan',
-            agent_count: 3,
-            items: ['src/a.ts', 'src/b.ts', 'src/c.ts'],
-            prompt_tokens: 128,
-            prompt_template: 'Review {{item}} for races',
-            model: 'claude-sonnet-4',
-          },
-        ],
-        choices: [{ label: 'Approve once', response: 'approved' }],
-      },
-    };
-
-    const out = strip(new ApprovalPanelComponent(pending, () => {}).render(80).join('\n'));
-
-    expect(out).toContain('3 subagents');
-    expect(out).toContain('~128 prompt tokens');
-    expect(out).toContain('model: claude-sonnet-4');
-    expect(out).toContain('Review {{item}} for races');
-    expect(out).toContain('src/a.ts');
-    expect(out).toContain('src/c.ts');
-  });
-
-  // The plan is what the operator is judging, and every field in it came from
-  // the model. Escape sequences left intact could repaint the panel deciding
-  // their fate — blank a line, redraw the buttons, or reverse the text order.
-  it('strips terminal control sequences from the plan before painting it', () => {
-    const esc = String.fromCodePoint(0x1B);
-    const rtlOverride = String.fromCodePoint(0x202E);
-    const pending: PendingApproval = {
-      data: {
-        id: 'approval_workflow_ansi',
-        tool_call_id: 'tool_workflow_ansi',
-        tool_name: 'DynamicWorkflow',
-        action: 'run',
-        description: 'Sweep',
-        display: [
-          {
-            type: 'workflow_plan',
-            agent_count: 2,
-            items: [
-              `${esc}[2Kharmless-item`,
-              // OSC 8 hyperlink, and a right-to-left override.
-              `${esc}]8;;http://evil.example${esc}\\second-item${rtlOverride}`,
-            ],
-            prompt_tokens: 12,
-            prompt_template: `${esc}[31mReview {{item}}`,
-            model: `${esc}[1msonnet`,
-          },
-        ],
-        choices: [{ label: 'Approve once', response: 'approved' }],
-      },
-    };
-
-    const raw = new ApprovalPanelComponent(pending, () => {}).render(80).join('\n');
-    const out = strip(raw);
-
-    expect(out).toContain('harmless-item');
-    expect(out).toContain('second-item');
-    expect(out).toContain('Review {{item}}');
-    expect(out).toContain('model: sonnet');
-    // `strip` only removes SGR colour codes, so anything else the model smuggled
-    // in would still be sitting in `out`.
-    expect(out).not.toContain(`${esc}[2K`);
-    expect(out).not.toContain(']8;;');
-    expect(out).not.toContain('http://evil.example');
-    expect(out).not.toContain(rtlOverride);
-  });
-
-  it('caps the plan item list and says how many it held back', () => {
-    const pending: PendingApproval = {
-      data: {
-        id: 'approval_workflow_big',
-        tool_call_id: 'tool_workflow_big',
-        tool_name: 'DynamicWorkflow',
-        action: 'run',
-        description: 'Sweep',
-        display: [
-          {
-            type: 'workflow_plan',
-            agent_count: 40,
-            items: Array.from({ length: 40 }, (_unused, index) => `item-${String(index)}`),
-            prompt_tokens: 4096,
-          },
-        ],
-        choices: [{ label: 'Approve once', response: 'approved' }],
-      },
-    };
-
-    const out = strip(new ApprovalPanelComponent(pending, () => {}).render(80).join('\n'));
-
-    expect(out).toContain('40 subagents');
-    expect(out).toContain('item-9');
-    expect(out).not.toContain('item-10');
-    expect(out).toContain('+30 more');
   });
 
   it('wraps a long single-line shell command instead of truncating it', () => {
@@ -238,7 +155,6 @@ describe('ApprovalPanelComponent', () => {
 
   it('shortcut 4 enters feedback mode and submits the typed feedback', () => {
     const { dialog, responses } = makeDialog();
-    dialog.setKeybindings(parseKeybindingBlocks([]));
     dialog.handleInput('4');
     dialog.handleInput('n');
     dialog.handleInput('o');
@@ -255,186 +171,16 @@ describe('ApprovalPanelComponent', () => {
     expect(out).not.toContain('\n  > ');
   });
 
-  it('uses default confirmation yes/no bindings while leaving unrelated letters alone', () => {
-    for (const key of ['a', 'f']) {
+  it('legacy y/a/n/f shortcuts no longer trigger approval actions', () => {
+    for (const key of ['y', 'a', 'n', 'f']) {
       const { dialog, responses } = makeDialog();
       dialog.handleInput(key);
       expect(responses).toEqual([]);
     }
-    const accepted = makeDialog();
-    accepted.dialog.handleInput('y');
-    expect(accepted.responses).toEqual([{ response: 'approved', feedback: undefined }]);
-    const rejected = makeDialog();
-    rejected.dialog.handleInput('n');
-    expect(rejected.responses).toEqual([{ response: 'rejected' }]);
-  });
-
-  it('uses remapped confirmation navigation, approval, and rejection actions', () => {
-    const bindings = parseKeybindingBlocks([
-      {
-        context: 'Confirmation',
-        bindings: {
-          'alt+n': 'confirm:next',
-          'alt+p': 'confirm:previous',
-          'alt+y': 'confirm:yes',
-          'alt+x': 'confirm:no',
-        },
-      },
-    ]);
-    const accepted = makeDialog();
-    accepted.dialog.setKeybindings(bindings);
-    accepted.dialog.handleInput('\u001Bn');
-    accepted.dialog.handleInput('\u001By');
-    expect(accepted.responses).toEqual([{ response: 'approved_for_session', feedback: undefined }]);
-
-    const rejected = makeDialog();
-    rejected.dialog.setKeybindings(bindings);
-    rejected.dialog.handleInput('\u001Bx');
-    expect(rejected.responses).toEqual([{ response: 'rejected' }]);
-  });
-
-  it('lets feedback text own a printable remapped navigation key', () => {
-    const { dialog, responses } = makeDialog();
-    dialog.setKeybindings(
-      parseKeybindingBlocks([
-        { context: 'Confirmation', bindings: { x: 'confirm:next' } },
-      ]),
-    );
-    dialog.handleInput('4');
-    dialog.handleInput('x');
-    dialog.handleInput('\r');
-    expect(responses).toEqual([{ response: 'rejected', feedback: 'x' }]);
-  });
-
-  it('recovers bare Escape after default cancel bindings are explicitly removed', () => {
-    const bindings = [
-      ...defaultKeybindings(),
-      ...parseKeybindingBlocks([
-        { context: 'Confirmation', bindings: { n: null, escape: null } },
-      ]),
-    ];
-    const active = makeDialog();
-    active.dialog.setKeybindings(bindings);
-    active.dialog.handleInput('\u001B');
-    expect(active.responses).toEqual([{ response: 'rejected' }]);
-
-    const feedback = makeDialog();
-    feedback.dialog.setKeybindings(bindings);
-    feedback.dialog.handleInput('4');
-    feedback.dialog.handleInput('\u001B');
-    expect(feedback.responses).toEqual([{ response: 'rejected' }]);
-  });
-
-  it('uses an alternate cancel binding in feedback mode while bare Escape only exits feedback', () => {
-    const bindings = parseKeybindingBlocks([
-      { context: 'Confirmation', bindings: { 'alt+x': 'confirm:no' } },
-    ]);
-    const locallyCancelled = makeDialog();
-    locallyCancelled.dialog.setKeybindings(bindings);
-    locallyCancelled.dialog.handleInput('4');
-    locallyCancelled.dialog.handleInput('d');
-    locallyCancelled.dialog.handleInput('\u001B');
-    expect(locallyCancelled.responses).toEqual([]);
-    locallyCancelled.dialog.handleInput('4');
-    locallyCancelled.dialog.handleInput('q');
-    locallyCancelled.dialog.handleInput('\r');
-    expect(locallyCancelled.responses).toEqual([{ response: 'rejected', feedback: 'q' }]);
-
-    const cancelled = makeDialog();
-    cancelled.dialog.setKeybindings(bindings);
-    cancelled.dialog.handleInput('4');
-    cancelled.dialog.handleInput('d');
-    cancelled.dialog.handleInput('\u001Bx');
-    expect(cancelled.responses).toEqual([{ response: 'rejected' }]);
-  });
-
-  it('uses semantic two-key chords in active and feedback modes', () => {
-    const bindings = parseKeybindingBlocks([
-      {
-        context: 'Confirmation',
-        bindings: {
-          enter: 'confirm:yes',
-          'ctrl+k ctrl+n': 'confirm:next',
-          'ctrl+k ctrl+x': 'confirm:no',
-        },
-      },
-    ]);
-    const active = makeDialog();
-    active.dialog.setKeybindings(bindings);
-    active.dialog.handleInput('ctrl+k');
-    active.dialog.handleInput('ctrl+n');
-    active.dialog.handleInput('\r');
-    expect(active.responses).toEqual([
-      {
-        response: 'approved_for_session',
-        feedback: undefined,
-        selected_label: undefined,
-      },
-    ]);
-
-    const feedback = makeDialog();
-    feedback.dialog.setKeybindings(bindings);
-    feedback.dialog.handleInput('4');
-    feedback.dialog.handleInput('d');
-    feedback.dialog.handleInput('ctrl+k');
-    feedback.dialog.handleInput('ctrl+x');
-    expect(feedback.responses).toEqual([{ response: 'rejected' }]);
-  });
-
-  it('keeps unavailable printable chords intact in feedback input', () => {
-    const { dialog, responses } = makeDialog();
-    dialog.setKeybindings(
-      parseKeybindingBlocks([
-        { context: 'Confirmation', bindings: { 'x y': 'confirm:next' } },
-      ]),
-    );
-    dialog.handleInput('4');
-    dialog.handleInput('x');
-    dialog.handleInput('y');
-    dialog.handleInput('\r');
-    expect(responses).toEqual([
-      { response: 'rejected', feedback: 'xy', selected_label: undefined },
-    ]);
-  });
-
-  it('keeps unavailable chord prefixes out of active numeric choices', () => {
-    const { dialog, responses } = makeDialog();
-    dialog.setKeybindings(
-      parseKeybindingBlocks([
-        {
-          context: 'Confirmation',
-          bindings: { '2 x': 'confirm:nextField' },
-        },
-      ]),
-    );
-    dialog.handleInput('2');
-    expect(responses).toEqual([
-      {
-        response: 'approved_for_session',
-        feedback: undefined,
-        selected_label: undefined,
-      },
-    ]);
-  });
-
-  it('renders effective feedback cancel hints while retaining local editing hints', () => {
-    const { dialog } = makeDialog();
-    dialog.setKeybindings(
-      parseKeybindingBlocks([
-        { context: 'Confirmation', bindings: { 'alt+x': 'confirm:no' } },
-      ]),
-    );
-    dialog.handleInput('4');
-    const hint = strip(dialog.render(80).join('\n'));
-    expect(hint).toContain('Type feedback');
-    expect(hint).toContain('↵ submit');
-    expect(hint).toContain('alt+x reject');
-    expect(hint).not.toContain('esc reject');
   });
 
   it('feedback input supports left/right cursor editing', () => {
     const { dialog, responses } = makeDialog();
-    dialog.setKeybindings(parseKeybindingBlocks([]));
     dialog.handleInput('4');
     dialog.handleInput('n');
     dialog.handleInput('o');
@@ -725,7 +471,6 @@ describe('ApprovalPanelComponent', () => {
       pending,
       (response) => responses.push(response),
     );
-    dialog.setKeybindings(parseKeybindingBlocks([]));
 
     dialog.handleInput('2');
     dialog.handleInput('n');

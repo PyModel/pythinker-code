@@ -1,6 +1,5 @@
 import type {
   ExportSessionManifest,
-  PartialCompactionDirection,
   ResumeSessionResult,
   ShellEnvironment,
   TelemetryClient,
@@ -8,69 +7,65 @@ import type {
   TelemetryProperties,
 } from '@pymodel/agent-core';
 import type { Kaos } from '@pymodel/kaos';
-import type { ContentPart, ModelCostRates } from '@pymodel/kosong';
-import type {
-  PythinkerHostIdentity,
-} from '@pymodel/pythinker-code-oauth';
+import type { PythinkerHostIdentity, OAuthRefreshOutcome } from '@pymodel/pythinker-code-oauth';
+import type { ContentPart } from '@pymodel/kosong';
 
 export type JsonPrimitive = string | number | boolean | null;
-export type JsonValue =
-  | JsonPrimitive
-  | readonly JsonValue[]
-  | { readonly [key: string]: JsonValue };
+export type JsonValue = JsonPrimitive | JsonValue[] | { readonly [key: string]: JsonValue };
 export type JsonObject = { readonly [key: string]: JsonValue };
 
 export type Unsubscribe = () => void;
 
+export interface AgentRuntimeBinding {
+  readonly workspaceId: string;
+  readonly runtimeId: string;
+}
+
+export type { CapabilityStatus } from '@pymodel/agent-core-v2/app/capability/types';
+
 export type {
-  AdvisorRuntimeStatus,
-  AdvisorStatusSnapshot,
   AgentReplayRecord,
-  AgentProfileCatalog,
-  AgentProfileSummary,
   AgentBackgroundTaskInfo,
+  AppMcpServerAuthState,
+  AppMcpServerConfig,
+  AppMcpServerDescriptor,
+  AppMcpServerInspection,
   BackgroundConfig,
   BackgroundTaskInfo,
   BackgroundTaskStatus,
   ConfigDiagnostics,
   ContextMessage,
-  ContextUsageCategory,
-  ContextUsageReport,
-  ContextUsageTool,
+  CronTaskSnapshot,
   ExperimentalFeatureState,
   ExperimentalFlagMap,
   ExperimentalFlagSource,
   ExportSessionManifest,
-  FileCheckpointSummary,
   GoalBudgetLimits,
   GoalBudgetReport,
   GoalChange,
   GoalChangeStats,
+  GetCronTasksResult,
   GoalSnapshot,
   GoalStatus,
   GoalToolResult,
+  GlobalMcpServerAuthState,
+  GlobalMcpServerAuthStatus,
   PythinkerConfig,
   PythinkerConfigPatch,
   LoopControl,
+  McpManagedServerInfo,
   McpServerInfo,
+  McpServerLocator,
+  McpServerSource,
   McpStartupMetrics,
   ModelAlias,
-  PythoughtsServiceConfig,
-  OutputStyleCatalog,
-  OutputStyleSummary,
-  PartialCompactionDirection,
-  PluginComponentDeclarations,
-  PluginConfigDeclaration,
-  PluginDefinitionJsonObject,
-  PluginDefinitionJsonPrimitive,
-  PluginDefinitionJsonValue,
+  PyModelServiceConfig,
+  OAuthRef,
+  PluginCommandDef,
   PluginGithubMetadata,
   PluginGithubRef,
   PluginInfo,
-  PluginInstallDefinition,
-  PluginInstallOptions,
   PluginMcpServerInfo,
-  PluginPathDeclaration,
   PluginSource,
   PluginSummary,
   ProcessBackgroundTaskInfo,
@@ -79,28 +74,55 @@ export type {
   ProviderType,
   QuestionBackgroundTaskInfo,
   ReloadSummary,
-  RestoreFileCheckpointResult,
   ResumedAgentState,
-  SessionMeta,
-  SessionMetadataPatch,
-  SessionFileCheckpointPreview,
   ServicesConfig,
   ShellEnvironment,
   SkillSummary,
   ThinkingConfig,
   ToolInfo,
-  WorkspaceDirectory,
-  WorkingTreeChange,
-  WorkingTreeChanges,
-  WorkingTreeChangeStatus,
-  WorkingTreeFileDiff,
+  GlobalMcpServerConfig as McpServerConfig,
+  GlobalMcpServerTestResult as McpTestResult,
 } from '@pymodel/agent-core';
 
-export type { PythinkerHostIdentity };
+export type { PythinkerHostIdentity, OAuthRefreshOutcome };
 export type { TelemetryClient, TelemetryContextPatch, TelemetryProperties };
-export type { ContentPart, ModelCostRates, Role, ToolCall } from '@pymodel/kosong';
+export type { ContentPart, Role, ThinkingEffort, ToolCall } from '@pymodel/kosong';
+// Contributed commands are an agent-core-v2 seam; the type is re-exported
+// from the v2 engine (v1 sessions report an empty command set).
+export type { AgentCommandInfo } from '@pymodel/agent-core-v2/agent/command/agentCommand';
 
 export type PermissionMode = 'yolo' | 'manual' | 'auto';
+
+/**
+ * Trust state of a workspace directory. Only meaningful on the agent-core-v2
+ * engine; the v1 engine has no workspace-trust concept and reports
+ * `{ trusted: true, gatedMcpServers: [] }`.
+ */
+export interface WorkspaceTrustMcpServerInfo {
+  readonly name: string;
+  readonly transport: 'stdio' | 'http' | 'sse';
+  readonly command?: string;
+  readonly args?: readonly string[];
+  readonly cwd?: string;
+  readonly url?: string;
+}
+
+export interface WorkspaceTrustInfo {
+  readonly trusted: boolean;
+  /** Safe descriptions of project-level MCP servers that trusting would enable. */
+  readonly gatedMcpServers: readonly WorkspaceTrustMcpServerInfo[];
+}
+
+/** Metadata of one upload in the engine's daemon file store. */
+export type { FileMeta } from '@pymodel/agent-core-v2/app/file/fileService';
+
+/** Input for `uploadFile`: the upload's display name and MIME type. */
+export interface UploadFileOptions {
+  readonly name: string;
+  readonly mimeType?: string;
+  /** Optional daemon-side TTL for staging uploads. */
+  readonly expiresInSec?: number;
+}
 
 export interface CreateGoalInput {
   readonly objective: string;
@@ -112,8 +134,9 @@ export type PromptPart = Extract<ContentPart, { type: 'text' | 'image_url' | 'vi
 
 export type PromptInput = readonly PromptPart[];
 
-export interface PromptOptions {
-  readonly outputSchema?: JsonObject;
+export interface PromptSkillActivation {
+  readonly name: string;
+  readonly args?: string;
 }
 
 export interface PythinkerHarnessOptions {
@@ -124,6 +147,8 @@ export interface PythinkerHarnessOptions {
   readonly uiMode?: string;
   readonly skillDirs?: readonly string[];
   readonly telemetry?: TelemetryClient | undefined;
+  readonly onOAuthRefresh?: ((outcome: OAuthRefreshOutcome) => void) | undefined;
+  readonly sessionStartedProperties?: TelemetryProperties;
 }
 
 export interface CreateSessionOptions {
@@ -132,11 +157,30 @@ export interface CreateSessionOptions {
   readonly model?: string | undefined;
   readonly thinking?: string | undefined;
   readonly permission?: PermissionMode | undefined;
-  readonly setupTrigger?: 'init' | 'maintenance';
   readonly planMode?: boolean;
   readonly metadata?: JsonObject | undefined;
   readonly kaos?: Kaos | undefined;
   readonly persistenceKaos?: Kaos | undefined;
+  readonly additionalDirs?: readonly string[];
+  /**
+   * Main-agent profile name (`--agent`): a builtin profile or one defined by
+   * an agentfile discovered from the user/project agent directories.
+   */
+  readonly agentProfile?: string;
+  /**
+   * Explicit agentfiles (`--agent-file`) loaded for this session with the
+   * highest precedence; an invalid file fails session creation.
+   */
+  readonly agentFiles?: readonly string[];
+  readonly sessionStartedProperties?: TelemetryProperties;
+  /**
+   * Print-mode (`pythinker -p`) only: when the main agent ends a turn while
+   * background subagents (`kind === 'agent'`) are still running, hold the turn
+   * open and idle-wait until they all finish, flushing their completions into
+   * the turn so the model can react before the run exits. Ignored by
+   * interactive / SDK sessions.
+   */
+  readonly drainAgentTasksOnStop?: boolean;
 }
 
 export interface RenameSessionInput {
@@ -144,16 +188,46 @@ export interface RenameSessionInput {
   readonly title: string;
 }
 
+export interface GenerateSessionTitleInput {
+  readonly id: string;
+  /** Regenerate even when the session already has a generated/custom title. */
+  readonly force?: boolean;
+  /** Conversation excerpt to generate from (default `user_prompts`). */
+  readonly source?: 'user_prompts' | 'first_turn' | 'digest';
+}
+
 export interface ResumeSessionInput {
   readonly id: string;
-  readonly setupTrigger?: 'init' | 'maintenance';
   readonly kaos?: Kaos | undefined;
   readonly persistenceKaos?: Kaos | undefined;
+  readonly additionalDirs?: readonly string[];
+  /** Re-select the session's already-bound main profile; a different name fails. */
+  readonly agentProfile?: string;
+  /** Include persisted subagent states in the returned replay snapshot. */
+  readonly includeSubagents?: boolean;
   /**
    * Limit each returned agent replay to the most recent N user turns. Omit to
-   * return the full replay.
+   * return the full replay. Lets UI callers that only render the tail avoid
+   * transferring the entire history over the RPC boundary.
    */
   readonly replayTurnLimit?: number;
+  readonly sessionStartedProperties?: TelemetryProperties;
+}
+
+export interface ReloadSessionInput extends ResumeSessionInput {
+  readonly forcePluginSessionStartReminder?: boolean;
+}
+
+export interface AddAdditionalDirInput {
+  readonly id: string;
+  readonly path: string;
+  readonly persist: boolean;
+}
+
+export interface AddAdditionalDirOptions {
+  /** When true, share the directory through workspace local config. When false,
+   * keep it scoped to this session while still restoring it on session resume. */
+  readonly persist: boolean;
 }
 
 export interface ForkSessionInput {
@@ -161,6 +235,11 @@ export interface ForkSessionInput {
   readonly forkId?: string;
   readonly title?: string;
   readonly metadata?: JsonObject;
+  /**
+   * Zero-based index of the user-visible turn to retain through. Omit it to
+   * preserve the existing full-session fork behavior.
+   */
+  readonly turnIndex?: number;
 }
 
 export interface ExportSessionInput {
@@ -184,16 +263,44 @@ export interface ExportSessionResult {
 export interface ListSessionsOptions {
   readonly workDir?: string;
   readonly sessionId?: string;
+  /**
+   * Maximum number of summaries in one page. Only consulted by
+   * `listSessionsPage`; plain `listSessions` always returns the whole
+   * filtered set.
+   */
+  readonly limit?: number;
+  /** Keyset cursor: return the page strictly older than this session id. */
+  readonly before?: string;
+}
+
+export interface SessionSummaryPage {
+  readonly items: readonly SessionSummary[];
+  /** Pass as `before` for the next older page; absent when the listing is exhausted. */
+  readonly nextCursor?: string;
 }
 
 export interface GetConfigOptions {
   readonly reload?: boolean | undefined;
 }
 
+export interface AuthenticateMcpServerOptions {
+  readonly onAuthorizationUrl: (
+    url: string,
+  ) => void | boolean | PromiseLike<void | boolean>;
+  readonly signal?: AbortSignal;
+  readonly timeoutMs?: number;
+}
+
+export interface TestMcpServerOptions {
+  readonly cwd?: string;
+}
+
 export interface CompactOptions {
   readonly instruction?: string | undefined;
-  readonly promptFromEnd?: number;
-  readonly direction?: PartialCompactionDirection;
+}
+
+export interface ReloadSessionOptions {
+  readonly forcePluginSessionStartReminder?: boolean;
 }
 
 export interface PlanInfo {
@@ -215,29 +322,34 @@ export interface SessionUsage {
   readonly byModel?: Record<string, TokenUsage> | undefined;
   readonly currentTurn?: TokenUsage | undefined;
   readonly total?: TokenUsage | undefined;
-  readonly totalCostUsd?: number;
 }
 
 export interface SessionStatus {
   readonly model?: string;
-  readonly modelCostRates?: ModelCostRates;
-  readonly thinkingLevel: string;
-  /** Whether Fast mode is currently enabled for this session. */
-  readonly fastMode?: boolean;
-  /** Whether the active provider/model supports Fast mode at all. */
-  readonly fastModeSupported?: boolean;
+  readonly thinkingEffort: string;
   readonly permission: PermissionMode;
   readonly planMode: boolean;
-  readonly dynamicWorkflowMode: boolean;
+  readonly dynamicWorkflowMode?: boolean | undefined;
   readonly contextTokens: number;
   readonly maxContextTokens: number;
   readonly contextUsage: number;
   readonly usage?: SessionUsage;
 }
 
+/**
+ * The engine's canonical title state: `replaceable` (a prompt-derived easy
+ * title auto generation may overwrite), `generated` (an auto-generated title
+ * already landed), `custom` (a user-set title that is never overwritten).
+ * Only populated by the v2 engine on live / resumed sessions (read off the
+ * metadata document); v1 backends leave it undefined, and the v2 list path
+ * does not project it.
+ */
+export type SessionTitleKind = 'replaceable' | 'generated' | 'custom';
+
 export interface SessionSummary {
   readonly id: string;
   readonly title?: string | undefined;
+  readonly titleKind?: SessionTitleKind;
   readonly lastPrompt?: string;
   readonly workDir: string;
   readonly sessionDir: string;
@@ -245,11 +357,18 @@ export interface SessionSummary {
   readonly updatedAt: number;
   readonly archived?: boolean | undefined;
   readonly metadata?: JsonObject | undefined;
+  readonly additionalDirs?: readonly string[];
+  /** Terminal outcome of the session's latest main turn, when one ended. */
+  readonly lastTurnReason?: 'completed' | 'cancelled' | 'failed';
 }
 
-export type ResumedSessionState = Pick<
-  ResumeSessionResult,
-  'sessionMetadata' | 'agents'
->;
+export interface AddAdditionalDirResult {
+  readonly additionalDirs: readonly string[];
+  readonly projectRoot: string;
+  readonly configPath: string;
+  readonly persisted: boolean;
+}
 
-export interface ResumedSessionSummary extends SessionSummary, ResumedSessionState {}
+export type ResumedSessionState = Pick<ResumeSessionResult, 'sessionMetadata' | 'agents' | 'warning'>;
+
+export interface ResumedSessionSummary extends SessionSummary, ResumedSessionState { }

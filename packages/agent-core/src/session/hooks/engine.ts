@@ -1,7 +1,5 @@
-import { runHook, runHttpHook } from './runner';
-import { matchPermissionRule } from '#/agent/permission/matches-rule';
+import { runHook } from './runner';
 import type {
-  CommandHookDef,
   HookBlockDecision,
   HookDef,
   HookEngineOptions,
@@ -12,66 +10,19 @@ import type {
 
 const DEFAULT_HOOK_TIMEOUT_SECONDS = 30;
 
-export function createHookIfMatcher(
-  toolName: string,
-  execution: { readonly matchesRule?: (ruleArgs: string) => boolean },
-): (condition: string) => boolean {
-  return (condition) =>
-    matchPermissionRule({
-      rule: {
-        decision: 'allow',
-        scope: 'session-runtime',
-        pattern: condition,
-      },
-      toolName,
-      execution,
-    }) !== undefined;
-}
-
 export class HookEngine {
   private readonly byEvent = new Map<string, HookDef[]>();
-  private readonly agentScopes = new WeakMap<HookDef, string>();
-  private readonly claimedOnceHooks = new Set<HookDef>();
   private readonly pendingTriggers = new Set<Promise<HookResult[]>>();
-  private nextStatusId = 0;
-  private cwd: string;
 
   constructor(
     hooks: readonly HookDef[] = [],
     private readonly options: HookEngineOptions = {},
   ) {
-    this.cwd = options.cwd ?? '';
-    this.register(hooks);
-  }
-
-  register(
-    hooks: readonly HookDef[],
-    options: { readonly agentId?: string } = {},
-  ): () => void {
-    const registered = options.agentId === undefined ? [...hooks] : hooks.map((hook) => ({ ...hook }));
-    for (const hook of registered) {
+    for (const hook of hooks) {
       const entries = this.byEvent.get(hook.event) ?? [];
       entries.push(hook);
       this.byEvent.set(hook.event, entries);
-      if (options.agentId !== undefined) this.agentScopes.set(hook, options.agentId);
     }
-    return () => {
-      for (const hook of registered) {
-        const remaining = (this.byEvent.get(hook.event) ?? []).filter((entry) => entry !== hook);
-        if (remaining.length === 0) {
-          this.byEvent.delete(hook.event);
-        } else {
-          this.byEvent.set(hook.event, remaining);
-        }
-        this.claimedOnceHooks.delete(hook);
-        this.agentScopes.delete(hook);
-      }
-    };
-  }
-
-  async setCwd(cwd: string): Promise<void> {
-    this.cwd = cwd;
-    await this.options.onCwdChanged?.(cwd);
   }
 
   get summary(): Record<string, number> {
@@ -122,168 +73,42 @@ export class HookEngine {
     const inputData = toHookInputData({
       hookEventName: event,
       sessionId: this.options.sessionId ?? '',
-      cwd: this.cwd,
+      cwd: this.options.cwd ?? '',
       ...args.inputData,
     });
-    const agentId =
-      typeof args.inputData?.['agentId'] === 'string'
-        ? args.inputData['agentId']
-        : typeof args.inputData?.['agent_id'] === 'string'
-          ? args.inputData['agent_id']
-          : undefined;
-    const matched = this.matchingHooks(event, matcherValue, args.ifMatcher, agentId);
+    const matched = this.matchingHooks(event, matcherValue);
     if (matched.length === 0) return [];
 
-    const background = matched.filter(
-      (hook) => hook.async === true || (isCommandHook(hook) && hook.asyncRewake === true),
-    );
-    if (background.length > 0) {
-      const promise = this.runMatchedHooks(
-        event,
-        matcherValue,
-        inputData,
-        background,
-        args.signal,
-      )
-        .then(async (results) => {
-          const rewakeResults = results.filter((result, index) => {
-            const hook = background[index];
-            return (
-              hook !== undefined &&
-              isCommandHook(hook) &&
-              hook?.asyncRewake === true &&
-              result.action === 'block' &&
-              result.exitCode === 2
-            );
-          });
-          if (rewakeResults.length > 0) {
-            await this.emitAsyncRewake(event, rewakeResults);
-          }
-          return results;
-        })
-        .catch((): HookResult[] => []);
-      this.pendingTriggers.add(promise);
-      void promise.finally(() => {
-        this.pendingTriggers.delete(promise);
-      });
-    }
-
-    const foreground = matched.filter(
-      (hook) => hook.async !== true && (!isCommandHook(hook) || hook.asyncRewake !== true),
-    );
-    if (foreground.length === 0) return [];
-    return this.runMatchedHooks(event, matcherValue, inputData, foreground, args.signal);
-  }
-
-  private async runMatchedHooks(
-    event: string,
-    matcherValue: string,
-    inputData: Record<string, unknown>,
-    hooks: readonly HookDef[],
-    signal?: AbortSignal,
-  ): Promise<HookResult[]> {
-    this.emitTriggered(event, matcherValue, hooks.length);
-    const statusMessage = hooks.find((hook) => hook.statusMessage?.trim())?.statusMessage?.trim();
-    const status =
-      statusMessage === undefined
-        ? undefined
-        : { id: `hook-${String(++this.nextStatusId)}`, content: statusMessage };
-    if (status !== undefined) {
-      this.emitStatus(event, status.id, status.content, true, inputData['agent_id']);
-    }
+    this.emitTriggered(event, matcherValue, matched.length);
     const startedAt = Date.now();
-    let results: HookResult[];
-    try {
-      results = await Promise.all(
-        hooks.map((hook) => {
-          if (isCommandHook(hook)) {
-            return runHook(hook.command, inputData, {
-              timeout: hook.timeout ?? DEFAULT_HOOK_TIMEOUT_SECONDS,
-              cwd: this.cwd === '' ? undefined : this.cwd,
-              signal,
-              shell: hook.shell,
-            });
-          }
-          if (hook.type === 'http') {
-            return runHttpHook(hook, inputData, {
-              timeout: hook.timeout ?? DEFAULT_HOOK_TIMEOUT_SECONDS,
-              cwd: this.cwd === '' ? undefined : this.cwd,
-              signal,
-              allowedUrls: this.options.allowedHttpHookUrls,
-              allowedEnvVars: this.options.httpHookAllowedEnvVars,
-              fetchImpl: this.options.fetchImpl,
-            });
-          }
-          return (
-            this.options.runModelHook?.(hook, event, inputData, signal) ??
-            Promise.resolve({
-              action: 'allow' as const,
-              stderr: `No ${hook.type} hook runner is configured.`,
-            })
-          );
+    const results = await Promise.all(
+      matched.map((hook) =>
+        runHook(hook.command, inputData, {
+          timeout: hook.timeout ?? DEFAULT_HOOK_TIMEOUT_SECONDS,
+          cwd: hook.cwd ?? (this.options.cwd === '' ? undefined : this.options.cwd),
+          env: hook.env,
+          signal: args.signal,
         }),
-      );
-    } finally {
-      if (status !== undefined) {
-        this.emitStatus(event, status.id, status.content, false, inputData['agent_id']);
-      }
-      this.removeOnceHooks(event, hooks);
-    }
-    const watchPaths = results.flatMap((result) => result.watchPaths ?? []);
-    if (watchPaths.length > 0) {
-      await this.options.onWatchPaths?.(event, watchPaths);
-    }
+      ),
+    );
     const { action, reason } = aggregateResults(event, results);
     this.emitResolved(event, matcherValue, action, reason, Date.now() - startedAt);
     return results;
   }
 
-  private matchingHooks(
-    event: string,
-    matcherValue: string,
-    ifMatcher: ((condition: string) => boolean) | undefined,
-    agentId: string | undefined,
-  ): HookDef[] {
-    const seenHooks = new Set<string>();
+  private matchingHooks(event: string, matcherValue: string): HookDef[] {
+    const seen = new Set<string>();
     const matched: HookDef[] = [];
 
     for (const hook of this.byEvent.get(event) ?? []) {
-      const agentScope = this.agentScopes.get(hook);
-      if (agentScope !== undefined && agentScope !== agentId) continue;
-      if (
-        event !== 'TaskCreated' &&
-        event !== 'TaskCompleted' &&
-        event !== 'CwdChanged' &&
-        event !== 'FileChanged' &&
-        !matches(hook.matcher ?? '', matcherValue)
-      ) {
-        continue;
-      }
-      if (hook.if !== undefined && ifMatcher?.(hook.if) !== true) continue;
-      const identity = isCommandHook(hook)
-        ? `command:${hook.shell ?? 'bash'}:${hook.command}:${hook.if ?? ''}`
-        : hook.type === 'http'
-          ? `http:${hook.url}:${hook.if ?? ''}`
-          : `${hook.type}:${hook.prompt}:${hook.if ?? ''}`;
-      if (seenHooks.has(identity)) continue;
-      if (hook.once === true && this.claimedOnceHooks.has(hook)) continue;
-      seenHooks.add(identity);
-      if (hook.once === true) this.claimedOnceHooks.add(hook);
+      if (!matches(hook.matcher ?? '', matcherValue)) continue;
+      const key = (hook.cwd ?? '') + '\0' + hook.command;
+      if (seen.has(key)) continue;
+      seen.add(key);
       matched.push(hook);
     }
 
     return matched;
-  }
-
-  private removeOnceHooks(event: string, matched: readonly HookDef[]): void {
-    const onceHooks = new Set(matched.filter((hook) => hook.once === true));
-    if (onceHooks.size === 0) return;
-    const remaining = (this.byEvent.get(event) ?? []).filter((hook) => !onceHooks.has(hook));
-    if (remaining.length === 0) {
-      this.byEvent.delete(event);
-    } else {
-      this.byEvent.set(event, remaining);
-    }
   }
 
   private emitTriggered(event: string, target: string, count: number): void {
@@ -303,34 +128,6 @@ export class HookEngine {
       this.options.onResolved?.(event, target, action, reason, durationMs);
     } catch {}
   }
-
-  private async emitAsyncRewake(event: string, results: readonly HookResult[]): Promise<void> {
-    try {
-      await this.options.onAsyncRewake?.(event, results);
-    } catch {}
-  }
-
-  private emitStatus(
-    event: string,
-    statusId: string,
-    content: string,
-    active: boolean,
-    agentId: unknown,
-  ): void {
-    try {
-      this.options.onStatus?.(
-        event,
-        statusId,
-        content,
-        active,
-        typeof agentId === 'string' ? agentId : undefined,
-      );
-    } catch {}
-  }
-}
-
-function isCommandHook(hook: HookDef): hook is CommandHookDef {
-  return hook.type === undefined || hook.type === 'command';
 }
 
 function matches(pattern: string, value: string): boolean {

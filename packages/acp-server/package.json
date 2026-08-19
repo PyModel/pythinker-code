@@ -1,0 +1,27 @@
+{
+  "name": "@pymodel/acp-server",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Agent Client Protocol (ACP) host backed directly by the DI × Scope agent engine (agent-core-v2)",
+  "license": "MIT",
+  "author": "PyModel",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@agentclientprotocol/sdk": "^1.3.0",
+    "@pymodel/agent-core-v2": "workspace:^",
+    "@pymodel/klient": "workspace:^",
+    "@pymodel/protocol": "workspace:^"
+  }
+}

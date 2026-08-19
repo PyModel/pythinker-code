@@ -131,7 +131,7 @@ describe('dynamic workflow daemon contracts', () => {
 });
 
 describe('provider daemon contracts', () => {
-  it('adds a provider through one config patch and reads it back', async () => {
+  it('adds a provider through one POST to the providers collection', async () => {
     const provider = {
       id: 'openai_responses',
       type: 'openai_responses',
@@ -141,9 +141,7 @@ describe('provider daemon contracts', () => {
       status: 'connected',
       models: ['openai_responses/gpt_5-mini'],
     };
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(okEnvelope({}))
-      .mockResolvedValueOnce(okEnvelope(provider));
+    const fetchMock = vi.fn().mockResolvedValueOnce(okEnvelope(provider));
     vi.stubGlobal('fetch', fetchMock);
 
     await expect(api().addProvider({
@@ -153,31 +151,15 @@ describe('provider daemon contracts', () => {
       defaultModel: 'gpt_5-mini',
     })).resolves.toMatchObject({ id: 'openai_responses', defaultModel: 'gpt_5-mini' });
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(fetchMock.mock.calls[0]![0]).toBe('http://example.test:58627/api/v1/config');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]![0]).toBe('http://example.test:58627/api/v1/providers');
     expect(fetchMock.mock.calls[0]![1]).toMatchObject({ method: 'POST' });
     expect(JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string)).toEqual({
-      providers: {
-        openai_responses: {
-          type: 'openai_responses',
-          api_key: 'sk-test',
-          base_url: 'https://api.example.test/v1',
-          default_model: 'gpt_5-mini',
-        },
-      },
-      models: {
-        'openai_responses/gpt_5-mini': {
-          provider: 'openai_responses',
-          model: 'gpt_5-mini',
-          max_context_size: 262_144,
-        },
-      },
-      default_model: 'openai_responses/gpt_5-mini',
+      type: 'openai_responses',
+      api_key: 'sk-test',
+      base_url: 'https://api.example.test/v1',
+      default_model: 'gpt_5-mini',
     });
-    expect(fetchMock.mock.calls[1]![0]).toBe(
-      'http://example.test:58627/api/v1/providers/openai_responses',
-    );
-    expect(fetchMock.mock.calls[1]![1]).toMatchObject({ method: 'GET' });
   });
 
   it('deletes a provider through the provider resource route', async () => {
@@ -193,22 +175,23 @@ describe('provider daemon contracts', () => {
     expect((fetchMock.mock.calls[0]![1] as RequestInit).body).toBeUndefined();
   });
 
-  it('refreshes a provider by reading the provider resource', async () => {
+  it('refreshes a provider through the :refresh action', async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(okEnvelope({
-      id: 'openai',
-      type: 'openai',
-      has_api_key: true,
-      status: 'connected',
-      models: ['openai/gpt-5'],
+      changed: [{ provider_id: 'openai', provider_name: 'OpenAI', added: ['openai/gpt-5'], removed: [] }],
+      unchanged: 0,
+      failed: [],
     }));
     vi.stubGlobal('fetch', fetchMock);
 
-    await expect(api().refreshProvider('openai')).resolves.toMatchObject({ id: 'openai' });
+    await expect(api().refreshProvider('openai')).resolves.toMatchObject({
+      changed: [{ providerId: 'openai', added: ['openai/gpt-5'] }],
+      unchanged: 0,
+      failed: [],
+    });
 
     expect(fetchMock.mock.calls[0]![0]).toBe(
-      'http://example.test:58627/api/v1/providers/openai',
+      'http://example.test:58627/api/v1/providers/openai:refresh',
     );
-    expect(fetchMock.mock.calls[0]![1]).toMatchObject({ method: 'GET' });
-    expect((fetchMock.mock.calls[0]![1] as RequestInit).body).toBeUndefined();
+    expect(fetchMock.mock.calls[0]![1]).toMatchObject({ method: 'POST' });
   });
 });

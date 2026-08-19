@@ -17,7 +17,7 @@ import {
 import type { Event, PythinkerHarness, Session } from '@pymodel/pythinker-code-sdk';
 
 import { AcpServer } from '../src/server';
-import { AUTHED } from './_helpers/harness-stubs';
+import { AUTHED_STATUS } from './_helpers/harness-stubs';
 
 class CollectingClient implements Client {
   readonly updates: SessionNotification[] = [];
@@ -145,7 +145,7 @@ describe('AcpSession slash routing', () => {
     const sessionId = 'sess-slash-A';
     const { session, calls } = makeFakeSession(sessionId, [endedTurn(sessionId)]);
     const harness = {
-      isAuthenticated: AUTHED,
+      auth: { status: async () => AUTHED_STATUS },
       createSession: async () => session,
     } as unknown as PythinkerHarness;
 
@@ -189,7 +189,7 @@ describe('AcpSession slash routing', () => {
     const sessionId = 'sess-slash-B';
     const { session, calls } = makeFakeSession(sessionId, [endedTurn(sessionId)]);
     const harness = {
-      isAuthenticated: AUTHED,
+      auth: { status: async () => AUTHED_STATUS },
       createSession: async () => session,
     } as unknown as PythinkerHarness;
 
@@ -228,7 +228,7 @@ describe('AcpSession slash routing', () => {
       endedTurn(sessionId),
     ]);
     const harness = {
-      isAuthenticated: AUTHED,
+      auth: { status: async () => AUTHED_STATUS },
       createSession: async () => session,
     } as unknown as PythinkerHarness;
 
@@ -276,7 +276,7 @@ describe('AcpSession slash routing', () => {
     const sessionId = 'sess-slash-D';
     const { session, calls } = makeFakeSession(sessionId, [endedTurn(sessionId)]);
     const harness = {
-      isAuthenticated: AUTHED,
+      auth: { status: async () => AUTHED_STATUS },
       createSession: async () => session,
     } as unknown as PythinkerHarness;
 
@@ -303,7 +303,7 @@ describe('AcpSession slash routing', () => {
     const sessionId = 'sess-slash-help';
     const { session, calls } = makeFakeSession(sessionId, [endedTurn(sessionId)]);
     const harness = {
-      isAuthenticated: AUTHED,
+      auth: { status: async () => AUTHED_STATUS },
       createSession: async () => session,
     } as unknown as PythinkerHarness;
 
@@ -338,7 +338,7 @@ describe('AcpSession slash routing', () => {
     // reads from it; we don't need the rest of the SDK surface here.
     (session as unknown as { getStatus: () => Promise<unknown> }).getStatus = async () => ({
       model: 'mock-model',
-      thinkingLevel: 'low',
+      thinkingEffort: 'low',
       permission: 'ask',
       planMode: false,
       contextTokens: 1234,
@@ -346,7 +346,7 @@ describe('AcpSession slash routing', () => {
       contextUsage: 0.00617,
     });
     const harness = {
-      isAuthenticated: AUTHED,
+      auth: { status: async () => AUTHED_STATUS },
       createSession: async () => session,
     } as unknown as PythinkerHarness;
 

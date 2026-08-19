@@ -6,10 +6,9 @@
  * constructor rather than through the Runtime) to create in-process subagent
  * loop instances.
  *
- * Two modes:
- *   - **Foreground** (default): blocks the parent turn, `await handle.completion`
- *   - **Background**: returns the agent id immediately; the result is delivered
- *     via a notification.
+ * Foreground and background subagents both run through BackgroundManager.
+ * Foreground calls wait for the task to finish unless it is detached through
+ * the background-task RPC.
  *
  * `ToolResult.content` is textual; the structured output exposed by
  * `AgentToolOutputSchema` is only used for drift-guard and is not consumed at
@@ -25,81 +24,24 @@ import { isAbortError } from '../../../loop/errors';
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '../../../loop/types';
 import type { ResolvedAgentProfile } from '../../../profile';
 import {
-  DEFAULT_SUBAGENT_TIMEOUT_DESCRIPTION,
   DEFAULT_SUBAGENT_TIMEOUT_MS,
+  formatSubagentTimeoutDescription,
   type SessionSubagentHost,
   type SubagentHandle,
 } from '../../../session/subagent-host';
-import type { SessionTeam } from '../../../session/team';
-import {
-  createDeadlineAbortSignal,
-  isUserCancellation,
-  type DeadlineAbortSignal,
-} from '../../../utils/abort';
+import { stripSubagentModelParameter } from '../../../session/subagent-binding';
+import { isUserCancellation } from '../../../utils/abort';
 import { AgentBackgroundTask, type BackgroundManager } from '../../../agent/background';
 import { toInputJsonSchema } from '../../support/input-schema';
-import { matchesGlobRuleSubjects, modelRuleSubject } from '../../support/rule-match';
+import { matchesGlobRuleSubject } from '../../support/rule-match';
 import AGENT_BACKGROUND_DISABLED_DESCRIPTION from './agent-background-disabled.md?raw';
 import AGENT_BACKGROUND_DESCRIPTION from './agent-background-enabled.md?raw';
 import AGENT_DESCRIPTION_BASE from './agent.md?raw';
 
 // ── AgentTool input ──────────────────────────────────────────────────
 
-function createAgentToolInputSchema(forkContextEnabled: boolean, teamsEnabled = false) {
-  const schema = z.object({
-    prompt: z.string().describe('Full task prompt for the subagent'),
-    description: z.string().describe('Short task description (3-5 words) for UI display'),
-    subagent_type: z
-      .string()
-      .optional()
-      .describe(
-        forkContextEnabled
-          ? 'One of the available agent types (see "Available agent types" in this tool description). Omit to fork the parent context into a background worker.'
-          : 'One of the available agent types (see "Available agent types" in this tool description). Defaults to "coder" when omitted.',
-      ),
-    model: z
-      .string()
-      .trim()
-      .min(1)
-      .optional()
-      .describe(
-        'Optional configured model alias for this new subagent. References such as @small, @implementer, @advisor, and @<custom-role> resolve through configured model roles and fall back to normal precedence when unassigned.',
-      ),
-    cwd: z
-      .string()
-      .trim()
-      .min(1)
-      .optional()
-      .describe('Optional absolute working directory for this new subagent'),
-    isolation: z
-      .literal('worktree')
-      .optional()
-      .describe('Create a dedicated Git worktree for this new subagent'),
-    resume: z
-      .string()
-      .optional()
-      .describe('Optional agent ID to resume instead of creating a new instance'),
-    run_in_background: z
-      .boolean()
-      .optional()
-      .describe(
-        'If true, return immediately without waiting for completion. Prefer false unless the task can run independently and there is a clear benefit to not waiting.',
-      ),
-    name: z
-      .string()
-      .trim()
-      .min(1)
-      .optional()
-      .describe('Name for a persistent teammate addressable through SendMessage'),
-    team_name: z
-      .string()
-      .trim()
-      .min(1)
-      .optional()
-      .describe('Active team name; omitted to use the current team'),
-  });
-  return z.preprocess(
-    (input) => {
+export const AgentToolInputSchema = z.preprocess(
+  (input) => {
     if (typeof input !== 'object' || input === null || Array.isArray(input)) {
       return input;
     }
@@ -109,23 +51,44 @@ function createAgentToolInputSchema(forkContextEnabled: boolean, teamsEnabled = 
       typeof normalized['resume'] === 'string' && normalized['resume'].trim().length > 0;
     const hasSubagentType =
       typeof normalized['subagent_type'] === 'string' && normalized['subagent_type'].length > 0;
-    if (!forkContextEnabled && !hasSubagentType && !hasResumeId) {
+    if (!hasSubagentType && !hasResumeId) {
       normalized['subagent_type'] = 'coder';
     } else if (!hasSubagentType) {
       delete normalized['subagent_type'];
     }
     return normalized;
   },
-    teamsEnabled ? schema : schema.omit({ name: true, team_name: true }),
-  );
-}
+  z.object({
+    prompt: z.string().describe('Full task prompt for the subagent'),
+    description: z.string().describe('Short task description (3-5 words) for UI display'),
+    subagent_type: z
+      .string()
+      .optional()
+      .describe(
+        'One of the available agent types (see "Available agent types" in this tool description). Defaults to "coder" when omitted.',
+      ),
+    model: z
+      .enum(['primary', 'secondary'])
+      .optional()
+      .describe(
+        'Model for the new subagent: "secondary" uses the configured secondary model (the default when one is set), "primary" uses the model you are running on. Only applies when spawning a new agent — a resumed agent keeps its bound model.',
+      ),
+    resume: z
+      .string()
+      .optional()
+      .describe(
+        'Optional agent ID to resume instead of creating a new instance. When set, do not also pass subagent_type — the resumed agent keeps its own type, and supplying both is rejected.',
+      ),
+    run_in_background: z
+      .boolean()
+      .optional()
+      .describe(
+        'If true, return immediately without waiting for completion. Prefer false unless the task can run independently and there is a clear benefit to not waiting.',
+      ),
+  }),
+);
 
-export const AgentToolInputSchema = createAgentToolInputSchema(false);
-
-export type AgentToolInput = z.infer<typeof AgentToolInputSchema> & {
-  readonly name?: string;
-  readonly team_name?: string;
-};
+export type AgentToolInput = z.infer<typeof AgentToolInputSchema>;
 
 // ── AgentTool output ─────────────────────────────────────────────────
 
@@ -148,343 +111,301 @@ const BACKGROUND_AGENT_UNAVAILABLE =
 
 // ── AgentTool class ──────────────────────────────────────────────────
 
+const AGENT_TOOL_PARAMETERS = toInputJsonSchema(AgentToolInputSchema);
+const AGENT_TOOL_PARAMETERS_NO_MODEL = stripSubagentModelParameter(AGENT_TOOL_PARAMETERS);
+
 export class AgentTool implements BuiltinTool<AgentToolInput> {
   readonly name: string = 'Agent';
   readonly description: string;
   readonly parameters: Record<string, unknown>;
   constructor(
     private readonly subagentHost: SessionSubagentHost,
-    private readonly backgroundManager?: BackgroundManager | undefined,
+    private readonly backgroundManager: BackgroundManager,
     subagents?: ResolvedAgentProfile['subagents'] | undefined,
     options?: {
       log?: Logger;
-      forkContextEnabled?: boolean;
-      teamsEnabled?: boolean;
-      team?: SessionTeam;
-      agentId?: string;
-      modelAlias?: string;
+      allowBackground?: boolean | undefined;
+      subagentTimeoutMs?: number | undefined;
+      subagentModelDescription?: string;
+      showModelPreferences?: boolean;
+      // Mirrors the `secondary-model` experiment: off (the default), the
+      // no-op `model` parameter is stripped from the advertised schema so the
+      // secondary-model concept never enters the prompt.
+      modelChoiceEnabled?: boolean;
     },
   ) {
     const log = options?.log;
-    this.subagents = subagents;
-    this.forkContextEnabled = options?.forkContextEnabled === true;
-    this.teamsEnabled = options?.teamsEnabled === true;
-    this.team = options?.team;
-    this.agentId = options?.agentId ?? 'main';
-    this.modelAlias = options?.modelAlias ?? 'unknown';
-    this.parameters = toInputJsonSchema(
-      createAgentToolInputSchema(this.forkContextEnabled, this.teamsEnabled),
+    this.allowBackground = options?.allowBackground ?? true;
+    // `0` is preserved (not normalized): `0 ?? DEFAULT_SUBAGENT_TIMEOUT_MS`
+    // stays `0`, and the BackgroundManager arms no timer for it.
+    this.subagentTimeoutMs = options?.subagentTimeoutMs;
+    this.parameters =
+      options?.modelChoiceEnabled === true
+        ? AGENT_TOOL_PARAMETERS
+        : AGENT_TOOL_PARAMETERS_NO_MODEL;
+    const typeLines = buildSubagentDescriptions(
+      subagents,
+      options?.showModelPreferences ?? false,
     );
-    const typeLines = buildSubagentDescriptions(subagents);
     const baseDescription = `${AGENT_DESCRIPTION_BASE}\n\n${
-      this.backgroundManager !== undefined ? AGENT_BACKGROUND_DESCRIPTION : AGENT_BACKGROUND_DISABLED_DESCRIPTION
+      this.allowBackground ? AGENT_BACKGROUND_DESCRIPTION : AGENT_BACKGROUND_DISABLED_DESCRIPTION
     }`;
-    this.description = typeLines
-      ? `${baseDescription}\n\nAvailable agent types (pass via subagent_type):\n${typeLines}`
-      : baseDescription;
+    const sections = [baseDescription];
+    if (typeLines) {
+      sections.push(`Available agent types (pass via subagent_type):\n${typeLines}`);
+    }
+    if (options?.subagentModelDescription !== undefined) {
+      sections.push(options.subagentModelDescription);
+    }
+    this.description = sections.join('\n\n');
     this.log = log;
   }
 
   private readonly log?: Logger;
-  private readonly forkContextEnabled: boolean;
-  private readonly teamsEnabled: boolean;
-  private readonly team?: SessionTeam;
-  private readonly agentId: string;
-  private readonly modelAlias: string;
-  private readonly subagents?: ResolvedAgentProfile['subagents'];
+  private readonly allowBackground: boolean;
+  private readonly subagentTimeoutMs?: number;
 
   async resolveExecution(args: AgentToolInput): Promise<ToolExecution> {
-    let profileName =
-      args.subagent_type?.trim() ||
-      (args.name !== undefined ? 'coder' : this.forkContextEnabled ? 'fork' : 'coder');
+    let profileName = args.subagent_type?.length ? args.subagent_type : 'coder';
     const resumeAgentId = args.resume?.trim();
-    const isResume = resumeAgentId !== undefined && resumeAgentId.length > 0;
-    if (isResume) {
+    if (resumeAgentId !== undefined && resumeAgentId.length > 0) {
       profileName = (await this.subagentHost.getProfileName?.(resumeAgentId)) ?? 'subagent';
     }
-    const isolation =
-      args.isolation ?? (!isResume ? this.subagents?.[profileName]?.isolation : undefined);
-    const prefix =
-      args.run_in_background === true ||
-      args.name !== undefined ||
-      profileName === 'fork' ||
-      this.subagents?.[profileName]?.background === true
-        ? 'Launching background'
-        : 'Launching';
+    const prefix = args.run_in_background === true ? 'Launching background' : 'Launching';
     return {
       description: `${prefix} ${profileName} agent: ${args.description}`,
       accesses: ToolAccesses.none(),
       display: {
         kind: 'agent_call',
-        agent_name: args.name ?? profileName,
+        agent_name: profileName,
         prompt: args.prompt,
         background: args.run_in_background,
-        isolation,
-        cwd: args.cwd,
       },
       approvalRule: this.name,
-      // The model the call asked for is a second subject, so `Agent(model:opus)`
-      // constrains it. Only an explicit request is gated: inheriting the
-      // parent's model is not an escalation, and gating that would deny every
-      // subagent whenever the parent happened to run the named model.
-      matchesRule: (ruleArgs) =>
-        matchesGlobRuleSubjects(ruleArgs, [profileName, ...modelRuleSubject(args.model)]),
-      execute: (ctx) => this.execution({ ...args, isolation }, ctx),
+      matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, profileName),
+      execute: (ctx) => this.execution(args, ctx),
     };
   }
 
   private async execution(
     args: AgentToolInput,
     {
-    toolCallId,
-    signal,
+      toolCallId,
+      signal,
     }: ExecutableToolContext,
   ): Promise<ExecutableToolResult> {
-    let foregroundDeadline: DeadlineAbortSignal | undefined;
     try {
       signal.throwIfAborted();
-      let requestedProfileName = args.subagent_type?.trim() || undefined;
+      const runInBackground = args.run_in_background === true;
+      const requestedProfileName = args.subagent_type?.length ? args.subagent_type : undefined;
       const resumeAgentId = args.resume?.trim();
-      const teammateName = args.name?.trim();
-      if (args.team_name !== undefined && teammateName === undefined) {
-        return { output: 'team_name requires a teammate name.', isError: true };
-      }
-      let teamName: string | undefined;
-      if (teammateName !== undefined) {
-        if (!this.teamsEnabled || this.team === undefined) {
-          return { output: 'Agent teams are not enabled.', isError: true };
-        }
-        if (this.agentId !== 'main') {
-          return {
-            output:
-              'Teammates cannot spawn other teammates. Omit name to create a regular subagent.',
-            isError: true,
-          };
-        }
-        const state = await this.team.get();
-        teamName = args.team_name ?? state?.name;
-        if (state === null || teamName === undefined) {
-          return { output: 'Create a team before spawning a named teammate.', isError: true };
-        }
-        if (teamName !== state.name) {
-          return {
-            output: `Team "${teamName}" does not match active team "${state.name}".`,
-            isError: true,
-          };
-        }
-        requestedProfileName ??= 'coder';
-      }
-      const forkContext =
-        this.forkContextEnabled &&
-        requestedProfileName === undefined &&
-        !resumeAgentId &&
-        teammateName === undefined;
-      const profileRunsInBackground =
-        requestedProfileName !== undefined &&
-        this.subagents?.[requestedProfileName]?.background === true;
-      const runInBackground =
-        args.run_in_background === true ||
-        teammateName !== undefined ||
-        forkContext ||
-        profileRunsInBackground;
-      if (args.cwd !== undefined && args.isolation === 'worktree') {
-        return {
-          output: 'Cannot combine cwd with isolation: "worktree".',
-          isError: true,
-        };
-      }
       if (
         resumeAgentId !== undefined &&
         resumeAgentId.length > 0 &&
-        (
-          requestedProfileName !== undefined ||
-          args.model !== undefined ||
-          args.cwd !== undefined ||
-          args.isolation !== undefined ||
-          teammateName !== undefined ||
-          args.team_name !== undefined
-        )
+        requestedProfileName !== undefined
       ) {
         return {
-          output:
-            'Cannot set subagent_type, model, cwd, or isolation when resuming an existing agent. Resume by agent id only.',
+          output: 'Cannot set subagent_type when resuming an existing agent. Resume by agent id only.',
           isError: true,
         };
       }
 
-      if (runInBackground) {
-        if (this.backgroundManager === undefined) {
-          return {
-            output: BACKGROUND_AGENT_UNAVAILABLE,
-            isError: true,
-          };
-        }
+      if (runInBackground && !this.allowBackground) {
+        return {
+          output: BACKGROUND_AGENT_UNAVAILABLE,
+          isError: true,
+        };
       }
-      const backgroundController = runInBackground ? new AbortController() : undefined;
-      foregroundDeadline =
-        !runInBackground ? createDeadlineAbortSignal(signal, DEFAULT_SUBAGENT_TIMEOUT_MS) : undefined;
 
-      const options = {
+      const controller = new AbortController();
+      const abortBeforeRegister = (): void => {
+        controller.abort(signal.reason);
+      };
+      if (!runInBackground) {
+        signal.addEventListener('abort', abortBeforeRegister, { once: true });
+      }
+
+      const operation = resumeAgentId !== undefined && resumeAgentId.length > 0 ? 'resume' : 'spawn';
+      const runOptions = {
         parentToolCallId: toolCallId,
         prompt: args.prompt,
         description: args.description,
-        displayName: teammateName,
         runInBackground,
-        modelAlias: args.model,
-        cwd: args.cwd,
-        isolation: args.isolation,
-        forkContext,
-        signal: backgroundController?.signal ?? foregroundDeadline?.signal ?? signal,
+        signal: controller.signal,
       };
-
       let handle: SubagentHandle;
-      const operation = resumeAgentId !== undefined && resumeAgentId.length > 0 ? 'resume' : 'spawn';
       try {
-        if (resumeAgentId !== undefined && resumeAgentId.length > 0) {
-          handle = await this.subagentHost.resume(resumeAgentId, options);
-        } else {
-          const profileName = requestedProfileName ?? (forkContext ? 'fork' : 'coder');
-          handle = await this.subagentHost.spawn({
-            profileName,
-            ...options,
-          });
-        }
-        if (teammateName !== undefined) {
-          try {
-            await this.team!.join({
-              teamName: teamName!,
-              agentId: handle.agentId,
-              name: teammateName,
-              agentType: handle.profileName,
-              model: args.model ?? this.modelAlias,
-            });
-          } catch (error) {
-            backgroundController?.abort(error);
-            throw error;
-          }
-          void handle.completion.then(
-            () => this.team!.markIdle(handle.agentId),
-            () => this.team!.markIdle(handle.agentId),
-          );
-        }
+        handle =
+          operation === 'resume'
+            ? await this.subagentHost.resume(resumeAgentId!, runOptions)
+            : await this.subagentHost.spawn({
+                profileName: requestedProfileName ?? 'coder',
+                modelChoice: args.model,
+                ...runOptions,
+              });
       } catch (error) {
+        signal.removeEventListener('abort', abortBeforeRegister);
         this.log?.warn('subagent launch failed', {
           toolCallId,
           runInBackground,
           operation,
           agentId: resumeAgentId,
-          subagentType:
-            operation === 'spawn'
-              ? requestedProfileName ?? (forkContext ? 'fork' : 'coder')
-              : undefined,
+          subagentType: operation === 'spawn' ? requestedProfileName ?? 'coder' : undefined,
           error,
         });
         throw error;
       }
 
-      if (runInBackground) {
-        let taskId: string;
-        try {
-          taskId = this.backgroundManager!.registerTask(
-            new AgentBackgroundTask(handle.completion, args.description, {
-              timeoutMs: DEFAULT_SUBAGENT_TIMEOUT_MS,
-              agentId: handle.agentId,
-              subagentType: handle.profileName,
-              abort: () => {
-                backgroundController?.abort();
-              },
-            }),
-          );
-        } catch (error) {
-          backgroundController?.abort();
-          void handle.completion.catch(() => {});
-          this.log?.warn('background agent task registration failed', {
-            toolCallId,
-            agentId: handle.agentId,
-            subagentType: handle.profileName,
-            error,
-          });
-          return {
-            output: error instanceof Error ? error.message : String(error),
-            isError: true,
-          };
-        }
-        const lines = [
-          `task_id: ${taskId}`,
-          'status: running',
-          `agent_id: ${handle.agentId}`,
-          `actual_subagent_type: ${handle.profileName}`,
-          ...(teammateName === undefined
-            ? []
-            : [`teammate_name: ${teammateName}`, `team_name: ${teamName!}`]),
-          'automatic_notification: true',
-          '',
-          `description: ${args.description}`,
-          '',
-          `next_step: The completion arrives automatically in a later turn — no polling needed. To peek at progress without blocking, call TaskOutput(task_id="${taskId}", block=false).`,
-          `resume_hint: To continue or recover this same subagent later, call Agent(resume="${handle.agentId}", prompt="..."). The parameter is agent_id ("${handle.agentId}"), NOT task_id ("${taskId}") or source_id from a later <notification>. Recovery cases: a later <notification type="task.lost" | "task.failed" | "task.killed"> for this subagent — its conversation history is preserved across session restarts and resume will pick it up.`,
-        ];
-        return { output: lines.join('\n') };
+      let taskId: string;
+      try {
+        taskId = this.backgroundManager.registerTask(
+          new AgentBackgroundTask(handle, args.description, this.subagentHost, controller),
+          {
+            detached: runInBackground,
+            timeoutMs: this.subagentTimeoutMs ?? DEFAULT_SUBAGENT_TIMEOUT_MS,
+            signal: runInBackground ? undefined : signal,
+          },
+        );
+        signal.removeEventListener('abort', abortBeforeRegister);
+      } catch (error) {
+        controller.abort();
+        void handle.completion.catch(() => {});
+        signal.removeEventListener('abort', abortBeforeRegister);
+        this.log?.warn('background agent task registration failed', {
+          toolCallId,
+          agentId: handle.agentId,
+          subagentType: handle.profileName,
+          error,
+        });
+        return {
+          output: error instanceof Error ? error.message : String(error),
+          isError: true,
+        };
       }
 
-      try {
-        const result = await handle.completion;
-        const lines = [
-          `agent_id: ${handle.agentId}`,
-          `actual_subagent_type: ${handle.profileName}`,
-          'status: completed',
-          '',
-          '[summary]',
-          result.result,
-        ];
-        return { output: lines.join('\n') };
-      } catch (error) {
-        let message: string;
-        const timedOut = foregroundDeadline?.timedOut() === true;
-        if (timedOut) {
-          message = `Agent timed out after ${DEFAULT_SUBAGENT_TIMEOUT_DESCRIPTION}.`;
-        } else if (isUserCancellation(signal.reason)) {
-          message =
-            'The user manually interrupted this subagent (and any sibling agents launched alongside it). This was a deliberate user action, not a system error, a timeout, or a capacity/concurrency limit. Do not retry automatically or speculate about why it failed — wait for the user\'s next instruction.';
-        } else if (isAbortError(error)) {
-          message = 'The subagent was stopped before it finished.';
-        } else {
-          message = error instanceof Error ? error.message : String(error);
-        }
-        const lines = [
-          `agent_id: ${handle.agentId}`,
-          `actual_subagent_type: ${handle.profileName}`,
-          'status: failed',
-          '',
-          `subagent error: ${message}`,
-        ];
-        if (timedOut) {
-          lines.push(
-            `resume_hint: Continue with Agent(resume="${handle.agentId}", prompt="continue"). Use agent_id only; do not set subagent_type. The subagent retains its prior context; redo any unfinished tool call if its result was lost.`,
-          );
-        }
-        return { output: lines.join('\n'), isError: true };
+      if (runInBackground) {
+        return {
+          output: formatBackgroundAgentResult(
+            taskId,
+            handle,
+            args.description,
+            this.allowBackground,
+          ),
+        };
       }
+
+      const release = await this.backgroundManager.waitForForegroundRelease(taskId);
+      if (release === 'detached') {
+        return {
+          output: formatBackgroundAgentResult(
+            taskId,
+            handle,
+            args.description,
+            this.allowBackground,
+          ),
+        };
+      }
+      return await this.formatForegroundResult(taskId, handle);
     } catch (error) {
-      let message: string;
-      if (foregroundDeadline?.timedOut() === true) {
-        message = `Agent timed out after ${DEFAULT_SUBAGENT_TIMEOUT_DESCRIPTION}.`;
-      } else if (isUserCancellation(signal.reason)) {
-        message =
-          'The user manually interrupted this subagent (and any sibling agents launched alongside it). This was a deliberate user action, not a system error, a timeout, or a capacity/concurrency limit. Do not retry automatically or speculate about why it failed — wait for the user\'s next instruction.';
-      } else if (isAbortError(error)) {
-        message = 'The subagent was stopped before it finished.';
-      } else {
-        message = error instanceof Error ? error.message : String(error);
-      }
-      return { output: `subagent error: ${message}`, isError: true };
-    } finally {
-      foregroundDeadline?.clear();
+      return { output: `subagent error: ${launchErrorMessage(error, signal)}`, isError: true };
     }
+  }
+
+  private async formatForegroundResult(
+    taskId: string,
+    handle: SubagentHandle,
+  ): Promise<ExecutableToolResult> {
+    const info = this.backgroundManager.getTask(taskId);
+    if (info?.status === 'completed') {
+      return {
+        output: formatForegroundAgentSuccess(
+          handle,
+          await this.backgroundManager.readOutput(taskId),
+        ),
+      };
+    }
+    const timedOut = info?.status === 'timed_out';
+    const message =
+      timedOut
+        ? `Agent timed out after ${formatSubagentTimeoutDescription(this.subagentTimeoutMs ?? DEFAULT_SUBAGENT_TIMEOUT_MS)}.`
+        : info?.stopReason === 'Interrupted by user'
+          ? USER_INTERRUPTED_SUBAGENT_MESSAGE
+          : info?.stopReason !== undefined
+            ? info.stopReason
+            : 'The subagent was stopped before it finished.';
+    return {
+      output: formatForegroundAgentFailure(handle, message, timedOut),
+      isError: true,
+    };
   }
 }
 
-function buildSubagentDescriptions(subagents: ResolvedAgentProfile['subagents']): string {
+const USER_INTERRUPTED_SUBAGENT_MESSAGE =
+  'The user manually interrupted this subagent (and any sibling agents launched alongside it). This was a deliberate user action, not a system error, a timeout, or a capacity/concurrency limit. Do not retry automatically or speculate about why it failed — wait for the user\'s next instruction.';
+
+function formatBackgroundAgentResult(
+  taskId: string,
+  handle: SubagentHandle,
+  description: string,
+  allowBackground: boolean,
+): string {
+  return [
+    `task_id: ${taskId}`,
+    'status: running',
+    `agent_id: ${handle.agentId}`,
+    `actual_subagent_type: ${handle.profileName}`,
+    'automatic_notification: true',
+    '',
+    `description: ${description}`,
+    '',
+    allowBackground
+      ? `next_step: The completion arrives automatically in a later turn — do NOT wait, poll, or call TaskOutput on it; continue with other work or hand back to the user. (If you have nothing to do until it finishes, run such tasks in the foreground next time.)`
+      : 'next_step: The completion arrives automatically in a later turn.',
+    `resume_hint: To continue or recover this same subagent later, call Agent(resume="${handle.agentId}", prompt="..."). The parameter is agent_id ("${handle.agentId}"), NOT task_id ("${taskId}") or source_id from a later <notification>. Recovery cases: a later <notification type="task.lost" | "task.failed" | "task.killed"> for this subagent — its conversation history is preserved across session restarts and resume will pick it up.`,
+  ].join('\n');
+}
+
+function formatForegroundAgentSuccess(handle: SubagentHandle, result: string): string {
+  return [
+    `agent_id: ${handle.agentId}`,
+    `actual_subagent_type: ${handle.profileName}`,
+    'status: completed',
+    '',
+    '[summary]',
+    result,
+  ].join('\n');
+}
+
+function formatForegroundAgentFailure(
+  handle: SubagentHandle,
+  message: string,
+  timedOut: boolean,
+): string {
+  const lines = [
+    `agent_id: ${handle.agentId}`,
+    `actual_subagent_type: ${handle.profileName}`,
+    'status: failed',
+    '',
+    `subagent error: ${message}`,
+  ];
+  if (timedOut) {
+    lines.push(
+      `resume_hint: Continue with Agent(resume="${handle.agentId}", prompt="continue"). Use agent_id only; do not set subagent_type. The subagent retains its prior context; redo any unfinished tool call if its result was lost.`,
+    );
+  }
+  return lines.join('\n');
+}
+
+function launchErrorMessage(error: unknown, signal: AbortSignal): string {
+  if (isUserCancellation(signal.reason)) return USER_INTERRUPTED_SUBAGENT_MESSAGE;
+  if (isAbortError(error)) return 'The subagent was stopped before it finished.';
+  return error instanceof Error ? error.message : String(error);
+}
+
+function buildSubagentDescriptions(
+  subagents: ResolvedAgentProfile['subagents'],
+  showModelPreferences: boolean,
+): string {
   if (subagents === undefined) return '';
   return Object.entries(subagents)
     .map(([name, subagent]) => {
@@ -492,8 +413,19 @@ function buildSubagentDescriptions(subagents: ResolvedAgentProfile['subagents'])
         (part): part is string => part !== undefined && part.length > 0,
       );
       const header = details.length === 0 ? `- ${name}` : `- ${name}: ${details.join(' ')}`;
-      if (subagent.tools.length === 0) return header;
-      return `${header}\n  Tools: ${subagent.tools.join(', ')}`;
+      const deniedExact = new Set(
+        (subagent.disallowedTools ?? []).filter((tool) => !tool.startsWith('mcp__')),
+      );
+      const shownTools = subagent.tools.filter((tool) => !deniedExact.has(tool));
+      const lines = [header];
+      if (showModelPreferences && subagent.modelPreference !== undefined) {
+        lines.push(`  Model preference: ${subagent.modelPreference}`);
+      }
+      if (shownTools.length > 0) lines.push(`  Tools: ${shownTools.join(', ')}`);
+      if (subagent.disallowedTools !== undefined && subagent.disallowedTools.length > 0) {
+        lines.push(`  Disabled: ${subagent.disallowedTools.join(', ')}`);
+      }
+      return lines.join('\n');
     })
     .join('\n');
 }

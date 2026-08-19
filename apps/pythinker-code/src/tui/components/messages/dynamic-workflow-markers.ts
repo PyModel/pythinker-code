@@ -1,4 +1,4 @@
-import { truncateToWidth, type Component } from '@earendil-works/pi-tui';
+import { truncateToWidth, type Component } from '@pymodel/pi-tui';
 
 import { STATUS_BULLET } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
@@ -24,10 +24,10 @@ export class DynamicWorkflowModeMarkerComponent implements Component {
 function dynamicWorkflowMarkerLabel(state: DynamicWorkflowModeMarkerState): string {
   switch (state) {
     case 'active':
-      return 'Dynamic Workflow activated';
+      return 'DynamicWorkflow activated';
     case 'inactive':
-      return 'Dynamic Workflow deactivated';
+      return 'DynamicWorkflow deactivated';
     case 'ended':
-      return 'Dynamic Workflow ended';
+      return 'DynamicWorkflow ended';
   }
 }

@@ -1,4 +1,4 @@
-import { visibleWidth, type SelectItem, type SelectListTheme } from '@earendil-works/pi-tui';
+import { visibleWidth, type SelectItem, type SelectListTheme } from '@pymodel/pi-tui';
 import { describe, expect, it } from 'vitest';
 
 import { WrappingSelectList } from '#/tui/components/editor/wrapping-select-list';
@@ -40,7 +40,7 @@ describe('WrappingSelectList', () => {
     ]).render(80);
 
     expect(lines).toEqual([
-      '❯ [S]goal[D]        First command',
+      '[S]→ goal        First command',
       '  init[D]        Second command',
     ]);
   });
@@ -57,7 +57,7 @@ describe('WrappingSelectList', () => {
     ]).render(80);
 
     expect(lines).toEqual([
-      '❯ [S]goal[D]        First command',
+      '[S]→ goal        First command',
       '  init[D]        lorem ipsum dolor sit amet consectetur adipiscing elit sed do',
       `[D]${DESCRIPTION_INDENT}eiusmod tempor incididunt`,
     ]);
@@ -76,15 +76,15 @@ describe('WrappingSelectList', () => {
     expect(lines[2]!.endsWith('…')).toBe(true);
   });
 
-  it('keeps the selected command strong while muting its description lines', () => {
+  it('paints every line of the selected item with the selected style', () => {
     const description = 'lorem ipsum dolor sit amet consectetur adipiscing elit '.repeat(4).trim();
     const lines = makeList([
       { value: 'goal', label: 'goal', description },
       { value: 'init', label: 'init', description: 'Second command' },
     ]).render(80);
 
-    expect(lines[0]).toMatch(/^❯ \[S\]goal\[D\] {8}lorem ipsum/);
-    expect(lines[1]).toMatch(new RegExp(`^\\[D\\]${DESCRIPTION_INDENT}`));
+    expect(lines[0]).toMatch(/^\[S\]→ goal {8}lorem ipsum/);
+    expect(lines[1]).toMatch(new RegExp(`^\\[S\\]${DESCRIPTION_INDENT}`));
     expect(lines[2]).toBe('  init[D]        Second command');
   });
 
@@ -94,7 +94,7 @@ describe('WrappingSelectList', () => {
       { value: 'init', label: 'init', description: 'Second command' },
     ]).render(40);
 
-    expect(lines).toEqual(['❯ [S]goal', '  init']);
+    expect(lines).toEqual(['[S]→ goal', '  init']);
   });
 
   it('keeps the scroll indicator when items overflow maxVisible', () => {
@@ -126,7 +126,7 @@ describe('WrappingSelectList', () => {
   it('never emits a line wider than the requested width, including CJK text', () => {
     const list = new WrappingSelectList(
       [
-        { value: 'lark', label: 'skill:lark-calendar', description: 'Manage the Lark calendar skill description'.repeat(8) },
+        { value: 'lark', label: 'skill:lark-calendar', description: '\u7BA1\u7406\u98DE\u4E66\u65E5\u5386\u7684\u6280\u80FD\u63CF\u8FF0'.repeat(8) },
         { value: 'init', label: 'init', description: 'word '.repeat(60).trim() },
       ],
       5,

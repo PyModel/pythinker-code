@@ -1,8 +1,8 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   SyncDescriptor,
@@ -25,13 +25,8 @@ import {
   ILogService,
   ICoreProcessService,
   IQuestionService,
-  type IWorkspaceRegistry,
+  IWorkspaceRegistry,
 } from '../../src/services';
-
-const workspaceRegistryStub = {
-  _serviceBrand: undefined,
-  findWorkspaceIdByRoot: async () => undefined,
-} as unknown as IWorkspaceRegistry;
 
 class RecordingEventService implements IEventService {
   readonly _serviceBrand: undefined;
@@ -99,6 +94,33 @@ class NoopLogService implements ILogService {
   }
 }
 
+class NoopWorkspaceRegistry implements IWorkspaceRegistry {
+  readonly _serviceBrand: undefined;
+
+  async list(): ReturnType<IWorkspaceRegistry['list']> {
+    return [];
+  }
+  async get(): ReturnType<IWorkspaceRegistry['get']> {
+    throw new Error('not implemented');
+  }
+  async createOrTouch(): ReturnType<IWorkspaceRegistry['createOrTouch']> {
+    throw new Error('not implemented');
+  }
+  async update(): ReturnType<IWorkspaceRegistry['update']> {
+    throw new Error('not implemented');
+  }
+  async delete(): Promise<void> {}
+  async resolveRoot(): Promise<string> {
+    throw new Error('not implemented');
+  }
+  async findWorkspaceIdByRoot(): Promise<string | undefined> {
+    return undefined;
+  }
+  async resolveAliasWorkDirs(): Promise<readonly string[]> {
+    return [];
+  }
+}
+
 let tmpHome: string;
 let prevHome: string | undefined;
 
@@ -109,6 +131,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   if (prevHome === undefined) {
     delete process.env['PYTHINKER_HOME'];
   } else {
@@ -126,6 +149,7 @@ function makePeers() {
     approvalService: new RecordingApprovalService(),
     questionService: new RecordingQuestionService(),
     logService: new NoopLogService(),
+    workspaceRegistry: new NoopWorkspaceRegistry(),
   };
 }
 
@@ -185,7 +209,7 @@ describe('BridgeClientAPI', () => {
 
 describe('CoreProcessService direct construction', () => {
   it('constructs, exposes a callable rpc proxy, and ready() resolves', async () => {
-    const { eventService, approvalService, questionService, logService } = makePeers();
+    const { eventService, approvalService, questionService, logService, workspaceRegistry } = makePeers();
     const core = new CoreProcessService(
       {},
       makeEnv(tmpHome),
@@ -193,7 +217,7 @@ describe('CoreProcessService direct construction', () => {
       approvalService,
       questionService,
       logService,
-      workspaceRegistryStub,
+      workspaceRegistry,
     );
     try {
       await expect(core.ready()).resolves.toBeUndefined();
@@ -204,7 +228,7 @@ describe('CoreProcessService direct construction', () => {
   });
 
   it('rpc round-trip through createRPC reaches PythinkerCore (getCoreInfo smoke)', async () => {
-    const { eventService, approvalService, questionService, logService } = makePeers();
+    const { eventService, approvalService, questionService, logService, workspaceRegistry } = makePeers();
     const core = new CoreProcessService(
       {},
       makeEnv(tmpHome),
@@ -212,7 +236,7 @@ describe('CoreProcessService direct construction', () => {
       approvalService,
       questionService,
       logService,
-      workspaceRegistryStub,
+      workspaceRegistry,
     );
     try {
       await core.ready();
@@ -225,7 +249,7 @@ describe('CoreProcessService direct construction', () => {
   });
 
   it('dispose is idempotent and short-circuits subsequent rpc calls', async () => {
-    const { eventService, approvalService, questionService, logService } = makePeers();
+    const { eventService, approvalService, questionService, logService, workspaceRegistry } = makePeers();
     const core = new CoreProcessService(
       {},
       makeEnv(tmpHome),
@@ -233,7 +257,7 @@ describe('CoreProcessService direct construction', () => {
       approvalService,
       questionService,
       logService,
-      workspaceRegistryStub,
+      workspaceRegistry,
     );
     await core.ready();
     core.dispose();
@@ -242,19 +266,63 @@ describe('CoreProcessService direct construction', () => {
     await expect(core.rpc.getCoreInfo({})).rejects.toThrow(/disposed/);
   });
 
+  it('default-wires a resolveOAuthTokenProvider when caller omits one', () => {
+    const resolver = CoreProcessService._defaultOAuthTokenResolver(tmpHome, join(tmpHome, 'config.toml'));
+    expect(typeof resolver).toBe('function');
+    const tokenProvider = resolver('managed:pythinker-code');
+    expect(tokenProvider).toBeDefined();
+    expect(typeof tokenProvider?.getAccessToken).toBe('function');
+  });
+
+  it('threads identity into the default resolver without managed device headers', async () => {
+    const credentialsDir = join(tmpHome, 'credentials');
+    mkdirSync(credentialsDir, { recursive: true });
+    writeFileSync(
+      join(credentialsDir, 'pythinker-code.json'),
+      JSON.stringify({
+        access_token: 'expired-access',
+        refresh_token: 'refresh-1',
+        expires_at: 1,
+        scope: '',
+        token_type: 'Bearer',
+        expires_in: 3600,
+      }),
+    );
+    const refreshHeaders: Record<string, string>[] = [];
+    vi.stubGlobal('fetch', async (_input: unknown, init?: RequestInit) => {
+      refreshHeaders.push((init?.headers ?? {}) as Record<string, string>);
+      return new Response(
+        JSON.stringify({
+          access_token: 'rotated-access',
+          refresh_token: 'rotated-refresh',
+          expires_in: 3600,
+          scope: '',
+          token_type: 'Bearer',
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    });
+
+    const resolver = CoreProcessService._defaultOAuthTokenResolver(
+      tmpHome,
+      join(tmpHome, 'config.toml'),
+      { productName: 'test', version: '0.0.0-test', platform: 'test_platform' },
+    );
+    const tokenProvider = resolver('managed:pythinker-code');
+    await expect(tokenProvider?.getAccessToken()).resolves.toBe('rotated-access');
+    expect(refreshHeaders).toHaveLength(1);
+    expect(refreshHeaders[0]?.['User-Agent']).toMatch(/^test\/0\.0\.0-test/);
+    expect(Object.keys(refreshHeaders[0]!).some((name) => name.startsWith('X-Msh-'))).toBe(false);
+  });
 
   it('default-wires pythinkerRequestHeaders from identity when caller omits headers', () => {
     const headers = CoreProcessService._defaultPythinkerRequestHeaders(
       tmpHome,
-      { userAgentProduct: 'pythinker-code-cli', version: '9.9.9' },
+      { productName: 'pythinker-code-cli', version: '9.9.9', platform: 'pythinker_code_cli' },
     );
     expect(headers).toBeDefined();
     expect(headers!['User-Agent']).toMatch(/^pythinker-code-cli\/9\.9\.9/);
-    expect(headers!['X-Msh-Platform']).toBe('pythinker_code_cli');
-    expect(headers!['X-Msh-Version']).toBe('9.9.9');
-    expect(headers!['X-Msh-Device-Id']).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
-    );
+    expect(Object.keys(headers!)).toEqual(['User-Agent']);
   });
 
   it('returns undefined headers when no identity is provided (back-compat)', () => {
@@ -267,7 +335,7 @@ describe('CoreProcessService direct construction', () => {
     const picked =
       explicit ?? CoreProcessService._defaultPythinkerRequestHeaders(
         tmpHome,
-        { userAgentProduct: 'pythinker-code-cli', version: '9.9.9' },
+        { productName: 'pythinker-code-cli', version: '9.9.9', platform: 'pythinker_code_cli' },
       );
     expect(picked).toBe(explicit);
   });
@@ -290,6 +358,7 @@ describe('singleton registry composition', () => {
     ix.stub(IQuestionService, questionService);
     ix.stub(IEnvironmentService, makeEnv(tmpHome));
     ix.stub(ILogService, new NoopLogService());
+    ix.stub(IWorkspaceRegistry, new NoopWorkspaceRegistry());
 
     try {
       const core = ix.createInstance(CoreProcessService, {});

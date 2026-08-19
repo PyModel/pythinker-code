@@ -17,11 +17,12 @@ import {
   truncateToWidth,
   visibleWidth,
   type Focusable,
-} from '@earendil-works/pi-tui';
+} from '@pymodel/pi-tui';
 import type { BackgroundTaskInfo, BackgroundTaskStatus } from '@pymodel/pythinker-code-sdk';
 
 import { currentTheme } from '#/tui/theme';
 import { printableChar } from '@/tui/utils/printable-key';
+import { sanitizeShellOutput } from '#/tui/utils/shell-output';
 
 const ELLIPSIS = '…';
 
@@ -32,7 +33,7 @@ export interface TaskOutputViewerProps {
   readonly onClose: () => void;
 }
 
-const STATUS_LABEL: Record<BackgroundTaskStatus, string> = {
+export const STATUS_LABEL: Record<BackgroundTaskStatus, string> = {
   running: 'running',
   completed: 'completed',
   failed: 'failed',
@@ -41,7 +42,7 @@ const STATUS_LABEL: Record<BackgroundTaskStatus, string> = {
   lost: 'lost',
 };
 
-function statusColor(status: BackgroundTaskStatus): 'success' | 'textMuted' | 'error' {
+export function statusColor(status: BackgroundTaskStatus): 'success' | 'textMuted' | 'error' {
   switch (status) {
     case 'running':
       return 'success';
@@ -104,7 +105,7 @@ export class TaskOutputViewer extends Container implements Focusable {
   }
 
   private splitOutput(output: string): string[] {
-    return (output.length > 0 ? output : '[no output captured]').split('\n');
+    return (output.length > 0 ? sanitizeShellOutput(output) : '[no output captured]').split('\n');
   }
 
   // ── input ──────────────────────────────────────────────────────────
@@ -125,11 +126,20 @@ export class TaskOutputViewer extends Container implements Focusable {
       this.scrollBy(1);
       return;
     }
-    if (matchesKey(data, Key.pageUp) || k === ' ' || matchesKey(data, Key.ctrl('b'))) {
+    if (
+      matchesKey(data, Key.pageUp) ||
+      matchesKey(data, Key.ctrl('u')) ||
+      k === ' ' ||
+      data === '\u0002' /* C-b */
+    ) {
       this.scrollBy(-Math.max(1, visible - 1));
       return;
     }
-    if (matchesKey(data, Key.pageDown) || matchesKey(data, Key.ctrl('f'))) {
+    if (
+      matchesKey(data, Key.pageDown) ||
+      matchesKey(data, Key.ctrl('d')) ||
+      data === '\u0006' /* C-f */
+    ) {
       this.scrollBy(Math.max(1, visible - 1));
       return;
     }
@@ -240,7 +250,7 @@ export class TaskOutputViewer extends Container implements Focusable {
     );
     const keys =
       `${key('↑↓')} ${dim('line')}  ` +
-      `${key('PgUp/PgDn')} ${dim('page')}  ` +
+      `${key('PgUp/PgDn/Ctrl+U/D')} ${dim('page')}  ` +
       `${key('g/G')} ${dim('top/bot')}  ` +
       `${key('Q/Esc')} ${dim('cancel')}`;
     const left = ` ${keys}`;

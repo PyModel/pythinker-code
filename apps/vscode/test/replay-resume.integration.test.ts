@@ -46,7 +46,11 @@ async function createReplayRig(): Promise<ReplayRig> {
   const provider = await createFakeProviderHarness();
   const harness = createPythinkerHarness({
     homeDir,
-    identity: { userAgentProduct: "pythinker-code-vscode", version: "test" },
+    identity: {
+      productName: "pythinker-code-vscode",
+      version: "test",
+      platform: "pythinker_code_vscode",
+    },
   });
   await harness.setConfig({
     providers: {
@@ -189,6 +193,7 @@ describe("VS Code replay from a public Node SDK resume state", () => {
 
     const resumed = await rig.harness.resumeSession({
       id: session.id,
+      includeSubagents: true,
     });
     const state = resumed.getResumeState();
     if (state === undefined) throw new Error("Expected public resume state");
@@ -237,7 +242,7 @@ describe("VS Code replay from a public Node SDK resume state", () => {
     );
   });
 
-  it("restores a child step under its original Agent tool call", async () => {
+  it("restores a subagent result under its original Agent tool call", async () => {
     const rig = await createReplayRig();
     const childAnswer = `Subagent restored evidence. ${"Detailed persisted finding. ".repeat(10)}`;
     let requestCount = 0;
@@ -295,22 +300,15 @@ describe("VS Code replay from a public Node SDK resume state", () => {
 
     expect(events).toContainEqual(
       expect.objectContaining({
-        type: "SubagentEvent",
-        payload: {
-          parent_tool_call_id: "agent-call-1",
-          agent_id: "agent-0",
-          event: { type: "StepBegin", payload: { n: 1 } },
-        },
-      }),
-    );
-    expect(events).toContainEqual(
-      expect.objectContaining({
-        type: "SubagentEvent",
-        payload: {
-          parent_tool_call_id: "agent-call-1",
-          agent_id: "agent-0",
-          event: { type: "ContentPart", payload: { type: "text", text: childAnswer } },
-        },
+        type: "ToolResult",
+        payload: expect.objectContaining({
+          tool_call_id: "agent-call-1",
+          return_value: expect.objectContaining({
+            output: expect.arrayContaining([
+              expect.objectContaining({ text: expect.stringContaining(childAnswer.trim()) }),
+            ]),
+          }),
+        }),
       }),
     );
   });

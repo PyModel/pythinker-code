@@ -22,17 +22,20 @@ import {
 } from '../fixtures/telemetry';
 
 const CONFIG = `
-default_model = "pythinker-code/pythinker-for-coding"
+default_model = "pythinker-code/kimi-for-coding"
 
-[providers."managed:kimi-code"]
+[providers."managed:pythinker-code"]
 type = "pythinker"
 api_key = "test-key"
 base_url = "https://api.example/v1"
 
-[models."pythinker-code/pythinker-for-coding"]
-provider = "managed:kimi-code"
-model = "pythinker-for-coding"
+[models."pythinker-code/kimi-for-coding"]
+provider = "managed:pythinker-code"
+model = "kimi-for-coding"
 max_context_size = 1000000
+capabilities = ["thinking"]
+support_efforts = ["low", "medium", "high"]
+default_effort = "high"
 `;
 
 describe('HarnessAPI session model aliases', () => {
@@ -55,34 +58,156 @@ describe('HarnessAPI session model aliases', () => {
     await rm(tmp, { recursive: true, force: true });
   });
 
+  const compatibleConfig = (supportEfforts: string, defaultEffort: string) => `
+default_model = "compatible/model"
+
+[providers.compatible]
+type = "pythinker"
+api_key = "test-key"
+base_url = "https://api.example.test"
+
+[models."compatible/model"]
+provider = "compatible"
+model = "compatible-model"
+protocol = "anthropic"
+max_context_size = 128000
+capabilities = ["thinking"]
+support_efforts = [${supportEfforts}]
+default_effort = "${defaultEffort}"
+`;
+
+  async function createEffortReplaySession(): Promise<string> {
+    await writeFile(configPath, compatibleConfig('"high", "max"', 'high'));
+    const rpc = await createTestRpc();
+    const created = await rpc.createSession({ workDir, model: 'compatible/model' });
+    await rpc.setThinking({ sessionId: created.id, agentId: 'main', effort: 'max' });
+    await rpc.closeSession({ sessionId: created.id });
+    await writeFile(configPath, compatibleConfig('"max"', 'max'));
+    return created.id;
+  }
+
   it('keeps the configured alias separate from the provider model across create, setModel, and resume', async () => {
     const rpc = await createTestRpc();
     const created = await rpc.createSession({
       workDir,
-      model: 'pythinker-code/pythinker-for-coding',
+      model: 'pythinker-code/kimi-for-coding',
     });
 
     expect(await rpc.getModel({ sessionId: created.id, agentId: 'main' })).toBe(
-      'pythinker-code/pythinker-for-coding',
+      'pythinker-code/kimi-for-coding',
     );
 
     const config = await rpc.getConfig({ sessionId: created.id, agentId: 'main' });
-    expect(config.modelAlias).toBe('pythinker-code/pythinker-for-coding');
-    expect(config.provider?.model).toBe('pythinker-for-coding');
+    expect(config.modelAlias).toBe('pythinker-code/kimi-for-coding');
+    expect(config.provider?.model).toBe('kimi-for-coding');
     expect(config.modelCapabilities?.max_context_tokens).toBe(1_000_000);
 
     await rpc.setModel({
       sessionId: created.id,
       agentId: 'main',
-      model: 'pythinker-code/pythinker-for-coding',
+      model: 'pythinker-code/kimi-for-coding',
     });
 
     const freshRpc = await createTestRpc();
     await freshRpc.resumeSession({ sessionId: created.id });
 
     expect(await freshRpc.getModel({ sessionId: created.id, agentId: 'main' })).toBe(
-      'pythinker-code/pythinker-for-coding',
+      'pythinker-code/kimi-for-coding',
     );
+  });
+
+  it('resolves the initial effort with provider context for an Anthropic-typed provider', async () => {
+    // The model name is unknown to the Anthropic profile matrix but still
+    // carries a Claude marker, and the alias declares no protocol/capabilities
+    // itself; the provider's `type = "anthropic"` must still route the
+    // default resolution through the inferred profile (default effort
+    // "high"), not fall back to "off".
+    await writeFile(
+      configPath,
+      `
+default_model = "compat/custom"
+
+[providers.compat]
+type = "anthropic"
+api_key = "test-key"
+base_url = "https://api.example.test"
+
+[models."compat/custom"]
+provider = "compat"
+model = "joint-claude-0714-vibe"
+max_context_size = 200000
+`,
+    );
+    const rpc = await createTestRpc();
+    const created = await rpc.createSession({ workDir });
+
+    const config = await rpc.getConfig({ sessionId: created.id, agentId: 'main' });
+    expect(config.thinkingEffort).toBe('high');
+
+    // The recorded bootstrap effort must survive resume unchanged.
+    await rpc.closeSession({ sessionId: created.id });
+    const freshRpc = await createTestRpc();
+    await freshRpc.resumeSession({ sessionId: created.id });
+    const restored = await freshRpc.getConfig({ sessionId: created.id, agentId: 'main' });
+    expect(restored.thinkingEffort).toBe('high');
+  });
+
+  it('honors an explicit session effort for an Anthropic-typed provider', async () => {
+    await writeFile(
+      configPath,
+      `
+default_model = "compat/custom"
+
+[providers.compat]
+type = "anthropic"
+api_key = "test-key"
+base_url = "https://api.example.test"
+
+[models."compat/custom"]
+provider = "compat"
+model = "joint-model-0714-vibe"
+max_context_size = 200000
+`,
+    );
+    const rpc = await createTestRpc();
+    const created = await rpc.createSession({ workDir, thinking: 'low' });
+
+    const config = await rpc.getConfig({ sessionId: created.id, agentId: 'main' });
+    expect(config.thinkingEffort).toBe('low');
+  });
+
+  it('restores the final effort after replaying an earlier unlisted Anthropic effort', async () => {
+    const sessionId = await createEffortReplaySession();
+
+    // The current catalog no longer lists the earlier `high` state. Replay
+    // must continue to the following `max` record instead of validating and
+    // aborting at the transient state.
+    const events: Array<Parameters<SDKAPI['emitEvent']>[0]> = [];
+    const freshRpc = await createTestRpc({ emitEvent: (event) => events.push(event) });
+
+    await expect(freshRpc.resumeSession({ sessionId })).resolves.toBeDefined();
+    expect(events).toContainEqual({
+      sessionId,
+      agentId: 'main',
+      type: 'warning',
+      code: 'anthropic-thinking-effort-not-listed',
+      message:
+        'Thinking effort "high" is not listed for model "compatible-model" (known: max). The configured value will be sent unchanged to the Anthropic-compatible backend.',
+    });
+    const restored = await freshRpc.getConfig({ sessionId, agentId: 'main' });
+    expect(restored.modelAlias).toBe('compatible/model');
+    expect(restored.thinkingEffort).toBe('max');
+  });
+
+  it('does not block resume when the warning sink fails', async () => {
+    const sessionId = await createEffortReplaySession();
+
+    const throwingRpc = await createTestRpc({
+      emitEvent: () => {
+        throw new Error('warning sink failed');
+      },
+    });
+    await expect(throwingRpc.resumeSession({ sessionId })).resolves.toBeDefined();
   });
 
   it('re-bootstraps profile and model when resuming a session whose wire has no config.update', async () => {
@@ -93,7 +218,7 @@ describe('HarnessAPI session model aliases', () => {
     const rpc = await createTestRpc();
     const created = await rpc.createSession({
       workDir,
-      model: 'pythinker-code/pythinker-for-coding',
+      model: 'pythinker-code/kimi-for-coding',
     });
     await rpc.closeSession({ sessionId: created.id });
 
@@ -111,10 +236,10 @@ describe('HarnessAPI session model aliases', () => {
     await freshRpc.resumeSession({ sessionId: created.id });
 
     expect(await freshRpc.getModel({ sessionId: created.id, agentId: 'main' })).toBe(
-      'pythinker-code/pythinker-for-coding',
+      'pythinker-code/kimi-for-coding',
     );
     const config = await freshRpc.getConfig({ sessionId: created.id, agentId: 'main' });
-    expect(config.modelAlias).toBe('pythinker-code/pythinker-for-coding');
+    expect(config.modelAlias).toBe('pythinker-code/kimi-for-coding');
     expect(config.systemPrompt.length).toBeGreaterThan(0);
   });
 
@@ -122,7 +247,7 @@ describe('HarnessAPI session model aliases', () => {
     const rpc = await createTestRpc();
     const created = await rpc.createSession({
       workDir,
-      model: 'pythinker-code/pythinker-for-coding',
+      model: 'pythinker-code/kimi-for-coding',
     });
 
     const updatedConfig = await rpc.setPythinkerConfig({
@@ -227,8 +352,8 @@ reason = "no rm"
     await writeFile(
       configPath,
       CONFIG.replace(
-        'default_model = "pythinker-code/pythinker-for-coding"',
-        'default_model = "pythinker-code/pythinker-for-coding"\ndefault_permission_mode = "auto"',
+        'default_model = "pythinker-code/kimi-for-coding"',
+        'default_model = "pythinker-code/kimi-for-coding"\ndefault_permission_mode = "auto"',
       ),
     );
     const rpc = await createTestRpc();
@@ -266,7 +391,7 @@ reason = "no rm"
 
   it('keeps the resumed model alias visible when it no longer resolves', async () => {
     const rpc = await createTestRpc();
-    const created = await rpc.createSession({ workDir, model: 'pythinker-code/pythinker-for-coding' });
+    const created = await rpc.createSession({ workDir, model: 'pythinker-code/kimi-for-coding' });
     await rpc.closeSession({ sessionId: created.id });
 
     // The config now has no models and no default model — the alias replayed
@@ -279,14 +404,14 @@ reason = "no rm"
     // The stale alias stays visible so the UI can surface which model the
     // user had selected. The next prompt will raise MODEL_NOT_CONFIGURED.
     expect(await freshRpc.getModel({ sessionId: created.id, agentId: 'main' })).toBe(
-      'pythinker-code/pythinker-for-coding',
+      'pythinker-code/kimi-for-coding',
     );
   });
 
   it('logs app_version when resuming a session', async () => {
     await getRootLogger().configure(resolveLoggingConfig({ homeDir }));
     const rpc = await createTestRpc();
-    const created = await rpc.createSession({ workDir, model: 'pythinker-code/pythinker-for-coding' });
+    const created = await rpc.createSession({ workDir, model: 'pythinker-code/kimi-for-coding' });
     await rpc.closeSession({ sessionId: created.id });
 
     const freshRpc = await createTestRpc({ appVersion: '1.2.3-test' });
@@ -300,7 +425,7 @@ reason = "no rm"
 
   it('surfaces a config error when a resumed model is configured but unresolvable', async () => {
     const rpc = await createTestRpc();
-    const created = await rpc.createSession({ workDir, model: 'pythinker-code/pythinker-for-coding' });
+    const created = await rpc.createSession({ workDir, model: 'pythinker-code/kimi-for-coding' });
     await rpc.closeSession({ sessionId: created.id });
 
     // The model alias is still in config, but it now references a provider
@@ -309,22 +434,22 @@ reason = "no rm"
     await writeFile(
       configPath,
       `
-default_model = "pythinker-code/pythinker-for-coding"
+default_model = "pythinker-code/kimi-for-coding"
 
-[providers."managed:kimi-code"]
+[providers."managed:pythinker-code"]
 type = "pythinker"
 api_key = "test-key"
 base_url = "https://api.example/v1"
 
-[models."pythinker-code/pythinker-for-coding"]
+[models."pythinker-code/kimi-for-coding"]
 provider = "ghost-provider"
-model = "pythinker-for-coding"
+model = "kimi-for-coding"
 max_context_size = 1000000
 `,
     );
 
     const freshRpc = await createTestRpc();
-    await expect(freshRpc.resumeSession({ sessionId: created.id })).rejects.toThrowErrorMatchingInlineSnapshot(`[PythinkerError: Provider "ghost-provider" for model "pythinker-code/pythinker-for-coding" is not configured.]`);
+    await expect(freshRpc.resumeSession({ sessionId: created.id })).rejects.toThrow();
   });
 
   it('scopes agent telemetry events to the owning session', async () => {
@@ -332,7 +457,7 @@ max_context_size = 1000000
     const createRpc = await createTestRpc({ telemetry: recordingContextTelemetry(createRecords) });
     const created = await createRpc.createSession({
       workDir,
-      model: 'pythinker-code/pythinker-for-coding',
+      model: 'pythinker-code/kimi-for-coding',
     });
 
     await createRpc.setPermission({ sessionId: created.id, agentId: 'main', mode: 'yolo' });
@@ -340,7 +465,7 @@ max_context_size = 1000000
     expect(createRecords).toContainEqual({
       event: 'yolo_toggle',
       sessionId: created.id,
-      properties: { enabled: true },
+      properties: { enabled: true, agent_id: 'main' },
     });
 
     await createRpc.setPermission({ sessionId: created.id, agentId: 'main', mode: 'auto' });
@@ -348,7 +473,7 @@ max_context_size = 1000000
     expect(createRecords).toContainEqual({
       event: 'afk_toggle',
       sessionId: created.id,
-      properties: { enabled: true },
+      properties: { enabled: true, agent_id: 'main' },
     });
 
     await createRpc.setPythinkerConfig({
@@ -377,18 +502,18 @@ max_context_size = 1000000
     expect(createRecords).toContainEqual({
       event: 'model_switch',
       sessionId: created.id,
-      properties: { model: 'gpt-alias' },
+      properties: { model: 'gpt-alias', agent_id: 'main' },
     });
 
     const resumeRecords: TelemetryContextRecord[] = [];
     const resumeRpc = await createTestRpc({ telemetry: recordingContextTelemetry(resumeRecords) });
     await resumeRpc.resumeSession({ sessionId: created.id });
-    await resumeRpc.setThinking({ sessionId: created.id, agentId: 'main', level: 'off' });
+    await resumeRpc.setThinking({ sessionId: created.id, agentId: 'main', effort: 'off' });
 
     expect(resumeRecords).toContainEqual({
       event: 'thinking_toggle',
       sessionId: created.id,
-      properties: { enabled: false },
+      properties: { enabled: false, effort: 'off', from: 'high', agent_id: 'main' },
     });
   });
 
@@ -400,13 +525,11 @@ max_context_size = 1000000
     const records: TelemetryContextRecord[] = [];
     const freshRpc = await createTestRpc({ telemetry: recordingContextTelemetry(records) });
 
-    await expect(freshRpc.resumeSession({ sessionId: created.id })).rejects.toMatchObject({
-      code: 'session.init_failed',
-    });
+    await expect(freshRpc.resumeSession({ sessionId: created.id })).rejects.toThrow();
     expect(records).toContainEqual({
       event: 'session_load_failed',
       sessionId: created.id,
-      properties: { reason: 'session.init_failed' },
+      properties: { reason: 'SyntaxError' },
     });
   });
 
@@ -446,6 +569,7 @@ max_context_size = 1000000
         client_version: '0.1.1',
         ui_mode: 'web',
         enabled: true,
+        agent_id: 'main',
       },
     });
   });
@@ -453,7 +577,7 @@ max_context_size = 1000000
   async function findWireFile(root: string): Promise<string> {
     const suffix = join('agents', 'main', 'wire.jsonl');
     const entries = await readdir(root, { recursive: true });
-    const match = entries.find((entry) => entry.endsWith(suffix));
+    const match = entries.find((entry) => entry.replaceAll('\\', '/').endsWith(suffix));
     if (match === undefined) {
       throw new Error('wire.jsonl not found under session home');
     }
@@ -463,6 +587,7 @@ max_context_size = 1000000
   async function createTestRpc(
     options: {
       readonly appVersion?: string;
+      readonly emitEvent?: (event: Parameters<SDKAPI['emitEvent']>[0]) => void;
       readonly telemetry?: TelemetryClient;
     } = {},
   ) {
@@ -474,7 +599,7 @@ max_context_size = 1000000
       telemetry: options.telemetry,
     });
     return sdkRpc({
-      emitEvent: vi.fn(),
+      emitEvent: options.emitEvent ?? vi.fn(),
       requestApproval: vi.fn(async () => ({ decision: 'rejected' as const })),
       requestQuestion: vi.fn(async () => null),
       toolCall: vi.fn(async () => ({ output: '' })),

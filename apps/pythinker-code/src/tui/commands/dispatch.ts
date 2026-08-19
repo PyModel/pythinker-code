@@ -1,73 +1,66 @@
-import type { Component, Focusable } from '@earendil-works/pi-tui';
+import type { Component, Focusable } from '@pymodel/pi-tui';
+import type { DeviceAuthorization } from '@pymodel/pythinker-code-oauth';
 import type { PythinkerHarness, Session } from '@pymodel/pythinker-code-sdk';
 
 import type { ColorToken, ThemeName } from '#/tui/theme';
-import { performHeapDump } from '#/utils/heap-dump';
 
 import { LLM_NOT_SET_MESSAGE } from '../constant/pythinker-tui';
 import type { AuthFlowController } from '../controllers/auth-flow';
 import type { BtwPanelController } from '../controllers/btw-panel';
 import type { StreamingUIController } from '../controllers/streaming-ui';
 import type { TasksBrowserController } from '../controllers/tasks-browser';
-import { handleColorsCommand } from '../easter-eggs/rainbow-colors';
+import { tryHandleDanceCommand } from '../easter-eggs/dance';
 import type { ResolvedTheme } from '../theme/colors';
 import type { TUIState } from '../tui-state';
 import type {
   AppState,
+  InlineSkillActivation,
   LoginProgressSpinnerHandle,
   QueuedMessage,
   TranscriptEntry,
 } from '../types';
 import { formatErrorMessage } from '../utils/event-payload';
-import { handleAdvisorCommand } from './advisor';
-import { handleAddDirCommand } from './add-dir';
-import { handleAgentsCommand } from './agents';
+import {
+  extractInlineSkillActivations,
+  findInlineSkillTokens,
+} from '../utils/inline-skill-tokens';
 import { handleLoginCommand, handleLogoutCommand } from './auth';
 import { handleBtwCommand } from './btw';
+import { handleCopyCommand } from './copy';
 import {
   handleAutoCommand,
   handleCompactCommand,
   handleEditorCommand,
   handleEffortCommand,
-  handleKeybindingsCommand,
   handleModelCommand,
-  handleOutputStyleCommand,
-  handlePermissionsCommand,
   handlePlanCommand,
-  handlePrivacySettingsCommand,
+  handleSecondaryModelCommand,
   handleThemeCommand,
   handleYoloCommand,
   showExperimentsPanel,
+  showModelPicker,
   showPermissionPicker,
   showSettingsSelector,
 } from './config';
-import { handleCopyCommand } from './copy';
-import { handleDebugCommand } from './debug';
-import { handleDiffCommand } from './diff';
-import { handleFastCommand } from './fast';
 import { handleGoalCommand } from './goal';
-import { handleMemoryCommand } from './memory';
-import {
-  handleDoctorCommand,
-  handleFeedbackCommand,
-  handleUpdateCommand,
-  handleHooksCommand,
-  showMcpServers,
-  showContextReport,
-  showContextFiles,
-  showCost,
-  showReleaseNotes,
-  showStatusReport,
-  showTerminalSetup,
-  showUsage,
-} from './info';
+import { handleFeedbackCommand, showMcpServers, showStatusReport, showUsage } from './info';
+import { handleAddDirCommand } from './add-dir';
 import { parseSlashInput } from './parse';
 import { handlePluginsCommand } from './plugins';
 import { handleProviderCommand } from './provider';
-import type { BuiltinSlashCommandName } from './registry';
+import {
+  findBuiltInSlashCommand,
+  resolveSlashCommandAvailability,
+  type BuiltinSlashCommandName,
+} from './registry';
 import { handleReloadCommand, handleReloadTuiCommand } from './reload';
-import { resolveSlashCommandInput, slashBusyMessage } from './resolve';
-import { handleSkillsCommand } from './skills';
+import type { SkillListSession } from './skills';
+import {
+  canRestoreSubmittedInput,
+  resolveSlashCommandInput,
+  slashBusyMessage,
+  slashCommandBusyReason,
+} from './resolve';
 import {
   handleExportDebugZipCommand,
   handleExportMdCommand,
@@ -75,31 +68,26 @@ import {
   handleInitCommand,
   handleTitleCommand,
 } from './session';
-import { handleDynamicWorkflowCommand } from './dynamic-workflow';
-import { handleTagCommand } from './tag';
+import { handleDynamicWorkflowCommand } from './dynamic_workflow';
 import { handleUndoCommand } from './undo';
-import { handleVimCommand } from './vim';
 import { handleWebCommand } from './web';
 
 // ---------------------------------------------------------------------------
 // Re-exports — keep existing consumers working
 // ---------------------------------------------------------------------------
 
-export { handleAgentsCommand } from './agents';
-export { handleAddDirCommand } from './add-dir';
 export { handleLoginCommand, handleLogoutCommand } from './auth';
 export { handleBtwCommand } from './btw';
+export { handleCopyCommand } from './copy';
+export { handleAddDirCommand } from './add-dir';
 export {
   handleAutoCommand,
   handleCompactCommand,
   handleEditorCommand,
   handleEffortCommand,
-  handleKeybindingsCommand,
   handleModelCommand,
-  handleOutputStyleCommand,
-  handlePermissionsCommand,
   handlePlanCommand,
-  handlePrivacySettingsCommand,
+  handleSecondaryModelCommand,
   handleThemeCommand,
   handleYoloCommand,
   showModelPicker,
@@ -107,30 +95,11 @@ export {
   showPermissionPicker,
   showSettingsSelector,
 } from './config';
-export { handleCopyCommand, showMessageActions } from './copy';
-export { handleDebugCommand } from './debug';
-export { handleDiffCommand } from './diff';
-export { handleDynamicWorkflowCommand } from './dynamic-workflow';
-export { handleFastCommand } from './fast';
-export {
-  handleDoctorCommand,
-  handleFeedbackCommand,
-  handleUpdateCommand,
-  handleHooksCommand,
-  showMcpServers,
-  showContextReport,
-  showContextFiles,
-  showCost,
-  showReleaseNotes,
-  showStatusReport,
-  showTerminalSetup,
-  showUsage,
-} from './info';
+export { handleDynamicWorkflowCommand } from './dynamic_workflow';
+export { handleFeedbackCommand, showMcpServers, showStatusReport, showUsage } from './info';
 export { handlePluginsCommand } from './plugins';
 export { handleReloadCommand, handleReloadTuiCommand } from './reload';
-export { handleSkillsCommand } from './skills';
 export { handleGoalCommand } from './goal';
-export { handleMemoryCommand } from './memory';
 export {
   handleExportDebugZipCommand,
   handleExportMdCommand,
@@ -149,6 +118,8 @@ export interface SlashCommandHost {
   state: TUIState;
   session: Session | undefined;
   readonly harness: PythinkerHarness;
+  /** agent-core-v2 engine; enables lazy session creation. */
+  readonly engineV2: boolean;
   cancelInFlight: (() => void) | undefined;
   deferUserMessages: boolean;
 
@@ -162,23 +133,49 @@ export interface SlashCommandHost {
   mountEditorReplacement(panel: Component & Focusable): void;
   restoreEditor(): void;
   restoreInputText(text: string): void;
-  refreshSkillCommands(session?: Session): Promise<void>;
-  reloadKeybindings?(): readonly string[];
-  setExternalEditorRunning?(running: boolean): void;
+  refreshSlashCommandAutocomplete(): void;
+  /**
+   * Rebuild the plugin slash-command list. With no session (v2 session-less
+   * startup) this reads the app-global plugin commands instead, so `/plugins`
+   * mutations apply before the first session exists.
+   */
+  refreshPluginCommands(session?: Session): Promise<void>;
+  /**
+   * Rebuild the skill slash-command list. With no session (v2 session-less
+   * startup) this reads the workspace skills instead.
+   */
+  refreshSkillCommands(session?: SkillListSession): Promise<void>;
+  /**
+   * Seed appState with the config defaults the v2 engine would apply at
+   * createSession time (model, permission, plan mode, thinking effort,
+   * context cap). No-op semantics on a live session path: only /reload calls
+   * it while still session-less.
+   */
+  hydrateLazyConfigDefaults(): Promise<void>;
 
   // Session
   requireSession(): Session;
+  /**
+   * Lazy-create the session on first use (v2 engine). Returns the existing
+   * session, or undefined (with the error already surfaced) when creation
+   * fails.
+   */
+  ensureSession(): Promise<Session | undefined>;
+  /** Await the in-flight lazy session creation, if any (v2); no-op otherwise. */
+  waitForLazyCreation(): Promise<void>;
   switchToSession(session: Session, message: string): Promise<void>;
   reloadCurrentSessionView(session: Session, message: string): Promise<void>;
   beginSessionRequest(): void;
   failSessionRequest(message: string): void;
   sendQueuedMessage(session: Session, item: QueuedMessage): void;
   requestQueuedGoalPromotion?(): void;
-  /** Retires Dynamic Workflow mission controls, e.g. after an undo. */
-  clearDynamicWorkflowMissionControls(): void;
+  /** Reset the client-side cache-break baseline after the context was cut
+   *  (/undo): the next step's cache-read drop is expected, not a break. */
+  noteContextCut?(): void;
 
   // UI
   showLoginProgressSpinner(label: string): LoginProgressSpinnerHandle;
+  showLoginAuthorizationPrompt(auth: DeviceAuthorization): LoginProgressSpinnerHandle;
   showProgressSpinner(label: string): LoginProgressSpinnerHandle;
 
   // Theme
@@ -188,12 +185,32 @@ export interface SlashCommandHost {
   // Dispatch
   stop(exitCode?: number): Promise<void>;
   setExitOpenUrl(url: string): void;
+  /**
+   * Register a task that takes over the process after the TUI has shut down
+   * (instead of exiting): the runner awaits it and only exits when it returns.
+   * Used by `/web` to keep a freshly started server attached to this terminal
+   * until Ctrl+C.
+   */
+  setExitForegroundTask(task: (exitCode: number) => Promise<void>): void;
   showHelpPanel(): void;
   createNewSession(): Promise<void>;
   showSessionPicker(): Promise<void>;
   sendNormalUserInput(text: string): void;
+  /**
+   * Submit a prompt that explicitly activates one or more skills inline
+   * (v2 engine only): all activations ride the same submission as the prompt
+   * and launch as a single turn.
+   */
+  sendInlineSkillUserInput(text: string, activations: readonly InlineSkillActivation[]): Promise<void>;
   sendSkillActivation(session: Session, skillName: string, skillArgs: string): void;
+  activatePluginCommand(
+    session: Session,
+    pluginId: string,
+    commandName: string,
+    args: string,
+  ): void;
   readonly skillCommandMap: Map<string, string>;
+  readonly pluginCommandMap: Map<string, string>;
 
   // Controller refs
   readonly streamingUI: StreamingUIController;
@@ -208,10 +225,77 @@ export interface SlashCommandHost {
 
 export function dispatchInput(host: SlashCommandHost, text: string): void {
   if (parseSlashInput(text) !== null) {
+    // A leading skill command combined with further inline skill tokens
+    // (`/skill:a args /skill:b`) is one grouped submission on the v2 engine.
+    if (host.engineV2 && dispatchInlineSkillCombo(host, text)) {
+      return;
+    }
     void executeSlashCommand(host, text);
     return;
   }
+  // Inline skill tokens anywhere in a plain prompt (v2 engine only); on the
+  // legacy engine they keep their plain-text meaning.
+  if (host.engineV2) {
+    const activations = extractInlineSkillActivations(text, host.skillCommandMap);
+    if (activations.length > 0) {
+      void host.sendInlineSkillUserInput(text, activations);
+      return;
+    }
+  }
   host.sendNormalUserInput(text);
+}
+
+/**
+ * Handle a leading-slash input that may be a bundled submission. Returns true
+ * when the input was claimed, false when it should fall through to the
+ * regular single-skill slash path.
+ *
+ * Bundle rule: two or more known skill tokens with the first one leading the
+ * input make the whole input one bundled prompt in which every token
+ * activates with NO args — the mention is the whole interface, and args stay
+ * a standalone-activation concept (`/skill:a some args` with no other tokens
+ * keeps its single-skill path). Tokenization is whitespace-generic, so
+ * space- and newline-separated bundles behave identically. A recognized
+ * builtin or plugin command always keeps its own path, no matter how many
+ * skill tokens its arguments mention.
+ */
+function dispatchInlineSkillCombo(host: SlashCommandHost, text: string): boolean {
+  // The intent is parsed without the busy flags on purpose: submissions
+  // through sendInlineSkillUserInput queue while busy — only genuine
+  // single-skill commands reject.
+  const intent = resolveSlashCommandInput({
+    input: text,
+    skillCommandMap: host.skillCommandMap,
+    pluginCommandMap: host.pluginCommandMap,
+    isStreaming: false,
+    isCompacting: false,
+  });
+  if (intent.kind !== 'skill' && intent.kind !== 'message') return false;
+
+  const tokens = findInlineSkillTokens(text, {
+    isKnownSkill: (commandName) =>
+      host.skillCommandMap.has(commandName) || host.skillCommandMap.has(`skill:${commandName}`),
+    includeLeading: true,
+  });
+  // The 'message' kind joins the bundle rule because parseSlashInput only
+  // splits on a literal space: a newline after a leading skill resolves to
+  // 'message' instead of 'skill', and must not silently drop the leading
+  // activation.
+  if (tokens.length >= 2 && tokens[0]!.start === 0) {
+    const activations = extractInlineSkillActivations(text, host.skillCommandMap, {
+      includeLeading: true,
+    });
+    void host.sendInlineSkillUserInput(text, activations);
+    return true;
+  }
+
+  // An unrecognized leading slash token makes the whole input a plain
+  // message; scan it for inline skills like any other plain prompt.
+  if (intent.kind !== 'message') return false;
+  const activations = extractInlineSkillActivations(text, host.skillCommandMap);
+  if (activations.length === 0) return false;
+  void host.sendInlineSkillUserInput(text, activations);
+  return true;
 }
 
 async function executeSlashCommand(host: SlashCommandHost, input: string): Promise<void> {
@@ -219,6 +303,7 @@ async function executeSlashCommand(host: SlashCommandHost, input: string): Promi
   const intent = resolveSlashCommandInput({
     input,
     skillCommandMap: host.skillCommandMap,
+    pluginCommandMap: host.pluginCommandMap,
     isStreaming: host.state.appState.streamingPhase !== 'idle',
     isCompacting: host.state.appState.isCompacting,
   });
@@ -229,6 +314,9 @@ async function executeSlashCommand(host: SlashCommandHost, input: string): Promi
     case 'blocked':
       host.track('input_command_invalid', { reason: 'blocked', command: intent.commandName });
       host.showError(slashBusyMessage(intent.commandName, intent.reason));
+      // The editor buffer was already cleared on submit; give the rejected
+      // command line back so hand-typed input is not lost.
+      host.restoreInputText(input);
       return;
     case 'invalid':
       host.track('input_command_invalid', {
@@ -238,10 +326,25 @@ async function executeSlashCommand(host: SlashCommandHost, input: string): Promi
       host.showError(`Invalid slash command: /${intent.commandName}`);
       return;
     case 'skill': {
-      const session = host.session;
-      if (host.state.appState.model.trim().length === 0 || session === undefined) {
+      if (host.state.appState.model.trim().length === 0) {
         host.showError(LLM_NOT_SET_MESSAGE);
         return;
+      }
+      let session = host.session;
+      if (session === undefined) {
+        session = await ensureSessionForCommand(host);
+        if (session === undefined) return;
+        // A first prompt may have started a turn while the session was being
+        // created; skill commands are always busy-gated, so re-check the gate
+        // resolved before the await.
+        const busyReason = slashCommandBusyReason({
+          isStreaming: host.state.appState.streamingPhase !== 'idle',
+          isCompacting: host.state.appState.isCompacting,
+        });
+        if (busyReason !== undefined) {
+          host.showError(slashBusyMessage(intent.commandName, busyReason));
+          return;
+        }
       }
       host.track('input_command', {
         command: intent.commandName,
@@ -250,7 +353,37 @@ async function executeSlashCommand(host: SlashCommandHost, input: string): Promi
       host.sendSkillActivation(session, intent.skillName, intent.args);
       return;
     }
+    case 'plugin-command': {
+      if (host.state.appState.model.trim().length === 0) {
+        host.showError(LLM_NOT_SET_MESSAGE);
+        return;
+      }
+      let session = host.session;
+      if (session === undefined) {
+        session = await ensureSessionForCommand(host);
+        if (session === undefined) return;
+        // Same busy re-check as the skill path: plugin commands are always
+        // busy-gated too.
+        const busyReason = slashCommandBusyReason({
+          isStreaming: host.state.appState.streamingPhase !== 'idle',
+          isCompacting: host.state.appState.isCompacting,
+        });
+        if (busyReason !== undefined) {
+          host.showError(slashBusyMessage(intent.commandName, busyReason));
+          return;
+        }
+      }
+      host.track('input_command', { command: `${intent.pluginId}:${intent.commandName}` });
+      host.activatePluginCommand(session, intent.pluginId, intent.commandName, intent.args);
+      return;
+    }
     case 'message':
+      // Unknown slash command: let /dance claim it before it falls through to
+      // the model as a normal message. This runs *after* builtin and skill
+      // resolution, so a real command or a same-named skill always wins.
+      if (parsedCommand !== null && tryHandleDanceCommand(host, parsedCommand)) {
+        return;
+      }
       host.sendNormalUserInput(intent.input);
       return;
     case 'builtin':
@@ -259,7 +392,7 @@ async function executeSlashCommand(host: SlashCommandHost, input: string): Promi
         host.track('clear');
       }
       try {
-        await handleBuiltInSlashCommand(host, intent.name, intent.args);
+        await handleBuiltInSlashCommand(host, intent.name, intent.args, input);
       } catch (error) {
         host.showError(formatErrorMessage(error));
       }
@@ -267,15 +400,70 @@ async function executeSlashCommand(host: SlashCommandHost, input: string): Promi
   }
 }
 
+/**
+ * Lazy-create the session for a slash command that needs one (v2 engine).
+ * v1 keeps the historical "no active session" error; on v2 a missing session
+ * means the TUI started session-less, so commands create it on first use.
+ * Returns undefined (error already shown) when creation fails.
+ */
+async function ensureSessionForCommand(host: SlashCommandHost): Promise<Session | undefined> {
+  if (!host.engineV2) {
+    host.showError(LLM_NOT_SET_MESSAGE);
+    return undefined;
+  }
+  return host.ensureSession();
+}
+
+/** Builtin commands that need an active session; lazy-created on the v2 engine. */
+const SESSION_REQUIRING_COMMANDS: ReadonlySet<BuiltinSlashCommandName> = new Set([
+  'btw',
+  'compact',
+  'export-debug-zip',
+  'export-md',
+  'fork',
+  'goal',
+  'init',
+  'plan',
+  'dynamic_workflow',
+  'undo',
+  'web',
+]);
+
 async function handleBuiltInSlashCommand(
   host: SlashCommandHost,
   name: BuiltinSlashCommandName,
   args: string,
+  input: string,
 ): Promise<void> {
-  switch (name) {
-    case 'colors':
-      handleColorsCommand(host, args);
+  if (host.session === undefined && SESSION_REQUIRING_COMMANDS.has(name)) {
+    const session = await ensureSessionForCommand(host);
+    if (session === undefined) {
+      // Creation failed after submit cleared the buffer; give the input
+      // back unless the user moved on — a newer draft or an opened panel.
+      if (canRestoreSubmittedInput(host)) host.restoreInputText(input);
       return;
+    }
+    // A first prompt may have started a turn while the session was being
+    // created; re-check the availability gate that was resolved before the
+    // await (idle-only commands are blocked while a turn is active).
+    const command = findBuiltInSlashCommand(name);
+    const busyReason = slashCommandBusyReason({
+      isStreaming: host.state.appState.streamingPhase !== 'idle',
+      isCompacting: host.state.appState.isCompacting,
+    });
+    if (
+      busyReason !== undefined &&
+      command !== undefined &&
+      resolveSlashCommandAvailability(command, args) === 'idle-only'
+    ) {
+      host.showError(slashBusyMessage(name, busyReason));
+      // Same as the dispatch blocked branch: give the cleared input back,
+      // guarded the same way — session creation awaited above.
+      if (canRestoreSubmittedInput(host)) host.restoreInputText(input);
+      return;
+    }
+  }
+  switch (name) {
     case 'exit':
       void host.stop();
       return;
@@ -285,10 +473,24 @@ async function handleBuiltInSlashCommand(
     case 'version':
       host.showStatus(`Pythinker Code v${host.state.appState.version}`);
       return;
-    case 'new':
+    case 'new': {
+      // A first-use lazy creation may still be in flight: wait it out so /new
+      // never races a second createSession against the pending prompt.
+      await host.waitForLazyCreation();
+      // The waited-out prompt may have started a turn meanwhile; /new is
+      // idle-only, so re-run the busy gate resolved before the await.
+      const busyReason = slashCommandBusyReason({
+        isStreaming: host.state.appState.streamingPhase !== 'idle',
+        isCompacting: host.state.appState.isCompacting,
+      });
+      if (busyReason !== undefined) {
+        host.showError(slashBusyMessage(name, busyReason));
+        return;
+      }
       await host.createNewSession();
       host.state.ui.requestRender();
       return;
+    }
     case 'sessions':
       void host.showSessionPicker();
       return;
@@ -298,45 +500,18 @@ async function handleBuiltInSlashCommand(
     case 'mcp':
       void showMcpServers(host);
       return;
-    case 'files':
-      await showContextFiles(host, args);
-      return;
-    case 'hooks':
-      await handleHooksCommand(host, args);
-      return;
-    case 'doctor':
-      await handleDoctorCommand(host, args);
-      return;
-    case 'update':
-      await handleUpdateCommand(host, args);
-      return;
-    case 'debug':
-      await handleDebugCommand(host, args);
-      return;
-    case 'heapdump': {
-      host.showStatus('Creating heap dump…');
-      const result = await performHeapDump(
-        host.state.appState.sessionId ?? 'pythinker-code',
-        host.state.appState.version,
-      );
-      if (!result.success) {
-        host.showError(`Failed to create heap dump: ${result.error}`);
-        return;
-      }
-      host.showNotice('Heap dump created', `${result.heapPath}\n${result.diagPath}`);
-      return;
-    }
     case 'plugins':
-      void handlePluginsCommand(host, args);
+      // `handlePluginsCommand` throws when no session is active (its own
+      // requireSession), so catch here instead of letting the `void` call
+      // reject unhandled.
+      try {
+        await handlePluginsCommand(host, args);
+      } catch (error) {
+        host.showError(formatErrorMessage(error));
+      }
       return;
-    case 'reload-plugins':
-      await handlePluginsCommand(host, 'reload');
-      return;
-    case 'skills':
-      await handleSkillsCommand(host, args);
-      return;
-    case 'agents':
-      await handleAgentsCommand(host, args);
+    case 'add-dir':
+      await handleAddDirCommand(host, args);
       return;
     case 'experiments':
       await showExperimentsPanel(host);
@@ -347,50 +522,20 @@ async function handleBuiltInSlashCommand(
     case 'reload-tui':
       await handleReloadTuiCommand(host);
       return;
-    case 'release-notes':
-      showReleaseNotes(host);
-      return;
-    case 'review':
-      host.sendNormalUserInput(reviewPrompt(args));
-      return;
-    case 'security-review':
-      host.sendNormalUserInput(securityReviewPrompt());
-      return;
-    case 'pr-comments':
-      host.sendNormalUserInput(pullRequestCommentsPrompt(args));
-      return;
-    case 'commit':
-      host.sendNormalUserInput(commitPrompt(args));
-      return;
-    case 'commit-push-pr':
-      host.sendNormalUserInput(commitPushPullRequestPrompt(args));
-      return;
     case 'editor':
       await handleEditorCommand(host, args);
-      return;
-    case 'keybindings':
-      await handleKeybindingsCommand(host, args);
-      return;
-    case 'terminal-setup':
-      showTerminalSetup(host);
       return;
     case 'theme':
       await handleThemeCommand(host, args);
       return;
-    case 'output-style':
-      await handleOutputStyleCommand(host, args);
-      return;
     case 'model':
       await handleModelCommand(host, args);
       return;
+    case 'secondary-model':
+      await handleSecondaryModelCommand(host, args);
+      return;
     case 'effort':
       await handleEffortCommand(host, args);
-      return;
-    case 'fast':
-      await handleFastCommand(host, args);
-      return;
-    case 'advisor':
-      await handleAdvisorCommand(host, args);
       return;
     case 'provider':
       await handleProviderCommand(host);
@@ -398,35 +543,14 @@ async function handleBuiltInSlashCommand(
     case 'permission':
       showPermissionPicker(host);
       return;
-    case 'permissions':
-      await handlePermissionsCommand(host, args);
-      return;
     case 'settings':
       showSettingsSelector(host);
-      return;
-    case 'privacy-settings':
-      await handlePrivacySettingsCommand(host, args);
       return;
     case 'usage':
       void showUsage(host);
       return;
-    case 'cost':
-      showCost(host);
-      return;
-    case 'context':
-      void showContextReport(host, args);
-      return;
-    case 'memory':
-      await handleMemoryCommand(host, args);
-      return;
-    case 'diff':
-      await handleDiffCommand(host, args);
-      return;
     case 'status':
       void showStatusReport(host);
-      return;
-    case 'tag':
-      await handleTagCommand(host, args);
       return;
     case 'feedback':
       await handleFeedbackCommand(host);
@@ -437,9 +561,6 @@ async function handleBuiltInSlashCommand(
     case 'title':
       await handleTitleCommand(host, args);
       return;
-    case 'vim':
-      await handleVimCommand(host);
-      return;
     case 'yolo':
       await handleYoloCommand(host, args);
       return;
@@ -449,26 +570,17 @@ async function handleBuiltInSlashCommand(
     case 'plan':
       await handlePlanCommand(host, args);
       return;
-    case 'workflow':
+    case 'dynamic_workflow':
       await handleDynamicWorkflowCommand(host, args);
       return;
     case 'compact':
       await handleCompactCommand(host, args);
-      return;
-    case 'copy':
-      await handleCopyCommand(host, args);
-      return;
-    case 'add-dir':
-      await handleAddDirCommand(host, args);
       return;
     case 'goal':
       await handleGoalCommand(host, args);
       return;
     case 'init':
       await handleInitCommand(host);
-      return;
-    case 'init-verifiers':
-      host.sendNormalUserInput(initVerifiersPrompt());
       return;
     case 'fork':
       await handleForkCommand(host, args);
@@ -478,6 +590,9 @@ async function handleBuiltInSlashCommand(
       return;
     case 'export-debug-zip':
       await handleExportDebugZipCommand(host);
+      return;
+    case 'copy':
+      await handleCopyCommand(host);
       return;
     case 'login':
       await handleLoginCommand(host);
@@ -495,36 +610,4 @@ async function handleBuiltInSlashCommand(
       host.showError(`Unknown slash command: /${String(name)}`);
       return;
   }
-}
-
-function reviewPrompt(args: string): string {
-  const selector = args.trim();
-  const target = selector.length === 0
-    ? 'a pull request. First run `gh pr list` and ask me which open pull request to review'
-    : `pull request ${selector}`;
-  return `Review ${target}. Use \`gh pr view\` for its metadata and \`gh pr diff\` for the complete diff. Report correctness defects, regressions, security risks, performance problems, convention violations, and missing tests with concrete file and line references. Keep the review concise and prioritize findings by severity.`;
-}
-
-function securityReviewPrompt(): string {
-  return `Perform a focused security review of the pending branch changes. Do not modify the project. Inspect repository security patterns plus \`git status\`, \`git diff --name-only origin/HEAD...\`, \`git log --no-decorate origin/HEAD...\`, and the complete \`git diff origin/HEAD...\`. Report only newly introduced, concretely exploitable high or medium vulnerabilities with at least 80% confidence; exclude denial of service, resource exhaustion, rate limiting, dependency age, documentation, test-only code, and hardening suggestions without an attack path. For each finding, give severity, confidence, category, file and line, exploit scenario, and recommended fix. If no finding survives this filter, say so.`;
-}
-
-function pullRequestCommentsPrompt(args: string): string {
-  const selector = args.trim();
-  const target = selector.length === 0 ? 'the current pull request' : `pull request ${selector}`;
-  return `Fetch and display comments for ${target}. Use \`gh pr view --json number,headRepository\` to resolve the repository and number, then query \`gh api /repos/{owner}/{repo}/issues/{number}/comments\` and \`gh api /repos/{owner}/{repo}/pulls/{number}/comments\`. Format PR-level and threaded review comments under \`## Comments\`, including author, file, line, diff hunk, and quoted body. Return only the formatted comments; if none exist, return exactly \`No comments found.\``;
-}
-
-function initVerifiersPrompt(): string {
-  return `Create the smallest useful set of project skills for functional verification. First inspect this project's runnable product surfaces and existing skill conventions. Write each skill to \`.pythinker-code/skills/<verifier-name>/SKILL.md\` with a \`verifier-\` prefixed name, clear applicability, setup, exact read-only probes, environment-variable authentication, pass/fail reporting, and cleanup. Cover real user behavior such as a web UI, CLI, or API; do not duplicate unit tests, typechecks, or linters. Do not install dependencies, modify application code, embed secrets, or run destructive commands. If functional verification needs unavailable tooling or credentials, document that requirement instead of provisioning it.`;
-}
-
-function commitPrompt(args: string): string {
-  const additional = args.trim();
-  return `Create one git commit for the current relevant worktree changes. Inspect git status, staged and unstaged diffs, untracked files, and recent commit style before staging anything. Stage only files that belong together, exclude secrets, run proportionate verification, and write a concise Conventional Commit message focused on why the change exists. Never amend, update git config, skip hooks, use interactive git commands, or add co-author attribution. If there is nothing to commit, say so without creating an empty commit.${additional.length === 0 ? '' : ` Additional instructions: ${additional}`}`;
-}
-
-function commitPushPullRequestPrompt(args: string): string {
-  const additional = args.trim();
-  return `Publish the current relevant work as a pull request. Inspect the current branch, default branch, complete branch diff, commits, and repository instructions. Create a focused branch when currently on the default branch, make the required commit without amending or adding co-author attribution, push the branch, then create or update the pull request. Use a Conventional Commit title under 70 characters and fully complete the repository pull request template with the problem, implementation, edge cases, and verified test results. Never force-push, update git config, skip hooks, include secrets, or use interactive git commands. Return the pull request URL when finished.${additional.length === 0 ? '' : ` Additional instructions: ${additional}`}`;
 }

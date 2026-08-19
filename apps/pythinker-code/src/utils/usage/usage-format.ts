@@ -5,6 +5,11 @@
  * command itself chalks the colour afterwards.
  */
 
+/**
+ * Format a token count in 1024-based units: context sizes are powers of
+ * two, so 262144 reads as "256k", not "262.1k". k values at or above
+ * 100 are rounded to whole numbers ("977k").
+ */
 export function formatTokenCount(n: number): string {
   if (!Number.isFinite(n) || n < 0) return '0';
   if (n >= 1024 * 1024) return `${trimDecimal(n / (1024 * 1024))}M`;
@@ -15,16 +20,23 @@ export function formatTokenCount(n: number): string {
   return String(n);
 }
 
-function trimDecimal(value: number): string {
-  const formatted = value.toFixed(1);
-  return formatted.endsWith('.0') ? formatted.slice(0, -2) : formatted;
+/** One decimal place, dropping a redundant ".0" ("1.0" → "1", "1.5" stays). */
+function trimDecimal(v: number): string {
+  const s = v.toFixed(1);
+  return s.endsWith('.0') ? s.slice(0, -2) : s;
 }
 
+/**
+ * Usage as a whole-number percentage of `max`, ceiled so any non-zero
+ * usage shows at least 1%, clamped to [0, 100]. A non-positive or
+ * non-finite `max` reports 0.
+ */
 export function usagePercent(used: number, max: number): number {
   if (!Number.isFinite(max) || max <= 0) return 0;
   return Math.min(100, Math.max(0, Math.ceil((used / max) * 100)));
 }
 
+/** `usagePercent` for callers that only know the ratio (NaN-safe). */
 export function usagePercentFromRatio(ratio: number): number {
   return Math.min(100, Math.max(0, Math.ceil(safeUsageRatio(ratio) * 100)));
 }

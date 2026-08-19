@@ -6,17 +6,10 @@ import {
   truncateToWidth,
   visibleWidth,
   type Focusable,
-} from '@earendil-works/pi-tui';
+} from '@pymodel/pi-tui';
 import chalk from 'chalk';
 
 import { SELECT_POINTER } from '#/tui/constant/symbols';
-import { combinedBindingHint, formatBindingKeys } from '#/tui/components/dialogs/choice-picker';
-import {
-  defaultKeybindings,
-  keybindingDisplayText,
-  KeybindingResolver,
-  type ParsedKeybinding,
-} from '#/tui/keybindings';
 import type {
   GoalQueueMoveDirection,
   GoalQueueSnapshot,
@@ -73,8 +66,6 @@ export class GoalQueueManagerComponent extends Container implements Focusable {
   private list: SearchableList<UpcomingGoal>;
   private movingGoalId: string | undefined;
   private busy = false;
-  private bindings = defaultKeybindings();
-  private keybindings = new KeybindingResolver(this.bindings);
 
   constructor(opts: GoalQueueManagerOptions) {
     super();
@@ -83,32 +74,9 @@ export class GoalQueueManagerComponent extends Container implements Focusable {
     this.list = this.createList(opts.selectedGoalId);
   }
 
-  setKeybindings(bindings: readonly ParsedKeybinding[]): void {
-    this.bindings = bindings;
-    this.keybindings = new KeybindingResolver(bindings);
-  }
-
   handleInput(data: string): void {
     if (this.busy) return;
-    if (this.movingGoalId === undefined) {
-      const handlers = {
-        'select:previous': () => this.list.moveUp(),
-        'select:next': () => this.list.moveDown(),
-        'select:cancel': () => this.opts.onCancel(),
-      } as const;
-      if (
-        this.keybindings.dispatch(data, ['Select'], handlers) ||
-        this.keybindings.dispatchKeyId(data, ['Select'], handlers)
-      ) return;
-      if (matchesKey(data, Key.pageUp)) {
-        this.list.pageUp();
-        return;
-      }
-      if (matchesKey(data, Key.pageDown)) {
-        this.list.pageDown();
-        return;
-      }
-    } else if (matchesKey(data, Key.escape)) {
+    if (matchesKey(data, Key.escape)) {
       this.opts.onCancel();
       return;
     }
@@ -139,33 +107,15 @@ export class GoalQueueManagerComponent extends Container implements Focusable {
         void this.applyQueueAction({ kind: 'move', goalId: this.movingGoalId, direction: 'down' });
         return;
       }
-      if (matchesKey(data, Key.pageUp)) {
-        this.list.pageUp();
-        return;
-      }
-      if (matchesKey(data, Key.pageDown)) {
-        this.list.pageDown();
-        return;
-      }
     }
 
-    this.list.handleSearchKey(data);
+    if (this.list.handleKey(data)) return;
   }
 
   override render(width: number): string[] {
     const view = this.list.view();
     const hint = this.movingGoalId === undefined
-      ? [
-          combinedBindingHint(
-            keybindingDisplayText(this.bindings, 'Select', 'select:previous'),
-            keybindingDisplayText(this.bindings, 'Select', 'select:next'),
-            'navigate',
-          ),
-          'Space select',
-          'E edit',
-          'D delete',
-          this.selectHint('select:cancel', 'cancel'),
-        ].filter((part): part is string => part !== undefined).join(' · ')
+      ? '↑↓ navigate · Space select · E edit · D delete · Esc cancel'
       : '↑↓ reorder · Space done · E edit · D delete · Esc cancel';
     const lines: string[] = [
       currentTheme.fg('primary', '─'.repeat(width)),
@@ -185,11 +135,13 @@ export class GoalQueueManagerComponent extends Container implements Focusable {
 
       const below = view.items.length - view.page.end;
       if (below > 0) {
-        lines.push('', currentTheme.fg('textMuted', ` ▼ ${String(below)} more`));
+        lines.push('');
+        lines.push(currentTheme.fg('textMuted', ` ▼ ${String(below)} more`));
       }
     }
 
-    lines.push('', currentTheme.fg('primary', '─'.repeat(width)));
+    lines.push('');
+    lines.push(currentTheme.fg('primary', '─'.repeat(width)));
     return lines.map((line) => truncateToWidth(line, width, ELLIPSIS));
   }
 
@@ -217,11 +169,6 @@ export class GoalQueueManagerComponent extends Container implements Focusable {
 
   private selectedGoal(): UpcomingGoal | undefined {
     return this.list.selected();
-  }
-
-  private selectHint(action: 'select:cancel', description: string): string | undefined {
-    const binding = keybindingDisplayText(this.bindings, 'Select', action);
-    return binding === undefined ? undefined : `${formatBindingKeys(binding)} ${description}`;
   }
 
   private async applyQueueAction(action: Exclude<GoalQueueManagerAction, { kind: 'edit' }>) {
@@ -334,7 +281,9 @@ export class GoalQueueEditDialogComponent extends Container implements Focusable
       lines.push(border('│') + pad + content + ' '.repeat(rightPad) + border('│'));
     }
 
-    lines.push(border('│') + ' '.repeat(safeWidth - 2) + border('│'), border('╰' + '─'.repeat(safeWidth - 2) + '╯'), '');
+    lines.push(border('│') + ' '.repeat(safeWidth - 2) + border('│'));
+    lines.push(border('╰' + '─'.repeat(safeWidth - 2) + '╯'));
+    lines.push('');
 
     return lines.map((line) => truncateToWidth(line, safeWidth, ELLIPSIS));
   }
@@ -346,7 +295,7 @@ export class GoalQueueEditDialogComponent extends Container implements Focusable
       return;
     }
     if (objective.length > MAX_GOAL_OBJECTIVE_LENGTH) {
-      this.error = `Goal objective cannot exceed ${MAX_GOAL_OBJECTIVE_LENGTH} characters.`;
+      this.error = `Goal objective cannot exceed ${MAX_GOAL_OBJECTIVE_LENGTH} characters; put long content in a file and reference the file path.`;
       return;
     }
     this.opts.onDone({ kind: 'save', goalId: this.opts.goal.id, objective });

@@ -23,8 +23,9 @@ import {
   type Session,
 } from '@pymodel/pythinker-code-sdk';
 
+import { turnEndReasonToStopReason } from '../src/events-map';
 import { AcpServer } from '../src/server';
-import { AUTHED } from './_helpers/harness-stubs';
+import { AUTHED_STATUS } from './_helpers/harness-stubs';
 
 class StubClient implements Client {
   async requestPermission(_p: RequestPermissionRequest): Promise<RequestPermissionResponse> {
@@ -96,7 +97,7 @@ const textBlock = (text: string): ContentBlock => ({ type: 'text', text });
 
 function makeHarnessWithSession(session: Session): PythinkerHarness {
   return {
-    isAuthenticated: AUTHED,
+    auth: { status: async () => AUTHED_STATUS },
     createSession: async () => session,
   } as unknown as PythinkerHarness;
 }
@@ -227,8 +228,8 @@ describe('AcpServer error mapping', () => {
     let captured: unknown;
     try {
       await client.prompt({ sessionId, prompt: [textBlock('hi')] });
-    } catch (error) {
-      captured = error;
+    } catch (err) {
+      captured = err;
     }
     expect(captured).toMatchObject({ code: -32603 });
     // Privacy guarantee: the JSON-RPC error response carries only the
@@ -257,5 +258,43 @@ describe('AcpServer error mapping', () => {
     await client.newSession({ cwd: '/tmp/x', mcpServers: [] });
     const response = await client.prompt({ sessionId, prompt: [textBlock('hi')] });
     expect(response.stopReason).toBe('cancelled');
+  });
+
+  it('maps blocked turn-end reasons to ACP stopReason refusal', () => {
+    // ACP has a native `refusal` stop reason that matches a provider safety
+    // block or prompt-hook block; mapping either to anything else (e.g.
+    // end_turn) would let the client mistake the block for a clean turn.
+    expect(turnEndReasonToStopReason('failed', { code: 'provider.filtered' })).toBe('refusal');
+    expect(turnEndReasonToStopReason('blocked')).toBe('refusal');
+  });
+
+  it('resolves with refusal when turn.ended fails with provider.filtered', async () => {
+    const sessionId = 'sess-filtered';
+    const { session, unsubscribeCount } = makeScriptedSession(sessionId, {
+      script: [
+        {
+          type: 'turn.ended',
+          sessionId,
+          agentId: 'main',
+          turnId: 1,
+          reason: 'failed',
+          error: {
+            code: 'provider.filtered',
+            message: 'Provider safety policy blocked the response.',
+            name: 'ProviderFilteredError',
+            retryable: false,
+          },
+        } as Event,
+      ],
+    });
+
+    const { agentStream, clientStream } = makeInMemoryStreamPair();
+    new AgentSideConnection((c) => new AcpServer(makeHarnessWithSession(session), c), agentStream);
+    const client = new ClientSideConnection(() => new StubClient(), clientStream);
+
+    await client.newSession({ cwd: '/tmp/x', mcpServers: [] });
+    const response = await client.prompt({ sessionId, prompt: [textBlock('hi')] });
+    expect(response.stopReason).toBe('refusal');
+    expect(unsubscribeCount()).toBe(1);
   });
 });

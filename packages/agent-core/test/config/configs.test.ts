@@ -1,3 +1,11 @@
+/**
+ * Scenario: public config parsing, validation, TOML round-trips, and runtime overrides.
+ *
+ * Exercises the real config API with temporary files as the persistence
+ * boundary. Run with `pnpm --filter @pymodel/agent-core exec vitest run
+ * test/config/configs.test.ts`.
+ */
+
 import { mkdtempSync } from 'node:fs';
 import { readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -7,12 +15,15 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { ErrorCodes, PythinkerError } from '../../src/errors';
 import {
-  type PythinkerConfig,
   PythinkerConfigSchema,
+  McpServerConfigSchema,
+  applyPrintModeConfigDefaults,
+  configToTomlData,
   ensureConfigFile,
   loadRuntimeConfig,
   loadRuntimeConfigSafe,
   mergeConfigPatch,
+  migrateThinkingEffortMaxToHigh,
   parseConfigString,
   parseBooleanEnv,
   readConfigFile,
@@ -39,45 +50,43 @@ function makeTempDir(): string {
 }
 
 function expectPythinkerErrorCode(fn: () => unknown, code: string): void {
-  let thrown: unknown;
   try {
     fn();
   } catch (error) {
-    thrown = error;
+    expect(error).toBeInstanceOf(PythinkerError);
+    expect((error as PythinkerError).code).toBe(code);
+    return;
   }
-  expect(thrown).toBeInstanceOf(PythinkerError);
-  expect((thrown as PythinkerError).code).toBe(code);
+  throw new Error('expected function to throw');
 }
 
 const COMPLETE_TOML = `
-default_model = "pythinker-code/pythinker-for-coding"
-default_thinking = true
+default_model = "pythinker-code/kimi-for-coding"
 default_permission_mode = "auto"
 default_plan_mode = false
 merge_all_available_skills = true
 extra_skill_dirs = ["~/team-skills", ".agents/team-skills"]
-additional_dirs = ["~/shared-project", "/tmp/reference"]
 telemetry = false
 theme = "dark"
 
-[providers."managed:kimi-code"]
+[providers."managed:pythinker-code"]
 type = "pythinker"
-base_url = "https://api.pythinker.com/coding/v1"
+base_url = "https://api.kimi.com/coding/v1"
 api_key = "sk-file"
 custom_headers = { "X-Test" = "1" }
 
-[providers."managed:kimi-code".env]
+[providers."managed:pythinker-code".env]
 GOOGLE_CLOUD_PROJECT = "project-1"
 
-[models."pythinker-code/pythinker-for-coding"]
-provider = "managed:kimi-code"
-model = "pythinker-for-coding"
+[models."pythinker-code/kimi-for-coding"]
+provider = "managed:pythinker-code"
+model = "kimi-for-coding"
 max_context_size = 262144
 capabilities = ["image_in", "thinking", "video_in"]
 display_name = "Pythinker for Coding"
 
 [thinking]
-mode = "auto"
+enabled = true
 effort = "medium"
 
 [permission]
@@ -103,8 +112,20 @@ compaction_trigger_ratio = 0.85
 [background]
 max_running_tasks = 4
 keep_alive_on_exit = false
+bash_auto_background_on_timeout = false
 kill_grace_period_ms = 2000
 print_wait_ceiling_s = 3600
+
+[subagent]
+timeout_ms = 600000
+
+[mcp]
+startup_timeout_ms = 45000
+tool_timeout_ms = 120000
+
+[image]
+max_edge_px = 1500
+read_byte_budget = 131072
 
 [[hooks]]
 event = "PreToolUse"
@@ -116,13 +137,13 @@ timeout = 5
 event = "Stop"
 command = "echo stop"
 
-[services.pythoughts_search]
-base_url = "https://api.pythinker.com/coding/v1/search"
+[services.pymodel_search]
+base_url = "https://api.kimi.com/coding/v1/search"
 api_key = "sk-search"
 custom_headers = { "X-Search" = "1" }
 
-[services.pythoughts_fetch]
-base_url = "https://api.pythinker.com/coding/v1/fetch"
+[services.pymodel_fetch]
+base_url = "https://api.kimi.com/coding/v1/fetch"
 api_key = "sk-fetch"
 
 [notifications]
@@ -133,29 +154,28 @@ describe('harness config TOML loader', () => {
   it('parses the current config.toml shape through explicit field mappings', () => {
     const config = parseConfigString(COMPLETE_TOML, 'config.toml');
 
-    expect(config.defaultModel).toBe('pythinker-code/pythinker-for-coding');
-    expect(config.defaultThinking).toBe(true);
+    expect(config.defaultModel).toBe('pythinker-code/kimi-for-coding');
+    expect(config.thinking?.enabled).toBe(true);
     expect(config.defaultPermissionMode).toBe('auto');
     expect(config.defaultPlanMode).toBe(false);
     expect(config.mergeAllAvailableSkills).toBe(true);
     expect(config.extraSkillDirs).toEqual(['~/team-skills', '.agents/team-skills']);
-    expect(config.additionalDirs).toEqual(['~/shared-project', '/tmp/reference']);
     expect(config.telemetry).toBe(false);
-    expect(config.providers['managed:kimi-code']).toMatchObject({
+    expect(config.providers['managed:pythinker-code']).toMatchObject({
       type: 'pythinker',
-      baseUrl: 'https://api.pythinker.com/coding/v1',
+      baseUrl: 'https://api.kimi.com/coding/v1',
       apiKey: 'sk-file',
       env: { GOOGLE_CLOUD_PROJECT: 'project-1' },
       customHeaders: { 'X-Test': '1' },
     });
-    expect(config.models?.['pythinker-code/pythinker-for-coding']).toMatchObject({
-      provider: 'managed:kimi-code',
-      model: 'pythinker-for-coding',
+    expect(config.models?.['pythinker-code/kimi-for-coding']).toMatchObject({
+      provider: 'managed:pythinker-code',
+      model: 'kimi-for-coding',
       maxContextSize: 262144,
       capabilities: ['image_in', 'thinking', 'video_in'],
       displayName: 'Pythinker for Coding',
     });
-    expect(config.thinking).toEqual({ mode: 'auto', effort: 'medium' });
+    expect(config.thinking).toEqual({ enabled: true, effort: 'medium' });
     expect(config.permission).toEqual({
       rules: [
         {
@@ -181,9 +201,13 @@ describe('harness config TOML loader', () => {
     expect(config.background).toMatchObject({
       maxRunningTasks: 4,
       keepAliveOnExit: false,
+      bashAutoBackgroundOnTimeout: false,
       killGracePeriodMs: 2000,
       printWaitCeilingS: 3600,
     });
+    expect(config.subagent).toMatchObject({ timeoutMs: 600000 });
+    expect(config.mcp).toEqual({ startupTimeoutMs: 45000, toolTimeoutMs: 120000 });
+    expect(config.image).toEqual({ maxEdgePx: 1500, readByteBudget: 131072 });
     expect(config.hooks).toEqual([
       {
         event: 'PreToolUse',
@@ -196,12 +220,29 @@ describe('harness config TOML loader', () => {
         command: 'echo stop',
       },
     ]);
-    expect(config.services?.pythoughtsSearch?.customHeaders).toEqual({ 'X-Search': '1' });
-    expect(config.services?.pythoughtsFetch?.apiKey).toBe('sk-fetch');
+    expect(config.services?.pymodelSearch?.customHeaders).toEqual({ 'X-Search': '1' });
+    expect(config.services?.pymodelFetch?.apiKey).toBe('sk-fetch');
 
     expect('theme' in config).toBe(false);
     expect(config.raw?.['theme']).toBe('dark');
     expect(config.raw?.['notifications']).toEqual({ claim_stale_after_ms: 15000 });
+  });
+
+  it('round-trips the [image] section', async () => {
+    const dir = makeTempDir();
+    const configPath = join(dir, 'image-round-trip.toml');
+    const toml = `
+[image]
+max_edge_px = 2500
+read_byte_budget = 524288
+`;
+    const config = parseConfigString(toml, configPath);
+    expect(config.image).toEqual({ maxEdgePx: 2500, readByteBudget: 524288 });
+
+    await writeConfigFile(configPath, config);
+    const text = await readFile(configPath, 'utf-8');
+    const roundTripped = parseConfigString(text, configPath);
+    expect(roundTripped.image).toEqual({ maxEdgePx: 2500, readByteBudget: 524288 });
   });
 
   it('round-trips a custom registry source field on a provider', async () => {
@@ -232,78 +273,36 @@ source = { kind = "apiJson", url = "https://registry.example/api.json", apiKey =
     });
   });
 
-  it('round-trips model roles from a fresh config', async () => {
-    const configPath = join(makeTempDir(), 'model-roles.toml');
+  it('round-trips OAuth refs with scoped OAuth hosts', async () => {
+    const dir = makeTempDir();
+    const configPath = join(dir, 'oauth-ref.toml');
+    const toml = `
+[providers."managed:pythinker-code"]
+type = "pythinker"
+base_url = "https://api.dev.example.test/coding/v1"
+api_key = ""
+oauth = { storage = "file", key = "oauth/pythinker-code-env-1234", oauth_host = "https://auth.dev.example.test" }
 
-    await writeConfigFile(configPath, { providers: {}, modelRoles: { small: 'haiku' } });
-
-    const text = await readFile(configPath, 'utf-8');
-    expect(text).toContain('[model_roles]');
-    expect(text).toContain('small = "haiku"');
-    expect(readConfigFile(configPath).modelRoles).toEqual({ small: 'haiku' });
-  });
-
-  it('round-trips reassigned model roles instead of stale raw values', async () => {
-    const configPath = join(makeTempDir(), 'model-roles-reassigned.toml');
-    const config = parseConfigString('[model_roles]\nsmall = "old"\n', configPath);
-
-    await writeConfigFile(configPath, { ...config, modelRoles: { small: 'new' } });
-
-    expect(readConfigFile(configPath).modelRoles).toEqual({ small: 'new' });
-  });
-
-  it('round-trips cleared model roles instead of stale raw values', async () => {
-    const configPath = join(makeTempDir(), 'model-roles-cleared.toml');
-    const config = parseConfigString('[model_roles]\nsmall = "old"\n', configPath);
-
-    await writeConfigFile(configPath, { ...config, modelRoles: { small: '' } });
-
-    expect(readConfigFile(configPath).modelRoles).toEqual({ small: '' });
-  });
-
-  it('removes model roles when the role map is cleared', async () => {
-    const configPath = join(makeTempDir(), 'model-roles-removed.toml');
-    await writeFile(configPath, '[model_roles]\nsmall = "old"\n');
-    const config = readConfigFile(configPath);
-
-    await writeConfigFile(configPath, { ...config, modelRoles: undefined });
-
-    const text = await readFile(configPath, 'utf-8');
-    expect(text).not.toContain('[model_roles]');
-    expect(readConfigFile(configPath).modelRoles).toBeUndefined();
-  });
-
-  it('writes typed advisor config over stale raw data', async () => {
-    const configPath = join(makeTempDir(), 'advisor.toml');
-    const config: PythinkerConfig = {
-      providers: {},
-      advisor: { enabled: true, model: 'reviewer' },
-      raw: { advisor: { enabled: false, model: 'stale-reviewer' } },
-    };
-
-    await writeConfigFile(configPath, config);
-    expect(await readFile(configPath, 'utf-8')).toContain('[advisor]');
-    expect(readConfigFile(configPath).advisor).toEqual(config.advisor);
-  });
-
-  it('round-trips an API key environment reference without an API key', async () => {
-    const configPath = join(makeTempDir(), 'api-key-env-var.toml');
-    const config = parseConfigString(
-      `
-[providers.deepseek]
-type = "openai"
-api_key_env_var = "DEEPSEEK_API_KEY"
-`,
-      configPath,
-    );
-
-    await writeConfigFile(configPath, config);
-    const text = await readFile(configPath, 'utf-8');
-    expect(text).toContain('api_key_env_var = "DEEPSEEK_API_KEY"');
-    expect(text).not.toContain('api_key =');
-    expect(parseConfigString(text, configPath).providers['deepseek']).toMatchObject({
-      apiKeyEnvVar: 'DEEPSEEK_API_KEY',
+[services.pymodel_search]
+base_url = "https://api.dev.example.test/coding/v1/search"
+api_key = ""
+oauth = { storage = "file", key = "oauth/pythinker-code-env-1234", oauth_host = "https://auth.dev.example.test" }
+`;
+    const config = parseConfigString(toml, configPath);
+    expect(config.providers['managed:pythinker-code']?.oauth).toEqual({
+      storage: 'file',
+      key: 'oauth/pythinker-code-env-1234',
+      oauthHost: 'https://auth.dev.example.test',
     });
+    expect(config.services?.pymodelSearch?.oauth?.oauthHost).toBe('https://auth.dev.example.test');
+
+    await writeConfigFile(configPath, config);
+    const text = await readFile(configPath, 'utf-8');
+    expect(text).toContain('oauth_host = "https://auth.dev.example.test"');
+    const roundTripped = parseConfigString(text, configPath);
+    expect(roundTripped.providers['managed:pythinker-code']?.oauth?.oauthHost).toBe(
+      'https://auth.dev.example.test',
+    );
   });
 
   it('parses and round-trips experimental feature flags', async () => {
@@ -325,38 +324,6 @@ micro_compaction = false
     expect(text).toContain('[experimental]');
     expect(text).toContain('micro_compaction = false');
     expect(parseConfigString(text, configPath).experimental).toEqual(config.experimental);
-  });
-
-  it('round-trips disableWorkflows as disable_workflows', async () => {
-    const dir = makeTempDir();
-    const configPath = join(dir, 'disable-workflows.toml');
-
-    expect(parseConfigString('disable_workflows = true\n', configPath).disableWorkflows).toBe(true);
-
-    // Written from an in-memory config with no `raw`, so the key only reaches the
-    // file through the scalar-field writer rather than being copied from `raw`.
-    await writeConfigFile(configPath, { providers: {}, disableWorkflows: true });
-    const text = await readFile(configPath, 'utf-8');
-
-    expect(text).toContain('disable_workflows = true');
-    expect(parseConfigString(text, configPath).disableWorkflows).toBe(true);
-  });
-
-  it('round-trips workflowSizeGuideline as workflow_size_guideline', async () => {
-    const dir = makeTempDir();
-    const configPath = join(dir, 'workflow-size-guideline.toml');
-
-    expect(
-      parseConfigString('workflow_size_guideline = "small"\n', configPath).workflowSizeGuideline,
-    ).toBe('small');
-
-    // Written from an in-memory config with no `raw`, so the key only reaches the
-    // file through the scalar-field writer rather than being copied from `raw`.
-    await writeConfigFile(configPath, { providers: {}, workflowSizeGuideline: 'small' });
-    const text = await readFile(configPath, 'utf-8');
-
-    expect(text).toContain('workflow_size_guideline = "small"');
-    expect(parseConfigString(text, configPath).workflowSizeGuideline).toBe('small');
   });
 
   it('accepts obsolete experimental feature keys as inert config', async () => {
@@ -393,7 +360,7 @@ removed_flag = true
     expect(loopControl).toBeDefined();
     await writeConfigFile(configPath, {
       ...config,
-      defaultModel: 'pythinker-code/pythinker-for-coding',
+      defaultModel: 'pythinker-code/kimi-for-coding',
       loopControl: {
         ...loopControl!,
         maxStepsPerTurn: 7,
@@ -401,10 +368,9 @@ removed_flag = true
     });
 
     const text = await readFile(configPath, 'utf-8');
-    expect(text).toContain('default_model = "pythinker-code/pythinker-for-coding"');
+    expect(text).toContain('default_model = "pythinker-code/kimi-for-coding"');
     expect(text).toContain('default_permission_mode = "auto"');
     expect(text).toContain('extra_skill_dirs = [ "~/team-skills", ".agents/team-skills" ]');
-    expect(text).toContain('additional_dirs = [ "~/shared-project", "/tmp/reference" ]');
     expect(text).toContain('telemetry = false');
     expect(text).not.toContain('default_yolo');
     expect(text).toContain('[[permission.rules]]');
@@ -439,7 +405,7 @@ removed_flag = true
     const config = readConfigFile(configPath);
     expect(config.providers).toEqual({});
     expect(config.defaultModel).toBeUndefined();
-    expect(config.defaultThinking).toBeUndefined();
+    expect(config.thinking?.enabled).toBeUndefined();
   });
 
   it('does not overwrite an existing config file', async () => {
@@ -468,7 +434,6 @@ removed_flag = true
   });
 
   it('rejects invalid TOML and invalid schema with PythinkerError(config.invalid)', () => {
-    expect.hasAssertions();
     expectPythinkerErrorCode(
       () => parseConfigString('[[[', 'broken.toml'),
       ErrorCodes.CONFIG_INVALID,
@@ -520,63 +485,7 @@ timeout = 5
     ]);
   });
 
-  it('accepts project task lifecycle hook events', () => {
-    const config = parseConfigString(
-      `
-[[hooks]]
-event = "TaskCreated"
-command = "echo created"
-
-[[hooks]]
-event = "TaskCompleted"
-command = "echo completed"
-
-[[hooks]]
-event = "InstructionsLoaded"
-matcher = "session_start"
-command = "echo loaded"
-
-[[hooks]]
-event = "CwdChanged"
-command = "echo cwd"
-
-[[hooks]]
-event = "PermissionDenied"
-matcher = "Bash"
-command = "echo denied"
-
-[[hooks]]
-event = "FileChanged"
-matcher = ".env|.env.local"
-command = "echo changed"
-
-[[hooks]]
-event = "Setup"
-matcher = "init"
-command = "echo setup"
-
-[[hooks]]
-event = "ConfigChange"
-matcher = "user_settings"
-command = "echo config"
-`,
-      'hooks.toml',
-    );
-
-    expect(config.hooks?.map((hook) => hook.event)).toEqual([
-      'TaskCreated',
-      'TaskCompleted',
-      'InstructionsLoaded',
-      'CwdChanged',
-      'PermissionDenied',
-      'FileChanged',
-      'Setup',
-      'ConfigChange',
-    ]);
-  });
-
   it('rejects invalid hooks config', () => {
-    expect.hasAssertions();
     expectPythinkerErrorCode(
       () =>
         parseConfigString(
@@ -593,9 +502,6 @@ hooks = [{ type = "pre-tool-call", command = "echo hi" }]
 describe('harness config schema and patch merge', () => {
   it('accepts the empty public config and requires model context size in full configs', () => {
     expect(PythinkerConfigSchema.parse({})).toEqual({ providers: {} });
-    expect(PythinkerConfigSchema.parse({ outputStyle: 'Explanatory' }).outputStyle).toBe(
-      'Explanatory',
-    );
     expect(() =>
       validateConfig({
         providers: {
@@ -608,18 +514,55 @@ describe('harness config schema and patch merge', () => {
     ).toThrow(/max_context_size/);
   });
 
+  it('accepts the Node.js timer upper boundary for MCP timeouts', () => {
+    expect(
+      PythinkerConfigSchema.safeParse({
+        mcp: {
+          startupTimeoutMs: 2_147_483_647,
+          toolTimeoutMs: 2_147_483_647,
+        },
+      }).success,
+    ).toBe(true);
+    expect(
+      McpServerConfigSchema.safeParse({
+        transport: 'stdio',
+        command: 'node',
+        startupTimeoutMs: 2_147_483_647,
+        toolTimeoutMs: 2_147_483_647,
+      }).success,
+    ).toBe(true);
+  });
+
+  it('rejects MCP timeouts above the Node.js timer limit across config surfaces', () => {
+    expect(
+      PythinkerConfigSchema.safeParse({
+        mcp: {
+          startupTimeoutMs: 2_147_483_648,
+          toolTimeoutMs: 2_147_483_648,
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      McpServerConfigSchema.safeParse({
+        transport: 'stdio',
+        command: 'node',
+        startupTimeoutMs: 2_147_483_648,
+        toolTimeoutMs: 2_147_483_648,
+      }).success,
+    ).toBe(false);
+  });
 
   it('deep-merges validated patches while preserving existing typed and raw data', () => {
     const base = parseConfigString(COMPLETE_TOML);
     const merged = mergeConfigPatch(base, {
       providers: {
-        'managed:kimi-code': {
+        'managed:pythinker-code': {
           apiKey: 'sk-patched',
           baseUrl: undefined,
         },
       },
       models: {
-        'pythinker-code/pythinker-for-coding': {
+        'pythinker-code/kimi-for-coding': {
           capabilities: ['tool_use'],
         },
       },
@@ -628,46 +571,21 @@ describe('harness config schema and patch merge', () => {
       },
     });
 
-    expect(merged.providers['managed:kimi-code']).toMatchObject({
+    expect(merged.providers['managed:pythinker-code']).toMatchObject({
       type: 'pythinker',
-      baseUrl: 'https://api.pythinker.com/coding/v1',
+      baseUrl: 'https://api.kimi.com/coding/v1',
       apiKey: 'sk-patched',
       env: { GOOGLE_CLOUD_PROJECT: 'project-1' },
     });
-    expect(merged.models?.['pythinker-code/pythinker-for-coding']).toMatchObject({
-      provider: 'managed:kimi-code',
-      model: 'pythinker-for-coding',
+    expect(merged.models?.['pythinker-code/kimi-for-coding']).toMatchObject({
+      provider: 'managed:pythinker-code',
+      model: 'kimi-for-coding',
       maxContextSize: 262144,
       capabilities: ['tool_use'],
     });
-    expect(merged.thinking).toEqual({ mode: 'auto', effort: 'high' });
+    expect(merged.thinking).toEqual({ enabled: true, effort: 'high' });
     expect(merged.hooks).toEqual(base.hooks);
     expect(merged.raw?.['theme']).toBe('dark');
-  });
-
-  it('deep-merges model role patches', () => {
-    const merged = mergeConfigPatch(
-      { providers: {}, modelRoles: { small: 'x', advisor: 'z' } },
-      { modelRoles: { small: 'y' } },
-    );
-
-    expect(merged.modelRoles).toEqual({ small: 'y', advisor: 'z' });
-  });
-
-  it('deep-merges advisor patches', () => {
-    const merged = mergeConfigPatch(
-      {
-        providers: {},
-        advisor: { enabled: true, model: 'reviewer', instructions: 'Check risks.' },
-      },
-      { advisor: { instructions: 'Check correctness.' } },
-    );
-
-    expect(merged.advisor).toEqual({
-      enabled: true,
-      model: 'reviewer',
-      instructions: 'Check correctness.',
-    });
   });
 
   it('deep-merges experimental config patches', () => {
@@ -688,7 +606,6 @@ micro_compaction = false
   });
 
   it('rejects unknown fields in config patches', () => {
-    expect.hasAssertions();
     expectPythinkerErrorCode(
       () => mergeConfigPatch({ providers: {} }, { theme: 'dark' } as never),
       ErrorCodes.CONFIG_INVALID,
@@ -751,22 +668,7 @@ micro_compaction = false
           },
         },
       }),
-    ).toThrowErrorMatchingInlineSnapshot(`
-      [ZodError: [
-        {
-          "origin": "number",
-          "code": "too_small",
-          "minimum": 1,
-          "inclusive": true,
-          "path": [
-            "models",
-            "opus",
-            "maxOutputSize"
-          ],
-          "message": "Too small: expected number to be >=1"
-        }
-      ]]
-    `);
+    ).toThrow();
   });
 });
 
@@ -855,7 +757,7 @@ api_key = "sk-good"
 
 [models.k2]
 provider = "pythinker"
-model = "pythinker-for-coding"
+model = "kimi-for-coding"
 max_context_size = 128000
 `;
 
@@ -966,18 +868,6 @@ max_context_size = -5
     expect(result.fileWarnings[0]).toContain('models.broken');
   });
 
-  it('drops only the broken model role entry', async () => {
-    const configPath = await writeTempConfig(`${VALID_TOML}
-[model_roles]
-small = 123
-implementer = "k2"
-`);
-    const result = loadRuntimeConfigSafe(configPath, {});
-    expect(result.config.modelRoles?.['small']).toBeUndefined();
-    expect(result.config.modelRoles?.['implementer']).toBe('k2');
-    expect(result.fileWarnings[0]).toContain('model_roles.small');
-  });
-
   it('drops the whole hooks list when one hook is invalid', async () => {
     const configPath = await writeTempConfig(`${VALID_TOML}
 [[hooks]]
@@ -1015,7 +905,6 @@ max_steps_per_turn = "nope"
       PYTHINKER_MODEL_NAME: 'env-model',
       PYTHINKER_MODEL_API_KEY: 'sk-env',
       PYTHINKER_MODEL_MAX_CONTEXT_SIZE: '262144',
-      PYTHINKER_MODEL_BASE_URL: 'https://llm.example.com/v1',
     });
     expect(result.envWarnings).toEqual([]);
     expect(result.config.models?.['__pythinker_env_model__']).toBeDefined();
@@ -1039,28 +928,148 @@ max_steps_per_turn = "nope"
 [loop_control]
 max_steps_per_turn = "nope"
 `);
-    let thrown: unknown;
     try {
       readConfigFileForUpdate(configPath);
+      throw new Error('expected readConfigFileForUpdate to throw');
     } catch (error) {
-      thrown = error;
+      expect(error).toBeInstanceOf(PythinkerError);
+      expect((error as PythinkerError).message).toContain('fix it first');
+      expect((error as PythinkerError).message).toContain('pythinker doctor');
+      expect((error as PythinkerError).message).not.toContain('invalid_type');
     }
-    expect(thrown).toBeInstanceOf(PythinkerError);
-    expect((thrown as PythinkerError).message).toContain('fix it first');
-    expect((thrown as PythinkerError).message).toContain('pythinker doctor');
-    expect((thrown as PythinkerError).message).not.toContain('invalid_type');
 
     const goodPath = await writeTempConfig(VALID_TOML);
     expect(readConfigFileForUpdate(goodPath)).toEqual(readConfigFile(goodPath));
   });
 
   it('drops invalid top-level scalars and keeps the rest', async () => {
-    const configPath = await writeTempConfig(`default_thinking = "not-a-boolean"
+    const configPath = await writeTempConfig(`default_permission_mode = "not-a-mode"
 ${VALID_TOML}`);
     const result = loadRuntimeConfigSafe(configPath, {});
-    expect(result.config.defaultThinking).toBeUndefined();
+    expect(result.config.defaultPermissionMode).toBeUndefined();
     expect(result.config.providers['pythinker']).toBeDefined();
     expect(result.fileWarnings).toHaveLength(1);
-    expect(result.fileWarnings[0]).toContain('default_thinking');
+    expect(result.fileWarnings[0]).toContain('default_permission_mode');
+  });
+});
+
+describe('model overrides TOML', () => {
+  it('parses nested model overrides from snake_case TOML', () => {
+    const config = parseConfigString(`
+[models."pythinker-code/kimi-k2"]
+provider = "managed:pythinker-code"
+model = "kimi-k2"
+max_context_size = 262144
+support_efforts = ["low", "high", "max"]
+
+[models."pythinker-code/kimi-k2".overrides]
+support_efforts = ["low", "high"]
+default_effort = "high"
+`);
+
+    expect(config.models?.['pythinker-code/kimi-k2']?.overrides).toEqual({
+      supportEfforts: ['low', 'high'],
+      defaultEffort: 'high',
+    });
+  });
+
+  it('writes nested model overrides back as snake_case TOML data', () => {
+    const config = parseConfigString(`
+[models."pythinker-code/kimi-k2"]
+provider = "managed:pythinker-code"
+model = "kimi-k2"
+max_context_size = 262144
+
+[models."pythinker-code/kimi-k2".overrides]
+support_efforts = ["low", "high"]
+`);
+
+    const data = configToTomlData(config);
+    const models = data['models'] as Record<string, Record<string, unknown>>;
+    const overrides = models['pythinker-code/kimi-k2']?.['overrides'] as Record<string, unknown>;
+
+    expect(overrides['support_efforts']).toEqual(['low', 'high']);
+  });
+});
+
+describe('applyPrintModeConfigDefaults', () => {
+  it('fills unbounded print defaults when nothing is configured', () => {
+    const config = applyPrintModeConfigDefaults({ providers: {} });
+    expect(config.loopControl?.maxStepsPerTurn).toBe(0);
+    expect(config.background?.bashTaskTimeoutS).toBe(0);
+    expect(config.subagent?.timeoutMs).toBe(0);
+  });
+
+  it('lets explicit user config win over every print default', () => {
+    const config = applyPrintModeConfigDefaults({
+      providers: {},
+      loopControl: { maxStepsPerTurn: 7 },
+      background: { bashTaskTimeoutS: 30, keepAliveOnExit: true },
+      subagent: { timeoutMs: 5000 },
+    });
+    expect(config.loopControl?.maxStepsPerTurn).toBe(7);
+    expect(config.background?.bashTaskTimeoutS).toBe(30);
+    expect(config.background?.keepAliveOnExit).toBe(true);
+    expect(config.subagent?.timeoutMs).toBe(5000);
+  });
+});
+
+describe('migrateThinkingEffortMaxToHigh', () => {
+  const BASE =
+    'default_model = "x"\n[providers.x]\ntype = "pythinker"\napi_key = "k"\n[models.x]\nprovider = "x"\nmodel = "x"\nmax_context_size = 1000\n';
+
+  async function readMarkers(home: string): Promise<Record<string, string>> {
+    return JSON.parse(await readFile(join(home, 'migrations-effort.json'), 'utf-8')) as Record<
+      string,
+      string
+    >;
+  }
+
+  it('rewrites a persisted max to high once and records the marker', async () => {
+    const home = makeTempDir();
+    const configPath = join(home, 'config.toml');
+    await writeFile(configPath, `${BASE}[thinking]\nenabled = true\neffort = "max"\n`);
+
+    migrateThinkingEffortMaxToHigh(configPath, home);
+
+    expect(readConfigFile(configPath).thinking).toEqual({ enabled: true, effort: 'high' });
+    const markers = await readMarkers(home);
+    expect(markers['thinking-effort-max-to-high']).toBeDefined();
+
+    // A max the user writes by hand AFTER the migration is honored — the
+    // marker makes every later run a no-op.
+    await writeFile(configPath, `${BASE}[thinking]\neffort = "max"\n`);
+    migrateThinkingEffortMaxToHigh(configPath, home);
+    expect(readConfigFile(configPath).thinking?.effort).toBe('max');
+  });
+
+  it('leaves non-max values untouched and still records the marker', async () => {
+    const home = makeTempDir();
+    const configPath = join(home, 'config.toml');
+    await writeFile(configPath, `${BASE}[thinking]\neffort = "low"\n`);
+
+    migrateThinkingEffortMaxToHigh(configPath, home);
+
+    expect(readConfigFile(configPath).thinking?.effort).toBe('low');
+    const markers = await readMarkers(home);
+    expect(markers['thinking-effort-max-to-high']).toBeDefined();
+  });
+
+  it('marks a home without a config file as migrated', async () => {
+    const home = makeTempDir();
+    migrateThinkingEffortMaxToHigh(join(home, 'config.toml'), home);
+
+    const markers = await readMarkers(home);
+    expect(markers['thinking-effort-max-to-high']).toBeDefined();
+  });
+
+  it('skips an unparsable config without writing the marker', async () => {
+    const home = makeTempDir();
+    const configPath = join(home, 'config.toml');
+    await writeFile(configPath, 'not = [valid = toml\n');
+
+    migrateThinkingEffortMaxToHigh(configPath, home);
+
+    await expect(readFile(join(home, 'migrations-effort.json'), 'utf-8')).rejects.toThrow();
   });
 });

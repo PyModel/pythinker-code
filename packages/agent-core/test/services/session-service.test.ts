@@ -15,9 +15,6 @@ import {
   type UpdateSessionMetadataPayload,
 } from '../../src';
 import { TestInstantiationService } from '../../src/di/test';
-import type { Agent } from '../../src/agent';
-import { ToolManager } from '../../src/agent/tool';
-import { SessionAPIImpl } from '../../src/session/rpc';
 import { emptySessionUsage, type Event, type Session } from '@pymodel/protocol';
 
 import {
@@ -27,23 +24,14 @@ import {
   type IEventService,
   IPromptService,
   IQuestionService,
-  type IWorkspaceRegistry,
   type ISessionService,
+  IWorkspaceRegistry,
   PromptService,
   SessionNotFoundError,
   SessionUndoUnavailableError,
   SessionService,
   toProtocolSession,
 } from '../../src/services';
-
-let workspaceAliases: readonly string[] = [];
-let registeredWorkspaceId: string | undefined;
-
-const workspaceRegistryStub = {
-  _serviceBrand: undefined,
-  findWorkspaceIdByRoot: async () => registeredWorkspaceId,
-  resolveAliasWorkDirs: async () => workspaceAliases,
-} as unknown as IWorkspaceRegistry;
 
 type WithSessionId<T> = T & { readonly sessionId: string };
 
@@ -59,7 +47,6 @@ interface FakeBridgeState {
   compactions: Array<{ sessionId: string; agentId: string; instruction?: string }>;
   undoPayloads: Array<{ sessionId: string; agentId: string; count: number }>;
   resumedIds: string[];
-  activeIds: Set<string>;
   contexts: Map<string, AgentContextData>;
   postUndoContexts: Map<string, AgentContextData>;
 }
@@ -81,16 +68,6 @@ function makeFakeBridge(state: FakeBridgeState): ICoreProcessService {
           title: undefined,
         };
         state.sessions.push(created);
-        state.activeIds.add(id);
-        state.metas.set(id, {
-          sessionFormatVersion: 2,
-          title: 'New Session',
-          createdAt: new Date(created.createdAt).toISOString(),
-          updatedAt: new Date(created.updatedAt).toISOString(),
-          isCustomTitle: false,
-          agents: {},
-          custom: { ...payload.metadata },
-        });
         return created;
       }),
     listSessions: vi
@@ -134,7 +111,6 @@ function makeFakeBridge(state: FakeBridgeState): ICoreProcessService {
         state.sessions.push(created);
         const sourceMeta = state.metas.get(source.id);
         const sessionMetadata: SessionMeta = {
-          sessionFormatVersion: 2,
           title: payload.title ?? `Fork: ${source.title ?? source.id}`,
           createdAt: new Date(0).toISOString(),
           updatedAt: new Date(0).toISOString(),
@@ -165,7 +141,6 @@ function makeFakeBridge(state: FakeBridgeState): ICoreProcessService {
           state.metas.set(payload.sessionId, { ...existing, title: payload.title });
         } else {
           state.metas.set(payload.sessionId, {
-            sessionFormatVersion: 2,
             title: payload.title,
             createdAt: new Date(0).toISOString(),
             updatedAt: new Date(0).toISOString(),
@@ -179,27 +154,7 @@ function makeFakeBridge(state: FakeBridgeState): ICoreProcessService {
       .fn()
       .mockImplementation(
         async (payload: WithSessionId<UpdateSessionMetadataPayload>) => {
-          if (!state.activeIds.has(payload.sessionId)) {
-            throw new Error(`inactive session ${payload.sessionId}`);
-          }
           state.metadataPatches.set(payload.sessionId, payload.metadata);
-          const existing = state.metas.get(payload.sessionId);
-          if (existing !== undefined) {
-            const incoming = payload.metadata.agentConfig;
-            const previous = existing.agentConfig;
-            const agentConfig =
-              incoming === undefined
-                ? previous
-                : {
-                    tools: incoming.tools ?? previous?.tools,
-                    mcpServers: incoming.mcpServers ?? previous?.mcpServers,
-                  };
-            state.metas.set(payload.sessionId, {
-              ...existing,
-              ...payload.metadata,
-              agentConfig,
-            });
-          }
         },
       ),
     getSessionMetadata: vi
@@ -220,7 +175,6 @@ function makeFakeBridge(state: FakeBridgeState): ICoreProcessService {
       state.resumedIds.push(sessionId);
       const found = state.sessions.find((session) => session.id === sessionId);
       if (found === undefined) throw new Error(`missing session ${sessionId}`);
-      state.activeIds.add(sessionId);
       return found as ResumeSessionResult;
     }),
     undoHistory: vi
@@ -237,14 +191,9 @@ function makeFakeBridge(state: FakeBridgeState): ICoreProcessService {
       .mockImplementation(async ({ sessionId }: { sessionId: string }): Promise<AgentContextData> => {
         return state.contexts.get(sessionId) ?? { history: [], tokenCount: 0 };
       }),
-    getContextTokenCount: vi
-      .fn()
-      .mockImplementation(async ({ sessionId }: { sessionId: string }) => ({
-        tokenCount: state.contexts.get(sessionId)?.tokenCount ?? 0,
-      })),
     getConfig: vi.fn().mockResolvedValue({
-      modelAlias: 'pythinker-k2',
-      thinkingLevel: 'auto',
+      modelAlias: 'kimi-k2',
+      thinkingEffort: 'auto',
       modelCapabilities: { max_context_tokens: 100 },
     }),
     getPermission: vi.fn().mockResolvedValue({ mode: 'manual' }),
@@ -271,7 +220,6 @@ function freshState(): FakeBridgeState {
     compactions: [],
     undoPayloads: [],
     resumedIds: [],
-    activeIds: new Set(),
     contexts: new Map(),
     postUndoContexts: new Map(),
   };
@@ -291,13 +239,34 @@ function textMessage(
 }
 
 let state: FakeBridgeState;
-let bridge: ICoreProcessService;
 let svc: SessionService;
 let promptStub: ReturnType<typeof makePromptServiceStub>;
 let approvalStub: ReturnType<typeof makeApprovalServiceStub>;
 let questionStub: ReturnType<typeof makeQuestionServiceStub>;
 let eventBus: ReturnType<typeof makeEventServiceStub>;
+let workspaceRegistryStub: ReturnType<typeof makeWorkspaceRegistryStub>;
 let instantiation: TestInstantiationService;
+
+function makeWorkspaceRegistryStub(): {
+  workspaceRegistry: IWorkspaceRegistry;
+  findWorkspaceIdByRoot: ReturnType<typeof vi.fn>;
+  resolveAliasWorkDirs: ReturnType<typeof vi.fn>;
+} {
+  const findWorkspaceIdByRoot = vi.fn(async (): Promise<string | undefined> => undefined);
+  const resolveAliasWorkDirs = vi.fn(async (): Promise<readonly string[]> => []);
+  const workspaceRegistry: IWorkspaceRegistry = {
+    _serviceBrand: undefined,
+    list: vi.fn() as unknown as IWorkspaceRegistry['list'],
+    get: vi.fn() as unknown as IWorkspaceRegistry['get'],
+    createOrTouch: vi.fn() as unknown as IWorkspaceRegistry['createOrTouch'],
+    update: vi.fn() as unknown as IWorkspaceRegistry['update'],
+    delete: vi.fn() as unknown as IWorkspaceRegistry['delete'],
+    resolveRoot: vi.fn() as unknown as IWorkspaceRegistry['resolveRoot'],
+    findWorkspaceIdByRoot,
+    resolveAliasWorkDirs,
+  };
+  return { workspaceRegistry, findWorkspaceIdByRoot, resolveAliasWorkDirs };
+}
 
 function makeEventServiceStub(): {
   eventService: IEventService;
@@ -395,26 +364,24 @@ function makeTestInstantiation(stubs: {
 }
 
 beforeEach(() => {
-  workspaceAliases = [];
-  registeredWorkspaceId = undefined;
   state = freshState();
   promptStub = makePromptServiceStub();
   approvalStub = makeApprovalServiceStub();
   questionStub = makeQuestionServiceStub();
   eventBus = makeEventServiceStub();
-  bridge = makeFakeBridge(state);
+  workspaceRegistryStub = makeWorkspaceRegistryStub();
   instantiation = makeTestInstantiation({
     promptService: promptStub.promptService,
     approvalService: approvalStub.approvalService,
     questionService: questionStub.questionService,
   });
   svc = new SessionService(
-    bridge,
+    makeFakeBridge(state),
     eventBus.eventService,
     instantiation,
     approvalStub.approvalService,
     questionStub.questionService,
-    workspaceRegistryStub,
+    workspaceRegistryStub.workspaceRegistry,
   );
 });
 
@@ -442,6 +409,27 @@ describe('toProtocolSession adapter', () => {
     expect(proto.created_at.endsWith('Z')).toBe(true);
   });
 
+  it('surfaces last_prompt from the summary when present', () => {
+    const withPrompt: SessionSummary = {
+      id: 'sess_lp_1',
+      workDir: '/tmp/wd',
+      sessionDir: '/tmp/sd',
+      createdAt: 0,
+      updatedAt: 0,
+      lastPrompt: 'what is 2 + 2?',
+    };
+    expect(toProtocolSession(withPrompt).last_prompt).toBe('what is 2 + 2?');
+
+    const withoutPrompt: SessionSummary = {
+      id: 'sess_lp_2',
+      workDir: '/tmp/wd',
+      sessionDir: '/tmp/sd',
+      createdAt: 0,
+      updatedAt: 0,
+    };
+    expect(toProtocolSession(withoutPrompt).last_prompt).toBeUndefined();
+  });
+
   it('fills documented defaults when CoreAPI does not surface a field', () => {
     const summary: SessionSummary = {
       id: 'sess_02',
@@ -451,7 +439,7 @@ describe('toProtocolSession adapter', () => {
       updatedAt: 0,
     };
     const proto = toProtocolSession(summary);
-    expect(proto.status).toBe('idle');
+    expect(proto.busy).toBe(false);
     expect(proto.usage).toEqual(emptySessionUsage());
     expect(proto.permission_rules).toEqual([]);
     expect(proto.message_count).toBe(0);
@@ -469,7 +457,6 @@ describe('toProtocolSession adapter', () => {
       updatedAt: 0,
     };
     const meta: SessionMeta = {
-      sessionFormatVersion: 2,
       title: 'Renamed via meta',
       createdAt: new Date(0).toISOString(),
       updatedAt: new Date(0).toISOString(),
@@ -481,33 +468,6 @@ describe('toProtocolSession adapter', () => {
     expect(proto.title).toBe('Renamed via meta');
     expect(proto.metadata.cwd).toBe('/tmp/cwd-from-meta');
     expect(proto.metadata['other_key']).toBe('x');
-  });
-
-  it('returns persisted tool and MCP server selections from SessionMeta', () => {
-    const summary: SessionSummary = {
-      id: 'sess_agent_config',
-      workDir: '/tmp/wd',
-      sessionDir: '/tmp/sd',
-      createdAt: 0,
-      updatedAt: 0,
-    };
-    const meta: SessionMeta = {
-      sessionFormatVersion: 2,
-      title: 'Configured',
-      createdAt: new Date(0).toISOString(),
-      updatedAt: new Date(0).toISOString(),
-      isCustomTitle: false,
-      agents: {},
-      agentConfig: {
-        tools: ['Read'],
-        mcpServers: ['github'],
-      },
-      custom: {},
-    };
-    expect(toProtocolSession(summary, meta).agent_config).toMatchObject({
-      tools: ['Read'],
-      mcp_servers: ['github'],
-    });
   });
 
   it('preserves custom metadata from the summary when SessionMeta is unavailable', () => {
@@ -542,7 +502,6 @@ describe('toProtocolSession adapter', () => {
       updatedAt: 0,
     };
     const meta: SessionMeta = {
-      sessionFormatVersion: 2,
       title: 't',
       createdAt: new Date(0).toISOString(),
       updatedAt: new Date(0).toISOString(),
@@ -568,6 +527,20 @@ describe('toProtocolSession adapter', () => {
     expect(proto.workspace_id).toBe(encodeWorkDirKey('/tmp/wd-ws'));
     expect(proto.workspace_id).toMatch(/^wd_[A-Za-z0-9._-]+_[0-9a-f]{12}$/);
   });
+
+  it('prefers the registry-resolved workspace id over the minted key', async () => {
+    const { encodeWorkDirKey } = await import('../../src/session/store');
+    const summary: SessionSummary = {
+      id: 'sess_ws_alias',
+      workDir: '/tmp/wd-ws',
+      sessionDir: '/tmp/sd-ws',
+      createdAt: 0,
+      updatedAt: 0,
+    };
+    const proto = toProtocolSession(summary, undefined, 'wd_registered_0123456789ab');
+    expect(proto.workspace_id).toBe('wd_registered_0123456789ab');
+    expect(proto.workspace_id).not.toBe(encodeWorkDirKey('/tmp/wd-ws'));
+  });
 });
 
 describe('SessionService.create', () => {
@@ -583,25 +556,25 @@ describe('SessionService.create', () => {
     expect(session.created_at.endsWith('Z')).toBe(true);
   });
 
+  it('projects the registered workspace id when one identity-matches the cwd', async () => {
+    workspaceRegistryStub.findWorkspaceIdByRoot.mockResolvedValue('wd_registered_0123456789ab');
+    const session = await svc.create({ metadata: { cwd: '/tmp/foo' } });
+    expect(workspaceRegistryStub.findWorkspaceIdByRoot).toHaveBeenCalledWith('/tmp/foo');
+    expect(session.workspace_id).toBe('wd_registered_0123456789ab');
+  });
+
+  it('falls back to the minted workspace id when the registry has no match', async () => {
+    const { encodeWorkDirKey } = await import('../../src/session/store');
+    const session = await svc.create({ metadata: { cwd: '/tmp/foo' } });
+    expect(session.workspace_id).toBe(encodeWorkDirKey('/tmp/foo'));
+  });
+
   it('passes model through to the agent_config when supplied', async () => {
     await svc.create({
       metadata: { cwd: '/tmp/x' },
-      agent_config: { model: 'pythoughts-v1-128k' },
+      agent_config: { model: 'moonshot-v1-128k' },
     });
     expect(state.sessions[0]!.metadata?.['cwd']).toBe('/tmp/x');
-  });
-
-  it('persists tool and MCP server selections when supplied', async () => {
-    const session = await svc.create({
-      metadata: { cwd: '/tmp/x' },
-      agent_config: { tools: ['Read'], mcp_servers: ['github'] },
-    });
-    expect(state.metadataPatches.get(session.id)).toEqual({
-      agentConfig: { tools: ['Read'], mcpServers: ['github'] },
-    });
-    expect(promptStub.calls).toEqual([]);
-    expect(session.agent_config.tools).toEqual(['Read']);
-    expect(session.agent_config.mcp_servers).toEqual(['github']);
   });
 
   it('passes client telemetry metadata through to core createSession', async () => {
@@ -668,9 +641,9 @@ describe('SessionService.list', () => {
   });
 
   it('status filter applies post-hydration', async () => {
-    const empty = await svc.list({ status: 'running' });
+    const empty = await svc.list({ busy: true });
     expect(empty.items).toEqual([]);
-    const idle = await svc.list({ status: 'idle' });
+    const idle = await svc.list({ busy: false });
     expect(idle.items.length).toBe(3);
   });
 
@@ -688,19 +661,92 @@ describe('SessionService.list', () => {
     expect(page.has_more).toBe(false);
   });
 
-  it('lists every Windows spelling variant under one workspace id', async () => {
-    await svc.create({ metadata: { cwd: 'C:\\Users\\Dev\\Project' } });
-    await svc.create({ metadata: { cwd: 'c:/users/dev/project' } });
-    workspaceAliases = ['C:\\Users\\Dev\\Project', 'c:/users/dev/project'];
-    registeredWorkspaceId = 'wd_registered_0123456789ab';
+  it('excludeEmpty drops sessions without a lastPrompt before pagination', async () => {
+    const ts = (n: number) => 1_000_000 + n * 1_000;
+    const summary = (
+      id: string,
+      updatedAt: number,
+      lastPrompt?: string,
+    ): SessionSummary => ({
+      id,
+      workDir: '/tmp/a',
+      sessionDir: `/tmp/sessions/${id}`,
+      createdAt: updatedAt,
+      updatedAt,
+      metadata: { cwd: '/tmp/a' },
+      title: undefined,
+      lastPrompt,
+    });
+    state.sessions = [
+      summary('e1', ts(3)),
+      summary('u1', ts(2), 'hi'),
+      summary('e2', ts(1)),
+      summary('u2', ts(0), 'yo'),
+    ];
 
-    const page = await svc.list({ workspaceId: registeredWorkspaceId });
+    const all = await svc.list({});
+    expect(all.items.map((s) => s.id)).toEqual(['e1', 'u1', 'e2', 'u2']);
 
-    expect(page.items.map((session) => session.metadata.cwd)).toEqual([
-      'c:/users/dev/project',
-      'C:\\Users\\Dev\\Project',
+    const visible = await svc.list({ excludeEmpty: true });
+    expect(visible.items.map((s) => s.id)).toEqual(['u1', 'u2']);
+    expect(visible.has_more).toBe(false);
+
+    // Pagination + cursor operate on the filtered set.
+    const first = await svc.list({ excludeEmpty: true, page_size: 1 });
+    expect(first.items.map((s) => s.id)).toEqual(['u1']);
+    expect(first.has_more).toBe(true);
+
+    const next = await svc.list({ excludeEmpty: true, page_size: 1, before_id: 'u1' });
+    expect(next.items.map((s) => s.id)).toEqual(['u2']);
+    expect(next.has_more).toBe(false);
+  });
+
+  it('workspaceId returns the union across alias workDirs, sorted by recency', async () => {
+    const ts = (n: number) => 1_000_000 + n * 1_000;
+    const summary = (id: string, workDir: string, updatedAt: number): SessionSummary => ({
+      id,
+      workDir,
+      sessionDir: `/tmp/sessions/${id}`,
+      createdAt: updatedAt,
+      updatedAt,
+      metadata: { cwd: workDir },
+      title: undefined,
+    });
+    // Three spellings of one Windows root (the legacy-split setup) — the union
+    // — plus an unrelated session that must stay out of the page. A single
+    // workDir query could never see all three: variants of a registered root
+    // resolve back onto the registered bucket.
+    state.sessions = [
+      summary('s1', 'C:\\Dev\\Project', ts(1)),
+      summary('s2', 'c:\\dev\\project', ts(3)),
+      summary('s3', 'C:/dev/project', ts(2)),
+      summary('s4', '/tmp/other', ts(4)),
+    ];
+    workspaceRegistryStub.resolveAliasWorkDirs.mockResolvedValue([
+      'C:\\Dev\\Project',
+      'C:/dev/project',
+      'c:\\dev\\project',
     ]);
-    expect(page.items.every((session) => session.workspace_id === registeredWorkspaceId)).toBe(true);
+
+    const page = await svc.list({ workspaceId: 'wd_alias_deadbeef0000' });
+
+    expect(workspaceRegistryStub.resolveAliasWorkDirs).toHaveBeenCalledWith(
+      'wd_alias_deadbeef0000',
+    );
+    expect(page.items.map((s) => s.id)).toEqual(['s2', 's3', 's1']);
+    expect(page.has_more).toBe(false);
+  });
+
+  it('workspaceId for an unknown workspace returns an empty page', async () => {
+    const page = await svc.list({ workspaceId: 'wd_unknown_deadbeef0000' });
+    expect(page.items).toEqual([]);
+    expect(page.has_more).toBe(false);
+  });
+
+  it('does not consult workspace aliases when no workspaceId is given', async () => {
+    await svc.list({});
+    await svc.list({ workDir: '/tmp/b' });
+    expect(workspaceRegistryStub.resolveAliasWorkDirs).not.toHaveBeenCalled();
   });
 });
 
@@ -786,20 +832,6 @@ describe('SessionService.update', () => {
     ]);
   });
 
-  it('resumes an inactive session before persisting tools + mcp_servers', async () => {
-    state.activeIds.delete(created.id);
-    const after = await svc.update(created.id, {
-      agent_config: { tools: ['Read', 'Bash'], mcp_servers: ['github'] },
-    });
-    expect(state.metadataPatches.get(created.id)).toEqual({
-      agentConfig: { tools: ['Read', 'Bash'], mcpServers: ['github'] },
-    });
-    expect(promptStub.calls).toEqual([]);
-    expect(state.resumedIds).toEqual([created.id]);
-    expect(after.agent_config.tools).toEqual(['Read', 'Bash']);
-    expect(after.agent_config.mcp_servers).toEqual(['github']);
-  });
-
   it('combines model + runtime controls into a single applyAgentState call', async () => {
     await svc.update(created.id, {
       agent_config: { model: 'pythinker-code/k9', plan_mode: false },
@@ -818,158 +850,6 @@ describe('SessionService.update', () => {
     const after = await svc.update(created.id, { title: 'Renamed' });
     expect(after.id).toBe(created.id);
     expect(after.metadata.cwd).toBe('/tmp/u');
-  });
-});
-
-describe('SessionAPIImpl persisted metadata boundary', () => {
-  function makeToolSession(
-    metadata: SessionMeta,
-    activeNames: readonly string[],
-  ): {
-    readonly session: import('../../src/session').Session;
-    readonly records: unknown[];
-  } {
-    const records: unknown[] = [];
-    const tools = new ToolManager({
-      config: { hasProvider: false },
-      records: { logRecord: (record: unknown) => records.push(record) },
-    } as unknown as Agent);
-    tools.setActiveTools(activeNames);
-    records.length = 0;
-    const session = {
-      metadata,
-      writeMetadata: vi.fn(async () => {}),
-      ensureAgentResumed: vi.fn(async () => ({ tools })),
-    } as unknown as import('../../src/session').Session;
-    return { session, records };
-  }
-
-  function persistedMetadata(agentConfig?: SessionMeta['agentConfig']): SessionMeta {
-    return {
-      sessionFormatVersion: 2,
-      createdAt: new Date(0).toISOString(),
-      updatedAt: new Date(0).toISOString(),
-      title: 'Persisted metadata',
-      isCustomTitle: false,
-      agents: { main: { type: 'main', parentAgentId: null } },
-      agentConfig,
-      custom: {},
-    };
-  }
-
-  it('a tools-only patch preserves persisted and active MCP servers', async () => {
-    const { session, records } = makeToolSession(
-      persistedMetadata({ tools: ['Read'], mcpServers: ['github'] }),
-      ['Read', 'mcp__github__*'],
-    );
-
-    await new SessionAPIImpl(session).updateSessionMetadata({
-      metadata: { agentConfig: { tools: ['Bash'] } },
-    });
-
-    expect(session.metadata.agentConfig).toEqual({
-      tools: ['Bash'],
-      mcpServers: ['github'],
-    });
-    expect(records).toEqual([
-      { type: 'tools.set_active_tools', names: ['Bash', 'mcp__github__*'] },
-    ]);
-  });
-
-  it('an MCP-only patch preserves persisted and active exact tools', async () => {
-    const { session, records } = makeToolSession(
-      persistedMetadata({ tools: ['Read', 'Bash'], mcpServers: ['github'] }),
-      ['Read', 'Bash', 'mcp__github__*'],
-    );
-
-    await new SessionAPIImpl(session).updateSessionMetadata({
-      metadata: { agentConfig: { mcpServers: ['My Search'] } },
-    });
-
-    expect(session.metadata.agentConfig).toEqual({
-      tools: ['Read', 'Bash'],
-      mcpServers: ['My Search'],
-    });
-    expect(records).toEqual([
-      { type: 'tools.set_active_tools', names: ['Read', 'Bash', 'mcp__My_Search__*'] },
-    ]);
-  });
-
-  it.each([
-    {
-      label: 'tools',
-      activeNames: ['Read', 'mcp__github__*'],
-      patch: { tools: [] },
-      expectedConfig: { tools: [], mcpServers: ['github'] },
-      expectedNames: ['mcp__github__*'],
-    },
-    {
-      label: 'MCP servers',
-      activeNames: ['Read', 'mcp__github__*'],
-      patch: { mcpServers: [] },
-      expectedConfig: { tools: ['Read'], mcpServers: [] },
-      expectedNames: ['Read'],
-    },
-  ])('an empty $label array clears only that field', async ({
-    activeNames,
-    patch,
-    expectedConfig,
-    expectedNames,
-  }) => {
-    const { session, records } = makeToolSession(
-      persistedMetadata({ tools: ['Read'], mcpServers: ['github'] }),
-      activeNames,
-    );
-
-    await new SessionAPIImpl(session).updateSessionMetadata({
-      metadata: { agentConfig: patch },
-    });
-
-    expect(session.metadata.agentConfig).toEqual(expectedConfig);
-    expect(records).toEqual([{ type: 'tools.set_active_tools', names: expectedNames }]);
-  });
-
-  it('a legacy session without agentConfig preserves the active default tools', async () => {
-    const { session, records } = makeToolSession(
-      persistedMetadata(),
-      ['Read', 'Bash', 'mcp__*'],
-    );
-
-    await new SessionAPIImpl(session).updateSessionMetadata({
-      metadata: { agentConfig: { mcpServers: ['github'] } },
-    });
-
-    expect(session.metadata.agentConfig).toEqual({
-      tools: undefined,
-      mcpServers: ['github'],
-    });
-    expect(records).toEqual([
-      { type: 'tools.set_active_tools', names: ['Read', 'Bash', 'mcp__github__*'] },
-    ]);
-  });
-
-  it('rejects a runtime sessionFormatVersion patch even when it equals the current format', async () => {
-    const metadata: SessionMeta = {
-      sessionFormatVersion: 2,
-      createdAt: new Date(0).toISOString(),
-      updatedAt: new Date(0).toISOString(),
-      title: 'Persisted metadata',
-      isCustomTitle: false,
-      agents: {},
-      custom: {},
-    };
-    const session = {
-      metadata,
-      writeMetadata: vi.fn(async () => {}),
-    } as unknown as import('../../src/session').Session;
-
-    await expect(
-      new SessionAPIImpl(session).updateSessionMetadata({
-        metadata: { sessionFormatVersion: 2 } as never,
-      }),
-    ).rejects.toMatchObject({ code: 'session.state_invalid' });
-    expect(session.metadata).toBe(metadata);
-    expect(session.writeMetadata).not.toHaveBeenCalled();
   });
 });
 
@@ -1167,8 +1047,8 @@ describe('SessionService.undo', () => {
       { type: 'text', text: 'first prompt' },
     ]);
     expect(result.status).toMatchObject({
-      status: 'idle',
-      model: 'pythinker-k2',
+      busy: false,
+      model: 'kimi-k2',
       thinking_level: 'auto',
       permission: 'manual',
       plan_mode: false,
@@ -1253,99 +1133,136 @@ describe('SessionService per-domain event listeners (Phase C)', () => {
   });
 });
 
-describe('SessionService status lifecycle', () => {
-  it('getStatus returns live status', async () => {
+describe('SessionService busy lifecycle', () => {
+  it('getStatus reports no live work for a fresh session', async () => {
     const session = await svc.create({ metadata: { cwd: '/tmp/status' } });
     const status = await svc.getStatus(session.id);
-    expect(status.status).toBe('idle');
+    expect(status.busy).toBe(false);
   });
 
-  it('getStatus reads the narrow token-count RPC without fetching context history', async () => {
-    const session = await svc.create({ metadata: { cwd: '/tmp/status-context' } });
-    state.contexts.set(session.id, {
-      history: [textMessage('user', 'history must stay in the core process')],
-      tokenCount: 37,
-    });
-
-    const status = await svc.getStatus(session.id);
-
-    expect(status.context_tokens).toBe(37);
-    expect(bridge.rpc.getContextTokenCount).toHaveBeenCalledWith({
-      sessionId: session.id,
-      agentId: 'main',
-    });
-    expect(bridge.rpc.getContext).not.toHaveBeenCalled();
-  });
-
-  it('patches created session status to idle', async () => {
+  it('patches created session to not busy', async () => {
     const session = await svc.create({ metadata: { cwd: '/tmp/status2' } });
-    expect(session.status).toBe('idle');
+    expect(session).toMatchObject({
+      busy: false,
+      main_turn_active: false,
+      pending_interaction: 'none',
+    });
   });
 
-  it('turn.started moves status to running and emits status_changed', async () => {
+  it('turn.started marks the session busy and emits work_changed', async () => {
     const session = await svc.create({ metadata: { cwd: '/tmp/running' } });
     eventBus.eventService.publish({
       type: 'turn.started',
       sessionId: session.id,
     } as unknown as Event);
-    expect((await svc.get(session.id)).status).toBe('running');
+    expect(await svc.get(session.id)).toMatchObject({
+      busy: true,
+      main_turn_active: true,
+    });
     expect(eventBus.events).toContainEqual(expect.objectContaining({
-      type: 'event.session.status_changed',
+      type: 'event.session.work_changed',
       sessionId: session.id,
-      previous_status: 'idle',
-      status: 'running',
+      busy: true,
+      main_turn_active: true,
     }));
   });
 
-  it('turn.ended with success moves status back to idle', async () => {
-    const session = await svc.create({ metadata: { cwd: '/tmp/ended' } });
-    eventBus.eventService.publish({ type: 'turn.started', sessionId: session.id } as unknown as Event);
-    eventBus.eventService.publish({ type: 'turn.ended', sessionId: session.id, reason: 'success' } as unknown as Event);
-    expect((await svc.get(session.id)).status).toBe('idle');
+  it('turn.ended marks the session not busy, whatever the reason', async () => {
+    for (const reason of ['completed', 'failed', 'blocked']) {
+      const session = await svc.create({ metadata: { cwd: `/tmp/ended-${reason}` } });
+      eventBus.eventService.publish({ type: 'turn.started', sessionId: session.id } as unknown as Event);
+      eventBus.eventService.publish({ type: 'turn.ended', sessionId: session.id, reason } as unknown as Event);
+      expect((await svc.get(session.id)).busy).toBe(false);
+    }
   });
 
-  it('turn.ended with failed moves status to aborted', async () => {
-    const session = await svc.create({ metadata: { cwd: '/tmp/aborted' } });
+  it('projects a blocked turn as failed across session wire surfaces', async () => {
+    const session = await svc.create({ metadata: { cwd: '/tmp/blocked' } });
     eventBus.eventService.publish({ type: 'turn.started', sessionId: session.id } as unknown as Event);
-    eventBus.eventService.publish({ type: 'turn.ended', sessionId: session.id, reason: 'failed' } as unknown as Event);
-    expect((await svc.get(session.id)).status).toBe('aborted');
+    eventBus.eventService.publish({
+      type: 'turn.ended',
+      sessionId: session.id,
+      reason: 'blocked',
+    } as unknown as Event);
+
+    expect((await svc.get(session.id)).last_turn_reason).toBe('failed');
+    expect(eventBus.events).toContainEqual(expect.objectContaining({
+      type: 'event.session.work_changed',
+      sessionId: session.id,
+      busy: false,
+      last_turn_reason: 'failed',
+    }));
   });
 
-  it('prompt.submitted moves status to running when a current prompt exists', async () => {
+  it('clears the last turn reason when a new turn starts', async () => {
+    const session = await svc.create({ metadata: { cwd: '/tmp/fresh-turn' } });
+    eventBus.eventService.publish({ type: 'turn.started', sessionId: session.id } as unknown as Event);
+    eventBus.eventService.publish({ type: 'turn.ended', sessionId: session.id, reason: 'cancelled' } as unknown as Event);
+    expect((await svc.get(session.id)).last_turn_reason).toBe('cancelled');
+
+    eventBus.eventService.publish({ type: 'turn.started', sessionId: session.id } as unknown as Event);
+    expect((await svc.get(session.id)).last_turn_reason).toBeUndefined();
+    expect(eventBus.events).toContainEqual(expect.objectContaining({
+      type: 'event.session.work_changed',
+      sessionId: session.id,
+      busy: true,
+      last_turn_reason: undefined,
+    }));
+  });
+
+  it('prompt.submitted marks the session busy when a current prompt exists', async () => {
     const session = await svc.create({ metadata: { cwd: '/tmp/prompt' } });
     promptStub.activePromptIds.set(session.id, 'p1');
     eventBus.eventService.publish({ type: 'prompt.submitted', sessionId: session.id } as unknown as Event);
-    expect((await svc.get(session.id)).status).toBe('running');
+    expect((await svc.get(session.id)).busy).toBe(true);
   });
 
-  it('pending approval yields awaiting_approval', async () => {
+  it('a pending approval keeps the session busy', async () => {
     const session = await svc.create({ metadata: { cwd: '/tmp/approval' } });
     approvalStub.pending.set(session.id, [{ id: 'a1' }]);
     eventBus.eventService.publish({ type: 'event.approval.requested', sessionId: session.id } as unknown as Event);
-    expect((await svc.get(session.id)).status).toBe('awaiting_approval');
+    expect((await svc.get(session.id)).busy).toBe(true);
   });
 
-  it('pending question yields awaiting_question', async () => {
+  it('a pending question keeps the session busy', async () => {
     const session = await svc.create({ metadata: { cwd: '/tmp/question' } });
     questionStub.pending.set(session.id, [{ id: 'q1' }]);
     eventBus.eventService.publish({ type: 'event.question.requested', sessionId: session.id } as unknown as Event);
-    expect((await svc.get(session.id)).status).toBe('awaiting_question');
+    expect((await svc.get(session.id)).busy).toBe(true);
   });
 
-  it('approval takes precedence over active prompt', async () => {
-    const session = await svc.create({ metadata: { cwd: '/tmp/priority' } });
-    promptStub.activePromptIds.set(session.id, 'p1');
+  it('publishes the pending interaction when busy remains true', async () => {
+    const session = await svc.create({ metadata: { cwd: '/tmp/approval-count' } });
+    eventBus.eventService.publish({
+      type: 'turn.started',
+      sessionId: session.id,
+    } as unknown as Event);
     approvalStub.pending.set(session.id, [{ id: 'a1' }]);
-    eventBus.eventService.publish({ type: 'prompt.submitted', sessionId: session.id } as unknown as Event);
-    expect((await svc.get(session.id)).status).toBe('awaiting_approval');
+
+    eventBus.eventService.publish({
+      type: 'event.approval.requested',
+      sessionId: session.id,
+    } as unknown as Event);
+
+    expect(await svc.get(session.id)).toMatchObject({
+      busy: true,
+      main_turn_active: true,
+      pending_interaction: 'approval',
+    });
+    expect(eventBus.events.at(-1)).toMatchObject({
+      type: 'event.session.work_changed',
+      busy: true,
+      main_turn_active: true,
+      pending_interaction: 'approval',
+    });
   });
 
-  it('does not emit status_changed when status is unchanged', async () => {
+  it('does not emit work_changed when all work facts are unchanged', async () => {
     const session = await svc.create({ metadata: { cwd: '/tmp/nochange' } });
-    const statusChangedCount = (e: unknown) =>
-      (e as { type?: string }).type === 'event.session.status_changed';
-    const before = eventBus.events.filter(statusChangedCount).length;
+    const workChangedCount = (e: unknown) =>
+      (e as { type?: string }).type === 'event.session.work_changed';
+    const before = eventBus.events.filter(workChangedCount).length;
     eventBus.eventService.publish({ type: 'prompt.completed', sessionId: session.id } as unknown as Event);
-    expect(eventBus.events.filter(statusChangedCount).length).toBe(before);
+    expect(eventBus.events.filter(workChangedCount).length).toBe(before);
   });
 });

@@ -9,21 +9,12 @@ tools:
   - Read
   - Write
   - Edit
-  - NotebookEdit
   - Grep
   - Glob
   - Bash
-  - PowerShell
-  - LSP
   - TaskList
   - TaskOutput
   - TaskStop
-  - TaskCreate
-  - TaskGet
-  - TaskUpdate
-  - TeamCreate
-  - TeamDelete
-  - SendMessage
   - CronCreate
   - CronList
   - CronDelete
@@ -32,28 +23,21 @@ tools:
   - Skill
   - WebSearch
   - Agent
-  - DynamicWorkflow
+  - AgentDynamicWorkflow
   - FetchURL
   - AskUserQuestion
-  - Config
   - EnterPlanMode
   - ExitPlanMode
-  - EnterWorktree
-  - ExitWorktree
   - CreateGoal
   - GetGoal
   - SetGoalBudget
   - UpdateGoal
-  - ListMcpResourcesTool
-  - ReadMcpResourceTool
   - mcp__*
 
 subagents:
   coder:
-    description: Good at general software engineering tasks.
+    description: General software engineering agent — the only subagent type with file-editing tools; use it for any delegated task that must modify code.
   explore:
     description: Fast codebase exploration with prompt-enforced read-only behavior.
   plan:
     description: Read-only implementation planning and architecture design.
-  verification:
-    description: Adversarial read-only verification with command-backed verdicts.

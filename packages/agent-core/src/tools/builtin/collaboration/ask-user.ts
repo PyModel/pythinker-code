@@ -22,7 +22,6 @@ import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from 
 import type {
   QuestionAnswers,
   QuestionAnswerMethod,
-  QuestionAnnotations,
   QuestionResponse,
   QuestionResult,
 } from '../../../rpc';
@@ -35,18 +34,13 @@ import DESCRIPTION from './ask-user.md?raw';
 const QuestionOptionSchema = z.object({
   label: z
     .string()
+    .min(1)
     .describe("Concise display text (1-5 words). If recommended, append '(Recommended)'."),
   description: z.string().default('').describe('Brief explanation of trade-offs or implications.'),
-  preview: z
-    .string()
-    .optional()
-    .describe(
-      'Optional multi-line Markdown preview for concrete artifacts such as code, plans, or mockups.',
-    ),
 });
 
 const QuestionItemSchema = z.object({
-  question: z.string().describe("A specific, actionable question. End with '?'."),
+  question: z.string().min(1).describe("A specific, actionable question. End with '?'."),
   header: z
     .string()
     .default('')
@@ -66,13 +60,42 @@ const QuestionItemSchema = z.object({
 
 export interface AskUserQuestionInput {
   background?: boolean;
-  metadata?: { source?: string };
   questions: Array<{
     question: string;
     header: string;
-    options: Array<{ label: string; description: string; preview?: string }>;
+    options: Array<{ label: string; description: string }>;
     multi_select: boolean;
   }>;
+}
+
+const QUESTION_UNIQUENESS_MESSAGE =
+  'Question texts must be unique across questions, and option labels must be unique within each question.';
+
+/**
+ * Answers are keyed by question text with option labels as values, so both
+ * must be unambiguous: question texts unique across the call, option labels
+ * unique within their question. Runtime tool-arg validation is AJV against
+ * the JSON Schema (where zod refinements are unrepresentable), so the
+ * execution path re-runs this check itself.
+ */
+function questionUniquenessError(
+  questions: AskUserQuestionInput['questions'],
+): string | null {
+  const texts = new Set<string>();
+  for (const q of questions) {
+    if (texts.has(q.question)) {
+      return `Invalid questions: duplicate question text ${JSON.stringify(q.question)}. ${QUESTION_UNIQUENESS_MESSAGE} Rephrase the duplicates and call the tool again.`;
+    }
+    texts.add(q.question);
+    const labels = new Set<string>();
+    for (const option of q.options) {
+      if (labels.has(option.label)) {
+        return `Invalid questions: duplicate option label ${JSON.stringify(option.label)} in question ${JSON.stringify(q.question)}. ${QUESTION_UNIQUENESS_MESSAGE} Rephrase the duplicates and call the tool again.`;
+      }
+      labels.add(option.label);
+    }
+  }
+  return null;
 }
 
 const AskUserQuestionInputBaseSchema = z.object({
@@ -81,12 +104,6 @@ const AskUserQuestionInputBaseSchema = z.object({
     .min(1)
     .max(4)
     .describe('The questions to ask the user (1-4 questions).'),
-  metadata: z
-    .object({
-      source: z.string().optional(),
-    })
-    .optional()
-    .describe('Optional source identifier for telemetry.'),
 });
 
 const AskUserQuestionInputSchemaWithBackground = AskUserQuestionInputBaseSchema.extend({
@@ -94,16 +111,19 @@ const AskUserQuestionInputSchemaWithBackground = AskUserQuestionInputBaseSchema.
     .boolean()
     .default(false)
     .describe(
-      'Set true to ask in the background and return immediately with a background task_id. Use TaskOutput to read the answer later.',
+      'Set true to ask in the background and return immediately with a background task_id; you are notified automatically when the user answers — do not poll with TaskOutput while the question is pending.',
     ),
+}).refine((data) => questionUniquenessError(data.questions) === null, {
+  message: QUESTION_UNIQUENESS_MESSAGE,
 });
 
 export const AskUserQuestionInputSchema: z.ZodType<AskUserQuestionInput> =
-  AskUserQuestionInputBaseSchema;
+  AskUserQuestionInputBaseSchema.refine(
+    (data) => questionUniquenessError(data.questions) === null,
+    { message: QUESTION_UNIQUENESS_MESSAGE },
+  );
 
 const QUESTION_DISMISSED_MESSAGE = 'User dismissed the question without answering.';
-const QUESTION_EXPIRED_MESSAGE =
-  'The question expired before the user answered it. The user did NOT dismiss it — ask again in your text response if you still need the answer.';
 
 const QUESTION_UNSUPPORTED_FAILURE_MESSAGE =
   'The connected client does not support interactive questions. Do NOT call this tool again. Ask the user directly in your text response instead.';
@@ -121,10 +141,6 @@ export class AskUserQuestionTool implements BuiltinTool<AskUserQuestionInput> {
   }
 
   resolveExecution(args: AskUserQuestionInput): ToolExecution {
-    const inputError = duplicateQuestionError(args.questions);
-    if (inputError !== undefined) {
-      return { isError: true, output: inputError };
-    }
     const isBackground = args.background === true;
     return {
       description: isBackground
@@ -140,14 +156,22 @@ export class AskUserQuestionTool implements BuiltinTool<AskUserQuestionInput> {
     {
       toolCallId,
       signal,
+      traceId,
       turnId,
     }: ExecutableToolContext,
   ): Promise<ExecutableToolResult> {
-    if (args.background === true) {
-      return this.executeInBackground(args, { toolCallId, turnId, signal });
+    // AJV (the runtime arg validator) cannot express the uniqueness refine,
+    // so enforce it here before any UI interaction or task registration.
+    const uniquenessError = questionUniquenessError(args.questions);
+    if (uniquenessError !== null) {
+      return { isError: true, output: uniquenessError };
     }
 
-    return this.executeQuestion(args, { toolCallId, turnId, signal });
+    if (args.background === true) {
+      return this.executeInBackground(args, { toolCallId, turnId, signal, traceId });
+    }
+
+    return this.executeQuestion(args, { toolCallId, turnId, signal, traceId });
   }
 
   private inputSchema(): z.ZodType<AskUserQuestionInput> {
@@ -159,8 +183,9 @@ export class AskUserQuestionTool implements BuiltinTool<AskUserQuestionInput> {
     {
       toolCallId,
       signal,
+      traceId,
       turnId,
-    }: Pick<ExecutableToolContext, 'toolCallId' | 'signal' | 'turnId'>,
+    }: Pick<ExecutableToolContext, 'toolCallId' | 'signal' | 'traceId' | 'turnId'>,
   ): Promise<ExecutableToolResult> {
     try {
       const result = await this.agent.rpc!.requestQuestion!(
@@ -173,10 +198,8 @@ export class AskUserQuestionTool implements BuiltinTool<AskUserQuestionInput> {
             options: q.options.map((o) => ({
               label: o.label,
               description: o.description,
-              preview: o.preview,
             })),
             multiSelect: q.multi_select,
-            otherLabel: 'Other',
           })),
         },
         { signal },
@@ -184,29 +207,21 @@ export class AskUserQuestionTool implements BuiltinTool<AskUserQuestionInput> {
 
       const normalized = normalizeQuestionResult(result);
       if (normalized === null || Object.keys(normalized.answers).length === 0) {
-        const source = args.metadata?.source;
-        if (source === undefined) {
-          this.agent.telemetry.track('question_dismissed');
-        } else {
-          this.agent.telemetry.track('question_dismissed', { source });
-        }
+        this.agent.telemetry.track('question_dismissed', {
+          trace_id: traceId,
+        });
         return dismissedQuestionResult();
       }
 
       const properties: Record<string, TelemetryPropertyValue> = {
         answered: Object.keys(normalized.answers).length,
+        trace_id: traceId,
       };
       if (normalized.method !== undefined) properties['method'] = normalized.method;
-      if (args.metadata?.source !== undefined) properties['source'] = args.metadata.source;
       this.agent.telemetry.track('question_answered', properties);
-      const output: {
-        answers: QuestionAnswers;
-        annotations?: QuestionAnnotations;
-      } = { answers: normalized.answers };
-      if (normalized.annotations !== undefined) output.annotations = normalized.annotations;
       return {
         isError: false,
-        output: JSON.stringify(output),
+        output: JSON.stringify({ answers: normalized.answers }),
       };
     } catch (error) {
       if (isAbortError(error) || signal.aborted) throw error;
@@ -218,23 +233,7 @@ export class AskUserQuestionTool implements BuiltinTool<AskUserQuestionInput> {
         };
       }
 
-      if (error instanceof PythinkerError && error.code === ErrorCodes.QUESTION_EXPIRED) {
-        const source = args.metadata?.source;
-        if (source === undefined) {
-          this.agent.telemetry.track('question_expired');
-        } else {
-          this.agent.telemetry.track('question_expired', { source });
-        }
-        return {
-          isError: false,
-          output: JSON.stringify({ answers: {}, note: QUESTION_EXPIRED_MESSAGE }),
-        };
-      }
-
-      return {
-        isError: true,
-        output: `The question could not be delivered or answered: ${errorMessage(error)}`,
-      };
+      return dismissedQuestionResult();
     }
   }
 
@@ -243,8 +242,9 @@ export class AskUserQuestionTool implements BuiltinTool<AskUserQuestionInput> {
     {
       toolCallId,
       signal,
+      traceId,
       turnId,
-    }: Pick<ExecutableToolContext, 'toolCallId' | 'signal' | 'turnId'>,
+    }: Pick<ExecutableToolContext, 'toolCallId' | 'signal' | 'traceId' | 'turnId'>,
   ): ExecutableToolResult {
     if (signal.aborted) {
       signal.throwIfAborted();
@@ -256,7 +256,8 @@ export class AskUserQuestionTool implements BuiltinTool<AskUserQuestionInput> {
     try {
       taskId = backgroundManager.registerTask(
         new QuestionBackgroundTask(
-          (taskSignal) => this.executeQuestion(args, { toolCallId, turnId, signal: taskSignal }),
+          (taskSignal) =>
+            this.executeQuestion(args, { toolCallId, turnId, signal: taskSignal, traceId }),
           description,
           {
             questionCount: args.questions.length,
@@ -288,29 +289,6 @@ export class AskUserQuestionTool implements BuiltinTool<AskUserQuestionInput> {
   }
 }
 
-function duplicateQuestionError(
-  questions: readonly AskUserQuestionInput['questions'][number][],
-): string | undefined {
-  const message =
-    'Question texts must be unique, option labels must be unique within each question.';
-  const questionTexts = new Set<string>();
-  for (const question of questions) {
-    if (questionTexts.has(question.question)) {
-      return message;
-    }
-    questionTexts.add(question.question);
-
-    const labels = new Set<string>();
-    for (const option of question.options) {
-      if (labels.has(option.label)) {
-        return message;
-      }
-      labels.add(option.label);
-    }
-  }
-  return undefined;
-}
-
 function dismissedQuestionResult(): ExecutableToolResult {
   return {
     isError: false,
@@ -336,17 +314,12 @@ function questionDescription(questions: AskUserQuestionInput['questions']): stri
 
 function normalizeQuestionResult(
   result: QuestionResult,
-): {
-  readonly answers: QuestionAnswers;
-  readonly method?: QuestionAnswerMethod;
-  readonly annotations?: QuestionAnnotations;
-} | null {
+): { readonly answers: QuestionAnswers; readonly method?: QuestionAnswerMethod | undefined } | null {
   if (result === null) return null;
   if (isQuestionResponse(result)) {
     return {
       answers: result.answers,
       method: result.method,
-      annotations: result.annotations,
     };
   }
   return { answers: result };

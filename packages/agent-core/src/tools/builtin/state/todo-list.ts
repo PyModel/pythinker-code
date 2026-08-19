@@ -18,10 +18,6 @@ import { z } from 'zod';
 import type { BuiltinTool } from '../../../agent/tool';
 import type { ToolExecution } from '../../../loop/types';
 import { toInputJsonSchema } from '../../support/input-schema';
-import {
-  needsVerificationNudge,
-  VERIFICATION_NUDGE,
-} from '../../support/verification-nudge';
 import type { ToolStore } from '../../store';
 import DESCRIPTION from './todo-list.md?raw';
 
@@ -36,7 +32,6 @@ export type TodoStatus = 'pending' | 'in_progress' | 'done';
 
 export interface TodoItem {
   readonly title: string;
-  readonly activeForm?: string;
   readonly status: TodoStatus;
 }
 
@@ -48,35 +43,18 @@ declare module '../../store' {
 
 // ── Schema ───────────────────────────────────────────────────────────
 
-const TodoInputStatusSchema = z
-  .enum(['pending', 'in_progress', 'done', 'completed'])
-  .describe('Current status of the todo. done and completed are equivalent.');
-
-const NativeTodoItemSchema = z.object({
+const TodoItemSchema = z.object({
   title: z.string().min(1).describe('Short, actionable title for the todo.'),
-  activeForm: z.string().min(1).optional().describe('Present-continuous activity label.'),
-  status: TodoInputStatusSchema,
+  status: z.enum(['pending', 'in_progress', 'done']).describe('Current status of the todo.'),
 });
-
-// Accept the older TodoWrite-style shape for compatibility, then normalize it
-// into the native TodoList store/render contract below.
-const TodoWriteItemSchema = z.object({
-  content: z.string().min(1).describe('Imperative description of the task.'),
-  activeForm: z.string().min(1).describe('Present-continuous activity label.'),
-  status: TodoInputStatusSchema,
-});
-
-type TodoListInputItem =
-  | z.infer<typeof NativeTodoItemSchema>
-  | z.infer<typeof TodoWriteItemSchema>;
 
 export interface TodoListInput {
-  todos?: TodoListInputItem[];
+  todos?: Array<{ title: string; status: TodoStatus }>;
 }
 
 export const TodoListInputSchema: z.ZodType<TodoListInput> = z.object({
   todos: z
-    .array(z.union([NativeTodoItemSchema, TodoWriteItemSchema]))
+    .array(TodoItemSchema)
     .optional()
     .describe(
       'The updated todo list. Omit to read the current todo list without making changes. Pass an empty array to clear the list.',
@@ -116,10 +94,7 @@ export class TodoListTool implements BuiltinTool<TodoListInput> {
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(TodoListInputSchema);
 
-  constructor(
-    private readonly store: ToolStore,
-    private readonly mainAgent = true,
-  ) {}
+  constructor(private readonly store: ToolStore) {}
 
   resolveExecution(args: TodoListInput): ToolExecution {
     const description =
@@ -130,6 +105,10 @@ export class TodoListTool implements BuiltinTool<TodoListInput> {
           : 'Updating todo list';
     return {
       description,
+      display: {
+        kind: 'todo_list',
+        items: (args.todos ?? this.getTodos()).map((todo) => ({ ...todo })),
+      },
       approvalRule: this.name,
       execute: async () => {
         // Query mode — return the current list without mutation.
@@ -138,21 +117,13 @@ export class TodoListTool implements BuiltinTool<TodoListInput> {
           return { isError: false, output: renderTodoList(current) };
         }
 
-        if (args.todos.length === 0) {
-          this.setTodos([]);
-          return { isError: false, output: 'Todo list cleared.' };
-        }
-
-        const todos = args.todos.map(normalizeTodoItem);
-        const allDone = todos.every((todo) => todo.status === 'done');
-        const verificationNudge =
-          this.mainAgent &&
-          allDone &&
-          needsVerificationNudge(todos.map((todo) => todo.title))
-            ? VERIFICATION_NUDGE
-            : '';
-        this.setTodos(allDone ? [] : todos);
-        const output = `Todo list updated.\n${renderTodoList(todos)}\n\n${TODO_LIST_WRITE_REMINDER}${verificationNudge}`;
+        // Write mode — replace the full list and return the new state.
+        this.setTodos(args.todos);
+        const stored = this.getTodos();
+        const output =
+          stored.length === 0
+            ? 'Todo list cleared.'
+            : `Todo list updated.\n${renderTodoList(stored)}\n\n${TODO_LIST_WRITE_REMINDER}`;
         return { isError: false, output };
       },
     };
@@ -166,27 +137,7 @@ export class TodoListTool implements BuiltinTool<TodoListInput> {
   private setTodos(todos: readonly TodoItem[]): void {
     this.store.set(
       TODO_STORE_KEY,
-      todos.map((todo) => ({
-        title: todo.title,
-        activeForm: todo.activeForm,
-        status: todo.status,
-      })),
+      todos.map((todo) => ({ title: todo.title, status: todo.status })),
     );
   }
-}
-
-function normalizeTodoItem(todo: TodoListInputItem): TodoItem {
-  const status = todo.status === 'completed' ? 'done' : todo.status;
-  if ('title' in todo) {
-    return {
-      title: todo.title,
-      activeForm: todo.activeForm,
-      status,
-    };
-  }
-  return {
-    title: todo.content,
-    activeForm: todo.activeForm,
-    status,
-  };
 }

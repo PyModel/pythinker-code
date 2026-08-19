@@ -6,10 +6,13 @@ import {
   formatThinkingSpinnerLabel,
   THINKING_SPINNER_LABEL_INTERVAL_MS,
 } from '../lib/thinkingSpinnerLabels';
+import {
+  BRAILLE_SPINNER_FRAMES,
+  BRAILLE_SPINNER_FRAME_MS,
+} from '../lib/brailleSpinner';
 
-const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-const SPINNER_FRAME_MS = 80;
-const SPINNER_FAST_FRAME_MS = 40;
+const SPINNER_CYCLE_MS = BRAILLE_SPINNER_FRAMES.length * BRAILLE_SPINNER_FRAME_MS;
+const SPINNER_FAST_FRAME_MS = BRAILLE_SPINNER_FRAME_MS / 2;
 
 const props = defineProps<{
   fast?: boolean;
@@ -37,8 +40,8 @@ const displayLabel = computed(() =>
 
 function spinnerFrameStyle(index: number): Record<string, string> {
   return {
-    '--spinner-frame-delay': `${index * SPINNER_FRAME_MS}ms`,
-    '--spinner-frame-fast-delay': `${index * SPINNER_FAST_FRAME_MS}ms`,
+    '--spinner-frame-delay': `${index * BRAILLE_SPINNER_FRAME_MS - SPINNER_CYCLE_MS}ms`,
+    '--spinner-frame-fast-delay': `${index * SPINNER_FAST_FRAME_MS - SPINNER_CYCLE_MS / 2}ms`,
   };
 }
 </script>
@@ -46,7 +49,7 @@ function spinnerFrameStyle(index: number): Record<string, string> {
 <template>
   <span class="activity-spin" :class="{ 'activity-spin--fast': fast }" :aria-label="displayLabel" role="img">
     <span
-      v-for="(frame, index) in SPINNER_FRAMES"
+      v-for="(frame, index) in BRAILLE_SPINNER_FRAMES"
       :key="frame"
       class="activity-frame"
       :style="spinnerFrameStyle(index)"
@@ -77,21 +80,26 @@ function spinnerFrameStyle(index: number): Record<string, string> {
   text-align: center;
   opacity: 0;
   animation-name: activity-frame;
-  animation-duration: 800ms;
+  animation-duration: 640ms;
   animation-timing-function: steps(1, end);
   animation-iteration-count: infinite;
   animation-delay: var(--spinner-frame-delay);
 }
 
 .activity-spin--fast .activity-frame {
-  animation-duration: 400ms;
+  animation-duration: 320ms;
   animation-delay: var(--spinner-frame-fast-delay);
 }
 
 @keyframes activity-frame {
   0%,
-  9.99% { opacity: 1; }
-  10%,
+  12.49% { opacity: 1; }
+  12.5%,
   100% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .activity-frame { animation: none; }
+  .activity-frame:first-child { opacity: 1; }
 }
 </style>

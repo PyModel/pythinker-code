@@ -1,9 +1,11 @@
-import { visibleWidth } from '@earendil-works/pi-tui';
+import { pathToFileURL } from 'node:url';
+
+import { visibleWidth } from '@pymodel/pi-tui';
 import { describe, expect, it } from 'vitest';
 
 import { PlanBoxComponent } from '#/tui/components/messages/plan-box';
 import { darkColors } from '#/tui/theme/colors';
-import { createPythinkerMarkdownTheme } from '#/tui/theme';
+import { createMarkdownTheme } from '#/tui/theme/pi-tui-theme';
 
 const ESC = String.fromCodePoint(0x1b);
 const BEL = String.fromCodePoint(0x07);
@@ -16,7 +18,7 @@ function strip(text: string): string {
     .replaceAll(new RegExp(`${ESC}\\]8;;[^${BEL}]*${BEL}`, 'g'), '');
 }
 
-const theme = createPythinkerMarkdownTheme();
+const theme = createMarkdownTheme();
 
 describe('PlanBoxComponent', () => {
   it('falls back to bare " plan " title when no path is provided', () => {
@@ -70,7 +72,7 @@ describe('PlanBoxComponent', () => {
   it('wraps the basename in an OSC 8 hyperlink targeting file://', () => {
     const box = new PlanBoxComponent('# Hello', theme, darkColors.success, '/tmp/plan.md');
     const top = box.render(60)[0]!;
-    expect(top).toContain(`${ESC}]8;;file:///tmp/plan.md${BEL}plan.md${ESC}]8;;${BEL}`);
+    expect(top).toContain(`${ESC}]8;;${pathToFileURL('/tmp/plan.md').href}${BEL}plan.md${ESC}]8;;${BEL}`);
     // After stripping OSC + CSI, visible width must respect the requested render width.
     expect(strip(top).length).toBeLessThanOrEqual(60);
   });

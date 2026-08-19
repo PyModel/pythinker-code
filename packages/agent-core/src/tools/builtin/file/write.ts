@@ -1,7 +1,8 @@
 /**
  * WriteTool — overwrite or append to a file.
  *
- * Creates the file and any missing parent directories if needed.
+ * Creates the file if it does not exist. Missing parent directories are
+ * created automatically, mirroring `mkdir(parents=True, exist_ok=True)`.
  * Path access policy is resolved before any Kaos I/O.
  */
 
@@ -16,7 +17,6 @@ import { resolvePathAccessPath } from '../../policies/path-access';
 import { toInputJsonSchema } from '../../support/input-schema';
 import { literalRulePattern, matchesPathRuleSubject } from '../../support/rule-match';
 import type { WorkspaceConfig } from '../../support/workspace';
-import type { FileReadState } from './read';
 import WRITE_DESCRIPTION from './write.md?raw';
 
 /** Mask isolating the file-type bits of a stat mode. */
@@ -24,15 +24,11 @@ const S_IFMT = 0o170000;
 /** File-type bits of a directory. */
 const S_IFDIR = 0o040000;
 
-function isFileNotFoundError(error: unknown): boolean {
-  return (error as { code?: unknown } | null)?.code === 'ENOENT';
-}
-
 export const WriteInputSchema = z.object({
   path: z
     .string()
     .describe(
-      'Path to the file to create, append to, or completely overwrite. Relative paths resolve against the working directory; a path outside the working directory must be absolute. Missing parent directories are created.',
+      'Path to the file to create, append to, or completely overwrite. Relative paths resolve against the working directory; a path outside the working directory must be absolute. Missing parent directories are created automatically.',
     ),
   content: z
     .string()
@@ -63,8 +59,6 @@ export class WriteTool implements BuiltinTool<WriteInput> {
   constructor(
     private readonly kaos: Kaos,
     private readonly workspace: WorkspaceConfig,
-    private readonly readState?: FileReadState,
-    private readonly beforeWrite?: (path: string) => Promise<void>,
   ) {}
 
   resolveExecution(args: WriteInput): ToolExecution {
@@ -89,60 +83,17 @@ export class WriteTool implements BuiltinTool<WriteInput> {
   }
 
   private async execution(args: WriteInput, safePath: string): Promise<ExecutableToolResult> {
-    const parentError = await this.prepareParentDirectory(safePath);
+    const parentError = await this.ensureParentDirectory(safePath);
     if (parentError !== undefined) {
       return { isError: true, output: parentError };
     }
 
     try {
-      if (this.readState !== undefined) {
-        let mtime: number | undefined;
-        try {
-          mtime = (await this.kaos.stat(safePath)).stMtime;
-        } catch (error) {
-          if (!isFileNotFoundError(error)) throw error;
-        }
-        if (mtime !== undefined) {
-          const snapshot = this.readState.get(safePath);
-          if (snapshot === undefined) {
-            return {
-              isError: true,
-              output: 'File has not been read yet. Use Read before overwriting it.',
-            };
-          }
-          if (snapshot.isPartialView === true) {
-            return {
-              isError: true,
-              output: 'A complete Read is required before overwriting this file.',
-            };
-          }
-          if (snapshot.mtime !== mtime) {
-            return {
-              isError: true,
-              output:
-                'File has been modified since it was read. Read it again before overwriting.',
-            };
-          }
-        }
-      }
-
       const mode = args.mode ?? 'overwrite';
-      await this.beforeWrite?.(safePath);
       if (mode === 'append') {
         await this.kaos.writeText(safePath, args.content, { mode: 'a' });
       } else {
         await this.kaos.writeText(safePath, args.content);
-      }
-      if (this.readState !== undefined) {
-        try {
-          this.readState.set(safePath, {
-            mtime: (await this.kaos.stat(safePath)).stMtime,
-            range: 'written',
-            isPartialView: false,
-          });
-        } catch {
-          this.readState.delete(safePath);
-        }
       }
       // Report the number of UTF-8 bytes this call wrote to disk. The string
       // length would only equal the byte count for pure ASCII content, so it
@@ -167,16 +118,22 @@ export class WriteTool implements BuiltinTool<WriteInput> {
   }
 
   /**
-   * Ensure that the parent directory exists and is a directory.
+   * Best-effort check that the parent directory is usable, creating it when
+   * it is missing.
    *
-   * The path schema documents this precondition; probing it up front turns a
-   * missing parents are created using Kaos' platform-neutral recursive mkdir.
+   * If the parent (or any ancestor) does not exist, it is created
+   * recursively — mirroring Python's `Path.mkdir(parents=True,
+   * exist_ok=True)` — so the agent does not need a separate `mkdir` round
+   * trip before writing into a fresh subfolder. An existing parent that is
+   * not a directory is still a hard error. Any other `stat` failure
+   * (permissions, an environment without `stat`) is treated as
+   * inconclusive: the check is skipped and the write proceeds, surfacing
+   * the real I/O error if any.
+   *
    * Returns an error string when the precondition is definitively violated,
-   * or `undefined` otherwise. Any other `stat` failure (permissions, an
-   * environment without `stat`) is treated as inconclusive: the check is
-   * skipped and the write proceeds, surfacing the real I/O error if any.
+   * or `undefined` otherwise.
    */
-  private async prepareParentDirectory(safePath: string): Promise<string | undefined> {
+  private async ensureParentDirectory(safePath: string): Promise<string | undefined> {
     const parent = dirname(safePath);
     let stat;
     try {
@@ -185,11 +142,9 @@ export class WriteTool implements BuiltinTool<WriteInput> {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
         try {
           await this.kaos.mkdir(parent, { parents: true, existOk: true });
-          return;
+          return undefined;
         } catch (mkdirError) {
-          return `Failed to create parent directory ${parent}: ${
-            mkdirError instanceof Error ? mkdirError.message : String(mkdirError)
-          }`;
+          return mkdirError instanceof Error ? mkdirError.message : String(mkdirError);
         }
       }
       return undefined;

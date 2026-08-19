@@ -16,21 +16,17 @@
 import type { ModelAlias } from '@pymodel/pythinker-code-sdk';
 import {
   Container,
+  Key,
+  matchesKey,
   truncateToWidth,
-  visibleWidth,
   type Focusable,
-} from '@earendil-works/pi-tui';
+} from '@pymodel/pi-tui';
 
-import {
-  defaultKeybindings,
-  KeybindingResolver,
-  type ParsedKeybinding,
-} from '#/tui/keybindings';
 import { currentTheme } from '#/tui/theme';
+import { renderTabStrip } from '#/tui/utils/tab-strip';
 
 import {
   ModelSelectorComponent,
-  normalizeModelChoices,
   providerDisplayName,
   type ModelSelection,
   type ModelSelectorOptions,
@@ -43,11 +39,23 @@ export interface TabbedModelSelectorOptions {
   readonly models: Record<string, ModelAlias>;
   readonly currentValue: string;
   readonly selectedValue?: string;
-  readonly currentEffort: string;
+  readonly currentThinkingEffort: string;
+  /** Forwarded to each inner selector; overrides the default ' Select a model'
+   * title line. */
+  readonly title?: string;
   /** When set, the tab for this provider id is initially active instead of the
    * tab derived from `currentValue`. */
   readonly initialTabId?: string;
+  /** When set, warning-colored lines are rendered directly below the key-hint
+   * line, wrapping as needed (e.g. the mid-conversation switch cost notice). */
+  readonly warning?: string;
+  /** Forwarded to each inner selector; set to false to hide the Thinking
+   * footer and disable ←/→ effort switching. */
+  readonly thinkingControl?: boolean;
   readonly onSelect: (selection: ModelSelection) => void;
+  /** Forwarded to each inner selector; when set, Alt+S applies the choice to
+   * the current session only without persisting it as the default. */
+  readonly onSessionOnlySelect?: (selection: ModelSelection) => void;
   readonly onCancel: () => void;
 }
 
@@ -62,55 +70,36 @@ export class TabbedModelSelectorComponent extends Container implements Focusable
   private readonly opts: TabbedModelSelectorOptions;
   private readonly tabs: readonly ModelTab[];
   private activeIndex: number;
-  private keybindings = new KeybindingResolver(defaultKeybindings());
 
   constructor(opts: TabbedModelSelectorOptions) {
     super();
     this.opts = opts;
     this.tabs = buildTabs(opts);
 
-    const selectedCandidate = opts.selectedValue ?? opts.currentValue;
-    const initialTabId =
-      opts.initialTabId ??
-      opts.models[selectedCandidate]?.provider ??
-      Object.values(opts.models).find((model) =>
-        selectedCandidate.startsWith(`${model.provider}/`),
-      )?.provider;
-    const initialTabIdx = initialTabId
-      ? this.tabs.findIndex((tab) => tab.id === initialTabId)
+    // Default to the "All" tab. Only an explicit initialTabId (e.g. the
+    // provider just added via /provider) opens on a specific provider tab —
+    // the current model is still highlighted inside whichever tab is active.
+    const initialTabIdx = opts.initialTabId
+      ? this.tabs.findIndex((tab) => tab.id === opts.initialTabId)
       : -1;
     this.activeIndex = Math.max(initialTabIdx, 0);
     this.syncFocusToActive();
   }
 
-  setKeybindings(bindings: readonly ParsedKeybinding[]): void {
-    this.keybindings = new KeybindingResolver(bindings);
-    for (const tab of this.tabs) tab.selector.setKeybindings(bindings);
-  }
-
   handleInput(data: string): void {
-    if (this.tabs[this.activeIndex]?.selector.handleInput(data) === true) return;
-
-    const handlers = {
-      'tabs:next': () => {
-        if (this.tabs.length > 1) {
-          this.activeIndex = (this.activeIndex + 1) % this.tabs.length;
-          this.syncFocusToActive();
-        }
-      },
-      'tabs:previous': () => {
-        if (this.tabs.length > 1) {
-          this.activeIndex = (this.activeIndex - 1 + this.tabs.length) % this.tabs.length;
-          this.syncFocusToActive();
-        }
-      },
-    } as const;
-    if (
-      this.keybindings.dispatch(data, ['Tabs'], handlers) ||
-      this.keybindings.dispatchKeyId(data, ['Tabs'], handlers)
-    ) {
-      return;
+    if (this.tabs.length > 1) {
+      if (matchesKey(data, Key.tab)) {
+        this.activeIndex = (this.activeIndex + 1) % this.tabs.length;
+        this.syncFocusToActive();
+        return;
+      }
+      if (matchesKey(data, Key.shift('tab'))) {
+        this.activeIndex = (this.activeIndex - 1 + this.tabs.length) % this.tabs.length;
+        this.syncFocusToActive();
+        return;
+      }
     }
+    this.tabs[this.activeIndex]?.selector.handleInput(data);
   }
 
   override render(width: number): string[] {
@@ -120,19 +109,20 @@ export class TabbedModelSelectorComponent extends Container implements Focusable
     if (this.tabs.length <= 1) {
       return inner.map((line) => truncateToWidth(line, width));
     }
-    // Layout: divider, title, hint, blank, tab strip, blank, then the model
-    // list. The inner selector's blank line (inner[3]) separates the hint from
-    // the tab strip; an extra blank separates the tabs from their list.
-    const stripLine = this.renderTabStrip(width);
-    const out: string[] = [
-      inner[0] ?? '',
-      inner[1] ?? '',
-      inner[2] ?? '',
-      inner[3] ?? '',
-      stripLine,
-      '',
-    ];
-    for (let i = 4; i < inner.length; i++) out.push(inner[i]!);
+    // Layout: divider, title, hint, optional warning, blank, tab strip, blank,
+    // then the model list. The header ends at its first blank line — keep that
+    // blank above the strip, and separate the tabs from the list with another
+    // blank.
+    const stripLine = renderTabStrip({
+      labels: this.tabs.map((tab) => tab.label),
+      activeIndex: this.activeIndex,
+      width,
+      colors: currentTheme.palette,
+    });
+    const headerEnd = inner.findIndex((line) => line === '');
+    const splitAt = headerEnd === -1 ? 3 : headerEnd;
+    const out: string[] = [...inner.slice(0, splitAt + 1), stripLine, ''];
+    for (let i = splitAt + 1; i < inner.length; i++) out.push(inner[i]!);
     return out.map((line) => truncateToWidth(line, width));
   }
 
@@ -143,100 +133,16 @@ export class TabbedModelSelectorComponent extends Container implements Focusable
     }
   }
 
-  selectedAlias(): string | undefined {
-    return this.tabs[this.activeIndex]?.selector.selectedAlias();
-  }
-
-  activeTabId(): string | undefined {
-    return this.tabs[this.activeIndex]?.id;
-  }
-
   private syncFocusToActive(): void {
     for (let i = 0; i < this.tabs.length; i++) {
       const tab = this.tabs[i]!;
       tab.selector.focused = this.focused && i === this.activeIndex;
     }
   }
-
-  /** Style a tab segment. The active tab is filled with the brand background
-   * (matching the AskUserQuestion dialog); inactive tabs are muted. Both have
-   * the same visible width so switching never shifts the layout. */
-  private styleTab(label: string, isActive: boolean): string {
-    const cell = ` ${label} `;
-    return isActive
-      ? currentTheme.bg('selectionBg', currentTheme.boldFg('inverseText', cell))
-      : currentTheme.fg('textMuted', cell);
-  }
-
-  private renderTabStrip(width: number): string {
-    const segments: string[] = [];
-    for (let i = 0; i < this.tabs.length; i++) {
-      const tab = this.tabs[i]!;
-      segments.push(this.styleTab(tab.label, i === this.activeIndex));
-    }
-
-    // If everything fits with a leading space, show the whole strip. The
-    // provider-switch hint lives in the inner selector's hint line, not here.
-    const totalSegmentWidth = segments.reduce((sum, s) => sum + visibleWidth(s), 0);
-    if (1 + totalSegmentWidth <= width) {
-      return ' ' + segments.join(' ');
-    }
-
-    // Scrolling needed. Find the widest window that contains activeIndex.
-    const segmentWidths = segments.map((s) => visibleWidth(s));
-    let start = this.activeIndex;
-    let end = this.activeIndex + 1;
-    let contentWidth = segmentWidths[this.activeIndex]!;
-
-    const fits = (s: number, e: number, cw: number): boolean => {
-      const needLeft = s > 0;
-      const needRight = e < segments.length;
-      const frameWidth = (needLeft ? 2 : 1) + (needRight ? 2 : 0);
-      return cw + frameWidth <= width;
-    };
-
-    while (true) {
-      const leftW = start > 0 ? segmentWidths[start - 1]! : Infinity;
-      const rightW = end < segments.length ? segmentWidths[end]! : Infinity;
-      if (leftW === Infinity && rightW === Infinity) break;
-
-      if (leftW <= rightW) {
-        if (fits(start - 1, end, contentWidth + leftW)) {
-          contentWidth += leftW;
-          start--;
-        } else if (fits(start, end + 1, contentWidth + rightW)) {
-          contentWidth += rightW;
-          end++;
-        } else {
-          break;
-        }
-      } else {
-        if (fits(start, end + 1, contentWidth + rightW)) {
-          contentWidth += rightW;
-          end++;
-        } else if (fits(start - 1, end, contentWidth + leftW)) {
-          contentWidth += leftW;
-          start--;
-        } else {
-          break;
-        }
-      }
-    }
-
-    const hasLeft = start > 0;
-    const hasRight = end < segments.length;
-    let strip = hasLeft ? currentTheme.fg('textMuted', '< ') : ' ';
-    strip += segments.slice(start, end).join(' ');
-    if (hasRight) {
-      strip += currentTheme.fg('textMuted', ' >');
-    }
-    return strip;
-  }
 }
 
 function buildTabs(opts: TabbedModelSelectorOptions): readonly ModelTab[] {
-  const normalizedModels = normalizeModelChoices(opts.models).models;
-  const entries = Object.entries(normalizedModels);
+  const entries = Object.entries(opts.models);
   const providerIds: string[] = [];
   const seen = new Set<string>();
   for (const [, model] of entries) {
@@ -251,7 +157,7 @@ function buildTabs(opts: TabbedModelSelectorOptions): readonly ModelTab[] {
     {
       id: ALL_TAB_ID,
       label: ALL_TAB_LABEL,
-      selector: makeSelector(opts, normalizedModels),
+      selector: makeSelector(opts, opts.models),
     },
   ];
   for (const providerId of providerIds) {
@@ -277,11 +183,15 @@ function makeSelector(
   const inner: ModelSelectorOptions = {
     models: subset,
     currentValue: opts.currentValue,
-    selectedValue,
-    currentEffort: opts.currentEffort,
+    ...(selectedValue !== undefined ? { selectedValue } : {}),
+    currentThinkingEffort: opts.currentThinkingEffort,
+    title: opts.title,
     searchable: true,
     providerSwitchHint: true,
+    warning: opts.warning,
+    thinkingControl: opts.thinkingControl,
     onSelect: opts.onSelect,
+    onSessionOnlySelect: opts.onSessionOnlySelect,
     onCancel: opts.onCancel,
   };
   return new ModelSelectorComponent(inner);

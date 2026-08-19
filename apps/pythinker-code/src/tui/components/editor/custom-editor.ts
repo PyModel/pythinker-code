@@ -8,32 +8,17 @@ import {
   matchesKey,
   Key,
   SelectList,
-  truncateToWidth,
   visibleWidth,
   type SelectItem,
   type TUI,
-} from '@earendil-works/pi-tui';
+} from '@pymodel/pi-tui';
 
-import { createPythinkerEditorTheme, currentTheme } from '#/tui/theme';
-import { applyBuffer, readBuffer } from '#/tui/editor/vim/editor-bridge';
-import {
-  createRainbowPainter,
-  isRainbowColorActive,
-} from '#/tui/easter-eggs/rainbow-colors';
-import {
-  applyKey,
-  createInitialPersistent,
-  createInitialState,
-} from '#/tui/editor/vim/state-machine';
-import type { PersistentState, VimMode, VimState } from '#/tui/editor/vim/types';
-import {
-  defaultKeybindings,
-  KeybindingResolver,
-  type ParsedKeybinding,
-} from '#/tui/keybindings';
-import { isPrintableChar, printableChar } from '#/tui/utils/printable-key';
+import { currentTheme } from '#/tui/theme';
+import { createEditorTheme } from '#/tui/theme/pi-tui-theme';
+import { printableChar } from '#/tui/utils/printable-key';
 
-import { findSlashAutocompleteContext, getSlashHighlightRanges } from './slash-autocomplete-context';
+import { extractAtPrefix } from './file-mention-provider';
+import { findInlineSkillTokens } from '../../utils/inline-skill-tokens';
 import { WrappingSelectList } from './wrapping-select-list';
 
 // oxlint-disable-next-line no-control-regex -- ESC (\x1b) is required to match ANSI SGR escape sequences
@@ -42,40 +27,6 @@ const ANSI_SGR = /\u001B\[[0-9;]*m/g;
 const PASTE_MARKER_RE = /\[paste #(\d+)(?: (?:\+\d+ lines|\d+ chars))?\]/g;
 const BRACKET_PASTE_START = '\u001B[200~';
 const BRACKET_PASTE_END = '\u001B[201~';
-const CSI_PREFIX = '\u001B[';
-const SS3_PREFIX = '\u001BO';
-
-function isLegacyModifiedInput(data: string): boolean {
-  // Legacy terminals send Ctrl/Alt combos as C0 control bytes or ESC+char
-  // sequences, which never reach the Kitty CSI-u decoder.
-  if (data.length === 1) {
-    const code = data.codePointAt(0) ?? 0;
-    return code < 0x20
-      && data !== '\t'
-      && data !== '\n'
-      && data !== '\r'
-      && data !== '\u001B';
-  }
-  return data.startsWith('\u001B')
-    && !data.startsWith(CSI_PREFIX)
-    && !data.startsWith(SS3_PREFIX)
-    && isPrintableChar(data.slice(1));
-}
-
-function shouldBypassVim(data: string, key: string): boolean {
-  // Decoded CSI-u printables and bare Escape are vim keys, not terminal controls.
-  if (isPrintableChar(key) || data === '\u001B') return false;
-  // Legacy control and Alt sequences belong to app keybindings, as their
-  // Kitty CSI-u equivalents already do.
-  if (isLegacyModifiedInput(data)) return true;
-  // pi-tui exclusively owns bracketed-paste markers and their payload registry.
-  if (data.startsWith(BRACKET_PASTE_START)) return true;
-  // Keep paste disjoint so removing its branch cannot fall through to this CSI branch.
-  return (
-    !data.startsWith(BRACKET_PASTE_START) &&
-    (data.startsWith(CSI_PREFIX) || data.startsWith(SS3_PREFIX))
-  );
-}
 
 // Kitty keyboard protocol CSI-u sequence: ESC [ keycode ; modifier[:eventType] u.
 // We intentionally match only the simple two-field form — enough to rewrite
@@ -90,19 +41,17 @@ const SHIFT_BIT = 1;
 
 interface AutocompleteInternals {
   cancelAutocomplete(): void;
-  requestAutocomplete?(options: { force: boolean; explicitTab: boolean }): void;
   readonly autocompleteAbort?: AbortController;
   readonly autocompleteDebounceTimer?: ReturnType<typeof setTimeout>;
-  readonly autocompletePrefix?: string;
-  readonly autocompleteList?: { getSelectedItem(): SelectItem | undefined };
 }
 
 interface AutocompleteListFactoryInternals {
   createAutocompleteList?: (prefix: string, items: SelectItem[]) => SelectList;
 }
 
-export interface CustomEditorOptions {
-  readonly vimMode?: boolean;
+interface AutocompleteTriggerInternals {
+  tryTriggerAutocomplete: (explicitTab?: boolean) => void;
+  requestAutocomplete: (options: { force: boolean; explicitTab: boolean }) => void;
 }
 
 // Mirror pi-tui's private SLASH_COMMAND_SELECT_LIST_LAYOUT
@@ -165,85 +114,28 @@ function stripSgr(s: string): string {
   return s.replace(ANSI_SGR, '');
 }
 
-function findCursorMarkerRange(
-  line: string,
-): { rawStart: number; rawEnd: number; visibleStart: number; currentChar: string | undefined } | null {
-  const rawStart = line.indexOf('\u001B[7m');
-  if (rawStart < 0) return null;
-  const rawEnd = line.indexOf('\u001B[0m', rawStart);
-  if (rawEnd < 0) return null;
-  const visibleStart = stripSgr(line.slice(0, rawStart)).length;
-  const visible = stripSgr(line);
-  return {
-    rawStart,
-    rawEnd: rawEnd + '\u001B[0m'.length,
-    visibleStart,
-    currentChar: visible[visibleStart],
-  };
-}
-
-export function buildAutocompleteGhostSuffix(prefix: string, item: SelectItem): string | null {
-  if (prefix.startsWith('/')) {
-    const typed = prefix.slice(1);
-    if (!item.value.startsWith(typed)) return null;
-    return `${item.value.slice(typed.length)} `;
-  }
-  if (!item.value.startsWith(prefix)) return null;
-  return item.value.slice(prefix.length);
-}
-
-export function insertAutocompleteGhost(line: string, ghostText: string): string | undefined {
-  if (ghostText.length === 0) return undefined;
-  const cursor = findCursorMarkerRange(line);
-  if (cursor === null) return undefined;
-  if (cursor.currentChar !== undefined && cursor.currentChar !== ' ' && cursor.currentChar !== '\t') {
-    return undefined;
-  }
-
-  const visible = stripSgr(line);
-  const insertStartVisible = cursor.visibleStart + 1;
-  let insertEndVisible = insertStartVisible;
-  while (insertEndVisible < visible.length) {
-    const ch = visible[insertEndVisible];
-    if (ch !== ' ' && ch !== '\t') break;
-    insertEndVisible += 1;
-  }
-
-  const availableWidth = insertEndVisible - insertStartVisible;
-  const ghostPlain = stripSgr(truncateToWidth(ghostText, availableWidth + 1, ''));
-  const ghostWidth = visibleWidth(ghostPlain);
-  if (ghostWidth <= 0) return undefined;
-
-  const rawEnd = Math.max(
-    mapVisibleIdxToRaw(line, cursor.visibleStart + ghostWidth),
-    cursor.rawEnd,
-  );
-  const firstGhostChar = ghostPlain[0] ?? '';
-  const rest = ghostPlain.slice(firstGhostChar.length);
-  const ghost = rest.length === 0 ? '' : currentTheme.fg('textMuted', rest);
-  return (
-    line.slice(0, cursor.rawStart) +
-    `\u001B[7m${firstGhostChar}\u001B[0m` +
-    ghost +
-    line.slice(rawEnd)
-  );
+interface CustomEditorOptions {
+  disablePasteBurst?: boolean;
 }
 
 export class CustomEditor extends Editor {
   public onEscape?: () => void;
+  /**
+   * Fired for every input that is not a lone Escape. Used to disarm a pending
+   * double-Esc so only two consecutive Escape presses trigger the shortcut.
+   */
+  public onNonEscapeInput?: () => void;
   public onCtrlD?: () => void;
   public onCtrlC?: () => void;
-  public onRedraw?: () => void;
   public onToggleToolExpand?: () => void;
   public onOpenExternalEditor?: () => void;
-  public onSearchHistory?: () => void;
-  public onMessageActions?: () => void;
   public onCtrlS?: () => void;
-  public onCycleEffort?: () => void;
+  /** Return `true` to consume Ctrl+B; return `false`/`undefined` to fall through to the editor default (cursor-left). */
+  public onCtrlB?: () => boolean;
+  /** Return `true` to consume Ctrl+T (the todo list had overflow to toggle); return `false`/`undefined` to fall through to the editor default. */
+  public onToggleTodoExpand?: () => boolean;
   public onUndo?: () => void;
-  public onInsertNewline?: () => void;
   public onTextPaste?: () => void;
-  public onCommand?: (command: string) => void;
   /**
    * Called when ↑ is pressed in an empty editor. Return `true` to consume
    * the key (e.g. recalled a queued message); return `false` to fall
@@ -251,6 +143,11 @@ export class CustomEditor extends Editor {
    */
   public onUpArrowEmpty?: () => boolean;
   public onDownArrowEmpty?: () => boolean;
+  public onShiftTab?: () => void;
+  /** 'bash' when entering a `!` shell command. The `!` is never part of the
+   *  text buffer — it is a separate mode + prompt symbol (see handleInput). */
+  public inputMode: 'prompt' | 'bash' = 'prompt';
+  public onInputModeChange?: (mode: 'prompt' | 'bash') => void;
   public connectedAbove = false;
   public borderHighlighted = false;
   /**
@@ -258,31 +155,39 @@ export class CustomEditor extends Editor {
    * Alt-V on Windows — Ctrl-V is terminal-reserved there). Return
    * `true` to consume the key (image was read and handled); return
    * `false` to let the key fall through to the normal paste path.
-   * The callback may be async; pi-tui awaits it before dispatching
-   * the next keystroke.
+   * The callback may be async; CustomEditor queues subsequent keystrokes until
+   * it settles before dispatching them.
    */
   public onPasteImage?: () => Promise<boolean>;
 
   private consumingPaste = false;
   private consumeBuffer = '';
-  private vimState?: VimState;
-  private vimPersistent?: PersistentState;
-  private keybindings = new KeybindingResolver(defaultKeybindings());
+  /** Serialize paste callbacks so Enter/typing cannot overtake an image paste. */
+  private pasteInFlight = false;
+  private readonly pasteInputQueue: string[] = [];
+  private argumentHints: ReadonlyMap<string, string> = new Map();
+  private skillCommandNames: ReadonlySet<string> = new Set();
 
-  constructor(tui: TUI, options?: CustomEditorOptions) {
+  setArgumentHints(hints: ReadonlyMap<string, string>): void {
+    this.argumentHints = hints;
+  }
+
+  setSkillCommandNames(names: ReadonlySet<string>): void {
+    this.skillCommandNames = names;
+  }
+
+  constructor(tui: TUI, options: CustomEditorOptions = {}) {
     // paddingX: 4 reserves column 0 for the left vertical border (│),
     // column 1 as a single space between border and prompt, column 2 for
-    // the `›` prompt token, and column 3 as the space between prompt and
+    // the `>` prompt token, and column 3 as the space between prompt and
     // content. The right side mirrors with 3 padding columns and the right
     // border at the last column.
-    const theme = createPythinkerEditorTheme();
-    const slashSelectListTheme = {
-      ...theme.selectList,
-      selectedText: (text: string) => currentTheme.boldFg('primary', text),
-    };
-    super(tui, theme, { paddingX: 4 });
-
-    this.setVimMode(options?.vimMode === true);
+    const theme = createEditorTheme();
+    super(tui, theme, {
+      paddingX: 4,
+      disablePasteBurst: options.disablePasteBurst,
+      inlineSlashTrigger: true,
+    });
 
     // pi-tui keeps `createAutocompleteList` private; shadow it with an
     // instance property so slash command menus render descriptions wrapped
@@ -296,12 +201,33 @@ export class CustomEditor extends Editor {
         return new WrappingSelectList(
           items,
           this.getAutocompleteMaxVisible(),
-          slashSelectListTheme,
+          theme.selectList,
           SLASH_COMMAND_SELECT_LIST_LAYOUT,
         );
       }
       return new SelectList(items, this.getAutocompleteMaxVisible(), theme.selectList);
     };
+
+    // pi-tui auto-triggers autocomplete for `/` (and letters in a slash
+    // context) with force:false, which routes through the slash-command
+    // branch. In bash mode `/` is a path separator, not a command prefix, so
+    // shadow the trigger to request file path completion (force:true) instead.
+    // Prompt mode keeps the original force:false behaviour. `tryTriggerAutocomplete`
+    // is private in pi-tui's typings but a plain prototype method at runtime.
+    const triggerInternals = this as unknown as AutocompleteTriggerInternals;
+    triggerInternals.tryTriggerAutocomplete = (explicitTab = false) => {
+      triggerInternals.requestAutocomplete({ force: this.inputMode === 'bash', explicitTab });
+    };
+  }
+
+  override setDisablePasteBurst(disabled: boolean): void {
+    super.setDisablePasteBurst(disabled);
+  }
+
+  public setInputMode(mode: 'prompt' | 'bash'): void {
+    if (this.inputMode === mode) return;
+    this.inputMode = mode;
+    this.onInputModeChange?.(mode);
   }
 
   private expandPasteMarkerAtCursor(): boolean {
@@ -322,15 +248,9 @@ export class CustomEditor extends Editor {
       const text = this.getText();
       const offset = lines.slice(0, line).reduce((sum, l) => sum + l.length + 1, 0) + start;
       const newText = text.slice(0, offset) + content + text.slice(offset + match[0].length);
-      // pi-tui >=0.80 clears the paste registry in setText(); preserve the
-      // other markers' contents so they stay expandable afterwards.
-      const internals = this as unknown as { pastes: Map<number, string>; pasteCounter: number };
-      const savedPastes = new Map(internals.pastes);
-      const savedCounter = internals.pasteCounter;
-      savedPastes.delete(pasteId);
-      this.setText(newText);
-      for (const [id, paste] of savedPastes) internals.pastes.set(id, paste);
-      internals.pasteCounter = savedCounter;
+      // Keep the paste registry intact: the text still holds other live markers
+      // whose entries a plain setText would drop (upstream resets the registry).
+      this.setText(newText, { preservePasteRegistry: true });
       return true;
     }
     return false;
@@ -351,189 +271,115 @@ export class CustomEditor extends Editor {
     (this as unknown as AutocompleteInternals).cancelAutocomplete();
   }
 
-  private hasMidPromptSlashContext(): boolean {
-    const { line, col } = this.getCursor();
-    const currentLine = this.getLines()[line] ?? '';
-    const context = findSlashAutocompleteContext(currentLine, col);
-    return context !== null && currentLine.slice(0, context.commandStart).trim().length > 0;
-  }
-
-  private requestMidPromptSlashAutocomplete(explicitTab: boolean): boolean {
-    if (!this.hasMidPromptSlashContext()) return false;
-    const autocomplete = this as unknown as AutocompleteInternals;
-    autocomplete.requestAutocomplete?.({ force: false, explicitTab });
-    return autocomplete.requestAutocomplete !== undefined;
-  }
-
   override render(width: number): string[] {
     const lines = super.render(width);
     if (lines.length < 3) return lines;
-    const topBorderIdx = lines.findIndex(isHorizontalBorder);
-    const bottomBorderIdx = lines.findIndex(
-      (line, index) => index > topBorderIdx && isHorizontalBorder(line),
-    );
-    if (topBorderIdx < 0 || bottomBorderIdx < 0) return lines;
-
-    const autocompleteLines = lines.slice(bottomBorderIdx + 1);
-    const autocomplete = this as unknown as AutocompleteInternals;
-    const slashMenuOpen =
-      autocompleteLines.length > 0 &&
-      autocomplete.autocompletePrefix?.startsWith('/') === true;
-    const firstContentIdx = topBorderIdx + 1;
+    const firstContentIdx = 1;
+    const isBash = this.inputMode === 'bash';
+    const text = this.getText().trimStart();
+    if (!isBash) {
+      // Paint the leading slash command on the first content line only, then
+      // inline skill tokens on every content line (multi-line prompts can
+      // reference skills anywhere).
+      const original = lines[firstContentIdx];
+      if (original !== undefined) {
+        let highlighted = original;
+        let leadingRange: { start: number; end: number } | null = null;
+        if (text.startsWith('/')) {
+          leadingRange = leadingSlashTokenRange(stripSgr(original));
+          const leading = highlightFirstSlashToken(original, 'primary');
+          if (leading !== undefined) {
+            highlighted = leading;
+          }
+        }
+        const inline = highlightInlineSkillTokens(
+          highlighted,
+          this.skillCommandNames,
+          leadingRange,
+          'primary',
+        );
+        if (inline !== undefined) {
+          highlighted = inline;
+        }
+        if (highlighted !== original) {
+          lines[firstContentIdx] = highlighted;
+        }
+      }
+      for (let i = firstContentIdx + 1; i < lines.length - 1; i++) {
+        const original = lines[i];
+        if (original === undefined) continue;
+        const inline = highlightInlineSkillTokens(original, this.skillCommandNames, null, 'primary');
+        if (inline !== undefined) {
+          lines[i] = inline;
+        }
+      }
+    }
+    const hint = this.computeArgumentHint();
+    if (hint !== undefined) {
+      const line = lines[firstContentIdx];
+      if (line !== undefined) {
+        lines[firstContentIdx] = injectArgumentHint(line, hint, this.getText().length, width);
+      }
+    }
     const firstContent = lines[firstContentIdx];
     if (firstContent !== undefined) {
-      const withPrompt = injectPromptSymbol(firstContent);
+      const withPrompt = injectPromptSymbol(
+        firstContent,
+        isBash ? '!' : '>',
+        isBash ? (s) => this.borderColor(s) : undefined,
+      );
       if (withPrompt !== undefined) {
         lines[firstContentIdx] = withPrompt;
       }
     }
-
-    let slashTokenColumn: number | undefined;
-    const cursorLineIdx = lines.findIndex((line) => line.includes('\u001B[7m'));
-    if (cursorLineIdx >= 0) {
-      const cursorLine = lines[cursorLineIdx];
-      if (cursorLine !== undefined) {
-        slashTokenColumn = activeSlashTokenColumn(cursorLine);
-        const highlighted = highlightFirstSlashToken(cursorLine, 'textStrong');
-        const decoratedLine = highlighted ?? cursorLine;
-        const autocomplete = this as unknown as AutocompleteInternals;
-        const selectedItem = autocomplete.autocompleteList?.getSelectedItem();
-        const prefix = autocomplete.autocompletePrefix ?? '';
-        const ghostSuffix =
-          selectedItem === undefined ? null : buildAutocompleteGhostSuffix(prefix, selectedItem);
-        const withGhost =
-          ghostSuffix === null ? undefined : insertAutocompleteGhost(decoratedLine, ghostSuffix);
-        lines[cursorLineIdx] = withGhost ?? decoratedLine;
-      }
-    }
-
     // `this.borderColor` is pi-tui's per-render paint function. The host may
     // overwrite it (e.g. plan-mode / slash-context highlight via
     // `editor.borderColor = chalk.hex(primary)`), so we route corners and
-    // side bars through the same hook to stay in sync. Rainbow mode instead
-    // uses one stateful painter for the complete frame.
-    const paintBorder = isRainbowColorActive()
-      ? createRainbowPainter()
-      : (text: string) => this.borderColor(text);
-    const contentRows = lines.slice(firstContentIdx, bottomBorderIdx);
-    if (contentRows.length === 1 && !this.getText().includes('\n')) {
-      const compact = lines[firstContentIdx];
-      const top = lines[topBorderIdx];
-      const bottom = lines[bottomBorderIdx];
-      if (compact === undefined || top === undefined || bottom === undefined) return lines;
-      // Compact mode keeps the top and bottom rules but drops the corners and
-      // side bars, so a single-line prompt reads as one open lane.
-      const composer = [
-        horizontalRule(top, paintBorder),
-        compactPromptRow(
-          compact,
-          slashMenuOpen
-            ? (text) => currentTheme.fg('textStrong', text)
-            : paintBorder,
-        ),
-        decorateVimModeBorder(
-          horizontalRule(bottom, paintBorder),
-          this.vimState?.mode,
-          paintBorder,
-        ),
-      ];
-      return slashMenuOpen
-        ? [
-            ...composer,
-            ...renderSlashCommandMenu(
-              autocompleteLines,
-              width,
-              this.getPaddingX(),
-              // Compact mode removes two leading composer cells. Menu labels
-              // already start two cells after their selection marker.
-              Math.max(0, (slashTokenColumn ?? 4) - 4),
-            ),
-          ]
-        : [...composer, ...autocompleteLines];
-    }
-
-    const editorLines = slashMenuOpen
-      ? lines.slice(0, bottomBorderIdx + 1)
-      : lines;
-    const editor = wrapWithSideBorders(editorLines, paintBorder, {
+    // side bars through the same hook to stay in sync.
+    return wrapWithSideBorders(lines, (s) => this.borderColor(s), {
       connectedAbove: this.connectedAbove && !this.borderHighlighted,
+      label: isBash ? ` ${currentTheme.boldFg('shellMode', '! shell mode')} ` : undefined,
     });
-    const bottomBorder = editor[bottomBorderIdx];
-    if (bottomBorder !== undefined) {
-      editor[bottomBorderIdx] = decorateVimModeBorder(
-        bottomBorder,
-        this.vimState?.mode,
-        paintBorder,
-      );
-    }
-    return slashMenuOpen
-      ? [
-          ...editor,
-          ...renderSlashCommandMenu(
-            autocompleteLines,
-            width,
-            this.getPaddingX(),
-            // Boxed composers retain their rendered slash column. Menu labels
-            // already start two cells after their selection marker.
-            Math.max(0, (slashTokenColumn ?? 2) - 2),
-          ),
-        ]
-      : editor;
   }
 
-  isVimModeEnabled(): boolean {
-    return this.vimState !== undefined;
-  }
-
-  /** Toggles vim ownership of editor input; state survives until toggled off. */
-  setVimMode(enabled: boolean): void {
-    if (enabled) {
-      if (this.vimState !== undefined && this.vimPersistent !== undefined) return;
-      this.vimState = createInitialState();
-      this.vimPersistent = createInitialPersistent();
-      return;
-    }
-    if (this.vimState === undefined && this.vimPersistent === undefined) return;
-    this.vimState = undefined;
-    this.vimPersistent = undefined;
-  }
-
-  setKeybindings(bindings: readonly ParsedKeybinding[]): void {
-    this.keybindings = new KeybindingResolver(bindings);
+  private computeArgumentHint(): string | undefined {
+    // Argument hints describe slash commands, which do not exist in bash mode.
+    if (this.inputMode === 'bash') return undefined;
+    const text = this.getText();
+    const match = /^\/(\S+)( ?)$/.exec(text);
+    if (match === null) return undefined;
+    const cmd = match[1];
+    const trailingSpace = match[2] ?? '';
+    if (cmd === undefined) return undefined;
+    const hint = this.argumentHints.get(cmd);
+    if (hint === undefined) return undefined;
+    const { line, col } = this.getCursor();
+    if (line !== 0) return undefined;
+    const currentLine = this.getLines()[0] ?? '';
+    if (col !== currentLine.length) return undefined;
+    return trailingSpace.length > 0 ? hint : ` ${hint}`;
   }
 
   override handleInput(data: string): void {
-    // Normalize and drop key-release events before vim ownership is decided,
-    // so a release cannot fall through to vim or app keybinding handling.
     const normalized = normalizeCapsLockedCtrl(data);
     if (isKeyRelease(normalized)) {
       return;
     }
 
-    const key = printableChar(normalized);
-    if (
-      this.vimState !== undefined &&
-      this.vimPersistent !== undefined &&
-      !shouldBypassVim(normalized, key)
-    ) {
-      const result = applyKey(
-        this.vimState,
-        this.vimPersistent,
-        readBuffer(this),
-        key,
-      );
-      this.vimState = result.state;
-      this.vimPersistent = result.persistent;
-      if (result.handled) {
-        if (matchesKey(normalized, Key.escape) && this.hasAutocompleteActivity()) {
-          this.cancelAutocompleteActivity();
-        }
-        applyBuffer(this, result.buffer);
-        return;
-      }
-      super.handleInput(normalized);
-      if (!this.hasAutocompleteActivity()) this.requestMidPromptSlashAutocomplete(false);
+    // Clipboard reads are asynchronous. Queue every key received while a
+    // paste callback is in flight and replay it once the callback settles
+    // (clipboard read + placeholder insert — compression and the daemon
+    // upload continue in the background off this path), so Enter cannot
+    // submit a draft that is still missing the pasted image.
+    if (this.pasteInFlight) {
+      this.pasteInputQueue.push(normalized);
       return;
+    }
+
+    // Any input other than a lone Escape breaks a pending double-Esc sequence,
+    // so the shortcut only fires for two consecutive Escape presses.
+    if (!matchesKey(normalized, Key.escape)) {
+      this.onNonEscapeInput?.();
     }
 
     // When a paste marker was just expanded, discard the trailing bracketed
@@ -556,43 +402,101 @@ export class CustomEditor extends Editor {
       return;
     }
 
-    const contexts = this.hasAutocompleteActivity()
-      ? (['Autocomplete', 'Chat'] as const)
-      : (['Chat'] as const);
-    if (this.keybindings.dispatch(normalized, contexts, {
-      'autocomplete:accept': () => super.handleInput('\t'),
-      'autocomplete:dismiss': () => this.cancelAutocompleteActivity(),
-      'autocomplete:previous': () => super.handleInput('\u001B[A'),
-      'autocomplete:next': () => super.handleInput('\u001B[B'),
-      'app:interrupt': () => this.onCtrlC?.(),
-      'app:exit': () => this.getText().length === 0
-        ? this.onCtrlD?.()
-        : super.handleInput(normalized),
-      'app:redraw': () => this.onRedraw?.(),
-      'app:toggleTranscript': () => this.onToggleToolExpand?.(),
-      'history:search': () => this.onSearchHistory?.(),
-      'chat:historySearch': () => this.onSearchHistory?.(),
-      'history:previous': () => super.handleInput('\u001B[A'),
-      'history:next': () => super.handleInput('\u001B[B'),
-      'chat:cancel': () => this.onEscape?.(),
-      // Deprecated action kept for schema back-compat; treat as thinkingToggle.
-      'chat:cycleMode': () => this.onCycleEffort?.(),
-      'chat:externalEditor': () => this.onOpenExternalEditor?.(),
-      'chat:messageActions': () => this.onMessageActions?.(),
-      'chat:modelPicker': () => this.onCommand?.('model'),
-      'chat:submit': () => super.handleInput('\r'),
-      'chat:stash': () => this.onCtrlS?.(),
-      'chat:thinkingToggle': () => this.onCycleEffort?.(),
-      'chat:undo': () => {
-        this.onUndo?.();
-        super.handleInput('\u001F');
-      },
-      'chat:newline': () => {
-        this.onInsertNewline?.();
-        super.handleInput('\n');
-      },
-      'chat:imagePaste': () => this.handlePasteKeybinding(normalized),
-    }, { onCommand: (command) => this.onCommand?.(command) })) {
+    // Paste image binding — platform-aware:
+    //   Windows terminals reserve Ctrl-V for their own paste handling
+    //   (e.g. Windows Terminal's Ctrl+V shortcut), so we listen for
+    //   Alt-V there. Everywhere else Ctrl-V pastes. When the host
+    //   reports no image available, we fall through to pi-tui's
+    //   normal paste path so text from the clipboard still works.
+    const pasteKey = process.platform === 'win32' ? 'alt+v' : Key.ctrl('v');
+    if (matchesKey(normalized, pasteKey)) {
+      if (this.expandPasteMarkerAtCursor()) {
+        return;
+      }
+      if (this.onPasteImage !== undefined) {
+        const handler = this.onPasteImage;
+        const pasteAsText = (): void => {
+          this.onTextPaste?.();
+          super.handleInput.call(this, normalized);
+        };
+        this.pasteInFlight = true;
+        void handler()
+          .then((handled) => {
+            if (!handled) pasteAsText();
+          })
+          .catch(() => {
+            // A rejecting image-paste handler must not leak an unhandled
+            // rejection (the CLI turns those into a silent exit) — treat it
+            // the same as "no image available" and fall back to text paste.
+            pasteAsText();
+          })
+          .finally(() => {
+            this.pasteInFlight = false;
+            this.flushPasteInputQueue();
+          });
+        return;
+      }
+    }
+
+    if (matchesKey(normalized, Key.ctrl('d'))) {
+      if (this.getText().length === 0) {
+        this.onCtrlD?.();
+        return;
+      }
+    }
+
+    if (matchesKey(normalized, Key.ctrl('c'))) {
+      this.onCtrlC?.();
+      return;
+    }
+
+    if (matchesKey(normalized, Key.ctrl('g'))) {
+      this.onOpenExternalEditor?.();
+      return;
+    }
+
+    if (matchesKey(normalized, Key.ctrl('o'))) {
+      this.onToggleToolExpand?.();
+      return;
+    }
+
+    if (matchesKey(normalized, Key.ctrl('s'))) {
+      this.onCtrlS?.();
+      return;
+    }
+
+    if (matchesKey(normalized, Key.ctrl('b'))) {
+      // Only consume the key when the handler actually detached something;
+      // otherwise fall through so readline's backward-char still works at the
+      // idle prompt.
+      if (this.onCtrlB?.() === true) return;
+    }
+
+    if (matchesKey(normalized, Key.ctrl('t'))) {
+      // Only consume the key when the todo list actually has overflow to
+      // expand/collapse; otherwise fall through to the editor default.
+      if (this.onToggleTodoExpand?.() === true) return;
+    }
+
+    if (matchesKey(normalized, 'shift+tab')) {
+      this.onShiftTab?.();
+      return;
+    }
+
+    if (matchesKey(normalized, Key.ctrl('-'))) {
+      this.onUndo?.();
+    }
+
+    // Exit bash mode: Backspace/Escape on an empty `!` prompt returns to prompt
+    // mode. Because the `!` is not in the buffer, "deleting" it is really
+    // "delete on empty bash input".
+    if (
+      this.inputMode === 'bash' &&
+      this.getText().length === 0 &&
+      (matchesKey(normalized, Key.escape) || matchesKey(normalized, Key.backspace))
+    ) {
+      this.inputMode = 'prompt';
+      this.onInputModeChange?.('prompt');
       return;
     }
 
@@ -618,64 +522,203 @@ export class CustomEditor extends Editor {
       return;
     }
 
-    if (matchesKey(normalized, Key.tab) && this.requestMidPromptSlashAutocomplete(true)) {
+    // Swallow Tab while the autocomplete dropdown is closed so it does not
+    // trigger pi-tui's built-in file completion. When the dropdown is open,
+    // fall through so pi-tui can still accept the selected item with Tab.
+    if (matchesKey(normalized, Key.tab) && !this.isShowingAutocomplete()) {
       return;
     }
 
+    // Enter bash mode: typing `!` at the start of an empty prompt. The `!` is
+    // not inserted into the buffer — it becomes the mode + prompt symbol, so the
+    // cursor never has to skip over it and submit never has to strip it.
+    if (
+      this.inputMode === 'prompt' &&
+      printableChar(normalized) === '!' &&
+      this.getText().length === 0
+    ) {
+      this.inputMode = 'bash';
+      this.onInputModeChange?.('bash');
+      return;
+    }
+
+    const emptyPromptBeforeInput = this.inputMode === 'prompt' && this.getText().length === 0;
     super.handleInput(normalized);
-    if (!this.hasAutocompleteActivity()) this.requestMidPromptSlashAutocomplete(false);
+
+    // Enter bash mode when `!...` is pasted into an empty prompt. The typed path
+    // above handles the single `!` keystroke; this catches bracketed / Ctrl-V
+    // pastes whose content starts with `!`. Strip the leading `!` so the buffer
+    // holds only the command, exactly like the typed path.
+    if (emptyPromptBeforeInput && this.inputMode === 'prompt' && this.getText().startsWith('!')) {
+      this.inputMode = 'bash';
+      this.onInputModeChange?.('bash');
+      this.setText(this.getText().slice(1));
+    }
+
+    this.reopenAutocompleteAfterInput();
   }
 
-  private handlePasteKeybinding(data: string): void {
-    if (this.expandPasteMarkerAtCursor()) return;
-    if (this.onPasteImage === undefined) {
-      super.handleInput(data);
+  private flushPasteInputQueue(): void {
+    if (this.pasteInFlight) return;
+    const next = this.pasteInputQueue.shift();
+    if (next === undefined) return;
+    this.handleInput(next);
+    if (!this.pasteInFlight) this.flushPasteInputQueue();
+  }
+
+  private reopenAutocompleteAfterInput(): void {
+    if (this.isShowingAutocomplete()) return;
+    const { line, col } = this.getCursor();
+    const textBeforeCursor = this.getLines()[line]?.slice(0, col) ?? '';
+    const editor = this as unknown as {
+      requestAutocomplete?: (options: { force: boolean; explicitTab: boolean }) => void;
+    };
+    if (editor.requestAutocomplete === undefined) return;
+    const trigger = (): void => {
+      // Use force:false so slash-aware logic runs: commands with argument
+      // completions return their subcommands, commands without them return
+      // null. force:true would bypass the slash branch and fall through to
+      // path completion, wrongly popping up the file list.
+      editor.requestAutocomplete?.({ force: false, explicitTab: false });
+    };
+
+    // Reopen path / argument completion right after a `/` is typed
+    // (e.g. `/add-dir /` or an `@dir/` mention).
+    if (textBeforeCursor.endsWith('/')) {
+      const isAtMention = extractAtPrefix(textBeforeCursor) !== null;
+      if (isAtMention) {
+        trigger();
+      } else if (this.inputMode === 'bash') {
+        // In bash mode `/` is a path separator, not a slash command. A bare
+        // leading `/` is already handled by the tryTriggerAutocomplete shadow
+        // in the constructor; this branch covers the inline case (e.g. `ls /`,
+        // `cat /etc/`, `/add-dir/`) that pi-tui never auto-triggers. force:true
+        // is required so pi-tui's own slash-command handling is bypassed —
+        // force:false would let it pop up subcommand completions.
+        if (textBeforeCursor.trimStart() !== '/') {
+          editor.requestAutocomplete?.({ force: true, explicitTab: false });
+        }
+      } else {
+        const isSlashArgument = textBeforeCursor.startsWith('/') && textBeforeCursor.includes(' ');
+        if (isSlashArgument) {
+          trigger();
+        }
+      }
       return;
     }
-    const pasteAsText = (): void => {
-      this.onTextPaste?.();
-      super.handleInput(data);
-    };
-    void this.onPasteImage().then(
-      (handled) => {
-        if (!handled) pasteAsText();
-      },
-      () => {
-        pasteAsText();
-      },
-    );
+
+    // After accepting a slash command name via Tab, pi-tui inserts a trailing
+    // space and closes the menu without triggering argument completion. Reopen
+    // it so subcommands (e.g. `/goal ` → status/pause/…) show immediately.
+    // Skipped in bash mode: `/` is a path there, and force:false would let
+    // pi-tui's own slash-command handling pop up subcommand completions.
+    if (
+      this.inputMode !== 'bash' &&
+      textBeforeCursor.endsWith(' ') &&
+      textBeforeCursor.startsWith('/') &&
+      textBeforeCursor.includes(' ')
+    ) {
+      trigger();
+    }
   }
 }
 
 /**
- * Return a copy of `line` with the active slash-command token coloured using
- * the current theme, even when the command lives mid-prompt.
+ * Return a copy of `line` with the first `/token` coloured using `hex`.
+ * For `/goal next manage`, also colour the command-path tokens.
+ * `line` may already contain SGR escapes (cursor inverse, etc.); we
+ * locate `/` via visible-index math so ANSI pass-through survives.
+ * Returns `undefined` if no token is found.
  */
-export function highlightFirstSlashToken(
+export function highlightFirstSlashToken(line: string, token: 'primary'): string | undefined {
+  const visible = stripSgr(line);
+  const range = leadingSlashTokenRange(visible);
+  if (range === null) return undefined;
+  const ranges = [range];
+  if (visible.slice(range.start, range.end) === '/goal') {
+    ranges.push(...goalCommandPathRanges(visible, range.end));
+  }
+  return highlightVisibleRanges(line, ranges, token);
+}
+
+function leadingSlashTokenRange(visible: string): { start: number; end: number } | null {
+  const slashIdx = visible.indexOf('/');
+  if (slashIdx < 0) return null;
+  // Guard: only paint when `/` is the first non-whitespace character
+  // on the line (avoids colouring a mid-sentence slash).
+  for (let i = 0; i < slashIdx; i++) {
+    if (visible[i] !== ' ' && visible[i] !== '\t') return null;
+  }
+  // Token ends at the next whitespace (or the visible end).
+  let endVisible = slashIdx + 1;
+  while (endVisible < visible.length) {
+    const ch = visible[endVisible];
+    if (ch === ' ' || ch === '\t') break;
+    endVisible++;
+  }
+  const visibleToken = visible.slice(slashIdx, endVisible);
+  if (visibleToken.slice(1).includes('/')) return null;
+  return { start: slashIdx, end: endVisible };
+}
+
+/**
+ * Highlight inline skill tokens in `line`. A token is painted only when it
+ * names a known skill; `exclude` (the already-painted leading slash command
+ * range) is skipped so the leading command is not painted twice.
+ */
+export function highlightInlineSkillTokens(
   line: string,
-  token: 'primary' | 'textStrong',
+  skillCommandNames: ReadonlySet<string>,
+  exclude: { start: number; end: number } | null,
+  token: 'primary',
 ): string | undefined {
-  const cursor = findCursorMarkerRange(line);
-  if (cursor === null) return undefined;
-  const ranges = getSlashHighlightRanges(stripSgr(line), cursor.visibleStart);
+  if (skillCommandNames.size === 0) return undefined;
+  const visible = stripSgr(line);
+  const ranges = findInlineSkillTokens(visible, {
+    isKnownSkill: (commandName) =>
+      skillCommandNames.has(commandName) || skillCommandNames.has(`skill:${commandName}`),
+    includeLeading: true,
+  }).filter(
+    (inlineToken) =>
+      exclude === null || inlineToken.start >= exclude.end || inlineToken.end <= exclude.start,
+  );
   if (ranges.length === 0) return undefined;
   return highlightVisibleRanges(line, ranges, token);
 }
 
-function activeSlashTokenColumn(line: string): number | undefined {
-  // The slash menu is indented so its labels line up under the active `/cmd`
-  // token; this computes that token's visible (terminal-cell) column.
-  const cursor = findCursorMarkerRange(line);
-  if (cursor === null) return undefined;
-  const visible = stripSgr(line);
-  const start = getSlashHighlightRanges(visible, cursor.visibleStart)[0]?.start;
-  return start === undefined ? undefined : visibleWidth(visible.slice(0, start));
+function goalCommandPathRanges(
+  visible: string,
+  commandEnd: number,
+): Array<{ start: number; end: number }> {
+  const nextRange = readTokenRange(visible, commandEnd);
+  if (nextRange === null || visible.slice(nextRange.start, nextRange.end) !== 'next') {
+    return [];
+  }
+  const ranges = [nextRange];
+  const manageRange = readTokenRange(visible, nextRange.end);
+  if (manageRange !== null && visible.slice(manageRange.start, manageRange.end) === 'manage') {
+    ranges.push(manageRange);
+  }
+  return ranges;
+}
+
+function readTokenRange(visible: string, start: number): { start: number; end: number } | null {
+  let tokenStart = start;
+  while (tokenStart < visible.length && isTokenSpace(visible[tokenStart])) tokenStart++;
+  if (tokenStart >= visible.length) return null;
+  let tokenEnd = tokenStart;
+  while (tokenEnd < visible.length && !isTokenSpace(visible[tokenEnd])) tokenEnd++;
+  return { start: tokenStart, end: tokenEnd };
+}
+
+function isTokenSpace(ch: string | undefined): boolean {
+  return ch === ' ' || ch === '\t';
 }
 
 function highlightVisibleRanges(
   line: string,
   ranges: Array<{ start: number; end: number }>,
-  token: 'primary' | 'textStrong',
+  token: 'primary',
 ): string {
   let out = '';
   let rawCursor = 0;
@@ -683,127 +726,80 @@ function highlightVisibleRanges(
     const rawStart = mapVisibleIdxToRaw(line, range.start);
     const rawEnd = mapVisibleIdxToRaw(line, range.end);
     out += line.slice(rawCursor, rawStart);
-    out += paintHighlightRange(line.slice(rawStart, rawEnd), token);
+    out += currentTheme.boldFg(token, line.slice(rawStart, rawEnd));
     rawCursor = rawEnd;
   }
   return out + line.slice(rawCursor);
 }
 
-function paintHighlightRange(
-  text: string,
-  token: 'primary' | 'textStrong',
+// Mirrors the editor's paddingX (see constructor). The hint is spliced into
+// the first content line, which starts with this many spaces of left padding.
+const EDITOR_LEFT_PADDING = 4;
+// pi-tui renders the end-of-input cursor as an inverse-video space.
+const CURSOR_BLOCK = '\u001B[7m \u001B[0m';
+
+/**
+ * Splice a dimmed argument-hint ghost string into the first content line.
+ *
+ * The hint is purely visual: it is appended after the typed command (and
+ * after the cursor block when one is rendered) so the cursor stays at the
+ * end of the real input. It consumes trailing padding space, so the line
+ * width is preserved; if it would overflow the box it is truncated with an
+ * ellipsis. Returns the line unchanged when there is no room for a hint.
+ */
+function injectArgumentHint(
+  line: string,
+  hint: string,
+  realTextLength: number,
+  width: number,
 ): string {
-  // The cursor marker injects an SGR reset inside the token; re-apply the
-  // highlight to every non-reset segment so the token stays colored.
-  return text
-    .split(/(\u001B\[0m)/u)
-    .map((part) =>
-      part.length === 0 || part === '\u001B[0m'
-        ? part
-        : currentTheme.boldFg(token, part),
-    )
-    .join('');
+  const cursorIdx = line.indexOf(CURSOR_BLOCK);
+  const cursorPresent = cursorIdx !== -1;
+  const contentWidth = Math.max(1, width - EDITOR_LEFT_PADDING * 2);
+  // Room left in the content area after the typed text (and cursor). The hint
+  // must fit within this so the rendered line keeps its width.
+  const available = contentWidth - realTextLength - (cursorPresent ? 1 : 0);
+  const trimmed = truncateHint(hint, available);
+  if (trimmed.length === 0) return line;
+  const colored = currentTheme.fg('textDim', trimmed);
+  const insertAt = cursorPresent
+    ? cursorIdx + CURSOR_BLOCK.length
+    : mapVisibleIdxToRaw(line, EDITOR_LEFT_PADDING + realTextLength);
+  // Everything after the insertion point is trailing padding + right padding
+  // (plain spaces). Replace it with the hint followed by the remaining spaces
+  // so the visible line width is preserved.
+  const trailing = line.length - insertAt;
+  return line.slice(0, insertAt) + colored + ' '.repeat(Math.max(0, trailing - trimmed.length));
+}
+
+function truncateHint(hint: string, maxLen: number): string {
+  if (maxLen <= 0) return '';
+  if (hint.length <= maxLen) return hint;
+  if (maxLen === 1) return '…';
+  return `${hint.slice(0, maxLen - 1)}…`;
 }
 
 /**
- * Overlay a terminal-style `❯ ` prompt symbol on the first content line.
+ * Overlay a terminal-style `> ` prompt symbol on the first content line.
  * Column 0 is reserved for the left vertical border (overlaid later by
- * wrapWithSideBorders); column 1 is a single-space gap, so the `❯` token
+ * wrapWithSideBorders); column 1 is a single-space gap, so the `>` token
  * lives at column 2 with column 3 separating it from content.
  * Relies on the editor being configured with `paddingX >= 4` so the line
  * starts with at least four literal spaces. Emits no SGR so the terminal's
  * default foreground colour renders the symbol. Returns `undefined` if the
  * line is too short or doesn't begin with the expected padding.
  */
-export function injectPromptSymbol(line: string): string | undefined {
+export function injectPromptSymbol(
+  line: string,
+  symbol = '>',
+  paint?: (s: string) => string,
+): string | undefined {
   if (line.length < 4) return undefined;
   for (let i = 0; i < 4; i++) {
     if (line[i] !== ' ') return undefined;
   }
-  return '  ❯ ' + line.slice(4);
-}
-
-function isHorizontalBorder(line: string): boolean {
-  const plain = stripSgr(line);
-  return plain.length > 0 && plain[0] === '─';
-}
-
-/**
- * Repaint a border row as a plain full-width rule. Rows carrying a scroll
- * indicator (`── ↑ N more ──`) keep their own text.
- */
-/**
- * Embed ` NORMAL `/` INSERT `/` VISUAL ` in the composer's bottom border so
- * the active vim mode stays visible while typing. Plain rules keep their
- * scroll-indicator text; boxed and flat bottom rows are rewritten.
- */
-function decorateVimModeBorder(
-  line: string,
-  mode: VimMode | undefined,
-  paint: (text: string) => string,
-): string {
-  if (mode === undefined) return line;
-  const plain = stripSgr(line);
-  const boxed = /^╰─+╯$/u.test(plain);
-  if (!boxed && !/^─+$/u.test(plain)) return line;
-
-  const label = ` ${mode} `;
-  const left = boxed ? '╰─' : '─';
-  const right = boxed ? '╯' : '';
-  const fillWidth =
-    visibleWidth(plain) - visibleWidth(left) - visibleWidth(label) - visibleWidth(right);
-  if (fillWidth < 1) return line;
-
-  const token = mode === 'NORMAL' ? 'primary' : mode === 'INSERT' ? 'success' : 'warning';
-  return paint(left) +
-    currentTheme.boldFg(token, label) +
-    paint(`${'─'.repeat(fillWidth)}${right}`);
-}
-
-function horizontalRule(line: string, paint: (text: string) => string): string {
-  const plain = stripSgr(line);
-  return /^─+$/u.test(plain) ? paint(plain) : line;
-}
-
-function renderSlashCommandMenu(
-  lines: readonly string[],
-  width: number,
-  editorPadding: number,
-  leftIndent: number,
-): string[] {
-  const safeWidth = Math.max(0, Math.trunc(Number.isFinite(width) ? width : 0));
-  const indent = ' '.repeat(Math.max(0, leftIndent));
-  return lines.map((line) =>
-    fitMenuLine(`${indent}${stripEditorPadding(line, editorPadding)}`, safeWidth),
-  );
-}
-
-function stripEditorPadding(line: string, padding: number): string {
-  let start = 0;
-  while (start < padding && line[start] === ' ') start += 1;
-
-  let end = line.length;
-  let removed = 0;
-  while (removed < padding && end > start && line[end - 1] === ' ') {
-    end -= 1;
-    removed += 1;
-  }
-  return line.slice(start, end);
-}
-
-function fitMenuLine(line: string, width: number): string {
-  const clipped = truncateToWidth(line, width, '');
-  return clipped + ' '.repeat(Math.max(0, width - visibleWidth(clipped)));
-}
-
-function compactPromptRow(line: string, paint: (text: string) => string): string {
-  if (line.startsWith('  ❯ ')) return paint('❯') + line.slice(3);
-
-  const withPrompt = injectPromptSymbol(line);
-  if (withPrompt === undefined) return line;
-  // Compact mode removes the two cells reserved for the legacy left border
-  // and paints only the prompt glyph when rainbow mode is active.
-  return paint('❯') + ' ' + line.slice(4);
+  const rendered = paint ? paint(symbol) : symbol;
+  return '  ' + rendered + ' ' + line.slice(4);
 }
 
 /**
@@ -817,31 +813,44 @@ function compactPromptRow(line: string, paint: (text: string) => string): string
  * inner SGR intact; only column 0 and the last column are overlaid, and
  * only if they're literal spaces — that protects the cursor-overflow
  * case where the rightmost column is an SGR-tagged inverse cursor.
+ *
+ * When `options.label` is set, it is overlaid on the left of the top border
+ * (e.g. the `! shell mode` badge), replacing the leading dashes. It is only
+ * applied to a plain dash run, never to a `↑/↓ N more` scroll indicator.
  */
 export function wrapWithSideBorders(
   lines: string[],
   paint: (s: string) => string,
-  options: {
-    readonly connectedAbove?: boolean;
-  } = {},
+  options: { readonly connectedAbove?: boolean; readonly label?: string } = {},
 ): string[] {
   let seenTop = false;
   return lines.map((line) => {
     const plain = stripSgr(line);
     if (plain.length > 0 && plain[0] === '─') {
+      const isTop = !seenTop;
       const leftCorner = seenTop ? '╰' : options.connectedAbove === true ? '├' : '╭';
       const rightCorner = seenTop ? '╯' : options.connectedAbove === true ? '┤' : '╮';
       seenTop = true;
       if (plain.length === 1) return paint(leftCorner);
       const middle = plain.slice(1, -1);
+      if (isTop && options.label !== undefined && /^─+$/.test(middle)) {
+        const labelWidth = visibleWidth(options.label);
+        if (labelWidth <= middle.length) {
+          return (
+            paint(leftCorner) +
+            options.label +
+            paint('─'.repeat(middle.length - labelWidth)) +
+            paint(rightCorner)
+          );
+        }
+      }
       return paint(leftCorner + middle + rightCorner);
     }
     if (line.length === 0) return line;
     const firstCh = line[0];
     const lastCh = line.at(-1);
     const head = firstCh === ' ' ? paint('│') : (firstCh ?? '');
-    const tail =
-      line.length > 1 && lastCh === ' ' ? paint('│') : (lastCh ?? '');
+    const tail = line.length > 1 && lastCh === ' ' ? paint('│') : (lastCh ?? '');
     if (line.length === 1) return head;
     return head + line.slice(1, -1) + tail;
   });

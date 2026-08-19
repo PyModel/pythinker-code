@@ -1,39 +1,28 @@
 import { ErrorCodes, PythinkerError } from '#/errors';
 import type { McpServerStdioConfig } from '#/config/schema';
 import { proxyEnvForChild, reconcileChildNoProxy } from '#/utils/proxy';
-import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { win32 } from 'node:path';
+import { isAbsolute, resolve } from 'pathe';
 
 import {
-  callClientTool,
-  createMcpSdkClient,
-  getClientPrompt,
-  listClientPrompts,
-  listClientResources,
+  buildRequestOptions,
   PYTHINKER_MCP_CLIENT_NAME,
   PYTHINKER_MCP_CLIENT_VERSION,
-  readClientResource,
   toMcpToolDefinition,
+  toMcpToolResult,
   type UnexpectedCloseListener,
   type UnexpectedCloseReason,
-  type McpElicitationHandler,
 } from './client-shared';
-import type {
-  MCPClient,
-  MCPPromptDefinition,
-  MCPPromptMessage,
-  MCPResource,
-  MCPResourceContent,
-  MCPToolDefinition,
-  MCPToolResult,
-} from './types';
+import type { MCPClient, MCPToolDefinition, MCPToolResult } from './types';
 
 export interface StdioMcpClientOptions {
   readonly clientName?: string;
   readonly clientVersion?: string;
+  readonly startupTimeoutMs?: number;
   readonly toolCallTimeoutMs?: number;
-  readonly elicitationHandler?: McpElicitationHandler;
-  readonly elicitationCompletionHandler?: (elicitationId: string) => void;
+  readonly defaultCwd?: string;
 }
 
 const STDERR_BUFFER_CAPACITY = 4 * 1024;
@@ -47,6 +36,7 @@ const STDERR_BUFFER_CAPACITY = 4 * 1024;
 export class StdioMcpClient implements MCPClient {
   private readonly client: Client;
   private readonly transport: StdioClientTransport;
+  private readonly startupTimeoutMs?: number;
   private readonly toolCallTimeoutMs?: number;
   private readonly stderrBuffer = new BoundedTail(STDERR_BUFFER_CAPACITY);
   private started = false;
@@ -76,7 +66,7 @@ export class StdioMcpClient implements MCPClient {
       command: config.command,
       args: config.args,
       env: mergeStdioEnv(config.env),
-      cwd: config.cwd,
+      cwd: resolveStdioCwd(config.cwd, options.defaultCwd),
       stderr: 'pipe',
     });
     // `stderr: 'pipe'` means we MUST drain the stream — otherwise the child
@@ -86,12 +76,11 @@ export class StdioMcpClient implements MCPClient {
     this.transport.stderr?.on('data', (chunk: Buffer | string) => {
       this.stderrBuffer.push(typeof chunk === 'string' ? chunk : chunk.toString('utf8'));
     });
-    this.client = createMcpSdkClient(
-      options.clientName ?? PYTHINKER_MCP_CLIENT_NAME,
-      options.clientVersion ?? PYTHINKER_MCP_CLIENT_VERSION,
-      options.elicitationHandler,
-      options.elicitationCompletionHandler,
-    );
+    this.client = new Client({
+      name: options.clientName ?? PYTHINKER_MCP_CLIENT_NAME,
+      version: options.clientVersion ?? PYTHINKER_MCP_CLIENT_VERSION,
+    });
+    this.startupTimeoutMs = options.startupTimeoutMs;
     this.toolCallTimeoutMs = options.toolCallTimeoutMs;
   }
 
@@ -107,7 +96,10 @@ export class StdioMcpClient implements MCPClient {
     // the handshake still flows through `client.connect()` rejecting.
     this.installTransportHooks();
     try {
-      await this.client.connect(this.transport);
+      await this.client.connect(
+        this.transport,
+        buildRequestOptions(this.startupTimeoutMs, undefined),
+      );
     } catch (error) {
       await this.closeStartedClient();
       throw error;
@@ -153,7 +145,10 @@ export class StdioMcpClient implements MCPClient {
   }
 
   async listTools(): Promise<MCPToolDefinition[]> {
-    const result = await this.client.listTools();
+    const result = await this.client.listTools(
+      undefined,
+      buildRequestOptions(this.startupTimeoutMs, undefined),
+    );
     return result.tools.map(toMcpToolDefinition);
   }
 
@@ -162,35 +157,9 @@ export class StdioMcpClient implements MCPClient {
     args: Record<string, unknown>,
     signal?: AbortSignal,
   ): Promise<MCPToolResult> {
-    return callClientTool(this.client, name, args, this.toolCallTimeoutMs, signal);
-  }
-
-  listPrompts(signal?: AbortSignal): Promise<MCPPromptDefinition[]> {
-    return listClientPrompts(this.client, this.toolCallTimeoutMs, signal);
-  }
-
-  getPrompt(
-    name: string,
-    args: Record<string, string>,
-    signal?: AbortSignal,
-  ): Promise<MCPPromptMessage[]> {
-    return getClientPrompt(this.client, name, args, this.toolCallTimeoutMs, signal);
-  }
-
-  supportsPrompts(): boolean {
-    return this.client.getServerCapabilities()?.prompts !== undefined;
-  }
-
-  listResources(signal?: AbortSignal): Promise<MCPResource[]> {
-    return listClientResources(this.client, this.toolCallTimeoutMs, signal);
-  }
-
-  readResource(uri: string, signal?: AbortSignal): Promise<MCPResourceContent[]> {
-    return readClientResource(this.client, uri, this.toolCallTimeoutMs, signal);
-  }
-
-  supportsResources(): boolean {
-    return this.client.getServerCapabilities()?.resources !== undefined;
+    const requestOptions = buildRequestOptions(this.toolCallTimeoutMs, signal);
+    const result = await this.client.callTool({ name, arguments: args }, undefined, requestOptions);
+    return toMcpToolResult(result);
   }
 
   private async closeStartedClient(): Promise<void> {
@@ -257,6 +226,22 @@ class BoundedTail {
   snapshot(): string {
     return this.buffer;
   }
+}
+
+export function resolveStdioCwd(configCwd: string | undefined, defaultCwd: string | undefined): string | undefined {
+  if (configCwd === undefined) return defaultCwd;
+  if (defaultCwd !== undefined && isWindowsAbsolutePath(defaultCwd)) {
+    return win32.resolve(defaultCwd, configCwd).replaceAll('\\', '/');
+  }
+  if (isWindowsAbsolutePath(configCwd)) {
+    return win32.resolve(configCwd).replaceAll('\\', '/');
+  }
+  if (defaultCwd !== undefined && !isAbsolute(configCwd)) return resolve(defaultCwd, configCwd);
+  return configCwd;
+}
+
+function isWindowsAbsolutePath(value: string): boolean {
+  return /^[A-Za-z]:[\\/]/.test(value) || /^[\\/]{2}[^\\/]+[\\/][^\\/]+/.test(value);
 }
 
 // Inherit the parent's env so PATH/HOME/etc. survive — otherwise `npx`/`uvx`

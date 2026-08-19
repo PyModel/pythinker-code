@@ -1,16 +1,10 @@
 import type { ContentPart, Tool } from '@pymodel/kosong';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import type { Agent } from '../../src/agent';
 import { ToolManager } from '../../src/agent/tool';
-import type { McpConnectionManager, McpServerEntry } from '../../src/mcp';
 import type { MCPClient } from '../../src/mcp/types';
-import {
-  ListMcpResourcesTool,
-  ReadMcpResourceTool,
-} from '../../src/tools/builtin/mcp-resources';
 import { testAgent } from '../agent/harness/agent';
-import { createFakeKaos } from '../tools/fixtures/fake-kaos';
 import { executeTool } from '../tools/fixtures/execute-tool';
 
 const MCP_OUTPUT_TRUNCATED_TEXT =
@@ -616,196 +610,54 @@ describe('ToolManager MCP integration', () => {
 
     expect(tm.loopTools.map((t) => t.name)).toEqual(['mcp__s__echo']);
   });
-});
 
-function fakeResourceManager(
-  entries: ReadonlyArray<{
-    readonly entry: McpServerEntry;
-    readonly client?: MCPClient;
-  }>,
-): McpConnectionManager {
-  return {
-    list: () => entries.map(({ entry }) => entry),
-    resolved: (name: string) => {
-      const hit = entries.find(({ entry }) => entry.name === name);
-      if (hit?.client === undefined) return undefined;
-      return { client: hit.client, tools: [], enabledNames: new Set<string>() };
-    },
-  } as unknown as McpConnectionManager;
-}
+  it('a server-scoped MCP deny glob hides that server under a broad allow', async () => {
+    const tm = new ToolManager(fakeAgent());
+    const githubClient = fakeClient();
+    const slackClient = fakeClient();
+    tm.registerMcpServer('github', githubClient, await discoverTools(githubClient));
+    tm.registerMcpServer('slack', slackClient, await discoverTools(slackClient));
+    tm.setActiveTools(['mcp__*'], ['mcp__github__*']);
 
-function connectedEntry(name: string): McpServerEntry {
-  return {
-    name,
-    transport: 'stdio',
-    status: 'connected',
-    toolCount: 0,
-  };
-}
-
-describe('MCP resource tools', () => {
-  it('registers the resource tools on agents with an MCP manager', () => {
-    const manager = fakeResourceManager([
-      {
-        entry: connectedEntry('resources'),
-        client: {
-          ...fakeClient(),
-          supportsResources: () => true,
-        },
-      },
+    expect(tm.loopTools.map((t) => t.name).toSorted()).toEqual([
+      'mcp__slack__echo',
+      'mcp__slack__noop',
     ]);
-    const ctx = testAgent();
-    Object.defineProperty(ctx.agent, 'mcp', { value: manager });
-    ctx.configure({ tools: ['ListMcpResourcesTool', 'ReadMcpResourceTool'] });
-    ctx.agent.tools.refreshBuiltinTools();
-
-    expect(ctx.agent.tools.loopTools.map(({ name }) => name)).toEqual([
-      'ListMcpResourcesTool',
-      'ReadMcpResourceTool',
+    expect([...tm.toolInfos()].filter((i) => i.source === 'mcp')).toEqual([
+      { name: 'mcp__github__echo', description: 'Echoes back', active: false, source: 'mcp' },
+      { name: 'mcp__github__noop', description: 'Does nothing', active: false, source: 'mcp' },
+      { name: 'mcp__slack__echo', description: 'Echoes back', active: true, source: 'mcp' },
+      { name: 'mcp__slack__noop', description: 'Does nothing', active: true, source: 'mcp' },
     ]);
   });
 
-  it('lists resources across connected servers and isolates one server failure', async () => {
-    const alpha = {
-      ...fakeClient(),
-      listResources: vi.fn().mockResolvedValue([
-        {
-          uri: 'config://app',
-          name: 'app-config',
-          description: 'Application configuration',
-          mimeType: 'text/plain',
-        },
-      ]),
-    } satisfies MCPClient;
-    const broken = {
-      ...fakeClient(),
-      listResources: vi.fn().mockRejectedValue(new Error('offline')),
-    } satisfies MCPClient;
-    const manager = fakeResourceManager([
-      { entry: connectedEntry('alpha'), client: alpha },
-      { entry: connectedEntry('broken'), client: broken },
-    ]);
+  it('an exact MCP deny hides one tool while the server glob allows the rest', async () => {
+    const tm = new ToolManager(fakeAgent());
+    const client = fakeClient();
+    tm.registerMcpServer('s', client, await discoverTools(client));
+    tm.setActiveTools(['mcp__s__*'], ['mcp__s__echo']);
 
-    const result = await executeTool(new ListMcpResourcesTool(manager), {
-      turnId: '1',
-      toolCallId: 'tc-list-resources',
-      args: {},
-      signal: new AbortController().signal,
-    });
-
-    expect(result.isError).toBeFalsy();
-    expect(JSON.parse(result.output as string)).toEqual([
-      {
-        uri: 'config://app',
-        name: 'app-config',
-        description: 'Application configuration',
-        mimeType: 'text/plain',
-        server: 'alpha',
-      },
-    ]);
-    expect(alpha.listResources).toHaveBeenCalledOnce();
-    expect(broken.listResources).toHaveBeenCalledOnce();
+    expect(tm.loopTools.map((t) => t.name)).toEqual(['mcp__s__noop']);
   });
 
-  it('filters resources by server and reports an unknown server', async () => {
-    const client = {
-      ...fakeClient(),
-      listResources: vi.fn().mockResolvedValue([]),
-    } satisfies MCPClient;
-    const manager = fakeResourceManager([{ entry: connectedEntry('alpha'), client }]);
-    const tool = new ListMcpResourcesTool(manager);
-    const signal = new AbortController().signal;
+  it('a full mcp__* deny hides every MCP tool', async () => {
+    const tm = new ToolManager(fakeAgent());
+    const client = fakeClient();
+    tm.registerMcpServer('s', client, await discoverTools(client));
+    tm.setActiveTools(['mcp__*'], ['mcp__*']);
 
-    await executeTool(tool, {
-      turnId: '1',
-      toolCallId: 'tc-list-alpha',
-      args: { server: 'alpha' },
-      signal,
-    });
-    expect(client.listResources).toHaveBeenCalledWith(signal);
-
-    const missing = await executeTool(tool, {
-      turnId: '1',
-      toolCallId: 'tc-list-missing',
-      args: { server: 'missing' },
-      signal,
-    });
-    expect(missing).toMatchObject({ isError: true });
-    expect(missing.output).toContain('Server "missing" not found');
-    expect(missing.output).toContain('alpha');
+    expect(tm.loopTools.some((t) => t.name.startsWith('mcp__'))).toBe(false);
   });
 
-  it('reads text resources and forwards cancellation', async () => {
-    const readResource = vi.fn().mockResolvedValue([
-      { uri: 'config://app', mimeType: 'text/plain', text: 'mode=test' },
-    ]);
-    const manager = fakeResourceManager([
-      {
-        entry: connectedEntry('alpha'),
-        client: { ...fakeClient(), readResource },
-      },
-    ]);
-    const tool = new ReadMcpResourceTool(manager, createFakeKaos());
-    const signal = new AbortController().signal;
+  it('records the deny list alongside the active tools', async () => {
+    const calls: unknown[] = [];
+    const tm = new ToolManager(fakeAgent(calls));
+    tm.setActiveTools(['Read', 'Bash', 'Grep'], ['Bash']);
 
-    const result = await executeTool(tool, {
-      turnId: '1',
-      toolCallId: 'tc-read-resource',
-      args: { server: 'alpha', uri: 'config://app' },
-      signal,
+    expect(calls[0]).toMatchObject({
+      type: 'tools.set_active_tools',
+      names: ['Read', 'Bash', 'Grep'],
+      disallowedNames: ['Bash'],
     });
-
-    expect(result.isError).toBeFalsy();
-    expect(readResource).toHaveBeenCalledWith('config://app', signal);
-    expect(JSON.parse(result.output as string)).toEqual({
-      contents: [{ uri: 'config://app', mimeType: 'text/plain', text: 'mode=test' }],
-    });
-  });
-
-  it('persists binary resources with a MIME-derived extension', async () => {
-    const mkdir = vi.fn().mockResolvedValue(undefined);
-    const writeBytes = vi.fn().mockResolvedValue(3);
-    const manager = fakeResourceManager([
-      {
-        entry: connectedEntry('alpha'),
-        client: {
-          ...fakeClient(),
-          readResource: vi.fn().mockResolvedValue([
-            {
-              uri: 'asset://document',
-              mimeType: 'application/pdf',
-              blob: Buffer.from('pdf').toString('base64'),
-            },
-          ]),
-        },
-      },
-    ]);
-    const tool = new ReadMcpResourceTool(
-      manager,
-      createFakeKaos({ mkdir, writeBytes }),
-    );
-
-    const result = await executeTool(tool, {
-      turnId: '1',
-      toolCallId: 'tc-read-binary-resource',
-      args: { server: 'alpha', uri: 'asset://document' },
-      signal: new AbortController().signal,
-    });
-    const output = JSON.parse(result.output as string) as {
-      contents: Array<{ blobSavedTo: string; text: string }>;
-    };
-
-    expect(mkdir).toHaveBeenCalledWith('/home/test/.pythinker-code/tool-results', {
-      parents: true,
-      existOk: true,
-    });
-    expect(output.contents[0]?.blobSavedTo).toMatch(
-      /^\/home\/test\/\.pythinker-code\/tool-results\/mcp-resource-[\w-]+\.pdf$/u,
-    );
-    expect(output.contents[0]?.text).toContain('Binary content (application/pdf, 3 bytes) saved');
-    expect(writeBytes).toHaveBeenCalledWith(
-      output.contents[0]?.blobSavedTo,
-      Buffer.from('pdf'),
-    );
   });
 });

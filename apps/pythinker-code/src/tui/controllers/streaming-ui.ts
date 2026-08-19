@@ -1,8 +1,8 @@
-import type { Component } from '@earendil-works/pi-tui';
 import type { Session } from '@pymodel/pythinker-code-sdk';
 
 import { AgentGroupComponent } from '../components/messages/agent-group';
 import { AssistantMessageComponent } from '../components/messages/assistant-message';
+import { currentWorkingTip } from '../components/chrome/working-tips';
 import { CompactionComponent } from '../components/dialogs/compaction';
 import { ReadGroupComponent } from '../components/messages/read-group';
 import { ThinkingComponent } from '../components/messages/thinking';
@@ -12,8 +12,6 @@ import { hasDispose } from '../utils/component-capabilities';
 import { appendStreamingArgsPreview, parseStreamingArgs } from '../utils/event-payload';
 import { notifyTerminalOnce } from '../utils/terminal-notification';
 import { nextTranscriptId } from '../utils/transcript-id';
-import { ScrollbackBridge } from '../runtime/scrollback/scrollback-bridge';
-import { markTranscriptComponent } from '../utils/transcript-component-metadata';
 import type { TodoItem } from '../components/chrome/todo-panel';
 import type {
   AppState,
@@ -37,16 +35,11 @@ export interface StreamingUIHost {
   deferUserMessages: boolean;
   shiftQueuedMessage(): QueuedMessage | undefined;
   pushTranscriptEntry(entry: TranscriptEntry): void;
+  mergeCurrentTurnSteps(): void;
+  mergeCompletedTurnAssistants(): void;
 }
 
 export class StreamingUIController {
-  /**
-   * Mirrors assistant text into terminal scrollback when the OpenTUI path is
-   * active. Unset on the legacy pi path, where the transcript container owns
-   * rendering, so leaving it undefined changes nothing.
-   */
-  private scrollback: ScrollbackBridge | undefined = undefined;
-
   private flushTimer: ReturnType<typeof setTimeout> | undefined;
   private lastFlushAt: number | undefined;
   private pendingAssistantFlush = false;
@@ -63,8 +56,6 @@ export class StreamingUIController {
   private _thinkingDraft = '';
   private _streamingBlock: { component: AssistantMessageComponent; entry: TranscriptEntry } | null = null;
   private _activeThinkingComponent: ThinkingComponent | undefined = undefined;
-  /** Scrollback identity for the live thinking block; the component itself has none. */
-  private _thinkingEntryId: string | undefined = undefined;
   private _activeCompactionBlock: CompactionComponent | undefined = undefined;
   private _activeToolCalls = new Map<string, ToolCallBlockData>();
   private _streamingToolCallArguments = new Map<
@@ -84,14 +75,9 @@ export class StreamingUIController {
     solo?: ToolCallComponent;
     group?: ReadGroupComponent;
   } | null = null;
+
   constructor(private readonly host: StreamingUIHost) {}
 
-  private addLiveTranscriptChild(child: Component): void {
-    this.host.state.transcriptContainer.addTranscriptChild(child, {
-      role: 'live-durable',
-      edgeBlankPolicy: 'trim-plain',
-    });
-  }
   // ---------------------------------------------------------------------------
   // Turn context — read/write accessors
   // ---------------------------------------------------------------------------
@@ -282,6 +268,41 @@ export class StreamingUIController {
     return true;
   }
 
+  /**
+   * Mark a foreground subagent card as detached-to-background (`◐ backgrounded`).
+   * Routed from a `background.task.started` event whose `info.kind === 'agent'`,
+   * keyed by `agentId`. Returns true iff a matching component was found.
+   *
+   * Gated to cards that are currently foreground-running: `background.task.started`
+   * also fires for `Agent(run_in_background=true)` launches and for background
+   * resumes, and those must not mutate older completed rows that happen to share
+   * the same `agentId` (a resume's new card has no parsed `agent_id` yet, so the
+   * search can otherwise hit the previous completed card).
+   */
+  markSubagentBackgrounded(agentId: string | undefined): boolean {
+    if (agentId === undefined) return false;
+    const visit = (tc: ToolCallComponent): boolean => {
+      if (tc.getSubagentAgentId() !== agentId) return false;
+      const phase = tc.getSubagentSnapshot().phase;
+      if (phase !== 'running' && phase !== 'queued' && phase !== 'spawning') return false;
+      tc.markBackgrounded();
+      return true;
+    };
+    for (const tc of this._pendingToolComponents.values()) {
+      if (visit(tc)) return true;
+    }
+    for (const child of this.host.state.transcriptContainer.children) {
+      if (child instanceof ToolCallComponent) {
+        if (visit(child)) return true;
+      } else if (child instanceof AgentGroupComponent) {
+        for (const tc of child.getToolComponents()) {
+          if (visit(tc)) return true;
+        }
+      }
+    }
+    return false;
+  }
+
   /** Registers a tool call that arrived via tool.call.started.
    *  Clears any pending streaming state for this id, updates or creates the
    *  component, and returns whether the call was new (no previous entry). */
@@ -295,7 +316,7 @@ export class StreamingUIController {
       existingComponent.updateToolCall(toolCall);
     } else if (existing === undefined) {
       this.finalizeLiveTextBuffers('tool');
-      if (toolCall.name !== 'Agent' && toolCall.name !== 'DynamicWorkflow') {
+      if (toolCall.name !== 'Agent' && toolCall.name !== 'AgentDynamicWorkflow') {
         this.onToolCallStart(toolCall);
       }
     }
@@ -381,11 +402,10 @@ export class StreamingUIController {
   // ---------------------------------------------------------------------------
 
   disposeActiveThinkingComponent(): void {
-    const component = this._activeThinkingComponent;
-    if (component === undefined) return;
-    this.host.state.activityContainer.removeChild(component);
-    component.dispose();
-    this._activeThinkingComponent = undefined;
+    if (this._activeThinkingComponent !== undefined) {
+      this._activeThinkingComponent.dispose();
+      this._activeThinkingComponent = undefined;
+    }
   }
 
   disposeAndClearPendingToolComponents(): void {
@@ -500,20 +520,13 @@ export class StreamingUIController {
     this.host.state.ui.requestRender();
   }
 
-  /** Enables scrollback mirroring; the OpenTUI presentation calls this on start. */
-  setScrollbackBridge(bridge: ScrollbackBridge | undefined): void {
-    this.scrollback = bridge;
-  }
-
   resetLiveText(): void {
-    this.scrollback?.reset();
     this.pendingAssistantFlush = false;
     this.pendingThinkingFlush = false;
     this.clearFlushTimerIfIdle();
     this._assistantDraft = '';
     this._streamingBlock = null;
     this._thinkingDraft = '';
-    this._thinkingEntryId = undefined;
     this.disposeActiveThinkingComponent();
   }
 
@@ -524,6 +537,7 @@ export class StreamingUIController {
     this.disposeAndClearPendingToolComponents();
     this._pendingAgentGroup = null;
     this._pendingReadGroup = null;
+    this.resetToolCallState();
   }
 
   resetToolCallState(): void {
@@ -542,14 +556,23 @@ export class StreamingUIController {
     const completedTurnKey =
       this._currentTurnId ?? `local:${String(state.appState.streamingStartTime)}`;
     this.finalizeLiveTextBuffers('idle');
+    // The finished turn keeps only its conclusion-bearing tail; intermediate
+    // chatter folds into the step summary.
+    this.host.mergeCompletedTurnAssistants();
     this.resetToolCallState();
     this._currentTurnId = undefined;
 
     const next = this.host.shiftQueuedMessage();
     if (next !== undefined) {
+      // The message is out of the queue but not yet sent. Mark the dispatch
+      // pending *before* setAppState — that call synchronously retries
+      // queued-goal promotion, which would otherwise see an empty queue and an
+      // idle phase and start a goal ahead of this message.
+      state.queuedMessageDispatchPending = true;
       this.host.setAppState({ streamingPhase: 'idle' });
       this.host.resetLivePane();
       setTimeout(() => {
+        state.queuedMessageDispatchPending = false;
         sendQueued(next);
       }, 0);
       return;
@@ -577,13 +600,12 @@ export class StreamingUIController {
       turnId: this._currentTurnId,
       renderMode: 'markdown' as const,
       content: '',
+      modelText: true,
     };
     const component = new AssistantMessageComponent();
-    markTranscriptComponent(component, entry);
     this._streamingBlock = { component, entry };
-    this.scrollback?.begin(entry.id, this._currentTurnId);
     this.host.pushTranscriptEntry(entry);
-    this.addLiveTranscriptChild(component);
+    state.transcriptContainer.addChild(component);
     state.ui.requestRender();
   }
 
@@ -591,21 +613,24 @@ export class StreamingUIController {
     const block = this._streamingBlock;
     if (block !== null) {
       block.entry.content = fullText;
-      block.component.updateContent(fullText);
-      this.scrollback?.update(block.entry.id, fullText);
+      block.component.updateContent(fullText, { transient: true });
       this.host.state.ui.requestRender();
     }
   }
 
   onStreamingTextEnd(): void {
     const block = this._streamingBlock;
-    if (block !== null) this.scrollback?.complete(block.entry.id);
+    if (block !== null) {
+      block.component.updateContent(block.entry.content, { transient: false });
+    }
     this._streamingBlock = null;
   }
 
   onThinkingUpdate(fullText: string): void {
-    // Replay also funnels stored thinking through this method, so filter at the
-    // component boundary as well as at the live delta handler.
+    // Skip thinking that carries nothing visible — empty (e.g. encrypted
+    // reasoning) or whitespace-only (a model occasionally streams a single
+    // space as thinking). Session replay funnels through here as well, so a
+    // stored whitespace-only think part never becomes a bare bullet line.
     if (fullText.trim().length === 0 && this._activeThinkingComponent === undefined) return;
     const { state } = this.host;
     if (this._activeThinkingComponent === undefined) {
@@ -618,30 +643,19 @@ export class StreamingUIController {
         state.ui,
       );
       if (state.toolOutputExpanded) this._activeThinkingComponent.setExpanded(true);
-      state.activityContainer.addChild(this._activeThinkingComponent);
-      this._thinkingEntryId = nextTranscriptId();
-      this.scrollback?.begin(this._thinkingEntryId, this._currentTurnId);
+      state.transcriptContainer.addChild(this._activeThinkingComponent);
     } else {
       this._activeThinkingComponent.setText(fullText);
-    }
-    if (this._thinkingEntryId !== undefined) {
-      this.scrollback?.update(this._thinkingEntryId, fullText);
     }
     state.ui.requestRender();
   }
 
   onThinkingEnd(): void {
-    const component = this._activeThinkingComponent;
-    if (component === undefined) return;
-    component.finalize();
-    this.host.state.activityContainer.removeChild(component);
-    this.addLiveTranscriptChild(component);
+    if (this._activeThinkingComponent === undefined) return;
+    this._activeThinkingComponent.finalize();
     this._activeThinkingComponent = undefined;
-    if (this._thinkingEntryId !== undefined) {
-      this.scrollback?.complete(this._thinkingEntryId);
-      this._thinkingEntryId = undefined;
-    }
     this.host.state.ui.requestRender();
+    this.host.mergeCurrentTurnSteps();
   }
 
   onToolCallStart(toolCall: ToolCallBlockData): void {
@@ -663,7 +677,7 @@ export class StreamingUIController {
     let handled = this.tryAttachAgentToolCall(toolCall, tc);
     if (!handled) handled = this.tryAttachReadToolCall(toolCall, tc);
     if (!handled) {
-      this.addLiveTranscriptChild(tc);
+      state.transcriptContainer.addChild(tc);
       state.ui.requestRender();
     }
 
@@ -688,6 +702,7 @@ export class StreamingUIController {
       tc.setResult(result);
       this._pendingToolComponents.delete(toolCallId);
       state.ui.requestRender();
+      this.host.mergeCurrentTurnSteps();
       return;
     }
 
@@ -699,9 +714,10 @@ export class StreamingUIController {
         state.appState.workDir,
       );
       if (state.toolOutputExpanded) completed.setExpanded(true);
-      this.addLiveTranscriptChild(completed);
+      state.transcriptContainer.addChild(completed);
       state.ui.requestRender();
     }
+    this.host.mergeCurrentTurnSteps();
   }
 
   setTodoList(todos: readonly TodoItem[]): void {
@@ -720,9 +736,12 @@ export class StreamingUIController {
       this._activeCompactionBlock.markDone();
       this._activeCompactionBlock = undefined;
     }
-    const block = new CompactionComponent(state.ui, instruction);
+    const block = new CompactionComponent(state.ui, instruction, currentWorkingTip()?.text);
     this._activeCompactionBlock = block;
-    this.addLiveTranscriptChild(block);
+    state.transcriptContainer.addChild(block);
+    if (state.toolOutputExpanded) {
+      block.setExpanded(true);
+    }
     state.ui.requestRender();
   }
 
@@ -749,12 +768,10 @@ export class StreamingUIController {
   private flushToolCallPreview(id: string): void {
     const streaming = this._streamingToolCallArguments.get(id);
     if (streaming === undefined) return;
-    const args = parseStreamingArgs(streaming.argumentsText);
-    if (typeof args['i'] === 'string') delete args['i'];
     const toolCall: ToolCallBlockData = {
       id,
       name: streaming.name ?? this._activeToolCalls.get(id)?.name ?? 'Tool',
-      args,
+      args: parseStreamingArgs(streaming.argumentsText),
       streamingArguments: streaming.argumentsText,
       streamingStartedAtMs: streaming.startedAtMs,
       step: this._currentStep,
@@ -769,7 +786,7 @@ export class StreamingUIController {
     const existingComponent = this._pendingToolComponents.get(id);
     if (existingComponent !== undefined) {
       existingComponent.updateToolCall(toolCall);
-    } else if (toolCall.name !== 'Agent' && toolCall.name !== 'DynamicWorkflow') {
+    } else if (toolCall.name !== 'Agent' && toolCall.name !== 'AgentDynamicWorkflow') {
       this.onToolCallStart(toolCall);
     }
   }
@@ -792,7 +809,7 @@ export class StreamingUIController {
     const cur = this._pendingAgentGroup;
     if (cur === null) {
       this._pendingAgentGroup = { step, turnId, solo: tc };
-      this.addLiveTranscriptChild(tc);
+      state.transcriptContainer.addChild(tc);
       state.ui.requestRender();
       return true;
     }
@@ -805,7 +822,7 @@ export class StreamingUIController {
     const solo = cur.solo;
     if (solo === undefined) {
       this._pendingAgentGroup = { step, turnId, solo: tc };
-      this.addLiveTranscriptChild(tc);
+      state.transcriptContainer.addChild(tc);
       state.ui.requestRender();
       return true;
     }
@@ -822,12 +839,11 @@ export class StreamingUIController {
     const children = state.transcriptContainer.children;
     const idx = children.indexOf(solo);
     if (idx >= 0) {
-      state.transcriptContainer.replaceTranscriptChild(solo, group, {
-        role: 'live-durable',
-        edgeBlankPolicy: 'trim-plain',
-      });
+      // In-place replacement is picked up by the container's ref-checked
+      // render cache; a tree-wide invalidate is unnecessary (and costly).
+      children[idx] = group;
     } else {
-      this.addLiveTranscriptChild(group);
+      state.transcriptContainer.addChild(group);
     }
     group.attach(solo.toolCallView.id, solo);
     return group;
@@ -851,7 +867,7 @@ export class StreamingUIController {
     const cur = this._pendingReadGroup;
     if (cur === null) {
       this._pendingReadGroup = { step, turnId, solo: tc };
-      this.addLiveTranscriptChild(tc);
+      state.transcriptContainer.addChild(tc);
       state.ui.requestRender();
       return true;
     }
@@ -864,7 +880,7 @@ export class StreamingUIController {
     const solo = cur.solo;
     if (solo === undefined) {
       this._pendingReadGroup = { step, turnId, solo: tc };
-      this.addLiveTranscriptChild(tc);
+      state.transcriptContainer.addChild(tc);
       state.ui.requestRender();
       return true;
     }
@@ -881,12 +897,11 @@ export class StreamingUIController {
     const children = state.transcriptContainer.children;
     const idx = children.indexOf(solo);
     if (idx >= 0) {
-      state.transcriptContainer.replaceTranscriptChild(solo, group, {
-        role: 'live-durable',
-        edgeBlankPolicy: 'trim-plain',
-      });
+      // In-place replacement is picked up by the container's ref-checked
+      // render cache; a tree-wide invalidate is unnecessary (and costly).
+      children[idx] = group;
     } else {
-      this.addLiveTranscriptChild(group);
+      state.transcriptContainer.addChild(group);
     }
     group.attach(solo.toolCallView.id, solo);
     return group;

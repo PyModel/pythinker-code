@@ -26,17 +26,15 @@ describe('pagination — CursorQuery', () => {
   it('rejects before_id + after_id simultaneously with 40001-mapped issue', () => {
     const result = cursorQuerySchema.safeParse({ before_id: 'x', after_id: 'y' });
     expect(result.success).toBe(false);
-    expect(result).toMatchObject({
-      error: {
-        issues: expect.arrayContaining([
-          expect.objectContaining({
-            code: 'custom',
-            message: expect.stringMatching(/mutually exclusive/),
-            params: expect.objectContaining({ code: ErrorCode.VALIDATION_FAILED }),
-          }),
-        ]),
-      },
-    });
+    if (!result.success) {
+      const mutexIssue = result.error.issues.find(
+        (issue) =>
+          issue.code === 'custom' &&
+          (issue.params as { code?: number } | undefined)?.code === ErrorCode.VALIDATION_FAILED,
+      );
+      expect(mutexIssue).toBeDefined();
+      expect(mutexIssue?.message).toMatch(/mutually exclusive/);
+    }
   });
 
   it('rejects page_size below 1', () => {

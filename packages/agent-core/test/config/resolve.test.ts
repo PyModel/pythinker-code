@@ -4,14 +4,14 @@ import { parseFloatEnv } from '../../src/config/resolve';
 import { PythinkerError } from '../../src/errors';
 
 function expectConfigInvalid(fn: () => unknown): void {
-  let thrown: unknown;
   try {
     fn();
   } catch (error) {
-    thrown = error;
+    expect(error).toBeInstanceOf(PythinkerError);
+    expect((error as PythinkerError).code).toBe('config.invalid');
+    return;
   }
-  expect(thrown).toBeInstanceOf(PythinkerError);
-  expect((thrown as PythinkerError).code).toBe('config.invalid');
+  throw new Error('expected function to throw');
 }
 
 describe('parseFloatEnv', () => {
@@ -31,7 +31,6 @@ describe('parseFloatEnv', () => {
   it.each(['abc', '1.2.3', 'NaN', '1,5'])(
     'throws config.invalid for non-numeric value %s',
     (value) => {
-      expect.hasAssertions();
       expectConfigInvalid(() => parseFloatEnv(value, 'PYTHINKER_MODEL_TEMPERATURE'));
     },
   );

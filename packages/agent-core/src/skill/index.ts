@@ -3,4 +3,3 @@ export * from './parser';
 export * from './registry';
 export * from './scanner';
 export * from './types';
-export * from './workspace';

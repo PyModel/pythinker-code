@@ -9,25 +9,36 @@ description: Use when generating changesets in the pythinker-code repository, in
 
 - `@pymodel/pythinker-code`: the CLI
 
-All other `@pymodel/*` packages are treated as internal packages, including `@pymodel/pythinker-code-sdk`, `agent-core`, `kosong`, `kaos`, `pythinker-code-oauth`, and `pythinker-telemetry`.
+All other `@pymodel/*` packages are treated as internal packages, including `@pymodel/pythinker-code-sdk`, `agent-core`, `kosong`, `kaos`, `pythinker-code-oauth`, `pythinker-telemetry`, and `migration-legacy`.
+
+`@pymodel/pi-tui` is a special internal package: it is a private fork (`private: true`) that is never published, but it keeps its own changelog through changesets. It is an exception to Core Rule 4 — see the dedicated section below.
+
+Only the CLI changelog gets a curated, user-facing presentation (the docs-site changelog sync). The SDK and other internal package changelogs are raw changesets output kept for version history — nobody curates them, so write those entries honestly and technically; their wording does not need to suit end users.
 
 ## Core Rules
 
 1. **Inspect the actual changes first.** Use `git status` / `git diff --name-only` to identify which packages were actually changed.
 2. **List packages that changesets can release.** If a changed package is ignored in `.changeset/config.json`, do not put that ignored package in frontmatter together with a non-ignored package; changesets rejects mixed ignored/non-ignored frontmatter.
 3. **Map ignored internal changes to the affected released package.** If an ignored internal package changes CLI output or behavior, list `@pymodel/pythinker-code` and describe the actual user-visible or release-artifact change in the changelog text.
-4. **Internal package source changes that enter the CLI bundle must manually list the CLI.** `@pymodel/pythinker-code` inline-bundles `@pymodel/*` source, but those internal packages are devDependencies from the CLI's perspective, so changesets will not automatically propagate bumps. If a change enters the CLI output, list `@pymodel/pythinker-code`.
-   - **Web app (`@pymodel/pythinker-web`) changes always enter the CLI bundle.** `@pymodel/pythinker-web` is ignored by changesets (see `.changeset/config.json`) and cannot be mixed with `@pymodel/pythinker-code` in one changeset frontmatter. Describe the web change in the changelog text, but list `@pymodel/pythinker-code` so the CLI release carries the bundled `dist-web` output.
+4. **Internal package source changes that enter the CLI bundle must manually list the CLI — when they get a changeset at all.** `@pymodel/pythinker-code` inline-bundles `@pymodel/*` source, but those internal packages are devDependencies from the CLI's perspective, so changesets will not automatically propagate bumps. If a change enters the CLI output and is user-perceivable, list `@pymodel/pythinker-code`. See rule 6 for when to skip the changeset entirely.
 5. **Docs-only and tests-only changes usually do not need a changeset.** README, internal docs, and `test/` changes that do not enter package output do not trigger a CLI bump.
-6. `@pymodel/dashboard` / `dashboard-server` / `dashboard-web` are ignored by changesets and should not be handled.
+6. **Skip changes users cannot perceive — write no changeset at all.** The CLI changelog is user-facing; a changeset is a changelog entry, not a shipping gate. Internal changes merged to `main` still ship in the next release triggered by any user-facing changeset, so skipping the changeset loses nothing. Do not write changesets for:
+   - `agent-core-v2` internal architecture: new services, refactors, config-persistence or journal/wire mechanisms.
+   - `kap-server` WebSocket / REST protocol changes consumed only by the bundled web UI, pythinker-inspect, or other dev tooling (new endpoints, subscribe protocols, stream baselines).
+   - Behavior that only takes effect on the experimental engine (e.g. experimental `pythinker -p`), unless it exposes documented user configuration such as a `config.toml` section or env vars that also work on a shipped surface (TUI or `pythinker web`).
+   - When unsure whether users can perceive a change, ask before writing.
+7. `@pymodel/vis` / `vis-server` / `vis-web` are ignored by changesets and should not be handled. `@pymodel/pythinker-inspect` (a private dev app that never ships) is likewise ignored and must never appear in a changeset frontmatter.
 
 ## Workflow
 
 1. List the changed packages and check whether each one is ignored by `.changeset/config.json`.
-2. Choose a bump level for each package.
-3. If an ignored internal package change enters the CLI bundle, put `@pymodel/pythinker-code` in frontmatter instead of mixing the ignored package into the same changeset.
-4. Create a short kebab-case file under `.changeset/`.
-5. Split unrelated changes into separate changesets; keep one logical change in one file.
+2. Decide whether the change is user-perceivable (Core Rule 6); if not, stop — no changeset.
+3. Choose a bump level for each package.
+4. If an ignored internal package change enters the CLI bundle, put `@pymodel/pythinker-code` in frontmatter instead of mixing the ignored package into the same changeset.
+5. Create a short kebab-case file under `.changeset/`.
+6. Split unrelated changes into separate changesets; keep one logical change in one file.
+
+Before a release, review the accumulated `.changeset/` entries against Core Rule 6 and prune non-user-facing ones; the release PR regenerates from `.changeset/` on `main`, so deleting a changeset removes its changelog entry without affecting the shipped code.
 
 Format:
 
@@ -44,9 +55,13 @@ Format:
 
 | Level | When to use |
 |---|---|
-| `patch` | Bug fixes; build/package fixes; internal refactors that do not change behavior; wording tweaks; small dependency upgrades |
-| `minor` | New backwards-compatible features or capabilities |
+| `patch` | Bug fixes; build/package fixes; internal refactors that do not change behavior; wording tweaks; small dependency upgrades; small improvements to existing features with limited user-facing impact (e.g. a new keyboard shortcut, a flag alias, a minor UX tweak) |
+| `minor` | A substantial new user-facing feature, such as a new slash command, a new built-in tool, or a new mode |
 | `major` | Breaking changes: incompatible config changes, renamed or removed commands/arguments, behavior semantics changes, and similar |
+
+When in doubt between `patch` and `minor`: if the change improves an existing feature and the user-facing impact is small, choose `patch` even when the change is technically "new". Reserve `minor` for a substantial new capability that introduces something users could not do before.
+
+New configuration surface is not automatically `minor`. Additions to an existing feature's configuration — env var overlays, config-file fallbacks, global defaults under per-item settings — are `patch`. Examples: a global default MCP timeout when per-server timeouts already exist; env-based credentials for a service already configurable in `config.toml`.
 
 ### Major Rule
 
@@ -57,12 +72,25 @@ If you believe a change qualifies as major, stop first, explain why, and ask the
 ## Wording Rules
 
 - Changelog entries **must be written in English**.
-- **Keep it short — ideally a single sentence that states what was done.** Do not write a paragraph, do not pile on technical detail, and do not enumerate every sub-change.
+- **Keep the whole entry concise.** Aim for one short sentence that states what was done; at most a short sentence plus a one-line usage hint. Do not write a paragraph, do not pile on technical detail, and do not enumerate every sub-change.
+- **For new user-facing features, append a brief usage hint** so users know how to try it. Keep it to a single short line — a command name, a subcommand, a flag, or a one-line "how to use". Do not explain design rationale or list edge cases. Skip the hint for bug fixes, internal changes, and refactors.
+  - Slash command: `Add the /foo slash command to list active sessions. Run /foo to see them.`
+  - CLI subcommand: `Add the pythinker web subcommand to open the web UI. Run pythinker web to launch it.`
+  - Flag: `Add a --bar flag to skip confirmation prompts. Pass --bar to skip.`
+  - Too long: `Add the /foo command to list active sessions. It accepts an optional --all flag to include background sessions, supports filtering by name with /foo <name>, and writes the result to the transcript...`
 - User-facing CLI wording should only be used when CLI users can perceive the change.
 - Internal changes that do not affect CLI users can still share a changeset with the CLI, but the wording must describe the real change honestly and must not present it as a user-facing feature.
 - Do not mention file names, class names, function names, PR numbers, or commit hashes.
 - Do not include real internal endpoints, key names, account names, or service names. If an example is needed, use neutral placeholders such as `example.com`, `example.test`, or `YOUR_API_KEY`.
 - Avoid vague words such as `refactor`, `optimize`, and `improve`. Describe the actual change, or use more specific wording.
+
+## When You Are Unsure About a Change
+
+Generate the changeset from what the diff clearly shows. If part of a change is unclear and you cannot confidently describe what it does for users, do not guess or pad the entry with vague wording.
+
+1. Finish the changeset for the parts that are clear.
+2. Then ask the user once, in a short list: name the specific change(s) you do not understand, and ask whether you may dig into the repository (read related source, tests, or call sites) to describe it more accurately.
+3. Only read more code after the user agrees. If the user says no or does not reply, keep the concise wording you already have and do not invent detail.
 
 ## Common Examples
 
@@ -74,6 +102,36 @@ An internal package fixes a bug visible to CLI users:
 ---
 
 Fix occasional loss of tool call results in long conversations.
+```
+
+A new user-facing slash command (note the short usage hint):
+
+```markdown
+---
+"@pymodel/pythinker-code": minor
+---
+
+Add the /foo slash command to list active sessions. Run /foo to see them.
+```
+
+A new CLI subcommand:
+
+```markdown
+---
+"@pymodel/pythinker-code": minor
+---
+
+Add the pythinker web subcommand to open the web UI. Run pythinker web to launch it.
+```
+
+A new flag on an existing command:
+
+```markdown
+---
+"@pymodel/pythinker-code": patch
+---
+
+Add a --bar flag to skip confirmation prompts. Pass --bar to skip.
 ```
 
 An internal package has an internal-only change, but it enters the CLI bundle:
@@ -96,44 +154,48 @@ Only SDK source changed, and the CLI does not use it:
 Clarify session status typing for internal SDK callers.
 ```
 
-## Web app changes
+## `@pymodel/pi-tui` changes
 
-`@pymodel/pythinker-web` is ignored by changesets and must **never** appear in a changeset frontmatter. Because the web app is bundled into the CLI release artifact, any web change that ships must list `@pymodel/pythinker-code` instead and describe the actual web-facing change in the text.
+`@pymodel/pi-tui` is a vendored fork that lives in `packages/pi-tui`. It is `private: true` and is never published, but it is **not** ignored by changesets: changesets versions it and writes `packages/pi-tui/CHANGELOG.md` so the fork keeps its own history. Because it is bundled into the CLI like other internal packages, it is an exception to Core Rule 4 — do **not** list `@pymodel/pythinker-code` for a change that only touches pi-tui.
 
-- If a PR contains both web UI changes and server API changes, split them into separate changesets so each entry has a focused description.
-- Do not enumerate every micro-tweak; keep it to one sentence that captures what the web user gets.
+- Changes that only affect pi-tui (build, package, strict-mode cleanup, renderer fixes): list `@pymodel/pi-tui` only. No CLI changeset.
+- If the same change is also user-visible in the CLI (for example a terminal rendering fix that CLI users can see), add a **separate** changeset that lists `@pymodel/pythinker-code` with CLI-focused wording, in addition to the pi-tui changeset. Do not mix both packages in one frontmatter — the two changelogs need different wording.
 
-Web-only fix:
+pi-tui-only change:
+
+```markdown
+---
+"@pymodel/pi-tui": patch
+---
+
+Export the package manifest so the bundled binary can locate its native assets.
+```
+
+pi-tui change that is also visible in the CLI (two separate changesets):
+
+```markdown
+---
+"@pymodel/pi-tui": patch
+---
+
+Clamp the differential render to the visible viewport so scrolling up during streaming no longer jumps to the top.
+```
 
 ```markdown
 ---
 "@pymodel/pythinker-code": patch
 ---
 
-Fix the web chat not scrolling to the bottom after sending a message.
-```
-
-Web UI plus server APIs in the same PR (split into two changesets):
-
-```markdown
----
-"@pymodel/pythinker-code": minor
----
-
-Add the server-hosted web UI, including chat layout and session list behaviors.
-```
-
-```markdown
----
-"@pymodel/pythinker-code": minor
----
-
-Add the server REST and WebSocket APIs that power the web UI.
+Fix the transcript jumping to the top when scrolling up through history during streaming output.
 ```
 
 ## Red Flags
 
 - You are about to write `major` without asking the user.
+- You are writing a changeset for something users cannot perceive — `agent-core-v2` internals, `kap-server` WS/REST protocol plumbing, experimental-engine-only behavior. Skip the changeset instead (Core Rule 6).
+- A new env var overlay or config fallback for an existing feature is bumped `minor` — configuration additions to existing features are `patch`.
+- A new user-facing feature entry has no usage hint, or the hint runs to multiple lines and explains design rationale.
+- You guessed wording for a change you do not understand instead of asking the user whether you may dig into the repo.
 - Internal package source enters the CLI bundle, but `@pymodel/pythinker-code` is missing.
 - A changeset frontmatter mixes ignored internal packages with non-ignored packages.
 - `packages/node-sdk` was not changed, but `@pymodel/pythinker-code-sdk` was listed for "internal package sync".
@@ -141,3 +203,4 @@ Add the server REST and WebSocket APIs that power the web UI.
 - The wording claims more than the diff actually did.
 - The CLI wording mentions internal package names, class names, or PR numbers.
 - The entry includes real internal identifiers instead of neutral placeholders.
+- A change that only touches `@pymodel/pi-tui` lists `@pymodel/pythinker-code` instead of `@pymodel/pi-tui`, or mixes both packages in one frontmatter.

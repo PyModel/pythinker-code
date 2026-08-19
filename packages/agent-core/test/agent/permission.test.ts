@@ -17,11 +17,12 @@ import {
   parsePattern,
   type PermissionRuleMatchExecution,
 } from '../../src/agent/permission/matches-rule';
-import { DynamicWorkflowExclusiveDenyPermissionPolicy } from '../../src/agent/permission/policies/dynamic-workflow-exclusive-deny';
+import { AgentDynamicWorkflowExclusiveDenyPermissionPolicy } from '../../src/agent/permission/policies/agent-dynamic-workflow-exclusive-deny';
 import { AutoModeApprovePermissionPolicy } from '../../src/agent/permission/policies/auto-mode-approve';
 import { AutoModeAskUserQuestionDenyPermissionPolicy } from '../../src/agent/permission/policies/auto-mode-ask-user-question-deny';
 import { FallbackAskPermissionPolicy } from '../../src/agent/permission/policies/fallback-ask';
 import { createPermissionDecisionPolicies } from '../../src/agent/permission/policies';
+import { DynamicWorkflowModeAgentDynamicWorkflowApprovePermissionPolicy } from '../../src/agent/permission/policies/dynamic-workflow-mode-agent-dynamic-workflow-approve';
 import { YoloModeApprovePermissionPolicy } from '../../src/agent/permission/policies/yolo-mode-approve';
 import { ToolAccesses } from '../../src/loop';
 import type { ToolInputDisplay } from '../../src/tools/display';
@@ -52,6 +53,8 @@ describe('Agent permission', () => {
       [wire] context.append_message      { "message": { "role": "user", "content": [ { "type": "text", "text": "<auto-mode-enter-reminder>" } ], "toolCalls": [], "origin": { "kind": "injection", "variant": "permission_mode" } }, "time": "<time>" }
       [wire] context.append_loop_event   { "event": { "type": "step.begin", "uuid": "<uuid-1>", "turnId": "0", "step": 1 }, "time": "<time>" }
       [emit] turn.step.started           { "turnId": 0, "step": 1, "stepId": "<uuid-1>" }
+      [wire] llm.tools_snapshot          { "hash": "aca3041121ee711028f726fed37e7b999f7e8885c05dbece76ef97eb43e2ec1e", "tools": [ { "name": "Bash", "description": "Execute a \`bash\` command. Use this for shell semantics — pipes, env, processes, git, package managers, build/test runners, anything genuinely interactive or multi-step.\\n\\n**Translate these to a dedicated tool instead:**\\n- \`cat\` / \`head\` / \`tail\` (known path) → \`Read\`\\n- \`sed\` / \`awk\` (in-place edit) → \`Edit\`\\n- \`echo > file\` / \`cat <<EOF\` → \`Write\`\\n- \`find\` / recursive \`ls\` to locate files by name pattern → \`Glob\` (plain \`ls <known-directory>\` is fine for listing a directory)\\n- \`grep\` / \`rg\` (search file contents) → \`Grep\`\\n- \`echo\` / \`printf\` (talk to the user) → just output text directly\\n\\nThe dedicated tools render in the per-tool permission UI and keep raw stdout out of the conversation; that is why they are worth reaching for whenever one fits.\\n\\n**Output:**\\nThe stdout and stderr will be combined and returned as a string. The output may be truncated if it is too long. If the command exits non-zero, the output ends with a \`Command failed with exit code: N\` line; a command killed by its timeout or interrupted by the user ends with its own message instead.\\n\\nBackground execution is disabled for this agent. Do not set \`run_in_background=true\`.\\n\\n**Guidelines for safety and security:**\\n- Each shell tool call will be executed in a fresh shell environment. The shell variables, current working directory changes, and the shell history is not preserved between calls. To run a command in a particular directory, pass the \`cwd\` argument (or use absolute paths) rather than relying on a \`cd\` from an earlier call.\\n- The tool call will return after the command is finished. You shall not use this tool to execute an interactive command or a command that may run forever. For possibly long-running commands, set the \`timeout\` argument in seconds. The default is 60s; foreground commands allow up to 300s; a foreground command that hits its timeout is killed.\\n- Avoid using \`..\` to access files or directories outside of the working directory.\\n- Avoid modifying files outside of the working directory unless explicitly instructed to do so.\\n- Never run commands that require superuser privileges unless explicitly instructed to do so.\\n\\n**Guidelines for efficiency:**\\n- Use \`&&\` to chain commands that genuinely depend on each other, e.g. \`npm install && npm test\`. Independent read-only commands (separate \`git show\`, \`ls\`, or status checks) should be issued as separate parallel Bash calls in one response, not chained into a single call — chaining serializes their execution and mixes their output. Do not stitch outputs together with \`echo\` separators.\\n- Use \`;\` to run commands sequentially regardless of success/failure\\n- Use \`||\` for conditional execution (run second command only if first fails)\\n- Use pipe operations (\`|\`) and redirections (\`>\`, \`>>\`) to chain input and output between commands\\n- Always quote file paths containing spaces with double quotes (e.g., cd \\"/path with spaces/\\")\\n- Compose multi-step logic in a single call with \`if\` / \`case\` / \`for\` / \`while\` control flows.\\n- Do not set \`run_in_background=true\`; background task management tools are not available.\\n\\n**Commands available:**\\nThe following common command categories are usually available. Availability still depends on the host, so when in doubt run \`which <command>\` first to confirm a command exists before relying on it.\\n- Navigation and inspection: \`ls\`, \`pwd\`, \`cd\`, \`stat\`, \`file\`, \`du\`, \`df\`, \`tree\`\\n- File and directory management: \`cp\`, \`mv\`, \`rm\`, \`mkdir\`, \`touch\`, \`ln\`, \`chmod\`, \`chown\`\\n- Text and data processing: \`wc\`, \`sort\`, \`uniq\`, \`cut\`, \`tr\`, \`diff\`, \`xargs\`\\n- Archives and compression: \`tar\`, \`gzip\`, \`gunzip\`, \`zip\`, \`unzip\`\\n- Networking and transfer: \`curl\`, \`wget\`, \`ping\`, \`ssh\`, \`scp\`\\n- Version control: \`git\`; for GitHub-hosted work (PRs, issues, CI runs, API queries) prefer the \`gh\` CLI when installed — it carries the user's GitHub auth and can return structured JSON\\n- Process and system: \`ps\`, \`kill\`, \`top\`, \`env\`, \`date\`, \`uname\`, \`whoami\`\\n- Language and package toolchains: \`node\`, \`npm\`, \`pnpm\`, \`yarn\`, \`python\`, \`pip\` (use whichever the project actually relies on)\\n", "parameters": { "$schema": "http://json-schema.org/draft-07/schema#", "type": "object", "properties": { "command": { "type": "string", "minLength": 1, "description": "The command to execute." }, "cwd": { "description": "The working directory in which to run the command. When omitted, the command runs in the session's working directory.", "type": "string" }, "timeout": { "default": 60, "description": "Optional timeout in seconds for the command to execute. Foreground default 60s, max 300s. Background default 600s, max 86400s. Ignored for background commands when disable_timeout=true.", "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 }, "description": { "description": "A short description for the background task. Required when run_in_background is true.", "type": "string" }, "run_in_background": { "description": "Whether to run the command as a background task.", "type": "boolean" }, "disable_timeout": { "description": "If true, do not apply a timeout to the command. Only applies when run_in_background is true.", "type": "boolean" } }, "required": [ "command" ], "additionalProperties": false } } ], "time": "<time>" }
+      [wire] llm.request                 { "kind": "loop", "provider": "pythinker", "model": "mock-model", "modelAlias": "mock-model", "thinkingEffort": "off", "maxTokens": 1000000, "toolSelect": false, "systemPromptHash": "ec9c34379c88babbc468ef2f3e0e08cd2f422c8c4a910664fb8bb394d703a575", "toolsHash": "aca3041121ee711028f726fed37e7b999f7e8885c05dbece76ef97eb43e2ec1e", "messageCount": 2, "turnStep": "0.1", "time": "<time>" }
       [emit] assistant.delta             { "turnId": 0, "delta": "Running without asking." }
       [emit] tool.call.delta             { "turnId": 0, "toolCallId": "call_bash", "name": "Bash", "argumentsPart": "{\\"command\\":\\"printf permission-output\\",\\"timeout\\":60}" }
       [wire] context.append_loop_event   { "event": { "type": "content.part", "uuid": "<uuid-2>", "turnId": "0", "step": 1, "stepUuid": "<uuid-1>", "part": { "type": "text", "text": "Running without asking." } }, "time": "<time>" }
@@ -60,18 +63,19 @@ describe('Agent permission', () => {
       [emit] tool.progress               { "turnId": 0, "toolCallId": "call_bash", "update": { "kind": "stdout", "text": "auto-output" } }
       [wire] context.append_loop_event   { "event": { "type": "tool.result", "parentUuid": "call_bash", "toolCallId": "call_bash", "result": { "output": "auto-output" } }, "time": "<time>" }
       [emit] tool.result                 { "turnId": 0, "toolCallId": "call_bash", "output": "auto-output" }
-      [wire] context.append_loop_event   { "event": { "type": "step.end", "uuid": "<uuid-1>", "turnId": "0", "step": 1, "usage": { "inputOther": 91, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "tool_use" }, "time": "<time>" }
-      [emit] turn.step.completed         { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 91, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "tool_use" }
-      [wire] usage.record                { "model": "mock-model", "usage": { "inputOther": 91, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
-      [emit] agent.status.updated        { "model": "mock-model", "contextTokens": 116, "maxContextTokens": 1000000, "contextUsage": 0.000116, "planMode": false, "dynamicWorkflowMode": false, "permission": "auto", "usage": { "byModel": { "mock-model": { "inputOther": 91, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 91, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 91, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
+      [wire] context.append_loop_event   { "event": { "type": "step.end", "uuid": "<uuid-1>", "turnId": "0", "step": 1, "usage": { "inputOther": 147, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "tool_use", "messageId": "mock-1" }, "time": "<time>" }
+      [emit] turn.step.completed         { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 147, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "tool_use" }
+      [wire] usage.record                { "model": "mock-model", "usage": { "inputOther": 147, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
+      [emit] agent.status.updated        { "model": "mock-model", "contextTokens": 172, "maxContextTokens": 1000000, "contextUsage": 0.000172, "planMode": false, "dynamicWorkflowMode": false, "permission": "auto", "usage": { "byModel": { "mock-model": { "inputOther": 147, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 147, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 147, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
       [wire] context.append_loop_event   { "event": { "type": "step.begin", "uuid": "<uuid-3>", "turnId": "0", "step": 2 }, "time": "<time>" }
       [emit] turn.step.started           { "turnId": 0, "step": 2, "stepId": "<uuid-3>" }
+      [wire] llm.request                 { "kind": "loop", "provider": "pythinker", "model": "mock-model", "modelAlias": "mock-model", "thinkingEffort": "off", "maxTokens": 999828, "toolSelect": false, "systemPromptHash": "ec9c34379c88babbc468ef2f3e0e08cd2f422c8c4a910664fb8bb394d703a575", "toolsHash": "aca3041121ee711028f726fed37e7b999f7e8885c05dbece76ef97eb43e2ec1e", "messageCount": 4, "turnStep": "0.2", "time": "<time>" }
       [emit] assistant.delta             { "turnId": 0, "delta": "The command printed auto-output." }
       [wire] context.append_loop_event   { "event": { "type": "content.part", "uuid": "<uuid-4>", "turnId": "0", "step": 2, "stepUuid": "<uuid-3>", "part": { "type": "text", "text": "The command printed auto-output." } }, "time": "<time>" }
-      [wire] context.append_loop_event   { "event": { "type": "step.end", "uuid": "<uuid-3>", "turnId": "0", "step": 2, "usage": { "inputOther": 120, "output": 11, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn" }, "time": "<time>" }
-      [emit] turn.step.completed         { "turnId": 0, "step": 2, "stepId": "<uuid-3>", "usage": { "inputOther": 120, "output": 11, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn" }
-      [wire] usage.record                { "model": "mock-model", "usage": { "inputOther": 120, "output": 11, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
-      [emit] agent.status.updated        { "model": "mock-model", "contextTokens": 131, "maxContextTokens": 1000000, "contextUsage": 0.000131, "planMode": false, "dynamicWorkflowMode": false, "permission": "auto", "usage": { "byModel": { "mock-model": { "inputOther": 211, "output": 36, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 211, "output": 36, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 211, "output": 36, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
+      [wire] context.append_loop_event   { "event": { "type": "step.end", "uuid": "<uuid-3>", "turnId": "0", "step": 2, "usage": { "inputOther": 176, "output": 11, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn", "messageId": "mock-2" }, "time": "<time>" }
+      [emit] turn.step.completed         { "turnId": 0, "step": 2, "stepId": "<uuid-3>", "usage": { "inputOther": 176, "output": 11, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn" }
+      [wire] usage.record                { "model": "mock-model", "usage": { "inputOther": 176, "output": 11, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
+      [emit] agent.status.updated        { "model": "mock-model", "contextTokens": 187, "maxContextTokens": 1000000, "contextUsage": 0.000187, "planMode": false, "dynamicWorkflowMode": false, "permission": "auto", "usage": { "byModel": { "mock-model": { "inputOther": 323, "output": 36, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 323, "output": 36, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 323, "output": 36, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
       [emit] turn.ended                  { "turnId": 0, "reason": "completed" }
     `);
     expect(ctx.llmInputs()).toMatchInlineSnapshot(`
@@ -108,6 +112,8 @@ describe('Agent permission', () => {
       [wire] context.append_message      { "message": { "role": "user", "content": [ { "type": "text", "text": "Run Bash in yolo mode" } ], "toolCalls": [], "origin": { "kind": "user" } }, "time": "<time>" }
       [wire] context.append_loop_event   { "event": { "type": "step.begin", "uuid": "<uuid-1>", "turnId": "0", "step": 1 }, "time": "<time>" }
       [emit] turn.step.started           { "turnId": 0, "step": 1, "stepId": "<uuid-1>" }
+      [wire] llm.tools_snapshot          { "hash": "aca3041121ee711028f726fed37e7b999f7e8885c05dbece76ef97eb43e2ec1e", "tools": [ { "name": "Bash", "description": "Execute a \`bash\` command. Use this for shell semantics — pipes, env, processes, git, package managers, build/test runners, anything genuinely interactive or multi-step.\\n\\n**Translate these to a dedicated tool instead:**\\n- \`cat\` / \`head\` / \`tail\` (known path) → \`Read\`\\n- \`sed\` / \`awk\` (in-place edit) → \`Edit\`\\n- \`echo > file\` / \`cat <<EOF\` → \`Write\`\\n- \`find\` / recursive \`ls\` to locate files by name pattern → \`Glob\` (plain \`ls <known-directory>\` is fine for listing a directory)\\n- \`grep\` / \`rg\` (search file contents) → \`Grep\`\\n- \`echo\` / \`printf\` (talk to the user) → just output text directly\\n\\nThe dedicated tools render in the per-tool permission UI and keep raw stdout out of the conversation; that is why they are worth reaching for whenever one fits.\\n\\n**Output:**\\nThe stdout and stderr will be combined and returned as a string. The output may be truncated if it is too long. If the command exits non-zero, the output ends with a \`Command failed with exit code: N\` line; a command killed by its timeout or interrupted by the user ends with its own message instead.\\n\\nBackground execution is disabled for this agent. Do not set \`run_in_background=true\`.\\n\\n**Guidelines for safety and security:**\\n- Each shell tool call will be executed in a fresh shell environment. The shell variables, current working directory changes, and the shell history is not preserved between calls. To run a command in a particular directory, pass the \`cwd\` argument (or use absolute paths) rather than relying on a \`cd\` from an earlier call.\\n- The tool call will return after the command is finished. You shall not use this tool to execute an interactive command or a command that may run forever. For possibly long-running commands, set the \`timeout\` argument in seconds. The default is 60s; foreground commands allow up to 300s; a foreground command that hits its timeout is killed.\\n- Avoid using \`..\` to access files or directories outside of the working directory.\\n- Avoid modifying files outside of the working directory unless explicitly instructed to do so.\\n- Never run commands that require superuser privileges unless explicitly instructed to do so.\\n\\n**Guidelines for efficiency:**\\n- Use \`&&\` to chain commands that genuinely depend on each other, e.g. \`npm install && npm test\`. Independent read-only commands (separate \`git show\`, \`ls\`, or status checks) should be issued as separate parallel Bash calls in one response, not chained into a single call — chaining serializes their execution and mixes their output. Do not stitch outputs together with \`echo\` separators.\\n- Use \`;\` to run commands sequentially regardless of success/failure\\n- Use \`||\` for conditional execution (run second command only if first fails)\\n- Use pipe operations (\`|\`) and redirections (\`>\`, \`>>\`) to chain input and output between commands\\n- Always quote file paths containing spaces with double quotes (e.g., cd \\"/path with spaces/\\")\\n- Compose multi-step logic in a single call with \`if\` / \`case\` / \`for\` / \`while\` control flows.\\n- Do not set \`run_in_background=true\`; background task management tools are not available.\\n\\n**Commands available:**\\nThe following common command categories are usually available. Availability still depends on the host, so when in doubt run \`which <command>\` first to confirm a command exists before relying on it.\\n- Navigation and inspection: \`ls\`, \`pwd\`, \`cd\`, \`stat\`, \`file\`, \`du\`, \`df\`, \`tree\`\\n- File and directory management: \`cp\`, \`mv\`, \`rm\`, \`mkdir\`, \`touch\`, \`ln\`, \`chmod\`, \`chown\`\\n- Text and data processing: \`wc\`, \`sort\`, \`uniq\`, \`cut\`, \`tr\`, \`diff\`, \`xargs\`\\n- Archives and compression: \`tar\`, \`gzip\`, \`gunzip\`, \`zip\`, \`unzip\`\\n- Networking and transfer: \`curl\`, \`wget\`, \`ping\`, \`ssh\`, \`scp\`\\n- Version control: \`git\`; for GitHub-hosted work (PRs, issues, CI runs, API queries) prefer the \`gh\` CLI when installed — it carries the user's GitHub auth and can return structured JSON\\n- Process and system: \`ps\`, \`kill\`, \`top\`, \`env\`, \`date\`, \`uname\`, \`whoami\`\\n- Language and package toolchains: \`node\`, \`npm\`, \`pnpm\`, \`yarn\`, \`python\`, \`pip\` (use whichever the project actually relies on)\\n", "parameters": { "$schema": "http://json-schema.org/draft-07/schema#", "type": "object", "properties": { "command": { "type": "string", "minLength": 1, "description": "The command to execute." }, "cwd": { "description": "The working directory in which to run the command. When omitted, the command runs in the session's working directory.", "type": "string" }, "timeout": { "default": 60, "description": "Optional timeout in seconds for the command to execute. Foreground default 60s, max 300s. Background default 600s, max 86400s. Ignored for background commands when disable_timeout=true.", "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 }, "description": { "description": "A short description for the background task. Required when run_in_background is true.", "type": "string" }, "run_in_background": { "description": "Whether to run the command as a background task.", "type": "boolean" }, "disable_timeout": { "description": "If true, do not apply a timeout to the command. Only applies when run_in_background is true.", "type": "boolean" } }, "required": [ "command" ], "additionalProperties": false } } ], "time": "<time>" }
+      [wire] llm.request                 { "kind": "loop", "provider": "pythinker", "model": "mock-model", "modelAlias": "mock-model", "thinkingEffort": "off", "maxTokens": 1000000, "toolSelect": false, "systemPromptHash": "ec9c34379c88babbc468ef2f3e0e08cd2f422c8c4a910664fb8bb394d703a575", "toolsHash": "aca3041121ee711028f726fed37e7b999f7e8885c05dbece76ef97eb43e2ec1e", "messageCount": 1, "turnStep": "0.1", "time": "<time>" }
       [emit] assistant.delta             { "turnId": 0, "delta": "Running in yolo mode." }
       [emit] tool.call.delta             { "turnId": 0, "toolCallId": "call_bash", "name": "Bash", "argumentsPart": "{\\"command\\":\\"printf permission-output\\",\\"timeout\\":60}" }
       [wire] context.append_loop_event   { "event": { "type": "content.part", "uuid": "<uuid-2>", "turnId": "0", "step": 1, "stepUuid": "<uuid-1>", "part": { "type": "text", "text": "Running in yolo mode." } }, "time": "<time>" }
@@ -116,15 +122,16 @@ describe('Agent permission', () => {
       [emit] tool.progress               { "turnId": 0, "toolCallId": "call_bash", "update": { "kind": "stdout", "text": "yolo-output" } }
       [wire] context.append_loop_event   { "event": { "type": "tool.result", "parentUuid": "call_bash", "toolCallId": "call_bash", "result": { "output": "yolo-output" } }, "time": "<time>" }
       [emit] tool.result                 { "turnId": 0, "toolCallId": "call_bash", "output": "yolo-output" }
-      [wire] context.append_loop_event   { "event": { "type": "step.end", "uuid": "<uuid-1>", "turnId": "0", "step": 1, "usage": { "inputOther": 7, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "tool_use" }, "time": "<time>" }
+      [wire] context.append_loop_event   { "event": { "type": "step.end", "uuid": "<uuid-1>", "turnId": "0", "step": 1, "usage": { "inputOther": 7, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "tool_use", "messageId": "mock-1" }, "time": "<time>" }
       [emit] turn.step.completed         { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 7, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "tool_use" }
       [wire] usage.record                { "model": "mock-model", "usage": { "inputOther": 7, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
       [emit] agent.status.updated        { "model": "mock-model", "contextTokens": 32, "maxContextTokens": 1000000, "contextUsage": 0.000032, "planMode": false, "dynamicWorkflowMode": false, "permission": "yolo", "usage": { "byModel": { "mock-model": { "inputOther": 7, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 7, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 7, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
       [wire] context.append_loop_event   { "event": { "type": "step.begin", "uuid": "<uuid-3>", "turnId": "0", "step": 2 }, "time": "<time>" }
       [emit] turn.step.started           { "turnId": 0, "step": 2, "stepId": "<uuid-3>" }
+      [wire] llm.request                 { "kind": "loop", "provider": "pythinker", "model": "mock-model", "modelAlias": "mock-model", "thinkingEffort": "off", "maxTokens": 999968, "toolSelect": false, "systemPromptHash": "ec9c34379c88babbc468ef2f3e0e08cd2f422c8c4a910664fb8bb394d703a575", "toolsHash": "aca3041121ee711028f726fed37e7b999f7e8885c05dbece76ef97eb43e2ec1e", "messageCount": 3, "turnStep": "0.2", "time": "<time>" }
       [emit] assistant.delta             { "turnId": 0, "delta": "The command printed yolo-output." }
       [wire] context.append_loop_event   { "event": { "type": "content.part", "uuid": "<uuid-4>", "turnId": "0", "step": 2, "stepUuid": "<uuid-3>", "part": { "type": "text", "text": "The command printed yolo-output." } }, "time": "<time>" }
-      [wire] context.append_loop_event   { "event": { "type": "step.end", "uuid": "<uuid-3>", "turnId": "0", "step": 2, "usage": { "inputOther": 36, "output": 11, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn" }, "time": "<time>" }
+      [wire] context.append_loop_event   { "event": { "type": "step.end", "uuid": "<uuid-3>", "turnId": "0", "step": 2, "usage": { "inputOther": 36, "output": 11, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn", "messageId": "mock-2" }, "time": "<time>" }
       [emit] turn.step.completed         { "turnId": 0, "step": 2, "stepId": "<uuid-3>", "usage": { "inputOther": 36, "output": 11, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn" }
       [wire] usage.record                { "model": "mock-model", "usage": { "inputOther": 36, "output": 11, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
       [emit] agent.status.updated        { "model": "mock-model", "contextTokens": 47, "maxContextTokens": 1000000, "contextUsage": 0.000047, "planMode": false, "dynamicWorkflowMode": false, "permission": "yolo", "usage": { "byModel": { "mock-model": { "inputOther": 43, "output": 36, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 43, "output": 36, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 43, "output": 36, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
@@ -160,19 +167,20 @@ describe('Agent permission', () => {
 
     expect(await ctx.untilTurnEnd()).toMatchInlineSnapshot(`
       [wire] permission.set_mode         { "mode": "manual", "time": "<time>" }
-      [emit] agent.status.updated        { "model": "mock-model", "contextTokens": 96, "maxContextTokens": 1000000, "contextUsage": 0.000096, "planMode": false, "dynamicWorkflowMode": false, "permission": "manual", "usage": { "byModel": { "mock-model": { "inputOther": 89, "output": 7, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 89, "output": 7, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
+      [emit] agent.status.updated        { "model": "mock-model", "contextTokens": 152, "maxContextTokens": 1000000, "contextUsage": 0.000152, "planMode": false, "dynamicWorkflowMode": false, "permission": "manual", "usage": { "byModel": { "mock-model": { "inputOther": 145, "output": 7, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 145, "output": 7, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
       [wire] turn.prompt                 { "input": [ { "type": "text", "text": "Back to manual" } ], "origin": { "kind": "user" }, "time": "<time>" }
       [emit] turn.started                { "turnId": 1, "origin": { "kind": "user" } }
       [wire] context.append_message      { "message": { "role": "user", "content": [ { "type": "text", "text": "Back to manual" } ], "toolCalls": [], "origin": { "kind": "user" } }, "time": "<time>" }
       [wire] context.append_message      { "message": { "role": "user", "content": [ { "type": "text", "text": "<auto-mode-exit-reminder>" } ], "toolCalls": [], "origin": { "kind": "injection", "variant": "permission_mode" } }, "time": "<time>" }
       [wire] context.append_loop_event   { "event": { "type": "step.begin", "uuid": "<uuid-3>", "turnId": "1", "step": 1 }, "time": "<time>" }
       [emit] turn.step.started           { "turnId": 1, "step": 1, "stepId": "<uuid-3>" }
+      [wire] llm.request                 { "kind": "loop", "provider": "pythinker", "model": "mock-model", "modelAlias": "mock-model", "thinkingEffort": "off", "maxTokens": 999848, "toolSelect": false, "systemPromptHash": "ec9c34379c88babbc468ef2f3e0e08cd2f422c8c4a910664fb8bb394d703a575", "toolsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945", "messageCount": 5, "turnStep": "1.1", "time": "<time>" }
       [emit] assistant.delta             { "turnId": 1, "delta": "Manual turn done." }
       [wire] context.append_loop_event   { "event": { "type": "content.part", "uuid": "<uuid-4>", "turnId": "1", "step": 1, "stepUuid": "<uuid-3>", "part": { "type": "text", "text": "Manual turn done." } }, "time": "<time>" }
-      [wire] context.append_loop_event   { "event": { "type": "step.end", "uuid": "<uuid-3>", "turnId": "1", "step": 1, "usage": { "inputOther": 161, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn" }, "time": "<time>" }
-      [emit] turn.step.completed         { "turnId": 1, "step": 1, "stepId": "<uuid-3>", "usage": { "inputOther": 161, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn" }
-      [wire] usage.record                { "model": "mock-model", "usage": { "inputOther": 161, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
-      [emit] agent.status.updated        { "model": "mock-model", "contextTokens": 169, "maxContextTokens": 1000000, "contextUsage": 0.000169, "planMode": false, "dynamicWorkflowMode": false, "permission": "manual", "usage": { "byModel": { "mock-model": { "inputOther": 250, "output": 15, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 250, "output": 15, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 161, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
+      [wire] context.append_loop_event   { "event": { "type": "step.end", "uuid": "<uuid-3>", "turnId": "1", "step": 1, "usage": { "inputOther": 217, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn", "messageId": "mock-2" }, "time": "<time>" }
+      [emit] turn.step.completed         { "turnId": 1, "step": 1, "stepId": "<uuid-3>", "usage": { "inputOther": 217, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn" }
+      [wire] usage.record                { "model": "mock-model", "usage": { "inputOther": 217, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
+      [emit] agent.status.updated        { "model": "mock-model", "contextTokens": 225, "maxContextTokens": 1000000, "contextUsage": 0.000225, "planMode": false, "dynamicWorkflowMode": false, "permission": "manual", "usage": { "byModel": { "mock-model": { "inputOther": 362, "output": 15, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 362, "output": 15, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 217, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
       [emit] turn.ended                  { "turnId": 1, "reason": "completed" }
     `);
     expect(ctx.llmInputs()).toMatchInlineSnapshot(`
@@ -214,6 +222,8 @@ describe('Agent permission', () => {
       [wire] context.append_message      { "message": { "role": "user", "content": [ { "type": "text", "text": "Try to run Bash" } ], "toolCalls": [], "origin": { "kind": "user" } }, "time": "<time>" }
       [wire] context.append_loop_event   { "event": { "type": "step.begin", "uuid": "<uuid-1>", "turnId": "0", "step": 1 }, "time": "<time>" }
       [emit] turn.step.started           { "turnId": 0, "step": 1, "stepId": "<uuid-1>" }
+      [wire] llm.tools_snapshot          { "hash": "aca3041121ee711028f726fed37e7b999f7e8885c05dbece76ef97eb43e2ec1e", "tools": [ { "name": "Bash", "description": "Execute a \`bash\` command. Use this for shell semantics — pipes, env, processes, git, package managers, build/test runners, anything genuinely interactive or multi-step.\\n\\n**Translate these to a dedicated tool instead:**\\n- \`cat\` / \`head\` / \`tail\` (known path) → \`Read\`\\n- \`sed\` / \`awk\` (in-place edit) → \`Edit\`\\n- \`echo > file\` / \`cat <<EOF\` → \`Write\`\\n- \`find\` / recursive \`ls\` to locate files by name pattern → \`Glob\` (plain \`ls <known-directory>\` is fine for listing a directory)\\n- \`grep\` / \`rg\` (search file contents) → \`Grep\`\\n- \`echo\` / \`printf\` (talk to the user) → just output text directly\\n\\nThe dedicated tools render in the per-tool permission UI and keep raw stdout out of the conversation; that is why they are worth reaching for whenever one fits.\\n\\n**Output:**\\nThe stdout and stderr will be combined and returned as a string. The output may be truncated if it is too long. If the command exits non-zero, the output ends with a \`Command failed with exit code: N\` line; a command killed by its timeout or interrupted by the user ends with its own message instead.\\n\\nBackground execution is disabled for this agent. Do not set \`run_in_background=true\`.\\n\\n**Guidelines for safety and security:**\\n- Each shell tool call will be executed in a fresh shell environment. The shell variables, current working directory changes, and the shell history is not preserved between calls. To run a command in a particular directory, pass the \`cwd\` argument (or use absolute paths) rather than relying on a \`cd\` from an earlier call.\\n- The tool call will return after the command is finished. You shall not use this tool to execute an interactive command or a command that may run forever. For possibly long-running commands, set the \`timeout\` argument in seconds. The default is 60s; foreground commands allow up to 300s; a foreground command that hits its timeout is killed.\\n- Avoid using \`..\` to access files or directories outside of the working directory.\\n- Avoid modifying files outside of the working directory unless explicitly instructed to do so.\\n- Never run commands that require superuser privileges unless explicitly instructed to do so.\\n\\n**Guidelines for efficiency:**\\n- Use \`&&\` to chain commands that genuinely depend on each other, e.g. \`npm install && npm test\`. Independent read-only commands (separate \`git show\`, \`ls\`, or status checks) should be issued as separate parallel Bash calls in one response, not chained into a single call — chaining serializes their execution and mixes their output. Do not stitch outputs together with \`echo\` separators.\\n- Use \`;\` to run commands sequentially regardless of success/failure\\n- Use \`||\` for conditional execution (run second command only if first fails)\\n- Use pipe operations (\`|\`) and redirections (\`>\`, \`>>\`) to chain input and output between commands\\n- Always quote file paths containing spaces with double quotes (e.g., cd \\"/path with spaces/\\")\\n- Compose multi-step logic in a single call with \`if\` / \`case\` / \`for\` / \`while\` control flows.\\n- Do not set \`run_in_background=true\`; background task management tools are not available.\\n\\n**Commands available:**\\nThe following common command categories are usually available. Availability still depends on the host, so when in doubt run \`which <command>\` first to confirm a command exists before relying on it.\\n- Navigation and inspection: \`ls\`, \`pwd\`, \`cd\`, \`stat\`, \`file\`, \`du\`, \`df\`, \`tree\`\\n- File and directory management: \`cp\`, \`mv\`, \`rm\`, \`mkdir\`, \`touch\`, \`ln\`, \`chmod\`, \`chown\`\\n- Text and data processing: \`wc\`, \`sort\`, \`uniq\`, \`cut\`, \`tr\`, \`diff\`, \`xargs\`\\n- Archives and compression: \`tar\`, \`gzip\`, \`gunzip\`, \`zip\`, \`unzip\`\\n- Networking and transfer: \`curl\`, \`wget\`, \`ping\`, \`ssh\`, \`scp\`\\n- Version control: \`git\`; for GitHub-hosted work (PRs, issues, CI runs, API queries) prefer the \`gh\` CLI when installed — it carries the user's GitHub auth and can return structured JSON\\n- Process and system: \`ps\`, \`kill\`, \`top\`, \`env\`, \`date\`, \`uname\`, \`whoami\`\\n- Language and package toolchains: \`node\`, \`npm\`, \`pnpm\`, \`yarn\`, \`python\`, \`pip\` (use whichever the project actually relies on)\\n", "parameters": { "$schema": "http://json-schema.org/draft-07/schema#", "type": "object", "properties": { "command": { "type": "string", "minLength": 1, "description": "The command to execute." }, "cwd": { "description": "The working directory in which to run the command. When omitted, the command runs in the session's working directory.", "type": "string" }, "timeout": { "default": 60, "description": "Optional timeout in seconds for the command to execute. Foreground default 60s, max 300s. Background default 600s, max 86400s. Ignored for background commands when disable_timeout=true.", "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 }, "description": { "description": "A short description for the background task. Required when run_in_background is true.", "type": "string" }, "run_in_background": { "description": "Whether to run the command as a background task.", "type": "boolean" }, "disable_timeout": { "description": "If true, do not apply a timeout to the command. Only applies when run_in_background is true.", "type": "boolean" } }, "required": [ "command" ], "additionalProperties": false } } ], "time": "<time>" }
+      [wire] llm.request                 { "kind": "loop", "provider": "pythinker", "model": "mock-model", "modelAlias": "mock-model", "thinkingEffort": "off", "maxTokens": 1000000, "toolSelect": false, "systemPromptHash": "ec9c34379c88babbc468ef2f3e0e08cd2f422c8c4a910664fb8bb394d703a575", "toolsHash": "aca3041121ee711028f726fed37e7b999f7e8885c05dbece76ef97eb43e2ec1e", "messageCount": 1, "turnStep": "0.1", "time": "<time>" }
       [emit] assistant.delta             { "turnId": 0, "delta": "I will try Bash." }
       [emit] tool.call.delta             { "turnId": 0, "toolCallId": "call_bash", "name": "Bash", "argumentsPart": "{\\"command\\":\\"printf should-not-run\\",\\"timeout\\":60}" }
       [wire] context.append_loop_event   { "event": { "type": "content.part", "uuid": "<uuid-2>", "turnId": "0", "step": 1, "stepUuid": "<uuid-1>", "part": { "type": "text", "text": "I will try Bash." } }, "time": "<time>" }
@@ -231,20 +241,21 @@ describe('Agent permission', () => {
       [wire] permission.record_approval_result   { "turnId": 0, "toolCallId": "call_bash", "toolName": "Bash", "action": "Running: printf should-not-run", "result": { "decision": "rejected", "selectedLabel": "reject" }, "time": "<time>" }
       [wire] context.append_loop_event           { "event": { "type": "tool.call", "uuid": "call_bash", "turnId": "0", "step": 1, "stepUuid": "<uuid-1>", "toolCallId": "call_bash", "name": "Bash", "args": { "command": "printf should-not-run", "timeout": 60 }, "description": "Running: printf should-not-run", "display": { "kind": "command", "command": "printf should-not-run", "cwd": "<cwd>", "language": "bash" } }, "time": "<time>" }
       [emit] tool.call.started                   { "turnId": 0, "toolCallId": "call_bash", "name": "Bash", "args": { "command": "printf should-not-run", "timeout": 60 }, "description": "Running: printf should-not-run", "display": { "kind": "command", "command": "printf should-not-run", "cwd": "<cwd>", "language": "bash" } }
-      [wire] context.append_loop_event           { "event": { "type": "tool.result", "parentUuid": "call_bash", "toolCallId": "call_bash", "result": { "output": "Tool \\"Bash\\" was not run because the user rejected the approval request.", "isError": true } }, "time": "<time>" }
-      [emit] tool.result                         { "turnId": 0, "toolCallId": "call_bash", "output": "Tool \\"Bash\\" was not run because the user rejected the approval request.", "isError": true }
-      [wire] context.append_loop_event           { "event": { "type": "step.end", "uuid": "<uuid-1>", "turnId": "0", "step": 1, "usage": { "inputOther": 5, "output": 22, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "tool_use" }, "time": "<time>" }
+      [wire] context.append_loop_event           { "event": { "type": "tool.result", "parentUuid": "call_bash", "toolCallId": "call_bash", "result": { "output": "Tool \\"Bash\\" was not run because the user rejected the approval request. Do not re-attempt the exact same call — think about why it was rejected, then adjust your approach or ask the user what they would prefer.", "isError": true } }, "time": "<time>" }
+      [emit] tool.result                         { "turnId": 0, "toolCallId": "call_bash", "output": "Tool \\"Bash\\" was not run because the user rejected the approval request. Do not re-attempt the exact same call — think about why it was rejected, then adjust your approach or ask the user what they would prefer.", "isError": true }
+      [wire] context.append_loop_event           { "event": { "type": "step.end", "uuid": "<uuid-1>", "turnId": "0", "step": 1, "usage": { "inputOther": 5, "output": 22, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "tool_use", "messageId": "mock-1" }, "time": "<time>" }
       [emit] turn.step.completed                 { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 5, "output": 22, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "tool_use" }
       [wire] usage.record                        { "model": "mock-model", "usage": { "inputOther": 5, "output": 22, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
       [emit] agent.status.updated                { "model": "mock-model", "contextTokens": 27, "maxContextTokens": 1000000, "contextUsage": 0.000027, "planMode": false, "dynamicWorkflowMode": false, "permission": "manual", "usage": { "byModel": { "mock-model": { "inputOther": 5, "output": 22, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 5, "output": 22, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 5, "output": 22, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
       [wire] context.append_loop_event           { "event": { "type": "step.begin", "uuid": "<uuid-3>", "turnId": "0", "step": 2 }, "time": "<time>" }
       [emit] turn.step.started                   { "turnId": 0, "step": 2, "stepId": "<uuid-3>" }
+      [wire] llm.request                         { "kind": "loop", "provider": "pythinker", "model": "mock-model", "modelAlias": "mock-model", "thinkingEffort": "off", "maxTokens": 999973, "toolSelect": false, "systemPromptHash": "ec9c34379c88babbc468ef2f3e0e08cd2f422c8c4a910664fb8bb394d703a575", "toolsHash": "aca3041121ee711028f726fed37e7b999f7e8885c05dbece76ef97eb43e2ec1e", "messageCount": 3, "turnStep": "0.2", "time": "<time>" }
       [emit] assistant.delta                     { "turnId": 0, "delta": "I will not run the command." }
       [wire] context.append_loop_event           { "event": { "type": "content.part", "uuid": "<uuid-4>", "turnId": "0", "step": 2, "stepUuid": "<uuid-3>", "part": { "type": "text", "text": "I will not run the command." } }, "time": "<time>" }
-      [wire] context.append_loop_event           { "event": { "type": "step.end", "uuid": "<uuid-3>", "turnId": "0", "step": 2, "usage": { "inputOther": 58, "output": 10, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn" }, "time": "<time>" }
-      [emit] turn.step.completed                 { "turnId": 0, "step": 2, "stepId": "<uuid-3>", "usage": { "inputOther": 58, "output": 10, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn" }
-      [wire] usage.record                        { "model": "mock-model", "usage": { "inputOther": 58, "output": 10, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
-      [emit] agent.status.updated                { "model": "mock-model", "contextTokens": 68, "maxContextTokens": 1000000, "contextUsage": 0.000068, "planMode": false, "dynamicWorkflowMode": false, "permission": "manual", "usage": { "byModel": { "mock-model": { "inputOther": 63, "output": 32, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 63, "output": 32, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 63, "output": 32, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
+      [wire] context.append_loop_event           { "event": { "type": "step.end", "uuid": "<uuid-3>", "turnId": "0", "step": 2, "usage": { "inputOther": 93, "output": 10, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn", "messageId": "mock-2" }, "time": "<time>" }
+      [emit] turn.step.completed                 { "turnId": 0, "step": 2, "stepId": "<uuid-3>", "usage": { "inputOther": 93, "output": 10, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn" }
+      [wire] usage.record                        { "model": "mock-model", "usage": { "inputOther": 93, "output": 10, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
+      [emit] agent.status.updated                { "model": "mock-model", "contextTokens": 103, "maxContextTokens": 1000000, "contextUsage": 0.000103, "planMode": false, "dynamicWorkflowMode": false, "permission": "manual", "usage": { "byModel": { "mock-model": { "inputOther": 98, "output": 32, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 98, "output": 32, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 98, "output": 32, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
       [emit] turn.ended                          { "turnId": 0, "reason": "completed" }
     `);
     expect(execWithEnv).not.toHaveBeenCalled();
@@ -252,7 +263,7 @@ describe('Agent permission', () => {
       messages:
         <last>
         assistant: text "I will try Bash."  calls call_bash:Bash { "command": "printf should-not-run", "timeout": 60 }
-        tool[call_bash]: text "<system>ERROR: Tool execution failed.</system>\\nTool \\"Bash\\" was not run because the user rejected the approval request."
+        tool[call_bash]: text "<system>ERROR: Tool execution failed.</system>\\nTool \\"Bash\\" was not run because the user rejected the approval request. Do not re-attempt the exact same call — think about why it was rejected, then adjust your approach or ask the user what they would prefer."
     `);
     await ctx.expectResumeMatches();
   });
@@ -271,6 +282,46 @@ describe('Permission auto mode', () => {
 
     expect(appendSystemReminder).toHaveBeenCalledWith(
       expect.stringContaining('Do NOT call AskUserQuestion while auto mode is active'),
+      { kind: 'injection', variant: 'permission_mode' },
+    );
+  });
+
+  it('reinjects the auto mode reminder after context compaction', async () => {
+    const appendSystemReminder = vi.fn();
+    const agent = {
+      permission: { mode: 'auto' },
+      context: { history: [], appendSystemReminder },
+    } as unknown as Agent;
+    const injector = new PermissionModeInjector(agent);
+
+    await injector.inject();
+    appendSystemReminder.mockClear();
+    injector.onContextCompacted();
+    await injector.inject();
+
+    expect(appendSystemReminder).toHaveBeenCalledWith(
+      expect.stringContaining('Do NOT call AskUserQuestion while auto mode is active'),
+      { kind: 'injection', variant: 'permission_mode' },
+    );
+  });
+
+  it('keeps the auto mode exit reminder after compaction if the mode changes', async () => {
+    const appendSystemReminder = vi.fn();
+    const permission = { mode: 'auto' as PermissionMode };
+    const agent = {
+      permission,
+      context: { history: [], appendSystemReminder },
+    } as unknown as Agent;
+    const injector = new PermissionModeInjector(agent);
+
+    await injector.inject();
+    appendSystemReminder.mockClear();
+    injector.onContextCompacted();
+    permission.mode = 'manual';
+    await injector.inject();
+
+    expect(appendSystemReminder).toHaveBeenCalledWith(
+      expect.stringContaining('Auto permission mode is no longer active'),
       { kind: 'injection', variant: 'permission_mode' },
     );
   });
@@ -333,42 +384,6 @@ describe('Permission auto mode', () => {
       reason: 'Tool "Bash" was denied by permission rule. Reason: blocked by test',
     });
     expect(requestApproval).not.toHaveBeenCalled();
-  });
-
-  it('reports when a PermissionDenied hook allows a policy-denied call to be retried', async () => {
-    const trigger = vi.fn(async () => [{ action: 'allow' as const, retry: true }]);
-    const { manager } = makePermissionManager(
-      async () => ({ decision: 'approved' }),
-      {
-        hooks: {
-          trigger,
-          triggerBlock: vi.fn(async () => undefined),
-          fireAndForgetTrigger: vi.fn(async () => []),
-        } as unknown as Agent['hooks'],
-      },
-    );
-    manager.rules.push({
-      decision: 'deny',
-      scope: 'user',
-      pattern: 'Bash',
-      reason: 'blocked until reviewed',
-    });
-
-    await expect(
-      manager.beforeToolCall(hookContext({ id: 'call_retry_denied' })),
-    ).resolves.toMatchObject({
-      block: true,
-      reason: expect.stringContaining(
-        'The PermissionDenied hook indicated this command is now approved',
-      ),
-    });
-    expect(trigger).toHaveBeenCalledWith(
-      'PermissionDenied',
-      expect.objectContaining({
-        matcherValue: 'Bash',
-        inputData: expect.objectContaining({ toolUseId: 'call_retry_denied' }),
-      }),
-    );
   });
 
   it.each([
@@ -735,32 +750,33 @@ describe('Permission policy chain', () => {
   it('keeps built-in policies in document order', () => {
     expect(createPermissionDecisionPolicies({} as Agent).map((policy) => policy.name)).toEqual([
       'pre-tool-call-hook',
-      'dynamic-workflow-exclusive-deny',
+      'agent-dynamic-workflow-exclusive-deny',
       'auto-mode-ask-user-question-deny',
       'plan-mode-guard-deny',
       'user-configured-deny',
-      'dynamic-workflow-plan-ask',
       'auto-mode-approve',
       'session-approval-history',
       'user-configured-ask',
       'user-configured-allow',
       'exit-plan-mode-review-ask',
+      'goal-start-review-ask',
       'plan-mode-tool-approve',
       'sensitive-file-access-ask',
       'git-control-path-access-ask',
       'yolo-mode-approve',
+      'dynamic-workflow-mode-agent-dynamic-workflow-approve',
       'default-tool-approve',
       'git-cwd-write-approve',
       'fallback-ask',
     ]);
   });
 
-  it('denies invalid DynamicWorkflow batches before auto-mode approval', async () => {
+  it('denies invalid AgentDynamicWorkflow batches before auto-mode approval', async () => {
     const { manager, requestApproval, telemetryTrack } = makePermissionManager(async () => ({
       decision: 'approved',
     }));
     manager.mode = 'auto';
-    const dynamicWorkflowCall = toolCall('call_dynamic_workflow', 'DynamicWorkflow', {
+    const agentDynamicWorkflowCall = toolCall('call_agent_dynamic_workflow', 'AgentDynamicWorkflow', {
       description: 'Review files',
       prompt_template: 'Review {{item}}',
       items: ['src/a.ts', 'src/b.ts'],
@@ -770,124 +786,26 @@ describe('Permission policy chain', () => {
     await expect(
       manager.beforeToolCall(
         hookContext({
-          id: 'call_dynamic_workflow',
-          toolName: 'DynamicWorkflow',
-          toolCalls: [dynamicWorkflowCall, readCall],
+          id: 'call_agent_dynamic_workflow',
+          toolName: 'AgentDynamicWorkflow',
+          toolCalls: [agentDynamicWorkflowCall, readCall],
         }),
       ),
     ).resolves.toMatchObject({
       block: true,
-      reason: expect.stringContaining('DynamicWorkflow must be the only tool call'),
+      reason: expect.stringContaining('AgentDynamicWorkflow must be the only tool call'),
     });
 
     expect(requestApproval).not.toHaveBeenCalled();
     expect(telemetryTrack).toHaveBeenCalledWith(
       'permission_policy_decision',
       expect.objectContaining({
-        policy_name: 'dynamic-workflow-exclusive-deny',
-        tool_name: 'DynamicWorkflow',
+        policy_name: 'agent-dynamic-workflow-exclusive-deny',
+        tool_name: 'AgentDynamicWorkflow',
         permission_mode: 'auto',
         decision: 'deny',
       }),
     );
-  });
-
-  // Dynamic Workflow mode once approved every DynamicWorkflow call on its own.
-  // That policy only ever fired in manual mode, so the one mode whose whole
-  // point is to ask was the one mode that never saw the plan. Manual mode must
-  // reach `fallback-ask` so the approval can carry a preview of the fan-out.
-  it('asks before a DynamicWorkflow call in manual mode even with workflow mode active', async () => {
-    const { manager, requestApproval, telemetryTrack } = makePermissionManager(
-      async () => ({ decision: 'approved' }),
-      { dynamicWorkflowModeActive: true },
-    );
-    manager.mode = 'manual';
-
-    await manager.beforeToolCall(
-      hookContext({ id: 'call_dynamic_workflow', toolName: 'DynamicWorkflow' }),
-    );
-
-    expect(requestApproval).toHaveBeenCalledTimes(1);
-    expect(telemetryTrack).toHaveBeenCalledWith(
-      'permission_policy_decision',
-      expect.objectContaining({
-        policy_name: 'fallback-ask',
-        tool_name: 'DynamicWorkflow',
-        permission_mode: 'manual',
-        decision: 'ask',
-      }),
-    );
-  });
-
-  // The start prompt's default option is "Switch to Auto and start", so the
-  // easiest path through it used to hand back the plan preview without saying
-  // so. Auto still approves everything the subagents do; it no longer waives
-  // seeing what is about to be launched.
-  it('asks before a DynamicWorkflow call in auto mode so the plan still renders', async () => {
-    const { manager, requestApproval, telemetryTrack } = makePermissionManager(
-      async () => ({ decision: 'approved' }),
-      { dynamicWorkflowModeActive: true },
-    );
-    manager.mode = 'auto';
-
-    await manager.beforeToolCall(
-      hookContext({ id: 'call_dynamic_workflow_auto', toolName: 'DynamicWorkflow' }),
-    );
-
-    expect(requestApproval).toHaveBeenCalledTimes(1);
-    expect(telemetryTrack).toHaveBeenCalledWith(
-      'permission_policy_decision',
-      expect.objectContaining({
-        policy_name: 'dynamic-workflow-plan-ask',
-        tool_name: 'DynamicWorkflow',
-        permission_mode: 'auto',
-        decision: 'ask',
-      }),
-    );
-  });
-
-  // Auto mode is not turned into a nag: the ask is per distinct plan, and an
-  // explicit grant falls straight through to the auto approval below it.
-  it('does not re-ask in auto mode once the plan is approved for the session', async () => {
-    const { manager, requestApproval } = makePermissionManager(
-      async () => ({
-        decision: 'approved',
-        scope: 'session',
-        selectedLabel: 'Approve for this session',
-      }),
-      { dynamicWorkflowModeActive: true },
-    );
-    manager.mode = 'auto';
-    const args = {
-      description: 'Review files',
-      prompt_template: 'Review {{item}}',
-      items: ['src/a.ts', 'src/b.ts'],
-    };
-
-    await manager.beforeToolCall(
-      hookContext({ id: 'call_dw_1', toolName: 'DynamicWorkflow', args }),
-    );
-    await manager.beforeToolCall(
-      hookContext({ id: 'call_dw_2', toolName: 'DynamicWorkflow', args }),
-    );
-
-    expect(requestApproval).toHaveBeenCalledTimes(1);
-  });
-
-  // YOLO is chosen explicitly and its own label promises that everything is
-  // approved automatically, so it keeps waiving the preview.
-  it('still approves a DynamicWorkflow call without asking in yolo mode', async () => {
-    const { manager, requestApproval } = makePermissionManager(
-      async () => ({ decision: 'approved' }),
-      { dynamicWorkflowModeActive: true },
-    );
-    manager.mode = 'yolo';
-
-    await manager.beforeToolCall(
-      hookContext({ id: 'call_dynamic_workflow_yolo', toolName: 'DynamicWorkflow' }),
-    );
-
-    expect(requestApproval).not.toHaveBeenCalled();
   });
 });
 
@@ -944,9 +862,26 @@ describe('Simple permission policy direct behavior', () => {
     expect(policy.evaluate()).toEqual({ kind: 'approve' });
   });
 
-  it('denies DynamicWorkflow mixed with other tool calls in the same response', () => {
-    const policy = new DynamicWorkflowExclusiveDenyPermissionPolicy();
-    const dynamicWorkflowCall = toolCall('call_dynamic_workflow', 'DynamicWorkflow', {
+  it('approves only AgentDynamicWorkflow when dynamic_workflow mode is active', () => {
+    const dynamicWorkflowMode = { isActive: false };
+    const agent = { dynamicWorkflowMode } as unknown as Agent;
+    const policy = new DynamicWorkflowModeAgentDynamicWorkflowApprovePermissionPolicy(agent);
+
+    expect(
+      policy.evaluate(hookContext({ id: 'call_agent_dynamic_workflow_inactive', toolName: 'AgentDynamicWorkflow' })),
+    ).toBeUndefined();
+    Object.assign(dynamicWorkflowMode, { isActive: true });
+    expect(
+      policy.evaluate(hookContext({ id: 'call_agent_dynamic_workflow_active', toolName: 'AgentDynamicWorkflow' })),
+    ).toEqual({ kind: 'approve' });
+    expect(
+      policy.evaluate(hookContext({ id: 'call_agent_active', toolName: 'Agent' })),
+    ).toBeUndefined();
+  });
+
+  it('denies AgentDynamicWorkflow mixed with other tool calls in the same response', () => {
+    const policy = new AgentDynamicWorkflowExclusiveDenyPermissionPolicy();
+    const agentDynamicWorkflowCall = toolCall('call_agent_dynamic_workflow', 'AgentDynamicWorkflow', {
       description: 'Review files',
       prompt_template: 'Review {{item}}',
       items: ['src/a.ts', 'src/b.ts'],
@@ -956,16 +891,16 @@ describe('Simple permission policy direct behavior', () => {
     expect(
       policy.evaluate(
         hookContext({
-          id: 'call_dynamic_workflow',
-          toolName: 'DynamicWorkflow',
-          toolCalls: [dynamicWorkflowCall, readCall],
+          id: 'call_agent_dynamic_workflow',
+          toolName: 'AgentDynamicWorkflow',
+          toolCalls: [agentDynamicWorkflowCall, readCall],
         }),
       ),
     ).toMatchObject({
       kind: 'deny',
-      message: expect.stringContaining('DynamicWorkflow must be the only tool call'),
+      message: expect.stringContaining('AgentDynamicWorkflow must be the only tool call'),
       reason: {
-        dynamic_workflow_tool_calls: 1,
+        agent_dynamic_workflow_tool_calls: 1,
         tool_calls: 2,
       },
     });
@@ -975,20 +910,20 @@ describe('Simple permission policy direct behavior', () => {
           id: 'call_read',
           toolName: 'Read',
           args: { path: 'src/a.ts' },
-          toolCalls: [dynamicWorkflowCall, readCall],
+          toolCalls: [agentDynamicWorkflowCall, readCall],
         }),
       ),
     ).toMatchObject({ kind: 'deny' });
   });
 
-  it('denies multiple DynamicWorkflow calls with one-at-a-time guidance', () => {
-    const policy = new DynamicWorkflowExclusiveDenyPermissionPolicy();
-    const first = toolCall('call_dynamic_workflow_1', 'DynamicWorkflow', {
+  it('denies multiple AgentDynamicWorkflow calls with one-at-a-time guidance', () => {
+    const policy = new AgentDynamicWorkflowExclusiveDenyPermissionPolicy();
+    const first = toolCall('call_agent_dynamic_workflow_1', 'AgentDynamicWorkflow', {
       description: 'Review files',
       prompt_template: 'Review {{item}}',
       items: ['src/a.ts', 'src/b.ts'],
     });
-    const second = toolCall('call_dynamic_workflow_2', 'DynamicWorkflow', {
+    const second = toolCall('call_agent_dynamic_workflow_2', 'AgentDynamicWorkflow', {
       description: 'Review tests',
       prompt_template: 'Review {{item}}',
       items: ['test/a.ts', 'test/b.ts'],
@@ -996,31 +931,31 @@ describe('Simple permission policy direct behavior', () => {
 
     const result = policy.evaluate(
       hookContext({
-        id: 'call_dynamic_workflow_1',
-        toolName: 'DynamicWorkflow',
+        id: 'call_agent_dynamic_workflow_1',
+        toolName: 'AgentDynamicWorkflow',
         toolCalls: [first, second],
       }),
     );
 
     expect(result).toMatchObject({
       kind: 'deny',
-      message: expect.stringContaining('Multiple DynamicWorkflow calls are not forbidden'),
+      message: expect.stringContaining('Multiple AgentDynamicWorkflow calls are not forbidden'),
       reason: {
-        dynamic_workflow_tool_calls: 2,
+        agent_dynamic_workflow_tool_calls: 2,
         tool_calls: 2,
       },
     });
     expect(result).toMatchObject({
-      message: expect.stringContaining('call one DynamicWorkflow, wait for its result'),
+      message: expect.stringContaining('call one AgentDynamicWorkflow, wait for its result'),
     });
     expect(result).toMatchObject({
-      message: expect.stringContaining('merge the work into a single DynamicWorkflow'),
+      message: expect.stringContaining('merge the work into a single AgentDynamicWorkflow'),
     });
   });
 
-  it('allows a single DynamicWorkflow call for later permission policies', () => {
-    const policy = new DynamicWorkflowExclusiveDenyPermissionPolicy();
-    const dynamicWorkflowCall = toolCall('call_dynamic_workflow', 'DynamicWorkflow', {
+  it('allows a single AgentDynamicWorkflow call for later permission policies', () => {
+    const policy = new AgentDynamicWorkflowExclusiveDenyPermissionPolicy();
+    const agentDynamicWorkflowCall = toolCall('call_agent_dynamic_workflow', 'AgentDynamicWorkflow', {
       description: 'Review files',
       prompt_template: 'Review {{item}}',
       items: ['src/a.ts', 'src/b.ts'],
@@ -1029,9 +964,9 @@ describe('Simple permission policy direct behavior', () => {
     expect(
       policy.evaluate(
         hookContext({
-          id: 'call_dynamic_workflow',
-          toolName: 'DynamicWorkflow',
-          toolCalls: [dynamicWorkflowCall],
+          id: 'call_agent_dynamic_workflow',
+          toolName: 'AgentDynamicWorkflow',
+          toolCalls: [agentDynamicWorkflowCall],
         }),
       ),
     ).toBeUndefined();
@@ -1065,9 +1000,7 @@ describe('PreToolUse permission policy', () => {
     expect(triggerBlock).toHaveBeenCalledWith('PreToolUse', {
       matcherValue: 'Bash',
       signal: expect.any(AbortSignal),
-      ifMatcher: expect.any(Function),
       inputData: {
-        agentId: undefined,
         toolName: 'Bash',
         toolInput: { command: 'printf first', timeout: 60 },
         toolCallId: 'call_hook_block',
@@ -1172,6 +1105,7 @@ describe('Default tool approve policy', () => {
     ['TaskList', {}],
     ['TaskOutput', { task_id: 'task_1' }],
     ['WebSearch', { query: 'pythinker code' }],
+    ['FetchURL', { url: 'https://example.com' }],
     ['Agent', { prompt: 'review this' }],
     ['AskUserQuestion', { questions: [] }],
     ['Skill', { name: 'test-skill' }],
@@ -1206,7 +1140,6 @@ describe('Default tool approve policy', () => {
     ['Bash', { command: 'printf first', timeout: 60 }],
     ['Write', { path: '/workspace/a.ts', content: 'x' }],
     ['Edit', { path: '/workspace/a.ts', old_string: 'a', new_string: 'b' }],
-    ['FetchURL', { url: 'https://example.com' }],
     ['Custom', { value: 1 }],
   ] as const)('does not default-approve %s', async (toolName, args) => {
     const { manager, requestApproval, telemetryTrack } = makePermissionManager(async () => ({
@@ -2264,6 +2197,21 @@ describe('ExitPlanMode permission policy', () => {
       }),
     );
   });
+
+  it('attaches the request trace id to permission_approval_result', async () => {
+    const { manager, telemetryTrack } = makePermissionManager(
+      async () => ({ decision: 'approved' }),
+    );
+
+    await expect(
+      manager.beforeToolCall(hookContext({ id: 'call_traced', traceId: 'trace-perm-1' })),
+    ).resolves.toBeUndefined();
+
+    expect(telemetryTrack).toHaveBeenCalledWith(
+      'permission_approval_result',
+      expect.objectContaining({ result: 'approved', trace_id: 'trace-perm-1' }),
+    );
+  });
 });
 
 describe('Agent-local approve for session', () => {
@@ -2594,43 +2542,6 @@ describe('Agent-local approve for session', () => {
 });
 
 describe('Approval telemetry', () => {
-  it('fires PermissionDenied hooks for rejected approvals', async () => {
-    const fireAndForgetTrigger = vi.fn(async () => []);
-    const { manager } = makePermissionManager(
-      async () => ({
-        decision: 'rejected',
-        feedback: 'Use a read-only command',
-      }),
-      {
-        hooks: {
-          triggerBlock: vi.fn(async () => undefined),
-          fireAndForgetTrigger,
-        } as unknown as Agent['hooks'],
-      },
-    );
-
-    await expect(
-      manager.beforeToolCall(hookContext({ id: 'call_permission_denied' })),
-    ).resolves.toMatchObject({
-      block: true,
-      reason: expect.stringContaining('Use a read-only command'),
-    });
-
-    expect(fireAndForgetTrigger).toHaveBeenCalledWith('PermissionDenied', {
-      matcherValue: 'Bash',
-      ifMatcher: expect.any(Function),
-      inputData: {
-        agentId: undefined,
-        turnId: 0,
-        toolUseId: 'call_permission_denied',
-        toolName: 'Bash',
-        toolInput: { command: 'printf first', timeout: 60 },
-        reason:
-          'Tool "Bash" was not run because the user rejected the approval request. Reason: Use a read-only command',
-      },
-    });
-  });
-
   it('fires observer hooks while waiting for user approval', async () => {
     const triggerBlock = vi.fn(async () => undefined);
     const fireAndForgetTrigger = vi.fn(async () => []);
@@ -2638,9 +2549,7 @@ describe('Approval telemetry', () => {
       async () => {
         expect(fireAndForgetTrigger).toHaveBeenCalledWith('PermissionRequest', {
           matcherValue: 'Bash',
-          ifMatcher: expect.any(Function),
           inputData: {
-            agentId: undefined,
             turnId: 0,
             toolCallId: 'call_approval_hooks',
             toolName: 'Bash',
@@ -2670,7 +2579,6 @@ describe('Approval telemetry', () => {
     expect(fireAndForgetTrigger).toHaveBeenCalledWith('PermissionResult', {
       matcherValue: 'Bash',
       inputData: {
-        agentId: undefined,
         turnId: 0,
         toolCallId: 'call_approval_hooks',
         toolName: 'Bash',
@@ -2696,12 +2604,8 @@ describe('Approval telemetry', () => {
       },
     );
 
-    await expect(
-      manager.beforeToolCall(hookContext({ id: 'call_no_approval_rpc' })),
-    ).resolves.toMatchObject({
-      block: true,
-      reason: expect.stringContaining('no approval channel'),
-    });
+    await expect(manager.beforeToolCall(hookContext({ id: 'call_no_approval_rpc' }))).resolves
+      .toBeUndefined();
 
     expect(requestApproval).not.toHaveBeenCalled();
     expect(fireAndForgetTrigger).not.toHaveBeenCalledWith(
@@ -2712,27 +2616,6 @@ describe('Approval telemetry', () => {
       'PermissionResult',
       expect.anything(),
     );
-  });
-
-  it('rejects manual-mode tool calls without an approval channel', async () => {
-    const { manager } = makePermissionManager(
-      async () => ({
-        decision: 'approved',
-      }),
-      { approvalRpc: false },
-    );
-
-    const result = await manager.beforeToolCall(
-      hookContext({ id: 'call_missing_approval_channel' }),
-    );
-
-    expect(result).toMatchObject({
-      block: true,
-      reason: expect.stringContaining(
-        'this session has no approval channel (rpc.requestApproval is not configured)',
-      ),
-    });
-    expect(result?.reason).toContain('permission mode "yolo"');
   });
 
   it('tracks cancelled approval requests', async () => {
@@ -2864,6 +2747,39 @@ describe('Default git CWD Write/Edit permission', () => {
     expect(stat).not.toHaveBeenCalled();
   });
 
+  it('still requests approval for Bash when the cwd is an additionalDir', async () => {
+    const { kaos, stat } = gitKaos({
+      markerPath: '/extra/.git',
+      statModes: { '/extra': DIR_MODE },
+    });
+    const { manager, requestApproval, telemetryTrack } = makePermissionManager(
+      async () => ({ decision: 'approved' }),
+      { cwd: '/extra', kaos, additionalDirs: ['/extra'] },
+    );
+
+    await expect(
+      manager.beforeToolCall(
+        hookContext({
+          id: 'call_bash_additional_dir_cwd',
+          args: { command: 'printf from-additional-dir', timeout: 60 },
+        }),
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(requestApproval).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolName: 'Bash',
+        action: 'run command',
+      }),
+      expect.any(Object),
+    );
+    expect(telemetryTrack).not.toHaveBeenCalledWith(
+      'permission_policy_decision',
+      expect.objectContaining({ policy_name: 'git-cwd-write-approve' }),
+    );
+    expect(stat).not.toHaveBeenCalled();
+  });
+
   it('bypasses approval for Write to a relative path inside a git cwd', async () => {
     const { kaos } = gitKaos();
     const { manager, requestApproval, telemetryTrack } = makePermissionManager(
@@ -2906,6 +2822,38 @@ describe('Default git CWD Write/Edit permission', () => {
       expect.objectContaining({
         policy_name: 'git-cwd-write-approve',
         tool_name: 'Edit',
+        permission_mode: 'manual',
+        decision: 'approve',
+      }),
+    );
+  });
+
+  it.each([
+    ['Write', { path: '/extra/src/a.ts', content: 'x' }],
+    ['Edit', { path: '/extra/src/a.ts', old_string: 'A', new_string: 'B' }],
+  ] as const)('approves %s on an additionalDir path in manual mode', async (toolName, args) => {
+    const { kaos } = gitKaos();
+    const { manager, requestApproval, telemetryTrack } = makePermissionManager(
+      async () => ({ decision: 'approved' }),
+      { kaos, additionalDirs: ['/extra'] },
+    );
+
+    await expect(
+      manager.beforeToolCall(
+        hookContext({
+          id: `call_${toolName.toLowerCase()}_additional_dir`,
+          toolName,
+          args,
+        }),
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(requestApproval).not.toHaveBeenCalled();
+    expect(telemetryTrack).toHaveBeenCalledWith(
+      'permission_policy_decision',
+      expect.objectContaining({
+        policy_name: 'git-cwd-write-approve',
+        tool_name: toolName,
         permission_mode: 'manual',
         decision: 'approve',
       }),
@@ -2986,6 +2934,28 @@ describe('Default git CWD Write/Edit permission', () => {
     expect(requestApproval).toHaveBeenCalledTimes(1);
   });
 
+  it('still requests approval for a shared-prefix path outside additionalDirs', async () => {
+    const { kaos } = gitKaos();
+    const { manager, requestApproval, telemetryTrack } = makePermissionManager(
+      async () => ({ decision: 'approved' }),
+      { kaos, additionalDirs: ['/extra'] },
+    );
+
+    await expect(
+      manager.beforeToolCall(writeHook({ path: '/extra-evil/outside.ts', content: 'x' })),
+    ).resolves.toBeUndefined();
+
+    expect(requestApproval).toHaveBeenCalledTimes(1);
+    expect(telemetryTrack).toHaveBeenCalledWith(
+      'permission_policy_decision',
+      expect.objectContaining({ policy_name: 'fallback-ask' }),
+    );
+    expect(telemetryTrack).not.toHaveBeenCalledWith(
+      'permission_policy_decision',
+      expect.objectContaining({ policy_name: 'git-cwd-write-approve' }),
+    );
+  });
+
   it('still requests approval for a path inside the git root but outside the cwd', async () => {
     const { kaos } = gitKaos({ markerPath: '/a/.git' });
     const { manager, requestApproval, telemetryTrack } = makePermissionManager(
@@ -3023,6 +2993,34 @@ describe('Default git CWD Write/Edit permission', () => {
       );
     },
   );
+
+  it('still requests approval for a git control file inside an additionalDir', async () => {
+    const { kaos } = gitKaos();
+    const { manager, requestApproval, telemetryTrack } = makePermissionManager(
+      async () => ({ decision: 'approved' }),
+      { kaos, additionalDirs: ['/extra'] },
+    );
+
+    await expect(
+      manager.beforeToolCall(writeHook({ path: '/extra/.git/config', content: 'x' })),
+    ).resolves.toBeUndefined();
+
+    expect(requestApproval).toHaveBeenCalledTimes(1);
+    expect(telemetryTrack).toHaveBeenCalledWith(
+      'permission_policy_decision',
+      expect.objectContaining({
+        policy_name: 'git-control-path-access-ask',
+        tool_name: 'Write',
+        permission_mode: 'manual',
+        decision: 'ask',
+        git_control_path: true,
+      }),
+    );
+    expect(telemetryTrack).not.toHaveBeenCalledWith(
+      'permission_policy_decision',
+      expect.objectContaining({ policy_name: 'git-cwd-write-approve' }),
+    );
+  });
 
   it('still requests approval for case-variant git control files', async () => {
     const { kaos } = gitKaos();
@@ -3284,6 +3282,34 @@ describe('Default git CWD Write/Edit permission', () => {
     ).resolves.toBeUndefined();
 
     expect(requestApproval).toHaveBeenCalledTimes(1);
+  });
+
+  it('still requests approval for a sensitive file inside an additionalDir', async () => {
+    const { kaos } = gitKaos();
+    const { manager, requestApproval, telemetryTrack } = makePermissionManager(
+      async () => ({ decision: 'approved' }),
+      { kaos, additionalDirs: ['/extra'] },
+    );
+
+    await expect(
+      manager.beforeToolCall(writeHook({ path: '/extra/.env', content: 'SECRET=1' })),
+    ).resolves.toBeUndefined();
+
+    expect(requestApproval).toHaveBeenCalledTimes(1);
+    expect(telemetryTrack).toHaveBeenCalledWith(
+      'permission_policy_decision',
+      expect.objectContaining({
+        policy_name: 'sensitive-file-access-ask',
+        tool_name: 'Write',
+        permission_mode: 'manual',
+        decision: 'ask',
+        sensitive_path: true,
+      }),
+    );
+    expect(telemetryTrack).not.toHaveBeenCalledWith(
+      'permission_policy_decision',
+      expect.objectContaining({ policy_name: 'git-cwd-write-approve' }),
+    );
   });
 
   it.each(['.env.local', '.aws/credentials'])(
@@ -3800,7 +3826,7 @@ describe('Permission rule helpers', () => {
         path: '/workspace/a.ts',
       }),
     ).toBe(false);
-    expect(ruleMatches(permissionRule('DynamicWorkflow(workflow)'), 'DynamicWorkflow', {})).toBe(false);
+    expect(ruleMatches(permissionRule('AgentDynamicWorkflow(dynamic_workflow)'), 'AgentDynamicWorkflow', {})).toBe(false);
   });
 
   it('treats empty arg patterns as tool-name-only matches', () => {
@@ -3863,6 +3889,7 @@ function makePermissionManager(
     readonly planFilePath?: string | null | undefined;
     readonly kaos?: Kaos;
     readonly cwd?: string;
+    readonly additionalDirs?: readonly string[];
     readonly agentType?: Agent['type'];
     readonly hooks?: Agent['hooks'];
     readonly approvalRpc?: boolean;
@@ -3882,6 +3909,7 @@ function makePermissionManager(
     type: options.agentType ?? 'main',
     config: { cwd: options.cwd ?? '/workspace' },
     kaos: options.kaos ?? createFakeKaos(),
+    getAdditionalDirs: () => options.additionalDirs ?? [],
     emitStatusUpdated: vi.fn(),
     records: { logRecord: record },
     replayBuilder: { push: vi.fn() },
@@ -3940,6 +3968,7 @@ function makePlanPermissionManager(input: {
     rpc: { requestApproval },
     log: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() },
     telemetry: { track: telemetryTrack },
+    turn: { traceIdForTurn: () => undefined },
     planMode: {
       get isActive() {
         return true;
@@ -3974,6 +4003,7 @@ function hookContext(input: {
   readonly args?: Record<string, unknown> | undefined;
   readonly execution?: PermissionPolicyContext['execution'] | undefined;
   readonly toolCalls?: readonly ToolCall[] | undefined;
+  readonly traceId?: string | undefined;
 }): PermissionPolicyContext {
   const toolName = input.toolName ?? 'Bash';
   const args = input.args ?? { command: 'printf first', timeout: 60 };
@@ -3986,6 +4016,7 @@ function hookContext(input: {
   return {
     turnId: '0',
     stepNumber: 1,
+    traceId: input.traceId,
     signal: new AbortController().signal,
     llm: {} as PermissionPolicyContext['llm'],
     toolCall,

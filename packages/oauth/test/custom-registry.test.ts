@@ -11,8 +11,8 @@ import {
   removeCustomRegistryProvider,
   type CustomRegistryProviderEntry,
   type CustomRegistrySource,
+  type ManagedPythinkerConfigShape,
 } from '../src/custom-registry';
-import type { PlatformConfigShape } from '../src/open-platform';
 
 function makeKokubResponseBody(): Record<string, CustomRegistryProviderEntry> {
   return {
@@ -66,7 +66,7 @@ describe('fetchCustomRegistry', () => {
 
     const result = await fetchCustomRegistry(
       KOKUB_SOURCE,
-      fetchMock as unknown as typeof fetch,
+      { fetchImpl: fetchMock as unknown as typeof fetch },
     );
 
     expect(Object.keys(result)).toHaveLength(3);
@@ -89,12 +89,35 @@ describe('fetchCustomRegistry', () => {
     );
   });
 
+  it('parses support_efforts and default_effort from model entries', async () => {
+    const body = makeKokubResponseBody();
+    body['registry_chat-completions']!.models['gpt-5.5'] = {
+      id: 'gpt-5.5',
+      name: 'GPT 5.5',
+      support_efforts: ['low', 'high', 'max'],
+      default_effort: 'high',
+    };
+    const fetchMock = vi.fn(async () => makeJsonResponse(body));
+
+    const result = await fetchCustomRegistry(
+      KOKUB_SOURCE,
+      { fetchImpl: fetchMock as unknown as typeof fetch },
+    );
+
+    expect(result['registry_chat-completions']?.models['gpt-5.5']).toEqual({
+      id: 'gpt-5.5',
+      name: 'GPT 5.5',
+      support_efforts: ['low', 'high', 'max'],
+      default_effort: 'high',
+    });
+  });
+
   it('omits the Authorization header when the apiKey is empty', async () => {
     const fetchMock = vi.fn(async () => makeJsonResponse(makeKokubResponseBody()));
 
     await fetchCustomRegistry(
       { kind: 'apiJson', url: KOKUB_SOURCE.url, apiKey: '' },
-      fetchMock as unknown as typeof fetch,
+      { fetchImpl: fetchMock as unknown as typeof fetch },
     );
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -104,14 +127,41 @@ describe('fetchCustomRegistry', () => {
     expect(headers['Accept']).toBe('application/json');
   });
 
+  it('sends the given User-Agent, and none by default', async () => {
+    const fetchMock = vi.fn(async () => makeJsonResponse(makeKokubResponseBody()));
+
+    await fetchCustomRegistry(
+      KOKUB_SOURCE,
+      {
+        fetchImpl: fetchMock as unknown as typeof fetch,
+        userAgent: 'pythinker-code-cli/1.2.3',
+      },
+    );
+
+    const withUa = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect((withUa[1].headers as Record<string, string>)['User-Agent']).toBe(
+      'pythinker-code-cli/1.2.3',
+    );
+
+    fetchMock.mockClear();
+    await fetchCustomRegistry(KOKUB_SOURCE, {
+      fetchImpl: fetchMock as unknown as typeof fetch,
+    });
+
+    const withoutUa = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect((withoutUa[1].headers as Record<string, string>)['User-Agent']).toBeUndefined();
+  });
+
   it('forwards an AbortSignal when provided', async () => {
     const fetchMock = vi.fn(async () => makeJsonResponse(makeKokubResponseBody()));
     const controller = new AbortController();
 
     await fetchCustomRegistry(
       KOKUB_SOURCE,
-      fetchMock as unknown as typeof fetch,
-      controller.signal,
+      {
+        fetchImpl: fetchMock as unknown as typeof fetch,
+        signal: controller.signal,
+      },
     );
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -126,8 +176,8 @@ describe('fetchCustomRegistry', () => {
 
     const error = await fetchCustomRegistry(
       KOKUB_SOURCE,
-      fetchMock as unknown as typeof fetch,
-    ).catch((error: unknown) => error);
+      { fetchImpl: fetchMock as unknown as typeof fetch },
+    ).catch((caught: unknown) => caught);
 
     expect(error).toBeInstanceOf(CustomRegistryApiError);
     expect((error as CustomRegistryApiError).status).toBe(401);
@@ -138,7 +188,9 @@ describe('fetchCustomRegistry', () => {
     const fetchMock = vi.fn(async () => makeJsonResponse(['not', 'an', 'object']));
 
     await expect(
-      fetchCustomRegistry(KOKUB_SOURCE, fetchMock as unknown as typeof fetch),
+      fetchCustomRegistry(KOKUB_SOURCE, {
+        fetchImpl: fetchMock as unknown as typeof fetch,
+      }),
     ).rejects.toThrow(/expected a JSON object/);
   });
 
@@ -163,7 +215,7 @@ describe('fetchCustomRegistry', () => {
     try {
       const result = await fetchCustomRegistry(
         KOKUB_SOURCE,
-        fetchMock as unknown as typeof fetch,
+        { fetchImpl: fetchMock as unknown as typeof fetch },
       );
 
       expect(Object.keys(result)).toEqual(['registry_chat-completions']);
@@ -184,7 +236,7 @@ describe('fetchCustomRegistry', () => {
 
 describe('applyCustomRegistryProvider', () => {
   it('writes provider + model aliases for a kokub-shaped entry with default fallbacks', () => {
-    const config: PlatformConfigShape = { providers: {} };
+    const config: ManagedPythinkerConfigShape = { providers: {} };
     const entry: CustomRegistryProviderEntry = {
       id: 'registry_chat-completions',
       name: 'Sample Registry (chat completions)',
@@ -224,7 +276,7 @@ describe('applyCustomRegistryProvider', () => {
   });
 
   it('falls back to the model id for displayName when name is absent', () => {
-    const config: PlatformConfigShape = { providers: {} };
+    const config: ManagedPythinkerConfigShape = { providers: {} };
     const entry: CustomRegistryProviderEntry = {
       id: 'demo',
       name: 'Demo',
@@ -245,7 +297,7 @@ describe('applyCustomRegistryProvider', () => {
   });
 
   it('derives rich capabilities and limit-based context size when rich fields are present', () => {
-    const config: PlatformConfigShape = { providers: {} };
+    const config: ManagedPythinkerConfigShape = { providers: {} };
     const entry: CustomRegistryProviderEntry = {
       id: 'rich',
       name: 'Rich Provider',
@@ -279,7 +331,7 @@ describe('applyCustomRegistryProvider', () => {
   });
 
   it('clears stale aliases for the same provider before re-populating', () => {
-    const config: PlatformConfigShape = {
+    const config: ManagedPythinkerConfigShape = {
       providers: {
         'registry_chat-completions': {
           type: 'openai',
@@ -319,11 +371,134 @@ describe('applyCustomRegistryProvider', () => {
     expect(config.models?.['registry_chat-completions/gpt-5.5']).toBeDefined();
     expect(config.models?.['other/keepme']).toBeDefined();
   });
+
+  it('preserves hand-edited fields that upstream does not declare', () => {
+    const config: ManagedPythinkerConfigShape = {
+      providers: {},
+      models: {
+        'registry_chat-completions/gpt-5.5': {
+          provider: 'registry_chat-completions',
+          model: 'gpt-5.5',
+          maxContextSize: 131072,
+          betaApi: true,
+        } as Record<string, unknown>,
+      },
+    };
+
+    applyCustomRegistryProvider(
+      config,
+      {
+        id: 'registry_chat-completions',
+        name: 'Sample Registry (chat completions)',
+        api: 'https://registry.example.test/v1',
+        type: 'openai',
+        models: {
+          'gpt-5.5': { id: 'gpt-5.5', name: 'GPT 5.5' },
+        },
+      },
+      KOKUB_SOURCE,
+    );
+
+    const alias = config.models?.['registry_chat-completions/gpt-5.5'];
+    expect(alias?.['betaApi']).toBe(true);
+    // Upstream-owned fields are still refreshed.
+    expect(alias?.['displayName']).toBe('GPT 5.5');
+  });
+
+  it('maps support_efforts / default_effort onto the model alias', () => {
+    const config: ManagedPythinkerConfigShape = { providers: {} };
+    const entry: CustomRegistryProviderEntry = {
+      id: 'rich',
+      name: 'Rich Provider',
+      api: 'https://rich.example/v1',
+      type: 'openai',
+      models: {
+        'rich-thinker': {
+          id: 'rich-thinker',
+          name: 'Rich Thinker',
+          reasoning: true,
+          support_efforts: ['low', 'high', 'max'],
+          default_effort: 'high',
+        },
+      },
+    };
+
+    applyCustomRegistryProvider(config, entry, {
+      kind: 'apiJson',
+      url: 'https://rich.example/api.json',
+      apiKey: 'sk-rich',
+    });
+
+    const alias = config.models?.['rich/rich-thinker'] as Record<string, unknown>;
+    expect(alias['supportEfforts']).toEqual(['low', 'high', 'max']);
+    expect(alias['defaultEffort']).toBe('high');
+  });
+
+  it('treats support_efforts as a thinking capability hint without reasoning: true', () => {
+    const config: ManagedPythinkerConfigShape = { providers: {} };
+    const entry: CustomRegistryProviderEntry = {
+      id: 'rich',
+      name: 'Rich Provider',
+      api: 'https://rich.example/v1',
+      type: 'openai',
+      models: {
+        'rich-effort-only': {
+          id: 'rich-effort-only',
+          name: 'Rich Effort Only',
+          support_efforts: ['low', 'high', 'max'],
+          default_effort: 'high',
+        },
+      },
+    };
+
+    applyCustomRegistryProvider(config, entry, {
+      kind: 'apiJson',
+      url: 'https://rich.example/api.json',
+      apiKey: 'sk-rich',
+    });
+
+    const alias = config.models?.['rich/rich-effort-only'] as Record<string, unknown>;
+    expect(alias['capabilities']).toContain('thinking');
+    expect(alias['supportEfforts']).toEqual(['low', 'high', 'max']);
+  });
+
+  it('drops stale effort fields when a refresh no longer declares them', () => {
+    const config: ManagedPythinkerConfigShape = {
+      providers: {},
+      models: {
+        'registry_chat-completions/gpt-5.5': {
+          provider: 'registry_chat-completions',
+          model: 'gpt-5.5',
+          maxContextSize: 131072,
+          supportEfforts: ['low', 'high', 'max'],
+          defaultEffort: 'high',
+        } as Record<string, unknown>,
+      },
+    };
+
+    applyCustomRegistryProvider(
+      config,
+      {
+        id: 'registry_chat-completions',
+        name: 'Sample Registry (chat completions)',
+        api: 'https://registry.example.test/v1',
+        type: 'openai',
+        models: {
+          'gpt-5.5': { id: 'gpt-5.5', name: 'GPT 5.5' },
+        },
+      },
+      KOKUB_SOURCE,
+    );
+
+    const alias = config.models?.['registry_chat-completions/gpt-5.5'];
+    expect(alias?.['supportEfforts']).toBeUndefined();
+    expect(alias?.['defaultEffort']).toBeUndefined();
+  });
 });
 
 describe('removeCustomRegistryProvider', () => {
   it('removes the provider and every alias for it, and clears matching defaultModel', () => {
-    const config: PlatformConfigShape = {
+    const config: ManagedPythinkerConfigShape = {
       providers: {
         'registry_chat-completions': {
           type: 'openai',
@@ -359,7 +534,7 @@ describe('removeCustomRegistryProvider', () => {
   });
 
   it('leaves defaultModel intact when it belongs to another provider', () => {
-    const config: PlatformConfigShape = {
+    const config: ManagedPythinkerConfigShape = {
       providers: {
         'registry_chat-completions': {
           type: 'openai',
@@ -401,50 +576,14 @@ describe('applyCustomRegistryEntries', () => {
       c: { id: 'c', name: 'C', api: 'https://c.test/v1', type: 'openai', models: { 'm1': { id: 'm1' } } },
     };
 
-    const config: PlatformConfigShape = { providers: {} };
+    const config: ManagedPythinkerConfigShape = { providers: {} };
     applyCustomRegistryEntries(config, entries, source);
     applyCustomRegistryEntries(config, entries, source);
 
-    expect(Object.keys(config.providers).toSorted()).toEqual(['a', 'b', 'c']);
+    expect(Object.keys(config.providers).sort()).toEqual(['a', 'b', 'c']);
     expect(config.models?.['a/m1']).toBeDefined();
     expect(config.models?.['b/m1']).toBeDefined();
     expect(config.models?.['c/m1']).toBeDefined();
-  });
-
-  it('preserves provider and model defaults when they survive re-import', () => {
-    const source: CustomRegistrySource = {
-      kind: 'apiJson',
-      url: 'https://registry.example.test/api.json',
-      apiKey: 'sk-new',
-    };
-    const config: PlatformConfigShape = {
-      providers: {
-        x: { type: 'openai', baseUrl: 'https://x-old.test/v1', apiKey: 'sk-old' },
-      },
-      models: {
-        'x/main': { provider: 'x', model: 'main', maxContextSize: 1000 },
-      },
-      defaultProvider: 'x',
-      defaultModel: 'x/main',
-    };
-
-    applyCustomRegistryEntries(
-      config,
-      {
-        x: {
-          id: 'x',
-          name: 'X',
-          api: 'https://x-new.test/v1',
-          type: 'openai',
-          models: { main: { id: 'main' } },
-        },
-      },
-      source,
-    );
-
-    expect(config.models?.['x/main']).toBeDefined();
-    expect(config['defaultProvider']).toBe('x');
-    expect(config.defaultModel).toBe('x/main');
   });
 
   it('refreshes provider fields, drops stale aliases, and clears defaultModel that no longer exists', () => {
@@ -453,7 +592,7 @@ describe('applyCustomRegistryEntries', () => {
       url: 'https://registry.example.test/api.json',
       apiKey: 'sk-new',
     };
-    const config: PlatformConfigShape = {
+    const config: ManagedPythinkerConfigShape = {
       providers: {
         x: { type: 'openai', baseUrl: 'https://x-old.test/v1', apiKey: 'sk-old' },
       },
@@ -507,7 +646,7 @@ describe('applyCustomRegistryEntries', () => {
       b: { id: 'b', name: 'B', api: 'https://b.test/v1', type: 'openai', models: { m1: { id: 'm1' } } },
     };
 
-    const config: PlatformConfigShape = {
+    const config: ManagedPythinkerConfigShape = {
       providers: {
         // Provider from an unrelated source — must not be touched.
         keepme: {
@@ -527,8 +666,7 @@ describe('applyCustomRegistryEntries', () => {
     };
 
     applyCustomRegistryEntries(config, firstEntries, source);
-    // After first import, defaults point at the provider that disappears next.
-    config['defaultProvider'] = 'b';
+    // After first import, default points at one of the now-orphaned aliases.
     config.defaultModel = 'b/m1';
 
     // Second import drops provider `b`.
@@ -544,7 +682,6 @@ describe('applyCustomRegistryEntries', () => {
     expect(config.providers['b']).toBeUndefined();
     expect(config.models?.['a/m1']).toBeDefined();
     expect(config.models?.['b/m1']).toBeUndefined();
-    expect(config['defaultProvider']).toBeUndefined();
     expect(config.defaultModel).toBeUndefined();
 
     // Unrelated provider from a different source URL is preserved.
@@ -564,7 +701,7 @@ describe('applyCustomRegistryEntries', () => {
       apiKey: 'sk-b',
     };
 
-    const config: PlatformConfigShape = { providers: {} };
+    const config: ManagedPythinkerConfigShape = { providers: {} };
     applyCustomRegistryEntries(
       config,
       {

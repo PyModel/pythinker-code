@@ -11,19 +11,17 @@ import {
   log,
   type Event,
   type GoalSnapshot,
-  type HookResultEvent,
-  type JsonObject,
-  type PythinkerHarness,
-  type Session,
   type SessionStatus,
   type TelemetryClient,
 } from '@pymodel/pythinker-code-sdk';
 import { resolve } from 'pathe';
 
-import { CLI_SHUTDOWN_TIMEOUT_MS } from '#/constant/app';
+import { CLI_SHUTDOWN_TIMEOUT_MS, PROMPT_CLEANUP_TIMEOUT_MS } from '#/constant/app';
 
+import { resolveAgentProfileSelection } from './agent-selection';
+import { isPythinkerV2Enabled } from './experimental-v2';
+import { resolveOutputFormat } from './options';
 import type { CLIOptions, PromptOutputFormat } from './options';
-import { drainWritable } from './output';
 import {
   formatGoalSummaryText,
   goalExitCode,
@@ -31,42 +29,91 @@ import {
   parseHeadlessGoalCreate,
   type HeadlessGoalCreate,
 } from './goal-prompt';
+import type { PromptHarness, PromptSession } from './prompt-session';
+import { PromptJsonWriter, PromptTranscriptWriter, writeResumeHint } from './prompt-render';
 import { createCliTelemetryBootstrap, initializeCliTelemetry } from './telemetry';
 import { createPythinkerCodeHostIdentity } from './version';
+
+/**
+ * Await `promise`, but stop waiting after `timeoutMs`.
+ *
+ * The timeout only bounds how long we WAIT — it does not change the outcome:
+ *  - if `promise` settles first, its result is propagated (a rejection throws),
+ *    so a cleanup step that actually fails in time still surfaces;
+ *  - if the timeout wins, we resolve (give up waiting) and swallow the abandoned
+ *    promise's eventual late rejection so it can't surface as an unhandled
+ *    rejection.
+ *
+ * Used to bound shutdown so a wedged cleanup step can't keep a completed
+ * headless run alive, without silently swallowing a cleanup that fails fast. The
+ * timer stays ref'd so a cleanup step that suspends on an unref'd handle (e.g.
+ * telemetry's retry backoff when the network is blocked) can't drain the event
+ * loop and exit 0 before the rejection propagates — the timer keeps the loop
+ * alive until it fires, then gives the rejection a chance to surface. A wedged
+ * cleanup is still bounded by `timeoutMs`, so this can't hang the run forever.
+ */
+export async function raceWithTimeout(promise: Promise<void>, timeoutMs: number): Promise<void> {
+  let timedOut = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  // Attach the catch eagerly (synchronously) so `promise` is always consumed and
+  // a late rejection can never become an unhandled rejection. Before the timeout
+  // wins, the handler rethrows so a real cleanup failure still propagates.
+  const guarded = promise.catch((error: unknown) => {
+    if (timedOut) return;
+    throw error;
+  });
+  const timedOutSignal = new Promise<void>((resolve) => {
+    timer = setTimeout(() => {
+      timedOut = true;
+      resolve();
+    }, timeoutMs);
+  });
+  try {
+    await Promise.race([guarded, timedOutSignal]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
 
 interface PromptOutput {
   readonly columns?: number | undefined;
   write(chunk: string): boolean;
-  flush?(): Promise<void>;
 }
 
-interface PromptRunIO {
+export interface PromptRunIO {
   readonly stdout?: PromptOutput;
   readonly stderr?: PromptOutput;
   readonly process?: PromptProcess;
 }
 
-interface PromptProcess {
-  on(signal: NodeJS.Signals, listener: () => Promise<void>): unknown;
+export interface PromptProcess {
+  once(signal: NodeJS.Signals, listener: () => Promise<void>): unknown;
   off(signal: NodeJS.Signals, listener: () => Promise<void>): unknown;
   exit(code?: number): never | void;
 }
 
 const PROMPT_UI_MODE = 'print';
 const PROMPT_MAIN_AGENT_ID = 'main';
-const PROMPT_BLOCK_BULLET = '• ';
-const PROMPT_BLOCK_INDENT = '  ';
 
 export async function runPrompt(
   opts: CLIOptions,
   version: string,
   io: PromptRunIO = {},
 ): Promise<void> {
-  const outputSchema = parseOutputSchema(opts.jsonSchema);
+  if (isPythinkerV2Enabled()) {
+    // The agent-core-v2 engine runs on its own native DI service runtime (see
+    // v2/run-v2-print.ts); it does not share the v1 PromptHarness path below.
+    // Loaded lazily so the v2 module graph stays off the legacy path.
+    const { runV2Print } = await import('./v2/run-v2-print');
+    await runV2Print(opts, version, io);
+    return;
+  }
+
   const startedAt = Date.now();
   const stdout = io.stdout ?? process.stdout;
   const stderr = io.stderr ?? process.stderr;
   const promptProcess = io.process ?? process;
+  const outputFormat = resolveOutputFormat(opts);
   const workDir = process.cwd();
   const telemetryBootstrap = createCliTelemetryBootstrap();
   const telemetryClient: TelemetryClient = {
@@ -74,12 +121,20 @@ export async function runPrompt(
     withContext: withTelemetryContext,
     setContext: setTelemetryContext,
   };
-  const harness = createPythinkerHarness({
+  const harness = await createPromptHarness({
     homeDir: telemetryBootstrap.homeDir,
     identity: createPythinkerCodeHostIdentity(version),
     uiMode: PROMPT_UI_MODE,
     skillDirs: opts.skillsDirs,
     telemetry: telemetryClient,
+    onOAuthRefresh: (outcome) => {
+      if (outcome.success) {
+        track('oauth_refresh', { outcome: 'success' });
+        return;
+      }
+      track('oauth_refresh', { outcome: 'error', reason: outcome.reason });
+    },
+    sessionStartedProperties: { yolo: false, plan: false, afk: true },
   });
   log.info('pythinker-code starting', {
     version,
@@ -89,32 +144,27 @@ export async function runPrompt(
     workDir,
   });
   let restorePromptSessionPermission = async (): Promise<void> => {};
+  let removeTerminationCleanup: (() => void) | undefined;
   let cleanupPromise: Promise<void> | undefined;
   const cleanupPromptRun = async (): Promise<void> => {
-    cleanupPromise ??= (async () => {
+    const pending = (cleanupPromise ??= (async () => {
+      removeTerminationCleanup?.();
       setCrashPhase('shutdown');
       try {
         await restorePromptSessionPermission();
       } finally {
-        try {
-          await shutdownTelemetry({ timeoutMs: CLI_SHUTDOWN_TIMEOUT_MS });
-        } finally {
-          await harness.close();
-        }
+        await shutdownTelemetry({ timeoutMs: CLI_SHUTDOWN_TIMEOUT_MS });
+        await harness.close();
       }
-    })();
-    await cleanupPromise;
+    })());
+    // Bound cleanup so a wedged shutdown step (e.g. a SessionEnd hook, MCP
+    // shutdown, or a connection blackholed by a restrictive firewall) cannot
+    // keep a completed headless run alive forever. The cleanup keeps running in
+    // the background if it overruns; the caller (`pythinker -p`) force-exits shortly
+    // after, so any straggling work is torn down with the process.
+    await raceWithTimeout(pending, PROMPT_CLEANUP_TIMEOUT_MS);
   };
-  const terminationHandlers = installPromptTerminationCleanup(
-    promptProcess,
-    cleanupPromptRun,
-    async () => {
-      await Promise.all([
-        flushPromptOutput(stdout),
-        flushPromptOutput(stderr),
-      ]);
-    },
-  );
+  removeTerminationCleanup = installPromptTerminationCleanup(promptProcess, cleanupPromptRun);
 
   try {
     await harness.ensureConfigFile();
@@ -122,7 +172,7 @@ export async function runPrompt(
     for (const warning of (await harness.getConfigDiagnostics()).warnings) {
       stderr.write(`Warning: ${warning}\n`);
     }
-    const { session, resumed, restorePermission, telemetryModel, goalModel } =
+    const { session, restorePermission, telemetryModel, goalModel } =
       await resolvePromptSession(
         harness,
         opts,
@@ -134,24 +184,6 @@ export async function runPrompt(
         },
       );
     restorePromptSessionPermission = restorePermission;
-    if (opts.rewindFiles !== undefined) {
-      const result = await session.restoreFileCheckpoint(opts.rewindFiles);
-      stdout.write(`Files rewound to checkpoint ${result.checkpointId}.\n`);
-      stdout.write(`Recovery checkpoint: ${result.recoveryCheckpointId}.\n`);
-      stdout.write(
-        `Restored: ${String(result.restoredPaths.length)}. Deleted: ${String(result.deletedPaths.length)}.\n`,
-      );
-      return;
-    }
-    for (const directory of opts.additionalDirs ?? []) {
-      try {
-        await session.addWorkspaceDirectory(directory);
-      } catch (error) {
-        stderr.write(
-          `Warning: could not add working directory "${directory}": ${formatPromptError(error)}\n`,
-        );
-      }
-    }
 
     initializeCliTelemetry({
       harness,
@@ -160,59 +192,46 @@ export async function runPrompt(
       version,
       uiMode: PROMPT_UI_MODE,
       model: telemetryModel,
+      sessionId: session.id,
     });
     setCrashPhase('runtime');
 
-    withTelemetryContext({ sessionId: session.id }).track('started', {
-      resumed,
-      yolo: false,
-      plan: false,
-      afk: true,
-    });
-
-    const outputFormat = opts.outputFormat ?? 'text';
     // Headless goal mode: `pythinker -p "/goal <objective>"`. The goal driver keeps
     // the turn-run alive across continuation turns, so the normal prompt-turn
     // waiter blocks until the goal is terminal; we then emit a summary and set a
     // distinct exit code.
     const goalCreate = parseHeadlessGoalCreate(opts.prompt!);
-    if (goalCreate !== undefined && outputSchema !== undefined) {
-      throw new Error('Cannot combine --json-schema with a headless goal prompt.');
-    }
     if (goalCreate !== undefined) {
       await runHeadlessGoal(session, goalCreate, goalModel, outputFormat, stdout, stderr);
     } else {
       await runPromptTurn(
-        session,
+        session as PrintTurnSession,
         opts.prompt!,
         outputFormat,
         stdout,
         stderr,
-        outputSchema,
       );
     }
     writeResumeHint(session.id, outputFormat, stdout, stderr);
 
     withTelemetryContext({ sessionId: session.id }).track('exit', {
-      duration_s: (Date.now() - startedAt) / 1000,
+      duration_ms: Date.now() - startedAt,
     });
   } finally {
-    try {
-      await cleanupPromptRun();
-    } finally {
-      // Keep the handlers armed while a signal-triggered cleanup is in flight so
-      // a second signal can still force an immediate exit.
-      if (!terminationHandlers.isTerminating()) terminationHandlers.remove();
-    }
+    await cleanupPromptRun();
   }
 }
 
-function formatPromptError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+async function createPromptHarness(
+  options: Parameters<typeof createPythinkerHarness>[0],
+): Promise<PromptHarness> {
+  // The v2 engine is dispatched earlier in `runPrompt` (see the
+  // `isPythinkerV2Enabled()` branch) and never reaches here; this is the v1 path.
+  return createPythinkerHarness(options);
 }
 
 async function runHeadlessGoal(
-  session: Session,
+  session: PromptSession,
   goal: HeadlessGoalCreate,
   model: string | undefined,
   outputFormat: PromptOutputFormat,
@@ -238,7 +257,13 @@ async function runHeadlessGoal(
   try {
     // The objective is sent as the normal prompt; goal continuation keeps the
     // turn alive until a terminal state is reached.
-    await runPromptTurn(session, goal.objective, outputFormat, stdout, stderr);
+    await runPromptTurn(
+      session as PrintTurnSession,
+      goal.objective,
+      outputFormat,
+      stdout,
+      stderr,
+    );
   } finally {
     unsubscribeGoalEvents();
     const snapshot = completedSnapshot ?? (await session.getGoal()).goal;
@@ -256,7 +281,7 @@ async function runHeadlessGoal(
 }
 
 interface ResolvedPromptSession {
-  readonly session: Session;
+  readonly session: PromptSession;
   readonly resumed: boolean;
   readonly restorePermission: () => Promise<void>;
   readonly telemetryModel?: string;
@@ -264,13 +289,16 @@ interface ResolvedPromptSession {
 }
 
 async function resolvePromptSession(
-  harness: PythinkerHarness,
+  harness: PromptHarness,
   opts: CLIOptions,
   workDir: string,
   defaultModel: string | undefined,
   stderr: PromptOutput,
   setRestorePermission: (restorePermission: () => Promise<void>) => void,
 ): Promise<ResolvedPromptSession> {
+  // `--agent`/`--agent-file` are creation-only: validateOptions rejects them
+  // together with --session/--continue, so resume paths never forward a
+  // profile — the bound agent is restored from the session itself.
   if (opts.session !== undefined) {
     const sessions = await harness.listSessions({ sessionId: opts.session, workDir });
     const target = sessions[0];
@@ -290,15 +318,8 @@ async function resolvePromptSession(
     }
     const session = await harness.resumeSession({
       id: opts.session,
-      setupTrigger: opts.init ? 'init' : opts.maintenance ? 'maintenance' : undefined,
+      additionalDirs: opts.addDirs?.length ? opts.addDirs : undefined,
     });
-    if (opts.rewindFiles !== undefined) {
-      return {
-        session,
-        resumed: true,
-        restorePermission: async () => {},
-      };
-    }
     const status = await session.getStatus();
     const restorePermission = await forcePromptPermission(
       session,
@@ -324,7 +345,7 @@ async function resolvePromptSession(
     if (previous !== undefined) {
       const session = await harness.resumeSession({
         id: previous.id,
-        setupTrigger: opts.init ? 'init' : opts.maintenance ? 'maintenance' : undefined,
+        additionalDirs: opts.addDirs?.length ? opts.addDirs : undefined,
       });
       const status = await session.getStatus();
       const restorePermission = await forcePromptPermission(
@@ -347,12 +368,16 @@ async function resolvePromptSession(
     stderr.write(`No sessions to continue under "${workDir}"; starting a fresh session.\n`);
   }
 
+  const agentProfile = await resolveAgentProfileSelection(opts, workDir);
   const model = requireConfiguredModel(opts.model, defaultModel);
   const session = await harness.createSession({
     workDir,
     model,
     permission: 'auto',
-    setupTrigger: opts.init ? 'init' : opts.maintenance ? 'maintenance' : undefined,
+    additionalDirs: opts.addDirs?.length ? opts.addDirs : undefined,
+    agentProfile,
+    agentFiles: opts.agentFiles?.length ? opts.agentFiles : undefined,
+    drainAgentTasksOnStop: true,
   });
   installHeadlessHandlers(session);
   return {
@@ -365,7 +390,7 @@ async function resolvePromptSession(
 }
 
 async function forcePromptPermission(
-  session: Session,
+  session: PromptSession,
   previousPermission: SessionStatus['permission'],
   setRestorePermission: (restorePermission: () => Promise<void>) => void,
 ): Promise<() => Promise<void>> {
@@ -384,7 +409,7 @@ async function forcePromptPermission(
   return restorePermission;
 }
 
-function requireConfiguredModel(...models: readonly (string | undefined)[]): string {
+export function requireConfiguredModel(...models: readonly (string | undefined)[]): string {
   const model = configuredModel(...models);
   if (model === undefined) {
     throw new Error(
@@ -394,122 +419,125 @@ function requireConfiguredModel(...models: readonly (string | undefined)[]): str
   return model;
 }
 
-function configuredModel(...models: readonly (string | undefined)[]): string | undefined {
+export function configuredModel(...models: readonly (string | undefined)[]): string | undefined {
   return models.find((model) => model !== undefined && model.trim().length > 0);
 }
 
-function installHeadlessHandlers(session: Session): void {
+function installHeadlessHandlers(session: PromptSession): void {
   session.setApprovalHandler(() => ({ decision: 'approved' }));
   session.setQuestionHandler(() => null);
 }
 
-/** Flush a prompt run's output: custom writers expose `flush`, real streams drain. */
-async function flushPromptOutput(output: PromptOutput): Promise<void> {
-  if (output.flush !== undefined) {
-    await output.flush();
-    return;
-  }
-  if (output === process.stdout) {
-    await drainWritable(process.stdout);
-    return;
-  }
-  if (output === process.stderr) {
-    await drainWritable(process.stderr);
-  }
-}
-
-/**
- * Install graceful signal handling for a prompt run. The first termination
- * signal runs `cleanup` and flushes output, then exits with the signal's
- * conventional code; a second signal while cleanup is still pending forces an
- * immediate exit instead of letting the process hang on a slow shutdown.
- */
-function installPromptTerminationCleanup(
+export function installPromptTerminationCleanup(
   promptProcess: PromptProcess,
   cleanup: () => Promise<void>,
-  flushOutput: () => Promise<void>,
-): { remove(): void; isTerminating(): boolean } {
-  let terminationSignal: NodeJS.Signals | undefined;
-  let forced = false;
-  let removed = false;
-  const remove = (): void => {
-    if (removed) return;
-    removed = true;
-    promptProcess.off('SIGINT', onSigint);
-    promptProcess.off('SIGTERM', onSigterm);
-    promptProcess.off('SIGHUP', onSighup);
-  };
+): () => void {
+  let terminating = false;
   const exitAfterCleanup = async (signal: NodeJS.Signals): Promise<void> => {
-    if (terminationSignal !== undefined) {
-      if (!forced) {
-        forced = true;
-        remove();
-        promptProcess.exit(signalExitCode(signal));
-      }
-      return;
-    }
-    terminationSignal = signal;
+    if (terminating) return;
+    terminating = true;
     try {
-      await cleanup().catch(() => {});
-      await flushOutput().catch(() => {});
+      await cleanup();
     } finally {
-      if (!forced) {
-        remove();
-        promptProcess.exit(signalExitCode(signal));
-      }
+      promptProcess.exit(signalExitCode(signal));
     }
   };
   const onSigint = () => exitAfterCleanup('SIGINT');
   const onSigterm = () => exitAfterCleanup('SIGTERM');
   const onSighup = () => exitAfterCleanup('SIGHUP');
-  promptProcess.on('SIGINT', onSigint);
-  promptProcess.on('SIGTERM', onSigterm);
-  promptProcess.on('SIGHUP', onSighup);
-  return {
-    remove,
-    isTerminating: () => terminationSignal !== undefined,
+  promptProcess.once('SIGINT', onSigint);
+  promptProcess.once('SIGTERM', onSigterm);
+  promptProcess.once('SIGHUP', onSighup);
+  return () => {
+    promptProcess.off('SIGINT', onSigint);
+    promptProcess.off('SIGTERM', onSigterm);
+    promptProcess.off('SIGHUP', onSighup);
   };
 }
 
-function signalExitCode(signal: NodeJS.Signals): number {
+export function signalExitCode(signal: NodeJS.Signals): number {
   if (signal === 'SIGINT') return 130;
   if (signal === 'SIGHUP') return 129;
   return 143;
 }
 
+type PrintTurnSession = PromptSession &
+  Required<Pick<PromptSession, 'handlePrintMainTurnCompleted'>>;
+
 function runPromptTurn(
-  session: Session,
+  session: PrintTurnSession,
   prompt: string,
   outputFormat: PromptOutputFormat,
   stdout: PromptOutput,
   stderr: PromptOutput,
-  outputSchema?: JsonObject,
 ): Promise<void> {
   let activeTurnId: number | undefined;
   let activeAgentId: string | undefined;
   const outputWriter =
     outputFormat === 'stream-json'
-      ? new PromptJsonWriter(stdout, session.id)
-      : outputFormat === 'json'
-        ? new PromptResultWriter(stdout, session.id)
-        : new PromptTranscriptWriter(stdout, stderr);
+      ? new PromptJsonWriter(stdout)
+      : new PromptTranscriptWriter(stdout, stderr);
   let settled = false;
   let unsubscribe: (() => void) | undefined;
+  // A `pythinker -p` run is not done just because the model ended a turn: an active
+  // goal drives continuation turns on its own, and a scheduled cron task fires
+  // later from an idle session — both trigger new turns after `end_turn`. While
+  // either is pending, something must keep the event loop alive: the cron
+  // scheduler's tick is deliberately unref'd, so without a ref'd handle the
+  // process would drain and exit before the next turn is ever triggered. This
+  // no-op interval is that handle; finish() always clears it.
+  let keepAliveTimer: NodeJS.Timeout | undefined;
+  const holdEventLoop = (): void => {
+    keepAliveTimer ??= setInterval(() => {}, 60_000);
+  };
+  const releaseEventLoop = (): void => {
+    if (keepAliveTimer === undefined) return;
+    clearInterval(keepAliveTimer);
+    keepAliveTimer = undefined;
+  };
 
   return new Promise<void>((resolve, reject) => {
-    const finish = (
-      error?: Error,
-      ended?: Extract<Event, { type: 'turn.ended' }>,
-    ): void => {
+    const finish = (error?: Error): void => {
       if (settled) return;
       settled = true;
+      releaseEventLoop();
       unsubscribe?.();
-      outputWriter.finish(ended);
+      outputWriter.finish();
       if (error !== undefined) {
         reject(error);
         return;
       }
       resolve();
+    };
+
+    // Re-evaluates whether the run can settle now that the main agent is idle.
+    // The run outlives a completed turn while a goal is still active (the goal
+    // driver launches the next continuation turn itself) or while cron tasks
+    // with a future fire remain (their fire steers a fresh turn when idle).
+    // Called on turn.ended and on a terminal goal.updated — the latter covers
+    // the driver blocking a goal on a hard budget, which emits no further
+    // turn.ended. Only when neither is pending do we drain background tasks
+    // and settle.
+    const evaluateRunCompletion = async (): Promise<void> => {
+      try {
+        const { goal } = await session.getGoal();
+        if (settled || activeTurnId !== undefined) return;
+        if (goal?.status === 'active') {
+          holdEventLoop();
+          return;
+        }
+        const { tasks } = await session.getCronTasks();
+        if (settled || activeTurnId !== undefined) return;
+        // A task whose expression has no future fire can never trigger a
+        // turn; don't hold the run open for it.
+        if (tasks.some((task) => task.nextFireAt !== null)) {
+          holdEventLoop();
+          return;
+        }
+        await finishCompletedTurn();
+      } catch (error) {
+        finish(error instanceof Error ? error : new Error(String(error)));
+      }
     };
 
     unsubscribe = session.onEvent((event) => {
@@ -520,12 +548,22 @@ function runPromptTurn(
         finish(new Error(`${event.code}: ${event.message}`));
         return;
       }
-      if (event.type === 'turn.started' && activeTurnId === undefined) {
+      if (event.type === 'turn.started') {
         if (event.agentId !== PROMPT_MAIN_AGENT_ID) {
           return;
         }
         activeTurnId = event.turnId;
         activeAgentId = event.agentId;
+        return;
+      }
+      if (
+        event.type === 'goal.updated' &&
+        event.agentId === PROMPT_MAIN_AGENT_ID &&
+        activeTurnId === undefined &&
+        event.snapshot !== null &&
+        event.snapshot.status !== 'active'
+      ) {
+        void evaluateRunCompletion();
         return;
       }
       if (
@@ -544,6 +582,7 @@ function runPromptTurn(
           return;
         case 'turn.step.retrying':
           outputWriter.discardAssistant();
+          outputWriter.writeRetrying(event);
           return;
         case 'assistant.delta':
           outputWriter.writeAssistantDelta(event.delta);
@@ -572,7 +611,10 @@ function runPromptTurn(
           return;
         case 'turn.ended':
           if (event.reason === 'completed') {
-            finish(undefined, event);
+            outputWriter.flushAssistant();
+            activeTurnId = undefined;
+            activeAgentId = undefined;
+            void evaluateRunCompletion();
             return;
           }
           finish(new Error(formatTurnEndedFailure(event)));
@@ -595,410 +637,37 @@ function runPromptTurn(
         case 'subagent.started':
         case 'subagent.suspended':
         case 'tool.list.updated':
-        case 'turn.started':
         case 'turn.step.completed':
         case 'warning':
-        case 'workflow.warning':
           return;
       }
     });
 
-    session.prompt(prompt, { outputSchema }).catch((error: unknown) => {
+    session.prompt(prompt).catch((error: unknown) => {
       finish(error instanceof Error ? error : new Error(String(error)));
     });
+
+    async function finishCompletedTurn(): Promise<void> {
+      // Flush the buffered assistant message before the end-of-turn policy
+      // runs: in stream-json mode the final message is only emitted by
+      // finish(), so a long drain/steer wait would otherwise withhold the main
+      // turn's result until the run exits.
+      outputWriter.flushAssistant();
+      try {
+        const action = await session.handlePrintMainTurnCompleted();
+        if (action === 'continue') {
+          // Stay alive: a still-pending background task will, on completion,
+          // steer the main agent into a new turn whose events we keep mapping.
+          // Do not finish yet.
+          holdEventLoop();
+          return;
+        }
+      } catch (error) {
+        log.warn('handlePrintMainTurnCompleted failed', { error });
+      }
+      finish();
+    }
   });
-}
-
-interface PromptTurnWriter {
-  writeAssistantDelta(delta: string): void;
-  writeHookResult(event: HookResultEvent): void;
-  writeThinkingDelta(delta: string): void;
-  writeToolCall(toolCallId: string, name: string, args: unknown): void;
-  writeToolCallDelta(
-    toolCallId: string,
-    name: string | undefined,
-    argumentsPart: string | undefined,
-  ): void;
-  writeToolResult(toolCallId: string, output: unknown): void;
-  flushAssistant(): void;
-  discardAssistant(): void;
-  finish(ended?: Extract<Event, { type: 'turn.ended' }>): void;
-}
-
-class PromptTranscriptWriter implements PromptTurnWriter {
-  private readonly assistantWriter: PromptBlockWriter;
-  private readonly thinkingWriter: PromptBlockWriter;
-
-  constructor(stdout: PromptOutput, stderr: PromptOutput) {
-    this.assistantWriter = new PromptBlockWriter(stdout);
-    this.thinkingWriter = new PromptBlockWriter(stderr);
-  }
-
-  writeAssistantDelta(delta: string): void {
-    this.thinkingWriter.finish();
-    this.assistantWriter.write(delta);
-  }
-
-  writeHookResult(event: HookResultEvent): void {
-    this.thinkingWriter.finish();
-    this.assistantWriter.finish();
-    this.assistantWriter.write(formatHookResultPlain(event));
-    this.assistantWriter.finish();
-  }
-
-  writeThinkingDelta(delta: string): void {
-    this.thinkingWriter.write(delta);
-  }
-
-  writeToolCall(): void {}
-
-  writeToolCallDelta(): void {}
-
-  writeToolResult(): void {}
-
-  flushAssistant(): void {}
-
-  discardAssistant(): void {}
-
-  finish(): void {
-    this.thinkingWriter.finish();
-    this.assistantWriter.finish();
-  }
-}
-
-interface PromptJsonResult {
-  readonly type: 'result';
-  readonly subtype: 'success';
-  readonly is_error: false;
-  readonly result: string;
-  readonly structured_output?: unknown;
-  readonly session_id: string;
-}
-
-class PromptResultWriter implements PromptTurnWriter {
-  private assistantText = '';
-  private resultText = '';
-
-  constructor(
-    private readonly stdout: PromptOutput,
-    private readonly sessionId: string,
-  ) {}
-
-  writeAssistantDelta(delta: string): void {
-    this.assistantText += delta;
-  }
-
-  writeHookResult(event: HookResultEvent): void {
-    this.flushAssistant();
-    this.resultText = formatHookResultPlain(event);
-  }
-
-  writeThinkingDelta(): void {}
-
-  writeToolCall(): void {}
-
-  writeToolCallDelta(): void {}
-
-  writeToolResult(): void {}
-
-  flushAssistant(): void {
-    if (this.assistantText.length === 0) return;
-    this.resultText = this.assistantText;
-    this.assistantText = '';
-  }
-
-  discardAssistant(): void {
-    this.assistantText = '';
-  }
-
-  finish(ended?: Extract<Event, { type: 'turn.ended' }>): void {
-    if (ended === undefined) return;
-    this.flushAssistant();
-    const result: PromptJsonResult = {
-      type: 'result',
-      subtype: 'success',
-      is_error: false,
-      result: this.resultText,
-      structured_output: ended.structuredOutput,
-      session_id: this.sessionId,
-    };
-    this.stdout.write(`${JSON.stringify(result)}\n`);
-  }
-}
-
-interface PromptJsonToolCall {
-  type: 'function';
-  id: string;
-  function: {
-    name: string;
-    arguments: string;
-  };
-}
-
-interface PromptJsonAssistantMessage {
-  role: 'assistant';
-  content?: string;
-  tool_calls?: PromptJsonToolCall[];
-}
-
-interface PromptJsonToolMessage {
-  role: 'tool';
-  tool_call_id: string;
-  content: string;
-}
-
-interface PromptJsonResumeMetaMessage {
-  role: 'meta';
-  type: 'session.resume_hint';
-  session_id: string;
-  command: string;
-  content: string;
-}
-
-function writeResumeHint(
-  sessionId: string,
-  outputFormat: PromptOutputFormat,
-  stdout: PromptOutput,
-  stderr: PromptOutput,
-): void {
-  const command = `pythinker -r ${sessionId}`;
-  const content = `To resume this session: ${command}`;
-  if (outputFormat === 'stream-json') {
-    const message: PromptJsonResumeMetaMessage = {
-      role: 'meta',
-      type: 'session.resume_hint',
-      session_id: sessionId,
-      command,
-      content,
-    };
-    stdout.write(`${JSON.stringify(message)}\n`);
-    return;
-  }
-  stderr.write(`${content}\n`);
-}
-
-class PromptJsonWriter implements PromptTurnWriter {
-  private assistantText = '';
-  private resultText = '';
-  private readonly toolCalls: PromptJsonToolCall[] = [];
-
-  constructor(
-    private readonly stdout: PromptOutput,
-    private readonly sessionId: string,
-  ) {}
-
-  writeAssistantDelta(delta: string): void {
-    this.assistantText += delta;
-  }
-
-  writeHookResult(event: HookResultEvent): void {
-    this.flushAssistant();
-    const content = formatHookResultPlain(event);
-    this.writeJsonLine({
-      role: 'assistant',
-      content,
-    });
-    this.resultText = content;
-  }
-
-  writeThinkingDelta(): void {}
-
-  writeToolCall(toolCallId: string, name: string, args: unknown): void {
-    const existing = this.toolCalls.find((toolCall) => toolCall.id === toolCallId);
-    if (existing !== undefined) {
-      existing.function.name = name;
-      existing.function.arguments = stringifyJsonValue(args);
-      return;
-    }
-    this.toolCalls.push({
-      type: 'function',
-      id: toolCallId,
-      function: {
-        name,
-        arguments: stringifyJsonValue(args),
-      },
-    });
-  }
-
-  writeToolCallDelta(
-    toolCallId: string,
-    name: string | undefined,
-    argumentsPart: string | undefined,
-  ): void {
-    const toolCall = this.findOrCreateToolCall(toolCallId, name ?? '');
-    if (name !== undefined) {
-      toolCall.function.name = name;
-    }
-    if (argumentsPart !== undefined) {
-      toolCall.function.arguments += argumentsPart;
-    }
-  }
-
-  writeToolResult(toolCallId: string, output: unknown): void {
-    this.flushAssistant();
-    this.writeJsonLine({
-      role: 'tool',
-      tool_call_id: toolCallId,
-      content: stringifyToolOutput(output),
-    });
-  }
-
-  flushAssistant(): void {
-    if (this.assistantText.length === 0 && this.toolCalls.length === 0) return;
-    const message: PromptJsonAssistantMessage = {
-      role: 'assistant',
-      content: this.assistantText.length > 0 ? this.assistantText : undefined,
-      tool_calls: this.toolCalls.length > 0 ? [...this.toolCalls] : undefined,
-    };
-    this.writeJsonLine(message);
-    if (this.assistantText.length > 0) this.resultText = this.assistantText;
-    this.discardAssistant();
-  }
-
-  discardAssistant(): void {
-    this.assistantText = '';
-    this.toolCalls.length = 0;
-  }
-
-  finish(ended?: Extract<Event, { type: 'turn.ended' }>): void {
-    this.flushAssistant();
-    if (ended?.structuredOutput !== undefined) {
-      this.writeJsonLine({
-        type: 'result',
-        subtype: 'success',
-        is_error: false,
-        result: this.resultText,
-        structured_output: ended.structuredOutput,
-        session_id: this.sessionId,
-      });
-    }
-  }
-
-  private findOrCreateToolCall(toolCallId: string, name: string): PromptJsonToolCall {
-    const existing = this.toolCalls.find((toolCall) => toolCall.id === toolCallId);
-    if (existing !== undefined) return existing;
-    const toolCall: PromptJsonToolCall = {
-      type: 'function',
-      id: toolCallId,
-      function: {
-        name,
-        arguments: '',
-      },
-    };
-    this.toolCalls.push(toolCall);
-    return toolCall;
-  }
-
-  private writeJsonLine(
-    message: PromptJsonAssistantMessage | PromptJsonToolMessage | PromptJsonResult,
-  ): void {
-    this.stdout.write(`${JSON.stringify(message)}\n`);
-  }
-}
-
-function parseOutputSchema(value: string | undefined): JsonObject | undefined {
-  if (value === undefined) return undefined;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(value);
-  } catch (error) {
-    throw new Error(
-      `Invalid --json-schema JSON: ${error instanceof Error ? error.message : String(error)}`, { cause: error },
-    );
-  }
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    throw new Error('Invalid --json-schema JSON: expected a JSON object.');
-  }
-  return parsed as JsonObject;
-}
-
-class PromptBlockWriter {
-  private started = false;
-  private atLineStart = false;
-  private lineWidth = 0;
-  private readonly wrapWidth: number | undefined;
-
-  constructor(private readonly output: PromptOutput) {
-    this.wrapWidth =
-      typeof output.columns === 'number' && output.columns > PROMPT_BLOCK_INDENT.length + 1
-        ? output.columns
-        : undefined;
-  }
-
-  write(chunk: string): void {
-    if (chunk.length === 0) return;
-    let rendered = this.start();
-    for (const char of chunk) {
-      if (this.atLineStart && char !== '\n') {
-        rendered += PROMPT_BLOCK_INDENT;
-        this.atLineStart = false;
-        this.lineWidth = PROMPT_BLOCK_INDENT.length;
-      }
-      const charWidth = visibleCharWidth(char);
-      if (
-        this.wrapWidth !== undefined &&
-        !this.atLineStart &&
-        char !== '\n' &&
-        this.lineWidth + charWidth > this.wrapWidth
-      ) {
-        rendered += `\n${PROMPT_BLOCK_INDENT}`;
-        this.lineWidth = PROMPT_BLOCK_INDENT.length;
-      }
-      rendered += char;
-      if (char === '\n') {
-        this.atLineStart = true;
-        this.lineWidth = 0;
-      } else {
-        this.lineWidth += charWidth;
-      }
-    }
-    this.output.write(rendered);
-  }
-
-  finish(): void {
-    if (!this.started) return;
-    this.output.write(this.atLineStart ? '\n' : '\n\n');
-    this.started = false;
-    this.atLineStart = false;
-    this.lineWidth = 0;
-  }
-
-  private start(): string {
-    if (this.started) return '';
-    this.started = true;
-    this.atLineStart = false;
-    this.lineWidth = PROMPT_BLOCK_BULLET.length;
-    return PROMPT_BLOCK_BULLET;
-  }
-}
-
-function visibleCharWidth(char: string): number {
-  return char === '\t' ? 4 : 1;
-}
-
-function formatHookResultPlain(event: HookResultEvent): string {
-  return `${formatHookResultTitle(event)}\n\n${formatHookResultBody(event)}`;
-}
-
-function formatHookResultTitle(event: HookResultEvent): string {
-  return `${event.hookEvent} hook${event.blocked === true ? ' blocked' : ''}`;
-}
-
-function formatHookResultBody(event: HookResultEvent): string {
-  const content = event.content.trim();
-  return content.length === 0 ? '(empty)' : content;
-}
-
-function stringifyJsonValue(value: unknown): string {
-  if (typeof value === 'string') return value;
-  const json = JSON.stringify(value);
-  return json ?? '';
-}
-
-function stringifyToolOutput(output: unknown): string {
-  if (typeof output === 'string') return output;
-  const json = JSON.stringify(output);
-  return json ?? String(output);
 }
 
 function hasTurnId(event: Event): event is Event & { readonly turnId: number } {
@@ -1006,6 +675,12 @@ function hasTurnId(event: Event): event is Event & { readonly turnId: number } {
 }
 
 function formatTurnEndedFailure(event: Extract<Event, { type: 'turn.ended' }>): string {
+  if (event.error?.code === 'provider.filtered') {
+    return 'Provider safety policy blocked the response.';
+  }
   if (event.error !== undefined) return `${event.error.code}: ${event.error.message}`;
+  if (event.reason === 'blocked') {
+    return 'Prompt hook blocked the request.';
+  }
   return `Prompt turn ended with reason: ${event.reason}`;
 }

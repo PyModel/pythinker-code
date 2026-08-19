@@ -12,8 +12,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
-import { renderOAuthErrorPage, renderOAuthSuccessPage } from './oauth-pages';
-
 export interface CallbackResult {
   readonly code: string;
   readonly state: string | undefined;
@@ -26,20 +24,59 @@ export interface CallbackServer {
    *  - `signal` aborts → AbortError
    *  - `timeoutMs` elapses → Error('OAuth callback timed out')
    *  - the user's authorization server returns an error → Error('OAuth error: <code>')
+   *  - `close()` is called → OAuthCallbackClosedError
    */
   waitForCode(opts: { signal?: AbortSignal; timeoutMs?: number }): Promise<CallbackResult>;
   close(): Promise<void>;
 }
 
+export class OAuthCallbackClosedError extends Error {
+  constructor() {
+    super('OAuth callback listener closed');
+    this.name = 'OAuthCallbackClosedError';
+  }
+}
+
+const SUCCESS_HTML =
+  '<!doctype html><html><head><meta charset="utf-8"><title>Authorized</title></head>' +
+  '<body style="font-family:system-ui,sans-serif;padding:2rem;">' +
+  '<h1>Sign-in complete</h1>' +
+  '<p>You can close this tab and return to pythinker-code.</p>' +
+  '</body></html>';
+
+const ERROR_HTML =
+  '<!doctype html><html><head><meta charset="utf-8"><title>OAuth error</title></head>' +
+  '<body style="font-family:system-ui,sans-serif;padding:2rem;">' +
+  '<h1>Sign-in failed</h1>' +
+  '<p>The authorization server reported an error. Return to pythinker-code for details.</p>' +
+  '</body></html>';
+
 export async function startCallbackServer(): Promise<CallbackServer> {
   let resolveCode: ((value: CallbackResult) => void) | undefined;
   let rejectCode: ((reason: Error) => void) | undefined;
-  let settled = false;
+  let cleanupWait: (() => void) | undefined;
+  let outcome:
+    | { readonly status: 'pending' }
+    | { readonly status: 'resolved'; readonly value: CallbackResult }
+    | { readonly status: 'rejected'; readonly reason: Error } = { status: 'pending' };
 
-  const settle = (fn: () => void) => {
-    if (settled) return;
-    settled = true;
-    fn();
+  const settle = (
+    next:
+      | { readonly status: 'resolved'; readonly value: CallbackResult }
+      | { readonly status: 'rejected'; readonly reason: Error },
+  ) => {
+    if (outcome.status !== 'pending') return;
+    outcome = next;
+    cleanupWait?.();
+    cleanupWait = undefined;
+    if (next.status === 'resolved') {
+      resolveCode?.(next.value);
+    } else {
+      rejectCode?.(next.reason);
+    }
+    resolveCode = undefined;
+    rejectCode = undefined;
+    void closeServer();
   };
 
   const server: Server = createServer((req, res) => {
@@ -65,27 +102,27 @@ export async function startCallbackServer(): Promise<CallbackServer> {
     const errorParam = url.searchParams.get('error');
     if (errorParam !== null) {
       const description = url.searchParams.get('error_description') ?? '';
-      res.writeHead(400, { 'content-type': 'text/html; charset=utf-8' }).end(renderOAuthErrorPage());
-      settle(() => {
-        rejectCode?.(
-          new Error(`OAuth error: ${errorParam}${description ? ` — ${description}` : ''}`),
-        );
+      res.writeHead(400, { 'content-type': 'text/html; charset=utf-8' }).end(ERROR_HTML);
+      settle({
+        status: 'rejected',
+        reason: new Error(
+          `OAuth error: ${errorParam}${description ? ` — ${description}` : ''}`,
+        ),
       });
       return;
     }
     const code = url.searchParams.get('code');
     if (code === null || code.length === 0) {
-      res.writeHead(400, { 'content-type': 'text/html; charset=utf-8' }).end(renderOAuthErrorPage());
-      settle(() => {
-        rejectCode?.(new Error('OAuth callback missing authorization code'));
+      res.writeHead(400, { 'content-type': 'text/html; charset=utf-8' }).end(ERROR_HTML);
+      settle({
+        status: 'rejected',
+        reason: new Error('OAuth callback missing authorization code'),
       });
       return;
     }
     const state = url.searchParams.get('state') ?? undefined;
-    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(renderOAuthSuccessPage());
-    settle(() => {
-      resolveCode?.({ code, state });
-    });
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(SUCCESS_HTML);
+    settle({ status: 'resolved', value: { code, state } });
   }
 
   await new Promise<void>((resolve, reject) => {
@@ -98,44 +135,49 @@ export async function startCallbackServer(): Promise<CallbackServer> {
   const port = (server.address() as AddressInfo).port;
   const redirectUri = `http://127.0.0.1:${port}/callback`;
 
-  let closed = false;
-  const close = async () => {
-    if (closed) return;
-    closed = true;
-    await new Promise<void>((resolve) => {
+  let closeServerPromise: Promise<void> | undefined;
+  const closeServer = (): Promise<void> => {
+    closeServerPromise ??= new Promise<void>((resolve) => {
       server.close(() => {
         resolve();
       });
     });
+    return closeServerPromise;
+  };
+  const close = async () => {
+    settle({ status: 'rejected', reason: new OAuthCallbackClosedError() });
+    await closeServer();
   };
 
-  const waitForCode: CallbackServer['waitForCode'] = ({ signal, timeoutMs }) => {
+  const waitForCode: CallbackServer['waitForCode'] = ({ signal, timeoutMs } = {}) => {
     return new Promise<CallbackResult>((resolve, reject) => {
+      if (outcome.status === 'resolved') {
+        resolve(outcome.value);
+        return;
+      }
+      if (outcome.status === 'rejected') {
+        reject(outcome.reason);
+        return;
+      }
+
       let timer: NodeJS.Timeout | undefined;
       const onAbort = () => {
-        settle(() =>
-          rejectCode?.(
+        settle({
+          status: 'rejected',
+          reason:
             signal?.reason instanceof Error ? signal.reason : new Error('OAuth flow aborted'),
-          ),
-        );
+        });
       };
       const cleanup = () => {
         if (timer !== undefined) clearTimeout(timer);
         signal?.removeEventListener('abort', onAbort);
       };
-      resolveCode = (value) => {
-        cleanup();
-        void close();
-        resolve(value);
-      };
-      rejectCode = (reason) => {
-        cleanup();
-        void close();
-        reject(reason);
-      };
+      cleanupWait = cleanup;
+      resolveCode = resolve;
+      rejectCode = reject;
       if (timeoutMs !== undefined) {
         timer = setTimeout(() => {
-          settle(() => rejectCode?.(new Error('OAuth callback timed out')));
+          settle({ status: 'rejected', reason: new Error('OAuth callback timed out') });
         }, timeoutMs);
       }
       if (signal !== undefined) {

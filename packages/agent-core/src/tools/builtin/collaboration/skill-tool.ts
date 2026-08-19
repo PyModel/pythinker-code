@@ -19,11 +19,7 @@ import type { Agent } from '../../../agent';
 import type { SkillActivationOrigin } from '../../../agent/context';
 import { renderModelToolSkillPrompt } from '../../../agent/skill/prompt';
 import type { BuiltinTool } from '../../../agent/tool';
-import type {
-  ExecutableToolContext,
-  ExecutableToolResult,
-  ToolExecution,
-} from '../../../loop/types';
+import type { ExecutableToolResult, ToolExecution } from '../../../loop/types';
 import { isInlineSkillType, type SkillDefinition } from '../../../skill';
 import { renderPrompt } from '../../../utils/render-prompt';
 import { toInputJsonSchema } from '../../support/input-schema';
@@ -53,8 +49,17 @@ export interface SkillToolInput {
 }
 
 export const SkillToolInputSchema: z.ZodType<SkillToolInput> = z.object({
-  skill: z.string(),
-  args: z.string().optional(),
+  skill: z
+    .string()
+    .describe(
+      'The exact name of the skill to invoke, spelled as it appears in the current skill listing (e.g. "commit", "pdf").',
+    ),
+  args: z
+    .string()
+    .optional()
+    .describe(
+      'Optional argument string for the skill, written like a command line (e.g. `-m "fix bug"`, `123`, a file path). It is split on whitespace (quotes group a token) and expanded into the skill\'s placeholders ($NAME, $1, $ARGUMENTS); if the skill body has no placeholders, the whole string is still appended as a trailing `ARGUMENTS:` line. Omit it only when there is nothing to pass.',
+    ),
 });
 
 export interface SkillToolOptions {
@@ -71,9 +76,7 @@ export interface SkillToolOptions {
 
 export class SkillTool implements BuiltinTool<SkillToolInput> {
   readonly name = 'Skill';
-  readonly description: string = renderPrompt(skillDescriptionTemplate, {
-    MAX_SKILL_QUERY_DEPTH,
-  });
+  readonly description: string = renderPrompt(skillDescriptionTemplate, {});
   readonly parameters: Record<string, unknown> = toInputJsonSchema(SkillToolInputSchema);
 
   constructor(
@@ -87,7 +90,7 @@ export class SkillTool implements BuiltinTool<SkillToolInput> {
       display: { kind: 'skill_call', skill_name: args.skill, args: args.args },
       approvalRule: this.name,
       matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, args.skill),
-      execute: (context) => this.execution(args, context),
+      execute: () => this.execution(args),
     };
   }
 
@@ -98,10 +101,7 @@ export class SkillTool implements BuiltinTool<SkillToolInput> {
     });
   }
 
-  private async execution(
-    args: SkillToolInput,
-    context: ExecutableToolContext,
-  ): Promise<ExecutableToolResult> {
+  private async execution(args: SkillToolInput): Promise<ExecutableToolResult> {
     // Recursion hard cap. Once `currentDepth` has reached
     // MAX_SKILL_QUERY_DEPTH, firing another Skill call would push the
     // child to depth+1 which violates the invariant. Throw a structured
@@ -129,9 +129,6 @@ export class SkillTool implements BuiltinTool<SkillToolInput> {
     }
 
     const skillArgs = args.args ?? '';
-    if (skill.metadata.context === 'fork') {
-      return this.executeForkedSkill(skill, skillArgs, currentDepth, context);
-    }
     if (!isInlineSkillType(skill.metadata.type)) {
       return errorResult(
         `Skill "${skill.name}" is not an inline skill and cannot be invoked by the model in v1.`,
@@ -140,10 +137,8 @@ export class SkillTool implements BuiltinTool<SkillToolInput> {
 
     const origin = skillOrigin(skill, skillArgs, currentDepth);
     const promptTrigger = origin.trigger === 'nested-skill' ? 'nested-skill' : 'model-tool';
-    skills.applyInlineOverrides(skill);
-    skills.registerHooks(skill);
     skills.recordActivation(origin);
-    const skillContent = await skills.renderPrompt(skill, skillArgs, context.signal);
+    const skillContent = skills.registry.renderSkillPrompt(skill, skillArgs);
     this.agent.context.appendUserMessage(
       [
         {
@@ -162,28 +157,6 @@ export class SkillTool implements BuiltinTool<SkillToolInput> {
     );
     return {
       output: `Skill "${skill.name}" loaded inline. Follow its instructions.`,
-    };
-  }
-
-  private async executeForkedSkill(
-    skill: SkillDefinition,
-    skillArgs: string,
-    currentDepth: number,
-    context: ExecutableToolContext,
-  ): Promise<ExecutableToolResult> {
-    if (this.agent.subagentHost === undefined) {
-      return errorResult(
-        `Skill "${skill.name}" requires subagent execution, which is not available.`,
-      );
-    }
-
-    const result = await this.agent.skills!.executeForked(skill, skillArgs, {
-      parentToolCallId: context.toolCallId,
-      signal: context.signal,
-      trigger: currentDepth > 0 ? 'nested-skill' : 'model-tool',
-    });
-    return {
-      output: `Skill "${skill.name}" completed (forked execution).\n\nResult:\n${result}`,
     };
   }
 }

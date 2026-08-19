@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -11,11 +11,7 @@ import {
 } from '#/cli/update/install-state';
 import { readUpdateCache, writeUpdateCache } from '#/cli/update/cache';
 import { emptyUpdateCache, type UpdateInstallState } from '#/cli/update/types';
-import {
-  getUpdateInstallLogFile,
-  getUpdateInstallStateFile,
-  getUpdateStateFile,
-} from '#/utils/paths';
+import { getUpdateInstallStateFile, getUpdateStateFile } from '#/utils/paths';
 
 const originalEnv = { ...process.env };
 
@@ -144,42 +140,12 @@ describe('update install state', () => {
     await expect(readUpdateInstallState()).resolves.toEqual(emptyUpdateInstallState());
   });
 
-  it('reads a legacy install.json whose active record has no pid', async () => {
-    const legacyState: UpdateInstallState = {
-      active: {
-        version: '0.5.0',
-        source: 'npm-global',
-        startedAt: '2026-04-23T08:00:00.000Z',
-      },
-      pending: null,
-      lastFailure: null,
-      lastSuccess: null,
-    };
-    mkdirSync(join(dir, 'updates'), { recursive: true });
-    writeFileSync(getUpdateInstallStateFile(), JSON.stringify(legacyState), 'utf-8');
-
-    await expect(readUpdateInstallState()).resolves.toEqual(legacyState);
-  });
-
   it('writes and reads back the install state from updates/install.json', async () => {
     const state: UpdateInstallState = {
       active: {
         version: '0.5.0',
         source: 'npm-global',
         startedAt: '2026-04-23T08:00:00.000Z',
-        pid: 42_424,
-      },
-      pending: {
-        jobId: '7e717f78-70c6-4f7c-9745-ceb45822d24b',
-        source: 'homebrew',
-        version: '0.5.0',
-        preparedAt: '2026-04-23T08:05:00.000Z',
-        requestedBy: 'automatic',
-        formulaUrl: 'https://registry.example.com/pythinker-code-0.5.0.tgz',
-        artifactKind: 'source',
-        artifactSha256: 'a'.repeat(64),
-        formulaFileSha256: 'b'.repeat(64),
-        artifactPath: '/tmp/cache/pythinker-code-0.5.0.tgz',
       },
       lastFailure: {
         version: '0.4.0',
@@ -196,11 +162,6 @@ describe('update install state', () => {
     await writeUpdateInstallState(state);
 
     expect(getUpdateInstallStateFile()).toBe(join(dir, 'updates', 'install.json'));
-    expect(getUpdateInstallLogFile()).toBe(join(dir, 'updates', 'install.log'));
-    const persisted = JSON.parse(readFileSync(getUpdateInstallStateFile(), 'utf-8')) as {
-      readonly active: { readonly pid?: number } | null;
-    };
-    expect(persisted.active?.pid).toBe(42_424);
     await expect(readUpdateInstallState()).resolves.toEqual(state);
   });
 });

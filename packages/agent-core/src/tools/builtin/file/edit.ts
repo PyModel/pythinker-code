@@ -19,7 +19,6 @@ import { toInputJsonSchema } from '../../support/input-schema';
 import { literalRulePattern, matchesPathRuleSubject } from '../../support/rule-match';
 import type { WorkspaceConfig } from '../../support/workspace';
 import { materializeModelText, toModelTextView } from './line-endings';
-import type { FileReadState } from './read';
 import EDIT_DESCRIPTION from './edit.md?raw';
 
 // `old_string` must be non-empty: the non-replace_all branch walks
@@ -50,66 +49,11 @@ export const EditInputSchema = z.object({
 
 export type EditInput = z.Infer<typeof EditInputSchema>;
 
-const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
-
 function replaceOnceLiteral(content: string, oldString: string, newString: string): string {
   const index = content.indexOf(oldString);
   if (index === -1) return content;
   return content.slice(0, index) + newString + content.slice(index + oldString.length);
 }
-
-function normalizeQuotes(value: string): string {
-  return value
-    .replaceAll('‘', "'")
-    .replaceAll('’', "'")
-    .replaceAll('“', '"')
-    .replaceAll('”', '"');
-}
-
-function findActualString(content: string, search: string): string | undefined {
-  if (content.includes(search)) return search;
-  const index = normalizeQuotes(content).indexOf(normalizeQuotes(search));
-  return index === -1 ? undefined : content.slice(index, index + search.length);
-}
-
-function isOpeningQuote(chars: readonly string[], index: number): boolean {
-  if (index === 0) return true;
-  return [' ', '\t', '\n', '\r', '(', '[', '{', '—', '–'].includes(chars[index - 1] ?? '');
-}
-
-function curlQuotes(value: string, quote: "'" | '"'): string {
-  const chars = Array.from(graphemeSegmenter.segment(value), ({ segment }) => segment);
-  return chars
-    .map((char, index) => {
-      if (char !== quote) return char;
-      if (
-        quote === "'" &&
-        /\p{L}/u.test(chars[index - 1] ?? '') &&
-        /\p{L}/u.test(chars[index + 1] ?? '')
-      ) {
-        return '’';
-      }
-      if (quote === '"') return isOpeningQuote(chars, index) ? '“' : '”';
-      return isOpeningQuote(chars, index) ? '‘' : '’';
-    })
-    .join('');
-}
-
-function preserveQuoteStyle(oldString: string, actualOldString: string, newString: string): string {
-  if (oldString === actualOldString) return newString;
-  let result = newString;
-  if (actualOldString.includes('“') || actualOldString.includes('”')) {
-    result = curlQuotes(result, '"');
-  }
-  if (actualOldString.includes('‘') || actualOldString.includes('’')) {
-    result = curlQuotes(result, "'");
-  }
-  return result;
-}
-
-const FILE_NOT_READ_ERROR = 'File has not been read yet. Use Read before editing it.';
-const FILE_MODIFIED_ERROR =
-  'File has been modified since it was read. Read it again before editing.';
 
 export class EditTool implements BuiltinTool<EditInput> {
   readonly name = 'Edit' as const;
@@ -119,8 +63,6 @@ export class EditTool implements BuiltinTool<EditInput> {
   constructor(
     private readonly kaos: Kaos,
     private readonly workspace: WorkspaceConfig,
-    private readonly readState?: FileReadState,
-    private readonly beforeWrite?: (path: string) => Promise<void>,
   ) {}
 
   resolveExecution(args: EditInput): ToolExecution {
@@ -157,95 +99,57 @@ export class EditTool implements BuiltinTool<EditInput> {
         output: 'No changes to make: old_string and new_string are exactly the same.',
       };
     }
-    if (safePath.toLowerCase().endsWith('.ipynb')) {
-      return {
-        isError: true,
-        output: 'Jupyter notebooks must be edited with NotebookEdit.',
-      };
-    }
 
     try {
-      const snapshot = this.readState?.get(safePath);
-      if (this.readState !== undefined && snapshot === undefined) {
-        return { isError: true, output: FILE_NOT_READ_ERROR };
-      }
-      if (snapshot?.isPartialView === true) {
-        return {
-          isError: true,
-          output: 'A complete Read is required before editing this file.',
-        };
-      }
-
-      const mtimeBeforeRead =
-        snapshot === undefined ? undefined : (await this.kaos.stat(safePath)).stMtime;
-      if (snapshot !== undefined && mtimeBeforeRead !== snapshot.mtime) {
-        return { isError: true, output: FILE_MODIFIED_ERROR };
-      }
-
       const raw = await this.kaos.readText(safePath);
-      if (
-        mtimeBeforeRead !== undefined &&
-        (await this.kaos.stat(safePath)).stMtime !== mtimeBeforeRead
-      ) {
-        return { isError: true, output: FILE_MODIFIED_ERROR };
-      }
-
       const modelView = toModelTextView(raw);
       const content = modelView.text;
       const replaceAll = args.replace_all ?? false;
-      const actualOldString = findActualString(content, args.old_string);
 
-      if (actualOldString === undefined) {
+      if (!replaceAll) {
+        let count = 0;
+        let pos = 0;
+        while (pos < content.length) {
+          const idx = content.indexOf(args.old_string, pos);
+          if (idx === -1) break;
+          count++;
+          pos = idx + args.old_string.length;
+        }
+
+        if (count === 0) {
+          return { isError: true, output: `old_string not found in ${args.path}, the file contents may be out of date. Please use the Read Tool to reload the content.
+` };
+        }
+        if (count > 1) {
+          return {
+            isError: true,
+            output:
+              `old_string is not unique in ${args.path} (found ${String(count)} occurrences). ` +
+              'To replace every occurrence, set replace_all=true. To replace only one occurrence, include more surrounding context in old_string.',
+          };
+        }
+
+        const newContent = replaceOnceLiteral(content, args.old_string, args.new_string);
+        await this.kaos.writeText(
+          safePath,
+          materializeModelText(newContent, modelView.lineEndingStyle),
+        );
+        return { output: `Replaced 1 occurrence in ${args.path}` };
+      }
+
+      const parts = content.split(args.old_string);
+      const replacementCount = parts.length - 1;
+      if (replacementCount === 0) {
         return { isError: true, output: `old_string not found in ${args.path}, the file contents may be out of date. Please use the Read Tool to reload the content.
 ` };
       }
 
-      const replacementCount = content.split(actualOldString).length - 1;
-      if (!replaceAll && replacementCount > 1) {
-        return {
-          isError: true,
-          output:
-            `old_string is not unique in ${args.path} (found ${String(replacementCount)} occurrences). ` +
-            'To replace every occurrence, set replace_all=true. To replace only one occurrence, include more surrounding context in old_string.',
-        };
-      }
-
-      const actualNewString = preserveQuoteStyle(
-        args.old_string,
-        actualOldString,
-        args.new_string,
-      );
-      const stringToReplace =
-        actualNewString === '' &&
-        !actualOldString.endsWith('\n') &&
-        content.includes(`${actualOldString}\n`)
-          ? `${actualOldString}\n`
-          : actualOldString;
-      const newContent = replaceAll
-        ? content.split(stringToReplace).join(actualNewString)
-        : replaceOnceLiteral(content, stringToReplace, actualNewString);
-
-      await this.beforeWrite?.(safePath);
+      const newContent = parts.join(args.new_string);
       await this.kaos.writeText(
         safePath,
         materializeModelText(newContent, modelView.lineEndingStyle),
       );
-      if (this.readState !== undefined) {
-        try {
-          this.readState.set(safePath, {
-            mtime: (await this.kaos.stat(safePath)).stMtime,
-            range: 'edited',
-            isPartialView: false,
-          });
-        } catch {
-          this.readState.delete(safePath);
-        }
-      }
-      return {
-        output: `Replaced ${String(replaceAll ? replacementCount : 1)} occurrence${
-          replaceAll && replacementCount !== 1 ? 's' : ''
-        } in ${args.path}`,
-      };
+      return { output: `Replaced ${String(replacementCount)} occurrences in ${args.path}` };
     } catch (error) {
       const code = (error as { code?: unknown } | null)?.code;
       if (code === 'EISDIR') {

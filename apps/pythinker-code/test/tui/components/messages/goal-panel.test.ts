@@ -1,4 +1,4 @@
-import { visibleWidth } from '@earendil-works/pi-tui';
+import { visibleWidth } from '@pymodel/pi-tui';
 import chalk from 'chalk';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -167,7 +167,7 @@ describe('GoalStatusMessageComponent', () => {
   });
 
   it('keeps the status box within narrow widths', () => {
-    const rendered = new GoalStatusMessageComponent(goal({ objective: 'Manage the Lark calendar skill description '.repeat(4).trim() }));
+    const rendered = new GoalStatusMessageComponent(goal({ objective: '\u7BA1\u7406\u98DE\u4E66\u65E5\u5386\u7684\u6280\u80FD\u63CF\u8FF0 '.repeat(4).trim() }));
 
     for (const width of [39, 24, 20, 10]) {
       for (const line of rendered.render(width)) {

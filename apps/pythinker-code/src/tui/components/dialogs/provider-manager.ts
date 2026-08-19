@@ -42,16 +42,10 @@ import {
   truncateToWidth,
   visibleWidth,
   type Focusable,
-} from '@earendil-works/pi-tui';
+} from '@pymodel/pi-tui';
 
-import { combinedBindingHint, formatBindingKeys } from '#/tui/components/dialogs/choice-picker';
+import { DEFAULT_OAUTH_PROVIDER_NAME } from '#/constant/app';
 import { CURRENT_MARK, SELECT_POINTER } from '#/tui/constant/symbols';
-import {
-  defaultKeybindings,
-  keybindingDisplayText,
-  KeybindingResolver,
-  type ParsedKeybinding,
-} from '#/tui/keybindings';
 import { currentTheme } from '#/tui/theme';
 import { printableChar } from '#/tui/utils/printable-key';
 import { pageView, type PageView } from '#/tui/utils/paging';
@@ -97,6 +91,7 @@ type Row = SourceRow | AddRow;
 
 const ADD_ROW_LABEL = '[ Add New Platform ]';
 const PAGE_SIZE = 8;
+const HEADER_HINT = '↑↓ navigate · D delete · Esc cancel';
 
 // Narrows a `ProviderConfig` blob to a `CustomRegistrySource` payload.
 // Mirrors `readCustomRegistrySource` in `pythinker-tui.ts`. We can't import
@@ -149,6 +144,8 @@ function buildRows(opts: ProviderManagerOptions): readonly Row[] {
   const customRegistryIndex = new Map<string, number>();
 
   for (const [id, cfg] of Object.entries(opts.providers)) {
+    if (id === DEFAULT_OAUTH_PROVIDER_NAME) continue;
+
     const isActive = id === opts.activeProviderId;
 
     if (isOpenPlatformId(id)) {
@@ -217,8 +214,6 @@ export class ProviderManagerComponent extends Container implements Focusable {
   private rows: readonly Row[];
   private selectedIndex: number;
   private confirm: ConfirmState | undefined;
-  private bindings = defaultKeybindings();
-  private keybindings = new KeybindingResolver(this.bindings);
 
   constructor(opts: ProviderManagerOptions) {
     super();
@@ -231,11 +226,6 @@ export class ProviderManagerComponent extends Container implements Focusable {
       : -1;
     this.selectedIndex = Math.max(activeIdx, 0);
     this.confirm = undefined;
-  }
-
-  setKeybindings(bindings: readonly ParsedKeybinding[]): void {
-    this.bindings = bindings;
-    this.keybindings = new KeybindingResolver(bindings);
   }
 
   /**
@@ -281,25 +271,25 @@ export class ProviderManagerComponent extends Container implements Focusable {
       return;
     }
 
+    if (matchesKey(data, Key.escape)) {
+      this.opts.onClose();
+      return;
+    }
+
     const rows = this.rows;
-    const handlers = {
-      'select:previous': () => {
-        if (rows.length > 0) this.selectedIndex = Math.max(0, this.selectedIndex - 1);
-        this.invalidate();
-      },
-      'select:next': () => {
-        if (rows.length > 0) this.selectedIndex = Math.min(rows.length - 1, this.selectedIndex + 1);
-        this.invalidate();
-      },
-      'select:accept': () => {
-        if (rows[this.selectedIndex]?.kind === 'add') this.opts.onAdd();
-      },
-      'select:cancel': () => this.opts.onClose(),
-    } as const;
-    if (
-      this.keybindings.dispatch(data, ['Select'], handlers) ||
-      this.keybindings.dispatchKeyId(data, ['Select'], handlers)
-    ) return;
+
+    if (matchesKey(data, Key.up)) {
+      if (rows.length === 0) return;
+      this.selectedIndex = Math.max(0, this.selectedIndex - 1);
+      this.invalidate();
+      return;
+    }
+    if (matchesKey(data, Key.down)) {
+      if (rows.length === 0) return;
+      this.selectedIndex = Math.min(rows.length - 1, this.selectedIndex + 1);
+      this.invalidate();
+      return;
+    }
 
     if (matchesKey(data, Key.left) || matchesKey(data, Key.pageUp)) {
       if (rows.length === 0) return;
@@ -311,6 +301,14 @@ export class ProviderManagerComponent extends Container implements Focusable {
       if (rows.length === 0) return;
       this.selectedIndex = Math.min(rows.length - 1, this.selectedIndex + PAGE_SIZE);
       this.invalidate();
+      return;
+    }
+
+    if (matchesKey(data, Key.enter)) {
+      const selected = rows[this.selectedIndex];
+      if (selected?.kind === 'add') {
+        this.opts.onAdd();
+      }
       return;
     }
 
@@ -361,7 +359,10 @@ export class ProviderManagerComponent extends Container implements Focusable {
     // top border, the title, the keymap hint, then a blank line. No inner
     // border under the title.
     const border = currentTheme.fg('primary', '─'.repeat(width));
-    lines.push(border, currentTheme.boldFg('primary', ' Providers'), currentTheme.fg('textMuted', ' ' + this.headerHint()), '');
+    lines.push(border);
+    lines.push(currentTheme.boldFg('primary', ' Providers'));
+    lines.push(currentTheme.fg('textMuted', ' ' + HEADER_HINT));
+    lines.push('');
 
     const rows = this.rows;
     if (rows.length === 0) {
@@ -402,20 +403,6 @@ export class ProviderManagerComponent extends Container implements Focusable {
     const prompt = confirm?.label ?? '';
     const styled = currentTheme.boldFg('warning', `  ${prompt} [y/N]`);
     return truncateToWidth(styled, width, '…');
-  }
-
-  private headerHint(): string {
-    const navigation = combinedBindingHint(
-      keybindingDisplayText(this.bindings, 'Select', 'select:previous'),
-      keybindingDisplayText(this.bindings, 'Select', 'select:next'),
-      'navigate',
-    );
-    const cancel = keybindingDisplayText(this.bindings, 'Select', 'select:cancel');
-    return [
-      navigation,
-      'D delete',
-      cancel === undefined ? undefined : `${formatBindingKeys(cancel)} cancel`,
-    ].filter((hint): hint is string => hint !== undefined).join(' · ');
   }
 }
 

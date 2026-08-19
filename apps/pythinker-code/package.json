@@ -1,9 +1,9 @@
 {
   "name": "@pymodel/pythinker-code",
-  "version": "0.21.2",
+  "version": "0.36.1",
   "description": "The Starting Point for Next-Gen Agents",
   "license": "MIT",
-  "author": "Pythoughts",
+  "author": "PyModel",
   "homepage": "https://github.com/PyModel/pythinker-code/tree/main/apps/pythinker-code#readme",
   "repository": {
     "type": "git",
@@ -23,11 +23,12 @@
     "tui"
   ],
   "bin": {
-    "pythinker": "dist/launcher.mjs"
+    "pythinker": "dist/main.mjs"
   },
   "files": [
     "dist",
     "dist-web",
+    "native",
     "scripts/postinstall.mjs",
     "scripts/postinstall",
     "README.md"
@@ -35,24 +36,24 @@
   "type": "module",
   "imports": {
     "#/tui/theme": "./src/tui/theme/index.ts",
-    "#/cli/sub/server": "./src/cli/sub/server/index.ts",
-    "#/cli/sub/server/*": "./src/cli/sub/server/*.ts",
-    "#/*": [
-      "./src/*.ts",
-      "./src/*/index.ts",
-      "./src/*.d.ts"
-    ]
+    "#/tui/commands": "./src/tui/commands/index.ts",
+    "#/cli/sub/web": "./src/cli/sub/web/index.ts",
+    "#/cli/sub/web/*": "./src/cli/sub/web/*.ts",
+    "#/generated/vis-web-asset": [
+      "./src/generated/vis-web-asset.ts",
+      "./src/generated/vis-web-asset.d.ts"
+    ],
+    "#/*": "./src/*.ts"
   },
   "publishConfig": {
     "access": "public",
     "provenance": true
   },
   "scripts": {
-    "build": "pnpm -C ../pythinker-web run build && tsdown && node scripts/copy-web-assets.mjs",
-    "prebuild": "node scripts/build-dashboard-asset.mjs",
+    "build": "pnpm -C ../pythinker-web run build && tsdown && tsdown --config tsdown.dist-worker.config.ts && node scripts/copy-native-assets.mjs && node scripts/copy-web-assets.mjs",
+    "prebuild": "node scripts/build-vis-asset.mjs",
     "catalog:update": "node scripts/update-catalog.mjs --out dist/built-in-catalog.json",
     "smoke": "node scripts/smoke.mjs",
-    "test:opentui": "NODE_OPTIONS=--experimental-ffi vitest run test/tui/runtime/opentui-jsx-smoke.test.tsx test/tui/runtime/scrollback-round-trip.test.tsx test/scripts/dev-vite-runtime.test.ts test/tui/runtime/dialog-list-view.test.tsx test/tui/runtime/opentui-reactivity.test.tsx",
     "build:native:js": "node scripts/native/01-bundle.mjs",
     "build:native:sea": "node scripts/native/build.mjs --profile=local",
     "build:native:release": "node scripts/native/build.mjs --profile=release",
@@ -61,12 +62,14 @@
     "release:native:resolve": "node scripts/native/resolve-release.mjs",
     "test:native:smoke": "node scripts/native/smoke.mjs",
     "dev": "node scripts/dev.mjs",
-    "dev:cli-only": "node --experimental-ffi --import ../../build/register-raw-text-loader.mjs scripts/dev-vite-runtime.mjs",
-    "dev:server": "node --experimental-ffi --import ../../build/register-raw-text-loader.mjs scripts/dev-vite-runtime.mjs server run --foreground",
+    "dev:cli-only": "tsx --import ../../build/register-raw-text-loader.mjs ./src/main.ts",
+    "dev:server": "PYTHINKER_CODE_DEV_SERVER=1 tsx --tsconfig ./tsconfig.dev.json --import ../../build/register-raw-text-loader.mjs ./src/main.ts web --no-open --debug-endpoints",
+    "dev:kap-server": "PYTHINKER_CODE_DEV_SERVER=1 tsx --tsconfig ./tsconfig.dev.json --import ../../build/register-raw-text-loader.mjs ./src/main.ts web --no-open --debug-endpoints",
+    "dev:kap-server:multi": "PYTHINKER_CODE_DEV_SERVER=1 tsx --tsconfig ./tsconfig.dev.json --import ../../build/register-raw-text-loader.mjs ./src/main.ts web --no-open --debug-endpoints",
     "dev:server:restart": "node scripts/dev-server-restart.mjs",
     "dev:plugin-marketplace": "node scripts/dev-plugin-marketplace-server.mjs",
     "build:plugin-marketplace": "node scripts/build-plugin-marketplace-cdn.mjs",
-    "dev:prod": "node dist/launcher.mjs",
+    "dev:prod": "node dist/main.mjs",
     "clean": "rm -rf dist",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "pnpm -w run build:packages && vitest run",
@@ -76,53 +79,36 @@
   },
   "optionalDependencies": {
     "@mariozechner/clipboard": "^0.3.9",
-    "chalk": "^5.6.2",
-    "cli-highlight": "^2.1.11",
-    "commander": "^13.1.0",
-    "koffi": "^2.16.3",
-    "node-pty": "^1.1.0",
-    "pathe": "^2.0.3",
-    "pino-pretty": "^13.1.3",
-    "semver": "^7.8.5",
-    "smol-toml": "^1.7.1",
-    "zod": "^4.4.3"
-  },
-  "dependencies": {
-    "@clack/prompts": "1.7.0",
-    "@opentui/core": "0.4.3",
-    "@opentui/keymap": "0.4.3",
-    "@opentui/solid": "0.4.3",
-    "solid-js": "1.9.12",
-    "web-tree-sitter": "0.25.10"
+    "node-pty": "^1.1.0"
   },
   "devDependencies": {
-    "@earendil-works/pi-tui": "^0.83.0",
     "@pymodel/acp-adapter": "workspace:^",
-    "@pymodel/dashboard-server": "workspace:^",
-    "@pymodel/dashboard-web": "workspace:*",
+    "@pymodel/acp-server": "workspace:^",
+    "@pymodel/agent-core-v2": "workspace:^",
+    "@pymodel/kap-server": "workspace:^",
+    "@pymodel/migration-legacy": "workspace:^",
+    "@pymodel/minidb": "workspace:^",
+    "@pymodel/pi-tui": "workspace:^",
     "@pymodel/pythinker-code-oauth": "workspace:^",
     "@pymodel/pythinker-code-sdk": "workspace:^",
     "@pymodel/pythinker-telemetry": "workspace:^",
-    "@pymodel/pythinker-web": "workspace:^",
-    "@pymodel/server": "workspace:^",
-    "@types/node": "^26.1.2",
-    "@types/semver": "^7.8.0",
+    "@pymodel/vis-server": "workspace:^",
+    "@pymodel/vis-web": "workspace:*",
+    "@types/semver": "^7.7.0",
     "@types/yazl": "^2.4.6",
-    "@xterm/headless": "6.0.0",
     "chalk": "^5.4.1",
     "cli-highlight": "^2.1.11",
     "commander": "^13.1.0",
+    "jimp": "^1.6.1",
     "pathe": "^2.0.3",
     "postject": "1.0.0-alpha.6",
     "semver": "^7.7.4",
-    "smol-toml": "^1.7.1",
+    "smol-toml": "^1.6.1",
     "tsx": "^4.23.5",
-    "unplugin-solid": "1.0.0",
-    "vite": "^6.4.3",
     "yazl": "^3.3.1",
-    "zod": "^4.4.3"
+    "zod": "^4.3.6"
   },
   "engines": {
-    "node": ">=26.4.0"
+    "node": ">=22.19.0"
   }
 }

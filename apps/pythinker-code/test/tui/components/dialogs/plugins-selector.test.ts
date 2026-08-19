@@ -1,30 +1,22 @@
-import { visibleWidth } from '@earendil-works/pi-tui';
-import type { PluginSummary } from '@pymodel/pythinker-code-sdk';
 import { describe, expect, it, vi } from 'vitest';
 import chalk from 'chalk';
+import type { CapabilityStatus, PluginSummary } from '@pymodel/pythinker-code-sdk';
 
 import {
+  PluginInstallTrustConfirmComponent,
   PluginMcpSelectorComponent,
-  PluginMarketplaceSelectorComponent,
   PluginRemoveConfirmComponent,
-  PluginsOverviewSelectorComponent,
+  PluginsPanelComponent,
+  type PluginInstallTrustConfirmResult,
   type PluginMcpSelection,
   type PluginRemoveConfirmResult,
+  type PluginsPanelSelection,
 } from '#/tui/components/dialogs/plugins-selector';
-import { ChoicePickerComponent } from '#/tui/components/dialogs/choice-picker';
-import { defaultKeybindings, parseKeybindingBlocks } from '#/tui/keybindings';
-import { darkColors } from '#/tui/theme/colors';
-import { pluginTrustLabel } from '#/tui/utils/plugin-source-label';
-import type {
-  PluginMarketplace,
-  PluginMarketplaceEntry,
-} from '#/utils/plugin-marketplace';
+import { currentTheme } from '#/tui/theme';
+import { darkColors, lightColors } from '#/tui/theme/colors';
+import { isOfficialPluginInstall, isOfficialPluginSource, pluginTrustLabel } from '#/tui/utils/plugin-source-label';
 
-const ANSI_SGR = /\[[0-9;]*m/g;
-const MID = '\u00B7';
-const ESC = String.fromCodePoint(27);
-const RIGHT = `${ESC}[C`;
-const LEFT = `${ESC}[D`;
+const ANSI_SGR = /\u001B\[[0-9;]*m/g;
 
 function strip(text: string): string {
   return text.replaceAll(ANSI_SGR, '').replaceAll('\u276F', '?');
@@ -48,47 +40,84 @@ function dangerShortcut(text: string): string {
   return withAnsiColors(() => chalk.hex(darkColors.error).bold(text));
 }
 
-function marketplace(
-  plugins: readonly PluginMarketplaceEntry[],
-): PluginMarketplace {
-  return {
-    format: 'pythinker',
-    source: '/tmp/marketplace.json',
-    sourceLabel: '/tmp/marketplace.json',
-    name: 'Example marketplace',
-    plugins,
-  };
+function warningMark(): string {
+  // Opening ANSI escape for the warning color; the install-trust notice is the
+  // only element in that dialog using it, so its presence confirms the tone.
+  return withAnsiColors(() => chalk.hex(darkColors.warning)('\u0001').split('\u0001')[0]!);
 }
 
-function marketplaceEntry(
-  overrides: Partial<PluginMarketplaceEntry> = {},
-): PluginMarketplaceEntry {
-  const source = 'https://example.com/example.zip';
+const superpowers = {
+  id: 'superpowers',
+  displayName: 'Superpowers',
+  version: '5.1.0',
+  enabled: true,
+  state: 'ok' as const,
+  skillCount: 14,
+  mcpServerCount: 0,
+  enabledMcpServerCount: 0,
+  hookCount: 0,
+  commandCount: 0,
+  hasErrors: false,
+  source: 'local-path' as const,
+};
+
+const officialEntries = [
+  {
+    id: 'pythinker-datasource',
+    tier: 'official' as const,
+    displayName: 'Pythinker Datasource',
+    description: 'Query supported data sources',
+    version: '3.1.1',
+    source: 'https://x/d.zip',
+    keywords: ['data'],
+  },
+];
+const thirdPartyEntries = [
+  { id: 'superpowers', tier: 'curated' as const, displayName: 'Superpowers', source: 'https://x/s.zip' },
+];
+const marketplaceEntries = [...officialEntries, ...thirdPartyEntries];
+
+function makePanel(opts: {
+  installed?: readonly PluginSummary[];
+  capabilities?: readonly CapabilityStatus[];
+  catalogIsDefault?: boolean;
+  initialTab?: 'installed' | 'official' | 'third-party' | 'custom';
+  selectedId?: string;
+  pluginHint?: { id: string; text: string };
+}) {
+  const installed = opts.installed ?? [];
+  const onSelect = vi.fn<(s: PluginsPanelSelection) => void>();
+  const onRequestMarketplace = vi.fn();
+  const panel = new PluginsPanelComponent({
+    installed,
+    installedIds: new Set(installed.map((p) => p.id)),
+    capabilities: opts.capabilities,
+    catalogIsDefault: opts.catalogIsDefault,
+    initialTab: opts.initialTab,
+    selectedId: opts.selectedId,
+    pluginHint: opts.pluginHint,
+    onSelect,
+    onCancel: vi.fn(),
+    onRequestMarketplace,
+  });
+  return { panel, onSelect, onRequestMarketplace };
+}
+
+function makeCapability(overrides: Partial<CapabilityStatus> = {}): CapabilityStatus {
   return {
-    id: 'example',
-    displayName: 'Example',
-    source,
-    sourceLabel: source,
-    marketplaceName: 'Example marketplace',
-    supportedComponents: ['skills'],
-    unsupportedComponents: [],
-    install: { kind: 'supported', source, options: {} },
+    id: 'pythinker-cu',
+    displayName: 'Pythinker Computer Use',
+    description: 'Background GUI automation',
+    supported: true,
+    state: 'partial',
+    steps: [
+      { id: 'plugin', state: 'ok' },
+      { id: 'app', state: 'ok' },
+      { id: 'service', state: 'ok' },
+      { id: 'permissions', state: 'missing', detail: 'screenRecording' },
+    ],
+    install: { running: false },
     ...overrides,
-  };
-}
-
-function pluginSummary(id: string, version?: string): PluginSummary {
-  return {
-    id,
-    displayName: id,
-    version,
-    enabled: true,
-    state: 'ok',
-    skillCount: 0,
-    mcpServerCount: 0,
-    enabledMcpServerCount: 0,
-    hasErrors: false,
-    source: 'local-path',
   };
 }
 
@@ -102,9 +131,11 @@ describe('plugins selector dialogs', () => {
       skillCount: 0,
       mcpServerCount: 0,
       enabledMcpServerCount: 0,
+      hookCount: 0,
+      commandCount: 0,
       hasErrors: false,
       source: 'zip-url',
-      originalSource: 'https://code.pythinker.com/pythinker-code/plugins/official/pythinker-datasource.zip',
+      originalSource: 'https://code.kimi.com/pythinker-code/plugins/official/pythinker-datasource.zip',
     })).toBe('official');
     expect(pluginTrustLabel({
       id: 'superpowers',
@@ -114,10 +145,26 @@ describe('plugins selector dialogs', () => {
       skillCount: 0,
       mcpServerCount: 0,
       enabledMcpServerCount: 0,
+      hookCount: 0,
+      commandCount: 0,
       hasErrors: false,
       source: 'zip-url',
-      originalSource: 'https://code.pythinker.com/pythinker-code/plugins/curated/superpowers.zip',
+      originalSource: 'https://code.kimi.com/pythinker-code/plugins/curated/superpowers.zip',
     })).toBe('curated');
+    expect(pluginTrustLabel({
+      id: 'pythinker-cu',
+      displayName: 'Pythinker Computer Use',
+      enabled: true,
+      state: 'ok',
+      skillCount: 1,
+      mcpServerCount: 1,
+      enabledMcpServerCount: 1,
+      hookCount: 0,
+      commandCount: 0,
+      hasErrors: false,
+      source: 'zip-url',
+      originalSource: 'https://cdn.kimi.com/pythinker-computer-use/latest/pythinker-cu-plugin.zip',
+    })).toBe('official');
     expect(pluginTrustLabel({
       id: 'demo',
       displayName: 'Demo',
@@ -126,9 +173,11 @@ describe('plugins selector dialogs', () => {
       skillCount: 0,
       mcpServerCount: 0,
       enabledMcpServerCount: 0,
+      hookCount: 0,
+      commandCount: 0,
       hasErrors: false,
       source: 'zip-url',
-      originalSource: 'https://code.pythinker.com/demo.zip',
+      originalSource: 'https://code.kimi.com/demo.zip',
     })).toBe('third-party');
     expect(pluginTrustLabel({
       id: 'local',
@@ -138,372 +187,695 @@ describe('plugins selector dialogs', () => {
       skillCount: 0,
       mcpServerCount: 0,
       enabledMcpServerCount: 0,
+      hookCount: 0,
+      commandCount: 0,
       hasErrors: false,
       source: 'local-path',
-      originalSource: 'https://code.pythinker.com/pythinker-code/plugins/official/local',
+      originalSource: 'https://code.kimi.com/pythinker-code/plugins/official/local',
     })).toBe('third-party');
   });
 
-  it('renders installed plugins as selectable overview entries', () => {
-    const onSelect = vi.fn();
-    const picker = new PluginsOverviewSelectorComponent({
-      plugins: [
-        {
-          id: 'pythinker-datasource',
-          displayName: 'Pythinker Datasource',
-          version: '1.0.0',
-          enabled: true,
-          state: 'ok',
-          skillCount: 2,
-          mcpServerCount: 1,
-          enabledMcpServerCount: 1,
-          hasErrors: false,
-          source: 'local-path',
-        },
-      ],
-      onSelect,
-      onCancel: vi.fn(),
-    });
-
-    const raw = renderRaw(picker);
-    const out = strip(raw);
-    expect(out).toContain('Installed plugins (1)');
-    expect(out).toContain('Actions');
-    expect(out).toContain('? Pythinker Datasource  enabled');
-    expect(out).toContain(`id pythinker-datasource ${MID} 2 skills ${MID} MCP 1/1`);
-    expect(out).not.toContain('Space disable');
-    expect(out).not.toContain('Enter info');
-    expect(out).toContain('Space toggle · M MCP servers · D remove · Enter details');
-    expect(out).toContain('Marketplace');
-    expect(out).toContain('Summary');
-
-    picker.handleInput('\r');
-    expect(onSelect).toHaveBeenCalledWith({ kind: 'info', id: 'pythinker-datasource' });
+  it('recognizes installed plugins by official provenance', () => {
+    const base = {
+      id: 'pythinker-datasource',
+      displayName: 'Pythinker Datasource',
+      enabled: true,
+      state: 'ok' as const,
+      skillCount: 0,
+      mcpServerCount: 0,
+      enabledMcpServerCount: 0,
+      hookCount: 0,
+      commandCount: 0,
+      hasErrors: false,
+    };
+    // Zip installs from the official CDN path.
+    expect(isOfficialPluginInstall({
+      ...base,
+      source: 'zip-url',
+      originalSource: 'https://code.kimi.com/pythinker-code/plugins/official/pythinker-datasource.zip',
+    })).toBe(true);
+    expect(isOfficialPluginInstall({
+      ...base,
+      id: 'pythinker-cu',
+      displayName: 'Pythinker Computer Use',
+      source: 'zip-url',
+      originalSource: 'https://cdn.kimi.com/pythinker-computer-use/latest/pythinker-cu-plugin.zip',
+    })).toBe(true);
+    // Same manifest id from a local path, GitHub, a loopback URL, or a
+    // third-party URL is not the official build.
+    expect(isOfficialPluginInstall({ ...base, source: 'local-path' })).toBe(false);
+    expect(isOfficialPluginInstall({ ...base, source: 'github' })).toBe(false);
+    expect(isOfficialPluginInstall({
+      ...base,
+      source: 'zip-url',
+      originalSource: 'http://127.0.0.1:58627/pythinker-code/plugins/official/pythinker-datasource.zip',
+    })).toBe(false);
+    expect(isOfficialPluginInstall({
+      ...base,
+      source: 'zip-url',
+      originalSource: 'https://example.test/pythinker-code/plugins/official/pythinker-datasource.zip',
+    })).toBe(false);
   });
 
-  it('ignores Left/Right arrows in the overview (no enter/exit by arrow)', () => {
-    const onSelect = vi.fn();
-    const onCancel = vi.fn();
-    const picker = new PluginsOverviewSelectorComponent({
-      plugins: [
-        {
-          id: 'pythinker-datasource',
-          displayName: 'Pythinker Datasource',
-          version: '1.0.0',
-          enabled: true,
-          state: 'ok',
-          skillCount: 2,
-          mcpServerCount: 1,
-          enabledMcpServerCount: 1,
-          hasErrors: false,
-          source: 'local-path',
-        },
-      ],
-      onSelect,
-      onCancel,
-    });
+  it('shows installed Pythinker Computer Use and WebBridge plugins as official', () => {
+    const installed: PluginSummary[] = [
+      {
+        ...superpowers,
+        id: 'pythinker-cu',
+        displayName: 'Pythinker Computer Use',
+        source: 'zip-url',
+        originalSource: 'https://cdn.kimi.com/pythinker-computer-use/latest/pythinker-cu-plugin.zip',
+      },
+      {
+        ...superpowers,
+        id: 'pythinker-webbridge',
+        displayName: 'Pythinker WebBridge',
+        source: 'zip-url',
+        originalSource: 'https://code.kimi.com/pythinker-code/plugins/official/pythinker-webbridge.zip',
+      },
+    ];
 
-    picker.handleInput(RIGHT); // must NOT open details
-    expect(onSelect).not.toHaveBeenCalled();
-    picker.handleInput(LEFT); // must NOT cancel/exit
-    expect(onCancel).not.toHaveBeenCalled();
+    const { panel } = makePanel({ installed });
+    const out = strip(renderRaw(panel));
+
+    expect(out).toContain('id pythinker-cu');
+    expect(out).toContain('via cdn.kimi.com · official');
+    expect(out).toContain('id pythinker-webbridge');
+    expect(out).toContain('via code.kimi.com · official');
   });
 
-  it('renders a searchable marketplace list with persistent bounded details', () => {
-    const onSelect = vi.fn();
-    const entry = marketplaceEntry({
-      id: 'superpowers',
-      displayName: 'Superpowers',
-      version: '5.1.0',
-      description: 'Workflow skills for planning and review.',
-      author: { name: 'Example Author' },
-      category: 'productivity',
-      supportedComponents: ['skills', 'mcpServers'],
-      unsupportedComponents: ['hooks'],
-    });
-    const picker = new PluginMarketplaceSelectorComponent({
-      marketplace: marketplace([entry]),
-      installed: new Map(),
-      onSelect,
-      onCancel: vi.fn(),
-    });
+  it('treats only the official Pythinker CDN path as a trusted install source', () => {
+    expect(isOfficialPluginSource('https://code.kimi.com/pythinker-code/plugins/official/pythinker-datasource.zip')).toBe(true);
+    expect(isOfficialPluginSource('https://cdn.kimi.com/pythinker-computer-use/latest/pythinker-cu-plugin.zip')).toBe(true);
+    expect(
+      isOfficialPluginSource(
+        'https://cdn.kimi.com/pythinker-computer-use-windows/latest/pythinker-cu-win-plugin.zip',
+      ),
+    ).toBe(true);
+    // Curated and other Pythinker CDN paths are not "official" for the install gate.
+    expect(isOfficialPluginSource('https://code.kimi.com/pythinker-code/plugins/curated/superpowers.zip')).toBe(false);
+    expect(isOfficialPluginSource('https://code.kimi.com/pythinker-code/plugins/foo.zip')).toBe(false);
+    expect(isOfficialPluginSource('https://cdn.kimi.com/unrelated/plugin.zip')).toBe(false);
+    // Non-Pythinker hosts (loopback included), non-https schemes, local paths, and
+    // GitHub sources are unofficial.
+    expect(isOfficialPluginSource('https://example.test/pythinker-code/plugins/official/x.zip')).toBe(false);
+    expect(isOfficialPluginSource('http://code.kimi.com/pythinker-code/plugins/official/x.zip')).toBe(false);
+    expect(isOfficialPluginSource('http://127.0.0.1:58627/pythinker-code/plugins/official/x.zip')).toBe(false);
+    expect(isOfficialPluginSource('./plugins/pythinker-datasource')).toBe(false);
+    expect(isOfficialPluginSource('/abs/path/to/plugin')).toBe(false);
+    expect(isOfficialPluginSource('github.com/owner/repo')).toBe(false);
+    expect(isOfficialPluginSource('not a url')).toBe(false);
+  });
 
-    const lines = picker.render(80).map(strip);
-    const out = lines.join('\n');
-    expect(out).toContain('Example marketplace (1)  (type to search)');
-    expect(out).toContain('? Superpowers  install · v5.1.0');
-    expect(out).toContain('Details · Superpowers');
-    expect(out).toContain(`id superpowers ${MID} author Example Author ${MID} category productivity`);
-    expect(out).toContain('Pythinker trust third-party');
-    expect(out).toContain('Supported: skills, MCP');
-    expect(out).toContain('not run: hooks');
-    expect(out).not.toContain('Actions');
-    expect(out).not.toContain('Back to installed plugins');
-    expect(lines.filter((line) => /^─+$/.test(line))).toHaveLength(2);
-    expect(lines.every((line) => visibleWidth(line) <= 80)).toBe(true);
+  it('opens on the Installed tab with the four panel tabs', () => {
+    const { panel } = makePanel({ installed: [superpowers] });
+    const out = strip(renderRaw(panel));
+    expect(out).toContain('Plugins');
+    expect(out).toContain('Installed');
+    expect(out).toContain('Official');
+    expect(out).toContain('Curated');
+    expect(out).toContain('Custom');
+    expect(out).toContain('? Superpowers  enabled');
+    expect(out).toContain('Space toggle');
+    expect(out).toContain('1 installed');
+  });
 
-    picker.handleInput('\r');
+  it('repaints from the current theme palette without remounting', () => {
+    const { panel } = makePanel({ installed: [superpowers] });
+    const previous = currentTheme.palette;
+    try {
+      currentTheme.setPalette(darkColors);
+      const darkOut = renderRaw(panel);
+      currentTheme.setPalette(lightColors);
+      const lightOut = renderRaw(panel);
+      // A palette snapshot cached at construction would render identically
+      // after the switch; reading currentTheme.palette at render time must
+      // produce different ANSI output for the same panel instance.
+      expect(darkOut).not.toBe(lightOut);
+    } finally {
+      currentTheme.setPalette(previous);
+    }
+  });
+
+  it('toggles an installed plugin with Space', () => {
+    const { panel, onSelect } = makePanel({ installed: [superpowers] });
+    panel.handleInput(' ');
+    expect(onSelect).toHaveBeenCalledWith({ kind: 'toggle', id: 'superpowers', enabled: false });
+  });
+
+  it('routes D / M / R / Enter to remove / mcp / reload / details on the Installed tab', () => {
+    const { panel, onSelect } = makePanel({ installed: [superpowers] });
+    panel.handleInput('d');
+    panel.handleInput('m');
+    panel.handleInput('r');
+    panel.handleInput('\r');
+    expect(onSelect).toHaveBeenCalledWith({ kind: 'remove', id: 'superpowers' });
+    expect(onSelect).toHaveBeenCalledWith({ kind: 'mcp', id: 'superpowers' });
+    expect(onSelect).toHaveBeenCalledWith({ kind: 'reload' });
+    expect(onSelect).toHaveBeenCalledWith({ kind: 'details', id: 'superpowers' });
+  });
+
+  it('Enter on an installed plugin with an available update installs it', () => {
+    const installed = [{ ...superpowers, id: 'superpowers', version: '4.0.0' }];
+    const entries = [
+      {
+        id: 'superpowers',
+        tier: 'curated' as const,
+        displayName: 'Superpowers',
+        version: '5.0.0',
+        source: 'https://x/s.zip',
+      },
+    ];
+    const { panel, onSelect } = makePanel({ installed });
+    panel.setMarketplace(entries, '/tmp/marketplace.json');
+    panel.handleInput('\r');
     expect(onSelect).toHaveBeenCalledWith({
       kind: 'install',
       entry: expect.objectContaining({ id: 'superpowers' }),
     });
   });
 
-  it('treats printable i and Space as search and uses two-stage Escape', () => {
-    const onSelect = vi.fn();
-    const onCancel = vi.fn();
-    const picker = new PluginMarketplaceSelectorComponent({
-      marketplace: marketplace([
-        marketplaceEntry({ id: 'initial-tools', displayName: 'Initial Tools' }),
-        marketplaceEntry({ id: 'review', displayName: 'Review' }),
-      ]),
-      installed: new Map(),
-      onSelect,
-      onCancel,
-    });
-
-    picker.handleInput(`${ESC}[105u`);
-    picker.handleInput(`${ESC}[32u`);
-    for (const character of 'tools') picker.handleInput(character);
-
-    const searched = strip(picker.render(80).join('\n'));
-    expect(searched).toContain('Search: i tools');
-    expect(searched).toContain('? Initial Tools');
-    expect(searched).not.toContain('Review');
-    expect(onSelect).not.toHaveBeenCalled();
-
-    picker.handleInput(ESC);
-    expect(onCancel).not.toHaveBeenCalled();
-    expect(strip(picker.render(80).join('\n'))).not.toContain('Search:');
-    picker.handleInput(ESC);
-    expect(onCancel).toHaveBeenCalledOnce();
+  it('Enter on an up-to-date installed plugin opens details', () => {
+    const installed = [{ ...superpowers, id: 'superpowers', version: '5.0.0' }];
+    const entries = [
+      {
+        id: 'superpowers',
+        tier: 'curated' as const,
+        displayName: 'Superpowers',
+        version: '5.0.0',
+        source: 'https://x/s.zip',
+      },
+    ];
+    const { panel, onSelect } = makePanel({ installed });
+    panel.setMarketplace(entries, '/tmp/marketplace.json');
+    panel.handleInput('\r');
+    expect(onSelect).toHaveBeenCalledWith({ kind: 'details', id: 'superpowers' });
   });
 
-  it('pages a large catalog without rendering every entry', () => {
-    const entries = Array.from({ length: 10 }, (_, index) =>
-      marketplaceEntry({ id: `plugin-${index}`, displayName: `Plugin ${index}` }),
-    );
-    const picker = new PluginMarketplaceSelectorComponent({
-      marketplace: marketplace(entries),
-      installed: new Map(),
-      onSelect: vi.fn(),
-      onCancel: vi.fn(),
-    });
-
-    const firstPage = strip(picker.render(80).join('\n'));
-    expect(firstPage).toContain('Plugin 0');
-    expect(firstPage).toContain('Plugin 3');
-    expect(firstPage).not.toContain('Plugin 4');
-    expect(firstPage).toContain('▼ 6 more');
-
-    picker.handleInput(`${ESC}[6~`);
-    const secondPage = strip(picker.render(80).join('\n'));
-    expect(secondPage).toContain('? Plugin 4');
-    expect(secondPage).not.toContain('Plugin 0');
+  it('I on an installed plugin opens details even when an update is available', () => {
+    const installed = [{ ...superpowers, id: 'superpowers', version: '4.0.0' }];
+    const entries = [
+      {
+        id: 'superpowers',
+        tier: 'curated' as const,
+        displayName: 'Superpowers',
+        version: '5.0.0',
+        source: 'https://x/s.zip',
+      },
+    ];
+    const { panel, onSelect } = makePanel({ installed });
+    panel.setMarketplace(entries, '/tmp/marketplace.json');
+    panel.handleInput('i');
+    expect(onSelect).toHaveBeenCalledWith({ kind: 'details', id: 'superpowers' });
   });
 
-  it('shows installed and update states from full plugin summaries', () => {
-    const update = marketplaceEntry({ id: 'update', displayName: 'Update', version: '2.0.0' });
-    const current = marketplaceEntry({ id: 'current', displayName: 'Current', version: '1.0.0' });
-    const picker = new PluginMarketplaceSelectorComponent({
-      marketplace: marketplace([update, current]),
-      installed: new Map([
-        ['update', pluginSummary('update', '1.0.0')],
-        ['current', pluginSummary('current', '1.0.0')],
-      ]),
-      onSelect: vi.fn(),
-      onCancel: vi.fn(),
+  it('renders the inline plugin hint on the installed row', () => {
+    const datasource = { ...superpowers, id: 'pythinker-datasource', displayName: 'Pythinker Datasource', skillCount: 1 };
+    const { panel } = makePanel({
+      installed: [datasource],
+      selectedId: 'pythinker-datasource',
+      pluginHint: { id: 'pythinker-datasource', text: 'pending /new' },
     });
-
-    const out = strip(picker.render(80).join('\n'));
-    expect(out).toContain('Update  update 1.0.0 → 2.0.0');
-    expect(out).toContain(`Current  installed ${MID} v1.0.0`);
+    const out = strip(renderRaw(panel));
+    expect(out).toContain('? Pythinker Datasource  enabled  pending /new');
   });
 
-  it('reports unavailable entries without invoking install and locks duplicate submits', () => {
-    const unavailableSelect = vi.fn();
-    const unavailable = marketplaceEntry({
-      id: 'npm-plugin',
-      displayName: 'NPM Plugin',
-      install: { kind: 'unsupported', reason: 'npm plugin sources are not supported.' },
-    });
-    const unavailablePicker = new PluginMarketplaceSelectorComponent({
-      marketplace: marketplace([unavailable]),
-      installed: new Map(),
-      onSelect: unavailableSelect,
-      onCancel: vi.fn(),
-    });
+  it('lazily loads the Official catalog, then lists installed entries first', () => {
+    const { panel, onRequestMarketplace } = makePanel({ installed: [superpowers] });
+    panel.handleInput('\t'); // → Official
+    expect(onRequestMarketplace).toHaveBeenCalledTimes(1);
+    expect(strip(renderRaw(panel))).toContain('Loading marketplace');
 
-    expect(strip(unavailablePicker.render(80).join('\n'))).toContain('unavailable');
-    unavailablePicker.handleInput('\r');
-    expect(unavailableSelect).toHaveBeenCalledWith({
-      kind: 'unavailable',
-      entry: unavailable,
-      reason: 'npm plugin sources are not supported.',
-    });
-
-    const installSelect = vi.fn();
-    const installPicker = new PluginMarketplaceSelectorComponent({
-      marketplace: marketplace([marketplaceEntry()]),
-      installed: new Map(),
-      onSelect: installSelect,
-      onCancel: vi.fn(),
-    });
-    installPicker.handleInput('\r');
-    installPicker.handleInput('\r');
-    expect(installSelect).toHaveBeenCalledOnce();
+    panel.setMarketplace(marketplaceEntries, '/tmp/marketplace.json');
+    const out = strip(renderRaw(panel));
+    expect(out).toContain('Pythinker Datasource  install');
+    expect(out).toContain('Query supported data sources');
+    expect(out).not.toContain('Query supported data sources · v3.1.1');
+    expect(out).not.toContain('id pythinker-datasource');
+    expect(out).not.toContain('Official plugin');
+    expect(out).not.toContain('· data');
+    expect(out).toContain('0 installed · 1 available');
   });
 
-  it('keeps status visible and every line within a narrow width', () => {
-    const picker = new PluginMarketplaceSelectorComponent({
-      marketplace: marketplace([marketplaceEntry({
-        displayName: 'A very long marketplace plugin name with Launch 🚀 tools',
-      })]),
-      installed: new Map(),
-      onSelect: vi.fn(),
-      onCancel: vi.fn(),
-    });
-
-    const lines = picker.render(40).map(strip);
-    expect(lines.join('\n')).toContain('install');
-    expect(lines.every((line) => visibleWidth(line) <= 40)).toBe(true);
+  it('renders the hardcoded Web Bridge entry on the Official tab while loading', () => {
+    const { panel } = makePanel({ initialTab: 'official' });
+    // The catalog is still loading, but the built-in Web Bridge entry is shown
+    // immediately because it is baked into the TUI, not fetched.
+    const out = strip(renderRaw(panel));
+    expect(out).toContain('Pythinker WebBridge  open in browser');
+    expect(out).toContain('Loading marketplace');
   });
 
-  it('toggles an installed plugin from the overview with space', () => {
-    const onSelect = vi.fn();
-    const picker = new PluginsOverviewSelectorComponent({
-      plugins: [
-        {
-          id: 'pythinker-datasource',
-          displayName: 'Pythinker Datasource',
-          version: '1.0.0',
-          enabled: true,
-          state: 'ok',
-          skillCount: 1,
-          mcpServerCount: 0,
-          enabledMcpServerCount: 0,
-          hasErrors: false,
-          source: 'local-path',
-        },
-      ],
-      onSelect,
-      onCancel: vi.fn(),
-    });
+  it('keeps the Web Bridge entry visible when the Official catalog errors', () => {
+    const { panel } = makePanel({ initialTab: 'official' });
+    panel.setMarketplaceError('fetch failed');
+    const out = strip(renderRaw(panel));
+    expect(out).toContain('Pythinker WebBridge  open in browser');
+    expect(out).toContain('Marketplace unavailable: fetch failed');
+  });
 
-    picker.handleInput(' ');
+  it('renders a same-id custom catalog row as a normal plugin, without capability state', () => {
+    // A custom marketplace may legitimately list an entry reusing the
+    // pythinker-webbridge id: without the capability: marker it must render and
+    // install as a plain plugin, not borrow capability status.
+    const capabilities = [makeCapability({ id: 'pythinker-webbridge', displayName: 'Pythinker WebBridge' })];
+    const entries = [
+      {
+        id: 'pythinker-webbridge',
+        tier: 'official' as const,
+        displayName: 'Pythinker WebBridge (fork)',
+        source: 'https://x/fork.zip',
+      },
+    ];
+    const { panel, onSelect } = makePanel({ initialTab: 'official', capabilities });
+    panel.setMarketplace(entries, '/tmp/marketplace.json');
 
+    const out = strip(renderRaw(panel));
+    expect(out).toContain('Pythinker WebBridge (fork)  install');
+
+    panel.handleInput('\r');
     expect(onSelect).toHaveBeenCalledWith({
-      kind: 'toggle',
-      id: 'pythinker-datasource',
-      enabled: false,
+      kind: 'install',
+      entry: expect.objectContaining({ id: 'pythinker-webbridge', source: 'https://x/fork.zip' }),
     });
   });
 
-  it('uses remapped Select and Plugin actions without consuming unbound keys', () => {
-    const onSelect = vi.fn();
-    const picker = new PluginsOverviewSelectorComponent({
-      plugins: [
-        {
-          id: 'first', displayName: 'First', enabled: true, state: 'ok', skillCount: 0,
-          mcpServerCount: 0, enabledMcpServerCount: 0, hasErrors: false, source: 'local-path',
-        },
-        {
-          id: 'second', displayName: 'Second', enabled: true, state: 'ok', skillCount: 0,
-          mcpServerCount: 0, enabledMcpServerCount: 0, hasErrors: false, source: 'local-path',
-        },
-      ],
-      onSelect,
-      onCancel: vi.fn(),
+  it('renders capability rows from the engine while the catalog is still loading', () => {
+    const capabilities = [
+      makeCapability(),
+      makeCapability({
+        id: 'pythinker-webbridge',
+        displayName: 'Pythinker WebBridge',
+        state: 'not_installed',
+        steps: [],
+      }),
+    ];
+    const { panel, onSelect } = makePanel({ initialTab: 'official', capabilities });
+
+    // No setMarketplace yet — built-in runtime setup must not wait on the
+    // remote catalog: the engine-known rows render (and the promo is
+    // suppressed by the real webbridge row).
+    const out = strip(renderRaw(panel));
+    expect(out).toContain('Pythinker Computer Use  install');
+    expect(out).toContain('Pythinker WebBridge  install');
+    expect(out).toContain('Background GUI automation');
+    expect(out).not.toContain('id pythinker-cu');
+    expect(out).not.toContain('Official plugin');
+    expect(out).not.toContain('open in browser');
+    expect(out).toContain('Loading marketplace');
+
+    panel.handleInput('\r'); // index 0 → pythinker-cu routes to capability install
+    expect(onSelect).toHaveBeenCalledWith({
+      kind: 'install',
+      entry: expect.objectContaining({ id: 'pythinker-cu', source: 'capability:pythinker-cu' }),
     });
-    picker.setKeybindings([
-      ...defaultKeybindings(),
-      ...parseKeybindingBlocks([
-        { context: 'Select', bindings: { down: null, 'alt+n': 'select:next' } },
-        {
-          context: 'Plugin',
-          bindings: {
-            space: null,
-            'd x': 'plugin:install',
-            'x y': 'plugin:toggle',
-            'ctrl+k ctrl+t': 'plugin:toggle',
-            'ctrl+x ctrl+y': 'plugin:toggle',
-          },
-        },
-      ]),
-    ]);
-
-    picker.handleInput(`${ESC}[B`);
-    expect(strip(picker.render(120).join('\n'))).toContain('? First');
-    picker.handleInput(' ');
-    expect(onSelect).not.toHaveBeenCalled();
-    expect(strip(picker.render(120).join('\n'))).toContain('? First');
-    picker.handleInput('\u001Bn');
-    expect(strip(picker.render(120).join('\n'))).toContain('? Second');
-    picker.handleInput('d');
-    expect(onSelect).toHaveBeenNthCalledWith(1, { kind: 'remove', id: 'second' });
-    picker.handleInput('x');
-    picker.handleInput('y');
-    picker.handleInput(String.fromCodePoint(0x0b));
-    picker.handleInput(String.fromCodePoint(0x14));
-    picker.handleInput('ctrl+x');
-    picker.handleInput('ctrl+y');
-
-    expect(onSelect).toHaveBeenNthCalledWith(2, { kind: 'toggle', id: 'second', enabled: false });
-    expect(onSelect).toHaveBeenNthCalledWith(3, { kind: 'toggle', id: 'second', enabled: false });
-    expect(onSelect).toHaveBeenNthCalledWith(4, { kind: 'toggle', id: 'second', enabled: false });
-    expect(strip(picker.render(120).join('\n'))).toContain('alt+n navigate');
+    panel.handleInput('[B');
+    panel.handleInput('\r');
+    expect(onSelect).toHaveBeenCalledWith({
+      kind: 'install',
+      entry: expect.objectContaining({ id: 'pythinker-webbridge', source: 'capability:pythinker-webbridge' }),
+    });
   });
 
-  it('issues a remove request from the overview on D', () => {
-    const onSelect = vi.fn();
-    const picker = new PluginsOverviewSelectorComponent({
-      plugins: [
-        {
-          id: 'pythinker-datasource',
-          displayName: 'Pythinker Datasource',
-          version: '1.0.0',
-          enabled: true,
-          state: 'ok',
-          skillCount: 1,
-          mcpServerCount: 0,
-          enabledMcpServerCount: 0,
-          hasErrors: false,
-          source: 'local-path',
-        },
-      ],
-      onSelect,
-      onCancel: vi.fn(),
-    });
+  it('keeps built-in rows out while the overridden marketplace is loading', () => {
+    // /plugins marketplace <url> or the env override must be able to fully
+    // replace the Official tab — fallback capability rows stay out too.
+    const capabilities = [makeCapability()];
+    const { panel } = makePanel({ initialTab: 'official', capabilities, catalogIsDefault: false });
 
-    picker.handleInput('d');
-
-    expect(onSelect).toHaveBeenCalledWith({ kind: 'remove', id: 'pythinker-datasource' });
+    const out = strip(renderRaw(panel));
+    expect(out).not.toContain('Pythinker Computer Use');
+    expect(out).toContain('Pythinker WebBridge  open in browser');
+    expect(out).toContain('Loading marketplace');
   });
 
-  it('opens MCP server management from the overview on M', () => {
-    const onSelect = vi.fn();
-    const picker = new PluginsOverviewSelectorComponent({
-      plugins: [
-        {
-          id: 'pythinker-datasource',
-          displayName: 'Pythinker Datasource',
-          version: '1.0.0',
-          enabled: true,
-          state: 'ok',
-          skillCount: 1,
-          mcpServerCount: 1,
-          enabledMcpServerCount: 1,
-          hasErrors: false,
-          source: 'local-path',
-        },
-      ],
-      onSelect,
-      onCancel: vi.fn(),
+  it('opens the Web Bridge webpage on Enter instead of installing', () => {
+    const { panel, onSelect } = makePanel({ initialTab: 'official' });
+    panel.setMarketplace(marketplaceEntries, '/tmp/marketplace.json');
+    // Web Bridge is pinned at index 0, so Enter selects it directly.
+    panel.handleInput('\r');
+    expect(onSelect).toHaveBeenCalledWith({
+      kind: 'open-url',
+      url: 'https://www.kimi.com/features/webbridge#local-agent',
+      label: 'Pythinker WebBridge',
     });
+  });
 
-    picker.handleInput('m');
+  it('installs a catalog official entry after navigating past Web Bridge', () => {
+    const { panel, onSelect } = makePanel({ initialTab: 'official' });
+    panel.setMarketplace(marketplaceEntries, '/tmp/marketplace.json');
+    panel.handleInput('\u001B[B'); // ↓ → pythinker-datasource
+    panel.handleInput('\r');
+    expect(onSelect).toHaveBeenCalledWith({
+      kind: 'install',
+      entry: expect.objectContaining({ id: 'pythinker-datasource' }),
+    });
+  });
 
-    expect(onSelect).toHaveBeenCalledWith({ kind: 'mcp', id: 'pythinker-datasource' });
+  it('lets the real catalog entry win over the pinned Web Bridge promo', () => {
+    const entries = [
+      {
+        id: 'pythinker-webbridge',
+        tier: 'official' as const,
+        displayName: 'Pythinker WebBridge',
+        source: 'capability:pythinker-webbridge',
+      },
+      ...officialEntries,
+    ];
+    const { panel, onSelect } = makePanel({ initialTab: 'official' });
+    panel.setMarketplace(entries, '/tmp/marketplace.json');
+    const out = strip(renderRaw(panel));
+    // Exactly one row, and it is the installable catalog copy — the hardcoded
+    // open-in-browser promo is suppressed.
+    expect(out.split('Pythinker WebBridge').length - 1).toBe(1);
+    expect(out).not.toContain('open in browser');
+    panel.handleInput('\r'); // index 0 → the real entry installs
+    expect(onSelect).toHaveBeenCalledWith({
+      kind: 'install',
+      entry: expect.objectContaining({ id: 'pythinker-webbridge', source: 'capability:pythinker-webbridge' }),
+    });
+  });
+
+  it('installs a Curated entry whose id matches the pinned WebBridge', () => {
+    // A curated/custom marketplace entry can legitimately reuse the
+    // pythinker-webbridge id; on the Curated tab it must install normally, not
+    // open the WebBridge page (that shortcut is reserved for the pinned row).
+    const entries = [
+      {
+        id: 'pythinker-webbridge',
+        tier: 'curated' as const,
+        displayName: 'Pythinker WebBridge',
+        source: 'capability:pythinker-webbridge',
+      },
+    ];
+    const { panel, onSelect } = makePanel({ initialTab: 'third-party' });
+    panel.setMarketplace(entries, '/tmp/marketplace.json');
+    const out = strip(renderRaw(panel));
+    expect(out).toContain('Curated');
+    expect(out).toContain('Third-party plugins from our partners.');
+    expect(out).toContain('Pythinker WebBridge  install');
+    panel.handleInput('\r');
+    expect(onSelect).toHaveBeenCalledWith({
+      kind: 'install',
+      entry: expect.objectContaining({ id: 'pythinker-webbridge', source: 'capability:pythinker-webbridge' }),
+    });
+  });
+
+  it('installs the selected Curated entry on Enter', () => {
+    const { panel, onSelect } = makePanel({ installed: [superpowers], initialTab: 'third-party' });
+    panel.setMarketplace(marketplaceEntries, '/tmp/marketplace.json');
+    panel.handleInput('\r');
+    expect(onSelect).toHaveBeenCalledWith({
+      kind: 'install',
+      entry: expect.objectContaining({ id: 'superpowers' }),
+    });
+  });
+
+  it('renders an installing state while an install is in progress', () => {
+    const { panel } = makePanel({ installed: [superpowers] });
+    panel.setInstalling('Superpowers');
+    const out = strip(renderRaw(panel));
+    expect(out).toContain('Installing Superpowers…');
+  });
+
+  it('keeps a valid selection if ↓ is pressed while the catalog is loading', () => {
+    const { panel, onSelect } = makePanel({ initialTab: 'third-party' });
+    // Catalog still loading (entries empty); pressing ↓ must not drive the
+    // selection negative, or the later Enter would read entries[-1].
+    panel.handleInput('\u001B[B'); // ↓
+    panel.setMarketplace(marketplaceEntries, '/tmp/marketplace.json');
+    panel.handleInput('\r');
+    expect(onSelect).toHaveBeenCalledWith({
+      kind: 'install',
+      entry: expect.objectContaining({ id: 'superpowers' }),
+    });
+  });
+
+  it('shows untiered custom marketplace entries without the partner description', () => {
+    const untiered = [
+      { id: 'custom-plugin', displayName: 'Custom Plugin', source: 'https://x/c.zip' },
+    ];
+    const { panel } = makePanel({ initialTab: 'third-party', catalogIsDefault: false });
+    panel.setMarketplace(untiered, '/tmp/marketplace.json');
+    const out = strip(renderRaw(panel));
+    expect(out).toContain('Custom Plugin  install');
+    expect(out).not.toContain('Third-party plugins from our partners.');
+  });
+
+  it('shows an update badge when the marketplace version is newer than installed', () => {
+    const installed = [{ ...superpowers, id: 'superpowers', version: '4.0.0' }];
+    const entries = [
+      {
+        id: 'superpowers',
+        tier: 'curated' as const,
+        displayName: 'Superpowers',
+        version: '5.0.0',
+        source: 'https://x/s.zip',
+      },
+    ];
+    const { panel } = makePanel({ installed, initialTab: 'third-party' });
+    panel.setMarketplace(entries, '/tmp/marketplace.json');
+    const out = strip(renderRaw(panel));
+    expect(out).toContain('Superpowers  update 4.0.0 → 5.0.0');
+  });
+
+  it('shows an update badge on the Installed tab when the marketplace version is newer', () => {
+    const installed = [{ ...superpowers, id: 'superpowers', version: '4.0.0' }];
+    const entries = [
+      {
+        id: 'superpowers',
+        tier: 'curated' as const,
+        displayName: 'Superpowers',
+        version: '5.0.0',
+        source: 'https://x/s.zip',
+      },
+    ];
+    const { panel } = makePanel({ installed });
+    panel.setMarketplace(entries, '/tmp/marketplace.json');
+    const out = strip(renderRaw(panel));
+    expect(out).toContain('Superpowers  enabled  update 4.0.0 → 5.0.0');
+  });
+
+  it('updates the Windows backing plugin through its capability entry', () => {
+    const installed = [
+      {
+        ...superpowers,
+        id: 'pythinker-cu-win',
+        displayName: 'Pythinker Computer Use for Windows',
+        version: '0.2.13',
+      },
+    ];
+    const capability = makeCapability({ pluginId: 'pythinker-cu-win' });
+    const entry = {
+      id: 'pythinker-cu',
+      tier: 'official' as const,
+      displayName: 'Pythinker Computer Use',
+      version: '0.2.14',
+      source: 'capability:pythinker-cu',
+      builtIn: true,
+    };
+    const { panel, onSelect } = makePanel({ installed, capabilities: [capability] });
+    panel.setMarketplace([entry], '/tmp/marketplace.json');
+
+    expect(strip(renderRaw(panel))).toContain(
+      'Pythinker Computer Use for Windows  enabled  update 0.2.13 → 0.2.14',
+    );
+    panel.handleInput('\r');
+    expect(onSelect).toHaveBeenCalledWith({ kind: 'install', entry });
+  });
+
+  it('keeps installation state separate from capability readiness', () => {
+    const installed = [
+      { ...superpowers, id: 'pythinker-cu', displayName: 'Pythinker Computer Use', version: '0.5.4' },
+    ];
+    const capabilities = [makeCapability()];
+    const entries = [
+      {
+        id: 'pythinker-cu',
+        tier: 'official' as const,
+        displayName: 'Pythinker Computer Use',
+        version: '0.5.4',
+        source: 'capability:pythinker-cu',
+        builtIn: true,
+      },
+    ];
+    const { panel } = makePanel({ installed, capabilities });
+    panel.setMarketplace(entries, '/tmp/marketplace.json');
+
+    const installedOut = strip(renderRaw(panel));
+    expect(installedOut).toContain('Pythinker Computer Use  enabled');
+    expect(installedOut).not.toContain('setup incomplete');
+    expect(installedOut).not.toContain('needs permissions');
+
+    panel.handleInput('\t');
+    const officialOut = strip(renderRaw(panel));
+    expect(officialOut).toContain('Pythinker Computer Use  installed · v0.5.4');
+    expect(officialOut).toContain('1 installed · 0 available');
+    expect(officialOut).not.toContain('needs permissions');
+  });
+
+  it('uses the Windows backing plugin id for Official installation state', () => {
+    const installed = [
+      {
+        ...superpowers,
+        id: 'pythinker-cu-win',
+        displayName: 'Pythinker Computer Use for Windows',
+        version: '0.2.14',
+      },
+    ];
+    const capabilities = [makeCapability({ pluginId: 'pythinker-cu-win' })];
+    const entries = [
+      {
+        id: 'pythinker-cu',
+        tier: 'official' as const,
+        displayName: 'Pythinker Computer Use',
+        version: '0.2.14',
+        source: 'capability:pythinker-cu',
+        builtIn: true,
+      },
+    ];
+    const { panel } = makePanel({ installed, capabilities, initialTab: 'official' });
+    panel.setMarketplace(entries, '/tmp/marketplace.json');
+
+    const out = strip(renderRaw(panel));
+    expect(out).toContain('Pythinker Computer Use  installed · v0.2.14');
+    expect(out).toContain('1 installed · 0 available');
+  });
+
+  it('keeps Enter on the Installed tab consistent with other plugins', () => {
+    const installed = [
+      { ...superpowers, id: 'pythinker-cu', displayName: 'Pythinker Computer Use', version: '0.5.4' },
+    ];
+    const { panel, onSelect } = makePanel({ installed, capabilities: [makeCapability()] });
+
+    panel.handleInput('\r');
+
+    expect(onSelect).toHaveBeenCalledWith({ kind: 'details', id: 'pythinker-cu' });
+  });
+
+  it('keeps unsupported capability diagnostics out of the Installed list', () => {
+    const installed = [
+      { ...superpowers, id: 'pythinker-cu', displayName: 'Pythinker Computer Use', version: '0.5.4' },
+    ];
+    const capabilities = [
+      makeCapability({ supported: false, state: 'unsupported', steps: [] }),
+    ];
+    const { panel, onSelect } = makePanel({ installed, capabilities });
+
+    const out = strip(renderRaw(panel));
+    expect(out).toContain('Pythinker Computer Use  enabled');
+    expect(out).not.toContain('unsupported');
+
+    panel.handleInput('\r');
+    expect(onSelect).toHaveBeenCalledWith({ kind: 'details', id: 'pythinker-cu' });
+  });
+
+  it('does not expose capability readiness, version, or optional issues in the marketplace', () => {
+    const capabilities = [
+      makeCapability({
+        id: 'pythinker-webbridge',
+        displayName: 'Pythinker WebBridge',
+        state: 'ready',
+        version: 'v1.11.5',
+        steps: [
+          { id: 'daemon-binary', state: 'ok' },
+          { id: 'daemon', state: 'ok' },
+          { id: 'skill', state: 'ok' },
+          { id: 'extension', state: 'missing', optional: true },
+        ],
+      }),
+    ];
+    const installed = [
+      { ...superpowers, id: 'pythinker-webbridge', displayName: 'Pythinker WebBridge', version: '1.11.3' },
+    ];
+    const { panel } = makePanel({ installed, capabilities, initialTab: 'official' });
+    panel.setMarketplace(
+      [{ id: 'pythinker-webbridge', displayName: 'Pythinker WebBridge', source: 'capability:pythinker-webbridge', tier: 'official', builtIn: true }],
+      '/tmp/marketplace.json',
+    );
+
+    const out = strip(renderRaw(panel));
+    expect(out).toContain('Pythinker WebBridge  installed');
+    expect(out).not.toContain('ready');
+    expect(out).not.toContain('v1.11.5');
+    expect(out).not.toContain('browser extension');
+  });
+
+  it('keeps capability repair details out of marketplace rows', () => {
+    const capabilities = [
+      makeCapability({
+        id: 'pythinker-webbridge',
+        displayName: 'Pythinker WebBridge',
+        state: 'partial',
+        steps: [
+          { id: 'daemon-binary', state: 'ok' },
+          { id: 'daemon', state: 'ok' },
+          { id: 'skill', state: 'missing' },
+          { id: 'skill-shadow', state: 'failed', optional: true },
+        ],
+      }),
+    ];
+    const { panel } = makePanel({ capabilities, initialTab: 'official' });
+    panel.setMarketplace(
+      [{ id: 'pythinker-webbridge', displayName: 'Pythinker WebBridge', source: 'capability:pythinker-webbridge', tier: 'official', builtIn: true }],
+      '/tmp/marketplace.json',
+    );
+
+    const out = strip(renderRaw(panel));
+    expect(out).toContain('Pythinker WebBridge  install');
+    expect(out).not.toContain('agent skill');
+    expect(out).not.toContain('skill shadows');
+  });
+
+  it('does not show an update badge on the Installed tab before the marketplace loads', () => {
+    const installed = [{ ...superpowers, id: 'superpowers', version: '4.0.0' }];
+    const { panel } = makePanel({ installed });
+    // The marketplace has not been loaded yet, so the badge stays hidden rather
+    // than guessing.
+    const out = strip(renderRaw(panel));
+    expect(out).not.toContain('update');
+  });
+
+  it('shows installed · v<version> when the installed plugin is up to date', () => {
+    const installed = [{ ...superpowers, id: 'superpowers', version: '5.0.0' }];
+    const entries = [
+      {
+        id: 'superpowers',
+        tier: 'curated' as const,
+        displayName: 'Superpowers',
+        version: '5.0.0',
+        source: 'https://x/s.zip',
+      },
+    ];
+    const { panel } = makePanel({ installed, initialTab: 'third-party' });
+    panel.setMarketplace(entries, '/tmp/marketplace.json');
+    const out = strip(renderRaw(panel));
+    expect(out).toContain('Superpowers  installed · v5.0.0');
+  });
+
+  it('shows an inline error when the Official catalog fails', () => {
+    const { panel } = makePanel({ installed: [superpowers] });
+    panel.handleInput('\t'); // → Official
+    panel.setMarketplaceError('fetch failed');
+    const out = strip(renderRaw(panel));
+    expect(out).toContain('Marketplace unavailable: fetch failed');
+    expect(out).toContain('Use the Custom tab');
+  });
+
+  it('installs from a URL typed on the Custom tab', () => {
+    const { panel, onSelect } = makePanel({ initialTab: 'custom' });
+    const out = strip(renderRaw(panel));
+    expect(out).toContain('Install from a GitHub URL');
+    expect(out).toContain('╭');
+
+    for (const ch of 'https://github.com/owner/repo') {
+      panel.handleInput(ch);
+    }
+    panel.handleInput('\r');
+    expect(onSelect).toHaveBeenCalledWith({
+      kind: 'install-source',
+      source: 'https://github.com/owner/repo',
+    });
   });
 
   it('toggles MCP servers from the MCP selector', () => {
@@ -518,6 +890,8 @@ describe('plugins selector dialogs', () => {
         skillCount: 1,
         mcpServerCount: 1,
         enabledMcpServerCount: 1,
+        hookCount: 0,
+      commandCount: 0,
         hasErrors: false,
         source: 'local-path',
         installedAt: '2026-05-29T00:00:00.000Z',
@@ -555,33 +929,6 @@ describe('plugins selector dialogs', () => {
     ]);
   });
 
-  it('renders plugin action hints inline on the overview row', () => {
-    const picker = new PluginsOverviewSelectorComponent({
-      plugins: [
-        {
-          id: 'pythinker-datasource',
-          displayName: 'Pythinker Datasource',
-          version: '1.0.0',
-          enabled: true,
-          state: 'ok',
-          skillCount: 1,
-          mcpServerCount: 0,
-          enabledMcpServerCount: 0,
-          hasErrors: false,
-          source: 'local-path',
-        },
-      ],
-      selectedId: 'pythinker-datasource',
-      pluginHint: { id: 'pythinker-datasource', text: 'pending /new' },
-      onSelect: vi.fn(),
-      onCancel: vi.fn(),
-    });
-
-    const out = picker.render(120).map(strip).join('\n');
-
-    expect(out).toContain('? Pythinker Datasource  enabled  pending /new');
-  });
-
   it('defaults plugin removal confirmation to cancel', () => {
     const results: PluginRemoveConfirmResult[] = [];
     const picker = new PluginRemoveConfirmComponent({
@@ -602,59 +949,6 @@ describe('plugins selector dialogs', () => {
     expect(results).toEqual([{ kind: 'cancel' }]);
   });
 
-  it('keeps raw Enter and Space unbound in plugin removal confirmation', () => {
-    const results: PluginRemoveConfirmResult[] = [];
-    const picker = new PluginRemoveConfirmComponent({
-      id: 'pythinker-datasource',
-      displayName: 'Pythinker Datasource',
-      onDone: (result) => {
-        results.push(result);
-      },
-    });
-    picker.setKeybindings([
-      ...defaultKeybindings(),
-      ...parseKeybindingBlocks([
-        { context: 'Select', bindings: { enter: null, space: null } },
-      ]),
-    ]);
-
-    const hint = strip(picker.render(120).join('\n')).split('\n')[2] ?? '';
-    expect(hint).not.toContain('Enter');
-    expect(hint).not.toContain('Space');
-    picker.handleInput('\r');
-    picker.handleInput(' ');
-
-    expect(results).toEqual([]);
-  });
-
-  it('keeps raw Space available to searchable Select queries', () => {
-    const onSelect = vi.fn();
-    const picker = new ChoicePickerComponent({
-      title: 'Search plugins',
-      options: [
-        { value: 'alpha-beta', label: 'Alpha Beta' },
-        { value: 'alphabet', label: 'Alphabet' },
-      ],
-      searchable: true,
-      onSelect,
-      onCancel: vi.fn(),
-    });
-    picker.setKeybindings([
-      ...defaultKeybindings(),
-      ...parseKeybindingBlocks([
-        { context: 'Select', bindings: { space: null } },
-      ]),
-    ]);
-
-    for (const character of 'alpha beta') picker.handleInput(character);
-
-    const rendered = strip(picker.render(120).join('\n'));
-    expect(rendered).toContain('Search: alpha beta');
-    expect(rendered).toContain('? Alpha Beta');
-    expect(rendered).not.toContain('Alphabet');
-    expect(onSelect).not.toHaveBeenCalled();
-  });
-
   it('confirms plugin removal only after choosing remove', () => {
     const results: PluginRemoveConfirmResult[] = [];
     const picker = new PluginRemoveConfirmComponent({
@@ -665,11 +959,56 @@ describe('plugins selector dialogs', () => {
       },
     });
 
-    picker.handleInput('[B');
+    picker.handleInput('\u001B[B');
     const raw = renderRaw(picker);
-    expect(strip(raw)).toContain('Enter select');
+    expect(strip(raw)).toContain('Enter/Space select');
     // The destructive option label keeps its danger styling (error + bold).
     expect(raw).toContain(dangerShortcut('Remove plugin'));
+
+    picker.handleInput('\r');
+
+    expect(results).toEqual([{ kind: 'confirm' }]);
+  });
+
+  it('defaults the third-party install trust prompt to exit', () => {
+    const results: PluginInstallTrustConfirmResult[] = [];
+    const picker = new PluginInstallTrustConfirmComponent({
+      label: 'Superpowers',
+      onDone: (result) => {
+        results.push(result);
+      },
+    });
+
+    const raw = renderRaw(picker);
+    const out = raw.split('\n').map(strip);
+    expect(out).toContain(' Install third-party plugin Superpowers?');
+    expect(out).toContain('  ? Exit');
+    expect(out).toContain('    Cancel the installation.');
+    expect(out).toContain('    Install this third-party plugin anyway.');
+    // The warning explains why confirmation is required and uses the
+    // design-system warning color rather than muted/default text.
+    expect(out.some((line) => line.includes('Pythinker has not reviewed'))).toBe(true);
+    expect(out.some((line) => line.includes('trust the source'))).toBe(true);
+    expect(raw).toContain(warningMark());
+
+    picker.handleInput('\r');
+    expect(results).toEqual([{ kind: 'cancel' }]);
+  });
+
+  it('installs a third-party plugin only after switching to trust', () => {
+    const results: PluginInstallTrustConfirmResult[] = [];
+    const picker = new PluginInstallTrustConfirmComponent({
+      label: 'Superpowers',
+      onDone: (result) => {
+        results.push(result);
+      },
+    });
+
+    picker.handleInput('\u001B[B');
+    const raw = renderRaw(picker);
+    expect(strip(raw)).toContain('Enter/Space select');
+    // The opt-in option keeps its danger styling (error + bold).
+    expect(raw).toContain(dangerShortcut('Trust and install'));
 
     picker.handleInput('\r');
 

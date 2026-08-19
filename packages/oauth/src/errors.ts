@@ -7,6 +7,12 @@
  *    or credentials are bad; drive user through `/login` again.
  *  - `OAuthConnectionError`: transport-level OAuth request failure; callers
  *    may retry the operation.
+ *  - `DeviceCodeExpiredError`: device_code TTL ran out before user approved;
+ *    restart the device flow.
+ *  - `DeviceCodeTimeoutError`: local 15 min wall-clock budget exhausted
+ *    before the user completed approval.
+ *  - `RetryableRefreshError`: 429 / 5xx from token endpoint; the refresh
+ *    helper retries with exponential backoff before surfacing this.
  */
 
 export class OAuthError extends Error {
@@ -30,5 +36,23 @@ export class OAuthConnectionError extends OAuthError {
   }
 }
 
+export class DeviceCodeExpiredError extends OAuthError {
+  constructor(message = 'Device code expired.') {
+    super(message);
+    this.name = 'DeviceCodeExpiredError';
+  }
+}
 
+export class DeviceCodeTimeoutError extends OAuthError {
+  constructor(message = 'Device authorization timed out locally.') {
+    super(message);
+    this.name = 'DeviceCodeTimeoutError';
+  }
+}
 
+export class RetryableRefreshError extends OAuthError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RetryableRefreshError';
+  }
+}

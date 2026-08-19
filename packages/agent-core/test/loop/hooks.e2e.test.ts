@@ -395,28 +395,6 @@ describe('runTurn — tool-call display fields', () => {
 });
 
 describe('runTurn — finalizeToolResult hook', () => {
-  it('receives the resolved execution for post-tool permission-rule matching', async () => {
-    const echo = new EchoTool();
-    let approvalRule: string | undefined;
-    const hooks: LoopHooks = {
-      finalizeToolResult: async (ctx) => {
-        approvalRule = ctx.execution?.approvalRule;
-        return ctx.result;
-      },
-    };
-
-    await runTurn({
-      hooks,
-      tools: [echo],
-      responses: [
-        makeToolUseResponse([makeToolCall('echo', { text: 'value' }, 'tc-1')]),
-        makeEndTurnResponse('done'),
-      ],
-    });
-
-    expect(approvalRule).toBe('echo');
-  });
-
   it('returned result replaces the tool result before persistence', async () => {
     const echo = new EchoTool();
     const override: ExecutableToolResult = { output: 'redacted' };

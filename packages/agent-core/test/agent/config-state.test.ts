@@ -1,10 +1,36 @@
 import { describe, expect, it, vi } from 'vitest';
 import { emptyUsage } from '@pymodel/kosong';
 
+import { InMemoryAgentRecordPersistence } from '../../src/agent/records';
 import { ProviderManager } from '../../src/session/provider-manager';
+import {
+  applyEnvModelConfig,
+  ENV_MODEL_ALIAS_KEY,
+  getDefaultConfig,
+  type PythinkerConfig,
+} from '../../src/config';
 import { testAgent } from './harness';
+import { createFakeKaos } from '../tools/fixtures/fake-kaos';
 
 describe('ConfigState model capabilities', () => {
+  it('updates the agent cwd without requiring the directory to exist', () => {
+    const chdir = vi.fn(async () => {
+      throw Object.assign(new Error('missing workspace'), { code: 'ENOENT' });
+    });
+    const ctx = testAgent({
+      kaos: createFakeKaos({
+        getcwd: () => '/workspace',
+        chdir,
+      }),
+    });
+
+    ctx.agent.config.update({ cwd: '/tmp/missing-workdir' });
+
+    expect(ctx.agent.config.cwd).toBe('/tmp/missing-workdir');
+    expect(ctx.agent.kaos.getcwd()).toBe('/tmp/missing-workdir');
+    expect(chdir).not.toHaveBeenCalled();
+  });
+
   it('computes provider and model capabilities from ProviderManager metadata', () => {
     const ctx = testAgent({
       providerManager: new ProviderManager({
@@ -16,9 +42,9 @@ describe('ConfigState model capabilities', () => {
             },
           },
           models: {
-            'pythinker-code/pythinker-for-coding': {
+            'pythinker-code/kimi-for-coding': {
               provider: 'pythinker',
-              model: 'pythinker-for-coding',
+              model: 'kimi-for-coding',
               maxContextSize: 1_000_000,
               capabilities: ['image_in', 'video_in', 'thinking', 'tool_use'],
             },
@@ -28,10 +54,10 @@ describe('ConfigState model capabilities', () => {
     });
     const config = ctx.agent.config;
 
-    config.update({ modelAlias: 'pythinker-code/pythinker-for-coding' });
+    config.update({ modelAlias: 'pythinker-code/kimi-for-coding' });
 
-    expect(config.model).toBe('pythinker-code/pythinker-for-coding');
-    expect(config.providerConfig.model).toBe('pythinker-for-coding');
+    expect(config.model).toBe('pythinker-code/kimi-for-coding');
+    expect(config.providerConfig.model).toBe('kimi-for-coding');
     expect(config.modelCapabilities).toMatchObject({
       image_in: true,
       video_in: true,
@@ -113,7 +139,7 @@ describe('ConfigState model capabilities', () => {
     ctx.agent.config.update({
       modelAlias: 'deepseek/deepseek-v4-flash',
       systemPrompt: 'system',
-      thinkingLevel: 'off',
+      thinkingEffort: 'off',
     });
     await ctx.agent.llm.chat({
       messages: [],
@@ -122,8 +148,68 @@ describe('ConfigState model capabilities', () => {
     });
 
     // maxOutputSize (384000) is clamped to the 128k ceiling applied to
-    // OpenAI-compatible chat-completions providers.
+    // non-Pythinker chat-completions providers.
     expect(requestMaxTokens).toBe(131072);
+  });
+
+  it('warns and sends when an Anthropic effort is not listed by the model', async () => {
+    let requests = 0;
+    const config: PythinkerConfig = {
+      providers: {
+        compatible: {
+          type: 'pythinker',
+          apiKey: 'test-key',
+          baseUrl: 'https://api.example.test',
+        },
+      },
+      models: {
+        compatible: {
+          provider: 'compatible',
+          model: 'compatible-model',
+          protocol: 'anthropic',
+          maxContextSize: 128_000,
+          capabilities: ['thinking'],
+          supportEfforts: ['max'],
+        },
+      },
+    };
+    const ctx = testAgent({
+      initialConfig: config,
+      providerManager: new ProviderManager({ config }),
+      generate: async (provider) => {
+        requests += 1;
+        expect(provider.thinkingEffort).toBe('high');
+        return {
+          id: 'response-1',
+          message: { role: 'assistant', content: [], toolCalls: [] },
+          usage: emptyUsage(),
+          finishReason: 'completed',
+          rawFinishReason: 'stop',
+        };
+      },
+    });
+    ctx.agent.config.update({
+      modelAlias: 'compatible',
+      systemPrompt: 'system',
+    });
+    ctx.agent.config.setThinkingEffort('high');
+
+    await ctx.agent.llm.chat({
+      messages: [],
+      tools: [],
+      signal: new AbortController().signal,
+    });
+
+    expect(requests).toBe(1);
+    expect(ctx.allEvents).toContainEqual({
+      type: '[rpc]',
+      event: 'warning',
+      args: {
+        code: 'anthropic-thinking-effort-not-listed',
+        message:
+          'Thinking effort "high" is not listed for model "compatible-model" (known: max). The configured value will be sent unchanged to the Anthropic-compatible backend.',
+      },
+    });
   });
 
   it('uses session id as a provider prompt cache hint without storing it on Agent', () => {
@@ -161,165 +247,62 @@ describe('ConfigState model capabilities', () => {
   });
 });
 
-describe('ConfigState provider Fast mode', () => {
-  it('applies Fast mode to supported OpenAI requests and reports it in config data', () => {
-    const ctx = testAgent({
-      providerManager: new ProviderManager({
-        config: {
-          providers: {
-            openai: {
-              type: 'openai_responses',
-              apiKey: 'test-key',
-            },
-          },
-          models: {
-            'openai/gpt-5.6-sol': {
-              provider: 'openai',
-              model: 'gpt-5.6-sol',
-              maxContextSize: 272_000,
-            },
-          },
-        },
-      }),
-    });
-
-    ctx.agent.config.update({
-      modelAlias: 'openai/gpt-5.6-sol',
-      fastMode: true,
-    });
-
-    expect(ctx.agent.config.fastMode).toBe(true);
-    expect(ctx.agent.config.fastModeSupported).toBe(true);
-    expect(ctx.agent.config.data()).toMatchObject({
-      fastMode: true,
-      fastModeSupported: true,
-      modelCapabilities: { fast_mode: true },
-    });
-    expect(
-      (ctx.agent.config.provider as unknown as { modelParameters: Record<string, unknown> })
-        .modelParameters['service_tier'],
-    ).toBe('priority');
-  });
-
-  it('allows a gateway only when fast_mode is explicitly declared', () => {
-    const ctx = testAgent({
-      providerManager: new ProviderManager({
-        config: {
-          providers: {
-            gateway: {
-              type: 'openai_responses',
-              apiKey: 'test-key',
-              baseUrl: 'https://api.example.com/v1',
-            },
-          },
-          models: {
-            plain: {
-              provider: 'gateway',
-              model: 'gateway-model',
-              maxContextSize: 128_000,
-            },
-            fast: {
-              provider: 'gateway',
-              model: 'gateway-fast-model',
-              maxContextSize: 128_000,
-              capabilities: ['fast_mode'],
-            },
-          },
-        },
-      }),
-    });
-
-    ctx.agent.config.update({ modelAlias: 'plain' });
-    expect(ctx.agent.config.fastModeSupported).toBe(false);
-
-    ctx.agent.config.update({ modelAlias: 'fast', fastMode: true });
-    expect(ctx.agent.config.fastModeSupported).toBe(true);
-    expect(
-      (ctx.agent.config.provider as unknown as { modelParameters: Record<string, unknown> })
-        .modelParameters['service_tier'],
-    ).toBe('priority');
-  });
-
-  it('keeps the session preference while suppressing Fast requests on an unsupported model', () => {
-    const ctx = testAgent({
-      providerManager: new ProviderManager({
-        config: {
-          providers: {
-            openai: {
-              type: 'openai_responses',
-              apiKey: 'test-key',
-            },
-          },
-          models: {
-            fast: {
-              provider: 'openai',
-              model: 'gpt-5.6-sol',
-              maxContextSize: 272_000,
-            },
-            standard: {
-              provider: 'openai',
-              model: 'gpt-5.4-mini',
-              maxContextSize: 128_000,
-            },
-          },
-        },
-      }),
-    });
-
-    ctx.agent.config.update({ modelAlias: 'fast', fastMode: true });
-    ctx.agent.config.update({ modelAlias: 'standard' });
-
-    expect(ctx.agent.config.fastMode).toBe(true);
-    expect(ctx.agent.config.fastModeSupported).toBe(false);
-    expect(
-      (ctx.agent.config.provider as unknown as { modelParameters: Record<string, unknown> })
-        .modelParameters['service_tier'],
-    ).toBeUndefined();
-
-    ctx.agent.config.update({ modelAlias: 'fast' });
-    expect(ctx.agent.config.fastModeSupported).toBe(true);
-    expect(
-      (ctx.agent.config.provider as unknown as { modelParameters: Record<string, unknown> })
-        .modelParameters['service_tier'],
-    ).toBe('priority');
-  });
-});
-
 describe('ConfigState thinking clamp for always-thinking models', () => {
   function alwaysThinkingAgent() {
-    return testAgent({
-      providerManager: new ProviderManager({
-        config: {
-          providers: { pythinker: { type: 'pythinker', apiKey: 'test-key' } },
-          models: {
-            'pythinker-code/deep': {
-              provider: 'pythinker',
-              model: 'pythinker-deep-coder',
-              maxContextSize: 128_000,
-              capabilities: ['thinking', 'always_thinking', 'tool_use'],
-            },
-            'pythinker-code/toggle': {
-              provider: 'pythinker',
-              model: 'pythinker-for-coding',
-              maxContextSize: 128_000,
-              capabilities: ['thinking'],
-            },
-          },
+    // The always_thinking clamp in ConfigState.update() reads the model from
+    // `agent.pythinkerConfig.models`, so the same config must back both the
+    // ProviderManager (provider resolution) and the agent's pythinkerConfig (the
+    // clamp's model lookup).
+    const config: PythinkerConfig = {
+      providers: { pythinker: { type: 'pythinker', apiKey: 'test-key' } },
+      models: {
+        'pythinker-code/deep': {
+          provider: 'pythinker',
+          model: 'pythinker-deep-coder',
+          maxContextSize: 128_000,
+          capabilities: ['thinking', 'always_thinking', 'tool_use'],
         },
-      }),
+        'pythinker-code/toggle': {
+          provider: 'pythinker',
+          model: 'kimi-for-coding',
+          maxContextSize: 128_000,
+          capabilities: ['thinking'],
+        },
+        'pythinker-code/ultra': {
+          provider: 'pythinker',
+          model: 'pythinker-ultra',
+          maxContextSize: 128_000,
+          capabilities: ['thinking'],
+          supportEfforts: ['low', 'high', 'ultra'],
+          defaultEffort: 'ultra',
+        },
+        'pythinker-code/standard': {
+          provider: 'pythinker',
+          model: 'pythinker-standard',
+          maxContextSize: 128_000,
+          capabilities: ['thinking'],
+          supportEfforts: ['low', 'mid', 'high'],
+          defaultEffort: 'mid',
+        },
+      },
+    };
+    return testAgent({
+      initialConfig: config,
+      providerManager: new ProviderManager({ config }),
     });
   }
 
-  it('clamps thinkingLevel off to the configured effort', () => {
+  it('clamps thinkingEffort off to the model default effort', () => {
     const ctx = alwaysThinkingAgent();
-    ctx.agent.config.update({ modelAlias: 'pythinker-code/deep', thinkingLevel: 'off' });
+    ctx.agent.config.update({ modelAlias: 'pythinker-code/deep', thinkingEffort: 'off' });
 
-    expect(ctx.agent.config.thinkingLevel).toBe('high');
+    // boolean always-thinking model (no supportEfforts) defaults to 'on'.
+    expect(ctx.agent.config.thinkingEffort).toBe('on');
   });
 
   it('builds the provider with thinking enabled even after thinking was set off', () => {
     const ctx = alwaysThinkingAgent();
-    ctx.agent.config.update({ modelAlias: 'pythinker-code/deep', thinkingLevel: 'off' });
+    ctx.agent.config.update({ modelAlias: 'pythinker-code/deep', thinkingEffort: 'off' });
 
     const provider = ctx.agent.config.provider;
     const gen = Reflect.get(provider as object, '_generationKwargs') as {
@@ -330,32 +313,89 @@ describe('ConfigState thinking clamp for always-thinking models', () => {
 
   it('keeps thinking off working for toggleable models', () => {
     const ctx = alwaysThinkingAgent();
-    ctx.agent.config.update({ modelAlias: 'pythinker-code/toggle', thinkingLevel: 'off' });
+    ctx.agent.config.update({ modelAlias: 'pythinker-code/toggle', thinkingEffort: 'off' });
 
-    expect(ctx.agent.config.thinkingLevel).toBe('off');
+    expect(ctx.agent.config.thinkingEffort).toBe('off');
   });
 
-  it('re-clamps when switching to an always-on model after thinking was off', () => {
+  it('re-clamps a stale off when switching onto an always-thinking model', () => {
     const ctx = alwaysThinkingAgent();
-    ctx.agent.config.update({ modelAlias: 'pythinker-code/toggle', thinkingLevel: 'off' });
-    expect(ctx.agent.config.thinkingLevel).toBe('off');
+    ctx.agent.config.update({ modelAlias: 'pythinker-code/toggle', thinkingEffort: 'off' });
+    expect(ctx.agent.config.thinkingEffort).toBe('off');
 
+    // A bare model switch re-applies the always_thinking clamp against the new
+    // model, so the previously stored 'off' is clamped back to the default.
     ctx.agent.config.update({ modelAlias: 'pythinker-code/deep' });
-    expect(ctx.agent.config.thinkingLevel).toBe('high');
+    expect(ctx.agent.config.thinkingEffort).toBe('on');
+  });
+
+  it('falls back to the target default when a model switch carries an unsupported effort', () => {
+    const ctx = alwaysThinkingAgent();
+    ctx.agent.config.update({ modelAlias: 'pythinker-code/ultra', thinkingEffort: 'ultra' });
+
+    ctx.agent.config.update({ modelAlias: 'pythinker-code/standard' });
+
+    expect(ctx.agent.config.thinkingEffort).toBe('mid');
+  });
+
+  it('projects an inherited concrete effort to on when switching to a boolean model', () => {
+    const ctx = alwaysThinkingAgent();
+    ctx.agent.config.update({ modelAlias: 'pythinker-code/ultra', thinkingEffort: 'ultra' });
+
+    ctx.agent.config.update({ modelAlias: 'pythinker-code/toggle' });
+
+    expect(ctx.agent.config.thinkingEffort).toBe('on');
+  });
+
+  it('rejects an unsupported effort explicitly set on the current Pythinker model', () => {
+    const ctx = alwaysThinkingAgent();
+    ctx.agent.config.update({ modelAlias: 'pythinker-code/standard' });
+
+    expect(() => {
+      ctx.agent.config.setThinkingEffort('ultra');
+    }).toThrow(
+      'Thinking effort "ultra" is not supported by model "pythinker-code/standard"',
+    );
   });
 });
 
 describe('ConfigState.provider applies global PYTHINKER_MODEL_* request config', () => {
   function pythinkerAgent() {
-    return testAgent({
-      providerManager: new ProviderManager({
-        config: {
-          providers: { pythinker: { type: 'pythinker', apiKey: 'test-key' } },
-          models: {
-            'pythinker-code': { provider: 'pythinker', model: 'pythinker-code', maxContextSize: 128_000 },
-          },
+    const config: PythinkerConfig = {
+      providers: { pythinker: { type: 'pythinker', apiKey: 'test-key' } },
+      models: {
+        'pythinker-code': {
+          provider: 'pythinker',
+          model: 'pythinker-code',
+          maxContextSize: 128_000,
+          capabilities: ['thinking'],
         },
-      }),
+      },
+    };
+    return testAgent({
+      initialConfig: config,
+      providerManager: new ProviderManager({ config }),
+    });
+  }
+
+  // The same config backs both the ProviderManager (provider resolution) and
+  // the agent's pythinkerConfig (where ConfigState reads thinking.keep).
+  function pythinkerAgentWithThinkingKeep(keep: string | undefined) {
+    const config: PythinkerConfig = {
+      providers: { pythinker: { type: 'pythinker', apiKey: 'test-key' } },
+      models: {
+        'pythinker-code': {
+          provider: 'pythinker',
+          model: 'pythinker-code',
+          maxContextSize: 128_000,
+          capabilities: ['thinking'],
+        },
+      },
+      ...(keep !== undefined ? { thinking: { keep } } : {}),
+    };
+    return testAgent({
+      initialConfig: config,
+      providerManager: new ProviderManager({ config }),
     });
   }
 
@@ -378,7 +418,7 @@ describe('ConfigState.provider applies global PYTHINKER_MODEL_* request config',
     vi.stubEnv('PYTHINKER_MODEL_THINKING_KEEP', 'all');
     try {
       const ctx = pythinkerAgent();
-      ctx.agent.config.update({ modelAlias: 'pythinker-code', thinkingLevel: 'high' });
+      ctx.agent.config.update({ modelAlias: 'pythinker-code', thinkingEffort: 'high' });
 
       const provider = ctx.agent.config.provider;
       const gen = Reflect.get(provider as object, '_generationKwargs') as {
@@ -394,7 +434,7 @@ describe('ConfigState.provider applies global PYTHINKER_MODEL_* request config',
     vi.stubEnv('PYTHINKER_MODEL_THINKING_KEEP', 'all');
     try {
       const ctx = pythinkerAgent();
-      ctx.agent.config.update({ modelAlias: 'pythinker-code', thinkingLevel: 'off' });
+      ctx.agent.config.update({ modelAlias: 'pythinker-code', thinkingEffort: 'off' });
 
       const provider = ctx.agent.config.provider;
       const gen = Reflect.get(provider as object, '_generationKwargs') as {
@@ -404,5 +444,297 @@ describe('ConfigState.provider applies global PYTHINKER_MODEL_* request config',
     } finally {
       vi.unstubAllEnvs();
     }
+  });
+
+  it('injects thinking.keep="all" into config.provider by default (no env, no config)', () => {
+    vi.stubEnv('PYTHINKER_MODEL_THINKING_KEEP', '');
+    try {
+      const ctx = pythinkerAgent();
+      ctx.agent.config.update({ modelAlias: 'pythinker-code', thinkingEffort: 'high' });
+
+      const provider = ctx.agent.config.provider;
+      const gen = Reflect.get(provider as object, '_generationKwargs') as {
+        extra_body?: { thinking?: { keep?: unknown } };
+      };
+      expect(gen.extra_body?.thinking?.keep).toBe('all');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('config thinking.keep="off" disables keep by default', () => {
+    vi.stubEnv('PYTHINKER_MODEL_THINKING_KEEP', '');
+    try {
+      const ctx = pythinkerAgentWithThinkingKeep('off');
+      ctx.agent.config.update({ modelAlias: 'pythinker-code', thinkingEffort: 'high' });
+
+      const gen = Reflect.get(ctx.agent.config.provider as object, '_generationKwargs') as {
+        extra_body?: { thinking?: { keep?: unknown } };
+      };
+      expect(gen.extra_body?.thinking?.keep).toBeUndefined();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('env off-value overrides config thinking.keep="all"', () => {
+    vi.stubEnv('PYTHINKER_MODEL_THINKING_KEEP', 'off');
+    try {
+      const ctx = pythinkerAgentWithThinkingKeep('all');
+      ctx.agent.config.update({ modelAlias: 'pythinker-code', thinkingEffort: 'high' });
+
+      const gen = Reflect.get(ctx.agent.config.provider as object, '_generationKwargs') as {
+        extra_body?: { thinking?: { keep?: unknown } };
+      };
+      expect(gen.extra_body?.thinking?.keep).toBeUndefined();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('env="all" overrides config thinking.keep="off"', () => {
+    vi.stubEnv('PYTHINKER_MODEL_THINKING_KEEP', 'all');
+    try {
+      const ctx = pythinkerAgentWithThinkingKeep('off');
+      ctx.agent.config.update({ modelAlias: 'pythinker-code', thinkingEffort: 'high' });
+
+      const gen = Reflect.get(ctx.agent.config.provider as object, '_generationKwargs') as {
+        extra_body?: { thinking?: { keep?: unknown } };
+      };
+      expect(gen.extra_body?.thinking?.keep).toBe('all');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('keeps the forced Pythinker effort synchronized between state and provider', () => {
+    vi.stubEnv('PYTHINKER_MODEL_THINKING_EFFORT', 'max');
+    try {
+      const ctx = pythinkerAgent();
+      ctx.agent.config.update({ modelAlias: 'pythinker-code', thinkingEffort: 'high' });
+
+      const provider = ctx.agent.config.provider;
+      const gen = Reflect.get(provider as object, '_generationKwargs') as {
+        extra_body?: { thinking?: { type?: string; effort?: string } };
+      };
+      expect(ctx.agent.config.data().thinkingEffort).toBe('max');
+      expect(provider.thinkingEffort).toBe('max');
+      expect(gen.extra_body?.thinking).toMatchObject({ type: 'enabled', effort: 'max' });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('reports the forced effort for an env-synthesized boolean Pythinker model', () => {
+    vi.stubEnv('PYTHINKER_MODEL_NAME', 'kimi-for-coding');
+    vi.stubEnv('PYTHINKER_MODEL_API_KEY', 'test-key');
+    vi.stubEnv('PYTHINKER_MODEL_THINKING_EFFORT', 'max');
+    try {
+      const config = applyEnvModelConfig(getDefaultConfig());
+      const persistence = new InMemoryAgentRecordPersistence();
+      const ctx = testAgent({
+        initialConfig: config,
+        persistence,
+        providerManager: new ProviderManager({ config }),
+      });
+
+      ctx.agent.config.update({ modelAlias: ENV_MODEL_ALIAS_KEY });
+
+      expect(ctx.agent.config.data().thinkingEffort).toBe('max');
+      expect(persistence.records).toContainEqual(
+        expect.objectContaining({ type: 'config.update', thinkingEffort: 'max' }),
+      );
+      expect(ctx.agent.config.provider.thinkingEffort).toBe('max');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('applies the Pythinker force through an Anthropic protocol override', () => {
+    vi.stubEnv('PYTHINKER_MODEL_THINKING_EFFORT', 'max');
+    try {
+      const config: PythinkerConfig = {
+        providers: { pythinker: { type: 'pythinker', apiKey: 'test-key' } },
+        models: {
+          'pythinker-code-anthropic': {
+            provider: 'pythinker',
+            protocol: 'anthropic',
+            model: 'pythinker-code',
+            maxContextSize: 128_000,
+            capabilities: ['thinking'],
+          },
+        },
+      };
+      const ctx = testAgent({
+        initialConfig: config,
+        providerManager: new ProviderManager({ config }),
+      });
+
+      ctx.agent.config.update({
+        modelAlias: 'pythinker-code-anthropic',
+        thinkingEffort: 'high',
+      });
+
+      expect(ctx.agent.config.data().thinkingEffort).toBe('max');
+      expect(ctx.agent.config.provider.thinkingEffort).toBe('max');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('does not carry the Pythinker force into a non-Pythinker model switch', () => {
+    vi.stubEnv('PYTHINKER_MODEL_THINKING_EFFORT', 'max');
+    try {
+      const config: PythinkerConfig = {
+        providers: {
+          pythinker: { type: 'pythinker', apiKey: 'test-key' },
+          anthropic: { type: 'anthropic', apiKey: 'test-key' },
+        },
+        models: {
+          'pythinker-code': {
+            provider: 'pythinker',
+            model: 'pythinker-code',
+            maxContextSize: 128_000,
+            capabilities: ['thinking'],
+            supportEfforts: ['low', 'high'],
+          },
+          claude: {
+            provider: 'anthropic',
+            model: 'claude-sonnet-4-6',
+            maxContextSize: 200_000,
+            capabilities: ['thinking'],
+          },
+        },
+      };
+      const ctx = testAgent({
+        initialConfig: config,
+        providerManager: new ProviderManager({ config }),
+      });
+      ctx.agent.config.update({ modelAlias: 'pythinker-code', thinkingEffort: 'high' });
+
+      ctx.agent.config.update({ modelAlias: 'claude' });
+
+      expect(ctx.agent.config.data().thinkingEffort).toBe('high');
+      expect(ctx.agent.config.provider.thinkingEffort).toBe('high');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('does NOT inject PYTHINKER_MODEL_THINKING_EFFORT into config.provider when thinking is off', () => {
+    vi.stubEnv('PYTHINKER_MODEL_THINKING_EFFORT', 'max');
+    try {
+      const ctx = pythinkerAgent();
+      ctx.agent.config.update({ modelAlias: 'pythinker-code', thinkingEffort: 'off' });
+
+      const provider = ctx.agent.config.provider;
+      const gen = Reflect.get(provider as object, '_generationKwargs') as {
+        extra_body?: { thinking?: { effort?: string } };
+      };
+      expect(ctx.agent.config.data().thinkingEffort).toBe('off');
+      expect(provider.thinkingEffort).toBe('off');
+      expect(gen.extra_body?.thinking?.effort).toBeUndefined();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  function anthropicAgentWithThinkingKeep(keep: string | undefined) {
+    const config: PythinkerConfig = {
+      providers: { anthropic: { type: 'anthropic', apiKey: 'test-key' } },
+      models: {
+        'claude-sonnet-4-6': {
+          provider: 'anthropic',
+          model: 'claude-sonnet-4-6',
+          maxContextSize: 200_000,
+          capabilities: ['thinking', 'tool_use'],
+        },
+      },
+      ...(keep !== undefined ? { thinking: { keep } } : {}),
+    };
+    return testAgent({
+      initialConfig: config,
+      providerManager: new ProviderManager({ config }),
+    });
+  }
+
+  it('injects context_management clear_thinking keep into config.provider for anthropic when thinking is on', () => {
+    vi.stubEnv('PYTHINKER_MODEL_THINKING_KEEP', 'all');
+    try {
+      const ctx = anthropicAgentWithThinkingKeep(undefined);
+      ctx.agent.config.update({ modelAlias: 'claude-sonnet-4-6', thinkingEffort: 'high' });
+
+      const provider = ctx.agent.config.provider;
+      const gen = Reflect.get(provider as object, '_generationKwargs') as {
+        contextManagement?: { edits: Array<{ type: string; keep?: string }> };
+        betaFeatures?: string[];
+      };
+      expect(gen.contextManagement).toEqual({
+        edits: [{ type: 'clear_thinking_20251015', keep: 'all' }],
+      });
+      expect(gen.betaFeatures).toContain('context-management-2025-06-27');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('does NOT inject context_management for anthropic when thinking is off', () => {
+    vi.stubEnv('PYTHINKER_MODEL_THINKING_KEEP', 'all');
+    try {
+      const ctx = anthropicAgentWithThinkingKeep(undefined);
+      ctx.agent.config.update({ modelAlias: 'claude-sonnet-4-6', thinkingEffort: 'off' });
+
+      const gen = Reflect.get(ctx.agent.config.provider as object, '_generationKwargs') as {
+        contextManagement?: unknown;
+      };
+      expect(gen.contextManagement).toBeUndefined();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});
+
+describe('ConfigState.provider memo (reasoning dialect survives turns)', () => {
+  function pythinkerAgentWithTwoModels() {
+    const config: PythinkerConfig = {
+      providers: { pythinker: { type: 'pythinker', apiKey: 'test-key' } },
+      models: {
+        'pythinker-code': { provider: 'pythinker', model: 'pythinker-code', maxContextSize: 128_000 },
+        'pythinker-code-2': { provider: 'pythinker', model: 'pythinker-code-2', maxContextSize: 128_000 },
+      },
+    };
+    return testAgent({
+      initialConfig: config,
+      providerManager: new ProviderManager({ config }),
+    });
+  }
+
+  it('shares the reasoning-dialect cell across repeated accesses with unchanged config', () => {
+    const ctx = pythinkerAgentWithTwoModels();
+    ctx.agent.config.update({ modelAlias: 'pythinker-code' });
+
+    const first = ctx.agent.config.provider;
+    const second = ctx.agent.config.provider;
+
+    // Each access returns a fresh morph clone, but the clones share the
+    // dialect cell learned from inbound responses — without the memo, the
+    // dialect detected on one turn would be lost before the next request.
+    expect(first).not.toBe(second);
+    expect(Reflect.get(first as object, '_reasoningKeyDialect')).toBe(
+      Reflect.get(second as object, '_reasoningKeyDialect'),
+    );
+  });
+
+  it('rebuilds the base provider (fresh dialect cell) when the resolved config changes', () => {
+    const ctx = pythinkerAgentWithTwoModels();
+    ctx.agent.config.update({ modelAlias: 'pythinker-code' });
+    const before = ctx.agent.config.provider;
+
+    ctx.agent.config.update({ modelAlias: 'pythinker-code-2' });
+    const after = ctx.agent.config.provider;
+
+    expect(Reflect.get(after as object, '_reasoningKeyDialect')).not.toBe(
+      Reflect.get(before as object, '_reasoningKeyDialect'),
+    );
   });
 });

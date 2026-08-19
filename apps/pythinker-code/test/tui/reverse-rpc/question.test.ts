@@ -35,13 +35,7 @@ describe('question reverse-rpc', () => {
     const controller = new QuestionController();
     const show = vi
       .spyOn(controller, 'show')
-      .mockResolvedValue({
-        answers: ['Alpha'],
-        method: 'number_key',
-        annotations: {
-          'Q1?': { preview: 'Alpha preview', notes: 'Use the first option.' },
-        },
-      });
+      .mockResolvedValue({ answers: ['Alpha'], method: 'number_key' });
     const handler = createQuestionAskHandler(controller);
     const event = questionEvent({
       questions: [
@@ -50,16 +44,9 @@ describe('question reverse-rpc', () => {
           header: 'Pick',
           body: 'Choose one',
           multiSelect: true,
-          allowOther: false,
           otherLabel: 'Other',
           otherDescription: 'Type a custom answer',
-          options: [
-            {
-              label: 'Alpha',
-              description: 'First option',
-              preview: 'Alpha preview',
-            },
-          ],
+          options: [{ label: 'Alpha', description: 'First option' }],
         },
       ],
     });
@@ -67,9 +54,6 @@ describe('question reverse-rpc', () => {
     await expect(handler(event)).resolves.toEqual({
       answers: { 'Q1?': 'Alpha' },
       method: 'number_key',
-      annotations: {
-        'Q1?': { preview: 'Alpha preview', notes: 'Use the first option.' },
-      },
     });
     expect(show).toHaveBeenCalledWith({
       id: 'q-1',
@@ -80,16 +64,9 @@ describe('question reverse-rpc', () => {
           header: 'Pick',
           body: 'Choose one',
           multi_select: true,
-          allow_other: false,
           other_label: 'Other',
           other_description: 'Type a custom answer',
-          options: [
-            {
-              label: 'Alpha',
-              description: 'First option',
-              preview: 'Alpha preview',
-            },
-          ],
+          options: [{ label: 'Alpha', description: 'First option' }],
         },
       ],
     });
@@ -153,49 +130,5 @@ describe('question reverse-rpc', () => {
         },
       ],
     });
-  });
-
-  it('preserves and opens the URL attached to a selected question option', async () => {
-    const controller = new QuestionController();
-    const show = vi
-      .spyOn(controller, 'show')
-      .mockResolvedValue({ answers: ['Open URL'], method: 'enter' });
-    const openUrl = vi.fn();
-    const handler = createQuestionAskHandler(controller, openUrl);
-    const event = questionEvent({
-      questions: [
-        {
-          question: 'Open account?',
-          options: [
-            {
-              label: 'Open URL',
-              description: 'example.test',
-              url: 'https://example.test/account',
-            },
-            { label: 'Decline' },
-          ],
-        },
-      ],
-    });
-
-    await expect(handler(event)).resolves.toMatchObject({
-      answers: { 'Open account?': 'Open URL' },
-    });
-    expect(show).toHaveBeenCalledWith(
-      expect.objectContaining({
-        questions: [
-          expect.objectContaining({
-            options: [
-              expect.objectContaining({
-                label: 'Open URL',
-                url: 'https://example.test/account',
-              }),
-              expect.objectContaining({ label: 'Decline' }),
-            ],
-          }),
-        ],
-      }),
-    );
-    expect(openUrl).toHaveBeenCalledWith('https://example.test/account');
   });
 });

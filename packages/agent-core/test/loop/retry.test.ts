@@ -1,6 +1,7 @@
 import {
   APIConnectionError,
   APIProviderQuotaExhaustedError,
+  APIProviderRateLimitError,
   emptyUsage,
   isRetryableGenerateError,
 } from '@pymodel/kosong';
@@ -9,7 +10,7 @@ import { describe, expect, it } from 'vitest';
 import type { PythinkerConfig } from '#/config';
 import { ErrorCodes, PythinkerError } from '#/errors';
 import type { LLM, LLMChatParams, LLMChatResponse } from '#/loop/llm';
-import { chatWithRetry, DEFAULT_MAX_RETRY_ATTEMPTS } from '#/loop/retry';
+import { chatWithRetry, DEFAULT_MAX_RETRY_ATTEMPTS, retryBackoffDelays } from '#/loop/retry';
 import { ProviderManager } from '#/session/provider-manager';
 
 function okResponse(): LLMChatResponse {
@@ -31,8 +32,34 @@ function makeInput(
 }
 
 describe('chatWithRetry: terminated stream drops', () => {
-  it('uses a ten-attempt default retry budget', () => {
-    expect(DEFAULT_MAX_RETRY_ATTEMPTS).toBe(10);
+  it('preserves caller-set requestLogFields across attempts while owning turnStep/attempt', async () => {
+    // The strict-resend path marks its params with `projection: 'strict'`;
+    // the per-attempt rebuild must merge that marker instead of replacing
+    // the whole fields object.
+    let calls = 0;
+    const seenFields: Array<LLMChatParams['requestLogFields']> = [];
+    const llm: LLM = {
+      systemPrompt: '',
+      modelName: 'mock',
+      isRetryableError: (e) => isRetryableGenerateError(e),
+      async chat(params: LLMChatParams): Promise<LLMChatResponse> {
+        calls += 1;
+        seenFields.push(params.requestLogFields);
+        if (calls === 1) throw new APIConnectionError('terminated');
+        return okResponse();
+      },
+    };
+    const input = makeInput(llm, new AbortController().signal);
+
+    await chatWithRetry({
+      ...input,
+      params: { ...input.params, requestLogFields: { projection: 'strict' } },
+    });
+
+    expect(seenFields).toEqual([
+      { projection: 'strict', turnStep: 't.1' },
+      { projection: 'strict', turnStep: 't.1', attempt: '2/10' },
+    ]);
   });
 
   it('retries an APIConnectionError("terminated") and succeeds on a later attempt', async () => {
@@ -79,14 +106,119 @@ describe('chatWithRetry: terminated stream drops', () => {
     });
     expect(calls).toBe(1);
   });
+
+  it('does not retry OAuth token fetch connection errors (already retried internally)', async () => {
+    let tokenCalls = 0;
+    const manager = new ProviderManager({
+      config: oauthConfig(),
+      resolveOAuthTokenProvider: () => ({
+        async getAccessToken() {
+          tokenCalls += 1;
+          throw new PythinkerError(
+            ErrorCodes.PROVIDER_CONNECTION_ERROR,
+            'OAuth provider "managed:pythinker-code" failed to fetch an access token: fetch failed',
+          );
+        },
+      }),
+    });
+    const resolveAuth = manager.resolveAuth('pythinker-code/kimi-for-coding');
+    if (resolveAuth === undefined) throw new Error('expected OAuth auth resolver');
+
+    let chatCalls = 0;
+    const llm: LLM = {
+      systemPrompt: '',
+      modelName: 'mock',
+      isRetryableError: (e) => isRetryableGenerateError(e),
+      async chat(_params: LLMChatParams): Promise<LLMChatResponse> {
+        chatCalls += 1;
+        return resolveAuth(async () => okResponse());
+      },
+    };
+
+    await expect(chatWithRetry(makeInput(llm, new AbortController().signal))).rejects.toMatchObject({
+      code: ErrorCodes.PROVIDER_CONNECTION_ERROR,
+    });
+    expect(chatCalls).toBe(1);
+    expect(tokenCalls).toBe(1);
+  });
+});
+
+describe('retryBackoffDelays', () => {
+  it('uses a 500ms base, factor-2 ramp, 32s cap, and up to +25% jitter', () => {
+    const delays = retryBackoffDelays(10);
+    expect(delays).toHaveLength(9);
+    // Max possible delay is the capped base (32s) plus 25% jitter = 40s.
+    for (const d of delays) {
+      expect(d).toBeGreaterThan(0);
+      expect(d).toBeLessThanOrEqual(40_000);
+    }
+    // First attempt base is 500ms (plus up to 25% jitter) -> within [500, 625].
+    expect(delays[0]).toBeGreaterThanOrEqual(500);
+    expect(delays[0]).toBeLessThanOrEqual(625);
+  });
+
+  it('reaches the 32s cap for high-attempt configs (overload ride-out)', () => {
+    // The ramp hits 32s by attempt 7 (500 * 2^6); across many draws the peak
+    // approaches the cap (32s..40s with jitter), well above the old 5s cap.
+    let maxSeen = 0;
+    for (let i = 0; i < 50; i += 1) {
+      for (const d of retryBackoffDelays(12)) {
+        maxSeen = Math.max(maxSeen, d);
+      }
+    }
+    expect(maxSeen).toBeGreaterThan(30_000);
+  });
+
+  it('keeps low-attempt configs quick so latency-sensitive runs are not slowed', () => {
+    // 3 attempts -> 2 delays at the bottom of the ramp (~0.5s / ~1s before
+    // jitter); their sum stays small.
+    const delays = retryBackoffDelays(3);
+    expect(delays).toHaveLength(2);
+    expect(delays.reduce((a, b) => a + b, 0)).toBeLessThan(3_000);
+  });
+});
+
+describe('chatWithRetry: default retry budget', () => {
+  it('retries up to DEFAULT_MAX_RETRY_ATTEMPTS before giving up', async () => {
+    // A sustained 429 carries a 1ms server retry-after so the test exercises
+    // the full default budget without sleeping through the real backoff.
+    let calls = 0;
+    const captured: Array<{ type: string }> = [];
+    const llm: LLM = {
+      systemPrompt: '',
+      modelName: 'mock',
+      isRetryableError: (e) => isRetryableGenerateError(e),
+      async chat(): Promise<LLMChatResponse> {
+        calls += 1;
+        throw new APIProviderRateLimitError('rate limited', null, 1);
+      },
+    };
+    const input = makeInput(llm, new AbortController().signal);
+
+    await expect(
+      chatWithRetry({
+        ...input,
+        dispatchEvent: async (event) => {
+          captured.push(event as { type: string });
+        },
+      }),
+    ).rejects.toMatchObject({ name: 'APIProviderRateLimitError' });
+
+    expect(calls).toBe(DEFAULT_MAX_RETRY_ATTEMPTS);
+    expect(captured.filter((e) => e.type === 'step.retrying')).toHaveLength(
+      DEFAULT_MAX_RETRY_ATTEMPTS - 1,
+    );
+  });
 });
 
 describe('chatWithRetry: quota-exhausted 429 fails fast', () => {
-  it('does not retry a quota-exhausted 429', async () => {
+  it('does not retry a quota-exhausted 429 even when it carries retry-after', async () => {
     // Same status as a rate limit, but exhausted quota/balance never clears
     // on its own — the error must surface after a single attempt instead of
-    // burning the whole default budget.
+    // burning the whole default budget. The 1ms retry-after proves a server
+    // backoff hint does not re-enable retries either.
     let calls = 0;
+    const captured: Array<{ type: string }> = [];
     const llm: LLM = {
       systemPrompt: '',
       modelName: 'mock',
@@ -96,14 +228,76 @@ describe('chatWithRetry: quota-exhausted 429 fails fast', () => {
         throw new APIProviderQuotaExhaustedError(
           'Your account is suspended due to insufficient balance, please recharge your account',
           null,
+          1,
         );
       },
     };
+    const input = makeInput(llm, new AbortController().signal);
 
     await expect(
-      chatWithRetry(makeInput(llm, new AbortController().signal)),
+      chatWithRetry({
+        ...input,
+        dispatchEvent: async (event) => {
+          captured.push(event as { type: string });
+        },
+      }),
     ).rejects.toMatchObject({ name: 'APIProviderQuotaExhaustedError' });
 
     expect(calls).toBe(1);
+    expect(captured.filter((e) => e.type === 'step.retrying')).toHaveLength(0);
   });
 });
+
+describe('chatWithRetry: honors server retry-after', () => {
+  it('uses the error retryAfterMs as the retry delay instead of the backoff', async () => {
+    let calls = 0;
+    const captured: Array<{ type: string; delayMs?: number }> = [];
+    const llm: LLM = {
+      systemPrompt: '',
+      modelName: 'mock',
+      isRetryableError: (e) => isRetryableGenerateError(e),
+      async chat(): Promise<LLMChatResponse> {
+        calls += 1;
+        if (calls === 1) {
+          // 429 carrying a server `retry-after` of 42ms. Kept tiny so the test
+          // sleeps only briefly, while still being distinguishable from the
+          // attempt-1 backoff (500..625ms) it must override.
+          throw new APIProviderRateLimitError('rate limited', null, 42);
+        }
+        return okResponse();
+      },
+    };
+    const input = makeInput(llm, new AbortController().signal);
+    await chatWithRetry({
+      ...input,
+      dispatchEvent: async (event) => {
+        captured.push(event as { type: string; delayMs?: number });
+      },
+    });
+
+    expect(calls).toBe(2);
+    const retrying = captured.find((e) => e.type === 'step.retrying');
+    expect(retrying?.delayMs).toBe(42);
+  });
+});
+
+function oauthConfig(): PythinkerConfig {
+  return {
+    defaultModel: 'pythinker-code/kimi-for-coding',
+    providers: {
+      'managed:pythinker-code': {
+        type: 'pythinker',
+        apiKey: '',
+        baseUrl: 'https://api.example/v1',
+        oauth: { storage: 'file', key: 'oauth/pythinker-code' },
+      },
+    },
+    models: {
+      'pythinker-code/kimi-for-coding': {
+        provider: 'managed:pythinker-code',
+        model: 'kimi-for-coding',
+        maxContextSize: 1_000_000,
+      },
+    },
+  };
+}

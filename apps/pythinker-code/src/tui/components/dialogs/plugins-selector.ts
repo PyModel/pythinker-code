@@ -1,51 +1,59 @@
 import {
   Container,
+  Input,
   Key,
   matchesKey,
-  parseKey,
   truncateToWidth,
   visibleWidth,
   type Focusable,
-} from '@earendil-works/pi-tui';
-import type { PluginInfo, PluginMcpServerInfo, PluginSummary } from '@pymodel/pythinker-code-sdk';
+} from '@pymodel/pi-tui';
+import type {
+  CapabilityStatus,
+  PluginInfo,
+  PluginMcpServerInfo,
+  PluginSummary,
+} from '@pymodel/pythinker-code-sdk';
+import chalk from 'chalk';
 
 import { SELECT_POINTER } from '#/tui/constant/symbols';
-import {
-  defaultKeybindings,
-  keybindingDisplayText,
-  KeybindingResolver,
-  type KeybindingHandlers,
-  type ParsedKeybinding,
-} from '#/tui/keybindings';
-import { currentTheme, type ColorToken } from '#/tui/theme';
-import {
-  formatPluginSourceLabel,
-  pluginSourceTrustLabel,
-  pluginTrustLabel,
-} from '#/tui/utils/plugin-source-label';
+import { currentTheme } from '#/tui/theme';
+import type { ColorPalette } from '#/tui/theme/colors';
+import { formatPluginSourceLabel, pluginTrustLabel } from '#/tui/utils/plugin-source-label';
 import { printableChar } from '#/tui/utils/printable-key';
-import { SearchableList } from '#/tui/utils/searchable-list';
-import {
-  computeMarketplaceEntryStatus,
-  type PluginMarketplace,
-  type PluginMarketplaceEntry,
-} from '#/utils/plugin-marketplace';
+import { renderTabStrip } from '#/tui/utils/tab-strip';
+import { computeUpdateStatus, type PluginMarketplaceEntry } from '#/utils/plugin-marketplace';
 
-import {
-  ChoicePickerComponent,
-  combinedBindingHint,
-  formatBindingKeys,
-} from './choice-picker';
+import { ChoicePickerComponent } from './choice-picker';
 
-const OVERVIEW_MARKETPLACE = 'marketplace';
-const OVERVIEW_RELOAD = 'reload';
-const OVERVIEW_SHOW_LIST = 'show-list';
-const OVERVIEW_PLUGIN_PREFIX = 'plugin:';
 const MCP_SERVER_PREFIX = 'mcp:';
 
 const REMOVE_CONFIRM_CANCEL = 'cancel';
 const REMOVE_CONFIRM_REMOVE = 'remove';
+const INSTALL_TRUST_EXIT = 'exit';
+const INSTALL_TRUST_TRUST = 'trust';
 const ELLIPSIS = '…';
+
+// Hardcoded Web Bridge promotion: a built-in fallback shown only while the
+// marketplace catalog is loading, unreachable, or predates the real
+// `pythinker-webbridge` entry. Selecting it opens the install page in the browser;
+// once the catalog carries the real entry, that row wins and installs
+// normally.
+const WEB_BRIDGE_URL = 'https://www.kimi.com/features/webbridge#local-agent';
+const WEB_BRIDGE_ENTRY: PluginMarketplaceEntry = {
+  id: 'pythinker-webbridge',
+  displayName: 'Pythinker WebBridge',
+  source: WEB_BRIDGE_URL,
+  tier: 'official',
+  homepage: WEB_BRIDGE_URL,
+  description: 'Control your real browser from Pythinker Code — navigate, click, type, and screenshot',
+};
+
+// Only the hardcoded pinned row should open the WebBridge install page. Match
+// by reference (not id) so a catalog entry on another tab that happens to
+// reuse the same id still installs normally instead of being hijacked.
+function isPinnedWebBridgeEntry(entry: PluginMarketplaceEntry): boolean {
+  return entry === WEB_BRIDGE_ENTRY;
+}
 
 interface PluginsOverviewItem {
   readonly value: string;
@@ -53,366 +61,6 @@ interface PluginsOverviewItem {
   readonly label: string;
   readonly status?: string;
   readonly description: string;
-}
-
-export type PluginsOverviewSelection =
-  | { readonly kind: 'marketplace' }
-  | { readonly kind: 'reload' }
-  | { readonly kind: 'show-list' }
-  | { readonly kind: 'toggle'; readonly id: string; readonly enabled: boolean }
-  | { readonly kind: 'mcp'; readonly id: string }
-  | { readonly kind: 'remove'; readonly id: string }
-  | { readonly kind: 'info'; readonly id: string };
-
-export interface PluginsOverviewSelectorOptions {
-  readonly plugins: readonly PluginSummary[];
-  readonly selectedId?: string;
-  readonly pluginHint?: {
-    readonly id: string;
-    readonly text: string;
-  };
-  readonly onSelect: (selection: PluginsOverviewSelection) => void;
-  readonly onCancel: () => void;
-}
-
-export class PluginsOverviewSelectorComponent extends Container implements Focusable {
-  focused = false;
-
-  private readonly opts: PluginsOverviewSelectorOptions;
-  private readonly items: readonly PluginsOverviewItem[];
-  private selectedIndex = 0;
-  private bindings = defaultKeybindings();
-  private keybindings = new KeybindingResolver([]);
-
-  constructor(opts: PluginsOverviewSelectorOptions) {
-    super();
-    this.opts = opts;
-    this.items = buildOverviewItems(opts.plugins);
-    const selectedIndex = this.items.findIndex(
-      (item) => item.value === `${OVERVIEW_PLUGIN_PREFIX}${opts.selectedId}`,
-    );
-    this.selectedIndex = Math.max(0, selectedIndex);
-    this.setKeybindings(this.bindings);
-  }
-
-  setKeybindings(bindings: readonly ParsedKeybinding[]): void {
-    this.bindings = bindings;
-    const winners = new Map<string, ParsedKeybinding>();
-    for (const binding of bindings) {
-      winners.set(`${binding.context}\0${binding.chord.join(' ')}`, binding);
-    }
-    const actions = new Set(['select:previous', 'select:next', 'select:accept', 'select:cancel', 'plugin:toggle']);
-    this.keybindings = new KeybindingResolver(
-      [...winners.values()].filter(
-        (binding) => binding.action !== null && actions.has(binding.action),
-      ),
-    );
-  }
-
-  handleInput(data: string): void {
-    const handlers: KeybindingHandlers = {
-      'select:previous': () => this.moveUp(),
-      'select:next': () => this.moveDown(),
-      'select:accept': () => this.accept(),
-      'select:cancel': () => this.opts.onCancel(),
-      'plugin:toggle': () => this.toggle(),
-    };
-    const keyId = parseKey(data);
-    if (
-      keyId?.includes('+') === true
-        ? this.keybindings.dispatch(data, ['Plugin', 'Select'], handlers)
-        : this.keybindings.dispatchKeyId(keyId ?? data, ['Plugin', 'Select'], handlers)
-    ) {
-      return;
-    }
-    const chosen = this.items[this.selectedIndex];
-    if (chosen === undefined) return;
-    const pluginId = overviewItemPluginId(chosen);
-    const decoded = printableChar(data);
-    if (decoded === 'd' || decoded === 'D') {
-      if (pluginId !== undefined) this.opts.onSelect({ kind: 'remove', id: pluginId });
-      return;
-    }
-    if (decoded === 'm' || decoded === 'M') {
-      if (pluginId === undefined) return;
-      const plugin = this.opts.plugins.find((item) => item.id === pluginId);
-      if (plugin !== undefined && plugin.mcpServerCount > 0) {
-        this.opts.onSelect({ kind: 'mcp', id: pluginId });
-      }
-      return;
-    }
-  }
-
-  override render(width: number): string[] {
-    const { plugins } = this.opts;
-    const hint = [
-      combinedBindingHint(
-        keybindingDisplayText(this.bindings, 'Select', 'select:previous'),
-        keybindingDisplayText(this.bindings, 'Select', 'select:next'),
-        'navigate',
-      ),
-      pluginBindingHint(this.bindings, 'plugin:toggle', 'toggle'),
-      'M MCP servers',
-      'D remove',
-      pluginBindingHint(this.bindings, 'select:accept', 'details'),
-      pluginBindingHint(this.bindings, 'select:cancel', 'cancel'),
-    ].filter((part): part is string => part !== undefined).join(' · ');
-    const pluginItems = this.items.filter((item) => item.kind === 'plugin');
-    const actionItems = this.items.filter((item) => item.kind === 'action');
-    const lines: string[] = [
-      currentTheme.fg('primary', '─'.repeat(width)),
-      currentTheme.boldFg('primary', ' Plugins'),
-      mutedHintLine(` ${hint}`),
-      '',
-      sectionLabel(`Installed plugins (${plugins.length})`),
-    ];
-
-    if (pluginItems.length === 0) {
-      lines.push(currentTheme.fg('textMuted', '  No plugins installed.'));
-    } else {
-      let absoluteIndex = 0;
-      for (const item of pluginItems) {
-        lines.push(...this.renderItem(item, absoluteIndex, width));
-        absoluteIndex++;
-      }
-    }
-
-    lines.push('', sectionLabel('Actions'));
-    for (let i = 0; i < actionItems.length; i++) {
-      lines.push(...this.renderItem(actionItems[i]!, pluginItems.length + i, width));
-    }
-
-    lines.push('', currentTheme.fg('primary', '─'.repeat(width)));
-    return lines.map((line) => truncateToWidth(line, width, ELLIPSIS));
-  }
-
-  private renderItem(item: PluginsOverviewItem, index: number, width: number): string[] {
-    const selected = index === this.selectedIndex;
-    const pointer = selected ? SELECT_POINTER : ' ';
-    const labelStyle = selected
-      ? (text: string) => currentTheme.boldFg('primary', text)
-      : (text: string) => currentTheme.fg('text', text);
-    const prefix = currentTheme.fg(selected ? 'primary' : 'textDim', `  ${pointer} `);
-    let line = prefix + labelStyle(item.label);
-    if (item.status !== undefined) {
-      line += '  ' + statusStyle(item)(item.status);
-    }
-    const pluginId = overviewItemPluginId(item);
-    if (pluginId !== undefined && this.opts.pluginHint?.id === pluginId) {
-      line += '  ' + currentTheme.fg('warning', this.opts.pluginHint.text);
-    }
-
-    const descriptionWidth = Math.max(1, width - 4);
-    const lines = [line];
-    for (const descLine of wrapOverviewDescription(item.description, descriptionWidth)) {
-      lines.push(mutedHintLine(`    ${descLine}`));
-    }
-    return lines;
-  }
-
-  private moveUp(): void {
-    this.selectedIndex = Math.max(0, this.selectedIndex - 1);
-  }
-
-  private moveDown(): void {
-    this.selectedIndex = Math.min(this.items.length - 1, this.selectedIndex + 1);
-  }
-
-  private toggle(): void {
-    const chosen = this.items[this.selectedIndex];
-    const pluginId = chosen === undefined ? undefined : overviewItemPluginId(chosen);
-    if (pluginId === undefined) return;
-    const plugin = this.opts.plugins.find((item) => item.id === pluginId);
-    if (plugin !== undefined) {
-      this.opts.onSelect({ kind: 'toggle', id: pluginId, enabled: !plugin.enabled });
-    }
-  }
-
-  private accept(): void {
-    const chosen = this.items[this.selectedIndex];
-    if (chosen === undefined) return;
-    const pluginId = overviewItemPluginId(chosen);
-    if (pluginId !== undefined) {
-      this.opts.onSelect({ kind: 'info', id: pluginId });
-      return;
-    }
-    const selection = parseOverviewSelection(chosen.value);
-    if (selection !== undefined) this.opts.onSelect(selection);
-  }
-}
-
-const MARKETPLACE_PAGE_SIZE = 4;
-
-export type PluginMarketplaceSelection =
-  | { readonly kind: 'install'; readonly entry: PluginMarketplaceEntry }
-  | {
-      readonly kind: 'unavailable';
-      readonly entry: PluginMarketplaceEntry;
-      readonly reason: string;
-    };
-
-export interface PluginMarketplaceSelectorOptions {
-  readonly marketplace: PluginMarketplace;
-  readonly installed: ReadonlyMap<string, PluginSummary>;
-  readonly onSelect: (selection: PluginMarketplaceSelection) => void;
-  readonly onCancel: () => void;
-}
-
-export class PluginMarketplaceSelectorComponent extends Container implements Focusable {
-  focused = false;
-
-  private readonly opts: PluginMarketplaceSelectorOptions;
-  private readonly list: SearchableList<PluginMarketplaceEntry>;
-  private submitted = false;
-  private keybindings = new KeybindingResolver([]);
-
-  constructor(opts: PluginMarketplaceSelectorOptions) {
-    super();
-    this.opts = opts;
-    this.list = new SearchableList({
-      items: opts.marketplace.plugins,
-      toSearchText: marketplaceSearchText,
-      pageSize: MARKETPLACE_PAGE_SIZE,
-      searchable: true,
-    });
-    this.setKeybindings(defaultKeybindings());
-  }
-
-  setKeybindings(bindings: readonly ParsedKeybinding[]): void {
-    const actions = new Set([
-      'select:previous',
-      'select:next',
-      'select:accept',
-      'select:cancel',
-    ]);
-    const winners = new Map<string, ParsedKeybinding>();
-    for (const binding of bindings) {
-      winners.set(`${binding.context}\0${binding.chord.join(' ')}`, binding);
-    }
-    this.keybindings = new KeybindingResolver(
-      [...winners.values()].filter(
-        (binding) => binding.action !== null && actions.has(binding.action),
-      ),
-    );
-  }
-
-  handleInput(data: string): void {
-    if (this.list.handleSearchKey(data)) return;
-    if (matchesKey(data, Key.pageUp)) {
-      this.list.pageUp();
-      return;
-    }
-    if (matchesKey(data, Key.pageDown)) {
-      this.list.pageDown();
-      return;
-    }
-
-    const handlers: KeybindingHandlers = {
-      'select:previous': () => this.list.moveUp(),
-      'select:next': () => this.list.moveDown(),
-      'select:accept': () => this.activate(),
-      'select:cancel': () => this.cancel(),
-    };
-    const keyId = parseKey(data);
-    if (
-      keyId?.includes('+') === true
-        ? this.keybindings.dispatch(data, ['Select'], handlers)
-        : this.keybindings.dispatchKeyId(keyId ?? data, ['Select'], handlers)
-    ) return;
-
-    if (matchesKey(data, Key.enter)) this.activate();
-    else if (matchesKey(data, Key.escape)) this.cancel();
-  }
-
-  override render(width: number): string[] {
-    const view = this.list.view();
-    const titleSuffix = view.query.length === 0
-      ? currentTheme.fg('textMuted', '  (type to search)')
-      : '';
-    const hint = view.query.length === 0
-      ? ' ↑↓ navigate · PgUp/PgDn page · Enter install · Esc cancel'
-      : ' ↑↓ navigate · PgUp/PgDn page · Enter install · Backspace clear · Esc cancel';
-    const lines: string[] = [
-      currentTheme.fg('primary', '─'.repeat(width)),
-      currentTheme.boldFg(
-        'primary',
-        ` ${this.opts.marketplace.name} (${this.opts.marketplace.plugins.length})`,
-      ) + titleSuffix,
-      mutedHintLine(hint),
-      '',
-    ];
-
-    if (view.query.length > 0) {
-      lines.push(
-        currentTheme.fg('primary', ' Search: ') + currentTheme.fg('text', view.query),
-      );
-    }
-    if (view.items.length === 0) {
-      lines.push(currentTheme.fg('textMuted', '   No matches'));
-    } else {
-      for (let index = view.page.start; index < view.page.end; index++) {
-        lines.push(this.renderEntry(view.items[index]!, index === view.selectedIndex, width));
-      }
-    }
-
-    lines.push('');
-    if (view.query.length > 0 && view.items.length > 0) {
-      lines.push(mutedHintLine(` ${view.selectedIndex + 1} / ${view.items.length}`));
-    } else {
-      const remaining = view.items.length - view.page.end;
-      if (remaining > 0) lines.push(mutedHintLine(` ▼ ${remaining} more`));
-      else if (view.page.start > 0) lines.push(mutedHintLine(` ▲ ${view.page.start} previous`));
-    }
-
-    const selected = this.list.selected();
-    if (selected !== undefined) {
-      lines.push('', ...marketplaceDetailLines(selected, this.opts.marketplace, width));
-    }
-    lines.push(currentTheme.fg('primary', '─'.repeat(width)));
-    return lines.map((line) => truncateToWidth(line, width, ELLIPSIS));
-  }
-
-  private renderEntry(entry: PluginMarketplaceEntry, selected: boolean, width: number): string {
-    const status = marketplaceStatus(entry, this.opts.installed.get(entry.id));
-    const prefix = currentTheme.fg(selected ? 'primary' : 'textDim', `  ${selected ? SELECT_POINTER : ' '} `);
-    const statusWidth = visibleWidth(status.text) + 2;
-    const nameWidth = Math.max(1, width - visibleWidth(`  ${SELECT_POINTER} `) - statusWidth);
-    const name = truncateToWidth(entry.displayName, nameWidth, ELLIPSIS);
-    const styledName = selected
-      ? currentTheme.boldFg('primary', name)
-      : currentTheme.fg('text', name);
-    return prefix + styledName + '  ' + currentTheme.fg(status.tone, status.text);
-  }
-
-  private cancel(): void {
-    if (!this.list.clearQuery()) this.opts.onCancel();
-  }
-
-  private activate(): void {
-    const entry = this.list.selected();
-    if (entry === undefined) return;
-    if (entry.install.kind === 'unsupported') {
-      this.opts.onSelect({
-        kind: 'unavailable',
-        entry,
-        reason: entry.install.reason,
-      });
-      return;
-    }
-    if (this.submitted) return;
-    this.submitted = true;
-    this.opts.onSelect({ kind: 'install', entry });
-  }
-}
-
-function pluginBindingHint(
-  bindings: readonly ParsedKeybinding[],
-  action: 'plugin:toggle' | 'select:accept' | 'select:cancel',
-  label: string,
-): string | undefined {
-  const context = action.startsWith('plugin:') ? 'Plugin' : 'Select';
-  const keys = keybindingDisplayText(bindings, context, action);
-  return keys === undefined ? undefined : `${formatBindingKeys(keys)} ${label}`;
 }
 
 export type PluginMcpSelection =
@@ -482,52 +130,54 @@ export class PluginMcpSelectorComponent extends Container implements Focusable {
 
   override render(width: number): string[] {
     const { info } = this.opts;
+    const colors = currentTheme.palette;
     const serverItems = this.items.filter((item) => item.kind === 'plugin');
     const actionItems = this.items.filter((item) => item.kind === 'action');
     const lines: string[] = [
-      currentTheme.fg('primary', '─'.repeat(width)),
-      currentTheme.boldFg('primary', ` MCP servers · ${info.displayName}`),
-      mutedHintLine(' ↑↓ navigate · Enter/Space enable/disable · Esc cancel'),
+      chalk.hex(colors.primary)('─'.repeat(width)),
+      chalk.hex(colors.primary).bold(` MCP servers · ${info.displayName}`),
+      mutedHintLine(' ↑↓ navigate · Enter/Space enable/disable · Esc cancel', colors),
       '',
-      sectionLabel(`MCP servers (${info.enabledMcpServerCount}/${info.mcpServerCount} enabled)`),
+      sectionLabel(`MCP servers (${info.enabledMcpServerCount}/${info.mcpServerCount} enabled)`, colors),
     ];
 
     if (serverItems.length === 0) {
-      lines.push(currentTheme.fg('textMuted', '  No MCP servers declared.'));
+      lines.push(chalk.hex(colors.textMuted)('  No MCP servers declared.'));
     } else {
       for (let i = 0; i < serverItems.length; i++) {
         lines.push(...this.renderItem(serverItems[i]!, i, width));
       }
     }
 
-    lines.push('', sectionLabel('Actions'));
+    lines.push('');
+    lines.push(sectionLabel('Actions', colors));
     for (let i = 0; i < actionItems.length; i++) {
       lines.push(...this.renderItem(actionItems[i]!, serverItems.length + i, width));
     }
 
-    lines.push('', currentTheme.fg('primary', '─'.repeat(width)));
+    lines.push('');
+    lines.push(chalk.hex(colors.primary)('─'.repeat(width)));
     return lines.map((line) => truncateToWidth(line, width, ELLIPSIS));
   }
 
   private renderItem(item: PluginsOverviewItem, index: number, width: number): string[] {
+    const colors = currentTheme.palette;
     const selected = index === this.selectedIndex;
     const pointer = selected ? SELECT_POINTER : ' ';
-    const labelStyle = selected
-      ? (text: string) => currentTheme.boldFg('primary', text)
-      : (text: string) => currentTheme.fg('text', text);
-    const prefix = currentTheme.fg(selected ? 'primary' : 'textDim', `  ${pointer} `);
+    const labelStyle = selected ? chalk.hex(colors.primary).bold : chalk.hex(colors.text);
+    const prefix = chalk.hex(selected ? colors.primary : colors.textDim)(`  ${pointer} `);
     let line = prefix + labelStyle(item.label);
     if (item.status !== undefined) {
-      line += '  ' + statusStyle(item)(item.status);
+      line += '  ' + statusStyle(item, colors)(item.status);
     }
     const serverName = mcpItemServerName(item);
     if (serverName !== undefined && this.opts.serverHint?.server === serverName) {
-      line += '  ' + currentTheme.fg('warning', this.opts.serverHint.text);
+      line += '  ' + chalk.hex(colors.warning)(this.opts.serverHint.text);
     }
     const descriptionWidth = Math.max(1, width - 4);
     const lines = [line];
     for (const descLine of wrapOverviewDescription(item.description, descriptionWidth)) {
-      lines.push(mutedHintLine(`    ${descLine}`));
+      lines.push(mutedHintLine(`    ${descLine}`, colors));
     }
     return lines;
   }
@@ -572,35 +222,53 @@ export class PluginRemoveConfirmComponent extends ChoicePickerComponent {
   }
 }
 
-function buildOverviewItems(plugins: readonly PluginSummary[]): PluginsOverviewItem[] {
-  const options: PluginsOverviewItem[] = plugins.map((plugin) => ({
-    value: `${OVERVIEW_PLUGIN_PREFIX}${plugin.id}`,
-    kind: 'plugin',
-    label: plugin.displayName,
-    status: pluginStatus(plugin),
-    description: overviewPluginDescription(plugin),
-  }));
-  options.push(
-    {
-      value: OVERVIEW_MARKETPLACE,
-      kind: 'action',
-      label: 'Marketplace',
-      description: 'Browse official plugins.',
-    },
-    {
-      value: OVERVIEW_RELOAD,
-      kind: 'action',
-      label: 'Reload',
-      description: 'Re-read installed plugins and manifests.',
-    },
-    {
-      value: OVERVIEW_SHOW_LIST,
-      kind: 'action',
-      label: 'Summary',
-      description: 'Append the current plugin summary to the transcript.',
-    },
-  );
-  return options;
+export type PluginInstallTrustConfirmResult =
+  | { readonly kind: 'confirm' }
+  | { readonly kind: 'cancel' };
+
+export interface PluginInstallTrustConfirmOptions {
+  /** Plugin display name or source, shown in the title for identification. */
+  readonly label: string;
+  readonly onDone: (result: PluginInstallTrustConfirmResult) => void;
+}
+
+/**
+ * Confirmation shown before installing a third-party (unofficial) plugin.
+ * Defaults to "Exit" so the user must explicitly switch to "Trust and install"
+ * to proceed with a plugin that Pythinker has not reviewed.
+ */
+export class PluginInstallTrustConfirmComponent extends ChoicePickerComponent {
+  constructor(opts: PluginInstallTrustConfirmOptions) {
+    super({
+      title: `Install third-party plugin ${opts.label}?`,
+      hint: '↑↓ navigate · Enter/Space select · ←/Esc cancel',
+      formatHint: mutedHintLine,
+      notice:
+        '⚠️ This is a third-party plugin that Pythinker has not reviewed. It can bundle MCP servers, ' +
+        'skills, or files that run code and access your workspace. Install it only if you ' +
+        'trust the source.',
+      noticeTone: 'warning',
+      options: [
+        {
+          value: INSTALL_TRUST_EXIT,
+          label: 'Exit',
+          description: 'Cancel the installation.',
+        },
+        {
+          value: INSTALL_TRUST_TRUST,
+          label: 'Trust and install',
+          tone: 'danger',
+          description: 'Install this third-party plugin anyway.',
+        },
+      ],
+      onSelect: (value) => {
+        opts.onDone(value === INSTALL_TRUST_TRUST ? { kind: 'confirm' } : { kind: 'cancel' });
+      },
+      onCancel: () => {
+        opts.onDone({ kind: 'cancel' });
+      },
+    });
+  }
 }
 
 function overviewPluginDescription(plugin: PluginSummary): string {
@@ -616,143 +284,551 @@ function overviewPluginDescription(plugin: PluginSummary): string {
   return `id ${plugin.id} · ${skills}${mcp}${source}${trust}${state}${diagnostics}`;
 }
 
-function pluginStatus(plugin: PluginSummary): string {
+function pluginStatus(plugin: PluginSummary): string | undefined {
   if (plugin.state !== 'ok') return plugin.state;
   return plugin.enabled ? 'enabled' : 'disabled';
 }
 
-function parseOverviewSelection(value: string): PluginsOverviewSelection | undefined {
-  if (value === OVERVIEW_MARKETPLACE) return { kind: 'marketplace' };
-  if (value === OVERVIEW_RELOAD) return { kind: 'reload' };
-  if (value === OVERVIEW_SHOW_LIST) return { kind: 'show-list' };
-  return undefined;
+function marketplaceStatusStyle(status: string, colors: ColorPalette): (text: string) => string {
+  // States recede, actions pop: "installed …" is a quiet fact (dim), while
+  // "install …" (the available action) stays primary and "update …" stays a
+  // warning — the two used to share near-identical green-ish treatments in
+  // the same column and read as interchangeable.
+  if (status.startsWith('update')) return chalk.hex(colors.warning);
+  if (status.startsWith('installed')) return chalk.hex(colors.textDim);
+  return chalk.hex(colors.primary);
 }
 
-function overviewItemPluginId(item: PluginsOverviewItem): string | undefined {
-  if (!item.value.startsWith(OVERVIEW_PLUGIN_PREFIX)) return undefined;
-  return item.value.slice(OVERVIEW_PLUGIN_PREFIX.length);
-}
-
-function marketplaceSearchText(entry: PluginMarketplaceEntry): string {
-  return [
-    entry.displayName,
-    entry.id,
-    entry.description,
-    entry.author?.name,
-    entry.marketplaceName,
-    entry.marketplaceOwner,
-    entry.category,
-    ...(entry.keywords ?? []),
-    ...(entry.tags ?? []),
-    entry.sourceLabel,
-    entry.repository,
-    entry.homepage,
-  ].filter((value): value is string => value !== undefined && value.length > 0).join(' ');
-}
-
-function marketplaceStatus(
-  entry: PluginMarketplaceEntry,
-  installed: PluginSummary | undefined,
-): { readonly text: string; readonly tone: ColorToken } {
-  if (entry.install.kind === 'unsupported') return { text: 'unavailable', tone: 'error' };
-  const status = computeMarketplaceEntryStatus(entry, installed);
-  switch (status.kind) {
-    case 'update':
-      return {
-        text: `update ${shortRevision(status.local)} → ${shortRevision(status.latest)}`,
-        tone: 'warning',
-      };
-    case 'up-to-date':
-      return {
-        text: status.version === undefined ? 'installed' : `installed · v${status.version}`,
-        tone: 'success',
-      };
-    case 'not-installed':
-      return {
-        text: entry.version === undefined ? 'install' : `install · v${entry.version}`,
-        tone: 'primary',
-      };
-  }
-}
-
-function marketplaceDetailLines(
-  entry: PluginMarketplaceEntry,
-  marketplace: PluginMarketplace,
+/** Rounded single-line URL input box (DESIGN §9), shared by the marketplace
+ * Custom tab and the unified plugins panel. */
+function renderUrlInputBox(
+  input: Input,
+  focused: boolean,
   width: number,
+  colors: ColorPalette,
 ): string[] {
-  const lines = [sectionLabel(`Details · ${entry.displayName}`)];
-  if (entry.description !== undefined) {
-    for (const line of boundedDescription(entry.description, Math.max(1, width - 2), 2)) {
-      lines.push(mutedHintLine(`  ${line}`));
+  input.focused = focused;
+  const border = (s: string): string => chalk.hex(colors.primary)(s);
+  const boxWidth = Math.max(24, width - 2);
+  const innerWidth = Math.max(10, boxWidth - 4);
+  const inputLine = input.render(innerWidth)[0] ?? '';
+  const rightPad = Math.max(0, innerWidth - visibleWidth(inputLine));
+  return [
+    ' ' + border('╭' + '─'.repeat(boxWidth - 2) + '╮'),
+    ' ' + border('│') + '  ' + inputLine + ' '.repeat(rightPad) + border('│'),
+    ' ' + border('╰' + '─'.repeat(boxWidth - 2) + '╯'),
+  ];
+}
+
+// ===========================================================================
+// Unified /plugins panel: Installed / Official / Curated / Custom tabs.
+// ===========================================================================
+
+export type PluginsPanelTabId = 'installed' | 'official' | 'third-party' | 'custom';
+
+export type PluginsPanelSelection =
+  | { readonly kind: 'toggle'; readonly id: string; readonly enabled: boolean }
+  | { readonly kind: 'remove'; readonly id: string }
+  | { readonly kind: 'mcp'; readonly id: string }
+  | { readonly kind: 'details'; readonly id: string }
+  | { readonly kind: 'reload' }
+  | { readonly kind: 'install'; readonly entry: PluginMarketplaceEntry }
+  | { readonly kind: 'install-source'; readonly source: string }
+  | { readonly kind: 'open-url'; readonly url: string; readonly label: string };
+
+export interface PluginsPanelOptions {
+  readonly installed: readonly PluginSummary[];
+  readonly installedIds: ReadonlySet<string>;
+  readonly capabilities?: readonly CapabilityStatus[];
+  /**
+   * False when the marketplace was explicitly replaced (slash-command
+   * source or env override): built-in rows then stay out of the Official
+   * tab entirely. Undefined means the default catalog.
+   */
+  readonly catalogIsDefault?: boolean;
+  readonly initialTab?: PluginsPanelTabId;
+  readonly selectedId?: string;
+  readonly pluginHint?: { readonly id: string; readonly text: string };
+  readonly onSelect: (selection: PluginsPanelSelection) => void;
+  readonly onCancel: () => void;
+  /** Called the first time the Official or Curated tab needs its catalog.
+   * The host fetches the marketplace and calls setMarketplace / setMarketplaceError. */
+  readonly onRequestMarketplace?: () => void;
+}
+
+type MarketState =
+  | { readonly status: 'idle' }
+  | { readonly status: 'loading' }
+  | { readonly status: 'error'; readonly message: string }
+  | { readonly status: 'loaded'; readonly entries: readonly PluginMarketplaceEntry[]; readonly source: string };
+
+const PLUGINS_PANEL_TABS: readonly { id: PluginsPanelTabId; label: string }[] = [
+  { id: 'installed', label: 'Installed' },
+  { id: 'official', label: 'Official' },
+  { id: 'third-party', label: 'Curated' },
+  { id: 'custom', label: 'Custom' },
+];
+
+export class PluginsPanelComponent extends Container implements Focusable {
+  focused = false;
+
+  private readonly opts: PluginsPanelOptions;
+  private readonly customInput = new Input();
+  private activeTabIndex: number;
+  private selectedIndex = 0;
+  private market: MarketState = { status: 'idle' };
+  private installing: string | undefined;
+
+  constructor(opts: PluginsPanelOptions) {
+    super();
+    this.opts = opts;
+    this.activeTabIndex = Math.max(
+      0,
+      PLUGINS_PANEL_TABS.findIndex((tab) => tab.id === (opts.initialTab ?? 'installed')),
+    );
+    if (opts.selectedId !== undefined && this.activeTab.id === 'installed') {
+      const idx = opts.installed.findIndex((p) => p.id === opts.selectedId);
+      if (idx >= 0) this.selectedIndex = idx;
+    }
+    this.customInput.onSubmit = (value) => {
+      const source = value.trim();
+      if (source.length > 0) this.opts.onSelect({ kind: 'install-source', source });
+    };
+  }
+
+  marketplaceStatus(): MarketState['status'] {
+    return this.market.status;
+  }
+
+  setMarketplaceLoading(): void {
+    this.market = { status: 'loading' };
+  }
+
+  setMarketplace(entries: readonly PluginMarketplaceEntry[], source: string): void {
+    this.market = { status: 'loaded', entries, source };
+  }
+
+  setMarketplaceError(message: string): void {
+    this.market = { status: 'error', message };
+  }
+
+  setInstalling(label: string): void {
+    this.installing = label;
+    this.invalidate();
+  }
+
+  clearInstalling(): void {
+    this.installing = undefined;
+    this.invalidate();
+  }
+
+  private get activeTab(): (typeof PLUGINS_PANEL_TABS)[number] {
+    return PLUGINS_PANEL_TABS[this.activeTabIndex]!;
+  }
+
+  private get marketplaceEntries(): readonly PluginMarketplaceEntry[] {
+    if (this.market.status !== 'loaded') return [];
+    return this.market.entries.toSorted(
+      (a, b) =>
+        Number(this.isMarketplaceEntryInstalled(b)) -
+        Number(this.isMarketplaceEntryInstalled(a)),
+    );
+  }
+
+  private get installedVersions(): ReadonlyMap<string, string | undefined> {
+    return new Map(this.opts.installed.map((plugin) => [plugin.id, plugin.version]));
+  }
+
+  private capabilityFor(id: string): CapabilityStatus | undefined {
+    return this.opts.capabilities?.find((capability) => capability.id === id);
+  }
+
+  /** Capability state for a MARKETPLACE row: only our own injected rows
+   * (flagged `builtIn` — a custom catalog cannot forge the flag) may show
+   * capability status, matching how Enter routes them. */
+  private capabilityForEntry(entry: PluginMarketplaceEntry): CapabilityStatus | undefined {
+    return entry.builtIn === true ? this.capabilityFor(entry.id) : undefined;
+  }
+
+  private installedPluginId(entry: PluginMarketplaceEntry): string {
+    return this.capabilityForEntry(entry)?.pluginId ?? entry.id;
+  }
+
+  private isMarketplaceEntryInstalled(entry: PluginMarketplaceEntry): boolean {
+    return this.opts.installedIds.has(this.installedPluginId(entry));
+  }
+
+  private get officialEntries(): readonly PluginMarketplaceEntry[] {
+    // While the catalog is loading or unreachable, the locally-known
+    // capability rows still render and install — built-in runtime setup
+    // must never be blocked by an unrelated catalog fetch.
+    if (this.market.status !== 'loaded') {
+      return this.pendingBuiltInEntries.some((entry) => entry.id === WEB_BRIDGE_ENTRY.id)
+        ? this.pendingBuiltInEntries
+        : [...this.pendingBuiltInEntries, WEB_BRIDGE_ENTRY];
+    }
+    // The real catalog entry wins when present (it installs the actual
+    // plugin); the hardcoded promo row is only a fallback while the catalog
+    // is loading, unreachable, or predates it — never a duplicate row.
+    return this.officialCatalogEntries.some((entry) => entry.id === WEB_BRIDGE_ENTRY.id)
+      ? this.officialCatalogEntries
+      : [WEB_BRIDGE_ENTRY, ...this.officialCatalogEntries];
+  }
+
+  /** Capability rows synthesized from the engine's registry, independent of
+   * the marketplace state; unsupported platforms hide them entirely. Only
+   * the default catalog gets built-in rows — an explicitly overridden
+   * marketplace must be able to fully replace the Official tab. */
+  private get pendingBuiltInEntries(): readonly PluginMarketplaceEntry[] {
+    if (this.opts.catalogIsDefault === false) return [];
+    return (this.opts.capabilities ?? [])
+      .filter((capability) => capability.supported)
+      .map(capabilityMarketplaceEntry);
+  }
+
+  private get officialCatalogEntries(): readonly PluginMarketplaceEntry[] {
+    return this.marketplaceEntries.filter((entry) => {
+      if (entry.tier !== 'official') return false;
+      return this.capabilityForEntry(entry)?.supported !== false;
+    });
+  }
+
+  private get thirdPartyEntries(): readonly PluginMarketplaceEntry[] {
+    // Anything not explicitly marked official lands here: `curated` entries plus
+    // entries that omit `tier` (custom marketplaces often do). Without this,
+    // untiered entries would be invisible in both marketplace tabs.
+    return this.marketplaceEntries.filter((entry) => entry.tier !== 'official');
+  }
+
+  private requestMarketplaceIfNeeded(): void {
+    // The Installed tab also needs the catalog to render update badges; only the
+    // Custom tab (manual URL entry) can skip the fetch entirely.
+    if (this.market.status === 'idle' && this.activeTab.id !== 'custom') {
+      this.market = { status: 'loading' };
+      this.opts.onRequestMarketplace?.();
     }
   }
 
-  const identity = [
-    `id ${entry.id}`,
-    entry.author === undefined ? undefined : `author ${entry.author.name}`,
-    entry.category === undefined ? undefined : `category ${entry.category}`,
-  ].filter((value): value is string => value !== undefined);
-  lines.push(mutedHintLine(` ${identity.join(' · ')}`));
-
-  const revision = [
-    `Source: ${entry.sourceLabel}`,
-    entry.declaredRef === undefined ? undefined : `ref ${entry.declaredRef}`,
-    entry.effectiveSha === undefined ? undefined : `SHA ${shortRevision(entry.effectiveSha)}`,
-  ].filter((value): value is string => value !== undefined);
-  lines.push(mutedHintLine(` ${revision.join(' · ')}`));
-
-  const links = [entry.homepage, entry.repository]
-    .filter((value): value is string => value !== undefined)
-    .filter((value, index, values) => values.indexOf(value) === index);
-  if (links.length > 0) lines.push(mutedHintLine(` Links: ${links.join(' · ')}`));
-
-  const trustSource = entry.install.kind === 'supported' ? entry.install.source : undefined;
-  const catalogOwner = marketplace.owner?.name ?? entry.marketplaceOwner;
-  lines.push(mutedHintLine(
-    ` Catalog: ${marketplace.name}${catalogOwner === undefined ? '' : ` · ${catalogOwner}`} · Pythinker trust ${pluginSourceTrustLabel(trustSource)}`,
-  ));
-
-  const supported = entry.supportedComponents.length === 0
-    ? 'discovered during installation'
-    : entry.supportedComponents.map(componentLabel).join(', ');
-  lines.push(mutedHintLine(` Supported: ${supported}`));
-
-  const compatibility = [
-    entry.unsupportedComponents.length === 0
-      ? undefined
-      : `not run: ${entry.unsupportedComponents.join(', ')}`,
-    entry.install.kind === 'unsupported' ? `unavailable: ${entry.install.reason}` : undefined,
-  ].filter((value): value is string => value !== undefined);
-  if (compatibility.length > 0) {
-    const tone: ColorToken = entry.install.kind === 'unsupported' ? 'error' : 'warning';
-    lines.push(currentTheme.fg(tone, ` Compatibility: ${compatibility.join(' · ')}`));
+  handleInput(data: string): void {
+    if (matchesKey(data, Key.escape)) {
+      this.opts.onCancel();
+      return;
+    }
+    if (matchesKey(data, Key.tab)) {
+      this.activeTabIndex = (this.activeTabIndex + 1) % PLUGINS_PANEL_TABS.length;
+      this.selectedIndex = 0;
+      this.requestMarketplaceIfNeeded();
+      return;
+    }
+    if (matchesKey(data, Key.shift('tab'))) {
+      this.activeTabIndex =
+        (this.activeTabIndex - 1 + PLUGINS_PANEL_TABS.length) % PLUGINS_PANEL_TABS.length;
+      this.selectedIndex = 0;
+      this.requestMarketplaceIfNeeded();
+      return;
+    }
+    switch (this.activeTab.id) {
+      case 'installed':
+        this.handleInstalledInput(data);
+        return;
+      case 'official':
+      case 'third-party':
+        this.handleMarketplaceInput(data);
+        return;
+      case 'custom':
+        this.customInput.handleInput(data);
+        return;
+    }
   }
-  return lines;
-}
 
-function boundedDescription(text: string, width: number, maxLines: number): string[] {
-  const lines = wrapOverviewDescription(text, width);
-  if (lines.length <= maxLines) return lines;
-  const out = lines.slice(0, maxLines);
-  out[maxLines - 1] = truncateToWidth(`${out[maxLines - 1]!}${ELLIPSIS}`, width, ELLIPSIS);
-  return out;
-}
-
-function componentLabel(component: PluginMarketplaceEntry['supportedComponents'][number]): string {
-  switch (component) {
-    case 'mcpServers':
-      return 'MCP';
-    case 'lspServers':
-      return 'LSP';
-    case 'outputStyles':
-      return 'output styles';
-    default:
-      return component;
+  private handleInstalledInput(data: string): void {
+    const plugins = this.opts.installed;
+    if (matchesKey(data, Key.up)) {
+      this.selectedIndex = Math.max(0, this.selectedIndex - 1);
+      return;
+    }
+    if (matchesKey(data, Key.down)) {
+      this.selectedIndex = Math.min(plugins.length - 1, this.selectedIndex + 1);
+      return;
+    }
+    const plugin = plugins[this.selectedIndex];
+    const ch = printableChar(data);
+    // Decode Space for terminals that send printable keys via Kitty/CSI-u
+    // sequences (e.g. VS Code's integrated terminal); `matchesKey(Key.space)`
+    // alone misses those and the toggle silently stops working.
+    if (matchesKey(data, Key.space) || ch === ' ') {
+      if (plugin !== undefined) {
+        this.opts.onSelect({ kind: 'toggle', id: plugin.id, enabled: !plugin.enabled });
+      }
+      return;
+    }
+    if (ch === 'd' || ch === 'D') {
+      if (plugin !== undefined) this.opts.onSelect({ kind: 'remove', id: plugin.id });
+      return;
+    }
+    if (ch === 'm' || ch === 'M') {
+      if (plugin !== undefined) this.opts.onSelect({ kind: 'mcp', id: plugin.id });
+      return;
+    }
+    if (ch === 'r' || ch === 'R') {
+      this.opts.onSelect({ kind: 'reload' });
+      return;
+    }
+    if (matchesKey(data, Key.enter)) {
+      if (plugin === undefined) return;
+      const update = this.installedUpdateStatus(plugin);
+      if (update !== undefined) {
+        this.opts.onSelect({ kind: 'install', entry: update.entry });
+      } else {
+        this.opts.onSelect({ kind: 'details', id: plugin.id });
+      }
+      return;
+    }
+    if (ch === 'i' || ch === 'I') {
+      if (plugin !== undefined) this.opts.onSelect({ kind: 'details', id: plugin.id });
+    }
   }
-}
 
-function shortRevision(value: string): string {
-  return /^[0-9a-f]{40}$/i.test(value) ? value.slice(0, 8) : value;
+  private handleMarketplaceInput(data: string): void {
+    const entries = this.activeTab.id === 'official' ? this.officialEntries : this.thirdPartyEntries;
+    if (matchesKey(data, Key.up)) {
+      this.selectedIndex = Math.max(0, this.selectedIndex - 1);
+      return;
+    }
+    if (matchesKey(data, Key.down)) {
+      // Clamp to 0 while the catalog is still loading (entries empty); otherwise
+      // `entries.length - 1` is -1 and a later Enter reads `entries[-1]`.
+      this.selectedIndex = entries.length === 0 ? 0 : Math.min(entries.length - 1, this.selectedIndex + 1);
+      return;
+    }
+    if (matchesKey(data, Key.enter)) {
+      const entry = entries[this.selectedIndex];
+      if (entry === undefined) return;
+      if (isPinnedWebBridgeEntry(entry)) {
+        this.opts.onSelect({ kind: 'open-url', url: WEB_BRIDGE_URL, label: entry.displayName });
+        return;
+      }
+      this.opts.onSelect({ kind: 'install', entry });
+    }
+  }
+
+  override invalidate(): void {
+    super.invalidate();
+    this.customInput.invalidate();
+  }
+
+  override render(width: number): string[] {
+    if (this.installing !== undefined) {
+      return this.renderInstalling(width);
+    }
+    const colors = currentTheme.palette;
+    const tab = this.activeTab.id;
+    const hint =
+      tab === 'installed'
+        ? this.installedHint()
+        : tab === 'custom'
+          ? ' Tab switch · Enter install · Esc cancel'
+          : ' Tab switch · ↑↓ navigate · Enter open/install · Esc cancel';
+    const lines: string[] = [
+      chalk.hex(colors.primary)('─'.repeat(width)),
+      chalk.hex(colors.primary).bold(' Plugins'),
+      mutedHintLine(hint, colors),
+      '',
+      renderTabStrip({
+        labels: PLUGINS_PANEL_TABS.map((t) => t.label),
+        activeIndex: this.activeTabIndex,
+        width,
+        colors,
+      }),
+      '',
+    ];
+
+    if (tab === 'installed') this.renderInstalled(lines, width);
+    else if (tab === 'official') this.renderOfficial(lines, width);
+    else if (tab === 'third-party') this.renderThirdParty(lines, width);
+    else this.renderCustom(lines, width);
+
+    lines.push(chalk.hex(colors.primary)('─'.repeat(width)));
+    return lines.map((line) => truncateToWidth(line, width, ELLIPSIS));
+  }
+
+  private renderInstalled(lines: string[], width: number): void {
+    const { installed } = this.opts;
+    const colors = currentTheme.palette;
+    if (installed.length === 0) {
+      lines.push(chalk.hex(colors.textMuted)('  No plugins installed.'));
+    } else {
+      for (let i = 0; i < installed.length; i++) {
+        lines.push(...this.renderInstalledRow(installed[i]!, i, width));
+      }
+    }
+    lines.push('');
+    lines.push(mutedHintLine(` ${installed.length} installed`, colors));
+  }
+
+  private installedHint(): string {
+    const plugin = this.opts.installed[this.selectedIndex];
+    const hasUpdate = plugin !== undefined && this.installedUpdateStatus(plugin) !== undefined;
+    const enter = hasUpdate ? 'Enter update' : 'Enter details';
+    return ` Tab switch · Space toggle · D remove · M MCP · ${enter} · I details · R reload · Esc cancel`;
+  }
+
+  private installedUpdateStatus(
+    plugin: PluginSummary,
+  ): { entry: PluginMarketplaceEntry; local: string; latest: string } | undefined {
+    if (this.market.status !== 'loaded') return undefined;
+    const entry = this.market.entries.find(
+      (candidate) =>
+        candidate.id === plugin.id ||
+        (candidate.builtIn === true &&
+          this.capabilityForEntry(candidate)?.pluginId === plugin.id),
+    );
+    if (entry === undefined) return undefined;
+    const status = computeUpdateStatus(entry.version, plugin.version, true);
+    return status.kind === 'update' ? { entry, local: status.local, latest: status.latest } : undefined;
+  }
+
+  private renderInstalledRow(plugin: PluginSummary, index: number, width: number): string[] {
+    const colors = currentTheme.palette;
+    const selected = index === this.selectedIndex;
+    const pointer = selected ? SELECT_POINTER : ' ';
+    const labelStyle = selected ? chalk.hex(colors.primary).bold : chalk.hex(colors.text);
+    const prefix = chalk.hex(selected ? colors.primary : colors.textDim)(`  ${pointer} `);
+    const status = pluginStatus(plugin);
+    const update = this.installedUpdateStatus(plugin);
+    let line = prefix + labelStyle(plugin.displayName);
+    if (status !== undefined) {
+      line += '  ' + statusStyle({ kind: 'plugin', value: '', label: '', description: '', status }, colors)(status);
+    }
+    if (update !== undefined) {
+      const badge = `update ${update.local} → ${update.latest}`;
+      line += '  ' + marketplaceStatusStyle(badge, colors)(badge);
+    }
+    if (this.opts.pluginHint?.id === plugin.id) {
+      line += '  ' + chalk.hex(colors.warning)(this.opts.pluginHint.text);
+    }
+    const descWidth = Math.max(1, width - 4);
+    const out = [line];
+    for (const descLine of wrapOverviewDescription(overviewPluginDescription(plugin), descWidth)) {
+      out.push(mutedHintLine(`    ${descLine}`, colors));
+    }
+    return out;
+  }
+
+  private renderMarketplaceTab(
+    lines: string[],
+    width: number,
+    entries: readonly PluginMarketplaceEntry[],
+    indexOffset = 0,
+    // Counts (installed/available footer) are computed over this list:
+    // the Official tab renders the pinned promo as a row but excludes it
+    // from the catalog counts, matching its pre-catalog semantics.
+    entriesForCount: readonly PluginMarketplaceEntry[] = entries,
+  ): void {
+    const colors = currentTheme.palette;
+    if (this.market.status === 'loading' || this.market.status === 'idle') {
+      lines.push(chalk.hex(colors.textMuted)('  Loading marketplace…'));
+      return;
+    }
+    if (this.market.status === 'error') {
+      lines.push(chalk.hex(colors.warning)(`  Marketplace unavailable: ${this.market.message}`));
+      lines.push(mutedHintLine('  Use the Custom tab to install from a URL.', colors));
+      return;
+    }
+    if (entries.length === 0) {
+      lines.push(chalk.hex(colors.textMuted)('  No plugins found.'));
+    } else {
+      for (let i = 0; i < entries.length; i++) {
+        lines.push(...this.renderMarketplaceRow(entries[i]!, i + indexOffset, width));
+      }
+    }
+    const installedCount = entriesForCount.filter((entry) =>
+      this.isMarketplaceEntryInstalled(entry),
+    ).length;
+    lines.push('');
+    lines.push(
+      mutedHintLine(
+        ` ${installedCount} installed · ${entriesForCount.length - installedCount} available`,
+        colors,
+      ),
+    );
+    lines.push(mutedHintLine(` Source: ${this.market.source}`, colors));
+  }
+
+  private renderOfficial(lines: string[], width: number): void {
+    // Loading / error: `officialEntries` carries the locally-known
+    // capability rows (plus the promo fallback when webbridge is not among
+    // them), so built-in setup works before the catalog arrives. Once
+    // loaded, the promo appears only when the catalog lacks the real entry.
+    if (this.market.status !== 'loaded') {
+      const entries = this.officialEntries;
+      for (let i = 0; i < entries.length; i += 1) {
+        lines.push(...this.renderMarketplaceRow(entries[i]!, i, width));
+      }
+      this.renderMarketplaceTab(lines, width, [], entries.length);
+      return;
+    }
+    this.renderMarketplaceTab(lines, width, this.officialEntries, 0, this.officialCatalogEntries);
+  }
+
+  private renderThirdParty(lines: string[], width: number): void {
+    if (this.opts.catalogIsDefault !== false) {
+      const colors = currentTheme.palette;
+      lines.push(mutedHintLine(' Third-party plugins from our partners.', colors));
+      lines.push('');
+    }
+    this.renderMarketplaceTab(lines, width, this.thirdPartyEntries);
+  }
+
+  private renderMarketplaceRow(entry: PluginMarketplaceEntry, index: number, width: number): string[] {
+    const colors = currentTheme.palette;
+    const selected = index === this.selectedIndex;
+    const pointer = selected ? SELECT_POINTER : ' ';
+    const labelStyle = selected ? chalk.hex(colors.primary).bold : chalk.hex(colors.text);
+    const prefix = chalk.hex(selected ? colors.primary : colors.textDim)(`  ${pointer} `);
+    const capability = this.capabilityForEntry(entry);
+    const status = isPinnedWebBridgeEntry(entry)
+      ? 'open in browser'
+      : capability?.install.running === true
+        ? 'installing…'
+        : marketplaceEntryStatus(
+            entry,
+            this.installedVersions,
+            this.installedPluginId(entry),
+          );
+    const line =
+      prefix + labelStyle(entry.displayName) + '  ' + marketplaceStatusStyle(status, colors)(status);
+    const descWidth = Math.max(1, width - 4);
+    const out = [line];
+    const description =
+      this.activeTab.id === 'official'
+        ? officialMarketplaceEntryDescription(entry)
+        : marketplaceEntryDescription(entry);
+    for (const descLine of wrapOverviewDescription(description, descWidth)) {
+      out.push(mutedHintLine(`    ${descLine}`, colors));
+    }
+    return out;
+  }
+
+  private renderCustom(lines: string[], width: number): void {
+    const colors = currentTheme.palette;
+    lines.push(mutedHintLine(' Install from a GitHub URL (or zip URL / local path):', colors));
+    lines.push('');
+    lines.push(...renderUrlInputBox(this.customInput, this.focused, width, colors));
+  }
+
+  private renderInstalling(width: number): string[] {
+    const colors = currentTheme.palette;
+    const lines = [
+      chalk.hex(colors.primary)('─'.repeat(width)),
+      chalk.hex(colors.primary).bold(' Plugins'),
+      '',
+      chalk.hex(colors.textMuted)(`  Installing ${this.installing}…`),
+      '',
+      chalk.hex(colors.primary)('─'.repeat(width)),
+    ];
+    return lines.map((line) => truncateToWidth(line, width, ELLIPSIS));
+  }
 }
 
 function buildMcpItems(info: PluginInfo): PluginsOverviewItem[] {
@@ -788,23 +864,83 @@ function mcpItemServerName(item: PluginsOverviewItem): string | undefined {
   return item.value.slice(MCP_SERVER_PREFIX.length);
 }
 
-function sectionLabel(label: string): string {
-  return currentTheme.boldFg('textDim', ` ${label}`);
+function marketplaceEntryDescription(entry: PluginMarketplaceEntry): string {
+  const tier = marketplaceTierLabel(entry.tier);
+  const description = entry.description ?? tier;
+  const version = entry.version !== undefined ? ` · v${entry.version}` : '';
+  const keywords =
+    entry.keywords !== undefined && entry.keywords.length > 0
+      ? ` · ${entry.keywords.join(', ')}`
+      : '';
+  const tierSuffix = entry.description !== undefined ? ` · ${tier}` : '';
+  return `${description} · id ${entry.id}${version}${tierSuffix}${keywords}`;
+}
+
+function officialMarketplaceEntryDescription(entry: PluginMarketplaceEntry): string {
+  return entry.description ?? '';
+}
+
+function marketplaceTierLabel(tier: PluginMarketplaceEntry['tier']): string {
+  if (tier === 'official') return 'Official plugin';
+  if (tier === 'curated') return 'Curated plugin';
+  return 'Plugin';
+}
+
+function capabilityMarketplaceEntry(capability: CapabilityStatus): PluginMarketplaceEntry {
+  return {
+    id: capability.id,
+    displayName: capability.displayName,
+    source: `capability:${capability.id}`,
+    tier: 'official',
+    description: capability.description,
+    builtIn: true,
+  };
+}
+
+function installStatus(entry: PluginMarketplaceEntry): string {
+  return entry.version === undefined ? 'install' : `install v${entry.version}`;
+}
+
+function marketplaceEntryStatus(
+  entry: PluginMarketplaceEntry,
+  installed: ReadonlyMap<string, string | undefined>,
+  installedPluginId = entry.id,
+): string {
+  const status = computeUpdateStatus(
+    entry.version,
+    installed.get(installedPluginId),
+    installed.has(installedPluginId),
+  );
+  switch (status.kind) {
+    case 'update':
+      return `update ${status.local} → ${status.latest}`;
+    case 'up-to-date':
+      return status.version === undefined ? 'installed' : `installed · v${status.version}`;
+    case 'not-installed':
+      return installStatus(entry);
+  }
+}
+
+function sectionLabel(label: string, colors: ColorPalette): string {
+  return chalk.hex(colors.textDim).bold(` ${label}`);
 }
 
 function statusStyle(
   item: PluginsOverviewItem,
+  colors: ColorPalette,
 ): (text: string) => string {
-  if (item.kind === 'action') return (text) => currentTheme.fg('textDim', text);
-  if (item.status?.startsWith('update')) return (text) => currentTheme.fg('warning', text);
-  if (item.status === 'enabled' || item.status?.startsWith('installed')) return (text) => currentTheme.fg('success', text);
-  if (item.status?.startsWith('install')) return (text) => currentTheme.fg('primary', text);
-  if (item.status === 'disabled') return (text) => currentTheme.fg('textDim', text);
-  if (item.status !== undefined && /^\d/.test(item.status)) return (text) => currentTheme.fg('textDim', text);
-  return (text) => currentTheme.fg('warning', text);
+  if (item.kind === 'action') return chalk.hex(colors.textDim);
+  if (item.status === 'enabled' || item.status === 'installed') return chalk.hex(colors.success);
+  if (item.status?.startsWith('install')) return chalk.hex(colors.primary);
+  if (item.status === 'disabled') return chalk.hex(colors.textDim);
+  if (item.status !== undefined && /^\d/.test(item.status)) return chalk.hex(colors.textDim);
+  return chalk.hex(colors.warning);
 }
 
-function mutedHintLine(text: string): string {
+function mutedHintLine(text: string, colors?: ColorPalette): string {
+  if (colors !== undefined) {
+    return chalk.hex(colors.textMuted)(text);
+  }
   return currentTheme.fg('textMuted', text);
 }
 

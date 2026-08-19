@@ -6,7 +6,6 @@ import {
   appendStreamingArgsPreview,
   formatErrorMessage,
   formatErrorPayload,
-  normalizeTodoList,
   parseStreamingArgs,
 } from '#/tui/utils/event-payload';
 
@@ -15,12 +14,6 @@ describe('streaming tool argument payload helpers', () => {
     expect(parseStreamingArgs('{"command":"echo hi","path":"/tmp/a"}')).toEqual({
       command: 'echo hi',
       path: '/tmp/a',
-    });
-  });
-
-  it('parses intent from partial streaming arguments', () => {
-    expect(parseStreamingArgs('{"i":"scan configs","path":"/tmp/x')).toMatchObject({
-      i: 'scan configs',
     });
   });
 
@@ -36,36 +29,6 @@ describe('streaming tool argument payload helpers', () => {
     )}"}`;
 
     expect(parseStreamingArgs(oversized)).toEqual({ command: 'echo ok' });
-  });
-});
-
-describe('todo payload normalization', () => {
-  it('normalizes TodoWrite fields and clears fully completed lists', () => {
-    expect(
-      normalizeTodoList([
-        {
-          content: 'Inspect the implementation',
-          activeForm: 'Inspecting the implementation',
-          status: 'in_progress',
-        },
-      ]),
-    ).toEqual([
-      {
-        title: 'Inspect the implementation',
-        activeForm: 'Inspecting the implementation',
-        status: 'in_progress',
-      },
-    ]);
-
-    expect(
-      normalizeTodoList([
-        {
-          content: 'Run focused tests',
-          activeForm: 'Running focused tests',
-          status: 'completed',
-        },
-      ]),
-    ).toEqual([]);
   });
 });
 

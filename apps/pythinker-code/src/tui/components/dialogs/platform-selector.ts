@@ -1,10 +1,19 @@
-import { buildPlatformOptions } from '@pymodel/pythinker-code-sdk';
-import type { Catalog } from '@pymodel/pythinker-code-sdk';
+import {
+  OPENAI_CODEX_OAUTH_PLATFORM_ID,
+  OPEN_PLATFORMS,
+} from '@pymodel/pythinker-code-oauth';
 
-import { ChoicePickerComponent } from './choice-picker';
+import { ChoicePickerComponent, type ChoiceOption } from './choice-picker';
+
+const PLATFORM_OPTIONS: readonly ChoiceOption[] = [
+  { value: OPENAI_CODEX_OAUTH_PLATFORM_ID, label: 'OpenAI Codex (OAuth)' },
+  ...OPEN_PLATFORMS.map((platform) => ({
+    value: platform.id,
+    label: platform.name,
+  })),
+];
 
 export interface PlatformSelectorOptions {
-  readonly catalog?: Catalog;
   readonly onSelect: (platformId: string) => void;
   readonly onCancel: () => void;
 }
@@ -13,8 +22,7 @@ export class PlatformSelectorComponent extends ChoicePickerComponent {
   constructor(opts: PlatformSelectorOptions) {
     super({
       title: 'Select a platform',
-      options: [...buildPlatformOptions(opts.catalog ?? {})],
-      searchable: true,
+      options: [...PLATFORM_OPTIONS],
       onSelect: opts.onSelect,
       onCancel: opts.onCancel,
     });

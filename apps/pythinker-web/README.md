@@ -8,16 +8,13 @@ to a local **server** over REST + WebSocket. Vue 3 + Vite + TypeScript.
 ## Quick start
 
 ```bash
-# 1) Against a REAL server (the server must be running and reachable)
+# Against a REAL server (the server must be running and reachable)
 WEB_PORT=5197 PYTHINKER_SERVER_URL=http://192.168.97.91:58627 pnpm -C apps/pythinker-web run dev
 #   …or from the repo root:  pnpm dev:web   (uses the defaults below)
 
-# 2) Offline / no server — a stub that fakes the server API + event stream
-pnpm -C apps/pythinker-web run dev:stub      # then run dev in another shell
-
 # checks
 pnpm -C apps/pythinker-web run typecheck     # vue-tsc --noEmit
-pnpm -C apps/pythinker-web run test          # vitest
+pnpm -C apps/pythinker-web run test          # vitest (pure logic only)
 pnpm -C apps/pythinker-web run build         # vite build
 ```
 
@@ -62,8 +59,6 @@ server (REST + WS)
   protocol (`event.*`) frames; the projector converts them to `AppEvent`s.
 - **i18n** (`src/i18n/`): vue-i18n, en/zh, per-namespace flat camelCase keys.
   Detect order: `localStorage('pythinker-locale')` → `navigator.language` → `en`.
-- **Tests**: Vitest + @vue/test-utils + jsdom, colocated under `__tests__/`.
-
 ---
 
 ## Server contract — non-obvious notes
@@ -101,7 +96,7 @@ web UI of the `pythinker` CLI (`apps/pythinker-code`).
 4. **Publish** — the root `.github/workflows/release.yml` publishes
    `@pymodel/pythinker-code` to npm; `dist-web` is listed in the package `files`
    array, so the built web assets travel with the CLI package.
-5. **Serve** — `pythinker server run` / `pythinker web` serves `dist-web` from the
+5. **Serve** — `pythinker web` serves `dist-web` from the
    installed package.
 
 The web UI does not display its own package version or build commit. It is

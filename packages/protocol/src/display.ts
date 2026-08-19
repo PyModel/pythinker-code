@@ -6,7 +6,7 @@ export const ToolInputDisplaySchema = z.discriminatedUnion('kind', [
     command: z.string(),
     cwd: z.string().optional(),
     description: z.string().optional(),
-    language: z.enum(['bash', 'powershell']).optional(),
+    language: z.literal('bash').optional(),
   }),
   z.object({
     kind: z.literal('file_io'),
@@ -39,23 +39,6 @@ export const ToolInputDisplaySchema = z.discriminatedUnion('kind', [
     agent_name: z.string(),
     prompt: z.string(),
     background: z.boolean().optional(),
-    isolation: z.literal('worktree').optional(),
-    cwd: z.string().optional(),
-    /**
-     * Fan-out plan for a Dynamic Workflow call, so an approval can show what
-     * is about to launch instead of only how many. Absent for a single agent
-     * call. `prompt_tokens` is the summed estimate of the rendered prompts —
-     * an input-size figure, not a projected total cost.
-     */
-    workflow: z
-      .object({
-        agent_count: z.number(),
-        items: z.array(z.string()),
-        prompt_tokens: z.number(),
-        prompt_template: z.string().optional(),
-        model: z.string().optional(),
-      })
-      .optional(),
   }),
   z.object({
     kind: z.literal('skill_call'),
@@ -67,7 +50,7 @@ export const ToolInputDisplaySchema = z.discriminatedUnion('kind', [
     items: z.array(z.object({ title: z.string(), status: z.string() })),
   }),
   z.object({
-    kind: z.literal('background_task'),
+    kind: z.literal('task'),
     task_id: z.string(),
     status: z.string(),
     description: z.string(),
@@ -91,6 +74,15 @@ export const ToolInputDisplaySchema = z.discriminatedUnion('kind', [
       )
       .readonly()
       .optional(),
+  }),
+  z.object({
+    kind: z.literal('goal_start'),
+    objective: z.string(),
+    completionCriterion: z.string().optional(),
+    // Current permission mode at approval time. The client uses it to pick the
+    // start menu (manual vs yolo); `auto` never reaches this display because it
+    // auto-approves the goal without a prompt.
+    mode: z.enum(['manual', 'yolo']),
   }),
   z.object({
     kind: z.literal('generic'),
@@ -139,7 +131,7 @@ export const ToolResultDisplaySchema = z.discriminatedUnion('kind', [
     steps: z.number().optional(),
   }),
   z.object({
-    kind: z.literal('background_task'),
+    kind: z.literal('task'),
     task_id: z.string(),
     status: z.string(),
     description: z.string(),

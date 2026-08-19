@@ -14,16 +14,24 @@ import {
   type SessionCreate,
   type SessionFork,
   type SessionStatusResponse,
+  type SessionWarning,
   type SessionUpdate,
   type UndoSessionRequest,
   type UndoSessionResponse,
 } from '@pymodel/protocol';
 
 export interface SessionListQuery extends CursorQuery {
-  status?: import('@pymodel/protocol').SessionStatus;
+  busy?: boolean;
   workDir?: string;
+  /**
+   * Filter by workspace id: widens to every alias spelling of the same
+   * physical root (Windows case/slash splits) and returns the union of all
+   * alias buckets. Takes precedence over `workDir` when both are set.
+   */
   workspaceId?: string;
   includeArchive?: boolean;
+  /** When true, hide sessions the user has never interacted with (no prompt yet). */
+  excludeEmpty?: boolean;
 }
 
 export interface SessionClientTelemetry {
@@ -55,6 +63,8 @@ export interface ISessionService {
   createChild(id: string, input: SessionChildCreate): Promise<Session>;
 
   getStatus(id: string): Promise<SessionStatusResponse>;
+
+  getSessionWarnings(id: string): Promise<readonly SessionWarning[]>;
 
   compact(id: string, input: CompactSessionRequest): Promise<CompactSessionResponse>;
 
@@ -109,6 +119,11 @@ export function toProtocolSession(
   };
 
   const title = meta?.title ?? summary.title ?? '';
+  // Prefer the registered workspace id (resolved by the caller from the
+  // workspace registry via identity-key match) so the sidebar groups sessions
+  // under the registered workspace even when the session's workDir string
+  // differs from the registered root in case/slashes (Windows). Fallback is
+  // the minted key — the pre-resolver behavior.
   const workspaceId = workspaceIdOverride ?? encodeWorkDirKey(summary.workDir);
 
   return {
@@ -117,13 +132,12 @@ export function toProtocolSession(
     title,
     created_at: new Date(summary.createdAt).toISOString(),
     updated_at: new Date(summary.updatedAt).toISOString(),
-    status: 'idle',
+    busy: false,
     archived: summary.archived === true,
+    last_prompt: summary.lastPrompt,
     metadata: mergedMetadata,
     agent_config: {
       model: '',
-      tools: meta?.agentConfig?.tools?.slice(),
-      mcp_servers: meta?.agentConfig?.mcpServers?.slice(),
     },
     usage: emptySessionUsage(),
     permission_rules: [],

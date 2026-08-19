@@ -8,6 +8,7 @@ import {
   resolvePythinkerHome,
   resolveLoggingConfig,
   type CoreAPI,
+  type OAuthTokenProviderResolver,
   type RPCMethods,
   type SDKAPI,
   type TelemetryClient,
@@ -15,12 +16,14 @@ import {
 import type { Kaos } from '@pymodel/kaos';
 import { assertPythinkerHostIdentity, createPythinkerDefaultHeaders } from '@pymodel/pythinker-code-oauth';
 
+import { PythinkerAuthFacade } from '#/auth';
 import { PythinkerHarness } from '#/pythinker-harness';
 import { ClientAPI, SDKRpcClientBase } from '#/rpc';
 import type {
   CreateSessionOptions,
   PythinkerHarnessOptions,
   PythinkerHostIdentity,
+  OAuthRefreshOutcome,
   ResumeSessionInput,
   ResumedSessionSummary,
   SessionSummary,
@@ -30,8 +33,16 @@ export interface SDKRpcClientOptions {
   readonly homeDir?: string;
   readonly configPath?: string;
   readonly identity?: PythinkerHostIdentity;
+  readonly resolveOAuthTokenProvider?: OAuthTokenProviderResolver;
   readonly skillDirs?: readonly string[];
   readonly telemetry?: TelemetryClient;
+  readonly onOAuthRefresh?: (outcome: OAuthRefreshOutcome) => void;
+  /**
+   * Host UI mode (`'print'` for `pythinker -p`, `'cli'` for the TUI, ...). Forwarded
+   * to the v1 core, which applies print-mode config defaults when it is
+   * `'print'`.
+   */
+  readonly uiMode?: string;
 }
 
 export class SDKRpcClient extends SDKRpcClientBase {
@@ -39,6 +50,7 @@ export class SDKRpcClient extends SDKRpcClientBase {
   readonly configPath: string;
   readonly identity: PythinkerHostIdentity | undefined;
   readonly telemetry: TelemetryClient;
+  readonly auth: PythinkerAuthFacade;
   readonly core: PythinkerCore;
 
   private readonly ready: Promise<RPCMethods<CoreAPI>>;
@@ -53,6 +65,12 @@ export class SDKRpcClient extends SDKRpcClientBase {
       configPath: options.configPath,
     });
     this.telemetry = options.telemetry ?? noopTelemetryClient;
+    this.auth = new PythinkerAuthFacade({
+      homeDir: this.homeDir,
+      configPath: this.configPath,
+      identity: this.identity,
+      onRefresh: options.onOAuthRefresh,
+    });
 
     void getRootLogger().configure(resolveLoggingConfig({ homeDir: this.homeDir }));
 
@@ -61,9 +79,12 @@ export class SDKRpcClient extends SDKRpcClientBase {
       homeDir: options.homeDir,
       configPath: this.configPath,
       pythinkerRequestHeaders: this.createPythinkerRequestHeaders(),
+      resolveOAuthTokenProvider:
+        options.resolveOAuthTokenProvider ?? this.auth.resolveOAuthTokenProvider,
       skillDirs: options.skillDirs,
       telemetry: this.telemetry,
       appVersion: this.identity?.version,
+      uiMode: options.uiMode,
     });
     this.ready = sdkRpc(new ClientAPI(this));
   }
@@ -73,7 +94,13 @@ export class SDKRpcClient extends SDKRpcClientBase {
   }
 
   async close(): Promise<void> {
-    await this.core.close();
+    try {
+      // Close live sessions and stop the shared MCP OAuth service (proactive
+      // refresh timers, in-flight authorization flows) before flushing logs.
+      await this.core.shutdown();
+    } catch {
+      // never let core shutdown block process exit
+    }
     try {
       await getRootLogger().flush();
     } catch {
@@ -122,8 +149,11 @@ export function createPythinkerHarness(options: PythinkerHarnessOptions): Pythin
     uiMode: options.uiMode,
     homeDir: rpc.homeDir,
     configPath: rpc.configPath,
+    auth: rpc.auth,
     telemetry: rpc.telemetry,
     ensureConfigFile: () => rpc.ensureConfigFile(),
     onClose: () => rpc.close(),
+    imageLimits: rpc.core.imageLimits,
+    sessionStartedProperties: options.sessionStartedProperties,
   });
 }

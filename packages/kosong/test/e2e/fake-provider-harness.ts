@@ -56,9 +56,11 @@ function withDefaultHeaders(
 function buildSseLines(events: unknown[]): string[] {
   const lines: string[] = [];
   for (const event of events) {
-    lines.push(`data: ${JSON.stringify(event)}`, '');
+    lines.push(`data: ${JSON.stringify(event)}`);
+    lines.push('');
   }
-  lines.push('data: [DONE]', '');
+  lines.push('data: [DONE]');
+  lines.push('');
   return lines;
 }
 

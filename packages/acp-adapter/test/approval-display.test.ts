@@ -33,7 +33,7 @@ import {
   buildPermissionToolCallUpdate,
 } from '../src/approval';
 import { AcpServer } from '../src/server';
-import { AUTHED } from './_helpers/harness-stubs';
+import { AUTHED_STATUS } from './_helpers/harness-stubs';
 
 function makeInMemoryStreamPair(): {
   agentStream: ReturnType<typeof ndJsonStream>;
@@ -287,7 +287,7 @@ describe('AcpSession ↔ requestPermission bridge (selectedLabel end-to-end)', (
     const turnId = 11;
     const handle = makeApprovalSession(sessionId);
     const harness = {
-      isAuthenticated: AUTHED,
+      auth: { status: async () => AUTHED_STATUS },
       createSession: async () => handle.session,
     } as unknown as PythinkerHarness;
 

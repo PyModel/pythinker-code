@@ -1,0 +1,85 @@
+import type { ModelCapability } from '#/kosong/contract/capability';
+import type { ModelRequester } from '#/kosong/model/modelRequester';
+import type { VideoUploadEvent } from '#/app/telemetry/events';
+import type { ITelemetryService } from '#/app/telemetry/telemetry';
+
+import { toDisposable, type IDisposable } from '#/_base/di/lifecycle';
+import type { WorkspaceConfig } from '#/tool/path-access';
+import type { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
+import type { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { ReadMediaFileTool } from '#/agent/tools/read-media-file/readMediaFileTool';
+import type { VideoUploader } from '#/agent/tools/read-media-file/read-media-file';
+
+export interface RegisterMediaToolsDeps {
+  readonly runtime: IAgentRuntimeService;
+  readonly workspace: WorkspaceConfig;
+  readonly capabilities: ModelCapability;
+  readonly videoUploader?: VideoUploader;
+  readonly telemetry?: ITelemetryService;
+  readonly inlineVideoSupported?: boolean;
+}
+
+export function registerMediaTools(
+  toolRegistry: IAgentToolRegistryService,
+  deps: RegisterMediaToolsDeps,
+): IDisposable {
+  if (
+    !deps.runtime.isAvailable(['fs']) ||
+    (!deps.capabilities.image_in && !deps.capabilities.video_in)
+  ) {
+    return toDisposable(() => {});
+  }
+  return toolRegistry.register(
+    new ReadMediaFileTool(
+      deps.runtime,
+      deps.workspace,
+      deps.capabilities,
+      deps.videoUploader,
+      deps.telemetry,
+      deps.inlineVideoSupported,
+    ),
+  );
+}
+
+export function createVideoUploader(
+  requester: Pick<ModelRequester, 'uploadVideo'> | undefined,
+  telemetry?: VideoUploadTelemetry,
+): VideoUploader | undefined {
+  const uploadVideo = requester?.uploadVideo;
+  if (uploadVideo === undefined) return undefined;
+  const bound = uploadVideo.bind(requester);
+  if (telemetry === undefined) return (input, options) => bound(input, options);
+
+  return async (input, options) => {
+    const startedAt = Date.now();
+    const base = {
+      ...telemetry.props,
+      mime_type: input.mimeType,
+      size_bytes: input.data.length,
+    };
+    const track = (props: VideoUploadEvent): void => {
+      try {
+        telemetry.client.track2('video_upload', props);
+      } catch {
+      }
+    };
+    try {
+      const part = await bound(input, options);
+      track({ ...base, outcome: 'success', duration_ms: Date.now() - startedAt });
+      return part;
+    } catch (error) {
+      track({
+        ...base,
+        outcome: 'error',
+        duration_ms: Date.now() - startedAt,
+        error_type: error instanceof Error ? error.name : 'Unknown',
+      });
+      throw error;
+    }
+  };
+}
+
+export interface VideoUploadTelemetry {
+  readonly client: ITelemetryService;
+  readonly props?: Pick<VideoUploadEvent, 'model' | 'provider_type' | 'protocol'>;
+}

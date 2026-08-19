@@ -276,7 +276,6 @@ describe('MutableDisposable', () => {
   });
 
   it('post-dispose assignment throws if immediate disposal fails', () => {
-    expect.hasAssertions();
     const slot = new MutableDisposable<IDisposable>();
     slot.dispose();
 
@@ -391,7 +390,6 @@ describe('DisposableStore', () => {
   });
 
   it('post-dispose add throws if immediate child disposal fails', () => {
-    expect.hasAssertions();
     const store = new DisposableStore();
     store.dispose();
 

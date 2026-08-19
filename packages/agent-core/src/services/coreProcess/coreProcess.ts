@@ -31,17 +31,17 @@
 
 import { createDecorator } from '../../di';
 import type { CoreRPC, PythinkerCoreOptions } from '../../rpc';
+import type { TelemetryClient } from '../../telemetry';
 import { type PythinkerHostIdentity } from '@pymodel/pythinker-code-oauth';
+import type { ImageLimits } from '#/tools/support/image-limits';
 
 export interface CoreProcessServiceOptions extends PythinkerCoreOptions {
   /**
    * Host identity (product name + version). When set and
    * `pythinkerRequestHeaders` is omitted, the adapter default-wires
-   * `createPythinkerDefaultHeaders({ homeDir, ...identity })` into PythinkerCore so
-   * upstream sees `User-Agent: <product>/<version>` + `X-Msh-Platform: …`.
-   * Without this, the managed Pythinker-for-Coding endpoint rejects requests
-   * with 40340 ("only available for Coding Agents") because the default
-   * fetch User-Agent doesn't match any known coding-agent product.
+   * `createPythinkerDefaultHeaders({ homeDir, ...identity })` into PythinkerCore
+   * so providers see `User-Agent: <product>/<version>`. This distribution does
+   * not attach managed-service `X-Msh-*` device headers.
    *
    * `identity.version` also feeds `appVersion` so session records carry
    * the host CLI version — same wiring `SDKRpcClient` does in node-sdk.
@@ -57,6 +57,21 @@ export interface ICoreProcessService {
 
   /** The core RPC methods. Service impls call e.g. `core.rpc.createSession(...)`. */
   readonly rpc: CoreRPC;
+
+  readonly pythinkerRequestHeaders?: Record<string, string> | undefined;
+
+  /**
+   * The telemetry client the host wired into `PythinkerCore` (noop when the host
+   * supplied none), so daemon-side code — e.g. prompt-ingestion image
+   * compression — reports through the same sink as core events.
+   */
+  readonly telemetry?: TelemetryClient | undefined;
+
+  /**
+   * The core's owner-scoped [image] limits, so daemon-side prompt-ingestion
+   * compression uses the same settings (and reloads) as the core's own tools.
+   */
+  readonly imageLimits?: ImageLimits | undefined;
 
   /**
    * Resolves once `PythinkerCore` is fully constructed and the SDK side of the

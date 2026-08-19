@@ -1,4 +1,4 @@
-import type { Component } from '@earendil-works/pi-tui';
+import type { Component } from '@pymodel/pi-tui';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -10,7 +10,7 @@ import { darkColors } from '#/tui/theme/colors';
 import type { ToolCallBlockData, ToolResultBlockData } from '#/tui/types';
 
 function strip(text: string): string {
-  return text.replaceAll(/\u001B\[[0-9;]*m/g, '');
+  return text.replaceAll(/\[[0-9;]*m/g, '');
 }
 
 function joinRender(components: Component[], width = 100): string {
@@ -38,7 +38,6 @@ function imageOutput(path: string, b64 = PNG_B64, mime = 'image/png'): string {
     { type: 'text', text: `<image path="${path}">` },
     { type: 'image_url', imageUrl: { url: `data:${mime};base64,${b64}` } },
     { type: 'text', text: '</image>' },
-    { type: 'text', text: `Loaded image file "${path}" (${mime}, 70 bytes, original size 1x1px).` },
   ]);
 }
 
@@ -58,7 +57,6 @@ describe('parseReadMediaOutput', () => {
     expect(m?.path).toBe('/tmp/a.png');
     expect(m?.mimeType).toBe('image/png');
     expect(m?.bytes).toBeGreaterThan(0);
-    expect(m?.originalSize).toBe('1x1px');
   });
 
   it('extracts video kind and mime', () => {

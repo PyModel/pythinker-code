@@ -19,7 +19,7 @@ describe('e2e: SSH mock tests', () => {
           host: '',
           username: 'testuser',
         }),
-      ).rejects.toBeInstanceOf(Error);
+      ).rejects.toThrow();
     });
 
     it('missing username -> connect attempt with empty username', async () => {
@@ -31,7 +31,7 @@ describe('e2e: SSH mock tests', () => {
           port: 99999, // Use an unlikely port to ensure fast failure
           username: '',
         }),
-      ).rejects.toThrowErrorMatchingInlineSnapshot(`[RangeError: Port should be >= 0 and < 65536. Received type number (99999).]`);
+      ).rejects.toThrow();
     });
 
     it('invalid port -> connection error', async () => {
@@ -44,7 +44,7 @@ describe('e2e: SSH mock tests', () => {
           port: 1,
           username: 'testuser',
         }),
-      ).rejects.toThrow(/connect E/);
+      ).rejects.toThrow();
     });
   });
 

@@ -41,7 +41,7 @@ export class ToolService extends Disposable implements IToolService {
   private async _anyKnownSessionId(): Promise<string | undefined> {
     const all = await this.core.rpc.listSessions({});
     if (all.length === 0) return undefined;
-    const sorted = [...all].toSorted((a, b) => b.createdAt - a.createdAt);
+    const sorted = [...all].sort((a, b) => b.createdAt - a.createdAt);
     return sorted[0]?.id;
   }
 }

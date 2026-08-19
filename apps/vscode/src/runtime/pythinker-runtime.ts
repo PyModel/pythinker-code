@@ -1,5 +1,5 @@
 import {
-  createPythinkerHarness,
+  createPythinkerHarnessV2,
   type PermissionMode,
   type PythinkerHarness,
   type Session,
@@ -57,11 +57,12 @@ export class PythinkerRuntime {
     this.log = options.log;
     this.harness =
       options.harness ??
-      createPythinkerHarness({
+      createPythinkerHarnessV2({
         ...(options.homeDir === undefined ? {} : { homeDir: options.homeDir }),
         identity: {
-          userAgentProduct: "pythinker-code-vscode",
+          productName: "pythinker-code-vscode",
           version: options.version,
+          platform: "pythinker_code_vscode",
         },
         uiMode: "vscode",
       });

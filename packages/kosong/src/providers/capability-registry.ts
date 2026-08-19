@@ -61,16 +61,6 @@ const OPENAI_REASONING_CAPABILITY: ModelCapability = Object.freeze({
   max_context_tokens: 0,
 });
 
-const OPENAI_FAST_CAPABILITY: ModelCapability = Object.freeze({
-  image_in: true,
-  video_in: false,
-  audio_in: false,
-  thinking: true,
-  tool_use: true,
-  fast_mode: true,
-  max_context_tokens: 0,
-});
-
 const OPENAI_VISION_TOOL_CAPABILITY: ModelCapability = Object.freeze({
   image_in: true,
   video_in: false,
@@ -107,11 +97,6 @@ const ANTHROPIC_THINKING_VISION_TOOL_CAPABILITY: ModelCapability = Object.freeze
   max_context_tokens: 0,
 });
 
-const ANTHROPIC_FAST_CAPABILITY: ModelCapability = Object.freeze({
-  ...ANTHROPIC_THINKING_VISION_TOOL_CAPABILITY,
-  fast_mode: true,
-});
-
 const GEMINI_MULTIMODAL_TOOL_CAPABILITY: ModelCapability = Object.freeze({
   image_in: true,
   video_in: true,
@@ -132,10 +117,6 @@ const GEMINI_THINKING_MULTIMODAL_TOOL_CAPABILITY: ModelCapability = Object.freez
 
 const OPENAI_LEGACY_CAPABILITY_CATALOG: readonly CapabilityCatalogEntry[] = [
   {
-    matches: supportsOpenAIFastModeModel,
-    capability: OPENAI_FAST_CAPABILITY,
-  },
-  {
     matches: isOpenAIReasoningModel,
     capability: OPENAI_REASONING_CAPABILITY,
   },
@@ -151,10 +132,6 @@ const OPENAI_LEGACY_CAPABILITY_CATALOG: readonly CapabilityCatalogEntry[] = [
 
 const OPENAI_RESPONSES_CAPABILITY_CATALOG: readonly CapabilityCatalogEntry[] = [
   {
-    matches: supportsOpenAIFastModeModel,
-    capability: OPENAI_FAST_CAPABILITY,
-  },
-  {
     matches: isOpenAIReasoningModel,
     capability: OPENAI_REASONING_CAPABILITY,
   },
@@ -165,12 +142,6 @@ const OPENAI_RESPONSES_CAPABILITY_CATALOG: readonly CapabilityCatalogEntry[] = [
 ];
 
 const ANTHROPIC_CAPABILITY_CATALOG: readonly CapabilityCatalogEntry[] = [
-  // Must precede the generic Claude prefixes below: Opus 4.8 / 5 would
-  // otherwise match the thinking+vision entry first and lose `fast_mode`.
-  {
-    matches: supportsAnthropicFastModeModel,
-    capability: ANTHROPIC_FAST_CAPABILITY,
-  },
   {
     matches: (name) => hasPrefix(name, CLAUDE_VISION_TOOL_PREFIXES),
     capability: ANTHROPIC_VISION_TOOL_CAPABILITY,
@@ -191,22 +162,6 @@ function hasPrefix(modelName: string, prefixes: readonly string[]): boolean {
 
 function isOpenAIReasoningModel(modelName: string): boolean {
   return /^o\d/.test(modelName);
-}
-
-/** Current models documented for OpenAI API/Codex Fast mode. */
-export function supportsOpenAIFastModeModel(modelName: string): boolean {
-  const normalized = normalizeModelName(modelName);
-  if (!/^gpt-5\.(?:4|5|6)(?:$|[-.])/.test(normalized)) return false;
-  return !/(?:^|[-.])(?:mini|nano|spark)(?:$|[-.])/.test(normalized);
-}
-
-/** Current models documented for Anthropic API Fast mode. */
-export function supportsAnthropicFastModeModel(modelName: string): boolean {
-  const normalized = normalizeModelName(modelName);
-  return (
-    /^claude-opus-5(?:$|[-.])/.test(normalized) ||
-    /^claude-opus-4[-.]8(?:$|[-.])/.test(normalized)
-  );
 }
 
 function capabilityFromCatalog(

@@ -1,4 +1,5 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'pathe';
 
@@ -6,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
   __resetRootLoggerForTest,
-  enableDiagnosticDebugLogging,
+  flushDiagnosticLogsSync,
   getRootLogger,
   log,
   redact,
@@ -68,15 +69,6 @@ describe('log — pre-configure noop', () => {
 });
 
 describe('configure idempotency', () => {
-  it('raises configured logging to debug without exposing the root logger', async () => {
-    await getRootLogger().configure(defaultConfig('info'));
-
-    await expect(enableDiagnosticDebugLogging()).resolves.toBe('info');
-
-    expect(getRootLogger().getConfig()?.level).toBe('debug');
-    await expect(enableDiagnosticDebugLogging()).resolves.toBe('debug');
-  });
-
   it('second configure with deep-equal config is a no-op', async () => {
     await getRootLogger().configure(defaultConfig());
     log.info('one');
@@ -148,11 +140,11 @@ describe('payload shapes', () => {
 
   it('accepts plain object as ctx', async () => {
     await getRootLogger().configure(defaultConfig());
-    log.info('hello', { sessionId: 'ses_x', model: 'pythinker-k2' });
+    log.info('hello', { sessionId: 'ses_x', model: 'kimi-k2' });
     await getRootLogger().flush();
     const text = await readGlobal();
     expect(text).toContain('sessionId=ses_x');
-    expect(text).toContain('model=pythinker-k2');
+    expect(text).toContain('model=kimi-k2');
   });
 
   it('bunyan-style: ctx with `error: Error` field hoists stack out', async () => {
@@ -213,12 +205,12 @@ describe('payload shapes', () => {
 describe('createChild', () => {
   it('binds ctx that travels with every entry', async () => {
     await getRootLogger().configure(defaultConfig());
-    const sessionLog = log.createChild({ sessionId: 'ses_a', model: 'pythinker-k2' });
+    const sessionLog = log.createChild({ sessionId: 'ses_a', model: 'kimi-k2' });
     sessionLog.info('first');
     sessionLog.warn('second', { extra: 'x' });
     await getRootLogger().flush();
     const text = await readGlobal();
-    expect(text).toMatch(/first.*sessionId=ses_a.*model=pythinker-k2/);
+    expect(text).toMatch(/first.*sessionId=ses_a.*model=kimi-k2/);
     expect(text).toMatch(/second.*extra=x.*sessionId=ses_a/);
   });
 
@@ -272,7 +264,7 @@ describe('session routing', () => {
       await getRootLogger().configure(defaultConfig());
       const handle = getRootLogger().attachSession({ sessionId: 'ses_abc', sessionDir });
       const sessionLog = handle.logger.createChild({ agentId: 'main' });
-      sessionLog.info('llm config', { model: 'pythinker-k2' });
+      sessionLog.info('llm config', { model: 'kimi-k2' });
       sessionLog.info('llm request', { turn: 0, step: 1 });
       await handle.flush();
       await getRootLogger().flush();
@@ -436,6 +428,29 @@ describe('session routing', () => {
     } finally {
       await rm(sessionDir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('flushDiagnosticLogsSync', () => {
+  it('persists enqueued entries synchronously, before the async drain could run', async () => {
+    await getRootLogger().configure(defaultConfig());
+    log.error('crash marker', { error: new Error('boom') });
+
+    // No `await` between enqueue and flush: the async drain (microtask + async
+    // fs) cannot have written yet, so only the synchronous append can produce
+    // the file content below. This mirrors crash paths that call
+    // process.exit() on the same tick.
+    flushDiagnosticLogsSync();
+
+    const content = readFileSync(resolveGlobalLogPath(homeDir), 'utf-8');
+    expect(content).toContain('crash marker');
+    expect(content).toContain('boom');
+  });
+
+  it('is a silent no-op before configure', () => {
+    expect(() => {
+      flushDiagnosticLogsSync();
+    }).not.toThrow();
   });
 });
 

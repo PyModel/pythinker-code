@@ -1,12 +1,7 @@
 export default {
-  help: { desc: 'Show the list of available commands' },
   new: { desc: 'Create a new session' },
-  sessions: { desc: 'Browse & switch sessions' },
   clear: { desc: 'Clear and start a new session' },
-  model: { desc: 'Switch model' },
-  provider: { desc: 'Manage providers (add / remove / refresh)' },
-  login: { desc: 'Sign in to the platform with an API key' },
-  permission: { desc: 'Switch approval mode (manual / auto / yolo)' },
+  login: { desc: 'Sign in to Pythinker in the browser' },
   plan: { desc: 'Toggle plan mode on/off' },
   dynamicWorkflow: { desc: 'Toggle Dynamic Workflow mode; /workflow <task> runs a task in parallel' },
   goal: { desc: 'Create/control a goal: /goal <objective>, /goal pause|resume|cancel' },
@@ -16,7 +11,10 @@ export default {
   thinking: { desc: 'Set the thinking level' },
   compact: { desc: 'Compact the conversation history' },
   fork: { desc: 'Fork this session into a new one' },
-  undoNotImplemented: '/undo isn\'t supported by the daemon yet',
+  export: {
+    desc: 'Download this session and troubleshooting logs as a ZIP',
+    noSession: 'Open a session before exporting it.',
+  },
   status: { desc: 'View session status' },
   undo: { desc: 'Undo the last message' },
 } as const;

@@ -1,10 +1,10 @@
 {
   "name": "@pymodel/pythinker-code-oauth",
-  "version": "0.2.2",
+  "version": "0.4.0",
   "private": true,
-  "description": "Login platform layer: model listing, config provisioning, and OpenAI Codex OAuth",
+  "description": "Pythinker OAuth toolkit for managed Pythinker Code authentication",
   "license": "MIT",
-  "author": "Pythoughts",
+  "author": "PyModel",
   "homepage": "https://github.com/PyModel/pythinker-code/tree/main/packages/oauth#readme",
   "repository": {
     "type": "git",
@@ -26,28 +26,27 @@
   ],
   "type": "module",
   "imports": {
-    "#/*": [
-      "./src/*.ts",
-      "./src/*/index.ts"
-    ]
+    "#/*": "./src/*.ts"
   },
   "exports": {
     ".": {
       "types": "./src/index.ts",
       "default": "./src/index.ts"
     },
-    "./oauth-pages": {
-      "types": "./src/oauth-pages.ts",
-      "default": "./src/oauth-pages.ts"
+    "./device": {
+      "types": "./src/device.ts",
+      "default": "./src/device.ts"
     }
   },
   "scripts": {
     "build": "tsdown",
+    "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "proper-lockfile": "^4.1.2"
+    "proper-lockfile": "^4.1.2",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@types/proper-lockfile": "^4.1.4"

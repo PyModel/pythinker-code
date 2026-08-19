@@ -141,7 +141,11 @@ async function createRuntimeRig(extraAliases: readonly string[] = []): Promise<R
 async function createPlainHarness(homeDir: string): Promise<PythinkerHarness> {
   const harness = createPythinkerHarness({
     homeDir,
-    identity: { userAgentProduct: "pythinker-code-cli", version: "test" },
+    identity: {
+      productName: "pythinker-code-cli",
+      version: "test",
+      platform: "pythinker_code_cli",
+    },
   });
   cleanups.push(() => harness.close());
   return harness;
@@ -426,7 +430,6 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
           listSkills: async () => [
             { name: "review", description: "Review changes", path: "/skills/review", source: "user", type: "prompt" },
             { name: "reference-only", description: "Reference", path: "/skills/ref", source: "user", type: "reference" },
-            { name: "model-only", description: "Model", path: "/skills/m", source: "user", type: "prompt", userInvocable: false },
             { name: "builtin-one", description: "Builtin", path: "/skills/b", source: "builtin", type: "prompt" },
           ],
         },
@@ -472,9 +475,9 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
     const rig = await createRuntimeRig();
     const plain = await createPlainHarness(rig.homeDir);
 
-    await plain.setConfig({ thinking: { mode: "on", effort: "high" } });
+    await plain.setConfig({ thinking: { enabled: true, effort: "high" } });
     await expect(rig.runtime.harness.getConfig({ reload: true })).resolves.toMatchObject({
-      thinking: { mode: "on", effort: "high" },
+      thinking: { enabled: true, effort: "high" },
     });
 
     await rig.runtime.harness.setConfig({ yolo: true });
@@ -1072,7 +1075,7 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
         }),
       ]),
     });
-    expect(rig.provider.requests).toHaveLength(1);
+    expect(rig.provider.requests).toHaveLength(0);
     expect(streamEvents(rig.broadcasts)).toContainEqual({
       type: "TurnBegin",
       payload: { user_input: "/import notes.md", forkable: true },
@@ -1105,7 +1108,7 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
     expect(result).toEqual({ done: true });
     await expect(runtime.session.getStatus()).resolves.toMatchObject({
       model: "vscode-alt",
-      thinkingLevel: "high",
+      thinkingEffort: "high",
     });
   });
 
@@ -1398,6 +1401,9 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
 
   it("settles the prompt as failed when the provider connection is unavailable", async () => {
     const rig = await createRuntimeRig();
+    await rig.runtime.harness.replaceConfigSections({
+      loopControl: { maxAttemptsPerStep: 1 },
+    });
     const session = await openRuntimeSession(rig);
     await rig.closeProvider();
 

@@ -1,11 +1,10 @@
-import { visibleWidth } from '@earendil-works/pi-tui';
+import { visibleWidth } from '@pymodel/pi-tui';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
   CustomRegistryImportDialogComponent,
   type CustomRegistryImportResult,
 } from '#/tui/components/dialogs/custom-registry-import';
-import { defaultKeybindings, parseKeybindingBlocks } from '#/tui/keybindings';
 import { darkColors } from '#/tui/theme/colors';
 
 const ANSI = /\[[0-9;]*m/g;
@@ -67,148 +66,6 @@ describe('CustomRegistryImportDialogComponent', () => {
     expect(onDone).toHaveBeenCalledWith({
       kind: 'ok',
       value: { url: 'https://example.com/api.json', apiKey: 'sk-tok' },
-    });
-  });
-
-  it('uses remapped field focus without stealing token text', () => {
-    const { dialog, onDone } = makeDialog();
-    dialog.setKeybindings(
-      parseKeybindingBlocks([
-        {
-          context: 'Confirmation',
-          bindings: {
-            'alt+f': 'confirm:nextField',
-            x: 'confirm:next',
-          },
-        },
-      ]),
-    );
-    dialog.handleInput('\u001Bf');
-    dialog.handleInput('x');
-    dialog.handleInput('\r');
-    expect(onDone).toHaveBeenCalledWith({
-      kind: 'ok',
-      value: { url: 'https://example.com/api.json', apiKey: 'x' },
-    });
-  });
-
-  it('recovers bare Escape after default cancel bindings are explicitly removed', () => {
-    const { dialog, onDone } = makeDialog();
-    dialog.setKeybindings([
-      ...defaultKeybindings(),
-      ...parseKeybindingBlocks([
-        { context: 'Confirmation', bindings: { n: null, escape: null } },
-      ]),
-    ]);
-    dialog.handleInput(ESC);
-    expect(onDone).toHaveBeenCalledWith({ kind: 'cancel' });
-  });
-
-  it('uses an alternate cancel binding in token input while bare Escape preserves the draft', () => {
-    const bindings = parseKeybindingBlocks([
-      {
-        context: 'Confirmation',
-        bindings: {
-          'alt+f': 'confirm:nextField',
-          'alt+x': 'confirm:no',
-        },
-      },
-    ]);
-    const preserved = makeDialog();
-    preserved.dialog.setKeybindings(bindings);
-    preserved.dialog.handleInput('\u001Bf');
-    preserved.dialog.handleInput('d');
-    preserved.dialog.handleInput(ESC);
-    preserved.dialog.handleInput('\r');
-    expect(preserved.onDone).toHaveBeenCalledWith({
-      kind: 'ok',
-      value: { url: 'https://example.com/api.json', apiKey: 'd' },
-    });
-
-    const cancelled = makeDialog();
-    cancelled.dialog.setKeybindings(bindings);
-    cancelled.dialog.handleInput('\u001Bf');
-    cancelled.dialog.handleInput('d');
-    cancelled.dialog.handleInput('\u001Bx');
-    expect(cancelled.onDone).toHaveBeenCalledWith({ kind: 'cancel' });
-  });
-
-  it('executes multi-key field chords without losing resolver state', () => {
-    const { dialog } = makeDialog();
-    dialog.setKeybindings(
-      parseKeybindingBlocks([
-        {
-          context: 'Confirmation',
-          bindings: {
-            'ctrl+k ctrl+n': 'confirm:nextField',
-            'ctrl+k ctrl+p': 'confirm:previousField',
-          },
-        },
-      ]),
-    );
-    dialog.handleInput('\u000B');
-    dialog.handleInput('\u000E');
-    expect(plain(dialog)).toContain('Enter to submit');
-    dialog.handleInput('\u000B');
-    dialog.handleInput('\u0010');
-    expect(plain(dialog)).toContain('next field');
-  });
-
-  it('executes semantic field key IDs', () => {
-    const { dialog } = makeDialog();
-    dialog.setKeybindings(
-      parseKeybindingBlocks([
-        {
-          context: 'Confirmation',
-          bindings: {
-            'alt+f': 'confirm:nextField',
-            'alt+b': 'confirm:previousField',
-          },
-        },
-      ]),
-    );
-    dialog.handleInput('alt+f');
-    expect(plain(dialog)).toContain('Enter to submit');
-    dialog.handleInput('alt+b');
-    expect(plain(dialog)).toContain('next field');
-  });
-
-  it('executes semantic two-key field chords', () => {
-    const { dialog } = makeDialog();
-    dialog.setKeybindings(
-      parseKeybindingBlocks([
-        {
-          context: 'Confirmation',
-          bindings: {
-            'ctrl+k ctrl+n': 'confirm:nextField',
-            'ctrl+k ctrl+p': 'confirm:previousField',
-          },
-        },
-      ]),
-    );
-    dialog.handleInput('ctrl+k');
-    dialog.handleInput('ctrl+n');
-    expect(plain(dialog)).toContain('Enter to submit');
-    dialog.handleInput('ctrl+k');
-    dialog.handleInput('ctrl+p');
-    expect(plain(dialog)).toContain('next field');
-  });
-
-  it('keeps unavailable printable chords intact in the active field', () => {
-    const { dialog, onDone } = makeDialog('');
-    dialog.setKeybindings(
-      parseKeybindingBlocks([
-        { context: 'Confirmation', bindings: { 'x y': 'confirm:next' } },
-      ]),
-    );
-    dialog.handleInput('x');
-    dialog.handleInput('y');
-    dialog.handleInput('\r');
-    dialog.handleInput('z');
-    dialog.handleInput('\r');
-    expect(onDone).toHaveBeenCalledWith({
-      kind: 'ok',
-      value: { url: 'xy', apiKey: 'z' },
     });
   });
 

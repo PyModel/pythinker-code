@@ -484,31 +484,6 @@ describe('event adapter (projects SDK events into the legacy Webview contract)',
     });
   });
 
-  it('maps a workflow warning SDK event to a WorkflowWarning wire event carrying every field', () => {
-    const result = adaptSdkEvent(createEventAdapterState(), {
-      type: 'workflow.warning',
-      sessionId: 'session-1',
-      agentId: 'main',
-      workflowRunId: 'run-1',
-      parentToolCallId: 'wf-1',
-      agentCount: 12,
-      threshold: 8,
-      message: 'This Dynamic Workflow will launch 12 subagents, above the advisory ceiling of 8; the run is proceeding anyway.',
-    });
-
-    expect(result.event).toEqual({
-      type: 'WorkflowWarning',
-      payload: {
-        parent_tool_call_id: 'wf-1',
-        workflow_run_id: 'run-1',
-        agent_count: 12,
-        threshold: 8,
-        message: 'This Dynamic Workflow will launch 12 subagents, above the advisory ceiling of 8; the run is proceeding anyway.',
-      },
-      _sessionId: 'session-1',
-    });
-  });
-
   it('emits compaction begin when SDK compaction starts', () => {
     const result = adaptSdkEvent(createEventAdapterState(), {
       type: 'compaction.started',

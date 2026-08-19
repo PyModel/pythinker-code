@@ -1,6 +1,7 @@
 import type { ExecutableTool } from '../../loop';
 
 export type ToolSource = 'builtin' | 'user' | 'mcp';
+export type ToolDisclosure = 'inline' | 'deferred';
 
 export type BuiltinTool<Input = unknown> = ExecutableTool<Input>;
 
@@ -8,6 +9,7 @@ export interface UserToolRegistration {
   readonly name: string;
   readonly description: string;
   readonly parameters: Record<string, unknown>;
+  readonly disclosure?: ToolDisclosure;
 }
 
 export interface ToolInfo {
@@ -15,8 +17,6 @@ export interface ToolInfo {
   readonly description: string;
   readonly active: boolean;
   readonly source: ToolSource;
-  readonly mcpServerId?: string;
-  readonly inputSchema?: Record<string, unknown>;
 }
 
 export interface McpToolCollision {
@@ -24,9 +24,7 @@ export interface McpToolCollision {
   readonly toolName: string;
   readonly collidesWith:
     | { readonly kind: 'same_server'; readonly toolName: string }
-    | { readonly kind: 'other_server'; readonly serverName: string }
-    | { readonly kind: 'builtin' }
-    | { readonly kind: 'user' };
+    | { readonly kind: 'other_server'; readonly serverName: string };
 }
 
 export interface McpServerRegistrationResult {

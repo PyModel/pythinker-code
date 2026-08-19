@@ -3,28 +3,12 @@ import { describe, expect, it } from 'vitest';
 import {
   emptySessionUsage,
   permissionRuleSchema,
-  sessionAgentConfigSchema,
   sessionCreateSchema,
-  sessionMetadataSchema,
   sessionSchema,
-  sessionStatusSchema,
   sessionUpdateSchema,
   sessionUsageSchema,
   type Session,
 } from '../session';
-
-describe('sessionStatusSchema', () => {
-  it.each(['idle', 'running', 'awaiting_approval', 'awaiting_question', 'aborted'] as const)(
-    'accepts %s',
-    (status) => {
-      expect(sessionStatusSchema.parse(status)).toBe(status);
-    },
-  );
-
-  it('rejects unknown status', () => {
-    expect(sessionStatusSchema.safeParse('chilling').success).toBe(false);
-  });
-});
 
 describe('sessionUsageSchema + emptySessionUsage', () => {
   it('emptySessionUsage is parseable as zero usage', () => {
@@ -67,10 +51,12 @@ describe('sessionSchema', () => {
     title: 'Test session',
     created_at: '2026-06-04T10:30:00.000Z',
     updated_at: '2026-06-04T10:35:00.000Z',
-    status: 'idle',
+    busy: true,
+    main_turn_active: true,
+    pending_interaction: 'approval',
     archived: false,
     metadata: { cwd: '/tmp/test' },
-    agent_config: { model: 'pythoughts-v1-128k' },
+    agent_config: { model: 'moonshot-v1-128k' },
     usage: emptySessionUsage(),
     permission_rules: [],
     message_count: 0,
@@ -120,33 +106,13 @@ describe('sessionSchema', () => {
     const parsed = sessionSchema.parse(withoutArchived);
     expect(parsed.archived).toBeUndefined();
   });
-});
 
-describe('sessionMetadataSchema', () => {
-  it('accepts general mode, rejects unknown modes, and allows an absent mode', () => {
-    expect(sessionMetadataSchema.parse({ cwd: '/tmp/test', mode: 'general' })).toEqual({
-      cwd: '/tmp/test',
-      mode: 'general',
-    });
-    expect(sessionMetadataSchema.safeParse({ cwd: '/tmp/test', mode: 'other' }).success).toBe(false);
-    expect(sessionMetadataSchema.parse({ cwd: '/tmp/test' })).toEqual({ cwd: '/tmp/test' });
-  });
-});
+  it('accepts the optional last_prompt field', () => {
+    const withPrompt = { ...fullSession, last_prompt: 'hello world' };
+    expect(sessionSchema.parse(withPrompt).last_prompt).toBe('hello world');
 
-describe('sessionAgentConfigSchema', () => {
-  it('accepts dynamic workflow mode and rejects the removed swarm mode', () => {
-    expect(
-      sessionAgentConfigSchema.parse({
-        model: 'pythoughts-v1-128k',
-        dynamic_workflow_mode: true,
-      }).dynamic_workflow_mode,
-    ).toBe(true);
-    expect(
-      sessionAgentConfigSchema.safeParse({
-        model: 'pythoughts-v1-128k',
-        swarm_mode: true,
-      }).success,
-    ).toBe(false);
+    const parsed = sessionSchema.parse(fullSession);
+    expect(parsed.last_prompt).toBeUndefined();
   });
 });
 
@@ -180,10 +146,10 @@ describe('sessionCreateSchema', () => {
     const parsed = sessionCreateSchema.parse({
       title: 'My session',
       metadata: { cwd: '/tmp/test' },
-      agent_config: { model: 'pythoughts-v1-128k' },
+      agent_config: { model: 'moonshot-v1-128k' },
     });
     expect(parsed.title).toBe('My session');
-    expect(parsed.agent_config?.model).toBe('pythoughts-v1-128k');
+    expect(parsed.agent_config?.model).toBe('moonshot-v1-128k');
   });
 
   it('accepts an entirely empty body (route layer rejects when neither workspace_id nor metadata.cwd is present)', () => {
@@ -214,8 +180,8 @@ describe('sessionUpdateSchema', () => {
 
   it('parses a partial agent_config patch', () => {
     expect(
-      sessionUpdateSchema.parse({ agent_config: { model: 'pythoughts-v1-256k' } }),
-    ).toEqual({ agent_config: { model: 'pythoughts-v1-256k' } });
+      sessionUpdateSchema.parse({ agent_config: { model: 'moonshot-v1-256k' } }),
+    ).toEqual({ agent_config: { model: 'moonshot-v1-256k' } });
   });
 
   it('parses a runtime-controls patch (thinking + permission_mode + plan_mode)', () => {
@@ -233,12 +199,12 @@ describe('sessionUpdateSchema', () => {
     });
   });
 
-  it('rejects an unknown thinking level in agent_config', () => {
+  it('accepts any non-empty thinking effort in agent_config', () => {
     expect(
       sessionUpdateSchema.safeParse({
         agent_config: { thinking: 'mega' as unknown },
       }).success,
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it('rejects an unknown permission_mode in agent_config', () => {

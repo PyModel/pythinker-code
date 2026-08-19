@@ -72,8 +72,8 @@ describe('Cyclic dependency detection', () => {
         accessorRef = a;
         return a.get(IA);
       });
-    } catch (error) {
-      captured = error as CyclicDependencyError;
+    } catch (e) {
+      captured = e as CyclicDependencyError;
     }
     expect(captured).toBeInstanceOf(CyclicDependencyError);
     expect(captured!.path).toEqual(['A', 'B', 'A']);
@@ -188,8 +188,8 @@ describe('Cyclic dependency detection', () => {
         accessorRef = a;
         return a.get(IA);
       });
-    } catch (error) {
-      captured = error as CyclicDependencyError;
+    } catch (e) {
+      captured = e as CyclicDependencyError;
     }
     expect(captured).toBeInstanceOf(CyclicDependencyError);
     expect(captured!.path).toEqual(['A', 'B', 'A']);

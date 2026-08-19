@@ -1,12 +1,11 @@
 import type { ContentPart, Message } from '@pymodel/kosong';
 
 import type { SkillSource } from '../../skill';
+import type { ToolInputDisplay } from '../../tools/display';
 import type { BackgroundTaskStatus } from '../background';
-import type { ToolSource } from '../tool';
 
 export interface UserPromptOrigin {
   readonly kind: 'user';
-  readonly checkpointId?: string;
 }
 
 export const USER_PROMPT_ORIGIN: UserPromptOrigin = { kind: 'user' };
@@ -15,7 +14,6 @@ export interface SkillActivationOrigin {
   readonly kind: 'skill_activation';
   readonly activationId: string;
   readonly skillName: string;
-  readonly checkpointId?: string;
   readonly skillArgs?: string | undefined;
   readonly trigger: 'user-slash' | 'model-tool' | 'nested-skill';
   readonly skillType?: string | undefined;
@@ -23,9 +21,26 @@ export interface SkillActivationOrigin {
   readonly skillSource?: SkillSource | undefined;
 }
 
+export interface PluginCommandOrigin {
+  readonly kind: 'plugin_command';
+  readonly activationId: string;
+  readonly pluginId: string;
+  readonly commandName: string;
+  readonly commandArgs?: string | undefined;
+  readonly trigger: 'user-slash';
+}
+
 export interface InjectionOrigin {
   readonly kind: 'injection';
   readonly variant: string;
+}
+
+export interface ShellCommandOrigin {
+  readonly kind: 'shell_command';
+  readonly phase: 'input' | 'output';
+  /** Only present on `phase: 'output'` — whether the command failed, so replay
+   *  can colour stderr red only for actual failures (not warnings). */
+  readonly isError?: boolean;
 }
 
 export interface CompactionSummaryOrigin {
@@ -75,7 +90,9 @@ export interface RetryOrigin {
 export type PromptOrigin =
   | UserPromptOrigin
   | SkillActivationOrigin
+  | PluginCommandOrigin
   | InjectionOrigin
+  | ShellCommandOrigin
   | CompactionSummaryOrigin
   | SystemTriggerOrigin
   | BackgroundTaskOrigin
@@ -87,6 +104,17 @@ export type PromptOrigin =
 export type ContextMessage = Message & {
   readonly origin?: PromptOrigin | undefined;
   readonly isError?: boolean;
+  /**
+   * UI-only input displays keyed by tool call id. These are rebuilt from the
+   * persisted loop events for resume/replay and stripped before provider calls.
+   */
+  toolCallDisplays?: Record<string, ToolInputDisplay>;
+  /**
+   * Tool-result side channel rendered to the model but never to UIs; see
+   * `ExecutableToolResult.note`. Appended to the projected tool message at
+   * the provider boundary and stripped from the wire message itself.
+   */
+  readonly note?: string;
 };
 
 export interface UserMessageRecord {
@@ -102,26 +130,4 @@ export interface SystemReminderRecord {
 export interface AgentContextData {
   history: readonly ContextMessage[];
   tokenCount: number;
-}
-
-export interface ContextUsageCategory {
-  readonly name: string;
-  readonly tokens: number;
-  readonly percentage: number;
-}
-
-export interface ContextUsageTool {
-  readonly name: string;
-  readonly source: ToolSource;
-  readonly tokens: number;
-}
-
-export interface ContextUsageReport {
-  readonly model?: string;
-  readonly estimatedTokens: number;
-  readonly maxTokens: number;
-  readonly percentage: number;
-  readonly messageCount: number;
-  readonly categories: readonly ContextUsageCategory[];
-  readonly tools: readonly ContextUsageTool[];
 }

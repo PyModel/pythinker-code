@@ -1,17 +1,8 @@
-import chalk from 'chalk';
-import type { Event } from '@pymodel/pythinker-code-sdk';
 import { describe, expect, it, vi } from 'vitest';
 
-import { DynamicWorkflowMissionControlComponent } from '#/tui/components/messages/dynamic-workflow-mission-control';
-import {
-  BRAILLE_SPINNER_FRAMES,
-  BRAILLE_SPINNER_INTERVAL_MS,
-  formatThinkingSpinnerLabel,
-} from '#/tui/constant/rendering';
+import { AgentDynamicWorkflowProgressComponent } from '#/tui/components/messages/agent-dynamic-workflow-progress';
 import type { SessionEventHandler } from '#/tui/controllers/session-event-handler';
-import { DEFAULT_STATUS_LINE_CONFIG } from '#/tui/config';
 import { PythinkerTUI, type PythinkerTUIStartupInput, type TUIState } from '#/tui/pythinker-tui';
-import { currentTheme, darkColors } from '#/tui/theme';
 
 interface ActivityDriver {
   state: TUIState;
@@ -28,7 +19,6 @@ function makeStartupInput(): PythinkerTUIStartupInput {
     cliOptions: {
       session: undefined,
       continue: false,
-      rewindFiles: undefined,
       yolo: false,
       auto: false,
       plan: false,
@@ -36,15 +26,15 @@ function makeStartupInput(): PythinkerTUIStartupInput {
       outputFormat: undefined,
       prompt: undefined,
       skillsDirs: [],
+      agent: undefined,
+      agentFiles: [],
     },
     tuiConfig: {
       theme: 'dark',
-      layout: 'inline',
-      copyFullResponse: false,
+      disablePasteBurst: false,
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
       upgrade: { autoInstall: true },
-      statusLine: DEFAULT_STATUS_LINE_CONFIG,
     },
     version: '0.0.0-test',
     workDir: '/tmp/proj-a',
@@ -64,14 +54,10 @@ function makeDriverWithTerminalProgress(): {
   return { driver, state: driver.state, setProgress };
 }
 
-function startDynamicWorkflow(
-  driver: ActivityDriver,
-  state: TUIState,
-): DynamicWorkflowMissionControlComponent {
+function startDynamicWorkflowProgress(driver: ActivityDriver, state: TUIState): AgentDynamicWorkflowProgressComponent {
   const handler = driver.sessionEventHandler.subAgentEventHandler;
-  handler.handleDynamicWorkflowToolCallStarted('call_dynamic_workflow', {
+  handler.handleAgentDynamicWorkflowToolCallStarted('call_dynamic_workflow', {
     description: 'Review changed files',
-    items: ['Review changed files'],
   });
   handler.handleLifecycleEvent({
     type: 'subagent.spawned',
@@ -87,38 +73,14 @@ function startDynamicWorkflow(
     subagentId: 'agent-1',
   } as Parameters<typeof handler.handleLifecycleEvent>[0]);
 
-  const missionControl = state.transcriptContainer.children.find(
-    (child): child is DynamicWorkflowMissionControlComponent =>
-      child instanceof DynamicWorkflowMissionControlComponent,
+  const progress = state.transcriptContainer.children.find(
+    (child): child is AgentDynamicWorkflowProgressComponent => child instanceof AgentDynamicWorkflowProgressComponent,
   );
-  if (missionControl === undefined) throw new Error('expected Dynamic Workflow mission control');
-  return missionControl;
+  if (progress === undefined) throw new Error('expected AgentDynamicWorkflow progress');
+  return progress;
 }
 
 describe('updateActivityPane terminal progress', () => {
-  it.each(['waiting', 'tool'] as const)('shows a labeled primary spinner while %s', (mode) => {
-    vi.useFakeTimers();
-    vi.setSystemTime(0);
-    const previousLevel = chalk.level;
-    chalk.level = 3;
-    currentTheme.setPalette(darkColors);
-    try {
-      const { driver, state } = makeDriverWithTerminalProgress();
-      state.livePane = { ...state.livePane, mode };
-
-      driver.updateActivityPane();
-
-      const spinner = state.activitySpinner?.instance;
-      if (spinner === undefined) throw new Error('expected activity spinner');
-      expect(strip(spinner.renderInline())).toBe(`⠋ ${formatThinkingSpinnerLabel()}`);
-      expect(spinner.renderInline().startsWith(currentTheme.fg('primary', '⠋'))).toBe(true);
-      spinner.stop();
-    } finally {
-      chalk.level = previousLevel;
-      vi.useRealTimers();
-    }
-  });
-
   it('toggles terminal progress when the activity pane enters and leaves work mode', () => {
     vi.useFakeTimers();
     try {
@@ -204,184 +166,54 @@ describe('updateActivityPane terminal progress', () => {
     }
   });
 
-  it('moves the one host loader into Dynamic Workflow without creating a component timer', () => {
+  it('moves the thinking indicator into the AgentDynamicWorkflow progress row while active', () => {
     vi.useFakeTimers();
     try {
       const { driver, state, setProgress } = makeDriverWithTerminalProgress();
+      const progress = startDynamicWorkflowProgress(driver, state);
       state.livePane = { ...state.livePane, mode: 'tool' };
+
       driver.updateActivityPane();
-      const timersBeforeMissionControl = vi.getTimerCount();
-      const missionControl = startDynamicWorkflow(driver, state);
-      expect(vi.getTimerCount()).toBe(timersBeforeMissionControl);
 
       expect(setProgress).toHaveBeenCalledTimes(1);
       expect(setProgress).toHaveBeenLastCalledWith(true);
       expect(state.activitySpinner).not.toBeNull();
       expect(state.activityContainer.children).toHaveLength(0);
-      expect(vi.getTimerCount()).toBe(timersBeforeMissionControl);
-      const output = strip(missionControl.render(100).join('\n'));
-      expect(output).toMatch(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] Orchestrating/u);
-      expect(output).not.toContain(formatThinkingSpinnerLabel());
+      expect(strip(progress.render(80).join('\n'))).toContain('⣷ Working...');
 
       state.activitySpinner?.instance.stop();
-      driver.sessionEventHandler.clearDynamicWorkflowMissionControls();
+      driver.sessionEventHandler.clearAgentDynamicWorkflowProgress();
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it('shimmers verb labels independently of the repeating spinner frame', () => {
-    vi.useFakeTimers();
-    const previousLevel = chalk.level;
-    chalk.level = 3;
-    try {
-      vi.setSystemTime(0);
-      const { driver, state } = makeDriverWithTerminalProgress();
-      state.livePane = { ...state.livePane, mode: 'idle' };
-      state.appState.streamingPhase = 'composing';
-      driver.updateActivityPane();
-
-      const spinner = state.activitySpinner?.instance;
-      if (spinner === undefined) throw new Error('expected activity spinner');
-      const before = spinner.renderInline();
-
-      vi.advanceTimersByTime(BRAILLE_SPINNER_INTERVAL_MS * BRAILLE_SPINNER_FRAMES.length);
-      const after = spinner.renderInline();
-
-      expect(strip(after)).toBe(strip(before));
-      expect(after).not.toBe(before);
-
-      spinner.stop();
-    } finally {
-      chalk.level = previousLevel;
-      vi.useRealTimers();
-    }
-  });
-
-  it('keeps terminal workflow output static while the host loader remains owned by the activity pane', () => {
+  it('keeps ended AgentDynamicWorkflow progress on a placeholder instead of the thinking indicator', () => {
     vi.useFakeTimers();
     try {
       const { driver, state } = makeDriverWithTerminalProgress();
-      const missionControl = startDynamicWorkflow(driver, state);
-      state.livePane = { ...state.livePane, mode: 'tool' };
-      driver.updateActivityPane();
-      const hostTimerCount = vi.getTimerCount();
-      driver.sessionEventHandler.subAgentEventHandler.handleDynamicWorkflowToolResult(
+      const progress = startDynamicWorkflowProgress(driver, state);
+      driver.sessionEventHandler.subAgentEventHandler.handleAgentDynamicWorkflowToolResult(
         'call_dynamic_workflow',
         {
           tool_call_id: 'call_dynamic_workflow',
-          output: [
-            '<dynamic_workflow_result>',
-            '<summary>completed: 1, failed: 0, aborted: 0</summary>',
-            '<subagent outcome="completed">Done</subagent>',
-            '</dynamic_workflow_result>',
-          ].join('\n'),
+          output: 'Done',
           is_error: false,
         },
         false,
       );
+      state.livePane = { ...state.livePane, mode: 'tool' };
 
       driver.updateActivityPane();
 
       expect(state.activitySpinner).not.toBeNull();
       expect(state.activityContainer.children).toHaveLength(1);
-      expect(vi.getTimerCount()).toBe(hostTimerCount);
-      const output = strip(missionControl.render(100).join('\n'));
-      expect(output).toContain('✓ Completed');
-      expect(output).not.toMatch(/[◐◓◑◒] Orchestrating/);
-      for (const frame of BRAILLE_SPINNER_FRAMES) expect(output).not.toContain(frame);
+      const output = strip(progress.render(80).join('\n'));
+      expect(output).toContain('  Working...');
+      expect(output).not.toContain('⣷ Working...');
 
       state.activitySpinner?.instance.stop();
-      driver.sessionEventHandler.clearDynamicWorkflowMissionControls();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it.each(['failure', 'cancellation', 'cleanup'] as const)(
-    'keeps the host loader running after Dynamic Workflow %s',
-    (outcome) => {
-      vi.useFakeTimers();
-      try {
-        const { driver, state } = makeDriverWithTerminalProgress();
-        state.livePane = { ...state.livePane, mode: 'tool' };
-        driver.updateActivityPane();
-        const hostLoader = state.activitySpinner?.instance;
-        if (hostLoader === undefined) throw new Error('expected host activity loader');
-        const hostTimerCount = vi.getTimerCount();
-        startDynamicWorkflow(driver, state);
-
-        if (outcome === 'failure') {
-          driver.sessionEventHandler.subAgentEventHandler.handleDynamicWorkflowToolResult(
-            'call_dynamic_workflow',
-            {
-              tool_call_id: 'call_dynamic_workflow',
-              output: 'provider request failed',
-              is_error: true,
-            },
-            true,
-          );
-        } else if (outcome === 'cancellation') {
-          driver.sessionEventHandler.subAgentEventHandler.markActiveDynamicWorkflowsCancelled();
-        } else {
-          driver.sessionEventHandler.clearDynamicWorkflowMissionControls();
-        }
-        driver.updateActivityPane();
-
-        expect(state.activitySpinner?.instance).toBe(hostLoader);
-        expect(vi.getTimerCount()).toBe(hostTimerCount);
-        hostLoader.stop();
-      } finally {
-        vi.useRealTimers();
-      }
-    },
-  );
-
-  it.each([
-    [
-      'turn',
-      (driver: ActivityDriver) => {
-        driver.sessionEventHandler.handleEvent(
-          { type: 'turn.started', agentId: 'main', sessionId: 'ses-1', turnId: 2 } as Event,
-          () => {},
-        );
-      },
-    ],
-    [
-      'error',
-      (driver: ActivityDriver) => {
-        driver.sessionEventHandler.handleEvent(
-          {
-            type: 'error',
-            agentId: 'main',
-            sessionId: 'ses-1',
-            code: 'provider.connection_error',
-            message: 'Provider disconnected',
-            retryable: false,
-          } as Event,
-          () => {},
-        );
-      },
-    ],
-  ] as const)('leaves active Mission Control static during %s cleanup', (_kind, cleanup) => {
-    vi.useFakeTimers();
-    try {
-      const { driver, state } = makeDriverWithTerminalProgress();
-      state.livePane = { ...state.livePane, mode: 'tool' };
-      driver.updateActivityPane();
-      const missionControl = startDynamicWorkflow(driver, state);
-      expect(strip(missionControl.render(100).join('\n'))).toMatch(
-        /[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] Orchestrating/u,
-      );
-
-      cleanup(driver);
-      driver.updateActivityPane();
-
-      const output = strip(missionControl.render(100).join('\n'));
-      expect(output).toContain('– Cancelled');
-      expect(output).not.toMatch(/[◐◓◑◒] Orchestrating/);
-      expect(output).toMatch(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]\s+RUN\s+Review changed files/u);
-      state.activitySpinner?.instance.stop();
+      driver.sessionEventHandler.clearAgentDynamicWorkflowProgress();
     } finally {
       vi.useRealTimers();
     }

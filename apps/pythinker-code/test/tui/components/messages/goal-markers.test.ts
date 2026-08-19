@@ -1,11 +1,11 @@
-import { visibleWidth } from '@earendil-works/pi-tui';
+import { visibleWidth } from '@pymodel/pi-tui';
 import { describe, expect, it } from 'vitest';
 
 import { DynamicWorkflowModeMarkerComponent } from '#/tui/components/messages/dynamic-workflow-markers';
 import { buildGoalMarker, GoalMarkerComponent } from '#/tui/components/messages/goal-markers';
 import type { GoalChange } from '@pymodel/pythinker-code-sdk';
 
-const ANSI_SGR = /\u001B\[[0-9;]*m/g;
+const ANSI_SGR = /\[[0-9;]*m/g;
 function strip(lines: string[]): string {
   return lines.join('\n').replaceAll(ANSI_SGR, '');
 }

@@ -279,7 +279,7 @@ describe('CronListTool', () => {
   });
 
   it('one-shot nextFireAt is anchored at createdAt, not nowMs (pending today’s slot)', async () => {
-    // Scenario from the Codex review: a daily one-shot scheduled for
+    // Scenario from a review: a daily one-shot scheduled for
     // 12:00 that the agent could not yet deliver (busy turn, manual
     // tick mode) and is listed 5 minutes after the ideal slot. The
     // scheduler will still fire today's 12:00 slot from createdAt, so
@@ -397,8 +397,8 @@ describe('CronListTool', () => {
     // legal char boundary so the rendered preview is valid UTF-8.
     const { manager, tool } = makeHarness();
     const nowMs = manager.clocks.wallNow();
-    // `€` is 3 bytes in UTF-8; 100 × 3 = 300 bytes, well past the cap.
-    const cjkPrompt = '€'.repeat(100);
+    // `\u4F60` is 3 bytes in UTF-8; 100 × 3 = 300 bytes, well past the cap.
+    const cjkPrompt = '\u4F60'.repeat(100);
     manager.store.add(
       { cron: '*/5 * * * *', prompt: cjkPrompt, recurring: true },
       nowMs,
@@ -413,9 +413,9 @@ describe('CronListTool', () => {
     expect(rendered).not.toContain('�');
     // Inner content is JSON-stringified; strip the outer quotes and
     // the trailing `…(truncated)` marker, then verify the remainder
-    // parses back to a run of `€` chars with no fractional sequence.
-    const stripped = rendered.replaceAll(/^"|…\(truncated\)"$/g, '');
+    // parses back to a run of `\u4F60` chars with no fractional sequence.
+    const stripped = rendered.replace(/^"|…\(truncated\)"$/g, '');
     expect(stripped.length).toBeGreaterThan(0);
-    for (const ch of stripped) expect(ch).toBe('€');
+    for (const ch of stripped) expect(ch).toBe('\u4F60');
   });
 });

@@ -5,6 +5,7 @@ import type { ContentPart, Message, ToolCall } from '#/message';
 import { extractUsageFromChunk, PythinkerChatProvider } from '#/providers/pythinker';
 import { classifyPythinkerQuotaError } from '#/providers/pythinker-errors';
 import { extractUsage } from '#/providers/openai-common';
+import type { GenerateOptions } from '#/provider';
 import type { Tool } from '#/tool';
 import { APIError as OpenAIAPIError } from 'openai';
 import { describe, it, expect, vi } from 'vitest';
@@ -28,17 +29,33 @@ function makeChatCompletionResponse(model: string = 'test-model') {
 
 function createProvider(stream: boolean = false): PythinkerChatProvider {
   return new PythinkerChatProvider({
-    model: 'pythinker-k2-turbo-preview',
+    model: 'kimi-k2-turbo-preview',
     apiKey: 'test-key',
-    baseUrl: 'https://llm.example.com/v1',
     stream,
   });
+}
+
+/**
+ * The provider reads the KFC `x-trace-id` response header via the SDK's
+ * `APIPromise.withResponse()`, so mocked `chat.completions.create` calls must
+ * resolve to an object exposing that method. `traceId` sets the header value
+ * the fake response reports.
+ */
+function mockCreateResult(data: unknown, traceId?: string) {
+  return {
+    withResponse: () =>
+      Promise.resolve({
+        data,
+        response: new Response(null, {
+          headers: traceId === undefined ? {} : { 'x-trace-id': traceId },
+        }),
+      }),
+  };
 }
 
 type PythinkerGenerationState = {
   max_tokens?: number | undefined;
   temperature?: number | undefined;
-  reasoning_effort?: string | undefined;
   prompt_cache_key?: string | undefined;
   extra_body?: Record<string, unknown> | undefined;
 };
@@ -53,6 +70,7 @@ async function captureRequestBody(
   systemPrompt: string,
   tools: Tool[],
   history: Message[],
+  options?: GenerateOptions,
 ): Promise<Record<string, unknown>> {
   let capturedBody: Record<string, unknown> | undefined;
 
@@ -60,10 +78,10 @@ async function captureRequestBody(
     .fn()
     .mockImplementation((params: unknown) => {
       capturedBody = params as Record<string, unknown>;
-      return Promise.resolve(makeChatCompletionResponse('pythinker-k2'));
+      return mockCreateResult(makeChatCompletionResponse('kimi-k2'));
     });
 
-  const stream = await provider.generate(systemPrompt, tools, history);
+  const stream = await provider.generate(systemPrompt, tools, history, options);
   for await (const part of stream) {
     void part;
   }
@@ -72,6 +90,36 @@ async function captureRequestBody(
     throw new Error('Expected provider.generate() to call chat.completions.create');
   }
   return capturedBody;
+}
+
+async function capturePythinkerMessages(
+  history: Message[],
+  configure?: (provider: PythinkerChatProvider) => PythinkerChatProvider,
+): Promise<Array<Record<string, unknown>>> {
+  let captured: Record<string, unknown> | undefined;
+  const create = vi.fn().mockImplementation((params: unknown) => {
+    captured = params as Record<string, unknown>;
+    return mockCreateResult(makeChatCompletionResponse('kimi-k2'));
+  });
+  let provider = new PythinkerChatProvider({
+    model: 'kimi-k2',
+    apiKey: 'test-key',
+    stream: false,
+    clientFactory: () => ({ chat: { completions: { create } } }) as never,
+  });
+  if (configure !== undefined) {
+    provider = configure(provider);
+  }
+
+  const response = await provider.generate('', [], history);
+  for await (const part of response) {
+    void part;
+  }
+
+  if (captured === undefined) {
+    throw new Error('Expected Pythinker provider to send a request.');
+  }
+  return captured['messages'] as Array<Record<string, unknown>>;
 }
 
 const ADD_TOOL: Tool = {
@@ -566,7 +614,7 @@ describe('PythinkerChatProvider', () => {
 
       // Snapshot of the expected wire format.
       // Pythinker injects ThinkPart as `reasoning_content` field on the
-      // assistant message (Pythoughts API extension).
+      // assistant message (PyModel API extension).
       expect(body['messages']).toEqual([
         { role: 'user', content: 'What is 2+2?' },
         {
@@ -576,6 +624,188 @@ describe('PythinkerChatProvider', () => {
         },
         { role: 'user', content: 'Thanks!' },
       ]);
+    });
+
+    it('preserves an explicitly empty reasoning field on a tool-call message', async () => {
+      const provider = createProvider();
+      const history: Message[] = [
+        {
+          role: 'assistant',
+          content: [{ type: 'think', think: '' }],
+          toolCalls: [
+            { type: 'function', id: 'call_1', name: 'lookup', arguments: '{"q":"test"}' },
+          ],
+        },
+      ];
+
+      const body = await captureRequestBody(provider, '', [], history);
+
+      expect(body['messages']).toEqual([
+        {
+          role: 'assistant',
+          reasoning_content: '',
+          tool_calls: [
+            {
+              type: 'function',
+              id: 'call_1',
+              function: { name: 'lookup', arguments: '{"q":"test"}' },
+            },
+          ],
+        },
+      ]);
+    });
+
+    it('sends empty reasoning_content for an assistant tool call when preserved thinking is active', async () => {
+      const history: Message[] = [
+        {
+          role: 'assistant',
+          content: [],
+          toolCalls: [
+            { type: 'function', id: 'call_1', name: 'lookup', arguments: '{"q":"test"}' },
+          ],
+        },
+      ];
+
+      const messages = await capturePythinkerMessages(history, (provider) =>
+        provider.withExtraBody({ thinking: { type: 'enabled', keep: 'all' } }),
+      );
+
+      expect(messages[0]).toHaveProperty('reasoning_content', '');
+    });
+
+    it('sends empty reasoning_content for a text assistant when keep=all omits thinking.type', async () => {
+      const history: Message[] = [
+        {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'Done.' }],
+          toolCalls: [],
+        },
+      ];
+
+      const messages = await capturePythinkerMessages(history, (provider) =>
+        provider.withExtraBody({ thinking: { keep: 'all' } }),
+      );
+
+      expect(messages[0]).toHaveProperty('reasoning_content', '');
+    });
+
+    it('replays an existing empty ThinkPart unchanged when preserved thinking is active', async () => {
+      const history: Message[] = [
+        {
+          role: 'assistant',
+          content: [{ type: 'think', think: '' }],
+          toolCalls: [],
+        },
+      ];
+
+      const messages = await capturePythinkerMessages(history, (provider) =>
+        provider.withExtraBody({ thinking: { type: 'enabled', keep: 'all' } }),
+      );
+
+      expect(messages[0]).toHaveProperty('reasoning_content', '');
+    });
+
+    it('replays aggregated empty ThinkParts unchanged when preserved thinking is active', async () => {
+      const history: Message[] = [
+        {
+          role: 'assistant',
+          content: [
+            { type: 'think', think: '' },
+            { type: 'think', think: '' },
+          ],
+          toolCalls: [],
+        },
+      ];
+
+      const messages = await capturePythinkerMessages(history, (provider) =>
+        provider.withExtraBody({ thinking: { type: 'enabled', keep: 'all' } }),
+      );
+
+      expect(messages[0]).toHaveProperty('reasoning_content', '');
+    });
+
+    it('preserves non-empty reasoning when preserved thinking is active', async () => {
+      const history: Message[] = [
+        {
+          role: 'assistant',
+          content: [
+            { type: 'think', think: '' },
+            { type: 'think', think: 'reasoning text' },
+          ],
+          toolCalls: [],
+        },
+      ];
+
+      const messages = await capturePythinkerMessages(history, (provider) =>
+        provider.withExtraBody({ thinking: { type: 'enabled', keep: 'all' } }),
+      );
+
+      expect(messages[0]).toHaveProperty('reasoning_content', 'reasoning text');
+    });
+
+    it.each([
+      ['missing', undefined],
+      ['null', null],
+      ['false', false],
+      ['off', 'off'],
+    ])(
+      'does not backfill reasoning_content when thinking.keep is %s',
+      async (_kind, keep) => {
+        const history: Message[] = [
+          {
+            role: 'assistant',
+            content: [],
+            toolCalls: [
+              { type: 'function', id: 'call_1', name: 'lookup', arguments: '{"q":"test"}' },
+            ],
+          },
+        ];
+
+        const messages = await capturePythinkerMessages(history, (provider) =>
+          provider.withExtraBody({ thinking: { type: 'enabled', keep } }),
+        );
+
+        expect(messages[0]).not.toHaveProperty('reasoning_content');
+      },
+    );
+
+    it('does not backfill reasoning_content when thinking is disabled', async () => {
+      const history: Message[] = [
+        {
+          role: 'assistant',
+          content: [],
+          toolCalls: [
+            { type: 'function', id: 'call_1', name: 'lookup', arguments: '{"q":"test"}' },
+          ],
+        },
+      ];
+
+      const messages = await capturePythinkerMessages(history, (provider) =>
+        provider.withExtraBody({ thinking: { type: 'disabled', keep: 'all' } }),
+      );
+
+      expect(messages[0]).not.toHaveProperty('reasoning_content');
+    });
+
+    it('does not backfill reasoning_content on non-assistant messages', async () => {
+      const history: Message[] = [
+        { role: 'system', content: [{ type: 'text', text: 'System.' }], toolCalls: [] },
+        { role: 'user', content: [{ type: 'text', text: 'User.' }], toolCalls: [] },
+        {
+          role: 'tool',
+          content: [{ type: 'text', text: 'Tool result.' }],
+          toolCalls: [],
+          toolCallId: 'call_1',
+        },
+      ];
+
+      const messages = await capturePythinkerMessages(history, (provider) =>
+        provider.withExtraBody({ thinking: { type: 'enabled', keep: 'all' } }),
+      );
+
+      for (const message of messages) {
+        expect(message).not.toHaveProperty('reasoning_content');
+      }
     });
   });
 
@@ -621,6 +851,39 @@ describe('PythinkerChatProvider', () => {
       expect(body['max_tokens']).toBeUndefined();
     });
 
+    it('maps json_schema response format to response_format', async () => {
+      const provider = createProvider();
+      const history: Message[] = [
+        { role: 'user', content: [{ type: 'text', text: 'Extract contact' }], toolCalls: [] },
+      ];
+      const schema = {
+        type: 'object',
+        properties: { name: { type: 'string' } },
+        required: ['name'],
+        additionalProperties: false,
+      };
+      const body = await captureRequestBody(provider, '', [], history, {
+        responseFormat: {
+          type: 'json_schema',
+          jsonSchema: {
+            name: 'contact',
+            schema,
+            strict: true,
+          },
+        },
+      });
+
+      expect(body['response_format']).toEqual({
+        type: 'json_schema',
+        json_schema: {
+          name: 'contact',
+          schema,
+          strict: true,
+          description: undefined,
+        },
+      });
+    });
+
     it('prefers max_completion_tokens when both fields are set', async () => {
       const provider = createProvider().withGenerationKwargs({
         max_completion_tokens: 2048,
@@ -644,13 +907,32 @@ describe('PythinkerChatProvider', () => {
 
       expect(body['max_completion_tokens']).toBe(1024);
       expect(body['max_tokens']).toBeUndefined();
+      expect(provider.maxCompletionTokens).toBe(1024);
+      // Without any budget application no cap goes on the wire, and the
+      // exposed value says so.
+      expect(createProvider().maxCompletionTokens).toBeUndefined();
+    });
+
+    it('withMaxCompletionTokens sizes the cap to the remaining context window', async () => {
+      const provider = createProvider().withMaxCompletionTokens(100000, {
+        usedContextTokens: 30000,
+        maxContextTokens: 100000,
+      });
+      const history: Message[] = [
+        { role: 'user', content: [{ type: 'text', text: 'Hi' }], toolCalls: [] },
+      ];
+      const body = await captureRequestBody(provider, '', [], history);
+
+      expect(body['max_completion_tokens']).toBe(70000);
+      // The exposed effective cap matches the clamped wire value, not the
+      // requested budget — the request trace records this field.
+      expect(provider.maxCompletionTokens).toBe(70000);
     });
 
     it('passes constructor generation kwargs into the request body', async () => {
       const provider = new PythinkerChatProvider({
-        model: 'pythinker-k2-turbo-preview',
+        model: 'kimi-k2-turbo-preview',
         apiKey: 'test-key',
-        baseUrl: 'https://llm.example.com/v1',
         stream: false,
         generationKwargs: { prompt_cache_key: 'session-test' },
       });
@@ -668,9 +950,8 @@ describe('PythinkerChatProvider', () => {
         .withGenerationKwargs({ max_tokens: 512 });
 
       expect(getGenerationState(provider)).toEqual({
-        reasoning_effort: 'high',
         extra_body: {
-          thinking: { type: 'enabled' },
+          thinking: { type: 'enabled', effort: 'high' },
         },
         max_tokens: 512,
       });
@@ -707,28 +988,37 @@ describe('PythinkerChatProvider', () => {
   });
 
   describe('with thinking', () => {
-    it('hoists thinking to the top level and sets reasoning_effort for high', async () => {
+    it('sends concrete effort strings verbatim', async () => {
       const provider = createProvider().withThinking('high');
       const history: Message[] = [
         { role: 'user', content: [{ type: 'text', text: 'Think' }], toolCalls: [] },
       ];
       const body = await captureRequestBody(provider, '', [], history);
 
-      expect(body['reasoning_effort']).toBe('high');
-      expect(body['thinking']).toEqual({ type: 'enabled' });
+      expect(body['reasoning_effort']).toBeUndefined();
+      expect(body['thinking']).toEqual({ type: 'enabled', effort: 'high' });
       expect(body['extra_body']).toBeUndefined();
     });
 
-    it('clamps minimal to the native low reasoning effort', async () => {
-      const provider = createProvider().withThinking('minimal');
-      const body = await captureRequestBody(
-        provider,
-        '',
-        [],
-        [{ role: 'user', content: [{ type: 'text', text: 'Think' }], toolCalls: [] }],
-      );
+    it('effort-capable model sends thinking.effort', async () => {
+      const provider = createProvider().withThinking('high');
+      const history: Message[] = [
+        { role: 'user', content: [{ type: 'text', text: 'Think' }], toolCalls: [] },
+      ];
+      const body = await captureRequestBody(provider, '', [], history);
 
-      expect(body['reasoning_effort']).toBe('low');
+      expect(body['thinking']).toEqual({ type: 'enabled', effort: 'high' });
+      expect(body['extra_body']).toBeUndefined();
+    });
+
+    it('effort-capable model passes max through to thinking.effort (no clamp)', async () => {
+      const provider = createProvider().withThinking('max');
+      const history: Message[] = [
+        { role: 'user', content: [{ type: 'text', text: 'Think' }], toolCalls: [] },
+      ];
+      const body = await captureRequestBody(provider, '', [], history);
+
+      expect(body['thinking']).toEqual({ type: 'enabled', effort: 'max' });
     });
 
     it('hoists thinking disabled and clears reasoning_effort for off', async () => {
@@ -743,22 +1033,44 @@ describe('PythinkerChatProvider', () => {
       expect(body['extra_body']).toBeUndefined();
     });
 
-    it('thinkingEffort property reflects current state', () => {
+    it('omits the effort only for the boolean on signal', async () => {
+      for (const effort of ['xhigh', 'on', 'foo']) {
+        const provider = createProvider().withThinking(effort);
+        const history: Message[] = [
+          { role: 'user', content: [{ type: 'text', text: 'Think' }], toolCalls: [] },
+        ];
+        const body = await captureRequestBody(provider, '', [], history);
+        expect(body['reasoning_effort']).toBeUndefined();
+        expect(body['thinking']).toEqual(
+          effort === 'on' ? { type: 'enabled' } : { type: 'enabled', effort },
+        );
+      }
+    });
+
+    it('thinkingEffort property reflects the configured effort', () => {
       const provider = createProvider();
       expect(provider.thinkingEffort).toBeNull();
 
-      const withHigh = provider.withThinking('high');
-      expect(withHigh.thinkingEffort).toBe('high');
+      expect(provider.withThinking('high').thinkingEffort).toBe('high');
+      expect(provider.withThinking('low').thinkingEffort).toBe('low');
+      expect(provider.withThinking('max').thinkingEffort).toBe('max');
+      expect(provider.withThinking('off').thinkingEffort).toBe('off');
+    });
 
-      const withLow = provider.withThinking('low');
-      expect(withLow.thinkingEffort).toBe('low');
+    it("thinkingEffort reports 'on' only for the boolean on signal", () => {
+      const provider = createProvider();
+      expect(provider.withThinking('high').thinkingEffort).toBe('high');
+      expect(provider.withThinking('on').thinkingEffort).toBe('on');
+      expect(provider.withThinking('off').thinkingEffort).toBe('off');
     });
 
     it('replaces the previous thinking effort when called again', () => {
-      const provider = createProvider().withThinking('high').withThinking('off');
+      const provider = createProvider()
+        .withThinking('high')
+        .withThinking('off');
 
+      // No stale `effort` lingers on the disabled thinking object.
       expect(getGenerationState(provider)).toEqual({
-        reasoning_effort: undefined,
         extra_body: {
           thinking: { type: 'disabled' },
         },
@@ -770,7 +1082,7 @@ describe('PythinkerChatProvider', () => {
     it('has correct name and model', () => {
       const provider = createProvider();
       expect(provider.name).toBe('pythinker');
-      expect(provider.modelName).toBe('pythinker-k2-turbo-preview');
+      expect(provider.modelName).toBe('kimi-k2-turbo-preview');
     });
 
     it('throws during generation when no constructor or request API key is provided', async () => {
@@ -787,28 +1099,12 @@ describe('PythinkerChatProvider', () => {
       }
     });
 
-    it('throws during generation when no base URL is configured', async () => {
-      const saved = process.env['PYTHINKER_BASE_URL'];
-      delete process.env['PYTHINKER_BASE_URL'];
-      try {
-        // There is no default endpoint (pythinker runs no hosted service), so
-        // an apiKey-only provider must fail loud instead of silently letting
-        // the OpenAI SDK target its own default host.
-        const provider = new PythinkerChatProvider({ model: 'test', apiKey: 'test-key' });
-        await expect(provider.generate('', [], [])).rejects.toThrow(/PYTHINKER_BASE_URL/);
-      } finally {
-        if (saved !== undefined) {
-          process.env['PYTHINKER_BASE_URL'] = saved;
-        }
-      }
-    });
-
     it('passes request-scoped auth to the client factory', async () => {
       const auths: unknown[] = [];
       const client = {
         chat: {
           completions: {
-            create: vi.fn().mockResolvedValue(makeChatCompletionResponse('pythinker-k2')),
+            create: vi.fn().mockImplementation(() => mockCreateResult(makeChatCompletionResponse('kimi-k2'))),
           },
         },
       };
@@ -890,11 +1186,13 @@ describe('PythinkerChatProvider', () => {
   describe('non-stream response parsing', () => {
     it('yields text content from non-stream response', async () => {
       const provider = createProvider();
-      (provider as any)._client.chat.completions.create = vi.fn().mockResolvedValue({
-        id: 'chatcmpl-123',
-        choices: [{ message: { role: 'assistant', content: 'Hello world' } }],
-        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
-      });
+      (provider as any)._client.chat.completions.create = vi.fn().mockImplementation(() =>
+        mockCreateResult({
+          id: 'chatcmpl-123',
+          choices: [{ message: { role: 'assistant', content: 'Hello world' } }],
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        }),
+      );
 
       const stream = await provider.generate(
         '',
@@ -919,19 +1217,21 @@ describe('PythinkerChatProvider', () => {
 
     it('yields reasoning_content as ThinkPart', async () => {
       const provider = createProvider();
-      (provider as any)._client.chat.completions.create = vi.fn().mockResolvedValue({
-        id: 'chatcmpl-123',
-        choices: [
-          {
-            message: {
-              role: 'assistant',
-              content: 'The answer is 4.',
-              reasoning_content: 'Let me think about this...',
+      (provider as any)._client.chat.completions.create = vi.fn().mockImplementation(() =>
+        mockCreateResult({
+          id: 'chatcmpl-123',
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: 'The answer is 4.',
+                reasoning_content: 'Let me think about this...',
+              },
             },
-          },
-        ],
-        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
-      });
+          ],
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        }),
+      );
 
       const stream = await provider.generate(
         '',
@@ -948,6 +1248,305 @@ describe('PythinkerChatProvider', () => {
         { type: 'think', think: 'Let me think about this...' },
         { type: 'text', text: 'The answer is 4.' },
       ]);
+    });
+
+    it('yields an empty ThinkPart when reasoning_content is explicitly empty', async () => {
+      const provider = createProvider();
+      (provider as any)._client.chat.completions.create = vi.fn().mockImplementation(() =>
+        mockCreateResult({
+          id: 'chatcmpl-empty-reasoning',
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: null,
+                reasoning_content: '',
+                tool_calls: [
+                  {
+                    id: 'call_1',
+                    type: 'function',
+                    function: { name: 'lookup', arguments: '{"q":"test"}' },
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+      );
+
+      const stream = await provider.generate('', [], []);
+      const parts = [];
+      for await (const part of stream) parts.push(part);
+
+      expect(parts).toEqual([
+        { type: 'think', think: '' },
+        {
+          type: 'function',
+          id: 'call_1',
+          name: 'lookup',
+          arguments: '{"q":"test"}',
+        },
+      ]);
+    });
+
+    it('yields reasoning as ThinkPart (vLLM wire field)', async () => {
+      const provider = createProvider();
+      (provider as any)._client.chat.completions.create = vi.fn().mockImplementation(() =>
+        mockCreateResult({
+          id: 'chatcmpl-123',
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: 'The answer is 4.',
+                reasoning: 'Let me think about this...',
+              },
+            },
+          ],
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        }),
+      );
+
+      const stream = await provider.generate('', [], []);
+      const parts = [];
+      for await (const part of stream) parts.push(part);
+
+      expect(parts).toEqual([
+        { type: 'think', think: 'Let me think about this...' },
+        { type: 'text', text: 'The answer is 4.' },
+      ]);
+    });
+
+    it('prefers reasoning_content when both fields are present', async () => {
+      const provider = createProvider();
+      (provider as any)._client.chat.completions.create = vi.fn().mockImplementation(() =>
+        mockCreateResult({
+          id: 'chatcmpl-123',
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: 'A',
+                reasoning_content: 'from reasoning_content',
+                reasoning: 'from reasoning',
+              },
+            },
+          ],
+        }),
+      );
+
+      const stream = await provider.generate('', [], []);
+      const parts = [];
+      for await (const part of stream) parts.push(part);
+
+      expect(parts).toEqual([
+        { type: 'think', think: 'from reasoning_content' },
+        { type: 'text', text: 'A' },
+      ]);
+    });
+
+    it('falls back to reasoning when reasoning_content is null', async () => {
+      // Current vLLM emits a compatibility `reasoning_content: null` alongside
+      // the real `reasoning` string; the null must fall through.
+      const provider = createProvider();
+      (provider as any)._client.chat.completions.create = vi.fn().mockImplementation(() =>
+        mockCreateResult({
+          id: 'chatcmpl-123',
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: 'A',
+                reasoning_content: null,
+                reasoning: 'from reasoning',
+              },
+            },
+          ],
+        }),
+      );
+
+      const stream = await provider.generate('', [], []);
+      const parts = [];
+      for await (const part of stream) parts.push(part);
+
+      expect(parts).toEqual([
+        { type: 'think', think: 'from reasoning' },
+        { type: 'text', text: 'A' },
+      ]);
+    });
+  });
+
+  describe('reasoning key dialect', () => {
+    const THINK_HISTORY: Message[] = [
+      {
+        role: 'assistant',
+        content: [
+          { type: 'think', think: 'hmm' },
+          { type: 'text', text: 'ok' },
+        ],
+        toolCalls: [],
+      },
+    ];
+
+    it('echoes thinking under reasoning after a non-stream response used that field', async () => {
+      const provider = createProvider();
+      const captured: Array<Record<string, unknown>> = [];
+      (provider as any)._client.chat.completions.create = vi
+        .fn()
+        .mockImplementation((params: unknown) => {
+          captured.push(params as Record<string, unknown>);
+          return mockCreateResult({
+            id: 'chatcmpl-r',
+            choices: [
+              { message: { role: 'assistant', content: 'ok', reasoning: 'hmm' } },
+            ],
+          });
+        });
+
+      // Detection happens while draining the first response.
+      const first = await provider.generate('', [], []);
+      for await (const part of first) void part;
+
+      const second = await provider.generate('', [], THINK_HISTORY);
+      for await (const part of second) void part;
+
+      const messages = captured[1]?.['messages'] as Array<Record<string, unknown>>;
+      expect(messages[0]).toEqual({ role: 'assistant', content: 'ok', reasoning: 'hmm' });
+    });
+
+    it('detects the dialect from streaming deltas and echoes it on the next request', async () => {
+      const provider = createProvider(true);
+      const captured: Array<Record<string, unknown>> = [];
+      (provider as any)._client.chat.completions.create = vi
+        .fn()
+        .mockImplementation((params: unknown) => {
+          captured.push(params as Record<string, unknown>);
+          async function* chunks(): AsyncIterable<Record<string, unknown>> {
+            yield { id: 'chatcmpl-s', choices: [{ index: 0, delta: { reasoning: 'hmm' } }] };
+            yield {
+              id: 'chatcmpl-s',
+              choices: [{ index: 0, delta: { content: 'ok' }, finish_reason: 'stop' }],
+            };
+          }
+          return mockCreateResult(chunks());
+        });
+
+      const first = await provider.generate('', [], []);
+      const firstParts = [];
+      for await (const part of first) firstParts.push(part);
+      expect(firstParts).toEqual([
+        { type: 'think', think: 'hmm' },
+        { type: 'text', text: 'ok' },
+      ]);
+
+      const second = await provider.generate('', [], THINK_HISTORY);
+      for await (const part of second) void part;
+
+      const messages = captured[1]?.['messages'] as Array<Record<string, unknown>>;
+      expect(messages[0]).toEqual({ role: 'assistant', content: 'ok', reasoning: 'hmm' });
+    });
+
+    it('defaults to reasoning_content before any detection', async () => {
+      const provider = createProvider();
+      let captured: Record<string, unknown> | undefined;
+      (provider as any)._client.chat.completions.create = vi
+        .fn()
+        .mockImplementation((params: unknown) => {
+          captured = params as Record<string, unknown>;
+          return mockCreateResult(makeChatCompletionResponse('kimi-k2'));
+        });
+
+      const stream = await provider.generate('', [], THINK_HISTORY);
+      for await (const part of stream) void part;
+
+      const messages = captured?.['messages'] as Array<Record<string, unknown>>;
+      expect(messages[0]).toEqual({ role: 'assistant', content: 'ok', reasoning_content: 'hmm' });
+    });
+
+    it('dialect detected on a per-step clone steers the original provider', async () => {
+      const original = createProvider();
+      const captured: Array<Record<string, unknown>> = [];
+      (original as any)._client.chat.completions.create = vi
+        .fn()
+        .mockImplementation((params: unknown) => {
+          captured.push(params as Record<string, unknown>);
+          return mockCreateResult({
+            id: 'chatcmpl-r',
+            choices: [{ message: { role: 'assistant', content: 'ok', reasoning: 'hmm' } }],
+          });
+        });
+
+      // The per-step clone shares `_client` (mocked above) and must also share
+      // the dialect cell: learning on the clone steers the original.
+      const clone = original.withMaxCompletionTokens(2048);
+      const first = await clone.generate('', [], []);
+      for await (const part of first) void part;
+
+      const second = await original.generate('', [], THINK_HISTORY);
+      for await (const part of second) void part;
+
+      const messages = captured[1]?.['messages'] as Array<Record<string, unknown>>;
+      expect(messages[0]).toEqual({ role: 'assistant', content: 'ok', reasoning: 'hmm' });
+    });
+  });
+
+  describe('trace id capture', () => {
+    it('reads x-trace-id from a non-stream response', async () => {
+      const provider = createProvider();
+      (provider as any)._client.chat.completions.create = vi
+        .fn()
+        .mockImplementation(() => mockCreateResult(makeChatCompletionResponse('kimi-k2'), 'trace-abc'));
+
+      const stream = await provider.generate('', [], []);
+      for await (const part of stream) void part;
+
+      expect(stream.traceId).toBe('trace-abc');
+    });
+
+    it('reads x-trace-id from a streaming response before the body is drained', async () => {
+      const provider = createProvider(true);
+      async function* chunks(): AsyncIterable<Record<string, unknown>> {
+        yield {
+          id: 'chatcmpl-stream',
+          choices: [{ index: 0, delta: { content: 'hi' }, finish_reason: 'stop' }],
+        };
+      }
+      (provider as any)._client.chat.completions.create = vi
+        .fn()
+        .mockImplementation(() => mockCreateResult(chunks(), 'trace-stream'));
+
+      const stream = await provider.generate('', [], []);
+      // The header arrives with the response, before any streamed part.
+      expect(stream.traceId).toBe('trace-stream');
+      for await (const part of stream) void part;
+      expect(stream.traceId).toBe('trace-stream');
+    });
+
+    it('reports null when the response carries no x-trace-id header', async () => {
+      const provider = createProvider();
+      (provider as any)._client.chat.completions.create = vi
+        .fn()
+        .mockImplementation(() => mockCreateResult(makeChatCompletionResponse('kimi-k2')));
+
+      const stream = await provider.generate('', [], []);
+      for await (const part of stream) void part;
+
+      expect(stream.traceId).toBeNull();
+    });
+
+    it('generate() carries traceId onto the result and fires onTraceId once headers arrive', async () => {
+      const provider = createProvider();
+      (provider as any)._client.chat.completions.create = vi
+        .fn()
+        .mockImplementation(() => mockCreateResult(makeChatCompletionResponse('kimi-k2'), 'trace-gen'));
+
+      const traceIds: Array<string | null> = [];
+      const result = await generate(provider, '', [], [], undefined, {
+        onTraceId: (traceId) => traceIds.push(traceId),
+      });
+
+      expect(traceIds).toEqual(['trace-gen']);
+      expect(result.traceId).toBe('trace-gen');
     });
   });
 
@@ -966,7 +1565,7 @@ describe('PythinkerChatProvider', () => {
         id: 'chatcmpl-pythinker-stream',
         object: 'chat.completion.chunk',
         created: 1234567890,
-        model: 'pythinker-k2-turbo-preview',
+        model: 'kimi-k2-turbo-preview',
         choices: [
           {
             index: 0,
@@ -989,6 +1588,25 @@ describe('PythinkerChatProvider', () => {
       }
     }
 
+    it('yields an empty ThinkPart from an explicitly empty streaming delta', async () => {
+      const provider = createProvider(true);
+      const chunks = [
+        {
+          id: 'chatcmpl-empty-reasoning',
+          choices: [{ index: 0, delta: { reasoning_content: '' }, finish_reason: null }],
+        },
+      ];
+      (
+        provider as unknown as { _client: { chat: { completions: { create: unknown } } } }
+      )._client.chat.completions.create = vi.fn().mockImplementation(() => mockCreateResult(mockStream(chunks)));
+
+      const stream = await provider.generate('', [], []);
+      const parts = [];
+      for await (const part of stream) parts.push(part);
+
+      expect(parts).toEqual([{ type: 'think', think: '' }]);
+    });
+
     it('buffers indexed argument deltas until the real tool name arrives', async () => {
       const provider = createProvider(true);
 
@@ -1002,7 +1620,7 @@ describe('PythinkerChatProvider', () => {
 
       (
         provider as unknown as { _client: { chat: { completions: { create: unknown } } } }
-      )._client.chat.completions.create = vi.fn().mockResolvedValue(mockStream(chunks));
+      )._client.chat.completions.create = vi.fn().mockImplementation(() => mockCreateResult(mockStream(chunks)));
 
       const result = await generate(
         provider,
@@ -1034,7 +1652,7 @@ describe('PythinkerChatProvider', () => {
 
       (
         provider as unknown as { _client: { chat: { completions: { create: unknown } } } }
-      )._client.chat.completions.create = vi.fn().mockResolvedValue(mockStream(chunks));
+      )._client.chat.completions.create = vi.fn().mockImplementation(() => mockCreateResult(mockStream(chunks)));
 
       const events: string[] = [];
       await generate(
@@ -1091,7 +1709,7 @@ describe('PythinkerChatProvider', () => {
 
       (
         provider as unknown as { _client: { chat: { completions: { create: unknown } } } }
-      )._client.chat.completions.create = vi.fn().mockResolvedValue(mockStream(chunks));
+      )._client.chat.completions.create = vi.fn().mockImplementation(() => mockCreateResult(mockStream(chunks)));
 
       const result = await generate(
         provider,
@@ -1166,7 +1784,7 @@ describe('PythinkerChatProvider', () => {
 
       (
         provider as unknown as { _client: { chat: { completions: { create: unknown } } } }
-      )._client.chat.completions.create = vi.fn().mockResolvedValue(mockStream([singleChunk]));
+      )._client.chat.completions.create = vi.fn().mockImplementation(() => mockCreateResult(mockStream([singleChunk])));
 
       // generate() uses the reducer which expects a ToolCall header before
       // accumulating arguments. A pure arg-only without a prior header is
@@ -1181,25 +1799,27 @@ describe('PythinkerChatProvider', () => {
 
     it('non-stream response with tool_calls yields ToolCall parts', async () => {
       const provider = createProvider(false);
-      (provider as any)._client.chat.completions.create = vi.fn().mockResolvedValue({
-        id: 'chatcmpl-nonstream',
-        choices: [
-          {
-            message: {
-              role: 'assistant',
-              content: null,
-              tool_calls: [
-                {
-                  id: 'call_ns_a',
-                  type: 'function',
-                  function: { name: 'lookup', arguments: '{"q":"hi"}' },
-                },
-              ],
+      (provider as any)._client.chat.completions.create = vi.fn().mockImplementation(() =>
+        mockCreateResult({
+          id: 'chatcmpl-nonstream',
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: null,
+                tool_calls: [
+                  {
+                    id: 'call_ns_a',
+                    type: 'function',
+                    function: { name: 'lookup', arguments: '{"q":"hi"}' },
+                  },
+                ],
+              },
             },
-          },
-        ],
-        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
-      });
+          ],
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        }),
+      );
 
       const stream = await provider.generate(
         '',
@@ -1220,23 +1840,25 @@ describe('PythinkerChatProvider', () => {
 
     it('non-stream response generates UUID when tool_call has no id', async () => {
       const provider = createProvider(false);
-      (provider as any)._client.chat.completions.create = vi.fn().mockResolvedValue({
-        id: 'chatcmpl-uuid',
-        choices: [
-          {
-            message: {
-              role: 'assistant',
-              content: null,
-              tool_calls: [
-                {
-                  type: 'function',
-                  function: { name: 'lookup', arguments: '{}' },
-                },
-              ],
+      (provider as any)._client.chat.completions.create = vi.fn().mockImplementation(() =>
+        mockCreateResult({
+          id: 'chatcmpl-uuid',
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: null,
+                tool_calls: [
+                  {
+                    type: 'function',
+                    function: { name: 'lookup', arguments: '{}' },
+                  },
+                ],
+              },
             },
-          },
-        ],
-      });
+          ],
+        }),
+      );
 
       const stream = await provider.generate(
         '',
@@ -1259,7 +1881,7 @@ describe('PythinkerChatProvider', () => {
       const provider = createProvider().withGenerationKwargs({ temperature: 0.5 });
       const params = provider.modelParameters;
       expect(params).toMatchObject({
-        model: 'pythinker-k2-turbo-preview',
+        model: 'kimi-k2-turbo-preview',
         temperature: 0.5,
         baseUrl: expect.any(String),
       });
@@ -1267,7 +1889,7 @@ describe('PythinkerChatProvider', () => {
   });
 
   describe('withThinking medium', () => {
-    it('maps medium -> reasoning_effort=medium', () => {
+    it('maps medium -> thinking.effort=medium for an effort-capable model', () => {
       const provider = createProvider().withThinking('medium');
       expect(provider.thinkingEffort).toBe('medium');
     });
@@ -1285,38 +1907,6 @@ describe('PythinkerChatProvider', () => {
       expect(body['extra_body']).toBeUndefined();
     });
 
-    it('replays empty reasoning verbatim when preserved thinking is active', async () => {
-      const provider = createProvider().withExtraBody({
-        thinking: { type: 'enabled', keep: 'all' },
-      });
-      const history: Message[] = [
-        {
-          role: 'assistant',
-          content: [{ type: 'think', think: '' }],
-          toolCalls: [{ type: 'function', id: 'call_1', name: 'Read', arguments: '{}' }],
-        },
-      ];
-      const body = await captureRequestBody(provider, '', [], history);
-      const messages = body['messages'] as Record<string, unknown>[];
-
-      expect(messages[0]).toHaveProperty('reasoning_content', '');
-    });
-
-    it('adds empty reasoning to assistant history without a thinking part when keep=all', async () => {
-      const provider = createProvider().withExtraBody({ thinking: { keep: 'all' } });
-      const history: Message[] = [
-        {
-          role: 'assistant',
-          content: [{ type: 'text', text: 'answer' }],
-          toolCalls: [],
-        },
-      ];
-      const body = await captureRequestBody(provider, '', [], history);
-      const messages = body['messages'] as Record<string, unknown>[];
-
-      expect(messages[0]).toHaveProperty('reasoning_content', '');
-    });
-
     it('field-merges thinking when called after withThinking', async () => {
       const provider = createProvider()
         .withThinking('high')
@@ -1326,8 +1916,7 @@ describe('PythinkerChatProvider', () => {
       ];
       const body = await captureRequestBody(provider, '', [], history);
 
-      expect(body['reasoning_effort']).toBe('high');
-      expect(body['thinking']).toEqual({ type: 'enabled', keep: 'all' });
+      expect(body['thinking']).toEqual({ type: 'enabled', effort: 'high', keep: 'all' });
       expect(body['extra_body']).toBeUndefined();
     });
 
@@ -1348,7 +1937,7 @@ describe('PythinkerChatProvider', () => {
         .withThinking('high');
 
       expect(getGenerationState(provider).extra_body).toEqual({
-        thinking: { type: 'enabled', keep: 'all' },
+        thinking: { type: 'enabled', effort: 'high', keep: 'all' },
       });
     });
 
@@ -1361,7 +1950,7 @@ describe('PythinkerChatProvider', () => {
       ];
       const body = await captureRequestBody(provider, '', [], history);
 
-      expect(body['thinking']).toEqual({ type: 'enabled' });
+      expect(body['thinking']).toEqual({ type: 'enabled', effort: 'high' });
     });
 
     it('treats empty thinking patch as noop, preserving prior withThinking', async () => {
@@ -1371,7 +1960,7 @@ describe('PythinkerChatProvider', () => {
       ];
       const body = await captureRequestBody(provider, '', [], history);
 
-      expect(body['thinking']).toEqual({ type: 'enabled' });
+      expect(body['thinking']).toEqual({ type: 'enabled', effort: 'high' });
     });
   });
 
@@ -1478,12 +2067,12 @@ describe('extractUsageFromChunk', () => {
     expect(usage).toEqual({ prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 });
   });
 
-  it('extracts choices[0].usage (Pythoughts proprietary)', () => {
+  it('extracts choices[0].usage (PyModel proprietary)', () => {
     const chunk = {
       id: 'chatcmpl-6970b5d02fa474c1767e8767',
       object: 'chat.completion.chunk',
       created: 1768994256,
-      model: 'pythinker-k2-turbo-preview',
+      model: 'kimi-k2-turbo-preview',
       choices: [
         {
           index: 0,
@@ -1547,7 +2136,7 @@ describe('extractUsage', () => {
     });
   });
 
-  it('extracts usage with Pythoughts cached_tokens', () => {
+  it('extracts usage with PyModel cached_tokens', () => {
     const usage = extractUsage({
       prompt_tokens: 100,
       completion_tokens: 20,

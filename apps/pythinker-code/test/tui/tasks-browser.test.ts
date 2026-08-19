@@ -1,5 +1,5 @@
-import type { Terminal } from '@earendil-works/pi-tui';
-import type { BackgroundTaskInfo, BackgroundTaskStatus } from '@pymodel/pythinker-code-sdk';
+import type { Terminal } from '@pymodel/pi-tui';
+import type { BackgroundTaskInfo, BackgroundTaskStatus, Event } from '@pymodel/pythinker-code-sdk';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
@@ -7,10 +7,13 @@ import {
   type TasksBrowserProps,
   type TasksFilter,
 } from '@/tui/components/dialogs/tasks-browser';
+import { AgentActivityViewer } from '@/tui/components/dialogs/agent-activity-viewer';
+import { TaskOutputViewer } from '@/tui/components/dialogs/task-output-viewer';
+import { SubagentActivityStore } from '@/tui/controllers/subagent-activity-store';
+import { TasksBrowserController } from '@/tui/controllers/tasks-browser';
 import { darkColors } from '@/tui/theme/colors';
-import { defaultKeybindings, parseKeybindingBlocks } from '#/tui/keybindings';
 
-const ANSI_SGR = /\u001B\[[0-9;]*m/g;
+const ANSI_SGR = /\[[0-9;]*m/g;
 function strip(text: string): string {
   return text.replaceAll(ANSI_SGR, '');
 }
@@ -103,6 +106,28 @@ describe('TasksBrowserApp — full-screen rendering', () => {
     expect(big.length).toBe(40);
   });
 
+  it('clamps the detail frame to the body at the minimum terminal height', () => {
+    const props = makeProps({
+      tasks: [
+        task({
+          taskId: 'agent-aaaaaaaa',
+          kind: 'agent',
+          status: 'running',
+          agentId: 'agent-1',
+          subagentType: 'explore',
+          model: 'pythinker-code/k3-256k',
+          thinkingEffort: 'low',
+        }),
+      ],
+      selectedTaskId: 'agent-aaaaaaaa',
+    });
+    // 10 rows = the smallest terminal that still renders the full layout; the
+    // render must emit exactly that many lines (no overflow truncation).
+    const lines = new TasksBrowserApp(props, fakeTerminal(10, 120)).render(120);
+    expect(lines.length).toBe(10);
+    expect(strip(lines.join('\n'))).toContain('Preview Output');
+  });
+
   it('shows the header row with TASK BROWSER title and counts', () => {
     const props: Partial<TasksBrowserProps> = {
       tasks: [
@@ -177,6 +202,33 @@ describe('TasksBrowserApp — full-screen rendering', () => {
     expect(out).toContain('call_question');
   });
 
+  it('shows the bound model and effort for agent tasks in the Detail pane', () => {
+    const out = strip(
+      makeApp({
+        tasks: [
+          task({
+            taskId: 'agent-aaaaaaaa',
+            kind: 'agent',
+            description: 'explore project',
+            agentId: 'agent-1',
+            subagentType: 'explore',
+            model: 'pythinker-code/k3-256k',
+            thinkingEffort: 'low',
+          }),
+        ],
+        selectedTaskId: 'agent-aaaaaaaa',
+      })
+        .render(120)
+        .join('\n'),
+    );
+    expect(out).toContain('Agent type:');
+    expect(out).toContain('explore');
+    expect(out).toContain('Model:');
+    expect(out).toContain('pythinker-code/k3-256k');
+    expect(out).toContain('Effort:');
+    expect(out).toContain('low');
+  });
+
   it('renders tail output in the Preview Output pane', () => {
     const out = strip(
       makeApp({
@@ -189,6 +241,19 @@ describe('TasksBrowserApp — full-screen rendering', () => {
     );
     expect(out).toContain('ready in 432ms');
     expect(out).toContain('listening on :3000');
+  });
+
+  it('does not pass terminal controls from tail output into the framed preview', () => {
+    const rendered = makeApp({
+      tasks: [task({ taskId: 'bash-aaaaaaaa' })],
+      selectedTaskId: 'bash-aaaaaaaa',
+      tailOutput: 'Downloading wheel 25%\rDownloading wheel 75%\u001B[2Jdone',
+    }).render(120);
+    const raw = rendered.join('\n');
+
+    expect(raw).not.toContain('\r');
+    expect(raw).not.toContain('\u001B[2J');
+    expect(strip(raw)).toContain('Downloading wheel 25%Downloading wheel 75%done');
   });
 
   it('shows a loading state when tail is loading', () => {
@@ -219,6 +284,41 @@ describe('TasksBrowserApp — full-screen rendering', () => {
     expect(out).not.toContain('bash-bbbbbbbb');
   });
 
+  it('filters out foreground tasks (detached === false)', () => {
+    const tasks = [
+      task({ taskId: 'bash-foreground', detached: false, status: 'running' }),
+      task({ taskId: 'bash-background', detached: true, status: 'running' }),
+    ];
+    const out = strip(makeApp({ tasks, filter: 'all' }).render(120).join('\n'));
+    expect(out).not.toContain('bash-foreground');
+    expect(out).toContain('bash-background');
+  });
+
+  it('keeps background tasks with detached === true even when terminal', () => {
+    const tasks = [task({ taskId: 'bash-done', detached: true, status: 'completed' })];
+    const out = strip(makeApp({ tasks, filter: 'all' }).render(120).join('\n'));
+    expect(out).toContain('bash-done');
+  });
+
+  it('keeps ghost tasks whose detached field is undefined', () => {
+    // task() leaves `detached` undefined by default, mimicking reconcile ghosts.
+    const tasks = [task({ taskId: 'bash-ghost', status: 'lost' })];
+    const out = strip(makeApp({ tasks, filter: 'all' }).render(120).join('\n'));
+    expect(out).toContain('bash-ghost');
+  });
+
+  it('applies active filter after excluding foreground tasks', () => {
+    const tasks = [
+      task({ taskId: 'bash-fg-running', detached: false, status: 'running' }),
+      task({ taskId: 'bash-bg-running', detached: true, status: 'running' }),
+      task({ taskId: 'bash-bg-done', detached: true, status: 'completed' }),
+    ];
+    const out = strip(makeApp({ tasks, filter: 'active' }).render(120).join('\n'));
+    expect(out).not.toContain('bash-fg-running');
+    expect(out).toContain('bash-bg-running');
+    expect(out).not.toContain('bash-bg-done');
+  });
+
   it('renders without throwing for every BackgroundTaskStatus', () => {
     const statuses: BackgroundTaskStatus[] = [
       'running',
@@ -243,49 +343,6 @@ describe('TasksBrowserApp — full-screen rendering', () => {
 });
 
 describe('TasksBrowserApp — input handling', () => {
-  it('deduplicates configured accept and cancel keys that match local aliases', () => {
-    const app = makeApp();
-    app.setKeybindings([
-      ...defaultKeybindings(),
-      ...parseKeybindingBlocks([
-        {
-          context: 'Select',
-          bindings: { enter: null, o: 'select:accept', escape: null, q: 'select:cancel' },
-        },
-      ]),
-    ]);
-
-    const footer = strip(app.render(120).at(-1) ?? '');
-    expect(footer).toContain('O output');
-    expect(footer).toContain('Q cancel');
-    expect(footer).not.toMatch(/o\/O/i);
-    expect(footer).not.toMatch(/Q\/q/i);
-  });
-
-  it('uses remapped Select navigation, honors an unbound Down key, and keeps confirmation input local', () => {
-    const onSelect = vi.fn();
-    const tasks = [
-      task({ taskId: 'bash-aaaaaaaa', startedAt: 1 }),
-      task({ taskId: 'bash-bbbbbbbb', startedAt: 2 }),
-    ];
-    const app = makeApp({ tasks, selectedTaskId: 'bash-aaaaaaaa', onSelect });
-    app.setKeybindings([
-      ...defaultKeybindings(),
-      ...parseKeybindingBlocks([{ context: 'Select', bindings: { 'alt+j': 'select:next', down: null } }]),
-    ]);
-
-    app.handleInput('\u001B[B');
-    expect(onSelect).not.toHaveBeenCalled();
-    app.handleInput('alt+j');
-    expect(onSelect).toHaveBeenLastCalledWith('bash-bbbbbbbb');
-
-    app.handleInput('s');
-    onSelect.mockClear();
-    app.handleInput('alt+j');
-    expect(onSelect).not.toHaveBeenCalled();
-    expect(strip(app.render(120).join('\n'))).not.toContain('Stop bash-bbbbbbbb?');
-  });
-
   it('Esc invokes onCancel', () => {
     const onCancel = vi.fn();
     const app = makeApp({ onCancel });
@@ -498,46 +555,124 @@ describe('TasksBrowserApp — setProps', () => {
       }).not.toThrow();
     }
   });
+});
 
-  it('reconciles a filtered-out selection with the visible task', () => {
-    const running = task({ taskId: 'bash-aaaaaaaa', status: 'running', startedAt: 1 });
-    const completed = task({ taskId: 'bash-bbbbbbbb', status: 'completed', startedAt: 2 });
-    const onSelect = vi.fn();
-    const app = makeApp({
-      tasks: [running, completed],
-      selectedTaskId: completed.taskId,
-    });
+describe('TasksBrowserController — opening an agent task', () => {
+  function makeControllerHost(tasks: BackgroundTaskInfo[], store: SubagentActivityStore) {
+    const ui = {
+      children: [] as unknown[],
+      clear() {
+        this.children = [];
+      },
+      addChild(child: unknown) {
+        this.children.push(child);
+      },
+      setFocus: () => {},
+      requestRender: () => {},
+    };
+    const state = {
+      tasksBrowser: undefined as unknown,
+      terminal: fakeTerminal(30),
+      ui,
+      editor: {},
+    };
+    const host = {
+      state,
+      backgroundTasks: new Map(tasks.map((t) => [t.taskId, t])),
+      sessionEventHandler: { subAgentEventHandler: { activityStore: store } },
+      session: {
+        listBackgroundTasks: async () => tasks,
+        getBackgroundTaskOutput: async () => 'captured output',
+      },
+      showError: vi.fn(),
+      setTasksBrowser(value: unknown) {
+        state.tasksBrowser = value;
+      },
+    };
+    return { host, state };
+  }
 
-    app.setProps(makeProps({
-      tasks: [running, completed],
-      filter: 'active',
-      selectedTaskId: completed.taskId,
-      tailOutput: 'stale completed output',
-      onSelect,
-    }));
+  function agentTaskInfo(store: SubagentActivityStore | null): BackgroundTaskInfo {
+    const info = task({
+      taskId: 'agent-task-1',
+      kind: 'agent',
+      agentId: 'agent-1',
+      status: 'running',
+    } as Partial<BackgroundTaskInfo>);
+    if (store !== null) {
+      store.ensureRecord({ agentId: 'agent-1', agentName: 'explore', parentToolCallId: 'tc-1' });
+    }
+    return info;
+  }
 
-    expect(onSelect).toHaveBeenCalledOnce();
-    expect(onSelect).toHaveBeenCalledWith(running.taskId);
-    const output = strip(app.render(120).join('\n'));
-    expect(output).toContain(running.taskId);
-    expect(output).not.toContain(completed.taskId);
+  async function openSelectedViewer(controller: TasksBrowserController, taskId: string) {
+    await (
+      controller as unknown as { handleOpenOutput(taskId: string): Promise<void> }
+    ).handleOpenOutput(taskId);
+  }
+
+  it('opens the activity viewer when a record exists for the agent', async () => {
+    const store = new SubagentActivityStore();
+    const { host, state } = makeControllerHost([agentTaskInfo(store)], store);
+    const controller = new TasksBrowserController(host as never);
+    await controller.show();
+
+    await openSelectedViewer(controller, 'agent-task-1');
+
+    const viewer = (state.tasksBrowser as { viewer: { component: unknown } }).viewer;
+    expect(viewer.component).toBeInstanceOf(AgentActivityViewer);
+    controller.close();
   });
 
-  it('clears selection when the active filter has no visible tasks', () => {
-    const completed = task({ taskId: 'bash-bbbbbbbb', status: 'completed' });
-    const onSelect = vi.fn();
-    const app = makeApp({ tasks: [completed], selectedTaskId: completed.taskId });
+  it('falls back to the output viewer when no record exists', async () => {
+    const store = new SubagentActivityStore();
+    const { host, state } = makeControllerHost([agentTaskInfo(null)], store);
+    const controller = new TasksBrowserController(host as never);
+    await controller.show();
 
-    app.setProps(makeProps({
-      tasks: [completed],
-      filter: 'active',
-      selectedTaskId: completed.taskId,
-      tailOutput: 'stale completed output',
-      onSelect,
-    }));
+    await openSelectedViewer(controller, 'agent-task-1');
 
-    expect(onSelect).toHaveBeenCalledOnce();
-    expect(onSelect).toHaveBeenCalledWith(undefined);
-    expect(strip(app.render(120).join('\n'))).not.toContain('stale completed output');
+    const viewer = (state.tasksBrowser as { viewer: { component: unknown } }).viewer;
+    expect(viewer.component).toBeInstanceOf(TaskOutputViewer);
+    controller.close();
+  });
+
+  it('feeds the preview pane from the activity store for agent tasks', async () => {
+    const store = new SubagentActivityStore();
+    store.ensureRecord({ agentId: 'agent-1', agentName: 'explore', parentToolCallId: 'tc-1' });
+    store.applyEvent({
+      sessionId: 's1',
+      agentId: 'agent-1',
+      type: 'turn.step.started',
+      turnId: 1,
+      step: 0,
+    } as Event);
+    store.applyEvent({
+      sessionId: 's1',
+      agentId: 'agent-1',
+      type: 'tool.call.started',
+      turnId: 1,
+      toolCallId: 't1',
+      name: 'Grep',
+      args: { pattern: 'foo' },
+    } as Event);
+    store.applyEvent({
+      sessionId: 's1',
+      agentId: 'agent-1',
+      type: 'tool.result',
+      turnId: 1,
+      toolCallId: 't1',
+      output: 'src/a.ts:1:foo\nsrc/b.ts:2:foo',
+      isError: false,
+    } as Event);
+
+    const { host, state } = makeControllerHost([agentTaskInfo(null)], store);
+    const controller = new TasksBrowserController(host as never);
+    await controller.show();
+
+    const browser = state.tasksBrowser as { tailOutput?: string };
+    expect(browser.tailOutput).toContain('── step 0 ──');
+    expect(browser.tailOutput).toContain('✓ Used Grep (foo) · 2 matches');
+    controller.close();
   });
 });

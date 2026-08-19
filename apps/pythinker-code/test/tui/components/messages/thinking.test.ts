@@ -1,18 +1,9 @@
-import chalk from 'chalk';
-import { visibleWidth, type TUI } from '@earendil-works/pi-tui';
+import { visibleWidth, type TUI } from '@pymodel/pi-tui';
 import { describe, expect, it, vi } from 'vitest';
 
 import { ThinkingComponent } from '#/tui/components/messages/thinking';
-import {
-  BRAILLE_SPINNER_FRAMES,
-  BRAILLE_SPINNER_INTERVAL_MS,
-  formatThinkingSpinnerLabel,
-  getThinkingSpinnerLabel,
-  THINKING_SPINNER_LABEL_INTERVAL_MS,
-  THINKING_SPINNER_LABELS,
-} from '#/tui/constant/rendering';
+import { BRAILLE_SPINNER_FRAMES, BRAILLE_SPINNER_INTERVAL_MS } from '#/tui/constant/rendering';
 import { STATUS_BULLET } from '#/tui/constant/symbols';
-import { currentTheme, darkColors } from '#/tui/theme';
 
 function strip(text: string): string {
   return text.replaceAll(/\u001B\[[0-9;]*m/g, '');
@@ -20,41 +11,15 @@ function strip(text: string): string {
 
 const longThinking = ['line1', 'line2', 'line3', 'line4', 'line5', 'line6', 'line7'].join('\n');
 
-describe('getThinkingSpinnerLabel', () => {
-  it('rotates labels at the configured interval', () => {
-    expect(getThinkingSpinnerLabel(0)).toBe('thinking');
-    expect(getThinkingSpinnerLabel(THINKING_SPINNER_LABEL_INTERVAL_MS - 1)).toBe('thinking');
-    expect(getThinkingSpinnerLabel(THINKING_SPINNER_LABEL_INTERVAL_MS)).toBe('reasoning');
-    expect(
-      getThinkingSpinnerLabel(THINKING_SPINNER_LABELS.length * THINKING_SPINNER_LABEL_INTERVAL_MS),
-    ).toBe('thinking');
-  });
-});
-
 describe('ThinkingComponent', () => {
   it('shows only the live spinner header while collapsed', () => {
     const component = new ThinkingComponent('working it out', true, 'live');
     const out = strip(component.render(80).join('\n'));
-    const label = formatThinkingSpinnerLabel();
 
-    expect(out).toContain(`⠋ ${label}`);
-    expect(out).not.toContain(`  ⠋ ${label}`);
-    expect(out).not.toContain(`${STATUS_BULLET}⠋`);
+    expect(out).toContain('⣷ thinking...');
+    expect(out).not.toContain('  ⣷ thinking...');
+    expect(out).not.toContain(`${STATUS_BULLET}⣷`);
     expect(out).not.toContain('working it out');
-  });
-
-  it('uses the primary activity color while thinking is live', () => {
-    const previousLevel = chalk.level;
-    chalk.level = 3;
-    currentTheme.setPalette(darkColors);
-    const component = new ThinkingComponent('working it out', true, 'live');
-
-    try {
-      expect(component.render(80)[1]?.startsWith(currentTheme.fg('primary', '⠋ '))).toBe(true);
-    } finally {
-      component.dispose();
-      chalk.level = previousLevel;
-    }
   });
 
   it('keeps expanded live thinking height-limited to the tail', () => {
@@ -70,51 +35,24 @@ describe('ThinkingComponent', () => {
     expect(out).not.toContain('ctrl+o to expand');
   });
 
-  it('animates the live spinner shimmer and stops on finalize', () => {
+  it('refreshes the live indicator and stops on finalize', () => {
     vi.useFakeTimers();
-    vi.setSystemTime(0);
-    const previousLevel = chalk.level;
-    chalk.level = 3;
     const requestRender = vi.fn();
     const component = new ThinkingComponent('step', true, 'live', {
       requestRender,
     } as unknown as TUI);
 
-    try {
-      const firstHeader = component.render(80)[1];
-      expect(strip(firstHeader ?? '')).toBe(`⠋ ${formatThinkingSpinnerLabel()}`);
+    expect(strip(component.render(80).join('\n'))).toContain('⣷ thinking...');
 
-      vi.advanceTimersByTime(BRAILLE_SPINNER_INTERVAL_MS);
-      expect(requestRender).toHaveBeenCalled();
-      const secondHeader = component.render(80)[1];
-      expect(strip(secondHeader ?? '')).toBe(`⠙ ${formatThinkingSpinnerLabel()}`);
+    vi.advanceTimersByTime(BRAILLE_SPINNER_INTERVAL_MS);
+    expect(requestRender).toHaveBeenCalled();
+    expect(strip(component.render(80).join('\n'))).toContain(`${BRAILLE_SPINNER_FRAMES[1]} thinking...`);
 
-      vi.advanceTimersByTime(BRAILLE_SPINNER_INTERVAL_MS * (BRAILLE_SPINNER_FRAMES.length - 1));
-      const fullCycleHeader = component.render(80)[1];
-      expect(fullCycleHeader).toBeDefined();
-      expect(firstHeader).toBeDefined();
-      expect(strip(fullCycleHeader as string)).toBe(strip(firstHeader as string));
-
-      const shimmerHeaders = [firstHeader, fullCycleHeader];
-      for (let sample = 0; sample < 3; sample++) {
-        vi.advanceTimersByTime(BRAILLE_SPINNER_INTERVAL_MS * BRAILLE_SPINNER_FRAMES.length);
-        shimmerHeaders.push(component.render(80)[1]);
-      }
-      for (const header of shimmerHeaders) expect(header).toBeDefined();
-      expect(shimmerHeaders.map((header) => strip(header as string))).toEqual(
-        shimmerHeaders.map(() => strip(firstHeader as string)),
-      );
-      expect(new Set(shimmerHeaders).size).toBeGreaterThan(1);
-
-      component.finalize();
-      requestRender.mockClear();
-      vi.advanceTimersByTime(BRAILLE_SPINNER_INTERVAL_MS * 2);
-      expect(requestRender).not.toHaveBeenCalled();
-    } finally {
-      component.dispose();
-      chalk.level = previousLevel;
-      vi.useRealTimers();
-    }
+    component.finalize();
+    requestRender.mockClear();
+    vi.advanceTimersByTime(160);
+    expect(requestRender).not.toHaveBeenCalled();
+    vi.useRealTimers();
   });
 
   it('finalizes in place into nothing while collapsed', () => {

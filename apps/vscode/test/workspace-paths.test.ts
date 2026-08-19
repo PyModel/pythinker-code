@@ -441,7 +441,7 @@ describe("Webview workspace paths (selected-directory containment)", () => {
 
 describe("native workspace path comparison (Windows drive and UNC semantics)", () => {
   it("treats slash and casing differences as the same Windows drive path", () => {
-    expect(areSameFsPath("C:\\Users\\Example User\\项目", "c:/users/example user/项目")).toBe(true);
+    expect(areSameFsPath("C:\\Users\\Example User\\\u9879\u76EE", "c:/users/example user/\u9879\u76EE")).toBe(true);
   });
 
   it("keeps an in-share UNC child relative to its workspace", () => {

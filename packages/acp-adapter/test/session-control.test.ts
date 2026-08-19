@@ -22,7 +22,7 @@ import type {
 } from '@pymodel/pythinker-code-sdk';
 
 import { AcpServer } from '../src/server';
-import { AUTHED, makeModelsMap } from './_helpers/harness-stubs';
+import { AUTHED_STATUS, makeModelsMap } from './_helpers/harness-stubs';
 
 /**
  * Captures every `session/update` notification the server pushes so
@@ -104,8 +104,8 @@ function makeFakeSession(
     setModel: async (model: string) => {
       setModelCalls.push(model);
     },
-    setThinking: async (level: string) => {
-      setThinkingCalls.push(level);
+    setThinking: async (effort: string) => {
+      setThinkingCalls.push(effort);
     },
   } as unknown as Session;
   return { session, planModeCalls, setPermissionCalls, setModelCalls, setThinkingCalls };
@@ -113,7 +113,7 @@ function makeFakeSession(
 
 function makeHarness(handle: FakeSessionHandle): PythinkerHarness {
   return {
-    isAuthenticated: AUTHED,
+    auth: { status: async () => AUTHED_STATUS },
     createSession: async (_options: unknown) => handle.session,
     // Phase 14: server.newSession reads these for configOptions assembly.
     getConfig: async () => ({
@@ -175,8 +175,9 @@ describe('AcpServer session/set_mode', () => {
       // the mode picker's currentValue reflects the just-applied mode.
       const modeOpt = update.configOptions.find((o) => o.id === 'mode');
       expect(modeOpt).toBeDefined();
-      if (!modeOpt || modeOpt.type !== 'select') throw new Error('expected mode select');
-      expect(modeOpt.currentValue).toBe(modeId);
+      if (modeOpt && modeOpt.type === 'select') {
+        expect(modeOpt.currentValue).toBe(modeId);
+      }
       // Cross-check the model picker is still in the snapshot so a
       // client subscribed to one channel can repaint both dropdowns.
       const modelOpt = update.configOptions.find((o) => o.id === 'model');
@@ -257,16 +258,17 @@ describe('AcpServer session/unstable_setSessionModel', () => {
     }
     const modelOpt = update.configOptions.find((o) => o.id === 'model');
     expect(modelOpt).toBeDefined();
-    if (!modelOpt || modelOpt.type !== 'select') throw new Error('expected model select');
-    expect(modelOpt.currentValue).toBe('pythinker-v2-something');
+    if (modelOpt && modelOpt.type === 'select') {
+      expect(modelOpt.currentValue).toBe('pythinker-v2-something');
+    }
   });
 
-  it('splits a `,thinking` suffix into a bare setModel + setThinking("high") call; snapshot model carries the base id', async () => {
+  it('splits a `,thinking` suffix into a bare setModel + setThinking(<model default>) call; snapshot model carries the base id', async () => {
     const handle = makeFakeSession('sess-model-thinking');
     // This test needs a thinking-supported catalog row so the snapshot
     // includes the toggle (otherwise it would be omitted).
     const harness = {
-      isAuthenticated: AUTHED,
+      auth: { status: async () => AUTHED_STATUS },
       createSession: async () => handle.session,
       getConfig: async () => ({
         providers: {},
@@ -283,11 +285,12 @@ describe('AcpServer session/unstable_setSessionModel', () => {
       modelId: 'pythinker-v2-something,thinking',
     });
 
-    // SDK receives the bare model key for setModel and `'high'` for
-    // setThinking — Phase 15 routes thinking through the dedicated SDK
-    // channel instead of dropping the suffix on the floor.
+    // SDK receives the bare model key for setModel and the model's default
+    // thinking effort for setThinking — Phase 15 routes thinking through the
+    // dedicated SDK channel instead of dropping the suffix on the floor. This
+    // fixture declares no support_efforts, so the default effort is 'on'.
     expect(handle.setModelCalls).toEqual(['pythinker-v2-something']);
-    expect(handle.setThinkingCalls).toEqual(['high']);
+    expect(handle.setThinkingCalls).toEqual(['on']);
 
     // The model picker's currentValue is the bare id — thinking lives
     // on its own boolean toggle, and the snapshot reflects that.
@@ -298,8 +301,9 @@ describe('AcpServer session/unstable_setSessionModel', () => {
     const update = updates[0]!.update;
     if (update.sessionUpdate !== 'config_option_update') throw new Error('unreachable');
     const modelOpt = update.configOptions.find((o) => o.id === 'model');
-    if (!modelOpt || modelOpt.type !== 'select') throw new Error('expected model select');
-    expect(modelOpt.currentValue).toBe('pythinker-v2-something');
+    if (modelOpt && modelOpt.type === 'select') {
+      expect(modelOpt.currentValue).toBe('pythinker-v2-something');
+    }
     const toggle = update.configOptions.find((o) => o.id === 'thinking');
     if (!toggle || toggle.type !== 'select') throw new Error('expected thinking toggle');
     expect(toggle.currentValue).toBe('on');

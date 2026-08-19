@@ -20,10 +20,13 @@ async function makePlugin(
   options: {
     skills?: boolean;
     skillNames?: readonly string[];
+    agents?: boolean;
     version?: string;
     sessionStartSkill?: string;
+    systemPrompt?: string;
     mcpServers?: Record<string, unknown>;
-    lspServers?: Record<string, unknown>;
+    hooks?: readonly unknown[];
+    commands?: Record<string, string>;
   } = {},
 ): Promise<string> {
   const root = await mkdtemp(path.join(tmpdir(), `plugin-${name}-`));
@@ -44,16 +47,41 @@ async function makePlugin(
       );
     }
   }
+  if (options.agents === true) {
+    manifest['agents'] = './agents/';
+    await mkdir(path.join(root, 'agents'), { recursive: true });
+    await writeFile(
+      path.join(root, 'agents', 'demo-agent.md'),
+      '---\nname: demo-agent\ndescription: A demo agent\n---\nbody',
+      'utf8',
+    );
+  }
   if (options.sessionStartSkill !== undefined) {
     manifest['sessionStart'] = { skill: options.sessionStartSkill };
+  }
+  if (options.systemPrompt !== undefined) {
+    manifest['systemPrompt'] = options.systemPrompt;
   }
   if (options.mcpServers !== undefined) {
     manifest['mcpServers'] = options.mcpServers;
   }
-  if (options.lspServers !== undefined) {
-    manifest['lspServers'] = options.lspServers;
+  if (options.hooks !== undefined) {
+    manifest['hooks'] = options.hooks;
   }
-  await writeFile(path.join(root, 'pythinker.plugin.json'), JSON.stringify(manifest), 'utf8');
+  if (options.commands !== undefined) {
+    manifest['commands'] = ['./commands'];
+    await mkdir(path.join(root, 'commands'), { recursive: true });
+    for (const [file, body] of Object.entries(options.commands)) {
+      const filePath = path.join(root, 'commands', file);
+      await mkdir(path.dirname(filePath), { recursive: true });
+      await writeFile(filePath, body, 'utf8');
+    }
+  }
+  await writeFile(
+    path.join(root, 'pythinker.plugin.json'),
+    JSON.stringify(manifest),
+    'utf8',
+  );
   return realpath(root);
 }
 
@@ -188,56 +216,25 @@ describe('PluginManager', () => {
     });
   });
 
-  it('returns namespaced agent sources only for enabled plugins', async () => {
+  it('pluginAgentRoots() returns only enabled plugins agents paths', async () => {
     const home = await makePythinkerHome();
-    const root = await makePlugin('agent-plugin');
-    await mkdir(path.join(root, 'agents'), { recursive: true });
-    await writeFile(
-      path.join(root, 'agents', 'review.md'),
-      '---\nname: review\n---\nReview code.',
-      'utf8',
-    );
+    const a = await makePlugin('a', { agents: true });
+    const b = await makePlugin('b', { agents: true });
     const manager = new PluginManager({ pythinkerHomeDir: home });
     await manager.load();
-    await manager.install(root);
-    const managedRoot = await managedPluginRoot(home, 'agent-plugin');
-
-    expect(manager.enabledAgentProfileSources()).toEqual([
-      {
-        pluginId: 'agent-plugin',
-        pluginRoot: managedRoot,
-        paths: [path.join(managedRoot, 'agents')],
-      },
-    ]);
-
-    await manager.setEnabled('agent-plugin', false);
-    expect(manager.enabledAgentProfileSources()).toEqual([]);
-  });
-
-  it('returns namespaced output-style sources only for enabled plugins', async () => {
-    const home = await makePythinkerHome();
-    const root = await makePlugin('style-plugin');
-    await mkdir(path.join(root, 'output-styles'), { recursive: true });
-    await writeFile(
-      path.join(root, 'output-styles', 'review.md'),
-      '---\nname: review\n---\nReview code.',
-      'utf8',
-    );
-    const manager = new PluginManager({ pythinkerHomeDir: home });
-    await manager.load();
-    await manager.install(root);
-    const managedRoot = await managedPluginRoot(home, 'style-plugin');
-
-    expect(manager.enabledOutputStyleSources()).toEqual([
-      {
-        pluginId: 'style-plugin',
-        pluginRoot: managedRoot,
-        paths: [path.join(managedRoot, 'output-styles')],
-      },
-    ]);
-
-    await manager.setEnabled('style-plugin', false);
-    expect(manager.enabledOutputStyleSources()).toEqual([]);
+    await manager.install(a);
+    await manager.install(b);
+    await manager.setEnabled('b', false);
+    const managedA = await managedPluginRoot(home, 'a');
+    const managedB = await managedPluginRoot(home, 'b');
+    expect(manager.pluginAgentRoots()).toContainEqual({
+      path: path.join(managedA, 'agents'),
+      source: 'plugin',
+    });
+    expect(manager.pluginAgentRoots()).not.toContainEqual({
+      path: path.join(managedB, 'agents'),
+      source: 'plugin',
+    });
   });
 
   it('summaries count discovered skills inside plugin skill roots', async () => {
@@ -256,6 +253,22 @@ describe('PluginManager', () => {
       }),
     );
     expect(manager.info('superpowers')?.skillCount).toBe(3);
+  });
+
+  it('counts only the root SKILL.md at the plugin root fallback', async () => {
+    const home = await makePythinkerHome();
+    const root = await makePlugin('root-skill-plugin');
+    await writeFile(
+      path.join(root, 'SKILL.md'),
+      '---\nname: root-skill\ndescription: at root\n---\nbody',
+      'utf8',
+    );
+    // Sibling docs at the plugin root are not skills.
+    await writeFile(path.join(root, 'CHANGELOG.md'), '# Changelog\n', 'utf8');
+    const manager = new PluginManager({ pythinkerHomeDir: home });
+    await manager.load();
+    await manager.install(root);
+    expect(manager.info('root-skill-plugin')?.skillCount).toBe(1);
   });
 
   it('reload() picks up edits to the managed plugin copy', async () => {
@@ -362,10 +375,28 @@ describe('PluginManager', () => {
     const manager = new PluginManager({ pythinkerHomeDir: home });
     await manager.load();
     await manager.install(root);
-    expect(manager.enabledSessionStarts()).toEqual([{ pluginId: 'demo', skillName: 'demo-skill' }]);
+    expect(manager.enabledSessionStarts()).toEqual([
+      { pluginId: 'demo', skillName: 'demo-skill' },
+    ]);
 
     await manager.setEnabled('demo', false);
     expect(manager.enabledSessionStarts()).toEqual([]);
+  });
+
+  it('enabledSystemPrompts() returns only enabled plugin systemPrompt declarations', async () => {
+    const home = await makePythinkerHome();
+    const withPrompt = await makePlugin('prompted', { systemPrompt: 'Always cite sources.' });
+    const withoutPrompt = await makePlugin('plain', { skills: true });
+    const manager = new PluginManager({ pythinkerHomeDir: home });
+    await manager.load();
+    await manager.install(withPrompt);
+    await manager.install(withoutPrompt);
+    expect(manager.enabledSystemPrompts()).toEqual([
+      { pluginId: 'prompted', content: 'Always cite sources.' },
+    ]);
+
+    await manager.setEnabled('prompted', false);
+    expect(manager.enabledSystemPrompts()).toEqual([]);
   });
 
   it('maps manifest skillInstructions to record skillInstructions', async () => {
@@ -427,10 +458,7 @@ describe('PluginManager', () => {
         'plugin-demo:finance': expect.objectContaining({
           command: 'finance-mcp',
           cwd: managedRoot,
-          env: expect.objectContaining({
-            PYTHINKER_CODE_HOME: home,
-            PYTHINKER_PLUGIN_ROOT: managedRoot,
-          }),
+          env: expect.objectContaining({ PYTHINKER_CODE_HOME: home, PYTHINKER_PLUGIN_ROOT: managedRoot }),
         }),
         'plugin-demo:docs': expect.objectContaining({
           url: 'https://example.com/mcp',
@@ -445,6 +473,14 @@ describe('PluginManager', () => {
     await manager.setMcpServerEnabled('demo', 'finance', false);
 
     expect(manager.enabledMcpServers()).not.toHaveProperty('plugin-demo:finance');
+    expect(manager.mcpServerEntries()).toContainEqual(
+      expect.objectContaining({
+        pluginId: 'demo',
+        serverName: 'finance',
+        name: 'plugin-demo:finance',
+        config: expect.objectContaining({ command: 'finance-mcp', enabled: false }),
+      }),
+    );
     expect(manager.summaries()[0]).toEqual(
       expect.objectContaining({
         mcpServerCount: 3,
@@ -457,35 +493,6 @@ describe('PluginManager', () => {
     expect(reloaded.info('demo')?.mcpServers).toContainEqual(
       expect.objectContaining({ name: 'finance', enabled: false }),
     );
-  });
-
-  it('returns enabled plugin LSP servers with collision-safe runtime names', async () => {
-    const home = await makePythinkerHome();
-    const root = await makePlugin('demo', {
-      lspServers: {
-        typescript: {
-          command: 'typescript-language-server',
-          args: ['--stdio'],
-          extensionToLanguage: { '.ts': 'typescript' },
-        },
-      },
-    });
-    const manager = new PluginManager({ pythinkerHomeDir: home });
-    await manager.load();
-    await manager.install(root);
-    const managedRoot = await managedPluginRoot(home, 'demo');
-
-    expect(manager.enabledLspServers()).toEqual({
-      'plugin-demo:typescript': expect.objectContaining({
-        command: 'typescript-language-server',
-        args: ['--stdio'],
-        extensionToLanguage: { '.ts': 'typescript' },
-        env: {
-          PYTHINKER_PLUGIN_ROOT: managedRoot,
-          CLAUDE_PLUGIN_ROOT: managedRoot,
-        },
-      }),
-    });
   });
 
   it('merges manifest MCP enabled defaults with explicit user state', async () => {
@@ -578,6 +585,14 @@ describe('PluginManager', () => {
     await manager.setEnabled('demo', false);
 
     expect(manager.enabledMcpServers()).toEqual({});
+    expect(manager.mcpServerEntries()).toContainEqual(
+      expect.objectContaining({
+        pluginId: 'demo',
+        serverName: 'finance',
+        name: 'plugin-demo:finance',
+        config: expect.objectContaining({ enabled: false }),
+      }),
+    );
   });
 
   it('setMcpServerEnabled() rejects unknown MCP servers', async () => {
@@ -692,10 +707,7 @@ describe('PluginManager', () => {
   it('install() from zip-url overwrites existing zip-url plugin', async () => {
     const home = await makePythinkerHome();
     const zipBuffer1 = await createZipBuffer([
-      {
-        name: 'plugin/pythinker.plugin.json',
-        data: JSON.stringify({ name: 'zip-demo', version: '1.0.0' }),
-      },
+      { name: 'plugin/pythinker.plugin.json', data: JSON.stringify({ name: 'zip-demo', version: '1.0.0' }) },
     ]);
     const url1 = await serveOnce(zipBuffer1);
 
@@ -704,10 +716,7 @@ describe('PluginManager', () => {
     await manager.install(url1);
 
     const zipBuffer2 = await createZipBuffer([
-      {
-        name: 'plugin/pythinker.plugin.json',
-        data: JSON.stringify({ name: 'zip-demo', version: '2.0.0' }),
-      },
+      { name: 'plugin/pythinker.plugin.json', data: JSON.stringify({ name: 'zip-demo', version: '2.0.0' }) },
     ]);
     const url2 = await serveOnce(zipBuffer2);
 
@@ -726,10 +735,7 @@ describe('PluginManager', () => {
     await manager.setEnabled('zip-demo', false);
 
     const zipBuffer = await createZipBuffer([
-      {
-        name: 'plugin/pythinker.plugin.json',
-        data: JSON.stringify({ name: 'zip-demo', version: '2.0.0' }),
-      },
+      { name: 'plugin/pythinker.plugin.json', data: JSON.stringify({ name: 'zip-demo', version: '2.0.0' }) },
     ]);
     const url = await serveOnce(zipBuffer);
 
@@ -745,7 +751,9 @@ describe('PluginManager', () => {
 
   it('install() rejects zip URL without manifest', async () => {
     const home = await makePythinkerHome();
-    const zipBuffer = await createZipBuffer([{ name: 'readme.txt', data: 'no manifest here' }]);
+    const zipBuffer = await createZipBuffer([
+      { name: 'readme.txt', data: 'no manifest here' },
+    ]);
     const url = await serveOnce(zipBuffer);
 
     const manager = new PluginManager({ pythinkerHomeDir: home });
@@ -802,7 +810,12 @@ describe('PluginManager', () => {
     let codeloadPath = '';
     const original = globalThis.fetch;
     globalThis.fetch = vi.fn(async (input: Parameters<typeof fetch>[0]) => {
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      const url =
+        typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
       if (url.startsWith('https://codeload.github.com/')) {
         codeloadPath = new URL(url).pathname;
         return new Response(zipBuffer, { status: 200 });
@@ -813,7 +826,9 @@ describe('PluginManager', () => {
     try {
       const manager = new PluginManager({ pythinkerHomeDir: home });
       await manager.load();
-      const record = await manager.install('https://github.com/obra/superpowers/tree/v5.1.0');
+      const record = await manager.install(
+        'https://github.com/obra/superpowers/tree/v5.1.0',
+      );
       expect(codeloadPath).toBe('/obra/superpowers/zip/v5.1.0');
       expect(record.github?.ref).toEqual({ kind: 'branch', value: 'v5.1.0' });
     } finally {
@@ -833,7 +848,12 @@ describe('PluginManager', () => {
     let codeloadPath = '';
     const original = globalThis.fetch;
     globalThis.fetch = vi.fn(async (input: Parameters<typeof fetch>[0]) => {
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      const url =
+        typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
       if (url.startsWith('https://codeload.github.com/')) {
         codeloadPath = new URL(url).pathname;
         return new Response(zipBuffer, { status: 200 });
@@ -875,7 +895,9 @@ describe('PluginManager', () => {
 
     const manager = new PluginManager({ pythinkerHomeDir: home });
     await manager.load();
-    const record = await manager.install('https://github.com/wbxl2000/superpowers/tree/main');
+    const record = await manager.install(
+      'https://github.com/wbxl2000/superpowers/tree/main',
+    );
 
     expect(releaseLookups).toBe(0);
     expect(record.source).toBe('github');
@@ -888,11 +910,9 @@ describe('PluginManager', () => {
     const manager = new PluginManager({ pythinkerHomeDir: home });
     await manager.load();
 
-    const record = (await (
-      manager.install as (source: string, options?: unknown) => Promise<unknown>
-    )(root, {
+    const record = await (manager.install as (source: string, options?: unknown) => Promise<unknown>)(root, {
       marketplace: { id: 'rando', tier: 'official' },
-    })) as Awaited<ReturnType<PluginManager['install']>>;
+    }) as Awaited<ReturnType<PluginManager['install']>>;
 
     expect((record as { marketplace?: unknown }).marketplace).toBeUndefined();
   });
@@ -902,10 +922,7 @@ describe('PluginManager', () => {
 
     // Original CDN install.
     const cdnZip = await createZipBuffer([
-      {
-        name: 'pkg/pythinker.plugin.json',
-        data: JSON.stringify({ name: 'superpowers', version: '5.0.0' }),
-      },
+      { name: 'pkg/pythinker.plugin.json', data: JSON.stringify({ name: 'superpowers', version: '5.0.0' }) },
     ]);
     const cdnUrl = await serveOnce(cdnZip);
 
@@ -917,10 +934,7 @@ describe('PluginManager', () => {
 
     // Now migrate via GitHub URL.
     const ghZip = await createZipBuffer([
-      {
-        name: 'pkg/pythinker.plugin.json',
-        data: JSON.stringify({ name: 'superpowers', version: '5.1.0' }),
-      },
+      { name: 'pkg/pythinker.plugin.json', data: JSON.stringify({ name: 'superpowers', version: '5.1.0' }) },
     ]);
     using _ = mockGithubFetch({
       releaseTag: 'v5.1.0',
@@ -937,71 +951,112 @@ describe('PluginManager', () => {
     expect(manager.list()).toHaveLength(1);
   });
 
-  it('persists manifestless definitions and applies defaultEnabled only on first install', async () => {
+  it('enabledHooks() returns hooks from enabled plugins with cwd and env injected', async () => {
     const home = await makePythinkerHome();
-    const root = await mkdtemp(path.join(tmpdir(), 'definition-only-plugin-'));
-    await mkdir(path.join(root, 'catalog-skills', 'review'), { recursive: true });
-    await writeFile(
-      path.join(root, 'catalog-skills', 'review', 'SKILL.md'),
-      '---\nname: review\ndescription: Review code\n---\nReview code.',
-      'utf8',
-    );
-    const definition = {
-      id: 'definition-only',
-      version: '1.0.0',
-      defaultEnabled: false,
-      components: { skills: './catalog-skills' },
-    } as const;
-
-    let manager = new PluginManager({ pythinkerHomeDir: home });
-    await manager.load();
-    const installed = await manager.install(root, { definition });
-
-    expect(installed.enabled).toBe(false);
-    expect(installed.manifestKind).toBe('marketplace-definition');
-    expect(installed.definition).toEqual(definition);
-
-    manager = new PluginManager({ pythinkerHomeDir: home });
-    await manager.load();
-    const rematerialized = manager.get('definition-only');
-    const managedRoot = await managedPluginRoot(home, 'definition-only');
-    expect(rematerialized).toEqual(
-      expect.objectContaining({
-        enabled: false,
-        definition,
-        manifestKind: 'marketplace-definition',
-      }),
-    );
-    expect(rematerialized?.manifest?.skills).toEqual([path.join(managedRoot, 'catalog-skills')]);
-
-    const updated = await manager.install(root, {
-      definition: { ...definition, version: '2.0.0', defaultEnabled: true },
+    const root = await makePlugin('demo', {
+      hooks: [{ event: 'PreToolUse', command: './hooks/guard.sh', timeout: 10 }],
     });
-    expect(updated.enabled).toBe(false);
-    expect(updated.manifest?.version).toBe('2.0.0');
-  });
-
-  it('records installedSha for a full GitHub commit SHA', async () => {
-    const home = await makePythinkerHome();
-    const sha = '0123456789abcdef0123456789abcdef01234567';
-    const zipBuffer = await createZipBuffer([
-      {
-        name: `example-plugin-${sha}/pythinker.plugin.json`,
-        data: JSON.stringify({ name: 'sha-demo' }),
-      },
-    ]);
-    using _ = mockGithubFetch({ tarball: zipBuffer });
-
     const manager = new PluginManager({ pythinkerHomeDir: home });
     await manager.load();
-    const record = await manager.install(`https://github.com/example/plugin/commit/${sha}`);
+    await manager.install(root);
+    const installedRoot = await managedPluginRoot(home, 'demo');
+    expect(manager.enabledHooks()).toEqual([
+      {
+        event: 'PreToolUse',
+        command: './hooks/guard.sh',
+        timeout: 10,
+        cwd: installedRoot,
+        env: { PYTHINKER_CODE_HOME: home, PYTHINKER_PLUGIN_ROOT: installedRoot },
+      },
+    ]);
+  });
 
-    expect(record.github).toEqual({
-      owner: 'example',
-      repo: 'plugin',
-      ref: { kind: 'sha', value: sha },
-      installedSha: sha,
+  it('enabledHooks() excludes disabled plugins', async () => {
+    const home = await makePythinkerHome();
+    const root = await makePlugin('demo', {
+      hooks: [{ event: 'PreToolUse', command: './x.sh' }],
     });
+    const manager = new PluginManager({ pythinkerHomeDir: home });
+    await manager.load();
+    await manager.install(root);
+    await manager.setEnabled('demo', false);
+    expect(manager.enabledHooks()).toEqual([]);
+  });
+
+  it('summaries() include hookCount', async () => {
+    const home = await makePythinkerHome();
+    const root = await makePlugin('demo', {
+      hooks: [
+        { event: 'PreToolUse', command: './a.sh' },
+        { event: 'Stop', command: './b.sh' },
+      ],
+    });
+    const manager = new PluginManager({ pythinkerHomeDir: home });
+    await manager.load();
+    await manager.install(root);
+    expect(manager.summaries()[0]?.hookCount).toBe(2);
+  });
+
+  it('enabledCommands() returns parsed commands from enabled plugins', async () => {
+    const home = await makePythinkerHome();
+    const root = await makePlugin('demo', {
+      commands: {
+        'deploy.md': '---\ndescription: Deploy\n---\nDeploy with $ARGUMENTS',
+        'env.md': '---\ndescription: Env\n---\nManage env',
+      },
+    });
+    const manager = new PluginManager({ pythinkerHomeDir: home });
+    await manager.load();
+    await manager.install(root);
+    const commands = await manager.enabledCommands();
+    expect(commands.map((c) => ({ pluginId: c.pluginId, name: c.name, description: c.description }))).toEqual(
+      expect.arrayContaining([
+        { pluginId: 'demo', name: 'deploy', description: 'Deploy' },
+        { pluginId: 'demo', name: 'env', description: 'Env' },
+      ]),
+    );
+    expect(commands.find((c) => c.name === 'deploy')?.body).toBe('Deploy with $ARGUMENTS');
+  });
+
+  it('enabledCommands() preserves the relative-path namespace for nested commands', async () => {
+    const home = await makePythinkerHome();
+    const root = await makePlugin('demo', {
+      commands: {
+        'deploy.md': '---\ndescription: Deploy\n---\nbody',
+        'frontend/component.md': '---\ndescription: Component\n---\nbody',
+      },
+    });
+    const manager = new PluginManager({ pythinkerHomeDir: home });
+    await manager.load();
+    await manager.install(root);
+    const commands = await manager.enabledCommands();
+    expect(commands.map((c) => c.name).toSorted()).toEqual(['deploy', 'frontend/component']);
+  });
+
+  it('enabledCommands() excludes disabled plugins', async () => {
+    const home = await makePythinkerHome();
+    const root = await makePlugin('demo', {
+      commands: { 'deploy.md': '---\ndescription: Deploy\n---\nbody' },
+    });
+    const manager = new PluginManager({ pythinkerHomeDir: home });
+    await manager.load();
+    await manager.install(root);
+    await manager.setEnabled('demo', false);
+    expect(await manager.enabledCommands()).toEqual([]);
+  });
+
+  it('summaries() include commandCount', async () => {
+    const home = await makePythinkerHome();
+    const root = await makePlugin('demo', {
+      commands: {
+        'a.md': '---\ndescription: A\n---\nbody',
+        'b.md': '---\ndescription: B\n---\nbody',
+      },
+    });
+    const manager = new PluginManager({ pythinkerHomeDir: home });
+    await manager.load();
+    await manager.install(root);
+    expect(manager.summaries()[0]?.commandCount).toBe(2);
   });
 });
 
@@ -1016,7 +1071,12 @@ interface MockGithubFetchOptions {
 function mockGithubFetch(options: MockGithubFetchOptions): { [Symbol.dispose](): void } {
   const original = globalThis.fetch;
   globalThis.fetch = vi.fn(async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
-    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    const url =
+      typeof input === 'string'
+        ? input
+        : input instanceof URL
+          ? input.href
+          : input.url;
     if (/^https:\/\/github\.com\/[^/]+\/[^/]+\/releases\/latest$/.test(url)) {
       options.onReleaseLookup?.();
       if (options.releaseTag === undefined) {
@@ -1044,9 +1104,7 @@ function mockGithubFetch(options: MockGithubFetchOptions): { [Symbol.dispose]():
   };
 }
 
-async function createZipBuffer(
-  entries: Array<{ name: string; data: string | Buffer }>,
-): Promise<Buffer> {
+async function createZipBuffer(entries: Array<{ name: string; data: string | Buffer }>): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const zipfile = new yazl.ZipFile();
     const chunks: Buffer[] = [];
@@ -1056,10 +1114,7 @@ async function createZipBuffer(
     });
     zipfile.outputStream.on('error', reject);
     for (const entry of entries) {
-      zipfile.addBuffer(
-        Buffer.isBuffer(entry.data) ? entry.data : Buffer.from(entry.data),
-        entry.name,
-      );
+      zipfile.addBuffer(Buffer.isBuffer(entry.data) ? entry.data : Buffer.from(entry.data), entry.name);
     }
     zipfile.end();
   });

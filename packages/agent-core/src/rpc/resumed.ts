@@ -37,7 +37,7 @@ export interface ResumedAgentState {
   readonly replay: readonly AgentReplayRecord[];
   readonly permission: PermissionData;
   readonly plan: PlanData;
-  readonly dynamicWorkflowMode?: boolean;
+  readonly dynamicWorkflowMode?: boolean | undefined;
   readonly usage: UsageStatus;
   readonly tools: readonly ToolInfo[];
   readonly toolStore?: Readonly<Record<string, unknown>>;
@@ -47,4 +47,5 @@ export interface ResumedAgentState {
 export interface ResumeSessionResult extends SessionSummary {
   readonly sessionMetadata: SessionMeta;
   readonly agents: Readonly<Record<string, ResumedAgentState>>;
+  readonly warning?: string | undefined;
 }

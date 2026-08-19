@@ -1,0 +1,55 @@
+{
+  "name": "@pymodel/klient",
+  "version": "0.1.2",
+  "private": true,
+  "description": "Pythinker client SDK — contract-driven facade over agent-core-v2, routable over ipc or in-memory transports.",
+  "license": "MIT",
+  "type": "module",
+  "imports": {
+    "#/*": "./src/*.ts"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./ipc": {
+      "types": "./src/transports/ipc/index.ts",
+      "default": "./src/transports/ipc/index.ts"
+    },
+    "./memory": {
+      "types": "./src/transports/memory/index.ts",
+      "default": "./src/transports/memory/index.ts"
+    },
+    "./package.json": {
+      "types": "./package.json",
+      "default": "./package.json"
+    },
+    "./*": {
+      "types": "./src/*.ts",
+      "default": "./src/*.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc -p tsconfig.json --noEmit && pnpm typecheck:examples",
+    "typecheck:examples": "tsc -p tsconfig.examples.json --noEmit",
+    "test": "vitest run",
+    "smoke": "tsx --tsconfig ./tsconfig.examples.json --import ../../build/register-raw-text-loader.mjs examples/smoke.ts",
+    "smoke:boundary": "tsx --tsconfig ./tsconfig.examples.json --import ../../build/register-raw-text-loader.mjs examples/model-requester-boundary.ts",
+    "smoke:select-tools": "tsx --tsconfig ./tsconfig.examples.json --import ../../build/register-raw-text-loader.mjs examples/pythinker-select-tools.ts",
+    "stress:kosong-config": "tsx --tsconfig ./tsconfig.examples.json --import ../../build/register-raw-text-loader.mjs examples/kosong-config-stress.ts",
+    "clean": "rm -rf dist",
+    "docker:e2e": "bash scripts/run-docker-e2e.sh"
+  },
+  "dependencies": {
+    "@pymodel/agent-core-v2": "workspace:^",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@pymodel/protocol": "workspace:^",
+    "@types/ws": "^8.18.0",
+    "ulid": "^3.0.1",
+    "ws": "^8.18.0"
+  }
+}

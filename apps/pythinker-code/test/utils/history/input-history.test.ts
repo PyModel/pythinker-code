@@ -4,11 +4,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, it, expect } from 'vitest';
 
-import {
-  appendInputHistory,
-  loadInputHistory,
-  selectRecentInputHistory,
-} from '#/utils/history/input-history';
+import { loadInputHistory, appendInputHistory } from '#/utils/history/input-history';
 
 let dir: string;
 let file: string;
@@ -84,18 +80,5 @@ describe('input-history', () => {
     expect(await appendInputHistory(file, '  hi  ')).toBe(true);
     const entries = await loadInputHistory(file);
     expect(entries).toEqual([{ content: 'hi' }]);
-  });
-
-  it('selects at most 100 unique recent entries in newest-first order', () => {
-    const entries = Array.from({ length: 101 }, (_, index) => ({
-      content: `entry ${String(index)}`,
-    }));
-    entries.push({ content: 'entry 100' }, { content: ' newest\nprompt ' });
-
-    const selected = selectRecentInputHistory(entries);
-
-    expect(selected).toHaveLength(100);
-    expect(selected.slice(0, 3)).toEqual(['newest\nprompt', 'entry 100', 'entry 99']);
-    expect(selected.at(-1)).toBe('entry 2');
   });
 });

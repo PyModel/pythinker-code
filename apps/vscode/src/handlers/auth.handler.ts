@@ -96,7 +96,7 @@ export async function performLogout(
     // Only providers a login created carry a `source` (catalog id, custom
     // registry URL, or the OpenAI Codex OAuth marker). Hand-written
     // `config.toml` entries have none and must survive a sign-out. One
-    // `replaceConfig` write so a failure cannot leave a half-signed-out
+    // One atomic section replacement so a failure cannot leave a half-signed-out
     // config behind.
     const config = await harness.getConfig({ reload: true });
     const providers = Object.fromEntries(
@@ -108,8 +108,7 @@ export async function performLogout(
     const models = Object.fromEntries(
       Object.entries(config.models ?? {}).filter(([, alias]) => !removed.has(alias.provider)),
     );
-    await harness.replaceConfig({
-      ...config,
+    await harness.replaceConfigSections({
       providers,
       models,
       defaultModel:

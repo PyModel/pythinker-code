@@ -4,7 +4,7 @@ const UPDATE_PREFERENCE_OPTIONS: readonly ChoiceOption[] = [
   {
     value: 'on',
     label: 'On',
-    description: 'Update automatically in the background.',
+    description: 'Install new versions in the background.',
   },
   {
     value: 'off',

@@ -1,7 +1,4 @@
-import {
-  isPythinkerError,
-  type PythinkerErrorPayload,
-} from '@pymodel/agent-core';
+import { isPythinkerError, type PythinkerErrorPayload } from '@pymodel/agent-core';
 
 export function formatErrorMessage(error: unknown): string {
   if (isPythinkerError(error)) {
@@ -18,8 +15,7 @@ export function formatErrorPayload(
   error: Pick<PythinkerErrorPayload, 'code' | 'message' | 'details'>,
 ): string {
   const filteredMessage = formatProviderFilteredMessage(error.details);
-  if (filteredMessage !== undefined) return `[${error.code}] ${filteredMessage}`;
-  return `[${error.code}] ${error.message}`;
+  return `[${error.code}] ${filteredMessage ?? error.message}`;
 }
 
 function formatProviderFilteredMessage(

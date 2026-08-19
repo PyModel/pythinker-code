@@ -6,8 +6,8 @@
  * active palette so theme switches take effect on the next render.
  */
 
-import type { Component } from '@earendil-works/pi-tui';
-import { truncateToWidth, visibleWidth } from '@earendil-works/pi-tui';
+import type { Component } from '@pymodel/pi-tui';
+import { truncateToWidth, visibleWidth } from '@pymodel/pi-tui';
 
 import { currentTheme } from '#/tui/theme';
 
@@ -49,7 +49,8 @@ export class DeviceCodeBoxComponent implements Component {
 
     const contentLines: string[] = [titleLine, '', promptLine, urlLine, '', codeLine];
     if (hint !== undefined && hint.length > 0) {
-      contentLines.push('', truncateToWidth(currentTheme.fg('textDim', hint), innerWidth, '…'));
+      contentLines.push('');
+      contentLines.push(truncateToWidth(currentTheme.fg('textDim', hint), innerWidth, '…'));
     }
 
     if (safeWidth < 4) {
@@ -69,7 +70,9 @@ export class DeviceCodeBoxComponent implements Component {
       lines.push(border('│') + pad + truncated + ' '.repeat(rightPad) + border('│'));
     }
 
-    lines.push(border('│') + ' '.repeat(safeWidth - 2) + border('│'), border('╰' + '─'.repeat(safeWidth - 2) + '╯'), '');
+    lines.push(border('│') + ' '.repeat(safeWidth - 2) + border('│'));
+    lines.push(border('╰' + '─'.repeat(safeWidth - 2) + '╯'));
+    lines.push('');
 
     return lines.map((line) => truncateToWidth(line, safeWidth, '…'));
   }

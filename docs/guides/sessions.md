@@ -22,7 +22,7 @@ All sessions are saved under `$PYTHINKER_CODE_HOME/sessions/` (default: `~/.pyth
 ```
 
 - `state.json`: session metadata such as title and creation time.
-- `agents/*/wire.jsonl`: the agent event stream, used for session recovery and replay.
+- `agents/*/wire.jsonl`: the agent event stream, used for session recovery and replay. It also carries a request trace — the tool schemas, request parameters, and MCP tool listings sent to the model — for debugging.
 
 ::: warning
 Do not manually edit files inside the `sessions/` directory — doing so may prevent sessions from being restored correctly.
@@ -85,7 +85,9 @@ To explore a new direction without disrupting the current conversation, use `/fo
 /fork
 ```
 
-The two resulting sessions are completely independent and do not affect each other. You can switch back to the original at any time using `/sessions`. A saved `/goal` is not copied to the fork. Start a new goal there if you want autonomous goal work.
+Forking does not switch you away: you stay in the original session and the conversation continues untouched. The fork is an independent copy you can switch to at any time using `/sessions`. A saved `/goal` is not copied to the fork. Start a new goal there if you want autonomous goal work.
+
+After forking, the CLI prints a ready-to-run `pythinker --resume` command (also copied to the clipboard) so you can enter the fork directly from a new terminal process.
 
 ## Exporting a session
 
@@ -107,6 +109,8 @@ You can also export from inside the TUI without leaving the interactive session:
 
 - **`/export-debug-zip`**: produces the same debug ZIP as `pythinker export`.
 - **`/export-md`** (alias `/export`): exports the conversation as a human-readable Markdown file, suitable for sharing or archiving. Accepts an optional path argument; without one, it writes to `pythinker-export-<short-id>-<timestamp>.md` in the current working directory.
+
+In the web UI, `/export` downloads the current session as a diagnostic ZIP. It includes the persisted session data, diagnostic logs, and a bounded metadata-only `logs/pythinker-web.jsonl` record of key browser events. Prompt text, WebSocket payloads, and console arguments are not copied into this browser log. This web command differs from the TUI `/export` alias above.
 
 ::: tip
 Exported files may contain code, command output, and file paths that are sensitive. Review the content before sharing.

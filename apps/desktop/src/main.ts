@@ -222,7 +222,8 @@ async function createMainWindow(): Promise<BrowserWindow> {
     return { action: 'deny' }
   })
   const rendererUrl = new URL(origin)
-  rendererUrl.searchParams.set('pythinker-desktop-platform', process.platform)
+  rendererUrl.searchParams.set('pythinker_desktop', '1')
+  rendererUrl.searchParams.set('platform', process.platform)
   await window.loadURL(rendererUrl.href)
   if (!lifecycle?.isQuitting) window.show()
   return window

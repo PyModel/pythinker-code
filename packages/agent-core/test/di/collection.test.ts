@@ -67,7 +67,7 @@ describe('ServiceCollection', () => {
       seen.push([id.toString(), value]);
     });
     expect(seen).toHaveLength(2);
-    const names = seen.map(([n]) => n).toSorted();
+    const names = seen.map(([n]) => n).sort();
     expect(names).toEqual(['clock', 'logger']);
   });
 });

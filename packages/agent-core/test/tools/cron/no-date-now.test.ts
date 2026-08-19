@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest';
 import { dirname, join } from 'pathe';
 import { fileURLToPath } from 'node:url';
 
-const here = dirname(import.meta.filename);
+const here = dirname(fileURLToPath(import.meta.url));
 // `test/tools/cron/` → package root → `src/tools/cron/`.
 const cronSrcDir = join(here, '..', '..', '..', 'src', 'tools', 'cron');
 

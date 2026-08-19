@@ -68,7 +68,7 @@ describe('e2e: exec edge cases', () => {
   });
 
   describe('kill() terminates a running child', () => {
-    it('long-running child can be killed with SIGTERM', async () => {
+    it.skipIf(process.platform === 'win32')('long-running child can be killed with SIGTERM', async () => {
       // A node script that sleeps forever.
       const proc = await kaos.exec('node', '-e', 'setInterval(() => {}, 1000 * 60);');
 
@@ -211,7 +211,7 @@ describe('e2e: exec edge cases', () => {
 
     it('execWithEnv honors the per-instance cwd and injects env vars', async () => {
       const proc = await kaos.execWithEnv(
-        [process.execPath, '-e', 'process.stdout.write(process.env.KAOS_TEST_MARKER + "|" + process.cwd())'],
+        ['node', '-e', 'process.stdout.write(process.env.KAOS_TEST_MARKER + "|" + process.cwd())'],
         { KAOS_TEST_MARKER: 'beacon42', PATH: process.env['PATH'] ?? '' },
       );
       const stdout = await streamToString(proc.stdout);

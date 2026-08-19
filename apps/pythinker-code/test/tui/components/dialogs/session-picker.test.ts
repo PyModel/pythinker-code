@@ -1,8 +1,7 @@
-import { visibleWidth } from '@earendil-works/pi-tui';
+import { visibleWidth } from '@pymodel/pi-tui';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { SessionPickerComponent } from '#/tui/components/dialogs/session-picker';
-import { defaultKeybindings, parseKeybindingBlocks } from '#/tui/keybindings';
 
 function stripAnsi(text: string): string {
   return text.replaceAll(/\[[0-?]*[ -/]*[@-~]/g, '');
@@ -18,32 +17,6 @@ const ESC = String.fromCodePoint(27);
 describe('SessionPickerComponent', () => {
   afterEach(() => {
     vi.restoreAllMocks();
-  });
-
-  it('uses remapped Select navigation and honors an unbound Down key', () => {
-    const onSelect = vi.fn();
-    const component = new SessionPickerComponent({
-      sessions: [
-        { id: 'ses_first', title: 'First', work_dir: '/tmp', updated_at: 1 },
-        { id: 'ses_second', title: 'Second', work_dir: '/tmp', updated_at: 2 },
-      ],
-      loading: false,
-      currentSessionId: '',
-      onSelect,
-      onCancel: vi.fn(),
-    });
-    component.setKeybindings([
-      ...defaultKeybindings(),
-      ...parseKeybindingBlocks([{ context: 'Select', bindings: { 'alt+j': 'select:next', down: null } }]),
-    ]);
-
-    component.handleInput('\u001B[B');
-    component.handleInput('\r');
-    expect(onSelect).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'ses_first' }));
-
-    component.handleInput('alt+j');
-    component.handleInput('\r');
-    expect(onSelect).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'ses_second' }));
   });
 
   it('forwards Ctrl-C and Ctrl-D to optional host shortcuts', () => {
@@ -126,36 +99,6 @@ describe('SessionPickerComponent', () => {
     expect(output).not.toMatch(/ses_01\S*…/);
     expect(output).toContain('/tmp/project');
     expect(output).toContain('please redesign the picker UI');
-  });
-
-  it('renders and searches session tags', () => {
-    const component = new SessionPickerComponent({
-      sessions: [
-        {
-          id: 'ses_tagged',
-          title: 'Tagged session',
-          work_dir: '/tmp/project',
-          updated_at: Date.now(),
-          metadata: { tag: 'review' },
-        },
-        {
-          id: 'ses_other',
-          title: 'Other session',
-          work_dir: '/tmp/project',
-          updated_at: Date.now(),
-        },
-      ],
-      loading: false,
-      currentSessionId: 'ses_current',
-      onSelect: vi.fn(),
-      onCancel: vi.fn(),
-    });
-
-    expect(renderPlain(component)).toContain('#review');
-    for (const key of 'review') component.handleInput(key);
-    const filtered = renderPlain(component);
-    expect(filtered).toContain('Tagged session');
-    expect(filtered).not.toContain('Other session');
   });
 
   it('omits the last-prompt row when last_prompt is missing', () => {
@@ -271,6 +214,39 @@ describe('SessionPickerComponent', () => {
     expect(headerLine).not.toMatch(/Short title\s{8,}/);
   });
 
+  it('prepends [imported] badge before the title for sessions migrated from pythinker-cli', () => {
+    const now = new Date('2026-05-11T12:00:00.000Z').getTime();
+    vi.spyOn(Date, 'now').mockReturnValue(now);
+
+    const component = new SessionPickerComponent({
+      sessions: [
+        {
+          id: 'ses_imported',
+          title: 'Migrated session',
+          work_dir: '/tmp/project',
+          updated_at: now - 60 * 1000,
+          metadata: { imported_from_pythinker_cli: true },
+        },
+        {
+          id: 'ses_native',
+          title: 'Fresh session',
+          work_dir: '/tmp/project',
+          updated_at: now - 60 * 1000,
+        },
+      ],
+      loading: false,
+      currentSessionId: 'ses_other',
+      onSelect: vi.fn(),
+      onCancel: vi.fn(),
+    });
+
+    const lines = component.render(120).map((line) => stripAnsi(line));
+    const importedLine = lines.find((line) => line.includes('Migrated session'));
+    const nativeLine = lines.find((line) => line.includes('Fresh session'));
+    expect(importedLine).toContain('[imported] Migrated session');
+    expect(nativeLine).not.toContain('[imported]');
+  });
+
   it('keeps every rendered line within the terminal width even for CJK content', () => {
     const now = new Date('2026-05-11T12:00:00.000Z').getTime();
     vi.spyOn(Date, 'now').mockReturnValue(now);
@@ -279,10 +255,10 @@ describe('SessionPickerComponent', () => {
       sessions: [
         {
           id: 'ses_cjk_long_session_id_value',
-          title: 'Now refactor the TUI sessions list to render several fields and improve the UI',
+          title: '\u73B0\u5728\u8981\u91CD\u6784\u4E00\u4E0B TUI \u7684 sessions \u5217\u8868，\u8981\u6E32\u67D3\u51E0\u4E2A\u5B57\u6BB5，\u8BA9 UI \u66F4\u597D\u770B',
           last_prompt:
-            'We need to render sessionid title lastPrompt, work directory, and modified time. Redesign the UI.',
-          work_dir: '/Users/someone/Desktop/i18n-folder/very-long-project-folder-name',
+            '\u6211\u4EEC\u8981\u6E32\u67D3\u51E0\u4E2A：sessionid title lastPrompt。\u5DE5\u4F5C\u76EE\u5F55，\u4FEE\u6539\u65F6\u95F4。\u9700\u8981\u91CD\u65B0\u8BBE\u8BA1\u4E0B UI。',
+          work_dir: '/Users/someone/Desktop/\u4E2D\u6587\u76EE\u5F55/very-long-project-folder-name',
           updated_at: now - 5 * 60 * 1000,
         },
       ],
@@ -317,6 +293,7 @@ describe('SessionPickerComponent', () => {
           last_prompt: 'please redesign the picker UI to be much nicer than before',
           work_dir: '/Users/getlong/Development/cesiumdb',
           updated_at: now - 5 * 60 * 1000,
+          metadata: { imported_from_pythinker_cli: true },
         },
       ],
       loading: false,
@@ -476,32 +453,6 @@ describe('SessionPickerComponent', () => {
 
     expect(output).toContain('Session 0050');
     expect(output).toContain('Showing 49-52 of 100 loaded / 120 sessions');
-  });
-
-  it('keeps PageUp and PageDown local to the session list', () => {
-    const onToggleScope = vi.fn();
-    const component = new SessionPickerComponent({
-      sessions: Array.from({ length: 5 }, (_, index) => ({
-        id: `ses_${String(index)}`,
-        title: `Session ${String(index)}`,
-        work_dir: '/tmp',
-        updated_at: index,
-      })),
-      loading: false,
-      currentSessionId: '',
-      pageSize: 2,
-      onSelect: vi.fn(),
-      onCancel: vi.fn(),
-      onToggleScope,
-    });
-
-    component.handleInput(`${ESC}[6~`);
-    component.handleInput('\u0001');
-    expect(onToggleScope).toHaveBeenLastCalledWith('ses_2');
-
-    component.handleInput(`${ESC}[5~`);
-    component.handleInput('\u0001');
-    expect(onToggleScope).toHaveBeenLastCalledWith('ses_0');
   });
 
   it('keeps initial selected session id and loads enough pages for it', () => {
@@ -757,5 +708,165 @@ describe('SessionPickerComponent', () => {
 
     expect(onToggleScope).toHaveBeenCalledOnce();
     expect(onToggleScope).toHaveBeenCalledWith('ses_beta');
+  });
+
+  it('fires onLoadMore when the cursor reaches the last fetched row', () => {
+    const onLoadMore = vi.fn();
+    const component = new SessionPickerComponent({
+      sessions: [
+        { id: 'ses_a', title: 'Alpha', work_dir: '/tmp/project', updated_at: 1 },
+        { id: 'ses_b', title: 'Beta', work_dir: '/tmp/project', updated_at: 2 },
+      ],
+      loading: false,
+      currentSessionId: '',
+      hasMore: true,
+      onSelect: vi.fn(),
+      onCancel: vi.fn(),
+      onLoadMore,
+    });
+
+    component.handleInput('\u001B[B');
+
+    expect(onLoadMore).toHaveBeenCalledOnce();
+  });
+
+  it('does not fire onLoadMore while a page fetch is in flight', () => {
+    const onLoadMore = vi.fn();
+    const component = new SessionPickerComponent({
+      sessions: [
+        { id: 'ses_a', title: 'Alpha', work_dir: '/tmp/project', updated_at: 1 },
+        { id: 'ses_b', title: 'Beta', work_dir: '/tmp/project', updated_at: 2 },
+      ],
+      loading: false,
+      currentSessionId: '',
+      hasMore: true,
+      loadingMore: true,
+      onSelect: vi.fn(),
+      onCancel: vi.fn(),
+      onLoadMore,
+    });
+
+    component.handleInput('\u001B[B');
+
+    expect(onLoadMore).not.toHaveBeenCalled();
+  });
+
+  it('appendSessions extends the list and keeps the active query', () => {
+    const component = new SessionPickerComponent({
+      sessions: [{ id: 'ses_alpha', title: 'Alpha session', work_dir: '/tmp/p', updated_at: 1 }],
+      loading: false,
+      currentSessionId: '',
+      onSelect: vi.fn(),
+      onCancel: vi.fn(),
+    });
+
+    component.handleInput('g');
+    expect(renderPlain(component)).toContain('No matches');
+
+    component.appendSessions([
+      { id: 'ses_gamma', title: 'Gamma session', work_dir: '/tmp/p', updated_at: 2 },
+    ]);
+
+    const output = renderPlain(component);
+    expect(output).toContain('Search: g');
+    expect(output).toContain('Gamma session');
+    expect(output).not.toContain('Alpha session');
+  });
+
+  it('appendSessions keeps the selected row', () => {
+    const onSelect = vi.fn();
+    const beta = { id: 'ses_beta', title: 'Beta session', work_dir: '/tmp/p', updated_at: 2 };
+    const component = new SessionPickerComponent({
+      sessions: [
+        { id: 'ses_alpha', title: 'Alpha session', work_dir: '/tmp/p', updated_at: 1 },
+        beta,
+      ],
+      loading: false,
+      currentSessionId: '',
+      onSelect,
+      onCancel: vi.fn(),
+    });
+
+    component.handleInput('\u001B[B');
+    component.appendSessions([
+      { id: 'ses_gamma', title: 'Gamma session', work_dir: '/tmp/p', updated_at: 3 },
+    ]);
+    component.handleInput('\r');
+
+    expect(onSelect).toHaveBeenCalledOnce();
+    expect(onSelect).toHaveBeenCalledWith(beta);
+  });
+
+  it('fires onSearchDrain only when the query becomes active with unfetched pages', () => {
+    const onSearchDrain = vi.fn();
+    const component = new SessionPickerComponent({
+      sessions: [{ id: 'ses_alpha', title: 'Alpha session', work_dir: '/tmp/p', updated_at: 1 }],
+      loading: false,
+      currentSessionId: '',
+      hasMore: true,
+      onSelect: vi.fn(),
+      onCancel: vi.fn(),
+      onSearchDrain,
+    });
+
+    component.handleInput('a');
+    component.handleInput('l');
+
+    expect(onSearchDrain).toHaveBeenCalledOnce();
+  });
+
+  it('does not fire onSearchDrain when every page is already fetched', () => {
+    const onSearchDrain = vi.fn();
+    const component = new SessionPickerComponent({
+      sessions: [{ id: 'ses_alpha', title: 'Alpha session', work_dir: '/tmp/p', updated_at: 1 }],
+      loading: false,
+      currentSessionId: '',
+      onSelect: vi.fn(),
+      onCancel: vi.fn(),
+      onSearchDrain,
+    });
+
+    component.handleInput('a');
+
+    expect(onSearchDrain).not.toHaveBeenCalled();
+  });
+
+  it('announces unfetched pages and in-flight fetches in the footer', () => {
+    const component = new SessionPickerComponent({
+      sessions: [
+        { id: 'ses_a', title: 'Alpha', work_dir: '/tmp/project', updated_at: 1 },
+        { id: 'ses_b', title: 'Beta', work_dir: '/tmp/project', updated_at: 2 },
+      ],
+      loading: false,
+      currentSessionId: '',
+      hasMore: true,
+      onSelect: vi.fn(),
+      onCancel: vi.fn(),
+    });
+
+    expect(renderPlain(component)).toContain('· scroll for more');
+
+    component.setPaging(true, true);
+    expect(renderPlain(component)).toContain('· loading more…');
+
+    component.setPaging(false, false);
+    const settled = renderPlain(component);
+    expect(settled).not.toContain('· scroll for more');
+    expect(settled).not.toContain('· loading more…');
+  });
+
+  it('notes the background drain in the footer while searching with unfetched pages', () => {
+    const component = new SessionPickerComponent({
+      sessions: [{ id: 'ses_alpha', title: 'Alpha session', work_dir: '/tmp/p', updated_at: 1 }],
+      loading: false,
+      currentSessionId: '',
+      hasMore: true,
+      onSelect: vi.fn(),
+      onCancel: vi.fn(),
+    });
+
+    component.handleInput('a');
+
+    expect(renderPlain(component)).toContain('· searching all…');
   });
 });

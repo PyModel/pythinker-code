@@ -1,16 +1,30 @@
+/**
+ * Scenario: Node SDK sessions persist and list through the public harness.
+ * Responsibilities: workDir scoping, index recovery, fork metadata, and native path-safe listing.
+ * Wiring: real in-process harness/session storage; no remote provider calls.
+ * Run: pnpm exec vitest run test/list-sessions.test.ts
+ */
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { createPythinkerHarness } from '#/index';
+import {
+  drainQueryStoreDisposals,
+  drainSessionIndexMirror,
+  ISessionIndex,
+  ISessionIndexMirror,
+} from '@pymodel/agent-core-v2';
+
+import { createPythinkerHarness, SDKRpcClientV2 } from '#/index';
 import type { PythinkerError } from '#/index';
 
 import {
   SessionStore,
   encodeWorkDirKey,
+  normalizeWorkDir,
   sessionIndexPath,
 } from '../../agent-core/src/session/store';
 import { TEST_IDENTITY } from './test-identity';
@@ -38,41 +52,6 @@ async function writeSessionState(
   return statePath;
 }
 
-function currentState(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-  return {
-    sessionFormatVersion: 2,
-    createdAt: '2030-01-01T00:00:00.000Z',
-    updatedAt: '2030-01-01T00:00:00.000Z',
-    title: 'Stored session',
-    isCustomTitle: false,
-    agents: {
-      main: {
-        type: 'main',
-        parentAgentId: null,
-      },
-    },
-    custom: {},
-    ...overrides,
-  };
-}
-
-async function createStoredSession(
-  store: SessionStore,
-  input: { readonly id: string; readonly workDir: string },
-  state: Record<string, unknown> = currentState(),
-) {
-  return store.create(input, async (summary) => {
-    const mainDir = join(summary.sessionDir, 'agents', 'main');
-    await mkdir(mainDir, { recursive: true });
-    await writeSessionState(summary.sessionDir, state);
-    await writeFile(
-      join(mainDir, 'wire.jsonl'),
-      '{"type":"metadata","protocol_version":"2.0","created_at":1}\n',
-      'utf-8',
-    );
-  });
-}
-
 describe('SessionStore.list', () => {
   it('returns an empty array when the workDir bucket does not exist', async () => {
     const homeDir = await makeTempDir();
@@ -87,24 +66,24 @@ describe('SessionStore.list', () => {
     const workDir = await makeTempDir();
     const store = new SessionStore(homeDir);
 
-    const summary = await createStoredSession(store, { id: 'ses_list_full', workDir });
+    const summary = await store.create({ id: 'ses_list_full', workDir });
 
     expect(summary).toMatchObject({
       id: 'ses_list_full',
-      workDir,
-      title: 'Stored session',
+      workDir: normalizeWorkDir(workDir),
+      title: undefined,
     });
     expect(summary.sessionDir).not.toBe(join(homeDir, 'sessions', 'ses_list_full'));
     expect(basename(summary.sessionDir)).toBe('ses_list_full');
     const workdirKey = basename(dirname(summary.sessionDir));
     expect(workdirKey).toBe(encodeWorkDirKey(workDir));
     expect(workdirKey.length).toBeLessThan(70);
-    expect(existsSync(join(summary.sessionDir, 'state.json'))).toBe(true);
+    expect(existsSync(join(summary.sessionDir, 'state.json'))).toBe(false);
 
     const indexRaw = await readFile(sessionIndexPath(homeDir), 'utf-8');
     expect(indexRaw).toContain('"sessionId":"ses_list_full"');
     expect(indexRaw).toContain(summary.sessionDir);
-    expect(indexRaw).toContain(`"workDir":"${workDir}"`);
+    expect(indexRaw).toContain(`"workDir":"${normalizeWorkDir(workDir)}"`);
   });
 
   it('forks a session directory, rewrites metadata, and drops reserved goal state', async () => {
@@ -112,54 +91,47 @@ describe('SessionStore.list', () => {
     const workDir = await makeTempDir();
     const store = new SessionStore(homeDir);
 
-    const source = await createStoredSession(
-      store,
-      { id: 'ses_fork_source', workDir },
-      currentState({
-        title: 'Source title',
-        isCustomTitle: true,
-        agents: {
-          main: {
-            type: 'main',
-            parentAgentId: null,
-          },
-          'agent-1': {
-            type: 'sub',
-            parentAgentId: 'main',
-          },
-        },
-        custom: {
-          source: true,
-          goal: {
-            goalId: 'source-goal',
-            objective: 'source objective',
-            status: 'active',
-            turnsUsed: 0,
-            tokensUsed: 0,
-            budgetLimits: {},
-          },
-        },
-      }),
-    );
+    const source = await store.create({ id: 'ses_fork_source', workDir });
     const sourceAgentDir = join(source.sessionDir, 'agents', 'main');
     const sourceSubagentDir = join(source.sessionDir, 'agents', 'agent-1');
     await mkdir(sourceAgentDir, { recursive: true });
     await mkdir(sourceSubagentDir, { recursive: true });
-    await writeFile(
-      join(sourceAgentDir, 'wire.jsonl'),
-      '{"type":"metadata","protocol_version":"2.0","created_at":1}\n{"type":"context.clear"}\n',
-      'utf-8',
-    );
-    await writeFile(
-      join(sourceSubagentDir, 'wire.jsonl'),
-      '{"type":"metadata","protocol_version":"2.0","created_at":1}\n{"type":"context.clear"}\n',
-      'utf-8',
-    );
+    await writeFile(join(sourceAgentDir, 'wire.jsonl'), '{"type":"context.clear"}\n', 'utf-8');
+    await writeFile(join(sourceSubagentDir, 'wire.jsonl'), '{"type":"context.clear"}\n', 'utf-8');
     await writeFile(
       join(source.sessionDir, 'upcoming-goals.json'),
       `${JSON.stringify({ version: 1, goals: [{ id: 'queued-1', objective: 'source queued goal' }] })}\n`,
       'utf-8',
     );
+    await writeSessionState(source.sessionDir, {
+      createdAt: '2030-01-01T00:00:00.000Z',
+      updatedAt: '2030-01-01T00:00:00.000Z',
+      title: 'Source title',
+      isCustomTitle: true,
+      agents: {
+        main: {
+          homedir: sourceAgentDir,
+          type: 'main',
+        },
+        'agent-1': {
+          homedir: sourceSubagentDir,
+          type: 'subagent',
+          parentAgentId: 'main',
+        },
+      },
+      custom: {
+        source: true,
+        goal: {
+          goalId: 'source-goal',
+          objective: 'source objective',
+          status: 'active',
+          turnsUsed: 0,
+          tokensUsed: 0,
+          budgetLimits: {},
+        },
+      },
+    });
+
     const fork = await store.fork({
       sourceId: source.id,
       targetId: 'ses_fork_child',
@@ -187,7 +159,9 @@ describe('SessionStore.list', () => {
     expect(forkState.title).toBe('Fork title');
     expect(forkState.isCustomTitle).toBe(true);
     expect(forkState.forkedFrom).toBe(source.id);
-    expect(forkState.agents?.main?.homedir).toBeUndefined();
+    expect(forkState.agents?.main?.homedir).toBe(
+      normalizeWorkDir(join(fork.sessionDir, 'agents', 'main')),
+    );
     expect(forkState.custom).toMatchObject({ source: true, child: true });
     expect(forkState.custom).not.toHaveProperty('goal');
     expect(existsSync(join(fork.sessionDir, 'upcoming-goals.json'))).toBe(false);
@@ -197,7 +171,6 @@ describe('SessionStore.list', () => {
       .trim()
       .split('\n')
       .map((line) => JSON.parse(line) as Record<string, unknown>)).toEqual([
-      { type: 'metadata', protocol_version: '2.0', created_at: 1 },
       { type: 'context.clear' },
       { type: 'forked', time: expect.any(Number) },
     ]);
@@ -209,7 +182,6 @@ describe('SessionStore.list', () => {
       .trim()
       .split('\n')
       .map((line) => JSON.parse(line) as Record<string, unknown>)).toEqual([
-      { type: 'metadata', protocol_version: '2.0', created_at: 1 },
       { type: 'context.clear' },
       { type: 'forked', time: expect.any(Number) },
     ]);
@@ -231,23 +203,23 @@ describe('SessionStore.list', () => {
     const otherWorkDir = await makeTempDir();
     const store = new SessionStore(homeDir);
 
-    await createStoredSession(store, { id: 'ses_list_a', workDir });
-    await createStoredSession(store, { id: 'ses_other_workdir', workDir: otherWorkDir });
+    await store.create({ id: 'ses_list_a', workDir });
+    await store.create({ id: 'ses_other_workdir', workDir: otherWorkDir });
 
     const sessions = await store.list({ workDir });
     expect(sessions.map((session) => session.id)).toEqual(['ses_list_a']);
   });
 
-  it('uses the session index instead of discovering an unindexed workDir session', async () => {
+  it('uses the workDir bucket before the session index when sessionId is provided', async () => {
     const homeDir = await makeTempDir();
     const workDir = await makeTempDir();
     const store = new SessionStore(homeDir);
 
-    const local = await createStoredSession(store, { id: 'ses_bucket_hit', workDir });
+    const local = await store.create({ id: 'ses_bucket_hit', workDir });
     await rm(sessionIndexPath(homeDir), { force: true });
 
     const sessions = await store.list({ workDir, sessionId: local.id });
-    expect(sessions).toEqual([]);
+    expect(sessions.map((session) => session.id)).toEqual([local.id]);
   });
 
   it('falls back to the session index when a workDir-scoped sessionId is not in that bucket', async () => {
@@ -256,14 +228,14 @@ describe('SessionStore.list', () => {
     const otherWorkDir = await makeTempDir();
     const store = new SessionStore(homeDir);
 
-    await createStoredSession(store, { id: 'ses_local', workDir });
-    const other = await createStoredSession(store, { id: 'ses_index_fallback', workDir: otherWorkDir });
+    await store.create({ id: 'ses_local', workDir });
+    const other = await store.create({ id: 'ses_index_fallback', workDir: otherWorkDir });
 
     const sessions = await store.list({ workDir, sessionId: other.id });
     expect(sessions).toHaveLength(1);
     expect(sessions[0]).toMatchObject({
       id: other.id,
-      workDir: otherWorkDir,
+      workDir: normalizeWorkDir(otherWorkDir),
     });
   });
 
@@ -273,8 +245,8 @@ describe('SessionStore.list', () => {
     const otherWorkDir = await makeTempDir();
     const store = new SessionStore(homeDir);
 
-    await createStoredSession(store, { id: 'ses_all_a', workDir });
-    await createStoredSession(store, { id: 'ses_all_b', workDir: otherWorkDir });
+    await store.create({ id: 'ses_all_a', workDir });
+    await store.create({ id: 'ses_all_b', workDir: otherWorkDir });
 
     const sessions = await store.list();
     expect(sessions.map((session) => session.id).toSorted()).toEqual([
@@ -290,36 +262,41 @@ describe('SessionStore.list', () => {
     await expect(store.list({ sessionId: 'ses_missing' })).resolves.toEqual([]);
   });
 
-  it('reads a title from strict current-format state', async () => {
+  it('reads title from customTitle before title', async () => {
     const homeDir = await makeTempDir();
     const workDir = await makeTempDir();
     const store = new SessionStore(homeDir);
 
-    const custom = await createStoredSession(
-      store,
-      { id: 'ses_custom_title', workDir },
-      currentState({ title: 'Custom Title', isCustomTitle: true }),
-    );
-    const fallback = await createStoredSession(
-      store,
-      { id: 'ses_fallback_title', workDir },
-      currentState({ title: 'Fallback Title' }),
-    );
+    const custom = await store.create({ id: 'ses_custom_title', workDir });
+    await writeSessionState(custom.sessionDir, {
+      title: 'Base Title',
+      customTitle: 'Custom Title',
+    });
+    const fallback = await store.create({ id: 'ses_fallback_title', workDir });
+    await writeSessionState(fallback.sessionDir, {
+      title: 'Fallback Title',
+    });
 
     const sessions = await store.list({ workDir });
     expect(sessions.find((session) => session.id === custom.id)?.title).toBe('Custom Title');
     expect(sessions.find((session) => session.id === fallback.id)?.title).toBe('Fallback Title');
   });
 
-  it('skips malformed indexed state instead of treating it as an incomplete summary', async () => {
+  it('keeps sessions visible when state.json is missing or malformed', async () => {
     const homeDir = await makeTempDir();
     const workDir = await makeTempDir();
     const store = new SessionStore(homeDir);
 
-    const malformed = await createStoredSession(store, { id: 'ses_bad_state', workDir });
+    await store.create({ id: 'ses_no_state', workDir });
+    const malformed = await store.create({ id: 'ses_bad_state', workDir });
     await writeFile(join(malformed.sessionDir, 'state.json'), '{bad json', 'utf-8');
 
-    await expect(store.list({ workDir })).resolves.toEqual([]);
+    const sessions = await store.list({ workDir });
+    expect(sessions.map((session) => session.id).toSorted()).toEqual([
+      'ses_bad_state',
+      'ses_no_state',
+    ]);
+    expect(sessions.every((session) => session.title === undefined)).toBe(true);
   });
 
   it('sorts by filesystem activity descending', async () => {
@@ -327,14 +304,14 @@ describe('SessionStore.list', () => {
     const workDir = await makeTempDir();
     const store = new SessionStore(homeDir);
 
-    const oldSession = await createStoredSession(store, { id: 'ses_old', workDir });
-    const newSession = await createStoredSession(store, { id: 'ses_new', workDir });
+    const oldSession = await store.create({ id: 'ses_old', workDir });
+    const newSession = await store.create({ id: 'ses_new', workDir });
     const oldTime = new Date('2030-04-18T12:00:00Z');
     const newTime = new Date('2030-04-18T12:00:10Z');
-    await writeFile(join(oldSession.sessionDir, 'agents', 'main', 'wire.jsonl'), '{}\n', 'utf-8');
-    await writeFile(join(newSession.sessionDir, 'agents', 'main', 'wire.jsonl'), '{}\n', 'utf-8');
-    await utimes(join(oldSession.sessionDir, 'agents', 'main', 'wire.jsonl'), oldTime, oldTime);
-    await utimes(join(newSession.sessionDir, 'agents', 'main', 'wire.jsonl'), newTime, newTime);
+    await writeFile(join(oldSession.sessionDir, 'wire.jsonl'), '{}\n', 'utf-8');
+    await writeFile(join(newSession.sessionDir, 'wire.jsonl'), '{}\n', 'utf-8');
+    await utimes(join(oldSession.sessionDir, 'wire.jsonl'), oldTime, oldTime);
+    await utimes(join(newSession.sessionDir, 'wire.jsonl'), newTime, newTime);
 
     const sessions = await store.list({ workDir });
     expect(sessions.map((session) => session.id)).toEqual(['ses_new', 'ses_old']);
@@ -400,6 +377,26 @@ describe('PythinkerHarness.listSessions', () => {
     }
   });
 
+  it('lists a session from a workDir containing spaces and non-ASCII characters', async () => {
+    const homeDir = await makeTempDir();
+    const root = await makeTempDir();
+    const workDir = join(root, 'Workspace With Spaces', '\u9879\u76EE');
+    await mkdir(workDir, { recursive: true });
+    const harness = createPythinkerHarness({
+      identity: TEST_IDENTITY,
+      homeDir,
+    });
+
+    try {
+      const session = await harness.createSession({ id: 'ses_unicode_workdir', workDir });
+
+      const sessions = await harness.listSessions({ workDir });
+      expect(sessions.map((item) => item.id)).toEqual([session.id]);
+    } finally {
+      await harness.close();
+    }
+  });
+
   it('resolves relative workDir inputs before filtering', async () => {
     const homeDir = await makeTempDir();
     const workDir = await makeTempDir();
@@ -437,6 +434,209 @@ describe('PythinkerHarness.listSessions', () => {
       expect(sessions.map((item) => item.id)).toEqual([session.id]);
     } finally {
       await harness.close();
+    }
+  });
+
+  it('serves the full set as one terminal page on the v1 engine', async () => {
+    const homeDir = await makeTempDir();
+    const workDir = await makeTempDir();
+    const harness = createPythinkerHarness({
+      identity: TEST_IDENTITY,
+      homeDir,
+    });
+
+    try {
+      await harness.createSession({ id: 'ses_v1_page_a', workDir });
+      await harness.createSession({ id: 'ses_v1_page_b', workDir });
+
+      // The v1 engine has no paged listing: `limit` is ignored and the whole
+      // filtered set comes back as a single page without a cursor.
+      const page = await harness.listSessionsPage({ workDir, limit: 1 });
+      expect(page.items.map((item) => item.id).toSorted()).toEqual([
+        'ses_v1_page_a',
+        'ses_v1_page_b',
+      ]);
+      expect(page.nextCursor).toBeUndefined();
+    } finally {
+      await harness.close();
+    }
+  });
+});
+
+describe('SDKRpcClientV2.listSessionsPage', () => {
+  it('pages through the listing with keyset cursors (read model off)', async () => {
+    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_FLAG', '0');
+    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_PERSISTENCE_MINIDB_READMODEL', '0');
+    const homeDir = await makeTempDir();
+    const workDir = await makeTempDir();
+    const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
+
+    try {
+      for (let i = 0; i < 5; i += 1) {
+        const created = await client.createSession({ id: `ses_page_${i}`, workDir });
+        await client.closeSession({ sessionId: created.id });
+      }
+
+      const page1 = await client.listSessionsPage({ workDir, limit: 2 });
+      expect(page1.items).toHaveLength(2);
+      expect(page1.nextCursor).toBe(page1.items.at(-1)?.id);
+
+      const page2 = await client.listSessionsPage({ workDir, limit: 2, before: page1.nextCursor });
+      expect(page2.items).toHaveLength(2);
+      expect(page2.nextCursor).toBe(page2.items.at(-1)?.id);
+
+      const page3 = await client.listSessionsPage({ workDir, limit: 2, before: page2.nextCursor });
+      expect(page3.items).toHaveLength(1);
+      expect(page3.nextCursor).toBeUndefined();
+
+      const pagedIds = [...page1.items, ...page2.items, ...page3.items].map((item) => item.id);
+      expect(new Set(pagedIds)).toEqual(
+        new Set([0, 1, 2, 3, 4].map((i) => `ses_page_${String(i)}`)),
+      );
+      // Draining pages yields exactly the unpaged listing, in the same order.
+      const full = await client.listSessions({ workDir });
+      expect(pagedIds).toEqual(full.map((item) => item.id));
+    } finally {
+      await client.close();
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('answers an empty terminal page for an unknown cursor', async () => {
+    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_FLAG', '0');
+    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_PERSISTENCE_MINIDB_READMODEL', '0');
+    const homeDir = await makeTempDir();
+    const workDir = await makeTempDir();
+    const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
+
+    try {
+      const created = await client.createSession({ id: 'ses_cursor_probe', workDir });
+      await client.closeSession({ sessionId: created.id });
+
+      await expect(
+        client.listSessionsPage({ workDir, before: 'ses_unknown' }),
+      ).resolves.toEqual({ items: [], nextCursor: undefined });
+    } finally {
+      await client.close();
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('drains follow-up pages when the mapping drops entries (read model on)', async () => {
+    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_FLAG', '0');
+    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_PERSISTENCE_MINIDB_READMODEL', '1');
+    const homeDir = await makeTempDir();
+    const workDir = await makeTempDir();
+    const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
+
+    try {
+      for (let i = 0; i < 3; i += 1) {
+        const created = await client.createSession({ id: `ses_drain_${i}`, workDir });
+        await client.closeSession({ sessionId: created.id });
+      }
+      const index = client.engineAccessor.get(ISessionIndex);
+      await index.prepare();
+      // A summary whose workDir can no longer be resolved (unknown workspace,
+      // no cwd) is dropped by the mapping; the page must still fill.
+      client.engineAccessor.get(ISessionIndexMirror).record({
+        id: 'ses_ghost',
+        workspaceId: 'ws_missing',
+        createdAt: 1,
+        updatedAt: Date.now() + 60_000,
+        archived: false,
+      });
+      await drainSessionIndexMirror();
+
+      const page1 = await client.listSessionsPage({ limit: 2 });
+      expect(page1.items).toHaveLength(2);
+      expect(page1.items.some((item) => item.id === 'ses_ghost')).toBe(false);
+      expect(page1.nextCursor).toBeDefined();
+
+      const page2 = await client.listSessionsPage({ limit: 2, before: page1.nextCursor });
+      expect(page2.items).toHaveLength(1);
+      expect(page2.items[0]?.id).not.toBe('ses_ghost');
+      expect(page2.nextCursor).toBeUndefined();
+
+      const ids = [...page1.items, ...page2.items].map((item) => item.id).toSorted();
+      expect(ids).toEqual(['ses_drain_0', 'ses_drain_1', 'ses_drain_2']);
+    } finally {
+      await client.close();
+      // Dispose fired the mirror/query-store async closes; await them before
+      // the shared afterEach removes the temp home.
+      await drainSessionIndexMirror();
+      await drainQueryStoreDisposals();
+      vi.unstubAllEnvs();
+    }
+  });
+});
+
+describe('SDKRpcClientV2 search-index separation', () => {
+  // The global full-text search database (`<homeDir>/search-index`) belongs
+  // to the kap-server search surface. The TUI-side chain (rpc client →
+  // klient → `ISessionIndex`) must list, resume and continue sessions without
+  // ever opening it — including while the session read model is still
+  // preparing.
+
+  it('listSessions / resumeSession never open the global search index (read model off)', async () => {
+    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_FLAG', '0');
+    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_PERSISTENCE_MINIDB_READMODEL', '0');
+    const homeDir = await makeTempDir();
+    const workDir = await makeTempDir();
+    const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
+
+    try {
+      const created = await client.createSession({ id: 'ses_search_sep_off', workDir });
+      await client.closeSession({ sessionId: created.id });
+
+      const sessions = await client.listSessions({ workDir });
+      expect(sessions.map((item) => item.id)).toEqual([created.id]);
+      const resumed = await client.resumeSession({ id: created.id });
+      expect(resumed.id).toBe(created.id);
+
+      expect(existsSync(join(homeDir, 'search-index'))).toBe(false);
+      // With the read model off, the session query-store is never opened either.
+      expect(existsSync(join(homeDir, 'cache', 'query-store'))).toBe(false);
+    } finally {
+      await client.close();
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('listSessions / resumeSession never open the global search index (read model on)', async () => {
+    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_FLAG', '0');
+    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_PERSISTENCE_MINIDB_READMODEL', '1');
+    const homeDir = await makeTempDir();
+    const workDir = await makeTempDir();
+    const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
+
+    try {
+      const created = await client.createSession({ id: 'ses_search_sep_on', workDir });
+      await client.closeSession({ sessionId: created.id });
+
+      // The read model is still preparing here: the first list kicks the
+      // background projection and answers from authoritative metadata, the
+      // resume reads the authoritative document — neither waits for, nor
+      // opens, any full-text index.
+      const sessions = await client.listSessions({ workDir });
+      expect(sessions.map((item) => item.id)).toEqual([created.id]);
+      const resumed = await client.resumeSession({ id: created.id });
+      expect(resumed.id).toBe(created.id);
+
+      expect(existsSync(join(homeDir, 'search-index'))).toBe(false);
+
+      // Settle the kicked projection before close so teardown never races it,
+      // and prove the read model really did engage (the flag took effect).
+      const status = await client.engineAccessor.get(ISessionIndex).prepare();
+      expect(status.state).toBe('ready');
+      expect(existsSync(join(homeDir, 'cache', 'query-store'))).toBe(true);
+      expect(existsSync(join(homeDir, 'search-index'))).toBe(false);
+    } finally {
+      await client.close();
+      // Dispose fired the mirror/query-store async closes; await them before
+      // the shared afterEach removes the temp home.
+      await drainSessionIndexMirror();
+      await drainQueryStoreDisposals();
+      vi.unstubAllEnvs();
     }
   });
 });

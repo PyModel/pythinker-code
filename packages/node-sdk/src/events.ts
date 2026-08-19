@@ -16,10 +16,10 @@ export type {
   SessionMetaUpdatedEvent,
   GoalUpdatedEvent,
   SkillActivatedEvent,
+  PluginCommandActivatedEvent,
   ErrorEvent,
   WarningEvent,
   UsageStatus,
-  AdvisorStatusEvent,
 } from '@pymodel/agent-core';
 
 // Turn and step lifecycle events plus the turn-ending reason enum.
@@ -37,7 +37,6 @@ export type {
 export type {
   AssistantDeltaEvent,
   HookResultEvent,
-  HookStatusEvent,
   ThinkingDeltaEvent,
 } from '@pymodel/agent-core';
 
@@ -77,8 +76,6 @@ export type {
   QuestionOption,
   QuestionAnswerMethod,
   QuestionAnswers,
-  QuestionAnnotation,
-  QuestionAnnotations,
   QuestionResponse,
   QuestionResult,
 } from '@pymodel/agent-core';

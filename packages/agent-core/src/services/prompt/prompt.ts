@@ -18,9 +18,10 @@
  *        later abort can pass the correct numeric `turnId` to
  *        `core.rpc.cancel({turnId})`).
  *      - capture `turn.ended` for the prompt's top-level turn → SYNTHESIZE a
- *        `prompt.completed` (reason='completed' or 'failed') or
+ *        `prompt.completed` (reason='completed', 'failed', or 'blocked') or
  *        `prompt.aborted` (reason='cancelled') event. The event service then
- *        broadcasts these.
+ *        broadcasts these. agent-core's event union has no prompt-level
+ *        types.
  *      VSCode-style accessors `onDidComplete: Event<...>` /
  *      `onDidAbort: Event<...>` are also exposed so callers can observe the
  *      typed synthetic events without filtering the raw event stream.
@@ -97,7 +98,7 @@ export interface AgentStatePatch {
   thinking?: string;
   permission_mode?: string;
   plan_mode?: boolean;
-  dynamicWorkflowMode?: boolean;
+  dynamic_workflow_mode?: boolean;
   goal_objective?: string;
   goal_control?: 'pause' | 'resume' | 'cancel';
 }
@@ -214,7 +215,7 @@ export interface IPromptService {
   /**
    * VSCode-style accessor for `prompt.completed` synthetic events. The
    * listener fires synchronously when a top-level `turn.ended`
-   * (reason='completed'|'failed') is synthesised into a prompt-lifecycle
+   * (reason='completed'|'failed'|'blocked') is synthesised into a prompt-lifecycle
    * event, BEFORE `bus.publish(synth)`.
    *
    * Returns an `IDisposable`. Owners stash it via
@@ -300,7 +301,7 @@ export interface SyntheticPromptSubmittedEvent {
  * `prompt.completed` synthetic event shape. Matches the agent-core `Event`
  * type contract (`AgentEvent & { agentId, sessionId }`) so it flows through
  * the existing `IEventService` path. The `type` string is namespaced under
- * `prompt.*`.
+ * `prompt.*` (not part of agent-core's union — see service header).
  */
 export interface SyntheticPromptCompletedEvent {
   readonly type: 'prompt.completed';
@@ -308,7 +309,7 @@ export interface SyntheticPromptCompletedEvent {
   readonly sessionId: string;
   readonly promptId: string;
   readonly finishedAt: string;
-  readonly reason: 'completed' | 'failed';
+  readonly reason: 'completed' | 'failed' | 'blocked';
 }
 
 /**

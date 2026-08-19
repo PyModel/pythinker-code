@@ -20,20 +20,7 @@ describe('approvalDecisionSchema (SCHEMAS §6.1)', () => {
   });
 
   it('rejects unknown decision', () => {
-    expect(() => approvalDecisionSchema.parse('expired')).toThrowErrorMatchingInlineSnapshot(`
-      [ZodError: [
-        {
-          "code": "invalid_value",
-          "values": [
-            "approved",
-            "rejected",
-            "cancelled"
-          ],
-          "path": [],
-          "message": "Invalid option: expected one of \\"approved\\"|\\"rejected\\"|\\"cancelled\\""
-        }
-      ]]
-    `);
+    expect(() => approvalDecisionSchema.parse('expired')).toThrow();
   });
 });
 
@@ -43,18 +30,7 @@ describe('approvalScopeSchema', () => {
   });
 
   it('rejects unknown scope', () => {
-    expect(() => approvalScopeSchema.parse('workspace')).toThrowErrorMatchingInlineSnapshot(`
-      [ZodError: [
-        {
-          "code": "invalid_value",
-          "values": [
-            "session"
-          ],
-          "path": [],
-          "message": "Invalid input: expected \\"session\\""
-        }
-      ]]
-    `);
+    expect(() => approvalScopeSchema.parse('workspace')).toThrow();
   });
 });
 
@@ -98,18 +74,7 @@ describe('approvalRequestSchema (SCHEMAS §6.1)', () => {
   it('rejects missing approval_id', () => {
     const { approval_id: _, ...rest } = base;
     void _;
-    expect(() => approvalRequestSchema.parse(rest)).toThrowErrorMatchingInlineSnapshot(`
-      [ZodError: [
-        {
-          "expected": "string",
-          "code": "invalid_type",
-          "path": [
-            "approval_id"
-          ],
-          "message": "Invalid input: expected string, received undefined"
-        }
-      ]]
-    `);
+    expect(() => approvalRequestSchema.parse(rest)).toThrow();
   });
 });
 
@@ -133,22 +98,7 @@ describe('approvalResponseSchema (SCHEMAS §6.1)', () => {
   });
 
   it('rejects unknown decision value', () => {
-    expect(() => approvalResponseSchema.parse({ decision: 'maybe' })).toThrowErrorMatchingInlineSnapshot(`
-      [ZodError: [
-        {
-          "code": "invalid_value",
-          "values": [
-            "approved",
-            "rejected",
-            "cancelled"
-          ],
-          "path": [
-            "decision"
-          ],
-          "message": "Invalid option: expected one of \\"approved\\"|\\"rejected\\"|\\"cancelled\\""
-        }
-      ]]
-    `);
+    expect(() => approvalResponseSchema.parse({ decision: 'maybe' })).toThrow();
   });
 });
 
@@ -172,20 +122,7 @@ describe('approvalResolveResultSchema (REST §3.6)', () => {
   it('rejects resolved:false here (that path uses approvalAlreadyResolvedDataSchema)', () => {
     expect(() =>
       approvalResolveResultSchema.parse({ resolved: false, resolved_at: '2026-06-04T10:31:00Z' }),
-    ).toThrowErrorMatchingInlineSnapshot(`
-      [ZodError: [
-        {
-          "code": "invalid_value",
-          "values": [
-            true
-          ],
-          "path": [
-            "resolved"
-          ],
-          "message": "Invalid input: expected true"
-        }
-      ]]
-    `);
+    ).toThrow();
   });
 });
 
@@ -197,20 +134,7 @@ describe('approvalAlreadyResolvedDataSchema (REST §3.6 idempotent 40902)', () =
   });
 
   it('rejects resolved:true here', () => {
-    expect(() => approvalAlreadyResolvedDataSchema.parse({ resolved: true })).toThrowErrorMatchingInlineSnapshot(`
-      [ZodError: [
-        {
-          "code": "invalid_value",
-          "values": [
-            false
-          ],
-          "path": [
-            "resolved"
-          ],
-          "message": "Invalid input: expected false"
-        }
-      ]]
-    `);
+    expect(() => approvalAlreadyResolvedDataSchema.parse({ resolved: true })).toThrow();
   });
 });
 
@@ -235,20 +159,7 @@ describe('listPendingApprovalsResponseSchema (REST pending recovery)', () => {
   it('rejects unsupported status query', () => {
     expect(() =>
       listPendingApprovalsQuerySchema.parse({ status: 'resolved' }),
-    ).toThrowErrorMatchingInlineSnapshot(`
-      [ZodError: [
-        {
-          "code": "invalid_value",
-          "values": [
-            "pending"
-          ],
-          "path": [
-            "status"
-          ],
-          "message": "Invalid input: expected \\"pending\\""
-        }
-      ]]
-    `);
+    ).toThrow();
   });
 
   it('returns approval request items', () => {

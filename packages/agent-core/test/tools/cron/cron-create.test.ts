@@ -105,7 +105,7 @@ function extractApprovalRule(execution: ToolExecution): string {
   }
   const rule = (execution as RunnableToolExecution).approvalRule;
   if (typeof rule !== 'string') {
-    throw new TypeError('expected approvalRule to be a string');
+    throw new Error('expected approvalRule to be a string');
   }
   return rule;
 }
@@ -120,6 +120,25 @@ describe('CronCreateTool', () => {
 
   afterEach(() => {
     vi.unstubAllEnvs();
+  });
+
+  it('documents the session task cap and near-term one-shot guidance, without bench env vars', () => {
+    const { tool } = makeHarness();
+    expect(tool.description).toContain('50 live cron tasks');
+    // One-shot guidance nudges the model toward near-term reminders; the hard future-window
+    // limit lives in code (ONE_SHOT_MAX_FUTURE_MS) and must NOT be surfaced as a prompt rule,
+    // and the year-boundary heuristic — wrong across Dec 31 → Jan 1 — must be gone.
+    expect(tool.description).toContain('near-term reminders');
+    expect(tool.description).not.toContain('already passed this year');
+    expect(tool.description).not.toContain('350 days');
+    // Bench/CI-only env knobs the model never sets must not appear in the prompt.
+    expect(tool.description).not.toContain('PYTHINKER_CRON_NO_STALE');
+    expect(tool.description).not.toContain('PYTHINKER_CRON_NO_JITTER');
+    // The 8 KiB prompt cap lives in the param describe.
+    const params = tool.parameters as { properties: Record<string, { description?: string }> };
+    expect(params.properties['prompt']?.description).toContain('8 KiB');
+    // Returned fields include `cron` (CronCreateOutput.cron), which formatOutput emits.
+    expect(tool.description).toContain('the normalized expression');
   });
 
   it('schedules a recurring task and emits cron_scheduled', async () => {
@@ -274,10 +293,10 @@ describe('CronCreateTool', () => {
 
   it('rejects prompts above the 8 KiB byte budget (multi-byte input)', async () => {
     const { manager, tool, stub } = makeHarness();
-    // '€' is 3 bytes in UTF-8; 3000 repetitions = 9000 bytes > 8192.
+    // '\u6C49' is 3 bytes in UTF-8; 3000 repetitions = 9000 bytes > 8192.
     // zod's `.max(8192)` is in code units and would accept this — the
     // byte check inside the tool catches it.
-    const prompt = '€'.repeat(3000);
+    const prompt = '\u6C49'.repeat(3000);
     const msg = assertError(
       await runTool(tool, {
         cron: '*/5 * * * *',

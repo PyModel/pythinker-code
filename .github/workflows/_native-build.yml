@@ -98,8 +98,8 @@ jobs:
           echo "PYTHINKER_CODE_BUILT_IN_CATALOG_FILE=$CATALOG_FILE" >> "$GITHUB_ENV"
 
       - name: Build Pythinker web assets
-        # The SEA blob step embeds apps/pythinker-code/dist-web; build the web app
-        # and stage its assets before producing the native executable.
+        # The SEA blob step embeds apps/pythinker-code/dist-web. This repo keeps
+        # the web source (apps/pythinker-web), so build it and stage the bundle.
         run: |
           pnpm --filter @pymodel/pythinker-web run build
           node apps/pythinker-code/scripts/copy-web-assets.mjs

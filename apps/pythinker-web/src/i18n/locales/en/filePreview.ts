@@ -21,9 +21,11 @@ export default {
   actual: 'Actual',
   pdfNoPreview: 'This PDF cannot be embedded here. Download it to view.',
   imageNoPreview: 'Image file · {mime} · {size} · preview unavailable',
+  videoNoPreview: 'Video file · {mime} · {size} · preview unavailable',
   binaryNoPreview: 'Binary file · {mime} · {size} bytes · preview unavailable',
   unknownType: 'unknown type',
   copyCode: 'Copy code',
+  enlargeImage: 'Enlarge image',
   errors: {
     emptyPath: 'File path is empty',
     unsupportedPath: 'URLs and remote paths cannot be previewed',

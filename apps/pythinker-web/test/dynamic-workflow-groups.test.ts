@@ -1,48 +1,127 @@
 import { describe, expect, it } from 'vitest';
 import type { AppTask } from '../src/api/types';
-import { buildDynamicWorkflowGroups, countDynamicWorkflowMembers } from '../src/composables/dynamicWorkflowGroups';
+import {
+  buildDynamicWorkflowGroups,
+  countDynamicWorkflowMembers,
+  dynamicWorkflowMembersByToolCall,
+} from '../src/composables/dynamicWorkflowGroups';
 
-const now = '2026-06-13T00:00:00.000Z';
-
-function task(input: Partial<AppTask> & Pick<AppTask, 'id'> & { dynamicWorkflowIndex?: number }): AppTask {
+function subagentTask(
+  id: string,
+  parentToolCallId: string | undefined,
+  opts: {
+    dynamicWorkflowIndex?: number;
+    status?: AppTask['status'];
+    subagentPhase?: AppTask['subagentPhase'];
+    text?: string;
+    outputLines?: string[];
+  } = {},
+): AppTask {
   return {
-    sessionId: 'ses_1',
+    id,
+    sessionId: 'session-1',
     kind: 'subagent',
-    description: input.id,
-    status: 'running',
-    createdAt: now,
-    ...input,
-  } as AppTask;
+    description: `subagent ${id}`,
+    status: opts.status ?? 'running',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    parentToolCallId,
+    dynamicWorkflowIndex: opts.dynamicWorkflowIndex,
+    text: opts.text,
+    outputLines: opts.outputLines,
+    subagentPhase: opts.subagentPhase ?? 'working',
+  };
+}
+
+function bashTask(id: string): AppTask {
+  return {
+    id,
+    sessionId: 'session-1',
+    kind: 'bash',
+    description: `bash ${id}`,
+    busy: true,
+    createdAt: '2026-01-01T00:00:00.000Z',
+  };
 }
 
 describe('buildDynamicWorkflowGroups', () => {
-  it('groups subagents by parent tool call and sorts by dynamicWorkflowIndex', () => {
+  it('emits a group only when two or more members share a dynamicWorkflowIndex', () => {
     const groups = buildDynamicWorkflowGroups([
-      task({ id: 'agent_2', parentToolCallId: 'tc_1', dynamicWorkflowIndex: 2, subagentPhase: 'working' }),
-      task({ id: 'agent_1', parentToolCallId: 'tc_1', dynamicWorkflowIndex: 1, subagentPhase: 'completed', status: 'completed' }),
-      task({ id: 'agent_3', parentToolCallId: 'tc_2', dynamicWorkflowIndex: 1, subagentPhase: 'queued' }),
-      task({ id: 'bash_1', kind: 'bash', dynamicWorkflowIndex: 3 }),
+      subagentTask('a', 'dynamic-workflow-1', { dynamicWorkflowIndex: 1 }),
+      subagentTask('b', 'dynamic-workflow-1', { dynamicWorkflowIndex: 2 }),
     ]);
-
     expect(groups).toHaveLength(1);
-    expect(groups[0]?.id).toBe('tc_1');
-    expect(groups[0]?.members.map((member) => member.id)).toEqual(['agent_1', 'agent_2']);
-    expect(groups[0]?.counts).toEqual({
-      queued: 0,
-      working: 1,
-      suspended: 0,
-      completed: 1,
-      failed: 0,
-    });
+    expect(groups[0]?.id).toBe('dynamic-workflow-1');
+    expect(groups[0]?.members.map((m) => m.id)).toEqual(['a', 'b']);
   });
 
-  it('counts terminal dynamic workflow members for badges', () => {
-    const groups = buildDynamicWorkflowGroups([
-      task({ id: 'agent_1', parentToolCallId: 'tc_1', dynamicWorkflowIndex: 1, subagentPhase: 'completed', status: 'completed' }),
-      task({ id: 'agent_2', parentToolCallId: 'tc_1', dynamicWorkflowIndex: 2, subagentPhase: 'failed', status: 'failed' }),
-      task({ id: 'agent_3', parentToolCallId: 'tc_1', dynamicWorkflowIndex: 3, subagentPhase: 'working' }),
-    ]);
+  it('filters single-member groups (used for the badge counter)', () => {
+    const groups = buildDynamicWorkflowGroups([subagentTask('a', 'dynamic-workflow-1', { dynamicWorkflowIndex: 1 })]);
+    expect(groups).toHaveLength(0);
+  });
 
-    expect(countDynamicWorkflowMembers(groups)).toEqual({ done: 2, total: 3 });
+  it('ignores subagents without a dynamicWorkflowIndex', () => {
+    const groups = buildDynamicWorkflowGroups([
+      subagentTask('a', 'dynamic-workflow-1'),
+      subagentTask('b', 'dynamic-workflow-1'),
+    ]);
+    expect(groups).toHaveLength(0);
+  });
+});
+
+describe('countDynamicWorkflowMembers', () => {
+  it('counts completed + failed as done across groups', () => {
+    const groups = buildDynamicWorkflowGroups([
+      subagentTask('a', 'dynamic-workflow-1', { dynamicWorkflowIndex: 1, subagentPhase: 'completed', status: 'completed' }),
+      subagentTask('b', 'dynamic-workflow-1', { dynamicWorkflowIndex: 2, subagentPhase: 'failed', status: 'failed' }),
+      subagentTask('c', 'dynamic-workflow-2', { dynamicWorkflowIndex: 1, subagentPhase: 'working' }),
+      subagentTask('d', 'dynamic-workflow-2', { dynamicWorkflowIndex: 2, subagentPhase: 'queued' }),
+    ]);
+    expect(countDynamicWorkflowMembers(groups)).toEqual({ done: 2, total: 4 });
+  });
+});
+
+describe('dynamicWorkflowMembersByToolCall', () => {
+  it('keeps single-member dynamic workflows so a resume-only AgentDynamicWorkflow gets live progress', () => {
+    const map = dynamicWorkflowMembersByToolCall([subagentTask('a', 'dynamic-workflow-1', { dynamicWorkflowIndex: 1 })]);
+    expect(map.get('dynamic-workflow-1')?.map((m) => m.id)).toEqual(['a']);
+  });
+
+  it('groups every subagent with the same parentToolCallId, ignoring dynamicWorkflowIndex', () => {
+    const map = dynamicWorkflowMembersByToolCall([
+      subagentTask('b', 'dynamic-workflow-1'),
+      subagentTask('a', 'dynamic-workflow-1'),
+      subagentTask('c', 'dynamic-workflow-2'),
+    ]);
+    expect(map.get('dynamic-workflow-1')?.map((m) => m.id)).toEqual(['a', 'b']);
+    expect(map.get('dynamic-workflow-2')?.map((m) => m.id)).toEqual(['c']);
+  });
+
+  it('ignores non-subagent tasks and subagents without a parentToolCallId', () => {
+    const map = dynamicWorkflowMembersByToolCall([
+      bashTask('b-1'),
+      subagentTask('orphan', undefined),
+      subagentTask('a', 'dynamic-workflow-1'),
+    ]);
+    expect([...map.keys()]).toEqual(['dynamic-workflow-1']);
+  });
+
+  it('carries task.text so live rows can show still-composing subagent output', () => {
+    const map = dynamicWorkflowMembersByToolCall([
+      subagentTask('a', 'dynamic-workflow-1', { text: 'Hello, world!' }),
+      subagentTask('b', 'dynamic-workflow-1', { outputLines: ['tool line'] }),
+    ]);
+    const rows = map.get('dynamic-workflow-1') ?? [];
+    expect(rows[0]).toMatchObject({ id: 'a', text: 'Hello, world!' });
+    expect(rows[1]).toMatchObject({ id: 'b', outputLines: ['tool line'] });
+  });
+});
+
+describe('buildDynamicWorkflowGroups preserves streamed text', () => {
+  it('carries task.text into each group member', () => {
+    const groups = buildDynamicWorkflowGroups([
+      subagentTask('a', 'dynamic-workflow-1', { dynamicWorkflowIndex: 1, text: 'first line' }),
+      subagentTask('b', 'dynamic-workflow-1', { dynamicWorkflowIndex: 2, text: 'second line' }),
+    ]);
+    expect(groups[0]?.members.map((m) => m.text)).toEqual(['first line', 'second line']);
   });
 });

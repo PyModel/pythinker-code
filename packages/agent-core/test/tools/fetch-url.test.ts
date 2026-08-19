@@ -12,8 +12,8 @@ import {
   HttpFetchError,
   type UrlFetcher,
 } from '../../src/tools/builtin/web/fetch-url';
-import { PythoughtsFetchURLProvider } from '../../src/tools/providers/pythoughts-fetch-url';
-import { createFakeKaos, toolContentString } from './fixtures/fake-kaos';
+import { PyModelFetchURLProvider } from '../../src/tools/providers/pymodel-fetch-url';
+import { toolContentString } from './fixtures/fake-kaos';
 import { executeTool } from './fixtures/execute-tool';
 
 const signal = new AbortController().signal;
@@ -32,6 +32,18 @@ describe('FetchURLTool', () => {
     expect(tool.description.length).toBeGreaterThan(0);
   });
 
+  it('documents both fetch modes (extracted main text vs verbatim passthrough)', () => {
+    const tool = new FetchURLTool(fakeFetcher());
+    const description = tool.description.toLowerCase();
+    expect(description).toContain('extracted');
+    expect(description).toContain('verbatim');
+    // SSRF/size are provider-internal (the PyModel primary path enforces neither);
+    // the description must state the universal http/https contract, not impl details.
+    expect(description).toContain('http');
+    expect(description).not.toContain('local fetcher');
+    expect(description).not.toContain('10 mib');
+  });
+
   it('parameters are generated from the current input schema', () => {
     const tool = new FetchURLTool(fakeFetcher());
     expect(FetchURLInputSchema.safeParse({ url: 'https://example.com' }).success).toBe(true);
@@ -41,10 +53,6 @@ describe('FetchURLTool', () => {
         url: { type: 'string' },
       },
     });
-  });
-
-  it('rejects invalid URLs at the schema boundary', () => {
-    expect(FetchURLInputSchema.safeParse({ url: 'not a URL' }).success).toBe(false);
   });
 
   it('does not expose a "format" parameter in its JSON Schema', () => {
@@ -63,10 +71,11 @@ describe('FetchURLTool', () => {
       signal,
     });
     expect(result.isError).toBe(false);
-    expect(toolContentString(result)).toBe('Hello, world!');
+    // The body is present; the mode note now rides in the model-visible output too.
+    expect(toolContentString(result)).toContain('Hello, world!');
   });
 
-  it('reports an extraction-specific message for extracted content', async () => {
+  it('surfaces the extraction mode in the model-visible output', async () => {
     const tool = new FetchURLTool(fakeFetcher('Article body', 'extracted'));
     const result = await executeTool(tool, {
       turnId: 't1',
@@ -75,12 +84,14 @@ describe('FetchURLTool', () => {
       signal,
     });
     expect(result.isError).toBe(false);
-    expect((result as { message?: string }).message).toBe(
-      'The returned content is the main text extracted from the page.',
-    );
+    // The mode note must live in `output`: `message` is dropped from the transcript,
+    // so `output` is the only place the model can actually read which mode it got.
+    const out = toolContentString(result);
+    expect(out).toContain('The returned content is the main text extracted from the page.');
+    expect(out).toContain('Article body');
   });
 
-  it('reports a passthrough-specific message for verbatim content', async () => {
+  it('surfaces the passthrough mode in the model-visible output', async () => {
     const tool = new FetchURLTool(fakeFetcher('# Raw markdown', 'passthrough'));
     const result = await executeTool(tool, {
       turnId: 't1',
@@ -89,45 +100,9 @@ describe('FetchURLTool', () => {
       signal,
     });
     expect(result.isError).toBe(false);
-    expect((result as { message?: string }).message).toBe(
-      'The returned content is the full response body, returned verbatim.',
-    );
-  });
-
-  it('saves binary responses to the Kaos tool-results directory', async () => {
-    const mkdir = vi.fn().mockResolvedValue(undefined);
-    const writeBytes = vi.fn().mockResolvedValue(12);
-    const tool = new FetchURLTool(
-      {
-        fetch: vi.fn().mockResolvedValue({
-          kind: 'binary',
-          data: Buffer.from('%PDF-binary'),
-          contentType: 'application/pdf',
-        }),
-      },
-      createFakeKaos({ mkdir, writeBytes }),
-    );
-
-    const result = await executeTool(tool, {
-      turnId: 't1',
-      toolCallId: 'c-binary',
-      args: { url: 'https://example.com/report.pdf' },
-      signal,
-    });
-
-    expect(result.isError).toBe(false);
-    expect(mkdir).toHaveBeenCalledWith('/home/test/.pythinker-code/tool-results', {
-      parents: true,
-      existOk: true,
-    });
-    expect(writeBytes).toHaveBeenCalledWith(
-      expect.stringMatching(
-        /^\/home\/test\/\.pythinker-code\/tool-results\/web-fetch-[0-9a-f-]+\.pdf$/u,
-      ),
-      Buffer.from('%PDF-binary'),
-    );
-    expect(toolContentString(result)).toContain('Binary content (application/pdf');
-    expect(toolContentString(result)).toContain('saved to');
+    const out = toolContentString(result);
+    expect(out).toContain('The returned content is the full response body, returned verbatim.');
+    expect(out).toContain('# Raw markdown');
   });
 
   it('returns empty message when fetcher returns empty string', async () => {
@@ -159,6 +134,22 @@ describe('FetchURLTool', () => {
     expect((result as { message?: string }).message).toContain('Output is truncated');
   });
 
+  it('keeps the citation reminder at the front so truncation cannot drop it', async () => {
+    const tool = new FetchURLTool(fakeFetcher('x'.repeat(60_000)));
+    const result = await executeTool(tool, {
+      turnId: 't1',
+      toolCallId: 'c-cite',
+      args: { url: 'https://example.com/large' },
+      signal,
+    });
+    const out = toolContentString(result);
+    // Body was truncated, yet the reminder — which rides in the front note —
+    // must survive.
+    expect(out).toContain('[...truncated]');
+    expect(out).toContain('cite');
+    expect(out).toContain('[title](url)');
+  });
+
   it('returns error when fetcher throws', async () => {
     const fetcher: UrlFetcher = {
       fetch: vi.fn().mockRejectedValue(new Error('timeout')),
@@ -183,36 +174,9 @@ describe('FetchURLTool', () => {
       args: { url: 'https://example.com' },
       signal,
     });
-    expect(fetcher.fetch).toHaveBeenCalledWith(
-      'https://example.com',
-      expect.objectContaining({
-        toolCallId: 'c4',
-        signal,
-      }),
-    );
-  });
-
-  it('requires a new tool call before following a cross-host redirect', async () => {
-    const fetcher: UrlFetcher = {
-      fetch: vi.fn().mockResolvedValue({
-        kind: 'redirect',
-        originalUrl: 'https://example.com/start',
-        redirectUrl: 'https://other.example/final',
-        status: 302,
-      }),
-    };
-    const tool = new FetchURLTool(fetcher);
-
-    const result = await executeTool(tool, {
-      turnId: 't1',
-      toolCallId: 'c-redirect',
-      args: { url: 'https://example.com/start' },
-      signal,
+    expect(fetcher.fetch).toHaveBeenCalledWith('https://example.com', {
+      toolCallId: 'c4',
     });
-
-    expect(result.isError).toBe(false);
-    expect(toolContentString(result)).toContain('https://other.example/final');
-    expect(toolContentString(result)).toContain('use FetchURL again');
   });
 
   it('resolveExecution description truncates long URLs', () => {
@@ -224,16 +188,6 @@ describe('FetchURLTool', () => {
     const text = desc ?? '';
     expect(text.length).toBeLessThanOrEqual(65);
     expect(text).toContain('…');
-  });
-
-  it('scopes approval rules to the URL host', () => {
-    const tool = new FetchURLTool(fakeFetcher());
-    const execution = tool.resolveExecution({ url: 'https://example.com/docs/page' });
-    if (execution.isError === true) throw new Error('expected runnable execution');
-
-    expect(execution.approvalRule).toBe('FetchURL(example.com)');
-    expect(execution.matchesRule?.('example.com')).toBe(true);
-    expect(execution.matchesRule?.('other.example')).toBe(false);
   });
 
   it('description names URL fetching as the tool surface', () => {
@@ -329,23 +283,23 @@ describe('FetchURLTool', () => {
     });
 
     expect(result.isError).toBe(false);
-    expect(toolContentString(result)).toBe(markdown);
-    // The passthrough message says the LLM is seeing the full response
-    // body (py wording was "full content"; main #238 uses the broader
-    // "full response body" phrasing).
-    const message = (result as { message?: string }).message ?? '';
-    expect(message).toContain('full response body');
+    const out = toolContentString(result);
+    // The body is passed through verbatim (not extracted/mangled)...
+    expect(out).toContain(markdown);
+    // ...and the passthrough mode is signalled in the model-visible output
+    // (py wording was "full content"; main #238 uses "full response body").
+    expect(out).toContain('full response body');
   });
 });
 
-describe('PythoughtsFetchURLProvider', () => {
+describe('PyModelFetchURLProvider', () => {
   it('does not force-refresh request auth after a 401 response', async () => {
     const getAccessToken = vi.fn().mockResolvedValue('fresh-token');
     const localFallback = fakeFetcher('fallback content');
     const fetchImpl = vi
       .fn<typeof fetch>()
       .mockResolvedValue(new Response('unauthorized', { status: 401 }));
-    const provider = new PythoughtsFetchURLProvider({
+    const provider = new PyModelFetchURLProvider({
       tokenProvider: { getAccessToken },
       baseUrl: 'https://fetch.example/v1',
       localFallback,

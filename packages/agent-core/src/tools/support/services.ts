@@ -1,7 +1,6 @@
-import type { ConfigStore, UrlFetcher, WebSearchProvider } from '../builtin';
+import type { UrlFetcher, WebSearchProvider } from '../builtin';
 
 export interface ToolServices {
-  readonly configStore?: ConfigStore;
   readonly urlFetcher?: UrlFetcher;
   readonly webSearcher?: WebSearchProvider;
 }

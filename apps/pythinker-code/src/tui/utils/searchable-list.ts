@@ -2,11 +2,13 @@
  * Cursor + fuzzy-search + paging state machine shared by list pickers
  * (ChoicePicker, ModelSelector). Pure logic, no rendering.
  *
- * Components own presentation and key dispatch. This unit owns only cursor,
- * paging, and search state.
+ * The component owns presentation and the keys that carry component-specific
+ * meaning — Enter (submit), Esc (cancel), and ←/→ (paging in one picker, a
+ * thinking toggle in another). This unit owns the keys that behave identically
+ * everywhere: ↑/↓, PgUp/PgDn, and search editing.
  */
 
-import { fuzzyFilter, Key, matchesKey } from '@earendil-works/pi-tui';
+import { fuzzyFilter, Key, matchesKey } from '@pymodel/pi-tui';
 
 import { pageView, type PageView } from './paging';
 import { isPrintableChar, printableChar } from './printable-key';
@@ -36,7 +38,7 @@ export interface SearchableListView<T> {
 }
 
 export class SearchableList<T> {
-  private readonly items: readonly T[];
+  private items: readonly T[];
   private readonly toSearchText: (item: T) => string;
   private readonly pageSize: number;
   private readonly searchable: boolean;
@@ -49,6 +51,15 @@ export class SearchableList<T> {
     this.pageSize = opts.pageSize ?? DEFAULT_PAGE_SIZE;
     this.searchable = opts.searchable ?? false;
     this.cursor = Math.max(opts.initialIndex ?? 0, 0);
+  }
+
+  /**
+   * Replaces the item set (e.g. after another page was appended), keeping the
+   * active query; the cursor is clamped into the new range.
+   */
+  setItems(items: readonly T[]): void {
+    this.items = items;
+    this.cursor = Math.min(this.cursor, Math.max(0, items.length - 1));
   }
 
   filtered(): readonly T[] {
@@ -89,34 +100,6 @@ export class SearchableList<T> {
     this.cursor = Math.min(Math.max(0, this.filtered().length - 1), this.cursor + this.pageSize);
   }
 
-  moveToStart(): void {
-    this.cursor = 0;
-  }
-
-  moveToEnd(): void {
-    this.cursor = Math.max(0, this.filtered().length - 1);
-  }
-
-  moveToPrevious(predicate: (item: T) => boolean): void {
-    const items = this.filtered();
-    for (let index = Math.min(this.cursor - 1, items.length - 1); index >= 0; index--) {
-      if (predicate(items[index]!)) {
-        this.cursor = index;
-        return;
-      }
-    }
-  }
-
-  moveToNext(predicate: (item: T) => boolean): void {
-    const items = this.filtered();
-    for (let index = this.cursor + 1; index < items.length; index++) {
-      if (predicate(items[index]!)) {
-        this.cursor = index;
-        return;
-      }
-    }
-  }
-
   /** Clears the active query and resets the cursor. Returns whether a query was cleared. */
   clearQuery(): boolean {
     if (this.query.length === 0) return false;
@@ -125,7 +108,28 @@ export class SearchableList<T> {
     return true;
   }
 
-  handleSearchKey(data: string): boolean {
+  /**
+   * Handles the keys every picker shares: ↑/↓, PgUp/PgDn, and — when searchable —
+   * Backspace and printable characters. Returns true when the key was consumed.
+   * Enter, Esc, and ←/→ are intentionally left to the component.
+   */
+  handleKey(data: string): boolean {
+    if (matchesKey(data, Key.up)) {
+      this.moveUp();
+      return true;
+    }
+    if (matchesKey(data, Key.down)) {
+      this.moveDown();
+      return true;
+    }
+    if (matchesKey(data, Key.pageUp)) {
+      this.pageUp();
+      return true;
+    }
+    if (matchesKey(data, Key.pageDown)) {
+      this.pageDown();
+      return true;
+    }
     if (!this.searchable) return false;
     if (matchesKey(data, Key.backspace)) {
       if (this.query.length > 0) {

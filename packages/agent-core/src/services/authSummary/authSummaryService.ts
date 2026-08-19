@@ -3,8 +3,10 @@
  */
 
 import { Disposable, InstantiationType, registerSingleton } from '../../di';
-import { resolveProviderApiKey, type PythinkerConfig } from '../../config';
+import type { PythinkerConfig } from '../../config';
 import type { AuthSummary } from '@pymodel/protocol';
+import { createManagedAuthFacade, type ServicesAuthFacade } from '../auth/managedAuth';
+import { IEnvironmentService } from '../environment/environment';
 import { ICoreProcessService } from '../coreProcess/coreProcess';
 import {
   IAuthSummaryService,
@@ -13,11 +15,22 @@ import {
   AuthModelNotResolvedError,
 } from './authSummary';
 
-export class AuthSummaryService extends Disposable implements IAuthSummaryService {
+/** Wire name of the OAuth-managed provider (`@pymodel/pythinker-code-oauth`'s `PYTHINKER_CODE_PROVIDER_NAME`). */
+const MANAGED_PROVIDER_NAME = 'managed:pythinker-code';
+
+export class AuthSummaryService
+  extends Disposable
+  implements IAuthSummaryService {
   readonly _serviceBrand: undefined;
 
-  constructor(@ICoreProcessService private readonly core: ICoreProcessService) {
+  private readonly _authFacade: ServicesAuthFacade;
+
+  constructor(
+    @IEnvironmentService private readonly env: IEnvironmentService,
+    @ICoreProcessService private readonly core: ICoreProcessService,
+  ) {
     super();
+    this._authFacade = createManagedAuthFacade(env, env.identity);
   }
 
   async get(): Promise<AuthSummary> {
@@ -26,18 +39,21 @@ export class AuthSummaryService extends Disposable implements IAuthSummaryServic
     const providers_count = Object.keys(providers).length;
     const default_model = nonEmpty(config.defaultModel);
 
-    let ready = providers_count >= 1 && default_model !== null;
-
-    if (ready && default_model !== null) {
-      const alias = config.models?.[default_model];
-      const providerName = alias?.provider ?? config.defaultProvider;
-      const provider = providerName === undefined ? undefined : providers[providerName];
-      if (provider?.apiKeyEnvVar !== undefined && resolveProviderApiKey(provider) === undefined) {
-        ready = false;
-      }
+    let managed_provider: AuthSummary['managed_provider'] = null;
+    if (providers[MANAGED_PROVIDER_NAME] !== undefined) {
+      const hasToken = await this._hasCachedToken(MANAGED_PROVIDER_NAME);
+      managed_provider = {
+        name: MANAGED_PROVIDER_NAME,
+        status: hasToken ? 'authenticated' : 'unauthenticated',
+      };
     }
 
-    return { ready, providers_count, default_model };
+    const ready =
+      providers_count >= 1 &&
+      default_model !== null &&
+      (managed_provider === null || managed_provider.status !== 'revoked');
+
+    return { ready, providers_count, default_model, managed_provider };
   }
 
   async ensureReady(modelOverride?: string): Promise<void> {
@@ -67,8 +83,22 @@ export class AuthSummaryService extends Disposable implements IAuthSummaryServic
       throw new AuthModelNotResolvedError(modelId, providerName);
     }
 
-    if (resolveProviderApiKey(providerConfig) !== undefined) return;
+    // Credential presence: api_key (config or env), OR a cached OAuth token.
+    // We deliberately don't probe live OAuth refresh here — that path is
+    // reactive. Static gate only.
+    const hasInlineKey = nonEmpty(providerConfig.apiKey) !== null;
+    if (hasInlineKey) return;
 
+    if (providerConfig.oauth !== undefined) {
+      const hasToken = await this._hasCachedToken(providerName);
+      if (hasToken) return;
+      throw new AuthTokenMissingError(providerName);
+    }
+
+    // No inline key, no oauth ref. Could still be an env-supplied key — for
+    // minimum viable we conservatively gate; env-key callers can set
+    // apiKey="${VAR}" in config to bypass. The acceptance test fixture for
+    // 40111 uses "manual provider with no api_key" which lands here.
     throw new AuthTokenMissingError(providerName);
   }
 
@@ -81,12 +111,25 @@ export class AuthSummaryService extends Disposable implements IAuthSummaryServic
 
   private async _readConfig(): Promise<PythinkerConfig> {
     // `reload: true` forces PythinkerCore to re-read `config.toml` from disk
-    // before returning. Critical for the auth probe path: a login writes to
-    // disk via `writeConfigFile`, but PythinkerCore's `this.config` only
-    // refreshes when something explicitly asks for `reload`. Without this
-    // flag, `GET /v1/auth` would stay `ready:false` for the entire daemon
-    // lifetime after first login.
+    // before returning. Critical for the auth probe path: writes from
+    // `OAuthService` (toolkit's provisioning) and `IProviderService`
+    // future RW endpoints land on disk via `writeConfigFile`, but
+    // PythinkerCore's `this.config` only refreshes when something explicitly
+    // asks for `reload`. Without this flag, `GET /v1/auth` would stay
+    // `ready:false` for the entire daemon lifetime after first login.
     return this.core.rpc.getPythinkerConfig({ reload: true });
+  }
+
+  private async _hasCachedToken(providerName: string): Promise<boolean> {
+    try {
+      const token = await this._authFacade.getCachedAccessToken(providerName);
+      return typeof token === 'string' && token.trim().length > 0;
+    } catch {
+      // FileTokenStorage throws if the credential dir or file is unreadable;
+      // treat any failure as "no token" so callers don't block on transient
+      // filesystem errors.
+      return false;
+    }
   }
 }
 
@@ -97,7 +140,7 @@ function nonEmpty(value: string | undefined): string | null {
 }
 
 // Self-register under the global singleton registry. All ctor deps are
-// `@I…`-injected (@ICoreProcessService); `staticArguments = []`.
-// `supportsDelayedInstantiation = false` preserves current reverse-dispose
-// semantics.
+// `@I…`-injected (@IEnvironmentService / @ICoreProcessService);
+// `staticArguments = []`. `supportsDelayedInstantiation = false` preserves
+// current reverse-dispose semantics.
 registerSingleton(IAuthSummaryService, AuthSummaryService, InstantiationType.Delayed);

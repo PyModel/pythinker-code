@@ -10,13 +10,7 @@ import {
   readUpdateInstallState,
   writeUpdateInstallState,
 } from '#/cli/update/install-state';
-import {
-  canAutoInstall,
-  isWindowsShim,
-  runUpdatePreflight,
-  spawnForSource,
-  startManualUpdate,
-} from '#/cli/update/preflight';
+import { runUpdatePreflight, spawnForSource } from '#/cli/update/preflight';
 import { promptForInstallChoice } from '#/cli/update/prompt';
 import type * as PromptModule from '#/cli/update/prompt';
 import { refreshUpdateCache } from '#/cli/update/refresh';
@@ -28,13 +22,8 @@ import {
   type UpdateCache,
   type UpdateInstallState,
   type UpdateManifest,
-  type UpdatePreparedHomebrew,
 } from '#/cli/update/types';
-import {
-  DEFAULT_STATUS_LINE_CONFIG,
-  type TuiConfig,
-} from '#/tui/config';
-import { getUpdateInstallStateFile } from '#/utils/paths';
+import type { TuiConfig } from '#/tui/config';
 
 const mocks = vi.hoisted(() => ({
   readUpdateCache: vi.fn(),
@@ -47,10 +36,14 @@ const mocks = vi.hoisted(() => ({
   refreshUpdateCache: vi.fn(),
   resolveUpdateDeviceId: vi.fn(),
   appendRolloutDecisionLog: vi.fn(),
-  readJsonFile: vi.fn(),
-  writeJsonFile: vi.fn(),
   spawn: vi.fn(),
-  verifyInstalledVersion: vi.fn(),
+  // Identity by default: resolution is covered by resolve-command.test.ts;
+  // here we only care which command string reaches spawn().
+  resolveCommandPath: vi.fn((cmd: string) => cmd as string | undefined),
+}));
+
+vi.mock('#/utils/process/resolve-command', () => ({
+  resolveCommandPath: mocks.resolveCommandPath,
 }));
 
 vi.mock('../../../src/cli/update/cache', () => ({
@@ -61,45 +54,27 @@ vi.mock('../../../src/cli/update/install-lock', () => ({
   tryAcquireUpdateInstallLock: mocks.tryAcquireUpdateInstallLock,
 }));
 
-// Only the file IO is faked: `hasFreshActiveInstall` is the lease rule under
-// test in several cases below, so it must be the real one.
-vi.mock('../../../src/cli/update/install-state', async () => {
-  const actual = await vi.importActual<
-    typeof import('../../../src/cli/update/install-state.js')
-  >('../../../src/cli/update/install-state');
-  return {
-    ...actual,
-    readUpdateInstallState: mocks.readUpdateInstallState,
-    writeUpdateInstallState: mocks.writeUpdateInstallState,
-  };
-});
-
-// The reconciliation lives inside install-state.ts and calls its own module's
-// writer directly, which the module mock above cannot rewire. Mocking the
-// persistence layer catches those writes too — and keeps them off the real
-// home directory.
-vi.mock('../../../src/utils/persistence', () => ({
-  readJsonFile: mocks.readJsonFile,
-  writeJsonFile: mocks.writeJsonFile,
+vi.mock('../../../src/cli/update/install-state', () => ({
+  emptyUpdateInstallState: () => ({
+    active: null,
+    lastFailure: null,
+    lastSuccess: null,
+  }),
+  readUpdateInstallState: mocks.readUpdateInstallState,
+  writeUpdateInstallState: mocks.writeUpdateInstallState,
 }));
 
-vi.mock('../../../src/tui/config', async () => {
-  const actual = await vi.importActual<typeof import('../../../src/tui/config.js')>(
-    '../../../src/tui/config.js',
-  );
-  return {
-    ...actual,
-    loadTuiConfig: mocks.loadTuiConfig,
-    TuiConfigParseError: class TuiConfigParseError extends Error {
-      readonly fallback: TuiConfig;
+vi.mock('../../../src/tui/config', () => ({
+  loadTuiConfig: mocks.loadTuiConfig,
+  TuiConfigParseError: class TuiConfigParseError extends Error {
+    readonly fallback: TuiConfig;
 
-      constructor(fallback: TuiConfig) {
-        super('Invalid client preferences in ~/.pythinker-code/tui.toml; using defaults.');
-        this.fallback = fallback;
-      }
-    },
-  };
-});
+    constructor(fallback: TuiConfig) {
+      super('Invalid client preferences in ~/.pythinker-code/tui.toml; using defaults.');
+      this.fallback = fallback;
+    }
+  },
+}));
 
 vi.mock('../../../src/cli/update/source', () => ({
   detectInstallSource: mocks.detectInstallSource,
@@ -128,19 +103,6 @@ vi.mock('../../../src/cli/update/rollout', async () => {
     resolveUpdateDeviceId: mocks.resolveUpdateDeviceId,
     // Stubbed so preflight tests never write a real rollout.log.
     appendRolloutDecisionLog: mocks.appendRolloutDecisionLog,
-  };
-});
-
-// Post-install verification runs a real probe (a `--version` spawn, or a
-// package.json read) — stubbed here so these tests exercise the reporting,
-// with its own suite in verify-install.test.ts.
-vi.mock('../../../src/cli/update/verify-install', async () => {
-  const actual = await vi.importActual<
-    typeof import('../../../src/cli/update/verify-install.js')
-  >('../../../src/cli/update/verify-install.js');
-  return {
-    ...actual,
-    verifyInstalledVersion: mocks.verifyInstalledVersion,
   };
 });
 
@@ -194,66 +156,23 @@ function releasedForEveryone(version: string): UpdateManifest {
   });
 }
 
-/** A manifest advertising an artifact for a platform other than the running one. */
-function manifestOmittingRunningTarget(version: string): UpdateManifest {
-  const otherArch = process.arch === 'arm64' ? 'x64' : 'arm64';
-  return manifestFor(version, {
-    platforms: {
-      [`${process.platform}-${otherArch}`]: {
-        url: `https://code.pythinker.com/pythinker-code-${version}.zip`,
-        sha256: 'a'.repeat(64),
-      },
-    },
-  });
-}
-
-/** A manifest advertising an artifact for the running platform. */
-function manifestForRunningTarget(version: string): UpdateManifest {
-  return manifestFor(version, {
-    platforms: {
-      [`${process.platform}-${process.arch}`]: {
-        url: `https://code.pythinker.com/pythinker-code-${version}.zip`,
-        sha256: 'a'.repeat(64),
-      },
-    },
-  });
-}
-
 function installState(overrides: Partial<UpdateInstallState> = {}): UpdateInstallState {
   return {
     active: null,
-    pending: null,
     lastFailure: null,
     lastSuccess: null,
     ...overrides,
   };
 }
 
-function preparedHomebrewUpdate(): UpdatePreparedHomebrew {
-  return {
-    jobId: '7e717f78-70c6-4f7c-9745-ceb45822d24b',
-    source: 'homebrew',
-    version: '0.5.0',
-    preparedAt: '2026-08-04T08:00:00.000Z',
-    requestedBy: 'automatic',
-    formulaUrl: 'https://registry.example.com/pythinker-code-0.5.0.tgz',
-    artifactKind: 'source',
-    artifactSha256: 'a'.repeat(64),
-    formulaFileSha256: 'b'.repeat(64),
-    artifactPath: '/tmp/cache/pythinker-code-0.5.0.tgz',
-  };
-}
-
 function tuiConfig(overrides: Partial<TuiConfig> = {}): TuiConfig {
   return {
     theme: 'auto',
-    layout: 'fixed',
+    disablePasteBurst: false,
     editorCommand: null,
     notifications: { enabled: true, condition: 'unfocused' },
     upgrade: { autoInstall: true },
-    statusLine: DEFAULT_STATUS_LINE_CONFIG,
     ...overrides,
-    copyFullResponse: overrides.copyFullResponse ?? false,
   };
 }
 
@@ -301,119 +220,10 @@ function captureLogger(): {
 
 function mockSpawnExit(code: number, signal: NodeJS.Signals | null = null): void {
   mocks.spawn.mockImplementation(() => {
-    const child = Object.assign(new EventEmitter(), { pid: 42_424, unref: vi.fn() });
+    const child = Object.assign(new EventEmitter(), { unref: vi.fn() });
     queueMicrotask(() => { child.emit('exit', code, signal); });
     return child;
   });
-}
-
-/**
- * Like mockSpawnExit, but the installer also writes to stderr. The child only
- * exposes a stderr stream when the caller actually asked for a pipe — the real
- * `stdio: 'ignore'` gives none — so a regression back to discarded output makes
- * the message assertion fail instead of silently still passing.
- */
-function mockSpawnExitWithStderr(code: number, stderrText: string): void {
-  mocks.spawn.mockImplementation((_cmd: string, _args: string[], options?: { stdio?: unknown }) => {
-    const stdio = options?.stdio;
-    const stderrPiped = Array.isArray(stdio) && stdio[2] === 'pipe';
-    const stderr = Object.assign(new EventEmitter(), {
-      setEncoding: vi.fn(),
-      unref: vi.fn(),
-    });
-    const child = Object.assign(new EventEmitter(), {
-      pid: 42_424,
-      unref: vi.fn(),
-      stderr: stderrPiped ? stderr : null,
-    });
-    queueMicrotask(() => {
-      if (stderrPiped) stderr.emit('data', stderrText);
-      child.emit('exit', code, null);
-    });
-    return child;
-  });
-}
-
-/**
- * Like mockSpawnExitWithStderr, but stderr arrives as several separate chunks
- * so the line reader has to reassemble a progress line split mid-way across
- * 'data' events.
- */
-function mockSpawnExitWithChunkedStderr(code: number, chunks: string[]): void {
-  mocks.spawn.mockImplementation((_cmd: string, _args: string[], options?: { stdio?: unknown }) => {
-    const stdio = options?.stdio;
-    const stderrPiped = Array.isArray(stdio) && stdio[2] === 'pipe';
-    const stderr = Object.assign(new EventEmitter(), {
-      setEncoding: vi.fn(),
-      unref: vi.fn(),
-    });
-    const child = Object.assign(new EventEmitter(), {
-      pid: 42_424,
-      unref: vi.fn(),
-      stderr: stderrPiped ? stderr : null,
-    });
-    queueMicrotask(() => {
-      if (stderrPiped) {
-        for (const chunk of chunks) stderr.emit('data', chunk);
-      }
-      child.emit('exit', code, null);
-    });
-    return child;
-  });
-}
-
-/**
- * Like mockSpawnExitWithStderr, but stderr chunks and the exit arrive on real
- * timers, so the parent's write throttle sees realistic time deltas.
- */
-function mockSpawnExitWithTimedStderr(
-  code: number,
-  chunks: Array<{ atMs: number; text: string }>,
-  exitAtMs: number,
-): void {
-  mocks.spawn.mockImplementation((_cmd: string, _args: string[], options?: { stdio?: unknown }) => {
-    const stdio = options?.stdio;
-    const stderrPiped = Array.isArray(stdio) && stdio[2] === 'pipe';
-    const stderr = Object.assign(new EventEmitter(), {
-      setEncoding: vi.fn(),
-      unref: vi.fn(),
-    });
-    const child = Object.assign(new EventEmitter(), {
-      pid: 42_424,
-      unref: vi.fn(),
-      stderr: stderrPiped ? stderr : null,
-    });
-    for (const chunk of chunks) {
-      setTimeout(() => {
-        if (stderrPiped) stderr.emit('data', chunk.text);
-      }, chunk.atMs);
-    }
-    setTimeout(() => { child.emit('exit', code, null); }, exitAtMs);
-    return child;
-  });
-}
-
-/** The failure messages written by the background-install finalizer, in order. */
-function progressFailureMessages(): string[] {
-  return mocks.writeUpdateInstallState.mock.calls
-    .map((call) => call[0])
-    .filter((state) => state !== undefined && state !== null && state.lastFailure !== undefined && state.lastFailure !== null)
-    .map((state) => state.lastFailure.message);
-}
-
-/** The states written with an active record carrying progress, in order. */
-function progressActiveStates(): unknown[] {
-  return mocks.writeUpdateInstallState.mock.calls
-    .map((call) => call[0])
-    .filter((state) => state !== undefined && state !== null && state.active?.progress !== undefined);
-}
-
-/** The terminal success records written by the finalizer, in order. */
-function successOutcomeStates(): unknown[] {
-  return mocks.writeUpdateInstallState.mock.calls
-    .map((call) => call[0])
-    .filter((state) => state !== undefined && state !== null
-      && state.active === null && state.lastSuccess !== undefined && state.lastSuccess !== null);
 }
 
 async function flushBackgroundInstall(): Promise<void> {
@@ -424,18 +234,20 @@ async function flushBackgroundInstall(): Promise<void> {
 
 describe('runUpdatePreflight', () => {
   beforeEach(() => {
+    // Pin the experimental flag off so rollout gating is deterministic
+    // regardless of the host environment (the flag bypasses batch holds).
+    // Tests that exercise the bypass opt back in with `vi.stubEnv(..., '1')`.
+    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_FLAG', '');
     mocks.readUpdateInstallState.mockResolvedValue(emptyUpdateInstallState());
     mocks.writeUpdateInstallState.mockResolvedValue(undefined);
-    mocks.readJsonFile.mockResolvedValue(null);
-    mocks.writeJsonFile.mockResolvedValue(undefined);
     mocks.loadTuiConfig.mockResolvedValue(tuiConfig());
     mocks.resolveUpdateDeviceId.mockReturnValue('test-device');
     mocks.appendRolloutDecisionLog.mockResolvedValue(undefined);
-    mocks.verifyInstalledVersion.mockResolvedValue({ ok: true });
     mocks.tryAcquireUpdateInstallLock.mockResolvedValue({
       filePath: '/tmp/pythinker-update-install.lock',
       release: vi.fn().mockResolvedValue(undefined),
     });
+    mocks.resolveCommandPath.mockImplementation((cmd: string) => cmd);
   });
 
   afterEach(() => { vi.clearAllMocks(); vi.unstubAllEnvs(); });
@@ -483,7 +295,7 @@ describe('runUpdatePreflight', () => {
     expect(mocks.spawn).toHaveBeenCalledWith(
       expect.stringMatching(/^npm(\.cmd)?$/),
       ['install', '-g', '@pymodel/pythinker-code@0.5.0'],
-      { detached: true, windowsHide: false, stdio: ['ignore', 'ignore', 'pipe'] },
+      { detached: true, stdio: 'ignore' },
     );
   });
 
@@ -604,119 +416,6 @@ describe('runUpdatePreflight', () => {
     }
   });
 
-  it('starts the background install for the refreshed version, never the cached one', async () => {
-    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.10.0'));
-    mocks.readUpdateInstallState.mockResolvedValue(installState());
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.11.0'));
-    mocks.detectInstallSource.mockResolvedValue('npm-global');
-    mockSpawnExit(0);
-    const { options } = captureOutput();
-
-    await expect(runUpdatePreflight('0.9.0', options)).resolves.toBe('continue');
-    await flushBackgroundInstall();
-
-    expect(mocks.spawn).toHaveBeenCalledTimes(1);
-    expect(mocks.spawn).toHaveBeenCalledWith(
-      expect.stringMatching(/^npm(\.cmd)?$/u),
-      ['install', '-g', '@pymodel/pythinker-code@0.11.0'],
-      { detached: true, windowsHide: false, stdio: ['ignore', 'ignore', 'pipe'] },
-    );
-    expect(mocks.spawn).not.toHaveBeenCalledWith(
-      expect.stringMatching(/^npm(\.cmd)?$/u),
-      ['install', '-g', '@pymodel/pythinker-code@0.10.0'],
-      expect.anything(),
-    );
-  });
-
-  it('starts nothing when the refresh offers no newer version than the current one', async () => {
-    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.10.0'));
-    mocks.readUpdateInstallState.mockResolvedValue(installState());
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.9.0'));
-    mocks.detectInstallSource.mockResolvedValue('npm-global');
-    const { options } = captureOutput();
-
-    await expect(runUpdatePreflight('0.9.0', options)).resolves.toBe('continue');
-
-    expect(mocks.spawn).not.toHaveBeenCalled();
-    expect(promptForInstallChoice).not.toHaveBeenCalled();
-  });
-
-  it('falls back to the cached target when the refresh rejects', async () => {
-    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.10.0'));
-    mocks.readUpdateInstallState.mockResolvedValue(installState());
-    mocks.refreshUpdateCache.mockRejectedValue(new Error('offline'));
-    mocks.detectInstallSource.mockResolvedValue('npm-global');
-    mockSpawnExit(0);
-    const { options } = captureOutput();
-
-    await expect(runUpdatePreflight('0.9.0', options)).resolves.toBe('continue');
-    await flushBackgroundInstall();
-
-    expect(mocks.spawn).toHaveBeenCalledTimes(1);
-    expect(mocks.spawn).toHaveBeenCalledWith(
-      expect.stringMatching(/^npm(\.cmd)?$/u),
-      ['install', '-g', '@pymodel/pythinker-code@0.10.0'],
-      { detached: true, windowsHide: false, stdio: ['ignore', 'ignore', 'pipe'] },
-    );
-  });
-
-  it('falls back to the cached target when the refresh hangs past the 1-second budget', async () => {
-    vi.useFakeTimers();
-    try {
-      mocks.readUpdateCache.mockResolvedValue(cacheWith('0.10.0'));
-      mocks.readUpdateInstallState.mockResolvedValue(installState());
-      mocks.refreshUpdateCache.mockReturnValue(new Promise(() => {}));
-      mocks.detectInstallSource.mockResolvedValue('npm-global');
-      mockSpawnExit(0);
-      const { options } = captureOutput();
-
-      const result = runUpdatePreflight('0.9.0', options);
-      await vi.advanceTimersByTimeAsync(1_000);
-
-      await expect(result).resolves.toBe('continue');
-      expect(mocks.spawn).toHaveBeenCalledTimes(1);
-      expect(mocks.spawn).toHaveBeenCalledWith(
-        expect.stringMatching(/^npm(\.cmd)?$/u),
-        ['install', '-g', '@pymodel/pythinker-code@0.10.0'],
-        { detached: true, windowsHide: false, stdio: ['ignore', 'ignore', 'pipe'] },
-      );
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('native: offers and installs nothing when the refreshed manifest omits the running platform', async () => {
-    const cached = cacheWithManifest(manifestForRunningTarget('0.10.0'));
-    const refreshed = cacheWithManifest(manifestOmittingRunningTarget('0.11.0'));
-    mocks.readUpdateCache.mockResolvedValue(cached);
-    mocks.refreshUpdateCache.mockResolvedValue(refreshed);
-    mocks.detectInstallSource.mockResolvedValue('native');
-    const { stdout, options } = captureOutput();
-
-    await expect(runUpdatePreflight('0.9.0', options)).resolves.toBe('continue');
-
-    expect(stdout.join('')).toBe('');
-    expect(promptForInstallChoice).not.toHaveBeenCalled();
-    expect(mocks.spawn).not.toHaveBeenCalled();
-  });
-
-  it('decides from the cache and from the refresh exactly once each per launch', async () => {
-    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.10.0'));
-    mocks.readUpdateInstallState.mockResolvedValue(installState());
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.11.0'));
-    mocks.detectInstallSource.mockResolvedValue('npm-global');
-    mockSpawnExit(0);
-    const { options } = captureOutput();
-
-    await expect(runUpdatePreflight('0.9.0', options)).resolves.toBe('continue');
-    await flushBackgroundInstall();
-
-    const phases = mocks.appendRolloutDecisionLog.mock.calls.map((call) => call[0].phase);
-    expect(phases.filter((phase) => phase === 'startup-cache')).toHaveLength(1);
-    expect(phases.filter((phase) => phase === 'prompt-refresh')).toHaveLength(1);
-    expect(phases.filter((phase) => phase === 'background-refresh')).toHaveLength(0);
-  });
-
   it('pnpm-global: spawns pnpm add -g', async () => {
     disableAutoInstall();
     mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
@@ -731,6 +430,29 @@ describe('runUpdatePreflight', () => {
       ['add', '-g', '@pymodel/pythinker-code@0.5.0'],
       { stdio: 'inherit' },
     );
+  });
+
+  it('pnpm-global on win32: spawns pnpm.cmd through a shell', async () => {
+    disableAutoInstall();
+    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.detectInstallSource.mockResolvedValue('pnpm-global');
+    mocks.promptForInstallChoice.mockResolvedValue('install');
+    mockSpawnExit(0);
+    const originalPlatform = process.platform;
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    try {
+      const { options } = captureOutput();
+      await runUpdatePreflight('0.4.0', options);
+      expect(mocks.spawn).toHaveBeenCalledWith(
+        // Resolved to an absolute path and quoted for the cmd.exe shell.
+        '"pnpm.cmd"',
+        ['add', '-g', '@pymodel/pythinker-code@0.5.0'],
+        { stdio: 'inherit', shell: true },
+      );
+    } finally {
+      Object.defineProperty(process, 'platform', { value: originalPlatform });
+    }
   });
 
   it('yarn-global: spawns yarn global add', async () => {
@@ -765,48 +487,17 @@ describe('runUpdatePreflight', () => {
     );
   });
 
-  it('homebrew: prepares the update in a detached helper for activation on restart', async () => {
+  it('homebrew: prints manual brew upgrade command, does not spawn', async () => {
     mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
     mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
     mocks.detectInstallSource.mockResolvedValue('homebrew');
-    const release = vi.fn().mockResolvedValue(undefined);
-    mocks.tryAcquireUpdateInstallLock.mockResolvedValue({
-      filePath: '/tmp/pythinker-update-install.lock',
-      release,
-    });
-    const child = Object.assign(new EventEmitter(), { pid: 42_424, unref: vi.fn() });
-    mocks.spawn.mockImplementation(() => {
-      queueMicrotask(() => { child.emit('spawn'); });
-      return child;
-    });
     const { stdout, options } = captureOutput();
-
     await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
-
-    expect(stdout).toEqual([]);
+    expect(stdout.join('')).toContain('brew upgrade pythinker-code');
+    expect(stdout.join('')).toContain('Third-party sources may lag behind the official release.');
+    expect(stdout.join('')).toContain('https://www.kimi.com/code');
     expect(promptForInstallChoice).not.toHaveBeenCalled();
-    expect(mocks.spawn).toHaveBeenCalledWith(
-      process.execPath,
-      [
-        process.argv[1],
-        '__update_helper',
-        'prepare-homebrew',
-        expect.any(String),
-        '0.5.0',
-        'automatic',
-      ],
-      expect.objectContaining({ detached: true, stdio: 'ignore' }),
-    );
-    expect(writeUpdateInstallState).toHaveBeenCalledWith(expect.objectContaining({
-      active: expect.objectContaining({
-        version: '0.5.0',
-        source: 'homebrew',
-        operation: 'prepare',
-        jobId: expect.any(String),
-      }),
-    }));
-    expect(child.unref).toHaveBeenCalledOnce();
-    expect(release).toHaveBeenCalledOnce();
+    expect(mocks.spawn).not.toHaveBeenCalled();
   });
 
   it('native on darwin: spawns bash -c with pipefail-guarded curl|bash', async () => {
@@ -829,103 +520,28 @@ describe('runUpdatePreflight', () => {
       // pipefail must come before the pipeline so a failed `curl` is not masked
       // by the trailing `bash` exiting 0 (see "surfaces a failed curl" below).
       expect(script).toContain('set -o pipefail');
-      expect(script).toContain('curl -fsSL https://code.pythinker.com/pythinker-code/install.sh');
-      // Pin the decided version, the same guarantee PYTHINKER_VERSION gives on
-      // Windows. Unpinned, the script installs whatever the CDN calls latest,
-      // which can differ from the version the rollout chose.
-      expect(script).toContain('| bash -s -- --version 0.5.0');
+      expect(script).toContain('curl -fsSL https://code.kimi.com/pythinker-code/install.sh');
+      expect(script).toContain('| bash');
     } finally {
       Object.defineProperty(process, 'platform', { value: originalPlatform });
     }
   });
 
-  it('native on win32: starts a background powershell install, no manual prompt', async () => {
+  it('native on win32: prints manual powershell command, does not spawn', async () => {
     mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
     mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
     mocks.detectInstallSource.mockResolvedValue('native');
-    mockSpawnExit(0);
     const originalPlatform = process.platform;
     Object.defineProperty(process, 'platform', { value: 'win32' });
     try {
       const { stdout, options } = captureOutput();
       await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
-      await flushBackgroundInstall();
-      expect(stdout.join('')).toBe('');
+      expect(stdout.join('')).toContain('irm https://code.kimi.com/pythinker-code/install.ps1 | iex');
       expect(promptForInstallChoice).not.toHaveBeenCalled();
-      expect(mocks.spawn).toHaveBeenCalledWith(
-        'powershell.exe',
-        [
-          '-NoProfile',
-          '-ExecutionPolicy',
-          'Bypass',
-          '-Command',
-          'irm https://code.pythinker.com/pythinker-code/install.ps1 | iex',
-        ],
-        {
-          detached: true,
-          windowsHide: true,
-          stdio: ['ignore', 'ignore', 'pipe'],
-          env: expect.objectContaining({ PYTHINKER_VERSION: '0.5.0' }),
-        },
-      );
+      expect(mocks.spawn).not.toHaveBeenCalled();
     } finally {
       Object.defineProperty(process, 'platform', { value: originalPlatform });
     }
-  });
-
-  it('native: offers and installs nothing when the manifest omits the running platform', async () => {
-    const omitted = cacheWithManifest(manifestOmittingRunningTarget('0.5.0'));
-    mocks.readUpdateCache.mockResolvedValue(omitted);
-    mocks.refreshUpdateCache.mockResolvedValue(omitted);
-    mocks.detectInstallSource.mockResolvedValue('native');
-    const { stdout, options } = captureOutput();
-
-    await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
-
-    expect(stdout.join('')).toBe('');
-    expect(promptForInstallChoice).not.toHaveBeenCalled();
-    expect(mocks.spawn).not.toHaveBeenCalled();
-    expect(detectInstallSource).toHaveBeenCalledTimes(1);
-  });
-
-  it('native: prompts and installs when the manifest advertises the running platform', async () => {
-    disableAutoInstall();
-    const advertised = cacheWithManifest(manifestForRunningTarget('0.5.0'));
-    mocks.readUpdateCache.mockResolvedValue(advertised);
-    mocks.refreshUpdateCache.mockResolvedValue(advertised);
-    mocks.detectInstallSource.mockResolvedValue('native');
-    mocks.promptForInstallChoice.mockResolvedValue('install');
-    mockSpawnExit(0);
-    const { options } = captureOutput();
-
-    await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('exit');
-
-    expect(mocks.promptForInstallChoice).toHaveBeenCalledWith(
-      expect.objectContaining({ installSource: 'native' }),
-    );
-    expect(mocks.spawn).toHaveBeenCalledTimes(1);
-  });
-
-  it('npm-global: still prompts and installs when the manifest omits the running platform', async () => {
-    disableAutoInstall();
-    const omitted = cacheWithManifest(manifestOmittingRunningTarget('0.5.0'));
-    mocks.readUpdateCache.mockResolvedValue(omitted);
-    mocks.refreshUpdateCache.mockResolvedValue(omitted);
-    mocks.detectInstallSource.mockResolvedValue('npm-global');
-    mocks.promptForInstallChoice.mockResolvedValue('install');
-    mockSpawnExit(0);
-    const { options } = captureOutput();
-
-    await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('exit');
-
-    expect(mocks.promptForInstallChoice).toHaveBeenCalledWith(
-      expect.objectContaining({ installSource: 'npm-global' }),
-    );
-    expect(mocks.spawn).toHaveBeenCalledWith(
-      expect.stringMatching(/^npm(\.cmd)?$/u),
-      ['install', '-g', '@pymodel/pythinker-code@0.5.0'],
-      { stdio: 'inherit' },
-    );
   });
 
   it('unsupported: prints fallback npm command', async () => {
@@ -949,102 +565,6 @@ describe('runUpdatePreflight', () => {
     expect(mocks.spawn).not.toHaveBeenCalled();
   });
 
-  it('does not prompt for a foreground install while a fresh active install is running', async () => {
-    disableAutoInstall();
-    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.readUpdateInstallState.mockResolvedValue(installState({
-      active: {
-        version: '0.5.0',
-        source: 'npm-global',
-        startedAt: new Date().toISOString(),
-      },
-    }));
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.detectInstallSource.mockResolvedValue('npm-global');
-    mocks.promptForInstallChoice.mockResolvedValue('install');
-    const { options } = captureOutput();
-
-    await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
-
-    expect(mocks.promptForInstallChoice).not.toHaveBeenCalled();
-    expect(mocks.spawn).not.toHaveBeenCalled();
-    expect(mocks.tryAcquireUpdateInstallLock).not.toHaveBeenCalled();
-  });
-
-  it('acquires the install lock only after the prompt resolves and releases it afterwards', async () => {
-    disableAutoInstall();
-    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.readUpdateInstallState.mockResolvedValue(installState());
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.detectInstallSource.mockResolvedValue('npm-global');
-    mockSpawnExit(0);
-    const release = vi.fn().mockResolvedValue(undefined);
-    mocks.tryAcquireUpdateInstallLock.mockResolvedValue({
-      filePath: '/tmp/pythinker-update-install.lock',
-      release,
-    });
-    let resolvePrompt: ((value: 'install') => void) | undefined;
-    const prompt = new Promise<'install'>((resolve) => { resolvePrompt = resolve; });
-    mocks.promptForInstallChoice.mockReturnValue(prompt);
-    const { stdout, options } = captureOutput();
-
-    const running = runUpdatePreflight('0.4.0', options);
-
-    // Let the flow actually reach the prompt first. Asserting straight after the
-    // call was vacuous: nothing had run past the first await, so "no lock yet"
-    // held wherever the acquisition sat, and the ordering claim in the test name
-    // went unchecked.
-    await vi.waitFor(() => {
-      expect(mocks.promptForInstallChoice).toHaveBeenCalled();
-    });
-    expect(mocks.tryAcquireUpdateInstallLock).not.toHaveBeenCalled();
-    resolvePrompt?.('install');
-    await expect(running).resolves.toBe('exit');
-    expect(mocks.tryAcquireUpdateInstallLock).toHaveBeenCalledWith({ version: '0.5.0' });
-    expect(release).toHaveBeenCalledOnce();
-    expect(writeUpdateInstallState).toHaveBeenCalledWith(expect.objectContaining({
-      active: null,
-      lastFailure: null,
-      lastSuccess: {
-        version: '0.5.0',
-        installedAt: expect.any(String),
-        notifiedAt: null,
-      },
-    }));
-    expect(stdout.join('')).toContain('Updated @pymodel/pythinker-code to 0.5.0');
-  });
-
-  it('releases the lock and records the failure when the foreground install fails', async () => {
-    disableAutoInstall();
-    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.readUpdateInstallState.mockResolvedValue(installState());
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.detectInstallSource.mockResolvedValue('npm-global');
-    mocks.promptForInstallChoice.mockResolvedValue('install');
-    mockSpawnExit(1);
-    const release = vi.fn().mockResolvedValue(undefined);
-    mocks.tryAcquireUpdateInstallLock.mockResolvedValue({
-      filePath: '/tmp/pythinker-update-install.lock',
-      release,
-    });
-    const { stderr, options } = captureOutput();
-
-    await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
-
-    expect(stderr.join('')).toContain('warning: failed to install');
-    expect(release).toHaveBeenCalledOnce();
-    expect(writeUpdateInstallState).toHaveBeenCalledWith(expect.objectContaining({
-      active: null,
-      lastFailure: expect.objectContaining({
-        version: '0.5.0',
-        attempts: 1,
-        operation: 'install',
-        failedAt: expect.any(String),
-      }),
-      lastSuccess: null,
-    }));
-  });
-
   it('warns and continues when spawn exits non-zero, without claiming success', async () => {
     disableAutoInstall();
     mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
@@ -1057,6 +577,66 @@ describe('runUpdatePreflight', () => {
     expect(stderr.join('')).toContain('warning: failed to install');
     // A failed install must never print the "Updated …" success line.
     expect(stdout.join('')).not.toContain('Updated @pymodel/pythinker-code');
+  });
+
+  it('spawns the resolved absolute path instead of the bare command name', async () => {
+    disableAutoInstall();
+    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.detectInstallSource.mockResolvedValue('npm-global');
+    mocks.promptForInstallChoice.mockResolvedValue('install');
+    mocks.resolveCommandPath.mockReturnValue('/usr/local/bin/npm');
+    mockSpawnExit(0);
+    const { options } = captureOutput();
+
+    await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('exit');
+
+    expect(mocks.resolveCommandPath).toHaveBeenCalledWith('npm');
+    expect(mocks.spawn).toHaveBeenCalledWith(
+      '/usr/local/bin/npm',
+      ['install', '-g', '@pymodel/pythinker-code@0.5.0'],
+      { stdio: 'inherit' },
+    );
+  });
+
+  it('warns and continues without spawning when the package manager cannot be resolved', async () => {
+    disableAutoInstall();
+    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.detectInstallSource.mockResolvedValue('npm-global');
+    mocks.promptForInstallChoice.mockResolvedValue('install');
+    // Only resolvable inside the cwd (or missing entirely): refuse to run it.
+    mocks.resolveCommandPath.mockReturnValue(undefined);
+    const { stdout, stderr, options } = captureOutput();
+
+    await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
+
+    expect(mocks.spawn).not.toHaveBeenCalled();
+    expect(stderr.join('')).toContain('warning: failed to install');
+    expect(stdout.join('')).not.toContain('Updated @pymodel/pythinker-code');
+  });
+
+  it('records a background install failure without spawning when the package manager cannot be resolved', async () => {
+    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.readUpdateInstallState.mockResolvedValue(installState());
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.detectInstallSource.mockResolvedValue('npm-global');
+    mocks.resolveCommandPath.mockReturnValue(undefined);
+    const { stderr, options } = captureOutput();
+
+    await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
+    await flushBackgroundInstall();
+
+    expect(mocks.spawn).not.toHaveBeenCalled();
+    expect(stderr.join('')).toBe('');
+    expect(writeUpdateInstallState).toHaveBeenLastCalledWith(expect.objectContaining({
+      active: null,
+      lastFailure: expect.objectContaining({
+        version: '0.5.0',
+        attempts: 1,
+      }),
+      lastSuccess: null,
+    }));
   });
 
   it('starts an automatic update in the background by default', async () => {
@@ -1072,7 +652,7 @@ describe('runUpdatePreflight', () => {
     expect(mocks.spawn).toHaveBeenCalledWith(
       expect.stringMatching(/^npm(\.cmd)?$/),
       ['install', '-g', '@pymodel/pythinker-code@0.5.0'],
-      { detached: true, windowsHide: false, stdio: ['ignore', 'ignore', 'pipe'] },
+      { detached: true, stdio: 'ignore' },
     );
     expect(writeUpdateInstallState).toHaveBeenCalledWith(expect.objectContaining({
       active: expect.objectContaining({
@@ -1096,458 +676,26 @@ describe('runUpdatePreflight', () => {
     }));
   });
 
-  it('treats a fresh legacy active record as a conservative lease for the same target', async () => {
-    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.readUpdateInstallState.mockResolvedValue(installState({
-      active: {
-        version: '0.5.0',
-        source: 'npm-global',
-        startedAt: new Date().toISOString(),
-      },
-    }));
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.detectInstallSource.mockResolvedValue('npm-global');
-    const { options } = captureOutput();
-
-    await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
-
-    expect(mocks.spawn).not.toHaveBeenCalled();
-    expect(promptForInstallChoice).not.toHaveBeenCalled();
-  });
-
-  it('blocks a changed target with a fresh PID-less lease without showing a success notice', async () => {
-    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.6.0'));
-    mocks.readUpdateInstallState.mockResolvedValue(installState({
-      active: {
-        version: '0.5.0',
-        source: 'npm-global',
-        startedAt: new Date().toISOString(),
-      },
-    }));
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.6.0'));
-    mocks.detectInstallSource.mockResolvedValue('npm-global');
-    const { stdout, options } = captureOutput();
-
-    await expect(runUpdatePreflight('0.5.0', options)).resolves.toBe('continue');
-
-    expect(stdout).toEqual([]);
-    expect(mocks.spawn).not.toHaveBeenCalled();
-    expect(mocks.tryAcquireUpdateInstallLock).not.toHaveBeenCalled();
-    expect(promptForInstallChoice).not.toHaveBeenCalled();
-  });
-
-  it('retries a stale legacy active record that has no installer pid', async () => {
-    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.readUpdateInstallState.mockResolvedValue(installState({
-      active: {
-        version: '0.5.0',
-        source: 'npm-global',
-        startedAt: new Date(Date.now() - 7 * 60 * 60 * 1_000).toISOString(),
-      },
-    }));
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.detectInstallSource.mockResolvedValue('npm-global');
-    mockSpawnExit(0);
-    const { options } = captureOutput();
-
-    await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
-
-    expect(mocks.spawn).toHaveBeenCalledOnce();
-  });
-
-  it('does not retry the same target while the recorded installer pid is still alive', async () => {
-    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.readUpdateInstallState.mockResolvedValue(installState({
-      active: {
-        version: '0.5.0',
-        source: 'npm-global',
-        startedAt: new Date().toISOString(),
-        pid: process.pid,
-      },
-    }));
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.detectInstallSource.mockResolvedValue('npm-global');
-    const { options } = captureOutput();
-
-    await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
-
-    expect(mocks.spawn).not.toHaveBeenCalled();
-    expect(promptForInstallChoice).not.toHaveBeenCalled();
-  });
-
-  it('blocks a changed target while the previous target installer pid remains alive within the TTL', async () => {
-    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.6.0'));
-    mocks.readUpdateInstallState.mockResolvedValue(installState({
-      active: {
-        version: '0.5.0',
-        source: 'npm-global',
-        startedAt: new Date(Date.now() - (6 * 60 * 60 * 1_000 - 60_000)).toISOString(),
-        pid: process.pid,
-      },
-    }));
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.6.0'));
-    mocks.detectInstallSource.mockResolvedValue('npm-global');
-    const { options } = captureOutput();
-
-    await expect(runUpdatePreflight('0.5.0', options)).resolves.toBe('continue');
-
-    expect(mocks.spawn).not.toHaveBeenCalled();
-    expect(mocks.tryAcquireUpdateInstallLock).not.toHaveBeenCalled();
-    expect(promptForInstallChoice).not.toHaveBeenCalled();
-  });
-
-  it('recovers a changed target after the previous installer pid outlives the TTL ceiling', async () => {
-    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.6.0'));
-    mocks.readUpdateInstallState.mockResolvedValue(installState({
-      active: {
-        version: '0.5.0',
-        source: 'npm-global',
-        startedAt: new Date(Date.now() - (6 * 60 * 60 * 1_000 + 60_000)).toISOString(),
-        pid: process.pid,
-      },
-    }));
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.6.0'));
-    mocks.detectInstallSource.mockResolvedValue('npm-global');
-    mockSpawnExit(0);
-    const { options } = captureOutput();
-
-    await expect(runUpdatePreflight('0.5.0', options)).resolves.toBe('continue');
-
-    expect(mocks.spawn).toHaveBeenCalledWith(
-      expect.stringMatching(/^npm(\.cmd)?$/u),
-      ['install', '-g', '@pymodel/pythinker-code@0.6.0'],
-      { detached: true, windowsHide: false, stdio: ['ignore', 'ignore', 'pipe'] },
-    );
-  });
-
-  it('tolerates a small clock rollback while the recorded installer pid is alive', async () => {
-    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.readUpdateInstallState.mockResolvedValue(installState({
-      active: {
-        version: '0.5.0',
-        source: 'npm-global',
-        startedAt: new Date(Date.now() + 60_000).toISOString(),
-        pid: process.pid,
-      },
-    }));
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.detectInstallSource.mockResolvedValue('npm-global');
-    const { options } = captureOutput();
-
-    await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
-
-    expect(mocks.spawn).not.toHaveBeenCalled();
-    expect(promptForInstallChoice).not.toHaveBeenCalled();
-  });
-
-  it('retries an active record whose timestamp is far in the future', async () => {
-    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.readUpdateInstallState.mockResolvedValue(installState({
-      active: {
-        version: '0.5.0',
-        source: 'npm-global',
-        startedAt: new Date(Date.now() + 10 * 60_000).toISOString(),
-        pid: process.pid,
-      },
-    }));
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.detectInstallSource.mockResolvedValue('npm-global');
-    mockSpawnExit(0);
-    const { options } = captureOutput();
-
-    await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
-
-    expect(mocks.spawn).toHaveBeenCalledOnce();
-  });
-
-  it('recovers a changed target after a stale PID-less lease expires', async () => {
-    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.6.0'));
-    mocks.readUpdateInstallState.mockResolvedValue(installState({
-      active: {
-        version: '0.5.0',
-        source: 'npm-global',
-        startedAt: new Date(Date.now() - 7 * 60 * 60 * 1_000).toISOString(),
-      },
-    }));
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.6.0'));
-    mocks.detectInstallSource.mockResolvedValue('npm-global');
-    mockSpawnExit(0);
-    const { options } = captureOutput();
-
-    await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
-
-    expect(mocks.spawn).toHaveBeenCalledWith(
-      expect.stringMatching(/^npm(\.cmd)?$/),
-      ['install', '-g', '@pymodel/pythinker-code@0.6.0'],
-      { detached: true, windowsHide: false, stdio: ['ignore', 'ignore', 'pipe'] },
-    );
-  });
-
-  it('recovers a changed target when the previous installer pid is dead', async () => {
-    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.6.0'));
-    mocks.readUpdateInstallState.mockResolvedValue(installState({
-      active: {
-        version: '0.5.0',
-        source: 'npm-global',
-        startedAt: new Date().toISOString(),
-        pid: 999_999_999,
-      },
-    }));
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.6.0'));
-    mocks.detectInstallSource.mockResolvedValue('npm-global');
-    mockSpawnExit(0);
-    const { options } = captureOutput();
-
-    await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
-
-    expect(mocks.spawn).toHaveBeenCalledWith(
-      expect.stringMatching(/^npm(\.cmd)?$/),
-      ['install', '-g', '@pymodel/pythinker-code@0.6.0'],
-      { detached: true, windowsHide: false, stdio: ['ignore', 'ignore', 'pipe'] },
-    );
-  });
-
-  it('parks a doomed version after two abandoned installs are reconciled', async () => {
-    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.detectInstallSource.mockResolvedValue('npm-global');
-    mocks.promptForInstallChoice.mockResolvedValue('skip');
-    let persisted: UpdateInstallState = installState({
-      active: {
-        version: '0.5.0',
-        source: 'npm-global',
-        startedAt: new Date().toISOString(),
-        pid: 999_999_999,
-      },
-    });
-    // The reconciliation writes through install-state's own writer, which the
-    // module mock cannot intercept — capture that path via the persistence
-    // mock so both write routes feed the same simulated state file.
-    mocks.writeUpdateInstallState.mockImplementation(
-      async (state: UpdateInstallState) => { persisted = state; },
-    );
-    mocks.writeJsonFile.mockImplementation(
-      async (_filePath: string, _schema: unknown, value: UpdateInstallState) => { persisted = value; },
-    );
-    mocks.readUpdateInstallState.mockImplementation(async () => persisted);
-    // Each launch's installer dies without recording an outcome, so the next
-    // launch finds only an abandoned active record.
-    mocks.spawn.mockImplementation(
-      () => Object.assign(new EventEmitter(), { pid: 999_999_999, unref: vi.fn() }),
-    );
-    const { options } = captureOutput();
-
-    // First launch: the abandoned record is reconciled to one attempt and the
-    // version is still attempted in the background.
-    await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
-    expect(persisted.lastFailure?.attempts).toBe(1);
-    expect(mocks.spawn).toHaveBeenCalledTimes(1);
-
-    // Second launch: the counter reaches the parking threshold and the
-    // automatic path refuses to start the installer again — assert the
-    // refusal, not just the counter.
-    await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
-    expect(persisted.lastFailure?.attempts).toBe(2);
-    expect(mocks.spawn).toHaveBeenCalledTimes(1);
-    expect(mocks.tryAcquireUpdateInstallLock).toHaveBeenCalledTimes(1);
-  });
-
-  it('recovers a changed target from a far-future active timestamp', async () => {
-    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.6.0'));
-    mocks.readUpdateInstallState.mockResolvedValue(installState({
-      active: {
-        version: '0.5.0',
-        source: 'npm-global',
-        startedAt: new Date(Date.now() + 10 * 60_000).toISOString(),
-        pid: process.pid,
-      },
-    }));
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.6.0'));
-    mocks.detectInstallSource.mockResolvedValue('npm-global');
-    mockSpawnExit(0);
-    const { options } = captureOutput();
-
-    await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
-
-    expect(mocks.spawn).toHaveBeenCalledWith(
-      expect.stringMatching(/^npm(\.cmd)?$/),
-      ['install', '-g', '@pymodel/pythinker-code@0.6.0'],
-      { detached: true, windowsHide: false, stdio: ['ignore', 'ignore', 'pipe'] },
-    );
-  });
-
-  it('finalizes and releases after persisting the child pid fails', async () => {
+  it('win32 background auto-update hides the console window', async () => {
     mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
     mocks.readUpdateInstallState.mockResolvedValue(installState());
     mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
     mocks.detectInstallSource.mockResolvedValue('npm-global');
-    const release = vi.fn().mockResolvedValue(undefined);
-    mocks.tryAcquireUpdateInstallLock.mockResolvedValue({
-      filePath: '/tmp/pythinker-update-install.lock',
-      release,
-    });
-    mocks.writeUpdateInstallState
-      .mockResolvedValueOnce(undefined)
-      .mockRejectedValueOnce(new Error('cannot persist child pid'))
-      .mockResolvedValueOnce(undefined);
     mockSpawnExit(0);
-    const { options } = captureOutput();
-
-    await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
-    await flushBackgroundInstall();
-
-    expect(writeUpdateInstallState).toHaveBeenCalledTimes(3);
-    expect(writeUpdateInstallState).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      active: expect.objectContaining({ pid: 42_424 }),
-    }));
-    expect(writeUpdateInstallState).toHaveBeenLastCalledWith(expect.objectContaining({
-      active: null,
-      lastSuccess: expect.objectContaining({ version: '0.5.0' }),
-    }));
-    expect(release).toHaveBeenCalledOnce();
-    expect(mocks.writeUpdateInstallState.mock.invocationCallOrder[2])
-      .toBeLessThan(release.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY);
-  });
-
-  it('records a failure when the installer exits 0 without installing the target', async () => {
-    // The Windows report this exists for: install.ps1 exited 0 repeatedly
-    // while the executable on disk stayed on the old version, so the footer
-    // advertised "restart to apply" for a version that never ran.
-    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.readUpdateInstallState.mockResolvedValue(installState());
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.detectInstallSource.mockResolvedValue('native');
-    mocks.verifyInstalledVersion.mockResolvedValue({
-      ok: false,
-      reason: 'the installer reported success but /bin/pythinker still reports 0.4.0 (expected 0.5.0)',
-    });
-    mockSpawnExit(0);
-    const { options } = captureOutput();
-
-    await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
-    await flushBackgroundInstall();
-
-    expect(mocks.verifyInstalledVersion).toHaveBeenCalledWith('native', '0.5.0');
-    expect(successOutcomeStates()).toHaveLength(0);
-    expect(writeUpdateInstallState).toHaveBeenLastCalledWith(expect.objectContaining({
-      active: null,
-      lastFailure: expect.objectContaining({
-        version: '0.5.0',
-        attempts: 1,
-        message: expect.stringContaining('still reports 0.4.0'),
-      }),
-    }));
-  });
-
-  it('records why a success could not be verified', async () => {
-    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.readUpdateInstallState.mockResolvedValue(installState());
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.detectInstallSource.mockResolvedValue('native');
-    mocks.verifyInstalledVersion.mockResolvedValue({
-      ok: true,
-      unverified: '/usr/local/bin/pythinker could not be run: ETIMEDOUT',
-    });
-    mockSpawnExit(0);
-    const { options } = captureOutput();
-
-    await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
-    await flushBackgroundInstall();
-
-    expect(writeUpdateInstallState).toHaveBeenLastCalledWith(expect.objectContaining({
-      lastFailure: null,
-      lastSuccess: expect.objectContaining({
-        version: '0.5.0',
-        unverified: expect.stringContaining('ETIMEDOUT'),
-      }),
-    }));
-  });
-
-  it('does not verify an install the installer already reported as failed', async () => {
-    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.readUpdateInstallState.mockResolvedValue(installState());
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.detectInstallSource.mockResolvedValue('native');
-    mockSpawnExit(1);
-    const { options } = captureOutput();
-
-    await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
-    await flushBackgroundInstall();
-
-    expect(mocks.verifyInstalledVersion).not.toHaveBeenCalled();
-    expect(writeUpdateInstallState).toHaveBeenLastCalledWith(expect.objectContaining({
-      lastFailure: expect.objectContaining({ version: '0.5.0' }),
-    }));
-  });
-
-  it('keeps the install lock until a delayed terminal state write completes', async () => {
-    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.readUpdateInstallState.mockResolvedValue(installState());
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.detectInstallSource.mockResolvedValue('npm-global');
-    let held = false;
-    const release = vi.fn(async () => { held = false; });
-    mocks.tryAcquireUpdateInstallLock.mockImplementation(async () => {
-      if (held) return null;
-      held = true;
-      return {
-        filePath: '/tmp/pythinker-update-install.lock',
-        release,
-      };
-    });
-    const child = Object.assign(new EventEmitter(), { pid: 42_424, unref: vi.fn() });
-    mocks.spawn.mockReturnValue(child);
-    let resolveTerminalWrite: (() => void) | undefined;
-    let terminalWriteStarted = false;
-    const terminalWrite = new Promise<void>((resolve) => {
-      resolveTerminalWrite = resolve;
-    });
-    mocks.writeUpdateInstallState.mockImplementation((state: UpdateInstallState) => {
-      if (state.active !== null) return Promise.resolve();
-      terminalWriteStarted = true;
-      return terminalWrite;
-    });
-    const first = captureOutput();
-    const second = captureOutput();
-
-    await expect(runUpdatePreflight('0.4.0', first.options)).resolves.toBe('continue');
-    child.emit('exit', 0, null);
-    // The finalizer verifies the installed version before it writes the
-    // outcome, so the terminal write is more than one microtask away.
-    await flushBackgroundInstall();
-
-    expect(terminalWriteStarted).toBe(true);
-    expect(held).toBe(true);
-    expect(release).not.toHaveBeenCalled();
-
-    await expect(runUpdatePreflight('0.4.0', second.options)).resolves.toBe('continue');
-
-    expect(mocks.spawn).toHaveBeenCalledTimes(1);
-    expect(mocks.tryAcquireUpdateInstallLock).toHaveBeenCalledTimes(2);
-    expect(release).not.toHaveBeenCalled();
-
-    resolveTerminalWrite?.();
-    await flushBackgroundInstall();
-
-    expect(release).toHaveBeenCalledOnce();
-    expect(held).toBe(false);
-  });
-
-  it('falls back to the foreground prompt when background startup fails', async () => {
-    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.readUpdateInstallState.mockResolvedValue(installState());
-    mocks.writeUpdateInstallState.mockRejectedValue(new Error('updates directory is read-only'));
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.detectInstallSource.mockResolvedValue('npm-global');
-    mocks.promptForInstallChoice.mockResolvedValue('skip');
-    const { options } = captureOutput();
-
-    await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
-
-    expect(promptForInstallChoice).toHaveBeenCalledWith(expect.objectContaining({
-      target: { version: '0.5.0' },
-    }));
-    expect(mocks.spawn).not.toHaveBeenCalled();
+    const originalPlatform = process.platform;
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    try {
+      const { options } = captureOutput();
+      await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
+      expect(mocks.spawn).toHaveBeenCalledWith(
+        // Resolved to an absolute path and quoted for the cmd.exe shell.
+        '"npm.cmd"',
+        ['install', '-g', '@pymodel/pythinker-code@0.5.0'],
+        { detached: true, stdio: 'ignore', shell: true, windowsHide: true },
+      );
+    } finally {
+      Object.defineProperty(process, 'platform', { value: originalPlatform });
+    }
   });
 
   it('tracks and logs successful background update installs', async () => {
@@ -1598,7 +746,7 @@ describe('runUpdatePreflight', () => {
     expect(mocks.spawn).toHaveBeenCalledWith(
       expect.stringMatching(/^npm(\.cmd)?$/),
       ['install', '-g', '@pymodel/pythinker-code@0.5.0'],
-      { detached: true, windowsHide: false, stdio: ['ignore', 'ignore', 'pipe'] },
+      { detached: true, stdio: 'ignore' },
     );
   });
 
@@ -1648,75 +796,6 @@ describe('runUpdatePreflight', () => {
         failedAt: expect.any(String),
       }),
       lastSuccess: null,
-    }));
-  });
-
-  it('records the installer stderr in the failure message', async () => {
-    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.readUpdateInstallState.mockResolvedValue(installState());
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.detectInstallSource.mockResolvedValue('npm-global');
-    mockSpawnExitWithStderr(1, 'bash: line 900: BASH_SOURCE[0]: unbound variable\n');
-    const { options } = captureOutput();
-
-    await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
-    await flushBackgroundInstall();
-
-    expect(writeUpdateInstallState).toHaveBeenLastCalledWith(expect.objectContaining({
-      lastFailure: expect.objectContaining({
-        version: '0.5.0',
-        // Without the installer's own text a failure is undiagnosable: the
-        // exit code alone never said which line of install.sh blew up.
-        message: expect.stringContaining('BASH_SOURCE[0]: unbound variable'),
-      }),
-    }));
-  });
-
-  it('shows why the previous automatic install failed when prompting', async () => {
-    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.detectInstallSource.mockResolvedValue('npm-global');
-    disableAutoInstall();
-    mocks.readUpdateInstallState.mockResolvedValue(installState({
-      lastFailure: {
-        version: '0.5.0',
-        failedAt: '2026-08-05T02:25:45.813Z',
-        attempts: 2,
-        operation: 'install',
-        message: 'bash exited with code 1: BASH_SOURCE[0]: unbound variable',
-      },
-    }));
-    mocks.promptForInstallChoice.mockResolvedValue('skip');
-    const { options } = captureOutput();
-
-    await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
-
-    expect(mocks.promptForInstallChoice).toHaveBeenCalledWith(expect.objectContaining({
-      previousFailure: expect.stringContaining('BASH_SOURCE[0]: unbound variable'),
-    }));
-  });
-
-  it('does not surface a failure recorded against a different version', async () => {
-    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.detectInstallSource.mockResolvedValue('npm-global');
-    disableAutoInstall();
-    mocks.readUpdateInstallState.mockResolvedValue(installState({
-      lastFailure: {
-        version: '0.4.9',
-        failedAt: '2026-08-05T02:25:45.813Z',
-        attempts: 1,
-        operation: 'install',
-        message: 'stale failure from an older target',
-      },
-    }));
-    mocks.promptForInstallChoice.mockResolvedValue('skip');
-    const { options } = captureOutput();
-
-    await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
-
-    expect(mocks.promptForInstallChoice).toHaveBeenCalledWith(expect.objectContaining({
-      previousFailure: undefined,
     }));
   });
 
@@ -1815,7 +894,7 @@ describe('runUpdatePreflight', () => {
     const rendered = stdout.join('');
     expect(rendered).toContain('Pythinker Code updated to v0.5.0');
     expect(rendered).toContain(
-      'https://pymodel.github.io/pythinker-code/release-notes/changelog.html',
+      'https://code.pythinker.com/pythinker-code/en/release-notes/changelog.html',
     );
     expect(track).toHaveBeenCalledWith('update_success_notice_shown', expect.objectContaining({
       version: '0.5.0',
@@ -1834,39 +913,7 @@ describe('runUpdatePreflight', () => {
     expect(detectInstallSource).not.toHaveBeenCalled();
   });
 
-  it('shows an explicit success notice without clearing a newer active lease', async () => {
-    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.7.0'));
-    mocks.readUpdateInstallState.mockResolvedValue(installState({
-      active: {
-        version: '0.6.0',
-        source: 'npm-global',
-        startedAt: new Date().toISOString(),
-      },
-      lastSuccess: {
-        version: '0.5.0',
-        installedAt: '2026-04-23T08:00:00.000Z',
-        notifiedAt: null,
-      },
-    }));
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.7.0'));
-    mocks.detectInstallSource.mockResolvedValue('npm-global');
-    const { stdout, options } = captureOutput();
-
-    await expect(runUpdatePreflight('0.5.0', options)).resolves.toBe('continue');
-
-    expect(stdout.join('')).toContain('Pythinker Code updated to v0.5.0');
-    expect(writeUpdateInstallState).toHaveBeenCalledWith(expect.objectContaining({
-      active: expect.objectContaining({ version: '0.6.0' }),
-      lastSuccess: expect.objectContaining({
-        version: '0.5.0',
-        notifiedAt: expect.any(String),
-      }),
-    }));
-    expect(mocks.spawn).not.toHaveBeenCalled();
-    expect(mocks.tryAcquireUpdateInstallLock).not.toHaveBeenCalled();
-  });
-
-  it('records an abandoned install as a failure instead of inferring a success notice', async () => {
+  it('infers a background update success notice when the active install version is now running', async () => {
     mocks.readUpdateCache.mockResolvedValue(emptyUpdateCache());
     mocks.readUpdateInstallState.mockResolvedValue(installState({
       active: {
@@ -1880,22 +927,15 @@ describe('runUpdatePreflight', () => {
 
     await expect(runUpdatePreflight('0.5.0', options)).resolves.toBe('continue');
 
-    // A stale active record is an abandoned install, not an inferred success:
-    // it is reconciled into a recorded failure and never shows the notice.
-    expect(stdout.join('')).toBe('');
-    expect(mocks.writeJsonFile).toHaveBeenCalledWith(
-      getUpdateInstallStateFile(),
-      expect.anything(),
-      expect.objectContaining({
-        active: null,
-        lastFailure: expect.objectContaining({
-          version: '0.5.0',
-          attempts: 1,
-          message: expect.stringContaining('abandoned'),
-        }),
+    expect(stdout.join('')).toContain('Pythinker Code updated to v0.5.0');
+    expect(writeUpdateInstallState).toHaveBeenCalledWith(expect.objectContaining({
+      active: null,
+      lastFailure: null,
+      lastSuccess: expect.objectContaining({
+        version: '0.5.0',
+        notifiedAt: expect.any(String),
       }),
-      expect.objectContaining({ durable: true }),
-    );
+    }));
   });
 
   it('tracks update_prompted telemetry', async () => {
@@ -1908,8 +948,8 @@ describe('runUpdatePreflight', () => {
     const track = vi.fn();
     await runUpdatePreflight('0.4.0', { ...options, track });
     expect(track).toHaveBeenCalledWith('update_prompted', expect.objectContaining({
-      current: '0.4.0',
-      latest: '0.5.0',
+      current_version: '0.4.0',
+      target_version: '0.5.0',
       decision: 'prompt-install',
       source: 'npm-global',
     }));
@@ -1964,7 +1004,7 @@ describe('runUpdatePreflight', () => {
       expect(mocks.spawn).toHaveBeenCalledWith(
         expect.stringMatching(/^npm(\.cmd)?$/),
         ['install', '-g', '@pymodel/pythinker-code@0.5.0'],
-        { detached: true, windowsHide: false, stdio: ['ignore', 'ignore', 'pipe'] },
+        { detached: true, stdio: 'ignore' },
       );
       expect(track).toHaveBeenCalledWith('update_background_install_started', expect.objectContaining({
         target_version: '0.5.0',
@@ -1995,7 +1035,7 @@ describe('runUpdatePreflight', () => {
         expect.objectContaining({ target: { version: '0.5.0' } }),
       );
       expect(track).toHaveBeenCalledWith('update_prompted', expect.objectContaining({
-        latest: '0.5.0',
+        target_version: '0.5.0',
         rollout_bucket: expect.any(Number),
         rollout_delay_seconds: 0,
         rollout_from_manifest: true,
@@ -2025,7 +1065,7 @@ describe('runUpdatePreflight', () => {
         expect.objectContaining({ target: { version: '0.7.0' } }),
       );
       expect(track).toHaveBeenCalledWith('update_prompted', expect.objectContaining({
-        latest: '0.7.0',
+        target_version: '0.7.0',
         rollout_bucket: expect.any(Number),
         rollout_delay_seconds: 43_200,
         rollout_from_manifest: true,
@@ -2090,7 +1130,7 @@ describe('runUpdatePreflight', () => {
       expect(mocks.spawn).toHaveBeenCalledWith(
         expect.stringMatching(/^npm(\.cmd)?$/),
         ['install', '-g', '@pymodel/pythinker-code@0.5.0'],
-        { detached: true, windowsHide: false, stdio: ['ignore', 'ignore', 'pipe'] },
+        { detached: true, stdio: 'ignore' },
       );
       expect(track).toHaveBeenCalledWith('update_background_install_started', expect.objectContaining({
         target_version: '0.5.0',
@@ -2138,278 +1178,6 @@ describe('runUpdatePreflight', () => {
       );
     });
   });
-
-  describe('background installer progress lines', () => {
-    it('reassembles a progress line split across data events into one update', async () => {
-      mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-      mocks.readUpdateInstallState.mockResolvedValue(installState());
-      mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-      mocks.detectInstallSource.mockResolvedValue('npm-global');
-      mockSpawnExitWithChunkedStderr(0, [
-        'progress: state=downloading percent=4',
-        '2 transferred=5320',
-        '000 total=12600000\n',
-      ]);
-      const { options } = captureOutput();
-
-      await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
-      await flushBackgroundInstall();
-
-      expect(writeUpdateInstallState).toHaveBeenCalledWith(expect.objectContaining({
-        active: expect.objectContaining({
-          progress: expect.objectContaining({
-            state: 'downloading',
-            percent: 42,
-            transferred: 5_320_000,
-            total: 12_600_000,
-          }),
-        }),
-      }));
-    });
-
-    /**
-     * The exact bytes a real `install.sh` run emitted while downloading the
-     * 0.9.2 release, captured from its stderr. Pinning them here means the
-     * emitter and this parser cannot drift apart silently.
-     */
-    it('parses the bytes a real installer run actually emitted', async () => {
-      mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-      mocks.readUpdateInstallState.mockResolvedValue(installState());
-      mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-      mocks.detectInstallSource.mockResolvedValue('npm-global');
-      mockSpawnExitWithStderr(
-        0,
-        'progress: state=downloading percent=0 transferred=0 total=55795679\n'
-        + 'progress: state=downloading percent=49 transferred=27103232 total=55795679\n'
-        + 'progress: state=done transferred=55795679\n',
-      );
-      const { options } = captureOutput();
-
-      await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
-      await flushBackgroundInstall();
-
-      // All three lines arrive in one chunk, so the 2-second write throttle
-      // keeps the first downloading update and drops the second; the terminal
-      // state always bypasses the throttle.
-      expect(writeUpdateInstallState).toHaveBeenCalledWith(expect.objectContaining({
-        active: expect.objectContaining({
-          progress: expect.objectContaining({
-            state: 'downloading',
-            percent: 0,
-            transferred: 0,
-            total: 55_795_679,
-          }),
-        }),
-      }));
-      expect(writeUpdateInstallState).toHaveBeenCalledWith(expect.objectContaining({
-        active: expect.objectContaining({
-          progress: expect.objectContaining({ state: 'done', transferred: 55_795_679 }),
-        }),
-      }));
-    });
-
-    /**
-     * The state file is written as a temp file plus rename, so the last rename
-     * wins. The installer's terminal `state=done` line writes just as the child
-     * exits, so an unawaited progress write can rename over the outcome —
-     * restoring `active` and dropping `lastSuccess`. The next launch reads that
-     * as an abandoned install and records a failure for a version that
-     * installed cleanly, which at two attempts parks it for good.
-     */
-    it('never lets a slow progress write rename over the install outcome', async () => {
-      mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-      mocks.readUpdateInstallState.mockResolvedValue(installState());
-      mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-      mocks.detectInstallSource.mockResolvedValue('npm-global');
-      // Hold the progress write open; every other write settles at once.
-      let releaseProgressWrite: (() => void) | undefined;
-      mocks.writeUpdateInstallState.mockImplementation(
-        (state: { active?: { progress?: unknown } | null }) => (
-          state.active?.progress === undefined
-            ? Promise.resolve()
-            : new Promise<void>((resolve) => { releaseProgressWrite = resolve; })
-        ),
-      );
-      mockSpawnExitWithStderr(0, 'progress: state=done transferred=55795679\n');
-      const { options } = captureOutput();
-
-      await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
-      await flushBackgroundInstall();
-
-      // The progress write is still in flight, so the outcome must not be out yet.
-      expect(progressActiveStates()).toHaveLength(1);
-      expect(successOutcomeStates()).toEqual([]);
-
-      releaseProgressWrite?.();
-      await flushBackgroundInstall();
-      await flushBackgroundInstall();
-
-      expect(successOutcomeStates()).toHaveLength(1);
-      // The outcome is the last thing written, so it survives on disk.
-      expect(mocks.writeUpdateInstallState.mock.calls.at(-1)?.[0]).toMatchObject({
-        active: null,
-        lastSuccess: expect.objectContaining({ version: '0.5.0' }),
-      });
-    });
-
-    it('keeps progress lines out of the failure tail and ordinary stderr lines in it', async () => {
-      mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-      mocks.readUpdateInstallState.mockResolvedValue(installState());
-      mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-      mocks.detectInstallSource.mockResolvedValue('npm-global');
-      mockSpawnExitWithStderr(
-        1,
-        'progress: state=downloading percent=42 transferred=5320000 total=12600000\n'
-        + 'bash: line 900: BASH_SOURCE[0]: unbound variable\n',
-      );
-      const { options } = captureOutput();
-
-      await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
-      await flushBackgroundInstall();
-
-      const messages = progressFailureMessages();
-      expect(messages).toHaveLength(1);
-      expect(messages[0]).toContain('BASH_SOURCE[0]: unbound variable');
-      expect(messages[0]).not.toContain('progress: state=downloading');
-      expect(messages[0]).not.toContain('percent=42');
-    });
-
-    it('leaves the real error in the tail after a hundred progress lines', async () => {
-      mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-      mocks.readUpdateInstallState.mockResolvedValue(installState());
-      mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-      mocks.detectInstallSource.mockResolvedValue('npm-global');
-      const progressLines = Array.from({ length: 100 }, (_, i) => (
-        `progress: state=downloading percent=${i} transferred=${(i + 1) * 1000} total=12600000\n`
-      )).join('');
-      mockSpawnExitWithStderr(1, `${progressLines}npm ERR! real failure\n`);
-      const { options } = captureOutput();
-
-      await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
-      await flushBackgroundInstall();
-
-      const messages = progressFailureMessages();
-      expect(messages).toHaveLength(1);
-      expect(messages[0]).toContain('npm ERR! real failure');
-      expect(messages[0]).not.toContain('progress:');
-      expect(messages[0]).not.toContain('percent=');
-    });
-
-    it('parses the exact lines install.ps1 and install.sh emit', async () => {
-      // Captured from a real run of the installer's progress helpers. Windows
-      // shipped without these lines, which is why an update in flight looked
-      // identical to a wedged one there. Drift on either side fails here.
-      mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-      mocks.readUpdateInstallState.mockResolvedValue(installState());
-      mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-      mocks.detectInstallSource.mockResolvedValue('npm-global');
-      mockSpawnExitWithStderr(
-        0,
-        'progress: state=waiting retry_in=4 elapsed=8\n'
-        + 'progress: state=downloading transferred=5242880\n'
-        + 'progress: state=downloading percent=25 transferred=5242880 total=20971520\n'
-        + 'progress: state=done transferred=20971520\n',
-      );
-      const { options } = captureOutput();
-
-      await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
-      await flushBackgroundInstall();
-
-      const states = progressActiveStates() as Array<{
-        active: { progress: { state: string; percent?: number; transferred?: number } };
-      }>;
-      expect(states[0]?.active.progress).toMatchObject({ state: 'waiting' });
-      expect(states.at(-1)?.active.progress).toMatchObject({
-        state: 'done',
-        transferred: 20_971_520,
-      });
-      // The downloading lines in between are dropped by the 2s write throttle,
-      // not by the parser — a line it could not read would throw instead.
-      expect(states).toHaveLength(2);
-    });
-
-    it('ignores unknown keys and non-numeric percent values without throwing', async () => {
-      mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-      mocks.readUpdateInstallState.mockResolvedValue(installState());
-      mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-      mocks.detectInstallSource.mockResolvedValue('npm-global');
-      mockSpawnExitWithStderr(
-        0,
-        'progress: state=downloading percent=not-a-number transferred=5320000 total=12600000 mystery=1\n',
-      );
-      const { options } = captureOutput();
-
-      await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
-      await flushBackgroundInstall();
-
-      expect(writeUpdateInstallState).toHaveBeenCalledWith(expect.objectContaining({
-        active: expect.objectContaining({
-          progress: expect.objectContaining({
-            state: 'downloading',
-            transferred: 5_320_000,
-            total: 12_600_000,
-            percent: undefined,
-          }),
-        }),
-      }));
-    });
-
-    it('accepts a downloading update without a total and without a percent', async () => {
-      mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-      mocks.readUpdateInstallState.mockResolvedValue(installState());
-      mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-      mocks.detectInstallSource.mockResolvedValue('npm-global');
-      mockSpawnExitWithStderr(0, 'progress: state=downloading transferred=5320000\n');
-      const { options } = captureOutput();
-
-      await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
-      await flushBackgroundInstall();
-
-      expect(writeUpdateInstallState).toHaveBeenCalledWith(expect.objectContaining({
-        active: expect.objectContaining({
-          progress: expect.objectContaining({
-            state: 'downloading',
-            transferred: 5_320_000,
-            percent: undefined,
-            total: undefined,
-          }),
-        }),
-      }));
-    });
-
-    it('throttles progress writes to one per two seconds but never drops the terminal update', async () => {
-      mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-      mocks.readUpdateInstallState.mockResolvedValue(installState());
-      mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-      mocks.detectInstallSource.mockResolvedValue('npm-global');
-      mockSpawnExitWithTimedStderr(
-        0,
-        [
-          { atMs: 0, text: 'progress: state=downloading percent=10 transferred=1000 total=10000\n' },
-          { atMs: 100, text: 'progress: state=downloading percent=20 transferred=2000 total=10000\n' },
-          { atMs: 250, text: 'progress: state=done transferred=10000\n' },
-        ],
-        320,
-      );
-      const { options } = captureOutput();
-
-      await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
-      await new Promise((resolve) => setTimeout(resolve, 500));
-
-      const progressStates = progressActiveStates();
-      expect(progressStates).toHaveLength(2);
-      expect(progressStates[0]).toEqual(expect.objectContaining({
-        active: expect.objectContaining({
-          progress: expect.objectContaining({ state: 'downloading', percent: 10 }),
-        }),
-      }));
-      expect(progressStates[1]).toEqual(expect.objectContaining({
-        active: expect.objectContaining({
-          progress: expect.objectContaining({ state: 'done', transferred: 10_000 }),
-        }),
-      }));
-    });
-  });
 });
 
 describe('spawnForSource native', () => {
@@ -2418,8 +1186,8 @@ describe('spawnForSource native', () => {
   // so a curl that never connects (exit 7, empty stdin → bash exits 0) is
   // masked and the update is wrongly reported as successful. `set -o pipefail`
   // makes the pipeline surface curl's failure. Shadowing `curl` with a shell
-  // function keeps this offline and deterministic; skipped on Windows (no bash
-  // to run this script with).
+  // function keeps this offline and deterministic; skipped on Windows (no bash,
+  // and native auto-install is unsupported there anyway).
   it.skipIf(process.platform === 'win32')(
     'surfaces a failed curl download as a non-zero exit',
     () => {
@@ -2430,441 +1198,4 @@ describe('spawnForSource native', () => {
       expect(result.status).toBeGreaterThan(0);
     },
   );
-
-  it('darwin/linux: unchanged bash -c pipeline', () => {
-    const { cmd, args } = spawnForSource('native', '0.5.0', 'darwin');
-    expect(cmd).toBe('bash');
-    expect(args[0]).toBe('-c');
-    expect(args[1]).toContain('curl -fsSL https://code.pythinker.com/pythinker-code/install.sh');
-  });
-
-  it('win32: powershell.exe with -ExecutionPolicy Bypass and the irm|iex install command', () => {
-    const { cmd, args, env } = spawnForSource('native', '0.5.0', 'win32');
-    expect(cmd).toBe('powershell.exe');
-    expect(args).toEqual([
-      '-NoProfile',
-      '-ExecutionPolicy',
-      'Bypass',
-      '-Command',
-      'irm https://code.pythinker.com/pythinker-code/install.ps1 | iex',
-    ]);
-    // install.ps1 reads $env:PYTHINKER_VERSION instead of fetching the CDN's
-    // current latest, so the selected update version is the one installed.
-    expect(env).toEqual({ PYTHINKER_VERSION: '0.5.0' });
-  });
-
-  it('darwin/linux: no version env override (install.sh has no such hook)', () => {
-    const { env } = spawnForSource('native', '0.5.0', 'darwin');
-    expect(env).toBeUndefined();
-  });
-});
-
-describe('windows package-manager shims', () => {
-  // Node >=18.20/20.12 refuses to spawn a .cmd directly (CVE-2024-27980), so
-  // every npm-family update on Windows failed with EINVAL. The command
-  // interpreter runs them, and the exact argv is asserted here because it
-  // cannot be exercised from a non-Windows test run.
-  it('runs npm.cmd through the command interpreter', () => {
-    const { cmd, args } = spawnForSource('npm-global', '0.5.0', 'win32');
-    expect(cmd.toLowerCase()).toContain('cmd.exe');
-    expect(args).toEqual([
-      '/d',
-      '/s',
-      '/c',
-      'npm.cmd',
-      'install',
-      '-g',
-      '@pymodel/pythinker-code@0.5.0',
-    ]);
-  });
-
-  it('runs pnpm.cmd and yarn.cmd the same way', () => {
-    expect(spawnForSource('pnpm-global', '0.5.0', 'win32').args).toEqual([
-      '/d', '/s', '/c', 'pnpm.cmd', 'add', '-g', '@pymodel/pythinker-code@0.5.0',
-    ]);
-    expect(spawnForSource('yarn-global', '0.5.0', 'win32').args).toEqual([
-      '/d', '/s', '/c', 'yarn.cmd', 'global', 'add', '@pymodel/pythinker-code@0.5.0',
-    ]);
-  });
-
-  it('leaves real executables alone', () => {
-    expect(spawnForSource('bun-global', '0.5.0', 'win32')).toEqual({
-      cmd: 'bun.exe',
-      args: ['add', '-g', '@pymodel/pythinker-code@0.5.0'],
-    });
-    expect(spawnForSource('native', '0.5.0', 'win32').cmd).toBe('powershell.exe');
-  });
-
-  it('never wraps anything off Windows', () => {
-    expect(spawnForSource('npm-global', '0.5.0', 'darwin')).toEqual({
-      cmd: 'npm',
-      args: ['install', '-g', '@pymodel/pythinker-code@0.5.0'],
-    });
-    expect(isWindowsShim('npm.cmd', 'darwin')).toBe(false);
-    expect(isWindowsShim('npm.cmd', 'win32')).toBe(true);
-    expect(isWindowsShim('powershell.exe', 'win32')).toBe(false);
-  });
-});
-
-describe('canAutoInstall native', () => {
-  it('is true on win32 (rename-aside replace no longer needs the platform gate)', () => {
-    expect(canAutoInstall('native', 'win32')).toBe(true);
-  });
-
-  it('is true on darwin/linux', () => {
-    expect(canAutoInstall('native', 'darwin')).toBe(true);
-    expect(canAutoInstall('native', 'linux')).toBe(true);
-  });
-});
-
-describe('startManualUpdate', () => {
-  beforeEach(() => {
-    mocks.readUpdateInstallState.mockResolvedValue(emptyUpdateInstallState());
-    mocks.writeUpdateInstallState.mockResolvedValue(undefined);
-    mocks.readJsonFile.mockResolvedValue(null);
-    mocks.writeJsonFile.mockResolvedValue(undefined);
-    mocks.loadTuiConfig.mockResolvedValue(tuiConfig());
-    mocks.resolveUpdateDeviceId.mockReturnValue('test-device');
-    mocks.appendRolloutDecisionLog.mockResolvedValue(undefined);
-    mocks.verifyInstalledVersion.mockResolvedValue({ ok: true });
-    mocks.tryAcquireUpdateInstallLock.mockResolvedValue({
-      filePath: '/tmp/pythinker-update-install.lock',
-      release: vi.fn().mockResolvedValue(undefined),
-    });
-  });
-
-  afterEach(() => { vi.clearAllMocks(); vi.unstubAllEnvs(); });
-
-  it('reports up-to-date when the registry has nothing newer', async () => {
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.4.0'));
-
-    await expect(startManualUpdate('0.4.0')).resolves.toEqual({ status: 'up-to-date' });
-    expect(mocks.spawn).not.toHaveBeenCalled();
-  });
-
-  it('native: reports up-to-date when the manifest omits the running platform', async () => {
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWithManifest(manifestOmittingRunningTarget('0.5.0')));
-    mocks.detectInstallSource.mockResolvedValue('native');
-
-    await expect(startManualUpdate('0.4.0')).resolves.toEqual({ status: 'up-to-date' });
-    expect(mocks.spawn).not.toHaveBeenCalled();
-  });
-
-  it('native: starts a background install when the manifest advertises the running platform', async () => {
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWithManifest(manifestForRunningTarget('0.5.0')));
-    mocks.detectInstallSource.mockResolvedValue('native');
-    mockSpawnExit(0);
-
-    await expect(startManualUpdate('0.4.0')).resolves.toEqual({
-      status: 'started',
-      version: '0.5.0',
-      installOnRestart: false,
-    });
-    await flushBackgroundInstall();
-    expect(mocks.spawn).toHaveBeenCalledTimes(1);
-  });
-
-  it('npm-global: still starts the update when the manifest omits the running platform', async () => {
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWithManifest(manifestOmittingRunningTarget('0.5.0')));
-    mocks.detectInstallSource.mockResolvedValue('npm-global');
-    mockSpawnExit(0);
-
-    await expect(startManualUpdate('0.4.0')).resolves.toEqual({
-      status: 'started',
-      version: '0.5.0',
-      installOnRestart: false,
-    });
-  });
-
-  it('starts a background install for an auto-installable source', async () => {
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.detectInstallSource.mockResolvedValue('npm-global');
-    mockSpawnExit(0);
-
-    await expect(startManualUpdate('0.4.0')).resolves.toEqual({
-      status: 'started',
-      version: '0.5.0',
-      installOnRestart: false,
-    });
-    await flushBackgroundInstall();
-    expect(mocks.spawn).toHaveBeenCalledTimes(1);
-  });
-
-  it('ignores the rollout hold — an explicit request installs immediately', async () => {
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWithManifest(heldForEveryone('0.5.0')));
-    mocks.detectInstallSource.mockResolvedValue('npm-global');
-    mockSpawnExit(0);
-
-    await expect(startManualUpdate('0.4.0')).resolves.toEqual({
-      status: 'started',
-      version: '0.5.0',
-      installOnRestart: false,
-    });
-  });
-
-  it('ignores auto_install=false — the user explicitly asked to update', async () => {
-    disableAutoInstall();
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.detectInstallSource.mockResolvedValue('npm-global');
-    mockSpawnExit(0);
-
-    await expect(startManualUpdate('0.4.0')).resolves.toEqual({
-      status: 'started',
-      version: '0.5.0',
-      installOnRestart: false,
-    });
-  });
-
-  it('prepares a Homebrew update for installation on the next launch', async () => {
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.detectInstallSource.mockResolvedValue('homebrew');
-    const child = Object.assign(new EventEmitter(), { pid: 42_424, unref: vi.fn() });
-    mocks.spawn.mockImplementation(() => {
-      queueMicrotask(() => { child.emit('spawn'); });
-      return child;
-    });
-
-    await expect(startManualUpdate('0.4.0')).resolves.toEqual({
-      status: 'started',
-      version: '0.5.0',
-      installOnRestart: true,
-    });
-    expect(mocks.spawn).toHaveBeenCalledWith(
-      process.execPath,
-      [
-        process.argv[1],
-        '__update_helper',
-        'prepare-homebrew',
-        expect.any(String),
-        '0.5.0',
-        'manual',
-      ],
-      expect.objectContaining({ detached: true, stdio: 'ignore' }),
-    );
-    expect(mocks.spawn).toHaveBeenCalledOnce();
-  });
-
-  it('clears the preparation lease when the detached helper cannot start', async () => {
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.detectInstallSource.mockResolvedValue('homebrew');
-    mocks.spawn.mockImplementation(() => { throw new Error('spawn failed'); });
-
-    await expect(startManualUpdate('0.4.0')).resolves.toEqual({
-      status: 'check-failed',
-      message: 'spawn failed',
-    });
-    expect(writeUpdateInstallState).toHaveBeenLastCalledWith(expect.objectContaining({
-      active: null,
-      lastFailure: expect.objectContaining({
-        version: '0.5.0',
-        operation: 'prepare',
-        message: 'spawn failed',
-      }),
-    }));
-  });
-
-  it('promotes a prepared automatic update when the user explicitly requests it', async () => {
-    const pending = preparedHomebrewUpdate();
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.detectInstallSource.mockResolvedValue('homebrew');
-    mocks.readUpdateInstallState.mockResolvedValue(installState({ pending }));
-
-    await expect(startManualUpdate('0.4.0')).resolves.toEqual({
-      status: 'in-progress',
-      installingVersion: '0.5.0',
-      installOnRestart: true,
-      readyToInstall: true,
-    });
-    expect(writeUpdateInstallState).toHaveBeenCalledWith(expect.objectContaining({
-      pending: { ...pending, requestedBy: 'manual' },
-    }));
-    expect(mocks.spawn).not.toHaveBeenCalled();
-  });
-
-  it('reports an install already in progress instead of double-starting', async () => {
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.detectInstallSource.mockResolvedValue('npm-global');
-    mocks.readUpdateInstallState.mockResolvedValue(installState({
-      active: { version: '0.5.0', source: 'npm-global', startedAt: new Date().toISOString() },
-    }));
-
-    await expect(startManualUpdate('0.4.0')).resolves.toEqual({
-      status: 'in-progress',
-      installingVersion: '0.5.0',
-      installOnRestart: false,
-      readyToInstall: false,
-    });
-    expect(mocks.spawn).not.toHaveBeenCalled();
-  });
-
-  it('reports both the running older install and the newer target it will follow', async () => {
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.11.0'));
-    mocks.detectInstallSource.mockResolvedValue('npm-global');
-    mocks.readUpdateInstallState.mockResolvedValue(installState({
-      active: { version: '0.10.0', source: 'npm-global', startedAt: new Date().toISOString() },
-    }));
-
-    await expect(startManualUpdate('0.9.0')).resolves.toEqual({
-      status: 'in-progress',
-      installingVersion: '0.10.0',
-      targetVersion: '0.11.0',
-      installOnRestart: false,
-      readyToInstall: false,
-    });
-    expect(mocks.spawn).not.toHaveBeenCalled();
-  });
-
-  it('does not claim the target supersedes an active install of a newer version', async () => {
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.10.0'));
-    mocks.detectInstallSource.mockResolvedValue('npm-global');
-    mocks.readUpdateInstallState.mockResolvedValue(installState({
-      active: { version: '0.11.0', source: 'npm-global', startedAt: new Date().toISOString() },
-    }));
-
-    await expect(startManualUpdate('0.9.0')).resolves.toEqual({
-      status: 'in-progress',
-      installingVersion: '0.11.0',
-      installOnRestart: false,
-      readyToInstall: false,
-    });
-    expect(mocks.spawn).not.toHaveBeenCalled();
-  });
-
-  it('keeps installOnRestart for a fresh homebrew active install', async () => {
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.detectInstallSource.mockResolvedValue('homebrew');
-    mocks.readUpdateInstallState.mockResolvedValue(installState({
-      active: { version: '0.5.0', source: 'homebrew', startedAt: new Date().toISOString() },
-    }));
-
-    await expect(startManualUpdate('0.4.0')).resolves.toEqual({
-      status: 'in-progress',
-      installingVersion: '0.5.0',
-      installOnRestart: true,
-      readyToInstall: false,
-    });
-    expect(mocks.spawn).not.toHaveBeenCalled();
-  });
-
-  it('reports a parked version as failed with the recorded attempts and reason', async () => {
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.detectInstallSource.mockResolvedValue('npm-global');
-    mocks.readUpdateInstallState.mockResolvedValue(installState({
-      lastFailure: {
-        version: '0.5.0',
-        failedAt: '2026-08-05T08:00:00.000Z',
-        attempts: 2,
-        operation: 'install',
-        message: 'npm exited with code 1',
-      },
-    }));
-
-    const result = await startManualUpdate('0.4.0');
-    expect(result).toEqual({
-      status: 'failed',
-      version: '0.5.0',
-      attempts: 2,
-      failedAt: '2026-08-05T08:00:00.000Z',
-      message: 'npm exited with code 1',
-      command: 'npm install -g @pymodel/pythinker-code@0.5.0',
-    });
-    expect(mocks.spawn).not.toHaveBeenCalled();
-  });
-
-  it('still attempts the install one failure below the parked threshold', async () => {
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.detectInstallSource.mockResolvedValue('npm-global');
-    mocks.readUpdateInstallState.mockResolvedValue(installState({
-      lastFailure: {
-        version: '0.5.0',
-        failedAt: '2026-08-05T08:00:00.000Z',
-        attempts: 1,
-        message: 'npm exited with code 1',
-      },
-    }));
-    mockSpawnExit(0);
-
-    await expect(startManualUpdate('0.4.0')).resolves.toEqual({
-      status: 'started',
-      version: '0.5.0',
-      installOnRestart: false,
-    });
-    await flushBackgroundInstall();
-    expect(mocks.spawn).toHaveBeenCalledTimes(1);
-  });
-
-  it('still attempts the install when the parked failures belong to another version', async () => {
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.detectInstallSource.mockResolvedValue('npm-global');
-    mocks.readUpdateInstallState.mockResolvedValue(installState({
-      lastFailure: {
-        version: '0.4.1',
-        failedAt: '2026-08-05T08:00:00.000Z',
-        attempts: 2,
-        message: 'npm exited with code 1',
-      },
-    }));
-    mockSpawnExit(0);
-
-    await expect(startManualUpdate('0.4.0')).resolves.toEqual({
-      status: 'started',
-      version: '0.5.0',
-      installOnRestart: false,
-    });
-    await flushBackgroundInstall();
-    expect(mocks.spawn).toHaveBeenCalledTimes(1);
-  });
-
-  it('reports in-progress when a fresh install runs despite a parked failure', async () => {
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.detectInstallSource.mockResolvedValue('npm-global');
-    mocks.readUpdateInstallState.mockResolvedValue(installState({
-      active: { version: '0.5.0', source: 'npm-global', startedAt: new Date().toISOString() },
-      lastFailure: {
-        version: '0.5.0',
-        failedAt: '2026-08-05T08:00:00.000Z',
-        attempts: 2,
-        message: 'npm exited with code 1',
-      },
-    }));
-
-    await expect(startManualUpdate('0.4.0')).resolves.toEqual({
-      status: 'in-progress',
-      installingVersion: '0.5.0',
-      installOnRestart: false,
-      readyToInstall: false,
-    });
-    expect(mocks.spawn).not.toHaveBeenCalled();
-  });
-
-  it('omits the reason when the recorded failure carries none', async () => {
-    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    mocks.detectInstallSource.mockResolvedValue('npm-global');
-    mocks.readUpdateInstallState.mockResolvedValue(installState({
-      lastFailure: {
-        version: '0.5.0',
-        failedAt: '2026-08-05T08:00:00.000Z',
-        attempts: 2,
-      },
-    }));
-
-    const result = await startManualUpdate('0.4.0');
-    expect(result).toEqual({
-      status: 'failed',
-      version: '0.5.0',
-      attempts: 2,
-      failedAt: '2026-08-05T08:00:00.000Z',
-      command: 'npm install -g @pymodel/pythinker-code@0.5.0',
-    });
-    expect(mocks.spawn).not.toHaveBeenCalled();
-  });
-
-  it('reports check-failed when the registry refresh fails', async () => {
-    mocks.refreshUpdateCache.mockRejectedValue(new Error('offline'));
-
-    await expect(startManualUpdate('0.4.0')).resolves.toEqual({
-      status: 'check-failed',
-      message: 'offline',
-    });
-  });
 });

@@ -1,8 +1,8 @@
 export default {
   title: 'Question',
   step: 'Q{current}/{total}',
-  prev: '‹ Prev',
-  next: 'Next ›',
+  back: '‹ Back',
+  nextQuestion: 'Next question ›',
   otherDefault: 'Other…',
   notes: 'Notes',
   notesPlaceholder: 'Add notes on this option…',

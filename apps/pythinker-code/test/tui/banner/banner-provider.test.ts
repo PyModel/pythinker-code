@@ -23,7 +23,6 @@ describe('selectBannerState', () => {
   }
 
   it('returns the active banner when enabled and no time window is set', () => {
-    expect.hasAssertions();
     const result = selectBannerState(
       {
         banner_enabled: true,
@@ -68,8 +67,65 @@ describe('selectBannerState', () => {
     expect(result).toBeNull();
   });
 
+  it('shows the active banner only below banner_max_version', () => {
+    const json = {
+      banner_enabled: true,
+      banner_maintext: 'Upgrade',
+      banner_max_version: '0.15.0',
+    };
+    expect(selectBannerState(json, '0.14.0', now, () => 0)).toMatchObject({
+      mainText: 'Upgrade',
+    });
+    expect(selectBannerState(json, '0.15.0', now, () => 0)).toBeNull();
+    expect(selectBannerState(json, '0.16.0', now, () => 0)).toBeNull();
+  });
+
+  it('shows the active banner only on the exact banner_version', () => {
+    const json = {
+      banner_enabled: true,
+      banner_maintext: 'Pinned',
+      banner_version: '0.14.0',
+    };
+    expect(selectBannerState(json, '0.14.0', now, () => 0)).toMatchObject({
+      mainText: 'Pinned',
+    });
+    expect(selectBannerState(json, '0.14.1', now, () => 0)).toBeNull();
+    expect(selectBannerState(json, '0.13.9', now, () => 0)).toBeNull();
+  });
+
+  it('combines min and max version as an inclusive-exclusive range', () => {
+    const json = {
+      banner_enabled: true,
+      banner_maintext: 'Range',
+      banner_min_version: '0.13.0',
+      banner_max_version: '0.15.0',
+    };
+    expect(selectBannerState(json, '0.12.9', now, () => 0)).toBeNull();
+    expect(selectBannerState(json, '0.13.0', now, () => 0)).not.toBeNull();
+    expect(selectBannerState(json, '0.14.9', now, () => 0)).not.toBeNull();
+    expect(selectBannerState(json, '0.15.0', now, () => 0)).toBeNull();
+  });
+
+  it('filters out the banner when a version constraint is not valid semver', () => {
+    for (const constraint of [
+      { banner_max_version: 'not-a-version' },
+      { banner_version: 'not-a-version' },
+    ]) {
+      const result = selectBannerState(
+        {
+          banner_enabled: true,
+          banner_maintext: 'Broken',
+          ...constraint,
+        },
+        '0.14.0',
+        now,
+        () => 0,
+      );
+      expect(result).toBeNull();
+    }
+  });
+
   it('picks a random enabled fallback when the active banner is not shown', () => {
-    expect.hasAssertions();
     const result = selectBannerState(
       {
         banner_enabled: false,
@@ -87,7 +143,6 @@ describe('selectBannerState', () => {
   });
 
   it('filters out fallback entries when the client version is too low', () => {
-    expect.hasAssertions();
     const result = selectBannerState(
       {
         banner_enabled: false,
@@ -102,6 +157,24 @@ describe('selectBannerState', () => {
       () => 0,
     );
     expectAlwaysBanner(result, { tag: null, mainText: 'Old tip', subText: null });
+  });
+
+  it('filters out fallback entries by max and exact version', () => {
+    const result = selectBannerState(
+      {
+        banner_enabled: false,
+        banner_fallback_enabled: true,
+        banner_fallback_list: [
+          { enabled: true, banner_maintext: 'Too new', banner_max_version: '0.14.0' },
+          { enabled: true, banner_maintext: 'Other version', banner_version: '0.13.0' },
+          { enabled: true, banner_maintext: 'Matching', banner_version: '0.14.0' },
+        ],
+      },
+      '0.14.0',
+      now,
+      () => 0.99,
+    );
+    expectAlwaysBanner(result, { tag: null, mainText: 'Matching', subText: null });
   });
 
   it('returns null when no enabled fallback entries exist', () => {
@@ -123,7 +196,6 @@ describe('selectBannerState', () => {
   });
 
   it('falls back to the fallback list when banner_enabled is missing', () => {
-    expect.hasAssertions();
     const result = selectBannerState(
       {
         banner_fallback_enabled: true,
@@ -137,7 +209,6 @@ describe('selectBannerState', () => {
   });
 
   it('treats an empty tag as null while still showing the banner', () => {
-    expect.hasAssertions();
     const result = selectBannerState(
       {
         banner_enabled: true,
@@ -152,7 +223,6 @@ describe('selectBannerState', () => {
   });
 
   it('makes the active banner unavailable when mainText is empty', () => {
-    expect.hasAssertions();
     const result = selectBannerState(
       {
         banner_enabled: true,
@@ -169,7 +239,6 @@ describe('selectBannerState', () => {
   });
 
   it('treats missing subtext as null', () => {
-    expect.hasAssertions();
     const result = selectBannerState(
       {
         banner_enabled: true,
@@ -183,7 +252,6 @@ describe('selectBannerState', () => {
   });
 
   it('treats empty time fields as always valid', () => {
-    expect.hasAssertions();
     const result = selectBannerState(
       {
         banner_enabled: true,
@@ -199,7 +267,6 @@ describe('selectBannerState', () => {
   });
 
   it('falls back to UTC when timestamps have no timezone', () => {
-    expect.hasAssertions();
     const result = selectBannerState(
       {
         banner_enabled: true,

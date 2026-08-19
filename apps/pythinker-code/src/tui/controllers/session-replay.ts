@@ -3,26 +3,32 @@ import type {
   ContextMessage,
   GoalChange,
   PermissionMode,
-  PromptOrigin,
   ResumedAgentState,
   Session,
   ToolCall,
 } from '@pymodel/pythinker-code-sdk';
 
 import { ToolCallComponent } from '../components/messages/tool-call';
+import { ReplayTurnBoundaryComponent } from '../components/messages/user-message';
+import { currentTheme } from '../theme';
+import type { TodoItem } from '../components/chrome/todo-panel';
 import type {
   AppState,
   BackgroundAgentMetadata,
   ToolResultBlockData,
   TranscriptEntry,
 } from '../types';
-import { formatErrorMessage, normalizeTodoList } from '../utils/event-payload';
+import { formatErrorMessage, isTodoItemShape } from '../utils/event-payload';
 import { formatBackgroundAgentTranscript } from '../utils/background-agent-status';
 import { formatBackgroundTaskTranscript } from '../utils/background-task-status';
+import { modelDisplayName } from '../components/dialogs/model-selector';
 import { buildGoalCompletionMessage } from '../utils/goal-completion';
+import { formatBashOutputForDisplay } from '../utils/shell-output';
+import { markTranscriptComponent } from '../utils/transcript-component-metadata';
 import {
   appStateFromResumeAgent,
   backgroundOrigin,
+  bundledSkillsFromOrigin,
   collectReplayMessageContent,
   contentPartsToText,
   countActiveBackgroundTasks,
@@ -34,15 +40,18 @@ import {
   replayBackgroundProjection,
   replayEntry,
   skillActivationFromOrigin,
+  stripBundledSkillParts,
+  pluginCommandFromOrigin,
   toolCallFromReplayMessage,
   toolResultOutput,
+  type BackgroundTaskNotificationOrigin,
   type ReplayRenderContext,
   type SkillActivationProjection,
+  type PluginCommandProjection,
 } from '../utils/message-replay';
 import type { StreamingUIController } from './streaming-ui';
 import type { SessionEventHandler } from './session-event-handler';
 import type { TUIState } from '../tui-state';
-import type { FooterEvent } from '../runtime/footer/footer-model';
 
 type GoalReplayRecord = Extract<AgentReplayRecord, { type: 'goal_updated' }>;
 type CompactionReplayRecord = Extract<AgentReplayRecord, { type: 'compaction' }>;
@@ -53,9 +62,52 @@ export interface SessionReplayHost {
   readonly streamingUI: StreamingUIController;
   readonly sessionEventHandler: SessionEventHandler;
   setAppState(patch: Partial<AppState>): void;
-  dispatchFooter(event: FooterEvent): void;
   showError(msg: string): void;
   appendTranscriptEntry(entry: TranscriptEntry): void;
+  mergeAllTurnSteps(): void;
+}
+
+function extractBashTag(
+  text: string,
+  tag: 'bash-input' | 'bash-stdout' | 'bash-stderr',
+): string | undefined {
+  const match = new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`).exec(text);
+  return match?.[1] === undefined ? undefined : unescapeBashXml(match[1]);
+}
+
+function unescapeBashXml(text: string): string {
+  return text
+    .replaceAll('&lt;', '<')
+    .replaceAll('&gt;', '>')
+    .replaceAll('&quot;', '"')
+    .replaceAll('&amp;', '&');
+}
+
+/**
+ * Replay records within the turn limit, but never cut between a bundled
+ * prompt and the hook results recorded immediately before it: when the
+ * limiter's first retained record is a bundled prompt, the consecutive
+ * preceding hook results are pulled back into the window so the oldest
+ * visible bundle keeps its hook context.
+ */
+function preserveBundleHookResults(
+  replay: readonly AgentReplayRecord[],
+  maxTurns: number,
+): readonly AgentReplayRecord[] {
+  const limited = limitReplayRecordsByTurn(replay, maxTurns);
+  const first = limited[0];
+  if (first?.type !== 'message' || bundledSkillsFromOrigin(first.message.origin).length === 0) {
+    return limited;
+  }
+  const firstIndex = replay.indexOf(first);
+  if (firstIndex < 0) return limited;
+  let start = firstIndex;
+  for (;;) {
+    const candidate = replay[start - 1];
+    if (candidate?.type !== 'message' || candidate.message.origin?.kind !== 'hook_result') break;
+    start -= 1;
+  }
+  return start === firstIndex ? limited : [...replay.slice(start, firstIndex), ...limited];
 }
 
 export class SessionReplayRenderer {
@@ -73,6 +125,7 @@ export class SessionReplayRenderer {
       this.hydrateSnapshot(main);
       this.renderRecords(main);
       this.applyTerminalBackgroundAgentStatuses(main);
+      this.host.mergeAllTurnSteps();
       return true;
     } catch (error) {
       const message = formatErrorMessage(error);
@@ -100,7 +153,15 @@ export class SessionReplayRenderer {
       return;
     }
 
-    this.host.streamingUI.setTodoList(normalizeTodoList(rawTodos));
+    const todos = rawTodos
+      .filter((todo): todo is TodoItem => isTodoItemShape(todo))
+      .map((todo) => ({ title: todo.title, status: todo.status }));
+    if (todos.length > 0 && todos.every((todo) => todo.status === 'done')) {
+      this.host.streamingUI.setTodoList([]);
+      return;
+    }
+
+    this.host.streamingUI.setTodoList(todos);
   }
 
   /**
@@ -136,8 +197,8 @@ export class SessionReplayRenderer {
 
   private hydrateBackgroundState(agent: ResumedAgentState): void {
     const { state, sessionEventHandler } = this.host;
-    const projection = replayBackgroundProjection(agent.background);
-    sessionEventHandler.subAgentEventHandler.hydrateBackgroundAgentMetadata(
+    const projection = replayBackgroundProjection(agent.background, state.appState.availableModels);
+    sessionEventHandler.subAgentEventHandler.backgroundAgentMetadata = new Map(
       projection.backgroundAgentMetadata,
     );
     sessionEventHandler.backgroundTasks.clear();
@@ -150,10 +211,7 @@ export class SessionReplayRenderer {
         sessionEventHandler.backgroundTaskTranscriptedTerminal.add(info.taskId);
       }
     }
-    this.host.dispatchFooter({
-      type: 'background-counts.updated',
-      counts: countActiveBackgroundTasks(sessionEventHandler.backgroundTasks),
-    });
+    state.footer.setBackgroundCounts(countActiveBackgroundTasks(sessionEventHandler.backgroundTasks));
     state.ui.requestRender();
   }
 
@@ -163,11 +221,46 @@ export class SessionReplayRenderer {
 
   private renderRecords(agent: ResumedAgentState): void {
     const context = createReplayRenderContext();
-    for (const record of limitReplayRecordsByTurn(agent.replay, REPLAY_TURN_LIMIT)) {
-      this.renderRecord(context, record);
+    const records = [...preserveBundleHookResults(agent.replay, REPLAY_TURN_LIMIT)];
+    for (let i = 0; i < records.length; i++) {
+      i = this.renderRecordWithBundleLookahead(context, records, i);
     }
     this.flushAssistant(context);
     this.cleanupRuntime(context);
+  }
+
+  private renderRecordWithBundleLookahead(
+    context: ReplayRenderContext,
+    records: readonly AgentReplayRecord[],
+    index: number,
+  ): number {
+    const record = records[index]!;
+    // Hook results recorded ahead of a bundled prompt are projected inside
+    // the bundle's window — after its skill cards, before the prompt —
+    // matching the live event order instead of attaching them to the
+    // previous turn.
+    if (record.type === 'message' && record.message.origin?.kind === 'hook_result') {
+      let end = index;
+      for (;;) {
+        const candidate = records[end + 1];
+        if (candidate?.type !== 'message' || candidate.message.origin?.kind !== 'hook_result') {
+          break;
+        }
+        end += 1;
+      }
+      const next = records[end + 1];
+      if (next?.type === 'message' && bundledSkillsFromOrigin(next.message.origin).length > 0) {
+        const hookResults: ContextMessage[] = [];
+        for (let j = index; j <= end; j++) {
+          const hookRecord = records[j]!;
+          if (hookRecord.type === 'message') hookResults.push(hookRecord.message);
+        }
+        this.renderBundledPrompt(context, next.message, hookResults);
+        return end + 1;
+      }
+    }
+    this.renderRecord(context, record);
+    return index;
   }
 
   private renderRecord(context: ReplayRenderContext, record: AgentReplayRecord): void {
@@ -245,6 +338,28 @@ export class SessionReplayRenderer {
     if (message.origin?.kind === 'injection') {
       return;
     }
+    if (message.origin?.kind === 'shell_command') {
+      // A `!` command, replayed from records. Unwrap the XML tags back into the
+      // same `$ cmd` + output view the live editor produced. (Must NOT fall into
+      // the `injection` branch above — that returns without rendering.)
+      this.flushAssistant(context);
+      const text = contentPartsToText(message.content);
+      if (message.origin.phase === 'input') {
+        const cmd = (extractBashTag(text, 'bash-input') ?? text).trim();
+        this.advanceTurn(context);
+        this.host.appendTranscriptEntry(
+          replayEntry(context, 'user', currentTheme.fg('shellMode', `$ ${cmd}`), 'plain', {
+            bullet: '',
+          }),
+        );
+      } else {
+        const stdout = (extractBashTag(text, 'bash-stdout') ?? '').trim();
+        const stderr = (extractBashTag(text, 'bash-stderr') ?? '').trim();
+        const out = formatBashOutputForDisplay(stdout, stderr, message.origin.isError);
+        this.host.appendTranscriptEntry(replayEntry(context, 'status', out, 'plain'));
+      }
+      return;
+    }
     if (message.origin?.kind === 'cron_job') {
       this.renderCronJob(context, message);
       return;
@@ -253,12 +368,19 @@ export class SessionReplayRenderer {
       this.renderCronMissed(context, message);
       return;
     }
-    // System-trigger messages are model-facing only. The live event stream and
-    // markdown exporter hide them, so resume replay must do the same.
+    // System-trigger messages (goal continuation prompts, goal outcome
+    // reminders, stop-hook reasons, …) are model-facing only: the live event
+    // stream never renders them, so replay must not leak them either.
     if (message.origin?.kind === 'system_trigger') {
       if (message.origin.name === 'goal_continuation') {
-        this.flushAssistant(context);
+        // The goal driver's synthetic "continue" prompt starts a new replay
+        // turn even though nothing visible is mounted: advance the turn and
+        // mark an invisible boundary so each goal round groups under its own
+        // turn and step/assistant folding can find the turn edges.
         this.advanceTurn(context);
+        const boundary = new ReplayTurnBoundaryComponent();
+        markTranscriptComponent(boundary, replayEntry(context, 'user', '', 'plain'));
+        this.host.state.transcriptContainer.addChild(boundary);
       }
       return;
     }
@@ -272,12 +394,47 @@ export class SessionReplayRenderer {
       }
       return;
     }
+    const pluginCommand = pluginCommandFromOrigin(message.origin);
+    if (pluginCommand !== undefined) {
+      this.renderPluginCommand(context, pluginCommand);
+      if (message.origin?.kind === 'plugin_command' && message.origin.trigger === 'user-slash') {
+        this.advanceTurn(context);
+      }
+      return;
+    }
 
+    if (bundledSkillsFromOrigin(message.origin).length > 0) {
+      this.renderBundledPrompt(context, message);
+      return;
+    }
     this.advanceTurn(context);
-    this.host.appendTranscriptEntry({
-      ...replayEntry(context, 'user', contentPartsToText(message.content), 'plain'),
-      checkpointId: message.origin?.kind === 'user' ? message.origin.checkpointId : undefined,
-    });
+    this.host.appendTranscriptEntry(
+      replayEntry(context, 'user', contentPartsToText(message.content), 'plain'),
+    );
+  }
+
+  private renderBundledPrompt(
+    context: ReplayRenderContext,
+    message: ContextMessage,
+    hookResults: readonly ContextMessage[] = [],
+  ): void {
+    // The bundle is one message: advance once, rebuild the per-skill cards
+    // from the prompt origin, then show the caller's own parts (the engine
+    // prepends one rendered text part per bundled skill to the content).
+    this.advanceTurn(context);
+    this.renderBundledSkillCards(context, message);
+    for (const hookResult of hookResults) {
+      this.renderHookResult(context, hookResult);
+    }
+    this.host.appendTranscriptEntry(
+      replayEntry(context, 'user', contentPartsToText(stripBundledSkillParts(message)), 'plain'),
+    );
+  }
+
+  private renderBundledSkillCards(context: ReplayRenderContext, message: ContextMessage): void {
+    for (const skill of bundledSkillsFromOrigin(message.origin)) {
+      this.renderSkillActivation(context, skill);
+    }
   }
 
   private renderToolCalls(context: ReplayRenderContext, toolCalls: readonly ToolCall[]): void {
@@ -363,11 +520,37 @@ export class SessionReplayRenderer {
     sessionEventHandler.renderedSkillActivationIds.add(skill.activationId);
     this.host.appendTranscriptEntry({
       ...replayEntry(context, 'skill_activation', `Activated skill: ${skill.skillName}`, 'plain'),
-      checkpointId: skill.checkpointId,
       skillActivationId: skill.activationId,
       skillName: skill.skillName,
       skillArgs: skill.skillArgs,
       skillTrigger: skill.trigger,
+      bundledWithPrompt: skill.bundled === true ? true : undefined,
+    });
+  }
+
+  private renderPluginCommand(
+    context: ReplayRenderContext,
+    command: PluginCommandProjection,
+  ): void {
+    const { sessionEventHandler } = this.host;
+    if (context.pluginCommandActivationIds.has(command.activationId)) return;
+    if (sessionEventHandler.renderedPluginCommandActivationIds.has(command.activationId)) return;
+    context.pluginCommandActivationIds.add(command.activationId);
+    sessionEventHandler.renderedPluginCommandActivationIds.add(command.activationId);
+    this.host.appendTranscriptEntry({
+      ...replayEntry(
+        context,
+        'plugin_command',
+        `/${command.pluginId}:${command.commandName}`,
+        'plain',
+      ),
+      pluginCommandData: {
+        activationId: command.activationId,
+        pluginId: command.pluginId,
+        commandName: command.commandName,
+        args: command.commandArgs,
+        trigger: command.trigger,
+      },
     });
   }
 
@@ -388,6 +571,7 @@ export class SessionReplayRenderer {
     this.host.appendTranscriptEntry({
       ...replayEntry(context, 'status', 'Compaction complete', 'plain'),
       compactionData: {
+        summary: record.result.summary,
         tokensBefore: record.result.tokensBefore,
         tokensAfter: record.result.tokensAfter,
         instruction: record.instruction,
@@ -435,8 +619,8 @@ export class SessionReplayRenderer {
   private renderHookResult(context: ReplayRenderContext, message: ContextMessage): void {
     if (message.origin?.kind !== 'hook_result') return;
     this.flushAssistant(context);
-    this.host.appendTranscriptEntry(
-      replayEntry(
+    this.host.appendTranscriptEntry({
+      ...replayEntry(
         context,
         'assistant',
         formatHookResultMessageForTranscript(
@@ -446,7 +630,8 @@ export class SessionReplayRenderer {
         ),
         'markdown',
       ),
-    );
+      hookResult: true,
+    });
   }
 
   private renderCronJob(context: ReplayRenderContext, message: ContextMessage): void {
@@ -569,13 +754,15 @@ export class SessionReplayRenderer {
       (child) => child instanceof ToolCallComponent && child.toolCallView.id === toolCallId,
     );
     if (childIndex >= 0) {
+      // Structural removal only: the container's ref-checked render cache
+      // detects the child-list change; no tree-wide invalidate needed.
       children.splice(childIndex, 1);
     }
   }
 
   private renderBackgroundTaskNotification(
     context: ReplayRenderContext,
-    origin: Extract<PromptOrigin, { kind: 'background_task' }>,
+    origin: BackgroundTaskNotificationOrigin,
   ): void {
     const { sessionEventHandler } = this.host;
     const task = sessionEventHandler.backgroundTasks.get(origin.taskId);
@@ -594,6 +781,19 @@ export class SessionReplayRenderer {
       agentId: origin.taskId,
       parentToolCallId: origin.taskId,
       description: task?.description,
+      model:
+        task?.model === undefined
+          ? undefined
+          : modelDisplayName(
+              task.model,
+              this.host.state.appState.availableModels[task.model],
+            ),
+      effort:
+        task?.thinkingEffort === undefined ||
+        task.thinkingEffort === 'off' ||
+        task.thinkingEffort === 'on'
+          ? undefined
+          : task.thinkingEffort,
     };
     let status = formatBackgroundAgentTranscript(
       origin.status === 'completed' ? 'completed' : 'failed',

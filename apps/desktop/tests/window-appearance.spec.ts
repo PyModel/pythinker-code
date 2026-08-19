@@ -1,5 +1,7 @@
 // Static check: no Windows host exists in CI or locally, so this test guards the
 // window configuration rather than the rendered result.
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { windowAppearanceOptions } from '../src/window-options'
 
@@ -42,5 +44,13 @@ describe('desktop window appearance configuration', () => {
       titleBarOverlay: { color: '#00000000', symbolColor: '#7f858f', height: 44 },
       backgroundColor: '#161616',
     })
+  })
+
+  it('marks the renderer URL as desktop and includes the platform', () => {
+    const main = readFileSync(join(import.meta.dirname, '../src/main.ts'), 'utf8')
+
+    expect(main).toContain("rendererUrl.searchParams.set('pythinker_desktop', '1')")
+    expect(main).toContain("rendererUrl.searchParams.set('platform', process.platform)")
+    expect(main).not.toContain("rendererUrl.searchParams.set('pythinker-desktop-platform'")
   })
 })

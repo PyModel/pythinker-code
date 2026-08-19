@@ -1,11 +1,11 @@
-import type { Terminal } from '@earendil-works/pi-tui';
+import type { Terminal } from '@pymodel/pi-tui';
 import type { BackgroundTaskInfo } from '@pymodel/pythinker-code-sdk';
 import { describe, expect, it, vi } from 'vitest';
 
 import { TaskOutputViewer } from '@/tui/components/dialogs/task-output-viewer';
 import { darkColors } from '@/tui/theme/colors';
 
-const ANSI_SGR = /\u001B\[[0-9;]*m/g;
+const ANSI_SGR = /\[[0-9;]*m/g;
 function strip(text: string): string {
   return text.replaceAll(ANSI_SGR, '');
 }
@@ -111,6 +111,17 @@ describe('TaskOutputViewer — rendering', () => {
     expect(out).toContain('delta');
     expect(out).toContain('echo');
   });
+
+  it('does not pass terminal controls from task output into the framed body', () => {
+    const rendered = makeViewer({
+      output: 'Downloading wheel 25%\rDownloading wheel 75%\u001B[2Jdone',
+    }).render(120);
+    const raw = rendered.join('\n');
+
+    expect(raw).not.toContain('\r');
+    expect(raw).not.toContain('\u001B[2J');
+    expect(strip(raw)).toContain('Downloading wheel 25%Downloading wheel 75%done');
+  });
 });
 
 describe('TaskOutputViewer — scrolling', () => {
@@ -144,31 +155,22 @@ describe('TaskOutputViewer — scrolling', () => {
     expect(out).not.toContain('line-001');
   });
 
-  it.each([
-    ['legacy', '\u0006'],
-    ['Kitty CSI-u', '\u001B[102;5u'],
-  ])('%s ctrl+f pages down', (_encoding, key) => {
+  it('Ctrl+D scrolls a page down', () => {
     const viewer = makeViewer({ output: bigOutput(50), rows: 12 });
-
-    viewer.handleInput(key);
-
+    viewer.handleInput('\u0004'); // Ctrl+D
     const out = strip(viewer.render(120).join('\n'));
+    // Same page size as PageDown: body has 8 viewable rows, page = 7 lines.
     expect(out).toContain('line-008');
     expect(out).not.toContain('line-001');
   });
 
-  it.each([
-    ['legacy', '\u0002'],
-    ['Kitty CSI-u', '\u001B[98;5u'],
-  ])('%s ctrl+b pages up', (_encoding, key) => {
+  it('Ctrl+U scrolls a page up', () => {
     const viewer = makeViewer({ output: bigOutput(50), rows: 12 });
-    viewer.handleInput('\u001B[6~');
-
-    viewer.handleInput(key);
-
+    viewer.handleInput('G'); // jump to bottom first
+    viewer.handleInput('\u0015'); // Ctrl+U
     const out = strip(viewer.render(120).join('\n'));
-    expect(out).toContain('line-001');
-    expect(out).not.toContain('line-009');
+    expect(out).toContain('line-036');
+    expect(out).not.toContain('line-050');
   });
 
   it('G jumps to the bottom', () => {

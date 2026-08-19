@@ -276,14 +276,14 @@ export function flushDiagnosticLogs(): Promise<boolean> {
   return getRootInternal().flush();
 }
 
-export async function enableDiagnosticDebugLogging(): Promise<LogLevel | undefined> {
-  const root = getRootInternal();
-  const config = root.getConfig();
-  if (config === undefined) return undefined;
-  if (config.level !== 'debug') {
-    await root.configure({ ...config, level: 'debug' });
-  }
-  return config.level;
+/**
+ * Synchronous variant for crash / emergency-exit paths that call
+ * `process.exit()` on the same tick: pending entries are appended with
+ * `appendFileSync`, so they survive the immediate exit that would otherwise
+ * drop everything still sitting in the async queue.
+ */
+export function flushDiagnosticLogsSync(): void {
+  getRootInternal().flushSync();
 }
 
 class LoggerImpl implements Logger {

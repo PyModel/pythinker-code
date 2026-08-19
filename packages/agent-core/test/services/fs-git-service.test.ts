@@ -94,7 +94,7 @@ async function waitForSpawn(n: number): Promise<void> {
 }
 
 function finishLatest(out: string, code: number): void {
-  const child = spawned.at(-1);
+  const child = spawned[spawned.length - 1];
   if (child === undefined) throw new Error('no child to finish');
   child.finish(out, code);
 }
@@ -132,6 +132,22 @@ describe('FsGitService pull request lookup', () => {
       state: 'open',
       url: 'https://github.com/acme/repo/pull/12',
     });
+  });
+
+  it('reports a draft pull request as draft state', async () => {
+    ghResponse = {
+      out: '{"number":7,"url":"https://github.com/acme/repo/pull/7","state":"OPEN","isDraft":true}\n',
+      code: 0,
+    };
+    const service = new FsGitService(sessions);
+    const result = await driveStatus(service);
+    expect(result.pullRequest).toEqual({
+      number: 7,
+      state: 'draft',
+      url: 'https://github.com/acme/repo/pull/7',
+    });
+    const gh = spawned.find((c) => c.cmd === 'gh');
+    expect(gh?.args).toContain('number,url,state,isDraft');
   });
 
   it('returns null pull request when gh exits non-zero', async () => {

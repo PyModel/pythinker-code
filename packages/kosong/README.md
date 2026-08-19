@@ -1,6 +1,6 @@
-# Any LLM
+# @pymodel/kosong
 
-LLM and provider abstraction layer used by Pythinker Code (`@pymodel/kosong`).
+LLM abstraction layer used by Pythinker Code.
 
 Part of the [Pythinker Code](https://github.com/PyModel/pythinker-code) monorepo.
 

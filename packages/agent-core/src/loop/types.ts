@@ -78,6 +78,20 @@ export interface ExecutableToolSuccessResult {
    * this to the user.
    */
   readonly message?: string | undefined;
+  /**
+   * Optional side channel in the opposite direction of `message`: content
+   * that is rendered to the model but never to user-facing UIs. Routed
+   * verbatim — any formatting (tags, wording) is the producing tool's
+   * choice. Appended to the tool result as a trailing text part when the
+   * history is projected for the provider.
+   */
+  readonly note?: string | undefined;
+  /**
+   * True when the tool has already returned a partial result because it
+   * truncated, paged, or otherwise dropped original output. Later generic
+   * budgeting must not treat the visible output as complete source text.
+   */
+  readonly truncated?: boolean | undefined;
 }
 
 export interface ExecutableToolErrorResult {
@@ -85,8 +99,12 @@ export interface ExecutableToolErrorResult {
   readonly isError: true;
   /** See {@link ExecutableToolSuccessResult.message}. */
   readonly message?: string | undefined;
+  /** See {@link ExecutableToolSuccessResult.note}. */
+  readonly note?: string | undefined;
   /** See {@link ExecutableToolSuccessResult.stopTurn}. */
   readonly stopTurn?: boolean | undefined;
+  /** See {@link ExecutableToolSuccessResult.truncated}. */
+  readonly truncated?: boolean | undefined;
 }
 
 export type ExecutableToolResult = ExecutableToolSuccessResult | ExecutableToolErrorResult;
@@ -107,9 +125,16 @@ export interface ToolUpdate {
 export interface ExecutableToolContext {
   readonly turnId: string;
   readonly toolCallId: string;
+  readonly traceId?: string;
   readonly metadata?: unknown;
   readonly signal: AbortSignal;
   readonly onUpdate?: ((update: ToolUpdate) => void) | undefined;
+  /**
+   * Fired once when a foreground (non-background) process task is registered,
+   * carrying its task id. Used by the `!` shell-command path so the TUI can
+   * later detach (ctrl+b) that exact task. Background runs skip it.
+   */
+  readonly onForegroundTaskStart?: ((taskId: string) => void) | undefined;
 }
 
 export interface RunnableToolExecution {
@@ -130,7 +155,6 @@ export interface RunnableToolExecution {
 export type ToolExecution = RunnableToolExecution | ExecutableToolErrorResult;
 
 export interface ExecutableTool<Input = unknown> extends Tool {
-  readonly aliases?: readonly string[] | undefined;
   resolveExecution(input: Input): ToolExecution | Promise<ToolExecution>;
 }
 
@@ -147,6 +171,7 @@ export interface LoopStepHookContext {
 }
 
 export interface ToolExecutionHookContext extends LoopStepHookContext {
+  readonly traceId?: string;
   readonly toolCall: ToolCall;
   readonly toolCalls: readonly ToolCall[];
   readonly tool?: ExecutableTool | undefined;
@@ -170,7 +195,6 @@ export interface PrepareToolExecutionResult extends AuthorizeToolExecutionResult
 
 export interface FinalizeToolResultContext extends ToolExecutionHookContext {
   readonly result: ExecutableToolResult;
-  readonly execution?: RunnableToolExecution;
 }
 
 export interface LoopAfterStepContext extends LoopStepHookContext {

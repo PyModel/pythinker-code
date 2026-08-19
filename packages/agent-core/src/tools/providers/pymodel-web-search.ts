@@ -1,0 +1,138 @@
+/**
+ * PyModelWebSearchProvider — host-side `WebSearchProvider`.
+ *
+ * Auth uses a narrow bearer token provider per request. Host-specific
+ * default headers are supplied by runtime and request-level overrides
+ * come from `customHeaders`.
+ */
+
+import type { WebSearchProvider, WebSearchResult } from '../builtin';
+
+export interface BearerTokenProvider {
+  getAccessToken(options?: { readonly force?: boolean | undefined }): Promise<string>;
+}
+
+export interface PyModelWebSearchProviderOptions {
+  tokenProvider?: BearerTokenProvider;
+  apiKey?: string;
+  baseUrl: string;
+  defaultHeaders?: Record<string, string>;
+  customHeaders?: Record<string, string>;
+  fetchImpl?: typeof fetch;
+}
+
+interface PyModelSearchResult {
+  site_name?: string;
+  title?: string;
+  url?: string;
+  snippet?: string;
+  content?: string;
+  date?: string;
+  icon?: string;
+  mime?: string;
+}
+
+interface PyModelSearchResponse {
+  search_results?: PyModelSearchResult[];
+}
+
+export class PyModelWebSearchProvider implements WebSearchProvider {
+  private readonly tokenProvider: BearerTokenProvider | undefined;
+  private readonly apiKey: string | undefined;
+  private readonly baseUrl: string;
+  private readonly defaultHeaders: Record<string, string>;
+  private readonly customHeaders: Record<string, string>;
+  private readonly fetchImpl: typeof fetch;
+
+  constructor(options: PyModelWebSearchProviderOptions) {
+    this.tokenProvider = options.tokenProvider;
+    this.apiKey = options.apiKey;
+    this.baseUrl = options.baseUrl;
+    this.defaultHeaders = options.defaultHeaders ?? {};
+    this.customHeaders = options.customHeaders ?? {};
+    this.fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
+  }
+
+  async search(
+    query: string,
+    options?: { toolCallId?: string },
+  ): Promise<WebSearchResult[]> {
+    const body = { text_query: query };
+    const bodyJson = JSON.stringify(body);
+
+    const toolCallId = options?.toolCallId;
+    const response = await this.post(bodyJson, toolCallId);
+
+    if (response.status === 401) {
+      const detail = await safeReadText(response);
+      throw new Error(
+        `PyModel search request failed: HTTP 401 (auth/unauthorized). ${detail}`.trim(),
+      );
+    }
+
+    if (response.status !== 200) {
+      const detail = await safeReadText(response);
+      throw new Error(
+        `PyModel search request failed: HTTP ${String(response.status)}. ${detail}`.trim(),
+      );
+    }
+
+    const json = (await response.json()) as PyModelSearchResponse;
+    const raw = Array.isArray(json.search_results) ? json.search_results : [];
+
+    return raw.map((r): WebSearchResult => {
+      const out: WebSearchResult = {
+        title: r.title ?? '',
+        url: r.url ?? '',
+        snippet: r.snippet ?? '',
+      };
+      if (typeof r.date === 'string' && r.date.length > 0) out.date = r.date;
+      if (typeof r.site_name === 'string' && r.site_name.length > 0) out.siteName = r.site_name;
+      return out;
+    });
+  }
+
+  private async post(bodyJson: string, toolCallId: string | undefined): Promise<Response> {
+    const accessToken = await this.resolveApiKey();
+    return this.fetchImpl(this.baseUrl, {
+      method: 'POST',
+      headers: {
+        ...this.defaultHeaders,
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        ...(toolCallId !== undefined && toolCallId.length > 0
+          ? { 'X-Msh-Tool-Call-Id': toolCallId }
+          : {}),
+        ...this.customHeaders,
+      },
+      body: bodyJson,
+    });
+  }
+
+  private async resolveApiKey(): Promise<string> {
+    if (this.tokenProvider !== undefined) {
+      try {
+        return await this.tokenProvider.getAccessToken();
+      } catch (error) {
+        if (this.apiKey !== undefined && this.apiKey.length > 0) {
+          return this.apiKey;
+        }
+        throw error;
+      }
+    }
+    if (this.apiKey !== undefined && this.apiKey.length > 0) {
+      return this.apiKey;
+    }
+    throw new Error(
+      'PyModel search service is not configured: missing API key or token provider.',
+    );
+  }
+}
+
+async function safeReadText(response: Response): Promise<string> {
+  try {
+    return await response.text();
+  } catch {
+    return '';
+  }
+}

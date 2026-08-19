@@ -1,16 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import chalk from 'chalk';
 
-import {
-  FooterComponent,
-  footerStatusFromAppState,
-  formatFooterGitBadge,
-} from '#/tui/components/chrome/footer';
-import { DEFAULT_STATUS_LINE_CONFIG } from '#/tui/config';
-import {
-  createFooterState,
-  selectStatusBarExtras,
-} from '#/tui/runtime/footer/footer-model';
+import { FooterComponent, formatFooterGitBadge, buildWeightedTips } from '#/tui/components/chrome/footer';
 import { darkColors } from '#/tui/theme/colors';
 import type { AppState } from '#/tui/types';
 
@@ -31,10 +22,11 @@ function baseState(overrides: Partial<AppState> = {}): AppState {
   return {
     model: 'k2',
     workDir: '/tmp',
+    additionalDirs: [],
     sessionId: 'sess_1',
     permissionMode: 'manual',
     planMode: false,
-    thinkingLevel: 'off',
+    thinkingEffort: 'off',
     contextUsage: 0,
     contextTokens: 0,
     maxContextTokens: 0,
@@ -46,64 +38,96 @@ function baseState(overrides: Partial<AppState> = {}): AppState {
     version: 'test',
     editorCommand: null,
     notifications: { enabled: true, condition: 'unfocused' },
-    statusLine: DEFAULT_STATUS_LINE_CONFIG,
     availableModels: {},
     ...overrides,
   } as AppState;
 }
 
-function statusExtras(state: AppState): string {
-  return selectStatusBarExtras(
-    createFooterState(footerStatusFromAppState(state, null)),
-    Date.now(),
-    state.statusLine,
-  ).join('');
-}
-
-describe('FooterComponent — quiet context status', () => {
+describe('FooterComponent — context NaN resilience', () => {
   it('NaN usage → renders 0% (never literal "NaN%")', () => {
-    const out = statusExtras(baseState({ contextUsage: Number.NaN }));
+    const fc = new FooterComponent(baseState({ contextUsage: Number.NaN }));
+    const out = strip(fc.render(120).join(''));
     expect(out).not.toMatch(/NaN/);
-    expect(out).toContain('▱▱▱▱▱▱▱▱ 0%');
+    expect(out).toMatch(/context: 0%/);
   });
 
   it('undefined-ish (coerced) usage → renders 0%', () => {
-    const out = statusExtras(
+    const fc = new FooterComponent(
       baseState({ contextUsage: undefined as unknown as number }),
     );
+    const out = strip(fc.render(120).join(''));
     expect(out).not.toMatch(/NaN/);
-    expect(out).toContain('▱▱▱▱▱▱▱▱ 0%');
+    expect(out).toMatch(/context: 0%/);
   });
 
   it('clamps ratios above 1.0 → renders 100%', () => {
-    const out = statusExtras(baseState({ contextUsage: 1.5 }));
-    expect(out).toContain('▰▰▰▰▰▰▰▰ 100%');
+    const fc = new FooterComponent(baseState({ contextUsage: 1.5 }));
+    const out = strip(fc.render(120).join(''));
+    expect(out).toMatch(/context: 100%/);
   });
 
-  it('ratio 0.427 → renders 43%', () => {
-    const out = statusExtras(baseState({ contextUsage: 0.427 }));
-    expect(out).toContain('▰▰▰▱▱▱▱▱ 43%');
+  it('ratio 0.427 → renders 43% (ceiled whole percent)', () => {
+    const fc = new FooterComponent(baseState({ contextUsage: 0.427 }));
+    const out = strip(fc.render(200).join(''));
+    expect(out).toMatch(/context: 43%/);
   });
 
-  it('tokens provided but max=0 → falls back to contextUsage without division-by-zero artefacts', () => {
-    const out = statusExtras(
+  it('tiny non-zero usage → renders 1% (ceil floor)', () => {
+    const fc = new FooterComponent(baseState({ contextUsage: 0.0004 }));
+    const out = strip(fc.render(200).join(''));
+    expect(out).toMatch(/context: 1%/);
+  });
+
+  it('valid tokens/maxTokens → percent from tokens, counts in 1024 units', () => {
+    const fc = new FooterComponent(
+      baseState({
+        contextUsage: 0.427,
+        contextTokens: 430_080,
+        maxContextTokens: 1_048_576,
+      }),
+    );
+    const out = strip(fc.render(200).join(''));
+    expect(out).toMatch(/context: 42% \(420k\/1M\)/);
+  });
+
+  it('tokens provided but max=0 → falls back to percent-only, no division-by-zero artefact', () => {
+    const fc = new FooterComponent(
       baseState({ contextUsage: 0, contextTokens: 500, maxContextTokens: 0 }),
     );
+    const out = strip(fc.render(200).join(''));
     expect(out).not.toMatch(/Infinity|NaN/);
-    expect(out).toMatch(/[▰▱]{8} \d+%/u);
+    expect(out).toMatch(/context: 0%/);
     // With maxTokens=0, token-count annotation is suppressed.
-    expect(out).not.toMatch(/500\//);
+    expect(out).not.toMatch(/\(500\//);
   });
 
-  it('renders transient hints without the suppressed status row', () => {
+  it('setState updates visible model and context values', () => {
+    const footer = new FooterComponent(baseState({ model: 'k2', contextUsage: 0 }));
+
+    footer.setState(baseState({ model: 'kimi-k2-5', contextUsage: 0.5 }));
+
+    const out = strip(footer.render(200).join(''));
+    expect(out).toContain('kimi-k2-5');
+    expect(out).not.toContain(' k2 ');
+    expect(out).toMatch(/context: 50%/);
+  });
+
+  it('shows "thinking" label when thinking is enabled, hides it when disabled', () => {
+    const on = new FooterComponent(baseState({ model: 'k2', thinkingEffort: 'on' }));
+    const off = new FooterComponent(baseState({ model: 'k2', thinkingEffort: 'off' }));
+
+    expect(strip(on.render(120)[0]!)).toContain('thinking');
+    expect(strip(off.render(120)[0]!)).not.toContain('thinking');
+  });
+
+  it('renders transient hints on the context line', () => {
     const footer = new FooterComponent(baseState());
 
     footer.setTransientHint('Press Ctrl-C again to exit');
 
-    const output = strip(footer.render(120).join('\n'));
-    expect(output).toContain('Press Ctrl-C again to exit');
-    expect(output).not.toContain('▱▱▱▱▱▱▱▱ 0%');
-    expect(output).not.toContain('shift+tab: plan mode');
+    const [, line2] = footer.render(120);
+    expect(strip(line2 ?? '')).toContain('Press Ctrl-C again to exit');
+    expect(strip(line2 ?? '')).toContain('context: 0%');
   });
 
   it('highlights the pull request badge separately from git status text', () => {
@@ -137,5 +161,49 @@ describe('FooterComponent — quiet context status', () => {
     } finally {
       chalk.level = previousLevel;
     }
+  });
+});
+
+describe('buildWeightedTips — weighted rotation', () => {
+  it('repeats higher-priority tips more often (length = sum of weights)', () => {
+    const seq = buildWeightedTips([
+      { text: 'a' }, // weight 1 (default)
+      { text: 'b', priority: 3 },
+      { text: 'c', priority: 2 },
+    ]);
+
+    const count = (t: string) => seq.filter((x) => x.text === t).length;
+    expect(seq).toHaveLength(6);
+    expect(count('a')).toBe(1);
+    expect(count('b')).toBe(3);
+    expect(count('c')).toBe(2);
+    expect(count('b')).toBeGreaterThan(count('a'));
+  });
+
+  it('keeps duplicates spread out — no tip sits next to itself', () => {
+    const seq = buildWeightedTips([
+      { text: 'a' },
+      { text: 'b', priority: 3 },
+      { text: 'c', priority: 2 },
+    ]);
+
+    for (let i = 1; i < seq.length; i++) {
+      expect(seq[i]!.text).not.toBe(seq[i - 1]!.text);
+    }
+  });
+
+  it('preserves array order when all weights are the default (1)', () => {
+    const seq = buildWeightedTips([{ text: 'x' }, { text: 'y' }, { text: 'z' }]);
+    expect(seq.map((t) => t.text)).toEqual(['x', 'y', 'z']);
+  });
+
+  it('clamps non-positive / fractional priorities to a weight of at least 1', () => {
+    const seq = buildWeightedTips([
+      { text: 'a', priority: 0 },
+      { text: 'b', priority: -5 },
+      { text: 'c', priority: 1.9 },
+    ]);
+    expect(seq).toHaveLength(3);
+    expect(seq.map((t) => t.text).toSorted()).toEqual(['a', 'b', 'c']);
   });
 });

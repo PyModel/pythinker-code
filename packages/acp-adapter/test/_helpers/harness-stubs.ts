@@ -2,18 +2,22 @@
  * Test stubs for `PythinkerHarness` interactions that used to live as
  * dedicated convenience methods on the SDK (`auth.hasUsableToken`,
  * `listAvailableModels`). The methods are gone; the adapter now calls
- * the underlying SDK API directly (`isAuthenticated`, `getConfig().models`)
+ * the underlying SDK API directly (`auth.status`, `getConfig().models`)
  * and the helpers below produce the matching stub shapes so each test
  * file doesn't have to hand-roll them.
  */
 
 import type { ModelAlias } from '@pymodel/pythinker-code-sdk';
 
-/** Stub `harness.isAuthenticated()` for a harness with a usable credential. */
-export const AUTHED = async (): Promise<boolean> => true;
+/** Stub `auth.status()` payload for an authenticated harness. */
+export const AUTHED_STATUS = {
+  providers: [{ providerName: 'pythinker', hasToken: true }],
+} as const;
 
-/** Stub `harness.isAuthenticated()` for a harness with none. */
-export const UNAUTHED = async (): Promise<boolean> => false;
+/** Stub `auth.status()` payload for an unauthenticated harness. */
+export const UNAUTHED_STATUS = {
+  providers: [{ providerName: 'pythinker', hasToken: false }],
+} as const;
 
 /**
  * Build a `Record<string, ModelAlias>` suitable for stubbing
@@ -30,6 +34,10 @@ export function makeModelsMap(
     name?: string;
     thinkingSupported?: boolean;
     alwaysThinking?: boolean;
+    /** Declared `support_efforts` — presence turns the fixture into an effort-capable model. */
+    efforts?: readonly string[];
+    /** Declared `default_effort`; falls back to the middle `efforts` entry when omitted. */
+    defaultEffort?: string;
   }>,
 ): Record<string, ModelAlias> {
   const out: Record<string, ModelAlias> = {};
@@ -47,6 +55,8 @@ export function makeModelsMap(
       model: entry.id,
       ...(entry.name !== undefined ? { displayName: entry.name } : {}),
       ...(capabilities !== undefined ? { capabilities } : {}),
+      ...(entry.efforts !== undefined ? { supportEfforts: [...entry.efforts] } : {}),
+      ...(entry.defaultEffort !== undefined ? { defaultEffort: entry.defaultEffort } : {}),
     } as ModelAlias;
   }
   return out;

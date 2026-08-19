@@ -2,19 +2,14 @@ import type {
   GoalChange,
   GoalSnapshot,
   ModelAlias,
-  ModelCostRates,
   PermissionMode,
   ProviderConfig,
   PromptPart,
+  ThinkingEffort,
   ToolInputDisplay,
 } from '@pymodel/pythinker-code-sdk';
 
-import type {
-  NotificationsConfig,
-  StatusLineConfig,
-  TuiLayout,
-  UpgradePreferences,
-} from './config';
+import type { NotificationsConfig, StatusLineConfig, UpgradePreferences } from './config';
 import type { PendingApproval, PendingQuestion } from './reverse-rpc/types';
 import type { ColorToken, ThemeName } from './theme';
 
@@ -31,37 +26,59 @@ export interface BannerState {
 
 export interface AppState {
   model: string;
-  /** Current model token rates in USD per 1,000,000 tokens. */
-  modelCostRates?: ModelCostRates;
-  /** Accumulated priced usage for the current session. */
-  totalCostUsd?: number;
   workDir: string;
+  additionalDirs: readonly string[];
   sessionId: string;
   permissionMode: PermissionMode;
   planMode: boolean;
+  /** Resolved profile name from --agent/--agent-file, carried to the
+   * lazy-created first session when the TUI starts session-less. */
+  agentProfile?: string;
+  /** Raw --agent-file paths, passed to session creation alongside `agentProfile`. */
+  agentFiles?: readonly string[];
+  /** 'bash' when the editor is in `!` shell-command mode. */
+  inputMode: 'prompt' | 'bash';
   dynamicWorkflowMode: boolean;
-  /** Model alias `/workflow` asks Dynamic Workflow subagents to run on, so workers
-   *  can use a cheaper or faster model than the agent orchestrating them. */
-  dynamicWorkflowModel?: string;
-  /** Whether provider-native Fast mode is requested for this session. */
-  fastMode?: boolean;
-  /** Whether the current model/provider accepts provider-native Fast mode. */
-  fastModeSupported?: boolean;
-  /** Resolved thinking effort level; 'off' means thinking is disabled. */
-  thinkingLevel: string;
+  /** Live thinking effort of the active session (e.g. 'off', 'on', 'high');
+   * mirrors the runtime. The single source of truth for the thinking state in
+   * the TUI. */
+  thinkingEffort: ThinkingEffort;
+  /**
+   * The current `defaultPlanMode` value from config (false when absent),
+   * refreshed by `hydrateLazyConfigDefaults`. Used to tell a config-driven
+   * plan-mode entry apart from an explicit CLI `--plan` when lazy-creating
+   * the first session (the engine applies the config default itself).
+   */
+  configDefaultPlanMode?: boolean;
+  /**
+   * Session-only thinking effort chosen (e.g. via the model picker's Alt+S)
+   * while no session exists yet on the v2 engine. Applied to the first
+   * lazy-created session and cleared once it exists; the engine's config
+   * default is used instead when unset.
+   */
+  lazySessionThinking?: ThinkingEffort;
   contextUsage: number;
   contextTokens: number;
   maxContextTokens: number;
   isCompacting: boolean;
   isReplaying: boolean;
-  streamingPhase: 'idle' | 'waiting' | 'thinking' | 'composing';
+  streamingPhase: 'idle' | 'waiting' | 'thinking' | 'composing' | 'shell';
   streamingStartTime: number;
+  /** Pending step retry backoff (fed by `turn.step.retrying`); null when no retry is in flight. */
+  stepRetry: StepRetryState | null;
   theme: ThemeName;
   version: string;
   editorCommand: string | null;
+  /** Mirrors the TUI config toggle; defaults to false when absent from older fixtures. */
+  disablePasteBurst?: boolean;
+  /** LaTeX math rendering in Markdown; defaults to true when absent from older fixtures. */
+  renderLatex?: boolean;
+  /** Mirrors the TUI config toggle; defaults to true when absent from older fixtures. */
+  cacheExpiryHint?: boolean;
   notifications: NotificationsConfig;
   upgrade: UpgradePreferences;
-  statusLine: StatusLineConfig;
+  /** Footer status line customization from tui.toml; absent means the default layout. */
+  statusLine?: StatusLineConfig;
   availableModels: Record<string, ModelAlias>;
   availableProviders: Record<string, ProviderConfig>;
   sessionTitle: string | null;
@@ -70,6 +87,24 @@ export interface AppState {
   mcpServersSummary: string | null;
   /** Optional banner shown below the welcome panel; null means no banner to render. */
   banner?: BannerState | null;
+}
+
+export interface StepRetryState {
+  /** Upcoming attempt number (1-based). */
+  nextAttempt: number;
+  maxAttempts: number;
+  /** Backoff wait before the next attempt, in milliseconds. */
+  delayMs: number;
+  errorName: string;
+  errorMessage: string;
+  /** HTTP status code for `APIStatusError`; undefined for network/timeout failures. */
+  statusCode?: number;
+  /**
+   * `backoff` while sleeping before the next attempt (label shows the
+   * countdown); `attempt` once the `delayMs` backoff has elapsed and the next
+   * attempt is running — the countdown has expired by then and is dropped.
+   */
+  phase: 'backoff' | 'attempt';
 }
 
 export interface ToolCallBlockData {
@@ -117,6 +152,10 @@ export interface BackgroundAgentMetadata {
   readonly parentToolCallId: string;
   readonly agentName?: string;
   readonly description?: string;
+  /** Display name of the model the agent is bound to (resolved at spawn). */
+  readonly model?: string;
+  /** Thinking effort, set only for concrete levels (boolean on/off hidden). */
+  readonly effort?: string;
 }
 
 export type BackgroundAgentStatusPhase = 'started' | 'completed' | 'failed';
@@ -129,6 +168,7 @@ export interface BackgroundAgentStatusData {
 
 export interface CompactionTranscriptData {
   readonly result?: 'cancelled';
+  readonly summary?: string;
   readonly tokensBefore?: number;
   readonly tokensAfter?: number;
   readonly instruction?: string;
@@ -155,20 +195,37 @@ export type TranscriptEntryKind =
   | 'thinking'
   | 'status'
   | 'skill_activation'
+  | 'plugin_command'
   | 'cron'
   | 'goal';
 
 export type SkillActivationTrigger = 'user-slash' | 'model-tool' | 'nested-skill';
 
+export interface PluginCommandTranscriptData {
+  readonly activationId: string;
+  readonly pluginId: string;
+  readonly commandName: string;
+  readonly args?: string;
+  readonly trigger: 'user-slash';
+}
+
 export interface TranscriptEntry {
   id: string;
   kind: TranscriptEntryKind;
-  checkpointId?: string;
   turnId?: string;
   renderMode: 'markdown' | 'plain' | 'notice';
   content: string;
+  /**
+   * True only for entries holding real model-authored text (created by the
+   * assistant stream). Derived cards — hook results, goal completions, goal
+   * reminders — share kind 'assistant' but are not replies, so /copy must
+   * skip them.
+   */
+  modelText?: boolean;
   color?: ColorToken;
   detail?: string;
+  /** Optional override for the leading bullet of a 'user' message entry. An empty string suppresses the bullet entirely (used by shell-command echoes so `$` replaces the sparkles marker). */
+  bullet?: string;
   toolCallData?: ToolCallBlockData;
   backgroundAgentStatus?: BackgroundAgentStatusData;
   compactionData?: CompactionTranscriptData;
@@ -179,6 +236,11 @@ export interface TranscriptEntry {
   skillName?: string;
   skillArgs?: string;
   skillTrigger?: SkillActivationTrigger;
+  /** Card belongs to the following prompt's bundled submission: undo removes them together. */
+  bundledWithPrompt?: boolean;
+  /** Entry renders a UserPromptSubmit hook result (sits inside its prompt's group window). */
+  hookResult?: boolean;
+  pluginCommandData?: PluginCommandTranscriptData;
 }
 
 export type LivePaneMode =
@@ -194,11 +256,45 @@ export interface LivePaneState {
   pendingQuestion: PendingQuestion | null;
 }
 
+export interface InlineSkillActivation {
+  readonly skillName: string;
+  /**
+   * Skill arguments. Only set for a leading `/skill:<name> args` command that
+   * is combined with further inline skills; inline tokens carry no args.
+   */
+  readonly args?: string;
+}
+
 export interface QueuedMessage {
   readonly text: string;
   readonly agentId?: string;
   readonly parts?: readonly PromptPart[];
   readonly imageAttachmentIds?: readonly number[];
+  readonly stagingPaths?: readonly string[];
+  /** `bash` for a `!` shell command queued while another command is running;
+   *  `skill` for a slash-skill activation queued while the session is busy;
+   *  undefined (=`prompt`) for a normal message. */
+  readonly mode?: 'prompt' | 'bash' | 'skill';
+  /** Set when mode === 'skill': the skill to activate when the item drains.
+   *  `text` then holds the display/recall string (`/name args`). */
+  readonly skillName?: string;
+  /** Set when mode === 'skill': the raw (media-rewritten) args to activate with. */
+  readonly skillArgs?: string;
+  /** Skills to activate together with this queued message's prompt. */
+  readonly inlineSkillActivations?: readonly InlineSkillActivation[];
+}
+
+/**
+ * One unit of Ctrl-S steer input: a queued message or the editor draft,
+ * with the media parts extracted at submit/paste time so images and video
+ * tags survive the steer path (which accepts full prompt parts, not just
+ * text).
+ */
+export interface SteerInputItem {
+  readonly text: string;
+  readonly parts?: readonly PromptPart[];
+  readonly imageAttachmentIds?: readonly number[];
+  readonly stagingPaths?: readonly string[];
 }
 
 export const INITIAL_LIVE_PANE: LivePaneState = {
@@ -216,11 +312,12 @@ export interface TUIStartupOptions {
   readonly continueLast: boolean;
   readonly yolo: boolean;
   readonly auto: boolean;
-  readonly init?: boolean;
-  readonly maintenance?: boolean;
   readonly plan: boolean;
   readonly model?: string;
-  readonly additionalDirs?: readonly string[];
+  /** Resolved profile name from --agent/--agent-file; bound to the startup session only. */
+  readonly agentProfile?: string;
+  /** Raw --agent-file paths, passed to session creation alongside `agentProfile`. */
+  readonly agentFiles?: readonly string[];
   readonly startupNotice?: string;
 }
 
@@ -229,8 +326,6 @@ export type TUIStartupState = 'pending' | 'ready' | 'picker';
 export interface PythinkerTUIOptions {
   initialAppState: AppState;
   startup: TUIStartupOptions;
-  layout: TuiLayout;
-  copyFullResponse?: boolean;
 }
 
 export interface PendingExit {
@@ -240,6 +335,7 @@ export interface PendingExit {
 
 export interface LoginProgressSpinnerHandle {
   stop(opts: { ok: boolean; label: string }): void;
+  setLabel(label: string): void;
 }
 
 export type ProgressSpinnerHandle = LoginProgressSpinnerHandle;

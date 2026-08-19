@@ -1,13 +1,11 @@
-import { truncateToWidth, visibleWidth } from '@earendil-works/pi-tui';
-import chalk from 'chalk';
 import { describe, it, expect } from 'vitest';
 
 import {
   TodoPanelComponent,
+  formatHiddenCounts,
   selectVisibleTodos,
   type TodoItem,
 } from '#/tui/components/chrome/todo-panel';
-import { darkColors } from '#/tui/theme';
 
 function strip(text: string): string {
   return text.replaceAll(/\u001B\[[0-9;]*m/g, '');
@@ -20,51 +18,19 @@ describe('TodoPanelComponent', () => {
     expect(panel.isEmpty()).toBe(true);
   });
 
-  it('renders a muted completion summary and a success-colored active marker', () => {
-    const previousLevel = chalk.level;
-    chalk.level = 3;
-    try {
-      const panel = new TodoPanelComponent();
-      panel.setTodos([
-        { title: 'Investigate parser', status: 'done' },
-        { title: 'Add tests', status: 'in_progress' },
-        { title: 'Open PR', status: 'pending' },
-      ]);
-      const rendered = panel.render(80);
-      const lines = rendered.map(strip);
-      const joined = lines.join('\n');
-
-      expect(lines[1]).toBe('  Todo · 1/3 done');
-      expect(rendered[1]).toContain(chalk.hex(darkColors.textMuted)(' · 1/3 done'));
-      expect(rendered.find((line) => strip(line).includes('Add tests')))
-        .toContain(chalk.hex(darkColors.success).bold('●'));
-      expect(joined).toMatch(/✓ Investigate parser/);
-      expect(joined).toMatch(/● Add tests/);
-      expect(joined).toMatch(/○ Open PR/);
-    } finally {
-      chalk.level = previousLevel;
-    }
-  });
-
-  it('renders the active form only while a todo is in progress', () => {
+  it('renders a Todo header + one row per entry', () => {
     const panel = new TodoPanelComponent();
     panel.setTodos([
-      {
-        title: 'Run focused tests',
-        activeForm: 'Running focused tests',
-        status: 'in_progress',
-      },
-      {
-        title: 'Update release notes',
-        activeForm: 'Updating release notes',
-        status: 'pending',
-      },
+      { title: 'Investigate parser', status: 'done' },
+      { title: 'Add tests', status: 'in_progress' },
+      { title: 'Open PR', status: 'pending' },
     ]);
-
-    const out = strip(panel.render(80).join('\n'));
-    expect(out).toContain('Running focused tests');
-    expect(out).toContain('Update release notes');
-    expect(out).not.toContain('Updating release notes');
+    const lines = panel.render(80).map(strip);
+    const joined = lines.join('\n');
+    expect(joined).toMatch(/Todo/);
+    expect(joined).toMatch(/✓ Investigate parser/);
+    expect(joined).toMatch(/● Add tests/);
+    expect(joined).toMatch(/○ Open PR/);
   });
 
   it('setTodos replaces the list (not appends)', () => {
@@ -109,48 +75,123 @@ describe('TodoPanelComponent', () => {
     expect(out).not.toMatch(/\+\d+ more/);
   });
 
-  it('reports all todos done in the header', () => {
-    const panel = new TodoPanelComponent();
-    panel.setTodos([
-      { title: 'a', status: 'done' },
-      { title: 'b', status: 'done' },
-      { title: 'c', status: 'done' },
-    ]);
-
-    expect(strip(panel.render(80)[1] ?? '')).toBe('  Todo · 3/3 done');
-  });
-
-  it('uses the full list for overflow progress and appends the hidden count', () => {
+  it('appends "+N more" footer when count > 5', () => {
     const panel = new TodoPanelComponent();
     panel.setTodos([
       { title: 't0', status: 'done' },
-      { title: 't1', status: 'done' },
-      { title: 't2', status: 'done' },
-      { title: 't3', status: 'in_progress' },
+      { title: 't1', status: 'in_progress' },
+      { title: 't2', status: 'pending' },
+      { title: 't3', status: 'pending' },
       { title: 't4', status: 'pending' },
       { title: 't5', status: 'pending' },
       { title: 't6', status: 'pending' },
     ]);
     const out = strip(panel.render(80).join('\n'));
-    expect(out).toContain('Todo · 3/7 done');
     expect(out).toMatch(/\+2 more/);
   });
 
-  it('safely truncates the header and rows at narrow widths', () => {
+  const many = (n: number): TodoItem[] =>
+    Array.from({ length: n }, (_, i) => ({ title: `t${i}`, status: 'pending' as const }));
+
+  it('hasOverflow() is false when count <= 5 and true when count > 5', () => {
+    const panel = new TodoPanelComponent();
+    panel.setTodos(many(5));
+    expect(panel.hasOverflow()).toBe(false);
+    panel.setTodos(many(6));
+    expect(panel.hasOverflow()).toBe(true);
+  });
+
+  it('collapsed footer advertises "ctrl+t to expand"', () => {
+    const panel = new TodoPanelComponent();
+    panel.setTodos(many(7));
+    const out = strip(panel.render(80).join('\n'));
+    expect(out).toMatch(/\+2 more/);
+    expect(out).toMatch(/ctrl\+t to expand/);
+  });
+
+  it('collapsed footer shows hidden status distribution', () => {
     const panel = new TodoPanelComponent();
     panel.setTodos([
-      { title: 'Investigate the parser', status: 'done' },
-      { title: 'Add focused regression tests', status: 'done' },
-      { title: 'Open the pull request', status: 'pending' },
+      ...Array.from({ length: 6 }, (_, i) => ({
+        title: `ip${i}`,
+        status: 'in_progress' as const,
+      })),
+      ...Array.from({ length: 3 }, (_, i) => ({ title: `d${i}`, status: 'done' as const })),
+      ...Array.from({ length: 3 }, (_, i) => ({ title: `p${i}`, status: 'pending' as const })),
     ]);
+    const out = strip(panel.render(80).join('\n'));
+    expect(out).toMatch(/\+7 more \(3 done · 1 in progress · 3 pending\)/);
+    expect(out).toMatch(/ctrl\+t to expand/);
+  });
 
-    for (const width of [1, 4, 8, 12, 18]) {
-      const lines = panel.render(width);
-      expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
-      expect(strip(lines[1] ?? '')).toBe(
-        strip(truncateToWidth('  Todo · 2/3 done', width)),
-      );
-    }
+  it('collapsed footer omits zero-count statuses', () => {
+    const panel = new TodoPanelComponent();
+    panel.setTodos(
+      Array.from({ length: 8 }, (_, i) => ({ title: `d${i}`, status: 'done' as const })),
+    );
+    const out = strip(panel.render(80).join('\n'));
+    expect(out).toMatch(/\+3 more \(3 done\)/);
+    expect(out).not.toMatch(/0 in progress/);
+    expect(out).not.toMatch(/0 pending/);
+  });
+
+  it('expanded footer does not include status distribution', () => {
+    const panel = new TodoPanelComponent();
+    panel.setTodos(
+      Array.from({ length: 8 }, (_, i) => ({ title: `d${i}`, status: 'done' as const })),
+    );
+    panel.setExpanded(true);
+    const out = strip(panel.render(80).join('\n'));
+    expect(out).toMatch(/all 8 items · ctrl\+t to collapse/);
+    expect(out).not.toMatch(/\d+ done ·/);
+  });
+
+  it('renders every todo with a collapse hint when expanded', () => {
+    const panel = new TodoPanelComponent();
+    panel.setTodos(many(7));
+    panel.setExpanded(true);
+    const out = strip(panel.render(80).join('\n'));
+    expect(out).toMatch(/t0/);
+    expect(out).toMatch(/t6/);
+    expect(out).not.toMatch(/\+\d+ more/);
+    expect(out).toMatch(/ctrl\+t to collapse/);
+  });
+
+  it('toggleExpanded() flips between collapsed and expanded', () => {
+    const panel = new TodoPanelComponent();
+    panel.setTodos(many(7));
+    expect(strip(panel.render(80).join('\n'))).toMatch(/\+2 more/);
+    panel.toggleExpanded();
+    expect(strip(panel.render(80).join('\n'))).toMatch(/ctrl\+t to collapse/);
+    panel.toggleExpanded();
+    expect(strip(panel.render(80).join('\n'))).toMatch(/\+2 more/);
+  });
+
+  it('setTodos() keeps the expanded state across list updates', () => {
+    const panel = new TodoPanelComponent();
+    panel.setTodos(many(7));
+    panel.setExpanded(true);
+    panel.setTodos([
+      { title: 'u0', status: 'pending' },
+      { title: 'u1', status: 'pending' },
+      { title: 'u2', status: 'pending' },
+      { title: 'u3', status: 'pending' },
+      { title: 'u4', status: 'pending' },
+      { title: 'u5', status: 'pending' },
+      { title: 'u6', status: 'pending' },
+    ]);
+    const out = strip(panel.render(80).join('\n'));
+    expect(out).toMatch(/u6/);
+    expect(out).toMatch(/ctrl\+t to collapse/);
+  });
+
+  it('clear() resets the expanded state', () => {
+    const panel = new TodoPanelComponent();
+    panel.setTodos(many(7));
+    panel.setExpanded(true);
+    panel.clear();
+    panel.setTodos(many(7));
+    expect(strip(panel.render(80).join('\n'))).toMatch(/\+2 more/);
   });
 });
 
@@ -301,5 +342,42 @@ describe('selectVisibleTodos', () => {
     const { rows, hidden } = selectVisibleTodos(todos);
     expect(rows.map((r) => r.title)).toEqual(['ip0', 'ip1', 'ip2', 'ip3', 'ip4']);
     expect(hidden).toBe(2);
+  });
+
+  it('returns hiddenCounts reflecting the hidden items', () => {
+    const todos: TodoItem[] = [
+      ...Array.from({ length: 6 }, (_, i) => T(`ip${i}`, 'in_progress')),
+      ...Array.from({ length: 3 }, (_, i) => T(`d${i}`, 'done')),
+      ...Array.from({ length: 3 }, (_, i) => T(`p${i}`, 'pending')),
+    ];
+    const { hidden, hiddenCounts } = selectVisibleTodos(todos);
+    expect(hidden).toBe(7);
+    expect(hiddenCounts).toEqual({ done: 3, in_progress: 1, pending: 3 });
+  });
+
+  it('returns zero hiddenCounts when count <= 5', () => {
+    const todos: TodoItem[] = [T('a', 'done'), T('b', 'in_progress'), T('c', 'pending')];
+    const { hidden, hiddenCounts } = selectVisibleTodos(todos);
+    expect(hidden).toBe(0);
+    expect(hiddenCounts).toEqual({ done: 0, in_progress: 0, pending: 0 });
+  });
+});
+
+describe('formatHiddenCounts', () => {
+  it('formats all three statuses in done / in progress / pending order', () => {
+    expect(formatHiddenCounts({ done: 2, in_progress: 1, pending: 3 })).toBe(
+      '2 done · 1 in progress · 3 pending',
+    );
+  });
+
+  it('omits zero-count statuses', () => {
+    expect(formatHiddenCounts({ done: 5, in_progress: 0, pending: 0 })).toBe('5 done');
+    expect(formatHiddenCounts({ done: 0, in_progress: 2, pending: 3 })).toBe(
+      '2 in progress · 3 pending',
+    );
+  });
+
+  it('returns empty string when all counts are zero', () => {
+    expect(formatHiddenCounts({ done: 0, in_progress: 0, pending: 0 })).toBe('');
   });
 });

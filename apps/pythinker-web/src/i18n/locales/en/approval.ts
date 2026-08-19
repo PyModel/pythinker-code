@@ -8,6 +8,7 @@ export default {
     search: 'Search?',
     invocation: 'Invoke?',
     todo: 'Update todo?',
+    plan_review: 'Ready to build with this plan?',
     generic: 'Approve action?',
   },
   subagentBadge: 'sub agent · {name}',
@@ -20,5 +21,8 @@ export default {
   approve: 'Approve',
   approveSession: 'Approve for session',
   reject: 'Reject',
-  feedback: '+ Feedback',
+  feedback: '＋Feedback',
+  approvePlan: 'Approve plan',
+  revise: 'Revise',
+  rejectAndExit: 'Reject and Exit',
 } as const;

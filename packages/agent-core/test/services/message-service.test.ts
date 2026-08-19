@@ -25,7 +25,6 @@ import type {
   CoreRPC,
   SessionSummary,
 } from '../../src';
-import { ErrorCodes, PythinkerError } from '../../src';
 
 import {
   type ICoreProcessService,
@@ -340,15 +339,11 @@ describe('MessageService', () => {
     expect(resumeOrder!).toBeLessThan(getContextOrder!);
   });
 
-  it('propagates an incompatible resume instead of mapping it to SessionNotFoundError', async () => {
+  it('maps resumeSession failure to SessionNotFoundError (wire-compat 40401)', async () => {
     const sessions = [mkSummary()];
-    const incompatibility = new PythinkerError(
-      ErrorCodes.SESSION_INIT_FAILED,
-      'Unsupported persisted session',
-    );
     const rpc: Partial<CoreRPC> = {
       listSessions: vi.fn().mockResolvedValue(sessions),
-      resumeSession: vi.fn().mockRejectedValue(incompatibility),
+      resumeSession: vi.fn().mockRejectedValue(new Error('state.json corrupted')),
       getContext: vi.fn(),
     };
     const failingBridge: ICoreProcessService = {
@@ -358,7 +353,54 @@ describe('MessageService', () => {
       _serviceBrand: undefined,
     };
     const failingImpl = new MessageService(failingBridge);
-    await expect(failingImpl.list(SESSION_ID, {})).rejects.toBe(incompatibility);
+    await expect(failingImpl.list(SESSION_ID, {})).rejects.toBeInstanceOf(
+      SessionNotFoundError,
+    );
     failingImpl.dispose();
+  });
+});
+
+
+describe('toProtocolMessage tool-result output passthrough', () => {
+  it('passes media tool results through as raw content parts instead of flattening', () => {
+    // A ReadMediaFile-style result carries an image_url part next to the
+    // wrapper text tags; flattening to text would drop the media bytes, so
+    // the mapper passes the raw part array through (same shape the live
+    // tool.result event carries). Literal text — even system/image-looking
+    // markup from a user file — rides along verbatim.
+    const toolMessage: ContextMessage = {
+      role: 'tool',
+      toolCallId: 'call_1',
+      content: [
+        { type: 'text', text: '<system>literal text from a user file</system>' },
+        { type: 'text', text: '<image path="/tmp/x.png">' },
+        { type: 'image_url', imageUrl: { url: 'data:image/png;base64,A' } },
+        { type: 'text', text: '</image>' },
+      ],
+      toolCalls: [],
+    };
+    const [part] = toProtocolMessage(SESSION_ID, 0, toolMessage, SESSION_CREATED_AT).content;
+    expect(part?.type).toBe('tool_result');
+    expect((part as { output: unknown }).output).toEqual([
+      { type: 'text', text: '<system>literal text from a user file</system>' },
+      { type: 'text', text: '<image path="/tmp/x.png">' },
+      { type: 'image_url', imageUrl: { url: 'data:image/png;base64,A' } },
+      { type: 'text', text: '</image>' },
+    ]);
+  });
+
+  it('flattens text-only tool results to a single output string', () => {
+    const toolMessage: ContextMessage = {
+      role: 'tool',
+      toolCallId: 'call_1',
+      content: [
+        { type: 'text', text: 'line one\n' },
+        { type: 'text', text: 'line two' },
+      ],
+      toolCalls: [],
+    };
+    const [part] = toProtocolMessage(SESSION_ID, 0, toolMessage, SESSION_CREATED_AT).content;
+    expect(part?.type).toBe('tool_result');
+    expect((part as { output: unknown }).output).toBe('line one\nline two');
   });
 });

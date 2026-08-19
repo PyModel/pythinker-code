@@ -21,19 +21,13 @@ import {
   truncateToWidth,
   visibleWidth,
   type Focusable,
-} from '@earendil-works/pi-tui';
+} from '@pymodel/pi-tui';
 import type { BackgroundTaskInfo, BackgroundTaskStatus } from '@pymodel/pythinker-code-sdk';
 
 import { SELECT_POINTER } from '@/tui/constant/symbols';
-import { combinedBindingHint, formatBindingKeys } from '#/tui/components/dialogs/choice-picker';
-import {
-  defaultKeybindings,
-  keybindingDisplayText,
-  KeybindingResolver,
-  type ParsedKeybinding,
-} from '#/tui/keybindings';
 import { currentTheme } from '#/tui/theme';
 import { printableChar } from '@/tui/utils/printable-key';
+import { sanitizeShellOutput } from '#/tui/utils/shell-output';
 
 const ELLIPSIS = '…';
 
@@ -46,7 +40,7 @@ export interface TasksBrowserProps {
   readonly tailOutput: string | undefined;
   readonly tailLoading: boolean;
   readonly flashMessage: string | undefined;
-  readonly onSelect: (taskId: string | undefined) => void;
+  readonly onSelect: (taskId: string) => void;
   readonly onToggleFilter: () => void;
   readonly onRefresh: () => void;
   readonly onCancel: () => void;
@@ -137,8 +131,13 @@ function visibleTasks(
   tasks: readonly BackgroundTaskInfo[],
   filter: TasksFilter,
 ): BackgroundTaskInfo[] {
-  if (filter === 'all') return [...tasks];
-  return tasks.filter((t) => !isTerminal(t.status));
+  // The /tasks panel is for background task management. Foreground tasks
+  // (detached === false) are shown in the main transcript instead, and only
+  // appear here after being detached via Ctrl+B. `detached !== false` keeps
+  // reconcile ghosts whose `detached` field may be undefined.
+  const backgroundOnly = tasks.filter((t) => t.detached !== false);
+  if (filter === 'all') return [...backgroundOnly];
+  return backgroundOnly.filter((t) => !isTerminal(t.status));
 }
 
 function compareTasks(a: BackgroundTaskInfo, b: BackgroundTaskInfo): number {
@@ -186,8 +185,6 @@ export class TasksBrowserApp extends Container implements Focusable {
   private listScroll = 0;
   private pendingStopTaskId: string | undefined = undefined;
   private pendingStopTimer: NodeJS.Timeout | undefined = undefined;
-  private bindings = defaultKeybindings();
-  private keybindings = new KeybindingResolver(this.bindings);
 
   constructor(props: TasksBrowserProps, terminal: Terminal) {
     super();
@@ -200,40 +197,30 @@ export class TasksBrowserApp extends Container implements Focusable {
   setProps(next: TasksBrowserProps): void {
     this.props = next;
     this.sortedVisible = visibleTasks(next.tasks, next.filter).toSorted(compareTasks);
-    // Report the reconciled selection back so the controller can drop a
-    // filtered-out task id and stop loading its stale tail output.
-    const selectedTaskId = this.syncSelectionFromProps();
+    this.syncSelectionFromProps();
     if (this.pendingStopTaskId !== undefined) {
       const task = next.tasks.find((t) => t.taskId === this.pendingStopTaskId);
       if (task === undefined || isTerminal(task.status)) this.clearPendingStop();
     }
     this.invalidate();
-    if (selectedTaskId !== next.selectedTaskId) next.onSelect(selectedTaskId);
   }
 
-  setKeybindings(bindings: readonly ParsedKeybinding[]): void {
-    this.bindings = bindings;
-    this.keybindings = new KeybindingResolver(bindings);
-  }
-
-  /** Returns the task id the list settles on (undefined when nothing is visible). */
-  private syncSelectionFromProps(): string | undefined {
+  private syncSelectionFromProps(): void {
     if (this.sortedVisible.length === 0) {
       this.selectedIndex = 0;
       this.listScroll = 0;
-      return undefined;
+      return;
     }
     if (this.props.selectedTaskId !== undefined) {
       const idx = this.sortedVisible.findIndex((t) => t.taskId === this.props.selectedTaskId);
       if (idx !== -1) {
         this.selectedIndex = idx;
-        return this.props.selectedTaskId;
+        return;
       }
     }
     if (this.selectedIndex >= this.sortedVisible.length) {
       this.selectedIndex = this.sortedVisible.length - 1;
     }
-    return this.sortedVisible[this.selectedIndex]?.taskId;
   }
 
   private clearPendingStop(): void {
@@ -265,22 +252,22 @@ export class TasksBrowserApp extends Container implements Focusable {
       return;
     }
 
-    const handlers = {
-      'select:previous': () => this.moveSelection(-1),
-      'select:next': () => this.moveSelection(1),
-      'select:accept': () => {
-        const task = this.sortedVisible[this.selectedIndex];
-        if (task) this.props.onOpenOutput(task.taskId);
-      },
-      'select:cancel': () => this.props.onCancel(),
-    } as const;
-    if (
-      this.keybindings.dispatch(data, ['Select'], handlers) ||
-      this.keybindings.dispatchKeyId(data, ['Select'], handlers)
-    ) return;
-
-    if (k === 'q' || k === 'Q') {
+    if (matchesKey(data, Key.escape) || k === 'q' || k === 'Q') {
       this.props.onCancel();
+      return;
+    }
+    if (matchesKey(data, Key.up) || k === 'k') {
+      if (this.sortedVisible.length === 0) return;
+      this.selectedIndex = Math.max(0, this.selectedIndex - 1);
+      this.emitSelect();
+      this.invalidate();
+      return;
+    }
+    if (matchesKey(data, Key.down) || k === 'j') {
+      if (this.sortedVisible.length === 0) return;
+      this.selectedIndex = Math.min(this.sortedVisible.length - 1, this.selectedIndex + 1);
+      this.emitSelect();
+      this.invalidate();
       return;
     }
     if (matchesKey(data, Key.tab) || k === '\t') {
@@ -306,18 +293,11 @@ export class TasksBrowserApp extends Container implements Focusable {
       this.invalidate();
       return;
     }
-    if (k === 'o' || k === 'O') {
+    if (k === 'o' || k === 'O' || matchesKey(data, Key.enter)) {
       const task = this.sortedVisible[this.selectedIndex];
       if (task) this.props.onOpenOutput(task.taskId);
       return;
     }
-  }
-
-  private moveSelection(delta: -1 | 1): void {
-    if (this.sortedVisible.length === 0) return;
-    this.selectedIndex = Math.max(0, Math.min(this.sortedVisible.length - 1, this.selectedIndex + delta));
-    this.emitSelect();
-    this.invalidate();
   }
 
   /**
@@ -359,7 +339,11 @@ export class TasksBrowserApp extends Container implements Focusable {
       'textMuted',
       ` filter=${this.props.filter === 'all' ? 'ALL' : 'ACTIVE'} `,
     );
-    const counts = countByStatus(this.props.tasks);
+    // Count only the tasks actually listed (background tasks after the
+    // foreground-task filter), so a foreground-only session doesn't read
+    // "1 running / 1 total" above an empty list.
+    const visible = visibleTasks(this.props.tasks, this.props.filter);
+    const counts = countByStatus(visible);
     const countSegments: string[] = [];
     if (counts.running > 0)
       countSegments.push(currentTheme.fg('success', ` ${String(counts.running)} running `));
@@ -369,7 +353,7 @@ export class TasksBrowserApp extends Container implements Focusable {
       countSegments.push(
         currentTheme.fg('error', ` ${String(counts.terminalFailed)} interrupted `),
       );
-    const totals = currentTheme.fg('textMuted', ` ${String(this.props.tasks.length)} total `);
+    const totals = currentTheme.fg('textMuted', ` ${String(visible.length)} total `);
 
     const composed = title + filterText + countSegments.join('') + totals;
     return fitExactly(composed, width);
@@ -387,33 +371,14 @@ export class TasksBrowserApp extends Container implements Focusable {
       return fitExactly(line, width);
     }
 
-    const navigation = combinedBindingHint(
-      keybindingDisplayText(this.bindings, 'Select', 'select:previous'),
-      keybindingDisplayText(this.bindings, 'Select', 'select:next'),
-      'select',
-    );
-    const accept = keybindingDisplayText(this.bindings, 'Select', 'select:accept');
-    const cancel = keybindingDisplayText(this.bindings, 'Select', 'select:cancel');
-    const acceptKeys = [
-      ...(accept === undefined ? [] : formatBindingKeys(accept).split(' / ')).filter(
-        (binding) => binding.toLowerCase() !== 'o',
-      ),
-      'O',
-    ].join('/');
-    const cancelKeys = [
-      'Q',
-      ...(cancel === undefined ? [] : formatBindingKeys(cancel).split(' / ')).filter(
-        (binding) => binding.toLowerCase() !== 'q',
-      ),
-    ].join('/');
     const parts = [
-      navigation === undefined ? undefined : ` ${key(formatBindingKeys(navigation.split(' ')[0] ?? ''))} ${dim(navigation.slice(navigation.indexOf(' ') + 1))}`,
-      `${key(acceptKeys)} ${dim('output')}`,
+      ` ${key('↑↓')} ${dim('select')}`,
+      `${key('Enter/O')} ${dim('output')}`,
       `${key('S')} ${dim('stop')}`,
       `${key('R')} ${dim('refresh')}`,
       `${key('Tab')} ${dim('filter')}`,
-      `${key(cancelKeys)} ${dim('cancel')} `,
-    ].filter((part): part is string => part !== undefined);
+      `${key('Q/Esc')} ${dim('cancel')} `,
+    ];
     const left = parts.join('  ');
     const flash = this.props.flashMessage;
     if (flash !== undefined && flash.length > 0) {
@@ -552,9 +517,14 @@ export class TasksBrowserApp extends Container implements Focusable {
   // ── right: detail + preview stack ────────────────────────────────────
 
   private renderRightStack(width: number, height: number): string[] {
-    // Detail gets ~8 rows (or 40% of body, whichever is larger). Preview
-    // takes the rest. Both rendered as separate frames stacked vertically.
-    const detailHeight = Math.max(8, Math.min(Math.floor(height * 0.4), height - 5));
+    // Detail wants ~10 rows (or 40% of body, whichever is larger) — agent tasks
+    // carry Task ID / Status / Description / Agent ID / Agent type / Model /
+    // Effort / Time. Clamp it so the preview frame keeps its borders plus one
+    // content row even near the minimum terminal height.
+    const detailHeight = Math.min(
+      Math.max(10, Math.min(Math.floor(height * 0.4), height - 5)),
+      Math.max(3, height - 3),
+    );
     const previewHeight = height - detailHeight;
     return [
       ...this.renderDetailFrame(width, detailHeight),
@@ -588,6 +558,12 @@ export class TasksBrowserApp extends Container implements Focusable {
     }
     if (task.kind === 'agent' && task.subagentType !== undefined) {
       lines.push(`${label('Agent type:')}${value(task.subagentType)}`);
+    }
+    if (task.kind === 'agent' && task.model !== undefined) {
+      lines.push(`${label('Model:')}${value(task.model)}`);
+    }
+    if (task.kind === 'agent' && task.thinkingEffort !== undefined) {
+      lines.push(`${label('Effort:')}${value(task.thinkingEffort)}`);
     }
     if (task.kind === 'question') {
       lines.push(`${label('Questions:')}${currentTheme.fg('textMuted', String(task.questionCount))}`);
@@ -628,7 +604,7 @@ export class TasksBrowserApp extends Container implements Focusable {
     if (this.props.tailLoading) body = '[loading…]';
     else if (this.props.tailOutput === undefined || this.props.tailOutput.length === 0)
       body = '[no output captured]';
-    else body = this.props.tailOutput;
+    else body = sanitizeShellOutput(this.props.tailOutput);
 
     const rawLines = body.split('\n');
     const tailLines = rawLines.slice(-innerHeight);

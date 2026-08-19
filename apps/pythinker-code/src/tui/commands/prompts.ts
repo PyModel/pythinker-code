@@ -1,61 +1,36 @@
 import {
   catalogModelToAlias,
-  catalogConnectionWire,
-  coerceEffortForModel,
-  DEFAULT_CATALOG_URL,
-  effortLevelsForModel,
-  fetchCatalog,
-  loadBuiltInCatalog,
-  managedModelToAlias,
+  resolveCatalogImport,
   type Catalog,
   type CatalogModel,
   type ModelAlias,
-  type PlatformSelection,
+  type ThinkingEffort,
 } from '@pymodel/pythinker-code-sdk';
-import type {
-  PlatformModelInfo,
-  OpenPlatformDefinition,
+import {
+  capabilitiesForModel,
+  OPENAI_CODEX_PROVIDER_ID,
+  type ManagedPythinkerCodeModelInfo,
+  type OpenAICodexModelInfo,
+  type OpenPlatformDefinition,
 } from '@pymodel/pythinker-code-oauth';
 
-import { ApiKeyInputDialogComponent, type ApiKeyInputResult } from '../components/dialogs/api-key-input-dialog';
+import {
+  ApiKeyInputDialogComponent,
+  type ApiKeyInputDialogOptions,
+  type ApiKeyInputResult,
+} from '../components/dialogs/api-key-input-dialog';
 import { ChoicePickerComponent, type ChoiceOption } from '../components/dialogs/choice-picker';
 import { FeedbackInputDialogComponent, type FeedbackInputDialogResult } from '../components/dialogs/feedback-input-dialog';
 import { ModelSelectorComponent } from '../components/dialogs/model-selector';
 import { PlatformSelectorComponent } from '../components/dialogs/platform-selector';
-import { BUILT_IN_CATALOG_JSON } from '#/built-in-catalog';
-import { formatErrorMessage } from '../utils/event-payload';
 import type { SlashCommandHost } from './dispatch';
 
-export async function promptPlatformSelection(
-  host: SlashCommandHost,
-): Promise<PlatformSelection | undefined> {
-  let catalog = loadBuiltInCatalog(BUILT_IN_CATALOG_JSON) ?? {};
-  const controller = new AbortController();
-  const cancel = (): void => {
-    controller.abort();
-  };
-  host.cancelInFlight = cancel;
-  const spinner = host.showLoginProgressSpinner('Loading provider catalog');
-  try {
-    catalog = await fetchCatalog(DEFAULT_CATALOG_URL, controller.signal);
-    spinner.stop({ ok: true, label: 'Provider catalog loaded.' });
-  } catch (error) {
-    if (controller.signal.aborted) {
-      spinner.stop({ ok: false, label: 'Aborted.' });
-      return undefined;
-    }
-    spinner.stop({ ok: false, label: 'Using bundled provider catalog.' });
-    host.showStatus(`Live provider catalog unavailable: ${formatErrorMessage(error)}`, 'warning');
-  } finally {
-    if (host.cancelInFlight === cancel) host.cancelInFlight = undefined;
-  }
-
+export function promptPlatformSelection(host: SlashCommandHost): Promise<string | undefined> {
   return new Promise((resolve) => {
     const selector = new PlatformSelectorComponent({
-      catalog,
       onSelect: (platformId) => {
         host.restoreEditor();
-        resolve({ platformId, catalog });
+        resolve(platformId);
       },
       onCancel: () => {
         host.restoreEditor();
@@ -89,13 +64,55 @@ export function promptLogoutProviderSelection(
   });
 }
 
-export function promptFeedbackInput(host: SlashCommandHost): Promise<string | undefined> {
+export interface FeedbackPromptResult {
+  readonly value: string;
+}
+
+export function promptFeedbackInput(host: SlashCommandHost): Promise<FeedbackPromptResult | undefined> {
   return new Promise((resolve) => {
     const dialog = new FeedbackInputDialogComponent((result: FeedbackInputDialogResult) => {
       host.restoreEditor();
-      resolve(result.kind === 'ok' ? result.value : undefined);
+      resolve(result.kind === 'ok' ? { value: result.value } : undefined);
     });
     host.mountEditorReplacement(dialog);
+  });
+}
+
+export type FeedbackAttachmentLevel = 'none' | 'logs' | 'logs+codebase';
+
+const FEEDBACK_ATTACHMENT_OPTIONS: readonly ChoiceOption[] = [
+  { value: 'none', label: 'No attachment', description: 'Text feedback only' },
+  {
+    value: 'logs',
+    label: 'Logs only',
+    description: 'Upload wire events and diagnostic logs from this session',
+  },
+  {
+    value: 'logs+codebase',
+    label: 'Logs + codebase',
+    description:
+      'Include your codebase for deeper diagnosis. Sensitive files are automatically excluded — e.g. .env, config files, secret keys. We use attachments only for diagnosis and never share them.',
+    descriptionTone: 'warning',
+  },
+];
+
+export function promptFeedbackAttachment(
+  host: SlashCommandHost,
+): Promise<FeedbackAttachmentLevel | undefined> {
+  return new Promise((resolve) => {
+    const picker = new ChoicePickerComponent({
+      title: 'Share diagnostic info to help us investigate?',
+      options: FEEDBACK_ATTACHMENT_OPTIONS,
+      onSelect: (value) => {
+        host.restoreEditor();
+        resolve(value as FeedbackAttachmentLevel);
+      },
+      onCancel: () => {
+        host.restoreEditor();
+        resolve(undefined);
+      },
+    });
+    host.mountEditorReplacement(picker);
   });
 }
 
@@ -103,7 +120,7 @@ export function promptApiKey(
   host: SlashCommandHost,
   platformName: string,
   subtitleLines: readonly string[] = ['Your key will be saved to ~/.pythinker-code/config.toml'],
-  options: import('../components/dialogs/api-key-input-dialog').ApiKeyInputDialogOptions = {},
+  options: ApiKeyInputDialogOptions = {},
 ): Promise<string | undefined> {
   return new Promise((resolve) => {
     const dialog = new ApiKeyInputDialogComponent(
@@ -119,10 +136,35 @@ export function promptApiKey(
   });
 }
 
+/**
+ * Asks for the provider endpoint the catalog did not declare (or declared
+ * only as an env placeholder) — required for catalog imports whose protocol
+ * was guessed, where the built-in default endpoint would point at the wrong
+ * host. Esc cancels the import.
+ */
+export function promptBaseUrl(host: SlashCommandHost, platformName: string): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    const dialog = new ApiKeyInputDialogComponent(
+      platformName,
+      ['The catalog declares no endpoint for this provider — enter its base URL.'],
+      (result: ApiKeyInputResult) => {
+        host.restoreEditor();
+        resolve(result.kind === 'ok' ? result.value : undefined);
+      },
+      {
+        title: `Enter base URL for ${platformName}`,
+        mask: false,
+        emptyHint: 'Base URL cannot be empty.',
+      },
+    );
+    host.mountEditorReplacement(dialog);
+  });
+}
+
 export function promptCatalogProviderSelection(host: SlashCommandHost, catalog: Catalog): Promise<string | undefined> {
   return new Promise((resolve) => {
     const options: ChoiceOption[] = Object.entries(catalog)
-      .filter(([, entry]) => catalogConnectionWire(entry) !== undefined)
+      .filter(([, entry]) => resolveCatalogImport(entry).kind !== 'invalid')
       .map(([id, entry]) => ({
         value: id,
         label: entry.name ?? id,
@@ -132,7 +174,7 @@ export function promptCatalogProviderSelection(host: SlashCommandHost, catalog: 
       .toSorted((a, b) => a.label.localeCompare(b.label));
 
     if (options.length === 0) {
-      host.showError('Catalog has no providers that can be configured with one API key.');
+      host.showError('Catalog has no providers with supported wire types.');
       resolve(undefined);
       return;
     }
@@ -156,24 +198,57 @@ export function promptCatalogProviderSelection(host: SlashCommandHost, catalog: 
 
 export async function promptModelSelectionForOpenPlatform(
   host: SlashCommandHost,
-  models: PlatformModelInfo[],
+  models: ManagedPythinkerCodeModelInfo[],
   platform: OpenPlatformDefinition,
-): Promise<{ model: PlatformModelInfo; effort: string } | undefined> {
+): Promise<{ model: ManagedPythinkerCodeModelInfo; thinking: ThinkingEffort } | undefined> {
   const modelDict: Record<string, ModelAlias> = {};
   for (const m of models) {
-    modelDict[`${platform.id}/${m.id}`] = managedModelToAlias(platform.id, m);
+    modelDict[`${platform.id}/${m.id}`] = {
+      provider: platform.id,
+      model: m.id,
+      maxContextSize: m.contextLength,
+      capabilities: capabilitiesForModel(m),
+      displayName: m.displayName,
+    };
   }
   const selection = await runModelSelector(host, modelDict);
   if (selection === undefined) return undefined;
   const model = models.find((m) => `${platform.id}/${m.id}` === selection.alias);
-  return model ? { model, effort: selection.effort } : undefined;
+  return model ? { model, thinking: selection.thinking } : undefined;
+}
+
+export async function promptModelSelectionForCodex(
+  host: SlashCommandHost,
+  models: OpenAICodexModelInfo[],
+): Promise<{ model: OpenAICodexModelInfo; thinking: ThinkingEffort } | undefined> {
+  const modelDict: Record<string, ModelAlias> = {};
+  for (const model of models) {
+    const capabilities = capabilitiesForModel(model) ?? [];
+    modelDict[`${OPENAI_CODEX_PROVIDER_ID}/${model.id}`] = {
+      provider: OPENAI_CODEX_PROVIDER_ID,
+      model: model.id,
+      maxContextSize: model.contextLength,
+      capabilities: model.supportsFastMode === true ? [...capabilities, 'fast_mode'] : capabilities,
+      supportEfforts:
+        model.supportedReasoningEfforts === undefined
+          ? undefined
+          : [...model.supportedReasoningEfforts],
+      displayName: model.displayName,
+    };
+  }
+  const selection = await runModelSelector(host, modelDict);
+  if (selection === undefined) return undefined;
+  const model = models.find(
+    (candidate) => `${OPENAI_CODEX_PROVIDER_ID}/${candidate.id}` === selection.alias,
+  );
+  return model === undefined ? undefined : { model, thinking: selection.thinking };
 }
 
 export async function promptModelSelectionForCatalog(
   host: SlashCommandHost,
   providerId: string,
   models: CatalogModel[],
-): Promise<{ model: CatalogModel; effort: string } | undefined> {
+): Promise<{ model: CatalogModel; thinking: ThinkingEffort } | undefined> {
   const modelDict: Record<string, ModelAlias> = {};
   for (const m of models) {
     modelDict[`${providerId}/${m.id}`] = catalogModelToAlias(providerId, m);
@@ -181,28 +256,25 @@ export async function promptModelSelectionForCatalog(
   const selection = await runModelSelector(host, modelDict);
   if (selection === undefined) return undefined;
   const model = models.find((m) => `${providerId}/${m.id}` === selection.alias);
-  return model ? { model, effort: selection.effort } : undefined;
+  return model ? { model, thinking: selection.thinking } : undefined;
 }
 
 export function runModelSelector(
   host: SlashCommandHost,
   modelDict: Record<string, ModelAlias>,
-): Promise<{ alias: string; effort: string } | undefined> {
+): Promise<{ alias: string; thinking: ThinkingEffort } | undefined> {
   return new Promise((resolve) => {
     const firstAlias = Object.keys(modelDict)[0] ?? '';
-    const firstModel = modelDict[firstAlias];
-    const initialEffort = coerceEffortForModel(
-      firstModel,
-      effortLevelsForModel(firstModel).find((level) => level !== 'off') ?? 'off',
-    );
+    const caps = modelDict[firstAlias]?.capabilities ?? [];
+    const initialThinking = caps.includes('always_thinking') || caps.includes('thinking');
     const selector = new ModelSelectorComponent({
       models: modelDict,
       currentValue: firstAlias,
-      currentEffort: initialEffort,
+      currentThinkingEffort: initialThinking ? 'on' : 'off',
       searchable: true,
-      onSelect: ({ alias, effort }) => {
+      onSelect: ({ alias, thinking }) => {
         host.restoreEditor();
-        resolve({ alias, effort });
+        resolve({ alias, thinking });
       },
       onCancel: () => {
         host.restoreEditor();

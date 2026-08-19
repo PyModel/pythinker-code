@@ -4,18 +4,8 @@ export interface SkillMetadata {
   readonly name?: string | undefined;
   readonly description?: string | undefined;
   readonly type?: string | undefined;
-  readonly paths?: string | readonly string[];
-  readonly context?: string;
-  readonly agent?: string;
-  readonly model?: string;
-  readonly effort?: string | number;
-  readonly allowedTools?: string | readonly string[];
-  readonly hooks?: unknown;
-  readonly shell?: string;
   readonly whenToUse?: string | undefined;
   readonly disableModelInvocation?: boolean | undefined;
-  readonly userInvocable?: boolean;
-  readonly argumentHint?: string;
   readonly isSubSkill?: boolean | undefined;
   readonly safe?: boolean | undefined;
   readonly arguments?: readonly unknown[] | string | undefined;
@@ -37,14 +27,11 @@ export interface SkillDefinition {
 
 export interface SkillSummary {
   readonly name: string;
-  readonly commandName?: string;
   readonly description: string;
   readonly path: string;
   readonly source: SkillSource;
   readonly type?: string | undefined;
   readonly disableModelInvocation?: boolean | undefined;
-  readonly userInvocable?: boolean;
-  readonly argumentHint?: string;
   readonly isSubSkill?: boolean | undefined;
 }
 
@@ -52,6 +39,13 @@ export interface SkillRoot {
   readonly path: string;
   readonly source: SkillSource;
   readonly plugin?: SkillPluginContext;
+  /**
+   * How discovery scans this root. Defaults to 'directory' (full directory
+   * scan). 'root-skill-only' treats the root as a single skill bundle and only
+   * parses `<root>/SKILL.md` — used for the plugin manifest fallback so sibling
+   * docs like CHANGELOG.md are not mistaken for flat skills.
+   */
+  readonly scanMode?: 'directory' | 'root-skill-only';
 }
 
 export interface SkillPluginContext {
@@ -95,8 +89,6 @@ export function summarizeSkill(skill: SkillDefinition): SkillSummary {
     source: skill.source,
     type: skill.metadata.type,
     disableModelInvocation: skill.metadata.disableModelInvocation,
-    userInvocable: skill.metadata.userInvocable,
-    argumentHint: skill.metadata.argumentHint,
     isSubSkill: skill.metadata.isSubSkill,
   };
 }

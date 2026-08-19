@@ -119,7 +119,7 @@ const streamChat: Handler<StreamChatParams, { done: boolean }> = async (params, 
       model = params.model;
     }
     const effort = normalizeEffort(params.effort ?? (params.thinking === true ? "on" : "off"));
-    if (status.thinkingLevel !== effort) {
+    if (status.thinkingEffort !== effort) {
       await runtime.session.setThinking(effort);
     }
     if (params.planMode !== undefined && status.planMode !== params.planMode) {

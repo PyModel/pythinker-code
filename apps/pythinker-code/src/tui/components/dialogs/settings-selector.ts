@@ -2,12 +2,10 @@ import { ChoicePickerComponent, type ChoiceOption } from './choice-picker';
 
 export type SettingsSelection =
   | 'model'
-  | 'output-style'
   | 'theme'
   | 'editor'
   | 'permission'
   | 'experiments'
-  | 'copy'
   | 'upgrade'
   | 'usage';
 
@@ -16,11 +14,6 @@ const SETTINGS_OPTIONS: readonly ChoiceOption[] = [
     value: 'model',
     label: 'Model',
     description: 'Switch the active model and thinking mode.',
-  },
-  {
-    value: 'output-style',
-    label: 'Output style',
-    description: 'Choose how Pythinker formats responses.',
   },
   {
     value: 'permission',
@@ -43,11 +36,6 @@ const SETTINGS_OPTIONS: readonly ChoiceOption[] = [
     description: 'Turn experimental features on or off.',
   },
   {
-    value: 'copy',
-    label: 'Copy responses',
-    description: 'Choose whether /copy always uses the full response.',
-  },
-  {
     value: 'upgrade',
     label: 'Automatic updates',
     description: 'Turn automatic CLI updates on or off.',
@@ -62,12 +50,10 @@ const SETTINGS_OPTIONS: readonly ChoiceOption[] = [
 function isSettingsSelection(value: string): value is SettingsSelection {
   return (
     value === 'model' ||
-    value === 'output-style' ||
     value === 'theme' ||
     value === 'editor' ||
     value === 'permission' ||
     value === 'experiments' ||
-    value === 'copy' ||
     value === 'upgrade' ||
     value === 'usage'
   );

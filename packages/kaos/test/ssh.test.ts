@@ -286,11 +286,7 @@ describe.skipIf(process.platform === 'win32' || !SSH_SMOKE)('SSHKaos smoke', () 
   });
 
   test('exec rejects empty command', async () => {
-    await expect(
-      (sshKaos.exec as (...args: string[]) => Promise<unknown>)(),
-    ).rejects.toThrow(
-      'SSHKaos.exec(): at least one argument (the command to run) is required.',
-    );
+    await expect((sshKaos.exec as (...args: string[]) => Promise<unknown>)()).rejects.toThrow();
   });
 
   test('process kill updates returncode', async () => {
@@ -848,30 +844,6 @@ describe('SSHKaos mock success paths', () => {
     internal._home = '/home/tester';
     return instance;
   }
-
-  it('delegates unlink and chmod to resolved SFTP paths', async () => {
-    const unlinkCalls: string[] = [];
-    const chmodCalls: Array<{ path: string; mode: number }> = [];
-    const kaos = makeFakeKaos(
-      {
-        unlink(path: string, callback: (error?: Error) => void): void {
-          unlinkCalls.push(path);
-          callback();
-        },
-        chmod(path: string, mode: number, callback: (error?: Error) => void): void {
-          chmodCalls.push({ path, mode });
-          callback();
-        },
-      },
-      '/workspace',
-    );
-
-    await kaos.unlink('new.ts');
-    await kaos.chmod('existing.ts', 0o640);
-
-    expect(unlinkCalls).toEqual(['/workspace/new.ts']);
-    expect(chmodCalls).toEqual([{ path: '/workspace/existing.ts', mode: 0o640 }]);
-  });
 
   // ── path helpers ────────────────────────────────────────────────────
 

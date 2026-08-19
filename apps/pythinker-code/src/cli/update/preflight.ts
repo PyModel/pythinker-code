@@ -1,31 +1,19 @@
 import { spawn } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
-import { homedir } from 'node:os';
-import type { Readable } from 'node:stream';
-
-import { gt, gte, valid } from 'semver';
 
 import { log, type Logger } from '@pymodel/pythinker-code-sdk';
 import type { TelemetryProperties } from '@pymodel/pythinker-telemetry';
 
 import {
+  PYTHINKER_CODE_OFFICIAL_INSTALL_URL,
   NATIVE_INSTALL_COMMAND_UNIX,
   NATIVE_INSTALL_COMMAND_WIN,
-  PYTHINKER_CODE_INSTALL_SH_URL,
 } from '#/constant/app';
 import { loadTuiConfig } from '#/tui/config';
+import { resolveCommandPath } from '#/utils/process/resolve-command';
 
 import { readUpdateCache } from './cache';
-import { formatErrorMessage } from './format-error';
 import { tryAcquireUpdateInstallLock } from './install-lock';
-import {
-  emptyUpdateInstallState,
-  failureAttemptsFor,
-  hasFreshActiveInstall,
-  readUpdateInstallState,
-  reconcileAbandonedInstall,
-  writeUpdateInstallState,
-} from './install-state';
+import { emptyUpdateInstallState, readUpdateInstallState, writeUpdateInstallState } from './install-state';
 import {
   CHANGELOG_URL,
   promptForInstallChoice,
@@ -33,7 +21,6 @@ import {
   type InstallPromptOptions,
 } from './prompt';
 import { refreshUpdateCache } from './refresh';
-import { isTargetInstallable, selectUpdateTarget } from './select';
 import {
   appendRolloutDecisionLog,
   decidePassiveUpdateTarget,
@@ -48,24 +35,13 @@ import {
   NPM_PACKAGE_NAME,
   type InstallSource,
   type UpdateDecision,
-  type UpdateInstallProgress,
   type UpdateInstallState,
-  type UpdateCache,
   type UpdateManifest,
   type UpdatePreflightResult,
-  type UpdateRequestOrigin,
   type UpdateTarget,
 } from './types';
-import {
-  verifyInstalledVersion,
-  type InstallOutcome,
-  type InstallVerification,
-} from './verify-install';
 
 export type { UpdatePreflightResult } from './types';
-
-/** Reused for the paths that never reach verification (a failed install). */
-const OK_VERIFICATION: InstallVerification = { ok: true };
 
 export interface RunUpdatePreflightOptions {
   readonly stdout?: { write(chunk: string): boolean };
@@ -76,8 +52,8 @@ export interface RunUpdatePreflightOptions {
 }
 
 const AUTO_INSTALL_FAILURE_PROMPT_THRESHOLD = 2;
+const AUTO_INSTALL_ACTIVE_TTL_MS = 6 * 60 * 60 * 1000;
 const USER_VISIBLE_UPDATE_REFRESH_TIMEOUT_MS = 1_000;
-const UPDATE_HELPER_ENV = 'PYTHINKER_CODE_UPDATE_HELPER';
 
 type UpdateLogger = Pick<Logger, 'info' | 'warn'>;
 
@@ -87,33 +63,6 @@ function withCmdSuffix(base: string, platform: NodeJS.Platform): string {
 
 function bunCommand(platform: NodeJS.Platform): string {
   return platform === 'win32' ? 'bun.exe' : 'bun';
-}
-
-/**
- * Node ≥18.20/20.12 refuses to spawn a `.cmd`/`.bat` file directly
- * (CVE-2024-27980) and fails with `EINVAL` — which is every npm-family update
- * on Windows: `npm.cmd`, `pnpm.cmd`, `yarn.cmd`. The command interpreter runs
- * them instead. It is spelled out as argv rather than `shell: true` so the
- * exact command line is visible here (and asserted in tests) instead of being
- * assembled by Node's string joining.
- */
-function viaCommandInterpreter(command: SpawnCommand): SpawnCommand {
-  return {
-    ...command,
-    cmd: process.env['ComSpec'] ?? 'cmd.exe',
-    args: ['/d', '/s', '/c', command.cmd, ...command.args],
-  };
-}
-
-/** True for the Windows package-manager shims that cannot be spawned directly. */
-export function isWindowsShim(cmd: string, platform: NodeJS.Platform): boolean {
-  if (platform !== 'win32') return false;
-  const lower = cmd.toLowerCase();
-  return lower.endsWith('.cmd') || lower.endsWith('.bat');
-}
-
-function spawnable(command: SpawnCommand, platform: NodeJS.Platform): SpawnCommand {
-  return isWindowsShim(command.cmd, platform) ? viaCommandInterpreter(command) : command;
 }
 
 export function installCommandFor(
@@ -139,9 +88,7 @@ export function installCommandFor(
   }
 }
 
-export type AutomaticUpdateMode = 'background-install' | 'restart-install' | 'manual';
-
-export function canAutoInstall(source: InstallSource, _platform: NodeJS.Platform): boolean {
+export function canAutoInstall(source: InstallSource, platform: NodeJS.Platform): boolean {
   switch (source) {
     case 'npm-global':
     case 'pnpm-global':
@@ -149,28 +96,19 @@ export function canAutoInstall(source: InstallSource, _platform: NodeJS.Platform
     case 'bun-global':
       return true;
     case 'homebrew':
-      // Foreground installUpdate() never owns Homebrew. Passive and explicit
-      // TUI updates use the separate prepare-on-restart lifecycle instead.
+      // Homebrew upgrade may mutate other dependents and the formula can lag
+      // behind the CDN release — prompt the user to run `brew upgrade` manually.
       return false;
     case 'native':
-      return true;
+      return platform !== 'win32';
     case 'unsupported':
       return false;
   }
 }
 
-export function automaticUpdateModeFor(
-  source: InstallSource,
-  platform: NodeJS.Platform,
-): AutomaticUpdateMode {
-  if (source === 'homebrew') return 'restart-install';
-  return canAutoInstall(source, platform) ? 'background-install' : 'manual';
-}
-
 interface SpawnCommand {
   readonly cmd: string;
   readonly args: readonly string[];
-  readonly env?: Readonly<Record<string, string>>;
 }
 
 export function spawnForSource(
@@ -180,56 +118,49 @@ export function spawnForSource(
 ): SpawnCommand {
   switch (source) {
     case 'npm-global':
-      return spawnable(
-        { cmd: withCmdSuffix('npm', platform), args: ['install', '-g', `${NPM_PACKAGE_NAME}@${version}`] },
-        platform,
-      );
+      return { cmd: withCmdSuffix('npm', platform), args: ['install', '-g', `${NPM_PACKAGE_NAME}@${version}`] };
     case 'pnpm-global':
-      return spawnable(
-        { cmd: withCmdSuffix('pnpm', platform), args: ['add', '-g', `${NPM_PACKAGE_NAME}@${version}`] },
-        platform,
-      );
+      return { cmd: withCmdSuffix('pnpm', platform), args: ['add', '-g', `${NPM_PACKAGE_NAME}@${version}`] };
     case 'yarn-global':
-      return spawnable(
-        { cmd: withCmdSuffix('yarn', platform), args: ['global', 'add', `${NPM_PACKAGE_NAME}@${version}`] },
-        platform,
-      );
+      return { cmd: withCmdSuffix('yarn', platform), args: ['global', 'add', `${NPM_PACKAGE_NAME}@${version}`] };
     case 'bun-global':
       return { cmd: bunCommand(platform), args: ['add', '-g', `${NPM_PACKAGE_NAME}@${version}`] };
     case 'homebrew':
       return { cmd: 'brew', args: ['upgrade', 'pythinker-code'] };
     case 'native':
-      if (platform === 'win32') {
-        // install.ps1 reads $env:PYTHINKER_VERSION when set instead of
-        // fetching the CDN's current latest, so the version this preflight
-        // decided on is the one actually installed.
-        return {
-          cmd: 'powershell.exe',
-          args: ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', NATIVE_INSTALL_COMMAND_WIN],
-          env: { PYTHINKER_VERSION: version },
-        };
-      }
       // `curl … | bash` reports only the trailing bash's exit status, so a
       // failed download (curl can't connect → empty stdin → bash exits 0)
       // would look like a successful update. `pipefail` makes the pipeline
       // surface curl's non-zero status so installUpdate() rejects and we warn
       // instead of printing "Updated …".
-      //
-      // `-s -- --version` pins the install to the version this preflight
-      // decided on, the same guarantee PYTHINKER_VERSION gives on Windows.
-      // Without it the script installs whatever the CDN currently calls
-      // latest, which can differ from the rollout's target.
-      return {
-        cmd: 'bash',
-        args: [
-          '-c',
-          `set -o pipefail; curl -fsSL ${PYTHINKER_CODE_INSTALL_SH_URL} | bash -s -- --version ${version}`,
-        ],
-      };
+      return { cmd: 'bash', args: ['-c', `set -o pipefail; ${NATIVE_INSTALL_COMMAND_UNIX}`] };
     case 'unsupported':
       throw new Error('unsupported install source cannot be auto-installed');
   }
 }
+
+function formatErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Resolve a spawn target from `spawnForSource` to an absolute executable path
+ * via PATH, refusing hits inside the current working directory: the update
+ * preflight runs before the workspace trust gate, so a package-manager binary
+ * planted in an untrusted workspace must never be executed. On win32 the
+ * resolved path is quoted because the spawn goes through cmd.exe (shell:
+ * true) and paths like `C:\Program Files\...` would otherwise split. Returns
+ * undefined when the command cannot be safely resolved.
+ */
+function resolveSpawnCommand(cmd: string, platform: NodeJS.Platform): string | undefined {
+  const resolved = resolveCommandPath(cmd);
+  if (resolved === undefined) return undefined;
+  return platform === 'win32' ? `"${resolved}"` : resolved;
+}
+
+const THIRD_PARTY_SOURCE_NOTE =
+  '\nNote: Third-party sources may lag behind the official release.\n' +
+  `For the latest updates, use the official installer: ${PYTHINKER_CODE_OFFICIAL_INSTALL_URL}\n`;
 
 export function renderManualUpdateMessage(
   currentVersion: string,
@@ -249,35 +180,32 @@ export function renderManualUpdateMessage(
       sourceDesc = 'homebrew';
       break;
     case 'native':
-      sourceDesc = 'native install.';
+      sourceDesc = 'native (windows). Auto-update is not supported on this platform.';
       break;
     case 'unsupported':
       sourceDesc = 'unsupported package manager or layout.';
       break;
   }
-  const homebrewHint =
-    source === 'homebrew'
-      ? 'Automatic Homebrew preparation is disabled or could not complete.\n'
-      : '';
   return (
     `A newer version of ${NPM_PACKAGE_NAME} is available ` +
     `(${currentVersion} -> ${target.version}).\n` +
     `Detected install source: ${sourceDesc}\n` +
     `To update manually, run: ${installCommand}\n` +
-    homebrewHint
+    (source === 'homebrew' ? THIRD_PARTY_SOURCE_NOTE : '')
   );
 }
 
 export function renderInstallSuccessMessage(target: UpdateTarget): string {
-  return (
-    `Updated ${NPM_PACKAGE_NAME} to ${target.version}. ` +
-    'Close this terminal and open a new one to use the new version.\n'
-  );
+  return `Updated ${NPM_PACKAGE_NAME} to ${target.version}. Restart the CLI to use the new version.\n`;
 }
 
 function renderBackgroundInstallSuccessNotice(version: string): string {
   const displayVersion = version.startsWith('v') ? version : `v${version}`;
   return `Pythinker Code updated to ${displayVersion}\nChangelog: ${CHANGELOG_URL}\n`;
+}
+
+function refreshInBackground(): void {
+  void refreshUpdateCache().catch(() => {});
 }
 
 /** Telemetry properties describing where this device sits in the rollout. */
@@ -421,6 +349,18 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+function failureAttemptsFor(state: UpdateInstallState, target: UpdateTarget): number {
+  return state.lastFailure?.version === target.version ? state.lastFailure.attempts : 0;
+}
+
+function hasFreshActiveInstall(state: UpdateInstallState, target: UpdateTarget): boolean {
+  const active = state.active;
+  if (active === null || active.version !== target.version) return false;
+  const startedAt = Date.parse(active.startedAt);
+  if (!Number.isFinite(startedAt)) return false;
+  return Date.now() - startedAt < AUTO_INSTALL_ACTIVE_TTL_MS;
+}
+
 async function showPendingBackgroundInstallNotice(
   state: UpdateInstallState,
   currentVersion: string,
@@ -441,6 +381,7 @@ async function showPendingBackgroundInstallNotice(
     });
     const nextState: UpdateInstallState = {
       ...state,
+      active: null,
       lastFailure: null,
       lastSuccess: {
         ...success,
@@ -452,11 +393,7 @@ async function showPendingBackgroundInstallNotice(
   }
 
   const active = state.active;
-  if (
-    active === null ||
-    active.version !== currentVersion ||
-    hasFreshActiveInstall(state)
-  ) return state;
+  if (active === null || active.version !== currentVersion) return state;
   if (success !== null && success.version === currentVersion && success.notifiedAt !== null) {
     return state;
   }
@@ -491,13 +428,13 @@ async function showPendingBackgroundInstallNotice(
  * prompt. Migrated from pythinker-cli, where the variable gated all auto-update
  * behavior. Accepts the usual truthy values (`1`/`true`/`yes`/`on`).
  */
-export function isAutoUpdateDisabledByEnv(env: NodeJS.ProcessEnv = process.env): boolean {
+function isAutoUpdateDisabledByEnv(env: NodeJS.ProcessEnv = process.env): boolean {
   const truthy = (value?: string): boolean =>
     ['1', 'true', 'yes', 'on'].includes((value ?? '').trim().toLowerCase());
   return truthy(env['PYTHINKER_CODE_NO_AUTO_UPDATE']) || truthy(env['PYTHINKER_CLI_NO_AUTO_UPDATE']);
 }
 
-export async function shouldAutoInstallUpdates(): Promise<boolean> {
+async function shouldAutoInstallUpdates(): Promise<boolean> {
   try {
     const config = await loadTuiConfig();
     return config.upgrade.autoInstall;
@@ -515,8 +452,6 @@ function trackUpdatePrompted(
   rolloutTelemetry: RolloutTelemetry,
 ): void {
   trackUpdateEvent(track, 'update_prompted', {
-    current: currentVersion,
-    latest: target.version,
     current_version: currentVersion,
     target_version: target.version,
     source,
@@ -558,41 +493,34 @@ async function promptInstall(
   target: UpdateTarget,
   source: InstallSource,
   installCommand: string,
-  previousFailure: string | undefined,
 ): Promise<InstallPromptChoiceValue> {
   const options: InstallPromptOptions = {
     currentVersion,
     target,
     installSource: source,
     installCommand,
-    previousFailure,
   };
   return promptForInstallChoice(options);
-}
-
-/**
- * A recorded failure is only worth showing when it is about the version the
- * prompt is offering — an older version's failure is stale noise.
- */
-function failureMessageFor(
-  state: UpdateInstallState,
-  target: UpdateTarget,
-): string | undefined {
-  const failure = state.lastFailure;
-  if (failure === null || failure.version !== target.version) return undefined;
-  return failure.message;
 }
 
 export async function installUpdate(
   source: InstallSource,
   version: string,
   platform: NodeJS.Platform,
-): Promise<InstallOutcome> {
-  const { cmd, args, env } = spawnForSource(source, version, platform);
+): Promise<void> {
+  const { cmd, args } = spawnForSource(source, version, platform);
+  const resolvedCmd = resolveSpawnCommand(cmd, platform);
+  if (resolvedCmd === undefined) {
+    throw new Error(`${cmd} was not found in PATH; cannot install the update`);
+  }
   await new Promise<void>((resolve, reject) => {
-    const child = spawn(cmd, [...args], {
+    // Windows package managers (npm/pnpm/yarn) are .cmd shims. Since the
+    // CVE-2024-27980 fix, Node throws EINVAL when spawning a .cmd/.bat without
+    // a shell, so run through the shell on win32. The version is a validated
+    // semver and the package name is a constant, so args are shell-safe.
+    const child = spawn(resolvedCmd, [...args], {
       stdio: 'inherit',
-      env: env === undefined ? undefined : { ...process.env, ...env },
+      shell: platform === 'win32' ? true : undefined,
     });
     child.once('error', reject);
     child.once('exit', (code, signal) => {
@@ -604,243 +532,6 @@ export async function installUpdate(
       reject(new Error(`${cmd} exited with ${detail}`));
     });
   });
-  // Exit code 0 is the installer's opinion; this is the fact. Rejecting here
-  // routes a silent no-op install into the same failure reporting a crashed
-  // installer gets, instead of printing "Updated …" over an unchanged binary.
-  const verification = await verifyInstalledVersion(source, version);
-  if (!verification.ok) throw new Error(verification.reason);
-  // Returned so the caller can record *why* a success is unproven; see
-  // verify-install.ts for the fail-open rule.
-  return { unverified: verification.unverified };
-}
-
-/** Keep the tail only: installers can be chatty, and the state file is small. */
-const INSTALLER_STDERR_TAIL_CHARS = 2000;
-/** At most one active-record progress write every 2s; terminal states bypass it. */
-const INSTALLER_PROGRESS_WRITE_INTERVAL_MS = 2_000;
-const INSTALLER_PROGRESS_PREFIX = 'progress: ';
-
-function isInstallerProgressState(value: string): value is UpdateInstallProgress['state'] {
-  return value === 'downloading' || value === 'waiting' || value === 'done' || value === 'failed';
-}
-
-/**
- * Parse one `progress: key=value key=value` line from the installer's stderr.
- * Unknown or malformed keys are skipped — an installer from a different
- * release must never crash the parent. Returns null when the line carries no
- * usable state.
- */
-function parseInstallerProgressLine(line: string): UpdateInstallProgress | null {
-  let state: UpdateInstallProgress['state'] | undefined;
-  let percent: number | undefined;
-  let transferred: number | undefined;
-  let total: number | undefined;
-  for (const field of line.slice(INSTALLER_PROGRESS_PREFIX.length).split(/\s+/u)) {
-    const eq = field.indexOf('=');
-    if (eq <= 0) continue;
-    const key = field.slice(0, eq);
-    const value = field.slice(eq + 1);
-    switch (key) {
-      case 'state':
-        if (isInstallerProgressState(value)) state = value;
-        break;
-      case 'percent':
-        if (/^(?:100|[0-9]{1,2})$/u.test(value)) percent = Number(value);
-        break;
-      case 'transferred':
-        if (/^[0-9]+$/u.test(value)) transferred = Number(value);
-        break;
-      case 'total':
-        if (/^[0-9]+$/u.test(value)) total = Number(value);
-        break;
-      default:
-        break;
-    }
-  }
-  if (state === undefined) return null;
-  return { state, percent, transferred, total, updatedAt: nowIso() };
-}
-
-/**
- * Read the installer's stderr as lines. `progress: …` lines are parsed and
- * handed to `onProgress`; they never enter the failure tail, or a long
- * download would evict the very error text the tail exists to preserve. All
- * other lines are kept in the trailing `INSTALLER_STDERR_TAIL_CHARS` window.
- * Returns a getter for that tail.
- */
-function captureStderrTail(
-  child: ReturnType<typeof spawn>,
-  onProgress: (update: UpdateInstallProgress) => void,
-): () => string | undefined {
-  // Typed `Readable | null`, but absent entirely when stderr was not piped.
-  const stream: Readable | null | undefined = child.stderr;
-  if (stream === null || stream === undefined) return () => undefined;
-  let tail = '';
-  let partial = '';
-  stream.setEncoding('utf8');
-  stream.on('data', (chunk: string) => {
-    const lines = (partial + chunk).split('\n');
-    partial = lines.pop() ?? '';
-    for (const line of lines) {
-      if (line.startsWith(INSTALLER_PROGRESS_PREFIX)) {
-        const update = parseInstallerProgressLine(line);
-        if (update !== null) onProgress(update);
-      } else {
-        tail = (tail + line + '\n').slice(-INSTALLER_STDERR_TAIL_CHARS);
-      }
-    }
-  });
-  // A detached installer outliving this process must not crash it, and the
-  // pipe must not hold the event loop open on the way out. `child.stderr` is
-  // typed as a plain Readable, but the pipe is a Socket at runtime and that is
-  // where unref lives.
-  stream.on('error', () => {});
-  (stream as Readable & { unref?: () => void }).unref?.();
-  return () => {
-    // A final partial line without a newline is still installer text; include
-    // it unless it is a truncated progress line.
-    const complete = partial.length === 0 || partial.startsWith(INSTALLER_PROGRESS_PREFIX)
-      ? tail
-      : tail + partial;
-    const trimmed = complete.trim();
-    return trimmed.length === 0 ? undefined : trimmed;
-  };
-}
-
-function describeChildExit(cmd: string, code: number | null, signal: NodeJS.Signals | null): string {
-  const detail = signal !== null ? `signal ${signal}` : `code ${String(code)}`;
-  return `${cmd} exited with ${detail}`;
-}
-
-async function waitForChildSpawn(child: ReturnType<typeof spawn>): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
-    const onSpawn = (): void => {
-      child.off('error', onError);
-      child.on('error', () => {});
-      resolve();
-    };
-    const onError = (error: Error): void => {
-      child.off('spawn', onSpawn);
-      reject(error);
-    };
-    child.once('spawn', onSpawn);
-    child.once('error', onError);
-  });
-}
-
-function updateHelperCommand(
-  operation: 'prepare-homebrew',
-  jobId: string,
-  version: string,
-  requestedBy: UpdateRequestOrigin,
-): SpawnCommand {
-  const launcherPath = process.argv[1];
-  if (launcherPath === undefined) throw new Error('cannot locate the Pythinker Code launcher');
-  return {
-    cmd: process.execPath,
-    args: [launcherPath, '__update_helper', operation, jobId, version, requestedBy],
-  };
-}
-
-function preparedVersionCoversTarget(preparedVersion: string, targetVersion: string): boolean {
-  return valid(preparedVersion) !== null && valid(targetVersion) !== null && gte(preparedVersion, targetVersion);
-}
-
-/**
- * Whether the target is strictly newer than the version an active install is
- * working on — the newer update can only start after the running one finishes.
- */
-function targetSupersedesInstallingVersion(
-  installingVersion: string,
-  targetVersion: string,
-): boolean {
-  return valid(installingVersion) !== null && valid(targetVersion) !== null && gt(targetVersion, installingVersion);
-}
-
-async function startBackgroundHomebrewPreparation(
-  state: UpdateInstallState,
-  currentVersion: string,
-  target: UpdateTarget,
-  requestedBy: UpdateRequestOrigin,
-  track: RunUpdatePreflightOptions['track'],
-  logger: UpdateLogger,
-  rolloutTelemetry: RolloutTelemetry,
-): Promise<boolean> {
-  const lock = await tryAcquireUpdateInstallLock({ version: target.version });
-  if (lock === null) return false;
-
-  try {
-    const freshState = await readUpdateInstallState().catch(() => state);
-    if (
-      hasFreshActiveInstall(freshState) ||
-      (freshState.pending !== null && preparedVersionCoversTarget(freshState.pending.version, target.version)) ||
-      failureAttemptsFor(freshState, target) >= AUTO_INSTALL_FAILURE_PROMPT_THRESHOLD
-    ) {
-      return false;
-    }
-
-    const jobId = randomUUID();
-    // A retained older verified `pending` stays installable if this newer
-    // preparation fails; the helper's success path replaces it.
-    const startedState: UpdateInstallState = {
-      ...freshState,
-      active: {
-        version: target.version,
-        source: 'homebrew',
-        operation: 'prepare',
-        jobId,
-        startedAt: nowIso(),
-      },
-    };
-    await writeUpdateInstallState(startedState);
-
-    try {
-      const { cmd, args } = updateHelperCommand(
-        'prepare-homebrew',
-        jobId,
-        target.version,
-        requestedBy,
-      );
-      const child = spawn(cmd, [...args], {
-        cwd: homedir(),
-        detached: true,
-        env: { ...process.env, [UPDATE_HELPER_ENV]: '1' },
-        stdio: 'ignore',
-      });
-      await waitForChildSpawn(child);
-      child.unref();
-    } catch (error) {
-      const attempts = failureAttemptsFor(startedState, target, 'prepare') + 1;
-      await writeUpdateInstallState({
-        ...startedState,
-        active: null,
-        lastFailure: {
-          version: target.version,
-          failedAt: nowIso(),
-          attempts,
-          operation: 'prepare',
-          message: formatErrorMessage(error),
-        },
-      }).catch(() => {});
-      throw error;
-    }
-
-    trackUpdateEvent(track, 'update_background_prepare_started', {
-      current_version: currentVersion,
-      target_version: target.version,
-      source: 'homebrew',
-      ...rolloutTelemetry,
-    });
-    logUpdateInfo(logger, 'background update preparation started', {
-      currentVersion,
-      targetVersion: target.version,
-      source: 'homebrew',
-      jobId,
-    });
-    return true;
-  } finally {
-    await lock.release().catch(() => {});
-  }
 }
 
 async function startBackgroundInstall(
@@ -852,21 +543,20 @@ async function startBackgroundInstall(
   track: RunUpdatePreflightOptions['track'],
   logger: UpdateLogger,
   rolloutTelemetry: RolloutTelemetry,
-): Promise<boolean> {
+): Promise<void> {
   const lock = await tryAcquireUpdateInstallLock({ version: target.version });
-  if (lock === null) return false;
+  if (lock === null) return;
 
-  let finalizerOwnsLock = false;
   try {
     const freshState = await readUpdateInstallState().catch(() => state);
     if (
-      hasFreshActiveInstall(freshState) ||
+      hasFreshActiveInstall(freshState, target) ||
       failureAttemptsFor(freshState, target) >= AUTO_INSTALL_FAILURE_PROMPT_THRESHOLD
     ) {
-      return false;
+      return;
     }
 
-    let startedState: UpdateInstallState = {
+    const startedState: UpdateInstallState = {
       ...freshState,
       active: {
         version: target.version,
@@ -887,45 +577,15 @@ async function startBackgroundInstall(
       source,
     });
 
-    const { cmd, args, env } = spawnForSource(source, target.version, platform);
-    // The child can exit before the pid-persist below finishes, so buffer
-    // the terminal outcome until the handler is "ready".
-    let ready = false;
+    const { cmd, args } = spawnForSource(source, target.version, platform);
     let settled = false;
-    let pendingOutcome: { succeeded: boolean; reason: string } | undefined;
-    // Progress writes are fire-and-forget, and the state file is written as a
-    // temp file plus rename — so the last rename wins. The installer's terminal
-    // `state=done` line bypasses the throttle and writes just as the child
-    // exits, so without ordering that write can land *after* the outcome write
-    // and restore `active` while dropping `lastSuccess`. The next launch reads
-    // that as an abandoned install and records a failure for a version that
-    // installed cleanly. One chain keeps the writes ordered and gives `finish`
-    // something to drain.
-    let progressWrites: Promise<void> = Promise.resolve();
 
-    const finish = async (succeeded: boolean, reason: string): Promise<void> => {
-      if (!ready) {
-        pendingOutcome ??= { succeeded, reason };
-        return;
-      }
+    const finish = (succeeded: boolean): void => {
       if (settled) return;
       settled = true;
-      // `settled` already stops new progress writes; drain the ones in flight so
-      // none of them renames over the outcome below.
-      await progressWrites;
-      // An installer that exits 0 without replacing the binary must not be
-      // recorded as a success: the footer would advertise "restart to apply"
-      // for a version that never runs, on every launch, forever.
-      const verification = succeeded
-        ? await verifyInstalledVersion(source, target.version)
-        : OK_VERIFICATION;
-      const installed = succeeded && verification.ok;
-      const outcomeReason = verification.ok ? reason : verification.reason;
-      const attempts = failureAttemptsFor(startedState, target, 'install') + 1;
-      const stderrTail = readStderrTail();
-      const message = stderrTail === undefined ? outcomeReason : `${outcomeReason}: ${stderrTail}`;
+      const attempts = failureAttemptsFor(startedState, target) + 1;
 
-      const nextState: UpdateInstallState = installed
+      const nextState: UpdateInstallState = succeeded
         ? {
           ...startedState,
           active: null,
@@ -934,7 +594,6 @@ async function startBackgroundInstall(
             version: target.version,
             installedAt: nowIso(),
             notifiedAt: null,
-            unverified: verification.ok ? verification.unverified : undefined,
           },
         }
         : {
@@ -944,123 +603,54 @@ async function startBackgroundInstall(
             version: target.version,
             failedAt: nowIso(),
             attempts,
-            operation: 'install',
-            message,
           },
         };
-      try {
-        await writeUpdateInstallState(nextState).catch(() => {});
-        if (installed) {
-          trackUpdateEvent(track, 'update_background_install_succeeded', {
-            target_version: target.version,
-            source,
-          });
-          logUpdateInfo(logger, 'background update install succeeded', {
-            targetVersion: target.version,
-            source,
-            // Present when the install was recorded without proof, so a report
-            // of "it says updated but it did not" is answerable from the log.
-            unverified: verification.ok ? verification.unverified : undefined,
-          });
-          return;
-        }
-        trackUpdateEvent(track, 'update_background_install_failed', {
+      void writeUpdateInstallState(nextState).catch(() => {});
+      if (succeeded) {
+        trackUpdateEvent(track, 'update_background_install_succeeded', {
           target_version: target.version,
           source,
-          attempts,
         });
-        logUpdateWarn(logger, 'background update install failed', {
+        logUpdateInfo(logger, 'background update install succeeded', {
           targetVersion: target.version,
           source,
-          attempts,
-          message,
         });
-      } finally {
-        await lock.release().catch(() => {});
+        return;
       }
+      trackUpdateEvent(track, 'update_background_install_failed', {
+        target_version: target.version,
+        source,
+        attempts,
+      });
+      logUpdateWarn(logger, 'background update install failed', {
+        targetVersion: target.version,
+        source,
+        attempts,
+      });
     };
 
-    const child = spawn(cmd, [...args], {
+    const resolvedCmd = resolveSpawnCommand(cmd, platform);
+    if (resolvedCmd === undefined) {
+      // The package manager cannot be resolved to an absolute path outside
+      // the cwd — record a normal install failure instead of spawning a bare
+      // command name that Windows would resolve into the untrusted workspace.
+      finish(false);
+      return;
+    }
+    const child = spawn(resolvedCmd, [...args], {
       detached: true,
-      // A detached child gets its own console window on Windows regardless
-      // of stdio; stdio: 'ignore' alone does not suppress it.
-      windowsHide: platform === 'win32',
-      // stdout stays discarded (install progress is noise); stderr is piped so
-      // the installer's machine-readable progress lines can be recorded and a
-      // failure still keeps the installer's own error text.
-      stdio: ['ignore', 'ignore', 'pipe'],
-      env: env === undefined ? undefined : { ...process.env, ...env },
+      stdio: 'ignore',
+      shell: platform === 'win32' ? true : undefined,
+      // On Windows a detached child gets its own console window; with shell:true
+      // that window would flash during a passive background update. Hide it so
+      // the silent updater stays silent.
+      windowsHide: platform === 'win32' ? true : undefined,
     });
-    let lastProgressWriteAt = 0;
-    const recordInstallerProgress = (update: UpdateInstallProgress): void => {
-      // Once the outcome is being written, progress is history: writing it would
-      // undo the terminal record.
-      if (settled) return;
-      // Terminal states always persist; intermediate ones at most every 2s.
-      const terminal = update.state === 'done' || update.state === 'failed';
-      if (
-        !terminal
-        && Date.now() - lastProgressWriteAt < INSTALLER_PROGRESS_WRITE_INTERVAL_MS
-      ) return;
-      if (startedState.active === null) return;
-      lastProgressWriteAt = Date.now();
-      const nextState: UpdateInstallState = {
-        ...startedState,
-        // Carry the pid explicitly: a progress line can arrive while the pid
-        // write is still in flight, and writing the pre-pid record over it
-        // would strip the pid this record's liveness check depends on.
-        active: {
-          ...startedState.active,
-          pid: child.pid ?? startedState.active.pid,
-          progress: update,
-        },
-      };
-      progressWrites = progressWrites
-        .then(() => writeUpdateInstallState(nextState))
-        .catch((error) => {
-          // A progress write is best-effort; it must never reject the spawn path
-          // and must not break the chain for the writes queued behind it.
-          logUpdateWarn(logger, 'could not record installer progress', {
-            targetVersion: target.version,
-            source,
-            error: formatErrorMessage(error),
-          });
-        });
-    };
-    const readStderrTail = captureStderrTail(child, recordInstallerProgress);
-    child.once('error', (error) => { void finish(false, formatErrorMessage(error)); });
-    child.once('exit', (code, signal) => {
-      void finish(code === 0, describeChildExit(cmd, code, signal));
-    });
-    if (child.pid !== undefined && child.pid > 0) {
-      const stateWithPid: UpdateInstallState = {
-        ...startedState,
-        active: startedState.active === null
-          ? null
-          : { ...startedState.active, pid: child.pid },
-      };
-      try {
-        await writeUpdateInstallState(stateWithPid);
-        startedState = stateWithPid;
-      } catch {
-        // The pre-spawn state remains a conservative lease and eventually
-        // expires even when persisting the child pid fails.
-      }
-    }
-    // From here on the finalizer owns the lock and releases it only after
-    // the terminal state write settles, so a concurrent preflight cannot
-    // start a second install for the same target mid-finalize.
+    child.once('error', () => { finish(false); });
+    child.once('exit', (code) => { finish(code === 0); });
     child.unref();
-    finalizerOwnsLock = true;
-    ready = true;
-    if (pendingOutcome !== undefined) void finish(pendingOutcome.succeeded, pendingOutcome.reason);
-    return true;
-  // When startup failed before handoff, release the lock here; the
-  // finalizer releases it once the terminal state write completes.
   } finally {
-    if (!finalizerOwnsLock) {
-      await lock.release().catch(() => {});
-    }
+    await lock.release().catch(() => {});
   }
 }
 
@@ -1074,41 +664,13 @@ async function tryStartAutomaticBackgroundInstall(
   logger: UpdateLogger,
   rolloutTelemetry: RolloutTelemetry,
 ): Promise<boolean> {
-  const autoInstallUpdates = await shouldAutoInstallUpdates();
-  if (!autoInstallUpdates) return false;
+  const sourceCanAutoInstall = canAutoInstall(source, platform);
+  const autoInstallUpdates = sourceCanAutoInstall ? await shouldAutoInstallUpdates() : false;
+  if (!autoInstallUpdates || !sourceCanAutoInstall) return false;
   if (failureAttemptsFor(installState, target) >= AUTO_INSTALL_FAILURE_PROMPT_THRESHOLD) {
     return false;
   }
-  if (hasFreshActiveInstall(installState)) return true;
-
-  if (source === 'homebrew') {
-    if (
-      installState.pending !== null &&
-      preparedVersionCoversTarget(installState.pending.version, target.version)
-    ) return true;
-    try {
-      await startBackgroundHomebrewPreparation(
-        installState,
-        currentVersion,
-        target,
-        'automatic',
-        track,
-        logger,
-        rolloutTelemetry,
-      );
-      return true;
-    } catch (error) {
-      logUpdateWarn(logger, 'background update preparation could not start', {
-        targetVersion: target.version,
-        source,
-        error: formatErrorMessage(error),
-      });
-      return false;
-    }
-  }
-
-  if (!canAutoInstall(source, platform)) return false;
-  try {
+  if (!hasFreshActiveInstall(installState, target)) {
     await startBackgroundInstall(
       installState,
       currentVersion,
@@ -1118,188 +680,9 @@ async function tryStartAutomaticBackgroundInstall(
       track,
       logger,
       rolloutTelemetry,
-    );
-    return true;
-  } catch (error) {
-    logUpdateWarn(logger, 'background update install could not start', {
-      targetVersion: target.version,
-      source,
-      error: formatErrorMessage(error),
-    });
-    return false;
+    ).catch(() => {});
   }
-}
-
-export type ManualUpdateResult =
-  | { readonly status: 'up-to-date' }
-  | { readonly status: 'check-failed'; readonly message: string }
-  | { readonly status: 'started'; readonly version: string; readonly installOnRestart: boolean }
-  | {
-    readonly status: 'in-progress';
-    readonly installingVersion: string;
-    /** Present only when it is newer than the version being installed. */
-    readonly targetVersion?: string;
-    readonly installOnRestart: boolean;
-    readonly readyToInstall: boolean;
-  }
-  | {
-    readonly status: 'manual';
-    readonly version: string;
-    readonly command: string;
-    readonly source: InstallSource;
-  }
-  | {
-    readonly status: 'failed';
-    readonly version: string;
-    readonly attempts: number;
-    readonly failedAt: string;
-    readonly message?: string;
-    readonly command: string;
-  };
-
-/**
- * Explicit user-requested update (TUI `/update`). Unlike the passive
- * preflight it ignores the rollout delay and the `auto_install` preference —
- * the user asked, so we install or prepare the Homebrew update — while reusing
- * the background lifecycle, lock, and failure bookkeeping. The env kill-switch is also ignored:
- * it gates automatic behavior, not explicit requests (matching `pythinker upgrade`).
- */
-export async function startManualUpdate(
-  currentVersion: string,
-  logger: UpdateLogger = log,
-): Promise<ManualUpdateResult> {
-  let cache: UpdateCache;
-  try {
-    cache = await refreshUpdateCache();
-  } catch (error) {
-    return { status: 'check-failed', message: formatErrorMessage(error) };
-  }
-  const target = selectUpdateTarget(currentVersion, cache.latest);
-  if (target === null) return { status: 'up-to-date' };
-
-  const platform = process.platform;
-  const source = await detectInstallSource().catch(() => 'unsupported' as const);
-  // A native install consumes the manifest's platform artifact; without one
-  // the update cannot succeed, so treat it as nothing to update.
-  if (!isTargetInstallable(source, cache.manifest)) {
-    return { status: 'up-to-date' };
-  }
-  let installState = await readUpdateInstallState().catch(() => emptyUpdateInstallState());
-  installState = await reconcileAbandonedInstall(installState);
-  if (hasFreshActiveInstall(installState)) {
-    const installingVersion = installState.active?.version ?? target.version;
-    return {
-      status: 'in-progress',
-      installingVersion,
-      targetVersion: targetSupersedesInstallingVersion(installingVersion, target.version)
-        ? target.version
-        : undefined,
-      installOnRestart: installState.active?.source === 'homebrew',
-      readyToInstall: false,
-    };
-  }
-  if (
-    source === 'homebrew' &&
-    installState.pending !== null &&
-    preparedVersionCoversTarget(installState.pending.version, target.version)
-  ) {
-    const pending = installState.pending;
-    if (pending.requestedBy === 'automatic') {
-      try {
-        await writeUpdateInstallState({
-          ...installState,
-          pending: { ...pending, requestedBy: 'manual' },
-        });
-      } catch (error) {
-        return { status: 'check-failed', message: formatErrorMessage(error) };
-      }
-    }
-    return {
-      status: 'in-progress',
-      installingVersion: pending.version,
-      installOnRestart: true,
-      readyToInstall: true,
-    };
-  }
-  // A version parks once the failure counter hits the threshold: the
-  // background lifecycle refuses to touch it again, so claiming "started" or
-  // "in-progress" would be a lie and another retry would only burn another
-  // launch on an install that already failed. Report the recorded failure
-  // and the copyable command instead.
-  const failure = installState.lastFailure;
-  if (
-    failure !== null &&
-    failureAttemptsFor(installState, target) >= AUTO_INSTALL_FAILURE_PROMPT_THRESHOLD
-  ) {
-    return {
-      status: 'failed',
-      version: target.version,
-      attempts: failure.attempts,
-      failedAt: failure.failedAt,
-      message: failure.message,
-      command: installCommandFor(source, target.version, platform),
-    };
-  }
-
-  try {
-    const rolloutTelemetry = rolloutTelemetryFor(
-      resolveUpdateDeviceId(),
-      target.version,
-      cache.manifest,
-      true,
-    );
-    if (source === 'homebrew') {
-      const started = await startBackgroundHomebrewPreparation(
-        installState,
-        currentVersion,
-        target,
-        'manual',
-        undefined,
-        logger,
-        rolloutTelemetry,
-      );
-      // Another process holds the lock or the under-lock re-check refused:
-      // nothing new was started, so don't claim it was.
-      if (!started) {
-        return {
-          status: 'in-progress',
-          installingVersion: target.version,
-          installOnRestart: true,
-          readyToInstall: false,
-        };
-      }
-      return { status: 'started', version: target.version, installOnRestart: true };
-    }
-    if (!canAutoInstall(source, platform)) {
-      return {
-        status: 'manual',
-        version: target.version,
-        command: installCommandFor(source, target.version, platform),
-        source,
-      };
-    }
-    const started = await startBackgroundInstall(
-      installState,
-      currentVersion,
-      target,
-      source,
-      platform,
-      undefined,
-      logger,
-      rolloutTelemetry,
-    );
-    if (!started) {
-      return {
-        status: 'in-progress',
-        installingVersion: target.version,
-        installOnRestart: false,
-        readyToInstall: false,
-      };
-    }
-    return { status: 'started', version: target.version, installOnRestart: false };
-  } catch (error) {
-    return { status: 'check-failed', message: formatErrorMessage(error) };
-  }
+  return true;
 }
 
 export function decideUpdateAction(
@@ -1331,7 +714,6 @@ export async function runUpdatePreflight(
     const deviceId = resolveUpdateDeviceId();
     const bypassRollout = isRolloutBypassedByExperimentalEnv();
     let installState = await readUpdateInstallState().catch(() => emptyUpdateInstallState());
-    installState = await reconcileAbandonedInstall(installState);
     if (isInteractive) {
       installState = await showPendingBackgroundInstallNotice(
         installState,
@@ -1373,11 +755,28 @@ export async function runUpdatePreflight(
         ? 'unsupported'
         : await detectInstallSource().catch(() => 'unsupported' as const);
 
-    // The cached target above only decides whether anything is worth
-    // refreshing for; the bounded refresh below is this launch's single
-    // decision. Everything after it uses the refreshed target and manifest,
-    // with the cached pair as the fallback when the refresh fails or times
-    // out. A null refreshed target means the refresh offers nothing.
+    const decision = decideUpdateAction(target, isInteractive, source, platform);
+    if (decision === 'none') {
+      refreshInBackground();
+      return 'continue';
+    }
+
+    if (
+      await tryStartAutomaticBackgroundInstall(
+        installState,
+        currentVersion,
+        target,
+        source,
+        platform,
+        options.track,
+        logger,
+        rolloutTelemetryFor(deviceId, target.version, cachedManifest, bypassRollout),
+      )
+    ) {
+      refreshInBackground();
+      return 'continue';
+    }
+
     const userVisibleUpdate = await refreshUserVisibleUpdateTarget(
       currentVersion,
       deviceId,
@@ -1393,19 +792,6 @@ export async function runUpdatePreflight(
       userVisibleUpdate.manifest,
       bypassRollout,
     );
-
-    // A native install consumes the manifest's platform artifact; without one
-    // the update cannot succeed, so do not offer or start it. Non-native
-    // sources install from the registry/formula and are never gated here.
-    if (!isTargetInstallable(source, userVisibleUpdate.manifest)) {
-      return 'continue';
-    }
-
-    const decision = decideUpdateAction(userVisibleTarget, isInteractive, source, platform);
-    if (decision === 'none') {
-      return 'continue';
-    }
-
     if (
       await tryStartAutomaticBackgroundInstall(
         installState,
@@ -1434,62 +820,19 @@ export async function runUpdatePreflight(
       return 'continue';
     }
 
-    // An install that is already in flight must not be prompted for a second
-    // time: the user would get a confusing double message for work that is
-    // already running elsewhere.
-    if (hasFreshActiveInstall(installState)) return 'continue';
-
-    const choice = await promptInstall(
-      currentVersion,
-      userVisibleTarget,
-      source,
-      installCommand,
-      failureMessageFor(installState, userVisibleTarget),
-    );
+    const choice = await promptInstall(currentVersion, userVisibleTarget, source, installCommand);
     if (choice === 'skip') return 'continue';
 
-    // Take the lock only after the prompt resolves: holding it across an
-    // indefinite interactive wait would block the background path as long as
-    // the prompt sits unanswered. A null handle means another installer is
-    // already running — do not install on top of it.
-    const lock = await tryAcquireUpdateInstallLock({ version: userVisibleTarget.version });
-    if (lock === null) return 'continue';
-
     try {
-      const outcome = await installUpdate(source, userVisibleTarget.version, platform);
-      await writeUpdateInstallState({
-        ...installState,
-        active: null,
-        lastFailure: null,
-        lastSuccess: {
-          version: userVisibleTarget.version,
-          installedAt: nowIso(),
-          notifiedAt: null,
-          unverified: outcome.unverified,
-        },
-      }).catch(() => {});
+      await installUpdate(source, userVisibleTarget.version, platform);
       stdout.write(renderInstallSuccessMessage(userVisibleTarget));
       return 'exit';
     } catch (error) {
-      const attempts = failureAttemptsFor(installState, userVisibleTarget, 'install') + 1;
-      await writeUpdateInstallState({
-        ...installState,
-        active: null,
-        lastFailure: {
-          version: userVisibleTarget.version,
-          failedAt: nowIso(),
-          attempts,
-          operation: 'install',
-          message: formatErrorMessage(error),
-        },
-      }).catch(() => {});
       stderr.write(
         `warning: failed to install ${NPM_PACKAGE_NAME}@${userVisibleTarget.version}: ` +
           `${formatErrorMessage(error)}\n`,
       );
       return 'continue';
-    } finally {
-      await lock.release().catch(() => {});
     }
   } catch {
     return 'continue';

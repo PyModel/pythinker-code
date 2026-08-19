@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { type EditInput, EditInputSchema, EditTool } from '../../src/tools/builtin/file/edit';
-import type { FileReadState } from '../../src/tools/builtin/file/read';
 import { createFakeKaos, PERMISSIVE_WORKSPACE } from './fixtures/fake-kaos';
 import { executeTool } from './fixtures/execute-tool';
 
@@ -42,6 +41,8 @@ describe('EditTool', () => {
     expect(tool.description).toContain('`old_string` must be unique');
     expect(tool.description).toContain('only when they do not target the same file');
     expect(tool.description).toContain('DO NOT issue consecutive Edit calls on the same file');
+    // replace_all should be framed with its positive rename-across-file use-case.
+    expect(tool.description.toLowerCase()).toContain('renam');
     // Editing files should go through Edit, not Write and not a Bash `sed`
     // command. The prompt names both alternatives explicitly.
     expect(tool.description).toContain('DO NOT use Write or Bash `sed`');
@@ -98,174 +99,6 @@ describe('EditTool', () => {
 
     expect(result.output).toContain('Replaced 1 occurrence');
     expect(writeText).toHaveBeenCalledWith('/tmp/a.txt', 'alpha gamma');
-  });
-
-  it('captures the safe path after validation and immediately before writing', async () => {
-    const writeText = vi.fn().mockResolvedValue(0);
-    const beforeWrite = vi.fn(async (path: string) => {
-      expect(path).toBe('/tmp/a.txt');
-      expect(writeText).not.toHaveBeenCalled();
-    });
-    const tool = new EditTool(
-      createFakeKaos({
-        readText: vi.fn().mockResolvedValue('alpha beta'),
-        writeText,
-      }),
-      PERMISSIVE_WORKSPACE,
-      undefined,
-      beforeWrite,
-    );
-
-    await executeTool(
-      tool,
-      context({ path: '/tmp/a.txt', old_string: 'beta', new_string: 'gamma' }),
-    );
-
-    expect(beforeWrite).toHaveBeenCalledOnce();
-    expect(writeText).toHaveBeenCalledOnce();
-  });
-
-  it('requires a prior Read when shared read state is enabled', async () => {
-    const readText = vi.fn().mockResolvedValue('alpha beta');
-    const tool = new EditTool(
-      createFakeKaos({ readText, writeText: vi.fn() }),
-      PERMISSIVE_WORKSPACE,
-      new Map(),
-    );
-
-    const result = await executeTool(
-      tool,
-      context({ path: '/tmp/a.txt', old_string: 'beta', new_string: 'gamma' }),
-    );
-
-    expect(result.isError).toBe(true);
-    expect(result.output).toContain('has not been read');
-    expect(readText).not.toHaveBeenCalled();
-  });
-
-  it('does not capture when old_string is missing', async () => {
-    const beforeWrite = vi.fn();
-    const tool = new EditTool(
-      createFakeKaos({
-        readText: vi.fn().mockResolvedValue('alpha beta'),
-        writeText: vi.fn(),
-      }),
-      PERMISSIVE_WORKSPACE,
-      undefined,
-      beforeWrite,
-    );
-
-    await executeTool(
-      tool,
-      context({ path: '/tmp/a.txt', old_string: 'missing', new_string: 'gamma' }),
-    );
-
-    expect(beforeWrite).not.toHaveBeenCalled();
-  });
-
-  it('rejects an edit when the file mtime changed after Read', async () => {
-    const state: FileReadState = new Map([
-      ['/tmp/a.txt', { mtime: 1, range: '1:1000' }],
-    ]);
-    const readText = vi.fn().mockResolvedValue('alpha beta');
-    const tool = new EditTool(
-      createFakeKaos({
-        stat: vi.fn().mockResolvedValue({ stMtime: 2 }),
-        readText,
-        writeText: vi.fn(),
-      }),
-      PERMISSIVE_WORKSPACE,
-      state,
-    );
-
-    const result = await executeTool(
-      tool,
-      context({ path: '/tmp/a.txt', old_string: 'beta', new_string: 'gamma' }),
-    );
-
-    expect(result.isError).toBe(true);
-    expect(result.output).toContain('modified since it was read');
-    expect(readText).not.toHaveBeenCalled();
-  });
-
-  it('rejects an edit after a partial Read', async () => {
-    const state: FileReadState = new Map([
-      ['/tmp/a.txt', { mtime: 1, range: '2:1', isPartialView: true }],
-    ]);
-    const readText = vi.fn().mockResolvedValue('alpha beta');
-    const tool = new EditTool(
-      createFakeKaos({ readText, writeText: vi.fn() }),
-      PERMISSIVE_WORKSPACE,
-      state,
-    );
-
-    const result = await executeTool(
-      tool,
-      context({ path: '/tmp/a.txt', old_string: 'beta', new_string: 'gamma' }),
-    );
-
-    expect(result.isError).toBe(true);
-    expect(result.output).toContain('complete Read');
-    expect(readText).not.toHaveBeenCalled();
-  });
-
-  it('matches straight quotes against curly file quotes and preserves their style', async () => {
-    const writeText = vi.fn().mockResolvedValue(0);
-    const tool = new EditTool(
-      createFakeKaos({
-        readText: vi.fn().mockResolvedValue('He said “hello”.'),
-        writeText,
-      }),
-      PERMISSIVE_WORKSPACE,
-    );
-
-    const result = await executeTool(
-      tool,
-      context({
-        path: '/tmp/quotes.txt',
-        old_string: '"hello"',
-        new_string: '"goodbye"',
-      }),
-    );
-
-    expect(result.isError).toBeFalsy();
-    expect(writeText).toHaveBeenCalledWith('/tmp/quotes.txt', 'He said “goodbye”.');
-  });
-
-  it('removes the following newline when deleting a whole line', async () => {
-    const writeText = vi.fn().mockResolvedValue(0);
-    const tool = new EditTool(
-      createFakeKaos({
-        readText: vi.fn().mockResolvedValue('alpha\nbeta\n'),
-        writeText,
-      }),
-      PERMISSIVE_WORKSPACE,
-    );
-
-    const result = await executeTool(
-      tool,
-      context({ path: '/tmp/lines.txt', old_string: 'alpha', new_string: '' }),
-    );
-
-    expect(result.isError).toBeFalsy();
-    expect(writeText).toHaveBeenCalledWith('/tmp/lines.txt', 'beta\n');
-  });
-
-  it('directs notebook edits to NotebookEdit', async () => {
-    const readText = vi.fn();
-    const tool = new EditTool(
-      createFakeKaos({ readText, writeText: vi.fn() }),
-      PERMISSIVE_WORKSPACE,
-    );
-
-    const result = await executeTool(
-      tool,
-      context({ path: '/tmp/demo.ipynb', old_string: 'old', new_string: 'new' }),
-    );
-
-    expect(result.isError).toBe(true);
-    expect(result.output).toContain('NotebookEdit');
-    expect(readText).not.toHaveBeenCalled();
   });
 
   it('expands leading tilde paths using the kaos home directory', async () => {
@@ -489,18 +322,18 @@ describe('EditTool', () => {
     const writeText = vi.fn().mockResolvedValue(0);
     const tool = new EditTool(
       createFakeKaos({
-        readText: vi.fn().mockResolvedValue('Hello world! café'),
+        readText: vi.fn().mockResolvedValue('Hello \u4E16\u754C! café'),
         writeText,
       }),
       PERMISSIVE_WORKSPACE,
     );
 
     const result = await executeTool(tool,
-      context({ path: '/tmp/u.txt', old_string: 'world', new_string: 'earth' }),
+      context({ path: '/tmp/u.txt', old_string: '\u4E16\u754C', new_string: '\u5730\u7403' }),
     );
 
     expect(result.output).toContain('Replaced 1 occurrence');
-    expect(writeText).toHaveBeenCalledWith('/tmp/u.txt', 'Hello earth! café');
+    expect(writeText).toHaveBeenCalledWith('/tmp/u.txt', 'Hello \u5730\u7403! café');
   });
 
   it('leaves the file byte-identical when old_string is not present', async () => {

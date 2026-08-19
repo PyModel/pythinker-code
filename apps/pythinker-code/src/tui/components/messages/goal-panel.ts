@@ -19,7 +19,7 @@ import {
   visibleWidth,
   wrapTextWithAnsi,
   type Component,
-} from '@earendil-works/pi-tui';
+} from '@pymodel/pi-tui';
 import type { GoalSnapshot, GoalStatus } from '@pymodel/pythinker-code-sdk';
 
 import { MESSAGE_INDENT } from '#/tui/constant/rendering';
@@ -166,7 +166,9 @@ export function buildGoalReportLines(goal: GoalSnapshot, wrapWidth: number = WRA
       ),
     );
   }
-  lines.push(row('Running', value(formatGoalElapsed(goal.wallClockMs))), row('Turns', value(`${goal.turnsUsed}`)), row('Tokens', value(formatTokenCount(goal.tokensUsed))));
+  lines.push(row('Running', value(formatGoalElapsed(goal.wallClockMs))));
+  lines.push(row('Turns', value(`${goal.turnsUsed}`)));
+  lines.push(row('Tokens', value(formatTokenCount(goal.tokensUsed))));
   if (!isComplete) {
     const stop = formatStopRow(goal);
     lines.push(

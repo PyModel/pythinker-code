@@ -7,17 +7,16 @@ import {
   APITimeoutError,
   ChatProviderError,
   isRetryableGenerateError,
+  normalizeAPIStatusError,
 } from '#/errors';
 import type { ContentPart } from '#/message';
+import { classifyPythinkerQuotaError } from '#/providers/pythinker-errors';
 import {
   convertContentPart,
   convertOpenAIError,
-  reasoningEffortToThinkingEffort,
-  resolveOpenAIReasoningEffort,
-  thinkingEffortToReasoningEffort,
 } from '#/providers/openai-common';
-import { classifyPythinkerQuotaError } from '#/providers/pythinker-errors';
 import { OpenAILegacyChatProvider, OpenAILegacyStreamedMessage } from '#/providers/openai-legacy';
+import { ReasoningKeyDialect } from '#/providers/reasoning-key';
 import {
   APIError as OpenAIAPIError,
   APIConnectionError as OpenAIConnectionError,
@@ -121,6 +120,61 @@ describe('convertOpenAIError: provider rate limit', () => {
     expect(result).toBeInstanceOf(APIProviderRateLimitError);
     expect((result as APIProviderRateLimitError).statusCode).toBe(429);
   });
+
+  it('reads an integer retry-after header (seconds) onto the rate-limit error', () => {
+    const err = new OpenAIAPIError(
+      429,
+      undefined,
+      'Too many requests',
+      new Headers({ 'retry-after': '12' }),
+    );
+    const result = convertOpenAIError(err);
+    expect(result).toBeInstanceOf(APIProviderRateLimitError);
+    expect((result as APIProviderRateLimitError).retryAfterMs).toBe(12_000);
+  });
+
+  it('ignores a non-integer (HTTP-date) retry-after header, leaving retryAfterMs null', () => {
+    const err = new OpenAIAPIError(
+      429,
+      undefined,
+      'Too many requests',
+      new Headers({ 'retry-after': 'Wed, 21 Oct 2026 07:28:00 GMT' }),
+    );
+    const result = convertOpenAIError(err);
+    expect(result).toBeInstanceOf(APIProviderRateLimitError);
+    expect((result as APIProviderRateLimitError).retryAfterMs).toBeNull();
+  });
+
+  it('carries the x-trace-id response header onto the status error', () => {
+    const err = new OpenAIAPIError(
+      500,
+      undefined,
+      'Internal server error',
+      new Headers({ 'x-trace-id': 'trace-err-500' }),
+    );
+    const result = convertOpenAIError(err);
+    expect(result).toBeInstanceOf(APIStatusError);
+    expect((result as APIStatusError).traceId).toBe('trace-err-500');
+  });
+
+  it('leaves traceId null when the error response has no x-trace-id header', () => {
+    const err = new OpenAIAPIError(500, undefined, 'Internal server error', new Headers());
+    const result = convertOpenAIError(err);
+    expect(result).toBeInstanceOf(APIStatusError);
+    expect((result as APIStatusError).traceId).toBeNull();
+  });
+
+  it('leaves traceId null when the x-trace-id header is empty', () => {
+    const err = new OpenAIAPIError(
+      500,
+      undefined,
+      'Internal server error',
+      new Headers({ 'x-trace-id': '' }),
+    );
+    const result = convertOpenAIError(err);
+    expect(result).toBeInstanceOf(APIStatusError);
+    expect((result as APIStatusError).traceId).toBeNull();
+  });
 });
 describe('convertOpenAIError: subclass errors still match first', () => {
   it('APIConnectionError matches its own case', () => {
@@ -150,29 +204,58 @@ describe('convertOpenAIError: APIError with body skips heuristic', () => {
     expect(result.constructor).toBe(ChatProviderError);
   });
 });
-describe('convertOpenAIError: subclass errors fall through', () => {
-  it('APIUserAbortError is not heuristically reclassified', () => {
-    // APIUserAbortError is a subclass of APIError (not exact APIError),
-    // so the heuristic branch should not apply even with network keywords.
+describe('convertOpenAIError: abort guard', () => {
+  it('APIUserAbortError throws the standard abort DOMException instead of being classified', () => {
+    // A user cancellation must never be converted into (or returned as) a
+    // retryable provider error: the guard at the very front of the
+    // classification chain throws the standard abort shape.
     const err = new OpenAIUserAbortError({ message: 'connection aborted by user' });
-    const result = convertOpenAIError(err);
-    // Should fall through to generic handling, not become APIConnectionError
-    expect(result.constructor).toBe(ChatProviderError);
+    const thrown = catchThrown(() => convertOpenAIError(err));
+    expect(thrown).toBeInstanceOf(DOMException);
+    expect((thrown as DOMException).name).toBe('AbortError');
+    expect(isRetryableGenerateError(thrown)).toBe(false);
+  });
+
+  it('bare AbortError DOMException throws the standard abort DOMException', () => {
+    const err = new DOMException('The operation was aborted.', 'AbortError');
+    const thrown = catchThrown(() => convertOpenAIError(err));
+    expect(thrown).toBeInstanceOf(DOMException);
+    expect((thrown as DOMException).name).toBe('AbortError');
+    expect(isRetryableGenerateError(thrown)).toBe(false);
+  });
+
+  it('bare Error named AbortError throws the standard abort DOMException', () => {
+    const err = new Error('The operation was aborted.');
+    err.name = 'AbortError';
+    const thrown = catchThrown(() => convertOpenAIError(err));
+    expect(thrown).toBeInstanceOf(DOMException);
+    expect((thrown as DOMException).name).toBe('AbortError');
+    expect(isRetryableGenerateError(thrown)).toBe(false);
   });
 });
+
+function catchThrown(fn: () => unknown): unknown {
+  try {
+    fn();
+  } catch (error) {
+    return error;
+  }
+  throw new Error('Expected the function to throw');
+}
 describe('OpenAI streaming error propagation', () => {
   it('base APIError("Network connection lost.") during streaming becomes APIConnectionError', async () => {
     // Simulates: streaming for ~33 minutes, then SSE connection drops
     // and the SDK raises openai.APIError("Network connection lost.")
     async function* failingStream(): AsyncGenerator<never> {
-      yield* [];
       throw new OpenAIAPIError(undefined, undefined, 'Network connection lost.', undefined);
+      // Make this an async generator (unreachable)
+      yield undefined as never;
     }
 
     const msg = new OpenAILegacyStreamedMessage(
       failingStream() as AsyncIterable<never>,
       true,
-      undefined,
+      new ReasoningKeyDialect(),
     );
 
     await expect(async () => {
@@ -184,13 +267,13 @@ describe('OpenAI streaming error propagation', () => {
     // Verify the message is preserved
     await expect(async () => {
       async function* failingStream2(): AsyncGenerator<never> {
-        yield* [];
         throw new OpenAIAPIError(undefined, undefined, 'Network connection lost.', undefined);
+        yield undefined as never;
       }
       const msg2 = new OpenAILegacyStreamedMessage(
         failingStream2() as AsyncIterable<never>,
         true,
-        undefined,
+        new ReasoningKeyDialect(),
       );
       for await (const _ of msg2) {
         void _;
@@ -213,11 +296,16 @@ describe('convertOpenAIError: raw transport-layer stream errors', () => {
     expect(isRetryableGenerateError(result)).toBe(true);
   });
 
-  it('still wraps an unrelated raw Error as a non-retryable ChatProviderError', () => {
+  it('still wraps an unrelated raw Error as a base ChatProviderError, now retryable via fallback', () => {
+    // An unrelated raw Error is NOT an OpenAI SDK error and carries no usable
+    // HTTP status, so convertOpenAIError wraps it as a base ChatProviderError
+    // (constructor check guards that typing). The fallback safety net in
+    // isRetryableGenerateError then treats such unclassified provider failures
+    // as transient — retry beats failing the run on the first blip.
     const result = convertOpenAIError(new Error('something completely unrelated'));
 
     expect(result.constructor).toBe(ChatProviderError);
-    expect(isRetryableGenerateError(result)).toBe(false);
+    expect(isRetryableGenerateError(result)).toBe(true);
   });
 });
 describe('OpenAI streaming: undici terminated mid-stream', () => {
@@ -227,14 +315,14 @@ describe('OpenAI streaming: undici terminated mid-stream', () => {
     // loop. The provider must surface a retryable APIConnectionError so the
     // loop retries instead of failing the turn outright.
     async function* terminatedStream(): AsyncGenerator<never> {
-      yield* [];
       throw new TypeError('terminated');
+      yield undefined as never;
     }
 
     const msg = new OpenAILegacyStreamedMessage(
       terminatedStream() as AsyncIterable<never>,
       true,
-      undefined,
+      new ReasoningKeyDialect(),
     );
 
     let caught: unknown;
@@ -313,67 +401,14 @@ describe('convertContentPart', () => {
     expect(() => convertContentPart(bogus)).toThrow(/Unknown content part type/);
   });
 });
-describe('thinkingEffortToReasoningEffort', () => {
-  it('maps off -> undefined', () => {
-    expect(thinkingEffortToReasoningEffort('off')).toBeUndefined();
-  });
-  it('maps low -> "low"', () => {
-    expect(thinkingEffortToReasoningEffort('low')).toBe('low');
-  });
-  it('maps minimal -> "minimal"', () => {
-    expect(thinkingEffortToReasoningEffort('minimal')).toBe('minimal');
-  });
-  it('maps medium -> "medium"', () => {
-    expect(thinkingEffortToReasoningEffort('medium')).toBe('medium');
-  });
-  it('maps high -> "high"', () => {
-    expect(thinkingEffortToReasoningEffort('high')).toBe('high');
-  });
-  it('maps xhigh -> "xhigh"', () => {
-    expect(thinkingEffortToReasoningEffort('xhigh')).toBe('xhigh');
-  });
-  it('maps max -> "max"', () => {
-    expect(thinkingEffortToReasoningEffort('max')).toBe('max');
-  });
-  it('throws on unknown effort', () => {
-    expect(() => thinkingEffortToReasoningEffort('extreme' as never)).toThrow(
-      /Unknown thinking effort/,
+describe('normalizeAPIStatusError thinking effort guidance', () => {
+  it('adds configuration guidance when a provider rejects reasoning_effort', () => {
+    const error = normalizeAPIStatusError(400, 'Invalid reasoning_effort: xhigh');
+
+    expect(error.message).toContain('Non-Pythinker providers receive effort strings');
+    expect(error.message).toContain(
+      'https://code.pythinker.com/pythinker-code/en/configuration/config-files.html#thinking',
     );
-  });
-});
-describe('reasoningEffortToThinkingEffort', () => {
-  it('returns null for undefined', () => {
-    const effort: string | undefined = undefined;
-    expect(reasoningEffortToThinkingEffort(effort)).toBeNull();
-  });
-  it('maps "low" -> low', () => {
-    expect(reasoningEffortToThinkingEffort('low')).toBe('low');
-  });
-  it('preserves "minimal" as a distinct effort', () => {
-    expect(reasoningEffortToThinkingEffort('minimal')).toBe('minimal');
-  });
-  it('maps "medium" -> medium', () => {
-    expect(reasoningEffortToThinkingEffort('medium')).toBe('medium');
-  });
-  it('maps "high" -> high', () => {
-    expect(reasoningEffortToThinkingEffort('high')).toBe('high');
-  });
-  it('maps "xhigh" -> xhigh', () => {
-    expect(reasoningEffortToThinkingEffort('xhigh')).toBe('xhigh');
-  });
-  it('maps "max" -> max', () => {
-    expect(reasoningEffortToThinkingEffort('max')).toBe('max');
-  });
-  it('maps "none" -> off', () => {
-    expect(reasoningEffortToThinkingEffort('none')).toBe('off');
-  });
-  it('maps "ultra" -> max', () => {
-    expect(reasoningEffortToThinkingEffort('ultra')).toBe('max');
-  });
-});
-describe('resolveOpenAIReasoningEffort', () => {
-  it('uses the native none value when the model declares it', () => {
-    expect(resolveOpenAIReasoningEffort('off', ['none', 'minimal', 'high'])).toBe('none');
   });
 });
 describe('convertOpenAIError: non-Error values', () => {
@@ -410,7 +445,7 @@ describe('convertOpenAIError: quota-exhausted 429', () => {
   });
 
   it('keeps vendor quota signals a rate limit without the vendor hook', () => {
-    // Pythinker's structured type and billing wordings are vendor knowledge —
+    // PyModel's structured type and billing wordings are vendor knowledge —
     // the shared base must not decide what another vendor's 429 means.
     const err = new OpenAIAPIError(
       429,

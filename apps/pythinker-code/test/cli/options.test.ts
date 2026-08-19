@@ -1,8 +1,15 @@
+/**
+ * Scenario: top-level CLI option parsing, validation, and help discovery.
+ * Responsibilities: accepted arguments map to CLIOptions and invalid combinations fail early.
+ * Wiring: Commander is real; command handlers and output sinks are local test boundaries.
+ * Run: pnpm -C apps/pythinker-code exec vitest run test/cli/options.test.ts
+ */
+
 import { describe, expect, it } from 'vitest';
 
 import { createProgram } from '#/cli/commands';
 import type { CLIOptions } from '#/cli/options';
-import { OptionConflictError, validateOptions } from '#/cli/options';
+import { OptionConflictError, OUTPUT_FORMAT_ENV, resolveOutputFormat, validateOptions } from '#/cli/options';
 
 function parse(argv: string[]): CLIOptions {
   let captured: CLIOptions | undefined;
@@ -12,6 +19,7 @@ function parse(argv: string[]): CLIOptions {
     (opts) => {
       captured = opts;
     },
+    () => {},
   );
 
   program.exitOverride();
@@ -39,25 +47,11 @@ describe('CLI options parsing', () => {
       expect(opts.model).toBeUndefined();
       expect(opts.outputFormat).toBeUndefined();
       expect(opts.prompt).toBeUndefined();
-      expect(opts.rewindFiles).toBeUndefined();
-      expect(opts.init).toBe(false);
-      expect(opts.initOnly).toBe(false);
-      expect(opts.maintenance).toBe(false);
       expect(opts.skillsDirs).toEqual([]);
-      expect(opts.additionalDirs).toEqual([]);
+      expect(opts.agent).toBeUndefined();
+      expect(opts.agentFiles).toEqual([]);
+      expect(opts.addDirs).toEqual([]);
     });
-  });
-
-  it('accepts the hidden maintenance setup flag', () => {
-    expect(parse(['--maintenance']).maintenance).toBe(true);
-  });
-
-  it('accepts the hidden init setup flag', () => {
-    expect(parse(['--init']).init).toBe(true);
-  });
-
-  it('accepts the hidden init-only setup flag', () => {
-    expect(parse(['--init-only']).initOnly).toBe(true);
   });
 
   describe('--version', () => {
@@ -66,22 +60,6 @@ describe('CLI options parsing', () => {
       const program = createProgram(
         '1.2.3',
         () => {},
-      );
-      program.exitOverride();
-      program.configureOutput({
-        writeOut: (s) => {
-          output += s;
-        },
-      });
-
-      expect(() => program.parse(['node', 'pythinker', '--version'])).toThrowErrorMatchingInlineSnapshot(`[CommanderError: 1.2.3]`);
-      expect(output).toContain('1.2.3');
-    });
-
-    it('supports -V as a short alias', () => {
-      let output = '';
-      const program = createProgram(
-        '4.5.6',
         () => {},
       );
       program.exitOverride();
@@ -91,7 +69,25 @@ describe('CLI options parsing', () => {
         },
       });
 
-      expect(() => program.parse(['node', 'pythinker', '-V'])).toThrowErrorMatchingInlineSnapshot(`[CommanderError: 4.5.6]`);
+      expect(() => program.parse(['node', 'pythinker', '--version'])).toThrow();
+      expect(output).toContain('1.2.3');
+    });
+
+    it('supports -V as a short alias', () => {
+      let output = '';
+      const program = createProgram(
+        '4.5.6',
+        () => {},
+        () => {},
+      );
+      program.exitOverride();
+      program.configureOutput({
+        writeOut: (s) => {
+          output += s;
+        },
+      });
+
+      expect(() => program.parse(['node', 'pythinker', '-V'])).toThrow();
       expect(output).toContain('4.5.6');
     });
   });
@@ -104,6 +100,7 @@ describe('CLI options parsing', () => {
         () => {
           throw new Error('main action should not run');
         },
+        () => {},
         (entry, args) => {
           pluginRunnerCalls.push({ entry, args });
         },
@@ -163,75 +160,18 @@ describe('CLI options parsing', () => {
       expect(parse(['-S']).session).toBe('');
     });
 
-    it.each([
-      ['-S', 'first', '-r', 'second'],
-      ['-r', 'first', '-S', 'second'],
-      ['-S', '-r'],
-    ])('rejects conflicting canonical and legacy session flags: %j', (...argv) => {
-      const opts = parse(argv);
-      expect(() => validateOptions(opts)).toThrow(OptionConflictError);
-      expect(() => validateOptions(opts)).toThrow(
-        'Cannot combine --session with --resume.',
-      );
-    });
-
     it('-C sets continue', () => {
       expect(parse(['-C']).continue).toBe(true);
+    });
+
+    it('-c is an alias for --continue', () => {
+      expect(parse(['-c']).continue).toBe(true);
     });
 
     it('--continue and --session combined raises a conflict', () => {
       const opts = parse(['--continue', '--session', 'abc123']);
       expect(() => validateOptions(opts)).toThrow(OptionConflictError);
       expect(() => validateOptions(opts)).toThrow('Cannot combine --continue, --session.');
-    });
-  });
-
-  describe('--rewind-files', () => {
-    it('parses a persisted checkpoint ID', () => {
-      const opts = parse([
-        '--resume',
-        'session-1',
-        '--rewind-files',
-        'checkpoint-1',
-      ]);
-
-      expect(opts.rewindFiles).toBe('checkpoint-1');
-      expect(validateOptions(opts).uiMode).toBe('print');
-    });
-
-    it('requires a concrete resumed session', () => {
-      for (const argv of [
-        ['--rewind-files', 'checkpoint-1'],
-        ['--resume', '--rewind-files', 'checkpoint-1'],
-        ['--continue', '--rewind-files', 'checkpoint-1'],
-      ]) {
-        expect(() => validateOptions(parse(argv))).toThrow(
-          '--rewind-files requires --resume with a session ID.',
-        );
-      }
-    });
-
-    it('rejects an empty checkpoint ID', () => {
-      expect(() =>
-        validateOptions(
-          parse(['--resume', 'session-1', '--rewind-files', '   ']),
-        ),
-      ).toThrow('Checkpoint ID for --rewind-files cannot be empty.');
-    });
-
-    it('cannot be combined with a prompt', () => {
-      expect(() =>
-        validateOptions(
-          parse([
-            '--resume',
-            'session-1',
-            '--rewind-files',
-            'checkpoint-1',
-            '--prompt',
-            'hello',
-          ]),
-        ),
-      ).toThrow('Cannot combine --rewind-files with --prompt.');
     });
   });
 
@@ -363,21 +303,6 @@ describe('CLI options parsing', () => {
       expect(opts.outputFormat).toBe('text');
     });
 
-    it('parses JSON result output and a structured output schema in prompt mode', () => {
-      const schema = '{"type":"object","properties":{"answer":{"type":"string"}}}';
-      const opts = parse([
-        '-p',
-        'run this',
-        '--output-format',
-        'json',
-        '--json-schema',
-        schema,
-      ]);
-      expect(opts.outputFormat).toBe('json');
-      expect(opts.jsonSchema).toBe(schema);
-      expect(validateOptions(opts).uiMode).toBe('print');
-    });
-
     it('rejects --output-format outside prompt mode', () => {
       const opts = parse(['--output-format=stream-json']);
       expect(() => validateOptions(opts)).toThrow(OptionConflictError);
@@ -385,13 +310,83 @@ describe('CLI options parsing', () => {
         'Output format is only supported in prompt mode.',
       );
     });
+  });
 
-    it('rejects --json-schema outside prompt mode', () => {
-      const opts = parse(['--json-schema', '{"type":"object"}']);
-      expect(() => validateOptions(opts)).toThrow(OptionConflictError);
-      expect(() => validateOptions(opts)).toThrow(
-        'JSON Schema is only supported in prompt mode.',
+  describe('PYTHINKER_MODEL_OUTPUT_FORMAT', () => {
+    it('defaults to text when unset in prompt mode', () => {
+      expect(resolveOutputFormat({ prompt: 'run this', outputFormat: undefined }, {})).toBe('text');
+    });
+
+    it('uses stream-json from the env in prompt mode', () => {
+      expect(
+        resolveOutputFormat(
+          { prompt: 'run this', outputFormat: undefined },
+          { [OUTPUT_FORMAT_ENV]: 'stream-json' },
+        ),
+      ).toBe('stream-json');
+    });
+
+    it('uses text from the env in prompt mode', () => {
+      expect(
+        resolveOutputFormat(
+          { prompt: 'run this', outputFormat: undefined },
+          { [OUTPUT_FORMAT_ENV]: 'text' },
+        ),
+      ).toBe('text');
+    });
+
+    it('trims surrounding whitespace from the env value', () => {
+      expect(
+        resolveOutputFormat(
+          { prompt: 'run this', outputFormat: undefined },
+          { [OUTPUT_FORMAT_ENV]: '  stream-json  ' },
+        ),
+      ).toBe('stream-json');
+    });
+
+    it('lets the --output-format flag override the env', () => {
+      expect(
+        resolveOutputFormat(
+          { prompt: 'run this', outputFormat: 'text' },
+          { [OUTPUT_FORMAT_ENV]: 'stream-json' },
+        ),
+      ).toBe('text');
+    });
+
+    it('ignores the env outside prompt mode', () => {
+      expect(
+        resolveOutputFormat(
+          { prompt: undefined, outputFormat: undefined },
+          { [OUTPUT_FORMAT_ENV]: 'stream-json' },
+        ),
+      ).toBe('text');
+    });
+
+    it('rejects an invalid env value', () => {
+      expect(() =>
+        resolveOutputFormat(
+          { prompt: 'run this', outputFormat: undefined },
+          { [OUTPUT_FORMAT_ENV]: 'json' },
+        ),
+      ).toThrow(OptionConflictError);
+      expect(() =>
+        resolveOutputFormat(
+          { prompt: 'run this', outputFormat: undefined },
+          { [OUTPUT_FORMAT_ENV]: 'json' },
+        ),
+      ).toThrow('Invalid PYTHINKER_MODEL_OUTPUT_FORMAT value "json"');
+    });
+
+    it('fails validation fast for an invalid env value in prompt mode', () => {
+      const opts = parse(['-p', 'run this']);
+      expect(() => validateOptions(opts, { [OUTPUT_FORMAT_ENV]: 'json' })).toThrow(
+        OptionConflictError,
       );
+    });
+
+    it('does not validate the env outside prompt mode', () => {
+      const opts = parse([]);
+      expect(() => validateOptions(opts, { [OUTPUT_FORMAT_ENV]: 'json' })).not.toThrow();
     });
   });
 
@@ -404,9 +399,126 @@ describe('CLI options parsing', () => {
     });
   });
 
+  describe('--agent / --agent-file', () => {
+    it('describes agent selectors as new-session-only', () => {
+      const help = createProgram('0.1.0-test', () => {}, () => {}).helpInformation();
+      const normalizedHelp = help.replaceAll(/\s+/g, ' ');
+
+      expect(normalizedHelp).toContain('Agent profile to start the new session with.');
+      expect(normalizedHelp).not.toContain('print-mode invocation');
+    });
+
+    it('parses a single --agent', () => {
+      const opts = parse(['-p', 'hi', '--agent', 'reviewer']);
+      expect(opts.agent).toBe('reviewer');
+      expect(opts.agentFiles).toEqual([]);
+    });
+
+    it('parses a single --agent-file', () => {
+      const opts = parse(['-p', 'hi', '--agent-file', 'a.md']);
+      expect(opts.agent).toBeUndefined();
+      expect(opts.agentFiles).toEqual(['a.md']);
+    });
+
+    it('rejects repeated --agent', () => {
+      expect(() => parse(['-p', 'hi', '--agent', 'reviewer', '--agent', 'writer'])).toThrow(
+        '--agent may only be specified once.',
+      );
+    });
+
+    it('rejects repeated --agent-file', () => {
+      expect(() =>
+        parse(['-p', 'hi', '--agent-file', 'a.md', '--agent-file', 'b.md']),
+      ).toThrow('--agent-file may only be specified once.');
+    });
+
+    it('rejects combining --agent with --agent-file', () => {
+      expect(() =>
+        parse(['-p', 'hi', '--agent', 'reviewer', '--agent-file', 'reviewer.md']),
+      ).toThrow("option '--agent <name>' cannot be used with option '--agent-file <path>'");
+    });
+
+    it('rejects multiple agent files passed directly to validation', () => {
+      const opts = parse(['-p', 'hi', '--agent-file', 'a.md']);
+      expect(() => validateOptions({ ...opts, agentFiles: ['a.md', 'b.md'] })).toThrow(
+        '--agent-file may only be specified once.',
+      );
+    });
+
+    it('rejects mixed agent selectors passed directly to validation', () => {
+      const opts = parse(['-p', 'hi', '--agent', 'reviewer']);
+      expect(() => validateOptions({ ...opts, agentFiles: ['reviewer.md'] })).toThrow(
+        'Cannot combine --agent with --agent-file.',
+      );
+    });
+
+    it('rejects --agent-file with --session', () => {
+      const opts = parse(['-p', 'hi', '--agent-file', 'a.md', '--session', 'ses_123']);
+      expect(() => validateOptions(opts)).toThrow(OptionConflictError);
+      expect(() => validateOptions(opts)).toThrow(
+        'Cannot combine --agent/--agent-file with --session/--continue',
+      );
+    });
+
+    it('rejects --agent-file with --continue', () => {
+      const opts = parse(['-p', 'hi', '--agent-file', 'a.md', '--continue']);
+      expect(() => validateOptions(opts)).toThrow(OptionConflictError);
+      expect(() => validateOptions(opts)).toThrow(
+        'Cannot combine --agent/--agent-file with --session/--continue',
+      );
+    });
+
+    it('rejects --agent with --session', () => {
+      const opts = parse(['-p', 'hi', '--agent', 'reviewer', '--session', 'ses_123']);
+      expect(() => validateOptions(opts)).toThrow(OptionConflictError);
+      expect(() => validateOptions(opts)).toThrow(
+        'Cannot combine --agent/--agent-file with --session/--continue',
+      );
+    });
+
+    it('rejects --agent with --continue in shell mode', () => {
+      const opts = parse(['--agent', 'reviewer', '--continue']);
+      expect(() => validateOptions(opts)).toThrow(OptionConflictError);
+      expect(() => validateOptions(opts)).toThrow(
+        'Cannot combine --agent/--agent-file with --session/--continue',
+      );
+    });
+
+    it('rejects empty agent values', () => {
+      const opts = parse(['-p', 'hi', '--agent', '   ']);
+      expect(() => validateOptions(opts)).toThrow(OptionConflictError);
+      expect(() => validateOptions(opts)).toThrow('Agent cannot be empty.');
+    });
+
+    it('rejects empty agent file values', () => {
+      const opts = parse(['-p', 'hi', '--agent-file', '   ']);
+      expect(() => validateOptions(opts)).toThrow(OptionConflictError);
+      expect(() => validateOptions(opts)).toThrow('Agent file path cannot be empty.');
+    });
+
+    it('accepts the flags in shell mode', () => {
+      expect(validateOptions(parse(['--agent', 'reviewer']), {}).uiMode).toBe('shell');
+      expect(validateOptions(parse(['--agent-file', 'a.md']), {}).uiMode).toBe('shell');
+    });
+
+    it('accepts the flags in prompt mode on the default v2 engine', () => {
+      const opts = parse(['-p', 'hi', '--agent-file', 'a.md']);
+      expect(validateOptions(opts, {}).uiMode).toBe('print');
+    });
+
+    it('accepts the flags in prompt mode with the legacy engine flag', () => {
+      const opts = parse(['-p', 'hi', '--agent', 'reviewer']);
+      expect(validateOptions(opts, { PYTHINKER_CODE_LEGACY_FLAG: '1' }).uiMode).toBe('print');
+    });
+  });
+
   describe('--add-dir', () => {
-    it('collects additional working directories', () => {
-      expect(parse(['--add-dir', '/one', '/two']).additionalDirs).toEqual(['/one', '/two']);
+    it('parses one additional workspace directory', () => {
+      expect(parse(['--add-dir', '/shared']).addDirs).toEqual(['/shared']);
+    });
+
+    it('parses repeated additional workspace directories', () => {
+      expect(parse(['--add-dir', '/one', '--add-dir=/two']).addDirs).toEqual(['/one', '/two']);
     });
   });
 
@@ -418,6 +530,7 @@ describe('CLI options parsing', () => {
         () => {
           throw new Error('main action should not run');
         },
+        () => {},
         () => {},
         () => {
           upgradeCalls += 1;
@@ -434,9 +547,34 @@ describe('CLI options parsing', () => {
       expect(upgradeCalls).toBe(1);
     });
 
+    it('routes update alias to the upgrade handler', () => {
+      let upgradeCalls = 0;
+      const program = createProgram(
+        '0.0.0',
+        () => {
+          throw new Error('main action should not run');
+        },
+        () => {},
+        () => {},
+        () => {
+          upgradeCalls += 1;
+        },
+      );
+      program.exitOverride();
+      program.configureOutput({
+        writeOut: () => {},
+        writeErr: () => {},
+      });
+
+      program.parse(['node', 'pythinker', 'update']);
+
+      expect(upgradeCalls).toBe(1);
+    });
+
     it('registers the visible sub-commands', () => {
       const program = createProgram(
         '0.0.0',
+        () => {},
         () => {},
       );
       const commandNames: string[] = program.commands
@@ -446,15 +584,16 @@ describe('CLI options parsing', () => {
         'export',
         'provider',
         'acp',
-        'mcp',
-        'server',
         'web',
+        'server',
         'login',
         'doctor',
-        'dashboard',
+        'vis',
+        'migrate',
         'upgrade',
       ]);
     });
+
   });
 
   describe('rejected flags', () => {
@@ -467,17 +606,15 @@ describe('CLI options parsing', () => {
         '--thinking',
         '--print',
         '--wire',
-        '--agent=default',
         '--raw-model',
         '--config-file=x',
         '--quiet',
         '--final-message-only',
         '--input-format=text',
-        '--agent-file=x',
         '--mcp-config={}',
         '--mcp-config-file=/',
       ]) {
-        expect(() => parse([arg])).toThrow(/unknown option/);
+        expect(() => parse([arg])).toThrow();
       }
     });
   });

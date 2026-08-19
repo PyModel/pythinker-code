@@ -146,17 +146,25 @@ describe('getTextContent (deprecated alias)', () => {
 describe('ContentPart type narrowing', () => {
   it('narrows TextPart correctly', () => {
     const part: ContentPart = { type: 'text', text: 'hello' };
-    expect(part).toMatchObject({ type: 'text', text: 'hello' } satisfies TextPart);
+    if (part.type === 'text') {
+      const textPart: TextPart = part;
+      expect(textPart.text).toBe('hello');
+    }
   });
 
   it('narrows ThinkPart correctly', () => {
     const part: ContentPart = { type: 'think', think: 'reasoning' };
-    expect(part).toMatchObject({ type: 'think', think: 'reasoning' } satisfies ThinkPart);
+    if (part.type === 'think') {
+      const thinkPart: ThinkPart = part;
+      expect(thinkPart.think).toBe('reasoning');
+    }
   });
 
   it('narrows ThinkPart with encrypted field', () => {
     const part: ContentPart = { type: 'think', think: '', encrypted: 'enc-data' };
-    expect(part).toMatchObject({ type: 'think', encrypted: 'enc-data' });
+    if (part.type === 'think') {
+      expect(part.encrypted).toBe('enc-data');
+    }
   });
 
   it('narrows ImageURLPart correctly', () => {
@@ -164,10 +172,10 @@ describe('ContentPart type narrowing', () => {
       type: 'image_url',
       imageUrl: { url: 'https://example.com/img.png' },
     };
-    expect(part).toMatchObject({
-      type: 'image_url',
-      imageUrl: { url: 'https://example.com/img.png' },
-    } satisfies ImageURLPart);
+    if (part.type === 'image_url') {
+      const imgPart: ImageURLPart = part;
+      expect(imgPart.imageUrl.url).toBe('https://example.com/img.png');
+    }
   });
 
   it('narrows ImageURLPart with optional id', () => {
@@ -175,7 +183,9 @@ describe('ContentPart type narrowing', () => {
       type: 'image_url',
       imageUrl: { url: 'https://example.com/img.png', id: 'img-1' },
     };
-    expect(part).toMatchObject({ type: 'image_url', imageUrl: { id: 'img-1' } });
+    if (part.type === 'image_url') {
+      expect(part.imageUrl.id).toBe('img-1');
+    }
   });
 
   it('narrows AudioURLPart correctly', () => {
@@ -183,10 +193,10 @@ describe('ContentPart type narrowing', () => {
       type: 'audio_url',
       audioUrl: { url: 'https://example.com/audio.mp3' },
     };
-    expect(part).toMatchObject({
-      type: 'audio_url',
-      audioUrl: { url: 'https://example.com/audio.mp3' },
-    } satisfies AudioURLPart);
+    if (part.type === 'audio_url') {
+      const audioPart: AudioURLPart = part;
+      expect(audioPart.audioUrl.url).toBe('https://example.com/audio.mp3');
+    }
   });
 
   it('narrows VideoURLPart correctly', () => {
@@ -194,10 +204,11 @@ describe('ContentPart type narrowing', () => {
       type: 'video_url',
       videoUrl: { url: 'https://example.com/video.mp4', id: 'vid-1' },
     };
-    expect(part).toMatchObject({
-      type: 'video_url',
-      videoUrl: { url: 'https://example.com/video.mp4', id: 'vid-1' },
-    } satisfies VideoURLPart);
+    if (part.type === 'video_url') {
+      const videoPart: VideoURLPart = part;
+      expect(videoPart.videoUrl.url).toBe('https://example.com/video.mp4');
+      expect(videoPart.videoUrl.id).toBe('vid-1');
+    }
   });
 });
 describe('type guards', () => {

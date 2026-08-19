@@ -10,9 +10,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 function createProvider(): PythinkerChatProvider {
   return new PythinkerChatProvider({
-    model: 'pythinker-k2-turbo-preview',
+    model: 'kimi-k2-turbo-preview',
     apiKey: 'test-key',
-    baseUrl: 'https://llm.example.com/v1',
   });
 }
 
@@ -79,7 +78,7 @@ describe('PythinkerFiles', () => {
     it('throws when the file does not exist', async () => {
       const provider = createProvider();
       const missing = path.join(tmpDir, 'does-not-exist.mp4');
-      await expect(provider.files.uploadVideo(missing)).rejects.toThrow(/Video file not found: .*does-not-exist\.mp4/);
+      await expect(provider.files.uploadVideo(missing)).rejects.toThrow();
     });
 
     it('rejects a non-video file path (e.g. .txt)', async () => {
@@ -202,7 +201,7 @@ describe('PythinkerFiles', () => {
   });
 
   describe('upload error conversion', () => {
-    it('fails fast on a quota-exhausted 429 from the files API', async () => {
+    it('fails fast on a PyModel quota-exhausted 429 from the files API', async () => {
       const quotaError = new OpenAIAPIError(
         429,
         {

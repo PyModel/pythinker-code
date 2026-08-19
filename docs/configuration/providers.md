@@ -8,7 +8,7 @@ The `type` field in the `providers` table determines which protocol implementati
 
 | Type | Protocol | Typical use |
 | --- | --- | --- |
-| `pythinker` | OpenAI-compatible | Pythinker Code managed service, Pythinker Platform API key |
+| `pythinker` | OpenAI-compatible | Pythinker Code managed service, Kimi Platform API key |
 | `anthropic` | Anthropic Messages | Claude model family |
 | `openai` | OpenAI Chat Completions | OpenAI and compatible services, DeepSeek, Qwen, etc. |
 | `openai_responses` | OpenAI Responses API | OpenAI's newer Responses interface |
@@ -17,7 +17,7 @@ The `type` field in the `providers` table determines which protocol implementati
 
 All providers communicate with models in streaming mode by default. Capabilities such as thinking, vision, and tool use are matched automatically by model name prefix — you typically do not need to declare them manually.
 
-**Credential priority**: `api_key` direct field > the shell variable named by `api_key_env_var` > `[providers.<name>.env]` sub-table key > if all are absent, startup fails with an error. Shell variables are never guessed: a provider must name one with `api_key_env_var`. See [Config overrides: provider credentials](./overrides.md#provider-credentials).
+**Credential priority**: `api_key` direct field > `[providers.<name>.env]` sub-table key > if both are absent, startup fails with an error. The CLI does not fall back to shell environment variables for credentials — see [Config overrides: provider credentials](./overrides.md#provider-credentials).
 
 ## `/provider` — interactive provider management
 
@@ -31,63 +31,27 @@ The manager displays providers as a list of entries grouped by source. Navigatio
 
 Two paths when adding:
 
-- **Known third-party provider**: fetches the model catalog from [models.dev](https://models.dev/), validates the catalog-declared credential variable from the shell, then lets you select a default model. Set the variable before starting the TUI; the token is not written to `config.toml`.
+- **Known third-party provider**: fetches the model catalog from [models.dev](https://models.dev/), select a provider → enter an API key → select a default model. Vendors whose protocol the catalog does not declare (e.g. xai, openrouter, and other vendor-specific SDKs) are imported as OpenAI-compatible with a "guessed" note; when the catalog provides no usable endpoint, a base URL prompt appears first; proprietary protocols (Amazon Bedrock, Cohere) and unrecognized explicit protocols are refused. Deprecated and alpha-status models are excluded from the import list. If the public catalog is unreachable, the CLI falls back to a built-in snapshot of the catalog, so the import still works offline or in blocked networks
 - **Custom registry (api.json)**: paste a custom registry URL and Bearer token; the CLI automatically creates the `providers` / `models` entries. On later startup, providers from the same registry URL are refreshed together, so upstream provider additions, removals, and model metadata changes are synced.
+
+::: warning
+Pythinker Code OAuth managed accounts logged in via `/login` do not appear in `/provider`. Use `/login` and `/logout` to manage them.
+:::
 
 The same operations are also available in non-interactive environments via the shell command: [`pythinker provider`](../reference/pythinker-command.md#pythinker-provider).
 
-## Catalog-backed API and coding-plan providers
-
-Catalog-backed setup uses live provider, endpoint, model, capability, and context-limit metadata from [models.dev](https://models.dev/). Set the provider-issued API key or coding-plan token in the shell, then import the catalog entry:
-
-```sh
-export DEEPSEEK_API_KEY=YOUR_DEEPSEEK_API_KEY
-pythinker provider catalog add deepseek
-
-export ZHIPU_API_KEY=YOUR_ZHIPU_API_KEY
-pythinker provider catalog add zai-coding-plan
-
-export MINIMAX_API_KEY=YOUR_MINIMAX_API_KEY
-pythinker provider catalog add minimax-coding-plan
-
-export KIMI_API_KEY=YOUR_KIMI_API_KEY
-pythinker provider catalog add kimi-for-coding
-```
-
-The repository's `.env.example` lists these placeholder names, but Pythinker Code does not load `.env` files automatically. Export the values or provide them through your shell, CI, or secret manager before running the command or opening the TUI.
-
-Catalog import stores only the environment-variable name. A DeepSeek import, for example, produces this provider shape plus live model aliases:
-
-```toml
-[providers.deepseek]
-type = "openai"
-base_url = "https://api.deepseek.com"
-api_key_env_var = "DEEPSEEK_API_KEY"
-source = { kind = "modelsDev", url = "https://models.dev/api.json" }
-```
-
-DeepSeek and GLM Coding Plan use the existing OpenAI-compatible adapter. MiniMax Token Plan and Kimi For Coding use the existing Anthropic-compatible adapter. Catalog refresh updates catalog-derived model metadata while retaining `api_key_env_var` and user selections. Models, limits, and reasoning controls can change upstream, so `pythinker provider catalog list <providerId>` is authoritative at setup time. Plan quotas and rate limits remain enforced by the upstream provider; Pythinker Code does not predict or enforce subscription allowance locally.
-
-### How to add another catalog provider
-
-1. Run `pythinker provider catalog list --filter <name>` and inspect the provider with `pythinker provider catalog list <providerId>`.
-2. Set the first credential variable declared by that catalog entry. To use a different variable name, pass `--api-key-env <name>`.
-3. Run `pythinker provider catalog add <providerId>`, optionally with `--default-model <modelId>`.
-
-Compatible providers need no provider-specific class: the catalog selects an existing wire adapter and supplies the endpoint and model metadata. Providers that require extra account fields or an unsupported transport are rejected instead of being guessed.
-
 ## `pythinker`
 
-For connecting to Pythoughts's OpenAI-compatible interface, including the Pythinker Code managed service and Pythinker Platform API keys.
+For connecting to PyModel's OpenAI-compatible interface, including the Pythinker Code managed service and Kimi Platform API keys.
 
-- Default `base_url`: `https://api.pythoughts.ai/v1`
+- Default `base_url`: `https://api.moonshot.ai/v1`
 - Credential key names: `PYTHINKER_API_KEY`, `PYTHINKER_BASE_URL`
 - Additional capability: supports video upload
 
 ```toml
 [providers.pythinker]
 type = "pythinker"
-base_url = "https://api.pythoughts.ai/v1"
+base_url = "https://api.moonshot.ai/v1"
 api_key = "sk-xxxxx"
 ```
 
@@ -155,6 +119,17 @@ type = "google-genai"
 api_key = "xxxxx"
 ```
 
+To route through a Gemini-compatible proxy or gateway, set `base_url` (or the `GOOGLE_GEMINI_BASE_URL` env var); when omitted, the SDK default `https://generativelanguage.googleapis.com` is used.
+
+> Give the **host root only**. The Google GenAI SDK appends the API version and path itself (e.g. `/v1beta/models/<model>:generateContent`), so a trailing `/v1beta` would produce a doubled `/v1beta/v1beta/…`.
+
+```toml
+[providers.gemini]
+type = "google-genai"
+api_key = "xxxxx"
+base_url = "https://your-gateway.example"
+```
+
 ## `vertexai`
 
 Shares the same implementation as `google-genai`; setting `type = "vertexai"` switches to the Vertex AI access path.
@@ -175,9 +150,11 @@ gcloud auth application-default login   # one-time authentication
 pythinker
 ```
 
-## OAuth
+To route Vertex requests through a custom (e.g. proxied) endpoint, set `base_url` (or the `GOOGLE_VERTEX_BASE_URL` env var); when omitted, the SDK default regional `*-aiplatform.googleapis.com` host is used. As with `google-genai`, give the host root only — the SDK appends `/v1beta1/publishers/google/models/…` itself.
 
-To authenticate OpenAI Codex, use `/login` in the CLI. In the web app or Pythinker Desktop, open the provider manager from the sign-in page or Settings and choose "Sign in with ChatGPT". The authorization page opens in a new browser tab; if the popup is blocked, use the direct link shown. If the automatic callback fails, paste the redirect URL from the address bar. The server writes the credentials to `config.toml`. Other providers use provider-specific credentials: most use an API key, while Vertex AI uses Google Cloud ADC.
+## OAuth and credential injection
+
+The Pythinker Code managed service uses OAuth rather than static API keys. After running `/login`, the built-in authentication toolchain automatically writes and refreshes credentials — no manual configuration is needed in `config.toml` for this.
 
 ## Next steps
 

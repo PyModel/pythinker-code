@@ -1,11 +1,8 @@
-import type { TUI } from '@earendil-works/pi-tui';
-import chalk from 'chalk';
+import type { TUI } from '@pymodel/pi-tui';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { AgentGroupComponent } from '#/tui/components/messages/agent-group';
-import { formatThinkingSpinnerLabel } from '#/tui/constant/rendering';
 import { ToolCallComponent } from '#/tui/components/messages/tool-call';
-import { darkColors } from '#/tui/theme/colors';
 
 const ESC = String.fromCodePoint(0x1b);
 const BEL = String.fromCodePoint(0x07);
@@ -94,7 +91,52 @@ describe('AgentGroupComponent', () => {
     waiting.dispose();
   });
 
-  it('uses verb-spinner fallback for running agents without recent activity', () => {
+  it('shows the bound model in the row stats once reported', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const ui = stubTui();
+    const group = new AgentGroupComponent(ui);
+    const running = createAgent('call_agent_1', 'inspect project', 'explore', ui);
+    startAgent(running, 'call_agent_1', 'explore');
+
+    group.attach('call_agent_1', running);
+    expect(renderText(group)).toContain('explore · inspect project · 0 tools');
+
+    running.updateSubagentMetrics({ modelDisplay: 'Kimi K2.5' });
+    // Non-phase updates are throttled; flush the pending refresh.
+    vi.runOnlyPendingTimers();
+    expect(renderText(group)).toContain('explore · inspect project · Kimi K2.5 · 0 tools');
+
+    group.dispose();
+    running.dispose();
+  });
+
+  it('shows the Ctrl+B hint while agents are running and hides it once all are backgrounded', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const ui = stubTui();
+    const group = new AgentGroupComponent(ui);
+    const a = createAgent('call_agent_1', 'inspect project', 'explore', ui);
+    const b = createAgent('call_agent_2', 'write tests', 'coder', ui);
+    startAgent(a, 'call_agent_1', 'explore');
+    startAgent(b, 'call_agent_2', 'coder');
+    group.attach('call_agent_1', a);
+    group.attach('call_agent_2', b);
+
+    expect(renderText(group)).toContain('Press Ctrl+B to run in background');
+
+    a.markBackgrounded();
+    expect(renderText(group)).toContain('Press Ctrl+B to run in background');
+
+    b.markBackgrounded();
+    expect(renderText(group)).not.toContain('Press Ctrl+B to run in background');
+
+    group.dispose();
+    a.dispose();
+    b.dispose();
+  });
+
+  it('uses still-working fallback for running agents without recent activity', () => {
     vi.useFakeTimers();
     vi.setSystemTime(0);
     const ui = stubTui();
@@ -107,47 +149,13 @@ describe('AgentGroupComponent', () => {
     group.attach('call_agent_2', waiting);
 
     const output = renderText(group);
-    expect(output).toContain(formatThinkingSpinnerLabel());
+    expect(output).toContain('Still working…');
     expect(output).toContain('Waiting to start…');
     expect(output).not.toContain('Initializing…');
 
     group.dispose();
     running.dispose();
     waiting.dispose();
-  });
-
-  it('uses textStrong names and a one-row Markdown activity tail', () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(0);
-    const previousLevel = chalk.level;
-    chalk.level = 3;
-    const ui = stubTui();
-    const group = new AgentGroupComponent(ui);
-    const running = createAgent('call_agent_1', 'inspect project', 'explore', ui);
-    const waiting = createAgent('call_agent_2', 'write tests', 'coder', ui);
-
-    try {
-      startAgent(running, 'call_agent_1', 'explore');
-      running.appendSubagentText(
-        'activity prefix that wraps away before the **final check**',
-        'text',
-      );
-      group.attach('call_agent_1', running);
-      group.attach('call_agent_2', waiting);
-
-      const rendered = group.render(40).join('\n');
-      const output = strip(rendered);
-      expect(rendered).toContain(chalk.hex(darkColors.textStrong)('explore'));
-      expect(rendered).not.toContain(chalk.hex(darkColors.primary)('explore'));
-      expect(output).toContain('final check');
-      expect(output).not.toContain('**');
-      expect(output).not.toContain('activity prefix');
-    } finally {
-      chalk.level = previousLevel;
-      group.dispose();
-      running.dispose();
-      waiting.dispose();
-    }
   });
 
   it('refreshes grouped elapsed time from child subagent timers', () => {
@@ -204,10 +212,42 @@ describe('AgentGroupComponent', () => {
     expect(terminal).toContain('2 agents finished · 15s');
     expect(terminal).toContain('✗ Failed');
     expect(terminal).toContain('Error: review failed');
-    expect(terminal).not.toContain(formatThinkingSpinnerLabel());
+    expect(terminal).not.toContain('Still working…');
 
     group.dispose();
     done.dispose();
     running.dispose();
+  });
+
+  it('renders a detached foreground subagent as backgrounded in the group, even after its ToolResult lands', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const ui = stubTui();
+    const group = new AgentGroupComponent(ui);
+    const a = createAgent('call_agent_1', 'inspect project', 'explore', ui);
+    const b = createAgent('call_agent_2', 'write tests', 'coder', ui);
+    startAgent(a, 'call_agent_1', 'explore');
+    startAgent(b, 'call_agent_2', 'coder');
+    group.attach('call_agent_1', a);
+    group.attach('call_agent_2', b);
+
+    // Detach `a` (Ctrl+B), then its spawn-success ToolResult lands.
+    a.markBackgrounded();
+    a.setResult({
+      tool_call_id: 'call_agent_1',
+      output: 'agent_id: sub_call_agent_1\nactual_subagent_type: explore\n',
+      is_error: false,
+    });
+
+    const out = renderText(group);
+    // `a` must show as backgrounded, NOT completed.
+    expect(out).toContain('◐ backgrounded');
+    expect(out).not.toContain('✓ Completed');
+    // `b` is still running.
+    expect(out).toContain('Running');
+
+    group.dispose();
+    a.dispose();
+    b.dispose();
   });
 });

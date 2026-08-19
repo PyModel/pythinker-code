@@ -1,4 +1,4 @@
-import type { AutocompleteItem, SlashCommand } from '@earendil-works/pi-tui';
+import type { AutocompleteItem, SlashCommand } from '@pymodel/pi-tui';
 import type { FlagId } from '@pymodel/pythinker-code-sdk';
 
 export type SlashCommandAvailability = 'always' | 'idle-only';
@@ -9,8 +9,6 @@ export interface PythinkerSlashCommand<Name extends string = string> extends Sla
   readonly description: string;
   readonly priority?: number;
   readonly availability?: SlashCommandAvailability | ((args: string) => SlashCommandAvailability);
-  /** Execute by name without advertising the command in help or autocomplete. */
-  readonly hidden?: boolean;
   /** When set, the command is hidden from the palette and blocked unless this flag is enabled. */
   readonly experimentalFlag?: FlagId;
   /**

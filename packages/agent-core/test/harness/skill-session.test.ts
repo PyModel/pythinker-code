@@ -20,6 +20,11 @@ import {
   type TelemetryContextRecord,
 } from '../fixtures/telemetry';
 
+// agent-core renders skill paths with forward slashes (pathe). Mirror that in
+// path assertions so they hold on Windows, where node:fs.realpath produces
+// backslashes.
+const toPosix = (p: string): string => p.replaceAll('\\', '/');
+
 describe('HarnessAPI session skills', () => {
   let tmp: string;
   let homeDir: string;
@@ -33,9 +38,7 @@ describe('HarnessAPI session skills', () => {
   });
 
   afterEach(async () => {
-    // maxRetries: a late session-journal flush can race the recursive delete
-    // under full-suite load and throw ENOTEMPTY on macOS.
-    await rm(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    await rm(tmp, { recursive: true, force: true });
     vi.unstubAllEnvs();
   });
 
@@ -45,8 +48,6 @@ describe('HarnessAPI session skills', () => {
       'name: phase-one-review',
       'description: Review code',
       'disable_model_invocation: true',
-      'user-invocable: false',
-      'argument-hint: <target>',
       '---',
       '',
       'Review the requested file.',
@@ -62,8 +63,6 @@ describe('HarnessAPI session skills', () => {
       description: 'Review code',
       source: 'project',
       disableModelInvocation: true,
-      userInvocable: false,
-      argumentHint: '<target>',
     });
     expect(listed?.path.endsWith('/.pythinker-code/skills/phase-one-review/SKILL.md')).toBe(true);
     expect(JSON.stringify(skills)).not.toContain('Review the requested file.');
@@ -187,6 +186,7 @@ describe('HarnessAPI session skills', () => {
       properties: {
         skill_name: 'phase-one-review',
         trigger: 'user-slash',
+        agent_id: 'main',
       },
     });
     expect(telemetryRecords.some((record) => record.event === 'flow_invoked')).toBe(false);
@@ -199,7 +199,7 @@ describe('HarnessAPI session skills', () => {
     const records = await readMainWire(created.sessionDir);
     const prompt = records.find((record) => record['type'] === 'turn.prompt');
     const userMessage = records.find((record) => record['type'] === 'context.append_message');
-    const skillDir = await realpath(join(workDir, '.pythinker-code', 'skills', 'phase-one-review'));
+    const skillDir = toPosix(await realpath(join(workDir, '.pythinker-code', 'skills', 'phase-one-review')));
     const expectedPrompt = [
       'User activated the skill "phase-one-review". Follow the loaded skill instructions.',
       '',
@@ -289,7 +289,7 @@ describe('HarnessAPI session skills', () => {
 
     const records = await readMainWire(created.sessionDir);
     const prompt = records.find((record) => record['type'] === 'turn.prompt');
-    const skillDir = await realpath(join(workDir, '.pythinker-code', 'skills', 'templated-review'));
+    const skillDir = toPosix(await realpath(join(workDir, '.pythinker-code', 'skills', 'templated-review')));
     const expectedPrompt = [
       'User activated the skill "templated-review". Follow the loaded skill instructions.',
       '',
@@ -311,67 +311,6 @@ describe('HarnessAPI session skills', () => {
       },
     });
     expect(JSON.stringify(prompt)).not.toContain('ARGUMENTS:');
-  });
-
-  it('expands permission-checked shell commands in local skill prompts', async () => {
-    await writeSkill('shell-context', [
-      '---',
-      'name: shell-context',
-      'description: Load local shell context',
-      'allowed-tools: Bash(printf *)',
-      '---',
-      '',
-      "Inline: !`printf 'inline value'`",
-      '',
-      '```!',
-      "printf 'block value'",
-      '```',
-    ]);
-    const { core, rpc } = await createTestRpc({ homeDir });
-    const created = await rpc.createSession({ id: 'ses_skill_shell_context', workDir });
-
-    await rpc.activateSkill({
-      sessionId: created.id,
-      agentId: 'main',
-      name: 'shell-context',
-    });
-    await core.sessions.get(created.id)?.flushMetadata();
-
-    const records = await readMainWire(created.sessionDir);
-    const prompt = records.find((record) => record['type'] === 'turn.prompt');
-    const text = (prompt as { input?: Array<{ text?: string }> } | undefined)?.input?.[0]?.text;
-
-    expect(text).toContain('Inline: inline value');
-    expect(text).toContain('block value');
-    expect(text).not.toContain('!`');
-    expect(text).not.toContain('```!');
-  });
-
-  it('does not run shell context rejected by the permission policy', async () => {
-    await writeSkill('blocked-shell-context', [
-      '---',
-      'name: blocked-shell-context',
-      'description: Attempt local shell context',
-      '---',
-      '',
-      "!`printf 'not allowed' > blocked-shell-output.txt`",
-    ]);
-    const { rpc } = await createTestRpc({ homeDir });
-    const created = await rpc.createSession({
-      id: 'ses_skill_blocked_shell_context',
-      workDir,
-    });
-
-    await expect(
-      rpc.activateSkill({
-        sessionId: created.id,
-        agentId: 'main',
-        name: 'blocked-shell-context',
-      }),
-    ).rejects.toThrow(/shell context.*blocked/i);
-    await expect(
-      readFile(join(workDir, 'blocked-shell-output.txt'), 'utf8'),
-    ).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   it('represents no-args user slash skill activation as the current user request', async () => {
@@ -397,7 +336,7 @@ describe('HarnessAPI session skills', () => {
     const prompt = records.find((record) => record['type'] === 'turn.prompt');
     const text = (prompt as { input?: Array<{ text?: string }> } | undefined)?.input?.[0]?.text;
 
-    const skillDir = await realpath(join(workDir, '.pythinker-code', 'skills', 'brainstorm'));
+    const skillDir = toPosix(await realpath(join(workDir, '.pythinker-code', 'skills', 'brainstorm')));
     expect(text).toContain('User activated the skill "brainstorm". Follow the loaded skill instructions.');
     expect(text).toContain(
       `<pythinker-skill-loaded name="brainstorm" trigger="user-slash" source="project" dir="${skillDir}" args="">`,
@@ -460,25 +399,22 @@ describe('HarnessAPI session skills', () => {
     });
     await waitForEvent(events, (event) => event.type === 'skill.activated');
 
-    // The telemetry records are written independently of `skill.activated`, so
-    // the event is not a barrier for them — asserting straight after it raced
-    // and failed intermittently on a loaded machine.
-    await vi.waitFor(() => {
-      expect(telemetryRecords).toContainEqual({
-        event: 'skill_invoked',
-        sessionId: created.id,
-        properties: {
-          skill_name: 'review-flow',
-          trigger: 'user-slash',
-        },
-      });
-      expect(telemetryRecords).toContainEqual({
-        event: 'flow_invoked',
-        sessionId: created.id,
-        properties: {
-          flow_name: 'review-flow',
-        },
-      });
+    expect(telemetryRecords).toContainEqual({
+      event: 'skill_invoked',
+      sessionId: created.id,
+      properties: {
+        skill_name: 'review-flow',
+        trigger: 'user-slash',
+        agent_id: 'main',
+      },
+    });
+    expect(telemetryRecords).toContainEqual({
+      event: 'flow_invoked',
+      sessionId: created.id,
+      properties: {
+        flow_name: 'review-flow',
+        agent_id: 'main',
+      },
     });
   });
 
@@ -506,7 +442,7 @@ describe('HarnessAPI session skills', () => {
     const resumed = await second.rpc.resumeSession({ sessionId: created.id });
 
     expect(second.events.some((event) => event.type === 'skill.activated')).toBe(false);
-    const skillDir = await realpath(join(workDir, '.pythinker-code', 'skills', 'phase-one-review'));
+    const skillDir = toPosix(await realpath(join(workDir, '.pythinker-code', 'skills', 'phase-one-review')));
     const context = await second.rpc.getContext({ sessionId: created.id, agentId: 'main' });
     expect(context.history).toMatchObject([
       {
@@ -586,7 +522,7 @@ describe('HarnessAPI session skills', () => {
     await second.rpc.resumeSession({ sessionId: created.id });
     const context = await second.rpc.getContext({ sessionId: created.id, agentId: 'main' });
 
-    const skillDir = await realpath(join(workDir, '.pythinker-code', 'skills', 'bundled-tool'));
+    const skillDir = toPosix(await realpath(join(workDir, '.pythinker-code', 'skills', 'bundled-tool')));
     const skillMessage = context.history.find(
       (entry) =>
         entry.origin?.kind === 'skill_activation' &&
@@ -600,7 +536,7 @@ describe('HarnessAPI session skills', () => {
     // ...and it is the directory that actually holds the bundled script, so an
     // agent reading the context can resolve the resource by relative path.
     expect(join(skillDir, 'scripts', 'run.sh')).toBe(
-      await realpath(join(scriptDir, 'run.sh')),
+      toPosix(await realpath(join(scriptDir, 'run.sh'))),
     );
     // Guard the regression: the path is surfaced by the wrapper, not because
     // the skill body happened to mention it.

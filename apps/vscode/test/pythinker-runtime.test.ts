@@ -19,12 +19,28 @@ import type {
   SessionStatus,
   SessionSummary,
 } from "@pymodel/pythinker-code-sdk";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 type ThinkingEffort = string;
 
 import { Events } from "../shared/bridge";
 import { PythinkerRuntime, type OpenSessionOptions } from "../src/runtime/pythinker-runtime";
+
+const sdkFactories = vi.hoisted(() => {
+  const v2Harness = { homeDir: "/tmp/pythinker-runtime-v2-home", close: vi.fn(async () => undefined) };
+  return {
+    v2Harness,
+    createPythinkerHarnessV2: vi.fn(() => v2Harness),
+  };
+});
+
+vi.mock("@pymodel/pythinker-code-sdk", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@pymodel/pythinker-code-sdk")>();
+  return {
+    ...original,
+    createPythinkerHarnessV2: sdkFactories.createPythinkerHarnessV2,
+  };
+});
 
 interface FakeSessionBoundary {
   readonly session: Session;
@@ -56,7 +72,7 @@ function createFakeSession(
   let promptImpl: (input: string | PromptInput) => Promise<void> = async () => {};
   let status: SessionStatus = {
     model: initial.model ?? "kimi-test",
-    thinkingLevel: initial.thinkingLevel ?? "off",
+    thinkingEffort: initial.thinkingEffort ?? "off",
     permission: initial.permission ?? "manual",
     planMode: initial.planMode ?? false,
     dynamicWorkflowMode: false,
@@ -107,18 +123,15 @@ function createFakeSession(
     },
     async setThinking(effort: ThinkingEffort) {
       setThinkingEfforts.push(effort);
-      status = { ...status, thinkingLevel: effort };
+      status = { ...status, thinkingEffort: effort };
     },
     async setPermission(permission: PermissionMode) {
       setPermissions.push(permission);
       status = { ...status, permission };
     },
-    async getSessionMetadata() {
-      return { custom: summary.metadata };
-    },
-    async updateSessionMetadata(patch: { custom?: JsonObject }) {
-      metadataUpdates.push(patch.custom ?? {});
-      summary = { ...summary, metadata: patch.custom };
+    async updateMetadata(patch: JsonObject) {
+      metadataUpdates.push(patch);
+      summary = { ...summary, metadata: { ...summary.metadata, ...patch } };
     },
     async close() {
       closes += 1;
@@ -190,7 +203,7 @@ function createFakeHarness(
         normalizeCreatedWorkDir(options.workDir),
         {
           model: options.model,
-          thinkingLevel: options.thinking ?? "off",
+          thinkingEffort: options.thinking ?? "off",
           permission: options.permission,
         },
         options.metadata,
@@ -251,6 +264,27 @@ function createRuntime(
 }
 
 describe("Pythinker runtime (owns shared SDK sessions for Webviews)", () => {
+  it("creates the v2 harness", async () => {
+    const defaults = new PythinkerRuntime({
+      version: "0.6.0",
+      broadcast: () => undefined,
+      captureBaseline: () => undefined,
+      log: () => undefined,
+    });
+    expect(sdkFactories.createPythinkerHarnessV2).toHaveBeenCalledOnce();
+    expect(sdkFactories.createPythinkerHarnessV2).toHaveBeenCalledWith({
+      homeDir: undefined,
+      identity: {
+        productName: "pythinker-code-vscode",
+        version: "0.6.0",
+        platform: "pythinker_code_vscode",
+      },
+      uiMode: "vscode",
+    });
+    expect(defaults.harness).toBe(sdkFactories.v2Harness as unknown as PythinkerHarness);
+    await defaults.dispose();
+  });
+
   it("forwards the requested settings when creating an SDK session", async () => {
     const { runtime, sdk } = createRuntime();
 
@@ -274,19 +308,19 @@ describe("Pythinker runtime (owns shared SDK sessions for Webviews)", () => {
     const { runtime } = createRuntime((workDir) => workDir.replaceAll("\\", "/"));
 
     const opened = await runtime.openSession(openOptions({
-      workDir: "C:\\Users\\Example User\\项目",
+      workDir: "C:\\Users\\Example User\\\u9879\u76EE",
     }));
 
-    expect(opened.session.workDir).toBe("C:/Users/Example User/项目");
+    expect(opened.session.workDir).toBe("C:/Users/Example User/\u9879\u76EE");
   });
 
   it("resumes a Windows session when only separators and casing differ", async () => {
     const { runtime, sdk } = createRuntime();
-    sdk.addSession("saved-win", "C:/Users/Example User/项目");
+    sdk.addSession("saved-win", "C:/Users/Example User/\u9879\u76EE");
 
     const opened = await runtime.openSession(openOptions({
       sessionId: "saved-win",
-      workDir: "c:\\users\\example user\\项目",
+      workDir: "c:\\users\\example user\\\u9879\u76EE",
     }));
 
     expect(opened.id).toBe("saved-win");
@@ -360,12 +394,12 @@ describe("Pythinker runtime (owns shared SDK sessions for Webviews)", () => {
 
   it("preserves the resumed session's thinking effort instead of reapplying the configured default", async () => {
     const { runtime, sdk } = createRuntime();
-    const session = sdk.addSession("saved-1", "/workspace", { thinkingLevel: "max" });
+    const session = sdk.addSession("saved-1", "/workspace", { thinkingEffort: "max" });
 
     const opened = await runtime.openSession(openOptions({ sessionId: "saved-1", effort: "medium" }));
 
     expect(session.setThinkingEfforts).toEqual([]);
-    await expect(opened.session.getStatus()).resolves.toMatchObject({ thinkingLevel: "max" });
+    await expect(opened.session.getStatus()).resolves.toMatchObject({ thinkingEffort: "max" });
   });
 
   it("announces the session's actual status to the attaching view so the display matches it", async () => {
@@ -382,7 +416,7 @@ describe("Pythinker runtime (owns shared SDK sessions for Webviews)", () => {
     });
     sdk.addSession("saved-1", "/workspace", {
       model: "kimi-test",
-      thinkingLevel: "max",
+      thinkingEffort: "max",
       planMode: true,
     });
 

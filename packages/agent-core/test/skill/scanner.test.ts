@@ -1,16 +1,18 @@
-import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, realpath as fsRealpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'pathe';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import {
-  discoverSkills,
-  listWorkspaceSkills,
-  resolveSkillRoots,
-  SessionSkillRegistry,
-  type SkillRoot,
-} from '../../src/skill';
+import { discoverSkills, resolveSkillRoots, SessionSkillRegistry, type SkillRoot } from '../../src/skill';
+
+// Mirror `resolveSkillRoots`' internal realpath (fs.realpath + forward-slash
+// normalization, see scanner.ts) so `root.path` comparisons hold on Windows,
+// where `node:fs.realpath` returns backslashes. Every test in this file
+// compares against `root.path`, so the helper must match that exact form.
+async function realpath(p: string): Promise<string> {
+  return (await fsRealpath(p)).replaceAll('\\', '/');
+}
 
 const tempDirs: string[] = [];
 
@@ -256,6 +258,40 @@ describe('discoverSkills shape and ordering', () => {
     const skills = await discoverSkills({ roots: [{ path: root, source: 'user' }] });
 
     expect(skills).toEqual([]);
+  });
+
+  it('discovers only the root SKILL.md for a root-skill-only plugin root', async () => {
+    const { repoDir } = await makeWorkspace();
+    const pluginRoot = path.join(repoDir, 'plugin');
+    await writeSkill(pluginRoot, 'SKILL.md', [
+      '---',
+      'name: root-skill',
+      'description: At plugin root',
+      '---',
+      '',
+      'Root body.',
+    ]);
+    await writeSkill(pluginRoot, 'CHANGELOG.md', ['# Changelog']);
+    await writeSkill(pluginRoot, path.join('nested', 'SKILL.md'), [
+      '---',
+      'name: nested',
+      'description: Nested bundle',
+      '---',
+    ]);
+
+    const skills = await discoverSkills({
+      roots: [
+        {
+          path: pluginRoot,
+          source: 'extra',
+          plugin: { id: 'demo' },
+          scanMode: 'root-skill-only',
+        },
+      ],
+    });
+
+    expect(skills.map((skill) => skill.name)).toEqual(['root-skill']);
+    expect(skills[0]?.plugin).toEqual({ id: 'demo' });
   });
 
   it('lists flat skills with frontmatter name and description', async () => {
@@ -1387,43 +1423,3 @@ async function writeSkill(
   await mkdir(path.dirname(target), { recursive: true });
   await writeFile(target, lines.join('\n'));
 }
-
-describe('listWorkspaceSkills', () => {
-  it('resolves a workspace catalog with no session, and projects summaries', async () => {
-    const { homeDir, repoDir, workDir } = await makeWorkspace();
-    await writeSkill(path.join(repoDir, '.pythinker-code', 'skills'), path.join('deploy', 'SKILL.md'), [
-      '---',
-      'name: deploy',
-      'description: Ship the service.',
-      '---',
-      '',
-      'Body.',
-    ]);
-
-    const skills = await listWorkspaceSkills({ workDir, userHomeDir: homeDir, brandHomeDir: homeDir });
-
-    const deploy = skills.find((skill) => skill.name === 'deploy');
-    expect(deploy).toBeDefined();
-    expect(deploy?.description).toBe('Ship the service.');
-    // Built-ins are registered too, so the catalog a panel shows is never just project skills.
-    expect(skills.length).toBeGreaterThan(1);
-  });
-
-  it('reports an unreadable skill through onWarning instead of throwing', async () => {
-    const { homeDir, repoDir, workDir } = await makeWorkspace();
-    await writeSkill(path.join(repoDir, '.pythinker-code', 'skills'), path.join('broken', 'SKILL.md'), [
-      'no frontmatter here',
-    ]);
-    const warnings: string[] = [];
-
-    const skills = await listWorkspaceSkills({
-      workDir,
-      userHomeDir: homeDir,
-      brandHomeDir: homeDir,
-      onWarning: (message) => warnings.push(message),
-    });
-
-    expect(skills.find((skill) => skill.name === 'broken')).toBeUndefined();
-    expect(warnings.length).toBeGreaterThan(0);
-  });
-});

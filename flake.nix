@@ -62,9 +62,16 @@
       workspacePaths = [
         ./packages/acp-adapter
         ./packages/agent-core
-        ./packages/server
-        ./packages/server-e2e
         ./packages/kaos
+        ./packages/acp-server
+        ./packages/agent-core-v2
+        ./packages/kap-server
+        ./packages/klient
+        ./packages/migration-legacy
+        ./packages/minidb
+        ./packages/pi-tui
+        ./packages/transcript
+        ./packages/tree-sitter-bash
         ./packages/kosong
         ./packages/node-sdk
         ./packages/oauth
@@ -72,19 +79,27 @@
         ./packages/telemetry
         ./apps/pythinker-code
         ./apps/pythinker-web
+        ./apps/pythinker-inspect
+        ./apps/vis
+        ./apps/vis/server
+        ./apps/vis/web
         ./apps/desktop
-        ./apps/dashboard
-        ./apps/dashboard/server
-        ./apps/dashboard/web
         ./docs
       ];
 
       workspaceNames = [
         "@pymodel/acp-adapter"
         "@pymodel/agent-core"
-        "@pymodel/server"
-        "@pymodel/server-e2e"
         "@pymodel/kaos"
+        "@pymodel/acp-server"
+        "@pymodel/agent-core-v2"
+        "@pymodel/kap-server"
+        "@pymodel/klient"
+        "@pymodel/migration-legacy"
+        "@pymodel/minidb"
+        "@pymodel/pi-tui"
+        "@pymodel/transcript"
+        "@pymodel/tree-sitter-bash"
         "@pymodel/kosong"
         "@pymodel/pythinker-code-sdk"
         "@pymodel/pythinker-code-oauth"
@@ -92,10 +107,11 @@
         "@pymodel/pythinker-telemetry"
         "@pymodel/pythinker-code"
         "@pymodel/pythinker-web"
+        "@pymodel/pythinker-inspect"
+        "@pymodel/vis"
+        "@pymodel/vis-server"
+        "@pymodel/vis-web"
         "@pymodel/pythinker-desktop"
-        "@pymodel/dashboard"
-        "@pymodel/dashboard-server"
-        "@pymodel/dashboard-web"
         "pythinker-code-docs"
       ];
     in
@@ -146,7 +162,7 @@
               inherit (finalAttrs) pname version src pnpmWorkspaces;
               inherit pnpm;
               fetcherVersion = 3;
-             hash = "sha256-oV6S2KaH2f0OkBMs3puuze62ae9XIBi8atvG9BlFvfc=";
+             hash = "sha256-rA77gKmWrwzQqIUXihfuKrc5mLY7aVwXK2QuuONmPjI=";
             };
 
             nativeBuildInputs = [

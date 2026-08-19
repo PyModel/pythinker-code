@@ -1,3 +1,13 @@
+/**
+ * Scenario: MCP connection lifecycle, timeout defaults, and Session wiring.
+ *
+ * Exercises the real connection manager and Session while stdio/HTTP MCP
+ * processes provide the external boundary; timeout forwarding tests stub only
+ * the MCP SDK client boundary. Run with `pnpm --filter
+ * @pymodel/agent-core exec vitest run test/mcp/connection-manager.test.ts`.
+ */
+
+import { realpathSync } from 'node:fs';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'pathe';
@@ -6,12 +16,13 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { testKaos } from '../fixtures/test-kaos';
 import type { ProviderConfig } from '@pymodel/kosong';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { randomUUID } from 'node:crypto';
 import { createServer as createHttpServer, type Server as HttpServer } from 'node:http';
 import type { AddressInfo as HttpAddress } from 'node:net';
 
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import type {
@@ -22,15 +33,16 @@ import { z } from 'zod';
 
 import { PythinkerError } from '../../src/errors';
 import { ProviderManager } from '../../src/session/provider-manager';
-import { McpConnectionManager, type McpServerEntry } from '../../src/mcp/connection-manager';
-import { parseNaturalDateTime } from '../../src/mcp/elicitation';
+import {
+  MCP_STARTUP_TIMEOUT_ENV,
+  MCP_TOOL_TIMEOUT_ENV,
+  McpConnectionManager,
+  resolveMcpStartupTimeoutMs,
+  resolveMcpToolTimeoutMs,
+  type McpServerEntry,
+} from '../../src/mcp/connection-manager';
 import { JsonFileStore, McpOAuthService } from '../../src/mcp/oauth';
-import type {
-  AgentEvent,
-  QuestionRequest,
-  QuestionResult,
-  SDKSessionRPC,
-} from '../../src/rpc';
+import type { AgentEvent, SDKSessionRPC } from '../../src/rpc';
 import { Session } from '../../src/session';
 import { SessionAPIImpl } from '../../src/session/rpc';
 import { createScriptedGenerate } from '../agent/harness';
@@ -38,8 +50,8 @@ import { createScriptedGenerate } from '../agent/harness';
 
 const here = import.meta.dirname;
 const stdioFixture = join(here, 'fixtures', 'mock-stdio-server.mjs');
-const slowStdioFixture = join(here, 'fixtures', 'slow-stdio-server.mjs');
-const elicitationStdioFixture = join(here, 'fixtures', 'elicitation-stdio-server.mjs');
+const cwdStdioFixture = join(here, 'fixtures', 'cwd-stdio-server.mjs');
+const slowToolStdioFixture = join(here, 'fixtures', 'slow-tool-stdio-server.mjs');
 const crashAfterConnectFixture = join(here, 'fixtures', 'crash-after-connect-stdio-server.mjs');
 const stderrThenExitFixture = join(here, 'fixtures', 'stderr-then-exit-stdio-server.mjs');
 const MOCK_PROVIDER: ProviderConfig = {
@@ -60,9 +72,6 @@ function stdioConfig(args: string[] = [stdioFixture]) {
 function sessionRpc(options: {
   readonly events?: SessionRpcEvent[] | undefined;
   readonly onEvent?: ((event: SessionRpcEvent) => void) | undefined;
-  readonly onQuestion?: (
-    request: QuestionRequest & { readonly agentId: string },
-  ) => QuestionResult | Promise<QuestionResult>;
 } = {}): SDKSessionRPC {
   return {
     emitEvent: async (event: SessionRpcEvent) => {
@@ -70,9 +79,7 @@ function sessionRpc(options: {
       options.onEvent?.(event);
     },
     requestApproval: async () => ({ decision: 'rejected' }),
-    requestQuestion: async (
-      request: QuestionRequest & { readonly agentId: string },
-    ) => options.onQuestion?.(request) ?? null,
+    requestQuestion: async () => null,
     toolCall: async () => ({ output: '' }),
   } as unknown as SDKSessionRPC;
 }
@@ -93,33 +100,6 @@ describe('McpConnectionManager', () => {
       await cm.shutdown();
     }
   }, 20000);
-
-  it('discovers and resolves prompts from connected servers', async () => {
-    const cm = new McpConnectionManager();
-    try {
-      await cm.connectAll({ alpha: stdioConfig() });
-      expect(cm.listPrompts()).toEqual([
-        {
-          serverName: 'alpha',
-          qualifiedName: 'mcp__alpha__review',
-          prompt: {
-            name: 'review',
-            description: 'Review a target',
-            arguments: [
-              {
-                name: 'target',
-                description: 'Target to review',
-                required: true,
-              },
-            ],
-          },
-        },
-      ]);
-      expect(cm.resolvePrompt('mcp__alpha__review')?.prompt.name).toBe('review');
-    } finally {
-      await cm.shutdown();
-    }
-  }, 15000);
 
   it('isolates failures: a bad server is marked failed without blocking the rest', async () => {
     const cm = new McpConnectionManager();
@@ -198,6 +178,14 @@ describe('McpConnectionManager', () => {
       const resolved = cm.resolved('filtered');
       expect(resolved).toBeDefined();
       expect([...(resolved?.enabledNames ?? [])]).toEqual(['echo']);
+      // The raw tools/list result stays verbatim and unfiltered — the
+      // allow-list only gates registration, not the discovery trace.
+      const rawNames = resolved?.rawTools.map((tool) => tool.name) ?? [];
+      expect(rawNames).toContain('echo');
+      expect(rawNames).toContain('boom');
+      for (const rawTool of resolved?.rawTools ?? []) {
+        expect(rawTool.inputSchema).toBeDefined();
+      }
       const entry = cm.get('filtered');
       expect(entry?.toolCount).toBe(1);
     } finally {
@@ -247,7 +235,7 @@ describe('McpConnectionManager', () => {
     cm.onStatusChange((entry) => {
       seen.push({ name: entry.name, status: entry.status });
     });
-    const delayedMockServer = `setTimeout(() => import(${JSON.stringify(pathToFileURL(stdioFixture).href)}), 250)`;
+    const delayedMockServer = `setTimeout(() => import(${JSON.stringify(pathToFileURL(stdioFixture).href)}), 160)`;
 
     const connect = cm.connectAll({
       slow: {
@@ -259,7 +247,9 @@ describe('McpConnectionManager', () => {
     });
 
     try {
-      await sleep(50);
+      // Let the first attempt get in-flight, then supersede it: reconnect
+      // must land before the delayed child finishes its 160ms startup.
+      await sleep(40);
       await cm.reconnect('slow');
       await connect;
 
@@ -305,6 +295,75 @@ describe('McpConnectionManager', () => {
     } finally {
       await cm.shutdown();
     }
+  });
+
+  it('rejects a disabled replacement config without touching the live entry', async () => {
+    const cm = new McpConnectionManager();
+    try {
+      const original = stdioConfig();
+      await cm.connectAll({ live: original });
+      expect(cm.get('live')).toMatchObject({ status: 'connected', toolCount: 3 });
+
+      // The rejection happens before the swap: the entry keeps the original
+      // config and the running client instead of a half-applied disabled one.
+      await expect(
+        cm.reconnect('live', { ...stdioConfig(), enabled: false }),
+      ).rejects.toMatchObject({ code: 'mcp.server_disabled' });
+      expect(cm.get('live')).toMatchObject({ status: 'connected', toolCount: 3 });
+      // Full internal view: any pre-rejection mutation would leak through here.
+      expect(cm.getRawEntry('live')?.config).toEqual(original);
+    } finally {
+      await cm.shutdown();
+    }
+  }, 15000);
+
+  it('reconnectAndJoin joins an in-flight reconnect instead of starting a second one', async () => {
+    const cm = new McpConnectionManager();
+    const seen: Array<{ name: string; status: McpServerEntry['status'] }> = [];
+    cm.onStatusChange((entry) => {
+      seen.push({ name: entry.name, status: entry.status });
+    });
+    const delayedMockServer = `setTimeout(() => import(${JSON.stringify(
+      pathToFileURL(stdioFixture).href,
+    )}), 250)`;
+
+    try {
+      await cm.connectAll({
+        slow: {
+          transport: 'stdio',
+          command: process.execPath,
+          args: ['-e', delayedMockServer],
+          startupTimeoutMs: 5_000,
+        },
+      });
+      seen.length = 0;
+
+      await Promise.all([cm.reconnectAndJoin('slow'), cm.reconnectAndJoin('slow')]);
+
+      expect(cm.get('slow')?.status).toBe('connected');
+      expect(seen.filter((event) => event.name === 'slow').map((event) => event.status)).toEqual([
+        'pending',
+        'connected',
+      ]);
+    } finally {
+      await cm.shutdown();
+    }
+  }, 20_000);
+
+  it('reconnectAfterCurrent queues one reconnect after the in-flight attempt', async () => {
+    const cm = new McpConnectionManager();
+    let finishCurrent!: () => void;
+    const current = new Promise<void>((resolve) => {
+      finishCurrent = resolve;
+    });
+    const reconnect = vi.spyOn(cm, 'reconnect').mockReturnValueOnce(current).mockResolvedValueOnce();
+
+    const first = cm.reconnectAndJoin('server');
+    const trailing = cm.reconnectAfterCurrent('server');
+    expect(reconnect).toHaveBeenCalledTimes(1);
+    finishCurrent();
+    await Promise.all([first, trailing]);
+    expect(reconnect).toHaveBeenCalledTimes(2);
   });
 
   it('shutdown clears entries and is idempotent', async () => {
@@ -395,7 +454,124 @@ describe('McpConnectionManager', () => {
     }
   }, 7000);
 
-  it('flips HTTP servers into needs-auth when the server returns 401 and no static token is set', async () => {
+  it('applies defaultStartupTimeoutMs when the server entry omits startupTimeoutMs', async () => {
+    const cm = new McpConnectionManager({ defaultStartupTimeoutMs: 100 });
+    try {
+      const slowFixture = join(here, 'fixtures', 'slow-stdio-server.mjs');
+      await cm.connectAll({
+        slow: {
+          transport: 'stdio',
+          command: process.execPath,
+          args: [slowFixture],
+        },
+      });
+      const entry = cm.get('slow');
+      expect(entry?.status).toBe('failed');
+      expect(entry?.error?.toLowerCase()).toContain('timed out');
+    } finally {
+      await cm.shutdown();
+    }
+  }, 15000);
+
+  it.each([
+    ['stdio', stdioConfig()],
+    ['http', { transport: 'http' as const, url: 'https://example.test/mcp' }],
+    ['sse', { transport: 'sse' as const, url: 'https://example.test/sse' }],
+  ])(
+    'forwards defaultStartupTimeoutMs above the SDK default over %s',
+    async (_transport, config) => {
+      const connect = vi.spyOn(Client.prototype, 'connect').mockResolvedValue();
+      const listTools = vi.spyOn(Client.prototype, 'listTools').mockResolvedValue({ tools: [] });
+      const cm = new McpConnectionManager({ defaultStartupTimeoutMs: 120_000 });
+      try {
+        await cm.connectAll({ server: config });
+        expect(connect).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({ timeout: 120_000 }),
+        );
+        expect(listTools).toHaveBeenCalledWith(
+          undefined,
+          expect.objectContaining({ timeout: 120_000 }),
+        );
+      } finally {
+        await cm.shutdown();
+        connect.mockRestore();
+        listTools.mockRestore();
+      }
+    },
+  );
+
+  it.each([
+    ['stdio', stdioConfig()],
+    ['http', { transport: 'http' as const, url: 'https://example.test/mcp' }],
+    ['sse', { transport: 'sse' as const, url: 'https://example.test/sse' }],
+  ])(
+    'forwards per-server startupTimeoutMs above the SDK default over %s',
+    async (_transport, config) => {
+      const connect = vi.spyOn(Client.prototype, 'connect').mockResolvedValue();
+      const listTools = vi.spyOn(Client.prototype, 'listTools').mockResolvedValue({ tools: [] });
+      const cm = new McpConnectionManager({ defaultStartupTimeoutMs: 120_000 });
+      try {
+        await cm.connectAll({
+          server: { ...config, startupTimeoutMs: 180_000 },
+        });
+        expect(connect).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({ timeout: 180_000 }),
+        );
+        expect(listTools).toHaveBeenCalledWith(
+          undefined,
+          expect.objectContaining({ timeout: 180_000 }),
+        );
+      } finally {
+        await cm.shutdown();
+        connect.mockRestore();
+        listTools.mockRestore();
+      }
+    },
+  );
+
+  it('applies defaultToolTimeoutMs when the server entry omits toolTimeoutMs', async () => {
+    const cm = new McpConnectionManager({ defaultToolTimeoutMs: 100 });
+    try {
+      const slowToolFixture = join(here, 'fixtures', 'slow-tool-stdio-server.mjs');
+      await cm.connectAll({
+        slowTool: {
+          transport: 'stdio',
+          command: process.execPath,
+          args: [slowToolFixture],
+        },
+      });
+      const client = cm.resolved('slowTool')?.client;
+      if (client === undefined) throw new Error('expected a connected client');
+      await expect(client.callTool('slow_echo', { text: 'hi' })).rejects.toThrow(/timed out/i);
+    } finally {
+      await cm.shutdown();
+    }
+  }, 15000);
+
+  it('lets a per-server toolTimeoutMs override defaultToolTimeoutMs', async () => {
+    const cm = new McpConnectionManager({ defaultToolTimeoutMs: 100 });
+    try {
+      const slowToolFixture = join(here, 'fixtures', 'slow-tool-stdio-server.mjs');
+      await cm.connectAll({
+        slowTool: {
+          transport: 'stdio',
+          command: process.execPath,
+          args: [slowToolFixture],
+          toolTimeoutMs: 10_000,
+        },
+      });
+      const client = cm.resolved('slowTool')?.client;
+      if (client === undefined) throw new Error('expected a connected client');
+      const result = await client.callTool('slow_echo', { text: 'hi' });
+      expect(result.content).toEqual([{ type: 'text', text: 'hi' }]);
+    } finally {
+      await cm.shutdown();
+    }
+  }, 20000);
+
+  it('marks an explicitly OAuth HTTP server as needs-auth when non-auth headers accompany a 401', async () => {
     const server: HttpServer = createHttpServer((_req, res) => {
       res.writeHead(401, {
         'content-type': 'application/json',
@@ -413,6 +589,8 @@ describe('McpConnectionManager', () => {
         gated: {
           transport: 'http',
           url: `http://127.0.0.1:${port}/mcp`,
+          headers: { 'X-Tenant': 'example' },
+          auth: 'oauth',
           startupTimeoutMs: 5_000,
         },
       });
@@ -514,7 +692,7 @@ describe('McpConnectionManager', () => {
       grant_types: ['authorization_code', 'refresh_token'],
       response_types: ['code'],
     } satisfies OAuthClientInformationFull);
-    provider.saveTokens({
+    await provider.saveTokens({
       access_token: 'stale-access-token',
       refresh_token: 'stale-refresh-token',
       token_type: 'Bearer',
@@ -752,400 +930,253 @@ describe('McpConnectionManager', () => {
   }, 15000);
 });
 
-describe('Session MCP startup', () => {
-  it('normalizes common natural-language dates for form elicitation', () => {
-    const now = new Date(2026, 6, 30, 10, 15);
-
-    expect(parseNaturalDateTime('tomorrow', 'date', now)).toBe('2026-07-31');
-    expect(parseNaturalDateTime('next Monday', 'date', now)).toBe('2026-08-03');
-    expect(parseNaturalDateTime('tomorrow at 3:30pm', 'date-time', now)).toMatch(
-      /^2026-07-31T15:30:00[+-]\d{2}:\d{2}$/u,
-    );
-    expect(parseNaturalDateTime('in 2 hours', 'date-time', now)).toMatch(
-      /^2026-07-30T12:15:00[+-]\d{2}:\d{2}$/u,
-    );
-    expect(parseNaturalDateTime('sometime eventually', 'date', now)).toBeUndefined();
-  });
-
-  it('routes MCP URL elicitation through question RPC and tracks completion', async () => {
-    const tmp = await mkdtemp(join(tmpdir(), 'pythinker-session-mcp-url-elicitation-'));
-    const events: SessionRpcEvent[] = [];
-    const requests: Array<QuestionRequest & { readonly agentId: string }> = [];
-    const session = new Session({
-      id: 'test-mcp-url-elicitation',
-      kaos: testKaos.withCwd(tmp),
-      homedir: join(tmp, 'session'),
-      rpc: sessionRpc({
-        events,
-        onQuestion: (request) => {
-          requests.push(request);
-          return {
-            answers: {
-              [request.questions[0]!.question]: 'Open URL',
-            },
-          };
-        },
-      }),
-      mcpConfig: {
-        servers: {
-          url: {
-            transport: 'stdio',
-            command: process.execPath,
-            args: [elicitationStdioFixture],
-          },
-        },
-      },
+describe('McpConnectionManager sources and config-aware reconnect', () => {
+  it('reconnectAndJoin joins an in-flight reconnect instead of starting a second one', async () => {
+    const cm = new McpConnectionManager();
+    const seen: Array<{ name: string; status: McpServerEntry['status'] }> = [];
+    cm.onStatusChange((entry) => {
+      seen.push({ name: entry.name, status: entry.status });
     });
+    const delayedMockServer = `setTimeout(() => import(${JSON.stringify(
+      pathToFileURL(stdioFixture).href,
+    )}), 250)`;
 
     try {
-      await session.mcp.waitForInitialLoad();
-      const client = session.mcp.resolved('url')?.client;
-      expect(client).toBeDefined();
+      await cm.connectAll({
+        slow: {
+          transport: 'stdio',
+          command: process.execPath,
+          args: ['-e', delayedMockServer],
+          startupTimeoutMs: 5_000,
+        },
+      });
+      seen.length = 0;
 
-      await expect(client!.callTool('open_account', {})).resolves.toEqual({
-        content: [{ type: 'text', text: JSON.stringify({ action: 'accept' }) }],
-        isError: false,
+      await Promise.all([cm.reconnectAndJoin('slow'), cm.reconnectAndJoin('slow')]);
+
+      expect(cm.get('slow')?.status).toBe('connected');
+      expect(seen.filter((event) => event.name === 'slow').map((event) => event.status)).toEqual([
+        'pending',
+        'connected',
+      ]);
+    } finally {
+      await cm.shutdown();
+    }
+  }, 20_000);
+
+  it('tags entries with their config source and exposes the effective config', async () => {
+    const cm = new McpConnectionManager();
+    try {
+      await cm.connectAll(
+        { alpha: stdioConfig(), beta: stdioConfig() },
+        { alpha: 'global', beta: 'plugin' },
+      );
+      expect(cm.get('alpha')).toMatchObject({ source: 'global', status: 'connected' });
+      expect(cm.get('beta')).toMatchObject({ source: 'plugin', status: 'connected' });
+      expect(cm.get('alpha')?.config).toEqual(stdioConfig());
+    } finally {
+      await cm.shutdown();
+    }
+  }, 20000);
+
+  it('reconnect re-resolves the config through the resolver instead of the snapshot', async () => {
+    let resolvedConfig = stdioConfig(['/this/path/does/not/exist/anywhere']);
+    const cm = new McpConnectionManager({
+      configResolver: async () => ({
+        name: 'flaky',
+        config: resolvedConfig,
+        source: 'global' as const,
+        origin: '/home/user/.pythinker-code/mcp.json',
+        mutable: true,
+      }),
+    });
+    try {
+      await cm.connectAll({ flaky: stdioConfig(['/this/path/does/not/exist/anywhere']) }, {
+        flaky: 'global',
       });
-      expect(requests).toHaveLength(1);
-      expect(requests[0]?.questions[0]).toMatchObject({
-        question: 'Open URL requested by MCP server "url"',
-        header: 'Open URL',
-        body: expect.stringContaining('https://example.test/account'),
-        options: [
-          {
-            label: 'Open URL',
-            description: 'example.test',
-            url: 'https://example.test/account',
-          },
-          { label: 'Decline' },
-        ],
+      expect(cm.get('flaky')?.status).toBe('failed');
+
+      resolvedConfig = stdioConfig();
+      await cm.reconnect('flaky');
+      expect(cm.get('flaky')?.status).toBe('connected');
+      expect(cm.get('flaky')?.config).toEqual(stdioConfig());
+    } finally {
+      await cm.shutdown();
+    }
+  }, 20000);
+
+  it('reconnect connects an unknown name straight from the resolver', async () => {
+    const cm = new McpConnectionManager({
+      configResolver: async (name) =>
+        name === 'late'
+          ? {
+              name,
+              config: stdioConfig(),
+              source: 'global' as const,
+              origin: '/home/user/.pythinker-code/mcp.json',
+              mutable: true,
+            }
+          : undefined,
+    });
+    try {
+      await cm.reconnect('late');
+      expect(cm.get('late')).toMatchObject({ status: 'connected', source: 'global' });
+      await expect(cm.reconnect('missing')).rejects.toMatchObject({
+        code: 'mcp.server_not_found',
       });
+    } finally {
+      await cm.shutdown();
+    }
+  }, 20000);
+
+  it('reconnect fails when the resolver reports a global server as removed', async () => {
+    const cm = new McpConnectionManager({
+      configResolver: async () => undefined,
+    });
+    try {
+      await cm.connectAll({ gone: stdioConfig() }, { gone: 'global' });
+      expect(cm.get('gone')?.status).toBe('connected');
+      await expect(cm.reconnect('gone')).rejects.toMatchObject({
+        code: 'mcp.server_not_found',
+        message: expect.stringContaining('no longer configured'),
+      });
+    } finally {
+      await cm.shutdown();
+    }
+  }, 20000);
+
+  it('reconnect keeps the cached snapshot for caller-sourced entries missing from the resolver', async () => {
+    const cm = new McpConnectionManager({
+      configResolver: async () => undefined,
+    });
+    try {
+      await cm.connectAll({ injected: stdioConfig() }, { injected: 'caller' });
+      expect(cm.get('injected')?.status).toBe('connected');
+      await cm.reconnect('injected');
+      expect(cm.get('injected')?.status).toBe('connected');
+    } finally {
+      await cm.shutdown();
+    }
+  }, 20000);
+
+  it('reconnect keeps the caller config even when the registry has a same-named entry', async () => {
+    // Caller injection shadows the on-disk layers for the session: a name-only
+    // reconnect must not silently switch the entry to the registry version.
+    const cm = new McpConnectionManager({
+      configResolver: async () => ({
+        name: 'injected',
+        config: { transport: 'stdio', command: '/this/path/does/not/exist/anywhere' },
+        source: 'global' as const,
+        origin: '/home/user/.pythinker-code/mcp.json',
+        mutable: true,
+      }),
+    });
+    try {
+      await cm.connectAll({ injected: stdioConfig() }, { injected: 'caller' });
+      expect(cm.get('injected')?.status).toBe('connected');
+      await cm.reconnect('injected');
+      expect(cm.get('injected')).toMatchObject({
+        status: 'connected',
+        source: 'caller',
+        config: stdioConfig(),
+      });
+    } finally {
+      await cm.shutdown();
+    }
+  }, 20000);
+
+  it('reconnect rejects an explicit config for plugin-sourced entries', async () => {
+    const cm = new McpConnectionManager();
+    try {
+      await cm.connectAll({ 'plugin-demo:api': stdioConfig() }, { 'plugin-demo:api': 'plugin' });
+      await expect(cm.reconnect('plugin-demo:api', stdioConfig())).rejects.toMatchObject({
+        code: 'request.invalid',
+        message: expect.stringContaining('plugin manifest'),
+      });
+    } finally {
+      await cm.shutdown();
+    }
+  }, 20000);
+
+  it('reconnect with an explicit config replaces the stored config', async () => {
+    const cm = new McpConnectionManager();
+    try {
+      await cm.connectAll(
+        { swap: { transport: 'stdio', command: '/this/path/does/not/exist/anywhere' } },
+        { swap: 'global' },
+      );
+      expect(cm.get('swap')?.status).toBe('failed');
+      await cm.reconnect('swap', stdioConfig());
+      expect(cm.get('swap')).toMatchObject({ status: 'connected', config: stdioConfig() });
+    } finally {
+      await cm.shutdown();
+    }
+  }, 20000);
+
+  it('flips connected HTTP servers to needs-auth when a mid-session failure looks like a 401', async () => {
+    // Same terminal-transport-error hook as the `failed` case above, but with
+    // an OAuth service wired and a 401-flavored error: a token that dies
+    // mid-session is an auth problem, not a crash.
+    const mcpServer = new McpServer({ name: 'cm-auth-close', version: '0.0.1' });
+    mcpServer.registerTool(
+      'echo',
+      { description: 'Echoes text', inputSchema: { text: z.string() } },
+      ({ text }) => ({ content: [{ type: 'text', text }] }),
+    );
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: () => randomUUID(),
+    });
+    await mcpServer.connect(transport);
+    const httpServer = createHttpServer((req, res) => {
+      void transport.handleRequest(req, res);
+    });
+    await new Promise<void>((resolve) => httpServer.listen(0, '127.0.0.1', resolve));
+    const port = (httpServer.address() as HttpAddress).port;
+
+    const storeDir = await mkdtemp(join(tmpdir(), 'pythinker-mcp-oauth-close-'));
+    const oauthService = new McpOAuthService({ store: new JsonFileStore(storeDir) });
+    const cm = new McpConnectionManager({ oauthService });
+    try {
+      await cm.connectAll({
+        remote: {
+          transport: 'http',
+          url: `http://127.0.0.1:${port}/mcp`,
+          startupTimeoutMs: 5_000,
+        },
+      });
+      expect(cm.get('remote')?.status).toBe('connected');
+
+      const internalClient = (cm as unknown as {
+        entries: Map<string, { client?: { client: { onerror?: (e: Error) => void } } }>;
+      }).entries.get('remote')?.client?.client;
+      const unauthorized = new Error('POST to MCP server returned 401');
+      unauthorized.name = 'UnauthorizedError';
+      internalClient?.onerror?.(unauthorized);
 
       for (let i = 0; i < 50; i++) {
-        if (
-          events.some(
-            (event) =>
-              event.type === 'hook.status' &&
-              event.statusId === 'mcp-url:url:test-account' &&
-              event.active === false,
-          )
-        ) {
-          break;
-        }
-        await sleep(10);
+        if (cm.get('remote')?.status === 'needs-auth') break;
+        await sleep(25);
       }
-      expect(events).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            type: 'hook.status',
-            statusId: 'mcp-url:url:test-account',
-            hookEvent: 'Elicitation',
-            active: true,
-          }),
-          expect.objectContaining({
-            type: 'hook.status',
-            statusId: 'mcp-url:url:test-account',
-            hookEvent: 'Elicitation',
-            active: false,
-          }),
-        ]),
-      );
-      await expect(client!.callTool('open_unsafe_url', {})).resolves.toEqual({
-        content: [{ type: 'text', text: JSON.stringify({ action: 'decline' }) }],
-        isError: false,
-      });
-      expect(requests).toHaveLength(1);
+      const entry = cm.get('remote');
+      expect(entry?.status).toBe('needs-auth');
+      expect(entry?.error).toContain('run /mcp-config login remote');
     } finally {
-      await session.close();
-      await rm(tmp, { recursive: true, force: true, maxRetries: 3, retryDelay: 10 });
-    }
-  }, 15_000);
-
-  it('waits for error-based URL elicitation completion and retries the tool', async () => {
-    const tmp = await mkdtemp(join(tmpdir(), 'pythinker-session-mcp-url-retry-'));
-    const requests: Array<QuestionRequest & { readonly agentId: string }> = [];
-    const session = new Session({
-      id: 'test-mcp-url-retry',
-      kaos: testKaos.withCwd(tmp),
-      homedir: join(tmp, 'session'),
-      rpc: sessionRpc({
-        onQuestion: (request) => {
-          requests.push(request);
-          return {
-            answers: {
-              [request.questions[0]!.question]: 'Open URL',
-            },
-          };
-        },
-      }),
-      mcpConfig: {
-        servers: {
-          retry: {
-            transport: 'stdio',
-            command: process.execPath,
-            args: [elicitationStdioFixture],
-          },
-        },
-      },
-    });
-
-    try {
-      await session.mcp.waitForInitialLoad();
-      const client = session.mcp.resolved('retry')?.client;
-      expect(client).toBeDefined();
-
-      await expect(client!.callTool('unlock_account', {})).resolves.toEqual({
-        content: [{ type: 'text', text: 'account unlocked' }],
-        isError: false,
-      });
-      expect(requests).toHaveLength(1);
-      expect(requests[0]?.questions[0]?.body).toContain(
-        'https://example.test/unlock',
-      );
-    } finally {
-      await session.close();
-      await rm(tmp, { recursive: true, force: true, maxRetries: 3, retryDelay: 10 });
-    }
-  }, 15_000);
-
-  it('lists MCP prompts as slash-invocable skills and activates their content', async () => {
-    const tmp = await mkdtemp(join(tmpdir(), 'pythinker-session-mcp-prompt-command-'));
-    const events: SessionRpcEvent[] = [];
-    let resolveTurnEnded!: () => void;
-    const turnEnded = new Promise<void>((resolve) => {
-      resolveTurnEnded = resolve;
-    });
-    const scripted = createScriptedGenerate();
-    scripted.mockNextResponse({ type: 'text', text: 'reviewed' });
-    const session = new Session({
-      id: 'test-mcp-prompt-command',
-      kaos: testKaos.withCwd(tmp),
-      homedir: join(tmp, 'session'),
-      rpc: sessionRpc({
-        events,
-        onEvent: (event) => {
-          if (event.type === 'turn.ended') resolveTurnEnded();
-        },
-      }),
-      providerManager: testProviderManager(),
-      mcpConfig: {
-        servers: {
-          alpha: stdioConfig(),
-        },
-      },
-    });
-
-    try {
-      const { agent } = await session.createAgent({
-        type: 'main',
-        generate: scripted.generate,
-      });
-      agent.config.update({
-        cwd: tmp,
-        modelAlias: 'mock-model',
-        systemPrompt: 'test system prompt',
-        thinkingLevel: 'off',
-      });
-      await session.mcp.waitForInitialLoad();
-
-      await expect(session.listSkills()).resolves.toContainEqual({
-        name: 'mcp__alpha__review',
-        commandName: 'mcp__alpha__review',
-        description: 'Review a target',
-        path: 'mcp://alpha/review',
-        source: 'extra',
-        type: 'prompt',
-        disableModelInvocation: true,
-        userInvocable: true,
-        argumentHint: '<target>',
-      });
-
-      await expect(
-        new SessionAPIImpl(session).activateSkill({
-          agentId: 'main',
-          name: 'mcp__alpha__review',
-          args: 'src/app.ts',
-        }),
-      ).resolves.toEqual({ execution: 'inline' });
-      await Promise.race([
-        turnEnded,
-        sleep(1_000).then(() => {
-          throw new Error('Timed out waiting for MCP prompt turn');
-        }),
-      ]);
-
-      expect(scripted.calls[0]?.history.at(-1)).toMatchObject({
-        role: 'user',
-        content: [{ type: 'text', text: 'Review src/app.ts.' }],
-      });
-      expect(events).toContainEqual(
-        expect.objectContaining({
-          type: 'skill.activated',
-          skillName: 'mcp__alpha__review',
-          skillArgs: 'src/app.ts',
-          trigger: 'user-slash',
-        }),
-      );
-    } finally {
-      await session.close();
-      await rm(tmp, { recursive: true, force: true, maxRetries: 3, retryDelay: 10 });
-    }
-  }, 15_000);
-
-  it('routes MCP form elicitation through the existing question RPC', async () => {
-    const tmp = await mkdtemp(join(tmpdir(), 'pythinker-session-mcp-elicitation-'));
-    const requests: Array<QuestionRequest & { readonly agentId: string }> = [];
-    const session = new Session({
-      id: 'test-mcp-elicitation',
-      kaos: testKaos.withCwd(tmp),
-      homedir: join(tmp, 'session'),
-      rpc: sessionRpc({
-        onQuestion: (request) => {
-          requests.push(request);
-          const answers: Record<string, string> = {};
-          for (const question of request.questions) {
-            switch (question.header) {
-              case 'Name':
-                answers[question.question] = 'Ada';
-                break;
-              case 'Newsletter':
-                answers[question.question] = question.options[0]!.label;
-                break;
-              case 'Role':
-                answers[question.question] = question.options[0]!.label;
-                break;
-              case 'Age':
-                answers[question.question] = '42';
-                break;
-              case 'Interests':
-                answers[question.question] = question.options
-                  .slice(0, 2)
-                  .map((option) => option.label)
-                  .join(', ');
-                break;
-              case 'Due date':
-                answers[question.question] = 'tomorrow';
-                break;
-            }
+      await cm.shutdown();
+      await new Promise<void>((resolve, reject) => {
+        httpServer.close((err) => {
+          if (err) {
+            reject(err);
+            return;
           }
-          return { answers };
-        },
-      }),
-      mcpConfig: {
-        servers: {
-          form: {
-            transport: 'stdio',
-            command: process.execPath,
-            args: [elicitationStdioFixture],
-          },
-        },
-      },
-    });
-
-    try {
-      await session.mcp.waitForInitialLoad();
-      const client = session.mcp.resolved('form')?.client;
-      expect(client).toBeDefined();
-      const expectedDue = parseNaturalDateTime('tomorrow', 'date');
-
-      await expect(client!.callTool('collect_profile', {})).resolves.toEqual({
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify({
-              action: 'accept',
-              content: {
-                name: 'Ada',
-                newsletter: true,
-                role: 'developer',
-                age: 42,
-                interests: ['frontend', 'backend'],
-                due: expectedDue,
-              },
-            }),
-          },
-        ],
-        isError: false,
+          resolve();
+        });
       });
-      expect(requests).toHaveLength(2);
-      expect(requests.map((request) => request.questions.length)).toEqual([4, 2]);
-      expect(requests.every((request) => request.agentId === 'main')).toBe(true);
-    } finally {
-      await session.close();
-      await rm(tmp, { recursive: true, force: true, maxRetries: 3, retryDelay: 10 });
+      await rm(storeDir, { recursive: true, force: true });
     }
-  }, 15_000);
+  }, 15000);
+});
 
-  it('lets Elicitation hooks answer and ElicitationResult hooks override MCP forms', async () => {
-    const tmp = await mkdtemp(join(tmpdir(), 'pythinker-session-mcp-elicitation-hooks-'));
-    const initial = {
-      action: 'accept',
-      content: {
-        name: 'Hook answer',
-        newsletter: false,
-        role: 'designer',
-        age: 20,
-        interests: ['devops'],
-        due: '2026-07-31',
-      },
-    };
-    const overridden = {
-      action: 'accept',
-      content: {
-        name: 'Reviewed answer',
-        newsletter: true,
-        role: 'developer',
-        age: 42,
-        interests: ['frontend'],
-        due: '2026-07-31',
-      },
-    };
-    const hookCommand = (output: unknown): string => {
-      const script = `process.stdout.write(${JSON.stringify(JSON.stringify({ hookSpecificOutput: output }))})`;
-      return `${JSON.stringify(process.execPath)} -e ${JSON.stringify(script)}`;
-    };
-    const requestQuestion = vi.fn(async () => null);
-    const session = new Session({
-      id: 'test-mcp-elicitation-hooks',
-      kaos: testKaos.withCwd(tmp),
-      homedir: join(tmp, 'session'),
-      rpc: sessionRpc({ onQuestion: requestQuestion }),
-      hooks: [
-        { event: 'Elicitation', command: hookCommand(initial) },
-        { event: 'ElicitationResult', command: hookCommand(overridden) },
-      ],
-      mcpConfig: {
-        servers: {
-          form: {
-            transport: 'stdio',
-            command: process.execPath,
-            args: [elicitationStdioFixture],
-          },
-        },
-      },
-    });
-
-    try {
-      await session.mcp.waitForInitialLoad();
-      const client = session.mcp.resolved('form')?.client;
-      expect(client).toBeDefined();
-
-      await expect(client!.callTool('collect_profile', {})).resolves.toEqual({
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify(overridden),
-          },
-        ],
-        isError: false,
-      });
-      expect(requestQuestion).not.toHaveBeenCalled();
-    } finally {
-      await session.close();
-      await rm(tmp, { recursive: true, force: true, maxRetries: 3, retryDelay: 10 });
-    }
-  }, 15_000);
-
+describe('Session MCP startup', () => {
   it('stores default MCP OAuth credentials under the configured Pythinker home', async () => {
     const tmp = await mkdtemp(join(tmpdir(), 'pythinker-session-mcp-oauth-home-'));
     const processHome = join(tmp, 'process-home');
@@ -1167,7 +1198,7 @@ describe('Session MCP startup', () => {
         throw new Error('Expected session MCP manager to own an OAuth service');
       }
       const provider = oauthService.getProvider('gated', 'https://example.com/mcp');
-      provider.saveTokens({
+      await provider.saveTokens({
         access_token: 'session-token',
         token_type: 'Bearer',
       } satisfies OAuthTokens);
@@ -1194,6 +1225,12 @@ describe('Session MCP startup', () => {
 
   it('does not block main agent creation on slow MCP startup', async () => {
     const tmp = await mkdtemp(join(tmpdir(), 'pythinker-session-mcp-startup-'));
+    // The child never completes the MCP handshake — it idles, keeping startup
+    // in-flight — but exits the instant the parent closes stdin, so
+    // session.close() does not wait out the SDK transport's close grace. The
+    // 800ms idle keeps startup pending long enough that a createMain blocked
+    // on MCP would lose the 500ms race below.
+    const idleServer = `process.stdin.on('end', () => process.exit(0)); process.stdin.resume(); setTimeout(() => {}, 800)`;
     const session = new Session({
       id: 'test-mcp-slow',
       kaos: testKaos.withCwd(tmp),
@@ -1204,7 +1241,7 @@ describe('Session MCP startup', () => {
           slow: {
             transport: 'stdio',
             command: process.execPath,
-            args: [slowStdioFixture],
+            args: ['-e', idleServer],
             startupTimeoutMs: 2_000,
           },
         },
@@ -1215,7 +1252,7 @@ describe('Session MCP startup', () => {
     try {
       const result = await Promise.race([
         create.then(() => 'resolved' as const),
-        sleep(1_000).then(() => 'blocked' as const),
+        sleep(500).then(() => 'blocked' as const),
       ]);
       expect(result).toBe('resolved');
     } finally {
@@ -1224,6 +1261,71 @@ describe('Session MCP startup', () => {
       await rm(tmp, { recursive: true, force: true, maxRetries: 3, retryDelay: 10 });
     }
   }, 7000);
+
+  it('starts stdio MCP servers in the session cwd when config.cwd is omitted', async () => {
+    const tmp = await mkdtemp(join(tmpdir(), 'pythinker-session-mcp-cwd-'));
+    const session = new Session({
+      id: 'test-mcp-cwd',
+      kaos: testKaos.withCwd(tmp),
+      homedir: join(tmp, 'session'),
+      rpc: sessionRpc(),
+      mcpConfig: {
+        servers: {
+          cwd: {
+            transport: 'stdio',
+            command: process.execPath,
+            args: [cwdStdioFixture],
+            startupTimeoutMs: 2_000,
+          },
+        },
+      },
+    });
+
+    try {
+      await session.mcp.waitForInitialLoad();
+      const resolved = session.mcp.resolved('cwd');
+      if (resolved === undefined) {
+        throw new Error('MCP server cwd did not connect');
+      }
+      const result = await resolved.client.callTool('get_cwd', {});
+      const text = (result.content[0] as { type: 'text'; text: string }).text;
+      expect(realpathSync(text)).toBe(realpathSync(tmp));
+    } finally {
+      await session.close();
+      await rm(tmp, { recursive: true, force: true, maxRetries: 3, retryDelay: 10 });
+    }
+  }, 7000);
+
+  it("times out tool calls using the Session's global MCP config", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), 'pythinker-session-mcp-global-timeout-'));
+    const session = new Session({
+      id: 'test-mcp-global-timeout',
+      kaos: testKaos.withCwd(tmp),
+      homedir: join(tmp, 'session'),
+      rpc: sessionRpc(),
+      config: { providers: {}, mcp: { toolTimeoutMs: 1 } },
+      mcpConfig: {
+        servers: {
+          slowTool: {
+            transport: 'stdio',
+            command: process.execPath,
+            args: [slowToolStdioFixture],
+            env: { PYTHINKER_TEST_MCP_TOOL_DELAY_MS: '300' },
+          },
+        },
+      },
+    });
+
+    try {
+      await session.mcp.waitForInitialLoad();
+      const client = session.mcp.resolved('slowTool')?.client;
+      if (client === undefined) throw new Error('expected a connected client');
+      await expect(client.callTool('slow_echo', { text: 'hi' })).rejects.toThrow(/timed out/i);
+    } finally {
+      await session.close();
+      await rm(tmp, { recursive: true, force: true, maxRetries: 3, retryDelay: 10 });
+    }
+  }, 15000);
 
   it('waits for initial MCP startup before the first prompt reaches the model', async () => {
     const tmp = await mkdtemp(join(tmpdir(), 'pythinker-session-mcp-prompt-'));
@@ -1267,7 +1369,7 @@ describe('Session MCP startup', () => {
         cwd: tmp,
         modelAlias: 'mock-model',
         systemPrompt: 'test system prompt',
-        thinkingLevel: 'off',
+        thinkingEffort: 'off',
       });
       // This bare agent gets no profile, so grant MCP access explicitly.
       agent.tools.setActiveTools(['mcp__*']);
@@ -1372,3 +1474,38 @@ function testProviderManager(): ProviderManager {
     },
   });
 }
+
+describe('MCP timeout env resolution', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('resolves the startup timeout as env > config > undefined', () => {
+    expect(resolveMcpStartupTimeoutMs()).toBeUndefined();
+    expect(resolveMcpStartupTimeoutMs(5_000)).toBe(5_000);
+
+    vi.stubEnv(MCP_STARTUP_TIMEOUT_ENV, 'abc');
+    expect(resolveMcpStartupTimeoutMs(5_000)).toBe(5_000);
+
+    vi.stubEnv(MCP_STARTUP_TIMEOUT_ENV, '7000');
+    expect(resolveMcpStartupTimeoutMs(5_000)).toBe(7_000);
+    expect(resolveMcpStartupTimeoutMs()).toBe(7_000);
+
+    vi.stubEnv(MCP_STARTUP_TIMEOUT_ENV, '2147483648');
+    expect(resolveMcpStartupTimeoutMs(5_000)).toBe(5_000);
+  });
+
+  it('resolves the tool timeout as env > config > undefined', () => {
+    expect(resolveMcpToolTimeoutMs()).toBeUndefined();
+    expect(resolveMcpToolTimeoutMs(60_000)).toBe(60_000);
+
+    vi.stubEnv(MCP_TOOL_TIMEOUT_ENV, '0');
+    expect(resolveMcpToolTimeoutMs(60_000)).toBe(60_000);
+
+    vi.stubEnv(MCP_TOOL_TIMEOUT_ENV, '90000');
+    expect(resolveMcpToolTimeoutMs(60_000)).toBe(90_000);
+
+    vi.stubEnv(MCP_TOOL_TIMEOUT_ENV, '2147483648');
+    expect(resolveMcpToolTimeoutMs(60_000)).toBe(60_000);
+  });
+});

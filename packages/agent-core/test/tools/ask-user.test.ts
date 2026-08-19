@@ -86,6 +86,106 @@ describe('AskUserQuestionTool', () => {
     ).toBe(false);
   });
 
+  it('rejects empty question text and empty option labels at the schema layer', () => {
+    expect(
+      AskUserQuestionInputSchema.safeParse(input({ question: '' })).success,
+    ).toBe(false);
+    expect(
+      AskUserQuestionInputSchema.safeParse(
+        input({
+          options: [
+            { label: '', description: 'Empty label' },
+            { label: 'B', description: '' },
+          ],
+        }),
+      ).success,
+    ).toBe(false);
+  });
+
+  it('rejects duplicate question texts across questions (schema + execution)', async () => {
+    const duplicated: AskUserQuestionInput = {
+      questions: [input().questions[0]!, input().questions[0]!],
+    };
+    expect(AskUserQuestionInputSchema.safeParse(duplicated).success).toBe(false);
+
+    const { tool, requestQuestion } = makeTool();
+    const result = await executeTool(tool, {
+      turnId: '0',
+      toolCallId: 'call_dup_question',
+      args: duplicated,
+      signal,
+    });
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain('unique');
+    expect(requestQuestion).not.toHaveBeenCalled();
+  });
+
+  it('rejects duplicate option labels within one question (schema + execution)', async () => {
+    const duplicated = input({
+      options: [
+        { label: 'Postgres', description: 'Relational storage' },
+        { label: 'Postgres', description: 'Same label again' },
+      ],
+    });
+    expect(AskUserQuestionInputSchema.safeParse(duplicated).success).toBe(false);
+
+    const { tool, requestQuestion } = makeTool();
+    const result = await executeTool(tool, {
+      turnId: '0',
+      toolCallId: 'call_dup_label',
+      args: duplicated,
+      signal,
+    });
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain('unique');
+    expect(requestQuestion).not.toHaveBeenCalled();
+  });
+
+  it('allows the same option label to appear in different questions', async () => {
+    const args: AskUserQuestionInput = {
+      questions: [
+        input().questions[0]!,
+        input({ question: 'Which cache?' }).questions[0]!,
+      ],
+    };
+    expect(AskUserQuestionInputSchema.safeParse(args).success).toBe(true);
+
+    const { tool, requestQuestion } = makeTool();
+    const result = await executeTool(tool, {
+      turnId: '0',
+      toolCallId: 'call_cross_label',
+      args,
+      signal,
+    });
+    expect(result.isError).toBe(false);
+    expect(requestQuestion).toHaveBeenCalledOnce();
+  });
+
+  it('rejects duplicate questions on the background path before starting a task', async () => {
+    const { manager } = createBackgroundManager();
+    const requestQuestion = vi.fn();
+    const agent = {
+      rpc: { requestQuestion },
+      telemetry: { track: vi.fn() },
+      background: manager,
+    } as unknown as Agent;
+    const tool = new AskUserQuestionTool(agent);
+
+    const result = await executeTool(tool, {
+      turnId: '0',
+      toolCallId: 'call_bg_dup',
+      args: {
+        questions: [input().questions[0]!, input().questions[0]!],
+        background: true,
+      },
+      signal,
+    });
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain('unique');
+    expect(result.output).not.toContain('task_id:');
+    expect(requestQuestion).not.toHaveBeenCalled();
+  });
+
   it('describes the no-Other rule on options and the Recommended hint on label', () => {
     const { tool } = makeTool();
     const params = tool.parameters as {
@@ -111,39 +211,6 @@ describe('AskUserQuestionTool', () => {
     expect(labelSchema.description).toContain("append '(Recommended)'");
   });
 
-  it('rejects duplicate questions and duplicate option labels before reverse RPC', async () => {
-    const { tool, requestQuestion } = makeTool();
-    const duplicateLabels = await executeTool(tool, {
-      turnId: '0',
-      toolCallId: 'call_duplicate_labels',
-      args: input({
-        options: [
-          { label: 'Postgres', description: 'First' },
-          { label: 'Postgres', description: 'Duplicate' },
-        ],
-      }),
-      signal,
-    });
-    const duplicateQuestions = await executeTool(tool, {
-      turnId: '0',
-      toolCallId: 'call_duplicate_questions',
-      args: {
-        questions: [input().questions[0]!, input().questions[0]!],
-      },
-      signal,
-    });
-
-    expect(duplicateLabels).toMatchObject({
-      isError: true,
-      output: expect.stringContaining('option labels must be unique'),
-    });
-    expect(duplicateQuestions).toMatchObject({
-      isError: true,
-      output: expect.stringContaining('Question texts must be unique'),
-    });
-    expect(requestQuestion).not.toHaveBeenCalled();
-  });
-
   it('always builds the background-question schema', () => {
     const agent = {
       rpc: { requestQuestion: vi.fn() },
@@ -165,17 +232,7 @@ describe('AskUserQuestionTool', () => {
       const result = await executeTool(tool, {
         turnId: '0',
         toolCallId: 'call_question',
-        args: input({
-          multi_select: true,
-          options: [
-            {
-              label: 'Postgres',
-              description: 'Relational storage',
-              preview: 'CREATE TABLE example (id integer);',
-            },
-            { label: 'SQLite', description: 'Embedded storage' },
-          ],
-        }),
+        args: input({ multi_select: true }),
         signal,
       });
 
@@ -190,15 +247,10 @@ describe('AskUserQuestionTool', () => {
               question: 'Which database?',
               header: 'Storage',
               options: [
-                {
-                  label: 'Postgres',
-                  description: 'Relational storage',
-                  preview: 'CREATE TABLE example (id integer);',
-                },
+                { label: 'Postgres', description: 'Relational storage' },
                 { label: 'SQLite', description: 'Embedded storage' },
               ],
               multiSelect: true,
-              otherLabel: 'Other',
             },
           ],
         },
@@ -233,62 +285,6 @@ describe('AskUserQuestionTool', () => {
     });
   });
 
-  it('returns selected preview and user notes with the answers', async () => {
-    const { tool } = makeTool({
-      requestQuestion: async () => ({
-        answers: { 'Which database?': 'SQLite' },
-        annotations: {
-          'Which database?': {
-            preview: 'const database = new Database("example.db");',
-            notes: 'Keep deployment simple.',
-          },
-        },
-      }),
-    });
-
-    const result = await executeTool(tool, {
-      turnId: '0',
-      toolCallId: 'call_question',
-      args: input(),
-      signal,
-    });
-
-    expect(result.output).toBe(JSON.stringify({
-      answers: { 'Which database?': 'SQLite' },
-      annotations: {
-        'Which database?': {
-          preview: 'const database = new Database("example.db");',
-          notes: 'Keep deployment simple.',
-        },
-      },
-    }));
-  });
-
-  it('accepts a source tag and includes it in answer telemetry', async () => {
-    const { tool, telemetryTrack } = makeTool({
-      requestQuestion: async () => ({
-        answers: { 'Which database?': 'SQLite' },
-      }),
-    });
-    const args: AskUserQuestionInput = {
-      ...input(),
-      metadata: { source: 'remember' },
-    };
-
-    expect(AskUserQuestionInputSchema.safeParse(args).success).toBe(true);
-    await executeTool(tool, {
-      turnId: '0',
-      toolCallId: 'call_question',
-      args,
-      signal,
-    });
-
-    expect(telemetryTrack).toHaveBeenCalledWith('question_answered', {
-      answered: 1,
-      source: 'remember',
-    });
-  });
-
   it('starts a background question task and stores the eventual answer in task output', async () => {
     vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_FLAG', '1');
 
@@ -302,6 +298,7 @@ describe('AskUserQuestionTool', () => {
     const agent = {
       rpc: { requestQuestion },
       telemetry: { track: telemetryTrack },
+      turn: { traceIdForTurn: () => undefined },
       background: manager,
     } as unknown as Agent;
     const tool = new AskUserQuestionTool(agent);
@@ -349,6 +346,7 @@ describe('AskUserQuestionTool', () => {
     const agent = {
       rpc: { requestQuestion },
       telemetry: { track: vi.fn() },
+      turn: { traceIdForTurn: () => undefined },
       background: manager,
     } as unknown as Agent;
     const tool = new AskUserQuestionTool(agent);
@@ -387,10 +385,27 @@ describe('AskUserQuestionTool', () => {
     expect(result).toMatchObject({ isError: false });
     expect(result.output).toContain('dismissed');
     expect(result.output).toContain('answers');
-    expect(telemetryTrack).toHaveBeenCalledWith('question_dismissed');
+    expect(telemetryTrack).toHaveBeenCalledWith('question_dismissed', { trace_id: undefined });
   });
 
-  it('returns an error when question rpc delivery fails', async () => {
+  it('attaches the request trace id to question telemetry', async () => {
+    const { tool, telemetryTrack } = makeTool();
+
+    await executeTool(tool, {
+      turnId: '0',
+      toolCallId: 'call_question',
+      traceId: 'trace-question-1',
+      args: input(),
+      signal,
+    });
+
+    expect(telemetryTrack).toHaveBeenCalledWith(
+      'question_answered',
+      expect.objectContaining({ answered: 1, trace_id: 'trace-question-1' }),
+    );
+  });
+
+  it('resolves question rpc error responses as dismissed answers', async () => {
     const { tool } = makeTool({
       requestQuestion: async () => {
         throw new PythinkerError(ErrorCodes.INTERNAL, 'JSON-RPC question error response');
@@ -404,31 +419,15 @@ describe('AskUserQuestionTool', () => {
       signal,
     });
 
-    expect(result).toMatchObject({ isError: true });
-    expect(result.output).toContain('could not be delivered or answered');
-    expect(result.output).toContain('JSON-RPC question error response');
-    expect(result.output).not.toContain('dismissed');
-    expect(result.output).not.toContain('Do NOT call this tool again');
-  });
-
-  it('returns an expired question note without marking it dismissed', async () => {
-    const { tool, telemetryTrack } = makeTool({
-      requestQuestion: async () => {
-        throw new PythinkerError(ErrorCodes.QUESTION_EXPIRED, 'question expired');
-      },
-    });
-
-    const result = await executeTool(tool, {
-      turnId: '0',
-      toolCallId: 'call_question',
-      args: { ...input(), metadata: { source: 'test' } },
-      signal,
-    });
-
     expect(result).toMatchObject({ isError: false });
-    expect(result.output).toContain('expired');
-    expect(result.output).not.toContain('dismissed');
-    expect(telemetryTrack).toHaveBeenCalledWith('question_expired', { source: 'test' });
+    expect(result.output).toContain('dismissed');
+    expect(typeof result.output).toBe('string');
+    const output = typeof result.output === 'string' ? result.output : '';
+    expect(JSON.parse(output)).toEqual({
+      answers: {},
+      note: 'User dismissed the question without answering.',
+    });
+    expect(result.output).not.toContain('Do NOT call this tool again');
   });
 
   it('propagates aborts while waiting for question rpc', async () => {

@@ -3,11 +3,15 @@ import {
   APIProviderQuotaExhaustedError,
   APITimeoutError,
   ChatProviderError,
+  classifyBaseApiError,
   normalizeAPIStatusError,
+  parseRetryAfterMs,
+  parseTraceId,
+  throwIfAbortError,
 } from '#/errors';
 import { extractText } from '#/message';
 import type { ContentPart, Message } from '#/message';
-import type { FinishReason, ThinkingEffort } from '#/provider';
+import type { FinishReason } from '#/provider';
 import type { Tool } from '#/tool';
 import type { TokenUsage } from '#/usage';
 import {
@@ -85,31 +89,21 @@ export function toolToOpenAI(tool: Tool): OpenAIToolParam {
     },
   };
 }
-// `terminated` is the undici signature for an SSE/HTTP body stream that is
-// dropped mid-flight (common with Node's native fetch on long reasoning
-// streams). It surfaces as a raw `TypeError: terminated`, so it must be
-// recognized here as a transport-layer connection failure.
-const NETWORK_RE = /network|connection|connect|disconnect|terminated/i;
-const TIMEOUT_RE = /timed?\s*out|timeout|deadline/i;
 
-function classifyBaseApiError(message: string): ChatProviderError {
-  if (TIMEOUT_RE.test(message)) {
-    return new APITimeoutError(message);
-  }
-  if (NETWORK_RE.test(message)) {
-    return new APIConnectionError(message);
-  }
-  return new ChatProviderError(`Error: ${message}`);
-}
-
+/**
+ * Convert an OpenAI SDK error (or raw Error) to a kosong `ChatProviderError`.
+ * The FIRST line is the abort guard: a user cancellation (SDK
+ * `APIUserAbortError`, bare `AbortError`, the standard abort DOMException) is
+ * THROWN as the standard abort shape at the very front of the classification
+ * chain — it can never be converted into, nor returned as, a retryable
+ * provider error.
+ */
 // OpenAI's own documented signal that the account quota/balance is exhausted:
 // the API sets `insufficient_quota` as both the body `error.type` and
-// `error.code` on a 429. This is protocol knowledge of the OpenAI wire.
-// Pythinker runs no service of its own — each user configures their own
-// API/auth provider — so endpoint-specific quota signals (e.g.
-// `exceeded_current_quota_error`) live with the provider wrapper that talks
-// to that endpoint and reach this converter through the optional
-// `convertErrorHook` instead.
+// `error.code` on a 429. This is protocol knowledge of the OpenAI wire — the
+// equivalent vendor-specific signals (e.g. PyModel's
+// `exceeded_current_quota_error`) live with their vendor and reach this
+// converter through the optional `convertErrorHook` instead.
 export function isOpenAIInsufficientQuotaCode(code: string | null | undefined): boolean {
   return code === 'insufficient_quota';
 }
@@ -123,21 +117,23 @@ function isOpenAIInsufficientQuotaError(error: OpenAIAPIError): boolean {
   return error.message.toLowerCase().includes('insufficient_quota');
 }
 
-/**
- * Convert an OpenAI SDK error (or raw Error) to a kosong `ChatProviderError`.
- *
- * `convertErrorHook`, when provided, is consulted with the raw failure right
- * after the abort guard and before any base classification — it sees the SDK
- * error before the base conversion strips the body's `error.code`/`error.type`.
- * Returning `undefined` keeps the base classification below.
- */
 export function convertOpenAIError(
   error: unknown,
   convertErrorHook?: (error: unknown) => ChatProviderError | undefined,
 ): ChatProviderError {
+  // Abort guard FIRST: throws (never returns) the standard abort DOMException
+  // for any abort shape, so a user cancellation is never misclassified as a
+  // retryable provider failure.
+  throwIfAbortError(error);
+  // Already-converted errors pass through untouched — they never re-enter
+  // vendor classification, so the hook below sees each raw failure exactly
+  // once even when a stream-minted error crosses an outer catch.
   if (error instanceof ChatProviderError) {
     return error;
   }
+  // Vendor classification next: the hook sees the RAW error (the base
+  // conversion below drops the SDK-parsed body `error.code`/`error.type`),
+  // and `undefined` keeps the base classification.
   const hooked = convertErrorHook?.(error);
   if (hooked !== undefined) {
     return hooked;
@@ -152,12 +148,14 @@ export function convertOpenAIError(
   // APIError with a status code => status error
   if (error instanceof OpenAIAPIError && typeof error.status === 'number') {
     const reqId = error.requestID ?? null;
+    const retryAfterMs = parseRetryAfterMs(error.headers);
+    const traceId = parseTraceId(error.headers);
     // Quota/balance exhaustion is a 429 but deterministic until the account
     // is recharged — it must not classify as a retryable rate limit.
     if (isOpenAIInsufficientQuotaError(error)) {
-      return new APIProviderQuotaExhaustedError(error.message, reqId);
+      return new APIProviderQuotaExhaustedError(error.message, reqId, retryAfterMs, traceId);
     }
-    return normalizeAPIStatusError(error.status, error.message, reqId);
+    return normalizeAPIStatusError(error.status, error.message, reqId, retryAfterMs, traceId);
   }
   // Base APIError with no status and no body => transport-layer failure.
   // When the error has a body (e.g. SSE error events from the server),
@@ -199,86 +197,6 @@ export function isFunctionToolCall<T extends { type: string }>(
 ): tc is T & FunctionToolCallShape {
   return tc.type === 'function';
 }
-/**
- * Map kosong `ThinkingEffort` to OpenAI `reasoning_effort` string.
- */
-export function thinkingEffortToReasoningEffort(effort: ThinkingEffort): string | undefined {
-  switch (effort) {
-    case 'off':
-      return undefined;
-    case 'minimal':
-      return 'minimal';
-    case 'low':
-      return 'low';
-    case 'medium':
-      return 'medium';
-    case 'high':
-      return 'high';
-    case 'xhigh':
-      return 'xhigh';
-    case 'max':
-      return 'max';
-    default:
-      throw new Error(`Unknown thinking effort: ${String(effort)}`);
-  }
-}
-
-/**
- * Map OpenAI `reasoning_effort` string back to kosong `ThinkingEffort`.
- */
-export function reasoningEffortToThinkingEffort(
-  reasoning: string | undefined,
-): ThinkingEffort | null {
-  if (reasoning === undefined || reasoning === null) {
-    return null;
-  }
-  switch (reasoning) {
-    case 'minimal':
-      return 'minimal';
-    case 'low':
-      return 'low';
-    case 'medium':
-      return 'medium';
-    case 'high':
-      return 'high';
-    case 'xhigh':
-      return 'xhigh';
-    case 'max':
-    case 'ultra':
-      return 'max';
-    case 'none':
-      return 'off';
-    default:
-      return 'off';
-  }
-}
-
-const OPENAI_REASONING_EFFORT_ORDER = [
-  'minimal',
-  'low',
-  'medium',
-  'high',
-  'xhigh',
-  'max',
-] as const;
-
-export function resolveOpenAIReasoningEffort(
-  effort: ThinkingEffort,
-  supportEfforts: readonly string[] | undefined,
-): string | undefined {
-  if (effort === 'off') return supportEfforts?.includes('none') ? 'none' : undefined;
-  const requested = thinkingEffortToReasoningEffort(effort);
-  if (
-    requested === undefined ||
-    supportEfforts === undefined ||
-    supportEfforts.includes(requested)
-  ) {
-    return requested;
-  }
-  return OPENAI_REASONING_EFFORT_ORDER.findLast((supported) =>
-    supportEfforts.includes(supported),
-  );
-}
 
 /**
  * Extract `TokenUsage` from an OpenAI-compatible usage object.
@@ -292,7 +210,7 @@ export function extractUsage(usage: unknown): TokenUsage | null {
   const completionTokens = typeof u['completion_tokens'] === 'number' ? u['completion_tokens'] : 0;
 
   let cached = 0;
-  // Pythoughts proprietary: top-level cached_tokens
+  // PyModel proprietary: top-level cached_tokens
   if (typeof u['cached_tokens'] === 'number') {
     cached = u['cached_tokens'];
   } else if (

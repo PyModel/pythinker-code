@@ -1,5 +1,4 @@
-import type { McpServerConfig } from '../config/schema';
-import type { LspServerConfig } from '../lsp/types';
+import type { HookDefConfig, McpServerConfig } from '../config/schema';
 
 export type PluginDiagnosticSeverity = 'error' | 'warn' | 'info';
 
@@ -11,57 +10,6 @@ export interface PluginDiagnostic {
 export interface PluginAuthor {
   readonly name?: string;
   readonly email?: string;
-  readonly url?: string;
-}
-
-export type PluginDefinitionJsonPrimitive = string | number | boolean | null;
-export type PluginDefinitionJsonValue =
-  | PluginDefinitionJsonPrimitive
-  | readonly PluginDefinitionJsonValue[]
-  | { readonly [key: string]: PluginDefinitionJsonValue };
-export type PluginDefinitionJsonObject = {
-  readonly [key: string]: PluginDefinitionJsonValue;
-};
-
-export type PluginPathDeclaration = string | readonly string[];
-export type PluginConfigDeclaration =
-  | string
-  | PluginDefinitionJsonObject
-  | readonly (string | PluginDefinitionJsonObject)[];
-
-export interface PluginComponentDeclarations {
-  readonly skills?: PluginPathDeclaration;
-  readonly agents?: PluginPathDeclaration;
-  readonly outputStyles?: PluginPathDeclaration;
-  readonly mcpServers?: PluginConfigDeclaration;
-  readonly lspServers?: PluginConfigDeclaration;
-}
-
-/** Serializable marketplace data used to materialize a plugin. */
-export interface PluginInstallDefinition {
-  /** Stable marketplace slug. This always becomes the installed plugin identity. */
-  readonly id: string;
-  readonly displayName?: string;
-  readonly version?: string;
-  readonly description?: string;
-  readonly keywords?: readonly string[];
-  readonly tags?: readonly string[];
-  readonly category?: string;
-  readonly author?: PluginAuthor;
-  readonly homepage?: string;
-  readonly repository?: string;
-  readonly license?: string;
-  readonly components?: PluginComponentDeclarations;
-  /** Declared component kinds that Pythinker deliberately does not execute. */
-  readonly unsupportedComponents?: readonly string[];
-  readonly strict?: boolean;
-  readonly defaultEnabled?: boolean;
-}
-
-export interface PluginInstallOptions {
-  /** Repository-relative plugin root for GitHub archive installs. */
-  readonly repositorySubdirectory?: string;
-  readonly definition?: PluginInstallDefinition;
 }
 
 export interface PluginSessionStart {
@@ -81,33 +29,25 @@ export interface PluginManifest {
   readonly version?: string;
   readonly description?: string;
   readonly keywords?: readonly string[];
-  readonly tags?: readonly string[];
-  readonly category?: string;
   readonly author?: PluginAuthor;
   readonly homepage?: string;
-  readonly repository?: string;
   readonly license?: string;
-  readonly defaultEnabled?: boolean;
   readonly skills?: readonly string[]; // resolved absolute paths
-  readonly agents?: readonly string[]; // resolved absolute files or directories
-  readonly outputStyles?: readonly string[]; // resolved absolute files or directories
+  /**
+   * True when `skills` was not declared in the manifest and `skills` was filled
+   * by the root SKILL.md fallback. Consumers must treat those roots as a single
+   * skill bundle, not as a generic skill directory — an explicit `"skills":
+   * "./"` keeps directory semantics.
+   */
+  readonly rootSkillFallback?: boolean;
+  readonly agents?: readonly string[]; // resolved absolute paths
   readonly sessionStart?: PluginSessionStart;
   readonly mcpServers?: Readonly<Record<string, McpServerConfig>>;
-  readonly lspServers?: Readonly<Record<string, LspServerConfig>>;
+  readonly hooks?: readonly HookDefConfig[];
+  readonly commands?: readonly PluginCommandEntry[];
   readonly interface?: PluginInterface;
   readonly skillInstructions?: string;
-}
-
-export interface PluginAgentProfileSource {
-  readonly pluginId: string;
-  readonly pluginRoot: string;
-  readonly paths: readonly string[];
-}
-
-export interface PluginOutputStyleSource {
-  readonly pluginId: string;
-  readonly pluginRoot: string;
-  readonly paths: readonly string[];
+  readonly systemPrompt?: string;
 }
 
 export interface PluginMcpServerState {
@@ -131,11 +71,42 @@ export interface PluginMcpServerInfo {
   readonly headerKeys?: readonly string[];
 }
 
-export type PluginManifestKind =
-  | 'pythinker-plugin-root'
-  | 'pythinker-plugin-dir'
-  | 'claude-plugin'
-  | 'marketplace-definition';
+/**
+ * One plugin-declared MCP server with its final effective config, as consumed
+ * by the MCP server registry. `name` is the runtime name
+ * (`plugin-<pluginId>:<serverName>`); `config` already carries the rename-time
+ * transforms (env injection, cwd constraint, folded enabled flag).
+ */
+export interface PluginMcpServerEntry {
+  readonly name: string;
+  readonly config: McpServerConfig;
+  readonly pluginId: string;
+  /** Manifest-local server name (without the runtime prefix). */
+  readonly serverName: string;
+}
+
+export interface PluginCommandDef {
+  readonly pluginId: string;
+  readonly name: string;
+  readonly description: string;
+  readonly body: string;
+  readonly path: string;
+}
+
+/**
+ * A resolved command file plus its namespace-preserving name.
+ *
+ * `name` is the path of the file relative to the declared `commands` entry
+ * (without the `.md` extension, using `/` separators), so a file at
+ * `commands/frontend/component.md` yields the name `frontend/component`.
+ * Frontmatter `name` in the file itself takes precedence over this at load time.
+ */
+export interface PluginCommandEntry {
+  readonly path: string;
+  readonly name: string;
+}
+
+export type PluginManifestKind = 'pythinker-plugin-root' | 'pythinker-plugin-dir';
 export type PluginSource = 'local-path' | 'zip-url' | 'github';
 export type PluginState = 'ok' | 'error';
 
@@ -162,7 +133,6 @@ export interface PluginRecord {
   readonly originalSource?: string;
   readonly capabilities?: PluginCapabilityState;
   readonly github?: PluginGithubMetadata;
-  readonly definition?: PluginInstallDefinition;
   readonly skillInstructions?: string;
   readonly skillCount: number;
   readonly manifest?: PluginManifest;
@@ -181,6 +151,8 @@ export interface PluginSummary {
   readonly skillCount: number;
   readonly mcpServerCount: number;
   readonly enabledMcpServerCount: number;
+  readonly hookCount: number;
+  readonly commandCount: number;
   readonly hasErrors: boolean;
   readonly source: PluginSource;
   readonly originalSource?: string;
@@ -202,6 +174,11 @@ export interface PluginInfo extends PluginSummary {
 export interface EnabledPluginSessionStart {
   readonly pluginId: string;
   readonly skillName: string;
+}
+
+export interface EnabledPluginSystemPrompt {
+  readonly pluginId: string;
+  readonly content: string;
 }
 
 export interface ReloadSummary {

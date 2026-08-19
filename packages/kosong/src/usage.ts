@@ -1,5 +1,3 @@
-import type { ModelCostRates } from './capability';
-
 /**
  * Token usage breakdown for a single LLM generation.
  *
@@ -53,34 +51,4 @@ export function addUsage(a: TokenUsage, b: TokenUsage): TokenUsage {
     inputCacheRead: a.inputCacheRead + b.inputCacheRead,
     inputCacheCreation: a.inputCacheCreation + b.inputCacheCreation,
   };
-}
-
-/** Compute the USD cost of token usage from per-million-token rates. */
-export function calculateCost(
-  usage: TokenUsage,
-  rates?: ModelCostRates,
-): number | undefined {
-  if (rates === undefined || !Object.values(rates).some(isValidRate)) return undefined;
-
-  const charges = [
-    charge(usage.inputOther, rates.input),
-    charge(usage.output, rates.output),
-    charge(usage.inputCacheRead, rates.cacheRead),
-    charge(usage.inputCacheCreation, rates.cacheWrite),
-  ];
-  let total = 0;
-  for (const cost of charges) {
-    if (cost === undefined) return undefined;
-    total += cost;
-  }
-  return total;
-}
-
-function charge(tokens: number, rate: number | undefined): number | undefined {
-  if (tokens === 0) return 0;
-  return isValidRate(rate) ? (tokens * rate) / 1_000_000 : undefined;
-}
-
-function isValidRate(rate: unknown): rate is number {
-  return typeof rate === 'number' && Number.isFinite(rate) && rate >= 0;
 }

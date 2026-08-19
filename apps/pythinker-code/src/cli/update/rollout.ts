@@ -7,7 +7,6 @@ import { resolvePythinkerHome } from '@pymodel/pythinker-code-sdk';
 
 import { getUpdateRolloutLogFile } from '#/utils/paths';
 
-import { isBelowMinRequiredVersion } from './cdn';
 import { selectUpdateTarget } from './select';
 import type { RolloutBatch, UpdateManifest, UpdateTarget } from './types';
 
@@ -73,8 +72,6 @@ export type PassiveUpdateReason =
   | 'held'
   /** Gated and the batch delay has elapsed: update is visible. */
   | 'eligible'
-  /** Manifest floor: client is below minRequiredVersion, rollout bypassed. */
-  | 'required'
   /** PYTHINKER_CODE_EXPERIMENTAL_FLAG is on: rollout skipped, newest always visible. */
   | 'experimental';
 
@@ -142,19 +139,6 @@ export function decidePassiveUpdateTarget(
   const eligibleAt = Number.isFinite(publishedAt)
     ? new Date(publishedAt + delaySeconds * 1000).toISOString()
     : null;
-  // A client below the manifest floor must take the update now: the staged
-  // delay exists for ordinary releases, not for one the client cannot skip.
-  // Bucket, delay and eligibleAt stay populated so the telemetry and the
-  // decision log still describe where the device sits in the plan.
-  if (isBelowMinRequiredVersion(manifest, currentVersion)) {
-    return {
-      target,
-      reason: 'required',
-      bucket,
-      delaySeconds,
-      eligibleAt,
-    };
-  }
   const eligible = isRolloutEligible(manifest, deviceId, now);
   return {
     target: eligible ? target : null,

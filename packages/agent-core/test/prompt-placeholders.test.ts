@@ -22,19 +22,16 @@ const SRC = join(import.meta.dirname, '..', 'src');
 // `.md` files rendered through `renderPrompt`. Keep in sync when a new
 // templated prompt file is introduced.
 const TEMPLATED = new Set([
-  'profile/default/system.md',
-  'profile/default/general.md',
   'agent/compaction/compaction-instruction.md',
+  'profile/default/system.md',
   'tools/builtin/file/read.md',
   'tools/builtin/file/read-media.md',
   'tools/builtin/shell/bash.md',
-  'tools/builtin/collaboration/skill-tool.md',
 ]);
 
 const STATIC_PLACEHOLDER_PROTOCOL_FILES = new Set([
-  'agent/dynamic-workflow/enter-reminder.md',
-  'agent/dynamic-workflow/exit-reminder.md',
-  'tools/builtin/collaboration/dynamic-workflow.md',
+  'agent/dynamic_workflow/enter-reminder.md',
+  'tools/builtin/collaboration/agent-dynamic_workflow.md',
 ]);
 
 const mdFiles = globSync('**/*.md', { cwd: SRC })

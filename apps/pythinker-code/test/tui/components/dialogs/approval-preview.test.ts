@@ -1,4 +1,4 @@
-import type { Terminal } from '@earendil-works/pi-tui';
+import type { Terminal } from '@pymodel/pi-tui';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -85,47 +85,6 @@ describe('ApprovalPreviewViewer', () => {
     expect(scrolled).toMatch(/row-\d{2,}/);
   });
 
-  it.each([
-    ['legacy', '\u0006'],
-    ['Kitty CSI-u', '\u001B[102;5u'],
-  ])('%s ctrl+f pages down', (_encoding, key) => {
-    const lines = Array.from(
-      { length: 50 },
-      (_, i) => `row-${String(i + 1).padStart(3, '0')}`,
-    );
-    const viewer = makeViewer({
-      block: { type: 'file_content', path: 'src/big.ts', content: lines.join('\n') },
-      rows: 12,
-    });
-
-    viewer.handleInput(key);
-
-    const scrolled = strip(viewer.render(100).join('\n'));
-    expect(scrolled).toContain('row-008');
-    expect(scrolled).not.toContain('row-001');
-  });
-
-  it.each([
-    ['legacy', '\u0002'],
-    ['Kitty CSI-u', '\u001B[98;5u'],
-  ])('%s ctrl+b pages up', (_encoding, key) => {
-    const lines = Array.from(
-      { length: 50 },
-      (_, i) => `row-${String(i + 1).padStart(3, '0')}`,
-    );
-    const viewer = makeViewer({
-      block: { type: 'file_content', path: 'src/big.ts', content: lines.join('\n') },
-      rows: 12,
-    });
-    viewer.handleInput('\u001B[6~');
-
-    viewer.handleInput(key);
-
-    const scrolled = strip(viewer.render(100).join('\n'));
-    expect(scrolled).toContain('row-001');
-    expect(scrolled).not.toContain('row-009');
-  });
-
   it('scrolls to the end with G and back to the top with g', () => {
     const lines: string[] = [];
     for (let i = 1; i <= 100; i++) lines.push(`L${String(i)}`);
@@ -177,6 +136,26 @@ describe('ApprovalPreviewViewer', () => {
     expect(text).toContain('-1');
     expect(text).toContain('beta');
     expect(text).toContain('BETA');
+  });
+
+  it('shows surrounding context lines for a diff block', () => {
+    const viewer = makeViewer({
+      block: {
+        type: 'diff',
+        path: 'src/foo.ts',
+        old_text: ['before1', 'before2', 'old', 'after1', 'after2'].join('\n'),
+        new_text: ['before1', 'before2', 'new', 'after1', 'after2'].join('\n'),
+      },
+      rows: 24,
+    });
+
+    const text = strip(viewer.render(100).join('\n'));
+    expect(text).toContain('before1');
+    expect(text).toContain('before2');
+    expect(text).toContain('old');
+    expect(text).toContain('new');
+    expect(text).toContain('after1');
+    expect(text).toContain('after2');
   });
 
   // Sanity: rendering is a pure slice — repeated render() calls without

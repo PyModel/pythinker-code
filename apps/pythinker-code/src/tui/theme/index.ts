@@ -3,23 +3,16 @@
  */
 
 import { getBuiltInPalette } from './colors';
-import type { ColorPalette } from './colors';
+import type { ColorPalette, ResolvedTheme } from './colors';
 import { loadCustomThemeMerged } from './custom-theme-loader';
 import { detectTerminalTheme } from './detect';
 
 export { currentTheme, Theme } from './theme';
 export type { ColorToken } from './theme';
-export { colorize } from './colorize';
-export type { ColorSpec } from './colorize';
 export { darkColors, lightColors, getBuiltInPalette } from './colors';
 export type { ColorPalette, ResolvedTheme } from './colors';
 export { detectTerminalTheme } from './detect';
 export { loadCustomTheme, loadCustomThemeMerged, listCustomThemes } from './custom-theme-loader';
-export {
-  createPythinkerEditorTheme,
-  createPythinkerMarkdownTheme,
-  createPythinkerThinkingMarkdownTheme,
-} from './pythinker-theme';
 
 /**
  * User-facing theme preference.

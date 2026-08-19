@@ -23,14 +23,14 @@ afterEach(async () => {
 });
 
 function expectConfigInvalid(fn: () => unknown): void {
-  let thrown: unknown;
   try {
     fn();
   } catch (error) {
-    thrown = error;
+    expect(error).toBeInstanceOf(PythinkerError);
+    expect((error as PythinkerError).code).toBe(ErrorCodes.CONFIG_INVALID);
+    return;
   }
-  expect(thrown).toBeInstanceOf(PythinkerError);
-  expect((thrown as PythinkerError).code).toBe(ErrorCodes.CONFIG_INVALID);
+  throw new Error('expected function to throw');
 }
 
 describe('buildMcpHttpHeaders', () => {

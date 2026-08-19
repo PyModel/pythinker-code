@@ -109,11 +109,14 @@ export function buildPluginsInfoLines(input: PluginsInfoPanelInput): readonly st
   if (info.manifest?.skillInstructions !== undefined) {
     lines.push(`${muted('Skill instructions:')} ${value('present')}`);
   }
-  lines.push('', value(`Skills (${info.manifest?.skills?.length ?? 0}):`));
+  lines.push('');
+  lines.push(value(`Skills (${info.manifest?.skills?.length ?? 0}):`));
   for (const dir of info.manifest?.skills ?? []) lines.push(`  ${muted('-')} ${value(dir)}`);
 
   if (info.mcpServers.length > 0) {
-    lines.push('', value(`MCP servers (${info.enabledMcpServerCount}/${info.mcpServerCount} enabled):`), muted(`  Enabled by default; disable with /plugins mcp disable ${info.id} <server>.`));
+    lines.push('');
+    lines.push(value(`MCP servers (${info.enabledMcpServerCount}/${info.mcpServerCount} enabled):`));
+    lines.push(muted(`  Enabled by default; disable with /plugins mcp disable ${info.id} <server>.`));
     for (const server of info.mcpServers) {
       const enabled = server.enabled ? success('enabled') : muted('disabled');
       lines.push(`  ${muted('-')} ${value(server.name)} ${enabled} ${muted(`(${server.runtimeName})`)}`);
@@ -135,18 +138,21 @@ export function buildPluginsInfoLines(input: PluginsInfoPanelInput): readonly st
 
   const iface = info.manifest?.interface;
   if (iface !== undefined) {
-    lines.push('', value('Display:'));
+    lines.push('');
+    lines.push(value('Display:'));
     if (iface.shortDescription !== undefined) lines.push(`  ${muted('-')} ${value(iface.shortDescription)}`);
     if (iface.developerName !== undefined) lines.push(`  ${muted('-')} ${value(`by ${iface.developerName}`)}`);
     if (iface.websiteURL !== undefined) lines.push(`  ${muted('-')} ${value(iface.websiteURL)}`);
   }
 
   if (info.manifest?.keywords !== undefined && info.manifest.keywords.length > 0) {
-    lines.push('', muted(`Keywords: ${info.manifest.keywords.join(', ')}`));
+    lines.push('');
+    lines.push(muted(`Keywords: ${info.manifest.keywords.join(', ')}`));
   }
 
   if (info.diagnostics.length > 0) {
-    lines.push('', value('Diagnostics:'));
+    lines.push('');
+    lines.push(value('Diagnostics:'));
     for (const d of info.diagnostics) {
       const paint = d.severity === 'error' ? error : d.severity === 'warn' ? warning : muted;
       lines.push(`  ${paint(`[${d.severity}]`)} ${value(d.message)}`);

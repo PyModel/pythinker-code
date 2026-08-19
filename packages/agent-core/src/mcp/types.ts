@@ -51,6 +51,8 @@ export interface MCPContentBlock {
 export interface MCPToolResult {
   content: MCPContentBlock[];
   isError: boolean;
+  structuredContent?: unknown;
+  _meta?: Record<string, unknown>;
 }
 
 /**
@@ -61,42 +63,6 @@ export interface MCPToolDefinition {
   description: string;
   inputSchema: unknown;
 }
-
-export interface MCPPromptArgument {
-  readonly name: string;
-  readonly description?: string;
-  readonly required?: boolean;
-}
-
-export interface MCPPromptDefinition {
-  readonly name: string;
-  readonly description?: string;
-  readonly arguments?: readonly MCPPromptArgument[];
-}
-
-export interface MCPPromptMessage {
-  readonly role: 'user' | 'assistant';
-  readonly content: MCPContentBlock;
-}
-
-export interface MCPResource {
-  readonly uri: string;
-  readonly name: string;
-  readonly description?: string;
-  readonly mimeType?: string;
-}
-
-export type MCPResourceContent =
-  | {
-      readonly uri: string;
-      readonly mimeType?: string;
-      readonly text: string;
-    }
-  | {
-      readonly uri: string;
-      readonly mimeType?: string;
-      readonly blob: string;
-    };
 
 /**
  * Minimal MCP client interface consumed by {@link McpConnectionManager} and
@@ -122,22 +88,6 @@ export interface MCPClient {
     args: Record<string, unknown>,
     signal?: AbortSignal,
   ): Promise<MCPToolResult>;
-  /** List prompts when the server advertises the prompts capability. */
-  listPrompts?(signal?: AbortSignal): Promise<MCPPromptDefinition[]>;
-  /** Resolve one prompt using its declared arguments. */
-  getPrompt?(
-    name: string,
-    args: Record<string, string>,
-    signal?: AbortSignal,
-  ): Promise<MCPPromptMessage[]>;
-  /** Whether the connected server advertised the prompts capability. */
-  supportsPrompts?(): boolean;
-  /** List all resources when the server advertises the resources capability. */
-  listResources?(signal?: AbortSignal): Promise<MCPResource[]>;
-  /** Read one resource when the server advertises the resources capability. */
-  readResource?(uri: string, signal?: AbortSignal): Promise<MCPResourceContent[]>;
-  /** Whether the connected server advertised the resources capability. */
-  supportsResources?(): boolean;
 }
 
 /**

@@ -129,16 +129,6 @@ function renderOAuthPage(options: {
   );
 }
 
-export function renderOAuthSuccessPage(): string {
-  return renderOAuthPage({
-    title: 'Signed in to Pythinker',
-    heading: "You're logged in to Pythinker",
-    message: 'You can close this tab and return to Pythinker.',
-    badge: SUCCESS_BADGE_SVG,
-    statusLine: 'status: <span class="ok">authenticated</span>',
-  });
-}
-
 export function renderOpenAICodexOAuthSuccessPage(): string {
   return renderOAuthPage({
     title: 'OpenAI Codex sign-in complete',
@@ -148,7 +138,6 @@ export function renderOpenAICodexOAuthSuccessPage(): string {
     statusLine: 'provider: openai-codex &middot; status: <span class="ok">authenticated</span>',
   });
 }
-
 export function renderOAuthErrorPage(): string {
   return renderOAuthPage({
     title: 'Sign-in failed',

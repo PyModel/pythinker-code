@@ -3,12 +3,8 @@ import { createServer, type Server } from 'node:http';
 
 import { readApiErrorMessage } from './api-error';
 import { renderOAuthErrorPage, renderOpenAICodexOAuthSuccessPage } from './oauth-pages';
-import {
-  capabilitiesForModel,
-  parseSupportsThinkingType,
-  type PlatformConfigShape,
-  type PlatformModelInfo,
-} from './open-platform';
+import { parseSupportsThinkingType, type SupportsThinkingType } from './managed-pythinker-code';
+import { capabilitiesForModel } from './open-platform';
 import { isRecord } from './utils';
 
 export const OPENAI_CODEX_OAUTH_PLATFORM_ID = 'openai-codex-oauth';
@@ -18,6 +14,7 @@ const CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
 const AUTHORIZE_URL = 'https://auth.openai.com/oauth/authorize';
 const TOKEN_URL = 'https://auth.openai.com/oauth/token';
 export const OPENAI_CODEX_REDIRECT_URI = 'http://localhost:1455/auth/callback';
+export const OPENAI_CODEX_AUTH_INPUT_MAX_LENGTH = 16_384;
 const CALLBACK_PORT = 1455;
 const CALLBACK_PATH = '/auth/callback';
 const SCOPE =
@@ -26,6 +23,32 @@ const CODEX_BASE_URL = 'https://chatgpt.com/backend-api/codex';
 const CODEX_ORIGINATOR = 'codex_cli_rs';
 const JWT_AUTH_CLAIM = 'https://api.openai.com/auth';
 const DEFAULT_CALLBACK_TIMEOUT_MS = 120_000;
+
+export interface OpenAICodexModelInfo {
+  readonly id: string;
+  readonly contextLength: number;
+  readonly supportsReasoning: boolean;
+  readonly supportedReasoningEfforts?: readonly string[] | undefined;
+  readonly supportsImageIn: boolean;
+  readonly supportsVideoIn: boolean;
+  readonly supportsToolUse?: boolean | undefined;
+  readonly supportsFastMode?: boolean | undefined;
+  readonly supportsThinkingType?: SupportsThinkingType | undefined;
+  readonly displayName?: string | undefined;
+}
+
+export interface OpenAICodexConfigShape {
+  providers: Record<string, Record<string, unknown>>;
+  models?: Record<string, Record<string, unknown>> | undefined;
+  defaultModel?: string | undefined;
+  thinking?: {
+    enabled?: boolean | undefined;
+    mode?: 'auto' | 'on' | 'off' | undefined;
+    effort?: string | undefined;
+    [key: string]: unknown;
+  } | undefined;
+  [key: string]: unknown;
+}
 
 export interface OpenAICodexPkcePair {
   readonly verifier: string;
@@ -90,6 +113,9 @@ export function parseOpenAICodexAuthorizationInput(input: string): {
   readonly code?: string;
   readonly state?: string;
 } {
+  if (input.length > OPENAI_CODEX_AUTH_INPUT_MAX_LENGTH) {
+    throw new Error('OpenAI Codex authorization input is too long.');
+  }
   const value = input.trim();
   if (value.length === 0) return {};
 
@@ -457,7 +483,7 @@ function readCodexFastMode(item: Record<string, unknown>): boolean {
   });
 }
 
-function toCodexModelInfo(item: unknown): PlatformModelInfo | undefined {
+function toCodexModelInfo(item: unknown): OpenAICodexModelInfo | undefined {
   if (!isRecord(item)) return undefined;
 
   const id =
@@ -521,7 +547,14 @@ function toCodexModelInfo(item: unknown): PlatformModelInfo | undefined {
   };
 }
 
-function parseCodexModelsPayload(payload: unknown): PlatformModelInfo[] {
+function capabilitiesForOpenAICodexModel(model: OpenAICodexModelInfo): string[] | undefined {
+  const capabilities = capabilitiesForModel(model);
+  return model.supportsFastMode === true
+    ? [...(capabilities ?? []), 'fast_mode']
+    : capabilities;
+}
+
+function parseCodexModelsPayload(payload: unknown): OpenAICodexModelInfo[] {
   if (!isRecord(payload)) {
     throw new Error(`Unexpected models response for ${CODEX_BASE_URL}.`);
   }
@@ -537,7 +570,7 @@ function parseCodexModelsPayload(payload: unknown): PlatformModelInfo[] {
 
   return rawModels
     .map((item) => toCodexModelInfo(item))
-    .filter((item): item is PlatformModelInfo => item !== undefined);
+    .filter((item): item is OpenAICodexModelInfo => item !== undefined);
 }
 
 /**
@@ -546,7 +579,7 @@ function parseCodexModelsPayload(payload: unknown): PlatformModelInfo[] {
  */
 export async function fetchOpenAICodexModels(
   options: FetchOpenAICodexModelsOptions,
-): Promise<PlatformModelInfo[]> {
+): Promise<OpenAICodexModelInfo[]> {
   const fetchImpl = options.fetchImpl ?? fetch;
   const modelsUrl = `${CODEX_BASE_URL}/models?client_version=${encodeURIComponent(OPENAI_CODEX_CLI_CLIENT_VERSION)}`;
   const response = await fetchImpl(modelsUrl, {
@@ -580,13 +613,13 @@ export interface ApplyOpenAICodexOAuthResult {
  * reasoning effort into the config in place.
  */
 export function applyOpenAICodexOAuthConfig(
-  config: PlatformConfigShape,
+  config: OpenAICodexConfigShape,
   options: {
     readonly accessToken: string;
     readonly accountId?: string | undefined;
     readonly refreshToken?: string | undefined;
-    readonly models: readonly PlatformModelInfo[];
-    readonly selectedModel: PlatformModelInfo;
+    readonly models: readonly OpenAICodexModelInfo[];
+    readonly selectedModel: OpenAICodexModelInfo;
     readonly thinking?: boolean | undefined;
     /**
      * The effort level the user picked. Omitted, the model's top supported
@@ -635,7 +668,7 @@ export function applyOpenAICodexOAuthConfig(
       provider: providerKey,
       model: model.id,
       maxContextSize: model.contextLength,
-      capabilities: capabilitiesForModel(model),
+      capabilities: capabilitiesForOpenAICodexModel(model),
       supportEfforts: model.supportedReasoningEfforts,
       displayName: model.displayName,
     };
@@ -643,7 +676,7 @@ export function applyOpenAICodexOAuthConfig(
 
   config.models = existingModels;
   config.defaultModel = modelKey;
-  config.defaultThinking = options.thinking ?? true;
+  const defaultThinking = options.thinking ?? true;
   const supportedEfforts = options.selectedModel.supportedReasoningEfforts;
   const topEffort =
     supportedEfforts === undefined || supportedEfforts.includes('max')
@@ -658,7 +691,11 @@ export function applyOpenAICodexOAuthConfig(
     (supportedEfforts === undefined || supportedEfforts.includes(options.effort))
       ? options.effort
       : undefined;
-  config.thinking = { ...config.thinking, effort: picked ?? topEffort };
+  config.thinking = {
+    ...config.thinking,
+    enabled: defaultThinking,
+    effort: picked ?? topEffort,
+  };
 
-  return { defaultModel: modelKey, defaultThinking: config.defaultThinking ?? true };
+  return { defaultModel: modelKey, defaultThinking };
 }

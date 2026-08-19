@@ -7,11 +7,30 @@
  * prefixed with `left` plain spaces. Right padding is logical only — we
  * never emit trailing spaces, since terminals already paint background to
  * the edge and adding them would just churn the diff renderer.
+ *
+ * The render cache below validates per child (component identity + the
+ * identity of its rendered line array), so structural child-list changes —
+ * append, splice-removal, in-place replacement — are picked up correctly
+ * without a tree-wide `invalidate()`. Reserve `invalidate()` for global
+ * style changes that genuinely dirty every child (e.g. theme switches).
  */
 
-import { Container } from '@earendil-works/pi-tui';
+import { Container } from '@pymodel/pi-tui';
+import type { Component } from '@pymodel/pi-tui';
+
+import { prefixPreservingOsc133Zone } from '#/tui/utils/osc133';
+import { isRenderCacheEnabled } from '#/tui/utils/render-cache';
+
+interface TranscriptRenderCache {
+  width: number;
+  childRefs: Component[];
+  childRenderRefs: string[][];
+  prefixed: string[][];
+  out: string[];
+}
 
 export class GutterContainer extends Container {
+  private renderCache: TranscriptRenderCache | undefined;
   constructor(
     private readonly leftPad: number,
     private readonly rightPad: number,
@@ -19,15 +38,58 @@ export class GutterContainer extends Container {
     super();
   }
 
+  override invalidate(): void {
+    this.renderCache = undefined;
+    super.invalidate();
+  }
+
   override render(width: number): string[] {
     const inner = Math.max(1, width - this.leftPad - this.rightPad);
     const lead = ' '.repeat(this.leftPad);
-    const out: string[] = [];
+
+    const cache = this.renderCache;
+    const cacheValid =
+      isRenderCacheEnabled() &&
+      cache !== undefined &&
+      cache.width === width &&
+      cache.childRefs.length === this.children.length;
+
+    const childRefs: Component[] = [];
+    const childRenderRefs: string[][] = [];
+    const prefixed: string[][] = [];
+    let allReused = cacheValid;
+
+    let i = 0;
     for (const child of this.children) {
-      for (const line of child.render(inner)) {
-        out.push(lead + line);
+      const lines = child.render(inner);
+      childRefs.push(child);
+      childRenderRefs.push(lines);
+      const reused = cacheValid && cache.childRefs[i] === child && cache.childRenderRefs[i] === lines;
+      if (reused) {
+        prefixed.push(cache.prefixed[i]!);
+      } else {
+        allReused = false;
+        // OSC 133 zone markers must stay at byte 0 for the fullscreen
+        // renderer's prompt navigation, so the gutter goes after them.
+        prefixed.push(lines.map((line) => prefixPreservingOsc133Zone(line, lead)));
+      }
+      i++;
+    }
+
+    let out: string[];
+    if (allReused) {
+      out = cache!.out;
+    } else {
+      out = [];
+      for (const lines of prefixed) {
+        for (const line of lines) out.push(line);
       }
     }
+
+    if (isRenderCacheEnabled()) {
+      this.renderCache = { width, childRefs, childRenderRefs, prefixed, out };
+    }
+
     return out;
   }
 }

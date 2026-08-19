@@ -48,22 +48,23 @@ describe('path access policy', () => {
   });
 
   it('does not duplicate outside-working-directory wording for search paths', () => {
-    let thrown: unknown;
     try {
       resolvePathAccess('../../outside.txt', '/workspace/project', WORKSPACE, {
         operation: 'search',
         policy: DEFAULT_WORKSPACE_ACCESS_POLICY,
       });
     } catch (error) {
-      thrown = error;
+      expect(error).toBeInstanceOf(PathSecurityError);
+      const message = (error as PathSecurityError).message;
+      const matches = message.match(/outside the working directory/g) ?? [];
+      expect(matches).toHaveLength(1);
+      expect(message).toBe(
+        '"../../outside.txt" is not an absolute path. You must provide an absolute path to search outside the working directory.',
+      );
+      return;
     }
-    expect(thrown).toBeInstanceOf(PathSecurityError);
-    const message = (thrown as PathSecurityError).message;
-    const matches = message.match(/outside the working directory/g) ?? [];
-    expect(matches).toHaveLength(1);
-    expect(message).toBe(
-      '"../../outside.txt" is not an absolute path. You must provide an absolute path to search outside the working directory.',
-    );
+
+    throw new Error('Expected resolvePathAccess to reject escaping relative search path');
   });
 
   it('disabled policy allows relative paths that escape workspace roots', () => {
@@ -261,6 +262,26 @@ describe('path access policy', () => {
       policy: DEFAULT_WORKSPACE_ACCESS_POLICY,
     });
     expect(result).toEqual({ path: '/extra/lib/file.py', outsideWorkspace: false });
+  });
+
+  it('treats additionalDir descendants as inside the workspace', () => {
+    expect(isWithinWorkspace('/extra/src/nested/file.ts', WORKSPACE)).toBe(true);
+
+    const result = resolvePathAccess('/extra/src/nested/file.ts', '/workspace', WORKSPACE, {
+      operation: 'read',
+      policy: DEFAULT_WORKSPACE_ACCESS_POLICY,
+    });
+    expect(result).toEqual({ path: '/extra/src/nested/file.ts', outsideWorkspace: false });
+  });
+
+  it('does not treat shared-prefix directories as additionalDir descendants', () => {
+    expect(isWithinWorkspace('/extra-evil/file.ts', WORKSPACE)).toBe(false);
+
+    const result = resolvePathAccess('/extra-evil/file.ts', '/workspace', WORKSPACE, {
+      operation: 'read',
+      policy: DEFAULT_WORKSPACE_ACCESS_POLICY,
+    });
+    expect(result).toEqual({ path: '/extra-evil/file.ts', outsideWorkspace: true });
   });
 
   it('treats multiple additionalDir entries as a union', () => {

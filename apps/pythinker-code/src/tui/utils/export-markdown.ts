@@ -139,6 +139,9 @@ function formatTurnMd(messages: readonly ContextMessage[], turnNumber: number): 
 
     if (msg.role === 'user') {
       lines.push('### User', '');
+      // A daemon-ref media part is self-contained and renders as
+      // `[image]`/`[video]` below; a standalone `<media path>` tag is user
+      // text and exports verbatim.
       for (const part of msg.content) {
         const text = formatContentPartMd(part);
         if (text.trim()) {
@@ -236,7 +239,8 @@ export function buildExportMarkdown(input: BuildExportMarkdownInput): string {
   ];
 
   const turns = groupIntoTurns(history);
-  lines.push(buildOverview(history, turns), '');
+  lines.push(buildOverview(history, turns));
+  lines.push('');
 
   for (let i = 0; i < turns.length; i++) {
     lines.push(formatTurnMd(turns[i]!, i + 1));

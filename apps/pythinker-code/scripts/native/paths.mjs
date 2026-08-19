@@ -27,7 +27,7 @@ export function nativeBinPath(target = targetTriple(), platform = process.platfo
 }
 
 export function nativeJsBundlePath() {
-  return resolve(nativeIntermediatesDir(), 'main.mjs');
+  return resolve(nativeIntermediatesDir(), 'main.cjs');
 }
 
 export function nativeBlobPath() {

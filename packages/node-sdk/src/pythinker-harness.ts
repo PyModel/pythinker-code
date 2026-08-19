@@ -2,33 +2,52 @@ import type { Kaos } from '@pymodel/kaos';
 import {
   ErrorCodes,
   PythinkerError,
-  resolveProviderApiKey,
+  ImageLimits,
   withTelemetryContext,
   type ExperimentalFeatureState,
 } from '@pymodel/agent-core';
 
-import { Session } from '#/session';
+import { capabilityRpc, Session } from '#/session';
+import type { PythinkerAuthFacade } from '#/auth';
 import type { SDKRpcClientBase } from '#/rpc';
 import type {
-  AgentProfileCatalog,
+  AuthenticateMcpServerOptions,
+  AppMcpServerInspection,
+  CapabilityStatus,
   ConfigDiagnostics,
   CreateSessionOptions,
   ExportSessionInput,
   ExportSessionResult,
+  FileMeta,
   ForkSessionInput,
+  GenerateSessionTitleInput,
   GetConfigOptions,
+  GlobalMcpServerAuthStatus,
   PythinkerConfig,
   PythinkerConfigPatch,
   PythinkerHostIdentity,
   ListSessionsOptions,
-  OutputStyleCatalog,
+  McpManagedServerInfo,
+  McpServerConfig,
+  McpServerInfo,
+  McpServerLocator,
+  McpTestResult,
+  PluginCommandDef,
+  PluginInfo,
+  PluginSummary,
+  ReloadSummary,
   RenameSessionInput,
   ResumeSessionInput,
+  ReloadSessionInput,
   SessionSummary,
+  SessionSummaryPage,
   SkillSummary,
   TelemetryClient,
   TelemetryContextPatch,
   TelemetryProperties,
+  TestMcpServerOptions,
+  UploadFileOptions,
+  WorkspaceTrustInfo,
 } from '#/types';
 
 export interface PythinkerHarnessRuntimeOptions {
@@ -36,21 +55,39 @@ export interface PythinkerHarnessRuntimeOptions {
   readonly uiMode?: string;
   readonly homeDir: string;
   readonly configPath: string;
+  readonly auth: PythinkerAuthFacade;
   readonly telemetry: TelemetryClient;
   readonly ensureConfigFile: () => Promise<void>;
   readonly onClose: () => void | Promise<void>;
+  readonly sessionStartedProperties?: TelemetryProperties;
+  /**
+   * Owner-scoped [image] limits for prompt-ingestion compression in the
+   * client process (paste-time, ACP prompt conversion). In-process cores
+   * (SDKRpcClient) hand over their core's instance; daemon-client hosts
+   * leave it undefined and ingestion falls back to env/built-in defaults.
+   */
+  readonly imageLimits?: ImageLimits | undefined;
 }
 
 export class PythinkerHarness {
   readonly homeDir: string;
   readonly configPath: string;
+  readonly auth: PythinkerAuthFacade;
 
   private readonly identity: PythinkerHostIdentity | undefined;
   private readonly uiMode: string;
   private readonly telemetry: TelemetryClient;
   private readonly activeSessions = new Map<string, Session>();
+  private readonly resumeInflight = new Map<string, Promise<Session>>();
   private readonly ensureConfigFileImpl: () => Promise<void>;
   private readonly closeImpl: () => void | Promise<void>;
+  private readonly sessionStartedProperties: TelemetryProperties;
+
+  /**
+   * Ingestion-side [image] limits owned by this harness's core; undefined for
+   * daemon-client hosts, where the env var / built-in defaults apply.
+   */
+  readonly imageLimits: ImageLimits | undefined;
 
   constructor(
     private readonly rpc: SDKRpcClientBase,
@@ -61,8 +98,11 @@ export class PythinkerHarness {
     this.homeDir = options.homeDir;
     this.configPath = options.configPath;
     this.telemetry = options.telemetry;
+    this.auth = options.auth;
     this.ensureConfigFileImpl = options.ensureConfigFile;
     this.closeImpl = options.onClose;
+    this.sessionStartedProperties = options.sessionStartedProperties ?? {};
+    this.imageLimits = options.imageLimits;
   }
 
   get sessions(): ReadonlyMap<string, Session> {
@@ -86,7 +126,7 @@ export class PythinkerHarness {
   }
 
   async createSession(options: CreateSessionOptions): Promise<Session> {
-    const { planMode, kaos, persistenceKaos, ...coreOptions } = options;
+    const { planMode, kaos, persistenceKaos, sessionStartedProperties, ...coreOptions } = options;
     const summary =
       kaos === undefined && persistenceKaos === undefined
         ? await this.rpc.createSession(coreOptions)
@@ -97,14 +137,16 @@ export class PythinkerHarness {
       summary,
       rpc: this.rpc,
       onClose: () => {
-        this.activeSessions.delete(summary.id);
+        if (this.activeSessions.get(summary.id) === session) {
+          this.activeSessions.delete(summary.id);
+        }
       },
     });
     this.activeSessions.set(session.id, session);
     if (planMode === true) {
       await session.setPlanMode(true);
     }
-    this.trackSessionStarted(summary.id, false);
+    this.trackSessionStarted(summary.id, false, sessionStartedProperties);
     this.trackSessionEvent(session.id, 'session_new');
     return session;
   }
@@ -112,14 +154,44 @@ export class PythinkerHarness {
   async resumeSession(input: ResumeSessionInput): Promise<Session> {
     const id = normalizeSessionId(input.id);
     const active = this.activeSessions.get(id);
-    const { kaos, persistenceKaos, ...resumeInput } = input;
-    if (active !== undefined) {
+    const {
+      kaos,
+      persistenceKaos,
+      sessionStartedProperties: _sessionStartedProperties,
+      ...resumeInput
+    } = input;
+    // A session whose close is in flight (`isClosed` but not yet unmapped)
+    // is not a valid resume target — fall through and re-resume fresh, which
+    // the engine serializes behind that close.
+    if (active !== undefined && !active.isClosed) {
       if (kaos !== undefined || persistenceKaos !== undefined) {
         await this.rpc.resumeSessionWithKaos({ ...resumeInput, id }, kaos ?? persistenceKaos as Kaos, persistenceKaos);
+      } else if (input.agentProfile !== undefined) {
+        await this.rpc.resumeSession({ ...resumeInput, id });
       }
       return active;
     }
 
+    // Coalesce concurrent resumes of the same id onto one facade, keyed by
+    // the full input so a caller with different options (dirs, replay,
+    // profile, kaos) never has them silently dropped; without this,
+    // parallel identical callers each build their own Session over the
+    // shared engine handle, and one facade's close kills the engine handle
+    // under the other.
+    const key = resumeCoalesceKey(id, input);
+    const inflight = this.resumeInflight.get(key);
+    if (inflight !== undefined) return inflight;
+    const run = this.doResumeSession(input, id);
+    this.resumeInflight.set(key, run);
+    try {
+      return await run;
+    } finally {
+      if (this.resumeInflight.get(key) === run) this.resumeInflight.delete(key);
+    }
+  }
+
+  private async doResumeSession(input: ResumeSessionInput, id: string): Promise<Session> {
+    const { kaos, persistenceKaos, sessionStartedProperties, ...resumeInput } = input;
     const summary =
       kaos === undefined && persistenceKaos === undefined
         ? await this.rpc.resumeSession({ ...resumeInput, id })
@@ -130,32 +202,41 @@ export class PythinkerHarness {
       summary,
       rpc: this.rpc,
       onClose: () => {
-        this.activeSessions.delete(summary.id);
+        if (this.activeSessions.get(summary.id) === session) {
+          this.activeSessions.delete(summary.id);
+        }
       },
     });
     this.activeSessions.set(session.id, session);
-    this.trackSessionStarted(summary.id, true);
+    this.trackSessionStarted(summary.id, true, sessionStartedProperties);
     this.trackSessionEvent(session.id, 'session_resume');
     return session;
   }
 
-  async reloadSession(input: ResumeSessionInput): Promise<Session> {
+  async reloadSession(input: ReloadSessionInput): Promise<Session> {
     const id = normalizeSessionId(input.id);
     const active = this.activeSessions.get(id);
     if (active !== undefined) {
-      await active.reloadSession();
+      await active.reloadSession({
+        forcePluginSessionStartReminder: input.forcePluginSessionStartReminder,
+      });
       this.trackSessionEvent(active.id, 'session_reload');
       return active;
     }
 
-    const summary = await this.rpc.reloadSession({ sessionId: id });
+    const summary = await this.rpc.reloadSession({
+      sessionId: id,
+      forcePluginSessionStartReminder: input.forcePluginSessionStartReminder,
+    });
     const session = new Session({
       id: summary.id,
       workDir: summary.workDir,
       summary,
       rpc: this.rpc,
       onClose: () => {
-        this.activeSessions.delete(summary.id);
+        if (this.activeSessions.get(summary.id) === session) {
+          this.activeSessions.delete(summary.id);
+        }
       },
     });
     this.activeSessions.set(session.id, session);
@@ -170,6 +251,7 @@ export class PythinkerHarness {
       forkId: input.forkId,
       title: input.title,
       metadata: input.metadata,
+      turnIndex: input.turnIndex,
     });
     const session = new Session({
       id: summary.id,
@@ -177,7 +259,9 @@ export class PythinkerHarness {
       summary,
       rpc: this.rpc,
       onClose: () => {
-        this.activeSessions.delete(summary.id);
+        if (this.activeSessions.get(summary.id) === session) {
+          this.activeSessions.delete(summary.id);
+        }
       },
     });
     this.activeSessions.set(session.id, session);
@@ -194,9 +278,26 @@ export class PythinkerHarness {
     await this.activeSessions.get(id)?.close();
   }
 
+  async deleteSession(id: string): Promise<void> {
+    const sessionId = normalizeSessionId(id);
+    await this.activeSessions.get(sessionId)?.close();
+    await this.rpc.deleteSession({ sessionId });
+  }
+
   async renameSession(input: RenameSessionInput): Promise<void> {
     await this.rpc.renameSession(input);
-    this.activeSessions.get(input.id)?.emitMetaUpdated({ title: input.title });
+    this.activeSessions
+      .get(input.id)
+      ?.emitMetaUpdated({ title: input.title, isCustomTitle: true });
+  }
+
+  /**
+   * Generate and apply a session title from the main agent's first prompts
+   * (v2 engine only). Resolves to `undefined` when generation is unavailable
+   * and the current title is kept.
+   */
+  async generateSessionTitle(input: GenerateSessionTitleInput): Promise<string | undefined> {
+    return this.rpc.generateSessionTitle(input);
   }
 
   async exportSession(input: ExportSessionInput): Promise<ExportSessionResult> {
@@ -212,21 +313,130 @@ export class PythinkerHarness {
     return this.rpc.listSessions(options);
   }
 
+  /**
+   * One keyset page of the session listing (`limit` / `before` in
+   * `ListSessionsOptions`). Paged on the v2 engine; the v1 engine serves the
+   * whole filtered set as a single terminal page.
+   */
+  async listSessionsPage(options: ListSessionsOptions = {}): Promise<SessionSummaryPage> {
+    return this.rpc.listSessionsPage(options);
+  }
+
+  /** Skills visible to a new session in `workDir`, without creating that session. */
+  async listWorkspaceSkills(workDir: string): Promise<readonly SkillSummary[]> {
+    return this.rpc.listWorkspaceSkills(workDir);
+  }
+
+  /**
+   * App-global plugin command list, no session required. Empty on the v1
+   * engine, which only exposes plugin commands through a live session.
+   */
+  async listPluginCommands(): Promise<readonly PluginCommandDef[]> {
+    return this.rpc.listPluginCommandsGlobal();
+  }
+
+  /**
+   * App-global plugin management, no session required. The v2 engine keeps
+   * plugin state app-global (these calls are routed through the klient
+   * `global.plugins` facade), so `/plugins` works before the first session
+   * exists; the v1 engine only exposes plugins through a live session.
+   */
+  async listPlugins(): Promise<readonly PluginSummary[]> {
+    return this.rpc.listPlugins();
+  }
+
+  /**
+   * Workspace-level MCP server list, no session required. The v2 engine owns
+   * one shared connection set per workspace handler, so `/mcp` is inspectable
+   * before the first session exists; empty on the v1 engine.
+   */
+  async listWorkspaceMcpServers(workDir: string): Promise<readonly McpServerInfo[]> {
+    return this.rpc.listWorkspaceMcpServers(workDir);
+  }
+
+  async installPlugin(source: string): Promise<PluginSummary> {
+    return this.rpc.installPlugin(source);
+  }
+
+  async setPluginEnabled(id: string, enabled: boolean): Promise<void> {
+    return this.rpc.setPluginEnabled(id, enabled);
+  }
+
+  async setPluginMcpServerEnabled(id: string, server: string, enabled: boolean): Promise<void> {
+    return this.rpc.setPluginMcpServerEnabled(id, server, enabled);
+  }
+
+  async removePlugin(id: string): Promise<void> {
+    return this.rpc.removePlugin(id);
+  }
+
+  async reloadPlugins(): Promise<ReloadSummary> {
+    return this.rpc.reloadPlugins();
+  }
+
+  async getPluginInfo(id: string): Promise<PluginInfo> {
+    return this.rpc.getPluginInfo(id);
+  }
+
+  /**
+   * App-global capability readiness and setup (the built-in product
+   * capabilities pythinker-cu / pythinker-webbridge), no session required. Routed
+   * through the same global channel as session capability calls; requires
+   * the v2 engine and throws on v1, which has no capability surface.
+   */
+  async listCapabilities(): Promise<readonly CapabilityStatus[]> {
+    return capabilityRpc(this.rpc).listCapabilities();
+  }
+
+  async getCapability(id: string): Promise<CapabilityStatus> {
+    return capabilityRpc(this.rpc).getCapability(id);
+  }
+
+  async installCapability(id: string): Promise<CapabilityStatus> {
+    return capabilityRpc(this.rpc).installCapability(id);
+  }
+
+  /**
+   * Trust state of `workDir` (agent-core-v2 only; the v1 engine reports an
+   * always-trusted workspace). Querying may register the workDir as a
+   * workspace, which session creation would do anyway.
+   */
+  async getWorkspaceTrustInfo(workDir: string): Promise<WorkspaceTrustInfo> {
+    return this.rpc.getWorkspaceTrustInfo(workDir);
+  }
+
+  /** Mark `workDir` as trusted; project-level MCP servers connect live afterwards. */
+  async trustWorkspace(workDir: string): Promise<void> {
+    return this.rpc.trustWorkspace(workDir);
+  }
+
   async getConfig(options: GetConfigOptions = {}): Promise<PythinkerConfig> {
     return this.rpc.getConfig(options);
   }
 
-  /**
-   * True when at least one configured provider resolves a usable credential.
-   * This is the whole of "is the user logged in" now that every login path —
-   * API key, catalog provider, OpenAI Codex OAuth — ends in a provider entry
-   * carrying an `apiKey` or an `apiKeyEnvVar`.
-   */
   async isAuthenticated(): Promise<boolean> {
     const config = await this.getConfig({ reload: true });
-    return Object.values(config.providers ?? {}).some(
-      (provider) => resolveProviderApiKey(provider) !== undefined,
-    );
+    return Object.values(config.providers ?? {}).some((provider) => {
+      if (provider.apiKey?.trim()) return true;
+      const env = provider.env ?? {};
+      switch (provider.type) {
+        case 'anthropic':
+          return Boolean(env['ANTHROPIC_API_KEY']?.trim());
+        case 'openai':
+        case 'openai_responses':
+          return Boolean(env['OPENAI_API_KEY']?.trim());
+        case 'pythinker':
+          return Boolean(env['PYTHINKER_API_KEY']?.trim());
+        case 'google-genai':
+          return Boolean(env['GOOGLE_API_KEY']?.trim());
+        case 'vertexai':
+          return (
+            Boolean(env['VERTEXAI_API_KEY']?.trim()) || Boolean(env['GOOGLE_API_KEY']?.trim())
+          );
+        default:
+          return false;
+      }
+    });
   }
 
   /** Warnings from the most recent config.toml load; empty when the config is fully valid. */
@@ -238,17 +448,18 @@ export class PythinkerHarness {
     return this.rpc.getExperimentalFeatures();
   }
 
-  async listOutputStyles(workDir: string): Promise<OutputStyleCatalog> {
-    return this.rpc.listOutputStyles(workDir);
+  /**
+   * Upload media bytes to the engine's file store; pair the returned meta
+   * with `buildDaemonFileUrl` to reference the file from a prompt.
+   * agent-core-v2 only — the v1 engine throws `not_implemented`.
+   */
+  async uploadFile(data: Uint8Array, options: UploadFileOptions): Promise<FileMeta> {
+    return this.rpc.uploadFile(data, options);
   }
 
-  async listAgentProfiles(workDir: string): Promise<AgentProfileCatalog> {
-    return this.rpc.listAgentProfiles(workDir);
-  }
-
-  /** The workspace's skills without opening a session; excludes session-only MCP prompts. */
-  async listWorkspaceSkills(workDir: string): Promise<readonly SkillSummary[]> {
-    return this.rpc.listWorkspaceSkills(workDir);
+  /** Delete a daemon upload owned by a client-side staging operation. */
+  async deleteFile(fileId: string): Promise<void> {
+    return this.rpc.deleteFile(fileId);
   }
 
   async ensureConfigFile(): Promise<void> {
@@ -259,13 +470,150 @@ export class PythinkerHarness {
     return this.rpc.setConfig(patch);
   }
 
-  /** Validated full replacement of the persisted config.toml; unlike setConfig, deletions survive close and reload. */
-  async replaceConfig(config: PythinkerConfig): Promise<PythinkerConfig> {
-    return this.rpc.replaceConfig(config);
-  }
-
   async removeProvider(providerId: string): Promise<PythinkerConfig> {
     return this.rpc.removeProvider(providerId);
+  }
+
+  /**
+   * Whether several config sections can be persisted as ONE atomic write
+   * (see {@link replaceConfigSections}). False on the v1 harness.
+   */
+  supportsAtomicSectionReplace(): boolean {
+    return this.rpc.supportsAtomicSectionReplace();
+  }
+
+  /**
+   * Replace several top-level config sections in ONE atomic write: a section
+   * mapped to `undefined` is cleared, absent sections are left untouched.
+   * Replace semantics (unlike {@link setConfig}'s deep-merge), so staged
+   * removals are expressed by the written record itself.
+   */
+  async replaceConfigSections(sections: Record<string, unknown>): Promise<void> {
+    return this.rpc.replaceConfigSections(sections);
+  }
+
+  /**
+   * The unified MCP management view: user-level `<PYTHINKER_CODE_HOME>/mcp.json`
+   * entries (mutable), plus read-only project-layer entries when `cwd` is
+   * given and plugin-contributed entries — each tagged with its `source`,
+   * `origin`, and `mutable` flag.
+   */
+  async listMcpServers(
+    options: { readonly cwd?: string } = {},
+  ): Promise<readonly McpManagedServerInfo[]> {
+    return this.rpc.listGlobalMcpServers(options);
+  }
+
+  /** One entry of the unified MCP management view, resolved by name. */
+  async getMcpServer(
+    name: string,
+    options: { readonly cwd?: string } = {},
+  ): Promise<McpManagedServerInfo> {
+    return this.rpc.getGlobalMcpServer(name, options);
+  }
+
+  async listMcpServerAuthStatuses(
+    options: { readonly cwd?: string; readonly verify?: boolean } = {},
+  ): Promise<readonly GlobalMcpServerAuthStatus[]> {
+    return this.rpc.listGlobalMcpServerAuthStatuses(options);
+  }
+
+  /**
+   * The app-level MCP catalog (global + plugin entries) with live
+   * authorization state: OAuth candidates are probed with a real connection,
+   * so a stored-but-rejected grant surfaces as `oauth-expired` and an
+   * unreachable one as `unavailable`.
+   */
+  async inspectAppMcpServers(
+    targets?: readonly McpServerLocator[],
+  ): Promise<readonly AppMcpServerInspection[]> {
+    return this.rpc.inspectAppMcpServers(targets);
+  }
+
+  async addMcpServer(server: McpServerConfig): Promise<readonly McpManagedServerInfo[]> {
+    return this.rpc.addGlobalMcpServer(server);
+  }
+
+  async updateMcpServer(server: McpServerConfig): Promise<readonly McpManagedServerInfo[]> {
+    return this.rpc.updateGlobalMcpServer(server);
+  }
+
+  async removeMcpServer(name: string): Promise<readonly McpManagedServerInfo[]> {
+    return this.rpc.removeGlobalMcpServer(name);
+  }
+
+  async authenticateMcpServer(
+    name: string,
+    options: AuthenticateMcpServerOptions,
+  ): Promise<void> {
+    const started = await this.rpc.beginGlobalMcpServerAuth(name);
+    if (started.status === 'already-authorized') return;
+    try {
+      const opened = await options.onAuthorizationUrl(started.authorizationUrl);
+      if (opened === false) {
+        throw new PythinkerError(ErrorCodes.REQUEST_INVALID, 'MCP OAuth authorization was cancelled');
+      }
+      await this.rpc.completeGlobalMcpServerAuth(
+        { flowId: started.flowId, timeoutMs: options.timeoutMs },
+        options.signal,
+      );
+    } catch (error) {
+      await this.rpc.cancelGlobalMcpServerAuth(started.flowId).catch(() => undefined);
+      throw error;
+    }
+  }
+
+  async resetMcpServerAuth(name: string): Promise<void> {
+    return this.rpc.resetGlobalMcpServerAuth(name);
+  }
+
+  /**
+   * The locator-addressed variant of {@link authenticateMcpServer}: plugin
+   * servers are addressed by `pluginId` + manifest-local `serverName`, so the
+   * flow works even when the runtime name collides with a global entry.
+   */
+  async authenticateAppMcpServer(
+    locator: McpServerLocator,
+    options: AuthenticateMcpServerOptions,
+  ): Promise<void> {
+    const started = await this.rpc.beginMcpServerAuth(locator);
+    if (started.status === 'already-authorized') return;
+    try {
+      const opened = await options.onAuthorizationUrl(started.authorizationUrl);
+      if (opened === false) {
+        throw new PythinkerError(ErrorCodes.REQUEST_INVALID, 'MCP OAuth authorization was cancelled');
+      }
+      await this.rpc.completeMcpServerAuth(
+        { flowId: started.flowId, timeoutMs: options.timeoutMs },
+        options.signal,
+      );
+    } catch (error) {
+      await this.rpc.cancelMcpServerAuth(started.flowId).catch(() => undefined);
+      throw error;
+    }
+  }
+
+  /** The locator-addressed variant of {@link resetMcpServerAuth}. */
+  async resetAppMcpServerAuth(locator: McpServerLocator): Promise<void> {
+    return this.rpc.resetMcpServerAuth(locator);
+  }
+
+  async testMcpServer(
+    name: string,
+    options: TestMcpServerOptions = {},
+  ): Promise<McpTestResult> {
+    return this.rpc.testGlobalMcpServer(name, options);
+  }
+
+  /**
+   * Probe a full inline MCP server config without saving it first — the
+   * config counterpart of {@link testMcpServer}.
+   */
+  async testMcpServerConfig(
+    server: McpServerConfig,
+    options: TestMcpServerOptions = {},
+  ): Promise<McpTestResult> {
+    return this.rpc.testGlobalMcpServerConfig(server, options);
   }
 
   async close(): Promise<void> {
@@ -277,9 +625,22 @@ export class PythinkerHarness {
     withTelemetryContext(this.telemetry, { sessionId: eventSessionId }).track(event);
   }
 
-  private trackSessionStarted(eventSessionId: string, resumed: boolean): void {
+  private trackSessionStarted(
+    eventSessionId: string,
+    resumed: boolean,
+    sessionScoped?: TelemetryProperties,
+  ): void {
     withTelemetryContext(this.telemetry, { sessionId: eventSessionId }).track('session_started', {
-      client_name: this.identity?.userAgentProduct ?? null,
+      ...this.sessionStartedProperties,
+      ...sessionScoped,
+      // Canonical fields are owned by the harness and must win over any
+      // caller-supplied sessionStartedProperties that happen to share a key.
+      // `client_id` is always null here: a single-process host has no
+      // per-connection client id (that concept only exists for daemon clients,
+      // see core-impl.ts). Kept as an explicit key so both producers share the
+      // same session_started schema.
+      client_id: null,
+      client_name: this.identity?.productName ?? null,
       client_version: this.identity?.version ?? null,
       ui_mode: this.uiMode,
       resumed,
@@ -288,6 +649,16 @@ export class PythinkerHarness {
 }
 
 const DEFAULT_SESSION_STARTED_UI_MODE = 'shell';
+
+function resumeCoalesceKey(id: string, input: ResumeSessionInput): string {
+  const { kaos, persistenceKaos, ...rest } = input;
+  return JSON.stringify({
+    ...rest,
+    id,
+    kaos: kaos !== undefined,
+    persistenceKaos: persistenceKaos !== undefined,
+  });
+}
 
 function normalizeSessionId(value: string): string {
   if (typeof value !== 'string') {

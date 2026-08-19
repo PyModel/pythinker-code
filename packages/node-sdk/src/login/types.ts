@@ -1,17 +1,26 @@
 import type {
+  ManagedPythinkerCodeModelInfo,
+  OpenAICodexModelInfo,
   OpenPlatformDefinition,
-  PlatformModelInfo,
 } from '@pymodel/pythinker-code-oauth';
+
 import type { Catalog, CatalogModel } from '#/catalog';
 import type { PythinkerHarness } from '#/pythinker-harness';
 
+export type LoginPlatformModelInfo =
+  | ManagedPythinkerCodeModelInfo
+  | OpenAICodexModelInfo;
+
+export type LoginPlatformDefinition =
+  | OpenPlatformDefinition
+  | { readonly id: string; readonly name: string };
+
 export interface LoginProgressSpinnerHandle {
-  stop(opts: { ok: boolean; label: string }): void;
+  stop(options: { ok: boolean; label: string }): void;
 }
 
 export interface ApiKeyPromptOptions {
   readonly title?: string;
-  readonly subtitleLines?: readonly string[];
   readonly secret?: boolean;
   readonly emptyMessage?: string;
 }
@@ -23,12 +32,7 @@ export interface PlatformSelection {
 
 export interface LoginUi {
   readonly harness: PythinkerHarness;
-  readonly sessionId?: string;
   cancelInFlight: (() => void) | undefined;
-  /**
-   * Open a URL in the user's browser. Renderer-owned on purpose: a terminal
-   * shells out, while an editor extension uses its own host API.
-   */
   openBrowser(url: string): void;
   showStatus(message: string): void;
   showError(message: string): void;
@@ -40,13 +44,13 @@ export interface LoginUi {
     options?: ApiKeyPromptOptions,
   ): Promise<string | undefined>;
   promptModelSelectionForOpenPlatform(
-    models: PlatformModelInfo[],
-    platform: OpenPlatformDefinition,
-  ): Promise<{ model: PlatformModelInfo; effort: string } | undefined>;
+    models: LoginPlatformModelInfo[],
+    platform: LoginPlatformDefinition,
+  ): Promise<{ model: LoginPlatformModelInfo; effort: string } | undefined>;
   promptModelSelectionForCatalog(
     providerId: string,
     models: CatalogModel[],
   ): Promise<{ model: CatalogModel; effort: string } | undefined>;
   refreshConfigAfterLogin(): Promise<void>;
-  track(event: string, props?: Record<string, unknown>): void;
+  track(event: string, properties?: Record<string, unknown>): void;
 }

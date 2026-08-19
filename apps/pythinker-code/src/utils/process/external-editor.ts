@@ -41,7 +41,16 @@ export async function editInExternalEditor(
   const file = join(dir, 'prompt.md');
   await writeFile(file, initialText, 'utf-8');
   try {
-    if (!(await openFileInExternalEditor(file, command))) return undefined;
+    const shellCmd = `${command} ${quoteShellArg(file)}`;
+    const code = await new Promise<number>((resolve, reject) => {
+      const child = spawn(shellCmd, {
+        stdio: 'inherit',
+        shell: true,
+      });
+      child.on('exit', (c) => { resolve(c ?? 0); });
+      child.on('error', reject);
+    });
+    if (code !== 0) return undefined;
     return await readFile(file, 'utf-8');
   } finally {
     await rm(dir, { recursive: true, force: true }).catch(() => {
@@ -50,15 +59,3 @@ export async function editInExternalEditor(
   }
 }
 
-export async function openFileInExternalEditor(file: string, command: string): Promise<boolean> {
-  const shellCmd = `${command} ${quoteShellArg(file)}`;
-  const code = await new Promise<number>((resolve, reject) => {
-    const child = spawn(shellCmd, {
-      stdio: 'inherit',
-      shell: true,
-    });
-    child.on('exit', (value) => { resolve(value ?? 0); });
-    child.on('error', reject);
-  });
-  return code === 0;
-}

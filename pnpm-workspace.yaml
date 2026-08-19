@@ -1,13 +1,16 @@
 packages:
   - packages/*
+  - '!packages/server-e2e'
   - apps/*
-  - apps/dashboard/server
-  - apps/dashboard/web
+  - apps/vis/server
+  - apps/vis/web
   - docs
 
 catalog:
   zod: 4.4.3
 
 overrides:
+  "pythinker-code>@tailwindcss/vite": "4.1.18"
   "ssh2@1.17.0>cpu-features": "-"
   "ssh2@1.17.0>nan": "-"
+  "pythinker-code>tailwindcss": "4.1.18"

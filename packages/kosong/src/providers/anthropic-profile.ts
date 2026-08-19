@@ -1,3 +1,10 @@
+/**
+ * Anthropic effort and thinking profiles, matched from model identifiers.
+ * Keep this matrix aligned with:
+ * https://platform.claude.com/docs/en/build-with-claude/effort
+ * https://platform.claude.com/docs/en/build-with-claude/extended-thinking
+ */
+
 export type AnthropicThinkingMode = 'budget' | 'adaptive';
 
 export interface AnthropicModelProfile {
@@ -145,3 +152,23 @@ export function matchKnownAnthropicModelProfile(
 export function inferAnthropicModelProfile(model: string): AnthropicModelProfile {
   return matchKnownAnthropicModelProfile(model) ?? LATEST_OPUS_PROFILE;
 }
+
+/**
+ * Fallback profile for Anthropic-compatible endpoints whose model name is
+ * recognizably a Claude model but encodes no known version — either a
+ * `claude` marker (e.g. a proxied `claude-latest`) or a bare family word
+ * (`sonnet-latest`, `opus-latest`, …). Clearly non-Claude names (Pythinker `k3`,
+ * GLM, DeepSeek, … served over the Anthropic protocol) return undefined so
+ * the catalog never advertises Claude effort levels for them. The wire-path
+ * counterpart {@link inferAnthropicModelProfile} keeps its unconditional
+ * fallback: an Anthropic-protocol endpoint still needs some profile to shape
+ * requests.
+ */
+export function matchUnknownClaudeProfile(model: string): AnthropicModelProfile | undefined {
+  const normalized = model.toLowerCase();
+  return normalized.includes('claude') || CLAUDE_FAMILY_WORD_RE.test(normalized)
+    ? LATEST_OPUS_PROFILE
+    : undefined;
+}
+
+const CLAUDE_FAMILY_WORD_RE = /\b(?:opus|sonnet|haiku|fable|mythos)\b/;

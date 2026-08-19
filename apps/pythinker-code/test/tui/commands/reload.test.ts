@@ -8,13 +8,16 @@ import {
   handleReloadCommand,
   handleReloadTuiCommand,
 } from '#/tui/commands/reload';
-import { DEFAULT_STATUS_LINE_CONFIG } from '#/tui/config';
 import { currentTheme } from '#/tui/theme';
 import type { SlashCommandHost } from '#/tui/commands';
 import {
   isExperimentalFlagEnabled,
   setExperimentalFeatures,
 } from '#/tui/commands/experimental-flags';
+import {
+  createMarkdownOptions,
+  setMarkdownRenderLatex,
+} from '#/tui/utils/markdown-options';
 
 const tempDirs: string[] = [];
 const originalPythinkerCodeHome = process.env['PYTHINKER_CODE_HOME'];
@@ -35,6 +38,7 @@ describe('reload slash commands', () => {
   it('reloads tui.toml without touching Core session state', async () => {
     await writeTuiConfig(`
 theme = "light"
+cache_expiry_hint = false
 
 [editor]
 command = "vim"
@@ -45,12 +49,6 @@ notification_condition = "always"
 
 [upgrade]
 auto_install = false
-
-[status_line]
-show_model = false
-show_git = false
-show_modes = false
-show_background_tasks = false
 `);
     const session = { reloadSession: vi.fn() };
     const host = makeHost({ session });
@@ -60,19 +58,12 @@ show_background_tasks = false
     expect(host.harness.getConfig).not.toHaveBeenCalled();
     expect(host.harness.getExperimentalFeatures).not.toHaveBeenCalled();
     expect(session.reloadSession).not.toHaveBeenCalled();
-    expect(host.reloadKeybindings).toHaveBeenCalledOnce();
     expect(host.state.appState).toMatchObject({
       theme: 'light',
       editorCommand: 'vim',
+      cacheExpiryHint: false,
       notifications: { enabled: false, condition: 'always' },
       upgrade: { autoInstall: false },
-      statusLine: {
-        ...DEFAULT_STATUS_LINE_CONFIG,
-        showModel: false,
-        showGit: false,
-        showModes: false,
-        showBackgroundTasks: false,
-      },
     });
     expect(host.showStatus).toHaveBeenCalledWith(
       'TUI config reloaded.',
@@ -81,32 +72,24 @@ show_background_tasks = false
   });
 
   it('reloads the active session, refreshes runtime config, and applies tui.toml', async () => {
-    await writeTuiConfig(`
-theme = "light"
-
-[status_line]
-show_elapsed = false
-`);
+    await writeTuiConfig('theme = "light"\n');
     const session = { id: 'ses-1', reloadSession: vi.fn(async () => ({})) };
     const host = makeHost({ session });
 
     await handleReloadCommand(host);
 
-    expect(session.reloadSession).toHaveBeenCalledOnce();
+    expect(session.reloadSession).toHaveBeenCalledWith({
+      forcePluginSessionStartReminder: true,
+    });
     expect(host.reloadCurrentSessionView).toHaveBeenCalledWith(
       session,
       'Session reloaded.',
     );
     expect(host.harness.getConfig).toHaveBeenCalledWith({ reload: true });
     expect(host.harness.getExperimentalFeatures).toHaveBeenCalledOnce();
-    expect(host.refreshSkillCommands).toHaveBeenCalledOnce();
-    expect(host.reloadKeybindings).toHaveBeenCalledOnce();
+    expect(host.refreshSlashCommandAutocomplete).toHaveBeenCalledOnce();
     expect(isExperimentalFlagEnabled('micro_compaction')).toBe(true);
     expect(host.state.appState.theme).toBe('light');
-    expect(host.state.appState.statusLine).toEqual({
-      ...DEFAULT_STATUS_LINE_CONFIG,
-      showElapsed: false,
-    });
     expect(host.state.appState.availableModels).toEqual({
       fresh: { provider: 'test', model: 'fresh-model', maxContextSize: 1000 },
     });
@@ -136,6 +119,55 @@ show_elapsed = false
 
     expect(themeWhenTracked).toBe('auto');
   });
+
+  it('applies the render_latex toggle before theme application rebuilds Markdown', async () => {
+    await writeTuiConfig('render_latex = false\n');
+    const host = makeHost();
+
+    // applyTheme invalidates transcript components, which rebuild their
+    // Markdown children by copying the shared options — the reloaded value
+    // must already be live at that point.
+    let latexWhenThemeApplied: boolean | undefined;
+    const mutable = host as unknown as { applyTheme: unknown };
+    mutable.applyTheme = vi.fn(() => {
+      latexWhenThemeApplied = createMarkdownOptions().renderLatex;
+    });
+
+    try {
+      await handleReloadTuiCommand(host);
+      expect(latexWhenThemeApplied).toBe(false);
+    } finally {
+      setMarkdownRenderLatex(true);
+    }
+  });
+
+  it('refreshes workspace commands and lazy defaults on a session-less v2 reload', async () => {
+    await writeTuiConfig('theme = "dark"\n');
+    const host = makeHost();
+    const refreshSkillCommands = vi.fn(async () => {});
+    const refreshPluginCommands = vi.fn(async () => {});
+    const hydrateLazyConfigDefaults = vi.fn(async () => {});
+    Object.assign(host, {
+      engineV2: true,
+      refreshSkillCommands,
+      refreshPluginCommands,
+      hydrateLazyConfigDefaults,
+    });
+
+    await handleReloadCommand(host);
+
+    expect(refreshSkillCommands).toHaveBeenCalledOnce();
+    expect(refreshPluginCommands).toHaveBeenCalledOnce();
+    expect(hydrateLazyConfigDefaults).toHaveBeenCalledOnce();
+    // Autocomplete must rebuild after the command maps are refreshed.
+    expect(refreshSkillCommands.mock.invocationCallOrder[0]).toBeLessThan(
+      host.refreshSlashCommandAutocomplete.mock.invocationCallOrder[0]!,
+    );
+    expect(host.showStatus).toHaveBeenCalledWith(
+      'Runtime and TUI config reloaded; no active session.',
+      'success',
+    );
+  });
 });
 
 async function writeTuiConfig(text: string): Promise<void> {
@@ -157,9 +189,11 @@ function makeHost({
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
       upgrade: { autoInstall: true },
-      statusLine: DEFAULT_STATUS_LINE_CONFIG,
       availableModels: {},
       availableProviders: {},
+    },
+    editor: {
+      setDisablePasteBurst: vi.fn(),
     },
     theme: {
       palette: {
@@ -188,8 +222,7 @@ function makeHost({
       state.appState.theme = theme;
     }),
     refreshTerminalThemeTracking: vi.fn(),
-    refreshSkillCommands: vi.fn(async () => {}),
-    reloadKeybindings: vi.fn(() => []),
+    refreshSlashCommandAutocomplete: vi.fn(),
     reloadCurrentSessionView: vi.fn(async () => {}),
     showStatus: vi.fn(),
   } as unknown as SlashCommandHost & {
@@ -197,8 +230,7 @@ function makeHost({
       readonly getConfig: ReturnType<typeof vi.fn>;
       readonly getExperimentalFeatures: ReturnType<typeof vi.fn>;
     };
-    readonly refreshSkillCommands: ReturnType<typeof vi.fn>;
-    readonly reloadKeybindings: ReturnType<typeof vi.fn>;
+    readonly refreshSlashCommandAutocomplete: ReturnType<typeof vi.fn>;
     readonly reloadCurrentSessionView: ReturnType<typeof vi.fn>;
     readonly showStatus: ReturnType<typeof vi.fn>;
   };

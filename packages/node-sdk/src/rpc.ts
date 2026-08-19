@@ -2,70 +2,76 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 
 import {
   ErrorCodes,
+  PythinkerError,
   makeErrorPayload,
-  type AdvisorStatus,
   type AgentContextData,
   type ApprovalRequest,
   type ApprovalResponse,
+  type BeginGlobalMcpServerAuthResult,
   type CoreAPI,
-  type DynamicWorkflowModeTrigger,
   type Event,
   type ExperimentalFeatureState,
+  type GetCronTasksResult,
   type QuestionRequest,
   type QuestionResult,
   type RPCMethods,
   type SDKAPI,
-  type SkillActivationResult,
   type ToolCallRequest,
   type ToolCallResponse,
+  type DynamicWorkflowModeTrigger,
 } from '@pymodel/agent-core';
 import type { Kaos } from '@pymodel/kaos';
 
 import type { ApprovalHandler, QuestionHandler } from '#/events';
 import type {
-  AgentProfileCatalog,
+  AddAdditionalDirInput,
+  AddAdditionalDirResult,
+  AgentCommandInfo,
+  AgentRuntimeBinding,
+  AppMcpServerInspection,
   BackgroundTaskInfo,
   ConfigDiagnostics,
-  ContextUsageReport,
   CreateSessionOptions,
   ExportSessionInput,
   ExportSessionResult,
-  FileCheckpointSummary,
   CreateGoalInput,
+  FileMeta,
   ForkSessionInput,
+  GenerateSessionTitleInput,
   GetConfigOptions,
+  GlobalMcpServerAuthStatus,
+  McpManagedServerInfo,
+  McpServerConfig,
+  McpServerLocator,
   GoalSnapshot,
   GoalToolResult,
+  JsonObject,
   PythinkerConfig,
   PythinkerConfigPatch,
   ListSessionsOptions,
   McpServerInfo,
   McpStartupMetrics,
-  OutputStyleCatalog,
+  McpTestResult,
   PermissionMode,
   PluginInfo,
-  PluginInstallOptions,
   PluginSummary,
   ReloadSummary,
-  RestoreFileCheckpointResult,
   CompactOptions,
   SessionPlan,
-  SessionMeta,
-  SessionMetadataPatch,
-  SessionFileCheckpointPreview,
   SessionStatus,
   SessionUsage,
   PromptInput,
-  JsonObject,
+  PromptSkillActivation,
   RenameSessionInput,
   ResumeSessionInput,
   ResumedSessionSummary,
   SessionSummary,
+  SessionSummaryPage,
   SkillSummary,
+  PluginCommandDef,
   Unsubscribe,
-  WorkspaceDirectory,
-  WorkingTreeChanges,
-  WorkingTreeFileDiff,
+  UploadFileOptions,
+  WorkspaceTrustInfo,
 } from '#/types';
 
 const MAIN_AGENT_ID = 'main';
@@ -73,11 +79,35 @@ const MAIN_AGENT_ID = 'main';
 export interface SessionPromptRpcInput {
   readonly sessionId: string;
   readonly input: PromptInput;
-  readonly outputSchema?: JsonObject;
+  /**
+   * Client-managed session tool denylist (full-replace semantics), forwarded
+   * to engines with profile tool gating. Omit to keep the persisted value;
+   * `[]` clears the client portion.
+   */
+  readonly disabledTools?: readonly string[];
+  /**
+   * Client-chosen prompt record id, unique for the Agent's persisted history
+   * and echoed on the consuming turn's `turn.started` (`promptId`). Honored by
+   * the v2 RPC client only.
+   */
+  readonly promptId?: string;
+}
+
+export interface SessionPromptWithSkillsRpcInput extends SessionPromptRpcInput {
+  readonly skills: readonly PromptSkillActivation[];
 }
 
 export interface SessionIdRpcInput {
   readonly sessionId: string;
+}
+
+export interface ImportContextRpcInput extends SessionIdRpcInput {
+  readonly content: string;
+  readonly source: string;
+}
+
+export interface ReloadSessionRpcInput extends SessionIdRpcInput {
+  readonly forcePluginSessionStartReminder?: boolean;
 }
 
 export interface SetSessionModelRpcInput extends SessionIdRpcInput {
@@ -90,15 +120,15 @@ export interface SetSessionModelRpcResult {
 }
 
 export interface SetSessionThinkingRpcInput extends SessionIdRpcInput {
-  readonly level: string;
-}
-
-export interface SetSessionFastModeRpcInput extends SessionIdRpcInput {
-  readonly enabled: boolean;
+  readonly effort: string;
 }
 
 export interface SetSessionPermissionRpcInput extends SessionIdRpcInput {
   readonly mode: PermissionMode;
+}
+
+export interface UpdateSessionMetadataRpcInput extends SessionIdRpcInput {
+  readonly metadata: JsonObject;
 }
 
 export interface SetSessionPlanModeRpcInput extends SessionIdRpcInput {
@@ -108,18 +138,36 @@ export interface SetSessionPlanModeRpcInput extends SessionIdRpcInput {
 export type SetSessionDynamicWorkflowModeRpcInput =
   | (SessionIdRpcInput & { readonly enabled: true; readonly trigger: DynamicWorkflowModeTrigger })
   | (SessionIdRpcInput & { readonly enabled: false });
-export interface SetSessionAdvisorEnabledRpcInput extends SessionIdRpcInput {
-  readonly enabled: boolean;
-  readonly advisorId?: string;
-}
 
 export interface ActivateSkillRpcInput extends SessionIdRpcInput {
   readonly name: string;
   readonly args?: string | undefined;
 }
 
+export interface ActivatePluginCommandRpcInput extends SessionIdRpcInput {
+  readonly pluginId: string;
+  readonly commandName: string;
+  readonly args?: string | undefined;
+}
+
+export interface RunCommandRpcInput extends SessionIdRpcInput {
+  readonly name: string;
+  readonly args?: string | undefined;
+}
+
+export interface SwitchSessionRuntimeRpcInput extends SessionIdRpcInput {
+  readonly runtimeId: string;
+}
+
 export interface ReconnectMcpServerRpcInput extends SessionIdRpcInput {
   readonly name: string;
+  /**
+   * Optional full replacement config (the "name + full config" channel).
+   * Omitted: the session re-resolves the effective config from the unified
+   * registry instead of reusing the boot-time snapshot. Plugin-contributed
+   * entries reject an explicit config (theirs is read-only).
+   */
+  readonly config?: McpServerConfig;
 }
 
 type ResolvedCoreAPI = RPCMethods<CoreAPI>;
@@ -172,9 +220,12 @@ export abstract class SDKRpcClientBase {
     return this.resumeSession(input);
   }
 
-  async reloadSession(input: SessionIdRpcInput): Promise<ResumedSessionSummary> {
+  async reloadSession(input: ReloadSessionRpcInput): Promise<ResumedSessionSummary> {
     const rpc = await this.getRpc();
-    return rpc.reloadSession({ sessionId: input.sessionId });
+    return rpc.reloadSession({
+      sessionId: input.sessionId,
+      forcePluginSessionStartReminder: input.forcePluginSessionStartReminder,
+    });
   }
 
   async forkSession(input: ForkSessionInput): Promise<SessionSummary> {
@@ -184,6 +235,7 @@ export abstract class SDKRpcClientBase {
       id: input.forkId,
       title: input.title,
       metadata: input.metadata,
+      turnIndex: input.turnIndex,
     });
   }
 
@@ -192,9 +244,44 @@ export abstract class SDKRpcClientBase {
     return rpc.closeSession({ sessionId: input.sessionId });
   }
 
+  async deleteSession(input: SessionIdRpcInput): Promise<void> {
+    const rpc = await this.getRpc();
+    return rpc.deleteSession({ sessionId: input.sessionId });
+  }
+
   async listSessions(input: ListSessionsOptions = {}): Promise<readonly SessionSummary[]> {
     const rpc = await this.getRpc();
     return rpc.listSessions(input);
+  }
+
+  /**
+   * One keyset page of the session listing (`limit` / `before` in
+   * `ListSessionsOptions`). The base implementation serves the whole filtered
+   * set as a single terminal page — the v1 engine has no paged listing;
+   * `SDKRpcClientV2` overrides this with real index paging.
+   */
+  async listSessionsPage(input: ListSessionsOptions = {}): Promise<SessionSummaryPage> {
+    const items = await this.listSessions(input);
+    return { items, nextCursor: undefined };
+  }
+
+  async listWorkspaceSkills(workDir: string): Promise<readonly SkillSummary[]> {
+    const rpc = await this.getRpc();
+    return rpc.listWorkspaceSkills({ workDir });
+  }
+
+  /**
+   * Workspace-trust state for `workDir`. The v1 engine has no trust concept,
+   * so the base implementation reports an always-trusted workspace and the
+   * trust write is a no-op; only the v2 client overrides these.
+   */
+  async getWorkspaceTrustInfo(workDir: string): Promise<WorkspaceTrustInfo> {
+    void workDir;
+    return { trusted: true, gatedMcpServers: [] };
+  }
+
+  async trustWorkspace(workDir: string): Promise<void> {
+    void workDir;
   }
 
   async renameSession(input: RenameSessionInput): Promise<void> {
@@ -205,16 +292,16 @@ export abstract class SDKRpcClientBase {
     });
   }
 
-  async getSessionMetadata(input: SessionIdRpcInput): Promise<SessionMeta> {
-    const rpc = await this.getRpc();
-    return rpc.getSessionMetadata({ sessionId: input.sessionId });
-  }
-
-  async updateSessionMetadata(
-    input: SessionIdRpcInput & { readonly metadata: SessionMetadataPatch },
-  ): Promise<void> {
-    const rpc = await this.getRpc();
-    return rpc.updateSessionMetadata(input);
+  /**
+   * v2-only capability (`ISessionTitleService`); the v1 engine has no title
+   * generation, so the base fails loudly and `SDKRpcClientV2` overrides it.
+   */
+  async generateSessionTitle(input: GenerateSessionTitleInput): Promise<string | undefined> {
+    void input;
+    throw new PythinkerError(
+      ErrorCodes.NOT_IMPLEMENTED,
+      'generateSessionTitle is only available on the agent-core-v2 engine.',
+    );
   }
 
   async exportSession(input: ExportSessionInput): Promise<ExportSessionResult> {
@@ -244,36 +331,169 @@ export abstract class SDKRpcClientBase {
     return rpc.getExperimentalFeatures({});
   }
 
-  async listOutputStyles(workDir: string): Promise<OutputStyleCatalog> {
-    const rpc = await this.getRpc();
-    return rpc.listOutputStyles({ workDir });
-  }
-
-  async listAgentProfiles(workDir: string): Promise<AgentProfileCatalog> {
-    const rpc = await this.getRpc();
-    return rpc.listAgentProfiles({ workDir });
-  }
-
-  /** The workspace's skills without opening a session; excludes session-only MCP prompts. */
-  async listWorkspaceSkills(workDir: string): Promise<readonly SkillSummary[]> {
-    const rpc = await this.getRpc();
-    return rpc.listWorkspaceSkills({ workDir });
-  }
-
   async setConfig(input: PythinkerConfigPatch): Promise<PythinkerConfig> {
     const rpc = await this.getRpc();
     return rpc.setPythinkerConfig(input);
   }
 
-  /** Validated full replacement of the persisted config; deletions of providers/models survive close and reload. */
-  async replaceConfig(config: PythinkerConfig): Promise<PythinkerConfig> {
-    const rpc = await this.getRpc();
-    return rpc.replacePythinkerConfig({ config });
-  }
-
   async removeProvider(providerId: string): Promise<PythinkerConfig> {
     const rpc = await this.getRpc();
     return rpc.removePythinkerProvider({ providerId });
+  }
+
+  /**
+   * Whether this client can persist several config sections as ONE atomic
+   * write (see {@link replaceConfigSections}). v1 cannot — its config writes
+   * are whole-document merges — so the default is false.
+   */
+  supportsAtomicSectionReplace(): boolean {
+    return false;
+  }
+
+  /**
+   * Replace several top-level config sections in ONE atomic write: a section
+   * mapped to `undefined` is cleared, sections absent from the record are
+   * left untouched. Unlike {@link setConfig} (a deep-merge that cannot
+   * delete keys), this has replace semantics, so a staged removal can be
+   * expressed by the written record itself.
+   */
+  replaceConfigSections(_sections: Record<string, unknown>): Promise<void> {
+    throw new PythinkerError(
+      ErrorCodes.NOT_IMPLEMENTED,
+      'This SDK client does not support atomic config section replacement.',
+    );
+  }
+
+  /**
+   * Upload media bytes to the engine's daemon file store; pair the returned
+   * meta with `buildDaemonFileUrl` to reference the file from a prompt. Only
+   * the v2 client wires this (through the klient files facade) — the v1
+   * client has no file service and throws `not_implemented`.
+   */
+  uploadFile(_data: Uint8Array, _options: UploadFileOptions): Promise<FileMeta> {
+    throw new PythinkerError(
+      ErrorCodes.NOT_IMPLEMENTED,
+      'This SDK client does not support file upload.',
+    );
+  }
+
+  deleteFile(_fileId: string): Promise<void> {
+    throw new PythinkerError(
+      ErrorCodes.NOT_IMPLEMENTED,
+      'This SDK client does not support file deletion.',
+    );
+  }
+
+  async listGlobalMcpServers(
+    options: { readonly cwd?: string } = {},
+  ): Promise<readonly McpManagedServerInfo[]> {
+    const rpc = await this.getRpc();
+    return rpc.listGlobalMcpServers({ cwd: options.cwd });
+  }
+
+  async getGlobalMcpServer(
+    name: string,
+    options: { readonly cwd?: string } = {},
+  ): Promise<McpManagedServerInfo> {
+    const rpc = await this.getRpc();
+    return rpc.getGlobalMcpServer({ name, cwd: options.cwd });
+  }
+
+  async listGlobalMcpServerAuthStatuses(
+    options: { readonly cwd?: string; readonly verify?: boolean } = {},
+  ): Promise<readonly GlobalMcpServerAuthStatus[]> {
+    const rpc = await this.getRpc();
+    return rpc.listGlobalMcpServerAuthStatuses({ cwd: options.cwd, verify: options.verify });
+  }
+
+  async inspectAppMcpServers(
+    targets?: readonly McpServerLocator[],
+  ): Promise<readonly AppMcpServerInspection[]> {
+    const rpc = await this.getRpc();
+    return rpc.inspectAppMcpServers({ targets });
+  }
+
+  async addGlobalMcpServer(server: McpServerConfig): Promise<readonly McpManagedServerInfo[]> {
+    const rpc = await this.getRpc();
+    return rpc.addGlobalMcpServer({ server });
+  }
+
+  async updateGlobalMcpServer(
+    server: McpServerConfig,
+  ): Promise<readonly McpManagedServerInfo[]> {
+    const rpc = await this.getRpc();
+    return rpc.updateGlobalMcpServer({ server });
+  }
+
+  async removeGlobalMcpServer(name: string): Promise<readonly McpManagedServerInfo[]> {
+    const rpc = await this.getRpc();
+    return rpc.removeGlobalMcpServer({ name });
+  }
+
+  async beginGlobalMcpServerAuth(name: string): Promise<BeginGlobalMcpServerAuthResult> {
+    const rpc = await this.getRpc();
+    return rpc.beginGlobalMcpServerAuth({ name });
+  }
+
+  async beginMcpServerAuth(locator: McpServerLocator): Promise<BeginGlobalMcpServerAuthResult> {
+    const rpc = await this.getRpc();
+    return rpc.beginMcpServerAuth({ locator });
+  }
+
+  async completeGlobalMcpServerAuth(
+    input: { readonly flowId: string; readonly timeoutMs?: number },
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const rpc = await this.getRpc();
+    return rpc.completeGlobalMcpServerAuth(input, { signal });
+  }
+
+  async completeMcpServerAuth(
+    input: { readonly flowId: string; readonly timeoutMs?: number },
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const rpc = await this.getRpc();
+    return rpc.completeMcpServerAuth(input, { signal });
+  }
+
+  async cancelGlobalMcpServerAuth(flowId: string): Promise<void> {
+    const rpc = await this.getRpc();
+    return rpc.cancelGlobalMcpServerAuth({ flowId });
+  }
+
+  async cancelMcpServerAuth(flowId: string): Promise<void> {
+    const rpc = await this.getRpc();
+    return rpc.cancelMcpServerAuth({ flowId });
+  }
+
+  async resetGlobalMcpServerAuth(name: string): Promise<void> {
+    const rpc = await this.getRpc();
+    return rpc.resetGlobalMcpServerAuth({ name });
+  }
+
+  async resetMcpServerAuth(locator: McpServerLocator): Promise<void> {
+    const rpc = await this.getRpc();
+    return rpc.resetMcpServerAuth({ locator });
+  }
+
+  async testGlobalMcpServer(
+    name: string,
+    options: { readonly cwd?: string } = {},
+  ): Promise<McpTestResult> {
+    const rpc = await this.getRpc();
+    return rpc.testGlobalMcpServer({ name, cwd: options.cwd });
+  }
+
+  /**
+   * Probe a full inline (unsaved) MCP server config — the `server` channel of
+   * the engine's `testGlobalMcpServer`, so nothing has to be persisted first.
+   */
+  async testGlobalMcpServerConfig(
+    server: McpServerConfig,
+    options: { readonly cwd?: string } = {},
+  ): Promise<McpTestResult> {
+    const rpc = await this.getRpc();
+    return rpc.testGlobalMcpServer({ server, cwd: options.cwd });
   }
 
   async prompt(input: SessionPromptRpcInput): Promise<void> {
@@ -283,7 +503,44 @@ export abstract class SDKRpcClientBase {
       sessionId: input.sessionId,
       agentId,
       input: input.input,
-      outputSchema: input.outputSchema,
+    });
+  }
+
+  /**
+   * Grouped skill activation + prompt submission. Only the v2 engine
+   * (`SDKRpcClientV2`) implements it; the v1 route has no combined-submission
+   * RPC, so the base fails loudly instead of degrading into N+1 turns.
+   */
+  async promptWithSkills(input: SessionPromptWithSkillsRpcInput): Promise<void> {
+    void input;
+    throw new PythinkerError(
+      ErrorCodes.NOT_IMPLEMENTED,
+      'promptWithSkills requires the agent-core-v2 engine.',
+    );
+  }
+
+  async runShellCommand(input: {
+    sessionId: string;
+    command: string;
+    commandId?: string;
+  }): Promise<{ stdout: string; stderr: string; isError?: boolean; backgrounded?: boolean }> {
+    const agentId = this.interactiveAgentId;
+    const rpc = await this.getRpc();
+    return rpc.runShellCommand({
+      sessionId: input.sessionId,
+      agentId,
+      command: input.command,
+      commandId: input.commandId,
+    });
+  }
+
+  async cancelShellCommand(input: { sessionId: string; commandId: string }): Promise<void> {
+    const agentId = this.interactiveAgentId;
+    const rpc = await this.getRpc();
+    return rpc.cancelShellCommand({
+      sessionId: input.sessionId,
+      agentId,
+      commandId: input.commandId,
     });
   }
 
@@ -302,43 +559,14 @@ export abstract class SDKRpcClientBase {
     return rpc.generateAgentsMd({ sessionId: input.sessionId });
   }
 
-  async refreshInstructions(input: SessionIdRpcInput): Promise<void> {
+  async getSessionWarnings(input: SessionIdRpcInput) {
     const rpc = await this.getRpc();
-    return rpc.refreshInstructions({ sessionId: input.sessionId });
+    return rpc.getSessionWarnings({ sessionId: input.sessionId });
   }
 
-  async listWorkingTreeChanges(input: SessionIdRpcInput): Promise<WorkingTreeChanges> {
+  async addAdditionalDir(input: AddAdditionalDirInput): Promise<AddAdditionalDirResult> {
     const rpc = await this.getRpc();
-    return rpc.listWorkingTreeChanges({ sessionId: input.sessionId });
-  }
-
-  async getWorkingTreeDiff(
-    input: SessionIdRpcInput & { path: string },
-  ): Promise<WorkingTreeFileDiff> {
-    const rpc = await this.getRpc();
-    return rpc.getWorkingTreeDiff({
-      sessionId: input.sessionId,
-      path: input.path,
-    });
-  }
-
-  async listFileCheckpoints(input: SessionIdRpcInput): Promise<readonly FileCheckpointSummary[]> {
-    const rpc = await this.getRpc();
-    return rpc.listFileCheckpoints({ sessionId: input.sessionId });
-  }
-
-  async previewFileCheckpoint(
-    input: SessionIdRpcInput & { checkpointId: string },
-  ): Promise<SessionFileCheckpointPreview> {
-    const rpc = await this.getRpc();
-    return rpc.previewFileCheckpoint(input);
-  }
-
-  async restoreFileCheckpoint(
-    input: SessionIdRpcInput & { checkpointId: string },
-  ): Promise<RestoreFileCheckpointResult> {
-    const rpc = await this.getRpc();
-    return rpc.restoreFileCheckpoint(input);
+    return rpc.addAdditionalDir({ sessionId: input.id, path: input.path, persist: input.persist });
   }
 
   async startBtw(input: SessionIdRpcInput): Promise<string> {
@@ -359,6 +587,24 @@ export abstract class SDKRpcClientBase {
     });
   }
 
+  async clearContext(input: SessionIdRpcInput): Promise<void> {
+    const rpc = await this.getRpc();
+    return rpc.clearContext({
+      sessionId: input.sessionId,
+      agentId: this.interactiveAgentId,
+    });
+  }
+
+  async importContext(input: ImportContextRpcInput): Promise<void> {
+    const rpc = await this.getRpc();
+    return rpc.importContext({
+      sessionId: input.sessionId,
+      agentId: this.interactiveAgentId,
+      content: input.content,
+      source: input.source,
+    });
+  }
+
   async setModel(input: SetSessionModelRpcInput): Promise<SetSessionModelRpcResult> {
     const rpc = await this.getRpc();
     return rpc.setModel({
@@ -373,17 +619,7 @@ export abstract class SDKRpcClientBase {
     return rpc.setThinking({
       sessionId: input.sessionId,
       agentId: this.interactiveAgentId,
-      level: input.level,
-    });
-  }
-
-  /** Toggles Fast mode for the session; the server rejects it when the active model does not support it. */
-  async setFastMode(input: SetSessionFastModeRpcInput): Promise<void> {
-    const rpc = await this.getRpc();
-    return rpc.setFastMode({
-      sessionId: input.sessionId,
-      agentId: this.interactiveAgentId,
-      enabled: input.enabled,
+      effort: input.effort,
     });
   }
 
@@ -393,6 +629,16 @@ export abstract class SDKRpcClientBase {
       sessionId: input.sessionId,
       agentId: this.interactiveAgentId,
       mode: input.mode,
+    });
+  }
+
+  async updateSessionMetadata(input: UpdateSessionMetadataRpcInput): Promise<void> {
+    const rpc = await this.getRpc();
+    const current = await rpc.getSessionMetadata({ sessionId: input.sessionId });
+    const metadata = { ...current.custom, ...input.metadata } as JsonObject;
+    await rpc.updateSessionMetadata({
+      sessionId: input.sessionId,
+      metadata: { custom: metadata },
     });
   }
 
@@ -411,16 +657,16 @@ export abstract class SDKRpcClientBase {
   }
 
   async setDynamicWorkflowMode(input: SetSessionDynamicWorkflowModeRpcInput): Promise<void> {
-    if (input.enabled) return this.enterDynamicWorkflow(input);
-    return this.exitDynamicWorkflow(input);
+    if (input.enabled) return this.enterDynamicWorkflowMode(input);
+    return this.exitDynamicWorkflowMode(input);
   }
 
-  async dynamicWorkflow(input: SessionPromptRpcInput): Promise<void> {
-    await this.enterDynamicWorkflow({ sessionId: input.sessionId, trigger: 'task' });
+  async dynamic_workflow(input: SessionPromptRpcInput): Promise<void> {
+    await this.enterDynamicWorkflowMode({ sessionId: input.sessionId, trigger: 'task' });
     return this.prompt(input);
   }
 
-  private async enterDynamicWorkflow(
+  private async enterDynamicWorkflowMode(
     input: SessionIdRpcInput & { readonly trigger: DynamicWorkflowModeTrigger },
   ): Promise<void> {
     const rpc = await this.getRpc();
@@ -431,7 +677,7 @@ export abstract class SDKRpcClientBase {
     });
   }
 
-  private async exitDynamicWorkflow(input: SessionIdRpcInput): Promise<void> {
+  private async exitDynamicWorkflowMode(input: SessionIdRpcInput): Promise<void> {
     const rpc = await this.getRpc();
     return rpc.exitDynamicWorkflow({
       sessionId: input.sessionId,
@@ -460,9 +706,7 @@ export abstract class SDKRpcClientBase {
     return rpc.beginCompaction({
       sessionId: input.sessionId,
       agentId: this.interactiveAgentId,
-      instruction: input.instruction,
-      promptFromEnd: input.promptFromEnd,
-      direction: input.direction,
+      ...(input.instruction !== undefined ? { instruction: input.instruction } : {}),
     });
   }
 
@@ -486,14 +730,6 @@ export abstract class SDKRpcClientBase {
   async getContext(input: SessionIdRpcInput): Promise<AgentContextData> {
     const rpc = await this.getRpc();
     return rpc.getContext({
-      sessionId: input.sessionId,
-      agentId: this.interactiveAgentId,
-    });
-  }
-
-  async getContextUsage(input: SessionIdRpcInput): Promise<ContextUsageReport> {
-    const rpc = await this.getRpc();
-    return rpc.getContextUsage({
       sessionId: input.sessionId,
       agentId: this.interactiveAgentId,
     });
@@ -534,21 +770,18 @@ export abstract class SDKRpcClientBase {
       sessionId: input.sessionId,
       agentId,
     });
-    const maxContextTokens = config.modelCapabilities?.max_context_tokens ?? 0;
+    const capability = config.modelCapabilities;
+    const maxContextTokens = capability?.max_input_tokens ?? capability?.max_context_tokens ?? 0;
     const contextTokens = context.tokenCount;
+    // Deliberately unclamped: >100% is the documented overflow signal on this
+    // path (see acp-adapter's formatContextUsage), unlike the schema-bounded
+    // REST status surfaces which clamp to 1.
     const contextUsage = maxContextTokens > 0 ? contextTokens / maxContextTokens : 0;
     const hasUsage =
-      usage.byModel !== undefined ||
-      usage.total !== undefined ||
-      usage.currentTurn !== undefined ||
-      usage.totalCostUsd !== undefined;
+      usage.byModel !== undefined || usage.total !== undefined || usage.currentTurn !== undefined;
     return {
       model: config.modelAlias ?? config.provider?.model,
-      modelCostRates: config.modelCapabilities?.cost,
-      thinkingLevel: config.thinkingLevel,
-      // Default to disabled/unsupported so servers predating the fast mode fields report a stable status.
-      fastMode: config.fastMode ?? false,
-      fastModeSupported: config.fastModeSupported ?? false,
+      thinkingEffort: config.thinkingEffort,
       permission: permission.mode,
       planMode: plan !== null,
       dynamicWorkflowMode,
@@ -564,54 +797,18 @@ export abstract class SDKRpcClientBase {
     return rpc.listSkills({ sessionId: input.sessionId });
   }
 
-  async getAdvisorStatus(input: SessionIdRpcInput): Promise<readonly AdvisorStatus[]> {
+  async listPluginCommands(input: SessionIdRpcInput): Promise<readonly PluginCommandDef[]> {
     const rpc = await this.getRpc();
-    return rpc.getAdvisorStatus({ sessionId: input.sessionId });
+    return rpc.listPluginCommands({ sessionId: input.sessionId });
   }
 
-  async setAdvisorEnabled(
-    input: SetSessionAdvisorEnabledRpcInput,
-  ): Promise<readonly AdvisorStatus[]> {
-    const rpc = await this.getRpc();
-    return rpc.setAdvisorEnabled({
-      sessionId: input.sessionId,
-      enabled: input.enabled,
-      advisorId: input.advisorId,
-    });
-  }
-
-  async reloadAdvisor(input: SessionIdRpcInput): Promise<readonly AdvisorStatus[]> {
-    const rpc = await this.getRpc();
-    return rpc.reloadAdvisor({ sessionId: input.sessionId });
-  }
-  async reloadSkills(input: SessionIdRpcInput): Promise<void> {
-    const rpc = await this.getRpc();
-    await rpc.reloadSkills({ sessionId: input.sessionId });
-  }
-
-  async listContextFiles(input: SessionIdRpcInput): Promise<readonly string[]> {
-    const rpc = await this.getRpc();
-    return rpc.listContextFiles({
-      sessionId: input.sessionId,
-      agentId: this.interactiveAgentId,
-    });
-  }
-
-  async listWorkspaceDirectories(input: SessionIdRpcInput): Promise<readonly WorkspaceDirectory[]> {
-    const rpc = await this.getRpc();
-    return rpc.listWorkspaceDirectories({ sessionId: input.sessionId });
-  }
-
-  async addWorkspaceDirectory(
-    input: SessionIdRpcInput & { path: string },
-  ): Promise<WorkspaceDirectory> {
-    const rpc = await this.getRpc();
-    return rpc.addWorkspaceDirectory(input);
-  }
-
-  async removeWorkspaceDirectory(input: SessionIdRpcInput & { path: string }): Promise<void> {
-    const rpc = await this.getRpc();
-    await rpc.removeWorkspaceDirectory(input);
+  /**
+   * App-global plugin command list, no session required. The v1 engine only
+   * exposes plugin commands through a live session, so the base returns an
+   * empty list; the v2 client overrides with the app-global live view.
+   */
+  async listPluginCommandsGlobal(): Promise<readonly PluginCommandDef[]> {
+    return [];
   }
 
   async listBackgroundTasks(
@@ -648,6 +845,27 @@ export abstract class SDKRpcClientBase {
       taskId: input.taskId,
       reason: input.reason,
     });
+  }
+
+  async detachBackgroundTask(
+    input: SessionIdRpcInput & { taskId: string },
+  ): Promise<BackgroundTaskInfo | undefined> {
+    const rpc = await this.getRpc();
+    return rpc.detachBackground({
+      sessionId: input.sessionId,
+      agentId: this.interactiveAgentId,
+      taskId: input.taskId,
+    });
+  }
+
+  async waitForBackgroundTasksOnPrint(input: SessionIdRpcInput): Promise<void> {
+    const rpc = await this.getRpc();
+    return rpc.waitForBackgroundTasksOnPrint({ sessionId: input.sessionId });
+  }
+
+  async handlePrintMainTurnCompleted(input: SessionIdRpcInput): Promise<'finish' | 'continue'> {
+    const rpc = await this.getRpc();
+    return rpc.handlePrintMainTurnCompleted({ sessionId: input.sessionId });
   }
 
   async createGoal(input: SessionIdRpcInput & CreateGoalInput): Promise<GoalSnapshot> {
@@ -689,9 +907,25 @@ export abstract class SDKRpcClientBase {
     });
   }
 
+  async getCronTasks(input: SessionIdRpcInput): Promise<GetCronTasksResult> {
+    const rpc = await this.getRpc();
+    return rpc.getCronTasks({ sessionId: input.sessionId, agentId: this.interactiveAgentId });
+  }
+
   async listMcpServers(input: SessionIdRpcInput): Promise<readonly McpServerInfo[]> {
     const rpc = await this.getRpc();
     return rpc.listMcpServers({ sessionId: input.sessionId });
+  }
+
+  /**
+   * Workspace-level MCP server list, no session required. The v2 engine owns
+   * one shared connection set per workspace handler, so `/mcp` is inspectable
+   * before the first session exists; the v1 engine only exposes MCP through
+   * a live session and the base returns an empty list.
+   */
+  async listWorkspaceMcpServers(workDir: string): Promise<readonly McpServerInfo[]> {
+    void workDir;
+    return [];
   }
 
   async getMcpStartupMetrics(input: SessionIdRpcInput): Promise<McpStartupMetrics> {
@@ -701,7 +935,29 @@ export abstract class SDKRpcClientBase {
 
   async reconnectMcpServer(input: ReconnectMcpServerRpcInput): Promise<void> {
     const rpc = await this.getRpc();
-    return rpc.reconnectMcpServer({ sessionId: input.sessionId, name: input.name });
+    return rpc.reconnectMcpServer({
+      sessionId: input.sessionId,
+      name: input.name,
+      config: input.config,
+    });
+  }
+
+  /**
+   * Connect an MCP server in a live session. `persist: true` also writes the
+   * user-level `mcp.json` (the entry becomes a mutable `global` one);
+   * otherwise it stays a session-local `caller` entry.
+   */
+  async addSessionMcpServer(input: {
+    readonly sessionId: string;
+    readonly server: McpServerConfig;
+    readonly persist?: boolean;
+  }): Promise<McpServerInfo> {
+    const rpc = await this.getRpc();
+    return rpc.addSessionMcpServer({
+      sessionId: input.sessionId,
+      server: input.server,
+      persist: input.persist,
+    });
   }
 
   async listPlugins(): Promise<readonly PluginSummary[]> {
@@ -709,9 +965,9 @@ export abstract class SDKRpcClientBase {
     return rpc.listPlugins({});
   }
 
-  async installPlugin(source: string, options?: PluginInstallOptions): Promise<PluginSummary> {
+  async installPlugin(source: string): Promise<PluginSummary> {
     const rpc = await this.getRpc();
-    return rpc.installPlugin({ source, options });
+    return rpc.installPlugin({ source });
   }
 
   async setPluginEnabled(id: string, enabled: boolean): Promise<void> {
@@ -719,7 +975,11 @@ export abstract class SDKRpcClientBase {
     return rpc.setPluginEnabled({ id, enabled });
   }
 
-  async setPluginMcpServerEnabled(id: string, server: string, enabled: boolean): Promise<void> {
+  async setPluginMcpServerEnabled(
+    id: string,
+    server: string,
+    enabled: boolean,
+  ): Promise<void> {
     const rpc = await this.getRpc();
     return rpc.setPluginMcpServerEnabled({ id, server, enabled });
   }
@@ -739,7 +999,7 @@ export abstract class SDKRpcClientBase {
     return rpc.getPluginInfo({ id });
   }
 
-  async activateSkill(input: ActivateSkillRpcInput): Promise<SkillActivationResult> {
+  async activateSkill(input: ActivateSkillRpcInput): Promise<void> {
     const rpc = await this.getRpc();
     return rpc.activateSkill({
       sessionId: input.sessionId,
@@ -747,6 +1007,47 @@ export abstract class SDKRpcClientBase {
       name: input.name,
       args: input.args,
     });
+  }
+
+  async activatePluginCommand(input: ActivatePluginCommandRpcInput): Promise<void> {
+    const rpc = await this.getRpc();
+    return rpc.activatePluginCommand({
+      sessionId: input.sessionId,
+      agentId: this.interactiveAgentId,
+      pluginId: input.pluginId,
+      commandName: input.commandName,
+      args: input.args,
+    });
+  }
+
+  /**
+   * Contributed commands of the session's interactive agent. The
+   * contributed-command seam exists only in the agent-core-v2 engine, so the
+   * base implementation reports the empty set and rejects runs with a coded
+   * error (same shape as `replaceConfigSections`); only the v2 client
+   * overrides these.
+   */
+  async listCommands(input: SessionIdRpcInput): Promise<readonly AgentCommandInfo[]> {
+    void input;
+    return [];
+  }
+
+  async runCommand(input: RunCommandRpcInput): Promise<void> {
+    void input;
+    throw new PythinkerError(
+      ErrorCodes.NOT_IMPLEMENTED,
+      'This SDK client does not support contributed commands.',
+    );
+  }
+
+  async getRuntime(input: SessionIdRpcInput): Promise<AgentRuntimeBinding> {
+    void input;
+    throw new PythinkerError(ErrorCodes.NOT_IMPLEMENTED, 'This SDK client does not support runtimes.');
+  }
+
+  async switchRuntime(input: SwitchSessionRuntimeRpcInput): Promise<AgentRuntimeBinding> {
+    void input;
+    throw new PythinkerError(ErrorCodes.NOT_IMPLEMENTED, 'This SDK client does not support runtimes.');
   }
 
   onEvent(listener: (event: Event) => void): Unsubscribe {
@@ -835,6 +1136,7 @@ export abstract class SDKRpcClientBase {
       isError: true,
     };
   }
+
 }
 
 export class ClientAPI implements SDKAPI {

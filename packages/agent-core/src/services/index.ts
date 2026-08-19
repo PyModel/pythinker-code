@@ -86,7 +86,7 @@ export {
   WorkspaceRootNotFoundError,
 } from './workspace/workspaceRegistry';
 export type { WorkspacePatch } from './workspace/workspaceRegistry';
-export { WorkspaceRegistryService, detectGit } from './workspace/workspaceRegistryService';
+export { WorkspaceRegistryService } from './workspace/workspaceRegistryService';
 export {
   IWorkspaceFsService,
   WorkspaceFsNotAbsoluteError,
@@ -105,18 +105,8 @@ export {
 } from './authSummary/authSummary';
 export { AuthSummaryService } from './authSummary/authSummaryService';
 
-export {
-  ICodexLoginService,
-  CodexLoginNotFoundError,
-  CodexLoginInvalidCodeError,
-} from './codexLogin/codexLogin';
-export {
-  CodexLoginFlow,
-  CodexLoginService,
-  pickDefaultModel,
-} from './codexLogin/codexLoginService';
-export type { CodexLoginDeps } from './codexLogin/codexLoginService';
-
+export { IOAuthService } from './oauth/oauth';
+export { OAuthService } from './oauth/oauthService';
 
 export {
   IModelCatalogService,
@@ -183,9 +173,7 @@ export { ToolService } from './tool/toolService';
 
 export {
   IMcpService,
-  McpServerAlreadyExistsError,
   McpServerNotFoundError,
-  McpServerValidationError,
   toProtocolMcpServer,
 } from './mcp/mcp';
 export { McpService } from './mcp/mcpService';
@@ -197,13 +185,6 @@ export {
   toProtocolSkill,
 } from './skill/skill';
 export { SkillService } from './skill/skillService';
-
-export {
-  ICatalogService,
-  toProtocolAgentProfile,
-  toProtocolPlugin,
-} from './catalog/catalog';
-export { CatalogService } from './catalog/catalogService';
 
 export {
   ITaskService,

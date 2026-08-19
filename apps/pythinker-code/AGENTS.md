@@ -17,18 +17,18 @@ Main directories:
 - `src/tui/`: the interactive terminal UI.
 - `src/tui/pythinker-tui.ts`: the `PythinkerTUI` coordinator — wires state, layout, editor, session, SDK events, and dialogs together, and dispatches slash-command handlers. Heavy logic is delegated to `controllers/`, not accumulated here.
 - `src/tui/tui-state.ts`: `TUIState`, `createTUIState`, `createInitialAppState` — the single global UI-state shape.
-- `src/tui/controllers/`: independently-testable responsibilities — `session-event-handler` (SDK event routing), `streaming-ui` (streaming render), `session-replay` (resume/replay), `tasks-browser`, `editor-keyboard`, `auth-flow`, `mouse-controller` (SGR mouse: wheel scroll + select-to-copy in the fixed layout).
+- `src/tui/controllers/`: independently-testable responsibilities — `session-event-handler` (SDK event routing), `streaming-ui` (streaming render), `session-replay` (resume/replay), `tasks-browser`, `editor-keyboard`, `auth-flow`.
 - `src/tui/commands/`: slash command definitions, parsing, ordering, and dynamic skill command generation.
 - `src/tui/components/`: pi-tui components, organized by UI type.
 - `src/tui/constant/`: non-copy constants reused across TUI modules — symbols, terminal sequences, render sizing, streaming-arg match rules, and so on.
-- `src/tui/components/chrome/`: persistent UI chrome — footer, todo panel, welcome, loader, device code, plus the fixed-layout root (`viewport-layout.ts`) and transcript scroll window (`transcript-viewport.ts`) used when `tui.toml` `layout = "fixed"`.
+- `src/tui/components/chrome/`: persistent UI chrome — footer, todo panel, welcome, loader, device code.
 - `src/tui/components/dialogs/`: selectors, approval panels, question popups, and settings popups that temporarily replace the editor.
 - `src/tui/components/editor/`: the custom input box and the file mention provider.
 - `src/tui/components/media/`: image, diff, code highlight, and other media displays.
 - `src/tui/components/messages/`: message blocks in the transcript — assistant, user, tool call, thinking, usage, subagent, and so on.
 - `src/tui/components/panes/`: right-side / activity-area panes such as the activity pane and queue pane.
 - `src/tui/reverse-rpc/`: the adapter layer that bridges SDK approval/question callbacks to the UI.
-- `src/tui/theme/`: themes, color tokens, terminal-background detection, and the Pythinker markdown/editor theme (`pythinker-theme.ts`).
+- `src/tui/theme/`: themes, color tokens, style helpers, terminal-background detection, and the pi-tui markdown theme.
 - `src/tui/utils/`: TUI-only utility functions.
 - `src/utils/`: app-wide utilities — clipboard, git, history, image, process, usage, and so on.
 
@@ -65,6 +65,7 @@ The theme apply/switch mechanics live in the `write-tui` skill. The following ru
 
 ## General Coding Requirements
 
+- The startup path before the workspace trust gate (`PythinkerTUI.start()` -> `maybeRunWorkspaceTrustPrompt()`) must not spawn child processes by bare command name — on Windows, cmd.exe / CreateProcess resolve them from the current directory first, so a binary planted in an untrusted workspace would run before the user confirms trust. When an external command is unavoidable, resolve it with `resolveCommandPath` from `src/utils/process/resolve-command.ts`, which returns an absolute PATH hit and refuses matches inside the cwd.
 - For optional object properties, pass `undefined` directly — do not use conditional spread.
 - Optional object properties do not need to additionally allow `undefined` in the type.
 - Internal methods with only a single parameter should not be turned into options objects just for stylistic uniformity.

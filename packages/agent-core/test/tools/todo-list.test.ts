@@ -15,7 +15,6 @@ import {
   TodoListTool,
   type TodoItem,
 } from '../../src/tools/builtin/state/todo-list';
-import { compileToolArgsValidator, validateToolArgs } from '../../src/tools/args-validator';
 import type { ToolStore } from '../../src/tools/store';
 import { executeTool } from './fixtures/execute-tool';
 
@@ -39,12 +38,12 @@ function makeStore(initial: readonly TodoItem[] = []): {
   };
 }
 
-function makeTool(initial: readonly TodoItem[] = [], mainAgent = true): {
+function makeTool(initial: readonly TodoItem[] = []): {
   tool: TodoListTool;
   getTodos(): readonly TodoItem[];
 } {
   const { store, getTodos } = makeStore(initial);
-  return { tool: new TodoListTool(store, mainAgent), getTodos };
+  return { tool: new TodoListTool(store), getTodos };
 }
 
 describe('TodoListTool', () => {
@@ -55,6 +54,11 @@ describe('TodoListTool', () => {
     expect(TODO_STORE_KEY).toBe('todo');
     expect(tool.name).toBe(TODO_LIST_TOOL_NAME);
     expect(tool.description.length).toBeGreaterThan(0);
+    // Plan-mode planning goes to the plan file, not the TodoList — the description
+    // must not present TodoList as the plan-mode mechanism.
+    expect(tool.description).toContain('plan file');
+    // Query mode triggers on `args.todos === undefined`, not on zero args.
+    expect(tool.description).toContain('no `todos` argument');
     expect(TodoListInputSchema.safeParse({}).success).toBe(true);
     expect(
       TodoListInputSchema.safeParse({ todos: [{ title: 'x', status: 'wip' }] }).success,
@@ -65,18 +69,6 @@ describe('TodoListTool', () => {
         todos: { type: 'array' },
       },
     });
-    const validator = compileToolArgsValidator(tool.parameters);
-    expect(
-      validateToolArgs(validator, {
-        todos: [
-          {
-            title: 'Map logical groups',
-            activeForm: 'Mapping logical groups',
-            status: 'completed',
-          },
-        ],
-      }),
-    ).toBeNull();
   });
 
   it('description includes an Avoid churn section with the anti-spin guardrails', () => {
@@ -121,6 +113,18 @@ describe('TodoListTool', () => {
     expect(getTodos()).toEqual([{ title: 'existing', status: 'in_progress' }]);
   });
 
+  it('exposes the visible todo items in the tool-call display', () => {
+    const { tool } = makeTool([{ title: 'existing', status: 'in_progress' }]);
+
+    const execution = tool.resolveExecution({});
+
+    if (execution.isError === true) throw new TypeError('expected runnable execution');
+    expect(execution.display).toEqual({
+      kind: 'todo_list',
+      items: [{ title: 'existing', status: 'in_progress' }],
+    });
+  });
+
   it('write mode replaces the list and defensively copies todos into the store', async () => {
     const { tool, getTodos } = makeTool();
     const todos: TodoItem[] = [
@@ -147,87 +151,6 @@ describe('TodoListTool', () => {
     expect(getTodos()).toEqual([
       { title: 'first', status: 'pending' },
       { title: 'second', status: 'in_progress' },
-    ]);
-  });
-
-  it('accepts and normalizes the TodoWrite item contract', async () => {
-    const { tool, getTodos } = makeTool();
-    const parsed = TodoListInputSchema.safeParse({
-      todos: [
-        {
-          content: 'Inspect the implementation',
-          activeForm: 'Inspecting the implementation',
-          status: 'completed',
-        },
-        {
-          content: 'Run focused tests',
-          activeForm: 'Running focused tests',
-          status: 'in_progress',
-        },
-      ],
-    });
-
-    expect(parsed.success).toBe(true);
-    if (!parsed.success) throw new TypeError('expected TodoWrite-compatible input');
-
-    await executeTool(tool, {
-      turnId: 't1',
-      toolCallId: 'call_1',
-      args: parsed.data,
-      signal,
-    });
-
-    expect(getTodos()).toEqual([
-      {
-        title: 'Inspect the implementation',
-        activeForm: 'Inspecting the implementation',
-        status: 'done',
-      },
-      {
-        title: 'Run focused tests',
-        activeForm: 'Running focused tests',
-        status: 'in_progress',
-      },
-    ]);
-  });
-
-  it('normalizes done and completed with either item shape', async () => {
-    const { tool, getTodos } = makeTool();
-    const parsed = TodoListInputSchema.parse({
-      todos: [
-        {
-          title: 'Inspect the implementation',
-          activeForm: 'Inspecting the implementation',
-          status: 'completed',
-        },
-        {
-          content: 'Run focused tests',
-          activeForm: 'Running focused tests',
-          status: 'done',
-        },
-        { title: 'Continue review', status: 'pending' },
-      ],
-    });
-
-    await executeTool(tool, {
-      turnId: 't1',
-      toolCallId: 'call_1',
-      args: parsed,
-      signal,
-    });
-
-    expect(getTodos()).toEqual([
-      {
-        title: 'Inspect the implementation',
-        activeForm: 'Inspecting the implementation',
-        status: 'done',
-      },
-      {
-        title: 'Run focused tests',
-        activeForm: 'Running focused tests',
-        status: 'done',
-      },
-      { title: 'Continue review', status: 'pending' },
     ]);
   });
 
@@ -271,83 +194,6 @@ describe('TodoListTool', () => {
     });
 
     expect(result).toMatchObject({ isError: false, output: 'Todo list cleared.' });
-  });
-
-  it('clears the stored list when every submitted task is done', async () => {
-    const { tool, getTodos } = makeTool();
-
-    await executeTool(tool, {
-      turnId: 't1',
-      toolCallId: 'call_1',
-      args: {
-        todos: [
-          { title: 'Implement feature', status: 'done' },
-          { title: 'Wire interface', status: 'done' },
-          { title: 'Update tests', status: 'done' },
-        ],
-      },
-      signal,
-    });
-
-    expect(getTodos()).toEqual([]);
-  });
-
-  it('requests independent verification when three unverified tasks are closed', async () => {
-    const { tool } = makeTool();
-
-    const result = await executeTool(tool, {
-      turnId: 't1',
-      toolCallId: 'call_1',
-      args: {
-        todos: [
-          { title: 'Implement feature', status: 'done' },
-          { title: 'Wire interface', status: 'done' },
-          { title: 'Update tests', status: 'done' },
-        ],
-      },
-      signal,
-    });
-
-    expect(result.output).toContain('subagent_type="verification"');
-    expect(result.output).toContain('VERDICT');
-  });
-
-  it('does not request another verifier when the completed list includes verification', async () => {
-    const { tool } = makeTool();
-
-    const result = await executeTool(tool, {
-      turnId: 't1',
-      toolCallId: 'call_1',
-      args: {
-        todos: [
-          { title: 'Implement feature', status: 'done' },
-          { title: 'Wire interface', status: 'done' },
-          { title: 'Verify the implementation', status: 'done' },
-        ],
-      },
-      signal,
-    });
-
-    expect(result.output).not.toContain('subagent_type="verification"');
-  });
-
-  it('does not request verification from a subagent checklist', async () => {
-    const { tool } = makeTool([], false);
-
-    const result = await executeTool(tool, {
-      turnId: 't1',
-      toolCallId: 'call_1',
-      args: {
-        todos: [
-          { title: 'Implement feature', status: 'done' },
-          { title: 'Wire interface', status: 'done' },
-          { title: 'Update tests', status: 'done' },
-        ],
-      },
-      signal,
-    });
-
-    expect(result.output).not.toContain('subagent_type="verification"');
   });
 
   it('resolveExecution description reflects the mode', () => {

@@ -4,8 +4,8 @@
  * cron cadence (`recurring: true`, the default).
  *
  * Tasks live in `SessionCronStore` and are mirrored to
- * `<sessionDir>/cron/<id>.json` via `CronManager.addTask`, so a
- * `pythinker resume` of the same session reloads them and the scheduler
+ * `<sessionDir>/cron/<id>.json` via `CronManager.addTask`, so resuming
+ * the same session reloads them and the scheduler
  * picks up where it left off (fires that fell during downtime are
  * collapsed into a single delivery with `coalescedCount`). Tasks do
  * NOT carry over into a brand-new session.
@@ -55,7 +55,7 @@ export const MAX_CRON_JOBS_PER_SESSION = 50;
 /**
  * Hard ceiling on `prompt` byte length (UTF-8). The zod `.max(...)`
  * upstream is in code units, which underflows multi-byte input
- * (`'é'.length === 1` even though it is 3 bytes in UTF-8); we re-check using
+ * (`'\u6C49'.length === 1` even though it is 3 bytes); we re-check using
  * `Buffer.byteLength` so the budget reflects the actual on-the-wire
  * size the model will eventually see.
  */
@@ -83,13 +83,13 @@ export const CronCreateInputSchema = z.object({
   cron: z
     .string()
     .describe(
-      '5-field cron expression in local time: "M H DoM Mon DoW" (e.g. "*/5 * * * *" = every 5 minutes, "30 14 28 2 *" = Feb 28 at 2:30pm local once).',
+      '5-field cron expression in local time: "M H DoM Mon DoW" (e.g. "*/5 * * * *" = every 5 minutes; "30 14 28 2 *" = Feb 28 at 2:30pm local — a pinned date like this repeats yearly unless you also pass recurring: false).',
     ),
   prompt: z
     .string()
     .min(1)
     .max(MAX_PROMPT_BYTES)
-    .describe('The prompt to enqueue at each fire time.'),
+    .describe('The prompt to enqueue at each fire time. Limited to 8 KiB (UTF-8).'),
   recurring: z
     .boolean()
     .optional()
@@ -149,11 +149,11 @@ export class CronCreateTool implements BuiltinTool<CronCreateInput> {
     let parsed: ParsedCronExpression;
     try {
       parsed = parseCronExpression(normalizedCron);
-    } catch (error) {
+    } catch (err) {
       return {
         isError: true,
         output: `Invalid cron expression: ${
-          error instanceof Error ? error.message : String(error)
+          err instanceof Error ? err.message : String(err)
         }`,
       };
     }

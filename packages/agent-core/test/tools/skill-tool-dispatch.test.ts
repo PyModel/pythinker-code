@@ -34,8 +34,6 @@ function registry(skills: readonly SkillDefinition[] = []): AgentSkillRegistry {
 }
 
 interface SkillToolMethods {
-  readonly applySkillOverrides: (skill: SkillDefinition) => void;
-  readonly registerSkillHooks: (skill: SkillDefinition) => void;
   readonly recordSkillActivation: (origin: SkillActivationOrigin) => void;
   readonly recordSystemReminder: (content: string, origin: SkillActivationOrigin) => void;
   readonly recordUserMessage: (
@@ -46,8 +44,6 @@ interface SkillToolMethods {
 
 function skillToolMethods() {
   return {
-    applySkillOverrides: vi.fn<SkillToolMethods['applySkillOverrides']>(),
-    registerSkillHooks: vi.fn<SkillToolMethods['registerSkillHooks']>(),
     recordSkillActivation: vi.fn<SkillToolMethods['recordSkillActivation']>(),
     recordSystemReminder: vi.fn<SkillToolMethods['recordSystemReminder']>(),
     recordUserMessage: vi.fn<SkillToolMethods['recordUserMessage']>(),
@@ -58,13 +54,7 @@ function skillToolAgent(skills: AgentSkillRegistry, methods: SkillToolMethods): 
   return {
     skills: {
       registry: skills,
-      applyInlineOverrides: methods.applySkillOverrides,
-      registerHooks: methods.registerSkillHooks,
       recordActivation: methods.recordSkillActivation,
-      renderPrompt: (
-        skill: SkillDefinition,
-        args: string,
-      ) => Promise.resolve(skills.renderSkillPrompt(skill, args)),
     },
     context: {
       appendSystemReminder: methods.recordSystemReminder,

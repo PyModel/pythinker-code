@@ -1,184 +1,144 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { CatalogProviderEntry, PythinkerConfig } from '@pymodel/pythinker-code-sdk';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { connectCatalogProvider } from '#/tui/commands/auth';
+import type { PythinkerConfig } from '@pymodel/pythinker-code-sdk';
+import {
+  OPENAI_CODEX_OAUTH_PLATFORM_ID,
+  OPENAI_CODEX_PROVIDER_ID,
+  applyOpenAICodexOAuthConfig,
+  fetchOpenAICodexModels,
+  runOpenAICodexOAuthFlow,
+} from '@pymodel/pythinker-code-oauth';
+
+import { handleLoginCommand } from '#/tui/commands/auth';
+import {
+  promptModelSelectionForCodex,
+  promptPlatformSelection,
+} from '#/tui/commands/prompts';
 import type { SlashCommandHost } from '#/tui/commands/dispatch';
 
-vi.mock('#/tui/commands/prompts', () => ({
-  promptApiKey: vi.fn(),
-  promptLogoutProviderSelection: vi.fn(),
-  promptModelSelectionForCatalog: vi.fn(),
-  promptModelSelectionForOpenPlatform: vi.fn(),
-  promptPlatformSelection: vi.fn(),
-}));
-
-const { promptApiKey, promptModelSelectionForCatalog } = await import('#/tui/commands/prompts');
-
-const CATALOG_ENTRY: CatalogProviderEntry = {
-  id: 'anthropic',
-  name: 'Anthropic',
-  npm: '@ai-sdk/anthropic',
-  api: 'https://api.anthropic.com',
-  env: ['TEST_CATALOG_API_KEY'],
-  models: {
-    'claude-opus-4-7': {
-      id: 'claude-opus-4-7',
-      name: 'Claude Opus 4.7',
-      limit: { context: 200_000, output: 64_000 },
-      tool_call: true,
-      reasoning: true,
-      modalities: { input: ['text', 'image'], output: ['text'] },
-    },
-  },
-} as CatalogProviderEntry;
-
-function makeHost(initial: PythinkerConfig) {
-  let config = initial;
-  const errors: string[] = [];
-  const host = {
-    harness: {
-      getConfig: vi.fn(async () => config),
-      setConfig: vi.fn(async (patch: Partial<PythinkerConfig>) => {
-        config = { ...config, ...patch };
-      }),
-      removeProvider: vi.fn(async (id: string) => {
-        delete config.providers[id];
-        return config;
-      }),
-    },
-    authFlow: { refreshConfigAfterLogin: vi.fn(async () => undefined) },
-    showError: vi.fn((msg: string) => errors.push(msg)),
-    showStatus: vi.fn(),
-    track: vi.fn(),
-    restoreEditor: vi.fn(),
-    mountEditorReplacement: vi.fn(),
-    cancelInFlight: undefined,
-  } as unknown as SlashCommandHost;
-  return { host, errors, current: () => config };
-}
-
-describe('connectCatalogProvider credential acquisition', () => {
-  beforeEach(() => {
-    vi.mocked(promptModelSelectionForCatalog).mockResolvedValue({
-      model: { id: 'claude-opus-4-7' } as never,
-      effort: 'off',
-    });
-  });
-
-  afterEach(() => {
-    vi.unstubAllEnvs();
-    vi.mocked(promptApiKey).mockReset();
-    vi.mocked(promptModelSelectionForCatalog).mockReset();
-  });
-
-  it('uses the env var without prompting when it is set', async () => {
-    vi.stubEnv('TEST_CATALOG_API_KEY', 'from-env');
-    const { host, current } = makeHost({ providers: {} } as PythinkerConfig);
-
-    await connectCatalogProvider(host, 'anthropic', CATALOG_ENTRY);
-
-    expect(promptApiKey).not.toHaveBeenCalled();
-    expect(current().providers['anthropic']).toMatchObject({
-      apiKeyEnvVar: 'TEST_CATALOG_API_KEY',
-    });
-    expect(current().providers['anthropic']?.apiKey).toBeUndefined();
-  });
-
-  it('prompts for a key and stores it literally when the env var is unset', async () => {
-    vi.stubEnv('TEST_CATALOG_API_KEY', '');
-    vi.mocked(promptApiKey).mockResolvedValue('sk-typed-in');
-    const { host, errors, current } = makeHost({ providers: {} } as PythinkerConfig);
-
-    await connectCatalogProvider(host, 'anthropic', CATALOG_ENTRY);
-
-    expect(errors).toEqual([]);
-    expect(promptApiKey).toHaveBeenCalledWith(
-      host,
-      'Anthropic',
-      expect.arrayContaining([expect.stringContaining('config.toml')]),
-    );
-    expect(current().providers['anthropic']?.apiKey).toBe('sk-typed-in');
-    expect(current().providers['anthropic']?.apiKeyEnvVar).toBeUndefined();
-  });
-
-  it('prompts for a key when the catalog entry declares no env var', async () => {
-    vi.mocked(promptApiKey).mockResolvedValue('sk-typed-in');
-    const entry = { ...CATALOG_ENTRY, env: undefined } as CatalogProviderEntry;
-    const { host, errors, current } = makeHost({ providers: {} } as PythinkerConfig);
-
-    await connectCatalogProvider(host, 'anthropic', entry);
-
-    expect(errors).toEqual([]);
-    expect(current().providers['anthropic']?.apiKey).toBe('sk-typed-in');
-    expect(current().providers['anthropic']?.apiKeyEnvVar).toBeUndefined();
-  });
-
-  it('aborts without writing config when the key prompt is cancelled', async () => {
-    vi.stubEnv('TEST_CATALOG_API_KEY', '');
-    vi.mocked(promptApiKey).mockResolvedValue(undefined);
-    const { host, current } = makeHost({ providers: {} } as PythinkerConfig);
-
-    await connectCatalogProvider(host, 'anthropic', CATALOG_ENTRY);
-
-    expect(current().providers['anthropic']).toBeUndefined();
-    expect(host.harness.setConfig).not.toHaveBeenCalled();
-    expect(promptModelSelectionForCatalog).not.toHaveBeenCalled();
-  });
+vi.mock('@pymodel/pythinker-code-oauth', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@pymodel/pythinker-code-oauth')>();
+  return {
+    ...actual,
+    applyOpenAICodexOAuthConfig: vi.fn(actual.applyOpenAICodexOAuthConfig),
+    runOpenAICodexOAuthFlow: vi.fn(async () => ({
+      accessToken: 'access-token-fixture',
+      refreshToken: 'refresh-token-fixture',
+      accountId: 'account-fixture',
+    })),
+    fetchOpenAICodexModels: vi.fn(async () => [
+      {
+        id: 'gpt-5-codex',
+        contextLength: 256_000,
+        supportsReasoning: true,
+        supportedReasoningEfforts: ['low', 'high'],
+        supportsImageIn: true,
+        supportsVideoIn: false,
+      },
+    ]),
+  };
 });
 
-describe('OpenAI Codex login keeps the existing provider until it is replaced', () => {
-  afterEach(() => {
-    vi.resetModules();
-    vi.doUnmock('@pymodel/pythinker-code-oauth');
+vi.mock('#/tui/commands/prompts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('#/tui/commands/prompts')>();
+  return {
+    ...actual,
+    promptPlatformSelection: vi.fn(),
+    promptModelSelectionForCodex: vi.fn(),
+  };
+});
+
+vi.mock('#/utils/open-url', () => ({ openUrl: vi.fn() }));
+
+describe('handleLoginCommand OpenAI Codex OAuth', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
   });
 
-  it('leaves the configured provider intact when the model picker is cancelled', async () => {
-    const oauth = await import('@pymodel/pythinker-code-oauth');
-    vi.doMock('@pymodel/pythinker-code-oauth', () => ({
-      ...oauth,
-      runOpenAICodexOAuthFlow: vi.fn(async () => ({
-        accessToken: 'access',
-        refreshToken: 'refresh',
-        accountId: 'account',
-      })),
-      fetchOpenAICodexModels: vi.fn(async () => [{ id: 'gpt-5-codex', name: 'GPT-5 Codex' }]),
-    }));
-    vi.resetModules();
-    const { runLogin } = await import('@pymodel/pythinker-code-sdk');
-    const { OPENAI_CODEX_OAUTH_PLATFORM_ID, OPENAI_CODEX_PROVIDER_ID } = oauth;
+  it('keeps the current provider until one atomic replacement is ready', async () => {
+    vi.mocked(promptPlatformSelection).mockResolvedValue(OPENAI_CODEX_OAUTH_PLATFORM_ID);
+    vi.mocked(promptModelSelectionForCodex).mockResolvedValue({
+      model: {
+        id: 'gpt-5-codex',
+        contextLength: 256_000,
+        supportsReasoning: true,
+        supportedReasoningEfforts: ['low', 'high'],
+        supportsImageIn: true,
+        supportsVideoIn: false,
+      },
+      thinking: 'high',
+    });
 
     let config = {
-      providers: { [OPENAI_CODEX_PROVIDER_ID]: { apiKey: 'already-signed-in' } },
+      providers: { [OPENAI_CODEX_PROVIDER_ID]: { apiKey: 'existing-token-fixture' } },
+      models: {},
     } as unknown as PythinkerConfig;
-    const removeProvider = vi.fn(async (id: string) => {
-      delete config.providers[id];
-      return config;
+    const replaceConfigSections = vi.fn(async (sections: Record<string, unknown>) => {
+      config = { ...config, ...sections } as PythinkerConfig;
     });
-    const setConfig = vi.fn();
-
-    await runLogin({
-      harness: { getConfig: async () => config, setConfig, removeProvider },
-      cancelInFlight: undefined,
-      showStatus: vi.fn(),
+    const host = {
+      harness: {
+        getConfig: vi.fn(async () => config),
+        supportsAtomicSectionReplace: () => true,
+        replaceConfigSections,
+        removeProvider: vi.fn(),
+      },
+      authFlow: { refreshConfigAfterLogin: vi.fn(async () => undefined) },
       showError: vi.fn(),
-      showLoginProgressSpinner: vi.fn(),
-      showLoginAuthorizationPrompt: vi.fn(),
-      promptPlatformSelection: async () => ({
-        platformId: OPENAI_CODEX_OAUTH_PLATFORM_ID,
-        catalog: {},
-      }),
-      promptApiKey: async () => undefined,
-      // The user backs out at the model picker — the most likely early return.
-      promptModelSelectionForOpenPlatform: async () => undefined,
-      promptModelSelectionForCatalog: async () => undefined,
-      refreshConfigAfterLogin: async () => undefined,
+      showStatus: vi.fn(),
       track: vi.fn(),
-    } as never);
+      restoreEditor: vi.fn(),
+      mountEditorReplacement: vi.fn(),
+      cancelInFlight: undefined,
+    } as unknown as SlashCommandHost;
 
-    // Removing the provider before the replacement is certain would have
-    // signed the user out of a working Codex setup for nothing.
-    expect(removeProvider).not.toHaveBeenCalled();
-    expect(config.providers[OPENAI_CODEX_PROVIDER_ID]).toBeDefined();
-    expect(setConfig).not.toHaveBeenCalled();
+    await handleLoginCommand(host);
+
+    expect(runOpenAICodexOAuthFlow).toHaveBeenCalledOnce();
+    expect(fetchOpenAICodexModels).toHaveBeenCalledOnce();
+    expect(applyOpenAICodexOAuthConfig).toHaveBeenCalledOnce();
+    expect(host.harness.removeProvider).not.toHaveBeenCalled();
+    expect(replaceConfigSections).toHaveBeenCalledOnce();
+    expect(config.defaultModel).toBe('openai-codex/gpt-5-codex');
+    expect(host.track).toHaveBeenCalledWith('login', {
+      provider: OPENAI_CODEX_PROVIDER_ID,
+      method: 'oauth',
+    });
+  });
+
+  it('does not persist credentials when cancellation arrives during config loading', async () => {
+    vi.mocked(promptPlatformSelection).mockResolvedValue(OPENAI_CODEX_OAUTH_PLATFORM_ID);
+    vi.mocked(promptModelSelectionForCodex).mockResolvedValue({
+      model: {
+        id: 'gpt-5-codex',
+        contextLength: 256_000,
+        supportsReasoning: true,
+        supportsImageIn: true,
+        supportsVideoIn: false,
+      },
+      thinking: 'high',
+    });
+    const replaceConfigSections = vi.fn();
+    let host!: SlashCommandHost;
+    host = {
+      harness: {
+        getConfig: vi.fn(async () => {
+          host.cancelInFlight?.();
+          return { providers: {}, models: {} } as PythinkerConfig;
+        }),
+        replaceConfigSections,
+      },
+      authFlow: { refreshConfigAfterLogin: vi.fn() },
+      showError: vi.fn(),
+      showStatus: vi.fn(),
+      track: vi.fn(),
+      cancelInFlight: undefined,
+    } as unknown as SlashCommandHost;
+
+    await handleLoginCommand(host);
+
+    expect(replaceConfigSections).not.toHaveBeenCalled();
+    expect(host.authFlow.refreshConfigAfterLogin).not.toHaveBeenCalled();
+    expect(host.showError).not.toHaveBeenCalled();
   });
 });

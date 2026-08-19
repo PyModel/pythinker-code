@@ -61,8 +61,8 @@ export function makeErrorPayload(
  * - `APIStatusError`: 429 -> rate_limit, 401 -> auth_error, otherwise -> api_error.
  *   Exception: a quota-exhausted 429 maps to api_error (retryable: false) —
  *   the rate_limit code would re-mint a rate-limit error across the wire
- *   boundary and drive retry/requeue behavior, which cannot help until the
- *   account is recharged.
+ *   boundary and drive the dynamic_workflow requeue/suspend loop, which cannot help
+ *   until the account is recharged.
  * - `APIConnectionError` / `APITimeoutError`: connection_error.
  * - `ChatProviderError`: api_error.
  *
@@ -91,7 +91,7 @@ export function toPythinkerErrorPayload(error: unknown): PythinkerErrorPayload {
             : ErrorCodes.PROVIDER_API_ERROR;
     return {
       code,
-      message: error.message,
+      message: sanitizeStatusErrorMessage(error.message),
       name: error.name,
       details: {
         statusCode: error.statusCode,
@@ -111,15 +111,19 @@ export function toPythinkerErrorPayload(error: unknown): PythinkerErrorPayload {
   }
 
   if (error instanceof APIEmptyResponseError) {
+    const code =
+      error.finishReason === 'filtered'
+        ? ErrorCodes.PROVIDER_FILTERED
+        : ErrorCodes.PROVIDER_API_ERROR;
     return {
-      code: ErrorCodes.PROVIDER_API_ERROR,
+      code,
       message: error.message,
       name: error.name,
       details: {
         finishReason: error.finishReason,
         rawFinishReason: error.rawFinishReason,
       },
-      retryable: PYTHINKER_ERROR_INFO[ErrorCodes.PROVIDER_API_ERROR].retryable,
+      retryable: PYTHINKER_ERROR_INFO[code].retryable,
     };
   }
 
@@ -146,6 +150,22 @@ export function toPythinkerErrorPayload(error: unknown): PythinkerErrorPayload {
     message: String(error),
     retryable: PYTHINKER_ERROR_INFO[ErrorCodes.INTERNAL].retryable,
   };
+}
+
+/**
+ * Provider status errors occasionally carry an HTML body instead of a
+ * structured message (for example, nginx returning
+ * "413 <html><head><title>413 Request Entity Too Large</title>...</html>").
+ * Extract the `<title>` when present so the wire message is human readable,
+ * and strip carriage returns so the text renders cleanly in terminals — a
+ * trailing `\r` combined with line-end padding would otherwise overwrite
+ * the whole line. The original HTML remains available in logs and `details`.
+ */
+function sanitizeStatusErrorMessage(message: string): string {
+  const titleMatch = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(message);
+  const extracted = titleMatch?.[1]?.trim();
+  const normalized = extracted !== undefined && extracted.length > 0 ? extracted : message;
+  return normalized.replaceAll('\r', '');
 }
 
 /**

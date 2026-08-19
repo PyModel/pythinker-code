@@ -1,5 +1,5 @@
 {
-  "changelog": ["@changesets/changelog-github", { "repo": "PyModel/pythinker-code", "disableThanks": true }],
+  "changelog": ["@changesets/changelog-github", { "repo": "PyModel/pythinker-code" }],
   "commit": false,
   "fixed": [],
   "linked": [],
@@ -7,19 +7,10 @@
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
   "ignore": [
-    "@pymodel/acp-adapter",
-    "@pymodel/agent-core",
-    "@pymodel/kaos",
-    "@pymodel/pythinker-code-oauth",
-    "@pymodel/pythinker-telemetry",
-    "@pymodel/pythinker-web",
-    "@pymodel/kosong",
-    "@pymodel/protocol",
-    "@pymodel/server",
-    "@pymodel/server-e2e",
-    "@pymodel/dashboard",
-    "@pymodel/dashboard-server",
-    "@pymodel/dashboard-web"
+    "@pymodel/vis",
+    "@pymodel/vis-server",
+    "@pymodel/vis-web",
+    "@pymodel/pythinker-inspect"
   ],
   "snapshot": {
     "useCalculatedVersion": true,

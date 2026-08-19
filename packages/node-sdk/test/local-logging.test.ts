@@ -217,9 +217,11 @@ describe('Local logging — harness integration', () => {
       expect(sessionLogEntries.length).toBeGreaterThan(0);
       expect(sessionLogEntries).toContain('logs/pythinker-code.log.1');
       expect(entries.has('logs/global/pythinker-code.log')).toBe(false);
-      expect(result.manifest.sessionLogPath).toBe(
-        entries.has('logs/pythinker-code.log') ? 'logs/pythinker-code.log' : undefined,
-      );
+      if (entries.has('logs/pythinker-code.log')) {
+        expect(result.manifest.sessionLogPath).toBe('logs/pythinker-code.log');
+      } else {
+        expect(result.manifest.sessionLogPath).toBeUndefined();
+      }
     } finally {
       restoreLogEnv(env);
     }
@@ -348,7 +350,6 @@ describe('Local logging — harness integration', () => {
     expect(exposed).toContain('log');
     expect(exposed).toContain('redact');
     expect(exposed).toContain('flushDiagnosticLogs');
-    expect(exposed).toContain('enableDiagnosticDebugLogging');
     expect(exposed).not.toContain('getLogger');
     expect(exposed).not.toContain('getRootLogger');
     expect(exposed).not.toContain('resolveLoggingConfig');

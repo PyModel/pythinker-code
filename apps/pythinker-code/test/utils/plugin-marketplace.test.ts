@@ -1,31 +1,17 @@
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import type { PluginSummary } from '@pymodel/pythinker-code-sdk';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
-  ANTHROPIC_PLUGIN_MARKETPLACE_URL,
   PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL,
   PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL_ENV,
 } from '#/constant/app';
-import {
-  computeMarketplaceEntryStatus,
-  computeUpdateStatus,
-  loadPluginMarketplace,
-  type PluginMarketplaceEntry,
-} from '#/utils/plugin-marketplace';
+import { computeUpdateStatus, loadPluginMarketplace } from '#/utils/plugin-marketplace';
 
-const REPO_ROOT = join(import.meta.dirname, '../../../..');
-const SHA = '0123456789abcdef0123456789abcdef01234567';
-const NEXT_SHA = '89abcdef0123456789abcdef0123456789abcdef';
-
-afterEach(() => {
-  vi.useRealTimers();
-  vi.unstubAllEnvs();
-});
+const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../../..');
 
 describe('computeUpdateStatus', () => {
   it('reports not-installed when the plugin is absent', () => {
@@ -34,19 +20,23 @@ describe('computeUpdateStatus', () => {
 
   it('reports an update when the marketplace version is newer', () => {
     expect(computeUpdateStatus('5.1.0', '5.0.0', true)).toEqual({
-      kind: 'update', local: '5.0.0', latest: '5.1.0',
+      kind: 'update',
+      local: '5.0.0',
+      latest: '5.1.0',
     });
   });
 
   it('reports up-to-date when versions match', () => {
     expect(computeUpdateStatus('5.1.0', '5.1.0', true)).toEqual({
-      kind: 'up-to-date', version: '5.1.0',
+      kind: 'up-to-date',
+      version: '5.1.0',
     });
   });
 
   it('does not offer a downgrade when the local version is ahead', () => {
     expect(computeUpdateStatus('3.1.1', '3.2.0', true)).toEqual({
-      kind: 'up-to-date', version: '3.2.0',
+      kind: 'up-to-date',
+      version: '3.2.0',
     });
   });
 
@@ -55,560 +45,547 @@ describe('computeUpdateStatus', () => {
     expect(computeUpdateStatus('5.1.0', 'dev', true).kind).toBe('up-to-date');
   });
 
-  it('shows only a known local version', () => {
+  it('shows the local version even when the marketplace omits one', () => {
     expect(computeUpdateStatus(undefined, '5.0.0', true)).toEqual({
-      kind: 'up-to-date', version: '5.0.0',
+      kind: 'up-to-date',
+      version: '5.0.0',
     });
+  });
+
+  it('does not claim the marketplace version as installed when the local version is unknown', () => {
+    // No spurious `installed · v<latest>`, and no permanent suppression of updates.
     expect(computeUpdateStatus('5.1.0', undefined, true)).toEqual({
-      kind: 'up-to-date', version: undefined,
-    });
-  });
-});
-
-describe('computeMarketplaceEntryStatus', () => {
-  it('compares immutable GitHub SHAs before semver', () => {
-    const installed = pluginSummary({ installedSha: SHA });
-    expect(computeMarketplaceEntryStatus(
-      marketplaceEntry({ effectiveSha: NEXT_SHA }),
-      installed,
-    )).toEqual({ kind: 'update', local: SHA, latest: NEXT_SHA });
-    expect(computeMarketplaceEntryStatus(
-      marketplaceEntry({ effectiveSha: SHA }),
-      installed,
-    )).toEqual({ kind: 'up-to-date', version: '1.0.0' });
-  });
-
-  it('does not invent an update for an unpinned HEAD source', () => {
-    expect(computeMarketplaceEntryStatus(marketplaceEntry(), pluginSummary())).toEqual({
-      kind: 'up-to-date', version: '1.0.0',
+      kind: 'up-to-date',
+      version: undefined,
     });
   });
 });
 
 describe('loadPluginMarketplace', () => {
-  it('loads a local Pythinker marketplace and preserves relative sources', async () => {
+  it('loads a local marketplace file and resolves relative plugin sources', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'pythinker-plugin-marketplace-'));
     const file = join(dir, 'marketplace.json');
-    await writeFile(file, JSON.stringify({
-      version: '1',
-      plugins: [{
-        id: 'pythinker-datasource',
-        tier: 'official',
-        displayName: 'Pythinker Datasource',
-        version: '1.0.0',
-        description: 'Datasource tools',
-        source: './pythinker-datasource',
-        keywords: ['data'],
-      }],
-    }), 'utf8');
-
-    const marketplace = await loadPluginMarketplace({ workDir: '/tmp/work', source: file });
-
-    expect(marketplace).toEqual(expect.objectContaining({
-      format: 'pythinker', source: file, name: 'Pythinker', version: '1',
-    }));
-    expect(marketplace.plugins[0]).toEqual(expect.objectContaining({
-      id: 'pythinker-datasource',
-      displayName: 'Pythinker Datasource',
-      tier: 'official',
-      source: join(dir, 'pythinker-datasource'),
-      keywords: ['data'],
-      install: expect.objectContaining({ kind: 'supported' }),
-    }));
-  });
-
-  it('recognizes a named Pythinker marketplace by its id-based entries', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'pythinker-plugin-marketplace-'));
-    const file = join(dir, 'marketplace.json');
-    await writeFile(file, JSON.stringify({
-      name: 'Example Pythinker Marketplace',
-      owner: { name: 'Example Owner' },
-      plugins: [{ id: 'demo', name: 'Demo', source: './demo' }],
-    }), 'utf8');
-
-    const marketplace = await loadPluginMarketplace({ workDir: '/tmp/work', source: file });
-
-    expect(marketplace.format).toBe('pythinker');
-    expect(marketplace.name).toBe('Example Pythinker Marketplace');
-    expect(marketplace.plugins[0]).toEqual(expect.objectContaining({
-      id: 'demo',
-      source: join(dir, 'demo'),
-      install: expect.objectContaining({ kind: 'supported' }),
-    }));
-  });
-
-  it('includes Superpowers in the repository marketplace fixture', async () => {
-    const marketplace = await loadPluginMarketplace({
-      workDir: REPO_ROOT,
-      source: join(REPO_ROOT, 'plugins/marketplace.json'),
-    });
-
-    expect(marketplace.plugins).toContainEqual(expect.objectContaining({
-      id: 'superpowers',
-      displayName: 'Superpowers',
-      tier: 'curated',
-      source: join(REPO_ROOT, 'plugins/curated/superpowers'),
-    }));
-  });
-
-  it('loads the Pythinker alias through the environment override', async () => {
-    vi.stubEnv(PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL_ENV, PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL);
-    const fetchImpl = marketplaceFetch({
-      plugins: [{ id: 'datasource', source: './official/datasource.zip' }],
-    });
-
-    const marketplace = await loadPluginMarketplace({
-      workDir: '/tmp/work', source: 'pythinker', fetchImpl,
-    });
-
-    expect(fetchImpl).toHaveBeenCalledWith(
-      PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL,
-      { signal: expect.any(AbortSignal) },
-    );
-    expect(marketplace.sourceLabel).toBe('Pythinker');
-    expect(marketplace.plugins[0]?.source).toBe(
-      new URL('./official/datasource.zip', PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL).toString(),
-    );
-  });
-
-  it('times out a remote request with one overall deadline', async () => {
-    vi.useFakeTimers();
-    const fetchImpl = vi.fn((_input: unknown, init?: RequestInit) => {
-      if (init?.signal === undefined) throw new Error('missing marketplace abort signal');
-      return new Promise<Response>(() => {});
-    }) as unknown as typeof fetch;
-
-    const loading = loadPluginMarketplace({
-      workDir: '/tmp/work',
-      source: 'https://example.test/marketplace.json',
-      fetchImpl,
-      fetchTimeoutMs: 25,
-    });
-    const timedOut = expect(loading).rejects.toThrow(/timed out after 25ms/i);
-    await vi.advanceTimersByTimeAsync(25);
-
-    await timedOut;
-  });
-
-  it('keeps the deadline active while reading the response body', async () => {
-    vi.useFakeTimers();
-    const fetchImpl = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      text: () => new Promise<string>((_resolve, reject) => {
-        setTimeout(() => reject(new Error('body remained pending')), 50);
-      }),
-    })) as unknown as typeof fetch;
-
-    const loading = loadPluginMarketplace({
-      workDir: '/tmp/work',
-      source: 'https://example.test/marketplace.json',
-      fetchImpl,
-      fetchTimeoutMs: 25,
-    });
-    const timedOut = expect(loading).rejects.toThrow(/timed out after 25ms/i);
-    await vi.advanceTimersByTimeAsync(50);
-
-    await timedOut;
-  });
-
-  it('loads the Anthropic alias as a GitHub marketplace', async () => {
-    const fetchImpl = marketplaceFetch(claudeCatalog([
-      { name: 'review', source: './plugins/review' },
-    ]));
-
-    const marketplace = await loadPluginMarketplace({
-      workDir: '/tmp/work', source: 'anthropic', fetchImpl,
-    });
-
-    expect(fetchImpl).toHaveBeenCalledWith(
-      ANTHROPIC_PLUGIN_MARKETPLACE_URL,
-      { signal: expect.any(AbortSignal) },
-    );
-    expect(marketplace).toEqual(expect.objectContaining({
-      format: 'claude',
-      name: 'example-marketplace',
-      sourceLabel: 'Anthropic official',
-      owner: { name: 'Example Owner', email: undefined, url: undefined },
-    }));
-    expect(marketplace.plugins[0]).toEqual(expect.objectContaining({
-      id: 'review',
-      source: 'https://github.com/anthropics/claude-plugins-official/tree/HEAD',
-      repositorySubdirectory: 'plugins/review',
-      declaredRef: 'HEAD',
-      install: {
-        kind: 'supported',
-        source: 'https://github.com/anthropics/claude-plugins-official/tree/HEAD',
-        options: expect.objectContaining({
-          repositorySubdirectory: 'plugins/review',
-          definition: expect.objectContaining({ id: 'review' }),
-        }),
-      },
-    }));
-  });
-
-  it('loads owner/repo and GitHub tree marketplace locations', async () => {
-    const fetchImpl = marketplaceFetch(claudeCatalog([]));
-    await loadPluginMarketplace({ workDir: '/tmp/does-not-exist', source: 'acme/plugins', fetchImpl });
-    await loadPluginMarketplace({
-      workDir: '/tmp/work', source: 'https://github.com/acme/plugins/tree/v2', fetchImpl,
-    });
-
-    expect(fetchImpl).toHaveBeenNthCalledWith(
-      1,
-      'https://raw.githubusercontent.com/acme/plugins/HEAD/.claude-plugin/marketplace.json',
-      { signal: expect.any(AbortSignal) },
-    );
-    expect(fetchImpl).toHaveBeenNthCalledWith(
-      2,
-      'https://raw.githubusercontent.com/acme/plugins/v2/.claude-plugin/marketplace.json',
-      { signal: expect.any(AbortSignal) },
-    );
-  });
-
-  it('normalizes current Claude GitHub source variants and metadata', async () => {
-    const fetchImpl = marketplaceFetch(claudeCatalog([
-      {
-        name: 'subdir-plugin',
-        displayName: 'Subdir Plugin',
-        description: 'Useful tools',
-        author: { name: 'Acme', url: 'https://example.com' },
-        category: 'development',
-        keywords: ['tools'],
-        tags: ['community-managed'],
-        homepage: 'https://example.com/plugin',
-        strict: false,
-        defaultEnabled: false,
-        source: {
-          source: 'git-subdir',
-          url: 'https://github.com/acme/plugins.git',
-          path: 'plugins/subdir',
-          ref: 'main',
-          sha: SHA,
-        },
-        skills: ['./skills'],
-        mcpServers: './.mcp.json',
-        hooks: './hooks.json',
-      },
-      {
-        name: 'legacy-url-path',
-        source: {
-          source: 'url',
-          url: 'https://github.com/acme/legacy.git',
-          path: 'claude/plugin',
-          sha: NEXT_SHA,
-        },
-      },
-      { name: 'github-source', source: { source: 'github', repo: 'acme/simple', ref: 'v1' } },
-      { name: 'npm-source', source: { source: 'npm', package: '@acme/plugin' } },
-    ]));
-
-    const marketplace = await loadPluginMarketplace({
-      workDir: '/tmp/work', source: 'https://example.com/marketplace.json', fetchImpl,
-    });
-    const [subdir, legacy, github, npm] = marketplace.plugins;
-
-    expect(subdir).toEqual(expect.objectContaining({
-      id: 'subdir-plugin',
-      displayName: 'Subdir Plugin',
-      author: { name: 'Acme', email: undefined, url: 'https://example.com' },
-      category: 'development',
-      keywords: ['tools'],
-      tags: ['community-managed'],
-      strict: false,
-      defaultEnabled: false,
-      declaredRef: 'main',
-      effectiveSha: SHA,
-      repositorySubdirectory: 'plugins/subdir',
-      supportedComponents: ['skills', 'mcpServers'],
-      unsupportedComponents: ['hooks'],
-      install: {
-        kind: 'supported',
-        source: `https://github.com/acme/plugins/tree/${SHA}`,
-        options: expect.objectContaining({
-          repositorySubdirectory: 'plugins/subdir',
-          definition: expect.objectContaining({
-            id: 'subdir-plugin',
-            strict: false,
-            defaultEnabled: false,
-            unsupportedComponents: ['hooks'],
-          }),
-        }),
-      },
-    }));
-    expect(legacy).toEqual(expect.objectContaining({
-      source: `https://github.com/acme/legacy/tree/${NEXT_SHA}`,
-      repositorySubdirectory: 'claude/plugin',
-    }));
-    expect(github).toEqual(expect.objectContaining({
-      source: 'https://github.com/acme/simple/tree/v1', declaredRef: 'v1',
-    }));
-    expect(npm?.install).toEqual({
-      kind: 'unsupported', reason: 'npm plugin sources are not supported.',
-    });
-  });
-
-  it('prepends catalog pluginRoot to local relative Claude plugin sources', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'claude-marketplace-'));
-    await mkdir(join(root, '.claude-plugin'));
     await writeFile(
-      join(root, '.claude-plugin', 'marketplace.json'),
+      file,
       JSON.stringify({
-        ...claudeCatalog([{ name: 'local-plugin', source: 'formatter' }]),
-        metadata: { pluginRoot: './plugins' },
+        version: '1',
+        plugins: [
+          {
+            id: 'pythinker-datasource',
+            tier: 'official',
+            displayName: 'Pythinker Datasource',
+            version: '1.0.0',
+            description: 'Datasource tools',
+            source: './pythinker-datasource',
+            keywords: ['data'],
+          },
+          {
+            id: 'superpowers',
+            tier: 'curated',
+            displayName: 'Superpowers',
+            version: '5.1.0',
+            description: 'Workflow skills',
+            homepage: 'https://github.com/obra/superpowers',
+            source: './curated/superpowers',
+            keywords: ['skills', 'workflow'],
+          },
+        ],
       }),
       'utf8',
     );
 
-    const marketplace = await loadPluginMarketplace({ workDir: '/tmp/work', source: root });
-
-    expect(marketplace.plugins[0]).toEqual(expect.objectContaining({
-      source: join(root, 'plugins/formatter'),
-      repositorySubdirectory: undefined,
-      install: expect.objectContaining({ kind: 'supported' }),
-    }));
-  });
-
-  it('prepends catalog pluginRoot to GitHub-relative Claude plugin sources', async () => {
     const marketplace = await loadPluginMarketplace({
       workDir: '/tmp/work',
-      source: 'acme/catalog',
-      fetchImpl: marketplaceFetch({
-        ...claudeCatalog([{ name: 'formatter', source: 'formatter' }]),
-        metadata: { pluginRoot: './plugins' },
+      source: file,
+    });
+
+    expect(marketplace.source).toBe(file);
+    expect(marketplace.version).toBe('1');
+    expect(marketplace.plugins.slice(0, 2)).toEqual([
+      {
+        id: 'pythinker-datasource',
+        displayName: 'Pythinker Datasource',
+        tier: 'official',
+        version: '1.0.0',
+        description: 'Datasource tools',
+        source: join(dir, 'pythinker-datasource'),
+        keywords: ['data'],
+        homepage: undefined,
+      },
+      {
+        id: 'superpowers',
+        displayName: 'Superpowers',
+        tier: 'curated',
+        version: '5.1.0',
+        description: 'Workflow skills',
+        source: join(dir, 'curated', 'superpowers'),
+        keywords: ['skills', 'workflow'],
+        homepage: 'https://github.com/obra/superpowers',
+      },
+    ]);
+  });
+
+  const builtInEntries = [
+    {
+      id: 'pythinker-cu',
+      displayName: 'Pythinker Computer Use',
+      description: 'fake cu',
+      tier: 'official' as const,
+      source: 'capability:pythinker-cu',
+    },
+    {
+      id: 'pythinker-webbridge',
+      displayName: 'Pythinker WebBridge',
+      description: 'fake wb',
+      tier: 'official' as const,
+      source: 'capability:pythinker-webbridge',
+    },
+  ];
+
+  it('appends the caller-supplied built-in entries the catalog does not carry', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'pythinker-plugin-marketplace-'));
+    const file = join(dir, 'marketplace.json');
+    await writeFile(file, JSON.stringify({ version: '1', plugins: [] }), 'utf8');
+
+    const marketplace = await loadPluginMarketplace({
+      workDir: '/tmp/work',
+      source: file,
+      builtInEntries,
+    });
+
+    // The util owns no product knowledge: entries come from the caller (the
+    // engine's capability registry), and no version is invented.
+    expect(marketplace.plugins).toEqual(builtInEntries);
+    expect(marketplace.plugins.map((entry) => entry.version)).toEqual([undefined, undefined]);
+  });
+
+  it('masks same-id catalog rows with the built-in entries', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'pythinker-plugin-marketplace-'));
+    const file = join(dir, 'marketplace.json');
+    await writeFile(
+      file,
+      JSON.stringify({
+        plugins: [
+          {
+            id: 'pythinker-webbridge',
+            tier: 'official',
+            displayName: 'Pythinker WebBridge',
+            version: '1.12.0',
+            source: './pythinker-webbridge',
+          },
+        ],
       }),
-    });
+      'utf8',
+    );
 
-    expect(marketplace.plugins[0]).toEqual(expect.objectContaining({
-      source: 'https://github.com/acme/catalog/tree/HEAD',
-      repositorySubdirectory: 'plugins/formatter',
-      install: expect.objectContaining({ kind: 'supported' }),
-    }));
-  });
-
-  it.each([
-    'git://example.test/acme/plugin.git',
-    'git+https://example.test/acme/plugin.git',
-  ])('keeps generic Git source %s visible but unavailable', async (source) => {
     const marketplace = await loadPluginMarketplace({
       workDir: '/tmp/work',
-      source: 'https://example.com/.claude-plugin/marketplace.json',
-      fetchImpl: marketplaceFetch(claudeCatalog([{ name: 'generic-git', source }])),
+      source: file,
+      builtInEntries,
     });
 
-    expect(marketplace.plugins[0]?.install).toEqual({
-      kind: 'unsupported',
-      reason: 'Generic Git plugin sources are not supported.',
-    });
+    // What the built-in ids mean stays decided by the client release: the
+    // catalog's row contributes the version, but not its source or copy.
+    const webbridge = marketplace.plugins.filter((entry) => entry.id === 'pythinker-webbridge');
+    expect(webbridge).toHaveLength(1);
+    expect(webbridge[0]?.source).toBe('capability:pythinker-webbridge');
+    expect(webbridge[0]?.version).toBe('1.12.0');
+    expect(marketplace.plugins.some((entry) => entry.id === 'pythinker-cu')).toBe(true);
   });
 
-  it('keeps direct-URL relative plugins visible but unavailable', async () => {
+  it('includes Superpowers in the repository marketplace fixture', async () => {
+    const fetchImpl = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.endsWith('/releases/latest')) {
+        return {
+          status: 302,
+          headers: new Headers({
+            location: 'https://github.com/obra/superpowers/releases/tag/v6.0.3',
+          }),
+        } as Response;
+      }
+      return { status: 404, headers: new Headers() } as Response;
+    }) as unknown as typeof fetch;
     const marketplace = await loadPluginMarketplace({
-      workDir: '/tmp/work',
-      source: 'https://example.com/.claude-plugin/marketplace.json',
-      fetchImpl: marketplaceFetch(claudeCatalog([{ name: 'relative', source: './plugin' }])),
-    });
-
-    expect(marketplace.plugins[0]?.install).toEqual({
-      kind: 'unsupported',
-      reason: 'Relative Claude plugin sources require a GitHub repository or local marketplace directory.',
-    });
-  });
-
-  it.each([
-    ['missing marketplace name', { owner: { name: 'Owner' }, plugins: [{ name: 'demo', source: './demo' }] }, /must define "name"/],
-    ['missing owner', { name: 'catalog', plugins: [{ name: 'demo', source: './demo' }] }, /owner.*name/],
-    ['missing plugin name', claudeCatalog([{ source: './demo' }]), /must define "name"/],
-    ['duplicate plugin names', claudeCatalog([{ name: 'Demo', source: './a' }, { name: 'demo', source: './b' }]), /duplicate plugin name/],
-    ['invalid SHA', claudeCatalog([{ name: 'demo', source: { source: 'url', url: 'https://github.com/acme/demo.git', sha: 'abc' } }]), /40-character hexadecimal SHA/],
-    ['traversing path', claudeCatalog([{ name: 'demo', source: '../demo' }]), /stay inside its repository/],
-    ['backslash path', claudeCatalog([{ name: 'demo', source: '.\\demo' }]), /absolute or unsafe/],
-  ])('rejects %s', async (_name, catalog, error) => {
-    await expect(loadPluginMarketplace({
-      workDir: '/tmp/work', source: 'acme/catalog', fetchImpl: marketplaceFetch(catalog),
-    })).rejects.toThrow(error as RegExp);
-  });
-
-  it('encodes object GitHub refs without flattening valid multi-segment refs', async () => {
-    const marketplace = await loadPluginMarketplace({
-      workDir: '/tmp/work',
-      source: 'https://example.com/.claude-plugin/marketplace.json',
-      fetchImpl: marketplaceFetch(claudeCatalog([
-        {
-          name: 'reserved-ref',
-          source: { source: 'github', repo: 'acme/plugin', ref: 'release#1' },
-        },
-        {
-          name: 'multi-segment-ref',
-          source: { source: 'github', repo: 'acme/plugin', ref: 'feature/release 1' },
-        },
-      ])),
-    });
-
-    expect(marketplace.plugins[0]).toEqual(expect.objectContaining({
-      source: 'https://github.com/acme/plugin/tree/release%231',
-      declaredRef: 'release#1',
-    }));
-    expect(new URL(marketplace.plugins[0]!.source).hash).toBe('');
-    expect(marketplace.plugins[1]).toEqual(expect.objectContaining({
-      source: 'https://github.com/acme/plugin/tree/feature/release%201',
-      declaredRef: 'feature/release 1',
-    }));
-  });
-
-  it('decodes and safely re-encodes GitHub tree refs for catalogs and plugins', async () => {
-    const fetchImpl = marketplaceFetch(claudeCatalog([
-      { name: 'encoded-ref', source: 'https://github.com/acme/plugin/tree/release%231' },
-    ]));
-    const marketplace = await loadPluginMarketplace({
-      workDir: '/tmp/work',
-      source: 'https://github.com/acme/catalog/tree/feature/release%201',
+      workDir: REPO_ROOT,
+      source: join(REPO_ROOT, 'plugins/marketplace.json'),
       fetchImpl,
     });
 
-    expect(fetchImpl).toHaveBeenCalledWith(
-      'https://raw.githubusercontent.com/acme/catalog/feature/release%201/.claude-plugin/marketplace.json',
-      { signal: expect.any(AbortSignal) },
+    expect(marketplace.plugins).toContainEqual(
+      expect.objectContaining({
+        id: 'superpowers',
+        displayName: 'Superpowers',
+        tier: 'curated',
+        source: 'https://github.com/obra/superpowers',
+        version: '6.0.3',
+      }),
     );
-    expect(marketplace.plugins[0]).toEqual(expect.objectContaining({
-      source: 'https://github.com/acme/plugin/tree/release%231',
-      declaredRef: 'release#1',
-    }));
+    expect(marketplace.plugins).toContainEqual(
+      expect.objectContaining({
+        id: 'pythinker-datasource',
+        tier: 'official',
+        source: join(REPO_ROOT, 'plugins/official/pythinker-datasource'),
+      }),
+    );
   });
 
-  it.each(['feature//x', 'feature/./x', 'feature/../x'])(
-    'rejects unsafe object GitHub ref %s',
-    async (ref) => {
-      await expect(loadPluginMarketplace({
-        workDir: '/tmp/work',
-        source: 'https://example.com/.claude-plugin/marketplace.json',
-        fetchImpl: marketplaceFetch(claudeCatalog([
-          { name: 'unsafe-ref', source: { source: 'github', repo: 'acme/plugin', ref } },
-        ])),
-      })).rejects.toThrow(/GitHub ref must not contain empty/);
-    },
-  );
+  it('loads the default CDN marketplace with injectable fetch', async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      text: async () =>
+        JSON.stringify({
+          plugins: [
+            {
+              id: 'pythinker-datasource',
+              displayName: 'Pythinker Datasource',
+              source: './official/pythinker-datasource.zip',
+            },
+          ],
+        }),
+    })) as unknown as typeof fetch;
 
-  it.each([
-    'feature//x',
-    'feature/./x',
-    'feature/../x',
-    'feature/%2E%2E/x',
-    'feature%2F%2E%2E%2Fx',
-  ])('keeps unsafe GitHub URL ref %s visible as unsupported', async (ref) => {
     const marketplace = await loadPluginMarketplace({
       workDir: '/tmp/work',
-      source: 'https://example.com/.claude-plugin/marketplace.json',
-      fetchImpl: marketplaceFetch(claudeCatalog([
-        { name: 'unsafe-ref', source: `https://github.com/acme/plugin/tree/${ref}` },
-      ])),
+      source: PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL,
+      fetchImpl,
     });
 
-    expect(marketplace.plugins[0]?.install).toEqual({
-      kind: 'unsupported',
-      reason: 'Only GitHub-backed Claude plugin sources are supported.',
-    });
+    expect(fetchImpl).toHaveBeenCalledWith(PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL);
+    expect(marketplace.plugins[0]).toEqual(
+      expect.objectContaining({
+        id: 'pythinker-datasource',
+        displayName: 'Pythinker Datasource',
+        source: new URL(
+          './official/pythinker-datasource.zip',
+          PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL,
+        ).toString(),
+      }),
+    );
   });
 
-  it('keeps malformed percent-encoded GitHub refs visible as unsupported', async () => {
+  it('falls back to the source checkout marketplace when the default CDN cannot be fetched', async () => {
+    const previous = process.env[PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL_ENV];
+    delete process.env[PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL_ENV];
+    const fetchImpl = vi.fn(async () => {
+      throw new Error('fetch failed');
+    }) as unknown as typeof fetch;
+
+    try {
+      const marketplace = await loadPluginMarketplace({ workDir: '/tmp/work', fetchImpl });
+
+      expect(fetchImpl).toHaveBeenCalledWith(PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL);
+      expect(marketplace.source).toBe(join(REPO_ROOT, 'plugins/marketplace.json'));
+      expect(marketplace.plugins).toContainEqual(
+        expect.objectContaining({
+          id: 'superpowers',
+          source: 'https://github.com/obra/superpowers',
+        }),
+      );
+    } finally {
+      if (previous === undefined) {
+        delete process.env[PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL_ENV];
+      } else {
+        process.env[PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL_ENV] = previous;
+      }
+    }
+  });
+
+  it('does not use the source checkout fallback for explicit marketplace sources', async () => {
+    const fetchImpl = vi.fn(async () => {
+      throw new Error('fetch failed');
+    }) as unknown as typeof fetch;
+
+    await expect(loadPluginMarketplace({
+      workDir: '/tmp/work',
+      source: PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL,
+      fetchImpl,
+    })).rejects.toThrow(/fetch failed/);
+  });
+
+  it('keeps the built-in entries when the catalog is unreachable', async () => {
+    const fetchImpl = vi.fn(async () => {
+      throw new Error('fetch failed');
+    }) as unknown as typeof fetch;
+
+    // Explicit source (no checkout fallback) + unreachable: the built-ins do
+    // not come from the catalog, so they must survive the outage.
     const marketplace = await loadPluginMarketplace({
       workDir: '/tmp/work',
-      source: 'https://example.com/.claude-plugin/marketplace.json',
-      fetchImpl: marketplaceFetch(claudeCatalog([
-        { name: 'malformed-ref', source: 'https://github.com/acme/plugin/tree/%zz' },
-      ])),
+      source: 'https://example.test/marketplace.json',
+      fetchImpl,
+      builtInEntries,
     });
 
-    expect(marketplace.plugins[0]?.install).toEqual({
-      kind: 'unsupported',
-      reason: 'Only GitHub-backed Claude plugin sources are supported.',
+    expect(marketplace.plugins.map((entry) => entry.id)).toEqual(['pythinker-cu', 'pythinker-webbridge']);
+  });
+
+  describe('version derivation from a GitHub source', () => {
+    async function loadEntry(source: string, version?: string) {
+      const dir = await mkdtemp(join(tmpdir(), 'pythinker-plugin-marketplace-'));
+      const file = join(dir, 'marketplace.json');
+      await writeFile(
+        file,
+        JSON.stringify({
+          plugins: [
+            {
+              id: 'demo',
+              displayName: 'Demo',
+              source,
+              version,
+            },
+          ],
+        }),
+        'utf8',
+      );
+      const marketplace = await loadPluginMarketplace({ workDir: dir, source: file });
+      return marketplace.plugins[0]!;
+    }
+
+    it('derives a version from a /releases/tag/ source', async () => {
+      const entry = await loadEntry('https://github.com/obra/superpowers/releases/tag/v6.0.3');
+      expect(entry.version).toBe('6.0.3');
+    });
+
+    it('derives a version from a /tree/ source', async () => {
+      const entry = await loadEntry('https://github.com/obra/superpowers/tree/v6.0.3');
+      expect(entry.version).toBe('6.0.3');
+    });
+
+    it('accepts a tag without a leading v', async () => {
+      const entry = await loadEntry('https://github.com/obra/superpowers/releases/tag/6.0.3');
+      expect(entry.version).toBe('6.0.3');
+    });
+
+    it('does not derive a version from a commit SHA', async () => {
+      const entry = await loadEntry('https://github.com/obra/superpowers/commit/abc1234');
+      expect(entry.version).toBeUndefined();
+    });
+
+    it('does not derive a version from a non-GitHub URL', async () => {
+      const entry = await loadEntry('https://code.kimi.com/pythinker-code/plugins/curated/superpowers.zip');
+      expect(entry.version).toBeUndefined();
+    });
+
+    it('lets an explicit version override the derived one', async () => {
+      const entry = await loadEntry(
+        'https://github.com/obra/superpowers/releases/tag/v6.0.3',
+        '9.9.9',
+      );
+      expect(entry.version).toBe('9.9.9');
     });
   });
 
-  it('rejects unknown Pythinker marketplace tier values', async () => {
+  describe('latest release resolution for bare GitHub sources', () => {
+    async function loadWithLatest(source: string, fetchImpl: typeof fetch) {
+      const dir = await mkdtemp(join(tmpdir(), 'pythinker-plugin-marketplace-'));
+      const file = join(dir, 'marketplace.json');
+      await writeFile(
+        file,
+        JSON.stringify({ plugins: [{ id: 'demo', displayName: 'Demo', source }] }),
+        'utf8',
+      );
+      const marketplace = await loadPluginMarketplace({ workDir: dir, source: file, fetchImpl });
+      return marketplace.plugins[0]!;
+    }
+
+    function redirectFetch(location: string): typeof fetch {
+      return vi.fn(async () => ({
+        status: 302,
+        headers: new Headers({ location }),
+      })) as unknown as typeof fetch;
+    }
+
+    it('fills the version from /releases/latest for a bare repo URL', async () => {
+      const entry = await loadWithLatest(
+        'https://github.com/owner/repo',
+        redirectFetch('https://github.com/owner/repo/releases/tag/v6.0.3'),
+      );
+      expect(entry.version).toBe('6.0.3');
+    });
+
+    it('strips a leading v from the resolved latest tag', async () => {
+      const entry = await loadWithLatest(
+        'https://github.com/owner/repo',
+        redirectFetch('https://github.com/owner/repo/releases/tag/6.0.3'),
+      );
+      expect(entry.version).toBe('6.0.3');
+    });
+
+    it('leaves version undefined when the repo has no release', async () => {
+      const fetchImpl = vi.fn(async () => ({
+        status: 404,
+        headers: new Headers(),
+      })) as unknown as typeof fetch;
+      const entry = await loadWithLatest('https://github.com/owner/repo', fetchImpl);
+      expect(entry.version).toBeUndefined();
+    });
+
+    it('degrades gracefully when the latest lookup throws', async () => {
+      const fetchImpl = vi.fn(async () => {
+        throw new Error('network down');
+      }) as unknown as typeof fetch;
+      const entry = await loadWithLatest('https://github.com/owner/repo', fetchImpl);
+      expect(entry.version).toBeUndefined();
+    });
+
+    it('does not query latest when the source already pins a ref', async () => {
+      const fetchImpl = vi.fn(async () => {
+        throw new Error('should not be called');
+      }) as unknown as typeof fetch;
+      const entry = await loadWithLatest(
+        'https://github.com/owner/repo/releases/tag/v6.0.3',
+        fetchImpl,
+      );
+      expect(entry.version).toBe('6.0.3');
+      expect(fetchImpl).not.toHaveBeenCalled();
+    });
+
+    it('keeps an explicit version without querying latest', async () => {
+      const fetchImpl = vi.fn(async () => {
+        throw new Error('should not be called');
+      }) as unknown as typeof fetch;
+      const dir = await mkdtemp(join(tmpdir(), 'pythinker-plugin-marketplace-'));
+      const file = join(dir, 'marketplace.json');
+      await writeFile(
+        file,
+        JSON.stringify({
+          plugins: [
+            {
+              id: 'demo',
+              displayName: 'Demo',
+              version: '9.9.9',
+              source: 'https://github.com/owner/repo',
+            },
+          ],
+        }),
+        'utf8',
+      );
+      const marketplace = await loadPluginMarketplace({ workDir: dir, source: file, fetchImpl });
+      expect(marketplace.plugins[0]?.version).toBe('9.9.9');
+      expect(fetchImpl).not.toHaveBeenCalled();
+    });
+  });
+
+  it('accepts legacy marketplace type aliases as normal plugins', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'pythinker-plugin-marketplace-'));
     const file = join(dir, 'marketplace.json');
-    await writeFile(file, JSON.stringify({
-      plugins: [{ id: 'demo', tier: 'community', source: './demo' }],
-    }), 'utf8');
+    await writeFile(
+      file,
+      JSON.stringify({
+        plugins: [
+          {
+            id: 'pythinker-webbridge',
+            type: 'guide',
+            displayName: 'Pythinker WebBridge',
+            source: './pythinker-webbridge',
+            installSkill: 'install',
+            removeSkill: 'remove',
+          },
+          {
+            id: 'demo-managed',
+            type: 'managed',
+            source: './demo-managed',
+          },
+        ],
+      }),
+      'utf8',
+    );
+
+    const marketplace = await loadPluginMarketplace({ workDir: '/tmp/work', source: file });
+
+    expect(marketplace.plugins).toContainEqual(
+      expect.objectContaining({
+        id: 'pythinker-webbridge',
+        source: join(dir, 'pythinker-webbridge'),
+      }),
+    );
+    expect(marketplace.plugins).toContainEqual(
+      expect.objectContaining({
+        id: 'demo-managed',
+        source: join(dir, 'demo-managed'),
+      }),
+    );
+  });
+
+  it('rejects an entry without a source', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'pythinker-plugin-marketplace-'));
+    const file = join(dir, 'marketplace.json');
+    await writeFile(
+      file,
+      JSON.stringify({ plugins: [{ id: 'broken', displayName: 'Broken' }] }),
+      'utf8',
+    );
+
+    await expect(loadPluginMarketplace({ workDir: '/tmp/work', source: file })).rejects.toThrow(
+      /must define "source"/,
+    );
+  });
+
+  it('loads an explicit remote marketplace with injectable fetch', async () => {
+    const source = 'https://example.com/plugins/marketplace.json';
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      text: async () =>
+        JSON.stringify({
+          plugins: [{ id: 'superpowers', name: 'Superpowers', url: 'superpowers.zip' }],
+        }),
+    })) as unknown as typeof fetch;
+
+    const marketplace = await loadPluginMarketplace({ workDir: '/tmp/work', source, fetchImpl });
+
+    expect(fetchImpl).toHaveBeenCalledWith(source);
+    expect(marketplace.plugins[0]).toEqual(
+      expect.objectContaining({
+        id: 'superpowers',
+        displayName: 'Superpowers',
+        source: new URL('superpowers.zip', source).toString(),
+      }),
+    );
+  });
+
+  it('rejects malformed marketplace entries', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'pythinker-plugin-marketplace-'));
+    const file = join(dir, 'marketplace.json');
+    await writeFile(file, JSON.stringify({ plugins: [{ displayName: 'Missing id' }] }), 'utf8');
+
+    await expect(loadPluginMarketplace({ workDir: '/tmp/work', source: file })).rejects.toThrow(
+      /must define "id"/,
+    );
+  });
+
+  it('rejects unknown marketplace tier values', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'pythinker-plugin-marketplace-'));
+    const file = join(dir, 'marketplace.json');
+    await writeFile(
+      file,
+      JSON.stringify({
+        plugins: [{ id: 'demo', tier: 'community', source: './demo' }],
+      }),
+      'utf8',
+    );
 
     await expect(loadPluginMarketplace({ workDir: '/tmp/work', source: file })).rejects.toThrow(
       /"tier" must be one of/,
     );
   });
+
+  it('rejects unknown marketplace entry types', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'pythinker-plugin-marketplace-'));
+    const file = join(dir, 'marketplace.json');
+    await writeFile(
+      file,
+      JSON.stringify({
+        plugins: [{ id: 'demo', type: 'integration', source: './demo' }],
+      }),
+      'utf8',
+    );
+
+    await expect(loadPluginMarketplace({ workDir: '/tmp/work', source: file })).rejects.toThrow(
+      /Legacy aliases "managed" and "guide" are also accepted/,
+    );
+  });
+
 });
-
-function claudeCatalog(plugins: readonly unknown[]): Record<string, unknown> {
-  return {
-    name: 'example-marketplace',
-    description: 'Example catalog',
-    owner: { name: 'Example Owner' },
-    plugins,
-  };
-}
-
-function marketplaceFetch(catalog: unknown): typeof fetch {
-  return vi.fn(async () => ({
-    ok: true,
-    status: 200,
-    text: async () => JSON.stringify(catalog),
-  })) as unknown as typeof fetch;
-}
-
-function marketplaceEntry(
-  overrides: Partial<PluginMarketplaceEntry> = {},
-): PluginMarketplaceEntry {
-  return {
-    id: 'demo',
-    displayName: 'Demo',
-    source: 'https://github.com/acme/demo/tree/HEAD',
-    sourceLabel: 'acme/demo@HEAD',
-    marketplaceName: 'example',
-    marketplaceOwner: 'Example',
-    tier: undefined,
-    version: '1.0.0',
-    description: undefined,
-    author: undefined,
-    homepage: undefined,
-    repository: 'https://github.com/acme/demo',
-    license: undefined,
-    category: undefined,
-    keywords: undefined,
-    tags: undefined,
-    strict: undefined,
-    defaultEnabled: undefined,
-    supportedComponents: [],
-    unsupportedComponents: [],
-    declaredRef: 'HEAD',
-    effectiveSha: undefined,
-    github: { owner: 'acme', repo: 'demo' },
-    repositorySubdirectory: undefined,
-    install: { kind: 'unsupported', reason: 'not used by this test' },
-    ...overrides,
-  };
-}
-
-function pluginSummary(options: { installedSha?: string } = {}): PluginSummary {
-  return {
-    id: 'demo',
-    displayName: 'Demo',
-    version: '1.0.0',
-    description: undefined,
-    enabled: true,
-    state: 'ok',
-    source: 'github',
-    originalSource: 'https://github.com/acme/demo/tree/HEAD',
-    skillCount: 0,
-    mcpServerCount: 0,
-    enabledMcpServerCount: 0,
-    hasErrors: false,
-    github: {
-      owner: 'acme',
-      repo: 'demo',
-      ref: options.installedSha === undefined
-        ? { kind: 'branch', value: 'HEAD' }
-        : { kind: 'sha', value: options.installedSha },
-      installedSha: options.installedSha,
-    },
-  } as PluginSummary;
-}

@@ -1,51 +1,33 @@
 import type { McpServerInfo, McpServerStatusEvent } from '@pymodel/pythinker-code-sdk';
 
-import type { ColorToken } from '#/tui/theme';
-
 export type McpServerStatusSnapshot = McpServerInfo | McpServerStatusEvent['server'];
 
-export interface McpStartupStatusLine {
-  readonly label: string;
-  readonly color: ColorToken;
-  readonly loading: boolean;
-  readonly transient: boolean;
+export const MCP_STARTUP_STATUS_ROW_LIMIT = 4;
+
+function mcpStartupStatusPriority(status: McpServerStatusSnapshot['status']): number {
+  switch (status) {
+    case 'failed':
+      return 0;
+    case 'needs-auth':
+      return 1;
+    case 'pending':
+      return 2;
+    case 'connected':
+      return 3;
+    case 'disabled':
+      return 4;
+    case 'removed':
+      return 5;
+  }
 }
 
-export function buildMcpStartupStatusLine(
+export function selectMcpStartupStatusRows(
   servers: readonly McpServerStatusSnapshot[],
-): McpStartupStatusLine | null {
-  const enabled = servers.filter((server) => server.status !== 'disabled');
-  if (enabled.length === 0) return null;
-
-  const connected = enabled.filter((server) => server.status === 'connected');
-  const failed = enabled.filter((server) => server.status === 'failed').length;
-  const needsAuth = enabled.filter((server) => server.status === 'needs-auth').length;
-  const loading = enabled.filter((server) => server.status === 'pending').length;
-  const parts = [`${String(connected.length)}/${String(enabled.length)} connected`];
-
-  if (failed > 0) parts.push(`${String(failed)} failed`);
-  if (needsAuth > 0) parts.push(`${String(needsAuth)} needs auth`);
-  if (loading > 0) parts.push(`${String(loading)} loading…`);
-
-  const hasIssues = failed > 0 || needsAuth > 0;
-  if (loading === 0 && hasIssues) parts.push('/mcp for details');
-  if (loading === 0 && !hasIssues) {
-    const tools = connected.reduce((sum, server) => sum + server.toolCount, 0);
-    parts.push(`${String(tools)} tool${tools === 1 ? '' : 's'}`);
-  }
-
-  return {
-    label: `MCP servers · ${parts.join(' · ')}`,
-    color: failed > 0
-      ? 'error'
-      : needsAuth > 0
-        ? 'warning'
-        : loading > 0
-          ? 'primary'
-          : 'success',
-    loading: loading > 0,
-    transient: loading === 0 && !hasIssues,
-  };
+): McpServerStatusSnapshot[] {
+  return [...servers]
+    .filter((server) => server.status !== 'disabled' && server.status !== 'removed')
+    .toSorted((a, b) => mcpStartupStatusPriority(a.status) - mcpStartupStatusPriority(b.status))
+    .slice(0, MCP_STARTUP_STATUS_ROW_LIMIT);
 }
 
 export function formatMcpStartupStatusSummary(
@@ -56,6 +38,7 @@ export function formatMcpStartupStatusSummary(
   let connecting = 0;
   let connected = 0;
   let disabled = 0;
+  let removed = 0;
   for (const server of servers) {
     switch (server.status) {
       case 'failed':
@@ -73,6 +56,9 @@ export function formatMcpStartupStatusSummary(
       case 'disabled':
         disabled++;
         break;
+      case 'removed':
+        removed++;
+        break;
     }
   }
 
@@ -82,6 +68,7 @@ export function formatMcpStartupStatusSummary(
   if (connecting > 0) parts.push(`${connecting} connecting`);
   if (connected > 0) parts.push(`${connected} connected`);
   if (disabled > 0) parts.push(`${disabled} disabled`);
+  if (removed > 0) parts.push(`${removed} removed`);
   return parts.join(', ');
 }
 

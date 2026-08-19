@@ -22,7 +22,7 @@ import {
 import type { PythinkerConfig } from '../../../src/config';
 import type { ExecutableToolResult } from '../../../src/loop';
 import type { Logger } from '../../../src/logging';
-import { type ModelProvider, ProviderManager } from '../../../src/session/provider-manager';
+import { ProviderManager } from '../../../src/session/provider-manager';
 import type { QuestionResult, RPCCallOptions, SDKAgentRPC } from '../../../src/rpc';
 import type { AgentAPI } from '../../../src/rpc/core-api';
 import type { ToolServices } from '../../../src/tools/support/services';
@@ -78,7 +78,7 @@ interface ResumeStateSnapshot {
     readonly cwd: string;
     readonly provider: ProviderConfig | undefined;
     readonly profileName: string | undefined;
-    readonly thinkingLevel: string;
+    readonly thinkingEffort: string;
     readonly systemPrompt: string;
   };
   readonly context: ReturnType<Agent['context']['data']>;
@@ -91,7 +91,6 @@ interface ResumeStateSnapshot {
 export interface TestAgentOptions {
   readonly kaos?: Kaos | undefined;
   readonly runtime?: ToolServices | undefined;
-  readonly skills?: AgentOptions['skills'];
   readonly compactionStrategy?: CompactionStrategy | undefined;
   readonly microCompaction?: AgentOptions['microCompaction'];
   readonly generate?: GenerateFn | undefined;
@@ -99,7 +98,7 @@ export interface TestAgentOptions {
   readonly type?: AgentOptions['type'];
   readonly permission?: AgentOptions['permission'];
   readonly goal?: GoalMode;
-  readonly providerManager?: ModelProvider;
+  readonly providerManager?: ProviderManager;
   readonly initialConfig?: PythinkerConfig;
   readonly providerManagerOverrides?: Omit<ConstructorParameters<typeof ProviderManager>[0], 'config'>;
   readonly sessionId?: string;
@@ -110,8 +109,6 @@ export interface TestAgentOptions {
   readonly telemetry?: TelemetryClient | undefined;
   readonly log?: Logger;
   readonly experimentalFlags?: AgentOptions['experimentalFlags'];
-  readonly onAfterCompaction?: AgentOptions['onAfterCompaction'];
-  readonly fileCheckpoints?: AgentOptions['fileCheckpoints'];
 }
 
 interface ConfigureOptions {
@@ -185,7 +182,6 @@ export class AgentTestContext {
     this.agent = new Agent({
       kaos,
       toolServices,
-      skills: options.skills,
       config: this.pythinkerConfig,
       rpc: this.createRpcProxy(),
       homedir: options.homedir,
@@ -201,8 +197,6 @@ export class AgentTestContext {
       telemetry: options.telemetry,
       log: options.log,
       experimentalFlags: options.experimentalFlags,
-      onAfterCompaction: options.onAfterCompaction,
-      fileCheckpoints: options.fileCheckpoints,
     });
     if (options.goal !== undefined) {
       (this.agent as unknown as { goal: GoalMode }).goal = options.goal;
@@ -230,7 +224,7 @@ export class AgentTestContext {
       cwd: process.cwd(),
       modelAlias: provider.model,
       systemPrompt: DEFAULT_TEST_SYSTEM_PROMPT,
-      thinkingLevel: 'off',
+      thinkingEffort: 'off',
     });
 
     if (tools.length > 0) {
@@ -743,7 +737,7 @@ export class AgentTestContext {
 
   async expectResumeMatches(): Promise<void> {
     const resumed = testAgent({
-      kaos: createResumeNoSideEffectKaos(this.agent.config.cwd),
+      kaos: createResumeNoSideEffectKaos(this.agent.config.cwd, this.agent.kaos.pathClass()),
       runtime: {
         urlFetcher: this.agent.toolServices?.urlFetcher,
         webSearcher: this.agent.toolServices?.webSearcher,
@@ -968,24 +962,29 @@ const failOnResumeGenerate: GenerateFn = async () => {
   throw new Error('Resume replay unexpectedly called the LLM');
 };
 
-function createResumeNoSideEffectKaos(initialCwd: string): Kaos {
+function createResumeNoSideEffectKaos(
+  initialCwd: string,
+  pathClass: 'posix' | 'win32',
+): Kaos {
   const fail = (method: string): never => {
     throw new Error(`Resume replay unexpectedly called kaos.${method}`);
   };
 
   // Replay may carry `config.update({cwd})` events that route through
   // `kaos.chdir(...)`; let those mutate an internal cwd field so replay
-  // succeeds. Actual fs I/O methods remain forbidden.
+  // succeeds. Actual fs I/O methods remain forbidden. `pathClass` mirrors
+  // the live agent's kaos so platform-conditional tool descriptions (e.g.
+  // Glob's Windows note) match the original in `expectResumeMatches`.
   let cwd = initialCwd;
   return {
     name: 'resume-no-side-effects',
     osEnv: TEST_OS_ENV,
-    pathClass: () => 'posix',
+    pathClass: () => pathClass,
     normpath: (p: string) => p,
     gethome: () => '/home/test',
     getcwd: () => cwd,
-    withCwd: (next: string) => createResumeNoSideEffectKaos(next),
-    withEnv: () => createResumeNoSideEffectKaos(cwd),
+    withCwd: (next: string) => createResumeNoSideEffectKaos(next, pathClass),
+    withEnv: () => createResumeNoSideEffectKaos(cwd, pathClass),
     chdir: async (next: string) => {
       cwd = next;
     },
@@ -997,8 +996,6 @@ function createResumeNoSideEffectKaos(initialCwd: string): Kaos {
     readLines: () => fail('readLines'),
     writeBytes: () => fail('writeBytes'),
     writeText: () => fail('writeText'),
-    unlink: () => fail('unlink'),
-    chmod: () => fail('chmod'),
     mkdir: () => fail('mkdir'),
     exec: () => fail('exec'),
     execWithEnv: () => fail('execWithEnv'),
@@ -1043,10 +1040,10 @@ function configStateSnapshot(agent: Agent): ResumeStateSnapshot['config'] {
   } catch {}
 
   return {
-    cwd: agent.config.cwd,
+    cwd: agent.config.cwd.replaceAll('\\', '/'),
     provider,
     profileName: agent.config.profileName,
-    thinkingLevel: agent.config.thinkingLevel,
+    thinkingEffort: agent.config.thinkingEffort,
     systemPrompt: agent.config.systemPrompt,
   };
 }
@@ -1097,6 +1094,7 @@ function capabilityNames(capabilities: ModelCapability | undefined): string[] {
     capabilities.audio_in ? 'audio_in' : undefined,
     capabilities.thinking ? 'thinking' : undefined,
     capabilities.tool_use ? 'tool_use' : undefined,
+    capabilities.dynamically_loaded_tools === true ? 'dynamically_loaded_tools' : undefined,
   ].filter((capability): capability is string => capability !== undefined);
 }
 

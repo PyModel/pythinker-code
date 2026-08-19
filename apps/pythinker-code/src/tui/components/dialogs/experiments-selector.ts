@@ -5,17 +5,10 @@ import {
   truncateToWidth,
   visibleWidth,
   type Focusable,
-} from '@earendil-works/pi-tui';
+} from '@pymodel/pi-tui';
 import type { ExperimentalFeatureState } from '@pymodel/pythinker-code-sdk';
 
 import { SELECT_POINTER } from '#/tui/constant/symbols';
-import { combinedBindingHint, formatBindingKeys } from '#/tui/components/dialogs/choice-picker';
-import {
-  defaultKeybindings,
-  keybindingDisplayText,
-  KeybindingResolver,
-  type ParsedKeybinding,
-} from '#/tui/keybindings';
 import { currentTheme } from '#/tui/theme';
 import { printableChar } from '#/tui/utils/printable-key';
 import { SearchableList } from '#/tui/utils/searchable-list';
@@ -39,8 +32,6 @@ export class ExperimentsSelectorComponent extends Container implements Focusable
   private readonly opts: ExperimentsSelectorOptions;
   private readonly list: SearchableList<ExperimentalFeatureState>;
   private readonly draft = new Map<ExperimentalFeatureState['id'], boolean>();
-  private bindings = defaultKeybindings();
-  private keybindings = new KeybindingResolver(this.bindings);
 
   constructor(opts: ExperimentsSelectorOptions) {
     super();
@@ -52,33 +43,15 @@ export class ExperimentsSelectorComponent extends Container implements Focusable
     });
   }
 
-  setKeybindings(bindings: readonly ParsedKeybinding[]): void {
-    this.bindings = bindings;
-    this.keybindings = new KeybindingResolver(bindings);
-  }
-
   handleInput(data: string): void {
-    const handlers = {
-      'select:previous': () => this.list.moveUp(),
-      'select:next': () => this.list.moveDown(),
-      'select:accept': () => {
-        const changes = this.draftChanges();
-        if (changes.length > 0) this.opts.onApply(changes);
-      },
-      'select:cancel': () => {
-        if (!this.list.clearQuery()) this.opts.onCancel();
-      },
-    } as const;
-    if (
-      this.keybindings.dispatch(data, ['Select'], handlers) ||
-      this.keybindings.dispatchKeyId(data, ['Select'], handlers)
-    ) return;
-    if (matchesKey(data, Key.pageUp)) {
-      this.list.pageUp();
+    if (matchesKey(data, Key.escape)) {
+      if (this.list.clearQuery()) return;
+      this.opts.onCancel();
       return;
     }
-    if (matchesKey(data, Key.pageDown)) {
-      this.list.pageDown();
+    if (matchesKey(data, Key.enter)) {
+      const changes = this.draftChanges();
+      if (changes.length > 0) this.opts.onApply(changes);
       return;
     }
     const decoded = printableChar(data);
@@ -87,26 +60,16 @@ export class ExperimentsSelectorComponent extends Container implements Focusable
       if (selected !== undefined) this.toggleDraft(selected);
       return;
     }
-    this.list.handleSearchKey(data);
+    this.list.handleKey(data);
   }
 
   override render(width: number): string[] {
     const view = this.list.view();
     const titleSuffix =
       view.query.length === 0 ? currentTheme.fg('textMuted', '  (type to search)') : '';
-    const hintParts: string[] = [];
-    const navigation = combinedBindingHint(
-      keybindingDisplayText(this.bindings, 'Select', 'select:previous'),
-      keybindingDisplayText(this.bindings, 'Select', 'select:next'),
-      'navigate',
-    );
-    if (navigation !== undefined) hintParts.push(navigation);
+    const hintParts = ['↑↓ navigate'];
     if (view.page.pageCount > 1) hintParts.push('PgUp/PgDn page');
-    hintParts.push('Space toggle');
-    const accept = keybindingDisplayText(this.bindings, 'Select', 'select:accept');
-    if (accept !== undefined) hintParts.push(`${formatBindingKeys(accept)} apply`);
-    const cancel = keybindingDisplayText(this.bindings, 'Select', 'select:cancel');
-    if (cancel !== undefined) hintParts.push(`${formatBindingKeys(cancel)} cancel`);
+    hintParts.push('Space toggle', 'Enter apply', 'Esc cancel');
     if (view.query.length > 0) hintParts.push('Backspace clear');
 
     const lines: string[] = [
@@ -146,7 +109,8 @@ export class ExperimentsSelectorComponent extends Container implements Focusable
         ),
       );
     }
-    lines.push(this.renderApplyButton(), currentTheme.fg('primary', '─'.repeat(width)));
+    lines.push(this.renderApplyButton());
+    lines.push(currentTheme.fg('primary', '─'.repeat(width)));
     return lines.map((line) => truncateToWidth(line, width, ELLIPSIS));
   }
 

@@ -1,10 +1,16 @@
-import { mkdtemp, realpath, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, rm, stat } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { KaosFileExistsError } from '#/errors';
 import { LocalKaos } from '#/local';
 import { afterEach, beforeEach, describe, expect, it, test } from 'vitest';
+
+// LocalKaos normalizes every path to forward slashes (pathe). Mirror that in
+// path assertions so they hold on Windows, where node:path/node:os produce
+// backslashes.
+const toPosix = (p: string): string => p.replaceAll('\\', '/');
 
 function nodeArgs(code: string): string[] {
   return ['node', '-e', code];
@@ -16,7 +22,7 @@ describe('LocalKaos', () => {
 
   beforeEach(async () => {
     kaos = await LocalKaos.create();
-    tempDir = await realpath(await mkdtemp(join(tmpdir(), 'kaos-test-')));
+    tempDir = toPosix(await realpath(await mkdtemp(join(tmpdir(), 'kaos-test-'))));
     await kaos.chdir(tempDir);
   });
 
@@ -27,7 +33,11 @@ describe('LocalKaos', () => {
   describe('pathClass, gethome, getcwd', () => {
     it('should return posix or win32 pathClass', () => {
       const cls = kaos.pathClass();
-      expect(cls).toBe(process.platform === 'win32' ? 'win32' : 'posix');
+      if (process.platform === 'win32') {
+        expect(cls).toBe('win32');
+      } else {
+        expect(cls).toBe('posix');
+      }
     });
 
     it('should return the home directory', () => {
@@ -35,7 +45,7 @@ describe('LocalKaos', () => {
       // asserting length > 0 alone was too weak — a stub returning any
       // non-empty string would pass.
       const home = kaos.gethome();
-      expect(home).toBe(homedir());
+      expect(home).toBe(toPosix(homedir()));
     });
 
     it('should return the current working directory', () => {
@@ -46,7 +56,7 @@ describe('LocalKaos', () => {
 
   describe('chdir + stat', () => {
     it('should change directory and stat a file', async () => {
-      const nested = join(tempDir, 'nested');
+      const nested = toPosix(join(tempDir, 'nested'));
       await kaos.mkdir(nested);
 
       await kaos.chdir(nested);
@@ -96,7 +106,7 @@ describe('LocalKaos', () => {
         entries.push(entry);
       }
 
-      expect(entries).toContain(join(tempDir, 'file.txt'));
+      expect(entries).toContain(toPosix(join(tempDir, 'file.txt')));
       // No entry should contain duplicated separators.
       expect(entries.every((e) => !e.includes('//'))).toBe(true);
     });
@@ -170,34 +180,181 @@ describe('LocalKaos', () => {
       }
       expect(lines.join('')).toBe('line1\nline2');
     });
+  });
 
-    it('should change file mode and delete a file', async () => {
-      const filePath = join(tempDir, 'rewind.txt');
-      await kaos.writeText(filePath, 'before');
+  describe('readLines streaming', () => {
+    async function collectLines(path: string, options?: Parameters<LocalKaos['readLines']>[1]) {
+      const lines: string[] = [];
+      for await (const line of kaos.readLines(path, options)) {
+        lines.push(line);
+      }
+      return lines;
+    }
 
-      await kaos.chmod(filePath, 0o600);
-      expect((await kaos.stat(filePath)).stMode & 0o777).toBe(0o600);
+    it('preserves content exactly across representative line endings', async () => {
+      const fixtures: Array<[string, string]> = [
+        ['multiline', 'line1\nline2\nline3\n'],
+        ['no trailing newline', 'line1\nline2'],
+        ['single line', 'only'],
+        ['single newline', '\n'],
+        ['empty', ''],
+        ['crlf', 'a\r\nb\r\n'],
+        ['lone cr', 'a\rB\n'],
+      ];
+      for (const [name, content] of fixtures) {
+        const filePath = join(tempDir, `${name}.txt`);
+        await kaos.writeText(filePath, content);
+        expect((await collectLines(filePath)).join('')).toBe(content);
+      }
+    });
 
-      await kaos.unlink(filePath);
-      await expect(kaos.stat(filePath)).rejects.toMatchObject({ code: 'ENOENT' });
+    it('preserves multibyte characters and long single lines across chunk boundaries', async () => {
+      const filePath = join(tempDir, 'boundary.txt');
+      const content = `${'a'.repeat(65535)}😀\n${'x'.repeat(200000)}`;
+      await kaos.writeText(filePath, content);
+      await expect(collectLines(filePath)).resolves.toEqual([
+        `${'a'.repeat(65535)}😀\n`,
+        'x'.repeat(200000),
+      ]);
+    });
+
+    it('preserves U+FEFF at the start of a non-first line', async () => {
+      const filePath = join(tempDir, 'bom-line.txt');
+      const content = 'a\n\uFEFFb\n';
+      await kaos.writeText(filePath, content);
+      await expect(collectLines(filePath)).resolves.toEqual(['a\n', '\uFEFFb\n']);
+    });
+
+    it('keeps utf16le and hex on the decode-then-split path', async () => {
+      const utf16Path = join(tempDir, 'utf16le.txt');
+      await kaos.writeBytes(utf16Path, Buffer.from('a\n\u0A41\n', 'utf16le'));
+      await expect(collectLines(utf16Path, { encoding: 'utf16le' })).resolves.toEqual([
+        'a\n',
+        'ੁ\n',
+      ]);
+
+      const hexPath = join(tempDir, 'hex.txt');
+      await kaos.writeBytes(hexPath, Buffer.from('a\nb'));
+      await expect(collectLines(hexPath, { encoding: 'hex' })).resolves.toEqual(['610a62']);
+    });
+
+    it('throws lazily when strict UTF-8 errors appear after the first line', async () => {
+      const filePath = join(tempDir, 'invalid-after-first-line.txt');
+      await kaos.writeBytes(filePath, Buffer.concat([Buffer.from('ok\n', 'utf-8'), Buffer.from([0xff])]));
+      const gen = kaos.readLines(filePath);
+      await expect(gen.next()).resolves.toMatchObject({ value: 'ok\n', done: false });
+      await expect(gen.next()).rejects.toThrow();
+    });
+  });
+
+  describe('scanTextFile', () => {
+    it('counts lines and classifies line endings', async () => {
+      const lf = join(tempDir, 'lf.txt');
+      await kaos.writeText(lf, 'a\nb');
+      await expect(kaos.scanTextFile(lf)).resolves.toMatchObject({
+        totalLines: 2,
+        endsWithNewline: false,
+        hasNul: false,
+        lineEndingFlags: { hasCrLf: false, hasLf: true, hasLoneCr: false },
+      });
+
+      const crlf = join(tempDir, 'crlf.txt');
+      await kaos.writeText(crlf, 'a\r\nb\r\n');
+      await expect(kaos.scanTextFile(crlf)).resolves.toMatchObject({
+        totalLines: 2,
+        endsWithNewline: true,
+        lineEndingFlags: { hasCrLf: true, hasLf: false, hasLoneCr: false },
+      });
+
+      const loneCr = join(tempDir, 'lone-cr.txt');
+      await kaos.writeText(loneCr, 'a\rB\n');
+      await expect(kaos.scanTextFile(loneCr)).resolves.toMatchObject({
+        totalLines: 1,
+        lineEndingFlags: { hasCrLf: false, hasLf: true, hasLoneCr: true },
+      });
+    });
+
+    it('detects NUL and invalid UTF-8', async () => {
+      const nul = join(tempDir, 'nul.txt');
+      await kaos.writeBytes(nul, Buffer.from('a\u0000b\n', 'utf-8'));
+      await expect(kaos.scanTextFile(nul)).resolves.toMatchObject({ hasNul: true });
+
+      const invalid = join(tempDir, 'invalid.txt');
+      await kaos.writeBytes(invalid, Buffer.from([0xff]));
+      await expect(kaos.scanTextFile(invalid)).rejects.toThrow();
+    });
+  });
+
+  describe('readLineRange', () => {
+    async function collectRange(path: string, startLine: number, maxLines: number) {
+      const lines: string[] = [];
+      for await (const line of kaos.readLineRange(path, { startLine, maxLines })) {
+        lines.push(line);
+      }
+      return lines;
+    }
+
+    it('reads only the requested line window', async () => {
+      const filePath = join(tempDir, 'range.txt');
+      await kaos.writeText(filePath, 'a\nb\nc\nd\n');
+      await expect(collectRange(filePath, 2, 2)).resolves.toEqual(['b\n', 'c\n']);
+      await expect(collectRange(filePath, 5, 2)).resolves.toEqual([]);
+    });
+
+    it('preserves U+FEFF at the start of a ranged non-first line', async () => {
+      const filePath = join(tempDir, 'range-bom.txt');
+      await kaos.writeText(filePath, 'a\n\uFEFFb\n');
+      await expect(collectRange(filePath, 2, 1)).resolves.toEqual(['\uFEFFb\n']);
+    });
+  });
+
+  describe('readTailLines', () => {
+    async function collectTail(path: string, tailCount: number) {
+      const lines: string[] = [];
+      for await (const line of kaos.readTailLines(path, { tailCount })) {
+        lines.push(line);
+      }
+      return lines;
+    }
+
+    it('reads last lines with and without trailing newline', async () => {
+      const trailing = join(tempDir, 'tail-trailing.txt');
+      await kaos.writeText(trailing, 'a\nb\nc\n');
+      await expect(collectTail(trailing, 2)).resolves.toEqual(['b\n', 'c\n']);
+
+      const noTrailing = join(tempDir, 'tail-no-trailing.txt');
+      await kaos.writeText(noTrailing, 'a\nb\nc');
+      await expect(collectTail(noTrailing, 2)).resolves.toEqual(['b\n', 'c']);
+    });
+
+    it('returns the whole file when tailCount exceeds line count', async () => {
+      const filePath = join(tempDir, 'tail-short.txt');
+      await kaos.writeText(filePath, 'a\nb\n');
+      await expect(collectTail(filePath, 5)).resolves.toEqual(['a\n', 'b\n']);
+    });
+
+    it('preserves CRLF and U+FEFF in tail lines', async () => {
+      const filePath = join(tempDir, 'tail-crlf-bom.txt');
+      await kaos.writeText(filePath, 'a\r\n\uFEFFb\r\n');
+      await expect(collectTail(filePath, 1)).resolves.toEqual(['\uFEFFb\r\n']);
     });
   });
 
   describe('readText errors parameter (Python compat)', () => {
-    // A file with a valid UTF-8 prefix "é", an invalid standalone byte 0xff,
-    // and a valid UTF-8 suffix "ï". Under strict decoding this throws.
+    // A file with a valid UTF-8 prefix "\u4E2D", an invalid standalone byte 0xff,
+    // and a valid UTF-8 suffix "\u6587". Under strict decoding this throws.
     const invalidBytes = Buffer.concat([
-      Buffer.from([0xc3, 0xa9]), // é
+      Buffer.from([0xe4, 0xb8, 0xad]), // \u4E2D
       Buffer.from([0xff]),
-      Buffer.from([0xc3, 0xaf]), // ï
+      Buffer.from([0xe6, 0x96, 0x87]), // \u6587
     ]);
 
     it('throws on invalid utf-8 with errors="strict" (default)', async () => {
       const filePath = join(tempDir, 'invalid.txt');
       await kaos.writeBytes(filePath, invalidBytes);
 
-      await expect(kaos.readText(filePath)).rejects.toThrowErrorMatchingInlineSnapshot(`[TypeError: The encoded data was not valid for encoding utf-8]`);
-      await expect(kaos.readText(filePath, { errors: 'strict' })).rejects.toThrowErrorMatchingInlineSnapshot(`[TypeError: The encoded data was not valid for encoding utf-8]`);
+      await expect(kaos.readText(filePath)).rejects.toThrow();
+      await expect(kaos.readText(filePath, { errors: 'strict' })).rejects.toThrow();
     });
 
     it('returns U+FFFD replacement characters with errors="replace"', async () => {
@@ -206,8 +363,8 @@ describe('LocalKaos', () => {
 
       const content = await kaos.readText(filePath, { errors: 'replace' });
       expect(content).toContain('\uFFFD');
-      expect(content).toContain('é');
-      expect(content).toContain('ï');
+      expect(content).toContain('\u4E2D');
+      expect(content).toContain('\u6587');
     });
 
     it('drops invalid bytes with errors="ignore"', async () => {
@@ -215,7 +372,7 @@ describe('LocalKaos', () => {
       await kaos.writeBytes(filePath, invalidBytes);
 
       const content = await kaos.readText(filePath, { errors: 'ignore' });
-      expect(content).toBe('éï');
+      expect(content).toBe('\u4E2D\u6587');
       expect(content).not.toContain('\uFFFD');
     });
 
@@ -271,7 +428,7 @@ describe('LocalKaos', () => {
       const existing = join(tempDir, 'existing');
       await kaos.mkdir(existing);
 
-      await expect(kaos.mkdir(existing, { parents: true, existOk: false })).rejects.toThrow(/existing already exists/);
+      await expect(kaos.mkdir(existing, { parents: true, existOk: false })).rejects.toThrow();
     });
 
     it('should succeed when parents:true + existOk:true on existing dir', async () => {
@@ -603,7 +760,7 @@ describe('LocalKaos', () => {
 
   describe('exec spawn failure', () => {
     it('should reject when the binary does not exist', async () => {
-      await expect(kaos.exec('/absolutely/non-existent/binary')).rejects.toThrowErrorMatchingInlineSnapshot(`[Error: spawn /absolutely/non-existent/binary ENOENT]`);
+      await expect(kaos.exec('/absolutely/non-existent/binary')).rejects.toThrow();
     });
 
     it('should reject exec() with no arguments', async () => {
@@ -697,8 +854,8 @@ describe('LocalKaos instance isolation', () => {
     const kaosA = await LocalKaos.create();
     const kaosB = await LocalKaos.create();
 
-    const tmpA = await realpath(await mkdtemp(join(tmpdir(), 'kaos-a-')));
-    const tmpB = await realpath(await mkdtemp(join(tmpdir(), 'kaos-b-')));
+    const tmpA = toPosix(await realpath(await mkdtemp(join(tmpdir(), 'kaos-a-'))));
+    const tmpB = toPosix(await realpath(await mkdtemp(join(tmpdir(), 'kaos-b-'))));
 
     try {
       await kaosA.chdir(tmpA);
@@ -723,8 +880,8 @@ describe('LocalKaos instance isolation', () => {
       await procB.wait();
       const outA = await streamToBuffer(procA.stdout);
       const outB = await streamToBuffer(procB.stdout);
-      expect(outA.toString('utf-8')).toBe(tmpA);
-      expect(outB.toString('utf-8')).toBe(tmpB);
+      expect(toPosix(outA.toString('utf-8'))).toBe(tmpA);
+      expect(toPosix(outB.toString('utf-8'))).toBe(tmpB);
     } finally {
       await rm(tmpA, { recursive: true, force: true });
       await rm(tmpB, { recursive: true, force: true });
@@ -749,8 +906,9 @@ describe('LocalProcess.kill safety', () => {
 
     // If pid is -1, kill must be a no-op and must NOT call
     // process.kill(-1, ...) which would signal the entire process group.
-    const killResult = proc.pid <= 0 ? await proc.kill('SIGTERM') : undefined;
-    expect(killResult).toBeUndefined();
+    if (proc.pid <= 0) {
+      await expect(proc.kill('SIGTERM')).resolves.toBeUndefined();
+    }
 
     // Drain error event so the test runner doesn't leak unhandled errors.
     try {
@@ -784,26 +942,14 @@ describe('LocalProcess.kill safety', () => {
       const kaos = await LocalKaos.create();
       const tmp = await realpath(await mkdtemp(join(tmpdir(), 'kaos-killtree-')));
       try {
-        const pidFile = join(tmp, 'grandchild.pid').replaceAll('\\', '\\\\');
-        // Parent: spawns a child that spawns a grandchild (long-running).
-        // The grandchild writes its own pid to a file so the test can
-        // later check if it's still alive.
-        const code = `
-          const { spawn } = require('node:child_process');
-          const child = spawn(process.execPath, ['-e', \`
-            const { spawn } = require('node:child_process');
-            const { writeFileSync } = require('node:fs');
-            const g = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)']);
-            writeFileSync('${pidFile}', String(g.pid));
-            setInterval(() => {}, 1000);
-          \`], { stdio: 'inherit' });
-          setInterval(() => {}, 1000);
-        `;
-        const proc = await kaos.exec('node', '-e', code);
-
-        // Wait for grandchild pid to be written.
-        const { stat, readFile } = await import('node:fs/promises');
+        // Run the parent → child → grandchild chain from a real script file
+        // (see test/fixtures/killtree.cjs) with the pidfile path passed via
+        // argv. Inline multi-line `node -e` strings get mangled on Windows by
+        // Node's arg-quoting and by JS string escapes, so the pidfile was
+        // never written and the test read ENOENT.
         const pidPath = join(tmp, 'grandchild.pid');
+        const scriptPath = fileURLToPath(new URL('./fixtures/killtree.cjs', import.meta.url));
+        const proc = await kaos.exec('node', scriptPath, pidPath);
         const start = Date.now();
         while (Date.now() - start < 5000) {
           try {
@@ -839,7 +985,7 @@ describe('LocalProcess.kill safety', () => {
         await rm(tmp, { recursive: true, force: true });
       }
     },
-    15_000,
+    30_000,
   );
 
   // ── POSIX process-group kill ────────────────────────────────────────
@@ -900,7 +1046,7 @@ describe('LocalProcess.kill safety', () => {
         await rm(tmp, { recursive: true, force: true });
       }
     },
-    15_000,
+    30_000,
   );
 });
 

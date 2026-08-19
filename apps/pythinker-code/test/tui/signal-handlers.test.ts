@@ -1,16 +1,6 @@
-import { EventEmitter } from 'node:events';
-
-import type { ExternalOutputMode, ScreenMode } from '@opentui/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { DEFAULT_STATUS_LINE_CONFIG } from '#/tui/config';
 import { PythinkerTUI, type PythinkerTUIStartupInput, type TUIState } from '#/tui/pythinker-tui';
-import type {
-  OpenTuiLifecycleRenderer,
-  OpenTuiLifecycleOptions,
-} from '#/tui/runtime/open-tui-lifecycle';
-import { OpenTuiPresentation } from '../../src/tui/runtime/open-tui-presentation';
-import { LEGACY_TEST_PATHS, PARITY_CASES } from './parity/feature-matrix';
 
 interface SignalDriver {
   state: TUIState;
@@ -25,7 +15,6 @@ function makeStartupInput(): PythinkerTUIStartupInput {
     cliOptions: {
       session: undefined,
       continue: false,
-      rewindFiles: undefined,
       yolo: false,
       auto: false,
       plan: false,
@@ -33,15 +22,16 @@ function makeStartupInput(): PythinkerTUIStartupInput {
       outputFormat: undefined,
       prompt: undefined,
       skillsDirs: [],
+      agent: undefined,
+      agentFiles: [],
     },
     tuiConfig: {
       theme: 'dark',
-      layout: 'inline',
-      copyFullResponse: false,
+      disablePasteBurst: false,
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
       upgrade: { autoInstall: true },
-      statusLine: DEFAULT_STATUS_LINE_CONFIG,
+      statusLine: { items: null, command: null },
     },
     version: '0.0.0-test',
     workDir: '/tmp/proj-signals',
@@ -70,82 +60,6 @@ function makeDriver(): { driver: SignalDriver; tui: PythinkerTUI } {
   const tui = new PythinkerTUI(makeHarness() as never, makeStartupInput());
   const driver = tui as unknown as SignalDriver;
   return { driver, tui };
-}
-
-interface TerminalModes {
-  cursorVisible: boolean;
-  rawInput: boolean;
-  bracketedPaste: boolean;
-  focusReporting: boolean;
-  kittyKeyboard: boolean;
-}
-
-const RESTORED_TERMINAL_MODES: TerminalModes = {
-  cursorVisible: true,
-  rawInput: false,
-  bracketedPaste: false,
-  focusReporting: false,
-  kittyKeyboard: false,
-};
-
-class RestoringRenderer extends EventEmitter implements OpenTuiLifecycleRenderer {
-  readonly width = 120;
-  externalOutputMode: ExternalOutputMode = 'capture-stdout';
-  screenMode: ScreenMode = 'split-footer';
-  footerHeight = 2;
-
-  constructor(private readonly modes: TerminalModes) {
-    super();
-  }
-
-  requestRender(): void {}
-
-  async idle(): Promise<void> {}
-
-  destroy(): void {
-    Object.assign(this.modes, RESTORED_TERMINAL_MODES);
-  }
-}
-
-function inertOutput(): NodeJS.WriteStream {
-  return {
-    write: (() => true) as NodeJS.WriteStream['write'],
-  } as unknown as NodeJS.WriteStream;
-}
-
-function makeOpenTuiPresentation(
-  options: { failFooter?: boolean } = {},
-): { presentation: OpenTuiPresentation; modes: TerminalModes } {
-  const modes: TerminalModes = { ...RESTORED_TERMINAL_MODES };
-  const renderer = new RestoringRenderer(modes);
-  const lifecycleOptions: OpenTuiLifecycleOptions = {
-    stdin: {} as NodeJS.ReadStream,
-    stdout: inertOutput(),
-    stderr: inertOutput(),
-    rendererFactory: async () => {
-      Object.assign(modes, {
-        cursorVisible: false,
-        rawInput: true,
-        bracketedPaste: true,
-        focusReporting: true,
-        kittyKeyboard: true,
-      });
-      return renderer;
-    },
-    footerFactory: () => {
-      if (options.failFooter === true) {
-        throw new Error('footer initialization failed');
-      }
-      return {
-        invalidate: () => {},
-        close: () => {},
-      };
-    },
-  };
-  return {
-    presentation: new OpenTuiPresentation(lifecycleOptions),
-    modes,
-  };
 }
 
 // Capture handlers via process.prependListener spy so we can invoke them
@@ -430,87 +344,11 @@ describe('PythinkerTUI signal handlers', () => {
     const beforeStdout = process.stdout.listenerCount('error');
     const beforeStderr = process.stderr.listenerCount('error');
 
-    await expect(tui.start()).rejects.toThrow(/init boom/u);
+    await expect(tui.start()).rejects.toThrow(/init boom/);
 
     expect(process.listenerCount('SIGTERM')).toBe(beforeSigterm);
     expect(process.listenerCount('SIGHUP')).toBe(beforeSighup);
     expect(process.stdout.listenerCount('error')).toBe(beforeStdout);
     expect(process.stderr.listenerCount('error')).toBe(beforeStderr);
-  });
-});
-
-describe('terminal restoration feature parity baseline', () => {
-  it('links signal and distribution restoration behavior to active parity scenarios', () => {
-    const linked = PARITY_CASES.filter(
-      ({ legacyTest }) => legacyTest === LEGACY_TEST_PATHS.signals,
-    );
-    expect(linked.length).toBeGreaterThan(0);
-    expect(
-      linked.every(({ status, scenarioId }) => status === 'active' && scenarioId.length > 0),
-    ).toBe(true);
-  });
-});
-
-describe('OpenTuiPresentation terminal restoration', () => {
-  it('restores all terminal modes after a successful run', async () => {
-    const { presentation, modes } = makeOpenTuiPresentation();
-    presentation.start(() => {});
-    await presentation.ready();
-
-    presentation.stop();
-
-    expect(modes).toEqual(RESTORED_TERMINAL_MODES);
-  });
-
-  it('restores all terminal modes when the application handles Ctrl-C', async () => {
-    const { presentation, modes } = makeOpenTuiPresentation();
-    presentation.start(() => {});
-    await presentation.ready();
-
-    const handleCtrlC = (): void => {
-      presentation.stop();
-    };
-    handleCtrlC();
-
-    expect(modes).toEqual(RESTORED_TERMINAL_MODES);
-  });
-
-  it('restores all terminal modes through the SIGTERM stop path', async () => {
-    const platformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform');
-    expect(platformDescriptor).toBeDefined();
-    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
-    const exitSpy = vi
-      .spyOn(process, 'exit')
-      .mockImplementation((() => undefined) as unknown as typeof process.exit);
-    const { presentation, modes } = makeOpenTuiPresentation();
-    presentation.start(() => {});
-    await presentation.ready();
-    const tui = new PythinkerTUI(makeHarness() as never, makeStartupInput(), presentation);
-    const driver = tui as unknown as SignalDriver;
-    const stopSpy = vi.spyOn(tui, 'stop').mockImplementation(async () => {
-      presentation.stop();
-    });
-    const captured = captureHandlers(driver);
-
-    captured.signalHandlers.get('SIGTERM')?.();
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(stopSpy).toHaveBeenCalledWith(143);
-    expect(modes).toEqual(RESTORED_TERMINAL_MODES);
-    stopSpy.mockRestore();
-    captured.restore();
-    driver.unregisterSignalHandlers();
-    exitSpy.mockRestore();
-    Object.defineProperty(process, 'platform', platformDescriptor as PropertyDescriptor);
-  });
-
-  it('restores all terminal modes when initialization fails after renderer setup', async () => {
-    const { presentation, modes } = makeOpenTuiPresentation({ failFooter: true });
-    presentation.start(() => {});
-
-    await expect(presentation.ready()).rejects.toThrow('footer initialization failed');
-
-    expect(modes).toEqual(RESTORED_TERMINAL_MODES);
   });
 });

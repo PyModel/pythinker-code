@@ -2,23 +2,13 @@ import {
   Container,
   Key,
   matchesKey,
-  parseKey,
   truncateToWidth,
   visibleWidth,
   type Focusable,
-} from '@earendil-works/pi-tui';
-import type { PartialCompactionDirection } from '@pymodel/pythinker-code-sdk';
+} from '@pymodel/pi-tui';
 
 import { SELECT_POINTER } from '#/tui/constant/symbols';
-import {
-  defaultKeybindings,
-  keybindingDisplayText,
-  KeybindingResolver,
-  type KeybindingHandlers,
-  type ParsedKeybinding,
-} from '#/tui/keybindings';
 import { currentTheme } from '#/tui/theme';
-import { printableChar } from '#/tui/utils/printable-key';
 import { SearchableList } from '#/tui/utils/searchable-list';
 
 const MAX_VISIBLE_CHOICES = 5;
@@ -26,7 +16,7 @@ const PREFERRED_SELECTED_OFFSET = 2;
 
 export interface UndoChoice {
   readonly id: string;
-  readonly count?: number;
+  readonly count: number;
   readonly input: string;
   readonly label: string;
 }
@@ -34,10 +24,6 @@ export interface UndoChoice {
 export interface UndoSelectorOptions {
   readonly choices: readonly UndoChoice[];
   readonly onSelect: (choice: UndoChoice) => void;
-  readonly onSummarize: (
-    choice: UndoChoice,
-    direction: PartialCompactionDirection,
-  ) => void;
   readonly onCancel: () => void;
 }
 
@@ -46,8 +32,6 @@ export class UndoSelectorComponent extends Container implements Focusable {
   private readonly opts: UndoSelectorOptions;
   private readonly list: SearchableList<UndoChoice>;
   private submitted = false;
-  private bindings = defaultKeybindings();
-  private keybindings = new KeybindingResolver([]);
 
   constructor(opts: UndoSelectorOptions) {
     super();
@@ -57,86 +41,36 @@ export class UndoSelectorComponent extends Container implements Focusable {
       toSearchText: (choice) => choice.label,
       initialIndex: Math.max(0, opts.choices.length - 1),
     });
-    this.setKeybindings(this.bindings);
-  }
-
-  setKeybindings(bindings: readonly ParsedKeybinding[]): void {
-    this.bindings = bindings;
-    const winners = new Map<string, ParsedKeybinding>();
-    for (const binding of bindings) {
-      winners.set(`${binding.context}\0${binding.chord.join(' ')}`, binding);
-    }
-    const actions = new Set([
-      'messageSelector:up',
-      'messageSelector:down',
-      'messageSelector:top',
-      'messageSelector:bottom',
-      'messageSelector:select',
-      'confirm:no',
-    ]);
-    this.keybindings = new KeybindingResolver(
-      [...winners.values()].filter(
-        (binding) => binding.action !== null && actions.has(binding.action),
-      ),
-    );
   }
 
   handleInput(data: string): void {
     if (this.submitted) return;
 
-    const handlers: KeybindingHandlers = {
-      'messageSelector:up': () => this.list.moveUp(),
-      'messageSelector:down': () => this.list.moveDown(),
-      'messageSelector:top': () => this.list.moveToStart(),
-      'messageSelector:bottom': () => this.list.moveToEnd(),
-      'messageSelector:select': () => this.select(),
-      'confirm:no': () => this.opts.onCancel(),
-    };
-    const keyId = parseKey(data);
-    if (
-      keyId?.includes('+') === true
-        ? this.keybindings.dispatch(data, ['MessageSelector', 'Confirmation'], handlers)
-        : this.keybindings.dispatchKeyId(keyId ?? data, ['MessageSelector', 'Confirmation'], handlers)
-    ) {
+    if (matchesKey(data, Key.escape)) {
+      this.opts.onCancel();
       return;
     }
 
-    if (matchesKey(data, Key.pageUp)) {
-      this.list.pageUp();
-      return;
-    }
-    if (matchesKey(data, Key.pageDown)) {
-      this.list.pageDown();
+    if (this.list.handleKey(data)) {
       return;
     }
 
-    const action = printableChar(data)?.toLowerCase();
-    if (action === 's' || action === 'u') {
+    if (matchesKey(data, Key.enter)) {
       const selected = this.list.selected();
-      if (selected?.count !== undefined) {
+      if (selected !== undefined) {
         this.submitted = true;
-        this.opts.onSummarize(selected, action === 's' ? 'from' : 'up_to');
+        this.opts.onSelect(selected);
       }
-      return;
     }
-
   }
 
   override render(width: number): string[] {
     const view = this.list.view();
-    const canSummarize = this.list.selected()?.count !== undefined;
-    const hintParts = [
-      messageSelectorNavigationHint(this.bindings),
-      ...(canSummarize
-        ? ['S summarize from', 'U summarize up to']
-        : ['S/U unavailable for code-only point']),
-      bindingHint(this.bindings, 'MessageSelector', 'messageSelector:select', 'undo'),
-      bindingHint(this.bindings, 'Confirmation', 'confirm:no', 'cancel'),
-    ].filter((part): part is string => part !== undefined);
+    const hintParts = ['↑↓ navigate', 'Enter select', 'Esc cancel'];
 
     const lines: string[] = [
       currentTheme.fg('primary', '─'.repeat(width)),
-      currentTheme.boldFg('primary', ' Select a conversation point'),
+      currentTheme.boldFg('primary', ' Select messages to undo'),
       currentTheme.fg('textMuted', ' ' + hintParts.join(' · ')),
       '',
     ];
@@ -161,7 +95,8 @@ export class UndoSelectorComponent extends Container implements Focusable {
       }
     }
 
-    lines.push('', currentTheme.fg('primary', '─'.repeat(width)));
+    lines.push('');
+    lines.push(currentTheme.fg('primary', '─'.repeat(width)));
     return lines.map((line) => truncateToWidth(line, width));
   }
 
@@ -182,29 +117,4 @@ export class UndoSelectorComponent extends Container implements Focusable {
       : currentTheme.fg(token, label);
     return line;
   }
-
-  private select(): void {
-    const selected = this.list.selected();
-    if (selected !== undefined) {
-      this.submitted = true;
-      this.opts.onSelect(selected);
-    }
-  }
-}
-
-function bindingHint(
-  bindings: readonly ParsedKeybinding[],
-  context: 'MessageSelector' | 'Confirmation',
-  action: 'messageSelector:select' | 'confirm:no',
-  label: string,
-): string | undefined {
-  const keys = keybindingDisplayText(bindings, context, action);
-  return keys === undefined ? undefined : `${keys} ${label}`;
-}
-
-function messageSelectorNavigationHint(bindings: readonly ParsedKeybinding[]): string | undefined {
-  const up = keybindingDisplayText(bindings, 'MessageSelector', 'messageSelector:up');
-  const down = keybindingDisplayText(bindings, 'MessageSelector', 'messageSelector:down');
-  if (up === undefined && down === undefined) return undefined;
-  return `${[up, down].filter((key): key is string => key !== undefined).join(' / ')} navigate`;
 }

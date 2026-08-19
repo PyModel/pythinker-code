@@ -1,5 +1,3 @@
-import path from 'node:path';
-
 import {
   APIProviderRateLimitError,
   isProviderRateLimitError,
@@ -8,15 +6,11 @@ import {
 
 import type { Agent } from '../agent';
 import type { PromptOrigin } from '../agent/context';
-import type { PermissionRule } from '../agent/permission';
-import { expandModelRef, resolveModelRoleAlias } from '../config';
-import { ErrorCodes, type PythinkerErrorPayload } from '../errors';
+import { ErrorCodes } from '../errors';
 import { DenyAllPermissionPolicy } from '../agent/permission/policies/deny-all';
 import { InMemoryAgentRecordPersistence } from '../agent/records';
 import { isAbortError } from '../loop/errors';
-import { isInlineSkillType } from '../skill';
 import {
-  DEFAULT_AGENT_PROFILES,
   prepareSystemPromptContext,
   type ResolvedAgentProfile,
 } from '../profile';
@@ -25,26 +19,62 @@ import {
   userCancellationReason,
 } from '../utils/abort';
 import { collectGitContext } from './git-context';
+import type { Session } from './index';
 import {
-  createSubagentWorktree,
-  settleSubagentWorktree,
-  type SettledSubagentWorktree,
-  type SubagentWorktree,
-} from './subagent-worktree';
-import type { AgentMeta, Session } from './index';
+  resolveSubagentBinding,
+  wrapSubagentModelError,
+  type SubagentModelBinding,
+  type SubagentModelChoice,
+} from './subagent-binding';
 import {
   SubagentBatch,
-  StructuredOutputMaxRetriesError,
+  resolveDynamicWorkflowMaxConcurrency,
   type SubagentResult,
   type SubagentSuspendedEvent,
   type QueuedSubagentTask,
 } from './subagent-batch';
 import SUMMARY_CONTINUATION_PROMPT from './summary-continuation.md?raw';
 
-export const DEFAULT_SUBAGENT_TIMEOUT_MS = 30 * 60 * 1000;
-export const DEFAULT_SUBAGENT_TIMEOUT_DESCRIPTION = '30 minutes';
-export const MAX_SUBAGENTS_PER_SESSION = 200;
-export const MAX_SUBAGENT_SPAWN_DEPTH = 3;
+export const DEFAULT_SUBAGENT_TIMEOUT_MS = 2 * 60 * 60 * 1000;
+export const DEFAULT_SUBAGENT_TIMEOUT_DESCRIPTION = '2 hours';
+
+const SUBAGENT_TIMEOUT_ENV = 'PYTHINKER_SUBAGENT_TIMEOUT_MS';
+
+/**
+ * Resolve the effective subagent per-task timeout. Precedence:
+ * `PYTHINKER_SUBAGENT_TIMEOUT_MS` (integer ms) → `configMs` →
+ * `DEFAULT_SUBAGENT_TIMEOUT_MS` (2 hours). `0` means no timeout: the value
+ * feeds the background-task manager's per-task timeout (where `0` arms no
+ * timer), so it governs foreground and background subagents (and AgentDynamicWorkflow).
+ */
+export function resolveSubagentTimeoutMs(configMs?: number): number {
+  const raw = process.env[SUBAGENT_TIMEOUT_ENV];
+  if (raw !== undefined && raw.trim().length > 0) {
+    const parsed = Number(raw);
+    if (Number.isInteger(parsed) && parsed >= 0) return parsed;
+  }
+  if (configMs !== undefined && Number.isInteger(configMs) && configMs >= 0) {
+    return configMs;
+  }
+  return DEFAULT_SUBAGENT_TIMEOUT_MS;
+}
+
+/** Human-readable duration for the subagent timeout message. */
+export function formatSubagentTimeoutDescription(ms: number): string {
+  if (ms % (60 * 60 * 1000) === 0) {
+    const h = ms / (60 * 60 * 1000);
+    return `${h} hour${h === 1 ? '' : 's'}`;
+  }
+  if (ms % (60 * 1000) === 0) {
+    const m = ms / (60 * 1000);
+    return `${m} minute${m === 1 ? '' : 's'}`;
+  }
+  if (ms % 1000 === 0) {
+    const s = ms / 1000;
+    return `${s} second${s === 1 ? '' : 's'}`;
+  }
+  return `${ms} ms`;
+}
 
 export type {
   SubagentResult as QueuedSubagentRunResult,
@@ -86,33 +116,30 @@ export interface RunSubagentOptions {
   readonly parentToolCallUuid?: string;
   readonly prompt: string;
   readonly description: string;
-  readonly displayName?: string;
   readonly dynamicWorkflowIndex?: number;
-  readonly dynamicWorkflowItem?: string;
   readonly runInBackground: boolean;
   readonly signal: AbortSignal;
   readonly onReady?: () => void;
   readonly suppressRateLimitFailureEvent?: boolean;
-  readonly modelAlias?: string;
-  readonly thinkingLevel?: string;
-  readonly workflowRunId?: string;
-  readonly workflowName?: string;
-  readonly outputSchema?: Record<string, unknown>;
-  readonly allowedTools?: readonly string[];
-  readonly cwd?: string;
-  readonly forkContext?: boolean;
-  readonly profileInitialPrompt?: string;
-  readonly isolation?: 'worktree';
 }
 
 export interface SpawnSubagentOptions extends RunSubagentOptions {
   readonly profileName: string;
+  readonly dynamicWorkflowItem?: string;
+  /**
+   * Explicit per-spawn model choice from the tool call. The profile's own
+   * `modelPreference` applies when this is omitted; both only take effect
+   * with the `secondary-model` experiment enabled.
+   */
+  readonly modelChoice?: SubagentModelChoice;
 }
 
 type SubagentCompletion = {
   readonly result: string;
   readonly usage?: TokenUsage;
 };
+
+type OwnerAgentResolver = () => Agent;
 
 export type SubagentHandle = {
   readonly agentId: string;
@@ -126,163 +153,41 @@ export class SessionSubagentHost {
     string,
     {
       readonly controller: AbortController;
-      readonly runInBackground: boolean;
+      runInBackground: boolean;
     }
   >();
 
   constructor(
     private readonly session: Session,
     private readonly ownerAgentId: string,
+    private readonly getOwnerAgent?: OwnerAgentResolver,
   ) {}
 
   async spawn(options: SpawnSubagentOptions): Promise<SubagentHandle> {
     options.signal.throwIfAborted();
 
     const parent = await this.session.ensureAgentResumed(this.ownerAgentId);
-    if (options.forkContext === true && parent.type !== 'main') {
-      throw new Error('Fork is not available inside a forked worker');
-    }
-    this.enforceSpawnCaps();
-    const profile = options.forkContext === true
-      ? undefined
-      : this.resolveProfile(parent, options.profileName);
-    const profileName = profile?.name ?? 'fork';
-    const permissionRules = options.allowedTools?.map(
-      (pattern): PermissionRule => ({
-        decision: 'allow',
-        scope: 'turn-override',
-        pattern,
-      }),
-    );
+    const profile = this.resolveProfile(parent, options.profileName);
     const { id, agent } = await this.session.createAgent(
-      {
-        type: 'sub',
-        generate: parent.rawGenerate,
-        permission:
-          permissionRules !== undefined && permissionRules.length > 0
-            ? { initialRules: permissionRules }
-            : undefined,
-      },
+      { type: 'sub', generate: parent.rawGenerate },
       { parentAgentId: this.ownerAgentId, dynamicWorkflowItem: options.dynamicWorkflowItem },
     );
     const completion = this.runWithActiveChild(id, options, async (runOptions) => {
-      this.emitSubagentSpawned(parent, id, profileName, runOptions);
-      let worktree: SubagentWorktree | undefined;
-      let unregisterProfileHooks: (() => void) | undefined;
-      let settled = false;
-      const settle = async (): Promise<SettledSubagentWorktree | undefined> => {
-        if (worktree === undefined || settled) return undefined;
-        settled = true;
-        try {
-          return await settleSubagentWorktree(
-            parent.kaos,
-            worktree,
-            parent.hooks,
-            parent.agentId,
-          );
-        } catch {
-          return {
-            kept: true,
-            worktreePath: worktree.worktreePath,
-            worktreeBranch: worktree.worktreeBranch,
-          };
-        }
-      };
+      this.emitSubagentSpawned(parent, id, profile.name, runOptions);
       try {
-        if (runOptions.isolation === 'worktree') {
-          worktree = await createSubagentWorktree(parent.kaos, parent.config.cwd, {
-            hooks: parent.hooks,
-            agentId: parent.agentId,
-          });
-        }
-        const profileSkillPrompt = this.renderProfileSkills(agent, profile);
-        const childOptions = {
-          ...runOptions,
-          cwd: worktree?.worktreePath ?? runOptions.cwd,
-          profileInitialPrompt: [profile?.initialPrompt, profileSkillPrompt]
-            .filter((value): value is string => value !== undefined)
-            .join('\n\n'),
-        };
-        await this.configureChild(parent, agent, profile, childOptions);
-        if (profile?.hooks !== undefined && profile.hooks.length > 0) {
-          unregisterProfileHooks = agent.hooks?.register(profile.hooks, {
-            agentId: agent.agentId,
-          });
-        }
-        const result = await this.runPromptTurn(parent, id, agent, profileName, childOptions);
-        const worktreeResult = await settle();
-        return worktreeResult?.kept === true
-          ? {
-              ...result,
-              result: `${result.result}\n\nWorktree preserved at ${worktreeResult.worktreePath!}${worktreeResult.worktreeBranch === undefined ? '' : ` on branch ${worktreeResult.worktreeBranch}`}.`,
-            }
-          : result;
+        await this.configureChild(parent, agent, profile, options.modelChoice);
+        return await this.runPromptTurn(parent, id, agent, profile.name, runOptions);
       } catch (error) {
-        const worktreeResult = await settle();
         this.emitSubagentFailed(parent, id, runOptions, error);
-        if (worktreeResult?.kept === true) {
-          const message = error instanceof Error ? error.message : String(error);
-          throw new Error(
-            `${message}\nWorktree preserved at ${worktreeResult.worktreePath!}${worktreeResult.worktreeBranch === undefined ? '' : ` on branch ${worktreeResult.worktreeBranch}`}.`,
-            { cause: error },
-          );
-        }
         throw error;
-      } finally {
-        unregisterProfileHooks?.();
       }
     });
     return {
       agentId: id,
-      profileName,
+      profileName: profile.name,
       resumed: false,
       completion,
     };
-  }
-
-  /**
-   * Runaway guards for new subagents. Both throw, which the batch scheduler turns into a
-   * single failed task rather than a failed batch, so the error text is written for the model
-   * that will read it. Only `spawn` is guarded — `resume` and `retry` reuse an agent that
-   * already exists and was already counted.
-   *
-   * The per-session count is read before `createAgent` awaits, so concurrent spawns can
-   * overshoot the cap by up to the batch concurrency limit. That is accepted: these are
-   * runaway guards, not quotas, and a reservation counter that has to be released on every
-   * failure path is a likelier source of leaks than the bounded overshoot it prevents.
-   */
-  private enforceSpawnCaps(): void {
-    const agents = this.session.metadata.agents;
-
-    let subagentCount = 0;
-    for (const meta of Object.values(agents)) {
-      if (meta.type === 'sub') subagentCount += 1;
-    }
-    if (subagentCount >= MAX_SUBAGENTS_PER_SESSION) {
-      throw new Error(
-        `This session is limited to ${String(MAX_SUBAGENTS_PER_SESSION)} subagents and can create no more; split the remaining work across fewer, larger subagents.`,
-      );
-    }
-
-    // The owner's depth is its number of ancestors, so the main agent is depth 0 and its
-    // child lands at depth 1. The walk is bounded by the agent count so malformed metadata
-    // with a parent cycle cannot hang the process.
-    let ownerDepth = 0;
-    let cursor: string | null = this.ownerAgentId;
-    const agentCount = Object.keys(agents).length;
-    for (let steps = 0; cursor !== null && steps <= agentCount; steps += 1) {
-      // Annotated because the Session -> Agent -> SessionSubagentHost module cycle makes tsc
-      // infer this read circularly (TS7022) when left implicit.
-      const meta: AgentMeta | undefined = agents[cursor];
-      if (meta === undefined) break;
-      cursor = meta.parentAgentId;
-      if (cursor !== null) ownerDepth += 1;
-    }
-    if (ownerDepth + 1 > MAX_SUBAGENT_SPAWN_DEPTH) {
-      throw new Error(
-        `Subagents may nest at most ${String(MAX_SUBAGENT_SPAWN_DEPTH)} levels deep (the main agent is depth 0), and this parent agent is already at depth ${String(ownerDepth)}; split the work across fewer, larger subagents instead of nesting deeper.`,
-      );
-    }
   }
 
   async resume(agentId: string, options: RunSubagentOptions): Promise<SubagentHandle> {
@@ -291,9 +196,7 @@ export class SessionSubagentHost {
     const completion = this.runWithActiveChild(agentId, options, async (runOptions) => {
       this.emitSubagentSpawned(parent, agentId, profileName, runOptions);
       try {
-        child.config.update(
-          this.childModelConfig(parent, child, this.tryResolveProfile(parent, profileName), runOptions),
-        );
+        this.reInheritParentModel(parent, child);
         return await this.runPromptTurn(parent, agentId, child, profileName, runOptions);
       } catch (error) {
         this.emitSubagentFailed(parent, agentId, runOptions, error);
@@ -309,14 +212,9 @@ export class SessionSubagentHost {
     const completion = this.runWithActiveChild(agentId, options, async (runOptions) => {
       try {
         runOptions.signal.throwIfAborted();
-        child.config.update(
-          this.childModelConfig(parent, child, this.tryResolveProfile(parent, profileName), runOptions),
-        );
-        this.emitSubagentStarted(parent, agentId, runOptions);
-        // The schema has to ride along: waitForChildCompletion still branches on
-        // runOptions.outputSchema, so a retry that dropped it would skip the
-        // continuation AND find no structured output, silently yielding prose.
-        const turnId = child.turn.retry('agent-host', runOptions.outputSchema);
+        this.reInheritParentModel(parent, child);
+        this.emitSubagentStarted(parent, agentId);
+        const turnId = child.turn.retry('agent-host');
         if (turnId === null) {
           throw new Error(`Agent instance "${agentId}" could not start a retry turn`);
         }
@@ -351,7 +249,8 @@ export class SessionSubagentHost {
   }
 
   async runQueued<T>(tasks: readonly QueuedSubagentTask<T>[]): Promise<Array<SubagentResult<T>>> {
-    return new SubagentBatch(this, tasks).run();
+    const maxConcurrency = resolveDynamicWorkflowMaxConcurrency();
+    return new SubagentBatch(this, tasks, { maxConcurrency }).run();
   }
 
   suspended(event: SubagentSuspendedEvent): void {
@@ -359,11 +258,6 @@ export class SessionSubagentHost {
     parent?.emitEvent({
       type: 'subagent.suspended',
       subagentId: event.agentId,
-      // All subagent lifecycle events carry the launching tool call id so
-      // consumers can correlate them to a workflow and drop stale events.
-      parentToolCallId: event.task.parentToolCallId,
-      workflowRunId: event.task.workflowRunId,
-      workflowName: event.task.workflowName,
       reason: event.reason,
     });
   }
@@ -381,8 +275,7 @@ export class SessionSubagentHost {
 
     child.config.update({
       modelAlias: parent.config.modelAlias,
-      thinkingLevel: parent.config.thinkingLevel,
-      fastMode: parent.config.fastMode,
+      thinkingEffort: parent.config.thinkingEffort,
       systemPrompt: parent.config.systemPrompt,
     });
     child.tools.copyLoopToolsFrom(parent.tools);
@@ -407,19 +300,17 @@ export class SessionSubagentHost {
     }
   }
 
+  markActiveChildDetached(agentId: string): void {
+    const child = this.activeChildren.get(agentId);
+    if (child !== undefined) child.runInBackground = true;
+  }
+
   async getProfileName(agentId: string): Promise<string | undefined> {
     const metadata = this.session.metadata.agents[agentId];
     if (metadata?.type !== 'sub' || metadata.parentAgentId !== this.ownerAgentId) {
       return undefined;
     }
     return (await this.session.ensureAgentResumed(agentId)).config.profileName;
-  }
-
-  getProfiles(): Record<string, ResolvedAgentProfile> {
-    const profiles = this.session.agentProfiles ?? DEFAULT_AGENT_PROFILES;
-    return Object.fromEntries(
-      Object.entries(profiles).filter(([name]) => name !== 'agent'),
-    );
   }
 
   getDynamicWorkflowItem(agentId: string): string | undefined {
@@ -430,75 +321,40 @@ export class SessionSubagentHost {
     return metadata.dynamicWorkflowItem;
   }
 
-  /**
-   * Model selection for a child: explicit option → profile → implementer role
-   * → parent. `@role` references in the first two sources expand before model
-   * resolution. Resume and retry re-resolve through the same precedence, so a
-   * profile that routes its subagents to another model (and provider) is not
-   * silently replaced by the parent's model on the second turn.
-   *
-   * An alias the provider cannot resolve (e.g. a typo, or a session built on
-   * SingleModelProvider) falls back to the parent's model instead of failing at
-   * generate time. fastMode stays a straight inherit: it is a preference the
-   * provider layer already drops when the active model cannot serve it.
-   *
-   * A `model:` deny rule is re-checked here as well — approval only sees a
-   * model that was in the tool arguments, so a profile-sourced override (or a
-   * resume/retry re-resolution) would otherwise ride past `Agent(model:x)` /
-   * `DynamicWorkflow(model:x)`. Every override lands in this method, making it
-   * the one containment point; a denied override falls back to the parent's
-   * model rather than failing the spawn.
-   */
-  private childModelConfig(
-    parent: Agent,
-    child: Agent,
-    profile: ResolvedAgentProfile | undefined,
-    options: Pick<RunSubagentOptions, 'modelAlias' | 'thinkingLevel' | 'workflowRunId'>,
-  ): { modelAlias: string | undefined; thinkingLevel: string | undefined; fastMode: boolean } {
-    const config = parent.pythinkerConfig;
-    const requestedRaw = options.modelAlias ?? profile?.model;
-    const requested =
-      requestedRaw !== undefined
-        ? expandModelRef(config, requestedRaw)
-        : resolveModelRoleAlias(config, 'implementer');
-    const tool = options.workflowRunId === undefined ? 'Agent' : 'DynamicWorkflow';
-    const requestedDenied =
-      requested !== undefined &&
-      ((requestedRaw !== undefined &&
-        requestedRaw !== requested &&
-        parent.permission.deniesModelOverride(tool, requestedRaw)) ||
-        parent.permission.deniesModelOverride(tool, requested));
-    const modelAlias =
-      requested !== undefined &&
-      child.config.canResolveModel(requested) &&
-      !requestedDenied
-        ? requested
-        : parent.config.modelAlias;
-    return {
-      modelAlias,
-      thinkingLevel: options.thinkingLevel ?? profile?.effort ?? parent.config.thinkingLevel,
-      fastMode: parent.config.fastMode,
-    };
-  }
-
-  private tryResolveProfile(parent: Agent, profileName: string): ResolvedAgentProfile | undefined {
-    try {
-      return this.resolveProfile(parent, profileName);
-    } catch {
-      return undefined;
-    }
-  }
-
   private resolveProfile(parent: Agent, profileName: string): ResolvedAgentProfile {
-    const configuredProfiles = this.session.agentProfiles;
-    const profile =
-      configuredProfiles?.[profileName] ??
-      DEFAULT_AGENT_PROFILES[parent.config.profileName ?? 'agent']?.subagents?.[profileName] ??
-      DEFAULT_AGENT_PROFILES['agent']?.subagents?.[profileName];
+    const profile = this.resolveDelegatableSubagents(
+      parent.config.profileName,
+      parent.config.subagentNames,
+    )[profileName];
     if (profile === undefined) {
       throw new Error(`Subagent profile "${profileName}" was not found`);
     }
     return profile;
+  }
+
+  /**
+   * The subagent types the given profile may delegate to (its own linked set,
+   * or the default profile's when it declares none). Backs the `Agent` tool's
+   * "Available agent types" description.
+   */
+  delegatableSubagents(callerProfileName?: string): Record<string, ResolvedAgentProfile> {
+    const owner = this.getOwnerAgent?.() ?? this.session.getReadyAgent(this.ownerAgentId);
+    return this.resolveDelegatableSubagents(callerProfileName, owner?.config.subagentNames);
+  }
+
+  private resolveDelegatableSubagents(
+    callerProfileName: string | undefined,
+    persistedNames: readonly string[] | undefined,
+  ): Record<string, ResolvedAgentProfile> {
+    const catalogProfiles = this.session.agentCatalog.delegatableSubagents(callerProfileName);
+    if (persistedNames === undefined) return catalogProfiles;
+
+    return Object.fromEntries(
+      persistedNames.flatMap((name) => {
+        const profile = catalogProfiles[name];
+        return profile === undefined ? [] : [[name, profile]];
+      }),
+    );
   }
 
   private runWithActiveChild(
@@ -527,25 +383,17 @@ export class SessionSubagentHost {
     options: RunSubagentOptions,
   ): Promise<SubagentCompletion> {
     options.signal.throwIfAborted();
-    child.setFileCheckpointId(parent.fileCheckpointId);
     await this.triggerSubagentStart(parent, profileName, options.prompt, options.signal);
     options.signal.throwIfAborted();
 
-    let childPrompt =
-      options.profileInitialPrompt === undefined || options.profileInitialPrompt.length === 0
-        ? options.prompt
-        : `${options.profileInitialPrompt}\n\n${options.prompt}`;
+    let childPrompt = options.prompt;
     if (profileName === 'explore') {
       const gitContext = await collectGitContext(child.kaos, child.config.cwd);
       if (gitContext) childPrompt = `${gitContext}\n\n${childPrompt}`;
     }
 
-    this.emitSubagentStarted(parent, childId, options);
-    const turnId = child.turn.prompt(
-      [{ type: 'text', text: childPrompt }],
-      SUBAGENT_PROMPT_ORIGIN,
-      options.outputSchema,
-    );
+    this.emitSubagentStarted(parent, childId);
+    const turnId = child.turn.prompt([{ type: 'text', text: childPrompt }], SUBAGENT_PROMPT_ORIGIN);
     if (turnId === null) {
       throw new Error(`Agent instance "${childId}" could not start a turn`);
     }
@@ -560,34 +408,26 @@ export class SessionSubagentHost {
     profileName: string,
     options: RunSubagentOptions,
   ): Promise<SubagentCompletion> {
-    const turnResult = await runChildTurnToCompletion(child, options.signal);
+    await runChildTurnToCompletion(child, options.signal);
+    await this.drainChildBackgroundTasks(child, options.signal);
 
     // A subagent that returns an overly terse summary leaves the parent
     // agent under-informed. Give it a bounded number of chances to expand
     // the handoff; if it is still short after that, accept it as-is rather
-    // than retrying indefinitely. When a schema is in effect the structured
-    // output — not the prose — is the deliverable, so the continuation never
-    // runs and the turn would cost an extra request without a schema.
+    // than retrying indefinitely.
     let result = lastAssistantText(child);
-    if (options.outputSchema === undefined) {
-      let remainingContinuations = SUMMARY_CONTINUATION_ATTEMPTS;
-      while (remainingContinuations > 0 && result.length < SUMMARY_MIN_LENGTH) {
-        remainingContinuations -= 1;
-        options.signal.throwIfAborted();
-        child.turn.prompt([{ type: 'text', text: SUMMARY_CONTINUATION_PROMPT }], SUBAGENT_PROMPT_ORIGIN);
-        await runChildTurnToCompletion(child, options.signal);
-        result = lastAssistantText(child);
-      }
-    } else if (turnResult.structuredOutput !== undefined) {
-      result = JSON.stringify(turnResult.structuredOutput);
+    let remainingContinuations = SUMMARY_CONTINUATION_ATTEMPTS;
+    while (remainingContinuations > 0 && result.length < SUMMARY_MIN_LENGTH) {
+      remainingContinuations -= 1;
+      options.signal.throwIfAborted();
+      child.turn.prompt([{ type: 'text', text: SUMMARY_CONTINUATION_PROMPT }], SUBAGENT_PROMPT_ORIGIN);
+      await runChildTurnToCompletion(child, options.signal);
+      result = lastAssistantText(child);
     }
     const usage = child.usage.data().total;
     parent.emitEvent({
       type: 'subagent.completed',
       subagentId: childId,
-      parentToolCallId: options.parentToolCallId,
-      workflowRunId: options.workflowRunId,
-      workflowName: options.workflowName,
       resultSummary: result,
       usage,
       contextTokens: child.context.tokenCount,
@@ -599,66 +439,110 @@ export class SessionSubagentHost {
   private async configureChild(
     parent: Agent,
     child: Agent,
-    profile: ResolvedAgentProfile | undefined,
-    options: RunSubagentOptions,
+    profile: ResolvedAgentProfile,
+    modelChoice?: SubagentModelChoice,
   ): Promise<void> {
-    const cwd = options.cwd ?? parent.config.cwd;
-    const pathApi = child.kaos.pathClass() === 'win32' ? path.win32 : path.posix;
-    if (!pathApi.isAbsolute(cwd)) {
-      throw new Error(`Subagent cwd must be an absolute path: ${cwd}`);
-    }
-    await child.kaos.chdir(cwd);
-    child.setKaos(child.kaos.withCwd(cwd));
+    const binding = this.resolveSpawnBinding(parent, profile, modelChoice);
     child.config.update({
-      cwd,
-      ...this.childModelConfig(parent, child, profile, options),
+      cwd: parent.config.cwd,
+      modelAlias: binding.modelAlias,
+      thinkingEffort: binding.thinkingEffort,
     });
 
-    if (options.forkContext === true) {
-      child.config.update({
-        profileName: 'fork',
-        systemPrompt: parent.config.systemPrompt,
-      });
-      child.tools.inheritUserTools(parent.tools);
-      child.tools.setActiveTools(
-        parent.tools
-          .data()
-          .filter((tool) => tool.active && tool.name !== 'Agent' && tool.name !== 'DynamicWorkflow')
-          .map((tool) => tool.name),
-      );
-      child.context.useProjectedHistoryFrom(parent.context);
-      return;
-    }
-    if (profile === undefined) {
-      throw new Error('Subagent profile was not resolved');
-    }
     const context = await prepareSystemPromptContext(
       this.session.systemContextKaos(child.kaos.getcwd()),
       this.session.options.pythinkerHomeDir,
-      child.experimentalFlags.enabled('agent_memory') && profile.memory !== undefined
-        ? { name: profile.name, scope: profile.memory }
-        : undefined,
+      { additionalDirs: child.getAdditionalDirs() },
     );
-    child.useProfile(profile, context);
+    const subagentNames = Object.keys(
+      this.session.agentCatalog.delegatableSubagents(profile.name),
+    );
+    child.useProfile(profile, context, this.session.options.pythinkerHomeDir, subagentNames);
     child.tools.inheritUserTools(parent.tools);
-    if (profile.permissionMode !== undefined) {
-      child.permission.setMode(profile.permissionMode);
+  }
+
+  /**
+   * The model a newly spawned subagent binds to: the configured secondary
+   * model by default (when the experiment is on), otherwise the parent's
+   * model and effort, inherited as before. The bound alias is validated up
+   * front so a dangling `[secondary_model]` pointer fails the spawn with a
+   * wrapped, actionable error instead of a mid-turn provider failure.
+   */
+  private resolveSpawnBinding(
+    parent: Agent,
+    profile: ResolvedAgentProfile,
+    modelChoice?: SubagentModelChoice,
+  ): SubagentModelBinding {
+    const binding = resolveSubagentBinding(
+      this.session.pythinkerConfig,
+      this.session.experimentalFlags,
+      { modelAlias: parent.config.modelAlias, thinkingEffort: parent.config.thinkingEffort },
+      modelChoice ?? profile.modelPreference,
+    );
+    if (binding.modelAlias !== undefined) {
+      const providerManager = this.session.options.providerManager;
+      try {
+        providerManager?.resolveProviderConfig(binding.modelAlias);
+      } catch (error) {
+        throw wrapSubagentModelError(error, binding.modelAlias, parent.config.modelAlias);
+      }
+    }
+    return binding;
+  }
+
+  /**
+   * Resume/retry historically re-synced the child to the parent's current
+   * model so subagents follow mid-session `/model` switches. With the
+   * `secondary-model` experiment on, a resumed subagent instead keeps the
+   * model it was bound to at spawn (v2 semantics: no child-follows-parent
+   * invariant).
+   */
+  private reInheritParentModel(parent: Agent, child: Agent): void {
+    if (this.session.experimentalFlags.enabled('secondary-model')) return;
+    child.config.update({ modelAlias: parent.config.modelAlias });
+  }
+
+  /**
+   * Hold the run open until the child agent's background tasks (background
+   * Bash, nested background agents) settle — the print-mode (`pythinker -p`)
+   * drain semantics applied to subagent completion. Drained tasks get their
+   * terminal notifications suppressed: without that, a task outliving the
+   * child's final turn steers a fresh turn on the finished subagent
+   * (`steer` degrades to `launch`), which runs unobserved and whose output
+   * never reaches the parent. Bounded by the run's signal — the Agent
+   * tool's per-run timeout / user-cancel envelope covers the drain too.
+   */
+  private async drainChildBackgroundTasks(child: Agent, signal: AbortSignal): Promise<void> {
+    for (;;) {
+      signal.throwIfAborted();
+      await this.suppressChildTaskNotifications(child);
+      await child.background.waitForActiveTasks(() => true, { signal });
+      // Suppress again after the wait: notification delivery re-checks
+      // suppression after its async output snapshot, so this pass still
+      // blocks notifications for tasks that settled during the wait.
+      await this.suppressChildTaskNotifications(child);
+      // A terminal effect that slipped past the suppression race may have
+      // steered a follow-up turn onto the child; let it finish (it can fan
+      // out new tasks) before declaring the child drained.
+      if (child.turn.hasActiveTurn) {
+        await runChildTurnToCompletion(child, signal);
+        continue;
+      }
+      if (child.background.list(true).length === 0) return;
     }
   }
 
-  private renderProfileSkills(
-    child: Agent,
-    profile: ResolvedAgentProfile | undefined,
-  ): string | undefined {
-    const registry = child.skills?.registry;
-    if (registry === undefined || profile?.skills === undefined) return undefined;
-    const blocks = profile.skills.flatMap((name) => {
-      const skill = registry.getSkill(name);
-      return skill === undefined || !isInlineSkillType(skill.metadata.type)
-        ? []
-        : [`## Preloaded skill: ${skill.name}\n\n${registry.renderSkillPrompt(skill, '')}`];
-    });
-    return blocks.length === 0 ? undefined : blocks.join('\n\n');
+  /**
+   * Suppress terminal notifications for every child background task —
+   * including already-settled ones whose notification may still be in
+   * flight. `list(false)` is required: the active-only list drops a task
+   * the moment it terminates, which is exactly when an unsuppressed
+   * notification can still steer an orphan turn onto the finished child.
+   */
+  private async suppressChildTaskNotifications(child: Agent): Promise<void> {
+    for (const task of child.background.list(false)) {
+      await child.background.suppressTerminalNotification(task.taskId);
+    }
   }
 
   private async triggerSubagentStart(
@@ -671,7 +555,6 @@ export class SessionSubagentHost {
       matcherValue: profileName,
       signal,
       inputData: {
-        agentId: parent.agentId,
         agentName: profileName,
         prompt: prompt.slice(0, HOOK_TEXT_PREVIEW_LENGTH),
       },
@@ -682,7 +565,6 @@ export class SessionSubagentHost {
     void parent.hooks?.fireAndForgetTrigger('SubagentStop', {
       matcherValue: profileName,
       inputData: {
-        agentId: parent.agentId,
         agentName: profileName,
         response: result.slice(0, HOOK_TEXT_PREVIEW_LENGTH),
       },
@@ -711,34 +593,30 @@ export class SessionSubagentHost {
     parent.emitEvent({
       type: 'subagent.spawned',
       subagentId: childId,
-      subagentName: options.displayName ?? profileName,
+      subagentName: profileName,
       parentToolCallId: options.parentToolCallId,
       parentToolCallUuid: options.parentToolCallUuid,
       parentAgentId: this.ownerAgentId,
       description: options.description,
       dynamicWorkflowIndex: options.dynamicWorkflowIndex,
-      workflowRunId: options.workflowRunId,
-      workflowName: options.workflowName,
       runInBackground: options.runInBackground,
     });
     parent.telemetry.track('subagent_created', {
+      agent_id: childId,
+      parent_agent_id: this.ownerAgentId,
+      parent_tool_call_id: options.parentToolCallId ?? '',
       subagent_name: profileName,
       run_in_background: options.runInBackground,
-      workflow_run_id: options.workflowRunId,
     });
   }
 
   private emitSubagentStarted(
     parent: Agent,
     childId: string,
-    options: RunSubagentOptions,
   ): void {
     parent.emitEvent({
       type: 'subagent.started',
       subagentId: childId,
-      parentToolCallId: options.parentToolCallId,
-      workflowRunId: options.workflowRunId,
-      workflowName: options.workflowName,
     });
   }
 
@@ -752,28 +630,20 @@ export class SessionSubagentHost {
     parent.emitEvent({
       type: 'subagent.failed',
       subagentId: childId,
-      parentToolCallId: options.parentToolCallId,
-      workflowRunId: options.workflowRunId,
-      workflowName: options.workflowName,
       error: error instanceof Error ? error.message : String(error),
     });
   }
 }
 
-async function runChildTurnToCompletion(
-  child: Agent,
-  signal: AbortSignal,
-): Promise<{ readonly structuredOutput?: unknown }> {
+async function runChildTurnToCompletion(child: Agent, signal: AbortSignal): Promise<void> {
   const completion = await child.turn.waitForCurrentTurn(signal);
   const turnEnded = completion.event;
   if (turnEnded.reason !== 'completed') {
+    if (turnEnded.error?.code === ErrorCodes.PROVIDER_FILTERED) {
+      throw new Error('Subagent turn blocked by provider safety policy');
+    }
     if (turnEnded.error?.code === ErrorCodes.PROVIDER_RATE_LIMIT) {
       throw providerRateLimitErrorFromPayload(turnEnded.error);
-    }
-    if (turnEnded.error?.code === ErrorCodes.STRUCTURED_OUTPUT_MAX_RETRIES) {
-      throw new StructuredOutputMaxRetriesError(
-        `[${turnEnded.error.code}] ${turnEnded.error.message}`,
-      );
     }
     throw new Error(
       turnEnded.error === undefined
@@ -784,10 +654,12 @@ async function runChildTurnToCompletion(
   if (completion.stopReason === 'max_tokens') {
     throw new Error(`${SUBAGENT_MAX_TOKENS_ERROR}.`);
   }
-  return { structuredOutput: turnEnded.structuredOutput };
 }
 
-function providerRateLimitErrorFromPayload(error: PythinkerErrorPayload): APIProviderRateLimitError {
+function providerRateLimitErrorFromPayload(error: {
+  readonly message: string;
+  readonly details?: Record<string, unknown>;
+}): APIProviderRateLimitError {
   const requestId =
     typeof error.details?.['requestId'] === 'string' ? error.details['requestId'] : null;
   return new APIProviderRateLimitError(error.message, requestId);

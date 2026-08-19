@@ -40,7 +40,7 @@ import type { Event, PythinkerHarness, Session } from '@pymodel/pythinker-code-s
 import { describe, expect, it } from 'vitest';
 
 import { AcpServer } from '../src/server';
-import { AUTHED } from './_helpers/harness-stubs';
+import { AUTHED_STATUS } from './_helpers/harness-stubs';
 
 function makeInMemoryStreamPair(): {
   agentStream: ReturnType<typeof ndJsonStream>;
@@ -130,7 +130,7 @@ describe('end-to-end FS reverse-RPC', () => {
     let createdSession: Session | undefined;
     let capturedSessionId: string | undefined;
     const harness = {
-      isAuthenticated: AUTHED,
+      auth: { status: async () => AUTHED_STATUS },
       createSession: async (options: { id?: string; workDir: string; kaos?: Kaos }) => {
         capturedSessionId = options.id ?? 'fallback';
         createdSession = makeReadingSession(capturedSessionId, targetPath, options.kaos);
@@ -165,9 +165,16 @@ describe('end-to-end FS reverse-RPC', () => {
     // The client saw exactly one fs/readTextFile request with the
     // expected path and matching sessionId.
     expect(bufferClient.readRequests).toHaveLength(1);
+
+    // AcpKaos forwards paths in client-native separators: when the inner
+    // LocalKaos reports pathClass 'win32' (Windows), '/' is converted to '\\'
+    // before the fs/readTextFile RPC (see kaos-acp.test.ts "uses win32-native
+    // separators"). Mirror that here so the assertion holds on every platform.
+    const expectedWirePath =
+      process.platform === 'win32' ? targetPath.replaceAll('/', '\\') : targetPath;
     expect(bufferClient.readRequests[0]).toMatchObject({
       sessionId: capturedSessionId,
-      path: targetPath,
+      path: expectedWirePath,
     });
 
     // Give the agent a tick to flush the queued sessionUpdate write
@@ -190,7 +197,7 @@ describe('end-to-end FS reverse-RPC', () => {
 
     const listeners = new Set<(event: Event) => void>();
     const harness = {
-      isAuthenticated: AUTHED,
+      auth: { status: async () => AUTHED_STATUS },
       createSession: async (options: { id?: string; workDir: string; kaos?: Kaos }) => {
         observedKaos = options.kaos;
         capturedSessionId = options.id ?? 'fallback';

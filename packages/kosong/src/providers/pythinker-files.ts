@@ -8,8 +8,8 @@ import type { ProviderRequestAuth, VideoUploadInput } from '#/provider';
 import type OpenAI from 'openai';
 import OpenAIClient from 'openai';
 
-import { convertOpenAIError } from './openai-common';
 import { classifyPythinkerQuotaError } from './pythinker-errors';
+import { convertOpenAIError } from './openai-common';
 import {
   mergeRequestHeaders,
   requireProviderApiKey,
@@ -32,7 +32,7 @@ export interface PythinkerFilesOptions {
  * Pythinker-specific file upload client.
  *
  * Wraps the underlying OpenAI-compatible `files.create` API to upload videos
- * to Pythoughts's file service and return them as {@link VideoURLPart} values
+ * to PyModel's file service and return them as {@link VideoURLPart} values
  * suitable for use in chat messages.
  *
  * A `PythinkerFiles` instance is typically obtained from
@@ -61,15 +61,15 @@ export class PythinkerFiles {
   }
 
   /**
-   * Upload a video file to Pythinker/Pythoughts for use in chat messages.
+   * Upload a video file to Pythinker/PyModel for use in chat messages.
    *
    * Accepts either a local filesystem path or an in-memory
    * {@link VideoUploadInput}. Returns a {@link VideoURLPart} referencing the
-   * uploaded file by its Pythoughts file id.
+   * uploaded file by its PyModel file id.
    *
    * @param input - Local path string or `{ data, mimeType }` object.
    * @returns A `VideoURLPart` whose `url` references the uploaded file
-   *          by its Pythoughts file id (e.g. `ms://<file-id>`).
+   *          by its PyModel file id (e.g. `ms://<file-id>`).
    * @throws {ChatProviderError} if the input is not a video or the upload
    *         fails.
    */

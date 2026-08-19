@@ -1,9 +1,7 @@
-import type { ContentPart } from '@pymodel/kosong';
-
-import type { BackgroundTaskInfo } from '#/agent/background';
-import type { PartialCompactionDirection } from '#/agent/compaction';
 import type { AgentConfigData } from '#/agent/config';
-import type { AgentContextData, ContextUsageReport } from '#/agent/context';
+import type { AgentContextData } from '#/agent/context';
+import type { BackgroundTaskInfo } from '#/agent/background';
+import type { CronTaskSnapshot } from '#/agent/cron';
 import type {
   GoalBudgetLimits,
   GoalBudgetReport,
@@ -15,31 +13,26 @@ import type {
 } from '#/agent/goal';
 import type { PermissionData, PermissionMode } from '#/agent/permission';
 import type { PlanData } from '#/agent/plan';
-import type { DynamicWorkflowModeTrigger } from '#/agent/dynamic-workflow';
-import type { ToolInfo } from '#/agent/tool';
+import type { DynamicWorkflowModeTrigger } from '#/agent/dynamic_workflow';
+import type { ToolDisclosure, ToolInfo } from '#/agent/tool';
 import type { PythinkerConfig, PythinkerConfigPatch, McpServerConfig } from '#/config';
 import type { ExperimentalFeatureState } from '#/flags';
-import type { PluginInfo, PluginInstallOptions, PluginSummary, ReloadSummary } from '#/plugin';
 import type { ResumeSessionResult } from '#/rpc/resumed';
 import type { SessionMeta } from '#/session';
-import type {
-  FileCheckpointPreview,
-  FileCheckpointSummary,
-  RestoreFileCheckpointResult,
-} from '#/session/file-checkpoints';
-import type { AdvisorStatusSnapshot } from '#/session/advisor-config';
-import type { WorkingTreeChanges, WorkingTreeFileDiff } from '#/session/working-tree';
+import type { GlobalMcpServerConfig } from '#/mcp/global-config';
+import type { McpServerConfigView } from '#/mcp/config-view';
+import type { McpRegistryPluginOrigin, McpServerSource } from '#/mcp/registry';
+import type { ContentPart } from '@pymodel/kosong';
+import type { SessionWarning } from '@pymodel/protocol';
 
+import type { PluginCommandDef, PluginInfo, PluginSummary, ReloadSummary } from '#/plugin';
 import type { UsageStatus } from './events';
 import type { WithAgentId, WithSessionId } from './types';
 
-export type AdvisorStatus = AdvisorStatusSnapshot;
+export type { PluginCommandDef } from '#/plugin';
 
 export type JsonPrimitive = string | number | boolean | null;
-export type JsonValue =
-  | JsonPrimitive
-  | readonly JsonValue[]
-  | { readonly [key: string]: JsonValue };
+export type JsonValue = JsonPrimitive | JsonValue[] | { readonly [key: string]: JsonValue };
 export type JsonObject = { readonly [key: string]: JsonValue };
 
 export type Unsubscribe = () => void;
@@ -52,7 +45,7 @@ export type PromptPart = Extract<ContentPart, { type: 'text' | 'image_url' | 'vi
 export type PromptInput = readonly PromptPart[];
 
 export type EmptyPayload = {};
-export type SessionMetadataPatch = Partial<Omit<SessionMeta, 'agents' | 'sessionFormatVersion'>>;
+export type SessionMetadataPatch = Partial<Omit<SessionMeta, 'agents' | 'additionalDirs'>>;
 
 export interface ClientTelemetryInfo {
   readonly id?: string | undefined;
@@ -67,10 +60,15 @@ export interface CreateSessionPayload {
   readonly model?: string | undefined;
   readonly thinking?: string | undefined;
   readonly permission?: PermissionMode | undefined;
-  readonly setupTrigger?: 'init' | 'maintenance';
   readonly metadata?: JsonObject | undefined;
   readonly mcpServers?: Readonly<Record<string, McpServerConfig>>;
+  readonly additionalDirs?: readonly string[];
   readonly client?: ClientTelemetryInfo | undefined;
+  readonly drainAgentTasksOnStop?: boolean;
+  /** Main-agent profile name (`--agent`): a builtin or agentfile-defined profile. */
+  readonly agentProfile?: string;
+  /** Explicit agentfiles (`--agent-file`); an invalid file fails session creation. */
+  readonly agentFiles?: readonly string[];
 }
 
 export interface CloseSessionPayload {
@@ -81,19 +79,35 @@ export interface ArchiveSessionPayload {
   readonly sessionId: string;
 }
 
+export interface DeleteSessionPayload {
+  readonly sessionId: string;
+}
+
 export interface ResumeSessionPayload {
   readonly sessionId: string;
-  readonly setupTrigger?: 'init' | 'maintenance';
   readonly mcpServers?: Readonly<Record<string, McpServerConfig>>;
+  readonly additionalDirs?: readonly string[];
+  /** Re-select the session's already-bound main profile; a different name fails. */
+  readonly agentProfile?: string;
+  /** Include persisted subagent states in the returned replay snapshot. */
+  readonly includeSubagents?: boolean;
   /**
    * Limit each returned agent replay to the most recent N user turns. Omit to
-   * return the full replay.
+   * return the full replay. Lets UI callers that only render the tail avoid
+   * serializing the entire history over the RPC boundary.
    */
   readonly replayTurnLimit?: number;
 }
 
 export interface ReloadSessionPayload {
   readonly sessionId: string;
+  /**
+   * When true, append a fresh `<plugin_session_start>` system reminder to the
+   * main agent after the session is reloaded, reflecting the currently enabled
+   * plugins. Used by the explicit `/reload` command so the model sees plugin
+   * changes without starting a new session. Defaults to false.
+   */
+  readonly forcePluginSessionStartReminder?: boolean;
 }
 
 export interface ForkSessionPayload {
@@ -101,6 +115,11 @@ export interface ForkSessionPayload {
   readonly id?: string;
   readonly title?: string;
   readonly metadata?: JsonObject;
+  /**
+   * Zero-based index of the user-visible turn to retain through. When omitted,
+   * the complete session is copied (the existing fork behavior).
+   */
+  readonly turnIndex?: number;
 }
 
 export interface ShellEnvironment {
@@ -174,11 +193,42 @@ export interface SessionSummary {
   readonly updatedAt: number;
   readonly archived?: boolean | undefined;
   readonly metadata?: JsonObject | undefined;
+  readonly additionalDirs?: readonly string[];
 }
 
 export interface PromptPayload {
   readonly input: readonly ContentPart[];
-  readonly outputSchema?: JsonObject;
+  /**
+   * Client-managed session denylist, applied via
+   * `IAgentProfileService.setSessionDisabledTools` before the prompt is
+   * enqueued: full-replace semantics, the profile's own `disallowedTools`
+   * always survive. Omit to keep the persisted value; `[]` clears the client
+   * portion. Ignored by engines without profile support.
+   */
+  readonly disabledTools?: readonly string[];
+}
+export interface RunShellCommandPayload {
+  readonly command: string;
+  /**
+   * TUI-generated correlation id echoed back on every `shell.output` live event
+   * so the client can route chunks to the matching entry and drop stale events
+   * from a prior run. Optional for callers that don't stream.
+   */
+  readonly commandId?: string;
+}
+export interface ShellCommandResult {
+  readonly stdout: string;
+  readonly stderr: string;
+  /** True when the command failed (non-zero exit / timeout / killed) — used by
+   *  the TUI to render stderr in red only for actual failures, not warnings. */
+  readonly isError?: boolean;
+  /** True when the command was detached to the background (ctrl+b) instead of
+   *  completing in the foreground. The TUI uses this to skip the normal final
+   *  render (the backgrounding path owns the UI + model notification). */
+  readonly backgrounded?: boolean;
+}
+export interface CancelShellCommandPayload {
+  readonly commandId: string;
 }
 export interface SteerPayload {
   readonly input: readonly ContentPart[];
@@ -187,10 +237,7 @@ export interface CancelPayload {
   readonly turnId?: number;
 }
 export interface SetThinkingPayload {
-  readonly level: string;
-}
-export interface SetFastModePayload {
-  readonly enabled: boolean;
+  readonly effort: string;
 }
 export interface SetPermissionPayload {
   readonly mode: PermissionMode;
@@ -210,16 +257,21 @@ export interface EnterDynamicWorkflowPayload {
 }
 export interface BeginCompactionPayload {
   readonly instruction?: string;
-  readonly promptFromEnd?: number;
-  readonly direction?: PartialCompactionDirection;
 }
 export interface UndoHistoryPayload {
   readonly count: number;
+}
+export interface ImportContextPayload {
+  /** Raw text supplied by the host. Core does not perform file I/O. */
+  readonly content: string;
+  /** User-facing description of the source, for example `file 'notes.md'`. */
+  readonly source: string;
 }
 export interface RegisterToolPayload {
   readonly name: string;
   readonly description: string;
   readonly parameters: Record<string, unknown>;
+  readonly disclosure?: ToolDisclosure;
 }
 export interface UnregisterToolPayload {
   readonly name: string;
@@ -231,6 +283,9 @@ export interface StopBackgroundPayload {
   readonly taskId: string;
   /** Free-form human-readable reason persisted with the task record. */
   readonly reason?: string;
+}
+export interface DetachBackgroundPayload {
+  readonly taskId: string;
 }
 export interface GetBackgroundOutputPayload {
   readonly taskId: string;
@@ -246,23 +301,13 @@ export interface GetBackgroundPayload {
   /** Caps the number of tasks returned. When omitted, returns all matching tasks. */
   readonly limit?: number;
 }
-export interface GetContextTokenCountPayload {
-  readonly sessionId: string;
-  readonly agentId: string;
-}
-export interface ContextTokenCount {
-  readonly tokenCount: number;
-}
 export interface SkillSummary {
   readonly name: string;
-  readonly commandName?: string;
   readonly description: string;
   readonly path: string;
   readonly source: 'builtin' | 'user' | 'extra' | 'project';
   readonly type?: string | undefined;
   readonly disableModelInvocation?: boolean | undefined;
-  readonly userInvocable?: boolean;
-  readonly argumentHint?: string;
   readonly isSubSkill?: boolean | undefined;
 }
 
@@ -271,17 +316,32 @@ export interface ActivateSkillPayload {
   readonly args?: string | undefined;
 }
 
-export interface SkillActivationResult {
-  readonly execution: 'inline' | 'fork';
-  readonly result?: string;
+export interface ListWorkspaceSkillsPayload {
+  readonly workDir: string;
+}
+
+export interface ActivatePluginCommandPayload {
+  readonly pluginId: string;
+  readonly commandName: string;
+  readonly args?: string | undefined;
 }
 
 export interface McpServerInfo {
   readonly name: string;
   readonly transport: 'stdio' | 'http' | 'sse';
-  readonly status: 'pending' | 'connected' | 'failed' | 'disabled' | 'needs-auth';
+  // 'removed' is only produced by the v2 engine (config-driven tombstone);
+  // v1 never emits it, but SDK consumers share this type across engines.
+  readonly status: 'pending' | 'connected' | 'failed' | 'disabled' | 'needs-auth' | 'removed';
   readonly toolCount: number;
   readonly error?: string;
+  /** Config origin tag (v1 only for now): global layered files / plugin / caller. */
+  readonly source?: McpServerSource;
+  /**
+   * The effective config the entry is running (or last failed) with, in its
+   * wire-facing view: stdio `env` / remote `headers` values are redacted to
+   * key lists because they may carry credentials (v1 only for now).
+   */
+  readonly config?: AppMcpServerConfig;
 }
 
 export interface McpStartupMetrics {
@@ -290,11 +350,171 @@ export interface McpStartupMetrics {
 
 export interface ReconnectMcpServerPayload {
   readonly name: string;
+  /**
+   * Optional full replacement config (the "name + full config" channel).
+   * Omitted: the session re-resolves the current effective config from the
+   * unified registry instead of reusing the boot-time snapshot.
+   */
+  readonly config?: McpServerConfig;
+}
+
+export interface AddSessionMcpServerPayload {
+  readonly server: GlobalMcpServerConfig;
+  /**
+   * Also persist the server to the user-level `mcp.json`. Persisted entries
+   * become `global`-sourced; unpersisted ones are session-local `caller`
+   * entries.
+   */
+  readonly persist?: boolean;
+}
+
+export type { GlobalMcpServerConfig } from '#/mcp/global-config';
+export type { McpServerSource } from '#/mcp/registry';
+
+/**
+ * One entry of the unified MCP management view: the effective config plus its
+ * source metadata. `global` entries from the user-level file are `mutable`;
+ * plugin and project-layer entries are read-only through the management API.
+ * Read-only entries also withhold secret-bearing values: their stdio `env` /
+ * remote `headers` are redacted to the `envKeys` / `headerKeys` lists, while
+ * mutable (user-level) entries keep the full values so edit UIs can prefill.
+ */
+export type McpManagedServerInfo = GlobalMcpServerConfig & {
+  readonly source: McpServerSource;
+  /** global: defining file path; plugin: plugin id. */
+  readonly origin: string;
+  readonly mutable: boolean;
+  readonly plugin?: McpRegistryPluginOrigin;
+  /** Set instead of `env` / `headers` when the entry is read-only. */
+  readonly envKeys?: readonly string[];
+  readonly headerKeys?: readonly string[];
+};
+
+export interface ListGlobalMcpServersPayload {
+  /** Include the project-root / project-local layers for this directory. */
+  readonly cwd?: string;
+}
+
+export interface GetGlobalMcpServerPayload {
+  readonly name: string;
+  readonly cwd?: string;
+}
+
+export interface PutGlobalMcpServerPayload {
+  readonly server: GlobalMcpServerConfig;
+}
+
+export interface GlobalMcpServerNamePayload {
+  readonly name: string;
+}
+
+/**
+ * Source-qualified server identity for the app-level MCP surface. Global
+ * servers are addressed by their (runtime) name; plugin servers by plugin id
+ * plus the manifest-local server name — the identity stays stable even when a
+ * runtime-name collision makes the bare name ambiguous.
+ */
+export type McpServerLocator =
+  | { readonly source: 'global'; readonly name: string }
+  | {
+      readonly source: 'plugin';
+      readonly pluginId: string;
+      readonly serverName: string;
+    };
+
+export interface McpServerLocatorPayload {
+  readonly locator: McpServerLocator;
+}
+
+export interface InspectAppMcpServersPayload {
+  readonly targets?: readonly McpServerLocator[];
+}
+
+export type GlobalMcpServerAuthState =
+  | 'not-applicable'
+  | 'bearer-token'
+  | 'oauth-required'
+  | 'oauth-authorized'
+  // Stored credentials exist but are expired without a usable refresh token
+  // (or failed an online verification): re-login required.
+  | 'oauth-expired';
+
+export interface GlobalMcpServerAuthStatus {
+  readonly name: string;
+  readonly authStatus: GlobalMcpServerAuthState;
+}
+
+export interface ListGlobalMcpServerAuthStatusesPayload {
+  readonly cwd?: string;
+  /**
+   * Verify online: run a real connection probe for OAuth-capable servers so
+   * an expired/revoked grant surfaces as `oauth-expired` instead of the
+   * offline `oauth-authorized` guess.
+   */
+  readonly verify?: boolean;
+}
+
+/** App-level inspection adds `unavailable` (probe failed / ambiguous name). */
+export type AppMcpServerAuthState = GlobalMcpServerAuthState | 'unavailable';
+
+/**
+ * Inspection config as exposed on the wire: the effective config with literal
+ * stdio `env` / remote `headers` values redacted to sorted key lists, since
+ * they may carry secrets. Shared with the session MCP status surface.
+ */
+export type AppMcpServerConfig = McpServerConfigView;
+
+export interface AppMcpServerDescriptor {
+  /** `global:<name>` or `plugin:<pluginId>:<serverName>` (URL-encoded parts). */
+  readonly serverId: string;
+  readonly locator: McpServerLocator;
+  readonly runtimeName: string;
+  readonly canonicalUrl: string | undefined;
+  readonly origin: McpServerLocator['source'];
+  /** The final effective config after source-specific transforms, redacted. */
+  readonly config: AppMcpServerConfig;
+  readonly enabled: boolean;
+  readonly editable: boolean;
+}
+
+export interface AppMcpServerInspection extends AppMcpServerDescriptor {
+  readonly authStatus: AppMcpServerAuthState;
+  readonly checkedAt?: number;
+  readonly error?: string;
+}
+
+export type BeginGlobalMcpServerAuthResult =
+  | { readonly status: 'already-authorized' }
+  | {
+      readonly status: 'authorization-required';
+      readonly flowId: string;
+      readonly authorizationUrl: string;
+    };
+
+export interface CompleteGlobalMcpServerAuthPayload {
+  readonly flowId: string;
+  readonly timeoutMs?: number;
+}
+
+export interface CancelGlobalMcpServerAuthPayload {
+  readonly flowId: string;
+}
+
+export interface TestGlobalMcpServerPayload {
+  /** Registry lookup by name (covers plugin and project-layer entries). */
+  readonly name?: string;
+  /** Probe a full inline config instead — nothing has to be saved first. */
+  readonly server?: GlobalMcpServerConfig;
+  readonly cwd?: string;
+}
+
+export interface GlobalMcpServerTestResult {
+  readonly success: boolean;
+  readonly output: string;
 }
 
 export interface InstallPluginPayload {
   readonly source: string;
-  readonly options?: PluginInstallOptions;
 }
 
 export interface SetPluginEnabledPayload {
@@ -319,33 +539,24 @@ export interface GetPluginInfoPayload {
 export type ReloadPluginsResult = ReloadSummary;
 export type { PluginSummary, PluginInfo };
 
+export interface AddAdditionalDirPayload {
+  readonly path: string;
+  readonly persist: boolean;
+}
+
+export interface AddAdditionalDirResult {
+  readonly additionalDirs: readonly string[];
+  readonly projectRoot: string;
+  readonly configPath: string;
+  readonly persisted: boolean;
+}
+
 export interface RenameSessionPayload {
   readonly title: string;
 }
 
 export interface UpdateSessionMetadataPayload {
   readonly metadata: SessionMetadataPatch;
-}
-
-export interface WorkspaceDirectory {
-  readonly path: string;
-  readonly source: 'user' | 'session';
-}
-
-export interface WorkspaceDirectoryPayload {
-  readonly path: string;
-}
-
-export interface WorkingTreeDiffPayload {
-  readonly path: string;
-}
-
-export interface FileCheckpointIdPayload {
-  readonly checkpointId: string;
-}
-
-export interface SessionFileCheckpointPreview extends FileCheckpointPreview {
-  readonly conversationAvailable: boolean;
 }
 
 // Goal lifecycle payloads and re-exported goal value types. These describe the
@@ -376,83 +587,24 @@ export interface ConfigDiagnostics {
   readonly warnings: readonly string[];
 }
 
-export interface ListOutputStylesPayload {
-  readonly workDir: string;
-}
-
-export interface OutputStyleSummary {
-  readonly name: string;
-  readonly description: string;
-  readonly source: 'built-in' | 'plugin' | 'user' | 'project';
-  readonly active: boolean;
-  readonly forced?: boolean;
-}
-
-export interface OutputStyleCatalog {
-  readonly active: string;
-  readonly styles: readonly OutputStyleSummary[];
-}
-
-export interface ListAgentProfilesPayload {
-  readonly workDir: string;
-}
-
-export interface ListWorkspaceSkillsPayload {
-  readonly workDir: string;
-}
-
-export interface AgentProfileSummary {
-  readonly name: string;
-  readonly description?: string;
-  readonly source: 'built-in' | 'plugin' | 'user' | 'project';
-  readonly tools: readonly string[];
-  readonly model?: string;
-  readonly effort?: string;
-  readonly permissionMode?: PermissionMode;
-  readonly background?: boolean;
-  readonly maxTurns?: number;
-  readonly isolation?: 'worktree';
-  readonly memory?: 'user' | 'project' | 'local';
-  readonly whenToUse?: string;
-  readonly subagents: readonly string[];
-}
-
-export interface AgentProfileCatalog {
-  readonly profiles: readonly AgentProfileSummary[];
-  readonly warnings: readonly {
-    readonly path: string;
-    readonly error: string;
-  }[];
-}
-
 export type SetPythinkerConfigPayload = PythinkerConfigPatch;
-
-export interface ReplacePythinkerConfigPayload {
-  readonly config: PythinkerConfig;
-}
 
 export interface RemovePythinkerProviderPayload {
   readonly providerId: string;
 }
 
-export interface SetAdvisorEnabledPayload {
-  readonly enabled: boolean;
-  readonly advisorId?: string;
-}
-
-export interface SessionAdvisorAPI {
-  getAdvisorStatus: (payload: EmptyPayload) => readonly AdvisorStatus[];
-  setAdvisorEnabled: (payload: SetAdvisorEnabledPayload) => readonly AdvisorStatus[];
-  reloadAdvisor: (payload: EmptyPayload) => readonly AdvisorStatus[];
+export interface GetCronTasksResult {
+  readonly tasks: readonly CronTaskSnapshot[];
 }
 
 export interface AgentAPI {
   prompt: (payload: PromptPayload) => void;
+  runShellCommand: (payload: RunShellCommandPayload) => Promise<ShellCommandResult>;
+  cancelShellCommand: (payload: CancelShellCommandPayload) => void;
   steer: (payload: SteerPayload) => void;
   cancel: (payload: CancelPayload) => void;
   undoHistory: (payload: UndoHistoryPayload) => void;
   setThinking: (payload: SetThinkingPayload) => void;
-  setFastMode: (payload: SetFastModePayload) => void;
   setPermission: (payload: SetPermissionPayload) => void;
   setModel: (payload: SetModelPayload) => SetModelResult;
   getModel: (payload: EmptyPayload) => string;
@@ -468,72 +620,107 @@ export interface AgentAPI {
   unregisterTool: (payload: UnregisterToolPayload) => void;
   setActiveTools: (payload: SetActiveToolsPayload) => void;
   stopBackground: (payload: StopBackgroundPayload) => void;
+  detachBackground: (payload: DetachBackgroundPayload) => BackgroundTaskInfo | undefined;
   clearContext: (payload: EmptyPayload) => void;
-  activateSkill: (payload: ActivateSkillPayload) => SkillActivationResult;
+  importContext: (payload: ImportContextPayload) => void;
+  activateSkill: (payload: ActivateSkillPayload) => void;
+  activatePluginCommand: (payload: ActivatePluginCommandPayload) => void;
   startBtw: (payload: EmptyPayload) => string;
   createGoal: (payload: CreateGoalPayload) => GoalSnapshot;
   getGoal: (payload: EmptyPayload) => GoalToolResult;
   pauseGoal: (payload: EmptyPayload) => GoalSnapshot;
   resumeGoal: (payload: EmptyPayload) => GoalSnapshot;
   cancelGoal: (payload: EmptyPayload) => GoalSnapshot;
+  getCronTasks: (payload: EmptyPayload) => GetCronTasksResult;
   getBackgroundOutput: (payload: GetBackgroundOutputPayload) => string;
   getContext: (payload: EmptyPayload) => AgentContextData;
-  getContextUsage: (payload: EmptyPayload) => ContextUsageReport;
   getConfig: (payload: EmptyPayload) => AgentConfigData;
   getPermission: (payload: EmptyPayload) => PermissionData;
   getPlan: (payload: EmptyPayload) => PlanData;
   getUsage: (payload: EmptyPayload) => UsageStatus;
   getTools: (payload: EmptyPayload) => readonly ToolInfo[];
-  listContextFiles: (payload: EmptyPayload) => readonly string[];
   getBackground: (payload: GetBackgroundPayload) => readonly BackgroundTaskInfo[];
 }
 
 type AgentAPIWithId = WithAgentId<AgentAPI>;
 
-export interface SessionAPI extends AgentAPIWithId, SessionAdvisorAPI {
+export interface SessionAPI extends AgentAPIWithId {
   renameSession: (payload: RenameSessionPayload) => void;
   updateSessionMetadata: (payload: UpdateSessionMetadataPayload) => void;
   getSessionMetadata: (payload: EmptyPayload) => SessionMeta;
-  listWorkspaceDirectories: (payload: EmptyPayload) => readonly WorkspaceDirectory[];
-  addWorkspaceDirectory: (payload: WorkspaceDirectoryPayload) => WorkspaceDirectory;
-  removeWorkspaceDirectory: (payload: WorkspaceDirectoryPayload) => void;
   listSkills: (payload: EmptyPayload) => readonly SkillSummary[];
-  /** Re-discovers skills from disk so one written mid-session becomes usable. */
-  reloadSkills: (payload: EmptyPayload) => void;
+  listPluginCommands: (payload: EmptyPayload) => readonly PluginCommandDef[];
   listMcpServers: (payload: EmptyPayload) => readonly McpServerInfo[];
   getMcpStartupMetrics: (payload: EmptyPayload) => McpStartupMetrics;
   reconnectMcpServer: (payload: ReconnectMcpServerPayload) => void;
   generateAgentsMd: (payload: EmptyPayload) => void;
-  refreshInstructions: (payload: EmptyPayload) => void;
-  listWorkingTreeChanges: (payload: EmptyPayload) => WorkingTreeChanges;
-  getWorkingTreeDiff: (payload: WorkingTreeDiffPayload) => WorkingTreeFileDiff;
-  listFileCheckpoints: (payload: EmptyPayload) => readonly FileCheckpointSummary[];
-  previewFileCheckpoint: (payload: FileCheckpointIdPayload) => SessionFileCheckpointPreview;
-  restoreFileCheckpoint: (payload: FileCheckpointIdPayload) => RestoreFileCheckpointResult;
+  getSessionWarnings: (payload: EmptyPayload) => readonly SessionWarning[];
+  waitForBackgroundTasksOnPrint: (payload: EmptyPayload) => void;
+  handlePrintMainTurnCompleted: (payload: EmptyPayload) => 'finish' | 'continue';
+  addAdditionalDir: (payload: AddAdditionalDirPayload) => AddAdditionalDirResult;
 }
 
 type SessionAPIWithId = WithSessionId<SessionAPI>;
 
 export interface CoreAPI extends SessionAPIWithId {
+  applyPersistedSecondaryModel: (payload: EmptyPayload & { readonly sessionId: string }) => void;
   getCoreInfo: (payload: EmptyPayload) => CoreInfo;
   getExperimentalFeatures: (payload: EmptyPayload) => readonly ExperimentalFeatureState[];
   getPythinkerConfig: (payload: GetPythinkerConfigPayload) => PythinkerConfig;
   getConfigDiagnostics: (payload: EmptyPayload) => ConfigDiagnostics;
-  listOutputStyles: (payload: ListOutputStylesPayload) => OutputStyleCatalog;
-  listAgentProfiles: (payload: ListAgentProfilesPayload) => AgentProfileCatalog;
-  listWorkspaceSkills: (payload: ListWorkspaceSkillsPayload) => readonly SkillSummary[];
-  getContextTokenCount: (payload: GetContextTokenCountPayload) => ContextTokenCount;
   setPythinkerConfig: (payload: SetPythinkerConfigPayload) => PythinkerConfig;
-  replacePythinkerConfig: (payload: ReplacePythinkerConfigPayload) => PythinkerConfig;
   removePythinkerProvider: (payload: RemovePythinkerProviderPayload) => PythinkerConfig;
+  listGlobalMcpServers: (
+    payload: ListGlobalMcpServersPayload,
+  ) => readonly McpManagedServerInfo[];
+  getGlobalMcpServer: (payload: GetGlobalMcpServerPayload) => McpManagedServerInfo;
+  listGlobalMcpServerAuthStatuses: (
+    payload: ListGlobalMcpServerAuthStatusesPayload,
+  ) => readonly GlobalMcpServerAuthStatus[];
+  /**
+   * App-level inspection: every known server (global + plugin) with its
+   * effective config and its real authorization state, probing OAuth
+   * candidates over a throwaway connection. `targets` narrows to specific
+   * locators; omitted inspects all.
+   */
+  inspectAppMcpServers: (
+    payload: InspectAppMcpServersPayload,
+  ) => readonly AppMcpServerInspection[];
+  addGlobalMcpServer: (payload: PutGlobalMcpServerPayload) => readonly McpManagedServerInfo[];
+  updateGlobalMcpServer: (payload: PutGlobalMcpServerPayload) => readonly McpManagedServerInfo[];
+  removeGlobalMcpServer: (
+    payload: GlobalMcpServerNamePayload,
+  ) => readonly McpManagedServerInfo[];
+  beginGlobalMcpServerAuth: (
+    payload: GlobalMcpServerNamePayload,
+  ) => BeginGlobalMcpServerAuthResult;
+  /** Locator-addressed variants, covering plugin servers as first-class. */
+  beginMcpServerAuth: (payload: McpServerLocatorPayload) => BeginGlobalMcpServerAuthResult;
+  completeGlobalMcpServerAuth: (payload: CompleteGlobalMcpServerAuthPayload) => void;
+  completeMcpServerAuth: (payload: CompleteGlobalMcpServerAuthPayload) => void;
+  cancelGlobalMcpServerAuth: (payload: CancelGlobalMcpServerAuthPayload) => void;
+  cancelMcpServerAuth: (payload: CancelGlobalMcpServerAuthPayload) => void;
+  resetGlobalMcpServerAuth: (payload: GlobalMcpServerNamePayload) => void;
+  resetMcpServerAuth: (payload: McpServerLocatorPayload) => void;
+  testGlobalMcpServer: (payload: TestGlobalMcpServerPayload) => GlobalMcpServerTestResult;
+  /**
+   * Session-level add: connect a server in one live session, optionally
+   * persisting it to the user-level `mcp.json` (`persist: true`, making it a
+   * `global` entry; otherwise it stays a session-local `caller` entry).
+   */
+  addSessionMcpServer: (
+    payload: AddSessionMcpServerPayload & { readonly sessionId: string },
+  ) => McpServerInfo;
   createSession: (payload: CreateSessionPayload) => SessionSummary;
   closeSession: (payload: CloseSessionPayload) => void;
   archiveSession: (payload: ArchiveSessionPayload) => void;
+  deleteSession: (payload: DeleteSessionPayload) => void;
   resumeSession: (payload: ResumeSessionPayload) => ResumeSessionResult;
   reloadSession: (payload: ReloadSessionPayload) => ResumeSessionResult;
   forkSession: (payload: ForkSessionPayload) => ResumeSessionResult;
   listSessions: (payload: ListSessionsPayload) => readonly SessionSummary[];
   exportSession: (payload: ExportSessionPayload) => ExportSessionResult;
+  listWorkspaceSkills: (payload: ListWorkspaceSkillsPayload) => Promise<readonly SkillSummary[]>;
   listPlugins: (payload: EmptyPayload) => readonly PluginSummary[];
   installPlugin: (payload: InstallPluginPayload) => PluginSummary;
   setPluginEnabled: (payload: SetPluginEnabledPayload) => void;

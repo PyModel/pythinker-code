@@ -3,33 +3,28 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import type { McpServerConfig } from '../config/schema';
-import type { LspServerConfig } from '../lsp/types';
+import type { AgentFileRoot } from '../profile/agentfile/types';
 import { discoverSkills, type SkillRoot } from '../skill';
+import type { HookDef } from '../session/hooks';
+import { loadPluginCommand } from './commands';
 import { downloadZip, extractZip } from './archive';
 import { resolveGithubSource } from './github-resolver';
 import { parseManifest, type ParsedManifestResult } from './manifest';
-import { resolveInstallSource } from './source';
 import { readInstalled, writeInstalled, type InstalledRecord } from './store';
+import { resolveInstallSource } from './source';
 import {
   type EnabledPluginSessionStart,
-  type PluginAgentProfileSource,
+  type EnabledPluginSystemPrompt,
   type PluginCapabilityState,
-  type PluginComponentDeclarations,
-  type PluginConfigDeclaration,
-  type PluginDefinitionJsonObject,
-  type PluginDefinitionJsonValue,
+  type PluginCommandDef,
   type PluginGithubMetadata,
   type PluginInfo,
-  type PluginInstallDefinition,
-  type PluginInstallOptions,
+  type PluginMcpServerEntry,
   type PluginMcpServerInfo,
-  type PluginOutputStyleSource,
-  type PluginPathDeclaration,
   type PluginRecord,
   type PluginSource,
   type PluginSummary,
   type ReloadSummary,
-  PLUGIN_NAME_REGEX,
   normalizePluginId,
 } from './types';
 
@@ -67,9 +62,8 @@ export class PluginManager {
     return this.records.get(normalizePluginId(id));
   }
 
-  async install(source: string, options?: PluginInstallOptions): Promise<PluginRecord> {
+  async install(source: string): Promise<PluginRecord> {
     const resolved = resolveInstallSource(source);
-    const definition = normalizeInstallDefinition(options?.definition);
 
     let normalizedRoot: string;
     let originalSource: string;
@@ -82,32 +76,25 @@ export class PluginManager {
       const sourceRoot = await normalizeInstallRoot(resolved.path);
       originalSource = resolved.path;
       sourceType = 'local-path';
-      parsed = await parseManifest(sourceRoot, definition);
+      parsed = await parseManifest(sourceRoot);
       if (parsed.manifest === undefined) {
-        const msg =
-          parsed.diagnostics.find((d) => d.severity === 'error')?.message ?? 'no manifest';
+        const msg = parsed.diagnostics.find((d) => d.severity === 'error')?.message ?? 'no manifest';
         throw new Error(`Cannot install plugin at ${sourceRoot}: ${msg}`);
       }
       id = normalizePluginId(parsed.manifest.name);
       normalizedRoot = await copyPluginToManagedRoot(this.pythinkerHomeDir, id, sourceRoot);
-      parsed = await parseManifest(normalizedRoot, definition);
+      parsed = await parseManifest(normalizedRoot);
     } else {
       let zipUrl: string;
-      let repositorySubdirectory: string | undefined;
       if (resolved.kind === 'github') {
         const githubResolution = await resolveGithubSource(resolved);
         zipUrl = githubResolution.tarballUrl;
         originalSource = source.trim();
         sourceType = 'github';
-        repositorySubdirectory = normalizeOptionalString(options?.repositorySubdirectory);
         github = {
           owner: resolved.owner,
           repo: resolved.repo,
           ref: githubResolution.ref,
-          installedSha:
-            githubResolution.ref.kind === 'sha' && isFullGithubSha(githubResolution.ref.value)
-              ? githubResolution.ref.value
-              : undefined,
         };
       } else {
         zipUrl = resolved.path;
@@ -117,19 +104,15 @@ export class PluginManager {
       const buffer = await downloadZip(zipUrl);
       const tmpDir = await mkdtemp(path.join(tmpdir(), 'pythinker-plugin-zip-'));
       try {
-        const detectedRoot = await extractZip(buffer, tmpDir, {
-          repositorySubdirectory,
-          allowManifestless: definition !== undefined,
-        });
-        parsed = await parseManifest(detectedRoot, definition);
+        const detectedRoot = await extractZip(buffer, tmpDir);
+        parsed = await parseManifest(detectedRoot);
         if (parsed.manifest === undefined) {
-          const msg =
-            parsed.diagnostics.find((d) => d.severity === 'error')?.message ?? 'no manifest';
+          const msg = parsed.diagnostics.find((d) => d.severity === 'error')?.message ?? 'no manifest';
           throw new Error(`Cannot install plugin from ${originalSource}: ${msg}`);
         }
         id = normalizePluginId(parsed.manifest.name);
         normalizedRoot = await copyPluginToManagedRoot(this.pythinkerHomeDir, id, detectedRoot);
-        parsed = await parseManifest(normalizedRoot, definition);
+        parsed = await parseManifest(normalizedRoot);
       } finally {
         await rm(tmpDir, { recursive: true, force: true });
       }
@@ -145,15 +128,13 @@ export class PluginManager {
     const record = await recordFrom({
       id,
       root: normalizedRoot,
-      enabled:
-        existing?.enabled ?? definition?.defaultEnabled ?? parsed.manifest.defaultEnabled ?? true,
+      enabled: existing?.enabled ?? true,
       installedAt: existing?.installedAt ?? now,
       updatedAt: now,
       originalSource,
       source: sourceType,
       capabilities: existing?.capabilities,
       github,
-      definition,
       parsed,
     });
     this.records.set(id, record);
@@ -231,40 +212,22 @@ export class PluginManager {
           path: dir,
           source: 'extra',
           plugin: { id: record.id, instructions: record.skillInstructions },
+          scanMode: record.manifest.rootSkillFallback ? 'root-skill-only' : undefined,
         });
       }
     }
     return roots;
   }
 
-  enabledAgentProfileSources(): readonly PluginAgentProfileSource[] {
-    const sources: PluginAgentProfileSource[] = [];
+  pluginAgentRoots(): readonly AgentFileRoot[] {
+    const roots: AgentFileRoot[] = [];
     for (const record of this.records.values()) {
-      const paths = record.manifest?.agents;
-      if (!record.enabled || record.state !== 'ok' || paths === undefined || paths.length === 0)
-        continue;
-      sources.push({
-        pluginId: record.id,
-        pluginRoot: record.root,
-        paths,
-      });
+      if (!record.enabled || record.state !== 'ok' || record.manifest === undefined) continue;
+      for (const dir of record.manifest.agents ?? []) {
+        roots.push({ path: dir, source: 'plugin' });
+      }
     }
-    return sources;
-  }
-
-  enabledOutputStyleSources(): readonly PluginOutputStyleSource[] {
-    const sources: PluginOutputStyleSource[] = [];
-    for (const record of this.records.values()) {
-      const paths = record.manifest?.outputStyles;
-      if (!record.enabled || record.state !== 'ok' || paths === undefined || paths.length === 0)
-        continue;
-      sources.push({
-        pluginId: record.id,
-        pluginRoot: record.root,
-        paths,
-      });
-    }
-    return sources;
+    return roots;
   }
 
   enabledSessionStarts(): readonly EnabledPluginSessionStart[] {
@@ -278,28 +241,89 @@ export class PluginManager {
     return out;
   }
 
+  enabledSystemPrompts(): readonly EnabledPluginSystemPrompt[] {
+    const out: EnabledPluginSystemPrompt[] = [];
+    for (const record of this.records.values()) {
+      if (!record.enabled || record.state !== 'ok') continue;
+      const content = record.manifest?.systemPrompt;
+      if (content === undefined) continue;
+      out.push({ pluginId: record.id, content });
+    }
+    return out;
+  }
+
   enabledMcpServers(): Record<string, McpServerConfig> {
     const out: Record<string, McpServerConfig> = {};
+    for (const entry of this.mcpServerEntries()) {
+      if (entry.config.enabled === false) continue;
+      out[entry.name] = withMcpServerEnabled(entry.config, true);
+    }
+    return out;
+  }
+
+  /**
+   * Every MCP server declared by a healthy plugin manifest, with the final
+   * effective config the engine would run: the `plugin-<id>:` runtime rename,
+   * the plugin environment / cwd constraints, the folded enabled flag (plugin
+   * disabled or per-server override → `enabled: false`), and — when the caller
+   * passes `managedEnv` — the host-managed Pythinker env for stdio servers. This is
+   * the single contributor surface the MCP registry and live-session sync read;
+   * config ownership stays in the manifest, so entries are read-only for the
+   * management plane.
+   */
+  mcpServerEntries(options?: {
+    readonly managedEnv?: Record<string, string>;
+  }): readonly PluginMcpServerEntry[] {
+    const out: PluginMcpServerEntry[] = [];
     for (const record of this.records.values()) {
-      if (!record.enabled || record.state !== 'ok' || record.manifest === undefined) continue;
+      if (record.state !== 'ok' || record.manifest === undefined) continue;
       for (const [name, config] of Object.entries(record.manifest.mcpServers ?? {})) {
-        if (!isMcpServerEnabled(record, name, config)) continue;
-        out[pluginMcpRuntimeName(record.id, name)] = withPluginMcpRuntime(
-          { ...config, enabled: true },
+        const enabled = record.enabled && isMcpServerEnabled(record, name, config);
+        let effective = withPluginMcpRuntime(
+          withMcpServerEnabled(config, enabled),
           record.root,
           this.pythinkerHomeDir,
         );
+        if (options?.managedEnv !== undefined && effective.transport === 'stdio') {
+          effective = { ...effective, env: { ...effective.env, ...options.managedEnv } };
+        }
+        out.push({
+          name: pluginMcpRuntimeName(record.id, name),
+          config: effective,
+          pluginId: record.id,
+          serverName: name,
+        });
       }
     }
     return out;
   }
 
-  enabledLspServers(): Record<string, LspServerConfig> {
-    const out: Record<string, LspServerConfig> = {};
+  enabledHooks(): readonly HookDef[] {
+    const out: HookDef[] = [];
     for (const record of this.records.values()) {
       if (!record.enabled || record.state !== 'ok' || record.manifest === undefined) continue;
-      for (const [name, config] of Object.entries(record.manifest.lspServers ?? {})) {
-        out[pluginMcpRuntimeName(record.id, name)] = withPluginLspRuntime(config, record.root);
+      for (const hook of record.manifest.hooks ?? []) {
+        out.push({
+          ...hook,
+          cwd: record.root,
+          env: { PYTHINKER_CODE_HOME: this.pythinkerHomeDir, PYTHINKER_PLUGIN_ROOT: record.root },
+        });
+      }
+    }
+    return out;
+  }
+
+  async enabledCommands(): Promise<readonly PluginCommandDef[]> {
+    const out: PluginCommandDef[] = [];
+    for (const record of this.records.values()) {
+      if (!record.enabled || record.state !== 'ok' || record.manifest === undefined) continue;
+      for (const entry of record.manifest.commands ?? []) {
+        const def = await loadPluginCommand({
+          commandPath: entry.path,
+          pluginId: record.id,
+          fallbackName: entry.name,
+        });
+        if (def !== undefined) out.push(def);
       }
     }
     return out;
@@ -325,14 +349,12 @@ export class PluginManager {
       originalSource: record.originalSource,
       capabilities: record.capabilities,
       github: record.github,
-      definition: record.definition,
     }));
     await writeInstalled(this.pythinkerHomeDir, { version: 1, plugins: installed });
   }
 
   private async materialize(entry: InstalledRecord): Promise<PluginRecord> {
-    const definition = normalizeInstallDefinition(entry.definition);
-    const parsed = await parseManifest(entry.root, definition);
+    const parsed = await parseManifest(entry.root);
     return recordFrom({
       id: entry.id,
       root: entry.root,
@@ -342,7 +364,6 @@ export class PluginManager {
       originalSource: entry.originalSource,
       capabilities: entry.capabilities,
       github: entry.github,
-      definition,
       source: entry.source,
       parsed,
     });
@@ -395,8 +416,7 @@ async function recordFrom(input: {
   originalSource?: string;
   capabilities?: PluginCapabilityState;
   github?: PluginGithubMetadata;
-  definition?: PluginInstallDefinition;
-  source: PluginSource;
+  source?: PluginSource;
   parsed: ParsedManifestResult;
 }): Promise<PluginRecord> {
   const { parsed } = input;
@@ -404,7 +424,7 @@ async function recordFrom(input: {
   return {
     id: input.id,
     root: input.root,
-    source: input.source,
+    source: input.source ?? 'local-path',
     enabled: input.enabled,
     state: hasError || parsed.manifest === undefined ? 'error' : 'ok',
     installedAt: input.installedAt,
@@ -412,7 +432,6 @@ async function recordFrom(input: {
     originalSource: input.originalSource,
     capabilities: input.capabilities,
     github: input.github,
-    definition: input.definition,
     skillCount: await countDiscoveredPluginSkills(input.id, parsed.manifest),
     manifest: parsed.manifest,
     manifestKind: parsed.manifestKind,
@@ -433,6 +452,8 @@ function recordToSummary(record: PluginRecord): PluginSummary {
     skillCount: record.skillCount,
     mcpServerCount: Object.keys(record.manifest?.mcpServers ?? {}).length,
     enabledMcpServerCount: pluginMcpServersInfo(record).filter((server) => server.enabled).length,
+    hookCount: record.manifest?.hooks?.length ?? 0,
+    commandCount: record.manifest?.commands?.length ?? 0,
     hasErrors: record.diagnostics.some((d) => d.severity === 'error'),
     source: record.source,
     originalSource: record.originalSource,
@@ -444,14 +465,12 @@ async function countDiscoveredPluginSkills(
   pluginId: string,
   manifest: PluginRecord['manifest'],
 ): Promise<number> {
-  const roots = (manifest?.skills ?? []).map(
-    (dir) =>
-      ({
-        path: dir,
-        source: 'extra',
-        plugin: { id: pluginId, instructions: manifest?.skillInstructions },
-      }) satisfies SkillRoot,
-  );
+  const roots = (manifest?.skills ?? []).map((dir) => ({
+    path: dir,
+    source: 'extra',
+    plugin: { id: pluginId, instructions: manifest?.skillInstructions },
+    scanMode: manifest?.rootSkillFallback ? 'root-skill-only' : undefined,
+  }) satisfies SkillRoot);
   if (roots.length === 0) return 0;
   const skills = await discoverSkills({ roots });
   return skills.length;
@@ -472,7 +491,11 @@ function recordToInfo(record: PluginRecord): PluginInfo {
   };
 }
 
-function isMcpServerEnabled(record: PluginRecord, name: string, config: McpServerConfig): boolean {
+function isMcpServerEnabled(
+  record: PluginRecord,
+  name: string,
+  config: McpServerConfig,
+): boolean {
   return record.capabilities?.mcpServers?.[name]?.enabled ?? config.enabled !== false;
 }
 
@@ -509,6 +532,10 @@ function pluginMcpServerInfo(
   };
 }
 
+function withMcpServerEnabled(config: McpServerConfig, enabled: boolean): McpServerConfig {
+  return { ...config, enabled };
+}
+
 function pluginMcpRuntimeName(pluginId: string, serverName: string): string {
   // Plugin ids cannot contain ":", so this keeps plugin/server pairs unambiguous
   // even when either side contains "-".
@@ -526,7 +553,6 @@ function withPluginMcpRuntime(
     ...config.env,
     PYTHINKER_CODE_HOME: pythinkerHomeDir,
     PYTHINKER_PLUGIN_ROOT: pluginRoot,
-    CLAUDE_PLUGIN_ROOT: pluginRoot,
   };
 
   if (config.command === 'node' && isPythinkerNativeBinary()) {
@@ -542,159 +568,6 @@ function withPluginMcpRuntime(
   return { ...config, cwd: config.cwd ?? pluginRoot, env };
 }
 
-function withPluginLspRuntime(config: LspServerConfig, pluginRoot: string): LspServerConfig {
-  return {
-    ...config,
-    env: {
-      ...config.env,
-      PYTHINKER_PLUGIN_ROOT: pluginRoot,
-      CLAUDE_PLUGIN_ROOT: pluginRoot,
-    },
-  };
-}
-
 function isPythinkerNativeBinary(): boolean {
   return !path.basename(process.execPath).toLowerCase().startsWith('node');
-}
-
-function isFullGithubSha(value: string): boolean {
-  return /^[0-9a-f]{40}$/iu.test(value);
-}
-
-function normalizeInstallDefinition(
-  value: PluginInstallDefinition | undefined,
-): PluginInstallDefinition | undefined {
-  if (value === undefined) return undefined;
-  if (!isPlainObject(value)) throw new Error('Plugin install definition must be an object');
-
-  const idValue = normalizeMetadataString(value['id']);
-  if (idValue === undefined) throw new Error('Plugin install definition id is required');
-  const id = normalizePluginId(idValue);
-  if (!PLUGIN_NAME_REGEX.test(id)) {
-    throw new Error(
-      `Plugin install definition id must match ${PLUGIN_NAME_REGEX} (got "${idValue}")`,
-    );
-  }
-
-  return {
-    id,
-    displayName: normalizeMetadataString(value['displayName']),
-    version: normalizeMetadataString(value['version']),
-    description: normalizeMetadataString(value['description']),
-    keywords: normalizeStringArray(value['keywords']),
-    tags: normalizeStringArray(value['tags']),
-    category: normalizeMetadataString(value['category']),
-    author: normalizeAuthor(value['author']),
-    homepage: normalizeMetadataString(value['homepage']),
-    repository: normalizeMetadataString(value['repository']),
-    license: normalizeMetadataString(value['license']),
-    components: normalizeComponents(value['components']),
-    unsupportedComponents: normalizeStringArray(value['unsupportedComponents']),
-    strict: typeof value['strict'] === 'boolean' ? value['strict'] : undefined,
-    defaultEnabled:
-      typeof value['defaultEnabled'] === 'boolean' ? value['defaultEnabled'] : undefined,
-  };
-}
-
-function normalizeComponents(value: unknown): PluginComponentDeclarations | undefined {
-  if (!isPlainObject(value)) return undefined;
-  const components: PluginComponentDeclarations = {
-    skills: normalizePathDeclaration(value['skills']),
-    agents: normalizePathDeclaration(value['agents']),
-    outputStyles: normalizePathDeclaration(value['outputStyles']),
-    mcpServers: normalizeConfigDeclaration(value['mcpServers']),
-    lspServers: normalizeConfigDeclaration(value['lspServers']),
-  };
-  return Object.values(components).some((entry) => entry !== undefined) ? components : undefined;
-}
-
-function normalizePathDeclaration(value: unknown): PluginPathDeclaration | undefined {
-  return normalizeMetadataString(value) ?? normalizeStringArray(value);
-}
-
-function normalizeConfigDeclaration(value: unknown): PluginConfigDeclaration | undefined {
-  const single = normalizeConfigEntry(value);
-  if (single !== undefined) return single;
-  if (!Array.isArray(value)) return undefined;
-  const entries = value
-    .map((entry) => normalizeConfigEntry(entry))
-    .filter((entry): entry is string | PluginDefinitionJsonObject => entry !== undefined);
-  return entries.length === 0 ? undefined : entries;
-}
-
-function normalizeConfigEntry(value: unknown): string | PluginDefinitionJsonObject | undefined {
-  const stringValue = normalizeMetadataString(value);
-  if (stringValue !== undefined) return stringValue;
-  return cloneJsonObject(value);
-}
-
-function cloneJsonObject(value: unknown): PluginDefinitionJsonObject | undefined {
-  if (!isPlainObject(value)) return undefined;
-  const cloned = cloneJsonValue(value, new Set());
-  return isPlainObject(cloned) ? (cloned as PluginDefinitionJsonObject) : undefined;
-}
-
-function cloneJsonValue(
-  value: unknown,
-  ancestors: Set<object>,
-): PluginDefinitionJsonValue | undefined {
-  if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
-  if (typeof value === 'number') return Number.isFinite(value) ? value : undefined;
-  if (typeof value !== 'object') return undefined;
-  if (ancestors.has(value)) return undefined;
-
-  ancestors.add(value);
-  if (Array.isArray(value)) {
-    const out: PluginDefinitionJsonValue[] = [];
-    for (const entry of value) {
-      const cloned = cloneJsonValue(entry, ancestors);
-      if (cloned !== undefined) out.push(cloned);
-    }
-    ancestors.delete(value);
-    return out;
-  }
-  if (!isPlainObject(value)) {
-    ancestors.delete(value);
-    return undefined;
-  }
-  const out: Record<string, PluginDefinitionJsonValue> = {};
-  for (const [key, entry] of Object.entries(value)) {
-    const cloned = cloneJsonValue(entry, ancestors);
-    if (cloned !== undefined) out[key] = cloned;
-  }
-  ancestors.delete(value);
-  return out;
-}
-
-function normalizeAuthor(value: unknown): PluginInstallDefinition['author'] {
-  if (!isPlainObject(value)) return undefined;
-  const author = {
-    name: normalizeMetadataString(value['name']),
-    email: normalizeMetadataString(value['email']),
-    url: normalizeMetadataString(value['url']),
-  };
-  return Object.values(author).some((entry) => entry !== undefined) ? author : undefined;
-}
-
-function normalizeStringArray(value: unknown): readonly string[] | undefined {
-  if (!Array.isArray(value)) return undefined;
-  const entries = value
-    .map((entry) => normalizeMetadataString(entry))
-    .filter((entry): entry is string => entry !== undefined);
-  return entries.length === 0 ? undefined : entries;
-}
-
-function normalizeOptionalString(value: unknown): string | undefined {
-  return typeof value === 'string' ? value.trim() : undefined;
-}
-
-function normalizeMetadataString(value: unknown): string | undefined {
-  const normalized = normalizeOptionalString(value);
-  return normalized === undefined || normalized.length === 0 ? undefined : normalized;
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
-  const prototype = Object.getPrototypeOf(value);
-  return prototype === Object.prototype || prototype === null;
 }

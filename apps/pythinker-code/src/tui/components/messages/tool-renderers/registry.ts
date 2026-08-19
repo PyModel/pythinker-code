@@ -55,7 +55,6 @@ export function pickResultRenderer(toolName: string): ResultRenderer {
     case 'Think':
       return thinkSummary;
     case 'Edit':
-    case 'NotebookEdit':
       return editSummary;
     case 'Write':
       return writeSummary;

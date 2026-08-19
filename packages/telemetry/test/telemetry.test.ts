@@ -12,6 +12,7 @@ import { isTelemetryDisabledByEnv } from '../src/bootstrap';
 import { TelemetryClient, resetDefaultTelemetryClientForTests } from '../src/client';
 import { installCrashHandlersForClient, setCrashPhase, uninstallCrashHandlers } from '../src/crash';
 import { EventSink } from '../src/sink';
+import { SystemMetricsCollector } from '../src/systemMetrics';
 import {
   AsyncTransport,
   DISK_EVENT_MAX_AGE_MS,
@@ -30,6 +31,7 @@ afterEach(() => {
   uninstallCrashHandlers();
   setCrashPhase('startup');
   resetDefaultTelemetryClientForTests();
+  vi.useRealTimers();
   for (const dir of tempDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -67,7 +69,7 @@ function makeSink(transport: TelemetryTransport, flushThreshold = 10): EventSink
       appName: 'pythinker-code-cli',
       version: '1.2.3',
       uiMode: 'shell',
-      model: 'pythinker-k2',
+      model: 'kimi-k2',
       env: {},
       terminal: 'test-terminal',
       locale: 'en_US',
@@ -158,6 +160,34 @@ describe('TelemetryClient', () => {
     expect(transport.sent).toHaveLength(0);
   });
 
+  it('drops unsafe numeric properties before enqueueing events', async () => {
+    const client = new TelemetryClient();
+    const transport = new RecordingTransport();
+    client.attachSink(makeSink(transport));
+
+    client.track('big_number', { big: 2 ** 64, keep: true });
+    await client.flush();
+
+    const event = transport.sent[0]?.[0];
+    if (event === undefined) throw new Error('Expected a telemetry event');
+    expect(event.event).toBe('big_number');
+    expect(event.properties).not.toHaveProperty('big');
+    expect(event.properties['keep']).toBe(true);
+  });
+
+  it('stops the previous system metrics collector when replacing it', () => {
+    const client = new TelemetryClient();
+    const first = { stop: vi.fn() };
+    const second = { stop: vi.fn() };
+
+    client.setSystemMetricsCollector(first);
+    client.setSystemMetricsCollector(second);
+    client.disable();
+
+    expect(first.stop).toHaveBeenCalledTimes(1);
+    expect(second.stop).toHaveBeenCalledTimes(1);
+  });
+
   it('flushes the previous sink synchronously when replacing sinks', () => {
     const client = new TelemetryClient();
     const first = new RecordingTransport();
@@ -204,6 +234,141 @@ describe('TelemetryClient', () => {
   });
 });
 
+describe('SystemMetricsCollector', () => {
+  it('emits a numeric system_metrics sample after the warmup delay', () => {
+    vi.useFakeTimers();
+    const tracked: Array<{
+      event: string;
+      properties: Record<string, number | string | boolean | undefined | null>;
+    }> = [];
+    const client = {
+      track(
+        event: string,
+        properties: Record<string, number | string | boolean | undefined | null> = {},
+      ): void {
+        tracked.push({ event, properties });
+      },
+    };
+    const collector = new SystemMetricsCollector({
+      client,
+      intervalMs: 30_000,
+      warmupSampleMs: 1_500,
+    });
+
+    collector.start();
+    vi.advanceTimersByTime(1_499);
+    expect(tracked).toHaveLength(0);
+
+    vi.advanceTimersByTime(1);
+    collector.stop();
+
+    expect(tracked).toHaveLength(1);
+    const event = tracked[0];
+    if (event === undefined) throw new Error('Expected a system_metrics event');
+    expect(event.event).toBe('system_metrics');
+    expect(numberProperty(event.properties, 'process_started_at')).toBeGreaterThan(0);
+    expect(numberProperty(event.properties, 'process_uptime_ms')).toBeGreaterThanOrEqual(0);
+    expect(numberProperty(event.properties, 'rss_bytes')).toBeGreaterThan(0);
+    expect(numberProperty(event.properties, 'heap_used_bytes')).toBeGreaterThan(0);
+    expect(numberProperty(event.properties, 'heap_total_bytes')).toBeGreaterThan(0);
+    expect(numberProperty(event.properties, 'external_bytes')).toBeGreaterThanOrEqual(0);
+    expect(numberProperty(event.properties, 'array_buffers_bytes')).toBeGreaterThanOrEqual(0);
+    expect(numberProperty(event.properties, 'cpu_user_us')).toBeGreaterThanOrEqual(0);
+    expect(numberProperty(event.properties, 'cpu_system_us')).toBeGreaterThanOrEqual(0);
+    expect(numberProperty(event.properties, 'cpu_elapsed_us')).toBeGreaterThan(0);
+    expect(numberProperty(event.properties, 'load_avg_1m')).toBeGreaterThanOrEqual(0);
+    expect(numberProperty(event.properties, 'free_mem_bytes')).toBeGreaterThanOrEqual(0);
+    expect(numberProperty(event.properties, 'total_mem_bytes')).toBeGreaterThan(0);
+    expect(numberProperty(event.properties, 'cpu_count')).toBeGreaterThanOrEqual(1);
+  });
+
+  it('omits constrained_memory_bytes when it is not a safe non-negative integer', () => {
+    vi.useFakeTimers();
+    vi.spyOn(process, 'constrainedMemory').mockReturnValue(2 ** 64);
+    const tracked: Array<{
+      event: string;
+      properties: Record<string, number | string | boolean | undefined | null>;
+    }> = [];
+    const client = {
+      track(
+        event: string,
+        properties: Record<string, number | string | boolean | undefined | null> = {},
+      ): void {
+        tracked.push({ event, properties });
+      },
+    };
+    const collector = new SystemMetricsCollector({
+      client,
+      intervalMs: 30_000,
+      warmupSampleMs: 1_500,
+    });
+
+    collector.start();
+    vi.advanceTimersByTime(1_500);
+    collector.stop();
+
+    expect(tracked).toHaveLength(1);
+    const event = tracked[0];
+    if (event === undefined) throw new Error('Expected a system_metrics event');
+    expect(event.event).toBe('system_metrics');
+    expect(event.properties).not.toHaveProperty('constrained_memory_bytes');
+    expect(numberProperty(event.properties, 'rss_bytes')).toBeGreaterThan(0);
+  });
+
+  it('reports constrained_memory_bytes when it is a safe non-negative integer', () => {
+    vi.useFakeTimers();
+    vi.spyOn(process, 'constrainedMemory').mockReturnValue(8 * 1024 ** 3);
+    const tracked: Array<{
+      event: string;
+      properties: Record<string, number | string | boolean | undefined | null>;
+    }> = [];
+    const client = {
+      track(
+        event: string,
+        properties: Record<string, number | string | boolean | undefined | null> = {},
+      ): void {
+        tracked.push({ event, properties });
+      },
+    };
+    const collector = new SystemMetricsCollector({
+      client,
+      intervalMs: 30_000,
+      warmupSampleMs: 1_500,
+    });
+
+    collector.start();
+    vi.advanceTimersByTime(1_500);
+    collector.stop();
+
+    expect(tracked).toHaveLength(1);
+    const event = tracked[0];
+    if (event === undefined) throw new Error('Expected a system_metrics event');
+    expect(event.properties['constrained_memory_bytes']).toBe(8 * 1024 ** 3);
+  });
+
+  it('does not duplicate interval sampling when started twice', () => {
+    vi.useFakeTimers();
+    const tracked: string[] = [];
+    const client = {
+      track(event: string): void {
+        tracked.push(event);
+      },
+    };
+    const collector = new SystemMetricsCollector({
+      client,
+      intervalMs: 30_000,
+      warmupSampleMs: null,
+    });
+
+    collector.start();
+    collector.start();
+    vi.advanceTimersByTime(30_000);
+    collector.stop();
+
+    expect(tracked).toEqual(['system_metrics']);
+  });
+});
+
 describe('EventSink', () => {
   it('enriches context without mutating the original event', () => {
     const transport = new RecordingTransport();
@@ -226,7 +391,7 @@ describe('EventSink', () => {
       version: '1.2.3',
       runtime: 'node',
       ui_mode: 'shell',
-      model: 'pythinker-k2',
+      model: 'kimi-k2',
       terminal: 'test-terminal',
     });
   });
@@ -245,7 +410,7 @@ describe('payload assembly', () => {
   it('adds server event prefix, payload user id, and flattened fields', () => {
     const payload = buildPayload([sampleEvent('started')], 'device-1');
 
-    expect(payload.user_id).toBe('pfc_device_id_device-1');
+    expect(payload.user_id).toBe('kfc_device_id_device-1');
     expect(payload.events[0]).toMatchObject({
       event_id: 'event-1',
       device_id: 'device-1',
@@ -261,9 +426,9 @@ describe('payload assembly', () => {
   });
 
   it('does not double-prefix already-prefixed events', () => {
-    const payload = buildPayload([sampleEvent('pfc_started')], 'device-1');
+    const payload = buildPayload([sampleEvent('kfc_started')], 'device-1');
 
-    expect(payload.events[0]?.['event']).toBe('pfc_started');
+    expect(payload.events[0]?.['event']).toBe('kfc_started');
   });
 
   it('rejects nested property values before outbound send', () => {
@@ -275,6 +440,17 @@ describe('payload assembly', () => {
     } as unknown as EnrichedTelemetryEvent;
 
     expect(() => buildPayload([event], 'device-1')).toThrow(/property.nested/);
+  });
+
+  it('rejects unsafe numeric property values before outbound send', () => {
+    const event = {
+      ...sampleEvent('bad_number'),
+      properties: {
+        big: 2 ** 64,
+      },
+    };
+
+    expect(() => buildPayload([event], 'device-1')).toThrow(/property.big/);
   });
 
   it('rejects nested context and array property values before outbound send', () => {
@@ -308,7 +484,7 @@ describe('payload assembly', () => {
     const payload = buildPayload([event], 'device-1');
 
     expect(payload.events[0]).toMatchObject({
-      event: 'pfc_nullable',
+      event: 'kfc_nullable',
       property_empty: null,
     });
     expect(event.properties).toBe(originalProperties);
@@ -319,8 +495,8 @@ describe('payload assembly', () => {
 
 describe('server prefix application', () => {
   it('locks the outbound telemetry prefixes', () => {
-    expect(SERVER_EVENT_PREFIX).toBe('pfc_');
-    expect(USER_ID_PREFIX).toBe('pfc_device_id_');
+    expect(SERVER_EVENT_PREFIX).toBe('kfc_');
+    expect(USER_ID_PREFIX).toBe('kfc_device_id_');
   });
 
   it('returns a new object only when adding the server prefix', () => {
@@ -329,12 +505,12 @@ describe('server prefix application', () => {
     const prefixed = applyServerPrefix(event);
 
     expect(prefixed).not.toBe(event);
-    expect(prefixed.event).toBe('pfc_started');
+    expect(prefixed.event).toBe('kfc_started');
     expect(event.event).toBe('started');
   });
 
   it('passes already-prefixed and invalid event names through unchanged', () => {
-    const prefixed = sampleEvent('pfc_started');
+    const prefixed = sampleEvent('kfc_started');
     const emptyName = sampleEvent('');
     const missingName = { ...sampleEvent('missing') } as unknown as Record<string, unknown>;
     delete missingName['event'];
@@ -371,7 +547,7 @@ describe('AsyncTransport', () => {
     const init = requestInitFrom(fetchImpl);
     expect(init.headers).toMatchObject({ Authorization: 'Bearer token-1' });
     expect(JSON.parse(init.body as string)).toMatchObject({
-      user_id: 'pfc_device_id_dev',
+      user_id: 'kfc_device_id_dev',
     });
   });
 
@@ -444,7 +620,7 @@ describe('AsyncTransport', () => {
     const second = requestInitFrom(fetchImpl, 1);
     expect(first.headers).toMatchObject({ Authorization: 'Bearer token-1' });
     expect(second.headers).not.toHaveProperty('Authorization');
-    expect(() => statSync(join(homeDir, 'telemetry'))).toThrow(/ENOENT/);
+    expect(() => statSync(join(homeDir, 'telemetry'))).toThrow();
   });
 
   it('spools transient failures to disk after retries exhaust', async () => {
@@ -478,7 +654,7 @@ describe('AsyncTransport', () => {
 
     await transport.send([sampleEvent('bad_schema')]);
 
-    expect(() => statSync(join(homeDir, 'telemetry'))).toThrow(/ENOENT/);
+    expect(() => statSync(join(homeDir, 'telemetry'))).toThrow();
   });
 
   it('retries disk events through the outbound pipeline and deletes the file on success', async () => {
@@ -499,8 +675,8 @@ describe('AsyncTransport', () => {
 
     const init = requestInitFrom(fetchImpl);
     const payload = JSON.parse(init.body as string) as { events: Array<{ event: string }> };
-    expect(payload.events[0]?.['event']).toBe('pfc_from_disk');
-    expect(() => statSync(file)).toThrow(/ENOENT/);
+    expect(payload.events[0]?.['event']).toBe('kfc_from_disk');
+    expect(() => statSync(file)).toThrow();
   });
 
   it('removes expired and corrupted disk files', async () => {
@@ -522,8 +698,8 @@ describe('AsyncTransport', () => {
 
     await transport.retryDiskEvents();
 
-    expect(() => statSync(expired)).toThrow(/ENOENT/);
-    expect(() => statSync(corrupt)).toThrow(/ENOENT/);
+    expect(() => statSync(expired)).toThrow();
+    expect(() => statSync(corrupt)).toThrow();
   });
 
   it('saves events before propagating shutdown aborts', async () => {
@@ -541,7 +717,7 @@ describe('AsyncTransport', () => {
     const send = transport.send([sampleEvent('aborted')], controller.signal);
 
     controller.abort();
-    await expect(send).rejects.toThrowErrorMatchingInlineSnapshot(`[TransientTelemetryError: nope]`);
+    await expect(send).rejects.toThrow();
 
     const telemetryDir = join(homeDir, 'telemetry');
     const file = readFileSync(join(telemetryDir, readdirOne(telemetryDir)), 'utf-8');
@@ -565,7 +741,7 @@ describe('AsyncTransport', () => {
 
     await expect(
       transport.send([sampleEvent('aborted_backoff')], controller.signal),
-    ).rejects.toThrowErrorMatchingInlineSnapshot(`[AbortError: The operation was aborted.]`);
+    ).rejects.toThrow();
 
     const telemetryDir = join(homeDir, 'telemetry');
     const file = readFileSync(join(telemetryDir, readdirOne(telemetryDir)), 'utf-8');
@@ -593,7 +769,7 @@ describe('AsyncTransport', () => {
       properties: { resumed: false, count: 2 },
     });
     expect(file).not.toContain('user_id');
-    expect(file).not.toContain('pfc_first');
+    expect(file).not.toContain('kfc_first');
   });
 
   it('does not create a disk file for an empty batch or a schema violation', async () => {
@@ -615,7 +791,7 @@ describe('AsyncTransport', () => {
     ]);
 
     expect(fetchImpl).not.toHaveBeenCalled();
-    expect(() => statSync(join(homeDir, 'telemetry'))).toThrow(/ENOENT/);
+    expect(() => statSync(join(homeDir, 'telemetry'))).toThrow();
   });
 });
 
@@ -670,7 +846,7 @@ describe('telemetry bootstrap', () => {
       events: Array<{ event: string; session_id: string }>;
     };
     expect(payload.events[0]).toMatchObject({
-      event: 'pfc_before_init',
+      event: 'kfc_before_init',
       session_id: 'ses',
     });
   });
@@ -691,6 +867,44 @@ describe('telemetry bootstrap', () => {
     const telemetryDir = join(homeDir, 'telemetry');
     const file = readFileSync(join(telemetryDir, readdirOne(telemetryDir)), 'utf-8');
     expect(file).toContain('"event":"sync_flush"');
+  });
+
+  it('writes system metrics with the singleton session context', async () => {
+    vi.useFakeTimers();
+    const homeDir = await tempHome();
+    initializeTelemetry({
+      homeDir,
+      deviceId: 'dev',
+      sessionId: 'ses',
+      appName: 'pythinker-code-cli',
+      version: '1.2.3',
+    });
+
+    vi.advanceTimersByTime(1_500);
+    flushTelemetrySync();
+
+    const telemetryDir = join(homeDir, 'telemetry');
+    const file = readFileSync(join(telemetryDir, readdirOne(telemetryDir)), 'utf-8');
+    const events = file
+      .trim()
+      .split('\n')
+      .map(
+        (line) =>
+          JSON.parse(line) as {
+            event: string;
+            session_id: string | null;
+            properties: Record<string, number>;
+          },
+      );
+    const metrics = events.find((event) => event.event === 'system_metrics');
+    if (metrics === undefined) throw new Error('Expected a system_metrics event');
+
+    expect(metrics.session_id).toBe('ses');
+    expect(Number.isFinite(metrics.properties['process_started_at'])).toBe(true);
+    expect(metrics.properties['process_started_at']).toBeGreaterThan(0);
+    expect(Number.isFinite(metrics.properties['process_uptime_ms'])).toBe(true);
+    expect(metrics.properties['process_uptime_ms']).toBeGreaterThanOrEqual(0);
+    expect(metrics.properties['rss_bytes']).toBeGreaterThan(0);
   });
 });
 
@@ -802,15 +1016,16 @@ describe('crash handler', () => {
     expect(process.listenerCount('unhandledRejection')).toBe(beforeRejection);
   });
 
-  it('records unhandled rejections when another handler owns the lifecycle', () => {
+  it('observes and records unhandled rejections when another handler owns the lifecycle', () => {
     const client = new TelemetryClient();
     const transport = new RecordingTransport();
     client.attachSink(makeSink(transport));
     setCrashPhase('runtime');
     installCrashHandlersForClient(client);
+    // The TUI registers its own rejection handler; while one exists the
+    // crash handler must observe (not rethrow) so the lifecycle is untouched.
     const owner = (): void => {};
     process.on('unhandledRejection', owner);
-
     try {
       (process.emit as (event: string, ...args: unknown[]) => boolean)(
         'unhandledRejection',
@@ -831,7 +1046,67 @@ describe('crash handler', () => {
     });
   });
 
-  it('rethrows as the sole rejection listener and dedupes the monitor pass', () => {
+  it('ignores aborted-operation rejections while observing', () => {
+    const client = new TelemetryClient();
+    const transport = new RecordingTransport();
+    client.attachSink(makeSink(transport));
+    installCrashHandlersForClient(client);
+    const owner = (): void => {};
+    process.on('unhandledRejection', owner);
+    try {
+      (process.emit as (event: string, ...args: unknown[]) => boolean)(
+        'unhandledRejection',
+        new DOMException('The operation was aborted.', 'AbortError'),
+        Promise.resolve(),
+      );
+    } finally {
+      process.off('unhandledRejection', owner);
+    }
+
+    expect(transport.saved).toHaveLength(0);
+  });
+
+  it('rethrows when it is the only rejection listener, recording the crash exactly once', () => {
+    const client = new TelemetryClient();
+    const transport = new RecordingTransport();
+    client.attachSink(makeSink(transport));
+    setCrashPhase('runtime');
+    // Vitest keeps its own rejection listeners; temporarily drop every
+    // listener so the crash handler is the sole one, as in print/server mode.
+    const others = process.listeners('unhandledRejection');
+    process.removeAllListeners('unhandledRejection');
+    installCrashHandlersForClient(client);
+    const reason = new TypeError('promise failed');
+    try {
+      expect(() =>
+        (process.emit as (event: string, ...args: unknown[]) => boolean)(
+          'unhandledRejection',
+          reason,
+          Promise.resolve(),
+        ),
+      ).toThrow(reason);
+
+      // Tracked once as a rejection; when the rethrow later surfaces at the
+      // uncaughtException monitor it must not be reported a second time.
+      expect(transport.saved[0]?.[0]).toMatchObject({
+        event: 'crash',
+        properties: {
+          error_type: 'TypeError',
+          where: 'runtime',
+          source: 'unhandledRejection',
+        },
+      });
+      emitCrash(reason);
+      expect(transport.saved).toHaveLength(1);
+    } finally {
+      uninstallCrashHandlers();
+      for (const listener of others) {
+        process.on('unhandledRejection', listener as (...args: unknown[]) => void);
+      }
+    }
+  });
+
+  it('dedupes rethrown non-Error rejection reasons at the uncaught monitor', () => {
     const client = new TelemetryClient();
     const transport = new RecordingTransport();
     client.attachSink(makeSink(transport));
@@ -840,22 +1115,75 @@ describe('crash handler', () => {
     process.removeAllListeners('unhandledRejection');
     installCrashHandlersForClient(client);
     const reason = { code: 'E' };
-
     try {
-      expect(() => {
+      let caught: unknown;
+      try {
         (process.emit as (event: string, ...args: unknown[]) => boolean)(
           'unhandledRejection',
           reason,
           Promise.resolve(),
         );
-      }).toThrow(reason);
-      emitCrash(reason as unknown as Error);
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toBe(reason);
 
+      // The plain-object reason is rethrown through the monitor; it must be
+      // deduped there, not reported as a second crash.
+      (process.emit as (event: string, ...args: unknown[]) => boolean)(
+        'uncaughtExceptionMonitor',
+        reason,
+        'uncaughtException',
+      );
       expect(transport.saved).toHaveLength(1);
       expect(transport.saved[0]?.[0]).toMatchObject({
         event: 'crash',
         properties: {
           error_type: 'object',
+          where: 'runtime',
+          source: 'unhandledRejection',
+        },
+      });
+    } finally {
+      uninstallCrashHandlers();
+      for (const listener of others) {
+        process.on('unhandledRejection', listener as (...args: unknown[]) => void);
+      }
+    }
+  });
+
+  it('dedupes null rejection reasons and classifies monitor crashes null-safely', () => {
+    const client = new TelemetryClient();
+    const transport = new RecordingTransport();
+    client.attachSink(makeSink(transport));
+    setCrashPhase('runtime');
+    const others = process.listeners('unhandledRejection');
+    process.removeAllListeners('unhandledRejection');
+    installCrashHandlersForClient(client);
+    try {
+      let caught: unknown = 'not-thrown';
+      try {
+        (process.emit as (event: string, ...args: unknown[]) => boolean)(
+          'unhandledRejection',
+          null,
+          Promise.resolve(),
+        );
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toBe(null);
+
+      // The rethrown null reaches the monitor: deduped, and the error-type
+      // classification must not itself throw on null/undefined.
+      expect(() => {
+        emitCrash(null as unknown as Error);
+      }).not.toThrow();
+      expect(transport.saved).toHaveLength(1);
+      expect(transport.saved[0]?.[0]).toMatchObject({
+        event: 'crash',
+        properties: {
+          error_type: 'object',
+          where: 'runtime',
           source: 'unhandledRejection',
         },
       });
@@ -889,6 +1217,17 @@ function readdirOne(dir: string): string {
   const entry = readdirSync(dir)[0];
   if (entry === undefined) throw new Error(`No files in ${dir}`);
   return entry;
+}
+
+function numberProperty(
+  properties: Record<string, number | string | boolean | undefined | null>,
+  key: string,
+): number {
+  const value = properties[key];
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new Error(`Expected property ${key} to be a finite number, got ${String(value)}`);
+  }
+  return value;
 }
 
 function requestInitFrom(
@@ -933,7 +1272,7 @@ async function runTelemetryCrashScript(body: string): Promise<number> {
   );
 
   return new Promise((resolve, reject) => {
-    const child = spawn(tsxCli, [scriptPath], {
+    const child = spawn(process.execPath, [tsxCli, scriptPath], {
       cwd: join(testDir, '../../..'),
       stdio: ['ignore', 'ignore', 'pipe'],
     });

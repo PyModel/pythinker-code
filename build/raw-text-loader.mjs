@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
 /**
@@ -9,10 +9,10 @@ import { fileURLToPath } from 'node:url';
  * execution — e.g. `tsx`-run dev flows that import `pythinker-core` straight from
  * `src`, where no bundler is involved.
  */
-export function load(url, context, nextLoad) {
+export async function load(url, context, nextLoad) {
   const [fileUrl, query = ''] = url.split('?', 2);
   if (query.split('&').includes('raw')) {
-    const text = readFileSync(fileURLToPath(fileUrl), 'utf-8');
+    const text = await readFile(fileURLToPath(fileUrl), 'utf-8');
     return {
       format: 'module',
       shortCircuit: true,

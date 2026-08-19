@@ -6,19 +6,16 @@ export interface AgentConfigData {
   modelAlias?: string;
   modelCapabilities: ModelCapability;
   profileName?: string;
-  thinkingLevel: string;
-  fastMode?: boolean;
-  fastModeSupported?: boolean;
+  subagentNames?: readonly string[];
+  thinkingEffort: string;
   systemPrompt: string;
-  maxStepsPerTurn?: number;
 }
 
 export type AgentConfigUpdateData = Partial<{
   cwd: string;
   modelAlias: string;
   profileName: string;
-  thinkingLevel: string;
-  fastMode: boolean;
+  subagentNames: readonly string[];
+  thinkingEffort: string;
   systemPrompt: string;
-  maxStepsPerTurn: number;
 }>;

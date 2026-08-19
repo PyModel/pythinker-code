@@ -5,7 +5,18 @@
 
 import { traceWsIn, traceWsLifecycle, traceWsOut } from '../../debug/trace';
 import { classifyFrame } from './agentEventProjector';
-import { WIRE_WS_PROTOCOL_VERSION, type WireEvent, type WireServerFrame, type WireServerHello } from './wire';
+import { getCredential } from './serverAuth';
+import type { WireEvent, WireServerFrame } from './wire';
+
+// Mirrors kap-server's WS_BEARER_PROTOCOL_PREFIX. The browser WebSocket API
+// cannot set arbitrary headers, so the bearer credential rides in the
+// Sec-WebSocket-Protocol subprotocol instead.
+const WS_BEARER_PROTOCOL_PREFIX = 'pythinker-code.bearer.';
+
+// A socket with no incoming frames for this long is presumed half-open even if
+// the browser still reports OPEN (no onclose fired). Derived as 2x the server
+// heartbeat, with a floor so a misconfigured tiny heartbeat can't thrash.
+const STALE_SOCKET_FLOOR_MS = 30_000;
 
 // ---------------------------------------------------------------------------
 // Handler interface
@@ -64,8 +75,6 @@ export class DaemonEventSocket {
   private ws: WebSocket | null = null;
   private connected = false;
   private closed = false;
-  private helloAckId: string | null = null;
-  private protocolFatal = false;
 
   /** subscriptions we manage: sessionId → last known cursor {seq, epoch} */
   private readonly subscriptions = new Map<string, SessionCursor>();
@@ -80,6 +89,14 @@ export class DaemonEventSocket {
   private reconnectAttempts = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
+  /** Server-advertised heartbeat interval (ms); falls back to the daemon default. */
+  private heartbeatMs = 30_000;
+  /**
+   * Epoch ms of the most recent frame (or the connect attempt). Used to detect
+   * a silent-half-open socket that the browser never fires `onclose` for.
+   */
+  private lastActivityAt = 0;
+
   constructor(
     private readonly wsUrl: string,
     private readonly clientId: string,
@@ -90,8 +107,12 @@ export class DaemonEventSocket {
   connect(): void {
     if (this.ws !== null || this.closed) return;
 
+    this.lastActivityAt = Date.now();
     traceWsLifecycle('connect', { url: this.wsUrl, attempt: this.reconnectAttempts });
-    const ws = new WebSocket(this.wsUrl);
+    const credential = getCredential();
+    const protocols =
+      credential !== undefined ? [`${WS_BEARER_PROTOCOL_PREFIX}${credential}`] : undefined;
+    const ws = new WebSocket(this.wsUrl, protocols);
     this.ws = ws;
 
     ws.onopen = () => {
@@ -100,6 +121,8 @@ export class DaemonEventSocket {
     };
 
     ws.onmessage = (ev: MessageEvent) => {
+      // Any received frame proves the link is alive; reset the stale detector.
+      this.lastActivityAt = Date.now();
       try {
         const frame = JSON.parse(String(ev.data)) as WireServerFrame;
         traceWsIn(frame);
@@ -120,7 +143,6 @@ export class DaemonEventSocket {
     ws.onclose = (ev?: CloseEvent) => {
       traceWsLifecycle('close', ev ? { code: ev.code, reason: ev.reason, wasClean: ev.wasClean } : undefined);
       this.connected = false;
-      this.helloAckId = null;
       this.ws = null;
       this.handlers.onConnectionState(false);
       // Unexpected drop (daemon restart, sleep, network blip) → reconnect.
@@ -163,6 +185,10 @@ export class DaemonEventSocket {
   /** Unsubscribe from a session's events. */
   unsubscribe(sessionId: string): void {
     this.subscriptions.delete(sessionId);
+    // Also cancel a subscribe that was queued before server_hello; otherwise
+    // onServerHello would merge it back into the active subscription set.
+    const pendingIdx = this.pendingSubscriptions.findIndex((p) => p.sessionId === sessionId);
+    if (pendingIdx !== -1) this.pendingSubscriptions.splice(pendingIdx, 1);
     if (this.connected && this.ws) {
       this.send({
         type: 'unsubscribe',
@@ -246,6 +272,61 @@ export class DaemonEventSocket {
     }
   }
 
+  /**
+   * Snapshot the socket's health. `stale` is true when no frame has arrived for
+   * longer than 2x the server heartbeat (floored at {@link STALE_SOCKET_FLOOR_MS}).
+   * The browser may still report OPEN on a half-open connection that no longer
+   * delivers data, so foreground recovery keys on the staleness signal rather
+   * than the raw readyState.
+   */
+  health(): { connected: boolean; open: boolean; stale: boolean } {
+    const open = this.ws !== null && this.ws.readyState === WebSocket.OPEN;
+    const threshold = Math.max(this.heartbeatMs * 2, STALE_SOCKET_FLOOR_MS);
+    const stale = this.lastActivityAt > 0 && Date.now() - this.lastActivityAt > threshold;
+    return { connected: this.connected, open, stale };
+  }
+
+  /**
+   * Force a clean reconnect. Used to recover from a silent-half-open socket
+   * (e.g. after the browser froze a background tab) where `onclose` never
+   * fires, so the automatic backoff reconnect wired into `onclose` is never
+   * triggered.
+   *
+   * Tears down the current socket without waiting for `onclose`, resets the
+   * handshake state, and opens a fresh socket immediately; `onServerHello`
+   * re-sends every subscription at the last durable cursor. No-op after
+   * {@link close()}.
+   */
+  reconnect(): void {
+    if (this.closed) return;
+    // Cancel any pending automatic reconnect — we're reconnecting synchronously.
+    if (this.reconnectTimer !== null) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    const old = this.ws;
+    if (old !== null) {
+      // Detach before closing so the old socket's `onclose` doesn't race our
+      // fresh connect (it would call scheduleReconnect and clobber `this.ws`).
+      old.onopen = null;
+      old.onmessage = null;
+      old.onerror = null;
+      old.onclose = null;
+      try {
+        old.close(1000, 'reconnect');
+      } catch {
+        // Ignore — the socket may already be closing.
+      }
+    }
+    const wasConnected = this.connected;
+    this.ws = null;
+    this.connected = false;
+    if (wasConnected) {
+      this.handlers.onConnectionState(false);
+    }
+    this.connect();
+  }
+
   // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
@@ -256,12 +337,15 @@ export class DaemonEventSocket {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const frame = rawFrame as any;
     switch ((rawFrame as { type: string }).type) {
-      case 'server_hello':
-        this.onServerHello(rawFrame as WireServerHello);
+      case 'server_hello': {
+        const hb = (frame.payload as { heartbeat_ms?: unknown } | undefined)?.heartbeat_ms;
+        if (typeof hb === 'number' && hb > 0) this.heartbeatMs = hb;
+        this.onServerHello();
         break;
+      }
 
       case 'ping':
-        if (this.connected) this.send({ type: 'pong', payload: { nonce: frame.payload.nonce } });
+        this.send({ type: 'pong', payload: { nonce: frame.payload.nonce } });
         break;
 
       case 'resync_required': {
@@ -288,8 +372,6 @@ export class DaemonEventSocket {
             timestamp: frame.timestamp,
             payload: frame.payload,
           });
-        } else if (frame.payload.code === 50002) {
-          this.failProtocol(frame.payload.code, frame.payload.msg);
         } else {
           this.handlers.onError(frame.payload.code, frame.payload.msg, frame.payload.fatal);
         }
@@ -297,10 +379,7 @@ export class DaemonEventSocket {
       }
 
       case 'ack':
-        if (frame.id === this.helloAckId) {
-          if (frame.code === 0) this.onHelloAccepted();
-          else this.failProtocol(frame.code, frame.msg);
-        }
+        // ack frames are fire-and-forget for now (no request tracking)
         break;
 
       case 'terminal_output': {
@@ -382,61 +461,39 @@ export class DaemonEventSocket {
     }
   }
 
-  private onServerHello(hello: WireServerHello): void {
-    if (hello.payload.protocol_version !== WIRE_WS_PROTOCOL_VERSION) {
-      this.failProtocol(50002, `Unsupported WebSocket protocol version: ${String(hello.payload.protocol_version)}`);
-      return;
-    }
-    if (this.connected || this.helloAckId !== null) return;
-
-    const id = this.nextId();
-    this.helloAckId = id;
-    this.send({
-      type: 'client_hello',
-      id,
-      payload: {
-        client_id: this.clientId,
-        protocol_version: WIRE_WS_PROTOCOL_VERSION,
-        subscriptions: [],
-      },
-    });
-  }
-
-  private onHelloAccepted(): void {
-    this.helloAckId = null;
+  private onServerHello(): void {
     this.connected = true;
     this.reconnectAttempts = 0;
     this.handlers.onConnectionState(true);
 
+    // Build the initial subscription list from current subscriptions + pending
     const allSessionIds = Array.from(this.subscriptions.keys());
-    for (const pending of this.pendingSubscriptions) {
-      this.subscriptions.set(pending.sessionId, pending.cursor);
-      if (!allSessionIds.includes(pending.sessionId)) allSessionIds.push(pending.sessionId);
+    // Drain pending: merge into subscriptions map (pending overrides if seq differs)
+    for (const p of this.pendingSubscriptions) {
+      this.subscriptions.set(p.sessionId, p.cursor);
+      if (!allSessionIds.includes(p.sessionId)) allSessionIds.push(p.sessionId);
     }
     this.pendingSubscriptions.length = 0;
 
-    if (allSessionIds.length > 0) {
-      const cursors = Object.fromEntries(this.subscriptions.entries());
-      this.sendSubscribe(allSessionIds, cursors);
+    // Build cursors from subscriptions
+    const cursors: Record<string, SessionCursor> = {};
+    for (const [sid, cursor] of this.subscriptions.entries()) {
+      cursors[sid] = cursor;
     }
+
+    this.send({
+      type: 'client_hello',
+      id: this.nextId(),
+      payload: {
+        client_id: this.clientId,
+        subscriptions: allSessionIds,
+        cursors,
+      },
+    });
 
     for (const attachment of this.terminalAttachments.values()) {
       this.sendTerminalAttach(attachment.sessionId, attachment.terminalId, attachment.lastSeq);
     }
-  }
-
-  private failProtocol(code: number, msg: string): void {
-    if (this.protocolFatal) return;
-    this.protocolFatal = true;
-    this.closed = true;
-    this.helloAckId = null;
-    this.connected = false;
-    if (this.reconnectTimer !== null) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
-    this.handlers.onError(code, `WebSocket protocol mismatch: ${msg}`, true);
-    this.ws?.close(1002, 'protocol mismatch');
   }
 
   private sendSubscribe(sessionIds: string[], cursors: Record<string, SessionCursor>): void {

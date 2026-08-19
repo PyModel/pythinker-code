@@ -1,147 +1,79 @@
 import { homedir } from 'node:os';
-import path from 'node:path';
-import { watch, type FSWatcher } from 'chokidar';
 import { join } from 'pathe';
-import { z } from 'zod';
 import type { Kaos } from '@pymodel/kaos';
-import type { SessionMode } from '@pymodel/protocol';
-import type {
-  ElicitRequestParams,
-  ElicitResult,
-} from '@modelcontextprotocol/sdk/types.js';
+import type { SessionWarning } from '@pymodel/protocol';
 
 import { ErrorCodes, PythinkerError } from '#/errors';
 import { getRootLogger, log } from '#/logging/logger';
 import type { Logger, SessionLogHandle } from '#/logging/types';
-import type {
-  PythinkerConfig,
-  SDKSessionRPC,
-  SessionFileCheckpointPreview,
-  WorkspaceDirectory,
-} from '#/rpc';
+import type { PythinkerConfig, SDKSessionRPC } from '#/rpc';
 import { proxyWithExtraPayload } from '#/rpc/types';
 
 import { Agent, type AgentOptions, type AgentType } from '../agent';
-import { InMemoryAgentRecordPersistence } from '../agent/records';
-import {
-  HookEngine,
-  renderAsyncHookRewake,
-  type HookDef,
-  type HookResult,
-  type ModelHookDef,
-} from './hooks';
+import { renderPluginSessionStartReminder } from '../agent/injection/plugin-session-start';
+import { HookEngine, type HookDef } from './hooks';
 import type { PermissionManagerOptions, PermissionRule } from '../agent/permission';
-import { parseBooleanEnv, resolveConfigValue, type BackgroundConfig } from '../config';
+import {
+  appendWorkspaceAdditionalDir,
+  normalizeAdditionalDirs,
+  parseBooleanEnv,
+  PRINT_MAX_TURNS_DEFAULT,
+  PRINT_WAIT_CEILING_S_DEFAULT,
+  readWorkspaceAdditionalDirs,
+  resolveWorkspaceAdditionalDirs,
+  resolveConfigValue,
+  type BackgroundConfig,
+  type WorkspaceAdditionalDirsLoadResult,
+} from '../config';
 import { makeErrorPayload } from '../errors';
 import {
   McpConnectionManager,
   McpOAuthService,
-  mcpUrlStatusId,
-  requestMcpFormElicitation,
-  requestMcpUrlElicitation,
+  canonicalMcpOAuthResource,
+  resolveMcpStartupTimeoutMs,
+  resolveMcpToolTimeoutMs,
+  type McpRegistryEntry,
   type McpServerEntry,
+  type McpOAuthEvent,
   type SessionMcpConfig,
 } from '../mcp';
-import type { EnabledPluginSessionStart } from '../plugin';
+import type { EnabledPluginSessionStart, EnabledPluginSystemPrompt, PluginCommandDef } from '../plugin';
 import {
-  DEFAULT_AGENT_PROFILES,
+  AgentProfileCatalogSnapshotSchema,
+  DEFAULT_AGENT_PROFILE_NAME,
   DEFAULT_INIT_PROMPT,
+  SessionAgentProfileCatalog,
   loadAgentsMd,
   prepareSystemPromptContext,
-  type OutputStyleConfig,
-  type PreparedSystemPromptContext,
+  type AgentFileRoot,
+  type AgentProfileCatalogSnapshot,
   type ResolvedAgentProfile,
 } from '../profile';
 import type { ProviderManager } from './provider-manager';
+import {
+  resolveSecondaryModel,
+  wrapSubagentModelError,
+} from './subagent-binding';
+import {
+  SECONDARY_DERIVED_MODEL_ALIAS,
+  secondaryModelPatch,
+} from '../config/secondary-model';
 import {
   registerBuiltinSkills,
   SessionSkillRegistry,
   resolveSkillRoots,
   summarizeSkill,
-  expandSkillParameters,
   type SkillRoot,
   type SkillSummary,
 } from '../skill';
-import { noopTelemetryClient, type TelemetryClient } from '../telemetry';
+import { noopTelemetryClient, type TelemetryClient, withTelemetryProperties } from '../telemetry';
 import { SessionSubagentHost } from './subagent-host';
-import { SessionAdvisor } from './session-advisor';
+import { sessionMediaOriginalsDir } from '../tools/support/image-originals';
 import type { ToolServices } from '../tools/support/services';
 import { FlagResolver, type ExperimentalFlagResolver } from '../flags';
+import { ImageLimits } from '../tools/support/image-limits';
 import { abortError } from '../utils/abort';
-import { SessionTaskGraph } from '../agent/task-graph';
-import { SessionTeam } from './team';
-import { SessionWorktree } from './worktree';
-import {
-  SessionFileCheckpointStore,
-  type FileCheckpointSummary,
-  type RestoreFileCheckpointResult,
-} from './file-checkpoints';
-import { LspManager, type LspServerConfigs } from '../lsp';
-import { canonicalizePath, isWithinDirectory } from '../tools/policies/path-access';
-import {
-  listWorkingTreeChanges,
-  readWorkingTreeDiff,
-  type WorkingTreeChanges,
-  type WorkingTreeFileDiff,
-} from './working-tree';
-
-const S_IFMT = 0o170000;
-const S_IFDIR = 0o040000;
-const ADDITIONAL_DIRECTORIES_KEY = 'additionalDirectories';
-const REMOVED_ADDITIONAL_DIRECTORIES_KEY = 'removedAdditionalDirectories';
-const SESSION_MODE_KEY = 'mode';
-const HOOK_OUTPUT_SCHEMA = {
-  type: 'object',
-  properties: {
-    ok: { type: 'boolean' },
-    reason: { type: 'string' },
-  },
-  required: ['ok'],
-  additionalProperties: false,
-} as const;
-
-async function isGitIgnored(kaos: Kaos, candidate: string, cwd: string): Promise<boolean> {
-  const relativePath = path.relative(cwd, candidate);
-  if (
-    relativePath.length === 0 ||
-    relativePath.startsWith('..') ||
-    path.isAbsolute(relativePath)
-  ) {
-    return false;
-  }
-  try {
-    const proc = await kaos
-      .withCwd(cwd)
-      .execWithEnv(['git', 'check-ignore', '--quiet', '--', relativePath], {
-        ...(process.env as Record<string, string>),
-        GIT_TERMINAL_PROMPT: '0',
-      });
-    proc.stdin.end();
-    try {
-      return (await proc.wait()) === 0;
-    } finally {
-      await proc.dispose();
-    }
-  } catch {
-    return false;
-  }
-}
-
-function resolveFileChangedWatchPaths(
-  hooks: readonly HookDef[] | undefined,
-  cwd: string,
-): string[] {
-  return [
-    ...new Set(
-      (hooks ?? [])
-        .filter((hook) => hook.event === 'FileChanged')
-        .flatMap((hook) => hook.matcher?.split('|') ?? [])
-        .map((filePath) => filePath.trim())
-        .filter((filePath) => filePath.length > 0)
-        .map((filePath) => (path.isAbsolute(filePath) ? filePath : path.resolve(cwd, filePath))),
-    ),
-  ];
-}
+import { resolveMainAgentProfile } from './main-agent-profile';
 
 export interface SessionOptions {
   readonly kaos: Kaos;
@@ -156,20 +88,39 @@ export interface SessionOptions {
   readonly providerManager?: ProviderManager | undefined;
   readonly background?: BackgroundConfig | undefined;
   readonly hooks?: readonly HookDef[];
-  readonly allowedHttpHookUrls?: readonly string[];
-  readonly httpHookAllowedEnvVars?: readonly string[];
   readonly permissionRules?: readonly PermissionRule[];
-  readonly setupTrigger?: 'init' | 'maintenance';
   readonly skills?: SessionSkillConfig;
+  readonly agents?: SessionAgentCatalogConfig;
   readonly mcpConfig?: SessionMcpConfig;
+  /**
+   * Process-wide MCP OAuth orchestrator shared with the owning core (single
+   * provider cache, single-flight refresh, credential events). Falls back to
+   * a session-private instance when absent (direct `Session` construction in
+   * tests).
+   */
+  readonly mcpOAuthService?: McpOAuthService;
+  /**
+   * Re-resolves a server's current effective config from the core's unified
+   * MCP registry; wired into the connection manager so name-only reconnects
+   * pick up config-file edits and plugin changes instead of the boot-time
+   * snapshot.
+   */
+  readonly mcpConfigResolver?: (name: string) => Promise<McpRegistryEntry | undefined>;
   readonly telemetry?: TelemetryClient | undefined;
   readonly pluginSessionStarts?: readonly EnabledPluginSessionStart[];
+  readonly pluginCommands?: readonly PluginCommandDef[];
+  readonly pluginSystemPrompts?: readonly EnabledPluginSystemPrompt[];
   readonly appVersion?: string;
   readonly experimentalFlags?: ExperimentalFlagResolver;
-  readonly agentProfiles?: Readonly<Record<string, ResolvedAgentProfile>>;
-  readonly lspConfig?: LspServerConfigs;
-  readonly outputStyle?: OutputStyleConfig | null;
-  readonly mode?: SessionMode;
+  /** Owner-scoped [image] limits, threaded from the owning core into every agent. */
+  readonly imageLimits?: ImageLimits;
+  readonly additionalDirs?: readonly string[];
+  /**
+   * Print-mode (`pythinker -p`) only: hold the main turn open while background
+   * subagents (`kind === 'agent'`) are still running, idle-waiting until they
+   * finish before the run exits. Set via the SDK `createSession` option.
+   */
+  readonly drainAgentTasksOnStop?: boolean;
 }
 
 export interface SessionSkillConfig {
@@ -181,143 +132,71 @@ export interface SessionSkillConfig {
   readonly pluginSkillRoots?: readonly SkillRoot[];
   readonly mergeAllAvailableSkills?: boolean;
   readonly builtinDir?: string;
-  /** Skill names the user turned off in config. */
-  readonly disabledNames?: readonly string[];
+}
+
+/**
+ * File-defined agent (agentfile) discovery for a session. Mirrors the skill
+ * discovery layout: user brand dir `<pythinkerHomeDir>/agents` and
+ * `~/.agents/agents`, project `.pythinker-code/agents` and `.agents/agents`, plus
+ * configured extra dirs and explicit single files (`--agent-file`, fatal
+ * when invalid). `profileName` selects the main agent's profile (`--agent`).
+ */
+export interface SessionAgentCatalogConfig {
+  readonly userHomeDir?: string;
+  readonly explicitFiles?: readonly string[];
+  readonly extraDirs?: readonly string[];
+  readonly profileName?: string;
+  /** Agent directories contributed by enabled plugins (lowest file priority). */
+  readonly pluginRoots?: readonly AgentFileRoot[];
+  /** Refresh only the plugin contribution when restoring the persisted catalog. */
+  readonly refreshPluginAgents?: boolean;
+  /** Already-loaded catalog prepared before a persistent session is created. */
+  readonly catalog?: SessionAgentProfileCatalog;
 }
 
 export interface AgentMeta {
+  readonly homedir?: string;
   readonly type: AgentType;
-  readonly parentAgentId: string | null;
-  readonly emitEvents?: boolean;
+  readonly parentAgentId?: string | null;
   readonly dynamicWorkflowItem?: string;
 }
 
-type AgentEntry = Agent | Promise<Agent>;
+interface ResumedAgent {
+  readonly agent: Agent;
+  readonly warning?: string;
+}
+
+type AgentEntry = Agent | Promise<ResumedAgent>;
 
 export interface CreateAgentOptions {
   readonly profile?: ResolvedAgentProfile;
   readonly parentAgentId?: string;
   readonly dynamicWorkflowItem?: string;
   readonly persistMetadata?: boolean;
-  /** Whether this agent forwards events to the session RPC. Defaults to true. */
-  readonly emitEvents?: boolean;
 }
 
 export interface SessionMeta {
-  sessionFormatVersion: typeof SESSION_FORMAT_VERSION;
-  archived?: boolean;
   createdAt: string;
   updatedAt: string;
   title: string;
   isCustomTitle: boolean;
   lastPrompt?: string;
   forkedFrom?: string;
+  /** Absolute working directory the session was created in. Persisted so the
+   *  session directory is self-describing and the global session index does not
+   *  have to be trusted for the (one-way-hashed) workDir. */
+  workDir?: string;
+  /** Directories added for this session only. Unlike workspace local config,
+   *  these follow the session across close/resume without affecting any other
+   *  session opened in the same workspace. */
+  additionalDirs?: string[];
   agents: Record<string, AgentMeta>;
-  agentConfig?: {
-    readonly tools?: readonly string[];
-    readonly mcpServers?: readonly string[];
-  };
   custom: Record<string, any>;
 }
 
-export const SESSION_FORMAT_VERSION = 2;
-
-const AgentMetaSchema = z
-  .object({
-    type: z.enum(['main', 'sub', 'independent']),
-    parentAgentId: z.string().nullable(),
-    dynamicWorkflowItem: z.string().optional(),
-    emitEvents: z.boolean().optional(),
-  })
-  .strict();
-
-const SessionMetaSchema = z
-  .object({
-    sessionFormatVersion: z.literal(SESSION_FORMAT_VERSION),
-    archived: z.boolean().optional(),
-    createdAt: z.string(),
-    updatedAt: z.string(),
-    title: z.string(),
-    isCustomTitle: z.boolean(),
-    lastPrompt: z.string().optional(),
-    forkedFrom: z.string().optional(),
-    agents: z.record(z.string(), AgentMetaSchema),
-    agentConfig: z
-      .object({
-        tools: z.array(z.string()).optional(),
-        mcpServers: z.array(z.string()).optional(),
-      })
-      .strict()
-      .optional(),
-    custom: z.record(z.string(), z.unknown()),
-  })
-  .strict();
-
-export function parseSessionMetadata(input: unknown): SessionMeta {
-  if (!isRecord(input)) {
-    throw invalidSessionMetadata('Session state metadata must be an object');
-  }
-  if (input['sessionFormatVersion'] !== SESSION_FORMAT_VERSION) {
-    throw invalidSessionMetadata(
-      `Unsupported session format version ${String(input['sessionFormatVersion'])}; expected ${SESSION_FORMAT_VERSION}`,
-    );
-  }
-  validateRawPersistedAgentKeys(input);
-  const parsed = SessionMetaSchema.safeParse(input);
-  if (!parsed.success) {
-    throw invalidSessionMetadata(parsed.error.issues[0]?.message ?? 'Session state metadata is invalid');
-  }
-  validatePersistedAgents(parsed.data.agents);
-  return parsed.data as SessionMeta;
-}
-
-function validateRawPersistedAgentKeys(input: Record<string, unknown>): void {
-  const agents = input['agents'];
-  if (isRecord(agents) && Object.hasOwn(agents, '__proto__')) {
-    throw invalidSessionMetadata('Session agent id "__proto__" is reserved');
-  }
-}
-
-function invalidSessionMetadata(message: string): PythinkerError {
-  return new PythinkerError(ErrorCodes.SESSION_STATE_INVALID, message);
-}
-
-function validatePersistedAgents(agents: Record<string, AgentMeta>): void {
-  for (const [id, meta] of Object.entries(agents)) {
-    assertSafeAgentId(id);
-    if (meta.parentAgentId !== null && !Object.hasOwn(agents, meta.parentAgentId)) {
-      throw invalidSessionMetadata(
-        `Session agent "${id}" references missing parent "${meta.parentAgentId}"`,
-      );
-    }
-  }
-  const visiting = new Set<string>();
-  const visited = new Set<string>();
-  const visit = (id: string, chain: readonly string[]): void => {
-    if (visited.has(id)) return;
-    if (visiting.has(id)) {
-      throw invalidSessionMetadata(
-        `Session agent parent chain contains a cycle: ${[...chain, id].join(' -> ')}`,
-      );
-    }
-    visiting.add(id);
-    const parentAgentId = agents[id]!.parentAgentId;
-    if (parentAgentId !== null) visit(parentAgentId, [...chain, id]);
-    visiting.delete(id);
-    visited.add(id);
-  };
-  for (const id of Object.keys(agents)) visit(id, []);
-}
-
-function assertSafeAgentId(id: string): void {
-  if (id.length > 0 && id !== '.' && id !== '..' && !id.includes('/') && !id.includes('\\')) {
-    return;
-  }
-  throw invalidSessionMetadata(`Session agent id "${id}" contains unsupported path characters`);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+interface PersistedSessionState extends SessionMeta {
+  /** Internal catalog binding; deliberately excluded from public SessionMeta. */
+  readonly agentProfileCatalog?: unknown;
 }
 
 const BACKGROUND_KEEP_ALIVE_ON_EXIT_ENV = 'PYTHINKER_CODE_BACKGROUND_KEEP_ALIVE_ON_EXIT';
@@ -348,29 +227,6 @@ async function waitForSettlementOrTimeout(
   }
 }
 
-function elicitationHookResponse(
-  results: readonly HookResult[],
-): ElicitResult | undefined {
-  if (results.some((result) => result.action === 'block')) {
-    return { action: 'decline' };
-  }
-  const response = results.find(
-    (result) => result.elicitationResponse !== undefined,
-  )?.elicitationResponse;
-  return response === undefined
-    ? undefined
-    : { action: response.action, content: response.content };
-}
-
-function promptArgumentHint(
-  args: readonly { readonly name: string; readonly required?: boolean }[] | undefined,
-): string | undefined {
-  if (args === undefined || args.length === 0) return undefined;
-  return args
-    .map((arg) => (arg.required === true ? `<${arg.name}>` : `[${arg.name}]`))
-    .join(' ');
-}
-
 export class Session {
   readonly rpc: SDKSessionRPC;
   readonly telemetry: TelemetryClient;
@@ -379,25 +235,20 @@ export class Session {
   readonly mcp: McpConnectionManager;
   readonly log: Logger;
   private readonly logHandle: SessionLogHandle | undefined;
+  private readonly unsubscribeMcpOAuthCredentials: (() => void) | undefined;
   readonly hookEngine: HookEngine;
   readonly experimentalFlags: ExperimentalFlagResolver;
-  readonly agentProfiles: Readonly<Record<string, ResolvedAgentProfile>>;
-  readonly taskGraph: SessionTaskGraph;
-  readonly team: SessionTeam;
-  readonly worktree: SessionWorktree;
-  readonly lsp: LspManager;
-  readonly fileCheckpoints: SessionFileCheckpointStore | undefined;
-  readonly advisor: SessionAdvisor;
-  private fileChangedWatcher?: FSWatcher;
-  private readonly fileChangedWatcherReady: Promise<void>;
-  private fileChangedWatchCwd: string;
-  private dynamicFileChangedWatchPaths: readonly string[] = [];
+  readonly imageLimits: ImageLimits;
+  readonly agentCatalog: SessionAgentProfileCatalog;
   private toolKaos: Kaos;
   private persistenceKaos: Kaos;
+  private additionalDirs: readonly string[];
+  private sessionAdditionalDirs: readonly string[] = [];
+  private readonly pluginCommands: readonly PluginCommandDef[];
+  private pluginSystemPrompts: readonly EnabledPluginSystemPrompt[];
   private agentIdCounter = 0;
   private readonly skillsReady: Promise<void>;
   metadata: SessionMeta = {
-    sessionFormatVersion: SESSION_FORMAT_VERSION,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     title: 'New Session',
@@ -406,17 +257,25 @@ export class Session {
     custom: {},
   };
   private writeMetadataPromise = Promise.resolve();
+  private agentProfileSnapshot: AgentProfileCatalogSnapshot | undefined;
+  private agentsMdWarning: string | undefined;
+  private printSteerDeadline: number | undefined;
+  private printSteerTurns = 0;
+  /**
+   * The session's live config snapshot. Initialized from `options.config`;
+   * updated in place by {@link setSecondaryModelConfig} so mid-session secondary-model
+   * switches reach the spawn-binding and tool-description readers without
+   * recreating the session.
+   */
+  private runtimeConfig: PythinkerConfig | undefined;
+
+  /** The session's current config snapshot (see {@link Session.runtimeConfig}). */
+  get pythinkerConfig(): PythinkerConfig | undefined {
+    return this.runtimeConfig;
+  }
 
   constructor(public readonly options: SessionOptions) {
-    if (options.mode !== undefined) {
-      this.metadata = {
-        ...this.metadata,
-        custom: {
-          ...this.metadata.custom,
-          [SESSION_MODE_KEY]: options.mode,
-        },
-      };
-    }
+    this.runtimeConfig = options.config;
     // Attach the per-session log sink up front so the constructor's
     // fire-and-forget `loadSkills` / `loadMcpServers` failures (and
     // anything else that races) land in the session log, not just global.
@@ -430,85 +289,65 @@ export class Session {
     this.log =
       this.logHandle?.logger ??
       (options.id === undefined ? log : log.createChild({ sessionId: options.id }));
-    this.advisor = new SessionAdvisor(this);
     this.rpc = options.rpc;
     this.experimentalFlags = options.experimentalFlags ?? new FlagResolver();
-    this.agentProfiles = {
-      ...DEFAULT_AGENT_PROFILES,
-      ...options.agentProfiles,
-    };
-    this.taskGraph = new SessionTaskGraph(
-      options.homedir === undefined ? undefined : join(options.homedir, 'tasks.json'),
-    );
-    this.team = new SessionTeam(
-      this,
-      options.homedir === undefined ? undefined : join(options.homedir, 'team.json'),
-      this.taskGraph,
-    );
-    this.worktree = new SessionWorktree(
-      options.homedir === undefined ? undefined : join(options.homedir, 'worktree.json'),
-    );
-    this.lsp = new LspManager(options.kaos, options.kaos.getcwd(), options.lspConfig ?? {});
-    this.fileChangedWatchCwd = options.kaos.getcwd();
+    this.imageLimits = options.imageLimits ?? new ImageLimits();
     this.hookEngine = new HookEngine(options.hooks, {
       cwd: options.kaos.getcwd(),
       sessionId: options.id,
-      allowedHttpHookUrls: options.allowedHttpHookUrls,
-      httpHookAllowedEnvVars: options.httpHookAllowedEnvVars,
-      onAsyncRewake: (event, results) => {
-        this.deliverAsyncHookRewake(event, results);
-      },
-      onStatus: (event, statusId, content, active) => {
-        void this.rpc.emitEvent({
-          type: 'hook.status',
-          agentId: 'main',
-          statusId,
-          hookEvent: event,
-          content,
-          active,
-        });
-      },
-      onWatchPaths: (_event, paths) => this.replaceDynamicFileChangedWatchPaths(paths),
-      onCwdChanged: (cwd) => this.rebindFileChangedWatchCwd(cwd),
-      runModelHook: (hook, event, input, signal) =>
-        this.runModelHook(hook, event, input, signal),
     });
-    const watchPaths = resolveFileChangedWatchPaths(options.hooks, options.kaos.getcwd());
-    this.fileChangedWatcherReady = this.replaceFileChangedWatcher(watchPaths);
     this.telemetry = options.telemetry ?? noopTelemetryClient;
     this.toolKaos = options.kaos;
     this.persistenceKaos = options.persistenceKaos ?? options.kaos;
-    this.fileCheckpoints =
-      options.homedir === undefined
-        ? undefined
-        : new SessionFileCheckpointStore(
-            this.toolKaos,
-            this.persistenceKaos,
-            options.homedir,
-            (message, error) => this.log.warn(message, { error }),
-          );
+    this.additionalDirs = normalizeAdditionalDirs(options.additionalDirs ?? []);
+    this.pluginCommands = options.pluginCommands ?? [];
+    this.pluginSystemPrompts = options.pluginSystemPrompts ?? [];
     this.skills = new SessionSkillRegistry({
       sessionId: options.id,
-      disabledNames: options.skills?.disabledNames,
-      isPathIgnored: (candidate, cwd) =>
-        isGitIgnored(this.persistenceKaos, candidate, cwd),
     });
     this.mcp = new McpConnectionManager({
-      oauthService: new McpOAuthService({ pythinkerHomeDir: options.pythinkerHomeDir }),
+      oauthService:
+        options.mcpOAuthService ?? new McpOAuthService({ pythinkerHomeDir: options.pythinkerHomeDir }),
+      configResolver: options.mcpConfigResolver,
       log: this.log,
-      elicitationHandler: (serverName, params, requestId, signal) =>
-        this.handleMcpElicitation(serverName, params, requestId, signal),
-      elicitationCompletionHandler: (serverName, elicitationId) => {
-        this.handleMcpElicitationComplete(serverName, elicitationId);
-      },
+      stdioCwd: options.kaos.getcwd(),
+      defaultStartupTimeoutMs: resolveMcpStartupTimeoutMs(options.config?.mcp?.startupTimeoutMs),
+      defaultToolTimeoutMs: resolveMcpToolTimeoutMs(options.config?.mcp?.toolTimeoutMs),
     });
     this.mcp.onStatusChange((entry) => {
       this.onMcpServerStatusChange(entry);
     });
+    this.unsubscribeMcpOAuthCredentials = this.mcp.oauthService?.onEvent((event) => {
+      void this.handleMcpOAuthEvent(event).catch((error: unknown) => {
+        this.log.warn('mcp reconnect after OAuth credential event failed', {
+          server: event.serverName,
+          event: event.type,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    });
+    this.agentCatalog =
+      options.agents?.catalog ??
+      new SessionAgentProfileCatalog({
+        workDir: options.kaos.getcwd(),
+        brandHomeDir: options.pythinkerHomeDir ?? join(homedir(), '.pythinker-code'),
+        osHomeDir: options.agents?.userHomeDir ?? homedir(),
+        extraDirs: options.agents?.extraDirs ?? options.config?.extraAgentDirs,
+        explicitFiles: options.agents?.explicitFiles,
+        pluginRoots: options.agents?.pluginRoots,
+        warn: (message, error) => {
+          this.log.warn(message, error === undefined ? undefined : { error });
+        },
+      });
     this.skillsReady = this.loadSkills()
       .catch((error: unknown) => {
         this.log.error('skills load failed', error);
       })
+      // Agentfile discovery rides the same readiness gate: every createAgent
+      // caller already awaits it, so profile binding and the Agent tool's
+      // subagent list always see the fully merged catalog. A fatal source
+      // (an invalid --agent-file) rejects here and fails session creation.
+      .then(() => this.agentCatalog.ready)
       .then(() => {
         this.refreshAgentBuiltinTools();
       });
@@ -517,14 +356,125 @@ export class Session {
     });
   }
 
+  /**
+   * Credential events from the (typically shared) OAuth service: a completed
+   * login reconnects a `needs-auth` / `failed` entry, a reset or a failed
+   * proactive refresh flips a live connection back to `needs-auth` (the
+   * reconnect hits a 401) instead of leaving it doomed-but-connected. An
+   * entry still performing its initial connect defers the reconnect until it
+   * settles, so a credential written mid-initialization is not lost.
+   */
+  private async handleMcpOAuthEvent(event: McpOAuthEvent): Promise<void> {
+    // Client/verifier/discovery invalidations are flow-local; only token-level
+    // changes move connections.
+    if (event.type === 'tokens-invalidated' && event.scope !== 'tokens' && event.scope !== 'all') {
+      return;
+    }
+    const entry = this.mcp.get(event.serverName);
+    if (entry === undefined) return;
+    // The credential is keyed by name + canonical URL: if this session's
+    // entry points at a different URL now, the event is not about it.
+    const serverUrl = this.mcp.getRemoteServerUrl(event.serverName);
+    if (serverUrl === undefined || canonicalMcpOAuthResource(serverUrl) !== event.serverUrl) return;
+    if (event.type === 'tokens-invalidated') {
+      // Drop the cached provider so the reconnect starts from clean state.
+      this.mcp.oauthService?.forgetProvider(event.serverName, event.serverUrl);
+    }
+    if (entry.status === 'disabled') return;
+    if (entry.status === 'pending') {
+      await new Promise<void>((resolve, reject) => {
+        const unsubscribe = this.mcp.onStatusChange((next) => {
+          if (next.name !== event.serverName || next.status === 'pending') return;
+          unsubscribe();
+          if (next.status === 'disabled') {
+            resolve();
+            return;
+          }
+          void this.mcp.reconnectAfterCurrent(event.serverName).then(resolve, reject);
+        });
+      });
+      return;
+    }
+    if (event.type === 'tokens-saved' && entry.status !== 'needs-auth' && entry.status !== 'failed') {
+      return;
+    }
+    // A failed proactive refresh only matters to a live connection.
+    if (event.type === 'refresh-failed' && entry.status !== 'connected') return;
+    await this.mcp.reconnectAndJoin(event.serverName);
+  }
+
 
   setToolKaos(kaos: Kaos) {
     this.toolKaos = kaos;
-    this.fileCheckpoints?.setToolKaos(kaos);
     for (const agent of this.readyAgents()) {
       agent.setKaos(kaos.withCwd(agent.config.cwd));
     }
     this.refreshAgentBuiltinTools();
+  }
+
+  getAdditionalDirs(): readonly string[] {
+    return this.additionalDirs;
+  }
+
+  async setAdditionalDirs(additionalDirs: readonly string[]): Promise<void> {
+    this.additionalDirs = normalizeAdditionalDirs(additionalDirs);
+    for (const agent of this.readyAgents()) {
+      agent.setAdditionalDirs(this.additionalDirs);
+    }
+  }
+
+  async setBaseAdditionalDirs(additionalDirs: readonly string[]): Promise<void> {
+    await this.setAdditionalDirs([...additionalDirs, ...this.sessionAdditionalDirs]);
+  }
+
+  async addAdditionalDir(
+    path: string,
+    persist = true,
+  ): Promise<WorkspaceAdditionalDirsLoadResult & { readonly persisted: boolean }> {
+    const cwd = this.toolKaos.getcwd();
+    const systemKaos = this.systemContextKaos(cwd);
+    if (persist) {
+      const result = await appendWorkspaceAdditionalDir(systemKaos, cwd, path, this.additionalDirs);
+      const additionalDirs = normalizeAdditionalDirs([...this.additionalDirs, ...result.additionalDirs]);
+      await this.setAdditionalDirs(additionalDirs);
+      this.notifyAdditionalDirAdded(path, true, result.configPath);
+      return { ...result, additionalDirs, persisted: true };
+    }
+
+    const workspace = await readWorkspaceAdditionalDirs(systemKaos, cwd);
+    const additionalDirs = await resolveWorkspaceAdditionalDirs(systemKaos, cwd, [path]);
+    const nextAdditionalDirs = normalizeAdditionalDirs([...this.additionalDirs, ...additionalDirs]);
+    const nextSessionAdditionalDirs = normalizeAdditionalDirs([
+      ...this.sessionAdditionalDirs,
+      ...additionalDirs,
+    ]);
+    const previousMetadata = this.metadata;
+    this.metadata = {
+      ...this.metadata,
+      additionalDirs: nextSessionAdditionalDirs,
+    };
+    try {
+      await this.writeMetadata();
+    } catch (error) {
+      this.metadata = previousMetadata;
+      throw error;
+    }
+    this.sessionAdditionalDirs = nextSessionAdditionalDirs;
+    await this.setAdditionalDirs(nextAdditionalDirs);
+    this.notifyAdditionalDirAdded(path, false, workspace.configPath);
+    return {
+      projectRoot: workspace.projectRoot,
+      configPath: workspace.configPath,
+      additionalDirs: nextAdditionalDirs,
+      persisted: false,
+    };
+  }
+
+  private notifyAdditionalDirAdded(path: string, persisted: boolean, configPath: string): void {
+    const message = persisted
+      ? `Added workspace directory:\n  ${path}\n  Saved to:\n  ${configPath}`
+      : `Added workspace directory:\n  ${path}\n  For this session only`;
+    this.requireMainAgent().context.appendLocalCommandStdout(message);
   }
 
   /**
@@ -539,54 +489,85 @@ export class Session {
   }
 
   async createMain() {
-    await this.fileChangedWatcherReady;
-    await this.triggerSetup();
+    // Await the catalog (chained into skillsReady) before resolving the
+    // profile so a fatal agentfile source surfaces here, and so `--agent`
+    // sees file-defined profiles.
+    await this.skillsReady;
+    this.agentProfileSnapshot = this.agentCatalog.snapshot();
+    const profile = resolveMainAgentProfile(
+      this.agentCatalog,
+      this.options.agents?.profileName,
+    );
     const { agent } = await this.createAgent({ type: 'main' }, {
-      profile: this.mainProfile(),
+      profile,
     });
+    if (this.options.drainAgentTasksOnStop) {
+      agent.printDrainAgentTasksOnStop = true;
+    }
+    for (const warning of this.computeSecondaryModelWarnings()) {
+      agent.emitEvent({
+        type: 'warning',
+        message: warning.message,
+        code: warning.code,
+      });
+    }
     await this.triggerSessionStart('startup');
     return agent;
   }
 
-  async resume(): Promise<void> {
-    await this.fileChangedWatcherReady;
+  async resume(): Promise<{ warning?: string }> {
     await this.skillsReady;
-    await this.triggerSetup();
     this.log.info('session resume', { app_version: this.options.appVersion });
-    const { agents } = await this.readMetadata();
+    const { agents, additionalDirs = [] } = await this.readMetadata();
+    const cwd = this.toolKaos.getcwd();
+    this.sessionAdditionalDirs = await resolveWorkspaceAdditionalDirs(
+      this.systemContextKaos(cwd),
+      cwd,
+      additionalDirs,
+    );
+    await this.setBaseAdditionalDirs(this.additionalDirs);
     this.agents.clear();
     // Only the main agent is needed to reopen the session; subagents replay
     // lazily when an RPC or Agent(resume=...) call asks for their state.
-    if (agents['main'] !== undefined) {
-      await this.resumeAgent('main');
-    }
+    const { warning } =
+      agents['main'] === undefined ? { warning: undefined } : await this.resumeAgent('main');
     // A session migrated from an external tool ships a wire without the
     // `config.update` bootstrap events a natively-created agent writes, so the
     // main agent comes back with an empty system prompt and no tools. Apply the
     // default profile so the resumed session is usable. Native sessions always
     // replay a non-empty system prompt and never enter this branch.
     const main = this.getReadyAgent('main');
-    const profile = this.mainProfile();
-    if (main !== undefined && profile !== undefined && main.config.systemPrompt === '') {
-      await this.bootstrapAgentProfile(main, profile, 'session_start');
+    const profile = this.agentCatalog.getDefault();
+    if (main !== undefined && main.config.systemPrompt === '') {
+      await this.bootstrapAgentProfile(main, profile);
     }
     await this.triggerSessionStart('resume');
+    return { warning };
+  }
+
+  async assertMainProfileSelection(requestedProfileName: string | undefined): Promise<void> {
+    if (requestedProfileName === undefined) return;
+    const main = await this.ensureAgentResumed('main');
+    const currentProfileName = main.config.profileName ?? DEFAULT_AGENT_PROFILE_NAME;
+    if (currentProfileName === requestedProfileName) return;
+    throw new PythinkerError(
+      ErrorCodes.REQUEST_INVALID,
+      `agent is already bound to profile "${currentProfileName}"; cannot switch to "${requestedProfileName}" in this session`,
+    );
   }
 
   async close(): Promise<void> {
+    this.unsubscribeMcpOAuthCredentials?.();
     try {
-      await this.closeFileChangedWatcher();
       await Promise.allSettled(
         Array.from(this.readyAgents(), async (agent) => agent.cron?.stop()),
       );
       await this.cancelActiveTurnsOnClose();
-      await this.advisor.close();
       await this.stopBackgroundTasksOnExit();
       await this.flushMetadata();
       await this.triggerSessionEnd('exit');
     } finally {
       try {
-        await this.lsp.shutdown();
         await this.mcp.shutdown();
       } finally {
         await this.logHandle?.close();
@@ -595,16 +576,14 @@ export class Session {
   }
 
   async closeForReload(): Promise<void> {
+    this.unsubscribeMcpOAuthCredentials?.();
     try {
-      await this.closeFileChangedWatcher();
       await Promise.allSettled(
         Array.from(this.readyAgents(), async (agent) => agent.cron?.stop()),
       );
-      await this.advisor.close();
       await this.flushMetadata();
     } finally {
       try {
-        await this.lsp.shutdown();
         await this.mcp.shutdown();
       } finally {
         await this.logHandle?.close();
@@ -622,60 +601,11 @@ export class Session {
     await Promise.allSettled(cancellations);
   }
 
-  private async closeFileChangedWatcher(): Promise<void> {
-    await this.fileChangedWatcher?.close().catch((error) => {
-      this.log.warn('file-change hook watcher close failed', { error });
-    });
-  }
-
-  private async replaceDynamicFileChangedWatchPaths(paths: readonly string[]): Promise<void> {
-    this.dynamicFileChangedWatchPaths = [
-      ...new Set(paths.filter((filePath) => path.isAbsolute(filePath))),
-    ];
-    await this.replaceFileChangedWatcher([
-      ...resolveFileChangedWatchPaths(this.options.hooks, this.fileChangedWatchCwd),
-      ...this.dynamicFileChangedWatchPaths,
-    ]);
-  }
-
-  private async rebindFileChangedWatchCwd(cwd: string): Promise<void> {
-    this.fileChangedWatchCwd = cwd;
-    await this.replaceFileChangedWatcher([
-      ...resolveFileChangedWatchPaths(this.options.hooks, cwd),
-      ...this.dynamicFileChangedWatchPaths,
-    ]);
-  }
-
-  private async replaceFileChangedWatcher(paths: readonly string[]): Promise<void> {
-    await this.fileChangedWatcher?.close();
-    this.fileChangedWatcher = undefined;
-    const uniquePaths = [...new Set(paths)];
-    if (uniquePaths.length === 0) return;
-
-    const watcher = watch(uniquePaths, {
-      persistent: false,
-      ignoreInitial: true,
-      awaitWriteFinish: { stabilityThreshold: 500, pollInterval: 200 },
-      ignorePermissionErrors: true,
-    });
-    this.fileChangedWatcher = watcher;
-    watcher.on('all', (event, filePath) => {
-      if (event !== 'add' && event !== 'change' && event !== 'unlink') return;
-      void this.hookEngine.fireAndForgetTrigger('FileChanged', {
-        inputData: { filePath, event },
-      });
-    });
-    await new Promise<void>((resolve) => {
-      watcher.once('ready', resolve);
-      watcher.once('error', () => resolve());
-    });
-  }
-
   private activeBackgroundAgentIds(): Set<string> {
     const agentIds = new Set<string>();
     for (const agent of this.readyAgents()) {
       for (const task of agent.background.list(true)) {
-        if (task.kind === 'agent' && task.agentId !== undefined) {
+        if (task.kind === 'agent' && task.agentId !== undefined && task.detached !== false) {
           agentIds.add(task.agentId);
         }
       }
@@ -731,6 +661,149 @@ export class Session {
     );
   }
 
+  /**
+   * Wait for all still-running background tasks (across every agent) to reach a
+   * terminal state before a `pythinker -p` (print) run exits.
+   *
+   * Only runs when the resolved print background mode is `'drain'` (see
+   * `resolvePrintBackgroundMode`): `print_background_mode = "drain"`, or the
+   * legacy `keep_alive_on_exit = true` fallback. In every other mode it returns
+   * immediately. The wait is bounded by `background.print_wait_ceiling_s`
+   * (default `PRINT_WAIT_CEILING_S_DEFAULT`, effectively unbounded) so a wedged
+   * task can still be given up on eventually.
+   *
+   * Terminal notifications are suppressed for each task while we wait, so a task
+   * completing cannot `turn.steer` the (already finished) main agent into launching
+   * a new turn. (This is exactly what `'steer'` mode avoids by never calling here.)
+   */
+  async waitForBackgroundTasksOnPrint(): Promise<void> {
+    if (this.resolvePrintBackgroundMode() !== 'drain') return;
+
+    const ceilingS = this.options.background?.printWaitCeilingS ?? PRINT_WAIT_CEILING_S_DEFAULT;
+    const timeoutMs = ceilingS * 1000;
+    const deadline = Date.now() + timeoutMs;
+
+    // Re-enumerate active background tasks across every agent until none remain
+    // (or the ceiling expires). A subagent may fan out new background tasks
+    // after a previous enumeration, so a single pass could return while those
+    // later tasks are still running — breaking the "every background task"
+    // guarantee. Each round waits for the newly discovered tasks, then rescans
+    // to catch anything spawned in the meantime.
+    const seen = new Set<string>();
+    const allWaiters: Promise<unknown>[] = [];
+    while (Date.now() < deadline) {
+      const batch: Promise<unknown>[] = [];
+      const suppressions: Promise<void>[] = [];
+      let activeCount = 0;
+      for (const agent of this.readyAgents()) {
+        for (const task of agent.background.list(true)) {
+          activeCount++;
+          if (seen.has(task.taskId)) continue;
+          seen.add(task.taskId);
+          // suppressTerminalNotification sets the suppressed flag synchronously
+          // when called; defer awaiting the persist until after the whole
+          // enumeration so no task can complete and fire a notification while
+          // another task's persist write is pending.
+          suppressions.push(agent.background.suppressTerminalNotification(task.taskId));
+          const remaining = Math.max(1, deadline - Date.now());
+          const waiter = agent.background.wait(task.taskId, remaining);
+          batch.push(waiter);
+          allWaiters.push(waiter);
+        }
+      }
+      if (suppressions.length > 0) {
+        await Promise.all(suppressions);
+      }
+      if (activeCount === 0 || batch.length === 0) break;
+      this.log.info('waiting for background tasks before print exit', {
+        active: activeCount,
+        new: batch.length,
+        timeoutMs,
+      });
+      await Promise.all(batch);
+    }
+    if (allWaiters.length > 0) {
+      await Promise.all(allWaiters);
+      this.log.info('background tasks settled before print exit', {
+        count: seen.size,
+        timeoutMs,
+      });
+    }
+  }
+
+  /**
+   * Resolve the effective print-mode (`pythinker -p`) background-task policy.
+   *
+   * `background.print_background_mode` is authoritative when set. Otherwise we
+   * fall back to the legacy `background.keep_alive_on_exit` mapping so existing
+   * configs keep their behavior: `keep_alive_on_exit = true` ⇒ `'drain'`
+   * (suppress + drain background tasks before exit). When neither is set the
+   * mode defaults to `'steer'`: a headless run stays alive while background
+   * tasks are pending so their completions can steer new main turns.
+   */
+  private resolvePrintBackgroundMode(): 'exit' | 'drain' | 'steer' {
+    const configured = this.options.background?.printBackgroundMode;
+    if (configured !== undefined) return configured;
+    const keepAliveOnExit = resolveConfigValue({
+      env: process.env,
+      envKey: BACKGROUND_KEEP_ALIVE_ON_EXIT_ENV,
+      configValue: this.options.background?.keepAliveOnExit,
+      defaultValue: false,
+      parseEnv: parseBooleanEnv,
+    });
+    return keepAliveOnExit ? 'drain' : 'steer';
+  }
+
+  private countActiveBackgroundTasks(): number {
+    let count = 0;
+    for (const agent of this.readyAgents()) {
+      count += agent.background.list(true).length;
+    }
+    return count;
+  }
+
+  /**
+   * Decide what the `pythinker -p` driver should do after the main agent's turn ends
+   * with `reason === 'completed'`. Returns `'finish'` when the run may exit, or
+   * `'continue'` when the driver must stay alive so a background-task completion
+   * can `turn.steer` the main agent into a new turn.
+   *
+   *  - 'exit'  : finish immediately.
+   *  - 'drain' : suppress + drain background tasks, then finish (legacy
+   *              `keep_alive_on_exit = true` behavior).
+   *  - 'steer' : while background tasks are still pending, return 'continue' so
+   *              completions steer new main turns; finish once quiescent, or when
+   *              the wall-clock ceiling (`print_wait_ceiling_s`) or the turn cap
+   *              (`print_max_turns`) is reached. This is the default mode.
+   */
+  async handlePrintMainTurnCompleted(): Promise<'finish' | 'continue'> {
+    const mode = this.resolvePrintBackgroundMode();
+    if (mode === 'exit') return 'finish';
+    if (mode === 'drain') {
+      await this.waitForBackgroundTasksOnPrint();
+      return 'finish';
+    }
+
+    // 'steer'
+    const ceilingS = this.options.background?.printWaitCeilingS ?? PRINT_WAIT_CEILING_S_DEFAULT;
+    const maxTurns = this.options.background?.printMaxTurns ?? PRINT_MAX_TURNS_DEFAULT;
+    const now = Date.now();
+    this.printSteerDeadline ??= now + ceilingS * 1000;
+    this.printSteerTurns += 1;
+    if (now >= this.printSteerDeadline) {
+      this.log.warn('print steer ceiling reached, finishing', { ceilingS });
+      return 'finish';
+    }
+    if (this.printSteerTurns > maxTurns) {
+      this.log.warn('print steer max turns reached, finishing', { maxTurns });
+      return 'finish';
+    }
+    if (this.countActiveBackgroundTasks() > 0) {
+      return 'continue';
+    }
+    return 'finish';
+  }
+
   async createAgent(
     config: Partial<AgentOptions>,
     options: CreateAgentOptions = {},
@@ -738,31 +811,20 @@ export class Session {
     await this.skillsReady;
     const type = config.type ?? 'main';
     const id = type === 'main' ? 'main' : this.nextGeneratedAgentId();
-    const homedir = this.agentDir(id);
+    const homedir = config.homedir ?? join(this.options.homedir, 'agents', id);
     const parentAgentId = options.parentAgentId ?? null;
-    const agent = this.instantiateAgent(
-      id,
-      homedir,
-      type,
-      config,
-      parentAgentId,
-      options.emitEvents !== false,
-    );
+    const agent = this.instantiateAgent(id, homedir, type, config, parentAgentId);
     if (options.profile) {
-      await this.bootstrapAgentProfile(
-        agent,
-        options.profile,
-        type === 'main' ? 'session_start' : undefined,
-      );
+      await this.bootstrapAgentProfile(agent, options.profile);
     }
 
     this.agents.set(id, agent);
     if (options.persistMetadata !== false) {
       this.metadata.agents[id] = {
+        homedir,
         type,
         parentAgentId,
         dynamicWorkflowItem: options.dynamicWorkflowItem,
-        emitEvents: options.emitEvents !== false,
       };
       void this.writeMetadata();
     }
@@ -772,90 +834,11 @@ export class Session {
 
   async ensureAgentResumed(id: string): Promise<Agent> {
     const entry = this.agents.get(id);
-    if (entry !== undefined) return this.resolveAgentEntry(entry);
+    if (entry !== undefined) return (await this.resolveAgentEntry(entry)).agent;
     if (this.metadata.agents[id] === undefined) {
       throw new PythinkerError(ErrorCodes.AGENT_NOT_FOUND, `Agent "${id}" was not found`);
     }
-    return this.resumeAgent(id);
-  }
-
-  async refreshInstructions(loadReason?: 'compact'): Promise<void> {
-    const agent = await this.ensureAgentResumed('main');
-    const profile =
-      this.agentProfiles[agent.config.profileName ?? 'agent'] ??
-      DEFAULT_AGENT_PROFILES['agent'];
-    if (profile === undefined) throw new Error('Main agent profile was not found');
-    await this.bootstrapAgentProfile(agent, profile, loadReason);
-    agent.context.appendSystemReminder('The applicable AGENTS.md instructions were refreshed.', {
-      kind: 'system_trigger',
-      name: 'instructions',
-    });
-  }
-
-  private mainProfile(): ResolvedAgentProfile {
-    const name =
-      this.sessionMode() === 'general'
-        ? 'general'
-        : this.experimentalFlags.enabled('coordinator_mode')
-          ? 'coordinator'
-          : 'agent';
-    const profile = this.agentProfiles[name];
-    if (profile === undefined) throw new Error(`Main agent profile "${name}" was not found`);
-    return profile;
-  }
-
-  private sessionMode(): SessionMode {
-    const mode = this.metadata.custom[SESSION_MODE_KEY];
-    if (mode === 'code' || mode === 'general') return mode;
-    return this.options.mode ?? 'code';
-  }
-
-  async listWorkingTreeChanges(): Promise<WorkingTreeChanges> {
-    const agent = await this.ensureAgentResumed('main');
-    return listWorkingTreeChanges(agent.kaos, agent.config.cwd);
-  }
-
-  async getWorkingTreeDiff(path: string): Promise<WorkingTreeFileDiff> {
-    const agent = await this.ensureAgentResumed('main');
-    return readWorkingTreeDiff(agent.kaos, agent.config.cwd, path);
-  }
-
-  listFileCheckpoints(): Promise<readonly FileCheckpointSummary[]> {
-    return this.requireFileCheckpoints().list();
-  }
-
-  async previewFileCheckpoint(
-    checkpointId: string,
-  ): Promise<SessionFileCheckpointPreview> {
-    const [preview, agent] = await Promise.all([
-      this.requireFileCheckpoints().preview(checkpointId),
-      this.ensureAgentResumed('main'),
-    ]);
-    return {
-      ...preview,
-      conversationAvailable: checkpointInActiveConversation(agent, checkpointId),
-    };
-  }
-
-  async restoreFileCheckpoint(
-    checkpointId: string,
-  ): Promise<RestoreFileCheckpointResult> {
-    const result = await this.requireFileCheckpoints().restore(checkpointId);
-    const paths = [...result.restoredPaths, ...result.deletedPaths];
-    for (const agent of this.readyAgents()) {
-      agent.tools.invalidateFileReadState(paths);
-    }
-    return result;
-  }
-
-  private requireFileCheckpoints(): SessionFileCheckpointStore {
-    if (this.fileCheckpoints === undefined) {
-      throw new PythinkerError(
-        ErrorCodes.REQUEST_INVALID,
-        'File checkpoints are unavailable for this session.',
-      );
-    }
-    return this.fileCheckpoints;
+    return (await this.resumeAgent(id)).agent;
   }
 
   /**
@@ -866,234 +849,159 @@ export class Session {
   private async bootstrapAgentProfile(
     agent: Agent,
     profile: ResolvedAgentProfile,
-    instructionsLoadReason?: 'session_start' | 'compact',
   ): Promise<void> {
-    const context = await this.prepareAgentProfileContext(agent, profile, instructionsLoadReason);
-    agent.useProfile(
-      profile,
-      context,
-      agent.type === 'main' ? (this.options.outputStyle ?? undefined) : undefined,
-    );
-  }
-
-  /**
-   * Builds the render context for one agent's profile. `InstructionsLoaded`
-   * fires only when a load reason is given, so a caller that is merely
-   * re-rendering an existing prompt does not replay a session-start hook.
-   */
-  private async prepareAgentProfileContext(
-    agent: Agent,
-    profile: ResolvedAgentProfile,
-    instructionsLoadReason?: 'session_start' | 'compact',
-  ): Promise<PreparedSystemPromptContext> {
-    const memory =
-      agent.experimentalFlags.enabled('agent_memory') && profile.memory !== undefined
-        ? { name: profile.name, scope: profile.memory }
-        : agent.experimentalFlags.enabled('agent_memory') && agent.type === 'main'
-          ? { name: 'agent', scope: 'project' as const }
-          : undefined;
-    return prepareSystemPromptContext(
+    const context = await prepareSystemPromptContext(
       this.systemContextKaos(agent.kaos.getcwd()),
       this.options.pythinkerHomeDir,
-      memory,
-      agent.type === 'main',
-      agent.type === 'main' && instructionsLoadReason !== undefined
-        ? (filePath, memoryType) => {
-            void this.hookEngine.fireAndForgetTrigger('InstructionsLoaded', {
-              matcherValue: instructionsLoadReason,
-              inputData: {
-                agentId: agent.agentId,
-                filePath,
-                memoryType,
-                loadReason: instructionsLoadReason,
-              },
-            });
-          }
-        : undefined,
+      { additionalDirs: this.additionalDirs },
     );
-  }
-
-  listWorkspaceDirectories(): readonly WorkspaceDirectory[] {
-    const removed = this.metadataDirectories(REMOVED_ADDITIONAL_DIRECTORIES_KEY);
-    const result: WorkspaceDirectory[] = [];
-    for (const directory of this.configuredWorkspaceDirectories()) {
-      if (removed.some((candidate) => this.sameDirectory(candidate, directory))) continue;
-      this.pushWorkspaceDirectory(result, { path: directory, source: 'user' });
-    }
-    for (const directory of this.metadataDirectories(ADDITIONAL_DIRECTORIES_KEY)) {
-      this.pushWorkspaceDirectory(result, { path: directory, source: 'session' });
-    }
-    return result;
-  }
-
-  async addWorkspaceDirectory(input: string): Promise<WorkspaceDirectory> {
-    const directory = this.canonicalWorkspaceDirectory(input);
-    let stat;
-    try {
-      stat = await this.toolKaos.stat(directory);
-    } catch (error) {
-      throw new PythinkerError(
-        ErrorCodes.REQUEST_INVALID,
-        `Directory "${directory}" was not found or cannot be accessed`,
-        { cause: error },
-      );
-    }
-    if ((stat.stMode & S_IFMT) !== S_IFDIR) {
-      throw new PythinkerError(
-        ErrorCodes.REQUEST_INVALID,
-        `"${directory}" is not a directory`,
-      );
-    }
-
-    const primary = this.canonicalWorkspaceDirectory(
-      this.getReadyAgent('main')?.config.cwd ?? this.toolKaos.getcwd(),
-    );
-    if (
-      isWithinDirectory(directory, primary, this.toolKaos.pathClass()) ||
-      this.listWorkspaceDirectories().some((entry) =>
-        isWithinDirectory(directory, entry.path, this.toolKaos.pathClass()),
-      )
-    ) {
-      throw new PythinkerError(
-        ErrorCodes.REQUEST_INVALID,
-        `"${directory}" is already accessible within the workspace`,
-      );
-    }
-
-    const configured = this.configuredWorkspaceDirectories().find((candidate) =>
-      this.sameDirectory(candidate, directory),
-    );
-    if (configured !== undefined) {
-      this.setMetadataDirectories(
-        REMOVED_ADDITIONAL_DIRECTORIES_KEY,
-        this.metadataDirectories(REMOVED_ADDITIONAL_DIRECTORIES_KEY).filter(
-          (candidate) => !this.sameDirectory(candidate, configured),
-        ),
-      );
-      await this.writeMetadata();
-      this.refreshWorkspaceDirectories(`Workspace directory restored: ${JSON.stringify(directory)}.`);
-      return { path: directory, source: 'user' };
-    }
-
-    this.setMetadataDirectories(ADDITIONAL_DIRECTORIES_KEY, [
-      ...this.metadataDirectories(ADDITIONAL_DIRECTORIES_KEY),
-      directory,
-    ]);
-    await this.writeMetadata();
-    this.refreshWorkspaceDirectories(`Workspace directory added: ${JSON.stringify(directory)}.`);
-    return { path: directory, source: 'session' };
-  }
-
-  async removeWorkspaceDirectory(input: string): Promise<void> {
-    const directory = this.canonicalWorkspaceDirectory(input);
-    const sessionDirectories = this.metadataDirectories(ADDITIONAL_DIRECTORIES_KEY);
-    const sessionDirectory = sessionDirectories.find((candidate) =>
-      this.sameDirectory(candidate, directory),
-    );
-    if (sessionDirectory === undefined) {
-      const configured = this.configuredWorkspaceDirectories().find((candidate) =>
-        this.sameDirectory(candidate, directory),
-      );
-      if (configured === undefined) {
-        throw new PythinkerError(
-          ErrorCodes.REQUEST_INVALID,
-          `Workspace directory "${directory}" is not active`,
-        );
-      }
-      this.setMetadataDirectories(REMOVED_ADDITIONAL_DIRECTORIES_KEY, [
-        ...this.metadataDirectories(REMOVED_ADDITIONAL_DIRECTORIES_KEY),
-        configured,
-      ]);
-    } else {
-      this.setMetadataDirectories(
-        ADDITIONAL_DIRECTORIES_KEY,
-        sessionDirectories.filter((candidate) => !this.sameDirectory(candidate, directory)),
-      );
-    }
-    await this.writeMetadata();
-    this.refreshWorkspaceDirectories(`Workspace directory removed: ${JSON.stringify(directory)}.`);
-  }
-
-  private configuredWorkspaceDirectories(): readonly string[] {
-    const result: string[] = [];
-    for (const input of this.options.config?.additionalDirs ?? []) {
-      const directory = this.canonicalWorkspaceDirectory(input);
-      if (!result.some((candidate) => this.sameDirectory(candidate, directory))) {
-        result.push(directory);
-      }
-    }
-    return result;
-  }
-
-  private metadataDirectories(key: string): readonly string[] {
-    const value = this.metadata.custom[key];
-    if (!Array.isArray(value)) return [];
-    return value.filter((entry): entry is string => typeof entry === 'string');
-  }
-
-  private setMetadataDirectories(key: string, directories: readonly string[]): void {
-    this.metadata = {
-      ...this.metadata,
-      custom: {
-        ...this.metadata.custom,
-        [key]: [...directories],
-      },
-    };
-  }
-
-  private canonicalWorkspaceDirectory(input: string): string {
-    const trimmed = input.trim();
-    const pathClass = this.toolKaos.pathClass();
-    const pathApi = pathClass === 'win32' ? path.win32 : path.posix;
-    const expanded =
-      trimmed === '~'
-        ? this.toolKaos.gethome()
-        : trimmed.startsWith('~/') || (pathClass === 'win32' && trimmed.startsWith('~\\'))
-          ? pathApi.join(this.toolKaos.gethome(), trimmed.slice(2))
-          : trimmed;
-    try {
-      return canonicalizePath(expanded, this.options.kaos.getcwd(), pathClass);
-    } catch (error) {
-      throw new PythinkerError(
-        ErrorCodes.REQUEST_INVALID,
-        error instanceof Error ? error.message : 'Workspace directory path is invalid',
-        { cause: error },
-      );
-    }
-  }
-
-  private sameDirectory(left: string, right: string): boolean {
-    return (
-      isWithinDirectory(left, right, this.toolKaos.pathClass()) &&
-      isWithinDirectory(right, left, this.toolKaos.pathClass())
-    );
-  }
-
-  private pushWorkspaceDirectory(
-    directories: WorkspaceDirectory[],
-    entry: WorkspaceDirectory,
-  ): void {
-    if (!directories.some((candidate) => this.sameDirectory(candidate.path, entry.path))) {
-      directories.push(entry);
-    }
-  }
-
-  private refreshWorkspaceDirectories(reminder: string): void {
-    const directories = this.listWorkspaceDirectories().map((entry) => entry.path);
-    for (const agent of this.readyAgents()) {
-      agent.setAdditionalDirs(directories);
-      agent.context.appendSystemReminder(reminder, {
-        kind: 'system_trigger',
-        name: 'workspace',
+    const subagentNames = Object.keys(this.agentCatalog.delegatableSubagents(profile.name));
+    agent.useProfile(profile, context, this.options.pythinkerHomeDir, subagentNames);
+    const { agentsMdWarning } = context;
+    if (agentsMdWarning !== undefined) {
+      this.agentsMdWarning = agentsMdWarning;
+      log.warn('AGENTS.md exceeds recommended size', { message: agentsMdWarning });
+      agent.emitEvent({
+        type: 'warning',
+        message: agentsMdWarning,
+        code: 'agents-md-oversized',
       });
     }
   }
 
+  async getSessionWarnings(): Promise<readonly SessionWarning[]> {
+    const warnings: SessionWarning[] = [];
+    const agentsMdWarning = await this.computeAgentsMdWarning();
+    if (agentsMdWarning !== undefined) {
+      warnings.push({
+        code: 'agents-md-oversized',
+        message: agentsMdWarning,
+        severity: 'warning',
+      });
+    }
+    warnings.push(...this.computeSecondaryModelWarnings());
+    return warnings;
+  }
+
+  /**
+   * Live-apply the core's fully resolved secondary-model config after a
+   * `[secondary_model]` change: the spawn
+   * binding (`subagent-host`), the startup-warning computation, and every live
+   * agent's `pythinkerConfig` (tool descriptions, loop control) all read the
+   * session snapshot, so a mid-session `/secondary-model` switch takes effect
+   * for the next subagent spawn without recreating the session. The core owns
+   * config reload, environment overlays, and derived-model synthesis. Copying
+   * that complete recipe and its model entries keeps spawn binding and provider
+   * resolution aligned without live-applying unrelated session settings.
+   */
+  setSecondaryModelConfig(config: PythinkerConfig): void {
+    const base = this.runtimeConfig;
+    if (base === undefined) {
+      throw new PythinkerError(
+        ErrorCodes.CONFIG_INVALID,
+        'Cannot set the secondary model: the session has no config.',
+      );
+    }
+    const secondary = config.secondaryModel;
+    if (secondary?.model === undefined) {
+      throw new PythinkerError(
+        ErrorCodes.CONFIG_INVALID,
+        'Cannot set the secondary model: persist its recipe before applying it to a session.',
+      );
+    }
+    try {
+      this.options.providerManager?.resolveProviderConfig(secondary.model);
+    } catch (error) {
+      throw wrapSubagentModelError(error, secondary.model, undefined);
+    }
+    const models = { ...base.models };
+    delete models[SECONDARY_DERIVED_MODEL_ALIAS];
+    const pointedModel = config.models?.[secondary.model];
+    if (pointedModel !== undefined) models[secondary.model] = pointedModel;
+    const derivedModel = config.models?.[SECONDARY_DERIVED_MODEL_ALIAS];
+    if (derivedModel !== undefined) models[SECONDARY_DERIVED_MODEL_ALIAS] = derivedModel;
+    const next = { ...base, models, secondaryModel: secondary };
+    this.runtimeConfig = next;
+    this.secondaryModelWarnings = undefined;
+    for (const [, entry] of this.agents) {
+      if (entry instanceof Agent) {
+        entry.updatePythinkerConfig(next);
+      } else {
+        // Resume in flight: push the update once the agent materializes (the
+        // rejection is owned by the resume caller, not by this tap).
+        void entry.then(({ agent }) => agent.updatePythinkerConfig(next)).catch(() => {});
+      }
+    }
+  }
+
+  private secondaryModelWarnings: SessionWarning[] | undefined;
+
+  /**
+   * Upfront validation of the `[secondary_model]` recipe, mirroring the v2
+   * warning service: the pointer is otherwise only validated lazily at spawn
+   * time, where a typo becomes a mid-conversation tool failure dumped on the
+   * parent model. Advisory only — spawn-time resolution (with the wrapped
+   * error) remains the backstop. Computed once per session.
+   */
+  private computeSecondaryModelWarnings(): SessionWarning[] {
+    if (this.secondaryModelWarnings !== undefined) return [...this.secondaryModelWarnings];
+    const warnings: SessionWarning[] = [];
+    const secondary = resolveSecondaryModel(this.pythinkerConfig, this.experimentalFlags);
+    if (secondary?.model !== undefined) {
+      const boundAlias =
+        secondaryModelPatch(secondary) === undefined
+          ? secondary.model
+          : SECONDARY_DERIVED_MODEL_ALIAS;
+      try {
+        const resolved = this.options.providerManager?.resolveProviderConfig(boundAlias);
+        const supported = resolved?.supportEfforts ?? [];
+        if (
+          secondary.defaultEffort !== undefined &&
+          supported.length > 0 &&
+          !supported.includes(secondary.defaultEffort)
+        ) {
+          warnings.push({
+            code: 'secondary-model-effort-not-listed',
+            message:
+              `Secondary model default_effort "${secondary.defaultEffort}" is not in the resolved model's ` +
+              `support_efforts (${supported.join(', ')}). Subagents will resolve thinking without it.`,
+            severity: 'warning',
+          });
+        }
+      } catch (error) {
+        const wrapped = wrapSubagentModelError(error, boundAlias, undefined);
+        warnings.push({
+          code: 'secondary-model-invalid',
+          message: `${wrapped instanceof Error ? wrapped.message : String(wrapped)} Subagent spawns will fail until this is fixed.`,
+          severity: 'warning',
+        });
+      }
+    }
+    this.secondaryModelWarnings = warnings;
+    return [...warnings];
+  }
+
+  private async computeAgentsMdWarning(): Promise<string | undefined> {
+    if (this.agentsMdWarning !== undefined) {
+      return this.agentsMdWarning;
+    }
+    // Resumed sessions skip bootstrap when their system prompt is already set, so
+    // the cached value may be missing; recompute on demand so the warning still
+    // surfaces for long-lived sessions.
+    try {
+      const context = await prepareSystemPromptContext(
+        this.systemContextKaos(this.toolKaos.getcwd()),
+        this.options.pythinkerHomeDir,
+        { additionalDirs: this.additionalDirs },
+      );
+      this.agentsMdWarning = context.agentsMdWarning;
+    } catch (error) {
+      log.warn('failed to compute AGENTS.md warning', { error });
+    }
+    return this.agentsMdWarning;
+  }
+
   async generateAgentsMd(): Promise<void> {
-    await this.hookEngine.trigger('Setup', {
-      matcherValue: 'init',
-      inputData: { agentId: 'main', trigger: 'init' },
-    });
     await this.skillsReady;
     const mainAgent = this.requireMainAgent();
 
@@ -1123,6 +1031,56 @@ export class Session {
     }
   }
 
+  /**
+   * Appends a fresh `<plugin_session_start>` system reminder to the main agent
+   * using the currently enabled plugins, then flushes records so the reminder is
+   * persisted and visible on the wire. Used by the explicit `/reload` flow after
+   * the session has been re-resumed with reloaded plugin state.
+   *
+   * When no plugin session start is currently resolvable but an earlier
+   * When no plugin session start is currently resolvable but the context may still
+   * carry stale plugin guidance — either an earlier `<plugin_session_start>`
+   * reminder, or a compaction summary that may have folded one in — appends a
+   * neutralizing reminder instead, so the model does not keep following stale
+   * plugin instructions and the turn-loop injector does not dedup against them.
+   */
+  async appendPluginSessionStartReminder(): Promise<void> {
+    await this.skillsReady;
+    const mainAgent = this.requireMainAgent();
+    const reminder = renderPluginSessionStartReminder({
+      sessionStarts: mainAgent.pluginSessionStarts,
+      registry: mainAgent.skills?.registry,
+      log: mainAgent.log,
+    });
+    if (reminder !== undefined) {
+      mainAgent.context.appendSystemReminder(
+        `${reminder}\n\nThis supersedes any earlier plugin_session_start reminder in this session.`,
+        { kind: 'injection', variant: 'plugin_session_start' },
+      );
+    } else if (this.shouldNeutralizePluginSessionStart(mainAgent)) {
+      mainAgent.context.appendSystemReminder(
+        'There are currently no active plugin session starts. This supersedes any earlier plugin_session_start reminder in this session.',
+        { kind: 'injection', variant: 'plugin_session_start' },
+      );
+    } else {
+      return;
+    }
+    await mainAgent.records.flush();
+  }
+
+  private shouldNeutralizePluginSessionStart(mainAgent: Agent): boolean {
+    return mainAgent.context.history.some((message) => {
+      const kind = message.origin?.kind;
+      if (kind === 'injection') {
+        return message.origin?.variant === 'plugin_session_start';
+      }
+      // A compaction summary replaces earlier messages (including any plugin
+      // session-start reminder) with a single summary that may still carry stale
+      // plugin guidance, so the origin-only check above is not sufficient.
+      return kind === 'compaction_summary';
+    });
+  }
+
   get hasActiveTurn(): boolean {
     for (const agent of this.readyAgents()) {
       if (agent.turn.hasActiveTurn) return true;
@@ -1135,7 +1093,14 @@ export class Session {
   }
 
   writeMetadata() {
-    const text = JSON.stringify(this.metadata, null, 2);
+    const text = JSON.stringify(
+      {
+        ...this.metadata,
+        agentProfileCatalog: this.agentProfileSnapshot,
+      },
+      null,
+      2,
+    );
     const write = async () => {
       await this.persistenceKaos.mkdir(this.options.homedir, { parents: true, existOk: true });
       await this.persistenceKaos.writeText(this.metadataPath, text);
@@ -1144,19 +1109,37 @@ export class Session {
     return this.writeMetadataPromise;
   }
 
-  async readMetadata(): Promise<SessionMeta> {
-    try {
-      const text = await this.persistenceKaos.readText(this.metadataPath);
-      const metadata = parseSessionMetadata(JSON.parse(text));
-      this.metadata = metadata;
-      return metadata;
-    } catch (error) {
-      throw new PythinkerError(
-        ErrorCodes.SESSION_INIT_FAILED,
-        error instanceof Error ? error.message : 'Session state metadata is invalid',
-        { cause: error },
-      );
+  async readMetadata() {
+    const text = await this.persistenceKaos.readText(this.metadataPath);
+    const persisted = JSON.parse(text) as PersistedSessionState;
+    const { agentProfileCatalog, ...metadata } = persisted;
+    this.metadata = metadata;
+    if (agentProfileCatalog === undefined) {
+      if (this.options.agents?.refreshPluginAgents === true) {
+        this.agentProfileSnapshot = this.agentCatalog.snapshot();
+      }
+    } else {
+      const parsed = AgentProfileCatalogSnapshotSchema.safeParse(agentProfileCatalog);
+      if (parsed.success) {
+        if (this.options.agents?.refreshPluginAgents === true) {
+          await this.agentCatalog.restoreSnapshotRefreshingPlugins(
+            parsed.data,
+            this.options.agents.pluginRoots ?? [],
+          );
+        } else {
+          this.agentCatalog.restoreSnapshot(parsed.data);
+        }
+        this.agentProfileSnapshot = this.agentCatalog.snapshot();
+      } else {
+        this.log.warn('stored agent profile catalog is invalid; using discovered profiles', {
+          error: parsed.error.message,
+        });
+        if (this.options.agents?.refreshPluginAgents === true) {
+          this.agentProfileSnapshot = this.agentCatalog.snapshot();
+        }
+      }
     }
+    return this.metadata;
   }
 
   async flushMetadata() {
@@ -1167,47 +1150,11 @@ export class Session {
 
   async listSkills(): Promise<readonly SkillSummary[]> {
     await this.skillsReady;
-    return [
-      ...this.skills.listSkills().map(summarizeSkill),
-      ...this.mcp.listPrompts().map(({ serverName, qualifiedName, prompt }) => ({
-        name: qualifiedName,
-        commandName: qualifiedName,
-        description: prompt.description ?? '',
-        path: `mcp://${serverName}/${prompt.name}`,
-        source: 'extra' as const,
-        type: 'prompt',
-        disableModelInvocation: true,
-        userInvocable: true,
-        argumentHint: promptArgumentHint(prompt.arguments),
-      })),
-    ];
+    return this.skills.listSkills().map(summarizeSkill);
   }
 
-  /**
-   * Re-discovers skills from disk and replaces the registry entries.
-   *
-   * A skill written while the session is open — `/workflow save`, an edited
-   * `SKILL.md` — is otherwise invisible until the session is reloaded, because
-   * the registry is built once at construction. `loadRoots` registers with
-   * `replace: true`, so re-running is idempotent for skills that already exist
-   * and additive for new ones. A skill deleted from disk stays until the
-   * session reloads; nothing needs its removal yet.
-   */
-  async reloadSkills(): Promise<void> {
-    await this.skillsReady;
-    await this.loadSkills();
-    // The tool reads the registry as it runs, so it sees the new skill at once.
-    // The model does not: the skill listing is rendered into the system prompt
-    // when the profile is applied, so a workflow saved mid-session would stay
-    // off the list the model reads until the session reloaded.
-    const main = this.getReadyAgent('main');
-    const profile = main?.activeProfile;
-    if (main === undefined || profile === undefined) return;
-    main.refreshSystemPrompt(
-      profile,
-      await this.prepareAgentProfileContext(main, profile),
-      this.options.outputStyle ?? undefined,
-    );
+  listPluginCommands(): readonly PluginCommandDef[] {
+    return this.pluginCommands;
   }
 
   private async loadSkills(): Promise<void> {
@@ -1230,7 +1177,7 @@ export class Session {
   private async loadMcpServers(): Promise<void> {
     const servers = this.options.mcpConfig?.servers;
     if (servers === undefined || Object.keys(servers).length === 0) return;
-    await this.mcp.connectAll(servers);
+    await this.mcp.connectAll(servers, this.options.mcpConfig?.sources);
     const entries = this.mcp.list().filter((entry) => entry.status !== 'disabled');
     const totalCount = entries.length;
     if (totalCount === 0) return;
@@ -1252,67 +1199,6 @@ export class Session {
     }
   }
 
-  private async handleMcpElicitation(
-    serverName: string,
-    params: ElicitRequestParams,
-    requestId: string | number,
-    signal: AbortSignal,
-  ): Promise<ElicitResult> {
-    const mode = params.mode === 'url' ? 'url' : 'form';
-    const before = await this.hookEngine.trigger('Elicitation', {
-      matcherValue: serverName,
-      inputData: {
-        agentId: 'main',
-        mcpServerName: serverName,
-        message: params.message,
-        requestedSchema: params.mode === 'url' ? undefined : params.requestedSchema,
-        mode,
-        url: params.mode === 'url' ? params.url : undefined,
-        elicitationId: params.mode === 'url' ? params.elicitationId : undefined,
-      },
-      signal,
-    });
-    const hookAnswer = elicitationHookResponse(before);
-    const answer =
-      hookAnswer ??
-      (params.mode === 'url'
-        ? await requestMcpUrlElicitation(serverName, params, requestId, signal, this.rpc)
-        : await requestMcpFormElicitation(serverName, params, requestId, signal, this.rpc));
-    const after = await this.hookEngine.trigger('ElicitationResult', {
-      matcherValue: serverName,
-      inputData: {
-        agentId: 'main',
-        mcpServerName: serverName,
-        action: answer.action,
-        content: answer.content,
-        mode,
-        elicitationId: params.mode === 'url' ? params.elicitationId : undefined,
-      },
-      signal,
-    });
-    return elicitationHookResponse(after) ?? answer;
-  }
-
-  private handleMcpElicitationComplete(serverName: string, elicitationId: string): void {
-    void this.rpc.emitEvent({
-      type: 'hook.status',
-      agentId: 'main',
-      statusId: mcpUrlStatusId(serverName, elicitationId),
-      hookEvent: 'Elicitation',
-      content: `MCP server "${serverName}" confirmed URL completion.`,
-      active: false,
-    });
-    void this.hookEngine.fireAndForgetTrigger('Notification', {
-      matcherValue: 'elicitation_complete',
-      inputData: {
-        agentId: 'main',
-        mcpServerName: serverName,
-        notificationType: 'elicitation_complete',
-        elicitationId,
-      },
-    });
-  }
-
   private emitInitialMcpLoadError(error: unknown): void {
     const message = error instanceof Error ? error.message : String(error);
     this.log.error('mcp initial load failed', error);
@@ -1326,6 +1212,8 @@ export class Session {
   private onMcpServerStatusChange(entry: McpServerEntry): void {
     // Always surface server-level status changes to clients so the TUI/SDK
     // can keep its dashboard in sync, even before the main agent exists.
+    // Source / effective config ride the `listMcpServers` query path instead
+    // (the protocol event payload stays lean and schema-validated).
     void this.rpc.emitEvent({
       type: 'mcp.server.status',
       agentId: 'main',
@@ -1346,58 +1234,68 @@ export class Session {
     }
   }
 
+  /**
+   * Replace the enabled plugins' system-prompt contributions on every ready
+   * agent and re-render prompts. The owning core calls this after an explicit
+   * plugin reload — installing, enabling, disabling, or removing a plugin
+   * without a reload deliberately leaves live prompts unchanged.
+   */
+  async setPluginSystemPrompts(sections: readonly EnabledPluginSystemPrompt[]): Promise<void> {
+    this.pluginSystemPrompts = sections;
+    for (const agent of this.readyAgents()) {
+      agent.setPluginSystemPrompts(sections);
+      try {
+        await agent.refreshSystemPrompt();
+      } catch (error) {
+        this.log.warn('failed to refresh system prompt after plugin reload', { error });
+      }
+    }
+  }
+
   private instantiateAgent(
     id: string,
     homedir: string,
     type: AgentType,
     config: Partial<AgentOptions> = {},
     parentAgentId: string | null = null,
-    emitEvents = true,
   ): Agent {
     const parentAgent = parentAgentId !== null ? this.getReadyAgent(parentAgentId) : undefined;
     const cwd = parentAgent?.config.cwd ?? this.toolKaos.getcwd();
-    const rpc = proxyWithExtraPayload(this.rpc, { agentId: id });
-    const agentRpc = emitEvents ? rpc : { ...rpc, emitEvent: async () => {} };
-    const agent = new Agent({
+    let agent!: Agent;
+    const subagentHost =
+      config.subagentHost ?? new SessionSubagentHost(this, id, () => agent);
+    agent = new Agent({
       ...config,
       type,
       kaos: this.toolKaos.withCwd(cwd),
       toolServices: this.options.toolServices,
-      config: this.options.config,
+      config: this.pythinkerConfig,
       homedir,
+      // Session-level, shared across agents: originals persisted for
+      // compression captions live with the session, not the agent.
+      mediaOriginalsDir: sessionMediaOriginalsDir(this.options.homedir),
       skills: this.skills,
-      rpc: agentRpc,
+      rpc: proxyWithExtraPayload(this.rpc, { agentId: id }),
       modelProvider: this.options.providerManager,
       hookEngine: config.hookEngine ?? this.hookEngine,
-      subagentHost: config.subagentHost ?? new SessionSubagentHost(this, id),
+      subagentHost,
       mcp: this.mcp,
       permission: this.permissionOptions(parentAgentId, config.permission),
-      telemetry: this.telemetry,
+      telemetry: withTelemetryProperties(this.telemetry, { agent_id: id }),
       log: this.log.createChild({ agentId: id }),
       pluginSessionStarts: type === 'main' ? this.options.pluginSessionStarts : undefined,
+      pluginCommands: type === 'main' ? this.options.pluginCommands : undefined,
+      pluginSystemPrompts: this.pluginSystemPrompts,
       experimentalFlags: this.experimentalFlags,
-      taskGraph: this.taskGraph,
-      team: this.team,
-      onAfterCompaction:
-        config.onAfterCompaction ??
-        (type === 'main' ? () => this.refreshInstructions('compact') : undefined),
-      agentId: id,
-      worktree: this.worktree,
-      lsp: this.lsp,
-      additionalDirs: this.listWorkspaceDirectories().map((entry) => entry.path),
-      fileCheckpoints: this.fileCheckpoints,
-      onEvent:
-        id === 'main'
-          ? (event) => {
-              if (event.type === 'turn.started') {
-                this.advisor.onMainTurnStarted(event.origin);
-              } else if (event.type === 'turn.ended' && event.reason === 'completed') {
-                this.advisor.onMainTurnEnded();
-              }
-            }
-          : undefined,
+      imageLimits: this.imageLimits,
+      additionalDirs: parentAgent?.getAdditionalDirs() ?? this.additionalDirs,
+      systemPromptContextProvider: () =>
+        prepareSystemPromptContext(
+          this.systemContextKaos(agent.kaos.getcwd()),
+          this.options.pythinkerHomeDir,
+          { additionalDirs: agent.getAdditionalDirs() },
+        ),
     });
-    agent.setFileCheckpointId(parentAgent?.fileCheckpointId);
     return agent;
   }
 
@@ -1428,15 +1326,15 @@ export class Session {
     }
   }
 
-  private async resolveAgentEntry(entry: AgentEntry): Promise<Agent> {
-    if (entry instanceof Agent) return entry;
+  private async resolveAgentEntry(entry: AgentEntry): Promise<ResumedAgent> {
+    if (entry instanceof Agent) return { agent: entry };
     return entry;
   }
 
   private resumeAgent(
     id: string,
     stack: readonly string[] = [],
-  ): Promise<Agent> {
+  ): Promise<ResumedAgent> {
     if (stack.includes(id)) {
       throw new PythinkerError(
         ErrorCodes.SESSION_STATE_INVALID,
@@ -1455,7 +1353,7 @@ export class Session {
   private async resumePersistedAgent(
     id: string,
     stack: readonly string[] = [],
-  ): Promise<Agent> {
+  ): Promise<ResumedAgent> {
     await this.skillsReady;
     const meta = this.metadata.agents[id];
     if (meta === undefined) {
@@ -1463,22 +1361,23 @@ export class Session {
     }
 
     const parentAgentId = meta.parentAgentId ?? null;
-    if (parentAgentId !== null) {
-      await this.resumeAgent(parentAgentId, [...stack, id]);
-    }
+    const parent =
+      parentAgentId === null
+        ? undefined
+        : await this.resumeAgent(parentAgentId, [...stack, id]);
 
     try {
       const agent = this.instantiateAgent(
         id,
-        this.agentDir(id),
+        join(this.options.homedir, 'agents', id),
         meta.type,
         {},
         parentAgentId,
-        meta.emitEvents !== false,
       );
-      await agent.resume();
+      const result = await agent.resume();
+      this.restoreAgentProfileHandle(agent, meta, parent?.agent);
       this.agents.set(id, agent);
-      return agent;
+      return { agent, warning: parent?.warning ?? result.warning };
     } catch (error) {
       const entry = this.agents.get(id);
       if (entry instanceof Promise) {
@@ -1488,6 +1387,32 @@ export class Session {
     }
   }
 
+  private restoreAgentProfileHandle(
+    agent: Agent,
+    meta: AgentMeta,
+    parentAgent: Agent | undefined,
+  ): void {
+    if (agent.config.systemPrompt === '') return;
+    const profile = this.resolvePersistedProfile(agent, meta, parentAgent);
+    if (profile === undefined) return;
+    agent.setActiveProfile(profile, this.options.pythinkerHomeDir);
+  }
+
+  private resolvePersistedProfile(
+    agent: Agent,
+    meta: AgentMeta,
+    parentAgent: Agent | undefined,
+  ): ResolvedAgentProfile | undefined {
+    const profileName = agent.config.profileName;
+    if (profileName === undefined) return undefined;
+    if (meta.type === 'sub') {
+      return this.agentCatalog.delegatableSubagents(parentAgent?.config.profileName ?? 'agent')[
+        profileName
+      ];
+    }
+    return this.agentCatalog.get(profileName);
+  }
+
   private nextGeneratedAgentId(): string {
     while (true) {
       const id = `agent-${this.agentIdCounter++}`;
@@ -1495,11 +1420,6 @@ export class Session {
       if (this.metadata.agents[id] !== undefined) continue;
       return id;
     }
-  }
-
-  private agentDir(id: string): string {
-    assertSafeAgentId(id);
-    return join(this.options.homedir, 'agents', id);
   }
 
   private requireMainAgent(): Agent {
@@ -1513,157 +1433,21 @@ export class Session {
   private async triggerSessionStart(source: 'startup' | 'resume'): Promise<void> {
     await this.hookEngine.trigger('SessionStart', {
       matcherValue: source,
-      inputData: { agentId: 'main', source },
+      inputData: { source },
     });
-  }
-
-  private async triggerSetup(): Promise<void> {
-    const trigger = this.options.setupTrigger;
-    if (trigger === undefined) return;
-    await this.hookEngine.trigger('Setup', {
-      matcherValue: trigger,
-      inputData: { agentId: 'main', trigger },
-    });
-  }
-
-  private deliverAsyncHookRewake(event: string, results: readonly HookResult[]): void {
-    const rendered = renderAsyncHookRewake(event, results);
-    const main = this.getReadyAgent('main');
-    if (rendered === undefined || main === undefined) return;
-    main.turn.steer([{ type: 'text', text: rendered.text }], {
-      kind: 'hook_result',
-      event,
-    });
-  }
-
-  private async runModelHook(
-    hook: ModelHookDef,
-    event: string,
-    input: Record<string, unknown>,
-    signal?: AbortSignal,
-  ): Promise<HookResult> {
-    const requestedAgentId = input['agent_id'];
-    const parent =
-      typeof requestedAgentId === 'string'
-        ? this.getReadyAgent(requestedAgentId)
-        : this.getReadyAgent('main');
-    if (parent === undefined) {
-      return {
-        action: 'allow',
-        stderr: `Cannot run ${hook.type} hook without its triggering agent.`,
-      };
-    }
-
-    const timeoutSignal = AbortSignal.timeout(
-      (hook.timeout ?? (hook.type === 'prompt' ? 30 : 60)) * 1000,
-    );
-    const combinedSignal =
-      signal === undefined ? timeoutSignal : AbortSignal.any([signal, timeoutSignal]);
-    let id: string | undefined;
-    try {
-      const created = await this.createAgent(
-        {
-          type: 'sub',
-          generate: parent.rawGenerate,
-          persistence: new InMemoryAgentRecordPersistence(),
-          hookEngine: new HookEngine(),
-        },
-        {
-          parentAgentId: parent.agentId,
-          persistMetadata: false,
-          profile: hook.type === 'agent' ? this.agentProfiles['verification'] : undefined,
-        },
-      );
-      id = created.id;
-      const child = created.agent;
-      child.config.update({
-        modelAlias: hook.model ?? parent.config.modelAlias,
-        thinkingLevel: 'off',
-        systemPrompt:
-          hook.type === 'prompt'
-            ? 'Evaluate the hook condition using the conversation and return the result with StructuredOutput.'
-            : child.config.systemPrompt,
-      });
-      if (hook.type === 'prompt') {
-        child.tools.setActiveTools([]);
-        child.context.useProjectedHistoryFrom(parent.context);
-      } else {
-        child.tools.inheritUserTools(parent.tools);
-        child.permission.setMode('yolo');
-      }
-
-      const prompt = expandSkillParameters(hook.prompt, JSON.stringify(input), {
-        skillDir: '',
-        sessionId: this.options.id,
-      });
-      const turnId = child.turn.prompt(
-        [{ type: 'text', text: prompt }],
-        { kind: 'system_trigger', name: `${hook.type}_hook:${event}` },
-        HOOK_OUTPUT_SCHEMA,
-      );
-      if (turnId === null) {
-        return { action: 'allow', stderr: `${hook.type} hook could not start a turn.` };
-      }
-      const result = await child.turn.waitForCurrentTurn(combinedSignal);
-      const output = result.event.structuredOutput;
-      if (
-        result.event.reason !== 'completed' ||
-        typeof output !== 'object' ||
-        output === null ||
-        typeof (output as { ok?: unknown }).ok !== 'boolean'
-      ) {
-        return { action: 'allow', stderr: `${hook.type} hook did not return structured output.` };
-      }
-      const parsed = output as { ok: boolean; reason?: unknown };
-      if (parsed.ok) return { action: 'allow', structuredOutput: true };
-      const reason =
-        typeof parsed.reason === 'string' && parsed.reason.trim() !== ''
-          ? parsed.reason.trim()
-          : `${hook.type} hook condition was not met.`;
-      return {
-        action: 'block',
-        message: reason,
-        reason,
-        structuredOutput: true,
-      };
-    } catch (error) {
-      return {
-        action: 'allow',
-        stderr: error instanceof Error ? error.message : String(error),
-        timedOut: timeoutSignal.aborted && signal?.aborted !== true,
-      };
-    } finally {
-      if (id !== undefined) this.agents.delete(id);
-    }
   }
 
   private async triggerSessionEnd(reason: 'exit'): Promise<void> {
     await this.hookEngine.trigger('SessionEnd', {
       matcherValue: reason,
-      inputData: { agentId: 'main', reason },
+      inputData: { reason },
     });
   }
 }
 
 export * from './subagent-host';
-export * from './file-checkpoints';
-
-function checkpointInActiveConversation(agent: Agent, checkpointId: string): boolean {
-  const history = agent.context.data().history;
-  const boundary = history.findLastIndex(
-    (message) => message.origin?.kind === 'compaction_summary',
-  );
-  return history.some((message, index) => {
-    if (index <= boundary) return false;
-    const origin = message.origin;
-    if (origin?.kind === 'user') return origin.checkpointId === checkpointId;
-    return (
-      origin?.kind === 'skill_activation' &&
-      origin.trigger === 'user-slash' &&
-      origin.checkpointId === checkpointId
-    );
-  });
-}
+export * from './subagent-binding';
+export * from './store';
 
 function initCompletionReminder(agentsMd: string): string {
   const latest =

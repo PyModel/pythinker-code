@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   AgentSideConnection,
@@ -17,7 +17,7 @@ import {
 import type { PythinkerHarness, Session } from '@pymodel/pythinker-code-sdk';
 
 import { AcpServer } from '../src/server';
-import { AUTHED, makeModelsMap } from './_helpers/harness-stubs';
+import { AUTHED_STATUS, makeModelsMap } from './_helpers/harness-stubs';
 
 class StubClient implements Client {
   async requestPermission(_p: RequestPermissionRequest): Promise<RequestPermissionResponse> {
@@ -49,7 +49,12 @@ interface CapturedCall {
   options: { id?: string; workDir: string; mcpServers?: Record<string, unknown> };
 }
 
-function makeHarness(sessionId: string, captured: CapturedCall[]): {
+function makeHarness(
+  sessionId: string,
+  captured: CapturedCall[],
+  statusThinkingEffort?: string | Error,
+  fallbackThinking?: { enabled?: boolean; effort?: string },
+): {
   harness: PythinkerHarness;
   fakeSession: Session;
 } {
@@ -58,9 +63,16 @@ function makeHarness(sessionId: string, captured: CapturedCall[]): {
     prompt: async () => undefined,
     cancel: async () => undefined,
     onEvent: () => () => undefined,
+    getStatus:
+      statusThinkingEffort === undefined
+        ? undefined
+        : vi.fn(async () => {
+            if (statusThinkingEffort instanceof Error) throw statusThinkingEffort;
+            return { thinkingEffort: statusThinkingEffort };
+          }),
   } as unknown as Session;
   const harness = {
-    isAuthenticated: AUTHED,
+    auth: { status: async () => AUTHED_STATUS },
     createSession: async (options: { id?: string; workDir: string }) => {
       captured.push({ options });
       return Object.assign({}, fakeSession, { id: options.id ?? sessionId }) as Session;
@@ -73,6 +85,7 @@ function makeHarness(sessionId: string, captured: CapturedCall[]): {
         { id: 'pythinker-coder', name: 'Pythinker Coder', thinkingSupported: true },
         { id: 'pythinker-plain', name: 'Pythinker Plain', thinkingSupported: false },
       ]),
+      thinking: fallbackThinking,
     }),
   } as unknown as PythinkerHarness;
   return { harness, fakeSession };
@@ -113,7 +126,7 @@ describe('AcpServer session/new', () => {
   it('returns a distinct sessionId per call (one createSession per request)', async () => {
     const captured: CapturedCall[] = [];
     const harness = {
-      isAuthenticated: AUTHED,
+      auth: { status: async () => AUTHED_STATUS },
       createSession: async (options: { id?: string; workDir: string }) => {
         captured.push({ options });
         return {
@@ -188,11 +201,13 @@ describe('AcpServer session/new', () => {
     expect(modeOpt!.options).toHaveLength(4);
     const modeIds = modeOpt!.options.map((o) => 'value' in o ? o.value : '');
     expect(modeIds).toEqual(['default', 'plan', 'auto', 'yolo']);
-    for (const entry of modeOpt!.options.filter((candidate) => 'value' in candidate)) {
-      expect(typeof entry.name).toBe('string');
-      expect(entry.name.length).toBeGreaterThan(0);
-      expect(typeof entry.description).toBe('string');
-      expect((entry.description ?? '').length).toBeGreaterThan(0);
+    for (const entry of modeOpt!.options) {
+      if ('value' in entry) {
+        expect(typeof entry.name).toBe('string');
+        expect(entry.name.length).toBeGreaterThan(0);
+        expect(typeof entry.description).toBe('string');
+        expect((entry.description ?? '').length).toBeGreaterThan(0);
+      }
     }
 
     // Model picker — Phase 15 removed `,thinking` variant rows: each
@@ -205,4 +220,56 @@ describe('AcpServer session/new', () => {
     const modelValues = modelOpt!.options.map((o) => 'value' in o ? o.value : '');
     expect(modelValues).toEqual(['pythinker-coder', 'pythinker-plain']);
   });
+
+  it('advertises thinking on when the created session status has a high effort', async () => {
+    const captured: CapturedCall[] = [];
+    const { harness } = makeHarness('sess-thinking-high', captured, 'high');
+    const { agentStream, clientStream } = makeInMemoryStreamPair();
+
+    void new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+    const client = new ClientSideConnection((_a) => new StubClient(), clientStream);
+
+    const response = await client.newSession({ cwd: '/tmp/work', mcpServers: [] });
+
+    const thinking = response.configOptions?.find((option) => option.id === 'thinking');
+    if (thinking?.type !== 'select') throw new Error('thinking option must be a select');
+    expect(thinking.currentValue).toBe('on');
+  });
+
+  it.each([
+    { name: 'explicit high effort', config: { effort: 'high' }, expected: 'on' },
+    { name: 'explicit off effort', config: { effort: 'off' }, expected: 'off' },
+    {
+      name: 'disabled with a high effort',
+      config: { enabled: false, effort: 'high' },
+      expected: 'off',
+    },
+    {
+      name: 'enabled with an off effort',
+      config: { enabled: true, effort: 'off' },
+      expected: 'off',
+    },
+  ])(
+    'falls back to $name when the created session status cannot be read',
+    async ({ config, expected }) => {
+      const captured: CapturedCall[] = [];
+      const { harness, fakeSession } = makeHarness(
+        'sess-thinking-status-error',
+        captured,
+        new Error('status unavailable'),
+        config,
+      );
+      const { agentStream, clientStream } = makeInMemoryStreamPair();
+
+      void new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
+      const client = new ClientSideConnection((_a) => new StubClient(), clientStream);
+
+      const response = await client.newSession({ cwd: '/tmp/work', mcpServers: [] });
+
+      expect(fakeSession.getStatus).toHaveBeenCalledOnce();
+      const thinking = response.configOptions?.find((option) => option.id === 'thinking');
+      if (thinking?.type !== 'select') throw new Error('thinking option must be a select');
+      expect(thinking.currentValue).toBe(expected);
+    },
+  );
 });

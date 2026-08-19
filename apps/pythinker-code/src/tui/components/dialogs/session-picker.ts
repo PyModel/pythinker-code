@@ -9,18 +9,9 @@ import {
   truncateToWidth,
   visibleWidth,
   type Focusable,
-} from '@earendil-works/pi-tui';
+} from '@pymodel/pi-tui';
+import { formatSessionLabel } from '#/migration/index';
 import { CURRENT_MARK, SELECT_POINTER } from '#/tui/constant/symbols';
-import {
-  combinedBindingHint,
-  formatBindingKeys,
-} from '#/tui/components/dialogs/choice-picker';
-import {
-  defaultKeybindings,
-  keybindingDisplayText,
-  KeybindingResolver,
-  type ParsedKeybinding,
-} from '#/tui/keybindings';
 import { currentTheme } from '#/tui/theme';
 import { SearchableList } from '#/tui/utils/searchable-list';
 
@@ -84,14 +75,7 @@ function singleLine(text: string): string {
 }
 
 function sessionSearchText(session: SessionRow): string {
-  return singleLine(
-    `${(session.title ?? session.id).trim() || session.id} ${sessionTag(session) ?? ''}`,
-  );
-}
-
-function sessionTag(session: SessionRow): string | undefined {
-  const value = session.metadata?.['tag'];
-  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+  return singleLine((session.title ?? session.id).trim() || session.id);
 }
 
 export class SessionPickerComponent extends Container implements Focusable {
@@ -105,9 +89,9 @@ export class SessionPickerComponent extends Container implements Focusable {
   private visibleCount: number;
   private scope: 'cwd' | 'all';
   private loading: boolean;
+  private hasMore: boolean;
+  private loadingMore: boolean;
   private list: SearchableList<SessionRow>;
-  private bindings = defaultKeybindings();
-  private keybindings = new KeybindingResolver(this.bindings);
 
   focused = false;
 
@@ -124,6 +108,14 @@ export class SessionPickerComponent extends Container implements Focusable {
     onCtrlD?: () => void;
     onToggleScope?: (selectedSessionId: string) => void;
     maxVisibleSessions?: number;
+    /** More pages exist on the backend (keyset paging). */
+    hasMore?: boolean;
+    /** A follow-up page fetch is in flight. */
+    loadingMore?: boolean;
+    /** Fired when the cursor reaches the end of every row fetched so far. */
+    onLoadMore?: () => void;
+    /** Fired when a search query becomes active while pages remain unfetched. */
+    onSearchDrain?: () => void;
   }) {
     super();
     this.sessions = opts.sessions;
@@ -135,6 +127,10 @@ export class SessionPickerComponent extends Container implements Focusable {
     this.onToggleScope = opts.onToggleScope;
     this.maxVisibleSessions = opts.maxVisibleSessions ?? 4;
     this.pageSize = Math.max(1, opts.pageSize ?? 50);
+    this.hasMore = opts.hasMore ?? false;
+    this.loadingMore = opts.loadingMore ?? false;
+    this.onLoadMore = opts.onLoadMore;
+    this.onSearchDrain = opts.onSearchDrain;
     const initialIndex = this.resolveInitialSelectedIndex(opts.initialSelectedSessionId);
     this.list = new SearchableList({
       items: this.sessions,
@@ -151,16 +147,31 @@ export class SessionPickerComponent extends Container implements Focusable {
 
   private readonly onCtrlC?: () => void;
   private readonly onCtrlD?: () => void;
+  private readonly onLoadMore?: () => void;
+  private readonly onSearchDrain?: () => void;
+
+  /** Appends a freshly fetched page, keeping the cursor and active query. */
+  appendSessions(rows: SessionRow[]): void {
+    this.sessions = [...this.sessions, ...rows];
+    this.list.setItems(this.sessions);
+    // Rows arriving while a query is active must become visible without
+    // waiting for the next keypress; only grow, never shrink the window.
+    this.visibleCount = Math.max(
+      this.visibleCount,
+      Math.min(this.list.view().items.length, this.pageSize),
+    );
+  }
+
+  /** Updates the backend-paging facts after an in-flight fetch settles. */
+  setPaging(hasMore: boolean, loadingMore: boolean): void {
+    this.hasMore = hasMore;
+    this.loadingMore = loadingMore;
+  }
 
   private resolveInitialSelectedIndex(initialSelectedSessionId: string | undefined): number {
     if (initialSelectedSessionId === undefined) return 0;
     const index = this.sessions.findIndex((session) => session.id === initialSelectedSessionId);
     return Math.max(index, 0);
-  }
-
-  setKeybindings(bindings: readonly ParsedKeybinding[]): void {
-    this.bindings = bindings;
-    this.keybindings = new KeybindingResolver(bindings);
   }
 
   private filteredSessions(): readonly SessionRow[] {
@@ -175,6 +186,11 @@ export class SessionPickerComponent extends Container implements Focusable {
     const view = this.list.view();
     if (view.query !== previousQuery) {
       this.visibleCount = Math.min(view.items.length, this.pageSize);
+      // A fresh query only searches the pages fetched so far; ask the host to
+      // drain the rest in the background so search covers every session.
+      if (view.query.length > 0 && previousQuery.length === 0 && this.hasMore) {
+        this.onSearchDrain?.();
+      }
       return;
     }
 
@@ -182,32 +198,18 @@ export class SessionPickerComponent extends Container implements Focusable {
     if (view.selectedIndex >= loadedCount - 1 && loadedCount < view.items.length) {
       this.visibleCount = Math.min(view.items.length, this.visibleCount + this.pageSize);
     }
+    // The cursor reached the end of everything fetched: pull the next page.
+    if (
+      this.hasMore &&
+      !this.loadingMore &&
+      view.items.length > 0 &&
+      view.selectedIndex >= view.items.length - 1
+    ) {
+      this.onLoadMore?.();
+    }
   }
 
   handleInput(data: string): void {
-    const previousQuery = this.list.view().query;
-    const handlers = {
-      'select:previous': () => {
-        this.list.moveUp();
-        this.syncVisibleCount(previousQuery);
-      },
-      'select:next': () => {
-        this.list.moveDown();
-        this.syncVisibleCount(previousQuery);
-      },
-      'select:accept': () => {
-        const session = this.list.selected();
-        if (session) this.onSelect(session);
-      },
-      'select:cancel': () => {
-        if (this.list.clearQuery()) this.visibleCount = Math.min(this.filteredSessions().length, this.pageSize);
-        else this.onCancel();
-      },
-    } as const;
-    if (
-      this.keybindings.dispatch(data, ['Select'], handlers) ||
-      this.keybindings.dispatchKeyId(data, ['Select'], handlers)
-    ) return;
     if (matchesKey(data, Key.ctrl('c'))) {
       this.onCtrlC?.();
       return;
@@ -220,17 +222,22 @@ export class SessionPickerComponent extends Container implements Focusable {
       this.onToggleScope?.(this.list.selected()?.id ?? this.currentSessionId);
       return;
     }
-    if (matchesKey(data, Key.pageUp)) {
-      this.list.pageUp();
-      this.syncVisibleCount(previousQuery);
+    if (matchesKey(data, Key.escape)) {
+      if (this.list.clearQuery()) {
+        this.visibleCount = Math.min(this.filteredSessions().length, this.pageSize);
+        return;
+      }
+      this.onCancel();
       return;
     }
-    if (matchesKey(data, Key.pageDown)) {
-      this.list.pageDown();
-      this.syncVisibleCount(previousQuery);
+    if (matchesKey(data, Key.enter)) {
+      const session = this.list.selected();
+      if (session) this.onSelect(session);
       return;
     }
-    if (this.list.handleSearchKey(data)) {
+
+    const previousQuery = this.list.view().query;
+    if (this.list.handleKey(data)) {
       this.syncVisibleCount(previousQuery);
     }
   }
@@ -256,38 +263,44 @@ export class SessionPickerComponent extends Container implements Focusable {
           : 'Ctrl+A all';
 
     if (this.loading) {
-      lines.push(currentTheme.boldFg('primary', truncateToWidth(title, width, ELLIPSIS)), currentTheme.fg('textMuted', truncateToWidth('Loading sessions...', width, ELLIPSIS)), currentTheme.fg('primary', '─'.repeat(width)));
+      lines.push(currentTheme.boldFg('primary', truncateToWidth(title, width, ELLIPSIS)));
+      lines.push(
+        currentTheme.fg('textMuted', truncateToWidth('Loading sessions...', width, ELLIPSIS)),
+      );
+      lines.push(currentTheme.fg('primary', '─'.repeat(width)));
       return lines;
     }
 
     if (this.sessions.length === 0) {
-      const cancel = keybindingDisplayText(this.bindings, 'Select', 'select:cancel');
-      const hintParts = [scopeHint, cancel === undefined ? undefined : `${formatBindingKeys(cancel)} cancel`].filter(
+      const hintParts = [scopeHint, 'Esc cancel'].filter(
         (item): item is string => item !== undefined,
       );
-      lines.push(currentTheme.boldFg('primary', truncateToWidth(title, width, ELLIPSIS)), currentTheme.fg('textMuted', truncateToWidth(hintParts.join(' · '), width, ELLIPSIS)), '', currentTheme.fg('textMuted', truncateToWidth('No sessions found.', width, ELLIPSIS)), currentTheme.fg('primary', '─'.repeat(width)));
+      lines.push(currentTheme.boldFg('primary', truncateToWidth(title, width, ELLIPSIS)));
+      lines.push(
+        currentTheme.fg('textMuted', truncateToWidth(hintParts.join(' · '), width, ELLIPSIS)),
+      );
+      lines.push('');
+      lines.push(
+        currentTheme.fg('textMuted', truncateToWidth('No sessions found.', width, ELLIPSIS)),
+      );
+      lines.push(currentTheme.fg('primary', '─'.repeat(width)));
       return lines;
     }
 
     const view = this.list.view();
     const titleSuffix =
       view.query.length === 0 ? currentTheme.fg('textMuted', '  (type to search)') : '';
-    const navigation = combinedBindingHint(
-      keybindingDisplayText(this.bindings, 'Select', 'select:previous'),
-      keybindingDisplayText(this.bindings, 'Select', 'select:next'),
-      'navigate',
-    );
-    const accept = keybindingDisplayText(this.bindings, 'Select', 'select:accept');
-    const cancel = keybindingDisplayText(this.bindings, 'Select', 'select:cancel');
     const hintParts = [
       ...(view.query.length > 0 ? ['Backspace clear'] : []),
-      navigation,
+      '↑↓ navigate',
       scopeHint,
-      accept === undefined ? undefined : `${formatBindingKeys(accept)} select`,
-      cancel === undefined ? undefined : `${formatBindingKeys(cancel)} cancel`,
+      'Enter select',
+      'Esc cancel',
     ].filter((item): item is string => item !== undefined);
 
-    lines.push(currentTheme.boldFg('primary', title) + titleSuffix, currentTheme.fg('textMuted', hintParts.join(' · ')), '');
+    lines.push(currentTheme.boldFg('primary', title) + titleSuffix);
+    lines.push(currentTheme.fg('textMuted', hintParts.join(' · ')));
+    lines.push('');
 
     if (view.query.length > 0) {
       lines.push(currentTheme.fg('primary', 'Search: ') + currentTheme.fg('text', view.query));
@@ -295,7 +308,8 @@ export class SessionPickerComponent extends Container implements Focusable {
 
     const loadedSessions = this.loadedSessions(view.items);
     if (loadedSessions.length === 0) {
-      lines.push(currentTheme.fg('textMuted', truncateToWidth('No matches', width, ELLIPSIS)), currentTheme.fg('primary', '─'.repeat(width)));
+      lines.push(currentTheme.fg('textMuted', truncateToWidth('No matches', width, ELLIPSIS)));
+      lines.push(currentTheme.fg('primary', '─'.repeat(width)));
       return lines;
     }
     const selectedIndex = view.selectedIndex;
@@ -321,15 +335,29 @@ export class SessionPickerComponent extends Container implements Focusable {
     }
 
     const filteredCount = view.items.length;
-    if (loadedSessions.length > visibleSessions.length || view.query.length > 0) {
+    if (
+      loadedSessions.length > visibleSessions.length ||
+      view.query.length > 0 ||
+      this.hasMore ||
+      this.loadingMore
+    ) {
       lines.push('');
+      const moreSuffix = this.loadingMore
+        ? ' · loading more…'
+        : this.hasMore
+          ? view.query.length > 0
+            ? ' · searching all…'
+            : ' · scroll for more'
+          : '';
       const totalSuffix =
         view.query.length > 0
           ? `${String(loadedSessions.length)} loaded / ${String(filteredCount)} matches`
-          : loadedSessions.length === this.sessions.length
-            ? `${String(loadedSessions.length)} sessions`
-            : `${String(loadedSessions.length)} loaded / ${String(this.sessions.length)} sessions`;
-      const footer = `Showing ${String(visibleStart + 1)}-${String(visibleStart + visibleSessions.length)} of ${totalSuffix}`;
+          : this.hasMore || this.loadingMore
+            ? `${String(loadedSessions.length)} loaded`
+            : loadedSessions.length === this.sessions.length
+              ? `${String(loadedSessions.length)} sessions`
+              : `${String(loadedSessions.length)} loaded / ${String(this.sessions.length)} sessions`;
+      const footer = `Showing ${String(visibleStart + 1)}-${String(visibleStart + visibleSessions.length)} of ${totalSuffix}${moreSuffix}`;
       lines.push(currentTheme.fg('textMuted', truncateToWidth(footer, width, ELLIPSIS)));
     }
 
@@ -353,9 +381,7 @@ export class SessionPickerComponent extends Container implements Focusable {
     const time = formatRelativeTime(session.updated_at);
     const badge = isCurrent ? CURRENT_MARK : '';
     const rawTitle = (session.title ?? session.id).trim() || session.id;
-    const title = rawTitle;
-    const tag = sessionTag(session);
-    const titleSource = tag === undefined ? title : `${title} #${tag}`;
+    const titleSource = formatSessionLabel({ title: rawTitle, metadata: session.metadata });
 
     // Inline trailing parts after the title: "<title>  <time>  ← current".
     const trailingParts = [time, badge].filter((p) => p.length > 0);

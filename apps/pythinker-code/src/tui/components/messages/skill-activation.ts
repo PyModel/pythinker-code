@@ -12,7 +12,7 @@
  * metadata.
  */
 
-import { Container, Text, Spacer } from '@earendil-works/pi-tui';
+import { Container, Text, Spacer } from '@pymodel/pi-tui';
 
 import { currentTheme } from '#/tui/theme';
 import type { SkillActivationTrigger } from '#/tui/types';
@@ -35,8 +35,8 @@ export class SkillActivationComponent extends Container {
     this.args = args;
     this.addChild(new Spacer(1));
     const head =
-      currentTheme.boldFg('textStrong', '▶ Activated skill: ') +
-      currentTheme.boldFg('textStrong', name);
+      currentTheme.boldFg('primary', '▶ Activated skill: ') +
+      currentTheme.boldFg('roleUser', name);
     this.headText = new Text(head, 0, 0);
     this.addChild(this.headText);
     const trimmed = args?.trim() ?? '';
@@ -50,8 +50,8 @@ export class SkillActivationComponent extends Container {
 
   override invalidate(): void {
     const head =
-      currentTheme.boldFg('textStrong', '▶ Activated skill: ') +
-      currentTheme.boldFg('textStrong', this.name);
+      currentTheme.boldFg('primary', '▶ Activated skill: ') +
+      currentTheme.boldFg('roleUser', this.name);
     this.headText.setText(head);
     if (this.previewText !== undefined && this.args !== undefined) {
       const trimmed = this.args.trim();

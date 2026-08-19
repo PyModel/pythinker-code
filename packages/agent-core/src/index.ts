@@ -1,17 +1,5 @@
 export * from './agent';
 export * from './session';
-export type {
-  WorkingTreeChange,
-  WorkingTreeChanges,
-  WorkingTreeChangeStatus,
-  WorkingTreeFileDiff,
-} from './session/working-tree';
-export type {
-  AdvisorConfigEntry,
-  AdvisorRuntimeStatus,
-  AdvisorStatusSnapshot,
-  DiscoveredAdvisors,
-} from './session/advisor-config';
 export * from './rpc';
 export * from './config';
 export * from './flags';
@@ -20,13 +8,10 @@ export * from './telemetry';
 export * from './errors';
 export * from './plugin';
 export { buildReplay } from './agent/replay/build';
+export { isAgentReplayUserTurnRecord, limitAgentReplayByTurns } from './agent/replay/turns';
 export {
-  isAgentReplayUserTurnRecord,
-  limitAgentReplayByTurns,
-} from './agent/replay/turns';
-export {
-  enableDiagnosticDebugLogging,
   flushDiagnosticLogs,
+  flushDiagnosticLogsSync,
   getRootLogger,
   log,
   redact,
@@ -47,12 +32,12 @@ export type {
   SessionLogHandle,
 } from './logging/types';
 export { USER_PROMPT_ORIGIN } from './agent/context';
+export { parseAgentFileText, resolveAgentPath } from './profile/agentfile';
+export { renderToolResultForModel } from './agent/context/tool-result-render';
+export type { RenderableToolResult } from './agent/context/tool-result-render';
 export type {
   AgentContextData,
   ContextMessage,
-  ContextUsageCategory,
-  ContextUsageReport,
-  ContextUsageTool,
   PromptOrigin,
   UserPromptOrigin,
 } from './agent/context';
@@ -63,34 +48,91 @@ export type {
   ProcessBackgroundTaskInfo,
   QuestionBackgroundTaskInfo,
 } from './agent/background';
+export type { CronTaskSnapshot } from './agent/cron';
 export type { ToolServices } from './tools/support/services';
-export { findExistingRg } from './tools/support/rg-locator';
-export type { RgResolution } from './tools/support/rg-locator';
-export { startAgentToolMcpServer } from './mcp/tool-server';
-export type { AgentToolMcpServerOptions } from './mcp/tool-server';
+
+// Image compression — prompt-ingestion sites (CLI paste, server upload
+// resolution, ACP) call compressBase64ForModel / compressImageForModel per
+// image while constructing the content part; the MCP tool-result pipeline
+// walks whole part lists with compressImageContentParts, which returns the
+// generated captions as data. Compression is never silent:
+// buildImageCompressionCaption renders the shared "what was compressed" note,
+// persistOriginalImage keeps the pre-compression bytes readable, and
+// cropImageForModel reads a region of an original back at full fidelity.
+// Re-exported from the package root so consumers (node-sdk, server) import
+// them without a deep subpath.
+export {
+  buildImageCompressionCaption,
+  compressImageForModel,
+  compressBase64ForModel,
+  compressImageContentParts,
+  cropImageForModel,
+  formatByteSize,
+  gateImageFormatParts,
+  resolveMaxImageEdgePx,
+  resolveReadImageByteBudget,
+  IMAGE_BYTE_BUDGET,
+  MAX_IMAGE_EDGE_PX,
+  READ_IMAGE_BYTE_BUDGET,
+} from './tools/support/image-compress';
+export {
+  MODEL_ACCEPTED_IMAGE_MIMES,
+  buildImageConversionGuidance,
+  buildUnsupportedImageNotice,
+  decodeBase64Prefix,
+  isModelAcceptedImageMime,
+  normalizeImageMime,
+  parseImageDataUrl,
+  resolveEffectiveImageMime,
+  unsupportedImageMimeFromUrl,
+} from './tools/support/image-format-policy';
+export { ImageLimits } from './tools/support/image-limits';
+export type {
+  CompressAnnotateOptions,
+  CompressedContentParts,
+  CompressImageOptions,
+  CompressImageResult,
+  CompressBase64Result,
+  CropImageOptions,
+  CropImageOutcome,
+  ImageCompressionCaptionInput,
+  ImageCompressionTelemetry,
+  ImageCropRegion,
+  ImageVariantDescription,
+} from './tools/support/image-compress';
+export {
+  originalImageCacheDir,
+  persistOriginalImage,
+  sessionMediaOriginalsDir,
+} from './tools/support/image-originals';
+export type { PersistOriginalImageOptions } from './tools/support/image-originals';
 export { SingleModelProvider } from './session/provider-manager';
 export type {
+  BearerTokenProvider,
   ModelProvider,
+  OAuthTokenProviderResolver,
   ResolvedRuntimeProvider,
 } from './session/provider-manager';
 
-// ─── Wire records (for in-monorepo consumers like apps/dashboard) ────────────────
+// ─── Wire records (for in-monorepo consumers like apps/vis) ────────────────
 export type {
   AgentRecord,
   AgentRecordEvents,
   AgentRecordOf,
   AgentRecordPersistence,
 } from './agent/records';
-export {
-  AGENT_WIRE_PROTOCOL_VERSION,
-  assertAgentRecord,
-  assertAgentWireProtocolVersion,
-} from './agent/records';
+export { AGENT_WIRE_PROTOCOL_VERSION } from './agent/records';
 export type { AgentConfigUpdateData } from './agent/config';
-export type {
-  CompactionBeginData,
-  CompactionResult,
-  PartialCompactionDirection,
+export type { CompactionBeginData, CompactionResult } from './agent/compaction';
+export {
+  COMPACT_USER_MESSAGE_HEAD_TOKENS,
+  COMPACT_USER_MESSAGE_MAX_TOKENS,
+  COMPACTION_ELISION_VARIANT,
+  buildCompactionElisionText,
+  collectCompactableUserMessages,
+  isRealUserInput,
+  selectCompactionUserMessages,
+  selectRecentUserMessages,
 } from './agent/compaction';
 export type {
   PermissionApprovalResultRecord,

@@ -2,25 +2,36 @@
  * Renders a user message in the transcript.
  */
 
-import { Spacer, Text, truncateToWidth, visibleWidth, type Component } from '@earendil-works/pi-tui';
+import { Spacer, Text, truncateToWidth, visibleWidth, type Component } from '@pymodel/pi-tui';
 
 import { ImageThumbnail } from '#/tui/components/media/image-thumbnail';
 import { USER_MESSAGE_BULLET } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 import type { ImageAttachment } from '#/tui/utils/image-attachment-store';
+import { markOsc133Zone } from '#/tui/utils/osc133';
+import { isRenderCacheEnabled } from '#/tui/utils/render-cache';
 
 export class UserMessageComponent implements Component {
   private text: string;
+  private readonly bullet?: string;
   private spacerComponent: Spacer;
   private imageThumbnails: ImageThumbnail[];
 
-  constructor(text: string, images?: ImageAttachment[]) {
+  private renderCache: { width: number; lines: string[] } | undefined;
+
+  constructor(text: string, images?: ImageAttachment[], bullet?: string) {
     this.text = text;
+    this.bullet = bullet;
     this.spacerComponent = new Spacer(1);
     this.imageThumbnails = images?.map((img) => new ImageThumbnail(img)) ?? [];
   }
 
+  private markRenderDirty(): void {
+    this.renderCache = undefined;
+  }
+
   invalidate(): void {
+    this.markRenderDirty();
     for (const img of this.imageThumbnails) {
       img.invalidate?.();
     }
@@ -30,7 +41,16 @@ export class UserMessageComponent implements Component {
     const safeWidth = Math.max(0, width);
     if (safeWidth <= 0) return [''];
 
-    const bullet = currentTheme.fg('textDim', USER_MESSAGE_BULLET);
+    if (
+      isRenderCacheEnabled() &&
+      this.renderCache !== undefined &&
+      this.renderCache.width === safeWidth
+    ) {
+      return this.renderCache.lines;
+    }
+
+    const marker = this.bullet ?? USER_MESSAGE_BULLET;
+    const bullet = marker.length > 0 ? currentTheme.boldFg('roleUser', marker) : '';
     const bulletWidth = visibleWidth(bullet);
     const contentWidth = Math.max(1, safeWidth - bulletWidth);
 
@@ -41,14 +61,13 @@ export class UserMessageComponent implements Component {
       lines.push(line);
     }
 
-    // Text — re-dye on every render so theme switches are reflected
-    const coloredText = currentTheme.fg('textStrong', this.text);
+    // Text is re-dyed from the current theme; invalidate() (theme change) clears
+    // the render cache so the new colours are picked up on the next render.
+    const coloredText = currentTheme.boldFg('roleUser', this.text);
     const textLines = new Text(coloredText, 0, 0).render(contentWidth);
     for (let i = 0; i < textLines.length; i++) {
       const prefix = i === 0 ? bullet : ' '.repeat(bulletWidth);
-      const row = prefix + textLines[i];
-      const padding = ' '.repeat(Math.max(0, safeWidth - visibleWidth(row)));
-      lines.push(currentTheme.bg('surfaceHighlight', row + padding));
+      lines.push(prefix + textLines[i]);
     }
 
     // Images — indented to align with text after the bullet
@@ -59,6 +78,38 @@ export class UserMessageComponent implements Component {
       }
     }
 
-    return lines.map((line) => truncateToWidth(line, safeWidth, '…'));
+    const rendered = markOsc133Zone(
+      lines.map((line) => {
+        // Inline image sequences (Kitty / iTerm2) carry their own placement
+        // information and have zero visible width, but pi-tui's truncateToWidth
+        // treats the embedded base64 payload as visible text and would chop the
+        // escape sequence in half, leaving garbage like "0m...". Skip truncation
+        // for those lines; the image itself already respects maxWidthCells.
+        if (isImageLine(line)) return line;
+        return truncateToWidth(line, safeWidth, '…');
+      }),
+    );
+    if (isRenderCacheEnabled()) {
+      this.renderCache = { width: safeWidth, lines: rendered };
+    }
+    return rendered;
+  }
+}
+
+function isImageLine(line: string): boolean {
+  return line.includes('\u001B_G') || line.includes('\u001B]1337;File=');
+}
+
+/**
+ * Invisible turn-boundary marker for replay. Some replayed records start a
+ * new turn without anything to show — the goal driver's synthetic
+ * continuation prompt is model-facing and never rendered live — but the
+ * transcript still needs a mounted boundary component so step/assistant
+ * folding (and window trimming) can find the turn edges. Renders zero lines.
+ */
+export class ReplayTurnBoundaryComponent implements Component {
+  invalidate(): void {}
+  render(_width: number): string[] {
+    return [];
   }
 }

@@ -148,8 +148,7 @@ describe('Plan mode permission policy', () => {
     expect(deny.message ?? '').toContain('ExitPlanMode');
   });
 
-  it('blocks file mutation tools with no file write access while plan mode is active', async () => {
-    expect.hasAssertions();
+  it('blocks Write and Edit with no file write access while plan mode is active', async () => {
     const { agent } = await activePlanAgent();
 
     const write = new PlanModeGuardDenyPermissionPolicy(agent).evaluate(
@@ -163,28 +162,9 @@ describe('Plan mode permission policy', () => {
         ToolAccesses.none(),
       ),
     );
-    const notebookEdit = new PlanModeGuardDenyPermissionPolicy(agent).evaluate(
-      policyContext(
-        'NotebookEdit',
-        { notebook_path: '/workspace/demo.ipynb', cell_id: 'cell-0', new_source: 'x' },
-        'manual',
-        ToolAccesses.none(),
-      ),
-    );
 
     expectDeny(write);
     expectDeny(edit);
-    expectDeny(notebookEdit);
-  });
-
-  it('blocks session worktree lifecycle changes while plan mode is active', async () => {
-    const { agent } = await activePlanAgent();
-
-    const enter = evaluatePlanPolicy(agent, 'EnterWorktree', { name: 'feature' });
-    const exit = evaluatePlanPolicy(agent, 'ExitWorktree', { action: 'keep' });
-
-    expect(expectDeny(enter).message).toContain('ExitPlanMode');
-    expect(expectDeny(exit).message).toContain('ExitPlanMode');
   });
 
   it('allows multiple writes when every write access targets the active plan file', async () => {

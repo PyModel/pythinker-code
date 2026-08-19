@@ -2,15 +2,16 @@ import { createHash } from 'node:crypto';
 import { createServer as createNetServer } from 'node:net';
 import { describe, expect, it, vi } from 'vitest';
 
-import type { PlatformConfigShape } from '../src/open-platform';
 import {
   applyOpenAICodexOAuthConfig,
   buildOpenAICodexAuthorizeUrl,
   createOpenAICodexPkcePair,
   extractOpenAICodexAccountId,
   fetchOpenAICodexModels,
+  OPENAI_CODEX_AUTH_INPUT_MAX_LENGTH,
   parseOpenAICodexAuthorizationInput,
   startOpenAICodexCallbackServer,
+  type OpenAICodexConfigShape,
 } from '../src/openai-codex-oauth';
 import { renderOpenAICodexOAuthSuccessPage } from '../src/oauth-pages';
 
@@ -92,6 +93,14 @@ describe('openai-codex-oauth', () => {
         'http://localhost:1455/auth/callback?code=abc123&state=deadbeef',
       ),
     ).toEqual({ code: 'abc123', state: 'deadbeef' });
+  });
+
+  it('rejects oversized authorization input', () => {
+    expect(() =>
+      parseOpenAICodexAuthorizationInput(
+        'x'.repeat(OPENAI_CODEX_AUTH_INPUT_MAX_LENGTH + 1),
+      ),
+    ).toThrow('authorization input is too long');
   });
 
   it('extracts chatgpt account id from access token claims', () => {
@@ -202,7 +211,7 @@ describe('openai-codex-oauth', () => {
     });
     const config = {
       providers: {},
-    } as PlatformConfigShape;
+    } as OpenAICodexConfigShape;
     const models = CODEX_MODELS_RESPONSE.models.map((model) => ({
       id: model.slug,
       contextLength: model.context_window,
@@ -243,11 +252,11 @@ describe('openai-codex-oauth', () => {
       capabilities: expect.arrayContaining(['fast_mode']),
     });
     expect(config.models?.['openai-codex/gpt-5.2-codex']).toBeDefined();
-    expect(config.thinking).toEqual({ effort: 'max' });
+    expect(config.thinking).toEqual({ enabled: true, effort: 'max' });
   });
 
   it('uses the selected model highest supported effort when max is unavailable', () => {
-    const config: PlatformConfigShape = {
+    const config: OpenAICodexConfigShape = {
       providers: {},
       thinking: { mode: 'auto', effort: 'low' },
     };
@@ -272,7 +281,7 @@ describe('openai-codex-oauth', () => {
     expect(config.models?.['openai-codex/gpt-5.4-mini']).toMatchObject({
       supportEfforts: ['low', 'medium', 'high', 'xhigh'],
     });
-    expect(config.thinking).toEqual({ mode: 'auto', effort: 'xhigh' });
+    expect(config.thinking).toEqual({ mode: 'auto', enabled: true, effort: 'xhigh' });
   });
 });
 

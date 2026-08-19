@@ -3,17 +3,22 @@ import type { ChatProvider, Tool } from '@pymodel/kosong';
 import picomatch from 'picomatch';
 
 import type { Agent } from '..';
+import {
+  collectLoadedDynamicToolNames,
+} from '../context/dynamic-tools';
+import type { ContextMessage } from '../context/types';
 import { makeErrorPayload } from '../../errors';
-import type { ExecutableTool } from '../../loop';
+import type { ExecutableTool, ToolUpdate } from '../../loop';
 import { createMcpAuthTool } from '../../mcp/auth-tool';
 import type { McpConnectionManager, McpServerEntry } from '../../mcp';
 import { mcpResultToExecutableOutput } from '../../mcp/output';
 import { isMcpToolName, qualifyMcpToolName } from '../../mcp/tool-naming';
-import type { MCPClient } from '../../mcp/types';
+import type { MCPClient, MCPToolDefinition } from '../../mcp/types';
+import { resolveSubagentTimeoutMs } from '../../session/subagent-host';
+import { buildSubagentModelDescriptions } from '../../session/subagent-binding';
 import { extendWorkspaceWithSkillRoots } from '../../skill';
+import { fingerprint } from '../llm-request-logger';
 import * as b from '../../tools/builtin';
-import { isDynamicWorkflowDisabled } from '../../tools/builtin/collaboration/dynamic-workflow';
-import { resolveWorkflowSizeGuideline } from '../dynamic-workflow/size-guideline';
 import type { ToolStore, ToolStoreData, ToolStoreKey } from '../../tools/store';
 import type {
   BuiltinTool,
@@ -25,15 +30,25 @@ import type {
 
 export * from './types';
 
+/** Foreground timeout (seconds) for a user-initiated `!` shell command. */
+const SHELL_FOREGROUND_TIMEOUT_S = 2 * 60;
+
 interface McpToolEntry {
   readonly tool: ExecutableTool;
   readonly serverName: string;
 }
 
+interface PendingMcpDiscovery {
+  readonly serverName: string;
+  readonly rawTools: readonly MCPToolDefinition[];
+  readonly enabledNames: readonly string[];
+  readonly collisions: readonly McpToolCollision[];
+}
+
 export class ToolManager {
   protected builtinTools: Map<string, BuiltinTool> = new Map();
-  private readonly fileReadState: b.FileReadState = new Map();
   protected readonly userTools: Map<string, ExecutableTool> = new Map();
+  private readonly deferredUserTools = new Set<string>();
   protected readonly mcpTools: Map<string, McpToolEntry> = new Map();
   private loopToolsOverride: readonly ExecutableTool[] | undefined;
   /** server name → list of qualified tool names registered for that server. */
@@ -41,8 +56,41 @@ export class ToolManager {
   protected enabledTools: Set<string> = new Set();
   /** Glob patterns (e.g. `mcp__*`, `mcp__github__*`) gating which MCP tools the profile exposes. */
   private mcpAccessPatterns: string[] = [];
+  /**
+   * Exact builtin/user tool names the profile denies, evaluated on top of the
+   * allowlist result (`enabledTools`).
+   */
+  private disabledTools: Set<string> = new Set();
+  /** Glob patterns (`mcp__…`) the profile denies, evaluated on top of `mcpAccessPatterns`. */
+  private mcpDenyPatterns: string[] = [];
+  /**
+   * Defer-window lead for the loaded-tools ledger: names marked loaded whose
+   * schema message may still sit in the context's deferred queue (an open tool
+   * exchange). The history itself is the source of truth —
+   * `loadedDynamicToolNames()` unions this set with a history scan — so
+   * undo/compaction/resume never need to roll this back.
+   */
+  private readonly pendingLoadedDynamicTools = new Set<string>();
   protected readonly store: Partial<ToolStoreData> = {};
   private mcpToolStatusUnsubscribe: (() => void) | undefined;
+  /**
+   * `serverName\nhash` keys of `mcp.tools_discovered` records already durable
+   * in this wire log. Restored on replay; reconnects with an unchanged raw
+   * tool list, allow-list, and collision outcome do not re-log.
+   */
+  private readonly seenMcpDiscoveries = new Set<string>();
+  /**
+   * Discoveries observed before the record log opened (constructor-time
+   * attach can run before `agent.resume()` replays the wire — see
+   * `AgentRecords.observabilityReady`). The dedup decision must be re-made at
+   * drain time, after replay has restored `seenMcpDiscoveries`.
+   */
+  private readonly pendingMcpDiscoveries: PendingMcpDiscovery[] = [];
+  private mcpDiscoveryDrainSubscribed = false;
+
+  /** Abort controllers for in-flight `!` shell commands, keyed by commandId so
+   *  the TUI can cancel (Esc / Ctrl+C) a running command. */
+  private readonly shellCommandControllers = new Map<string, AbortController>();
 
   constructor(protected readonly agent: Agent) {
     this.attachMcpTools();
@@ -85,25 +133,105 @@ export class ToolManager {
     this.store[key] = value;
   }
 
+  /**
+   * Execute a user-initiated `!` shell command. Reuses the builtin Bash tool
+   * (same kaos / cwd / BackgroundManager as the agent), recording the command
+   * and its output as `shell_command`-origin messages. It does NOT start a turn
+   * — the model is not prompted (parity with claude-code's `shouldQuery: false`).
+   */
+  async runShellCommand(
+    command: string,
+    commandId?: string,
+  ): Promise<{ stdout: string; stderr: string; isError?: boolean; backgrounded?: boolean }> {
+    this.agent.context.appendBashInput(command);
+    const bash = this.builtinTools.get('Bash');
+    if (bash === undefined) {
+      const error = 'Bash tool is not available.';
+      this.agent.context.appendBashOutput('', error);
+      return { stdout: '', stderr: error, isError: true };
+    }
+    let stdout = '';
+    let stderr = '';
+    let isError: boolean | undefined;
+    const controller = new AbortController();
+    if (commandId !== undefined) this.shellCommandControllers.set(commandId, controller);
+    try {
+      const execution = await bash.resolveExecution({ command, timeout: SHELL_FOREGROUND_TIMEOUT_S });
+      if (!('execute' in execution)) {
+        const output =
+          typeof execution.output === 'string' ? execution.output : 'Command failed.';
+        this.agent.context.appendBashOutput('', output);
+        return { stdout: '', stderr: output, isError: true };
+      }
+      const result = await execution.execute({
+        turnId: '',
+        toolCallId: 'shell-command',
+        signal: controller.signal,
+        onUpdate: (update: ToolUpdate) => {
+          if (update.kind === 'stdout') stdout += update.text ?? '';
+          else if (update.kind === 'stderr') stderr += update.text ?? '';
+          else return;
+          // Stream the chunk live to the TUI. Transient event — the final
+          // output is still recorded once below for resume.
+          if (commandId !== undefined) {
+            this.agent.emitEvent({ type: 'shell.output', commandId, update });
+          }
+        },
+        onForegroundTaskStart: (taskId: string) => {
+          // Surface the background-task id so the TUI can detach (ctrl+b) it.
+          if (commandId !== undefined) {
+            this.agent.emitEvent({ type: 'shell.started', commandId, taskId });
+          }
+        },
+      });
+      isError = result.isError === true;
+
+      // Detached to background (ctrl+b): the BashTool returns the background
+      // metadata (task_id / status / output path) — the same payload a normal
+      // foreground Bash call returns as its tool result when backgrounded.
+      // Inject it as a user-invisible message and immediately send it to the
+      // model (mirrors the background-task completion notification, but hidden).
+      if (typeof result.output === 'string' && result.output.startsWith('task_id: ')) {
+        this.agent.context.injectAndNotify(result.output, {
+          kind: 'injection',
+          variant: 'shell_command_backgrounded',
+        });
+        return { stdout: result.output, stderr: '', isError: false, backgrounded: true };
+      }
+
+      // When the command fails with no captured stdout/stderr, the failure
+      // reason lives in result.output (non-zero exit with no output, timeout,
+      // spawn failure). Surface it as stderr so the TUI and replay show what
+      // went wrong instead of "(no output)".
+      if (
+        isError &&
+        stdout.length === 0 &&
+        stderr.length === 0 &&
+        typeof result.output === 'string' &&
+        result.output.length > 0
+      ) {
+        stderr = result.output;
+      }
+    } catch (error) {
+      stderr += error instanceof Error ? error.message : String(error);
+      isError = true;
+    } finally {
+      if (commandId !== undefined) this.shellCommandControllers.delete(commandId);
+    }
+    this.agent.context.appendBashOutput(stdout, stderr, isError);
+    return { stdout, stderr, isError };
+  }
+
+  cancelShellCommand(commandId: string): void {
+    this.shellCommandControllers.get(commandId)?.abort();
+  }
+
   registerUserTool(input: UserToolRegistration): void {
-    const { name, description, parameters } = input;
-    if (this.builtinTools.has(name)) {
-      throw new Error(`Cannot register user tool "${name}": name collides with builtin tool`);
-    }
-    if (this.userTools.has(name)) {
-      throw new Error(
-        `Cannot register user tool "${name}": name collides with already-registered user tool`,
-      );
-    }
-    if (this.mcpTools.has(name)) {
-      throw new Error(
-        `Cannot register user tool "${name}": name collides with registered MCP tool`,
-      );
-    }
     this.agent.records.logRecord({
       type: 'tools.register_user_tool',
       ...input,
     });
+    const { name, description, parameters } = input;
     const tool: ExecutableTool = {
       name,
       description,
@@ -125,6 +253,11 @@ export class ToolManager {
       },
     };
     this.userTools.set(name, tool);
+    if (input.disclosure === 'deferred') {
+      this.deferredUserTools.add(name);
+    } else {
+      this.deferredUserTools.delete(name);
+    }
     this.enabledTools.add(name);
   }
 
@@ -134,6 +267,8 @@ export class ToolManager {
       name,
     });
     this.userTools.delete(name);
+    this.deferredUserTools.delete(name);
+    this.pendingLoadedDynamicTools.delete(name);
     this.enabledTools.delete(name);
   }
 
@@ -144,6 +279,7 @@ export class ToolManager {
         name: tool.name,
         description: tool.description,
         parameters: tool.parameters,
+        disclosure: parent.deferredUserTools.has(tool.name) ? 'deferred' : undefined,
       });
     }
   }
@@ -170,9 +306,13 @@ export class ToolManager {
         });
         continue;
       }
-      const collision = this.mcpToolCollision(qualified, tool.name);
-      if (collision !== undefined) {
-        collisions.push(collision);
+      const existingEntry = this.mcpTools.get(qualified);
+      if (existingEntry !== undefined) {
+        collisions.push({
+          qualified,
+          toolName: tool.name,
+          collidesWith: { kind: 'other_server', serverName: existingEntry.serverName },
+        });
         continue;
       }
       seenInThisCall.set(qualified, tool.name);
@@ -192,7 +332,12 @@ export class ToolManager {
                 (args ?? {}) as Record<string, unknown>,
                 context.signal,
               );
-              return mcpResultToExecutableOutput(result, qualified);
+              return mcpResultToExecutableOutput(result, qualified, {
+                originalsDir: this.agent.mediaOriginalsDir,
+                telemetry: this.agent.telemetry,
+                // Resolved per call so a config reload applies immediately.
+                maxImageEdgePx: this.agent.imageLimits?.maxEdgePx(),
+              });
             },
           };
         },
@@ -202,27 +347,6 @@ export class ToolManager {
     }
     this.mcpToolsByServer.set(serverName, qualifiedNames);
     return { registered: qualifiedNames, collisions };
-  }
-
-  private mcpToolCollision(
-    qualified: string,
-    toolName: string,
-  ): McpToolCollision | undefined {
-    if (this.builtinTools.has(qualified)) {
-      return { qualified, toolName, collidesWith: { kind: 'builtin' } };
-    }
-    if (this.userTools.has(qualified)) {
-      return { qualified, toolName, collidesWith: { kind: 'user' } };
-    }
-    const existingEntry = this.mcpTools.get(qualified);
-    if (existingEntry !== undefined) {
-      return {
-        qualified,
-        toolName,
-        collidesWith: { kind: 'other_server', serverName: existingEntry.serverName },
-      };
-    }
-    return undefined;
   }
 
   unregisterMcpServer(serverName: string): boolean {
@@ -236,19 +360,24 @@ export class ToolManager {
   }
 
   private handleMcpServerStatusChange(mcp: McpConnectionManager, entry: McpServerEntry): void {
-    this.syncMcpResourceTools(mcp);
     if (entry.status === 'connected') {
       this.registerConnectedMcpServer(mcp, entry);
-    } else if (entry.status === 'needs-auth') {
+      return;
+    }
+    if (entry.status === 'needs-auth') {
       this.registerNeedsAuthMcpServer(mcp, entry);
-    } else if (entry.status === 'failed') {
+      return;
+    }
+    if (entry.status === 'failed') {
       this.unregisterMcpServer(entry.name);
       this.agent.emitEvent({
         type: 'tool.list.updated',
         reason: 'mcp.failed',
         serverName: entry.name,
       });
-    } else if (entry.status === 'disabled' || entry.status === 'pending') {
+      return;
+    }
+    if (entry.status === 'disabled' || entry.status === 'pending') {
       const removed = this.unregisterMcpServer(entry.name);
       if (removed) {
         this.agent.emitEvent({
@@ -277,18 +406,13 @@ export class ToolManager {
       serverUrl,
       oauthService,
       reconnect: async () => {
-        await mcp.reconnect(entry.name);
+        await mcp.reconnectAndJoin(entry.name);
       },
     });
-    const collision = this.mcpToolCollision(tool.name, 'authenticate');
-    if (collision === undefined) {
-      this.mcpTools.set(tool.name, { tool, serverName: entry.name });
-      this.mcpToolsByServer.set(entry.name, [tool.name]);
-    } else {
-      this.mcpToolsByServer.set(entry.name, []);
-      this.emitMcpToolCollisions(entry.name, [collision]);
-    }
-    // Surface the updated tool list the same way a real toolset would show up.
+    this.mcpTools.set(tool.name, { tool, serverName: entry.name });
+    this.mcpToolsByServer.set(entry.name, [tool.name]);
+    // The synthetic auth tool is now in the tool list; surface it the same way
+    // a real toolset would show up so the model picks it up.
     this.agent.emitEvent({
       type: 'tool.list.updated',
       reason: 'mcp.connected',
@@ -305,6 +429,12 @@ export class ToolManager {
       resolved.tools,
       resolved.enabledNames,
     );
+    this.recordMcpToolsDiscovered(
+      entry.name,
+      resolved.rawTools,
+      resolved.enabledNames,
+      result.collisions,
+    );
     this.emitMcpToolCollisions(entry.name, result.collisions);
     this.agent.emitEvent({
       type: 'tool.list.updated',
@@ -313,18 +443,79 @@ export class ToolManager {
     });
   }
 
+  /** Replay: a discovery with this hash is already durable; never re-log it. */
+  restoreMcpDiscovery(serverName: string, hash: string): void {
+    this.seenMcpDiscoveries.add(`${serverName}\n${hash}`);
+  }
+
+  /**
+   * Observability record: the server's verbatim `tools/list` result plus how
+   * this agent gated it (allow-list, collisions). See `records/types.ts`.
+   * Parked while the record log has not opened yet (pre-replay window).
+   */
+  private recordMcpToolsDiscovered(
+    serverName: string,
+    rawTools: readonly MCPToolDefinition[],
+    enabledNames: ReadonlySet<string>,
+    collisions: readonly McpToolCollision[],
+  ): void {
+    const discovery: PendingMcpDiscovery = {
+      serverName,
+      rawTools,
+      enabledNames: [...enabledNames].toSorted((a, b) => a.localeCompare(b)),
+      collisions,
+    };
+    if (!this.agent.records.observabilityReady) {
+      this.pendingMcpDiscoveries.push(discovery);
+      // Lazy one-shot subscription: only agents that actually parked need
+      // the drain callback, and at park time the log is guaranteed unopened.
+      if (!this.mcpDiscoveryDrainSubscribed) {
+        this.mcpDiscoveryDrainSubscribed = true;
+        this.agent.records.onOpened(() => {
+          this.drainPendingMcpDiscoveries();
+        });
+      }
+      return;
+    }
+    this.writeMcpDiscovery(discovery);
+  }
+
+  private drainPendingMcpDiscoveries(): void {
+    const pending = this.pendingMcpDiscoveries.splice(0);
+    for (const discovery of pending) {
+      this.writeMcpDiscovery(discovery);
+    }
+  }
+
+  private writeMcpDiscovery(discovery: PendingMcpDiscovery): void {
+    const { serverName, rawTools, enabledNames, collisions } = discovery;
+    // The hash covers everything the record captures — the raw list, the
+    // allow-list, AND the collision outcome. Collisions depend on which
+    // other servers hold a qualified name at registration time, so the same
+    // server can re-register with identical tools but a different outcome;
+    // that change must produce a new record.
+    const hash = fingerprint(JSON.stringify({ tools: rawTools, enabledNames, collisions }));
+    const key = `${serverName}\n${hash}`;
+    if (this.seenMcpDiscoveries.has(key)) return;
+    this.seenMcpDiscoveries.add(key);
+    this.agent.records.logRecord({
+      type: 'mcp.tools_discovered',
+      serverName,
+      hash,
+      tools: rawTools,
+      enabledNames,
+      collisions: collisions.length > 0 ? collisions : undefined,
+    });
+  }
+
   private emitMcpToolCollisions(serverName: string, collisions: readonly McpToolCollision[]): void {
     if (collisions.length === 0) return;
     const summary = collisions
-      .map((c) => {
-        if (c.collidesWith.kind === 'same_server') {
-          return `"${c.toolName}" -> ${c.qualified} (collides with "${c.collidesWith.toolName}" from the same server)`;
-        }
-        if (c.collidesWith.kind === 'other_server') {
-          return `"${c.toolName}" -> ${c.qualified} (collides with server "${c.collidesWith.serverName}")`;
-        }
-        return `"${c.toolName}" -> ${c.qualified} (collides with ${c.collidesWith.kind} tool)`;
-      })
+      .map((c) =>
+        c.collidesWith.kind === 'same_server'
+          ? `"${c.toolName}" -> ${c.qualified} (collides with "${c.collidesWith.toolName}" from the same server)`
+          : `"${c.toolName}" -> ${c.qualified} (collides with server "${c.collidesWith.serverName}")`,
+      )
       .join('; ');
     this.agent.emitEvent({
       type: 'error',
@@ -332,31 +523,33 @@ export class ToolManager {
         'mcp.tool_name_collision',
         `MCP server "${serverName}" registered ${collisions.length} tool name` +
           `${collisions.length === 1 ? '' : 's'} ` +
-          `that collide with existing tool names; the losing tools were dropped: ${summary}`,
+          `that collide with existing qualified names; the losing tools were dropped: ${summary}`,
         { details: { serverName, collisions: collisions as readonly unknown[] } },
       ),
     });
   }
 
-  setActiveTools(names: readonly string[]): void {
+  setActiveTools(names: readonly string[], disallowedNames?: readonly string[]): void {
     this.agent.records.logRecord({
       type: 'tools.set_active_tools',
       names,
+      disallowedNames,
     });
     // MCP entries are glob patterns gated separately; the rest are exact
     // builtin/user tool names. The split keeps every caller on one string[].
     this.enabledTools = new Set(names.filter((name) => !isMcpToolName(name)));
     this.mcpAccessPatterns = names.filter((name) => isMcpToolName(name));
-  }
-
-  patchActiveTools(input: {
-    readonly tools?: readonly string[];
-    readonly mcpPatterns?: readonly string[];
-  }): void {
-    this.setActiveTools([
-      ...(input.tools ?? this.enabledTools),
-      ...(input.mcpPatterns ?? this.mcpAccessPatterns),
-    ]);
+    this.disabledTools = new Set((disallowedNames ?? []).filter((name) => !isMcpToolName(name)));
+    this.mcpDenyPatterns = (disallowedNames ?? []).filter((name) => isMcpToolName(name));
+    // Builtin construction reads the enabled set (Bash/Agent bake
+    // `allowBackground` from the Task* trio), and the constructor may already
+    // have built the map while the enabled set was still empty. The lazy
+    // re-init in `get tools()` only fires on an empty map, so rebuild here —
+    // otherwise a profile applied after construction (every subagent) keeps
+    // the construction-time capabilities.
+    if (this.agent.config.hasProvider) {
+      this.initializeBuiltinTools();
+    }
   }
 
   copyLoopToolsFrom(source: ToolManager): void {
@@ -364,7 +557,177 @@ export class ToolManager {
   }
 
   private isMcpToolEnabled(name: string): boolean {
-    return this.mcpAccessPatterns.some((pattern) => picomatch.isMatch(name, pattern));
+    return (
+      this.mcpAccessPatterns.some((pattern) => picomatch.isMatch(name, pattern)) &&
+      !this.mcpDenyPatterns.some((pattern) => picomatch.isMatch(name, pattern))
+    );
+  }
+
+  /** An exact builtin/user tool name survives when allowed and not denied. */
+  private isExactToolEnabled(name: string): boolean {
+    return this.enabledTools.has(name) && !this.disabledTools.has(name);
+  }
+
+  /**
+   * Whether tools are disclosed progressively: kept out of the top-level
+   * `tools[]` and loaded on demand via select_tools. Reads the agent's single
+   * three-gate decision point.
+   */
+  private get progressiveDisclosure(): boolean {
+    return this.agent.toolSelectEnabled;
+  }
+
+  /**
+   * Names the model may select right now: registered MCP tools that pass the
+   * profile's `mcp__*` access patterns, plus active user tools that explicitly
+   * opt into deferred disclosure, sorted for byte-stable announcements.
+   * In disclosure mode the patterns keep their permission-filter role but stop
+   * feeding the top-level `tools[]`.
+   */
+  loadableDynamicToolNames(): string[] {
+    const names = new Set(
+      [...this.mcpTools.keys()].filter((name) => this.isMcpToolEnabled(name)),
+    );
+    for (const name of this.deferredUserTools) {
+      if (this.userTools.has(name) && this.isExactToolEnabled(name)) names.add(name);
+    }
+    return [...names].toSorted((a, b) => a.localeCompare(b));
+  }
+
+  /**
+   * The active loaded-tools ledger: every still-loadable name whose full
+   * definition has been delivered via a `tools`-carrying message, plus the
+   * defer-window pending set. History is the single source of truth, so the
+   * ledger survives resume (records replay rebuilds the history), keeps its
+   * state across undo (schema messages have `injection` origin and are not
+   * undone), and empties at compaction (schema messages are discarded with
+   * the folded history — the model re-selects what it still needs).
+   */
+  loadedDynamicToolNames(): ReadonlySet<string> {
+    const names = this.allLoadedDynamicToolNames();
+    for (const name of names) {
+      if (!this.isLoadedDynamicToolActive(name)) names.delete(name);
+    }
+    return names;
+  }
+
+  shapeDynamicToolHistory(messages: readonly ContextMessage[]): readonly ContextMessage[] {
+    let shaped: ContextMessage[] | undefined;
+    for (let i = 0; i < messages.length; i += 1) {
+      const message = messages[i]!;
+      const tools = message.tools;
+      if (tools === undefined || tools.length === 0) {
+        if (shaped !== undefined) shaped.push(message);
+        continue;
+      }
+
+      const kept = tools.filter((tool) => this.isLoadedDynamicToolActive(tool.name));
+      if (kept.length === tools.length) {
+        if (shaped !== undefined) shaped.push(message);
+        continue;
+      }
+      shaped ??= messages.slice(0, i);
+      if (kept.length > 0) {
+        shaped.push({ ...message, tools: kept });
+        continue;
+      }
+
+      const { tools: _tools, ...rest } = message;
+      void _tools;
+      if (rest.content.length > 0 || rest.toolCalls.length > 0) shaped.push(rest);
+    }
+    return shaped ?? messages;
+  }
+
+  private allLoadedDynamicToolNames(): Set<string> {
+    const names = collectLoadedDynamicToolNames(this.agent.context.history);
+    for (const name of this.pendingLoadedDynamicTools) names.add(name);
+    return names;
+  }
+
+  private isLoadedDynamicToolActive(name: string): boolean {
+    if (isMcpToolName(name)) return true;
+    return (
+      this.deferredUserTools.has(name) &&
+      this.userTools.has(name) &&
+      this.isExactToolEnabled(name)
+    );
+  }
+
+  /** Mark names loaded ahead of their schema message landing in history. */
+  markDynamicToolsLoaded(names: Iterable<string>): void {
+    for (const name of names) this.pendingLoadedDynamicTools.add(name);
+  }
+
+  /**
+   * Context was cleared (`/clear`): every schema message is gone, so the
+   * defer-window lead must not keep reporting its names as loaded — a stale
+   * entry would make select_tools answer "Already available" for a tool whose
+   * definition the model can no longer see.
+   */
+  onContextCleared(): void {
+    this.pendingLoadedDynamicTools.clear();
+  }
+
+  /**
+   * Compaction rebuilt the history and discarded every loaded schema with it
+   * — the loaded set is empty from here on. A pending entry surviving past
+   * this boundary would report a schema the context no longer carries as
+   * loaded, and re-selecting it would wrongly answer "Already available"
+   * instead of injecting.
+   */
+  onContextCompacted(): void {
+    this.pendingLoadedDynamicTools.clear();
+  }
+
+  /**
+   * Plain schema snapshot of a loadable dynamic tool, read from the live
+   * registry (never from history) at injection time.
+   */
+  getDynamicToolSchema(name: string): Tool | undefined {
+    const userTool =
+      this.deferredUserTools.has(name) && this.isExactToolEnabled(name)
+        ? this.userTools.get(name)
+        : undefined;
+    const mcpTool = this.isMcpToolEnabled(name) ? this.mcpTools.get(name)?.tool : undefined;
+    const tool = userTool ?? mcpTool;
+    if (tool === undefined) return undefined;
+    return {
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters,
+    };
+  }
+
+  /**
+   * Disclosure-mode wording for a tool-call preflight miss. A loaded tool
+   * whose server dropped is a different situation from a never-announced name;
+   * telling them apart stops the model from re-selecting a disconnected tool
+   * in a loop or treating a transient disconnect as a permanent removal.
+   */
+  missingToolMessage(name: string): string | undefined {
+    if (!this.progressiveDisclosure) return undefined;
+    const registered = this.loadableDynamicToolNames().includes(name);
+    const loaded = this.allLoadedDynamicToolNames().has(name);
+    if (registered && !loaded) {
+      return (
+        `Tool "${name}" is available but not loaded. ` +
+        `Call select_tools with ["${name}"] first, then call the tool.`
+      );
+    }
+    if (!registered && loaded && isMcpToolName(name)) {
+      return (
+        `Tool "${name}" was loaded but its MCP server is currently disconnected. ` +
+        'It may become available again when the server reconnects; do not retry immediately.'
+      );
+    }
+    if (!registered && loaded) {
+      return (
+        `Tool "${name}" was loaded but is no longer registered or active. ` +
+        'Do not retry it unless it becomes available again.'
+      );
+    }
+    return undefined;
   }
 
   *toolInfos(): Iterable<ToolInfo> {
@@ -372,18 +735,23 @@ export class ToolManager {
       yield {
         name: tool.name,
         description: tool.description,
-        active: this.enabledTools.has(tool.name),
+        // select_tools is always registered but only offered while the
+        // disclosure gate is open and the denylist does not name it (see
+        // loopTools); report that live state.
+        active:
+          this.isExactToolEnabled(tool.name) ||
+          (tool.name === b.SELECT_TOOLS_TOOL_NAME &&
+            this.agent.toolSelectEnabled &&
+            !this.disabledTools.has(tool.name)),
         source: 'builtin',
-        inputSchema: tool.parameters,
       };
     }
     for (const tool of this.userTools.values()) {
       yield {
         name: tool.name,
         description: tool.description,
-        active: this.enabledTools.has(tool.name),
+        active: this.isExactToolEnabled(tool.name),
         source: 'user',
-        inputSchema: tool.parameters,
       };
     }
     for (const entry of this.mcpTools.values()) {
@@ -392,47 +760,12 @@ export class ToolManager {
         description: entry.tool.description,
         active: this.isMcpToolEnabled(entry.tool.name),
         source: 'mcp',
-        mcpServerId: entry.serverName,
-        inputSchema: entry.tool.parameters,
       };
     }
   }
 
   data(): readonly ToolInfo[] {
     return Array.from(this.toolInfos());
-  }
-
-  getBuiltinTool(name: string): ExecutableTool | undefined {
-    return this.builtinTools.get(name);
-  }
-
-  getSkillShellTool(shell: unknown): ExecutableTool {
-    if (
-      shell === 'powershell' &&
-      this.agent.kaos.osEnv.osKind === 'Windows' &&
-      this.agent.experimentalFlags.enabled('powershell')
-    ) {
-      return (
-        this.getBuiltinTool('PowerShell') ??
-        new b.PowerShellTool(this.agent.kaos, this.agent.config.cwd, undefined, {
-          allowBackground: false,
-        })
-      );
-    }
-    return (
-      this.getBuiltinTool('Bash') ??
-      new b.BashTool(this.agent.kaos, this.agent.config.cwd, undefined, {
-        allowBackground: false,
-      })
-    );
-  }
-
-  contextFiles(): readonly string[] {
-    return [...this.fileReadState.keys()].toSorted();
-  }
-
-  invalidateFileReadState(paths: readonly string[]): void {
-    for (const path of paths) this.fileReadState.delete(path);
   }
 
   storeData(): Readonly<Record<string, unknown>> {
@@ -450,106 +783,56 @@ export class ToolManager {
     const workspace = extendWorkspaceWithSkillRoots(
       {
         workspaceDir: cwd,
-        additionalDirs: this.agent.additionalDirs,
+        additionalDirs: this.agent.getAdditionalDirs(),
       },
       this.agent.skills?.registry.getSkillRoots() ?? [],
     );
     const allowBackground =
-      this.enabledTools.has('TaskList') &&
-      this.enabledTools.has('TaskOutput') &&
-      this.enabledTools.has('TaskStop');
+      this.isExactToolEnabled('TaskList') &&
+      this.isExactToolEnabled('TaskOutput') &&
+      this.isExactToolEnabled('TaskStop');
     const goalToolsEnabled = this.agent.type === 'main';
-    const mcp = this.agent.mcp;
-    const mcpResourcesEnabled = this.hasMcpResourceServer(mcp);
-    const taskGraphEnabled =
-      this.agent.taskGraph !== undefined &&
-      this.agent.experimentalFlags.enabled('task_graph');
-    const teamsEnabled =
-      this.agent.team !== undefined &&
-      this.agent.experimentalFlags.enabled('agent_teams');
-    const worktreeEnabled =
-      this.agent.type === 'main' &&
-      this.agent.worktree !== undefined &&
-      this.agent.experimentalFlags.enabled('worktree_mode');
-    const powerShellEnabled =
-      kaos.osEnv.osKind === 'Windows' &&
-      this.agent.experimentalFlags.enabled('powershell');
-    const lspEnabled =
-      this.agent.lsp !== undefined &&
-      this.agent.lsp.hasServers &&
-      this.agent.experimentalFlags.enabled('lsp');
-    const dynamicWorkflowEnabled = !isDynamicWorkflowDisabled(this.agent.pythinkerConfig);
-    const workflowSizeGuideline = resolveWorkflowSizeGuideline(this.agent.pythinkerConfig);
-    const builtinTools = new Map(
+    this.builtinTools = new Map(
       [
-        new b.ReadTool(kaos, workspace, this.fileReadState),
-        new b.WriteTool(
-          kaos,
-          workspace,
-          this.fileReadState,
-          (path) => this.agent.captureFileBeforeWrite(path),
-        ),
-        new b.EditTool(
-          kaos,
-          workspace,
-          this.fileReadState,
-          (path) => this.agent.captureFileBeforeWrite(path),
-        ),
-        new b.NotebookEditTool(
-          kaos,
-          workspace,
-          this.fileReadState,
-          (path) => this.agent.captureFileBeforeWrite(path),
-        ),
-        new b.GrepTool(kaos, workspace),
-        new b.GlobTool(kaos, workspace),
+        new b.ReadTool(kaos, workspace),
+        new b.WriteTool(kaos, workspace),
+        new b.EditTool(kaos, workspace),
+        new b.GrepTool(kaos, workspace, this.agent.telemetry),
+        new b.GlobTool(kaos, workspace, this.agent.telemetry),
         new b.BashTool(kaos, cwd, background, {
           allowBackground,
+          autoBackgroundOnTimeout:
+            this.agent.pythinkerConfig?.background?.bashAutoBackgroundOnTimeout ?? true,
+          backgroundTimeoutS: this.agent.pythinkerConfig?.background?.bashTaskTimeoutS,
         }),
-        powerShellEnabled &&
-          new b.PowerShellTool(kaos, cwd, background, {
-            allowBackground,
-          }),
-        lspEnabled && new b.LspTool(kaos, workspace, this.agent.lsp!),
         (modelCapabilities.image_in || modelCapabilities.video_in) &&
-          new b.ReadMediaFileTool(kaos, workspace, modelCapabilities, videoUploader),
+          new b.ReadMediaFileTool(
+            kaos,
+            workspace,
+            modelCapabilities,
+            videoUploader,
+            this.agent.telemetry,
+            this.agent.imageLimits,
+          ),
         new b.EnterPlanModeTool(this.agent),
         new b.ExitPlanModeTool(this.agent),
-        worktreeEnabled && new b.EnterWorktreeTool(this.agent.worktree!, this.agent),
-        worktreeEnabled && new b.ExitWorktreeTool(this.agent.worktree!, this.agent),
+        // Registered unconditionally: the tool-select flag can flip at runtime
+        // (config reload calls setConfigOverrides) without this method
+        // re-running, so registration must not depend on the gate — exposure
+        // is decided per step in loopTools instead. Deliberately not
+        // main-only: subagents run their own disclosure and need select_tools
+        // just as much.
+        new b.SelectToolsTool(this.agent),
         // Goal tools are main-agent-only.
         goalToolsEnabled && new b.CreateGoalTool(this.agent),
         goalToolsEnabled && new b.GetGoalTool(this.agent),
         goalToolsEnabled && new b.SetGoalBudgetTool(this.agent),
         goalToolsEnabled && new b.UpdateGoalTool(this.agent),
-        mcpResourcesEnabled && mcp && new b.ListMcpResourcesTool(mcp),
-        mcpResourcesEnabled && mcp && new b.ReadMcpResourceTool(mcp, kaos),
         this.agent.rpc?.requestQuestion && new b.AskUserQuestionTool(this.agent),
-        goalToolsEnabled &&
-          toolServices?.configStore &&
-          new b.ConfigTool(toolServices.configStore, this.agent),
-        new b.TodoListTool(this.toolStore, this.agent.type === 'main'),
-        taskGraphEnabled
-          ? new b.TaskGraphListTool(this.agent.taskGraph!, background)
-          : new b.TaskListTool(background),
+        new b.TodoListTool(this.toolStore),
+        new b.TaskListTool(background),
         new b.TaskOutputTool(background),
         new b.TaskStopTool(background),
-        taskGraphEnabled &&
-          new b.TaskCreateTool(this.agent.taskGraph!, this.agent.hooks, this.agent.agentId),
-        taskGraphEnabled && new b.TaskGetTool(this.agent.taskGraph!),
-        taskGraphEnabled &&
-          new b.TaskUpdateTool(
-            this.agent.taskGraph!,
-            this.agent.team,
-            this.agent.agentId,
-            this.agent.type === 'main',
-            this.agent.hooks,
-          ),
-        teamsEnabled &&
-          this.agent.type === 'main' &&
-          new b.TeamCreateTool(this.agent.team!, this.agent.config.modelAlias ?? 'unknown'),
-        teamsEnabled && this.agent.type === 'main' && new b.TeamDeleteTool(this.agent.team!),
-        teamsEnabled && new b.SendMessageTool(this.agent.team!, this.agent.agentId),
         this.agent.cron && new b.CronCreateTool(this.agent.cron),
         this.agent.cron && new b.CronListTool(this.agent.cron),
         this.agent.cron && new b.CronDeleteTool(this.agent.cron),
@@ -558,74 +841,53 @@ export class ToolManager {
         this.agent.subagentHost &&
           new b.AgentTool(
             this.agent.subagentHost,
-            allowBackground ? background : undefined,
-            this.agent.subagentHost.getProfiles(),
+            background,
+            this.agent.subagentHost.delegatableSubagents(this.agent.config.profileName),
             {
+              allowBackground,
               log: this.agent.log,
-              forkContextEnabled: this.agent.experimentalFlags.enabled('agent_fork_context'),
-              teamsEnabled,
-              team: this.agent.team,
-              agentId: this.agent.agentId,
-              modelAlias: this.agent.config.modelAlias,
+              subagentTimeoutMs: resolveSubagentTimeoutMs(this.agent.pythinkerConfig?.subagent?.timeoutMs),
+              showModelPreferences: this.agent.experimentalFlags.enabled('secondary-model'),
+              modelChoiceEnabled: this.agent.experimentalFlags.enabled('secondary-model'),
+              subagentModelDescription: buildSubagentModelDescriptions(
+                this.agent.pythinkerConfig,
+                this.agent.experimentalFlags,
+                this.agent.config.modelAlias,
+              ),
             },
           ),
         this.agent.subagentHost &&
-          dynamicWorkflowEnabled &&
-          new b.DynamicWorkflowTool(
+          new b.AgentDynamicWorkflowTool(
             this.agent.subagentHost,
             this.agent.dynamicWorkflowMode,
-            workflowSizeGuideline,
-            (event) => this.agent.emitEvent(event),
+            resolveSubagentTimeoutMs(this.agent.pythinkerConfig?.subagent?.timeoutMs),
+            buildSubagentModelDescriptions(
+              this.agent.pythinkerConfig,
+              this.agent.experimentalFlags,
+              this.agent.config.modelAlias,
+            ),
+            this.agent.experimentalFlags.enabled('secondary-model'),
           ),
         toolServices?.webSearcher && new b.WebSearchTool(toolServices.webSearcher),
-        toolServices?.urlFetcher && new b.FetchURLTool(toolServices.urlFetcher, kaos),
+        toolServices?.urlFetcher && new b.FetchURLTool(toolServices.urlFetcher),
       ]
         .filter((tool) => !!tool)
         .map((tool) => [tool.name, tool] as const),
     );
-    for (const name of builtinTools.keys()) {
-      this.logBuiltinToolCollision(name);
-    }
-    this.builtinTools = builtinTools;
-  }
-
-  private logBuiltinToolCollision(name: string): void {
-    const existing = this.userTools.has(name)
-      ? 'user'
-      : this.mcpTools.has(name)
-        ? 'mcp'
-        : undefined;
-    if (existing === undefined) return;
-    this.agent.log.error('tool name collision', { name, existing, incoming: 'builtin' });
-  }
-
-  private hasMcpResourceServer(mcp: McpConnectionManager | undefined): boolean {
-    return (
-      mcp?.list().some(
-        (entry) =>
-          entry.status === 'connected' &&
-          mcp.resolved(entry.name)?.client.supportsResources?.() === true,
-      ) ?? false
-    );
-  }
-
-  private syncMcpResourceTools(mcp: McpConnectionManager): void {
-    if (this.hasMcpResourceServer(mcp)) {
-      this.logBuiltinToolCollision('ListMcpResourcesTool');
-      this.builtinTools.set('ListMcpResourcesTool', new b.ListMcpResourcesTool(mcp));
-      this.logBuiltinToolCollision('ReadMcpResourceTool');
-      this.builtinTools.set(
-        'ReadMcpResourceTool',
-        new b.ReadMcpResourceTool(mcp, this.agent.kaos),
-      );
-      return;
-    }
-    this.builtinTools.delete('ListMcpResourcesTool');
-    this.builtinTools.delete('ReadMcpResourceTool');
   }
 
   refreshBuiltinTools(): void {
     this.initializeBuiltinTools();
+  }
+
+  /**
+   * Uploader bound to the agent's current provider, for media that arrives
+   * outside a tool call (e.g. a video attached to a prompt). `undefined`
+   * when no model is bound or the provider has no video upload channel.
+   */
+  videoUploader(): b.VideoUploader | undefined {
+    if (!this.agent.config.hasProvider) return undefined;
+    return this.createVideoUploader(this.agent.config.provider);
   }
 
   private createVideoUploader(provider: ChatProvider): b.VideoUploader | undefined {
@@ -636,27 +898,130 @@ export class ToolManager {
     const withAuth = this.agent.modelProvider?.resolveAuth?.(modelAlias, {
       log: this.agent.log,
     });
-    if (withAuth === undefined) return (input) => uploadVideo(input);
-    return (input) => withAuth((auth) => uploadVideo(input, { auth }));
+    const baseProps = this.videoUploadTelemetryProps(modelAlias);
+    const upload =
+      withAuth === undefined
+        ? (input: b.VideoUploadInput, signal?: AbortSignal) => uploadVideo(input, { signal })
+        : (input: b.VideoUploadInput, signal?: AbortSignal) =>
+            withAuth((auth) => uploadVideo(input, { auth, signal }));
+
+    return async (input, options) => {
+      const startedAt = Date.now();
+      const base = {
+        ...baseProps,
+        mime_type: input.mimeType,
+        size_bytes: input.data.length,
+      };
+      const track = (props: Record<string, string | number | boolean | undefined>): void => {
+        try {
+          this.agent.telemetry.track('video_upload', props);
+        } catch {
+          // Telemetry must never affect the upload outcome.
+        }
+      };
+      try {
+        const part = await upload(input, options?.signal);
+        track({ ...base, outcome: 'success', duration_ms: Date.now() - startedAt });
+        return part;
+      } catch (error) {
+        track({
+          ...base,
+          outcome: 'error',
+          duration_ms: Date.now() - startedAt,
+          error_type: error instanceof Error ? error.name : 'Unknown',
+        });
+        throw error;
+      }
+    };
+  }
+
+  private videoUploadTelemetryProps(modelAlias: string): {
+    provider_type?: string;
+    protocol?: string;
+    model: string;
+  } {
+    try {
+      const resolved = this.agent.modelProvider?.resolveProviderConfig(modelAlias);
+      if (resolved === undefined) return { model: modelAlias };
+      return {
+        model: modelAlias,
+        provider_type: resolved.type,
+        protocol: resolved.protocol ?? resolved.type,
+      };
+    } catch {
+      return { model: modelAlias };
+    }
   }
 
   get loopTools(): readonly ExecutableTool[] {
     if (this.loopToolsOverride !== undefined) return this.loopToolsOverride;
-    const mcpNames = [...this.mcpTools.keys()].filter((name) => this.isMcpToolEnabled(name));
-    // Mutation goal tools are only offered to the model while a goal exists.
-    const hideGoalMutationTools = this.agent.goal.getGoal().goal === null;
-    return uniq([...this.enabledTools, ...mcpNames])
+    // Self-heal an empty builtin table. The constructor and every config-
+    // mutation checkpoint gate initializeBuiltinTools() on hasProvider, but a
+    // provider that becomes resolvable asynchronously (OAuth / managed
+    // free-tokens model registration) trips none of them — without this the
+    // agent runs with zero tools while the system prompt still advertises them.
+    // loopTools is re-read before every step, so the table is populated on the
+    // first step after the provider resolves. Steady state short-circuits on
+    // `builtinTools.size === 0`, so hasProvider is not evaluated per read.
+    if (this.builtinTools.size === 0 && this.agent.config.hasProvider) {
+      try {
+        this.initializeBuiltinTools();
+      } catch (error) {
+        this.agent.log.warn('lazy initializeBuiltinTools failed; will retry on next read', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    const disclosure = this.progressiveDisclosure;
+    const enabledMcpNames = [...this.mcpTools.keys()].filter((name) =>
+      this.isMcpToolEnabled(name),
+    );
+    // Progressive disclosure splits "the model can see this tool" from "the
+    // core can execute it": the top-level request view stays the immutable
+    // core set + select_tools, while loaded dynamic tools join the executable
+    // table as deferred extras — dispatchable, but stripped from the outbound
+    // top-level tools[] by kosong generate(). With disclosure off this is the
+    // inline behavior, byte for byte.
+    const loadedSet = disclosure ? this.loadedDynamicToolNames() : undefined;
+    const enabledNames =
+      loadedSet === undefined
+        ? [...this.enabledTools].filter((name) => !this.disabledTools.has(name))
+        : [...this.enabledTools].filter(
+            (name) =>
+              !this.disabledTools.has(name) &&
+              (!this.deferredUserTools.has(name) || loadedSet.has(name)),
+          );
+    const mcpNames =
+      loadedSet === undefined
+        ? enabledMcpNames
+        : enabledMcpNames.filter((name) => loadedSet.has(name));
+    // The disclosure gate decides exposure, but the denylist still wins: a
+    // profile disallowedTools entry naming select_tools keeps it out of the
+    // table (mirrors agent-core-v2 isToolActiveForDisclosure, which applies
+    // the deny layers but not the allowlist to select_tools).
+    const selectToolsName =
+      disclosure && !this.disabledTools.has(b.SELECT_TOOLS_TOOL_NAME)
+        ? [b.SELECT_TOOLS_TOOL_NAME]
+        : [];
+    return uniq([...enabledNames, ...selectToolsName, ...mcpNames])
       .toSorted((a, b) => a.localeCompare(b))
-      .filter(
-        (name) =>
-          !(hideGoalMutationTools && (name === 'SetGoalBudget' || name === 'UpdateGoal')),
-      )
-      .map(
-        (name) =>
+      // select_tools is exposed exclusively through the disclosure gate — a
+      // profile or setActiveTools listing the name explicitly must not
+      // surface it in inline mode (it was silently dropped back when
+      // registration itself was gated; keep that contract).
+      .filter((name) => disclosure || name !== b.SELECT_TOOLS_TOOL_NAME)
+      .map((name) => {
+        const tool =
           this.userTools.get(name) ??
           this.mcpTools.get(name)?.tool ??
-          this.builtinTools.get(name),
-      )
+          this.builtinTools.get(name);
+        if (tool === undefined) return undefined;
+        const deferred =
+          disclosure && (this.mcpTools.has(name) || this.deferredUserTools.has(name));
+        // Dynamic entries are plain object literals, so the spread keeps the
+        // execution closure intact while adding the wire-strip marker.
+        return deferred ? { ...tool, deferred: true as const } : tool;
+      })
       .filter((tool) => !!tool);
   }
 }

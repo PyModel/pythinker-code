@@ -1,126 +1,104 @@
-/**
- * EffortSelector — small list dialog for picking the thinking effort level of
- * the current model (mounted by `/effort` with no argument). Follows the
- * standard list-dialog layout in .agents/skills/write-tui/DESIGN.md.
- */
-
 import {
   Container,
   Key,
   matchesKey,
   truncateToWidth,
+  wrapTextWithAnsi,
   type Focusable,
-} from '@earendil-works/pi-tui';
+} from '@pymodel/pi-tui';
 
-import { CURRENT_MARK, SELECT_POINTER } from '#/tui/constant/symbols';
-import { combinedBindingHint, formatBindingKeys } from '#/tui/components/dialogs/choice-picker';
-import {
-  defaultKeybindings,
-  keybindingDisplayText,
-  KeybindingResolver,
-  type ParsedKeybinding,
-} from '#/tui/keybindings';
+import type { ThinkingEffort } from '@pymodel/pythinker-code-sdk';
+
 import { currentTheme } from '#/tui/theme';
-import { SearchableList } from '#/tui/utils/searchable-list';
+
+import { effortLabel } from './model-selector';
 
 export interface EffortSelectorOptions {
-  /** Selectable effort levels for the current model, in order. */
-  readonly levels: readonly string[];
-  /** Effort level currently in effect (gets the trailing current marker). */
-  readonly currentValue: string;
-  /** Current model display name, shown as the title suffix. */
-  readonly modelName: string;
-  readonly onSelect: (effort: string) => void;
+  readonly title?: string;
+  /** Selectable thinking efforts for the current model (e.g. ["off","low","high","max"]). */
+  readonly efforts: readonly ThinkingEffort[];
+  /** Currently active effort (highlighted). */
+  readonly currentValue: ThinkingEffort;
+  readonly onSelect: (effort: ThinkingEffort) => void;
+  /** When provided, Alt+S applies the choice to the current session only. */
+  readonly onSessionOnlySelect?: (effort: ThinkingEffort) => void;
   readonly onCancel: () => void;
+  /** When set, rendered as warning-colored lines directly below the key-hint
+   * line; wraps instead of truncating when it exceeds the width (e.g. the
+   * mid-conversation switch cost notice). */
+  readonly warning?: string;
 }
 
+/**
+ * Horizontal segmented picker for the `/effort` command.
+ *
+ * Mirrors the thinking control rendered under `/model` (see
+ * `renderThinkingControl` in model-selector.ts): a single row of segments,
+ * the active one wrapped in `[ ]`. ←/→ step the active segment, Enter
+ * commits, and Alt+S (when provided) applies session-only.
+ */
 export class EffortSelectorComponent extends Container implements Focusable {
   focused = false;
   private readonly opts: EffortSelectorOptions;
-  private readonly list: SearchableList<string>;
-  private bindings = defaultKeybindings();
-  private keybindings = new KeybindingResolver(this.bindings);
+  private activeIndex: number;
 
   constructor(opts: EffortSelectorOptions) {
     super();
     this.opts = opts;
-    const currentIdx = opts.levels.indexOf(opts.currentValue);
-    this.list = new SearchableList({
-      items: opts.levels,
-      toSearchText: (level) => level,
-      initialIndex: Math.max(currentIdx, 0),
-      searchable: false,
-    });
-  }
-
-  setKeybindings(bindings: readonly ParsedKeybinding[]): void {
-    this.bindings = bindings;
-    this.keybindings = new KeybindingResolver(bindings);
+    const idx = opts.efforts.indexOf(opts.currentValue);
+    this.activeIndex = Math.max(idx, 0);
   }
 
   handleInput(data: string): void {
-    const handlers = {
-      'select:previous': () => this.list.moveUp(),
-      'select:next': () => this.list.moveDown(),
-      'select:accept': () => {
-        const selected = this.list.selected();
-        if (selected !== undefined) this.opts.onSelect(selected);
-      },
-      'select:cancel': () => this.opts.onCancel(),
-    } as const;
-    if (
-      this.keybindings.dispatch(data, ['Select'], handlers) ||
-      this.keybindings.dispatchKeyId(data, ['Select'], handlers)
-    ) return;
-    if (matchesKey(data, Key.pageUp)) {
-      this.list.pageUp();
+    if (matchesKey(data, Key.escape)) {
+      this.opts.onCancel();
       return;
     }
-    if (matchesKey(data, Key.pageDown)) {
-      this.list.pageDown();
+    if (matchesKey(data, Key.left)) {
+      this.activeIndex = Math.max(0, this.activeIndex - 1);
+      return;
+    }
+    if (matchesKey(data, Key.right)) {
+      this.activeIndex = Math.min(this.opts.efforts.length - 1, this.activeIndex + 1);
+      return;
+    }
+    if (matchesKey(data, Key.alt('s')) && this.opts.onSessionOnlySelect !== undefined) {
+      this.opts.onSessionOnlySelect(this.opts.efforts[this.activeIndex]!);
+      return;
+    }
+    if (matchesKey(data, Key.enter)) {
+      this.opts.onSelect(this.opts.efforts[this.activeIndex]!);
+      return;
     }
   }
 
   override render(width: number): string[] {
-    const view = this.list.view();
+    const hintParts = ['←→ switch', 'Enter select'];
+    if (this.opts.onSessionOnlySelect !== undefined) hintParts.push('Alt+S session-only');
+    hintParts.push('Esc cancel');
+
     const lines: string[] = [
       currentTheme.fg('primary', '─'.repeat(width)),
-      currentTheme.boldFg('primary', ' Thinking effort') +
-        currentTheme.fg('textMuted', `  ${this.opts.modelName}`),
-      currentTheme.fg('textMuted', ` ${this.bindingHints().join(' · ')}`),
-      '',
+      currentTheme.boldFg('primary', ` ${this.opts.title ?? 'Select thinking effort'}`),
+      currentTheme.fg('textMuted', ` ${hintParts.join(' · ')}`),
     ];
-
-    for (let i = view.page.start; i < view.page.end; i++) {
-      const level = view.items[i];
-      if (level === undefined) continue;
-      const isSelected = i === view.selectedIndex;
-      const isCurrent = level === this.opts.currentValue;
-      const pointer = isSelected ? SELECT_POINTER : ' ';
-      let line = currentTheme.fg(isSelected ? 'primary' : 'textDim', `  ${pointer} `);
-      line += isSelected ? currentTheme.boldFg('primary', level) : currentTheme.fg('text', level);
-      if (isCurrent) {
-        line += ' ' + currentTheme.fg('success', CURRENT_MARK);
+    if (this.opts.warning !== undefined) {
+      for (const line of wrapTextWithAnsi(this.opts.warning, Math.max(1, width - 1))) {
+        lines.push(currentTheme.fg('warning', ` ${line}`));
       }
-      lines.push(line);
     }
+    lines.push('');
 
-    lines.push('', currentTheme.fg('primary', '─'.repeat(width)));
+    const segments = this.opts.efforts.map((effort, index) => {
+      const label = effortLabel(effort);
+      return index === this.activeIndex
+        ? currentTheme.boldFg('primary', `[ ${label} ]`)
+        : currentTheme.fg('text', `  ${label}  `);
+    });
+    lines.push(`  ${segments.join('  ')}`);
+
+    lines.push('');
+    lines.push(currentTheme.fg('primary', '─'.repeat(width)));
     return lines.map((line) => truncateToWidth(line, width));
-  }
-
-  private bindingHints(): string[] {
-    const navigation = combinedBindingHint(
-      keybindingDisplayText(this.bindings, 'Select', 'select:previous'),
-      keybindingDisplayText(this.bindings, 'Select', 'select:next'),
-      'navigate',
-    );
-    const accept = keybindingDisplayText(this.bindings, 'Select', 'select:accept');
-    const cancel = keybindingDisplayText(this.bindings, 'Select', 'select:cancel');
-    return [
-      navigation,
-      accept === undefined ? undefined : `${formatBindingKeys(accept)} select`,
-      cancel === undefined ? undefined : `${formatBindingKeys(cancel)} cancel`,
-    ].filter((hint): hint is string => hint !== undefined);
   }
 }

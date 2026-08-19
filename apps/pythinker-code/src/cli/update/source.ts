@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 import { join, resolve } from 'node:path';
 
 import { getHostPackageRoot } from '#/cli/version';
+import { resolveCommandPath } from '#/utils/process/resolve-command';
 
 import { NPM_PACKAGE_NAME, type InstallSource } from './types';
 
@@ -76,30 +77,26 @@ function npmCommand(platform: NodeJS.Platform): string {
   return platform === 'win32' ? 'npm.cmd' : 'npm';
 }
 
-function execFileText(
-  command: string,
-  args: readonly string[],
-  platform: NodeJS.Platform = process.platform,
-): Promise<string> {
-  // `npm.cmd` cannot be spawned directly on Node ≥18.20/20.12
-  // (CVE-2024-27980): it fails with EINVAL, and every npm-family Windows
-  // install then classifies as `unsupported` and never auto-updates.
-  const viaInterpreter = platform === 'win32' && command.toLowerCase().endsWith('.cmd');
-  const spawnCommand = viaInterpreter ? process.env['ComSpec'] ?? 'cmd.exe' : command;
-  const spawnArgs = viaInterpreter ? ['/d', '/s', '/c', command, ...args] : [...args];
+// The install-source detection runs before the workspace trust gate, so the
+// npm binary must be resolved through PATH to an absolute path — a bare name
+// would let cmd.exe pick up an `npm.cmd` planted in the current directory.
+function npmGlobalPrefix(platform: NodeJS.Platform): Promise<string> {
+  const resolved = resolveCommandPath(npmCommand(platform));
+  if (resolved === undefined) {
+    return Promise.reject(new Error('npm was not found in PATH'));
+  }
+  return execFileText(resolved, ['prefix', '-g']).then((text) => text.trim());
+}
+
+function execFileText(command: string, args: readonly string[]): Promise<string> {
   return new Promise((resolveOutput, reject) => {
-    execFile(
-      spawnCommand,
-      spawnArgs,
-      { encoding: 'utf-8', windowsHide: true },
-      (error, stdout) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-        resolveOutput(stdout);
-      },
-    );
+    execFile(command, [...args], { encoding: 'utf-8' }, (error, stdout) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolveOutput(stdout);
+    });
   });
 }
 
@@ -155,22 +152,14 @@ export async function detectInstallSource(
     getPackageRoot: deps.getPackageRoot ?? getHostPackageRoot,
     getGlobalPrefix:
       deps.getGlobalPrefix ??
-      (() =>
-        execFileText(npmCommand(platform), ['prefix', '-g'], platform).then((text) => text.trim())),
+      (() => npmGlobalPrefix(platform)),
     detectNative: deps.detectNative ?? detectNativeInstall,
     platform,
   };
 
   if (resolved.detectNative()) return 'native';
 
-  // A layout with no reachable `package.json` cannot be classified, and this
-  // runs on every launch — it reports "unsupported" rather than throwing.
-  let packageRoot: string;
-  try {
-    packageRoot = resolved.getPackageRoot();
-  } catch {
-    return 'unsupported';
-  }
+  const packageRoot = resolved.getPackageRoot();
   const heuristic = classifyByPathHeuristic(packageRoot);
   if (heuristic !== null) return heuristic;
 

@@ -11,7 +11,7 @@ export class PlanModeGuardDenyPermissionPolicy implements PermissionPolicy {
     if (!this.agent.planMode.isActive) return;
 
     const toolName = context.toolCall.name;
-    if (toolName === 'Write' || toolName === 'Edit' || toolName === 'NotebookEdit') {
+    if (toolName === 'Write' || toolName === 'Edit') {
       const planFilePath = this.agent.planMode.planFilePath;
       if (planFilePath === null) {
         return {
@@ -33,13 +33,6 @@ export class PlanModeGuardDenyPermissionPolicy implements PermissionPolicy {
         kind: 'deny',
         message:
           'TaskStop is not available in plan mode. Call ExitPlanMode to exit plan mode before stopping a background task.',
-      };
-    }
-
-    if (toolName === 'EnterWorktree' || toolName === 'ExitWorktree') {
-      return {
-        kind: 'deny',
-        message: `${toolName} is not available in plan mode. Call ExitPlanMode first.`,
       };
     }
 

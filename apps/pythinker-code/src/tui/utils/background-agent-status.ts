@@ -17,7 +17,7 @@ function normalizeBackgroundField(value: string | undefined): string | undefined
 export function formatBackgroundAgentTranscript(
   phase: BackgroundAgentStatusPhase,
   meta: BackgroundAgentMetadata,
-  extras?: { resultSummary?: string; error?: string },
+  extras: { resultSummary?: string; error?: string } | undefined = undefined,
 ): BackgroundAgentStatusData {
   const normalizedAgentName = normalizeBackgroundField(meta.agentName);
   const subject = normalizedAgentName !== undefined ? `${normalizedAgentName} agent` : 'agent';
@@ -28,9 +28,12 @@ export function formatBackgroundAgentTranscript(
         ? `${subject} completed in background`
         : `${subject} failed in background`;
   const tail = phase === 'failed' ? normalizeBackgroundField(extras?.error) : undefined;
-  const detailParts = [normalizeBackgroundField(meta.description), tail].filter(
-    (part): part is string => part !== undefined,
-  );
+  const detailParts = [
+    normalizeBackgroundField(meta.model),
+    normalizeBackgroundField(meta.effort),
+    normalizeBackgroundField(meta.description),
+    tail,
+  ].filter((part): part is string => part !== undefined);
 
   return {
     phase,

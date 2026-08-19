@@ -11,8 +11,8 @@ import {
   InMemoryAgentRecordPersistence,
 } from '../../src/agent/records';
 import { limitAgentReplayByTurns } from '../../src/agent/replay/turns';
-import { BackgroundTaskPersistence } from '../../src/agent/background';
 import type { AgentReplayRecord } from '../../src/rpc/resumed';
+import { BackgroundTaskPersistence } from '../../src/agent/background';
 import { createFakeKaos } from '../tools/fixtures/fake-kaos';
 import { testAgent } from './harness/agent';
 import { DEFAULT_TEST_SYSTEM_PROMPT } from './harness/snapshots';
@@ -82,7 +82,8 @@ describe('Agent resume', () => {
         system: <system-prompt>
         tools: Bash
         messages:
-          assistant: text "Historical compacted summary."
+          user: text "Historical prompt"
+          user: text "Historical compacted summary."
           user: text "Fresh prompt after resume"
           user: text <plan-mode-reminder>
     `);
@@ -229,21 +230,43 @@ describe('Agent resume', () => {
     await ctx.expectResumeMatches();
   });
 
-  it('rejects incompatible persisted wire before restoring agent state', async () => {
+  it('applies wire migrations while replaying persisted records', async () => {
     const persistence = new RecordingAgentPersistence([
       {
         type: 'metadata',
-        protocol_version: '1.4',
+        protocol_version: '1.0',
         created_at: 1,
       },
-      { type: 'dynamic_workflow_mode.enter', trigger: 'manual', time: 2 },
+      {
+        type: 'context.append_message',
+        message: {
+          role: 'assistant',
+          content: [],
+          toolCalls: [
+            {
+              type: 'function',
+              id: 'call_legacy_bash',
+              function: {
+                name: 'Bash',
+                arguments: '{"command":"pwd"}',
+              },
+            },
+          ],
+        },
+      } as unknown as AgentRecord,
     ]);
     const ctx = testAgent({ persistence });
 
-    await expect(ctx.agent.resume()).rejects.toThrow(
-      'Unsupported agent wire protocol version 1.4; expected 2.0',
-    );
-    expect(ctx.agent.dynamicWorkflowMode.isActive).toBe(false);
+    await ctx.agent.resume();
+
+    const toolCall = ctx.agent.context.messages[0]?.toolCalls[0] as
+      | { name?: string; arguments?: string | null; function?: unknown }
+      | undefined;
+    expect(toolCall).toMatchObject({
+      name: 'Bash',
+      arguments: '{"command":"pwd"}',
+    });
+    expect(toolCall?.function).toBeUndefined();
   });
 
   it('keeps delivered background notifications indexed after compaction replay', async () => {
@@ -308,14 +331,6 @@ describe('Agent resume', () => {
       {
         type: 'context.append_message',
         message: {
-          role: 'assistant',
-          content: [{ type: 'text', text: 'Preserved context' }],
-          toolCalls: [],
-        },
-      },
-      {
-        type: 'context.append_message',
-        message: {
           role: 'user',
           content: [{ type: 'text', text: 'Historical prompt before compaction' }],
           toolCalls: [],
@@ -333,7 +348,6 @@ describe('Agent resume', () => {
       {
         type: 'context.apply_compaction',
         summary: 'Compacted implementation notes.',
-        startIndex: 1,
         compactedCount: 1,
         tokensBefore: 120,
         tokensAfter: 24,
@@ -345,23 +359,16 @@ describe('Agent resume', () => {
 
     expect(ctx.agent.context.history).toEqual([
       expect.objectContaining({
-        role: 'assistant',
-        content: [{ type: 'text', text: 'Preserved context' }],
+        role: 'user',
+        content: [{ type: 'text', text: 'Historical prompt before compaction' }],
       }),
       expect.objectContaining({
-        role: 'assistant',
+        role: 'user',
         content: [{ type: 'text', text: 'Compacted implementation notes.' }],
         origin: { kind: 'compaction_summary' },
       }),
     ]);
     expect(ctx.agent.replayBuilder.buildResult()).toEqual([
-      expect.objectContaining({
-        type: 'message',
-        message: expect.objectContaining({
-          role: 'assistant',
-          content: [{ type: 'text', text: 'Preserved context' }],
-        }),
-      }),
       expect.objectContaining({
         type: 'message',
         message: expect.objectContaining({
@@ -373,14 +380,104 @@ describe('Agent resume', () => {
         type: 'compaction',
         result: {
           summary: 'Compacted implementation notes.',
-          startIndex: 1,
+          contextSummary: 'Compacted implementation notes.',
           compactedCount: 1,
           tokensBefore: 120,
           tokensAfter: 24,
+          keptUserMessageCount: 1,
         },
         instruction: 'preserve implementation notes',
       }),
     ]);
+  });
+
+  it('keeps a legacy mid-tool-exchange cut faithful but projects it wire-valid', async () => {
+    // A pre-rework compaction record (no `keptUserMessageCount`) restores via the
+    // legacy path, which keeps a verbatim tail `history.slice(compactedCount)`.
+    // Here the cut (compactedCount=2) lands *between* the assistant `tool_call`
+    // and its result, so the retained tail starts with a `tool` message whose
+    // assistant was summarized away — a wire-invalid orphan a strict provider
+    // (OpenAI / DeepSeek) rejects with "role 'tool' must be a response to a
+    // preceding message with 'tool_calls'". The restore keeps the history
+    // faithful (so the transcript reducer's fold length stays in sync); the
+    // projector drops the orphan at the wire boundary.
+    const persistence = new RecordingAgentPersistence([
+      {
+        type: 'context.append_message',
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: 'first prompt' }],
+          toolCalls: [],
+          origin: { kind: 'user' },
+        },
+      },
+      {
+        type: 'context.append_loop_event',
+        event: { type: 'step.begin', uuid: 'orphan-step', turnId: '0', step: 1 },
+      },
+      {
+        type: 'context.append_loop_event',
+        event: {
+          type: 'tool.call',
+          uuid: 'orphan-call',
+          turnId: '0',
+          step: 1,
+          stepUuid: 'orphan-step',
+          toolCallId: 'call_orphaned',
+          name: 'Bash',
+          args: { command: 'pwd' },
+        },
+      },
+      {
+        type: 'context.append_loop_event',
+        event: {
+          type: 'tool.result',
+          parentUuid: 'orphan-call',
+          toolCallId: 'call_orphaned',
+          result: { output: 'ok', isError: false },
+        },
+      },
+      {
+        type: 'context.append_message',
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: 'second prompt' }],
+          toolCalls: [],
+          origin: { kind: 'user' },
+        },
+      },
+      {
+        type: 'context.apply_compaction',
+        summary: 'Compacted the first exchange.',
+        compactedCount: 2,
+        tokensBefore: 120,
+        tokensAfter: 24,
+      },
+    ]);
+    const ctx = testAgent({ persistence });
+
+    await ctx.agent.resume();
+
+    // The stored history stays faithful to the wire records: the orphan `tool`
+    // result is kept verbatim (not mutated away at restore), so downstream
+    // consumers that model the history from the records — e.g. the transcript
+    // reducer's fold length — stay in sync.
+    expect(ctx.agent.context.history.some((message) => message.role === 'tool')).toBe(true);
+
+    // But the projected wire the provider actually sees has no orphan: every
+    // `tool` result is answered by a preceding assistant `tool_calls`.
+    const projected = ctx.agent.context.messages;
+    const toolCallIds = new Set(
+      projected.flatMap((message) =>
+        message.role === 'assistant' ? message.toolCalls.map((toolCall) => toolCall.id) : [],
+      ),
+    );
+    const orphanToolResults = projected.filter(
+      (message) =>
+        message.role === 'tool' &&
+        (message.toolCallId === undefined || !toolCallIds.has(message.toolCallId)),
+    );
+    expect(orphanToolResults).toEqual([]);
   });
 
   it('projects restored cancelled compactions into replay records', async () => {
@@ -515,7 +612,7 @@ describe('Agent resume', () => {
         cwd: process.cwd(),
         modelAlias: MOCK_PROVIDER.model,
         systemPrompt: DEFAULT_TEST_SYSTEM_PROMPT,
-        thinkingLevel: 'off',
+        thinkingEffort: 'off',
       },
       {
         type: 'context.append_message',
@@ -659,7 +756,7 @@ describe('Agent resume', () => {
       'user',
     ]);
     expect(textContent(llmHistory[3])).toContain(
-      '<system>ERROR: Tool execution failed.</system>',
+      'ERROR: Tool execution failed.',
     );
     expect(textContent(llmHistory[3])).toContain(
       'Tool execution was interrupted before its result was recorded',
@@ -686,6 +783,400 @@ describe('Agent resume', () => {
       'Tool execution was interrupted before its result was recorded',
     );
     expect(textContent(resumedAgain.agent.context.history[4])).toBe('continue after resume');
+  });
+
+  it('closes an interrupted tool call mid-history so later turns stay aligned', async () => {
+    // An interrupted tool call (`call_interrupted`) sits in the MIDDLE of the
+    // recorded stream: a later user prompt and a fully-run assistant turn follow
+    // it. Without in-place reconciliation the unresolved exchange keeps
+    // `hasOpenToolExchange` true, stranding the later user prompt in
+    // `deferredMessages` and only aligning the trailing turn.
+    const persistence = new RecordingAgentPersistence([
+      {
+        type: 'context.append_message',
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: 'Run the lookup' }],
+          toolCalls: [],
+          origin: { kind: 'user' },
+        },
+      },
+      {
+        type: 'context.append_loop_event',
+        event: { type: 'step.begin', uuid: 'interrupted-step', turnId: '0', step: 1 },
+      },
+      {
+        type: 'context.append_loop_event',
+        event: {
+          type: 'tool.call',
+          uuid: 'call-interrupted',
+          turnId: '0',
+          step: 1,
+          stepUuid: 'interrupted-step',
+          toolCallId: 'call_interrupted',
+          name: 'Lookup',
+          args: { query: 'one' },
+        },
+      },
+      // Recorded while the interrupted exchange was still open, so live deferral
+      // captured it after the unresolved tool call.
+      {
+        type: 'context.append_message',
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: 'keep going' }],
+          toolCalls: [],
+          origin: { kind: 'user' },
+        },
+      },
+      ...loopEventsForTurn('1', 'All done.'),
+    ]);
+    const ctx = testAgent({ persistence });
+
+    await ctx.agent.resume();
+
+    expect(ctx.agent.context.history.map((message) => message.role)).toEqual([
+      'user',
+      'assistant',
+      'tool',
+      'user',
+      'assistant',
+    ]);
+    // The synthetic result is spliced in place (index 2), directly after the
+    // interrupted assistant step — not flushed to the tail.
+    const synthetic = ctx.agent.context.history[2];
+    expect(synthetic).toMatchObject({
+      role: 'tool',
+      toolCallId: 'call_interrupted',
+      isError: true,
+    });
+    expect(textContent(synthetic)).toContain(
+      'Tool execution was interrupted before its result was recorded',
+    );
+    // The deferred user prompt is restored in its recorded position, between the
+    // closed exchange and the following turn.
+    expect(textContent(ctx.agent.context.history[3])).toBe('keep going');
+    expect(textContent(ctx.agent.context.history[4])).toBe('All done.');
+
+    expect(ctx.agent.context.messages.map((message) => message.role)).toEqual([
+      'user',
+      'assistant',
+      'tool',
+      'user',
+      'assistant',
+    ]);
+
+    // Option A: the mid-history result is re-derived on every resume and is not
+    // persisted as a positioned record (replay logging is suppressed).
+    expect(
+      persistence.appended.filter(
+        (record) =>
+          record.type === 'context.append_loop_event' && record.event.type === 'tool.result',
+      ),
+    ).toEqual([]);
+
+    await ctx.expectResumeMatches();
+  });
+
+  it('drops a stale tail interrupted result already closed in place on resume', async () => {
+    // Legacy log: an older tail-only finishResume appended the synthetic result
+    // for `call_interrupted` at the END of the stream (after the later turn from
+    // the deferral avalanche). The new in-place closure handles it at step.begin,
+    // so the trailing persisted copy must be dropped rather than duplicated.
+    const persistence = new RecordingAgentPersistence([
+      {
+        type: 'context.append_message',
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: 'Run the lookup' }],
+          toolCalls: [],
+          origin: { kind: 'user' },
+        },
+      },
+      {
+        type: 'context.append_loop_event',
+        event: { type: 'step.begin', uuid: 'interrupted-step', turnId: '0', step: 1 },
+      },
+      {
+        type: 'context.append_loop_event',
+        event: {
+          type: 'tool.call',
+          uuid: 'call-interrupted',
+          turnId: '0',
+          step: 1,
+          stepUuid: 'interrupted-step',
+          toolCallId: 'call_interrupted',
+          name: 'Lookup',
+          args: { query: 'one' },
+        },
+      },
+      {
+        type: 'context.append_message',
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: 'keep going' }],
+          toolCalls: [],
+          origin: { kind: 'user' },
+        },
+      },
+      ...loopEventsForTurn('1', 'All done.'),
+      // The stale synthetic result an older resume appended at the tail.
+      {
+        type: 'context.append_loop_event',
+        event: {
+          type: 'tool.result',
+          parentUuid: 'call_interrupted',
+          toolCallId: 'call_interrupted',
+          result: {
+            output:
+              'Tool execution was interrupted before its result was recorded. Do not assume the tool completed successfully.',
+            isError: true,
+          },
+        },
+      },
+    ]);
+    const ctx = testAgent({ persistence });
+
+    await ctx.agent.resume();
+
+    // The trailing duplicate is dropped: exactly one synthetic result, in place.
+    expect(ctx.agent.context.history.map((message) => message.role)).toEqual([
+      'user',
+      'assistant',
+      'tool',
+      'user',
+      'assistant',
+    ]);
+    expect(ctx.agent.context.history[2]).toMatchObject({
+      role: 'tool',
+      toolCallId: 'call_interrupted',
+      isError: true,
+    });
+    expect(textContent(ctx.agent.context.history[4])).toBe('All done.');
+    await ctx.expectResumeMatches();
+  });
+
+  it('closes every open call of a multi-call interrupted step in order', async () => {
+    const persistence = new RecordingAgentPersistence([
+      {
+        type: 'context.append_message',
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: 'Run both' }],
+          toolCalls: [],
+          origin: { kind: 'user' },
+        },
+      },
+      {
+        type: 'context.append_loop_event',
+        event: { type: 'step.begin', uuid: 'interrupted-step', turnId: '0', step: 1 },
+      },
+      ...['call_a', 'call_b'].map((toolCallId) => ({
+        type: 'context.append_loop_event' as const,
+        event: {
+          type: 'tool.call' as const,
+          uuid: toolCallId,
+          turnId: '0',
+          step: 1,
+          stepUuid: 'interrupted-step',
+          toolCallId,
+          name: 'Lookup',
+          args: {},
+        },
+      })),
+      ...loopEventsForTurn('1', 'All done.'),
+    ]);
+    const ctx = testAgent({ persistence });
+
+    await ctx.agent.resume();
+
+    // Both open calls get a synthetic result, in tool-call order, before the
+    // next turn.
+    expect(ctx.agent.context.history.map((message) => message.role)).toEqual([
+      'user',
+      'assistant',
+      'tool',
+      'tool',
+      'assistant',
+    ]);
+    expect(ctx.agent.context.history[2]).toMatchObject({
+      role: 'tool',
+      toolCallId: 'call_a',
+      isError: true,
+    });
+    expect(ctx.agent.context.history[3]).toMatchObject({
+      role: 'tool',
+      toolCallId: 'call_b',
+      isError: true,
+    });
+    await ctx.expectResumeMatches();
+  });
+
+  it('synthesizes only the unresolved call when a step is partially resolved', async () => {
+    const persistence = new RecordingAgentPersistence([
+      {
+        type: 'context.append_message',
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: 'Run both' }],
+          toolCalls: [],
+          origin: { kind: 'user' },
+        },
+      },
+      {
+        type: 'context.append_loop_event',
+        event: { type: 'step.begin', uuid: 'interrupted-step', turnId: '0', step: 1 },
+      },
+      ...['call_done', 'call_open'].map((toolCallId) => ({
+        type: 'context.append_loop_event' as const,
+        event: {
+          type: 'tool.call' as const,
+          uuid: toolCallId,
+          turnId: '0',
+          step: 1,
+          stepUuid: 'interrupted-step',
+          toolCallId,
+          name: 'Lookup',
+          args: {},
+        },
+      })),
+      {
+        type: 'context.append_loop_event',
+        event: {
+          type: 'tool.result',
+          parentUuid: 'call_done',
+          toolCallId: 'call_done',
+          result: { output: 'real result' },
+        },
+      },
+      ...loopEventsForTurn('1', 'All done.'),
+    ]);
+    const ctx = testAgent({ persistence });
+
+    await ctx.agent.resume();
+
+    expect(ctx.agent.context.history.map((message) => message.role)).toEqual([
+      'user',
+      'assistant',
+      'tool',
+      'tool',
+      'assistant',
+    ]);
+    // The recorded result is kept verbatim; only the open call is synthesized.
+    expect(ctx.agent.context.history[2]).toMatchObject({ toolCallId: 'call_done' });
+    expect(textContent(ctx.agent.context.history[2])).toBe('real result');
+    expect(ctx.agent.context.history[3]).toMatchObject({
+      toolCallId: 'call_open',
+      isError: true,
+    });
+    expect(textContent(ctx.agent.context.history[3])).toContain(
+      'Tool execution was interrupted before its result was recorded',
+    );
+    await ctx.expectResumeMatches();
+  });
+
+  it('closes consecutive interrupted steps each at their own boundary', async () => {
+    const persistence = new RecordingAgentPersistence([
+      {
+        type: 'context.append_message',
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: 'Go' }],
+          toolCalls: [],
+          origin: { kind: 'user' },
+        },
+      },
+      // First interrupted step.
+      {
+        type: 'context.append_loop_event',
+        event: { type: 'step.begin', uuid: 'step-1', turnId: '0', step: 1 },
+      },
+      {
+        type: 'context.append_loop_event',
+        event: {
+          type: 'tool.call',
+          uuid: 'call_one',
+          turnId: '0',
+          step: 1,
+          stepUuid: 'step-1',
+          toolCallId: 'call_one',
+          name: 'Lookup',
+          args: {},
+        },
+      },
+      // Second interrupted step (closes the first in place at its step.begin).
+      {
+        type: 'context.append_loop_event',
+        event: { type: 'step.begin', uuid: 'step-2', turnId: '1', step: 1 },
+      },
+      {
+        type: 'context.append_loop_event',
+        event: {
+          type: 'tool.call',
+          uuid: 'call_two',
+          turnId: '1',
+          step: 1,
+          stepUuid: 'step-2',
+          toolCallId: 'call_two',
+          name: 'Lookup',
+          args: {},
+        },
+      },
+      // Final fully-run turn (closes the second in place).
+      ...loopEventsForTurn('2', 'Done.'),
+    ]);
+    const ctx = testAgent({ persistence });
+
+    await ctx.agent.resume();
+
+    expect(ctx.agent.context.history.map((message) => message.role)).toEqual([
+      'user',
+      'assistant',
+      'tool',
+      'assistant',
+      'tool',
+      'assistant',
+    ]);
+    expect(ctx.agent.context.history[2]).toMatchObject({ toolCallId: 'call_one', isError: true });
+    expect(ctx.agent.context.history[4]).toMatchObject({ toolCallId: 'call_two', isError: true });
+    await ctx.expectResumeMatches();
+  });
+
+  it('drops an orphan tool result whose call was never recorded', async () => {
+    const persistence = new RecordingAgentPersistence([
+      {
+        type: 'context.append_message',
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: 'Hi' }],
+          toolCalls: [],
+          origin: { kind: 'user' },
+        },
+      },
+      ...loopEventsForTurn('0', 'Hello.'),
+      // A result with no matching tool.call (e.g. its call was compacted away).
+      {
+        type: 'context.append_loop_event',
+        event: {
+          type: 'tool.result',
+          parentUuid: 'ghost',
+          toolCallId: 'call_ghost',
+          result: { output: 'orphaned' },
+        },
+      },
+    ]);
+    const ctx = testAgent({ persistence });
+
+    await ctx.agent.resume();
+
+    expect(ctx.agent.context.history.map((message) => message.role)).toEqual([
+      'user',
+      'assistant',
+    ]);
+    expect(
+      ctx.agent.context.history.some((message) => message.role === 'tool'),
+    ).toBe(false);
+    await ctx.expectResumeMatches();
   });
 
   it('rebuilds goal completion replay cards without adding model-visible context', async () => {
@@ -882,7 +1373,7 @@ function resumeHistory(): AgentRecord[] {
       cwd: process.cwd(),
       modelAlias: MOCK_PROVIDER.model,
       systemPrompt: DEFAULT_TEST_SYSTEM_PROMPT,
-      thinkingLevel: 'off',
+      thinkingEffort: 'off',
     },
     {
       type: 'tools.set_active_tools',
@@ -1002,7 +1493,7 @@ function resumeDeferredSystemReminderHistory(): AgentRecord[] {
       cwd: process.cwd(),
       modelAlias: MOCK_PROVIDER.model,
       systemPrompt: DEFAULT_TEST_SYSTEM_PROMPT,
-      thinkingLevel: 'off',
+      thinkingEffort: 'off',
     },
     {
       type: 'context.append_message',
@@ -1110,7 +1601,7 @@ function resumeConfigRecord(): AgentRecord {
     cwd: process.cwd(),
     modelAlias: MOCK_PROVIDER.model,
     systemPrompt: DEFAULT_TEST_SYSTEM_PROMPT,
-    thinkingLevel: 'off',
+    thinkingEffort: 'off',
   };
 }
 
@@ -1193,6 +1684,14 @@ function goalContinuationResumeHistory(): AgentRecord[] {
   ];
 }
 
+
+function findRpcEvent(
+  ctxEvents: readonly { type: string; event: string; args: unknown }[],
+  event: string,
+) {
+  return ctxEvents.find((entry) => entry.type === '[rpc]' && entry.event === event);
+}
+
 describe('limitAgentReplayByTurns', () => {
   const replayMessage = (
     role: 'user' | 'assistant',
@@ -1202,59 +1701,67 @@ describe('limitAgentReplayByTurns', () => {
     ({
       time: 0,
       type: 'message',
-      message: {
-        role,
-        content: [{ type: 'text', text }],
-        toolCalls: [],
-        origin,
-      },
+      message: { role, content: [{ type: 'text', text }], ...(origin ? { origin } : {}) },
     }) as AgentReplayRecord;
 
-  it('returns the original replay when the turn limit is omitted', () => {
-    const records = [replayMessage('user', 'one'), replayMessage('assistant', 'answer')];
-    expect(limitAgentReplayByTurns(records)).toBe(records);
+  it('returns the full replay when maxTurns is undefined', () => {
+    const records = [replayMessage('user', 'a'), replayMessage('assistant', 'b')];
+    expect(limitAgentReplayByTurns(records, undefined)).toBe(records);
   });
 
-  it('keeps the most recent user turns', () => {
+  it('returns an empty replay when maxTurns is zero', () => {
+    expect(limitAgentReplayByTurns([replayMessage('user', 'a')], 0)).toEqual([]);
+  });
+
+  it('keeps the most recent user turns, treating system-triggered user messages as continuations', () => {
     const records = [
       replayMessage('user', 'first', { kind: 'user' }),
       replayMessage('assistant', 'one'),
       replayMessage('user', 'second', { kind: 'user' }),
+      replayMessage('user', 'goal continuation', { kind: 'system_trigger', name: 'goal' }),
       replayMessage('assistant', 'two'),
       replayMessage('user', 'third', { kind: 'user' }),
       replayMessage('assistant', 'three'),
     ];
-
     expect(limitAgentReplayByTurns(records, 2)).toEqual(records.slice(2));
   });
 
-  it('counts goal continuation rounds as turns but not other system triggers', () => {
+  it('treats user-slash activations and shell command inputs as boundaries, but not their outputs', () => {
     const records = [
-      replayMessage('user', 'goal prompt', { kind: 'user' }),
-      replayMessage('assistant', 'start'),
-      replayMessage('user', 'continue one', {
-        kind: 'system_trigger',
-        name: 'goal_continuation',
+      replayMessage('user', 't1', { kind: 'user' }),
+      replayMessage('user', '/skill', {
+        kind: 'skill_activation',
+        activationId: 'act-1',
+        skillName: 'demo',
+        trigger: 'user-slash',
       }),
-      replayMessage('assistant', 'round one'),
-      replayMessage('user', 'continue two', {
-        kind: 'system_trigger',
-        name: 'goal_continuation',
-      }),
-      replayMessage('assistant', 'round two'),
+      replayMessage('user', '!ls', { kind: 'shell_command', phase: 'input' }),
+      replayMessage('user', 'ls output', { kind: 'shell_command', phase: 'output' }),
+      replayMessage('user', 't2', { kind: 'user' }),
+    ];
+    expect(limitAgentReplayByTurns(records, 2)).toEqual(records.slice(2));
+  });
+
+  it('treats goal continuation prompts as turn boundaries, but not other system triggers', () => {
+    const rounds = (n: number): AgentReplayRecord[] =>
+      Array.from({ length: n }, (_, i) => [
+        replayMessage('user', 'Resume the active goal.', {
+          kind: 'system_trigger',
+          name: 'goal_continuation',
+        }),
+        replayMessage('assistant', `round ${i}`),
+      ]).flat();
+    const records = [
+      replayMessage('user', '/goal ship it', { kind: 'user' }),
+      ...rounds(15),
       replayMessage('user', 'cancelled reminder', {
         kind: 'system_trigger',
         name: 'goal_cancelled',
       }),
     ];
-
-    expect(limitAgentReplayByTurns(records, 2)).toEqual(records.slice(2));
+    const limited = limitAgentReplayByTurns(records, 10);
+    // The /goal prompt and the first five continuation rounds fall away; the
+    // trailing reminder stays attached to the last kept turn.
+    expect(limited).toEqual(records.slice(11));
   });
 });
-
-function findRpcEvent(
-  ctxEvents: readonly { type: string; event: string; args: unknown }[],
-  event: string,
-) {
-  return ctxEvents.find((entry) => entry.type === '[rpc]' && entry.event === event);
-}

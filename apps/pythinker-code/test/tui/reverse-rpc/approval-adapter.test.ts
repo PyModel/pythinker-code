@@ -42,48 +42,6 @@ describe('approval adapter', () => {
     ]);
   });
 
-  it.each([
-    ['git reset --hard HEAD~1', 'discard uncommitted changes'],
-    ['terraform destroy -auto-approve', 'destroy infrastructure'],
-    ['kubectl delete namespace production', 'delete Kubernetes resources'],
-  ])('labels destructive command %s', (command, danger) => {
-    const adapted = adaptApprovalRequest({
-      toolCallId: 'tc-danger',
-      toolName: 'Bash',
-      action: 'run',
-      display: {
-        kind: 'command',
-        command,
-        language: 'bash',
-      },
-    });
-
-    expect(adapted.display).toEqual([
-      expect.objectContaining({ type: 'shell', command, danger }),
-    ]);
-  });
-
-  it('preserves PowerShell language metadata for the native approval panel', () => {
-    const adapted = adaptApprovalRequest({
-      toolCallId: 'tc-powershell',
-      toolName: 'PowerShell',
-      action: 'run',
-      display: {
-        kind: 'command',
-        command: 'Get-Location',
-        language: 'powershell',
-      },
-    });
-
-    expect(adapted.display).toEqual([
-      expect.objectContaining({
-        type: 'shell',
-        command: 'Get-Location',
-        language: 'powershell',
-      }),
-    ]);
-  });
-
   it('emits only a diff block for Edit — no separate file_op title row', () => {
     const adapted = adaptApprovalRequest(
       {
@@ -253,60 +211,94 @@ describe('approval adapter', () => {
     ]);
   });
 
-  // A DynamicWorkflow approval is the one place the fan-out can still be
-  // refused, so the plan has to survive the trip into the panel rather than
-  // being flattened into the "N subagents" label.
-  it('carries a Dynamic Workflow plan through as its own display block', () => {
+  it('renders the /goal start menu for a CreateGoal approval in manual mode', () => {
     const adapted = adaptApprovalRequest({
-      toolCallId: 'tc-workflow',
-      toolName: 'DynamicWorkflow',
-      action: 'run',
+      toolCallId: 'tc-goal',
+      toolName: 'CreateGoal',
+      action: 'Creating a goal',
       display: {
-        kind: 'agent_call',
-        agent_name: 'Dynamic Workflow (3 subagents)',
-        prompt: 'Review the diff',
-        workflow: {
-          agent_count: 3,
-          items: ['src/a.ts', 'src/b.ts', 'src/c.ts'],
-          prompt_tokens: 42,
-          prompt_template: 'Review {{item}}',
-          model: 'claude-sonnet-4',
-        },
+        kind: 'goal_start',
+        objective: 'Fix the failing auth tests',
+        completionCriterion: 'npm test -- auth exits 0',
+        mode: 'manual',
       },
     });
 
+    // Objective + criterion are previewed as a brief block.
     expect(adapted.display).toEqual([
       {
-        type: 'invocation',
-        kind: 'agent',
-        name: 'Dynamic Workflow (3 subagents)',
-        description: 'Review the diff',
+        type: 'brief',
+        text: 'Start goal: Fix the failing auth tests\nDone when: npm test -- auth exits 0',
+      },
+    ]);
+    // Choices mirror the manual-mode /goal start menu; mode options approve and
+    // carry the mode in selected_label, "Do not start" cancels. Each keeps the
+    // /goal menu's description.
+    expect(adapted.choices).toEqual([
+      {
+        label: 'Switch to Auto and start',
+        response: 'approved',
+        selected_label: 'auto',
+        description:
+          'Best if you want Pythinker Code to keep working while you are away. Tools are approved automatically, and questions are skipped.',
       },
       {
-        type: 'workflow_plan',
-        agent_count: 3,
-        items: ['src/a.ts', 'src/b.ts', 'src/c.ts'],
-        prompt_tokens: 42,
-        prompt_template: 'Review {{item}}',
-        model: 'claude-sonnet-4',
+        label: 'Switch to YOLO and start',
+        response: 'approved',
+        selected_label: 'yolo',
+        description:
+          'Tools and plan changes are approved automatically. Pythinker Code may still ask you questions.',
+      },
+      {
+        label: 'Start in Manual',
+        response: 'approved',
+        selected_label: 'manual',
+        description:
+          'Keep approvals on. Pythinker Code will ask before risky actions, so the goal may stop and wait for you.',
+      },
+      {
+        label: 'Do not start',
+        response: 'cancelled',
+        selected_label: 'cancel',
+        description: 'Return to the input box with your goal command.',
       },
     ]);
   });
 
-  it('adds no plan block to a plain agent call', () => {
+  it('renders the yolo-mode /goal start menu for a CreateGoal approval', () => {
     const adapted = adaptApprovalRequest({
-      toolCallId: 'tc-agent',
-      toolName: 'Agent',
-      action: 'run',
+      toolCallId: 'tc-goal-yolo',
+      toolName: 'CreateGoal',
+      action: 'Creating a goal',
       display: {
-        kind: 'agent_call',
-        agent_name: 'coder',
-        prompt: 'Fix the build',
+        kind: 'goal_start',
+        objective: 'Ship the feature',
+        mode: 'yolo',
       },
     });
 
-    expect(adapted.display).toEqual([
-      { type: 'invocation', kind: 'agent', name: 'coder', description: 'Fix the build' },
+    expect(adapted.display).toEqual([{ type: 'brief', text: 'Start goal: Ship the feature' }]);
+    expect(adapted.choices).toEqual([
+      {
+        label: 'Switch to Auto and start',
+        response: 'approved',
+        selected_label: 'auto',
+        description:
+          'Best if you want Pythinker Code to keep working while you are away. Tools are approved automatically, and questions are skipped.',
+      },
+      {
+        label: 'Keep YOLO and start',
+        response: 'approved',
+        selected_label: 'yolo',
+        description:
+          'Tools and plan changes stay approved automatically. Pythinker Code may still ask you questions.',
+      },
+      {
+        label: 'Do not start',
+        response: 'cancelled',
+        selected_label: 'cancel',
+        description: 'Return to the input box with your goal command.',
+      },
     ]);
   });
 

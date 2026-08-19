@@ -21,10 +21,6 @@ export const TuiThemeSchema = z.string();
 
 export const NotificationConditionSchema = z.enum(['unfocused', 'always']);
 
-// "fixed" pins the editor + footer to the bottom of a full-height screen
-// with an app-owned transcript viewport; "inline" is the legacy flow.
-export const TuiLayoutSchema = z.enum(['fixed', 'inline']);
-
 export const NotificationsConfigSchema = z.object({
   enabled: z.boolean(),
   condition: NotificationConditionSchema,
@@ -34,34 +30,32 @@ export const UpgradePreferencesSchema = z.object({
   autoInstall: z.boolean(),
 });
 
-const StatusLineFileSchema = z.object({
-  show_model: z.boolean().optional(),
-  show_effort: z.boolean().optional(),
-  show_token_speed: z.boolean().optional(),
-  show_context_bar: z.boolean().optional(),
-  show_git: z.boolean().optional(),
-  show_modes: z.boolean().optional(),
-  show_elapsed: z.boolean().optional(),
-  show_goal: z.boolean().optional(),
-  show_background_tasks: z.boolean().optional(),
+export const STATUS_LINE_ITEMS = ['mode', 'goal', 'model', 'tasks', 'cwd', 'git', 'tips'] as const;
+export type StatusLineItem = (typeof STATUS_LINE_ITEMS)[number];
+
+export const StatusLineFileConfigSchema = z.object({
+  items: z.array(z.string()).optional(),
+  command: z.string().optional(),
 });
 
 export const StatusLineConfigSchema = z.object({
-  showModel: z.boolean(),
-  showEffort: z.boolean(),
-  showTokenSpeed: z.boolean(),
-  showContextBar: z.boolean(),
-  showGit: z.boolean(),
-  showModes: z.boolean(),
-  showElapsed: z.boolean(),
-  showGoal: z.boolean(),
-  showBackgroundTasks: z.boolean(),
+  /** Ordered built-in slots for footer line 1; null means the default layout. */
+  items: z.array(z.enum(STATUS_LINE_ITEMS)).nullable(),
+  /** User command whose first stdout line replaces footer line 1; null disables. */
+  command: z.string().nullable(),
 });
+export type StatusLineConfig = z.infer<typeof StatusLineConfigSchema>;
+
+export const DEFAULT_STATUS_LINE_CONFIG: StatusLineConfig = {
+  items: null,
+  command: null,
+};
 
 export const TuiConfigFileSchema = z.object({
   theme: TuiThemeSchema.optional(),
-  layout: TuiLayoutSchema.optional(),
-  copy_full_response: z.boolean().optional(),
+  render_latex: z.boolean().optional(),
+  disable_paste_burst: z.boolean().optional(),
+  cache_expiry_hint: z.boolean().optional(),
   editor: z
     .object({
       command: z.string().optional(),
@@ -78,25 +72,30 @@ export const TuiConfigFileSchema = z.object({
       auto_install: z.boolean().optional(),
     })
     .optional(),
-  status_line: StatusLineFileSchema.optional(),
+  status_line: StatusLineFileConfigSchema.optional(),
 });
 
 export const TuiConfigSchema = z.object({
   theme: TuiThemeSchema,
-  layout: TuiLayoutSchema,
-  copyFullResponse: z.boolean(),
+  /** LaTeX math rendering in Markdown; optional only so older hand-built test
+   * fixtures still typecheck. */
+  renderLatex: z.boolean().optional(),
+  disablePasteBurst: z.boolean(),
+  /** Present in every normalized config; optional only so hand-built test
+   * fixtures from before this field existed still typecheck. */
+  cacheExpiryHint: z.boolean().optional(),
   editorCommand: z.string().nullable(),
   notifications: NotificationsConfigSchema,
   upgrade: UpgradePreferencesSchema,
-  statusLine: StatusLineConfigSchema,
+  /** Present in every normalized config; optional only so hand-built test
+   * fixtures from before this field existed still typecheck. */
+  statusLine: StatusLineConfigSchema.optional(),
 });
 
 export type TuiConfigFileShape = z.infer<typeof TuiConfigFileSchema>;
 export type TuiConfig = z.infer<typeof TuiConfigSchema>;
-export type TuiLayout = z.infer<typeof TuiLayoutSchema>;
 export type NotificationsConfig = z.infer<typeof NotificationsConfigSchema>;
 export type UpgradePreferences = z.infer<typeof UpgradePreferencesSchema>;
-export type StatusLineConfig = z.infer<typeof StatusLineConfigSchema>;
 
 export const DEFAULT_NOTIFICATIONS_CONFIG: NotificationsConfig = {
   enabled: true,
@@ -107,22 +106,11 @@ export const DEFAULT_UPGRADE_PREFERENCES: UpgradePreferences = {
   autoInstall: true,
 };
 
-export const DEFAULT_STATUS_LINE_CONFIG: StatusLineConfig = {
-  showModel: true,
-  showEffort: true,
-  showTokenSpeed: true,
-  showContextBar: true,
-  showGit: true,
-  showModes: true,
-  showElapsed: true,
-  showGoal: true,
-  showBackgroundTasks: true,
-};
-
 export const DEFAULT_TUI_CONFIG: TuiConfig = TuiConfigSchema.parse({
   theme: 'auto',
-  layout: 'fixed',
-  copyFullResponse: false,
+  renderLatex: true,
+  disablePasteBurst: false,
+  cacheExpiryHint: true,
   editorCommand: null,
   notifications: DEFAULT_NOTIFICATIONS_CONFIG,
   upgrade: DEFAULT_UPGRADE_PREFERENCES,
@@ -148,7 +136,10 @@ export function getTuiConfigPath(): string {
   return join(getDataDir(), 'tui.toml');
 }
 
-export async function loadTuiConfig(filePath: string = getTuiConfigPath()): Promise<TuiConfig> {
+export async function loadTuiConfig(
+  filePath: string = getTuiConfigPath(),
+  warn?: (message: string) => void,
+): Promise<TuiConfig> {
   if (!existsSync(filePath)) {
     await saveTuiConfig(DEFAULT_TUI_CONFIG, filePath);
     return DEFAULT_TUI_CONFIG;
@@ -156,19 +147,22 @@ export async function loadTuiConfig(filePath: string = getTuiConfigPath()): Prom
 
   try {
     const text = await readFile(filePath, 'utf-8');
-    return parseTuiConfig(text);
+    return parseTuiConfig(text, warn);
   } catch {
     throw new TuiConfigParseError(DEFAULT_TUI_CONFIG);
   }
 }
 
-export function parseTuiConfig(tomlText: string): TuiConfig {
+export function parseTuiConfig(
+  tomlText: string,
+  warn?: (message: string) => void,
+): TuiConfig {
   if (tomlText.trim().length === 0) {
     return DEFAULT_TUI_CONFIG;
   }
   const raw = parseToml(tomlText) as Record<string, unknown>;
   const parsed = TuiConfigFileSchema.parse(raw);
-  return normalizeTuiConfig(parsed);
+  return normalizeTuiConfig(parsed, warn);
 }
 
 export async function saveTuiConfig(
@@ -179,12 +173,31 @@ export async function saveTuiConfig(
   await writeFile(filePath, renderTuiConfig(config), 'utf-8');
 }
 
-export function normalizeTuiConfig(config: TuiConfigFileShape): TuiConfig {
+export function normalizeTuiConfig(
+  config: TuiConfigFileShape,
+  warn: (message: string) => void = (message) => {
+    // oxlint-disable-next-line no-console
+    console.warn(message);
+  },
+): TuiConfig {
   const command = config.editor?.command?.trim();
+  const statusLineCommand = config.status_line?.command?.trim();
+  const knownItems = new Set<string>(STATUS_LINE_ITEMS);
+  const statusLineItems =
+    config.status_line?.items
+      ?.filter((item) => {
+        const known = knownItems.has(item);
+        if (!known) {
+          warn(`[tui.toml] ignoring unknown status_line item: ${item}`);
+        }
+        return known;
+      })
+      .map((item) => item as StatusLineItem) ?? null;
   return TuiConfigSchema.parse({
     theme: config.theme ?? DEFAULT_TUI_CONFIG.theme,
-    layout: config.layout ?? DEFAULT_TUI_CONFIG.layout,
-    copyFullResponse: config.copy_full_response ?? DEFAULT_TUI_CONFIG.copyFullResponse,
+    renderLatex: config.render_latex ?? DEFAULT_TUI_CONFIG.renderLatex,
+    disablePasteBurst: config.disable_paste_burst ?? DEFAULT_TUI_CONFIG.disablePasteBurst,
+    cacheExpiryHint: config.cache_expiry_hint ?? DEFAULT_TUI_CONFIG.cacheExpiryHint,
     editorCommand: command === undefined || command.length === 0 ? null : command,
     notifications: {
       enabled: config.notifications?.enabled ?? DEFAULT_NOTIFICATIONS_CONFIG.enabled,
@@ -195,31 +208,46 @@ export function normalizeTuiConfig(config: TuiConfigFileShape): TuiConfig {
       autoInstall: config.upgrade?.auto_install ?? DEFAULT_UPGRADE_PREFERENCES.autoInstall,
     },
     statusLine: {
-      showModel: config.status_line?.show_model ?? DEFAULT_STATUS_LINE_CONFIG.showModel,
-      showEffort: config.status_line?.show_effort ?? DEFAULT_STATUS_LINE_CONFIG.showEffort,
-      showTokenSpeed:
-        config.status_line?.show_token_speed ?? DEFAULT_STATUS_LINE_CONFIG.showTokenSpeed,
-      showContextBar:
-        config.status_line?.show_context_bar ?? DEFAULT_STATUS_LINE_CONFIG.showContextBar,
-      showGit: config.status_line?.show_git ?? DEFAULT_STATUS_LINE_CONFIG.showGit,
-      showModes: config.status_line?.show_modes ?? DEFAULT_STATUS_LINE_CONFIG.showModes,
-      showElapsed: config.status_line?.show_elapsed ?? DEFAULT_STATUS_LINE_CONFIG.showElapsed,
-      showGoal: config.status_line?.show_goal ?? DEFAULT_STATUS_LINE_CONFIG.showGoal,
-      showBackgroundTasks:
-        config.status_line?.show_background_tasks ??
-        DEFAULT_STATUS_LINE_CONFIG.showBackgroundTasks,
+      items: statusLineItems,
+      command:
+        statusLineCommand === undefined || statusLineCommand.length === 0
+          ? null
+          : statusLineCommand,
     },
   });
 }
 
 export function renderTuiConfig(config: TuiConfig): string {
+  // An active status_line must round-trip: any preference save rewrites the
+  // whole file, so the section is emitted live when set and left as a
+  // commented-out guide when unset.
+  const statusItems = config.statusLine?.items;
+  const statusCommand = config.statusLine?.command;
+  const statusLines: string[] = [];
+  if (statusItems !== null && statusItems !== undefined) {
+    statusLines.push(`items = ${JSON.stringify(statusItems)}`);
+  }
+  if (statusCommand) {
+    statusLines.push(`command = "${escapeTomlBasicString(statusCommand)}"`);
+  }
+  const statusSection =
+    statusLines.length > 0
+      ? `[status_line]\n${statusLines.join('\n')}\n`
+      : `# [status_line]
+# Pick and order the built-in footer slots: ${STATUS_LINE_ITEMS.join(', ')}
+# items = ${JSON.stringify([...STATUS_LINE_ITEMS])}
+# Or render your own: a command whose first stdout line replaces footer line 1.
+# It receives a JSON snapshot (model, cwd, git, usage, mode) on stdin.
+# command = "~/.pythinker-code/statusline.sh"
+`;
   return `# ~/.pythinker-code/tui.toml
 # Client preferences for pythinker-code.
 # Agent/runtime settings stay in ~/.pythinker-code/config.toml.
 
 theme = "${escapeTomlBasicString(config.theme)}" # "auto" | "dark" | "light" | custom theme name
-layout = "${config.layout}" # "fixed" | "inline"
-copy_full_response = ${String(config.copyFullResponse)} # true skips the /copy code-block picker
+render_latex = ${String(config.renderLatex !== false)} # false keeps LaTeX math in assistant messages as raw source
+disable_paste_burst = ${String(config.disablePasteBurst)} # true disables non-bracketed paste-burst fallback
+cache_expiry_hint = ${String(config.cacheExpiryHint !== false)} # false disables the "cache expired" dialog on resume / idle submit
 
 [editor]
 command = "${escapeTomlBasicString(config.editorCommand ?? '')}" # Empty uses $VISUAL / $EDITOR
@@ -231,17 +259,7 @@ notification_condition = "${config.notifications.condition}" # "unfocused" | "al
 [upgrade]
 auto_install = ${String(config.upgrade.autoInstall)} # true | false
 
-[status_line]
-show_model = ${String(config.statusLine.showModel)} # Model name
-show_effort = ${String(config.statusLine.showEffort)} # Thinking effort; requires show_model
-show_token_speed = ${String(config.statusLine.showTokenSpeed)} # Live t/s; requires show_model
-show_context_bar = ${String(config.statusLine.showContextBar)} # Context gauge and token totals
-show_git = ${String(config.statusLine.showGit)} # Git branch, changes, and pull request
-show_modes = ${String(config.statusLine.showModes)} # Workflow, permission, and plan modes
-show_elapsed = ${String(config.statusLine.showElapsed)} # Active request elapsed time
-show_goal = ${String(config.statusLine.showGoal)} # Goal badge
-show_background_tasks = ${String(config.statusLine.showBackgroundTasks)} # Shell and agent task badges
-`;
+${statusSection}`;
 }
 
 function escapeTomlBasicString(value: string): string {

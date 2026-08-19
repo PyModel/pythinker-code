@@ -20,8 +20,8 @@
  *   src/missing.ts · failed
  */
 
-import type { TUI } from '@earendil-works/pi-tui';
-import { Container, Spacer, Text } from '@earendil-works/pi-tui';
+import type { TUI } from '@pymodel/pi-tui';
+import { Container, Spacer, Text } from '@pymodel/pi-tui';
 
 import { STATUS_BULLET } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
@@ -135,7 +135,7 @@ export class ReadGroupComponent extends Container {
 
     if (pending > 0) {
       const bullet = currentTheme.fg('text', STATUS_BULLET);
-      const label = currentTheme.boldFg('textStrong', `Reading ${String(total)} files…`);
+      const label = currentTheme.boldFg('primary', `Reading ${String(total)} files…`);
       return `${bullet}${label}`;
     }
 
@@ -147,7 +147,7 @@ export class ReadGroupComponent extends Container {
     }
 
     const bullet = currentTheme.fg('success', STATUS_BULLET);
-    const label = currentTheme.boldFg('textStrong', `Read ${String(total)} files`);
+    const label = currentTheme.boldFg('primary', `Read ${String(total)} files`);
     const linesPart = dim(` · ${String(totalLines)} ${totalLines === 1 ? 'line' : 'lines'}`);
     const failPart = failed > 0 ? currentTheme.fg('error', ` · ${String(failed)} failed`) : '';
     return `${bullet}${label}${linesPart}${failPart}`;

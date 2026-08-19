@@ -19,11 +19,11 @@ import { describe, expect, it } from 'vitest';
 describe('getModelCapability: pythinker', () => {
   it('does not infer capabilities from Pythinker model names', () => {
     for (const model of [
-      'pythinker-for-coding',
+      'kimi-for-coding',
       'pythinker-code',
-      'pythinker-k2-turbo-preview',
-      'pythinker-k2.5',
-      'pythinker-thinking-preview',
+      'kimi-k2-turbo-preview',
+      'kimi-k2.5',
+      'kimi-thinking-preview',
     ]) {
       expect(getModelCapability('pythinker', model)).toEqual(UNKNOWN_CAPABILITY);
     }
@@ -115,13 +115,6 @@ describe('getModelCapability: anthropic', () => {
     }
   });
 
-  it('marks only current Claude Fast models as fast_mode capable', () => {
-    expect(getModelCapability('anthropic', 'claude-opus-5').fast_mode).toBe(true);
-    expect(getModelCapability('anthropic', 'claude-opus-4-8').fast_mode).toBe(true);
-    expect(getModelCapability('anthropic', 'claude-opus-4-7').fast_mode).not.toBe(true);
-    expect(getModelCapability('anthropic', 'claude-sonnet-4-8').fast_mode).not.toBe(true);
-  });
-
   it('unknown Anthropic model → UNKNOWN_CAPABILITY', () => {
     expect(getModelCapability('anthropic', 'claude-not-real')).toEqual(UNKNOWN_CAPABILITY);
   });
@@ -146,15 +139,6 @@ describe('getModelCapability: openai', () => {
     expect(cap.tool_use).toBe(true);
   });
 
-  it('marks current OpenAI Fast models while excluding mini and Spark', () => {
-    expect(getModelCapability('openai', 'gpt-5.6-sol').fast_mode).toBe(true);
-    expect(getModelCapability('openai', 'gpt-5.5').fast_mode).toBe(true);
-    expect(getModelCapability('openai', 'gpt-5.4-codex').fast_mode).toBe(true);
-    expect(getModelCapability('openai', 'gpt-5.4-mini').fast_mode).not.toBe(true);
-    expect(getModelCapability('openai', 'gpt-5.4-codex-spark').fast_mode).not.toBe(true);
-    expect(getModelCapability('openai', 'gpt-5.3-codex-spark').fast_mode).not.toBe(true);
-  });
-
   it('unknown OpenAI-legacy model → UNKNOWN_CAPABILITY', () => {
     expect(getModelCapability('openai', 'gpt-mystery')).toEqual(UNKNOWN_CAPABILITY);
   });
@@ -176,11 +160,6 @@ describe('getModelCapability: openai_responses', () => {
   it('o3-mini → thinking=true', () => {
     const cap = getModelCapability('openai_responses', 'o3-mini');
     expect(cap.thinking).toBe(true);
-  });
-
-  it('shares OpenAI Fast capability detection', () => {
-    expect(getModelCapability('openai_responses', 'gpt-5.6-terra').fast_mode).toBe(true);
-    expect(getModelCapability('openai_responses', 'gpt-5.4-mini').fast_mode).not.toBe(true);
   });
 
   it('unknown Responses model → UNKNOWN_CAPABILITY', () => {

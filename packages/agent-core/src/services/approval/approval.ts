@@ -57,7 +57,7 @@ import type {
   ApprovalRequest as ProtocolApprovalRequest,
   ApprovalResponse as ProtocolApprovalResponse,
 } from '@pymodel/protocol';
- // type-only marker — keep protocol dep referenced
+import type {} from '@pymodel/protocol'; // type-only marker — keep protocol dep referenced
 
 // Re-export ApprovalResponse for service-side consumers so they don't have to
 // also depend on agent-core directly.

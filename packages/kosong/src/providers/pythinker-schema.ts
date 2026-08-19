@@ -46,7 +46,7 @@ const TYPE_COMPLETION_SKIP_KEYS = new Set([
 
 // Child-schema positions that this Pythinker normalizer knows how to walk. This is
 // also the source of truth for child-schema keywords that imply the parent
-// schema's type. It is not a list of keywords that Pythoughts accepts on the wire.
+// schema's type. It is not a list of keywords that PyModel accepts on the wire.
 const CHILD_SCHEMA_SLOTS = [
   { key: '$defs', kind: 'map' },
   { key: 'definitions', kind: 'map' },
@@ -111,14 +111,13 @@ const NUMERIC_STRUCTURE_KEYS = new Set([
  * Return a deep-cloned JSON Schema with missing `type` fields filled in for
  * Pythinker tool compatibility.
  *
- * Pythoughts's tool validator rejects some valid JSON Schema shapes when nested
+ * PyModel's tool validator rejects some valid JSON Schema shapes when nested
  * property schemas omit `type` (for example enum-only MCP properties). This is
  * a provider-compatibility normalizer, not a complete JSON Schema compiler:
  * it resolves local refs, preserves combinator nodes, infers obvious
  * scalar/object/array types, and falls back to `string` only for nested
  * typeless property schemas. The root schema object is treated as a container
- * and is not itself type-normalized, with one exception: an `anyOf` at the root
- * is folded away, because a tool's parameters must be a plain object.
+ * and is not itself normalized.
  */
 export function normalizePythinkerToolSchema(schema: Record<string, unknown>): Record<string, unknown> {
   return ensurePythinkerPropertyTypes(derefJsonSchema(schema));
@@ -129,82 +128,8 @@ function ensurePythinkerPropertyTypes(schema: Record<string, unknown>): Record<s
   if (!isRecord(normalized)) {
     throw new Error('JSON Schema root must normalize to an object.');
   }
-  // Fold the root's `anyOf` away before recursing; once it is gone the generic
-  // per-node distribution below sees nothing to do at the root.
-  foldRootAnyOf(normalized);
   recurseSchema(normalized);
   return normalized;
-}
-
-/**
- * Remove an `anyOf` sitting at the root of a tool's parameter schema.
- *
- * A tool's parameters must be an object, so the root cannot use the branch form
- * that {@link distributeAnyOfParentKeywords} produces for every other node: the
- * wire requires `type: "object"` there, and rejects `type` next to `anyOf`. The
- * two constraints are jointly unsatisfiable, so the root's `anyOf` is dropped.
- *
- * Dropping only ever widens what the schema accepts — a root `anyOf` is almost
- * always a "one of these fields is required" hint, which the tool re-checks when
- * it runs. Branch properties are folded into the root first, so a schema that
- * kept its arguments inside the branches does not lose them.
- */
-function foldRootAnyOf(root: Record<string, unknown>): void {
-  const branches = root['anyOf'];
-  if (!Array.isArray(branches) || !branches.every(isRecord)) {
-    return;
-  }
-  delete root['anyOf'];
-
-  const rootProperties = root['properties'];
-  const alternativesByName = new Map<string, unknown[]>();
-  if (isRecord(rootProperties)) {
-    for (const [name, property] of Object.entries(rootProperties)) {
-      alternativesByName.set(name, [cloneJsonValue(property)]);
-    }
-  }
-  for (const branch of branches) {
-    const branchProperties = branch['properties'];
-    if (!isRecord(branchProperties)) continue;
-    for (const [name, property] of Object.entries(branchProperties)) {
-      addRootPropertyAlternative(alternativesByName, name, property);
-    }
-  }
-
-  if (alternativesByName.size > 0) {
-    const merged: Record<string, unknown> = {};
-    for (const [name, alternatives] of alternativesByName) {
-      merged[name] = alternatives.length === 1 ? alternatives[0] : { anyOf: alternatives };
-    }
-    root['properties'] = merged;
-  }
-  root['type'] = 'object';
-}
-
-/**
- * Record one branch's schema for a merged root property.
- *
- * Root `anyOf` branches are alternatives, so two branches declaring the same
- * property with different schemas (e.g. `value` as a string in one branch, an
- * integer in another) must both stay representable — keeping only the first
- * one seen would silently narrow what the tool actually accepts. Identical
- * schemas collapse to one; differing schemas fold into an `anyOf` on the
- * merged property.
- */
-function addRootPropertyAlternative(
-  alternativesByName: Map<string, unknown[]>,
-  name: string,
-  property: unknown,
-): void {
-  const cloned = cloneJsonValue(property);
-  const alternatives = alternativesByName.get(name);
-  if (!alternatives) {
-    alternativesByName.set(name, [cloned]);
-    return;
-  }
-  if (!alternatives.some((existing) => deepEqualJson(existing, cloned))) {
-    alternatives.push(cloned);
-  }
 }
 
 function hasUnresolvedDefinitionRef(node: unknown, bucketKey: string): boolean {
@@ -327,99 +252,7 @@ function recurseSchema(node: unknown): void {
     return;
   }
 
-  distributeAnyOfParentKeywords(node);
   visitChildSchemas(node, normalizeProperty);
-}
-
-/**
- * Keywords that may stay on a schema node that also carries `anyOf`.
- *
- * Everything else is a validation keyword the wire validator refuses to see on
- * both sides of an `anyOf`. Sibling combinators are left alone because the
- * validator does not read them at all, so relocating them would only churn the
- * schema. `$defs` / `definitions` stay put because cyclic `$ref` pointers
- * resolve against the root, and `$ref` stays because duplicating a cyclic
- * reference into every branch changes its meaning.
- */
-const ANYOF_PARENT_KEEP_KEYS = new Set([
-  '$comment',
-  '$defs',
-  '$ref',
-  '$schema',
-  'allOf',
-  'anyOf',
-  'default',
-  'definitions',
-  'description',
-  'else',
-  'if',
-  'not',
-  'oneOf',
-  'then',
-  'title',
-]);
-
-/**
- * Push a node's own constraints down into its `anyOf` branches.
- *
- * Pythoughts's tool validator rejects `anyOf` used as a refinement of its parent:
- * `type` must be declared inside the branches rather than beside them, and no
- * other validation keyword (`properties`, `items`, `additionalProperties`, …)
- * may appear on both the parent and a branch. Standard JSON Schema allows both,
- * so schemas that are perfectly valid elsewhere are rejected on this wire.
- *
- * Distributing is lossless: `P ∧ (B₁ ∨ B₂)` and `(P ∧ B₁) ∨ (P ∧ B₂)` accept
- * exactly the same instances — *if* a branch that already declares the same
- * keyword is merged conjunctively with the parent's value rather than simply
- * overriding it. `required` is the one keyword this function merges that way
- * (parent and branch field lists are unioned, since both are actually
- * required). Every other overlapping keyword still keeps the branch's own
- * value: a full conjunctive merge for arbitrary keywords (`properties`,
- * `items`, …) is out of scope for this compatibility normalizer.
- */
-function distributeAnyOfParentKeywords(node: Record<string, unknown>): void {
-  const branches = node['anyOf'];
-  if (!Array.isArray(branches) || branches.length === 0 || !branches.every(isRecord)) {
-    return;
-  }
-
-  const inherited = Object.keys(node).filter((key) => !ANYOF_PARENT_KEEP_KEYS.has(key));
-  if (inherited.length === 0) {
-    return;
-  }
-
-  for (const branch of branches) {
-    for (const key of inherited) {
-      if (!hasOwn(branch, key)) {
-        branch[key] = cloneJsonValue(node[key]);
-      } else if (key === 'required') {
-        branch[key] = mergeRequired(node[key], branch[key]);
-      }
-    }
-  }
-  for (const key of inherited) {
-    delete node[key];
-  }
-}
-
-/**
- * Union two `required` field lists.
- *
- * A parent's `required` and a branch's own `required` are both mandatory —
- * dropping the parent's list when the branch already has one would silently
- * accept objects missing a field the parent demanded.
- */
-function mergeRequired(parentValue: unknown, branchValue: unknown): unknown {
-  if (!Array.isArray(parentValue) || !Array.isArray(branchValue)) {
-    return branchValue;
-  }
-  const merged = [...branchValue];
-  for (const name of parentValue) {
-    if (!merged.includes(name)) {
-      merged.push(name);
-    }
-  }
-  return merged;
 }
 
 function visitChildSchemas(node: Record<string, unknown>, visit: (schema: unknown) => void): void {
@@ -479,7 +312,7 @@ function normalizeProperty(node: unknown): void {
   } else if (!hasAnyKey(node, TYPE_COMPLETION_SKIP_KEYS) && typeof node['type'] === 'string') {
     // Some MCP servers emit schemas where a $ref merge or a generator bug
     // leaves an explicit type that contradicts the enum/const values (e.g.
-    // type: 'object' alongside string enum values). Pythoughts rejects these
+    // type: 'object' alongside string enum values). PyModel rejects these
     // as invalid, so repair the type when it disagrees with the values.
     //
     // Known trigger: Xcode MCP (xcrun mcpbridge) starting with
@@ -631,21 +464,6 @@ function cloneJsonValue(value: unknown): unknown {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function deepEqualJson(a: unknown, b: unknown): boolean {
-  if (a === b) {
-    return true;
-  }
-  if (Array.isArray(a) && Array.isArray(b)) {
-    return a.length === b.length && a.every((item, index) => deepEqualJson(item, b[index]));
-  }
-  if (isRecord(a) && isRecord(b)) {
-    const aKeys = Object.keys(a);
-    const bKeys = Object.keys(b);
-    return aKeys.length === bKeys.length && aKeys.every((key) => hasOwn(b, key) && deepEqualJson(a[key], b[key]));
-  }
-  return false;
 }
 
 function hasOwn(obj: Record<string, unknown>, key: string): boolean {

@@ -92,8 +92,8 @@ function makeConn(): { conn: AgentSideConnection; raw: CapturingConn } {
 }
 
 const sampleQuestion: QuestionItem = {
-  question: 'Which flavor?',
-  options: [{ label: 'Vanilla' }, { label: 'Chocolate' }, { label: 'Matcha' }],
+  question: '\u54EA\u4E2A\u53E3\u5473？',
+  options: [{ label: '\u9999\u8349' }, { label: '\u5DE7\u514B\u529B' }, { label: '\u62B9\u8336' }],
 };
 
 function makeReq(overrides: Partial<QuestionRequest> = {}): QuestionRequest {
@@ -139,7 +139,7 @@ describe('AcpSession.handleQuestion', () => {
 
     const answer = await handle.invokeHandler(makeReq());
 
-    expect(answer).toEqual({ 'Which flavor?': 'Vanilla' } satisfies QuestionAnswers);
+    expect(answer).toEqual({ '\u54EA\u4E2A\u53E3\u5473？': '\u9999\u8349' } satisfies QuestionAnswers);
     expect(raw.permissionRequests).toHaveLength(1);
     const req = raw.permissionRequests[0]!;
     expect(req.sessionId).toBe('s-q-happy');
@@ -161,9 +161,9 @@ describe('AcpSession.handleQuestion', () => {
     // currentTurnId is undefined in this test path, so raw toolCallId is used.
     expect(req.toolCall.toolCallId).toBe('tc-ask-1');
     expect(req.toolCall.content).toEqual([
-      { type: 'content', content: { type: 'text', text: 'Which flavor?' } },
+      { type: 'content', content: { type: 'text', text: '\u54EA\u4E2A\u53E3\u5473？' } },
     ]);
-    expect(trackCalls).toEqual([{ event: 'question_answered', properties: undefined }]);
+    expect(trackCalls).toEqual([{ event: 'question_answered', properties: { answered: 1 } }]);
   });
 
   it('skip: q0_skip resolves to null with question_dismissed telemetry', async () => {
@@ -202,12 +202,12 @@ describe('AcpSession.handleQuestion', () => {
       makeReq({ questions: [sampleQuestion, extra1, extra2] }),
     );
 
-    expect(answer).toEqual({ 'Which flavor?': 'Chocolate' });
+    expect(answer).toEqual({ '\u54EA\u4E2A\u53E3\u5473？': '\u5DE7\u514B\u529B' });
     expect(raw.permissionRequests).toHaveLength(1);
     // Telemetry: degraded(multi_question) first, then answered.
     expect(trackCalls).toEqual([
       { event: 'question_degraded', properties: { reason: 'multi_question', dropped: 2 } },
-      { event: 'question_answered', properties: undefined },
+      { event: 'question_answered', properties: { answered: 1 } },
     ]);
     // log.warn fired with the dropped count.
     expect(warnSpy).toHaveBeenCalledWith(
@@ -236,7 +236,7 @@ describe('AcpSession.handleQuestion', () => {
     expect(raw.permissionRequests).toHaveLength(1);
     expect(trackCalls).toEqual([
       { event: 'question_degraded', properties: { reason: 'multi_select' } },
-      { event: 'question_answered', properties: undefined },
+      { event: 'question_answered', properties: { answered: 1 } },
     ]);
   });
 
@@ -267,7 +267,7 @@ describe('AcpSession.handleQuestion', () => {
 
     const answer = await handle.invokeHandler(makeReq());
 
-    expect(answer).toEqual({ 'Which flavor?': 'Vanilla' });
+    expect(answer).toEqual({ '\u54EA\u4E2A\u53E3\u5473？': '\u9999\u8349' });
     expect(trackCalls).toEqual([]);
   });
 });

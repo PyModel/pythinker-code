@@ -83,14 +83,8 @@ const editChip: ChipProvider = (toolCall) => {
 
 const writeChip: ChipProvider = (toolCall) => formatWriteChip(computeWriteStats(toolCall.args));
 
-const notebookEditChip: ChipProvider = () => '1 cell';
-
-const readChip: ChipProvider = (_toolCall, result) => {
-  const cells = notebookCellCount(result.output);
-  return cells > 0
-    ? pluralize(cells, 'cell')
-    : pluralize(countNonEmptyLines(result.output), 'line');
-};
+const readChip: ChipProvider = (_toolCall, result) =>
+  pluralize(countNonEmptyLines(result.output), 'line');
 
 const grepChip: ChipProvider = (_toolCall, result) => {
   const matches = countNonEmptyLines(result.output);
@@ -120,84 +114,8 @@ const webSearchChip: ChipProvider = (_toolCall, result) => {
 const goalStatusOutputChip: ChipProvider = (_toolCall, result) =>
   result.is_error ? '' : goalStatusChip(result.output);
 
-const listMcpResourcesChip: ChipProvider = (_toolCall, result) => {
-  const parsed = parseJson(result.output);
-  return Array.isArray(parsed) ? pluralize(parsed.length, 'resource') : '';
-};
-
-const readMcpResourceChip: ChipProvider = (_toolCall, result) => {
-  const parsed = parseJson(result.output);
-  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return '';
-  const contents = (parsed as Record<string, unknown>)['contents'];
-  return Array.isArray(contents) ? pluralize(contents.length, 'content', 'contents') : '';
-};
-
-const projectTaskChip: ChipProvider = (toolCall, result) => {
-  const id = strArg(toolCall.args, 'taskId') || result.output.match(/\bTask #(\d+)/u)?.[1];
-  return id === undefined || id.length === 0 ? '' : `task #${id}`;
-};
-
-const taskListChip: ChipProvider = (toolCall, result) => {
-  if (toolCall.args['background'] === true) return '';
-  const count = result.output.split('\n').filter((line) => /^#\d+\s/u.test(line)).length;
-  return count === 0 ? 'no tasks' : pluralize(count, 'task');
-};
-
-const teamCreateChip: ChipProvider = (toolCall) => strArg(toolCall.args, 'team_name');
-
-const sendMessageChip: ChipProvider = (toolCall, result) => {
-  const target = strArg(toolCall.args, 'to');
-  if (target !== '*') return target.length === 0 ? '' : `@${target}`;
-  const parsed = parseJson(result.output);
-  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return '';
-  const recipients = (parsed as Record<string, unknown>)['recipients'];
-  return Array.isArray(recipients) ? pluralize(recipients.length, 'teammate') : '';
-};
-
-const teamDeleteChip: ChipProvider = (_toolCall, result) => {
-  const parsed = parseJson(result.output);
-  return parsed !== null &&
-    typeof parsed === 'object' &&
-    !Array.isArray(parsed) &&
-    (parsed as Record<string, unknown>)['success'] === true
-    ? 'deleted'
-    : '';
-};
-
-const enterWorktreeChip: ChipProvider = (toolCall) =>
-  strArg(toolCall.args, 'name') || 'worktree';
-
-const exitWorktreeChip: ChipProvider = (toolCall) =>
-  toolCall.args['action'] === 'remove' ? 'removed' : 'kept';
-
-function parseJson(text: string): unknown {
-  try {
-    return JSON.parse(text) as unknown;
-  } catch {
-    return undefined;
-  }
-}
-
-function notebookCellCount(output: string): number {
-  const parsed = parseJson(output);
-  const text = Array.isArray(parsed)
-    ? parsed
-        .filter(
-          (part): part is { type: 'text'; text: string } =>
-            typeof part === 'object' &&
-            part !== null &&
-            (part as { type?: unknown }).type === 'text' &&
-            typeof (part as { text?: unknown }).text === 'string',
-        )
-        .map((part) => part.text)
-        .join('')
-    : output;
-  return [...text.matchAll(/<cell id=/gu)].length;
-}
-
 const REGISTRY: Record<string, ChipProvider> = {
   Edit: editChip,
-  NotebookEdit: notebookEditChip,
   Write: writeChip,
   Read: readChip,
   ReadMediaFile: readMediaChip,
@@ -205,17 +123,6 @@ const REGISTRY: Record<string, ChipProvider> = {
   Glob: globChip,
   FetchURL: fetchChip,
   WebSearch: webSearchChip,
-  ListMcpResourcesTool: listMcpResourcesChip,
-  ReadMcpResourceTool: readMcpResourceChip,
-  TaskCreate: projectTaskChip,
-  TaskGet: projectTaskChip,
-  TaskUpdate: projectTaskChip,
-  TaskList: taskListChip,
-  TeamCreate: teamCreateChip,
-  TeamDelete: teamDeleteChip,
-  SendMessage: sendMessageChip,
-  EnterWorktree: enterWorktreeChip,
-  ExitWorktree: exitWorktreeChip,
   CreateGoal: goalStatusOutputChip,
   GetGoal: goalStatusOutputChip,
 };

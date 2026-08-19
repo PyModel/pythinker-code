@@ -51,10 +51,6 @@ function appendMessage(message: ContextMessage, time?: number): AgentRecord {
   return { type: 'context.append_message', message, time } as AgentRecord;
 }
 
-function metadata(protocolVersion = '2.0'): AgentRecord {
-  return { type: 'metadata', protocol_version: protocolVersion, created_at: 1 } as AgentRecord;
-}
-
 function loopEvent(event: Record<string, unknown>, time?: number): AgentRecord {
   return { type: 'context.append_loop_event', event, time } as unknown as AgentRecord;
 }
@@ -72,16 +68,16 @@ function compaction(
   summary: string,
   compactedCount: number,
   time?: number,
-  startIndex?: number,
+  keptUserMessageCount?: number,
 ): AgentRecord {
   return {
     type: 'context.apply_compaction',
     summary,
     compactedCount,
-    startIndex,
     tokensBefore: 1000,
     tokensAfter: 100,
     time,
+    ...(keptUserMessageCount === undefined ? {} : { keptUserMessageCount }),
   } as AgentRecord;
 }
 
@@ -102,27 +98,84 @@ describe('reduceWireRecords', () => {
     expect(foldedLength).toBe(2);
   });
 
-  it('compaction keeps the prefix and inserts the summary at the fold point', () => {
+  it('compaction keeps the prefix and appends the user-role summary', () => {
     const { entries, foldedLength } = reduceWireRecords([
       appendMessage(userMessage('u1')),
       ...assistantStep('s1', 'a1'),
       appendMessage(userMessage('u2')),
       ...assistantStep('s2', 'a2'),
-      // folded history is [u1, a1, u2, a2]; compact the first 3, keep a2.
-      compaction('SUM', 3),
+      compaction('SUM', 4),
       appendMessage(userMessage('u3')),
     ]);
     expect(entries.map((e) => textOf(e.message))).toEqual([
       'u1',
       'a1',
       'u2',
-      'SUM',
       'a2',
+      'SUM',
       'u3',
     ]);
-    expect(entries[3]!.message.origin).toEqual({ kind: 'compaction_summary' });
-    // live folded view would be [SUM, a2, u3]
+    expect(entries[4]!.message.origin).toEqual({ kind: 'compaction_summary' });
+    expect(entries[4]!.message.role).toBe('user');
+    // live folded view would be [u1, u2, SUM, u3]
+    expect(foldedLength).toBe(4);
+  });
+
+  it('keeps shell and local-command output in the transcript but not foldedLength', () => {
+    const { entries, foldedLength } = reduceWireRecords([
+      appendMessage(userMessage('u1')),
+      appendMessage(userMessage('! pwd', { kind: 'shell_command', phase: 'input' })),
+      appendMessage(userMessage('local output', { kind: 'injection', variant: 'local-command-stdout' })),
+      ...assistantStep('s1', 'a1'),
+      {
+        type: 'context.apply_compaction',
+        summary: 'SUM',
+        compactedCount: 4,
+        tokensBefore: 100,
+        tokensAfter: 20,
+        keptUserMessageCount: 1,
+      } as AgentRecord,
+      appendMessage(userMessage('u2')),
+    ]);
+
+    expect(entries.map((e) => textOf(e.message))).toEqual([
+      'u1',
+      '! pwd',
+      'local output',
+      'a1',
+      'SUM',
+      'u2',
+    ]);
+    expect(entries.map((e) => e.message.role)).toEqual([
+      'user',
+      'user',
+      'user',
+      'assistant',
+      'user',
+      'user',
+    ]);
+    // 1 kept real user message + summary + u2 appended after compaction.
     expect(foldedLength).toBe(3);
+  });
+
+  it('accounts for the elision marker when the compaction record kept a head segment', () => {
+    const { foldedLength } = reduceWireRecords([
+      appendMessage(userMessage('u1')),
+      appendMessage(userMessage('u2')),
+      ...assistantStep('s1', 'a1'),
+      {
+        type: 'context.apply_compaction',
+        summary: 'SUM',
+        compactedCount: 3,
+        tokensBefore: 100_000,
+        tokensAfter: 20_000,
+        keptUserMessageCount: 2,
+        keptHeadUserMessageCount: 1,
+      } as AgentRecord,
+    ]);
+
+    // Live context: head user message + elision marker + tail user message + summary.
+    expect(foldedLength).toBe(4);
   });
 
   it('handles repeated compactions', () => {
@@ -130,35 +183,103 @@ describe('reduceWireRecords', () => {
       appendMessage(userMessage('u1')),
       compaction('S1', 1),
       appendMessage(userMessage('u2')),
-      // folded = [S1, u2]; compact both.
-      compaction('S2', 2),
+      compaction('S2', 3),
     ]);
     expect(entries.map((e) => textOf(e.message))).toEqual(['u1', 'S1', 'u2', 'S2']);
-    expect(foldedLength).toBe(1);
+    // live folded view would be [u1, u2, S2]
+    expect(foldedLength).toBe(3);
   });
 
-  it('inserts a selected-range summary at its fold point', () => {
+  it('uses the recorded kept-user count for foldedLength when present', () => {
+    // The live context kept only the most recent real user message (e.g. the
+    // older ones were truncated in a prior compaction, or a clear dropped
+    // them). The full transcript still holds all three, so re-deriving from
+    // it would yield 3 and disagree with the live context. The reducer must
+    // trust the count recorded by ContextMemory.applyCompaction.
+    const { foldedLength } = reduceWireRecords([
+      appendMessage(userMessage('u1')),
+      appendMessage(userMessage('u2')),
+      appendMessage(userMessage('u3')),
+      {
+        type: 'context.apply_compaction',
+        summary: 'SUM',
+        compactedCount: 3,
+        tokensBefore: 100,
+        tokensAfter: 20,
+        keptUserMessageCount: 1,
+      } as AgentRecord,
+      appendMessage(userMessage('u4')),
+    ]);
+    // 1 kept user message + summary + u4 appended after compaction.
+    expect(foldedLength).toBe(3);
+  });
+
+  it('drops a late tool result after compaction closes an open exchange', () => {
     const { entries, foldedLength } = reduceWireRecords([
+      appendMessage(userMessage('u1')),
+      loopEvent({ type: 'step.begin', uuid: 's1', turnId: 't', step: 0 }),
+      loopEvent({
+        type: 'tool.call',
+        uuid: 'c1',
+        turnId: 't',
+        step: 0,
+        stepUuid: 's1',
+        toolCallId: 'call_1',
+        name: 'Bash',
+        arguments: '{"command":"ls"}',
+      }),
+      compaction('SUM', 3),
+      loopEvent({
+        type: 'tool.result',
+        parentUuid: 'c1',
+        toolCallId: 'call_1',
+        result: { output: 'late result' },
+      }),
+      appendMessage(userMessage('u2')),
+    ]);
+
+    // Compaction closes the open exchange, so the late tool result is an
+    // orphan and dropped — matching ContextMemory — and the following user
+    // message is appended normally instead of being stranded in `deferred`.
+    expect(entries.map((e) => e.message.role)).toEqual(['user', 'assistant', 'user', 'user']);
+    expect(entries.map((e) => textOf(e.message))).toEqual(['u1', '', 'SUM', 'u2']);
+    // live folded view would be [u1, SUM, u2]
+    expect(foldedLength).toBe(3);
+  });
+
+  it('reproduces the legacy [summary, tail] fold length for records without keptUserMessageCount', () => {
+    // A pre-rework record (no keptUserMessageCount) kept history.slice(compactedCount)
+    // verbatim, and ContextMemory's legacy restore now reproduces [summary, ...tail].
+    // The reducer must track that same folded length — 1 + (preCompactionLength -
+    // compactedCount) — not the re-derived kept-user count, or MessageService's
+    // length comparison diverges from the live context for old sessions.
+    const { foldedLength } = reduceWireRecords([
       appendMessage(userMessage('u1')),
       ...assistantStep('s1', 'a1'),
       appendMessage(userMessage('u2')),
       ...assistantStep('s2', 'a2'),
-      appendMessage(userMessage('u3')),
-      ...assistantStep('s3', 'a3'),
-      // folded = [u1, a1, u2, a2, u3, a3]; replace [u2, a2].
-      compaction('MID', 2, undefined, 2),
+      compaction('SUM', 1),
     ]);
+    // Pre-compaction live history = [u1, a1, u2, a2] (4); legacy restore keeps
+    // [SUM, ...slice(1)] = [SUM, a1, u2, a2] = 4. (Re-deriving kept users gives 3.)
+    expect(foldedLength).toBe(4);
+  });
 
-    expect(entries.map((entry) => textOf(entry.message))).toEqual([
-      'u1',
-      'a1',
-      'u2',
-      'a2',
-      'MID',
-      'u3',
-      'a3',
+  it('ignores pre-clear prompts when re-deriving a legacy fold length', () => {
+    // Legacy record (no keptUserMessageCount) compacting after a /clear with no
+    // tail re-derives the kept-user count, but only from post-clear messages —
+    // the live context dropped u1/u2 at the clear. Counting them would overstate
+    // foldedLength and make MessageService skip the unflushed live tail.
+    const { foldedLength } = reduceWireRecords([
+      appendMessage(userMessage('u1')),
+      appendMessage(userMessage('u2')),
+      { type: 'context.clear' } as AgentRecord,
+      appendMessage(userMessage('u3')),
+      compaction('SUM', 1),
     ]);
-    expect(foldedLength).toBe(5);
+    // Post-clear live history = [u3] (1); restore keeps [u3, SUM] = 2.
+    // (Re-deriving over the full transcript would wrongly give 4.)
+    expect(foldedLength).toBe(2);
   });
 
   it('undo removes through the last real user prompt and skips injections', () => {
@@ -226,9 +347,142 @@ describe('reduceWireRecords', () => {
     expect(textOf(entries[1]!.message)).toBe('ok');
   });
 
-  it('wraps tool errors and empty outputs with <system> statuses like agent-core', () => {
+  it('closes a tool call interrupted mid-history at the next step.begin', () => {
+    const { entries, foldedLength } = reduceWireRecords([
+      appendMessage(userMessage('u1')),
+      loopEvent({ type: 'step.begin', uuid: 's1', turnId: 't', step: 0 }),
+      loopEvent({
+        type: 'tool.call',
+        uuid: 'c1',
+        turnId: 't',
+        step: 0,
+        stepUuid: 's1',
+        toolCallId: 'call_interrupted',
+        name: 'Lookup',
+        args: { query: 'one' },
+      }),
+      // Recorded while the exchange was open, so it was deferred live.
+      appendMessage(userMessage('keep going')),
+      ...assistantStep('s2', 'a2'),
+    ]);
+    expect(entries.map((e) => e.message.role)).toEqual([
+      'user',
+      'assistant',
+      'tool',
+      'user',
+      'assistant',
+    ]);
+    // Synthetic result spliced in place (index 2), before the deferred prompt.
+    expect(entries[2]!.message.toolCallId).toBe('call_interrupted');
+    expect(entries[2]!.message.isError).toBe(true);
+    // Raw fact, like ContextMemory history: the ERROR status prefix is a
+    // model-projection concern, not part of the stored message.
+    expect(textOf(entries[2]!.message)).toBe(
+      'Tool execution was interrupted before its result was recorded. ' +
+        'Do not assume the tool completed successfully.',
+    );
+    expect(textOf(entries[3]!.message)).toBe('keep going');
+    expect(textOf(entries[4]!.message)).toBe('a2');
+    expect(foldedLength).toBe(5);
+  });
+
+  it('drops a stale tail interrupted result already closed in place', () => {
+    const { entries, foldedLength } = reduceWireRecords([
+      appendMessage(userMessage('u1')),
+      loopEvent({ type: 'step.begin', uuid: 's1', turnId: 't', step: 0 }),
+      loopEvent({
+        type: 'tool.call',
+        uuid: 'c1',
+        turnId: 't',
+        step: 0,
+        stepUuid: 's1',
+        toolCallId: 'call_interrupted',
+        name: 'Lookup',
+        args: { query: 'one' },
+      }),
+      appendMessage(userMessage('keep going')),
+      ...assistantStep('s2', 'a2'),
+      // The stale synthetic result an older tail-only resume appended.
+      loopEvent({
+        type: 'tool.result',
+        parentUuid: 'call_interrupted',
+        toolCallId: 'call_interrupted',
+        result: {
+          output:
+            'Tool execution was interrupted before its result was recorded. Do not assume the tool completed successfully.',
+          isError: true,
+        },
+      }),
+    ]);
+    expect(entries.map((e) => e.message.role)).toEqual([
+      'user',
+      'assistant',
+      'tool',
+      'user',
+      'assistant',
+    ]);
+    expect(entries[2]!.message.toolCallId).toBe('call_interrupted');
+    expect(foldedLength).toBe(5);
+  });
+
+  it('closes every open call of a multi-call interrupted step, keeping foldedLength aligned', () => {
+    const { entries, foldedLength } = reduceWireRecords([
+      loopEvent({ type: 'step.begin', uuid: 's1', turnId: 't', step: 0 }),
+      ...['call_a', 'call_b'].map((toolCallId) =>
+        loopEvent({
+          type: 'tool.call',
+          uuid: toolCallId,
+          turnId: 't',
+          step: 0,
+          stepUuid: 's1',
+          toolCallId,
+          name: 'Run',
+          args: {},
+        }),
+      ),
+      ...assistantStep('s2', 'a2'),
+    ]);
+    expect(entries.map((e) => e.message.role)).toEqual([
+      'assistant',
+      'tool',
+      'tool',
+      'assistant',
+    ]);
+    expect(entries[1]!.message.toolCallId).toBe('call_a');
+    expect(entries[2]!.message.toolCallId).toBe('call_b');
+    expect(foldedLength).toBe(4);
+  });
+
+  it('drops an orphan tool result whose call was never recorded', () => {
+    const { entries, foldedLength } = reduceWireRecords([
+      appendMessage(userMessage('u1')),
+      ...assistantStep('s1', 'a1'),
+      loopEvent({
+        type: 'tool.result',
+        parentUuid: 'ghost',
+        toolCallId: 'call_ghost',
+        result: { output: 'orphaned' },
+      }),
+    ]);
+    expect(entries.map((e) => e.message.role)).toEqual(['user', 'assistant']);
+    expect(foldedLength).toBe(2);
+  });
+
+  it('keeps raw tool output with the structured isError/note fields like agent-core history', () => {
     const { entries } = reduceWireRecords([
       loopEvent({ type: 'step.begin', uuid: 's1', turnId: 't', step: 0 }),
+      ...['call_err', 'call_empty'].map((toolCallId) =>
+        loopEvent({
+          type: 'tool.call',
+          uuid: toolCallId,
+          turnId: 't',
+          step: 0,
+          stepUuid: 's1',
+          toolCallId,
+          name: 'Run',
+          args: {},
+        }),
+      ),
       loopEvent({
         type: 'tool.result',
         parentUuid: 's1',
@@ -239,14 +493,13 @@ describe('reduceWireRecords', () => {
         type: 'tool.result',
         parentUuid: 's1',
         toolCallId: 'call_empty',
-        result: { output: '' },
+        result: { output: '', note: '<system>meta</system>' },
       }),
     ]);
-    expect(textOf(entries[1]!.message)).toBe(
-      '<system>ERROR: Tool execution failed.</system>\nboom',
-    );
+    expect(textOf(entries[1]!.message)).toBe('boom');
     expect(entries[1]!.message.isError).toBe(true);
-    expect(textOf(entries[2]!.message)).toBe('<system>Tool output is empty.</system>');
+    expect(textOf(entries[2]!.message)).toBe('');
+    expect(entries[2]!.message.note).toBe('<system>meta</system>');
   });
 });
 
@@ -264,49 +517,14 @@ describe('readWireRecords / readWireTranscript', () => {
   it('drops a torn final line but throws on mid-file corruption', async () => {
     const good = JSON.stringify(appendMessage(userMessage('u1')));
     const torn = path.join(dir, 'torn.jsonl');
-    await writeFile(torn, `${JSON.stringify(metadata())}\n${good}\n{"type":"context.appe`, 'utf8');
+    await writeFile(torn, `${good}\n{"type":"context.appe`, 'utf8');
     const records = await readWireRecords(torn);
-    expect(records).toHaveLength(2);
+    expect(records).toHaveLength(1);
 
     const corrupt = path.join(dir, 'corrupt.jsonl');
-    await writeFile(corrupt, `${JSON.stringify(metadata())}\nnot-json\n${good}\n`, 'utf8');
-    await expect(readWireRecords(corrupt)).rejects.toThrow(/corrupted line 2/);
+    await writeFile(corrupt, `not-json\n${good}\n`, 'utf8');
+    await expect(readWireRecords(corrupt)).rejects.toThrow(/corrupted line 1/);
   });
-
-  it.each([
-    [
-      'missing metadata',
-      [appendMessage(userMessage('u1'))],
-      'expected metadata as the first record',
-    ],
-    [
-      'older metadata',
-      [metadata('1.4'), appendMessage(userMessage('u1'))],
-      'Unsupported agent wire protocol version 1.4',
-    ],
-    [
-      'newer metadata',
-      [metadata('3.0'), appendMessage(userMessage('u1'))],
-      'Unsupported agent wire protocol version 3.0',
-    ],
-    [
-      'unknown current record',
-      [metadata(), { type: 'swarm_mode.enter', trigger: 'manual' } as unknown as AgentRecord],
-      'Unsupported agent record type swarm_mode.enter',
-    ],
-  ])(
-    'rejects %s instead of reducing an incompatible transcript',
-    async (_label, records, expectedError) => {
-      const wirePath = path.join(dir, `${_label.replaceAll(' ', '-')}.jsonl`);
-      await writeFile(
-        wirePath,
-        `${records.map((record) => JSON.stringify(record)).join('\n')}\n`,
-        'utf8',
-      );
-
-      await expect(readWireRecords(wirePath)).rejects.toThrow(expectedError);
-    },
-  );
 
   it('rehydrates blobref media urls from the blobs dir', async () => {
     const hash = 'deadbeefdeadbeefdeadbeefdeadbeef';
@@ -323,7 +541,7 @@ describe('readWireRecords / readWireTranscript', () => {
     } as ContextMessage;
     await writeFile(
       path.join(agentDir, 'wire.jsonl'),
-      `${JSON.stringify(metadata())}\n${JSON.stringify(appendMessage(message))}\n`,
+      `${JSON.stringify(appendMessage(message))}\n`,
       'utf8',
     );
 
@@ -357,13 +575,13 @@ describe('MessageService over a compacted wire log', () => {
   beforeEach(async () => {
     dir = await mkdtemp(path.join(tmpdir(), 'pythinker-msg-test-'));
     const records: AgentRecord[] = [
-      metadata(),
       appendMessage(userMessage('u1'), SESSION_CREATED_AT + 1_000),
       ...assistantStep('s1', 'a1', SESSION_CREATED_AT + 2_000),
       appendMessage(userMessage('u2'), SESSION_CREATED_AT + 3_000),
       ...assistantStep('s2', 'a2', SESSION_CREATED_AT + 4_000),
-      // folded = [u1, a1, u2, a2] → compact first 3.
-      compaction('SUM', 3, SESSION_CREATED_AT + 5_000),
+      // New-format record: the summary covered all 4 messages and 2 user
+      // prompts were kept verbatim, so the live fold is [u1, u2, SUM] below.
+      compaction('SUM', 4, SESSION_CREATED_AT + 5_000, 2),
     ];
     await mkdir(path.join(dir, 'agents', 'main'), { recursive: true });
     await writeFile(
@@ -371,18 +589,15 @@ describe('MessageService over a compacted wire log', () => {
       records.map((r) => JSON.stringify(r)).join('\n') + '\n',
       'utf8',
     );
-    // What getContext would return after the fold.
+    // What getContext would return after the fold: kept user messages + summary.
     liveHistory = [
+      userMessage('u1'),
+      userMessage('u2'),
       {
-        role: 'assistant',
+        role: 'user',
         content: [{ type: 'text', text: 'SUM' }],
         toolCalls: [],
         origin: { kind: 'compaction_summary' },
-      } as ContextMessage,
-      {
-        role: 'assistant',
-        content: [{ type: 'text', text: 'a2' }],
-        toolCalls: [],
       } as ContextMessage,
     ];
     const rpc: Partial<CoreRPC> = {
@@ -408,16 +623,16 @@ describe('MessageService over a compacted wire log', () => {
 
   it('lists the FULL history (compacted prefix + summary + tail)', async () => {
     const page = await impl.list(SESSION_ID, { page_size: 100 });
-    const asc = [...page.items].toReversed();
+    const asc = [...page.items].reverse();
     expect(
       asc.map((m) => (m.content[0] as { text?: string }).text ?? '[non-text]'),
-    ).toEqual(['u1', 'a1', 'u2', 'SUM', 'a2']);
-    expect(asc[3]!.metadata).toEqual({ origin: { kind: 'compaction_summary' } });
+    ).toEqual(['u1', 'a1', 'u2', 'a2', 'SUM']);
+    expect(asc[4]!.metadata).toEqual({ origin: { kind: 'compaction_summary' } });
   });
 
   it('uses wire record times for created_at, strictly increasing', async () => {
     const page = await impl.list(SESSION_ID, { page_size: 100 });
-    const asc = [...page.items].toReversed();
+    const asc = [...page.items].reverse();
     expect(asc[0]!.created_at).toBe(
       new Date(SESSION_CREATED_AT + 1_000).toISOString(),
     );
@@ -430,15 +645,15 @@ describe('MessageService over a compacted wire log', () => {
   it('appends the live tail when memory is ahead of the wire file', async () => {
     liveHistory = [...liveHistory, userMessage('u3-live')];
     const page = await impl.list(SESSION_ID, { page_size: 100 });
-    const asc = [...page.items].toReversed();
+    const asc = [...page.items].reverse();
     expect(
       asc.map((m) => (m.content[0] as { text?: string }).text ?? '[non-text]'),
-    ).toEqual(['u1', 'a1', 'u2', 'SUM', 'a2', 'u3-live']);
+    ).toEqual(['u1', 'a1', 'u2', 'a2', 'SUM', 'u3-live']);
   });
 
   it('get() resolves ids against the same full transcript', async () => {
     const page = await impl.list(SESSION_ID, { page_size: 100 });
-    const asc = [...page.items].toReversed();
+    const asc = [...page.items].reverse();
     const fetched = await impl.get(SESSION_ID, asc[0]!.id);
     expect((fetched.content[0] as { text: string }).text).toBe('u1');
     expect(fetched.created_at).toBe(asc[0]!.created_at);
@@ -447,18 +662,12 @@ describe('MessageService over a compacted wire log', () => {
   it('falls back to the live context view when the wire file is unreadable', async () => {
     await rm(path.join(dir, 'agents', 'main', 'wire.jsonl'));
     const page = await impl.list(SESSION_ID, { page_size: 100 });
-    const asc = [...page.items].toReversed();
+    const asc = [...page.items].reverse();
     expect(asc.map((m) => (m.content[0] as { text?: string }).text)).toEqual([
+      'u1',
+      'u2',
       'SUM',
-      'a2',
     ]);
-  });
-
-  it('propagates a malformed non-final wire line instead of falling back to live context', async () => {
-    const wirePath = path.join(dir, 'agents', 'main', 'wire.jsonl');
-    await writeFile(wirePath, `${JSON.stringify(metadata())}\nnot-json\n${JSON.stringify(appendMessage(userMessage('u1')))}\n`, 'utf8');
-
-    await expect(impl.list(SESSION_ID, { page_size: 100 })).rejects.toThrow(/corrupted line 2/);
   });
 
   it('re-reads the wire file after it changes (cache invalidation)', async () => {
@@ -472,9 +681,9 @@ describe('MessageService over a compacted wire log', () => {
     await writeFile(wirePath, prev + extra + '\n', 'utf8');
     liveHistory = [...liveHistory, userMessage('u3')];
     const page = await impl.list(SESSION_ID, { page_size: 100 });
-    const asc = [...page.items].toReversed();
+    const asc = [...page.items].reverse();
     expect(
       asc.map((m) => (m.content[0] as { text?: string }).text ?? '[non-text]'),
-    ).toEqual(['u1', 'a1', 'u2', 'SUM', 'a2', 'u3']);
+    ).toEqual(['u1', 'a1', 'u2', 'a2', 'SUM', 'u3']);
   });
 });

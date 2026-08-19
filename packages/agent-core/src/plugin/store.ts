@@ -4,7 +4,6 @@ import path from 'node:path';
 import type {
   PluginCapabilityState,
   PluginGithubMetadata,
-  PluginInstallDefinition,
   PluginSource,
 } from './types';
 
@@ -20,7 +19,6 @@ export interface InstalledRecord {
   readonly originalSource?: string;
   readonly capabilities?: PluginCapabilityState;
   readonly github?: PluginGithubMetadata;
-  readonly definition?: PluginInstallDefinition;
 }
 
 export interface InstalledFile {
@@ -46,11 +44,17 @@ export async function readInstalled(pythinkerHomeDir: string): Promise<Installed
     }
     return parsed;
   } catch (error) {
-    throw new Error(`Failed to parse ${filePath}: ${(error as Error).message}`, { cause: error });
+    throw new Error(
+      `Failed to parse ${filePath}: ${(error as Error).message}`,
+      { cause: error },
+    );
   }
 }
 
-export async function writeInstalled(pythinkerHomeDir: string, data: InstalledFile): Promise<void> {
+export async function writeInstalled(
+  pythinkerHomeDir: string,
+  data: InstalledFile,
+): Promise<void> {
   const dir = path.join(pythinkerHomeDir, 'plugins');
   await mkdir(dir, { recursive: true });
   const final = path.join(dir, 'installed.json');

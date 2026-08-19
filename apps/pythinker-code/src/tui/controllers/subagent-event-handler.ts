@@ -2,12 +2,14 @@ import type {
   BackgroundTaskInfo,
   Event,
 } from '@pymodel/pythinker-code-sdk';
-import type { Component } from '@earendil-works/pi-tui';
+import type { Component } from '@pymodel/pi-tui';
 
 import {
-  DynamicWorkflowMissionControlComponent,
-  dynamicWorkflowDescriptionFromArgs,
-} from '../components/messages/dynamic-workflow-mission-control';
+  AgentDynamicWorkflowProgressComponent,
+  agentDynamicWorkflowDescriptionFromArgs,
+  agentDynamicWorkflowGridHeightForTerminalRows,
+} from '../components/messages/agent-dynamic-workflow-progress';
+import { modelDisplayName } from '../components/dialogs/model-selector';
 import { MAIN_AGENT_ID } from '../constant/pythinker-tui';
 import type {
   BackgroundAgentMetadata,
@@ -20,6 +22,7 @@ import { argsRecord, serializeToolResultOutput } from '../utils/event-payload';
 import { formatHookResultPlain } from '../utils/hook-result-format';
 import { nextTranscriptId } from '../utils/transcript-id';
 import type { SessionEventHost } from './session-event-handler';
+import { SubagentActivityStore } from './subagent-activity-store';
 
 export interface SubagentInfo {
   readonly parentToolCallId: string;
@@ -52,22 +55,10 @@ function renderedRowsAfterChild(
 
 export class SubAgentEventHandler {
   readonly subagentInfo: Map<string, SubagentInfo> = new Map();
-  private readonly dynamicWorkflowMissionControls: Map<
-    string,
-    DynamicWorkflowMissionControlComponent
-  > = new Map();
-  // Lifecycle events that arrive before their `subagent.spawned` are buffered
-  // per parent tool call, so they replay only into the generation of that
-  // exact workflow. `parentToolCallIdsByAgentId` guards against ambiguous
-  // parentless terminal events when an agent id is reused, and retired tool
-  // calls keep late events (after undo / turn cleanup) from resurrecting UI.
-  private readonly pendingLifecycleByParentToolCallId = new Map<
-    string,
-    Map<string, SubagentLifecycleEvent[]>
-  >();
-  private readonly parentToolCallIdsByAgentId = new Map<string, Set<string>>();
-  private readonly retiredDynamicWorkflowToolCallIds = new Set<string>();
+  private readonly agentDynamicWorkflowProgress: Map<string, AgentDynamicWorkflowProgressComponent> = new Map();
   backgroundAgentMetadata: Map<string, BackgroundAgentMetadata> = new Map();
+  /** Bounded per-agent activity fold feeding the background-agent detail view. */
+  readonly activityStore = new SubagentActivityStore();
 
   constructor(
     private readonly host: SessionEventHost,
@@ -77,45 +68,29 @@ export class SubAgentEventHandler {
   resetRuntimeState(): void {
     this.subagentInfo.clear();
     this.backgroundAgentMetadata.clear();
-    this.clearDynamicWorkflowMissionControls();
-    this.pendingLifecycleByParentToolCallId.clear();
-    this.parentToolCallIdsByAgentId.clear();
-    this.retiredDynamicWorkflowToolCallIds.clear();
-  }
-
-  /** Rebuilds replay state from a resumed session's background agents. */
-  hydrateBackgroundAgentMetadata(
-    backgroundAgentMetadata: ReadonlyMap<string, BackgroundAgentMetadata>,
-  ): void {
-    this.backgroundAgentMetadata = new Map(backgroundAgentMetadata);
-    for (const [agentId, meta] of backgroundAgentMetadata) {
-      const knownParentToolCallIds = this.parentToolCallIdsByAgentId.get(agentId) ?? new Set();
-      knownParentToolCallIds.add(meta.parentToolCallId);
-      this.parentToolCallIdsByAgentId.set(agentId, knownParentToolCallIds);
-    }
+    this.activityStore.clear();
+    this.clearAgentDynamicWorkflowProgress();
   }
 
   routeChildAgentEvent(event: Event): boolean {
     if (isSubagentLifecycleEvent(event)) return false;
 
     const childAgentId = event.agentId;
-    if (childAgentId === MAIN_AGENT_ID) {
-      // Swallow a late result for a Dynamic Workflow tool call that was already
-      // retired (undo / turn cleanup), so it cannot restart streaming UI.
-      return (
-        event.type === 'tool.result' &&
-        this.retiredDynamicWorkflowToolCallIds.has(event.toolCallId)
-      );
-    }
+    if (childAgentId === MAIN_AGENT_ID) return false;
     if (this.host.btwPanelController.routeEvent(event)) return true;
+
+    // Tee every child-agent event into the activity store before the routing
+    // below swallows events whose parent card is gone (Ctrl+B) or never
+    // existed (run_in_background) — that data is the background detail view.
+    this.activityStore.applyEvent(event);
 
     const info = this.subagentInfo.get(childAgentId);
     if (info === undefined || info.parentToolCallId.length === 0) return true;
 
     const { parentToolCallId } = info;
-    const missionControl = this.dynamicWorkflowMissionControls.get(parentToolCallId);
-    if (missionControl !== undefined) {
-      this.applySubagentEventToDynamicWorkflow(missionControl, event, childAgentId);
+    const dynamicWorkflowProgress = this.agentDynamicWorkflowProgress.get(parentToolCallId);
+    if (dynamicWorkflowProgress !== undefined) {
+      this.applySubagentEventToDynamicWorkflowProgress(dynamicWorkflowProgress, event, childAgentId);
       this.requestRender();
       return true;
     }
@@ -160,39 +135,20 @@ export class SubAgentEventHandler {
       toolCall.updateSubagentMetrics({
         contextTokens: event.contextTokens,
         usage: totalUsage,
+        // The bound model alias rides every child status update (emitted right
+        // after spawn); surface it on the subagent card. `modelDisplayName`
+        // falls back to the alias itself when the entry is unknown.
+        modelDisplay:
+          event.model === undefined
+            ? undefined
+            : modelDisplayName(event.model, this.host.state.appState.availableModels[event.model]),
+        effortDisplay: this.subagentEffortDisplay(event.thinkingEffort),
       });
     }
     return true;
   }
 
   handleLifecycleEvent(event: SubagentLifecycleEvent): void {
-    if (event.type !== 'subagent.spawned') {
-      const parentToolCallId = event.parentToolCallId;
-      const info = this.subagentInfo.get(event.subagentId);
-      const backgroundMeta = this.backgroundAgentMetadata.get(event.subagentId);
-      const activeParentToolCallId = info?.parentToolCallId ?? backgroundMeta?.parentToolCallId;
-
-      if (parentToolCallId !== undefined) {
-        if (this.retiredDynamicWorkflowToolCallIds.has(parentToolCallId)) {
-          this.deletePendingLifecycle(parentToolCallId, event.subagentId);
-          return;
-        }
-        if (activeParentToolCallId === undefined) {
-          this.bufferPendingLifecycle(parentToolCallId, event);
-          return;
-        }
-        if (activeParentToolCallId !== parentToolCallId) return;
-      } else {
-        if (activeParentToolCallId === undefined) return;
-        const knownParentToolCallIds = this.parentToolCallIdsByAgentId.get(event.subagentId);
-        if (
-          knownParentToolCallIds === undefined ||
-          knownParentToolCallIds.size !== 1 ||
-          !knownParentToolCallIds.has(activeParentToolCallId)
-        ) return;
-      }
-    }
-
     switch (event.type) {
       case 'subagent.spawned':
         this.handleSubagentSpawned(event);
@@ -212,126 +168,89 @@ export class SubAgentEventHandler {
     }
   }
 
-  handleWorkflowWarning(event: Extract<Event, { type: 'workflow.warning' }>): void {
-    const missionControl = this.dynamicWorkflowMissionControls.get(event.parentToolCallId);
-    if (missionControl !== undefined) {
-      missionControl.markWarning(event.message);
-      this.requestRender();
-      return;
+  clearAgentDynamicWorkflowProgress(): void {
+    for (const progress of this.agentDynamicWorkflowProgress.values()) {
+      progress.dispose();
     }
-    // The tool call was retired or the warning arrived without a card: never
-    // drop it silently.
-    this.host.showStatus(event.message, 'warning');
-  }
-
-  // Retires every live mission control: the tool call ids are recorded so
-  // any late events for them are dropped, and their subagents are forgotten.
-  clearDynamicWorkflowMissionControls(): void {
-    const toolCallIds = new Set(this.dynamicWorkflowMissionControls.keys());
-    for (const toolCallId of toolCallIds) {
-      this.retiredDynamicWorkflowToolCallIds.add(toolCallId);
-    }
-    for (const missionControl of this.dynamicWorkflowMissionControls.values()) {
-      missionControl.markToolCallEnded();
-      missionControl.markActiveCancelled();
-    }
-    this.dynamicWorkflowMissionControls.clear();
-    for (const toolCallId of toolCallIds) {
-      this.forgetDynamicWorkflowSubagents(toolCallId);
-      this.pendingLifecycleByParentToolCallId.delete(toolCallId);
-    }
+    this.agentDynamicWorkflowProgress.clear();
     this.host.updateActivityPane();
   }
 
-  hasDynamicWorkflowMissionControl(toolCallId: string): boolean {
-    return this.dynamicWorkflowMissionControls.has(toolCallId);
+  hasAgentDynamicWorkflowProgress(toolCallId: string): boolean {
+    return this.agentDynamicWorkflowProgress.has(toolCallId);
   }
 
-  hasActiveDynamicWorkflowToolCall(): boolean {
-    return Array.from(this.dynamicWorkflowMissionControls.values()).some((missionControl) =>
-      missionControl.isToolCallActive()
+  hasActiveAgentDynamicWorkflowToolCall(): boolean {
+    return Array.from(this.agentDynamicWorkflowProgress.values()).some((progress) =>
+      progress.isToolCallActive()
     );
   }
 
-  syncDynamicWorkflowActivitySpinner(
+  syncAgentDynamicWorkflowActivitySpinner(
     spinner: { renderInline(): string } | undefined,
   ): void {
-    for (const missionControl of this.dynamicWorkflowMissionControls.values()) {
-      missionControl.setActivitySpinnerText(
+    for (const progress of this.agentDynamicWorkflowProgress.values()) {
+      progress.setActivitySpinnerText(
         spinner === undefined ? undefined : () => spinner.renderInline(),
       );
     }
   }
 
-  /** True for a Dynamic Workflow tool call already removed from the UI. */
-  isRetiredDynamicWorkflowToolCall(toolCallId: string): boolean {
-    return this.retiredDynamicWorkflowToolCallIds.has(toolCallId);
-  }
-
-  handleDynamicWorkflowToolCallStarted(
+  handleAgentDynamicWorkflowToolCallStarted(
     toolCallId: string,
     args: Record<string, unknown>,
   ): void {
-    if (this.isRetiredDynamicWorkflowToolCall(toolCallId)) return;
-    const missionControl = this.ensureDynamicWorkflowMissionControl(toolCallId, args);
-    missionControl.markInputComplete();
-    // Captured here rather than in `ensure…`, which the delta path also calls:
-    // mid-stream arguments are half-parsed, and saving those would write a
-    // workflow missing most of its items.
-    this.host.state.lastDynamicWorkflowArgs = args;
+    const progress = this.ensureAgentDynamicWorkflowProgress(toolCallId, args);
+    progress.markInputComplete();
     this.requestRender();
   }
 
-  handleDynamicWorkflowToolCallDelta(
+  handleAgentDynamicWorkflowToolCallDelta(
     toolCallId: string,
     args: Record<string, unknown>,
-    options: { readonly streamingArguments?: string },
+    options: { readonly streamingArguments?: string | undefined },
   ): void {
-    if (this.isRetiredDynamicWorkflowToolCall(toolCallId)) return;
-    this.ensureDynamicWorkflowMissionControl(toolCallId, args, options);
+    this.ensureAgentDynamicWorkflowProgress(toolCallId, args, options);
     this.requestRender();
   }
 
-  handleDynamicWorkflowToolResult(
+  handleAgentDynamicWorkflowToolResult(
     toolCallId: string,
     resultData: ToolResultBlockData,
     isError: boolean,
   ): void {
-    const missionControl = this.dynamicWorkflowMissionControls.get(toolCallId);
-    if (missionControl === undefined) {
-      return;
-    }
+    const progress = this.agentDynamicWorkflowProgress.get(toolCallId);
+    if (progress === undefined) return;
 
     if (isError && isUserCancelledSubagentError(resultData.output)) {
-      if (missionControl.isRequestStreaming()) {
-        this.removeDynamicWorkflowMissionControl(toolCallId, missionControl);
+      if (progress.isRequestStreaming()) {
+        this.removeAgentDynamicWorkflowProgress(toolCallId, progress);
       } else {
-        missionControl.markToolCallEnded();
-        missionControl.markActiveCancelled();
+        progress.markToolCallEnded();
+        progress.markActiveCancelled();
       }
     } else if (isError) {
-      missionControl.markToolCallEnded();
-      missionControl.applyResult(resultData.output);
-      missionControl.markRequestFailed(resultData.output);
-    } else {
-      missionControl.markToolCallEnded();
-      if (!missionControl.applyResult(resultData.output)) {
-        missionControl.markRequestFailed('Unsupported Dynamic Workflow result');
+      progress.markToolCallEnded();
+      if (!progress.applyResult(resultData.output)) {
+        progress.markDynamicWorkflowFailed(resultData.output);
       }
+    } else {
+      progress.markToolCallEnded();
+      progress.applyResult(resultData.output);
     }
     this.host.updateActivityPane();
     this.requestRender();
   }
 
-  markActiveDynamicWorkflowsCancelled(): void {
+  markActiveAgentDynamicWorkflowsCancelled(): void {
     let updated = false;
-    for (const [toolCallId, missionControl] of this.dynamicWorkflowMissionControls) {
-      if (missionControl.isRequestStreaming()) {
-        this.removeDynamicWorkflowMissionControl(toolCallId, missionControl);
+    for (const [toolCallId, progress] of this.agentDynamicWorkflowProgress) {
+      if (progress.isRequestStreaming()) {
+        this.removeAgentDynamicWorkflowProgress(toolCallId, progress);
         updated = true;
         continue;
       }
-      missionControl.markActiveCancelled();
+      progress.markActiveCancelled();
       updated = true;
     }
     if (updated) this.requestRender();
@@ -340,17 +259,6 @@ export class SubAgentEventHandler {
   private handleSubagentSpawned(
     event: SubagentLifecycleEventOf<'subagent.spawned'>,
   ): void {
-    if (this.retiredDynamicWorkflowToolCallIds.has(event.parentToolCallId)) {
-      this.deletePendingLifecycle(event.parentToolCallId, event.subagentId);
-      return;
-    }
-
-    const knownParentToolCallIds = this.parentToolCallIdsByAgentId.get(event.subagentId) ?? new Set();
-    knownParentToolCallIds.add(event.parentToolCallId);
-    this.parentToolCallIdsByAgentId.set(event.subagentId, knownParentToolCallIds);
-    if (this.backgroundAgentMetadata.delete(event.subagentId)) {
-      this.deps.syncBackgroundAgentBadge();
-    }
     this.rememberSubagent(event);
 
     if (event.runInBackground) {
@@ -358,12 +266,10 @@ export class SubAgentEventHandler {
       this.backgroundAgentMetadata.set(event.subagentId, meta);
       this.appendBackgroundAgentEntry('started', meta);
       this.deps.syncBackgroundAgentBadge();
-      this.drainPendingLifecycle(event.parentToolCallId, event.subagentId);
       return;
     }
 
     this.handleForegroundSubagentSpawned(event);
-    this.drainPendingLifecycle(event.parentToolCallId, event.subagentId);
   }
 
   private handleSubagentStarted(
@@ -385,6 +291,8 @@ export class SubAgentEventHandler {
   private handleSubagentCompleted(
     event: SubagentLifecycleEventOf<'subagent.completed'>,
   ): void {
+    this.activityStore.markCompleted(event.subagentId, event.resultSummary);
+    this.pruneForegroundOnlyRecord(event.subagentId);
     const backgroundMeta = this.backgroundAgentMetadata.get(event.subagentId);
     if (backgroundMeta !== undefined) {
       const taskId = this.findAgentTaskId(
@@ -414,6 +322,8 @@ export class SubAgentEventHandler {
   private handleSubagentFailed(
     event: SubagentLifecycleEventOf<'subagent.failed'>,
   ): void {
+    this.activityStore.markFailed(event.subagentId, event.error);
+    this.pruneForegroundOnlyRecord(event.subagentId);
     const backgroundMeta = this.backgroundAgentMetadata.get(event.subagentId);
     if (backgroundMeta !== undefined) {
       const taskId = this.findAgentTaskId(
@@ -469,6 +379,28 @@ export class SubAgentEventHandler {
     return match;
   }
 
+  /** A subagent that never became a background task (foreground-only) can
+   *  never appear in /tasks, so its activity record is dropped at terminal
+   *  state — otherwise records would pile up for the rest of the session. */
+  private pruneForegroundOnlyRecord(subagentId: string): void {
+    // A spawn-time background agent keeps its record even when the
+    // background.task.started sync has not landed yet (short-lived agents).
+    if (this.backgroundAgentMetadata.has(subagentId)) return;
+    for (const info of this.deps.backgroundTasks.values()) {
+      if (info.kind === 'agent' && info.agentId === subagentId) return;
+    }
+    this.activityStore.drop(subagentId);
+  }
+
+  /** Drop every foreground-only record. Called when the main turn ends: any
+   *  foreground subagent of the turn is over at that point, and an aborted
+   *  one emits no `subagent.completed`/`subagent.failed` to prune it. */
+  dropForegroundOnlyActivityRecords(): void {
+    for (const agentId of this.activityStore.agentIds()) {
+      this.pruneForegroundOnlyRecord(agentId);
+    }
+  }
+
   private buildBackgroundAgentMetadata(
     event: SubagentLifecycleEventOf<'subagent.spawned'>,
   ): BackgroundAgentMetadata {
@@ -479,13 +411,15 @@ export class SubAgentEventHandler {
       parentToolCallId: event.parentToolCallId,
       agentName: event.subagentName,
       description: typeof description === 'string' ? description : undefined,
+      model: this.spawnedModelDisplay(event),
+      effort: this.subagentEffortDisplay(event.thinkingEffort),
     };
   }
 
   private appendBackgroundAgentEntry(
     phase: 'started' | 'completed' | 'failed',
     meta: BackgroundAgentMetadata,
-    extras?: { resultSummary?: string; error?: string },
+    extras: { resultSummary?: string; error?: string } | undefined = undefined,
   ): void {
     const status = formatBackgroundAgentTranscript(phase, meta, extras);
     const entry: TranscriptEntry = {
@@ -509,17 +443,32 @@ export class SubAgentEventHandler {
       runInBackground: event.runInBackground,
       dynamicWorkflowIndex: event.dynamicWorkflowIndex,
     });
+    this.activityStore.ensureRecord({
+      agentId: event.subagentId,
+      agentName: event.subagentName,
+      description: event.description,
+      parentToolCallId: event.parentToolCallId,
+      model: this.spawnedModelDisplay(event),
+      effort: this.subagentEffortDisplay(event.thinkingEffort),
+    });
   }
 
   private handleForegroundSubagentSpawned(
     event: SubagentLifecycleEventOf<'subagent.spawned'>,
   ): void {
-    if (this.updateDynamicWorkflowMissionControl(event.parentToolCallId, (missionControl) => {
-      missionControl.registerSubagent({
+    // The spawned event carries the display-normalized bound alias (newer
+    // cores) — show it at spawn instead of waiting for the child's first
+    // status frame. The `agent.status.updated` channel below stays as the
+    // in-run update/fallback path.
+    const modelDisplay = this.spawnedModelDisplay(event);
+    const effortDisplay = this.subagentEffortDisplay(event.thinkingEffort);
+    if (this.updateAgentDynamicWorkflowProgress(event.parentToolCallId, (progress) => {
+      progress.registerSubagent({
         agentId: event.subagentId,
         dynamicWorkflowIndex: event.dynamicWorkflowIndex,
-        description: event.description,
       });
+      if (modelDisplay !== undefined) progress.setModelDisplay(modelDisplay);
+      if (effortDisplay !== undefined) progress.setEffortDisplay(effortDisplay);
     })) {
       return;
     }
@@ -532,14 +481,34 @@ export class SubAgentEventHandler {
       agentName: event.subagentName,
       runInBackground: event.runInBackground,
     });
+    if (modelDisplay !== undefined || effortDisplay !== undefined) {
+      tc.updateSubagentMetrics({ modelDisplay, effortDisplay });
+    }
+  }
+
+  /** Map the spawned event's bound alias to a display name via the loaded
+   *  model catalog; falls back to the alias itself for unknown entries. */
+  private spawnedModelDisplay(
+    event: SubagentLifecycleEventOf<'subagent.spawned'>,
+  ): string | undefined {
+    if (event.model === undefined) return undefined;
+    return modelDisplayName(event.model, this.host.state.appState.availableModels[event.model]);
+  }
+
+  /** Concrete effort levels are always shown; the boolean states carry no
+   *  level information — 'off' (no thinking) and 'on' (generic thinking) are
+   *  both hidden. */
+  private subagentEffortDisplay(effort: string | undefined): string | undefined {
+    if (effort === undefined || effort === 'off' || effort === 'on') return undefined;
+    return effort;
   }
 
   private handleForegroundSubagentStarted(
     event: SubagentLifecycleEventOf<'subagent.started'>,
     info: SubagentInfo,
   ): void {
-    if (this.updateDynamicWorkflowMissionControl(info.parentToolCallId, (missionControl) => {
-      missionControl.markStarted(event.subagentId);
+    if (this.updateAgentDynamicWorkflowProgress(info.parentToolCallId, (progress) => {
+      progress.markStarted(event.subagentId);
     })) {
       return;
     }
@@ -557,8 +526,8 @@ export class SubAgentEventHandler {
     event: SubagentLifecycleEventOf<'subagent.suspended'>,
     info: SubagentInfo,
   ): void {
-    this.updateDynamicWorkflowMissionControl(info.parentToolCallId, (missionControl) => {
-      missionControl.markSuspended({
+    this.updateAgentDynamicWorkflowProgress(info.parentToolCallId, (progress) => {
+      progress.markSuspended({
         agentId: event.subagentId,
         reason: event.reason,
         dynamicWorkflowIndex: info.dynamicWorkflowIndex,
@@ -571,8 +540,8 @@ export class SubAgentEventHandler {
     info: SubagentInfo,
   ): void {
     const { parentToolCallId } = info;
-    if (this.updateDynamicWorkflowMissionControl(parentToolCallId, (missionControl) => {
-      missionControl.markCompleted(event.subagentId, event.resultSummary);
+    if (this.updateAgentDynamicWorkflowProgress(parentToolCallId, (progress) => {
+      progress.markCompleted(event.subagentId, event.resultSummary);
     })) {
       this.host.streamingUI.removeToolComponentIfInactive(parentToolCallId);
       return;
@@ -593,8 +562,8 @@ export class SubAgentEventHandler {
     info: SubagentInfo,
   ): void {
     const { parentToolCallId } = info;
-    if (this.updateDynamicWorkflowMissionControl(parentToolCallId, (missionControl) => {
-      this.markDynamicWorkflowFailedOrCancelled(missionControl, event.subagentId, event.error);
+    if (this.updateAgentDynamicWorkflowProgress(parentToolCallId, (progress) => {
+      this.markAgentDynamicWorkflowFailedOrCancelled(progress, event.subagentId, event.error);
     })) {
       this.host.streamingUI.removeToolComponentIfInactive(parentToolCallId);
       return;
@@ -606,146 +575,112 @@ export class SubAgentEventHandler {
     this.host.streamingUI.removeToolComponentIfInactive(parentToolCallId);
   }
 
-  private applySubagentEventToDynamicWorkflow(
-    missionControl: DynamicWorkflowMissionControlComponent,
+  private applySubagentEventToDynamicWorkflowProgress(
+    progress: AgentDynamicWorkflowProgressComponent,
     event: Event,
     subagentId: string,
   ): void {
     if (event.type === 'assistant.delta' || event.type === 'thinking.delta') {
-      missionControl.appendModelDelta({ agentId: subagentId, delta: event.delta });
+      progress.appendModelDelta({ agentId: subagentId, delta: event.delta });
     } else if (event.type === 'tool.call.started') {
-      missionControl.recordToolCall({
-        agentId: subagentId,
-        name: event.name,
-      });
+      progress.recordToolCall({ agentId: subagentId, toolCallId: event.toolCallId });
+    } else if (event.type === 'agent.status.updated' && event.model !== undefined) {
+      // The bound model alias rides every child status update (emitted right
+      // after spawn). DynamicWorkflow members share one binding, so the panel shows it
+      // once in the header instead of per cell. `modelDisplayName` falls back
+      // to the alias itself when the entry is unknown.
+      progress.setModelDisplay(
+        modelDisplayName(event.model, this.host.state.appState.availableModels[event.model]),
+      );
+      const effortDisplay = this.subagentEffortDisplay(event.thinkingEffort);
+      if (effortDisplay !== undefined) progress.setEffortDisplay(effortDisplay);
     }
   }
 
-  private updateDynamicWorkflowMissionControl(
+  private updateAgentDynamicWorkflowProgress(
     parentToolCallId: string,
-    update: (missionControl: DynamicWorkflowMissionControlComponent) => void,
+    update: (progress: AgentDynamicWorkflowProgressComponent) => void,
   ): boolean {
-    const missionControl = this.dynamicWorkflowMissionControls.get(parentToolCallId);
-    if (missionControl === undefined) return false;
-    update(missionControl);
+    const progress = this.agentDynamicWorkflowProgress.get(parentToolCallId);
+    if (progress === undefined) return false;
+    update(progress);
     this.requestRender();
     return true;
   }
 
-  private ensureDynamicWorkflowMissionControl(
+  private ensureAgentDynamicWorkflowProgress(
     toolCallId: string,
     args: Record<string, unknown>,
-    options: { readonly streamingArguments?: string } = {},
-  ): DynamicWorkflowMissionControlComponent {
-    const existing = this.dynamicWorkflowMissionControls.get(toolCallId);
+    options: { readonly streamingArguments?: string | undefined } = {},
+  ): AgentDynamicWorkflowProgressComponent {
+    const existing = this.agentDynamicWorkflowProgress.get(toolCallId);
     if (existing !== undefined) {
       existing.updateArgs(args, options);
       return existing;
     }
 
-    let missionControl: DynamicWorkflowMissionControlComponent | undefined;
-    missionControl = new DynamicWorkflowMissionControlComponent({
-      description: dynamicWorkflowDescriptionFromArgs(args),
-      availableRows: () => this.dynamicWorkflowAvailableRows(missionControl),
+    const progress = new AgentDynamicWorkflowProgressComponent({
+      description: agentDynamicWorkflowDescriptionFromArgs(args),
+      availableGridHeight: () => this.agentDynamicWorkflowGridHeight(),
+      requestRender: () => {
+        this.requestRender();
+      },
     });
-    missionControl.updateArgs(args, options);
-    this.dynamicWorkflowMissionControls.set(toolCallId, missionControl);
+    progress.updateArgs(args, options);
+    this.agentDynamicWorkflowProgress.set(toolCallId, progress);
     this.host.streamingUI.finalizeLiveTextBuffers('tool');
-    this.host.state.transcriptContainer.addTranscriptChild(missionControl, {
-      role: 'live-durable',
-      edgeBlankPolicy: 'trim-plain',
-    });
+    this.host.state.transcriptContainer.addChild(progress);
     this.host.updateActivityPane();
     this.requestRender();
-    return missionControl;
+    return progress;
   }
 
-  private removeDynamicWorkflowMissionControl(
+  private removeAgentDynamicWorkflowProgress(
     toolCallId: string,
-    missionControl: DynamicWorkflowMissionControlComponent,
+    progress: AgentDynamicWorkflowProgressComponent,
   ): void {
-    this.dynamicWorkflowMissionControls.delete(toolCallId);
-    this.retiredDynamicWorkflowToolCallIds.add(toolCallId);
-    this.forgetDynamicWorkflowSubagents(toolCallId);
-    this.pendingLifecycleByParentToolCallId.delete(toolCallId);
+    this.agentDynamicWorkflowProgress.delete(toolCallId);
+    progress.dispose();
     const children = this.host.state.transcriptContainer.children;
-    const index = children.indexOf(missionControl);
+    const index = children.indexOf(progress);
     if (index >= 0) {
+      // Structural removal only: GutterContainer's ref-checked render cache
+      // detects the child-list change; no tree-wide invalidate needed.
       children.splice(index, 1);
     }
     this.host.updateActivityPane();
   }
 
-  private forgetDynamicWorkflowSubagents(toolCallId: string): void {
-    for (const [agentId, info] of this.subagentInfo) {
-      if (info.parentToolCallId !== toolCallId) continue;
-      this.subagentInfo.delete(agentId);
-    }
-  }
-
-  private dynamicWorkflowAvailableRows(missionControl: Component | undefined): number | undefined {
+  private agentDynamicWorkflowGridHeight(): number | undefined {
     const { state } = this.host;
     const terminalRows = state.ui.terminal.rows;
     const terminalColumns = state.ui.terminal.columns;
-    if (!Number.isFinite(terminalRows)) return undefined;
     if (!Number.isFinite(terminalColumns) || terminalColumns <= 0) {
-      return Math.max(0, Math.floor(terminalRows));
+      return agentDynamicWorkflowGridHeightForTerminalRows(terminalRows);
     }
 
     const width = Math.floor(terminalColumns);
-    const followingTranscriptRows = missionControl === undefined
-      ? 0
-      : state.transcriptContainer.renderedRowsAfterChild(width, missionControl);
-    // Under the fixed layout the transcript lives inside the layout root, so
-    // the rows below it include the root's chrome + footer measurement and
-    // later transcript siblings.
-    const followingRows =
-      state.layout === 'fixed'
-        ? state.layoutRoot.followingRows(width) + followingTranscriptRows
-        : renderedRowsAfterChild(state.ui.children, state.transcriptContainer, width);
-    return Math.max(0, Math.floor(terminalRows) - Math.max(0, Math.floor(followingRows)));
+    const dock = state.dockContainer;
+    // Fullscreen: the root children are empty (layout root holds a ScrollView +
+    // dock); the chrome below the transcript is the dock's children instead.
+    const rowsAfterDynamicWorkflow = renderedRowsAfterChild(
+      dock !== undefined ? [state.transcriptContainer, ...dock.children] : state.ui.children,
+      state.transcriptContainer,
+      width,
+    );
+    return agentDynamicWorkflowGridHeightForTerminalRows(terminalRows, rowsAfterDynamicWorkflow);
   }
 
-  private markDynamicWorkflowFailedOrCancelled(
-    missionControl: DynamicWorkflowMissionControlComponent,
+  private markAgentDynamicWorkflowFailedOrCancelled(
+    progress: AgentDynamicWorkflowProgressComponent,
     subagentId: string,
     error: string,
   ): void {
     if (isUserCancelledSubagentError(error)) {
-      missionControl.markCancelled(subagentId);
+      progress.markCancelled(subagentId);
     } else {
-      missionControl.markFailed(subagentId, error);
+      progress.markFailed(subagentId, error);
     }
-  }
-
-  private bufferPendingLifecycle(
-    parentToolCallId: string,
-    event: SubagentLifecycleEvent,
-  ): void {
-    // Keyed by parent tool call so a later workflow reusing the same agent id
-    // cannot drain events left over from an earlier generation.
-    const pendingByAgentId =
-      this.pendingLifecycleByParentToolCallId.get(parentToolCallId) ?? new Map();
-    const pending = pendingByAgentId.get(event.subagentId) ?? [];
-    pending.push(event);
-    pendingByAgentId.set(event.subagentId, pending);
-    this.pendingLifecycleByParentToolCallId.set(parentToolCallId, pendingByAgentId);
-  }
-
-  private deletePendingLifecycle(parentToolCallId: string, agentId: string): void {
-    const pendingByAgentId = this.pendingLifecycleByParentToolCallId.get(parentToolCallId);
-    if (pendingByAgentId === undefined) return;
-    pendingByAgentId.delete(agentId);
-    if (pendingByAgentId.size === 0) {
-      this.pendingLifecycleByParentToolCallId.delete(parentToolCallId);
-    }
-  }
-
-  private drainPendingLifecycle(parentToolCallId: string, agentId: string): void {
-    const pending = this.pendingLifecycleByParentToolCallId.get(parentToolCallId)?.get(agentId);
-    if (pending === undefined) return;
-    this.deletePendingLifecycle(parentToolCallId, agentId);
-    for (const event of pending) this.handleLifecycleEvent(event);
   }
 
   private getOrActivateToolComponent(parentToolCallId: string) {
@@ -793,7 +728,7 @@ function isSubagentLifecycleEvent(event: Event): event is SubagentLifecycleEvent
 }
 
 function isUserCancelledSubagentError(error: string): boolean {
-  // Structured Dynamic Workflow results use outcome="aborted" and are parsed separately.
+  // Structured AgentDynamicWorkflow results use outcome="aborted" and are parsed separately.
   switch (error.trim()) {
     case 'Aborted by the user':
     case 'The user manually interrupted this subagent batch.':

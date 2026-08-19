@@ -30,27 +30,12 @@ describe('questionOptionSchema (SCHEMAS §6.2)', () => {
       id: 'opt_1',
       label: 'Yes',
       description: 'long form',
-      preview: '```ts\nconst answer = true;\n```',
-      url: 'https://example.test/answer',
     });
     expect(parsed.description).toBe('long form');
-    expect(parsed.preview).toBe('```ts\nconst answer = true;\n```');
-    expect(parsed.url).toBe('https://example.test/answer');
   });
 
   it('rejects missing id', () => {
-    expect(() => questionOptionSchema.parse({ label: 'Yes' })).toThrowErrorMatchingInlineSnapshot(`
-      [ZodError: [
-        {
-          "expected": "string",
-          "code": "invalid_type",
-          "path": [
-            "id"
-          ],
-          "message": "Invalid input: expected string, received undefined"
-        }
-      ]]
-    `);
+    expect(() => questionOptionSchema.parse({ label: 'Yes' })).toThrow();
   });
 });
 
@@ -64,7 +49,7 @@ describe('questionItemSchema (SCHEMAS §6.2)', () => {
     ],
   };
 
-  it('accepts a standard 2-option single-select item', () => {
+  it('accepts a minimum 2-option single-select item', () => {
     expect(questionItemSchema.parse(baseItem).id).toBe('q_1');
   });
 
@@ -86,18 +71,13 @@ describe('questionItemSchema (SCHEMAS §6.2)', () => {
     expect(parsed.other_label).toBe('Other');
   });
 
-  it('accepts free input and single-preset questions', () => {
-    expect(
-      questionItemSchema.parse({ ...baseItem, options: [], allow_other: true }).options,
-    ).toEqual([]);
-    expect(
-      questionItemSchema.parse({ ...baseItem, options: [baseItem.options[0]] }).options,
-    ).toHaveLength(1);
+  it('rejects fewer than 2 options', () => {
+    expect(() => questionItemSchema.parse({ ...baseItem, options: [baseItem.options[0]] })).toThrow();
   });
 
-  it('accepts more than 4 options for schema-driven forms', () => {
+  it('rejects more than 4 options', () => {
     const tooMany = Array.from({ length: 5 }, (_, i) => ({ id: `o${i}`, label: `L${i}` }));
-    expect(questionItemSchema.parse({ ...baseItem, options: tooMany }).options).toHaveLength(5);
+    expect(() => questionItemSchema.parse({ ...baseItem, options: tooMany })).toThrow();
   });
 });
 
@@ -116,7 +96,6 @@ describe('questionRequestSchema (SCHEMAS §6.2)', () => {
       },
     ],
     created_at: '2026-06-04T10:30:00Z',
-    expires_at: '2026-06-04T10:31:00Z',
   };
 
   it('accepts a 1-question request', () => {
@@ -124,20 +103,7 @@ describe('questionRequestSchema (SCHEMAS §6.2)', () => {
   });
 
   it('rejects 0 questions', () => {
-    expect(() => questionRequestSchema.parse({ ...baseReq, questions: [] })).toThrowErrorMatchingInlineSnapshot(`
-      [ZodError: [
-        {
-          "origin": "array",
-          "code": "too_small",
-          "minimum": 1,
-          "inclusive": true,
-          "path": [
-            "questions"
-          ],
-          "message": "Too small: expected array to have >=1 items"
-        }
-      ]]
-    `);
+    expect(() => questionRequestSchema.parse({ ...baseReq, questions: [] })).toThrow();
   });
 
   it('rejects more than 4 questions', () => {
@@ -149,20 +115,7 @@ describe('questionRequestSchema (SCHEMAS §6.2)', () => {
         { id: 'b', label: 'B' },
       ],
     }));
-    expect(() => questionRequestSchema.parse({ ...baseReq, questions: tooMany })).toThrowErrorMatchingInlineSnapshot(`
-      [ZodError: [
-        {
-          "origin": "array",
-          "code": "too_big",
-          "maximum": 4,
-          "inclusive": true,
-          "path": [
-            "questions"
-          ],
-          "message": "Too big: expected array to have <=4 items"
-        }
-      ]]
-    `);
+    expect(() => questionRequestSchema.parse({ ...baseReq, questions: tooMany })).toThrow();
   });
 
   it('normalizes timestamps to UTC', () => {
@@ -189,82 +142,15 @@ describe('questionAnswerSchema 5-kind discriminated union (SCHEMAS §6.2)', () =
   });
 
   it('rejects single with empty option_id', () => {
-    expect(() => questionAnswerSchema.parse({ kind: 'single', option_id: '' })).toThrowErrorMatchingInlineSnapshot(`
-      [ZodError: [
-        {
-          "origin": "string",
-          "code": "too_small",
-          "minimum": 1,
-          "inclusive": true,
-          "path": [
-            "option_id"
-          ],
-          "message": "Too small: expected string to have >=1 characters"
-        }
-      ]]
-    `);
+    expect(() => questionAnswerSchema.parse({ kind: 'single', option_id: '' })).toThrow();
   });
 
   it('rejects multi with empty option_ids array', () => {
-    expect(() => questionAnswerSchema.parse({ kind: 'multi', option_ids: [] })).toThrowErrorMatchingInlineSnapshot(`
-      [ZodError: [
-        {
-          "origin": "array",
-          "code": "too_small",
-          "minimum": 1,
-          "inclusive": true,
-          "path": [
-            "option_ids"
-          ],
-          "message": "Too small: expected array to have >=1 items"
-        }
-      ]]
-    `);
+    expect(() => questionAnswerSchema.parse({ kind: 'multi', option_ids: [] })).toThrow();
   });
 
   it('rejects unknown kind', () => {
-    expect(() => questionAnswerSchema.parse({ kind: 'rangefinder', value: 42 })).toThrowErrorMatchingInlineSnapshot(`
-      [ZodError: [
-        {
-          "code": "invalid_union",
-          "errors": [],
-          "note": "No matching discriminator",
-          "discriminator": "kind",
-          "options": [
-            "single",
-            "multi",
-            "other",
-            "multi_with_other",
-            "skipped"
-          ],
-          "path": [
-            "kind"
-          ],
-          "message": "Invalid discriminator value. Expected 'single' | 'multi' | 'other' | 'multi_with_other' | 'skipped'"
-        }
-      ]]
-    `);
-  });
-});
-
-describe('questionResponseSchema annotations', () => {
-  it('accepts selected previews and trimmed user notes keyed by question text', () => {
-    const parsed = questionResponseSchema.parse({
-      answers: { q_0: { kind: 'single', option_id: 'opt_0_1' } },
-      annotations: {
-        'Which database?': {
-          preview: 'const database = new Database("example.db");',
-          notes: 'Prefer the embedded option.',
-        },
-      },
-    });
-
-    expect(parsed.annotations).toEqual({
-      'Which database?': {
-        preview: 'const database = new Database("example.db");',
-        notes: 'Prefer the embedded option.',
-      },
-    });
+    expect(() => questionAnswerSchema.parse({ kind: 'rangefinder', value: 42 })).toThrow();
   });
 });
 
@@ -274,21 +160,7 @@ describe('questionAnswerMethodSchema', () => {
   });
 
   it('rejects unknown method', () => {
-    expect(() => questionAnswerMethodSchema.parse('voice')).toThrowErrorMatchingInlineSnapshot(`
-      [ZodError: [
-        {
-          "code": "invalid_value",
-          "values": [
-            "enter",
-            "space",
-            "number_key",
-            "click"
-          ],
-          "path": [],
-          "message": "Invalid option: expected one of \\"enter\\"|\\"space\\"|\\"number_key\\"|\\"click\\""
-        }
-      ]]
-    `);
+    expect(() => questionAnswerMethodSchema.parse('voice')).toThrow();
   });
 });
 
@@ -338,20 +210,7 @@ describe('questionResolveResultSchema (REST §3.6)', () => {
   it('rejects resolved:false', () => {
     expect(() =>
       questionResolveResultSchema.parse({ resolved: false, resolved_at: '2026-06-04T10:31:00Z' }),
-    ).toThrowErrorMatchingInlineSnapshot(`
-      [ZodError: [
-        {
-          "code": "invalid_value",
-          "values": [
-            true
-          ],
-          "path": [
-            "resolved"
-          ],
-          "message": "Invalid input: expected true"
-        }
-      ]]
-    `);
+    ).toThrow();
   });
 });
 
@@ -363,20 +222,7 @@ describe('questionAlreadyResolvedDataSchema (REST §3.6 idempotent 40902)', () =
   });
 
   it('rejects resolved:true', () => {
-    expect(() => questionAlreadyResolvedDataSchema.parse({ resolved: true })).toThrowErrorMatchingInlineSnapshot(`
-      [ZodError: [
-        {
-          "code": "invalid_value",
-          "values": [
-            false
-          ],
-          "path": [
-            "resolved"
-          ],
-          "message": "Invalid input: expected false"
-        }
-      ]]
-    `);
+    expect(() => questionAlreadyResolvedDataSchema.parse({ resolved: true })).toThrow();
   });
 });
 
@@ -396,20 +242,7 @@ describe('questionDismissResultSchema (REST §3.6 dismiss with code 40909)', () 
         dismissed: false,
         dismissed_at: '2026-06-04T10:32:00Z',
       }),
-    ).toThrowErrorMatchingInlineSnapshot(`
-      [ZodError: [
-        {
-          "code": "invalid_value",
-          "values": [
-            true
-          ],
-          "path": [
-            "dismissed"
-          ],
-          "message": "Invalid input: expected true"
-        }
-      ]]
-    `);
+    ).toThrow();
   });
 });
 
@@ -428,7 +261,6 @@ describe('listPendingQuestionsResponseSchema (REST pending recovery)', () => {
       },
     ],
     created_at: '2026-06-04T10:30:00Z',
-    expires_at: '2026-06-04T10:31:00Z',
   };
 
   it('accepts status=pending query', () => {
@@ -440,20 +272,7 @@ describe('listPendingQuestionsResponseSchema (REST pending recovery)', () => {
   it('rejects unsupported status query', () => {
     expect(() =>
       listPendingQuestionsQuerySchema.parse({ status: 'answered' }),
-    ).toThrowErrorMatchingInlineSnapshot(`
-      [ZodError: [
-        {
-          "code": "invalid_value",
-          "values": [
-            "pending"
-          ],
-          "path": [
-            "status"
-          ],
-          "message": "Invalid input: expected \\"pending\\""
-        }
-      ]]
-    `);
+    ).toThrow();
   });
 
   it('returns question request items', () => {

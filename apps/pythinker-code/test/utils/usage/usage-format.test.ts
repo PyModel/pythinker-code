@@ -16,17 +16,27 @@ describe('formatTokenCount', () => {
     expect(formatTokenCount(999)).toBe('999');
   });
 
-  it('uses 1024-based k units', () => {
+  it('switches to k at 1024 and trims a redundant ".0"', () => {
     expect(formatTokenCount(1_000)).toBe('1000');
     expect(formatTokenCount(1_024)).toBe('1k');
     expect(formatTokenCount(1_536)).toBe('1.5k');
+    expect(formatTokenCount(2_048)).toBe('2k');
+  });
+
+  it('rounds k values to 1 decimal', () => {
+    expect(formatTokenCount(50_552)).toBe('49.4k');
     expect(formatTokenCount(262_144)).toBe('256k');
   });
 
-  it('switches to M at 1024 squared', () => {
-    expect(formatTokenCount(1_000_000)).toBe('977k');
+  it('rounds k values at or above 100k to whole k', () => {
+    expect(formatTokenCount(102_400)).toBe('100k');
+    expect(formatTokenCount(999_999)).toBe('977k');
+  });
+
+  it('switches to M at 1024*1024', () => {
     expect(formatTokenCount(1_048_576)).toBe('1M');
     expect(formatTokenCount(1_572_864)).toBe('1.5M');
+    expect(formatTokenCount(10_485_760)).toBe('10M');
   });
 
   it('clamps negatives and NaN to 0', () => {
@@ -36,18 +46,46 @@ describe('formatTokenCount', () => {
   });
 });
 
-describe('usage percentages', () => {
-  it('ceils and clamps token ratios', () => {
+describe('usagePercent', () => {
+  it('returns 0 for zero usage', () => {
     expect(usagePercent(0, 1000)).toBe(0);
-    expect(usagePercent(4, 10_000)).toBe(1);
-    expect(usagePercent(427, 1000)).toBe(43);
-    expect(usagePercent(1200, 1000)).toBe(100);
-    expect(usagePercent(500, 0)).toBe(0);
   });
 
-  it('ceils and clamps precomputed ratios', () => {
+  it('ceil-guarantees at least 1% for any non-zero usage', () => {
+    expect(usagePercent(4, 10_000)).toBe(1);
+  });
+
+  it('ceils fractional percentages', () => {
+    expect(usagePercent(427, 1000)).toBe(43);
+    expect(usagePercent(992, 1000)).toBe(100);
+  });
+
+  it('clamps to 100 when used meets or exceeds max', () => {
+    expect(usagePercent(1000, 1000)).toBe(100);
+    expect(usagePercent(1200, 1000)).toBe(100);
+  });
+
+  it('returns 0 for a non-positive or non-finite max', () => {
+    expect(usagePercent(500, 0)).toBe(0);
+    expect(usagePercent(500, -1)).toBe(0);
+    expect(usagePercent(500, Number.NaN)).toBe(0);
+  });
+});
+
+describe('usagePercentFromRatio', () => {
+  it('coerces NaN to 0', () => {
     expect(usagePercentFromRatio(Number.NaN)).toBe(0);
+  });
+
+  it('returns 0 for zero usage', () => {
+    expect(usagePercentFromRatio(0)).toBe(0);
+  });
+
+  it('ceil-guarantees at least 1% for any non-zero ratio', () => {
     expect(usagePercentFromRatio(0.004)).toBe(1);
+  });
+
+  it('ceils fractional percentages and clamps above 100', () => {
     expect(usagePercentFromRatio(0.427)).toBe(43);
     expect(usagePercentFromRatio(1.5)).toBe(100);
   });

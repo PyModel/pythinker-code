@@ -30,25 +30,18 @@ describe('pythinker acp', () => {
   let stderrSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
-    vi.mocked(runAcpServer).mockReset().mockResolvedValue(undefined);
+    vi.stubEnv('PYTHINKER_CODE_LEGACY_FLAG', '1');
+    vi.mocked(runAcpServer).mockClear();
     exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number | string | null) => {
       throw new ExitCalled(code);
     }) as never);
-    stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(((
-      _chunk: string | Uint8Array,
-      encodingOrCallback?: BufferEncoding | ((error?: Error | null) => void),
-      callback?: (error?: Error | null) => void,
-    ) => {
-      const complete =
-        typeof encodingOrCallback === 'function' ? encodingOrCallback : callback;
-      complete?.();
-      return true;
-    }) as never);
+    stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
   });
 
   afterEach(() => {
     exitSpy.mockRestore();
     stderrSpy.mockRestore();
+    vi.unstubAllEnvs();
   });
 
   it('registers an `acp` subcommand on the program', () => {
@@ -76,37 +69,6 @@ describe('pythinker acp', () => {
       }),
     );
     expect(exitSpy).toHaveBeenCalledWith(0);
-  });
-
-  it('exits 0 when the ACP transport closes with EPIPE', async () => {
-    vi.mocked(runAcpServer).mockRejectedValueOnce(
-      Object.assign(new Error('write EPIPE'), { code: 'EPIPE' }),
-    );
-    const program = new Command('pythinker').exitOverride();
-    registerAcpCommand(program);
-
-    await expect(program.parseAsync(['node', 'pythinker', 'acp'])).rejects.toThrow(ExitCalled);
-
-    expect(exitSpy).toHaveBeenCalledOnce();
-    expect(exitSpy).toHaveBeenCalledWith(0);
-    expect(stderrSpy).not.toHaveBeenCalledWith(
-      expect.stringContaining('acp server: fatal error'),
-      expect.anything(),
-    );
-  });
-
-  it('treats a rejected undefined value as a fatal server error', async () => {
-    vi.mocked(runAcpServer).mockRejectedValueOnce(undefined);
-    const program = new Command('pythinker').exitOverride();
-    registerAcpCommand(program);
-
-    await expect(program.parseAsync(['node', 'pythinker', 'acp'])).rejects.toThrow(ExitCalled);
-
-    expect(exitSpy).toHaveBeenCalledWith(1);
-    expect(stderrSpy).toHaveBeenCalledWith(
-      expect.stringContaining('acp server: fatal error: Unknown error'),
-      expect.anything(),
-    );
   });
 
   it('forwards PYTHINKER_CODE_HOME to terminalAuthEnv when set', async () => {
@@ -170,36 +132,19 @@ describe('pythinker acp', () => {
   });
 
   it('exits without starting the ACP server when --login is passed', async () => {
-    // `acp --login` pivots into the same `runLoginFlow` as `pythinker login`:
-    // the terminal picker (mocked to choose Kimi OAuth) runs, then the login
-    // resolves and triggers exit 0. `importOriginal` preserves the other named
-    // exports (`ErrorCodes`, etc.) that constant/app.ts depends on at module
-    // load, and the fetchCatalog stub keeps the flow offline.
-    const originalAcpIsTTY = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
-    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: true });
-    vi.doMock(import('@clack/prompts'), async (importOriginal) => {
-      const actual = await importOriginal();
-      return {
-        ...actual,
-        select: vi.fn().mockResolvedValue(undefined),
-        spinner: vi.fn(() => ({
-          start: vi.fn(),
-          stop: vi.fn(),
-          error: vi.fn(),
-        })) as unknown as typeof actual.spinner,
-      };
-    });
+    // Stub the harness module so runLoginFlow doesn't hit a real OAuth
+    // endpoint: harness.auth.login resolves immediately and triggers exit 0.
+    // `importOriginal` preserves the other named exports (`ErrorCodes`, etc.)
+    // that constant/app.ts depends on at module load.
+    const loginStub = vi.fn(async () => ({ providerName: 'pythinker-code' }));
     vi.doMock(import('@pymodel/pythinker-code-sdk'), async (importOriginal) => {
       const actual = await importOriginal();
       return {
         ...actual,
         createPythinkerHarness: () =>
           ({
-            auth: {
-              status: vi.fn(async () => ({ providers: [] })),
-            },
+            auth: { login: loginStub },
           }) as unknown as ReturnType<typeof actual.createPythinkerHarness>,
-        fetchCatalog: vi.fn().mockRejectedValue(new Error('offline')),
       };
     });
     vi.resetModules();
@@ -212,16 +157,11 @@ describe('pythinker acp', () => {
         ExitCalled,
       );
 
+      expect(loginStub).toHaveBeenCalledTimes(1);
       expect(runAcpServer).not.toHaveBeenCalled();
-      expect(exitSpy).toHaveBeenCalled();
+      expect(exitSpy).toHaveBeenCalledWith(0);
     } finally {
-      vi.doUnmock('@clack/prompts');
       vi.doUnmock('@pymodel/pythinker-code-sdk');
-      if (originalAcpIsTTY === undefined) {
-        delete (process.stdin as { isTTY?: boolean }).isTTY;
-      } else {
-        Object.defineProperty(process.stdin, 'isTTY', originalAcpIsTTY);
-      }
       vi.resetModules();
     }
   });

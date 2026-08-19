@@ -16,7 +16,7 @@ import {
 import type { PythinkerHarness, SessionSummary } from '@pymodel/pythinker-code-sdk';
 
 import { AcpServer } from '../src/server';
-import { AUTHED } from './_helpers/harness-stubs';
+import { AUTHED_STATUS } from './_helpers/harness-stubs';
 
 class StubClient implements Client {
   async requestPermission(_p: RequestPermissionRequest): Promise<RequestPermissionResponse> {
@@ -53,7 +53,7 @@ function makeHarness(
   captured: CapturedListOptions[] = [],
 ): PythinkerHarness {
   return {
-    isAuthenticated: AUTHED,
+    auth: { status: async () => AUTHED_STATUS },
     listSessions: async (options: { workDir?: string; sessionId?: string } = {}) => {
       captured.push({ options });
       if (options.workDir !== undefined) {

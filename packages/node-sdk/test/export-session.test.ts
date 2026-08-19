@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join, resolve } from 'node:path';
+import { join, resolve, basename, dirname } from 'node:path';
 import * as zlib from 'node:zlib';
 
 import { afterEach, describe, expect, it } from 'vitest';
@@ -18,6 +18,11 @@ import {
 } from '../../agent-core/src/session/export';
 import { recordingTelemetry, type TelemetryRecord } from './telemetry';
 import { TEST_IDENTITY } from './test-identity';
+
+// agent-core/node-sdk normalize paths to forward slashes (pathe). Mirror that
+// in path assertions so they hold on Windows, where node:path produces
+// backslashes.
+const toPosix = (p: string): string => p.replaceAll('\\', '/');
 
 const tempDirs: string[] = [];
 
@@ -92,53 +97,6 @@ function makeSummary(input: {
   };
 }
 
-function currentState(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-  return {
-    sessionFormatVersion: 2,
-    createdAt: '2030-01-01T00:00:00.000Z',
-    updatedAt: '2030-01-01T00:00:00.000Z',
-    title: 'Export session',
-    isCustomTitle: false,
-    agents: {
-      main: {
-        type: 'main',
-        parentAgentId: null,
-      },
-    },
-    custom: {},
-    ...overrides,
-  };
-}
-
-async function writeCurrentState(
-  sessionDir: string,
-  overrides: Record<string, unknown> = {},
-): Promise<void> {
-  await mkdir(sessionDir, { recursive: true });
-  await writeFile(
-    join(sessionDir, 'state.json'),
-    `${JSON.stringify(currentState(overrides), null, 2)}\n`,
-    'utf-8',
-  );
-}
-
-async function writeCurrentMainWire(
-  sessionDir: string,
-  records: readonly Record<string, unknown>[] = [],
-): Promise<void> {
-  const wireDir = join(sessionDir, 'agents', 'main');
-  await mkdir(wireDir, { recursive: true });
-  await writeFile(
-    join(wireDir, 'wire.jsonl'),
-    [
-      JSON.stringify({ type: 'metadata', protocol_version: '2.0', created_at: 1 }),
-      ...records.map((record) => JSON.stringify(record)),
-      '',
-    ].join('\n'),
-    'utf-8',
-  );
-}
-
 describe('exportSessionDirectory', () => {
   it('writes a zip with manifest and every session file', async () => {
     const tmp = await makeTempDir();
@@ -146,21 +104,23 @@ describe('exportSessionDirectory', () => {
     const workDir = join(tmp, 'work');
     const sessionDir = join(tmp, 'sessions', sid);
     await mkdir(join(sessionDir, 'subagents'), { recursive: true });
-    await writeCurrentState(sessionDir, { custom: { sessionId: sid } });
-    await writeCurrentMainWire(sessionDir, [
-      {
-        type: 'turn.prompt',
-        time: Date.parse('2026-04-18T10:00:00Z'),
-        input: [{ type: 'text', text: 'hello' }],
-        origin: { kind: 'user' },
-      },
-      {
-        type: 'turn.prompt',
-        time: Date.parse('2026-04-18T10:00:03Z'),
-        input: [{ type: 'text', text: 'follow up' }],
-        origin: { kind: 'user' },
-      },
-    ]);
+    await writeFile(
+      join(sessionDir, 'wire.jsonl'),
+      [
+        JSON.stringify({
+          type: 'turn_begin',
+          time: Date.parse('2026-04-18T10:00:00Z'),
+          user_input: 'hello',
+        }),
+        JSON.stringify({
+          type: 'turn_end',
+          time: Date.parse('2026-04-18T10:00:03Z'),
+        }),
+        '',
+      ].join('\n'),
+      'utf-8',
+    );
+    await writeFile(join(sessionDir, 'state.json'), JSON.stringify({ session_id: sid }), 'utf-8');
     await writeFile(join(sessionDir, 'subagents', 'a.txt'), 'child', 'utf-8');
 
     const outputPath = join(tmp, 'out.zip');
@@ -174,13 +134,13 @@ describe('exportSessionDirectory', () => {
       }),
     });
 
-    expect(result.zipPath).toBe(outputPath);
+    expect(result.zipPath).toBe(toPosix(outputPath));
     expect(result.sessionDir).toBe(sessionDir);
     expect(result.entries).toEqual([
       'manifest.json',
-      'agents/main/wire.jsonl',
       'state.json',
       'subagents/a.txt',
+      'wire.jsonl',
     ]);
     expect(result.manifest).toMatchObject({
       sessionId: sid,
@@ -213,30 +173,33 @@ describe('exportSessionDirectory', () => {
     const tmp = await makeTempDir();
     const sid = 'session_default_output';
     const sessionDir = join(tmp, 'sessions', sid);
-    await writeCurrentState(sessionDir);
+    await mkdir(sessionDir, { recursive: true });
+    await writeFile(join(sessionDir, 'state.json'), '{}', 'utf-8');
 
     const result = await exportSessionDirectory({
       request: { sessionId: sid, version: '1.0.0-test' },
       summary: makeSummary({ id: sid, sessionDir, workDir: tmp }),
     });
 
-    expect(dirname(result.zipPath)).toBe(resolve('.'));
+    expect(dirname(result.zipPath)).toBe(toPosix(resolve('.')));
     expect(basename(result.zipPath)).toMatch(/^pythinker-debug-session_-\d{8}-\d{6}\.zip$/);
     expect(existsSync(result.zipPath)).toBe(true);
     await rm(result.zipPath, { force: true });
   });
 
-  it('does not overwrite a previous default-path export', async () => {
+  it('does not overwrite a previous default-path export when run again', async () => {
     const tmp = await makeTempDir();
     const sid = 'session_repeated_export';
     const sessionDir = join(tmp, 'sessions', sid);
-    await writeCurrentState(sessionDir);
+    await mkdir(sessionDir, { recursive: true });
+    await writeFile(join(sessionDir, 'state.json'), '{}', 'utf-8');
     const summary = makeSummary({ id: sid, sessionDir, workDir: tmp });
 
     const first = await exportSessionDirectory({
       request: { sessionId: sid, version: '1.0.0-test' },
       summary,
     });
+    // Cross the next second boundary so the second export gets a distinct timestamp.
     await new Promise((resolvePromise) => setTimeout(resolvePromise, 1100 - (Date.now() % 1000)));
     const second = await exportSessionDirectory({
       request: { sessionId: sid, version: '1.0.0-test' },
@@ -258,7 +221,8 @@ describe('exportSessionDirectory', () => {
     const homeDir = join(tmp, 'home');
     const sid = 'ses_unreadable_global_log';
     const sessionDir = join(tmp, 'sessions', sid);
-    await writeCurrentState(sessionDir);
+    await mkdir(sessionDir, { recursive: true });
+    await writeFile(join(sessionDir, 'state.json'), '{}', 'utf-8');
     await mkdir(resolveGlobalLogPath(homeDir), { recursive: true });
 
     const outputPath = join(tmp, 'unreadable-global.zip');
@@ -283,7 +247,8 @@ describe('exportSessionDirectory', () => {
     const tmp = await makeTempDir();
     const sid = 'ses_relative_output';
     const sessionDir = join(tmp, 'sessions', sid);
-    await writeCurrentState(sessionDir);
+    await mkdir(sessionDir, { recursive: true });
+    await writeFile(join(sessionDir, 'state.json'), '{}', 'utf-8');
 
     const outputPath = join(tmp, 'exports/out.zip');
     const result = await exportSessionDirectory({
@@ -291,7 +256,7 @@ describe('exportSessionDirectory', () => {
       summary: makeSummary({ id: sid, sessionDir, workDir: tmp }),
     });
 
-    expect(result.zipPath).toBe(outputPath);
+    expect(result.zipPath).toBe(toPosix(outputPath));
     expect(existsSync(result.zipPath)).toBe(true);
   });
 
@@ -299,7 +264,8 @@ describe('exportSessionDirectory', () => {
     const tmp = await makeTempDir();
     const sid = 'ses_no_wire';
     const sessionDir = join(tmp, 'sessions', sid);
-    await writeCurrentState(sessionDir);
+    await mkdir(sessionDir, { recursive: true });
+    await writeFile(join(sessionDir, 'state.json'), '{}', 'utf-8');
 
     const result = await exportSessionDirectory({
       request: { sessionId: sid, version: '1.0.0-test' },
@@ -309,59 +275,6 @@ describe('exportSessionDirectory', () => {
     expect(result.manifest.sessionFirstActivity).toBeUndefined();
     expect(result.manifest.sessionLastActivity).toBeUndefined();
     await rm(result.zipPath, { force: true });
-  });
-
-  it.each([
-    ['missing metadata', '{"type":"context.clear"}\n', /metadata/i],
-    [
-      'older metadata',
-      '{"type":"metadata","protocol_version":"1.4","created_at":1}\n',
-      /Unsupported agent wire protocol version 1\.4; expected 2\.0/,
-    ],
-    [
-      'newer metadata',
-      '{"type":"metadata","protocol_version":"3.0","created_at":1}\n',
-      /Unsupported agent wire protocol version 3\.0; expected 2\.0/,
-    ],
-    [
-      'unknown current-version record',
-      '{"type":"metadata","protocol_version":"2.0","created_at":1}\n{"type":"swarm_mode.enter"}\n',
-      /Unsupported agent record type swarm_mode\.enter/,
-    ],
-  ])('rejects %s canonical wire instead of producing a best-effort manifest', async (
-    _label,
-    wire,
-    expected,
-  ) => {
-    const tmp = await makeTempDir();
-    const sid = 'ses_invalid_wire';
-    const sessionDir = join(tmp, 'sessions', sid);
-    await writeCurrentState(sessionDir);
-    const wireDir = join(sessionDir, 'agents', 'main');
-    await mkdir(wireDir, { recursive: true });
-    await writeFile(join(wireDir, 'wire.jsonl'), wire, 'utf-8');
-
-    await expect(
-      exportSessionDirectory({
-        request: { sessionId: sid, version: '1.0.0-test' },
-        summary: makeSummary({ id: sid, sessionDir, workDir: tmp }),
-      }),
-    ).rejects.toThrow(expected);
-  });
-
-  it('rejects incompatible state before writing an export manifest', async () => {
-    const tmp = await makeTempDir();
-    const sid = 'ses_invalid_state';
-    const sessionDir = join(tmp, 'sessions', sid);
-    await writeCurrentState(sessionDir, { sessionFormatVersion: 1 });
-    await writeCurrentMainWire(sessionDir);
-
-    await expect(
-      exportSessionDirectory({
-        request: { sessionId: sid, version: '1.0.0-test' },
-        summary: makeSummary({ id: sid, sessionDir, workDir: tmp }),
-      }),
-    ).rejects.toMatchObject({ code: 'session.state_invalid' });
   });
 
   it('rejects empty or missing session directories', async () => {
@@ -400,17 +313,17 @@ describe('PythinkerHarness.exportSession', () => {
     const sessionDir = (await harness.listSessions({ workDir })).find(
       (item) => item.id === session.id,
     )!.sessionDir;
-    await writeCurrentMainWire(sessionDir);
+    await writeFile(join(sessionDir, 'wire.jsonl'), '{}\n', 'utf-8');
     await mkdir(join(sessionDir, 'subagents'), { recursive: true });
     await writeFile(join(sessionDir, 'subagents', 'demo.txt'), 'demo', 'utf-8');
 
     const outputPath = join(workDir, 'export.zip');
     const result = await harness.exportSession({ id: session.id, outputPath, version: '1.0.0-test' });
 
-    expect(result.zipPath).toBe(outputPath);
+    expect(result.zipPath).toBe(toPosix(outputPath));
     expect(result.entries).toContain('manifest.json');
     expect(result.entries).toContain('state.json');
-    expect(result.entries).toContain('agents/main/wire.jsonl');
+    expect(result.entries).toContain('wire.jsonl');
     expect(result.entries).toContain('subagents/demo.txt');
     expect(result.manifest.sessionId).toBe(session.id);
     expect(records).toContainEqual({

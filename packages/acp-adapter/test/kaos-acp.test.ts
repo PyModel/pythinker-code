@@ -63,8 +63,6 @@ function makeMockConn(opts: {
  * land here in the bridging layer).
  */
 interface MockInnerKaos extends Kaos {
-  unlink(path: string): Promise<void>;
-  chmod(path: string, mode: number): Promise<void>;
   __spy: {
     pathClassCalls: number;
     normpathCalls: string[];
@@ -77,8 +75,6 @@ interface MockInnerKaos extends Kaos {
     iterdirCalls: string[];
     globCalls: Array<{ path: string; pattern: string; options?: { caseSensitive?: boolean } }>;
     mkdirCalls: Array<{ path: string; options?: { parents?: boolean; existOk?: boolean } }>;
-    unlinkCalls: string[];
-    chmodCalls: Array<{ path: string; mode: number }>;
     execCalls: string[][];
     execWithEnvCalls: Array<{ args: string[]; env?: Record<string, string> }>;
     readTextCalls: string[];
@@ -101,8 +97,6 @@ function makeMockInner(opts?: { pathClass?: 'posix' | 'win32' }): MockInnerKaos 
     iterdirCalls: [] as string[],
     globCalls: [] as Array<{ path: string; pattern: string; options?: { caseSensitive?: boolean } }>,
     mkdirCalls: [] as Array<{ path: string; options?: { parents?: boolean; existOk?: boolean } }>,
-    unlinkCalls: [] as string[],
-    chmodCalls: [] as Array<{ path: string; mode: number }>,
     execCalls: [] as string[][],
     execWithEnvCalls: [] as Array<{ args: string[]; env?: Record<string, string> }>,
     readTextCalls: [] as string[],
@@ -175,12 +169,6 @@ function makeMockInner(opts?: { pathClass?: 'posix' | 'win32' }): MockInnerKaos 
     mkdir: async (path: string, options?: { parents?: boolean; existOk?: boolean }) => {
       spy.mkdirCalls.push({ path, options });
     },
-    unlink: async (path: string) => {
-      spy.unlinkCalls.push(path);
-    },
-    chmod: async (path: string, mode: number) => {
-      spy.chmodCalls.push({ path, mode });
-    },
     exec: async (...args: string[]) => {
       spy.execCalls.push(args);
       return {} as KaosProcess;
@@ -242,13 +230,14 @@ describe('AcpKaos', () => {
       });
       await expect(kaos.readText('/x.ts')).rejects.toBeInstanceOf(KaosError);
       // Verify cause is preserved.
-      const error = await kaos.readText('/x.ts').then(
-        () => undefined,
-        (error: unknown) => error,
-      );
-      expect((error as Error & { cause?: unknown }).cause).toBe(rpcErr);
-      expect((error as Error).message).toContain('acp: readTextFile failed for /x.ts');
-      expect((error as Error).message).toContain('rpc died');
+      try {
+        await kaos.readText('/x.ts');
+        throw new Error('should have thrown');
+      } catch (err) {
+        expect((err as Error & { cause?: unknown }).cause).toBe(rpcErr);
+        expect((err as Error).message).toContain('acp: readTextFile failed for /x.ts');
+        expect((err as Error).message).toContain('rpc died');
+      }
     });
 
     it('uses win32-native separators for ACP file RPC paths', async () => {
@@ -429,13 +418,13 @@ describe('AcpKaos', () => {
       const kaos = new AcpKaos(conn.asConn(), 's1', makeMockInner());
 
       await expect(kaos.writeText('/a.ts', 'hello')).rejects.toBeInstanceOf(KaosError);
-      const error = await kaos.writeText('/a.ts', 'hello').then(
-        () => undefined,
-        (error: unknown) => error,
-      );
-      expect((error as Error & { cause?: unknown }).cause).toBe(rpcErr);
-      expect((error as Error).message).toContain('acp: writeTextFile failed for /a.ts');
-      expect((error as Error).message).toContain('write rpc died');
+      try {
+        await kaos.writeText('/a.ts', 'hello');
+      } catch (err) {
+        expect((err as Error & { cause?: unknown }).cause).toBe(rpcErr);
+        expect((err as Error).message).toContain('acp: writeTextFile failed for /a.ts');
+        expect((err as Error).message).toContain('write rpc died');
+      }
     });
   });
 
@@ -546,22 +535,6 @@ describe('AcpKaos', () => {
 
       expect(inner.__spy.execCalls).toEqual([['ls', '-la']]);
       expect(inner.__spy.execWithEnvCalls).toEqual([{ args: ['env'], env: { FOO: 'bar' } }]);
-    });
-
-    it('delegates unlink and chmod to inner', async () => {
-      const conn = makeMockConn({});
-      const inner = makeMockInner();
-      const kaos = new AcpKaos(conn.asConn(), 's1', inner);
-
-      await kaos.unlink('/workspace/new.ts');
-      await kaos.chmod('/workspace/existing.ts', 0o640);
-
-      expect(inner.__spy.unlinkCalls).toEqual(['/workspace/new.ts']);
-      expect(inner.__spy.chmodCalls).toEqual([
-        { path: '/workspace/existing.ts', mode: 0o640 },
-      ]);
-      expect(conn.readCalls).toEqual([]);
-      expect(conn.writeCalls).toEqual([]);
     });
   });
 

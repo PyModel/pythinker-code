@@ -4,8 +4,6 @@
 //   - boom() -> isError: true
 //   - read_env(name: string) -> the value of process.env[name] (used to assert
 //     that StdioClientTransport `env` is honoured)
-//   - review(target: string) -> a user prompt
-//   - config://app -> text resource
 
 import { setTimeout as sleep } from 'node:timers/promises';
 
@@ -51,36 +49,6 @@ server.registerTool(
   },
   ({ name }) => ({
     content: [{ type: 'text', text: process.env[name] ?? '' }],
-  }),
-);
-
-server.registerPrompt(
-  'review',
-  {
-    description: 'Review a target',
-    argsSchema: {
-      target: z.string().describe('Target to review'),
-    },
-  },
-  ({ target }) => ({
-    messages: [
-      {
-        role: 'user',
-        content: { type: 'text', text: `Review ${target}.` },
-      },
-    ],
-  }),
-);
-
-server.registerResource(
-  'app-config',
-  'config://app',
-  {
-    description: 'Application configuration',
-    mimeType: 'text/plain',
-  },
-  (uri) => ({
-    contents: [{ uri: uri.href, mimeType: 'text/plain', text: 'mode=test' }],
   }),
 );
 

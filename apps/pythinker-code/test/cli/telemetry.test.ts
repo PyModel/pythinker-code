@@ -15,7 +15,7 @@ const mocks = vi.hoisted(() => ({
       config: { defaultModel?: string; telemetry?: boolean };
       fileError: Error | undefined;
     } => ({
-      config: { defaultModel: 'pythinker-k2', telemetry: true },
+      config: { defaultModel: 'kimi-k2', telemetry: true },
       fileError: undefined,
     }),
   ),
@@ -29,10 +29,16 @@ vi.mock('@pymodel/pythinker-telemetry', () => ({
   withTelemetryContext: vi.fn(),
 }));
 
-vi.mock('@pymodel/pythinker-code-oauth', () => ({
-  createPythinkerDeviceId: mocks.createPythinkerDeviceId,
-  KIMI_CODE_PROVIDER_NAME: 'managed:kimi-code',
-}));
+vi.mock('@pymodel/pythinker-code-oauth', async (importOriginal) => {
+  // Spread the real module: the SDK's v2 client pulls agent-core-v2 into the
+  // import graph, which subclasses PythinkerOAuthToolkit from this package.
+  const actual = await importOriginal<typeof import('@pymodel/pythinker-code-oauth')>();
+  return {
+    ...actual,
+    createPythinkerDeviceId: mocks.createPythinkerDeviceId,
+    PYTHINKER_CODE_PROVIDER_NAME: 'managed:pythinker-code',
+  };
+});
 
 vi.mock('@pymodel/pythinker-code-sdk', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@pymodel/pythinker-code-sdk')>();
@@ -52,23 +58,20 @@ describe('initializeServerTelemetry', () => {
     mocks.initializeTelemetry.mockClear();
     mocks.loadRuntimeConfigSafe.mockClear();
     mocks.loadRuntimeConfigSafe.mockReturnValue({
-      config: { defaultModel: 'pythinker-k2', telemetry: true },
+      config: { defaultModel: 'kimi-k2', telemetry: true },
       fileError: undefined,
     });
   });
 
-  // 30s: the dynamic import stalls well past the 5s default when the full
-  // suite saturates the machine (local-under-load x6 sizing rule).
-  it('configures the sink with ui_mode="web" and the CLI product identity', { timeout: 30_000 }, async () => {
+  it('configures the sink with ui_mode="web" and the CLI product identity', async () => {
     const { initializeServerTelemetry } = await import('#/cli/telemetry');
     const client = initializeServerTelemetry({ version: '1.2.3' });
-
     expect(mocks.initializeTelemetry).toHaveBeenCalledWith(
       expect.objectContaining({
         appName: 'pythinker-code-cli',
         version: '1.2.3',
         uiMode: 'web',
-        model: 'pythinker-k2',
+        model: 'kimi-k2',
         enabled: true,
         deviceId: 'device-123',
         homeDir: '/home/.pythinker-code',
@@ -83,11 +86,14 @@ describe('initializeServerTelemetry', () => {
         setContext: expect.any(Function),
       }),
     );
-  });
+    // The first dynamic import pulls in the whole SDK/oauth chain (~3s idle,
+    // more under full-suite transform contention) — give it headroom past the
+    // 5s default timeout.
+  }, 20000);
 
   it('disables telemetry when config.toml sets telemetry = false', async () => {
     mocks.loadRuntimeConfigSafe.mockReturnValue({
-      config: { defaultModel: 'pythinker-k2', telemetry: false },
+      config: { defaultModel: 'kimi-k2', telemetry: false },
       fileError: undefined,
     });
     const { initializeServerTelemetry } = await import('#/cli/telemetry');

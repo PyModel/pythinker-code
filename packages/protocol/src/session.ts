@@ -7,16 +7,6 @@ import {
 import { isoDateTimeSchema } from './time';
 import { workspaceIdSchema } from './workspace';
 
-export const sessionStatusSchema = z.enum([
-  'idle',
-  'running',
-  'awaiting_approval',
-  'awaiting_question',
-  'aborted',
-]);
-
-export type SessionStatus = z.infer<typeof sessionStatusSchema>;
-
 export const sessionUsageSchema = z.object({
   input_tokens: z.number().int().nonnegative(),
   output_tokens: z.number().int().nonnegative(),
@@ -70,24 +60,23 @@ export const sessionAgentConfigSchema = z.object({
   dynamic_workflow_mode: z.boolean().optional(),
   goal_objective: z.string().optional(),
   goal_control: z.enum(['pause', 'resume', 'cancel']).optional(),
-}).strict();
+});
 
 export type SessionAgentConfig = z.infer<typeof sessionAgentConfigSchema>;
 
 export const sessionAgentConfigPartialSchema = sessionAgentConfigSchema.partial();
 export type SessionAgentConfigPartial = z.infer<typeof sessionAgentConfigPartialSchema>;
 
-export const sessionModeSchema = z.enum(['code', 'general']);
-export type SessionMode = z.infer<typeof sessionModeSchema>;
-
 export const sessionMetadataSchema = z
   .object({
     cwd: z.string().min(1),
-    mode: sessionModeSchema.optional(),
   })
   .catchall(z.unknown());
 
 export type SessionMetadata = z.infer<typeof sessionMetadataSchema>;
+
+export const sessionPendingInteractionSchema = z.enum(['none', 'approval', 'question']);
+export type SessionPendingInteraction = z.infer<typeof sessionPendingInteractionSchema>;
 
 export const sessionSchema = z.object({
   id: z.string().min(1),
@@ -95,9 +84,30 @@ export const sessionSchema = z.object({
   title: z.string(),
   created_at: isoDateTimeSchema,
   updated_at: isoDateTimeSchema,
-  status: sessionStatusSchema,
+  /** Any agent in the session holds an active turn or background lease.
+   *  Replaces the derived five-value `status` enum: awaiting
+   *  states ride the approval/question channels, and turn outcomes ride
+   *  turn.ended — clients compose their own presentation from the facts. */
+  busy: z.boolean(),
+  /** Whether the MAIN agent currently owns an active turn. Unlike `busy`,
+   *  this excludes background tasks and sub-agent turns. Optional for wire
+   *  compatibility with older servers. */
+  main_turn_active: z.boolean().optional(),
+  /** Highest-priority pending human interaction, so list clients can restore
+   *  the pre-status attention badge without subscribing to every session. */
+  pending_interaction: sessionPendingInteractionSchema.optional(),
+  /** Outcome of the MAIN agent's most recent turn, when the session is live
+   *  and a turn has ended since activation. A fact, not a state: clients
+   *  decide how to present it (e.g. an "aborted" tag when `!busy` and the
+   *  reason is cancelled/failed). */
+  last_turn_reason: z.enum(['completed', 'cancelled', 'failed']).optional(),
   archived: z.boolean().optional(),
+  /** When the session was archived (ISO 8601); absent for sessions archived
+   *  before the field existed — clients fall back to `updated_at`. */
+  archived_at: isoDateTimeSchema.optional(),
   current_prompt_id: z.string().min(1).optional(),
+  /** Text of the most recent user prompt, for search/preview. Absent for empty sessions. */
+  last_prompt: z.string().optional(),
   metadata: sessionMetadataSchema,
   agent_config: sessionAgentConfigSchema,
   usage: sessionUsageSchema,

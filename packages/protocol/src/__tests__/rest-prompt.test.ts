@@ -21,21 +21,6 @@ describe('promptSubmissionSchema', () => {
     expect(parsed.plan_mode).toBeUndefined();
   });
 
-  it('accepts dynamic workflow mode and rejects the removed swarm mode', () => {
-    expect(
-      promptSubmissionSchema.parse({
-        content: [{ type: 'text', text: 'Review the TUI' }],
-        dynamic_workflow_mode: true,
-      }).dynamic_workflow_mode,
-    ).toBe(true);
-    expect(
-      promptSubmissionSchema.safeParse({
-        content: [{ type: 'text', text: 'Review the TUI' }],
-        swarm_mode: true,
-      }).success,
-    ).toBe(false);
-  });
-
   it('accepts metadata', () => {
     const parsed = promptSubmissionSchema.parse({
       content: [{ type: 'text', text: 'hi' }],
@@ -74,18 +59,53 @@ describe('promptSubmissionSchema', () => {
     expect(parsed.thinking).toBeUndefined();
   });
 
+  it('accepts an agent profile selection', () => {
+    const parsed = promptSubmissionSchema.parse({
+      content: [{ type: 'text', text: 'hi' }],
+      profile: 'reviewer',
+      model: 'pythinker-code/k2',
+    });
+    expect(parsed.profile).toBe('reviewer');
+  });
+
+  it('rejects an empty profile string', () => {
+    expect(() =>
+      promptSubmissionSchema.parse({
+        content: [{ type: 'text', text: 'hi' }],
+        profile: '',
+      }),
+    ).toThrow();
+  });
+
   it('accepts the full bundle of controls when supplied', () => {
     const parsed = promptSubmissionSchema.parse({
       content: [{ type: 'text', text: 'hi' }],
       model: 'pythinker-code/k2',
-      thinking: 'minimal',
+      thinking: 'off',
       permission_mode: 'manual',
       plan_mode: false,
     });
     expect(parsed.model).toBe('pythinker-code/k2');
-    expect(parsed.thinking).toBe('minimal');
+    expect(parsed.thinking).toBe('off');
     expect(parsed.permission_mode).toBe('manual');
     expect(parsed.plan_mode).toBe(false);
+  });
+
+  it('preserves a client-chosen prompt_id through parsing', () => {
+    const parsed = promptSubmissionSchema.parse({
+      content: [{ type: 'text', text: 'hi' }],
+      prompt_id: 'client-prompt-1',
+    });
+    expect(parsed.prompt_id).toBe('client-prompt-1');
+  });
+
+  it('rejects an empty prompt_id', () => {
+    expect(
+      promptSubmissionSchema.safeParse({
+        content: [{ type: 'text', text: 'hi' }],
+        prompt_id: '',
+      }).success,
+    ).toBe(false);
   });
 
   it('rejects empty content array', () => {
@@ -100,11 +120,20 @@ describe('promptSubmissionSchema', () => {
     expect(promptSubmissionSchema.safeParse({} as unknown).success).toBe(false);
   });
 
-  it('rejects unknown thinking level', () => {
+  it('accepts any non-empty thinking effort (provider normalizes)', () => {
     expect(
       promptSubmissionSchema.safeParse({
         content: [{ type: 'text', text: 'hi' }],
         thinking: 'mega' as unknown,
+      }).success,
+    ).toBe(true);
+  });
+
+  it('rejects empty thinking effort', () => {
+    expect(
+      promptSubmissionSchema.safeParse({
+        content: [{ type: 'text', text: 'hi' }],
+        thinking: '' as unknown,
       }).success,
     ).toBe(false);
   });
@@ -139,6 +168,18 @@ describe('promptSubmitResultSchema', () => {
     });
     expect(parsed.prompt_id).toBe('prompt_01HZ');
     expect(parsed.status).toBe('running');
+  });
+
+  it('parses a blocked prompt result shape', () => {
+    const parsed = promptSubmitResultSchema.parse({
+      prompt_id: 'prompt_blocked',
+      user_message_id: 'msg_blocked',
+      status: 'blocked',
+      content: [{ type: 'text', text: 'blocked' }],
+      created_at: '2026-06-09T00:00:00.000Z',
+    });
+
+    expect(parsed.status).toBe('blocked');
   });
 
   it('rejects empty prompt_id', () => {

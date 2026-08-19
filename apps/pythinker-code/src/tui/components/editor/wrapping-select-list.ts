@@ -6,9 +6,7 @@ import {
   type SelectItem,
   type SelectListLayoutOptions,
   type SelectListTheme,
-} from '@earendil-works/pi-tui';
-
-import { SELECT_POINTER } from '#/tui/constant/symbols';
+} from '@pymodel/pi-tui';
 
 // Mirror pi-tui's private select-list layout constants
 // (dist/components/select-list.js); keep in sync when bumping pi-tui.
@@ -85,7 +83,7 @@ export class WrappingSelectList extends SelectList {
     primaryColumnWidth: number,
   ): string[] {
     const { theme } = this.internals();
-    const prefix = isSelected ? `${SELECT_POINTER} ` : '  ';
+    const prefix = isSelected ? '→ ' : '  ';
     const prefixWidth = visibleWidth(prefix);
     const description = item.description
       ? item.description.replaceAll(/[\r\n]+/g, ' ').trim()
@@ -112,11 +110,7 @@ export class WrappingSelectList extends SelectList {
         const indent = ' '.repeat(descriptionStart);
         if (isSelected) {
           return descriptionLines.map((line, index) =>
-            index === 0
-              ? theme.selectedPrefix(prefix) +
-                theme.selectedText(truncatedValue) +
-                theme.description(spacing + line)
-              : theme.description(indent + line),
+            theme.selectedText(index === 0 ? `${prefix}${truncatedValue}${spacing}${line}` : indent + line),
           );
         }
         return descriptionLines.map((line, index) =>
@@ -129,11 +123,7 @@ export class WrappingSelectList extends SelectList {
 
     const maxWidth = width - prefixWidth - 2;
     const truncatedValue = this.truncatePrimaryValue(item, isSelected, maxWidth, maxWidth);
-    return [
-      isSelected
-        ? theme.selectedPrefix(prefix) + theme.selectedText(truncatedValue)
-        : prefix + truncatedValue,
-    ];
+    return [isSelected ? theme.selectedText(`${prefix}${truncatedValue}`) : prefix + truncatedValue];
   }
 
   private truncatePrimaryValue(
@@ -159,8 +149,7 @@ export class WrappingSelectList extends SelectList {
     const min = Math.max(1, Math.min(rawMin, rawMax));
     const max = Math.max(1, Math.max(rawMin, rawMax));
     const widest = filteredItems.reduce(
-      (acc, item) =>
-        Math.max(acc, visibleWidth(item.label || item.value) + PRIMARY_COLUMN_GAP),
+      (acc, item) => Math.max(acc, visibleWidth(item.label || item.value) + PRIMARY_COLUMN_GAP),
       0,
     );
     return Math.max(min, Math.min(widest, max));

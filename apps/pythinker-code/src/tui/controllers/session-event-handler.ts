@@ -1,6 +1,5 @@
-import type { Component, Focusable } from '@earendil-works/pi-tui';
+import type { Component, Focusable } from '@pymodel/pi-tui';
 import type {
-  AdvisorStatusEvent,
   AgentStatusUpdatedEvent,
   AssistantDeltaEvent,
   BackgroundTaskInfo,
@@ -15,10 +14,10 @@ import type {
   GoalChange,
   GoalUpdatedEvent,
   HookResultEvent,
-  HookStatusEvent,
   Session,
   SessionMetaUpdatedEvent,
   SkillActivatedEvent,
+  PluginCommandActivatedEvent,
   ThinkingDeltaEvent,
   ToolCallDeltaEvent,
   ToolCallStartedEvent,
@@ -28,11 +27,13 @@ import type {
   TurnStartedEvent,
   TurnStepCompletedEvent,
   TurnStepInterruptedEvent,
+  TurnStepRetryingEvent,
   TurnStepStartedEvent,
+  TokenUsage,
   WarningEvent,
 } from '@pymodel/pythinker-code-sdk';
 
-import { ActivityLoader } from '../components/chrome/activity-loader';
+import { MoonLoader } from '../components/chrome/moon-loader';
 import { buildGoalMarker } from '../components/messages/goal-markers';
 import { StatusMessageComponent } from '../components/messages/status-message';
 import {
@@ -40,18 +41,15 @@ import {
   type DynamicWorkflowModeMarkerState,
 } from '../components/messages/dynamic-workflow-markers';
 import {
-  MCP_STATUS_TRANSIENT_DURATION_MS,
   OAUTH_LOGIN_REQUIRED_CODE,
   OAUTH_LOGIN_REQUIRED_STARTUP_NOTICE,
 } from '../constant/pythinker-tui';
-import { FAILURE_MARK, STATUS_BULLET, SUCCESS_MARK } from '../constant/symbols';
-import { setLiveIntent } from '../constant/rendering';
 import { buildGoalCompletionMessage } from '../utils/goal-completion';
 import {
   argsRecord,
   formatErrorPayload,
   formatErrorMessage,
-  normalizeTodoList,
+  isTodoItemShape,
   serializeToolResultOutput,
   stringValue,
 } from '../utils/event-payload';
@@ -65,10 +63,10 @@ import { formatBackgroundTaskTranscript } from '../utils/background-task-status'
 import { formatHookResultMarkdown } from '../utils/hook-result-format';
 import { McpOAuthAuthorizationUrlOpener } from '../utils/mcp-oauth';
 import {
-  buildMcpStartupStatusLine,
   formatMcpStartupStatusSummary,
   mcpServerStatusKey,
   type McpServerStatusSnapshot,
+  selectMcpStartupStatusRows,
 } from '../utils/mcp-server-status';
 import { openUrl } from '#/utils/open-url';
 import { currentTheme } from '#/tui/theme';
@@ -77,6 +75,7 @@ import { errorReportHintLine } from '../constant/feedback';
 import { formatStepDebugTiming } from '#/utils/usage/debug-timing';
 import { nextTranscriptId } from '../utils/transcript-id';
 import type { BtwPanelController } from './btw-panel';
+import { isPluginMcpToolName, PluginUpdateNotifier } from './plugin-update-notifier';
 import type { StreamingUIController } from './streaming-ui';
 import type { TasksBrowserController } from './tasks-browser';
 import { SubAgentEventHandler } from './subagent-event-handler';
@@ -89,15 +88,7 @@ import type {
   TranscriptEntry,
 } from '../types';
 import type { TUIState } from '../tui-state';
-import type { FooterEvent } from '../runtime/footer/footer-model';
 import { createGoal as startGoalCommand } from '../commands/goal';
-
-function mcpStatusAnimationEnabled(): boolean {
-  if (process.env['PYTHINKER_NO_ANIMATION']) return false;
-  if (process.env['CI']) return false;
-  if (process.env['NO_COLOR']) return false;
-  return true;
-}
 
 export interface SessionEventHost {
   state: TUIState;
@@ -108,7 +99,6 @@ export interface SessionEventHost {
 
   requireSession(): Session;
   setAppState(patch: Partial<AppState>): void;
-  dispatchFooter(event: FooterEvent): void;
   patchLivePane(patch: Partial<LivePaneState>): void;
   resetLivePane(): void;
   showError(msg: string): void;
@@ -116,23 +106,33 @@ export interface SessionEventHost {
   showNotice(title: string, detail?: string): void;
   updateActivityPane(): void;
   track(event: string, props?: Record<string, unknown>): void;
+  recordSessionActivity(): void;
+  noteStepUsage(usage: TokenUsage | undefined): void;
+  noteCompactionFinished(): void;
   mountEditorReplacement(panel: Component & Focusable): void;
   restoreEditor(): void;
   restoreInputText(text: string): void;
   appendTranscriptEntry(entry: TranscriptEntry): void;
+  handleShellOutput(event: { commandId: string; update: { kind: string; text?: string } }): void;
+  handleShellStarted(event: { commandId: string; taskId: string }): void;
   sendNormalUserInput(text: string): void;
   updateTerminalTitle(): void;
-  refreshSkillCommands(session?: Session): Promise<void>;
   sendQueuedMessage(session: Session, item: QueuedMessage): void;
   shiftQueuedMessage(): QueuedMessage | undefined;
+  handleTurnStarted?(event: TurnStartedEvent): void;
+  handleTurnEnded?(event: TurnEndedEvent): void;
   readonly btwPanelController: BtwPanelController;
   readonly tasksBrowserController: TasksBrowserController;
 }
 
 export class SessionEventHandler {
   readonly subAgentEventHandler: SubAgentEventHandler;
+  private readonly pluginUpdateNotifier: PluginUpdateNotifier;
 
-  constructor(private readonly host: SessionEventHost) {
+  constructor(
+    private readonly host: SessionEventHost,
+    pluginUpdateNotifier?: PluginUpdateNotifier,
+  ) {
     this.subAgentEventHandler = new SubAgentEventHandler(host, {
       backgroundTasks: this.backgroundTasks,
       backgroundTaskTranscriptedTerminal: this.backgroundTaskTranscriptedTerminal,
@@ -140,6 +140,15 @@ export class SessionEventHandler {
         this.syncBackgroundTaskBadge();
       },
     });
+    this.pluginUpdateNotifier =
+      pluginUpdateNotifier ??
+      new PluginUpdateNotifier({
+        getSession: () => this.host.session,
+        workDir: host.state.appState.workDir,
+        notify: (message) => {
+          this.host.showStatus(message, 'warning');
+        },
+      });
   }
 
   // Runtime state – owned by this handler, reset between sessions.
@@ -147,78 +156,52 @@ export class SessionEventHandler {
   backgroundTaskTranscriptedTerminal: Set<string> = new Set();
 
   renderedSkillActivationIds: Set<string> = new Set();
+  renderedPluginCommandActivationIds: Set<string> = new Set();
   renderedMcpServerStatusKeys: Map<string, string> = new Map();
-  hookStatusSpinners: Map<string, ActivityLoader> = new Map();
+  mcpServerStatusSpinners: Map<string, MoonLoader> = new Map();
   mcpServers: Map<string, McpServerStatusSnapshot> = new Map();
-  private mcpServerStatusRow: ActivityLoader | StatusMessageComponent | undefined;
-  private mcpServerStatusTimer: ReturnType<typeof setTimeout> | undefined;
-  private mcpServerSnapshotReady = false;
-  private mcpServerSnapshotEpoch = 0;
-  private mcpLiveServerNames = new Set<string>();
   private goalCompletionAwaitingClear = false;
   private goalCompletionTurnEnded = false;
   private currentTurnHasAssistantText = false;
+  private pluginCommandTurns: Map<string, string> = new Map();
+  private pluginMcpToolsUsedInTurn: Set<string> = new Set();
   private pendingModelBlockedFallback: GoalChange | undefined;
   private queuedGoalPromotionPending = false;
   private queuedGoalPromotionInFlight = false;
   private queuedGoalPromotionTimer: ReturnType<typeof setTimeout> | undefined;
-  private readonly liveTokenSpeedByAgent = new Map<
-    string,
-    { turnId: number; startedAtMs: number; asciiChars: number; nonAsciiChars: number }
-  >();
+  private stepRetryAttemptTimer: ReturnType<typeof setTimeout> | undefined;
 
   resetRuntimeState(): void {
-    setLiveIntent(undefined);
     this.backgroundTasks.clear();
     this.backgroundTaskTranscriptedTerminal.clear();
     this.subAgentEventHandler.resetRuntimeState();
     this.renderedSkillActivationIds.clear();
+    this.renderedPluginCommandActivationIds.clear();
     this.renderedMcpServerStatusKeys.clear();
-    this.mcpServerSnapshotReady = false;
-    this.mcpServerSnapshotEpoch += 1;
-    this.mcpLiveServerNames.clear();
     this.mcpServers.clear();
     this.goalCompletionAwaitingClear = false;
     this.goalCompletionTurnEnded = false;
     this.currentTurnHasAssistantText = false;
+    this.pluginCommandTurns.clear();
+    this.pluginMcpToolsUsedInTurn.clear();
     this.pendingModelBlockedFallback = undefined;
     this.queuedGoalPromotionPending = false;
     this.queuedGoalPromotionInFlight = false;
-    this.liveTokenSpeedByAgent.clear();
     this.clearQueuedGoalPromotionTimer();
-    this.disposeHookStatusRows();
-    this.disposeMcpServerStatusRows();
-    // Fast mode is session-scoped; a runtime reset must clear it with the rest.
-    this.host.setAppState({
-      modelCostRates: undefined,
-      totalCostUsd: undefined,
-      fastMode: false,
-      fastModeSupported: false,
-    });
-    this.host.dispatchFooter({
-      type: 'status.updated',
-      changes: {
-        tokenSpeed: null,
-        tokenSpeedEstimated: false,
-        sessionSpendUsd: undefined,
-      },
-    });
+    this.clearStepRetryAttemptTimer();
+    this.stopAllMcpServerStatusSpinners();
   }
 
-  clearDynamicWorkflowMissionControls(): void {
-    this.subAgentEventHandler.clearDynamicWorkflowMissionControls();
+  clearAgentDynamicWorkflowProgress(): void {
+    this.subAgentEventHandler.clearAgentDynamicWorkflowProgress();
   }
 
-  hasDynamicWorkflowMissionControl(toolCallId: string): boolean {
-    return this.subAgentEventHandler.hasDynamicWorkflowMissionControl(toolCallId);
+  hasActiveAgentDynamicWorkflowToolCall(): boolean {
+    return this.subAgentEventHandler.hasActiveAgentDynamicWorkflowToolCall();
   }
 
-  hasActiveDynamicWorkflowToolCall(): boolean {
-    return this.subAgentEventHandler.hasActiveDynamicWorkflowToolCall();
-  }
-
-  syncDynamicWorkflowActivitySpinner(spinner: ActivityLoader | undefined): void {
-    this.subAgentEventHandler.syncDynamicWorkflowActivitySpinner(spinner);
+  syncAgentDynamicWorkflowActivitySpinner(spinner: MoonLoader | undefined): void {
+    this.subAgentEventHandler.syncAgentDynamicWorkflowActivitySpinner(spinner);
   }
 
   startSubscription(): void {
@@ -243,39 +226,40 @@ export class SessionEventHandler {
 
   async syncMcpServerStatusSnapshot(session: Session): Promise<void> {
     const { host } = this;
-    const snapshotEpoch = ++this.mcpServerSnapshotEpoch;
-    this.mcpServerSnapshotReady = false;
-    this.showMcpServerStatusLoader('MCP servers · loading…', 'primary');
     let servers: readonly McpServerStatusSnapshot[];
     try {
       servers = await session.listMcpServers();
     } catch (error) {
-      if (snapshotEpoch !== this.mcpServerSnapshotEpoch) return;
       if (host.session !== session || host.aborted) return;
-      this.removeMcpServerStatusRow();
       const message = error instanceof Error ? error.message : String(error);
       host.showError(`Failed to sync MCP server status: ${message}`);
       return;
     }
-    if (snapshotEpoch !== this.mcpServerSnapshotEpoch) return;
     if (host.session !== session || host.state.appState.sessionId !== session.id) return;
 
-    const liveServers = [...this.mcpServers].filter(([name]) => this.mcpLiveServerNames.has(name));
-    this.mcpServers.clear();
-    for (const [name, server] of liveServers) this.mcpServers.set(name, server);
-    for (const server of servers) {
-      if (this.mcpLiveServerNames.has(server.name)) continue;
-      this.mcpServers.set(server.name, server);
-      this.renderedMcpServerStatusKeys.set(server.name, mcpServerStatusKey(server));
+    const visible = selectMcpStartupStatusRows(servers);
+    const visibleNames = new Set(visible.map((server) => server.name));
+    for (const server of visible) {
+      if (this.renderedMcpServerStatusKeys.has(server.name)) continue;
+      this.renderMcpServerStatus(server);
     }
-    this.mcpServerSnapshotReady = true;
-    this.syncMcpServerSummary();
-    this.renderMcpServerStatusRow();
-    void host.refreshSkillCommands(session);
+
+    this.mcpServers.clear();
+    for (const server of servers) {
+      this.mcpServers.set(server.name, server);
+    }
+    const hidden: McpServerStatusSnapshot[] = [];
+    for (const server of servers) {
+      if (visibleNames.has(server.name)) continue;
+      if (this.renderedMcpServerStatusKeys.has(server.name)) continue;
+      this.renderedMcpServerStatusKeys.set(server.name, mcpServerStatusKey(server));
+      hidden.push(server);
+    }
+    const summary = formatMcpStartupStatusSummary(servers);
+    host.setAppState({ mcpServersSummary: summary || null });
   }
 
   handleEvent(event: Event, sendQueued: (item: QueuedMessage) => void): void {
-    this.trackTokenSpeed(event);
     if (this.subAgentEventHandler.routeChildAgentEvent(event)) return;
 
     if ('turnId' in event && event.turnId !== undefined) {
@@ -288,20 +272,21 @@ export class SessionEventHandler {
       case 'turn.step.started': this.handleStepBegin(event); break;
       case 'turn.step.interrupted': this.handleStepInterrupted(event); break;
       case 'turn.step.completed': this.handleStepCompleted(event); break;
-      case 'turn.step.retrying': setLiveIntent(undefined); break;
+      case 'turn.step.retrying': this.handleStepRetrying(event); break;
       case 'tool.progress': this.handleToolProgress(event); break;
+      case 'shell.output': this.host.handleShellOutput(event); break;
+      case 'shell.started': this.host.handleShellStarted(event); break;
       case 'assistant.delta': this.handleAssistantDelta(event); break;
       case 'hook.result': this.handleHookResult(event); break;
-      case 'hook.status': this.handleHookStatus(event); break;
       case 'thinking.delta': this.handleThinkingDelta(event); break;
       case 'tool.call.started': this.handleToolCall(event); break;
       case 'tool.call.delta': this.handleToolCallDelta(event); break;
       case 'tool.result': this.handleToolResult(event); break;
       case 'agent.status.updated': this.handleStatusUpdate(event); break;
-      case 'advisor.status': this.handleAdvisorStatus(event); break;
       case 'session.meta.updated': this.handleSessionMetaChanged(event); break;
       case 'goal.updated': this.handleGoalUpdated(event); break;
       case 'skill.activated': this.handleSkillActivated(event); break;
+      case 'plugin_command.activated': this.handlePluginCommandActivated(event); break;
       case 'error': this.handleSessionError(event); break;
       case 'warning': this.handleSessionWarning(event); break;
       case 'compaction.started': this.handleCompactionBegin(event); break;
@@ -314,8 +299,6 @@ export class SessionEventHandler {
       case 'subagent.completed':
       case 'subagent.failed':
         this.subAgentEventHandler.handleLifecycleEvent(event); break;
-      case 'workflow.warning':
-        this.subAgentEventHandler.handleWorkflowWarning(event); break;
       case 'background.task.started':
       case 'background.task.terminated':
         this.handleBackgroundTaskEvent(event); break;
@@ -326,58 +309,24 @@ export class SessionEventHandler {
     }
   }
 
-  disposeMcpServerStatusRows(): void {
-    this.removeMcpServerStatusRow();
-  }
-
-  private handleHookStatus(event: HookStatusEvent): void {
-    const { state } = this.host;
-    const existing = this.hookStatusSpinners.get(event.statusId);
-    if (!event.active) {
-      if (existing === undefined) return;
-      existing.stop();
-      state.transcriptContainer.removeChild(existing);
-      this.hookStatusSpinners.delete(event.statusId);
-      state.ui.requestRender();
-      return;
-    }
-    if (existing !== undefined) {
-      existing.setLabel(event.content);
-      return;
-    }
-    const tint = (text: string): string => currentTheme.fg('textMuted', text);
-    const spinner = new ActivityLoader(state.ui, tint, event.content);
-    state.transcriptContainer.addTranscriptChild(spinner, {
-      role: 'ephemeral',
-      edgeBlankPolicy: 'preserve',
-    });
-    this.hookStatusSpinners.set(event.statusId, spinner);
-    state.ui.requestRender();
-  }
-
-  private disposeHookStatusRows(): void {
-    for (const spinner of this.hookStatusSpinners.values()) {
+  stopAllMcpServerStatusSpinners(): void {
+    for (const spinner of this.mcpServerStatusSpinners.values()) {
       spinner.stop();
-      this.host.state.transcriptContainer.removeChild(spinner);
     }
-    this.hookStatusSpinners.clear();
+    this.mcpServerStatusSpinners.clear();
   }
 
   // ---------------------------------------------------------------------------
   // Private handlers
   // ---------------------------------------------------------------------------
 
-  private handleTurnBegin(_event: TurnStartedEvent): void {
-    setLiveIntent(undefined);
-    void _event;
+  private handleTurnBegin(event: TurnStartedEvent): void {
+    this.host.handleTurnStarted?.(event);
     this.currentTurnHasAssistantText = false;
-    // Throughput belongs to the finished turn; clear it so a stale t/s rate
-    // never bleeds into the next turn.
-    this.host.dispatchFooter({
-      type: 'status.updated',
-      changes: { tokenSpeed: null, tokenSpeedEstimated: false },
-    });
-    this.clearDynamicWorkflowMissionControls();
+    if (event.origin?.kind === 'plugin_command') {
+      this.pluginCommandTurns.set(String(event.turnId), event.origin.pluginId);
+    }
+    this.clearAgentDynamicWorkflowProgress();
     this.host.streamingUI.resetToolUi();
     this.host.streamingUI.setStep(0);
     this.host.patchLivePane({
@@ -410,14 +359,21 @@ export class SessionEventHandler {
   }
 
   private handleTurnEnd(event: TurnEndedEvent, sendQueued: (item: QueuedMessage) => void): void {
-    setLiveIntent(undefined);
+    this.host.handleTurnEnded?.(event);
     this.host.streamingUI.flushNow();
-    this.host.dispatchFooter({
-      type: 'status.updated',
-      changes: { tokenSpeed: null, tokenSpeedEstimated: false },
-    });
+    this.clearStepRetry();
     if (event.reason === 'cancelled') {
-      this.markActiveDynamicWorkflowsCancelled();
+      this.markActiveAgentDynamicWorkflowsCancelled();
+    }
+    // Aborted foreground subagents emit no completed/failed lifecycle event
+    // (v2 suppresses it for aborts), so their activity records would linger
+    // until the session reset — prune them when the owning turn ends.
+    this.subAgentEventHandler.dropForegroundOnlyActivityRecords();
+    if (event.reason === 'failed' && event.error?.code === 'provider.filtered') {
+      this.host.showStatus('Turn stopped: provider safety policy blocked the response.', 'error');
+    }
+    if (event.reason === 'blocked') {
+      this.host.showStatus('Turn stopped: prompt hook blocked the request.', 'error');
     }
     const todos = this.host.state.todoPanel.getTodos();
     if (todos.length > 0 && todos.every((t) => t.status === 'done')) {
@@ -425,14 +381,30 @@ export class SessionEventHandler {
     }
     this.host.streamingUI.resetToolUi();
     this.host.streamingUI.finalizeTurn(sendQueued);
+    this.host.recordSessionActivity();
     this.renderPendingModelBlockedFallback();
     this.currentTurnHasAssistantText = false;
     this.goalCompletionTurnEnded = true;
+    // Plugin usage is reported once the whole turn's output has ended — but a
+    // cancelled turn cut the output short, so skip the notice there.
+    const reportPluginUsage = event.reason !== 'cancelled';
+    const pluginCommandPluginId = this.pluginCommandTurns.get(String(event.turnId));
+    if (pluginCommandPluginId !== undefined) {
+      this.pluginCommandTurns.delete(String(event.turnId));
+      if (reportPluginUsage) {
+        void this.pluginUpdateNotifier.handlePluginCommandCompleted(pluginCommandPluginId);
+      }
+    }
+    if (reportPluginUsage) {
+      for (const toolName of this.pluginMcpToolsUsedInTurn) {
+        void this.pluginUpdateNotifier.handleMcpToolCompleted(toolName);
+      }
+    }
+    this.pluginMcpToolsUsedInTurn.clear();
     this.scheduleQueuedGoalPromotion();
   }
 
   private handleStepBegin(event: TurnStepStartedEvent): void {
-    setLiveIntent(undefined);
     this.host.streamingUI.flushNow();
     this.host.streamingUI.setStep(event.step);
     this.host.streamingUI.resetToolUi();
@@ -449,9 +421,19 @@ export class SessionEventHandler {
   }
 
   private handleStepCompleted(event: TurnStepCompletedEvent): void {
-    setLiveIntent(undefined);
     this.host.streamingUI.flushNow();
+    this.clearStepRetry();
+    this.host.noteStepUsage(event.usage);
     this.maybeShowDebugTiming(event);
+
+    if (event.providerFinishReason === 'filtered') {
+      this.host.showNotice(
+        'Provider safety policy blocked the response.',
+        `The model output was filtered (${event.rawFinishReason ?? 'content_filter'}).`,
+      );
+      return;
+    }
+
     if (event.finishReason !== 'max_tokens') return;
 
     const truncatedCount = this.host.streamingUI.markStepTruncated(
@@ -469,112 +451,87 @@ export class SessionEventHandler {
     this.host.showNotice(title, detail);
   }
 
-  private trackTokenSpeed(event: Event): void {
-    if (this.host.state.appState.isReplaying) return;
-    if (
-      event.type === 'turn.step.started' ||
-      event.type === 'turn.step.retrying' ||
-      event.type === 'turn.step.interrupted' ||
-      event.type === 'turn.ended'
-    ) {
-      this.liveTokenSpeedByAgent.delete(event.agentId);
-      return;
-    }
-    if (event.type === 'turn.step.completed') {
-      this.updateCompletedTokenSpeed(event);
-      this.liveTokenSpeedByAgent.delete(event.agentId);
-      return;
-    }
-
-    if (
-      event.type !== 'assistant.delta' &&
-      event.type !== 'thinking.delta' &&
-      event.type !== 'tool.call.delta'
-    ) return;
-    const delta = event.type === 'tool.call.delta' ? event.argumentsPart : event.delta;
-    if (delta === undefined || delta.length === 0) return;
-
-    let asciiChars = 0;
-    let nonAsciiChars = 0;
-    for (const char of delta) {
-      if (char.codePointAt(0)! <= 0x7f) asciiChars += 1;
-      else nonAsciiChars += 1;
-    }
-
-    const current = this.liveTokenSpeedByAgent.get(event.agentId);
-    if (current === undefined || current.turnId !== event.turnId) {
-      this.liveTokenSpeedByAgent.set(event.agentId, {
-        turnId: event.turnId,
-        startedAtMs: Date.now(),
-        asciiChars,
-        nonAsciiChars,
-      });
-      return;
-    }
-
-    current.asciiChars += asciiChars;
-    current.nonAsciiChars += nonAsciiChars;
-    const estimatedTokens = Math.ceil(current.asciiChars / 4) + current.nonAsciiChars;
-    const durationMs = Date.now() - current.startedAtMs;
-    if (estimatedTokens < 2 || durationMs <= 0) return;
-    this.host.dispatchFooter({
-      type: 'status.updated',
-      changes: {
-        tokenSpeed: ((estimatedTokens - 1) * 1_000) / durationMs,
-        tokenSpeedEstimated: true,
+  private handleStepRetrying(event: TurnStepRetryingEvent): void {
+    // The failure may arrive mid-stream, after thinking/assistant deltas have
+    // parked the pane in `thinking`/`composing` — drive it back to waiting so
+    // the retry label and detail actually render during the backoff.
+    this.host.patchLivePane({ mode: 'waiting' });
+    this.host.setAppState({
+      streamingPhase: 'waiting',
+      stepRetry: {
+        nextAttempt: event.nextAttempt,
+        maxAttempts: event.maxAttempts,
+        delayMs: event.delayMs,
+        errorName: event.errorName,
+        errorMessage: event.errorMessage,
+        statusCode: event.statusCode,
+        phase: 'backoff',
       },
     });
+    // Both engines sleep for `delayMs` before the next attempt runs, but only
+    // v2 re-emits `turn.step.started` for it — flip the phase on a timer so the
+    // stale countdown drops on the legacy engine too.
+    this.clearStepRetryAttemptTimer();
+    this.stepRetryAttemptTimer = setTimeout(() => {
+      this.stepRetryAttemptTimer = undefined;
+      const retry = this.host.state.appState.stepRetry;
+      if (retry === null) return;
+      this.host.setAppState({ stepRetry: { ...retry, phase: 'attempt' } });
+    }, event.delayMs);
   }
 
-  private updateCompletedTokenSpeed(event: TurnStepCompletedEvent): void {
-    const outputTokens = event.usage?.output;
-    const durationMs = event.llmStreamDurationMs;
-    if (
-      outputTokens === undefined ||
-      durationMs === undefined ||
-      !Number.isFinite(outputTokens) ||
-      !Number.isFinite(durationMs) ||
-      outputTokens < 2 ||
-      durationMs <= 0
-    ) {
-      return;
+  private clearStepRetry(): void {
+    this.clearStepRetryAttemptTimer();
+    if (this.host.state.appState.stepRetry === null) return;
+    this.host.setAppState({ stepRetry: null });
+  }
+
+  clearStepRetryAttemptTimer(): void {
+    if (this.stepRetryAttemptTimer !== undefined) {
+      clearTimeout(this.stepRetryAttemptTimer);
+      this.stepRetryAttemptTimer = undefined;
     }
-    this.host.dispatchFooter({
-      type: 'status.updated',
-      changes: {
-        tokenSpeed: ((outputTokens - 1) * 1_000) / durationMs,
-        tokenSpeedEstimated: false,
-      },
-    });
   }
 
   private maybeShowDebugTiming(event: TurnStepCompletedEvent): void {
     if (process.env['PYTHINKER_CODE_DEBUG'] !== '1') return;
     const text = formatStepDebugTiming(event);
-    if (text !== undefined) this.host.showStatus(text);
+    if (text === undefined) return;
+    this.host.appendTranscriptEntry({
+      id: nextTranscriptId(),
+      kind: 'status',
+      turnId: String(event.turnId),
+      renderMode: 'plain',
+      content: text,
+    });
   }
 
-  private markActiveDynamicWorkflowsCancelled(): void {
-    this.subAgentEventHandler.markActiveDynamicWorkflowsCancelled();
+  private markActiveAgentDynamicWorkflowsCancelled(): void {
+    this.subAgentEventHandler.markActiveAgentDynamicWorkflowsCancelled();
   }
 
   private isAnthropicSessionActive(): boolean {
     const { state } = this.host;
-    const providerKey = state.appState.availableModels[state.appState.model]?.provider;
-    if (providerKey === undefined) return false;
-    return state.appState.availableProviders[providerKey]?.type === 'anthropic';
+    const model = state.appState.availableModels[state.appState.model];
+    if (model === undefined) return false;
+    if (model.protocol === 'anthropic') return true;
+    return state.appState.availableProviders[model.provider]?.type === 'anthropic';
   }
 
   private handleStepInterrupted(event: TurnStepInterruptedEvent): void {
-    setLiveIntent(undefined);
     this.host.streamingUI.flushNow();
+    this.clearStepRetry();
     this.host.streamingUI.resetToolUi();
     this.host.streamingUI.finalizeLiveTextBuffers('idle');
     const reason = event.reason;
     if (reason === 'error') return;
     if (reason === 'aborted' || reason === undefined || reason === '') {
-      this.markActiveDynamicWorkflowsCancelled();
-      this.host.showStatus('Interrupted by user', 'error');
+      this.markActiveAgentDynamicWorkflowsCancelled();
+      if (event.message === undefined || event.message === '') {
+        this.host.showStatus('Interrupted by user', 'error');
+      } else {
+        this.host.showError(event.message);
+      }
       return;
     }
     this.host.showError(
@@ -586,6 +543,14 @@ export class SessionEventHandler {
 
   private handleThinkingDelta(event: ThinkingDeltaEvent): void {
     const { state, streamingUI } = this.host;
+    // Encrypted / redacted reasoning (e.g. Pythinker over the Anthropic-compatible
+    // protocol) streams thinking deltas whose visible text is empty — only an
+    // opaque signature rides along. Models also occasionally stream whitespace-
+    // only thinking (e.g. a single space). Such deltas carry nothing to render,
+    // so switching into the `thinking` pane mode here would stop the "waiting"
+    // moon spinner while no ThinkingComponent is ever created (it needs visible
+    // text), leaving a blank, spinner-less gap until the first real text/tool
+    // token arrives. Keep the moon up until actual thinking text shows up.
     if (event.delta.trim().length === 0 && !streamingUI.hasThinkingDraft()) return;
     streamingUI.appendThinkingDelta(event.delta);
     this.host.patchLivePane({ mode: 'idle' });
@@ -634,6 +599,7 @@ export class SessionEventHandler {
       turnId: String(event.turnId),
       renderMode: 'markdown',
       content: formatHookResultMarkdown(event),
+      hookResult: true,
     });
     this.host.patchLivePane({
       mode: 'idle',
@@ -643,15 +609,6 @@ export class SessionEventHandler {
   }
 
   private handleToolCall(event: ToolCallStartedEvent): void {
-    // A retired Dynamic Workflow tool call (undo / turn cleanup) must not
-    // remount streaming UI when the model replays it late.
-    if (
-      event.name === 'DynamicWorkflow' &&
-      this.subAgentEventHandler.isRetiredDynamicWorkflowToolCall(event.toolCallId)
-    ) {
-      return;
-    }
-    setLiveIntent(event.intent);
     const { streamingUI } = this.host;
     streamingUI.flushNow();
     const { turnId, step } = streamingUI.getTurnContext();
@@ -665,8 +622,8 @@ export class SessionEventHandler {
       turnId,
     };
     streamingUI.registerToolCall(toolCall);
-    if (event.name === 'DynamicWorkflow') {
-      this.subAgentEventHandler.handleDynamicWorkflowToolCallStarted(event.toolCallId, toolCall.args);
+    if (event.name === 'AgentDynamicWorkflow') {
+      this.subAgentEventHandler.handleAgentDynamicWorkflowToolCallStarted(event.toolCallId, toolCall.args);
     }
     this.host.patchLivePane({
       mode: 'tool',
@@ -676,23 +633,15 @@ export class SessionEventHandler {
   }
 
   private handleToolCallDelta(event: ToolCallDeltaEvent): void {
-    if (
-      event.toolCallId.length === 0 ||
-      // Late deltas for a retired workflow would re-create its mission control.
-      this.subAgentEventHandler.isRetiredDynamicWorkflowToolCall(event.toolCallId)
-    ) {
-      return;
-    }
+    if (event.toolCallId.length === 0) return;
     const { state, streamingUI } = this.host;
     streamingUI.accumulateToolCallDelta(event.toolCallId, event.name, event.argumentsPart);
     const preview = streamingUI.getStreamingToolCallPreview(event.toolCallId);
-    const intent = preview?.args['i'];
-    setLiveIntent(typeof intent === 'string' ? intent : undefined);
     if (
       preview !== undefined &&
-      preview.name === 'DynamicWorkflow'
+      (preview.name === 'AgentDynamicWorkflow' || this.subAgentEventHandler.hasAgentDynamicWorkflowProgress(event.toolCallId))
     ) {
-      this.subAgentEventHandler.handleDynamicWorkflowToolCallDelta(event.toolCallId, preview.args, {
+      this.subAgentEventHandler.handleAgentDynamicWorkflowToolCallDelta(event.toolCallId, preview.args, {
         streamingArguments: preview.argumentsText,
       });
     }
@@ -723,9 +672,9 @@ export class SessionEventHandler {
   }
 
   private handleToolResult(event: ToolResultEvent): void {
-    setLiveIntent(undefined);
     const { streamingUI } = this.host;
     streamingUI.flushNow();
+    this.clearStepRetry();
     const resultData: ToolResultBlockData = {
       tool_call_id: event.toolCallId,
       output: serializeToolResultOutput(event.output),
@@ -733,17 +682,25 @@ export class SessionEventHandler {
       synthetic: event.synthetic,
     };
     const matchedCall = streamingUI.completeToolResult(event.toolCallId, resultData);
-    if (matchedCall?.name === 'DynamicWorkflow') {
-      this.subAgentEventHandler.handleDynamicWorkflowToolResult(
-        event.toolCallId,
-        resultData,
-        event.isError === true,
-      );
+    if (matchedCall !== undefined && isPluginMcpToolName(matchedCall.name)) {
+      // Buffer plugin MCP usage for the turn; the update notice fires once the
+      // whole turn's output has ended (see handleTurnEnd).
+      this.pluginMcpToolsUsedInTurn.add(matchedCall.name);
     }
+    this.subAgentEventHandler.handleAgentDynamicWorkflowToolResult(
+      event.toolCallId,
+      resultData,
+      event.isError === true,
+    );
     if (matchedCall !== undefined && matchedCall.name === 'TodoList' && !event.isError) {
       const rawTodos = (matchedCall.args as { todos?: unknown }).todos;
       if (Array.isArray(rawTodos)) {
-        streamingUI.setTodoList(normalizeTodoList(rawTodos));
+        const sanitized = rawTodos
+          .filter((todo): todo is { title: string; status: 'pending' | 'in_progress' | 'done' } =>
+            isTodoItemShape(todo),
+          )
+          .map((t) => ({ title: t.title, status: t.status }));
+        streamingUI.setTodoList(sanitized);
       }
     }
     this.host.patchLivePane({ mode: 'waiting' });
@@ -760,31 +717,12 @@ export class SessionEventHandler {
     if (event.maxContextTokens !== undefined) patch.maxContextTokens = event.maxContextTokens;
     if (event.planMode !== undefined) patch.planMode = event.planMode;
     if (event.dynamicWorkflowMode !== undefined) patch.dynamicWorkflowMode = event.dynamicWorkflowMode;
-    if (event.fastMode !== undefined) patch.fastMode = event.fastMode;
-    if (event.fastModeSupported !== undefined) patch.fastModeSupported = event.fastModeSupported;
     if (event.permission !== undefined) {
       patch.permissionMode = event.permission;
     }
-    if (event.model !== undefined) {
-      patch.model = event.model;
-      patch.modelCostRates = event.modelCostRates;
-      // A model switch invalidates Fast mode support unless the status event
-      // carried explicit fast-mode fields for the new model.
-      if (event.fastMode === undefined) patch.fastMode = false;
-      if (event.fastModeSupported === undefined) patch.fastModeSupported = false;
-    } else if (event.modelCostRates !== undefined) {
-      patch.modelCostRates = event.modelCostRates;
-    }
-    if (event.usage !== undefined) patch.totalCostUsd = event.usage.totalCostUsd;
+    if (event.model !== undefined) patch.model = event.model;
+    if (event.thinkingEffort !== undefined) patch.thinkingEffort = event.thinkingEffort;
     if (Object.keys(patch).length > 0) this.host.setAppState(patch);
-    if (event.usage !== undefined) {
-      this.host.dispatchFooter({
-        type: 'status.updated',
-        changes: {
-          sessionSpendUsd: event.usage.totalCostUsd,
-        },
-      });
-    }
     if (event.dynamicWorkflowMode === false) {
       this.host.state.dynamicWorkflowModeEntry = undefined;
       if (shouldRenderDynamicWorkflowEnded) {
@@ -794,9 +732,8 @@ export class SessionEventHandler {
   }
 
   private renderDynamicWorkflowModeMarker(state: DynamicWorkflowModeMarkerState): void {
-    this.host.state.transcriptContainer.addTranscriptChild(
+    this.host.state.transcriptContainer.addChild(
       new DynamicWorkflowModeMarkerComponent(state),
-      { role: 'ephemeral', edgeBlankPolicy: 'preserve' },
     );
     this.host.state.ui.requestRender();
   }
@@ -849,10 +786,7 @@ export class SessionEventHandler {
     }
     const marker = buildGoalMarker(change, state.toolOutputExpanded, change.actor);
     if (marker !== null) {
-      state.transcriptContainer.addTranscriptChild(marker, {
-        role: 'ephemeral',
-        edgeBlankPolicy: 'preserve',
-      });
+      state.transcriptContainer.addChild(marker);
       state.ui.requestRender();
     }
   }
@@ -864,10 +798,7 @@ export class SessionEventHandler {
     const { state } = this.host;
     const marker = buildGoalMarker(change, state.toolOutputExpanded, 'model');
     if (marker !== null) {
-      state.transcriptContainer.addTranscriptChild(marker, {
-        role: 'ephemeral',
-        edgeBlankPolicy: 'preserve',
-      });
+      state.transcriptContainer.addChild(marker);
       state.ui.requestRender();
     }
   }
@@ -921,7 +852,8 @@ export class SessionEventHandler {
       (session === undefined || this.host.session === session) &&
       !this.host.aborted &&
       this.host.state.appState.streamingPhase === 'idle' &&
-      this.host.state.queuedMessages.length === 0
+      this.host.state.queuedMessages.length === 0 &&
+      !this.host.state.queuedMessageDispatchPending
     );
   }
 
@@ -1026,11 +958,9 @@ export class SessionEventHandler {
   }
 
   private handleSessionError(event: ErrorEvent): void {
-    setLiveIntent(undefined);
     this.host.streamingUI.flushNow();
     this.host.streamingUI.resetToolUi();
     this.host.streamingUI.finalizeLiveTextBuffers('idle');
-    this.clearDynamicWorkflowMissionControls();
     if (event.code === OAUTH_LOGIN_REQUIRED_CODE) {
       this.host.showError(OAUTH_LOGIN_REQUIRED_STARTUP_NOTICE);
       return;
@@ -1045,110 +975,87 @@ export class SessionEventHandler {
   private handleSessionWarning(event: WarningEvent): void {
     this.host.showStatus(`Warning: ${event.message}`, 'warning');
   }
-  private handleAdvisorStatus(event: AdvisorStatusEvent): void {
-    const color: ColorToken =
-      event.status === 'error' || event.status === 'quota_exhausted'
-        ? 'error'
-        : event.status === 'running'
-          ? 'success'
-          : 'warning';
-    const message = event.message === undefined ? '' : ` · ${event.message}`;
-    this.host.showStatus(`Advisor ${event.name}: ${event.status}${message}`, color);
-  }
 
   private renderMcpServerStatus(server: McpServerStatusSnapshot): void {
     const key = mcpServerStatusKey(server);
     if (this.renderedMcpServerStatusKeys.get(server.name) === key) return;
     this.renderedMcpServerStatusKeys.set(server.name, key);
-    this.mcpLiveServerNames.add(server.name);
     this.mcpServers.set(server.name, server);
-    void this.host.refreshSkillCommands(this.host.session);
-    if (!this.mcpServerSnapshotReady) return;
-    this.syncMcpServerSummary();
-    this.renderMcpServerStatusRow();
+    const summary = formatMcpStartupStatusSummary([...this.mcpServers.values()]);
+    this.host.setAppState({ mcpServersSummary: summary || null });
+
+    switch (server.status) {
+      case 'connected': {
+        const toolStr = `${server.toolCount} tool${server.toolCount === 1 ? '' : 's'}`;
+        const message = `MCP server "${server.name}" connected · ${toolStr} (${server.transport})`;
+        this.finalizeMcpServerStatusRow(server.name, message, 'success');
+        return;
+      }
+      case 'failed': {
+        const message = `MCP server "${server.name}" failed${server.error !== undefined ? `: ${server.error}` : ''}`;
+        this.finalizeMcpServerStatusRow(server.name, message, 'error');
+        return;
+      }
+      case 'needs-auth': {
+        const message = `MCP server "${server.name}" needs OAuth — run /mcp-config login ${server.name}`;
+        this.finalizeMcpServerStatusRow(server.name, message, 'warning');
+        return;
+      }
+      case 'disabled':
+        this.finalizeMcpServerStatusRow(
+          server.name,
+          `MCP server "${server.name}" disabled`,
+          'textMuted',
+        );
+        return;
+      case 'removed':
+        this.finalizeMcpServerStatusRow(
+          server.name,
+          `MCP server "${server.name}" removed`,
+          'textMuted',
+        );
+        return;
+      case 'pending':
+        this.showMcpServerStatusSpinner(server.name);
+        return;
+    }
   }
 
-  private showMcpServerStatusLoader(label: string, color: ColorToken): void {
-    const existing = this.mcpServerStatusRow;
-    const tint = (text: string): string => currentTheme.fg(color, text);
-    if (existing instanceof ActivityLoader) {
-      existing.setColorFn(tint);
+  private showMcpServerStatusSpinner(name: string): void {
+    const { state } = this.host;
+    const label = `MCP server "${name}" connecting…`;
+    const existing = this.mcpServerStatusSpinners.get(name);
+    if (existing !== undefined) {
       existing.setLabel(label);
       return;
     }
-    this.replaceMcpServerStatusRow(new ActivityLoader(this.host.state.ui, tint, label));
+    const tint = (s: string): string => currentTheme.fg('textMuted', s);
+    const spinner = new MoonLoader(state.ui, 'braille', tint, label);
+    state.transcriptContainer.addChild(spinner);
+    this.mcpServerStatusSpinners.set(name, spinner);
+    state.ui.requestRender();
   }
 
-  private renderMcpServerStatusRow(): void {
-    if (!this.mcpServerSnapshotReady) return;
-    const line = buildMcpStartupStatusLine([...this.mcpServers.values()]);
-    if (line === null) {
-      this.removeMcpServerStatusRow();
+  private finalizeMcpServerStatusRow(name: string, message: string, color: ColorToken): void {
+    const { state } = this.host;
+    const spinner = this.mcpServerStatusSpinners.get(name);
+    if (spinner === undefined) {
+      this.host.showStatus(message, color);
       return;
     }
-    if (line.loading) {
-      this.showMcpServerStatusLoader(line.label, line.color);
-      return;
-    }
-
-    const mark = line.color === 'success'
-      ? SUCCESS_MARK
-      : line.color === 'error'
-        ? FAILURE_MARK
-        : STATUS_BULLET;
-    const status = new StatusMessageComponent(`${mark}${line.label}`, line.color);
-    this.replaceMcpServerStatusRow(status);
-    if (!line.transient) return;
-    if (!mcpStatusAnimationEnabled()) {
-      this.removeMcpServerStatusRow();
-      return;
-    }
-
-    const timer = setTimeout(() => {
-      if (this.mcpServerStatusRow !== status) return;
-      this.removeMcpServerStatusRow();
-    }, MCP_STATUS_TRANSIENT_DURATION_MS);
-    timer.unref?.();
-    this.mcpServerStatusTimer = timer;
-  }
-
-  private replaceMcpServerStatusRow(
-    component: ActivityLoader | StatusMessageComponent,
-  ): void {
-    const previous = this.mcpServerStatusRow;
-    if (this.mcpServerStatusTimer !== undefined) {
-      clearTimeout(this.mcpServerStatusTimer);
-      this.mcpServerStatusTimer = undefined;
-    }
-    if (previous instanceof ActivityLoader) previous.stop();
-
-    const children = this.host.state.mcpStatusContainer.children;
-    const index = previous === undefined ? -1 : children.indexOf(previous);
-    if (index >= 0) {
-      children[index] = component;
+    spinner.stop();
+    const status = new StatusMessageComponent(message, color);
+    const children = state.transcriptContainer.children;
+    const idx = children.indexOf(spinner);
+    if (idx >= 0) {
+      // In-place replacement is picked up by the container's ref-checked
+      // render cache; a tree-wide invalidate is unnecessary (and costly).
+      children[idx] = status;
     } else {
-      this.host.state.mcpStatusContainer.addChild(component);
+      state.transcriptContainer.addChild(status);
     }
-    this.mcpServerStatusRow = component;
-    this.host.state.ui.requestRender();
-  }
-
-  private removeMcpServerStatusRow(): void {
-    if (this.mcpServerStatusTimer !== undefined) {
-      clearTimeout(this.mcpServerStatusTimer);
-      this.mcpServerStatusTimer = undefined;
-    }
-    const row = this.mcpServerStatusRow;
-    if (row === undefined) return;
-    if (row instanceof ActivityLoader) row.stop();
-    this.host.state.mcpStatusContainer.removeChild(row);
-    this.mcpServerStatusRow = undefined;
-    this.host.state.ui.requestRender();
-  }
-
-  private syncMcpServerSummary(): void {
-    const summary = formatMcpStartupStatusSummary([...this.mcpServers.values()]);
-    this.host.setAppState({ mcpServersSummary: summary || null });
+    this.mcpServerStatusSpinners.delete(name);
+    state.ui.requestRender();
   }
 
   private handleSkillActivated(event: SkillActivatedEvent): void {
@@ -1157,7 +1064,6 @@ export class SessionEventHandler {
     this.host.appendTranscriptEntry({
       id: nextTranscriptId(),
       kind: 'skill_activation',
-      checkpointId: event.checkpointId,
       turnId: undefined,
       renderMode: 'plain',
       content: `Activated skill: ${event.skillName}`,
@@ -1165,6 +1071,25 @@ export class SessionEventHandler {
       skillName: event.skillName,
       skillArgs: event.skillArgs,
       skillTrigger: event.trigger,
+    });
+  }
+
+  private handlePluginCommandActivated(event: PluginCommandActivatedEvent): void {
+    if (this.renderedPluginCommandActivationIds.has(event.activationId)) return;
+    this.renderedPluginCommandActivationIds.add(event.activationId);
+    this.host.appendTranscriptEntry({
+      id: nextTranscriptId(),
+      kind: 'plugin_command',
+      turnId: undefined,
+      renderMode: 'plain',
+      content: `/${event.pluginId}:${event.commandName}`,
+      pluginCommandData: {
+        activationId: event.activationId,
+        pluginId: event.pluginId,
+        commandName: event.commandName,
+        args: event.commandArgs,
+        trigger: event.trigger,
+      },
     });
   }
 
@@ -1187,6 +1112,12 @@ export class SessionEventHandler {
       event.result.tokensAfter,
       event.result.summary,
     );
+    // A completed compaction just refreshed and shrank the cached context —
+    // count it as activity so the next submit isn't judged against the
+    // pre-compaction timestamp, and reset the cache-break baseline (the drop
+    // is expected). Cancellations do neither: the context was not cut.
+    this.host.recordSessionActivity();
+    this.host.noteCompactionFinished();
     this.finishCompaction(sendQueued);
   }
 
@@ -1201,14 +1132,18 @@ export class SessionEventHandler {
   private finishCompaction(sendQueued: (item: QueuedMessage) => void): void {
     const hasActiveTurn = this.host.streamingUI.hasActiveTurn();
     if (!hasActiveTurn) {
+      const next = this.host.shiftQueuedMessage();
+      if (next !== undefined) {
+        this.host.state.queuedMessageDispatchPending = true;
+      }
       this.host.setAppState({
         isCompacting: false,
         streamingPhase: 'idle',
       });
       this.host.resetLivePane();
-      const next = this.host.shiftQueuedMessage();
       if (next !== undefined) {
         setTimeout(() => {
+          this.host.state.queuedMessageDispatchPending = false;
           sendQueued(next);
         }, 0);
       }
@@ -1243,6 +1178,9 @@ export class SessionEventHandler {
 
     if (event.type === 'background.task.started') {
       if (info.kind === 'agent') {
+        // A foreground subagent detached via Ctrl+B: flip its card to
+        // `◐ backgrounded` so it doesn't look like it completed.
+        this.host.streamingUI.markSubagentBackgrounded(info.agentId);
         this.syncBackgroundTaskBadge();
         this.host.tasksBrowserController.repaint();
         return;
@@ -1264,6 +1202,21 @@ export class SessionEventHandler {
           description: info.description,
           status: info.status,
         });
+        // Stopped / timed-out agents terminate without a `subagent.failed`
+        // event — mark the activity record here so the detail view does not
+        // stay "running" forever. `subagent.completed` carries the result
+        // summary and may land after this, so only fill still-running records.
+        const agentId = info.agentId;
+        if (agentId !== undefined) {
+          const record = this.subAgentEventHandler.activityStore.get(agentId);
+          if (record !== undefined && record.status === 'running') {
+            if (info.status === 'completed') {
+              this.subAgentEventHandler.activityStore.markCompleted(agentId);
+            } else {
+              this.subAgentEventHandler.activityStore.markFailed(agentId);
+            }
+          }
+        }
       }
       if (!this.backgroundTaskTranscriptedTerminal.has(info.taskId)) {
         if (info.kind === 'process' || info.kind === 'question') {
@@ -1316,10 +1269,7 @@ export class SessionEventHandler {
         bashTasks += 1;
       }
     }
-    this.host.dispatchFooter({
-      type: 'background-counts.updated',
-      counts: { bashTasks, agentTasks },
-    });
+    state.footer.setBackgroundCounts({ bashTasks, agentTasks });
     state.ui.requestRender();
   }
 }

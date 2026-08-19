@@ -41,9 +41,7 @@ describe('resolveTargetDeps', () => {
     const names = deps.map((d) => d.resolvedName);
     expect(names).toContain('@mariozechner/clipboard');
     expect(names).toContain('@mariozechner/clipboard-darwin-arm64');
-    expect(names).toContain('koffi');
-    expect(names).toContain('@opentui/core');
-    expect(names).toContain('@opentui/core-darwin-arm64');
+    expect(names).toContain('@pymodel/pi-tui');
   });
 
   it('picks the right clipboard subpackage per target', () => {
@@ -58,38 +56,27 @@ describe('resolveTargetDeps', () => {
     ).toContain('@mariozechner/clipboard-win32-arm64-msvc');
   });
 
-  it('encodes koffi native file path with target triplet', () => {
-    const linuxKoffi = resolveTargetDeps('linux-arm64').find((d) => d.resolvedName === 'koffi');
-    expect(linuxKoffi?.nativeFileRelatives).toEqual(['build/koffi/linux_arm64/koffi.node']);
-    const macKoffi = resolveTargetDeps('darwin-x64').find((d) => d.resolvedName === 'koffi');
-    expect(macKoffi?.nativeFileRelatives).toEqual(['build/koffi/darwin_x64/koffi.node']);
-    const winArmKoffi = resolveTargetDeps('win32-arm64').find((d) => d.resolvedName === 'koffi');
-    expect(winArmKoffi?.nativeFileRelatives).toEqual(['build/koffi/win32_arm64/koffi.node']);
-  });
-
-  it('selects one OpenTUI platform library with an explicit file descriptor', () => {
-    const linux = resolveTargetDeps('linux-arm64').find((d) => d.id === 'opentui-platform');
-    expect(linux?.resolvedName).toBe('@opentui/core-linux-arm64');
-    expect(linux?.collect).toBe('explicit-files');
-    expect(linux?.nativeFileRelatives).toEqual(['libopentui.so']);
-
-    const windows = resolveTargetDeps('win32-x64').find((d) => d.id === 'opentui-platform');
-    expect(windows?.resolvedName).toBe('@opentui/core-win32-x64');
-    expect(windows?.nativeFileRelatives).toEqual(['opentui.dll']);
-  });
-
-  it('registers the OpenTUI tree-sitter assets for extraction', () => {
-    const core = resolveTargetDeps('darwin-arm64').find((d) => d.id === 'opentui-core-assets');
-    expect(core?.resolvedName).toBe('@opentui/core');
-    expect(core?.collect).toBe('explicit-files');
-    expect(core?.nativeFileRelatives).toContain(
-      'assets/javascript/tree-sitter-javascript.wasm',
+  it('encodes pi-tui native file path per target', () => {
+    const linuxPiTui = resolveTargetDeps('linux-arm64').find(
+      (d) => d.resolvedName === '@pymodel/pi-tui',
     );
-    expect(core?.nativeFileRelatives).toContain('assets/javascript/highlights.scm');
+    expect(linuxPiTui?.nativeFileRelatives).toEqual([]);
+    const macPiTui = resolveTargetDeps('darwin-x64').find(
+      (d) => d.resolvedName === '@pymodel/pi-tui',
+    );
+    expect(macPiTui?.nativeFileRelatives).toEqual([
+      'native/darwin/prebuilds/darwin-x64/darwin-modifiers.node',
+    ]);
+    const winArmPiTui = resolveTargetDeps('win32-arm64').find(
+      (d) => d.resolvedName === '@pymodel/pi-tui',
+    );
+    expect(winArmPiTui?.nativeFileRelatives).toEqual([
+      'native/win32/prebuilds/win32-arm64/win32-console-mode.node',
+    ]);
   });
 
   it('throws on unsupported target', () => {
-    expect(() => resolveTargetDeps('linux-x64-musl')).toThrow(/unsupported/iu);
+    expect(() => resolveTargetDeps('linux-x64-musl')).toThrow(/unsupported/i);
   });
 });
 
@@ -105,15 +92,9 @@ describe('nativeDeps registry shape', () => {
     expect(target?.parent).toBe('clipboard-host');
   });
 
-  it('has koffi (collect=js-and-native-file, parent=pi-tui)', () => {
-    const koffi = nativeDeps.find((d) => d.id === 'koffi');
-    expect(koffi?.collect).toBe('js-and-native-file');
-    expect(koffi?.parent).toBe('pi-tui');
-  });
-
-  it('has an OpenTUI platform package nested under core', () => {
-    const target = nativeDeps.find((d) => d.id === 'opentui-platform');
-    expect(target?.collect).toBe('explicit-files');
-    expect(target?.parent).toBe('opentui-core-assets');
+  it('has pi-tui (collect=native-file-only, no parent)', () => {
+    const piTui = nativeDeps.find((d) => d.id === 'pi-tui');
+    expect(piTui?.collect).toBe('native-file-only');
+    expect(piTui?.parent).toBe(null);
   });
 });

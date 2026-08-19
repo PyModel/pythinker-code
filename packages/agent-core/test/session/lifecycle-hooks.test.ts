@@ -11,7 +11,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { SDKSessionRPC } from '../../src/rpc';
 import { Session } from '../../src/session';
-import { AgentBackgroundTask, ProcessBackgroundTask } from '../../src/agent/background';
+import { ProcessBackgroundTask } from '../../src/agent/background';
+import { agentTask } from '../agent/background/helpers';
 
 
 const tempDirs: string[] = [];
@@ -19,82 +20,11 @@ const tempDirs: string[] = [];
 afterEach(async () => {
   vi.unstubAllEnvs();
   for (const dir of tempDirs.splice(0)) {
-    await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 10 });
+    await rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
 describe('Session lifecycle hooks', () => {
-  it.each([
-    ['missing', undefined],
-    ['older', 1],
-    ['newer', 3],
-  ])('rejects %s state format before resuming persisted agents', async (_label, sessionFormatVersion) => {
-    const { sessionDir, workDir } = await hookFixture();
-    await writeFile(
-      join(sessionDir, 'state.json'),
-      JSON.stringify({
-        sessionFormatVersion,
-        createdAt: '2026-01-01T00:00:00.000Z',
-        updatedAt: '2026-01-01T00:00:00.000Z',
-        title: 'Incompatible Session',
-        isCustomTitle: false,
-        agents: {
-          '../outside': {
-            type: 'main',
-            parentAgentId: null,
-            homedir: '/tmp/outside',
-          },
-        },
-        custom: {},
-      }),
-      'utf-8',
-    );
-    const session = new Session({
-      kaos: testKaos.withCwd(workDir),
-      homedir: sessionDir,
-      rpc: createSessionRpc(),
-      initializeMainAgent: false,
-      skills: { explicitDirs: [join(workDir, 'missing-skills')] },
-    });
-
-    await expect(session.resume()).rejects.toMatchObject({ code: 'session.init_failed' });
-    expect(session.getReadyAgent('main')).toBeUndefined();
-  });
-
-  it('fires a requested maintenance Setup hook before SessionStart', async () => {
-    const { command, logPath, sessionDir, workDir } = await hookFixture();
-    const session = new Session({
-      kaos: testKaos.withCwd(workDir),
-      id: 'session-maintenance',
-      homedir: sessionDir,
-      rpc: createSessionRpc(),
-      skills: { explicitDirs: [join(workDir, 'missing-skills')] },
-      setupTrigger: 'maintenance',
-      hooks: [
-        { event: 'Setup', matcher: 'maintenance', command, timeout: 5 },
-        { event: 'SessionStart', matcher: 'startup', command, timeout: 5 },
-      ],
-    });
-
-    await session.createMain();
-    await session.close();
-
-    expect(await readHookPayloads(logPath)).toMatchObject([
-      {
-        hook_event_name: 'Setup',
-        session_id: 'session-maintenance',
-        cwd: workDir,
-        trigger: 'maintenance',
-      },
-      {
-        hook_event_name: 'SessionStart',
-        session_id: 'session-maintenance',
-        cwd: workDir,
-        source: 'startup',
-      },
-    ]);
-  });
-
   it('fires SessionStart on startup and SessionEnd on close', async () => {
     const { command, logPath, sessionDir, workDir } = await hookFixture();
     const session = new Session({
@@ -128,165 +58,11 @@ describe('Session lifecycle hooks', () => {
     ]);
   });
 
-  it('reports project instructions loaded into the main context', async () => {
-    const { command, logPath, sessionDir, workDir } = await hookFixture();
-    const instructionsPath = join(workDir, 'AGENTS.md');
-    await writeFile(instructionsPath, 'Use focused verification.', 'utf-8');
-    const session = new Session({
-      kaos: testKaos.withCwd(workDir),
-      id: 'session-instructions',
-      homedir: sessionDir,
-      rpc: createSessionRpc(),
-      skills: { explicitDirs: [join(workDir, 'missing-skills')] },
-      hooks: [
-        {
-          event: 'InstructionsLoaded',
-          matcher: 'session_start|compact',
-          command,
-          timeout: 5,
-        },
-      ],
-    });
-    const trigger = vi.spyOn(session.hookEngine, 'fireAndForgetTrigger');
-
-    await session.createMain();
-    await waitForFile(logPath);
-    await session.refreshInstructions();
-    await session.refreshInstructions('compact');
-    await vi.waitFor(() => {
-      expect(
-        trigger.mock.calls.filter(([event]) => event === 'InstructionsLoaded'),
-      ).toHaveLength(2);
-    });
-    await vi.waitFor(async () => {
-      expect(await readHookPayloads(logPath)).toHaveLength(2);
-    });
-    await session.close();
-
-    expect(
-      trigger.mock.calls.filter(([event]) => event === 'InstructionsLoaded'),
-    ).toHaveLength(2);
-    expect(await readHookPayloads(logPath)).toMatchObject([
-      {
-        hook_event_name: 'InstructionsLoaded',
-        session_id: 'session-instructions',
-        cwd: workDir,
-        agent_id: 'main',
-        file_path: instructionsPath,
-        memory_type: 'Project',
-        load_reason: 'session_start',
-      },
-      {
-        hook_event_name: 'InstructionsLoaded',
-        session_id: 'session-instructions',
-        cwd: workDir,
-        agent_id: 'main',
-        file_path: instructionsPath,
-        memory_type: 'Project',
-        load_reason: 'compact',
-      },
-    ]);
-  });
-
-  it('fires FileChanged for configured workspace files', async () => {
-    const { command, logPath, sessionDir, workDir } = await hookFixture();
-    const envPath = join(workDir, '.env');
-    await writeFile(envPath, 'MODE=before\n', 'utf-8');
-    const session = new Session({
-      kaos: testKaos.withCwd(workDir),
-      id: 'session-file-changed',
-      homedir: sessionDir,
-      rpc: createSessionRpc(),
-      skills: { explicitDirs: [join(workDir, 'missing-skills')] },
-      hooks: [{ event: 'FileChanged', matcher: '.env|.env.local', command, timeout: 30 }],
-    });
-
-    await session.createMain();
-    await writeFile(envPath, 'MODE=after\n', 'utf-8');
-    const expectedPayload = {
-      hook_event_name: 'FileChanged',
-      session_id: 'session-file-changed',
-      cwd: workDir,
-      file_path: envPath,
-      event: 'change',
-    };
-    const payloads = await waitForHookPayload(logPath, expectedPayload);
-    await session.close();
-
-    expect(payloads).toContainEqual(expect.objectContaining(expectedPayload));
-  }, 35_000);
-
-  it('reroots configured FileChanged paths when the hook cwd changes', async () => {
-    const { command, logPath, sessionDir, workDir } = await hookFixture();
-    const nextWorkDir = join(workDir, 'worktree');
-    const envPath = join(nextWorkDir, '.env');
-    await mkdir(nextWorkDir, { recursive: true });
-    await writeFile(envPath, 'MODE=before\n', 'utf-8');
-    const session = new Session({
-      kaos: testKaos.withCwd(workDir),
-      id: 'session-file-changed-cwd',
-      homedir: sessionDir,
-      rpc: createSessionRpc(),
-      skills: { explicitDirs: [join(workDir, 'missing-skills')] },
-      hooks: [{ event: 'FileChanged', matcher: '.env', command, timeout: 30 }],
-    });
-
-    await session.createMain();
-    await session.hookEngine.setCwd(nextWorkDir);
-    await writeFile(envPath, 'MODE=worktree\n', 'utf-8');
-    const expectedPayload = {
-      hook_event_name: 'FileChanged',
-      session_id: 'session-file-changed-cwd',
-      cwd: nextWorkDir,
-      file_path: envPath,
-      event: 'change',
-    };
-    const payloads = await waitForHookPayload(logPath, expectedPayload);
-    await session.close();
-
-    expect(payloads).toContainEqual(expect.objectContaining(expectedPayload));
-  }, 35_000);
-
-  it('watches absolute paths returned by SessionStart hooks', async () => {
-    const { command, logPath, sessionDir, workDir } = await hookFixture();
-    const dynamicPath = join(workDir, '.dynamic-env');
-    await writeFile(dynamicPath, 'MODE=before\n', 'utf-8');
-    const setupCommand = `node -e ${JSON.stringify(
-      `process.stdout.write(JSON.stringify({hookSpecificOutput:{watchPaths:[${JSON.stringify(dynamicPath)}]}}))`,
-    )}`;
-    const session = new Session({
-      kaos: testKaos.withCwd(workDir),
-      id: 'session-dynamic-file-changed',
-      homedir: sessionDir,
-      rpc: createSessionRpc(),
-      skills: { explicitDirs: [join(workDir, 'missing-skills')] },
-      hooks: [
-        { event: 'SessionStart', matcher: 'startup', command: setupCommand, timeout: 30 },
-        { event: 'FileChanged', command, timeout: 30 },
-      ],
-    });
-
-    await session.createMain();
-    await writeFile(dynamicPath, 'MODE=after\n', 'utf-8');
-    const expectedPayload = {
-      hook_event_name: 'FileChanged',
-      session_id: 'session-dynamic-file-changed',
-      cwd: workDir,
-      file_path: dynamicPath,
-      event: 'change',
-    };
-    const payloads = await waitForHookPayload(logPath, expectedPayload);
-    await session.close();
-
-    expect(payloads).toContainEqual(expect.objectContaining(expectedPayload));
-  }, 35_000);
-
   it('fires SessionStart with resume source after loading metadata', async () => {
     const { command, logPath, sessionDir, workDir } = await hookFixture();
     await writeFile(
       join(sessionDir, 'state.json'),
       JSON.stringify({
-        sessionFormatVersion: 2,
         createdAt: '2026-01-01T00:00:00.000Z',
         updatedAt: '2026-01-01T00:00:00.000Z',
         title: 'Resumed Session',
@@ -425,10 +201,11 @@ describe('Session lifecycle hooks', () => {
       turnSettled.resolve();
     });
     vi.spyOn(child.turn, 'hasActiveTurn', 'get').mockReturnValue(true);
-    const abort = vi.fn();
+    const abortController = new AbortController();
+    const abort = vi.spyOn(abortController, 'abort');
     const taskId = main.background.registerTask(
-      new AgentBackgroundTask(new Promise(() => {}), 'keep background agent alive', {
-        abort,
+      agentTask(new Promise(() => {}), 'keep background agent alive', {
+        abortController,
         agentId: childId,
         subagentType: 'coder',
       }),
@@ -440,6 +217,313 @@ describe('Session lifecycle hooks', () => {
     expect(waitSpy).not.toHaveBeenCalled();
     expect(abort).not.toHaveBeenCalled();
     expect(main.background.getTask(taskId)?.status).toBe('running');
+  });
+
+  it('waitForBackgroundTasksOnPrint returns immediately when keepAliveOnExit is false', async () => {
+    const { sessionDir, workDir } = await hookFixture();
+    const session = new Session({
+      kaos: testKaos.withCwd(workDir),
+      id: 'session-print-wait-disabled',
+      homedir: sessionDir,
+      rpc: createSessionRpc(),
+      skills: { explicitDirs: [join(workDir, 'missing-skills')] },
+      background: { keepAliveOnExit: false },
+    });
+    const agent = await session.createMain();
+    const { proc, killSpy } = pendingProcess();
+    const taskId = agent.background.registerTask(
+      new ProcessBackgroundTask(proc, 'sleep 60', 'no wait'),
+    );
+
+    await session.waitForBackgroundTasksOnPrint();
+
+    expect(killSpy).not.toHaveBeenCalled();
+    expect(agent.background.getTask(taskId)?.status).toBe('running');
+    await session.close();
+  });
+
+  it('waitForBackgroundTasksOnPrint waits for background tasks to finish when keepAliveOnExit is true', async () => {
+    const { sessionDir, workDir } = await hookFixture();
+    const session = new Session({
+      kaos: testKaos.withCwd(workDir),
+      id: 'session-print-wait',
+      homedir: sessionDir,
+      rpc: createSessionRpc(),
+      skills: { explicitDirs: [join(workDir, 'missing-skills')] },
+      background: { keepAliveOnExit: true },
+    });
+    const agent = await session.createMain();
+    const { proc } = pendingProcess(0);
+    const taskId = agent.background.registerTask(
+      new ProcessBackgroundTask(proc, 'sleep 60', 'wait for me'),
+    );
+
+    let settled = false;
+    const waitPromise = session.waitForBackgroundTasksOnPrint().then(() => {
+      settled = true;
+    });
+
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(settled).toBe(false);
+
+    await proc.kill('SIGTERM');
+    await waitPromise;
+    expect(settled).toBe(true);
+    expect(agent.background.getTask(taskId)?.status).toBe('completed');
+    await session.close();
+  });
+
+  it('waitForBackgroundTasksOnPrint times out after printWaitCeilingS', async () => {
+    const { sessionDir, workDir } = await hookFixture();
+    const session = new Session({
+      kaos: testKaos.withCwd(workDir),
+      id: 'session-print-wait-timeout',
+      homedir: sessionDir,
+      rpc: createSessionRpc(),
+      skills: { explicitDirs: [join(workDir, 'missing-skills')] },
+      // Sub-second ceiling: the deadline path is identical, but the test no
+      // longer waits a real second for the drain loop to time out.
+      background: { keepAliveOnExit: true, printWaitCeilingS: 0.05 },
+    });
+    const agent = await session.createMain();
+    const { proc } = pendingProcess();
+    const taskId = agent.background.registerTask(
+      new ProcessBackgroundTask(proc, 'sleep 60', 'times out'),
+    );
+
+    await session.waitForBackgroundTasksOnPrint();
+
+    expect(agent.background.getTask(taskId)?.status).toBe('running');
+    await session.close();
+  });
+
+  it('handlePrintMainTurnCompleted finishes immediately by default once quiescent (steer mode)', async () => {
+    const { sessionDir, workDir } = await hookFixture();
+    const session = new Session({
+      kaos: testKaos.withCwd(workDir),
+      id: 'session-print-mode-default',
+      homedir: sessionDir,
+      rpc: createSessionRpc(),
+      skills: { explicitDirs: [join(workDir, 'missing-skills')] },
+    });
+    await session.createMain();
+
+    // Default mode is 'steer'; with no pending background tasks the run finishes.
+    await expect(session.handlePrintMainTurnCompleted()).resolves.toBe('finish');
+    await session.close();
+  });
+
+  it('handlePrintMainTurnCompleted defaults to steer: continue while a task is pending, then finish', async () => {
+    const { sessionDir, workDir } = await hookFixture();
+    const session = new Session({
+      kaos: testKaos.withCwd(workDir),
+      id: 'session-print-mode-default-steer',
+      homedir: sessionDir,
+      rpc: createSessionRpc(),
+      skills: { explicitDirs: [join(workDir, 'missing-skills')] },
+    });
+    const agent = await session.createMain();
+    const { proc } = pendingProcess();
+    agent.background.registerTask(new ProcessBackgroundTask(proc, 'sleep 60', 'steer by default'));
+
+    // No background config at all: the print default is 'steer', so a pending
+    // task keeps the run alive.
+    await expect(session.handlePrintMainTurnCompleted()).resolves.toBe('continue');
+
+    await proc.kill('SIGTERM');
+    // Let the background manager observe the terminal status.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    await expect(session.handlePrintMainTurnCompleted()).resolves.toBe('finish');
+    await session.close();
+  });
+
+  it('handlePrintMainTurnCompleted drains when printBackgroundMode is drain without keepAliveOnExit', async () => {
+    const { sessionDir, workDir } = await hookFixture();
+    const session = new Session({
+      kaos: testKaos.withCwd(workDir),
+      id: 'session-print-mode-drain',
+      homedir: sessionDir,
+      rpc: createSessionRpc(),
+      skills: { explicitDirs: [join(workDir, 'missing-skills')] },
+      background: { printBackgroundMode: 'drain' },
+    });
+    const agent = await session.createMain();
+    const { proc } = pendingProcess(0);
+    const taskId = agent.background.registerTask(
+      new ProcessBackgroundTask(proc, 'sleep 60', 'drain me'),
+    );
+
+    let settled = false;
+    const promise = session.handlePrintMainTurnCompleted().then((action) => {
+      settled = true;
+      return action;
+    });
+
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(settled).toBe(false);
+
+    await proc.kill('SIGTERM');
+    await expect(promise).resolves.toBe('finish');
+    expect(agent.background.getTask(taskId)?.status).toBe('completed');
+    await session.close();
+  });
+
+  it('explicit printBackgroundMode exit overrides keepAliveOnExit (no drain)', async () => {
+    const { sessionDir, workDir } = await hookFixture();
+    const session = new Session({
+      kaos: testKaos.withCwd(workDir),
+      id: 'session-print-mode-exit-override',
+      homedir: sessionDir,
+      rpc: createSessionRpc(),
+      skills: { explicitDirs: [join(workDir, 'missing-skills')] },
+      background: { keepAliveOnExit: true, printBackgroundMode: 'exit' },
+    });
+    const agent = await session.createMain();
+    const { proc, killSpy } = pendingProcess();
+    const taskId = agent.background.registerTask(
+      new ProcessBackgroundTask(proc, 'sleep 60', 'no drain'),
+    );
+
+    await session.waitForBackgroundTasksOnPrint();
+    await expect(session.handlePrintMainTurnCompleted()).resolves.toBe('finish');
+
+    expect(killSpy).not.toHaveBeenCalled();
+    expect(agent.background.getTask(taskId)?.status).toBe('running');
+    await proc.kill('SIGTERM').catch(() => undefined);
+    await session.close();
+  });
+
+  it('handlePrintMainTurnCompleted returns continue in steer mode while a task is pending, then finish once quiescent', async () => {
+    const { sessionDir, workDir } = await hookFixture();
+    const session = new Session({
+      kaos: testKaos.withCwd(workDir),
+      id: 'session-print-mode-steer',
+      homedir: sessionDir,
+      rpc: createSessionRpc(),
+      skills: { explicitDirs: [join(workDir, 'missing-skills')] },
+      background: { printBackgroundMode: 'steer' },
+    });
+    const agent = await session.createMain();
+    const { proc } = pendingProcess();
+    agent.background.registerTask(new ProcessBackgroundTask(proc, 'sleep 60', 'steer me'));
+
+    await expect(session.handlePrintMainTurnCompleted()).resolves.toBe('continue');
+
+    await proc.kill('SIGTERM');
+    // Let the background manager observe the terminal status.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    await expect(session.handlePrintMainTurnCompleted()).resolves.toBe('finish');
+    await session.close();
+  });
+
+  it('handlePrintMainTurnCompleted finishes in steer mode once printMaxTurns is reached', async () => {
+    const { sessionDir, workDir } = await hookFixture();
+    const session = new Session({
+      kaos: testKaos.withCwd(workDir),
+      id: 'session-print-mode-steer-cap',
+      homedir: sessionDir,
+      rpc: createSessionRpc(),
+      skills: { explicitDirs: [join(workDir, 'missing-skills')] },
+      background: { printBackgroundMode: 'steer', printMaxTurns: 1 },
+    });
+    const agent = await session.createMain();
+    const { proc } = pendingProcess();
+    agent.background.registerTask(new ProcessBackgroundTask(proc, 'sleep 60', 'cap me'));
+
+    // First call: printSteerTurns becomes 1 (not over cap), task pending ⇒ continue.
+    await expect(session.handlePrintMainTurnCompleted()).resolves.toBe('continue');
+    // Second call: printSteerTurns becomes 2 (> printMaxTurns=1) ⇒ finish even though
+    // the task is still running.
+    await expect(session.handlePrintMainTurnCompleted()).resolves.toBe('finish');
+
+    await proc.kill('SIGTERM').catch(() => undefined);
+    await session.close();
+  });
+
+  it('waitForBackgroundTasksOnPrint waits for tasks spawned after the first enumeration', async () => {
+    const { sessionDir, workDir } = await hookFixture();
+    const session = new Session({
+      kaos: testKaos.withCwd(workDir),
+      id: 'session-print-wait-fanout',
+      homedir: sessionDir,
+      rpc: createSessionRpc(),
+      skills: { explicitDirs: [join(workDir, 'missing-skills')] },
+      background: { keepAliveOnExit: true },
+    });
+    const agent = await session.createMain();
+    const first = pendingProcess(0);
+    const firstTaskId = agent.background.registerTask(
+      new ProcessBackgroundTask(first.proc, 'sleep 60', 'first'),
+    );
+
+    let settled = false;
+    const waitPromise = session.waitForBackgroundTasksOnPrint().then(() => {
+      settled = true;
+    });
+
+    // Let the first enumeration run and suspend on the first task.
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(settled).toBe(false);
+
+    // Fan out a second background task after the first enumeration.
+    const second = pendingProcess(0);
+    const secondTaskId = agent.background.registerTask(
+      new ProcessBackgroundTask(second.proc, 'sleep 60', 'second'),
+    );
+
+    // Finish the first task; the wait must not settle while the second is running.
+    await first.proc.kill('SIGTERM');
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(settled).toBe(false);
+
+    // Finish the second task; the wait should now settle.
+    await second.proc.kill('SIGTERM');
+    await waitPromise;
+    expect(settled).toBe(true);
+    expect(agent.background.getTask(firstTaskId)?.status).toBe('completed');
+    expect(agent.background.getTask(secondTaskId)?.status).toBe('completed');
+    await session.close();
+  });
+
+  it('suppresses notifications for every active task before awaiting any of them', async () => {
+    const { sessionDir, workDir } = await hookFixture();
+    const session = new Session({
+      kaos: testKaos.withCwd(workDir),
+      id: 'session-print-wait-suppress-race',
+      homedir: sessionDir,
+      rpc: createSessionRpc(),
+      skills: { explicitDirs: [join(workDir, 'missing-skills')] },
+      background: { keepAliveOnExit: true },
+    });
+    const agent = await session.createMain();
+    const steerSpy = vi.spyOn(agent.turn, 'steer');
+
+    // Detached tasks fire a completion notification unless suppressed.
+    const first = pendingProcess(0);
+    agent.background.registerTask(new ProcessBackgroundTask(first.proc, 'sleep 60', 'first'), {
+      detached: true,
+    });
+    const second = pendingProcess(0);
+    agent.background.registerTask(
+      new ProcessBackgroundTask(second.proc, 'sleep 60', 'second'),
+      { detached: true },
+    );
+
+    const waitPromise = session.waitForBackgroundTasksOnPrint();
+
+    // Let the synchronous enumeration run so both tasks get suppressed.
+    await new Promise((resolve) => setImmediate(resolve));
+
+    // Complete both tasks after suppression but before the wait settles.
+    await first.proc.kill('SIGTERM');
+    await second.proc.kill('SIGTERM');
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(steerSpy).not.toHaveBeenCalled();
+    await waitPromise;
+    await session.close();
   });
 
   it('lets the environment override config when deciding background task cleanup', async () => {
@@ -463,6 +547,38 @@ describe('Session lifecycle hooks', () => {
 
     expect(killSpy).toHaveBeenCalledWith('SIGTERM');
     expect(agent.background.getTask(taskId)?.status).toBe('killed');
+  });
+
+  it('createMain enables print drain when drainAgentTasksOnStop is true', async () => {
+    const { sessionDir, workDir } = await hookFixture();
+    const session = new Session({
+      kaos: testKaos.withCwd(workDir),
+      id: 'session-print-drain',
+      homedir: sessionDir,
+      rpc: createSessionRpc(),
+      skills: { explicitDirs: [join(workDir, 'missing-skills')] },
+      background: { keepAliveOnExit: true, printWaitCeilingS: 42 },
+      drainAgentTasksOnStop: true,
+    });
+    const agent = await session.createMain();
+
+    expect(agent.printDrainAgentTasksOnStop).toBe(true);
+    await session.close();
+  });
+
+  it('createMain leaves print drain disabled by default', async () => {
+    const { sessionDir, workDir } = await hookFixture();
+    const session = new Session({
+      kaos: testKaos.withCwd(workDir),
+      id: 'session-print-drain-off',
+      homedir: sessionDir,
+      rpc: createSessionRpc(),
+      skills: { explicitDirs: [join(workDir, 'missing-skills')] },
+    });
+    const agent = await session.createMain();
+
+    expect(agent.printDrainAgentTasksOnStop).toBe(false);
+    await session.close();
   });
 
   it('cancels an active foreground turn before closing', async () => {
@@ -637,26 +753,9 @@ function createSessionRpc(overrides: Partial<SDKSessionRPC> = {}): SDKSessionRPC
   } as SDKSessionRPC;
 }
 
-// The hook log is written asynchronously after the watcher fires; poll until
-// the expected payload appears (bounded) instead of racing it with one read.
-async function waitForHookPayload(
-  path: string,
-  expected: Readonly<Record<string, unknown>>,
-): Promise<readonly Record<string, unknown>[]> {
-  let payloads: readonly Record<string, unknown>[] = [];
-  await vi.waitFor(
-    async () => {
-      payloads = await readHookPayloads(path);
-      expect(payloads).toContainEqual(expect.objectContaining(expected));
-    },
-    { timeout: 30_000, interval: 20 },
-  );
-  return payloads;
-}
-
 async function waitForFile(path: string): Promise<void> {
   let lastError: unknown;
-  for (let attempt = 0; attempt < 1000; attempt += 1) {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
     try {
       await readFile(path, 'utf-8');
       return;

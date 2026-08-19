@@ -4,25 +4,17 @@ import { join } from 'pathe';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import {
-  getAgentMemoryDirectory,
-  loadAgentMemoryPrompt,
-  loadAgentsMd,
-  loadNestedAgentsMd,
-  prepareSystemPromptContext,
-} from '../../src/profile/context';
+import { loadAgentsMd, prepareSystemPromptContext } from '../../src/profile/context';
 import { testKaos } from '../fixtures/test-kaos';
-
-vi.mock('../../src/session/git-context', () => ({
-  collectGitContext: vi.fn(async () => '<git-context>\nBranch: test\n</git-context>'),
-}));
 
 let homeDir: string;
 let workDir: string;
+let extraDirs: string[];
 
 beforeEach(async () => {
   homeDir = await mkdtemp(join(tmpdir(), 'pythinker-agents-home-'));
   workDir = await mkdtemp(join(tmpdir(), 'pythinker-agents-work-'));
+  extraDirs = [];
   vi.spyOn(testKaos, 'gethome').mockReturnValue(homeDir);
   vi.spyOn(testKaos, 'getcwd').mockReturnValue(workDir);
 });
@@ -31,6 +23,7 @@ afterEach(async () => {
   vi.restoreAllMocks();
   await rm(homeDir, { recursive: true, force: true });
   await rm(workDir, { recursive: true, force: true });
+  await Promise.all(extraDirs.map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
 describe('loadAgentsMd user-level discovery', () => {
@@ -41,30 +34,13 @@ describe('loadAgentsMd user-level discovery', () => {
     await writeFile(join(homeDir, '.agents', 'AGENTS.md'), 'user generic', 'utf-8');
     await writeFile(join(workDir, 'AGENTS.md'), 'project instructions', 'utf-8');
 
-    const loaded: Array<{ path: string; memoryType: string }> = [];
-    const result = await loadAgentsMd(testKaos, undefined, (path, memoryType) => {
-      loaded.push({ path, memoryType });
-    });
+    const result = await loadAgentsMd(testKaos);
 
     expect(result).toContain('user branded');
     expect(result).toContain('user generic');
     expect(result).toContain('project instructions');
     expect(result.indexOf('user branded')).toBeLessThan(result.indexOf('user generic'));
     expect(result.indexOf('user generic')).toBeLessThan(result.indexOf('project instructions'));
-    expect(loaded).toEqual([
-      {
-        path: join(homeDir, '.pythinker-code', 'AGENTS.md'),
-        memoryType: 'User',
-      },
-      {
-        path: join(homeDir, '.agents', 'AGENTS.md'),
-        memoryType: 'User',
-      },
-      {
-        path: join(workDir, 'AGENTS.md'),
-        memoryType: 'Project',
-      },
-    ]);
   });
 
   it('loads generic user-level .agents/AGENTS.md', async () => {
@@ -93,16 +69,6 @@ describe('loadAgentsMd user-level discovery', () => {
     const result = await loadAgentsMd(testKaos);
 
     expect(result.split('home branded').length - 1).toBe(1);
-  });
-});
-
-describe('prepareSystemPromptContext', () => {
-  it('collects Git context only when requested for the main agent', async () => {
-    const withoutGit = await prepareSystemPromptContext(testKaos);
-    const withGit = await prepareSystemPromptContext(testKaos, undefined, undefined, true);
-
-    expect(withoutGit.gitContext).toBeUndefined();
-    expect(withGit.gitContext).toBe('<git-context>\nBranch: test\n</git-context>');
   });
 });
 
@@ -149,100 +115,90 @@ describe('loadAgentsMd brand home (PYTHINKER_CODE_HOME)', () => {
   });
 });
 
-describe('loadAgentsMd truncation marker', () => {
-  it('adds a marker when AGENTS.md content is truncated', async () => {
+describe('loadAgentsMd oversized content', () => {
+  it('keeps the full content when AGENTS.md exceeds the recommended size', async () => {
     const largeContent = 'x'.repeat(40 * 1024);
     await writeFile(join(workDir, 'AGENTS.md'), largeContent, 'utf-8');
 
     const result = await loadAgentsMd(testKaos);
 
-    expect(result).toContain('Some AGENTS.md files were truncated or omitted');
-    expect(result).toContain(`<!-- From: ${join(workDir, 'AGENTS.md')} -->`);
-    expect(result).not.toContain(largeContent);
+    expect(result).toContain(largeContent);
+    expect(result).not.toContain('truncated or omitted');
   });
 });
 
-describe('loadNestedAgentsMd', () => {
-  it('loads descendant instructions once and ignores paths outside the working directory', async () => {
-    const nestedDir = join(workDir, 'src', 'feature');
-    await mkdir(join(workDir, 'src', '.pythinker-code'), { recursive: true });
-    await mkdir(nestedDir, { recursive: true });
-    await writeFile(join(workDir, 'AGENTS.md'), 'root instructions', 'utf-8');
-    await writeFile(
-      join(workDir, 'src', '.pythinker-code', 'AGENTS.md'),
-      'branded nested instructions',
-      'utf-8',
-    );
-    await writeFile(join(workDir, 'src', 'AGENTS.md'), 'nested instructions', 'utf-8');
-    await writeFile(join(nestedDir, 'agents.md'), 'leaf instructions', 'utf-8');
-    const loaded = new Set<string>();
-    const observed: Array<{ path: string; triggerPath: string }> = [];
+describe('prepareSystemPromptContext AGENTS.md size warning', () => {
+  it('returns agentsMdWarning and keeps full content when oversized', async () => {
+    const brandHome = await mkdtemp(join(tmpdir(), 'pythinker-agents-brand-'));
+    extraDirs.push(brandHome);
+    const largeContent = 'x'.repeat(40 * 1024);
+    await writeFile(join(workDir, 'AGENTS.md'), largeContent, 'utf-8');
 
-    const result = await loadNestedAgentsMd(
-      testKaos,
-      join(nestedDir, 'file.ts'),
-      loaded,
-      (path, triggerPath) => {
-        observed.push({ path, triggerPath });
-      },
-    );
+    const result = await prepareSystemPromptContext(testKaos, brandHome);
 
-    expect(result).not.toContain('root instructions');
-    expect(result.indexOf('branded nested instructions')).toBeLessThan(
-      result.indexOf('nested instructions'),
-    );
-    expect(result.indexOf('nested instructions')).toBeLessThan(
-      result.indexOf('leaf instructions'),
-    );
-    expect(observed).toHaveLength(3);
-    expect(observed.every(({ triggerPath }) => triggerPath === join(nestedDir, 'file.ts'))).toBe(true);
-    await expect(
-      loadNestedAgentsMd(testKaos, join(nestedDir, 'file.ts'), loaded),
-    ).resolves.toBe('');
-    await expect(
-      loadNestedAgentsMd(testKaos, join(workDir, '..', 'outside.ts'), loaded),
-    ).resolves.toBe('');
+    expect(result.agentsMd).toContain(largeContent);
+    expect(result.agentsMdWarning).toBeDefined();
+    expect(result.agentsMdWarning).toContain('exceeds the recommended');
+  });
+
+  it('does not return agentsMdWarning when within the recommended size', async () => {
+    const brandHome = await mkdtemp(join(tmpdir(), 'pythinker-agents-brand-'));
+    extraDirs.push(brandHome);
+    await writeFile(join(workDir, 'AGENTS.md'), 'small instructions', 'utf-8');
+
+    const result = await prepareSystemPromptContext(testKaos, brandHome);
+
+    expect(result.agentsMdWarning).toBeUndefined();
   });
 });
 
-describe('agent profile memory', () => {
-  it('loads a bounded MEMORY.md index from a sanitized project-scoped directory', async () => {
-    const directory = getAgentMemoryDirectory(testKaos, 'demo:nested/review', 'project');
-    await mkdir(directory, { recursive: true });
-    await writeFile(join(directory, 'MEMORY.md'), '- [Policy](policy.md) — Use integration tests', 'utf8');
+describe('prepareSystemPromptContext additional directories', () => {
+  it('includes additional directory listings without loading their AGENTS.md', async () => {
+    const brandHome = await mkdtemp(join(tmpdir(), 'pythinker-agents-empty-brand-'));
+    extraDirs.push(brandHome);
+    const extraDir = await mkdtemp(join(tmpdir(), 'pythinker-agents-extra-'));
+    extraDirs.push(extraDir);
 
-    const prompt = await loadAgentMemoryPrompt(
-      testKaos,
-      'demo:nested/review',
-      'project',
-    );
+    await writeFile(join(workDir, 'AGENTS.md'), 'repo project instructions', 'utf-8');
+    await writeFile(join(extraDir, 'AGENTS.md'), 'extra project instructions', 'utf-8');
+    await writeFile(join(extraDir, 'extra-file.txt'), 'extra listing entry', 'utf-8');
 
-    expect(directory).toBe(
-      join(workDir, '.pythinker-code', 'agent-memory', 'demo-nested-review'),
-    );
-    expect(prompt).toContain(directory);
-    expect(prompt).toContain('[Policy](policy.md)');
-    expect(prompt).toContain('project-scoped');
-    expect(prompt).toContain('user, feedback, project, or reference');
-    expect(prompt).toContain('type: <user|feedback|project|reference>');
-    expect(prompt).toContain('Do not save code patterns');
-    expect(prompt).toContain('verify it against the current source');
+    const result = await prepareSystemPromptContext(testKaos, brandHome, {
+      additionalDirs: [extraDir],
+    });
+
+    const agentsMd = result.agentsMd ?? '';
+
+    expect(result.cwdListing).toBeTypeOf('string');
+    expect(result.additionalDirsInfo).toContain(`### ${extraDir}`);
+    expect(result.additionalDirsInfo).toContain('extra-file.txt');
+    expect(agentsMd).toContain('repo project instructions');
+    expect(agentsMd).not.toContain('extra project instructions');
+    expect(agentsMd.split('<!-- From:').length - 1).toBe(1);
   });
 
-  it('truncates oversized memory indexes and keeps the user scope under the brand home', async () => {
-    const brandHome = join(homeDir, 'custom-brand-home');
-    const directory = getAgentMemoryDirectory(testKaos, 'review', 'user', brandHome);
-    await mkdir(directory, { recursive: true });
-    await writeFile(
-      join(directory, 'MEMORY.md'),
-      Array.from({ length: 205 }, (_, index) => `- memory ${index}`).join('\n'),
-      'utf8',
-    );
+  it('loads user-level AGENTS.md once and skips additional directory AGENTS.md', async () => {
+    const brandHome = await mkdtemp(join(tmpdir(), 'pythinker-agents-empty-brand-'));
+    extraDirs.push(brandHome);
+    const extraDirA = await mkdtemp(join(tmpdir(), 'pythinker-agents-extra-a-'));
+    const extraDirB = await mkdtemp(join(tmpdir(), 'pythinker-agents-extra-b-'));
+    extraDirs.push(extraDirA, extraDirB);
 
-    const prompt = await loadAgentMemoryPrompt(testKaos, 'review', 'user', brandHome);
+    await mkdir(join(homeDir, '.agents'), { recursive: true });
+    await writeFile(join(homeDir, '.agents', 'AGENTS.md'), 'shared user instructions', 'utf-8');
+    await writeFile(join(extraDirA, 'AGENTS.md'), 'extra A instructions', 'utf-8');
+    await writeFile(join(extraDirB, 'AGENTS.md'), 'extra B instructions', 'utf-8');
 
-    expect(directory).toBe(join(brandHome, 'agent-memory', 'review'));
-    expect(prompt).toContain('Only part of it was loaded');
-    expect(prompt).not.toContain('- memory 204');
+    const result = await prepareSystemPromptContext(testKaos, brandHome, {
+      additionalDirs: [extraDirA, extraDirB],
+    });
+
+    const agentsMd = result.agentsMd ?? '';
+
+    expect(result.additionalDirsInfo).toContain(`### ${extraDirA}`);
+    expect(result.additionalDirsInfo).toContain(`### ${extraDirB}`);
+    expect(agentsMd.split('shared user instructions').length - 1).toBe(1);
+    expect(agentsMd).not.toContain('extra A instructions');
+    expect(agentsMd).not.toContain('extra B instructions');
   });
 });
