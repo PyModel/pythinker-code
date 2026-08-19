@@ -1,7 +1,11 @@
 import type { TUI } from '@pymodel/pi-tui';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { MoonLoader } from '#/tui/components/chrome/moon-loader';
+import {
+  BRAILLE_SPINNER_FRAMES,
+  BRAILLE_SPINNER_INTERVAL_MS,
+} from '#/tui/constant/rendering';
 
 // MoonLoader starts a real setInterval in its constructor, so every loader
 // created in these tests must be stopped to avoid leaving live timers behind.
@@ -17,6 +21,7 @@ function createLoader(): MoonLoader {
 afterEach(() => {
   for (const loader of loaders) loader.stop();
   loaders.length = 0;
+  vi.useRealTimers();
 });
 
 describe('MoonLoader', () => {
@@ -42,5 +47,14 @@ describe('MoonLoader', () => {
 
   it('uses the shared Braille mark for the waiting state', () => {
     expect(createLoader().renderInline()).toBe('⣷');
+  });
+
+  it('advances through the shared Braille frames', () => {
+    vi.useFakeTimers();
+    const loader = createLoader();
+
+    vi.advanceTimersByTime(BRAILLE_SPINNER_INTERVAL_MS);
+
+    expect(loader.renderInline()).toBe(BRAILLE_SPINNER_FRAMES[1]);
   });
 });

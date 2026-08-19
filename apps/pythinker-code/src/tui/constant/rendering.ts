@@ -42,9 +42,9 @@ export const SUBAGENT_TOOL_OUTPUT_MAX_CHARS = 8000;
 // beyond the cap.
 export const SUBAGENT_ARG_STRING_MAX_CHARS = 16 * 1024;
 
-// The Braille mark is shared by login/update loaders and live thinking.
-export const BRAILLE_SPINNER_FRAMES = ['⣷'];
+// The dense Braille cycle is shared by login/update loaders and live thinking.
+export const BRAILLE_SPINNER_FRAMES = ['⣷', '⣯', '⣟', '⡿', '⢿', '⣻', '⣽', '⣾'] as const;
 export const BRAILLE_SPINNER_INTERVAL_MS = 80;
 
-export const MOON_SPINNER_FRAMES = ['⣷'];
-export const MOON_SPINNER_INTERVAL_MS = 120;
+export const MOON_SPINNER_FRAMES = BRAILLE_SPINNER_FRAMES;
+export const MOON_SPINNER_INTERVAL_MS = BRAILLE_SPINNER_INTERVAL_MS;

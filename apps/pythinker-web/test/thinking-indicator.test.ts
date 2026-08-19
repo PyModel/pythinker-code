@@ -1,20 +1,24 @@
 import { mount } from '@vue/test-utils';
 import { defineComponent, nextTick, ref } from 'vue';
 import { createI18n } from 'vue-i18n';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import ThinkingIndicator from '../src/components/ui/ThinkingIndicator.vue';
 import { usePageTitle } from '../src/composables/usePageTitle';
+import { BRAILLE_SPINNER_FRAMES, BRAILLE_SPINNER_FRAME_MS } from '../src/lib/brailleSpinner';
 
 describe('thinking indicator', () => {
-  it('renders the exact shared Braille mark', () => {
+  it('renders the shared Braille animation frames', () => {
     const wrapper = mount(ThinkingIndicator);
 
-    expect(wrapper.text()).toBe('⣷');
+    expect(wrapper.findAll('.ui-thinking-indicator__frame').map((frame) => frame.text())).toEqual(
+      BRAILLE_SPINNER_FRAMES,
+    );
     expect(wrapper.attributes('role')).toBe('status');
   });
 
   it('uses the same mark in the running page title', async () => {
+    vi.useFakeTimers();
     const running = ref(false);
     const showAuthGate = ref(false);
     const Harness = defineComponent({
@@ -33,6 +37,10 @@ describe('thinking indicator', () => {
     await nextTick();
 
     expect(document.title).toBe('⣷ Pythinker Code Web');
+    vi.advanceTimersByTime(BRAILLE_SPINNER_FRAME_MS);
+    await nextTick();
+    expect(document.title).toBe('⣯ Pythinker Code Web');
     wrapper.unmount();
+    vi.useRealTimers();
   });
 });

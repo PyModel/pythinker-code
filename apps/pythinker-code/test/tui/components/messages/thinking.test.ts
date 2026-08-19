@@ -2,6 +2,7 @@ import { visibleWidth, type TUI } from '@pymodel/pi-tui';
 import { describe, expect, it, vi } from 'vitest';
 
 import { ThinkingComponent } from '#/tui/components/messages/thinking';
+import { BRAILLE_SPINNER_FRAMES, BRAILLE_SPINNER_INTERVAL_MS } from '#/tui/constant/rendering';
 import { STATUS_BULLET } from '#/tui/constant/symbols';
 
 function strip(text: string): string {
@@ -43,9 +44,9 @@ describe('ThinkingComponent', () => {
 
     expect(strip(component.render(80).join('\n'))).toContain('⣷ thinking...');
 
-    vi.advanceTimersByTime(80);
+    vi.advanceTimersByTime(BRAILLE_SPINNER_INTERVAL_MS);
     expect(requestRender).toHaveBeenCalled();
-    expect(strip(component.render(80).join('\n'))).toContain('⣷ thinking...');
+    expect(strip(component.render(80).join('\n'))).toContain(`${BRAILLE_SPINNER_FRAMES[1]} thinking...`);
 
     component.finalize();
     requestRender.mockClear();

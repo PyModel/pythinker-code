@@ -31,7 +31,7 @@ import {
 
 type Phase = 'ask1' | 'ask2' | 'progress' | 'result';
 
-const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'] as const;
+const SPINNER_FRAMES = ['⣷', '⣯', '⣟', '⡿', '⢿', '⣻', '⣽', '⣾'] as const;
 
 /** Spinner frame cadence — one full braille cycle every ~800ms. */
 const SPINNER_INTERVAL_MS = 80;

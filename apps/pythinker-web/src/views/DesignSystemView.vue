@@ -2,6 +2,7 @@
 import { onMounted, onUnmounted } from 'vue';
 import { ICON_GROUPS } from '../lib/icons';
 import Icon from '../components/ui/Icon.vue';
+import ThinkingIndicator from '../components/ui/ThinkingIndicator.vue';
 
 const emit = defineEmits<{ close: [] }>();
 
@@ -778,16 +779,16 @@ onUnmounted(() => {
               <div class="stage p col">
                 <span class="stage-label">Shared mark</span>
                 <div class="demo-row" style="font-size:22px;line-height:1">
-                  <span>⣷</span>
+                  <ThinkingIndicator size="lg" />
                 </div>
                 <span class="stage-label">Usage · only while the chat waits for a response</span>
                 <div class="demo-row">
-                  <span class="p-thinking"><span style="font-size:16px;line-height:1">⣷</span>Thinking…</span>
-                  <span class="p-thinking"><span style="font-size:16px;line-height:1">⣷</span>Waiting for response…</span>
+                  <span class="p-thinking"><ThinkingIndicator size="sm" />Thinking…</span>
+                  <span class="p-thinking"><ThinkingIndicator size="sm" />Waiting for response…</span>
                 </div>
               </div>
             </div>
-            <div class="callout info"><span class="ico">i</span><div>The <code>⣷</code> Braille mark is <b>limited</b> to the "waiting for the Agent's first response" scenario. It is rendered by <code>ThinkingIndicator.vue</code>, sized via tokens, and stops pulsing under <code>prefers-reduced-motion</code>. All other loading states use the plain Spinner.</div></div>
+            <div class="callout info"><span class="ico">i</span><div>The <code>⣷</code> Braille cycle is <b>limited</b> to the "waiting for the Agent's first response" scenario. It is rendered by <code>ThinkingIndicator.vue</code>, sized via tokens, and stops animating under <code>prefers-reduced-motion</code>. All other loading states use the plain Spinner.</div></div>
 
             <!-- ===== Link ===== -->
             <h3 class="sub">Link</h3>
@@ -1036,7 +1037,7 @@ onUnmounted(() => {
                   <div class="p-bubble-user">Please change the login endpoint to JWT and add the corresponding unit tests.</div>
 
                   <!-- thinking -->
-                  <span class="p-thinking"><span style="font-size:15px;line-height:1">⣷</span>Analyzing the auth module…</span>
+                  <span class="p-thinking"><ThinkingIndicator size="sm" />Analyzing the auth module…</span>
 
                   <!-- compact tool group: multiple tool calls collapsed into a stack, low weight by default -->
                   <div class="p-tool-group open">

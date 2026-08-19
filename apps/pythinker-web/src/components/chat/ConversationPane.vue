@@ -14,6 +14,7 @@ import ConversationToc, { type ConversationTocItem } from './ConversationToc.vue
 import Icon from '../ui/Icon.vue';
 import Spinner from '../ui/Spinner.vue';
 import Tooltip from '../ui/Tooltip.vue';
+import PythinkerLogo from '../PythinkerLogo.vue';
 import { getVisibleWorkspaces } from '../../lib/workspacePicker';
 import { safeRemove, STORAGE_KEYS } from '../../lib/storage';
 
@@ -1309,6 +1310,7 @@ defineExpose({ loadComposerForEdit, focusComposer });
             <div class="empty-hint">
               <span class="empty-hint-title" :class="{ 'is-starting': starting }">
                 <Spinner v-if="starting" size="sm" />
+                <PythinkerLogo v-else size="md" label="" aria-hidden="true" />
                 <span>{{ starting ? t('conversation.starting') : t('composer.emptyConversationTitle') }}</span>
               </span>
               <span v-if="!starting" class="empty-hint-text">{{ t('composer.emptyConversation') }}</span>
@@ -1607,13 +1609,14 @@ defineExpose({ loadComposerForEdit, focusComposer });
   font-family: var(--font-ui);
 }
 .empty-hint-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
   font-size: calc(var(--ui-font-size) + 16px);
   font-optical-sizing: auto;
   font-weight: 600;
 }
 .empty-hint-title.is-starting {
-  display: inline-flex;
-  align-items: center;
   gap: 9px;
   color: var(--dim);
   font-weight: 400;

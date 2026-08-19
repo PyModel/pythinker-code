@@ -36,4 +36,13 @@ describe('settings UI', () => {
     expect(composer).not.toContain('toggleDynamicWorkflow');
     expect(mobile).not.toContain('toggleDynamicWorkflow');
   });
+
+  it('shows the Pythinker logo beside the empty-conversation heading', () => {
+    const webRoot = process.cwd().endsWith('apps/pythinker-web')
+      ? process.cwd()
+      : join(process.cwd(), 'apps/pythinker-web');
+    const conversation = readFileSync(join(webRoot, 'src/components/chat/ConversationPane.vue'), 'utf8');
+
+    expect(conversation).toContain('<PythinkerLogo v-else size="md"');
+  });
 });
