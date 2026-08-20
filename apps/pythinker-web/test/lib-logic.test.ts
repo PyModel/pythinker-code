@@ -28,9 +28,17 @@ import {
 import type { AppMessage, AppModel, AppTask } from '../src/api/types';
 import { resolveToolRenderer } from '../src/components/chat/tool-calls/toolRegistry';
 import AgentTool from '../src/components/chat/tool-calls/AgentTool.vue';
+import BashTool from '../src/components/chat/tool-calls/BashTool.vue';
 import DynamicWorkflowTool from '../src/components/chat/tool-calls/DynamicWorkflowTool.vue';
 import EditTool from '../src/components/chat/tool-calls/EditTool.vue';
 import GenericTool from '../src/components/chat/tool-calls/GenericTool.vue';
+import GlobTool from '../src/components/chat/tool-calls/GlobTool.vue';
+import GoalTool from '../src/components/chat/tool-calls/GoalTool.vue';
+import GrepTool from '../src/components/chat/tool-calls/GrepTool.vue';
+import PlanTool from '../src/components/chat/tool-calls/PlanTool.vue';
+import ReadTool from '../src/components/chat/tool-calls/ReadTool.vue';
+import TodoTool from '../src/components/chat/tool-calls/TodoTool.vue';
+import WebFetchTool from '../src/components/chat/tool-calls/WebFetchTool.vue';
 import type { ToolCall } from '../src/types';
 import {
   clearTrace,
@@ -417,9 +425,21 @@ describe('resolveToolRenderer', () => {
     expect(resolveToolRenderer(tool('multi_edit'))).toBe(EditTool);
   });
 
-  it('falls back to the Generic renderer for unknown tools', () => {
-    expect(resolveToolRenderer(tool('bash'))).toBe(GenericTool);
-    expect(resolveToolRenderer(tool('read'))).toBe(GenericTool);
+  it('routes specialized calls and falls back for unknown tools', () => {
+    expect(resolveToolRenderer(tool('bash'))).toBe(BashTool);
+    expect(resolveToolRenderer(tool('read'))).toBe(ReadTool);
+    expect(resolveToolRenderer(tool('grep'))).toBe(GrepTool);
+    expect(resolveToolRenderer(tool('search'))).toBe(GrepTool);
+    expect(resolveToolRenderer(tool('glob'))).toBe(GlobTool);
+    expect(resolveToolRenderer(tool('ls'))).toBe(GlobTool);
+    expect(resolveToolRenderer(tool('web_fetch'))).toBe(WebFetchTool);
+    expect(resolveToolRenderer(tool('todo'))).toBe(TodoTool);
+    expect(resolveToolRenderer(tool('exitplanmode'))).toBe(PlanTool);
+    expect(resolveToolRenderer(tool('creategoal'))).toBe(GoalTool);
+    expect(resolveToolRenderer(tool('getgoal'))).toBe(GoalTool);
+    expect(resolveToolRenderer(tool('setgoalbudget'))).toBe(GoalTool);
+    expect(resolveToolRenderer(tool('updategoal'))).toBe(GoalTool);
+    expect(resolveToolRenderer(tool('unknown-tool'))).toBe(GenericTool);
   });
 });
 

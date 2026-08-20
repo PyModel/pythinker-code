@@ -13,6 +13,7 @@ export default {
     task: 'Task',
     dynamic_workflow: 'DynamicWorkflow',
     ask_user: 'Question',
+    plan: 'Plan',
     goal_create: 'Start Goal',
     goal_get: 'Read Goal',
     goal_budget: 'Set Goal Budget',
@@ -33,9 +34,19 @@ export default {
   chip: {
     lines: '{count} lines',
     results: '{count} results',
+    files: '{count} files',
     edited: 'edited',
     created: 'created',
     todos: '{count} items',
+  },
+  disclosure: {
+    expand: 'Expand details',
+    collapse: 'Collapse details',
+  },
+  output: {
+    waiting: 'Waiting for output…',
+    empty: 'No output',
+    saved: 'Saved result',
   },
   goal: {
     objectiveWithCriterion: '{objective} · {criterion}',
@@ -53,10 +64,14 @@ export default {
     feedback: 'Feedback',
     pathOnlyHint: 'The plan was saved to:',
     review: {
+      pending: 'Pending review',
       approved: 'Approved',
       rejected: 'Rejected',
       cancelled: 'Cancelled',
     },
+  },
+  summary: {
+    inScope: '{value} in {scope}',
   },
   group: {
     title: '{count} tool call | {count} tool calls',

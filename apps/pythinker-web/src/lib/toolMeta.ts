@@ -25,6 +25,7 @@ const TOOL_LABEL_KEYS: Record<string, string> = {
   task: 'tools.label.task',
   agentdynamic_workflow: 'tools.label.dynamic_workflow',
   askuserquestion: 'tools.label.ask_user',
+  exitplanmode: 'tools.label.plan',
   creategoal: 'tools.label.goal_create',
   getgoal: 'tools.label.goal_get',
   setgoalbudget: 'tools.label.goal_budget',
