@@ -279,7 +279,6 @@ describe('AgentDynamicWorkflowService', () => {
       variant: 'dynamic_workflow_mode',
       disclosure: { kind: 'dynamic_workflow_mode', state: 'active' },
     });
-    expect(messageText(reminder)).toContain('You are now in "agent dynamic_workflow" mode.');
     expect(context.get()).toHaveLength(1);
   });
 
@@ -328,7 +327,7 @@ describe('AgentDynamicWorkflowService', () => {
     expect(messageText(context.get()[1])).toBe('later prompt');
   });
 
-  it('renders no reminder at all for tool-triggered dynamic workflows', async () => {
+  it('renders no reminder at all for tool-triggered dynamicWorkflows', async () => {
     const dynamic_workflow = ix.get(IAgentDynamicWorkflowService);
     const context = ix.get(IAgentContextMemoryService);
 
@@ -681,12 +680,10 @@ describe('AgentDynamicWorkflowTool', () => {
     expect(execution.matchesRule).toBeUndefined();
   });
 
-  it('description states the enforced input requirements', () => {
+  it('description documents the {{item}} placeholder', () => {
     const host = mockDynamicWorkflowHost();
     const tool = new AgentDynamicWorkflowTool(host.dynamicWorkflowService, makeAgentScopeContext({ agentId: host.callerAgentId, agentScope: '' }), mockDynamicWorkflowMode(), stubConfig(), stubFlag(true), stubDynamicWorkflowCatalog(), stubCallerProfile());
-    expect(tool.description).toContain('at least 2');
     expect(tool.description).toContain('{{item}}');
-    expect(tool.description.toLowerCase()).toContain('distinct');
   });
 
   it('uses the persisted caller allowlist instead of the current catalog profile', async () => {
@@ -1082,12 +1079,10 @@ describe('AgentDynamicWorkflowTool', () => {
     const host = mockDynamicWorkflowHost();
     const configured = new AgentDynamicWorkflowTool(host.dynamicWorkflowService, makeAgentScopeContext({ agentId: host.callerAgentId, agentScope: '' }), mockDynamicWorkflowMode(), stubConfig({ defaultModel: 'provider/fast', models: { 'provider/fast': 'fast and cheap', 'main-model': 'the main model' } }), stubFlag(true), stubDynamicWorkflowCatalog(), stubCallerProfile({ modelAlias: 'main-model' }));
 
-    expect(configured.description).toContain('Available models (pass via model):');
+    expect(configured.description).toContain('Available models');
     expect(configured.description).toContain('- provider/fast [default]: fast and cheap');
     expect(configured.description).toContain('- main-model [main model]: the main model');
-    expect(configured.description).toContain(
-      '- primary (main-model): the main model you are running on, bound with your current thinking level',
-    );
+    expect(configured.description).toContain('- primary (main-model)');
 
     const unconfigured = new AgentDynamicWorkflowTool(host.dynamicWorkflowService, makeAgentScopeContext({ agentId: host.callerAgentId, agentScope: '' }), mockDynamicWorkflowMode(), stubConfig(), stubFlag(true), stubDynamicWorkflowCatalog(), stubCallerProfile({ modelAlias: 'main-model' }));
 

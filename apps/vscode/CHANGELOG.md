@@ -69,6 +69,15 @@
 - Updated dependencies [[`45be822`](https://github.com/PyModel/pythinker-code/commit/45be8227077847f760fa7b6b09333cf5a8127f32), [`45be822`](https://github.com/PyModel/pythinker-code/commit/45be8227077847f760fa7b6b09333cf5a8127f32)]:
   - @pymodel/pythinker-code-sdk@0.11.0
 
+## 0.7.1
+
+### Patch Changes
+
+- [#3026](https://github.com/PyModel/pythinker-code/pull/3026) [`13857f3`](https://github.com/PyModel/pythinker-code/commit/13857f383200881aa77dc972a8963ba421eeb2b6) Thanks [@bj456736](https://github.com/bj456736)! - Show plugin- and file-declared MCP servers as read-only entries in the MCP servers panel.
+
+- Updated dependencies [[`d833a1a`](https://github.com/PyModel/pythinker-code/commit/d833a1a893c4d69d96af542f40557442992085e0), [`61591bc`](https://github.com/PyModel/pythinker-code/commit/61591bce09f4467aa1664cb8ecb6aa6904b7accd), [`d833a1a`](https://github.com/PyModel/pythinker-code/commit/d833a1a893c4d69d96af542f40557442992085e0), [`13857f3`](https://github.com/PyModel/pythinker-code/commit/13857f383200881aa77dc972a8963ba421eeb2b6)]:
+  - @pymodel/pythinker-code-sdk@0.19.0
+
 ## 0.6.7
 
 ### Patch Changes

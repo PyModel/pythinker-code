@@ -8,6 +8,7 @@ import {
   IBootstrapService,
   IConfigService,
   IFileService,
+  IFlagService,
   IPluginService,
   ISessionContext,
   ISessionIndex,
@@ -260,9 +261,9 @@ export function registerSkillsRoutes(app: SkillsRouteHost, core: Scope): void {
         preparedMedia = undefined;
         requestLog(req)?.info({ session_id, skill_name: parsed.id }, 'skill activated');
         reply.send(okEnvelope({ activated: true, skill_name: parsed.id }, req.id));
-      } catch (err) {
+      } catch (error) {
         await preparedMedia?.discard();
-        sendMappedError(reply, req.id, err);
+        sendMappedError(reply, req.id, error);
       }
     },
   );
@@ -281,6 +282,7 @@ async function listWorkspaceSkillsForRoot(
   const bootstrap = core.accessor.get(IBootstrapService);
   const plugins = core.accessor.get(IPluginService);
   const config = core.accessor.get(IConfigService);
+  const flags = core.accessor.get(IFlagService);
   await config.ready;
   const extraSkillDirs = config.get<ExtraSkillDirsConfig>(EXTRA_SKILL_DIRS_SECTION) ?? [];
   const mergeAllAvailableSkills =
@@ -309,7 +311,7 @@ async function listWorkspaceSkillsForRoot(
   const catalog = new InMemorySkillCatalog();
   const ordered = [
     {
-      skills: visibleBuiltinSkills(builtinProductSkillsEnabled(config)),
+      skills: visibleBuiltinSkills(builtinProductSkillsEnabled(config), flags),
       priority: SKILL_SOURCE_PRIORITY.builtin,
     },
     { skills: plugin.skills, priority: SKILL_SOURCE_PRIORITY.plugin },
