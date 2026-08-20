@@ -452,7 +452,9 @@ describe('server-v2 /api/v1 plugins', () => {
     const { body } = await call<{ entries: unknown[] }>('GET', '/api/v1/plugins/marketplace');
     expect(body.code).toBe(0);
     expect(body.data.entries).toEqual([]);
-    expect(globalThis.fetch).not.toHaveBeenCalled();
+    expect(vi.mocked(globalThis.fetch).mock.calls.map(([url]) => String(url))).toEqual([
+      `${base}/api/v1/plugins/marketplace`,
+    ]);
   });
 
   it('expands ~ in local catalog paths like the CLI loader', async () => {

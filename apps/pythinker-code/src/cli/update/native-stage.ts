@@ -20,6 +20,7 @@ import { PYTHINKER_CODE_NATIVE_STAGED_STATE_FILE_NAME } from '#/constant/app';
 import { getNativeStagedStateFile, getNativeStagingDir } from '#/utils/paths';
 import { writeJsonFile } from '#/utils/persistence';
 
+import { UPDATE_DISABLED_MESSAGE } from './cdn';
 import {
   fetchNativeReleaseManifest,
   nativeBinaryUrl,
@@ -376,6 +377,10 @@ async function downloadAndHash(
 export async function stageNativeUpdate(
   options: StageNativeUpdateOptions,
 ): Promise<StageNativeUpdateResult> {
+  if (UPDATE_DISABLED_MESSAGE.length > 0) {
+    throw new Error(UPDATE_DISABLED_MESSAGE);
+  }
+
   const platform = options.platform ?? process.platform;
   const arch = options.arch ?? process.arch;
   // Validate BEFORE anything derives a filesystem path from the version: the
