@@ -34,6 +34,8 @@
 //   cron.add                           cron                                                                  src/session/cron/cronOps.ts
 //   cron.cursor                        cron                                                                  src/session/cron/cronOps.ts
 //   cron.delete                        cron                                                                  src/session/cron/cronOps.ts
+//   dynamic_workflow_mode.enter        dynamic_workflow                                                      src/features/dynamic_workflow/dynamicWorkflowOps.ts
+//   dynamic_workflow_mode.exit         contextMemory, dynamic_workflow                                       src/features/dynamic_workflow/dynamicWorkflowOps.ts
 //   forked                             goal, goalForkNotice                                                  src/agent/goal/goalOps.ts
 //   full_compaction.begin              fullCompaction                                                        src/agent/fullCompaction/compactionOps.ts
 //   full_compaction.cancel             fullCompaction                                                        src/agent/fullCompaction/compactionOps.ts
@@ -59,8 +61,6 @@
 //   runtime.set_binding                runtimeBinding                                                        src/agent/runtimeBinding/runtimeBindingOps.ts
 //   staleGuard.cleared                 staleGuard                                                            src/features/staleGuard/staleGuardOps.ts
 //   staleGuard.recorded                staleGuard                                                            src/features/staleGuard/staleGuardOps.ts
-//   dynamic_workflow_mode.enter                   dynamic_workflow                                                                 src/features/dynamic_workflow/dynamicWorkflowOps.ts
-//   dynamic_workflow_mode.exit                    contextMemory, dynamic_workflow                                                  src/features/dynamic_workflow/dynamicWorkflowOps.ts
 //   task.started                       task                                                                  src/agent/task/taskOps.ts
 //   task.terminated                    task                                                                  src/agent/task/taskOps.ts
 //   task.waitDelivered                 task.notificationDelivery                                             src/agent/task/taskOps.ts
@@ -207,6 +207,24 @@ interface CronCursorPayload {
 interface CronDeletePayload {
   _name: 'cron.delete';
   ids: string[];
+}
+
+/**
+ * states: dynamic_workflow
+ * owner: src/features/dynamic_workflow/dynamicWorkflowOps.ts
+ */
+interface DynamicWorkflowModeEnterPayload {
+  _name: 'dynamic_workflow_mode.enter';
+  /** DynamicWorkflowModeTrigger */
+  trigger: 'manual' | 'task' | 'tool';
+}
+
+/**
+ * states: contextMemory, dynamic_workflow · blobs: contextMemory
+ * owner: src/features/dynamic_workflow/dynamicWorkflowOps.ts
+ */
+interface DynamicWorkflowModeExitPayload {
+  _name: 'dynamic_workflow_mode.exit';
 }
 
 /**
@@ -518,24 +536,6 @@ interface StaleGuardRecordedPayload {
 }
 
 /**
- * states: dynamic_workflow
- * owner: src/features/dynamic_workflow/dynamicWorkflowOps.ts
- */
-interface DynamicWorkflowModeEnterPayload {
-  _name: 'dynamic_workflow_mode.enter';
-  /** DynamicWorkflowModeTrigger */
-  trigger: 'manual' | 'task' | 'tool';
-}
-
-/**
- * states: contextMemory, dynamic_workflow · blobs: contextMemory
- * owner: src/features/dynamic_workflow/dynamicWorkflowOps.ts
- */
-interface DynamicWorkflowModeExitPayload {
-  _name: 'dynamic_workflow_mode.exit';
-}
-
-/**
  * states: task
  * owner: src/agent/task/taskOps.ts
  */
@@ -789,6 +789,8 @@ interface WirePayloadMap {
   "cron.add": CronAddPayload;
   "cron.cursor": CronCursorPayload;
   "cron.delete": CronDeletePayload;
+  "dynamic_workflow_mode.enter": DynamicWorkflowModeEnterPayload;
+  "dynamic_workflow_mode.exit": DynamicWorkflowModeExitPayload;
   "forked": ForkedPayload;
   "full_compaction.begin": FullCompactionBeginPayload;
   "full_compaction.cancel": FullCompactionCancelPayload;
@@ -814,8 +816,6 @@ interface WirePayloadMap {
   "runtime.set_binding": RuntimeSetBindingPayload;
   "staleGuard.cleared": StaleGuardClearedPayload;
   "staleGuard.recorded": StaleGuardRecordedPayload;
-  "dynamic_workflow_mode.enter": DynamicWorkflowModeEnterPayload;
-  "dynamic_workflow_mode.exit": DynamicWorkflowModeExitPayload;
   "task.started": TaskStartedPayload;
   "task.terminated": TaskTerminatedPayload;
   "task.waitDelivered": TaskWaitDeliveredPayload;

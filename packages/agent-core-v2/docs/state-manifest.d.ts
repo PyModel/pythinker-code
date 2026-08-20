@@ -68,6 +68,7 @@
 //     contextProjector.lastRepairSignature            src/agent/contextProjector/contextProjectorService.ts
 //     cron                                            src/session/cron/cronOps.ts
 //     dateChange.seed                                 src/features/dateChange/dateChangeService.ts
+//     dynamic_workflow                                src/features/dynamic_workflow/dynamicWorkflowOps.ts
 //     externalHooks.stopHookContinuationUsed          src/features/externalHooks/agent/agentExternalHooksService.ts
 //     fullCompaction                                  src/agent/fullCompaction/compactionOps.ts
 //     fullCompaction.activeTurnId                     src/agent/fullCompaction/fullCompactionService.ts
@@ -128,7 +129,6 @@
 //     staleGuard                                      src/features/staleGuard/staleGuardOps.ts
 //     stepRetry.failedAttempts                        src/agent/stepRetry/stepRetryService.ts
 //     stepRetry.lastFailedDriverId                    src/agent/stepRetry/stepRetryService.ts
-//     dynamic_workflow                                           src/features/dynamic_workflow/dynamicWorkflowOps.ts
 //     task                                            src/agent/task/taskOps.ts
 //     task.activeTaskReminderPending                  src/agent/task/taskService.ts
 //     task.deliveredNotificationKeys                  src/agent/task/taskService.ts
@@ -1564,6 +1564,9 @@ export interface AgentStateSnapshot {
     readonly timeZone: string;
     readonly renderGeneration: number;
   } | undefined;
+  // src/features/dynamic_workflow/dynamicWorkflowOps.ts
+  // replayable · durable — folds: DynamicWorkflowModeEnter, DynamicWorkflowModeExit
+  'dynamic_workflow': 'task' | 'tool' | 'manual' | null;
   // src/features/externalHooks/agent/agentExternalHooksService.ts
   'externalHooks.stopHookContinuationUsed': boolean;
   // src/features/plan/injection/planModeInjection.ts
@@ -1578,9 +1581,6 @@ export interface AgentStateSnapshot {
   // src/features/staleGuard/staleGuardOps.ts
   // replayable · durable — folds: StaleGuardRecorded, StaleGuardCleared
   'staleGuard': /* StaleGuardModelState — packages/agent-core-v2/src/features/staleGuard/staleGuardOps.ts */ Map<string, number>;
-  // src/features/dynamic_workflow/dynamicWorkflowOps.ts
-  // replayable · durable — folds: DynamicWorkflowModeEnter, DynamicWorkflowModeExit
-  'dynamic_workflow': 'task' | 'tool' | 'manual' | null;
   // src/features/tower/towerOps.ts
   // replayable · durable — folds: TowerModeEnter, TowerModeExit
   'tower': boolean;
