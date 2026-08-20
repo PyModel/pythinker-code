@@ -63,7 +63,7 @@ function bunCommand(platform: NodeJS.Platform): string {
 export function installCommandFor(
   source: InstallSource,
   version: string,
-  platform: NodeJS.Platform,
+  _platform: NodeJS.Platform,
 ): string {
   switch (source) {
     case 'npm-global':
