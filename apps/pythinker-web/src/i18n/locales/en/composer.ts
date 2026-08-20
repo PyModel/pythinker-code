@@ -17,11 +17,17 @@ export default {
   dropToAttach: 'Drop files to attach',
   remove: 'Remove',
   removeNamed: 'Remove {name}',
+  clearAll: 'Clear all attachments',
+  attachmentCount: '{n} attachments',
   uploading: 'Uploading',
   uploadFailed: 'Upload failed',
   attachFile: 'Attach file',
   addMenu: 'Add',
   addFiles: 'Files',
+  addGoalDesc: 'Set a goal to keep pursuing',
+  addPlanDesc: 'Turn plan mode on',
+  addDynamicWorkflowDesc: 'Turn dynamic workflow mode on',
+  noCommands: 'No commands',
   previewAttachment: 'Preview {name}',
   interrupt: 'Interrupt',
   interruptTitle: 'Interrupt current operation',
@@ -32,5 +38,4 @@ export default {
   quickStartPlaceholder: 'Type a message to start a new conversation…',
   thinkingSuffix: ' · thinking',
   thinkingSuffixEffort: ' · {level}',
-
 } as const;
