@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { ChatTurn, ToolCall, TurnBlock } from '../src/types';
 import {
   assistantRenderBlocks,
+  foldRenderBlocks,
   formatDuration,
   formatTokens,
   rendersToolCard,
@@ -140,6 +141,41 @@ describe('assistantRenderBlocks', () => {
       { kind: 'thinking', thinking: 'plan', sourceIndex: 0 },
       { kind: 'text', text: 'answer', sourceIndex: 1 },
     ]);
+  });
+});
+
+describe('foldRenderBlocks', () => {
+  it('folds thinking and tools before the last non-blank text block', () => {
+    const blocks = assistantRenderBlocks(
+      assistantTurn([
+        { kind: 'thinking', thinking: 'plan' },
+        toolBlock('a'),
+        { kind: 'text', text: 'answer' },
+      ]),
+    );
+    expect(foldRenderBlocks(blocks)).toEqual({
+      folded: blocks.slice(0, 2),
+      visible: blocks.slice(2),
+    });
+  });
+
+  it('folds every block in an all-tools turn', () => {
+    const blocks = assistantRenderBlocks(assistantTurn([toolBlock('a'), toolBlock('b')]));
+    expect(foldRenderBlocks(blocks)).toEqual({ folded: blocks, visible: [] });
+  });
+
+  it('keeps a leading text block and following tools visible', () => {
+    const blocks = assistantRenderBlocks(
+      assistantTurn([{ kind: 'text', text: 'answer' }, toolBlock('a')]),
+    );
+    expect(foldRenderBlocks(blocks)).toEqual({ folded: [], visible: blocks });
+  });
+
+  it('does not use blank text blocks as anchors', () => {
+    const blocks = assistantRenderBlocks(
+      assistantTurn([toolBlock('a'), { kind: 'text', text: '  \n ' }]),
+    );
+    expect(foldRenderBlocks(blocks)).toEqual({ folded: blocks, visible: [] });
   });
 });
 

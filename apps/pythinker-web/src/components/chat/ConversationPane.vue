@@ -17,6 +17,7 @@ import Tooltip from '../ui/Tooltip.vue';
 import PythinkerLogo from '../PythinkerLogo.vue';
 import { getVisibleWorkspaces } from '../../lib/workspacePicker';
 import { safeRemove, STORAGE_KEYS } from '../../lib/storage';
+import type { TurnFileChange } from '../../lib/turnFiles';
 
 const { t } = useI18n();
 
@@ -99,6 +100,8 @@ const props = defineProps<{
   pr?: { number: number; state: string; url: string } | null;
   /** Conversation outline: proportional bubbles, viewport indicator, hover tooltip. */
   conversationToc?: boolean;
+  /** Completion reason for the active session's last turn. */
+  lastTurnReason?: 'completed' | 'cancelled' | 'failed';
 }>();
 
 const emit = defineEmits<{
@@ -128,6 +131,7 @@ const emit = defineEmits<{
   openCompaction: [target: { turnId: string }];
   openAgent: [toolCallId: string];
   openToolDiff: [id: string];
+  openTurnDiff: [target: { turnId: string; changes: TurnFileChange[] }];
   /** Chat header / files pane: focus the diff detail layer and refresh git status. */
   openChanges: [];
   refreshGitStatus: [];
@@ -1435,6 +1439,8 @@ defineExpose({ loadComposerForEdit, focusComposer });
               :loading-more-error="loadingMoreError"
               :is-following="following"
               :tool-diff-panel="true"
+              :last-turn-reason="lastTurnReason"
+              :cwd="workspaceRoot"
               :queued="queued"
               @open-file="emit('openFile', $event)"
               @open-media="emit('openMedia', $event)"
@@ -1443,6 +1449,7 @@ defineExpose({ loadComposerForEdit, focusComposer });
               @open-compaction="emit('openCompaction', $event)"
               @open-agent="emit('openAgent', $event)"
               @open-tool-diff="emit('openToolDiff', $event)"
+              @open-turn-diff="emit('openTurnDiff', $event)"
               @edit-message="handleEditMessage"
               @load-older-messages="handleLoadOlderMessages"
               @unqueue="emit('unqueue', $event)"

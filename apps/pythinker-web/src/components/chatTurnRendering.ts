@@ -90,6 +90,26 @@ export function assistantRenderBlocks(turn: ChatTurn): AssistantRenderBlock[] {
   return rendered;
 }
 
+export function foldRenderBlocks(
+  blocks: AssistantRenderBlock[],
+): { folded: AssistantRenderBlock[]; visible: AssistantRenderBlock[] } {
+  let anchor = -1;
+  for (let index = blocks.length - 1; index >= 0; index -= 1) {
+    const block = blocks[index];
+    if (block?.kind === 'text' && block.text.trim()) {
+      anchor = index;
+      break;
+    }
+  }
+  if (anchor < 0) {
+    anchor = blocks.findIndex(
+      (block) => block.kind === 'tool' && block.tool.status === 'ok' && block.tool.media,
+    );
+  }
+  if (anchor < 0) return { folded: blocks, visible: [] };
+  return { folded: blocks.slice(0, anchor), visible: blocks.slice(anchor) };
+}
+
 export function turnFinalText(turn: ChatTurn): string {
   return turnBlocks(turn)
     .flatMap((blk) => (blk.kind === 'text' && blk.text ? [blk.text] : []))

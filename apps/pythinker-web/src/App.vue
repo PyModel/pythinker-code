@@ -9,6 +9,7 @@ import FilePreview from './components/FilePreview.vue';
 import ThinkingPanel from './components/chat/ThinkingPanel.vue';
 import AgentDetailPanel from './components/chat/AgentDetailPanel.vue';
 import ToolDiffPanel from './components/chat/ToolDiffPanel.vue';
+import TurnDiffPanel from './components/chat/TurnDiffPanel.vue';
 import SideChatPanel from './components/chat/SideChatPanel.vue';
 import DiffView from './components/chat/DiffView.vue';
 import ModelPicker from './components/settings/ModelPicker.vue';
@@ -35,6 +36,7 @@ import { useAuthGate } from './composables/useAuthGate';
 import { usePageTitle } from './composables/usePageTitle';
 import { useSidebarLayout } from './composables/useSidebarLayout';
 import { useFilePreview, type DetailTarget } from './composables/useFilePreview';
+import type { TurnFileChange } from './lib/turnFiles';
 import { useDetailPanel } from './composables/useDetailPanel';
 import { useIsMobile } from './composables/useIsMobile';
 import { openDialogCount } from './composables/dialogStack';
@@ -93,6 +95,10 @@ const showMobileSettings = ref(false);
 const activeSessionTitle = computed<string>(() => {
   const id = client.activeSessionId.value;
   return client.sessions.value.find((s) => s.id === id)?.title ?? '';
+});
+const activeLastTurnReason = computed(() => {
+  const id = client.activeSessionId.value;
+  return client.sessions.value.find((session) => session.id === id)?.lastTurnReason;
 });
 
 // Number of sessions in the active workspace (mobile top-bar sub-line).
@@ -212,10 +218,10 @@ function onGlobalKeydown(e: KeyboardEvent): void {
   // A modal dialog open on top of the side panel owns Escape — leave the event
   // alone so the dialog can close itself instead of the panel behind it.
   if (anyOverlayOpen.value) return;
-  if (closeOpenSidePanel()) {
-    e.stopPropagation();
-    e.preventDefault();
-  }
+  if (detailTarget.value === 'turnDiff') closeTurnDiff();
+  else if (!closeOpenSidePanel()) return;
+  e.stopPropagation();
+  e.preventDefault();
 }
 
 // ---------------------------------------------------------------------------
@@ -224,12 +230,28 @@ function onGlobalKeydown(e: KeyboardEvent): void {
 // composables can both claim the single right-side slot.
 // ---------------------------------------------------------------------------
 const detailTarget = ref<DetailTarget | null>(null);
+const turnDiffTarget = ref<{ turnId: string; changes: TurnFileChange[] } | null>(null);
+
+function openTurnDiff(target: { turnId: string; changes: TurnFileChange[] }): void {
+  if (detailTarget.value === 'turnDiff' && turnDiffTarget.value?.turnId === target.turnId) {
+    closeTurnDiff();
+    return;
+  }
+  turnDiffTarget.value = target;
+  detailTarget.value = 'turnDiff';
+}
+
+function closeTurnDiff(): void {
+  turnDiffTarget.value = null;
+  if (detailTarget.value === 'turnDiff') detailTarget.value = null;
+}
 
 // True for one frame while the active session changes: suppresses the right
 // panel's width transition so a restored panel snaps to its width instead of
 // animating open from zero.
 const panelSwitching = ref(false);
 watch(client.activeSessionId, () => {
+  closeTurnDiff();
   panelSwitching.value = true;
   void nextTick(() => { panelSwitching.value = false; });
 });
@@ -818,6 +840,7 @@ function openPr(url: string): void {
       :session-title="activeSessionTitle"
       :pr="client.activePullRequest.value"
       :conversation-toc="client.conversationToc.value"
+      :last-turn-reason="activeLastTurnReason"
       @open-changes="openDiffDetail()"
       @select-workspace="handleCreateSessionInWorkspace($event)"
       @add-workspace="showAddWorkspace = true"
@@ -853,6 +876,7 @@ function openPr(url: string): void {
       @open-compaction="openCompactionPanel($event)"
       @open-agent="openAgentPanel($event)"
       @open-tool-diff="openToolDiff($event)"
+      @open-turn-diff="openTurnDiff($event)"
       @edit-message="handleEditMessage"
     />
 
@@ -943,6 +967,12 @@ function openPr(url: string): void {
         v-else-if="detailTarget === 'toolDiff' && toolDiffTarget"
         :target="toolDiffTarget"
         @close="closeToolDiff"
+      />
+      <TurnDiffPanel
+        v-else-if="detailTarget === 'turnDiff' && turnDiffTarget"
+        :changes="turnDiffTarget.changes"
+        @open-file="openFilePreview($event)"
+        @close="closeTurnDiff"
       />
       <FilePreview
         v-else-if="detailTarget === 'file'"

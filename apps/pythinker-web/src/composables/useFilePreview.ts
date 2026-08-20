@@ -11,7 +11,7 @@ import type { usePythinkerWebClient } from './usePythinkerWebClient';
 type PythinkerWebClient = ReturnType<typeof usePythinkerWebClient>;
 
 /** Which occupant currently owns the shared right-side detail layer. */
-export type DetailTarget = 'file' | 'diff' | 'thinking' | 'compaction' | 'agent' | 'toolDiff' | 'btw';
+export type DetailTarget = 'file' | 'diff' | 'thinking' | 'compaction' | 'agent' | 'toolDiff' | 'turnDiff' | 'btw';
 
 /** Whether a url can feed a native <video>/<img> src. A provider reference like
  *  `ms://…` has no local bytes and only yields a broken player, so it's treated
