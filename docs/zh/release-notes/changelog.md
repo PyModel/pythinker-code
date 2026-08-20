@@ -6,6 +6,13 @@ outline: 2
 
 本页记录 Pythinker Code CLI 每个版本的变更内容。
 
+## 0.37.2（2026-08-19）
+
+### 优化
+
+- web: 设置页新增 「实验室」标签页，上线「多标签侧边栏开关」功能；开启后侧边栏显示 Open / Done / Workspaces 标签页。
+- 做了若干细节优化和内部改进。更详细的变更记录见 [GitHub](https://github.com/PyModel/pythinker-code/blob/main/apps/pythinker-code/CHANGELOG.md)。
+
 ## 0.37.1（2026-08-18）
 
 ### 修复

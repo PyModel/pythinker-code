@@ -12,8 +12,10 @@ import { ISessionDynamicWorkflowService, type SessionDynamicWorkflowTask } from 
 import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import {
+  rootDelegationExtras,
   subagentAllowlistFor,
   subagentTypeNotAllowedMessage,
+  withoutDelegatingTargets,
 } from '#/app/agentProfileCatalog/profile-shared';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentDynamicWorkflowService } from '#/features/dynamic_workflow/agent/dynamic_workflow';
@@ -142,7 +144,14 @@ export class AgentDynamicWorkflowTool implements IAgentDynamicWorkflowTool {
     if ((args.items?.length ?? 0) > 0) {
       await this.catalog.ready;
       const own = this.profile.data();
-      const allowlist = subagentAllowlistFor(this.catalog, own);
+      const extras =
+        this.callerAgentId === 'main'
+          ? rootDelegationExtras(this.catalog, own, this.catalog.list())
+          : undefined;
+      let allowlist = subagentAllowlistFor(this.catalog, own, extras);
+      if (allowlist !== undefined && own.subagents === undefined) {
+        allowlist = withoutDelegatingTargets(this.catalog, allowlist);
+      }
       if (allowlist !== undefined && !allowlist.includes(profileName)) {
         throw new Error2(
           ErrorCodes.AGENT_TYPE_NOT_ALLOWED,
