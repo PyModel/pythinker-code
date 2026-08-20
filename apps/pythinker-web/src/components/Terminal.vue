@@ -35,11 +35,11 @@ let disposeExit: (() => void) | null = null;
 const theme = computed<ITheme>(() => {
   if (isDark.value) {
     return {
-      background: '#0d1117',
+      background: '#121212',
       foreground: '#e6edf3',
       cursor: '#7aa2ff',
       selectionBackground: '#264f78',
-      black: '#0d1117',
+      black: '#1f1f1f',
       red: '#ff7b72',
       green: '#7ee787',
       yellow: '#f2cc60',

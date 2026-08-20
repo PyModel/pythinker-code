@@ -58,10 +58,10 @@ function applyColorScheme(c: ColorScheme): void {
   // Mobile browser chrome (status/address bar) follows <meta name=theme-color>.
   const metas = document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]');
   if (metas.length === 0) return;
-  const pinned = c === 'dark' ? '#0d1117' : c === 'light' ? '#ffffff' : null;
+  const pinned = c === 'dark' ? '#121212' : c === 'light' ? '#ffffff' : null;
   metas.forEach((meta) => {
     const media = meta.getAttribute('media') ?? '';
-    const systemValue = media.includes('dark') ? '#0d1117' : '#ffffff';
+    const systemValue = media.includes('dark') ? '#121212' : '#ffffff';
     meta.setAttribute('content', pinned ?? systemValue);
   });
 }
