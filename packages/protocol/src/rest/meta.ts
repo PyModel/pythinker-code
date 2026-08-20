@@ -38,7 +38,7 @@ export const metaResponseSchema = z.object({
   dangerous_bypass_auth: z.boolean(),
   /**
    * Backend engine generation serving this API. `'v2'` is the DI × Scope
-   * engine (`@pymodel/kap-server` / `agent-core-v2`); older servers omit
+   * engine (`@pymodel/agent-gateway` / `agent-core-v2`); older servers omit
    * the field (treat absence as v1). Lets clients identify the backend without
    * probing routes.
    */

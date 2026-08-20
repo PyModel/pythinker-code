@@ -1,6 +1,6 @@
 # pythinker-inspect Agent Guide
 
-Web inspector for the kap-server `/api/v1/debug` RPC surface — workspace/session browser, per-session chat, and Service panels (data + trigger buttons) for the Session and Agent scopes.
+Web inspector for the agent-gateway `/api/v1/debug` RPC surface — workspace/session browser, per-session chat, and Service panels (data + trigger buttons) for the Session and Agent scopes.
 
 ## Top-level views
 
@@ -29,7 +29,7 @@ Session-level coarse status is the one exception to no-push: `src/activity/` hol
 
 ## Dev server
 
-The Vite dev server proxies `/api` to a running kap-server (`PYTHINKER_SERVER_URL`, default `http://127.0.0.1:58627`) and exposes `GET /__inspect/servers` (`vite/serverDiscovery.ts`), which scans the local kap-server instance registry (`~/.pythinker-code/server/instances` + legacy `lock`) and the home token so the app can zero-config auto-connect and switch servers from the header dropdown at runtime.
+The Vite dev server proxies `/api` to a running agent-gateway (`PYTHINKER_SERVER_URL`, default `http://127.0.0.1:58627`) and exposes `GET /__inspect/servers` (`vite/serverDiscovery.ts`), which scans the local agent-gateway instance registry (`~/.pythinker-code/server/instances` + legacy `lock`) and the home token so the app can zero-config auto-connect and switch servers from the header dropdown at runtime.
 
 ## Chat view
 

@@ -163,7 +163,7 @@ export interface ServerStartOptions {
   /**
    * Engine version, reported as `server_version` (GET /api/v1/meta), in the
    * OpenAPI document, and in the lock / instance registry. Defaults to
-   * kap-server's own package version; the host product version travels in
+   * agent-gateway's own package version; the host product version travels in
    * `hostIdentity.version` instead.
    */
   readonly serverVersion?: string;
@@ -632,7 +632,7 @@ export interface ListenWithPortRetryOptions {
  * Bind the listener, retrying on `port + 1` when the port is held.
  *
  * Why this is the right layer: there is no single-instance lock — every
- * kap-server registers itself under `<home>/server/instances/` instead, so a
+ * agent-gateway registers itself under `<home>/server/instances/` instead, so a
  * busy port may be a sibling pythinker instance. The `port + 1` walk then serves
  * as the multi-instance coexistence mechanism (the second instance lands on
  * the next free port), and a third-party listener gets the same "port busy ⇒

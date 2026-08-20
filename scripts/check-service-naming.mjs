@@ -4,7 +4,7 @@
  * Phase 5 of the 2026.06.07 services-alignment plan:
  *
  *   - packages/services/src/<domain>/<domain>.ts (+ <domain>Service.ts)
- *   - packages/kap-server/src/services/<domain>/<domain>.ts (+ <domain>Service.ts)
+ *   - packages/agent-gateway/src/services/<domain>/<domain>.ts (+ <domain>Service.ts)
  *
  * Domain dirs and service-related .ts files must be camelCase — never
  * kebab-case (no `-` in the name). Anything outside these two roots is
@@ -18,7 +18,7 @@ import { resolve, join, relative } from "node:path";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const SERVICES_SRC = join(ROOT, "packages/services/src");
-const SERVER_SERVICES_SRC = join(ROOT, "packages/kap-server/src/services");
+const SERVER_SERVICES_SRC = join(ROOT, "packages/agent-gateway/src/services");
 
 /** @type {Array<{ kind: string, path: string }>} */
 const violations = [];

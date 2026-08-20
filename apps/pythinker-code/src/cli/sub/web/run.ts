@@ -4,14 +4,14 @@
  * The server always runs in the current process, attached to the terminal,
  * and shuts down cleanly on SIGINT/SIGTERM. `--no-open` skips the browser.
  * Multiple instances can share the home directory: each registers itself in
- * the instance registry and takes the next free port (see kap-server's
+ * the instance registry and takes the next free port (see agent-gateway's
  * `startServer`).
  */
 
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { createServerLogger, startServer, type ServerLogger } from '@pymodel/kap-server';
+import { createServerLogger, startServer, type ServerLogger } from '@pymodel/agent-gateway';
 import { shutdownTelemetry, track } from '@pymodel/pythinker-telemetry';
 import chalk from 'chalk';
 import { type Command } from 'commander';
@@ -54,7 +54,7 @@ import {
 const WEB_ASSETS_DIR = 'dist-web';
 
 /**
- * Minimal surface `runServerInProcess` needs from the server. kap-server's
+ * Minimal surface `runServerInProcess` needs from the server. agent-gateway's
  * `RunningServer` is adapted to it (it returns `{ host, port, close }`
  * instead of `{ address, logger, close }`).
  */
@@ -247,7 +247,7 @@ async function runServerInProcess(
 ): Promise<never> {
   const version = getVersion();
   // Registers the telemetry provider for `track` / `shutdownTelemetry`; the
-  // client itself is not passed into kap-server.
+  // client itself is not passed into agent-gateway.
   initializeServerTelemetry({ version });
 
   let running: RoutedServer | undefined;
@@ -269,7 +269,7 @@ async function runServerInProcess(
     process.exit(0);
   }
 
-  // kap-server (the DI × Scope engine server) is the only server flavor. Its
+  // agent-gateway (the DI × Scope engine server) is the only server flavor. Its
   // `startServer` returns `{ host, port, close }` rather than `{ address,
   // logger, close }`, so adapt it to the `RoutedServer` surface the rest of
   // this runner consumes.
@@ -284,7 +284,7 @@ async function runServerInProcess(
     host: options.host,
     port: options.port,
     // Report the CLI's product version as `server_version` (/meta, web UI)
-    // rather than kap-server's private package version.
+    // rather than agent-gateway's private package version.
     serverVersion: version,
     // The CLI's host identity: feeds the engine's bootstrap client identity
     // and the derived outbound headers (User-Agent + X-Msh-*), so web-UI
@@ -336,11 +336,11 @@ async function runServerInProcess(
 }
 
 /**
- * Resolve the web assets directory passed to kap-server. In dev mode
- * (`PYTHINKER_CODE_DEV_SERVER=1`, set by the repo's `dev:server` / `dev:kap-server*`
+ * Resolve the web assets directory passed to agent-gateway. In dev mode
+ * (`PYTHINKER_CODE_DEV_SERVER=1`, set by the repo's `dev:server` / `dev:agent-gateway*`
  * scripts) a missing `dist-web` build is tolerated: the server starts API-only
  * and the web UI is expected to come from a Vite dev server (the web UI source lives in the code-app repo).
- * Outside dev mode the directory is always returned and kap-server keeps
+ * Outside dev mode the directory is always returned and agent-gateway keeps
  * failing fast when the assets are missing.
  */
 export function serverWebAssetsDir(

@@ -65,7 +65,7 @@
         ./packages/kaos
         ./packages/acp-server
         ./packages/agent-core-v2
-        ./packages/kap-server
+        ./packages/agent-gateway
         ./packages/klient
         ./packages/minidb
         ./packages/pi-tui
@@ -92,7 +92,7 @@
         "@pymodel/kaos"
         "@pymodel/acp-server"
         "@pymodel/agent-core-v2"
-        "@pymodel/kap-server"
+        "@pymodel/agent-gateway"
         "@pymodel/klient"
         "@pymodel/minidb"
         "@pymodel/pi-tui"
@@ -160,7 +160,7 @@
               inherit (finalAttrs) pname version src pnpmWorkspaces;
               inherit pnpm;
               fetcherVersion = 3;
-             hash = "sha256-ejZZwvMGMQ9piCYBCq30APiPKJbwICyKogvz7fwbkgM=";
+             hash = "sha256-Zrqk4RNtfYTzEbeXtZ8rw8QiQaJW8cEOvK+cR2T4oas=";
             };
 
             nativeBuildInputs = [

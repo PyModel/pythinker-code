@@ -1,6 +1,6 @@
 /**
  * Shared engine bootstrap for klient integration tests. Mirrors what
- * kap-server does: `bootstrap()` plus the `ILogOptions` seed the
+ * agent-gateway does: `bootstrap()` plus the `ILogOptions` seed the
  * Session-scoped log writer needs (bare `bootstrap({ homeDir })` leaves
  * `logOptions` unregistered and any eager service depending on `ILogService`
  * fails to instantiate).

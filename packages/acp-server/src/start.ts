@@ -165,7 +165,7 @@ export async function runAcpServerWithStream(
       await acpRuntimeProvider.unbindSession(workspaceId, sessionId);
     },
     // Prompt-image compression persists originals into the session's own
-    // media-originals dir (same resolution as kap-server's prompt route):
+    // media-originals dir (same resolution as agent-gateway's prompt route):
     // live session scope → `ISessionContext.sessionDir`. A session that is
     // not live in this process yields undefined → temp-dir fallback.
     resolveOriginalsDir: (sessionId) => {
@@ -191,7 +191,7 @@ export async function runAcpServerWithStream(
       } catch {
         // ignore — disposal proceeds regardless
       }
-      // Same shutdown order as kap-server: settle queued session-metadata
+      // Same shutdown order as agent-gateway: settle queued session-metadata
       // writes, then drain the session-index mirror while the query store is
       // still open, so a queued summary lands in the read model.
       await drainSessionMetadataWrites();

@@ -1,4 +1,4 @@
-# @pymodel/kap-server
+# @pymodel/agent-gateway
 
 ## 0.2.2
 

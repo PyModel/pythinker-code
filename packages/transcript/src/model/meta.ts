@@ -33,7 +33,7 @@ export type TurnEndReasonMeta = 'completed' | 'cancelled' | 'failed' | 'blocked'
 
 /**
  * What the agent is doing right now. Same shape as the wire
- * `agentPhaseSchema` (kap-server `protocol/events-zod.ts`), copied through
+ * `agentPhaseSchema` (agent-gateway `protocol/events-zod.ts`), copied through
  * opaquely — this package must not import the server.
  */
 export type AgentPhaseMeta =

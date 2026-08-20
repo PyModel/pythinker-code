@@ -9,7 +9,7 @@ export const MINIDB_TEXT_BUILD_WORKER_ASSET = Object.freeze({
 
 export const KAP_SEARCH_WORKER_ASSET = Object.freeze({
   key: 'kap-search-worker',
-  relativePath: 'runtime/kap-server/search-worker.mjs',
+  relativePath: 'runtime/agent-gateway/search-worker.mjs',
   mode: 0o644,
 });
 

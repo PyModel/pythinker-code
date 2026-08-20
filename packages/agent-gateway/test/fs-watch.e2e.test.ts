@@ -159,7 +159,7 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
 
 const WATCH_SETTLE_MS = 150;
 
-describe('WS fs watch (kap-server)', () => {
+describe('WS fs watch (agent-gateway)', () => {
   it('subscribe src → create file → receive event.fs.changed', async () => {
     const r = await boot();
     const sid = await createSession(r);

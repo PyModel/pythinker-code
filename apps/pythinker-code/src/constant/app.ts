@@ -96,7 +96,7 @@ export const PYTHINKER_CODE_CDN_LATEST_JSON_URL = `${PYTHINKER_CODE_CDN_BASE}/la
 export const PYTHINKER_CODE_CDN_BINARIES_BASE = `${PYTHINKER_CODE_CDN_BASE}/binaries`;
 export const PYTHINKER_CODE_TIPS_BANNER_URL = 'https://cdn.kimi.com/pythinker-code-tips/tips.json';
 // The marketplace catalog location constants live in the shared
-// agent-core-v2 plugin domain (kap-server consumes them from there).
+// agent-core-v2 plugin domain (agent-gateway consumes them from there).
 // Deep-path import: this module is evaluated on every CLI invocation, so it
 // must not pull in the engine root.
 export {

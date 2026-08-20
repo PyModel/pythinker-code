@@ -1,6 +1,6 @@
 /**
  * In-process dispatcher — resolves a wire triple `(service, method, args)`
- * against a live engine scope and mirrors kap-server's dispatcher semantics
+ * against a live engine scope and mirrors agent-gateway's dispatcher semantics
  * (reflection call, non-function members are property reads, `main` agent
  * auto-materialized via `ensureMainAgent`). Scope routing resolves workspace
  * instances through `IWorkspaceInstanceManager` and live sessions through the
@@ -91,7 +91,7 @@ type FileServiceWireTarget = {
 };
 
 export function createMemoryDispatcher(root: ScopeLike): MemoryDispatcher {
-  /** Mirrors kap-server's `resolveScope`, incl. main-agent materialization. */
+  /** Mirrors agent-gateway's `resolveScope`, incl. main-agent materialization. */
   async function resolveScope(scope: ScopeRef): Promise<ResolvedScope> {
     if (scope.workspaceId !== undefined) {
       const workspace = await root.accessor
@@ -124,7 +124,7 @@ export function createMemoryDispatcher(root: ScopeLike): MemoryDispatcher {
     return resolved.like.accessor.get(token) as Record<string, unknown>;
   }
 
-  /** Mirrors kap-server's WS `eventMap` per scope kind. */
+  /** Mirrors agent-gateway's WS `eventMap` per scope kind. */
   function subscribeStream(
     resolved: ResolvedScope,
     name: string,

@@ -178,7 +178,7 @@ async function scenario(name, dir, fn) {
 
 /** Mixed request load driven until `shouldStop()` reports done: word/ngram
  *  searches + point gets + a slow write drip. Searches go through the BOUNDED
- *  path with the same budgets kap-server uses in production (maxVisits: 250k,
+ *  path with the same budgets agent-gateway uses in production (maxVisits: 250k,
  *  small limit) — an unbounded search decodes whole hot-bucket postings lists
  *  synchronously at 1M scale, which measures the caller's mistake, not the
  *  maintenance behavior. */

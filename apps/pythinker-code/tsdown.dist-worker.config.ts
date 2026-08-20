@@ -1,5 +1,5 @@
-// Bundles the kap-server global-search worker
-// (packages/kap-server/src/search/worker/entry.ts) into ONE self-contained
+// Bundles the agent-gateway global-search worker
+// (packages/agent-gateway/src/search/worker/entry.ts) into ONE self-contained
 // `dist/search-worker.mjs` sibling of the main bundle. The search worker
 // host resolves it at runtime next to `dist/main.mjs` (dev/tests use the TS
 // source; the SEA binary uses the extracted asset from
@@ -16,7 +16,7 @@ export default defineConfig({
   entry: {
     'search-worker': resolve(
       appRoot,
-      '../../packages/kap-server/src/search/worker/entry.ts',
+      '../../packages/agent-gateway/src/search/worker/entry.ts',
     ),
   },
   format: ['esm'],

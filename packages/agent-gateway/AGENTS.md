@@ -1,4 +1,4 @@
-# kap-server Agent Guide
+# agent-gateway Agent Guide
 
 The Pythinker Code server, backed by the DI × Scope agent engine (`@pymodel/agent-core-v2` — four scopes, App/Workspace/Session/Agent). Exposes sessions over REST + WebSocket (`/api/v1` + `/api/v1/ws`); bootstrapped from `src/start.ts` and consumed by `apps/pythinker-code`.
 

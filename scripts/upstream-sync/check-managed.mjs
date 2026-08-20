@@ -23,17 +23,17 @@ check(
   !platformSelector.includes("'pythinker-code'"),
 );
 
-const oauthRoutes = read('packages/kap-server/src/routes/oauth.ts');
+const oauthRoutes = read('packages/agent-gateway/src/routes/oauth.ts');
 check(
-  'kap-server must not expose /oauth/usage',
+  'agent-gateway must not expose /oauth/usage',
   !oauthRoutes.includes('/oauth/usage'),
 );
 check(
-  'kap-server must not expose /oauth/userinfo',
+  'agent-gateway must not expose /oauth/userinfo',
   !oauthRoutes.includes('/oauth/userinfo'),
 );
 check(
-  'kap-server /oauth/login must reject the managed provider (PROVIDER_OAUTH_MANAGED guard)',
+  'agent-gateway /oauth/login must reject the managed provider (PROVIDER_OAUTH_MANAGED guard)',
   oauthRoutes.includes('PROVIDER_OAUTH_MANAGED'),
 );
 

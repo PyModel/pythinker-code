@@ -53,7 +53,7 @@ workspace_node_modules=(
   "docs:/workspace/pythinker-code/docs/node_modules"
   "pkg_acp-adapter:/workspace/pythinker-code/packages/acp-adapter/node_modules"
   "pkg_agent-core:/workspace/pythinker-code/packages/agent-core/node_modules"
-  "pkg_kap-server:/workspace/pythinker-code/packages/kap-server/node_modules"
+  "pkg_agent-gateway:/workspace/pythinker-code/packages/agent-gateway/node_modules"
   "pkg_server-e2e:/workspace/pythinker-code/packages/klient/node_modules"
   "pkg_kaos:/workspace/pythinker-code/packages/kaos/node_modules"
   "pkg_kosong:/workspace/pythinker-code/packages/kosong/node_modules"

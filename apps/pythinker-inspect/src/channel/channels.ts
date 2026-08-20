@@ -7,7 +7,7 @@
  * reflection.
  *
  * `/api/v1/debug` is the ONLY RPC surface this app talks to (mounted by
- * kap-server with `--debug-endpoints` on a loopback bind); the v2 surface
+ * agent-gateway with `--debug-endpoints` on a loopback bind); the v2 surface
  * (`/api/v2` + `/api/v2/ws`) was removed server-side, so there is no
  * fallback — `probeDebugSurface` fails the connection with a clear error.
  */
@@ -21,7 +21,7 @@ import { RPCError } from './errors';
 /** Wire scope kinds reported by the channels endpoint (`app` ≡ the core route). */
 export type ChannelScope = 'app' | 'session' | 'agent';
 
-/** Mirror of `ChannelDescriptor` in kap-server (`GET /api/v1/debug/channels`). */
+/** Mirror of `ChannelDescriptor` in agent-gateway (`GET /api/v1/debug/channels`). */
 export interface ChannelDescriptor {
   readonly name: string;
   readonly scope: ChannelScope;
@@ -57,7 +57,7 @@ export async function fetchChannelDescriptors(
  * Resolves silently when `GET /api/v1/debug/channels` answers with a
  * zero-code envelope; otherwise throws an `Error` whose message tells the
  * user exactly what is wrong (unreachable server, surface not mounted →
- * start kap-server with `--debug-endpoints`, or a rejected probe → check the
+ * start agent-gateway with `--debug-endpoints`, or a rejected probe → check the
  * token).
  */
 export async function probeDebugSurface(options: {
@@ -74,12 +74,12 @@ export async function probeDebugSurface(options: {
     res = await fetch(url, { headers });
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
-    throw new Error(`cannot reach ${options.baseUrl} — is kap-server running? (${reason})`);
+    throw new Error(`cannot reach ${options.baseUrl} — is agent-gateway running? (${reason})`);
   }
   if (!res.ok) {
     throw new Error(
       `GET ${DEBUG_RPC_BASE}/channels answered HTTP ${res.status} — this server does not ` +
-        'mount the debug RPC surface. Start kap-server with --debug-endpoints on a loopback bind.',
+        'mount the debug RPC surface. Start agent-gateway with --debug-endpoints on a loopback bind.',
     );
   }
   const envelope = (await res.json()) as { code?: number; msg?: string };

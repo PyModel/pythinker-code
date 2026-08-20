@@ -541,7 +541,7 @@ export interface PythinkerEventHandlers {
   onTerminalExit?(sessionId: string, terminalId: string, exitCode: number | null): void;
 }
 
-/** Raw stream coordinates are present only for kap-server assistant/thinking
+/** Raw stream coordinates are present only for agent-gateway assistant/thinking
     deltas. They let the render queue merge chunks without guessing continuity. */
 export interface PythinkerEventMeta {
   sessionId: string;

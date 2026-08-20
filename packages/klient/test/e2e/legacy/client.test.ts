@@ -90,7 +90,7 @@ describeLive('DaemonClient (live server required)', () => {
     log('connect request', { url: `${BASE_URL.replace(/^http/, 'ws')}/api/v1/ws` });
     const hello = await client.connect();
     log('server hello', hello);
-    // heartbeat_ms is optional — kap-server omits it (no server heartbeat).
+    // heartbeat_ms is optional — agent-gateway omits it (no server heartbeat).
     expect(hello.heartbeat_ms === undefined || hello.heartbeat_ms > 0).toBe(true);
     expect(typeof hello.ws_connection_id).toBe('string');
     await client.close();

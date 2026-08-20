@@ -37,7 +37,7 @@ async function openTmp(name: string): Promise<string> {
   return dir;
 }
 
-/** Seed docs shaped like the kap-server search corpus (varied text + CJK). */
+/** Seed docs shaped like the agent-gateway search corpus (varied text + CJK). */
 async function seedTextDb(db: MiniDb<Record<string, unknown>>, n: number): Promise<void> {
   await db.createTextIndex('ft', { fields: ['text'] });
   await db.createTextIndex('tri', { fields: ['text'], tokenizer: 'ngram' });

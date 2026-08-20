@@ -137,7 +137,7 @@ export type ProjectorBusEvent =
   | ({ readonly type: 'warning' } & WarningIssued);
 
 /**
- * The v1-wire `prompt.submitted` shape (kap-server `protocol/events-zod.ts`).
+ * The v1-wire `prompt.submitted` shape (agent-gateway `protocol/events-zod.ts`).
  * The v2 bus never publishes it (see `agent/prompt/promptService.ts`, which
  * emits only completed / aborted / steered), so it is declared here rather
  * than derived from `DomainEvent`; `map` accepts it so an edge that learns

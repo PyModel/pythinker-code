@@ -133,7 +133,7 @@ function defaultModelContextTokens(agent: IAgentScopeHandle): number | undefined
 
 /**
  * Map the native v2 `AgentActivityState` to the legacy v1 `AgentPhase`
- * (`agent.status.updated` payload). Pure function — kept at the kap-server
+ * (`agent.status.updated` payload). Pure function — kept at the agent-gateway
  * edge so the core engine stays free of v1 wire-compatibility concerns.
  *
  * Returns `undefined` for `disposing` / `disposed`, which have no v1

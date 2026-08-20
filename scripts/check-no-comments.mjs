@@ -3,7 +3,7 @@ import path from 'node:path';
 import ts from 'typescript';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
-const PACKAGES = ['packages/agent-core-v2', 'packages/kap-server', 'packages/transcript'];
+const PACKAGES = ['packages/agent-core-v2', 'packages/agent-gateway', 'packages/transcript'];
 const DIRS = ['src', 'test', 'scripts'];
 
 const MEMBER_KINDS = new Set([

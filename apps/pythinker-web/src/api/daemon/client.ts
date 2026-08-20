@@ -407,7 +407,7 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
     capabilities: Record<string, boolean>;
     openInApps: string[];
     dangerousBypassAuth: boolean;
-    /** Engine generation: 'v2' = kap-server / agent-core-v2; absent ⇒ 'v1'. */
+    /** Engine generation: 'v2' = agent-gateway / agent-core-v2; absent ⇒ 'v1'. */
     backend: 'v1' | 'v2';
   }> {
     const data = await this.http.get<WireMeta>('/meta');

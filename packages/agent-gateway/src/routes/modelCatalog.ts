@@ -847,4 +847,3 @@ async function handleImportRegistry(
     throw err;
   }
 }
-

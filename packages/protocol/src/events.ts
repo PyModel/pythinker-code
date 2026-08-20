@@ -1996,7 +1996,7 @@ export const eventSchema = agentEventSchema.and(
  * Everything not listed here is durable: journaled, seq-bearing, replayable.
  *
  * @deprecated Use the server-side `isVolatileSignal`
- * (`packages/kap-server/src/transport/ws/v1/sessionEventBroadcaster.ts`) instead,
+ * (`packages/agent-gateway/src/transport/ws/v1/sessionEventBroadcaster.ts`) instead,
  * which owns volatile-vs-durable classification for the `wire` emission path.
  * The legacy `IAgentRecordService` (`record.on`) transport path still consumes
  * this until Phase 4 removes it; do not add new consumers.
@@ -2010,7 +2010,7 @@ export const VOLATILE_EVENT_TYPES = [
   'shell.started',
   'shell.completed',
   'agent.status.updated',
-  // Live-only capability install progress (per-chunk ticks); kap-server
+  // Live-only capability install progress (per-chunk ticks); agent-gateway
   // classifies it volatile (never journaled), so shared-protocol clients must
   // not treat it as durable/replayable either.
   'event.capability.changed',
@@ -2022,7 +2022,7 @@ const volatileEventTypeSet: ReadonlySet<string> = new Set(VOLATILE_EVENT_TYPES);
 
 /**
  * @deprecated Use the server-side `isVolatileSignal`
- * (`packages/kap-server/src/transport/ws/v1/sessionEventBroadcaster.ts`) instead,
+ * (`packages/agent-gateway/src/transport/ws/v1/sessionEventBroadcaster.ts`) instead,
  * which owns volatile-vs-durable classification for the `wire` emission path.
  * Retained only for the legacy `IAgentRecordService` (`record.on`) transport
  * path until Phase 4 removes it; do not add new consumers.
