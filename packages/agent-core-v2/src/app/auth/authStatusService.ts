@@ -1,16 +1,16 @@
 import { PYTHINKER_CODE_PROVIDER_NAME } from '@pymodel/pythinker-code-oauth';
-import type { AuthSummary } from './authLegacy';
+import type { AuthSummary } from './authStatus';
 import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { IOAuthService } from '#/app/auth/auth';
 import { IModelService } from '#/kosong/model/model';
 import { IProviderService } from '#/kosong/provider/provider';
 
-import { IAuthLegacyService } from './authLegacy';
+import { IAuthStatusService } from './authStatus';
 
 const MANAGED_PROVIDER_NAME = PYTHINKER_CODE_PROVIDER_NAME;
 
-export class AuthLegacyService implements IAuthLegacyService {
+export class AuthStatusService implements IAuthStatusService {
   declare readonly _serviceBrand: undefined;
 
   constructor(
@@ -60,8 +60,8 @@ function nonEmpty(value: string | undefined): string | null {
 
 registerScopedService(
   LifecycleScope.App,
-  IAuthLegacyService,
-  AuthLegacyService,
+  IAuthStatusService,
+  AuthStatusService,
   ScopeActivation.OnScopeCreated,
-  'authLegacy',
+  'authStatus',
 );

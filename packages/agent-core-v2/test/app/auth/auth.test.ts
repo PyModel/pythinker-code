@@ -19,8 +19,8 @@ import {
 } from '#/app/auth/configSection';
 import { IWebSearchProviderService } from '#/app/auth/webSearch/webSearch';
 import { WebSearchProviderService } from '#/app/auth/webSearch/webSearchService';
-import { IAuthLegacyService } from '#/app/authLegacy/authLegacy';
-import { AuthLegacyService } from '#/app/authLegacy/authLegacyService';
+import { IAuthStatusService } from '#/app/auth/authStatus';
+import { AuthStatusService } from '#/app/auth/authStatusService';
 import { IConfigService } from '#/app/config/config';
 import { ConfigRegistry } from '#/app/config/configService';
 import { IEventService } from '#/app/event/event';
@@ -1227,7 +1227,7 @@ describe('AuthSummaryService', () => {
   });
 });
 
-describe('AuthLegacyService', () => {
+describe('AuthStatusService', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
   let providers: Record<string, ProviderConfig>;
@@ -1256,14 +1256,14 @@ describe('AuthLegacyService', () => {
         reg.definePartialInstance(IOAuthService, {
           status: oauthStatus as unknown as IOAuthService['status'],
         });
-        reg.define(IAuthLegacyService, AuthLegacyService);
+        reg.define(IAuthStatusService, AuthStatusService);
       },
     });
   });
   afterEach(() => disposables.dispose());
 
-  function createService(): IAuthLegacyService {
-    return ix.get(IAuthLegacyService);
+  function createService(): IAuthStatusService {
+    return ix.get(IAuthStatusService);
   }
 
   it('returns an empty snapshot when no providers are configured', async () => {

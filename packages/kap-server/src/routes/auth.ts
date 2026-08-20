@@ -1,5 +1,5 @@
-import { IAuthLegacyService, type Scope } from '@pymodel/agent-core-v2';
-import { authSummarySchema } from '@pymodel/agent-core-v2/app/authLegacy/authLegacy';
+import { IAuthStatusService, type Scope } from '@pymodel/agent-core-v2';
+import { authSummarySchema } from '@pymodel/agent-core-v2/app/auth/authStatus';
 
 import { okEnvelope } from '../envelope';
 import { defineRoute } from '../middleware/defineRoute';
@@ -25,7 +25,7 @@ export function registerAuthRoute(app: RouteHost, core: Scope): void {
       tags: ['auth'],
     },
     async (req, reply) => {
-      const summary = await core.accessor.get(IAuthLegacyService).get();
+      const summary = await core.accessor.get(IAuthStatusService).get();
       reply.send(okEnvelope(summary, req.id));
     },
   );

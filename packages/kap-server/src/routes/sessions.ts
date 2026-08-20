@@ -11,7 +11,7 @@ import {
   ISessionContext,
   ISessionIndex,
   ISessionMetadata,
-  ISessionLegacyService,
+  ISessionStatusService,
   ISessionTitleService,
   IEventService,
   SessionCreated,
@@ -617,7 +617,7 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
           return;
         }
 
-        const legacy = core.accessor.get(ISessionLegacyService);
+        const statusService = core.accessor.get(ISessionStatusService);
 
         if (parsed.action === 'fork') {
           const body = forkSessionRequestSchema.parse(req.body);
@@ -670,7 +670,7 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
           requestLog(req)?.info({ session_id: parsed.id, action: 'undo' }, 'session action completed');
           const [summary, status] = await Promise.all([
             core.accessor.get(ISessionIndex).get(parsed.id),
-            legacy.status(parsed.id),
+            statusService.status(parsed.id),
           ]);
           reply.send(
             okEnvelope(
@@ -878,7 +878,7 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
     async (req, reply) => {
       try {
         const { session_id } = req.params;
-        const status = await core.accessor.get(ISessionLegacyService).status(session_id);
+        const status = await core.accessor.get(ISessionStatusService).status(session_id);
         reply.send(okEnvelope(status, req.id));
       } catch (error) {
         sendMappedError(reply, req, error);
@@ -907,7 +907,7 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
     async (req, reply) => {
       try {
         const { session_id } = req.params;
-        const goal = await core.accessor.get(ISessionLegacyService).goal(session_id);
+        const goal = await core.accessor.get(ISessionStatusService).goal(session_id);
         reply.send(okEnvelope(goal, req.id));
       } catch (error) {
         sendMappedError(reply, req, error);

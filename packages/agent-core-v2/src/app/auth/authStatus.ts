@@ -24,11 +24,11 @@ export const authSummarySchema = z.object({
 });
 export type AuthSummary = z.infer<typeof authSummarySchema>;
 
-export interface IAuthLegacyService {
+export interface IAuthStatusService {
   readonly _serviceBrand: undefined;
 
   get(): Promise<AuthSummary>;
 }
 
-export const IAuthLegacyService: ServiceIdentifier<IAuthLegacyService> =
-  createDecorator<IAuthLegacyService>('authLegacyService');
+export const IAuthStatusService: ServiceIdentifier<IAuthStatusService> =
+  createDecorator<IAuthStatusService>('authStatusService');

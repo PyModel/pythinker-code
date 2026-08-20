@@ -26,7 +26,7 @@ import {
   type ScopeSeed,
 } from '@pymodel/agent-core-v2';
 import { TurnStarted } from '@pymodel/agent-core-v2/agent/loop/turnEvents';
-import { sessionWarningsResponseSchema } from '@pymodel/agent-core-v2/app/sessionLegacy/sessionProtocol';
+import { sessionWarningsResponseSchema } from '@pymodel/agent-core-v2/app/sessionManager/sessionProtocol';
 import { encodeWorkDirKey } from '@pymodel/agent-core-v2/_base/utils/workdir-slug';
 
 import { type RunningServer, startServer } from '../src/start';

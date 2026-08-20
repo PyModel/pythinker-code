@@ -14,8 +14,8 @@ import { IAgentDynamicWorkflowService } from '#/features/dynamic_workflow/agent/
 import { UNKNOWN_CAPABILITY } from '#/kosong/contract/capability';
 import { IModelCatalog } from '#/kosong/model/catalog';
 import { IModelService } from '#/kosong/model/model';
-import { ISessionLegacyService } from '#/app/sessionLegacy/sessionLegacy';
-import { SessionLegacyService } from '#/app/sessionLegacy/sessionLegacyService';
+import { ISessionStatusService } from '#/app/sessionManager/sessionStatus';
+import { SessionStatusService } from '#/app/sessionManager/sessionStatusService';
 import { ISessionIndex, ISessionIndexMirror } from '#/app/sessionIndex/sessionIndex';
 import { ISessionManager } from '#/app/sessionManager/sessionManager';
 import { ISessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycle';
@@ -89,7 +89,7 @@ function stubSessionChain(ix: TestInstantiationService, session: ISessionScopeHa
   } as unknown as ISessionManager);
 }
 
-describe('Session legacy status (best-effort runtime state)', () => {
+describe('Session status (best-effort runtime state)', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
 
@@ -151,9 +151,9 @@ describe('Session legacy status (best-effort runtime state)', () => {
       dispose: () => {},
     };
     stubSessionChain(ix, session);
-    ix.set(ISessionLegacyService, new SyncDescriptor(SessionLegacyService));
+    ix.set(ISessionStatusService, new SyncDescriptor(SessionStatusService));
 
-    const status = await ix.get(ISessionLegacyService).status('session-test');
+    const status = await ix.get(ISessionStatusService).status('session-test');
 
     expect(status).toMatchObject({
       busy: false,
@@ -210,9 +210,9 @@ describe('Session legacy status (best-effort runtime state)', () => {
       dispose: () => {},
     };
     stubSessionChain(ix, session);
-    ix.set(ISessionLegacyService, new SyncDescriptor(SessionLegacyService));
+    ix.set(ISessionStatusService, new SyncDescriptor(SessionStatusService));
 
-    const status = await ix.get(ISessionLegacyService).status('session-unbound');
+    const status = await ix.get(ISessionStatusService).status('session-unbound');
 
     expect(status).toMatchObject({
       busy: false,
@@ -278,9 +278,9 @@ describe('Session legacy status (best-effort runtime state)', () => {
       dispose: () => {},
     };
     stubSessionChain(ix, session);
-    ix.set(ISessionLegacyService, new SyncDescriptor(SessionLegacyService));
+    ix.set(ISessionStatusService, new SyncDescriptor(SessionStatusService));
 
-    const status = await ix.get(ISessionLegacyService).status('session-draft');
+    const status = await ix.get(ISessionStatusService).status('session-draft');
 
     expect(status).toMatchObject({
       model: undefined,
@@ -352,9 +352,9 @@ describe('Session legacy status (best-effort runtime state)', () => {
       dispose: () => {},
     };
     stubSessionChain(ix, session);
-    ix.set(ISessionLegacyService, new SyncDescriptor(SessionLegacyService));
+    ix.set(ISessionStatusService, new SyncDescriptor(SessionStatusService));
 
-    const status = await ix.get(ISessionLegacyService).status('session-capped');
+    const status = await ix.get(ISessionStatusService).status('session-capped');
 
     expect(status).toMatchObject({
       max_context_tokens: 100_000,

@@ -5,10 +5,10 @@ import { messageContentSchema } from './message';
 import {
   promptPermissionModeSchema,
   promptThinkingSchema,
-} from '@pymodel/agent-core-v2/app/sessionLegacy/sessionProtocol';
+} from '@pymodel/agent-core-v2/app/sessionManager/sessionProtocol';
 
 export { promptPermissionModeSchema, promptThinkingSchema };
-export type { PromptPermissionMode, PromptThinking } from '@pymodel/agent-core-v2/app/sessionLegacy/sessionProtocol';
+export type { PromptPermissionMode, PromptThinking } from '@pymodel/agent-core-v2/app/sessionManager/sessionProtocol';
 
 export const promptSkillActivationSchema = z.object({
   name: z.string().min(1),

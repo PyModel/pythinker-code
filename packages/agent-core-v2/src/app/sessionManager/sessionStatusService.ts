@@ -29,9 +29,9 @@ import { ensureMainAgent } from '#/session/agentLifecycle/mainAgent';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { IAgentActivityView } from '#/agent/activityView/activityView';
 
-import { ISessionLegacyService } from './sessionLegacy';
+import { ISessionStatusService } from './sessionStatus';
 
-export class SessionLegacyService implements ISessionLegacyService {
+export class SessionStatusService implements ISessionStatusService {
   declare readonly _serviceBrand: undefined;
 
   private readonly services: ServicesAccessor;
@@ -120,8 +120,8 @@ function resolveDefaultModelContextTokens(agent: IAgentScopeHandle): number | un
 
 registerScopedService(
   LifecycleScope.App,
-  ISessionLegacyService,
-  SessionLegacyService,
+  ISessionStatusService,
+  SessionStatusService,
   ScopeActivation.OnScopeCreated,
-  'sessionLegacy',
+  'sessionStatus',
 );

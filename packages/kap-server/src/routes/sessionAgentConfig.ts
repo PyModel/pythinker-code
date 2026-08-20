@@ -10,7 +10,7 @@ import {
   type PermissionMode,
   type Scope,
 } from '@pymodel/agent-core-v2';
-import type { SessionAgentConfigPartial } from '@pymodel/agent-core-v2/app/sessionLegacy/sessionProtocol';
+import type { SessionAgentConfigPartial } from '@pymodel/agent-core-v2/app/sessionManager/sessionProtocol';
 
 import { ensureMainAgent } from '../transport/mainAgent';
 

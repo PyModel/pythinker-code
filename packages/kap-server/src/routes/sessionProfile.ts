@@ -6,8 +6,8 @@ import {
   resumeSessionById,
   type Scope,
 } from '@pymodel/agent-core-v2';
-import type { SessionWireFields } from '@pymodel/agent-core-v2/app/sessionLegacy/sessionLegacy';
-import type { UpdateSessionProfileRequest } from '@pymodel/agent-core-v2/app/sessionLegacy/sessionProtocol';
+import type { SessionWireFields } from '@pymodel/agent-core-v2/app/sessionManager/sessionStatus';
+import type { UpdateSessionProfileRequest } from '@pymodel/agent-core-v2/app/sessionManager/sessionProtocol';
 
 export async function updateSessionProfile(
   core: Scope,
