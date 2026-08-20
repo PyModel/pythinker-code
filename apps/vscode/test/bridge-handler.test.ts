@@ -35,6 +35,11 @@ const host = vi.hoisted(() => {
     forkSession: vi.fn(),
     deleteSession: vi.fn(async () => undefined),
     isAuthenticated: vi.fn(async () => false),
+    auth: {
+      status: vi.fn(async () => ({
+        providers: [] as Array<{ providerName: string; hasToken: boolean }>,
+      })),
+    },
   };
   const showWarningMessage = vi.fn(async () => undefined as string | undefined);
   const showQuickPick = vi.fn();
@@ -172,6 +177,8 @@ beforeEach(async () => {
   host.harness.getConfig.mockResolvedValue({ models: {} });
   host.harness.isAuthenticated.mockReset();
   host.harness.isAuthenticated.mockResolvedValue(false);
+  host.harness.auth.status.mockReset();
+  host.harness.auth.status.mockResolvedValue({ providers: [] });
   host.showWarningMessage.mockReset();
   host.showWarningMessage.mockResolvedValue(undefined);
   host.showQuickPick.mockReset();
@@ -315,6 +322,24 @@ describe("Webview RPC boundary (validates requests before host dispatch)", () =>
     expect(showLogs).toHaveBeenCalledOnce();
   });
 
+  it("reports OAuth-only users as logged in", async () => {
+    host.harness.getConfig.mockResolvedValueOnce({
+      models: {},
+      providers: { codex: { oauth: "openai-codex" } },
+    });
+    host.harness.auth.status.mockResolvedValueOnce({
+      providers: [{ providerName: "openai-codex", hasToken: true }],
+    });
+
+    const result = await bridge.handle(
+      { id: "rpc-login-status", method: Methods.CheckLoginStatus },
+      "view-1",
+    );
+
+    expect(result).toEqual({ id: "rpc-login-status", result: { loggedIn: true } });
+    expect(host.harness.auth.status).toHaveBeenCalledWith("codex");
+  });
+
   it("keeps provider identity when configured models share a display name", async () => {
     host.harness.getConfig.mockResolvedValueOnce({
       defaultModel: "openai/shared",
@@ -375,6 +400,38 @@ describe("Webview RPC boundary (validates requests before host dispatch)", () =>
     });
   });
 
+  it("reports model metadata inherited through alias overrides", async () => {
+    host.harness.getConfig.mockResolvedValueOnce({
+      defaultModel: "proxy/reasoning",
+      models: {
+        "proxy/reasoning": {
+          provider: "proxy",
+          model: "reasoning",
+          overrides: {
+            displayName: "Reasoning Override",
+            supportEfforts: ["low", "high"],
+            defaultEffort: "high",
+            maxContextSize: 96_000,
+          },
+        },
+      },
+    });
+
+    const result = await bridge.handle({ id: "rpc-models", method: Methods.GetModels }, "view-1");
+
+    expect(result).toMatchObject({
+      result: {
+        models: [{
+          id: "proxy/reasoning",
+          name: "Reasoning Override",
+          support_efforts: ["low", "high"],
+          default_effort: "high",
+          contextWindow: 96_000,
+        }],
+      },
+    });
+  });
+
   it("does not expose the session storage path when listing sessions", async () => {
     host.harness.listSessions.mockResolvedValueOnce([
       {
@@ -424,6 +481,13 @@ describe("Webview RPC boundary (validates requests before host dispatch)", () =>
     );
 
     expect(result).toEqual({ id: "rpc-1", result: { sessionId: "session-2" } });
+    expect(host.harness.forkSession).toHaveBeenCalledWith({
+      id: "session-1",
+      turnIndex: 0,
+    });
+    expect(host.harness.forkSession.mock.calls[0]?.[0]).not.toEqual(
+      expect.objectContaining({ forkId: expect.anything() }),
+    );
     expect(JSON.stringify(result)).not.toContain("/private/pythinker/sessions");
   });
 
@@ -521,6 +585,10 @@ describe("Webview RPC boundary (validates requests before host dispatch)", () =>
         expect.objectContaining({ type: "StatusUpdate", _sessionId: "session-1" }),
       ]),
     });
+    expect(host.harness.resumeSession).toHaveBeenCalledWith({
+      id: "session-1",
+      includeSubagents: true,
+    });
     expect(writeLog).toHaveBeenCalledWith(
       expect.stringMatching(/Unable to restore session file changes.*Unable to read baseline snapshot/),
     );
@@ -594,7 +662,7 @@ describe("Webview config saves (thinking effort persistence parity with the TUI)
 
     expect(host.harness.setConfig).toHaveBeenCalledWith({
       defaultModel: "kimi/reasoning",
-      thinking: { enabled: true, effort: "max" },
+      thinking: { enabled: true },
     });
   });
 

@@ -1,5 +1,3 @@
-import { isAbsolute, join } from "node:path";
-
 import type {
   AgentReplayRecord,
   ContentPart,
@@ -19,43 +17,6 @@ import type {
 import type { UIStreamEvent } from "../../shared/types";
 import { toLegacyToolName } from "./event-adapter";
 import { toLegacyDisplay } from "./tool-display";
-
-function inferDisplayFromToolCall(name: string, rawArgs: string | null | undefined, cwd?: string | null): any {
-  if (!rawArgs) return undefined;
-  try {
-    const args = JSON.parse(rawArgs);
-    const legacyName = toLegacyToolName(name);
-    switch (legacyName) {
-      case "WriteFile":
-      case "Write":
-      case "write_file":
-      case "write":
-        if (typeof args.path === "string") {
-          const path = isAbsolute(args.path) ? args.path : (cwd ? join(cwd, args.path) : args.path);
-          return { kind: "file_io", operation: "write", path, content: args.content };
-        }
-        break;
-      case "StrReplaceFile":
-      case "Edit":
-      case "edit":
-        if (typeof args.path === "string") {
-          const path = isAbsolute(args.path) ? args.path : (cwd ? join(cwd, args.path) : args.path);
-          return { kind: "diff", path, before: args.old_string ?? "", after: args.new_string ?? "" };
-        }
-        break;
-      case "SetTodoList":
-      case "TodoList":
-      case "todo_list":
-        if (Array.isArray(args.todos)) {
-          return { kind: "todo_list", items: args.todos };
-        }
-        break;
-    }
-  } catch {
-    // fallback
-  }
-  return undefined;
-}
 
 interface SubagentReplayInvocation {
   readonly parentAgentId: string;
@@ -104,7 +65,7 @@ function replayAgentToWebviewEvents(
         type: "StatusUpdate",
         payload: {
           ...(agent.config.modelAlias === undefined ? {} : { model: agent.config.modelAlias }),
-          thinking_effort: (agent.config as any).thinkingLevel ?? (agent.config as any).thinkingEffort,
+          thinking_effort: agent.config.thinkingEffort,
           plan_mode: agent.plan !== null,
         },
       },
@@ -167,7 +128,7 @@ function replayAgentToWebviewEvents(
             events.push(withSession({ type: "ContentPart", payload: part }, sessionId));
           }
           for (const call of message.toolCalls) {
-            const display = (message as any).toolCallDisplays?.[call.id] ?? inferDisplayFromToolCall(call.name, call.arguments, agent.config.cwd ?? undefined);
+            const display = message.toolCallDisplays?.[call.id];
             if (display !== undefined) {
               toolDisplays.set(call.id, toLegacyDisplay(display));
             }
@@ -258,12 +219,7 @@ function buildSubagentReplayIndex(state: ResumedSessionState): SubagentReplayInd
   const invocations: SubagentReplayInvocation[] = [];
   let order = 0;
 
-  const mainAgentId = (state as any).mainAgentId ?? (state.sessionMetadata as any)?.mainAgentId ?? "main";
-  for (const [rawParentAgentId, parent] of Object.entries(state.agents)) {
-    const parentAgentId =
-      rawParentAgentId === mainAgentId || rawParentAgentId === (state as any).sessionId
-        ? "main"
-        : rawParentAgentId;
+  for (const [parentAgentId, parent] of Object.entries(state.agents)) {
     const calls = new Map<
       string,
       { readonly name: string; readonly startedAt: number; readonly order: number }
@@ -279,35 +235,16 @@ function buildSubagentReplayIndex(state: ResumedSessionState): SubagentReplayInd
       }
       if (message.role !== "tool" || message.toolCallId === undefined) continue;
       const call = calls.get(message.toolCallId);
-      if (call === undefined) continue;
-      const legacyName = toLegacyToolName(call.name);
-      if (legacyName !== "Agent" && legacyName !== "AgentSwarm") continue;
-      for (const rawChildId of subagentIdsFromResult(legacyName as "Agent" | "AgentSwarm", message.content)) {
-        const resolvedChildId =
-          Object.keys(state.agents).find(
-            (id) =>
-              id === rawChildId ||
-              id.endsWith(":" + rawChildId) ||
-              (state.agents[id] as any)?.agentId === rawChildId,
-          ) ?? rawChildId;
-        const rawParentId =
-          state.sessionMetadata?.agents?.[resolvedChildId]?.parentAgentId ??
-          (state.agents[resolvedChildId] as any)?.metadata?.parentAgentId ??
-          (state.agents[resolvedChildId] as any)?.parentAgentId;
-        const parentId =
-          rawParentId === mainAgentId || rawParentId === (state as any).sessionId
-            ? "main"
-            : rawParentId;
-        if (
-          state.agents[resolvedChildId] === undefined ||
-          (parentId !== undefined && parentId !== parentAgentId)
-        ) {
+      if (call === undefined || (call.name !== "Agent" && call.name !== "AgentDynamicWorkflow")) continue;
+      for (const childAgentId of subagentIdsFromResult(call.name, message.content)) {
+        const metadata = state.sessionMetadata.agents[childAgentId];
+        if (metadata?.parentAgentId !== parentAgentId || state.agents[childAgentId] === undefined) {
           continue;
         }
         invocations.push({
           parentAgentId,
           parentToolCallId: message.toolCallId,
-          childAgentId: resolvedChildId,
+          childAgentId,
           startedAt: call.startedAt,
           order: call.order,
           records: [],
@@ -351,16 +288,18 @@ function compareInvocation(a: SubagentReplayInvocation, b: SubagentReplayInvocat
 }
 
 function subagentIdsFromResult(
-  toolName: string,
+  toolName: "Agent" | "AgentDynamicWorkflow",
   content: readonly ContentPart[],
 ): readonly string[] {
   const text = content
     .filter((part): part is Extract<ContentPart, { type: "text" }> => part.type === "text")
     .map((part) => part.text)
     .join("");
-  const header = text.split("\n\n", 1)[0] ?? text;
-  const match = /(?:^|\n)agent_id:\s*([^\s]+)\s*(?=\n|$)/.exec(header);
-  if (match !== null) return [match[1]!];
+  if (toolName === "Agent") {
+    const header = text.split("\n\n", 1)[0] ?? text;
+    const match = /(?:^|\n)agent_id:\s*([^\s]+)\s*(?=\n|$)/.exec(header);
+    return match === null ? [] : [match[1]!];
+  }
   const pattern = /<subagent\b[^>]*\bagent_id="([^"]+)"[^>]*\boutcome="[^"]+">/g;
   return [...text.matchAll(pattern)].map((match) => match[1]!).filter(uniqueString);
 }
@@ -419,7 +358,7 @@ function renderSubagentInvocation(
           }
           for (const call of message.toolCalls) {
             const toolCallId = scopedReplayToolCallId(invocation.childAgentId, call.id);
-            const display = (message as any).toolCallDisplays?.[call.id] ?? inferDisplayFromToolCall(call.name, call.arguments);
+            const display = message.toolCallDisplays?.[call.id];
             if (display !== undefined) toolDisplays.set(toolCallId, toLegacyDisplay(display));
             emit({
               type: "ToolCall",
@@ -496,9 +435,6 @@ function wrapSubagentEvent(
           invocation.parentAgentId,
           invocation.parentToolCallId,
         ),
-        // Replay history carries no persisted label or dynamicWorkflowIndex; the UI
-        // falls back to the id's short form.
-        agent_id: invocation.childAgentId,
         event: routed,
       },
     };
@@ -582,10 +518,10 @@ function toLegacyContent(content: readonly ContentPart[]): LegacyContentPart[] {
 
 function isVisibleUserMessage(origin: PromptOrigin | undefined): boolean {
   if (origin === undefined || origin.kind === "user") return true;
-  if (origin.kind === "skill_activation") {
+  if (origin.kind === "skill_activation" || origin.kind === "plugin_command") {
     return origin.trigger === "user-slash";
   }
-  return false;
+  return origin.kind === "shell_command" && origin.phase === "input";
 }
 
 function replayUserInput(
@@ -597,6 +533,13 @@ function replayUserInput(
     return [{
       type: "text",
       text: `/skill:${origin.skillName}${args ? ` ${args}` : ""}`,
+    }];
+  }
+  if (origin?.kind === "plugin_command") {
+    const args = origin.commandArgs?.trim();
+    return [{
+      type: "text",
+      text: `/${origin.pluginId}:${origin.commandName}${args ? ` ${args}` : ""}`,
     }];
   }
   return toLegacyContent(content);

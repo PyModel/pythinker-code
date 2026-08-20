@@ -1,7 +1,13 @@
 import { readFile } from "node:fs/promises";
 import * as vscode from "vscode";
-import { buildSkillSlashCommands, type SkillSlashCommand } from "@pymodel/pythinker-code-sdk";
-type SdkConfig = any;
+import {
+  buildSkillSlashCommands,
+  effectiveModelAlias,
+  type ModelAlias,
+  type PythinkerConfig as SdkPythinkerConfig,
+  type SkillSlashCommand,
+  type ThinkingEffort,
+} from "@pymodel/pythinker-code-sdk";
 
 import { Methods } from "../../shared/bridge";
 import type {
@@ -39,25 +45,24 @@ const SLASH_COMMANDS: SlashCommandInfo[] = [
 ];
 
 const saveConfig: Handler<SessionConfig, { ok: boolean }> = async (params, ctx) => {
-  const effort = normalizeEffort(params.effort ?? (params.thinking === true ? "on" : "off"));
-  const full = { enabled: params.thinking !== false, effort };
-
+  const effort = normalizeEffort(params.effort ?? (params.thinking === true ? "on" : "off")) as ThinkingEffort;
+  const effortChanged = params.effortChanged !== false;
   const config = await ctx.harness.getConfig({ reload: true });
-  const currentEffort = (config.thinking as any)?.effort;
-  const effortChanged = params.effort !== undefined && currentEffort !== effort;
-  // If the user modified only the model dropdown, update only defaultModel +
-  // thinking.enabled to match the release behavior (tested by the
+  const model = config.models?.[params.model];
+  const full = thinkingConfig(
+    effort,
+    model === undefined ? undefined : effectiveModelAlias(model).supportEfforts,
+  );
+  // Re-confirming the effort already shown is not an explicit choice —
+  // persist the model but leave the stored effort preference alone (the TUI's
   // persistModelSelection rule).
   const patch = effortChanged ? full : { enabled: full.enabled };
   if (
     config.defaultModel !== params.model
     || config.thinking?.enabled !== patch.enabled
-    || (effortChanged && (config.thinking as any)?.effort !== (patch as any).effort)
+    || (effortChanged && config.thinking?.effort !== patch.effort)
   ) {
-    await ctx.harness.setConfig({
-      defaultModel: params.model,
-      thinking: patch as any,
-    });
+    await ctx.harness.setConfig({ defaultModel: params.model, thinking: patch });
   }
 
   const runtime = ctx.getSession();
@@ -160,9 +165,9 @@ export const configHandlers = {
   [Methods.ReloadWebview]: reloadWebview,
 } as Record<string, Handler<any, any>>;
 
-export function toWebviewConfig(config: SdkConfig): ModelsConfig {
+export function toWebviewConfig(config: SdkPythinkerConfig): ModelsConfig {
   const models: ModelConfig[] = Object.entries(config.models ?? {})
-    .map(([id, model]) => toWebviewModel(id, model as any))
+    .map(([id, model]) => toWebviewModel(id, model))
     .toSorted((left, right) => left.name.localeCompare(right.name));
   return {
     defaultModel: config.defaultModel ?? models[0]?.id ?? null,
@@ -172,16 +177,38 @@ export function toWebviewConfig(config: SdkConfig): ModelsConfig {
   };
 }
 
-function toWebviewModel(id: string, model: any): ModelConfig {
+function toWebviewModel(id: string, model: ModelAlias): ModelConfig {
+  const effective = effectiveModelAlias(model);
   return {
     id,
-    name: model.displayName ?? model.model ?? id,
-    provider: model.provider ?? "unknown",
-    capabilities: [...(model.capabilities ?? [])],
-    contextWindow: typeof model.maxContextSize === "number" ? model.maxContextSize : undefined,
-    adaptive_thinking: model.adaptiveThinking,
+    name: effective.displayName ?? effective.model ?? id,
+    provider: effective.provider,
+    capabilities: [...(effective.capabilities ?? [])],
+    contextWindow: typeof effective.maxContextSize === "number" ? effective.maxContextSize : undefined,
+    adaptive_thinking: effective.adaptiveThinking,
     support_efforts:
-      model.supportEfforts === undefined ? undefined : [...model.supportEfforts],
-    default_effort: model.defaultEffort,
+      effective.supportEfforts === undefined ? undefined : [...effective.supportEfforts],
+    default_effort: effective.defaultEffort,
   };
+}
+
+/**
+ * Project a thinking effort to the `[thinking]` config patch persisted to
+ * config.toml — mirrors the TUI's thinkingEffortToConfig. "off" disables
+ * thinking; "on" is the boolean-model on-signal, so it only persists
+ * `enabled`. A concrete effort persists as the global default, EXCEPT the
+ * model's highest declared level — the last entry of `support_efforts` —
+ * which is session-only and records just `enabled`, so the most expensive
+ * tier never becomes the global default for every new session. When the
+ * model's levels are unknown the concrete effort is persisted as-is.
+ */
+function thinkingConfig(
+  effort: ThinkingEffort,
+  supportEfforts?: readonly string[],
+): { enabled: boolean; effort?: string } {
+  if (effort === "off") return { enabled: false };
+  if (effort === "on") return { enabled: true };
+  const top = supportEfforts?.at(-1);
+  if (top !== undefined && effort === top) return { enabled: true };
+  return { enabled: true, effort };
 }

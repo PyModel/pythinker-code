@@ -207,7 +207,7 @@ export const sessionHandlers: Record<string, Handler<any, any>> = {
     ) return null;
 
     const forkSettledSession = async () => {
-      const fork = await ctx.harness.forkSession({ id: params.sessionId, forkId: String(params.turnIndex) });
+      const fork = await ctx.harness.forkSession({ id: params.sessionId, turnIndex: params.turnIndex });
       const targetSummary = fork.summary;
       if (targetSummary === undefined) {
         await fork.close();
@@ -230,7 +230,7 @@ export const sessionHandlers: Record<string, Handler<any, any>> = {
         ctx.logError("Unable to close a forked session", error);
       }
       if (materializeError !== undefined) {
-        await ((ctx.harness as any).deleteSession?.(targetSummary.id) ?? ctx.harness.closeSession(targetSummary.id)).catch((error: unknown) => {
+        await ctx.harness.deleteSession(targetSummary.id).catch((error: unknown) => {
           ctx.logError(`Unable to remove failed fork "${targetSummary.id}"`, error);
         });
         await ctx.baselineManager.deleteSession(targetSummary.id).catch((error: unknown) => {
