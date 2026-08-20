@@ -2143,7 +2143,8 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     const on = !current;
     if (on && rawState.permission === 'manual') {
       const ok = await confirm({
-        title: t('workspace.dynamicWorkflowEnableConfirm'),
+        title: t('workspace.dynamicWorkflowEnableTitle'),
+        message: t('workspace.dynamicWorkflowEnableConfirm'),
         variant: 'primary',
       });
       if (!ok) return;
