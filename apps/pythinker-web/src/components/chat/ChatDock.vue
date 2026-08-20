@@ -14,6 +14,7 @@ import GoalStrip from './GoalStrip.vue';
 import QuestionCard from './QuestionCard.vue';
 import ApprovalCard from './ApprovalCard.vue';
 import TasksPane from './TasksPane.vue';
+import DynamicWorkflowPanel from '../DynamicWorkflowPanel.vue';
 import TodoCard from './TodoCard.vue';
 import Icon from '../ui/Icon.vue';
 import Pill from '../ui/Pill.vue';
@@ -190,7 +191,7 @@ defineExpose({ loadForEdit, loadAttachmentsForEdit, focus });
             :tasks="bashTasks"
             @cancel="emit('cancelTask', $event)"
           />
-          <TasksPane
+          <DynamicWorkflowPanel
             v-else-if="dockPanel === 'subagent'"
             :tasks="subagentTasks"
             @cancel="emit('cancelTask', $event)"
@@ -395,7 +396,7 @@ defineExpose({ loadForEdit, loadAttachmentsForEdit, focus });
 
 .dock-panel-enter-active,
 .dock-panel-leave-active {
-  transition: opacity 0.16s ease, transform 0.16s ease;
+  transition: transform 0.16s ease;
 }
 .dock-panel-enter-from,
 .dock-panel-leave-to {

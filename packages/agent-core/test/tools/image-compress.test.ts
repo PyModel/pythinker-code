@@ -362,7 +362,7 @@ async function encodeWebp(
 function animatedWebpHeader(): Uint8Array {
   const bytes = new Uint8Array(30);
   const ascii = (s: string, at: number) => {
-    for (let i = 0; i < s.length; i++) bytes[at + i] = s.codePointAt(i);
+    for (let i = 0; i < s.length; i++) bytes[at + i] = s.charCodeAt(i);
   };
   ascii('RIFF', 0);
   new DataView(bytes.buffer).setUint32(4, 22, true);

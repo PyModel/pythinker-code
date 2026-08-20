@@ -10,7 +10,7 @@ export const MAX_BYTES: number = 100 * 1024;
 /**
  * Largest file the Read tool transcodes from UTF-16 in memory. Unlike the
  * streaming UTF-8 path, transcoding needs the whole file decoded at once;
- * 10 MiB mirrors kap-server's `FS_READ_MAX_BYTES`.
+ * 10 MiB mirrors agent-gateway's `FS_READ_MAX_BYTES`.
  */
 export const TRANSCODE_MAX_BYTES: number = 10 * 1024 * 1024;
 

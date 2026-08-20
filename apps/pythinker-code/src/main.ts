@@ -151,7 +151,7 @@ function bootstrap(): void {
   // Route all outbound fetch through HTTP_PROXY/HTTPS_PROXY (honoring NO_PROXY)
   // before any client is constructed. No-op when no proxy variable is set; an
   // invalid proxy URL is reported and ignored rather than aborting startup.
-  installGlobalProxyDispatcher();
+  installGlobalProxyDispatcher(process.env);
   installNativeModuleHook();
   // Best-effort SEA worker installation. Diagnostics are trace-only and avoid
   // exposing the user's cache path; failure keeps MiniDb's bounded inline mode.

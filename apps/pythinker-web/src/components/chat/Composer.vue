@@ -26,7 +26,6 @@ import { useAttachmentUpload, type Attachment } from '../../composables/useAttac
 import { openFileAttachment } from '../../lib/openFileAttachment';
 import type { PromptAttachment } from '../../composables/usePythinkerWebClient';
 import Spinner from '../ui/Spinner.vue';
-import Button from '../ui/Button.vue';
 import IconButton from '../ui/IconButton.vue';
 import Icon from '../ui/Icon.vue';
 import ContextRing from '../ui/ContextRing.vue';
@@ -54,7 +53,6 @@ const props = withDefaults(defineProps<{
   thinking?: ThinkingLevel;
   planMode?: boolean;
   goalMode?: boolean;
-  dynamicWorkflowMode?: boolean;
   goal?: AppGoal | null;
   activationBadges?: ActivationBadges;
   /** Available models for the quick-switch dropdown. */
@@ -97,7 +95,6 @@ const emit = defineEmits<{
   setThinking: [level: ThinkingLevel];
   togglePlan: [];
   toggleGoal: [];
-  toggleDynamicWorkflow: [];
   openBtw: [];
   createGoal: [objective: string];
   controlGoal: [action: 'pause' | 'resume' | 'cancel'];
@@ -668,21 +665,18 @@ function thinkingSegmentLabel(segment: string): string {
 
 // Plan toggle
 const planOn = computed(() => props.planMode === true);
-const workflowOn = computed(() => props.dynamicWorkflowMode === true);
 const goalStatus = computed(() => props.goal?.status ?? props.activationBadges?.goal?.status ?? null);
 const goalActive = computed(() => goalStatus.value !== null && goalStatus.value !== 'complete');
 const goalArmed = computed(() => goalActive.value || props.goalMode === true);
-const goalCanPause = computed(() => goalStatus.value === 'active');
-const goalCanResume = computed(() => goalStatus.value === 'paused' || goalStatus.value === 'blocked');
 
-// Modes selector for plan and goal state.
+// The "+" add menu (Files / Connectors / Goal / Plan / Workflow).
+const capMenuRef = ref<InstanceType<typeof CapabilityMenu> | null>(null);
 const modesOpen = ref(false);
 const modesRef = ref<HTMLElement | null>(null);
 const modesMenuRef = ref<HTMLElement | null>(null);
 // The menu is position:fixed (so no composer stacking context can paint over
 // it); these coords anchor it just above the pill, computed on open.
 const modesMenuStyle = ref<Record<string, string>>({});
-const anyModeActive = computed(() => planOn.value || goalArmed.value);
 function closeModes(): void {
   modesOpen.value = false;
   document.removeEventListener('mousedown', onModesDocClick);
@@ -946,18 +940,45 @@ function selectModel(modelId: string): void {
           <span class="pd-desc" />
         </div>
 
-        <!-- Left: attach + permission + plan -->
+        <!-- Left: add menu (+) + permission + active-mode chips -->
         <div class="toolbar-left">
-          <IconButton
-            v-if="hasUpload"
-            size="md"
-            :label="t('composer.attachFile')"
-            @click="openFilePicker"
-          >
-            <Icon name="attachment" />
-          </IconButton>
+          <div ref="modesRef" class="modes">
+            <IconButton
+              size="md"
+              class="composer-attach"
+              :label="t('composer.addMenu')"
+              aria-haspopup="menu"
+              :aria-expanded="modesOpen"
+              @mousedown.prevent
+              @click.stop="toggleModes"
+            >
+              <Icon name="plus" />
+            </IconButton>
 
-          <CapabilityMenu :session-id="sessionId" />
+            <!-- Add menu — Files / Connectors / Goal / Plan rows. -->
+            <div v-if="modesOpen" ref="modesMenuRef" class="modes-menu add-menu" :style="modesMenuInlineStyle" role="menu">
+              <button v-if="hasUpload" type="button" class="am-row" role="menuitem" @click="closeModes(); openFilePicker()">
+                <span class="am-icon"><Icon name="attachment" size="sm" /></span>
+                <span class="am-name">{{ t('composer.addFiles') }}</span>
+              </button>
+              <button type="button" class="am-row" role="menuitem" @click="closeModes(); capMenuRef?.toggleOpen()">
+                <span class="am-icon"><Icon name="sliders" size="sm" /></span>
+                <span class="am-name">{{ t('capabilityMenu.trigger') }}</span>
+              </button>
+              <button type="button" class="am-row" :class="{ on: goalArmed }" role="menuitem" @click="closeModes(); goalActive ? emit('focusGoal') : emit('toggleGoal')">
+                <span class="am-icon"><Icon name="target" size="sm" /></span>
+                <span class="am-name">{{ t('status.goalLabel') }}</span>
+                <span class="am-desc">{{ t('status.goalDesc') }}</span>
+              </button>
+              <button type="button" class="am-row" :class="{ on: planOn }" role="menuitem" @click="closeModes(); emit('togglePlan')">
+                <span class="am-icon"><Icon name="file-edit" size="sm" /></span>
+                <span class="am-name">{{ t('status.planLabel') }}</span>
+                <span class="am-desc">{{ t('status.planDesc') }}</span>
+              </button>
+            </div>
+          </div>
+
+          <CapabilityMenu ref="capMenuRef" :session-id="sessionId" triggerless />
 
           <!-- Permission pill — click to open dropdown -->
           <span
@@ -995,78 +1016,23 @@ function selectModel(modelId: string): void {
             </button>
           </div>
 
-          <!-- Modes selector for plan and goal state. -->
-          <div v-if="status" ref="modesRef" class="modes">
-            <button
-              type="button"
-              class="mode-pill"
-              :class="{ on: anyModeActive, open: modesOpen }"
-              @click.stop="toggleModes"
-            >
-              <span class="mode-label">{{ t('status.modesLabel') }}</span>
-              <span v-if="planOn" class="mode-tag">{{ t('status.planLabel') }}</span>
-              <span v-if="goalArmed" class="mode-tag">{{ t('status.goalLabel') }}</span>
+          <!-- Active plan chip — dismiss (✕) exits plan mode. -->
+          <span v-if="planOn" class="workflow-chip">
+            <Icon name="file-edit" size="sm" />
+            <span class="workflow-chip-label">{{ t('status.planLabel') }}</span>
+            <button type="button" class="workflow-chip-x" :aria-label="t('status.workModeDismiss')" @click.stop="emit('togglePlan')">
+              <Icon name="close" size="sm" />
             </button>
+          </span>
 
-            <div v-if="modesOpen" ref="modesMenuRef" class="modes-menu" :style="modesMenuInlineStyle" role="menu">
-              <!-- Plan — functional client toggle -->
-              <button type="button" class="mode-row" :class="{ on: planOn }" role="menuitem" @click="emit('togglePlan')">
-                <span class="mode-row-icon"><Icon name="file-edit" size="sm" /></span>
-                <span class="mode-row-info">
-                  <span class="mode-row-name">{{ t('status.planLabel') }}</span>
-                  <span class="mode-row-desc">{{ t('status.planDesc') }}</span>
-                </span>
-                <span class="mode-switch" :class="{ on: planOn }"><span class="mode-knob" /></span>
-              </button>
-              <!-- Goal — lifecycle controls when active; switch is on when active or armed. -->
-              <div class="mode-row mode-row-goal" :class="{ on: goalActive || props.goalMode }">
-                <button
-                  type="button"
-                  class="mode-row-main"
-                  role="menuitem"
-                  @click="goalActive ? emit('focusGoal') : emit('toggleGoal')"
-                >
-                  <span class="mode-row-icon"><Icon name="target" size="sm" /></span>
-                  <span class="mode-row-info">
-                    <span class="mode-row-name">{{ t('status.goalLabel') }}</span>
-                    <span class="mode-row-desc">{{ t('status.goalDesc') }}</span>
-                  </span>
-                  <span v-if="!goalActive" class="mode-switch" :class="{ on: props.goalMode }"><span class="mode-knob" /></span>
-                </button>
-                <div v-if="goalActive" class="mode-row-actions">
-                  <Button
-                    v-if="goalCanPause"
-                    size="sm"
-                    variant="secondary"
-                    class="mode-row-action"
-                    @click="emit('controlGoal', 'pause')"
-                  >
-                    <Icon name="pause" size="sm" />
-                    <span>{{ t('status.goalPause') }}</span>
-                  </Button>
-                  <Button
-                    v-if="goalCanResume"
-                    size="sm"
-                    variant="primary"
-                    class="mode-row-action"
-                    @click="emit('controlGoal', 'resume')"
-                  >
-                    <Icon name="play" size="sm" />
-                    <span>{{ t('status.goalResume') }}</span>
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="danger-soft"
-                    class="mode-row-action"
-                    @click="emit('controlGoal', 'cancel')"
-                  >
-                    <Icon name="close" size="sm" />
-                    <span>{{ t('status.goalCancel') }}</span>
-                  </Button>
-                </div>
-              </div>
-            </div>
-          </div>
+          <!-- Active goal chip — click focuses the goal strip; ✕ disarms an unstarted goal. -->
+          <span v-if="goalArmed" class="workflow-chip" role="button" tabindex="0" @click.stop="emit('focusGoal')" @keydown.enter="emit('focusGoal')">
+            <Icon name="target" size="sm" />
+            <span class="workflow-chip-label">{{ t('status.goalLabel') }}</span>
+            <button v-if="!goalActive" type="button" class="workflow-chip-x" :aria-label="t('status.workModeDismiss')" @click.stop="emit('toggleGoal')">
+              <Icon name="close" size="sm" />
+            </button>
+          </span>
 
         </div>
 
@@ -1416,6 +1382,38 @@ function selectModel(modelId: string): void {
 .composer.expanded .ph {
   min-height: 70vh;
   max-height: 70vh;
+}
+
+/* Active dynamic-workflow chip */
+.workflow-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px 3px 9px;
+  border-radius: var(--radius-full);
+  background: var(--panel2);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+.workflow-chip-label {
+  white-space: nowrap;
+}
+.workflow-chip-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.workflow-chip-x:hover {
+  background: var(--panel);
+  color: var(--color-text);
 }
 
 /* /compact chip */
@@ -1893,38 +1891,48 @@ function selectModel(modelId: string): void {
    z-index lifts the whole control (incl. its upward-opening menu) above the
    composer input row, which otherwise paints over the menu. */
 .modes { position: relative; display: inline-flex; z-index: var(--z-sticky); }
-.mode-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 2px 9px;
-  border: none;
-  background: none;
-  border-radius: 6px;
-  font-size: var(--ui-font-size);
-  font-family: var(--font-ui);
-  font-weight: var(--weight-medium);
-  color: var(--color-text);
-  cursor: pointer;
-  user-select: none;
-  transition: background 0.1s, color 0.15s;
-}
-.mode-pill:hover { background: var(--color-surface-sunken); }
-.mode-pill.on { background: var(--color-accent-soft); color: var(--color-accent-hover); }
-.mode-pill.open { background: var(--color-accent-soft); }
-.mode-label { flex: none; }
-.mode-tag {
-  flex: none;
-  font-family: var(--font-ui);
-  font-size: calc(var(--ui-font-size) - 3px);
-  color: var(--color-accent-hover);
-  background: var(--bg);
-  border: 1px solid var(--color-accent-bd);
+.composer-attach {
   border-radius: 999px;
-  padding: 0 6px;
-  line-height: 16px;
 }
-.mode-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-accent); flex: none; }
+.add-menu {
+  transform-origin: bottom left;
+}
+.am-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 6px 7px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: var(--ui-font-size);
+  color: var(--color-text);
+  text-align: left;
+  transition: background 0.12s;
+}
+.am-row:hover { background: var(--color-surface-sunken); }
+.am-row:focus-visible { background: var(--color-surface-sunken); outline: none; }
+.am-row.on { background: var(--color-accent-soft); }
+.am-row.on .am-name, .am-row.on .am-icon { color: var(--color-accent-hover); }
+.am-icon {
+  flex: none;
+  width: 14px;
+  display: flex;
+  justify-content: center;
+  color: var(--color-text-muted);
+}
+.am-name { flex: none; font-weight: var(--weight-medium); }
+.am-desc {
+  margin-left: var(--space-1);
+  color: var(--color-text-muted);
+  font-size: var(--ui-font-size-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 .modes-menu {
   position: fixed;
@@ -1941,148 +1949,6 @@ function selectModel(modelId: string): void {
   flex-direction: column;
   gap: 1px;
 }
-.mode-row {
-  display: grid;
-  grid-template-columns: 14px var(--composer-menu-desc-width, max-content);
-  column-gap: 7px;
-  row-gap: 2px;
-  align-items: start;
-  width: 100%;
-  padding: 6px 7px;
-  border: none;
-  background: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-family: var(--font-ui);
-  text-align: left;
-}
-.mode-row:hover:not(:disabled) { background: var(--color-surface-sunken); }
-.mode-row:disabled { cursor: not-allowed; opacity: 0.45; }
-.mode-row-info {
-  display: contents;
-}
-.mode-row-icon {
-  grid-column: 1;
-  grid-row: 1;
-  width: 14px;
-  min-height: 1lh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--muted);
-  font-size: var(--ui-font-size);
-  line-height: var(--leading-normal);
-}
-.mode-row-name {
-  grid-column: 2;
-  grid-row: 1;
-  font-size: var(--ui-font-size);
-  font-weight: var(--weight-medium);
-  color: var(--color-text);
-  line-height: var(--leading-normal);
-}
-.mode-row-desc {
-  grid-column: 2;
-  grid-row: 2;
-  width: var(--composer-menu-desc-width, auto);
-  font-size: var(--text-xs);
-  font-weight: var(--weight-medium);
-  color: var(--muted);
-  line-height: var(--leading-normal);
-}
-.mode-row-not-supported {
-  margin-left: auto;
-  font-size: var(--ui-font-size-xs);
-  color: var(--muted);
-}
-.mode-row.on {
-  background: var(--color-accent-soft);
-}
-.mode-row.on .mode-row-name { color: var(--color-accent-hover); }
-.mode-row.on .mode-row-icon { color: var(--color-accent-hover); }
-.mode-row-meta { font-family: var(--mono); font-size: calc(var(--ui-font-size) - 3px); color: var(--muted); }
-.mode-row:disabled .mode-row-meta { color: var(--faint); }
-.mode-switch {
-  grid-column: 2;
-  grid-row: 1;
-  justify-self: end;
-  width: 34px;
-  height: 19px;
-  border-radius: 999px;
-  background: var(--panel2);
-  border: 1px solid var(--line);
-  position: relative;
-  transition: background 0.15s;
-}
-.mode-switch.on { background: var(--color-accent); border-color: var(--color-accent); }
-.mode-knob {
-  position: absolute;
-  top: 1px;
-  left: 1px;
-  width: 15px;
-  height: 15px;
-  border-radius: 50%;
-  background: var(--bg);
-  box-shadow: var(--shadow-xs);
-  transition: transform 0.15s;
-}
-.mode-switch.on .mode-knob { transform: translateX(15px); }
-
-.mode-row-goal {
-  --mode-row-icon-col: 14px;
-  --mode-row-col-gap: 7px;
-  --mode-row-pad-x: 7px;
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  cursor: default;
-  padding: 0;
-  gap: 0;
-}
-.mode-row-goal:hover { background: transparent; }
-.mode-row-goal.on {
-  background: var(--color-accent-soft);
-}
-.mode-row-main {
-  display: grid;
-  grid-template-columns: var(--mode-row-icon-col) var(--composer-menu-desc-width, max-content);
-  column-gap: var(--mode-row-col-gap);
-  row-gap: 2px;
-  align-items: start;
-  width: 100%;
-  padding: 6px var(--mode-row-pad-x);
-  border: none;
-  background: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-family: var(--font-ui);
-  text-align: left;
-}
-.mode-row-main:hover { background: var(--color-surface-sunken); }
-.mode-row-goal.on .mode-row-main .mode-row-name { color: var(--color-accent-hover); }
-.mode-row-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  justify-content: flex-start;
-  padding: 0 var(--mode-row-pad-x) var(--mode-row-pad-x)
-    calc(var(--mode-row-pad-x) + var(--mode-row-icon-col) + var(--mode-row-col-gap));
-}
-.mode-row-action {
-  flex: none;
-}
-.mode-row-action :deep(.ui-button__content) { gap: var(--space-1); }
-.mode-row-input {
-  flex: 1;
-  min-width: 0;
-  padding: 4px 8px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--line);
-  background: var(--bg);
-  color: var(--color-text);
-  font-size: var(--ui-font-size-xs);
-}
-
 /* ---- Narrow composer toolbar ----------------------------------------------
    Below a wide desktop the chat column can be narrower than the full toolbar
    needs — with the sidebar open on a small window, and on phones. The desktop

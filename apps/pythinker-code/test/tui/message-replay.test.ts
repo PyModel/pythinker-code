@@ -942,7 +942,7 @@ describe('PythinkerTUI resume message replay', () => {
             taskId: 'bash-lost0000',
             status: 'lost',
             notificationId: 'task:bash-lost0000:lost',
-          },
+          } as unknown as PromptOrigin,
         }),
       ],
       {

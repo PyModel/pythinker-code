@@ -60,11 +60,11 @@
     "@google/genai": "^1.49.0",
     "@jsquash/webp": "^1.5.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@pymodel/pythinker-code-oauth": "workspace:^",
+    "@mozilla/readability": "^0.6.0",
     "@pymodel/minidb": "workspace:^",
     "@pymodel/protocol": "workspace:^",
+    "@pymodel/pythinker-code-oauth": "workspace:^",
     "@pymodel/tree-sitter-bash": "workspace:^",
-    "@mozilla/readability": "^0.6.0",
     "ajv": "^8.18.0",
     "ajv-formats": "^3.0.1",
     "chokidar": "^4.0.3",
@@ -99,6 +99,6 @@
     "@types/yazl": "^2.4.6",
     "sinon": "^22.0.0",
     "ts-morph": "^28.0.0",
-    "tsx": "^4.21.0"
+    "tsx": "^4.23.5"
   }
 }

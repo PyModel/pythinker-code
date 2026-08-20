@@ -27,14 +27,13 @@ describe('settings UI', () => {
     expect(Object.keys(messages)).toEqual(['en']);
   });
 
-  it('does not expose DynamicWorkflow as a manual mode', () => {
+  it('keeps Dynamic Workflow agent-driven', () => {
     const webRoot = process.cwd().endsWith('apps/pythinker-web')
       ? process.cwd()
       : join(process.cwd(), 'apps/pythinker-web');
     const composer = readFileSync(join(webRoot, 'src/components/chat/Composer.vue'), 'utf8');
-    const mobile = readFileSync(join(webRoot, 'src/components/mobile/MobileSettingsSheet.vue'), 'utf8');
     expect(composer).not.toContain('toggleDynamicWorkflow');
-    expect(mobile).not.toContain('toggleDynamicWorkflow');
+    expect(composer).not.toContain('dynamicWorkflowMode');
   });
 
   it('shows the Pythinker logo beside the empty-conversation heading', () => {

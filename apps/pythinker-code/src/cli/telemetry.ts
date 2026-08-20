@@ -119,11 +119,7 @@ function readServerTelemetryConfig(
   configPath: string,
 ): Pick<PythinkerConfig, 'telemetry' | 'defaultModel'> {
   try {
-    const { config, fileError } = loadRuntimeConfigSafe(configPath);
-    // A broken config fails the server on its own inside PythinkerCore; for
-    // telemetry just degrade to "enabled, no model" so we never block startup.
-    if (fileError !== undefined) return {};
-    return config;
+    return loadRuntimeConfigSafe(configPath).config;
   } catch {
     return {};
   }

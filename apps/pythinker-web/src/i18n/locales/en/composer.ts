@@ -20,6 +20,8 @@ export default {
   uploading: 'Uploading',
   uploadFailed: 'Upload failed',
   attachFile: 'Attach file',
+  addMenu: 'Add',
+  addFiles: 'Files',
   previewAttachment: 'Preview {name}',
   interrupt: 'Interrupt',
   interruptTitle: 'Interrupt current operation',

@@ -31,8 +31,12 @@
  * declare `protocol`.
  */
 
-import { effectiveModelAlias, type ProviderType } from '@pymodel/agent-core';
-import type { PythinkerHarness, ModelAlias } from '@pymodel/pythinker-code-sdk';
+import {
+  effectiveModelAlias,
+  type PythinkerHarness,
+  type ModelAlias,
+  type ProviderType,
+} from '@pymodel/pythinker-code-sdk';
 
 /**
  * One catalog row per configured model alias, suitable for an ACP

@@ -1,6 +1,6 @@
 // @vitest-environment node
 // apps/pythinker-web/test/index-html.test.ts
-// CSP regression guard: kap-server serves the built bundle with
+// CSP regression guard: agent-gateway serves the built bundle with
 // `Content-Security-Policy: default-src 'self'; …` (see securityHeaders.ts),
 // which forbids inline scripts and inline event handlers. index.html must
 // therefore stay free of both, and the anti-FOUC color-scheme bootstrap must

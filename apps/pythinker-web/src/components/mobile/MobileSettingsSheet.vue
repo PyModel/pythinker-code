@@ -209,7 +209,7 @@ const filteredArchived = computed<AppSession[]>(() => {
   } else if (archiveSort.value === 'created-desc') {
     rows.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   } else {
-    rows.sort((a, b) => a.title.localeCompare(b.title, 'zh'));
+    rows.sort((a, b) => a.title.localeCompare(b.title, 'en'));
   }
   return rows;
 });

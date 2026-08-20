@@ -51,7 +51,7 @@ const props = defineProps<{
   configSaving?: boolean;
   /** Server version reported by GET /api/v1/meta. */
   serverVersion?: string;
-  /** Backend engine generation from GET /api/v1/meta ('v1' legacy, 'v2' kap-server). */
+  /** Backend engine generation from GET /api/v1/meta ('v1' legacy, 'v2' agent-gateway). */
   backend?: 'v1' | 'v2';
 }>();
 
@@ -87,7 +87,7 @@ const tabs: { id: SettingsTab; labelKey: string }[] = [
 
 const daemonEndpoint = serverEndpointLabel();
 const backendLabel = computed(() =>
-  props.backend === 'v2' ? 'v2 (kap-server)' : 'v1 (server)',
+  props.backend === 'v2' ? 'v2 (agent-gateway)' : 'v1 (server)',
 );
 const permissionModes = ['manual', 'yolo', 'auto'] as const;
 // Reuse the Composer's permission labels (status.permission*) so the
@@ -299,7 +299,7 @@ const filteredArchived = computed<AppSession[]>(() => {
   } else if (archiveSort.value === 'created-desc') {
     rows.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   } else {
-    rows.sort((a, b) => a.title.localeCompare(b.title, 'zh'));
+    rows.sort((a, b) => a.title.localeCompare(b.title, 'en'));
   }
   return rows;
 });

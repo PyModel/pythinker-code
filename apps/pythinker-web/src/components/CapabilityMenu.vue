@@ -9,6 +9,8 @@ import { usePythinkerWebClient } from '../composables/usePythinkerWebClient';
 
 const props = defineProps<{
   sessionId?: string;
+  /** Hide the built-in trigger; the parent opens the panel via the exposed toggleOpen() */
+  triggerless?: boolean;
 }>();
 
 type MenuView = 'root' | 'skills' | 'plugins';
@@ -16,6 +18,7 @@ type SessionCapabilities = { mcpServers?: string[] };
 
 const { t } = useI18n();
 const client = usePythinkerWebClient();
+const rootRef = ref<HTMLElement | null>(null);
 const triggerRef = ref<HTMLButtonElement | null>(null);
 const open = ref(false);
 const view = ref<MenuView>('root');
@@ -87,6 +90,8 @@ function toggleOpen(): void {
   if (props.sessionId) void client.loadCapabilityData(props.sessionId);
 }
 
+defineExpose({ toggleOpen });
+
 function close(): void {
   open.value = false;
   view.value = 'root';
@@ -139,8 +144,9 @@ function setPluginEnabled(id: string, enabled: boolean): void {
 </script>
 
 <template>
-  <div class="capability-control">
+  <div ref="rootRef" class="capability-control">
     <button
+      v-if="!props.triggerless"
       ref="triggerRef"
       type="button"
       class="capability-trigger"
@@ -159,7 +165,7 @@ function setPluginEnabled(id: string, enabled: boolean): void {
       <span class="capability-trigger-label">{{ t('capabilityMenu.trigger') }}</span>
     </button>
 
-    <Popover :anchor="triggerRef" :open="open" :label="t('capabilityMenu.triggerLabel')" @close="close">
+    <Popover :anchor="props.triggerless ? rootRef : triggerRef" :open="open" :label="t('capabilityMenu.triggerLabel')" @close="close">
       <div class="capability-panel">
         <div class="capability-viewport">
           <div class="capability-track" :class="{ 'is-drilled': view !== 'root' }">

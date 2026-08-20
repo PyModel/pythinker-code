@@ -127,6 +127,7 @@ interface MessageDriver {
   sessionReplay: SessionReplayRenderer;
   pluginCommandMap: Map<string, string>;
   sessionEventHandler: {
+    mcpServerStatusSpinner: unknown | null;
     startSubscription(): void;
     handleEvent(event: Event, sendQueued: (item: QueuedMessage) => void): void;
   };

@@ -3,7 +3,7 @@ import {
   resetCapabilitiesCache,
   setCapabilities,
   type MarkdownTheme,
-} from '@earendil-works/pi-tui';
+} from '@pymodel/pi-tui';
 import { afterEach, describe, expect, it } from 'vitest';
 
 const plainTheme: MarkdownTheme = {

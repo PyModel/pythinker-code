@@ -28,6 +28,7 @@ export default {
     phaseCompleted: 'Completed',
     phaseFailed: 'Failed',
     waiting: 'Waiting for subagents…',
+    openAgent: 'Open agent detail',
   },
   chip: {
     lines: '{count} lines',

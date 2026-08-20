@@ -295,7 +295,7 @@ export interface ExtendedState extends PythinkerClientState {
    */
   dangerousBypassAuth: boolean;
   /**
-   * Engine generation of the connected server: `'v2'` = kap-server /
+   * Engine generation of the connected server: `'v2'` = agent-gateway /
    * agent-core-v2, `'v1'` = an older (legacy) server binary. Read from `/meta`
    * (`backend` field; older servers omit it ⇒ v1). Drives the dev-mode
    * backend badge in the Sidebar.
@@ -1893,6 +1893,9 @@ function toUiTask(task: AppTask): TaskItem {
     timing,
     meta,
     output,
+    subagentType: task.subagentType,
+    phase: task.subagentPhase,
+    dynamicWorkflowIndex: task.dynamicWorkflowIndex,
     runInBackground: task.runInBackground,
     parentToolCallId: task.parentToolCallId,
   };

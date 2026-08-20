@@ -786,8 +786,7 @@ export class PythinkerTUI {
       const warnings = await session.getSessionWarnings();
       if (this.session !== session) return;
       for (const warning of warnings) {
-        const severity = warning.severity === 'error' ? 'error' : 'warning';
-        this.showStatus(`Warning: ${warning.message}`, severity);
+        this.showStatus(`Warning: ${warning.message}`, 'warning');
       }
     } catch {
       // Best-effort: startup must not block on warning retrieval.

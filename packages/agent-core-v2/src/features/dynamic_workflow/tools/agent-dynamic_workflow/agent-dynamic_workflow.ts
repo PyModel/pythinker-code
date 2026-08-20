@@ -12,7 +12,9 @@ export const AgentDynamicWorkflowToolInputSchema = z
       .string()
       .trim()
       .min(1)
-      .describe('Short description for the whole dynamic_workflow.'),
+      .describe(
+        'Short description for the whole dynamic workflow. It is shown to the user as the workflow and subagent title, so word it as a workflow or run and never use the word "swarm".',
+      ),
     subagent_type: z
       .string()
       .trim()

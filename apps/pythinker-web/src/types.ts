@@ -295,6 +295,9 @@ export interface TaskItem {
   timing: string;
   meta?: string;
   output?: string[];
+  subagentType?: string;
+  phase?: AgentPhase;
+  dynamicWorkflowIndex?: number;
   /** Background subagents only — the dock lists these; foreground subagents
    *  render inline as the `Agent` tool card instead. */
   runInBackground?: boolean;

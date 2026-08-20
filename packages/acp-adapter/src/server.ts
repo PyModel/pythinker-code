@@ -168,10 +168,8 @@ function providerHasNonOAuthCredentials(provider: ProviderConfig): boolean {
           (hasEnvValue(provider, 'GOOGLE_CLOUD_LOCATION') ||
             vertexAILocationFromBaseUrl(provider.baseUrl) !== undefined))
       );
-    default: {
-      const exhaustive: never = provider.type;
-      return exhaustive;
-    }
+    default:
+      return nonEmptyString(provider.apiKey) !== undefined;
   }
 }
 

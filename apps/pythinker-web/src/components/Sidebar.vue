@@ -35,7 +35,7 @@ import Pill from './ui/Pill.vue';
 const { t } = useI18n();
 
 // Dev-only affordance: a backend pill next to the brand shows the engine
-// generation reported by /meta (v1 = older server binary, v2 = kap-server)
+// generation reported by /meta (v1 = older server binary, v2 = agent-gateway)
 // plus the endpoint the dev proxy forwards to — click it to switch presets
 // without restarting Vite. In production this is inert.
 const isDev = import.meta.env.DEV;

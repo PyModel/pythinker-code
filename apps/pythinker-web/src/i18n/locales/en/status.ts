@@ -20,6 +20,7 @@ export default {
   modesLabel: 'Mode',
   goalLabel: 'Goal',
   goalDesc: 'Track one objective until it is complete',
+  workModeDismiss: 'Exit mode',
   modeOff: 'Off',
   goalPlaceholder: 'What should the agent achieve?',
   goalStart: 'Start',

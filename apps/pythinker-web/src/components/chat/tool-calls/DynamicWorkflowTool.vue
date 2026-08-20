@@ -210,11 +210,12 @@ function openMember(row: DynamicWorkflowCardRow): void {
           class="member"
           :class="[`phase-${row.phase}`, { open: isRowOpen(row.id) }]"
         >
+          <!-- Live rows open the agent detail panel; finished rows expand inline. -->
           <button
             class="member-head"
             type="button"
-            :aria-expanded="isRowOpen(row.id)"
-            @click="toggleRow(row.id)"
+            :aria-expanded="row.live ? undefined : isRowOpen(row.id)"
+            @click="row.live ? openMember(row) : toggleRow(row.id)"
           >
             <StatusDot class="row-dot" :status="row.phase" />
             <Tooltip :text="row.name">
