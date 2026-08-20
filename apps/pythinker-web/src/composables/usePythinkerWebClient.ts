@@ -1908,7 +1908,6 @@ function toUiTask(task: AppTask): TaskItem {
     dynamicWorkflowIndex: task.dynamicWorkflowIndex,
     runInBackground: task.runInBackground,
     parentToolCallId: task.parentToolCallId,
-    dynamicWorkflowIndex: task.dynamicWorkflowIndex,
     createdAt: task.createdAt,
     completedAt: task.completedAt,
   };
@@ -2133,7 +2132,7 @@ const tasks = computed<TaskItem[]>(() => {
   return activeAppTasks.value.map((task) => {
     const item = toUiTask(task);
     if (task.kind === 'subagent' && task.runInBackground) {
-      item.dynamicWorkflowIndex = state.indexes.get(task.id);
+      item.dynamicWorkflowIndex = task.dynamicWorkflowIndex ?? state.indexes.get(task.id);
     }
     return item;
   });
