@@ -131,6 +131,7 @@ const emit = defineEmits<{
   loadMoreSessions: [workspaceId: string];
   loadAllSessions: [];
   openSettings: [];
+  openSessionAdmin: [];
   collapse: [];
 }>();
 
@@ -159,6 +160,11 @@ function showStatus(status: 'open' | 'done'): void {
 function chooseListView(view: 'flat' | 'grouped'): void {
   listView.value = view;
   closeSectionMenu();
+}
+
+function openSessionAdmin(): void {
+  closeSectionMenu();
+  emit('openSessionAdmin');
 }
 
 // ---------------------------------------------------------------------------
@@ -947,6 +953,8 @@ onBeforeUnmount(() => {
       :style="sectionMenuStyle"
       @click.stop
     >
+      <MenuItem @click="openSessionAdmin">{{ t('admin.manageSessions') }}</MenuItem>
+      <MenuItem separator />
       <div class="section-menu-label">{{ t('sidebar.viewGroup') }}</div>
       <MenuItem @click="chooseListView('flat')">
         <span class="section-menu-check">

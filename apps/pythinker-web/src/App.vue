@@ -3,6 +3,7 @@
 import { computed, nextTick, onMounted, onUnmounted, provide, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import Sidebar from './components/Sidebar.vue';
+import SessionAdminView, { type AdminSession } from './components/SessionAdminView.vue';
 import ResizeHandle from './components/ResizeHandle.vue';
 import ConversationPane from './components/chat/ConversationPane.vue';
 import MediaLightbox from './components/MediaLightbox.vue';
@@ -65,6 +66,7 @@ let offAuthRequired: (() => void) | null = null;
 
 const client = usePythinkerWebClient();
 const archivedSessions = ref<import('./types').Session[]>([]);
+const showSessionAdmin = ref(false);
 const sessionActionToast = ref<{ kind: 'done' | 'open'; id: string } | null>(null);
 let sessionActionToastTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -102,6 +104,51 @@ async function loadDoneSessions(): Promise<void> {
   } catch (error) {
     console.warn('loadDoneSessions failed', error);
   }
+}
+
+const adminOpenSessions = computed<AdminSession[]>(() => {
+  const updatedById = new Map(
+    client.workspaceGroups.value.flatMap((group) => group.sessions.map((session) => [session.id, session.updatedAt] as const)),
+  );
+  return client.sessionsForView.value.map((session) => ({
+    id: session.id,
+    title: session.title,
+    workspaceId: session.workspaceId ?? '',
+    workspaceName: session.workspaceName ?? '—',
+    lastPrompt: session.lastPrompt,
+    updatedAt: session.updatedAt ?? updatedById.get(session.id) ?? new Date(0).toISOString(),
+    archived: false,
+  }));
+});
+
+async function loadAdminArchivedSessions(): Promise<AdminSession[]> {
+  const items: import('./api/types').AppSession[] = [];
+  let beforeId: string | undefined;
+  for (;;) {
+    const result = await client.loadArchivedSessions({ beforeId, pageSize: 100 });
+    items.push(...result.items);
+    if (!result.hasMore || result.items.length === 0) break;
+    beforeId = result.items.at(-1)?.id;
+    if (beforeId === undefined) break;
+  }
+  const workspaces = client.workspacesView.value;
+  return items.filter((session) => !session.parentSessionId).map((session) => {
+    const workspace = workspaces.find((item) => item.id === session.workspaceId || item.root === session.cwd);
+    return {
+      id: session.id,
+      title: session.title,
+      workspaceId: workspace?.id ?? session.workspaceId ?? session.cwd,
+      workspaceName: workspace?.name ?? session.cwd.split('/').filter(Boolean).at(-1) ?? '—',
+      lastPrompt: session.lastPrompt,
+      updatedAt: session.updatedAt,
+      archived: true,
+    };
+  });
+}
+
+function openSessionAdmin(): void {
+  showSessionAdmin.value = true;
+  void client.loadAllSessions();
 }
 
 function showSessionActionToast(kind: 'done' | 'open', id: string): void {
@@ -865,6 +912,7 @@ function openPr(url: string): void {
         @load-more-sessions="(id) => void client.loadMoreSessions(id)"
         @load-all-sessions="void client.loadAllSessions()"
         @open-settings="openSettings()"
+        @open-session-admin="openSessionAdmin"
         @collapse="toggleSidebarCollapse"
       />
       <ResizeHandle
@@ -891,7 +939,18 @@ function openPr(url: string): void {
       @open-settings="showMobileSettings = true"
     />
 
+    <SessionAdminView
+      v-if="showSessionAdmin"
+      :open-sessions="adminOpenSessions"
+      :workspaces="client.workspacesView.value"
+      :load-archived="loadAdminArchivedSessions"
+      :archive-session="markSessionDone"
+      :restore-session="reopenSession"
+      @back="showSessionAdmin = false"
+    />
+
     <ConversationPane
+      v-else
       ref="conversationPaneRef"
       :mobile="isMobile"
       :turns="client.turns.value"
@@ -1005,7 +1064,7 @@ function openPr(url: string): void {
     </IconButton>
 
     <ResizeHandle
-      v-if="sidePanelVisible && !isMobile"
+      v-if="!showSessionAdmin && sidePanelVisible && !isMobile"
       class="preview-handle"
       :storage-key="PREVIEW_WIDTH_KEY"
       :default-width="previewDefaultWidth"
@@ -1023,7 +1082,7 @@ function openPr(url: string): void {
          (full-screen overlay). Content stays v-if'd, so a closed panel is a
          zero-width empty shell. -->
     <aside
-      v-if="!isMobile || sidePanelVisible"
+      v-if="!showSessionAdmin && (!isMobile || sidePanelVisible)"
       class="global-preview"
       :class="{ open: sidePanelVisible, mobile: isMobile, 'no-anim': panelDragging || panelSwitching }"
       role="complementary"
