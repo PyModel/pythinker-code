@@ -788,6 +788,7 @@ function openPr(url: string): void {
       :session-plans="client.sessionPlans.value"
       :overlay-open="overlayOpen"
       :goal-mode="client.goalMode.value"
+      :dynamic-workflow-mode="client.dynamicWorkflowMode.value"
       :models="client.models.value"
       :starred-ids="client.starredModelIds.value"
       :skills="client.skills.value"

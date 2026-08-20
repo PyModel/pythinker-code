@@ -73,8 +73,10 @@ function mountPanel() {
 describe('DynamicWorkflowPanel', () => {
   it('uses an opaque surface over the conversation', () => {
     const panelRule = panelSource.match(/(?:^|\n)\.dw-panel\s*\{([^}]*)\}/u)?.[1] ?? '';
+    const dockPanelRule = dockSource.match(/(?:^|\n)\.dock-work-panel\s*\{([^}]*)\}/u)?.[1] ?? '';
     expect(panelRule).toMatch(/background:\s*var\(--bg\);/u);
-    expect(dockSource).toContain('<DynamicWorkflowPanel');
+    expect(dockPanelRule).toMatch(/background:\s*var\(--color-menu-bg-frost\);/u);
+    expect(dockSource).toContain('<SubagentGrid');
     expect(dockSource).not.toContain('transition: opacity 0.16s ease');
   });
 

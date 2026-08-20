@@ -57,7 +57,7 @@ const props = withDefaults(defineProps<{
   planArmed?: boolean;
   working?: boolean;
   goalMode?: boolean;
-  dynamicWorkflowMode?: boolean;
+  workflowActive?: boolean;
   goal?: AppGoal | null;
   activationBadges?: ActivationBadges;
   /** Available models for the quick-switch dropdown. */
@@ -104,7 +104,6 @@ const emit = defineEmits<{
   setThinking: [level: ThinkingLevel];
   togglePlan: [];
   toggleGoal: [];
-  toggleDynamicWorkflow: [];
   openBtw: [];
   createGoal: [objective: string];
   controlGoal: [action: 'pause' | 'resume' | 'cancel'];
@@ -237,10 +236,6 @@ const {
     }
     if (cmd === '/goal') {
       toggleGoalMode();
-      return;
-    }
-    if (cmd === '/workflow') {
-      if (!workflowOn.value) emit('toggleDynamicWorkflow');
       return;
     }
     emit('command', cmd);
@@ -433,15 +428,6 @@ function handleSubmit(): void {
     toggleGoalMode();
     return;
   }
-  if (trimmed === '/workflow') {
-    text.value = '';
-    clearDraft();
-    slashOpen.value = false;
-    collapseAndRefit();
-    if (!workflowOn.value) emit('toggleDynamicWorkflow');
-    return;
-  }
-
   // If it's a known slash command, keep the optional tail as command input
   // instead of submitting it as normal chat text. This covers `/goal <task>`,
   // `/dynamic_workflow <task>`, `/btw <question>`, slash skills with args, and bare
@@ -847,7 +833,7 @@ const thinkingOptions = computed(() => thinkingSegments.value.map((segment) => (
 
 // Work modes
 const planOn = computed(() => props.planArmed === true || props.planMode === true);
-const workflowOn = computed(() => props.dynamicWorkflowMode === true);
+const workflowOn = computed(() => props.workflowActive === true);
 const goalStatus = computed(() => props.goal?.status ?? props.activationBadges?.goal?.status ?? null);
 const goalActive = computed(() => goalStatus.value !== null && goalStatus.value !== 'complete');
 const workMode = computed<'goal' | 'plan' | null>(() => {
@@ -887,7 +873,7 @@ watch(workMode, async (mode) => {
   }
 }, { immediate: true });
 
-// The "+" add menu (Files / Connectors / Goal / Plan / Workflow).
+// The "+" add menu (Files / Connectors / Goal / Plan).
 const capMenuRef = ref<InstanceType<typeof CapabilityMenu> | null>(null);
 const modesOpen = ref(false);
 const modesMenuRef = ref<HTMLElement | null>(null);
@@ -912,7 +898,6 @@ const addMenuRows = computed<AddMenuRow[]>(() => {
     { id: 'capabilities', icon: 'sliders', nameKey: 'capabilityMenu.trigger', action: openCapabilities },
     { id: 'goal', icon: 'target', nameKey: 'status.goalLabel', descKey: 'composer.addGoalDesc', action: openGoalMode },
     { id: 'plan', icon: 'file-edit', nameKey: 'status.planLabel', descKey: 'composer.addPlanDesc', action: openPlanMode },
-    { id: 'workflow', icon: 'sparkles', nameKey: 'status.dynamicWorkflowLabel', descKey: 'composer.addDynamicWorkflowDesc', action: openWorkflowMode },
   );
   return rows;
 });
@@ -1014,10 +999,6 @@ function openPlanMode(): void {
   if (!planOn.value) togglePlanMode();
 }
 
-function openWorkflowMode(): void {
-  closeModes();
-  if (!workflowOn.value) emit('toggleDynamicWorkflow');
-}
 // Permission modes
 const PERM_MODES: { mode: PermissionMode; icon: 'hand' | 'shield-question' | 'full-access'; color: string; labelKey: string; descKey: string }[] = [
   { mode: 'manual', icon: 'hand', color: 'var(--color-text)', labelKey: 'status.permissionManual', descKey: 'status.permissionManualDesc' },
@@ -1435,15 +1416,6 @@ function selectModel(modelId: string): void {
           <span v-if="workflowOn" class="workflow-chip">
             <Icon class="workflow-ic" name="sparkles" size="md" />
             <span class="workflow-label">{{ t('status.dynamicWorkflowLabel') }}</span>
-            <IconButton
-              class="workflow-x"
-              size="sm"
-              :label="t('status.dynamicWorkflowDismiss')"
-              @mousedown.prevent
-              @click.stop="emit('toggleDynamicWorkflow')"
-            >
-              <Icon name="close" size="sm" />
-            </IconButton>
           </span>
         </div>
 
@@ -2178,34 +2150,6 @@ function selectModel(modelId: string): void {
 }
 
 
-.workflow-x {
-    margin-right: calc(var(--composer-control-size) / 2 - var(--space-3) - var(--icon-button-sm) / 2);
-    color: inherit;
-    opacity: 0;
-    transition: opacity var(--duration-base) var(--ease-out)
-}
-
-
-.workflow-chip:hover .workflow-x,
-.workflow-x:focus-visible {
-    opacity: 1
-}
-
-
-@media(hover:none) {
-    .workflow-x {
-        opacity: 1;
-        position: relative
-    }
-
-    .workflow-x:before {
-        content: "";
-        position: absolute;
-        inset: calc(-1 * (var(--touch-target-min) - var(--icon-button-sm)) / 2)
-    }
-}
-
-
 .perm-pill.perm-manual {
     color: var(--dim)
 }
@@ -2251,56 +2195,6 @@ function selectModel(modelId: string): void {
         display: none
     }
 
-    .workflow-ic {
-        transition: opacity var(--duration-base) var(--ease-out)
-    }
-
-    .workflow-chip:hover .workflow-ic {
-        opacity: 0
-    }
-
-    .workflow-x {
-        position: absolute;
-        inset: 0;
-        width: auto;
-        height: auto;
-        margin-right: 0
-    }
-
-    @media(hover:none) {
-        .workflow-chip {
-            width: var(--touch-target-min);
-            height: var(--touch-target-min)
-        }
-
-        .workflow-chip:hover .workflow-ic {
-            opacity: 1
-        }
-
-        .workflow-x {
-            inset: 0;
-            width: auto;
-            height: auto;
-            opacity: 1;
-            background: transparent
-        }
-
-        .workflow-x:before {
-            inset: 0 0 auto auto;
-            width: var(--p-ic-md);
-            height: var(--p-ic-md);
-            border-radius: var(--radius-full);
-            background: var(--color-selected)
-        }
-
-        .workflow-x svg {
-            position: absolute;
-            top: calc(var(--space-1-5) / 2);
-            right: calc(var(--space-1-5) / 2);
-            width: calc(var(--p-ic-md) - var(--space-1-5));
-            height: calc(var(--p-ic-md) - var(--space-1-5))
-        }
-    }
 }
 
 

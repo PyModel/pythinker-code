@@ -84,7 +84,6 @@ const emit = defineEmits<{
   setThinking: [level: ThinkingLevel];
   togglePlan: [];
   toggleGoal: [];
-  toggleDynamicWorkflow: [];
   openBtw: [];
   createGoal: [objective: string];
   controlGoal: [action: 'pause' | 'resume' | 'cancel'];
@@ -510,7 +509,7 @@ defineExpose({
       :plan-mode="planMode"
       :plan-armed="planArmed"
       :goal-mode="goalMode"
-      :dynamic-workflow-mode="dynamicWorkflowMode"
+      :workflow-active="dynamicWorkflowMode"
       :goal="goal"
       :activation-badges="activationBadges"
       :models="models"
@@ -524,7 +523,6 @@ defineExpose({
       @set-thinking="emit('setThinking', $event)"
       @toggle-plan="emit('togglePlan')"
       @toggle-goal="emit('toggleGoal')"
-      @toggle-dynamic-workflow="emit('toggleDynamicWorkflow')"
       @open-btw="emit('openBtw')"
       @create-goal="emit('createGoal', $event)"
       @control-goal="emit('controlGoal', $event)"

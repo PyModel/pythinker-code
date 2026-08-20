@@ -26,7 +26,6 @@ export default {
   addFiles: 'Files',
   addGoalDesc: 'Set a goal to keep pursuing',
   addPlanDesc: 'Turn plan mode on',
-  addDynamicWorkflowDesc: 'Turn dynamic workflow mode on',
   noCommands: 'No commands',
   previewAttachment: 'Preview {name}',
   interrupt: 'Interrupt',

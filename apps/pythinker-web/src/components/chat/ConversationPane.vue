@@ -37,6 +37,7 @@ const props = defineProps<{
   sessionPlans?: Record<string, SessionPlanEntry>;
   overlayOpen?: boolean;
   goalMode?: boolean;
+  dynamicWorkflowMode?: boolean;
   questions?: UIQuestion[];
   /** Question ids with an in-flight respond/dismiss (drives the card loading
    *  state). Keyed by questionId with the action kind. */
@@ -1390,6 +1391,7 @@ defineExpose({ loadComposerForEdit, focusComposer });
               :thinking="thinking"
               :plan-mode="planMode"
               :goal-mode="goalMode"
+              :workflow-active="dynamicWorkflowMode"
               :goal="goal"
               :activation-badges="activationBadges"
               :models="models"
@@ -1466,6 +1468,7 @@ defineExpose({ loadComposerForEdit, focusComposer });
         :plan-armed="planArmed"
         :working="working"
         :goal-mode="goalMode"
+        :dynamic-workflow-mode="dynamicWorkflowMode"
         :activation-badges="activationBadges"
         :models="models"
         :starred-ids="starredIds"
