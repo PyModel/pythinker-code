@@ -11,6 +11,7 @@ import ChatHeader from './ChatHeader.vue';
 import Composer from './Composer.vue';
 import ChatDock from './ChatDock.vue';
 import ConversationToc, { type ConversationTocItem } from './ConversationToc.vue';
+import TranscriptSearch from './TranscriptSearch.vue';
 import Icon from '../ui/Icon.vue';
 import Spinner from '../ui/Spinner.vue';
 import Tooltip from '../ui/Tooltip.vue';
@@ -436,6 +437,7 @@ const approvalBusy = computed<boolean>(() => {
 // ---------------------------------------------------------------------------
 
 const panesRef = ref<HTMLElement | null>(null);
+const searchOpen = ref(false);
 const dockRef = ref<HTMLElement | null>(null);
 const panesScrollbarWidth = ref(0);
 const dockHeight = ref(0);
@@ -1191,10 +1193,24 @@ function handleInterrupt(): void {
 }
 
 function onKeyDown(event: KeyboardEvent): void {
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f') {
+    if (props.overlayOpen) return;
+    event.preventDefault();
+    searchOpen.value = true;
+    void nextTick(() => {
+      panesRef.value?.closest('.con')?.querySelector<HTMLInputElement>('.tsearch-input')?.focus();
+    });
+    return;
+  }
   if (event.key === 'Escape' && (props.running || props.working)) {
     event.preventDefault();
     handleInterrupt();
   }
+}
+
+function closeTranscriptSearch(): void {
+  searchOpen.value = false;
+  void nextTick(() => panesRef.value?.focus({ preventScroll: true }));
 }
 
 // When the on-screen keyboard opens, browsers without interactive-widget support
@@ -1268,6 +1284,12 @@ defineExpose({ loadComposerForEdit, focusComposer });
 
 <template>
   <section class="con" :class="{ mobile }">
+    <TranscriptSearch
+      v-if="searchOpen && panesRef"
+      :pane="panesRef"
+      :mobile="mobile"
+      @close="closeTranscriptSearch"
+    />
     <!-- Chat context header: workspace/session, git status, open-in-editor,
          copy-all, PR. Hidden for the empty-composer (no session context yet). -->
     <ChatHeader
@@ -1310,6 +1332,7 @@ defineExpose({ loadComposerForEdit, focusComposer });
       <div
         :ref="bindChatPane"
         class="panes chat-scroll"
+        tabindex="-1"
         :class="{
           'is-following': following,
           'history-prepending': historyLoadInProgress,

@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n';
 import Sidebar from './components/Sidebar.vue';
 import ResizeHandle from './components/ResizeHandle.vue';
 import ConversationPane from './components/chat/ConversationPane.vue';
+import MediaLightbox from './components/MediaLightbox.vue';
 import FilePreview from './components/FilePreview.vue';
 import ThinkingPanel from './components/chat/ThinkingPanel.vue';
 import AgentDetailPanel from './components/chat/AgentDetailPanel.vue';
@@ -31,11 +32,11 @@ import { isTraceEnabled } from './debug/trace';
 import { usePythinkerWebClient } from './composables/usePythinkerWebClient';
 import { useConfirmDialog } from './composables/useConfirmDialog';
 import type { PromptAttachment } from './composables/usePythinkerWebClient';
-import type { TurnAttachment } from './types';
+import type { ToolMedia, TurnAttachment } from './types';
 import { useAuthGate } from './composables/useAuthGate';
 import { usePageTitle } from './composables/usePageTitle';
 import { useSidebarLayout } from './composables/useSidebarLayout';
-import { useFilePreview, type DetailTarget } from './composables/useFilePreview';
+import { resolveMediaUrl, useFilePreview, type DetailTarget } from './composables/useFilePreview';
 import type { TurnFileChange } from './lib/turnFiles';
 import { useDetailPanel } from './composables/useDetailPanel';
 import { useIsMobile } from './composables/useIsMobile';
@@ -197,6 +198,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  closeMediaLightbox();
   document.removeEventListener('keydown', onGlobalKeydown, true);
   window.visualViewport?.removeEventListener('resize', syncAppHeight);
   window.visualViewport?.removeEventListener('scroll', syncAppHeight);
@@ -264,11 +266,40 @@ const {
   previewDownloadUrl,
   previewExternalActions,
   openFilePreview,
-  openMediaPreview,
   closeFilePreview,
   openPreviewInEditor,
   revealPreviewFile,
 } = useFilePreview({ client, detailTarget });
+
+const lightboxMedia = ref<ToolMedia | null>(null);
+const lightboxSrc = ref<string | null>(null);
+let lightboxRequestSeq = 0;
+let revokeLightboxUrl: (() => void) | undefined;
+
+async function openMediaPreview(media: ToolMedia): Promise<void> {
+  if (media.kind !== 'image' && media.kind !== 'video') return;
+  const requestSeq = ++lightboxRequestSeq;
+  revokeLightboxUrl?.();
+  revokeLightboxUrl = undefined;
+  lightboxMedia.value = null;
+  lightboxSrc.value = null;
+  const resolved = await resolveMediaUrl(media);
+  if (requestSeq !== lightboxRequestSeq) {
+    resolved.revoke?.();
+    return;
+  }
+  revokeLightboxUrl = resolved.revoke;
+  lightboxMedia.value = media;
+  lightboxSrc.value = resolved.url;
+}
+
+function closeMediaLightbox(): void {
+  lightboxRequestSeq += 1;
+  revokeLightboxUrl?.();
+  revokeLightboxUrl = undefined;
+  lightboxMedia.value = null;
+  lightboxSrc.value = null;
+}
 
 // True while the right-side slot is actually occupied, so the sidebar reserves
 // room for it and the conversation can never be squeezed. Keyed off detailTarget
@@ -349,7 +380,8 @@ const overlayOpen = computed(() =>
   showStatusPanel.value ||
   showSettings.value ||
   showMobileSwitcher.value ||
-  showMobileSettings.value,
+  showMobileSettings.value ||
+  lightboxMedia.value !== null,
 );
 
 type SubmitPayload = {
@@ -376,7 +408,8 @@ const anyOverlayOpen = computed<boolean>(
     showSettings.value ||
     showOnboarding.value ||
     showMobileSwitcher.value ||
-    showMobileSettings.value,
+    showMobileSettings.value ||
+    lightboxMedia.value !== null,
 );
 
 // Loading state for model/provider fetches
@@ -994,6 +1027,13 @@ function openPr(url: string): void {
          whatever pane happens to be there. Purely informational: pointer
          events pass through so it never blocks clicks. -->
     <InternalBuildBanner class="internal-build-fab" />
+
+    <MediaLightbox
+      v-if="lightboxMedia && lightboxSrc"
+      :media="lightboxMedia"
+      :src="lightboxSrc"
+      @close="closeMediaLightbox"
+    />
 
     <!-- Model Picker overlay -->
     <ModelPicker
